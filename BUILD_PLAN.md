@@ -71,7 +71,7 @@
   - JWT 签发：claims 仅存 `user_id` + exp/iat，有效期 7 天，用 JWT_SECRET 签名
   - JWT 验证：Authorization: Bearer header
 - [ ] Setup 相关 handler/service：
-  - `POST /api/v1/admin/system/configure`：接收 OIDC 配置，Client Secret 用 AES-256-GCM 加密存储（各提供商独立字段），生成 JWT_SECRET，置 configured=true（不写 admin_initialized）
+  - `POST /api/v1/admin/system/configure`：接收 OIDC 配置，Client Secret 用 AES-256-GCM 加密存储（各提供商独立字段），随机生成 ≥32 字节的 JWT_SECRET（同时用于 JWT 签名和 AES-256-GCM 加密，取前 32 字节做 key），置 configured=true（不写 admin_initialized）
   - `POST /api/v1/admin/test-oidc`：测试 OIDC 连接
   - `POST /api/v1/admin/system/switch-provider`：切换提供商类型，保留已填字段
 - [ ] 认证 handler：
