@@ -355,88 +355,141 @@
 
 ---
 
-## 六、参考：技术设计参考**不作为必须遵守的架构规范，仅作为设计概念的参考案例**
+## 六、技术设计大纲
 
-以下内容来自之前项目的设计经验，仅作为规划和构建时的参考，**不作为必须遵守的架构规范**。所有字段设计、数据库表结构、API 端点、UI 界面描述均为参考性质，最终实现以实际编码时的决策为准。
+本章是项目的工程蓝图，技术选型、目录结构、数据模型、API 契约、文件存储均为构建时遵循的规范。如实际编码中发现不可行，需先与本项目维护者确认后再调整。
 
-### 6.1 技术选型**不作为必须遵守的架构规范，仅作为设计概念的参考案例**
+### 6.1 技术选型
 
-后端 Go + Gin + zerolog。前端 Vue 3 (Composition API + script setup) + Vite + Element Plus + Pinia + Vue Router。存储 SQLite (modernc.org/sqlite 纯 Go 驱动，零 CGO)。OIDC 认证库 coreos/go-oidc/v3 + golang-jwt/jwt/v5。
+**后端**: Go + Gin + zerolog
+- SQLite: `modernc.org/sqlite`（纯 Go 驱动，零 CGO，便于静态编译到 distroless）
+- OIDC: `coreos/go-oidc/v3` + `golang-jwt/jwt/v5`（PKCE 流程 + JWT 签发验证）
 
-### 6.2 当前目录结构**不作为必须遵守的架构规范，仅作为设计概念的参考案例**
+**前端**: Vue 3 (Composition API + `<script setup>`) + Vite + Element Plus + Pinia + Vue Router
+- HTTP: Axios（统一 baseURL `/api/v1`，401 拦截自动登出）
+- 主题: 自实现 `useTheme` composable（Element Plus 暗色变量 + localStorage 持久化）
+
+**约束**: 所有依赖须可纯静态编译/打包，不依赖 CGO、不依赖外部数据库进程。
+
+### 6.2 目录结构
 
 ```
 backend/
-├── cmd/server/main.go             入口，Setup/Normal 双模式
+├── cmd/server/main.go             入口，Setup/Normal 双模式（依据 system_config.configured 切换）
 ├── internal/
-│   ├── auth/oidc_service.go       OIDC 认证 + PKCE + JWT
-│   ├── handler/                   6 个 handler（Auth, User, Subscription, Platform, Rules, Log）
-│   ├── service/                   5 个 service（User, DownloadToken, Subscription, Platform, Rules）
-│   ├── repository/                9 个 repository（db, user, subscription, platform, rules, download_token, system_config, log, oidc_state）
+│   ├── auth/oidc_service.go       OIDC 认证 + PKCE + JWT 签发/验证
+│   ├── handler/                   HTTP handler（按业务域拆分）
+│   ├── service/                   业务逻辑层（按业务域拆分）
+│   ├── repository/                数据访问层（每张表一个 repo）
 │   ├── middleware/                Logger, Recovery, CORS, CacheControl, NoCacheForDownloads, AuthRequired, AdminRequired, RateLimit
-│   ├── models/types.go           所有结构体
-│   ├── router/router.go          Setup 和 SetupModeRouter
-│   └── utils/                    env, crypto (AES-256-GCM)
+│   ├── models/types.go            所有结构体定义
+│   ├── router/router.go           Setup 模式路由 + Normal 模式路由
+│   └── utils/                     env, crypto (AES-256-GCM), sanitizePath, isValidID
 frontend/
 └── src/
     ├── router/index.js           beforeEach 守卫（Setup 检测 + 登录恢复 + Admin 校验）
-    ├── services/api.js           Axios 封装 + 7 组 API + 401 拦截
+    ├── services/api.js           Axios 封装 + 分组 API + 401 拦截
     ├── stores/user.js            Pinia 用户状态
     ├── composables/useTheme.js   暗色模式
     ├── components/               ConfirmDialog, OIDCSwitchDialog, UploadModal
     └── views/                    14 个页面：Setup, Login, Home, Manage(布局), SubList, SubVersions, ShareList, ShareVersions, PlatformManage, UserManage, RulesManage, RuleVersions, OIDCConfig, Logs
 ```
 
-### 6.3 当前数据库表**不作为必须遵守的架构规范，仅作为设计概念的参考案例**
+**分层职责**: handler（HTTP 协议层，BindJSON/响应）→ service（业务规则、版本管理逻辑）→ repository（SQL、文件读写）。handler 不直接操作数据库，service 不感知 HTTP。
+
+### 6.3 数据库设计
 
 SQLite 数据库文件路径：`/app/data/vpn.db`（位于 vpn-data volume 内，与其他数据文件同目录）。
 
-SQLite 表结构如下：system_config（key-value 存储 OIDC 配置、JWT_SECRET、速率限制参数、admin_initialized 标记 — **JWT_SECRET 在 Setup 完成时自动随机生成，同时用于 JWT 签名和 AES-256-GCM 加密；若 system_config 表被清空则所有用户 Token 立即失效**），users（user_id PK，role 为 admin/user，is_advanced 布尔，groups JSON），platforms（id PK，默认 3 个平台，**含 download_url TEXT 字段**），subscriptions（id PK，UNIQUE(platform, type)，type 值为 default/advanced，versions 字段存储 JSON），rules（versions 字段存储 JSON），access_logs（id AUTOINC，按日期查询，**后端自动清理超过 90 天的记录**），oidc_state（state PK，存储 PKCE code_verifier + nonce，10min TTL），download_tokens（token UNIQUE，user_id FK，绑定 platform+订阅类型，**含 custom_sub_id 字段可空，用于标识该 Token 是否关联了一份自定义订阅；custom_sub_id 非空时下载返回自定义订阅内容，为空时返回 platform+type 对应的默认/高级订阅**）。
+**表清单**:
 
-**需新增的表**:
-- custom_subscriptions 表（id PK, user_id FK, platform TEXT, file_path TEXT, versions JSON, created_at, updated_at）
-- share_subscriptions 表（id PK, name, description, file_path, versions JSON, created_at, updated_at）
-- share_tokens 表（token UNIQUE, share_subscription_id FK, created_at）
-- **rule_tokens 表（token UNIQUE, rule_id FK, created_at）** — 规则的下载 Token 采用独立表存储（与 share_tokens 设计一致），便于未来扩展（如多 Token）。**偏离本节上文 rules 表的原始描述**（原文规则 Token 内嵌 rules.download_token 字段，已废弃，改为独立表）
-- system_config 表存储速率限制键：rate_limit_login（默认 10/min）、rate_limit_download（默认 20/min）
+| 表名 | 主键 | 用途 |
+|------|------|------|
+| system_config | key | key-value 存储：OIDC 配置、JWT_SECRET、速率限制参数、admin_initialized 标记 |
+| users | user_id | 用户：role(admin/user)、is_advanced、groups(JSON) |
+| platforms | id | 平台：含 download_url 字段，默认 3 个（clash-verge、v2rayng、shadowrocket） |
+| subscriptions | id | 订阅：UNIQUE(platform, type)，type=default/advanced，versions JSON |
+| rules | id | 分流规则：versions JSON |
+| access_logs | id (AUTOINC) | 访问日志：按日期查询，自动清理 90 天以上 |
+| oidc_state | state | OIDC PKCE：code_verifier + nonce，10min TTL |
+| download_tokens | token | 用户下载令牌：user_id + platform + type + custom_sub_id(可空) |
+| custom_subscriptions | id | 用户自定义订阅：user_id + platform，覆盖默认/高级自动分配 |
+| share_subscriptions | id | 独立分享订阅：name、file_path、versions JSON |
+| share_tokens | token | 分享订阅下载令牌：share_subscription_id |
+| rule_tokens | token | 规则下载令牌：rule_id（独立表，便于未来多 Token 扩展） |
 
-### 6.4 当前 API 端点**不作为必须遵守的架构规范，仅作为设计概念的参考案例**
+**关键字段语义**:
 
-公开: GET /api/v1/health, GET /api/v1/system/status, GET /api/v1/platforms, GET /api/v1/rules, GET /api/v1/rules/:id/download?token=
+- **system_config.JWT_SECRET**: Setup 完成时随机生成，同时用于 JWT 签名和 AES-256-GCM 加密。若该表被清空，所有用户 Token 立即失效。
+- **system_config.admin_initialized**: 布尔标记。首位管理员诞生后置 true，此后即使 users 表被清空也不再产生新管理员。
+- **system_config 速率限制键**: `rate_limit_login`（默认 10/min）、`rate_limit_download`（默认 20/min），管理员可在后台修改。
+- **download_tokens.custom_sub_id**: 可空。非空时下载返回该用户在该平台的自定义订阅内容；为空时返回 platform+type 对应的默认/高级订阅。
+- **users.is_advanced**: 布尔。决定用户获得默认(false)还是高级(true)订阅。管理员由后端强制为 true。
+- **platforms.download_url**: 可空。非空时首页平台卡片显示"下载客户端"按钮。
 
-OIDC（速率限制，管理员可在后台配置）: GET /api/v1/auth/login, GET /api/v1/auth/callback, GET /api/v1/auth/me
+### 6.4 API 端点
 
-用户（需 JWT）: GET /api/v1/user/platforms（含 download_token）, GET /api/v1/user/update-time, POST /api/v1/user/refresh-token
+所有端点前缀 `/api/v1`。响应格式：列表 `gin.H{"key": [...]}`，单项直接返回对象，成功 `gin.H{"success": true}`，错误 `gin.H{"error": "描述"}`。错误码：400=校验错误，409=重复，500=服务器内部错误。
 
-订阅下载（速率限制，管理员可在后台配置）: GET /api/v1/subscriptions/:platform/download（JWT）, GET /api/v1/subscriptions/:platform/download/preview（JWT）, GET /api/v1/subscriptions/:platform/download-token（?token=）
+**公开（无认证）**:
+- `GET /health` — 健康检查
+- `GET /system/status` — 系统状态（是否已 configured）
+- `GET /platforms` — 平台列表
+- `GET /rules` — 规则列表（含当前版本信息）
+- `GET /rules/:id/download?token=` — 规则下载（?token= 验证 rule_tokens）
 
-管理员（需 JWT+Admin）: /api/v1/admin/users/*、/api/v1/admin/subscriptions/*（含版本管理）、/api/v1/admin/platforms/*、/api/v1/admin/rules/*（含版本管理）、/api/v1/admin/oidc-config、/api/v1/admin/test-oidc、/api/v1/admin/system/configure、/api/v1/admin/system/switch-provider、/api/v1/admin/logs
+**OIDC 认证（速率限制）**:
+- `GET /auth/login` — 跳转 OIDC 提供商
+- `GET /auth/callback` — OIDC 回调，code exchange 后 302 到前端 `/`
+- `GET /auth/me` — 当前用户信息
 
-**需新增的端点**:
-- 分享订阅 CRUD + 版本管理: /api/v1/admin/share/*
-- 分享订阅下载（公开，无需认证）: GET /api/v1/share/:id/download?token=
-- 管理分享 Token: POST /api/v1/admin/share/:id/refresh-token, DELETE /api/v1/admin/share/:id/token
-- 自定义订阅上传（需指定平台）: POST /api/v1/admin/users/:id/custom-subscription
-- 自定义订阅上传新版本: POST /api/v1/admin/users/:id/custom-subscription/versions
-- 自定义订阅删除: DELETE /api/v1/admin/users/:id/custom-subscription
-- 自定义订阅版本管理: GET/PUT/DELETE /api/v1/admin/users/:id/custom-subscription/versions/:versionId
-- 规则 Token 轮替: POST /api/v1/admin/rules/:id/refresh-token
-- 速率限制配置: GET/PUT /api/v1/admin/system/rate-limit
+**用户（需 JWT Bearer）**:
+- `GET /user/platforms` — 平台列表（含当前用户的 download_token）
+- `GET /user/update-time` — 首页更新时间戳（所有订阅当前版本 updated_at 的最大值）
+- `POST /user/refresh-token` — 刷新指定平台下载 Token
 
-响应格式：列表 gin.H{"key": [...]}，单项直接返回对象，成功 gin.H{"success": true}，错误 gin.H{"error": "描述"}
+**订阅下载（速率限制）**:
+- `GET /subscriptions/:platform/download` — JWT 下载（Web UI 预览，管理员可用 ?type= 切换 default/advanced）
+- `GET /subscriptions/:platform/download/preview` — 浏览器直接预览
+- `GET /subscriptions/:platform/download-token?token=` — Token 下载（客户端实际使用）
 
-### 6.5 版本文件存储**不作为必须遵守的架构规范，仅作为设计概念的参考案例**
+**独立分享订阅下载（无认证）**:
+- `GET /share/:id/download?token=` — 验证 share_tokens，返回 current 版本纯文本
 
-data/subscriptions/{id}/ 下存放 v1.conf、v2.conf... 和 current.conf 软链接指向当前版本。规则类似，在 data/rules/{id}/ 下。
+**管理员（需 JWT + AdminRequired）**:
+- 用户管理: `GET/POST/PUT/DELETE /admin/users/*`
+  - 自定义订阅: `POST /admin/users/:id/custom-subscription`（上传，需指定平台）、`POST /admin/users/:id/custom-subscription/versions`（新版本）、`DELETE /admin/users/:id/custom-subscription`、`GET/PUT/DELETE /admin/users/:id/custom-subscription/versions/:versionId`
+- 订阅管理: `/admin/subscriptions/*`（含版本管理：上传新版本、切换 current、删除旧版本）
+- 分享订阅管理: `/admin/share/*`（CRUD + 版本管理）、`POST /admin/share/:id/refresh-token`、`DELETE /admin/share/:id/token`
+- 平台管理: `/admin/platforms/*`
+- 规则管理: `/admin/rules/*`（含版本管理）、`POST /admin/rules/:id/refresh-token`（轮替 rule_tokens）
+- 系统配置: `GET /admin/oidc-config`、`POST /admin/test-oidc`、`POST /admin/system/configure`、`POST /admin/system/switch-provider`、`GET/PUT /admin/system/rate-limit`
+- 日志: `GET /admin/logs`（按日期筛选）
 
-**需新增目录**:
-- data/custom/{user_id}/ 存放自定义订阅文件
-- data/shares/{id}/ 存放分享订阅文件
-- 版本号取已有最大编号+1。
+### 6.5 版本文件存储
+
+所有版本文件存储在 `/app/data/` 下，按业务域分目录。版本号取已有最大编号 + 1（不可用 `len(versions)+1`）。每个版本独立文件，`current` 软链接指向当前激活版本。
+
+```
+data/
+├── vpn.db                          SQLite 数据库
+├── subscriptions/{id}/             v1.conf, v2.conf, ... + current.conf (软链接)
+├── rules/{id}/                     v1.list, v2.list, ... + current.list (软链接)
+├── custom/{user_id}/{platform}/    自定义订阅文件（按用户+平台隔离）
+└── shares/{id}/                    分享订阅版本文件
+```
+
+**版本管理统一规则**（适用于订阅、规则、自定义订阅、分享订阅）:
+- 上传新版本 → 自动创建新版本号 → 切换为 current
+- 最多保留 5 个历史版本，超出自动删除最旧的
+- 不可删除最后一个版本
+- 当前激活版本有视觉高亮标识
+- 编辑当前版本文本内容后保存 → 自动创建新版本并切换
+- 删除订阅/规则/分享 → 级联删除其所有版本文件
 
 ---
 
-## 七、参考：CI/CD 设计**不作为必须遵守的架构规范，仅作为设计概念的参考案例**
+## 七、CI/CD 设计
 
 > **实现优先级**: CI/CD 和 Docker 部署将在核心功能开发完成后实施。当前阶段优先实现完整的业务功能。
 
