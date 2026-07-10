@@ -138,7 +138,7 @@
 - 不可删除最后一个版本
 - 订阅管理页需要有简单的文本编辑能力，以便应对临时或细微的调整。编辑当前版本的文本内容后保存 → 自动创建新版本并切换
 
-**分享订阅管理** (独立公开链接):
+**分享订阅管理** (独立分享订阅):
 - 独立列表页面和路由（如 `/admin/shares`），与平台订阅分开
 - 创建分享订阅：填写名称、上传订阅文件
 - 每个分享订阅自动生成独立的下载 Token
@@ -203,12 +203,12 @@
 
 **途径二：Download Token 下载（客户端用，无需登录）**
 - ?token={download_token} → 查 download_tokens 表验证 → 返回 current 版本纯文本
-- Token 绑定了用户+平台+订阅类型（或自定义订阅 ID）
+- Token 绑定了用户+平台+订阅类型。当 Token 的 custom_sub_id 非空时，返回该用户在该平台的自定义订阅内容，而非默认/高级订阅
 
 **途径三：独立分享订阅下载（公开，无需登录）**
 - ?token={share_token} → 查 share_tokens 表验证 → 返回 current 版本纯文本
 - 与途径二独立，使用单独的表和端点
-- 端点: GET /api/v1/admin/share/:id/download?token=
+- 端点: GET /api/v1/share/:id/download?token=
 
 **途径四：Preview 下载（Web UI 预览，需登录）**
 - 同途径一，用于浏览器中直接查看订阅内容
@@ -392,7 +392,7 @@ SQLite 表结构如下：system_config（key-value 存储 OIDC 配置、JWT_SECR
 
 ### 6.4 当前 API 端点
 
-公开: GET /api/v1/health, GET /api/v1/system/status, GET /api/v1/platforms, GET /api/v1/rules, GET /api/v1/rules/:id/download
+公开: GET /api/v1/health, GET /api/v1/system/status, GET /api/v1/platforms, GET /api/v1/rules, GET /api/v1/rules/:id/download?token=
 
 OIDC（速率限制，管理员可在后台配置）: GET /api/v1/auth/login, GET /api/v1/auth/callback, GET /api/v1/auth/me
 
@@ -410,7 +410,6 @@ OIDC（速率限制，管理员可在后台配置）: GET /api/v1/auth/login, GE
 - 自定义订阅上传新版本: POST /api/v1/admin/users/:id/custom-subscription/versions
 - 自定义订阅删除: DELETE /api/v1/admin/users/:id/custom-subscription
 - 自定义订阅版本管理: GET/PUT/DELETE /api/v1/admin/users/:id/custom-subscription/versions/:versionId
-- 规则下载（公开，无需认证）: GET /api/v1/rules/:id/download?token=
 - 规则 Token 轮替: POST /api/v1/admin/rules/:id/refresh-token
 - 速率限制配置: GET/PUT /api/v1/admin/system/rate-limit
 
@@ -420,7 +419,7 @@ OIDC（速率限制，管理员可在后台配置）: GET /api/v1/auth/login, GE
 
 data/subscriptions/{id}/ 下存放 v1.conf、v2.conf... 和 current.conf 软链接指向当前版本。规则类似，在 data/rules/{id}/ 下。
 
-**重构需新增**:
+**需新增目录**:
 - data/custom/{user_id}/ 存放自定义订阅文件
 - data/shares/{id}/ 存放分享订阅文件
 - 版本号取已有最大编号+1。
