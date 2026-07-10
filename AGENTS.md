@@ -52,33 +52,35 @@
 
 管理员可以为特定用户上传一份完全独立的订阅配置文件，覆盖该用户的默认/高级自动分配。该功能用于例外场景（如某个高级用户需要与其他高级用户不同的节点配置）。
 
-**自定义订阅是管理面板中的独立模块**，不集成到首页的平台卡片体系中。管理员在后台创建和管理自定义订阅，然后手动将下载链接分发给对应用户。用户通过链接直接获取订阅内容（无需登录）。
-
 **覆盖规则**:
-- 管理员在用户管理页面为该用户上传自定义订阅文件
-- 上传后该用户在所有平台的订阅被替换为此自定义内容
-- 自定义订阅独立于平台，不区分 Clash/Shadowrocket 等格式 — 管理员上传什么，用户就获得什么
+- 管理员在用户管理页面为某个用户的某个平台上传自定义订阅文件，**上传时必须指定适用平台**
+- 上传后该用户在被上传自定义文件的平台的订阅被替换为此自定义内容
+- 一个用户可拥有多份自定义订阅（每个平台最多一份），同一平台再次上传则覆盖（更新版本）
 - 自定义订阅同样支持版本管理（上传新版本 → 切换 → 保留最多 5 个历史版本）
-- 自定义订阅同样生成下载 Token，管理员复制链接后分发给用户
+- 自定义订阅如普通或高级订阅的处理流程一样，使用下载 Token，且一样能手动刷新 Token
 - 管理员可删除自定义订阅 → 用户恢复到原本的默认/高级自动分配
 - 一个用户最多一份自定义订阅，再次上传则覆盖（更新版本）
-- 自定义订阅**不在首页作为独立模块显示**，管理员在后台复制下载链接后手动分发给对应用户
-- **用户首页显示逻辑**：平台卡片照常显示，增加一组和原本订阅按钮一致的并行按钮，为"复制自定义订阅链接"（管理员手动分发的链接）。有自定义订阅的用户会看到额外的按钮
+- 自定义订阅**不在首页作为独立模块显示**
+- **管理员首页显示逻辑**：管理员可看到默认 + 高级 + 自定义（三组按钮），其中默认和高级用于预览，自定义是管理员自身的自定义订阅（如有）
 
 ### 2.5 独立公开分享订阅
 
 管理员可以创建不关联任何用户的独立订阅链接。这些链接像分享链接一样工作：任何人持有该链接即可下载订阅配置，无需登录。
 
-**使用场景**: 管理员想给外部人员临时访问；或创建一个团队公共链接方便分发。
+**独立特殊订阅是管理面板中的独立模块**，不集成到首页的平台卡片体系中。管理员在后台创建和管理自定义订阅，然后手动将下载链接分发给对应用户。用户通过链接直接获取订阅内容（无需登录）。
+
+**使用场景**: 管理员想给外部人员临时访问。
 
 **设计规则**:
+- 自定义订阅独立于平台，不区分 Clash/Shadowrocket 等格式 — 管理员上传什么，用户就获得什么
 - 管理员在管理面板创建"分享订阅"：填写名称、上传订阅文件
 - 每个分享订阅自动生成一个独立的下载 Token
 - 分享订阅同样支持版本管理（同平台订阅逻辑）
 - 管理员可随时刷新 Token（旧链接立即失效）或吊销 Token（删除该分享链接）
 - 下载端点无需认证，仅通过 `?token=` 验证
 - 分享订阅不区分默认/高级 — 它就是一份独立的订阅内容
-- 分享订阅需要显示在管理面板的独立列表中
+- 分享订阅在管理面板中有**独立的列表页面和路由**（如 `/admin/shares`），与平台订阅分开管理
+- 分享订阅的版本管理也在独立路由下（如 `/admin/shares/:id/versions`）
 
 ### 2.6 字段说明
 
@@ -98,7 +100,7 @@
 3. 填写提供商参数（Base URL、Realm/域名、Client ID、Client Secret）
 4. 填写回调地址和前端地址（用于 OIDC 回调重定向）
 5. 点击"测试连接"验证 OIDC 配置是否正确
-6. 测试通过后点击"完成配置" → 系统写入 system_config 表，标记 configured=true
+6. 测试通过后点击"完成配置" → 系统自动生成 JWT_SECRET，写入 system_config 表，标记 configured=true
 7. 跳转到登录页 → 自动重定向到 OIDC 提供商登录
 8. 首次登录的用户自动成为管理员 → 进入首页
 9. 管理员进入管理面板：
@@ -127,20 +129,20 @@
 管理员通过首页顶部"管理面板"按钮进入管理后台。管理后台使用侧边栏导航布局。
 
 **订阅管理**:
-- 列表页展示所有平台订阅（按平台和类型分组：默认/高级）
+- 列表页展示所有平台订阅（先按平台分组，再按类型分组：默认/高级）
 - 创建订阅：填写 ID（小写字母数字连字符）、名称、类型（default/advanced）、平台
 - 每个平台应同时配置默认订阅和高级订阅，分别服务普通用户和高级用户
 - 点击订阅进入版本管理：上传新版本 → 预览 → 切换当前版本 → 删除旧版本
 - 最多保留 5 个历史版本，超过自动删除最旧的
 - 当前激活版本有视觉高亮标识
 - 不可删除最后一个版本
-- 订阅管理页需要有简单的文本编辑能力，以便应对临时或细微的调整。编辑当前版本的文本内容后保存 → 自动创建新版本（当前版本向后记录，即把编辑视为上传了新的文本版本）
+- 订阅管理页需要有简单的文本编辑能力，以便应对临时或细微的调整。编辑当前版本的文本内容后保存 → 自动创建新版本并切换
 
 **分享订阅管理** (独立公开链接):
-- 独立列表，与平台订阅分开显示
+- 独立列表页面和路由（如 `/admin/shares`），与平台订阅分开
 - 创建分享订阅：填写名称、上传订阅文件
 - 每个分享订阅自动生成独立的下载 Token
-- 支持版本管理（同平台订阅逻辑：上传、切换、删除，最多 5 个版本）
+- 支持版本管理（独立路由 `/admin/shares/:id/versions`：上传、切换、删除，最多 5 个版本）
 - 操作按钮：复制分享链接、刷新 Token（旧链接失效）、删除
 - 下载端点无需认证
 
@@ -149,11 +151,13 @@
 - 每个平台配置多个 Client Scheme（如 clash://install-config?url=、v2rayng://install-config?url=）
 - 一键导入时使用 client_schemes 中第一个 scheme 拼接 URL
 - 系统初始化时自动创建 3 个默认平台：clash-verge、v2rayng、shadowrocket
+- **每个平台可配置一个下载链接**（download_url），管理员在平台管理页面设置，用于首页"下载客户端"按钮。该链接存储在 platforms 表的 download_url 字段
 
 **用户管理**:
 - 用户列表（自动通过 OIDC 登录创建，管理员不可手动创建）
-- 可编辑用户：设置 is_advanced 标记（普通/高级切换）、groups 字段
-- 可为用户上传自定义订阅文件（覆盖默认/高级自动分配）
+- 可编辑用户：设置 is_advanced 标记（普通/高级切换）
+- groups 字段仅存储不编辑，若用户未设置 groups 则在 UI 中不显示该字段
+- 可为用户上传自定义订阅文件（需指定适用平台，覆盖默认/高级自动分配）
 - 可删除用户的自定义订阅（恢复默认/高级自动分配）
 - 可删除用户（级联删除其下载 Token 和自定义订阅）
 - 可吊销用户所有下载 Token（强制用户重新获取）
@@ -162,17 +166,27 @@
 **规则管理**:
 - Shadowrocket 分流规则（.list 格式）
 - 版本管理逻辑同订阅
-- 公开页面 /rules 可供所有登录用户浏览和下载
+- 规则下载通过独立 Token 管理，默认无需登录即可下载（`?token=` 验证）
+- 管理员可在规则管理页面轮替（刷新）下载 Token，旧 Token 立即失效
+- Token 在未手动轮替时保持长期有效
+- 公开页面 `/rules` 可供所有登录用户浏览，用户可选择不同版本单独下载
+- 普通用户仅可浏览和下载，不可管理版本
+
+**速率限制配置**:
+- 在管理面板中可查看和修改速率限制参数
+- 默认值：登录 API 同 IP 每分钟 10 次，下载 API 同 IP 每分钟 20 次
+- 配置存储在 system_config 表中
 
 **OIDC 配置**:
 - 查看和修改 OIDC 提供商参数
 - 测试连接按钮
-- 切换提供商类型（Keycloak ↔ Auth0 ↔ 通用 OIDC）
+- 切换提供商类型（Keycloak ↔ Auth0 ↔ 通用 OIDC）时**保留已填写字段**，仅切换显示对应提供商的特定字段
+- 切换提供商后自动尝试发现端点（Discovery URL）自动填充
 - Client Secret 以 AES-256-GCM 加密存储在 SQLite 中，UI 回显时脱敏
 
 **日志查看**:
 - 按日期筛选访问日志
-- 记录下载请求（用户、订阅、IP、User-Agent、时间）
+- 记录所有下载请求（用户订阅下载、分享订阅下载、自定义订阅下载、规则下载，均需记录；分享订阅和规则下载 user_id 可为空）
 - 默认保留 90 天，后端自动清理超过 90 天的日志记录
 
 ### 3.4 订阅下载逻辑详解
@@ -230,10 +244,9 @@
 - 订阅区段（普通用户只看到一种，管理员可看到两种用于预览），区段内容取决于：
   - 普通用户 (is_advanced=false) → 显示"默认订阅"标签 + 三个按钮
   - 高级用户 (is_advanced=true) → 显示"高级订阅"标签 + 三个按钮
+  - 管理员 → 显示"默认订阅"和"高级订阅"两组按钮（均用于预览）
   - 三个按钮：一键导入 (primary)、复制链接 (default)、刷新链接 (warning, text, small)
-  - **有自定义订阅的用户** → 平台卡片照常显示，但按钮组增加一组"自定义订阅链接"（管理员手动分发的链接），也应该显示复制，一键导入和刷新链接按钮
-- 自定义订阅**不在首页作为独立模块显示**，由管理员在后台管理并手动分发链接
-- 下载客户端链接（管理员手动设定 download_url ，类似与公告板模块，需要在管理员面板可以更改内容）
+- **下载客户端按钮**：每个平台卡片底部显示一个"下载客户端"链接按钮（仅当管理员配置了该平台的 download_url 时显示），点击跳转到管理员设定的外部下载地址
 
 "一键导入"按钮行为：直接触发 window.location.href 跳转到拼接的 scheme URL。"复制链接"按钮：弹出对话框，显示完整 URL，点击输入框自动复制到剪贴板。"刷新链接"按钮：显示 loading 状态，调用 API 刷新 Token，成功后刷新平台列表。
 
@@ -254,8 +267,8 @@
 用户列表每行显示：用户名、邮箱、角色标签、is_advanced 标签（普通/高级）、操作按钮。
 
 操作按钮组：
-- 编辑（设置 is_advanced、groups）
-- 上传自定义订阅（弹出对话框 → 选择文件 → 上传 → 覆盖已有）
+- 编辑（设置 is_advanced；groups 字段仅存储不编辑，若用户未设置 groups 则在 UI 中不显示该字段）
+- 上传自定义订阅（弹出对话框 → 选择适用平台 → 选择文件 → 上传 → 覆盖该平台已有自定义订阅）
 - 删除自定义订阅（仅当用户有自定义订阅时显示，恢复默认/高级自动分配）
 - 吊销 Token
 - 删除用户
@@ -311,12 +324,13 @@
 - 版本号用 nextVersion() 取最大编号+1（不可用 len(versions)+1）
 - 最多保留 MAX_VERSIONS 个版本（默认 5），超出删最旧的
 - 不可删除最后一个版本
+- 编辑当前版本文本内容后保存 → 自动创建新版本并切换
 
 **订阅逻辑**:
 - 用户订阅类型由 is_advanced 自动决定，前端不可让用户选择类型
-- 自定义订阅优先级高于默认/高级自动分配
+- 自定义订阅绑定平台、优先级高于默认/高级自动分配
 - 管理员删除用户自定义订阅后，用户自动恢复到 is_advanced 对应的默认/高级订阅
-- 分享订阅与用户无关，下载端点无需认证
+- 分享订阅与用户无关，下载端点仅检查Token是否有效
 
 **前端**:
 - Vue 模板属性中不可使用双引号转义 \”，必须用「」或计算属性
@@ -338,7 +352,7 @@
 
 ### 6.1 技术选型
 
-后端 Go + Gin + zerolog。前端 Vue 3 (Composition API + script setup) + Vite + Element Plus + Pinia + Vue Router。存储 SQLite (modernc.org/sqlite 纯 Go 驱动，零 CGO)。OIDC 认证库 coreos/go-oidc/v3 + golang-jwt/jwt/v5。语言 JavaScript（非 TypeScript）。
+后端 Go + Gin + zerolog。前端 Vue 3 (Composition API + script setup) + Vite + Element Plus + Pinia + Vue Router。存储 SQLite (modernc.org/sqlite 纯 Go 驱动，零 CGO)。OIDC 认证库 coreos/go-oidc/v3 + golang-jwt/jwt/v5。
 
 ### 6.2 当前目录结构
 
@@ -366,14 +380,13 @@ frontend/
 
 ### 6.3 当前数据库表
 
-SQLite 有 8 张表。system_config（key-value 存储 OIDC 配置和 JWT_SECRET — **JWT_SECRET 在 Setup 流程中自动随机生成，若 system_config 表被清空则所有用户 Token 立即失效**），users（user_id PK，role 为 admin/user，is_special 布尔 — **需重命名为 is_advanced**，groups JSON），platforms（id PK，默认 3 个平台），subscriptions（id PK，UNIQUE(platform, type)，type 值 — **需重命名 global→default, premium→advanced**，versions 字段存储 JSON），rules（versions 字段存储 JSON），access_logs（id AUTOINC，按日期查询，**后端自动清理超过 90 天的记录**），oidc_state（state PK，存储 PKCE code_verifier + nonce，10min TTL），download_tokens（token UNIQUE，user_id FK，绑定 platform+订阅ID+订阅类型）。
+SQLite 表结构如下：system_config（key-value 存储 OIDC 配置、JWT_SECRET、速率限制参数 — **JWT_SECRET 在 Setup 完成时自动随机生成，若 system_config 表被清空则所有用户 Token 立即失效**），users（user_id PK，role 为 admin/user，is_advanced 布尔，groups JSON），platforms（id PK，默认 3 个平台，**含 download_url TEXT 字段**），subscriptions（id PK，UNIQUE(platform, type)，type 值为 default/advanced，versions 字段存储 JSON），rules（versions 字段存储 JSON，**含 download_token TEXT 字段用于公开下载**），access_logs（id AUTOINC，按日期查询，**后端自动清理超过 90 天的记录**），oidc_state（state PK，存储 PKCE code_verifier + nonce，10min TTL），download_tokens（token UNIQUE，user_id FK，绑定 platform+订阅类型，**含 custom_sub_id 字段可空，用于自定义订阅的 token**）。
 
-**重构需新增**:
-- users 表新增 `custom_subscription_id TEXT` 字段（可空，指向自定义订阅）
-- 新增 share_subscriptions 表（id PK, name, description, file_path, versions JSON, created_at, updated_at）
-- 新增 share_tokens 表（token UNIQUE, share_subscription_id FK, created_at）
-- subscriptions 表 type 字段值重命名: global→default, premium→advanced
-- download_tokens 表新增 custom_sub_id 字段（可空，用于自定义订阅的 token）
+**需新增的表**:
+- custom_subscriptions 表（id PK, user_id FK, platform TEXT, file_path TEXT, versions JSON, created_at, updated_at）
+- share_subscriptions 表（id PK, name, description, file_path, versions JSON, created_at, updated_at）
+- share_tokens 表（token UNIQUE, share_subscription_id FK, created_at）
+- system_config 表存储速率限制键：rate_limit_login（默认 10/min）、rate_limit_download（默认 20/min）
 
 ### 6.4 当前 API 端点
 
@@ -387,14 +400,17 @@ OIDC（速率限制，管理员可在后台配置）: GET /api/v1/auth/login, GE
 
 管理员（需 JWT+Admin）: /api/v1/admin/users/*、/api/v1/admin/subscriptions/*（含版本管理）、/api/v1/admin/platforms/*、/api/v1/admin/rules/*（含版本管理）、/api/v1/admin/oidc-config、/api/v1/admin/test-oidc、/api/v1/admin/system/configure、/api/v1/admin/system/switch-provider、/api/v1/admin/logs
 
-**重构需新增的端点**:
+**需新增的端点**:
 - 分享订阅 CRUD + 版本管理: /api/v1/admin/share/*
 - 分享订阅下载（公开，无需认证）: GET /api/v1/share/:id/download?token=
 - 管理分享 Token: POST /api/v1/admin/share/:id/refresh-token, DELETE /api/v1/admin/share/:id/token
-- 自定义订阅上传（含版本）: POST /api/v1/admin/users/:id/custom-subscription
+- 自定义订阅上传（需指定平台）: POST /api/v1/admin/users/:id/custom-subscription
 - 自定义订阅上传新版本: POST /api/v1/admin/users/:id/custom-subscription/versions
 - 自定义订阅删除: DELETE /api/v1/admin/users/:id/custom-subscription
 - 自定义订阅版本管理: GET/PUT/DELETE /api/v1/admin/users/:id/custom-subscription/versions/:versionId
+- 规则下载（公开，无需认证）: GET /api/v1/rules/:id/download?token=
+- 规则 Token 轮替: POST /api/v1/admin/rules/:id/refresh-token
+- 速率限制配置: GET/PUT /api/v1/admin/system/rate-limit
 
 响应格式：列表 gin.H{"key": [...]}，单项直接返回对象，成功 gin.H{"success": true}，错误 gin.H{"error": "描述"}
 
