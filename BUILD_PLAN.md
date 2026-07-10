@@ -154,9 +154,9 @@
   - `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache`
   - 返回 current 软链接指向的最新版本
 - [ ] 用户端点：
-  - `GET /user/platforms`：返回平台列表 + 当前用户 download_token（首页用）
+  - `GET /user/platforms`：返回平台列表 + 当前用户 download_token + 是否有自定义订阅标记（首页用）
   - `GET /user/update-time`：所有订阅 current 版本 updated_at 最大值
-  - `POST /user/refresh-token`：请求体 `{ platform, type }`，轮替 Token
+  - `POST /user/refresh-token`：请求体 `{ platform, type }`，轮替 Token。当用户在该平台有自定义订阅时，自动刷新自定义订阅 Token（通过 custom_sub_id 定位）
 - [ ] Download Token 生成逻辑：
   - 用户首次访问首页时按 user+platform+type 复用生成
   - custom_sub_id 非空时 type 置 NULL，复用唯一键 user+platform+custom_sub_id
@@ -172,6 +172,8 @@
 - [ ] 验证：`go build ./...` 通过；curl 测试下载流程，检查日志记录
 
 **关键约束**:
+- 所有 /admin/* 必须有 AdminRequired 中间件（含 /admin/logs）
+- 错误码：400/401/403/409/429/500
 - ?token= 查询参数值在 Logger 中脱敏为 ***
 - 下载失败时 status=failed + error_reason（token_invalid/file_not_found/version_not_found/rate_limited）
 
@@ -225,6 +227,7 @@
   - 三个按钮：一键导入（scheme URL 拼接）、复制链接（对话框）、刷新链接
   - 下载客户端按钮（download_url 非空时显示）
 - [ ] `src/views/Manage.vue`：布局，左侧 el-menu 侧边栏（200px，router 模式，7 个菜单项），移动端汉堡切换
+- [ ] `src/views/Rules.vue`：用户规则页面（所有登录用户可见），展示规则列表 + 下载
 - [ ] 验证：`npm run build` 通过；本地配 OIDC 跑通 Setup → Login → Home 主流程
 
 **关键约束**:
