@@ -75,7 +75,7 @@
 - 管理员在管理面板创建"分享订阅"：填写名称、上传订阅文件
 - 每个分享订阅自动生成一个独立的下载 Token
 - 分享订阅同样支持版本管理（同平台订阅逻辑）
-- 管理员可随时刷新 Token（旧链接立即失效）或吊销 Token（删除该分享链接）
+- 管理员可随时刷新 Token（旧链接立即失效，生成新 Token）；也可吊销 Token（`DELETE /admin/share/:id/token`，使该分享订阅链接立即不可用，但保留订阅文件与版本历史）；或删除整个分享订阅（级联删除文件 + Token）
 - 下载端点无需认证，仅通过 `?token=` 验证
 - 分享订阅不区分默认/高级 — 它就是一份独立的订阅内容
 - 分享订阅在管理面板中有**独立的列表页面和路由**（如 `/admin/shares`），与平台订阅分开管理
@@ -119,7 +119,7 @@
    - 高级用户 (is_advanced=true) → 显示"高级订阅"
    - 若管理员为该平台的该用户分配了自定义订阅 → 显示"已被分配自定义订阅"提示 + 自定义订阅按钮（替换默认/高级自动分配）
 7. 用户操作（对每个平台）：
-   - **一键导入**: 拼接客户端 scheme URL → window.location.href 跳转 → 浏览器唤起 VPN 客户端。拼接规则：取平台 `client_schemes` 中第一个 scheme，将订阅下载 URL 经 `encodeURIComponent` 编码后拼接到 `?url=` 参数，如 `clash://install-config?url=https%3A%2F%2Fexample.com%2Fdownload%3Ftoken%3Dxxx`
+   - **一键导入**: 拼接客户端 scheme URL → window.location.href 跳转 → 浏览器唤起 VPN 客户端。拼接规则：取平台 `client_schemes` 中第一个 scheme，将订阅下载 URL 经 `encodeURIComponent` 编码后拼接到 `?url=` 参数，如 `clash://install-config?url=https%3A%2F%2Fexample.com%2Fapi%2Fv1%2Fsubscriptions%2Fclash-verge%2Fdownload-token%3Ftoken%3Dxxx`
    - **复制链接**: 弹出对话框显示订阅 URL → 用户手动复制到客户端
    - **刷新链接**: 旧下载 Token 失效 → 生成新 Token（用于 Token 泄露后重置）
 8. 用户此后无需登录，VPN 客户端通过下载 Token 持续获取最新配置
@@ -284,12 +284,13 @@
 
 ### 4.6 分享订阅管理页面
 
-独立列表，每行显示：名称、创建时间、当前版本号、Token 状态。
+独立列表，每行显示：名称、创建时间、当前版本号、Token 状态（有效/已吊销）。
 
 操作按钮组：
 - 版本管理（进入版本管理页面）
-- 复制分享链接
-- 刷新 Token（确认对话框："刷新后旧链接立即失效，确定？"）
+- 复制分享链接（仅 Token 状态为"有效"时可用）
+- 刷新 Token（ConfirmDialog："刷新后旧链接立即失效，确定？"）
+- 吊销 Token（ConfirmDialog："吊销后该分享链接立即不可用，订阅文件保留。确定？"）
 - 删除（ConfirmDialog，级联删除文件+Token）
 
 创建分享订阅对话框：填写名称 → 上传第一个版本的文件 → 自动生成 Token。
