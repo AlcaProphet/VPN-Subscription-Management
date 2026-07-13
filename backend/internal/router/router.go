@@ -151,8 +151,8 @@ func registerAdminRoutes(api *gin.RouterGroup) {
 		admin.POST("/rules/:id/refresh-token", handler.RefreshRuleToken)
 
 		// System Config
-		admin.GET("/system/oidc-config", handler.GetOIDCConfig)
-		admin.POST("/system/test-oidc", handler.PostTestOIDC)
+		admin.GET("/oidc-config", handler.GetOIDCConfig)
+		admin.POST("/test-oidc", handler.PostTestOIDC)
 		admin.POST("/system/configure", handler.PostConfigure)
 		admin.POST("/system/switch-provider", handler.PostSwitchProvider)
 		admin.GET("/system/rate-limit", handler.GetRateLimit)

@@ -18,11 +18,11 @@ func (r *OIDCStateRepo) Create(state, codeVerifier, nonce string) error {
 	return err
 }
 
-// FindByState retrieves the code_verifier for a given state.
-func (r *OIDCStateRepo) FindByState(state string) (codeVerifier string, err error) {
+// FindByState retrieves the code_verifier and nonce for a given state.
+func (r *OIDCStateRepo) FindByState(state string) (codeVerifier, nonce string, err error) {
 	err = DB.QueryRow(
-		`SELECT code_verifier FROM oidc_state WHERE state = ?`, state,
-	).Scan(&codeVerifier)
+		`SELECT code_verifier, nonce FROM oidc_state WHERE state = ?`, state,
+	).Scan(&codeVerifier, &nonce)
 	return
 }
 

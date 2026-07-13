@@ -12,14 +12,15 @@ func NewAccessLogRepo() *AccessLogRepo {
 }
 
 type AccessLogRecord struct {
-	UserID              string
-	IP                  string
-	DownloadType        string
-	Platform            string
-	ShareSubscriptionID string
-	RuleID              string
-	Status              string
-	ErrorReason         string
+	UserID              string `json:"user_id"`
+	IP                  string `json:"ip"`
+	DownloadType        string `json:"download_type"`
+	Platform            string `json:"platform"`
+	ShareSubscriptionID string `json:"share_subscription_id"`
+	RuleID              string `json:"rule_id"`
+	Status              string `json:"status"`
+	ErrorReason         string `json:"error_reason"`
+	CreatedAt           string `json:"created_at"`
 }
 
 // Insert records a new access log entry.
@@ -49,10 +50,9 @@ func (r *AccessLogRepo) ListByDate(date string) ([]AccessLogRecord, error) {
 	var records []AccessLogRecord
 	for rows.Next() {
 		var rec AccessLogRecord
-		var createdAt string
 		if err := rows.Scan(
 			&rec.UserID, &rec.IP, &rec.DownloadType, &rec.Platform,
-			&rec.ShareSubscriptionID, &rec.RuleID, &rec.Status, &rec.ErrorReason, &createdAt,
+			&rec.ShareSubscriptionID, &rec.RuleID, &rec.Status, &rec.ErrorReason, &rec.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

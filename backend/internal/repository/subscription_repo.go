@@ -22,7 +22,9 @@ func (r *SubscriptionRepo) FindByID(id string) (*models.Subscription, error) {
 	if err != nil {
 		return nil, err
 	}
-	json.Unmarshal([]byte(versionsJSON), &s.Versions)
+	if err := json.Unmarshal([]byte(versionsJSON), &s.Versions); err != nil {
+		s.Versions = []models.Version{}
+	}
 	return s, nil
 }
 
@@ -36,7 +38,9 @@ func (r *SubscriptionRepo) FindByPlatformAndType(platform, subType string) (*mod
 	if err != nil {
 		return nil, err
 	}
-	json.Unmarshal([]byte(versionsJSON), &s.Versions)
+	if err := json.Unmarshal([]byte(versionsJSON), &s.Versions); err != nil {
+		s.Versions = []models.Version{}
+	}
 	return s, nil
 }
 
@@ -54,7 +58,9 @@ func (r *SubscriptionRepo) List() ([]models.Subscription, error) {
 		if err := rows.Scan(&s.ID, &s.Name, &s.Platform, &s.Type, &versionsJSON); err != nil {
 			return nil, err
 		}
-		json.Unmarshal([]byte(versionsJSON), &s.Versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &s.Versions); err != nil {
+			s.Versions = []models.Version{}
+		}
 		subs = append(subs, s)
 	}
 	return subs, rows.Err()
@@ -97,7 +103,9 @@ func (r *SubscriptionRepo) ListByPlatform(platform string) ([]models.Subscriptio
 		if err := rows.Scan(&s.ID, &s.Name, &s.Platform, &s.Type, &versionsJSON); err != nil {
 			return nil, err
 		}
-		json.Unmarshal([]byte(versionsJSON), &s.Versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &s.Versions); err != nil {
+			s.Versions = []models.Version{}
+		}
 		subs = append(subs, s)
 	}
 	return subs, rows.Err()

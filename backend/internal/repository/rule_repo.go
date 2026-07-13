@@ -22,7 +22,9 @@ func (r *RuleRepo) FindByID(id string) (*models.Rule, error) {
 	if err != nil {
 		return nil, err
 	}
-	json.Unmarshal([]byte(versionsJSON), &rule.Versions)
+	if err := json.Unmarshal([]byte(versionsJSON), &rule.Versions); err != nil {
+		rule.Versions = []models.Version{}
+	}
 	return rule, nil
 }
 
@@ -40,7 +42,9 @@ func (r *RuleRepo) List() ([]models.Rule, error) {
 		if err := rows.Scan(&rule.ID, &rule.Name, &rule.ClientType, &versionsJSON, &rule.CreatedAt); err != nil {
 			return nil, err
 		}
-		json.Unmarshal([]byte(versionsJSON), &rule.Versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &rule.Versions); err != nil {
+			rule.Versions = []models.Version{}
+		}
 		rules = append(rules, rule)
 	}
 	return rules, rows.Err()

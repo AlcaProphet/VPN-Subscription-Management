@@ -22,7 +22,9 @@ func (r *CustomSubscriptionRepo) FindByID(id string) (*models.CustomSubscription
 	if err != nil {
 		return nil, err
 	}
-	json.Unmarshal([]byte(versionsJSON), &cs.Versions)
+	if err := json.Unmarshal([]byte(versionsJSON), &cs.Versions); err != nil {
+		cs.Versions = []models.Version{}
+	}
 	return cs, nil
 }
 
@@ -36,7 +38,9 @@ func (r *CustomSubscriptionRepo) FindByUserAndPlatform(userID, platform string) 
 	if err != nil {
 		return nil, err
 	}
-	json.Unmarshal([]byte(versionsJSON), &cs.Versions)
+	if err := json.Unmarshal([]byte(versionsJSON), &cs.Versions); err != nil {
+		cs.Versions = []models.Version{}
+	}
 	return cs, nil
 }
 
@@ -57,7 +61,9 @@ func (r *CustomSubscriptionRepo) ListByUser(userID string) ([]models.CustomSubsc
 		if err := rows.Scan(&cs.ID, &cs.UserID, &cs.Platform, &versionsJSON, &cs.CreatedAt); err != nil {
 			return nil, err
 		}
-		json.Unmarshal([]byte(versionsJSON), &cs.Versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &cs.Versions); err != nil {
+			cs.Versions = []models.Version{}
+		}
 		subs = append(subs, cs)
 	}
 	return subs, rows.Err()

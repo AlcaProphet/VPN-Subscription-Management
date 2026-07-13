@@ -22,7 +22,9 @@ func (r *ShareSubscriptionRepo) FindByID(id string) (*models.ShareSubscription, 
 	if err != nil {
 		return nil, err
 	}
-	json.Unmarshal([]byte(versionsJSON), &ss.Versions)
+	if err := json.Unmarshal([]byte(versionsJSON), &ss.Versions); err != nil {
+		ss.Versions = []models.Version{}
+	}
 	return ss, nil
 }
 
@@ -40,7 +42,9 @@ func (r *ShareSubscriptionRepo) List() ([]models.ShareSubscription, error) {
 		if err := rows.Scan(&ss.ID, &ss.Name, &versionsJSON, &ss.CreatedAt); err != nil {
 			return nil, err
 		}
-		json.Unmarshal([]byte(versionsJSON), &ss.Versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &ss.Versions); err != nil {
+			ss.Versions = []models.Version{}
+		}
 		shares = append(shares, ss)
 	}
 	return shares, rows.Err()
