@@ -3,8 +3,10 @@ package handler
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/middleware"
 	"vpn-sub/internal/repository"
 
 	"github.com/gin-gonic/gin"
@@ -87,12 +89,12 @@ func AuthCallback(c *gin.Context) {
 	c.SetCookie("oidc_state", "", -1, "/", "", true, true)
 
 	// Redirect to frontend callback page with JWT in query
-	frontendCallback := result.FrontendURL + "/auth/callback?token=" + result.JWT
+	frontendCallback := strings.TrimRight(result.FrontendURL, "/") + "/auth/callback?token=" + result.JWT
 	c.Redirect(http.StatusFound, frontendCallback)
 }
 
 func AuthMe(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := middleware.GetUserID(c)
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
 		return
@@ -226,6 +228,7 @@ func PostConfigure(c *gin.Context) {
 		return
 	}
 	auth.DefaultService = svc
+	middleware.SetAuthService(svc)
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
@@ -282,7 +285,7 @@ func PostTestOIDC(c *gin.Context) {
 		return
 	}
 
-	// Build issuer URL
+	// Build issuer URL (consistent with getIssuerURL in oidc_service.go)
 	var issuerURL string
 	switch pt {
 	case auth.ProviderKeycloak:
@@ -290,13 +293,13 @@ func PostTestOIDC(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "keycloak_base_url and keycloak_realm are required"})
 			return
 		}
-		issuerURL = req.KeycloakBaseURL + "/realms/" + req.KeycloakRealm
+		issuerURL = strings.TrimRight(req.KeycloakBaseURL, "/") + "/realms/" + req.KeycloakRealm
 	case auth.ProviderAuth0:
 		if req.Auth0Domain == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth0_domain is required"})
 			return
 		}
-		issuerURL = "https://" + req.Auth0Domain
+		issuerURL = "https://" + strings.TrimLeft(req.Auth0Domain, "https://")
 	case auth.ProviderGeneric:
 		if req.GenericIssuer == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "generic_issuer is required"})
