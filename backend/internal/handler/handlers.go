@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"context"
 	"net/http"
+
+	"vpn-sub/internal/auth"
+	"vpn-sub/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,7 +15,12 @@ import (
 // ============================================================================
 
 func GetSystemStatus(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"configured": false})
+	cfgRepo := repository.NewSystemConfigRepo()
+	configured := false
+	if val, err := cfgRepo.Get("configured"); err == nil && val == "true" {
+		configured = true
+	}
+	c.JSON(http.StatusOK, gin.H{"configured": configured})
 }
 
 func GetPlatforms(c *gin.Context) {
@@ -31,15 +40,78 @@ func GetRuleDownload(c *gin.Context) {
 // ============================================================================
 
 func AuthLogin(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "auth login stub"})
+	svc := auth.DefaultService
+	if svc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Auth service not initialized"})
+		return
+	}
+
+	result, err := svc.InitiateLogin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initiate login: " + err.Error()})
+		return
+	}
+
+	// Set state in HttpOnly cookie for CSRF triple verification
+	c.SetCookie(
+		"oidc_state", result.State, 600, "/", "", true, true, // 10 min, secure, httpOnly
+	)
+
+	c.Redirect(http.StatusFound, result.RedirectURL)
 }
 
 func AuthCallback(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "auth callback stub"})
+	svc := auth.DefaultService
+	if svc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Auth service not initialized"})
+		return
+	}
+
+	// Read state from query param and cookie
+	queryState := c.Query("state")
+	cookieState, _ := c.Cookie("oidc_state")
+	code := c.Query("code")
+
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing authorization code"})
+		return
+	}
+
+	result, err := svc.HandleCallback(context.Background(), queryState, cookieState, code)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed: " + err.Error()})
+		return
+	}
+
+	// Clear the state cookie
+	c.SetCookie("oidc_state", "", -1, "/", "", true, true)
+
+	// Redirect to frontend callback page with JWT in query
+	frontendCallback := result.FrontendURL + "/auth/callback?token=" + result.JWT
+	c.Redirect(http.StatusFound, frontendCallback)
 }
 
 func AuthMe(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "auth me stub"})
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+
+	user, err := auth.GetCurrentUser(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":     user.UserID,
+		"username":    user.Username,
+		"email":       user.Email,
+		"role":        user.Role,
+		"is_advanced": user.IsAdvanced,
+		"groups":      user.Groups,
+	})
 }
 
 // ============================================================================
@@ -83,19 +155,172 @@ func ShareDownload(c *gin.Context) {
 // ============================================================================
 
 func PostConfigure(c *gin.Context) {
+	var req struct {
+		ProviderType string `json:"provider_type" binding:"required"`
+		// Keycloak fields
+		KeycloakBaseURL string `json:"keycloak_base_url"`
+		KeycloakRealm   string `json:"keycloak_realm"`
+		// Auth0 fields
+		Auth0Domain string `json:"auth0_domain"`
+		// Generic OIDC fields
+		GenericIssuer string `json:"generic_issuer"`
+		// Common fields
+		ClientID     string `json:"client_id" binding:"required"`
+		ClientSecret string `json:"client_secret" binding:"required"`
+		RedirectURI  string `json:"redirect_uri" binding:"required"`
+		FrontendURL  string `json:"frontend_url" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	// Validate provider type
+	pt := auth.ProviderType(req.ProviderType)
+	if pt != auth.ProviderKeycloak && pt != auth.ProviderAuth0 && pt != auth.ProviderGeneric {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider_type, must be keycloak, auth0, or generic"})
+		return
+	}
+
+	cfg := &auth.OIDCConfig{
+		ProviderType: pt,
+		ClientID:     req.ClientID,
+		RedirectURI:  req.RedirectURI,
+		FrontendURL:  req.FrontendURL,
+	}
+
+	switch pt {
+	case auth.ProviderKeycloak:
+		if req.KeycloakBaseURL == "" || req.KeycloakRealm == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "keycloak_base_url and keycloak_realm are required for Keycloak"})
+			return
+		}
+		cfg.KeycloakBaseURL = req.KeycloakBaseURL
+		cfg.KeycloakRealm = req.KeycloakRealm
+	case auth.ProviderAuth0:
+		if req.Auth0Domain == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth0_domain is required for Auth0"})
+			return
+		}
+		cfg.Auth0Domain = req.Auth0Domain
+	case auth.ProviderGeneric:
+		if req.GenericIssuer == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "generic_issuer is required for Generic OIDC"})
+			return
+		}
+		cfg.GenericIssuer = req.GenericIssuer
+	}
+
+	cfgRepo := repository.NewSystemConfigRepo()
+	_, err := auth.ConfigureSystem(cfgRepo, cfg, req.ClientSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Configuration failed: " + err.Error()})
+		return
+	}
+
+	// Re-initialize the auth service with new config
+	svc, err := auth.NewServiceFromDB(cfgRepo)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize auth service: " + err.Error()})
+		return
+	}
+	auth.DefaultService = svc
+
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func PostSwitchProvider(c *gin.Context) {
+	var req struct {
+		ProviderType string `json:"provider_type" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	pt := auth.ProviderType(req.ProviderType)
+	if pt != auth.ProviderKeycloak && pt != auth.ProviderAuth0 && pt != auth.ProviderGeneric {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider_type"})
+		return
+	}
+
+	cfgRepo := repository.NewSystemConfigRepo()
+	if err := auth.SwitchProvider(cfgRepo, pt); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to switch provider: " + err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func PostTestOIDC(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	var req struct {
+		ProviderType string `json:"provider_type" binding:"required"`
+		// Keycloak fields
+		KeycloakBaseURL string `json:"keycloak_base_url"`
+		KeycloakRealm   string `json:"keycloak_realm"`
+		// Auth0 fields
+		Auth0Domain string `json:"auth0_domain"`
+		// Generic OIDC fields
+		GenericIssuer string `json:"generic_issuer"`
+		// Common fields
+		ClientID     string `json:"client_id" binding:"required"`
+		ClientSecret string `json:"client_secret" binding:"required"`
+		RedirectURI  string `json:"redirect_uri" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	pt := auth.ProviderType(req.ProviderType)
+	if pt != auth.ProviderKeycloak && pt != auth.ProviderAuth0 && pt != auth.ProviderGeneric {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider_type"})
+		return
+	}
+
+	// Build issuer URL
+	var issuerURL string
+	switch pt {
+	case auth.ProviderKeycloak:
+		if req.KeycloakBaseURL == "" || req.KeycloakRealm == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "keycloak_base_url and keycloak_realm are required"})
+			return
+		}
+		issuerURL = req.KeycloakBaseURL + "/realms/" + req.KeycloakRealm
+	case auth.ProviderAuth0:
+		if req.Auth0Domain == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth0_domain is required"})
+			return
+		}
+		issuerURL = "https://" + req.Auth0Domain
+	case auth.ProviderGeneric:
+		if req.GenericIssuer == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "generic_issuer is required"})
+			return
+		}
+		issuerURL = req.GenericIssuer
+	}
+
+	if err := auth.TestConnection(pt, issuerURL, req.ClientID, req.ClientSecret, req.RedirectURI); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "OIDC connection test failed: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "OIDC connection successful"})
 }
 
 func GetOIDCConfig(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"config": gin.H{}})
+	cfgRepo := repository.NewSystemConfigRepo()
+	cfg, err := auth.GetMaskedOIDCConfig(cfgRepo)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read OIDC config"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"config": cfg})
 }
 
 // ============================================================================

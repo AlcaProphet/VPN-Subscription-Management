@@ -5,6 +5,8 @@ import (
 	"log"
 	"path/filepath"
 
+	"vpn-sub/internal/auth"
+	"vpn-sub/internal/middleware"
 	"vpn-sub/internal/repository"
 	"vpn-sub/internal/router"
 	"vpn-sub/internal/utils"
@@ -32,6 +34,18 @@ func main() {
 	configured := false
 	if val, err := cfgRepo.Get("configured"); err == nil && val == "true" {
 		configured = true
+	}
+
+	// Initialize auth service if configured
+	if configured {
+		svc, err := auth.NewServiceFromDB(cfgRepo)
+		if err != nil {
+			log.Printf("Warning: Failed to initialize auth service: %v", err)
+		} else {
+			auth.DefaultService = svc
+			middleware.SetAuthService(svc)
+			log.Println("Auth service initialized successfully")
+		}
 	}
 
 	// Setup Gin

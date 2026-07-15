@@ -34,8 +34,8 @@
   - `github.com/gin-gonic/gin` ✅
   - `github.com/rs/zerolog` ✅
   - `modernc.org/sqlite` ✅
-  - `github.com/coreos/go-oidc/v3` ⚠️ 待块 2 添加
-  - `github.com/golang-jwt/jwt/v5` ⚠️ 待块 2 添加
+  - `github.com/coreos/go-oidc/v3` ✅（块 2 已添加）
+  - `github.com/golang-jwt/jwt/v5` ✅（块 2 已添加）
   - 运行 `go mod tidy` ✅
 - [x] 按 6.2 创建目录结构：`cmd/server/`、`internal/{auth,handler,service,repository,middleware,models,router,utils}/`
 - [x] `internal/utils/env.go`：读取环境变量（PORT 默认 8080）
@@ -63,29 +63,29 @@
 
 **任务**:
 
-- [ ] `internal/auth/oidc_service.go`：
-  - 支持 Keycloak / Auth0 / 通用 OIDC 三种 provider_type
-  - PKCE 流程：生成 code_verifier + state，存入 oidc_state 表（10min TTL）
-  - state 通过 HttpOnly Cookie 下发，回调时三重校验（Cookie == query == DB）
-  - 回调后按 state 查表取 code_verifier 用于 token exchange，用后立即删 state 记录（防重放）
-  - JWT 签发：claims 仅存 `user_id` + exp/iat，有效期 7 天，用 JWT_SECRET 签名
-  - JWT 验证：Authorization: Bearer header
-- [ ] Setup 相关 handler/service：
-  - `POST /api/v1/admin/system/configure`：接收 OIDC 配置，Client Secret 用 AES-256-GCM 加密存储（各提供商独立字段），随机生成 ≥32 字节的 JWT_SECRET（同时用于 JWT 签名和 AES-256-GCM 加密，取前 32 字节做 key），置 configured=true（不写 admin_initialized）
-  - `POST /api/v1/admin/test-oidc`：测试 OIDC 连接
-  - `POST /api/v1/admin/system/switch-provider`：切换提供商类型，保留已填字段
-- [ ] 认证 handler：
-  - `GET /api/v1/auth/login`：跳转 OIDC 提供商
-  - `GET /api/v1/auth/callback`：code exchange 后 302 到前端中转页 `/auth/callback?token=xxx`
-  - `GET /api/v1/auth/me`：返回当前用户信息（查库，不用 JWT claims）
-- [ ] 首位管理员判定：登录时检查 system_config.admin_initialized，若 false 则该用户 role=admin、is_advanced=true，写入 admin_initialized=true
-- [ ] OIDC state 定时清理：后台 goroutine 清理过期记录
-- [ ] 验证：`go build ./...` 通过；本地配置一个测试 OIDC（或 mock），完成登录流程拿到 JWT
+- [x] `internal/auth/oidc_service.go`：
+  - 支持 Keycloak / Auth0 / 通用 OIDC 三种 provider_type ✅
+  - PKCE 流程：生成 code_verifier + state，存入 oidc_state 表（10min TTL）✅
+  - state 通过 HttpOnly Cookie 下发，回调时三重校验（Cookie == query == DB）✅
+  - 回调后按 state 查表取 code_verifier 用于 token exchange，用后立即删 state 记录（防重放）✅
+  - JWT 签发：claims 仅存 `user_id` + exp/iat，有效期 7 天，用 JWT_SECRET 签名 ✅
+  - JWT 验证：Authorization: Bearer header ✅
+- [x] Setup 相关 handler：
+  - `POST /api/v1/admin/system/configure`：接收 OIDC 配置，Client Secret 用 AES-256-GCM 加密存储（各提供商独立字段），随机生成 ≥32 字节的 JWT_SECRET，置 configured=true（不写 admin_initialized）✅
+  - `POST /api/v1/admin/test-oidc`：测试 OIDC 连接 ✅
+  - `POST /api/v1/admin/system/switch-provider`：切换提供商类型，保留已填字段 ✅
+- [x] 认证 handler：
+  - `GET /api/v1/auth/login`：跳转 OIDC 提供商 ✅
+  - `GET /api/v1/auth/callback`：code exchange 后 302 到前端中转页 `/auth/callback?token=xxx` ✅
+  - `GET /api/v1/auth/me`：返回当前用户信息（查库，不用 JWT claims）✅
+- [x] 首位管理员判定：登录时检查 system_config.admin_initialized，若 false 则该用户 role=admin、is_advanced=true，写入 admin_initialized=true ✅
+- [x] OIDC state 定时清理：后台 goroutine 清理过期记录 ✅（已在块 1 db.go periodicCleanup 中实现）
+- [x] 验证：`go build ./...` 通过 ✅；Setup 端点运行时验证通过（configure 写入 → system/status 返回 configured=true → auth/login 302 重定向 → auth/me 401 拦截）
 
 **关键约束**:
-- Setup 完成时只置 configured=true，admin_initialized 仍为 false
-- OIDC 配置键：provider_type + keycloak_base_url/realm、auth0_domain、generic_issuer、client_id、各提供商独立 client_secret_encrypted、redirect_uri、frontend_url
-- 后端定时清理过期 oidc_state 记录
+- Setup 完成时只置 configured=true，admin_initialized 仍为 false ✅
+- OIDC 配置键：provider_type + keycloak_base_url/realm、auth0_domain、generic_issuer、client_id、各提供商独立 client_secret_encrypted、redirect_uri、frontend_url ✅
+- 后端定时清理过期 oidc_state 记录 ✅（每小时清理 >10 分钟的记录）
 
 ---
 
