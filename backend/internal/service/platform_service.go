@@ -78,11 +78,20 @@ func (s *PlatformService) Delete(id string) error {
 	// Delete download tokens for this platform
 	s.tokenRepo.DeleteByPlatform(id)
 
-	// Delete custom subscriptions for this platform and their files
-	// We need to iterate users — but we don't have ListByPlatform for custom subs.
-	// For simplicity, we delete custom subs by platform through direct SQL.
-	// Since customRepo doesn't have DeleteByPlatform, we add it.
-	// Instead, we use direct DB access via repository.DB.
+	// Delete custom subscriptions for this platform and their version files
+	// Query all custom subs for this platform, delete version files, then DB records
+	rows, err := repository.DB.Query(
+		`SELECT user_id, platform FROM custom_subscriptions WHERE platform = ?`, id,
+	)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var userID, platform string
+			if err := rows.Scan(&userID, &platform); err == nil {
+				s.versionSvc.RemoveVersionDir("custom/" + userID + "/" + platform)
+			}
+		}
+	}
 	repository.DB.Exec(`DELETE FROM custom_subscriptions WHERE platform = ?`, id)
 
 	// Delete platform

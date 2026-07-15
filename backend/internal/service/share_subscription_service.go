@@ -63,7 +63,11 @@ func (s *ShareSubscriptionService) Create(name, content string) (*models.ShareSu
 		return nil, "", fmt.Errorf("failed to create first version: %w", err)
 	}
 
-	s.repo.UpdateVersions(id, updatedVersions)
+	if err := s.repo.UpdateVersions(id, updatedVersions); err != nil {
+		s.repo.Delete(id)
+		s.versionSvc.RemoveVersionDir("shares/" + id)
+		return nil, "", fmt.Errorf("failed to save versions: %w", err)
+	}
 
 	// Generate share token
 	token, err := utils.GenerateToken()

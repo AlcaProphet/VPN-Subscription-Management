@@ -61,8 +61,13 @@ func (s *CustomSubscriptionService) Upload(userID, platform, content string) (*m
 		return nil, fmt.Errorf("failed to create custom subscription: %w", err)
 	}
 
-	// Upload the first version
-	return s.UploadVersion(id, content)
+	// Upload the first version; cleanup DB record on failure
+	result, err := s.UploadVersion(id, content)
+	if err != nil {
+		s.repo.Delete(id)
+		return nil, err
+	}
+	return result, nil
 }
 
 // UploadVersion uploads a new version to an existing custom subscription.

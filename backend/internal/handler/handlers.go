@@ -381,7 +381,7 @@ func UpdateUser(c *gin.Context) {
 	var req struct {
 		Username   string   `json:"username"`
 		Email      string   `json:"email"`
-		IsAdvanced bool     `json:"is_advanced"`
+		IsAdvanced *bool    `json:"is_advanced"` // pointer to distinguish "not provided" from false
 		Groups     []string `json:"groups"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -389,14 +389,26 @@ func UpdateUser(c *gin.Context) {
 		return
 	}
 	operatorID := middleware.GetUserID(c)
+	// Fetch existing user to preserve fields not provided in request
+	existing, err := UserSvc.Get(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
 	target := &models.User{
 		UserID:     c.Param("id"),
 		Username:   req.Username,
 		Email:      req.Email,
-		IsAdvanced: req.IsAdvanced,
-		Groups:     req.Groups,
+		IsAdvanced: existing.IsAdvanced, // preserve if not provided
+		Groups:     existing.Groups,     // preserve if not provided
+		Role:       "",                  // role must not be changed via this endpoint
 	}
-	// Preserve existing role — role changes go through UpdateUser handler which doesn't allow role change
+	if req.IsAdvanced != nil {
+		target.IsAdvanced = *req.IsAdvanced
+	}
+	if req.Groups != nil {
+		target.Groups = req.Groups
+	}
 	if err := UserSvc.Update(operatorID, target); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -663,24 +675,29 @@ func ListShares(c *gin.Context) {
 }
 
 func CreateShare(c *gin.Context) {
-	content, err := readUploadContent(c)
-	if err != nil {
-		// Try JSON body with name
+	// Try JSON body first (name + content in one request)
+	if strings.HasPrefix(c.GetHeader("Content-Type"), "application/json") {
 		var req struct {
 			Name    string `json:"name"`
 			Content string `json:"content"`
 		}
-		if jsonErr := c.ShouldBindJSON(&req); jsonErr == nil && req.Name != "" {
-			content = req.Content
-			ss, token, createErr := ShareSvc.Create(req.Name, content)
-			if createErr != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": createErr.Error()})
+		if err := c.ShouldBindJSON(&req); err == nil && req.Name != "" && req.Content != "" {
+			ss, token, err := ShareSvc.Create(req.Name, req.Content)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{"success": true, "share": ss, "token": token})
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name and content required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name and content are required"})
+		return
+	}
+
+	// Multipart file upload: name from form field, content from file
+	content, err := readUploadContent(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	name := c.PostForm("name")
@@ -895,7 +912,9 @@ func CreateRule(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule})
+	// Auto-generate rule token per AGENTS.md
+	token, _ := RuleSvc.RefreshToken(rule.ID)
+	c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule, "token": token})
 }
 
 func GetAdminRule(c *gin.Context) {

@@ -43,6 +43,11 @@ func (s *UserService) Update(operatorID string, target *models.User) error {
 		return fmt.Errorf("user not found")
 	}
 
+	// Preserve existing role if not explicitly being changed (role changes are forbidden anyway)
+	if target.Role == "" {
+		target.Role = existing.Role
+	}
+
 	// Admin self-protection: cannot change own role
 	if operatorID == target.UserID && target.Role != existing.Role {
 		return fmt.Errorf("cannot change your own role")
