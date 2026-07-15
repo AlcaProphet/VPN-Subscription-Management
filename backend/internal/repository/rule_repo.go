@@ -59,6 +59,14 @@ func (r *RuleRepo) Create(rule *models.Rule) error {
 	return err
 }
 
+func (r *RuleRepo) Update(rule *models.Rule) error {
+	_, err := DB.Exec(
+		`UPDATE rules SET name = ?, client_type = ? WHERE id = ?`,
+		rule.Name, rule.ClientType, rule.ID,
+	)
+	return err
+}
+
 func (r *RuleRepo) UpdateVersions(id string, versions []models.Version) error {
 	versionsJSON, _ := json.Marshal(versions)
 	_, err := DB.Exec(`UPDATE rules SET versions = ? WHERE id = ?`, string(versionsJSON), id)

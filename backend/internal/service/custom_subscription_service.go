@@ -1,0 +1,254 @@
+package service
+
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"vpn-sub/internal/models"
+	"vpn-sub/internal/repository"
+	"vpn-sub/internal/utils"
+)
+
+// CustomSubscriptionService handles custom subscription business logic.
+type CustomSubscriptionService struct {
+	repo       *repository.CustomSubscriptionRepo
+	tokenRepo  *repository.DownloadTokenRepo
+	versionSvc *VersionService
+}
+
+func NewCustomSubscriptionService(versionSvc *VersionService) *CustomSubscriptionService {
+	return &CustomSubscriptionService{
+		repo:       repository.NewCustomSubscriptionRepo(),
+		tokenRepo:  repository.NewDownloadTokenRepo(),
+		versionSvc: versionSvc,
+	}
+}
+
+// Upload uploads a custom subscription for a user+platform (creates or overwrites).
+func (s *CustomSubscriptionService) Upload(userID, platform, content string) (*models.CustomSubscription, error) {
+	// Check if custom sub already exists for this user+platform
+	existing, _ := s.repo.FindByUserAndPlatform(userID, platform)
+
+	if existing != nil {
+		// Overwrite: upload new version
+		cs, err := s.UploadVersion(existing.ID, content)
+		if err != nil {
+			return nil, err
+		}
+		// Delete old tokens so user gets new token
+		s.tokenRepo.DeleteByCustomSubID(existing.ID)
+		return cs, nil
+	}
+
+	// Create new custom subscription
+	id, err := utils.GenerateUUID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
+	}
+	// Use a shorter ID format for custom subs
+	id = id[:12]
+
+	cs := &models.CustomSubscription{
+		ID:        id,
+		UserID:    userID,
+		Platform:  platform,
+		Versions:  []models.Version{},
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := s.repo.Create(cs); err != nil {
+		return nil, fmt.Errorf("failed to create custom subscription: %w", err)
+	}
+
+	// Upload the first version
+	return s.UploadVersion(id, content)
+}
+
+// UploadVersion uploads a new version to an existing custom subscription.
+func (s *CustomSubscriptionService) UploadVersion(id, content string) (*models.CustomSubscription, error) {
+	cs, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, fmt.Errorf("custom subscription not found")
+	}
+
+	subDir := "custom/" + cs.UserID + "/" + cs.Platform
+
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var versionsJSON string
+	err = tx.QueryRow(`SELECT versions FROM custom_subscriptions WHERE id = ?`, id).Scan(&versionsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock: %w", err)
+	}
+
+	var currentVersions []models.Version
+	if versionsJSON != "" && versionsJSON != "[]" {
+		json.Unmarshal([]byte(versionsJSON), &currentVersions)
+	}
+
+	newVersions, err := s.versionSvc.CreateVersion(subDir, content, currentVersions)
+	if err != nil {
+		return nil, err
+	}
+
+	newJSON, _ := json.Marshal(newVersions)
+	_, err = tx.Exec(`UPDATE custom_subscriptions SET versions = ? WHERE id = ?`, string(newJSON), id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
+	}
+
+	cs.Versions = newVersions
+	return cs, nil
+}
+
+// SwitchVersion switches the current version.
+func (s *CustomSubscriptionService) SwitchVersion(id string, versionNum int) (*models.CustomSubscription, error) {
+	cs, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, fmt.Errorf("custom subscription not found")
+	}
+
+	subDir := "custom/" + cs.UserID + "/" + cs.Platform
+
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var versionsJSON string
+	err = tx.QueryRow(`SELECT versions FROM custom_subscriptions WHERE id = ?`, id).Scan(&versionsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock: %w", err)
+	}
+
+	var versions []models.Version
+	if versionsJSON != "" && versionsJSON != "[]" {
+		json.Unmarshal([]byte(versionsJSON), &versions)
+	}
+
+	newVersions, err := s.versionSvc.SwitchVersion(subDir, versionNum, versions)
+	if err != nil {
+		return nil, err
+	}
+
+	newJSON, _ := json.Marshal(newVersions)
+	_, err = tx.Exec(`UPDATE custom_subscriptions SET versions = ? WHERE id = ?`, string(newJSON), id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
+	}
+
+	cs.Versions = newVersions
+	return cs, nil
+}
+
+// DeleteVersion deletes a version.
+func (s *CustomSubscriptionService) DeleteVersion(id string, versionNum int) (*models.CustomSubscription, error) {
+	cs, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, fmt.Errorf("custom subscription not found")
+	}
+
+	subDir := "custom/" + cs.UserID + "/" + cs.Platform
+
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var versionsJSON string
+	err = tx.QueryRow(`SELECT versions FROM custom_subscriptions WHERE id = ?`, id).Scan(&versionsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock: %w", err)
+	}
+
+	var versions []models.Version
+	if versionsJSON != "" && versionsJSON != "[]" {
+		json.Unmarshal([]byte(versionsJSON), &versions)
+	}
+
+	newVersions, err := s.versionSvc.DeleteVersion(subDir, versionNum, versions)
+	if err != nil {
+		return nil, err
+	}
+
+	newJSON, _ := json.Marshal(newVersions)
+	_, err = tx.Exec(`UPDATE custom_subscriptions SET versions = ? WHERE id = ?`, string(newJSON), id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
+	}
+
+	cs.Versions = newVersions
+	return cs, nil
+}
+
+// GetVersionContent returns a specific version's content.
+func (s *CustomSubscriptionService) GetVersionContent(id string, versionNum int) (string, *models.Version, error) {
+	cs, err := s.repo.FindByID(id)
+	if err != nil {
+		return "", nil, fmt.Errorf("custom subscription not found")
+	}
+	for i := range cs.Versions {
+		if cs.Versions[i].Version == versionNum {
+			content, err := s.versionSvc.ReadVersionContent("custom/"+cs.UserID+"/"+cs.Platform, cs.Versions[i])
+			return content, &cs.Versions[i], err
+		}
+	}
+	return "", nil, fmt.Errorf("version %d not found", versionNum)
+}
+
+// GetCurrentContent returns the current version content.
+func (s *CustomSubscriptionService) GetCurrentContent(id string) (string, error) {
+	cs, err := s.repo.FindByID(id)
+	if err != nil {
+		return "", fmt.Errorf("custom subscription not found")
+	}
+	if len(cs.Versions) == 0 {
+		return "", fmt.Errorf("no versions configured")
+	}
+	return s.versionSvc.ReadCurrentVersion("custom/" + cs.UserID + "/" + cs.Platform)
+}
+
+// Delete deletes a custom subscription and cascades download tokens + version files.
+func (s *CustomSubscriptionService) Delete(id string) error {
+	cs, err := s.repo.FindByID(id)
+	if err != nil {
+		return fmt.Errorf("custom subscription not found")
+	}
+	s.tokenRepo.DeleteByCustomSubID(id)
+	s.versionSvc.RemoveVersionDir("custom/" + cs.UserID + "/" + cs.Platform)
+	return s.repo.Delete(id)
+}
+
+// GetByUserAndPlatform returns the custom subscription for a user+platform.
+func (s *CustomSubscriptionService) GetByUserAndPlatform(userID, platform string) (*models.CustomSubscription, error) {
+	return s.repo.FindByUserAndPlatform(userID, platform)
+}
+
+// ListByUser returns all custom subscriptions for a user.
+func (s *CustomSubscriptionService) ListByUser(userID string) ([]models.CustomSubscription, error) {
+	return s.repo.ListByUser(userID)
+}
+
+// RefreshToken deletes old tokens for a custom sub (forces new token generation).
+func (s *CustomSubscriptionService) RefreshToken(customSubID string) error {
+	return s.tokenRepo.DeleteByCustomSubID(customSubID)
+}

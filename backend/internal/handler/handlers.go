@@ -2,11 +2,15 @@ package handler
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/middleware"
+	"vpn-sub/internal/models"
 	"vpn-sub/internal/repository"
 
 	"github.com/gin-gonic/gin"
@@ -26,15 +30,40 @@ func GetSystemStatus(c *gin.Context) {
 }
 
 func GetPlatforms(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"platforms": []interface{}{}})
+	platforms, err := PlatformSvc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"platforms": platforms})
 }
 
 func GetRules(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"rules": []interface{}{}})
+	rules, err := RuleSvc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rules": rules})
 }
 
 func GetRuleDownload(c *gin.Context) {
-	c.String(http.StatusOK, "# rule download stub")
+	token := c.Query("token")
+	if token == "" {
+		c.String(http.StatusBadRequest, "missing token")
+		return
+	}
+	ruleID, err := RuleSvc.ValidateToken(token)
+	if err != nil {
+		c.String(http.StatusUnauthorized, "invalid token")
+		return
+	}
+	content, err := RuleSvc.GetCurrentContent(ruleID)
+	if err != nil {
+		c.String(http.StatusNotFound, "rule not found")
+		return
+	}
+	c.String(http.StatusOK, content)
 }
 
 // ============================================================================
@@ -331,50 +360,169 @@ func GetOIDCConfig(c *gin.Context) {
 // ============================================================================
 
 func ListUsers(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"users": []interface{}{}})
+	users, err := UserSvc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"users": users})
 }
 
 func GetUser(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"user": gin.H{}})
+	user, err := UserSvc.Get(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user})
 }
 
 func UpdateUser(c *gin.Context) {
+	var req struct {
+		Username   string   `json:"username"`
+		Email      string   `json:"email"`
+		IsAdvanced bool     `json:"is_advanced"`
+		Groups     []string `json:"groups"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	operatorID := middleware.GetUserID(c)
+	target := &models.User{
+		UserID:     c.Param("id"),
+		Username:   req.Username,
+		Email:      req.Email,
+		IsAdvanced: req.IsAdvanced,
+		Groups:     req.Groups,
+	}
+	// Preserve existing role — role changes go through UpdateUser handler which doesn't allow role change
+	if err := UserSvc.Update(operatorID, target); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func DeleteUser(c *gin.Context) {
+	operatorID := middleware.GetUserID(c)
+	if err := UserSvc.Delete(operatorID, c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func RevokeUserTokens(c *gin.Context) {
+	if err := UserSvc.RevokeTokens(c.Param("id")); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func UploadCustomSubscription(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	userID := c.Param("id")
+	platform := c.Query("platform")
+	if platform == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform query parameter is required"})
+		return
+	}
+	content, err := readUploadContent(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	cs, err := CustomSubSvc.Upload(userID, platform, content)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "custom_subscription": cs})
 }
 
 func UploadCustomSubscriptionVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	id := c.Param("id")
+	content, err := readUploadContent(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	cs, err := CustomSubSvc.UploadVersion(id, content)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "custom_subscription": cs})
 }
 
 func DeleteCustomSubscription(c *gin.Context) {
+	if err := CustomSubSvc.Delete(c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func GetCustomVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"version": gin.H{}})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	content, ver, err := CustomSubSvc.GetVersionContent(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"version": ver, "content": content})
 }
 
 func SwitchCustomVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	cs, err := CustomSubSvc.SwitchVersion(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "custom_subscription": cs})
 }
 
 func DeleteCustomVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	cs, err := CustomSubSvc.DeleteVersion(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "custom_subscription": cs})
 }
 
 func RefreshCustomSubToken(c *gin.Context) {
+	// Find the custom subscription for the user+platform
+	userID := c.Param("id")
+	platform := c.Query("platform")
+	if platform == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform query parameter is required"})
+		return
+	}
+	cs, err := CustomSubSvc.GetByUserAndPlatform(userID, platform)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "custom subscription not found"})
+		return
+	}
+	if err := CustomSubSvc.RefreshToken(cs.ID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -383,39 +531,112 @@ func RefreshCustomSubToken(c *gin.Context) {
 // ============================================================================
 
 func ListSubscriptions(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"subscriptions": []interface{}{}})
+	subs, err := SubSvc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"subscriptions": subs})
 }
 
 func CreateSubscription(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	var sub models.Subscription
+	if err := c.ShouldBindJSON(&sub); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if err := SubSvc.Create(&sub); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "subscription": sub})
 }
 
 func GetSubscription(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"subscription": gin.H{}})
+	sub, err := SubSvc.Get(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subscription not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"subscription": sub})
 }
 
 func UpdateSubscription(c *gin.Context) {
+	var sub models.Subscription
+	if err := c.ShouldBindJSON(&sub); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	sub.ID = c.Param("id")
+	if err := SubSvc.Update(&sub); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func DeleteSubscription(c *gin.Context) {
+	if err := SubSvc.Delete(c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func UploadSubscriptionVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	content, err := readUploadContent(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	sub, err := SubSvc.UploadVersion(c.Param("id"), content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "subscription": sub})
 }
 
 func SwitchSubscriptionVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	sub, err := SubSvc.SwitchVersion(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "subscription": sub})
 }
 
 func GetSubscriptionVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"version": gin.H{}})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	content, ver, err := SubSvc.GetVersionContent(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"version": ver, "content": content})
 }
 
 func DeleteSubscriptionVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	sub, err := SubSvc.DeleteVersion(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "subscription": sub})
 }
 
 // ============================================================================
@@ -423,46 +644,164 @@ func DeleteSubscriptionVersion(c *gin.Context) {
 // ============================================================================
 
 func ListShares(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"shares": []interface{}{}})
+	shares, err := ShareSvc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// Enrich with token status
+	type shareWithToken struct {
+		models.ShareSubscription
+		HasToken bool `json:"has_token"`
+	}
+	result := make([]shareWithToken, 0, len(shares))
+	for _, s := range shares {
+		_, tokErr := ShareSvc.GetToken(s.ID)
+		result = append(result, shareWithToken{ShareSubscription: s, HasToken: tokErr == nil})
+	}
+	c.JSON(http.StatusOK, gin.H{"shares": result})
 }
 
 func CreateShare(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	content, err := readUploadContent(c)
+	if err != nil {
+		// Try JSON body with name
+		var req struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		}
+		if jsonErr := c.ShouldBindJSON(&req); jsonErr == nil && req.Name != "" {
+			content = req.Content
+			ss, token, createErr := ShareSvc.Create(req.Name, content)
+			if createErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": createErr.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"success": true, "share": ss, "token": token})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name and content required"})
+		return
+	}
+	name := c.PostForm("name")
+	if name == "" {
+		name = c.Query("name")
+	}
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	ss, token, err := ShareSvc.Create(name, content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "share": ss, "token": token})
 }
 
 func GetShare(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"share": gin.H{}})
+	ss, err := ShareSvc.Get(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Share subscription not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"share": ss})
 }
 
 func UpdateShare(c *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	ss := &models.ShareSubscription{ID: c.Param("id"), Name: req.Name}
+	if err := ShareSvc.Update(ss); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func DeleteShare(c *gin.Context) {
+	if err := ShareSvc.Delete(c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func UploadShareVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	content, err := readUploadContent(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	ss, err := ShareSvc.UploadVersion(c.Param("id"), content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "share": ss})
 }
 
 func SwitchShareVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	ss, err := ShareSvc.SwitchVersion(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "share": ss})
 }
 
 func GetShareVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"version": gin.H{}})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	content, ver, err := ShareSvc.GetVersionContent(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"version": ver, "content": content})
 }
 
 func DeleteShareVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	ss, err := ShareSvc.DeleteVersion(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "share": ss})
 }
 
 func RefreshShareToken(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	token, err := ShareSvc.RefreshToken(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "token": token})
 }
 
 func RevokeShareToken(c *gin.Context) {
+	if err := ShareSvc.RevokeToken(c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -471,22 +810,55 @@ func RevokeShareToken(c *gin.Context) {
 // ============================================================================
 
 func ListPlatforms(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"platforms": []interface{}{}})
+	platforms, err := PlatformSvc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"platforms": platforms})
 }
 
 func CreatePlatform(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	var p models.Platform
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if err := PlatformSvc.Create(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "platform": p})
 }
 
 func GetPlatform(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"platform": gin.H{}})
+	p, err := PlatformSvc.Get(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Platform not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"platform": p})
 }
 
 func UpdatePlatform(c *gin.Context) {
+	var p models.Platform
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	p.ID = c.Param("id")
+	if err := PlatformSvc.Update(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func DeletePlatform(c *gin.Context) {
+	if err := PlatformSvc.Delete(c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -495,43 +867,131 @@ func DeletePlatform(c *gin.Context) {
 // ============================================================================
 
 func ListAdminRules(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"rules": []interface{}{}})
+	rules, err := RuleSvc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// Enrich with token
+	type ruleWithToken struct {
+		models.Rule
+		Token string `json:"token,omitempty"`
+	}
+	result := make([]ruleWithToken, 0, len(rules))
+	for _, r := range rules {
+		tok, _ := RuleSvc.GetToken(r.ID)
+		result = append(result, ruleWithToken{Rule: r, Token: tok})
+	}
+	c.JSON(http.StatusOK, gin.H{"rules": result})
 }
 
 func CreateRule(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	var rule models.Rule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if err := RuleSvc.Create(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule})
 }
 
 func GetAdminRule(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"rule": gin.H{}})
+	rule, err := RuleSvc.Get(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Rule not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rule": rule})
 }
 
 func UpdateAdminRule(c *gin.Context) {
+	var rule models.Rule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	rule.ID = c.Param("id")
+	if err := RuleSvc.Update(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func DeleteAdminRule(c *gin.Context) {
+	if err := RuleSvc.Delete(c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func UploadRuleVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	content, err := readUploadContent(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	rule, err := RuleSvc.UploadVersion(c.Param("id"), content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule})
 }
 
 func SwitchRuleVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	rule, err := RuleSvc.SwitchVersion(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule})
 }
 
 func GetRuleVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"version": gin.H{}})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	content, ver, err := RuleSvc.GetVersionContent(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"version": ver, "content": content})
 }
 
 func DeleteRuleVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	versionNum, err := parseVersionParam(c.Param("versionId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
+		return
+	}
+	rule, err := RuleSvc.DeleteVersion(c.Param("id"), versionNum)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule})
 }
 
 func RefreshRuleToken(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	token, err := RuleSvc.RefreshToken(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "token": token})
 }
 
 // ============================================================================
@@ -539,10 +999,27 @@ func RefreshRuleToken(c *gin.Context) {
 // ============================================================================
 
 func GetRateLimit(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"rate_limit_login": 10, "rate_limit_download": 20})
+	loginLimit, downloadLimit, err := SystemSvc.GetRateLimit()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rate_limit_login": loginLimit, "rate_limit_download": downloadLimit})
 }
 
 func UpdateRateLimit(c *gin.Context) {
+	var req struct {
+		RateLimitLogin    int `json:"rate_limit_login"`
+		RateLimitDownload int `json:"rate_limit_download"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if err := SystemSvc.UpdateRateLimit(req.RateLimitLogin, req.RateLimitDownload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -552,4 +1029,45 @@ func UpdateRateLimit(c *gin.Context) {
 
 func GetLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"logs": []interface{}{}})
+}
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+// readUploadContent reads file content from multipart upload or JSON text body.
+func readUploadContent(c *gin.Context) (string, error) {
+	contentType := c.GetHeader("Content-Type")
+
+	// Handle multipart file upload
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 50*1024*1024) // 50MB limit
+		file, _, err := c.Request.FormFile("file")
+		if err != nil {
+			return "", err
+		}
+		defer file.Close()
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
+
+	// Handle JSON text body
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return "", err
+	}
+	if req.Content == "" {
+		return "", fmt.Errorf("content is required")
+	}
+	return req.Content, nil
+}
+
+// parseVersionParam parses a version ID string to an integer.
+func parseVersionParam(v string) (int, error) {
+	return strconv.Atoi(v)
 }

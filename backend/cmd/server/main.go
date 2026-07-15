@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/handler"
 	"vpn-sub/internal/middleware"
 	"vpn-sub/internal/repository"
 	"vpn-sub/internal/router"
@@ -47,6 +48,10 @@ func main() {
 			log.Println("Auth service initialized successfully")
 		}
 	}
+
+	// Initialize business services (block 3)
+	handler.InitServices()
+	log.Println("Business services initialized")
 
 	// Setup Gin
 	gin.SetMode(gin.ReleaseMode)

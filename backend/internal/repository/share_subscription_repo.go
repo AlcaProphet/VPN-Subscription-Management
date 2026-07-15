@@ -59,6 +59,14 @@ func (r *ShareSubscriptionRepo) Create(ss *models.ShareSubscription) error {
 	return err
 }
 
+func (r *ShareSubscriptionRepo) Update(ss *models.ShareSubscription) error {
+	_, err := DB.Exec(
+		`UPDATE share_subscriptions SET name = ? WHERE id = ?`,
+		ss.Name, ss.ID,
+	)
+	return err
+}
+
 func (r *ShareSubscriptionRepo) UpdateVersions(id string, versions []models.Version) error {
 	versionsJSON, _ := json.Marshal(versions)
 	_, err := DB.Exec(`UPDATE share_subscriptions SET versions = ? WHERE id = ?`, string(versionsJSON), id)

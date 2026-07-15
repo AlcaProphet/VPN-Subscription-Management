@@ -75,6 +75,14 @@ func (r *SubscriptionRepo) Create(s *models.Subscription) error {
 	return err
 }
 
+func (r *SubscriptionRepo) Update(s *models.Subscription) error {
+	_, err := DB.Exec(
+		`UPDATE subscriptions SET name = ?, platform = ?, type = ? WHERE id = ?`,
+		s.Name, s.Platform, s.Type, s.ID,
+	)
+	return err
+}
+
 func (r *SubscriptionRepo) UpdateVersions(id string, versions []models.Version) error {
 	versionsJSON, _ := json.Marshal(versions)
 	_, err := DB.Exec(`UPDATE subscriptions SET versions = ? WHERE id = ?`, string(versionsJSON), id)

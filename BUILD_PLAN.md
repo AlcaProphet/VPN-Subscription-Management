@@ -95,35 +95,35 @@
 
 **任务**:
 
-- [ ] 平台管理（`/admin/platforms/*`）：CRUD，client_schemes JSON 数组，download_url 可空
-- [ ] 用户管理（`/admin/users/*`）：
+- [x] 平台管理（`/admin/platforms/*`）：CRUD，client_schemes JSON 数组，download_url 可空
+- [x] 用户管理（`/admin/users/*`）：
   - 列表、编辑 is_advanced（管理员强制 true，禁改自己 role）
   - 管理员自我保护：禁删自己（c.GetUserID == :id 拒绝）、禁删最后一个管理员（role=admin 数量 ≥ 1）、禁改自己 role
   - 吊销用户所有下载 Token
   - 删除用户（级联删 download_tokens、custom_subscriptions 及版本文件）
-- [ ] 订阅管理（`/admin/subscriptions/*`）：
+- [x] 订阅管理（`/admin/subscriptions/*`）：
   - CRUD，UNIQUE(platform, type)，type=default/advanced
   - 版本管理：`POST /versions`（支持 multipart 文件上传 + JSON 文本 body 两种 Content-Type）、`PUT /versions/:versionId/current`、`DELETE /versions/:versionId`
   - 版本号 nextVersion = max(versions)+1，事务内计算 + 行级锁
   - 最多 5 个版本，超出删最旧，不可删最后一个
   - current 软链接原子切换（current.new → rename）
   - 文件存储 `data/subscriptions/{id}/v1.conf ... + current.conf`
-- [ ] 规则管理（`/admin/rules/*`）：结构同订阅，client_type 预留，文件存储 `data/rules/{id}/`
-- [ ] 自定义订阅（`/admin/users/:id/custom-subscription/*`）：
+- [x] 规则管理（`/admin/rules/*`）：结构同订阅，client_type 预留，文件存储 `data/rules/{id}/`
+- [x] 自定义订阅（`/admin/users/:id/custom-subscription/*`）：
   - 上传需指定平台，每用户每平台最多一份
   - 版本管理同订阅，文件存储 `data/custom/{user_id}/{platform}/`
   - `POST /refresh-token?platform=xxx` 刷新该平台自定义订阅 Token
   - 删除自定义订阅 → 级联删 custom_sub_id 指向的 Token
-- [ ] 分享订阅（`/admin/share/*`）：
+- [x] 分享订阅（`/admin/share/*`）：
   - CRUD + 版本管理（同订阅结构），文件存储 `data/shares/{id}/`
   - 创建时自动生成 share_token
   - `POST /:id/refresh-token` 刷新 Token
   - `DELETE /:id/token` 吊销 Token（链接不可用但文件保留）
   - 删除分享订阅 → 级联删 share_tokens + 版本文件
-- [ ] 规则 Token 轮替：`POST /admin/rules/:id/refresh-token`
-- [ ] 速率限制配置：`GET/PUT /admin/system/rate-limit`（rate_limit_login 默认 10/min、rate_limit_download 默认 20/min）
-- [ ] OIDC 配置查看：`GET /admin/oidc-config`（Client Secret 脱敏回显）
-- [ ] 验证：`go build ./...` 通过；用 curl 测试各端点 CRUD + 版本上传/切换/删除
+- [x] 规则 Token 轮替：`POST /admin/rules/:id/refresh-token`
+- [x] 速率限制配置：`GET/PUT /admin/system/rate-limit`（rate_limit_login 默认 10/min、rate_limit_download 默认 20/min）
+- [x] OIDC 配置查看：`GET /admin/oidc-config`（Client Secret 脱敏回显）
+- [x] 验证：`go build ./...` 通过；用 curl 测试各端点 CRUD + 版本上传/切换/删除
 
 **关键约束**:
 - 所有 /admin/* 必须有 AdminRequired 中间件
