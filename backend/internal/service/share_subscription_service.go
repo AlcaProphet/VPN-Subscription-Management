@@ -128,6 +128,14 @@ func (s *ShareSubscriptionService) UploadVersion(id, content string) (*models.Sh
 		return nil, err
 	}
 
+	// Ensure the version file is cleaned up if any subsequent step fails
+	committed := false
+	defer func() {
+		if !committed {
+			s.versionSvc.RemoveVersionFile("shares/"+id, newVersionNum)
+		}
+	}()
+
 	newJSON, _ := json.Marshal(newVersions)
 	_, err = tx.Exec(`UPDATE share_subscriptions SET versions = ? WHERE id = ?`, string(newJSON), id)
 	if err != nil {
@@ -135,10 +143,9 @@ func (s *ShareSubscriptionService) UploadVersion(id, content string) (*models.Sh
 	}
 
 	if err := tx.Commit(); err != nil {
-		// Clean up orphaned version file (file was written outside the transaction)
-		s.versionSvc.RemoveVersionFile("shares/"+id, newVersionNum)
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
+	committed = true
 
 	ss.Versions = newVersions
 	return ss, nil

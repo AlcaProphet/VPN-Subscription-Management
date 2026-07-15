@@ -62,11 +62,28 @@ func (s *PlatformService) Update(p *models.Platform) error {
 }
 
 // Delete deletes a platform and cascades: subscriptions, download tokens, custom subscriptions.
+// Files are deleted AFTER the DB transaction commits to avoid orphaned DB records
+// if the transaction rolls back.
 func (s *PlatformService) Delete(id string) error {
 	// Check platform exists
 	if _, err := s.repo.FindByID(id); err != nil {
 		return fmt.Errorf("platform not found")
 	}
+
+	// Collect version directories to delete after successful commit.
+	// We delete files only after the DB transaction succeeds to avoid
+	// a situation where files are gone but DB records are rolled back.
+	type dirToClean struct {
+		subDir string
+	}
+	var dirsToClean []dirToClean
+
+	// Collect custom sub data for file deletion
+	type customSubInfo struct {
+		userID   string
+		platform string
+	}
+	var customSubs []customSubInfo
 
 	tx, err := repository.DB.Begin()
 	if err != nil {
@@ -74,10 +91,10 @@ func (s *PlatformService) Delete(id string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete subscriptions and their version files within transaction
+	// Collect subscriptions and delete from DB
 	subs, _ := s.subRepo.ListByPlatform(id)
 	for _, sub := range subs {
-		s.versionSvc.RemoveVersionDir("subscriptions/" + sub.ID)
+		dirsToClean = append(dirsToClean, dirToClean{subDir: "subscriptions/" + sub.ID})
 		if _, err := tx.Exec(`DELETE FROM subscriptions WHERE id = ?`, sub.ID); err != nil {
 			return fmt.Errorf("failed to delete subscription: %w", err)
 		}
@@ -88,14 +105,15 @@ func (s *PlatformService) Delete(id string) error {
 		return fmt.Errorf("failed to delete download tokens: %w", err)
 	}
 
-	// Delete custom subscriptions for this platform and their version files
+	// Collect and delete custom subscriptions
 	rows, err := tx.Query(`SELECT user_id, platform FROM custom_subscriptions WHERE platform = ?`, id)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var userID, platform string
 			if err := rows.Scan(&userID, &platform); err == nil {
-				s.versionSvc.RemoveVersionDir("custom/" + userID + "/" + platform)
+				customSubs = append(customSubs, customSubInfo{userID: userID, platform: platform})
+				dirsToClean = append(dirsToClean, dirToClean{subDir: "custom/" + userID + "/" + platform})
 			}
 		}
 	}
@@ -108,5 +126,16 @@ func (s *PlatformService) Delete(id string) error {
 		return fmt.Errorf("failed to delete platform: %w", err)
 	}
 
-	return tx.Commit()
+	// Commit the transaction first
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
+	// Only now delete files from disk — if this fails, it only leaves orphaned
+	// files (not orphaned DB records), which is the safer failure mode.
+	for _, d := range dirsToClean {
+		s.versionSvc.RemoveVersionDir(d.subDir)
+	}
+
+	return nil
 }

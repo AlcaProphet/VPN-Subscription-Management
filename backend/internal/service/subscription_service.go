@@ -104,6 +104,16 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 		return nil, err
 	}
 
+	// Ensure the version file is cleaned up if any subsequent step fails
+	// (DB update or commit). The file was written outside the transaction,
+	// so we must clean it up manually on failure.
+	committed := false
+	defer func() {
+		if !committed {
+			s.versionSvc.RemoveVersionFile("subscriptions/"+id, newVersionNum)
+		}
+	}()
+
 	newJSON, _ := json.Marshal(newVersions)
 	_, err = tx.Exec(`UPDATE subscriptions SET versions = ? WHERE id = ?`, string(newJSON), id)
 	if err != nil {
@@ -111,10 +121,9 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 	}
 
 	if err := tx.Commit(); err != nil {
-		// Clean up orphaned version file (file was written outside the transaction)
-		s.versionSvc.RemoveVersionFile("subscriptions/"+id, newVersionNum)
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
+	committed = true
 
 	sub.Versions = newVersions
 	return sub, nil
