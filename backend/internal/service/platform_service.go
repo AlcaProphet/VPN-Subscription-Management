@@ -107,15 +107,20 @@ func (s *PlatformService) Delete(id string) error {
 
 	// Collect and delete custom subscriptions
 	rows, err := tx.Query(`SELECT user_id, platform FROM custom_subscriptions WHERE platform = ?`, id)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var userID, platform string
-			if err := rows.Scan(&userID, &platform); err == nil {
-				customSubs = append(customSubs, customSubInfo{userID: userID, platform: platform})
-				dirsToClean = append(dirsToClean, dirToClean{subDir: "custom/" + userID + "/" + platform})
-			}
+	if err != nil {
+		return fmt.Errorf("failed to query custom subscriptions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID, platform string
+		if err := rows.Scan(&userID, &platform); err != nil {
+			return fmt.Errorf("failed to scan custom subscription row: %w", err)
 		}
+		customSubs = append(customSubs, customSubInfo{userID: userID, platform: platform})
+		dirsToClean = append(dirsToClean, dirToClean{subDir: "custom/" + userID + "/" + platform})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating custom subscriptions: %w", err)
 	}
 	if _, err := tx.Exec(`DELETE FROM custom_subscriptions WHERE platform = ?`, id); err != nil {
 		return fmt.Errorf("failed to delete custom subscriptions: %w", err)
