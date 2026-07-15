@@ -235,13 +235,27 @@ func (s *VersionService) RemoveVersionDir(subDir string) error {
 	return os.RemoveAll(fullDir)
 }
 
+// RemoveVersionFile removes a single version file. Used to clean up orphaned files
+// when a DB transaction fails after the version file has already been written.
+func (s *VersionService) RemoveVersionFile(subDir string, versionNum int) error {
+	fullDir, err := utils.SanitizePath(s.dataDir, subDir)
+	if err != nil {
+		return err
+	}
+	return os.Remove(filepath.Join(fullDir, versionFileName(versionNum)))
+}
+
+// NextVersion returns the next version number for the given versions slice.
+func (s *VersionService) NextVersion(versions []models.Version) int {
+	return s.nextVersion(versions)
+}
+
 // switchSymlink atomically switches the current symlink using rename().
 func (s *VersionService) switchSymlink(fullDir, targetName string) error {
 	currentPath := filepath.Join(fullDir, currentFileName())
 	tmpPath := filepath.Join(fullDir, currentFileName()+".new")
 
-	// Remove old symlink if exists
-	os.Remove(currentPath)
+	// Remove any stale temporary symlink from a previous failed attempt
 	os.Remove(tmpPath)
 
 	// Create new symlink pointing to the target version file
@@ -249,7 +263,9 @@ func (s *VersionService) switchSymlink(fullDir, targetName string) error {
 		return fmt.Errorf("failed to create symlink: %w", err)
 	}
 
-	// Atomically replace current with the new symlink
+	// Atomically replace current with the new symlink (os.Rename is atomic on Linux/macOS).
+	// No need to Remove currentPath first — Rename replaces the target atomically,
+	// so there is never a window where current.conf does not exist.
 	if err := os.Rename(tmpPath, currentPath); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename symlink: %w", err)

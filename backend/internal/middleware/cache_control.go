@@ -8,9 +8,8 @@ import (
 // This can be overridden by specific handlers if needed.
 func CacheControlMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Next()
-		// NoCacheForDownloads middleware handles download-specific cache headers.
-		// This middleware is a generic no-cache for API responses.
+		// Set headers before processing the request so they take effect.
 		c.Header("Cache-Control", "no-store")
+		c.Next()
 	}
 }

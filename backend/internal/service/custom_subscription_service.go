@@ -31,13 +31,12 @@ func (s *CustomSubscriptionService) Upload(userID, platform, content string) (*m
 	existing, _ := s.repo.FindByUserAndPlatform(userID, platform)
 
 	if existing != nil {
-		// Overwrite: upload new version
+		// Overwrite: upload new version (do NOT delete tokens — the user's
+		// existing download link should continue working with the new version)
 		cs, err := s.UploadVersion(existing.ID, content)
 		if err != nil {
 			return nil, err
 		}
-		// Delete old tokens so user gets new token
-		s.tokenRepo.DeleteByCustomSubID(existing.ID)
 		return cs, nil
 	}
 
@@ -96,6 +95,7 @@ func (s *CustomSubscriptionService) UploadVersion(id, content string) (*models.C
 		json.Unmarshal([]byte(versionsJSON), &currentVersions)
 	}
 
+	newVersionNum := s.versionSvc.NextVersion(currentVersions)
 	newVersions, err := s.versionSvc.CreateVersion(subDir, content, currentVersions)
 	if err != nil {
 		return nil, err
@@ -108,6 +108,8 @@ func (s *CustomSubscriptionService) UploadVersion(id, content string) (*models.C
 	}
 
 	if err := tx.Commit(); err != nil {
+		// Clean up orphaned version file (file was written outside the transaction)
+		s.versionSvc.RemoveVersionFile(subDir, newVersionNum)
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
 

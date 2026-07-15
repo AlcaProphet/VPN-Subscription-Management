@@ -12,7 +12,9 @@ func CORSMiddleware() gin.HandlerFunc {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
-		c.Header("Access-Control-Allow-Credentials", "true")
+		// Note: Allow-Credentials is intentionally omitted because it is incompatible
+		// with Allow-Origin: * per the CORS specification. Authentication uses Bearer
+		// tokens via the Authorization header, not cookies.
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)

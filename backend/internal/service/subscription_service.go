@@ -1,7 +1,6 @@
 package service
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -58,6 +57,11 @@ func (s *SubscriptionService) Update(sub *models.Subscription) error {
 	if sub.Name == "" {
 		return fmt.Errorf("name is required")
 	}
+	// Check uniqueness of (platform, type) excluding self
+	existing, _ := s.repo.FindByPlatformAndType(sub.Platform, sub.Type)
+	if existing != nil && existing.ID != sub.ID {
+		return fmt.Errorf("subscription with platform=%q and type=%q already exists", sub.Platform, sub.Type)
+	}
 	return s.repo.Update(sub)
 }
 
@@ -94,6 +98,7 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 		json.Unmarshal([]byte(versionsJSON), &currentVersions)
 	}
 
+	newVersionNum := s.versionSvc.NextVersion(currentVersions)
 	newVersions, err := s.versionSvc.CreateVersion("subscriptions/"+id, content, currentVersions)
 	if err != nil {
 		return nil, err
@@ -106,6 +111,8 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 	}
 
 	if err := tx.Commit(); err != nil {
+		// Clean up orphaned version file (file was written outside the transaction)
+		s.versionSvc.RemoveVersionFile("subscriptions/"+id, newVersionNum)
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
 
@@ -237,5 +244,3 @@ func (s *SubscriptionService) GetUpdateTime() (time.Time, error) {
 	}
 	return maxTime, nil
 }
-
-var _ = sql.LevelDefault

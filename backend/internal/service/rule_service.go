@@ -87,6 +87,7 @@ func (s *RuleService) UploadVersion(id, content string) (*models.Rule, error) {
 		json.Unmarshal([]byte(versionsJSON), &currentVersions)
 	}
 
+	newVersionNum := s.versionSvc.NextVersion(currentVersions)
 	newVersions, err := s.versionSvc.CreateVersion("rules/"+id, content, currentVersions)
 	if err != nil {
 		return nil, err
@@ -99,6 +100,8 @@ func (s *RuleService) UploadVersion(id, content string) (*models.Rule, error) {
 	}
 
 	if err := tx.Commit(); err != nil {
+		// Clean up orphaned version file (file was written outside the transaction)
+		s.versionSvc.RemoveVersionFile("rules/"+id, newVersionNum)
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
 

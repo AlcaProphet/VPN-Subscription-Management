@@ -83,9 +83,14 @@ func AuthLogin(c *gin.Context) {
 		return
 	}
 
+	// Determine if the cookie should be Secure based on the request protocol.
+	// In production behind a reverse proxy, X-Forwarded-Proto is set to "https".
+	// In local development (HTTP), Secure must be false or the browser won't send it.
+	isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+
 	// Set state in HttpOnly cookie for CSRF triple verification
 	c.SetCookie(
-		"oidc_state", result.State, 600, "/", "", true, true, // 10 min, secure, httpOnly
+		"oidc_state", result.State, 600, "/", "", isSecure, true,
 	)
 
 	c.Redirect(http.StatusFound, result.RedirectURL)
@@ -110,12 +115,17 @@ func AuthCallback(c *gin.Context) {
 
 	result, err := svc.HandleCallback(context.Background(), queryState, cookieState, code)
 	if err != nil {
+		// Clear the state cookie even on failure to avoid stale state interfering
+		// with subsequent login attempts.
+		isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+		c.SetCookie("oidc_state", "", -1, "/", "", isSecure, true)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed: " + err.Error()})
 		return
 	}
 
-	// Clear the state cookie
-	c.SetCookie("oidc_state", "", -1, "/", "", true, true)
+	// Clear the state cookie on success
+	isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+	c.SetCookie("oidc_state", "", -1, "/", "", isSecure, true)
 
 	// Redirect to frontend callback page with JWT in query
 	frontendCallback := strings.TrimRight(result.FrontendURL, "/") + "/auth/callback?token=" + result.JWT
@@ -1074,6 +1084,7 @@ func readUploadContent(c *gin.Context) (string, error) {
 	}
 
 	// Handle JSON text body
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 50*1024*1024) // 50MB limit
 	var req struct {
 		Content string `json:"content"`
 	}

@@ -68,21 +68,28 @@ func (s *PlatformService) Delete(id string) error {
 		return fmt.Errorf("platform not found")
 	}
 
-	// Delete subscriptions and their version files
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete subscriptions and their version files within transaction
 	subs, _ := s.subRepo.ListByPlatform(id)
 	for _, sub := range subs {
 		s.versionSvc.RemoveVersionDir("subscriptions/" + sub.ID)
-		s.subRepo.Delete(sub.ID)
+		if _, err := tx.Exec(`DELETE FROM subscriptions WHERE id = ?`, sub.ID); err != nil {
+			return fmt.Errorf("failed to delete subscription: %w", err)
+		}
 	}
 
 	// Delete download tokens for this platform
-	s.tokenRepo.DeleteByPlatform(id)
+	if _, err := tx.Exec(`DELETE FROM download_tokens WHERE platform = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete download tokens: %w", err)
+	}
 
 	// Delete custom subscriptions for this platform and their version files
-	// Query all custom subs for this platform, delete version files, then DB records
-	rows, err := repository.DB.Query(
-		`SELECT user_id, platform FROM custom_subscriptions WHERE platform = ?`, id,
-	)
+	rows, err := tx.Query(`SELECT user_id, platform FROM custom_subscriptions WHERE platform = ?`, id)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -92,8 +99,14 @@ func (s *PlatformService) Delete(id string) error {
 			}
 		}
 	}
-	repository.DB.Exec(`DELETE FROM custom_subscriptions WHERE platform = ?`, id)
+	if _, err := tx.Exec(`DELETE FROM custom_subscriptions WHERE platform = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete custom subscriptions: %w", err)
+	}
 
 	// Delete platform
-	return s.repo.Delete(id)
+	if _, err := tx.Exec(`DELETE FROM platforms WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete platform: %w", err)
+	}
+
+	return tx.Commit()
 }

@@ -122,6 +122,7 @@ func (s *ShareSubscriptionService) UploadVersion(id, content string) (*models.Sh
 		json.Unmarshal([]byte(versionsJSON), &currentVersions)
 	}
 
+	newVersionNum := s.versionSvc.NextVersion(currentVersions)
 	newVersions, err := s.versionSvc.CreateVersion("shares/"+id, content, currentVersions)
 	if err != nil {
 		return nil, err
@@ -134,6 +135,8 @@ func (s *ShareSubscriptionService) UploadVersion(id, content string) (*models.Sh
 	}
 
 	if err := tx.Commit(); err != nil {
+		// Clean up orphaned version file (file was written outside the transaction)
+		s.versionSvc.RemoveVersionFile("shares/"+id, newVersionNum)
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
 

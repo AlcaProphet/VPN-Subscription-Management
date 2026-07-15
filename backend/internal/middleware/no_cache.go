@@ -10,7 +10,7 @@ import (
 // Apply this middleware to all download routes.
 func NoCacheForDownloads() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, s-maxage=0")
 		c.Header("Pragma", "no-cache")
 		c.Header("Expires", "0")
 		c.Next()

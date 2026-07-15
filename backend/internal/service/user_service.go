@@ -36,17 +36,16 @@ func (s *UserService) Get(userID string) (*models.User, error) {
 }
 
 // Update updates a user's editable fields.
-// Admin self-protection: admin's is_advanced is always true; admin cannot change own role.
+// Admin self-protection: admin's is_advanced is always true.
 func (s *UserService) Update(operatorID string, target *models.User) error {
 	existing, err := s.repo.FindByID(target.UserID)
 	if err != nil {
 		return fmt.Errorf("user not found")
 	}
 
-	// Preserve existing role if not explicitly being changed (role changes are forbidden anyway)
-	if target.Role == "" {
-		target.Role = existing.Role
-	}
+	// Role must not be changed via this endpoint (handler sets it to empty string).
+	// Preserve the existing role from the database.
+	target.Role = existing.Role
 
 	// Admin self-protection: cannot change own role
 	if operatorID == target.UserID && target.Role != existing.Role {

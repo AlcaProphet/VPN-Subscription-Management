@@ -170,6 +170,22 @@ func createTables() error {
 		}
 	}
 
+	// Partial unique indexes for download_tokens — SQLite treats NULLs as distinct
+	// in UNIQUE constraints, so we use two partial indexes to enforce uniqueness:
+	// one for regular tokens (custom_sub_id IS NULL, unique on user+platform+type)
+	// and one for custom tokens (custom_sub_id IS NOT NULL, unique on user+platform+custom_sub_id).
+	indexes := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_download_tokens_regular
+		 ON download_tokens(user_id, platform, type) WHERE custom_sub_id IS NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_download_tokens_custom
+		 ON download_tokens(user_id, platform, custom_sub_id) WHERE custom_sub_id IS NOT NULL`,
+	}
+	for _, idx := range indexes {
+		if _, err := DB.Exec(idx); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
