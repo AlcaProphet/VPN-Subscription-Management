@@ -30,25 +30,25 @@
 
 **任务**:
 
-- [ ] 创建 `backend/go.mod`（module 名如 `vpn-sub`），添加依赖：
-  - `github.com/gin-gonic/gin`
-  - `github.com/rs/zerolog`
-  - `modernc.org/sqlite`
-  - `github.com/coreos/go-oidc/v3`
-  - `github.com/golang-jwt/jwt/v5`
-  - 运行 `go mod tidy`
-- [ ] 按 6.2 创建目录结构：`cmd/server/`、`internal/{auth,handler,service,repository,middleware,models,router,utils}/`
-- [ ] `internal/utils/env.go`：读取环境变量（PORT 默认 8080）
-- [ ] `internal/utils/crypto.go`：AES-256-GCM 加密/解密（key 取 JWT_SECRET 前 32 字节）
-- [ ] `internal/utils/sanitizePath.go`：路径穿越防护
-- [ ] `internal/utils/isValidID.go`：ID 格式校验 `[a-z0-9-]+`（必须在 utils 包，不能在 handler）
-- [ ] `internal/models/types.go`：定义所有结构体（User, Platform, Subscription, Rule, Version, DownloadToken, CustomSubscription, ShareSubscription, ShareToken, RuleToken, AccessLog, OIDCState, SystemConfig）
-- [ ] `internal/repository/db.go`：初始化 SQLite，创建 12 张表（按 6.3 表清单），开启 WAL 模式，自动创建 3 个默认平台（clash-verge/v2rayng/shadowrocket）
-- [ ] `internal/repository/`：每张表一个 repo 文件（system_config, user, platform, subscription, rules, download_token, custom_subscription, share_subscription, share_token, rule_token, access_log, oidc_state）
-- [ ] `internal/middleware/`：Logger（zerolog，?token= 脱敏为 ***）、Recovery、CORS、CacheControl、NoCacheForDownloads、AuthRequired（实时查库）、AdminRequired、RateLimit（预留，块 4 实现）
-- [ ] `internal/router/router.go`：Setup 模式路由 + Normal 模式路由（依据 system_config.configured 切换），先注册 `/health` 和 `/system/status`
-- [ ] `cmd/server/main.go`：入口，读 PORT，初始化 DB，配置 `SetTrustedProxies(["127.0.0.1"])`，启动 Gin
-- [ ] 验证：`go build ./...` 通过，启动后 `GET /health` 返回 200，`GET /api/v1/system/status` 返回 `{ configured: false }`
+- [x] 创建 `backend/go.mod`（module 名 `vpn-sub`），添加依赖：
+  - `github.com/gin-gonic/gin` ✅
+  - `github.com/rs/zerolog` ✅
+  - `modernc.org/sqlite` ✅
+  - `github.com/coreos/go-oidc/v3` ⚠️ 待块 2 添加
+  - `github.com/golang-jwt/jwt/v5` ⚠️ 待块 2 添加
+  - 运行 `go mod tidy` ✅
+- [x] 按 6.2 创建目录结构：`cmd/server/`、`internal/{auth,handler,service,repository,middleware,models,router,utils}/`
+- [x] `internal/utils/env.go`：读取环境变量（PORT 默认 8080）
+- [x] `internal/utils/crypto.go`：AES-256-GCM 加密/解密（key 取 JWT_SECRET 前 32 字节）
+- [x] `internal/utils/sanitizePath.go`：路径穿越防护
+- [x] `internal/utils/isValidID.go`：ID 格式校验 `[a-z0-9-]+`（必须在 utils 包，不能在 handler）
+- [x] `internal/models/types.go`：定义所有结构体（User, Platform, Subscription, Rule, Version, DownloadToken, CustomSubscription, ShareSubscription, ShareToken, RuleToken, AccessLog, OIDCState, SystemConfig）
+- [x] `internal/repository/db.go`：初始化 SQLite，创建 12 张表（按 6.3 表清单），开启 WAL 模式，自动创建 3 个默认平台（clash-verge/v2rayng/shadowrocket）
+- [x] `internal/repository/`：每张表一个 repo 文件（system_config, user, platform, subscription, rules, download_token, custom_subscription, share_subscription, share_token, rule_token, access_log, oidc_state）
+- [x] `internal/middleware/`：Logger（zerolog，?token= 脱敏为 ***）、Recovery、CORS、CacheControl、NoCacheForDownloads、AuthRequired（实时查库）、AdminRequired、RateLimit（预留，块 4 实现）
+- [x] `internal/router/router.go`：Setup 模式路由 + Normal 模式路由（依据 system_config.configured 切换），先注册 `/health` 和 `/system/status`
+- [x] `cmd/server/main.go`：入口，读 PORT，初始化 DB，配置 `SetTrustedProxies(["127.0.0.1"])`，启动 Gin
+- [x] 验证：`go build ./...` 通过，启动后 `GET /health` 返回 200，`GET /api/v1/system/status` 返回 `{ configured: false }`
 
 **关键约束**:
 - SQLite 路径 `/app/data/vpn.db`（开发环境用相对路径 `./data/vpn.db`）
