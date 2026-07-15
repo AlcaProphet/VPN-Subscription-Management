@@ -45,12 +45,9 @@ func (s *UserService) Update(operatorID string, target *models.User) error {
 
 	// Role must not be changed via this endpoint (handler sets it to empty string).
 	// Preserve the existing role from the database.
+	// Admin self-protection for role changes is enforced at the handler level
+	// (Role is hardcoded to "" in UpdateUser handler, preventing any role mutation).
 	target.Role = existing.Role
-
-	// Admin self-protection: cannot change own role
-	if operatorID == target.UserID && target.Role != existing.Role {
-		return fmt.Errorf("cannot change your own role")
-	}
 
 	// Admin's is_advanced is always true
 	if existing.Role == "admin" {
@@ -92,18 +89,47 @@ func (s *UserService) Delete(operatorID, targetID string) error {
 		}
 	}
 
-	// Delete custom subscriptions and their version files
+	// Collect custom sub directories for file cleanup after commit
+	type dirToClean struct {
+		path string
+	}
+	var dirsToClean []dirToClean
 	customs, _ := s.customRepo.ListByUser(targetID)
 	for _, cs := range customs {
-		s.versionSvc.RemoveVersionDir("custom/" + cs.UserID + "/" + cs.Platform)
+		dirsToClean = append(dirsToClean, dirToClean{path: "custom/" + cs.UserID + "/" + cs.Platform})
 	}
-	s.customRepo.DeleteByUser(targetID)
+
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete custom subscriptions from DB
+	if _, err := tx.Exec(`DELETE FROM custom_subscriptions WHERE user_id = ?`, targetID); err != nil {
+		return fmt.Errorf("failed to delete custom subscriptions: %w", err)
+	}
 
 	// Delete download tokens
-	s.tokenRepo.DeleteByUser(targetID)
+	if _, err := tx.Exec(`DELETE FROM download_tokens WHERE user_id = ?`, targetID); err != nil {
+		return fmt.Errorf("failed to delete download tokens: %w", err)
+	}
 
 	// Delete user
-	return s.repo.Delete(targetID)
+	if _, err := tx.Exec(`DELETE FROM users WHERE user_id = ?`, targetID); err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
+	// Delete files only after successful commit
+	for _, d := range dirsToClean {
+		s.versionSvc.RemoveVersionDir(d.path)
+	}
+
+	return nil
 }
 
 // RevokeTokens revokes all download tokens for a user.

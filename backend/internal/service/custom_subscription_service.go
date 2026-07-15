@@ -95,11 +95,13 @@ func (s *CustomSubscriptionService) UploadVersion(id, content string) (*models.C
 		json.Unmarshal([]byte(versionsJSON), &currentVersions)
 	}
 
-	newVersionNum := s.versionSvc.NextVersion(currentVersions)
 	newVersions, err := s.versionSvc.CreateVersion(subDir, content, currentVersions)
 	if err != nil {
 		return nil, err
 	}
+
+	// The newly created version is always the last element (highest number).
+	newVersionNum := newVersions[len(newVersions)-1].Version
 
 	// Ensure the version file is cleaned up if any subsequent step fails
 	committed := false
@@ -247,9 +249,28 @@ func (s *CustomSubscriptionService) Delete(id string) error {
 	if err != nil {
 		return fmt.Errorf("custom subscription not found")
 	}
-	s.tokenRepo.DeleteByCustomSubID(id)
-	s.versionSvc.RemoveVersionDir("custom/" + cs.UserID + "/" + cs.Platform)
-	return s.repo.Delete(id)
+
+	subDir := "custom/" + cs.UserID + "/" + cs.Platform
+
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM download_tokens WHERE custom_sub_id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete download tokens: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM custom_subscriptions WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete custom subscription: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
+	s.versionSvc.RemoveVersionDir(subDir)
+	return nil
 }
 
 // GetByUserAndPlatform returns the custom subscription for a user+platform.

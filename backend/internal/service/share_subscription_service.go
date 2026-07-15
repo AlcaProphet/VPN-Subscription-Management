@@ -94,9 +94,26 @@ func (s *ShareSubscriptionService) Delete(id string) error {
 	if _, err := s.repo.FindByID(id); err != nil {
 		return fmt.Errorf("share subscription not found")
 	}
-	s.tokenRepo.DeleteByShareSubscriptionID(id)
+
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM share_tokens WHERE share_subscription_id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete share tokens: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM share_subscriptions WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete share subscription: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
 	s.versionSvc.RemoveVersionDir("shares/" + id)
-	return s.repo.Delete(id)
+	return nil
 }
 
 func (s *ShareSubscriptionService) UploadVersion(id, content string) (*models.ShareSubscription, error) {
@@ -122,11 +139,13 @@ func (s *ShareSubscriptionService) UploadVersion(id, content string) (*models.Sh
 		json.Unmarshal([]byte(versionsJSON), &currentVersions)
 	}
 
-	newVersionNum := s.versionSvc.NextVersion(currentVersions)
 	newVersions, err := s.versionSvc.CreateVersion("shares/"+id, content, currentVersions)
 	if err != nil {
 		return nil, err
 	}
+
+	// The newly created version is always the last element (highest number).
+	newVersionNum := newVersions[len(newVersions)-1].Version
 
 	// Ensure the version file is cleaned up if any subsequent step fails
 	committed := false

@@ -70,9 +70,26 @@ func (s *SubscriptionService) Delete(id string) error {
 	if err != nil {
 		return fmt.Errorf("subscription not found")
 	}
-	s.tokenRepo.DeleteByPlatformAndType(sub.Platform, sub.Type)
+
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM download_tokens WHERE platform = ? AND type = ? AND custom_sub_id IS NULL`, sub.Platform, sub.Type); err != nil {
+		return fmt.Errorf("failed to delete download tokens: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM subscriptions WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete subscription: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
 	s.versionSvc.RemoveVersionDir("subscriptions/" + id)
-	return s.repo.Delete(id)
+	return nil
 }
 
 func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscription, error) {
@@ -98,11 +115,13 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 		json.Unmarshal([]byte(versionsJSON), &currentVersions)
 	}
 
-	newVersionNum := s.versionSvc.NextVersion(currentVersions)
 	newVersions, err := s.versionSvc.CreateVersion("subscriptions/"+id, content, currentVersions)
 	if err != nil {
 		return nil, err
 	}
+
+	// The newly created version is always the last element (highest number).
+	newVersionNum := newVersions[len(newVersions)-1].Version
 
 	// Ensure the version file is cleaned up if any subsequent step fails
 	// (DB update or commit). The file was written outside the transaction,

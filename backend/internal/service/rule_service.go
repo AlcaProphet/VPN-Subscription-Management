@@ -59,9 +59,26 @@ func (s *RuleService) Delete(id string) error {
 	if _, err := s.repo.FindByID(id); err != nil {
 		return fmt.Errorf("rule not found")
 	}
-	s.tokenRepo.DeleteByRuleID(id)
+
+	tx, err := repository.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM rule_tokens WHERE rule_id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete rule tokens: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM rules WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete rule: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
 	s.versionSvc.RemoveVersionDir("rules/" + id)
-	return s.repo.Delete(id)
+	return nil
 }
 
 func (s *RuleService) UploadVersion(id, content string) (*models.Rule, error) {
@@ -87,11 +104,13 @@ func (s *RuleService) UploadVersion(id, content string) (*models.Rule, error) {
 		json.Unmarshal([]byte(versionsJSON), &currentVersions)
 	}
 
-	newVersionNum := s.versionSvc.NextVersion(currentVersions)
 	newVersions, err := s.versionSvc.CreateVersion("rules/"+id, content, currentVersions)
 	if err != nil {
 		return nil, err
 	}
+
+	// The newly created version is always the last element (highest number).
+	newVersionNum := newVersions[len(newVersions)-1].Version
 
 	// Ensure the version file is cleaned up if any subsequent step fails
 	committed := false
