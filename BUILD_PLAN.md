@@ -9,7 +9,7 @@
 - Docker 部署按第八章（外部 NGINX 分流 + 双容器 127.0.0.1 绑定）
 - 不使用 .env 文件，业务配置一律 Web UI → SQLite；仅 PORT 等运维参数可环境变量覆盖
 
-**阶段划分**（11 块，块 4 拆分为 4 个子块）:
+**阶段划分**（11 块，块 4 拆为 4 个子块，块 5 拆为 3 个子块）:
 
 | 块 | 内容 | 依赖 |
 |----|------|------|
@@ -20,8 +20,10 @@
 | 块 4B | 下载端点 + Token 生成 + logAccess | 块 4A |
 | 块 4C | 用户端点（UserPlatforms/UpdateTime/RefreshToken） | 块 4B |
 | 块 4D | 日志查询 + 自动清理 | 块 4B |
-| 块 5 | 前端骨架（Vite/Router/Pinia/api/useTheme/公共组件） | 块 1 |
-| 块 6 | 前端核心页面（Setup/Login/Home/Manage 布局） | 块 5 + 块 2 |
+| 块 5A | 前端项目脚手架（Vite + 依赖 + vite.config + index.html + main.js + 空路由 + App.vue 最小版） | 块 1 |
+| 块 5B | 前端核心基础设施（api.js + user store + useTheme + 完整路由表 + 三重守卫 + 所有页面 stub） | 块 5A |
+| 块 5C | 前端公共组件（ConfirmDialog / OIDCSwitchDialog / UploadModal） | 块 5A |
+| 块 6 | 前端核心页面（Setup/Login/Home/Manage 布局/用户 Rules） | 块 5B + 块 5C + 块 2 |
 | 块 7 | 前端管理页面（订阅/分享/平台/用户/规则/OIDC/日志） | 块 6 + 块 3 |
 | 块 8 | Docker 化 + 联调验证 | 全部 |
 
@@ -264,112 +266,327 @@
 
 ---
 
-## 块 5：前端骨架
+## 块 5A：前端项目脚手架
 
-**目标**: 搭建 Vue3 + Vite + Element Plus + Pinia + Router 工程，实现基础设施。
+**目标**: 创建 Vite + Vue 3 工程，安装全部依赖，配置开发代理，搭建最小入口。
 
 **任务**:
 
-- [ ] 创建 `frontend/` Vite 工程，安装依赖：vue, vue-router, pinia, element-plus, axios
-- [ ] `vite.config.js`：配置 proxy `/api` → `http://localhost:8080`
-- [ ] `src/services/api.js`：Axios 封装，baseURL `/api/v1`，401 拦截自动登出，分组 API（auth/user/admin/download）
-- [ ] `src/stores/user.js`：Pinia 用户状态（user_id/role/is_advanced/JWT），login/logout 方法
-- [ ] `src/composables/useTheme.js`：暗色模式（document.documentElement.classList + localStorage + Element Plus 暗色变量）
-- [ ] `src/router/index.js`：路由定义 + beforeEach 守卫（Setup 检测 + 登录恢复 + Admin 校验）
-- [ ] `src/components/ConfirmDialog.vue`：通用确认对话框（标题/提示/回调）
-- [ ] `src/components/OIDCSwitchDialog.vue`：OIDC 提供商切换对话框
-- [ ] `src/components/UploadModal.vue`：文件上传组件（50MB 限制）
-- [ ] `src/App.vue`：根组件，集成 useTheme
-- [ ] 验证：`npm run build` 通过；dev server 启动，访问 / 显示空白页（路由守卫跳转 /setup）
+- [ ] `npm create vite@latest frontend -- --template vue` 创建工程
+- [ ] 安装依赖：`vue-router`, `pinia`, `element-plus`, `@element-plus/icons-vue`
+- [ ] `vite.config.js`：配置 proxy `/api` → `http://localhost:8080`，配置 `@` → `src/` 路径别名（`resolve.alias`）
+- [ ] `index.html`：标题改为「VPN 订阅管理」，添加 viewport meta 标签，添加 favicon 链接（可先用默认 vite.svg）
+- [ ] `src/main.js`：创建 app，`.use(router)`, `.use(createPinia())`, `.use(ElementPlus, { locale: zhCn })`
+- [ ] `src/App.vue`：最小实现，仅 `<router-view />`
+- [ ] `src/router/index.js`：创建 router 实例，空路由表（仅占位，块 5B 填入完整路由）
+- [ ] 验证：`npm run dev` 启动，浏览器看到空白页；`npm run build` 通过
 
 **关键约束**:
-- Vue 模板属性中不可用双引号转义 \"，用「」或计算属性
-- v-model 中不可用可选链 ?，用 v-if 守卫
-- 文件上传必须手动设置 Content-Type: multipart/form-data
-- 前端代码统一用相对路径 `/api/v1/...`，不硬编码 host:port
+- Element Plus 配置中文 locale（`zhCn`）
+- 不在此块创建业务代码
+
+---
+
+## 块 5B：前端核心基础设施
+
+**目标**: 实现 Axios 封装、Pinia 用户状态、暗色模式、完整路由表 + 三重守卫，并创建所有页面的最小 stub 文件。此块完成后前端路由骨架完整可导航，守卫覆盖全部路径。
+
+**任务**:
+
+### 5B-1: api.js（Axios 封装 + 分组 API）
+
+> **后端响应 key 速查**（前端解包用）：
+> `GET /system/status` → `{ configured }` | `GET /auth/me` → `{ user_id, username, email, role, is_advanced, groups }`
+> `GET /user/platforms` → `{ platforms: [...] }` | `GET /user/update-time` → `{ update_time }`
+> `POST /user/refresh-token` → `{ success, token }`
+> Admin 列表：`{ users: [...] }`, `{ subscriptions: [...] }`, `{ shares: [...] }`, `{ platforms: [...] }`, `{ rules: [...] }`, `{ logs: [...] }`
+> Admin 单项：`{ user: {...} }`, `{ subscription: {...} }`, `{ share: {...} }`, `{ platform: {...} }`, `{ rule: {...} }`
+> Admin 版本：`{ version: {...}, content: "..." }` | 成功操作：`{ success: true }`（部分附带对象）
+> 错误：`{ error: "..." }` | 速率限制配置：`{ rate_limit_login, rate_limit_download }`
+> 分享列表每项含 `has_token: bool`；规则列表每项含 `token: string`
+> OIDC 配置：`{ config: {...} }`（Client Secret 脱敏）
+
+- [ ] `src/services/api.js`：
+  - Axios 实例：`baseURL: '/api/v1'`，`timeout: 15000`
+  - 请求拦截器：自动附加 `Authorization: Bearer <jwt>`（从 `localStorage` 读取）
+  - 响应拦截器：401 → 清除 localStorage JWT → `window.location.href = '/login'`（注意：不直接 import router，避免循环依赖；守卫中已处理跳转）
+  - 按业务域分组导出：
+    - `publicApi`：`getSystemStatus()`, `getPlatforms()`, `getRules()`, `getRuleDownloadUrl(ruleId, token)`
+    - `authApi`：`getLoginRedirect()`, `getCallback(queryString)`, `getMe()`
+    - `userApi`：`getUserPlatforms()`, `getUpdateTime()`, `refreshToken(platform, type)`
+    - `adminApi`（按子模块组织）：
+      - `users`：`list()`, `get(id)`, `update(id, data)`, `delete(id)`, `revokeTokens(id)`, `uploadCustomSub(id, platform, file)`, `uploadCustomSubVersion(id, formData)`, `deleteCustomSub(id)`, `getCustomVersion(id, versionId)`, `switchCustomVersion(id, versionId)`, `deleteCustomVersion(id, versionId)`, `refreshCustomSubToken(id, platform)`
+      - `subscriptions`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`
+      - `shares`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`, `refreshToken(id)`, `revokeToken(id)`
+      - `platforms`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`
+      - `rules`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`, `refreshToken(id)`
+      - `system`：`getOIDCConfig()`, `testOIDC(data)`, `configure(data)`, `switchProvider(data)`, `getRateLimit()`, `updateRateLimit(data)`
+      - `logs`：`getLogs(date)`
+    - `downloadApi`：`download(platform, type)`, `downloadPreview(platform, type)`, `downloadByToken(platform, token)`
+
+### 5B-2: user.js（Pinia 用户状态）
+
+- [ ] `src/stores/user.js`（Composition API style）：
+  - state：`user`（null | { user_id, username, email, role, is_advanced, groups }）、`token`（从 localStorage 初始化）、`isConfigured`（缓存 /system/status 结果）
+  - getters：`isLoggedIn`（token 非空）、`isAdmin`（user.role === 'admin'）、`isAdvanced`（user.is_advanced）
+  - actions：
+    - `checkSystemStatus()`：调 `publicApi.getSystemStatus()`，缓存 `isConfigured`
+    - `fetchUser()`：调 `authApi.getMe()`，写入 `user`
+    - `logout(router)`：清除 localStorage JWT + 重置 state + `router.push('/login')`
+    - `login(token)`：存 localStorage + 更新 state.token
+
+### 5B-3: useTheme.js（暗色模式）
+
+- [ ] `src/composables/useTheme.js`：
+  - 从 `localStorage` 读取偏好（key: `vpn-theme`，值: `'dark'` | `'light'`）
+  - `isDark` ref，初始化时读取偏好 or 系统 `prefers-color-scheme`
+  - `toggle()`：切换 `isDark`，同步更新 `document.documentElement.classList.toggle('dark', isDark)` + localStorage
+  - 在 `src/main.js` 中全局 import `element-plus/theme-chalk/dark/css-vars.css`（暗色 CSS 变量在 dark class 下自动生效）
+  - 使用 `watchEffect` 确保初始加载时 DOM class 同步
+
+### 5B-4: router/index.js（完整路由表 + 三重守卫）
+
+- [ ] 路由表定义（16 条路由 + 1 个内联组件）：
+  - `/` → `Home.vue`（懒加载 `() => import('@/views/Home.vue')`）
+  - `/setup` → `Setup.vue`
+  - `/login` → `Login.vue`
+  - `/auth/callback` → 内联组件（提取 `route.query.token` → 存 localStorage → `router.replace('/')`；若无 token → `router.replace('/login')`）
+  - `/rules` → `Rules.vue`
+  - `/admin` → `Manage.vue`（布局组件），子路由：
+    - `/admin/subscriptions` → `SubList.vue`
+    - `/admin/subscriptions/:id/versions` → `SubVersions.vue`
+    - `/admin/shares` → `ShareList.vue`
+    - `/admin/shares/:id/versions` → `ShareVersions.vue`
+    - `/admin/platforms` → `PlatformManage.vue`
+    - `/admin/users` → `UserManage.vue`
+    - `/admin/rules` → `RulesManage.vue`
+    - `/admin/rules/:id/versions` → `RuleVersions.vue`
+    - `/admin/oidc` → `OIDCConfig.vue`
+    - `/admin/logs` → `Logs.vue`
+- [ ] `beforeEach` 守卫（按优先级顺序）：
+  1. `/auth/callback` → 直接放行（提取 token 的内联组件自行处理）
+  2. 系统未配置（`isConfigured === false`）且不在 `/setup` → 跳 `/setup`
+  3. 系统已配置且在 `/setup` → 跳 `/`
+  4. 从 `localStorage` 恢复 token → 调 `fetchUser()` 验证
+  5. 未登录 + 目标非 `/login` → 跳 `/login`
+  6. 目标以 `/admin` 开头 + 非管理员 → 跳 `/`
+- [ ] 守卫中使用 `userStore.checkSystemStatus()` 确保 `isConfigured` 已初始化（带缓存）
+
+### 5B-5: 所有页面 stub 文件
+
+- [ ] 创建 15 个 `.vue` stub 文件，每个仅包含最小模板（如 `<template><div>PageName</div></template>`），确保路由懒加载不报错：
+  - `src/views/Setup.vue`
+  - `src/views/Login.vue`
+  - `src/views/Home.vue`
+  - `src/views/Rules.vue`
+  - `src/views/Manage.vue`
+  - `src/views/SubList.vue`
+  - `src/views/SubVersions.vue`
+  - `src/views/ShareList.vue`
+  - `src/views/ShareVersions.vue`
+  - `src/views/PlatformManage.vue`
+  - `src/views/UserManage.vue`
+  - `src/views/RulesManage.vue`
+  - `src/views/RuleVersions.vue`
+  - `src/views/OIDCConfig.vue`
+  - `src/views/Logs.vue`
+
+### 5B-6: 更新 App.vue
+
+- [ ] 更新 `src/App.vue`：调用 `useTheme()` composable，包裹 `<router-view />`，添加 Element Plus `<el-config-provider>`（可选，locale 已在 main.js 全局配置）
+
+### 验证
+
+- [ ] `npm run build` 通过
+- [ ] 启动后端（`go run .`）→ 启动前端（`npm run dev`）→ 访问 `http://localhost:5173/`
+  - 后端未配置时 → 自动跳转 `/setup`（显示 Setup stub）
+  - 后端已配置时 → 跳转 `/login`（因未登录）
+  - 手动访问 `/auth/callback?token=test` → 存 token 到 localStorage → 跳首页
+
+**关键约束**:
+- `userStore.logout(router)` 接受 router 参数，store 不直接 import router（避免循环依赖）
+- 401 拦截中用 `window.location.href` 而非 `router.push`（同理避免循环依赖）
+- `isConfigured` 在守卫中首次获取后缓存在 store，后续不再重复请求
+- 守卫中的异步操作（`fetchUser`、`checkSystemStatus`）需 await 完成后再决定放行/跳转
+- `/auth/callback` 内联组件用 `router.replace` 而非 `router.push`，防止回退时重复提取 token
+
+---
+
+## 块 5C：前端公共组件
+
+**目标**: 实现 3 个跨页面复用的组件（ConfirmDialog / OIDCSwitchDialog / UploadModal）。
+
+**任务**:
+
+- [ ] `src/components/ConfirmDialog.vue`：
+  - Props：`visible` (Boolean)、`title` (String)、`message` (String)、`confirmText` (String, 默认「确认」)、`cancelText` (String, 默认「取消」)
+  - Emits：`update:visible`、`confirm`、`cancel`
+  - 使用 `el-dialog` + `el-button`，`v-model:visible` 绑定
+  - 确认按钮类型 `danger`（警告操作），取消按钮 `default`
+  - 注意：模板文本使用「」代替双引号转义
+- [ ] `src/components/OIDCSwitchDialog.vue`：
+  - Props：`visible` (Boolean)、`currentProvider` (String: 'keycloak' | 'auth0' | 'generic')
+  - Emits：`update:visible`、`switch`（携带选择的 provider）
+  - 使用 `el-dialog` + `el-radio-group` 列出三种提供商
+  - 当前 provider 默认选中
+  - 切换时保留已填字段（由父组件控制，本组件仅负责选择）
+- [ ] `src/components/UploadModal.vue`：
+  - Props：`visible` (Boolean)、`accept` (String, 默认 `.conf,.yaml,.yml,.txt`)、`maxSize` (Number, 默认 50MB)
+  - Emits：`update:visible`、`upload`（携带 File 对象）、`textSave`（携带文本内容 string）
+  - 两种输入模式（tab 切换）：文件上传（`el-upload`）和文本编辑（`el-input` textarea）
+  - 文件上传统一 50MB 限制（`before-upload` 钩子校验文件大小）
+  - 手动设置 `Content-Type: multipart/form-data`（在 emit 给父组件时，由父组件负责构造 FormData 并设置 header）
+- [ ] 验证：`npm run build` 通过；组件可在其他页面中 import 使用
+
+**关键约束**:
+- 三个组件均为纯展示+交互组件，不含业务逻辑（业务逻辑由父组件处理）
+- 模板中使用「」代替 \" 转义
+- UploadModal 组件本身不发送 HTTP 请求，只 emit 文件/文本给父组件
+- ConfirmDialog 的确认回调由父组件通过 `@confirm` 事件处理
 
 ---
 
 ## 块 6：前端核心页面
 
-**目标**: 实现 Setup/Login/Home/Manage 布局，跑通主流程。
+**目标**: 实现 Setup/Login/Home/Manage 布局 + 用户 Rules 页面，跑通主流程。
+
+> **注意**: 块 5B 已创建 15 个 stub 文件 + `/auth/callback` 内联路由组件。本块是**替换**以下 stub 为真实实现：
+> `Setup.vue`, `Login.vue`, `Home.vue`, `Manage.vue`, `Rules.vue`。
 
 **任务**:
 
 - [ ] `src/views/Setup.vue`：
-  - 选择 OIDC 提供商类型（Keycloak/Auth0/通用）
-  - 填写参数（按 provider_type 显示对应字段，切换时保留已填值）
-  - 填写回调地址和前端地址
-  - 测试连接按钮
-  - 完成配置 → 跳转登录
-- [ ] `src/views/Login.vue`：点击登录 → 调 `/auth/login` → OIDC 跳转
-- [ ] `src/views/auth/callback`（中转页路由，非独立文件）：提取 URL 的 token 存 localStorage，replaceState 清空 URL，跳转首页
-  - 注意：此路由对应 `/auth/callback`，与后端 API `/api/v1/auth/callback` 不同
+  - 选择 OIDC 提供商类型（Keycloak/Auth0/通用），使用 `OIDCSwitchDialog` 组件
+  - 按 provider_type 显示对应字段（切换时保留已填值）：
+    - Keycloak：`keycloak_base_url` + `keycloak_realm`
+    - Auth0：`auth0_domain`
+    - 通用 OIDC：`generic_issuer`
+  - 公共字段（所有类型）：`client_id`、`client_secret`、`redirect_uri`、`frontend_url`
+  - 「测试连接」按钮 → 调 `adminApi.system.testOIDC(data)` → 显示成功/失败提示
+  - 「完成配置」按钮 → 调 `adminApi.system.configure(data)` → 成功后 `router.push('/login')`
+- [ ] `src/views/Login.vue`：
+  - 显示登录按钮和系统标题
+  - 点击登录 → `window.location.href = '/api/v1/auth/login'`（OIDC 是 302 重定向，**不能**用 axios）
+  - `onMounted` 时检查是否已登录（有 token）→ 已登录则 `router.push('/')`
 - [ ] `src/views/Home.vue`：
-  - 顶部栏：标题+更新时间戳、管理面板按钮（仅管理员）、用户名+角色标签、退出、暗色切换
-  - 平台卡片网格（响应式 3/2/1 列）
-  - 每个卡片按 is_advanced + 自定义订阅情况显示对应订阅区段（4.2 全部规则，含未配置降级）
-  - 三个按钮：一键导入（scheme URL 拼接）、复制链接（对话框）、刷新链接
-  - 下载客户端按钮（download_url 非空时显示）
-- [ ] `src/views/Manage.vue`：布局，左侧 el-menu 侧边栏（200px，router 模式，7 个菜单项），移动端汉堡切换
-- [ ] `src/views/Rules.vue`：用户规则页面（所有登录用户可见），展示规则列表 + 下载
+  - 顶部栏：标题「VPN 订阅」+ 更新时间戳（调 `userApi.getUpdateTime()`）、管理面板按钮（仅管理员 `v-if="userStore.isAdmin"`）、用户名+角色标签（普通用户/高级用户/管理员）、退出按钮（`userStore.logout(router)`）、暗色模式切换按钮
+  - `onMounted` 调 `userApi.getUserPlatforms()` 获取平台列表
+  - 平台卡片网格（响应式：`el-row` + `el-col`，大屏 3 列，中等 2 列，小屏 1 列）
+  - 每个卡片按 `is_advanced` + `has_custom_sub` + 订阅配置情况显示对应订阅区段（完整规则见 AGENTS.md §4.2，含未配置降级提示）
+  - 三个操作按钮：
+    - **一键导入**（`type="primary"`）：拼接 `client_schemes[0] + encodeURIComponent(downloadUrl)` → `window.location.href = url`
+    - **复制链接**（`type="default"`）：弹出 `el-dialog`，显示完整 URL，点击输入框自动 `navigator.clipboard.writeText()`
+    - **刷新链接**（`type="warning"`, `text`, `size="small"`）：loading 状态，调 `userApi.refreshToken(platform, type)`，成功后更新本地 token
+  - 下载客户端按钮：`v-if="item.download_url"` → `<a :href="item.download_url" target="_blank">下载客户端</a>`
+  - 管理员预览：额外渲染另一类型（`previewToken`）的按钮组
+- [ ] `src/views/Manage.vue`：
+  - 布局：左侧 `el-menu`（`router` 模式，`width="200px"`），右侧 `<router-view />`
+  - 7 个菜单项（按 AGENTS.md §4.3）：订阅管理、分享订阅、平台管理、用户管理、规则管理、OIDC 配置、日志查看
+  - 当前路由对应菜单项高亮（`:default-active="route.path"`）
+  - 移动端：侧边栏默认隐藏，顶部栏汉堡按钮（`el-drawer` 或 CSS `transform` 切换）
+- [ ] `src/views/Rules.vue`（用户规则页面，所有登录用户可见）：
+  - `onMounted` 调 `publicApi.getRules()` 获取规则列表
+  - 展示规则列表：规则名称、客户端类型（`client_type`）、当前版本号
+  - 用户可**选择不同版本单独下载**（AGENTS.md §4.9 第 12 轮决策），展开/下拉选择版本 → 下载对应 `.conf` 文件
+  - 下载链接格式：`/api/v1/rules/:id/download?token={ruleToken}`
+  - 普通用户仅浏览和下载，无管理功能
 - [ ] 验证：`npm run build` 通过；本地配 OIDC 跑通 Setup → Login → Home 主流程
 
 **关键约束**:
 - 一键导入 URL 格式：`scheme://path?url={encodedURL}`，如 `clash://install-config?url=https%3A%2F%2F...`
-- 删除确认必须用 ConfirmDialog.vue，不用 ElMessageBox.confirm
-- 登出必须调用 userStore.logout(router)，传入 router 实例
+- 删除确认必须用 `ConfirmDialog.vue`，不用 `ElMessageBox.confirm`
+- 登出必须调用 `userStore.logout(router)`，传入 router 实例
+- Login.vue 的 OIDC 跳转是 `window.location.href`，不是 axios（后端返回 302）
 
 ---
 
 ## 块 7：前端管理页面
 
-**目标**: 实现管理后台 7 个功能页面。
+**目标**: 实现管理后台 10 个功能页面（含版本管理子页面）。
+
+> **注意**: 块 5B 已创建 stub 文件。本块是**替换**以下 stub 为真实实现：
+> `SubList.vue`, `SubVersions.vue`, `ShareList.vue`, `ShareVersions.vue`, `PlatformManage.vue`,
+> `UserManage.vue`, `RulesManage.vue`, `RuleVersions.vue`, `OIDCConfig.vue`, `Logs.vue`。
+>
+> **通用模式**（所有管理页面遵循）:
+> - 列表页 `onMounted` 调对应 list API 获取数据
+> - 创建/编辑用 `el-dialog` + `el-form`，提交前前端校验必填字段
+> - 删除用 `ConfirmDialog.vue`（传入 title/message/@confirm），不用 `ElMessageBox.confirm`
+> - 操作成功后刷新列表数据（重新调 list API）
+> - ID 字段校验 `[a-z0-9-]+`（`SubList` 创建、`PlatformManage` 创建）
+> - 文件上传 `el-upload` 限制 50MB，手动设置 `Content-Type: multipart/form-data`
+> - 当前激活版本用绿色标签/边框高亮
 
 **任务**:
 
-- [ ] `src/views/SubList.vue`：订阅列表（按平台分组，再按类型），创建对话框
-- [ ] `src/views/SubVersions.vue`：版本管理（列表+上传+文本编辑+切换+删除+预览），current 高亮
-- [ ] `src/views/ShareList.vue`：分享订阅列表（名称/创建时间/当前版本/Token 状态），操作按钮（版本管理/复制/刷新/吊销/删除）
-- [ ] `src/views/ShareVersions.vue`：分享订阅版本管理（同 SubVersions）
-- [ ] `src/views/PlatformManage.vue`：平台 CRUD，client_schemes 编辑，download_url 设置
+- [ ] `src/views/SubList.vue`：订阅列表（按平台分组，再按类型 default/advanced），创建对话框（字段：`id`[a-z0-9-]+、`name`、`type`[default/advanced]、`platform`）
+- [ ] `src/views/SubVersions.vue`：版本管理（列表+上传+文本编辑+切换+删除+预览），current 高亮。`POST /versions` 支持两种 Content-Type（multipart 文件上传 + JSON 文本编辑），前端按用户操作选择对应方式
+- [ ] `src/views/ShareList.vue`：分享订阅列表（名称/创建时间/当前版本号/Token 状态）。Token 状态从 `has_token` 字段推导（`true`→"有效"，`false`→"已吊销"）。操作按钮：版本管理、复制分享链接（`has_token` 为 true 时可用）、刷新 Token（ConfirmDialog）、吊销 Token（ConfirmDialog）、删除（ConfirmDialog）
+- [ ] `src/views/ShareVersions.vue`：分享订阅版本管理（同 SubVersions 结构）
+- [ ] `src/views/PlatformManage.vue`：平台 CRUD，`client_schemes` JSON 数组编辑（可用 tag-input 或 textarea），`download_url` 可空
 - [ ] `src/views/UserManage.vue`：
-  - 用户列表（用户名/邮箱/角色/is_advanced/操作）
-  - 编辑（is_advanced 切换；groups 仅存储不编辑，未设置不显示）
-  - 上传自定义订阅（选平台+文件）
-  - 删除自定义订阅（仅有时显示）
-  - 吊销所有下载 Token
-  - 删除用户（管理员自我保护提示）
-- [ ] `src/views/RulesManage.vue`：规则列表（名称/client_type/当前版本/Token 状态），操作按钮（版本管理/复制链接/轮替Token/删除），创建对话框
-- [ ] `src/views/RuleVersions.vue`：规则版本管理（同 SubVersions）
-- [ ] `src/views/OIDCConfig.vue`：查看/修改 OIDC 配置，测试连接，切换提供商（保留字段），Client Secret 脱敏
-- [ ] `src/views/Logs.vue`：按日期筛选日志，显示下载类型/状态/错误原因
+  - 用户列表（用户名/邮箱/角色标签/is_advanced 标签/操作按钮）
+  - 编辑弹窗：`is_advanced` 开关（管理员自身不可修改）；`groups` JSON 仅展示不编辑，未设置 `groups` 的用户不显示该字段
+  - 上传自定义订阅 → 弹出对话框 → 选择适用平台（下拉，从 platform 列表取）→ 选择文件（50MB 限制）→ **注意**：端点 `POST /admin/users/:id/custom-subscription?platform=xxx`，platform 是 **query param** 不在 body
+  - 删除自定义订阅（仅当用户有自定义订阅时显示该按钮，调 `adminApi.users.deleteCustomSub(id)`）
+  - 吊销所有下载 Token（ConfirmDialog："确定吊销该用户所有下载链接？吊销后用户需重新获取"）
+  - 删除用户（ConfirmDialog + 管理员自我保护提示）。错误处理：后端返回 400 时显示具体错误信息（"不能删除自己"/"不能删除最后一个管理员"）
+- [ ] `src/views/RulesManage.vue`：规则列表（名称/`client_type`/当前版本号/Token 状态），创建对话框（字段：`name`、`client_type`，当前仅 Shadowrocket 可选 → 下拉单选，默认选中）。操作按钮：版本管理、复制下载链接（`/api/v1/rules/:id/download?token={token}`）、轮替 Token（ConfirmDialog）、删除（ConfirmDialog）
+- [ ] `src/views/RuleVersions.vue`：规则版本管理（同 SubVersions 结构）
+- [ ] `src/views/OIDCConfig.vue`：
+  - 查看/修改 OIDC 配置（`onMounted` 调 `adminApi.system.getOIDCConfig()`）
+  - 切换提供商（`OIDCSwitchDialog` → `adminApi.system.switchProvider()`）
+  - 测试连接按钮（`adminApi.system.testOIDC()`）
+  - Client Secret 脱敏回显（后端已 `***` 处理，前端直接展示）
+  - 保存 → `adminApi.system.configure()`
+- [ ] `src/views/Logs.vue`：日期筛选（`el-date-picker`），调 `adminApi.logs.getLogs(date)` → 表格展示 `download_type`/`user_id`/`platform`/`status`/`error_reason`/`ip`/`created_at`。无数据时显示空状态
 - [ ] 验证：`npm run build` 通过；本地跑通所有管理页面 CRUD
 
 **关键约束**:
-- 所有创建/编辑用 el-dialog + el-form
-- 版本上传 el-upload 50MB 限制
+- 所有创建/编辑用 `el-dialog` + `el-form`
+- 版本上传 `el-upload` 50MB 限制
 - 当前激活版本绿色高亮
-- 4.6/4.7 操作按钮组按文档完整实现
+- AGENTS.md §4.6/§4.7 操作按钮组按文档完整实现
+- 速率限制配置页（`GET/PUT /admin/system/rate-limit`）可放在 OIDCConfig 页面底部，或新增一个配置区域
 
 ---
 
 ## 块 8：Docker 化 + 联调验证
 
-**目标**: 编写 Dockerfile，配置 docker-compose，端到端联调。
+**目标**: 编写 Dockerfile，验证 docker-compose，端到端联调。
+
+> **注意**: 根目录 `docker-compose.yml` 已存在且端口绑定（`127.0.0.1:8080:8080` / `127.0.0.1:8081:80`）和 volume（`vpn-data:/app/data`）均正确。本块重点是编写 Dockerfile + nginx.conf + `.dockerignore`，并端到端验证。
 
 **任务**:
 
-- [ ] `backend/Dockerfile`：多阶段构建（golang 编译 → distroless 运行）
-- [ ] `frontend/Dockerfile`：多阶段构建（node 构建 → nginx 静态文件服务）
-- [ ] `frontend/nginx.conf`：只服务静态文件 + SPA 回退（`try_files $uri $uri/ /index.html`），无任何 proxy_pass
-- [ ] `docker-compose.yml`（按 8.3）：
-  - backend: `127.0.0.1:8080:8080`，挂载 vpn-data:/app/data
-  - frontend: `127.0.0.1:8081:80`，depends_on backend
-- [ ] 更新根目录 `docker-compose.yml`（当前已有的需修正端口绑定和 volume）
+- [ ] `backend/.dockerignore`：排除 `data/`、`.git/`、`__debug*`、`*.test`
+- [ ] `frontend/.dockerignore`：排除 `node_modules/`、`.git/`、`dist/`
+- [ ] `backend/Dockerfile`：多阶段构建
+  - 阶段 1（builder）：`golang:1.25-alpine` → `COPY . .` → `CGO_ENABLED=0 go build -o server ./cmd/server`
+  - 阶段 2（runtime）：`gcr.io/distroless/static-debian12:nonroot` → `COPY --from=builder /app/server /server` → `ENTRYPOINT ["/server"]`
+- [ ] `frontend/Dockerfile`：多阶段构建
+  - 阶段 1（builder）：`node:22-alpine` → `COPY package*.json .` → `npm ci` → `COPY . .` → `npm run build`
+  - 阶段 2（runtime）：`nginx:1.27-alpine` → `COPY --from=builder /app/dist /usr/share/nginx/html` → `COPY nginx.conf /etc/nginx/conf.d/default.conf`
+- [ ] `frontend/nginx.conf`（按 §8.4）：
+  ```nginx
+  server {
+      listen 80;
+      server_name _;
+      root /usr/share/nginx/html;
+      location / {
+          try_files $uri $uri/ /index.html;
+      }
+  }
+  ```
+  只服务静态文件 + SPA 回退，**无任何 proxy_pass**
+- [ ] 验证根目录 `docker-compose.yml`（已存在）：
+  - backend 端口 `127.0.0.1:8080:8080` ✅
+  - frontend 端口 `127.0.0.1:8081:80` ✅
+  - volume `vpn-data:/app/data` ✅
+  - frontend `depends_on: backend` ✅
 - [ ] 端到端联调：
-  - docker compose up -d 启动
-  - 外部 NGINX 配置 `/api/` → 127.0.0.1:8080，`/` → 127.0.0.1:8081（参考 8.2）
+  - `docker compose up -d --build` 启动
+  - 外部 NGINX 配置 `/api/` → `127.0.0.1:8080`，`/` → `127.0.0.1:8081`（参考 §8.2）
   - 访问网站 → Setup → 登录 → 首页 → 管理面板全功能验证
 - [ ] 验证项清单：
   - [ ] Setup 流程（OIDC 配置 → 测试连接 → 完成）
@@ -391,7 +608,7 @@
 - 对外只暴露外部 NGINX 一个端口
 - backend/frontend 端口必须 `127.0.0.1:` 前缀绑定
 - frontend 容器内 nginx 不得有 proxy_pass
-- 单一 vpn-data volume 挂载 /app/data
+- 单一 `vpn-data` volume 挂载 `/app/data`
 
 ---
 
