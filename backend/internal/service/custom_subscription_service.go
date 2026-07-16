@@ -283,7 +283,17 @@ func (s *CustomSubscriptionService) ListByUser(userID string) ([]models.CustomSu
 	return s.repo.ListByUser(userID)
 }
 
-// RefreshToken deletes old tokens for a custom sub (forces new token generation).
+// RefreshToken atomically replaces the download token for a custom subscription.
+// Uses UPDATE in-place instead of DELETE+INSERT to avoid a window with no token.
 func (s *CustomSubscriptionService) RefreshToken(customSubID string) error {
-	return s.tokenRepo.DeleteByCustomSubID(customSubID)
+	oldToken, err := s.tokenRepo.FindTokenByCustomSubID(customSubID)
+	if err != nil {
+		// No existing token — nothing to refresh, caller will create via GetOrCreateCustomToken
+		return nil
+	}
+	newToken, err := utils.GenerateToken()
+	if err != nil {
+		return err
+	}
+	return s.tokenRepo.ReplaceTokenValue(oldToken, newToken)
 }

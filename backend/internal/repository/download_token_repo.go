@@ -78,6 +78,34 @@ func (r *DownloadTokenRepo) DeleteByCustomSubID(customSubID string) error {
 	return err
 }
 
+// FindTokenByCustomSubID finds any token for a custom subscription.
+func (r *DownloadTokenRepo) FindTokenByCustomSubID(customSubID string) (string, error) {
+	var token string
+	err := DB.QueryRow(`SELECT token FROM download_tokens WHERE custom_sub_id = ? LIMIT 1`, customSubID).Scan(&token)
+	return token, err
+}
+
+// ReplaceTokenValue atomically replaces an existing token value with a new one.
+func (r *DownloadTokenRepo) ReplaceTokenValue(oldToken, newToken string) error {
+	_, err := DB.Exec(`UPDATE download_tokens SET token = ? WHERE token = ?`, newToken, oldToken)
+	return err
+}
+
+// ReplaceTokenForSub atomically replaces a regular subscription token in-place
+// by its unique key (user_id + platform + type, custom_sub_id IS NULL).
+// Returns true if an existing row was updated, false if none found.
+func (r *DownloadTokenRepo) ReplaceTokenForSub(userID, platform, subType, newToken string) (bool, error) {
+	result, err := DB.Exec(
+		`UPDATE download_tokens SET token = ? WHERE user_id = ? AND platform = ? AND type = ? AND custom_sub_id IS NULL`,
+		newToken, userID, platform, subType,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
+}
+
 // DeleteByPlatformAndType removes tokens for a specific subscription (no custom_sub).
 func (r *DownloadTokenRepo) DeleteByPlatformAndType(platform, subType string) error {
 	_, err := DB.Exec(
@@ -92,5 +120,3 @@ func (r *DownloadTokenRepo) DeleteByPlatform(platform string) error {
 	_, err := DB.Exec(`DELETE FROM download_tokens WHERE platform = ?`, platform)
 	return err
 }
-
-

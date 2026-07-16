@@ -313,15 +313,27 @@ func (s *SubscriptionService) GetOrCreateCustomToken(userID, platform, customSub
 	return newToken, nil
 }
 
-// RefreshToken deletes the existing download token for a regular subscription
-// and creates a new one, returning the new token value.
+// RefreshToken atomically replaces the download token for a regular subscription.
+// Uses UPDATE in-place instead of DELETE+INSERT to avoid a window with no token.
 func (s *SubscriptionService) RefreshToken(userID, platform, subType string) (string, error) {
-	// Best-effort delete old token (may not exist)
-	oldToken, err := s.tokenRepo.FindByUserAndPlatformAndType(userID, platform, subType)
-	if err == nil {
-		s.tokenRepo.Delete(oldToken)
+	newToken, err := utils.GenerateToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate token: %w", err)
 	}
-	return s.GetOrCreateToken(userID, platform, subType)
+	// Try to update existing token in-place (atomic)
+	updated, err := s.tokenRepo.ReplaceTokenForSub(userID, platform, subType, newToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to refresh token: %w", err)
+	}
+	if updated {
+		return newToken, nil
+	}
+	// No existing token — create new one
+	t := subType
+	if err := s.tokenRepo.Create(newToken, userID, platform, &t, nil); err != nil {
+		return "", fmt.Errorf("failed to create token: %w", err)
+	}
+	return newToken, nil
 }
 
 // FindToken looks up a download token and returns its associated metadata.

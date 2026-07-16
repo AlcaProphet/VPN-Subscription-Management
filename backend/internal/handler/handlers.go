@@ -224,7 +224,8 @@ func UserPlatforms(c *gin.Context) {
 				if SubSvc.SubscriptionExists(p.ID, otherType) {
 					tok, tokErr := SubSvc.GetOrCreateToken(userID, p.ID, otherType)
 					if tokErr == nil {
-						info.DefaultToken = tok
+						info.PreviewToken = tok
+						info.PreviewSubType = otherType
 					}
 				}
 			}
@@ -284,7 +285,7 @@ func UserRefreshToken(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "token": newToken})
+		c.JSON(http.StatusOK, gin.H{"success": true, "token": newToken, "type": "custom"})
 		return
 	}
 
@@ -305,9 +306,9 @@ func UserRefreshToken(c *gin.Context) {
 // Download Handlers
 // ============================================================================
 
-// SubDownload returns the subscription content via JWT auth (Web UI preview).
+// handleJWTDownload returns subscription content via JWT auth (Web UI preview).
 // Admin users may override the subscription type via ?type=default|advanced.
-func SubDownload(c *gin.Context) {
+func handleJWTDownload(c *gin.Context) {
 	platform := c.Param("platform")
 	userID := middleware.GetUserID(c)
 
@@ -336,31 +337,14 @@ func SubDownload(c *gin.Context) {
 	c.String(http.StatusOK, content)
 }
 
+// SubDownload returns the subscription content via JWT auth (Web UI preview).
+func SubDownload(c *gin.Context) {
+	handleJWTDownload(c)
+}
+
 // SubDownloadPreview is identical to SubDownload but routed under /download/preview.
 func SubDownloadPreview(c *gin.Context) {
-	platform := c.Param("platform")
-	userID := middleware.GetUserID(c)
-
-	isAdvanced := middleware.GetUserIsAdvanced(c)
-	subType := "default"
-	if isAdvanced {
-		subType = "advanced"
-	}
-	if middleware.GetUserRole(c) == "admin" {
-		if t := c.Query("type"); t == "default" || t == "advanced" {
-			subType = t
-		}
-	}
-
-	content, err := SubSvc.GetCurrentContent(platform, subType)
-	if err != nil {
-		logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "failed", "file_not_found")
-		c.String(http.StatusNotFound, err.Error())
-		return
-	}
-
-	logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "success", "")
-	c.String(http.StatusOK, content)
+	handleJWTDownload(c)
 }
 
 // SubDownloadToken returns the subscription content via download token
@@ -380,6 +364,13 @@ func SubDownloadToken(c *gin.Context) {
 		return
 	}
 
+	// Ensure URL platform matches the token's bound platform
+	if platform != plat {
+		logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "failed", "token_invalid")
+		c.String(http.StatusUnauthorized, "invalid token")
+		return
+	}
+
 	var content string
 	var downloadType string
 
@@ -394,12 +385,12 @@ func SubDownloadToken(c *gin.Context) {
 	}
 
 	if err != nil {
-		logAccess(userID, c.ClientIP(), downloadType, platform, "", "", "failed", "file_not_found")
+		logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "failed", "file_not_found")
 		c.String(http.StatusNotFound, err.Error())
 		return
 	}
 
-	logAccess(userID, c.ClientIP(), downloadType, platform, "", "", "success", "")
+	logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "success", "")
 	c.String(http.StatusOK, content)
 }
 

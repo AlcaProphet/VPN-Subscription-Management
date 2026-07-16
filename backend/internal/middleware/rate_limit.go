@@ -102,22 +102,24 @@ func (w *ipWindow) periodicCleanup() {
 // Rate limit configuration (read from system_config on every request)
 // ============================================================================
 
-func getRateLimitConfig() (loginLimit, downloadLimit int) {
-	loginLimit = 10
-	downloadLimit = 20
-
+func getLoginRateLimit() int {
 	cfgRepo := repository.NewSystemConfigRepo()
 	if val, err := cfgRepo.Get("rate_limit_login"); err == nil && val != "" {
 		if n, parseErr := strconv.Atoi(val); parseErr == nil && n > 0 {
-			loginLimit = n
+			return n
 		}
 	}
+	return 10
+}
+
+func getDownloadRateLimit() int {
+	cfgRepo := repository.NewSystemConfigRepo()
 	if val, err := cfgRepo.Get("rate_limit_download"); err == nil && val != "" {
 		if n, parseErr := strconv.Atoi(val); parseErr == nil && n > 0 {
-			downloadLimit = n
+			return n
 		}
 	}
-	return
+	return 20
 }
 
 // ============================================================================
@@ -128,7 +130,7 @@ func getRateLimitConfig() (loginLimit, downloadLimit int) {
 // Default: 10 requests per minute per IP (configurable via system_config).
 func RateLimitLogin() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		loginLimit, _ := getRateLimitConfig()
+		loginLimit := getLoginRateLimit()
 		ip := c.ClientIP()
 		if allowed, retryAfter := loginWindow.allow(ip, loginLimit); !allowed {
 			writeRateLimitResponse(c, retryAfter, true)
@@ -142,7 +144,7 @@ func RateLimitLogin() gin.HandlerFunc {
 // Default: 20 requests per minute per IP (configurable via system_config).
 func RateLimitDownload() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		_, downloadLimit := getRateLimitConfig()
+		downloadLimit := getDownloadRateLimit()
 		ip := c.ClientIP()
 		if allowed, retryAfter := downloadWindow.allow(ip, downloadLimit); !allowed {
 			writeRateLimitResponse(c, retryAfter, false)
