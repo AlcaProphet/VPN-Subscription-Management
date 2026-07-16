@@ -272,3 +272,67 @@ func (s *SubscriptionService) GetUpdateTime() (time.Time, error) {
 	}
 	return maxTime, nil
 }
+
+// ============================================================================
+// Download Token helpers (used by block 4B/4C)
+// ============================================================================
+
+// GetOrCreateToken finds an existing download token for a regular subscription
+// (user+platform+type) or creates a new one. Used by UserPlatforms and
+// SubDownloadToken handlers.
+func (s *SubscriptionService) GetOrCreateToken(userID, platform, subType string) (string, error) {
+	token, err := s.tokenRepo.FindByUserAndPlatformAndType(userID, platform, subType)
+	if err == nil {
+		return token, nil
+	}
+	newToken, err := utils.GenerateToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate token: %w", err)
+	}
+	t := subType
+	if err := s.tokenRepo.Create(newToken, userID, platform, &t, nil); err != nil {
+		return "", fmt.Errorf("failed to create token: %w", err)
+	}
+	return newToken, nil
+}
+
+// GetOrCreateCustomToken finds an existing download token for a custom
+// subscription (user+platform+custom_sub_id) or creates a new one.
+func (s *SubscriptionService) GetOrCreateCustomToken(userID, platform, customSubID string) (string, error) {
+	token, err := s.tokenRepo.FindByUserAndPlatformAndCustomSub(userID, platform, customSubID)
+	if err == nil {
+		return token, nil
+	}
+	newToken, err := utils.GenerateToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate token: %w", err)
+	}
+	if err := s.tokenRepo.Create(newToken, userID, platform, nil, &customSubID); err != nil {
+		return "", fmt.Errorf("failed to create token: %w", err)
+	}
+	return newToken, nil
+}
+
+// RefreshToken deletes the existing download token for a regular subscription
+// and creates a new one, returning the new token value.
+func (s *SubscriptionService) RefreshToken(userID, platform, subType string) (string, error) {
+	// Best-effort delete old token (may not exist)
+	oldToken, err := s.tokenRepo.FindByUserAndPlatformAndType(userID, platform, subType)
+	if err == nil {
+		s.tokenRepo.Delete(oldToken)
+	}
+	return s.GetOrCreateToken(userID, platform, subType)
+}
+
+// FindToken looks up a download token and returns its associated metadata.
+// Returns: userID, platform, type, customSubID, error.
+func (s *SubscriptionService) FindToken(token string) (userID, platform, tokType, customSubID string, err error) {
+	return s.tokenRepo.FindByToken(token)
+}
+
+// SubscriptionExists checks whether a subscription for the given platform+type
+// exists (regardless of whether it has any versions).
+func (s *SubscriptionService) SubscriptionExists(platform, subType string) bool {
+	_, err := s.repo.FindByPlatformAndType(platform, subType)
+	return err == nil
+}

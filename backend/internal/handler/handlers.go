@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/middleware"
@@ -55,14 +56,17 @@ func GetRuleDownload(c *gin.Context) {
 	}
 	ruleID, err := RuleSvc.ValidateToken(token)
 	if err != nil {
+		logAccess("", c.ClientIP(), "rule", "", "", ruleID, "failed", "token_invalid")
 		c.String(http.StatusUnauthorized, "invalid token")
 		return
 	}
 	content, err := RuleSvc.GetCurrentContent(ruleID)
 	if err != nil {
+		logAccess("", c.ClientIP(), "rule", "", "", ruleID, "failed", "file_not_found")
 		c.String(http.StatusNotFound, "rule not found")
 		return
 	}
+	logAccess("", c.ClientIP(), "rule", "", "", ruleID, "success", "")
 	c.String(http.StatusOK, content)
 }
 
@@ -159,36 +163,272 @@ func AuthMe(c *gin.Context) {
 // User Handlers
 // ============================================================================
 
+// UserPlatforms returns the platform list enriched with the current user's
+// download tokens and custom subscription status. This is the primary endpoint
+// used by the Home page.
 func UserPlatforms(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"platforms": []interface{}{}})
+	userID := middleware.GetUserID(c)
+	isAdvanced := middleware.GetUserIsAdvanced(c)
+	isAdmin := middleware.GetUserRole(c) == "admin"
+
+	platforms, err := PlatformSvc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Determine the user's primary subscription type
+	primaryType := "default"
+	if isAdvanced {
+		primaryType = "advanced"
+	}
+
+	result := make([]models.UserPlatformInfo, 0, len(platforms))
+	for _, p := range platforms {
+		info := models.UserPlatformInfo{
+			ID:                 p.ID,
+			Name:               p.Name,
+			Description:        p.Description,
+			ClientSchemes:      p.ClientSchemes,
+			DownloadURL:        p.DownloadURL,
+			DefaultConfigured:  SubSvc.SubscriptionExists(p.ID, "default"),
+			AdvancedConfigured: SubSvc.SubscriptionExists(p.ID, "advanced"),
+		}
+
+		// Check for custom subscription (overrides regular type for this platform)
+		customSub, customErr := CustomSubSvc.GetByUserAndPlatform(userID, p.ID)
+		if customErr == nil && customSub != nil {
+			info.HasCustomSub = true
+			info.CustomSubID = customSub.ID
+			// Generate custom token for this platform
+			tok, tokErr := SubSvc.GetOrCreateCustomToken(userID, p.ID, customSub.ID)
+			if tokErr == nil {
+				info.DownloadToken = tok
+			}
+		} else {
+			// No custom subscription — use primary type
+			info.SubType = primaryType
+			if SubSvc.SubscriptionExists(p.ID, primaryType) {
+				tok, tokErr := SubSvc.GetOrCreateToken(userID, p.ID, primaryType)
+				if tokErr == nil {
+					info.DownloadToken = tok
+				}
+			}
+
+			// Admin users also get a token for the other type (preview)
+			if isAdmin {
+				otherType := "default"
+				if primaryType == "default" {
+					otherType = "advanced"
+				}
+				if SubSvc.SubscriptionExists(p.ID, otherType) {
+					tok, tokErr := SubSvc.GetOrCreateToken(userID, p.ID, otherType)
+					if tokErr == nil {
+						info.DefaultToken = tok
+					}
+				}
+			}
+		}
+
+		result = append(result, info)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"platforms": result})
 }
 
+// UserUpdateTime returns the most recent updated_at timestamp across all
+// subscription current versions. Used by the Home page header.
 func UserUpdateTime(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"update_time": ""})
+	updateTime, err := SubSvc.GetUpdateTime()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if updateTime.IsZero() {
+		c.JSON(http.StatusOK, gin.H{"update_time": ""})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"update_time": updateTime.Format(time.RFC3339)})
 }
 
+// UserRefreshToken rotates the download token for a given platform+type.
+// If the user has a custom subscription for that platform, the custom token
+// is rotated instead.
 func UserRefreshToken(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	userID := middleware.GetUserID(c)
+
+	var req struct {
+		Platform string `json:"platform"`
+		Type     string `json:"type"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if req.Platform == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform is required"})
+		return
+	}
+
+	// Check if user has a custom subscription for this platform
+	customSub, customErr := CustomSubSvc.GetByUserAndPlatform(userID, req.Platform)
+	if customErr == nil && customSub != nil {
+		// Rotate custom subscription token
+		if err := CustomSubSvc.RefreshToken(customSub.ID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		// Generate a fresh token
+		newToken, err := SubSvc.GetOrCreateCustomToken(userID, req.Platform, customSub.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "token": newToken})
+		return
+	}
+
+	// Rotate regular subscription token
+	if req.Type != "default" && req.Type != "advanced" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be 'default' or 'advanced'"})
+		return
+	}
+	newToken, err := SubSvc.RefreshToken(userID, req.Platform, req.Type)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "token": newToken})
 }
 
 // ============================================================================
 // Download Handlers
 // ============================================================================
 
+// SubDownload returns the subscription content via JWT auth (Web UI preview).
+// Admin users may override the subscription type via ?type=default|advanced.
 func SubDownload(c *gin.Context) {
-	c.String(http.StatusOK, "# subscription download stub")
+	platform := c.Param("platform")
+	userID := middleware.GetUserID(c)
+
+	// Determine subscription type
+	isAdvanced := middleware.GetUserIsAdvanced(c)
+	subType := "default"
+	if isAdvanced {
+		subType = "advanced"
+	}
+
+	// Admin may override via ?type= query param
+	if middleware.GetUserRole(c) == "admin" {
+		if t := c.Query("type"); t == "default" || t == "advanced" {
+			subType = t
+		}
+	}
+
+	content, err := SubSvc.GetCurrentContent(platform, subType)
+	if err != nil {
+		logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "failed", "file_not_found")
+		c.String(http.StatusNotFound, err.Error())
+		return
+	}
+
+	logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "success", "")
+	c.String(http.StatusOK, content)
 }
 
+// SubDownloadPreview is identical to SubDownload but routed under /download/preview.
 func SubDownloadPreview(c *gin.Context) {
-	c.String(http.StatusOK, "# subscription preview stub")
+	platform := c.Param("platform")
+	userID := middleware.GetUserID(c)
+
+	isAdvanced := middleware.GetUserIsAdvanced(c)
+	subType := "default"
+	if isAdvanced {
+		subType = "advanced"
+	}
+	if middleware.GetUserRole(c) == "admin" {
+		if t := c.Query("type"); t == "default" || t == "advanced" {
+			subType = t
+		}
+	}
+
+	content, err := SubSvc.GetCurrentContent(platform, subType)
+	if err != nil {
+		logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "failed", "file_not_found")
+		c.String(http.StatusNotFound, err.Error())
+		return
+	}
+
+	logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "success", "")
+	c.String(http.StatusOK, content)
 }
 
+// SubDownloadToken returns the subscription content via download token
+// (used by VPN clients). Token may be for a regular or custom subscription.
 func SubDownloadToken(c *gin.Context) {
-	c.String(http.StatusOK, "# subscription token download stub")
+	platform := c.Param("platform")
+	token := c.Query("token")
+	if token == "" {
+		c.String(http.StatusBadRequest, "missing token")
+		return
+	}
+
+	userID, plat, tokType, customSubID, err := SubSvc.FindToken(token)
+	if err != nil {
+		logAccess("", c.ClientIP(), "subscription", platform, "", "", "failed", "token_invalid")
+		c.String(http.StatusUnauthorized, "invalid token")
+		return
+	}
+
+	var content string
+	var downloadType string
+
+	if customSubID != "" {
+		// Custom subscription
+		content, err = CustomSubSvc.GetCurrentContent(customSubID)
+		downloadType = "custom"
+	} else {
+		// Regular subscription
+		content, err = SubSvc.GetCurrentContent(plat, tokType)
+		downloadType = "subscription"
+	}
+
+	if err != nil {
+		logAccess(userID, c.ClientIP(), downloadType, platform, "", "", "failed", "file_not_found")
+		c.String(http.StatusNotFound, err.Error())
+		return
+	}
+
+	logAccess(userID, c.ClientIP(), downloadType, platform, "", "", "success", "")
+	c.String(http.StatusOK, content)
 }
 
+// ShareDownload returns a share subscription's content via share token.
+// No authentication required — only the ?token= query param is verified.
 func ShareDownload(c *gin.Context) {
-	c.String(http.StatusOK, "# share download stub")
+	id := c.Param("id")
+	token := c.Query("token")
+	if token == "" {
+		c.String(http.StatusBadRequest, "missing token")
+		return
+	}
+
+	shareID, err := ShareSvc.ValidateToken(token)
+	if err != nil || shareID != id {
+		logAccess("", c.ClientIP(), "share", "", id, "", "failed", "token_invalid")
+		c.String(http.StatusUnauthorized, "invalid token")
+		return
+	}
+
+	content, err := ShareSvc.GetCurrentContent(id)
+	if err != nil {
+		logAccess("", c.ClientIP(), "share", "", id, "", "failed", "file_not_found")
+		c.String(http.StatusNotFound, err.Error())
+		return
+	}
+
+	logAccess("", c.ClientIP(), "share", "", id, "", "success", "")
+	c.String(http.StatusOK, content)
 }
 
 // ============================================================================
@@ -1057,7 +1297,24 @@ func UpdateRateLimit(c *gin.Context) {
 // ============================================================================
 
 func GetLogs(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"logs": []interface{}{}})
+	date := c.Query("date")
+	if date == "" {
+		date = time.Now().UTC().Format("2006-01-02")
+	}
+
+	repo := repository.NewAccessLogRepo()
+	logs, err := repo.ListByDate(date)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query logs: " + err.Error()})
+		return
+	}
+
+	// Ensure we never return null — always an empty array
+	if logs == nil {
+		logs = make([]repository.AccessLogRecord, 0)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"logs": logs})
 }
 
 // ============================================================================
@@ -1100,4 +1357,20 @@ func readUploadContent(c *gin.Context) (string, error) {
 // parseVersionParam parses a version ID string to an integer.
 func parseVersionParam(v string) (int, error) {
 	return strconv.Atoi(v)
+}
+
+// logAccess records a download access log entry. This is a best-effort helper
+// — failures are silently ignored so they never affect the download response.
+func logAccess(userID, ip, downloadType, platform, shareSubID, ruleID, status, errorReason string) {
+	repo := repository.NewAccessLogRepo()
+	_ = repo.Insert(&repository.AccessLogRecord{
+		UserID:              userID,
+		IP:                  ip,
+		DownloadType:        downloadType,
+		Platform:            platform,
+		ShareSubscriptionID: shareSubID,
+		RuleID:              ruleID,
+		Status:              status,
+		ErrorReason:         errorReason,
+	})
 }

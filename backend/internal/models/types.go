@@ -162,13 +162,16 @@ type RuleToken struct {
 // UserPlatformInfo is returned by GET /user/platforms — platform info
 // plus the user's download token and custom subscription status.
 type UserPlatformInfo struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	ClientSchemes []string `json:"client_schemes"`
-	DownloadURL   string   `json:"download_url"`
-	HasCustomSub  bool     `json:"has_custom_sub"`
-	CustomSubID   string   `json:"custom_sub_id,omitempty"`
-	DownloadToken string   `json:"download_token,omitempty"`
-	SubType       string   `json:"sub_type,omitempty"` // "default", "advanced", or empty for custom
+	ID                 string   `json:"id"`
+	Name               string   `json:"name"`
+	Description        string   `json:"description"`
+	ClientSchemes      []string `json:"client_schemes"`
+	DownloadURL        string   `json:"download_url"`
+	HasCustomSub       bool     `json:"has_custom_sub"`
+	CustomSubID        string   `json:"custom_sub_id,omitempty"`
+	DownloadToken      string   `json:"download_token,omitempty"` // user's primary token
+	DefaultToken       string   `json:"default_token,omitempty"`  // admin preview: token for default subscription
+	SubType            string   `json:"sub_type,omitempty"`       // "default", "advanced", or empty for custom-only
+	DefaultConfigured  bool     `json:"default_configured"`       // whether a default sub exists for this platform
+	AdvancedConfigured bool     `json:"advanced_configured"`      // whether an advanced sub exists for this platform
 }

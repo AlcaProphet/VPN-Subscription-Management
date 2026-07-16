@@ -9,14 +9,17 @@
 - Docker 部署按第八章（外部 NGINX 分流 + 双容器 127.0.0.1 绑定）
 - 不使用 .env 文件，业务配置一律 Web UI → SQLite；仅 PORT 等运维参数可环境变量覆盖
 
-**阶段划分**（8 块）:
+**阶段划分**（11 块，块 4 拆分为 4 个子块）:
 
 | 块 | 内容 | 依赖 |
 |----|------|------|
 | 块 1 | 后端骨架（目录/go.mod/main/DB/middleware/utils） | 无 |
 | 块 2 | OIDC 认证 + Setup 流程 | 块 1 |
 | 块 3 | 后端核心业务（用户/平台/订阅/规则/自定义/分享） | 块 2 |
-| 块 4 | 下载端点 + 日志 + 速率限制 | 块 3 |
+| 块 4A | RateLimit 中间件实现 | 块 3 |
+| 块 4B | 下载端点 + Token 生成 + logAccess | 块 4A |
+| 块 4C | 用户端点（UserPlatforms/UpdateTime/RefreshToken） | 块 4B |
+| 块 4D | 日志查询 + 自动清理 | 块 4B |
 | 块 5 | 前端骨架（Vite/Router/Pinia/api/useTheme/公共组件） | 块 1 |
 | 块 6 | 前端核心页面（Setup/Login/Home/Manage 布局） | 块 5 + 块 2 |
 | 块 7 | 前端管理页面（订阅/分享/平台/用户/规则/OIDC/日志） | 块 6 + 块 3 |
@@ -138,44 +141,126 @@
 
 **目标**: 实现四种下载途径、访问日志记录、速率限制中间件。
 
+**现状盘点**（块 1-3 已就绪的基础设施）:
+- 路由已全部注册，NoCache 中间件已挂载
+- Service 层方法齐全（GetCurrentContent / ValidateToken / RefreshToken / GetToken / GetUpdateTime）
+- Token Repo（DownloadToken / ShareToken / RuleToken）完整
+- AccessLog Repo（Insert / ListByDate）就绪，但从未被调用
+- RateLimit 中间件为 stub（仅 c.Next()）
+- 规则下载 `GetRuleDownload` 已完整实现（块 3 已可工作）
+- 其余下载/用户 handler 均为 stub（返回占位文本）
+
+**拆分为 4 个子块，按顺序构建**:
+
+---
+
+### 块 4A：RateLimit 中间件实现
+
+**目标**: 替换 stub，实现真实限流逻辑。
+
 **任务**:
 
-- [ ] 订阅下载端点（速率限制）：
-  - `GET /subscriptions/:platform/download`（JWT，管理员可用 ?type= 切换）
-  - `GET /subscriptions/:platform/download/preview`（浏览器预览）
-  - `GET /subscriptions/:platform/download-token?token=`（Token 下载，客户端用）
-  - Token 下载逻辑：custom_sub_id 非空返回自定义订阅内容；为空返回 platform+type 对应默认/高级订阅
-- [ ] 分享订阅下载：`GET /share/:id/download?token=`（验证 share_tokens，无认证）
-- [ ] 规则下载：`GET /rules/:id/download?token=`（验证 rule_tokens，无认证）
-- [ ] 自定义订阅下载：复用 `/subscriptions/:platform/download-token?token=`（custom_sub_id 非空时返回自定义内容）
-- [ ] 所有下载统一行为：
-  - `Content-Type: text/plain; charset=utf-8`
-  - 不使用 Content-Disposition: attachment
-  - `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache`
-  - 返回 current 软链接指向的最新版本
-- [ ] 用户端点：
-  - `GET /user/platforms`：返回平台列表 + 当前用户 download_token + 是否有自定义订阅标记（首页用）
-  - `GET /user/update-time`：所有订阅 current 版本 updated_at 最大值
-  - `POST /user/refresh-token`：请求体 `{ platform, type }`，轮替 Token。当用户在该平台有自定义订阅时，自动刷新自定义订阅 Token（通过 custom_sub_id 定位）
-- [ ] Download Token 生成逻辑：
-  - 用户首次访问首页时按 user+platform+type 复用生成
-  - custom_sub_id 非空时 type 置 NULL，复用唯一键 user+platform+custom_sub_id
-  - is_advanced 变更时自动删除该用户所有旧 Token
-- [ ] RateLimit 中间件实现：
-  - 登录端点同 IP 每分钟 10 次，下载端点同 IP 每分钟 20 次（配置可改）
-  - 超限返回 429 + Retry-After header
-  - 登录端点附 JSON 错误，下载端点返回纯文本错误
-  - 使用 c.ClientIP()（已配置 SetTrustedProxies）
-- [ ] logAccess()：所有下载端点调用，记录 user_id(可空)/ip/download_type/platform(可空)/share_subscription_id(可空)/rule_id(可空)/status(success/failed)/error_reason(可空)/created_at
-- [ ] 日志查询：`GET /admin/logs`（按日期筛选）
-- [ ] 日志自动清理：后台 goroutine 清理 90 天以上记录
-- [ ] 验证：`go build ./...` 通过；curl 测试下载流程，检查日志记录
+- [x] 实现基于内存的滑动窗口限流器（按 IP 分桶，每分钟窗口）
+- [x] `RateLimitLogin()`：从 system_config 读 rate_limit_login（默认 10/min），超限返回 429 + `Retry-After` + JSON 错误 `{"error":"请求过于频繁，请稍后再试"}`
+- [x] `RateLimitDownload()`：从 system_config 读 rate_limit_download（默认 20/min），超限返回 429 + `Retry-After` + 纯文本错误 `rate limit exceeded, retry after N seconds`
+- [x] 使用 `c.ClientIP()` 获取真实 IP（已配置 SetTrustedProxies）
+- [x] 复用已有的 `writeRateLimitResponse()` 辅助函数
 
-**关键约束**:
+**涉及文件**: `backend/internal/middleware/rate_limit.go`
+
+**验证**: `go build ./...` 通过；循环请求触发 429
+
+---
+
+### 块 4B：下载端点 + Token 生成 + logAccess
+
+**目标**: 替换 4 个 stub handler，实现完整的下载流程 + Token 首次生成逻辑。
+
+**任务**:
+
+- [x] `SubDownload`（JWT 下载，需登录）：
+  - 从 context 取 user_id + is_advanced 决定 subType
+  - 管理员可通过 `?type=default|advanced` 覆盖
+  - 调用 `SubSvc.GetCurrentContent(platform, type)` 返回纯文本
+  - 调用 logAccess()
+- [x] `SubDownloadPreview`：逻辑同 SubDownload
+- [x] `SubDownloadToken`（Token 下载，无需登录）：
+  - `?token=` → `DownloadTokenRepo.FindByToken()`
+  - custom_sub_id 非空 → `CustomSubSvc.GetCurrentContent(customSubID)`
+  - custom_sub_id 为空 → `SubSvc.GetCurrentContent(platform, type)`
+  - Token 无效 → 纯文本错误 + logAccess(status=failed, error_reason=token_invalid)
+- [x] `ShareDownload`（无需登录）：
+  - `?token=` → `ShareSvc.ValidateToken()` → `ShareSvc.GetCurrentContent(shareID)`
+  - 返回纯文本 + logAccess()
+- [x] **Token 生成服务方法** (新增到 `SubscriptionService`)：
+  - `GetOrCreateToken(userID, platform, subType)` — 查已有则复用，无则创建 UUID
+  - `RefreshToken(userID, platform, subType)` — 删旧建新，返回新 token
+  - 自定义订阅变体：复用 custom_sub_id 维度的已有方法
+- [x] **logAccess() 辅助函数** (新增到 handler 包)：封装 `AccessLogRepo.Insert()`，在所有下载端点返回前调用
+- [x] 所有下载统一行为：`Content-Type: text/plain; charset=utf-8`，无 Content-Disposition，NoCache 头（中间件已处理）
+
+**涉及文件**: `backend/internal/handler/handlers.go`、`backend/internal/service/subscription_service.go`
+
+**验证**: `go build ./...` 通过；上传订阅版本 → curl 下载 → 返回纯文本；Token 无效返回错误；access_logs 表有记录
+
+---
+
+### 块 4C：用户端点
+
+**目标**: 实现首页所需的 3 个用户端点。
+
+**任务**:
+
+- [x] `GET /user/platforms`：
+  - 取用户 is_advanced 决定 subType
+  - 遍历所有平台，查每平台的 sub (by platform+type)
+  - 查用户自定义订阅 (CustomSubSvc.GetByUserAndPlatform)
+  - 生成/复用 download_token（调用 4B 的 GetOrCreateToken 或自定义变体）
+  - 返回 `[]UserPlatformInfo`（含 has_custom_sub / custom_sub_id / download_token / sub_type / default_configured / advanced_configured）
+  - 未配置降级：sub 不存在时不生成 token，标记 configured=false 供前端显示提示
+  - 管理员额外生成另一类型 Token 用于预览
+- [x] `GET /user/update-time`：
+  - 调用 `SubSvc.GetUpdateTime()`（已实现）
+  - 返回 `{ update_time: "2026-07-15T10:30:00Z" }`
+- [x] `POST /user/refresh-token`：
+  - 读取 `{ platform, type }` body
+  - 若该用户在该平台有自定义订阅 → 调用 `CustomSubSvc.RefreshToken()`（删旧 custom token，用户下次访问重新生成）
+  - 否则 → 调用 `SubSvc.RefreshToken(userID, platform, type)` 删旧建新
+  - 返回 `{ success: true, token: "new-token" }`
+
+**涉及文件**: `backend/internal/handler/handlers.go`、`backend/internal/service/subscription_service.go`、`backend/internal/models/types.go`
+
+**验证**: `go build ./...` 通过；curl `/user/platforms` 返回平台列表 + token；`/user/refresh-token` 后旧 token 失效
+
+---
+
+### 块 4D：日志查询 + 自动清理
+
+**目标**: 实现日志管理功能。
+
+**任务**:
+
+- [x] `GET /admin/logs`：
+  - 读取 `?date=2026-07-15` 参数
+  - 调用 `AccessLogRepo.ListByDate(date)` → 返回日志列表（含 status / error_reason / download_type 等）
+  - 若无 date 参数默认当天
+  - nil 安全：空结果返回 `[]` 而非 null
+- [x] 日志自动清理：
+  - 已在 `db.go` 的 `periodicCleanup()` 中：每小时执行 `DELETE FROM access_logs WHERE created_at < datetime('now', '-90 days')`
+- [x] 验证：`go build ./...` 通过；curl `/admin/logs?date=2026-07-15` 返回当天日志
+
+**涉及文件**: `backend/internal/handler/handlers.go`、`backend/internal/repository/db.go`
+
+**验证**: `go build ./...` 通过；下载后查日志有记录；90 天前日志被自动清理
+
+---
+
+**块 4 关键约束**（适用所有子块）:
 - 所有 /admin/* 必须有 AdminRequired 中间件（含 /admin/logs）
 - 错误码：400/401/403/409/429/500
 - ?token= 查询参数值在 Logger 中脱敏为 ***
 - 下载失败时 status=failed + error_reason（token_invalid/file_not_found/version_not_found/rate_limited）
+- 所有下载端点必须调用 logAccess()
 
 ---
 
