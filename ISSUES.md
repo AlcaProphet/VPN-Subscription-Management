@@ -19,6 +19,9 @@
 - [x] **`getLoginRateLimit()` / `getDownloadRateLimit()` 每次请求创建新 `SystemConfigRepo`** (`middleware/rate_limit.go`): 每次请求调用 `repository.NewSystemConfigRepo()` 创建新的 repo 实例。repo 内部使用全局 `repository.DB`，功能上正确但违背 service 单例复用模式。性能影响微乎其微（零分配 struct），当前不处理。
 - [x] **`VersionService.NextVersion()` 公开方法未被外部使用** (`version_service.go`): 块 3B 设计时用于外部计算版本号。实际实现中所有 service 的 `UploadVersion` 都通过 `CreateVersion` 内部调用 `nextVersion`，`NextVersion()` 目前是未使用的公开 API。保留备用，暂不删除。
 - [x] **前端列表页 `currentVersion()` 通过 `updated_at` 排序推断** (`SubList.vue` / `ShareList.vue` / `RulesManage.vue`): 使用 `versions.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at))[0]` 推断当前版本。后端 API 未返回 `current_version` 标记，语义上不严谨。未来可加强：后端列表 API 增加 `current_version` 字段。当前版本管理页（SubVersions 等）同样使用此模式。暂不修复。
+- [x] **`GetRuleDownload` 忽略 URL 中的 `:id` 路径参数** (`handlers.go`): Handler 从 token 中解析 `ruleID` 并用它获取内容，完全忽略 URL 路径中的 `:id` 参数。Token 是权威来源，URL 中的 `:id` 不参与鉴权或内容定位。无安全风险，此行为为设计选择。
+- [x] **`access_logs` 表使用空字符串代替 NULL** (`db.go`): `user_id`、`platform`、`share_subscription_id`、`rule_id`、`error_reason` 字段定义为 `NOT NULL DEFAULT ''`（AGENTS.md §6.3 标注为"可空"）。实际写入时也用空字符串。功能正常，SQLite 中 `WHERE col = ''` 效果与 `WHERE col IS NULL` 类似。暂不修改 schema。
+- [x] **CORS 中间件允许所有来源** (`cors.go`): `Access-Control-Allow-Origin: *`。生产部署使用外部 NGINX 同源反代，浏览器不会触发 CORS 检查，此 header 仅在开发环境（Vite dev server 跨端口）生效。开发环境中 `*` 是期望行为。
 
 ## 已修复
 
@@ -40,3 +43,5 @@
 - [x] **`Home.vue` 自定义订阅刷新发送了错误的 type 参数** (`Home.vue`): `handleRefresh` 对自定义订阅发送 `platform.sub_type`（如 'advanced'）而非 'custom'，虽然后端检测 custom_sub 自动兜底，但语义不清。修复：显式传 `type: 'custom'`，并添加注释说明后端检测逻辑。
 - [x] **`CacheControlMiddleware` 死代码** (`middleware/cache_control.go`): 该中间件定义了但从未在 router 中注册，且若全局使用会与 `NoCacheForDownloads` 产生重复/冲突的 `Cache-Control` 头。修复：删除该文件。
 - [x] **速率限制器 `periodicCleanup` 间隔过长** (`middleware/rate_limit.go`): 清理间隔 5 分钟 + 2 分钟 cutoff，导致过期 IP 记录可在内存中残留最多 ~7 分钟。修复：改为 2 分钟间隔 + 1 分钟 cutoff，与限流窗口 (1 分钟) 对齐。
+- [x] **OIDC 配置页 Client Secret 回显始终为空** (`oidc_service.go` + `OIDCConfig.vue`): `GetMaskedOIDCConfig` 返回的 key 是提供商特定名（如 `keycloak_client_secret_encrypted`），前端读取的 key 是通用名 `client_secret`（不存在 → 始终为空）。修复：后端额外返回通用 `client_secret` key；前端脱敏值比较从 `'***'` 对齐到 `'••••••'`；`PostConfigure` 在 Normal 模式下将 `client_secret` 改为可选（空/脱敏时复用已有加密值），`ConfigureSystem` 检测到空 secret 时跳过加密步骤保留已有值。
+- [x] **自定义订阅版本 API 缺少 `platform` 参数** (`api.js`): `uploadCustomSubVersion` 和 `createCustomSubVersionFromText` 调用 `/admin/users/:id/custom-subscription/versions` 时未携带必需的 `?platform=` 查询参数。修复：补充 `platform` 参数。

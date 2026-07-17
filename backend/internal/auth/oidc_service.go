@@ -490,6 +490,8 @@ type ConfigureSystemResult struct {
 // On first setup (JWT_SECRET not yet set), a new secret is generated.
 // On subsequent calls (e.g. OIDC config page save), the existing JWT_SECRET is
 // reused so that existing JWTs and encrypted provider secrets remain valid.
+// When rawClientSecret is empty (admin chose not to modify the secret),
+// the existing encrypted secret is preserved unchanged.
 func ConfigureSystem(cfgRepo *repository.SystemConfigRepo, cfg *OIDCConfig, rawClientSecret string) (*ConfigureSystemResult, error) {
 	// Check if JWT_SECRET already exists — reuse it if so, generate only on first setup
 	jwtSecret, err := cfgRepo.Get("JWT_SECRET")
@@ -505,12 +507,6 @@ func ConfigureSystem(cfgRepo *repository.SystemConfigRepo, cfg *OIDCConfig, rawC
 	// Derive AES key from JWT_SECRET
 	aesKey := utils.AESKeyFromSecret(jwtSecret)
 
-	// Encrypt the client secret for the selected provider
-	encryptedSecret, err := utils.EncryptAES(rawClientSecret, aesKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt client secret: %w", err)
-	}
-
 	// Determine which provider-specific key to use for the encrypted secret
 	secretKey := getSecretKeyForProvider(cfg.ProviderType)
 
@@ -521,9 +517,19 @@ func ConfigureSystem(cfgRepo *repository.SystemConfigRepo, cfg *OIDCConfig, rawC
 		"client_id":     cfg.ClientID,
 		"redirect_uri":  cfg.RedirectURI,
 		"frontend_url":  cfg.FrontendURL,
-		secretKey:       encryptedSecret,
 		"configured":    "true",
 		// admin_initialized is NOT set here — it's set by the first user login
+	}
+
+	// Only encrypt and store a new client secret if one was provided.
+	// An empty rawClientSecret means the admin chose not to modify it (Normal mode),
+	// so we skip the secret fields entirely and preserve the existing encrypted value.
+	if rawClientSecret != "" {
+		encryptedSecret, encErr := utils.EncryptAES(rawClientSecret, aesKey)
+		if encErr != nil {
+			return nil, fmt.Errorf("failed to encrypt client secret: %w", encErr)
+		}
+		configs[secretKey] = encryptedSecret
 	}
 
 	switch cfg.ProviderType {
@@ -589,12 +595,16 @@ func GetMaskedOIDCConfig(cfgRepo *repository.SystemConfigRepo) (map[string]strin
 		v, _ := cfgRepo.Get(k)
 		result[k] = v
 	}
-	// Mask the secret — show "••••••" if configured
+	// Mask the secret — show "••••••" if configured.
+	// Return both the provider-specific key AND a generic "client_secret" key
+	// so the frontend can read it without knowing the provider type.
 	secretKey := getSecretKeyForProvider(ProviderType(result["provider_type"]))
 	if v, err := cfgRepo.Get(secretKey); err == nil && v != "" {
 		result[secretKey] = "••••••"
+		result["client_secret"] = "••••••"
 	} else {
 		result[secretKey] = ""
+		result["client_secret"] = ""
 	}
 	return result, nil
 }

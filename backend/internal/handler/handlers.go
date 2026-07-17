@@ -474,7 +474,7 @@ func PostConfigure(c *gin.Context) {
 		GenericIssuer string `json:"generic_issuer"`
 		// Common fields
 		ClientID     string `json:"client_id" binding:"required"`
-		ClientSecret string `json:"client_secret" binding:"required"`
+		ClientSecret string `json:"client_secret"` // optional in Normal mode
 		RedirectURI  string `json:"redirect_uri" binding:"required"`
 		FrontendURL  string `json:"frontend_url" binding:"required"`
 	}
@@ -521,7 +521,25 @@ func PostConfigure(c *gin.Context) {
 	}
 
 	cfgRepo := repository.NewSystemConfigRepo()
-	_, err := auth.ConfigureSystem(cfgRepo, cfg, req.ClientSecret)
+
+	// In Normal mode (already configured), an empty or masked client_secret
+	// means the admin chose not to modify it. Pass empty to ConfigureSystem
+	// so it preserves the existing encrypted value.
+	// In Setup mode (not yet configured), client_secret is still required.
+	clientSecret := req.ClientSecret
+	if clientSecret == "" || clientSecret == "••••••" || clientSecret == "***" {
+		isConfigured := false
+		if val, err := cfgRepo.Get("configured"); err == nil && val == "true" {
+			isConfigured = true
+		}
+		if !isConfigured {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "client_secret is required for initial setup"})
+			return
+		}
+		clientSecret = "" // signal ConfigureSystem to preserve existing secret
+	}
+
+	_, err := auth.ConfigureSystem(cfgRepo, cfg, clientSecret)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Configuration failed: " + err.Error()})
 		return

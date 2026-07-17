@@ -53,7 +53,7 @@
         </el-form-item>
         <el-form-item label="Client Secret" prop="client_secret">
           <el-input v-model="oidcForm.client_secret" type="password" show-password placeholder="留空则不修改" />
-          <div class="form-tip">已存储的 Client Secret 已加密，回显为 ***。输入新值将覆盖</div>
+          <div class="form-tip">已存储的 Client Secret 已加密，回显为 ••••••。输入新值将覆盖</div>
         </el-form-item>
         <el-form-item label="回调地址 (Redirect URI)" prop="redirect_uri">
           <el-input v-model="oidcForm.redirect_uri" placeholder="https://vpn.example.com/api/v1/auth/callback" />
@@ -217,7 +217,7 @@ async function loadConfig() {
     oidcForm.auth0_domain = cfg.auth0_domain || ''
     oidcForm.generic_issuer = cfg.generic_issuer || ''
     oidcForm.client_id = cfg.client_id || ''
-    oidcForm.client_secret = cfg.client_secret || ''  // already masked as ***
+    oidcForm.client_secret = cfg.client_secret || ''  // backend returns masked value or empty
     oidcForm.redirect_uri = cfg.redirect_uri || ''
     oidcForm.frontend_url = cfg.frontend_url || ''
 
@@ -259,7 +259,7 @@ async function handleTest() {
   try {
     const payload = buildOIDCPayload()
     // Don't send masked or empty secret if not changed
-    if (payload.client_secret === '***' || payload.client_secret === '') {
+    if (payload.client_secret === '••••••' || payload.client_secret === '***' || payload.client_secret === '') {
       delete payload.client_secret
     }
     await adminApi.system.testOIDC(payload)
@@ -280,7 +280,7 @@ async function handleSave() {
   try {
     const payload = buildOIDCPayload()
     // Don't send masked or empty secret if not changed
-    if (payload.client_secret === '***' || payload.client_secret === '') {
+    if (payload.client_secret === '••••••' || payload.client_secret === '***' || payload.client_secret === '') {
       delete payload.client_secret
     }
     await adminApi.system.configure(payload)

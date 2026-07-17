@@ -115,11 +115,11 @@ export const adminApi = {
       fd.append('file', file)
       return api.post(`/admin/users/${id}/custom-subscription?platform=${encodeURIComponent(platform)}`, fd)
     },
-    uploadCustomSubVersion(id, formData) {
-      return api.post(`/admin/users/${id}/custom-subscription/versions`, formData)
+    uploadCustomSubVersion(id, platform, formData) {
+      return api.post(`/admin/users/${id}/custom-subscription/versions?platform=${encodeURIComponent(platform)}`, formData)
     },
-    createCustomSubVersionFromText(id, content) {
-      return api.post(`/admin/users/${id}/custom-subscription/versions`, { content }, {
+    createCustomSubVersionFromText(id, platform, content) {
+      return api.post(`/admin/users/${id}/custom-subscription/versions?platform=${encodeURIComponent(platform)}`, { content }, {
         headers: { 'Content-Type': 'application/json' }
       })
     },
