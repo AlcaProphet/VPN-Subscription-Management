@@ -9,7 +9,7 @@
 - Docker 部署按第八章（外部 NGINX 分流 + 双容器 127.0.0.1 绑定）
 - 不使用 .env 文件，业务配置一律 Web UI → SQLite；仅 PORT 等运维参数可环境变量覆盖
 
-**阶段划分**（11 块，块 4 拆为 4 个子块，块 5 拆为 3 个子块）:
+**阶段划分**（14 块，块 4 拆为 4 个子块，块 5 拆为 3 个子块，块 6 拆为 4 个子块）:
 
 | 块 | 内容 | 依赖 |
 |----|------|------|
@@ -23,7 +23,10 @@
 | 块 5A | 前端项目脚手架（Vite + 依赖 + vite.config + index.html + main.js + 空路由 + App.vue 最小版） | 块 1 |
 | 块 5B | 前端核心基础设施（api.js + user store + useTheme + 完整路由表 + 三重守卫 + 所有页面 stub） | 块 5A |
 | 块 5C | 前端公共组件（ConfirmDialog / OIDCSwitchDialog / UploadModal） | 块 5A |
-| 块 6 | 前端核心页面（Setup/Login/Home/Manage 布局/用户 Rules） | 块 5B + 块 5C + 块 2 |
+| 块 6A | 前端认证入口页（Setup.vue + Login.vue） | 块 5B + 块 5C + 块 2 |
+| 块 6B | 管理面板布局（Manage.vue） | 块 5B |
+| 块 6C | 首页仪表盘（Home.vue） | 块 5B + 块 5C |
+| 块 6D | 用户规则浏览页（Rules.vue） | 块 5B |
 | 块 7 | 前端管理页面（订阅/分享/平台/用户/规则/OIDC/日志） | 块 6 + 块 3 |
 | 块 8 | Docker 化 + 联调验证 | 全部 |
 
@@ -446,57 +449,245 @@
 
 ---
 
-## 块 6：前端核心页面
+## 块 6A：前端认证入口页（Setup + Login）
 
-**目标**: 实现 Setup/Login/Home/Manage 布局 + 用户 Rules 页面，跑通主流程。
+**目标**: 实现首次配置页和登录页，跑通 OIDC 认证入口流程。
 
-> **注意**: 块 5B 已创建 15 个 stub 文件 + `/auth/callback` 内联路由组件。本块是**替换**以下 stub 为真实实现：
-> `Setup.vue`, `Login.vue`, `Home.vue`, `Manage.vue`, `Rules.vue`。
+> **注意**: 块 5B 已创建 `Setup.vue` 和 `Login.vue` stub 文件。本块是**替换**它们为真实实现。
 
 **任务**:
 
-- [ ] `src/views/Setup.vue`：
-  - 选择 OIDC 提供商类型（Keycloak/Auth0/通用），使用 `OIDCSwitchDialog` 组件
-  - 按 provider_type 显示对应字段（切换时保留已填值）：
-    - Keycloak：`keycloak_base_url` + `keycloak_realm`
-    - Auth0：`auth0_domain`
-    - 通用 OIDC：`generic_issuer`
-  - 公共字段（所有类型）：`client_id`、`client_secret`、`redirect_uri`、`frontend_url`
-  - 「测试连接」按钮 → 调 `adminApi.system.testOIDC(data)` → 显示成功/失败提示
-  - 「完成配置」按钮 → 调 `adminApi.system.configure(data)` → 成功后 `router.push('/login')`
-- [ ] `src/views/Login.vue`：
-  - 显示登录按钮和系统标题
-  - 点击登录 → `window.location.href = '/api/v1/auth/login'`（OIDC 是 302 重定向，**不能**用 axios）
-  - `onMounted` 时检查是否已登录（有 token）→ 已登录则 `router.push('/')`
-- [ ] `src/views/Home.vue`：
-  - 顶部栏：标题「VPN 订阅」+ 更新时间戳（调 `userApi.getUpdateTime()`）、管理面板按钮（仅管理员 `v-if="userStore.isAdmin"`）、用户名+角色标签（普通用户/高级用户/管理员）、退出按钮（`userStore.logout(router)`）、暗色模式切换按钮
-  - `onMounted` 调 `userApi.getUserPlatforms()` 获取平台列表
-  - 平台卡片网格（响应式：`el-row` + `el-col`，大屏 3 列，中等 2 列，小屏 1 列）
-  - 每个卡片按 `is_advanced` + `has_custom_sub` + 订阅配置情况显示对应订阅区段（完整规则见 AGENTS.md §4.2，含未配置降级提示）
-  - 三个操作按钮：
-    - **一键导入**（`type="primary"`）：拼接 `client_schemes[0] + encodeURIComponent(downloadUrl)` → `window.location.href = url`
-    - **复制链接**（`type="default"`）：弹出 `el-dialog`，显示完整 URL，点击输入框自动 `navigator.clipboard.writeText()`
-    - **刷新链接**（`type="warning"`, `text`, `size="small"`）：loading 状态，调 `userApi.refreshToken(platform, type)`，成功后更新本地 token
-  - 下载客户端按钮：`v-if="item.download_url"` → `<a :href="item.download_url" target="_blank">下载客户端</a>`
-  - 管理员预览：额外渲染另一类型（`previewToken`）的按钮组
-- [ ] `src/views/Manage.vue`：
-  - 布局：左侧 `el-menu`（`router` 模式，`width="200px"`），右侧 `<router-view />`
-  - 7 个菜单项（按 AGENTS.md §4.3）：订阅管理、分享订阅、平台管理、用户管理、规则管理、OIDC 配置、日志查看
-  - 当前路由对应菜单项高亮（`:default-active="route.path"`）
-  - 移动端：侧边栏默认隐藏，顶部栏汉堡按钮（`el-drawer` 或 CSS `transform` 切换）
-- [ ] `src/views/Rules.vue`（用户规则页面，所有登录用户可见）：
-  - `onMounted` 调 `publicApi.getRules()` 获取规则列表
-  - 展示规则列表：规则名称、客户端类型（`client_type`）、当前版本号
-  - 用户可**选择不同版本单独下载**（AGENTS.md §4.9 第 12 轮决策），展开/下拉选择版本 → 下载对应 `.conf` 文件
-  - 下载链接格式：`/api/v1/rules/:id/download?token={ruleToken}`
-  - 普通用户仅浏览和下载，无管理功能
-- [ ] 验证：`npm run build` 通过；本地配 OIDC 跑通 Setup → Login → Home 主流程
+### 6A-1: Setup.vue
+
+- [ ] 顶部标题「VPN 订阅管理系统 — 首次配置」
+- [ ] OIDC 提供商选择区域：当前提供商标签 + 「切换提供商」按钮 → 打开 `OIDCSwitchDialog`
+- [ ] 按 `providerType` 显示对应字段（切换时保留已填值，通过保存当前表单数据实现）：
+  - Keycloak：`keycloak_base_url` + `keycloak_realm`
+  - Auth0：`auth0_domain`
+  - 通用 OIDC：`generic_issuer`
+- [ ] 公共字段（所有提供商类型）：`client_id`、`client_secret`（密码框）、`redirect_uri`、`frontend_url`
+- [ ] 使用 `el-form` + `el-input`，必填字段加 `required` 校验
+- [ ] 「测试连接」按钮（`el-button`，loading 状态）：
+  - 收集当前表单数据 → 调 `adminApi.system.testOIDC(data)`
+  - 成功：`ElMessage.success('连接测试成功')`
+  - 失败：`ElMessage.error('连接测试失败：' + error)`
+- [ ] 「完成配置」按钮（`type="primary"`，loading 状态）：
+  - 前端校验必填字段 → 调 `adminApi.system.configure(data)`
+  - 成功后 `ElMessage.success('配置完成')` → `router.push('/login')`
+  - 失败显示错误信息
+- [ ] `onMounted`：调 `publicApi.getSystemStatus()` → 若 `configured === true` 则 `router.push('/login')`（已配置则跳过 setup）
+
+### 6A-2: Login.vue
+
+- [ ] 居中布局：系统标题「VPN 订阅管理」+ 副标题文案
+- [ ] 「通过 OIDC 登录」按钮（`type="primary"`，`size="large"`）：
+  - 点击 → `window.location.href = '/api/v1/auth/login'`（**不可**用 axios，后端返回 302 重定向）
+- [ ] `onMounted`：若已有 token（`userStore.token`）→ `router.push('/')`（已登录则直接进入首页）
+- [ ] 可选：显示暗色模式切换按钮（调用 `useTheme().toggle()`）
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 后端未配置时访问网站 → 跳转 `/setup` → 显示配置表单
+- [ ] 切换提供商类型 → 字段切换，已填值保留
+- [ ] 测试连接 → 成功/失败提示正确
+- [ ] 完成配置 → 跳转 `/login`
+- [ ] `/login` 页面点击登录 → 302 跳转到 OIDC 提供商
+- [ ] 已登录用户访问 `/login` → 自动跳转 `/`
+
+**涉及文件**: `src/views/Setup.vue`, `src/views/Login.vue`
 
 **关键约束**:
-- 一键导入 URL 格式：`scheme://path?url={encodedURL}`，如 `clash://install-config?url=https%3A%2F%2F...`
-- 删除确认必须用 `ConfirmDialog.vue`，不用 `ElMessageBox.confirm`
+- Login.vue 的 OIDC 跳转是 `window.location.href`，不是 axios
+- Setup.vue 切换提供商时保留已填字段
+- 模板中使用「」代替 `"` 转义
+
+---
+
+## 块 6B：管理面板布局（Manage.vue）
+
+**目标**: 实现管理后台侧边栏布局，作为所有管理页面的外壳。
+
+> **注意**: 块 5B 已创建 `Manage.vue` stub。本块是**替换**为真实实现。此块可独立于 6A 构建（仅依赖路由骨架）。
+
+**任务**:
+
+- [ ] 左侧固定宽度侧边栏（`width="200px"`），使用 `el-menu` 组件：
+  - `router` 模式（`:router="true"`），`:default-active="route.path"` 高亮当前路由
+  - 7 个菜单项（`el-menu-item`），每个带 `:index="path"`：
+    - 订阅管理 → `/admin/subscriptions`
+    - 分享订阅 → `/admin/shares`
+    - 平台管理 → `/admin/platforms`
+    - 用户管理 → `/admin/users`
+    - 规则管理 → `/admin/rules`
+    - OIDC 配置 → `/admin/oidc`
+    - 日志查看 → `/admin/logs`
+  - 当前激活菜单项高亮：背景色使用渐变紫色（`background: linear-gradient(...)` 或 Element Plus 的 `--el-menu-active-color`）
+- [ ] 右侧内容区：`<router-view />`（子路由页面在此渲染）
+- [ ] 使用 `el-container` + `el-aside` + `el-main` 布局
+- [ ] 移动端响应式（`@media` 断点 ~768px）：
+  - 侧边栏默认隐藏（`display: none` 或 `transform: translateX(-200px)`）
+  - 顶部栏显示汉堡按钮（`el-icon` + `@click` 切换）→ 使用 `el-drawer` 或 CSS `transform` 滑出侧边栏
+- [ ] `onMounted`：无需额外数据加载（子页面各自加载）
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 管理员登录后访问 `/admin/subscriptions` → 左侧菜单高亮「订阅管理」，右侧显示 SubList stub
+- [ ] 点击各菜单项 → 路由跳转正确，高亮跟随
+- [ ] 缩小浏览器宽度 → 侧边栏隐藏，汉堡按钮出现
+- [ ] 点击汉堡按钮 → 侧边栏滑出
+
+**涉及文件**: `src/views/Manage.vue`
+
+**关键约束**:
+- 菜单项 `index` 必须与路由 `path` 完全一致
+- 移动端汉堡按钮使用 Element Plus 图标（`@element-plus/icons-vue` 的 `Expand` / `Fold`）
+- 侧边栏高度占满视口（`height: 100vh`）
+
+---
+
+## 块 6C：首页仪表盘（Home.vue）
+
+**目标**: 实现首页 — 最复杂的页面。含顶部栏、平台卡片网格、订阅显示逻辑、操作按钮。
+
+> **注意**: 块 5B 已创建 `Home.vue` stub。本块是**替换**为真实实现。依赖 块 5B 的 api.js / userStore / useTheme，可独立于 6A/6B 构建。
+
+**任务**:
+
+### 6C-1: 顶部水平栏
+
+- [ ] 左侧：标题「VPN 订阅」+ 订阅更新时间戳
+  - 更新时间戳：`onMounted` 调 `userApi.getUpdateTime()` → 取 `data.update_time`，用 `new Date().toLocaleString()` 格式化显示
+  - 若 `update_time` 为空 → 显示「暂无更新」
+- [ ] 右侧按钮组（`el-space` 或 flex 布局）：
+  - 「管理面板」按钮（`el-button`，`v-if="userStore.isAdmin"`）→ `router.push('/admin')`
+  - 用户名 + 角色标签（`el-tag`）：
+    - 角色映射：`admin` → `type="danger"`，「管理员」；`user` + `is_advanced` → `type="warning"`，「高级用户」；`user` + `!is_advanced` → `type="info"`，「普通用户」
+  - 「退出」按钮（`el-button`，`type="default"`）→ `userStore.logout(router)`
+  - 暗色模式切换按钮（`el-button`，`circle` 图标）→ `useTheme().toggle()`
+
+### 6C-2: 平台卡片网格
+
+- [ ] `onMounted` 调 `userApi.getUserPlatforms()` → 取 `data.platforms` 数组
+- [ ] 响应式网格：`el-row` + `el-col`，`:xs="24"` `:md="12"` `:lg="8"`（小屏 1 列 / 中屏 2 列 / 大屏 3 列）
+- [ ] 每张卡片（`el-card`）：
+  - 卡片头部：平台名称（`item.name`）
+  - 卡片主体：平台描述（`item.description`）
+  - 订阅区段（核心逻辑，见 6C-3）
+  - 卡片底部（`v-if="item.download_url"`）：`<a>` 标签「下载客户端」，`href` 指向 `item.download_url`，`target="_blank"`
+
+### 6C-3: 订阅区段显示逻辑
+
+根据 `item` 的 5 个字段组合判断显示内容：`has_custom_sub`、`sub_type`、`download_token`、`preview_token`、`default_configured`、`advanced_configured`，结合 `userStore.isAdmin`、`userStore.isAdvanced`。
+
+**6 种显示情况**:
+
+| # | 条件 | 显示内容 |
+|---|------|----------|
+| 1 | 普通用户 + 无自定义 + 该类型已配置 | 「默认订阅」标签 + 操作按钮（token=`item.download_token`, type=`item.sub_type`） |
+| 2 | 普通用户 + 无自定义 + 该类型未配置 | 「默认订阅未配置，请联系管理员」提示文字，无按钮 |
+| 3 | 高级用户 + 无自定义 + 该类型已配置 | 「高级订阅」标签 + 操作按钮（token=`item.download_token`, type=`item.sub_type`） |
+| 4 | 高级用户 + 无自定义 + 该类型未配置 | 「高级订阅未配置，请联系管理员」提示文字，无按钮 |
+| 5 | 任何用户 + 有自定义订阅 | 「已被分配自定义订阅」提示 + 操作按钮（token=`item.download_token`, type=`'custom'`） |
+| 6 | 管理员 + 无自定义 | 同上 #1/#2/#3/#4，但额外渲染另一类型的预览按钮组（token=`item.preview_token`, type=`item.preview_sub_type`）。若某类型未配置则显示「未配置」而非按钮 |
+
+> **简化实现建议**: 封装一个 `<SubscriptionSection>` 内联组件（同一文件内），接收 `token`、`subType`、`label`、`configured` props，渲染标签 + 三个操作按钮。Home.vue 中按条件渲染 1~3 个 `<SubscriptionSection>` 实例。
+
+### 6C-4: 操作按钮组（一键导入 / 复制链接 / 刷新链接）
+
+三个按钮封装为可复用逻辑（SubscriptionSection 内）：
+
+- [ ] **一键导入**（`type="primary"`）：
+  - 拼接 URL：`item.client_schemes[0] + encodeURIComponent(downloadApi.downloadByTokenUrl(platform, token))`
+  - 点击 → `window.location.href = url`
+  - 若 `!token` 则 `disabled`
+- [ ] **复制链接**（`type="default"`）：
+  - 弹出 `el-dialog`（`width="500px"`，标题「复制订阅链接」）
+  - 对话框内含 `el-input`（`readonly`），value 为完整下载 URL
+  - 点击输入框 → `navigator.clipboard.writeText(url)` → `ElMessage.success('已复制到剪贴板')`
+  - 若 `!token` 则 `disabled`
+- [ ] **刷新链接**（`type="warning"`, `text`, `size="small"`）：
+  - 点击 → 按钮进入 loading 状态 → 调 `userApi.refreshToken(platform, subType)`
+  - 成功后 `ElMessage.success('链接已刷新')` → 更新本地 token（调用 `userApi.getUserPlatforms()` 重新获取或直接更新数组中的 token）
+  - 失败 `ElMessage.error('刷新失败')`
+  - 若 `!token` 则 `disabled`
+
+### 6C-5: 状态处理
+
+- [ ] 平台列表加载中：`el-skeleton` 或 `v-loading` 指令
+- [ ] 平台列表为空：`el-empty` 组件，提示「暂无平台，请联系管理员」
+- [ ] API 调用失败：`ElMessage.error` 提示
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 普通用户登录 → 显示对应级别的订阅（默认/高级）
+- [ ] 高级用户登录 → 显示高级订阅
+- [ ] 未配置订阅的平台 → 显示提示文字，无按钮
+- [ ] 有自定义订阅的平台 → 显示「已被分配自定义订阅」
+- [ ] 管理员登录 → 显示默认+高级两组按钮（预览）
+- [ ] 一键导入 → 浏览器跳转到 scheme URL
+- [ ] 复制链接 → 弹窗显示 URL，点击复制成功
+- [ ] 刷新链接 → loading → 成功后 token 更新
+- [ ] 下载客户端按钮（仅配置了 download_url 的平台显示）
+- [ ] 暗色模式切换
+- [ ] 响应式：缩小浏览器宽度 → 卡片列数自适应
+
+**涉及文件**: `src/views/Home.vue`
+
+**关键约束**:
+- 一键导入 URL 格式：`scheme://path?url={encodedURL}`，编码使用 `encodeURIComponent`
 - 登出必须调用 `userStore.logout(router)`，传入 router 实例
-- Login.vue 的 OIDC 跳转是 `window.location.href`，不是 axios（后端返回 302）
+- 模板中使用「」代替 `"` 转义
+- 复制链接用 `navigator.clipboard.writeText()`，需要 HTTPS 或 localhost 环境
+
+---
+
+## 块 6D：用户规则浏览页（Rules.vue）
+
+**目标**: 实现面向所有登录用户的规则浏览与下载页面。
+
+> **注意**: 块 5B 已创建 `Rules.vue` stub。本块是**替换**为真实实现。可独立于 6A/6B/6C 构建。
+
+**任务**:
+
+- [ ] `onMounted` 调 `publicApi.getRules()` → 取 `data.rules` 数组
+- [ ] 规则列表（`el-table` 或 `el-card` 列表）：
+  - 列：规则名称（`item.name`）、客户端类型（`item.client_type`，当前显示 Shadowrocket）、当前版本号（`item.versions` 中 `updated_at` 最大者）、操作
+  - 操作列：「下载当前版本」按钮 → `<a :href="publicApi.getRuleDownloadUrl(item.id, item.token)">`（直接跳转下载）或以 `window.open` 打开
+- [ ] **版本选择下载**（AGENTS.md §4.9）：用户可选择不同版本单独下载
+  - 每个规则行可展开或使用 `el-select` 下拉选择历史版本
+  - 选中版本后生成下载链接（格式同当前版本，但需要后端支持指定版本下载 — **当前后端仅支持 current 版本下载**，此功能标记为待后端支持）
+  - 实际实现：当前仅支持下载 current 版本，UI 中版本号展示为只读文本
+- [ ] 空状态：无规则时显示 `el-empty` 提示
+- [ ] 加载状态：`v-loading` 指令
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 登录用户访问 `/rules` → 显示规则列表（名称/类型/版本号/下载按钮）
+- [ ] 点击下载按钮 → 下载 `.conf` 文件
+- [ ] 无规则时 → 显示空状态
+- [ ] 普通用户无法访问 `/admin/rules`（路由守卫拦截）
+
+**涉及文件**: `src/views/Rules.vue`
+
+**关键约束**:
+- 下载链接格式：`/api/v1/rules/:id/download?token={ruleToken}`（token 来自 rules 列表 API 返回）
+- 注意：这是前端 `/rules` 页面（需登录），与后端公开 API `GET /api/v1/rules` 和 `GET /api/v1/rules/:id/download`（公开）不同
+- 当前后端仅支持下载 current 版本；若后续支持版本选择，需新增 API
+
+---
+
+## 块 6 整体验证
+
+块 6A-6D 全部完成后：
+
+- [ ] 完整流程：访问网站 → Setup → Login → OIDC 回调 → Home（平台卡片）→ 管理面板 → 规则页
+- [ ] Setup 切换提供商 → 测试连接 → 完成配置
+- [ ] 首页平台卡片按用户级别正确显示
+- [ ] 一键导入 / 复制链接 / 刷新链接 功能正常
+- [ ] 管理面板侧边栏导航正常
+- [ ] 规则页浏览和下载正常
+- [ ] 暗色模式在全部页面生效
+- [ ] 移动端响应式正常
 
 ---
 
