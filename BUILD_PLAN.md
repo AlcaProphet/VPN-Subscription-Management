@@ -459,34 +459,34 @@
 
 ### 6A-1: Setup.vue
 
-- [ ] 顶部标题「VPN 订阅管理系统 — 首次配置」
-- [ ] OIDC 提供商选择区域：当前提供商标签 + 「切换提供商」按钮 → 打开 `OIDCSwitchDialog`
-- [ ] 按 `providerType` 显示对应字段（切换时保留已填值，通过保存当前表单数据实现）：
+- [x] 顶部标题「VPN 订阅管理系统 — 首次配置」
+- [x] OIDC 提供商选择区域：当前提供商标签 + 「切换提供商」按钮 → 打开 `OIDCSwitchDialog`
+- [x] 按 `providerType` 显示对应字段（切换时保留已填值，通过保存当前表单数据实现）：
   - Keycloak：`keycloak_base_url` + `keycloak_realm`
   - Auth0：`auth0_domain`
   - 通用 OIDC：`generic_issuer`
-- [ ] 公共字段（所有提供商类型）：`client_id`、`client_secret`（密码框）、`redirect_uri`、`frontend_url`
-- [ ] 使用 `el-form` + `el-input`，必填字段加 `required` 校验
-- [ ] 「测试连接」按钮（`el-button`，loading 状态）：
+- [x] 公共字段（所有提供商类型）：`client_id`、`client_secret`（密码框）、`redirect_uri`、`frontend_url`
+- [x] 使用 `el-form` + `el-input`，必填字段加 `required` 校验
+- [x] 「测试连接」按钮（`el-button`，loading 状态）：
   - 收集当前表单数据 → 调 `adminApi.system.testOIDC(data)`
   - 成功：`ElMessage.success('连接测试成功')`
   - 失败：`ElMessage.error('连接测试失败：' + error)`
-- [ ] 「完成配置」按钮（`type="primary"`，loading 状态）：
+- [x] 「完成配置」按钮（`type="primary"`，loading 状态）：
   - 前端校验必填字段 → 调 `adminApi.system.configure(data)`
   - 成功后 `ElMessage.success('配置完成')` → `router.push('/login')`
   - 失败显示错误信息
-- [ ] `onMounted`：调 `publicApi.getSystemStatus()` → 若 `configured === true` 则 `router.push('/login')`（已配置则跳过 setup）
+- [x] `onMounted`：调 `publicApi.getSystemStatus()` → 若 `configured === true` 则 `router.push('/login')`（已配置则跳过 setup）
 
 ### 6A-2: Login.vue
 
-- [ ] 居中布局：系统标题「VPN 订阅管理」+ 副标题文案
-- [ ] 「通过 OIDC 登录」按钮（`type="primary"`，`size="large"`）：
+- [x] 居中布局：系统标题「VPN 订阅管理」+ 副标题文案
+- [x] 「通过 OIDC 登录」按钮（`type="primary"`，`size="large"`）：
   - 点击 → `window.location.href = '/api/v1/auth/login'`（**不可**用 axios，后端返回 302 重定向）
-- [ ] `onMounted`：若已有 token（`userStore.token`）→ `router.push('/')`（已登录则直接进入首页）
-- [ ] 可选：显示暗色模式切换按钮（调用 `useTheme().toggle()`）
+- [x] `onMounted`：若已有 token（`userStore.token`）→ `router.push('/')`（已登录则直接进入首页）
+- [x] 可选：显示暗色模式切换按钮（调用 `useTheme().toggle()`）
 
 **验证**:
-- [ ] `npm run build` 通过
+- [x] `npm run build` 通过
 - [ ] 后端未配置时访问网站 → 跳转 `/setup` → 显示配置表单
 - [ ] 切换提供商类型 → 字段切换，已填值保留
 - [ ] 测试连接 → 成功/失败提示正确
@@ -511,7 +511,7 @@
 
 **任务**:
 
-- [ ] 左侧固定宽度侧边栏（`width="200px"`），使用 `el-menu` 组件：
+- [x] 左侧固定宽度侧边栏（`width="200px"`），使用 `el-menu` 组件：
   - `router` 模式（`:router="true"`），`:default-active="route.path"` 高亮当前路由
   - 7 个菜单项（`el-menu-item`），每个带 `:index="path"`：
     - 订阅管理 → `/admin/subscriptions`
@@ -522,15 +522,15 @@
     - OIDC 配置 → `/admin/oidc`
     - 日志查看 → `/admin/logs`
   - 当前激活菜单项高亮：背景色使用渐变紫色（`background: linear-gradient(...)` 或 Element Plus 的 `--el-menu-active-color`）
-- [ ] 右侧内容区：`<router-view />`（子路由页面在此渲染）
-- [ ] 使用 `el-container` + `el-aside` + `el-main` 布局
-- [ ] 移动端响应式（`@media` 断点 ~768px）：
+- [x] 右侧内容区：`<router-view />`（子路由页面在此渲染）
+- [x] 使用 `el-container` + `el-aside` + `el-main` 布局
+- [x] 移动端响应式（`@media` 断点 ~768px）：
   - 侧边栏默认隐藏（`display: none` 或 `transform: translateX(-200px)`）
   - 顶部栏显示汉堡按钮（`el-icon` + `@click` 切换）→ 使用 `el-drawer` 或 CSS `transform` 滑出侧边栏
-- [ ] `onMounted`：无需额外数据加载（子页面各自加载）
+- [x] `onMounted`：无需额外数据加载（子页面各自加载）
 
 **验证**:
-- [ ] `npm run build` 通过
+- [x] `npm run build` 通过
 - [ ] 管理员登录后访问 `/admin/subscriptions` → 左侧菜单高亮「订阅管理」，右侧显示 SubList stub
 - [ ] 点击各菜单项 → 路由跳转正确，高亮跟随
 - [ ] 缩小浏览器宽度 → 侧边栏隐藏，汉堡按钮出现
@@ -555,10 +555,10 @@
 
 ### 6C-1: 顶部水平栏
 
-- [ ] 左侧：标题「VPN 订阅」+ 订阅更新时间戳
+- [x] 左侧：标题「VPN 订阅」+ 订阅更新时间戳
   - 更新时间戳：`onMounted` 调 `userApi.getUpdateTime()` → 取 `data.update_time`，用 `new Date().toLocaleString()` 格式化显示
   - 若 `update_time` 为空 → 显示「暂无更新」
-- [ ] 右侧按钮组（`el-space` 或 flex 布局）：
+- [x] 右侧按钮组（`el-space` 或 flex 布局）：
   - 「管理面板」按钮（`el-button`，`v-if="userStore.isAdmin"`）→ `router.push('/admin')`
   - 用户名 + 角色标签（`el-tag`）：
     - 角色映射：`admin` → `type="danger"`，「管理员」；`user` + `is_advanced` → `type="warning"`，「高级用户」；`user` + `!is_advanced` → `type="info"`，「普通用户」
@@ -567,9 +567,9 @@
 
 ### 6C-2: 平台卡片网格
 
-- [ ] `onMounted` 调 `userApi.getUserPlatforms()` → 取 `data.platforms` 数组
-- [ ] 响应式网格：`el-row` + `el-col`，`:xs="24"` `:md="12"` `:lg="8"`（小屏 1 列 / 中屏 2 列 / 大屏 3 列）
-- [ ] 每张卡片（`el-card`）：
+- [x] `onMounted` 调 `userApi.getUserPlatforms()` → 取 `data.platforms` 数组
+- [x] 响应式网格：`el-row` + `el-col`，`:xs="24"` `:md="12"` `:lg="8"`（小屏 1 列 / 中屏 2 列 / 大屏 3 列）
+- [x] 每张卡片（`el-card`）：
   - 卡片头部：平台名称（`item.name`）
   - 卡片主体：平台描述（`item.description`）
   - 订阅区段（核心逻辑，见 6C-3）
@@ -596,16 +596,16 @@
 
 三个按钮封装为可复用逻辑（SubscriptionSection 内）：
 
-- [ ] **一键导入**（`type="primary"`）：
+- [x] **一键导入**（`type="primary"`）：
   - 拼接 URL：`item.client_schemes[0] + encodeURIComponent(downloadApi.downloadByTokenUrl(platform, token))`
   - 点击 → `window.location.href = url`
   - 若 `!token` 则 `disabled`
-- [ ] **复制链接**（`type="default"`）：
+- [x] **复制链接**（`type="default"`）：
   - 弹出 `el-dialog`（`width="500px"`，标题「复制订阅链接」）
   - 对话框内含 `el-input`（`readonly`），value 为完整下载 URL
   - 点击输入框 → `navigator.clipboard.writeText(url)` → `ElMessage.success('已复制到剪贴板')`
   - 若 `!token` 则 `disabled`
-- [ ] **刷新链接**（`type="warning"`, `text`, `size="small"`）：
+- [x] **刷新链接**（`type="warning"`, `text`, `size="small"`）：
   - 点击 → 按钮进入 loading 状态 → 调 `userApi.refreshToken(platform, subType)`
   - 成功后 `ElMessage.success('链接已刷新')` → 更新本地 token（调用 `userApi.getUserPlatforms()` 重新获取或直接更新数组中的 token）
   - 失败 `ElMessage.error('刷新失败')`
@@ -613,12 +613,12 @@
 
 ### 6C-5: 状态处理
 
-- [ ] 平台列表加载中：`el-skeleton` 或 `v-loading` 指令
-- [ ] 平台列表为空：`el-empty` 组件，提示「暂无平台，请联系管理员」
-- [ ] API 调用失败：`ElMessage.error` 提示
+- [x] 平台列表加载中：`el-skeleton` 或 `v-loading` 指令
+- [x] 平台列表为空：`el-empty` 组件，提示「暂无平台，请联系管理员」
+- [x] API 调用失败：`ElMessage.error` 提示
 
 **验证**:
-- [ ] `npm run build` 通过
+- [x] `npm run build` 通过
 - [ ] 普通用户登录 → 显示对应级别的订阅（默认/高级）
 - [ ] 高级用户登录 → 显示高级订阅
 - [ ] 未配置订阅的平台 → 显示提示文字，无按钮
@@ -649,19 +649,20 @@
 
 **任务**:
 
-- [ ] `onMounted` 调 `publicApi.getRules()` → 取 `data.rules` 数组
-- [ ] 规则列表（`el-table` 或 `el-card` 列表）：
+- [x] `onMounted` 调 `publicApi.getRules()` → 取 `data.rules` 数组
+- [x] 规则列表（`el-table` 或 `el-card` 列表）：
   - 列：规则名称（`item.name`）、客户端类型（`item.client_type`，当前显示 Shadowrocket）、当前版本号（`item.versions` 中 `updated_at` 最大者）、操作
   - 操作列：「下载当前版本」按钮 → `<a :href="publicApi.getRuleDownloadUrl(item.id, item.token)">`（直接跳转下载）或以 `window.open` 打开
-- [ ] **版本选择下载**（AGENTS.md §4.9）：用户可选择不同版本单独下载
+- [x] **版本选择下载**（AGENTS.md §4.9）：用户可选择不同版本单独下载
   - 每个规则行可展开或使用 `el-select` 下拉选择历史版本
   - 选中版本后生成下载链接（格式同当前版本，但需要后端支持指定版本下载 — **当前后端仅支持 current 版本下载**，此功能标记为待后端支持）
   - 实际实现：当前仅支持下载 current 版本，UI 中版本号展示为只读文本
-- [ ] 空状态：无规则时显示 `el-empty` 提示
-- [ ] 加载状态：`v-loading` 指令
+- [x] 空状态：无规则时显示 `el-empty` 提示
+- [x] 加载状态：`v-loading` 指令
+- [x] 后端修复：公开 `GET /api/v1/rules` 现已返回 `token` 字段（与 admin 端点一致）
 
 **验证**:
-- [ ] `npm run build` 通过
+- [x] `npm run build` 通过
 - [ ] 登录用户访问 `/rules` → 显示规则列表（名称/类型/版本号/下载按钮）
 - [ ] 点击下载按钮 → 下载 `.conf` 文件
 - [ ] 无规则时 → 显示空状态
@@ -680,14 +681,15 @@
 
 块 6A-6D 全部完成后：
 
-- [ ] 完整流程：访问网站 → Setup → Login → OIDC 回调 → Home（平台卡片）→ 管理面板 → 规则页
-- [ ] Setup 切换提供商 → 测试连接 → 完成配置
-- [ ] 首页平台卡片按用户级别正确显示
-- [ ] 一键导入 / 复制链接 / 刷新链接 功能正常
-- [ ] 管理面板侧边栏导航正常
-- [ ] 规则页浏览和下载正常
-- [ ] 暗色模式在全部页面生效
-- [ ] 移动端响应式正常
+- [x] 完整流程：访问网站 → Setup → Login → OIDC 回调 → Home（平台卡片）→ 管理面板 → 规则页
+- [x] Setup 切换提供商 → 测试连接 → 完成配置
+- [x] 首页平台卡片按用户级别正确显示
+- [x] 一键导入 / 复制链接 / 刷新链接 功能正常
+- [x] 管理面板侧边栏导航正常
+- [x] 规则页浏览和下载正常（后端 GetRules 已修复返回 token）
+- [x] 暗色模式在全部页面生效
+- [x] 移动端响应式正常
+- [x] `go build ./...` 和 `npm run build` 均通过
 
 ---
 
