@@ -162,7 +162,10 @@ func getIssuerURL(cfg *OIDCConfig) string {
 	case ProviderKeycloak:
 		return strings.TrimRight(cfg.KeycloakBaseURL, "/") + "/realms/" + cfg.KeycloakRealm
 	case ProviderAuth0:
-		return "https://" + strings.TrimLeft(cfg.Auth0Domain, "https://")
+		domain := cfg.Auth0Domain
+		domain = strings.TrimPrefix(domain, "https://")
+		domain = strings.TrimPrefix(domain, "http://")
+		return "https://" + domain
 	case ProviderGeneric:
 		return cfg.GenericIssuer
 	default:
@@ -483,15 +486,21 @@ type ConfigureSystemResult struct {
 	JWTSecret string // the generated JWT secret (may be needed)
 }
 
-// ConfigureSystem stores OIDC configuration and generates JWT_SECRET.
-// This is called during the setup flow (POST /admin/system/configure).
+// ConfigureSystem stores OIDC configuration and ensures JWT_SECRET exists.
+// On first setup (JWT_SECRET not yet set), a new secret is generated.
+// On subsequent calls (e.g. OIDC config page save), the existing JWT_SECRET is
+// reused so that existing JWTs and encrypted provider secrets remain valid.
 func ConfigureSystem(cfgRepo *repository.SystemConfigRepo, cfg *OIDCConfig, rawClientSecret string) (*ConfigureSystemResult, error) {
-	// Generate JWT_SECRET (at least 32 bytes = 256 bits)
-	jwtSecretBytes, err := utils.GenerateRandomBytes(32)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate JWT_SECRET: %w", err)
+	// Check if JWT_SECRET already exists — reuse it if so, generate only on first setup
+	jwtSecret, err := cfgRepo.Get("JWT_SECRET")
+	if err != nil || jwtSecret == "" {
+		// First-time setup: generate a new JWT_SECRET (at least 32 bytes = 256 bits)
+		jwtSecretBytes, genErr := utils.GenerateRandomBytes(32)
+		if genErr != nil {
+			return nil, fmt.Errorf("failed to generate JWT_SECRET: %w", genErr)
+		}
+		jwtSecret = base64.RawURLEncoding.EncodeToString(jwtSecretBytes)
 	}
-	jwtSecret := base64.RawURLEncoding.EncodeToString(jwtSecretBytes)
 
 	// Derive AES key from JWT_SECRET
 	aesKey := utils.AESKeyFromSecret(jwtSecret)

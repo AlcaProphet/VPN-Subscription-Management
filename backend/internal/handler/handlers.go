@@ -62,7 +62,8 @@ func GetRuleDownload(c *gin.Context) {
 	}
 	content, err := RuleSvc.GetCurrentContent(ruleID)
 	if err != nil {
-		logAccess("", c.ClientIP(), "rule", "", "", ruleID, "failed", "file_not_found")
+		errorReason := errorReasonFromErr(err)
+		logAccess("", c.ClientIP(), "rule", "", "", ruleID, "failed", errorReason)
 		c.String(http.StatusNotFound, "rule not found")
 		return
 	}
@@ -328,7 +329,8 @@ func handleJWTDownload(c *gin.Context) {
 
 	content, err := SubSvc.GetCurrentContent(platform, subType)
 	if err != nil {
-		logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "failed", "file_not_found")
+		errorReason := errorReasonFromErr(err)
+		logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "failed", errorReason)
 		c.String(http.StatusNotFound, err.Error())
 		return
 	}
@@ -385,7 +387,8 @@ func SubDownloadToken(c *gin.Context) {
 	}
 
 	if err != nil {
-		logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "failed", "file_not_found")
+		errorReason := errorReasonFromErr(err)
+		logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "failed", errorReason)
 		c.String(http.StatusNotFound, err.Error())
 		return
 	}
@@ -413,7 +416,8 @@ func ShareDownload(c *gin.Context) {
 
 	content, err := ShareSvc.GetCurrentContent(id)
 	if err != nil {
-		logAccess("", c.ClientIP(), "share", "", id, "", "failed", "file_not_found")
+		errorReason := errorReasonFromErr(err)
+		logAccess("", c.ClientIP(), "share", "", id, "", "failed", errorReason)
 		c.String(http.StatusNotFound, err.Error())
 		return
 	}
@@ -569,7 +573,10 @@ func PostTestOIDC(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth0_domain is required"})
 			return
 		}
-		issuerURL = "https://" + strings.TrimLeft(req.Auth0Domain, "https://")
+		domain := req.Auth0Domain
+		domain = strings.TrimPrefix(domain, "https://")
+		domain = strings.TrimPrefix(domain, "http://")
+		issuerURL = "https://" + domain
 	case auth.ProviderGeneric:
 		if req.GenericIssuer == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "generic_issuer is required"})
@@ -695,13 +702,23 @@ func UploadCustomSubscription(c *gin.Context) {
 }
 
 func UploadCustomSubscriptionVersion(c *gin.Context) {
-	id := c.Param("id")
+	userID := c.Param("id")
+	platform := c.Query("platform")
+	if platform == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform query parameter is required"})
+		return
+	}
+	cs, err := CustomSubSvc.GetByUserAndPlatform(userID, platform)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "custom subscription not found"})
+		return
+	}
 	content, err := readUploadContent(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	cs, err := CustomSubSvc.UploadVersion(id, content)
+	cs, err = CustomSubSvc.UploadVersion(cs.ID, content)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -710,7 +727,18 @@ func UploadCustomSubscriptionVersion(c *gin.Context) {
 }
 
 func DeleteCustomSubscription(c *gin.Context) {
-	if err := CustomSubSvc.Delete(c.Param("id")); err != nil {
+	userID := c.Param("id")
+	platform := c.Query("platform")
+	if platform == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform query parameter is required"})
+		return
+	}
+	cs, err := CustomSubSvc.GetByUserAndPlatform(userID, platform)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "custom subscription not found"})
+		return
+	}
+	if err := CustomSubSvc.Delete(cs.ID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -718,12 +746,23 @@ func DeleteCustomSubscription(c *gin.Context) {
 }
 
 func GetCustomVersion(c *gin.Context) {
+	userID := c.Param("id")
+	platform := c.Query("platform")
+	if platform == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform query parameter is required"})
+		return
+	}
+	cs, err := CustomSubSvc.GetByUserAndPlatform(userID, platform)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "custom subscription not found"})
+		return
+	}
 	versionNum, err := parseVersionParam(c.Param("versionId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
 		return
 	}
-	content, ver, err := CustomSubSvc.GetVersionContent(c.Param("id"), versionNum)
+	content, ver, err := CustomSubSvc.GetVersionContent(cs.ID, versionNum)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -732,12 +771,23 @@ func GetCustomVersion(c *gin.Context) {
 }
 
 func SwitchCustomVersion(c *gin.Context) {
+	userID := c.Param("id")
+	platform := c.Query("platform")
+	if platform == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform query parameter is required"})
+		return
+	}
+	cs, err := CustomSubSvc.GetByUserAndPlatform(userID, platform)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "custom subscription not found"})
+		return
+	}
 	versionNum, err := parseVersionParam(c.Param("versionId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
 		return
 	}
-	cs, err := CustomSubSvc.SwitchVersion(c.Param("id"), versionNum)
+	cs, err = CustomSubSvc.SwitchVersion(cs.ID, versionNum)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -746,12 +796,23 @@ func SwitchCustomVersion(c *gin.Context) {
 }
 
 func DeleteCustomVersion(c *gin.Context) {
+	userID := c.Param("id")
+	platform := c.Query("platform")
+	if platform == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform query parameter is required"})
+		return
+	}
+	cs, err := CustomSubSvc.GetByUserAndPlatform(userID, platform)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "custom subscription not found"})
+		return
+	}
 	versionNum, err := parseVersionParam(c.Param("versionId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid versionId"})
 		return
 	}
-	cs, err := CustomSubSvc.DeleteVersion(c.Param("id"), versionNum)
+	cs, err = CustomSubSvc.DeleteVersion(cs.ID, versionNum)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1144,18 +1205,107 @@ func ListAdminRules(c *gin.Context) {
 }
 
 func CreateRule(c *gin.Context) {
-	var rule models.Rule
-	if err := c.ShouldBindJSON(&rule); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+	// Try JSON body first (id + name + client_type + optional content)
+	if strings.HasPrefix(c.GetHeader("Content-Type"), "application/json") {
+		var req struct {
+			ID         string `json:"id"`
+			Name       string `json:"name"`
+			ClientType string `json:"client_type"`
+			Content    string `json:"content"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+		if req.ID == "" || req.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id and name are required"})
+			return
+		}
+		if req.Content != "" {
+			// One-step creation with first version
+			rule, token, err := createRuleWithFirstVersion(req.ID, req.Name, req.ClientType, req.Content)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule, "token": token})
+			return
+		}
+		// Backward compatible: JSON without content — create empty rule record
+		rule := &models.Rule{
+			ID:         req.ID,
+			Name:       req.Name,
+			ClientType: req.ClientType,
+		}
+		if err := RuleSvc.Create(rule); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		token, _ := RuleSvc.RefreshToken(rule.ID)
+		c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule, "token": token})
 		return
 	}
-	if err := RuleSvc.Create(&rule); err != nil {
+
+	// Multipart file upload: id/name/client_type from form fields, content from file
+	content, err := readUploadContent(c)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Auto-generate rule token per AGENTS.md
-	token, _ := RuleSvc.RefreshToken(rule.ID)
+	id := c.PostForm("id")
+	if id == "" {
+		id = c.Query("id")
+	}
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
+		return
+	}
+	name := c.PostForm("name")
+	if name == "" {
+		name = c.Query("name")
+	}
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	clientType := c.PostForm("client_type")
+	if clientType == "" {
+		clientType = c.Query("client_type")
+	}
+
+	rule, token, err := createRuleWithFirstVersion(id, name, clientType, content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "rule": rule, "token": token})
+}
+
+// createRuleWithFirstVersion creates a rule record and uploads its first version.
+// On failure after DB record creation, cleans up the rule record.
+func createRuleWithFirstVersion(id, name, clientType, content string) (*models.Rule, string, error) {
+	rule := &models.Rule{
+		ID:         id,
+		Name:       name,
+		ClientType: clientType,
+	}
+	if err := RuleSvc.Create(rule); err != nil {
+		return nil, "", err
+	}
+
+	// Upload first version; cleanup DB record on failure
+	if _, err := RuleSvc.UploadVersion(rule.ID, content); err != nil {
+		RuleSvc.Delete(rule.ID)
+		return nil, "", fmt.Errorf("failed to create first version: %w", err)
+	}
+
+	// Generate rule token
+	token, err := RuleSvc.RefreshToken(rule.ID)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	return rule, token, nil
 }
 
 func GetAdminRule(c *gin.Context) {
@@ -1364,4 +1514,17 @@ func logAccess(userID, ip, downloadType, platform, shareSubID, ruleID, status, e
 		Status:              status,
 		ErrorReason:         errorReason,
 	})
+}
+
+// errorReasonFromErr maps a service-layer error to an access_log error_reason.
+// Distinguishes "no versions configured" (version_not_found) from other errors
+// like resource-not-found or file-read failures (file_not_found).
+func errorReasonFromErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	if strings.Contains(err.Error(), "no versions") {
+		return "version_not_found"
+	}
+	return "file_not_found"
 }

@@ -35,6 +35,13 @@ func (r *AccessLogRepo) Insert(record *AccessLogRecord) error {
 	return err
 }
 
+// InsertAccessLog is a package-level helper for writing access log entries
+// from contexts that cannot import the handler package (e.g. middleware).
+// Failures are silently ignored so they never affect the response.
+func InsertAccessLog(record *AccessLogRecord) {
+	_ = NewAccessLogRepo().Insert(record)
+}
+
 // ListByDate retrieves access logs for a specific date (format: "2006-01-02").
 func (r *AccessLogRepo) ListByDate(date string) ([]AccessLogRecord, error) {
 	rows, err := DB.Query(

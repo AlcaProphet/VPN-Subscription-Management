@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -147,6 +148,7 @@ func RateLimitDownload() gin.HandlerFunc {
 		downloadLimit := getDownloadRateLimit()
 		ip := c.ClientIP()
 		if allowed, retryAfter := downloadWindow.allow(ip, downloadLimit); !allowed {
+			logRateLimitedDownload(c, ip)
 			writeRateLimitResponse(c, retryAfter, false)
 			return
 		}
@@ -160,6 +162,8 @@ func RateLimitDownload() gin.HandlerFunc {
 
 // writeRateLimitResponse writes a 429 Too Many Requests response.
 // Login endpoints get a JSON error body; download endpoints get plain text.
+// Uses c.String() for download responses so that Content-Type: text/plain is
+// properly set (AbortWithStatus + WriteString skips content-type sniffing).
 func writeRateLimitResponse(c *gin.Context, retryAfter int, isLoginEndpoint bool) {
 	c.Header("Retry-After", strconv.Itoa(retryAfter))
 	if isLoginEndpoint {
@@ -167,7 +171,45 @@ func writeRateLimitResponse(c *gin.Context, retryAfter int, isLoginEndpoint bool
 			"error": "请求过于频繁，请稍后再试",
 		})
 	} else {
-		c.AbortWithStatus(http.StatusTooManyRequests)
-		c.Writer.WriteString("rate limit exceeded, retry after " + strconv.Itoa(retryAfter) + " seconds")
+		c.String(http.StatusTooManyRequests, "rate limit exceeded, retry after %d seconds", retryAfter)
+		c.Abort()
 	}
+}
+
+// logRateLimitedDownload infers the download_type and relevant IDs from the
+// request URL path and writes an access_log entry with status=failed,
+// error_reason=rate_limited.
+func logRateLimitedDownload(c *gin.Context, ip string) {
+	path := c.Request.URL.Path
+	record := &repository.AccessLogRecord{
+		IP:          ip,
+		Status:      "failed",
+		ErrorReason: "rate_limited",
+	}
+
+	// Match URL patterns to determine download_type and extract IDs
+	switch {
+	case strings.Contains(path, "/subscriptions/"):
+		record.DownloadType = "subscription"
+		// Extract platform from path: /api/v1/subscriptions/:platform/download...
+		if parts := strings.Split(path, "/"); len(parts) >= 5 && parts[3] == "subscriptions" {
+			record.Platform = parts[4]
+		}
+	case strings.Contains(path, "/share/") && strings.Contains(path, "/download"):
+		record.DownloadType = "share"
+		// Extract share ID from path: /api/v1/share/:id/download
+		if parts := strings.Split(path, "/"); len(parts) >= 5 && parts[3] == "share" {
+			record.ShareSubscriptionID = parts[4]
+		}
+	case strings.Contains(path, "/rules/") && strings.Contains(path, "/download"):
+		record.DownloadType = "rule"
+		// Extract rule ID from path: /api/v1/rules/:id/download
+		if parts := strings.Split(path, "/"); len(parts) >= 5 && parts[3] == "rules" {
+			record.RuleID = parts[4]
+		}
+	default:
+		record.DownloadType = "subscription" // fallback
+	}
+
+	repository.InsertAccessLog(record)
 }

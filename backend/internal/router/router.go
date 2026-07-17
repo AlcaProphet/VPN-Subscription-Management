@@ -29,7 +29,7 @@ func SetupRouter(isConfigured bool) *gin.Engine {
 		api.GET("/system/status", handler.GetSystemStatus)
 		api.GET("/platforms", handler.GetPlatforms)
 		api.GET("/rules", handler.GetRules)
-		api.GET("/rules/:id/download", middleware.NoCacheForDownloads(), handler.GetRuleDownload)
+		api.GET("/rules/:id/download", middleware.NoCacheForDownloads(), middleware.RateLimitDownload(), handler.GetRuleDownload)
 
 		if !isConfigured {
 			// Setup mode: only setup-related admin endpoints
