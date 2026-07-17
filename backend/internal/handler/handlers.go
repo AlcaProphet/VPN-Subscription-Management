@@ -45,7 +45,17 @@ func GetRules(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"rules": rules})
+	// Enrich with token so the frontend can build download URLs
+	type ruleWithToken struct {
+		models.Rule
+		Token string `json:"token,omitempty"`
+	}
+	result := make([]ruleWithToken, 0, len(rules))
+	for _, r := range rules {
+		tok, _ := RuleSvc.GetToken(r.ID)
+		result = append(result, ruleWithToken{Rule: r, Token: tok})
+	}
+	c.JSON(http.StatusOK, gin.H{"rules": result})
 }
 
 func GetRuleDownload(c *gin.Context) {
