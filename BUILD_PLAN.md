@@ -9,31 +9,40 @@
 - Docker 部署按第八章（外部 NGINX 分流 + 双容器 127.0.0.1 绑定）
 - 不使用 .env 文件，业务配置一律 Web UI → SQLite；仅 PORT 等运维参数可环境变量覆盖
 
-**阶段划分**（共 20 块，块 4 拆为 4 个子块，块 5 拆为 3 个子块，块 6 拆为 4 个子块，块 7 拆为 7 个子块）:
+**阶段划分**（共 31 块，块 1 拆为 4 个子块，块 2 拆为 2 个子块，块 3 拆为 6 个子块，块 4 拆为 4 个子块，块 5 拆为 3 个子块，块 6 拆为 4 个子块，块 7 拆为 7 个子块）:
 
 | 块 | 内容 | 依赖 | 状态 |
 |----|------|------|------|
-| 块 1 | 后端骨架（目录/go.mod/main/DB/middleware/utils） | 无 | ✅ |
-| 块 2 | OIDC 认证 + Setup 流程 | 块 1 | ✅ |
-| 块 3 | 后端核心业务（用户/平台/订阅/规则/自定义/分享） | 块 2 | ✅ |
-| 块 4A | RateLimit 中间件实现 | 块 3 | ✅ |
+| 块 1A | 工程初始化 + 工具函数（go.mod/目录/4 utils） | 无 | ✅ |
+| 块 1B | 数据模型 + 数据库初始化（models + db.go + 12 表 + 默认平台） | 块 1A | ✅ |
+| 块 1C | 数据访问层（12 个 repo 文件） | 块 1B | ✅ |
+| 块 1D | HTTP 基础设施（8 middleware + router + main.go） | 块 1C | ✅ |
+| 块 2A | OIDC 核心认证服务（oidc_service.go：PKCE + JWT） | 块 1D | ✅ |
+| 块 2B | Setup 流程 + 认证 Handler + 首位管理员 | 块 2A | ✅ |
+| 块 3A | 平台管理 + 用户管理（基础 CRUD + 管理员自我保护 + 级联删除） | 块 2B | ✅ |
+| 块 3B | 版本管理核心 + 订阅管理（VersionService + Subscriptions CRUD + 版本端点） | 块 3A | ✅ |
+| 块 3C | 规则管理 + 规则 Token 轮替（Rules CRUD + 版本管理 + refresh-token） | 块 3B | ✅ |
+| 块 3D | 自定义订阅（上传/版本管理/刷新 Token/级联删除） | 块 3B | ✅ |
+| 块 3E | 分享订阅（CRUD + 版本管理 + Token 刷新/吊销/级联删除） | 块 3B | ✅ |
+| 块 3F | 系统配置端点（速率限制配置 + OIDC 配置查看） | 块 2B | ✅ |
+| 块 4A | RateLimit 中间件实现 | 块 3F | ✅ |
 | 块 4B | 下载端点 + Token 生成 + logAccess | 块 4A | ✅ |
 | 块 4C | 用户端点（UserPlatforms/UpdateTime/RefreshToken） | 块 4B | ✅ |
 | 块 4D | 日志查询 + 自动清理 | 块 4B | ✅ |
-| 块 5A | 前端项目脚手架（Vite + 依赖 + vite.config + index.html + main.js + 空路由 + App.vue 最小版） | 块 1 | ✅ |
+| 块 5A | 前端项目脚手架（Vite + 依赖 + vite.config + index.html + main.js + 空路由 + App.vue 最小版） | 块 1D | ✅ |
 | 块 5B | 前端核心基础设施（api.js + user store + useTheme + 完整路由表 + 三重守卫 + 所有页面 stub） | 块 5A | ✅ |
 | 块 5C | 前端公共组件（ConfirmDialog / OIDCSwitchDialog / UploadModal） | 块 5A | ✅ |
-| 块 6A | 前端认证入口页（Setup.vue + Login.vue） | 块 5B + 块 5C + 块 2 | ✅ |
+| 块 6A | 前端认证入口页（Setup.vue + Login.vue） | 块 5B + 块 5C + 块 2B | ✅ |
 | 块 6B | 管理面板布局（Manage.vue） | 块 5B | ✅ |
 | 块 6C | 首页仪表盘（Home.vue） | 块 5B + 块 5C | ✅ |
 | 块 6D | 用户规则浏览页（Rules.vue） | 块 5B | ✅ |
-| 块 7A | SubList + SubVersions（订阅管理 + 版本管理） | 块 6B + 块 3 | ✅ |
-| 块 7B | ShareList + ShareVersions（分享订阅 + 版本管理） | 块 6B + 块 3 | ✅ |
-| 块 7C | PlatformManage（平台管理） | 块 6B + 块 3 | ✅ |
-| 块 7D | UserManage（用户管理 + 自定义订阅） | 块 6B + 块 3 | ✅ |
-| 块 7E | RulesManage + RuleVersions（规则管理 + 版本管理） | 块 6B + 块 3 | ✅ |
+| 块 7A | SubList + SubVersions（订阅管理 + 版本管理） | 块 6B + 块 3F | ✅ |
+| 块 7B | ShareList + ShareVersions（分享订阅 + 版本管理） | 块 6B + 块 3F | ✅ |
+| 块 7C | PlatformManage（平台管理） | 块 6B + 块 3F | ✅ |
+| 块 7D | UserManage（用户管理 + 自定义订阅） | 块 6B + 块 3F | ✅ |
+| 块 7E | RulesManage + RuleVersions（规则管理 + 版本管理） | 块 6B + 块 3F | ✅ |
 | 块 7F | OIDCConfig（OIDC 配置 + 速率限制） | 块 6B + 块 5C | ✅ |
-| 块 7G | Logs（日志查看） | 块 6B + 块 3 | ✅ |
+| 块 7G | Logs（日志查看） | 块 6B + 块 3F | ✅ |
 | 块 8 | Docker 化 + 联调验证 | 全部 | ⬜ |
 
 ---
@@ -42,32 +51,122 @@
 
 **目标**: 搭建后端目录结构、初始化 SQLite、实现基础中间件和工具函数，main.go 能启动并连接数据库。
 
+块 1 按层次拆分为 4 个子块（1A→1B→1C→1D），每层以上一层为基础，逐层构建。
+
+---
+
+### 块 1A：工程初始化 + 工具函数
+
+**目标**: 创建 Go module、目录结构、全部工具函数，确保 utils 包可独立编译。
+
 **任务**:
 
 - [x] 创建 `backend/go.mod`（module 名 `vpn-sub`），添加依赖：
   - `github.com/gin-gonic/gin` ✅
   - `github.com/rs/zerolog` ✅
   - `modernc.org/sqlite` ✅
-  - `github.com/coreos/go-oidc/v3` ✅（块 2 已添加）
-  - `github.com/golang-jwt/jwt/v5` ✅（块 2 已添加）
+  - `github.com/coreos/go-oidc/v3` ✅（后续块使用）
+  - `github.com/golang-jwt/jwt/v5` ✅（后续块使用）
   - 运行 `go mod tidy` ✅
-- [x] 按 6.2 创建目录结构：`cmd/server/`、`internal/{auth,handler,service,repository,middleware,models,router,utils}/`
-- [x] `internal/utils/env.go`：读取环境变量（PORT 默认 8080）
-- [x] `internal/utils/crypto.go`：AES-256-GCM 加密/解密（key 取 JWT_SECRET 前 32 字节）
-- [x] `internal/utils/sanitizePath.go`：路径穿越防护
-- [x] `internal/utils/isValidID.go`：ID 格式校验 `[a-z0-9-]+`（必须在 utils 包，不能在 handler）
-- [x] `internal/models/types.go`：定义所有结构体（User, Platform, Subscription, Rule, Version, DownloadToken, CustomSubscription, ShareSubscription, ShareToken, RuleToken, AccessLog, OIDCState, SystemConfig）
-- [x] `internal/repository/db.go`：初始化 SQLite，创建 12 张表（按 6.3 表清单），开启 WAL 模式，自动创建 3 个默认平台（clash-verge/v2rayng/shadowrocket）
-- [x] `internal/repository/`：每张表一个 repo 文件（system_config, user, platform, subscription, rules, download_token, custom_subscription, share_subscription, share_token, rule_token, access_log, oidc_state）
-- [x] `internal/middleware/`：Logger（zerolog，?token= 脱敏为 ***）、Recovery、CORS、CacheControl、NoCacheForDownloads、AuthRequired（实时查库）、AdminRequired、RateLimit（预留，块 4 实现）
-- [x] `internal/router/router.go`：Setup 模式路由 + Normal 模式路由（依据 system_config.configured 切换），先注册 `/health` 和 `/system/status`
-- [x] `cmd/server/main.go`：入口，读 PORT，初始化 DB，配置 `SetTrustedProxies(["127.0.0.1"])`，启动 Gin
-- [x] 验证：`go build ./...` 通过，启动后 `GET /health` 返回 200，`GET /api/v1/system/status` 返回 `{ configured: false }`
+- [x] 按 6.2 创建全部目录结构：`cmd/server/`、`internal/{auth,handler,service,repository,middleware,models,router,utils}/` ✅
+- [x] `internal/utils/env.go`：`GetEnv(key, default)` 函数，PORT 默认 8080，DATA_DIR 默认 `./data` ✅
+- [x] `internal/utils/crypto.go`：AES-256-GCM `Encrypt(plaintext, key)` / `Decrypt(ciphertext, key)`，key 取 JWT_SECRET 前 32 字节 ✅
+- [x] `internal/utils/sanitizePath.go`：`SanitizePath(baseDir, subPath)` — 路径穿越防护，禁止 `..` 和绝对路径 ✅
+- [x] `internal/utils/isValidID.go`：`IsValidID(s string) bool` — 正则 `^[a-z0-9-]+$`（必须在 utils 包，不能在 handler）✅
 
-**关键约束**:
+**涉及文件**: `backend/go.mod`, `backend/go.sum`, `internal/utils/env.go`, `internal/utils/crypto.go`, `internal/utils/sanitizePath.go`, `internal/utils/isValidID.go`
+
+**验证**: `go build ./internal/utils/...` 通过，utils 包零外部依赖
+
+---
+
+### 块 1B：数据模型 + 数据库初始化
+
+**目标**: 定义全部结构体，创建 12 张表，插入默认数据，启动后台定时清理。
+
+**任务**:
+
+- [x] `internal/models/types.go`：定义所有结构体（User, Platform, Subscription, Version, Rule, AccessLog, OIDCState, DownloadToken, CustomSubscription, ShareSubscription, ShareToken, RuleToken, SystemConfig, UserPlatformInfo）✅
+  - `Version` 结构体：`{ version: int, file_path: string, created_at: datetime, updated_at: datetime }` ✅
+  - `DownloadToken.Type` 使用 `*string`（可 NULL，custom_sub_id 非空时 type 为 NULL）✅
+- [x] `internal/repository/db.go`：✅
+  - `InitDB(dbPath)`：创建目录 → 打开 SQLite → WAL 模式 + 外键 → 单连接（`SetMaxOpenConns(1)`）✅
+  - `createTables()`：12 张表严格按 6.3 表清单字段，含 CHECK 约束和 UNIQUE 约束 ✅
+  - `insertDefaultPlatforms()`：自动创建 3 个默认平台（clash-verge、v2rayng、shadowrocket），含默认 client_schemes ✅
+  - `periodicCleanup()`：后台 goroutine，每小时清理过期 oidc_state（>10 分钟）和 access_logs（>90 天）✅
+  - `CloseDB()`：优雅关闭数据库 ✅
+
+**涉及文件**: `internal/models/types.go`, `internal/repository/db.go`
+
+**验证**: `go build ./...` 通过；启动后 `./data/vpn.db` 文件存在，12 张表已创建，3 个默认平台已插入
+
+---
+
+### 块 1C：数据访问层（12 个 Repo）
+
+**目标**: 为每张表创建 repository 文件，封装全部 SQL 操作，每个 repo 提供标准的 CRUD 方法。
+
+**任务**:
+
+- [x] `system_config_repo.go`：`Get(key)` / `Set(key, value)` — 键值读写 ✅
+- [x] `user_repo.go`：`Create/FindByID/List/Update/Delete/CountByRole` — 用户 CRUD + 角色计数 ✅
+- [x] `platform_repo.go`：`Create/FindByID/List/Update/Delete` — 平台 CRUD，client_schemes JSON 序列化 ✅
+- [x] `subscription_repo.go`：`Create/FindByID/FindByPlatformAndType/List/Update/Delete` — 订阅 CRUD，versions JSON 序列化 ✅
+- [x] `rule_repo.go`：`Create/FindByID/List/Update/Delete` — 规则 CRUD，versions JSON 序列化 ✅
+- [x] `download_token_repo.go`：`Create/FindByToken/FindByUserPlatformType/DeleteByUser/DeleteByToken/DeleteByCustomSubID` — Token 管理 ✅
+- [x] `custom_subscription_repo.go`：`Create/FindByID/FindByUserAndPlatform/ListByUser/Update/Delete` — 自定义订阅 CRUD ✅
+- [x] `share_subscription_repo.go`：`Create/FindByID/List/Update/Delete` — 分享订阅 CRUD ✅
+- [x] `share_token_repo.go`：`Create/FindByToken/FindByShareID/DeleteByToken/DeleteByShareID` — 分享 Token 管理 ✅
+- [x] `rule_token_repo.go`：`Create/FindByToken/FindByRuleID/DeleteByToken/DeleteByRuleID` — 规则 Token 管理 ✅
+- [x] `access_log_repo.go`：`Insert(log)` / `ListByDate(date)` — 日志写入 + 按日期查询 ✅
+- [x] `oidc_state_repo.go`：`Create/FindByState/DeleteByState/DeleteExpired` — OIDC state 生命周期 ✅
+
+**涉及文件**: `internal/repository/system_config_repo.go`, `user_repo.go`, `platform_repo.go`, `subscription_repo.go`, `rule_repo.go`, `download_token_repo.go`, `custom_subscription_repo.go`, `share_subscription_repo.go`, `share_token_repo.go`, `rule_token_repo.go`, `access_log_repo.go`, `oidc_state_repo.go`
+
+**验证**: `go build ./...` 通过；所有 repo 方法签名与 models 类型一致；可独立实例化测试
+
+---
+
+### 块 1D：HTTP 基础设施（中间件 + 路由 + 入口）
+
+**目标**: 实现 8 个中间件、双模式路由、main.go 入口，服务可启动并响应 `/health` 和 `/system/status`。
+
+**任务**:
+
+- [x] `middleware/logger.go`：zerolog 结构化日志，自动将 `?token=` 查询参数值脱敏为 `***` ✅
+- [x] `middleware/recovery.go`：panic 恢复，返回 500 + 错误信息 ✅
+- [x] `middleware/cors.go`：宽松 CORS（开发期直连场景兼容）✅
+- [x] `middleware/cache_control.go`：通用 `Cache-Control` 头设置 ✅
+- [x] `middleware/no_cache.go`：`NoCacheForDownloads()` — 设置 `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache` ✅
+- [x] `middleware/auth.go`：`AuthRequired()` — 从 JWT 提取 user_id → 查库获取 role + is_advanced → 写入 Gin context（使用 `c.Set()`）。实时查库，不缓存用户权限 ✅
+- [x] `middleware/admin.go`：`AdminRequired()` — 检查 context 中 role == "admin"，否则返回 403 ✅
+- [x] `middleware/rate_limit.go`：stub 占位（仅 `c.Next()`），块 4A 实现真实限流逻辑 ✅
+- [x] `internal/router/router.go`：`SetupRouter(isConfigured bool)` ✅
+  - 全局中间件：Recovery + Logger + CORS ✅
+  - `GET /health` — 健康检查（始终可用）✅
+  - `GET /api/v1/system/status` → `handler.GetSystemStatus`（始终可用）✅
+  - `isConfigured=false`（Setup 模式）：仅注册 `/admin/system/configure`、`/admin/test-oidc`、`/admin/system/switch-provider`、`/admin/oidc-config` ✅
+  - `isConfigured=true`（Normal 模式）：注册全部 auth/user/download/admin 路由 ✅
+- [x] `cmd/server/main.go`：入口 ✅
+  - 读取 PORT（默认 8080）和 DATA_DIR（默认 `./data`）环境变量 ✅
+  - 初始化 DB（`repository.InitDB(dbPath)`）✅
+  - 判断 configured 状态 → 若已配置则初始化 `auth.DefaultService` 和 `middleware.SetAuthService()` ✅
+  - 初始化业务服务（`handler.InitServices()`）✅
+  - `SetTrustedProxies(["127.0.0.1"])` — 信任本机反向代理，`c.ClientIP()` 自动解析 X-Forwarded-For ✅
+  - 启动 Gin（Release 模式）✅
+
+**涉及文件**: `middleware/logger.go`, `middleware/recovery.go`, `middleware/cors.go`, `middleware/cache_control.go`, `middleware/no_cache.go`, `middleware/auth.go`, `middleware/admin.go`, `middleware/rate_limit.go`, `router/router.go`, `cmd/server/main.go`
+
+**验证**: `go build ./...` 通过；`go run .` 启动后：
+- `GET /health` → 200 `{"status":"ok"}`
+- `GET /api/v1/system/status` → 200 `{"configured":false}`
+- Setup 模式下 `/api/v1/auth/login` → 404（路由未注册）
+
+**关键约束**（适用于块 1 全部子块）:
 - SQLite 路径 `/app/data/vpn.db`（开发环境用相对路径 `./data/vpn.db`）
 - 12 张表严格按 6.3 表清单字段
 - versions 字段为 JSON 数组，版本对象 schema：`{ version: int, file_path: string, created_at: datetime, updated_at: datetime }`
+- `isValidID()` 必须在 utils 包，不能放在 handler 包里
 
 ---
 
@@ -75,31 +174,70 @@
 
 **目标**: 实现 OIDC PKCE 登录、JWT 签发验证、Setup 首次配置流程。
 
+块 2 按服务层与 HTTP 层拆分为 2 个子块（2A→2B），OIDC 核心服务独立构建并编译验证后再挂载 HTTP handler。
+
+---
+
+### 块 2A：OIDC 核心认证服务
+
+**目标**: 实现完整的 OIDC PKCE 流程 + JWT 签发/验证，独立于 HTTP handler，可单独编译验证。
+
 **任务**:
 
-- [x] `internal/auth/oidc_service.go`：
+- [x] `internal/auth/oidc_service.go`：✅
   - 支持 Keycloak / Auth0 / 通用 OIDC 三种 provider_type ✅
-  - PKCE 流程：生成 code_verifier + state，存入 oidc_state 表（10min TTL）✅
-  - state 通过 HttpOnly Cookie 下发，回调时三重校验（Cookie == query == DB）✅
-  - 回调后按 state 查表取 code_verifier 用于 token exchange，用后立即删 state 记录（防重放）✅
-  - JWT 签发：claims 仅存 `user_id` + exp/iat，有效期 7 天，用 JWT_SECRET 签名 ✅
-  - JWT 验证：Authorization: Bearer header ✅
-- [x] Setup 相关 handler：
-  - `POST /api/v1/admin/system/configure`：接收 OIDC 配置，Client Secret 用 AES-256-GCM 加密存储（各提供商独立字段），随机生成 ≥32 字节的 JWT_SECRET，置 configured=true（不写 admin_initialized）✅
-  - `POST /api/v1/admin/test-oidc`：测试 OIDC 连接 ✅
-  - `POST /api/v1/admin/system/switch-provider`：切换提供商类型，保留已填字段 ✅
-- [x] 认证 handler：
-  - `GET /api/v1/auth/login`：跳转 OIDC 提供商 ✅
-  - `GET /api/v1/auth/callback`：code exchange 后 302 到前端中转页 `/auth/callback?token=xxx` ✅
-  - `GET /api/v1/auth/me`：返回当前用户信息（查库，不用 JWT claims）✅
-- [x] 首位管理员判定：登录时检查 system_config.admin_initialized，若 false 则该用户 role=admin、is_advanced=true，写入 admin_initialized=true ✅
-- [x] OIDC state 定时清理：后台 goroutine 清理过期记录 ✅（已在块 1 db.go periodicCleanup 中实现）
-- [x] 验证：`go build ./...` 通过 ✅；Setup 端点运行时验证通过（configure 写入 → system/status 返回 configured=true → auth/login 302 重定向 → auth/me 401 拦截）
+  - 各提供商独立字段：keycloak_base_url + keycloak_realm / auth0_domain / generic_issuer ✅
+  - 各提供商独立 Client Secret 加密存储键（keycloak_client_secret_encrypted / auth0_client_secret_encrypted / generic_client_secret_encrypted）✅
+  - PKCE 流程：生成 `code_verifier`（SHA256） + random `state` → 存入 oidc_state 表（10min TTL）✅
+  - CSRF 防护：state 通过 HttpOnly Cookie 下发，回调时三重校验（Cookie state == query state == DB 记录）✅
+  - code_verifier 与 state 一同存入 oidc_state 表，回调时按 state 查表取 code_verifier 用于 token exchange，用后立即删 state 记录（防重放）✅
+  - `NewServiceFromDB(cfgRepo)`：从 system_config 读取 OIDC 配置 → 初始化 `oidc.Provider`（自动发现 Discovery URL）→ 返回 Service 实例 ✅
+  - JWT 签发：claims 仅存 `user_id` + exp（7 天）/iat，用 JWT_SECRET（HS256）签名 ✅
+  - JWT 验证：解析 `Authorization: Bearer <token>` header → 返回 `user_id` ✅
+  - `ExchangeCode()`：用 code_verifier 向 OIDC 提供商交换 token → 解析 id_token claims → 返回 OIDC 用户信息（sub, preferred_username, email）✅
 
-**关键约束**:
-- Setup 完成时只置 configured=true，admin_initialized 仍为 false ✅
-- OIDC 配置键：provider_type + keycloak_base_url/realm、auth0_domain、generic_issuer、client_id、各提供商独立 client_secret_encrypted、redirect_uri、frontend_url ✅
-- 后端定时清理过期 oidc_state 记录 ✅（每小时清理 >10 分钟的记录）
+**涉及文件**: `internal/auth/oidc_service.go`
+
+**验证**: `go build ./...` 通过；oidc_service.go 所有公开方法签名正确，无编译错误
+
+---
+
+### 块 2B：Setup 流程 + 认证 Handler + 首位管理员
+
+**目标**: 实现首次配置的 3 个 Setup handler、OIDC 登录的 3 个 Auth handler，以及首位管理员自动判定逻辑。
+
+**任务**:
+
+- [x] **Setup handler**（`/api/v1/admin/system/*`，Setup 模式下无需认证）：✅
+  - `POST /admin/system/configure`：接收 OIDC 配置 → AES-256-GCM 加密 Client Secret（各提供商独立字段）→ 随机生成 ≥32 字节 JWT_SECRET → 写入 system_config → 置 `configured=true`（**不写** `admin_initialized`，由首位用户登录触发）✅
+  - `POST /admin/test-oidc`：测试 OIDC 连接（用临时 OIDC provider 验证配置正确性）✅
+  - `POST /admin/system/switch-provider`：切换 provider_type，**保留已填字段**（只更新 provider_type 键，不覆盖已有的各提供商字段）✅
+- [x] **Auth handler**（`/api/v1/auth/*`）：✅
+  - `GET /auth/login`：生成 state + code_verifier → 存 oidc_state 表 → 设置 HttpOnly Cookie（state）→ 302 重定向到 OIDC 提供商授权页 ✅
+  - `GET /auth/callback`：三重校验（Cookie == query == DB）→ code exchange（用 code_verifier）→ 解析 id_token → 查/建用户 → **首位管理员判定** → 签发 JWT → 302 重定向到前端中转页 `/auth/callback?token=<jwt>` ✅
+  - `GET /auth/me`：AuthRequired 中间件 → 实时查库（不用 JWT claims）→ 返回 `{ user_id, username, email, role, is_advanced, groups }` ✅
+- [x] **首位管理员判定**：✅
+  - 登录时（callback handler 中）检查 `system_config.admin_initialized`：✅
+    - 若不为 `"true"` → 该用户 `role=admin`、`is_advanced=true` → 写入 `admin_initialized=true` ✅
+    - 若已为 `"true"` → 该用户 `role=user`、`is_advanced=false`（后续用户默认普通用户）✅
+  - 即使 users 表被清空，`admin_initialized` 标记仍存在，不会再产生新管理员 ✅
+- [x] **handler 初始化**：在 `handler/services.go` 的 `InitServices()` 中初始化 `auth.DefaultService`（块 1D main.go 中调用）✅
+- [x] OIDC state 定时清理：已在块 1B `periodicCleanup()` 中实现（每小时清理 >10 分钟过期记录）✅
+
+**涉及文件**: `internal/handler/handlers.go`（认证相关 handler：`GetSystemStatus`, `PostConfigure`, `PostTestOIDC`, `PostSwitchProvider`, `GetOIDCConfig`, `Login`, `Callback`, `GetMe`）, `internal/handler/services.go`（`InitServices` 中初始化 auth service）
+
+**验证**: `go build ./...` 通过；运行时验证：
+- `POST /admin/system/configure` → `system/status` 返回 `{"configured":true}`
+- `GET /auth/login` → 302 重定向到 OIDC 提供商
+- `GET /auth/me`（无 JWT）→ 401
+- `GET /auth/me`（有效 JWT）→ 200 + 用户信息
+
+**关键约束**（适用于块 2 全部子块）:
+- Setup 完成时只置 `configured=true`，`admin_initialized` 仍为 false ✅
+- OIDC 配置键：`provider_type` + `keycloak_base_url`/`keycloak_realm`、`auth0_domain`、`generic_issuer`、`client_id`、各提供商独立 `*_client_secret_encrypted`、`redirect_uri`、`frontend_url` ✅
+- JWT claims 最小集：仅 `user_id` + exp/iat，role/is_advanced 不放入 claims ✅
+- AuthRequired 中间件实时查库，不缓存用户权限 ✅
+- GetCurrentUser 读数据库，不用 JWT claims ✅
 
 ---
 
@@ -107,44 +245,202 @@
 
 **目标**: 实现用户/平台/订阅/规则/自定义订阅/分享订阅的 CRUD + 版本管理。
 
+块 3 按业务域拆分为 6 个子块。3A（平台+用户）为基础，3B 构建共享的 VersionService 并以订阅管理为首个消费者，3C/3D/3E 复用 VersionService，3F 为独立的系统配置端点。
+
+---
+
+### 块 3A：平台管理 + 用户管理
+
+**目标**: 实现平台 CRUD 和用户管理的全部 handler + service，含管理员自我保护和级联删除。
+
 **任务**:
 
-- [x] 平台管理（`/admin/platforms/*`）：CRUD，client_schemes JSON 数组，download_url 可空
-- [x] 用户管理（`/admin/users/*`）：
-  - 列表、编辑 is_advanced（管理员强制 true，禁改自己 role）
-  - 管理员自我保护：禁删自己（c.GetUserID == :id 拒绝）、禁删最后一个管理员（role=admin 数量 ≥ 1）、禁改自己 role
-  - 吊销用户所有下载 Token
-  - 删除用户（级联删 download_tokens、custom_subscriptions 及版本文件）
-- [x] 订阅管理（`/admin/subscriptions/*`）：
-  - CRUD，UNIQUE(platform, type)，type=default/advanced
-  - 版本管理：`POST /versions`（支持 multipart 文件上传 + JSON 文本 body 两种 Content-Type）、`PUT /versions/:versionId/current`、`DELETE /versions/:versionId`
-  - 版本号 nextVersion = max(versions)+1，事务内计算 + 行级锁
-  - 最多 5 个版本，超出删最旧，不可删最后一个
-  - current 软链接原子切换（current.new → rename）
-  - 文件存储 `data/subscriptions/{id}/v1.conf ... + current.conf`
-- [x] 规则管理（`/admin/rules/*`）：结构同订阅，client_type 预留，文件存储 `data/rules/{id}/`
-- [x] 自定义订阅（`/admin/users/:id/custom-subscription/*`）：
-  - 上传需指定平台，每用户每平台最多一份
-  - 版本管理同订阅，文件存储 `data/custom/{user_id}/{platform}/`
-  - `POST /refresh-token?platform=xxx` 刷新该平台自定义订阅 Token
-  - 删除自定义订阅 → 级联删 custom_sub_id 指向的 Token
-- [x] 分享订阅（`/admin/share/*`）：
-  - CRUD + 版本管理（同订阅结构），文件存储 `data/shares/{id}/`
-  - 创建时自动生成 share_token
-  - `POST /:id/refresh-token` 刷新 Token
-  - `DELETE /:id/token` 吊销 Token（链接不可用但文件保留）
-  - 删除分享订阅 → 级联删 share_tokens + 版本文件
-- [x] 规则 Token 轮替：`POST /admin/rules/:id/refresh-token`
-- [x] 速率限制配置：`GET/PUT /admin/system/rate-limit`（rate_limit_login 默认 10/min、rate_limit_download 默认 20/min）
-- [x] OIDC 配置查看：`GET /admin/oidc-config`（Client Secret 脱敏回显）
-- [x] 验证：`go build ./...` 通过；用 curl 测试各端点 CRUD + 版本上传/切换/删除
+- [x] **PlatformService + handler**（`/admin/platforms/*`）：✅
+  - CRUD（Create/List/Get/Update/Delete）✅
+  - `client_schemes` JSON 数组序列化/反序列化（`json.Marshal`/`json.Unmarshal`）✅
+  - `download_url` 可空 ✅
+  - 删除平台 → 级联删除该平台的 subscriptions（含版本文件）、download_tokens、custom_subscriptions（含版本文件）✅
+- [x] **UserService + handler**（`/admin/users/*`）：✅
+  - `GET /admin/users` — 列表（返回 `user_id`, `username`, `email`, `role`, `is_advanced`, `groups`，含 `has_custom_sub` + `custom_sub_platforms` 标记）✅
+  - `GET /admin/users/:id` — 获取单个用户详情 ✅
+  - `PUT /admin/users/:id` — 编辑用户（仅允许修改 `is_advanced`；管理员自身 `is_advanced` 强制为 true 且不可修改；禁止修改自己 `role`）✅
+  - `DELETE /admin/users/:id` — 删除用户，**管理员自我保护**三重校验：① `c.GetUserID() == :id` 拒绝（不能删自己）；② `CountByRole("admin") <= 1` 拒绝（不能删最后一个管理员）；③ 禁止修改自己 role。级联删除 download_tokens + custom_subscriptions + 版本文件 ✅
+  - `POST /admin/users/:id/revoke-tokens` — 吊销用户所有下载 Token（删除 download_tokens 表中该 user_id 全部记录）✅
+  - **is_advanced 变更副作用**：更新 is_advanced 时自动删除该用户所有旧 download_tokens（防止旧级别 Token 绕过分级限制），用户下次访问首页重新生成 ✅
 
-**关键约束**:
-- 所有 /admin/* 必须有 AdminRequired 中间件
-- ID 格式校验 [a-z0-9-]+，重复返回 409
-- 错误码：400/401/403/409/429/500
-- 响应格式：列表 `gin.H{"key": [...]}`，成功 `gin.H{"success": true}`，错误 `gin.H{"error": "..."}`
-- 文件上传统一 50MB 限制，后端也校验
+**涉及文件**: `service/platform_service.go`, `service/user_service.go`, `handler/handlers.go`（平台+用户 handler）, `handler/services.go`（InitServices 中初始化 PlatformSvc + UserSvc）
+
+**验证**: `go build ./...` 通过；运行时验证：
+- `GET /admin/platforms` → 200 + 3 个默认平台
+- `POST /admin/platforms`（重复 ID）→ 409
+- `GET /admin/users` → 200 + 用户列表（含首位管理员）
+- `PUT /admin/users/:id`（修改自己 role）→ 400
+- `DELETE /admin/users/:id`（删除自己）→ 400
+- `DELETE /admin/users/:id`（删除最后一个管理员）→ 400
+
+---
+
+### 块 3B：版本管理核心 + 订阅管理
+
+**目标**: 实现共享的 VersionService（被 3C/3D/3E 复用）+ SubscriptionService + 订阅版本管理全部端点。
+
+**任务**:
+
+- [x] **VersionService**（`service/version_service.go`，共享基础设施）：✅
+  - `nextVersion(versions)`：max+1 计算（**不可用** `len(versions)+1`）✅
+  - `CreateVersion(subDir, content, existingVersions)`：写版本文件 → 追加 versions JSON → 原子切换 current 软链接（`current.new` → `rename(current.new, current)`）→ 执行 `enforceMaxVersions()` ✅
+  - `enforceMaxVersions(subDir, versions)`：最多 `MAX_VERSIONS=5` 个版本，超出删最旧的（删除文件 + 从 JSON 移除）✅
+  - `DeleteVersion(subDir, versionNum, versions)`：删文件 + 从 versions 移除。**不可删最后一个版本**（`len(versions) <= 1` 拒绝）✅
+  - `SwitchVersion(subDir, versionNum)`：更新 current 软链接 → 更新对应版本的 `updated_at` ✅
+  - `GetVersionContent(subDir, versionNum)`：读取指定版本文件内容 ✅
+  - `GetCurrentContent(subDir)`：通过 current 软链接读取内容 ✅
+  - 文件存储路径模式：`data/{subDir}/v{N}.conf` + `current.conf`（软链接）✅
+  - **并发安全**：nextVersion 计算与 versions JSON 更新在 SQLite 事务内 + 行级锁（`UPDATE ... WHERE id=?`）✅
+- [x] **SubscriptionService + handler**（`/admin/subscriptions/*`）：✅
+  - CRUD：`id` 校验 `[a-z0-9-]+`，`UNIQUE(platform, type)`，重复返回 409 ✅
+  - `type` 枚举：`default` / `advanced` ✅
+  - 文件存储：`data/subscriptions/{id}/` ✅
+  - 版本管理端点：✅
+    - `POST /admin/subscriptions/:id/versions` — 上传新版本：支持 `multipart/form-data`（文件上传，50MB 限制）和 `application/json`（`{"content":"..."}`，文本编辑）。两种方式均自动创建新版本号并切换为 current ✅
+    - `PUT /admin/subscriptions/:id/versions/:v/current` — 切换当前版本 ✅
+    - `GET /admin/subscriptions/:id/versions/:v` — 预览版本内容（返回 `{ version, content }`）✅
+    - `DELETE /admin/subscriptions/:id/versions/:v` — 删除版本（current 不可删，最后一个不可删）✅
+  - 删除订阅 → 级联删除 download_tokens（`custom_sub_id` 为空的 Token）✅
+
+**涉及文件**: `service/version_service.go`, `service/subscription_service.go`, `handler/handlers.go`（订阅 handler）, `handler/services.go`（InitServices 中初始化 VersionService → SubSvc）
+
+**验证**: `go build ./...` 通过；运行时验证：
+- `POST /admin/subscriptions` → 创建 default + advanced 订阅
+- `POST /admin/subscriptions/:id/versions`（文件上传）→ 创建 v1.conf + current 软链接
+- `POST /admin/subscriptions/:id/versions`（JSON `{"content":"..."}`）→ 创建 v2.conf + 自动切换 current
+- `PUT /admin/subscriptions/:id/versions/1/current` → current 指向 v1.conf
+- `DELETE /admin/subscriptions/:id/versions/2` → 版本 2 被删除
+- 仅剩 1 个版本时 `DELETE /versions` → 400 拒绝
+- 上传第 6 个版本 → 最旧版本自动删除（保留 5 个）
+
+---
+
+### 块 3C：规则管理 + 规则 Token 轮替
+
+**目标**: 实现规则的完整 CRUD + 版本管理（复用 VersionService）+ rule_token 轮替端点。
+
+**任务**:
+
+- [x] **RuleService + handler**（`/admin/rules/*`）：✅
+  - CRUD：`id` 校验 `[a-z0-9-]+`，`client_type` 当前仅 `"shadowrocket"`（可扩展）✅
+  - 创建规则时自动生成 `rule_token`（UUID）→ 写入 `rule_tokens` 表 ✅
+  - 版本管理：完全复用 VersionService，文件存储 `data/rules/{id}/`，模式同 3B ✅
+  - `POST /admin/rules/:id/versions` — 上传新版本（同 3B：multipart + JSON text）✅
+  - `PUT /admin/rules/:id/versions/:v/current` — 切换当前版本 ✅
+  - `GET /admin/rules/:id/versions/:v` — 预览版本内容 ✅
+  - `DELETE /admin/rules/:id/versions/:v` — 删除版本 ✅
+  - `POST /admin/rules/:id/refresh-token` — 轮替 Token：删旧 rule_token → 生成新 UUID → 返回新 token。旧链接立即失效 ✅
+  - 删除规则 → 级联删除 `rule_tokens` + 版本文件 ✅
+  - 公开端点 `GET /api/v1/rules/:id/download?token=`：验证 rule_token → 返回 current 版本纯文本（已在 1D 路由注册，块 4 实现下载逻辑）✅
+
+**涉及文件**: `service/rule_service.go`, `handler/handlers.go`（规则 handler）, `handler/services.go`（InitServices 中初始化 RuleSvc）
+
+**验证**: `go build ./...` 通过；运行时验证：
+- `POST /admin/rules` → 自动生成 rule_token
+- 版本管理操作同 3B（上传/切换/预览/删除）
+- `POST /admin/rules/:id/refresh-token` → 返回新 token，旧 token 下载返回错误
+- `GET /api/v1/rules/:id/download?token=<old>` → 纯文本错误
+
+---
+
+### 块 3D：自定义订阅
+
+**目标**: 实现管理员为用户上传自定义订阅的完整功能：上传、版本管理、刷新 Token、删除恢复。
+
+**任务**:
+
+- [x] **CustomSubscriptionService + handler**（`/admin/users/:id/custom-subscription/*`）：✅
+  - `POST /admin/users/:id/custom-subscription?platform=xxx` — 上传自定义订阅：必须指定平台（query param），每用户每平台最多一份，同一平台再次上传则覆盖（更新版本）✅
+  - 版本管理：完全复用 VersionService，文件存储 `data/custom/{user_id}/{platform}/`，模式同 3B ✅
+  - `POST /admin/users/:id/custom-subscription/versions?platform=xxx` — 上传新版本（multipart + JSON text）✅
+  - `GET /admin/users/:id/custom-subscription/versions/:v` — 预览版本内容 ✅
+  - `PUT /admin/users/:id/custom-subscription/versions/:v/current` — 切换当前版本 ✅
+  - `DELETE /admin/users/:id/custom-subscription/versions/:v` — 删除版本 ✅
+  - `POST /admin/users/:id/custom-subscription/refresh-token?platform=xxx` — 刷新该平台自定义订阅的 download_token（按 custom_sub_id 定位，删旧建新）✅
+  - `DELETE /admin/users/:id/custom-subscription?platform=xxx` — 删除自定义订阅：级联删除所有 `custom_sub_id` 指向该订阅的 download_tokens + 版本文件。用户恢复默认/高级自动分配 ✅
+  - **download_token 关联**：创建自定义订阅时自动生成 download_token（`type=NULL`, `custom_sub_id=订阅ID`），复用唯一键 `user+platform+custom_sub_id` ✅
+
+**涉及文件**: `service/custom_subscription_service.go`, `handler/handlers.go`（自定义订阅 handler）, `handler/services.go`（InitServices 中初始化 CustomSubSvc）
+
+**验证**: `go build ./...` 通过；运行时验证：
+- `POST /admin/users/:id/custom-subscription?platform=clash-verge` → 创建自定义订阅 + 自动生成 download_token
+- 版本管理操作同 3B
+- `DELETE /admin/users/:id/custom-subscription?platform=clash-verge` → download_token 被级联删除，用户恢复默认/高级
+- 同一平台再次上传 → 覆盖（更新版本）
+
+---
+
+### 块 3E：分享订阅
+
+**目标**: 实现独立分享订阅的完整功能：CRUD、版本管理、Token 刷新/吊销、级联删除。
+
+**任务**:
+
+- [x] **ShareSubscriptionService + handler**（`/admin/share/*`）：✅
+  - CRUD：✅
+    - `POST /admin/shares` — 创建分享订阅：填写名称 → 上传第一个版本文件（multipart）或 JSON text → 自动生成 `share_token`（UUID）✅
+    - `GET /admin/shares` — 列表（每项含 `has_token` 标记和 `token` 字段）✅
+    - `GET /admin/shares/:id` — 获取详情 ✅
+    - `PUT /admin/shares/:id` — 更新名称 ✅
+    - `DELETE /admin/shares/:id` — 删除分享订阅：级联删除 `share_tokens` + 版本文件 ✅
+  - 版本管理：完全复用 VersionService，文件存储 `data/shares/{id}/`，模式同 3B ✅
+    - `POST /admin/shares/:id/versions` — 上传新版本 ✅
+    - `PUT /admin/shares/:id/versions/:v/current` — 切换当前版本 ✅
+    - `GET /admin/shares/:id/versions/:v` — 预览版本内容 ✅
+    - `DELETE /admin/shares/:id/versions/:v` — 删除版本 ✅
+  - Token 管理（三态操作）：✅
+    - `POST /admin/shares/:id/refresh-token` — 刷新 Token：删旧 share_token → 生成新 UUID。旧链接立即失效 ✅
+    - `DELETE /admin/shares/:id/token` — 吊销 Token：删除 share_token 记录。链接不可用，但订阅文件与版本历史保留 ✅
+  - 公开下载端点 `GET /api/v1/share/:id/download?token=`：验证 share_token → 返回 current 版本纯文本（已在 1D 路由注册，块 4 实现下载逻辑）✅
+  - 分享订阅不区分平台、不区分 default/advanced — 管理员上传什么，用户就获得什么 ✅
+
+**涉及文件**: `service/share_subscription_service.go`, `handler/handlers.go`（分享订阅 handler）, `handler/services.go`（InitServices 中初始化 ShareSvc）
+
+**验证**: `go build ./...` 通过；运行时验证：
+- `POST /admin/shares` → 创建分享订阅 + 自动生成 share_token
+- 版本管理操作同 3B
+- `POST /admin/shares/:id/refresh-token` → 新 token 可用，旧 token 下载返回错误
+- `DELETE /admin/shares/:id/token` → Token 被吊销，`has_token` 变为 false
+- `DELETE /admin/shares/:id` → 级联删除文件 + token
+
+---
+
+### 块 3F：系统配置端点
+
+**目标**: 实现速率限制配置和 OIDC 配置查看的管理端点。
+
+**任务**:
+
+- [x] **SystemService + handler**：✅
+  - `GET /admin/system/rate-limit` — 获取速率限制配置：返回 `{ rate_limit_login: 10, rate_limit_download: 20 }`（默认值）✅
+  - `PUT /admin/system/rate-limit` — 更新速率限制配置：接收 `{ rate_limit_login, rate_limit_download }` → 写入 system_config ✅
+  - `GET /admin/oidc-config` — 获取 OIDC 配置：返回当前提供商类型 + 各字段（Client Secret 脱敏显示 `***`，不可回显明文）✅
+
+**涉及文件**: `service/system_service.go`, `handler/handlers.go`（系统配置 handler）, `handler/services.go`（InitServices 中初始化 SystemSvc）
+
+**验证**: `go build ./...` 通过；运行时验证：
+- `GET /admin/system/rate-limit` → 200 + 默认值
+- `PUT /admin/system/rate-limit` → 更新后 GET 返回新值
+- `GET /admin/oidc-config` → 200 + Client Secret 显示 `***`
+
+---
+
+**关键约束**（适用于块 3 全部子块）:
+- 所有 `/admin/*` 必须有 AdminRequired 中间件
+- ID 格式校验 `[a-z0-9-]+`（`utils.IsValidID()`），重复返回 409
+- 错误码：400=校验错误，401=JWT 缺失/无效/过期，403=普通用户访问 /admin/*，409=重复，429=速率限制，500=服务器内部错误
+- 响应格式：列表 `gin.H{"key": [...]}`，单项直接返回对象，成功 `gin.H{"success": true}`，错误 `gin.H{"error": "..."}`
+- 文件上传统一 50MB 限制（前端 el-upload + 后端 VersionService 双重校验）
+- 版本号用 `nextVersion()` = max+1，不可用 `len(versions)+1`
+- 最多保留 `MAX_VERSIONS=5` 个版本，超出删最旧的
+- 不可删除最后一个版本
+- current 软链接原子切换（`current.new` → `rename`）
+- 并发安全：nextVersion + versions JSON 更新在 SQLite 事务内 + 行级锁
 
 ---
 
@@ -152,7 +448,7 @@
 
 **目标**: 实现四种下载途径、访问日志记录、速率限制中间件。
 
-**现状盘点**（块 1-3 已就绪的基础设施）:
+**现状盘点**（块 1A~3F 已就绪的基础设施）:
 - 路由已全部注册，NoCache 中间件已挂载
 - Service 层方法齐全（GetCurrentContent / ValidateToken / RefreshToken / GetToken / GetUpdateTime）
 - Token Repo（DownloadToken / ShareToken / RuleToken）完整
