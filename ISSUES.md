@@ -15,6 +15,8 @@
 - [x] **api.js 401 拦截器未排除公开端点** (`frontend/src/services/api.js`): 拦截器对所有 401 响应无条件清除 JWT 并跳转 `/login`。但 `/auth/login` 使用 `window.location.href` 直接跳转（不走 axios），`/system/status` 后端无 AuthRequired 中间件永不返回 401。当前所有通过 axios 调用且可能返回 401 的端点（`/auth/me`、`/user/*`、`/admin/*`）均应当触发登出，拦截器行为正确。后续如有新公开端点可能返回 401，可添加排除列表作为防御性改进。
 - [x] **后端不可达时 `checkSystemStatus` 失败导致路由守卫用户体验差** (`frontend/src/router/index.js`): 已通过与"`checkSystemStatus` catch 不缓存 false"（下方已修复）联动缓解。修复后网络错误时 `isConfigured` 保持 `null`，守卫不会强制跳转 `/setup`，用户最终落脚 `/login` 页面（而非无法操作的 Setup 页）。
 - [x] **`Manage.vue` `activeMenu` fallback 无注释** (`frontend/src/views/Manage.vue`): `/admin`（无子路由）经 `startsWith` 全部不匹配后 fallback 到 `/admin/subscriptions`，与路由重定向一致。`/admin/rules/:id/versions` 被 `/admin/rules` 的 `startsWith` 匹配到父级菜单项，恰好是期望行为（版本管理页面高亮父级）。逻辑正确，无需修改。
+- [x] **版本管理页 current 判定用 `updated_at` 排序理论不稳** (`SubVersions.vue` / `ShareVersions.vue` / `RuleVersions.vue`): 当前版本通过 `max(updated_at)` 判定。后端版本切换在事务内完成（行级锁），`updated_at` 以 `time.Now().UTC()` 写入。并发上传时事务串行执行，`updated_at` 必然不同。仅在两个请求在同一纳秒完成时可能相同，实际不会触发。用服务端返回的 current 标记（如有）会更可靠，但当前方案在管理场景下足够。暂不修复。
+- [x] **分享订阅创建后 Token 显示时间过短** (`ShareList.vue`): 创建成功后通过 `ElMessage.info` 显示 Token（默认 3 秒消失）。但列表 API 已返回 `token` 字段（块 7 构建时增强），用户随时可点击「复制分享链接」按钮复制。Token 不会丢失，影响极小。暂不修复。
 
 ## 已修复
 

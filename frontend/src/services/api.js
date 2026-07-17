@@ -126,14 +126,14 @@ export const adminApi = {
     deleteCustomSub(id, platform) {
       return api.delete(`/admin/users/${id}/custom-subscription?platform=${encodeURIComponent(platform)}`)
     },
-    getCustomVersion(id, versionId) {
-      return api.get(`/admin/users/${id}/custom-subscription/versions/${versionId}`)
+    getCustomVersion(id, platform, versionId) {
+      return api.get(`/admin/users/${id}/custom-subscription/versions/${versionId}?platform=${encodeURIComponent(platform)}`)
     },
-    switchCustomVersion(id, versionId) {
-      return api.put(`/admin/users/${id}/custom-subscription/versions/${versionId}/current`)
+    switchCustomVersion(id, platform, versionId) {
+      return api.put(`/admin/users/${id}/custom-subscription/versions/${versionId}/current?platform=${encodeURIComponent(platform)}`)
     },
-    deleteCustomVersion(id, versionId) {
-      return api.delete(`/admin/users/${id}/custom-subscription/versions/${versionId}`)
+    deleteCustomVersion(id, platform, versionId) {
+      return api.delete(`/admin/users/${id}/custom-subscription/versions/${versionId}?platform=${encodeURIComponent(platform)}`)
     },
     refreshCustomSubToken(id, platform) {
       return api.post(`/admin/users/${id}/custom-subscription/refresh-token?platform=${encodeURIComponent(platform)}`)

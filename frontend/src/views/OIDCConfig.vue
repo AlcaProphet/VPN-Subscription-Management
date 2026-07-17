@@ -258,8 +258,8 @@ async function handleTest() {
   testing.value = true
   try {
     const payload = buildOIDCPayload()
-    // Don't send masked secret for test if not changed
-    if (payload.client_secret === '***') {
+    // Don't send masked or empty secret if not changed
+    if (payload.client_secret === '***' || payload.client_secret === '') {
       delete payload.client_secret
     }
     await adminApi.system.testOIDC(payload)
@@ -279,8 +279,8 @@ async function handleSave() {
   saving.value = true
   try {
     const payload = buildOIDCPayload()
-    // Don't send masked secret if not changed
-    if (payload.client_secret === '***') {
+    // Don't send masked or empty secret if not changed
+    if (payload.client_secret === '***' || payload.client_secret === '') {
       delete payload.client_secret
     }
     await adminApi.system.configure(payload)

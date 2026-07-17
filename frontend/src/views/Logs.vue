@@ -76,7 +76,7 @@ import { adminApi } from '@/services/api'
 // ==========================================================================
 // Data
 // ==========================================================================
-const loading = ref(false)
+const loading = ref(true)
 const logs = ref([])
 
 // Default to today
