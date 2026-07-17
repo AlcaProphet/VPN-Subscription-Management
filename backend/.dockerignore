@@ -1,0 +1,6 @@
+data/
+.git/
+__debug*
+*.test
+.env
+.vscode/

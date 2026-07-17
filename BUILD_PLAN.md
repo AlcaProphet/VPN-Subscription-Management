@@ -44,9 +44,9 @@
 | 块 7E | RulesManage + RuleVersions（规则管理 + 版本管理） | 块 6B + 块 3F | ✅ |
 | 块 7F | OIDCConfig（OIDC 配置 + 速率限制） | 块 6B + 块 5C | ✅ |
 | 块 7G | Logs（日志查看） | 块 6B + 块 3F | ✅ |
-| 块 8A | Docker 构建文件（Dockerfile × 2 + .dockerignore × 2 + nginx.conf） | 无（独立编写） | ⬜ |
-| 块 8B | Docker Compose 最终确认与调优 | 块 8A | ⬜ |
-| 块 8C | 本地 Docker 构建验证 | 块 8B | ⬜ |
+| 块 8A | Docker 构建文件（Dockerfile × 2 + .dockerignore × 2 + nginx.conf） | 无（独立编写） | ✅ |
+| 块 8B | Docker Compose 最终确认与调优 | 块 8A | ✅ |
+| 块 8C | 本地 Docker 构建验证 | 块 8B | ✅ |
 | 块 8D | 外部 NGINX 参考配置文档 | 无（独立编写） | ⬜ |
 | 块 8E | CI/CD GitHub Actions（可选） | 块 8C | ⬜ |
 | 块 8F | 端到端联调验证清单 | 块 8C | ⬜ |
@@ -1450,9 +1450,9 @@
 
 | 子块 | 内容 | 依赖 | 状态 |
 |------|------|------|------|
-| 块 8A | Docker 构建文件（Dockerfile × 2 + .dockerignore × 2 + nginx.conf） | 无（独立编写） | ⬜ |
-| 块 8B | Docker Compose 最终确认与调优 | 块 8A | ⬜ |
-| 块 8C | 本地 Docker 构建验证 | 块 8B | ⬜ |
+| 块 8A | Docker 构建文件（Dockerfile × 2 + .dockerignore × 2 + nginx.conf） | 无（独立编写） | ✅ |
+| 块 8B | Docker Compose 最终确认与调优 | 块 8A | ✅ |
+| 块 8C | 本地 Docker 构建验证 | 块 8B | ✅ |
 | 块 8D | 外部 NGINX 参考配置文档 | 无（独立编写） | ⬜ |
 | 块 8E | CI/CD GitHub Actions（可选） | 块 8C | ⬜ |
 | 块 8F | 端到端联调验证清单 | 块 8C | ⬜ |
