@@ -118,6 +118,10 @@ func AuthCallback(c *gin.Context) {
 		return
 	}
 
+	// Determine if the cookie should be Secure based on the request protocol.
+	// Computed once at the top so both success and error paths reuse it.
+	isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+
 	// Read state from query param and cookie
 	queryState := c.Query("state")
 	cookieState, _ := c.Cookie("oidc_state")
@@ -132,14 +136,12 @@ func AuthCallback(c *gin.Context) {
 	if err != nil {
 		// Clear the state cookie even on failure to avoid stale state interfering
 		// with subsequent login attempts.
-		isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 		c.SetCookie("oidc_state", "", -1, "/", "", isSecure, true)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed: " + err.Error()})
 		return
 	}
 
 	// Clear the state cookie on success
-	isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 	c.SetCookie("oidc_state", "", -1, "/", "", isSecure, true)
 
 	// Redirect to frontend callback page with JWT in query
@@ -215,6 +217,26 @@ func UserPlatforms(c *gin.Context) {
 			tok, tokErr := SubSvc.GetOrCreateCustomToken(userID, p.ID, customSub.ID)
 			if tokErr == nil {
 				info.DownloadToken = tok
+			}
+
+			// Admin users also get default + advanced preview tokens even when
+			// a custom subscription exists (AGENTS.md §2.4).
+			if isAdmin {
+				info.SubType = primaryType
+				if SubSvc.SubscriptionExists(p.ID, "default") {
+					prevTok, prevErr := SubSvc.GetOrCreateToken(userID, p.ID, "default")
+					if prevErr == nil {
+						info.PreviewToken = prevTok
+						info.PreviewSubType = "default"
+					}
+				}
+				if SubSvc.SubscriptionExists(p.ID, "advanced") {
+					prevTok, prevErr := SubSvc.GetOrCreateToken(userID, p.ID, "advanced")
+					if prevErr == nil {
+						info.PreviewToken2 = prevTok
+						info.PreviewSubType2 = "advanced"
+					}
+				}
 			}
 		} else {
 			// No custom subscription — use primary type

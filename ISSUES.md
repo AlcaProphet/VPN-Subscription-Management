@@ -2,8 +2,7 @@
 
 ## 待修复
 
-- [ ] `AuthCallback` 中 `isSecure` 在 error/success 两条路径重复计算 → 函数开头算一次，两处复用
-- [ ] **管理员自定义订阅时首页预览按钮不显示** (`backend UserPlatforms` + `frontend Home.vue`): AGENTS.md §2.4 要求「管理员在已有自定义订阅的平台上，同时显示默认 + 高级 + 自定义三组按钮（默认和高级用于预览）」。当前后端 `UserPlatforms` 在 `has_custom_sub=true` 时跳过管理员预览 token 生成（`preview_token` 为空），前端只能显示「自定义订阅已激活，预览不可用」占位文案。修复需后端先生成预览 token（在 `has_custom_sub=true` 分支内补充 `isAdmin` 逻辑），前端再移除占位文案、渲染功能按钮。
+（无）
 
 ## 已验证，不修复
 

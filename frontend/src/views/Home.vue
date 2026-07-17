@@ -260,19 +260,51 @@
                 <p class="sub-unconfigured">高级订阅未配置</p>
               </template>
 
-              <!-- Admin with custom sub: also show default & advanced preview (non-functional if no tokens) -->
+              <!-- Admin with custom sub: also show default & advanced preview with real tokens -->
               <template v-if="userStore.isAdmin && p.has_custom_sub">
-                <div class="sub-section admin-preview" v-if="p.default_configured">
+                <div class="sub-section admin-preview" v-if="p.preview_token && p.preview_sub_type === 'default'">
                   <el-tag type="info" size="small" class="sub-label">
                     默认订阅（预览）
                   </el-tag>
-                  <p class="sub-unconfigured">自定义订阅已激活，预览不可用</p>
+                  <div class="sub-buttons">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      :disabled="!p.preview_token"
+                      @click="handleImport(p, p.preview_token)"
+                    >
+                      一键导入
+                    </el-button>
+                    <el-button
+                      size="small"
+                      :disabled="!p.preview_token"
+                      @click="showCopyDialog(p, p.preview_token, 'default')"
+                    >
+                      复制链接
+                    </el-button>
+                  </div>
                 </div>
-                <div class="sub-section admin-preview" v-if="p.advanced_configured">
+                <div class="sub-section admin-preview" v-if="p.preview_token2 && p.preview_sub_type2 === 'advanced'">
                   <el-tag type="warning" size="small" class="sub-label">
                     高级订阅（预览）
                   </el-tag>
-                  <p class="sub-unconfigured">自定义订阅已激活，预览不可用</p>
+                  <div class="sub-buttons">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      :disabled="!p.preview_token2"
+                      @click="handleImport(p, p.preview_token2)"
+                    >
+                      一键导入
+                    </el-button>
+                    <el-button
+                      size="small"
+                      :disabled="!p.preview_token2"
+                      @click="showCopyDialog(p, p.preview_token2, 'advanced')"
+                    >
+                      复制链接
+                    </el-button>
+                  </div>
                 </div>
                 <p class="sub-unconfigured" v-if="!p.default_configured">默认订阅未配置</p>
                 <p class="sub-unconfigured" v-if="!p.advanced_configured">高级订阅未配置</p>
