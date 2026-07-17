@@ -676,11 +676,17 @@ func UpdateUser(c *gin.Context) {
 	}
 	target := &models.User{
 		UserID:     c.Param("id"),
-		Username:   req.Username,
-		Email:      req.Email,
+		Username:   existing.Username,
+		Email:      existing.Email,
 		IsAdvanced: existing.IsAdvanced, // preserve if not provided
 		Groups:     existing.Groups,     // preserve if not provided
 		Role:       "",                  // role must not be changed via this endpoint
+	}
+	if req.Username != "" {
+		target.Username = req.Username
+	}
+	if req.Email != "" {
+		target.Email = req.Email
 	}
 	if req.IsAdvanced != nil {
 		target.IsAdvanced = *req.IsAdvanced

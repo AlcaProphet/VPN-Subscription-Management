@@ -279,11 +279,6 @@ function isSelf(user) {
   return userStore.user && userStore.user.user_id === user.user_id
 }
 
-function formatTime(t) {
-  if (!t) return ''
-  return new Date(t).toLocaleString()
-}
-
 // ==========================================================================
 // Data Loading
 // ==========================================================================
