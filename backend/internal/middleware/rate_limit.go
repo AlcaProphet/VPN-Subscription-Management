@@ -74,24 +74,25 @@ func (w *ipWindow) allow(ip string, limit int) (bool, int) {
 	return true, 0
 }
 
-// periodicCleanup removes IP entries with no activity in the last 2 minutes.
+// periodicCleanup removes IP entries with no activity in the last minute.
 // This prevents unbounded memory growth from one-off request sources.
+// Runs every 2 minutes to match the 1-minute sliding window.
 func (w *ipWindow) periodicCleanup() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
 		w.mu.Lock()
-		cutoff := time.Now().Add(-2 * time.Minute)
+		cutoff := time.Now().Add(-1 * time.Minute)
 		for ip, timestamps := range w.windows {
-			// If the newest timestamp is older than cutoff, remove the IP
-			hasRecent := false
+			// If all timestamps are older than the window, remove the IP
+			allExpired := true
 			for _, t := range timestamps {
 				if t.After(cutoff) {
-					hasRecent = true
+					allExpired = false
 					break
 				}
 			}
-			if !hasRecent {
+			if allExpired {
 				delete(w.windows, ip)
 			}
 		}

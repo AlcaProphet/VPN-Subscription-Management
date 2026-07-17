@@ -1359,9 +1359,10 @@ func createRuleWithFirstVersion(id, name, clientType, content string) (*models.R
 		return nil, "", fmt.Errorf("failed to create first version: %w", err)
 	}
 
-	// Generate rule token
+	// Generate rule token; cleanup DB record + version files on failure
 	token, err := RuleSvc.RefreshToken(rule.ID)
 	if err != nil {
+		RuleSvc.Delete(rule.ID)
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
 	}
 

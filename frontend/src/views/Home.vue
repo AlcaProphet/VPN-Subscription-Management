@@ -455,7 +455,10 @@ async function handleRefresh(platform, subType) {
   const key = platform.id + '-' + subType
   refreshing[key] = true
   try {
-    const typeParam = subType === 'custom' ? platform.sub_type || 'default' : subType
+    // For custom subscriptions, pass 'custom' as the type. The backend detects
+    // the custom subscription by user+platform and rotates the custom token
+    // regardless of the type parameter value.
+    const typeParam = subType === 'custom' ? 'custom' : subType
     await userApi.refreshToken(platform.id, typeParam)
     ElMessage.success('链接已刷新')
     // Refetch platforms to get new tokens

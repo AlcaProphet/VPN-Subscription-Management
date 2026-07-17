@@ -16,6 +16,9 @@
 - [x] **`Manage.vue` `activeMenu` fallback 无注释** (`frontend/src/views/Manage.vue`): `/admin`（无子路由）经 `startsWith` 全部不匹配后 fallback 到 `/admin/subscriptions`，与路由重定向一致。`/admin/rules/:id/versions` 被 `/admin/rules` 的 `startsWith` 匹配到父级菜单项，恰好是期望行为（版本管理页面高亮父级）。逻辑正确，无需修改。
 - [x] **版本管理页 current 判定用 `updated_at` 排序理论不稳** (`SubVersions.vue` / `ShareVersions.vue` / `RuleVersions.vue`): 当前版本通过 `max(updated_at)` 判定。后端版本切换在事务内完成（行级锁），`updated_at` 以 `time.Now().UTC()` 写入。并发上传时事务串行执行，`updated_at` 必然不同。仅在两个请求在同一纳秒完成时可能相同，实际不会触发。用服务端返回的 current 标记（如有）会更可靠，但当前方案在管理场景下足够。暂不修复。
 - [x] **分享订阅创建后 Token 显示时间过短** (`ShareList.vue`): 创建成功后通过 `ElMessage.info` 显示 Token（默认 3 秒消失）。但列表 API 已返回 `token` 字段（块 7 构建时增强），用户随时可点击「复制分享链接」按钮复制。Token 不会丢失，影响极小。暂不修复。
+- [x] **`getLoginRateLimit()` / `getDownloadRateLimit()` 每次请求创建新 `SystemConfigRepo`** (`middleware/rate_limit.go`): 每次请求调用 `repository.NewSystemConfigRepo()` 创建新的 repo 实例。repo 内部使用全局 `repository.DB`，功能上正确但违背 service 单例复用模式。性能影响微乎其微（零分配 struct），当前不处理。
+- [x] **`VersionService.NextVersion()` 公开方法未被外部使用** (`version_service.go`): 块 3B 设计时用于外部计算版本号。实际实现中所有 service 的 `UploadVersion` 都通过 `CreateVersion` 内部调用 `nextVersion`，`NextVersion()` 目前是未使用的公开 API。保留备用，暂不删除。
+- [x] **前端列表页 `currentVersion()` 通过 `updated_at` 排序推断** (`SubList.vue` / `ShareList.vue` / `RulesManage.vue`): 使用 `versions.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at))[0]` 推断当前版本。后端 API 未返回 `current_version` 标记，语义上不严谨。未来可加强：后端列表 API 增加 `current_version` 字段。当前版本管理页（SubVersions 等）同样使用此模式。暂不修复。
 
 ## 已修复
 
@@ -32,3 +35,8 @@
 - [x] **下载失败未区分 `version_not_found`** — 4 个下载 handler 在内容读取失败时统一写 `file_not_found`。修复：新增 `errorReasonFromErr` 辅助函数，匹配 `"no versions"` 返回 `version_not_found`，其余返回 `file_not_found`。
 - [x] **规则创建不支持上传首个版本文件** — `CreateRule` 只接受 JSON 创建空记录，不与 `CreateShare` 一致支持一步创建+首版本上传。修复：`CreateRule` 同时支持 JSON（含 `content` 字段）和 multipart（form 字段 + file）两种方式，创建后立即调用 `UploadVersion` 写入首版本，失败则清理 DB 记录。
 - [x] **`checkSystemStatus()` 网络错误后永久缓存 `false`** (`frontend/src/stores/user.js`): catch 分支将 `isConfigured` 设为 `false` 并永久缓存。后端未启动时首次请求失败后，即使后端恢复正常也会被永久卡在 `/setup` 页面。修复：catch 中不设值（保持 `null`），下次路由守卫运行时自动重试。
+- [x] **`createRuleWithFirstVersion` RefreshToken 失败未清理 DB + 文件** (`handlers.go`): 函数流程为 `Create` → `UploadVersion` → `RefreshToken`。`UploadVersion` 成功后若 `RefreshToken` 失败，DB 中留下无 token 的规则记录+版本文件。修复：`RefreshToken` 失败时调用 `RuleSvc.Delete()` 级联清理。
+- [x] **`ShareSubscriptionService.Create` Token 创建失败未清理 DB + 文件** (`share_subscription_service.go`): 与上面规则创建对称。`repo.Create` + `CreateVersion` + `UpdateVersions` 全部成功后，若 `tokenRepo.Create` 失败，留下无 token 的分享订阅。修复：`tokenRepo.Create` 失败时调用 `repo.Delete()` + `RemoveVersionDir()` 清理。
+- [x] **`Home.vue` 自定义订阅刷新发送了错误的 type 参数** (`Home.vue`): `handleRefresh` 对自定义订阅发送 `platform.sub_type`（如 'advanced'）而非 'custom'，虽然后端检测 custom_sub 自动兜底，但语义不清。修复：显式传 `type: 'custom'`，并添加注释说明后端检测逻辑。
+- [x] **`CacheControlMiddleware` 死代码** (`middleware/cache_control.go`): 该中间件定义了但从未在 router 中注册，且若全局使用会与 `NoCacheForDownloads` 产生重复/冲突的 `Cache-Control` 头。修复：删除该文件。
+- [x] **速率限制器 `periodicCleanup` 间隔过长** (`middleware/rate_limit.go`): 清理间隔 5 分钟 + 2 分钟 cutoff，导致过期 IP 记录可在内存中残留最多 ~7 分钟。修复：改为 2 分钟间隔 + 1 分钟 cutoff，与限流窗口 (1 分钟) 对齐。

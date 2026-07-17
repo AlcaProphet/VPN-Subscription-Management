@@ -75,6 +75,9 @@ func (s *ShareSubscriptionService) Create(name, content string) (*models.ShareSu
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
 	}
 	if err := s.tokenRepo.Create(token, id); err != nil {
+		// Clean up DB record + version files on failure
+		s.repo.Delete(id)
+		s.versionSvc.RemoveVersionDir("shares/" + id)
 		return nil, "", fmt.Errorf("failed to create token: %w", err)
 	}
 
