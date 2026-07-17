@@ -623,7 +623,28 @@ func ListUsers(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"users": users})
+
+	// Enrich with custom subscription info per user
+	type userWithCustom struct {
+		models.User
+		HasCustomSub       bool     `json:"has_custom_sub"`
+		CustomSubPlatforms []string `json:"custom_sub_platforms"`
+	}
+	result := make([]userWithCustom, 0, len(users))
+	for _, u := range users {
+		uwc := userWithCustom{User: u, CustomSubPlatforms: []string{}}
+		customs, _ := CustomSubSvc.ListByUser(u.UserID)
+		if len(customs) > 0 {
+			uwc.HasCustomSub = true
+			platforms := make([]string, 0, len(customs))
+			for _, cs := range customs {
+				platforms = append(platforms, cs.Platform)
+			}
+			uwc.CustomSubPlatforms = platforms
+		}
+		result = append(result, uwc)
+	}
+	c.JSON(http.StatusOK, gin.H{"users": result})
 }
 
 func GetUser(c *gin.Context) {
@@ -973,15 +994,16 @@ func ListShares(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	// Enrich with token status
+	// Enrich with token status and value
 	type shareWithToken struct {
 		models.ShareSubscription
-		HasToken bool `json:"has_token"`
+		HasToken bool   `json:"has_token"`
+		Token    string `json:"token,omitempty"`
 	}
 	result := make([]shareWithToken, 0, len(shares))
 	for _, s := range shares {
-		_, tokErr := ShareSvc.GetToken(s.ID)
-		result = append(result, shareWithToken{ShareSubscription: s, HasToken: tokErr == nil})
+		tok, tokErr := ShareSvc.GetToken(s.ID)
+		result = append(result, shareWithToken{ShareSubscription: s, HasToken: tokErr == nil, Token: tok})
 	}
 	c.JSON(http.StatusOK, gin.H{"shares": result})
 }

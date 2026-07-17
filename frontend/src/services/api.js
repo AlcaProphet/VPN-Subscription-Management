@@ -123,8 +123,8 @@ export const adminApi = {
         headers: { 'Content-Type': 'application/json' }
       })
     },
-    deleteCustomSub(id) {
-      return api.delete(`/admin/users/${id}/custom-subscription`)
+    deleteCustomSub(id, platform) {
+      return api.delete(`/admin/users/${id}/custom-subscription?platform=${encodeURIComponent(platform)}`)
     },
     getCustomVersion(id, versionId) {
       return api.get(`/admin/users/${id}/custom-subscription/versions/${versionId}`)
