@@ -11,6 +11,8 @@
 - [x] **OIDC state 查询未校验 TTL** (`oidc_state_repo.go:FindByState`): 查询仅 `WHERE state = ?`，无 `AND created_at > datetime('now', '-10 minutes')`。过期清理每小时执行一次，state 最长可存活 ~70 分钟。但 state 是一次性使用（回调后立即 `DELETE`），重放风险有限；且 CSRF 防护已有 HttpOnly Cookie + DB 三重校验兜底。修复需加时间条件但收益不大，暂不修复。
 - [x] **`enforceMaxVersions` 在 DB 事务提交前删除旧版本文件** (`version_service.go`): `CreateVersion` 调用 `enforceMaxVersions`（`os.Remove` 旧文件）→ 回到 `UploadVersion` 执行 `UPDATE` + `Commit`。若 `UPDATE`/`Commit` 失败，defer 只清理新版本文件不恢复旧文件。触发条件极罕见（版本已满 5 个 + DB 写入失败），且 SQLite WAL 模式下 commit 失败概率极低。重构成本（拆分 enforceMaxVersions 为计算+删除两步，涉及 4 个 service 的 UploadVersion）高于风险。当前存留，后续如有类似场景再统一处理。
 - [x] **Cookie 未显式设置 SameSite** (`handlers.go:AuthLogin`): Gin 的 `SetCookie` 不支持 `SameSite` 参数，生成的 `Set-Cookie` 头不含 `SameSite=...`。现代浏览器（Chrome/Firefox/Safari）对无 `SameSite` 的 cookie 默认视为 `SameSite=Lax`，OIDC 回调是顶层 GET 跳转，`Lax` 恰好允许携带 cookie。功能完全正常，CSRF 防护已有 Cookie + DB + query 三重校验。显式设置需手动拼接 header，收益仅为"声明一个与默认值一致的值"，暂不处理。
+- [x] **api.js 401 拦截器未排除公开端点** (`frontend/src/services/api.js`): 拦截器对所有 401 响应无条件清除 JWT 并跳转 `/login`。但 `/auth/login` 使用 `window.location.href` 直接跳转（不走 axios），`/system/status` 后端无 AuthRequired 中间件永不返回 401。当前所有通过 axios 调用且可能返回 401 的端点（`/auth/me`、`/user/*`、`/admin/*`）均应当触发登出，拦截器行为正确。后续如有新公开端点可能返回 401，可添加排除列表作为防御性改进。
+- [x] **后端不可达时 `checkSystemStatus` 失败导致路由守卫用户体验差** (`frontend/src/router/index.js`): 已通过与"`checkSystemStatus` catch 不缓存 false"（下方已修复）联动缓解。修复后网络错误时 `isConfigured` 保持 `null`，守卫不会强制跳转 `/setup`，用户最终落脚 `/login` 页面（而非无法操作的 Setup 页）。
 
 ## 已修复
 
@@ -26,3 +28,4 @@
 - [x] **速率限制触发的下载未记录 access_logs** — 限流中间件 `writeRateLimitResponse` 不写日志。修复：新增 `repository.InsertAccessLog` 包级函数 + middleware 中新增 `logRateLimitedDownload`，从 URL 路径推断 download_type 及相关 ID 后写入日志。
 - [x] **下载失败未区分 `version_not_found`** — 4 个下载 handler 在内容读取失败时统一写 `file_not_found`。修复：新增 `errorReasonFromErr` 辅助函数，匹配 `"no versions"` 返回 `version_not_found`，其余返回 `file_not_found`。
 - [x] **规则创建不支持上传首个版本文件** — `CreateRule` 只接受 JSON 创建空记录，不与 `CreateShare` 一致支持一步创建+首版本上传。修复：`CreateRule` 同时支持 JSON（含 `content` 字段）和 multipart（form 字段 + file）两种方式，创建后立即调用 `UploadVersion` 写入首版本，失败则清理 DB 记录。
+- [x] **`checkSystemStatus()` 网络错误后永久缓存 `false`** (`frontend/src/stores/user.js`): catch 分支将 `isConfigured` 设为 `false` 并永久缓存。后端未启动时首次请求失败后，即使后端恢复正常也会被永久卡在 `/setup` 页面。修复：catch 中不设值（保持 `null`），下次路由守卫运行时自动重试。

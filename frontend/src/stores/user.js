@@ -20,7 +20,7 @@ export const useUserStore = defineStore('user', () => {
       const res = await publicApi.getSystemStatus()
       isConfigured.value = res.data.configured
     } catch (e) {
-      isConfigured.value = false
+      // Don't cache errors — keep null so the guard retries on next navigation
     }
   }
 
