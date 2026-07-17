@@ -272,14 +272,14 @@
 
 **任务**:
 
-- [ ] `npm create vite@latest frontend -- --template vue` 创建工程
-- [ ] 安装依赖：`vue-router`, `pinia`, `element-plus`, `@element-plus/icons-vue`
-- [ ] `vite.config.js`：配置 proxy `/api` → `http://localhost:8080`，配置 `@` → `src/` 路径别名（`resolve.alias`）
-- [ ] `index.html`：标题改为「VPN 订阅管理」，添加 viewport meta 标签，添加 favicon 链接（可先用默认 vite.svg）
-- [ ] `src/main.js`：创建 app，`.use(router)`, `.use(createPinia())`, `.use(ElementPlus, { locale: zhCn })`
-- [ ] `src/App.vue`：最小实现，仅 `<router-view />`
-- [ ] `src/router/index.js`：创建 router 实例，空路由表（仅占位，块 5B 填入完整路由）
-- [ ] 验证：`npm run dev` 启动，浏览器看到空白页；`npm run build` 通过
+- [x] `npm create vite@latest frontend -- --template vue` 创建工程
+- [x] 安装依赖：`vue-router`, `pinia`, `element-plus`, `@element-plus/icons-vue`
+- [x] `vite.config.js`：配置 proxy `/api` → `http://localhost:8080`，配置 `@` → `src/` 路径别名（`resolve.alias`）
+- [x] `index.html`：标题改为「VPN 订阅管理」，添加 viewport meta 标签，添加 favicon 链接（可先用默认 vite.svg）
+- [x] `src/main.js`：创建 app，`.use(router)`, `.use(createPinia())`, `.use(ElementPlus, { locale: zhCn })`
+- [x] `src/App.vue`：最小实现，仅 `<router-view />`
+- [x] `src/router/index.js`：创建 router 实例，空路由表（仅占位，块 5B 填入完整路由）
+- [x] 验证：`npm run dev` 启动，浏览器看到空白页；`npm run build` 通过
 
 **关键约束**:
 - Element Plus 配置中文 locale（`zhCn`）
@@ -306,27 +306,27 @@
 > 分享列表每项含 `has_token: bool`；规则列表每项含 `token: string`
 > OIDC 配置：`{ config: {...} }`（Client Secret 脱敏）
 
-- [ ] `src/services/api.js`：
+- [x] `src/services/api.js`：
   - Axios 实例：`baseURL: '/api/v1'`，`timeout: 15000`
   - 请求拦截器：自动附加 `Authorization: Bearer <jwt>`（从 `localStorage` 读取）
   - 响应拦截器：401 → 清除 localStorage JWT → `window.location.href = '/login'`（注意：不直接 import router，避免循环依赖；守卫中已处理跳转）
   - 按业务域分组导出：
     - `publicApi`：`getSystemStatus()`, `getPlatforms()`, `getRules()`, `getRuleDownloadUrl(ruleId, token)`
-    - `authApi`：`getLoginRedirect()`, `getCallback(queryString)`, `getMe()`
+    - `authApi`：`getMe()`
     - `userApi`：`getUserPlatforms()`, `getUpdateTime()`, `refreshToken(platform, type)`
     - `adminApi`（按子模块组织）：
-      - `users`：`list()`, `get(id)`, `update(id, data)`, `delete(id)`, `revokeTokens(id)`, `uploadCustomSub(id, platform, file)`, `uploadCustomSubVersion(id, formData)`, `deleteCustomSub(id)`, `getCustomVersion(id, versionId)`, `switchCustomVersion(id, versionId)`, `deleteCustomVersion(id, versionId)`, `refreshCustomSubToken(id, platform)`
-      - `subscriptions`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`
-      - `shares`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`, `refreshToken(id)`, `revokeToken(id)`
+      - `users`：`list()`, `get(id)`, `update(id, data)`, `delete(id)`, `revokeTokens(id)`, `uploadCustomSub(id, platform, file)`, `uploadCustomSubVersion(id, formData)`, `createCustomSubVersionFromText(id, content)`, `deleteCustomSub(id)`, `getCustomVersion(id, versionId)`, `switchCustomVersion(id, versionId)`, `deleteCustomVersion(id, versionId)`, `refreshCustomSubToken(id, platform)`
+      - `subscriptions`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `createVersionFromText(id, content)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`
+      - `shares`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `createVersionFromText(id, content)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`, `refreshToken(id)`, `revokeToken(id)`
       - `platforms`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`
-      - `rules`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`, `refreshToken(id)`
+      - `rules`：`list()`, `create(data)`, `get(id)`, `update(id, data)`, `delete(id)`, `uploadVersion(id, formData)`, `createVersionFromText(id, content)`, `switchVersion(id, versionId)`, `getVersion(id, versionId)`, `deleteVersion(id, versionId)`, `refreshToken(id)`
       - `system`：`getOIDCConfig()`, `testOIDC(data)`, `configure(data)`, `switchProvider(data)`, `getRateLimit()`, `updateRateLimit(data)`
       - `logs`：`getLogs(date)`
-    - `downloadApi`：`download(platform, type)`, `downloadPreview(platform, type)`, `downloadByToken(platform, token)`
+    - `downloadApi`：`downloadUrl(platform, type)`, `downloadPreviewUrl(platform, type)`, `downloadByTokenUrl(platform, token)`, `shareDownloadUrl(id, token)`
 
 ### 5B-2: user.js（Pinia 用户状态）
 
-- [ ] `src/stores/user.js`（Composition API style）：
+- [x] `src/stores/user.js`（Composition API style）：
   - state：`user`（null | { user_id, username, email, role, is_advanced, groups }）、`token`（从 localStorage 初始化）、`isConfigured`（缓存 /system/status 结果）
   - getters：`isLoggedIn`（token 非空）、`isAdmin`（user.role === 'admin'）、`isAdvanced`（user.is_advanced）
   - actions：
@@ -337,7 +337,7 @@
 
 ### 5B-3: useTheme.js（暗色模式）
 
-- [ ] `src/composables/useTheme.js`：
+- [x] `src/composables/useTheme.js`：
   - 从 `localStorage` 读取偏好（key: `vpn-theme`，值: `'dark'` | `'light'`）
   - `isDark` ref，初始化时读取偏好 or 系统 `prefers-color-scheme`
   - `toggle()`：切换 `isDark`，同步更新 `document.documentElement.classList.toggle('dark', isDark)` + localStorage
@@ -346,7 +346,7 @@
 
 ### 5B-4: router/index.js（完整路由表 + 三重守卫）
 
-- [ ] 路由表定义（16 条路由 + 1 个内联组件）：
+- [x] 路由表定义（16 条路由 + 1 个内联组件）：
   - `/` → `Home.vue`（懒加载 `() => import('@/views/Home.vue')`）
   - `/setup` → `Setup.vue`
   - `/login` → `Login.vue`
@@ -363,18 +363,18 @@
     - `/admin/rules/:id/versions` → `RuleVersions.vue`
     - `/admin/oidc` → `OIDCConfig.vue`
     - `/admin/logs` → `Logs.vue`
-- [ ] `beforeEach` 守卫（按优先级顺序）：
+- [x] `beforeEach` 守卫（按优先级顺序）：
   1. `/auth/callback` → 直接放行（提取 token 的内联组件自行处理）
   2. 系统未配置（`isConfigured === false`）且不在 `/setup` → 跳 `/setup`
   3. 系统已配置且在 `/setup` → 跳 `/`
   4. 从 `localStorage` 恢复 token → 调 `fetchUser()` 验证
   5. 未登录 + 目标非 `/login` → 跳 `/login`
   6. 目标以 `/admin` 开头 + 非管理员 → 跳 `/`
-- [ ] 守卫中使用 `userStore.checkSystemStatus()` 确保 `isConfigured` 已初始化（带缓存）
+- [x] 守卫中使用 `userStore.checkSystemStatus()` 确保 `isConfigured` 已初始化（带缓存）
 
 ### 5B-5: 所有页面 stub 文件
 
-- [ ] 创建 15 个 `.vue` stub 文件，每个仅包含最小模板（如 `<template><div>PageName</div></template>`），确保路由懒加载不报错：
+- [x] 创建 15 个 `.vue` stub 文件，每个仅包含最小模板（如 `<template><div>PageName</div></template>`），确保路由懒加载不报错：
   - `src/views/Setup.vue`
   - `src/views/Login.vue`
   - `src/views/Home.vue`
@@ -393,11 +393,11 @@
 
 ### 5B-6: 更新 App.vue
 
-- [ ] 更新 `src/App.vue`：调用 `useTheme()` composable，包裹 `<router-view />`，添加 Element Plus `<el-config-provider>`（可选，locale 已在 main.js 全局配置）
+- [x] 更新 `src/App.vue`：调用 `useTheme()` composable，包裹 `<router-view />`，添加 Element Plus `<el-config-provider>`
 
 ### 验证
 
-- [ ] `npm run build` 通过
+- [x] `npm run build` 通过
 - [ ] 启动后端（`go run .`）→ 启动前端（`npm run dev`）→ 访问 `http://localhost:5173/`
   - 后端未配置时 → 自动跳转 `/setup`（显示 Setup stub）
   - 后端已配置时 → 跳转 `/login`（因未登录）
@@ -418,25 +418,25 @@
 
 **任务**:
 
-- [ ] `src/components/ConfirmDialog.vue`：
+- [x] `src/components/ConfirmDialog.vue`：
   - Props：`visible` (Boolean)、`title` (String)、`message` (String)、`confirmText` (String, 默认「确认」)、`cancelText` (String, 默认「取消」)
   - Emits：`update:visible`、`confirm`、`cancel`
   - 使用 `el-dialog` + `el-button`，`v-model:visible` 绑定
   - 确认按钮类型 `danger`（警告操作），取消按钮 `default`
   - 注意：模板文本使用「」代替双引号转义
-- [ ] `src/components/OIDCSwitchDialog.vue`：
+- [x] `src/components/OIDCSwitchDialog.vue`：
   - Props：`visible` (Boolean)、`currentProvider` (String: 'keycloak' | 'auth0' | 'generic')
   - Emits：`update:visible`、`switch`（携带选择的 provider）
   - 使用 `el-dialog` + `el-radio-group` 列出三种提供商
   - 当前 provider 默认选中
   - 切换时保留已填字段（由父组件控制，本组件仅负责选择）
-- [ ] `src/components/UploadModal.vue`：
+- [x] `src/components/UploadModal.vue`：
   - Props：`visible` (Boolean)、`accept` (String, 默认 `.conf,.yaml,.yml,.txt`)、`maxSize` (Number, 默认 50MB)
   - Emits：`update:visible`、`upload`（携带 File 对象）、`textSave`（携带文本内容 string）
   - 两种输入模式（tab 切换）：文件上传（`el-upload`）和文本编辑（`el-input` textarea）
   - 文件上传统一 50MB 限制（`before-upload` 钩子校验文件大小）
   - 手动设置 `Content-Type: multipart/form-data`（在 emit 给父组件时，由父组件负责构造 FormData 并设置 header）
-- [ ] 验证：`npm run build` 通过；组件可在其他页面中 import 使用
+- [x] 验证：`npm run build` 通过；组件可在其他页面中 import 使用
 
 **关键约束**:
 - 三个组件均为纯展示+交互组件，不含业务逻辑（业务逻辑由父组件处理）

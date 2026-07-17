@@ -106,5 +106,6 @@ function resetForm() {
   selectedFile.value = null
   textContent.value = ''
   activeTab.value = 'file'
+  uploadRef.value?.clearFiles()
 }
 </script>

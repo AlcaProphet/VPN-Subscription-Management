@@ -113,13 +113,14 @@ export const adminApi = {
     uploadCustomSub(id, platform, file) {
       const fd = new FormData()
       fd.append('file', file)
-      return api.post(`/admin/users/${id}/custom-subscription?platform=${encodeURIComponent(platform)}`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      return api.post(`/admin/users/${id}/custom-subscription?platform=${encodeURIComponent(platform)}`, fd)
     },
     uploadCustomSubVersion(id, formData) {
-      return api.post(`/admin/users/${id}/custom-subscription/versions`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+      return api.post(`/admin/users/${id}/custom-subscription/versions`, formData)
+    },
+    createCustomSubVersionFromText(id, content) {
+      return api.post(`/admin/users/${id}/custom-subscription/versions`, { content }, {
+        headers: { 'Content-Type': 'application/json' }
       })
     },
     deleteCustomSub(id) {
@@ -157,9 +158,7 @@ export const adminApi = {
       return api.delete(`/admin/subscriptions/${id}`)
     },
     uploadVersion(id, formData) {
-      return api.post(`/admin/subscriptions/${id}/versions`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      return api.post(`/admin/subscriptions/${id}/versions`, formData)
     },
     createVersionFromText(id, content) {
       return api.post(`/admin/subscriptions/${id}/versions`, { content }, {
@@ -195,9 +194,7 @@ export const adminApi = {
       return api.delete(`/admin/shares/${id}`)
     },
     uploadVersion(id, formData) {
-      return api.post(`/admin/shares/${id}/versions`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      return api.post(`/admin/shares/${id}/versions`, formData)
     },
     createVersionFromText(id, content) {
       return api.post(`/admin/shares/${id}/versions`, { content }, {
@@ -258,9 +255,7 @@ export const adminApi = {
       return api.delete(`/admin/rules/${id}`)
     },
     uploadVersion(id, formData) {
-      return api.post(`/admin/rules/${id}/versions`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      return api.post(`/admin/rules/${id}/versions`, formData)
     },
     createVersionFromText(id, content) {
       return api.post(`/admin/rules/${id}/versions`, { content }, {
