@@ -29,6 +29,13 @@ func SetAuthService(svc AuthService) {
 // It stores user_id in the Gin context for downstream handlers.
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Guard against misconfiguration where DefaultAuthService is nil
+		// (e.g. configured=true but OIDC init failed at startup)
+		if DefaultAuthService == nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Auth service not initialized"})
+			return
+		}
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing authorization header"})
@@ -94,4 +101,3 @@ func GetUserIsAdvanced(c *gin.Context) bool {
 	}
 	return isAdv.(bool)
 }
-

@@ -70,6 +70,7 @@ const maxSizeMB = computed(() => props.maxSize)
 const activeTab = ref('file')
 const selectedFile = ref(null)
 const textContent = ref('')
+const uploadRef = ref(null)
 
 function beforeUpload(file) {
   const maxBytes = props.maxSize * 1024 * 1024

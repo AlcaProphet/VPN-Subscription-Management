@@ -1518,12 +1518,19 @@ func UpdateRateLimit(c *gin.Context) {
 
 func GetLogs(c *gin.Context) {
 	date := c.Query("date")
-	if date == "" {
-		date = time.Now().UTC().Format("2006-01-02")
-	}
 
 	repo := repository.NewAccessLogRepo()
-	logs, err := repo.ListByDate(date)
+	var logs []repository.AccessLogRecord
+	var err error
+
+	if date != "" {
+		// Specific date requested — filter by date(created_at)
+		logs, err = repo.ListByDate(date)
+	} else {
+		// No date — return last 24 hours to avoid UTC/local timezone boundary issues
+		logs, err = repo.ListRecent()
+	}
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query logs: " + err.Error()})
 		return

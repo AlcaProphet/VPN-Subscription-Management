@@ -44,11 +44,25 @@ func InsertAccessLog(record *AccessLogRecord) {
 
 // ListByDate retrieves access logs for a specific date (format: "2006-01-02").
 func (r *AccessLogRepo) ListByDate(date string) ([]AccessLogRecord, error) {
-	rows, err := DB.Query(
+	return r.queryLogs(
 		`SELECT user_id, ip, download_type, platform, share_subscription_id, rule_id, status, error_reason, created_at
 		 FROM access_logs WHERE date(created_at) = ? ORDER BY created_at DESC LIMIT 1000`,
 		date,
 	)
+}
+
+// ListRecent retrieves access logs from the last 24 hours.
+// Used when no specific date is requested, avoiding timezone boundary issues.
+func (r *AccessLogRepo) ListRecent() ([]AccessLogRecord, error) {
+	return r.queryLogs(
+		`SELECT user_id, ip, download_type, platform, share_subscription_id, rule_id, status, error_reason, created_at
+		 FROM access_logs WHERE created_at >= datetime('now', '-24 hours') ORDER BY created_at DESC LIMIT 1000`,
+	)
+}
+
+// queryLogs executes a log query and scans results into AccessLogRecord slices.
+func (r *AccessLogRepo) queryLogs(query string, args ...interface{}) ([]AccessLogRecord, error) {
+	rows, err := DB.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

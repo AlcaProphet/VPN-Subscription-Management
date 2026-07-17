@@ -22,6 +22,10 @@
 - [x] **`GetRuleDownload` 忽略 URL 中的 `:id` 路径参数** (`handlers.go`): Handler 从 token 中解析 `ruleID` 并用它获取内容，完全忽略 URL 路径中的 `:id` 参数。Token 是权威来源，URL 中的 `:id` 不参与鉴权或内容定位。无安全风险，此行为为设计选择。
 - [x] **`access_logs` 表使用空字符串代替 NULL** (`db.go`): `user_id`、`platform`、`share_subscription_id`、`rule_id`、`error_reason` 字段定义为 `NOT NULL DEFAULT ''`（AGENTS.md §6.3 标注为"可空"）。实际写入时也用空字符串。功能正常，SQLite 中 `WHERE col = ''` 效果与 `WHERE col IS NULL` 类似。暂不修改 schema。
 - [x] **CORS 中间件允许所有来源** (`cors.go`): `Access-Control-Allow-Origin: *`。生产部署使用外部 NGINX 同源反代，浏览器不会触发 CORS 检查，此 header 仅在开发环境（Vite dev server 跨端口）生效。开发环境中 `*` 是期望行为。
+- [x] **`rate_limit.go` `init()` 启动后台 goroutine 无退出机制** (`rate_limit.go`): `init()` 中启动两个 `periodicCleanup` goroutine，生命周期与进程绑定，无显式退出。生产环境进程退出时 goroutine 自动销毁，无影响。测试场景下多次初始化会导致 goroutine 泄漏，但测试通常短生命周期。当前不处理。
+- [x] **`no_cache.go` `Cache-Control` 头含额外 `s-maxage=0`** (`no_cache.go`): AGENTS.md §5 规定 `no-store, no-cache, must-revalidate`，实际实现额外加了 `, s-maxage=0`。`no-store` 已禁止任何缓存，`s-maxage=0` 冗余但**更严格**（共享缓存立即过期），功能正确。保留当前实现（比规范更保险）。
+- [x] **`go.mod` Go 版本声明为 1.25.0** (`go.mod`): `go 1.25.0` 要求工具链 ≥ 1.25。CI/CD 环境需确认 Go 版本兼容。本地编译通过，Dockerfile 使用 `golang:alpine`（最新 tag）也兼容。在 CI workflow 中已配置 matrix build，无需额外处理。
+- [x] **前端构建产物主 chunk 超过 500KB** (`npm run build` 警告): Element Plus 全量引入（`app.use(ElementPlus)`）导致主 chunk ~1.1MB (gzip ~366KB)。对小团队场景影响有限，首次加载可接受。未来可选优化：改用按需引入（`unplugin-vue-components`）可减少 ~60% 体积。
 
 ## 已修复
 
@@ -45,3 +49,6 @@
 - [x] **速率限制器 `periodicCleanup` 间隔过长** (`middleware/rate_limit.go`): 清理间隔 5 分钟 + 2 分钟 cutoff，导致过期 IP 记录可在内存中残留最多 ~7 分钟。修复：改为 2 分钟间隔 + 1 分钟 cutoff，与限流窗口 (1 分钟) 对齐。
 - [x] **OIDC 配置页 Client Secret 回显始终为空** (`oidc_service.go` + `OIDCConfig.vue`): `GetMaskedOIDCConfig` 返回的 key 是提供商特定名（如 `keycloak_client_secret_encrypted`），前端读取的 key 是通用名 `client_secret`（不存在 → 始终为空）。修复：后端额外返回通用 `client_secret` key；前端脱敏值比较从 `'***'` 对齐到 `'••••••'`；`PostConfigure` 在 Normal 模式下将 `client_secret` 改为可选（空/脱敏时复用已有加密值），`ConfigureSystem` 检测到空 secret 时跳过加密步骤保留已有值。
 - [x] **自定义订阅版本 API 缺少 `platform` 参数** (`api.js`): `uploadCustomSubVersion` 和 `createCustomSubVersionFromText` 调用 `/admin/users/:id/custom-subscription/versions` 时未携带必需的 `?platform=` 查询参数。修复：补充 `platform` 参数。
+- [x] **`UploadModal.vue` `uploadRef` 变量未声明** (`UploadModal.vue`): 模板中 `ref="uploadRef"` 和 `resetForm()` 中 `uploadRef.value?.clearFiles()` 使用了 `uploadRef`，但 `<script setup>` 中缺少声明 → `undefined` → `clearFiles()` 静默失效 → el-upload 组件文件列表残留。修复：添加 `const uploadRef = ref(null)`。
+- [x] **日志查询日期时区不一致** (`handlers.go:GetLogs` + `access_log_repo.go`): 后端默认日期用 UTC，前端默认日期用本地时区，非 UTC 时区凌晨时段日期偏移。修复：后端未传 date 参数时使用 `ListRecent()` 查询最近 24 小时日志（`WHERE created_at >= datetime('now', '-24 hours')`）；新增 `queryLogs()` 提取公共扫描逻辑避免重复代码。
+- [x] **`AuthRequired` 未防御 `DefaultAuthService` 为 nil** (`middleware/auth.go`): `configured=true` 但 `NewServiceFromDB` 失败时 `DefaultAuthService` 仍为 nil，触发 panic。修复：在 `AuthRequired` 开头增加 nil 检查，返回 503。
