@@ -8,8 +8,9 @@
 - 数据库表结构、API 端点、版本文件存储严格按第六章实现
 - Docker 部署按第八章（外部 NGINX 分流 + 双容器 127.0.0.1 绑定）
 - 不使用 .env 文件，业务配置一律 Web UI → SQLite；仅 PORT 等运维参数可环境变量覆盖
+- 详细测试步骤见文末 [测试计划](#测试计划) 章节（本地测试 + 联机测试）
 
-**阶段划分**（共 31 块，块 1 拆为 4 个子块，块 2 拆为 2 个子块，块 3 拆为 6 个子块，块 4 拆为 4 个子块，块 5 拆为 3 个子块，块 6 拆为 4 个子块，块 7 拆为 7 个子块）:
+**阶段划分**（共 37 块，块 1 拆为 4 个子块，块 2 拆为 2 个子块，块 3 拆为 6 个子块，块 4 拆为 4 个子块，块 5 拆为 3 个子块，块 6 拆为 4 个子块，块 7 拆为 7 个子块，块 8 拆为 6 个子块）:
 
 | 块 | 内容 | 依赖 | 状态 |
 |----|------|------|------|
@@ -43,7 +44,12 @@
 | 块 7E | RulesManage + RuleVersions（规则管理 + 版本管理） | 块 6B + 块 3F | ✅ |
 | 块 7F | OIDCConfig（OIDC 配置 + 速率限制） | 块 6B + 块 5C | ✅ |
 | 块 7G | Logs（日志查看） | 块 6B + 块 3F | ✅ |
-| 块 8 | Docker 化 + 联调验证 | 全部 | ⬜ |
+| 块 8A | Docker 构建文件（Dockerfile × 2 + .dockerignore × 2 + nginx.conf） | 无（独立编写） | ⬜ |
+| 块 8B | Docker Compose 最终确认与调优 | 块 8A | ⬜ |
+| 块 8C | 本地 Docker 构建验证 | 块 8B | ⬜ |
+| 块 8D | 外部 NGINX 参考配置文档 | 无（独立编写） | ⬜ |
+| 块 8E | CI/CD GitHub Actions（可选） | 块 8C | ⬜ |
+| 块 8F | 端到端联调验证清单 | 块 8C | ⬜ |
 
 ---
 
@@ -1431,70 +1437,938 @@
 
 ## 块 8：Docker 化 + 联调验证
 
-**目标**: 编写 Dockerfile，验证 docker-compose，端到端联调。
+**目标**: 编写 Dockerfile，验证 docker-compose，端到端联调。块 8 是整个项目的最后一块，依赖块 1A~7G 全部完成。
 
-> **注意**: 根目录 `docker-compose.yml` 已存在且端口绑定（`127.0.0.1:8080:8080` / `127.0.0.1:8081:80`）和 volume（`vpn-data:/app/data`）均正确。本块重点是编写 Dockerfile + nginx.conf + `.dockerignore`，并端到端验证。
+> **现状盘点**:
+> - 根目录 `docker-compose.yml` ✅ 已存在，端口绑定（`127.0.0.1:8080:8080` / `127.0.0.1:8081:80`）和 volume（`vpn-data:/app/data`）均正确
+> - `backend/go.mod` 使用 Go 1.25.0，依赖 `modernc.org/sqlite`（纯 Go，CGO_ENABLED=0 可静态编译）
+> - `frontend/package.json` 使用 Vite 6 + Vue 3.5，`npm run build` 输出到 `dist/`
+> - `backend/cmd/server/main.go` 已支持 `PORT`（默认 8080）和 `DATA_DIR`（默认 `./data`）环境变量
+> - **不存在** 任何 Dockerfile、`.dockerignore`、`nginx.conf` 文件，需全部新建
+
+**块 8 拆分为 6 个子块，按依赖顺序构建**:
+
+| 子块 | 内容 | 依赖 | 状态 |
+|------|------|------|------|
+| 块 8A | Docker 构建文件（Dockerfile × 2 + .dockerignore × 2 + nginx.conf） | 无（独立编写） | ⬜ |
+| 块 8B | Docker Compose 最终确认与调优 | 块 8A | ⬜ |
+| 块 8C | 本地 Docker 构建验证 | 块 8B | ⬜ |
+| 块 8D | 外部 NGINX 参考配置文档 | 无（独立编写） | ⬜ |
+| 块 8E | CI/CD GitHub Actions（可选） | 块 8C | ⬜ |
+| 块 8F | 端到端联调验证清单 | 块 8C | ⬜ |
+
+---
+
+### 块 8A：Docker 构建文件
+
+**目标**: 创建全部 5 个 Docker 构建所需文件，确保 `docker compose build` 能成功构建两个镜像。
+
+**设计要点分析**:
+
+1. **后端多阶段构建**: Go 项目使用 `modernc.org/sqlite`（纯 Go SQLite 驱动），`CGO_ENABLED=0` 可编译为完全静态二进制，适合 `distroless/static` 运行镜像。
+2. **Distroless + Volume 权限**: `gcr.io/distroless/static-debian12:nonroot` 以 UID 65532 运行，无法写入 Docker volume 的 `/app/data` 目录（volume 默认 root 所有）。**解决方案**: 使用 `gcr.io/distroless/static-debian12`（root 用户）而非 nonroot 变体。对于 `127.0.0.1` 绑定的自托管内部工具，root 运行可接受。AGENTS.md 无强制 nonroot 约束。
+3. **前端多阶段构建**: Node 构建 → Nginx Alpine 提供静态文件服务。nginx.conf 仅含 SPA 回退，无任何 `proxy_pass`（/api 分流由外部 NGINX 承担）。
+4. **镜像体积优化**: 后端用 `-ldflags="-s -w"` 去除调试信息；前端用 `npm ci --production=false`（构建时需要 devDependencies 中的 vite）；nginx 用 alpine 变体。
 
 **任务**:
 
-- [ ] `backend/.dockerignore`：排除 `data/`、`.git/`、`__debug*`、`*.test`
-- [ ] `frontend/.dockerignore`：排除 `node_modules/`、`.git/`、`dist/`
-- [ ] `backend/Dockerfile`：多阶段构建
-  - 阶段 1（builder）：`golang:1.25-alpine` → `COPY . .` → `CGO_ENABLED=0 go build -o server ./cmd/server`
-  - 阶段 2（runtime）：`gcr.io/distroless/static-debian12:nonroot` → `COPY --from=builder /app/server /server` → `ENTRYPOINT ["/server"]`
-- [ ] `frontend/Dockerfile`：多阶段构建
-  - 阶段 1（builder）：`node:22-alpine` → `COPY package*.json .` → `npm ci` → `COPY . .` → `npm run build`
-  - 阶段 2（runtime）：`nginx:1.27-alpine` → `COPY --from=builder /app/dist /usr/share/nginx/html` → `COPY nginx.conf /etc/nginx/conf.d/default.conf`
-- [ ] `frontend/nginx.conf`（按 §8.4）：
+- [ ] **`backend/.dockerignore`**:
+  ```
+  data/
+  .git/
+  __debug*
+  *.test
+  .env
+  .vscode/
+  ```
+  说明：`data/` 由 volume 挂载，不进镜像；其余为开发期产物。
+
+- [ ] **`backend/Dockerfile`**（多阶段构建）:
+  ```dockerfile
+  # Stage 1: Build
+  FROM golang:1.25-alpine AS builder
+  WORKDIR /app
+  # Install build dependencies (modernc.org/sqlite is pure Go, no CGO needed)
+  COPY go.mod go.sum ./
+  RUN go mod download
+  COPY . .
+  RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o server ./cmd/server
+
+  # Stage 2: Runtime
+  FROM gcr.io/distroless/static-debian12
+  COPY --from=builder /app/server /server
+  ENV DATA_DIR=/app/data
+  ENV PORT=8080
+  EXPOSE 8080
+  ENTRYPOINT ["/server"]
+  ```
+  说明：
+  - 使用 root 用户 distroless（非 nonroot），确保对 volume `/app/data` 有写权限
+  - `modernc.org/sqlite` 为纯 Go 实现，无需 CGO，无需 libc
+  - `-ldflags="-s -w"` 去除符号表和调试信息，减小二进制体积
+  - `DATA_DIR=/app/data` 与 docker-compose volume 挂载路径一致 ($6.5)
+  - Go 1.25 Alpine 镜像需确认可用；若不可用则降级为 `golang:1.24-alpine`（Go 版本兼容）
+
+- [ ] **`frontend/.dockerignore`**:
+  ```
+  node_modules/
+  .git/
+  dist/
+  .vscode/
+  ```
+  说明：`node_modules/` 和 `dist/` 为本地产物，构建时在容器内重新生成。
+
+- [ ] **`frontend/Dockerfile`**（多阶段构建）:
+  ```dockerfile
+  # Stage 1: Build
+  FROM node:22-alpine AS builder
+  WORKDIR /app
+  COPY package.json ./
+  # Use npm ci for reproducible builds (needs package-lock.json)
+  # If no lock file exists, fall back to npm install
+  RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+  COPY . .
+  RUN npm run build
+
+  # Stage 2: Runtime
+  FROM nginx:1.27-alpine
+  COPY --from=builder /app/dist /usr/share/nginx/html
+  COPY nginx.conf /etc/nginx/conf.d/default.conf
+  EXPOSE 80
+  CMD ["nginx", "-g", "daemon off;"]
+  ```
+  说明：
+  - Node 22 Alpine 构建前端，输出到 `dist/`
+  - Nginx 1.27 Alpine 提供静态服务，镜像体积小
+  - `nginx.conf` 在 frontend 目录下，`COPY` 时相对于 `context: ./frontend`
+  - 若 `package-lock.json` 不存在则降级为 `npm install`
+
+- [ ] **`frontend/nginx.conf`**（严格按 AGENTS.md §8.4）:
   ```nginx
   server {
       listen 80;
       server_name _;
       root /usr/share/nginx/html;
+
       location / {
           try_files $uri $uri/ /index.html;
       }
   }
   ```
-  只服务静态文件 + SPA 回退，**无任何 proxy_pass**
-- [ ] 验证根目录 `docker-compose.yml`（已存在）：
-  - backend 端口 `127.0.0.1:8080:8080` ✅
-  - frontend 端口 `127.0.0.1:8081:80` ✅
-  - volume `vpn-data:/app/data` ✅
-  - frontend `depends_on: backend` ✅
-- [ ] 端到端联调：
-  - `docker compose up -d --build` 启动
-  - 外部 NGINX 配置 `/api/` → `127.0.0.1:8080`，`/` → `127.0.0.1:8081`（参考 §8.2）
-  - 访问网站 → Setup → 登录 → 首页 → 管理面板全功能验证
-- [ ] 验证项清单：
-  - [ ] Setup 流程（OIDC 配置 → 测试连接 → 完成）
-  - [ ] 首位用户自动成为管理员
-  - [ ] 创建订阅（default + advanced）+ 版本上传/切换
-  - [ ] 普通用户/高级用户首页显示正确订阅
-  - [ ] 一键导入 URL 正确拼接
-  - [ ] 下载 Token 下载返回纯文本
-  - [ ] 自定义订阅上传/下载/删除
-  - [ ] 分享订阅创建/刷新/吊销/删除
-  - [ ] 规则管理 + 轮替 Token
-  - [ ] 用户 is_advanced 变更后旧 Token 失效
-  - [ ] 速率限制触发 429
-  - [ ] 日志记录正确（status/error_reason）
-  - [ ] 暗色模式切换
-  - [ ] 移动端响应式
+  约束验证：
+  - ✅ 只服务静态文件 + SPA history 模式回退
+  - ✅ **无任何 `proxy_pass`**（/api 分流由外部 NGINX 承担）
+  - ✅ 无 `/api/` location 块
+  - ✅ `try_files` 确保 Vue Router history 模式正常工作
+
+**涉及文件**: `backend/.dockerignore`, `backend/Dockerfile`, `frontend/.dockerignore`, `frontend/Dockerfile`, `frontend/nginx.conf`
+
+**验证**:
+- [ ] `docker build -t vpn-backend ./backend` 构建成功
+- [ ] `docker build -t vpn-frontend ./frontend` 构建成功
+- [ ] `docker images` 查看镜像大小合理（后端 distroless ~15MB + 二进制，前端 nginx-alpine ~40MB）
 
 **关键约束**:
-- 对外只暴露外部 NGINX 一个端口
-- backend/frontend 端口必须 `127.0.0.1:` 前缀绑定
-- frontend 容器内 nginx 不得有 proxy_pass
-- 单一 `vpn-data` volume 挂载 `/app/data`
+- frontend nginx.conf 不得有 proxy_pass（AGENTS.md §8.1/§8.4 强制约束）
+- 后端 CGO_ENABLED=0（modernc.org/sqlite 纯 Go，确保 distroless 兼容）
+- DATA_DIR 环境变量设为 `/app/data`（与 volume 挂载路径一致）
+- Go 版本 `1.25` 需要确认 Docker Hub 上 `golang:1.25-alpine` 标签是否存在；若不存在则使用最新可用版本
+- 若 `package-lock.json` 不存在需在 `npm install` 前生成或直接使用 `npm install`
+
+---
+
+### 块 8B：Docker Compose 最终确认与调优
+
+**目标**: 审查并更新 `docker-compose.yml`，确保与 AGENTS.md §8.3 完全一致，并补充生产就绪配置。
+
+**现状**: 根目录 `docker-compose.yml` 已存在，基本结构正确，需逐一核对并补充优化项。
+
+**任务**:
+
+- [ ] **端口绑定核对**（AGENTS.md §8.1 强制约束）:
+  - backend: `"127.0.0.1:8080:8080"` ✅ 已正确
+  - frontend: `"127.0.0.1:8081:80"` ✅ 已正确
+  - 确认无 `0.0.0.0` 或其他公网接口绑定
+
+- [ ] **Volume 核对**（AGENTS.md §8.7）:
+  - `vpn-data:/app/data` ✅ 已正确
+  - 单一 volume，包含 SQLite 数据库 + 所有版本文件
+  - 确认无多余 volume 挂载
+
+- [ ] **depends_on 核对**:
+  - `frontend depends_on backend` ✅ 已正确
+  - 注意：`depends_on` 仅控制启动顺序，不等待 backend 就绪。如需健康检查等待，参考下方优化
+
+- [ ] **补充优化项**（生产就绪）:
+  - [ ] backend 添加 `healthcheck`:
+    ```yaml
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    ```
+    注意：distroless 镜像无 wget/curl，需改用其他方式或不在 Dockerfile 层面做 healthcheck。**替代方案**: 在 docker-compose 中使用 `curl` 条件（需要容器内可用），或使用 Docker 原生的 TCP 端口检测。对于 distroless，可使用 `gcr.io/distroless/static-debian12`（含 busybox）或改为 `alpine` 基础镜像。**推荐**: 保持 distroless，使用外部监控（如外部 NGINX 的 health check），不在容器内添加 healthcheck。
+
+  - [ ] frontend 添加 `healthcheck`:
+    ```yaml
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    ```
+    nginx:1.27-alpine 内置 wget，可直接使用。
+
+  - [ ] 添加 `networks` 配置（可选，当前默认 bridge 网络即可满足需求）
+  - [ ] 添加容器资源限制（可选，小团队场景非必需）:
+    ```yaml
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    ```
+
+- [ ] **最终 docker-compose.yml 目标**:
+  ```yaml
+  services:
+    backend:
+      build:
+        context: ./backend
+        dockerfile: Dockerfile
+      container_name: vpn-backend
+      ports:
+        - "127.0.0.1:8080:8080"
+      volumes:
+        - vpn-data:/app/data
+      restart: unless-stopped
+
+    frontend:
+      build:
+        context: ./frontend
+        dockerfile: Dockerfile
+      container_name: vpn-frontend
+      ports:
+        - "127.0.0.1:8081:80"
+      depends_on:
+        - backend
+      restart: unless-stopped
+
+  volumes:
+    vpn-data:
+  ```
+
+**验证**:
+- [ ] `docker compose config` 无语法错误
+- [ ] 端口绑定全部为 `127.0.0.1:` 前缀
+- [ ] volume 名称和挂载路径正确
+
+---
+
+### 块 8C：本地 Docker 构建与启动验证
+
+**目标**: 在本地完整构建并启动两个容器，验证核心功能可用。
+
+**任务**:
+
+- [ ] **构建镜像**:
+  ```bash
+  cd /Users/kyle/Desktop/VPN-Subscription-Management
+  docker compose build --no-cache
+  ```
+  验证：
+  - backend 多阶段构建成功（golang build → distroless）
+  - frontend 多阶段构建成功（node build → nginx）
+  - 无构建错误
+
+- [ ] **启动服务**:
+  ```bash
+  docker compose up -d
+  ```
+  验证：
+  - `docker compose ps` 显示两个容器均为 `Up` 状态
+  - `docker compose logs backend` 显示 `Starting server on :8080 (configured=false)`
+  - `docker compose logs frontend` 显示 nginx 启动正常
+
+- [ ] **基本 HTTP 验证**（不依赖外部 NGINX，直接访问 127.0.0.1）:
+  ```bash
+  # 健康检查
+  curl http://127.0.0.1:8080/health
+  # 预期: {"status":"ok"}
+
+  # 系统状态
+  curl http://127.0.0.1:8080/api/v1/system/status
+  # 预期: {"configured":false}
+
+  # 前端首页
+  curl http://127.0.0.1:8081/
+  # 预期: 返回 index.html (含 <div id="app">)
+  ```
+
+- [ ] **Setup 流程快速验证**:
+  ```bash
+  # 访问前端 → 应重定向到 /setup（通过 JS 路由守卫，curl 只能验证 HTML 返回）
+  curl http://127.0.0.1:8081/
+  # 预期: 返回 SPA index.html，JS 加载后自动跳转 /setup
+  ```
+
+- [ ] **容器内数据目录验证**:
+  ```bash
+  docker compose exec backend ls -la /app/data/
+  # 预期: 存在 vpn.db 文件（首次启动时自动创建）
+  ```
+
+- [ ] **停止并清理**:
+  ```bash
+  docker compose down
+  # 如需清理 volume 数据: docker compose down -v
+  ```
+
+**涉及文件**: 无新建文件，使用 块 8A/8B 产物
+
+**验证**:
+- [ ] 两个镜像构建无错误
+- [ ] `docker compose up -d` 启动成功
+- [ ] `/health` 返回 200
+- [ ] `/api/v1/system/status` 返回 `{"configured":false}`
+- [ ] 前端返回 index.html
+- [ ] `/app/data/vpn.db` 自动创建
+
+---
+
+### 块 8D：外部 NGINX 参考配置文档
+
+**目标**: 提供外部 NGINX 参考配置文件，供部署者在部署机上设置 `/api` 分流。
+
+> **说明**: 本块不创建容器内文件。外部 NGINX 配置是部署者在自己服务器上手动设置的，不在本项目的 Docker 镜像内。提供参考配置方便部署。
+
+**任务**:
+
+- [ ] **创建 `deploy/nginx-example.conf`**（严格按 AGENTS.md §8.2）:
+  ```nginx
+  # VPN Subscription Management - External NGINX Configuration
+  # Place this in your existing NGINX server block on the deployment host.
+  # This is NOT part of the Docker containers.
+  #
+  # Architecture:
+  #   Browser → HTTPS → External NGINX (this config)
+  #     /api/* → http://127.0.0.1:8080  (backend container)
+  #     /*     → http://127.0.0.1:8081  (frontend container)
+
+  server {
+      listen 443 ssl;
+      server_name vpn.example.com;  # CHANGE THIS to your domain
+
+      # TLS configuration (use your existing certificates)
+      # ssl_certificate     /path/to/fullchain.pem;
+      # ssl_certificate_key /path/to/privkey.pem;
+
+      # API requests → backend container (Gin API)
+      location /api/ {
+          proxy_pass http://127.0.0.1:8080;
+          proxy_set_header Host              $host;
+          proxy_set_header X-Real-IP         $remote_addr;
+          proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+
+          # Disable buffering for Server-Sent Events (if needed in future)
+          # proxy_buffering off;
+
+          # Increase timeout for large file uploads (50MB limit)
+          client_max_body_size 55m;
+      }
+
+      # All other requests → frontend container (static files)
+      location / {
+          proxy_pass http://127.0.0.1:8081;
+          proxy_set_header Host              $host;
+          proxy_set_header X-Real-IP         $remote_addr;
+          proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+      }
+  }
+
+  # HTTP → HTTPS redirect (optional but recommended)
+  server {
+      listen 80;
+      server_name vpn.example.com;
+      return 301 https://$host$request_uri;
+  }
+  ```
+
+- [ ] **创建 `deploy/README.md`**（部署说明）:
+  简要部署步骤：
+  1. 克隆项目 → `docker compose up -d`
+  2. 将 `deploy/nginx-example.conf` 内容合并到部署机外部 NGINX 配置
+  3. 重载 NGINX: `nginx -t && nginx -s reload`
+  4. 访问 `https://your-domain.com` → 进入 Setup 流程
+
+**涉及文件**: `deploy/nginx-example.conf`, `deploy/README.md`（新建）
+
+**验证**:
+- [ ] `deploy/nginx-example.conf` 与 AGENTS.md §8.2 一致
+- [ ] `proxy_pass` 地址与 docker-compose 端口绑定一致
+- [ ] 包含 `X-Forwarded-For` / `X-Real-IP` header 设置（后端速率限制和日志需要）
+
+---
+
+### 块 8E：CI/CD GitHub Actions（可选，待后续实施）
+
+**目标**: 创建 GitHub Actions workflow，自动构建并推送 Docker 镜像到 GHCR。
+
+> **注意**: AGENTS.md §7 明确标注「CI/CD 和 Docker 部署将在核心功能开发完成后实施」。本块为基础骨架，可按需启用。**当前阶段优先级低，标记为可选**。
+
+**设计依据**（引自 AGENTS.md §7）:
+- **触发条件**: push 到 `main` 或 `beta` 分支，push `v*` 标签（如 `v1.0.0`），手动 `workflow_dispatch`
+- **构建策略**: matrix build 同时构建 `backend` 和 `frontend` 两个镜像
+- **镜像标签规则**:
+  | 触发源 | 标签 |
+  |--------|------|
+  | `main` 分支 | `{service}:main` + `{service}:latest` |
+  | `beta` 分支 | `{service}:beta` |
+  | `v1.0.0` 标签 | `{service}:1.0.0` + `{service}:1.0` + `{service}:1` |
+- **Dockerfile 结构**: 多阶段构建。后端 golang 编译 → distroless 运行；前端 node 构建 → nginx 静态服务（不反代）
+- **注册表**: GitHub Container Registry (GHCR)，地址 `ghcr.io/<owner>/vpn-sub-{service}`
+
+**任务**:
+
+- [ ] **创建 `.github/workflows/docker-build.yml`**（完整 workflow）:
+  ```yaml
+  name: Build and Push Docker Images
+
+  on:
+    push:
+      branches: [main, beta]
+      tags: ['v*']
+    workflow_dispatch:
+
+  env:
+    REGISTRY: ghcr.io
+    # IMAGE_NAME will be set per service in the matrix
+
+  jobs:
+    build:
+      name: Build & Push
+      runs-on: ubuntu-latest
+      strategy:
+        matrix:
+          service: [backend, frontend]
+      permissions:
+        contents: read
+        packages: write
+
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - name: Set up Docker Buildx
+          uses: docker/setup-buildx-action@v3
+
+        - name: Log in to GHCR
+          uses: docker/login-action@v3
+          with:
+            registry: ${{ env.REGISTRY }}
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}
+
+        - name: Extract metadata (tags, labels)
+          id: meta
+          uses: docker/metadata-action@v5
+          with:
+            images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/vpn-sub-${{ matrix.service }}
+            tags: |
+              # Branch-based tags
+              type=ref,event=branch,suffix=-{{branch}}
+              # Tag main as latest
+              type=raw,value=latest,enable={{is_default_branch}}
+              # Semver tags (v1.0.0 → 1.0.0, 1.0, 1)
+              type=semver,pattern={{version}}
+              type=semver,pattern={{major}}.{{minor}}
+              type=semver,pattern={{major}}
+
+        - name: Build and push
+          uses: docker/build-push-action@v6
+          with:
+            context: ./${{ matrix.service }}
+            push: true
+            tags: ${{ steps.meta.outputs.tags }}
+            labels: ${{ steps.meta.outputs.labels }}
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
+  ```
+  说明：
+  - `strategy.matrix` 并行构建 backend 和 frontend，加速 CI
+  - `docker/metadata-action` 按 AGENTS.md §7 规则自动生成标签
+  - `permissions.packages: write` 授权推送 GHCR
+  - `GITHUB_TOKEN` 自动注入，无需手动配置 secret
+  - BuildKit 缓存 (`type=gha`) 加速后续构建
+
+- [ ] **涉及文件**: `.github/workflows/docker-build.yml`（新建）
+
+**验证**:
+- [ ] workflow YAML 语法正确（可用 `actionlint` 本地验证或 GitHub UI 直接检查）
+- [ ] 推送 `main` 分支 → GHCR 出现 `vpn-sub-backend:main` + `vpn-sub-backend:latest` + `vpn-sub-frontend:main` + `vpn-sub-frontend:latest`
+- [ ] 推送 `v1.0.0` 标签 → GHCR 出现 `vpn-sub-backend:1.0.0` + `:1.0` + `:1` 等
+- [ ] `workflow_dispatch` 手动触发可用
+
+**注意事项**:
+- GHCR 镜像默认 `private`，需在 GitHub 仓库 Settings → Packages 中设为 `public`（或配置 docker login 时使用 PAT）
+- 首次推送前确认仓库名 `vpn-sub-{service}` 与 `docker/metadata-action` 的 `images` 参数一致
+- 后端 `Dockerfile` 中 `go mod download` 可用 GitHub Actions 缓存加速（`actions/cache` 或 BuildKit mount cache）
+
+---
+
+### 块 8F：端到端联调验证清单
+
+**目标**: 在 Docker 环境中执行完整功能验证，确保所有用户故事可走通。
+
+> **前置条件**: 块 8C 通过（两个容器正常启动），外部 NGINX 已按 块 8D 配置完成，可通过 `https://your-domain.com` 访问。
+
+**验证清单**: 详见 [测试计划 → 第二部分：联机测试](#第二部分联机测试需-oidc-配置后)，按以下分组执行：
+
+| 测试组 | 编号 | 内容 |
+|--------|------|------|
+| 首次部署 | T-O1 | Setup 首次配置流程 (O1.1-O1.7) |
+| OIDC 认证 | T-O2 | 登录/回调/首位管理员/登出 (O2.1-O2.9) |
+| 订阅管理 | T-O3 | CRUD + 版本管理 (O3.1-O3.11) |
+| 分享订阅 | T-O4 | CRUD + Token 操作 (O4.1-O4.9) |
+| 平台管理 | T-O5 | CRUD + 级联删除 (O5.1-O5.6) |
+| 用户管理 | T-O6 | is_advanced/自定义订阅/自我保护 (O6.1-O6.11) |
+| 规则管理 | T-O7 | CRUD + Token 轮替 (O7.1-O7.8) |
+| OIDC 配置 | T-O8 | 查看/修改/切换/速率限制 (O8.1-O8.6) |
+| 日志查看 | T-O9 | 日期筛选/状态/失败原因 (O9.1-O9.7) |
+| 首页(用户) | T-O10 | 订阅显示/一键导入/复制/刷新 (O10.1-O10.10) |
+| 首页(管理员) | T-O11 | 预览模式/自定义预览 (O11.1-O11.4) |
+| 规则浏览 | T-O12 | 用户规则页 (O12.1-O12.4) |
+| 下载全链路 | T-O13 | JWT/Token/分享/规则/缓存头 (O13.1-O13.11) |
+| 速率限制 | T-O14 | 限流触发/日志记录/配置生效 (O14.1-O14.4) |
+| UI/UX | T-O15 | 暗色模式/移动端/表单/空状态 (O15.1-O15.10) |
+| 端到端场景 | T-O16 | 完整部署/订阅更新/升降级/自保护 (O16.1-O16.7) |
+
+**验证**:
+- [ ] T-O1 ~ T-O16 全部通过
+- [ ] 如有失败项，记录到 ISSUES.md 并修复后重新验证
+
+---
+
+**块 8 关键约束** (适用所有子块):
+- 对外只暴露外部 NGINX 一个端口（AGENTS.md §8.1 强制）
+- backend/frontend 端口必须以 `127.0.0.1:` 前缀绑定（AGENTS.md §8.1 强制）
+- frontend 容器内 nginx 不得有 proxy_pass（AGENTS.md §8.1/§8.4 强制）
+- 单一 `vpn-data` volume 挂载 `/app/data`（AGENTS.md §8.7）
+- `modernc.org/sqlite` 纯 Go → `CGO_ENABLED=0` 静态编译（§6.1）
+- 前端代码统一相对路径 `/api/v1/...`，不硬编码 host:port（§8.1）
+- Docker 构建产物（镜像）不包含 `.env` 文件，业务配置一律通过 Web UI → SQLite（§5）
 
 ---
 
 ## 验收标准
 
 完成后应满足：
-1. `go build ./...` 和 `npm run build` 均通过
-2. docker compose up -d 启动正常
-3. 上述端到端验证项全部通过
-4. 代码严格遵守 AGENTS.md 第五章所有编码约束
-5. 数据库 12 张表、API 端点、版本文件存储严格按第六章实现
+1. `go build ./...` 和 `npm run build` 均通过（块 1~7 已验证 ✅）
+2. `docker compose build` 两个镜像构建成功（块 8A/8C）
+3. `docker compose up -d` 启动正常，两个容器健康运行（块 8C）
+4. 外部 NGINX 分流配置正确，`https://domain.com` 可访问（块 8D）
+5. 端到端验证清单 A~L 全部通过（块 8F）
+6. 代码严格遵守 AGENTS.md 第五章所有编码约束
+7. 数据库 12 张表、API 端点、版本文件存储严格按第六章实现
+8. Docker 部署严格按第八章（外部 NGINX 分流 + 双容器 127.0.0.1 绑定）
+9. （可选）GitHub Actions CI/CD 自动构建推送 GHCR（块 8E）
+
+---
+
+## 测试计划
+
+本章将所有测试内容集中整理，分为**本地测试**（编译、HTTP、Docker、限流等无需 OIDC 的测试）和**联机测试**（Setup 后，需真实 OIDC 提供商的端到端测试）两大类。各构建块内保留简洁的"快速验证"引用，详细步骤统一在本章执行。
+
+> **测试环境说明**:
+> - **开发环境**: 后端 `go run .` (localhost:8080) + 前端 `npm run dev` (localhost:5173, Vite proxy → 8080)
+> - **Docker 环境**: `docker compose up -d` (backend 127.0.0.1:8080 + frontend 127.0.0.1:8081)
+> - **生产环境**: 外部 NGINX → `https://your-domain.com` (需先配置 TLS + 分流)
+> - 以下测试标注适用环境：🔧=开发环境 🐳=Docker 环境 🌐=生产环境
+
+---
+
+### 第一部分：本地可执行测试（无需 OIDC 配置）
+
+以下测试在 `configured=false` 状态下即可执行，无需 Setup 或 OIDC 提供商。
+
+---
+
+#### T-L1：编译与静态检查
+
+| 编号 | 测试项 | 环境 | 命令 / 步骤 | 预期结果 |
+|------|--------|------|-------------|----------|
+| L1.1 | 后端编译 | 🔧🐳 | `cd backend && go build ./...` | 零错误退出 |
+| L1.2 | 前端编译 | 🔧🐳 | `cd frontend && npm run build` | 零错误退出，生成 `dist/` |
+| L1.3 | Go 代码规范 | 🔧 | `go vet ./...` | 零警告 |
+| L1.4 | Docker 构建 | 🐳 | `docker compose build --no-cache` | backend + frontend 镜像构建成功 |
+| L1.5 | Docker 镜像大小 | 🐳 | `docker images \| grep vpn` | backend < 30MB, frontend < 50MB |
+
+---
+
+#### T-L2：后端基础 HTTP 端点
+
+| 编号 | 测试项 | 环境 | 命令 | 预期结果 |
+|------|--------|------|------|----------|
+| L2.1 | 健康检查 | 🔧🐳 | `curl http://localhost:8080/health` | `{"status":"ok"}` |
+| L2.2 | 系统状态(未配置) | 🔧🐳 | `curl http://localhost:8080/api/v1/system/status` | `{"configured":false}` |
+| L2.3 | 公开平台列表 | 🔧🐳 | `curl http://localhost:8080/api/v1/platforms` | 返回 3 个默认平台 (clash-verge/v2rayng/shadowrocket) |
+| L2.4 | 公开规则列表 | 🔧🐳 | `curl http://localhost:8080/api/v1/rules` | 返回 `{"rules":[]}` 或已有规则 |
+| L2.5 | Setup 模式路由 | 🔧🐳 | `curl -X POST http://localhost:8080/api/v1/admin/test-oidc -H "Content-Type: application/json" -d '{}'` | 返回 JSON 错误（非 404） |
+| L2.6 | Setup 模式保护 | 🔧🐳 | `curl http://localhost:8080/api/v1/auth/login` | 404（Normal 路由未注册） |
+| L2.7 | 认证保护 | 🔧🐳 | `curl http://localhost:8080/api/v1/auth/me` | 401 (JWT 缺失) |
+| L2.8 | 管理员保护 | 🔧🐳 | `curl http://localhost:8080/api/v1/admin/users` | 401 (JWT 缺失) 或 403 (非管理员) |
+| L2.9 | 404 处理 | 🔧🐳 | `curl http://localhost:8080/api/v1/nonexistent` | 404 |
+
+---
+
+#### T-L3：前端静态文件
+
+| 编号 | 测试项 | 环境 | 命令 | 预期结果 |
+|------|--------|------|------|----------|
+| L3.1 | 首页 HTML | 🐳 | `curl http://127.0.0.1:8081/` | 返回含 `<div id="app">` 的 HTML |
+| L3.2 | SPA 回退 | 🐳 | `curl http://127.0.0.1:8081/admin/subscriptions` | 返回 index.html (非 404) |
+| L3.3 | 静态资源 | 🐳 | `curl -I http://127.0.0.1:8081/` | `Content-Type: text/html` |
+| L3.4 | Vite dev server | 🔧 | 浏览器 `http://localhost:5173/` | 页面加载，自动跳转 `/setup`（未配置）或 `/login`（已配置） |
+| L3.5 | nginx.conf 无 proxy_pass | 🐳 | `docker compose exec frontend cat /etc/nginx/conf.d/default.conf` | 无 `proxy_pass` 关键字 |
+
+---
+
+#### T-L4：数据库与文件存储
+
+| 编号 | 测试项 | 环境 | 命令 | 预期结果 |
+|------|--------|------|------|----------|
+| L4.1 | 数据库自动创建 | 🔧🐳 | 启动后端后检查 `data/vpn.db` | 文件存在 |
+| L4.2 | 12 张表 | 🔧🐳 | `sqlite3 data/vpn.db ".tables"` | 列出全部 12 张表 |
+| L4.3 | 默认平台 | 🔧🐳 | `sqlite3 data/vpn.db "SELECT id FROM platforms"` | clash-verge, v2rayng, shadowrocket |
+| L4.4 | system_config 键 | 🔧🐳 | `sqlite3 data/vpn.db "SELECT COUNT(*) FROM system_config"` | ≥ 0 (未配置时为空) |
+| L4.5 | WAL 模式 | 🔧🐳 | `sqlite3 data/vpn.db "PRAGMA journal_mode"` | `wal` |
+| L4.6 | 外键启用 | 🔧🐳 | `sqlite3 data/vpn.db "PRAGMA foreign_keys"` | `1` |
+| L4.7 | 数据目录结构 | 🔧🐳 | `ls -la data/` | subscriptions/, rules/, custom/, shares/ 目录存在 |
+| L4.8 | 版本文件创建 | 🔧🐳 | 上传版本后 `ls data/subscriptions/{id}/` | v1.conf + current.conf (软链接) |
+
+---
+
+#### T-L5：容器与部署验证（Docker）
+
+| 编号 | 测试项 | 环境 | 命令 | 预期结果 |
+|------|--------|------|------|----------|
+| L5.1 | 容器启动 | 🐳 | `docker compose up -d` | 两个容器 Up |
+| L5.2 | 容器日志 | 🐳 | `docker compose logs backend` | 含 `Starting server on :8080` |
+| L5.3 | 端口绑定 | 🐳 | `docker compose ps` | backend 绑 127.0.0.1:8080, frontend 绑 127.0.0.1:8081 |
+| L5.4 | Volume 挂载 | 🐳 | `docker compose exec backend ls /app/data/` | 含 vpn.db |
+| L5.5 | 容器重启 | 🐳 | `docker compose restart` → `docker compose ps` | 两个容器恢复 Up |
+| L5.6 | 数据持久化 | 🐳 | `docker compose down` → `docker compose up -d` → 检查 `/app/data/vpn.db` | 数据完整保留 |
+| L5.7 | 外部不可达(端口绑定验证) | 🐳 | 从其他机器 `curl http://<host-ip>:8080/health` | 连接超时/拒绝 (仅绑 127.0.0.1) |
+| L5.8 | `docker compose config` | 🐳 | `docker compose config` | 无语法错误 |
+
+---
+
+#### T-L6：速率限制（本地模拟）
+
+| 编号 | 测试项 | 环境 | 命令 | 预期结果 |
+|------|--------|------|------|----------|
+| L6.1 | 登录限流触发 | 🔧🐳 | `for i in {1..15}; do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/v1/auth/login; done` | 前 10 次 302, 之后 429 |
+| L6.2 | 429 响应头 | 🔧🐳 | 触发限流后 `curl -I` | 含 `Retry-After` header |
+| L6.3 | 下载限流触发 | 🔧🐳 | 对任意下载端点循环 25 次 | 前 20 次正常, 之后 429 |
+
+---
+
+#### T-L7：安全基础检查
+
+| 编号 | 测试项 | 环境 | 命令 / 步骤 | 预期结果 |
+|------|--------|------|-------------|----------|
+| L7.1 | Token 脱敏 | 🔧🐳 | `curl "http://localhost:8080/api/v1/subscriptions/test/download-token?token=abc123"` → 检查日志 | 日志中 token=*** |
+| L7.2 | 路径穿越防护 | 🔧🐳 | 尝试上传含 `../` 路径的文件 | 被 sanitizePath 拦截 |
+| L7.3 | 下载缓存头 | 🔧🐳 | `curl -I http://localhost:8080/api/v1/subscriptions/test/download-token?token=xxx` | `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache` |
+| L7.4 | 大文件上传拦截 | 🔧🐳 | 上传 >50MB 文件 | 后端拒绝 (413 或 400) |
+
+---
+
+### 第二部分：联机测试（需 OIDC 配置后）
+
+以下测试**必须先完成 Setup 流程**（配置 OIDC 提供商 → `configured=true`），然后通过 OIDC 登录获取 JWT 和下载 Token 后执行。
+
+> **前置条件**:
+> 1. 已配置 OIDC 提供商 (Keycloak/Auth0/通用 OIDC)
+> 2. 至少有一个 OIDC 用户可供登录测试
+> 3. 以下测试标注 🌐=需外部 NGINX 域名 或 🔧=开发环境 Vite proxy
+
+---
+
+#### T-O1：Setup 首次配置流程
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O1.1 | 访问未配置系统 | 浏览器访问网站 | 自动跳转 `/setup` |
+| O1.2 | 选择 OIDC 提供商 | Setup 页点击「切换提供商」 | OIDCSwitchDialog 弹出，三种可选 |
+| O1.3 | 切换提供商保留字段 | 在 Keycloak 下填写 base_url → 切换到 Auth0 → 再切回 Keycloak | base_url 值保留 |
+| O1.4 | 测试连接成功 | 填写正确 OIDC 参数 → 点击「测试连接」 | `ElMessage.success('连接测试成功')` |
+| O1.5 | 测试连接失败 | 填写错误参数 → 点击「测试连接」 | `ElMessage.error` 含错误描述 |
+| O1.6 | 完成配置 | 填写全部参数 → 点击「完成配置」 | 跳转 `/login`，后端 `configured=true` |
+| O1.7 | 已配置后访问 `/setup` | 再次访问 `/setup` | 自动跳转 `/login` |
+
+---
+
+#### T-O2：OIDC 认证流程
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O2.1 | 登录跳转 | `/login` 点击「通过 OIDC 登录」 | 302 跳转到 OIDC 提供商授权页 |
+| O2.2 | 回调处理 | OIDC 授权成功 → 回调到 `/auth/callback?token=xxx` | JWT 存入 localStorage，跳转首页 `/` |
+| O2.3 | 首位管理员 | 首个 OIDC 用户登录 | `role=admin`, `is_advanced=true`，首页显示管理面板按钮 |
+| O2.4 | 后续普通用户 | 第二个 OIDC 用户登录 | `role=user`, `is_advanced=false`，无管理面板按钮 |
+| O2.5 | JWT 持久化 | 登录后关闭浏览器标签 → 重新打开 | 仍为登录状态（JWT 7 天有效） |
+| O2.6 | 登出 | 首页点击「退出」 | JWT 清除，跳转 `/login` |
+| O2.7 | 已登录访问 `/login` | 登出后重新登录 → 手动访问 `/login` | 自动跳转 `/` |
+| O2.8 | `/auth/me` 实时查库 | `curl -H "Authorization: Bearer <jwt>" /api/v1/auth/me` | 返回最新 role/is_advanced（非 JWT claims 缓存） |
+| O2.9 | 非管理员访问 `/admin` | 普通用户访问 `/admin/subscriptions` | 403 或前端路由守卫拦截跳转 `/` |
+
+---
+
+#### T-O3：管理员 — 订阅管理
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O3.1 | 创建订阅 | 管理面板 → 订阅管理 → 创建 default + advanced | ID 校验 [a-z0-9-]+，重复 409 |
+| O3.2 | 列表排序 | 查看订阅列表 | 按平台+类型排序，default 先于 advanced |
+| O3.3 | 上传版本(文件) | 进入版本管理 → el-upload 上传文件 | 自动创建版本、切换 current |
+| O3.4 | 上传版本(文本) | UploadModal 文本编辑 → 保存 | 自动创建新版本 |
+| O3.5 | 切换 current | 选择旧版本 → 点击「设为当前」 | current 软链接更新，绿色标签移动 |
+| O3.6 | 预览版本 | 点击「预览」 | 弹窗显示 `<pre>` 内容 |
+| O3.7 | 删除非 current 版本 | 点击非 current 版本的「删除」 | ConfirmDialog → 版本删除 |
+| O3.8 | 最后一个版本不可删 | 仅剩 1 个版本时点击删除 | 400 拒绝或前端不显示按钮 |
+| O3.9 | 超出 5 个版本 | 上传第 6 个版本 | 最旧版本自动删除 |
+| O3.10 | 删除订阅 | ConfirmDialog → 删除 | 级联删除版本文件 + download_tokens |
+| O3.11 | 编辑订阅 | 修改名称/平台/类型 | 更新成功 |
+
+---
+
+#### T-O4：管理员 — 分享订阅管理
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O4.1 | 创建分享订阅(文件) | 填写名称 + 上传文件 → 创建 | 自动生成 share_token，`has_token=true` |
+| O4.2 | 创建分享订阅(文本) | 填写名称 + textarea 内容 → 创建 | 同 O4.1 |
+| O4.3 | 复制分享链接 | 点击「复制分享链接」→ 粘贴 | URL 格式: `/api/v1/share/{id}/download?token={token}` |
+| O4.4 | 公开下载(有效 token) | 无痕窗口访问分享链接 | 返回纯文本配置 |
+| O4.5 | 公开下载(无效 token) | 无痕窗口访问 `?token=bad` | 返回纯文本错误 |
+| O4.6 | 刷新 Token | ConfirmDialog → 确认刷新 | 旧 token 失效，新 token 可用 |
+| O4.7 | 吊销 Token | ConfirmDialog → 确认吊销 | `has_token=false`，链接不可用 |
+| O4.8 | 版本管理 | 上传/切换/预览/删除 | 同 O3（5 版本限制） |
+| O4.9 | 删除分享订阅 | ConfirmDialog → 删除 | 级联删除文件 + token |
+
+---
+
+#### T-O5：管理员 — 平台管理
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O5.1 | 平台列表 | 进入平台管理 | 显示 3 个默认平台 + 自定义 |
+| O5.2 | 创建平台 | ID 校验 [a-z0-9-]+ → 填写 client_schemes (textarea 每行一个) | 创建成功 |
+| O5.3 | 重复 ID | 创建相同 ID 的平台 | 409 错误 |
+| O5.4 | 编辑平台 | 修改 client_schemes / download_url | 更新成功 |
+| O5.5 | download_url 可空 | 编辑时不填 download_url → 保存 | 首页该平台不显示下载客户端按钮 |
+| O5.6 | 删除平台 | ConfirmDialog → 确认 | 级联删除 subscriptions + download_tokens + custom_subscriptions |
+
+---
+
+#### T-O6：管理员 — 用户管理
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O6.1 | 用户列表 | 进入用户管理 | 显示所有 OIDC 登录用户，含角色/is_advanced 标签 |
+| O6.2 | 编辑 is_advanced | 编辑某用户 → 切换 is_advanced → 保存 | 用户下次访问首页订阅级别变更 |
+| O6.3 | 管理员自身 is_advanced | 编辑管理员自己 | is_advanced 始终 true，switch disabled |
+| O6.4 | groups 仅展示 | 编辑用户 → groups 字段 | 只读展示，有值才显示 |
+| O6.5 | 上传自定义订阅 | 选择平台 → 上传文件 | 自定义订阅创建，用户首页替换默认/高级 |
+| O6.6 | 自定义订阅覆盖 | 同平台再次上传 | 版本更新（覆盖） |
+| O6.7 | 删除自定义订阅 | 选择平台 → ConfirmDialog → 删除 | 用户恢复默认/高级自动分配 |
+| O6.8 | 吊销所有 Token | ConfirmDialog → 确认 | 用户所有 download_tokens 删除 |
+| O6.9 | 删除用户 | ConfirmDialog → 删除 | 级联删除 tokens + custom_subscriptions |
+| O6.10 | 不能删除自己 | 管理员删除自己 | 400 错误 |
+| O6.11 | 不能删除最后一个管理员 | 仅剩 1 个管理员时删除之 | 400 错误 |
+
+---
+
+#### T-O7：管理员 — 规则管理
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O7.1 | 创建规则(文件) | 填写 id/name/client_type → 上传文件 | 自动生成 rule_token |
+| O7.2 | 创建规则(文本) | 填写 id/name/client_type → textarea 内容 | 同 O7.1 |
+| O7.3 | client_type 选项 | 创建对话框 → client_type 下拉 | 仅 Shadowrocket 可选 |
+| O7.4 | 复制下载链接 | 点击「复制下载链接」→ 粘贴 | URL: `/api/v1/rules/{id}/download?token={token}` |
+| O7.5 | 规则公开下载 | 无痕窗口访问下载链接 | 返回纯文本 |
+| O7.6 | 轮替 Token | ConfirmDialog → 确认轮替 | 旧 token 失效，新 token 可用 |
+| O7.7 | 版本管理 | 上传/切换/预览/删除 | 同 O3（5 版本限制） |
+| O7.8 | 删除规则 | ConfirmDialog → 删除 | 级联删除文件 + rule_tokens |
+
+---
+
+#### T-O8：管理员 — OIDC 配置与速率限制
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O8.1 | 查看 OIDC 配置 | 进入 OIDC 配置页 | client_secret 显示 `***`（脱敏） |
+| O8.2 | 切换提供商 | 点击「切换提供商」→ 选择新类型 | 字段切换，已填值保留（调用 switch-provider API） |
+| O8.3 | 修改 OIDC 配置 | 修改参数 → 保存 | `POST /admin/system/configure` 复用已有 JWT_SECRET，不重新生成 |
+| O8.4 | 测试连接 | 修改参数后 → 点击「测试连接」 | 成功/失败提示 |
+| O8.5 | 查看速率限制 | 进入 OIDC 配置页速率限制区 | 显示 rate_limit_login + rate_limit_download |
+| O8.6 | 修改速率限制 | 修改数值 → 保存 | 立即生效（下次请求按新限制） |
+
+---
+
+#### T-O9：管理员 — 日志查看
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O9.1 | 默认当天日志 | 进入日志页 | 显示当天日志或无日志 |
+| O9.2 | 按日期筛选 | 选择其他日期 → 自动刷新 | 显示对应日期日志 |
+| O9.3 | 下载类型映射 | 日志表格 download_type 列 | subscription→订阅下载, share→分享下载, custom→自定义订阅下载, rule→规则下载 |
+| O9.4 | 状态颜色 | 日志表格 status 列 | success→绿色, failed→红色 |
+| O9.5 | 失败原因 | 含 error_reason 的日志 | token_invalid / file_not_found / version_not_found / rate_limited |
+| O9.6 | user_id 可空 | 分享/规则下载日志 | user_id 显示 "—" |
+| O9.7 | 空结果 | 选择无日志的日期 | 显示 el-empty 提示 |
+
+---
+
+#### T-O10：普通用户 — 首页仪表盘
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O10.1 | 首页加载 | 普通用户登录 → 首页 | 顶部栏: 标题「VPN 订阅」+ 更新时间戳 + 用户名标签 + 退出 + 暗色切换 |
+| O10.2 | 默认订阅显示 | 首页平台卡片 | is_advanced=false →「默认订阅」标签 + 三个按钮 |
+| O10.3 | 高级订阅显示 | is_advanced=true → 首页 | 「高级订阅」标签 + 三个按钮 |
+| O10.4 | 未配置降级(默认) | default 订阅未配置 → 首页 | 提示「默认订阅未配置，请联系管理员」，无按钮 |
+| O10.5 | 未配置降级(高级) | advanced 订阅未配置 → 首页 | 提示「高级订阅未配置，请联系管理员」，不降级 |
+| O10.6 | 一键导入 | 点击「一键导入」 | window.location.href 跳转 scheme URL (格式正确) |
+| O10.7 | 复制链接 | 点击「复制链接」→ 点击输入框 | 弹窗 + 复制到剪贴板 |
+| O10.8 | 刷新链接 | 点击「刷新链接」 | loading → 成功后旧 token 失效，新 token 显示 |
+| O10.9 | 下载客户端按钮 | 平台配置了 download_url | 卡片底部显示链接，target="_blank" |
+| O10.10 | 更新时间戳 | 管理员更新订阅版本后刷新首页 | 时间戳更新 |
+
+---
+
+#### T-O11：管理员 — 首页仪表盘（预览模式）
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O11.1 | 默认+高级预览 | 管理员首页，无自定义的平台 | 显示「默认订阅」+「高级订阅」两组按钮 |
+| O11.2 | 未配置预览 | 某平台仅配 default 未配 advanced | advanced 区段显示「未配置」 |
+| O11.3 | 自定义+预览 | 管理员首页，有自定义订阅的平台 | 显示「默认订阅」+「高级订阅」+「自定义订阅」三组按钮 |
+| O11.4 | 自定义订阅覆盖(用户侧) | 有自定义订阅的普通用户首页 | 「已被分配自定义订阅」提示 + 自定义三个按钮，替换默认/高级 |
+
+---
+
+#### T-O12：用户 — 规则浏览页
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O12.1 | 规则列表 | 普通用户访问 `/rules` | 显示规则名称/类型/版本号/下载按钮 |
+| O12.2 | 下载当前版本 | 点击「下载当前版本」 | `<a>` 链接 `href=/api/v1/rules/{id}/download?token={token}` |
+| O12.3 | 空状态 | 无规则时访问 | el-empty 提示 |
+| O12.4 | 非管理员不可管理 | 普通用户访问 `/admin/rules` | 路由守卫拦截 |
+
+---
+
+#### T-O13：下载端点全链路
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O13.1 | JWT 下载(用户) | `curl -H "Authorization: Bearer <jwt>" /api/v1/subscriptions/{platform}/download` | 返回纯文本，Content-Type: text/plain |
+| O13.2 | JWT 下载(管理员 ?type=) | 管理员 JWT + `?type=advanced` | 返回高级订阅内容 |
+| O13.3 | Token 下载(默认) | `curl /api/v1/subscriptions/{platform}/download-token?token={token}` | 返回纯文本，无认证 |
+| O13.4 | Token 下载(自定义) | custom_sub_id 非空的 token | 返回自定义订阅内容 |
+| O13.5 | Token 无效 | `?token=invalid-token` | 纯文本错误 + status=failed, error_reason=token_invalid |
+| O13.6 | 分享下载(有效) | `GET /api/v1/share/{id}/download?token={token}` | 返回纯文本，无认证 |
+| O13.7 | 分享下载(无效) | 吊销后访问分享链接 | 纯文本错误 |
+| O13.8 | 规则下载(有效) | `GET /api/v1/rules/{id}/download?token={token}` | 返回纯文本，无认证 |
+| O13.9 | 缓存头验证 | `curl -I` 以上任意下载端点 | Cache-Control: no-store, no-cache, must-revalidate + Pragma: no-cache |
+| O13.10 | is_advanced 变更后旧 Token | 用户升级/降级后 curl 旧 token | 返回错误（token 已删除） |
+| O13.11 | 删除自定义后旧 Token | 删除自定义订阅后 curl 旧 token | 返回错误（token 已级联删除） |
+
+---
+
+#### T-O14：速率限制（联机完整验证）
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O14.1 | 登录限流 429 | 短时间连续请求 `/auth/login` >10 次 | 429 + `Retry-After` + JSON 错误 |
+| O14.2 | 下载限流 429 | 短时间连续请求下载端点 >20 次 | 429 + `Retry-After` + 纯文本错误 |
+| O14.3 | 限流日志记录 | 触发 429 后查看管理面板日志 | status=failed, error_reason=rate_limited |
+| O14.4 | 修改限流值生效 | 管理员修改 rate_limit_download=5 → 测试 | 第 6 次请求触发 429 |
+
+---
+
+#### T-O15：UI/UX 跨页面验证
+
+| 编号 | 测试项 | 步骤 | 预期结果 |
+|------|--------|------|----------|
+| O15.1 | 暗色模式全局 | 任意页面切换暗色模式 | Setup/Login/Home/Rules/Manage 全部子页跟随 |
+| O15.2 | 暗色模式持久化 | 切换暗色 → 关闭标签 → 重新打开 | 仍为暗色（localStorage） |
+| O15.3 | 移动端首页 | 浏览器 DevTools 模拟手机 → 首页 | 卡片 1 列布局 |
+| O15.4 | 移动端管理面板 | 手机模式 → 管理面板 | 侧边栏默认隐藏，汉堡按钮切换 |
+| O15.5 | 表单 loading | 任意创建/编辑 → 提交 | 按钮 loading 状态 |
+| O15.6 | API 错误提示 | 网络断开或后端错误 | ElMessage.error 提示 |
+| O15.7 | 删除 ConfirmDialog | 任意管理页面删除操作 | 使用 ConfirmDialog 组件，非 ElMessageBox.confirm |
+| O15.8 | el-empty 空状态 | 各列表页无数据时 | 显示 el-empty 组件 |
+| O15.9 | 管理面板菜单高亮 | 在不同管理子页间切换 | 当前菜单项渐变紫色高亮 |
+| O15.10 | 刷新页面路由保持 | 管理面板子页刷新浏览器 | 仍停留在当前子页 |
+
+---
+
+#### T-O16：端到端完整场景
+
+| 编号 | 测试项 | 场景描述 | 预期结果 |
+|------|--------|----------|----------|
+| O16.1 | 完整部署场景 | `docker compose up -d` → Setup → 管理员登录 → 创建订阅 → 上传版本 → 普通用户登录 → 一键导入 | 全流程无报错 |
+| O16.2 | 订阅更新场景 | 管理员上传新版本 → 用户刷新链接 → 客户端下载 | 客户端获取最新配置 |
+| O16.3 | 用户升降级场景 | 管理员提升普通用户为高级 → 用户首页变化 | 订阅级别正确切换，旧 Token 失效 |
+| O16.4 | 自定义订阅场景 | 管理员上传自定义订阅 → 用户首页变化 → 删除自定义 → 恢复 | 全流程正确 |
+| O16.5 | 分享订阅场景 | 管理员创建分享 → 复制链接 → 无痕下载 → 刷新 Token → 吊销 Token → 删除 | 全流程正确 |
+| O16.6 | 管理员自保护场景 | 尝试删除自己 / 删除最后一个管理员 | 均被拒绝 (400) |
+| O16.7 | 数据持久化场景 | `docker compose down` → `docker compose up -d` | 所有数据完整恢复 |
+
+---
+
+### 各块快速验证索引
+
+各构建块内保留简化的"快速验证"小节，统一引用本章对应测试编号：
+
+| 块 | 快速验证引用 | 对应测试 |
+|----|-------------|----------|
+| 块 1A | `go build ./internal/utils/...` | L1.1 |
+| 块 1B | `go build ./...` + vpn.db 12 表 | L1.1, L4.1-L4.6 |
+| 块 1C | `go build ./...` | L1.1 |
+| 块 1D | `/health` + `/system/status` | L2.1, L2.2, L2.6 |
+| 块 2A | `go build ./...` | L1.1 |
+| 块 2B | `/system/status configured=true` + `/auth/me` | L2.2, L2.7 |
+| 块 3A-3F | `go build ./...` + 后端 handler 逻辑 | L1.1 |
+| 块 4A | 循环请求 → 429 | L6.1-L6.3 |
+| 块 4B | curl 下载 + access_logs | O13.1-O13.9 |
+| 块 4C | `/user/platforms` + `/user/refresh-token` | O10.1-O10.10 |
+| 块 4D | `/admin/logs?date=` | O9.1-O9.7 |
+| 块 5A | `npm run build` | L1.2 |
+| 块 5B | `npm run build` + 路由守卫 | L1.2 |
+| 块 5C | `npm run build` | L1.2 |
+| 块 6A | `/setup` → `/login` | O1.1-O1.7, O2.1-O2.9 |
+| 块 6B | 管理面板侧边栏 | O15.4, O15.9 |
+| 块 6C | 首页仪表盘 | O10.1-O10.10, O11.1-O11.4 |
+| 块 6D | `/rules` 页面 | O12.1-O12.4 |
+| 块 7A | SubList + SubVersions | O3.1-O3.11 |
+| 块 7B | ShareList + ShareVersions | O4.1-O4.9 |
+| 块 7C | PlatformManage | O5.1-O5.6 |
+| 块 7D | UserManage | O6.1-O6.11 |
+| 块 7E | RulesManage + RuleVersions | O7.1-O7.8 |
+| 块 7F | OIDCConfig | O8.1-O8.6 |
+| 块 7G | Logs | O9.1-O9.7 |
+| 块 8A | `docker compose build` | L1.4, L1.5 |
+| 块 8B | `docker compose config` | L5.8 |
+| 块 8C | `docker compose up -d` + curl 验证 | L2.1-L3.5, L5.1-L5.7 |
+| 块 8D | nginx 配置一致性检查 | 手动对比 AGENTS.md §8.2 |
+| 块 8E | workflow YAML 语法 | `actionlint` |
+| 块 8F | 端到端全场景 | O16.1-O16.7 |
