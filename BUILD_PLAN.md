@@ -9,26 +9,32 @@
 - Docker 部署按第八章（外部 NGINX 分流 + 双容器 127.0.0.1 绑定）
 - 不使用 .env 文件，业务配置一律 Web UI → SQLite；仅 PORT 等运维参数可环境变量覆盖
 
-**阶段划分**（14 块，块 4 拆为 4 个子块，块 5 拆为 3 个子块，块 6 拆为 4 个子块）:
+**阶段划分**（共 20 块，块 4 拆为 4 个子块，块 5 拆为 3 个子块，块 6 拆为 4 个子块，块 7 拆为 7 个子块）:
 
-| 块 | 内容 | 依赖 |
-|----|------|------|
-| 块 1 | 后端骨架（目录/go.mod/main/DB/middleware/utils） | 无 |
-| 块 2 | OIDC 认证 + Setup 流程 | 块 1 |
-| 块 3 | 后端核心业务（用户/平台/订阅/规则/自定义/分享） | 块 2 |
-| 块 4A | RateLimit 中间件实现 | 块 3 |
-| 块 4B | 下载端点 + Token 生成 + logAccess | 块 4A |
-| 块 4C | 用户端点（UserPlatforms/UpdateTime/RefreshToken） | 块 4B |
-| 块 4D | 日志查询 + 自动清理 | 块 4B |
-| 块 5A | 前端项目脚手架（Vite + 依赖 + vite.config + index.html + main.js + 空路由 + App.vue 最小版） | 块 1 |
-| 块 5B | 前端核心基础设施（api.js + user store + useTheme + 完整路由表 + 三重守卫 + 所有页面 stub） | 块 5A |
-| 块 5C | 前端公共组件（ConfirmDialog / OIDCSwitchDialog / UploadModal） | 块 5A |
-| 块 6A | 前端认证入口页（Setup.vue + Login.vue） | 块 5B + 块 5C + 块 2 |
-| 块 6B | 管理面板布局（Manage.vue） | 块 5B |
-| 块 6C | 首页仪表盘（Home.vue） | 块 5B + 块 5C |
-| 块 6D | 用户规则浏览页（Rules.vue） | 块 5B |
-| 块 7 | 前端管理页面（订阅/分享/平台/用户/规则/OIDC/日志） | 块 6 + 块 3 |
-| 块 8 | Docker 化 + 联调验证 | 全部 |
+| 块 | 内容 | 依赖 | 状态 |
+|----|------|------|------|
+| 块 1 | 后端骨架（目录/go.mod/main/DB/middleware/utils） | 无 | ✅ |
+| 块 2 | OIDC 认证 + Setup 流程 | 块 1 | ✅ |
+| 块 3 | 后端核心业务（用户/平台/订阅/规则/自定义/分享） | 块 2 | ✅ |
+| 块 4A | RateLimit 中间件实现 | 块 3 | ✅ |
+| 块 4B | 下载端点 + Token 生成 + logAccess | 块 4A | ✅ |
+| 块 4C | 用户端点（UserPlatforms/UpdateTime/RefreshToken） | 块 4B | ✅ |
+| 块 4D | 日志查询 + 自动清理 | 块 4B | ✅ |
+| 块 5A | 前端项目脚手架（Vite + 依赖 + vite.config + index.html + main.js + 空路由 + App.vue 最小版） | 块 1 | ✅ |
+| 块 5B | 前端核心基础设施（api.js + user store + useTheme + 完整路由表 + 三重守卫 + 所有页面 stub） | 块 5A | ✅ |
+| 块 5C | 前端公共组件（ConfirmDialog / OIDCSwitchDialog / UploadModal） | 块 5A | ✅ |
+| 块 6A | 前端认证入口页（Setup.vue + Login.vue） | 块 5B + 块 5C + 块 2 | ✅ |
+| 块 6B | 管理面板布局（Manage.vue） | 块 5B | ✅ |
+| 块 6C | 首页仪表盘（Home.vue） | 块 5B + 块 5C | ✅ |
+| 块 6D | 用户规则浏览页（Rules.vue） | 块 5B | ✅ |
+| 块 7A | SubList + SubVersions（订阅管理 + 版本管理） | 块 6B + 块 3 | ⬜ |
+| 块 7B | ShareList + ShareVersions（分享订阅 + 版本管理） | 块 6B + 块 3 | ⬜ |
+| 块 7C | PlatformManage（平台管理） | 块 6B + 块 3 | ⬜ |
+| 块 7D | UserManage（用户管理 + 自定义订阅） | 块 6B + 块 3 | ⬜ |
+| 块 7E | RulesManage + RuleVersions（规则管理 + 版本管理） | 块 6B + 块 3 | ⬜ |
+| 块 7F | OIDCConfig（OIDC 配置 + 速率限制） | 块 6B + 块 5C | ⬜ |
+| 块 7G | Logs（日志查看） | 块 6B + 块 3 | ⬜ |
+| 块 8 | Docker 化 + 联调验证 | 全部 | ⬜ |
 
 ---
 
@@ -700,47 +706,434 @@
 > **注意**: 块 5B 已创建 stub 文件。本块是**替换**以下 stub 为真实实现：
 > `SubList.vue`, `SubVersions.vue`, `ShareList.vue`, `ShareVersions.vue`, `PlatformManage.vue`,
 > `UserManage.vue`, `RulesManage.vue`, `RuleVersions.vue`, `OIDCConfig.vue`, `Logs.vue`。
->
+
+**后端依赖现状**: 所有 admin API 已在块 3/4 全部实现并验证通过。10 个 stub 文件仅 `<div>PageName</div>`，等待前端实现。
+
+**拆分为 7 个子块，按复杂度与依赖关系排序**（可独立并行构建 7A/7C/7F/7G，7B 可复用 7A 的版本管理模式，7E 可复用 7A 的版本管理模式，7D 最复杂放最后）:
+
+| 子块 | 页面 | 依赖 | 复杂度 |
+|------|------|------|--------|
+| 块 7A | SubList + SubVersions | 无（仅依赖 api.js + 公共组件） | ⭐⭐⭐ |
+| 块 7B | ShareList + ShareVersions | 可参考 7A 版本管理模式 | ⭐⭐ |
+| 块 7C | PlatformManage | 无（独立 CRUD 页） | ⭐⭐ |
+| 块 7D | UserManage | 需 PlatformSvc.List 获取平台列表 | ⭐⭐⭐⭐ |
+| 块 7E | RulesManage + RuleVersions | 可参考 7A 版本管理模式 | ⭐⭐⭐ |
+| 块 7F | OIDCConfig | 依赖 OIDCSwitchDialog 组件 | ⭐⭐ |
+| 块 7G | Logs | 无（只读列表页） | ⭐ |
+
 > **通用模式**（所有管理页面遵循）:
 > - 列表页 `onMounted` 调对应 list API 获取数据
 > - 创建/编辑用 `el-dialog` + `el-form`，提交前前端校验必填字段
 > - 删除用 `ConfirmDialog.vue`（传入 title/message/@confirm），不用 `ElMessageBox.confirm`
 > - 操作成功后刷新列表数据（重新调 list API）
-> - ID 字段校验 `[a-z0-9-]+`（`SubList` 创建、`PlatformManage` 创建）
+> - ID 字段校验 `[a-z0-9-]+`（`SubList` 创建、`PlatformManage` 创建、`RulesManage` 创建）
 > - 文件上传 `el-upload` 限制 50MB，手动设置 `Content-Type: multipart/form-data`
 > - 当前激活版本用绿色标签/边框高亮
+> - 模板中使用「」代替 `"` 转义
 
-**任务**:
+---
 
-- [ ] `src/views/SubList.vue`：订阅列表（按平台分组，再按类型 default/advanced），创建对话框（字段：`id`[a-z0-9-]+、`name`、`type`[default/advanced]、`platform`）
-- [ ] `src/views/SubVersions.vue`：版本管理（列表+上传+文本编辑+切换+删除+预览），current 高亮。`POST /versions` 支持两种 Content-Type（multipart 文件上传 + JSON 文本编辑），前端按用户操作选择对应方式
-- [ ] `src/views/ShareList.vue`：分享订阅列表（名称/创建时间/当前版本号/Token 状态）。Token 状态从 `has_token` 字段推导（`true`→"有效"，`false`→"已吊销"）。操作按钮：版本管理、复制分享链接（`has_token` 为 true 时可用）、刷新 Token（ConfirmDialog）、吊销 Token（ConfirmDialog）、删除（ConfirmDialog）
-- [ ] `src/views/ShareVersions.vue`：分享订阅版本管理（同 SubVersions 结构）
-- [ ] `src/views/PlatformManage.vue`：平台 CRUD，`client_schemes` JSON 数组编辑（可用 tag-input 或 textarea），`download_url` 可空
-- [ ] `src/views/UserManage.vue`：
-  - 用户列表（用户名/邮箱/角色标签/is_advanced 标签/操作按钮）
-  - 编辑弹窗：`is_advanced` 开关（管理员自身不可修改）；`groups` JSON 仅展示不编辑，未设置 `groups` 的用户不显示该字段
-  - 上传自定义订阅 → 弹出对话框 → 选择适用平台（下拉，从 platform 列表取）→ 选择文件（50MB 限制）→ **注意**：端点 `POST /admin/users/:id/custom-subscription?platform=xxx`，platform 是 **query param** 不在 body
-  - 删除自定义订阅（仅当用户有自定义订阅时显示该按钮，调 `adminApi.users.deleteCustomSub(id)`）
-  - 吊销所有下载 Token（ConfirmDialog："确定吊销该用户所有下载链接？吊销后用户需重新获取"）
-  - 删除用户（ConfirmDialog + 管理员自我保护提示）。错误处理：后端返回 400 时显示具体错误信息（"不能删除自己"/"不能删除最后一个管理员"）
-- [ ] `src/views/RulesManage.vue`：规则列表（名称/`client_type`/当前版本号/Token 状态），创建对话框（字段：`name`、`client_type`，当前仅 Shadowrocket 可选 → 下拉单选，默认选中）。操作按钮：版本管理、复制下载链接（`/api/v1/rules/:id/download?token={token}`）、轮替 Token（ConfirmDialog）、删除（ConfirmDialog）
-- [ ] `src/views/RuleVersions.vue`：规则版本管理（同 SubVersions 结构）
-- [ ] `src/views/OIDCConfig.vue`：
-  - 查看/修改 OIDC 配置（`onMounted` 调 `adminApi.system.getOIDCConfig()`）
-  - 切换提供商（`OIDCSwitchDialog` → `adminApi.system.switchProvider()`）
-  - 测试连接按钮（`adminApi.system.testOIDC()`）
-  - Client Secret 脱敏回显（后端已 `***` 处理，前端直接展示）
-  - 保存 → `adminApi.system.configure()`
-- [ ] `src/views/Logs.vue`：日期筛选（`el-date-picker`），调 `adminApi.logs.getLogs(date)` → 表格展示 `download_type`/`user_id`/`platform`/`status`/`error_reason`/`ip`/`created_at`。无数据时显示空状态
-- [ ] 验证：`npm run build` 通过；本地跑通所有管理页面 CRUD
+### 块 7A：SubList + SubVersions（订阅管理）
 
-**关键约束**:
+**目标**: 实现订阅列表页 + 版本管理子页面。这是版本管理模式的参考实现，7B/7E 复用相同模式。
+
+**后端 API 速查**:
+| 操作 | 方法 | 端点 | 请求/响应 |
+|------|------|------|-----------|
+| 列表 | GET | `/admin/subscriptions` | → `{ subscriptions: [...] }` |
+| 创建 | POST | `/admin/subscriptions` | ← `{ id, name, type, platform }` → `{ success, subscription }` |
+| 获取 | GET | `/admin/subscriptions/:id` | → `{ subscription }` |
+| 更新 | PUT | `/admin/subscriptions/:id` | ← `{ name, platform, type }` → `{ success }` |
+| 删除 | DELETE | `/admin/subscriptions/:id` | → `{ success }` |
+| 上传版本 | POST | `/admin/subscriptions/:id/versions` | ← FormData(file) 或 `{ content }` → `{ success, subscription }` |
+| 切换版本 | PUT | `/admin/subscriptions/:id/versions/:v/current` | → `{ success, subscription }` |
+| 获取版本 | GET | `/admin/subscriptions/:id/versions/:v` | → `{ version, content }` |
+| 删除版本 | DELETE | `/admin/subscriptions/:id/versions/:v` | → `{ success, subscription }` |
+
+> **前端 API 调用**: `adminApi.subscriptions.list()`, `.create(data)`, `.get(id)`, `.update(id, data)`, `.delete(id)`, `.uploadVersion(id, fd)`, `.createVersionFromText(id, content)`, `.switchVersion(id, v)`, `.getVersion(id, v)`, `.deleteVersion(id, v)`
+
+**7A-1: SubList.vue 详细任务**:
+
+- [ ] **数据加载**: `onMounted` → `adminApi.subscriptions.list()` → `data.subscriptions`
+- [ ] **列表展示** (按 AGENTS.md §4.3/§4.4 设计):
+  - 使用 `el-table`，列：名称、平台、类型（`el-tag`: default→info, advanced→warning）、当前版本号（versions 中 updated_at 最大者）、操作
+  - **分组展示**: 可选按平台分组（使用 `el-table` 的 `span-method` 或嵌套 `el-card` 按平台分组）。建议用计算属性 `groupedSubs` 将 subscriptions 按 platform 分组，每组内先 default 后 advanced
+  - 空状态: `el-empty` 提示「暂无订阅，请创建」
+  - 加载状态: `v-loading`
+- [ ] **创建对话框** (`el-dialog` + `el-form`):
+  - 字段：`id`（`el-input`，校验 `[a-z0-9-]+`）、`name`（必填）、`type`（`el-select`: default/advanced）、`platform`（`el-select`，选项从 `adminApi.platforms.list()` 动态获取）
+  - 提交 → `adminApi.subscriptions.create(data)` → 成功刷新列表 → 失败 `ElMessage.error`
+- [ ] **编辑对话框**: 同创建对话框但 `id` 只读，字段预填当前值。提交 → `adminApi.subscriptions.update(id, data)`
+- [ ] **删除**: 点击 → `ConfirmDialog`（title="删除订阅", message="确定删除该订阅？将级联删除所有版本文件和下载 Token"）→ `@confirm` → `adminApi.subscriptions.delete(id)` → 刷新列表
+- [ ] **跳转版本管理**: 点击行或"版本管理"按钮 → `router.push('/admin/subscriptions/' + sub.id + '/versions')`
+- [ ] **响应式 & 暗色模式**: 自动跟随（`useTheme` 全局生效，本页无需额外处理）
+
+**7A-2: SubVersions.vue 详细任务** (参考模式，7B/7E 复用):
+
+- [ ] **路由参数**: `route.params.id` 获取订阅 ID
+- [ ] **数据加载**: `onMounted` → `adminApi.subscriptions.get(id)` → `data.subscription`
+- [ ] **页面标题**: 订阅名称 + "版本管理"
+- [ ] **当前激活版本标识**: 计算属性 `currentVersion` = versions 中 `updated_at` 最大者（与 current 软链接一致）。在版本列表中用 `el-tag type="success"` 高亮
+- [ ] **版本列表** (`el-table`):
+  - 列：版本号 (v1, v2...)、创建时间、更新时间、当前标识（绿色标签）、操作
+  - 操作按钮（每行）:
+    - 「设为当前」(仅非 current 版本显示) → `adminApi.subscriptions.switchVersion(id, v)` → 刷新
+    - 「预览」→ `adminApi.subscriptions.getVersion(id, v)` → 弹出 `el-dialog` 用 `<pre>` 标签展示 `content`（只读）
+    - 「删除」(仅非 current 且 >1 个版本时可用) → `ConfirmDialog`("确定删除版本 vN？") → `adminApi.subscriptions.deleteVersion(id, v)` → 刷新
+  - 若仅剩 1 个版本，不显示删除按钮
+- [ ] **新建版本**（两种方式，使用 `UploadModal` 组件）:
+  - 引入 `UploadModal.vue`，通过 `visible` prop 控制
+  - `@upload` 事件: 接收 File → 构造 `FormData`，append("file", file) → `adminApi.subscriptions.uploadVersion(id, fd)` → 成功刷新
+  - `@textSave` 事件: 接收文本 → `adminApi.subscriptions.createVersionFromText(id, content)` → 成功刷新
+  - 注意: FormData 上传时 `Content-Type` 自动为 `multipart/form-data`（axios 自动处理）
+- [ ] **返回按钮**: `el-button` → `router.push('/admin/subscriptions')`
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 订阅列表按平台分组展示
+- [ ] 创建订阅 → 表单校验 ID 格式 → 成功/409 处理
+- [ ] 编辑/删除订阅正常
+- [ ] 版本列表 current 高亮
+- [ ] 上传新版本 → 自动切换 current → 旧版本保留
+- [ ] 文本编辑创建新版本
+- [ ] 切换/预览/删除版本正常
+- [ ] 最后一个版本不可删除
+
+---
+
+### 块 7B：ShareList + ShareVersions（分享订阅管理）
+
+**目标**: 实现分享订阅列表页 + 版本管理。结构类似 7A 但表格字段和操作按钮不同（AGENTS.md §4.6）。
+
+**后端 API 速查**:
+| 操作 | 方法 | 端点 | 请求/响应 |
+|------|------|------|-----------|
+| 列表 | GET | `/admin/shares` | → `{ shares: [{..., has_token: bool}] }` |
+| 创建 | POST | `/admin/shares` | ← FormData(file+name) 或 `{ name, content }` → `{ success, share, token }` |
+| 更新 | PUT | `/admin/shares/:id` | ← `{ name }` → `{ success }` |
+| 删除 | DELETE | `/admin/shares/:id` | → `{ success }` |
+| 版本 CRUD | 同 7A | `/admin/shares/:id/versions/*` | 同 7A 模式 |
+| 刷新 Token | POST | `/admin/shares/:id/refresh-token` | → `{ success, token }` |
+| 吊销 Token | DELETE | `/admin/shares/:id/token` | → `{ success }` |
+
+> **前端 API 调用**: `adminApi.shares.list()`, `.create(data)`, `.delete(id)`, `.refreshToken(id)`, `.revokeToken(id)`
+> 版本相关: `.uploadVersion(id, fd)`, `.createVersionFromText(id, content)`, `.switchVersion(id, v)`, `.getVersion(id, v)`, `.deleteVersion(id, v)`
+
+**7B-1: ShareList.vue 详细任务**:
+
+- [ ] **数据加载**: `onMounted` → `adminApi.shares.list()` → `data.shares`（每项含 `has_token`）
+- [ ] **列表展示** (`el-table`):
+  - 列：名称、创建时间（`formatTime`）、当前版本号、Token 状态（`has_token` → 有效绿色标签 / 已吊销红色标签）、操作
+  - 空状态: `el-empty`
+  - 加载状态: `v-loading`
+- [ ] **创建对话框** (AGENTS.md §4.6: 填写名称 → 上传第一个版本 → 自动生成 Token):
+  - 两种输入方式（同一对话框内）:
+    1. 文件上传: `el-upload`（drag）+ `el-input`（name，必填）→ 提交时构造 FormData
+    2. 文本编辑: `el-input`（name）+ `el-input` textarea（content）→ JSON 提交
+  - 提交成功后显示生成的 Token（`ElMessage.success` 提示复制）
+  - 注意: `adminApi.shares.create()` 支持两种 Content-Type（JSON 或 FormData）
+- [ ] **操作按钮组**（每行）:
+  - 「版本管理」→ `router.push('/admin/shares/' + share.id + '/versions')`
+  - 「复制分享链接」(仅 `has_token` 为 true 时可用) → `navigator.clipboard.writeText(url)` → 提示已复制。URL 格式: `/api/v1/share/{id}/download?token={token}`（注意: 后端不直接返回 token 在列表，需额外 `adminApi.shares.get(id)` 查询）
+  - 「刷新 Token」→ `ConfirmDialog`(title="刷新 Token", message="刷新后旧链接立即失效，确定？") → `adminApi.shares.refreshToken(id)` → 更新本地 token 显示
+  - 「吊销 Token」(仅 `has_token` 为 true 时可用) → `ConfirmDialog`(title="吊销 Token", message="吊销后该分享链接立即不可用，订阅文件保留。确定？") → `adminApi.shares.revokeToken(id)` → 刷新列表
+  - 「删除」→ `ConfirmDialog`(title="删除分享订阅", message="确定删除？将级联删除所有版本文件和 Token") → `adminApi.shares.delete(id)` → 刷新列表
+- [ ] **复制分享链接实现细节**: 列表 API 返回 `has_token` 但不返回 token 值。需要点击时调 `adminApi.shares.get(id)` 或维护一个 token map。建议在 `onMounted` 后对每个 `has_token=true` 的条目调用 get 获取 token 并缓存到 `reactive` map
+
+**7B-2: ShareVersions.vue 详细任务**:
+
+- [ ] 结构完全复用 7A SubVersions 模式，仅替换 API 调用为 `adminApi.shares.*`
+- [ ] 路由参数: `route.params.id`
+- [ ] 数据加载: `adminApi.shares.get(id)`
+- [ ] 版本列表 + 上传新版本 + 文本编辑 + 切换 + 预览 + 删除（同 7A-2）
+- [ ] 返回按钮 → `/admin/shares`
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 创建分享订阅 → 显示 Token
+- [ ] 复制分享链接 → 剪贴板有正确 URL
+- [ ] 刷新 Token → 旧链接失效
+- [ ] 吊销 Token → Token 状态变"已吊销" → 复制链接按钮不可用
+- [ ] 删除 → 级联删除
+- [ ] 版本管理同 7A
+
+---
+
+### 块 7C：PlatformManage（平台管理）
+
+**目标**: 实现平台 CRUD 页面。独立页面，无子页面。
+
+**后端 API 速查**:
+| 操作 | 方法 | 端点 | 请求/响应 |
+|------|------|------|-----------|
+| 列表 | GET | `/admin/platforms` | → `{ platforms: [...] }` |
+| 创建 | POST | `/admin/platforms` | ← `{ id, name, description, client_schemes, download_url }` |
+| 更新 | PUT | `/admin/platforms/:id` | ← 同上（id 在 URL） |
+| 删除 | DELETE | `/admin/platforms/:id` | → `{ success }` |
+
+> **前端 API 调用**: `adminApi.platforms.list()`, `.create(data)`, `.update(id, data)`, `.delete(id)`
+
+**7C-1: PlatformManage.vue 详细任务**:
+
+- [ ] **数据加载**: `onMounted` → `adminApi.platforms.list()` → `data.platforms`
+- [ ] **列表展示** (`el-table`):
+  - 列：ID、名称、描述、Client Schemes（JSON 数组，格式化显示或用 `el-tag` 列表）、下载链接（`download_url`，可空显示"—"）、操作
+  - 空状态: `el-empty`
+- [ ] **创建对话框** (`el-dialog` + `el-form`):
+  - 字段：
+    - `id`（`el-input`，必填，校验 `[a-z0-9-]+`）
+    - `name`（`el-input`，必填）
+    - `description`（`el-input` textarea）
+    - `client_schemes`（JSON 字符串数组编辑，可用 `el-input` textarea 每行一个，提交时 `split('\n').filter(Boolean)` 转为数组；或用动态 `el-tag` 列表 + 输入框添加。**推荐 textarea 方式**，简洁）
+    - `download_url`（`el-input`，可空，placeholder="https://example.com/download"）
+  - 提交 → `adminApi.platforms.create(data)` → 刷新
+- [ ] **编辑对话框**: 预填当前值 → 提交 `adminApi.platforms.update(id, data)`
+- [ ] **删除**: `ConfirmDialog`(title="删除平台", message="确定删除该平台？将级联删除该平台的所有订阅、下载 Token 和自定义订阅。此操作不可恢复！") → `adminApi.platforms.delete(id)` → 刷新
+- [ ] **client_schemes textarea 解析**: 用户每行输入一个 scheme，提交时: `schemes.split('\n').map(s => s.trim()).filter(Boolean)`。编辑时从数组 join('\n') 回填
+- [ ] **自动创建的 3 个默认平台**: clash-verge、v2rayng、shadowrocket 在 DB 初始化时自动创建，列表中会显示。管理员可编辑但需谨慎
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 列表显示 3 个默认平台
+- [ ] 创建新平台 → ID 校验 → 重复 409
+- [ ] 编辑平台 → client_schemes 正确序列化 → download_url 可空
+- [ ] 删除平台 → ConfirmDialog → 级联删除
+
+---
+
+### 块 7D：UserManage（用户管理 + 自定义订阅）
+
+**目标**: 实现最复杂的管理页面 — 用户列表、编辑 is_advanced、上传/删除自定义订阅、吊销 Token、删除用户。
+
+**后端 API 速查**:
+| 操作 | 方法 | 端点 | 请求/响应 |
+|------|------|------|-----------|
+| 用户列表 | GET | `/admin/users` | → `{ users: [...] }` |
+| 获取用户 | GET | `/admin/users/:id` | → `{ user }` |
+| 更新用户 | PUT | `/admin/users/:id` | ← `{ username, email, is_advanced, groups }` |
+| 删除用户 | DELETE | `/admin/users/:id` | → `{ success }` |
+| 吊销 Token | POST | `/admin/users/:id/revoke-tokens` | → `{ success }` |
+| 上传自定义订阅 | POST | `/admin/users/:id/custom-subscription?platform=xxx` | ← FormData(file) → `{ success, custom_subscription }` |
+| 自定义订阅版本 | POST | `/admin/users/:id/custom-subscription/versions?platform=xxx` | ← FormData 或 `{ content }` |
+| 删除自定义订阅 | DELETE | `/admin/users/:id/custom-subscription?platform=xxx` | → `{ success }` |
+| 刷新自定义 Token | POST | `/admin/users/:id/custom-subscription/refresh-token?platform=xxx` | → `{ success }` |
+
+> **前端 API 调用**: `adminApi.users.*` 全系列（参见 api.js §5B-1）
+
+**7D-1: UserManage.vue 详细任务**:
+
+- [ ] **数据加载**:
+  - `onMounted` → `adminApi.users.list()` → `data.users`
+  - 同时加载平台列表 `adminApi.platforms.list()`（用于自定义订阅的平台下拉选择）
+  - 加载每个用户的自定义订阅信息（`adminApi.users.list()` 返回的用户不包含自定义订阅信息，需额外查询）
+- [ ] **列表展示** (`el-table`):
+  - 列：用户名、邮箱、角色（`el-tag`: admin→danger「管理员」, user→info「普通用户」）、is_advanced（`el-tag`: true→warning「高级」, false→info「普通」）、自定义订阅（有→绿色标签显示平台列表，无→"—"）、操作
+  - 操作按钮组（每行，按 AGENTS.md §4.5）:
+    - 「编辑」(始终可用)
+    - 「上传自定义订阅」(始终可用)
+    - 「删除自定义订阅」(仅当该用户有自定义订阅时显示)
+    - 「吊销所有 Token」(ConfirmDialog)
+    - 「删除用户」(ConfirmDialog + 管理员自我保护)
+- [ ] **编辑对话框** (`el-dialog` + `el-form`):
+  - 字段：
+    - `username`（只读展示，不可编辑）
+    - `email`（只读展示，不可编辑）
+    - `is_advanced`（`el-switch`，管理员自身始终为 true 且 `disabled`）
+    - `groups`（JSON 数组只读展示，`v-if="user.groups && user.groups.length > 0"`；未设置 groups 的用户不显示此字段）
+    - 角色（只读展示 `el-tag`）
+  - 提交 → `adminApi.users.update(id, { is_advanced: bool })` → 成功 `ElMessage.success` + 刷新列表
+  - **管理员自身 is_advanced**: 通过 `userStore.user?.user_id === row.user_id` 判断，若为本人则 `el-switch` disabled + tooltip 提示「管理员始终为高级用户」
+- [ ] **上传自定义订阅对话框**:
+  - 弹出 `el-dialog`，内容：
+    - `el-select` 选择平台（从 `adminApi.platforms.list()` 获取选项，`v-model` 绑定选中平台 ID）
+    - `el-upload`（drag，50MB 限制），`accept=".conf,.yaml,.yml,.txt"`
+  - 提交 → `adminApi.users.uploadCustomSub(userId, platform, file)` → 成功刷新
+  - **注意**: platform 是 **query param**！URL: `POST /admin/users/:id/custom-subscription?platform=xxx`
+- [ ] **删除自定义订阅**: `ConfirmDialog`(title="删除自定义订阅", message="确定删除该用户的自定义订阅？用户将恢复到默认/高级自动分配") → `adminApi.users.deleteCustomSub(userId)` → 刷新
+  - **注意**: `DELETE /admin/users/:id/custom-subscription?platform=xxx` — 需知道 platform。需在对话框中或预先存储该用户自定义订阅的平台信息
+- [ ] **吊销所有 Token**: `ConfirmDialog`(title="吊销下载 Token", message="确定吊销该用户所有下载链接？吊销后用户需重新获取") → `adminApi.users.revokeTokens(userId)` → 成功提示
+- [ ] **删除用户**: `ConfirmDialog`(title="删除用户", message="确定删除该用户？将级联删除其所有下载 Token 和自定义订阅。此操作不可恢复！") → `adminApi.users.delete(userId)` → 刷新
+  - 错误处理: 后端返回 400 时，`e.response.data.error` 含具体原因（"不能删除自己"/"不能删除最后一个管理员"）→ `ElMessage.error`
+- [ ] **自定义订阅信息获取**: `onMounted` 后对每个用户调用 `adminApi.users.list()` 的返回不包含自定义订阅，需额外调用 `GET /admin/users/:id` 获取详情。或者: 对每个用户，尝试 `adminApi.users.get(id)` 获取完整信息。**优化**: 在用户列表加载后，检查每个用户的 custom sub 可通过 `/user/platforms` 类似的逻辑，但 admin API 没有 end 端点。**实际方案**: 在列表每行存储从 adminApi.users.get 的结果，或维护一个 `customSubMap`。
+  - **更简单方案**: 后端 `GET /admin/users` 目前只返回 user 基本字段（不含 custom sub 信息）。自定义订阅删除按钮的显示需要知道用户是否有自定义订阅。解决方案：在 `onMounted` 并行请求 `adminApi.users.list()` 和每个用户的 `adminApi.users.get(id)`（使用 `Promise.all`），从 get 结果中提取自定义订阅信息。或者仅在后端列表 API 中附带 `has_custom_sub` 字段（需要后端改动）。
+  - **当前推荐方案**: 前端维护 `customSubMap = reactive({})`，点击「上传自定义订阅」或「删除自定义订阅」时实时查询。删除自定义订阅的按钮显示逻辑：可点击「上传自定义订阅」时如果已有则覆盖，不需要单独显示删除按钮的可见性判断。也可以用 `adminApi.users.get(id)` 获取详情后缓存。
+
+**7D-2: 用户自定义订阅详情展开** (可选增强):
+- [ ] 每个用户行可展开（`el-table` expand），显示该用户在各平台的自定义订阅状态
+- [ ] 展开行内显示：平台名称、自定义订阅当前版本、操作（刷新该平台自定义订阅 Token）
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 用户列表正确展示角色/is_advanced 标签
+- [ ] 编辑 is_advanced → 管理员自身不可修改
+- [ ] 上传自定义订阅 → 需选择平台 → 上传后用户列表中对应平台标记
+- [ ] 删除自定义订阅 → 用户恢复默认/高级
+- [ ] 吊销 Token 成功
+- [ ] 删除用户 → 不能删除自己 → 不能删除最后一个管理员
+- [ ] groups 字段仅展示不编辑
+
+---
+
+### 块 7E：RulesManage + RuleVersions（规则管理）
+
+**目标**: 实现规则列表页 + 版本管理。结构类似 7A（订阅管理），但列表字段和创建方式不同（AGENTS.md §4.7/§4.8）。
+
+**后端 API 速查**:
+| 操作 | 方法 | 端点 | 请求/响应 |
+|------|------|------|-----------|
+| 列表 | GET | `/admin/rules` | → `{ rules: [{..., token: string}] }` |
+| 创建 | POST | `/admin/rules` | ← `{ id, name, client_type, content? }` 或 FormData |
+| 删除 | DELETE | `/admin/rules/:id` | → `{ success }` |
+| 版本 CRUD | 同 7A | `/admin/rules/:id/versions/*` | 同模式 |
+| 轮替 Token | POST | `/admin/rules/:id/refresh-token` | → `{ success, token }` |
+
+> **前端 API 调用**: `adminApi.rules.*` 全系列
+
+**7E-1: RulesManage.vue 详细任务**:
+
+- [ ] **数据加载**: `onMounted` → `adminApi.rules.list()` → `data.rules`（每项含 `token`）
+- [ ] **列表展示** (`el-table`):
+  - 列：规则名称、客户端类型（`el-tag`）、当前版本号、更新时间、Token（脱敏显示前8位+`...`）、操作
+  - 空状态: `el-empty`
+  - 加载状态: `v-loading`
+- [ ] **创建对话框** (AGENTS.md §4.7: 填写名称、选择客户端类型 → 上传第一个版本 → 自动生成 rule_token):
+  - 两种输入方式（同一对话框内，同 ShareList 模式）:
+    1. 文件上传模式: `el-input`（id, 必填, `[a-z0-9-]+`）+ `el-input`（name, 必填）+ `el-select`（client_type, 当前仅 Shadowrocket, 默认选中）+ `el-upload` → FormData 提交
+    2. JSON 文本模式: 同上的字段 + `el-input` textarea（content）→ JSON 提交
+  - 提交成功后 `ElMessage.success`
+- [ ] **操作按钮组**（每行）:
+  - 「版本管理」→ `router.push('/admin/rules/' + rule.id + '/versions')`
+  - 「复制下载链接」→ `navigator.clipboard.writeText('/api/v1/rules/' + rule.id + '/download?token=' + rule.token)` → 提示已复制
+  - 「轮替 Token」→ `ConfirmDialog`(title="轮替 Token", message="轮替后旧链接立即失效，确定？") → `adminApi.rules.refreshToken(id)` → 更新本地 token
+  - 「删除」→ `ConfirmDialog`(title="删除规则", message="确定删除？将级联删除所有版本文件和 Token") → `adminApi.rules.delete(id)` → 刷新
+
+**7E-2: RuleVersions.vue 详细任务**:
+
+- [ ] 结构完全复用 7A SubVersions 模式，替换 API 调用为 `adminApi.rules.*`
+- [ ] 路由参数: `route.params.id`
+- [ ] 数据加载: `adminApi.rules.get(id)`
+- [ ] 版本列表 + 上传新版本 + 文本编辑 + 切换 + 预览 + 删除（同 7A-2）
+- [ ] 返回按钮 → `/admin/rules`
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 规则列表显示 token（用于下载链接）
+- [ ] 创建规则 → client_type 仅 Shadowrocket 可选
+- [ ] 轮替 Token → 旧 token 失效，新 token 显示
+- [ ] 复制下载链接正确
+- [ ] 版本管理同 7A
+
+---
+
+### 块 7F：OIDCConfig（OIDC 配置）
+
+**目标**: 实现 OIDC 配置查看/修改页面，含切换提供商、测试连接、保存 + 速率限制配置。
+
+**后端 API 速查**:
+| 操作 | 方法 | 端点 | 请求/响应 |
+|------|------|------|-----------|
+| 获取配置 | GET | `/admin/oidc-config` | → `{ config: {...} }` (client_secret 已脱敏) |
+| 测试连接 | POST | `/admin/test-oidc` | ← `{ provider_type, keycloak_base_url, keycloak_realm, auth0_domain, generic_issuer, client_id, client_secret, redirect_uri }` |
+| 保存配置 | POST | `/admin/system/configure` | ← 同 Setup 的 configure payload |
+| 切换提供商 | POST | `/admin/system/switch-provider` | ← `{ provider_type }` |
+| 获取速率限制 | GET | `/admin/system/rate-limit` | → `{ rate_limit_login, rate_limit_download }` |
+| 更新速率限制 | PUT | `/admin/system/rate-limit` | ← `{ rate_limit_login, rate_limit_download }` |
+
+> **前端 API 调用**: `adminApi.system.*` 全系列
+
+**7F-1: OIDCConfig.vue 详细任务**:
+
+- [ ] **数据加载**: `onMounted` → `adminApi.system.getOIDCConfig()` → 填充表单 + `adminApi.system.getRateLimit()` → 填充速率限制
+- [ ] **页面布局**: 使用 `el-card` 分两个区域：OIDC 配置 + 速率限制配置
+- [ ] **OIDC 配置区域**（复用 Setup.vue 的配置表单模式）:
+  - 提供商显示: `el-tag`（当前提供商类型）+ 「切换提供商」按钮 → 打开 `OIDCSwitchDialog`
+  - 切换提供商 (`handleProviderSwitch`): 调 `adminApi.system.switchProvider({ provider_type })` → 成功后重新 `getOIDCConfig()` 刷新表单
+  - 按 provider_type 显示对应字段（Keycloak: base_url+realm, Auth0: domain, Generic: issuer），切换时保留已填字段
+  - 公共字段: `client_id`（`el-input`）、`client_secret`（`el-input` type="password"，脱敏回显 `***`）、`redirect_uri`、`frontend_url`
+  - 「测试连接」按钮 → `adminApi.system.testOIDC(payload)` → 成功/失败提示
+  - 「保存配置」按钮 → `adminApi.system.configure(payload)` → 成功提示
+- [ ] **速率限制配置区域**:
+  - `el-form` 两个字段: `rate_limit_login`（默认 10/min）、`rate_limit_download`（默认 20/min）
+  - `el-input-number` 或 `el-input` type="number"，min=1
+  - 「保存」按钮 → `adminApi.system.updateRateLimit(data)` → 成功提示
+- [ ] **Client Secret 处理**: 后端已脱敏（`***`），前端直接展示。用户修改时输入新值覆盖
+- [ ] **表单校验**: 必填字段（同 Setup.vue 的 rules）
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 加载现有 OIDC 配置 → client_secret 显示 `***`
+- [ ] 切换提供商 → 字段切换，已填值保留
+- [ ] 测试连接成功/失败
+- [ ] 保存配置成功
+- [ ] 速率限制修改生效
+
+---
+
+### 块 7G：Logs（日志查看）
+
+**目标**: 实现日志查询页面，按日期筛选访问日志。
+
+**后端 API 速查**:
+| 操作 | 方法 | 端点 | 请求/响应 |
+|------|------|------|-----------|
+| 查询日志 | GET | `/admin/logs?date=2026-07-15` | → `{ logs: [{id, user_id, ip, download_type, platform, share_subscription_id, rule_id, status, error_reason, created_at}] }` |
+
+> **前端 API 调用**: `adminApi.logs.getLogs(date)`
+
+**7G-1: Logs.vue 详细任务**:
+
+- [ ] **日期选择**: `el-date-picker`（`type="date"`，`v-model="selectedDate"`，`@change="fetchLogs"`），默认当天
+- [ ] **数据加载**: `fetchLogs()` → `adminApi.logs.getLogs(formattedDate)` → `data.logs`
+- [ ] **表格展示** (`el-table`):
+  - 列：时间（`created_at`，格式化为 `toLocaleString`）、下载类型（`download_type` → 中文映射: subscription→订阅, share→分享, custom→自定义, rule→规则）、用户 ID（`user_id`，为空显示"—"）、平台（`platform`，为空显示"—"）、状态（`status`: success→绿色标签「成功」, failed→红色标签「失败」）、失败原因（`error_reason`，仅 failed 时显示，为空显示"—"）、IP
+  - 列宽自适应，`download_type`/`status` 固定宽度
+  - 空状态: `el-empty` 提示「暂无日志记录」
+  - 加载状态: `v-loading`
+- [ ] **格式化函数**:
+  - `downloadTypeLabel(type)`: subscription→「订阅下载」, share→「分享下载」, custom→「自定义订阅下载」, rule→「规则下载」
+  - `formatTime(t)`: `new Date(t).toLocaleString()`
+- [ ] **日期格式**: `selectedDate` 用 `dayjs` 或手动 `toISOString().split('T')[0]` 格式化为 `YYYY-MM-DD`
+- [ ] **无依赖**: 本页无需额外安装 dayjs，用原生 `Date` 处理即可
+
+**验证**:
+- [ ] `npm run build` 通过
+- [ ] 默认显示当天日志
+- [ ] 切换日期 → 重新加载
+- [ ] 日志表格正确显示各字段
+- [ ] 无日志时显示空状态
+- [ ] status 颜色区分 success/failed
+
+---
+
+### 块 7 整体验证
+
+块 7A-7G 全部完成后：
+
+- [ ] `npm run build` 和 `go build ./...` 均通过
+- [ ] 完整管理流程: 登录 → 管理面板 → 各子页面独立验证
+- [ ] 订阅管理: 创建 → 版本上传 → 切换 → 删除
+- [ ] 分享订阅管理: 创建 → Token 刷新/吊销 → 删除
+- [ ] 平台管理: CRUD
+- [ ] 用户管理: 编辑 is_advanced → 上传/删除自定义订阅 → 吊销 Token → 删除用户
+- [ ] 规则管理: 创建 → 版本管理 → 轮替 Token
+- [ ] OIDC 配置: 查看/修改/测试连接/切换提供商
+- [ ] 日志: 按日期筛选 → 正确显示各字段
+- [ ] 速率限制配置: 修改后生效
+- [ ] 所有删除操作使用 ConfirmDialog
+- [ ] 暗色模式在全部管理页面生效
+- [ ] 移动端响应式（侧边栏折叠）在全部管理页面正常
+- [ ] 所有表单提交有 loading 状态
+- [ ] 所有 API 错误有 ElMessage 提示
+
+**关键约束** (适用所有子块):
 - 所有创建/编辑用 `el-dialog` + `el-form`
 - 版本上传 `el-upload` 50MB 限制
 - 当前激活版本绿色高亮
-- AGENTS.md §4.6/§4.7 操作按钮组按文档完整实现
-- 速率限制配置页（`GET/PUT /admin/system/rate-limit`）可放在 OIDCConfig 页面底部，或新增一个配置区域
+- AGENTS.md §4.3-§4.8 操作按钮组按文档完整实现
+- 删除确认必须用 `ConfirmDialog.vue`
+- 模板中使用「」代替 `"` 转义
+- v-model 中不使用可选链 `?.`，用 `v-if` 守卫
+- 登出调用 `userStore.logout(router)`
 
 ---
 
