@@ -409,10 +409,10 @@ async function handleCopyToClipboard() {
     await navigator.clipboard.writeText(copyUrl.value)
     ElMessage.success('已复制到剪贴板')
   } catch (e) {
-    // Fallback: select the input text
-    const input = copyInputRef.value
-    if (input) {
-      input.select()
+    // Fallback: access native input element inside el-input component
+    const inputEl = copyInputRef.value?.$el?.querySelector('input')
+    if (inputEl) {
+      inputEl.select()
       document.execCommand('copy')
       ElMessage.success('已复制到剪贴板')
     }
