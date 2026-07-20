@@ -217,6 +217,16 @@ async function handleSubmit() {
 }
 
 onMounted(async () => {
+  // Auto-detect callback URL and frontend URL from current browser origin.
+  // Only fills empty fields so that manual edits are preserved on re-render.
+  const origin = window.location.origin
+  if (!form.redirect_uri) {
+    form.redirect_uri = origin + '/api/v1/auth/callback'
+  }
+  if (!form.frontend_url) {
+    form.frontend_url = origin
+  }
+
   try {
     const res = await publicApi.getSystemStatus()
     if (res.data.configured) {
