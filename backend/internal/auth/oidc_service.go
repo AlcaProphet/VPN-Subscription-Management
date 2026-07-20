@@ -259,7 +259,9 @@ type InitiateLoginResult struct {
 
 // InitiateLogin generates the OIDC authorization URL with PKCE.
 // It stores state + code_verifier in the oidc_state table.
-func (s *Service) InitiateLogin() (*InitiateLoginResult, error) {
+// If prompt is non-empty (e.g. "login"), it is passed to the OIDC provider
+// to control re-authentication behavior.
+func (s *Service) InitiateLogin(prompt string) (*InitiateLoginResult, error) {
 	state, err := GenerateState()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate state: %w", err)
@@ -275,10 +277,16 @@ func (s *Service) InitiateLogin() (*InitiateLoginResult, error) {
 		return nil, fmt.Errorf("failed to store OIDC state: %w", err)
 	}
 
-	authURL := s.oauth2Config.AuthCodeURL(state,
+	// Build auth URL options
+	opts := []oauth2.AuthCodeOption{
 		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-	)
+	}
+	if prompt != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", prompt))
+	}
+
+	authURL := s.oauth2Config.AuthCodeURL(state, opts...)
 
 	return &InitiateLoginResult{
 		RedirectURL: authURL,

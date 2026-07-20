@@ -92,7 +92,11 @@ func AuthLogin(c *gin.Context) {
 		return
 	}
 
-	result, err := svc.InitiateLogin()
+	// Optional ?prompt=login forces the OIDC provider to re-authenticate,
+	// allowing the user to switch accounts even if they have an existing session.
+	prompt := c.Query("prompt")
+
+	result, err := svc.InitiateLogin(prompt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initiate login: " + err.Error()})
 		return

@@ -13,6 +13,16 @@
         通过 OIDC 登录
       </el-button>
 
+      <el-button
+        class="switch-account-btn"
+        type="default"
+        size="default"
+        text
+        @click="handleSwitchAccount"
+      >
+        使用其他账号登录
+      </el-button>
+
       <div class="theme-toggle">
         <el-button
           :icon="isDark ? Sunny : Moon"
@@ -37,6 +47,10 @@ const { isDark, toggle: toggleTheme } = useTheme()
 
 function handleLogin() {
   window.location.href = '/api/v1/auth/login'
+}
+
+function handleSwitchAccount() {
+  window.location.href = '/api/v1/auth/login?prompt=login'
 }
 
 onMounted(() => {
@@ -83,6 +97,11 @@ onMounted(() => {
   width: 100%;
   height: 48px;
   font-size: 16px;
+}
+
+.switch-account-btn {
+  margin-top: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .theme-toggle {
