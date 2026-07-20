@@ -1,8 +1,10 @@
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/alcaprophet/vpn-sub-backend:latest
+    # 本地开发时可替换为 build:
+    # build:
+    #   context: ./backend
+    #   dockerfile: Dockerfile
     container_name: vpn-backend
     ports:
       - "127.0.0.1:8080:8080"
@@ -11,9 +13,11 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/alcaprophet/vpn-sub-frontend:latest
+    # 本地开发时可替换为 build:
+    # build:
+    #   context: ./frontend
+    #   dockerfile: Dockerfile
     container_name: vpn-frontend
     ports:
       - "127.0.0.1:8081:80"
