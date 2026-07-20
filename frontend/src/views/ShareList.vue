@@ -408,8 +408,12 @@ onMounted(async () => {
 
 <style scoped>
 .share-list-container {
+  display: block;
+  min-width: 100%;
   width: 100%;
   padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .page-header {
