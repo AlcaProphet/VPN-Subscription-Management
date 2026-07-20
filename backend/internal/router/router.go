@@ -8,9 +8,11 @@ import (
 )
 
 // SetupRouter creates and configures the Gin router.
-// During setup mode (system not configured), only setup-related and public
-// endpoints are registered. In normal mode, all endpoints are available.
-func SetupRouter(isConfigured bool) *gin.Engine {
+// All routes are always registered so that the server can transition from
+// setup mode to normal mode without a restart. Setup-specific endpoints
+// use ConditionalSetupAuth to allow unauthenticated access during initial
+// setup and require admin JWT afterwards.
+func SetupRouter() *gin.Engine {
 	r := gin.New()
 
 	// Global middleware (applied to all routes)
@@ -31,23 +33,25 @@ func SetupRouter(isConfigured bool) *gin.Engine {
 		api.GET("/rules", handler.GetRules)
 		api.GET("/rules/:id/download", middleware.NoCacheForDownloads(), middleware.RateLimitDownload(), handler.GetRuleDownload)
 
-		if !isConfigured {
-			// Setup mode: only setup-related admin endpoints
-			setupAdmin := api.Group("/admin")
-			{
-				setupAdmin.POST("/system/configure", handler.PostConfigure)
-				setupAdmin.POST("/system/switch-provider", handler.PostSwitchProvider)
-				setupAdmin.POST("/test-oidc", handler.PostTestOIDC)
-				setupAdmin.GET("/oidc-config", handler.GetOIDCConfig)
-			}
-		} else {
-			// Normal mode: full API
-			registerAuthRoutes(api)
-			registerUserRoutes(api)
-			registerDownloadRoutes(api)
-			registerShareDownloadRoutes(api)
-			registerAdminRoutes(api)
+		// Setup/reconfigure admin endpoints — always registered.
+		// ConditionalSetupAuth allows unauthenticated access during initial
+		// setup (configured=false) and requires admin JWT after setup.
+		setupAdmin := api.Group("/admin")
+		setupAdmin.Use(middleware.ConditionalSetupAuth())
+		{
+			setupAdmin.POST("/system/configure", handler.PostConfigure)
+			setupAdmin.POST("/system/switch-provider", handler.PostSwitchProvider)
+			setupAdmin.POST("/test-oidc", handler.PostTestOIDC)
+			setupAdmin.GET("/oidc-config", handler.GetOIDCConfig)
 		}
+
+		// All normal-mode routes are always registered so that after the
+		// initial setup completes the server does not need a restart.
+		registerAuthRoutes(api)
+		registerUserRoutes(api)
+		registerDownloadRoutes(api)
+		registerShareDownloadRoutes(api)
+		registerAdminRoutes(api)
 	}
 
 	return r
@@ -150,11 +154,8 @@ func registerAdminRoutes(api *gin.RouterGroup) {
 		admin.DELETE("/rules/:id/versions/:versionId", handler.DeleteRuleVersion)
 		admin.POST("/rules/:id/refresh-token", handler.RefreshRuleToken)
 
-		// System Config
-		admin.GET("/oidc-config", handler.GetOIDCConfig)
-		admin.POST("/test-oidc", handler.PostTestOIDC)
-		admin.POST("/system/configure", handler.PostConfigure)
-		admin.POST("/system/switch-provider", handler.PostSwitchProvider)
+		// System Config (oidc-config, test-oidc, configure, switch-provider
+		// are handled by the ConditionalSetupAuth group above)
 		admin.GET("/system/rate-limit", handler.GetRateLimit)
 		admin.PUT("/system/rate-limit", handler.UpdateRateLimit)
 

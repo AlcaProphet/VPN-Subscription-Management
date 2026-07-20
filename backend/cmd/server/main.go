@@ -55,7 +55,7 @@ func main() {
 
 	// Setup Gin
 	gin.SetMode(gin.ReleaseMode)
-	r := router.SetupRouter(configured)
+	r := router.SetupRouter()
 
 	// Configure trusted proxies (for X-Forwarded-For/X-Real-IP behind reverse proxy)
 	if err := r.SetTrustedProxies([]string{"127.0.0.1"}); err != nil {
