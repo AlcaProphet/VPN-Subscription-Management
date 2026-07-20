@@ -49,7 +49,7 @@ func (s *ShareSubscriptionService) Create(name, content string) (*models.ShareSu
 		ID:        id,
 		Name:      name,
 		Versions:  []models.Version{},
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
 	}
 
 	if err := s.repo.Create(ss); err != nil {

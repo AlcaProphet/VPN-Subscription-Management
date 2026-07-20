@@ -44,7 +44,7 @@ func (s *RuleService) Create(rule *models.Rule) error {
 		rule.ClientType = "shadowrocket"
 	}
 	rule.Versions = []models.Version{}
-	rule.CreatedAt = time.Now().UTC()
+	rule.CreatedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
 	return s.repo.Create(rule)
 }
 

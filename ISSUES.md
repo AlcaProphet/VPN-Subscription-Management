@@ -3,7 +3,7 @@
 ## 待修复
 
 - [ ] **分享订阅页面无「创建」按钮** (`ShareList.vue`): 页面模板中存在 `<el-button @click="openCreateDialog">创建分享订阅</el-button>`，但用户反馈实际部署中看不到该按钮。可能原因：① 旧版前端缓存未更新；② `page-header` 区域被 CSS 隐藏；③ 构建产物未正确部署。需在生产环境验证。
-- [ ] **上传自定义订阅返回 `custom subscription not found` 500 错误** (`custom_subscription_service.go`): 对用户首次上传自定义订阅时（`POST /admin/users/:id/custom-subscription?platform=xxx`），`Upload` → `UploadVersion` → `FindByID` 可能因 ID 生成或事务时机问题查不到刚创建的记录，返回 `"custom subscription not found"`。出现在路径：`service/custom_subscription_service.go:78` → `handler/handlers.go:782`（500）。另外 `Upload` 中 `GenerateUUID()[:12]` 截取前 12 字符可能包含 UUID 的连字符（如 `a1b2c3d4-e5f`），若与其他 ID 生成逻辑不一致需统一。
+- [x] **上传自定义订阅返回 `custom subscription not found` 500 错误** (`models/types.go` + repos): ~~`time.Time` Scan 失败~~ **根因确认**：SQLite 的 `created_at` 列是 TEXT 类型，但 Go 结构体中 `CustomSubscription.CreatedAt`、`ShareSubscription.CreatedAt`、`Rule.CreatedAt`、`ShareToken.CreatedAt`、`RuleToken.CreatedAt` 定义为 `time.Time`。`database/sql` 无法将 TEXT 直接 Scan 到 `time.Time`，报错 `unsupported Scan, storing driver.Value type string into type *time.Time`。**已修复**：将所有受影响结构体的 `CreatedAt` 改为 `string` 类型，与 SQLite TEXT 一致。
 - [x] **新建订阅的 ID 应自动生成，不需要用户手动填写** (`SubList.vue`): ~~创建订阅对话框中有 ID 输入框~~ 已修复：移除 ID 输入框，后端 `SubscriptionService.Create` 在 ID 为空时自动生成（UUID 前 12 字符）。
 - [x] **预览版本时无法编辑，编辑功能仅限新建版本** (`SubVersions.vue` / `ShareVersions.vue` / `RuleVersions.vue`): ~~预览对话框只读~~ 已修复：预览对话框增加「基于此版本编辑」按钮，点击后关闭预览并打开文本编辑器，预填当前版本内容。`UploadModal` 新增 `initialContent` prop 支持预填充。
 

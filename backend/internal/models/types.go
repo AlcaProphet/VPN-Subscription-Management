@@ -68,7 +68,7 @@ type Rule struct {
 	Name       string    `json:"name"`
 	ClientType string    `json:"client_type"` // reserved for future expansion, e.g. "shadowrocket"
 	Versions   []Version `json:"versions"`    // JSON array
-	CreatedAt  time.Time `json:"created_at"`
+	CreatedAt  string    `json:"created_at"`  // SQLite TEXT, e.g. "2026-07-20 06:31:59"
 }
 
 // ============================================================================
@@ -120,8 +120,8 @@ type CustomSubscription struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"user_id"`
 	Platform  string    `json:"platform"`
-	Versions  []Version `json:"versions"` // JSON array
-	CreatedAt time.Time `json:"created_at"`
+	Versions  []Version `json:"versions"`   // JSON array
+	CreatedAt string    `json:"created_at"` // SQLite TEXT
 }
 
 // ============================================================================
@@ -131,8 +131,8 @@ type CustomSubscription struct {
 type ShareSubscription struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	Versions  []Version `json:"versions"` // JSON array
-	CreatedAt time.Time `json:"created_at"`
+	Versions  []Version `json:"versions"`   // JSON array
+	CreatedAt string    `json:"created_at"` // SQLite TEXT
 }
 
 // ============================================================================
@@ -140,9 +140,9 @@ type ShareSubscription struct {
 // ============================================================================
 
 type ShareToken struct {
-	Token               string    `json:"token"`
-	ShareSubscriptionID string    `json:"share_subscription_id"`
-	CreatedAt           time.Time `json:"created_at"`
+	Token               string `json:"token"`
+	ShareSubscriptionID string `json:"share_subscription_id"`
+	CreatedAt           string `json:"created_at"` // SQLite TEXT
 }
 
 // ============================================================================
@@ -150,9 +150,9 @@ type ShareToken struct {
 // ============================================================================
 
 type RuleToken struct {
-	Token     string    `json:"token"`
-	RuleID    string    `json:"rule_id"`
-	CreatedAt time.Time `json:"created_at"`
+	Token     string `json:"token"`
+	RuleID    string `json:"rule_id"`
+	CreatedAt string `json:"created_at"` // SQLite TEXT
 }
 
 // ============================================================================

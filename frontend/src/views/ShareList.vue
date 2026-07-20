@@ -408,6 +408,7 @@ onMounted(async () => {
 
 <style scoped>
 .share-list-container {
+  width: 100%;
   padding: 0;
 }
 
