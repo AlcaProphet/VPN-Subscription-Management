@@ -2,7 +2,27 @@
 
 ## 待修复
 
-- [ ] **分享订阅页面无「创建」按钮** (`ShareList.vue`): 页面模板中存在 `<el-button @click="openCreateDialog">创建分享订阅</el-button>`，但用户反馈实际部署中看不到该按钮。可能原因：① 旧版前端缓存未更新；② `page-header` 区域被 CSS 隐藏；③ 构建产物未正确部署。需在生产环境验证。
+- [ ] **分享订阅页面无「创建」按钮** (`ShareList.vue`): **仅分享订阅页面有问题，其他管理页面按钮正常。**
+
+  **诊断过程**：
+  1. HTML 渲染确认按钮存在于 DOM：`<button class="el-button el-button--primary">创建分享订阅</button>` ✅
+  2. `getBoundingClientRect()` → `{width: 0, height: 0}` — 按钮被压缩为 0 尺寸
+  3. 追溯父元素：`.page-header` 宽 0 → `.share-list-container` 宽 0 → 父 `.el-main.manage-main` 宽 723（正常）
+  4. 对比订阅管理页（正常）：`.sub-list-container` 子元素宽 675，无此问题
+  5. 关键差异：分享页无数据时渲染 `el-empty`，订阅页有 `el-table`。`el-empty` 组件可能导致容器塌缩
+  6. `getComputedStyle` 确认：按钮 `display: flex`、`visibility: visible`、`opacity: 1` — 不是隐藏，是尺寸为 0
+
+  **已尝试的修复**（均未解决）：
+  - `width: 100%` — 无效
+  - `display: block; min-width: 100%; width: 100%; overflow: hidden` — 待验证
+
+  **下一步**：若 CSS 修复仍无效，尝试移除 `<div class="share-list-container" v-loading="loading">` 上的 `v-loading` 指令，验证是否是 Element Plus v-loading 与 el-empty 的交互导致容器塌缩。或运行诊断确认 `el-empty` 是否使用 `width: 100%` 造成循环依赖：
+  ```js
+  const sc = document.querySelector('.share-list-container')
+  const cs = getComputedStyle(sc)
+  console.log('position:', cs.position, 'contain:', cs.contain)
+  console.log('el-empty width:', getComputedStyle(document.querySelector('.el-empty')).width)
+  ```
 - [x] **上传自定义订阅返回 `custom subscription not found` 500 错误** (`models/types.go` + repos): ~~`time.Time` Scan 失败~~ **根因确认**：SQLite 的 `created_at` 列是 TEXT 类型，但 Go 结构体中 `CustomSubscription.CreatedAt`、`ShareSubscription.CreatedAt`、`Rule.CreatedAt`、`ShareToken.CreatedAt`、`RuleToken.CreatedAt` 定义为 `time.Time`。`database/sql` 无法将 TEXT 直接 Scan 到 `time.Time`，报错 `unsupported Scan, storing driver.Value type string into type *time.Time`。**已修复**：将所有受影响结构体的 `CreatedAt` 改为 `string` 类型，与 SQLite TEXT 一致。
 - [x] **新建订阅的 ID 应自动生成，不需要用户手动填写** (`SubList.vue`): ~~创建订阅对话框中有 ID 输入框~~ 已修复：移除 ID 输入框，后端 `SubscriptionService.Create` 在 ID 为空时自动生成（UUID 前 12 字符）。
 - [x] **预览版本时无法编辑，编辑功能仅限新建版本** (`SubVersions.vue` / `ShareVersions.vue` / `RuleVersions.vue`): ~~预览对话框只读~~ 已修复：预览对话框增加「基于此版本编辑」按钮，点击后关闭预览并打开文本编辑器，预填当前版本内容。`UploadModal` 新增 `initialContent` prop 支持预填充。
