@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"vpn-sub/internal/models"
@@ -28,19 +29,25 @@ func NewCustomSubscriptionService(versionSvc *VersionService) *CustomSubscriptio
 // Upload uploads a custom subscription for a user+platform (creates or overwrites).
 func (s *CustomSubscriptionService) Upload(userID, platform, content string) (*models.CustomSubscription, error) {
 	// Check if custom sub already exists for this user+platform
-	existing, _ := s.repo.FindByUserAndPlatform(userID, platform)
+	existing, err := s.repo.FindByUserAndPlatform(userID, platform)
+	if err != nil {
+		log.Printf("[DEBUG] Upload: FindByUserAndPlatform(user=%s, platform=%s) err=%v", userID, platform, err)
+	}
 
 	if existing != nil {
+		log.Printf("[DEBUG] Upload: found existing custom_sub id=%s for user=%s platform=%s, calling UploadVersion", existing.ID, userID, platform)
 		// Overwrite: upload new version (do NOT delete tokens — the user's
 		// existing download link should continue working with the new version)
 		cs, err := s.UploadVersion(existing.ID, content)
 		if err != nil {
+			log.Printf("[DEBUG] Upload: UploadVersion(id=%s) FAILED: %v", existing.ID, err)
 			return nil, err
 		}
+		log.Printf("[DEBUG] Upload: UploadVersion(id=%s) OK", existing.ID)
 		return cs, nil
 	}
 
-	// Create new custom subscription
+	log.Printf("[DEBUG] Upload: no existing custom_sub, creating new for user=%s platform=%s", userID, platform)
 	id, err := utils.GenerateUUID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ID: %w", err)
@@ -73,8 +80,16 @@ func (s *CustomSubscriptionService) Upload(userID, platform, content string) (*m
 func (s *CustomSubscriptionService) UploadVersion(id, content string) (*models.CustomSubscription, error) {
 	cs, err := s.repo.FindByID(id)
 	if err != nil {
+		log.Printf("[DEBUG] UploadVersion: FindByID(id=%q) FAILED: %v", id, err)
+		// Verify the record actually exists in the DB right now (raw query for diagnostics)
+		var rawCount int
+		if countErr := repository.DB.QueryRow(`SELECT COUNT(*) FROM custom_subscriptions WHERE id = ?`, id).Scan(&rawCount); countErr == nil {
+			log.Printf("[DEBUG] UploadVersion: raw COUNT check — records with id=%q: %d", id, rawCount)
+		}
 		return nil, fmt.Errorf("custom subscription not found")
 	}
+
+	log.Printf("[DEBUG] UploadVersion: FindByID(id=%q) OK, user=%s platform=%s", id, cs.UserID, cs.Platform)
 
 	subDir := "custom/" + cs.UserID + "/" + cs.Platform
 
