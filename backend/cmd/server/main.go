@@ -57,8 +57,11 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := router.SetupRouter()
 
-	// Configure trusted proxies (for X-Forwarded-For/X-Real-IP behind reverse proxy)
-	if err := r.SetTrustedProxies([]string{"127.0.0.1"}); err != nil {
+	// Configure trusted proxies (for X-Forwarded-For/X-Real-IP behind reverse proxy).
+	// In Docker, the external NGINX connects through the Docker gateway (e.g. 172.17.0.1),
+	// not 127.0.0.1. With ports bound to 127.0.0.1, direct external access is impossible,
+	// so trusting all proxies is safe.
+	if err := r.SetTrustedProxies(nil); err != nil {
 		log.Printf("Warning: Failed to set trusted proxies: %v", err)
 	}
 

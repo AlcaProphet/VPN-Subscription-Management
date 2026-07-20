@@ -4,56 +4,12 @@
 
 - [ ] **分享订阅页面无「创建」按钮** (`ShareList.vue`): 页面模板中存在 `<el-button @click="openCreateDialog">创建分享订阅</el-button>`，但用户反馈实际部署中看不到该按钮。可能原因：① 旧版前端缓存未更新；② `page-header` 区域被 CSS 隐藏；③ 构建产物未正确部署。需在生产环境验证。
 - [ ] **上传自定义订阅返回 `custom subscription not found` 500 错误** (`custom_subscription_service.go`): 对用户首次上传自定义订阅时（`POST /admin/users/:id/custom-subscription?platform=xxx`），`Upload` → `UploadVersion` → `FindByID` 可能因 ID 生成或事务时机问题查不到刚创建的记录，返回 `"custom subscription not found"`。出现在路径：`service/custom_subscription_service.go:78` → `handler/handlers.go:782`（500）。另外 `Upload` 中 `GenerateUUID()[:12]` 截取前 12 字符可能包含 UUID 的连字符（如 `a1b2c3d4-e5f`），若与其他 ID 生成逻辑不一致需统一。
-- [ ] **新建订阅的 ID 应自动生成，不需要用户手动填写** (`SubList.vue`): 创建订阅对话框中有 ID 输入框（`el-input v-model="form.id"`），要求用户手动输入小写字母+数字+连字符。对比自定义订阅和分享订阅均使用 `GenerateUUID()` 自动生成 ID，订阅管理应保持一致。需改为：创建时自动生成 ID，不在 UI 展示该字段。
-- [ ] **预览版本时无法编辑，编辑功能仅限新建版本** (`SubVersions.vue` / `ShareVersions.vue` / `RuleVersions.vue`): 当前版本预览对话框（点击「预览」按钮）以只读 `<pre>` 标签展示内容。用户希望在预览某个历史版本时能够基于该版本内容进行编辑，保存后自动创建新版本（而非新建版本时从空白开始）。影响全部 4 类版本管理页面（订阅/分享/规则/自定义订阅）。建议方案：预览对话框增加「以此版本为基础编辑」按钮，点击后打开文本编辑器并预填当前版本内容。
+- [x] **新建订阅的 ID 应自动生成，不需要用户手动填写** (`SubList.vue`): ~~创建订阅对话框中有 ID 输入框~~ 已修复：移除 ID 输入框，后端 `SubscriptionService.Create` 在 ID 为空时自动生成（UUID 前 12 字符）。
+- [x] **预览版本时无法编辑，编辑功能仅限新建版本** (`SubVersions.vue` / `ShareVersions.vue` / `RuleVersions.vue`): ~~预览对话框只读~~ 已修复：预览对话框增加「基于此版本编辑」按钮，点击后关闭预览并打开文本编辑器，预填当前版本内容。`UploadModal` 新增 `initialContent` prop 支持预填充。
 
-- [ ] **订阅下载端点缺少 Clash Verge 专用响应头** (`handlers.go` 下载端点): 根据 Clash Verge 客户端规范，订阅下载响应中可携带以下 HTTP 头以优化客户端体验。三个头均为可选，Clash Verge 客户端会据此自动设置配置文件名、更新间隔、以及订阅卡片的「首页」按钮。
+- [x] **订阅下载端点缺少 Clash Verge 专用响应头** (`handlers.go` 下载端点): 已实现。在 `SubDownloadToken`、`ShareDownload`、`GetRuleDownload` 3 个下载端点添加响应头：`Content-Disposition: attachment; filename="Luneflare VPN Clash.yaml"`、`profile-update-interval: 300`、`profile-web-page-url: {frontend_url}`。通过 `setDownloadHeaders()` 辅助函数统一管理，`profile-web-page-url` 从 `system_config.frontend_url` 读取。
 
-  **分析如下**：
-
-  | 响应头 | 目标值 | 作用 | 适用范围 |
-  |--------|--------|------|----------|
-  | `Content-Disposition` | `attachment; filename="Luneflare VPN Clash.yaml"` | 客户端以此文件名保存配置 | 所有订阅/分享/自定义下载端点 |
-  | `profile-update-interval` | `300`（单位小时 = 12.5 天） | 客户端自动更新间隔 | 同上 |
-  | `profile-web-page-url` | 自动读取 `system_config.frontend_url`（如 `https://vpn.example.com`） | 订阅卡片显示「首页」按钮，点击跳转 Web UI | 同上。**不做 UA 检测**，强制返回——非 Clash 客户端会忽略不认识的响应头，无副作用 |
-
-  **实施要点**：
-
-  - **`profile-web-page-url` 不做 UA 检测**：Clash Verge 文档要求 UA 含 `clash` 才返回，但那是对通用订阅服务而言。在本系统中，订阅按平台隔离——Clash Verge 的下载链接天然就是给 Clash 用的。且 HTTP 规范中客户端会忽略不认识的响应头，对 v2rayNG/Shadowrocket 无任何负面影响。**强制返回，不做 UA 判断。**
-
-  - **`Content-Disposition` 编码**：文件名使用纯 ASCII，无需 UTF-8 编码。如将来需要中文文件名，需按 `filename*=UTF-8''...` 格式编码。
-
-  - **不实现 `subscription-userinfo`**：该头用于显示流量/到期信息（upload/download/total/expire），本项目不追踪用户流量，不适用。
-
-  - **影响范围**：以下 3 个下载 handler 均需修改（它们都是客户端实际使用的下载入口）：
-    - `SubDownloadToken` — 用户订阅下载（`?token=`）
-    - `ShareDownload` — 分享订阅下载（`?token=`）
-    - 自定义订阅下载（复用 `SubDownloadToken`，`custom_sub_id` 非空时）
-    - `SubDownload` / `SubDownloadPreview` — JWT 预览端点可跳过（仅供 Web UI 使用，非客户端下载）
-
-  - **`profile-update-interval` 建议做成可配置**：当前写死 300，未来可在 `system_config` 中增加 `profile_update_interval` 键，管理面板增加对应设置项。
-
-  - **`Content-Disposition` 与现有设计不冲突**：AGENTS.md §3.4 规定「不使用 `Content-Disposition: attachment`」的本意是防止浏览器触发文件下载对话框。但 `attachment; filename="..."` 仅提供一个建议文件名，浏览器仍以 `text/plain` 渲染内容（不会弹出下载对话框），VPN 客户端则会自动使用该文件名保存配置。对两端都是纯收益，无需区分 UA。
-
-- [ ] **验证客户端 IP 记录是否使用了 X-Forwarded-For**（`access_logs` 表）: ~~代码层面已实现~~ **已验证失败**。`main.go` 配置了 `SetTrustedProxies(["127.0.0.1"])`，但 Docker 容器内收到的连接来自 Docker 网关 IP（如 `172.17.0.1`）而非 `127.0.0.1`。Gin 不信任该 IP，因此忽略 `X-Forwarded-For` 头，`c.ClientIP()` 返回的是 Docker 网关 IP。
-
-  **根因**：
-  ```
-  外部 NGINX → 宿主机 127.0.0.1:8080 → Docker 端口映射 → 容器 eth0
-                                                     ↑
-                              容器视角来源 IP = Docker 网关 (172.x.x.x)
-                              不在 SetTrustedProxies 信任列表 → X-Forwarded-For 被忽略
-  ```
-
-  **修复方案**：将 Docker 网络也加入信任列表。最简单且安全的方式——由于端口只绑 `127.0.0.1`，外部无法直连容器，可安全信任所有代理：
-  ```go
-  r.SetTrustedProxies(nil) // 信任所有代理
-  ```
-  或精确指定 Docker 子网：
-  ```go
-  r.SetTrustedProxies([]string{"127.0.0.1", "172.16.0.0/12"})
-  ```
-  同时 AGENTS.md §5 中该约束也需同步更新。
+- [x] **验证客户端 IP 记录是否使用了 X-Forwarded-For**（`access_logs` 表）: ~~Docker 网关不在信任列表~~ 已修复：`SetTrustedProxies(nil)` 信任所有代理（端口绑 `127.0.0.1`，外部无法直连，安全无虞）。
 
 ## 已验证，不修复
 

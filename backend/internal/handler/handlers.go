@@ -78,6 +78,7 @@ func GetRuleDownload(c *gin.Context) {
 		return
 	}
 	logAccess("", c.ClientIP(), "rule", "", "", ruleID, "success", "")
+	setDownloadHeaders(c)
 	c.String(http.StatusOK, content)
 }
 
@@ -430,6 +431,7 @@ func SubDownloadToken(c *gin.Context) {
 	}
 
 	logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "success", "")
+	setDownloadHeaders(c)
 	c.String(http.StatusOK, content)
 }
 
@@ -459,6 +461,7 @@ func ShareDownload(c *gin.Context) {
 	}
 
 	logAccess("", c.ClientIP(), "share", "", id, "", "success", "")
+	setDownloadHeaders(c)
 	c.String(http.StatusOK, content)
 }
 
@@ -1588,6 +1591,18 @@ func readUploadContent(c *gin.Context) (string, error) {
 // parseVersionParam parses a version ID string to an integer.
 func parseVersionParam(v string) (int, error) {
 	return strconv.Atoi(v)
+}
+
+// setDownloadHeaders adds Clash Verge-compatible response headers to download
+// endpoints. These headers are harmless for non-Clash clients (they ignore
+// unrecognized headers).
+func setDownloadHeaders(c *gin.Context) {
+	c.Header("Content-Disposition", `attachment; filename="Luneflare VPN Clash.yaml"`)
+	c.Header("profile-update-interval", "300")
+	cfgRepo := repository.NewSystemConfigRepo()
+	if frontendURL, err := cfgRepo.Get("frontend_url"); err == nil && frontendURL != "" {
+		c.Header("profile-web-page-url", frontendURL)
+	}
 }
 
 // logAccess records a download access log entry. This is a best-effort helper

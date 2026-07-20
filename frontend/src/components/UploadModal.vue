@@ -53,14 +53,15 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps({
   visible: { type: Boolean, required: true },
   accept: { type: String, default: '.conf,.yaml,.yml,.txt' },
-  maxSize: { type: Number, default: 50 }
+  maxSize: { type: Number, default: 50 },
+  initialContent: { type: String, default: '' }
 })
 
 const emit = defineEmits(['update:visible', 'upload', 'textSave'])
@@ -71,6 +72,15 @@ const activeTab = ref('file')
 const selectedFile = ref(null)
 const textContent = ref('')
 const uploadRef = ref(null)
+
+// Pre-fill text editor when opening with initial content (e.g. editing a
+// previewed version).
+watch(() => props.visible, (isVisible) => {
+  if (isVisible && props.initialContent) {
+    textContent.value = props.initialContent
+    activeTab.value = 'text'
+  }
+})
 
 function beforeUpload(file) {
   const maxBytes = props.maxSize * 1024 * 1024
