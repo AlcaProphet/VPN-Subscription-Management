@@ -35,6 +35,26 @@
 
   - **`Content-Disposition` 与现有设计不冲突**：AGENTS.md §3.4 规定「不使用 `Content-Disposition: attachment`」的本意是防止浏览器触发文件下载对话框。但 `attachment; filename="..."` 仅提供一个建议文件名，浏览器仍以 `text/plain` 渲染内容（不会弹出下载对话框），VPN 客户端则会自动使用该文件名保存配置。对两端都是纯收益，无需区分 UA。
 
+- [ ] **验证客户端 IP 记录是否使用了 X-Forwarded-For**（`access_logs` 表）: ~~代码层面已实现~~ **已验证失败**。`main.go` 配置了 `SetTrustedProxies(["127.0.0.1"])`，但 Docker 容器内收到的连接来自 Docker 网关 IP（如 `172.17.0.1`）而非 `127.0.0.1`。Gin 不信任该 IP，因此忽略 `X-Forwarded-For` 头，`c.ClientIP()` 返回的是 Docker 网关 IP。
+
+  **根因**：
+  ```
+  外部 NGINX → 宿主机 127.0.0.1:8080 → Docker 端口映射 → 容器 eth0
+                                                     ↑
+                              容器视角来源 IP = Docker 网关 (172.x.x.x)
+                              不在 SetTrustedProxies 信任列表 → X-Forwarded-For 被忽略
+  ```
+
+  **修复方案**：将 Docker 网络也加入信任列表。最简单且安全的方式——由于端口只绑 `127.0.0.1`，外部无法直连容器，可安全信任所有代理：
+  ```go
+  r.SetTrustedProxies(nil) // 信任所有代理
+  ```
+  或精确指定 Docker 子网：
+  ```go
+  r.SetTrustedProxies([]string{"127.0.0.1", "172.16.0.0/12"})
+  ```
+  同时 AGENTS.md §5 中该约束也需同步更新。
+
 ## 已验证，不修复
 
 - [x] **`GetUpdateTime()` 全表遍历** (`subscription_service.go`): 加载全部订阅后在 Go 层双层循环遍历版本 JSON 找最大 `updated_at`。≤10 平台 × 2 类型 × 5 版本 = 最多 100 条记录，每首页加载 1 次（非轮询），循环耗时微秒级。SQL 聚合方案依赖 `json_each` 扩展且增加复杂度，当前规模下无收益。
