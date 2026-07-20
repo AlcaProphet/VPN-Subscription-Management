@@ -1,12 +1,19 @@
 <template>
   <div class="manage-layout">
     <!-- Mobile hamburger button -->
-    <div class="mobile-header" @click="toggleSidebar">
-      <el-icon :size="24">
+    <div class="mobile-header">
+      <el-icon :size="24" @click="toggleSidebar">
         <Expand v-if="!sidebarVisible" />
         <Fold v-if="sidebarVisible" />
       </el-icon>
       <span class="mobile-title">管理面板</span>
+      <el-button
+        class="mobile-home-btn"
+        text
+        @click="goHome"
+      >
+        <el-icon :size="20"><HomeFilled /></el-icon>
+      </el-button>
     </div>
 
     <!-- Sidebar overlay for mobile -->
@@ -22,7 +29,17 @@
       width="200px"
     >
       <div class="sidebar-header">
-        <h3>管理面板</h3>
+        <div class="sidebar-header-row">
+          <h3>管理面板</h3>
+          <el-button
+            type="primary"
+            size="small"
+            :icon="HomeFilled"
+            @click="goHome"
+          >
+            返回首页
+          </el-button>
+        </div>
       </div>
       <el-menu
         :router="true"
@@ -80,7 +97,8 @@ import {
   Setting,
   Tickets,
   Expand,
-  Fold
+  Fold,
+  HomeFilled
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -108,6 +126,11 @@ function toggleSidebar() {
 function onMenuSelect() {
   // Close sidebar on mobile after navigation
   sidebarVisible.value = false
+}
+
+function goHome() {
+  sidebarVisible.value = false
+  router.push('/')
 }
 </script>
 
@@ -139,6 +162,11 @@ function onMenuSelect() {
   font-size: 16px;
   font-weight: 600;
   color: var(--el-text-color-primary);
+  flex: 1;
+}
+
+.mobile-home-btn {
+  margin-left: auto;
 }
 
 /* Sidebar overlay */
@@ -171,10 +199,18 @@ function onMenuSelect() {
   padding: 20px 20px 12px;
 }
 
-.sidebar-header h3 {
+.sidebar-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-header-row h3 {
   margin: 0;
   font-size: 17px;
   color: var(--el-text-color-primary);
+  white-space: nowrap;
 }
 
 .sidebar-menu {
