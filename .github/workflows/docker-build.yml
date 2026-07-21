@@ -40,8 +40,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/vpn-sub-${{ matrix.service }}
           tags: |
-            # Branch-based tags
-            type=ref,event=branch,suffix=-{{branch}}
+            # Branch-based tags (e.g. main, beta)
+            type=ref,event=branch
             # Tag main as latest
             type=raw,value=latest,enable={{is_default_branch}}
             # Semver tags (v1.0.0 → 1.0.0, 1.0, 1)
