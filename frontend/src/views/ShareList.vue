@@ -1,5 +1,5 @@
 <template>
-  <div class="share-list-container" v-loading="loading">
+  <div class="share-list-container">
     <div class="page-header">
       <h2>分享订阅</h2>
       <el-button type="primary" @click="openCreateDialog">
