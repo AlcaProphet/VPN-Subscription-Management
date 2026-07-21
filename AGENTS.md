@@ -241,7 +241,9 @@
 
 ### 4.1 整体风格
 
-使用 Element Plus 组件库。支持暗色模式（通过 useTheme composable 切换，localStorage 持久化偏好）。深色/浅色主题通过 body class + Element Plus 暗色变量实现。
+**样式框架**: Tailwind CSS v3（utility-first CSS 框架），本地打包（PostCSS + Vite 构建时 Purge，零运行时 CDN 依赖）。Element Plus 保留用于复杂交互组件（el-table、el-dialog、el-form、el-upload、el-menu 等），其视觉样式由 Tailwind 覆盖或补充。
+
+**设计原则**: 性能优先、简约优先。响应式采用 Tailwind 内置断点（sm: 640px, md: 768px, lg: 1024px, xl: 1280px），移动端优先。暗色模式通过 Tailwind `dark:` 前缀 + useTheme composable（`.dark` class 切换）实现，localStorage 持久化偏好。
 
 ### 4.2 首页 (Home.vue)
 
@@ -393,6 +395,12 @@
 - 删除确认必须用 ConfirmDialog.vue 组件
 - 登出必须调用 userStore.logout(router)，传入 router 实例
 - 文件上传必须手动设置 Content-Type: multipart/form-data
+- **Tailwind CSS 约束**:
+  - 样式优先使用 Tailwind utility class，禁止使用内联 `style` 属性
+  - 暗色模式使用 Tailwind `dark:` 前缀（与 useTheme.js 的 `.dark` class 联动）
+  - 自定义 CSS 仅在 Tailwind 无法覆盖的场景使用（如 Element Plus 组件深层样式覆盖），写在 `<style scoped>` 中
+  - 响应式断点统一使用 Tailwind 预设（`sm`/`md`/`lg`/`xl`），不手写 `@media`
+  - Tailwind 配置文件 (`tailwind.config.js`) 中 `darkMode: 'class'`，与现有 useTheme.js 一致
 
 **Go 工程**:
 - 修改 go.mod 后必须运行 go mod tidy
@@ -411,9 +419,10 @@
 - SQLite: `modernc.org/sqlite`（纯 Go 驱动，零 CGO，便于静态编译到 distroless）
 - OIDC: `coreos/go-oidc/v3` + `golang-jwt/jwt/v5`（PKCE 流程 + JWT 签发验证）
 
-**前端**: Vue 3 (Composition API + `<script setup>`) + Vite + Element Plus + Pinia + Vue Router
+**前端**: Vue 3 (Composition API + `<script setup>`) + Vite + Element Plus + Tailwind CSS v3 + Pinia + Vue Router
 - HTTP: Axios（统一 baseURL `/api/v1`，401 拦截自动登出）
-- 主题: 自实现 `useTheme` composable（Element Plus 暗色变量 + localStorage 持久化）
+- 样式: Tailwind CSS v3（utility-first，构建时 Purge，~3 KB gzipped）+ Element Plus 组件样式（仅交互组件）
+- 主题: 自实现 `useTheme` composable（`.dark` class 切换，Tailwind `dark:` 前缀 + Element Plus 暗色变量 + localStorage 持久化）
 
 **约束**: 所有依赖须可纯静态编译/打包，不依赖 CGO、不依赖外部数据库进程。
 
@@ -432,6 +441,8 @@ backend/
 │   ├── router/router.go           Setup 模式路由 + Normal 模式路由
 │   └── utils/                     env, crypto (AES-256-GCM), sanitizePath, isValidID
 frontend/
+├── tailwind.config.js           Tailwind CSS 配置（darkMode: 'class', content 路径, 主题扩展）
+├── postcss.config.js            PostCSS 配置（tailwindcss + autoprefixer 插件）
 └── src/
     ├── router/index.js           beforeEach 守卫（Setup 检测 + 登录恢复 + Admin 校验）
     ├── services/api.js           Axios 封装 + 分组 API + 401 拦截
@@ -572,27 +583,30 @@ data/
 
 采用**外部 NGINX 分流 + 双容器（端口绑 127.0.0.1）**架构。`/api/` 与静态文件的分流由部署机上已有的外部 NGINX 承担，容器内**不做任何反代**。两个容器的端口只绑定宿主机的 `127.0.0.1`，外部网络不可达，仅同机外部 NGINX 能转发到它们。
 
+**静态资源 CDN 化**: 前端 Vite 构建产物（JS/CSS/字体/图片）通过 `/api/v1/public/` 路径由 Go 后端托管。配置 `vite.config.js` 的 `base: '/api/v1/public/'` 后，所有资源引用自动带此前缀。外部 NGINX 将 `/api/v1/public/*` 转发到后端，后续可在该路径上配置 CDN 缓存（带 content hash 的文件名天然支持长期缓存）。
+
 ```
 用户浏览器
    ↓ HTTPS
-外部 NGINX (部署机已有, vpn.example.com)   ← 在此处做 /api 分流
-   ├─ /api/*   → http://127.0.0.1:8080  (backend 容器, Gin API)
-   └─ /*       → http://127.0.0.1:8081  (frontend 容器, 纯静态文件)
+外部 NGINX/CDN (部署机已有, vpn.example.com)
+   ├─ /api/v1/public/* → http://127.0.0.1:8080  (backend, 静态资源, 可 CDN 缓存)
+   ├─ /api/*           → http://127.0.0.1:8080  (backend 容器, Gin API)
+   └─ /*               → http://127.0.0.1:8081  (frontend 容器, index.html SPA 回退)
    ↓
 docker-compose (两个容器, 端口均绑 127.0.0.1)
-   ├─ backend  :8080  → Gin API (不对外)
-   └─ frontend :8081  → nginx 纯静态文件服务 (无 proxy_pass)
+   ├─ backend  :8080  → Gin API + /api/v1/public/ 静态资源 (不对外)
+   └─ frontend :8081  → nginx 纯静态文件服务 (仅 index.html, 无 proxy_pass)
 ```
 
 **架构约束（强制）**:
 - 对外只暴露一个端口（外部 NGINX 的 443/80）。backend 的 8080 和 frontend 的 80 必须以 `127.0.0.1:` 前缀绑定，禁止直接映射到宿主机公网接口
-- frontend 容器内的 nginx **只服务静态文件**，不得包含任何 `proxy_pass` 或 `/api/` location
+- frontend 容器内的 nginx **只服务 index.html + SPA 回退**，不得包含任何 `proxy_pass` 或 `/api/` location。Vite 构建的 JS/CSS 资源由后端 `/api/v1/public/` 托管
 - `/api/` 的反代职责完全由外部 NGINX 承担
-- 前端代码统一使用相对路径 `/api/v1/...`，禁止硬编码 host:port，确保开发/生产一致
+- 前端代码统一使用相对路径（Vite `base` 自动处理），禁止硬编码 host:port，确保开发/生产一致
 
 ### 8.2 外部 NGINX 配置（参考）
 
-外部 NGINX 承担 TLS 终止与 `/api` 分流，将所有流量转发到本机两个容器端口：
+外部 NGINX 承担 TLS 终止与 `/api` 分流，将所有流量转发到本机两个容器端口。`/api/v1/public/*`（静态资源）与 `/api/*`（API）统一由后端容器处理，无需单独 location。
 
 ```nginx
 server {
@@ -600,7 +614,9 @@ server {
     server_name vpn.example.com;
     # ssl_certificate ... (已有的 TLS 配置)
 
-    # API 请求转发到后端容器
+    # API 请求 + 静态资源 转发到后端容器
+    # /api/v1/public/* → 静态资源 (JS/CSS/字体/图片, 可 CDN 缓存)
+    # /api/v1/*        → Gin API
     location /api/ {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host              $host;
@@ -609,7 +625,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # 其他请求转发到前端容器 (静态文件)
+    # 其他请求转发到前端容器 (index.html SPA 回退)
     location / {
         proxy_pass http://127.0.0.1:8081;
         proxy_set_header Host              $host;
@@ -648,7 +664,7 @@ volumes:
 
 ### 8.4 前端容器 nginx.conf（参考）
 
-前端容器内 nginx **只服务静态文件 + SPA 回退**，无任何反代：
+前端容器内 nginx **仅服务 index.html + SPA 回退**，无任何反代。JS/CSS/字体/图片等构建产物由后端 `/api/v1/public/` 托管：
 
 ```nginx
 server {
@@ -664,7 +680,7 @@ server {
 
 ### 8.5 开发环境
 
-本地开发时前端用 Vite dev server (5173)，后端 `go run` (8080)。`vite.config.js` 配置 proxy 将 `/api/` 转发到本地后端，前端代码与生产完全一致（均用相对路径）：
+本地开发时前端用 Vite dev server (5173)，后端 `go run` (8080)。`vite.config.js` 配置 proxy 将 `/api/` 转发到本地后端，前端代码与生产完全一致。开发环境下 Vite `base` 保持 `/`（Vite dev server 自动处理资源路径），仅生产构建时使用 `/api/v1/public/`。
 
 ```js
 // vite.config.js
@@ -674,6 +690,8 @@ server: {
   }
 }
 ```
+
+生产构建时 `base` 设为 `/api/v1/public/`（通过环境变量或 `vite build --base /api/v1/public/`）。
 
 ### 8.6 数据流示例
 

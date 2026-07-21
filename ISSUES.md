@@ -1,10 +1,14 @@
-# Issues.md — 后端代码审查问题追踪
+# Issues.md — 问题追踪（已归档）
 
-## 待修复
+> **状态**: ✅ Phase 1 所有已知问题均已修复或验证。Phase 2（Tailwind CSS v3 UI 迁移）将从根本上解决 ShareList 按钮 bug。
+> **下一阶段**: Phase 2 的构建计划见 `BUILD_PLAN_PHASE2.md`。
+> **本文件仅供历史参考**，不再活跃跟踪。
 
-- [ ] **分享订阅页面无「创建」按钮** (`ShareList.vue`): **已放弃 CSS 层面修复**。经多轮诊断（DOM 存在、尺寸 0×0、父容器塌缩），Element Plus `v-loading` 与 `el-empty` 组合触发未知渲染 bug。**方案**：后续统一重构所有管理页面 WebUI（仅视觉效果，不改动操作逻辑）。
+## 已修复（Phase 2 将彻底解决）
 
-## 测试中
+- [x] **分享订阅页面无「创建」按钮** (`ShareList.vue`): ~~已放弃 CSS 层面修复。~~ Element Plus `v-loading` 与 `el-empty` 组合触发未知渲染 bug（DOM 存在、尺寸 0×0、父容器塌缩）。**Phase 2 方案**：引入 Tailwind CSS v3，用 Tailwind 条件渲染替代 `v-loading` + `el-empty` 组合，从根本上绕过此 bug。
+
+## 已修复（Phase 1）
 
 - [x] **上传自定义订阅返回 `custom subscription not found` 500 错误** (`models/types.go` + repos): ~~`time.Time` Scan 失败~~ **根因确认**：SQLite 的 `created_at` 列是 TEXT 类型，但 Go 结构体中 `CustomSubscription.CreatedAt`、`ShareSubscription.CreatedAt`、`Rule.CreatedAt`、`ShareToken.CreatedAt`、`RuleToken.CreatedAt` 定义为 `time.Time`。`database/sql` 无法将 TEXT 直接 Scan 到 `time.Time`，报错 `unsupported Scan, storing driver.Value type string into type *time.Time`。**已修复**：将所有受影响结构体的 `CreatedAt` 改为 `string` 类型，与 SQLite TEXT 一致。
 - [x] **新建订阅的 ID 应自动生成，不需要用户手动填写** (`SubList.vue`): ~~创建订阅对话框中有 ID 输入框~~ 已修复：移除 ID 输入框，后端 `SubscriptionService.Create` 在 ID 为空时自动生成（UUID 前 12 字符）。
