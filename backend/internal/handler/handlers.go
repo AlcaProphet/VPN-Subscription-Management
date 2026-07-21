@@ -1597,7 +1597,7 @@ func parseVersionParam(v string) (int, error) {
 // endpoints. These headers are harmless for non-Clash clients (they ignore
 // unrecognized headers).
 func setDownloadHeaders(c *gin.Context) {
-	c.Header("Content-Disposition", `attachment; filename="Luneflare VPN Clash.yaml"`)
+	c.Header("Content-Disposition", `attachment; filename*=UTF-8''Luneflare%20VPN%20Clash.yaml`)
 	c.Header("profile-update-interval", "300")
 	cfgRepo := repository.NewSystemConfigRepo()
 	if frontendURL, err := cfgRepo.Get("frontend_url"); err == nil && frontendURL != "" {
