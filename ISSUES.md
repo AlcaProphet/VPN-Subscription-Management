@@ -29,28 +29,16 @@
 
 - [x] **订阅下载端点缺少 Clash Verge 专用响应头** (`handlers.go` 下载端点): 已实现。在 `SubDownloadToken`、`ShareDownload`、`GetRuleDownload` 3 个下载端点添加响应头：`Content-Disposition: attachment; filename="Luneflare VPN Clash.yaml"`、`profile-update-interval: 300`、`profile-web-page-url: {frontend_url}`。通过 `setDownloadHeaders()` 辅助函数统一管理，`profile-web-page-url` 从 `system_config.frontend_url` 读取。
 
-- [ ] **验证客户端 IP 记录是否使用了 X-Forwarded-For**（`access_logs` 表）: ~~已修复 `SetTrustedProxies(nil)`，但生产验证仍未生效。~~
+- [ ] **验证客户端 IP 记录是否使用了 X-Forwarded-For**（`access_logs` 表）: **根因确认**：Gin v1.10.0 中 `SetTrustedProxies(nil)` 导致内部 `trustedCIDRs = nil`，`ClientIP()` 检测到 nil 后**完全跳过** X-Forwarded-For 解析，回退到 `RemoteAddr`。
 
-  **代码复查**（全部 17 处 `c.ClientIP()` 调用已覆盖）:
-  | 文件 | 用途 |
-  |------|------|
-  | `handlers.go` × 12 | `logAccess()` 记录下载日志 |
-  | `logger.go` × 2 | HTTP 请求日志 + panic 恢复日志 |
-  | `rate_limit.go` × 2 | 速率限制按 IP 分桶 |
-  
-  所有调用均使用 Gin 的 `c.ClientIP()`，`SetTrustedProxies(nil)` 已正确配置。
+  **诊断日志验证**：
+  ```json
+  {"ip":"10.0.28.16","xff":"59.60.10.35","remote":"10.0.28.16"}
+  ```
+  - `xff` 有真实公网 IP → NGINX 正确传递了 X-Forwarded-For ✅
+  - `ip` 却是 Docker 网关 → Gin 忽略了 header ❌
 
-  **仍可能失败的原因**:
-  1. **外部 NGINX 未传递 X-Forwarded-For** — 确认生产 NGINX 配置是否包含 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`
-  2. **Docker 网络模式差异** — 如果使用了 `network_mode: host` 或其他自定义网络，容器内看到的来源 IP 会不同
-  3. **中间有其他代理层** — CDN / WAF / 负载均衡器可能重置或修改了 X-Forwarded-For 头
-  4. **Gin 版本行为差异** — `SetTrustedProxies(nil)` 在不同 Gin 版本中行为可能不完全一致
-
-  **需要提供的信息**:
-  1. 生产环境 `docker compose ps` 输出 — 确认端口绑定是否为 `127.0.0.1`
-  2. 后端日志中最近一条下载请求的 `ip` 字段值 — 确认当前记录的是什么 IP
-  3. 在容器内测试：`curl -H "X-Forwarded-For: 8.8.8.8" http://127.0.0.1:8080/health` 然后查看日志中的 IP 是否为 `8.8.8.8` — 直接验证 `SetTrustedProxies(nil)` 是否生效
-  4. 从外部访问一次下载链接，同时在浏览器 DevTools → Network 中查看请求头是否包含 `X-Forwarded-For`
+  **已修复**：`SetTrustedProxies([]string{"0.0.0.0/0"})` — 用 CIDR 覆盖所有 IPv4 地址。`SetTrustedProxies(nil)` 在 Gin 中的语义是"不信任任何代理"而非"信任所有"。
 
 ## 已验证，不修复
 
