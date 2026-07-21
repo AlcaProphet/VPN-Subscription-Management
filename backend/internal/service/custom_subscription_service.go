@@ -53,7 +53,7 @@ func (s *CustomSubscriptionService) Upload(userID, platform, content string) (*m
 		UserID:    userID,
 		Platform:  platform,
 		Versions:  []models.Version{},
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
 	}
 
 	if err := s.repo.Create(cs); err != nil {

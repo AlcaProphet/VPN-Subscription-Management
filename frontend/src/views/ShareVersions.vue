@@ -78,6 +78,7 @@
     <!-- Upload Modal -->
     <UploadModal
       v-model:visible="uploadVisible"
+      :initial-content="editContent"
       @upload="onFileUpload"
       @textSave="onTextSave"
     />
@@ -92,6 +93,9 @@
       <pre class="preview-content">{{ previewContent }}</pre>
       <template #footer>
         <el-button @click="previewVisible = false">关闭</el-button>
+        <el-button type="primary" @click="handleEditFromPreview">
+          基于此版本编辑
+        </el-button>
       </template>
     </el-dialog>
 
@@ -126,6 +130,7 @@ const uploadVisible = ref(false)
 
 const previewVisible = ref(false)
 const previewContent = ref('')
+const editContent = ref('')
 
 const deleteVersionVisible = ref(false)
 const deleteVersionTarget = ref(null)
@@ -233,6 +238,12 @@ async function handlePreview(v) {
   } catch (e) {
     ElMessage.error('加载版本内容失败')
   }
+}
+
+function handleEditFromPreview() {
+  editContent.value = previewContent.value
+  previewVisible.value = false
+  uploadVisible.value = true
 }
 
 function confirmDeleteVersion(v) {

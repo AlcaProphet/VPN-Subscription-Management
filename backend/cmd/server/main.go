@@ -57,8 +57,13 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := router.SetupRouter()
 
-	// Configure trusted proxies (for X-Forwarded-For/X-Real-IP behind reverse proxy)
-	if err := r.SetTrustedProxies([]string{"127.0.0.1"}); err != nil {
+	// Configure trusted proxies (for X-Forwarded-For/X-Real-IP behind reverse proxy).
+	// In Docker, the external NGINX connects through the Docker gateway (e.g. 10.0.28.x),
+	// not 127.0.0.1. We use 0.0.0.0/0 to trust all IPv4 proxies because:
+	//   - Ports are bound to 127.0.0.1, so direct external access is impossible
+	//   - Gin v1.10 SetTrustedProxies(nil) results in trustedCIDRs=nil which
+	//     causes ClientIP() to skip X-Forwarded-For entirely
+	if err := r.SetTrustedProxies([]string{"0.0.0.0/0"}); err != nil {
 		log.Printf("Warning: Failed to set trusted proxies: %v", err)
 	}
 

@@ -72,13 +72,6 @@
         :rules="formRules"
         label-position="top"
       >
-        <el-form-item label="ID" prop="id">
-          <el-input
-            v-model="form.id"
-            :disabled="isEditing"
-            placeholder="小写字母、数字和连字符"
-          />
-        </el-form-item>
         <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" placeholder="订阅名称" />
         </el-form-item>
@@ -154,14 +147,6 @@ const form = reactive({
 // Validation Rules
 // ==========================================================================
 const formRules = computed(() => ({
-  id: [
-    { required: true, message: '请输入 ID', trigger: 'blur' },
-    {
-      pattern: /^[a-z0-9-]+$/,
-      message: 'ID 只能包含小写字母、数字和连字符',
-      trigger: 'blur'
-    }
-  ],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择类型', trigger: 'change' }],
   platform: [{ required: true, message: '请选择平台', trigger: 'change' }]
@@ -267,7 +252,6 @@ async function handleSubmit() {
       ElMessage.success('订阅已更新')
     } else {
       await adminApi.subscriptions.create({
-        id: form.id,
         name: form.name,
         type: form.type,
         platform: form.platform

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -430,6 +431,7 @@ func SubDownloadToken(c *gin.Context) {
 	}
 
 	logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "success", "")
+	setDownloadHeaders(c, plat)
 	c.String(http.StatusOK, content)
 }
 
@@ -1590,12 +1592,40 @@ func parseVersionParam(v string) (int, error) {
 	return strconv.Atoi(v)
 }
 
+// setDownloadHeaders adds Clash Verge-compatible response headers to download
+// endpoints. Headers are only applied when platform is "clash-verge" to avoid
+// interfering with other VPN clients (v2rayNG, Shadowrocket, etc.).
+func setDownloadHeaders(c *gin.Context, platform string) {
+	if platform != "clash-verge" {
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename*=UTF-8''Luneflare%20VPN%20Clash.yaml`)
+	c.Header("profile-update-interval", "300")
+	cfgRepo := repository.NewSystemConfigRepo()
+	if frontendURL, err := cfgRepo.Get("frontend_url"); err == nil && frontendURL != "" {
+		c.Header("profile-web-page-url", frontendURL)
+	}
+}
+
 // logAccess records a download access log entry. This is a best-effort helper
 // — failures are silently ignored so they never affect the download response.
+// When userID is non-empty, the user's email is looked up and stored instead of
+// the raw UUID for human readability in the logs page.
 func logAccess(userID, ip, downloadType, platform, shareSubID, ruleID, status, errorReason string) {
+	identifier := userID
+	if userID != "" {
+		userRepo := repository.NewUserRepo()
+		if u, err := userRepo.FindByID(userID); err == nil && u.Email != "" {
+			identifier = u.Email
+		} else if err != nil {
+			log.Printf("[DEBUG] logAccess: FindByID(%q) failed: %v", userID, err)
+		} else {
+			log.Printf("[DEBUG] logAccess: FindByID(%q) OK but email empty (username=%q)", userID, u.Username)
+		}
+	}
 	repo := repository.NewAccessLogRepo()
 	_ = repo.Insert(&repository.AccessLogRecord{
-		UserID:              userID,
+		UserID:              identifier,
 		IP:                  ip,
 		DownloadType:        downloadType,
 		Platform:            platform,

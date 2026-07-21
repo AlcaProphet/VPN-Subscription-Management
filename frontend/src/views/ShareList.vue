@@ -1,5 +1,5 @@
 <template>
-  <div class="share-list-container" v-loading="loading">
+  <div class="share-list-container">
     <div class="page-header">
       <h2>分享订阅</h2>
       <el-button type="primary" @click="openCreateDialog">
@@ -408,7 +408,12 @@ onMounted(async () => {
 
 <style scoped>
 .share-list-container {
+  display: block;
+  min-width: 100%;
+  width: 100%;
   padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .page-header {

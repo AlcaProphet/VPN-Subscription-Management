@@ -34,6 +34,14 @@ func (s *SubscriptionService) Get(id string) (*models.Subscription, error) {
 }
 
 func (s *SubscriptionService) Create(sub *models.Subscription) error {
+	// Auto-generate ID if not provided
+	if sub.ID == "" {
+		id, err := utils.GenerateUUID()
+		if err != nil {
+			return fmt.Errorf("failed to generate ID: %w", err)
+		}
+		sub.ID = id[:12]
+	}
 	if !utils.IsValidID(sub.ID) {
 		return fmt.Errorf("invalid subscription ID: must be [a-z0-9-]+")
 	}
