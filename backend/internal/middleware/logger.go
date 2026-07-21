@@ -64,6 +64,9 @@ func LoggerMiddleware() gin.HandlerFunc {
 			Int("status", status).
 			Dur("duration", duration).
 			Str("ip", clientIP).
+			Str("xff", c.GetHeader("X-Forwarded-For")).
+			Str("xri", c.GetHeader("X-Real-IP")).
+			Str("remote", c.Request.RemoteAddr).
 			Msg("HTTP request")
 	}
 }
