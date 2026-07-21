@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1615,6 +1616,10 @@ func logAccess(userID, ip, downloadType, platform, shareSubID, ruleID, status, e
 		userRepo := repository.NewUserRepo()
 		if u, err := userRepo.FindByID(userID); err == nil && u.Email != "" {
 			identifier = u.Email
+		} else if err != nil {
+			log.Printf("[DEBUG] logAccess: FindByID(%q) failed: %v", userID, err)
+		} else {
+			log.Printf("[DEBUG] logAccess: FindByID(%q) OK but email empty (username=%q)", userID, u.Username)
 		}
 	}
 	repo := repository.NewAccessLogRepo()
