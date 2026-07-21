@@ -79,7 +79,6 @@ func GetRuleDownload(c *gin.Context) {
 		return
 	}
 	logAccess("", c.ClientIP(), "rule", "", "", ruleID, "success", "")
-	setDownloadHeaders(c)
 	c.String(http.StatusOK, content)
 }
 
@@ -432,7 +431,7 @@ func SubDownloadToken(c *gin.Context) {
 	}
 
 	logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "success", "")
-	setDownloadHeaders(c)
+	setDownloadHeaders(c, plat)
 	c.String(http.StatusOK, content)
 }
 
@@ -462,7 +461,6 @@ func ShareDownload(c *gin.Context) {
 	}
 
 	logAccess("", c.ClientIP(), "share", "", id, "", "success", "")
-	setDownloadHeaders(c)
 	c.String(http.StatusOK, content)
 }
 
@@ -1595,9 +1593,12 @@ func parseVersionParam(v string) (int, error) {
 }
 
 // setDownloadHeaders adds Clash Verge-compatible response headers to download
-// endpoints. These headers are harmless for non-Clash clients (they ignore
-// unrecognized headers).
-func setDownloadHeaders(c *gin.Context) {
+// endpoints. Headers are only applied when platform is "clash-verge" to avoid
+// interfering with other VPN clients (v2rayNG, Shadowrocket, etc.).
+func setDownloadHeaders(c *gin.Context, platform string) {
+	if platform != "clash-verge" {
+		return
+	}
 	c.Header("Content-Disposition", `attachment; filename*=UTF-8''Luneflare%20VPN%20Clash.yaml`)
 	c.Header("profile-update-interval", "300")
 	cfgRepo := repository.NewSystemConfigRepo()
