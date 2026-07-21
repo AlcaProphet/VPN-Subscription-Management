@@ -25,6 +25,11 @@ func SetupRouter() *gin.Engine {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
+	// Root endpoint for WAF / load-balancer health probes
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	api := r.Group("/api/v1")
 	{
 		// Public endpoints — always available
