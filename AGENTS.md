@@ -241,9 +241,11 @@
 
 ### 4.1 整体风格
 
-**样式框架**: Tailwind CSS v3（utility-first CSS 框架），本地打包（PostCSS + Vite 构建时 Purge，零运行时 CDN 依赖）。Element Plus 保留用于复杂交互组件（el-table、el-dialog、el-form、el-upload、el-menu 等），其视觉样式由 Tailwind 覆盖或补充。
+**样式框架**: Tailwind CSS v3（utility-first CSS 框架），本地打包（PostCSS + Vite 构建时 Purge，零运行时 CDN 依赖）。Element Plus 仅保留 5 个复杂交互组件（`el-table`、`el-dialog`、`el-form`、`el-upload`、`el-menu`），其余组件（`el-button`、`el-input`、`el-tag`、`el-card`、`el-empty` 等）全部用 Tailwind 原生替代。Element Plus 保留组件的视觉样式由 Tailwind 覆盖或补充。
 
 **设计原则**: 性能优先、简约优先。响应式采用 Tailwind 内置断点（sm: 640px, md: 768px, lg: 1024px, xl: 1280px），移动端优先。暗色模式通过 Tailwind `dark:` 前缀 + useTheme composable（`.dark` class 切换）实现，localStorage 持久化偏好。
+
+**通知系统**: 自建 `useToast()` composable 替代 `ElMessage`，在页面底部显示 3 秒自动消失的通知。
 
 ### 4.2 首页 (Home.vue)
 
@@ -419,10 +421,11 @@
 - SQLite: `modernc.org/sqlite`（纯 Go 驱动，零 CGO，便于静态编译到 distroless）
 - OIDC: `coreos/go-oidc/v3` + `golang-jwt/jwt/v5`（PKCE 流程 + JWT 签发验证）
 
-**前端**: Vue 3 (Composition API + `<script setup>`) + Vite + Element Plus + Tailwind CSS v3 + Pinia + Vue Router
+**前端**: Vue 3 (Composition API + `<script setup>`) + Vite + Tailwind CSS v3 + Element Plus（仅 5 个复杂组件）+ Pinia + Vue Router
 - HTTP: Axios（统一 baseURL `/api/v1`，401 拦截自动登出）
-- 样式: Tailwind CSS v3（utility-first，构建时 Purge，~3 KB gzipped）+ Element Plus 组件样式（仅交互组件）
+- 样式: Tailwind CSS v3（utility-first，构建时 Purge，~3 KB gzipped）。Element Plus 仅保留 `el-table`、`el-dialog`、`el-form`、`el-upload`、`el-menu` 五个复杂交互组件
 - 主题: 自实现 `useTheme` composable（`.dark` class 切换，Tailwind `dark:` 前缀 + Element Plus 暗色变量 + localStorage 持久化）
+- 通知: 自建 `useToast()` composable 替代 `ElMessage`
 
 **约束**: 所有依赖须可纯静态编译/打包，不依赖 CGO、不依赖外部数据库进程。
 
@@ -581,32 +584,26 @@ data/
 
 ### 8.1 部署架构（最终决策）
 
-采用**外部 NGINX 分流 + 双容器（端口绑 127.0.0.1）**架构。`/api/` 与静态文件的分流由部署机上已有的外部 NGINX 承担，容器内**不做任何反代**。两个容器的端口只绑定宿主机的 `127.0.0.1`，外部网络不可达，仅同机外部 NGINX 能转发到它们。
-
-**静态资源 CDN 化**: 前端 Vite 构建产物（JS/CSS/字体/图片）通过 `/api/v1/public/` 路径由 Go 后端托管。配置 `vite.config.js` 的 `base: '/api/v1/public/'` 后，所有资源引用自动带此前缀。外部 NGINX 将 `/api/v1/public/*` 转发到后端，后续可在该路径上配置 CDN 缓存（带 content hash 的文件名天然支持长期缓存）。
+采用**单容器**架构。Go 后端 serve 一切：API（`/api/v1/*`）+ 静态文件（`/assets/*`）+ `index.html` SPA 回退（`/*`）。外部 NGINX 仅作 TLS 终止和反代，所有请求转发到同一端口。
 
 ```
 用户浏览器
    ↓ HTTPS
-外部 NGINX/CDN (部署机已有, vpn.example.com)
-   ├─ /api/v1/public/* → http://127.0.0.1:8080  (backend, 静态资源, 可 CDN 缓存)
-   ├─ /api/*           → http://127.0.0.1:8080  (backend 容器, Gin API)
-   └─ /*               → http://127.0.0.1:8081  (frontend 容器, index.html SPA 回退)
-   ↓
-docker-compose (两个容器, 端口均绑 127.0.0.1)
-   ├─ backend  :8080  → Gin API + /api/v1/public/ 静态资源 (不对外)
-   └─ frontend :8081  → nginx 纯静态文件服务 (仅 index.html, 无 proxy_pass)
+外部 NGINX (部署机已有, vpn.example.com)
+   └─ /* → http://127.0.0.1:8080  (Go 后端, 单容器)
+         ├─ /api/v1/*  → Gin API
+         ├─ /assets/*  → Vite 构建的静态资源 (JS/CSS/字体/图片)
+         └─ /*         → index.html (SPA history 模式回退)
 ```
 
 **架构约束（强制）**:
-- 对外只暴露一个端口（外部 NGINX 的 443/80）。backend 的 8080 和 frontend 的 80 必须以 `127.0.0.1:` 前缀绑定，禁止直接映射到宿主机公网接口
-- frontend 容器内的 nginx **只服务 index.html + SPA 回退**，不得包含任何 `proxy_pass` 或 `/api/` location。Vite 构建的 JS/CSS 资源由后端 `/api/v1/public/` 托管
-- `/api/` 的反代职责完全由外部 NGINX 承担
-- 前端代码统一使用相对路径（Vite `base` 自动处理），禁止硬编码 host:port，确保开发/生产一致
+- 对外只暴露一个端口（外部 NGINX 的 443/80）。容器端口必须以 `127.0.0.1:` 前缀绑定，禁止直接映射到宿主机公网接口
+- Go 后端通过 `r.Static` + `r.NoRoute` 实现静态文件服务和 SPA 回退
+- 前端代码统一使用相对路径（Vite 默认 `base: '/'`），禁止硬编码 host:port，确保开发/生产一致
 
 ### 8.2 外部 NGINX 配置（参考）
 
-外部 NGINX 承担 TLS 终止与 `/api` 分流，将所有流量转发到本机两个容器端口。`/api/v1/public/*`（静态资源）与 `/api/*`（API）统一由后端容器处理，无需单独 location。
+外部 NGINX 承担 TLS 终止，所有流量转发到单容器端口。无需 `/api` 路径分流。
 
 ```nginx
 server {
@@ -614,95 +611,72 @@ server {
     server_name vpn.example.com;
     # ssl_certificate ... (已有的 TLS 配置)
 
-    # API 请求 + 静态资源 转发到后端容器
-    # /api/v1/public/* → 静态资源 (JS/CSS/字体/图片, 可 CDN 缓存)
-    # /api/v1/*        → Gin API
-    location /api/ {
+    location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-    }
 
-    # 其他请求转发到前端容器 (index.html SPA 回退)
-    location / {
-        proxy_pass http://127.0.0.1:8081;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        # Increase timeout for large file uploads (50MB limit)
+        client_max_body_size 55m;
     }
 }
 ```
 
 ### 8.3 docker-compose.yml（参考）
 
-两个容器端口均绑定 `127.0.0.1`，不对外暴露：
+单容器部署，端口绑定 `127.0.0.1`：
 
 ```yaml
 services:
-  backend:
-    build: { context: ./backend }
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vpn-app
     ports:
       - "127.0.0.1:8080:8080"     # 只绑本机, 外部不可达
     volumes:
       - vpn-data:/app/data
     restart: unless-stopped
 
-  frontend:
-    build: { context: ./frontend }
-    ports:
-      - "127.0.0.1:8081:80"       # 只绑本机, 外部不可达
-    depends_on:
-      - backend
-    restart: unless-stopped
-
 volumes:
   vpn-data:
 ```
 
-### 8.4 前端容器 nginx.conf（参考）
+### 8.4 前端静态文件服务（Go 内嵌）
 
-前端容器内 nginx **仅服务 index.html + SPA 回退**，无任何反代。JS/CSS/字体/图片等构建产物由后端 `/api/v1/public/` 托管：
+前端 Vite 构建产物由 Go 后端直接 serve，无需独立的 nginx 容器。
 
-```nginx
-server {
-    listen 80;
-    server_name _;
-    root /usr/share/nginx/html;
-
-    location / {
-        try_files $uri $uri/ /index.html;   # SPA history 模式回退
-    }
-}
-```
+- `r.Static("/assets", "/app/public/assets")` — 服务 JS/CSS/字体/图片（Vite 构建默认输出路径）
+- `r.NoRoute(...)` — 非 `/api/` 路径全部回落 `index.html`，由 Vue Router 在客户端接管路由
+- `index.html` 中的资源引用使用默认相对路径（`/assets/index-abc123.js`）
 
 ### 8.5 开发环境
 
-本地开发时前端用 Vite dev server (5173)，后端 `go run` (8080)。`vite.config.js` 配置 proxy 将 `/api/` 转发到本地后端，前端代码与生产完全一致。开发环境下 Vite `base` 保持 `/`（Vite dev server 自动处理资源路径），仅生产构建时使用 `/api/v1/public/`。
+本地开发时前端用 Vite dev server (5173)，后端 `go run` (8080)。`vite.config.js` 配置 proxy 将 `/api/` 转发到本地后端，前端代码与生产完全一致（均用相对路径 `/`）。
 
 ```js
 // vite.config.js
-server: {
-  proxy: {
-    '/api': 'http://localhost:8080'
-  }
-}
+export default defineConfig({
+  plugins: [vue()],
+  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  server: { proxy: { '/api': 'http://localhost:8080' } }
+})
 ```
-
-生产构建时 `base` 设为 `/api/v1/public/`（通过环境变量或 `vite build --base /api/v1/public/`）。
 
 ### 8.6 数据流示例
 
 部署在 `https://vpn.example.com` 时，以登录为例：
 
-1. `GET https://vpn.example.com/` → 外部 NGINX `/` → frontend:8081 → 返回 index.html
-2. `GET https://vpn.example.com/api/v1/auth/login` → 外部 NGINX `/api/` → backend:8080 → OIDC 跳转
-3. OIDC 回调 `GET https://vpn.example.com/api/v1/auth/callback?code=xxx` → 外部 NGINX `/api/` → backend:8080 → 302 到 `/`
-4. `GET https://vpn.example.com/` → frontend:8081 → 首页加载完成
+1. `GET https://vpn.example.com/` → 外部 NGINX `/` → Go :8080 → `index.html`
+2. `GET https://vpn.example.com/api/v1/auth/login` → 外部 NGINX `/` → Go :8080 → Gin handler → OIDC 跳转
+3. OIDC 回调 `GET https://vpn.example.com/api/v1/auth/callback?code=xxx` → 外部 NGINX `/` → Go :8080 → Gin handler → 302 到 `/`
+4. `GET https://vpn.example.com/` → Go :8080 → `index.html` → 首页加载完成
+5. `GET https://vpn.example.com/assets/index-abc123.js` → Go :8080 → `r.Static` → 返回 JS 文件
 
-全程同源（同一域名），无跨域问题。
+全程同源（同一域名），无跨域问题。静态资源由 Go 后端直接 serve，无额外 nginx 容器。
 
 ### 8.7 持久化存储
 
