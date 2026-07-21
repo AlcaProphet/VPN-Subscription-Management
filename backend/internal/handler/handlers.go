@@ -1607,10 +1607,19 @@ func setDownloadHeaders(c *gin.Context) {
 
 // logAccess records a download access log entry. This is a best-effort helper
 // — failures are silently ignored so they never affect the download response.
+// When userID is non-empty, the user's email is looked up and stored instead of
+// the raw UUID for human readability in the logs page.
 func logAccess(userID, ip, downloadType, platform, shareSubID, ruleID, status, errorReason string) {
+	identifier := userID
+	if userID != "" {
+		userRepo := repository.NewUserRepo()
+		if u, err := userRepo.FindByID(userID); err == nil && u.Email != "" {
+			identifier = u.Email
+		}
+	}
 	repo := repository.NewAccessLogRepo()
 	_ = repo.Insert(&repository.AccessLogRecord{
-		UserID:              userID,
+		UserID:              identifier,
 		IP:                  ip,
 		DownloadType:        downloadType,
 		Platform:            platform,
