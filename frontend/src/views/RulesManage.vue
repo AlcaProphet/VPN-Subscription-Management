@@ -1,166 +1,93 @@
 <template>
-  <div class="rules-container" v-loading="loading">
-    <div class="page-header">
-      <h2>规则管理</h2>
-      <el-button type="primary" @click="openCreateDialog">
-        <el-icon><Plus /></el-icon>
-        创建规则
-      </el-button>
+  <div>
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <svg class="animate-spin h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <span class="text-gray-500 dark:text-gray-400">加载中...</span>
     </div>
 
-    <el-empty
-      v-if="!loading && rules.length === 0"
-      description="暂无规则，请创建"
-    />
+    <template v-else>
+      <div class="flex justify-between items-center mb-5 flex-wrap gap-3">
+        <h2 class="m-0 text-xl font-semibold text-gray-900 dark:text-white">规则管理</h2>
+        <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm flex items-center gap-1" @click="openCreateDialog">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          创建规则
+        </button>
+      </div>
 
-    <el-table
-      v-else
-      :data="rules"
-      stripe
-      class="rules-table"
-    >
-      <el-table-column prop="name" label="规则名称" min-width="160" />
-      <el-table-column label="客户端类型" width="130">
-        <template #default="{ row }">
-          <el-tag size="small">{{ row.client_type || 'Shadowrocket' }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="当前版本" width="100">
-        <template #default="{ row }">
-          <span v-if="currentVersion(row) !== null">v{{ currentVersion(row) }}</span>
-          <span v-else class="no-data">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="更新时间" width="180">
-        <template #default="{ row }">
-          <span v-if="currentUpdatedAt(row)">{{ formatTime(currentUpdatedAt(row)) }}</span>
-          <span v-else class="no-data">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Token" width="140">
-        <template #default="{ row }">
-          <span v-if="row.token" class="token-text">{{ maskToken(row.token) }}</span>
-          <span v-else class="no-data">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" min-width="300" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" @click="goVersions(row)">
-            版本管理
-          </el-button>
-          <el-button
-            size="small"
-            :disabled="!row.token"
-            @click="copyDownloadLink(row)"
-          >
-            复制下载链接
-          </el-button>
-          <el-button size="small" type="warning" @click="confirmRotateToken(row)">
-            轮替 Token
-          </el-button>
-          <el-button size="small" type="danger" @click="confirmDelete(row)">
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <div v-if="rules.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无规则，请创建</div>
+
+      <el-table v-else :data="rules" stripe>
+        <el-table-column prop="name" label="规则名称" min-width="160" />
+        <el-table-column label="客户端类型" width="130">
+          <template #default="{ row }">
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ row.client_type || 'Shadowrocket' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="当前版本" width="100">
+          <template #default="{ row }">
+            <span v-if="currentVersion(row) !== null">v{{ currentVersion(row) }}</span>
+            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="更新时间" width="180">
+          <template #default="{ row }">
+            <span v-if="currentUpdatedAt(row)">{{ formatTime(currentUpdatedAt(row)) }}</span>
+            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Token" width="140">
+          <template #default="{ row }">
+            <span v-if="row.token" class="text-xs text-gray-500 dark:text-gray-400">{{ maskToken(row.token) }}</span>
+            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" min-width="300" fixed="right">
+          <template #default="{ row }">
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.token" @click="copyDownloadLink(row)">复制下载链接</button>
+            <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmRotateToken(row)">轮替 Token</button>
+            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </template>
 
     <!-- Create Dialog -->
-    <el-dialog
-      v-model="createVisible"
-      title="创建规则"
-      width="520px"
-      :close-on-click-modal="false"
-      @closed="resetCreateForm"
-    >
-      <el-tabs v-model="createTab">
-        <el-tab-pane label="文件上传" name="file">
-          <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
-            <el-form-item label="ID" prop="id">
-              <el-input v-model="createForm.id" placeholder="小写字母、数字和连字符" />
-            </el-form-item>
-            <el-form-item label="名称" prop="name">
-              <el-input v-model="createForm.name" placeholder="规则名称" />
-            </el-form-item>
-            <el-form-item label="客户端类型" prop="client_type">
-              <el-select v-model="createForm.client_type" style="width: 100%">
-                <el-option label="Shadowrocket" value="shadowrocket" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="规则文件">
-              <el-upload
-                ref="createUploadRef"
-                :auto-upload="false"
-                :limit="1"
-                accept=".conf,.yaml,.yml,.txt"
-                :on-change="onCreateFileChange"
-                :before-upload="beforeCreateUpload"
-                drag
-              >
-                <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-                <div class="el-upload__text">
-                  将文件拖到此处，或<em>点击上传</em>
-                </div>
-                <template #tip>
-                  <div class="el-upload__tip">文件大小不超过 50MB</div>
-                </template>
-              </el-upload>
-            </el-form-item>
-          </el-form>
-          <div style="margin-top: 12px; text-align: right">
-            <el-button @click="createVisible = false">取消</el-button>
-            <el-button type="primary" :loading="submitting" :disabled="!createFileSelected" @click="handleCreateFile">
-              创建并上传
-            </el-button>
-          </div>
-        </el-tab-pane>
-        <el-tab-pane label="文本编辑" name="text">
-          <el-form ref="createTextFormRef" :model="createForm" :rules="createRules" label-position="top">
-            <el-form-item label="ID" prop="id">
-              <el-input v-model="createForm.id" placeholder="小写字母、数字和连字符" />
-            </el-form-item>
-            <el-form-item label="名称" prop="name">
-              <el-input v-model="createForm.name" placeholder="规则名称" />
-            </el-form-item>
-            <el-form-item label="客户端类型" prop="client_type">
-              <el-select v-model="createForm.client_type" style="width: 100%">
-                <el-option label="Shadowrocket" value="shadowrocket" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="规则内容" prop="content">
-              <el-input
-                v-model="createForm.content"
-                type="textarea"
-                :rows="10"
-                placeholder="在此粘贴规则配置文本..."
-              />
-            </el-form-item>
-          </el-form>
-          <div style="margin-top: 12px; text-align: right">
-            <el-button @click="createVisible = false">取消</el-button>
-            <el-button type="primary" :loading="submitting" :disabled="!createForm.content.trim()" @click="handleCreateText">
-              创建
-            </el-button>
-          </div>
-        </el-tab-pane>
-      </el-tabs>
+    <el-dialog v-model="createVisible" title="创建规则" width="520px" :close-on-click-modal="false" @closed="resetCreateForm">
+      <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
+        <el-form-item label="ID" prop="id">
+          <input v-model="createForm.id" placeholder="小写字母、数字和连字符" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('id')" />
+        </el-form-item>
+        <el-form-item label="名称" prop="name">
+          <input v-model="createForm.name" placeholder="规则名称" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('name')" />
+        </el-form-item>
+        <el-form-item label="客户端类型" prop="client_type">
+          <select v-model="createForm.client_type" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @change="createFileFormRef.validateField('client_type')">
+            <option value="shadowrocket">Shadowrocket</option>
+          </select>
+        </el-form-item>
+      </el-form>
+      <UploadTabs
+        ref="uploadTabsRef"
+        v-model="createTab"
+        v-model:textContent="createForm.content"
+        @file-change="onCreateFileChange"
+        @clear-file="createFileSelected = false; createFile = null"
+      />
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm" @click="createVisible = false">取消</button>
+          <button v-if="createTab === 'file'" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="!createFileSelected" @click="handleCreateFile">创建并上传</button>
+          <button v-else class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="!createForm.content.trim()" @click="handleCreateText">创建</button>
+        </div>
+      </template>
     </el-dialog>
 
-    <!-- Rotate Token Confirm -->
-    <ConfirmDialog
-      v-model:visible="rotateVisible"
-      title="轮替 Token"
-      message="轮替后旧链接立即失效，确定？"
-      @confirm="handleRotateToken"
-    />
-
-    <!-- Delete Confirm -->
-    <ConfirmDialog
-      v-model:visible="deleteVisible"
-      title="删除规则"
-      message="确定删除？将级联删除所有版本文件和 Token。"
-      @confirm="handleDelete"
-    />
+    <ConfirmDialog v-model:visible="rotateVisible" title="轮替 Token" message="轮替后旧链接立即失效，确定？" @confirm="handleRotateToken" />
+    <ConfirmDialog v-model:visible="deleteVisible" title="删除规则" message="确定删除？将级联删除所有版本文件和 Token。" @confirm="handleDelete" />
   </div>
 </template>
 
@@ -168,11 +95,12 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
-const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
 import { adminApi, publicApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import UploadTabs from '@/components/UploadTabs.vue'
 
 const router = useRouter()
+const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
 
 // ==========================================================================
 // Data
@@ -188,8 +116,7 @@ const createFileSelected = ref(false)
 const createFile = ref(null)
 const createForm = reactive({ id: '', name: '', client_type: 'shadowrocket', content: '' })
 const createFileFormRef = ref(null)
-const createTextFormRef = ref(null)
-const createUploadRef = ref(null)
+const uploadTabsRef = ref(null)
 
 const createRules = {
   id: [
@@ -261,23 +188,13 @@ function resetCreateForm() {
   createFile.value = null
   createFileSelected.value = false
   createTab.value = 'file'
-  createUploadRef.value?.clearFiles()
   createFileFormRef.value?.clearValidate()
-  createTextFormRef.value?.clearValidate()
+  uploadTabsRef.value?.clearFile()
 }
 
 function onCreateFileChange(file) {
-  createFile.value = file.raw
+  createFile.value = file
   createFileSelected.value = true
-}
-
-function beforeCreateUpload(file) {
-  const maxBytes = 50 * 1024 * 1024
-  if (file.size > maxBytes) {
-    toastError('文件大小不能超过 50MB')
-    return false
-  }
-  return true
 }
 
 async function handleCreateFile() {
@@ -307,7 +224,7 @@ async function handleCreateFile() {
 }
 
 async function handleCreateText() {
-  const valid = await createTextFormRef.value.validate().catch(() => false)
+  const valid = await createFileFormRef.value.validate().catch(() => false)
   if (!valid || !createForm.content.trim()) return
 
   submitting.value = true

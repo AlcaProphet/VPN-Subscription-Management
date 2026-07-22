@@ -1,170 +1,66 @@
 <template>
-  <div class="share-list-container">
-    <div class="page-header">
-      <h2>分享订阅</h2>
-      <el-button type="primary" @click="openCreateDialog">
-        <el-icon><Plus /></el-icon>
+  <div>
+    <div class="flex justify-between items-center mb-5 flex-wrap gap-3">
+      <h2 class="m-0 text-xl font-semibold text-gray-900 dark:text-white">分享订阅</h2>
+      <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm flex items-center gap-1" @click="openCreateDialog">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         创建分享订阅
-      </el-button>
+      </button>
     </div>
 
-    <el-empty
-      v-if="!loading && shares.length === 0"
-      description="暂无分享订阅，请创建"
-    />
+    <div v-if="!loading && shares.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无分享订阅，请创建</div>
 
-    <el-table
-      v-else
-      :data="shares"
-      stripe
-      class="share-table"
-    >
+    <el-table v-else :data="shares" stripe>
       <el-table-column prop="name" label="名称" min-width="160" />
-      <el-table-column label="创建时间" width="180">
-        <template #default="{ row }">
-          {{ formatTime(row.created_at) }}
-        </template>
-      </el-table-column>
+      <el-table-column label="创建时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
       <el-table-column label="当前版本" width="100">
         <template #default="{ row }">
           <span v-if="currentVersion(row) !== null">v{{ currentVersion(row) }}</span>
-          <span v-else class="no-version">—</span>
+          <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
         </template>
       </el-table-column>
       <el-table-column label="Token 状态" width="110">
         <template #default="{ row }">
-          <el-tag v-if="row.has_token" type="success" size="small">有效</el-tag>
-          <el-tag v-else type="danger" size="small">已吊销</el-tag>
+          <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="row.has_token ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'">{{ row.has_token ? '有效' : '已吊销' }}</span>
         </template>
       </el-table-column>
       <el-table-column label="操作" min-width="320" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" @click="goVersions(row)">
-            版本管理
-          </el-button>
-          <el-button
-            size="small"
-            :disabled="!row.has_token"
-            @click="copyShareLink(row)"
-          >
-            复制分享链接
-          </el-button>
-          <el-button
-            size="small"
-            type="warning"
-            @click="confirmRefreshToken(row)"
-          >
-            刷新 Token
-          </el-button>
-          <el-button
-            size="small"
-            type="danger"
-            :disabled="!row.has_token"
-            @click="confirmRevokeToken(row)"
-          >
-            吊销 Token
-          </el-button>
-          <el-button
-            size="small"
-            type="danger"
-            @click="confirmDelete(row)"
-          >
-            删除
-          </el-button>
+          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
+          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.has_token" @click="copyShareLink(row)">复制分享链接</button>
+          <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmRefreshToken(row)">刷新 Token</button>
+          <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.has_token" @click="confirmRevokeToken(row)">吊销 Token</button>
+          <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
         </template>
       </el-table-column>
     </el-table>
 
     <!-- Create Dialog -->
-    <el-dialog
-      v-model="createVisible"
-      title="创建分享订阅"
-      width="520px"
-      :close-on-click-modal="false"
-      @closed="resetCreateForm"
-    >
-      <el-tabs v-model="createTab">
-        <el-tab-pane label="文件上传" name="file">
-          <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
-            <el-form-item label="名称" prop="name">
-              <el-input v-model="createForm.name" placeholder="分享订阅名称" />
-            </el-form-item>
-            <el-form-item label="订阅文件">
-              <el-upload
-                ref="createUploadRef"
-                :auto-upload="false"
-                :limit="1"
-                accept=".conf,.yaml,.yml,.txt"
-                :on-change="onCreateFileChange"
-                :before-upload="beforeCreateUpload"
-                drag
-              >
-                <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-                <div class="el-upload__text">
-                  将文件拖到此处，或<em>点击上传</em>
-                </div>
-                <template #tip>
-                  <div class="el-upload__tip">
-                    文件大小不超过 50MB
-                  </div>
-                </template>
-              </el-upload>
-            </el-form-item>
-          </el-form>
-          <div style="margin-top: 12px; text-align: right">
-            <el-button @click="createVisible = false">取消</el-button>
-            <el-button type="primary" :loading="submitting" :disabled="!createFileSelected" @click="handleCreateFile">
-              创建并上传
-            </el-button>
-          </div>
-        </el-tab-pane>
-        <el-tab-pane label="文本编辑" name="text">
-          <el-form ref="createTextFormRef" :model="createForm" :rules="createRules" label-position="top">
-            <el-form-item label="名称" prop="name">
-              <el-input v-model="createForm.name" placeholder="分享订阅名称" />
-            </el-form-item>
-            <el-form-item label="订阅内容" prop="content">
-              <el-input
-                v-model="createForm.content"
-                type="textarea"
-                :rows="10"
-                placeholder="在此粘贴订阅配置文本..."
-              />
-            </el-form-item>
-          </el-form>
-          <div style="margin-top: 12px; text-align: right">
-            <el-button @click="createVisible = false">取消</el-button>
-            <el-button type="primary" :loading="submitting" :disabled="!createForm.content.trim()" @click="handleCreateText">
-              创建
-            </el-button>
-          </div>
-        </el-tab-pane>
-      </el-tabs>
+    <el-dialog v-model="createVisible" title="创建分享订阅" width="520px" :close-on-click-modal="false" @closed="resetCreateForm">
+      <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
+        <el-form-item label="名称" prop="name">
+          <input v-model="createForm.name" placeholder="分享订阅名称" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('name')" />
+        </el-form-item>
+      </el-form>
+      <UploadTabs
+        ref="uploadTabsRef"
+        v-model="createTab"
+        v-model:textContent="createForm.content"
+        @file-change="onCreateFileChange"
+        @clear-file="createFileSelected = false; createFile = null"
+      />
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm" @click="createVisible = false">取消</button>
+          <button v-if="createTab === 'file'" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="!createFileSelected" @click="handleCreateFile">创建并上传</button>
+          <button v-else class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="!createForm.content.trim()" @click="handleCreateText">创建</button>
+        </div>
+      </template>
     </el-dialog>
 
-    <!-- Refresh Token Confirm -->
-    <ConfirmDialog
-      v-model:visible="refreshVisible"
-      title="刷新 Token"
-      message="刷新后旧链接立即失效，确定？"
-      @confirm="handleRefreshToken"
-    />
-
-    <!-- Revoke Token Confirm -->
-    <ConfirmDialog
-      v-model:visible="revokeVisible"
-      title="吊销 Token"
-      message="吊销后该分享链接立即不可用，订阅文件保留。确定？"
-      @confirm="handleRevokeToken"
-    />
-
-    <!-- Delete Confirm -->
-    <ConfirmDialog
-      v-model:visible="deleteVisible"
-      title="删除分享订阅"
-      message="确定删除？将级联删除所有版本文件和 Token。"
-      @confirm="handleDelete"
-    />
+    <ConfirmDialog v-model:visible="refreshVisible" title="刷新 Token" message="刷新后旧链接立即失效，确定？" @confirm="handleRefreshToken" />
+    <ConfirmDialog v-model:visible="revokeVisible" title="吊销 Token" message="吊销后该分享链接立即不可用，订阅文件保留。确定？" @confirm="handleRevokeToken" />
+    <ConfirmDialog v-model:visible="deleteVisible" title="删除分享订阅" message="确定删除？将级联删除所有版本文件和 Token。" @confirm="handleDelete" />
   </div>
 </template>
 
@@ -172,11 +68,12 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
-const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
 import { adminApi, downloadApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import UploadTabs from '@/components/UploadTabs.vue'
 
 const router = useRouter()
+const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
 
 // ==========================================================================
 // Data
@@ -192,8 +89,7 @@ const createFileSelected = ref(false)
 const createFile = ref(null)
 const createForm = reactive({ name: '', content: '' })
 const createFileFormRef = ref(null)
-const createTextFormRef = ref(null)
-const createUploadRef = ref(null)
+const uploadTabsRef = ref(null)
 
 const createRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
@@ -247,23 +143,13 @@ function resetCreateForm() {
   createFile.value = null
   createFileSelected.value = false
   createTab.value = 'file'
-  createUploadRef.value?.clearFiles()
   createFileFormRef.value?.clearValidate()
-  createTextFormRef.value?.clearValidate()
+  uploadTabsRef.value?.clearFile()
 }
 
 function onCreateFileChange(file) {
-  createFile.value = file.raw
+  createFile.value = file
   createFileSelected.value = true
-}
-
-function beforeCreateUpload(file) {
-  const maxBytes = 50 * 1024 * 1024
-  if (file.size > maxBytes) {
-    toastError('文件大小不能超过 50MB')
-    return false
-  }
-  return true
 }
 
 async function handleCreateFile() {
@@ -291,7 +177,7 @@ async function handleCreateFile() {
 }
 
 async function handleCreateText() {
-  const valid = await createTextFormRef.value.validate().catch(() => false)
+  const valid = await createFileFormRef.value.validate().catch(() => false)
   if (!valid || !createForm.content.trim()) return
 
   submitting.value = true

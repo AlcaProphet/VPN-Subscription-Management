@@ -1,131 +1,108 @@
 <template>
-  <div class="oidc-container" v-loading="loading">
-    <h2>OIDC 配置</h2>
+  <div>
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <svg class="animate-spin h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <span class="text-gray-500 dark:text-gray-400">加载中...</span>
+    </div>
 
-    <!-- OIDC Config Section -->
-    <el-card class="config-card">
-      <template #header>
-        <div class="card-header-row">
-          <span>OIDC 提供商配置</span>
-          <el-tag :type="providerTagType" size="small">{{ providerLabel }}</el-tag>
+    <template v-else>
+      <h2 class="m-0 mb-5 text-xl font-semibold text-gray-900 dark:text-white">OIDC 配置</h2>
+
+      <!-- OIDC Config Card -->
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md mb-5">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+          <span class="font-medium text-gray-900 dark:text-white">OIDC 提供商配置</span>
+          <span class="rounded-full px-2 py-0.5 text-xs font-medium"
+            :class="providerTagClass">{{ providerLabel }}</span>
         </div>
-      </template>
 
-      <el-form
-        ref="oidcFormRef"
-        :model="oidcForm"
-        :rules="oidcRules"
-        label-position="top"
-      >
-        <el-form-item>
-          <el-button type="warning" plain @click="showSwitchDialog = true">
-            切换提供商
-          </el-button>
-        </el-form-item>
-
-        <!-- Keycloak fields -->
-        <template v-if="oidcForm.provider_type === 'keycloak'">
-          <el-form-item label="Keycloak Base URL" prop="keycloak_base_url">
-            <el-input v-model="oidcForm.keycloak_base_url" placeholder="https://keycloak.example.com" />
-          </el-form-item>
-          <el-form-item label="Keycloak Realm" prop="keycloak_realm">
-            <el-input v-model="oidcForm.keycloak_realm" placeholder="my-realm" />
-          </el-form-item>
-        </template>
-
-        <!-- Auth0 fields -->
-        <template v-if="oidcForm.provider_type === 'auth0'">
-          <el-form-item label="Auth0 Domain" prop="auth0_domain">
-            <el-input v-model="oidcForm.auth0_domain" placeholder="your-tenant.auth0.com" />
-          </el-form-item>
-        </template>
-
-        <!-- Generic OIDC fields -->
-        <template v-if="oidcForm.provider_type === 'generic'">
-          <el-form-item label="Issuer URL" prop="generic_issuer">
-            <el-input v-model="oidcForm.generic_issuer" placeholder="https://oidc.example.com" />
-          </el-form-item>
-        </template>
-
-        <!-- Common fields -->
-        <el-form-item label="Client ID" prop="client_id">
-          <el-input v-model="oidcForm.client_id" placeholder="your-client-id" />
-        </el-form-item>
-        <el-form-item label="Client Secret" prop="client_secret">
-          <el-input v-model="oidcForm.client_secret" type="password" show-password placeholder="留空则不修改" />
-          <div class="form-tip">已存储的 Client Secret 已加密，回显为 ••••••。输入新值将覆盖</div>
-        </el-form-item>
-        <el-form-item label="回调地址 (Redirect URI)" prop="redirect_uri">
-          <el-input v-model="oidcForm.redirect_uri" placeholder="https://vpn.example.com/api/v1/auth/callback" />
-        </el-form-item>
-        <el-form-item label="前端地址 (Frontend URL)" prop="frontend_url">
-          <el-input v-model="oidcForm.frontend_url" placeholder="https://vpn.example.com" />
-        </el-form-item>
-
-        <el-form-item>
-          <el-button :loading="testing" @click="handleTest">测试连接</el-button>
-          <el-button type="primary" :loading="saving" @click="handleSave">保存配置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <!-- Rate Limit Section -->
-    <el-card class="config-card">
-      <template #header>
-        <span>速率限制配置</span>
-      </template>
-
-      <el-form
-        ref="rateFormRef"
-        :model="rateForm"
-        :rules="rateRules"
-        label-position="top"
-      >
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="登录 API 限制 (次/分钟)" prop="rate_limit_login">
-              <el-input-number
-                v-model="rateForm.rate_limit_login"
-                :min="1"
-                :max="1000"
-                style="width: 100%"
-              />
+        <div class="p-6">
+          <el-form ref="oidcFormRef" :model="oidcForm" :rules="oidcRules" label-position="top">
+            <el-form-item>
+              <button class="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-md px-3 py-1 text-sm" @click="showSwitchDialog = true">切换提供商</button>
             </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="下载 API 限制 (次/分钟)" prop="rate_limit_download">
-              <el-input-number
-                v-model="rateForm.rate_limit_download"
-                :min="1"
-                :max="1000"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item>
-          <el-button type="primary" :loading="rateSaving" @click="handleRateSave">
-            保存速率限制
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
 
-    <!-- Provider Switch Dialog -->
-    <OIDCSwitchDialog
-      v-model:visible="showSwitchDialog"
-      :current-provider="oidcForm.provider_type"
-      @switch="handleProviderSwitch"
-    />
+            <template v-if="oidcForm.provider_type === 'keycloak'">
+              <el-form-item label="Keycloak Base URL" prop="keycloak_base_url">
+                <input v-model="oidcForm.keycloak_base_url" placeholder="https://keycloak.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('keycloak_base_url')" />
+              </el-form-item>
+              <el-form-item label="Keycloak Realm" prop="keycloak_realm">
+                <input v-model="oidcForm.keycloak_realm" placeholder="my-realm" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('keycloak_realm')" />
+              </el-form-item>
+            </template>
+            <template v-if="oidcForm.provider_type === 'auth0'">
+              <el-form-item label="Auth0 Domain" prop="auth0_domain">
+                <input v-model="oidcForm.auth0_domain" placeholder="your-tenant.auth0.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('auth0_domain')" />
+              </el-form-item>
+            </template>
+            <template v-if="oidcForm.provider_type === 'generic'">
+              <el-form-item label="Issuer URL" prop="generic_issuer">
+                <input v-model="oidcForm.generic_issuer" placeholder="https://oidc.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('generic_issuer')" />
+              </el-form-item>
+            </template>
+
+            <el-form-item label="Client ID" prop="client_id">
+              <input v-model="oidcForm.client_id" placeholder="your-client-id" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('client_id')" />
+            </el-form-item>
+            <el-form-item label="Client Secret" prop="client_secret">
+              <input v-model="oidcForm.client_secret" type="password" placeholder="留空则不修改" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">已存储的 Client Secret 已加密，回显为 ••••••。输入新值将覆盖</div>
+            </el-form-item>
+            <el-form-item label="回调地址 (Redirect URI)" prop="redirect_uri">
+              <input v-model="oidcForm.redirect_uri" placeholder="https://vpn.example.com/api/v1/auth/callback" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('redirect_uri')" />
+            </el-form-item>
+            <el-form-item label="前端地址 (Frontend URL)" prop="frontend_url">
+              <input v-model="oidcForm.frontend_url" placeholder="https://vpn.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('frontend_url')" />
+            </el-form-item>
+
+            <el-form-item>
+              <div class="flex gap-3">
+                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="saving" @click="handleTest">测试连接</button>
+                <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="testing" @click="handleSave">保存配置</button>
+              </div>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+
+      <!-- Rate Limit Card -->
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md mb-5">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <span class="font-medium text-gray-900 dark:text-white">速率限制配置</span>
+        </div>
+
+        <div class="p-6">
+          <el-form ref="rateFormRef" :model="rateForm" :rules="rateRules" label-position="top">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <el-form-item label="登录 API 限制 (次/分钟)" prop="rate_limit_login">
+                <input v-model.number="rateForm.rate_limit_login" type="number" min="1" max="1000" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="rateFormRef.validateField('rate_limit_login')" />
+              </el-form-item>
+              <el-form-item label="下载 API 限制 (次/分钟)" prop="rate_limit_download">
+                <input v-model.number="rateForm.rate_limit_download" type="number" min="1" max="1000" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="rateFormRef.validateField('rate_limit_download')" />
+              </el-form-item>
+            </div>
+            <el-form-item>
+              <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="rateSaving" @click="handleRateSave">保存速率限制</button>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+    </template>
+
+    <OIDCSwitchDialog v-model:visible="showSwitchDialog" :current-provider="oidcForm.provider_type" @switch="handleProviderSwitch" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
-const { success: toastSuccess, error: toastError } = useToast()
 import { adminApi } from '@/services/api'
 import OIDCSwitchDialog from '@/components/OIDCSwitchDialog.vue'
+
+const { success: toastSuccess, error: toastError } = useToast()
 
 // ==========================================================================
 // Data
@@ -195,9 +172,9 @@ const providerLabel = computed(() => {
   return labels[oidcForm.provider_type] || 'Keycloak'
 })
 
-const providerTagType = computed(() => {
-  const types = { keycloak: '', auth0: 'success', generic: 'warning' }
-  return types[oidcForm.provider_type] || ''
+const providerTagClass = computed(() => {
+  const classes = { keycloak: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300', auth0: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300', generic: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' }
+  return classes[oidcForm.provider_type] || ''
 })
 
 // ==========================================================================

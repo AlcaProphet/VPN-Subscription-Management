@@ -73,7 +73,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useToast } from '@/composables/useToast'
 
 const props = defineProps({
@@ -93,7 +93,6 @@ const selectedFileName = ref('')
 const uploadRef = ref(null)
 
 // Sync activeTab with parent modelValue
-import { watch } from 'vue'
 watch(() => props.modelValue, (val) => { activeTab.value = val })
 watch(activeTab, (val) => { emit('update:modelValue', val) })
 
