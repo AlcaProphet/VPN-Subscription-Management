@@ -16,52 +16,49 @@
 
       <div v-if="users.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无用户</div>
 
-      <el-table v-else :data="users" stripe>
-        <el-table-column prop="username" label="用户名" min-width="120" />
-        <el-table-column prop="email" label="邮箱" min-width="180" show-overflow-tooltip />
-        <el-table-column label="角色" width="90">
-          <template #default="{ row }">
-            <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="row.role === 'admin' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'">{{ row.role === 'admin' ? '管理员' : '普通用户' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="订阅级别" width="90">
-          <template #default="{ row }">
-            <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="row.is_advanced ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'">{{ row.is_advanced ? '高级' : '普通' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="自定义订阅" min-width="140">
-          <template #default="{ row }">
-            <template v-if="row.has_custom_sub">
-              <span v-for="p in row.custom_sub_platforms" :key="p" class="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 mr-1 mb-1">{{ p }}</span>
-            </template>
-            <span v-else class="text-gray-400 dark:text-gray-500">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" min-width="80" fixed="right">
-          <template #default="{ row }">
-            <ActionMenu>
-              <template #default>
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(row)">编辑</button>
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1" @click="openUploadDialog(row)">上传自定义订阅</button>
-                <button v-if="row.has_custom_sub" class="bg-orange-600 hover:bg-orange-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="openDeleteCustomDialog(row)">删除自定义订阅</button>
-                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmRevoke(row)">吊销 Token</button>
-                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDeleteUser(row)">删除用户</button>
-              </template>
-              <template #menu>
-                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="openEditDialog(row)">编辑</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="openUploadDialog(row)">上传自定义订阅</button>
-                <button v-if="row.has_custom_sub" class="block w-full text-left px-4 py-2 text-sm text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="openDeleteCustomDialog(row)">删除自定义订阅</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmRevoke(row)">吊销 Token</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmDeleteUser(row)">删除用户</button>
-              </template>
-            </ActionMenu>
-          </template>
-        </el-table-column>
-      </el-table>
+      <!-- Card Grid -->
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div
+          v-for="u in users"
+          :key="u.id"
+          class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
+        >
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ u.username }}</span>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0" :class="u.role === 'admin' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'">{{ u.role === 'admin' ? '管理员' : '普通用户' }}</span>
+          </div>
+          <div class="p-4">
+            <div class="text-sm text-gray-500 dark:text-gray-400 mb-3 space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500">邮箱:</span>
+                <span class="text-gray-700 dark:text-gray-300 truncate">{{ u.email }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500">级别:</span>
+                <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="u.is_advanced ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'">{{ u.is_advanced ? '高级' : '普通' }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500 shrink-0">自定义:</span>
+                <template v-if="u.has_custom_sub">
+                  <span v-for="p in u.custom_sub_platforms" :key="p" class="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 mr-1">{{ p }}</span>
+                </template>
+                <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(u)">编辑</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openUploadDialog(u)">上传自定义订阅</button>
+              <button v-if="u.has_custom_sub" class="bg-orange-600 hover:bg-orange-700 text-white rounded-md px-3 py-1.5 text-xs" @click="openDeleteCustomDialog(u)">删除自定义订阅</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmRevoke(u)">吊销 Token</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDeleteUser(u)">删除用户</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </template>
 
     <!-- Edit Dialog -->
-    <el-dialog v-model="editVisible" title="编辑用户" width="460px" :close-on-click-modal="false">
+    <el-dialog v-model="editVisible" title="编辑用户" width="460px" :close-on-click-modal="false" :append-to-body="true">
       <el-form v-if="editUser" label-position="top">
         <el-form-item label="用户名">
           <input :value="editUser.username" disabled class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-600 px-3 py-2 text-sm text-gray-500 dark:text-gray-400 cursor-not-allowed" />
@@ -97,7 +94,7 @@
     </el-dialog>
 
     <!-- Upload Custom Subscription Dialog -->
-    <el-dialog v-model="uploadVisible" title="上传自定义订阅" width="480px" :close-on-click-modal="false" @closed="resetUploadForm">
+    <el-dialog v-model="uploadVisible" title="上传自定义订阅" width="480px" :close-on-click-modal="false" :append-to-body="true" @closed="resetUploadForm">
       <el-form ref="uploadFormRef" :model="uploadForm" :rules="uploadRules" label-position="top">
         <el-form-item label="适用平台" prop="platform">
           <select v-model="uploadForm.platform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @change="uploadFormRef.validateField('platform')">
@@ -124,7 +121,7 @@
     </el-dialog>
 
     <!-- Delete Custom Subscription Dialog -->
-    <el-dialog v-model="deleteCustomVisible" title="删除自定义订阅" width="440px" :close-on-click-modal="false">
+    <el-dialog v-model="deleteCustomVisible" title="删除自定义订阅" width="440px" :close-on-click-modal="false" :append-to-body="true">
       <p v-if="deleteCustomUser" class="text-gray-700 dark:text-gray-300">请选择要删除的自定义订阅平台：</p>
       <select v-if="deleteCustomUser" v-model="deleteCustomPlatform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mt-2">
         <option value="" disabled>请选择平台</option>
@@ -149,7 +146,6 @@ import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import { useUserStore } from '@/stores/user'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import ActionMenu from '@/components/ActionMenu.vue'
 
 const userStore = useUserStore()
 const { success: toastSuccess, error: toastError } = useToast()

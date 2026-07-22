@@ -54,7 +54,7 @@
 
     <UploadModal v-model:visible="uploadVisible" :initial-content="editContent" @upload="onFileUpload" @textSave="onTextSave" />
 
-    <el-dialog v-model="previewVisible" title="版本预览" width="640px" :close-on-click-modal="false">
+    <el-dialog v-model="previewVisible" title="版本预览" width="640px" :close-on-click-modal="false" :append-to-body="true">
       <pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-md text-sm overflow-auto max-h-96 text-gray-900 dark:text-gray-100">{{ previewContent }}</pre>
       <template #footer>
         <div class="flex justify-end gap-2">

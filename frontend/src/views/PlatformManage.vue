@@ -20,41 +20,38 @@
 
       <div v-if="platforms.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无平台</div>
 
-      <el-table v-else :data="platforms" stripe>
-        <el-table-column prop="id" label="ID" width="140" />
-        <el-table-column prop="name" label="名称" min-width="140" />
-        <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
-        <el-table-column v-if="!isMobile" label="Client Schemes" min-width="200">
-          <template #default="{ row }">
-            <span v-for="(scheme, idx) in row.client_schemes" :key="idx"
-              class="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 mr-1 mb-1">{{ scheme }}</span>
-            <span v-if="!row.client_schemes || row.client_schemes.length === 0" class="text-gray-400 dark:text-gray-500">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="!isMobile" label="下载链接" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span v-if="row.download_url">{{ row.download_url }}</span>
-            <span v-else class="text-gray-400 dark:text-gray-500">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" min-width="80" fixed="right">
-          <template #default="{ row }">
-            <ActionMenu>
-              <template #default>
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(row)">编辑</button>
-                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
-              </template>
-              <template #menu>
-                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="openEditDialog(row)">编辑</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmDelete(row)">删除</button>
-              </template>
-            </ActionMenu>
-          </template>
-        </el-table-column>
-      </el-table>
+      <!-- Card Grid -->
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div
+          v-for="p in platforms"
+          :key="p.id"
+          class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
+        >
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ p.name }}</span>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ p.id }}</span>
+          </div>
+          <div class="p-4">
+            <div class="text-sm text-gray-500 dark:text-gray-400 mb-3 space-y-2">
+              <p v-if="p.description" class="m-0 text-gray-700 dark:text-gray-300">{{ p.description }}</p>
+              <div v-if="p.client_schemes && p.client_schemes.length > 0" class="flex flex-wrap gap-1">
+                <span v-for="(scheme, idx) in p.client_schemes" :key="idx" class="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ scheme }}</span>
+              </div>
+              <div v-if="p.download_url" class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500 shrink-0">下载:</span>
+                <span class="text-gray-700 dark:text-gray-300 truncate text-xs">{{ p.download_url }}</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(p)">编辑</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(p)">删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </template>
 
-    <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑平台' : '创建平台'" width="540px" :close-on-click-modal="false" @closed="resetForm">
+    <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑平台' : '创建平台'" width="540px" :close-on-click-modal="false" :append-to-body="true" @closed="resetForm">
       <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
         <el-form-item label="ID" prop="id">
           <input v-model="form.id" :disabled="isEditing" placeholder="小写字母、数字和连字符"
@@ -98,14 +95,11 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import ActionMenu from '@/components/ActionMenu.vue'
-import { useIsMobile } from '@/composables/useIsMobile'
 
 // ==========================================================================
 // Data
 // ==========================================================================
 const { success: toastSuccess, error: toastError } = useToast()
-const isMobile = useIsMobile()
 const loading = ref(true)
 const platforms = ref([])
 

@@ -343,6 +343,7 @@
       v-model="copyDialogVisible"
       title="复制订阅链接"
       width="500px"
+      :append-to-body="true"
     >
       <input
         ref="copyInputRef"

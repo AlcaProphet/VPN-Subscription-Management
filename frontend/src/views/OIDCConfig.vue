@@ -318,25 +318,4 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.oidc-container h2 {
-  margin: 0 0 20px 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.config-card {
-  margin-bottom: 20px;
-}
-
-.card-header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.form-tip {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-top: 4px;
-}
 </style>

@@ -25,47 +25,44 @@
         暂无订阅，请创建
       </div>
 
-      <!-- Table -->
-      <el-table v-else :data="sortedSubscriptions" stripe>
-        <el-table-column prop="name" label="名称" min-width="160" />
-        <el-table-column prop="platform" label="平台" width="140" />
-        <el-table-column label="类型" width="100">
-          <template #default="{ row }">
-            <span class="rounded-full px-2 py-0.5 text-xs font-medium"
-              :class="row.type === 'default' ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'">
-              {{ row.type === 'default' ? '默认' : '高级' }}
+      <!-- Card Grid -->
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div
+          v-for="sub in sortedSubscriptions"
+          :key="sub.id"
+          class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
+        >
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ sub.name }}</span>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0"
+              :class="sub.type === 'default' ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'">
+              {{ sub.type === 'default' ? '默认' : '高级' }}
             </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="当前版本" width="100">
-          <template #default="{ row }">
-            <span v-if="currentVersion(row) !== null">v{{ currentVersion(row) }}</span>
-            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="!isMobile" label="更新时间" width="180">
-          <template #default="{ row }">
-            <span v-if="currentUpdatedAt(row)">{{ formatTime(currentUpdatedAt(row)) }}</span>
-            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" min-width="80" fixed="right">
-          <template #default="{ row }">
-            <ActionMenu>
-              <template #default>
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(row)">编辑</button>
-                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(row)">删除</button>
-              </template>
-              <template #menu>
-                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="goVersions(row)">版本管理</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="openEditDialog(row)">编辑</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmDelete(row)">删除</button>
-              </template>
-            </ActionMenu>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+          <div class="p-4">
+            <div class="text-sm text-gray-500 dark:text-gray-400 mb-3 space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500">平台:</span>
+                <span class="text-gray-700 dark:text-gray-300">{{ sub.platform }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500">当前版本:</span>
+                <span v-if="currentVersion(sub) !== null" class="text-gray-700 dark:text-gray-300">v{{ currentVersion(sub) }}</span>
+                <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+              </div>
+              <div v-if="currentUpdatedAt(sub)" class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500">更新于:</span>
+                <span class="text-gray-700 dark:text-gray-300">{{ formatTime(currentUpdatedAt(sub)) }}</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(sub)">版本管理</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(sub)">编辑</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(sub)">删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </template>
 
     <!-- Create / Edit Dialog -->
@@ -74,6 +71,7 @@
       :title="isEditing ? '编辑订阅' : '创建订阅'"
       width="480px"
       :close-on-click-modal="false"
+      :append-to-body="true"
       @closed="resetForm"
     >
       <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
@@ -124,13 +122,9 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import ActionMenu from '@/components/ActionMenu.vue'
-import { useIsMobile } from '@/composables/useIsMobile'
 
 const router = useRouter()
 const { success: toastSuccess, error: toastError } = useToast()
-
-const isMobile = useIsMobile()
 
 // ==========================================================================
 // Data

@@ -4,6 +4,7 @@
     title="选择 OIDC 提供商"
     width="400px"
     :close-on-click-modal="false"
+    :append-to-body="true"
     @update:model-value="$emit('update:visible', $event)"
   >
     <div class="space-y-3">

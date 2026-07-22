@@ -10,44 +10,42 @@
 
     <div v-if="!loading && shares.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无分享订阅，请创建</div>
 
-    <el-table v-else :data="shares" stripe>
-      <el-table-column prop="name" label="名称" min-width="160" />
-      <el-table-column label="创建时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
-      <el-table-column label="当前版本" width="100">
-        <template #default="{ row }">
-          <span v-if="currentVersion(row) !== null">v{{ currentVersion(row) }}</span>
-          <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Token 状态" width="110">
-        <template #default="{ row }">
-          <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="row.has_token ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'">{{ row.has_token ? '有效' : '已吊销' }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="80" min-width="80" fixed="right">
-        <template #default="{ row }">
-          <ActionMenu>
-            <template #default>
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.has_token" @click="copyShareLink(row)">复制分享链接</button>
-              <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmRefreshToken(row)">刷新 Token</button>
-              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.has_token" @click="confirmRevokeToken(row)">吊销 Token</button>
-              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
-            </template>
-            <template #menu>
-              <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="goVersions(row)">版本管理</button>
-              <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" :disabled="!row.has_token" @click="copyShareLink(row)">复制分享链接</button>
-              <button class="block w-full text-left px-4 py-2 text-sm text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmRefreshToken(row)">刷新 Token</button>
-              <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" :disabled="!row.has_token" @click="confirmRevokeToken(row)">吊销 Token</button>
-              <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmDelete(row)">删除</button>
-            </template>
-          </ActionMenu>
-        </template>
-      </el-table-column>
-    </el-table>
+    <!-- Card Grid -->
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+      <div
+        v-for="share in shares"
+        :key="share.id"
+        class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
+      >
+        <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+          <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ share.name }}</span>
+          <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0" :class="share.has_token ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'">{{ share.has_token ? '有效' : '已吊销' }}</span>
+        </div>
+        <div class="p-4">
+          <div class="text-sm text-gray-500 dark:text-gray-400 mb-3 space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 dark:text-gray-500">创建于:</span>
+              <span class="text-gray-700 dark:text-gray-300">{{ formatTime(share.created_at) }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 dark:text-gray-500">当前版本:</span>
+              <span v-if="currentVersion(share) !== null" class="text-gray-700 dark:text-gray-300">v{{ currentVersion(share) }}</span>
+              <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-1">
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(share)">版本管理</button>
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!share.has_token" @click="copyShareLink(share)">复制分享链接</button>
+            <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmRefreshToken(share)">刷新 Token</button>
+            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!share.has_token" @click="confirmRevokeToken(share)">吊销 Token</button>
+            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(share)">删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Create Dialog -->
-    <el-dialog v-model="createVisible" title="创建分享订阅" width="520px" :close-on-click-modal="false" @closed="resetCreateForm">
+    <el-dialog v-model="createVisible" title="创建分享订阅" width="520px" :close-on-click-modal="false" :append-to-body="true" @closed="resetCreateForm">
       <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
         <el-form-item label="名称" prop="name">
           <input v-model="createForm.name" placeholder="分享订阅名称" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('name')" />
@@ -82,7 +80,6 @@ import { useToast } from '@/composables/useToast'
 import { adminApi, downloadApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import UploadTabs from '@/components/UploadTabs.vue'
-import ActionMenu from '@/components/ActionMenu.vue'
 
 const router = useRouter()
 const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()

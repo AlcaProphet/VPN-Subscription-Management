@@ -4,6 +4,7 @@
     title="上传版本"
     width="520px"
     :close-on-click-modal="false"
+    :append-to-body="true"
     @update:model-value="$emit('update:visible', $event)"
   >
     <UploadTabs

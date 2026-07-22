@@ -4,6 +4,7 @@
     :title="title"
     width="420px"
     :close-on-click-modal="false"
+    :append-to-body="true"
     @update:model-value="$emit('update:visible', $event)"
   >
     <p class="text-gray-700 dark:text-gray-300">{{ message }}</p>

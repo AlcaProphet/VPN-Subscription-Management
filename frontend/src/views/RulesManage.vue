@@ -19,54 +19,47 @@
 
       <div v-if="rules.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无规则，请创建</div>
 
-      <el-table v-else :data="rules" stripe>
-        <el-table-column prop="name" label="规则名称" min-width="160" />
-        <el-table-column label="客户端类型" width="130">
-          <template #default="{ row }">
-            <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ row.client_type || 'Shadowrocket' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="当前版本" width="100">
-          <template #default="{ row }">
-            <span v-if="currentVersion(row) !== null">v{{ currentVersion(row) }}</span>
-            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="!isMobile" label="更新时间" width="180">
-          <template #default="{ row }">
-            <span v-if="currentUpdatedAt(row)">{{ formatTime(currentUpdatedAt(row)) }}</span>
-            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="!isMobile" label="Token" width="140">
-          <template #default="{ row }">
-            <span v-if="row.token" class="text-xs text-gray-500 dark:text-gray-400">{{ maskToken(row.token) }}</span>
-            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" min-width="80" fixed="right">
-          <template #default="{ row }">
-            <ActionMenu>
-              <template #default>
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.token" @click="copyDownloadLink(row)">复制下载链接</button>
-                <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmRotateToken(row)">轮替 Token</button>
-                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
-              </template>
-              <template #menu>
-                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="goVersions(row)">版本管理</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" :disabled="!row.token" @click="copyDownloadLink(row)">复制下载链接</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmRotateToken(row)">轮替 Token</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmDelete(row)">删除</button>
-              </template>
-            </ActionMenu>
-          </template>
-        </el-table-column>
-      </el-table>
+      <!-- Card Grid -->
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div
+          v-for="rule in rules"
+          :key="rule.id"
+          class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
+        >
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ rule.name }}</span>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ rule.client_type || 'Shadowrocket' }}</span>
+          </div>
+          <div class="p-4">
+            <div class="text-sm text-gray-500 dark:text-gray-400 mb-3 space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500">当前版本:</span>
+                <span v-if="currentVersion(rule) !== null" class="text-gray-700 dark:text-gray-300">v{{ currentVersion(rule) }}</span>
+                <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+              </div>
+              <div v-if="currentUpdatedAt(rule)" class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500">更新于:</span>
+                <span class="text-gray-700 dark:text-gray-300">{{ formatTime(currentUpdatedAt(rule)) }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500 shrink-0">Token:</span>
+                <span v-if="rule.token" class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ maskToken(rule.token) }}</span>
+                <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(rule)">版本管理</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!rule.token" @click="copyDownloadLink(rule)">复制下载链接</button>
+              <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmRotateToken(rule)">轮替 Token</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(rule)">删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </template>
 
     <!-- Create Dialog -->
-    <el-dialog v-model="createVisible" title="创建规则" width="520px" :close-on-click-modal="false" @closed="resetCreateForm">
+    <el-dialog v-model="createVisible" title="创建规则" width="520px" :close-on-click-modal="false" :append-to-body="true" @closed="resetCreateForm">
       <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
         <el-form-item label="ID" prop="id">
           <input v-model="createForm.id" placeholder="小写字母、数字和连字符" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('id')" />
@@ -108,12 +101,9 @@ import { useToast } from '@/composables/useToast'
 import { adminApi, publicApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import UploadTabs from '@/components/UploadTabs.vue'
-import ActionMenu from '@/components/ActionMenu.vue'
-import { useIsMobile } from '@/composables/useIsMobile'
 
 const router = useRouter()
 const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
-const isMobile = useIsMobile()
 
 // ==========================================================================
 // Data
