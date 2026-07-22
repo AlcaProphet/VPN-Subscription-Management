@@ -167,8 +167,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Plus, UploadFilled } from '@element-plus/icons-vue'
+import { useToast } from '@/composables/useToast'
+const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
 import { adminApi, publicApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
@@ -241,7 +241,7 @@ async function fetchRules() {
     const res = await adminApi.rules.list()
     rules.value = res.data.rules || []
   } catch (e) {
-    ElMessage.error('加载规则列表失败')
+    toastError('加载规则列表失败')
   }
 }
 
@@ -274,7 +274,7 @@ function onCreateFileChange(file) {
 function beforeCreateUpload(file) {
   const maxBytes = 50 * 1024 * 1024
   if (file.size > maxBytes) {
-    ElMessage.error('文件大小不能超过 50MB')
+    toastError('文件大小不能超过 50MB')
     return false
   }
   return true
@@ -292,15 +292,15 @@ async function handleCreateFile() {
     fd.append('name', createForm.name)
     fd.append('client_type', createForm.client_type)
     const res = await adminApi.rules.create(fd)
-    ElMessage.success('规则已创建')
+    toastSuccess('规则已创建')
     if (res.data.token) {
-      ElMessage.info('Token: ' + res.data.token)
+      toastInfo('Token: ' + res.data.token)
     }
     createVisible.value = false
     await fetchRules()
   } catch (e) {
     const msg = e.response?.data?.error || '创建失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     submitting.value = false
   }
@@ -318,15 +318,15 @@ async function handleCreateText() {
       client_type: createForm.client_type,
       content: createForm.content
     })
-    ElMessage.success('规则已创建')
+    toastSuccess('规则已创建')
     if (res.data.token) {
-      ElMessage.info('Token: ' + res.data.token)
+      toastInfo('Token: ' + res.data.token)
     }
     createVisible.value = false
     await fetchRules()
   } catch (e) {
     const msg = e.response?.data?.error || '创建失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     submitting.value = false
   }
@@ -344,9 +344,9 @@ function copyDownloadLink(row) {
   const url = publicApi.getRuleDownloadUrl(row.id, row.token)
   const fullUrl = window.location.origin + url
   navigator.clipboard.writeText(fullUrl).then(() => {
-    ElMessage.success('已复制到剪贴板')
+    toastSuccess('已复制到剪贴板')
   }).catch(() => {
-    ElMessage.error('复制失败，请手动复制')
+    toastError('复制失败，请手动复制')
   })
 }
 
@@ -362,12 +362,12 @@ async function handleRotateToken() {
     if (res.data.token) {
       actionTarget.value.token = res.data.token
     }
-    ElMessage.success('Token 已轮替，旧链接立即失效')
+    toastSuccess('Token 已轮替，旧链接立即失效')
     actionTarget.value = null
     await fetchRules()
   } catch (e) {
     const msg = e.response?.data?.error || '轮替失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -380,12 +380,12 @@ async function handleDelete() {
   if (!actionTarget.value) return
   try {
     await adminApi.rules.delete(actionTarget.value.id)
-    ElMessage.success('规则已删除')
+    toastSuccess('规则已删除')
     actionTarget.value = null
     await fetchRules()
   } catch (e) {
     const msg = e.response?.data?.error || '删除失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 

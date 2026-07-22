@@ -1,62 +1,63 @@
 <template>
-  <div class="sub-list-container" v-loading="loading">
-    <div class="page-header">
-      <h2>订阅管理</h2>
-      <el-button type="primary" @click="openCreateDialog">
-        <el-icon><Plus /></el-icon>
-        创建订阅
-      </el-button>
+  <div>
+    <!-- Loading -->
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <svg class="animate-spin h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <span class="text-gray-500 dark:text-gray-400">加载中...</span>
     </div>
 
-    <el-empty
-      v-if="!loading && subscriptions.length === 0"
-      description="暂无订阅，请创建"
-    />
+    <template v-else>
+      <div class="flex justify-between items-center mb-5 flex-wrap gap-3">
+        <h2 class="m-0 text-xl font-semibold text-gray-900 dark:text-white">订阅管理</h2>
+        <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm flex items-center gap-1" @click="openCreateDialog">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          创建订阅
+        </button>
+      </div>
 
-    <el-table
-      v-else
-      :data="sortedSubscriptions"
-      stripe
-      class="sub-table"
-    >
-      <el-table-column prop="name" label="名称" min-width="160" />
-      <el-table-column prop="platform" label="平台" width="140" />
-      <el-table-column label="类型" width="100">
-        <template #default="{ row }">
-          <el-tag
-            :type="row.type === 'default' ? 'info' : 'warning'"
-            size="small"
-          >
-            {{ row.type === 'default' ? '默认' : '高级' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="当前版本" width="100">
-        <template #default="{ row }">
-          <span v-if="currentVersion(row) !== null">v{{ currentVersion(row) }}</span>
-          <span v-else class="no-version">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="更新时间" width="180">
-        <template #default="{ row }">
-          <span v-if="currentUpdatedAt(row)">{{ formatTime(currentUpdatedAt(row)) }}</span>
-          <span v-else class="no-version">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" @click="goVersions(row)">
-            版本管理
-          </el-button>
-          <el-button size="small" @click="openEditDialog(row)">
-            编辑
-          </el-button>
-          <el-button size="small" type="danger" @click="confirmDelete(row)">
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <!-- Empty -->
+      <div v-if="subscriptions.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">
+        暂无订阅，请创建
+      </div>
+
+      <!-- Table -->
+      <el-table v-else :data="sortedSubscriptions" stripe>
+        <el-table-column prop="name" label="名称" min-width="160" />
+        <el-table-column prop="platform" label="平台" width="140" />
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium"
+              :class="row.type === 'default' ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'">
+              {{ row.type === 'default' ? '默认' : '高级' }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="当前版本" width="100">
+          <template #default="{ row }">
+            <span v-if="currentVersion(row) !== null">v{{ currentVersion(row) }}</span>
+            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="更新时间" width="180">
+          <template #default="{ row }">
+            <span v-if="currentUpdatedAt(row)">{{ formatTime(currentUpdatedAt(row)) }}</span>
+            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="260" fixed="right">
+          <template #default="{ row }">
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1" @click="openEditDialog(row)">编辑</button>
+            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </template>
 
     <!-- Create / Edit Dialog -->
     <el-dialog
@@ -66,37 +67,35 @@
       :close-on-click-modal="false"
       @closed="resetForm"
     >
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="formRules"
-        label-position="top"
-      >
+      <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
         <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="订阅名称" />
+          <input v-model="form.name" placeholder="订阅名称"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            @blur="formRef.validateField('name')" />
         </el-form-item>
         <el-form-item label="类型" prop="type">
-          <el-select v-model="form.type" style="width: 100%">
-            <el-option label="默认 (default)" value="default" />
-            <el-option label="高级 (advanced)" value="advanced" />
-          </el-select>
+          <select v-model="form.type"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            @change="formRef.validateField('type')">
+            <option value="default">默认 (default)</option>
+            <option value="advanced">高级 (advanced)</option>
+          </select>
         </el-form-item>
         <el-form-item label="平台" prop="platform">
-          <el-select v-model="form.platform" style="width: 100%">
-            <el-option
-              v-for="p in platforms"
-              :key="p.id"
-              :label="p.name"
-              :value="p.id"
-            />
-          </el-select>
+          <select v-model="form.platform"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            @change="formRef.validateField('platform')">
+            <option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSubmit">
-          {{ isEditing ? '保存' : '创建' }}
-        </el-button>
+        <div class="flex justify-end gap-2">
+          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm" @click="dialogVisible = false">取消</button>
+          <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="submitting" @click="handleSubmit">
+            {{ isEditing ? '保存' : '创建' }}
+          </button>
+        </div>
       </template>
     </el-dialog>
 
@@ -113,12 +112,12 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const router = useRouter()
+const { success: toastSuccess, error: toastError } = useToast()
 
 // ==========================================================================
 // Data
@@ -196,7 +195,7 @@ async function fetchSubscriptions() {
     const res = await adminApi.subscriptions.list()
     subscriptions.value = res.data.subscriptions || []
   } catch (e) {
-    ElMessage.error('加载订阅列表失败')
+    toastError('加载订阅列表失败')
   }
 }
 
@@ -249,20 +248,20 @@ async function handleSubmit() {
         platform: form.platform,
         type: form.type
       })
-      ElMessage.success('订阅已更新')
+      toastSuccess('订阅已更新')
     } else {
       await adminApi.subscriptions.create({
         name: form.name,
         type: form.type,
         platform: form.platform
       })
-      ElMessage.success('订阅已创建')
+      toastSuccess('订阅已创建')
     }
     dialogVisible.value = false
     await fetchSubscriptions()
   } catch (e) {
     const msg = e.response?.data?.error || '操作失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     submitting.value = false
   }
@@ -280,12 +279,12 @@ async function handleDelete() {
   if (!deleteTarget.value) return
   try {
     await adminApi.subscriptions.delete(deleteTarget.value.id)
-    ElMessage.success('订阅已删除')
+    toastSuccess('订阅已删除')
     deleteTarget.value = null
     await fetchSubscriptions()
   } catch (e) {
     const msg = e.response?.data?.error || '删除失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 

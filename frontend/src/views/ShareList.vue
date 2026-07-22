@@ -171,8 +171,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Plus, UploadFilled } from '@element-plus/icons-vue'
+import { useToast } from '@/composables/useToast'
+const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
 import { adminApi, downloadApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
@@ -229,7 +229,7 @@ async function fetchShares() {
     const res = await adminApi.shares.list()
     shares.value = res.data.shares || []
   } catch (e) {
-    ElMessage.error('加载分享订阅列表失败')
+    toastError('加载分享订阅列表失败')
   }
 }
 
@@ -260,7 +260,7 @@ function onCreateFileChange(file) {
 function beforeCreateUpload(file) {
   const maxBytes = 50 * 1024 * 1024
   if (file.size > maxBytes) {
-    ElMessage.error('文件大小不能超过 50MB')
+    toastError('文件大小不能超过 50MB')
     return false
   }
   return true
@@ -276,15 +276,15 @@ async function handleCreateFile() {
     fd.append('file', createFile.value)
     fd.append('name', createForm.name)
     const res = await adminApi.shares.create(fd)
-    ElMessage.success('分享订阅已创建')
+    toastSuccess('分享订阅已创建')
     if (res.data.token) {
-      ElMessage.info('Token: ' + res.data.token)
+      toastInfo('Token: ' + res.data.token)
     }
     createVisible.value = false
     await fetchShares()
   } catch (e) {
     const msg = e.response?.data?.error || '创建失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     submitting.value = false
   }
@@ -300,15 +300,15 @@ async function handleCreateText() {
       name: createForm.name,
       content: createForm.content
     })
-    ElMessage.success('分享订阅已创建')
+    toastSuccess('分享订阅已创建')
     if (res.data.token) {
-      ElMessage.info('Token: ' + res.data.token)
+      toastInfo('Token: ' + res.data.token)
     }
     createVisible.value = false
     await fetchShares()
   } catch (e) {
     const msg = e.response?.data?.error || '创建失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     submitting.value = false
   }
@@ -324,16 +324,16 @@ function goVersions(row) {
 function copyShareLink(row) {
   const token = row.token
   if (!token) {
-    ElMessage.warning('无法获取 Token')
+    toastWarning('无法获取 Token')
     return
   }
   const url = downloadApi.shareDownloadUrl(row.id, token)
   // Build full URL from current origin
   const fullUrl = window.location.origin + url
   navigator.clipboard.writeText(fullUrl).then(() => {
-    ElMessage.success('已复制到剪贴板')
+    toastSuccess('已复制到剪贴板')
   }).catch(() => {
-    ElMessage.error('复制失败，请手动复制')
+    toastError('复制失败，请手动复制')
   })
 }
 
@@ -351,12 +351,12 @@ async function handleRefreshToken() {
       actionTarget.value.token = res.data.token
       actionTarget.value.has_token = true
     }
-    ElMessage.success('Token 已刷新，旧链接立即失效')
+    toastSuccess('Token 已刷新，旧链接立即失效')
     actionTarget.value = null
     await fetchShares()
   } catch (e) {
     const msg = e.response?.data?.error || '刷新失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -369,12 +369,12 @@ async function handleRevokeToken() {
   if (!actionTarget.value) return
   try {
     await adminApi.shares.revokeToken(actionTarget.value.id)
-    ElMessage.success('Token 已吊销，链接立即不可用')
+    toastSuccess('Token 已吊销，链接立即不可用')
     actionTarget.value = null
     await fetchShares()
   } catch (e) {
     const msg = e.response?.data?.error || '吊销失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -387,12 +387,12 @@ async function handleDelete() {
   if (!actionTarget.value) return
   try {
     await adminApi.shares.delete(actionTarget.value.id)
-    ElMessage.success('分享订阅已删除')
+    toastSuccess('分享订阅已删除')
     actionTarget.value = null
     await fetchShares()
   } catch (e) {
     const msg = e.response?.data?.error || '删除失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 

@@ -225,8 +225,8 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { UploadFilled } from '@element-plus/icons-vue'
+import { useToast } from '@/composables/useToast'
+const { success: toastSuccess, error: toastError } = useToast()
 import { adminApi } from '@/services/api'
 import { useUserStore } from '@/stores/user'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -287,7 +287,7 @@ async function fetchUsers() {
     const res = await adminApi.users.list()
     users.value = res.data.users || []
   } catch (e) {
-    ElMessage.error('加载用户列表失败')
+    toastError('加载用户列表失败')
   }
 }
 
@@ -316,12 +316,12 @@ async function handleEditSave() {
     await adminApi.users.update(editUser.value.user_id, {
       is_advanced: editIsAdvanced.value
     })
-    ElMessage.success('用户已更新')
+    toastSuccess('用户已更新')
     editVisible.value = false
     await fetchUsers()
   } catch (e) {
     const msg = e.response?.data?.error || '更新失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     editSubmitting.value = false
   }
@@ -350,7 +350,7 @@ function onUploadFileChange(file) {
 function beforeUploadCheck(file) {
   const maxBytes = 50 * 1024 * 1024
   if (file.size > maxBytes) {
-    ElMessage.error('文件大小不能超过 50MB')
+    toastError('文件大小不能超过 50MB')
     return false
   }
   return true
@@ -367,12 +367,12 @@ async function handleUpload() {
       uploadForm.platform,
       uploadFile.value
     )
-    ElMessage.success('自定义订阅已上传')
+    toastSuccess('自定义订阅已上传')
     uploadVisible.value = false
     await fetchUsers()
   } catch (e) {
     const msg = e.response?.data?.error || '上传失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     uploadSubmitting.value = false
   }
@@ -395,12 +395,12 @@ async function handleDeleteCustom() {
       deleteCustomUser.value.user_id,
       deleteCustomPlatform.value
     )
-    ElMessage.success('自定义订阅已删除，用户恢复默认/高级自动分配')
+    toastSuccess('自定义订阅已删除，用户恢复默认/高级自动分配')
     deleteCustomVisible.value = false
     await fetchUsers()
   } catch (e) {
     const msg = e.response?.data?.error || '删除失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     deleteCustomSubmitting.value = false
   }
@@ -418,11 +418,11 @@ async function handleRevoke() {
   if (!revokeTarget.value) return
   try {
     await adminApi.users.revokeTokens(revokeTarget.value.user_id)
-    ElMessage.success('用户下载 Token 已全部吊销')
+    toastSuccess('用户下载 Token 已全部吊销')
     revokeTarget.value = null
   } catch (e) {
     const msg = e.response?.data?.error || '操作失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -438,12 +438,12 @@ async function handleDeleteUser() {
   if (!deleteUserTarget.value) return
   try {
     await adminApi.users.delete(deleteUserTarget.value.user_id)
-    ElMessage.success('用户已删除')
+    toastSuccess('用户已删除')
     deleteUserTarget.value = null
     await fetchUsers()
   } catch (e) {
     const msg = e.response?.data?.error || '删除失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 

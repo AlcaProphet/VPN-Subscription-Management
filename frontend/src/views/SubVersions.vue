@@ -1,125 +1,76 @@
 <template>
-  <div class="versions-container" v-loading="loading">
-    <!-- Header -->
-    <div class="page-header">
-      <div class="header-left">
-        <el-button @click="goBack" text>
-          <el-icon><ArrowLeft /></el-icon>
-          返回订阅列表
-        </el-button>
-        <h2 v-if="subscription">{{ subscription.name }} — 版本管理</h2>
-      </div>
-      <el-button type="primary" @click="uploadVisible = true">
-        <el-icon><Plus /></el-icon>
-        新建版本
-      </el-button>
+  <div>
+    <!-- Loading -->
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <svg class="animate-spin h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <span class="text-gray-500 dark:text-gray-400">加载中...</span>
     </div>
 
-    <!-- Version List -->
-    <el-empty
-      v-if="!loading && versions.length === 0"
-      description="暂无版本"
-    />
+    <template v-else>
+      <div class="flex items-center gap-4 mb-5 flex-wrap">
+        <button class="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 text-sm flex items-center gap-1" @click="goBack">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          返回订阅列表
+        </button>
+        <h2 v-if="subscription" class="m-0 text-xl font-semibold text-gray-900 dark:text-white">{{ subscription.name }} — 版本管理</h2>
+        <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm flex items-center gap-1 ml-auto" @click="uploadVisible = true">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          新建版本
+        </button>
+      </div>
 
-    <el-table
-      v-else
-      :data="sortedVersions"
-      stripe
-      class="versions-table"
-    >
-      <el-table-column label="版本号" width="100">
-        <template #default="{ row }">
-          v{{ row.version }}
-        </template>
-      </el-table-column>
-      <el-table-column label="创建时间" width="180">
-        <template #default="{ row }">
-          {{ formatTime(row.created_at) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="更新时间" width="180">
-        <template #default="{ row }">
-          {{ formatTime(row.updated_at) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="100">
-        <template #default="{ row }">
-          <el-tag v-if="isCurrent(row)" type="success" size="small">
-            当前
-          </el-tag>
-          <span v-else class="no-version">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" min-width="240" fixed="right">
-        <template #default="{ row }">
-          <el-button
-            v-if="!isCurrent(row)"
-            size="small"
-            type="primary"
-            @click="handleSwitch(row)"
-          >
-            设为当前
-          </el-button>
-          <el-button size="small" @click="handlePreview(row)">
-            预览
-          </el-button>
-          <el-button
-            size="small"
-            type="danger"
-            :disabled="isCurrent(row) || versions.length <= 1"
-            @click="confirmDeleteVersion(row)"
-          >
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <div v-if="versions.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无版本</div>
 
-    <!-- Upload Modal -->
-    <UploadModal
-      v-model:visible="uploadVisible"
-      :initial-content="editContent"
-      @upload="onFileUpload"
-      @textSave="onTextSave"
-    />
+      <el-table v-else :data="sortedVersions" stripe>
+        <el-table-column label="版本号" width="100"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
+        <el-table-column label="创建时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
+        <el-table-column label="更新时间" width="180"><template #default="{ row }">{{ formatTime(row.updated_at) }}</template></el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <span v-if="isCurrent(row)" class="rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">当前</span>
+            <span v-else class="text-gray-400 dark:text-gray-500">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" min-width="240" fixed="right">
+          <template #default="{ row }">
+            <button v-if="!isCurrent(row)" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs" @click="handleSwitch(row)">设为当前</button>
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1" @click="handlePreview(row)">预览</button>
+            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="isCurrent(row) || versions.length <= 1" @click="confirmDeleteVersion(row)">删除</button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </template>
 
-    <!-- Preview Dialog -->
-    <el-dialog
-      v-model="previewVisible"
-      title="版本预览"
-      width="640px"
-      :close-on-click-modal="false"
-    >
-      <pre class="preview-content">{{ previewContent }}</pre>
+    <UploadModal v-model:visible="uploadVisible" :initial-content="editContent" @upload="onFileUpload" @textSave="onTextSave" />
+
+    <el-dialog v-model="previewVisible" title="版本预览" width="640px" :close-on-click-modal="false">
+      <pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-md text-sm overflow-auto max-h-96 text-gray-900 dark:text-gray-100">{{ previewContent }}</pre>
       <template #footer>
-        <el-button @click="previewVisible = false">关闭</el-button>
-        <el-button type="primary" @click="handleEditFromPreview">
-          基于此版本编辑
-        </el-button>
+        <div class="flex justify-end gap-2">
+          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm" @click="previewVisible = false">关闭</button>
+          <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm" @click="handleEditFromPreview">基于此版本编辑</button>
+        </div>
       </template>
     </el-dialog>
 
-    <!-- Delete Version Confirm -->
-    <ConfirmDialog
-      v-model:visible="deleteVersionVisible"
-      title="删除版本"
-      :message="'确定删除版本 v' + (deleteVersionTarget?.version || '') + '？'"
-      @confirm="handleDeleteVersion"
-    />
+    <ConfirmDialog v-model:visible="deleteVersionVisible" title="删除版本" :message="'确定删除版本 v' + (deleteVersionTarget?.version || '') + '？'" @confirm="handleDeleteVersion" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { ArrowLeft, Plus } from '@element-plus/icons-vue'
+import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import UploadModal from '@/components/UploadModal.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
+const { success: toastSuccess, error: toastError } = useToast()
 
 // ==========================================================================
 // Data
@@ -172,7 +123,7 @@ function formatTime(t) {
 async function fetchSubscription() {
   const id = route.params.id
   if (!id) {
-    ElMessage.error('缺少订阅 ID')
+    toastError('缺少订阅 ID')
     router.push('/admin/subscriptions')
     return
   }
@@ -180,7 +131,7 @@ async function fetchSubscription() {
     const res = await adminApi.subscriptions.get(id)
     subscription.value = res.data.subscription
   } catch (e) {
-    ElMessage.error('加载订阅信息失败')
+    toastError('加载订阅信息失败')
     router.push('/admin/subscriptions')
   }
 }
@@ -194,11 +145,11 @@ async function onFileUpload(file) {
   fd.append('file', file)
   try {
     await adminApi.subscriptions.uploadVersion(id, fd)
-    ElMessage.success('版本已上传')
+    toastSuccess('版本已上传')
     await fetchSubscription()
   } catch (e) {
     const msg = e.response?.data?.error || '上传失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -206,11 +157,11 @@ async function onTextSave(content) {
   const id = route.params.id
   try {
     await adminApi.subscriptions.createVersionFromText(id, content)
-    ElMessage.success('新版本已创建')
+    toastSuccess('新版本已创建')
     await fetchSubscription()
   } catch (e) {
     const msg = e.response?.data?.error || '创建失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -221,11 +172,11 @@ async function handleSwitch(v) {
   const id = route.params.id
   try {
     await adminApi.subscriptions.switchVersion(id, v.version)
-    ElMessage.success('已切换当前版本')
+    toastSuccess('已切换当前版本')
     await fetchSubscription()
   } catch (e) {
     const msg = e.response?.data?.error || '切换失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -236,7 +187,7 @@ async function handlePreview(v) {
     previewContent.value = res.data.content || ''
     previewVisible.value = true
   } catch (e) {
-    ElMessage.error('加载版本内容失败')
+    toastError('加载版本内容失败')
   }
 }
 
@@ -256,12 +207,12 @@ async function handleDeleteVersion() {
   const id = route.params.id
   try {
     await adminApi.subscriptions.deleteVersion(id, deleteVersionTarget.value.version)
-    ElMessage.success('版本已删除')
+    toastSuccess('版本已删除')
     deleteVersionTarget.value = null
     await fetchSubscription()
   } catch (e) {
     const msg = e.response?.data?.error || '删除失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 

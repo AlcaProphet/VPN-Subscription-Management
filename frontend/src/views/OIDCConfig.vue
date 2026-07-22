@@ -122,7 +122,8 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useToast } from '@/composables/useToast'
+const { success: toastSuccess, error: toastError } = useToast()
 import { adminApi } from '@/services/api'
 import OIDCSwitchDialog from '@/components/OIDCSwitchDialog.vue'
 
@@ -225,7 +226,7 @@ async function loadConfig() {
     rateForm.rate_limit_login = rateRes.data.rate_limit_login || 10
     rateForm.rate_limit_download = rateRes.data.rate_limit_download || 20
   } catch (e) {
-    ElMessage.error('加载配置失败')
+    toastError('加载配置失败')
   }
 }
 
@@ -263,10 +264,10 @@ async function handleTest() {
       delete payload.client_secret
     }
     await adminApi.system.testOIDC(payload)
-    ElMessage.success('连接测试成功')
+    toastSuccess('连接测试成功')
   } catch (e) {
     const msg = e.response?.data?.error || '连接测试失败'
-    ElMessage.error('连接测试失败：' + msg)
+    toastError('连接测试失败：' + msg)
   } finally {
     testing.value = false
   }
@@ -284,10 +285,10 @@ async function handleSave() {
       delete payload.client_secret
     }
     await adminApi.system.configure(payload)
-    ElMessage.success('OIDC 配置已保存')
+    toastSuccess('OIDC 配置已保存')
   } catch (e) {
     const msg = e.response?.data?.error || '保存失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     saving.value = false
   }
@@ -298,12 +299,12 @@ async function handleProviderSwitch(provider) {
     await adminApi.system.switchProvider({ provider_type: provider })
     oidcForm.provider_type = provider
     showSwitchDialog.value = false
-    ElMessage.success('提供商已切换')
+    toastSuccess('提供商已切换')
     // Reload config to get switched provider's saved values
     await loadConfig()
   } catch (e) {
     const msg = e.response?.data?.error || '切换失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -320,10 +321,10 @@ async function handleRateSave() {
       rate_limit_login: rateForm.rate_limit_login,
       rate_limit_download: rateForm.rate_limit_download
     })
-    ElMessage.success('速率限制已更新')
+    toastSuccess('速率限制已更新')
   } catch (e) {
     const msg = e.response?.data?.error || '更新失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     rateSaving.value = false
   }

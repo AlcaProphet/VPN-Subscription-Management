@@ -1,26 +1,38 @@
 <template>
-  <div class="rules-container">
-    <header class="rules-header">
-      <h1 class="rules-title">分流规则</h1>
-      <p class="rules-desc">浏览和下载可用的分流规则配置</p>
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <header class="px-6 pt-6 pb-0 sm:px-6 sm:pt-6">
+      <h1 class="m-0 mb-1 text-2xl font-bold text-gray-900 dark:text-white">分流规则</h1>
+      <p class="m-0 text-sm text-gray-500 dark:text-gray-400">浏览和下载可用的分流规则配置</p>
     </header>
 
-    <main class="rules-main" v-loading="loading">
-      <el-empty
-        v-if="!loading && rules.length === 0"
-        description="暂无可用规则"
-      />
+    <main class="px-6 py-6">
+      <!-- Loading -->
+      <div v-if="loading" class="flex items-center justify-center py-12">
+        <svg class="animate-spin h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+        <span class="text-gray-500 dark:text-gray-400">加载中...</span>
+      </div>
 
+      <!-- Empty -->
+      <div v-else-if="rules.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">
+        暂无可用规则
+      </div>
+
+      <!-- Table -->
       <el-table
         v-else
         :data="rules"
         stripe
-        class="rules-table"
+        class="w-full"
       >
         <el-table-column prop="name" label="规则名称" min-width="180" />
         <el-table-column prop="client_type" label="客户端类型" width="140">
           <template #default="{ row }">
-            <el-tag size="small">{{ row.client_type || 'Shadowrocket' }}</el-tag>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+              {{ row.client_type || 'Shadowrocket' }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="当前版本" width="120">
@@ -28,7 +40,7 @@
             <span v-if="currentVersion(row) !== null">
               v{{ currentVersion(row) }}
             </span>
-            <span v-else class="no-version">—</span>
+            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
           </template>
         </el-table-column>
         <el-table-column label="更新时间" width="180">
@@ -36,7 +48,7 @@
             <span v-if="currentUpdatedAt(row)">
               {{ formatTime(currentUpdatedAt(row)) }}
             </span>
-            <span v-else class="no-version">—</span>
+            <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
@@ -44,21 +56,20 @@
             <a
               v-if="row.token"
               :href="getRuleDownloadUrl(row.id, row.token)"
-              class="download-btn"
+              class="no-underline"
             >
-              <el-button type="primary" size="small">
+              <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs">
                 下载当前版本
-              </el-button>
+              </button>
             </a>
-            <el-tooltip
+            <button
               v-else
-              content="请联系管理员获取下载链接"
-              placement="top"
+              class="bg-blue-600 text-white rounded-md px-3 py-1.5 text-xs opacity-50 cursor-not-allowed"
+              disabled
+              title="请联系管理员获取下载链接"
             >
-              <el-button type="primary" size="small" disabled>
-                下载当前版本
-              </el-button>
-            </el-tooltip>
+              下载当前版本
+            </button>
           </template>
         </el-table-column>
       </el-table>
@@ -110,54 +121,3 @@ onMounted(async () => {
   }
 })
 </script>
-
-<style scoped>
-.rules-container {
-  min-height: 100vh;
-  background: var(--el-bg-color-page);
-}
-
-.rules-header {
-  padding: 24px 24px 0;
-}
-
-.rules-title {
-  margin: 0 0 4px;
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-
-.rules-desc {
-  margin: 0;
-  font-size: 14px;
-  color: var(--el-text-color-secondary);
-}
-
-.rules-main {
-  padding: 24px;
-}
-
-.rules-table {
-  width: 100%;
-}
-
-.download-btn {
-  text-decoration: none;
-}
-
-.no-version {
-  color: var(--el-text-color-placeholder);
-  font-style: italic;
-}
-
-@media (max-width: 768px) {
-  .rules-header {
-    padding: 16px 16px 0;
-  }
-
-  .rules-main {
-    padding: 16px;
-  }
-}
-</style>

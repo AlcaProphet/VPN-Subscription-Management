@@ -16,8 +16,21 @@ docker compose up -d
 ```
 
 首次启动后：
-- 后端容器监听 `127.0.0.1:8080`（Gin API）
-- 前端容器监听 `127.0.0.1:8081`（Nginx 静态文件）
+- 单容器监听 `127.0.0.1:8080`（Go 后端 serve API + 静态文件 + SPA）
+
+### 3. 配置外部 NGINX（TLS 终止）
+
+在部署机已有的 NGINX 配置中添加 `vpn.example.com` 的 server block，参考 `deploy/nginx-example.conf`。
+
+**健康检查**: 外部 WAF/LB 健康探测请指向 `/health`（返回 `{"status":"ok"}`），不要指向 `/`（该路径现在返回 SPA 的 index.html）。
+
+### 4. 数据持久化
+
+所有数据存储在 Docker Volume `vpn-data` 中，挂载到容器的 `/app/data`：
+- SQLite 数据库 (`vpn.db`)
+- 订阅/规则/自定义订阅/分享订阅版本文件
+
+> **架构变更 (v2.0)**: 从双容器（backend + frontend nginx）合并为单容器架构。旧的 `backend/Dockerfile` 和 `frontend/Dockerfile` 已废弃（保留备用）。
 - 数据持久化在 Docker volume `vpn-data`（`/app/data/`）
 
 ### 3. 配置外部 NGINX 反向代理

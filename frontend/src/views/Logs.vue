@@ -70,7 +70,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useToast } from '@/composables/useToast'
+const { success: toastSuccess, error: toastError } = useToast()
 import { adminApi } from '@/services/api'
 
 // ==========================================================================
@@ -124,7 +125,7 @@ async function fetchLogs() {
     const res = await adminApi.logs.getLogs(selectedDate.value)
     logs.value = res.data.logs || []
   } catch (e) {
-    ElMessage.error('加载日志失败')
+    toastError('加载日志失败')
     logs.value = []
   } finally {
     loading.value = false

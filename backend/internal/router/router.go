@@ -1,6 +1,10 @@
 package router
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
+
 	"vpn-sub/internal/handler"
 	"vpn-sub/internal/middleware"
 
@@ -22,11 +26,6 @@ func SetupRouter() *gin.Engine {
 
 	// Health check (no prefix, for container health checks)
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
-
-	// Root endpoint for WAF / load-balancer health probes
-	r.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
@@ -58,6 +57,28 @@ func SetupRouter() *gin.Engine {
 		registerShareDownloadRoutes(api)
 		registerAdminRoutes(api)
 	}
+
+	// Serve frontend static files (JS/CSS/fonts/images from Vite build)
+	r.Static("/assets", "/app/public/assets")
+
+	// SPA fallback: non-API requests first try static files, then fall back to index.html
+	r.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/") {
+			c.JSON(404, gin.H{"error": "not found"})
+			return
+		}
+		// Try serving static file from /app/public (with path traversal protection)
+		cleaned := filepath.Clean(filepath.Join("/app/public", path))
+		if strings.HasPrefix(cleaned, "/app/public/") {
+			if info, err := os.Stat(cleaned); err == nil && !info.IsDir() {
+				c.File(cleaned)
+				return
+			}
+		}
+		// Fall back to index.html for SPA client-side routing
+		c.File("/app/public/index.html")
+	})
 
 	return r
 }

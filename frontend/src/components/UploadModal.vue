@@ -6,56 +6,47 @@
     :close-on-click-modal="false"
     @update:model-value="$emit('update:visible', $event)"
   >
-    <el-tabs v-model="activeTab">
-      <el-tab-pane label="文件上传" name="file">
-        <el-upload
-          ref="uploadRef"
-          :auto-upload="false"
-          :limit="1"
-          :accept="accept"
-          :on-change="onFileChange"
-          :before-upload="beforeUpload"
-          drag
+    <UploadTabs
+      ref="uploadTabsRef"
+      v-model="activeTab"
+      v-model:textContent="textContent"
+      :accept="accept"
+      :maxSize="maxSize"
+      @file-change="onFileChange"
+    />
+
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <button
+          class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm"
+          @click="$emit('update:visible', false)"
         >
-          <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-          <div class="el-upload__text">
-            将文件拖到此处，或<em>点击上传</em>
-          </div>
-          <template #tip>
-            <div class="el-upload__tip">
-              文件大小不超过 {{ maxSizeMB }}MB，支持 {{ accept }} 格式
-            </div>
-          </template>
-        </el-upload>
-        <div style="margin-top: 12px; text-align: right">
-          <el-button @click="$emit('update:visible', false)">取消</el-button>
-          <el-button type="primary" :disabled="!selectedFile" @click="onFileUpload">
-            上传文件
-          </el-button>
-        </div>
-      </el-tab-pane>
-      <el-tab-pane label="文本编辑" name="text">
-        <el-input
-          v-model="textContent"
-          type="textarea"
-          :rows="12"
-          placeholder="在此粘贴订阅配置文本..."
-        />
-        <div style="margin-top: 12px; text-align: right">
-          <el-button @click="$emit('update:visible', false)">取消</el-button>
-          <el-button type="primary" :disabled="!textContent.trim()" @click="onTextSave">
-            保存文本
-          </el-button>
-        </div>
-      </el-tab-pane>
-    </el-tabs>
+          取消
+        </button>
+        <button
+          v-if="activeTab === 'file'"
+          class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="!selectedFile"
+          @click="onFileUpload"
+        >
+          上传文件
+        </button>
+        <button
+          v-else
+          class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="!textContent.trim()"
+          @click="onTextSave"
+        >
+          保存文本
+        </button>
+      </div>
+    </template>
   </el-dialog>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { UploadFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import UploadTabs from '@/components/UploadTabs.vue'
 
 const props = defineProps({
   visible: { type: Boolean, required: true },
@@ -71,7 +62,7 @@ const maxSizeMB = computed(() => props.maxSize)
 const activeTab = ref('file')
 const selectedFile = ref(null)
 const textContent = ref('')
-const uploadRef = ref(null)
+const uploadTabsRef = ref(null)
 
 // Pre-fill text editor when opening with initial content (e.g. editing a
 // previewed version).
@@ -82,19 +73,8 @@ watch(() => props.visible, (isVisible) => {
   }
 })
 
-function beforeUpload(file) {
-  const maxBytes = props.maxSize * 1024 * 1024
-  if (file.size > maxBytes) {
-    ElMessage.error(`文件大小不能超过 ${props.maxSize}MB`)
-    return false
-  }
-  return true
-}
-
-// Note: cannot use `import { ElMessage }` at top level without a UI context,
-// but ElMessage is globally available via ElementPlus.
 function onFileChange(file) {
-  selectedFile.value = file.raw
+  selectedFile.value = file
 }
 
 function onFileUpload() {
@@ -117,6 +97,6 @@ function resetForm() {
   selectedFile.value = null
   textContent.value = ''
   activeTab.value = 'file'
-  uploadRef.value?.clearFiles()
+  uploadTabsRef.value?.clearFile()
 }
 </script>
