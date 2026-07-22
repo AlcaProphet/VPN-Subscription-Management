@@ -26,7 +26,7 @@
 
       <el-table v-else :data="sortedVersions" stripe>
         <el-table-column label="版本号" width="100"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
-        <el-table-column label="创建时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
+        <el-table-column v-if="!isMobile" label="创建时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
         <el-table-column label="更新时间" width="180"><template #default="{ row }">{{ formatTime(row.updated_at) }}</template></el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
@@ -34,11 +34,20 @@
             <span v-else class="text-gray-400 dark:text-gray-500">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="240" fixed="right">
+        <el-table-column label="操作" width="80" min-width="80" fixed="right">
           <template #default="{ row }">
-            <button v-if="!isCurrent(row)" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs" @click="handleSwitch(row)">设为当前</button>
-            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1" @click="handlePreview(row)">预览</button>
-            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="isCurrent(row) || versions.length <= 1" @click="confirmDeleteVersion(row)">删除</button>
+            <ActionMenu>
+              <template #default>
+                <button v-if="!isCurrent(row)" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs" @click="handleSwitch(row)">设为当前</button>
+                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1" @click="handlePreview(row)">预览</button>
+                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="isCurrent(row) || versions.length <= 1" @click="confirmDeleteVersion(row)">删除</button>
+              </template>
+              <template #menu>
+                <button v-if="!isCurrent(row)" class="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="handleSwitch(row)">设为当前</button>
+                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="handlePreview(row)">预览</button>
+                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50" :disabled="isCurrent(row) || versions.length <= 1" @click="confirmDeleteVersion(row)">删除</button>
+              </template>
+            </ActionMenu>
           </template>
         </el-table-column>
       </el-table>
@@ -67,10 +76,13 @@ import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import UploadModal from '@/components/UploadModal.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import ActionMenu from '@/components/ActionMenu.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 const route = useRoute()
 const router = useRouter()
 const { success: toastSuccess, error: toastError } = useToast()
+const isMobile = useIsMobile()
 
 // ==========================================================================
 // Data
@@ -234,49 +246,4 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.versions-container {
-  padding: 0;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.header-left h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.versions-table {
-  width: 100%;
-}
-
-.preview-content {
-  max-height: 400px;
-  overflow: auto;
-  background: var(--el-fill-color-light);
-  padding: 16px;
-  border-radius: 4px;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin: 0;
-}
-
-.no-version {
-  color: var(--el-text-color-secondary);
-}
 </style>

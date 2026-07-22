@@ -24,13 +24,24 @@
           <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="row.has_token ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'">{{ row.has_token ? '有效' : '已吊销' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" min-width="320" fixed="right">
+      <el-table-column label="操作" width="80" min-width="80" fixed="right">
         <template #default="{ row }">
-          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
-          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.has_token" @click="copyShareLink(row)">复制分享链接</button>
-          <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmRefreshToken(row)">刷新 Token</button>
-          <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.has_token" @click="confirmRevokeToken(row)">吊销 Token</button>
-          <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
+          <ActionMenu>
+            <template #default>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.has_token" @click="copyShareLink(row)">复制分享链接</button>
+              <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmRefreshToken(row)">刷新 Token</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!row.has_token" @click="confirmRevokeToken(row)">吊销 Token</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
+            </template>
+            <template #menu>
+              <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="goVersions(row)">版本管理</button>
+              <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" :disabled="!row.has_token" @click="copyShareLink(row)">复制分享链接</button>
+              <button class="block w-full text-left px-4 py-2 text-sm text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmRefreshToken(row)">刷新 Token</button>
+              <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" :disabled="!row.has_token" @click="confirmRevokeToken(row)">吊销 Token</button>
+              <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmDelete(row)">删除</button>
+            </template>
+          </ActionMenu>
         </template>
       </el-table-column>
     </el-table>
@@ -71,6 +82,7 @@ import { useToast } from '@/composables/useToast'
 import { adminApi, downloadApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import UploadTabs from '@/components/UploadTabs.vue'
+import ActionMenu from '@/components/ActionMenu.vue'
 
 const router = useRouter()
 const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
@@ -293,33 +305,4 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.share-list-container {
-  display: block;
-  min-width: 100%;
-  width: 100%;
-  padding: 0;
-  box-sizing: border-box;
-  overflow: hidden;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.page-header h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.share-table {
-  width: 100%;
-}
-
-.no-version {
-  color: var(--el-text-color-secondary);
-}
 </style>

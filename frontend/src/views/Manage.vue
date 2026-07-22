@@ -98,7 +98,7 @@
     </aside>
 
     <!-- Main content -->
-    <main class="ml-[200px] max-md:ml-0 flex-1 p-6 max-md:pt-16 min-h-screen box-border">
+    <main class="ml-[200px] max-md:ml-0 flex-1 p-6 max-md:pt-16 min-h-screen box-border min-w-0">
       <router-view />
     </main>
   </div>

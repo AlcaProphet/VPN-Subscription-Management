@@ -43,17 +43,26 @@
             <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="更新时间" width="180">
+        <el-table-column v-if="!isMobile" label="更新时间" width="180">
           <template #default="{ row }">
             <span v-if="currentUpdatedAt(row)">{{ formatTime(currentUpdatedAt(row)) }}</span>
             <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="80" min-width="80" fixed="right">
           <template #default="{ row }">
-            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
-            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs ml-1" @click="openEditDialog(row)">编辑</button>
-            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
+            <ActionMenu>
+              <template #default>
+                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(row)">版本管理</button>
+                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(row)">编辑</button>
+                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(row)">删除</button>
+              </template>
+              <template #menu>
+                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="goVersions(row)">版本管理</button>
+                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="openEditDialog(row)">编辑</button>
+                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmDelete(row)">删除</button>
+              </template>
+            </ActionMenu>
           </template>
         </el-table-column>
       </el-table>
@@ -115,9 +124,13 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import ActionMenu from '@/components/ActionMenu.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 const router = useRouter()
 const { success: toastSuccess, error: toastError } = useToast()
+
+const isMobile = useIsMobile()
 
 // ==========================================================================
 // Data
@@ -306,28 +319,4 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.sub-list-container {
-  padding: 0;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.page-header h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.sub-table {
-  width: 100%;
-}
-
-.no-version {
-  color: var(--el-text-color-secondary);
-}
 </style>

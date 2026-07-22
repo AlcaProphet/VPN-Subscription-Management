@@ -24,23 +24,31 @@
         <el-table-column prop="id" label="ID" width="140" />
         <el-table-column prop="name" label="名称" min-width="140" />
         <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
-        <el-table-column label="Client Schemes" min-width="200">
+        <el-table-column v-if="!isMobile" label="Client Schemes" min-width="200">
           <template #default="{ row }">
             <span v-for="(scheme, idx) in row.client_schemes" :key="idx"
               class="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 mr-1 mb-1">{{ scheme }}</span>
             <span v-if="!row.client_schemes || row.client_schemes.length === 0" class="text-gray-400 dark:text-gray-500">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="下载链接" min-width="160" show-overflow-tooltip>
+        <el-table-column v-if="!isMobile" label="下载链接" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.download_url">{{ row.download_url }}</span>
             <span v-else class="text-gray-400 dark:text-gray-500">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="80" min-width="80" fixed="right">
           <template #default="{ row }">
-            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(row)">编辑</button>
-            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
+            <ActionMenu>
+              <template #default>
+                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(row)">编辑</button>
+                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs ml-1" @click="confirmDelete(row)">删除</button>
+              </template>
+              <template #menu>
+                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="openEditDialog(row)">编辑</button>
+                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="confirmDelete(row)">删除</button>
+              </template>
+            </ActionMenu>
           </template>
         </el-table-column>
       </el-table>
@@ -90,11 +98,14 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import ActionMenu from '@/components/ActionMenu.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 // ==========================================================================
 // Data
 // ==========================================================================
 const { success: toastSuccess, error: toastError } = useToast()
+const isMobile = useIsMobile()
 const loading = ref(true)
 const platforms = ref([])
 
@@ -241,39 +252,4 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.platform-container {
-  padding: 0;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.page-header h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.platform-table {
-  width: 100%;
-}
-
-.scheme-tag {
-  margin-right: 4px;
-  margin-bottom: 4px;
-}
-
-.no-data {
-  color: var(--el-text-color-secondary);
-}
-
-.form-tip {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-top: 4px;
-}
 </style>

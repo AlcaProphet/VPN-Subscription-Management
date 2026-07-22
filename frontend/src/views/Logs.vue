@@ -29,8 +29,8 @@
           <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="typeTagClass(row.download_type)">{{ downloadTypeLabel(row.download_type) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="用户 ID" width="140" show-overflow-tooltip><template #default="{ row }">{{ row.user_id || '—' }}</template></el-table-column>
-      <el-table-column label="平台" width="130"><template #default="{ row }">{{ row.platform || '—' }}</template></el-table-column>
+      <el-table-column v-if="!isMobile" label="用户 ID" width="140" show-overflow-tooltip><template #default="{ row }">{{ row.user_id || '—' }}</template></el-table-column>
+      <el-table-column v-if="!isMobile" label="平台" width="130"><template #default="{ row }">{{ row.platform || '—' }}</template></el-table-column>
       <el-table-column label="状态" width="80">
         <template #default="{ row }">
           <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="row.status === 'success' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'">{{ row.status === 'success' ? '成功' : '失败' }}</span>
@@ -51,8 +51,10 @@
 import { ref, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 const { error: toastError } = useToast()
+const isMobile = useIsMobile()
 
 const loading = ref(true)
 const logs = ref([])

@@ -60,3 +60,22 @@
 
 - 不替换el-table / 不新增后端API / 桌面端零回归 / 暗色模式兼容
 - ActionMenu需clickoutside自动关闭 / 移动端菜单项先关闭下拉再触发ConfirmDialog
+
+---
+
+## 实施完成状态（2026-07-22）
+
+全部 4 个块（11A–11D）已完成。
+
+| 块 | 内容 | 状态 |
+|----|------|------|
+| 11A | ActionMenu.vue + useIsMobile.js + Manage.vue min-w-0 | ✅ |
+| 11B | SubList / ShareList / UserManage / RulesManage / PlatformManage | ✅ |
+| 11C | SubVersions / ShareVersions / RuleVersions / Logs | ✅ |
+| 11D | 编译验证 + 残留 CSS 清理 | ✅ |
+
+**改动汇总**:
+- 新增 2 文件: `ActionMenu.vue`, `useIsMobile.js`
+- 修改 10 个 views: SubList, ShareList, UserManage, RulesManage, PlatformManage, SubVersions, ShareVersions, RuleVersions, Logs, Manage
+- 清理 6 个文件残留 scoped CSS
+- 桌面端零回归，移动端操作列从 260-340px 缩减至 80px（ActionMenu 下拉）
