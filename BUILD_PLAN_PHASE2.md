@@ -954,3 +954,11 @@
 - **Go 工程**: 修改 `go.mod` 后运行 `go mod tidy`；修改代码后运行 `go build ./...` 验证；`isValidID()` 在 utils 包。
 - **安全**: 所有含用户输入的路径操作经 `sanitizePath()`；所有 `/api/v1/admin/*` 路由有 AdminRequired 中间件；Logger 脱敏 `?token=`；下载端点返回 `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache`。
 - **不新增 API 路由**: Phase 2 仅调整后端静态服务（Static + NoRoute）+ 删除根路由 JSON，**不新增任何 `/api/v1/*` 路由**。
+
+---
+
+## 八、Phase 2 完成状态确认（2026-07-22）
+
+全部 10 个块（10A–10J）已完成。详见 `BUILD_PLAN_PHASE2_MOBILE.md` 中「Phase 2 完成状态」章节。
+
+后续改进计划（Phase 2.1 移动端表格 UX）也已记录在 `BUILD_PLAN_PHASE2_MOBILE.md`。
