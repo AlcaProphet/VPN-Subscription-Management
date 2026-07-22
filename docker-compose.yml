@@ -1,8 +1,6 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/alcaprophet/vpn-subscription-manager:latest
     container_name: vpn-app
     ports:
       - "127.0.0.1:8080:8080"     # 只绑本机, 外部不可达

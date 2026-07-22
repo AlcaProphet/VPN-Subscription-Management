@@ -1,4 +1,4 @@
-name: Build and Push Docker Images
+name: Build and Push Docker Image
 
 on:
   push:
@@ -8,14 +8,12 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build:
     name: Build & Push
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [backend, frontend]
     permissions:
       contents: read
       packages: write
@@ -38,13 +36,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/vpn-sub-${{ matrix.service }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Branch-based tags (e.g. main, beta)
             type=ref,event=branch
-            # Tag main as latest
             type=raw,value=latest,enable={{is_default_branch}}
-            # Semver tags (v1.0.0 → 1.0.0, 1.0, 1)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
@@ -52,7 +47,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.service }}
+          context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
