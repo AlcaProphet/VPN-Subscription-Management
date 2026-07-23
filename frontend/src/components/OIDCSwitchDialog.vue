@@ -40,6 +40,7 @@
 </template>
 
 <script setup>
+import { nextTick } from 'vue'
 import { useDialogWidth } from '@/composables/useDialogWidth'
 const dialogWidth = useDialogWidth('400px')
 
@@ -58,6 +59,12 @@ const providers = [
 
 function onSelect(provider) {
   emit('switch', provider)
-  emit('update:visible', false)
+  // Defer closing until Vue finishes processing the reactive update triggered
+  // by the parent's handleProviderSwitch (which may swap v-if template blocks).
+  // Without nextTick, the dialog closing animation races with DOM mutations,
+  // causing the popup to be interrupted.
+  nextTick(() => {
+    emit('update:visible', false)
+  })
 }
 </script>
