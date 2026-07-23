@@ -1,6 +1,7 @@
 # Issues.md — 问题追踪
 
-> **状态**: 🟡 Low 级别待修复。Critical/High/Medium 已于 2026-07-23 修复。
+> **状态**: 🟡 仅 Low 级别 + 卡片化重构待处理。Critical/High/Medium 已于 2026-07-23 全部修复。
+> **待检查**: Setup/SystemSettings OIDC 表单交互修复需在浏览器中实际验证。
 
 ---
 
@@ -101,7 +102,7 @@
 
 ---
 
-### 🟡 Low 优先级
+### 🟡 Low 优先级（第一轮审查）
 
 - [ ] **L1. `handlers.go` ~1690 行** — 建议按业务域拆分为多个文件
 - [ ] **L2. 版本管理代码重复 >80%** — 4 个 service 中 UploadVersion/SwitchVersion/DeleteVersion 高度相似
@@ -152,10 +153,10 @@
 <details>
 <summary><b>Setup / OIDC 交互修复</b>（5 项，点击展开）</summary>
 
-- [x] **B1. 表单验证失败无 toast** — `Setup.vue` + `SystemSettings.vue`
-- [x] **B2. Setup 状态检测加固** — `setupConfirmed` 标记
-- [x] ~~B3. Setup 切换提供商调 API~~ — 已回退
-- [x] **B4. OIDCSwitchDialog 弹窗中断** — `nextTick` 延迟关闭
+- [x] **B1. 表单验证失败无 toast** — `Setup.vue` (`handleTest` + `handleSubmit`) + `SystemSettings.vue` (`handleTest` + `handleSave`) 验证失败时加 `toastError`
+- [x] **B2. Setup 状态检测加固** — 新增 `setupConfirmed` 标记，操作前重验系统状态防 401 重定向清空表单
+- [x] **B3. Setup 切换提供商调 API** — `handleProviderSwitch` 现在调用 `adminApi.system.switchProvider()` 持久化，与 SystemSettings 行为一致
+- [x] **B4. OIDCSwitchDialog 弹窗中断** — `onSelect` 中 `emit('update:visible')` 用 `nextTick` 延迟
 - [x] **B5. `<el-form>` 内 `<button>` 触发原生提交** — 9 个按钮加 `type="button"` + 401 拦截器路径检测。**已由浏览器实测验证修复。**
 - [x] **B6. OIDCSwitchDialog 改为确认式交互** — 选择后需点「确认」才应用，避免误操作
 - [x] **B7. `<select>` 替换为 `<el-select>`** — 原生 select 在 append-to-body dialog 内下拉层定位错误。3 个文件 4 处全部替换
