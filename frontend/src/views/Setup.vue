@@ -152,6 +152,7 @@ const form = reactive({
 const showSwitchDialog = ref(false)
 const testing = ref(false)
 const saving = ref(false)
+const setupConfirmed = ref(false) // true only after getSystemStatus confirms configured=false
 
 const providerLabel = computed(() => {
   const labels = { keycloak: 'Keycloak', auth0: 'Auth0', generic: '通用 OIDC' }
@@ -215,11 +216,40 @@ function buildPayload() {
 function handleProviderSwitch(newProvider) {
   form.provider_type = newProvider
   formRef.value?.clearValidate()
+  // Persist the provider type to system_config immediately so it's retained
+  // if the user refreshes the page before completing setup.
+  // The switch-provider endpoint is allowed during setup (ConditionalSetupAuth
+  // permits unauthenticated access when configured=false).
+  adminApi.system.switchProvider({ provider_type: newProvider }).catch(() => {
+    // Non-critical — the provider type is also sent in the final configure
+    // payload, so a failed persistence here doesn't block setup.
+  })
 }
 
 async function handleTest() {
   const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
+  if (!valid) {
+    toastError('请填写所有必填字段后再测试连接')
+    return
+  }
+
+  // Re-verify system is still in setup mode before making admin API calls.
+  // If the status check initially failed but the system is actually configured,
+  // the admin API would return 401 → axios interceptor → hard redirect to /login,
+  // clearing the form and dismissing any toast. This check prevents that.
+  if (!setupConfirmed.value) {
+    try {
+      const res = await publicApi.getSystemStatus()
+      if (res.data.configured) {
+        router.push('/login')
+        return
+      }
+      setupConfirmed.value = true
+    } catch {
+      toastError('无法验证系统状态，请检查网络后刷新页面重试')
+      return
+    }
+  }
 
   testing.value = true
   try {
@@ -235,7 +265,25 @@ async function handleTest() {
 
 async function handleSubmit() {
   const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
+  if (!valid) {
+    toastError('请填写所有必填字段后再提交')
+    return
+  }
+
+  // Same re-verification as handleTest (see comment above)
+  if (!setupConfirmed.value) {
+    try {
+      const res = await publicApi.getSystemStatus()
+      if (res.data.configured) {
+        router.push('/login')
+        return
+      }
+      setupConfirmed.value = true
+    } catch {
+      toastError('无法验证系统状态，请检查网络后刷新页面重试')
+      return
+    }
+  }
 
   saving.value = true
   try {
@@ -265,9 +313,12 @@ onMounted(async () => {
     const res = await publicApi.getSystemStatus()
     if (res.data.configured) {
       router.push('/login')
+      return
     }
+    setupConfirmed.value = true
   } catch (e) {
-    // System status unavailable — stay on setup page
+    // System status unavailable — stay on setup page.
+    // setupConfirmed stays false; handleTest/handleSubmit will re-check.
   }
 })
 </script>

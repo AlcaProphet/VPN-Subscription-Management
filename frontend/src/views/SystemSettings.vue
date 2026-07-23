@@ -293,7 +293,10 @@ function buildOIDCPayload() {
 
 async function handleTest() {
   const valid = await oidcFormRef.value.validate().catch(() => false)
-  if (!valid) return
+  if (!valid) {
+    toastError('请填写所有必填字段后再测试连接')
+    return
+  }
 
   testing.value = true
   try {
@@ -314,7 +317,10 @@ async function handleTest() {
 
 async function handleSave() {
   const valid = await oidcFormRef.value.validate().catch(() => false)
-  if (!valid) return
+  if (!valid) {
+    toastError('请填写所有必填字段后再保存')
+    return
+  }
 
   saving.value = true
   try {
