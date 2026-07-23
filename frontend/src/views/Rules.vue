@@ -62,13 +62,13 @@
                 :href="getRuleDownloadUrl(rule.id, rule.token)"
                 class="no-underline"
               >
-                <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs">
+                <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm">
                   下载当前版本
                 </button>
               </a>
               <button
                 v-else
-                class="bg-blue-600 text-white rounded-md px-3 py-1.5 text-xs opacity-50 cursor-not-allowed"
+                class="bg-blue-600 text-white rounded-md px-3 py-1.5 text-sm opacity-50 cursor-not-allowed"
                 disabled
                 title="请联系管理员获取下载链接"
               >
