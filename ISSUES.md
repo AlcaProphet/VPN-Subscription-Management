@@ -94,6 +94,7 @@
 - 版本卡片: 版本号 + 当前徽章（绿色左边框）+ 创建/更新时间 + 设为当前/预览/删除 按钮
 - 保留: 全部 API 逻辑、`UploadModal`、`el-dialog` 预览、`ConfirmDialog`、`sortedVersions`/`currentVersionNum` computed
 - 前端构建 ✅ 通过，零错误
+- 清理: `ActionMenu.vue` 已删除（无其他引用）
 
 </details>
 
