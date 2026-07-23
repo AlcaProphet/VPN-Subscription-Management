@@ -268,7 +268,7 @@
 
 ### 4.3 管理面板 (Manage.vue)
 
-左侧固定宽度侧边栏（200px），使用 Element Plus el-menu 组件，router 模式。菜单项：订阅管理、分享订阅、平台管理、用户管理、规则管理、OIDC配置、日志查看。当前路由对应的菜单项高亮（渐变紫色背景）。
+左侧固定宽度侧边栏（200px），使用 Element Plus el-menu 组件，router 模式。菜单项：订阅管理、分享订阅、平台管理、用户管理、规则管理、面板配置、日志查看。当前路由对应的菜单项高亮（渐变紫色背景）。
 
 移动端：侧边栏默认隐藏，通过顶部栏的汉堡按钮切换显示。
 
@@ -452,7 +452,7 @@ frontend/
     ├── stores/user.js            Pinia 用户状态
     ├── composables/useTheme.js   暗色模式
     ├── components/               ConfirmDialog, OIDCSwitchDialog, UploadModal
-    └── views/                    15 个页面：Setup, Login, Home, Rules(用户), Manage(布局), SubList, SubVersions, ShareList, ShareVersions, PlatformManage, UserManage, RulesManage, RuleVersions, OIDCConfig, Logs
+    └── views/                    15 个页面：Setup, Login, Home, Rules(用户), Manage(布局), SubList, SubVersions, ShareList, ShareVersions, PlatformManage, UserManage, RulesManage, RuleVersions, SystemSettings, Logs
 ```
 
 **分层职责**: handler（HTTP 协议层，BindJSON/响应）→ service（业务规则、版本管理逻辑）→ repository（SQL、文件读写）。handler 不直接操作数据库，service 不感知 HTTP。

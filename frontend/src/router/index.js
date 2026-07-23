@@ -60,7 +60,7 @@ const routes = [
       { path: 'users', name: 'UserManage', component: () => import('@/views/UserManage.vue') },
       { path: 'rules', name: 'RulesManage', component: () => import('@/views/RulesManage.vue') },
       { path: 'rules/:id/versions', name: 'RuleVersions', component: () => import('@/views/RuleVersions.vue') },
-      { path: 'oidc', name: 'OIDCConfig', component: () => import('@/views/OIDCConfig.vue') },
+      { path: 'system', name: 'SystemSettings', component: () => import('@/views/SystemSettings.vue') },
       { path: 'logs', name: 'Logs', component: () => import('@/views/Logs.vue') }
     ]
   },

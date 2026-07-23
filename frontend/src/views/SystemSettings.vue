@@ -217,7 +217,7 @@ const providerTagClass = computed(() => {
 async function loadConfig() {
   try {
     const [oidcRes, rateRes] = await Promise.all([
-      adminApi.system.getOIDCConfig(),
+      adminApi.system.getSystemConfig(),
       adminApi.system.getRateLimit()
     ])
 

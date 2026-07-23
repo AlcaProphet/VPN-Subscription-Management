@@ -281,7 +281,7 @@ export const adminApi = {
 
   // System
   system: {
-    getOIDCConfig() {
+    getSystemConfig() {
       return api.get('/admin/oidc-config')
     },
     testOIDC(data) {
