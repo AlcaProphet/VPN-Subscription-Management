@@ -99,7 +99,7 @@ import UploadTabs from '@/components/UploadTabs.vue'
 const dialogWidth = useDialogWidth('520px')
 
 const router = useRouter()
-const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
+const { success: toastSuccess, error: toastError, warning: toastWarning } = useToast()
 
 // ==========================================================================
 // Data
@@ -203,9 +203,6 @@ async function handleCreateFile() {
     fd.append('client_type', createForm.client_type)
     const res = await adminApi.rules.create(fd)
     toastSuccess('规则已创建')
-    if (res.data.token) {
-      toastInfo('Token: ' + res.data.token)
-    }
     createVisible.value = false
     await fetchRules()
   } catch (e) {
@@ -228,9 +225,6 @@ async function handleCreateText() {
       content: createForm.content
     })
     toastSuccess('规则已创建')
-    if (res.data.token) {
-      toastInfo('Token: ' + res.data.token)
-    }
     createVisible.value = false
     await fetchRules()
   } catch (e) {
