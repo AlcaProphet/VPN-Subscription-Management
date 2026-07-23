@@ -44,6 +44,48 @@
 
 ## 待修复（Low 优先级，暂不处理）
 
+### DEBUG 日志增强（2026-07-23 分析完成，待实施）
+
+> 当前项目严重缺乏 DEBUG 日志：`oidc_service.go`、`middleware/auth.go`、`version_service.go` 中零 zerolog 调用；整个前端零 console.debug。建议按以下优先级分批添加。
+
+#### P0 — 安全/认证（后端 4 项 + 前端 1 项）
+
+- [ ] **D1. OIDC `InitiateLogin` 加日志** (`oidc_service.go`): state 创建、PKCE 生成、DB 写入
+- [ ] **D2. OIDC `HandleCallback` 加日志** (`oidc_service.go`): 三重校验每步结果、code exchange、首次管理员判定、JWT 签发
+- [ ] **D3. `ValidateJWTAndSetContext` 认证结果日志** (`middleware/auth.go`): JWT 验证通过/失败原因、用户角色
+- [ ] **D4. `ConfigureSystem` 写入键日志** (`oidc_service.go`): JWT_SECRET 新建 vs 复用、加密状态
+- [ ] **D5. 前端 401 拦截器加 console.debug** (`api.js`): 哪个端点返回 401、当前在哪个页面
+
+#### P1 — 业务变更（后端 3 项）
+
+- [ ] **D6. 版本操作加日志** (`version_service.go`): CreateVersion/DeleteVersion/SwitchVersion 时记录资源、版本号
+- [ ] **D7. 下载端点加实时日志** (`handlers.go`): SubDownloadToken/ShareDownload/GetRuleDownload 加 zerolog（当前仅写 DB）
+- [ ] **D8. 速率限制触发加日志** (`rate_limit.go`): IP、当前计数、限制值
+
+#### P2 — 前端可观测性（前端 2 项）
+
+- [ ] **D9. 路由守卫加 console.debug** (`router/index.js`): `from`→`to`、`isConfigured`/`isLoggedIn` 快照
+- [ ] **D10. API 请求拦截器加 console.debug** (`api.js`): 端点 + 方法 + 是否带 JWT
+
+#### P3 — 日志级别基础设施（后端 1 项）
+
+- [ ] **D11. `LOG_LEVEL` 环境变量支持** (`main.go`): `zerolog.SetGlobalLevel()` + `LOG_LEVEL=debug|info|warn`
+
+- [x] **D11. `LOG_LEVEL` 环境变量支持** (`main.go`): `LOG_LEVEL=debug|info|warn` → `zerolog.SetGlobalLevel()`，默认 info
+- [x] **D1. OIDC `InitiateLogin`** (`oidc_service.go`): state + PKCE + prompt 信息
+- [x] **D2. OIDC `HandleCallback`** (`oidc_service.go`): code exchange 成功/失败、首次管理员判定、JWT 签发
+- [x] **D3. `ValidateJWTAndSetContext`** (`middleware/auth.go`): JWT 验证失败原因、用户查找结果、认证成功
+- [x] **D4. `ConfigureSystem`** (`oidc_service.go`): JWT_SECRET 新建 vs 复用、提供商类型
+- [x] **D5. 前端 401 拦截器** (`api.js`): `console.debug` 记录哪个端点、当前页面路径
+- [x] **D9. 前端路由守卫** (`router/index.js`): `from→to`、`isConfigured`/`isLoggedIn`/`isAdmin` 快照
+- [x] **D10. 前端 API 请求拦截器** (`api.js`): `console.debug` 记录 `${METHOD} ${URL}` + 是否带 JWT
+
+#### P1 — 业务变更（后端 3 项，待实施）
+
+- [ ] **D6. 版本操作加日志** (`version_service.go`): CreateVersion/DeleteVersion/SwitchVersion 时记录资源、版本号
+- [ ] **D7. 下载端点加实时日志** (`handlers.go`): SubDownloadToken/ShareDownload/GetRuleDownload 加 zerolog
+- [ ] **D8. 速率限制触发加日志** (`rate_limit.go`): IP、当前计数、限制值
+
 ### 代码结构
 
 - [ ] **L1. `handlers.go` ~1690 行** — 建议按业务域拆分为多个文件

@@ -16,6 +16,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
 
@@ -288,6 +289,8 @@ func (s *Service) InitiateLogin(prompt string) (*InitiateLoginResult, error) {
 
 	authURL := s.oauth2Config.AuthCodeURL(state, opts...)
 
+	log.Debug().Str("state", state).Bool("has_prompt", prompt != "").Msg("OIDC login initiated")
+
 	return &InitiateLoginResult{
 		RedirectURL: authURL,
 		State:       state,
@@ -330,8 +333,10 @@ func (s *Service) HandleCallback(ctx context.Context, queryState, cookieState, c
 		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
 	)
 	if err != nil {
+		log.Debug().Err(err).Msg("OIDC code exchange failed")
 		return nil, fmt.Errorf("code exchange failed: %w", err)
 	}
+	log.Debug().Msg("OIDC code exchange succeeded")
 
 	// Extract and verify the ID token
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
@@ -382,6 +387,7 @@ func (s *Service) HandleCallback(ctx context.Context, queryState, cookieState, c
 		if adminInit != "true" {
 			role = "admin"
 			isAdvanced = true
+			log.Debug().Str("user_id", claims.Sub).Msg("First user — assigning admin role")
 			// Set admin_initialized to true
 			if err := s.cfgRepo.Set("admin_initialized", "true"); err != nil {
 				return nil, fmt.Errorf("failed to set admin_initialized: %w", err)
@@ -406,8 +412,10 @@ func (s *Service) HandleCallback(ctx context.Context, queryState, cookieState, c
 	// Generate JWT
 	jwtToken, err := s.GenerateJWT(user.UserID)
 	if err != nil {
+		log.Debug().Err(err).Str("user_id", user.UserID).Msg("JWT generation failed")
 		return nil, fmt.Errorf("failed to generate JWT: %w", err)
 	}
+	log.Debug().Str("user_id", user.UserID).Str("role", user.Role).Msg("OIDC callback — JWT issued")
 
 	return &CallbackResult{
 		UserID:      user.UserID,
@@ -503,7 +511,9 @@ type ConfigureSystemResult struct {
 func ConfigureSystem(cfgRepo *repository.SystemConfigRepo, cfg *OIDCConfig, rawClientSecret string) (*ConfigureSystemResult, error) {
 	// Check if JWT_SECRET already exists — reuse it if so, generate only on first setup
 	jwtSecret, err := cfgRepo.Get("JWT_SECRET")
+	jwtReused := true
 	if err != nil || jwtSecret == "" {
+		jwtReused = false
 		// First-time setup: generate a new JWT_SECRET (at least 32 bytes = 256 bits)
 		jwtSecretBytes, genErr := utils.GenerateRandomBytes(32)
 		if genErr != nil {
@@ -511,6 +521,7 @@ func ConfigureSystem(cfgRepo *repository.SystemConfigRepo, cfg *OIDCConfig, rawC
 		}
 		jwtSecret = base64.RawURLEncoding.EncodeToString(jwtSecretBytes)
 	}
+	log.Debug().Bool("jwt_reused", jwtReused).Str("provider", string(cfg.ProviderType)).Msg("ConfigureSystem — saving OIDC config")
 
 	// Derive AES key from JWT_SECRET
 	aesKey := utils.AESKeyFromSecret(jwtSecret)

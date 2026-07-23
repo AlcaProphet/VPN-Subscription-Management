@@ -12,6 +12,7 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    console.debug(`[api] ${config.method.toUpperCase()} ${config.baseURL}${config.url}`, { hasJWT: !!token })
     return config
   },
   (error) => Promise.reject(error)
@@ -22,6 +23,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
+      console.debug(`[api] 401 on ${error.config?.url} — pathname=${window.location.pathname}`)
       localStorage.removeItem('jwt')
       // If we're on the setup page, reload it so the router guard
       // re-detects system status and redirects appropriately.  A hard

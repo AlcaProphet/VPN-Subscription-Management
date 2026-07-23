@@ -86,6 +86,12 @@ router.beforeEach(async (to, from, next) => {
   // 2. Check system status (cached after first call)
   await userStore.checkSystemStatus()
 
+  console.debug(`[router] ${from?.path || '(init)'} → ${to.path}`, {
+    configured: userStore.isConfigured,
+    isLoggedIn: userStore.isLoggedIn,
+    isAdmin: userStore.isAdmin
+  })
+
   // 3. System not configured → must go to /setup
   if (userStore.isConfigured === false) {
     if (to.path !== '/setup') {

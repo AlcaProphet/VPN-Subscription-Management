@@ -27,6 +27,15 @@ func main() {
 		log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 	}
 
+	// Set global log level: debug | info | warn | error.
+	// Default "info" suppresses Debug messages in production.
+	// Set LOG_LEVEL=debug for troubleshooting, LOG_LEVEL=warn for minimal output.
+	if lvl := utils.GetEnv("LOG_LEVEL", "info"); lvl != "" {
+		if parsed, err := zerolog.ParseLevel(lvl); err == nil {
+			zerolog.SetGlobalLevel(parsed)
+		}
+	}
+
 	// Determine environment
 	port := utils.GetEnv("PORT", "8080")
 	dataDir := utils.GetEnv("DATA_DIR", "./data")

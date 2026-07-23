@@ -7,6 +7,7 @@ import (
 	"vpn-sub/internal/repository"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 )
 
 // authService interface allows the middleware to verify JWT tokens and fetch user info.
@@ -47,6 +48,7 @@ func ValidateJWTAndSetContext(c *gin.Context) (userID, role string, err error) {
 
 	userID, err = DefaultAuthService.ValidateJWT(parts[1])
 	if err != nil {
+		log.Debug().Err(err).Msg("JWT validation failed")
 		return "", "", ErrInvalidToken
 	}
 
@@ -54,6 +56,7 @@ func ValidateJWTAndSetContext(c *gin.Context) (userID, role string, err error) {
 	userRepo := repository.NewUserRepo()
 	user, err := userRepo.FindByID(userID)
 	if err != nil {
+		log.Debug().Str("user_id", userID).Err(err).Msg("User not found in DB after JWT validation")
 		return "", "", ErrUserNotFound
 	}
 
@@ -62,6 +65,7 @@ func ValidateJWTAndSetContext(c *gin.Context) (userID, role string, err error) {
 	c.Set("user_role", user.Role)
 	c.Set("user_is_advanced", user.IsAdvanced)
 
+	log.Debug().Str("user_id", user.UserID).Str("role", user.Role).Msg("Auth OK — context set")
 	return user.UserID, user.Role, nil
 }
 
