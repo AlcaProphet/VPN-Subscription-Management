@@ -24,7 +24,7 @@
 
       <div v-if="versions.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无版本</div>
 
-      <div class="w-full overflow-x-auto">
+      <div v-else class="w-full overflow-x-auto">
         <el-table :data="sortedVersions" stripe>
         <el-table-column label="版本号" width="100"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
         <el-table-column v-if="!isMobile" label="创建时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>

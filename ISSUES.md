@@ -62,6 +62,10 @@
 - [x] **B5. `<el-form>` 内 `<button>` 触发原生提交** — 9 个按钮加 `type="button"` + 401 拦截器路径检测。**已由浏览器实测验证修复。**
 - [x] **B6. OIDCSwitchDialog 改为确认式交互** — 选择后需点「确认」才应用，避免误操作
 - [x] **B7. `<select>` 替换为 `<el-select>`** — 原生 select 在 append-to-body dialog 内下拉层定位错误。3 个文件 4 处全部替换
+- [x] **B8. 版本页空状态 + 弹窗重叠** (`SubVersions`/`ShareVersions`/`RuleVersions` + `UploadModal`):
+  - 空状态：`v-if="versions.length===0"` → `v-else`，有数据才渲染 el-table，消除三重空状态（"暂无版本" + 空表格 + "暂无数据"）
+  - 弹窗重叠：`UploadModal` 加 `:modal-append-to-body="true"`，遮罩层同步 teleport 到 body，消除 el-table 固定列穿透
+  - **待浏览器实测验证**
 
 </details>
 

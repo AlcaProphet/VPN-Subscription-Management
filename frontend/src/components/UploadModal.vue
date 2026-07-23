@@ -6,6 +6,7 @@
     :fullscreen="isMobile"
     :close-on-click-modal="false"
     :append-to-body="true"
+    :modal-append-to-body="true"
     @update:model-value="$emit('update:visible', $event)"
   >
     <UploadTabs

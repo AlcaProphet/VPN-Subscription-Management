@@ -162,7 +162,7 @@ async function fetchDownloadLink(rule) {
   fetchingLink.value = rule.id
   try {
     const res = await userApi.getRuleDownloadLink(rule.id)
-    dialogUrl.value = res.data.url
+    dialogUrl.value = window.location.origin + res.data.url
     dialogRuleName.value = res.data.rule_name || rule.name
     copied.value = false
     showDialog.value = true
