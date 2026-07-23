@@ -62,8 +62,7 @@ docker compose up -d
 ```
 
 启动后：
-- 后端 API 监听 `127.0.0.1:8080`（仅本机可访问）
-- 前端页面监听 `127.0.0.1:8081`（仅本机可访问）
+- 单容器监听 `127.0.0.1:8080`（Go 后端 serve API + 静态文件 + SPA，仅本机可访问）
 
 ### 第三步：配置外部反向代理
 
@@ -74,8 +73,8 @@ server {
     listen 443 ssl;
     server_name vpn.example.com;
 
-    # API 请求 → 后端容器
-    location /api/ {
+    # 所有请求 → 单容器（Go 后端 serve 一切）
+    location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
@@ -83,19 +82,10 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         client_max_body_size 55m;
     }
-
-    # 其他请求 → 前端容器（静态文件 + SPA 回退）
-    location / {
-        proxy_pass http://127.0.0.1:8081;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
 }
 ```
 
-> 完整模板（含 HTTP→HTTPS 跳转、TLS 配置注释）见 `deploy/nginx-example.conf`。`location /api/` 使用前缀匹配，覆盖所有 `/api/v1/*` 接口。
+> 完整模板（含 HTTP→HTTPS 跳转、TLS 配置注释）见 `deploy/nginx-example.conf`。
 
 重载 NGINX：
 
@@ -131,8 +121,7 @@ sudo nginx -t && sudo nginx -s reload
 | **平台管理** | 管理 VPN 客户端平台，配置一键导入的 `client_schemes` 和客户端下载链接 `download_url` |
 | **用户管理** | 查看已登录用户（OIDC 自动创建），设置 is_advanced（普通↔高级），上传自定义订阅（指定平台，覆盖默认/高级分配），吊销所有 Token，删除用户（含管理员自我保护） |
 | **规则管理** | 上传 Shadowrocket 分流规则，独立版本管理与下载 Token，支持 Token 轮替 |
-| **OIDC 配置** | 查看和修改 OIDC 提供商参数，切换提供商类型（保留已填字段），测试连接。Client Secret 以 AES-256-GCM 加密存储 |
-| **速率限制** | 查看和修改登录/下载 API 的速率限制参数 |
+| **面板配置** | 查看和修改 OIDC 提供商参数（含测试连接、切换提供商类型）、速率限制参数（登录/下载 API 限流）、系统公告栏、调试模式开关（开启后 5xx 错误返回详细信息） |
 | **日志查看** | 按日期筛选访问日志，查看下载类型、用户、平台、成功/失败状态及失败原因 |
 
 ### 普通用户
@@ -160,21 +149,18 @@ sudo nginx -t && sudo nginx -s reload
 
 ```
 用户浏览器 ──HTTPS──▶ 外部 NGINX (vpn.example.com)
-                       ├─ /api/*  → http://127.0.0.1:8080  (backend, Go + Gin)
-                       └─ /*      → http://127.0.0.1:8081  (frontend, Vue + Nginx)
-                                          │
-                                    docker compose
-                                 ┌───────┴───────┐
-                              backend          frontend
-                           (Go 1.25 + Gin)  (Vue 3 + Nginx)
-                                 │
-                          vpn-data Volume
-                    ┌────────────┼────────────┐
-                 vpn.db    subscriptions/   rules/
-                           custom/          shares/
+                       └─ /* → http://127.0.0.1:8080  (Go 后端, 单容器)
+                             ├─ /api/v1/*  → Gin API
+                             ├─ /assets/*  → Vite 构建的静态资源 (JS/CSS)
+                             └─ /*         → index.html (SPA history 模式回退)
+                                      │
+                               vpn-data Volume
+                         ┌───────────┼───────────┐
+                      vpn.db    subscriptions/  rules/
+                                custom/         shares/
 ```
 
-- **API 路径**: 所有接口在 `/api/v1/` 下，NGINX 用 `/api/` 前缀匹配覆盖
+- **单容器架构** — Go 后端 serve 一切：API + 静态文件 + SPA 回退。外部 NGINX 仅作 TLS 终止
 - **零外部依赖** — SQLite 嵌入式数据库（`modernc.org/sqlite`，纯 Go，零 CGO）
 - **单数据卷** — 所有持久化数据（数据库 + 配置文件 + 规则 + 自定义订阅 + 分享订阅）统一在 `vpn-data` volume 中
 - **端口隔离** — 容器端口只绑 `127.0.0.1`，不直接暴露到公网
@@ -199,14 +185,14 @@ sudo nginx -t && sudo nginx -s reload
 
 | 层 | 技术 |
 |----|------|
-| 后端 | Go 1.25 + Gin + zerolog |
+| 后端 | Go 1.25 + Gin + zerolog（支持 LOG_LEVEL 分级 + LOG_FORMAT JSON/Console 输出） |
 | 数据库 | SQLite (`modernc.org/sqlite`，纯 Go 驱动) |
 | 认证 | OIDC (PKCE) + JWT (`golang-jwt/jwt/v5`) |
 | 加密 | AES-256-GCM（JWT_SECRET 前 32 字节作为加密密钥） |
 | 前端 | Vue 3 (Composition API + `<script setup>`) + Vite |
 | UI 库 | Element Plus + Pinia + Vue Router |
 | HTTP | Axios（统一 baseURL `/api/v1`，401 自动登出） |
-| 容器化 | Docker 多阶段构建 + distroless（后端）/ nginx alpine（前端） |
+| 容器化 | Docker 多阶段构建（单镜像）+ distroless 运行时 |
 | CI/CD | GitHub Actions（自动构建并推送到 GHCR） |
 
 ---
@@ -217,8 +203,17 @@ sudo nginx -t && sudo nginx -s reload
 # 查看运行状态
 docker compose ps
 
-# 查看后端日志
-docker compose logs -f backend
+# 查看日志（默认 info 级别）
+docker compose logs -f app
+
+# 排查时开启 DEBUG 日志（显示 OIDC 认证细节、版本操作、下载、限流等信息）
+docker compose run -e LOG_LEVEL=debug app
+
+# 精简日志（仅警告和错误）
+docker compose run -e LOG_LEVEL=warn app
+
+# 结构化 JSON 日志（配合 ELK/Loki 等日志系统）
+docker compose run -e LOG_FORMAT=json app
 
 # 重启服务
 docker compose restart
@@ -260,7 +255,7 @@ docker run --rm -v vpn-subscription-management_vpn-data:/data \
 没有"密码"的概念 — 登录完全通过 OIDC 提供商。如果 OIDC 不可用，需检查 OIDC 服务状态。
 
 **Q: 如何切换 OIDC 提供商？**
-管理员在「管理面板 → OIDC 配置」中切换提供商类型、修改参数、测试连接。切换时已填字段会被保留。
+管理员在「管理面板 → 面板配置」中切换提供商类型、修改参数、测试连接。切换时已填字段会被保留。
 
 **Q: 普通用户和高级用户有什么区别？**
 管理员在「用户管理」中设置 `is_advanced`。普通用户获得默认订阅，高级用户获得高级订阅。管理员始终为高级（后端强制），且可为特定用户上传自定义订阅覆盖自动分配。
@@ -277,5 +272,5 @@ docker run --rm -v vpn-subscription-management_vpn-data:/data \
 
 - **许可证**: [MIT](LICENSE)
 - **仓库**: [github.com/alcaprophet/vpn-subscription-management](https://github.com/alcaprophet/vpn-subscription-management)
-- **容器镜像**: `ghcr.io/alcaprophet/vpn-sub-backend` / `ghcr.io/alcaprophet/vpn-sub-frontend`
+- **容器镜像**: `ghcr.io/alcaprophet/vpn-subscription-manager`
 - **完全自托管** — 不依赖任何云服务，所有数据在你自己的服务器上

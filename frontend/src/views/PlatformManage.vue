@@ -1,128 +1,110 @@
 <template>
-  <div class="platform-container" v-loading="loading">
-    <div class="page-header">
-      <h2>平台管理</h2>
-      <el-button type="primary" @click="openCreateDialog">
-        <el-icon><Plus /></el-icon>
-        创建平台
-      </el-button>
+  <div>
+    <!-- Loading -->
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <svg class="animate-spin h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <span class="text-gray-500 dark:text-gray-400">加载中...</span>
     </div>
 
-    <el-empty
-      v-if="!loading && platforms.length === 0"
-      description="暂无平台"
-    />
+    <template v-else>
+      <div class="flex justify-between items-center mb-5 flex-wrap gap-3">
+        <h2 class="m-0 text-xl font-semibold text-gray-900 dark:text-white">平台管理</h2>
+        <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm flex items-center gap-1" @click="openCreateDialog">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          创建平台
+        </button>
+      </div>
 
-    <el-table
-      v-else
-      :data="platforms"
-      stripe
-      class="platform-table"
-    >
-      <el-table-column prop="id" label="ID" width="140" />
-      <el-table-column prop="name" label="名称" min-width="140" />
-      <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
-      <el-table-column label="Client Schemes" min-width="200">
-        <template #default="{ row }">
-          <el-tag
-            v-for="(scheme, idx) in row.client_schemes"
-            :key="idx"
-            size="small"
-            class="scheme-tag"
-          >
-            {{ scheme }}
-          </el-tag>
-          <span v-if="!row.client_schemes || row.client_schemes.length === 0" class="no-data">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="下载链接" min-width="160" show-overflow-tooltip>
-        <template #default="{ row }">
-          <span v-if="row.download_url">{{ row.download_url }}</span>
-          <span v-else class="no-data">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
-          <el-button size="small" type="danger" @click="confirmDelete(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <div v-if="platforms.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无平台</div>
 
-    <!-- Create / Edit Dialog -->
-    <el-dialog
-      v-model="dialogVisible"
-      :title="isEditing ? '编辑平台' : '创建平台'"
-      width="540px"
-      :close-on-click-modal="false"
-      @closed="resetForm"
-    >
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="formRules"
-        label-position="top"
-      >
-        <el-form-item label="ID" prop="id">
-          <el-input
-            v-model="form.id"
-            :disabled="isEditing"
-            placeholder="小写字母、数字和连字符"
-          />
+      <!-- Card Grid -->
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div
+          v-for="p in platforms"
+          :key="p.id"
+          class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
+        >
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+            <span class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ p.name }}</span>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ p.id }}</span>
+          </div>
+          <div class="p-4">
+            <div class="text-sm text-gray-500 dark:text-gray-400 mb-3 space-y-2">
+              <p v-if="p.description" class="m-0 text-gray-700 dark:text-gray-300">{{ p.description }}</p>
+              <div v-if="p.client_schemes && p.client_schemes.length > 0" class="flex flex-wrap gap-1">
+                <span v-for="(scheme, idx) in p.client_schemes" :key="idx" class="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ scheme }}</span>
+              </div>
+              <div v-if="p.download_url" class="flex items-center gap-2">
+                <span class="text-gray-400 dark:text-gray-500 shrink-0">下载:</span>
+                <span class="text-gray-700 dark:text-gray-300 truncate text-xs">{{ p.download_url }}</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="openEditDialog(p)">编辑</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmDelete(p)">删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑平台' : '创建平台'" :width="dialogWidth" :close-on-click-modal="false" :append-to-body="true" @closed="resetForm">
+      <div :class="{ 'max-h-[calc(100vh-200px)] overflow-y-auto': isMobile }">
+        <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
+        <el-form-item v-if="isEditing" label="ID">
+          <span class="text-sm text-gray-500 dark:text-gray-400">{{ form.id }}</span>
         </el-form-item>
         <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="平台名称" />
+          <input v-model="form.name" placeholder="平台名称"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            @blur="formRef.validateField('name')" />
         </el-form-item>
         <el-form-item label="描述" prop="description">
-          <el-input
-            v-model="form.description"
-            type="textarea"
-            :rows="2"
-            placeholder="平台描述"
-          />
+          <textarea v-model="form.description" :rows="2" placeholder="平台描述"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
         </el-form-item>
         <el-form-item label="Client Schemes" prop="schemesText">
-          <el-input
-            v-model="form.schemesText"
-            type="textarea"
-            :rows="4"
-            placeholder="每行一个 scheme，例如：&#10;clash://install-config?url=&#10;clash-verge://install-config?url="
-          />
-          <div class="form-tip">每行一个 Client Scheme，一键导入时使用第一个</div>
+          <textarea v-model="form.schemesText" :rows="4" placeholder="每行一个 scheme"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
+          <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">每行一个 Client Scheme，一键导入时使用第一个</div>
         </el-form-item>
         <el-form-item label="下载链接" prop="download_url">
-          <el-input v-model="form.download_url" placeholder="https://example.com/download（可选）" />
-          <div class="form-tip">可选，配置后在首页显示「下载客户端」按钮</div>
+          <input v-model="form.download_url" placeholder="https://example.com/download（可选）"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">可选，配置后在首页显示「下载客户端」按钮</div>
         </el-form-item>
       </el-form>
+      </div>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSubmit">
-          {{ isEditing ? '保存' : '创建' }}
-        </el-button>
+        <div class="flex justify-end gap-2">
+          <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm" @click="dialogVisible = false">取消</button>
+          <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="submitting" @click="handleSubmit">{{ isEditing ? '保存' : '创建' }}</button>
+        </div>
       </template>
     </el-dialog>
 
-    <!-- Delete Confirm -->
-    <ConfirmDialog
-      v-model:visible="deleteVisible"
-      title="删除平台"
-      message="确定删除该平台？将级联删除该平台的所有订阅、下载 Token 和自定义订阅。此操作不可恢复！"
-      @confirm="handleDelete"
-    />
+    <ConfirmDialog v-model:visible="deleteVisible" title="删除平台" message="确定删除该平台？将级联删除该平台的所有订阅、下载 Token 和自定义订阅。此操作不可恢复！" @confirm="handleDelete" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { useToast } from '@/composables/useToast'
+import { useDialogWidth } from '@/composables/useDialogWidth'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { adminApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+
+const dialogWidth = useDialogWidth('540px')
+const isMobile = useIsMobile()
 
 // ==========================================================================
 // Data
 // ==========================================================================
+const { success: toastSuccess, error: toastError } = useToast()
 const loading = ref(true)
 const platforms = ref([])
 
@@ -147,14 +129,6 @@ const form = reactive({
 // Validation Rules
 // ==========================================================================
 const formRules = computed(() => ({
-  id: [
-    { required: true, message: '请输入 ID', trigger: 'blur' },
-    {
-      pattern: /^[a-z0-9-]+$/,
-      message: 'ID 只能包含小写字母、数字和连字符',
-      trigger: 'blur'
-    }
-  ],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
 }))
 
@@ -166,7 +140,7 @@ async function fetchPlatforms() {
     const res = await adminApi.platforms.list()
     platforms.value = res.data.platforms || []
   } catch (e) {
-    ElMessage.error('加载平台列表失败')
+    toastError('加载平台列表失败')
   }
 }
 
@@ -221,17 +195,16 @@ async function handleSubmit() {
 
     if (isEditing.value) {
       await adminApi.platforms.update(editingId.value, payload)
-      ElMessage.success('平台已更新')
+      toastSuccess('平台已更新')
     } else {
-      payload.id = form.id
       await adminApi.platforms.create(payload)
-      ElMessage.success('平台已创建')
+      toastSuccess('平台已创建')
     }
     dialogVisible.value = false
     await fetchPlatforms()
   } catch (e) {
     const msg = e.response?.data?.error || '操作失败'
-    ElMessage.error(msg)
+    toastError(msg)
   } finally {
     submitting.value = false
   }
@@ -249,12 +222,12 @@ async function handleDelete() {
   if (!deleteTarget.value) return
   try {
     await adminApi.platforms.delete(deleteTarget.value.id)
-    ElMessage.success('平台已删除')
+    toastSuccess('平台已删除')
     deleteTarget.value = null
     await fetchPlatforms()
   } catch (e) {
     const msg = e.response?.data?.error || '删除失败'
-    ElMessage.error(msg)
+    toastError(msg)
   }
 }
 
@@ -269,39 +242,4 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.platform-container {
-  padding: 0;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.page-header h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.platform-table {
-  width: 100%;
-}
-
-.scheme-tag {
-  margin-right: 4px;
-  margin-bottom: 4px;
-}
-
-.no-data {
-  color: var(--el-text-color-secondary);
-}
-
-.form-tip {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-top: 4px;
-}
 </style>

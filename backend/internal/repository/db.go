@@ -2,11 +2,11 @@ package repository
 
 import (
 	"database/sql"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	_ "modernc.org/sqlite"
 )
 
@@ -52,7 +52,7 @@ func InitDB(dbPath string) error {
 	// Start background goroutine for periodic cleanup tasks
 	go periodicCleanup()
 
-	log.Println("Database initialized successfully")
+	log.Info().Msg("Database initialized successfully")
 	return nil
 }
 

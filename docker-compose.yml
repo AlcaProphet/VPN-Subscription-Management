@@ -1,35 +1,17 @@
 services:
-  backend:
-    image: ghcr.io/alcaprophet/vpn-sub-backend:latest
-    # 本地开发时可替换为 build:
-    # build:
-    #   context: ./backend
-    #   dockerfile: Dockerfile
-    container_name: vpn-backend
+  app:
+    image: ghcr.io/alcaprophet/vpn-subscription-manager:latest
+    container_name: vpn-app
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8080:8080"     # 只绑本机, 外部不可达
     volumes:
       - vpn-data:/app/data
     restart: unless-stopped
-
-  frontend:
-    image: ghcr.io/alcaprophet/vpn-sub-frontend:latest
-    # 本地开发时可替换为 build:
-    # build:
-    #   context: ./frontend
-    #   dockerfile: Dockerfile
-    container_name: vpn-frontend
-    ports:
-      - "127.0.0.1:8081:80"
-    depends_on:
-      - backend
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
+    # 可选环境变量（取消注释后 docker compose up -d 生效）:
+    # environment:
+    #   - LOG_LEVEL=debug           # debug | info（默认） | warn
+    #   - LOG_FORMAT=json           # 不设 = 彩色控制台, json = 结构化 JSON
+    #   - PORT=8080                 # 监听端口, 默认 8080
 
 volumes:
   vpn-data:

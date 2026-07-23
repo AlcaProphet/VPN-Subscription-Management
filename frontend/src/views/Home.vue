@@ -1,345 +1,394 @@
 <template>
-  <div class="home-container">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
     <!-- Top bar -->
-    <header class="home-header">
-      <div class="header-left">
-        <h1 class="header-title">VPN 订阅</h1>
-        <span class="header-update" v-if="updateTime">
+    <header class="flex items-center justify-between px-6 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-wrap gap-2">
+      <div class="flex items-center gap-4">
+        <h1 class="m-0 text-xl font-bold text-gray-900 dark:text-white">VPN 订阅</h1>
+        <span v-if="updateTime" class="text-sm text-gray-500 dark:text-gray-400">
           更新于 {{ formatTime(updateTime) }}
         </span>
-        <span class="header-update header-no-update" v-else>
+        <span v-else class="text-sm text-gray-400 dark:text-gray-500 italic">
           暂无更新
         </span>
       </div>
-      <div class="header-right">
-        <el-button
+      <div class="flex items-center gap-2">
+        <button
           v-if="userStore.isAdmin"
-          type="primary"
-          size="small"
+          class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm"
           @click="router.push('/admin')"
         >
           管理面板
-        </el-button>
-        <span class="header-username">{{ userStore.user?.username }}</span>
-        <el-tag
-          :type="roleTagType"
-          size="small"
-        >
+        </button>
+        <span class="text-sm text-gray-700 dark:text-gray-300">{{ userStore.user?.username }}</span>
+        <span class="rounded-full px-2 py-0.5 text-xs font-medium"
+          :class="roleTagClass">
           {{ roleLabel }}
-        </el-tag>
-        <el-button size="small" @click="handleLogout">
+        </span>
+        <button
+          class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm"
+          @click="handleLogout"
+        >
           退出
-        </el-button>
-        <el-button
-          :icon="isDark ? Sunny : Moon"
-          circle
-          size="small"
+        </button>
+        <button
+          class="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-600 flex items-center justify-center bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
           @click="toggleTheme"
-        />
+        >
+          <svg v-if="isDark" class="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+          </svg>
+          <svg v-else class="w-4 h-4 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/>
+          </svg>
+        </button>
       </div>
     </header>
 
     <!-- Platform cards -->
-    <main class="home-main" v-loading="loading">
-      <el-empty
-        v-if="!loading && platforms.length === 0"
-        description="暂无平台，请联系管理员"
-      />
+    <main class="p-6">
+      <!-- Loading -->
+      <div v-if="loading" class="flex items-center justify-center py-12">
+        <svg class="animate-spin h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+        <span class="text-gray-500 dark:text-gray-400">加载中...</span>
+      </div>
 
-      <el-row v-else :gutter="20">
-        <el-col
+      <!-- Empty -->
+      <div v-else-if="platforms.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">
+        暂无平台，请联系管理员
+      </div>
+
+      <!-- Rules card -->
+      <div v-if="!loading && platforms.length > 0" class="mb-5">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+          <div class="px-4 py-3 flex items-center justify-between">
+            <div>
+              <span class="text-base font-semibold text-gray-900 dark:text-white">分流规则</span>
+              <p class="m-0 mt-1 text-sm text-gray-500 dark:text-gray-400">浏览和下载可用的分流规则配置</p>
+            </div>
+            <button
+              class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm shrink-0"
+              @click="router.push('/rules')"
+            >
+              查看规则 →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Announcement card -->
+      <div v-if="!loading && announcement" class="mb-5">
+        <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg shadow-sm overflow-hidden">
+          <div class="px-4 py-3">
+            <span class="text-sm font-semibold text-blue-700 dark:text-blue-300">📢 公告</span>
+            <p class="m-0 mt-1 text-sm text-blue-600 dark:text-blue-400 whitespace-pre-wrap">{{ announcement }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Platform cards grid -->
+      <div v-if="!loading && platforms.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div
           v-for="p in platforms"
           :key="p.id"
-          :xs="24"
-          :md="12"
-          :lg="8"
+          class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
         >
-          <el-card class="platform-card" shadow="hover">
-            <template #header>
-              <div class="card-header">
-                <span class="platform-name">{{ p.name }}</span>
-              </div>
-            </template>
+          <!-- Card header -->
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <span class="text-base font-semibold text-gray-900 dark:text-white">{{ p.name }}</span>
+          </div>
 
-            <p class="platform-desc">{{ p.description }}</p>
+          <!-- Card body -->
+          <div class="p-4">
+            <p class="m-0 mb-4 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{{ p.description }}</p>
 
             <!-- Subscription sections -->
-            <div class="sub-sections">
-              <!-- Custom subscription (replaces default/advanced) -->
+            <div class="flex flex-col gap-3">
+              <!-- Branch 1: Custom subscription (replaces default/advanced) -->
               <template v-if="p.has_custom_sub">
-                <div class="sub-section">
-                  <el-tag type="warning" size="small" class="sub-label">
+                <div class="p-3 rounded-lg bg-gray-100 dark:bg-gray-700/50">
+                  <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 mb-2 inline-block">
                     已被分配自定义订阅
-                  </el-tag>
-                  <div class="sub-buttons">
-                    <el-button
-                      type="primary"
-                      size="small"
+                  </span>
+                  <div class="flex items-center gap-2 flex-wrap mt-2">
+                    <button
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleImport(p, p.download_token)"
                     >
                       一键导入
-                    </el-button>
-                    <el-button
-                      size="small"
+                    </button>
+                    <button
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="showCopyDialog(p, p.download_token, 'custom')"
                     >
                       复制链接
-                    </el-button>
-                    <el-button
-                      type="warning"
-                      text
-                      size="small"
+                    </button>
+                    <button
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
-                      :loading="refreshing[p.id + '-custom']"
                       @click="handleRefresh(p, 'custom')"
                     >
+                      <svg v-if="refreshing[p.id + '-custom']" class="animate-spin h-3 w-3 inline-block mr-1" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
                       刷新链接
-                    </el-button>
+                    </button>
                   </div>
                 </div>
               </template>
 
-              <!-- Default subscription (non-custom users or admin preview) -->
+              <!-- Branch 2: Normal user, default subscription -->
               <template v-if="!p.has_custom_sub && p.sub_type === 'default'">
-                <!-- Normal user with default -->
-                <div class="sub-section">
-                  <el-tag type="info" size="small" class="sub-label">
+                <div class="p-3 rounded-lg bg-gray-100 dark:bg-gray-700/50">
+                  <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 mb-2 inline-block">
                     默认订阅
-                  </el-tag>
-                  <div class="sub-buttons" v-if="p.default_configured">
-                    <el-button
-                      type="primary"
-                      size="small"
+                  </span>
+                  <div v-if="p.default_configured" class="flex items-center gap-2 flex-wrap mt-2">
+                    <button
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleImport(p, p.download_token)"
                     >
                       一键导入
-                    </el-button>
-                    <el-button
-                      size="small"
+                    </button>
+                    <button
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="showCopyDialog(p, p.download_token, 'default')"
                     >
                       复制链接
-                    </el-button>
-                    <el-button
-                      type="warning"
-                      text
-                      size="small"
+                    </button>
+                    <button
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
-                      :loading="refreshing[p.id + '-default']"
                       @click="handleRefresh(p, 'default')"
                     >
+                      <svg v-if="refreshing[p.id + '-default']" class="animate-spin h-3 w-3 inline-block mr-1" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
                       刷新链接
-                    </el-button>
+                    </button>
                   </div>
-                  <p v-else class="sub-unconfigured">
+                  <p v-else class="m-0 text-sm text-gray-400 dark:text-gray-500 italic">
                     默认订阅未配置，请联系管理员
                   </p>
                 </div>
               </template>
 
+              <!-- Branch 3: Advanced user, advanced subscription -->
               <template v-if="!p.has_custom_sub && p.sub_type === 'advanced'">
-                <!-- Advanced user with advanced -->
-                <div class="sub-section">
-                  <el-tag type="warning" size="small" class="sub-label">
+                <div class="p-3 rounded-lg bg-gray-100 dark:bg-gray-700/50">
+                  <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 mb-2 inline-block">
                     高级订阅
-                  </el-tag>
-                  <div class="sub-buttons" v-if="p.advanced_configured">
-                    <el-button
-                      type="primary"
-                      size="small"
+                  </span>
+                  <div v-if="p.advanced_configured" class="flex items-center gap-2 flex-wrap mt-2">
+                    <button
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleImport(p, p.download_token)"
                     >
                       一键导入
-                    </el-button>
-                    <el-button
-                      size="small"
+                    </button>
+                    <button
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="showCopyDialog(p, p.download_token, 'advanced')"
                     >
                       复制链接
-                    </el-button>
-                    <el-button
-                      type="warning"
-                      text
-                      size="small"
+                    </button>
+                    <button
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
-                      :loading="refreshing[p.id + '-advanced']"
                       @click="handleRefresh(p, 'advanced')"
                     >
+                      <svg v-if="refreshing[p.id + '-advanced']" class="animate-spin h-3 w-3 inline-block mr-1" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
                       刷新链接
-                    </el-button>
+                    </button>
                   </div>
-                  <p v-else class="sub-unconfigured">
+                  <p v-else class="m-0 text-sm text-gray-400 dark:text-gray-500 italic">
                     高级订阅未配置，请联系管理员
                   </p>
                 </div>
               </template>
 
-              <!-- Admin preview: default subscription (when admin's primary is advanced) -->
+              <!-- Branch 4: Admin preview default (when admin's primary is advanced) -->
               <template v-if="userStore.isAdmin && !p.has_custom_sub && p.sub_type === 'advanced' && p.default_configured">
-                <div class="sub-section admin-preview">
-                  <el-tag type="info" size="small" class="sub-label">
+                <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-dashed border-gray-300 dark:border-gray-600">
+                  <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 mb-2 inline-block">
                     默认订阅（预览）
-                  </el-tag>
-                  <div class="sub-buttons">
-                    <el-button
-                      type="primary"
-                      size="small"
+                  </span>
+                  <div class="flex items-center gap-2 flex-wrap mt-2">
+                    <button
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="handleImport(p, p.preview_token)"
                     >
                       一键导入
-                    </el-button>
-                    <el-button
-                      size="small"
+                    </button>
+                    <button
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="showCopyDialog(p, p.preview_token, 'default')"
                     >
                       复制链接
-                    </el-button>
-                    <el-button
-                      type="warning"
-                      text
-                      size="small"
+                    </button>
+                    <button
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
-                      :loading="refreshing[p.id + '-default']"
                       @click="handleRefresh(p, 'default')"
                     >
+                      <svg v-if="refreshing[p.id + '-default']" class="animate-spin h-3 w-3 inline-block mr-1" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
                       刷新链接
-                    </el-button>
+                    </button>
                   </div>
                 </div>
               </template>
 
-              <!-- Admin preview: advanced subscription (when admin's primary is default — rare) -->
+              <!-- Branch 5: Admin preview advanced (when admin's primary is default) -->
               <template v-if="userStore.isAdmin && !p.has_custom_sub && p.sub_type === 'default' && p.advanced_configured">
-                <div class="sub-section admin-preview">
-                  <el-tag type="warning" size="small" class="sub-label">
+                <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-dashed border-gray-300 dark:border-gray-600">
+                  <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 mb-2 inline-block">
                     高级订阅（预览）
-                  </el-tag>
-                  <div class="sub-buttons">
-                    <el-button
-                      type="primary"
-                      size="small"
+                  </span>
+                  <div class="flex items-center gap-2 flex-wrap mt-2">
+                    <button
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="handleImport(p, p.preview_token)"
                     >
                       一键导入
-                    </el-button>
-                    <el-button
-                      size="small"
+                    </button>
+                    <button
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="showCopyDialog(p, p.preview_token, 'advanced')"
                     >
                       复制链接
-                    </el-button>
-                    <el-button
-                      type="warning"
-                      text
-                      size="small"
+                    </button>
+                    <button
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
-                      :loading="refreshing[p.id + '-advanced']"
                       @click="handleRefresh(p, 'advanced')"
                     >
+                      <svg v-if="refreshing[p.id + '-advanced']" class="animate-spin h-3 w-3 inline-block mr-1" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
                       刷新链接
-                    </el-button>
+                    </button>
                   </div>
                 </div>
               </template>
 
-              <!-- Admin: unconfigured preview labels -->
+              <!-- Branch 6: Admin, unconfigured default -->
               <template v-if="userStore.isAdmin && !p.has_custom_sub && p.sub_type === 'advanced' && !p.default_configured">
-                <p class="sub-unconfigured">默认订阅未配置</p>
-              </template>
-              <template v-if="userStore.isAdmin && !p.has_custom_sub && p.sub_type === 'default' && !p.advanced_configured">
-                <p class="sub-unconfigured">高级订阅未配置</p>
+                <p class="m-0 text-sm text-gray-400 dark:text-gray-500 italic">默认订阅未配置</p>
               </template>
 
-              <!-- Admin with custom sub: also show default & advanced preview with real tokens -->
+              <!-- Branch 7: Admin, unconfigured advanced -->
+              <template v-if="userStore.isAdmin && !p.has_custom_sub && p.sub_type === 'default' && !p.advanced_configured">
+                <p class="m-0 text-sm text-gray-400 dark:text-gray-500 italic">高级订阅未配置</p>
+              </template>
+
+              <!-- Branch 8: Admin with custom sub, show preview for default & advanced -->
               <template v-if="userStore.isAdmin && p.has_custom_sub">
-                <div class="sub-section admin-preview" v-if="p.preview_token && p.preview_sub_type === 'default'">
-                  <el-tag type="info" size="small" class="sub-label">
+                <div v-if="p.preview_token && p.preview_sub_type === 'default'" class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-dashed border-gray-300 dark:border-gray-600">
+                  <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 mb-2 inline-block">
                     默认订阅（预览）
-                  </el-tag>
-                  <div class="sub-buttons">
-                    <el-button
-                      type="primary"
-                      size="small"
+                  </span>
+                  <div class="flex items-center gap-2 flex-wrap mt-2">
+                    <button
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="handleImport(p, p.preview_token)"
                     >
                       一键导入
-                    </el-button>
-                    <el-button
-                      size="small"
+                    </button>
+                    <button
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="showCopyDialog(p, p.preview_token, 'default')"
                     >
                       复制链接
-                    </el-button>
+                    </button>
                   </div>
                 </div>
-                <div class="sub-section admin-preview" v-if="p.preview_token2 && p.preview_sub_type2 === 'advanced'">
-                  <el-tag type="warning" size="small" class="sub-label">
+                <div v-if="p.preview_token2 && p.preview_sub_type2 === 'advanced'" class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-dashed border-gray-300 dark:border-gray-600">
+                  <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 mb-2 inline-block">
                     高级订阅（预览）
-                  </el-tag>
-                  <div class="sub-buttons">
-                    <el-button
-                      type="primary"
-                      size="small"
+                  </span>
+                  <div class="flex items-center gap-2 flex-wrap mt-2">
+                    <button
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token2"
                       @click="handleImport(p, p.preview_token2)"
                     >
                       一键导入
-                    </el-button>
-                    <el-button
-                      size="small"
+                    </button>
+                    <button
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token2"
                       @click="showCopyDialog(p, p.preview_token2, 'advanced')"
                     >
                       复制链接
-                    </el-button>
+                    </button>
                   </div>
                 </div>
-                <p class="sub-unconfigured" v-if="!p.default_configured">默认订阅未配置</p>
-                <p class="sub-unconfigured" v-if="!p.advanced_configured">高级订阅未配置</p>
+                <p v-if="!p.default_configured" class="m-0 text-sm text-gray-400 dark:text-gray-500 italic">默认订阅未配置</p>
+                <p v-if="!p.advanced_configured" class="m-0 text-sm text-gray-400 dark:text-gray-500 italic">高级订阅未配置</p>
               </template>
             </div>
 
             <!-- Download client button -->
-            <div class="card-footer" v-if="p.download_url">
+            <div v-if="p.download_url" class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 text-center">
               <a
                 :href="p.download_url"
                 target="_blank"
-                class="download-client-link"
+                class="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 no-underline hover:underline"
               >
                 下载客户端
               </a>
             </div>
-          </el-card>
-        </el-col>
-      </el-row>
+          </div>
+        </div>
+      </div>
     </main>
 
     <!-- Copy link dialog -->
     <el-dialog
       v-model="copyDialogVisible"
       title="复制订阅链接"
-      width="500px"
+      :width="dialogWidth"
+      :append-to-body="true"
     >
-      <el-input
+      <input
         ref="copyInputRef"
-        :model-value="copyUrl"
+        :value="copyUrl"
         readonly
+        class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-base text-gray-700 dark:text-gray-300 cursor-pointer"
         @click="handleCopyToClipboard"
       />
       <template #footer>
-        <el-button @click="copyDialogVisible = false">关闭</el-button>
+        <div class="flex justify-end">
+          <button
+            class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm"
+            @click="copyDialogVisible = false"
+          >
+            关闭
+          </button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -348,21 +397,24 @@
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Sunny, Moon } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useTheme } from '@/composables/useTheme'
-import { userApi, downloadApi } from '@/services/api'
+import { useToast } from '@/composables/useToast'
+import { useDialogWidth } from '@/composables/useDialogWidth'
+import { userApi, downloadApi, publicApi } from '@/services/api'
 
+const dialogWidth = useDialogWidth('500px')
 const router = useRouter()
 const userStore = useUserStore()
 const { isDark, toggle: toggleTheme } = useTheme()
+const { success: toastSuccess, error: toastError } = useToast()
 
 // State
 const loading = ref(true)
 const platforms = ref([])
 const updateTime = ref('')
 const refreshing = reactive({})
+const announcement = ref('')
 
 // Copy dialog state
 const copyDialogVisible = ref(false)
@@ -370,10 +422,10 @@ const copyUrl = ref('')
 const copyInputRef = ref(null)
 
 // Role display
-const roleTagType = computed(() => {
-  if (userStore.isAdmin) return 'danger'
-  if (userStore.isAdvanced) return 'warning'
-  return 'info'
+const roleTagClass = computed(() => {
+  if (userStore.isAdmin) return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+  if (userStore.isAdvanced) return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+  return 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
 })
 
 const roleLabel = computed(() => {
@@ -393,7 +445,7 @@ async function fetchPlatforms() {
     const res = await userApi.getUserPlatforms()
     platforms.value = res.data.platforms || []
   } catch (e) {
-    ElMessage.error('获取平台列表失败')
+    toastError('获取平台列表失败')
   } finally {
     loading.value = false
   }
@@ -439,14 +491,13 @@ function showCopyDialog(platform, token, subType) {
 async function handleCopyToClipboard() {
   try {
     await navigator.clipboard.writeText(copyUrl.value)
-    ElMessage.success('已复制到剪贴板')
+    toastSuccess('已复制到剪贴板')
   } catch (e) {
-    // Fallback: access native input element inside el-input component
-    const inputEl = copyInputRef.value?.$el?.querySelector('input')
-    if (inputEl) {
-      inputEl.select()
+    // Fallback: select the native input element
+    if (copyInputRef.value) {
+      copyInputRef.value.select()
       document.execCommand('copy')
-      ElMessage.success('已复制到剪贴板')
+      toastSuccess('已复制到剪贴板')
     }
   }
 }
@@ -455,16 +506,19 @@ async function handleRefresh(platform, subType) {
   const key = platform.id + '-' + subType
   refreshing[key] = true
   try {
-    // For custom subscriptions, pass 'custom' as the type. The backend detects
-    // the custom subscription by user+platform and rotates the custom token
-    // regardless of the type parameter value.
     const typeParam = subType === 'custom' ? 'custom' : subType
     await userApi.refreshToken(platform.id, typeParam)
-    ElMessage.success('链接已刷新')
-    // Refetch platforms to get new tokens
+    toastSuccess('链接已刷新')
     await fetchPlatforms()
   } catch (e) {
-    ElMessage.error('刷新失败')
+    // Custom subscription may have been removed since page load —
+    // silently refresh the platform list to sync state instead of
+    // showing a confusing error.
+    if (subType === 'custom' && e.response?.data?.code === 'custom_sub_removed') {
+      await fetchPlatforms()
+    } else {
+      toastError('刷新失败')
+    }
   } finally {
     refreshing[key] = false
   }
@@ -476,157 +530,18 @@ function handleLogout() {
 
 // Lifecycle
 onMounted(async () => {
-  await Promise.all([fetchPlatforms(), fetchUpdateTime()])
+  await Promise.all([fetchPlatforms(), fetchUpdateTime(), fetchAnnouncement()])
 })
+
+async function fetchAnnouncement() {
+  try {
+    const res = await publicApi.getAnnouncement()
+    const content = res.data.content || ''
+    if (content) {
+      announcement.value = content
+    }
+  } catch (e) {
+    // Silently fail — announcement is non-critical
+  }
+}
 </script>
-
-<style scoped>
-.home-container {
-  min-height: 100vh;
-  background: var(--el-bg-color-page);
-}
-
-/* Header */
-.home-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
-  background: var(--el-bg-color);
-  border-bottom: 1px solid var(--el-border-color-light);
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.header-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-
-.header-update {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
-
-.header-no-update {
-  font-style: italic;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-username {
-  font-size: 14px;
-  color: var(--el-text-color-primary);
-}
-
-/* Main */
-.home-main {
-  padding: 24px;
-}
-
-/* Platform cards */
-.platform-card {
-  margin-bottom: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-
-.platform-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-
-.platform-desc {
-  margin: 0 0 16px;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.5;
-}
-
-/* Subscription sections */
-.sub-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.sub-section {
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--el-fill-color-light);
-}
-
-.sub-section.admin-preview {
-  background: var(--el-fill-color-lighter);
-  border: 1px dashed var(--el-border-color);
-}
-
-.sub-label {
-  margin-bottom: 8px;
-}
-
-.sub-buttons {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-
-.sub-unconfigured {
-  margin: 0;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  font-style: italic;
-}
-
-/* Card footer */
-.card-footer {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--el-border-color-lighter);
-  text-align: center;
-}
-
-.download-client-link {
-  font-size: 13px;
-  color: var(--el-color-primary);
-  text-decoration: none;
-}
-
-.download-client-link:hover {
-  text-decoration: underline;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  .home-header {
-    padding: 10px 16px;
-  }
-
-  .header-left {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .home-main {
-    padding: 16px;
-  }
-}
-</style>

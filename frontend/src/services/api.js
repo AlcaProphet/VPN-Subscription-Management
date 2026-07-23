@@ -12,6 +12,7 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    console.debug(`[api] ${config.method.toUpperCase()} ${config.baseURL}${config.url}`, { hasJWT: !!token })
     return config
   },
   (error) => Promise.reject(error)
@@ -22,7 +23,16 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
+      console.debug(`[api] 401 on ${error.config?.url} — pathname=${window.location.pathname}`)
       localStorage.removeItem('jwt')
+      // If we're on the setup page, reload it so the router guard
+      // re-detects system status and redirects appropriately.  A hard
+      // redirect to /login would clear the form and dismiss any toast,
+      // making it impossible to tell what went wrong.
+      if (window.location.pathname === '/setup') {
+        window.location.reload()
+        return Promise.reject(error)
+      }
       window.location.href = '/login'
     }
     return Promise.reject(error)
@@ -39,8 +49,8 @@ export const publicApi = {
   getPlatforms() {
     return api.get('/platforms')
   },
-  getRules() {
-    return api.get('/rules')
+  getAnnouncement() {
+    return api.get('/system/announcement')
   },
   getRuleDownloadUrl(ruleId, token) {
     return `/api/v1/rules/${ruleId}/download?token=${encodeURIComponent(token)}`
@@ -68,6 +78,14 @@ export const userApi = {
   },
   refreshToken(platform, type) {
     return api.post('/user/refresh-token', { platform, type })
+  },
+  // Rule list now requires JWT auth (rules contain sensitive download tokens)
+  getRules() {
+    return api.get('/rules')
+  },
+  // Fetch a download link for a specific rule (generates token-backed URL)
+  getRuleDownloadLink(ruleId) {
+    return api.get(`/rules/${ruleId}/download-link`)
   }
 }
 
@@ -278,7 +296,7 @@ export const adminApi = {
 
   // System
   system: {
-    getOIDCConfig() {
+    getSystemConfig() {
       return api.get('/admin/oidc-config')
     },
     testOIDC(data) {
@@ -295,6 +313,18 @@ export const adminApi = {
     },
     updateRateLimit(data) {
       return api.put('/admin/system/rate-limit', data)
+    },
+    getAnnouncement() {
+      return api.get('/admin/system/announcement')
+    },
+    updateAnnouncement(data) {
+      return api.put('/admin/system/announcement', data)
+    },
+    getDebugMode() {
+      return api.get('/admin/system/debug-mode')
+    },
+    updateDebugMode(data) {
+      return api.put('/admin/system/debug-mode', data)
     }
   },
 

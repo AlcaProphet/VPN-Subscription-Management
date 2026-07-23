@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"vpn-sub/internal/models"
@@ -58,7 +59,16 @@ func (s *SubscriptionService) Create(sub *models.Subscription) error {
 		return fmt.Errorf("subscription with platform=%q and type=%q already exists", sub.Platform, sub.Type)
 	}
 	sub.Versions = []models.Version{}
-	return s.repo.Create(sub)
+	if err := s.repo.Create(sub); err != nil {
+		// Catch UNIQUE constraint violation from a concurrent insert
+		// (TOCTOU race between FindByPlatformAndType and Create).
+		// Return a friendly 409 conflict instead of a raw SQLite error.
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			return fmt.Errorf("subscription with platform=%q and type=%q already exists", sub.Platform, sub.Type)
+		}
+		return fmt.Errorf("failed to create subscription: %w", err)
+	}
+	return nil
 }
 
 func (s *SubscriptionService) Update(sub *models.Subscription) error {
@@ -120,7 +130,9 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 
 	var currentVersions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &currentVersions)
+		if err := json.Unmarshal([]byte(versionsJSON), &currentVersions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.CreateVersion("subscriptions/"+id, content, currentVersions)
@@ -176,7 +188,9 @@ func (s *SubscriptionService) SwitchVersion(id string, versionNum int) (*models.
 
 	var versions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &versions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.SwitchVersion("subscriptions/"+id, versionNum, versions)
@@ -218,7 +232,9 @@ func (s *SubscriptionService) DeleteVersion(id string, versionNum int) (*models.
 
 	var versions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &versions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.DeleteVersion("subscriptions/"+id, versionNum, versions)

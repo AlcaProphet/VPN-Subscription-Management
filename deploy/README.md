@@ -16,13 +16,11 @@ docker compose up -d
 ```
 
 首次启动后：
-- 后端容器监听 `127.0.0.1:8080`（Gin API）
-- 前端容器监听 `127.0.0.1:8081`（Nginx 静态文件）
-- 数据持久化在 Docker volume `vpn-data`（`/app/data/`）
+- 单容器监听 `127.0.0.1:8080`（Go 后端 serve API + 静态文件 + SPA）
 
-### 3. 配置外部 NGINX 反向代理
+### 3. 配置外部 NGINX（TLS 终止）
 
-将 `deploy/nginx-example.conf` 的内容合并到部署机已有的 NGINX 配置中：
+在部署机已有的 NGINX 配置中添加 `vpn.example.com` 的 server block，参考 `deploy/nginx-example.conf`。
 
 ```bash
 # 1. 复制配置文件
@@ -34,12 +32,11 @@ sudo vim /etc/nginx/sites-available/vpn-sub
 # 3. 启用站点
 sudo ln -s /etc/nginx/sites-available/vpn-sub /etc/nginx/sites-enabled/
 
-# 4. 测试配置
-sudo nginx -t
-
-# 5. 重载 NGINX
-sudo nginx -s reload
+# 4. 测试并重载
+sudo nginx -t && sudo nginx -s reload
 ```
+
+**健康检查**: 外部 WAF/LB 健康探测请指向 `/health`（返回 `{"status":"ok"}`），不要指向 `/`（该路径返回 SPA 的 index.html）。
 
 ### 4. 访问系统
 
@@ -53,17 +50,41 @@ sudo nginx -s reload
 用户浏览器
    ↓ HTTPS (443)
 外部 NGINX (部署机, vpn.example.com)
-   ├─ /api/* → http://127.0.0.1:8080  (backend 容器)
-   └─ /*     → http://127.0.0.1:8081  (frontend 容器)
-   ↓
-docker-compose (两个容器, 端口均绑 127.0.0.1)
-   ├─ backend  :8080 → Gin API (不对外)
-   └─ frontend :8081 → Nginx 静态文件 (无 proxy_pass)
+   └─ /* → http://127.0.0.1:8080  (单容器, Go serve 一切)
+         ├─ /api/v1/*  → Gin API
+         ├─ /assets/*  → Vite 静态资源
+         └─ /*         → index.html (SPA 回退)
 ```
 
 - 对外只暴露外部 NGINX 的 443 端口
 - 容器端口仅绑定 `127.0.0.1`，外部网络不可达
-- `/api/` 分流完全由外部 NGINX 承担，容器内不做反代
+- Go 后端统一 serve API + 静态文件 + SPA，外部 NGINX 不做路径分流
+
+---
+
+## 数据持久化
+
+所有数据存储在 Docker Volume `vpn-data` 中，挂载到容器的 `/app/data`：
+- SQLite 数据库 (`vpn.db`)
+- 订阅/规则/自定义订阅/分享订阅版本文件
+
+### 备份与恢复
+
+```bash
+# 备份
+docker run --rm -v vpn-sub_vpn-data:/data \
+  -v $(pwd):/backup alpine tar czf /backup/vpn-backup.tar.gz -C /data .
+
+# 恢复
+docker run --rm -v vpn-sub_vpn-data:/data \
+  -v $(pwd):/backup alpine tar xzf /backup/vpn-backup.tar.gz -C /data
+```
+
+> ⚠️ Volume 名称取决于项目目录名。使用 `docker volume ls` 查看实际名称。
+
+---
+
+> **架构变更 (v2.0)**: 从双容器（backend + frontend nginx）合并为单容器架构。旧的 `backend/Dockerfile` 和 `frontend/Dockerfile` 已废弃，仅保留备用。
 
 ---
 

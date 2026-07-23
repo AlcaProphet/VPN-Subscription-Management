@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,7 +12,10 @@ import (
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/middleware"
 	"vpn-sub/internal/models"
+
 	"vpn-sub/internal/repository"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/gin-gonic/gin"
 )
@@ -34,7 +36,7 @@ func GetSystemStatus(c *gin.Context) {
 func GetPlatforms(c *gin.Context) {
 	platforms, err := PlatformSvc.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to list platforms")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"platforms": platforms})
@@ -43,20 +45,37 @@ func GetPlatforms(c *gin.Context) {
 func GetRules(c *gin.Context) {
 	rules, err := RuleSvc.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to list rules")
 		return
 	}
-	// Enrich with token so the frontend can build download URLs
-	type ruleWithToken struct {
-		models.Rule
-		Token string `json:"token,omitempty"`
+	c.JSON(http.StatusOK, gin.H{"rules": rules})
+}
+
+// GetRuleDownloadLink returns a download URL (with token) for a specific rule.
+// Requires JWT auth — only logged-in users can obtain rule download links.
+// The returned token is the same one used by the public /rules/:id/download endpoint.
+func GetRuleDownloadLink(c *gin.Context) {
+	ruleID := c.Param("id")
+
+	// Verify the rule exists
+	rule, err := RuleSvc.Get(ruleID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Rule not found"})
+		return
 	}
-	result := make([]ruleWithToken, 0, len(rules))
-	for _, r := range rules {
-		tok, _ := RuleSvc.GetToken(r.ID)
-		result = append(result, ruleWithToken{Rule: r, Token: tok})
+
+	// Get the rule's download token (created when the rule was first configured)
+	token, err := RuleSvc.GetToken(ruleID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No download token available for this rule"})
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{"rules": result})
+
+	downloadURL := fmt.Sprintf("/api/v1/rules/%s/download?token=%s", ruleID, token)
+	c.JSON(http.StatusOK, gin.H{
+		"url":       downloadURL,
+		"rule_name": rule.Name,
+	})
 }
 
 func GetRuleDownload(c *gin.Context) {
@@ -79,6 +98,7 @@ func GetRuleDownload(c *gin.Context) {
 		return
 	}
 	logAccess("", c.ClientIP(), "rule", "", "", ruleID, "success", "")
+	log.Debug().Str("rule_id", ruleID).Str("ip", c.ClientIP()).Msg("Rule download")
 	c.String(http.StatusOK, content)
 }
 
@@ -99,7 +119,7 @@ func AuthLogin(c *gin.Context) {
 
 	result, err := svc.InitiateLogin(prompt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initiate login: " + err.Error()})
+		internalError(c, err, "Failed to initiate login")
 		return
 	}
 
@@ -108,10 +128,18 @@ func AuthLogin(c *gin.Context) {
 	// In local development (HTTP), Secure must be false or the browser won't send it.
 	isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 
-	// Set state in HttpOnly cookie for CSRF triple verification
-	c.SetCookie(
-		"oidc_state", result.State, 600, "/", "", isSecure, true,
-	)
+	// Set state in HttpOnly cookie for CSRF triple verification.
+	// Explicitly set SameSite=Lax to ensure the cookie is sent on the
+	// OIDC callback (a top-level GET navigation from the provider).
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "oidc_state",
+		Value:    result.State,
+		MaxAge:   600,
+		Path:     "/",
+		Secure:   isSecure,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	c.Redirect(http.StatusFound, result.RedirectURL)
 }
@@ -130,6 +158,24 @@ func AuthCallback(c *gin.Context) {
 	// Read state from query param and cookie
 	queryState := c.Query("state")
 	cookieState, _ := c.Cookie("oidc_state")
+
+	// Check for OIDC provider error first (e.g. user denied authorization,
+	// provider misconfiguration). The provider redirects with ?error=... instead
+	// of ?code=... when the user cancels or an error occurs.
+	if oidcError := c.Query("error"); oidcError != "" {
+		// Clear the state cookie so it doesn't interfere with retries
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name: "oidc_state", Value: "", MaxAge: -1, Path: "/",
+			Secure: isSecure, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		})
+		desc := c.Query("error_description")
+		if desc == "" {
+			desc = oidcError
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Authorization denied: " + desc})
+		return
+	}
+
 	code := c.Query("code")
 
 	if code == "" {
@@ -141,13 +187,29 @@ func AuthCallback(c *gin.Context) {
 	if err != nil {
 		// Clear the state cookie even on failure to avoid stale state interfering
 		// with subsequent login attempts.
-		c.SetCookie("oidc_state", "", -1, "/", "", isSecure, true)
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     "oidc_state",
+			Value:    "",
+			MaxAge:   -1,
+			Path:     "/",
+			Secure:   isSecure,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed: " + err.Error()})
 		return
 	}
 
 	// Clear the state cookie on success
-	c.SetCookie("oidc_state", "", -1, "/", "", isSecure, true)
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "oidc_state",
+		Value:    "",
+		MaxAge:   -1,
+		Path:     "/",
+		Secure:   isSecure,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	// Redirect to frontend callback page with JWT in query
 	frontendCallback := strings.TrimRight(result.FrontendURL, "/") + "/auth/callback?token=" + result.JWT
@@ -191,7 +253,7 @@ func UserPlatforms(c *gin.Context) {
 
 	platforms, err := PlatformSvc.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to list platforms for user")
 		return
 	}
 
@@ -280,7 +342,7 @@ func UserPlatforms(c *gin.Context) {
 func UserUpdateTime(c *gin.Context) {
 	updateTime, err := SubSvc.GetUpdateTime()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to get update time")
 		return
 	}
 	if updateTime.IsZero() {
@@ -292,7 +354,7 @@ func UserUpdateTime(c *gin.Context) {
 
 // UserRefreshToken rotates the download token for a given platform+type.
 // If the user has a custom subscription for that platform, the custom token
-// is rotated instead.
+// is rotated instead. Accepts type "custom" explicitly for frontend clarity.
 func UserRefreshToken(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 
@@ -309,21 +371,30 @@ func UserRefreshToken(c *gin.Context) {
 		return
 	}
 
-	// Check if user has a custom subscription for this platform
+	// Check if user has a custom subscription for this platform.
+	// When type is explicitly "custom", only handle custom subs and return
+	// a clear error if none exists (e.g. admin removed it while user had
+	// the page open).
 	customSub, customErr := CustomSubSvc.GetByUserAndPlatform(userID, req.Platform)
 	if customErr == nil && customSub != nil {
 		// Rotate custom subscription token
 		if err := CustomSubSvc.RefreshToken(customSub.ID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalError(c, err, "Failed to refresh custom token")
 			return
 		}
 		// Generate a fresh token
 		newToken, err := SubSvc.GetOrCreateCustomToken(userID, req.Platform, customSub.ID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalError(c, err, "Failed to create custom token")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "token": newToken, "type": "custom"})
+		return
+	}
+
+	if req.Type == "custom" {
+		// Custom sub was removed between page load and refresh click
+		c.JSON(http.StatusNotFound, gin.H{"error": "custom subscription no longer exists", "code": "custom_sub_removed"})
 		return
 	}
 
@@ -334,7 +405,7 @@ func UserRefreshToken(c *gin.Context) {
 	}
 	newToken, err := SubSvc.RefreshToken(userID, req.Platform, req.Type)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to refresh token")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "token": newToken})
@@ -373,6 +444,7 @@ func handleJWTDownload(c *gin.Context) {
 	}
 
 	logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "success", "")
+	log.Debug().Str("platform", platform).Str("user_id", userID).Str("type", subType).Msg("Subscription download (JWT)")
 	c.String(http.StatusOK, content)
 }
 
@@ -431,6 +503,7 @@ func SubDownloadToken(c *gin.Context) {
 	}
 
 	logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "success", "")
+	log.Debug().Str("platform", plat).Str("user_id", userID).Str("type", downloadType).Msg("Subscription download (token)")
 	setDownloadHeaders(c, plat)
 	c.String(http.StatusOK, content)
 }
@@ -461,6 +534,7 @@ func ShareDownload(c *gin.Context) {
 	}
 
 	logAccess("", c.ClientIP(), "share", "", id, "", "success", "")
+	log.Debug().Str("share_id", id).Str("ip", c.ClientIP()).Msg("Share download")
 	c.String(http.StatusOK, content)
 }
 
@@ -547,14 +621,14 @@ func PostConfigure(c *gin.Context) {
 
 	_, err := auth.ConfigureSystem(cfgRepo, cfg, clientSecret)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Configuration failed: " + err.Error()})
+		internalError(c, err, "Configuration failed")
 		return
 	}
 
 	// Re-initialize the auth service with new config
 	svc, err := auth.NewServiceFromDB(cfgRepo)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize auth service: " + err.Error()})
+		internalError(c, err, "Failed to initialize auth service")
 		return
 	}
 	auth.DefaultService = svc
@@ -581,7 +655,7 @@ func PostSwitchProvider(c *gin.Context) {
 
 	cfgRepo := repository.NewSystemConfigRepo()
 	if err := auth.SwitchProvider(cfgRepo, pt); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to switch provider: " + err.Error()})
+		internalError(c, err, "Failed to switch provider")
 		return
 	}
 
@@ -666,7 +740,7 @@ func GetOIDCConfig(c *gin.Context) {
 func ListUsers(c *gin.Context) {
 	users, err := UserSvc.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to list users")
 		return
 	}
 
@@ -758,7 +832,7 @@ func DeleteUser(c *gin.Context) {
 
 func RevokeUserTokens(c *gin.Context) {
 	if err := UserSvc.RevokeTokens(c.Param("id")); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to revoke user tokens")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -778,7 +852,7 @@ func UploadCustomSubscription(c *gin.Context) {
 	}
 	cs, err := CustomSubSvc.Upload(userID, platform, content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to upload custom subscription")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "custom_subscription": cs})
@@ -803,7 +877,7 @@ func UploadCustomSubscriptionVersion(c *gin.Context) {
 	}
 	cs, err = CustomSubSvc.UploadVersion(cs.ID, content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to upload custom subscription version")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "custom_subscription": cs})
@@ -917,7 +991,7 @@ func RefreshCustomSubToken(c *gin.Context) {
 		return
 	}
 	if err := CustomSubSvc.RefreshToken(cs.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to refresh custom sub token")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -930,7 +1004,7 @@ func RefreshCustomSubToken(c *gin.Context) {
 func ListSubscriptions(c *gin.Context) {
 	subs, err := SubSvc.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to list subscriptions")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"subscriptions": subs})
@@ -1043,7 +1117,7 @@ func DeleteSubscriptionVersion(c *gin.Context) {
 func ListShares(c *gin.Context) {
 	shares, err := ShareSvc.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to list shares")
 		return
 	}
 	// Enrich with token status and value
@@ -1215,7 +1289,7 @@ func RevokeShareToken(c *gin.Context) {
 func ListPlatforms(c *gin.Context) {
 	platforms, err := PlatformSvc.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to list platforms")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"platforms": platforms})
@@ -1272,7 +1346,7 @@ func DeletePlatform(c *gin.Context) {
 func ListAdminRules(c *gin.Context) {
 	rules, err := RuleSvc.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to list admin rules")
 		return
 	}
 	// Enrich with token
@@ -1301,8 +1375,8 @@ func CreateRule(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
-		if req.ID == "" || req.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "id and name are required"})
+		if req.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 			return
 		}
 		if req.Content != "" {
@@ -1339,10 +1413,6 @@ func CreateRule(c *gin.Context) {
 	id := c.PostForm("id")
 	if id == "" {
 		id = c.Query("id")
-	}
-	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
-		return
 	}
 	name := c.PostForm("name")
 	if name == "" {
@@ -1496,7 +1566,7 @@ func RefreshRuleToken(c *gin.Context) {
 func GetRateLimit(c *gin.Context) {
 	loginLimit, downloadLimit, err := SystemSvc.GetRateLimit()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err, "Failed to get rate limit")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"rate_limit_login": loginLimit, "rate_limit_download": downloadLimit})
@@ -1519,6 +1589,68 @@ func UpdateRateLimit(c *gin.Context) {
 }
 
 // ============================================================================
+// Admin: Announcement
+// ============================================================================
+
+func GetAnnouncement(c *gin.Context) {
+	content, err := SystemSvc.GetAnnouncement()
+	if err != nil {
+		internalError(c, err, "Failed to get announcement")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"content": content})
+}
+
+func UpdateAnnouncement(c *gin.Context) {
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if err := SystemSvc.SetAnnouncement(req.Content); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// PublicAnnouncement returns announcement content without authentication.
+func PublicAnnouncement(c *gin.Context) {
+	content, err := SystemSvc.GetAnnouncement()
+	if err != nil {
+		internalError(c, err, "Failed to get announcement")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"content": content})
+}
+
+// ============================================================================
+// Admin: Debug Mode
+// ============================================================================
+
+func GetDebugMode(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"debug_mode": SystemSvc.GetDebugMode()})
+}
+
+func UpdateDebugMode(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if err := SystemSvc.SetDebugMode(req.Enabled); err != nil {
+		internalError(c, err, "Failed to set debug mode")
+		return
+	}
+	DebugMode = req.Enabled
+	c.JSON(http.StatusOK, gin.H{"success": true, "debug_mode": req.Enabled})
+}
+
+// ============================================================================
 // Admin: Logs
 // ============================================================================
 
@@ -1538,7 +1670,7 @@ func GetLogs(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query logs: " + err.Error()})
+		internalError(c, err, "Failed to query logs")
 		return
 	}
 
@@ -1618,9 +1750,9 @@ func logAccess(userID, ip, downloadType, platform, shareSubID, ruleID, status, e
 		if u, err := userRepo.FindByID(userID); err == nil && u.Email != "" {
 			identifier = u.Email
 		} else if err != nil {
-			log.Printf("[DEBUG] logAccess: FindByID(%q) failed: %v", userID, err)
+			log.Debug().Str("user_id", userID).Err(err).Msg("logAccess: FindByID failed")
 		} else {
-			log.Printf("[DEBUG] logAccess: FindByID(%q) OK but email empty (username=%q)", userID, u.Username)
+			log.Debug().Str("user_id", userID).Str("username", u.Username).Msg("logAccess: FindByID OK but email empty")
 		}
 	}
 	repo := repository.NewAccessLogRepo()

@@ -1,8 +1,12 @@
 package router
 
 import (
+	"os"
+	"strings"
+
 	"vpn-sub/internal/handler"
 	"vpn-sub/internal/middleware"
+	"vpn-sub/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,18 +29,19 @@ func SetupRouter() *gin.Engine {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// Root endpoint for WAF / load-balancer health probes
-	r.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
-
 	api := r.Group("/api/v1")
 	{
 		// Public endpoints — always available
 		api.GET("/system/status", handler.GetSystemStatus)
 		api.GET("/platforms", handler.GetPlatforms)
-		api.GET("/rules", handler.GetRules)
+		api.GET("/system/announcement", handler.PublicAnnouncement)
+
+		// Rule download (public, token-based auth) — VPN clients use this directly
 		api.GET("/rules/:id/download", middleware.NoCacheForDownloads(), middleware.RateLimitDownload(), handler.GetRuleDownload)
+
+		// Rule list and download-link (JWT required) — web UI only
+		api.GET("/rules", middleware.AuthRequired(), handler.GetRules)
+		api.GET("/rules/:id/download-link", middleware.AuthRequired(), handler.GetRuleDownloadLink)
 
 		// Setup/reconfigure admin endpoints — always registered.
 		// ConditionalSetupAuth allows unauthenticated access during initial
@@ -58,6 +63,28 @@ func SetupRouter() *gin.Engine {
 		registerShareDownloadRoutes(api)
 		registerAdminRoutes(api)
 	}
+
+	// Serve frontend static files (JS/CSS/fonts/images from Vite build)
+	r.Static("/assets", "/app/public/assets")
+
+	// SPA fallback: non-API requests first try static files, then fall back to index.html
+	r.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/") {
+			c.JSON(404, gin.H{"error": "not found"})
+			return
+		}
+		// Try serving static file from /app/public (with path traversal protection
+		// via SanitizePath, which prevents directory escape attacks).
+		if safePath, err := utils.SanitizePath("/app/public", path); err == nil {
+			if info, statErr := os.Stat(safePath); statErr == nil && !info.IsDir() {
+				c.File(safePath)
+				return
+			}
+		}
+		// Fall back to index.html for SPA client-side routing
+		c.File("/app/public/index.html")
+	})
 
 	return r
 }
@@ -163,6 +190,15 @@ func registerAdminRoutes(api *gin.RouterGroup) {
 		// are handled by the ConditionalSetupAuth group above)
 		admin.GET("/system/rate-limit", handler.GetRateLimit)
 		admin.PUT("/system/rate-limit", handler.UpdateRateLimit)
+
+		// Announcement
+		admin.GET("/system/announcement", handler.GetAnnouncement)
+		admin.PUT("/system/announcement", handler.UpdateAnnouncement)
+
+		// Debug mode — toggle for exposing internal errors in 5xx responses.
+		// Extensible: future debug-related keys can be added under /admin/system/debug/*.
+		admin.GET("/system/debug-mode", handler.GetDebugMode)
+		admin.PUT("/system/debug-mode", handler.UpdateDebugMode)
 
 		// Logs
 		admin.GET("/logs", handler.GetLogs)

@@ -60,10 +60,11 @@ const routes = [
       { path: 'users', name: 'UserManage', component: () => import('@/views/UserManage.vue') },
       { path: 'rules', name: 'RulesManage', component: () => import('@/views/RulesManage.vue') },
       { path: 'rules/:id/versions', name: 'RuleVersions', component: () => import('@/views/RuleVersions.vue') },
-      { path: 'oidc', name: 'OIDCConfig', component: () => import('@/views/OIDCConfig.vue') },
+      { path: 'system', name: 'SystemSettings', component: () => import('@/views/SystemSettings.vue') },
       { path: 'logs', name: 'Logs', component: () => import('@/views/Logs.vue') }
     ]
-  }
+  },
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('@/views/NotFound.vue') }
 ]
 
 const router = createRouter({
@@ -84,6 +85,12 @@ router.beforeEach(async (to, from, next) => {
 
   // 2. Check system status (cached after first call)
   await userStore.checkSystemStatus()
+
+  console.debug(`[router] ${from?.path || '(init)'} → ${to.path}`, {
+    configured: userStore.isConfigured,
+    isLoggedIn: userStore.isLoggedIn,
+    isAdmin: userStore.isAdmin
+  })
 
   // 3. System not configured → must go to /setup
   if (userStore.isConfigured === false) {

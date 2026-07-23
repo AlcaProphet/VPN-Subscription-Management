@@ -10,6 +10,7 @@ import (
 	"vpn-sub/internal/repository"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 )
 
 // ============================================================================
@@ -64,6 +65,7 @@ func (w *ipWindow) allow(ip string, limit int) (bool, int) {
 		if retryAfter < 1 {
 			retryAfter = 1
 		}
+		log.Debug().Str("ip", ip).Int("count", len(valid)).Int("limit", limit).Int("retry_after", retryAfter).Msg("Rate limit triggered")
 		w.windows[ip] = valid
 		return false, retryAfter
 	}
