@@ -195,6 +195,11 @@ func registerAdminRoutes(api *gin.RouterGroup) {
 		admin.GET("/system/announcement", handler.GetAnnouncement)
 		admin.PUT("/system/announcement", handler.UpdateAnnouncement)
 
+		// Debug mode — toggle for exposing internal errors in 5xx responses.
+		// Extensible: future debug-related keys can be added under /admin/system/debug/*.
+		admin.GET("/system/debug-mode", handler.GetDebugMode)
+		admin.PUT("/system/debug-mode", handler.UpdateDebugMode)
+
 		// Logs
 		admin.GET("/logs", handler.GetLogs)
 	}

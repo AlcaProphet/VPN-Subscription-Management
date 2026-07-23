@@ -20,7 +20,7 @@
       <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         <div
           v-for="u in users"
-          :key="u.id"
+          :key="u.user_id"
           class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
         >
           <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">

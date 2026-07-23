@@ -1,8 +1,33 @@
 # Issues.md — 问题追踪
 
-> **状态**: 🟡 Low/LR 级别问题待修复。Critical/High 级别问题已于 2026-07-23 修复。
+> **状态**: 🟡 仅 Low 级别待修复。Critical/High/Medium 级别问题已于 2026-07-23 全部修复。
 
-## 待修复（2026-07-23 代码审查发现 — Low + Logic Risk）
+## 已修复（2026-07-23 第二轮审计 — 全部 High + Medium）
+
+- [x] **A1. `DeleteVersion` `wasCurrent` 语义错误** (`version_service.go`): 改用 `os.Readlink("current.conf")` 精确判断被删版本是否为当前版本，仅当是时才重设 symlink。
+- [x] **A2. `SubscriptionService.Create` TOCTOU 竞态** (`subscription_service.go`): 在 `repo.Create` 返回时检测 UNIQUE constraint violation，转换为 409 友好错误。保留事务外检查作为快速路径。
+- [x] **A3. `UserManage.vue` key 绑定错误** (`UserManage.vue`): `:key="u.id"` → `:key="u.user_id"`。
+- [x] **A4. OIDC 回调未处理授权错误** (`handlers.go:AuthCallback`): 在 `code == ""` 前新增 `c.Query("error")` 检查，返回 "Authorization denied: ..." 友好提示并清除 state cookie。
+- [x] **A5. 自定义订阅刷新边缘情况** (`handlers.go:UserRefreshToken` + `Home.vue:handleRefresh`): 后端接受 `type: "custom"` 并返回具体错误码 `custom_sub_removed`；前端捕获后静默刷新平台列表。
+- [x] **A6. Logger Token 脱敏改用 `net/url.Parse`** (`middleware/logger.go`): 手动字符串匹配替换为 `url.Parse` + `url.ParseQuery`，覆盖 URL 编码、token 含 `&` 等边缘情况。
+- [x] **A7. `GetUserIsAdvanced` 防御性类型断言** (`middleware/auth.go`): `isAdv.(bool)` 改为带 `ok` 检查的安全断言。
+- [x] **A8. 统一 zerolog + ConsoleWriter** (`main.go` / `db.go` / `handlers.go`): 标准库 `log` 全部替换为 zerolog；默认 ConsoleWriter 彩色输出，`LOG_FORMAT=json` 时切换 JSON。
+- [x] **A9. `Setup.vue` 未使用 CSS 清理** (`Setup.vue`): 删除 6 个未被模板引用的 scoped CSS 类。
+- [x] **A10. 5xx 错误脱敏 + Debug Mode 管理面板**:
+  - 后端：新增 `internalError()` 辅助函数，默认返回 "Internal server error"，`debug_mode` 开启时返回详细错误。
+  - Debug Mode 存 `system_config.debug_mode`，管理员在面板配置页通过开关控制，可扩展（未来可加更多 `debug_*` 键）。
+  - 替换全部 ~30 处 `c.JSON(500, gin.H{"error": err.Error()})` 为 `internalError(c, err, "context")`。
+  - 前端：`SystemSettings.vue` 新增「调试模式」开关卡片，`api.js` 新增 `getDebugMode`/`updateDebugMode` API。
+
+### 待修复（2026-07-23 第二轮审计 — Low）
+
+- [ ] **A11. Service 层全局变量不利于单元测试** — 低优先级，详见下方。
+
+### 已修复 / 重复
+
+---
+
+## 待修复（2026-07-23 第一轮代码审查 — Low + Logic Risk）
 
 ### 低优先级 (Low)
 

@@ -511,7 +511,14 @@ async function handleRefresh(platform, subType) {
     toastSuccess('链接已刷新')
     await fetchPlatforms()
   } catch (e) {
-    toastError('刷新失败')
+    // Custom subscription may have been removed since page load —
+    // silently refresh the platform list to sync state instead of
+    // showing a confusing error.
+    if (subType === 'custom' && e.response?.data?.code === 'custom_sub_removed') {
+      await fetchPlatforms()
+    } else {
+      toastError('刷新失败')
+    }
   } finally {
     refreshing[key] = false
   }

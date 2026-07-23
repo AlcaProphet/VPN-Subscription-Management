@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"os"
 	"path/filepath"
+	"time"
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/handler"
@@ -13,9 +14,19 @@ import (
 	"vpn-sub/internal/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 func main() {
+	// Setup zerolog: console writer in development, JSON in production.
+	// Set LOG_FORMAT=json in docker-compose.yml for structured logging.
+	if utils.GetEnv("LOG_FORMAT", "") == "json" {
+		log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
+	} else {
+		log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	}
+
 	// Determine environment
 	port := utils.GetEnv("PORT", "8080")
 	dataDir := utils.GetEnv("DATA_DIR", "./data")
@@ -24,9 +35,9 @@ func main() {
 	dbPath := filepath.Join(dataDir, "vpn.db")
 
 	// Initialize database
-	log.Printf("Initializing database at %s", dbPath)
+	log.Info().Str("path", dbPath).Msg("Initializing database")
 	if err := repository.InitDB(dbPath); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		log.Fatal().Err(err).Msg("Failed to initialize database")
 	}
 	defer repository.CloseDB()
 
@@ -41,17 +52,22 @@ func main() {
 	if configured {
 		svc, err := auth.NewServiceFromDB(cfgRepo)
 		if err != nil {
-			log.Printf("Warning: Failed to initialize auth service: %v", err)
+			log.Warn().Err(err).Msg("Failed to initialize auth service")
 		} else {
 			auth.DefaultService = svc
 			middleware.SetAuthService(svc)
-			log.Println("Auth service initialized successfully")
+			log.Info().Msg("Auth service initialized successfully")
 		}
 	}
 
 	// Initialize business services (block 3)
 	handler.InitServices()
-	log.Println("Business services initialized")
+	log.Info().Msg("Business services initialized")
+
+	// Restore debug mode from system_config (may have been set in admin panel)
+	if handler.SystemSvc != nil {
+		handler.SetDebugMode(handler.SystemSvc.GetDebugMode())
+	}
 
 	// Setup Gin
 	gin.SetMode(gin.ReleaseMode)
@@ -64,13 +80,13 @@ func main() {
 	//   - Gin v1.10 SetTrustedProxies(nil) results in trustedCIDRs=nil which
 	//     causes ClientIP() to skip X-Forwarded-For entirely
 	if err := r.SetTrustedProxies([]string{"0.0.0.0/0"}); err != nil {
-		log.Printf("Warning: Failed to set trusted proxies: %v", err)
+		log.Warn().Err(err).Msg("Failed to set trusted proxies")
 	}
 
 	// Start server
 	addr := fmt.Sprintf(":%s", port)
-	log.Printf("Starting server on %s (configured=%v)", addr, configured)
+	log.Info().Str("addr", addr).Bool("configured", configured).Msg("Starting server")
 	if err := r.Run(addr); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		log.Fatal().Err(err).Msg("Failed to start server")
 	}
 }

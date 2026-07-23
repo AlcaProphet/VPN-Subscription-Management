@@ -126,5 +126,9 @@ func GetUserIsAdvanced(c *gin.Context) bool {
 	if isAdv == nil {
 		return false
 	}
-	return isAdv.(bool)
+	v, ok := isAdv.(bool)
+	if !ok {
+		return false
+	}
+	return v
 }

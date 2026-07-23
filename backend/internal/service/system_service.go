@@ -69,3 +69,20 @@ func (s *SystemService) GetAnnouncement() (string, error) {
 func (s *SystemService) SetAnnouncement(content string) error {
 	return s.cfgRepo.Set("announcement_content", content)
 }
+
+// GetDebugMode returns whether debug mode is enabled.
+// When enabled, 5xx errors include detailed internal messages in responses.
+// Stored in system_config with key "debug_mode".
+func (s *SystemService) GetDebugMode() bool {
+	val, err := s.cfgRepo.Get("debug_mode")
+	return err == nil && val == "true"
+}
+
+// SetDebugMode enables or disables debug mode.
+func (s *SystemService) SetDebugMode(enabled bool) error {
+	val := "false"
+	if enabled {
+		val = "true"
+	}
+	return s.cfgRepo.Set("debug_mode", val)
+}

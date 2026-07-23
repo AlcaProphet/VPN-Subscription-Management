@@ -120,6 +120,34 @@
           </el-form>
         </div>
       </div>
+
+      <!-- Debug Mode Card -->
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md mb-5">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <span class="font-medium text-gray-900 dark:text-white">调试模式</span>
+        </div>
+        <div class="p-6">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-900 dark:text-white font-medium">显示详细错误信息</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                启用后 5xx 错误将返回详细内部信息以便排查。生产环境建议关闭。
+              </p>
+            </div>
+            <button
+              class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none"
+              :class="debugMode ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+              @click="toggleDebugMode"
+              :disabled="debugSaving"
+            >
+              <span
+                class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200"
+                :class="debugMode ? 'translate-x-6' : 'translate-x-1'"
+              />
+            </button>
+          </div>
+        </div>
+      </div>
     </template>
 
     <OIDCSwitchDialog v-model:visible="showSwitchDialog" :current-provider="oidcForm.provider_type" @switch="handleProviderSwitch" />
@@ -366,12 +394,39 @@ async function loadAnnouncement() {
   }
 }
 
+// Debug mode
+const debugMode = ref(false)
+const debugSaving = ref(false)
+
+async function toggleDebugMode() {
+  const newVal = !debugMode.value
+  debugSaving.value = true
+  try {
+    await adminApi.system.updateDebugMode({ enabled: newVal })
+    debugMode.value = newVal
+  } catch (e) {
+    const msg = e.response?.data?.error || '操作失败'
+    toastError(msg)
+  } finally {
+    debugSaving.value = false
+  }
+}
+
+async function loadDebugMode() {
+  try {
+    const res = await adminApi.system.getDebugMode()
+    debugMode.value = res.data.debug_mode || false
+  } catch (e) {
+    // Non-critical — defaults to false
+  }
+}
+
 // ==========================================================================
 // Lifecycle
 // ==========================================================================
 onMounted(async () => {
   loading.value = true
-  await Promise.all([loadConfig(), loadAnnouncement()])
+  await Promise.all([loadConfig(), loadAnnouncement(), loadDebugMode()])
   loading.value = false
 })
 </script>

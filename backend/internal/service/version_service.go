@@ -156,19 +156,25 @@ func (s *VersionService) DeleteVersion(subDir string, versionNum int, versions [
 	// Remove the version file (ignore if not exists)
 	os.Remove(filePath)
 
+	// Check if the version being deleted is the one current.conf actually
+	// points to, rather than assuming the deleted version is always current.
+	currentPath := filepath.Join(fullDir, currentFileName())
+	isDeletingCurrent := false
+	if resolved, readlinkErr := os.Readlink(currentPath); readlinkErr == nil {
+		isDeletingCurrent = (resolved == fileName)
+	}
+
 	// Remove from versions list
 	newVersions := make([]models.Version, 0, len(versions)-1)
-	wasCurrent := false
 	for _, v := range versions {
 		if v.Version == versionNum {
-			wasCurrent = true
 			continue
 		}
 		newVersions = append(newVersions, v)
 	}
 
-	// If we deleted the current version, switch to the newest remaining
-	if wasCurrent {
+	// Only switch symlink if we actually deleted the current version
+	if isDeletingCurrent {
 		maxV := 0
 		for _, v := range newVersions {
 			if v.Version > maxV {

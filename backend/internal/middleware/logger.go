@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -11,26 +12,41 @@ import (
 )
 
 // sanitizeQueryToken masks the ?token= query parameter value in URLs.
+// Uses net/url.Parse for robust handling of URL-encoded params, multi-value
+// tokens containing '&', and non-standard separators.
 func sanitizeQueryToken(rawURL string) string {
-	// Simple approach: find ?token= and replace value with ***
-	idx := strings.Index(rawURL, "?token=")
-	if idx == -1 {
-		idx = strings.Index(rawURL, "&token=")
-		if idx == -1 {
-			return rawURL
+	// Try to parse as a full URL first, then fall back to treating the
+	// whole string as a path+query.
+	var path, query string
+	if u, err := url.Parse(rawURL); err == nil && u.RawQuery != "" {
+		path = strings.SplitN(rawURL, "?", 2)[0]
+		query = u.RawQuery
+	} else if idx := strings.Index(rawURL, "?"); idx >= 0 {
+		path = rawURL[:idx]
+		query = rawURL[idx+1:]
+	} else {
+		return rawURL // no query string
+	}
+
+	vals, err := url.ParseQuery(query)
+	if err != nil {
+		return rawURL // can't parse, return as-is (safe — won't expose more than raw)
+	}
+
+	// Mask any token parameters
+	masked := false
+	for key := range vals {
+		if key == "token" {
+			vals.Set(key, "***")
+			masked = true
 		}
 	}
-	// Find the end of the token value (next & or end of string)
-	start := idx
-	for start < len(rawURL) && rawURL[start] != '=' {
-		start++
+
+	if !masked {
+		return rawURL
 	}
-	start++ // skip '='
-	end := start
-	for end < len(rawURL) && rawURL[end] != '&' && rawURL[end] != ' ' {
-		end++
-	}
-	return rawURL[:start] + "***" + rawURL[end:]
+
+	return path + "?" + vals.Encode()
 }
 
 // LoggerMiddleware returns a Gin middleware that logs requests using zerolog.

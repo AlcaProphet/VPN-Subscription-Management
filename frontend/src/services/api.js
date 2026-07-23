@@ -309,6 +309,12 @@ export const adminApi = {
     },
     updateAnnouncement(data) {
       return api.put('/admin/system/announcement', data)
+    },
+    getDebugMode() {
+      return api.get('/admin/system/debug-mode')
+    },
+    updateDebugMode(data) {
+      return api.put('/admin/system/debug-mode', data)
     }
   },
 
