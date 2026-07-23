@@ -9,7 +9,7 @@
     </div>
 
     <template v-else>
-      <h2 class="m-0 mb-5 text-xl font-semibold text-gray-900 dark:text-white">OIDC 配置</h2>
+      <h2 class="m-0 mb-5 text-xl font-semibold text-gray-900 dark:text-white">面板配置</h2>
 
       <!-- OIDC Config Card -->
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md mb-5">

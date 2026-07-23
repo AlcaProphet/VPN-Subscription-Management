@@ -572,11 +572,11 @@ data/
 
 **触发条件**: push 到 main 或 beta 分支，push v* 标签（如 v1.0.0），手动 workflow_dispatch。
 
-**构建策略**: matrix build 同时构建 backend 和 frontend 两个镜像。使用 docker/metadata-action 生成标签，docker/build-push-action 构建推送。
+**构建策略**: 单镜像构建。使用 docker/metadata-action 生成标签，docker/build-push-action 构建推送。
 
-**镜像标签**: main 分支 → {service}:main 和 {service}:latest。beta 分支 → {service}:beta。版本标签 v1.0.0 → {service}:1.0.0、{service}:1.0、{service}:1。
+**镜像标签**: main 分支 → :main 和 :latest。beta 分支 → :beta。版本标签 v1.0.0 → :1.0.0、:1.0、:1。
 
-**Dockerfile 结构**: 多阶段构建。后端：golang 编译 → distroless 运行。前端：node 构建 → nginx 静态文件服务（前端容器**只服务静态文件，不做反代**；`/api/` 的分流由部署机外部 NGINX 完成，详见第八章）。
+**Dockerfile 结构**: 单 Dockerfile 三阶段构建。阶段一：node 构建前端（Vite）→ 阶段二：golang 编译后端 → 阶段三：distroless 运行时，Go 二进制 serve API + 前端静态文件 + SPA 回退。详见第八章。
 
 ---
 

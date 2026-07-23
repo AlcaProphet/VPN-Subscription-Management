@@ -62,8 +62,7 @@ docker compose up -d
 ```
 
 启动后：
-- 后端 API 监听 `127.0.0.1:8080`（仅本机可访问）
-- 前端页面监听 `127.0.0.1:8081`（仅本机可访问）
+- 单容器监听 `127.0.0.1:8080`（Go 后端 serve API + 静态文件 + SPA，仅本机可访问）
 
 ### 第三步：配置外部反向代理
 
@@ -74,8 +73,8 @@ server {
     listen 443 ssl;
     server_name vpn.example.com;
 
-    # API 请求 → 后端容器
-    location /api/ {
+    # 所有请求 → 单容器（Go 后端 serve 一切）
+    location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
@@ -83,19 +82,10 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         client_max_body_size 55m;
     }
-
-    # 其他请求 → 前端容器（静态文件 + SPA 回退）
-    location / {
-        proxy_pass http://127.0.0.1:8081;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
 }
 ```
 
-> 完整模板（含 HTTP→HTTPS 跳转、TLS 配置注释）见 `deploy/nginx-example.conf`。`location /api/` 使用前缀匹配，覆盖所有 `/api/v1/*` 接口。
+> 完整模板（含 HTTP→HTTPS 跳转、TLS 配置注释）见 `deploy/nginx-example.conf`。
 
 重载 NGINX：
 
@@ -160,21 +150,18 @@ sudo nginx -t && sudo nginx -s reload
 
 ```
 用户浏览器 ──HTTPS──▶ 外部 NGINX (vpn.example.com)
-                       ├─ /api/*  → http://127.0.0.1:8080  (backend, Go + Gin)
-                       └─ /*      → http://127.0.0.1:8081  (frontend, Vue + Nginx)
-                                          │
-                                    docker compose
-                                 ┌───────┴───────┐
-                              backend          frontend
-                           (Go 1.25 + Gin)  (Vue 3 + Nginx)
-                                 │
-                          vpn-data Volume
-                    ┌────────────┼────────────┐
-                 vpn.db    subscriptions/   rules/
-                           custom/          shares/
+                       └─ /* → http://127.0.0.1:8080  (Go 后端, 单容器)
+                             ├─ /api/v1/*  → Gin API
+                             ├─ /assets/*  → Vite 构建的静态资源 (JS/CSS)
+                             └─ /*         → index.html (SPA history 模式回退)
+                                      │
+                               vpn-data Volume
+                         ┌───────────┼───────────┐
+                      vpn.db    subscriptions/  rules/
+                                custom/         shares/
 ```
 
-- **API 路径**: 所有接口在 `/api/v1/` 下，NGINX 用 `/api/` 前缀匹配覆盖
+- **单容器架构** — Go 后端 serve 一切：API + 静态文件 + SPA 回退。外部 NGINX 仅作 TLS 终止
 - **零外部依赖** — SQLite 嵌入式数据库（`modernc.org/sqlite`，纯 Go，零 CGO）
 - **单数据卷** — 所有持久化数据（数据库 + 配置文件 + 规则 + 自定义订阅 + 分享订阅）统一在 `vpn-data` volume 中
 - **端口隔离** — 容器端口只绑 `127.0.0.1`，不直接暴露到公网
@@ -206,7 +193,7 @@ sudo nginx -t && sudo nginx -s reload
 | 前端 | Vue 3 (Composition API + `<script setup>`) + Vite |
 | UI 库 | Element Plus + Pinia + Vue Router |
 | HTTP | Axios（统一 baseURL `/api/v1`，401 自动登出） |
-| 容器化 | Docker 多阶段构建 + distroless（后端）/ nginx alpine（前端） |
+| 容器化 | Docker 多阶段构建（单镜像）+ distroless 运行时 |
 | CI/CD | GitHub Actions（自动构建并推送到 GHCR） |
 
 ---
@@ -217,8 +204,8 @@ sudo nginx -t && sudo nginx -s reload
 # 查看运行状态
 docker compose ps
 
-# 查看后端日志
-docker compose logs -f backend
+# 查看日志
+docker compose logs -f app
 
 # 重启服务
 docker compose restart
@@ -277,5 +264,5 @@ docker run --rm -v vpn-subscription-management_vpn-data:/data \
 
 - **许可证**: [MIT](LICENSE)
 - **仓库**: [github.com/alcaprophet/vpn-subscription-management](https://github.com/alcaprophet/vpn-subscription-management)
-- **容器镜像**: `ghcr.io/alcaprophet/vpn-sub-backend` / `ghcr.io/alcaprophet/vpn-sub-frontend`
+- **容器镜像**: `ghcr.io/alcaprophet/vpn-subscription-manager`
 - **完全自托管** — 不依赖任何云服务，所有数据在你自己的服务器上
