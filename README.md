@@ -121,7 +121,7 @@ sudo nginx -t && sudo nginx -s reload
 | **平台管理** | 管理 VPN 客户端平台，配置一键导入的 `client_schemes` 和客户端下载链接 `download_url` |
 | **用户管理** | 查看已登录用户（OIDC 自动创建），设置 is_advanced（普通↔高级），上传自定义订阅（指定平台，覆盖默认/高级分配），吊销所有 Token，删除用户（含管理员自我保护） |
 | **规则管理** | 上传 Shadowrocket 分流规则，独立版本管理与下载 Token，支持 Token 轮替 |
-| **面板配置** | 查看和修改 OIDC 提供商参数（含测试连接、切换提供商类型）、速率限制参数（登录/下载 API 限流）、系统公告栏 |
+| **面板配置** | 查看和修改 OIDC 提供商参数（含测试连接、切换提供商类型）、速率限制参数（登录/下载 API 限流）、系统公告栏、调试模式开关（开启后 5xx 错误返回详细信息） |
 | **日志查看** | 按日期筛选访问日志，查看下载类型、用户、平台、成功/失败状态及失败原因 |
 
 ### 普通用户
@@ -185,7 +185,7 @@ sudo nginx -t && sudo nginx -s reload
 
 | 层 | 技术 |
 |----|------|
-| 后端 | Go 1.25 + Gin + zerolog |
+| 后端 | Go 1.25 + Gin + zerolog（支持 LOG_LEVEL 分级 + LOG_FORMAT JSON/Console 输出） |
 | 数据库 | SQLite (`modernc.org/sqlite`，纯 Go 驱动) |
 | 认证 | OIDC (PKCE) + JWT (`golang-jwt/jwt/v5`) |
 | 加密 | AES-256-GCM（JWT_SECRET 前 32 字节作为加密密钥） |
@@ -203,8 +203,17 @@ sudo nginx -t && sudo nginx -s reload
 # 查看运行状态
 docker compose ps
 
-# 查看日志
+# 查看日志（默认 info 级别）
 docker compose logs -f app
+
+# 排查时开启 DEBUG 日志（显示 OIDC 认证细节、版本操作、下载、限流等信息）
+docker compose run -e LOG_LEVEL=debug app
+
+# 精简日志（仅警告和错误）
+docker compose run -e LOG_LEVEL=warn app
+
+# 结构化 JSON 日志（配合 ELK/Loki 等日志系统）
+docker compose run -e LOG_FORMAT=json app
 
 # 重启服务
 docker compose restart
