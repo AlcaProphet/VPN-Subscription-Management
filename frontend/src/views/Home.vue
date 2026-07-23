@@ -81,16 +81,9 @@
       <!-- Announcement card -->
       <div v-if="!loading && announcement" class="mb-5">
         <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg shadow-sm overflow-hidden">
-          <div class="px-4 py-3 flex items-start justify-between gap-3">
-            <div class="flex-1">
-              <span class="text-sm font-semibold text-blue-700 dark:text-blue-300">📢 公告</span>
-              <p class="m-0 mt-1 text-sm text-blue-600 dark:text-blue-400 whitespace-pre-wrap">{{ announcement }}</p>
-            </div>
-            <button
-              class="text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 shrink-0 text-lg leading-none"
-              @click="dismissAnnouncement"
-              title="关闭"
-            >✕</button>
+          <div class="px-4 py-3">
+            <span class="text-sm font-semibold text-blue-700 dark:text-blue-300">📢 公告</span>
+            <p class="m-0 mt-1 text-sm text-blue-600 dark:text-blue-400 whitespace-pre-wrap">{{ announcement }}</p>
           </div>
         </div>
       </div>
@@ -528,14 +521,6 @@ function handleLogout() {
   userStore.logout(router)
 }
 
-function dismissAnnouncement() {
-  if (announcement.value) {
-    const key = 'dismissed-announcement-' + announcement.value.substring(0, 20)
-    localStorage.setItem(key, '1')
-    announcement.value = ''
-  }
-}
-
 // Lifecycle
 onMounted(async () => {
   await Promise.all([fetchPlatforms(), fetchUpdateTime(), fetchAnnouncement()])
@@ -546,10 +531,7 @@ async function fetchAnnouncement() {
     const res = await publicApi.getAnnouncement()
     const content = res.data.content || ''
     if (content) {
-      const key = 'dismissed-announcement-' + content.substring(0, 20)
-      if (!localStorage.getItem(key)) {
-        announcement.value = content
-      }
+      announcement.value = content
     }
   } catch (e) {
     // Silently fail — announcement is non-critical

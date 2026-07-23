@@ -41,11 +41,7 @@
                 <span class="text-gray-400 dark:text-gray-500">更新于:</span>
                 <span class="text-gray-700 dark:text-gray-300">{{ formatTime(currentUpdatedAt(rule)) }}</span>
               </div>
-              <div class="flex items-center gap-2">
-                <span class="text-gray-400 dark:text-gray-500 shrink-0">Token:</span>
-                <span v-if="rule.token" class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ maskToken(rule.token) }}</span>
-                <span v-else class="text-gray-400 dark:text-gray-500 italic">—</span>
-              </div>
+
             </div>
             <div class="flex flex-wrap gap-1">
               <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="goVersions(rule)">版本管理</button>

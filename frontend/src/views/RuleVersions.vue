@@ -34,7 +34,7 @@
             <span v-else class="text-gray-400 dark:text-gray-500">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="80" min-width="80" fixed="right">
+        <el-table-column label="操作" :width="isMobile ? 60 : 220" fixed="right">
           <template #default="{ row }">
             <ActionMenu>
               <template #default>
