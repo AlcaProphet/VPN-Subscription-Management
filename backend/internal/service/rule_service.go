@@ -108,7 +108,9 @@ func (s *RuleService) UploadVersion(id, content string) (*models.Rule, error) {
 
 	var currentVersions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &currentVersions)
+		if err := json.Unmarshal([]byte(versionsJSON), &currentVersions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.CreateVersion("rules/"+id, content, currentVersions)
@@ -162,7 +164,9 @@ func (s *RuleService) SwitchVersion(id string, versionNum int) (*models.Rule, er
 
 	var versions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &versions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.SwitchVersion("rules/"+id, versionNum, versions)
@@ -204,7 +208,9 @@ func (s *RuleService) DeleteVersion(id string, versionNum int) (*models.Rule, er
 
 	var versions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &versions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.DeleteVersion("rules/"+id, versionNum, versions)

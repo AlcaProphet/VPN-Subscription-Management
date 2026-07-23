@@ -80,18 +80,19 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 	return b, nil
 }
 
-// AESKeyFromSecret derives a 32-byte AES key from the JWT secret by taking
-// the first 32 bytes of the secret. Caller must ensure the secret is at
-// least 32 bytes before calling this.
+// AESKeyFromSecret derives a 32-byte AES key from the JWT secret.
+// JWT_SECRET is stored as a base64-encoded string of 32 random bytes.
+// We base64-decode it to recover the original 32 bytes for full entropy.
+// Falls back to taking the first 32 raw bytes if decoding fails (legacy compat).
 func AESKeyFromSecret(jwtSecret string) []byte {
-	if len(jwtSecret) < 32 {
-		// Pad or handle — but per our design, JWT_SECRET is always >= 32 bytes.
-		// This is a safety fallback; we pad with zeros.
-		key := make([]byte, 32)
-		copy(key, jwtSecret)
-		return key
+	// Try base64 decoding to recover the original random bytes (full entropy)
+	if decoded, err := base64.RawURLEncoding.DecodeString(jwtSecret); err == nil && len(decoded) >= 32 {
+		return decoded[:32]
 	}
-	return []byte(jwtSecret[:32])
+	// Fallback for legacy or non-base64 secrets: use first 32 bytes of raw string.
+	key := make([]byte, 32)
+	copy(key, jwtSecret)
+	return key
 }
 
 // GenerateUUID creates a random UUID v4 string.

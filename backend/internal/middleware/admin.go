@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"net/http"
-	"strings"
 
 	"vpn-sub/internal/repository"
 
@@ -48,48 +47,22 @@ func ConditionalSetupAuth() gin.HandlerFunc {
 			return
 		}
 
-		// System is configured — require JWT + admin role
-		// Inline AuthRequired logic (we can't chain middleware dynamically in Gin easily,
-		// so we replicate the essential checks here).
-		if DefaultAuthService == nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Auth service not initialized"})
-			return
-		}
-
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing authorization header"})
-			return
-		}
-
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header"})
-			return
-		}
-
-		userID, err := DefaultAuthService.ValidateJWT(parts[1])
+		// System is configured — require JWT + admin role.
+		// Reuses ValidateJWTAndSetContext to avoid duplicating auth logic.
+		_, role, err := ValidateJWTAndSetContext(c)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			if ae, ok := err.(*authError); ok {
+				c.AbortWithStatusJSON(ae.HTTPStatus(), gin.H{"error": ae.Error()})
+			} else {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			}
 			return
 		}
 
-		userRepo := repository.NewUserRepo()
-		user, err := userRepo.FindByID(userID)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
-			return
-		}
-
-		if user.Role != "admin" {
+		if role != "admin" {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 			return
 		}
-
-		// Store user info for downstream handlers
-		c.Set("user_id", user.UserID)
-		c.Set("user_role", user.Role)
-		c.Set("user_is_advanced", user.IsAdvanced)
 
 		c.Next()
 	}

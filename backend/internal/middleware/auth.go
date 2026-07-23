@@ -24,52 +24,79 @@ func SetAuthService(svc AuthService) {
 	DefaultAuthService = svc
 }
 
+// ValidateJWTAndSetContext validates the Authorization: Bearer header, looks up
+// the user from the database, and stores user_id, user_role, user_is_advanced
+// in the Gin context. Returns the user's ID and role on success.
+//
+// This is a shared helper used by both AuthRequired and ConditionalSetupAuth
+// to avoid code duplication.
+func ValidateJWTAndSetContext(c *gin.Context) (userID, role string, err error) {
+	if DefaultAuthService == nil {
+		return "", "", ErrAuthServiceNotInit
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return "", "", ErrMissingAuthHeader
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return "", "", ErrInvalidAuthHeader
+	}
+
+	userID, err = DefaultAuthService.ValidateJWT(parts[1])
+	if err != nil {
+		return "", "", ErrInvalidToken
+	}
+
+	// Real-time DB lookup: verify the user still exists
+	userRepo := repository.NewUserRepo()
+	user, err := userRepo.FindByID(userID)
+	if err != nil {
+		return "", "", ErrUserNotFound
+	}
+
+	// Store user info in context for downstream handlers
+	c.Set("user_id", user.UserID)
+	c.Set("user_role", user.Role)
+	c.Set("user_is_advanced", user.IsAdvanced)
+
+	return user.UserID, user.Role, nil
+}
+
+// Sentinel errors for ValidateJWTAndSetContext so callers can distinguish
+// error types and map them to the correct HTTP status codes.
+var (
+	ErrAuthServiceNotInit = &authError{"Auth service not initialized", http.StatusServiceUnavailable}
+	ErrMissingAuthHeader  = &authError{"Missing authorization header", http.StatusUnauthorized}
+	ErrInvalidAuthHeader  = &authError{"Invalid authorization header", http.StatusUnauthorized}
+	ErrInvalidToken       = &authError{"Invalid or expired token", http.StatusUnauthorized}
+	ErrUserNotFound       = &authError{"User not found", http.StatusUnauthorized}
+)
+
+type authError struct {
+	msg        string
+	httpStatus int
+}
+
+func (e *authError) Error() string   { return e.msg }
+func (e *authError) HTTPStatus() int { return e.httpStatus }
+
 // AuthRequired is a middleware that verifies the JWT token from the
 // Authorization: Bearer header and looks up the user from the database.
 // It stores user_id in the Gin context for downstream handlers.
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Guard against misconfiguration where DefaultAuthService is nil
-		// (e.g. configured=true but OIDC init failed at startup)
-		if DefaultAuthService == nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Auth service not initialized"})
-			return
-		}
-
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing authorization header"})
-			return
-		}
-
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header"})
-			return
-		}
-
-		tokenString := parts[1]
-
-		// Validate JWT
-		userID, err := DefaultAuthService.ValidateJWT(tokenString)
+		_, _, err := ValidateJWTAndSetContext(c)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			if ae, ok := err.(*authError); ok {
+				c.AbortWithStatusJSON(ae.HTTPStatus(), gin.H{"error": ae.Error()})
+			} else {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			}
 			return
 		}
-
-		// Real-time DB lookup: verify the user still exists
-		userRepo := repository.NewUserRepo()
-		user, err := userRepo.FindByID(userID)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
-			return
-		}
-
-		// Store user info in context for downstream handlers
-		c.Set("user_id", user.UserID)
-		c.Set("user_role", user.Role)
-		c.Set("user_is_advanced", user.IsAdvanced)
-
 		c.Next()
 	}
 }

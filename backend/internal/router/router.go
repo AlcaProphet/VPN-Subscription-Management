@@ -2,11 +2,11 @@ package router
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 
 	"vpn-sub/internal/handler"
 	"vpn-sub/internal/middleware"
+	"vpn-sub/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -34,9 +34,14 @@ func SetupRouter() *gin.Engine {
 		// Public endpoints — always available
 		api.GET("/system/status", handler.GetSystemStatus)
 		api.GET("/platforms", handler.GetPlatforms)
-		api.GET("/rules", handler.GetRules)
-		api.GET("/rules/:id/download", middleware.NoCacheForDownloads(), middleware.RateLimitDownload(), handler.GetRuleDownload)
 		api.GET("/system/announcement", handler.PublicAnnouncement)
+
+		// Rule download (public, token-based auth) — VPN clients use this directly
+		api.GET("/rules/:id/download", middleware.NoCacheForDownloads(), middleware.RateLimitDownload(), handler.GetRuleDownload)
+
+		// Rule list and download-link (JWT required) — web UI only
+		api.GET("/rules", middleware.AuthRequired(), handler.GetRules)
+		api.GET("/rules/:id/download-link", middleware.AuthRequired(), handler.GetRuleDownloadLink)
 
 		// Setup/reconfigure admin endpoints — always registered.
 		// ConditionalSetupAuth allows unauthenticated access during initial
@@ -69,11 +74,11 @@ func SetupRouter() *gin.Engine {
 			c.JSON(404, gin.H{"error": "not found"})
 			return
 		}
-		// Try serving static file from /app/public (with path traversal protection)
-		cleaned := filepath.Clean(filepath.Join("/app/public", path))
-		if strings.HasPrefix(cleaned, "/app/public/") {
-			if info, err := os.Stat(cleaned); err == nil && !info.IsDir() {
-				c.File(cleaned)
+		// Try serving static file from /app/public (with path traversal protection
+		// via SanitizePath, which prevents directory escape attacks).
+		if safePath, err := utils.SanitizePath("/app/public", path); err == nil {
+			if info, statErr := os.Stat(safePath); statErr == nil && !info.IsDir() {
+				c.File(safePath)
 				return
 			}
 		}

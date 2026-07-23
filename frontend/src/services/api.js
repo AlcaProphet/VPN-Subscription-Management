@@ -39,9 +39,6 @@ export const publicApi = {
   getPlatforms() {
     return api.get('/platforms')
   },
-  getRules() {
-    return api.get('/rules')
-  },
   getAnnouncement() {
     return api.get('/system/announcement')
   },
@@ -71,6 +68,14 @@ export const userApi = {
   },
   refreshToken(platform, type) {
     return api.post('/user/refresh-token', { platform, type })
+  },
+  // Rule list now requires JWT auth (rules contain sensitive download tokens)
+  getRules() {
+    return api.get('/rules')
+  },
+  // Fetch a download link for a specific rule (generates token-backed URL)
+  getRuleDownloadLink(ruleId) {
+    return api.get(`/rules/${ruleId}/download-link`)
   }
 }
 

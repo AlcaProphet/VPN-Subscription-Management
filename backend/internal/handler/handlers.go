@@ -46,17 +46,34 @@ func GetRules(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	// Enrich with token so the frontend can build download URLs
-	type ruleWithToken struct {
-		models.Rule
-		Token string `json:"token,omitempty"`
+	c.JSON(http.StatusOK, gin.H{"rules": rules})
+}
+
+// GetRuleDownloadLink returns a download URL (with token) for a specific rule.
+// Requires JWT auth — only logged-in users can obtain rule download links.
+// The returned token is the same one used by the public /rules/:id/download endpoint.
+func GetRuleDownloadLink(c *gin.Context) {
+	ruleID := c.Param("id")
+
+	// Verify the rule exists
+	rule, err := RuleSvc.Get(ruleID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Rule not found"})
+		return
 	}
-	result := make([]ruleWithToken, 0, len(rules))
-	for _, r := range rules {
-		tok, _ := RuleSvc.GetToken(r.ID)
-		result = append(result, ruleWithToken{Rule: r, Token: tok})
+
+	// Get the rule's download token (created when the rule was first configured)
+	token, err := RuleSvc.GetToken(ruleID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No download token available for this rule"})
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{"rules": result})
+
+	downloadURL := fmt.Sprintf("/api/v1/rules/%s/download?token=%s", ruleID, token)
+	c.JSON(http.StatusOK, gin.H{
+		"url":       downloadURL,
+		"rule_name": rule.Name,
+	})
 }
 
 func GetRuleDownload(c *gin.Context) {
@@ -108,10 +125,18 @@ func AuthLogin(c *gin.Context) {
 	// In local development (HTTP), Secure must be false or the browser won't send it.
 	isSecure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 
-	// Set state in HttpOnly cookie for CSRF triple verification
-	c.SetCookie(
-		"oidc_state", result.State, 600, "/", "", isSecure, true,
-	)
+	// Set state in HttpOnly cookie for CSRF triple verification.
+	// Explicitly set SameSite=Lax to ensure the cookie is sent on the
+	// OIDC callback (a top-level GET navigation from the provider).
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "oidc_state",
+		Value:    result.State,
+		MaxAge:   600,
+		Path:     "/",
+		Secure:   isSecure,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	c.Redirect(http.StatusFound, result.RedirectURL)
 }
@@ -141,13 +166,29 @@ func AuthCallback(c *gin.Context) {
 	if err != nil {
 		// Clear the state cookie even on failure to avoid stale state interfering
 		// with subsequent login attempts.
-		c.SetCookie("oidc_state", "", -1, "/", "", isSecure, true)
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     "oidc_state",
+			Value:    "",
+			MaxAge:   -1,
+			Path:     "/",
+			Secure:   isSecure,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed: " + err.Error()})
 		return
 	}
 
 	// Clear the state cookie on success
-	c.SetCookie("oidc_state", "", -1, "/", "", isSecure, true)
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "oidc_state",
+		Value:    "",
+		MaxAge:   -1,
+		Path:     "/",
+		Secure:   isSecure,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	// Redirect to frontend callback page with JWT in query
 	frontendCallback := strings.TrimRight(result.FrontendURL, "/") + "/auth/callback?token=" + result.JWT

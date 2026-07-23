@@ -120,7 +120,9 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 
 	var currentVersions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &currentVersions)
+		if err := json.Unmarshal([]byte(versionsJSON), &currentVersions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.CreateVersion("subscriptions/"+id, content, currentVersions)
@@ -176,7 +178,9 @@ func (s *SubscriptionService) SwitchVersion(id string, versionNum int) (*models.
 
 	var versions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &versions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.SwitchVersion("subscriptions/"+id, versionNum, versions)
@@ -218,7 +222,9 @@ func (s *SubscriptionService) DeleteVersion(id string, versionNum int) (*models.
 
 	var versions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &versions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.DeleteVersion("subscriptions/"+id, versionNum, versions)

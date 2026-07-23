@@ -1,10 +1,41 @@
-# Issues.md — 问题追踪（已归档）
+# Issues.md — 问题追踪
 
-> **状态**: ✅ Phase 1 所有已知问题均已修复或验证。Phase 2（Tailwind CSS v3 UI 迁移）将从根本上解决 ShareList 按钮 bug。
-> **下一阶段**: Phase 2 的构建计划见 `BUILD_PLAN_PHASE2.md`。
-> **本文件仅供历史参考**，不再活跃跟踪。
+> **状态**: 🟡 Low/LR 级别问题待修复。Critical/High 级别问题已于 2026-07-23 修复。
 
-## 已修复（Phase 2 将彻底解决）
+## 待修复（2026-07-23 代码审查发现 — Low + Logic Risk）
+
+### 低优先级 (Low)
+
+- [ ] **L1. `handlers.go` 文件过长 (~1690 行)** — 单文件包含所有 handler，建议按业务域拆分为 `auth_handler.go`、`subscription_handler.go`、`user_handler.go` 等。
+- [ ] **L2. 版本管理代码高度重复** — `subscription_service.go`、`rule_service.go`、`custom_subscription_service.go`、`share_subscription_service.go` 中的 `UploadVersion`/`SwitchVersion`/`DeleteVersion` 模式 >80% 相同，建议抽取泛型版本管理 mixin。
+- [ ] **L3. `logAccess` 写入失败静默忽略** — `handlers.go` `logAccess()` 中 `repo.Insert()` 错误被丢弃，审计日志丢失无告警。建议至少 `log.Printf` 记录失败。
+- [ ] **L4. `AuthLogin` prompt 参数未做白名单校验** — 任意 `?prompt=` 值直接传给 OIDC provider，建议校验长度和合法值（`login`/`consent`/`select_account`）。
+- [ ] **L5. `setDownloadHeaders` 每次查询 `system_config`** — 每个 clash-verge 下载请求都查一次 `frontend_url`，建议在服务初始化时缓存。
+- [ ] **L6. `go.mod` 中 `go 1.25.0` 为无效版本** — Go 最新稳定版为 1.24.x，应修正为实际使用的版本号。
+- [ ] **L7. `frontend/src/assets/tailwind.css` 中未使用的 CSS 变量** — 检查 `--color-primary` 等变量是否被引用，未引用则清理。
+- [ ] **L8. `App.vue` 中 `useTheme()` 返回值未使用** — composable 调用仅为了副作用（初始化主题），建议在 `main.js` 中调用一次并添加注释说明。
+
+### 潜在逻辑风险 (Logic Risks)
+
+- [ ] **LR1. 自定义订阅 Token 刷新存在竞争条件** — `RefreshToken(customSubID)` 先读后写，并发刷新可能读到同一旧 Token 导致一次刷新失败。建议使用 `UPDATE ... RETURNING` 或无条件删旧生新的事务。
+- [ ] **LR2. 用户升降级时 Token 被删但无通知** — `UserService.Update` 修改 `is_advanced` 后自动删除所有旧 Token，用户 VPN 连接立即中断且无提示。建议在 Admin UI 增加警告提示。
+- [ ] **LR3. `CreateVersion` 先写文件再写 DB，失败时清理依赖调用方** — 各 service 的 defer 清理逻辑不一致（如 `ShareSubscriptionService.Create` 无 defer 清理），建议统一错误清理或让 `CreateVersion` 自包含原子操作。
+
+---
+
+## 已修复（2026-07-23 代码审查 — Critical/High）
+
+- [x] **C1. OIDC Cookie 缺少 SameSite** (`handlers.go:AuthLogin/AuthCallback`): 改用 `http.SetCookie` + `SameSite: http.SameSiteLaxMode` 显式声明。
+- [x] **C2. `setDownloadHeaders` `Content-Disposition`** (`handlers.go`): AGENTS.md §3.4 已更新，文档化 Clash Verge 兼容例外。
+- [x] **C3. `AESKeyFromSecret` 密钥派生熵损失** (`utils/crypto.go`): 改为 base64-decode JWT_SECRET 恢复原始 32 字节，fallback 兼容旧格式。
+- [x] **H1. `NoRoute` SPA 回退路径穿越** (`router/router.go`): 改用 `utils.SanitizePath` 统一校验。
+- [x] **H2. `GetRules` 公开 API 泄露 Rule Token** (`handlers.go` + `router.go` + `Rules.vue`): 改为方案 A — `GET /rules` 加 `AuthRequired` 且不返回 token；新增 `GET /rules/:id/download-link`（JWT）按需下发下载链接；前端 Rules.vue 改为「获取下载链接」按钮 + 弹窗复制交互。
+- [x] **H3. `ConditionalSetupAuth` 代码重复** (`middleware/auth.go` + `admin.go`): 抽取 `ValidateJWTAndSetContext` 共享函数 + sentinel error 类型，两个中间件统一调用，删 40 行重复代码。
+- [x] **H4. `json.Unmarshal` 错误静默忽略** (4 个 service 文件 12 处): 全部加上 `if err := ...; err != nil { return fmt.Errorf(...) }` 错误处理。
+
+---
+
+## 已修复（Phase 2 彻底解决）
 
 - [x] **分享订阅页面无「创建」按钮** (`ShareList.vue`): ~~已放弃 CSS 层面修复。~~ Element Plus `v-loading` 与 `el-empty` 组合触发未知渲染 bug（DOM 存在、尺寸 0×0、父容器塌缩）。**Phase 2 方案**：引入 Tailwind CSS v3，用 Tailwind 条件渲染替代 `v-loading` + `el-empty` 组合，从根本上绕过此 bug。
 

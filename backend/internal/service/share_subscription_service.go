@@ -139,7 +139,9 @@ func (s *ShareSubscriptionService) UploadVersion(id, content string) (*models.Sh
 
 	var currentVersions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &currentVersions)
+		if err := json.Unmarshal([]byte(versionsJSON), &currentVersions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.CreateVersion("shares/"+id, content, currentVersions)
@@ -193,7 +195,9 @@ func (s *ShareSubscriptionService) SwitchVersion(id string, versionNum int) (*mo
 
 	var versions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &versions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.SwitchVersion("shares/"+id, versionNum, versions)
@@ -235,7 +239,9 @@ func (s *ShareSubscriptionService) DeleteVersion(id string, versionNum int) (*mo
 
 	var versions []models.Version
 	if versionsJSON != "" && versionsJSON != "[]" {
-		json.Unmarshal([]byte(versionsJSON), &versions)
+		if err := json.Unmarshal([]byte(versionsJSON), &versions); err != nil {
+			return nil, fmt.Errorf("failed to parse versions JSON: %w", err)
+		}
 	}
 
 	newVersions, err := s.versionSvc.DeleteVersion("shares/"+id, versionNum, versions)
