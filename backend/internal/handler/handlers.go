@@ -98,6 +98,7 @@ func GetRuleDownload(c *gin.Context) {
 		return
 	}
 	logAccess("", c.ClientIP(), "rule", "", "", ruleID, "success", "")
+	log.Debug().Str("rule_id", ruleID).Str("ip", c.ClientIP()).Msg("Rule download")
 	c.String(http.StatusOK, content)
 }
 
@@ -443,6 +444,7 @@ func handleJWTDownload(c *gin.Context) {
 	}
 
 	logAccess(userID, c.ClientIP(), "subscription", platform, "", "", "success", "")
+	log.Debug().Str("platform", platform).Str("user_id", userID).Str("type", subType).Msg("Subscription download (JWT)")
 	c.String(http.StatusOK, content)
 }
 
@@ -501,6 +503,7 @@ func SubDownloadToken(c *gin.Context) {
 	}
 
 	logAccess(userID, c.ClientIP(), downloadType, plat, "", "", "success", "")
+	log.Debug().Str("platform", plat).Str("user_id", userID).Str("type", downloadType).Msg("Subscription download (token)")
 	setDownloadHeaders(c, plat)
 	c.String(http.StatusOK, content)
 }
@@ -531,6 +534,7 @@ func ShareDownload(c *gin.Context) {
 	}
 
 	logAccess("", c.ClientIP(), "share", "", id, "", "success", "")
+	log.Debug().Str("share_id", id).Str("ip", c.ClientIP()).Msg("Share download")
 	c.String(http.StatusOK, content)
 }
 

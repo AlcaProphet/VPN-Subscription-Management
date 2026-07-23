@@ -9,6 +9,8 @@ import (
 
 	"vpn-sub/internal/models"
 	"vpn-sub/internal/utils"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -107,6 +109,7 @@ func (s *VersionService) CreateVersion(subDir, fileContent string, existingVersi
 		return nil, err
 	}
 
+	log.Debug().Str("resource", subDir).Int("version", newVersionNum).Msg("Version created")
 	return versions, nil
 }
 
@@ -135,6 +138,7 @@ func (s *VersionService) SwitchVersion(subDir string, versionNum int, versions [
 		return nil, fmt.Errorf("failed to switch current symlink: %w", err)
 	}
 
+	log.Debug().Str("resource", subDir).Int("version", versionNum).Msg("Version switched to current")
 	return versions, nil
 }
 
@@ -188,6 +192,7 @@ func (s *VersionService) DeleteVersion(subDir string, versionNum int, versions [
 		}
 	}
 
+	log.Debug().Str("resource", subDir).Int("version", versionNum).Bool("was_current", isDeletingCurrent).Msg("Version deleted")
 	return newVersions, nil
 }
 
