@@ -1,124 +1,80 @@
 # Issues.md — 问题追踪
 
-> **状态**: 🟡 仅 Low 级别待修复。Critical/High/Medium 级别问题已于 2026-07-23 全部修复。
-
-## 已修复（2026-07-23 第二轮审计 — 全部 High + Medium）
-
-- [x] **A1. `DeleteVersion` `wasCurrent` 语义错误** (`version_service.go`): 改用 `os.Readlink("current.conf")` 精确判断被删版本是否为当前版本，仅当是时才重设 symlink。
-- [x] **A2. `SubscriptionService.Create` TOCTOU 竞态** (`subscription_service.go`): 在 `repo.Create` 返回时检测 UNIQUE constraint violation，转换为 409 友好错误。保留事务外检查作为快速路径。
-- [x] **A3. `UserManage.vue` key 绑定错误** (`UserManage.vue`): `:key="u.id"` → `:key="u.user_id"`。
-- [x] **A4. OIDC 回调未处理授权错误** (`handlers.go:AuthCallback`): 在 `code == ""` 前新增 `c.Query("error")` 检查，返回 "Authorization denied: ..." 友好提示并清除 state cookie。
-- [x] **A5. 自定义订阅刷新边缘情况** (`handlers.go:UserRefreshToken` + `Home.vue:handleRefresh`): 后端接受 `type: "custom"` 并返回具体错误码 `custom_sub_removed`；前端捕获后静默刷新平台列表。
-- [x] **A6. Logger Token 脱敏改用 `net/url.Parse`** (`middleware/logger.go`): 手动字符串匹配替换为 `url.Parse` + `url.ParseQuery`，覆盖 URL 编码、token 含 `&` 等边缘情况。
-- [x] **A7. `GetUserIsAdvanced` 防御性类型断言** (`middleware/auth.go`): `isAdv.(bool)` 改为带 `ok` 检查的安全断言。
-- [x] **A8. 统一 zerolog + ConsoleWriter** (`main.go` / `db.go` / `handlers.go`): 标准库 `log` 全部替换为 zerolog；默认 ConsoleWriter 彩色输出，`LOG_FORMAT=json` 时切换 JSON。
-- [x] **A9. `Setup.vue` 未使用 CSS 清理** (`Setup.vue`): 删除 6 个未被模板引用的 scoped CSS 类。
-- [x] **A10. 5xx 错误脱敏 + Debug Mode 管理面板**:
-  - 后端：新增 `internalError()` 辅助函数，默认返回 "Internal server error"，`debug_mode` 开启时返回详细错误。
-  - Debug Mode 存 `system_config.debug_mode`，管理员在面板配置页通过开关控制，可扩展（未来可加更多 `debug_*` 键）。
-  - 替换全部 ~30 处 `c.JSON(500, gin.H{"error": err.Error()})` 为 `internalError(c, err, "context")`。
-  - 前端：`SystemSettings.vue` 新增「调试模式」开关卡片，`api.js` 新增 `getDebugMode`/`updateDebugMode` API。
-
-### 待修复（2026-07-23 第二轮审计 — Low）
-
-- [ ] **A11. Service 层全局变量不利于单元测试** — 低优先级，详见下方。
-
-### 已修复 / 重复
+> **状态**: 🟡 仅 Low 级别待修复。本次会话所有 Critical/High/Medium 问题已于 2026-07-23 修复。
+> **待检查**: Setup/SystemSettings OIDC 表单交互修复需在浏览器中实际验证。
 
 ---
 
-## 待修复（2026-07-23 第一轮代码审查 — Low + Logic Risk）
+## 本次会话修复（2026-07-23）
 
-### 低优先级 (Low)
+### 第一轮代码审查
 
-- [ ] **L1. `handlers.go` 文件过长 (~1690 行)** — 单文件包含所有 handler，建议按业务域拆分为 `auth_handler.go`、`subscription_handler.go`、`user_handler.go` 等。
-- [ ] **L2. 版本管理代码高度重复** — `subscription_service.go`、`rule_service.go`、`custom_subscription_service.go`、`share_subscription_service.go` 中的 `UploadVersion`/`SwitchVersion`/`DeleteVersion` 模式 >80% 相同，建议抽取泛型版本管理 mixin。
-- [ ] **L3. `logAccess` 写入失败静默忽略** — `handlers.go` `logAccess()` 中 `repo.Insert()` 错误被丢弃，审计日志丢失无告警。建议至少 `log.Printf` 记录失败。
-- [ ] **L4. `AuthLogin` prompt 参数未做白名单校验** — 任意 `?prompt=` 值直接传给 OIDC provider，建议校验长度和合法值（`login`/`consent`/`select_account`）。
-- [ ] **L5. `setDownloadHeaders` 每次查询 `system_config`** — 每个 clash-verge 下载请求都查一次 `frontend_url`，建议在服务初始化时缓存。
-- [ ] **L6. `go.mod` 中 `go 1.25.0` 为无效版本** — Go 最新稳定版为 1.24.x，应修正为实际使用的版本号。
-- [ ] **L7. `frontend/src/assets/tailwind.css` 中未使用的 CSS 变量** — 检查 `--color-primary` 等变量是否被引用，未引用则清理。
-- [ ] **L8. `App.vue` 中 `useTheme()` 返回值未使用** — composable 调用仅为了副作用（初始化主题），建议在 `main.js` 中调用一次并添加注释说明。
+- [x] **C1. OIDC Cookie 缺少 SameSite** — `http.SetCookie` + `SameSite: http.SameSiteLaxMode`
+- [x] **C2. Clash Verge Content-Disposition 文档化** — AGENTS.md §3.4 已更新
+- [x] **C3. AES 密钥派生熵损失** — `AESKeyFromSecret` 改为 base64-decode 恢复原始字节
+- [x] **H1. NoRoute 路径穿越** — 改用 `utils.SanitizePath`
+- [x] **H2. `GET /rules` Token 泄露** — 方案 A：加 AuthRequired + 新增 `/download-link` 端点 + Rules.vue 弹窗交互
+- [x] **H3. ConditionalSetupAuth 代码重复** — 抽取 `ValidateJWTAndSetContext` + sentinel error
+- [x] **H4. 12 处 json.Unmarshal 错误忽略** — 全部加 error handling
 
-### 潜在逻辑风险 (Logic Risks)
+### 第二轮审计（外部报告核对）
 
-- [ ] **LR1. 自定义订阅 Token 刷新存在竞争条件** — `RefreshToken(customSubID)` 先读后写，并发刷新可能读到同一旧 Token 导致一次刷新失败。建议使用 `UPDATE ... RETURNING` 或无条件删旧生新的事务。
-- [ ] **LR2. 用户升降级时 Token 被删但无通知** — `UserService.Update` 修改 `is_advanced` 后自动删除所有旧 Token，用户 VPN 连接立即中断且无提示。建议在 Admin UI 增加警告提示。
-- [ ] **LR3. `CreateVersion` 先写文件再写 DB，失败时清理依赖调用方** — 各 service 的 defer 清理逻辑不一致（如 `ShareSubscriptionService.Create` 无 defer 清理），建议统一错误清理或让 `CreateVersion` 自包含原子操作。
+- [x] **A1. `DeleteVersion` wasCurrent 语义错误** — `os.Readlink` 精确比对
+- [x] **A2. `Create` TOCTOU 竞态** — 捕获 UNIQUE constraint 返回 409
+- [x] **A3. `:key="u.id"` 字段名错误** — `UserManage.vue` 改为 `u.user_id`
+- [x] **A4. OIDC 回调 error 参数** — `AuthCallback` 检查 `?error=` 返回友好提示
+- [x] **A5. 自定义订阅刷新边缘情况** — 后端 `type:custom` + `code:custom_sub_removed`；前端静默刷新列表
+- [x] **A6. Logger Token 脱敏** — `net/url.Parse` + `url.ParseQuery` 替换字符串匹配
+- [x] **A7. GetUserIsAdvanced 防御性断言** — `.(bool)` 改为 `ok` 检查
+- [x] **A8. 混合日志统一** — 方案 C：zerolog + ConsoleWriter + `LOG_FORMAT=json`
+- [x] **A9. Setup.vue 死 CSS** — 删除 6 个未用 scoped 类
+- [x] **A10. 5xx 脱敏 + Debug Mode** — `internalError()` 辅助函数 + 管理面板开关
+
+### Setup / OIDC 配置交互修复
+
+- [x] **B1. 表单验证失败无 toast** — `Setup.vue` + `SystemSettings.vue` 的 `handleTest`/`handleSubmit`/`handleSave` 验证失败时加 `toastError`
+- [x] **B2. Setup 状态检测加固** — 新增 `setupConfirmed` 标记，操作前重新验证 `configured` 状态，防止 401 重定向清空表单
+- [x] **B3. Setup 切换提供商持久化** — `handleProviderSwitch` 同步调用 `adminApi.system.switchProvider()`
+- [x] **B4. OIDCSwitchDialog 弹窗中断** — `onSelect` 中用 `nextTick` 延迟关闭弹窗
 
 ---
 
-## 已修复（2026-07-23 代码审查 — Critical/High）
+## 待修复（Low 优先级，暂不处理）
 
-- [x] **C1. OIDC Cookie 缺少 SameSite** (`handlers.go:AuthLogin/AuthCallback`): 改用 `http.SetCookie` + `SameSite: http.SameSiteLaxMode` 显式声明。
-- [x] **C2. `setDownloadHeaders` `Content-Disposition`** (`handlers.go`): AGENTS.md §3.4 已更新，文档化 Clash Verge 兼容例外。
-- [x] **C3. `AESKeyFromSecret` 密钥派生熵损失** (`utils/crypto.go`): 改为 base64-decode JWT_SECRET 恢复原始 32 字节，fallback 兼容旧格式。
-- [x] **H1. `NoRoute` SPA 回退路径穿越** (`router/router.go`): 改用 `utils.SanitizePath` 统一校验。
-- [x] **H2. `GetRules` 公开 API 泄露 Rule Token** (`handlers.go` + `router.go` + `Rules.vue`): 改为方案 A — `GET /rules` 加 `AuthRequired` 且不返回 token；新增 `GET /rules/:id/download-link`（JWT）按需下发下载链接；前端 Rules.vue 改为「获取下载链接」按钮 + 弹窗复制交互。
-- [x] **H3. `ConditionalSetupAuth` 代码重复** (`middleware/auth.go` + `admin.go`): 抽取 `ValidateJWTAndSetContext` 共享函数 + sentinel error 类型，两个中间件统一调用，删 40 行重复代码。
-- [x] **H4. `json.Unmarshal` 错误静默忽略** (4 个 service 文件 12 处): 全部加上 `if err := ...; err != nil { return fmt.Errorf(...) }` 错误处理。
+### 代码结构
+
+- [ ] **L1. `handlers.go` ~1690 行** — 建议按业务域拆分为多个文件
+- [ ] **L2. 版本管理代码重复 >80%** — 4 个 service 中 UploadVersion/SwitchVersion/DeleteVersion 高度相似
+- [ ] **L3. `logAccess` 写入失败静默忽略** — `repo.Insert()` 错误未记录
+- [ ] **L4. `AuthLogin` prompt 参数无校验** — 建议限制长度和白名单值
+- [ ] **L5. `setDownloadHeaders` 每次查 DB** — frontend_url 可缓存在 Service 初始化时
+- [ ] **L6. `go.mod` 版本号 `go 1.25.0`** — 应改为实际 Go 版本
+- [ ] **L7. `tailwind.css` 中未使用的 CSS 变量** — `--color-primary` 等需检查
+- [ ] **L8. `App.vue` 中 `useTheme()` 返回值未使用** — 建议在 `main.js` 中调用
+
+### 逻辑风险
+
+- [ ] **LR1. 自定义订阅 Token 刷新竞争条件** — `RefreshToken` 先读后写
+- [ ] **LR2. 用户升降级时 Token 被删无通知** — Admin UI 应加警告
+- [ ] **LR3. `CreateVersion` 文件/DB 操作不同步** — 各 service defer 清理不一致
+- [ ] **A11. Service 层包级全局变量** — 长期可引入依赖注入
 
 ---
 
-## 已修复（Phase 2 彻底解决）
+## 历史参考
 
-- [x] **分享订阅页面无「创建」按钮** (`ShareList.vue`): ~~已放弃 CSS 层面修复。~~ Element Plus `v-loading` 与 `el-empty` 组合触发未知渲染 bug（DOM 存在、尺寸 0×0、父容器塌缩）。**Phase 2 方案**：引入 Tailwind CSS v3，用 Tailwind 条件渲染替代 `v-loading` + `el-empty` 组合，从根本上绕过此 bug。
+<details>
+<summary>Phase 1 / Phase 2 修复记录（30+ 项，点击展开）</summary>
 
-## 已修复（Phase 1）
+- Phase 2: 分享订阅「创建」按钮 bug → Tailwind 替代 v-loading + el-empty
+- Phase 1: 自定义订阅 500 错误 → CreatedAt time.Time → string
+- Phase 1: 订阅 ID 自动生成、预览版本编辑、Clash Verge 响应头、X-Forwarded-For
+- 批量修复: download_tokens UNIQUE 约束、事务保护、body 大小限制、NextVersion 重复计算
+- 批量修复: 自定义订阅端点 ID 错误、JWT_SECRET 复用、规则下载速率限制、Auth0 TrimLeft
+- 批量修复: 限流下载日志、version_not_found 区分、规则创建首版本上传、checkSystemStatus 缓存
+- 批量修复: createRuleWithFirstVersion 清理、ShareSubscriptionService.Create 清理
+- 批量修复: Home.vue type 参数、CacheControlMiddleware 死代码、rate_limit 间隔
+- 批量修复: Client Secret 回显、自定义订阅 platform 参数、UploadModal uploadRef、日志时区
+- 批量修复: AuthRequired nil 防御
 
-- [x] **上传自定义订阅返回 `custom subscription not found` 500 错误** (`models/types.go` + repos): ~~`time.Time` Scan 失败~~ **根因确认**：SQLite 的 `created_at` 列是 TEXT 类型，但 Go 结构体中 `CustomSubscription.CreatedAt`、`ShareSubscription.CreatedAt`、`Rule.CreatedAt`、`ShareToken.CreatedAt`、`RuleToken.CreatedAt` 定义为 `time.Time`。`database/sql` 无法将 TEXT 直接 Scan 到 `time.Time`，报错 `unsupported Scan, storing driver.Value type string into type *time.Time`。**已修复**：将所有受影响结构体的 `CreatedAt` 改为 `string` 类型，与 SQLite TEXT 一致。
-- [x] **新建订阅的 ID 应自动生成，不需要用户手动填写** (`SubList.vue`): ~~创建订阅对话框中有 ID 输入框~~ 已修复：移除 ID 输入框，后端 `SubscriptionService.Create` 在 ID 为空时自动生成（UUID 前 12 字符）。
-- [x] **预览版本时无法编辑，编辑功能仅限新建版本** (`SubVersions.vue` / `ShareVersions.vue` / `RuleVersions.vue`): ~~预览对话框只读~~ 已修复：预览对话框增加「基于此版本编辑」按钮，点击后关闭预览并打开文本编辑器，预填当前版本内容。`UploadModal` 新增 `initialContent` prop 支持预填充。
-
-- [x] **订阅下载端点缺少 Clash Verge 专用响应头** (`handlers.go` 下载端点): 已实现。添加 `Content-Disposition: attachment; filename*=UTF-8''Luneflare%20VPN%20Clash.yaml`（RFC 5987 编码）、`profile-update-interval: 300`、`profile-web-page-url: {frontend_url}`。
-
-- [x] **验证客户端 IP 记录是否使用了 X-Forwarded-For**（`access_logs` 表）: **已解决**。`SetTrustedProxies([]string{"0.0.0.0/0"})` 修复后生产验证通过。
-
-## 已验证，不修复
-
-- [x] **`GetUpdateTime()` 全表遍历** (`subscription_service.go`): 加载全部订阅后在 Go 层双层循环遍历版本 JSON 找最大 `updated_at`。≤10 平台 × 2 类型 × 5 版本 = 最多 100 条记录，每首页加载 1 次（非轮询），循环耗时微秒级。SQL 聚合方案依赖 `json_each` 扩展且增加复杂度，当前规模下无收益。
-- [x] **`SubDownloadToken` Token 无效时日志 `download_type` 硬编码** (`handlers.go`): Token 查找失败时固定写 `"subscription"`，无法区分 regular/custom。但 `access_logs` 表有 `CHECK(download_type IN ('subscription','share','custom','rule'))` 约束，改为 `"unknown"` 需改 schema 并处理已有数据库迁移。token_invalid 时 `status=failed, error_reason=token_invalid` 已足够排查，修复的收益远小于 schema 迁移的风险。
-- [x] **OIDC state 查询未校验 TTL** (`oidc_state_repo.go:FindByState`): 查询仅 `WHERE state = ?`，无 `AND created_at > datetime('now', '-10 minutes')`。过期清理每小时执行一次，state 最长可存活 ~70 分钟。但 state 是一次性使用（回调后立即 `DELETE`），重放风险有限；且 CSRF 防护已有 HttpOnly Cookie + DB 三重校验兜底。修复需加时间条件但收益不大，暂不修复。
-- [x] **`enforceMaxVersions` 在 DB 事务提交前删除旧版本文件** (`version_service.go`): `CreateVersion` 调用 `enforceMaxVersions`（`os.Remove` 旧文件）→ 回到 `UploadVersion` 执行 `UPDATE` + `Commit`。若 `UPDATE`/`Commit` 失败，defer 只清理新版本文件不恢复旧文件。触发条件极罕见（版本已满 5 个 + DB 写入失败），且 SQLite WAL 模式下 commit 失败概率极低。重构成本（拆分 enforceMaxVersions 为计算+删除两步，涉及 4 个 service 的 UploadVersion）高于风险。当前存留，后续如有类似场景再统一处理。
-- [x] **Cookie 未显式设置 SameSite** (`handlers.go:AuthLogin`): Gin 的 `SetCookie` 不支持 `SameSite` 参数，生成的 `Set-Cookie` 头不含 `SameSite=...`。现代浏览器（Chrome/Firefox/Safari）对无 `SameSite` 的 cookie 默认视为 `SameSite=Lax`，OIDC 回调是顶层 GET 跳转，`Lax` 恰好允许携带 cookie。功能完全正常，CSRF 防护已有 Cookie + DB + query 三重校验。显式设置需手动拼接 header，收益仅为"声明一个与默认值一致的值"，暂不处理。
-- [x] **api.js 401 拦截器未排除公开端点** (`frontend/src/services/api.js`): 拦截器对所有 401 响应无条件清除 JWT 并跳转 `/login`。但 `/auth/login` 使用 `window.location.href` 直接跳转（不走 axios），`/system/status` 后端无 AuthRequired 中间件永不返回 401。当前所有通过 axios 调用且可能返回 401 的端点（`/auth/me`、`/user/*`、`/admin/*`）均应当触发登出，拦截器行为正确。后续如有新公开端点可能返回 401，可添加排除列表作为防御性改进。
-- [x] **后端不可达时 `checkSystemStatus` 失败导致路由守卫用户体验差** (`frontend/src/router/index.js`): 已通过与"`checkSystemStatus` catch 不缓存 false"（下方已修复）联动缓解。修复后网络错误时 `isConfigured` 保持 `null`，守卫不会强制跳转 `/setup`，用户最终落脚 `/login` 页面（而非无法操作的 Setup 页）。
-- [x] **`Manage.vue` `activeMenu` fallback 无注释** (`frontend/src/views/Manage.vue`): `/admin`（无子路由）经 `startsWith` 全部不匹配后 fallback 到 `/admin/subscriptions`，与路由重定向一致。`/admin/rules/:id/versions` 被 `/admin/rules` 的 `startsWith` 匹配到父级菜单项，恰好是期望行为（版本管理页面高亮父级）。逻辑正确，无需修改。
-- [x] **版本管理页 current 判定用 `updated_at` 排序理论不稳** (`SubVersions.vue` / `ShareVersions.vue` / `RuleVersions.vue`): 当前版本通过 `max(updated_at)` 判定。后端版本切换在事务内完成（行级锁），`updated_at` 以 `time.Now().UTC()` 写入。并发上传时事务串行执行，`updated_at` 必然不同。仅在两个请求在同一纳秒完成时可能相同，实际不会触发。用服务端返回的 current 标记（如有）会更可靠，但当前方案在管理场景下足够。暂不修复。
-- [x] **分享订阅创建后 Token 显示时间过短** (`ShareList.vue`): 创建成功后通过 `ElMessage.info` 显示 Token（默认 3 秒消失）。但列表 API 已返回 `token` 字段（块 7 构建时增强），用户随时可点击「复制分享链接」按钮复制。Token 不会丢失，影响极小。暂不修复。
-- [x] **`getLoginRateLimit()` / `getDownloadRateLimit()` 每次请求创建新 `SystemConfigRepo`** (`middleware/rate_limit.go`): 每次请求调用 `repository.NewSystemConfigRepo()` 创建新的 repo 实例。repo 内部使用全局 `repository.DB`，功能上正确但违背 service 单例复用模式。性能影响微乎其微（零分配 struct），当前不处理。
-- [x] **`VersionService.NextVersion()` 公开方法未被外部使用** (`version_service.go`): 块 3B 设计时用于外部计算版本号。实际实现中所有 service 的 `UploadVersion` 都通过 `CreateVersion` 内部调用 `nextVersion`，`NextVersion()` 目前是未使用的公开 API。保留备用，暂不删除。
-- [x] **前端列表页 `currentVersion()` 通过 `updated_at` 排序推断** (`SubList.vue` / `ShareList.vue` / `RulesManage.vue`): 使用 `versions.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at))[0]` 推断当前版本。后端 API 未返回 `current_version` 标记，语义上不严谨。未来可加强：后端列表 API 增加 `current_version` 字段。当前版本管理页（SubVersions 等）同样使用此模式。暂不修复。
-- [x] **`GetRuleDownload` 忽略 URL 中的 `:id` 路径参数** (`handlers.go`): Handler 从 token 中解析 `ruleID` 并用它获取内容，完全忽略 URL 路径中的 `:id` 参数。Token 是权威来源，URL 中的 `:id` 不参与鉴权或内容定位。无安全风险，此行为为设计选择。
-- [x] **`access_logs` 表使用空字符串代替 NULL** (`db.go`): `user_id`、`platform`、`share_subscription_id`、`rule_id`、`error_reason` 字段定义为 `NOT NULL DEFAULT ''`（AGENTS.md §6.3 标注为"可空"）。实际写入时也用空字符串。功能正常，SQLite 中 `WHERE col = ''` 效果与 `WHERE col IS NULL` 类似。暂不修改 schema。
-- [x] **CORS 中间件允许所有来源** (`cors.go`): `Access-Control-Allow-Origin: *`。生产部署使用外部 NGINX 同源反代，浏览器不会触发 CORS 检查，此 header 仅在开发环境（Vite dev server 跨端口）生效。开发环境中 `*` 是期望行为。
-- [x] **`rate_limit.go` `init()` 启动后台 goroutine 无退出机制** (`rate_limit.go`): `init()` 中启动两个 `periodicCleanup` goroutine，生命周期与进程绑定，无显式退出。生产环境进程退出时 goroutine 自动销毁，无影响。测试场景下多次初始化会导致 goroutine 泄漏，但测试通常短生命周期。当前不处理。
-- [x] **`no_cache.go` `Cache-Control` 头含额外 `s-maxage=0`** (`no_cache.go`): AGENTS.md §5 规定 `no-store, no-cache, must-revalidate`，实际实现额外加了 `, s-maxage=0`。`no-store` 已禁止任何缓存，`s-maxage=0` 冗余但**更严格**（共享缓存立即过期），功能正确。保留当前实现（比规范更保险）。
-- [x] **`go.mod` Go 版本声明为 1.25.0** (`go.mod`): `go 1.25.0` 要求工具链 ≥ 1.25。CI/CD 环境需确认 Go 版本兼容。本地编译通过，Dockerfile 使用 `golang:alpine`（最新 tag）也兼容。在 CI workflow 中已配置 matrix build，无需额外处理。
-- [x] **前端构建产物主 chunk 超过 500KB** (`npm run build` 警告): Element Plus 全量引入（`app.use(ElementPlus)`）导致主 chunk ~1.1MB (gzip ~366KB)。对小团队场景影响有限，首次加载可接受。未来可选优化：改用按需引入（`unplugin-vue-components`）可减少 ~60% 体积。
-
-## 已修复
-
-- [x] `download_tokens` 表缺少 UNIQUE 约束，可能插入重复 Token → 添加两条 partial unique index：`(user_id, platform, type) WHERE custom_sub_id IS NULL` 和 `(user_id, platform, custom_sub_id) WHERE custom_sub_id IS NOT NULL`
-- [x] `UserService.Update` 中 `target.Role` 被强制赋值后又检查 `target.Role != existing.Role`，永远为 false 的死代码 → 移除该检查
-- [x] `SubscriptionService.Delete`、`RuleService.Delete`、`ShareSubscriptionService.Delete`、`UserService.Delete`、`CustomSubscriptionService.Delete` 无事务保护 → 与 `PlatformService.Delete` 一致，DB 操作包裹事务，commit 后删文件
-- [x] `readUploadContent` 的 JSON 路径无 body 大小限制（multipart 有 50MB） → 已在 JSON 路径中添加 `MaxBytesReader(50MB)`
-- [x] `UploadVersion` 中 `NextVersion` 被外部和 `CreateVersion` 内部各算一次 → 移除外部 `NextVersion` 调用，改为从 `CreateVersion` 返回的 `newVersions` 末尾元素提取版本号
-- [x] **自定义订阅版本管理端点传错 ID** — 5 个 handler（`UploadCustomSubscriptionVersion`、`DeleteCustomSubscription`、`GetCustomVersion`、`SwitchCustomVersion`、`DeleteCustomVersion`）将路由 `:id`（用户 ID）当作自定义订阅 ID 使用。修复：统一改为 `userID + ?platform=` → `GetByUserAndPlatform` → `cs.ID` 调 service 方法。
-- [x] **`ConfigureSystem` 每次调用重新生成 JWT_SECRET** — Normal 模式下管理员在 OIDC 配置页保存 → 全员 JWT 失效 + 其他提供商加密 secret 无法解密。修复：先检查 `JWT_SECRET` 是否存在，存在则复用；仅首次配置时生成新密钥。
-- [x] **规则下载端点缺少速率限制** — `GET /rules/:id/download` 未挂 `RateLimitDownload` 中间件。修复：router.go 补充 `middleware.RateLimitDownload()`。
-- [x] **Auth0 域名 `TrimLeft` 误用为 cutset** — `strings.TrimLeft(domain, "https://")` 第二参数是字符集，会将域名中含 h/t/p/s 的字符错误截断。修复：两处（handlers.go、oidc_service.go）改用 `strings.TrimPrefix`。
-- [x] **速率限制触发的下载未记录 access_logs** — 限流中间件 `writeRateLimitResponse` 不写日志。修复：新增 `repository.InsertAccessLog` 包级函数 + middleware 中新增 `logRateLimitedDownload`，从 URL 路径推断 download_type 及相关 ID 后写入日志。
-- [x] **下载失败未区分 `version_not_found`** — 4 个下载 handler 在内容读取失败时统一写 `file_not_found`。修复：新增 `errorReasonFromErr` 辅助函数，匹配 `"no versions"` 返回 `version_not_found`，其余返回 `file_not_found`。
-- [x] **规则创建不支持上传首个版本文件** — `CreateRule` 只接受 JSON 创建空记录，不与 `CreateShare` 一致支持一步创建+首版本上传。修复：`CreateRule` 同时支持 JSON（含 `content` 字段）和 multipart（form 字段 + file）两种方式，创建后立即调用 `UploadVersion` 写入首版本，失败则清理 DB 记录。
-- [x] **`checkSystemStatus()` 网络错误后永久缓存 `false`** (`frontend/src/stores/user.js`): catch 分支将 `isConfigured` 设为 `false` 并永久缓存。后端未启动时首次请求失败后，即使后端恢复正常也会被永久卡在 `/setup` 页面。修复：catch 中不设值（保持 `null`），下次路由守卫运行时自动重试。
-- [x] **`createRuleWithFirstVersion` RefreshToken 失败未清理 DB + 文件** (`handlers.go`): 函数流程为 `Create` → `UploadVersion` → `RefreshToken`。`UploadVersion` 成功后若 `RefreshToken` 失败，DB 中留下无 token 的规则记录+版本文件。修复：`RefreshToken` 失败时调用 `RuleSvc.Delete()` 级联清理。
-- [x] **`ShareSubscriptionService.Create` Token 创建失败未清理 DB + 文件** (`share_subscription_service.go`): 与上面规则创建对称。`repo.Create` + `CreateVersion` + `UpdateVersions` 全部成功后，若 `tokenRepo.Create` 失败，留下无 token 的分享订阅。修复：`tokenRepo.Create` 失败时调用 `repo.Delete()` + `RemoveVersionDir()` 清理。
-- [x] **`Home.vue` 自定义订阅刷新发送了错误的 type 参数** (`Home.vue`): `handleRefresh` 对自定义订阅发送 `platform.sub_type`（如 'advanced'）而非 'custom'，虽然后端检测 custom_sub 自动兜底，但语义不清。修复：显式传 `type: 'custom'`，并添加注释说明后端检测逻辑。
-- [x] **`CacheControlMiddleware` 死代码** (`middleware/cache_control.go`): 该中间件定义了但从未在 router 中注册，且若全局使用会与 `NoCacheForDownloads` 产生重复/冲突的 `Cache-Control` 头。修复：删除该文件。
-- [x] **速率限制器 `periodicCleanup` 间隔过长** (`middleware/rate_limit.go`): 清理间隔 5 分钟 + 2 分钟 cutoff，导致过期 IP 记录可在内存中残留最多 ~7 分钟。修复：改为 2 分钟间隔 + 1 分钟 cutoff，与限流窗口 (1 分钟) 对齐。
-- [x] **OIDC 配置页 Client Secret 回显始终为空** (`oidc_service.go` + `OIDCConfig.vue`): `GetMaskedOIDCConfig` 返回的 key 是提供商特定名（如 `keycloak_client_secret_encrypted`），前端读取的 key 是通用名 `client_secret`（不存在 → 始终为空）。修复：后端额外返回通用 `client_secret` key；前端脱敏值比较从 `'***'` 对齐到 `'••••••'`；`PostConfigure` 在 Normal 模式下将 `client_secret` 改为可选（空/脱敏时复用已有加密值），`ConfigureSystem` 检测到空 secret 时跳过加密步骤保留已有值。
-- [x] **自定义订阅版本 API 缺少 `platform` 参数** (`api.js`): `uploadCustomSubVersion` 和 `createCustomSubVersionFromText` 调用 `/admin/users/:id/custom-subscription/versions` 时未携带必需的 `?platform=` 查询参数。修复：补充 `platform` 参数。
-- [x] **`UploadModal.vue` `uploadRef` 变量未声明** (`UploadModal.vue`): 模板中 `ref="uploadRef"` 和 `resetForm()` 中 `uploadRef.value?.clearFiles()` 使用了 `uploadRef`，但 `<script setup>` 中缺少声明 → `undefined` → `clearFiles()` 静默失效 → el-upload 组件文件列表残留。修复：添加 `const uploadRef = ref(null)`。
-- [x] **日志查询日期时区不一致** (`handlers.go:GetLogs` + `access_log_repo.go`): 后端默认日期用 UTC，前端默认日期用本地时区，非 UTC 时区凌晨时段日期偏移。修复：后端未传 date 参数时使用 `ListRecent()` 查询最近 24 小时日志（`WHERE created_at >= datetime('now', '-24 hours')`）；新增 `queryLogs()` 提取公共扫描逻辑避免重复代码。
-- [x] **`AuthRequired` 未防御 `DefaultAuthService` 为 nil** (`middleware/auth.go`): `configured=true` 但 `NewServiceFromDB` 失败时 `DefaultAuthService` 仍为 nil，触发 panic。修复：在 `AuthRequired` 开头增加 nil 检查，返回 503。
+</details>
