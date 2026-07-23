@@ -1301,8 +1301,8 @@ func CreateRule(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
-		if req.ID == "" || req.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "id and name are required"})
+		if req.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 			return
 		}
 		if req.Content != "" {
@@ -1339,10 +1339,6 @@ func CreateRule(c *gin.Context) {
 	id := c.PostForm("id")
 	if id == "" {
 		id = c.Query("id")
-	}
-	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
-		return
 	}
 	name := c.PostForm("name")
 	if name == "" {
@@ -1516,6 +1512,44 @@ func UpdateRateLimit(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// ============================================================================
+// Admin: Announcement
+// ============================================================================
+
+func GetAnnouncement(c *gin.Context) {
+	content, err := SystemSvc.GetAnnouncement()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"content": content})
+}
+
+func UpdateAnnouncement(c *gin.Context) {
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if err := SystemSvc.SetAnnouncement(req.Content); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// PublicAnnouncement returns announcement content without authentication.
+func PublicAnnouncement(c *gin.Context) {
+	content, err := SystemSvc.GetAnnouncement()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"content": content})
 }
 
 // ============================================================================

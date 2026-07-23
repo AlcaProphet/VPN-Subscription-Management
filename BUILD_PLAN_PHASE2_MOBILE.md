@@ -8,10 +8,10 @@
 |-------|------|-----------|------|
 | 2.1 | 移动端表格 UX 改进（ActionMenu + 列隐藏） | 12 | ✅ 已完成 |
 | 2.2 | 卡片化重构 + Dialog z-index 修复 | 14 | ✅ 已完成 |
-| 2.3 | Dialog 移动端宽度自适应 | 13 | ❌ 待实施 |
-| 2.4 | 全项目 UI/UX 体验修复（反馈/动画/边界） | 9 + 1 新 | ❌ 待实施 |
-| 2.5 | 导航入口 + 表单 ID 清理 + 规则页风格 + 公告栏 | 11（含后端 4） | ❌ 待实施 |
-| 2.6 | 全局 UI 比例调整（字号/标题） | 15 | ❌ 待实施 |
+| 2.3 | Dialog 移动端宽度自适应 | 13 | ✅ 已完成 |
+| 2.4 | 全项目 UI/UX 体验修复（反馈/动画/边界） | 10 + 1 新 | ✅ 已完成 |
+| 2.5 | 导航入口 + 表单 ID 清理 + 规则页风格 + 公告栏 | 11（含后端 4） | ✅ 已完成 |
+| 2.6 | 全局 UI 比例调整（字号/标题） | 15 | ✅ 已完成 |
 
 ---
 
@@ -947,3 +947,44 @@ Template 改动: 两个按钮均加 `:disabled="loggingIn"` + spinner SVG。
 | Q8 | 公告栏哈希 | A: 内容前 20 字符 | ✅ |
 
 > 无待确认项，全部决策已确定。
+
+---
+
+## 实施完成记录（2026-07-23）
+
+### 实施汇总
+
+全部 4 个 Phase（2.3/2.4/2.5/2.6）均已实施完成，前后端编译均通过。
+
+| Phase | 实施文件数 | 关键产出 |
+|-------|----------|---------|
+| 2.3 | 13 | useDialogWidth.js, 14 处 dialog 宽度自适应, 4 处 fullscreen, PlatformManage body 滚动, pre 高度适配 |
+| 2.4 | 10 + NotFound.vue | Toast 动画+上限, Login 防重复, OIDC spinner, ARIA toggle, 路由进度条, 404 页面, ShareList 加载态, Rules.vue 卡片化, overflow-x-auto 补齐 |
+| 2.5 | 9 (含后端 4) | 后端 ID 自动生成, 公告栏前后端完整系统, Home 分流规则+公告栏卡片, Rules/PlatformManage 去 ID 输入, Rules.vue top bar |
+| 2.6 | 15 | 按钮字号 text-xs→text-sm (10 views), 卡片标题 text-sm→text-base (5 views) |
+
+### 实施中发现的 Bug 及修复
+
+| Bug | 位置 | 描述 | 修复 |
+|-----|------|------|------|
+| 🔴 严重 | Home.vue | 平台卡片 grid 被错误绑定为公告栏卡片的 `v-else`，导致有公告时平台卡片不显示 | `v-else` → `v-if="!loading && platforms.length > 0"` |
+| 🔴 严重 | Home.vue | `fetchAnnouncement()` 调用 `publicApi.getAnnouncement()` 但未导入 `publicApi` | 在 import 中新增 `publicApi` |
+| 🟡 中等 | App.vue | 路由进度条使用 `beforeResolve()` 钩子触发太晚（仅在组件解析时） | 改为 `beforeEach()` 钩子，在整个导航周期显示 |
+| 🟡 中等 | Rules.vue | 卡片化替换后遗留旧代码片段导致编译失败 | 清理残留的 `})` 和 `</script>` 标签 |
+
+### 跳过项
+
+| 块 | 内容 | 原因 |
+|----|------|------|
+| 14I | EP 暗色模式实测验证 | 纯测试项，需浏览器实际操作 |
+| 16C | 层级 3: 输入框字号 `text-sm`→`text-base` | 按 Q7 决定，待层级 1+2 验证后再做 |
+
+### 验证状态
+
+| 检查项 | 结果 |
+|--------|------|
+| `go build ./...` | ✅ 通过 |
+| `go vet ./...` | ✅ 通过 |
+| `npm run build` | ✅ 通过 |
+| `el-table` 仅限 4 个表格保留页 | ✅ Logs, SubVersions, ShareVersions, RuleVersions |
+| `text-xs` 仅限标签/徽章/辅助文字 | ✅ 按钮已全部改为 `text-sm` |

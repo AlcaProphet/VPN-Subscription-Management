@@ -60,8 +60,20 @@
 
             <el-form-item>
               <div class="flex gap-3">
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="saving" @click="handleTest">测试连接</button>
-                <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="testing" @click="handleSave">保存配置</button>
+                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="saving" @click="handleTest">
+                  <svg v-if="testing" class="animate-spin -ml-1 mr-2 h-4 w-4 inline-block text-gray-700" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  测试连接
+                </button>
+                <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="testing" @click="handleSave">
+                  <svg v-if="saving" class="animate-spin -ml-1 mr-2 h-4 w-4 inline-block text-white" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  保存配置
+                </button>
               </div>
             </el-form-item>
           </el-form>
@@ -86,6 +98,24 @@
             </div>
             <el-form-item>
               <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="rateSaving" @click="handleRateSave">保存速率限制</button>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+
+      <!-- Announcement Card -->
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md mb-5">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <span class="font-medium text-gray-900 dark:text-white">公告栏</span>
+        </div>
+        <div class="p-6">
+          <el-form label-position="top">
+            <el-form-item label="公告内容（支持多行文本，留空则不显示）">
+              <textarea v-model="announcementContent" :rows="4" placeholder="输入公告内容..."
+                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
+            </el-form-item>
+            <el-form-item>
+              <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="announcementSaving" @click="handleAnnouncementSave">保存公告</button>
             </el-form-item>
           </el-form>
         </div>
@@ -158,6 +188,10 @@ const rateForm = reactive({
   rate_limit_login: 10,
   rate_limit_download: 20
 })
+
+// Announcement
+const announcementContent = ref('')
+const announcementSaving = ref(false)
 
 const rateRules = {
   rate_limit_login: [{ required: true, message: '请输入登录限制', trigger: 'blur' }],
@@ -308,14 +342,36 @@ async function handleRateSave() {
 }
 
 // ==========================================================================
+// Announcement
+// ==========================================================================
+async function handleAnnouncementSave() {
+  announcementSaving.value = true
+  try {
+    await adminApi.system.updateAnnouncement({ content: announcementContent.value })
+    toastSuccess('公告已保存')
+  } catch (e) {
+    const msg = e.response?.data?.error || '保存失败'
+    toastError(msg)
+  } finally {
+    announcementSaving.value = false
+  }
+}
+
+async function loadAnnouncement() {
+  try {
+    const res = await adminApi.system.getAnnouncement()
+    announcementContent.value = res.data.content || ''
+  } catch (e) {
+    // Non-critical
+  }
+}
+
+// ==========================================================================
 // Lifecycle
 // ==========================================================================
 onMounted(async () => {
   loading.value = true
-  await loadConfig()
+  await Promise.all([loadConfig(), loadAnnouncement()])
   loading.value = false
 })
 </script>
-
-<style scoped>
-</style>

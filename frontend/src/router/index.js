@@ -63,7 +63,8 @@ const routes = [
       { path: 'oidc', name: 'OIDCConfig', component: () => import('@/views/OIDCConfig.vue') },
       { path: 'logs', name: 'Logs', component: () => import('@/views/Logs.vue') }
     ]
-  }
+  },
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('@/views/NotFound.vue') }
 ]
 
 const router = createRouter({

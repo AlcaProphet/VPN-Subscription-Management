@@ -2,7 +2,8 @@
   <el-dialog
     :model-value="visible"
     title="上传版本"
-    width="520px"
+    :width="isMobile ? '90%' : '520px'"
+    :fullscreen="isMobile"
     :close-on-click-modal="false"
     :append-to-body="true"
     @update:model-value="$emit('update:visible', $event)"
@@ -47,7 +48,10 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 import UploadTabs from '@/components/UploadTabs.vue'
+
+const isMobile = useIsMobile()
 
 const props = defineProps({
   visible: { type: Boolean, required: true },

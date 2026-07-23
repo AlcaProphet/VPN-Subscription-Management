@@ -36,6 +36,7 @@ func SetupRouter() *gin.Engine {
 		api.GET("/platforms", handler.GetPlatforms)
 		api.GET("/rules", handler.GetRules)
 		api.GET("/rules/:id/download", middleware.NoCacheForDownloads(), middleware.RateLimitDownload(), handler.GetRuleDownload)
+		api.GET("/system/announcement", handler.PublicAnnouncement)
 
 		// Setup/reconfigure admin endpoints — always registered.
 		// ConditionalSetupAuth allows unauthenticated access during initial
@@ -184,6 +185,10 @@ func registerAdminRoutes(api *gin.RouterGroup) {
 		// are handled by the ConditionalSetupAuth group above)
 		admin.GET("/system/rate-limit", handler.GetRateLimit)
 		admin.PUT("/system/rate-limit", handler.UpdateRateLimit)
+
+		// Announcement
+		admin.GET("/system/announcement", handler.GetAnnouncement)
+		admin.PUT("/system/announcement", handler.UpdateAnnouncement)
 
 		// Logs
 		admin.GET("/logs", handler.GetLogs)

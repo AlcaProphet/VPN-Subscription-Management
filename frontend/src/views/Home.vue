@@ -14,7 +14,7 @@
       <div class="flex items-center gap-2">
         <button
           v-if="userStore.isAdmin"
-          class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs"
+          class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm"
           @click="router.push('/admin')"
         >
           管理面板
@@ -25,7 +25,7 @@
           {{ roleLabel }}
         </span>
         <button
-          class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs"
+          class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm"
           @click="handleLogout"
         >
           退出
@@ -60,8 +60,43 @@
         暂无平台，请联系管理员
       </div>
 
+      <!-- Rules card -->
+      <div v-if="!loading && platforms.length > 0" class="mb-5">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+          <div class="px-4 py-3 flex items-center justify-between">
+            <div>
+              <span class="text-base font-semibold text-gray-900 dark:text-white">分流规则</span>
+              <p class="m-0 mt-1 text-sm text-gray-500 dark:text-gray-400">浏览和下载可用的分流规则配置</p>
+            </div>
+            <button
+              class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm shrink-0"
+              @click="router.push('/rules')"
+            >
+              查看规则 →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Announcement card -->
+      <div v-if="!loading && announcement" class="mb-5">
+        <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg shadow-sm overflow-hidden">
+          <div class="px-4 py-3 flex items-start justify-between gap-3">
+            <div class="flex-1">
+              <span class="text-sm font-semibold text-blue-700 dark:text-blue-300">📢 公告</span>
+              <p class="m-0 mt-1 text-sm text-blue-600 dark:text-blue-400 whitespace-pre-wrap">{{ announcement }}</p>
+            </div>
+            <button
+              class="text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 shrink-0 text-lg leading-none"
+              @click="dismissAnnouncement"
+              title="关闭"
+            >✕</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Platform cards grid -->
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+      <div v-if="!loading && platforms.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         <div
           v-for="p in platforms"
           :key="p.id"
@@ -86,21 +121,21 @@
                   </span>
                   <div class="flex items-center gap-2 flex-wrap mt-2">
                     <button
-                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleImport(p, p.download_token)"
                     >
                       一键导入
                     </button>
                     <button
-                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="showCopyDialog(p, p.download_token, 'custom')"
                     >
                       复制链接
                     </button>
                     <button
-                      class="text-yellow-600 hover:text-yellow-700 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleRefresh(p, 'custom')"
                     >
@@ -122,21 +157,21 @@
                   </span>
                   <div v-if="p.default_configured" class="flex items-center gap-2 flex-wrap mt-2">
                     <button
-                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleImport(p, p.download_token)"
                     >
                       一键导入
                     </button>
                     <button
-                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="showCopyDialog(p, p.download_token, 'default')"
                     >
                       复制链接
                     </button>
                     <button
-                      class="text-yellow-600 hover:text-yellow-700 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleRefresh(p, 'default')"
                     >
@@ -161,21 +196,21 @@
                   </span>
                   <div v-if="p.advanced_configured" class="flex items-center gap-2 flex-wrap mt-2">
                     <button
-                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleImport(p, p.download_token)"
                     >
                       一键导入
                     </button>
                     <button
-                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="showCopyDialog(p, p.download_token, 'advanced')"
                     >
                       复制链接
                     </button>
                     <button
-                      class="text-yellow-600 hover:text-yellow-700 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.download_token"
                       @click="handleRefresh(p, 'advanced')"
                     >
@@ -200,21 +235,21 @@
                   </span>
                   <div class="flex items-center gap-2 flex-wrap mt-2">
                     <button
-                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="handleImport(p, p.preview_token)"
                     >
                       一键导入
                     </button>
                     <button
-                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="showCopyDialog(p, p.preview_token, 'default')"
                     >
                       复制链接
                     </button>
                     <button
-                      class="text-yellow-600 hover:text-yellow-700 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="handleRefresh(p, 'default')"
                     >
@@ -236,21 +271,21 @@
                   </span>
                   <div class="flex items-center gap-2 flex-wrap mt-2">
                     <button
-                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="handleImport(p, p.preview_token)"
                     >
                       一键导入
                     </button>
                     <button
-                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="showCopyDialog(p, p.preview_token, 'advanced')"
                     >
                       复制链接
                     </button>
                     <button
-                      class="text-yellow-600 hover:text-yellow-700 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="text-yellow-600 hover:text-yellow-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="handleRefresh(p, 'advanced')"
                     >
@@ -282,14 +317,14 @@
                   </span>
                   <div class="flex items-center gap-2 flex-wrap mt-2">
                     <button
-                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="handleImport(p, p.preview_token)"
                     >
                       一键导入
                     </button>
                     <button
-                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token"
                       @click="showCopyDialog(p, p.preview_token, 'default')"
                     >
@@ -303,14 +338,14 @@
                   </span>
                   <div class="flex items-center gap-2 flex-wrap mt-2">
                     <button
-                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token2"
                       @click="handleImport(p, p.preview_token2)"
                     >
                       一键导入
                     </button>
                     <button
-                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       :disabled="!p.preview_token2"
                       @click="showCopyDialog(p, p.preview_token2, 'advanced')"
                     >
@@ -342,7 +377,7 @@
     <el-dialog
       v-model="copyDialogVisible"
       title="复制订阅链接"
-      width="500px"
+      :width="dialogWidth"
       :append-to-body="true"
     >
       <input
@@ -372,8 +407,10 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useTheme } from '@/composables/useTheme'
 import { useToast } from '@/composables/useToast'
-import { userApi, downloadApi } from '@/services/api'
+import { useDialogWidth } from '@/composables/useDialogWidth'
+import { userApi, downloadApi, publicApi } from '@/services/api'
 
+const dialogWidth = useDialogWidth('500px')
 const router = useRouter()
 const userStore = useUserStore()
 const { isDark, toggle: toggleTheme } = useTheme()
@@ -384,6 +421,7 @@ const loading = ref(true)
 const platforms = ref([])
 const updateTime = ref('')
 const refreshing = reactive({})
+const announcement = ref('')
 
 // Copy dialog state
 const copyDialogVisible = ref(false)
@@ -490,8 +528,31 @@ function handleLogout() {
   userStore.logout(router)
 }
 
+function dismissAnnouncement() {
+  if (announcement.value) {
+    const key = 'dismissed-announcement-' + announcement.value.substring(0, 20)
+    localStorage.setItem(key, '1')
+    announcement.value = ''
+  }
+}
+
 // Lifecycle
 onMounted(async () => {
-  await Promise.all([fetchPlatforms(), fetchUpdateTime()])
+  await Promise.all([fetchPlatforms(), fetchUpdateTime(), fetchAnnouncement()])
 })
+
+async function fetchAnnouncement() {
+  try {
+    const res = await publicApi.getAnnouncement()
+    const content = res.data.content || ''
+    if (content) {
+      const key = 'dismissed-announcement-' + content.substring(0, 20)
+      if (!localStorage.getItem(key)) {
+        announcement.value = content
+      }
+    }
+  } catch (e) {
+    // Silently fail — announcement is non-critical
+  }
+}
 </script>

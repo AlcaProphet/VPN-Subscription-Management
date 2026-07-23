@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="visible"
     :title="title"
-    width="420px"
+    :width="dialogWidth"
     :close-on-click-modal="false"
     :append-to-body="true"
     @update:model-value="$emit('update:visible', $event)"
@@ -28,6 +28,8 @@
 </template>
 
 <script setup>
+import { useDialogWidth } from '@/composables/useDialogWidth'
+const dialogWidth = useDialogWidth('420px')
 defineProps({
   visible: { type: Boolean, required: true },
   title: { type: String, default: '确认操作' },

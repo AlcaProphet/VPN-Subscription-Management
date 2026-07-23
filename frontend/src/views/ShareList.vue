@@ -8,7 +8,15 @@
       </button>
     </div>
 
-    <div v-if="!loading && shares.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无分享订阅，请创建</div>
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <svg class="animate-spin h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <span class="text-gray-500 dark:text-gray-400">加载中...</span>
+    </div>
+
+    <div v-else-if="shares.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无分享订阅，请创建</div>
 
     <!-- Card Grid -->
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -18,7 +26,7 @@
         class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
       >
         <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
-          <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ share.name }}</span>
+          <span class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ share.name }}</span>
           <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0" :class="share.has_token ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'">{{ share.has_token ? '有效' : '已吊销' }}</span>
         </div>
         <div class="p-4">
@@ -34,18 +42,18 @@
             </div>
           </div>
           <div class="flex flex-wrap gap-1">
-            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(share)">版本管理</button>
-            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!share.has_token" @click="copyShareLink(share)">复制分享链接</button>
-            <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmRefreshToken(share)">刷新 Token</button>
-            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!share.has_token" @click="confirmRevokeToken(share)">吊销 Token</button>
-            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(share)">删除</button>
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="goVersions(share)">版本管理</button>
+            <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!share.has_token" @click="copyShareLink(share)">复制分享链接</button>
+            <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmRefreshToken(share)">刷新 Token</button>
+            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!share.has_token" @click="confirmRevokeToken(share)">吊销 Token</button>
+            <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmDelete(share)">删除</button>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Create Dialog -->
-    <el-dialog v-model="createVisible" title="创建分享订阅" width="520px" :close-on-click-modal="false" :append-to-body="true" @closed="resetCreateForm">
+    <el-dialog v-model="createVisible" title="创建分享订阅" :width="dialogWidth" :close-on-click-modal="false" :append-to-body="true" @closed="resetCreateForm">
       <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
         <el-form-item label="名称" prop="name">
           <input v-model="createForm.name" placeholder="分享订阅名称" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('name')" />
@@ -77,9 +85,12 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
+import { useDialogWidth } from '@/composables/useDialogWidth'
 import { adminApi, downloadApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import UploadTabs from '@/components/UploadTabs.vue'
+
+const dialogWidth = useDialogWidth('520px')
 
 const router = useRouter()
 const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()

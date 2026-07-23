@@ -22,7 +22,8 @@
       暂无日志记录
     </div>
 
-    <el-table v-else :data="logs" stripe>
+    <div v-else class="w-full overflow-x-auto">
+      <el-table :data="logs" stripe>
       <el-table-column label="时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
       <el-table-column label="下载类型" width="130">
         <template #default="{ row }">
@@ -44,6 +45,7 @@
       </el-table-column>
       <el-table-column label="IP" width="150"><template #default="{ row }">{{ row.ip }}</template></el-table-column>
     </el-table>
+    </div>
   </div>
 </template>
 

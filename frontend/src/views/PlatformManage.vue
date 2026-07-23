@@ -28,7 +28,7 @@
           class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
         >
           <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
-            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ p.name }}</span>
+            <span class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ p.name }}</span>
             <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ p.id }}</span>
           </div>
           <div class="p-4">
@@ -43,20 +43,19 @@
               </div>
             </div>
             <div class="flex flex-wrap gap-1">
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(p)">编辑</button>
-              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(p)">删除</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="openEditDialog(p)">编辑</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmDelete(p)">删除</button>
             </div>
           </div>
         </div>
       </div>
     </template>
 
-    <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑平台' : '创建平台'" width="540px" :close-on-click-modal="false" :append-to-body="true" @closed="resetForm">
-      <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
-        <el-form-item label="ID" prop="id">
-          <input v-model="form.id" :disabled="isEditing" placeholder="小写字母、数字和连字符"
-            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-            @blur="formRef.validateField('id')" />
+    <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑平台' : '创建平台'" :width="dialogWidth" :close-on-click-modal="false" :append-to-body="true" @closed="resetForm">
+      <div :class="{ 'max-h-[calc(100vh-200px)] overflow-y-auto': isMobile }">
+        <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
+        <el-form-item v-if="isEditing" label="ID">
+          <span class="text-sm text-gray-500 dark:text-gray-400">{{ form.id }}</span>
         </el-form-item>
         <el-form-item label="名称" prop="name">
           <input v-model="form.name" placeholder="平台名称"
@@ -78,6 +77,7 @@
           <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">可选，配置后在首页显示「下载客户端」按钮</div>
         </el-form-item>
       </el-form>
+      </div>
       <template #footer>
         <div class="flex justify-end gap-2">
           <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm" @click="dialogVisible = false">取消</button>
@@ -93,8 +93,13 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
+import { useDialogWidth } from '@/composables/useDialogWidth'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { adminApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+
+const dialogWidth = useDialogWidth('540px')
+const isMobile = useIsMobile()
 
 // ==========================================================================
 // Data
@@ -124,14 +129,6 @@ const form = reactive({
 // Validation Rules
 // ==========================================================================
 const formRules = computed(() => ({
-  id: [
-    { required: true, message: '请输入 ID', trigger: 'blur' },
-    {
-      pattern: /^[a-z0-9-]+$/,
-      message: 'ID 只能包含小写字母、数字和连字符',
-      trigger: 'blur'
-    }
-  ],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
 }))
 
@@ -200,7 +197,6 @@ async function handleSubmit() {
       await adminApi.platforms.update(editingId.value, payload)
       toastSuccess('平台已更新')
     } else {
-      payload.id = form.id
       await adminApi.platforms.create(payload)
       toastSuccess('平台已创建')
     }

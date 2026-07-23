@@ -27,7 +27,7 @@
           class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
         >
           <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
-            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ rule.name }}</span>
+            <span class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ rule.name }}</span>
             <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{{ rule.client_type || 'Shadowrocket' }}</span>
           </div>
           <div class="p-4">
@@ -48,10 +48,10 @@
               </div>
             </div>
             <div class="flex flex-wrap gap-1">
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(rule)">版本管理</button>
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!rule.token" @click="copyDownloadLink(rule)">复制下载链接</button>
-              <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmRotateToken(rule)">轮替 Token</button>
-              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(rule)">删除</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="goVersions(rule)">版本管理</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!rule.token" @click="copyDownloadLink(rule)">复制下载链接</button>
+              <button class="bg-orange-500 hover:bg-orange-600 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmRotateToken(rule)">轮替 Token</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmDelete(rule)">删除</button>
             </div>
           </div>
         </div>
@@ -59,11 +59,8 @@
     </template>
 
     <!-- Create Dialog -->
-    <el-dialog v-model="createVisible" title="创建规则" width="520px" :close-on-click-modal="false" :append-to-body="true" @closed="resetCreateForm">
+    <el-dialog v-model="createVisible" title="创建规则" :width="dialogWidth" :close-on-click-modal="false" :append-to-body="true" @closed="resetCreateForm">
       <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
-        <el-form-item label="ID" prop="id">
-          <input v-model="createForm.id" placeholder="小写字母、数字和连字符" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('id')" />
-        </el-form-item>
         <el-form-item label="名称" prop="name">
           <input v-model="createForm.name" placeholder="规则名称" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('name')" />
         </el-form-item>
@@ -98,9 +95,12 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
+import { useDialogWidth } from '@/composables/useDialogWidth'
 import { adminApi, publicApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import UploadTabs from '@/components/UploadTabs.vue'
+
+const dialogWidth = useDialogWidth('520px')
 
 const router = useRouter()
 const { success: toastSuccess, error: toastError, info: toastInfo, warning: toastWarning } = useToast()
@@ -117,15 +117,11 @@ const createTab = ref('file')
 const submitting = ref(false)
 const createFileSelected = ref(false)
 const createFile = ref(null)
-const createForm = reactive({ id: '', name: '', client_type: 'shadowrocket', content: '' })
+const createForm = reactive({ name: '', client_type: 'shadowrocket', content: '' })
 const createFileFormRef = ref(null)
 const uploadTabsRef = ref(null)
 
 const createRules = {
-  id: [
-    { required: true, message: '请输入 ID', trigger: 'blur' },
-    { pattern: /^[a-z0-9-]+$/, message: 'ID 只能包含小写字母、数字和连字符', trigger: 'blur' }
-  ],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
 }
 
@@ -184,7 +180,6 @@ function openCreateDialog() {
 }
 
 function resetCreateForm() {
-  createForm.id = ''
   createForm.name = ''
   createForm.client_type = 'shadowrocket'
   createForm.content = ''
@@ -208,7 +203,6 @@ async function handleCreateFile() {
   try {
     const fd = new FormData()
     fd.append('file', createFile.value)
-    fd.append('id', createForm.id)
     fd.append('name', createForm.name)
     fd.append('client_type', createForm.client_type)
     const res = await adminApi.rules.create(fd)
@@ -233,7 +227,6 @@ async function handleCreateText() {
   submitting.value = true
   try {
     const res = await adminApi.rules.create({
-      id: createForm.id,
       name: createForm.name,
       client_type: createForm.client_type,
       content: createForm.content

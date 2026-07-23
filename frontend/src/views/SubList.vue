@@ -33,7 +33,7 @@
           class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
         >
           <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
-            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ sub.name }}</span>
+            <span class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ sub.name }}</span>
             <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0"
               :class="sub.type === 'default' ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'">
               {{ sub.type === 'default' ? '默认' : '高级' }}
@@ -56,9 +56,9 @@
               </div>
             </div>
             <div class="flex flex-wrap gap-1">
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="goVersions(sub)">版本管理</button>
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(sub)">编辑</button>
-              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDelete(sub)">删除</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="goVersions(sub)">版本管理</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="openEditDialog(sub)">编辑</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmDelete(sub)">删除</button>
             </div>
           </div>
         </div>
@@ -69,7 +69,7 @@
     <el-dialog
       v-model="dialogVisible"
       :title="isEditing ? '编辑订阅' : '创建订阅'"
-      width="480px"
+      :width="dialogWidth"
       :close-on-click-modal="false"
       :append-to-body="true"
       @closed="resetForm"
@@ -120,8 +120,11 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
+import { useDialogWidth } from '@/composables/useDialogWidth'
 import { adminApi } from '@/services/api'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+
+const dialogWidth = useDialogWidth('480px')
 
 const router = useRouter()
 const { success: toastSuccess, error: toastError } = useToast()

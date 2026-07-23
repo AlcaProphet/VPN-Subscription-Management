@@ -24,7 +24,7 @@
           class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
         >
           <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
-            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ u.username }}</span>
+            <span class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ u.username }}</span>
             <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0" :class="u.role === 'admin' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'">{{ u.role === 'admin' ? '管理员' : '普通用户' }}</span>
           </div>
           <div class="p-4">
@@ -46,11 +46,11 @@
               </div>
             </div>
             <div class="flex flex-wrap gap-1">
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openEditDialog(u)">编辑</button>
-              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-xs" @click="openUploadDialog(u)">上传自定义订阅</button>
-              <button v-if="u.has_custom_sub" class="bg-orange-600 hover:bg-orange-700 text-white rounded-md px-3 py-1.5 text-xs" @click="openDeleteCustomDialog(u)">删除自定义订阅</button>
-              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmRevoke(u)">吊销 Token</button>
-              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-xs" @click="confirmDeleteUser(u)">删除用户</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="openEditDialog(u)">编辑</button>
+              <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm" @click="openUploadDialog(u)">上传自定义订阅</button>
+              <button v-if="u.has_custom_sub" class="bg-orange-600 hover:bg-orange-700 text-white rounded-md px-3 py-1.5 text-sm" @click="openDeleteCustomDialog(u)">删除自定义订阅</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmRevoke(u)">吊销 Token</button>
+              <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm" @click="confirmDeleteUser(u)">删除用户</button>
             </div>
           </div>
         </div>
@@ -58,7 +58,7 @@
     </template>
 
     <!-- Edit Dialog -->
-    <el-dialog v-model="editVisible" title="编辑用户" width="460px" :close-on-click-modal="false" :append-to-body="true">
+    <el-dialog v-model="editVisible" title="编辑用户" :width="editDialogWidth" :close-on-click-modal="false" :append-to-body="true">
       <el-form v-if="editUser" label-position="top">
         <el-form-item label="用户名">
           <input :value="editUser.username" disabled class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-600 px-3 py-2 text-sm text-gray-500 dark:text-gray-400 cursor-not-allowed" />
@@ -71,7 +71,11 @@
         </el-form-item>
         <el-form-item label="订阅级别">
           <button
+            role="switch"
+            :aria-checked="editIsAdvanced"
             @click="editIsAdvanced = !editIsAdvanced"
+            @keydown.space.prevent="editIsAdvanced = !editIsAdvanced"
+            @keydown.enter.prevent="editIsAdvanced = !editIsAdvanced"
             :disabled="isSelf(editUser) && editUser.role === 'admin'"
             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             :class="editIsAdvanced ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
@@ -94,7 +98,7 @@
     </el-dialog>
 
     <!-- Upload Custom Subscription Dialog -->
-    <el-dialog v-model="uploadVisible" title="上传自定义订阅" width="480px" :close-on-click-modal="false" :append-to-body="true" @closed="resetUploadForm">
+    <el-dialog v-model="uploadVisible" title="上传自定义订阅" :width="uploadDialogWidth" :close-on-click-modal="false" :append-to-body="true" @closed="resetUploadForm">
       <el-form ref="uploadFormRef" :model="uploadForm" :rules="uploadRules" label-position="top">
         <el-form-item label="适用平台" prop="platform">
           <select v-model="uploadForm.platform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @change="uploadFormRef.validateField('platform')">
@@ -121,7 +125,7 @@
     </el-dialog>
 
     <!-- Delete Custom Subscription Dialog -->
-    <el-dialog v-model="deleteCustomVisible" title="删除自定义订阅" width="440px" :close-on-click-modal="false" :append-to-body="true">
+    <el-dialog v-model="deleteCustomVisible" title="删除自定义订阅" :width="deleteDialogWidth" :close-on-click-modal="false" :append-to-body="true">
       <p v-if="deleteCustomUser" class="text-gray-700 dark:text-gray-300">请选择要删除的自定义订阅平台：</p>
       <select v-if="deleteCustomUser" v-model="deleteCustomPlatform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mt-2">
         <option value="" disabled>请选择平台</option>
@@ -143,9 +147,14 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
+import { useDialogWidth } from '@/composables/useDialogWidth'
 import { adminApi } from '@/services/api'
 import { useUserStore } from '@/stores/user'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+
+const editDialogWidth = useDialogWidth('460px')
+const uploadDialogWidth = useDialogWidth('480px')
+const deleteDialogWidth = useDialogWidth('440px')
 
 const userStore = useUserStore()
 const { success: toastSuccess, error: toastError } = useToast()

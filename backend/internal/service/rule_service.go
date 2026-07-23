@@ -34,6 +34,13 @@ func (s *RuleService) Get(id string) (*models.Rule, error) {
 }
 
 func (s *RuleService) Create(rule *models.Rule) error {
+	if rule.ID == "" {
+		id, err := utils.GenerateUUID()
+		if err != nil {
+			return fmt.Errorf("failed to generate ID: %w", err)
+		}
+		rule.ID = id[:12]
+	}
 	if !utils.IsValidID(rule.ID) {
 		return fmt.Errorf("invalid rule ID: must be [a-z0-9-]+")
 	}

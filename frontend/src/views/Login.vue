@@ -5,14 +5,20 @@
       <p class="m-0 mb-8 text-base text-gray-500 dark:text-gray-400">请通过 OIDC 认证登录</p>
 
       <button
-        class="w-full h-12 text-base bg-blue-600 hover:bg-blue-700 text-white rounded-md mb-3"
+        class="w-full h-12 text-base bg-blue-600 hover:bg-blue-700 text-white rounded-md mb-3 disabled:opacity-50"
+        :disabled="loggingIn"
         @click="handleLogin"
       >
+        <svg v-if="loggingIn" class="animate-spin -ml-1 mr-2 h-4 w-4 inline-block text-white" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
         通过 OIDC 登录
       </button>
 
       <button
-        class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 text-sm bg-transparent border-none cursor-pointer"
+        class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 text-sm bg-transparent border-none cursor-pointer disabled:opacity-50"
+        :disabled="loggingIn"
         @click="handleSwitchAccount"
       >
         使用其他账号登录
@@ -37,7 +43,7 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useTheme } from '@/composables/useTheme'
@@ -45,12 +51,17 @@ import { useTheme } from '@/composables/useTheme'
 const router = useRouter()
 const userStore = useUserStore()
 const { isDark, toggle: toggleTheme } = useTheme()
+const loggingIn = ref(false)
 
 function handleLogin() {
+  if (loggingIn.value) return
+  loggingIn.value = true
   window.location.href = '/api/v1/auth/login'
 }
 
 function handleSwitchAccount() {
+  if (loggingIn.value) return
+  loggingIn.value = true
   window.location.href = '/api/v1/auth/login?prompt=login'
 }
 

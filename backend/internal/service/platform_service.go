@@ -40,6 +40,13 @@ func (s *PlatformService) Get(id string) (*models.Platform, error) {
 
 // Create creates a new platform.
 func (s *PlatformService) Create(p *models.Platform) error {
+	if p.ID == "" {
+		id, err := utils.GenerateUUID()
+		if err != nil {
+			return fmt.Errorf("failed to generate ID: %w", err)
+		}
+		p.ID = id[:12]
+	}
 	if !utils.IsValidID(p.ID) {
 		return fmt.Errorf("invalid platform ID: must be [a-z0-9-]+")
 	}

@@ -55,3 +55,17 @@ func (s *SystemService) UpdateRateLimit(loginLimit, downloadLimit int) error {
 func (s *SystemService) GetOIDCConfig() (map[string]string, error) {
 	return auth.GetMaskedOIDCConfig(s.cfgRepo)
 }
+
+// GetAnnouncement returns the current announcement content.
+func (s *SystemService) GetAnnouncement() (string, error) {
+	val, err := s.cfgRepo.Get("announcement_content")
+	if err != nil {
+		return "", nil // key not found = no announcement
+	}
+	return val, nil
+}
+
+// SetAnnouncement updates the announcement content.
+func (s *SystemService) SetAnnouncement(content string) error {
+	return s.cfgRepo.Set("announcement_content", content)
+}

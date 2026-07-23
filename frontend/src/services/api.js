@@ -42,6 +42,9 @@ export const publicApi = {
   getRules() {
     return api.get('/rules')
   },
+  getAnnouncement() {
+    return api.get('/system/announcement')
+  },
   getRuleDownloadUrl(ruleId, token) {
     return `/api/v1/rules/${ruleId}/download?token=${encodeURIComponent(token)}`
   }
@@ -295,6 +298,12 @@ export const adminApi = {
     },
     updateRateLimit(data) {
       return api.put('/admin/system/rate-limit', data)
+    },
+    getAnnouncement() {
+      return api.get('/admin/system/announcement')
+    },
+    updateAnnouncement(data) {
+      return api.put('/admin/system/announcement', data)
     }
   },
 

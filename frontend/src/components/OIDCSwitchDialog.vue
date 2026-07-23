@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="visible"
     title="选择 OIDC 提供商"
-    width="400px"
+    :width="dialogWidth"
     :close-on-click-modal="false"
     :append-to-body="true"
     @update:model-value="$emit('update:visible', $event)"
@@ -40,6 +40,9 @@
 </template>
 
 <script setup>
+import { useDialogWidth } from '@/composables/useDialogWidth'
+const dialogWidth = useDialogWidth('400px')
+
 const props = defineProps({
   visible: { type: Boolean, required: true },
   currentProvider: { type: String, default: 'keycloak' }
