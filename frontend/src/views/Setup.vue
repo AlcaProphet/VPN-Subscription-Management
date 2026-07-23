@@ -216,14 +216,6 @@ function buildPayload() {
 function handleProviderSwitch(newProvider) {
   form.provider_type = newProvider
   formRef.value?.clearValidate()
-  // Persist the provider type to system_config immediately so it's retained
-  // if the user refreshes the page before completing setup.
-  // The switch-provider endpoint is allowed during setup (ConditionalSetupAuth
-  // permits unauthenticated access when configured=false).
-  adminApi.system.switchProvider({ provider_type: newProvider }).catch(() => {
-    // Non-critical — the provider type is also sent in the final configure
-    // payload, so a failed persistence here doesn't block setup.
-  })
 }
 
 async function handleTest() {

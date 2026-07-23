@@ -33,9 +33,12 @@
 ### Setup / OIDC 配置交互修复
 
 - [x] **B1. 表单验证失败无 toast** — `Setup.vue` + `SystemSettings.vue` 的 `handleTest`/`handleSubmit`/`handleSave` 验证失败时加 `toastError`
-- [x] **B2. Setup 状态检测加固** — 新增 `setupConfirmed` 标记，操作前重新验证 `configured` 状态，防止 401 重定向清空表单
-- [x] **B3. Setup 切换提供商持久化** — `handleProviderSwitch` 同步调用 `adminApi.system.switchProvider()`
+- [x] **B2. Setup 状态检测加固** — 新增 `setupConfirmed` 标记，操作前重新验证 `configured` 状态
+- [x] ~~B3. Setup 切换提供商调 API~~ — **已回退**，该调用引入了不必要的 401 风险，根因见 B5
 - [x] **B4. OIDCSwitchDialog 弹窗中断** — `onSelect` 中用 `nextTick` 延迟关闭弹窗
+- [x] **B5. Setup 页 admin API 401 导致页面重定向至 /login 清空表单** (`api.js` 拦截器):
+  - **根因**: 系统已配置 (`configured=true`) 但 `getSystemStatus()` 网络失败 → 用户留在 Setup → 点任何触发 admin API 的按钮 → `ConditionalSetupAuth` 要求 JWT → 401 → `window.location.href = '/login'` 硬跳转 → 页面刷新、表单清空、toast 消失
+  - **修复**: axios 401 拦截器检测 `pathname === '/setup'` 时改用 `window.location.reload()` 原地刷新 → `onMounted` 重新检测系统状态 → 若已配置则正常跳转 `/login`
 
 ---
 

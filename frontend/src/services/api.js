@@ -23,6 +23,14 @@ api.interceptors.response.use(
   (error) => {
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('jwt')
+      // If we're on the setup page, reload it so the router guard
+      // re-detects system status and redirects appropriately.  A hard
+      // redirect to /login would clear the form and dismiss any toast,
+      // making it impossible to tell what went wrong.
+      if (window.location.pathname === '/setup') {
+        window.location.reload()
+        return Promise.reject(error)
+      }
       window.location.href = '/login'
     }
     return Promise.reject(error)
