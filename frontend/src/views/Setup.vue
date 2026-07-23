@@ -24,6 +24,7 @@
                 {{ providerLabel }}
               </span>
               <button
+                type="button"
                 class="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-md px-3 py-1 text-sm"
                 @click="showSwitchDialog = true"
               >
@@ -90,6 +91,7 @@
           <el-form-item>
             <div class="flex gap-3">
               <button
+                type="button"
                 class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50"
                 :disabled="saving"
                 @click="handleTest"
@@ -101,6 +103,7 @@
                 测试连接
               </button>
               <button
+                type="button"
                 class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50"
                 :disabled="testing"
                 @click="handleSubmit"

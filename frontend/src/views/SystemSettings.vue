@@ -22,7 +22,7 @@
         <div class="p-6">
           <el-form ref="oidcFormRef" :model="oidcForm" :rules="oidcRules" label-position="top">
             <el-form-item>
-              <button class="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-md px-3 py-1 text-sm" @click="showSwitchDialog = true">切换提供商</button>
+              <button type="button" class="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-md px-3 py-1 text-sm" @click="showSwitchDialog = true">切换提供商</button>
             </el-form-item>
 
             <template v-if="oidcForm.provider_type === 'keycloak'">
@@ -60,14 +60,14 @@
 
             <el-form-item>
               <div class="flex gap-3">
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="saving" @click="handleTest">
+                <button type="button" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="saving" @click="handleTest">
                   <svg v-if="testing" class="animate-spin -ml-1 mr-2 h-4 w-4 inline-block text-gray-700" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                   </svg>
                   测试连接
                 </button>
-                <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="testing" @click="handleSave">
+                <button type="button" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="testing" @click="handleSave">
                   <svg v-if="saving" class="animate-spin -ml-1 mr-2 h-4 w-4 inline-block text-white" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
@@ -97,7 +97,7 @@
               </el-form-item>
             </div>
             <el-form-item>
-              <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="rateSaving" @click="handleRateSave">保存速率限制</button>
+              <button type="button" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="rateSaving" @click="handleRateSave">保存速率限制</button>
             </el-form-item>
           </el-form>
         </div>
@@ -115,7 +115,7 @@
                 class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
             </el-form-item>
             <el-form-item>
-              <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="announcementSaving" @click="handleAnnouncementSave">保存公告</button>
+              <button type="button" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="announcementSaving" @click="handleAnnouncementSave">保存公告</button>
             </el-form-item>
           </el-form>
         </div>

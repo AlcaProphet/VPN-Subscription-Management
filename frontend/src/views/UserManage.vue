@@ -71,6 +71,7 @@
         </el-form-item>
         <el-form-item label="订阅级别">
           <button
+            type="button"
             role="switch"
             :aria-checked="editIsAdvanced"
             @click="editIsAdvanced = !editIsAdvanced"
