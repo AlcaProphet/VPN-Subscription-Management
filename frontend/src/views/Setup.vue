@@ -36,12 +36,12 @@
           <template v-if="form.provider_type === 'keycloak'">
             <el-form-item label="Keycloak Base URL" prop="keycloak_base_url">
               <input v-model="form.keycloak_base_url" placeholder="https://keycloak.example.com"
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 @blur="formRef.validateField('keycloak_base_url')" />
             </el-form-item>
             <el-form-item label="Keycloak Realm" prop="keycloak_realm">
               <input v-model="form.keycloak_realm" placeholder="my-realm"
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 @blur="formRef.validateField('keycloak_realm')" />
             </el-form-item>
           </template>
@@ -50,7 +50,7 @@
           <template v-if="form.provider_type === 'auth0'">
             <el-form-item label="Auth0 Domain" prop="auth0_domain">
               <input v-model="form.auth0_domain" placeholder="your-tenant.auth0.com"
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 @blur="formRef.validateField('auth0_domain')" />
             </el-form-item>
           </template>
@@ -59,7 +59,7 @@
           <template v-if="form.provider_type === 'generic'">
             <el-form-item label="Issuer URL" prop="generic_issuer">
               <input v-model="form.generic_issuer" placeholder="https://oidc.example.com"
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 @blur="formRef.validateField('generic_issuer')" />
             </el-form-item>
           </template>
@@ -67,22 +67,22 @@
           <!-- Common fields -->
           <el-form-item label="Client ID" prop="client_id">
             <input v-model="form.client_id" placeholder="your-client-id"
-              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               @blur="formRef.validateField('client_id')" />
           </el-form-item>
           <el-form-item label="Client Secret" prop="client_secret">
             <input v-model="form.client_secret" type="password" placeholder="your-client-secret"
-              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               @blur="formRef.validateField('client_secret')" />
           </el-form-item>
           <el-form-item label="回调地址 (Redirect URI)" prop="redirect_uri">
             <input v-model="form.redirect_uri" placeholder="https://vpn.example.com/api/v1/auth/callback"
-              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               @blur="formRef.validateField('redirect_uri')" />
           </el-form-item>
           <el-form-item label="前端地址 (Frontend URL)" prop="frontend_url">
             <input v-model="form.frontend_url" placeholder="https://vpn.example.com"
-              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               @blur="formRef.validateField('frontend_url')" />
           </el-form-item>
 

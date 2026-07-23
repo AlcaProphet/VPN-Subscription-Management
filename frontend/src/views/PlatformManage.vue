@@ -59,21 +59,21 @@
         </el-form-item>
         <el-form-item label="名称" prop="name">
           <input v-model="form.name" placeholder="平台名称"
-            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             @blur="formRef.validateField('name')" />
         </el-form-item>
         <el-form-item label="描述" prop="description">
           <textarea v-model="form.description" :rows="2" placeholder="平台描述"
-            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
         </el-form-item>
         <el-form-item label="Client Schemes" prop="schemesText">
           <textarea v-model="form.schemesText" :rows="4" placeholder="每行一个 scheme"
-            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
           <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">每行一个 Client Scheme，一键导入时使用第一个</div>
         </el-form-item>
         <el-form-item label="下载链接" prop="download_url">
           <input v-model="form.download_url" placeholder="https://example.com/download（可选）"
-            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
           <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">可选，配置后在首页显示「下载客户端」按钮</div>
         </el-form-item>
       </el-form>

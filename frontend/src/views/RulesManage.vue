@@ -58,10 +58,10 @@
     <el-dialog v-model="createVisible" title="创建规则" :width="dialogWidth" :close-on-click-modal="false" :append-to-body="true" @closed="resetCreateForm">
       <el-form ref="createFileFormRef" :model="createForm" :rules="createRules" label-position="top">
         <el-form-item label="名称" prop="name">
-          <input v-model="createForm.name" placeholder="规则名称" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('name')" />
+          <input v-model="createForm.name" placeholder="规则名称" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('name')" />
         </el-form-item>
         <el-form-item label="客户端类型" prop="client_type">
-          <select v-model="createForm.client_type" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @change="createFileFormRef.validateField('client_type')">
+          <select v-model="createForm.client_type" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @change="createFileFormRef.validateField('client_type')">
             <option value="shadowrocket">Shadowrocket</option>
           </select>
         </el-form-item>

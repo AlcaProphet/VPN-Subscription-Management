@@ -27,35 +27,35 @@
 
             <template v-if="oidcForm.provider_type === 'keycloak'">
               <el-form-item label="Keycloak Base URL" prop="keycloak_base_url">
-                <input v-model="oidcForm.keycloak_base_url" placeholder="https://keycloak.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('keycloak_base_url')" />
+                <input v-model="oidcForm.keycloak_base_url" placeholder="https://keycloak.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('keycloak_base_url')" />
               </el-form-item>
               <el-form-item label="Keycloak Realm" prop="keycloak_realm">
-                <input v-model="oidcForm.keycloak_realm" placeholder="my-realm" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('keycloak_realm')" />
+                <input v-model="oidcForm.keycloak_realm" placeholder="my-realm" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('keycloak_realm')" />
               </el-form-item>
             </template>
             <template v-if="oidcForm.provider_type === 'auth0'">
               <el-form-item label="Auth0 Domain" prop="auth0_domain">
-                <input v-model="oidcForm.auth0_domain" placeholder="your-tenant.auth0.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('auth0_domain')" />
+                <input v-model="oidcForm.auth0_domain" placeholder="your-tenant.auth0.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('auth0_domain')" />
               </el-form-item>
             </template>
             <template v-if="oidcForm.provider_type === 'generic'">
               <el-form-item label="Issuer URL" prop="generic_issuer">
-                <input v-model="oidcForm.generic_issuer" placeholder="https://oidc.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('generic_issuer')" />
+                <input v-model="oidcForm.generic_issuer" placeholder="https://oidc.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('generic_issuer')" />
               </el-form-item>
             </template>
 
             <el-form-item label="Client ID" prop="client_id">
-              <input v-model="oidcForm.client_id" placeholder="your-client-id" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('client_id')" />
+              <input v-model="oidcForm.client_id" placeholder="your-client-id" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('client_id')" />
             </el-form-item>
             <el-form-item label="Client Secret" prop="client_secret">
-              <input v-model="oidcForm.client_secret" type="password" placeholder="留空则不修改" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              <input v-model="oidcForm.client_secret" type="password" placeholder="留空则不修改" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
               <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">已存储的 Client Secret 已加密，回显为 ••••••。输入新值将覆盖</div>
             </el-form-item>
             <el-form-item label="回调地址 (Redirect URI)" prop="redirect_uri">
-              <input v-model="oidcForm.redirect_uri" placeholder="https://vpn.example.com/api/v1/auth/callback" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('redirect_uri')" />
+              <input v-model="oidcForm.redirect_uri" placeholder="https://vpn.example.com/api/v1/auth/callback" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('redirect_uri')" />
             </el-form-item>
             <el-form-item label="前端地址 (Frontend URL)" prop="frontend_url">
-              <input v-model="oidcForm.frontend_url" placeholder="https://vpn.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('frontend_url')" />
+              <input v-model="oidcForm.frontend_url" placeholder="https://vpn.example.com" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="oidcFormRef.validateField('frontend_url')" />
             </el-form-item>
 
             <el-form-item>
@@ -90,10 +90,10 @@
           <el-form ref="rateFormRef" :model="rateForm" :rules="rateRules" label-position="top">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
               <el-form-item label="登录 API 限制 (次/分钟)" prop="rate_limit_login">
-                <input v-model.number="rateForm.rate_limit_login" type="number" min="1" max="1000" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="rateFormRef.validateField('rate_limit_login')" />
+                <input v-model.number="rateForm.rate_limit_login" type="number" min="1" max="1000" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="rateFormRef.validateField('rate_limit_login')" />
               </el-form-item>
               <el-form-item label="下载 API 限制 (次/分钟)" prop="rate_limit_download">
-                <input v-model.number="rateForm.rate_limit_download" type="number" min="1" max="1000" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="rateFormRef.validateField('rate_limit_download')" />
+                <input v-model.number="rateForm.rate_limit_download" type="number" min="1" max="1000" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="rateFormRef.validateField('rate_limit_download')" />
               </el-form-item>
             </div>
             <el-form-item>
@@ -112,7 +112,7 @@
           <el-form label-position="top">
             <el-form-item label="公告内容（支持多行文本，留空则不显示）">
               <textarea v-model="announcementContent" :rows="4" placeholder="输入公告内容..."
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
+                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
             </el-form-item>
             <el-form-item>
               <button class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2 text-sm disabled:opacity-50" :disabled="announcementSaving" @click="handleAnnouncementSave">保存公告</button>

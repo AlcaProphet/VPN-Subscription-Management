@@ -61,10 +61,10 @@
     <el-dialog v-model="editVisible" title="编辑用户" :width="editDialogWidth" :close-on-click-modal="false" :append-to-body="true">
       <el-form v-if="editUser" label-position="top">
         <el-form-item label="用户名">
-          <input :value="editUser.username" disabled class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-600 px-3 py-2 text-sm text-gray-500 dark:text-gray-400 cursor-not-allowed" />
+          <input :value="editUser.username" disabled class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-600 px-3 py-2 text-base text-gray-500 dark:text-gray-400 cursor-not-allowed" />
         </el-form-item>
         <el-form-item label="邮箱">
-          <input :value="editUser.email" disabled class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-600 px-3 py-2 text-sm text-gray-500 dark:text-gray-400 cursor-not-allowed" />
+          <input :value="editUser.email" disabled class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-600 px-3 py-2 text-base text-gray-500 dark:text-gray-400 cursor-not-allowed" />
         </el-form-item>
         <el-form-item label="角色">
           <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="editUser.role === 'admin' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'">{{ editUser.role === 'admin' ? '管理员' : '普通用户' }}</span>
@@ -101,7 +101,7 @@
     <el-dialog v-model="uploadVisible" title="上传自定义订阅" :width="uploadDialogWidth" :close-on-click-modal="false" :append-to-body="true" @closed="resetUploadForm">
       <el-form ref="uploadFormRef" :model="uploadForm" :rules="uploadRules" label-position="top">
         <el-form-item label="适用平台" prop="platform">
-          <select v-model="uploadForm.platform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @change="uploadFormRef.validateField('platform')">
+          <select v-model="uploadForm.platform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @change="uploadFormRef.validateField('platform')">
             <option value="" disabled>请选择平台</option>
             <option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</option>
           </select>
@@ -127,7 +127,7 @@
     <!-- Delete Custom Subscription Dialog -->
     <el-dialog v-model="deleteCustomVisible" title="删除自定义订阅" :width="deleteDialogWidth" :close-on-click-modal="false" :append-to-body="true">
       <p v-if="deleteCustomUser" class="text-gray-700 dark:text-gray-300">请选择要删除的自定义订阅平台：</p>
-      <select v-if="deleteCustomUser" v-model="deleteCustomPlatform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mt-2">
+      <select v-if="deleteCustomUser" v-model="deleteCustomPlatform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mt-2">
         <option value="" disabled>请选择平台</option>
         <option v-for="p in deleteCustomUser.custom_sub_platforms" :key="p" :value="p">{{ p }}</option>
       </select>

@@ -377,7 +377,7 @@
         ref="copyInputRef"
         :value="copyUrl"
         readonly
-        class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+        class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-base text-gray-700 dark:text-gray-300 cursor-pointer"
         @click="handleCopyToClipboard"
       />
       <template #footer>
