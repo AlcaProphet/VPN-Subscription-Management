@@ -1,21 +1,10 @@
 # Issues.md — 问题追踪
 
 > **状态**: 🟡 Low 级别待修复。Critical/High/Medium 已于 2026-07-23 修复。
-> **待验证**: B5 表单提交问题需在浏览器中实测确认。
 
 ---
 
 ## 待修复
-
-### 🔴 待验证（可能是环境问题，浏览器实测后确认）
-
-- [ ] **B5. `<el-form>` 内 `<button>` 触发原生表单提交** (`Setup.vue` + `SystemSettings.vue` + `UserManage.vue`):
-  - **现象**: 点击「切换提供商」/「测试连接」/「完成配置」→ 页面重定向至 `/setup?` → 表单清空、toast 消失、弹窗中断
-  - **根因推测**: `<el-form>` 渲染为 HTML `<form>`，内部 `<button>` 默认 `type="submit"`，触发浏览器原生 GET 提交
-  - **已应用修复**: 3 个文件共 9 个按钮全部加 `type="button"` + 401 拦截器加 `/setup` 路径检测
-  - **待确认**: 是否还有其他触发页面重载的因素
-
-### 🟡 Low 优先级
 
 - [ ] **L1. `handlers.go` ~1690 行** — 建议按业务域拆分为多个文件
 - [ ] **L2. 版本管理代码重复 >80%** — 4 个 service 中 UploadVersion/SwitchVersion/DeleteVersion 高度相似
@@ -70,6 +59,8 @@
 - [x] **B2. Setup 状态检测加固** — `setupConfirmed` 标记
 - [x] ~~B3. Setup 切换提供商调 API~~ — 已回退
 - [x] **B4. OIDCSwitchDialog 弹窗中断** — `nextTick` 延迟关闭
+- [x] **B5. `<el-form>` 内 `<button>` 触发原生提交** — 9 个按钮加 `type="button"` + 401 拦截器路径检测。**已由浏览器实测验证修复。**
+- [x] **B6. OIDCSwitchDialog 改为确认式交互** — 选择后需点「确认」才应用，避免误操作
 
 </details>
 
