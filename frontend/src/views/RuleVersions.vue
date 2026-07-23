@@ -23,40 +23,30 @@
 
       <div v-if="versions.length === 0" class="text-center py-12 text-gray-400 dark:text-gray-500">暂无版本</div>
 
-      <div v-else class="w-full overflow-x-auto">
-        <el-table :data="sortedVersions" stripe>
-        <el-table-column label="版本号" width="100"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
-        <el-table-column v-if="!isMobile" label="创建时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
-        <el-table-column label="更新时间" width="180"><template #default="{ row }">{{ formatTime(row.updated_at) }}</template></el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <span v-if="isCurrent(row)" class="rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">当前</span>
-            <span v-else class="text-gray-400 dark:text-gray-500">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" :width="isMobile ? 60 : 220" fixed="right">
-          <template #default="{ row }">
-            <ActionMenu>
-              <template #default>
-                <button v-if="!isCurrent(row)" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm" @click="handleSwitch(row)">设为当前</button>
-                <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm ml-1" @click="handlePreview(row)">预览</button>
-                <button class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm ml-1 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="isCurrent(row) || versions.length <= 1" @click="confirmDeleteVersion(row)">删除</button>
-              </template>
-              <template #menu>
-                <button v-if="!isCurrent(row)" class="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-600" @click="handleSwitch(row)">设为当前</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600" @click="handlePreview(row)">预览</button>
-                <button class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50" :disabled="isCurrent(row) || versions.length <= 1" @click="confirmDeleteVersion(row)">删除</button>
-              </template>
-            </ActionMenu>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div v-for="v in sortedVersions" :key="v.version"
+             class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
+             :class="{ 'border-l-4 border-l-green-500': isCurrent(v) }">
+          <div class="px-4 py-3 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+            <span class="font-semibold text-gray-900 dark:text-white">v{{ v.version }}</span>
+            <span v-if="isCurrent(v)" class="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full px-2 py-0.5">当前</span>
+          </div>
+          <div class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 space-y-1">
+            <div>创建: {{ formatTime(v.created_at) }}</div>
+            <div>更新: {{ formatTime(v.updated_at) }}</div>
+          </div>
+          <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex gap-2 justify-end flex-wrap">
+            <button v-if="!isCurrent(v)" @click="handleSwitch(v)" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm">设为当前</button>
+            <button @click="handlePreview(v)" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-md px-3 py-1.5 text-sm">预览</button>
+            <button @click="confirmDeleteVersion(v)" :disabled="isCurrent(v) || versions.length <= 1" class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed">删除</button>
+          </div>
+        </div>
       </div>
     </template>
 
     <UploadModal v-model:visible="uploadVisible" :initial-content="editContent" @upload="onFileUpload" @textSave="onTextSave" />
 
-    <el-dialog v-model="previewVisible" title="版本预览" :width="isMobile ? '90%' : '640px'" :fullscreen="isMobile" :close-on-click-modal="false" :append-to-body="true">
+    <el-dialog v-model="previewVisible" title="版本预览" width="640px" :close-on-click-modal="false" :append-to-body="true">
       <pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-md text-sm overflow-auto max-h-96 max-md:max-h-[calc(100vh-120px)] text-gray-900 dark:text-gray-100">{{ previewContent }}</pre>
       <template #footer>
         <div class="flex justify-end gap-2">
@@ -77,13 +67,10 @@ import { useToast } from '@/composables/useToast'
 import { adminApi } from '@/services/api'
 import UploadModal from '@/components/UploadModal.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import ActionMenu from '@/components/ActionMenu.vue'
-import { useIsMobile } from '@/composables/useIsMobile'
 
 const route = useRoute()
 const router = useRouter()
 const { success: toastSuccess, error: toastError } = useToast()
-const isMobile = useIsMobile()
 
 
 // ==========================================================================

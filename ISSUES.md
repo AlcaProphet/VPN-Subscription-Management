@@ -1,106 +1,11 @@
 # Issues.md — 问题追踪
 
-> **状态**: 🟡 仅 Low 级别 + 卡片化重构待处理。Critical/High/Medium 已于 2026-07-23 全部修复。
-> **待检查**: Setup/SystemSettings OIDC 表单交互修复需在浏览器中实际验证。
+> **状态**: 🟡 仅 Low 优先级项待处理。Critical/High/Medium + 卡片化重构已于 2026-07-23 全部完成。
+> **待检查**: 版本管理卡片化 + Setup/SystemSettings OIDC 表单交互修复需在浏览器中实际验证。
 
 ---
 
 ## 待修复
-
-### 🔧 计划中 — 版本管理页卡片化重构
-
-> **状态**: 方案已确认，待实施。3 个页面共享相同模板结构，可统一处理。
-
-#### 影响范围
-
-| 页面 | 路由 | 数据对象 | API 前缀 |
-|------|------|----------|----------|
-| `SubVersions.vue` | `/admin/subscriptions/:id/versions` | `subscription` | `adminApi.subscriptions.*` |
-| `ShareVersions.vue` | `/admin/shares/:id/versions` | `share` | `adminApi.shares.*` |
-| `RuleVersions.vue` | `/admin/rules/:id/versions` | `rule` | `adminApi.rules.*` |
-
-#### 模板改动
-
-移除 `el-table` + `ActionMenu`，替换为 Tailwind 卡片网格：
-
-```html
-<!-- 旧: el-table + ActionMenu -->
-<el-table :data="sortedVersions" stripe>
-  <el-table-column label="版本号" width="100">...
-  <el-table-column label="操作" fixed="right">
-    <ActionMenu>...
-</el-table>
-
-<!-- 新: 卡片网格 -->
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-  <div v-for="v in sortedVersions" :key="v.version"
-       class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
-       :class="{ 'border-l-4 border-l-green-500': isCurrent(v) }">
-    <!-- 卡片头: 版本号 + 当前徽章 -->
-    <div class="px-4 py-3 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
-      <span class="font-semibold text-gray-900 dark:text-white">v{{ v.version }}</span>
-      <span v-if="isCurrent(v)" class="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full px-2 py-0.5">当前</span>
-    </div>
-    <!-- 时间信息 -->
-    <div class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 space-y-1">
-      <div>创建: {{ formatTime(v.created_at) }}</div>
-      <div>更新: {{ formatTime(v.updated_at) }}</div>
-    </div>
-    <!-- 操作按钮 -->
-    <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex gap-2 justify-end flex-wrap">
-      <button v-if="!isCurrent(v)" @click="handleSwitch(v)" class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm">设为当前</button>
-      <button @click="handlePreview(v)" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-md px-3 py-1.5 text-sm">预览</button>
-      <button @click="confirmDeleteVersion(v)" :disabled="isCurrent(v) || versions.length <= 1" class="bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed">删除</button>
-    </div>
-  </div>
-</div>
-```
-
-#### 脚本改动
-
-| 移除 | 原因 |
-|------|------|
-| `import ActionMenu` | 不再使用下拉菜单 |
-| `import { useIsMobile }` | 不再需要判断移动端 |
-| `const isMobile = useIsMobile()` | 同上 |
-| `sortedVersions` computed (如果仅用于排序) | 可直接用 `versions` + inline sort |
-
-| 保留（不变） | 说明 |
-|-------------|------|
-| 全部 API 调用逻辑 | `fetch*`, `handleSwitch`, `handlePreview`, `onFileUpload`, `onTextSave`, `handleDeleteVersion` |
-| `UploadModal` + 事件处理 | 上传/文本编辑功能 |
-| `el-dialog` 预览弹窗 | 版本内容预览 |
-| `ConfirmDialog` | 删除确认 |
-| `currentVersionNum` computed | `isCurrent()` 判断依赖它 |
-| `formatTime` helper | 时间格式化 |
-
-#### 依赖影响
-
-| 影响 | 详情 |
-|------|------|
-| `el-table` CSS | 仍被 SubList、ShareList、RulesManage、UserManage、PlatformManage、Logs 使用，**不需移除** |
-| `ActionMenu.vue` | 仍被 5 个列表页使用，**不需移除** |
-| `useIsMobile.js` | 仍被其他页面使用，**不需移除** |
-
-#### 潜在冲突检查
-
-| 检查项 | 结果 |
-|--------|------|
-| 卡片按钮与 UploadModal 的 `el-dialog` 冲突？ | ✅ 无冲突 — 卡片使用纯 Tailwind 按钮，无 fixed 定位 |
-| `isCurrent(v)` 依赖 `currentVersionNum` 是否受影响？ | ✅ 不受影响 — computed 逻辑不变 |
-| 删除按钮 `disabled` 逻辑是否保留？ | ✅ 保留 — `isCurrent(v) \|\| versions.length <= 1` 不变 |
-| 移动端渲染？ | ✅ 1 列全宽，按钮始终可见，无需横向滚动 |
-| 暗色模式？ | ✅ 使用 `dark:` 前缀，与现有风格一致 |
-
-#### 实施步骤
-
-1. 修改 `SubVersions.vue` 模板 + 脚本，验证构建
-2. 将相同改动复制到 `ShareVersions.vue`（仅变量名不同：`subscription`→`share`）
-3. 将相同改动复制到 `RuleVersions.vue`（仅变量名不同：`subscription`→`rule`）
-4. 浏览器实测：版本创建/切换/预览/删除 + 暗色模式 + 移动端
-5. 更新 ISSUES.md 标记完成
-
----
 
 ### 🟡 Low 优先级（第一轮审查）
 
@@ -177,6 +82,18 @@
 - [x] **D7.** 下载端点 — `handlers.go` SubDownloadToken/ShareDownload/GetRuleDownload
 - [x] **D8.** 速率限制 — `rate_limit.go` allow() 被拒绝分支
 - [x] **D9.** 路由守卫 — `router/index.js` beforeEach
+
+</details>
+
+<details>
+<summary><b>版本管理页卡片化重构</b>（3 个页面，点击展开）</summary>
+
+- [x] **SubVersions.vue** — `el-table` + `ActionMenu` → Tailwind 卡片网格，移除 `useIsMobile`
+- [x] **ShareVersions.vue** — 同上（数据对象: `share`）
+- [x] **RuleVersions.vue** — 同上（数据对象: `rule`）
+- 版本卡片: 版本号 + 当前徽章（绿色左边框）+ 创建/更新时间 + 设为当前/预览/删除 按钮
+- 保留: 全部 API 逻辑、`UploadModal`、`el-dialog` 预览、`ConfirmDialog`、`sortedVersions`/`currentVersionNum` computed
+- 前端构建 ✅ 通过，零错误
 
 </details>
 
