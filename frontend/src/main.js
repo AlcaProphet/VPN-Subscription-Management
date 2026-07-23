@@ -16,6 +16,8 @@ import 'element-plus/theme-chalk/el-form-item.css'
 import 'element-plus/theme-chalk/el-upload.css'
 import 'element-plus/theme-chalk/el-menu.css'
 import 'element-plus/theme-chalk/el-menu-item.css'
+import 'element-plus/theme-chalk/el-select.css'
+import 'element-plus/theme-chalk/el-option.css'
 // 暗色模式变量
 import 'element-plus/theme-chalk/dark/css-vars.css'
 

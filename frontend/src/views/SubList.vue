@@ -81,19 +81,15 @@
             @blur="formRef.validateField('name')" />
         </el-form-item>
         <el-form-item label="类型" prop="type">
-          <select v-model="form.type"
-            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            @change="formRef.validateField('type')">
-            <option value="default">默认 (default)</option>
-            <option value="advanced">高级 (advanced)</option>
-          </select>
+          <el-select v-model="form.type" class="w-full" placeholder="选择类型" @change="formRef.validateField('type')">
+            <el-option value="default" label="默认 (default)" />
+            <el-option value="advanced" label="高级 (advanced)" />
+          </el-select>
         </el-form-item>
         <el-form-item label="平台" prop="platform">
-          <select v-model="form.platform"
-            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            @change="formRef.validateField('platform')">
-            <option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
+          <el-select v-model="form.platform" class="w-full" placeholder="选择平台" @change="formRef.validateField('platform')">
+            <el-option v-for="p in platforms" :key="p.id" :value="p.id" :label="p.name" />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>

@@ -61,6 +61,7 @@
 - [x] **B4. OIDCSwitchDialog 弹窗中断** — `nextTick` 延迟关闭
 - [x] **B5. `<el-form>` 内 `<button>` 触发原生提交** — 9 个按钮加 `type="button"` + 401 拦截器路径检测。**已由浏览器实测验证修复。**
 - [x] **B6. OIDCSwitchDialog 改为确认式交互** — 选择后需点「确认」才应用，避免误操作
+- [x] **B7. `<select>` 替换为 `<el-select>`** — 原生 select 在 append-to-body dialog 内下拉层定位错误。3 个文件 4 处全部替换
 
 </details>
 

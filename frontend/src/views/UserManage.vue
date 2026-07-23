@@ -102,10 +102,9 @@
     <el-dialog v-model="uploadVisible" title="上传自定义订阅" :width="uploadDialogWidth" :close-on-click-modal="false" :append-to-body="true" @closed="resetUploadForm">
       <el-form ref="uploadFormRef" :model="uploadForm" :rules="uploadRules" label-position="top">
         <el-form-item label="适用平台" prop="platform">
-          <select v-model="uploadForm.platform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @change="uploadFormRef.validateField('platform')">
-            <option value="" disabled>请选择平台</option>
-            <option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
+          <el-select v-model="uploadForm.platform" class="w-full" placeholder="请选择平台" @change="uploadFormRef.validateField('platform')">
+            <el-option v-for="p in platforms" :key="p.id" :value="p.id" :label="p.name" />
+          </el-select>
         </el-form-item>
         <el-form-item label="订阅文件">
           <el-upload ref="uploadRef" :auto-upload="false" :limit="1" accept=".conf,.yaml,.yml,.txt" :on-change="onUploadFileChange" :before-upload="beforeUploadCheck" drag>
@@ -128,10 +127,9 @@
     <!-- Delete Custom Subscription Dialog -->
     <el-dialog v-model="deleteCustomVisible" title="删除自定义订阅" :width="deleteDialogWidth" :close-on-click-modal="false" :append-to-body="true">
       <p v-if="deleteCustomUser" class="text-gray-700 dark:text-gray-300">请选择要删除的自定义订阅平台：</p>
-      <select v-if="deleteCustomUser" v-model="deleteCustomPlatform" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mt-2">
-        <option value="" disabled>请选择平台</option>
-        <option v-for="p in deleteCustomUser.custom_sub_platforms" :key="p" :value="p">{{ p }}</option>
-      </select>
+      <el-select v-if="deleteCustomUser" v-model="deleteCustomPlatform" class="w-full mt-2" placeholder="请选择平台">
+        <el-option v-for="p in deleteCustomUser.custom_sub_platforms" :key="p" :value="p" :label="p" />
+      </el-select>
       <template #footer>
         <div class="flex justify-end gap-2">
           <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm" @click="deleteCustomVisible = false">取消</button>
