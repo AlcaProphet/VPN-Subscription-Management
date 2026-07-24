@@ -113,7 +113,7 @@ if err := repo.Insert(&repository.AccessLogRecord{...}); err != nil {
 
 ### 2.3 L7 — Tailwind CSS 未使用变量清理
 
-**问题**: `tailwind.config.js` 第 9 行定义了 `colors.primary`，但 grep 确认 `frontend/src/` 下**没有任何组件**使用 `primary` 这个 color name。此配置为过渡期 Element Plus 颜色对齐用，Phase 2 完成后已无引用。
+**问题**: `tailwind.config.js` 第 13 行定义了 `colors.primary`，但 grep 确认 `frontend/src/` 下**没有任何组件**使用 `primary` 这个 color name。此配置为过渡期 Element Plus 颜色对齐用，Phase 2 完成后已无引用。
 
 **方案**: 从 `tailwind.config.js` 的 `theme.extend.colors` 中删除 `primary` 定义。由于 `extend` 下除 `colors` 外无其他配置，删除后 `extend: {}` 为空对象，一并简化：
 
@@ -131,6 +131,8 @@ if err := repo.Insert(&repository.AccessLogRecord{...}); err != nil {
     extend: {},
 ```
 
+> **行号参考**: `colors.primary` 定义在 `tailwind.config.js` 第 13 行。
+
 **验证**: `npm run build` 通过。
 
 ---
@@ -145,12 +147,14 @@ if err := repo.Insert(&repository.AccessLogRecord{...}); err != nil {
 
 `frontend/src/main.js`:
 ```js
-// 在 import App from './App.vue' 之前添加:
 import { useTheme } from '@/composables/useTheme'
+// ↑ 放在其他 import 之后即可
 
-// 在 app.mount('#app') 之前添加:
+// 在 app.use(router) 之后、app.mount('#app') 之前添加:
 useTheme() // 初始化暗色模式（读取 localStorage + 系统偏好）
 ```
+
+> **注意**: `useTheme()` 内部使用 Vue 的 `ref()` 和 `watchEffect()`，需在 `createApp()` 之后调用。`watchEffect` 在组件上下文外运行不会被自动清理，但作为应用级单例（只调用一次），持续存在直到页面卸载是期望行为。
 
 `frontend/src/App.vue`:
 ```vue
@@ -191,7 +195,7 @@ import { useTheme } from '@/composables/useTheme'
 
 **关于 `handlers.go` 本身的处理**: 它不是"最后完成"的文件——在拆分过程中逐步从中移除函数。拆分完成后，`handlers.go` 仅保留公共 handler（约 5 个）和所有 helper 函数（约 5 个），约 200 行。
 
-**Import 处理**: 每个新文件独立管理 import。拆分时对每个文件——复制原 `handlers.go` 的 import block → 编译 → 根据 `unused import` 编译错误逐个删除未使用的 import → 编译通过 → 下一个文件。
+**Import 处理**: 每个新文件独立管理 import。拆分时对每个文件——复制原 `handlers.go` 的 import block → 编译 → 根据 `unused import` 编译错误逐个删除未使用的 import → 编译通过 → 下一个文件。**可选优化**: 拆分全部完成后，运行 `goimports -w ./...`（`golang.org/x/tools/cmd/goimports`）一次性自动整理所有文件的 import（添加缺失、删除未使用），减少手动操作。
 
 **拆分顺序**（按依赖关系，从叶子到根）:
 1. `admin_log_handlers.go` — 只依赖 `SystemSvc`，最独立
@@ -644,6 +648,14 @@ L2 完成后，在浏览器中按以下矩阵测试 **4 种资源类型 × 3 种
 | 切换到指定版本 | ✅ | ✅ | ✅ | ✅ |
 | 删除旧版本（非当前） | ✅ | ✅ | ✅ | ✅ |
 | 删除当前版本 → 自动切换到最新 | ✅ | ✅ | ✅ | ✅ |
+
+**边界场景测试**（阶段 4 补充）:
+
+| 场景 | 验证目标 |
+|------|--------|
+| 自定义订阅 Token 刷新后，旧 Token 下载返回错误 | LR1 修复验证：基于业务键的原子替换 |
+| 用户 is_advanced 变更后，旧 Token 失效，新 Token 按新级别生成 | 升降级 Token 清理逻辑 |
+| 并发上传同一资源的版本 | 事务行锁防版本号冲突 |
 
 ### 11.3 回归检查
 
