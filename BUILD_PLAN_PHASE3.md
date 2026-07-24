@@ -115,17 +115,19 @@ if err := repo.Insert(&repository.AccessLogRecord{...}); err != nil {
 
 **问题**: `tailwind.config.js` 第 9 行定义了 `colors.primary`，但 grep 确认 `frontend/src/` 下**没有任何组件**使用 `primary` 这个 color name。此配置为过渡期 Element Plus 颜色对齐用，Phase 2 完成后已无引用。
 
-**方案**: 从 `tailwind.config.js` 的 `theme.extend.colors` 中删除 `primary` 定义。
+**方案**: 从 `tailwind.config.js` 的 `theme.extend.colors` 中删除 `primary` 定义。由于 `extend` 下除 `colors` 外无其他配置，删除后 `extend: {}` 为空对象，一并简化：
 
 **改动**:
 ```
 文件: frontend/tailwind.config.js
-删除:
+将:
+    extend: {
       colors: {
         // 与 Element Plus primary 对齐，便于过渡期混用
         primary: { DEFAULT: '#409eff', dark: '#409eff' },
       },
-保留空的 theme.extend（或整个 extend 块移除）:
+    },
+改为:
     extend: {},
 ```
 
@@ -185,7 +187,9 @@ import { useTheme } from '@/composables/useTheme'
 | `admin_system_handlers.go` | `GetRateLimit`, `UpdateRateLimit`, `GetAnnouncement`, `UpdateAnnouncement`, `PublicAnnouncement`, `GetDebugMode`, `UpdateDebugMode` | ~130 |
 | `admin_log_handlers.go` | `GetLogs` | ~40 |
 
-**操作方式**: 纯代码移动（cut & paste），不做任何逻辑修改。每个新文件保留相同的 `package handler` 声明和必要的 import。`services.go` 保持不变。
+**操作方式**: 纯代码移动（cut & paste），不做任何逻辑修改。**实际工作流**：从 `handlers.go` 中剪出函数 → 粘贴到新文件 → 添加 `package handler` + import → 编译验证 → 下一个文件。每个新文件保留相同的 `package handler` 声明和必要的 import。`services.go` 保持不变。
+
+**关于 `handlers.go` 本身的处理**: 它不是"最后完成"的文件——在拆分过程中逐步从中移除函数。拆分完成后，`handlers.go` 仅保留公共 handler（约 5 个）和所有 helper 函数（约 5 个），约 200 行。
 
 **Import 处理**: 每个新文件独立管理 import。拆分时对每个文件——复制原 `handlers.go` 的 import block → 编译 → 根据 `unused import` 编译错误逐个删除未使用的 import → 编译通过 → 下一个文件。
 
@@ -271,15 +275,13 @@ func setDownloadHeaders(c *gin.Context, platform string) {
 
 **验证**: `go build ./...` 通过。检查下载响应头中 `profile-web-page-url` 是否正确。
 
-**验证**: `go build ./...` 通过。检查下载响应头中 `profile-web-page-url` 是否正确。
-
 ---
 
 ### 4.2 L4 — `AuthLogin` prompt 参数校验
 
 **问题**: `AuthLogin` handler 直接将从 query string 读取的 `prompt` 参数传给 OIDC provider。OIDC spec 规定 `prompt` 仅允许 `none`、`login`、`consent`、`select_account`（可空格分隔组合）。当前无任何校验。
 
-**方案**: 添加长度限制（≤128 字符）和值格式校验。对于不符合 OIDC spec 的值返回 400。
+**方案**: 添加长度限制（≤128 字符）。对超长 prompt 返回 400。不进行 OIDC spec 值白名单校验（保持与所有 provider 的兼容性），白名单逻辑以注释保留供未来启用。
 
 **改动** (`auth_handlers.go` 中 `AuthLogin` 函数):
 ```go
@@ -287,15 +289,13 @@ func AuthLogin(c *gin.Context) {
     // ...
     prompt := c.Query("prompt")
     
-    // 校验 prompt 参数
+    // 校验 prompt 参数（仅长度限制，兼容所有 OIDC provider）
     if prompt != "" {
         if len(prompt) > 128 {
             c.JSON(http.StatusBadRequest, gin.H{"error": "prompt parameter too long"})
             return
         }
-        // 校验 prompt 值（可选严格模式，仅允许 OIDC spec 规定的值）
-        // 当前实现: 仅长度限制，不做值白名单校验
-        // 如需严格校验，启用以下代码:
+        // 如需严格校验（仅允许 OIDC spec 规定的值），启用以下代码:
         // validPrompts := map[string]bool{"none": true, "login": true, "consent": true, "select_account": true}
         // for _, p := range strings.Fields(prompt) {
         //     if !validPrompts[p] {
@@ -304,7 +304,7 @@ func AuthLogin(c *gin.Context) {
         //     }
         // }
     }
-    }
+    // ... 现有 OIDC 登录逻辑 ...
 }
 ```
 
@@ -402,7 +402,7 @@ func (s *CustomSubscriptionService) RefreshToken(customSubID string) error {
 }
 ```
 
-**同时清理**: 旧方法 `ReplaceTokenValue(oldToken, newToken)` 和 `FindTokenByCustomSubID` 如果无其他调用方可删除。
+**同时清理**: 旧方法 `ReplaceTokenValue` 和 `FindTokenByCustomSubID` 经 grep 确认**仅**被 `RefreshToken` 调用，无其他引用方。LR1 实施后一并删除，保持代码库整洁。
 
 **验证**: `go build ./...` + `go vet ./...` 通过。逻辑上与 `SubscriptionService.RefreshToken` 的模式一致。
 
@@ -419,7 +419,7 @@ func (s *CustomSubscriptionService) RefreshToken(customSubID string) error {
 | `ShareSubscriptionService.UploadVersion` | `defer` + `committed` flag | ✅ 正确 |
 | `CustomSubscriptionService.UploadVersion` | `defer` + `committed` flag | ✅ 正确 |
 | `ShareSubscriptionService.Create` | 手动 if/else 清理，无事务包装 | ⚠️ 创建记录 → 写版本文件 → 更新 DB，中间任一步失败清理不完整 |
-| `CustomSubscriptionService.Upload` (create 分支) | `s.repo.Delete(id)` 清理 DB | ⚠️ 未清理可能已写入的版本文件 |
+| `CustomSubscriptionService.Upload` (create 分支) | 委托 `UploadVersion`（内部含 defer cleanup）+ 外层 `s.repo.Delete(id)` 清理 DB | ⚠️ 这两层清理正确但依赖 `UploadVersion` 的内部实现细节。如果 `UploadVersion` 成功但外层后续步骤失败（当前流程中不存在此场景），DB 记录会泄漏 |
 
 **方案**: 在 L2（版本管理去重）中统一解决。通用事务方法将覆盖所有 4 个 service 的 `UploadVersion` 以及 2 个 `Create` 方法，确保失败清理路径一致。当前阶段 LR3 作为 L2 的验收标准——"所有 Create/UploadVersion 方法的失败清理路径是否一致"。
 
@@ -445,25 +445,17 @@ DeleteVersion:    开启事务 → SELECT versions (行锁) → 解析 JSON → 
 
 **方案**: 利用现有的 `VersionService` 已有文件操作抽象，进一步将 DB 事务逻辑也提取为通用函数。
 
-**设计**: 在 `version_service.go` 中新增三个方法，接受函数参数来处理 DB 读写：
+**设计**: 在 `version_service.go` 中新增 `TxVersionOp` 结构体和三个通用事务方法，封装 DB 事务 + 文件操作的完整流程：
 
 ```go
-// VersionedResource 是拥有 versions JSON 字段的任何资源的抽象。
-type VersionedResource interface {
-    GetID() string
-    GetSubDir() string       // e.g., "subscriptions/abc", "rules/xyz"
-    GetVersions() []models.Version
-    SetVersions(v []models.Version)
-}
-
-// 或者使用更简单的函数式方案:
-// TxVersionOp 封装事务中的版本操作。
+// TxVersionOp 封装事务中的版本操作所需参数。
+// TableName 和 IDColumn 由各 service 硬编码传入，非用户输入，无 SQL 注入风险。
 type TxVersionOp struct {
-    TableName     string                           // e.g., "subscriptions", "rules"
-    IDColumn      string                           // e.g., "id"
-    ResourceID    string
-    SubDir        string                           // e.g., "subscriptions/abc"
-    CurrentVersions *[]models.Version              // 会被原地更新
+    TableName       string              // e.g., "subscriptions", "rules", "share_subscriptions", "custom_subscriptions"
+    IDColumn        string              // e.g., "id"
+    ResourceID      string
+    SubDir          string              // e.g., "subscriptions/abc", "rules/xyz"
+    Versions        *[]models.Version   // 原地更新：CreateVersion 追加、SwitchVersion 标记、DeleteVersion 移除
 }
 
 func (s *VersionService) UploadVersionTx(op TxVersionOp, content string) error
@@ -474,8 +466,6 @@ func (s *VersionService) DeleteVersionTx(op TxVersionOp, versionNum int) error
 每个方法内部处理：`BEGIN → SELECT ... (通过 QueryRow 行锁) → JSON 解析 → 文件操作 → defer cleanup → UPDATE → COMMIT`。
 
 同时将 `ShareSubscriptionService.Create` 和 `CustomSubscriptionService.Upload` (创建新记录分支) 也迁移到此通用事务模板中（解决 LR3），确保所有版本创建路径的清理逻辑一致。
-
-**改动范围**:
 
 **改动范围**:
 1. `version_service.go` 新增 ~150 行（3 个通用方法 + TxVersionOp struct）
@@ -489,12 +479,12 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
     if err != nil {
         return nil, fmt.Errorf("subscription not found")
     }
-    err = s.versionSvc.UploadVersionTx(service.TxVersionOp{
-        TableName:       "subscriptions",
-        IDColumn:        "id",
-        ResourceID:      id,
-        SubDir:          "subscriptions/" + id,
-        CurrentVersions: &sub.Versions,
+    err = s.versionSvc.UploadVersionTx(TxVersionOp{
+        TableName:  "subscriptions",
+        IDColumn:   "id",
+        ResourceID: id,
+        SubDir:     "subscriptions/" + id,
+        Versions:   &sub.Versions,
     }, content)
     if err != nil {
         return nil, err
@@ -508,6 +498,13 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 - 每个 migration step 单独 commit（通用方法 → 逐个 service 迁移 → 删除旧代码），每步可独立 revert
 - `go build ./...` + `go vet ./...` 保证编译安全
 - 浏览器实测 4 种资源类型的完整版本管理流程
+
+**关于 `Create` 方法的处理（解决 LR3）**:
+
+`ShareSubscriptionService.Create` 和 `CustomSubscriptionService.Upload` (create 分支) 的流程是「创建 DB 记录 → 上传首版本」。在 L2 实施时：
+1. 将 `UploadVersion` 迁移到通用 `UploadVersionTx` 后
+2. `Create` 方法改为: 创建空 DB 记录 → 调用 `UploadVersionTx`（内部含事务+defer）→ 失败时 `s.Delete(id)` 级联清理
+3. 统一所有 6 个版本创建路径的清理模式
 
 **验证**: `go build ./...` + `go vet ./...` 通过。在浏览器中实际测试：上传版本 → 切换当前版本 → 删除旧版本，覆盖 4 种资源类型（订阅/规则/分享订阅/自定义订阅）。
 
@@ -556,7 +553,7 @@ admin.GET("/users", userHandler.ListUsers)
 4. 逐步淘汰 `services.go` 中的全局变量
 
 **写入 AGENTS.md**:
-在 `AGENTS.md` 的「编码约束」→「后端 Handler」节末尾添加：
+在 `AGENTS.md` 第 5 章「编码约束」→「后端 Handler」小节的末尾（当前约第 185 行附近，「- 创建：BindJSON → 校验必填字段...」列表之后），新增一条约束：
 ```
 - 新增 Handler 必须使用结构体 + 构造函数注入服务依赖（禁止新增包级全局 service 变量）
 - 修改现有 Handler 时鼓励顺手重构为结构体注入，但不强制
@@ -618,3 +615,56 @@ admin.GET("/users", userHandler.ListUsers)
 - **阶段 3**: 每个改动独立 commit
 - **阶段 4 (L2)**: 风险最高，拆分为多个小 commit（通用事务方法 → 逐个 service 迁移 → 删除旧代码），每个步骤可 revert
 - **阶段 5**: 纯文档，无需回滚
+
+---
+
+## 十一、验证策略
+
+### 11.1 编译验证（每项必做）
+
+| 阶段 | 后端验证 | 前端验证 |
+|------|---------|---------|
+| 1 (L6/L3) | `go build ./...` + `go vet ./...` | — |
+| 1 (L7/L8) | — | `npm run build` |
+| 2 (L1) | 每个文件拆分后立即 `go build ./...`，全部完成后 `go vet ./...` | — |
+| 3 (L5/L4) | `go build ./...` + `go vet ./...` | — |
+| 3 (LR2) | — | `npm run build` |
+| 4 (LR1) | `go build ./...` + `go vet ./...` | — |
+| 4 (L2/LR3) | `go build ./...` + `go vet ./...` | — |
+| 5 (A11) | 纯文档，无需编译 | 纯文档，无需编译 |
+
+### 11.2 浏览器实测（阶段 4 必须）
+
+L2 完成后，在浏览器中按以下矩阵测试 **4 种资源类型 × 3 种操作 = 12 个场景**：
+
+| 操作 | 订阅 (subscriptions) | 规则 (rules) | 分享订阅 (shares) | 自定义订阅 (custom) |
+|------|:---:|:---:|:---:|:---:|
+| 上传新版本 | ✅ | ✅ | ✅ | ✅ |
+| 切换到指定版本 | ✅ | ✅ | ✅ | ✅ |
+| 删除旧版本（非当前） | ✅ | ✅ | ✅ | ✅ |
+| 删除当前版本 → 自动切换到最新 | ✅ | ✅ | ✅ | ✅ |
+
+### 11.3 回归检查
+
+- 所有下载端点返回正确的订阅内容（`?token=` 和 JWT 两种途径）
+- 规则下载（`/api/v1/rules/:id/download?token=`）
+- 分享订阅下载（`/api/v1/share/:id/download?token=`）
+- 自定义订阅下载（通过用户下载 token）
+- 用户升降级后 Token 被删除，用户重新访问首页获取新 Token
+
+---
+
+## 十二、Git 工作流
+
+- **分支**: 从 `main` 创建 `phase3-low-priority-fixes`
+- **Commit 粒度**: 每个 ISSUES 项一个独立 commit，commit message 格式 `fix: L<x> — <简短描述>`
+- **阶段 2 (L1)**: 每个新文件拆分完成即 commit（共 12 个 commit），便于逐个 revert
+- **阶段 4 (L2)**: 拆分为 5-6 个 commit（通用方法 → SubscriptionService → RuleService → ShareSubscriptionService → CustomSubscriptionService → 删除旧代码 + 清理）
+- **PR**: 所有阶段完成后合并为一个 PR，标题 `Phase 3: Low priority fixes (12 items)`
+- **Tag**: 合并后打 `v1.6.0`
+
+---
+
+## 十三、ISSUES.md 更新
+
+每完成一项，勾选 `ISSUES.md` 中的对应 checkbox。全部完成后，将 12 项从「待修复」移动到「已完成」折叠区域。更新 ISSUES.md 头部状态行。
