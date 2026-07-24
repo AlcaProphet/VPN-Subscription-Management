@@ -70,9 +70,9 @@ Go 允许同一 `package` 的代码分散在多个 `.go` 文件中，所有文�
 
 ### 2.2 L3 — `logAccess` 写入失败加日志
 
-**问题**: `handlers.go` 第 1767 行，`repo.Insert()` 的返回值被丢弃（`_ = repo.Insert(...)`），日志写入失败时无任何记录，问题排查困难。
+**问题**: `handlers.go` 第 1779 行，`repo.Insert()` 的返回值被丢弃（`_ = repo.Insert(...)`），日志写入失败时无任何记录，问题排查困难。
 
-**当前代码** (`handlers.go:1746-1768`):
+**当前代码** (`handlers.go:1766-1790`):
 ```go
 func logAccess(userID, ip, downloadType, platform, shareSubID, ruleID, status, errorReason string) {
     identifier := userID
@@ -113,7 +113,7 @@ if err := repo.Insert(&repository.AccessLogRecord{...}); err != nil {
 
 ### 2.3 L7 — Tailwind CSS 未使用变量清理
 
-**问题**: `tailwind.config.js` 第 13 行定义了 `colors.primary`，但 grep 确认 `frontend/src/` 下**没有任何组件**使用 `primary` 这个 color name。此配置为过渡期 Element Plus 颜色对齐用，Phase 2 完成后已无引用。
+**问题**: `tailwind.config.js` 第 7 行定义了 `colors.primary`，但 grep 确认 `frontend/src/` 下**没有任何组件**使用 `primary` 这个 color name。此配置为过渡期 Element Plus 颜色对齐用，Phase 2 完成后已无引用。
 
 **方案**: 从 `tailwind.config.js` 的 `theme.extend.colors` 中删除 `primary` 定义。由于 `extend` 下除 `colors` 外无其他配置，删除后 `extend: {}` 为空对象，一并简化：
 
@@ -131,7 +131,7 @@ if err := repo.Insert(&repository.AccessLogRecord{...}); err != nil {
     extend: {},
 ```
 
-> **行号参考**: `colors.primary` 定义在 `tailwind.config.js` 第 13 行。
+> **行号参考**: `colors.primary` 定义在 `tailwind.config.js` 第 7 行。
 
 **验证**: `npm run build` 通过。
 
@@ -139,7 +139,7 @@ if err := repo.Insert(&repository.AccessLogRecord{...}); err != nil {
 
 ### 2.4 L8 — `App.vue` 中 `useTheme()` 调用位置调整
 
-**问题**: `App.vue` 第 22 行 `useTheme()` 被调用但返回值未被使用。主题初始化是副作用（设置 `document.documentElement.classList` 和监听 `prefers-color-scheme`），但放在 `App.vue` 中每次路由切换时不会重新执行（因为 `App.vue` 是根组件只挂载一次），所以实际上正常工作。但语义上这个初始化更适合放在 `main.js` 中（应用启动时执行一次）。
+**问题**: `App.vue` 第 38 行 `useTheme()` 被调用（import 在第 18 行），但返回值未被使用。主题初始化是副作用（设置 `document.documentElement.classList` 和监听 `prefers-color-scheme`），但放在 `App.vue` 中每次路由切换时不会重新执行（因为 `App.vue` 是根组件只挂载一次），所以实际上正常工作。但语义上这个初始化更适合放在 `main.js` 中（应用启动时执行一次）。
 
 **方案**: 在 `main.js` 中调用 `useTheme()` 进行初始化，从 `App.vue` 中移除。
 
@@ -511,6 +511,28 @@ func (s *SubscriptionService) UploadVersion(id, content string) (*models.Subscri
 2. `Create` 方法改为: 创建空 DB 记录 → 调用 `UploadVersionTx`（内部含事务+defer）→ 失败时 `s.Delete(id)` 级联清理
 3. 统一所有 6 个版本创建路径的清理模式
 
+**失败策略与回退机制**:
+
+通用方法作为独立 commit（commit 1）进入代码库后，即使后续没有任何 service 成功迁移，它也不影响现有功能——它只是一段未被调用的代码。这保证了 L2 在任何失败场景下都不会引入回归。
+
+迁移按 commit 2→5 逐个 service 推进，每个 commit 后立即编译 + 浏览器实测。失败时按以下规则决策：
+
+| 失败场景 | 判定条件 | 操作 | 回退范围 |
+|---------|---------|------|---------|
+| commit 1 编译失败 | — | 修复通用方法代码后继续 | 仅 `version_service.go` |
+| 单 service 编译失败 | — | 回退该 service 的迁移 commit，保留其旧代码 | 该 service 1 个 commit |
+| 单 service 浏览器实测失败 | §11.2 的 4 场景任一不通过 | 同上 | 该 service 1 个 commit |
+| ≥2 个 service 失败 | 编译或浏览器实测 | 全部回退到 commit 1 之前（保留通用方法代码但不使用），重新设计通用方法 | 全部 4 个 service |
+
+**每 service 风险预判**:
+
+| service | 风险 | 关注点 |
+|---------|:---:|------|
+| SubscriptionService | 低 | 最标准实现，单列主键 `id` |
+| RuleService | 低 | 与 Subscription 几乎同构 |
+| ShareSubscriptionService | 中 | 表名含下划线 `share_subscriptions`；`Create` 方法需额外对齐 |
+| CustomSubscriptionService | 中 | `Upload`(create) 分支逻辑与标准 `UploadVersion` 不同；但通用方法仅封装事务+文件操作，不改变业务逻辑 |
+
 **验证**: `go build ./...` + `go vet ./...` 通过。在浏览器中实际测试：上传版本 → 切换当前版本 → 删除旧版本，覆盖 4 种资源类型（订阅/规则/分享订阅/自定义订阅）。
 
 ---
@@ -569,16 +591,20 @@ admin.GET("/users", userHandler.ListUsers)
 ## 七、执行顺序总览
 
 ```
-阶段 1: L6 → L3 → L7 → L8  (并行独立, ≤1h)
+阶段 1: L6 | L3 | L7 | L8  (全部独立, 无顺序依赖, ≤1h)
     ↓
 阶段 2: L1  (拆分 handlers.go, ~3h)
     ↓
-阶段 3: L5 → L4 → LR2  (独立质量修复, ~3h)
+阶段 3: L5 | L4 (后端)  ∥  LR2 (前端, 可并行)  (~3h)
     ↓
 阶段 4: LR1 → L2 → LR3  (LR1 独立, L2 包含 LR3, ~6h)
     ↓
 阶段 5: A11  (设计文档, 0.5h)
 ```
+
+> **阶段间说明**: `|` 表示互不依赖可任意顺序甚至并行；`→` 表示有先后依赖；`∥` 表示分属前后端互不阻塞。
+
+> **⚠️ 行号偏移**: 阶段 2 (L1) 拆分 `handlers.go` 后，该文件从 ~1802 行缩减至 ~200 行。后续阶段（L5/L4）中引用的 `handlers.go` 行号将失效，请使用 `grep -n "func 函数名" handlers.go` 重新定位。涉及函数: `setDownloadHeaders`（§4.1）、`logAccess`（§2.2，在阶段 1 已处理）。
 
 **每阶段完成后的验证门禁**:
 - 阶段 1/3: `go build ./...` + `npm run build` 通过
