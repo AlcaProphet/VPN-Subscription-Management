@@ -211,6 +211,7 @@ import { useTheme } from '@/composables/useTheme'
 
 **潜在风险**:
 - `handlers.go` 中的 import block 被所有函数共享，拆分后每个新文件需独立管理 import。逐个文件编译 → 删未使用 import → 再编译的方式虽慢但精确。
+- `admin_rule_handlers.go` 中的 `createRuleWithFirstVersion` 辅助函数使用了 `fmt.Errorf`，拆分后需确保该文件包含 `"fmt"` import。
 - 无其他实际风险 — Go 同包不同文件共享所有符号，无需修改函数签名或调用方式。
 
 **验证**: `go build ./...` + `go vet ./...` 通过。
@@ -408,9 +409,9 @@ func (s *CustomSubscriptionService) RefreshToken(customSubID string) error {
 
 ---
 
-### 5.2 LR3 — `CreateVersion` 文件/DB 操作清理不一致
+### 5.2 LR3 — 版本创建路径清理模式不统一
 
-**问题**: 4 个 service 的 `UploadVersion` 方法和 2 个 `Create` 方法在文件写入失败时的清理逻辑不一致：
+**问题**: 4 个 service 的 `UploadVersion` 方法和 2 个 `Create` 方法在版本文件写入失败时的清理逻辑**都是正确的**，但实现模式不统一——有的用 `defer` + `committed` flag，有的用手动 if/else。长期来看，分散的清理模式容易在后续修改中引入不一致：
 
 | 方法 | 清理模式 | 问题 |
 |------|---------|------|
@@ -582,7 +583,7 @@ admin.GET("/users", userHandler.ListUsers)
 
 ---
 
-## 八、决策确认（2026-07-23）
+## 八、决策确认（2026-07-24）
 
 所有待决策项已确认，实施时以此为最终方案。
 
@@ -668,3 +669,16 @@ L2 完成后，在浏览器中按以下矩阵测试 **4 种资源类型 × 3 种
 ## 十三、ISSUES.md 更新
 
 每完成一项，勾选 `ISSUES.md` 中的对应 checkbox。全部完成后，将 12 项从「待修复」移动到「已完成」折叠区域。更新 ISSUES.md 头部状态行。
+
+同时修正 ISSUES.md 中 L7 和 LR3 的描述，使其与实际代码状态一致：
+- L7: `tailwind.css 中未使用的 CSS 变量` → `tailwind.config.js 中未使用的颜色变量`
+- LR3: `CreateVersion 文件/DB 操作不同步` → `版本创建路径清理模式不统一`
+
+---
+
+## 十四、未来优化（非 Phase 3 范围）
+
+以下问题在 Phase 3 调研中被识别，但不属于 Low 优先级 ISSUES 修复范围，记录在此供后续阶段参考：
+
+- **前端 bundle 过大**: 当前 `index.js` 约 1.1 MB（gzip 365 KB），超过 Vite 默认的 500 KB 警告阈值。建议在后续阶段使用动态 import 进行代码分割，按路由懒加载管理面板各子页面（`SubList`、`UserManage`、`RulesManage` 等），预期可减少首屏加载体积 50% 以上。
+- **go.mod 工具链版本**: Phase 3 将 `go` 指令修正为 `1.26`，但未添加 `toolchain` 指令（Go 1.21+ 支持）。若需锁定 Docker 构建工具链版本，可在 `go.mod` 中追加 `toolchain go1.26.5`。当前 `golang:alpine` 自动使用最新版本，暂无锁定必要。
