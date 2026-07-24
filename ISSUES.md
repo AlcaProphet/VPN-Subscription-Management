@@ -1,6 +1,6 @@
 # Issues.md — 问题追踪
 
-> **状态**: 🟡 仅 Low 优先级项待处理。Critical/High/Medium + 卡片化重构已于 2026-07-23 全部完成。
+> **状态**: 🟡 仅 Low 优先级项待处理。Critical/High/Medium + 卡片化重构已于 2026-07-23 全部完成。移动端适配 + 规则一键导入已于 2026-07-24 完成。
 > **待检查**: 版本管理卡片化 + Setup/SystemSettings OIDC 表单交互修复需在浏览器中实际验证。
 
 ---
@@ -95,6 +95,16 @@
 - 保留: 全部 API 逻辑、`UploadModal`、`el-dialog` 预览、`ConfirmDialog`、`sortedVersions`/`currentVersionNum` computed
 - 前端构建 ✅ 通过，零错误
 - 清理: `ActionMenu.vue` 已删除（无其他引用）
+
+</details>
+
+<details>
+<summary><b>移动端适配 + 规则一键导入</b>（4 项，点击展开）</summary>
+
+- [x] **M1. 版本预览弹窗移动端溢出** — `SubVersions`/`ShareVersions`/`RuleVersions` 预览弹窗宽度固定 640px → `useDialogWidth('640px')` 响应式 + `<pre>` 加 `whitespace-pre-wrap break-all`
+- [x] **M2. 日志表格移动端溢出** — `Logs.vue` 桌面端保持 `el-table`，移动端改用卡片列表布局，每条日志独立卡片
+- [x] **M3. 规则模块一键导入** — 后端 `rules` 表新增 `client_schemes` 字段（默认 `["shadowrocket://config/add/"]`），`GET /rules/:id/download-link` 返回 `client_schemes` + 预构建 `import_url`；前端 `RulesManage.vue` 创建规则对话框新增 URL Schemes 输入框，`Rules.vue` 新增「一键导入」按钮
+- [x] **M4. Shadowrocket 默认 client schemes** — `db.go` + `README.md`：`shadowrocket://install-config?url=` → `shadowrocket://add/`
 
 </details>
 
