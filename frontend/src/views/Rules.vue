@@ -56,9 +56,23 @@
                 <span class="text-gray-700 dark:text-gray-300">{{ formatTime(currentUpdatedAt(rule)) }}</span>
               </div>
             </div>
-            <div class="flex justify-end">
+            <div class="flex items-center gap-2 flex-wrap">
               <button
                 class="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="importing === rule.id"
+                @click="handleImport(rule)"
+              >
+                <span v-if="importing === rule.id" class="flex items-center gap-1">
+                  <svg class="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  导入中...
+                </span>
+                <span v-else>一键导入</span>
+              </button>
+              <button
+                class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 :disabled="fetchingLink === rule.id"
                 @click="fetchDownloadLink(rule)"
               >
@@ -69,7 +83,7 @@
                   </svg>
                   获取中...
                 </span>
-                <span v-else>获取下载链接</span>
+                <span v-else>复制链接</span>
               </button>
             </div>
           </div>
@@ -97,7 +111,7 @@
                 </svg>
               </button>
             </div>
-            <div class="flex items-center gap-2 mb-4">
+            <div class="flex items-center gap-2 mb-3">
               <input
                 ref="urlInputRef"
                 :value="dialogUrl"
@@ -110,6 +124,14 @@
                 @click="copyUrl"
               >
                 {{ copied ? '已复制' : '复制' }}
+              </button>
+            </div>
+            <div v-if="dialogImportUrl" class="mb-3">
+              <button
+                class="w-full bg-green-600 hover:bg-green-700 text-white rounded-md px-3 py-2 text-sm"
+                @click="handleDialogImport"
+              >
+                一键导入到客户端
               </button>
             </div>
             <p class="text-xs text-gray-400 dark:text-gray-500">
@@ -137,8 +159,10 @@ const rules = ref([])
 // Download link dialog state
 const showDialog = ref(false)
 const dialogUrl = ref('')
+const dialogImportUrl = ref('')
 const dialogRuleName = ref('')
 const fetchingLink = ref(null) // rule.id that is currently being fetched
+const importing = ref(null) // rule.id that is currently importing
 const copied = ref(false)
 const urlInputRef = ref(null)
 
@@ -163,6 +187,7 @@ async function fetchDownloadLink(rule) {
   try {
     const res = await userApi.getRuleDownloadLink(rule.id)
     dialogUrl.value = window.location.origin + res.data.url
+    dialogImportUrl.value = res.data.import_url || ''
     dialogRuleName.value = res.data.rule_name || rule.name
     copied.value = false
     showDialog.value = true
@@ -173,6 +198,23 @@ async function fetchDownloadLink(rule) {
     toastError('获取下载链接失败')
   } finally {
     fetchingLink.value = null
+  }
+}
+
+async function handleImport(rule) {
+  importing.value = rule.id
+  try {
+    const res = await userApi.getRuleDownloadLink(rule.id)
+    const importUrl = res.data.import_url
+    if (importUrl) {
+      window.location.href = importUrl
+    } else {
+      toastError('该规则未配置 URL Scheme，无法一键导入')
+    }
+  } catch (e) {
+    toastError('获取导入链接失败')
+  } finally {
+    importing.value = null
   }
 }
 
@@ -189,6 +231,12 @@ async function copyUrl() {
     copied.value = true
     toastSuccess('已复制到剪贴板')
     setTimeout(() => { copied.value = false }, 2000)
+  }
+}
+
+function handleDialogImport() {
+  if (dialogImportUrl.value) {
+    window.location.href = dialogImportUrl.value
   }
 }
 

@@ -100,6 +100,7 @@ func createTables() error {
 			id          TEXT PRIMARY KEY,
 			name        TEXT NOT NULL DEFAULT '',
 			client_type TEXT NOT NULL DEFAULT 'shadowrocket',
+			client_schemes TEXT NOT NULL DEFAULT '["shadowrocket://config/add/"]',
 			versions    TEXT NOT NULL DEFAULT '[]',
 			created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
@@ -186,6 +187,9 @@ func createTables() error {
 		}
 	}
 
+	// Migration: add client_schemes column to rules if missing (v1.6.0+)
+	DB.Exec(`ALTER TABLE rules ADD COLUMN client_schemes TEXT NOT NULL DEFAULT '["shadowrocket://config/add/"]'`)
+
 	return nil
 }
 
@@ -212,7 +216,7 @@ func insertDefaultPlatforms() error {
 			ID:            "shadowrocket",
 			Name:          "Shadowrocket",
 			Description:   "Shadowrocket 客户端",
-			ClientSchemes: `["shadowrocket://install-config?url="]`,
+			ClientSchemes: `["shadowrocket://add/"]`,
 		},
 	}
 

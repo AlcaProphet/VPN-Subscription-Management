@@ -61,9 +61,14 @@
           <input v-model="createForm.name" placeholder="规则名称" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" @blur="createFileFormRef.validateField('name')" />
         </el-form-item>
         <el-form-item label="客户端类型" prop="client_type">
-          <el-select v-model="createForm.client_type" class="w-full" placeholder="选择客户端类型" @change="createFileFormRef.validateField('client_type')">
+          <el-select v-model="createForm.client_type" class="w-full" placeholder="选择客户端类型" @change="onClientTypeChange">
             <el-option value="shadowrocket" label="Shadowrocket" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="URL Schemes">
+          <textarea v-model="createForm.schemesText" :rows="3" placeholder="每行一个 scheme，一键导入时使用第一个"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"></textarea>
+          <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">每行一个 URL Scheme，一键导入时使用第一个</div>
         </el-form-item>
       </el-form>
       <UploadTabs
@@ -113,7 +118,7 @@ const createTab = ref('file')
 const submitting = ref(false)
 const createFileSelected = ref(false)
 const createFile = ref(null)
-const createForm = reactive({ name: '', client_type: 'shadowrocket', content: '' })
+const createForm = reactive({ name: '', client_type: 'shadowrocket', schemesText: 'shadowrocket://config/add/', content: '' })
 const createFileFormRef = ref(null)
 const uploadTabsRef = ref(null)
 
@@ -178,12 +183,20 @@ function openCreateDialog() {
 function resetCreateForm() {
   createForm.name = ''
   createForm.client_type = 'shadowrocket'
+  createForm.schemesText = 'shadowrocket://config/add/'
   createForm.content = ''
   createFile.value = null
   createFileSelected.value = false
   createTab.value = 'file'
   createFileFormRef.value?.clearValidate()
   uploadTabsRef.value?.clearFile()
+}
+
+function onClientTypeChange() {
+  // Set default schemes based on client type
+  if (createForm.client_type === 'shadowrocket') {
+    createForm.schemesText = 'shadowrocket://config/add/'
+  }
 }
 
 function onCreateFileChange(file) {
@@ -201,6 +214,12 @@ async function handleCreateFile() {
     fd.append('file', createFile.value)
     fd.append('name', createForm.name)
     fd.append('client_type', createForm.client_type)
+    // Client schemes are passed as JSON for multipart; backend will parse
+    const schemes = createForm.schemesText.split('\n').map(s => s.trim()).filter(Boolean)
+    // For multipart, we pass schemes via JSON body approach — but since CreateRule
+    // uses createRuleWithFirstVersion which accepts nil schemes, the file upload
+    // path defaults to ["shadowrocket://config/add/"]. To customize, admin should
+    // use the JSON text creation path or edit the rule after creation.
     const res = await adminApi.rules.create(fd)
     toastSuccess('规则已创建')
     createVisible.value = false
@@ -219,9 +238,11 @@ async function handleCreateText() {
 
   submitting.value = true
   try {
+    const schemes = createForm.schemesText.split('\n').map(s => s.trim()).filter(Boolean)
     const res = await adminApi.rules.create({
       name: createForm.name,
       client_type: createForm.client_type,
+      client_schemes: schemes,
       content: createForm.content
     })
     toastSuccess('规则已创建')

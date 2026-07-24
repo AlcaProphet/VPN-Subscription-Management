@@ -64,11 +64,12 @@ type Version struct {
 // ============================================================================
 
 type Rule struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	ClientType string    `json:"client_type"` // reserved for future expansion, e.g. "shadowrocket"
-	Versions   []Version `json:"versions"`    // JSON array
-	CreatedAt  string    `json:"created_at"`  // SQLite TEXT, e.g. "2026-07-20 06:31:59"
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	ClientType    string    `json:"client_type"`    // reserved for future expansion, e.g. "shadowrocket"
+	ClientSchemes []string  `json:"client_schemes"` // JSON array, e.g. ["shadowrocket://config/add/"]
+	Versions      []Version `json:"versions"`       // JSON array
+	CreatedAt     string    `json:"created_at"`     // SQLite TEXT, e.g. "2026-07-20 06:31:59"
 }
 
 // ============================================================================

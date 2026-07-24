@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -53,7 +54,7 @@ func GetRules(c *gin.Context) {
 
 // GetRuleDownloadLink returns a download URL (with token) for a specific rule.
 // Requires JWT auth — only logged-in users can obtain rule download links.
-// The returned token is the same one used by the public /rules/:id/download endpoint.
+// Also returns client_schemes and a pre-built import_url for one-click import.
 func GetRuleDownloadLink(c *gin.Context) {
 	ruleID := c.Param("id")
 
@@ -72,9 +73,25 @@ func GetRuleDownloadLink(c *gin.Context) {
 	}
 
 	downloadURL := fmt.Sprintf("/api/v1/rules/%s/download?token=%s", ruleID, token)
+
+	// Build import URL from the first client_scheme
+	var importURL string
+	if len(rule.ClientSchemes) > 0 {
+		scheme := rule.ClientSchemes[0]
+		// Build absolute URL using the request's host
+		scheme2 := "http"
+		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+			scheme2 = "https"
+		}
+		fullDownloadURL := fmt.Sprintf("%s://%s%s", scheme2, c.Request.Host, downloadURL)
+		importURL = scheme + url.QueryEscape(fullDownloadURL)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"url":       downloadURL,
-		"rule_name": rule.Name,
+		"url":            downloadURL,
+		"rule_name":      rule.Name,
+		"client_schemes": rule.ClientSchemes,
+		"import_url":     importURL,
 	})
 }
 
@@ -1363,13 +1380,14 @@ func ListAdminRules(c *gin.Context) {
 }
 
 func CreateRule(c *gin.Context) {
-	// Try JSON body first (id + name + client_type + optional content)
+	// Try JSON body first (id + name + client_type + optional content + client_schemes)
 	if strings.HasPrefix(c.GetHeader("Content-Type"), "application/json") {
 		var req struct {
-			ID         string `json:"id"`
-			Name       string `json:"name"`
-			ClientType string `json:"client_type"`
-			Content    string `json:"content"`
+			ID            string   `json:"id"`
+			Name          string   `json:"name"`
+			ClientType    string   `json:"client_type"`
+			ClientSchemes []string `json:"client_schemes"`
+			Content       string   `json:"content"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
@@ -1381,7 +1399,7 @@ func CreateRule(c *gin.Context) {
 		}
 		if req.Content != "" {
 			// One-step creation with first version
-			rule, token, err := createRuleWithFirstVersion(req.ID, req.Name, req.ClientType, req.Content)
+			rule, token, err := createRuleWithFirstVersion(req.ID, req.Name, req.ClientType, req.ClientSchemes, req.Content)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
@@ -1391,9 +1409,10 @@ func CreateRule(c *gin.Context) {
 		}
 		// Backward compatible: JSON without content — create empty rule record
 		rule := &models.Rule{
-			ID:         req.ID,
-			Name:       req.Name,
-			ClientType: req.ClientType,
+			ID:            req.ID,
+			Name:          req.Name,
+			ClientType:    req.ClientType,
+			ClientSchemes: req.ClientSchemes,
 		}
 		if err := RuleSvc.Create(rule); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1427,7 +1446,7 @@ func CreateRule(c *gin.Context) {
 		clientType = c.Query("client_type")
 	}
 
-	rule, token, err := createRuleWithFirstVersion(id, name, clientType, content)
+	rule, token, err := createRuleWithFirstVersion(id, name, clientType, nil, content)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1437,11 +1456,12 @@ func CreateRule(c *gin.Context) {
 
 // createRuleWithFirstVersion creates a rule record and uploads its first version.
 // On failure after DB record creation, cleans up the rule record.
-func createRuleWithFirstVersion(id, name, clientType, content string) (*models.Rule, string, error) {
+func createRuleWithFirstVersion(id, name, clientType string, clientSchemes []string, content string) (*models.Rule, string, error) {
 	rule := &models.Rule{
-		ID:         id,
-		Name:       name,
-		ClientType: clientType,
+		ID:            id,
+		Name:          name,
+		ClientType:    clientType,
+		ClientSchemes: clientSchemes,
 	}
 	if err := RuleSvc.Create(rule); err != nil {
 		return nil, "", err

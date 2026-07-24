@@ -175,7 +175,7 @@ sudo nginx -t && sudo nginx -s reload
 |------|--------|-------------|
 | Windows / macOS / Linux | Clash Verge | `clash://install-config?url=` |
 | Android | v2rayNG | `v2rayng://install-config?url=` |
-| iOS | Shadowrocket | `shadowrocket://install-config?url=` |
+| iOS | Shadowrocket | `shadowrocket://add/` |
 
 系统初始化时自动创建以上三个平台。管理员可在「平台管理」中添加自定义平台、修改 scheme 或设置客户端下载链接（首页"下载客户端"按钮）。
 

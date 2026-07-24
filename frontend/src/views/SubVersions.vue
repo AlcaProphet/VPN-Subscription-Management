@@ -47,8 +47,8 @@
 
     <UploadModal v-model:visible="uploadVisible" :initial-content="editContent" @upload="onFileUpload" @textSave="onTextSave" />
 
-    <el-dialog v-model="previewVisible" title="版本预览" width="640px" :close-on-click-modal="false" :append-to-body="true">
-      <pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-md text-sm overflow-auto max-h-96 max-md:max-h-[calc(100vh-120px)] text-gray-900 dark:text-gray-100">{{ previewContent }}</pre>
+    <el-dialog v-model="previewVisible" title="版本预览" :width="previewDialogWidth" :close-on-click-modal="false" :append-to-body="true">
+      <pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-md text-sm overflow-auto max-h-96 max-md:max-h-[calc(100vh-120px)] text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-all">{{ previewContent }}</pre>
       <template #footer>
         <div class="flex justify-end gap-2">
           <button class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md px-4 py-2 text-sm" @click="previewVisible = false">关闭</button>
@@ -65,6 +65,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
+import { useDialogWidth } from '@/composables/useDialogWidth'
 import { adminApi } from '@/services/api'
 import UploadModal from '@/components/UploadModal.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -72,6 +73,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 const route = useRoute()
 const router = useRouter()
 const { success: toastSuccess, error: toastError } = useToast()
+const previewDialogWidth = useDialogWidth('640px')
 
 // ==========================================================================
 // Data

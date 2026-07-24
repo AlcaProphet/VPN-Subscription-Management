@@ -22,7 +22,8 @@
       暂无日志记录
     </div>
 
-    <div v-else class="w-full overflow-x-auto">
+    <!-- Desktop: table -->
+    <div v-else-if="!isMobile" class="w-full overflow-x-auto">
       <el-table :data="logs" stripe>
       <el-table-column label="时间" width="180"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
       <el-table-column label="下载类型" width="130">
@@ -30,8 +31,8 @@
           <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="typeTagClass(row.download_type)">{{ downloadTypeLabel(row.download_type) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!isMobile" label="用户 ID" width="140" show-overflow-tooltip><template #default="{ row }">{{ row.user_id || '—' }}</template></el-table-column>
-      <el-table-column v-if="!isMobile" label="平台" width="130"><template #default="{ row }">{{ row.platform || '—' }}</template></el-table-column>
+      <el-table-column label="用户 ID" width="140" show-overflow-tooltip><template #default="{ row }">{{ row.user_id || '—' }}</template></el-table-column>
+      <el-table-column label="平台" width="130"><template #default="{ row }">{{ row.platform || '—' }}</template></el-table-column>
       <el-table-column label="状态" width="80">
         <template #default="{ row }">
           <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="row.status === 'success' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'">{{ row.status === 'success' ? '成功' : '失败' }}</span>
@@ -45,6 +46,31 @@
       </el-table-column>
       <el-table-column label="IP" width="150"><template #default="{ row }">{{ row.ip }}</template></el-table-column>
     </el-table>
+    </div>
+
+    <!-- Mobile: card list -->
+    <div v-else class="flex flex-col gap-3">
+      <div
+        v-for="log in logs"
+        :key="log.id"
+        class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-3 border border-gray-200 dark:border-gray-700"
+      >
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="typeTagClass(log.download_type)">{{ downloadTypeLabel(log.download_type) }}</span>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="log.status === 'success' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'">{{ log.status === 'success' ? '成功' : '失败' }}</span>
+          </div>
+          <span class="text-xs text-gray-400 dark:text-gray-500 shrink-0">{{ formatTimeShort(log.created_at) }}</span>
+        </div>
+        <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
+          <span v-if="log.user_id">用户: {{ log.user_id }}</span>
+          <span v-if="log.platform">平台: {{ log.platform }}</span>
+          <span>IP: {{ log.ip }}</span>
+        </div>
+        <div v-if="log.error_reason" class="mt-1.5 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">
+          {{ log.error_reason }}
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -71,6 +97,12 @@ const selectedDate = ref(
 function formatTime(t) {
   if (!t) return ''
   return new Date(t).toLocaleString()
+}
+
+function formatTimeShort(t) {
+  if (!t) return ''
+  const d = new Date(t)
+  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 function downloadTypeLabel(type) {
