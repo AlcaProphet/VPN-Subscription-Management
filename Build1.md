@@ -189,9 +189,10 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
   func Error(msg string, args ...any)   { defaultLogger.Error(msg, args...) }
   // Warn/Debug 同理；业务包统一经本包输出，禁止散落 fmt.Println
 
-  // New 构建分级 + 双格式 logger：format="json" 用 JSONHandler，否则 TextHandler，均输出 stdout
+  // New 构建分级 + 双格式 logger：format="json" 用 JSONHandler，否则 TextHandler，均输出 stdout；
+  // 内部以 *slog.LevelVar 代替固定 Level，并暴露 SetLevel(string)：运行时切换立即生效（Build3 Step 3 接通，持久化由调用方写配置键）
   func New(level, format string) *slog.Logger {
-      var h slog.Handler // 按 format 构建，opts.Level = 解析后的 slog.Level
+      var h slog.Handler // 按 format 构建，opts.Level 取自包级 *slog.LevelVar
       return slog.New(NewRedactHandler(h))
   }
 
@@ -462,6 +463,12 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
   // EnsureSigningKey 确保签名密钥存在：为空则生成 32 字节加密安全随机值写入（明文，256 位熵）。
   // 供 Step 4 会话签发前置调用；Step 5 Setup 完成事务复用同一密钥，不重复生成（Design1 §3.1/6.2）
   func (s *Service) EnsureSigningKey(ctx context.Context) ([]byte, error) { /* Get → 为空则 rand.Read 后 Set */ }
+
+  // GetSigningKey 读取既有签名密钥（[]byte 形式，存储为 base64 则此处解码）；缺失返回错误不生成（Step 6 验签用）
+  func (s *Service) GetSigningKey(ctx context.Context) ([]byte, error) { /* Get(KeySigningKey) → 空返错误 / base64 解码 */ }
+
+  // EnsureSigningKeyTx / EncryptWithTx：上述能力的「事务内版本」（读同一 tx 中的签名密钥），
+  // 在 Step 5（Setup 完成事务）与 Step 6（OIDC Setup 事务）中按需新增，实现与同事务内的密钥生成/读取原子化
   ```
 
   **6. `backend/internal/server/`（HTTP 服务装配，接入层）**
@@ -2774,7 +2781,7 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
       callbackURL := frontendURL + "/api/auth/oidc/callback"
       return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
           if err := s.cfg.EnsureSigningKeyTx(ctx, tx); err != nil { return err }       // 复用不重复生成
-          secretCipher, err := s.cfg.EncryptWithTx(ctx, tx, p.ClientSecret)            // Secret 加密落库
+          secretCipher, err := s.cfg.EncryptWithTx(ctx, tx, p.ClientSecret)            // Secret 加密落库（EncryptWithTx 定义见 Step 1 config 说明：事务内读密钥 + config.Encrypt）
           if err != nil { return err }
           paramsJSON := marshalParams(p, secretCipher)                                  // 各提供商参数存独立键
           if err := s.cfg.SetTx(ctx, tx, "oidc_params_"+providerType, paramsJSON); err != nil { return err }

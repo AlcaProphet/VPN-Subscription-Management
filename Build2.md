@@ -696,24 +696,23 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
       ...
   }
 
-  // YamlWarning：文本编辑保存前 YAML 语法检测——仅当内容为 YAML 时提示，非 YAML（base64/v2ray/.conf）静默跳过，均不阻断保存
+  // YamlWarning：文本编辑保存前 YAML 语法检测——先启发式判定「是否 YAML」，是 YAML 再做语法检测并提示，
+  // 非 YAML（base64/v2ray/.conf）静默跳过；均不阻断保存（提示由前端 a-alert warning 展示）
   func YamlWarning(content []byte) string {
-      if looksNonYaml(content) { // base64 可解码、或 v2ray:// 等前缀 → 静默跳过
+      if looksNonYaml(content) { // 启发式：可 base64 解码，或以 v2ray://、clash:// 等协议前缀开头 → 静默跳过
           return ""
       }
-      var probe map[string]any
+      if !looksLikeYaml(content) { // 启发式：不含「键: 值」行结构且非 --- 开头 → 不视为 YAML，静默跳过
+          return ""
+      }
+      var probe any
       if err := yaml.Unmarshal(content, &probe); err != nil {
-          var probeList []any
-          if err2 := yaml.Unmarshal(content, &probeList); err2 != nil {
-              return "" // 解析不出结构 → 不视为 YAML，静默跳过
-          }
-          return ""
+          return "YAML 语法问题：" + err.Error() // 判定为 YAML 但语法错误 → 返回警告标记（不阻断）
       }
-      // 结构合法 → 无警告；调用方仅在编辑保存时调用，返回 yaml_warning 标记由前端展示 a-alert，不阻断
-      return ""
+      return "" // 合法 YAML → 无警告
   }
   // 注：YAML 检测库以 Design1 §5.1 允许的范围内择一并全程统一（参考实现用 gopkg.in/yaml.v3）；
-  // 「非 YAML 判定」启发式：可 base64 解码、或以常见客户端协议前缀开头 → 静默跳过
+  // looksLikeYaml 启发式：--- 开头，或存在「非空键 + 冒号 + 空格/换行」的行（如 proxies:、port: 8080）
   ```
 
   **3. `backend/internal/subscription/`（业务层：订阅池）**
@@ -2006,7 +2005,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
   func (s *Service) RefreshToken(ctx context.Context, id int64) (string, error) {
       var newToken string
       err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-          tk, err := s.tokens.RotateShareTokenTx(ctx, tx, id) // DELETE 旧 + INSERT 新
+          tk, err := s.tokens.RotateShareTokenTx(ctx, tx, id) // Step 4 RotateShareToken 的事务内版本（同 SQL 抽取：DELETE 旧 + INSERT 新）
           if err != nil {
               return err
           }

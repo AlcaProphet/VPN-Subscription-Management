@@ -849,6 +849,7 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
       cfg     *config.Service
       store   *store.Store
       oidcSvc *oidc.Service
+      dataDir string // 数据卷根目录（站点 ICON 落盘用）
       log     *slog.Logger
   }
 
@@ -1406,8 +1407,10 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
       return nil
   }
 
-  // snapshotTo：优先 VACUUM INTO（SQLite 3.27+，一致性快照）；失败回退 backup API
+  // snapshotTo：一致性快照——首选 SQLite backup API（驱动层备份，Design1 §7.2）；
+  // 驱动未直接暴露 backup 能力时以 VACUUM INTO 等价实现（同样产生一致性快照，避免 WAL 未 checkpoint 数据遗漏）
   func (s *Service) snapshotTo(dest string) error {
+      // 优先尝试 modernc 驱动的 backup 能力（若暴露）；否则：
       _, err := s.store.DB().Exec(`VACUUM INTO ?`, dest)
       return err
   }
@@ -1977,14 +1980,14 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
 
   // DetectTrigger：启动时触发判定（main 装配时调用，先于路由注册）
   func Detect(ctx context.Context, store *store.Store, cfg *config.Service, log *slog.Logger) (TriggerReason, bool) {
-      // 1) 手动触发：环境变量 RESET_ADMIN_PASSWORD 已设置（值非空）
+      // 1) 手动触发：环境变量 RESET_ADMIN_PASSWORD 已设置（值非空）——手动优先，但仍探测数据库可读性
+      //    （决定能力分级：环境变量已设置但数据库不可读时，页面自动降级为仅重新初始化，Design1 §3.8）
       if os.Getenv("RESET_ADMIN_PASSWORD") != "" {
-          return TriggerManual, true // dbReadable 后续探测
+          return TriggerManual, probeDBReadable(ctx, store)
       }
       // 2) 自动触发（仅两类）：
       //    a) 数据库无法连接/损坏（含 PRAGMA integrity_check 不通过）
-      var integrity string
-      if err := store.DB().QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
+      if !probeDBReadable(ctx, store) {
           return TriggerDBCorrupt, false
       }
       //    b) 关键配置损坏：configured=true 但签名密钥缺失
@@ -1994,6 +1997,15 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
           return TriggerKeyMissing, true
       }
       return TriggerNone, true
+  }
+
+  // probeDBReadable：探测数据库可读性（连接可用 + PRAGMA integrity_check 通过）
+  func probeDBReadable(ctx context.Context, store *store.Store) bool {
+      var integrity string
+      if err := store.DB().QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
+          return false
+      }
+      return integrity == "ok"
   }
 
   // NewService：进入应急模式时构造——生成操作码并输出到运行日志（docker compose logs 可见）
