@@ -1,7 +1,7 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前设计基线见 [Design1.md](./Design1.md)（非强制，供参考）；暂缓项详细设计见 [DesignOnHold.md](./DesignOnHold.md)；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design0.md、[AchievedDocuments/](./AchievedDocuments/)）已存档，仅用于核查，不再用于构建。
+> 当前设计基线见 [Design1.md](./Design1.md)（非强制，供参考）；GUI 样式规格见 [Design1-UI.md](./Design1-UI.md)；暂缓项详细设计见 [DesignOnHold.md](./DesignOnHold.md)；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design0.md、[AchievedDocuments/](./AchievedDocuments/)）已存档，仅用于核查，不再用于构建。
 
 ---
 
@@ -183,6 +183,7 @@
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
 | Design 文档 | [Design1.md](./Design1.md)（当前设计基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策 | 非强制，供参考 |
+| Design GUI 规格 | [Design1-UI.md](./Design1-UI.md) | Design1.md 全部界面部件的 GUI 样式规格（布局/组件映射/状态分支/响应式）；功能行为以 Design1.md 为准 | 非强制，供参考 |
 | Design 暂缓文档 | [DesignOnHold.md](./DesignOnHold.md) | 承载已确认但暂缓开发功能的详细设计与已确认决策；仅其中「第一次构建预留接口」部分参与当期构建 | 非强制，供参考 |
 | Build 文档 | [BuildN.md](./BuildN.md) | 将 Design 的设计转化为指导 AI 构建的构建手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
 | Issue 文档 | [IssueN.md](./IssueN.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
@@ -210,6 +211,7 @@
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
 | [Design1.md](./Design1.md) | 人类（开发者/用户） | 当前设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维 | 活跃 |
+| [Design1-UI.md](./Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | GUI 样式规格：13 个页面/部件的布局结构、AntD 组件映射、状态分支、响应式规则、全局风格基调 | 活跃 |
 | [DesignOnHold.md](./DesignOnHold.md) | 人类（开发者/用户）与 AI 编码助手 | 暂缓项详细设计：模块化订阅装配器（数据模型/双渲染器/外部数据源/已确认决策/第一次构建预留接口） | 活跃（暂缓） |
 | [BuildN.md](./BuildN.md) | AI 编码助手 | 当前构建方案：分步 TODO LIST + 参考代码 + 验收命令 | 待按模板创建 |
 | [IssueN.md](./IssueN.md) | 开发者 | 当前问题追踪：现象/根因/影响范围/修复方案/状态 | 待按模板创建 |
