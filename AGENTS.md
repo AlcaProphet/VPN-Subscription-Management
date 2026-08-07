@@ -1,7 +1,7 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前设计基线见 [Design2.md](./Design2.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design1.md、[AchievedDocuments/](./AchievedDocuments/)）已存档，仅用于核查，不再用于构建。
+> 当前设计基线见 [Design1.md](./Design1.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design1.md、[AchievedDocuments/](./AchievedDocuments/)）已存档，仅用于核查，不再用于构建。
 
 ---
 
@@ -11,7 +11,7 @@
 - **后端**：Go 1.25，module `vpn-sub`，目录 `backend/`
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design2.md](./Design2.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design2.md](./Design1.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
 
 ---
 
