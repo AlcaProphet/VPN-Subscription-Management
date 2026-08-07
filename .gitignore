@@ -37,6 +37,18 @@ dist/
 *.log
 npm-debug.log*
 
+# TS 构建产物（vue-tsc -b 增量缓存与配置文件编译输出）
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+vitest.config.js
+vitest.config.d.ts
+
+# 例外：backend/web/dist 仅提交 index.html 占位（go:embed all:dist 编译必需；容器构建时被真实产物覆盖）
+!backend/web/dist/
+backend/web/dist/*
+!backend/web/dist/index.html
+
 # ==============================
 # Docker
 # ==============================

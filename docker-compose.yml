@@ -1,0 +1,27 @@
+services:
+  vpn-sub:
+    build: .
+    # ====== 接入方式二选一（Design1 §7.1）======
+    # 方式 A（推荐，公网部署）：仅绑回环，由外部反代承担 TLS 与域名接入
+    ports:
+      - "127.0.0.1:8080:8080"
+    # 方式 B（局域网直连）：注释掉上面一行，改用下面一行（注意 HTTP 明文风险，见 README）
+    #   - "8080:8080"
+    volumes:
+      - vpn-data:/data          # 单一数据卷：数据库 + 内容文件 + /public 资源
+    environment:
+      APP_MODE: prod
+      LOG_LEVEL: info
+      TRUST_PROXY: auto
+      # 应急恢复：管理员密码救援时取消下行注释并重启容器（Design1 §3.8，逻辑在 Build3 实现）
+      # RESET_ADMIN_PASSWORD: "1"
+    restart: unless-stopped
+    healthcheck:
+      # alpine 自带 wget，直接探测 /health；仅状态展示，不触发重启动作（Design1 §7.1）
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  vpn-data:
