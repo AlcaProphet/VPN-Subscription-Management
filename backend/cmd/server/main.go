@@ -9,10 +9,12 @@ import (
 	"syscall"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/cron"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/server"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
+	"vpn-sub/internal/version"
 	"vpn-sub/migrations"
 )
 
@@ -48,11 +50,20 @@ func main() {
 		os.Exit(1)
 	}
 	users := user.NewService(st, cfg, logger)
+	// 版本指针启动自检（Build2 Step 2）：DB「当前」与 symlink 不一致时以 DB 为准重建
+	verSvc := version.NewService(st, dataDir, logger)
+	if err := verSvc.StartupCheck(context.Background()); err != nil {
+		log.Error("版本指针自检失败", "err", err)
+		os.Exit(1)
+	}
 	srv, err := server.New(st, cfg, users, logger, mode, envOr("TRUST_PROXY", "auto"), envOr("PORT", "8080"), dataDir)
 	if err != nil {
 		log.Error("装配 HTTP 服务失败", "err", err)
 		os.Exit(1)
 	}
+	// 访问日志 90 天自动清理（Build2 Step 4）
+	stopCleanup := cron.StartAccessLogCleanup(st.DB(), logger)
+	defer stopCleanup()
 
 	// 信号驱动优雅退出
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

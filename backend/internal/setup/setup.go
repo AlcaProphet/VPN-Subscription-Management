@@ -3,7 +3,6 @@ package setup
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"strings"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/slug"
 	"vpn-sub/internal/store"
 )
 
@@ -34,43 +34,9 @@ func (s *Service) IsConfigured(ctx context.Context) (bool, error) {
 	return s.cfg.GetBool(ctx, config.KeyConfigured, false), nil
 }
 
-// --- 标识自动生成器（Design1 §2.2）---
+// --- 标识生成器（Build2 抽取为共享包 internal/slug，Setup 复用 slug.Generate）---
 
-// slug 短码字符集：小写字母数字，去除易混淆字符（与密码字符集规则一致）
-const slugCharset = "abcdefghjkmnpqrstuvwxyz23456789"
-
-// GenerateSlug 类型前缀 + 8 位加密安全随机短码；冲突自动重试最多 3 次，仍冲突报错并记日志
-func (s *Service) GenerateSlug(ctx context.Context, tx *sql.Tx, prefix string, exists func(slug string) (bool, error)) (string, error) {
-	for attempt := 0; attempt < 3; attempt++ {
-		code, err := randomCode(8) // crypto/rand 从 slugCharset 取 8 字符；失败返回 err
-		if err != nil {
-			return "", err
-		}
-		slug := prefix + code
-		dup, err := exists(slug)
-		if err != nil {
-			return "", err
-		}
-		if !dup {
-			return slug, nil
-		}
-	}
-	s.log.Error("标识生成冲突超过重试上限", "prefix", prefix)
-	return "", errors.New("标识生成失败：连续冲突，请重试")
-}
-
-func randomCode(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("生成随机短码失败: %w", err)
-	}
-	for i := range b {
-		b[i] = slugCharset[int(b[i])%len(slugCharset)]
-	}
-	return string(b), nil
-}
-
-// --- 快速开始（关键约束：单个 BEGIN IMMEDIATE 事务，任一步失败整体回滚）---
+// 快速开始（关键约束：单个 BEGIN IMMEDIATE 事务，任一步失败整体回滚）---
 
 // CompleteQuickStart 确保签名密钥 → 预置默认组 → 3 个默认平台 → configured 置位 → frontend_url 推导初始值
 func (s *Service) CompleteQuickStart(ctx context.Context, r *http.Request) error {
@@ -104,8 +70,8 @@ func (s *Service) CompleteQuickStart(ctx context.Context, r *http.Request) error
 
 // seedPresets 预置默认组（is_default=1，不可删除）与 3 个默认平台（Design1 §2.2/3.4.4）；事务内调用
 func (s *Service) seedPresets(ctx context.Context, tx *sql.Tx, frontendURL string) error {
-	groupSlug, err := s.GenerateSlug(ctx, tx, "group-", func(slug string) (bool, error) {
-		return tableHasSlug(tx, "groups", slug)
+	groupSlug, err := slug.Generate(ctx, tx, "group-", func(value string) (bool, error) {
+		return slug.TableHasSlug(ctx, tx, "groups", value)
 	})
 	if err != nil {
 		return err
@@ -115,15 +81,15 @@ func (s *Service) seedPresets(ctx context.Context, tx *sql.Tx, frontendURL strin
 		return fmt.Errorf("创建预置默认组失败: %w", err)
 	}
 	for _, p := range defaultPlatforms(frontendURL) {
-		slug, err := s.GenerateSlug(ctx, tx, "platform-", func(slug string) (bool, error) {
-			return tableHasSlug(tx, "platforms", slug)
+		value, err := slug.Generate(ctx, tx, "platform-", func(v string) (bool, error) {
+			return slug.TableHasSlug(ctx, tx, "platforms", v)
 		})
 		if err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO platforms (slug, name, description, schemes, extra_headers) VALUES (?,?,?,?,?)`,
-			slug, p.Name, p.Description, p.Schemes, p.ExtraHeaders); err != nil {
+			value, p.Name, p.Description, p.Schemes, p.ExtraHeaders); err != nil {
 			return fmt.Errorf("创建默认平台 %s 失败: %w", p.Name, err)
 		}
 	}
@@ -182,21 +148,6 @@ func defaultPlatforms(frontendURL string) []struct{ Name, Description, Schemes, 
 		{"Shadowrocket", "iOS 端代理客户端",
 			`["shadowrocket://add/{url}"]`, `{}`},
 	}
-}
-
-// tableHasSlug 检查表内是否已存在该 slug（供标识生成器冲突检测）。
-// 表名仅允许白名单内的固定值（防动态 SQL 注入）
-func tableHasSlug(tx *sql.Tx, table, slug string) (bool, error) {
-	switch table {
-	case "groups", "platforms":
-	default:
-		return false, fmt.Errorf("非法表名: %s", table)
-	}
-	var n int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE slug = ?`, slug).Scan(&n); err != nil {
-		return false, fmt.Errorf("查询 %s 标识失败: %w", table, err)
-	}
-	return n > 0, nil
 }
 
 // --- 前端地址推导（Design1 §3.1/6.4）---

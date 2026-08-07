@@ -1,0 +1,518 @@
+// Package platform 提供平台资源业务层：CRUD、scheme 排序、附加响应头校验、安装包分发与级联删除。
+package platform
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"vpn-sub/internal/slug"
+	"vpn-sub/internal/store"
+	"vpn-sub/internal/version"
+)
+
+// 关键参数（Design1 §6.3/3.4.4，禁止修改）
+const (
+	MaxInstallerSize = 300 << 20 // 安装包 ≤300MB
+	installerDir     = "public/installers"
+)
+
+// 业务错误（接入层映射 HTTP 状态码）
+var (
+	ErrBadRequest       = errors.New("参数错误")
+	ErrNotFound         = errors.New("平台不存在")
+	ErrInstallerTooLarge = errors.New("安装包超过 300MB 限制")
+)
+
+// Service 平台服务
+type Service struct {
+	store    *store.Store
+	dataDir  string // 安装包落盘根目录（/data）
+	versions *version.Service // 版本组件（Step 5 起用于平台删除完整级联）
+	log      *slog.Logger
+}
+
+func NewService(st *store.Store, dataDir string, versions *version.Service, lg *slog.Logger) *Service {
+	return &Service{store: st, dataDir: dataDir, versions: versions, log: lg}
+}
+
+// Platform 平台资源
+type Platform struct {
+	ID            int64          `json:"id"`
+	Slug          string         `json:"slug"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	Schemes       []string       `json:"schemes"`        // 有序数组；一键导入取首项；含 {url} 占位符
+	ExtraHeaders  map[string]string `json:"extra_headers"` // 附加响应头；值支持 {frontend_url} 占位符
+	InstallerFile string         `json:"installer_file"` // 带时间戳文件名
+	InstallerURL  string         `json:"installer_url"`
+	Cascade       CascadeCounts  `json:"cascade"` // 删除预览用影响统计
+}
+
+// CascadeCounts 删除平台的影响统计（订阅/Token/自定义数量；表未建立时计 0）
+type CascadeCounts struct {
+	Subscriptions int64 `json:"subscriptions"`
+	Tokens        int64 `json:"tokens"`
+	Customs       int64 `json:"customs"`
+}
+
+// Create 创建平台：slug 由生成器自动生成（platform- 前缀）；名称不强制唯一
+func (s *Service) Create(ctx context.Context, name, description string, schemes []string, headers map[string]string) (*Platform, error) {
+	if err := ValidateSchemes(schemes); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	if err := ValidateExtraHeaders(headers); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	var created *Platform
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		value, err := slug.Generate(ctx, tx, "platform-", func(v string) (bool, error) {
+			return slug.TableHasSlug(ctx, tx, "platforms", v)
+		})
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO platforms (slug, name, description, schemes, extra_headers) VALUES (?,?,?,?,?)`,
+			value, name, description, toJSON(schemes), toJSON(headers))
+		if err != nil {
+			return fmt.Errorf("创建平台失败: %w", err)
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		created = &Platform{ID: id, Slug: value, Name: name, Description: description,
+			Schemes: schemes, ExtraHeaders: headers}
+		return nil
+	})
+	return created, err
+}
+
+// Update 编辑平台：创建后 slug 不可修改（接入层不接收 slug 字段）；可改名称/描述/scheme/附加头
+func (s *Service) Update(ctx context.Context, id int64, name, description string, schemes []string, headers map[string]string) error {
+	if err := ValidateSchemes(schemes); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	if err := ValidateExtraHeaders(headers); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	res, err := s.store.DB().ExecContext(ctx,
+		`UPDATE platforms SET name = ?, description = ?, schemes = ?, extra_headers = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		name, description, toJSON(schemes), toJSON(headers), id)
+	if err != nil {
+		return fmt.Errorf("更新平台失败: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Get 读取单个平台（编辑回显）
+func (s *Service) Get(ctx context.Context, id int64) (*Platform, error) {
+	var p Platform
+	var schemesJSON, headersJSON, installerFile, installerURL sql.NullString
+	err := s.store.DB().QueryRowContext(ctx,
+		`SELECT id, slug, name, description, schemes, extra_headers, installer_file, installer_url FROM platforms WHERE id = ?`, id).
+		Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &schemesJSON, &headersJSON, &installerFile, &installerURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取平台失败: %w", err)
+	}
+	p.Schemes = parseJSONSlice(schemesJSON.String)
+	p.ExtraHeaders = parseJSONMap(headersJSON.String)
+	if installerFile.Valid {
+		p.InstallerFile = installerFile.String
+	}
+	if installerURL.Valid {
+		p.InstallerURL = installerURL.String
+	}
+	return &p, nil
+}
+
+// List 平台列表（附删除预览影响统计；订阅/Token/自定义表未建立时跳过统计）
+func (s *Service) List(ctx context.Context) ([]Platform, error) {
+	rows, err := s.store.DB().QueryContext(ctx,
+		`SELECT id, slug, name, description, schemes, extra_headers, installer_file, installer_url FROM platforms ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("读取平台列表失败: %w", err)
+	}
+	defer rows.Close()
+	var out []Platform
+	for rows.Next() {
+		var p Platform
+		var schemesJSON, headersJSON, installerFile, installerURL sql.NullString
+		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &schemesJSON, &headersJSON, &installerFile, &installerURL); err != nil {
+			return nil, fmt.Errorf("解析平台行失败: %w", err)
+		}
+		p.Schemes = parseJSONSlice(schemesJSON.String)
+		p.ExtraHeaders = parseJSONMap(headersJSON.String)
+		if installerFile.Valid {
+			p.InstallerFile = installerFile.String
+		}
+		if installerURL.Valid {
+			p.InstallerURL = installerURL.String
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 删除预览影响统计（表缺失跳过，Step 2/4/5 迁移后自动回填）
+	for i := range out {
+		c, err := s.cascadeCounts(ctx, out[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		out[i].Cascade = c
+	}
+	return out, nil
+}
+
+// cascadeCounts 统计平台下订阅/Token/自定义数量；表未建立时计 0
+func (s *Service) cascadeCounts(ctx context.Context, platformID int64) (CascadeCounts, error) {
+	var c CascadeCounts
+	var err error
+	if c.Subscriptions, err = s.countIfTableExists(ctx, "subscriptions", `SELECT COUNT(*) FROM subscriptions WHERE platform_id = ?`, platformID); err != nil {
+		return c, err
+	}
+	if c.Tokens, err = s.countIfTableExists(ctx, "download_tokens", `SELECT COUNT(*) FROM download_tokens WHERE platform_id = ?`, platformID); err != nil {
+		return c, err
+	}
+	if c.Customs, err = s.countIfTableExists(ctx, "custom_subscriptions", `SELECT COUNT(*) FROM custom_subscriptions WHERE platform_id = ?`, platformID); err != nil {
+		return c, err
+	}
+	return c, nil
+}
+
+// countIfTableExists 表存在时执行 COUNT，否则返回 0（sqlite_master 预检）
+func (s *Service) countIfTableExists(ctx context.Context, table, query string, arg int64) (int64, error) {
+	var n int
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&n); err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	var count int64
+	if err := s.store.DB().QueryRowContext(ctx, query, arg).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// --- 校验 ---
+
+// ValidateSchemes scheme 列表：有序数组，值含 {url} 占位符；拒绝控制字符与空项
+func ValidateSchemes(schemes []string) error {
+	for _, v := range schemes {
+		if strings.TrimSpace(v) == "" {
+			return errors.New("scheme 不能为空")
+		}
+		if containsControl(v) {
+			return errors.New("scheme 含控制字符")
+		}
+	}
+	return nil
+}
+
+// ValidateExtraHeaders 键与值均禁止 \r\n 等控制字符；键另须符合 HTTP 头名规范（防响应头注入）
+var headerNameRe = regexp.MustCompile(`^[!#$%&'*+\-.^_` + "`" + `|~0-9A-Za-z]+$`) // RFC 7230 token
+
+func ValidateExtraHeaders(h map[string]string) error {
+	for k, v := range h {
+		if !headerNameRe.MatchString(k) {
+			return fmt.Errorf("附加头键 %q 不符合 HTTP 头名规范", k)
+		}
+		if containsControl(k) || containsControl(v) {
+			return fmt.Errorf("附加头 %q 含控制字符", k)
+		}
+	}
+	return nil
+}
+
+func containsControl(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+// --- 安装包：流式上传 + 覆盖删旧 + 事务（防并发互删，Design1 §4.7）---
+
+// installerAbs 安装包绝对路径：文件名必须为基本文件名（防 DB 篡改后路径逃逸，AGENTS §4.1）
+func (s *Service) installerAbs(name string) (string, error) {
+	if filepath.Base(name) != name {
+		return "", fmt.Errorf("安装包文件名非法: %s", name)
+	}
+	return filepath.Join(s.dataDir, installerDir, name), nil
+}
+
+// UploadInstaller ≤300MB 流式落盘（禁止整读内存）；文件名带时间戳（URL 变化突破 CDN 缓存）；
+// BEGIN IMMEDIATE 事务内：读旧文件名 → 生成唯一新名（O_EXCL 防并发同名）→ 写新文件 → 更新 DB →
+// 提交后删旧文件（任一步失败完整清理，Design1 §4.7）
+func (s *Service) UploadInstaller(ctx context.Context, id int64, body io.Reader, filename string) error {
+	ext := filepath.Ext(filepath.Base(filename)) // 路径穿越防护：仅取基名扩展名，丢弃任何目录部分
+	ext = sanitizeExt(ext)
+	if err := os.MkdirAll(filepath.Join(s.dataDir, installerDir), 0o755); err != nil {
+		return fmt.Errorf("创建安装包目录失败: %w", err)
+	}
+	var oldName, newName string
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COALESCE(installer_file,'') FROM platforms WHERE id = ?`, id).Scan(&oldName); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		// 事务内生成唯一文件名（事务串行化 + O_EXCL 双重保证，防并发互删）
+		for attempt := 0; attempt < 3; attempt++ {
+			candidate := fmt.Sprintf("installer-%d%s", time.Now().UnixNano(), ext)
+			f, err := os.OpenFile(filepath.Join(s.dataDir, installerDir, candidate),
+				os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+			if err != nil {
+				if errors.Is(err, os.ErrExist) {
+					continue // 同名冲突（极端并发），重试新名
+				}
+				return fmt.Errorf("创建安装包文件失败: %w", err)
+			}
+			// 流式落盘：io.Copy 限流包装，超限即中止并清理
+			written, copyErr := io.Copy(f, io.LimitReader(body, MaxInstallerSize+1))
+			if closeErr := f.Close(); copyErr == nil {
+				copyErr = closeErr
+			}
+			if copyErr != nil {
+				_ = os.Remove(f.Name()) // 失败清理
+				return fmt.Errorf("安装包写入失败: %w", copyErr)
+			}
+			if written > MaxInstallerSize {
+				_ = os.Remove(f.Name())
+				return ErrInstallerTooLarge // 接入层映射 400
+			}
+			newName = candidate
+			break
+		}
+		if newName == "" {
+			return errors.New("安装包文件名连续冲突，请重试")
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE platforms SET installer_file = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, newName, id); err != nil {
+			_ = os.Remove(filepath.Join(s.dataDir, installerDir, newName))
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// 事务提交后删旧文件（删除失败仅记日志，不影响新包生效）
+	if oldName != "" {
+		oldPath, err := s.installerAbs(oldName)
+		if err != nil {
+			s.log.Warn("旧安装包文件名非法，跳过删除", "file", oldName, "err", err)
+		} else if err := os.Remove(oldPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.log.Warn("删除旧安装包文件失败", "file", oldName, "err", err)
+		}
+	}
+	return nil
+}
+
+// DeleteInstaller 单独删除本地安装包（级联删文件，恢复为仅外链/无来源状态）；事务内读→清 DB→删文件
+func (s *Service) DeleteInstaller(ctx context.Context, id int64) error {
+	var oldName string
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COALESCE(installer_file,'') FROM platforms WHERE id = ?`, id).Scan(&oldName); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if oldName == "" {
+			return nil // 无本地安装包，幂等成功
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE platforms SET installer_file = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if oldName != "" {
+		if oldPath, err := s.installerAbs(oldName); err != nil {
+			s.log.Warn("安装包文件名非法，跳过删除", "file", oldName, "err", err)
+		} else if err := os.Remove(oldPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.log.Warn("删除安装包文件失败", "file", oldName, "err", err)
+		}
+	}
+	return nil
+}
+
+// sanitizeExt 清洗安装包扩展名：小写化 + 仅保留安全字符（字母/数字/点），剥除路径分隔符与控制字符，
+// 防路径穿越与危险文件名（Design1 §6.3 明确「扩展名不做白名单限制」，仅大小校验）；空扩展名返回空串
+func sanitizeExt(ext string) string {
+	ext = strings.ToLower(ext)
+	var b strings.Builder
+	for _, r := range ext {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// Delete 级联删除（Design1 §4.4，关键约束）：安装包文件 + 全部订阅（含版本文件）+ 指向它们的下载 Token
+// + 全部自定义订阅（含版本文件与 Token）+ 组在该平台的关联与选定（外键 CASCADE）
+// 平台删除后组在该平台已无订阅可重选，不置 needs_reselect 标记
+func (s *Service) Delete(ctx context.Context, id int64) error {
+	var installer string
+	var files []string
+	var subIDs, customIDs []int64
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var err error
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COALESCE(installer_file,'') FROM platforms WHERE id = ?`, id).Scan(&installer); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		// 1) 收集该平台全部订阅/自定义订阅 ID
+		subIDs, err = s.collectIDs(ctx, tx, `SELECT id FROM subscriptions WHERE platform_id = ?`, id)
+		if err != nil {
+			return err
+		}
+		customIDs, err = s.collectIDs(ctx, tx, `SELECT id FROM custom_subscriptions WHERE platform_id = ?`, id)
+		if err != nil {
+			return err
+		}
+		// 2) 删指向该平台的下载 Token（含自定义 Token 与显式 Token）
+		if _, err := tx.ExecContext(ctx, `DELETE FROM download_tokens WHERE platform_id = ?`, id); err != nil {
+			return err
+		}
+		// 3) 删订阅版本（文件提交后统一删）与自定义版本
+		for _, sid := range subIDs {
+			collected, err := s.versions.CollectVersionFiles(ctx, tx, version.OwnerSubscription, sid)
+			if err != nil {
+				return err
+			}
+			files = append(files, collected...)
+			if err := s.versions.DeleteVersionsTx(ctx, tx, version.OwnerSubscription, sid); err != nil {
+				return err
+			}
+		}
+		for _, cid := range customIDs {
+			collected, err := s.versions.CollectVersionFiles(ctx, tx, version.OwnerCustom, cid)
+			if err != nil {
+				return err
+			}
+			files = append(files, collected...)
+			if err := s.versions.DeleteVersionsTx(ctx, tx, version.OwnerCustom, cid); err != nil {
+				return err
+			}
+		}
+		// 4) 删订阅（订阅-组关联由外键 ON DELETE CASCADE 清理）
+		if _, err := tx.ExecContext(ctx, `DELETE FROM subscriptions WHERE platform_id = ?`, id); err != nil {
+			return err
+		}
+		// 5) 删自定义订阅
+		if _, err := tx.ExecContext(ctx, `DELETE FROM custom_subscriptions WHERE platform_id = ?`, id); err != nil {
+			return err
+		}
+		// 6) 删平台（组在该平台的选定由外键 ON DELETE CASCADE 清理；不置 needs_reselect）
+		if _, err := tx.ExecContext(ctx, `DELETE FROM platforms WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("删除平台失败: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// 事务提交后删文件（失败仅记日志，不影响删除结果）
+	if installer != "" {
+		if full, err := s.installerAbs(installer); err != nil {
+			s.log.Warn("安装包文件名非法，跳过删除", "file", installer, "err", err)
+		} else if err := os.Remove(full); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.log.Warn("删除安装包文件失败", "file", installer, "err", err)
+		}
+	}
+	for _, f := range files {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.log.Warn("删除版本文件失败", "path", f, "err", err)
+		}
+	}
+	// 版本目录清理（订阅与自定义）
+	for _, sid := range subIDs {
+		if err := s.versions.RemoveOwnerDir(version.OwnerSubscription, sid); err != nil {
+			s.log.Warn("删除订阅版本目录失败", "id", sid, "err", err)
+		}
+	}
+	for _, cid := range customIDs {
+		if err := s.versions.RemoveOwnerDir(version.OwnerCustom, cid); err != nil {
+			s.log.Warn("删除自定义版本目录失败", "id", cid, "err", err)
+		}
+	}
+	return nil
+}
+
+// collectIDs 收集平台下资源 ID 列表
+func (s *Service) collectIDs(ctx context.Context, tx *sql.Tx, query string, arg int64) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx, query, arg)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var v int64
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// --- JSON 助手 ---
+
+func toJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func parseJSONSlice(raw string) []string {
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func parseJSONMap(raw string) map[string]string {
+	out := map[string]string{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}

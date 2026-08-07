@@ -14,13 +14,22 @@ import (
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/captcha"
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/custom"
+	"vpn-sub/internal/download"
+	"vpn-sub/internal/group"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/oidc"
+	"vpn-sub/internal/platform"
 	"vpn-sub/internal/ratelimit"
 	"vpn-sub/internal/response"
+	"vpn-sub/internal/rule"
 	"vpn-sub/internal/setup"
+	"vpn-sub/internal/share"
 	"vpn-sub/internal/store"
+	"vpn-sub/internal/subscription"
+	"vpn-sub/internal/token"
 	"vpn-sub/internal/user"
+	"vpn-sub/internal/version"
 )
 
 // Response 统一响应结构（类型别名，定义见 internal/response）
@@ -39,6 +48,7 @@ type Server struct {
 	engine  *gin.Engine
 	httpSrv *http.Server
 	cfg     *config.Service
+	store   *store.Store
 	mode    string
 	log     *slog.Logger
 	// 后续 Step 的 Handler 经构造函数追加注入（setup/oidc...）
@@ -51,7 +61,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 		return nil, err
 	}
 	engine.Use(requestLogger(), panicRecovery())
-	s := &Server{engine: engine, cfg: cfg, mode: mode, log: lg,
+	s := &Server{engine: engine, cfg: cfg, store: st, mode: mode, log: lg,
 		httpSrv: &http.Server{Addr: ":" + port, Handler: engine}}
 	registerHealth(engine)
 	// 依赖装配：auth/setup/oidc/captcha/ratelimit 服务（构造注入）
@@ -68,6 +78,33 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	RegisterSetupRoutes(engine, &SetupHandler{setupSvc: setupSvc, oidcSvc: oidcSvc})
 	// OIDC 路由（本 Build Step 6）
 	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc}, authSvc.SessionMiddleware())
+	// 版本组件 + 订阅池路由（Build2 Step 2；会话 + 管理员双中间件）
+	versionSvc := version.NewService(st, dataDir, lg)
+	// 平台路由（Build2 Step 1；会话 + 管理员双中间件；Step 5 起持有版本组件用于完整级联）
+	platformSvc := platform.NewService(st, dataDir, versionSvc, lg)
+	RegisterPlatformRoutes(engine, &PlatformHandler{platformSvc: platformSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	subSvc := subscription.NewService(st, versionSvc, lg)
+	RegisterSubscriptionRoutes(engine, &SubscriptionHandler{subSvc: subSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 用户组服务与路由（Build2 Step 3）：订阅删除级联回调注入（清选定 + needs_reselect）
+	groupSvc := group.NewService(st, lg)
+	subSvc.SetOnSubscriptionDeleted(groupSvc.OnSubscriptionDeleted)
+	RegisterGroupRoutes(engine, &GroupHandler{groupSvc: groupSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// Token 服务 + 下载解析 + 用户端数据（Build2 Step 4）：订阅删除 Token 级联回调注入
+	tokenSvc := token.NewService(st, lg)
+	subSvc.SetOnTokenDeleted(tokenSvc.DeleteBySubscriptionTx)
+	dlSvc := download.NewService(st, versionSvc, cfg, lg)
+	homeHandler := &HomeHandler{store: st, tokenSvc: tokenSvc, dlSvc: dlSvc}
+	RegisterDownloadRoutes(engine, &DownloadHandler{dlSvc: dlSvc, limiter: limiter, sessionMW: authSvc.SessionMiddleware()})
+	RegisterHomeRoutes(engine, homeHandler, authSvc.SessionMiddleware())
+	// 自定义订阅 + 分享订阅（Build2 Step 5；会话 + 管理员双中间件）
+	customSvc := custom.NewService(st, versionSvc, tokenSvc, lg)
+	shareSvc := share.NewService(st, versionSvc, tokenSvc, lg)
+	RegisterCustomRoutes(engine, &CustomHandler{customSvc: customSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	RegisterShareRoutes(engine, &ShareHandler{shareSvc: shareSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 规则 + 个人中心（Build2 Step 6）：规则 Token 全局共享；改邮箱/密码递增凭据版本号
+	ruleSvc := rule.NewService(st, versionSvc, tokenSvc, subSvc, lg)
+	RegisterRuleRoutes(engine, &RuleHandler{ruleSvc: ruleSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	RegisterProfileRoutes(engine, &ProfileHandler{store: st}, authSvc.SessionMiddleware())
 	if err := registerStatic(engine, dataDir); err != nil {
 		return nil, err
 	}

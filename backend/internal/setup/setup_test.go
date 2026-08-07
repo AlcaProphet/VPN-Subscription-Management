@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
-	"regexp"
 	"testing"
 	"testing/fstest"
 
@@ -52,31 +51,6 @@ func newTestSetupService(t *testing.T) (*store.Store, *Service) {
 	cfg := config.NewService(st, log.New("error", "console"))
 	svc := NewService(st, cfg, log.New("error", "console"), "auto")
 	return st, svc
-}
-
-// TestGenerateSlug 格式匹配与冲突重试
-func TestGenerateSlug(t *testing.T) {
-	_, svc := newTestSetupService(t)
-	ctx := context.Background()
-	// 注入 exists 冲突两次后成功
-	attempts := 0
-	slug, err := svc.GenerateSlug(ctx, nil, "group-", func(s string) (bool, error) {
-		attempts++
-		return attempts <= 2, nil // 前两次冲突，第三次成功
-	})
-	if err != nil {
-		t.Fatalf("GenerateSlug 失败: %v", err)
-	}
-	if !regexp.MustCompile(`^group-[a-z0-9]{8}$`).MatchString(slug) {
-		t.Errorf("slug 格式异常: %s", slug)
-	}
-	// 一直冲突 → 超限报错
-	_, err = svc.GenerateSlug(ctx, nil, "platform-", func(s string) (bool, error) {
-		return true, nil
-	})
-	if err == nil {
-		t.Error("连续冲突应报错")
-	}
 }
 
 // TestCompleteQuickStart 快速开始事务：默认组 + 3 平台 + configured + frontend_url

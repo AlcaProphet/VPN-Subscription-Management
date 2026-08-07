@@ -124,7 +124,8 @@ func (h *OidcHandler) mockLogin(c *gin.Context) {
 	OK(c, gin.H{"token": token, "expires_at": exp.Unix(), "status": res.User.Status})
 }
 
-// bind 会话内发起绑定授权（StartFlow("bind", userID) → Cookie + 302）
+// bind 会话内发起绑定授权（StartFlow("bind", userID) → Cookie + 返回授权 URL 供前端跳转）
+// 返回 JSON 而非 302：前端需携带 Bearer 会话凭据调用本端点，浏览器导航无法附加请求头
 func (h *OidcHandler) bind(c *gin.Context) {
 	userID := c.GetInt64(auth.CtxUserID)
 	authURL, state, err := h.oidcSvc.StartFlow(c.Request.Context(), "bind", userID)
@@ -134,7 +135,7 @@ func (h *OidcHandler) bind(c *gin.Context) {
 	}
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(stateCookie, state, 600, "/", "", c.Request.TLS != nil, true)
-	c.Redirect(http.StatusFound, authURL)
+	OK(c, gin.H{"auth_url": authURL})
 }
 
 // test 测试连接（不落库）；入参 provider_type + 参数（Setup 与面板共用）

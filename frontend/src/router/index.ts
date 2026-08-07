@@ -2,18 +2,61 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
+import { me } from '@/api/auth'
 
-// 路由表骨架（本 Build 范围）：全部路由级懒加载（代码分割）
+// 版本管理子路由：四条均复用 VersionManageView，按 ownerType 传参（UI §7.1）
+const versionRoutes = [
+  { path: '/admin/subscriptions/:id/versions', ownerType: 'subscription', prefix: '/api/admin/subscriptions' },
+  { path: '/admin/shares/:id/versions', ownerType: 'share', prefix: '/api/admin/shares' },
+  { path: '/admin/rules/:id/versions', ownerType: 'rule', prefix: '/api/admin/rules' },
+  { path: '/admin/customs/:id/versions', ownerType: 'custom', prefix: '/api/admin/customs' },
+].map((r) => ({
+  path: r.path,
+  component: () => import('@/views/admin/VersionManageView.vue'),
+  props: (route: any) => ({
+    ownerType: r.ownerType,
+    ownerId: Number(route.params.id),
+    apiPrefix: r.prefix,
+    resourceName: r.ownerType,
+  }),
+  meta: { layout: 'admin', requiresAdmin: true },
+}))
+
+// 管理路由（懒加载；路由级代码分割）
+const adminRoutes = [
+  { path: '/admin/subscriptions', component: () => import('@/views/admin/SubscriptionsView.vue') },
+  { path: '/admin/groups', component: () => import('@/views/admin/GroupsView.vue') },
+  { path: '/admin/shares', component: () => import('@/views/admin/SharesView.vue') },
+  { path: '/admin/platforms', component: () => import('@/views/admin/PlatformsView.vue') },
+  { path: '/admin/platforms/:id/edit', component: () => import('@/views/admin/PlatformEditView.vue') },
+  { path: '/admin/platforms/new', component: () => import('@/views/admin/PlatformEditView.vue') },
+  { path: '/admin/rules', component: () => import('@/views/admin/RulesView.vue') },
+  { path: '/admin/assembly', component: () => import('@/views/admin/AssemblyView.vue') },
+  // Build3 补充：users/approvals/settings/logs
+].map((r) => ({ ...r, meta: { layout: 'admin', requiresAdmin: true } }))
+
+// 用户端路由（懒加载）
+const userRoutes = [
+  { path: '/', component: () => import('@/views/HomeView.vue'), meta: { layout: 'home' } },
+  { path: '/rules', component: () => import('@/views/RulesView.vue'), meta: { layout: 'home' } },
+  { path: '/profile', component: () => import('@/views/ProfileView.vue'), meta: { layout: 'home' } },
+]
+
 const routes = [
+  // 公开（blank 布局）
   { path: '/setup', component: () => import('@/views/SetupView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/login', component: () => import('@/views/LoginView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/register', component: () => import('@/views/RegisterView.vue'), meta: { layout: 'blank', public: true } },
-  { path: '/forgot', component: () => import('@/views/ForgotView.vue'), meta: { layout: 'blank', public: true } }, // Step 7 建视图
+  { path: '/forgot', component: () => import('@/views/ForgotView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/reset/:token', component: () => import('@/views/ResetView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/pending', component: () => import('@/views/PendingView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/login/callback', component: () => import('@/views/OidcCallbackView.vue'), meta: { layout: 'blank', public: true } },
-  { path: '/', component: () => import('@/views/HomeView.vue'), meta: { layout: 'home' } },
   { path: '/:pathMatch(.*)*', component: () => import('@/views/NotFoundView.vue'), meta: { layout: 'blank', public: true } },
+  // 用户端
+  ...userRoutes,
+  // 管理端（含版本子路由）
+  ...adminRoutes,
+  ...versionRoutes,
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
@@ -40,7 +83,7 @@ function progressDone() {
   }, 200)
 }
 
-// 路由守卫（UI §7.2）：emergency → configured → 登录态，顺序执行
+// 路由守卫（UI §7.2）：emergency → configured → 登录态 → 管理员，顺序执行
 router.beforeEach(async (to) => {
   progressStart()
   const system = useSystemStore()
@@ -60,6 +103,17 @@ router.beforeEach(async (to) => {
   if (!to.meta.public && !auth.token) return '/login'
   // 4) 登录页跳过：已登录访问 /login 跳 /
   if (to.path === '/login' && auth.token) return '/'
+  // 5) 角色守卫：/admin/** 实时校验管理员（与后端中间件双保险，后端为准）
+  if (to.meta.requiresAdmin) {
+    if (!auth.user) {
+      try {
+        auth.user = await me()
+      } catch {
+        return '/login'
+      }
+    }
+    if (auth.user.role !== 'admin') return '/' // 非管理员访问管理路由 → 回首页
+  }
   return true
 })
 router.afterEach(() => progressDone())

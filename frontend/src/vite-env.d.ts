@@ -13,6 +13,7 @@ interface UserInfo {
   email: string
   role: 'admin' | 'user'
   group_id: number | null
+  group_name?: string // me 接口附带（顶栏所属组标签）
   status: string
   user_source: string
 }

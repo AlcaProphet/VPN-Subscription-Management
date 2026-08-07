@@ -132,7 +132,7 @@ func (h *AuthHandler) login(c *gin.Context) {
 	OK(c, gin.H{"token": token, "expires_at": exp.Unix(), "user": userInfo(u)})
 }
 
-// me 返回当前用户信息（username/email/role/group/status/user_source）
+// me 返回当前用户信息（username/email/role/group/status/user_source + group_name 供顶栏展示）
 func (h *AuthHandler) me(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID := c.GetInt64(auth.CtxUserID)
@@ -141,7 +141,13 @@ func (h *AuthHandler) me(c *gin.Context) {
 		Fail(c, http.StatusUnauthorized, "会话凭据无效或已过期")
 		return
 	}
-	OK(c, userInfo(u))
+	info := userInfo(u)
+	if u.GroupID != 0 {
+		if name, err := h.userSvc.GroupNameByID(ctx, u.GroupID); err == nil {
+			info["group_name"] = name
+		}
+	}
+	OK(c, info)
 }
 
 // logout 退出为客户端语义（Design1 §5.4：无服务端会话存储），仅返回成功，前端清除本地 token

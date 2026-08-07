@@ -176,6 +176,20 @@ func (s *Service) GetByID(ctx context.Context, id int64) (*User, error) {
 		FROM users WHERE id = ?`, id)
 }
 
+// GroupNameByID 组名查询（首页顶栏所属组标签用；组不存在返回空串）
+func (s *Service) GroupNameByID(ctx context.Context, groupID int64) (string, error) {
+	var name string
+	err := s.store.DB().QueryRowContext(ctx,
+		`SELECT name FROM groups WHERE id = ?`, groupID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("读取组名失败: %w", err)
+	}
+	return name, nil
+}
+
 // FindForReset 实现 auth.ResetUserSource（密码重置场景：按规范化邮箱查最小信息）
 func (s *Service) FindForReset(ctx context.Context, email string) (*auth.ResetTarget, error) {
 	normalized, err := auth.NormalizeEmail(email)
