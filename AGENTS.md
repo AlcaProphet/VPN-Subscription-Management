@@ -1,7 +1,7 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前设计基线见 [Design1.md](./Design1.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design1.md、[AchievedDocuments/](./AchievedDocuments/)）已存档，仅用于核查，不再用于构建。
+> 当前设计基线见 [Design1.md](./Design1.md)（非强制，供参考）；暂缓项详细设计见 [DesignOnHold.md](./DesignOnHold.md)；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design0.md、[AchievedDocuments/](./AchievedDocuments/)）已存档，仅用于核查，不再用于构建。
 
 ---
 
@@ -11,7 +11,7 @@
 - **后端**：Go 1.25，module `vpn-sub`，目录 `backend/`
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design2.md](./Design1.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design1.md](./Design1.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
 
 ---
 
@@ -132,7 +132,7 @@
 
 - 400=校验错误，401=会话凭据缺失/无效/过期，403=权限不足，409=重复冲突，429=速率限制，500=服务器内部错误
 - 成功操作用统一的成功响应结构；列表响应用统一包裹结构
-- 下载类端点的业务错误（如组未分配）返回 HTTP 200 + 纯文本注释块（如 `# error: unassigned`），不返回 JSON/HTML；无效/过期 Token 仍统一返回 404（见 Design2.md 4.3）
+- 下载类端点的业务错误（如组未分配）返回 HTTP 200 + 纯文本注释块（如 `# error: unassigned`），不返回 JSON/HTML；无效/过期 Token 仍统一返回 404（见 Design1.md 4.3）
 
 ---
 
@@ -182,7 +182,8 @@
 | 文档类型 | 文件 | 定位 | 约束力 |
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
-| Design 文档 | [Design2.md](./Design2.md)（当前设计基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策 | 非强制，供参考 |
+| Design 文档 | [Design1.md](./Design1.md)（当前设计基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策 | 非强制，供参考 |
+| Design 暂缓文档 | [DesignOnHold.md](./DesignOnHold.md) | 承载已确认但暂缓开发功能的详细设计与已确认决策；仅其中「第一次构建预留接口」部分参与当期构建 | 非强制，供参考 |
 | Build 文档 | [BuildN.md](./BuildN.md) | 将 Design 的设计转化为指导 AI 构建的构建手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
 | Issue 文档 | [IssueN.md](./IssueN.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
 
@@ -194,6 +195,7 @@
 - **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；新设计构想经用户确认后落入 Design
 - **Build 文档**面向 AI 执行，每个 Step 必须含：目标、前置条件、产出文件与参考代码/伪代码、验收规范与验证命令；每次仅执行一个 Step，验收通过后再进入下一步
 - **Issue 文档**只记录 bug 与修复闭环；非问题的优化候选归 Design 文档记录
+- **DesignOnHold 文档**承载已确认但暂缓开发的功能：完整详细设计与已确认决策留存在此，恢复开发时以其中决策为准；当期构建仅落地其列明的预留接口，不得提前实现暂缓功能
 - 新建文档参照 [DocTemplates/](./DocTemplates/) 中对应模板的结构与样式
 
 ### 8.3 执行规则
@@ -207,8 +209,9 @@
 | 文档 | 目标读者 | 内容 | 状态 |
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
-| [Design2.md](./Design2.md) | 人类（开发者/用户） | 当前设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维 | 活跃 |
+| [Design1.md](./Design1.md) | 人类（开发者/用户） | 当前设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维 | 活跃 |
+| [DesignOnHold.md](./DesignOnHold.md) | 人类（开发者/用户）与 AI 编码助手 | 暂缓项详细设计：模块化订阅装配器（数据模型/双渲染器/外部数据源/已确认决策/第一次构建预留接口） | 活跃（暂缓） |
 | [BuildN.md](./BuildN.md) | AI 编码助手 | 当前构建方案：分步 TODO LIST + 参考代码 + 验收命令 | 待按模板创建 |
 | [IssueN.md](./IssueN.md) | 开发者 | 当前问题追踪：现象/根因/影响范围/修复方案/状态 | 待按模板创建 |
 | [DocTemplates/](./DocTemplates/) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue） | 活跃 |
-| Design1.md、[AchievedDocuments/](./AchievedDocuments/) | 开发者 | 历史设计与构建记录（已存档，仅核查，不用于构建） | 已存档 |
+| Design0.md、[AchievedDocuments/](./AchievedDocuments/) | 开发者 | 历史文档（初始设计大纲与历史构建记录，已存档，仅核查，不用于构建） | 已存档 |

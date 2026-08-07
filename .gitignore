@@ -47,3 +47,9 @@ docker-compose.override.yml
 # ==============================
 backend/data/
 backend/tmp/
+
+# ==============================
+# Keys / Certs
+# ==============================
+/DocTemplates/shadowrocket.template.md
+/DocTemplates/Clashyaml.template.md
