@@ -844,6 +844,9 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
   // 敏感配置键登记（Build1 Step 1 预留的 sensitiveKeys 集合在本 Step 补全）
   //   oidc_client_secret / smtp_password / captcha_secret_key
   // GET 回显一律脱敏（前端 a-input-password 占位显示「已配置」）；PUT 空串表示不修改
+  //
+  // 本文件 import 必须包含："unicode/utf8"（字符数校验用，站点名称/公告/导出密码长度按字符数计）；
+  // 禁止使用第三方 utf8 包，禁止以 len(string)（字节数）代替字符数校验。
 
   type AdminService struct {
       cfg     *config.Service
@@ -882,6 +885,19 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
       ClientSecret string `json:"client_secret"` // GET 脱敏；PUT 空=不修改
       FrontendURL  string `json:"frontend_url"`  // 启动时缓存，修改需重启生效
       CallbackURL  string `json:"callback_url"`  // 同上
+  }
+
+  // oidcUsable：判定 OIDC 是否「可用」（防认证死锁的核心判定）。
+  // 可用条件：base_url 非空 且 client_id 非空 且（client_secret 非空 或 库内已有对应密文）。
+  // 注意：in.ClientSecret 为 PUT 入参（空=不修改），故需同时检查库内已有密文（sensitiveExists）。
+  func oidcUsable(in OidcSettings) bool {
+      if in.BaseURL == "" || in.ClientID == "" {
+          return false
+      }
+      if in.ClientSecret != "" {
+          return true
+      }
+      return sensitiveExists(config.KeyOidcClientSecret) // 库内已有密文视为可用
   }
 
   // SaveOidc：保存 OIDC 参数；受「本地登录与 OIDC 均不可用禁止保存」约束（防认证死锁）
@@ -1409,11 +1425,22 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
 
   // snapshotTo：一致性快照——首选 SQLite backup API（驱动层备份，Design1 §7.2）；
   // 驱动未直接暴露 backup 能力时以 VACUUM INTO 等价实现（同样产生一致性快照，避免 WAL 未 checkpoint 数据遗漏）
+  //
+  // 版本要求：VACUUM INTO 需 SQLite ≥ 3.27.0（2019-02 引入）；modernc.org/sqlite 须 ≥ v1.30.0（已验证支持）。
+  // 若目标驱动版本不支持 VACUUM INTO（运行时报错），降级路径：先执行 PRAGMA wal_checkpoint(FULL) 将 WAL 落盘，
+  // 再直接拷贝数据库主文件（此时无未 checkpoint 数据，拷贝即为一致快照）。
   func (s *Service) snapshotTo(dest string) error {
-      // 优先尝试 modernc 驱动的 backup 能力（若暴露）；否则：
-      _, err := s.store.DB().Exec(`VACUUM INTO ?`, dest)
-      return err
+      // 优先尝试 modernc 驱动的 backup 能力（若暴露）；否则走 VACUUM INTO：
+      if _, err := s.store.DB().Exec(`VACUUM INTO ?`, dest); err != nil {
+          // 降级：WAL checkpoint 后拷贝主文件（保证一致性）
+          if _, cerr := s.store.DB().Exec(`PRAGMA wal_checkpoint(FULL)`); cerr != nil {
+              return fmt.Errorf("快照失败且 WAL checkpoint 降级失败: %w", cerr)
+          }
+          return copyFile(s.store.DBPath(), dest) // 拷贝数据库主文件
+      }
+      return nil
   }
+  // 注：copyFile 为本包文件拷贝辅助函数；s.store.DBPath() 为数据层需提供的数据库主文件路径访问器（Build1 store 包补充）。
   ```
 
   **4. `backend/internal/server/settings_ops.go`（运维端点）**

@@ -1183,7 +1183,7 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
   1. **创建 `Dockerfile`（仓库根目录）**：多阶段构建，必须包含：
      - 阶段一（前端构建）：Node 镜像，`COPY frontend/`，`npm ci && npm run build`，产出 `dist/`。
      - 阶段二（后端编译）：Go 镜像，`CGO_ENABLED=0` 静态编译 `backend/`，产出单二进制；**必须将前端 `dist/` 嵌入或拷贝至运行时镜像**（可用 `go:embed` 嵌入 dist，或运行时从磁盘提供，二者择一并全程统一）。
-     - 阶段三（最小运行时）：`scratch` 或 `alpine`/`distroless` 最小镜像；**非 root 用户运行**；暴露端口 8080；声明数据卷挂载点（如 `/data`）；日志输出 stdout。
+     - 阶段三（最小运行时）：**`alpine` 最小镜像**（自带 wget/shell，healthcheck 可用；体积仅 ~5MB）；**非 root 用户运行**（`adduser` 创建专用用户）；暴露端口 8080；声明数据卷挂载点（如 `/data`）；日志输出 stdout。
      - 后端必须同时服务：API 路由、`/assets`（前端产物，immutable 缓存）、`/public`（可缓存资源，本 Build 建目录结构，Build2 填充）、其余路径 SPA 回退到 `index.html`（Design1 §5.6）。
 
   2. **创建 `.dockerignore`**：排除 `node_modules`、`data`、`*.db*`、`.git` 等。
@@ -1226,13 +1226,16 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
   RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
   # ============ 阶段三：最小运行时 ============
-  FROM gcr.io/distroless/static-debian12:nonroot
-  # nonroot 变体自带 uid 65532 非 root 用户，无需额外 USER 指令
+  FROM alpine:3.21
+  # alpine 自带 wget/shell，healthcheck 可用；创建非 root 用户运行（Design1 §7.1）
+  RUN addgroup -S app && adduser -S app -G app
   COPY --from=backend /out/server /server
   # 预建 /public 目录结构（安装包/站点资源，Build2 填充内容）；数据卷承载全部持久化
   ENV DATA_DIR=/data
+  RUN mkdir -p /data && chown -R app:app /data
   VOLUME ["/data"]
   EXPOSE 8080
+  USER app
   ENTRYPOINT ["/server"]
   ```
 
@@ -1271,7 +1274,7 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
         # RESET_ADMIN_PASSWORD: "1"
       restart: unless-stopped
       healthcheck:
-        # distroless 无 curl，用 wget（static 镜像自带 busybox wget；实际路径可用 docker inspect 确认）；仅状态展示，不触发重启动作
+        # alpine 自带 wget，直接探测 /health；仅状态展示，不触发重启动作（Design1 §7.1）
         test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
         interval: 30s
         timeout: 5s

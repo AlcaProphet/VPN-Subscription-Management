@@ -296,6 +296,19 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
   // DeleteInstaller：单独删除本地安装包（级联删文件，恢复为仅外链/无来源状态）；同样事务内读→清 DB→删文件
   func (s *Service) DeleteInstaller(ctx context.Context, id int64) error { /* 同事务模式 */ }
 
+  // sanitizeExt：清洗安装包扩展名（非白名单拦截——Design1 §6.3 明确「扩展名不做白名单限制」，仅大小校验）。
+  // 职责：小写化 + 仅保留安全字符（字母/数字/点），剥除路径分隔符与控制字符，防路径穿越与危险文件名；空扩展名返回空串。
+  func sanitizeExt(ext string) string {
+      ext = strings.ToLower(ext)
+      var b strings.Builder
+      for _, r := range ext {
+          if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' {
+              b.WriteRune(r)
+          }
+      }
+      return b.String()
+  }
+
   // --- 删除平台（级联，Design1 §4.4，关键约束）---
 
   // Delete：本 Step 完成安装包文件级联 + 平台行删除；完整级联以接口占位 + TODO 标注，
@@ -2543,8 +2556,27 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
     </Layout>
   </template>
 
-  <script lang="ts">
+  <script setup lang="ts">
+  import { ref, onMounted, onUnmounted } from 'vue'
+
   // isMobile：matchMedia('(max-width: 767px)') 响应式布尔（与三档断点 <768 对齐）
+  // 必须监听窗口缩放，窗口跨越 768px 断点时侧边栏/Drawer 响应式切换
+  const isMobile = ref(false)
+  const collapsed = ref(false)
+  const drawerOpen = ref(false)
+
+  function checkMobile() {
+    isMobile.value = window.matchMedia('(max-width: 767px)').matches
+  }
+  onMounted(() => {
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+  })
+  onUnmounted(() => {
+    window.removeEventListener('resize', checkMobile)
+  })
+
+  // selectedKeys / menuItems / onMenuClick：当前路由高亮与菜单跳转（按 UI §5.0 菜单项配置）
   </script>
   ```
 
