@@ -2198,7 +2198,7 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
   func (h *EmergencyHandler) reinitialize(c *gin.Context) {
       var req struct {
           OpCode      string `json:"op_code" binding:"required,len=8"`
-          ConfirmText string `json:"confirm" binding:"required"` // 二次确认文本
+          ConfirmText string `json:"confirm" binding:"required"` // 二次确认非空校验（操作码已兼确认词职能，本字段仅防误触，不校验具体内容）
       }
       if err := c.ShouldBindJSON(&req); err != nil {
           server.Fail(c, http.StatusBadRequest, "参数校验失败")

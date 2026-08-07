@@ -240,7 +240,9 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
       if err := os.MkdirAll(dataDir, 0o755); err != nil {
           return nil, fmt.Errorf("创建数据目录失败: %w", err)
       }
-      db, err := sql.Open("sqlite", filepath.Join(dataDir, dbFile))
+      // DSN 追加 ?_txlock=immediate：使 db.BeginTx 直接发 BEGIN IMMEDIATE（TxImmediate 依赖此，Design1 §4.1）
+      dsn := filepath.Join(dataDir, dbFile) + "?_txlock=immediate"
+      db, err := sql.Open("sqlite", dsn)
       if err != nil {
           return nil, fmt.Errorf("打开数据库失败: %w", err)
       }
@@ -328,15 +330,13 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
   }
 
   // TxImmediate 以 BEGIN IMMEDIATE 开启事务（先读后写场景专用，Design1 §4.1）：
-  // 开启即持有写锁，「读 → 判定 → 写」全程串行化；fn 返回非 nil 自动回滚
+  // 开启即持有写锁，「读 → 判定 → 写」全程串行化；fn 返回非 nil 自动回滚。
+  // 实现要点：modernc.org/sqlite 驱动在 DSN 加 ?_txlock=immediate 后，db.BeginTx 即直接发 BEGIN IMMEDIATE；
+  // 禁止在 BeginTx 后再执行 "ROLLBACK; BEGIN IMMEDIATE"（会脱离 database/sql 事务对象管理，导致 Commit/Rollback 失效）。
   func (s *Store) TxImmediate(ctx context.Context, fn func(tx *sql.Tx) error) error {
-      tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+      tx, err := s.db.BeginTx(ctx, &sql.TxOptions{}) // DSN _txlock=immediate 使本条即为 BEGIN IMMEDIATE
       if err != nil {
           return fmt.Errorf("开启事务失败: %w", err)
-      }
-      if _, err := tx.ExecContext(ctx, "ROLLBACK; BEGIN IMMEDIATE"); err != nil {
-          _ = tx.Rollback()
-          return fmt.Errorf("升级为 IMMEDIATE 写事务失败: %w", err)
       }
       if err := fn(tx); err != nil {
           _ = tx.Rollback()

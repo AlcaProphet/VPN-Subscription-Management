@@ -2485,7 +2485,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
 
   ```vue
   <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { computed, onMounted, onUnmounted, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { Layout, Menu, Drawer, Button } from 'ant-design-vue'
   import {
@@ -2498,8 +2498,24 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
   const route = useRoute()
   const router = useRouter()
   const { dark, toggle } = useTheme()
-  const collapsed = ref(window.innerWidth < 768)  // <768 默认收起
+
+  // isMobile：matchMedia('(max-width: 767px)') 响应式布尔（与三档断点 <768 对齐）；
+  // 必须监听窗口缩放，窗口跨越 768px 断点时侧边栏/Drawer 响应式切换
+  const isMobile = ref(false)
+  const collapsed = ref(false)   // <768 默认收起（onMounted 中按 isMobile 初始化）
   const drawerOpen = ref(false)
+
+  function checkMobile() {
+    isMobile.value = window.matchMedia('(max-width: 767px)').matches
+    if (isMobile.value) collapsed.value = true // 移动端默认收起
+  }
+  onMounted(() => {
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+  })
+  onUnmounted(() => {
+    window.removeEventListener('resize', checkMobile)
+  })
 
   // 侧边栏菜单：9 模块 + 1 预留，平铺不分组（图标+文字）；
   // 「用户/审批中心/面板配置/日志」在 Build3 实现，本 Step 隐藏（Build3 补充显示）
@@ -2555,29 +2571,6 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
       </Layout>
     </Layout>
   </template>
-
-  <script setup lang="ts">
-  import { ref, onMounted, onUnmounted } from 'vue'
-
-  // isMobile：matchMedia('(max-width: 767px)') 响应式布尔（与三档断点 <768 对齐）
-  // 必须监听窗口缩放，窗口跨越 768px 断点时侧边栏/Drawer 响应式切换
-  const isMobile = ref(false)
-  const collapsed = ref(false)
-  const drawerOpen = ref(false)
-
-  function checkMobile() {
-    isMobile.value = window.matchMedia('(max-width: 767px)').matches
-  }
-  onMounted(() => {
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-  })
-  onUnmounted(() => {
-    window.removeEventListener('resize', checkMobile)
-  })
-
-  // selectedKeys / menuItems / onMenuClick：当前路由高亮与菜单跳转（按 UI §5.0 菜单项配置）
-  </script>
   ```
 
   **2. `frontend/src/views/admin/AssemblyView.vue`（订阅装配占位页，第一次构建唯一落地形态）**
