@@ -38,11 +38,13 @@ async function onMockLogin() {
   }
 }
 
-// 注册入口可见性：allow_selfreg 开启，或 user_table_empty 且 allow_local_login（始终显示）
+// 注册入口可见性：依赖本地登录开启，且 allow_selfreg 开启或用户表为空（Design1 §3.2/5.2）
 const showRegister = computed(() => {
   const st = system.status
-  return !!st && (st.allow_selfreg || (st.user_table_empty && st.allow_local_login))
+  return !!st && st.allow_local_login !== false && (st.allow_selfreg || st.user_table_empty)
 })
+// 本地登录区块可见性：仅当 allow_local_login 开启时显示（Design1 §3.2）
+const showLocalLogin = computed(() => system.status?.allow_local_login !== false)
 const tableEmpty = computed(() => system.status?.user_table_empty ?? false)
 
 // 真实提供商登录：跳转后端发起授权
@@ -72,28 +74,31 @@ onMounted(async () => {
   <div class="w-full max-w-md">
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-8">
       <h1 class="text-xl font-semibold mb-6">登录</h1>
-      <!-- 表空提示：系统尚未配置管理员，首个注册用户将成为管理员 -->
-      <Alert v-if="tableEmpty" type="info" show-icon class="mb-4"
-             message="系统尚未配置管理员，首个注册用户将成为管理员" />
-      <Form layout="vertical" @finish="onSubmit">
-        <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email' }]">
-          <Input v-model:value="form.email" autocomplete="email" />
-        </Form.Item>
-        <Form.Item label="密码" name="password" :rules="[{ required: true }]">
-          <Input.Password v-model:value="form.password" autocomplete="current-password" />
-        </Form.Item>
-        <div class="flex items-center justify-between mb-4">
-          <Checkbox v-model:checked="form.remember">记住我</Checkbox>
-          <RouterLink to="/forgot" class="text-sm">忘记密码？</RouterLink>
-        </div>
-        <Alert v-if="errorMsg" type="error" :message="errorMsg" class="mb-4" />
-        <Button type="primary" html-type="submit" block :loading="submitting">登录</Button>
-      </Form>
+      <!-- 本地登录区块：仅当 allow_local_login 开启时显示（Design1 §3.2） -->
+      <template v-if="showLocalLogin">
+        <!-- 表空提示：系统尚未配置管理员，首个注册用户将成为管理员 -->
+        <Alert v-if="tableEmpty" type="info" show-icon class="mb-4"
+               message="系统尚未配置管理员，首个注册用户将成为管理员" />
+        <Form layout="vertical" :model="form" @finish="onSubmit">
+          <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email' }]">
+            <Input v-model:value="form.email" autocomplete="email" />
+          </Form.Item>
+          <Form.Item label="密码" name="password" :rules="[{ required: true }]">
+            <Input.Password v-model:value="form.password" autocomplete="current-password" />
+          </Form.Item>
+          <div class="flex items-center justify-between mb-4">
+            <Checkbox v-model:checked="form.remember">记住我</Checkbox>
+            <RouterLink to="/forgot" class="text-sm">忘记密码？</RouterLink>
+          </div>
+          <Alert v-if="errorMsg" type="error" :message="errorMsg" class="mb-4" />
+          <Button type="primary" html-type="submit" block :loading="submitting">登录</Button>
+        </Form>
+      </template>
       <!-- OIDC 区块：oidc_configured 时渲染（Step 6 填充） -->
       <template v-if="system.status?.oidc_configured">
         <Divider plain>或</Divider>
         <!-- mock 提供商（仅 Dev）：模拟登录表单，标题标注「Dev 模拟登录」 -->
-        <Form v-if="system.status.oidc_provider_type === 'mock'" layout="vertical" @finish="onMockLogin">
+        <Form v-if="system.status.oidc_provider_type === 'mock'" layout="vertical" :model="mockForm" @finish="onMockLogin">
           <div class="text-sm text-gray-400 mb-2">Dev 模拟登录</div>
           <Form.Item label="邮箱" name="mock_email" :rules="[{ required: true, type: 'email' }]">
             <Input v-model:value="mockForm.email" />

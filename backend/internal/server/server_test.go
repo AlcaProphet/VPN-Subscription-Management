@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -142,5 +143,87 @@ func TestPanicRecovery(t *testing.T) {
 	}
 	if resp.Message != "服务器内部错误" {
 		t.Errorf("5xx 应对外脱敏: %+v", resp)
+	}
+}
+
+// TestTrustProxyClientIPTiers TRUST_PROXY 三档真实客户端 IP 解析（Design1 §6.4，Build1 Step 7 验收项）：
+// auto 信任回环/私有网段转发头；off 忽略转发头；on 全信任
+func TestTrustProxyClientIPTiers(t *testing.T) {
+	// 构造带回显 ClientIP 的引擎
+	newEcho := func(trustProxy string) *gin.Engine {
+		e := gin.New()
+		if err := applyTrustProxy(e, trustProxy); err != nil {
+			t.Fatalf("applyTrustProxy 失败: %v", err)
+		}
+		e.GET("/ip", func(c *gin.Context) { c.String(http.StatusOK, c.ClientIP()) })
+		return e
+	}
+	doIP := func(e *gin.Engine, remoteAddr, xff string) string {
+		req := httptest.NewRequest(http.MethodGet, "/ip", nil)
+		req.RemoteAddr = remoteAddr
+		if xff != "" {
+			req.Header.Set("X-Forwarded-For", xff)
+		}
+		w := httptest.NewRecorder()
+		e.ServeHTTP(w, req)
+		return w.Body.String()
+	}
+
+	// auto：回环来源 → 信任转发头
+	if got := doIP(newEcho("auto"), "127.0.0.1:1234", "1.2.3.4"); got != "1.2.3.4" {
+		t.Errorf("auto+回环应信任转发头: got %s", got)
+	}
+	// auto：公网来源 → 忽略转发头（防伪造）
+	if got := doIP(newEcho("auto"), "203.0.113.5:1234", "1.2.3.4"); got != "203.0.113.5" {
+		t.Errorf("auto+公网应忽略转发头: got %s", got)
+	}
+	// off：回环来源也忽略转发头
+	if got := doIP(newEcho("off"), "127.0.0.1:1234", "1.2.3.4"); got != "127.0.0.1" {
+		t.Errorf("off 应忽略转发头: got %s", got)
+	}
+	// on：全信任（公网来源也取转发头）
+	if got := doIP(newEcho("on"), "203.0.113.5:1234", "1.2.3.4"); got != "1.2.3.4" {
+		t.Errorf("on 应全信任: got %s", got)
+	}
+}
+
+// TestLocalLoginSwitch 本地登录开关：关闭后 login/register 返回 403（Design1 §3.2）
+func TestLocalLoginSwitch(t *testing.T) {
+	doLogin := func(srv *Server) int {
+		body := strings.NewReader(`{"email":"kyle@example.com","password":"password123"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", body)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.Engine().ServeHTTP(w, req)
+		return w.Code
+	}
+	doRegister := func(srv *Server) int {
+		body := strings.NewReader(`{"username":"bob","email":"bob@example.com","password":"password123"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", body)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.Engine().ServeHTTP(w, req)
+		return w.Code
+	}
+
+	// 默认开启：登录 401（无该用户，统一措辞）；注册 200（表空例外）
+	srv := newTestServer(t)
+	if code := doLogin(srv); code != http.StatusUnauthorized {
+		t.Errorf("默认开启时登录应走正常校验（401）: %d", code)
+	}
+	if code := doRegister(srv); code != http.StatusOK {
+		t.Errorf("默认开启时表空注册应 200: %d", code)
+	}
+	// 关闭：login/register 均 403
+	srv2 := newTestServer(t)
+	cfg2 := srv2.cfg
+	if err := cfg2.Set(context.Background(), config.KeyAllowLocalLogin, "false"); err != nil {
+		t.Fatalf("写配置失败: %v", err)
+	}
+	if code := doLogin(srv2); code != http.StatusForbidden {
+		t.Errorf("关闭后登录应 403: %d", code)
+	}
+	if code := doRegister(srv2); code != http.StatusForbidden {
+		t.Errorf("关闭后注册应 403: %d", code)
 	}
 }

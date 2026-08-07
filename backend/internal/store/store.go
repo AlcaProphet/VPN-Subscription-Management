@@ -89,7 +89,11 @@ func (s *Store) Migrate(ctx context.Context, migrationsFS fs.FS) error {
 		return fmt.Errorf("关闭迁移记录游标失败: %w", err)
 	}
 	// 3) 扫描嵌入迁移文件（按文件名排序），逐个应用
-	for _, name := range sortedEntries(migrationsFS) {
+	names, err := sortedEntries(migrationsFS)
+	if err != nil {
+		return fmt.Errorf("读取迁移目录失败: %w", err)
+	}
+	for _, name := range names {
 		version, err := parseVersion(name) // 前 4 位数字，解析失败视为非法迁移文件并报错
 		if err != nil {
 			return err
@@ -160,10 +164,10 @@ func (s *Store) TxImmediate(ctx context.Context, fn func(tx *sql.Tx) error) erro
 }
 
 // sortedEntries 读取迁移目录并按文件名排序
-func sortedEntries(fsys fs.FS) []string {
+func sortedEntries(fsys fs.FS) ([]string, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -172,7 +176,7 @@ func sortedEntries(fsys fs.FS) []string {
 		}
 	}
 	sort.Strings(names)
-	return names
+	return names, nil
 }
 
 // parseVersion 解析迁移文件名前缀版本号（前 4 位数字）

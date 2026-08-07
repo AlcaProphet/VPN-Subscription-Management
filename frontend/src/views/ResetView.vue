@@ -48,7 +48,7 @@ async function onSubmit() {
       </Result>
       <template v-else>
         <h1 class="text-xl font-semibold mb-6">重置密码</h1>
-        <Form layout="vertical" :rules="rules" @finish="onSubmit">
+        <Form layout="vertical" :model="form" :rules="rules" @finish="onSubmit">
           <Form.Item label="新密码" name="password">
             <Input.Password v-model:value="form.password" autocomplete="new-password" />
           </Form.Item>

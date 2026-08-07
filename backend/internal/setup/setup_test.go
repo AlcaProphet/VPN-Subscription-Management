@@ -50,7 +50,7 @@ func newTestSetupService(t *testing.T) (*store.Store, *Service) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
-	svc := NewService(st, cfg, log.New("error", "console"))
+	svc := NewService(st, cfg, log.New("error", "console"), "auto")
 	return st, svc
 }
 
@@ -149,7 +149,7 @@ func TestQuickStartRollback(t *testing.T) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
-	svc := NewService(st, cfg, log.New("error", "console"))
+	svc := NewService(st, cfg, log.New("error", "console"), "auto")
 	req := httptest.NewRequest("POST", "http://vpn.example.com/api/setup/quickstart", nil)
 	if err := svc.CompleteQuickStart(context.Background(), req); err == nil {
 		t.Fatal("缺表场景应失败")
@@ -184,5 +184,42 @@ func TestDeriveFrontendURL(t *testing.T) {
 	req3.Header.Set("X-Forwarded-Proto", "https")
 	if got := DeriveFrontendURL(req3, true); got != "https://inner" {
 		t.Errorf("https 推导异常: %s", got)
+	}
+}
+
+// TestTrustProxyTiers TRUST_PROXY 三档对 X-Forwarded-Host 信任的影响（Design1 §6.4）
+func TestTrustProxyTiers(t *testing.T) {
+	// on：公网来源也信任转发头
+	onSvc := NewService(nil, nil, log.New("error", "console"), "on")
+	req := httptest.NewRequest("POST", "http://inner/api", nil)
+	req.RemoteAddr = "203.0.113.5:12345" // 公网 IP
+	req.Header.Set("X-Forwarded-Host", "vpn.example.com")
+	if got := DeriveFrontendURL(req, onSvc.trustedForwarded(req)); got != "http://vpn.example.com" {
+		t.Errorf("on 档应信任转发头: %s", got)
+	}
+
+	// off：即使回环来源也不信任
+	offSvc := NewService(nil, nil, log.New("error", "console"), "off")
+	req2 := httptest.NewRequest("POST", "http://inner/api", nil)
+	req2.RemoteAddr = "127.0.0.1:12345" // 回环
+	req2.Header.Set("X-Forwarded-Host", "vpn.example.com")
+	if got := DeriveFrontendURL(req2, offSvc.trustedForwarded(req2)); got != "http://inner" {
+		t.Errorf("off 档应忽略转发头: %s", got)
+	}
+
+	// auto：回环来源信任
+	autoSvc := NewService(nil, nil, log.New("error", "console"), "auto")
+	req3 := httptest.NewRequest("POST", "http://inner/api", nil)
+	req3.RemoteAddr = "127.0.0.1:12345"
+	req3.Header.Set("X-Forwarded-Host", "vpn.example.com")
+	if got := DeriveFrontendURL(req3, autoSvc.trustedForwarded(req3)); got != "http://vpn.example.com" {
+		t.Errorf("auto 档回环来源应信任转发头: %s", got)
+	}
+	// auto：公网来源不信任
+	req4 := httptest.NewRequest("POST", "http://inner/api", nil)
+	req4.RemoteAddr = "203.0.113.5:12345"
+	req4.Header.Set("X-Forwarded-Host", "vpn.example.com")
+	if got := DeriveFrontendURL(req4, autoSvc.trustedForwarded(req4)); got != "http://inner" {
+		t.Errorf("auto 档公网来源应忽略转发头: %s", got)
 	}
 }

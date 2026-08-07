@@ -34,7 +34,7 @@ async function onSubmit() {
       </Result>
       <template v-else>
         <h1 class="text-xl font-semibold mb-6">找回密码</h1>
-        <Form layout="vertical" @finish="onSubmit">
+        <Form layout="vertical" :model="form" @finish="onSubmit">
           <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email' }]">
             <Input v-model:value="form.email" autocomplete="email" />
           </Form.Item>

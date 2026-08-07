@@ -56,7 +56,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	registerHealth(engine)
 	// 依赖装配：auth/setup/oidc/captcha/ratelimit 服务（构造注入）
 	authSvc := auth.NewService(cfg, users, lg)
-	setupSvc := setup.NewService(st, cfg, lg)
+	setupSvc := setup.NewService(st, cfg, lg, trustProxy)
 	oidcSvc := oidc.NewService(st, cfg, authSvc, users, mode, lg)
 	captchaSvc := captcha.NewService(cfg, lg)
 	limiter := ratelimit.New(cfg, lg)
@@ -81,7 +81,9 @@ func (s *Server) Engine() *gin.Engine { return s.engine }
 func applyTrustProxy(engine *gin.Engine, mode string) error {
 	switch mode {
 	case "on":
-		return engine.SetTrustedProxies(nil)
+		// 信任所有代理（gin v1.12 中 SetTrustedProxies(nil) 表示不信任任何代理，
+		// 全信任须显式 0.0.0.0/0 + ::/0；gin 会输出不安全 WARNING，符合 on 档设计语义）
+		return engine.SetTrustedProxies([]string{"0.0.0.0/0", "::/0"})
 	case "off":
 		return engine.SetTrustedProxies([]string{})
 	default: // "auto"

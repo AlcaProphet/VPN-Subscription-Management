@@ -47,7 +47,7 @@ async function onSubmit() {
   <div class="w-full max-w-md">
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-8">
       <h1 class="text-xl font-semibold mb-6">注册</h1>
-      <Form layout="vertical" :rules="rules" @finish="onSubmit">
+      <Form layout="vertical" :model="form" :rules="rules" @finish="onSubmit">
         <Form.Item label="用户名" name="username">
           <Input v-model:value="form.username" :maxlength="64" />
         </Form.Item>

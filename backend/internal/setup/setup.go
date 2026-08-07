@@ -20,13 +20,14 @@ var ErrAlreadyConfigured = errors.New("系统已完成配置")
 
 // Service Setup 服务
 type Service struct {
-	store *store.Store
-	cfg   *config.Service
-	log   *slog.Logger
+	store      *store.Store
+	cfg        *config.Service
+	log        *slog.Logger
+	trustProxy string // TRUST_PROXY 策略（auto/on/off）：frontend_url 推导时判定转发头可信性
 }
 
-func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service {
-	return &Service{store: st, cfg: cfg, log: lg}
+func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger, trustProxy string) *Service {
+	return &Service{store: st, cfg: cfg, log: lg, trustProxy: trustProxy}
 }
 
 func (s *Service) IsConfigured(ctx context.Context) (bool, error) {
@@ -213,9 +214,15 @@ func DeriveFrontendURL(r *http.Request, trusted bool) string {
 	return scheme + "://" + host
 }
 
-// trustedForwarded 接入层根据 TRUST_PROXY 策略判定远端是否可信（auto=回环+私有网段；on=真；off=假）。
-// 实现：根据 RemoteAddr 判定来源是否在信任网段内（与 gin SetTrustedProxies 的 auto 档口径一致）
+// trustedForwarded 按 TRUST_PROXY 策略判定远端是否可信（Design1 §6.4）：
+// on=始终信任转发头；off=从不信任；auto=仅回环+私有网段来源信任（与 gin SetTrustedProxies 的 auto 档口径一致）
 func (s *Service) trustedForwarded(r *http.Request) bool {
+	switch s.trustProxy {
+	case "on":
+		return true
+	case "off":
+		return false
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr

@@ -47,6 +47,11 @@ func (h *AuthHandler) register(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+	// 注册入口可见性：依赖本地登录开启（Design1 §3.2：本地登录关闭时注册产物无法本地登录，无意义）
+	if !h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true) {
+		Fail(c, http.StatusForbidden, "本地登录已关闭")
+		return
+	}
 	// 注册入口可见性：allow_selfreg 开启，或用户表为空（例外，Design1 §5.2）
 	allowSelf := h.cfg.GetBool(ctx, config.KeyAllowSelfreg, false)
 	empty, err := h.userSvc.IsTableEmpty(ctx)
@@ -96,7 +101,13 @@ func (h *AuthHandler) login(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	u, err := h.userSvc.Login(c.Request.Context(), req.Email, req.Password)
+	ctx := c.Request.Context()
+	// 本地登录开关（Design1 §3.2：本地登录为基底，可关闭；关闭后本端点不可用，注册入口同步隐藏）
+	if !h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true) {
+		Fail(c, http.StatusForbidden, "本地登录已关闭")
+		return
+	}
+	u, err := h.userSvc.Login(ctx, req.Email, req.Password)
 	if errors.Is(err, user.ErrAuthFailed) {
 		Fail(c, http.StatusUnauthorized, "邮箱或密码错误") // 统一措辞
 		return
