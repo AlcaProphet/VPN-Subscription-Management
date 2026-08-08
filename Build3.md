@@ -16,7 +16,7 @@
 2. **每个 Step 完成后必须运行该 Step 的「验证命令」**，全部通过才算完成；任一命令失败必须修复后重验，禁止带错进入下一 Step。
 3. **遇到模糊、歧义或设计文档未覆盖的细节，必须停止并向用户询问，禁止自行假设或自由发挥**。本文件未明确的技术选型，以 Design1.md §5.1 为准。
 4. **禁止引入设计文档未提及的框架、库或架构模式**（技术栈同 Build1 执行约束第 4 条）。配置导出加密使用 Argon2id + AES-256-GCM（Design1 §3.4.8/6.2），Argon2id 使用 `golang.org/x/crypto/argon2`。
-5. **Build1/Build2 已建立的机制必须复用，禁止重复实现**：构造注入、配置存储（含敏感加密）、日志（token 脱敏）、统一响应、会话/角色中间件、标识生成器、迁移框架、`BEGIN IMMEDIATE` 事务助手、版本管理组件、Token 服务、限流中间件、验证码服务、前端路由守卫/拦截器/通用组件。
+5. **Build1/Build2 已建立的机制必须复用，禁止重复实现**：构造注入、配置存储（含敏感加密）、日志（token 脱敏）、统一响应、会话/角色中间件、标识生成器、迁移框架、`BEGIN IMMEDIATE` 事务助手、版本管理组件、Token 服务、限流中间件、验证码服务、前端路由守卫/拦截器/通用组件。**列表接口必须沿用统一 ListData 包裹（`{list,total}`）+ 前端 api 层统一解包约定：全量列表 api 用 `.then(d => d.list)` 解包为数组，分页列表保留包裹结构由调用方取 list/total（R02-01 确立，见 Issue1）**。
 6. **关键设计参数必须严格按下表取值**，与 Design1.md 保持一致，禁止修改：
 
 | 参数 | 取值 | 出处 |
@@ -137,7 +137,7 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
   3. **创建前端 `frontend/src/views/admin/UsersView.vue`**（UI §5.5）：
      - 双态列表（后端分页 20 条/页 + 搜索框用户名/邮箱模糊；卡片态展示前 4 字段）：用户名、邮箱（无邮箱灰 tag）、角色标签、所属组标签、来源标注、状态 `a-badge`（待审批橙/已激活绿/已禁用灰）、自定义订阅平台角标、操作 Dropdown。
      - 头部批量操作「为所有无密码用户发送密码设置链接」（未配置 SMTP 置灰 + 提示；执行后回执提示排除范围）。
-     - **操作 Dropdown**：编辑（分组 Select）、角色变更（ConfirmModal，降级提示级联清显式 Token）、上传自定义订阅（平台 Select + 文件/文本，成功展示 custom- 标识）、**自定义订阅版本管理**（存在自定义订阅时可点，跳 `/admin/customs/:id/versions`）、删除自定义订阅、吊销所有 Token（ConfirmModal 危险）、**设置/重置密码**（专属弹窗二选一：触发重置邮件/直接重置；直接重置确认后展示随机 8 位密码供复制 + 提示会话已失效；待审批账号拒绝并提示去审批中心；管理员本人入口禁用）、清除 OIDC 绑定（无密码用户先弹显著警告）、禁用/启用（禁用自己置灰）、删除（ConfirmModal，待审批账号与「拒绝」同效果说明）。
+     - **操作 Dropdown**：编辑（分组 Select）、角色变更（ConfirmModal，降级 提示级联清显式 Token）、上传自定义订阅（平台 Select + 文件/文本，成功展示 custom- 标识）、**自定义订阅版本管理**（存在自定义订阅时可点，跳 `/admin/customs/:id/versions`；**该路由返回按钮 backPath 当前指向 `/admin/subscriptions`（R04-01 暂定），本 Step 建立 `/admin/users` 后同步改为 `/admin/users`**）、删除自定义订阅、吊销所有 Token（ConfirmModal 危险）、**设置/重置密码**（专属弹窗二选一：触发重置邮件/直接重置；直接重置确认后展示随机 8 位密码供复制 + 提示会话已失效；待审批账号拒绝并提示去审批中心；管理员本人入口禁用）、清除 OIDC 绑定（无密码用户先弹显著警告）、禁用/启用（禁用自己置灰）、删除（ConfirmModal，待审批账号与「拒绝」同效果说明）。
      - 新建用户弹窗（用户名 + 邮箱 + 密码，邮箱冲突即时提示）。
      - `frontend/src/api/user.ts`。
 
@@ -474,6 +474,7 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
 
   ```ts
   // api/user.ts（要点）
+  // 分页列表保留 {list,total} 包裹（调用方取 list/total），与全量列表 api 的 .then(d => d.list) 解包约定区分（R02-01）
   export const listUsers = (q: { page: number; size: number; keyword: string }) =>
     http.get<any, { list: AdminUser[]; total: number }>('/admin/users', { params: q })
   export const changeRole = (id: number, role: string) => http.put(`/admin/users/${id}/role`, { role })
@@ -2347,3 +2348,4 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-07 | 初始版本：管理面补全与运维能力（6 Step），承接 Build1/Build2 |
+| v1.1 | 2026-08-09 | 同步 Build2 修复：① 执行约束第 5 条补充列表统一 ListData 包裹 + 前端 api 层解包约定（R02-01）；② Step 1 注明 customs 版本路由返回按钮 backPath 待改 /admin/users（R04-01）；③ Step 1 列表 api 分页包裹与全量解包区分注释 |
