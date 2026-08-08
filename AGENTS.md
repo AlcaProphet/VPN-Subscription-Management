@@ -213,7 +213,7 @@
 | [Design1.md](./Design1.md) | 人类（开发者/用户） | 当前设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维 | 活跃 |
 | [Design1-UI.md](./Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | GUI 样式规格：13 个页面/部件的布局结构、AntD 组件映射、状态分支、响应式规则、全局风格基调 | 活跃 |
 | [DesignOnHold.md](./DesignOnHold.md) | 人类（开发者/用户）与 AI 编码助手 | 暂缓项详细设计：模块化订阅装配器（数据模型/双渲染器/外部数据源/已确认决策/第一次构建预留接口） | 活跃（暂缓） |
-| [BuildN.md](./BuildN.md) | AI 编码助手 | 当前构建方案：分步 TODO LIST + 参考代码 + 验收命令 | 待按模板创建 |
-| [IssueN.md](./IssueN.md) | 开发者 | 当前问题追踪：现象/根因/影响范围/修复方案/状态 | 待按模板创建 |
+| [Build1.md](./Build1.md)、[Build2.md](./Build2.md)（已归档）、[Build3.md](./Build3.md) | AI 编码助手 | 分步构建方案：TODO LIST + 参考代码 + 验收命令；Build3 为当前构建方案 | Build1/Build2 已验收归档，Build3 活跃（未开始） |
+| [IssueN.md](./IssueN.md) | 开发者 | 当前问题追踪：现象/根因/影响范围/修复方案/状态 | 暂无（无 bug 闭环记录） |
 | [DocTemplates/](./DocTemplates/) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue） | 活跃 |
 | Design0.md、[AchievedDocuments/](./AchievedDocuments/) | 开发者 | 历史文档（初始设计大纲与历史构建记录，已存档，仅核查，不用于构建） | 已存档 |
