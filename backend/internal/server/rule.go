@@ -57,7 +57,7 @@ func (h *RuleHandler) create(c *gin.Context) {
 	if c.Query("mode") == "text" {
 		var req struct {
 			Name       string   `json:"name" binding:"required,min=1,max=100"`
-			Slug       string   `json:"slug" binding:"required"`
+			Slug       string   `json:"slug"` // 可选：为空时后端自动生成（rule- 前缀）
 			ClientType string   `json:"client_type" binding:"required"`
 			Schemes    []string `json:"schemes"`
 			Text       string   `json:"text" binding:"required"`
@@ -76,13 +76,13 @@ func (h *RuleHandler) create(c *gin.Context) {
 			Fail(c, http.StatusBadRequest, "schemes 格式错误")
 			return
 		}
-		file, _, err := c.Request.FormFile("file")
+		file, fileHeader, err := c.Request.FormFile("file")
 		if err != nil {
 			Fail(c, http.StatusBadRequest, "未接收到文件")
 			return
 		}
 		defer file.Close()
-		src = version.ReaderContent{R: file, Max: version.MaxContentSize}
+		src = version.ReaderContent{R: file, Max: version.MaxContentSize, Name: fileHeader.Filename}
 	}
 	r, err := h.ruleSvc.Create(ctx, name, slugVal, clientType, schemes, src)
 	if errors.Is(err, subscription.ErrSlugConflict) {

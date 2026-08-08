@@ -47,23 +47,33 @@ type Rule struct {
 	RefreshedAt    string   `json:"refreshed_at"`
 }
 
-// Create 名称 + 手填标识（跨四类校验）+ 客户端类型 + scheme + 首版本上传；自动生成规则 Token
+// Create 名称 + 客户端类型 + scheme + 首版本上传；标识为空时自动生成（rule- 前缀，见 Design1 §2.2）；自动生成规则 Token
 func (s *Service) Create(ctx context.Context, name, slugVal, clientType string, schemes []string, src version.ContentProvider) (*Rule, error) {
-	if name == "" || slugVal == "" {
-		return nil, fmt.Errorf("%w: 名称与标识必填", ErrBadRequest)
+	if name == "" {
+		return nil, fmt.Errorf("%w: 名称必填", ErrBadRequest)
 	}
 	if clientType != "shadowrocket" {
 		return nil, fmt.Errorf("%w: 客户端类型当前仅支持 shadowrocket", ErrBadRequest)
 	}
-	ok, err := s.subs.CheckSlugAvailable(ctx, slugVal, "", 0)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, subscription.ErrSlugConflict // 409
+	if slugVal != "" {
+		ok, err := s.subs.CheckSlugAvailable(ctx, slugVal, "", 0)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, subscription.ErrSlugConflict // 409
+		}
 	}
 	var r *Rule
-	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if slugVal == "" {
+			// 自动生成：事务内跨四类唯一性检查，冲突自动重试
+			generated, err := subscription.GenerateSlugTx(ctx, tx, "rule-")
+			if err != nil {
+				return err
+			}
+			slugVal = generated
+		}
 		res, err := tx.ExecContext(ctx,
 			`INSERT INTO rules (slug, name, client_type, schemes) VALUES (?,?,?,?)`,
 			slugVal, name, clientType, toJSON(schemes))

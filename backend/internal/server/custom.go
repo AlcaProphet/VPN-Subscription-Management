@@ -57,13 +57,13 @@ func (h *CustomHandler) upsert(c *gin.Context) {
 			Fail(c, http.StatusBadRequest, "platform_id 必填")
 			return
 		}
-		file, _, err := c.Request.FormFile("file")
+		file, fileHeader, err := c.Request.FormFile("file")
 		if err != nil {
 			Fail(c, http.StatusBadRequest, "未接收到文件")
 			return
 		}
 		defer file.Close()
-		src = version.ReaderContent{R: file, Max: version.MaxContentSize}
+		src = version.ReaderContent{R: file, Max: version.MaxContentSize, Name: fileHeader.Filename}
 	}
 	sub, err := h.customSvc.Upsert(ctx, userID, platformID, src)
 	if errors.Is(err, custom.ErrBadRequest) {

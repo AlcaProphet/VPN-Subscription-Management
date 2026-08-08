@@ -29,8 +29,7 @@
 | 当前指针切换 | 原子替换（临时指针 + rename）；以 DB 记录为准，启动自检重建 symlink | Design1 §4.1 |
 | 下载 Token 熵 | ≥128 位加密安全随机值 | Design1 §4.2 |
 | 用户 Token 复用键 | 无标识 user+platform；自定义 user+platform+custom_sub_id；显式 user+platform+subscription_id | Design1 §4.2 |
-| 手填标识 | 小写字母数字连字符，3~64 字符，四类资源全局唯一命名空间交叉校验 | Design1 §2.2 |
-| 自动生成标识 | 类型前缀 + 8 位随机短码（share-/custom-），冲突重试最多 3 次 | Design1 §2.2 |
+| 自动生成标识 | 类型前缀 + 8 位随机短码（subscription-/share-/rule-/custom-，2026-08-09 变更：四类资源全部自动生成，见 Issue1 R03-02），冲突重试最多 3 次 | Design1 §2.2 |
 | 下载响应 | 始终 `text/plain`；禁缓存头（no-store 等） | Design1 §4.3 |
 | 无效/过期 Token | 统一 404（不泄露资源存在性），日志记 `token_invalid` | Design1 §4.3 |
 | 下载业务错误 | HTTP 200 + 纯文本注释块（如 `# error: unassigned`），text/plain + 禁缓存头 | Design1 §4.3 |
@@ -452,7 +451,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
 - **产出文件与操作：**
 
   1. **创建 `backend/migrations/1002_subscriptions_versions.sql`**：
-     - `subscriptions` 表：`id`、`slug`（UNIQUE，手填，四类全局命名空间）、`name`（不强制唯一）、`platform_id`（外键）、`current_version`（INTEGER）、`created_at`、`updated_at`。
+     - `subscriptions` 表：`id`、`slug`（UNIQUE，自动生成，四类全局命名空间；兼容手填）、`name`（不强制唯一）、`platform_id`（外键）、`current_version`（INTEGER）、`created_at`、`updated_at`。
      - `versions` 表（四类资源共用）：`id`、`owner_type`（TEXT，`subscription`/`rule`/`custom`/`share`）、`owner_id`（INTEGER）、`version_no`（INTEGER）、`file_path`（TEXT）、`created_at`、`updated_at`。联合索引 `(owner_type, owner_id, version_no)`。
      - `subscription_group_rel` 表（订阅-组多对多关联）：`subscription_id`、`group_id`（本 Step 建表，Step 3 使用）。
 
@@ -468,7 +467,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
      - **预留第三种版本创建方式扩展点**（装配生成，Design1 §3.9）：版本创建入口以策略/接口形式抽象，当前实现「文件上传」「文本编辑」两种，预留「装配生成」扩展位（不实现逻辑）。
 
   3. **创建 `backend/internal/subscription/`（业务层）**：订阅池服务。必须实现：
-     - CRUD：指定平台 + 名称（不强制唯一）+ **标识（手填，小写字母数字连字符 3~64，与分享/规则/自定义共用全局唯一命名空间，创建时跨四类资源交叉校验冲突）** + 关联用户组多选（可为空）。
+     - CRUD：指定平台 + 名称（不强制唯一；标识**自动生成**（`subscription-` 前缀，见 Issue1 R03-02），创建后展示供复制）+ 关联用户组多选（可为空）。
      - **平台创建后不可修改**；编辑仅可改名称与关联组（取消关联受「该组正在选定此订阅则拒绝」约束，Step 3 接通校验）。
      - **删除订阅（级联，Design1 §4.4）**：级联删除全部版本文件 + 指向它的下载 Token（含管理员显式预览 Token）+ 所有组的关联与选定；**受影响组置空不回退，并在删除事务内置 `needs_reselect` 标记**（Step 3 接通组标记，本 Step 预留调用）。
      - 标识唯一性校验服务：提供 `CheckSlugAvailable(slug, excludeOwner)` 供四类资源共用（跨 subscriptions/rules/custom_subscriptions/share_subscriptions 四表查重）。
@@ -492,7 +491,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
   ```sql
   CREATE TABLE subscriptions (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug            TEXT NOT NULL UNIQUE,   -- 手填，四类全局命名空间（小写字母数字连字符 3~64）
+      slug            TEXT NOT NULL UNIQUE,   -- 自动生成（subscription- 前缀；兼容手填），四类全局命名空间
       name            TEXT NOT NULL,          -- 不强制唯一
       platform_id     INTEGER NOT NULL REFERENCES platforms(id),
       current_version INTEGER NOT NULL DEFAULT 0,

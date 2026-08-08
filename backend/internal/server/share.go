@@ -62,13 +62,13 @@ func (h *ShareHandler) create(c *gin.Context) {
 		src = version.BytesContent([]byte(req.Text))
 	} else {
 		name = c.PostForm("name")
-		file, _, err := c.Request.FormFile("file")
+		file, fileHeader, err := c.Request.FormFile("file")
 		if err != nil {
 			Fail(c, http.StatusBadRequest, "未接收到文件")
 			return
 		}
 		defer file.Close()
-		src = version.ReaderContent{R: file, Max: version.MaxContentSize}
+		src = version.ReaderContent{R: file, Max: version.MaxContentSize, Name: fileHeader.Filename}
 	}
 	if name == "" {
 		Fail(c, http.StatusBadRequest, "名称必填")

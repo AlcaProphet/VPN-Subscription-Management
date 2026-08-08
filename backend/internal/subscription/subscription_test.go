@@ -51,6 +51,7 @@ func newTestSubscriptionService(t *testing.T) (*store.Store, *Service, *version.
 				owner_id INTEGER NOT NULL,
 				version_no INTEGER NOT NULL,
 				file_path TEXT NOT NULL,
+								file_name TEXT NOT NULL DEFAULT '',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				UNIQUE (owner_type, owner_id, version_no));

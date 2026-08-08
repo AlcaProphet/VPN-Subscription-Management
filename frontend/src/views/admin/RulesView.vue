@@ -1,10 +1,9 @@
-<!-- admin/RulesView.vue：规则管理（UI §5.7）——双态列表 + 创建弹窗（手填标识 + scheme + 首版本） -->
+<!-- admin/RulesView.vue：规则管理（UI §5.7）——双态列表 + 创建弹窗（标识自动生成 + scheme + 首版本） -->
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button, Input, Modal, Select, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
 import { listAdminRules, createRule, renameRule, deleteRule, refreshRuleToken, type RuleItem } from '@/api/rule'
-import { checkSlug } from '@/api/subscription'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -28,52 +27,19 @@ onMounted(load)
 const createOpen = ref(false)
 const creating = ref(false)
 const createMode = ref<'upload' | 'text'>('upload')
-const form = reactive({ name: '', slug: '', client_type: 'shadowrocket', schemes: [''] as string[], text: '' })
-const slugStatus = ref<'' | 'error'>('')
-const slugTip = ref('')
-const slugRe = /^[a-z0-9-]{3,64}$/
-let slugTimer: ReturnType<typeof setTimeout> | undefined
-async function onSlugChange() {
-  clearTimeout(slugTimer)
-  if (!form.slug) {
-    slugStatus.value = ''
-    slugTip.value = ''
-    return
-  }
-  if (!slugRe.test(form.slug)) {
-    slugStatus.value = 'error'
-    slugTip.value = '须为小写字母数字连字符，长度 3~64'
-    return
-  }
-  slugTimer = setTimeout(async () => {
-    try {
-      const res = await checkSlug(form.slug, 'rule')
-      slugStatus.value = res.available ? '' : 'error'
-      slugTip.value = res.available ? '标识可用' : '标识已被使用（四类资源全局唯一）'
-    } catch {
-      slugStatus.value = ''
-      slugTip.value = ''
-    }
-  }, 300)
-}
+const form = reactive({ name: '', client_type: 'shadowrocket', schemes: [''] as string[], text: '' })
+
 function openCreate() {
   form.name = ''
-  form.slug = ''
   form.client_type = 'shadowrocket'
   form.schemes = ['']
   form.text = ''
-  slugStatus.value = ''
-  slugTip.value = ''
   createOpen.value = true
 }
 
 async function doCreate(file?: File) {
-  if (!form.name.trim() || !form.slug.trim()) {
-    Notify.error('请填写名称与标识')
-    return
-  }
-  if (slugStatus.value === 'error') {
-    Notify.error('标识不可用，请更换')
+  if (!form.name.trim()) {
+    Notify.error('请填写名称')
     return
   }
   const schemes = form.schemes.map((s) => s.trim()).filter(Boolean)
@@ -81,9 +47,9 @@ async function doCreate(file?: File) {
   try {
     const payload = new FormData()
     payload.append('name', form.name.trim())
-    payload.append('slug', form.slug)
     payload.append('client_type', form.client_type)
     payload.append('schemes', JSON.stringify(schemes))
+    // 标识由后端自动生成（rule- 前缀 + 8 位随机短码），创建后列表展示供复制
     if (file) {
       payload.append('file', file)
       await createRule(payload)
@@ -214,17 +180,10 @@ async function doDelete() {
       </Table>
     </TriStateList>
 
-    <!-- 创建弹窗：名称 + 标识 + 客户端类型 + scheme + 首版本（文件/文本） -->
+    <!-- 创建弹窗：名称 + 客户端类型 + scheme + 首版本（文件/文本）；标识由后端自动生成 -->
     <Modal v-model:open="createOpen" title="创建规则" :footer="null" :width="560" destroy-on-close>
       <div class="space-y-3">
         <Input v-model:value="form.name" :maxlength="100" placeholder="名称（不强制唯一）" />
-        <div>
-          <Input v-model:value="form.slug" :status="slugStatus || undefined" placeholder="标识（小写字母数字连字符 3~64，四类全局唯一）"
-                 @change="onSlugChange" />
-          <div v-if="slugTip" class="text-xs mt-1" :class="slugStatus === 'error' ? 'text-red-500' : 'text-green-600'">
-            {{ slugTip }}
-          </div>
-        </div>
         <Select v-model:value="form.client_type" class="w-full" disabled>
           <Select.Option value="shadowrocket">Shadowrocket（当前唯一支持）</Select.Option>
         </Select>

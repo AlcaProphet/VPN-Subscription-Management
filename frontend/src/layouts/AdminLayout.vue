@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Layout, Menu, Drawer, Button, type MenuProps } from 'ant-design-vue'
 import {
   CloudUploadOutlined, TeamOutlined, ShareAltOutlined, AppstoreOutlined,
-  BranchesOutlined, BlockOutlined,
+  BranchesOutlined, BlockOutlined, HomeOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
 } from '@ant-design/icons-vue'
 import { useTheme } from '@/theme'
 
@@ -64,25 +64,52 @@ async function onLogout() {
   await auth.logoutAction()
   router.push('/login')
 }
+
+// 返回主界面（用户端首页）
+function goHome() {
+  drawerOpen.value = false
+  void router.push('/')
+}
 </script>
 
 <template>
   <Layout class="min-h-screen">
-    <!-- ≥768：固定 Sider（展开 220px / 收起 64px，浅色主题，当前路由高亮） -->
+    <!-- ≥768：固定 Sider（展开 220px / 收起 64px，浅色主题，当前路由高亮）；
+         trigger 置空避免默认折叠按钮与底部操作区重叠（自定义折叠按钮见下） -->
     <Layout.Sider v-if="!isMobile" v-model:collapsed="collapsed" theme="light"
-                  :width="220" :collapsed-width="64" collapsible>
+                  :width="220" :collapsed-width="64" collapsible :trigger="null">
       <div class="h-16 flex items-center justify-center font-semibold truncate">
         <span v-if="!collapsed">管理面板</span>
         <span v-else>管</span>
       </div>
-      <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"
-            @click="(e: any) => onMenuClick(e.key)" />
+      <div class="flex flex-col h-[calc(100vh-4rem)]">
+        <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"
+              @click="(e: any) => onMenuClick(e.key)" />
+        <!-- 底部固定操作区：返回主界面 + 收起菜单（自定义折叠按钮，替代默认 trigger） -->
+        <div class="mt-auto p-2 space-y-1">
+          <Button block type="text" @click="goHome">
+            <template #icon><HomeOutlined /></template>
+            <span v-if="!collapsed">返回主界面</span>
+          </Button>
+          <Button block type="text" @click="collapsed = !collapsed">
+            <template #icon><MenuFoldOutlined v-if="!collapsed" /><MenuUnfoldOutlined v-else /></template>
+            <span v-if="!collapsed">收起菜单</span>
+          </Button>
+        </div>
+      </div>
     </Layout.Sider>
     <!-- <768：汉堡按钮唤出 Drawer 抽屉式菜单 -->
     <Drawer v-else :open="drawerOpen" placement="left" :width="220" @close="drawerOpen = false">
       <div class="h-8 font-semibold mb-2">管理面板</div>
       <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"
             @click="(e: any) => onMenuClick(e.key)" />
+      <!-- 返回主界面：Drawer 底部固定入口 -->
+      <div class="absolute bottom-4 left-0 right-0 px-2">
+        <Button block type="text" @click="goHome">
+          <template #icon><HomeOutlined /></template>
+          返回主界面
+        </Button>
+      </div>
     </Drawer>
 
     <Layout>

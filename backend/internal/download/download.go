@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"vpn-sub/internal/config"
@@ -71,21 +72,21 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 	}
 	switch {
 	case rec.CustomSubID != 0: // 自定义：直接返回自定义内容
-		content, err := s.versions.ReadCurrent(ctx, version.OwnerCustom, rec.CustomSubID)
+		content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerCustom, rec.CustomSubID)
 		if err != nil {
 			return nil, nil, err
 		}
-		return s.withPlatformHeaders(ctx, content, rec.PlatformID, "custom", rec.CustomSubID, rec.UserID)
+		return s.withPlatformHeaders(ctx, content, fileName, rec.PlatformID, "custom", rec.CustomSubID, rec.UserID)
 	case rec.SubscriptionID != 0: // 显式：实时校验持有人当前仍为管理员
 		var role string
 		if err := s.store.DB().QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, rec.UserID).Scan(&role); err != nil || role != "admin" {
 			return nil, &AccessEntry{UserID: rec.UserID, Platform: platformSlug, FailReason: "token_invalid"}, ErrTokenInvalid
 		}
-		content, err := s.versions.ReadCurrent(ctx, version.OwnerSubscription, rec.SubscriptionID)
+		content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerSubscription, rec.SubscriptionID)
 		if err != nil {
 			return nil, nil, err
 		}
-		return s.withPlatformHeaders(ctx, content, rec.PlatformID, "explicit", rec.SubscriptionID, rec.UserID)
+		return s.withPlatformHeaders(ctx, content, fileName, rec.PlatformID, "explicit", rec.SubscriptionID, rec.UserID)
 	default: // 无标识：实时解析「用户所属组 → 组在该平台选定 → 内容」
 		var subID int64
 		err := s.store.DB().QueryRowContext(ctx,
@@ -99,16 +100,16 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 		if err != nil {
 			return nil, nil, err
 		}
-		content, err := s.versions.ReadCurrent(ctx, version.OwnerSubscription, subID)
+		content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerSubscription, subID)
 		if err != nil {
 			return nil, nil, err
 		}
-		return s.withPlatformHeaders(ctx, content, rec.PlatformID, "subscription", subID, rec.UserID)
+		return s.withPlatformHeaders(ctx, content, fileName, rec.PlatformID, "subscription", subID, rec.UserID)
 	}
 }
 
-// withPlatformHeaders 附加响应头注入（{frontend_url} 占位符替换为当前前端地址）
-func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, platformID int64, dlType string, resID, userID int64) (*Result, *AccessEntry, error) {
+// withPlatformHeaders 附加响应头注入（{frontend_url} 占位符替换为当前前端地址）+ 下载文件名（资源名 + 原始扩展名）
+func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileName string, platformID int64, dlType string, resID, userID int64) (*Result, *AccessEntry, error) {
 	headers := map[string]string{}
 	var raw string
 	if err := s.store.DB().QueryRowContext(ctx,
@@ -124,7 +125,15 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, platf
 			headers[k] = strings.ReplaceAll(v, "{frontend_url}", frontendURL)
 		}
 	}
-	return &Result{Content: content, ExtraHeaders: headers},
+	// 下载文件名：资源名 + 原始文件扩展名（保留上传格式，Issue1 R03）
+	var resName string
+	switch dlType {
+	case "custom": // 自定义订阅无名称，用标识
+		_ = s.store.DB().QueryRowContext(ctx, `SELECT slug FROM custom_subscriptions WHERE id = ?`, resID).Scan(&resName)
+	default: // subscription / explicit：用订阅名称
+		_ = s.store.DB().QueryRowContext(ctx, `SELECT name FROM subscriptions WHERE id = ?`, resID).Scan(&resName)
+	}
+	return &Result{Content: content, Filename: joinDownloadName(resName, fileName, ".yaml"), ExtraHeaders: headers},
 		&AccessEntry{UserID: userID, Type: dlType, Platform: "", ResourceID: resID}, nil
 }
 
@@ -195,11 +204,12 @@ func (s *Service) ResolveShare(ctx context.Context, tokenValue, slug string) (*R
 	if err != nil {
 		return nil, nil, err
 	}
-	content, err := s.versions.ReadCurrent(ctx, version.OwnerShare, shareID)
+	content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerShare, shareID)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &Result{Content: content, Filename: resourceName}, &AccessEntry{Type: "share", ResourceID: shareID}, nil
+	// 下载文件名：分享名 + 原始扩展名（保留上传格式，Issue1 R03）
+	return &Result{Content: content, Filename: joinDownloadName(resourceName, fileName, ".yaml")}, &AccessEntry{Type: "share", ResourceID: shareID}, nil
 }
 
 // ResolveRule 规则下载解析（Step 6 接通）：token 查 rule_tokens → 读当前版本；表缺失与无效 Token 同等对待
@@ -218,11 +228,22 @@ func (s *Service) ResolveRule(ctx context.Context, tokenValue, slug string) (*Re
 	if err != nil {
 		return nil, nil, err
 	}
-	content, err := s.versions.ReadCurrent(ctx, version.OwnerRule, ruleID)
+	content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerRule, ruleID)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &Result{Content: content, Filename: resourceName}, &AccessEntry{Type: "rule", ResourceID: ruleID}, nil
+	// 下载文件名：规则名 + 原始扩展名（保留上传格式，Issue1 R03）
+	return &Result{Content: content, Filename: joinDownloadName(resourceName, fileName, ".conf")}, &AccessEntry{Type: "rule", ResourceID: ruleID}, nil
+}
+
+// joinDownloadName 下载文件名 = 资源名 + 原始文件扩展名（保留上传格式，Issue1 R03）；
+// rawFileName 无扩展名（旧数据/文本模式兜底）时用 fallbackExt
+func joinDownloadName(resName, rawFileName, fallbackExt string) string {
+	ext := filepath.Ext(rawFileName)
+	if ext == "" {
+		ext = fallbackExt
+	}
+	return resName + ext
 }
 
 // tableExists 检查表是否已存在（sqlite_master 预检；供「表缺失跳过」语义使用）

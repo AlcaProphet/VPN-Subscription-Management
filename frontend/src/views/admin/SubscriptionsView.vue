@@ -2,8 +2,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Collapse, Input, Modal, Select, Space, Tag, TypographyText } from 'ant-design-vue'
-import { listSubscriptions, createSubscription, updateSubscription, deleteSubscription, checkSlug, type PlatformSubs, type SubscriptionItem } from '@/api/subscription'
+import { Button, Collapse, Input, Modal, Select, Space, Tag, TypographyText } from 'ant-design-vue'
+import { listSubscriptions, createSubscription, updateSubscription, deleteSubscription, type PlatformSubs, type SubscriptionItem } from '@/api/subscription'
 import { listPlatforms, type PlatformItem } from '@/api/platform'
 import { listGroups } from '@/api/group'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -46,58 +46,23 @@ function goVersions(sub: SubscriptionItem) {
 const modalOpen = ref(false)
 const editing = ref<SubscriptionItem | null>(null) // null = 新建
 const saving = ref(false)
-const form = reactive({ platform_id: 0, name: '', slug: '', group_ids: [] as number[] })
+const form = reactive({ platform_id: 0, name: '', group_ids: [] as number[] })
 
 // 关联组多选数据源（组列表接口 Build2 Step 3 已建立）
 const groupOptions = ref<{ label: string; value: number }[]>([])
-
-// 标识即时校验：格式 + 防抖唯一性提示（调 /api/admin/slug/check）；success 态用提示文字呈现，status 仅 error/warning
-const slugStatus = ref<'' | 'error' | 'warning'>('')
-const slugTip = ref('')
-let slugTimer: ReturnType<typeof setTimeout> | undefined
-const slugRe = /^[a-z0-9-]{3,64}$/
-async function onSlugChange() {
-  clearTimeout(slugTimer)
-  if (!form.slug) {
-    slugStatus.value = ''
-    slugTip.value = ''
-    return
-  }
-  if (!slugRe.test(form.slug)) {
-    slugStatus.value = 'error'
-    slugTip.value = '须为小写字母数字连字符，长度 3~64'
-    return
-  }
-  slugTimer = setTimeout(async () => {
-    try {
-      const res = await checkSlug(form.slug, 'subscription', editing.value?.id)
-      slugStatus.value = res.available ? '' : 'error'
-      slugTip.value = res.available ? '标识可用' : '标识已被使用（四类资源全局唯一）'
-    } catch {
-      slugStatus.value = ''
-      slugTip.value = ''
-    }
-  }, 300)
-}
 
 function openCreate() {
   editing.value = null
   form.platform_id = platforms.value[0]?.id ?? 0
   form.name = ''
-  form.slug = ''
   form.group_ids = []
-  slugStatus.value = ''
-  slugTip.value = ''
   modalOpen.value = true
 }
 function openEdit(sub: SubscriptionItem) {
   editing.value = sub
   form.platform_id = sub.platform_id
   form.name = sub.name
-  form.slug = sub.slug
   form.group_ids = sub.groups.map((g) => g.id)
-  slugStatus.value = ''
-  slugTip.value = ''
   modalOpen.value = true
 }
 
@@ -106,21 +71,14 @@ async function save() {
     Notify.error('请填写名称并选择平台')
     return
   }
-  if (slugStatus.value === 'error') {
-    Notify.error('标识不可用，请更换')
-    return
-  }
   saving.value = true
   try {
     if (editing.value) {
       await updateSubscription(editing.value.id, { name: form.name.trim(), group_ids: form.group_ids })
       Notify.success('订阅已更新')
     } else {
-      if (!slugRe.test(form.slug)) {
-        Notify.error('标识须为小写字母数字连字符，长度 3~64')
-        return
-      }
-      await createSubscription({ platform_id: form.platform_id, name: form.name.trim(), slug: form.slug, group_ids: form.group_ids })
+      // 标识由后端自动生成（subscription- 前缀 + 8 位随机短码），创建后列表展示供复制
+      await createSubscription({ platform_id: form.platform_id, name: form.name.trim(), group_ids: form.group_ids })
       Notify.success('订阅已创建')
       guideOpen.value = true // 创建成功引导（Step 3 接通「每平台选定」直达）
     }
@@ -188,8 +146,6 @@ const guideOpen = ref(false)
     <!-- 新建/编辑弹窗 -->
     <Modal v-model:open="modalOpen" :title="editing ? '编辑订阅' : '新建订阅'" :footer="null" :width="520"
            destroy-on-close>
-      <Alert v-if="!editing" type="info" show-icon class="mb-3"
-             message="标识为四类资源（订阅/分享/规则/自定义）全局唯一命名空间，创建后不可修改" />
       <div class="space-y-4">
         <div>
           <div class="mb-1 text-sm">平台</div>
@@ -202,16 +158,8 @@ const guideOpen = ref(false)
           <div class="mb-1 text-sm">名称</div>
           <Input v-model:value="form.name" :maxlength="100" placeholder="订阅名称（不强制唯一）" />
         </div>
-        <div v-if="!editing">
-          <div class="mb-1 text-sm">标识</div>
-          <Input v-model:value="form.slug" :status="slugStatus || undefined" placeholder="小写字母数字连字符，3~64"
-                 @change="onSlugChange" />
-          <div v-if="slugTip" class="text-xs mt-1" :class="slugStatus === 'error' ? 'text-red-500' : 'text-green-600'">
-            {{ slugTip }}
-          </div>
-        </div>
-        <div v-else>
-          <div class="mb-1 text-sm">标识</div>
+        <div v-if="editing">
+          <div class="mb-1 text-sm">标识（系统自动生成，创建后不可修改）</div>
           <TypographyText code>{{ editing.slug }}</TypographyText>
         </div>
         <div>

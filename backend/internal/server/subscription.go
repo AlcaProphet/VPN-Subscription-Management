@@ -47,10 +47,10 @@ func parseID(c *gin.Context, key string) (int64, bool) {
 }
 
 type subCreateReq struct {
-	PlatformID int64    `json:"platform_id" binding:"required"`
-	Name       string   `json:"name" binding:"required,min=1,max=100"`
-	Slug       string   `json:"slug" binding:"required"`
-	GroupIDs   []int64  `json:"group_ids"`
+	PlatformID int64   `json:"platform_id" binding:"required"`
+	Name       string  `json:"name" binding:"required,min=1,max=100"`
+	Slug       string  `json:"slug"` // 可选：为空时后端自动生成（subscription- 前缀）
+	GroupIDs   []int64 `json:"group_ids"`
 }
 
 func (h *SubscriptionHandler) list(c *gin.Context) {
@@ -210,13 +210,13 @@ func versionCreate(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 		}
 		src = version.BytesContent([]byte(req.Text))
 	} else {
-		file, _, err := c.Request.FormFile("file")
+		file, fileHeader, err := c.Request.FormFile("file")
 		if err != nil {
 			Fail(c, http.StatusBadRequest, "未接收到文件")
 			return
 		}
 		defer file.Close()
-		src = version.ReaderContent{R: file, Max: version.MaxContentSize}
+		src = version.ReaderContent{R: file, Max: version.MaxContentSize, Name: fileHeader.Filename}
 	}
 	v, err := verSvc.CreateVersion(ctx, ot, id, src)
 	if errors.Is(err, version.ErrContentTooLarge) {

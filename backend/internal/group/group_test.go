@@ -49,6 +49,7 @@ func testMigrateFS() fstest.MapFS {
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				owner_type TEXT NOT NULL CHECK (owner_type IN ('subscription','rule','custom','share')),
 				owner_id INTEGER NOT NULL, version_no INTEGER NOT NULL, file_path TEXT NOT NULL,
+								file_name TEXT NOT NULL DEFAULT '',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				UNIQUE (owner_type, owner_id, version_no));
 			CREATE TABLE IF NOT EXISTS subscription_group_rel (

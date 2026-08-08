@@ -4,12 +4,13 @@ import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { me } from '@/api/auth'
 
-// 版本管理子路由：四条均复用 VersionManageView，按 ownerType 传参（UI §7.1）
+// 版本管理子路由：四条均复用 VersionManageView，按 ownerType 传参（UI §7.1）；
+// prefix 为相对路径（axios baseURL=/api），禁止带 /api 前缀（否则拼成 /api/api/ 被 SPA 回退吞掉）
 const versionRoutes = [
-  { path: '/admin/subscriptions/:id/versions', ownerType: 'subscription', prefix: '/api/admin/subscriptions' },
-  { path: '/admin/shares/:id/versions', ownerType: 'share', prefix: '/api/admin/shares' },
-  { path: '/admin/rules/:id/versions', ownerType: 'rule', prefix: '/api/admin/rules' },
-  { path: '/admin/customs/:id/versions', ownerType: 'custom', prefix: '/api/admin/customs' },
+  { path: '/admin/subscriptions/:id/versions', ownerType: 'subscription', prefix: '/admin/subscriptions' },
+  { path: '/admin/shares/:id/versions', ownerType: 'share', prefix: '/admin/shares' },
+  { path: '/admin/rules/:id/versions', ownerType: 'rule', prefix: '/admin/rules' },
+  { path: '/admin/customs/:id/versions', ownerType: 'custom', prefix: '/admin/customs' },
 ].map((r) => ({
   path: r.path,
   component: () => import('@/views/admin/VersionManageView.vue'),

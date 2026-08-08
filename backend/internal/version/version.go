@@ -62,7 +62,8 @@ func NewService(st *store.Store, dataDir string, lg *slog.Logger) *Service {
 type Version struct {
 	No        int64     `json:"version_no"`
 	FilePath  string    `json:"file_path"`
-	Current   bool      `json:"current"` // 由调用方对照 owner 的 current_version 填充
+	FileName  string    `json:"file_name"` // 上传时的原始文件名（文本模式为类型默认名）；下载文件名扩展名来源
+	Current   bool      `json:"current"`   // 由调用方对照 owner 的 current_version 填充
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -71,19 +72,26 @@ type Version struct {
 
 // ContentProvider 版本内容来源抽象；当前实现「文件上传」「文本编辑」两种，
 // 「装配生成」在 DesignOnHold 恢复开发时新增实现，不改本组件
+// FileName 返回上传时的原始文件名（文本编辑为空，CreateVersion 按类型补默认）
 type ContentProvider interface {
 	Content() ([]byte, error)
+	FileName() string
 }
 
 // BytesContent 文本编辑来源
+// 文本模式无原始文件名：CreateVersion 按资源类型补默认名（扩展名来源）
 type BytesContent []byte
 
 func (b BytesContent) Content() ([]byte, error) { return b, nil }
+func (b BytesContent) FileName() string          { return "" }
 
-// ReaderContent 文件上传来源（流式，限大小）
+// ReaderContent 文件上传来源（流式，限大小）；Name 为上传原始文件名
+// 接入层从 multipart 的 file.Filename 传入
+// 非上传场景（如测试）Name 可为空，扩展名按类型默认补齐
 type ReaderContent struct {
 	R   io.Reader
 	Max int64
+	Name string
 }
 
 func (r ReaderContent) Content() ([]byte, error) {
@@ -96,6 +104,8 @@ func (r ReaderContent) Content() ([]byte, error) {
 	}
 	return content, nil
 }
+
+func (r ReaderContent) FileName() string { return r.Name }
 
 // versionRelPath 版本相对路径：{ownerType}/{ownerID}/v{n}
 func versionRelPath(ot OwnerType, ownerID, versionNo int64) string {
@@ -138,9 +148,14 @@ func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64
 		if err := os.WriteFile(full, content, 0o644); err != nil {
 			return fmt.Errorf("写版本文件失败: %w", err)
 		}
+		// 文本模式/无原始文件名 → 按资源类型补默认名（下载文件名扩展名来源）
+		fileName := src.FileName()
+		if fileName == "" {
+			fileName = defaultFileName(ot)
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO versions (owner_type, owner_id, version_no, file_path) VALUES (?,?,?,?)`,
-			ot, ownerID, newNo, rel); err != nil {
+			`INSERT INTO versions (owner_type, owner_id, version_no, file_path, file_name) VALUES (?,?,?,?,?)`,
+			ot, ownerID, newNo, rel, fileName); err != nil {
 			_ = os.Remove(full) // 失败清理：删文件
 			return fmt.Errorf("写版本记录失败: %w", err)
 		}
@@ -153,7 +168,7 @@ func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64
 		if err := s.evictOldest(ctx, tx, ot, ownerID, newNo); err != nil {
 			return err
 		}
-		created = &Version{No: newNo, FilePath: rel, Current: true}
+		created = &Version{No: newNo, FilePath: rel, FileName: fileName, Current: true}
 		return nil
 	})
 	return created, err
@@ -361,26 +376,48 @@ func (s *Service) PreviewVersion(ctx context.Context, ot OwnerType, ownerID, ver
 	return os.ReadFile(filepath.Join(s.dataDir, "contents", rel))
 }
 
+// defaultFileName 无原始文件名（文本编辑模式）时按资源类型补默认名（扩展名来源）
+func defaultFileName(ot OwnerType) string {
+	switch ot {
+	case OwnerRule:
+		return "rule.conf" // Shadowrocket 分流规则
+	default:
+		return "subscription.yaml" // 订阅/分享/自定义
+	}
+}
+
 // ReadCurrent 下载分发用——先查 DB 当前版本号再读对应版本文件（以 DB 为准，Design1 §4.1）
 func (s *Service) ReadCurrent(ctx context.Context, ot OwnerType, ownerID int64) ([]byte, error) {
+	content, _, err := s.readCurrentWithName(ctx, ot, ownerID)
+	return content, err
+}
+
+// ReadCurrentWithName 读当前版本内容 + 原始文件名（下载端点拼文件名用，Issue1 R03）
+func (s *Service) ReadCurrentWithName(ctx context.Context, ot OwnerType, ownerID int64) ([]byte, string, error) {
+	return s.readCurrentWithName(ctx, ot, ownerID)
+}
+
+// readCurrentWithName 实现：先查 DB 当前版本号再读对应版本文件（以 DB 为准）
+func (s *Service) readCurrentWithName(ctx context.Context, ot OwnerType, ownerID int64) ([]byte, string, error) {
 	var current, versionNo int64
 	if err := s.store.DB().QueryRowContext(ctx,
 		`SELECT COALESCE(current_version, 0) FROM `+ownerTable(ot)+` WHERE id = ?`, ownerID).Scan(&current); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	versionNo = current
 	if versionNo == 0 { // 无版本（current=0）→ 视为无内容
-		return nil, ErrVersionNotFound
+		return nil, "", ErrVersionNotFound
 	}
-	var rel string
+	var rel, fileName string
 	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT file_path FROM versions WHERE owner_type = ? AND owner_id = ? AND version_no = ?`, ot, ownerID, versionNo).Scan(&rel); err != nil {
+		`SELECT file_path, file_name FROM versions WHERE owner_type = ? AND owner_id = ? AND version_no = ?`, ot, ownerID, versionNo).Scan(&rel, &fileName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrVersionNotFound
+			return nil, "", ErrVersionNotFound
 		}
-		return nil, err
+		return nil, "", err
 	}
-	return os.ReadFile(filepath.Join(s.dataDir, "contents", rel))
+	content, err := os.ReadFile(filepath.Join(s.dataDir, "contents", rel))
+	return content, fileName, err
 }
 
 // ownerTable 资源类型 → owner 表名（仅白名单固定值，防动态 SQL 注入）

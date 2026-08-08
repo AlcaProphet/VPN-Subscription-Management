@@ -52,6 +52,10 @@ func (h *DownloadHandler) userDownload(c *gin.Context) {
 	default:
 		h.dlSvc.WriteAccessLog(ctx, ip, entry, true)
 		setNoCache(c)
+		// 下载文件名（资源名 + 原始扩展名）；平台附加头优先（如 clash-verge 预置的 Content-Disposition）
+		if res.Filename != "" {
+			c.Header("Content-Disposition", `attachment; filename="`+download.SanitizeFilename(res.Filename)+`"`)
+		}
 		for k, v := range res.ExtraHeaders {
 			c.Header(k, v)
 		}
