@@ -308,3 +308,22 @@ func TestEmergencyServer(t *testing.T) {
 		t.Error("白名单判定异常")
 	}
 }
+
+// TestSetupImportRateLimit Setup 导入端点按 IP 限流（Build3 Step 4 验收项）：同注册口径 5/min，第 6 次 429
+func TestSetupImportRateLimit(t *testing.T) {
+	srv := newTestServer(t)
+	doImport := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/api/setup/import", strings.NewReader(""))
+		w := httptest.NewRecorder()
+		srv.Engine().ServeHTTP(w, req)
+		return w.Code
+	}
+	for i := 1; i <= 5; i++ {
+		if code := doImport(); code == http.StatusTooManyRequests {
+			t.Fatalf("第 %d 次请求不应被限流: %d", i, code)
+		}
+	}
+	if code := doImport(); code != http.StatusTooManyRequests {
+		t.Errorf("第 6 次请求应 429: %d", code)
+	}
+}

@@ -1,13 +1,15 @@
-<!-- SetupView.vue：首次配置向导（UI §2.1）快速开始 + 高级配置（OIDC）+ 完成页抢注提示 -->
+<!-- SetupView.vue：首次配置向导（UI §2.1）快速开始 + 高级配置（OIDC）+ 导入已有配置 + 完成页抢注提示 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Steps, Card, Button, Tag, Alert, Result, Radio, Form, Input, Collapse, Space } from 'ant-design-vue'
+import { Steps, Card, Button, Tag, Alert, Result, Radio, Form, Input, Collapse, Space, Upload, Modal } from 'ant-design-vue'
 import { useSystemStore } from '@/stores/system'
 import { useTheme } from '@/theme'
 import { http } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import { oidcTest, setupOidc } from '@/api/oidc'
+import { setupImportConfig } from '@/api/settings'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 
 const router = useRouter()
 const system = useSystemStore()
@@ -40,7 +42,47 @@ async function quickStart() {
   }
 }
 
-// --- 高级配置（OIDC，Step 6）---
+// 「导入已有配置」卡片：仅 Production 模式渲染（Build3 Step 4 补充：Setup 导入双入口）
+const importOpen = ref(false)
+const importFile = ref<File | null>(null)
+const importPwd = ref('')
+const importing = ref(false)
+
+function onImportFile(file: File) {
+  importFile.value = file
+  return false
+}
+
+// 导入：上传文件 + 导出密码 + IMPORT 确认词 → POST /api/setup/import（未配置状态暴露，限流 5/min）；
+// 校验失败不做任何变更（后端事务内校验），错误原因直接展示；成功后 configured=true 由守卫跳转登录
+async function doSetupImport() {
+  if (!importFile.value || !importPwd.value) {
+    Notify.error('请选择文件并输入导出密码')
+    return
+  }
+  importing.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', importFile.value)
+    fd.append('password', importPwd.value)
+    fd.append('confirm_word', 'IMPORT')
+    await setupImportConfig(fd)
+    importOpen.value = false
+    await system.fetchStatus(true) // configured=true，守卫将后续访问跳转登录
+    Modal.warning({
+      title: '导入完成',
+      content: '配置已整体覆盖（导出文件中不存在的配置键已清除）；签名密钥已替换，如有旧会话将全部失效。请立即重启容器后再重新登录。',
+      okText: '前往登录',
+      onOk: () => void router.push('/login'),
+    })
+  } catch (err) {
+    Notify.error((err as Error).message) // 确认词/密码错误或文件损坏提示
+  } finally {
+    importing.value = false
+  }
+}
+
+// 高级配置（OIDC，Step 6）
 const advancedOpen = ref(false)
 const providerType = ref('generic')
 const oidcForm = reactive({ base_url: '', realm: '', client_id: '', client_secret: '' })
@@ -139,6 +181,26 @@ async function completeOidc() {
             <Tag color="blue">{{ advancedOpen ? '展开' : '收起' }}</Tag>
           </div>
         </Card>
+        <!-- 导入已有配置卡片：仅 Production 模式渲染（Dev 显示说明文案，UI §2.1） -->
+        <Card v-if="isProd" class="mb-4" hoverable>
+          <div class="mb-3">
+            <div class="font-medium">导入已有配置</div>
+            <div class="text-gray-500 text-sm mt-1">从其他实例导出的加密配置文件恢复全部配置（整体覆盖）</div>
+          </div>
+          <Space class="w-full">
+            <Upload :before-upload="onImportFile" :max-count="1">
+              <Button>{{ importFile ? importFile.name : '选择配置文件' }}</Button>
+            </Upload>
+            <Input.Password v-model:value="importPwd" placeholder="导出密码（≥8 字符）" style="max-width: 220px" />
+            <Button danger @click="importOpen = true">导入</Button>
+          </Space>
+          <div class="text-xs text-gray-400 mt-2">导入将整体覆盖全部配置并替换签名密钥，完成后需重启容器再重新登录</div>
+        </Card>
+        <Card v-else class="mb-4" hoverable>
+          <div class="font-medium">导入已有配置</div>
+          <Alert type="info" class="mt-2" show-icon message="Dev 模式不提供配置导入"
+                 description="避免模拟 OIDC 等调试配置外流（Design1 §3.4.8）" />
+        </Card>
         <!-- OIDC 参数配置区（选中高级配置后展开） -->
         <Card v-if="advancedOpen" class="mb-4">
           <div class="mb-4">
@@ -191,6 +253,10 @@ async function completeOidc() {
           <Button type="primary" @click="router.push('/login')">前往登录</Button>
         </template>
       </Result>
+      <!-- 导入确认（IMPORT 确认词 + 二次确认） -->
+      <ConfirmModal :open="importOpen" title="导入配置（整体覆盖）" danger confirm-word="IMPORT" :loading="importing"
+                    content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；签名密钥替换后如有旧会话将全部失效；导入完成后请立即重启容器再重新登录。"
+                    @confirm="doSetupImport" @update:open="importOpen = false" />
     </Card>
   </div>
 </template>

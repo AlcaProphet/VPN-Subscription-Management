@@ -2350,3 +2350,4 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
 | v1.0 | 2026-08-07 | 初始版本：管理面补全与运维能力（6 Step），承接 Build1/Build2 |
 | v1.1 | 2026-08-09 | 同步 Build2 修复：① 执行约束第 5 条补充列表统一 ListData 包裹 + 前端 api 层解包约定（R02-01）；② Step 1 注明 customs 版本路由返回按钮 backPath 待改 /admin/users（R04-01）；③ Step 1 列表 api 分页包裹与全量解包区分注释 |
 | v1.2 | 2026-08-09 | 全部 6 个 Step 验收通过（✅ 2026-08-09）：后端 go build/vet/test 全绿（25 包）；前端 npm run build/test 通过（20 用例）；应急模式手动验证通过（RESET_ADMIN_PASSWORD 触发、操作码一次性、业务 API 503、SPA 回退正常） |
+| v1.3 | 2026-08-09 | 全量审查补漏（R05-01/02）：① Setup 页补「导入已有配置」卡片（仅 Production 渲染，配置导入双入口闭环，`api/settings.ts` 新增 `setupImportConfig`）；② server_test 补 `TestSetupImportRateLimit` 端点级限流测试（前 5 次放行、第 6 次 429）；复验后端 25 包全绿 + 前端构建/20 用例全绿 |

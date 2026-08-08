@@ -89,5 +89,7 @@ export const siteInfoPublic = () => axios.get<any, { data: { code: number; data:
 export const exportConfig = (password: string) =>
   http.post<any, Blob>('/admin/settings/export', { password }, { responseType: 'blob' })
 export const importConfig = (form: FormData) => http.post('/admin/settings/import', form)
+// Setup 导入（未配置状态暴露，无会话保护；依赖导出密码 + 按 IP 限流 5/min）
+export const setupImportConfig = (form: FormData) => http.post('/setup/import', form)
 export const clearAll = (confirmWord: string) => http.post('/admin/settings/clear_all', { confirm_word: confirmWord })
 export const downloadBackup = () => http.get<any, Blob>('/admin/settings/backup', { responseType: 'blob' })
