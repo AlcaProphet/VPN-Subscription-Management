@@ -150,7 +150,7 @@ func (s *Service) List(ctx context.Context) ([]Platform, error) {
 		return nil, fmt.Errorf("读取平台列表失败: %w", err)
 	}
 	defer rows.Close()
-	var out []Platform
+	out := make([]Platform, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var p Platform
 		var schemesJSON, headersJSON, installerFile, installerURL sql.NullString

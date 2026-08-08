@@ -336,7 +336,7 @@ func (s *Service) ListVersions(ctx context.Context, ot OwnerType, ownerID, curre
 		return nil, fmt.Errorf("读取版本列表失败: %w", err)
 	}
 	defer rows.Close()
-	var out []Version
+	out := make([]Version, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var v Version
 		if err := rows.Scan(&v.No, &v.FilePath, &v.CreatedAt, &v.UpdatedAt); err != nil {

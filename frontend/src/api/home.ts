@@ -24,7 +24,8 @@ export interface PlatformCard {
   subscriptions?: AdminPoolSub[] // 管理员池内订阅列表
 }
 
-export const homePlatforms = () => http.get<any, PlatformCard[]>('/home/platforms')
+export const homePlatforms = () =>
+  http.get<any, { list: PlatformCard[]; total: number }>('/home/platforms').then((d) => d.list)
 export const refreshHomeToken = (platformId: number) =>
   http.post<any, { token: string }>('/home/token/refresh', { platform_id: platformId })
 export const homeUpdatedAt = () => http.get<any, { updated_at: string | null }>('/home/updated_at')

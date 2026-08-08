@@ -9,6 +9,21 @@
 
 当前无进行中问题。已闭环问题见下：
 
+### R02-01 订阅面板报错「a.map is not a function」：列表接口契约不一致 + 空列表返回 null
+
+- **现象：** 进入管理端「订阅」面板提示 `a.map is not a function`，列表无法渲染（未创建任何订阅时必现）；用户组/分享/平台/规则面板同样受影响。
+- **根因（两个叠加问题）：**
+  1. **前后端契约不一致**：`/api/admin/groups`、`/api/admin/shares`、`/api/admin/rules`、`/api/admin/platforms` 返回 `{code,data:{list,total}}`（ListData 包裹），而前端 `group.ts`/`share.ts`/`rule.ts`/`platform.ts` 按裸数组解包，对 `{list,total}` 对象调用 `.map()` 崩溃；`subscription/home/rules-user/versions` 则返回裸数组，与 AGENTS §4.8「列表统一包裹结构」不一致。
+  2. **nil slice 序列化为 null**：各 List 方法 `var out []T` 空库时返回 nil slice，`response.OK`（`Data any json:"data,omitempty"`）序列化为 `null`，前端 `.map()` 同样崩溃。
+- **影响范围：** 全部列表类接口与页面（订阅/用户组/分享/平台/规则/版本/用户端首页），空数据场景必现。
+- **修复方案：**
+  1. 后端 4 处裸数组列表改 ListData 包裹（subscription list、rule userList、home platforms、版本 list 共享组件）；
+  2. 后端 10 处列表构建点 `var out []T` → `make([]T, 0)`（subscription×2、group×2、share/custom/version/rule/platform/home 各×1）；
+  3. 前端 8 处列表封装统一解包 `.list`（subscription/group/platform/share/rule×2/home/version）；
+  4. 新增守护测试 `TestListEmpty`（空库 List 返回非 nil 空数组）；home-view.spec mock 保持调用方视角（数组）。
+- **状态：** ✅ 已修复（2026-08-09）
+  - 验收命令与实际结果：`go build/vet/test` 全绿（20 包 + TestListEmpty）；`npm run build` + `npm run test` 全绿（20/20）；`docker compose build` + `up -d` 后 browser-use 真实浏览器遍历订阅/用户组/平台/分享/规则/首页全部正常渲染、无错误提示。
+
 ### R01-01 生产构建白屏：antd/vendor manualChunks 拆包触发跨 chunk 循环引用
 
 - **现象：** Docker 部署（`docker compose up`）后浏览器访问首页一片空白；DevTools Console 报 `Cannot access 'Q' before initialization`；Network 面板 index.html 与全部 `/assets/*` 均 200 加载成功，仅 JS 执行中断导致 Vue 未挂载。Vite dev server（`npm run dev`）模式下无此问题。
@@ -49,3 +64,4 @@
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-09 | 初始版本：记录 R01-01 生产构建白屏（manualChunks 跨 chunk 循环依赖）修复闭环 |
+| v1.1 | 2026-08-09 | 追加 R02-01 空列表接口返回 null 导致前端 .map 崩溃修复闭环（10 处列表构建点 + 守护测试） |

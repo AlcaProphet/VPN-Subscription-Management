@@ -163,7 +163,7 @@ func (s *Service) List(ctx context.Context) ([]Rule, error) {
 		return nil, fmt.Errorf("读取规则列表失败: %w", err)
 	}
 	defer rows.Close()
-	var out []Rule
+	out := make([]Rule, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var r Rule
 		var schemesRaw string

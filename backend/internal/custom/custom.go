@@ -169,7 +169,7 @@ func (s *Service) ListByUser(ctx context.Context, userID int64) ([]Custom, error
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Custom
+	out := make([]Custom, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var c Custom
 		if err := rows.Scan(&c.ID, &c.Slug, &c.UserID, &c.PlatformID, &c.CurrentVersion, &c.PlatformName); err != nil {

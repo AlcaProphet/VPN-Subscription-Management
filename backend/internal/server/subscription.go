@@ -59,7 +59,7 @@ func (h *SubscriptionHandler) list(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, list)
+	OK(c, ListData{List: list, Total: int64(len(list))}) // 列表统一包裹结构（AGENTS §4.8）
 }
 
 func (h *SubscriptionHandler) create(c *gin.Context) {
@@ -188,7 +188,7 @@ func versionList(c *gin.Context, verSvc *version.Service, ot version.OwnerType) 
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, list)
+	OK(c, ListData{List: list, Total: int64(len(list))}) // 列表统一包裹结构（AGENTS §4.8）
 }
 
 // versionCreate 双模式——mode=upload 取 multipart 文件流（ReaderContent，≤50MB，Design1 §6.3）；

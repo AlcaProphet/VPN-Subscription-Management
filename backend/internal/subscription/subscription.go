@@ -323,7 +323,7 @@ func (s *Service) List(ctx context.Context) ([]PlatformGroup, error) {
 		return nil, err
 	}
 	// 分组 + 关联组 + 选定数
-	var out []PlatformGroup
+	out := make([]PlatformGroup, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	index := map[int64]int{}
 	for _, it := range items {
 		idx, ok := index[it.sub.PlatformID]
@@ -354,7 +354,7 @@ func (s *Service) groupRel(ctx context.Context, id int64) ([]GroupBrief, error) 
 		return nil, err
 	}
 	defer rows.Close()
-	var out []GroupBrief
+	out := make([]GroupBrief, 0) // 空列表返回 [] 而非 null
 	for rows.Next() {
 		var g GroupBrief
 		if err := rows.Scan(&g.ID, &g.Name); err != nil {

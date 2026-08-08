@@ -165,7 +165,7 @@ func (h *RuleHandler) userList(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, list)
+	OK(c, ListData{List: list, Total: int64(len(list))}) // 列表统一包裹结构（AGENTS §4.8）
 }
 
 // preview 会话凭据预览当前版本（text/plain + no-store）

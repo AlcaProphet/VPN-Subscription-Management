@@ -92,7 +92,7 @@ func (h *HomeHandler) platforms(c *gin.Context) {
 		return
 	}
 	// 逐平台处理（循环内可安全开事务：游标已关闭）
-	var out []platformCard
+	out := make([]platformCard, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for _, p := range plats {
 		card := platformCard{
 			PlatformID:       p.id,
@@ -150,7 +150,7 @@ func (h *HomeHandler) platforms(c *gin.Context) {
 		}
 		out = append(out, card)
 	}
-	OK(c, out)
+	OK(c, ListData{List: out, Total: int64(len(out))}) // 列表统一包裹结构（AGENTS §4.8）
 }
 
 // adminPool 管理员池内订阅（每份生成/复用显式 Token）；游标先读完再逐个生成 Token（防单连接死锁）

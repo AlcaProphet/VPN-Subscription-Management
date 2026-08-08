@@ -183,7 +183,7 @@ func (s *Service) List(ctx context.Context) ([]Share, error) {
 		return nil, fmt.Errorf("读取分享列表失败: %w", err)
 	}
 	defer rows.Close()
-	var out []Share
+	out := make([]Share, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var sh Share
 		var created sql.NullString

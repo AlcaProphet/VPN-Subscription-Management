@@ -184,6 +184,21 @@ func TestDeleteCascade(t *testing.T) {
 }
 
 // TestListGrouped 按平台分组列表
+func TestListEmpty(t *testing.T) {
+	_, svc, _, _ := newTestSubscriptionService(t)
+	list, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("列表失败: %v", err)
+	}
+	// 空库必须返回空数组（[]）而非 nil：否则 JSON 序列化为 null，前端 .map 崩溃（Issue1 R02-01）
+	if list == nil {
+		t.Fatal("空库必须返回空数组（[]）而非 nil")
+	}
+	if len(list) != 0 {
+		t.Fatalf("空库应返回空列表: %+v", list)
+	}
+}
+
 func TestListGrouped(t *testing.T) {
 	st, svc, _, _ := newTestSubscriptionService(t)
 	ctx := context.Background()

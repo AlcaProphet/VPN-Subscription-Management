@@ -11,7 +11,8 @@ export interface ShareItem {
   created_at: string
 }
 
-export const listShares = () => http.get<any, ShareItem[]>('/admin/shares')
+export const listShares = () =>
+  http.get<any, { list: ShareItem[]; total: number }>('/admin/shares').then((d) => d.list)
 export const createShare = (payload: FormData) => http.post<any, ShareItem>('/admin/shares', payload)
 export const renameShare = (id: number, name: string) => http.put(`/admin/shares/${id}`, { name })
 export const deleteShare = (id: number) => http.delete(`/admin/shares/${id}`)

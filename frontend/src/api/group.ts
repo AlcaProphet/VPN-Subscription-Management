@@ -20,7 +20,8 @@ export interface GroupDetail extends GroupItem {
   selections: SelectionItem[]
 }
 
-export const listGroups = () => http.get<any, GroupItem[]>('/admin/groups')
+export const listGroups = () =>
+  http.get<any, { list: GroupItem[]; total: number }>('/admin/groups').then((d) => d.list)
 export const getGroup = (id: number) => http.get<any, GroupDetail>(`/admin/groups/${id}`)
 export const createGroup = (name: string) => http.post<any, GroupItem>('/admin/groups', { name })
 export const updateGroup = (id: number, data: { name: string; sub_ids: number[]; selections: SelectionItem[] }) =>

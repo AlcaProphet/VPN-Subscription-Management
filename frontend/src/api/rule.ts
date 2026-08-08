@@ -13,12 +13,14 @@ export interface RuleItem {
   refreshed_at: string
 }
 
-export const listAdminRules = () => http.get<any, RuleItem[]>('/admin/rules')
+export const listAdminRules = () =>
+  http.get<any, { list: RuleItem[]; total: number }>('/admin/rules').then((d) => d.list)
 export const createRule = (payload: FormData) => http.post<any, RuleItem>('/admin/rules', payload)
 export const renameRule = (id: number, name: string) => http.put(`/admin/rules/${id}`, { name })
 export const deleteRule = (id: number) => http.delete(`/admin/rules/${id}`)
 export const refreshRuleToken = (id: number) => http.post<any, { token: string }>(`/admin/rules/${id}/token/refresh`)
 
 // 用户端（仅会话）
-export const userRules = () => http.get<any, RuleItem[]>('/rules')
+export const userRules = () =>
+  http.get<any, { list: RuleItem[]; total: number }>('/rules').then((d) => d.list)
 export const previewRule = (id: number) => http.get<any, string>(`/rules/${id}/preview`, { responseType: 'text' })

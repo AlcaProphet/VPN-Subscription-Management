@@ -11,7 +11,8 @@ export interface VersionItem {
 
 export function versionApi(prefix: string) {
   return {
-    list: (ownerId: number) => http.get<any, VersionItem[]>(`${prefix}/${ownerId}/versions`),
+    list: (ownerId: number) =>
+      http.get<any, { list: VersionItem[]; total: number }>(`${prefix}/${ownerId}/versions`).then((d) => d.list),
     create: (ownerId: number, payload: FormData | { text: string }) =>
       http.post<any, { version_no: number; yaml_warning?: string }>(`${prefix}/${ownerId}/versions`, payload),
     switchCurrent: (ownerId: number, versionNo: number) =>

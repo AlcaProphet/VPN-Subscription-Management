@@ -254,7 +254,7 @@ func (s *Service) List(ctx context.Context) ([]Group, error) {
 		return nil, fmt.Errorf("读取用户组列表失败: %w", err)
 	}
 	defer rows.Close()
-	var out []Group
+	out := make([]Group, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var g Group
 		var isDefault, needsReselect int
@@ -307,7 +307,7 @@ func (s *Service) Selections(ctx context.Context, id int64) ([]Selection, error)
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Selection
+	out := make([]Selection, 0) // 空列表返回 [] 而非 null
 	for rows.Next() {
 		var sel Selection
 		if err := rows.Scan(&sel.PlatformID, &sel.SubscriptionID); err != nil {

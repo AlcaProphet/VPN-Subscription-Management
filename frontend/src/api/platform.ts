@@ -19,7 +19,8 @@ export interface PlatformItem {
   cascade: CascadeCounts // 删除预览影响统计
 }
 
-export const listPlatforms = () => http.get<any, PlatformItem[]>('/admin/platforms')
+export const listPlatforms = () =>
+  http.get<any, { list: PlatformItem[]; total: number }>('/admin/platforms').then((d) => d.list)
 export const getPlatform = (id: number) => http.get<any, PlatformItem>(`/admin/platforms/${id}`)
 export const createPlatform = (data: Partial<PlatformItem>) =>
   http.post<any, PlatformItem>('/admin/platforms', data)

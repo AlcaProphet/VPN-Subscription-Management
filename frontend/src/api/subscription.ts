@@ -22,7 +22,8 @@ export interface PlatformSubs {
   subscriptions: SubscriptionItem[]
 }
 
-export const listSubscriptions = () => http.get<any, PlatformSubs[]>('/admin/subscriptions')
+export const listSubscriptions = () =>
+  http.get<any, { list: PlatformSubs[]; total: number }>('/admin/subscriptions').then((d) => d.list)
 export const getSubscription = (id: number) => http.get<any, SubscriptionItem>(`/admin/subscriptions/${id}`)
 export const createSubscription = (data: { platform_id: number; name: string; slug: string; group_ids: number[] }) =>
   http.post<any, SubscriptionItem>('/admin/subscriptions', data)
