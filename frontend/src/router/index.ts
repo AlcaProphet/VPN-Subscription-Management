@@ -10,7 +10,7 @@ const versionRoutes = [
   { path: '/admin/subscriptions/:id/versions', ownerType: 'subscription', prefix: '/admin/subscriptions', backPath: '/admin/subscriptions' },
   { path: '/admin/shares/:id/versions', ownerType: 'share', prefix: '/admin/shares', backPath: '/admin/shares' },
   { path: '/admin/rules/:id/versions', ownerType: 'rule', prefix: '/admin/rules', backPath: '/admin/rules' },
-  { path: '/admin/customs/:id/versions', ownerType: 'custom', prefix: '/admin/customs', backPath: '/admin/subscriptions' }, // 用户管理 Build3 接通后改 /admin/users
+  { path: '/admin/customs/:id/versions', ownerType: 'custom', prefix: '/admin/customs', backPath: '/admin/users' }, // R04-01：Build3 用户管理接通后返回用户列表
 ].map((r) => ({
   path: r.path,
   component: () => import('@/views/admin/VersionManageView.vue'),
@@ -34,7 +34,14 @@ const adminRoutes = [
   { path: '/admin/platforms/new', component: () => import('@/views/admin/PlatformEditView.vue') },
   { path: '/admin/rules', component: () => import('@/views/admin/RulesView.vue') },
   { path: '/admin/assembly', component: () => import('@/views/admin/AssemblyView.vue') },
-  // Build3 补充：users/approvals/settings/logs
+  // Build3 Step 1：用户管理
+  { path: '/admin/users', component: () => import('@/views/admin/UsersView.vue') },
+  // Build3 Step 2：审批中心
+  { path: '/admin/approvals', component: () => import('@/views/admin/ApprovalsView.vue') },
+  // Build3 Step 3：面板配置
+  { path: '/admin/settings', component: () => import('@/views/admin/SettingsView.vue') },
+  // Build3 Step 5：日志查看
+  { path: '/admin/logs', component: () => import('@/views/admin/LogsView.vue') },
 ].map((r) => ({ ...r, meta: { layout: 'admin', requiresAdmin: true } }))
 
 // 用户端路由（懒加载）
@@ -46,6 +53,7 @@ const userRoutes = [
 
 const routes = [
   // 公开（blank 布局）
+  { path: '/emergency', component: () => import('@/views/EmergencyView.vue'), meta: { layout: 'blank', public: true } }, // Build3 Step 6：应急恢复页（守卫 emergency=true 强制跳转）
   { path: '/setup', component: () => import('@/views/SetupView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/login', component: () => import('@/views/LoginView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/register', component: () => import('@/views/RegisterView.vue'), meta: { layout: 'blank', public: true } },

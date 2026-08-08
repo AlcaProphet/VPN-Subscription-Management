@@ -12,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/dataclear"
+	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
@@ -50,7 +52,9 @@ func newTestServer(t *testing.T) *Server {
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
 	users := user.NewService(st, cfg, log.New("error", "console"))
-	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", t.TempDir())
+	buf := log.NewRingBuffer()
+	streamSvc := log.NewStreamService(buf, log.New("error", "console"))
+	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", t.TempDir(), streamSvc)
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}
@@ -225,5 +229,82 @@ func TestLocalLoginSwitch(t *testing.T) {
 	}
 	if code := doRegister(srv2); code != http.StatusForbidden {
 		t.Errorf("关闭后注册应 403: %d", code)
+	}
+}
+
+// TestEmergencyServer 应急装配级验证（Build3 Step 6）：业务 API 503、/health 503、
+// 系统状态返回 emergency 标记、站点信息/应急端点/白名单路径正常
+func TestEmergencyServer(t *testing.T) {
+	st, err := store.Open(t.TempDir(), "test.db")
+	if err != nil {
+		t.Fatalf("打开测试库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	fsys := fstest.MapFS{
+		"0001_init.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+			CREATE TABLE IF NOT EXISTS system_config (
+			key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		"0002_users.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, email TEXT UNIQUE,
+			role TEXT NOT NULL DEFAULT 'user', user_source TEXT NOT NULL DEFAULT 'local',
+			status TEXT NOT NULL DEFAULT 'active');`)},
+	}
+	if err := st.Migrate(context.Background(), fsys); err != nil {
+		t.Fatalf("迁移失败: %v", err)
+	}
+	cfg := config.NewService(st, log.New("error", "console"))
+	clearSvc := dataclear.NewService(st, t.TempDir(), log.New("error", "console"))
+	emSvc := emergency.NewService(emergency.TriggerManual, true, st, cfg, clearSvc, t.TempDir(), "test.db", log.New("error", "console"))
+	srv, err := NewEmergency(st, cfg, emSvc, log.New("error", "console"), "dev", "off", "0", t.TempDir())
+	if err != nil {
+		t.Fatalf("装配应急 server 失败: %v", err)
+	}
+	e := srv.Engine()
+	req := func(method, path string) int {
+		r := httptest.NewRequest(method, path, nil)
+		w := httptest.NewRecorder()
+		e.ServeHTTP(w, r)
+		return w.Code
+	}
+	// 业务 API 503
+	if code := req(http.MethodGet, "/api/admin/users"); code != http.StatusServiceUnavailable {
+		t.Errorf("业务 API 应 503: %d", code)
+	}
+	if code := req(http.MethodGet, "/subscriptions/x/download?token=bad"); code != http.StatusServiceUnavailable {
+		t.Errorf("下载端点应 503: %d", code)
+	}
+	// /health 503
+	if code := req(http.MethodGet, "/health"); code != http.StatusServiceUnavailable {
+		t.Errorf("/health 应 503: %d", code)
+	}
+	// 系统状态：emergency 标记 + 触发原因
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/system/status", nil))
+	var status struct {
+		Code int `json:"code"`
+		Data struct {
+			Emergency      bool   `json:"emergency"`
+			EmergencyReason string `json:"emergency_reason"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
+		t.Fatalf("解析状态失败: %v", err)
+	}
+	if !status.Data.Emergency || status.Data.EmergencyReason != "manual" {
+		t.Errorf("应急标记异常: %+v", status.Data)
+	}
+	// 站点信息正常
+	if code := req(http.MethodGet, "/api/site/info"); code != http.StatusOK {
+		t.Errorf("站点信息应 200: %d", code)
+	}
+	// SPA 回退（/emergency 前端路由）可加载
+	if code := req(http.MethodGet, "/emergency"); code != http.StatusOK {
+		t.Errorf("SPA 回退应 200: %d", code)
+	}
+	// 白名单判定（单元级）
+	if isEmergencyAllowed("GET", "/api/system/status") != true || isEmergencyAllowed("POST", "/api/emergency/verify") != true ||
+		isEmergencyAllowed("GET", "/assets/index.js") != true || isEmergencyAllowed("GET", "/api/auth/login") != false {
+		t.Error("白名单判定异常")
 	}
 }

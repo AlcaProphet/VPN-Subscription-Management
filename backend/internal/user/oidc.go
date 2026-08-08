@@ -105,6 +105,10 @@ func (s *Service) CreateFromOidc(ctx context.Context, username, email, subject, 
 	if err != nil {
 		return nil, err
 	}
+	// 欢迎邮件：直接激活（含首管理员/白名单命中）时发送；待审批不发（审批通过时由审批中心发送）
+	if created.Status == "active" {
+		s.sendWelcomeIf(ctx, created.Email, created.Source)
+	}
 	s.log.Info("OIDC 用户创建成功", "user_id", created.ID, "role", created.Role, "pending", created.Status == "pending")
 	return created, nil
 }

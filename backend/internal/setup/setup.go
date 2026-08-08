@@ -54,7 +54,7 @@ func (s *Service) CompleteQuickStart(ctx context.Context, r *http.Request) error
 			return err
 		}
 		// 2) 预置默认组 + 3 个默认平台（抽取复用，OIDC Setup 分支共用）
-		if err := s.seedPresets(ctx, tx, frontendURL); err != nil {
+		if err := s.SeedPresetsTx(ctx, tx, frontendURL); err != nil {
 			return err
 		}
 		// 3) configured 置位 + frontend_url 初始值（手动覆盖优先的缓存语义在 Build3 面板实现）
@@ -68,7 +68,13 @@ func (s *Service) CompleteQuickStart(ctx context.Context, r *http.Request) error
 	})
 }
 
-// seedPresets 预置默认组（is_default=1，不可删除）与 3 个默认平台（Design1 §2.2/3.4.4）；事务内调用
+// SeedPresetsTx 预置默认组（is_default=1，不可删除）与 3 个默认平台（Design1 §2.2/3.4.4）；事务内调用。
+// 导出供配置导入（Build3 Step 4 Setup 分支）与 Setup/OIDC Setup 共用
+func (s *Service) SeedPresetsTx(ctx context.Context, tx *sql.Tx, frontendURL string) error {
+	return s.seedPresets(ctx, tx, frontendURL)
+}
+
+// seedPresets 预置默认组与 3 个默认平台（事务内调用）
 func (s *Service) seedPresets(ctx context.Context, tx *sql.Tx, frontendURL string) error {
 	groupSlug, err := slug.Generate(ctx, tx, "group-", func(value string) (bool, error) {
 		return slug.TableHasSlug(ctx, tx, "groups", value)
@@ -119,7 +125,7 @@ func (s *Service) CompleteOidcSetup(ctx context.Context, r *http.Request, provid
 		if err := s.cfg.SetTx(ctx, tx, "oidc_"+config.KeyConfigured, "true"); err != nil {
 			return err
 		}
-		if err := s.seedPresets(ctx, tx, frontendURL); err != nil {
+		if err := s.SeedPresetsTx(ctx, tx, frontendURL); err != nil {
 			return err // 预置默认组/平台
 		}
 		if err := s.cfg.SetTx(ctx, tx, config.KeyConfigured, "true"); err != nil {

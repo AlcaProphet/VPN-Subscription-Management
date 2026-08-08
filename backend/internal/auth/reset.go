@@ -84,6 +84,29 @@ func (s *ResetService) Request(ctx context.Context, emailRaw string) error {
 	return nil // 接入层统一返回「若该邮箱已注册，重置链接已发送」
 }
 
+// IssueForUser 管理员为指定用户生成一次性重置令牌并发送（Build3 用户管理调用，Design1 §3.4.5）：
+// 令牌 1 小时 TTL、用后即删；邮件发送失败不阻断（sendMail 未注入时以日志记录代替，Step 2 接通）
+func (s *ResetService) IssueForUser(ctx context.Context, userID int64, email string) error {
+	buf := make([]byte, 32) // 256 位 ≥ 128 位熵（Design1 §4.2）
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Errorf("生成重置令牌失败: %w", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(buf)
+	if _, err := s.store.DB().ExecContext(ctx,
+		`INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?,?,?)`,
+		token, userID, time.Now().Add(resetTokenTTL)); err != nil {
+		return fmt.Errorf("写入重置令牌失败: %w", err)
+	}
+	if s.sendMail != nil {
+		if err := s.sendMail(ctx, email, resetLink(token)); err != nil {
+			s.log.Warn("重置邮件发送失败", "user_id", userID, "err", err) // 不阻断主流程
+		}
+	} else {
+		s.log.Info("重置令牌已生成（SMTP 未接通，Build3 Step 2 替换）", "user_id", userID)
+	}
+	return nil
+}
+
 // resetLink 构造重置链接（Build3 邮件模板使用；当前仅日志记录）
 func resetLink(token string) string {
 	return "/reset/" + token

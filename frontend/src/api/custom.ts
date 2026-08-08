@@ -12,5 +12,7 @@ export interface CustomItem {
 
 export const upsertCustom = (userId: number, payload: FormData) =>
   http.post<any, CustomItem>(`/admin/users/${userId}/custom`, payload)
+export const upsertCustomText = (userId: number, payload: { platform_id: number; text: string }) =>
+  http.post<any, CustomItem>(`/admin/users/${userId}/custom?mode=text`, payload)
 export const deleteCustom = (userId: number, platformId: number) =>
   http.delete(`/admin/users/${userId}/custom/${platformId}`)

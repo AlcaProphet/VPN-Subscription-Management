@@ -27,6 +27,11 @@ const (
 	KeyPages     = "captcha_pages"      // JSON 数组：register/login/forgot
 )
 
+// init 登记敏感配置键：captcha_secret_key 以 AES-256-GCM 加密落库（Build3 Step 3 面板配置接通）
+func init() {
+	config.RegisterSensitive(KeySecretKey)
+}
+
 // Service 验证码服务
 type Service struct {
 	cfg     *config.Service

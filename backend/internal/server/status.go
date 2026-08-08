@@ -5,21 +5,23 @@ import (
 
 	"vpn-sub/internal/captcha"
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/user"
 )
 
 // StatusHandler 系统状态处理器（结构体 Handler + 依赖注入）
 type StatusHandler struct {
-	cfg         *config.Service
-	users       *user.Service
-	oidcSvc     *oidc.Service
-	captchaSvc  *captcha.Service
+	cfg        *config.Service
+	users      *user.Service
+	oidcSvc    *oidc.Service
+	captchaSvc *captcha.Service
+	emSvc      *emergency.Service // 应急模式下非 nil（Build3 Step 6 接通 emergency 标记）
 }
 
 // registerStatus 注册系统状态端点（公开端点，无需鉴权）
-func registerStatus(engine *gin.Engine, cfg *config.Service, users *user.Service, oidcSvc *oidc.Service, captchaSvc *captcha.Service, mode string) {
-	h := &StatusHandler{cfg: cfg, users: users, oidcSvc: oidcSvc, captchaSvc: captchaSvc}
+func registerStatus(engine *gin.Engine, cfg *config.Service, users *user.Service, oidcSvc *oidc.Service, captchaSvc *captcha.Service, mode string, emSvc *emergency.Service) {
+	h := &StatusHandler{cfg: cfg, users: users, oidcSvc: oidcSvc, captchaSvc: captchaSvc, emSvc: emSvc}
 	engine.GET("/api/system/status", h.handle(mode))
 }
 
@@ -36,10 +38,21 @@ func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 		providerType, _ := h.cfg.Get(ctx, oidc.KeyProviderType)
 		captchaProvider, _ := h.cfg.Get(ctx, captcha.KeyProvider)
 		siteKey, _ := h.cfg.Get(ctx, captcha.KeySiteKey)
+		// 应急标记（Build3 Step 6）：应急模式下 true + 触发原因 + 可用能力
+		emergencyOn := false
+		emergencyReason := ""
+		canResetPassword := false
+		if h.emSvc != nil {
+			emergencyOn = true
+			emergencyReason = string(h.emSvc.Reason())
+			canResetPassword = h.emSvc.CanResetPassword(ctx)
+		}
 		OK(c, gin.H{
 			"configured":         configured,
 			"app_mode":           mode,
-			"emergency":          false, // TODO(Build3 Step 6)：替换为应急服务真实判定
+			"emergency":          emergencyOn,
+			"emergency_reason":   emergencyReason,
+			"can_reset_password": canResetPassword,
 			"allow_local_login":  h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true),
 			"allow_selfreg":      h.cfg.GetBool(ctx, config.KeyAllowSelfreg, false),
 			"user_table_empty":   empty, // 注册入口可见性所需，有意公开（Design1 §5.2）

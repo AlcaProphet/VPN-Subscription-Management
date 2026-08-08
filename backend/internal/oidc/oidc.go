@@ -29,6 +29,7 @@ const (
 	//   oidc_params_keycloak / oidc_params_auth0 / oidc_params_generic / oidc_params_mock
 	// 结构：{ base_url, realm, client_id, client_secret(密文) }
 	KeyOidcApproval = "oidc_approval" // OIDC 新用户审批开关（默认关闭，Build3 面板接通）
+	KeyWhitelist    = "oidc_whitelist" // OIDC 白名单 JSON（Build3 面板接通）：{role_claim_path, role_values, group_claim_path, group_values}
 )
 
 const stateTTL = 10 * time.Minute // OIDC state TTL（关键设计参数，Design1 §3.2）
@@ -85,6 +86,11 @@ func (s *Service) currentParams(ctx context.Context) (*Params, error) {
 	if providerType == "" {
 		return nil, errors.New("OIDC 未配置")
 	}
+	return s.loadParams(ctx, providerType)
+}
+
+// LoadParams 读取指定提供商参数（client_secret 自动解密；供面板配置回显/可用性判定，Build3 Step 3）
+func (s *Service) LoadParams(ctx context.Context, providerType string) (*Params, error) {
 	return s.loadParams(ctx, providerType)
 }
 
@@ -205,7 +211,28 @@ func (s *Service) ClearDiscCache() {
 	s.mu.Unlock()
 }
 
-// matchWhitelist 白名单匹配（Build3 面板接通配置前恒为命中——白名单为空时跳过校验直接激活）
+// matchWhitelist 白名单匹配（Build3 Step 3 接通配置）：
+// 读取 oidc_whitelist（JSON：{role_claim_path, role_values, group_claim_path, group_values}）；
+// 未配置/解析失败/白名单为空 → 跳过校验直接激活（Design1 §2.6）；Role 或 Group 任一命中 → 激活
 func (s *Service) matchWhitelist(ctx context.Context, id *Identity) bool {
-	return true
+	raw, err := s.cfg.Get(ctx, KeyWhitelist)
+	if err != nil || raw == "" {
+		return true
+	}
+	var wl config.WhitelistConfig
+	if err := json.Unmarshal([]byte(raw), &wl); err != nil {
+		s.log.Warn("解析 OIDC 白名单配置失败，按空白名单处理", "err", err)
+		return true
+	}
+	roleHit := false
+	if wl.RoleValues != nil && len(wl.RoleValues) > 0 && wl.RoleClaimPath != "" {
+		vals, ok := claimPathValues(id.RawClaims, wl.RoleClaimPath)
+		roleHit = ok && intersectAny(vals, wl.RoleValues)
+	}
+	groupHit := false
+	if wl.GroupValues != nil && len(wl.GroupValues) > 0 && wl.GroupClaimPath != "" {
+		vals, ok := claimPathValues(id.RawClaims, wl.GroupClaimPath)
+		groupHit = ok && intersectAny(vals, wl.GroupValues)
+	}
+	return roleHit || groupHit // 任一命中即激活
 }

@@ -94,7 +94,8 @@ func newDownloadTestServer(t *testing.T) *Server {
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
 	users := user.NewService(st, cfg, log.New("error", "console"))
-	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", t.TempDir())
+	streamSvc := log.NewStreamService(log.NewRingBuffer(), log.New("error", "console"))
+	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", t.TempDir(), streamSvc)
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}

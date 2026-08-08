@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Layout, Menu, Drawer, Button, type MenuProps } from 'ant-design-vue'
 import {
   CloudUploadOutlined, TeamOutlined, ShareAltOutlined, AppstoreOutlined,
-  BranchesOutlined, BlockOutlined, HomeOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
+  BranchesOutlined, BlockOutlined, HomeOutlined, MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, AuditOutlined, SettingOutlined, FileTextOutlined,
 } from '@ant-design/icons-vue'
 import { useTheme } from '@/theme'
 
@@ -38,11 +38,11 @@ const menuItems = computed(() => [
   { key: '/admin/groups', icon: () => h(TeamOutlined), label: '用户组' },
   { key: '/admin/shares', icon: () => h(ShareAltOutlined), label: '分享' },
   { key: '/admin/platforms', icon: () => h(AppstoreOutlined), label: '平台' },
-  // { key: '/admin/users', icon: () => h(UserOutlined), label: '用户' },          // Build3 显示
-  // { key: '/admin/approvals', icon: () => h(AuditOutlined), label: '审批中心' }, // Build3 显示
+  { key: '/admin/users', icon: () => h(UserOutlined), label: '用户' }, // Build3 Step 1
+  { key: '/admin/approvals', icon: () => h(AuditOutlined), label: '审批中心' }, // Build3 Step 2
   { key: '/admin/rules', icon: () => h(BranchesOutlined), label: '规则' },
-  // { key: '/admin/settings', icon: () => h(SettingOutlined), label: '面板配置' }, // Build3 显示
-  // { key: '/admin/logs', icon: () => h(FileTextOutlined), label: '日志' },        // Build3 显示
+  { key: '/admin/settings', icon: () => h(SettingOutlined), label: '面板配置' }, // Build3 Step 3
+  { key: '/admin/logs', icon: () => h(FileTextOutlined), label: '日志' }, // Build3 Step 5
   { key: '/admin/assembly', icon: () => h(BlockOutlined), label: '订阅装配' }, // 预留占位页
 ] as MenuProps['items'])
 

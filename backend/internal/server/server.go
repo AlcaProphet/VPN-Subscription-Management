@@ -12,12 +12,17 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/approval"
+	"vpn-sub/internal/backup"
 	"vpn-sub/internal/captcha"
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/custom"
+	"vpn-sub/internal/dataclear"
 	"vpn-sub/internal/download"
+	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/group"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/mail"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/platform"
 	"vpn-sub/internal/ratelimit"
@@ -55,7 +60,7 @@ type Server struct {
 }
 
 // New 构造注入装配：全部依赖经参数传入，禁止包级全局变量持有服务实例
-func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Logger, mode, trustProxy, port, dataDir string) (*Server, error) {
+func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Logger, mode, trustProxy, port, dataDir string, streamSvc *log.StreamService) (*Server, error) {
 	engine := gin.New() // 不用 gin.Default，避免默认 logger/recovery 绕过脱敏与统一响应
 	if err := applyTrustProxy(engine, trustProxy); err != nil {
 		return nil, err
@@ -71,7 +76,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	captchaSvc := captcha.NewService(cfg, lg)
 	limiter := ratelimit.New(cfg, lg)
 	resetSvc := auth.NewResetService(st, users, lg)
-	registerStatus(engine, cfg, users, oidcSvc, captchaSvc, mode)
+	registerStatus(engine, cfg, users, oidcSvc, captchaSvc, mode, nil)
 	// 认证路由（本 Build Step 4/7）：后续业务域路由同样在此按序注册
 	RegisterAuthRoutes(engine, &AuthHandler{authSvc: authSvc, userSvc: users, cfg: cfg, resetSvc: resetSvc}, limiter, captchaSvc)
 	// Setup 路由（本 Build Step 5/6）
@@ -105,6 +110,82 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	ruleSvc := rule.NewService(st, versionSvc, tokenSvc, subSvc, lg)
 	RegisterRuleRoutes(engine, &RuleHandler{ruleSvc: ruleSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	RegisterProfileRoutes(engine, &ProfileHandler{store: st}, authSvc.SessionMiddleware())
+	// 用户管理（Build3 Step 1）：五重管理员保护 + 全生命周期操作；复用 Token/重置令牌/版本组件
+	adminUserSvc := user.NewAdminService(st, users, tokenSvc, resetSvc, cfg, versionSvc, lg)
+	RegisterUserAdminRoutes(engine, &UserAdminHandler{adminSvc: adminUserSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 邮件服务 + 审批中心（Build3 Step 2）：接通密码重置邮件与欢迎邮件注入点（SMTP 未配置/失败不阻断主流程）
+	mailSvc := mail.NewService(cfg, lg)
+	resetSvc.SetSendMail(func(ctx context.Context, to, resetURL string) error {
+		furl, _ := cfg.Get(ctx, config.KeyFrontendURL)
+		return mailSvc.SendPasswordReset(ctx, to, furl+resetURL)
+	})
+	users.SetWelcomeSender(func(ctx context.Context, to, source string) error {
+		siteName, _ := cfg.Get(ctx, "site_name")
+		loginURL, _ := cfg.Get(ctx, config.KeyFrontendURL)
+		return mailSvc.SendWelcome(ctx, to, siteName, loginURL, source)
+	})
+	approvalSvc := approval.NewService(st, mailSvc, cfg, lg)
+	RegisterApprovalRoutes(engine, &ApprovalHandler{approvalSvc: approvalSvc, mailSvc: mailSvc, users: users},
+		authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 面板配置（Build3 Step 3）：分区读写 + 死锁防护 + 加密脱敏；接通调试模式 5xx 详情
+	response.SetDebugProvider(func(ctx context.Context) bool {
+		return cfg.GetBool(ctx, "debug_mode", false)
+	})
+	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, lg)
+	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trustProxy},
+		authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 运维端点（Build3 Step 4）：一键清空/配置导入导出/备份下载；内存态复位回调（Step 5 追加 SSE 复位）
+	clearSvc := dataclear.NewService(st, dataDir, lg)
+	if streamSvc != nil {
+		clearSvc.SetResetRuntimeState(func() { limiter.Reset(); streamSvc.Reset() }) // 限流计数 + SSE 连接/短期 Token/日志缓冲同步重置
+	} else {
+		clearSvc.SetResetRuntimeState(limiter.Reset) // 限流计数同步重置
+	}
+	exportSvc := config.NewExportService(st, cfg, dataDir, mode, lg)
+	exportSvc.SetSeedPresets(setupSvc.SeedPresetsTx) // Setup 导入分支预置默认组/平台
+	backupSvc := backup.NewService(st, dataDir, lg)
+	RegisterSettingsOpsRoutes(engine, &SettingsOpsHandler{
+		clearSvc: clearSvc, exportSvc: exportSvc, backupSvc: backupSvc, setupSvc: setupSvc, limiter: limiter,
+	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 日志查看（Build3 Step 5）：访问日志查询/清空 + 实时日志流 SSE（短期 Token + 8 连接上限）
+	accessLogSvc := log.NewAccessService(st.DB(), lg)
+	RegisterLogRoutes(engine, &LogHandler{accessSvc: accessLogSvc, streamSvc: streamSvc},
+		authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	if err := registerStatic(engine, dataDir); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// NewEmergency 应急模式装配（Build3 Step 6）：仅注册 系统状态/站点信息/应急端点/静态资源（/assets、/public、SPA 回退）；
+// 业务 API 与下载端点由 emergencyGate 拦截返回 503；/health 返回 503（Build1 预留注释在此接通）。
+// 仅在 main 按 emergency.Detect 分支调用，正常运行时不使用
+func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service, lg *slog.Logger, mode, trustProxy, port, dataDir string) (*Server, error) {
+	engine := gin.New()
+	if err := applyTrustProxy(engine, trustProxy); err != nil {
+		return nil, err
+	}
+	engine.Use(requestLogger(), panicRecovery(), emergencyGate())
+	s := &Server{engine: engine, cfg: cfg, store: st, mode: mode, log: lg,
+		httpSrv: &http.Server{Addr: ":" + port, Handler: engine}}
+	// /health 应急模式返回 503（docker compose 仅状态展示，不触发重启）
+	engine.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "emergency"})
+	})
+	// 系统状态（emergency 标记 + 触发原因 + 可用能力）；站点信息公开端点
+	users := user.NewService(st, cfg, lg)
+	authSvc := auth.NewService(cfg, users, lg)
+	oidcSvc := oidc.NewService(st, cfg, authSvc, users, mode, lg)
+	captchaSvc := captcha.NewService(cfg, lg)
+	registerStatus(engine, cfg, users, oidcSvc, captchaSvc, mode, emSvc)
+	engine.GET("/api/site/info", func(c *gin.Context) {
+		ctx := c.Request.Context()
+		name, _ := cfg.Get(ctx, "site_name")
+		icon, _ := cfg.Get(ctx, "site_icon_url")
+		OK(c, gin.H{"site_name": name, "icon_url": icon})
+	})
+	// 应急端点（仅应急模式注册）
+	RegisterEmergencyRoutes(engine, &EmergencyHandler{emSvc: emSvc})
 	if err := registerStatic(engine, dataDir); err != nil {
 		return nil, err
 	}
@@ -113,7 +194,6 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 
 // Engine 暴露 gin 引擎（供各业务域注册路由）
 func (s *Server) Engine() *gin.Engine { return s.engine }
-
 // applyTrustProxy auto=仅信任回环+私有网段转发头；on=全信任；off=不信任
 func applyTrustProxy(engine *gin.Engine, mode string) error {
 	switch mode {

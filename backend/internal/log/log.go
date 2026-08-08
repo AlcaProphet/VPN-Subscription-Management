@@ -39,7 +39,8 @@ func Debug(msg string, args ...any) { defaultLogger.Debug(msg, args...) }
 
 // New 构建分级 + 双格式 logger：format="json" 用 JSONHandler，否则 TextHandler，均输出 stdout。
 // 内部以 *slog.LevelVar 代替固定 Level，并暴露 SetLevel：运行时切换立即生效。
-func New(level, format string) *slog.Logger {
+// 可选 bufs：传入环形缓冲时日志同时写入内存缓冲（实时日志流 SSE 数据源，Build3 Step 5）
+func New(level, format string, bufs ...*RingBuffer) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: levelVar}
 	SetLevel(level)
 	var h slog.Handler
@@ -48,6 +49,10 @@ func New(level, format string) *slog.Logger {
 	} else {
 		h = slog.NewTextHandler(os.Stdout, opts)
 	}
+	if len(bufs) > 0 && bufs[0] != nil {
+		h = NewRingHandler(h, bufs[0]) // 缓冲与 stdout 输出并存
+	}
+	// 外层 Redact 保证 stdout 与缓冲内容均经 token 脱敏
 	return slog.New(NewRedactHandler(h))
 }
 

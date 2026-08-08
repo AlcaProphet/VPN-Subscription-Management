@@ -10,6 +10,8 @@ import (
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/cron"
+	"vpn-sub/internal/dataclear"
+	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/server"
 	"vpn-sub/internal/store"
@@ -21,15 +23,17 @@ import (
 func main() {
 	// 环境变量：APP_MODE(dev|prod 默认 prod)、LOG_LEVEL(默认 info)、LOG_FORMAT(默认 console)、
 	// PORT(默认 8080)、TRUST_PROXY(默认 auto)、DATA_DIR(默认 ./data)、
-	// RESET_ADMIN_PASSWORD（本 Build 仅读取留存，应急逻辑在 Build3 实现）
+	// RESET_ADMIN_PASSWORD（Build3 Step 6：设置后启动即进入应急模式）
 	mode := envOr("APP_MODE", "prod")
 	if mode != "dev" && mode != "prod" {
 		fmt.Fprintln(os.Stderr, "APP_MODE 仅支持 dev|prod")
 		os.Exit(1)
 	}
-	logger := log.New(envOr("LOG_LEVEL", "info"), envOr("LOG_FORMAT", "console"))
+	// 实时日志流：环形缓冲（最近 500 条）接入统一日志管道（stdout + 缓冲并存，Build3 Step 5）
+	logBuf := log.NewRingBuffer()
+	logger := log.New(envOr("LOG_LEVEL", "info"), envOr("LOG_FORMAT", "console"), logBuf)
 	log.SetDefault(logger)
-	_ = os.Getenv("RESET_ADMIN_PASSWORD") // 留存读取点，Build3 接通
+	streamSvc := log.NewStreamService(logBuf, logger)
 
 	// 数据库文件按模式分离（Design1 §5.5）
 	dbFile := map[string]string{"dev": "app-dev.db", "prod": "app-prod.db"}[mode]
@@ -49,6 +53,27 @@ func main() {
 		log.Error("记录运行模式失败", "err", err)
 		os.Exit(1)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// 应急模式触发判定（Build3 Step 6）：手动（RESET_ADMIN_PASSWORD）/自动（数据库损坏/关键配置损坏）
+	reason, dbReadable := emergency.Detect(ctx, st, cfg, logger)
+	if reason != emergency.TriggerNone {
+		// 应急模式装配：仅注册 系统状态/站点信息/应急端点/静态资源；业务 API 与下载端点 503
+		clearSvc := dataclear.NewService(st, dataDir, logger)
+		emSvc := emergency.NewService(reason, dbReadable, st, cfg, clearSvc, dataDir, dbFile, logger)
+		srv, err := server.NewEmergency(st, cfg, emSvc, logger, mode, envOr("TRUST_PROXY", "auto"), envOr("PORT", "8080"), dataDir)
+		if err != nil {
+			log.Error("装配应急服务失败", "err", err)
+			os.Exit(1)
+		}
+		if err := srv.Run(ctx); err != nil {
+			log.Error("应急服务退出异常", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	users := user.NewService(st, cfg, logger)
 	// 版本指针启动自检（Build2 Step 2）：DB「当前」与 symlink 不一致时以 DB 为准重建
 	verSvc := version.NewService(st, dataDir, logger)
@@ -56,7 +81,7 @@ func main() {
 		log.Error("版本指针自检失败", "err", err)
 		os.Exit(1)
 	}
-	srv, err := server.New(st, cfg, users, logger, mode, envOr("TRUST_PROXY", "auto"), envOr("PORT", "8080"), dataDir)
+	srv, err := server.New(st, cfg, users, logger, mode, envOr("TRUST_PROXY", "auto"), envOr("PORT", "8080"), dataDir, streamSvc)
 	if err != nil {
 		log.Error("装配 HTTP 服务失败", "err", err)
 		os.Exit(1)
@@ -66,8 +91,6 @@ func main() {
 	defer stopCleanup()
 
 	// 信号驱动优雅退出
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	if err := srv.Run(ctx); err != nil {
 		log.Error("HTTP 服务退出异常", "err", err)
 		os.Exit(1)

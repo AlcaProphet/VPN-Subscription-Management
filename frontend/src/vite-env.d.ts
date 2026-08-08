@@ -22,6 +22,8 @@ interface SystemStatus {
   configured: boolean
   app_mode: 'dev' | 'prod'
   emergency: boolean
+  emergency_reason?: 'manual' | 'db_corrupt' | 'key_missing' // Build3 Step 6：应急触发原因
+  can_reset_password?: boolean // Build3 Step 6：应急模式可用能力
   allow_local_login?: boolean
   allow_selfreg?: boolean
   user_table_empty?: boolean

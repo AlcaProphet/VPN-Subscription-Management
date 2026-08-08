@@ -117,6 +117,11 @@ func (s *Service) ownerDir(ot OwnerType, ownerID int64) string {
 	return filepath.Join(s.dataDir, "contents", string(ot), strconv.FormatInt(ownerID, 10))
 }
 
+// ContentsRoot 版本内容根目录（级联删除场景路径边界校验用，Build3 用户管理）
+func (s *Service) ContentsRoot() string {
+	return filepath.Join(s.dataDir, "contents")
+}
+
 // CreateVersion 单个 BEGIN IMMEDIATE 事务内：计算版本号（已有最大编号 + 1，禁止列表长度 + 1）
 // → 写版本文件 → 写版本记录 → 切换当前指针 → 5 版上限驱逐；任一步失败完整回滚清理（删文件 + 回滚记录）
 func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64, src ContentProvider) (*Version, error) {
