@@ -1,7 +1,9 @@
 <!-- VersionManageView.vue：通用版本管理视图组件（四类资源复用，props 驱动，UI §5.1/7.1） -->
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { Alert, Button, Input, Modal, Space, Table, Tabs, Tag, Tooltip, TypographyText, Upload } from 'ant-design-vue'
+import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import { versionApi, type VersionItem } from '@/api/version'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -13,7 +15,15 @@ const props = defineProps<{
   ownerId: number
   apiPrefix: string // 如 /api/admin/subscriptions
   resourceName?: string // 标题展示用
+  backPath?: string // 返回上级列表页路径（版本子页返回入口，UI §1 PageHeader 面包屑）
 }>()
+
+const router = useRouter()
+
+// 返回上级列表页（如订阅管理）；custom 暂回订阅管理（用户管理在 Build3 接通后修正）
+function goBack() {
+  if (props.backPath) void router.push(props.backPath)
+}
 
 const api = versionApi(props.apiPrefix)
 const loading = ref(false)
@@ -131,7 +141,13 @@ function fmtTime(ts: string): string {
 <template>
   <div>
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">版本管理{{ resourceName ? `（${resourceName}）` : '' }}</h2>
+      <div class="flex items-center gap-1">
+        <Button v-if="backPath" type="text" class="-ml-2" @click="goBack">
+          <template #icon><ArrowLeftOutlined /></template>
+          返回
+        </Button>
+        <h2 class="text-lg font-semibold m-0">版本管理{{ resourceName ? `（${resourceName}）` : '' }}</h2>
+      </div>
       <Button type="primary" @click="createOpen = true">创建新版本</Button>
     </div>
 

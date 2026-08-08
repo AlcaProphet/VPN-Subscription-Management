@@ -16,6 +16,10 @@ http.interceptors.request.use((cfg) => {
 // 响应拦截：解包统一响应结构 + 401 清凭据跳登录
 http.interceptors.response.use(
   (resp) => {
+    // 非 JSON 响应（预览类 text/plain、blob 下载等）原样返回，跳过统一包裹解包（Issue1 R04-01）
+    if (resp.config.responseType && resp.config.responseType !== 'json') {
+      return resp.data
+    }
     const body = resp.data
     if (body && typeof body.code === 'number' && body.code !== 0) {
       return Promise.reject(new ApiError(body.code, body.message ?? '请求失败'))
