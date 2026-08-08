@@ -711,7 +711,7 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
 
   3. **创建 `frontend/tailwind.config.js` 与 `postcss.config.js`**：配置 Tailwind，启用 `darkMode: 'class'`（配合暗色模式，Design1 §3.7）。
 
-  4. **创建 `frontend/vite.config.ts`**：配置 `@` 指向 `src`；配置 dev server 代理 `/api` 与 `/health` 到 `http://127.0.0.1:8080`（开发联调用）；配置构建产物分包（AntD 等 vendor 分离）。
+  4. **创建 `frontend/vite.config.ts`**：配置 `@` 指向 `src`；配置 dev server 代理 `/api` 与 `/health` 到 `http://127.0.0.1:8080`（开发联调用）；**不配置手动分包**（ant-design-vue 4.x 内部存在模块循环依赖，manualChunks 拆包会触发跨 chunk 循环引用导致生产白屏，见 Issue1 R01-01，交由 rollup 自动分割）。
 
   5. **创建 `frontend/vitest.config.ts`**：配置 Vitest + jsdom 环境，建立前端单元测试基建。
 
@@ -784,7 +784,7 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
   ```
 
   ```ts
-  // vite.config.ts：别名 + 开发代理 + vendor 分包
+  // vite.config.ts：别名 + 开发代理；不配置 manualChunks（antd 4.x 循环依赖坑，见 Issue1 R01-01）
   import { defineConfig } from 'vite'
   import vue from '@vitejs/plugin-vue'
   import { fileURLToPath, URL } from 'node:url'
@@ -801,7 +801,7 @@ Step 4 ──▶ Step 7（密码重置/验证码/限流依附于本地认证端�
     build: {
       rollupOptions: {
         output: {
-          manualChunks: { antd: ['ant-design-vue'], vendor: ['vue', 'vue-router', 'pinia', 'axios', 'dayjs'] },
+          // 不配置 manualChunks：antd 4.x 内部循环依赖，拆包导致生产白屏（Issue1 R01-01）
         },
       },
     },

@@ -12,10 +12,11 @@ export default defineConfig({
     },
   },
   build: {
+    // 不配置 manualChunks：ant-design-vue 4.x 内部存在模块循环依赖，
+    // 手动拆出 antd/vendor chunk 会产生跨 chunk 循环引用，浏览器报
+    // `Cannot access 'X' before initialization` 导致白屏；交由 rollup 自动分割（已验证）
     rollupOptions: {
-      output: {
-        manualChunks: { antd: ['ant-design-vue'], vendor: ['vue', 'vue-router', 'pinia', 'axios', 'dayjs'] },
-      },
+      output: {},
     },
   },
 })
