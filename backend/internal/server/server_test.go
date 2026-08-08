@@ -115,6 +115,47 @@ func TestSystemStatus(t *testing.T) {
 	}
 }
 
+// TestNewEmergencyNilStore 数据库无法打开（st/cfg 均为 nil）时应急装配仍可用：
+// 覆盖 main 的 store.Open 失败分支（自动进入应急模式，Design1 §3.8）
+func TestNewEmergencyNilStore(t *testing.T) {
+	lg := log.New("error", "console")
+	dataDir := t.TempDir()
+	clearSvc := dataclear.NewService(nil, dataDir, lg)
+	cfg := config.NewService(nil, lg) // store 不可读的空配置源（Get 按未设置处理）
+	emSvc := emergency.NewService(emergency.TriggerDBCorrupt, false, nil, cfg, clearSvc, dataDir, "test.db", lg)
+	srv, err := NewEmergency(nil, cfg, emSvc, lg, "prod", "off", "0", dataDir)
+	if err != nil {
+		t.Fatalf("装配应急服务失败: %v", err)
+	}
+	// 系统状态：emergency 标记 + db_corrupt 原因 + 无重置密码能力（dbReadable=false）
+	w := doReq(t, srv, http.MethodGet, "/api/system/status")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status 状态码异常: %d", w.Code)
+	}
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			Emergency        bool   `json:"emergency"`
+			EmergencyReason  string `json:"emergency_reason"`
+			CanResetPassword bool   `json:"can_reset_password"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if resp.Code != 0 || !resp.Data.Emergency || resp.Data.EmergencyReason != "db_corrupt" || resp.Data.CanResetPassword {
+		t.Errorf("应急状态异常: %+v", resp)
+	}
+	// 站点信息公开端点可访问
+	if code := doReq(t, srv, http.MethodGet, "/api/site/info").Code; code != http.StatusOK {
+		t.Errorf("站点信息应 200: %d", code)
+	}
+	// 业务端点被 emergencyGate 拦截为 503
+	if code := doReq(t, srv, http.MethodGet, "/api/admin/users").Code; code != http.StatusServiceUnavailable {
+		t.Errorf("业务端点应 503: %d", code)
+	}
+}
+
 // TestResponseStructure 统一响应结构（错误响应）
 func TestResponseStructure(t *testing.T) {
 	// 直接构造 gin 上下文调 Fail 验证结构

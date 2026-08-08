@@ -35,7 +35,7 @@ async function onSubmit() {
       <template v-else>
         <h1 class="text-xl font-semibold mb-6">找回密码</h1>
         <Form layout="vertical" :model="form" @finish="onSubmit">
-          <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email' }]">
+          <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email', trigger: 'blur' }]">
             <Input v-model:value="form.email" autocomplete="email" />
           </Form.Item>
           <CaptchaWidget page="forgot" @update:token="(t: string) => (form.captcha_token = t)" />

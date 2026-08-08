@@ -461,4 +461,10 @@ func TestAdminList(t *testing.T) {
 	if !hasPwd {
 		t.Error("kyle 应有密码标记")
 	}
+	// 无自定义订阅的用户 custom_subs 必须为 [] 而非 null（前端 .map 安全守护）
+	for _, u := range list {
+		if u.CustomSubs == nil {
+			t.Errorf("用户 %s 的 custom_subs 应为空切片而非 nil（序列化后为 null）", u.Username)
+		}
+	}
 }

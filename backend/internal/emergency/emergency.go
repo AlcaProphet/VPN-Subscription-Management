@@ -139,6 +139,9 @@ type AdminOption struct {
 
 // ListAdmins 验码通过后才返回管理员名单（不经验码不暴露）；仅设有本地密码的账号有效标注
 func (s *Service) ListAdmins(ctx context.Context) ([]AdminOption, error) {
+	if !s.dbReadable { // 数据库不可读（Open/迁移失败）时无重置密码能力，拒绝查询防 nil store panic
+		return nil, errors.New("数据库不可读，无法列出管理员")
+	}
 	rows, err := s.store.DB().QueryContext(ctx,
 		`SELECT id, username, COALESCE(email,''), password_hash IS NOT NULL
 		 FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id`)

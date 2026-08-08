@@ -137,6 +137,7 @@ func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int6
 		}
 		u.HasPassword = hasPwd == 1
 		u.HasOidcBind = hasOidc == 1
+		u.CustomSubs = make([]CustomSubItem, 0) // 无自定义订阅时返回 [] 而非 null（前端 .map 安全）
 		out = append(out, u)
 		ids = append(ids, u.ID)
 	}

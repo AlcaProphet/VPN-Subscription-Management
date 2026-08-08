@@ -15,6 +15,9 @@ vi.mock('@/api/auth', () => ({
   register: vi.fn(),
   logout: vi.fn(),
 }))
+vi.mock('@/api/settings', () => ({
+  siteInfoPublic: vi.fn().mockResolvedValue({ site_name: '', icon_url: '' }),
+}))
 
 import HomeView from '@/views/HomeView.vue'
 import { homePlatforms, homeUpdatedAt } from '@/api/home'

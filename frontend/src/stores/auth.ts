@@ -20,12 +20,12 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('token')
   }
   // loginAction：登录成功存 token 与用户信息
-  async function loginAction(form: { email: string; password: string; remember: boolean }) {
+  async function loginAction(form: { email: string; password: string; remember: boolean; captcha_token?: string }) {
     const data = await login(form)
     setSession(data.token, data.user)
   }
   // registerAction：注册成功（直接激活时 token 已存）
-  async function registerAction(form: { username: string; email: string; password: string }) {
+  async function registerAction(form: { username: string; email: string; password: string; captcha_token?: string }) {
     const data = await register(form)
     if (data.token) setSession(data.token) // 直接激活
     return data

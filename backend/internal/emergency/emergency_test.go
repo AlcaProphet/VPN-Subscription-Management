@@ -120,6 +120,23 @@ func TestDetectKeyMissing(t *testing.T) {
 	}
 }
 
+// TestDetectDBCorrupt 自动触发：数据库不可用（探测失败）→ db_corrupt + 不可读；
+// 覆盖 main 的 Open/Migrate 失败分支调用路径（Design1 §3.8）
+func TestDetectDBCorrupt(t *testing.T) {
+	st, err := store.Open(t.TempDir(), "test.db")
+	if err != nil {
+		t.Fatalf("打开测试库失败: %v", err)
+	}
+	_ = st.Migrate(context.Background(), emergencyTestFS)
+	_ = st.Close() // 连接关闭：探测失败即视为数据库损坏
+	cfg := config.NewService(st, log.New("error", "console"))
+	t.Setenv("RESET_ADMIN_PASSWORD", "")
+	reason, dbReadable := Detect(context.Background(), st, cfg, log.New("error", "console"))
+	if reason != TriggerDBCorrupt || dbReadable {
+		t.Errorf("损坏库应触发 db_corrupt 且不可读: reason=%s readable=%v", reason, dbReadable)
+	}
+}
+
 // TestOpCodeOneTime 操作码一次性：提交（无论成败）即消耗重新生成；8 位字符集断言
 func TestOpCodeOneTime(t *testing.T) {
 	_, svc, _ := newTestEmergency(t, TriggerManual, true)

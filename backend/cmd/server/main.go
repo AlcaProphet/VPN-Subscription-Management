@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -40,12 +41,22 @@ func main() {
 	dataDir := envOr("DATA_DIR", "./data")
 	st, err := store.Open(dataDir, dbFile)
 	if err != nil {
-		log.Error("打开数据库失败", "err", err)
-		os.Exit(1)
+		// 数据库无法打开（如文件完全损坏）→ 自动进入应急模式（Design1 §3.8），不再直接退出；
+		// 传空配置 Service（store nil 时 Get 按未设置处理），保证 status/站点信息端点可用
+		log.Error("打开数据库失败，自动进入应急模式", "err", err)
+		runEmergencyMode(emergency.TriggerDBCorrupt, false, nil, config.NewService(nil, logger), dataDir, dbFile, mode, logger)
+		return
 	}
 	if err := st.Migrate(context.Background(), migrations.FS); err != nil {
-		log.Error("数据库迁移失败，拒绝启动", "err", err)
-		os.Exit(1)
+		// 迁移失败（如中间页损坏）→ 自动进入应急模式，提供重新初始化救援（Design1 §3.8）
+		log.Error("数据库迁移失败，自动进入应急模式", "err", err)
+		cfg := config.NewService(st, logger)
+		reason, dbReadable := emergency.Detect(context.Background(), st, cfg, logger)
+		if reason == emergency.TriggerNone {
+			reason = emergency.TriggerDBCorrupt // 防御性兜底：调用方已知迁移失败即视为数据库损坏
+		}
+		runEmergencyMode(reason, dbReadable, st, cfg, dataDir, dbFile, mode, logger)
+		return
 	}
 
 	cfg := config.NewService(st, logger)
@@ -59,18 +70,7 @@ func main() {
 	// 应急模式触发判定（Build3 Step 6）：手动（RESET_ADMIN_PASSWORD）/自动（数据库损坏/关键配置损坏）
 	reason, dbReadable := emergency.Detect(ctx, st, cfg, logger)
 	if reason != emergency.TriggerNone {
-		// 应急模式装配：仅注册 系统状态/站点信息/应急端点/静态资源；业务 API 与下载端点 503
-		clearSvc := dataclear.NewService(st, dataDir, logger)
-		emSvc := emergency.NewService(reason, dbReadable, st, cfg, clearSvc, dataDir, dbFile, logger)
-		srv, err := server.NewEmergency(st, cfg, emSvc, logger, mode, envOr("TRUST_PROXY", "auto"), envOr("PORT", "8080"), dataDir)
-		if err != nil {
-			log.Error("装配应急服务失败", "err", err)
-			os.Exit(1)
-		}
-		if err := srv.Run(ctx); err != nil {
-			log.Error("应急服务退出异常", "err", err)
-			os.Exit(1)
-		}
+		runEmergencyMode(reason, dbReadable, st, cfg, dataDir, dbFile, mode, logger)
 		return
 	}
 
@@ -103,4 +103,24 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// runEmergencyMode 应急模式装配（DB 损坏/迁移失败/手动/关键配置损坏共用）：
+// 仅注册 系统状态/站点信息/应急端点/静态资源；业务 API 与下载端点 503；
+// Open 失败分支 st/cfg 为 nil，config.Get/user.IsTableEmpty 等已做 nil 守卫降级（Design1 §3.8）
+func runEmergencyMode(reason emergency.TriggerReason, dbReadable bool, st *store.Store, cfg *config.Service, dataDir, dbFile, mode string, logger *slog.Logger) {
+	clearSvc := dataclear.NewService(st, dataDir, logger)
+	emSvc := emergency.NewService(reason, dbReadable, st, cfg, clearSvc, dataDir, dbFile, logger)
+	srv, err := server.NewEmergency(st, cfg, emSvc, logger, mode, envOr("TRUST_PROXY", "auto"), envOr("PORT", "8080"), dataDir)
+	if err != nil {
+		log.Error("装配应急服务失败", "err", err)
+		os.Exit(1)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := srv.Run(ctx); err != nil {
+		log.Error("应急服务退出异常", "err", err)
+		os.Exit(1)
+	}
+	log.Info("应急服务已退出")
 }

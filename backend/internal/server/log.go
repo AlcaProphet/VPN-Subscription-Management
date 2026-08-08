@@ -18,13 +18,15 @@ type LogHandler struct {
 	streamSvc *log.StreamService
 }
 
-// RegisterLogRoutes 注册日志端点；全部叠加会话 + 管理员双中间件
+// RegisterLogRoutes 注册日志端点；访问日志/清空/换 Token 叠加会话 + 管理员双中间件；
+// /stream 独立注册：SSE 仅靠一次性短期 Token 鉴权（EventSource 无法带 Authorization 头，Design1 §4.8），
+// 若置于会话组内 EventSource 请求必被 401 拒绝
 func RegisterLogRoutes(engine *gin.Engine, h *LogHandler, sessionMW, adminMW gin.HandlerFunc) {
 	g := engine.Group("/api/admin/logs", sessionMW, adminMW)
 	g.GET("/access", h.queryAccess)             // ?from=&to=&page=&size=
 	g.POST("/access/clear", h.clearAccess)
 	g.POST("/stream/token", h.issueStreamToken) // 换一次性短期 Token（会话凭据鉴权）
-	g.GET("/stream", h.stream)                  // SSE：?token= 短期 Token（EventSource 无法带 Header）
+	engine.GET("/api/admin/logs/stream", h.stream) // SSE：?token= 短期 Token（EventSource 无法带 Header）
 }
 
 // queryAccess 访问日志查询（日期范围 + 后端分页）
@@ -75,11 +77,15 @@ func (h *LogHandler) stream(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	// 先推历史
+	flusher, _ := c.Writer.(http.Flusher)
 	for _, e := range history {
 		writeSSE(c, e)
 	}
+	// 历史推送后立即 flush 一次：连接建立即有响应头/历史下发，EventSource onopen 即时触发（即使无新事件）
+	if flusher != nil {
+		flusher.Flush()
+	}
 	// 再推增量（断开检测：请求上下文取消）
-	flusher, _ := c.Writer.(http.Flusher)
 	for {
 		select {
 		case e, ok := <-ch:

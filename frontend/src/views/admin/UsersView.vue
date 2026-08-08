@@ -3,7 +3,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Alert, Badge, Button, Dropdown, Input, Modal, Pagination, Radio, Select, Space, Table, Tag, Upload,
+  Alert, Badge, Button, Dropdown, Input, Menu, Modal, Pagination, Radio, Select, Space, Table, Tag, Upload,
 } from 'ant-design-vue'
 import {
   listUsers, createUser, updateUser, changeRole, revokeTokens, resetPassword, clearOidc, setStatus, deleteUser,
@@ -300,6 +300,10 @@ function openCustom(u: AdminUser) {
   customOpen.value = true
 }
 function onFileChange(file: File) {
+  if (file.size > 50 << 20) { // 前端预校验对齐后端 MaxContentSize（AGENTS §4.1 双重校验）
+    Notify.error('文件超过 50MB 限制')
+    return false
+  }
   customForm.file = file
   return false // 阻止自动上传
 }

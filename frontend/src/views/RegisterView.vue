@@ -5,11 +5,12 @@ import { useRouter } from 'vue-router'
 import { Form, Input, Button, Alert } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/theme'
+import CaptchaWidget from '@/components/CaptchaWidget.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 const { dark, toggle } = useTheme()
-const form = reactive({ username: '', email: '', password: '', confirm: '' })
+const form = reactive({ username: '', email: '', password: '', confirm: '', captcha_token: '' })
 const submitting = ref(false)
 const errorMsg = ref('')
 
@@ -32,7 +33,7 @@ async function onSubmit() {
   submitting.value = true
   errorMsg.value = ''
   try {
-    const data = await auth.registerAction({ username: form.username, email: form.email, password: form.password })
+    const data = await auth.registerAction({ username: form.username, email: form.email, password: form.password, captcha_token: form.captcha_token })
     if (data.status === 'active') await router.push('/') // 直接激活：token 已存 → 首页
     else await router.push('/pending') // 待审批
   } catch (err) {
@@ -61,6 +62,7 @@ async function onSubmit() {
           <Input.Password v-model:value="form.confirm" autocomplete="new-password" />
         </Form.Item>
         <Alert v-if="errorMsg" type="error" :message="errorMsg" class="mb-4" />
+        <CaptchaWidget page="register" @update:token="(t: string) => (form.captcha_token = t)" />
         <Button type="primary" html-type="submit" block :loading="submitting">注册</Button>
       </Form>
       <div class="text-center mt-4">

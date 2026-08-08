@@ -183,6 +183,9 @@ func (s *Service) SnapshotByID(ctx context.Context, id int64) (*auth.UserSnapsho
 
 // IsTableEmpty 注册入口可见性用（空表 = 0 行，含待审批）
 func (s *Service) IsTableEmpty(ctx context.Context) (bool, error) {
+	if s.store == nil { // 应急模式（DB 无法打开）下按非空处理，保证 status 端点可用不 panic
+		return false, nil
+	}
 	var n int
 	if err := s.store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
 		return false, fmt.Errorf("查询用户表失败: %w", err)

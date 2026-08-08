@@ -7,6 +7,7 @@ import dayjs from 'dayjs'
 import { homePlatforms, refreshHomeToken, homeUpdatedAt, type PlatformCard } from '@/api/home'
 import { buildImportUrl } from '@/utils/importUrl'
 import { useAuthStore } from '@/stores/auth'
+import { useSystemStore } from '@/stores/system'
 import { useTheme } from '@/theme'
 import { me } from '@/api/auth'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -14,6 +15,7 @@ import { Notify } from '@/components/Notify'
 
 const router = useRouter()
 const auth = useAuthStore()
+const system = useSystemStore()
 const { dark, toggle } = useTheme()
 
 const loading = ref(true)
@@ -31,6 +33,7 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  void system.fetchSiteInfo(true) // 站点名保持最新（面板修改后回到首页即刷新）
 })
 
 // 顶栏
@@ -119,7 +122,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
     <!-- 顶栏（吸顶） -->
     <header class="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm h-16 flex items-center px-4">
       <div class="flex-1 min-w-0">
-        <span class="font-semibold text-lg">VPN 订阅管理</span>
+        <span class="font-semibold text-lg">{{ system.siteName }}</span>
         <span class="ml-3 text-xs text-gray-500 hidden md:inline">{{ updatedText }}</span>
       </div>
       <div class="flex items-center gap-3">

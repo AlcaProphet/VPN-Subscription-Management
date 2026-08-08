@@ -56,6 +56,9 @@ func NewService(st *store.Store, lg *slog.Logger) *Service {
 
 // Get 读取配置；未设置返回空串，调用方自行判定
 func (s *Service) Get(ctx context.Context, key string) (string, error) {
+	if s.store == nil { // 数据库无法打开的应急模式（main Open 失败分支），配置不可读按未设置处理
+		return "", nil
+	}
 	var v string
 	err := s.store.DB().QueryRowContext(ctx, `SELECT value FROM system_config WHERE key = ?`, key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {

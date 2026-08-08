@@ -13,9 +13,9 @@ export interface RegisterResult {
   message?: string
 }
 
-export const register = (data: { username: string; email: string; password: string }) =>
+export const register = (data: { username: string; email: string; password: string; captcha_token?: string }) =>
   http.post<any, RegisterResult>('/auth/register', data)
-export const login = (data: { email: string; password: string; remember: boolean }) =>
+export const login = (data: { email: string; password: string; remember: boolean; captcha_token?: string }) =>
   http.post<any, LoginResult>('/auth/login', data)
 export const me = () => http.get<any, UserInfo>('/auth/me')
 export const logout = () => http.post('/auth/logout')

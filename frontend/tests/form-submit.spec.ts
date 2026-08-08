@@ -14,6 +14,9 @@ vi.mock('@/api/auth', () => ({
 vi.mock('@/api/system', () => ({
   getSystemStatus: vi.fn().mockResolvedValue({ configured: true, app_mode: 'dev', emergency: false }),
 }))
+vi.mock('@/api/settings', () => ({
+  siteInfoPublic: vi.fn().mockResolvedValue({ site_name: '', icon_url: '' }),
+}))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useRoute: () => ({ params: { token: 'abc' }, query: {} }),

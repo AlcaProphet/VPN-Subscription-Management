@@ -52,8 +52,12 @@ async function load() {
 }
 onMounted(load)
 
-// 文件上传（自动提交新版本）
+// 文件上传（自动提交新版本；前端 50MB 预校验对齐后端 MaxContentSize，AGENTS §4.1 双重校验）
 async function onUpload(file: File) {
+  if (file.size > 50 << 20) {
+    Notify.error('文件超过 50MB 限制')
+    return false
+  }
   const form = new FormData()
   form.append('file', file)
   saving.value = true

@@ -71,6 +71,10 @@ async function doCreate(file?: File) {
   }
 }
 function beforeUpload(file: File) {
+  if (file.size > 50 << 20) { // 前端预校验对齐后端 MaxContentSize（AGENTS §4.1 双重校验）
+    Notify.error('文件超过 50MB 限制')
+    return false
+  }
   void doCreate(file)
   return false // 拦截默认上传
 }

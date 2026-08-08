@@ -23,7 +23,7 @@ echo "3) 订阅 id=$SUBID slug=$(echo "$SUB" | J "['data']['slug']")"
 curl -s -X POST "$BASE/api/admin/subscriptions/$SUBID/versions?mode=text" -H "$AUTH" \
   -H 'Content-Type: application/json' \
   -d '{"text":"proxies:\n  - name: node1\n    server: 1.2.3.4\n    port: 443"}' > /dev/null
-echo "4) 版本=$(curl -s $BASE/api/admin/subscriptions/$SUBID/versions -H "$AUTH" | J "['data']")"
+echo "4) 版本=$(curl -s $BASE/api/admin/subscriptions/$SUBID/versions -H "$AUTH" | J "['data']['list']")"
 
 # 5) 组关联 + 每平台选定（整体提交）
 GID=$(curl -s $BASE/api/admin/groups -H "$AUTH" | J "['data']['list'][0]['id']")
@@ -31,11 +31,11 @@ curl -s -X PUT $BASE/api/admin/groups/$GID -H "$AUTH" -H 'Content-Type: applicat
   -d "{\"name\":\"默认组\",\"sub_ids\":[$SUBID],\"selections\":[{\"platform_id\":1,\"subscription_id\":$SUBID}]}" > /dev/null
 echo "5) 组选定 group=$GID"
 
-# 6) 用户首页（管理员：池内订阅列表，取首份显式 Token）
+# 6) 用户首页（管理员：池内订阅列表，取首份显式 Token；列表统一 ListData 包裹解包）
 CARD=$(curl -s $BASE/api/home/platforms -H "$AUTH")
-PLATFORM_SLUG=$(echo "$CARD" | J "['data'][0]['subscriptions'][0]['download_url'].split('/')[2]")
-STATUS=$(echo "$CARD" | J "['data'][0]['status']")
-TOK=$(echo "$CARD" | J "['data'][0]['subscriptions'][0]['token']")
+PLATFORM_SLUG=$(echo "$CARD" | J "['data']['list'][0]['subscriptions'][0]['download_url'].split('/')[2]")
+STATUS=$(echo "$CARD" | J "['data']['list'][0]['status']")
+TOK=$(echo "$CARD" | J "['data']['list'][0]['subscriptions'][0]['token']")
 echo "6) 首页 platform=$PLATFORM_SLUG status=$STATUS"
 
 # 7) 下载（显式 Token → 订阅内容）
@@ -46,8 +46,7 @@ echo "8) 无效Token: HTTP $(curl -s -o /dev/null -w '%{http_code}' "$BASE/subsc
 
 # 9) 切换版本后下载内容变化（版本管理生效）
 curl -s -X POST "$BASE/api/admin/subscriptions/$SUBID/versions?mode=text" -H "$AUTH" \
-  -H 'Content-Type: application/json' -d '{"text":"proxies:
-  - name: node2\n    server: 5.6.7.8\n    port: 8443"}' > /dev/null
+  -H 'Content-Type: application/json' -d '{"text":"proxies:\n  - name: node2\n    server: 5.6.7.8\n    port: 8443"}' > /dev/null
 echo "9) 新版本下载: $(curl -s "$BASE/subscriptions/$PLATFORM_SLUG/download?token=$TOK" | grep -o 'node2')"
 
 # 10) 分享订阅：创建 → 公开下载 → 吊销 → 404 → 刷新恢复
@@ -66,8 +65,8 @@ echo "    刷新后: $(curl -s "$BASE/share/$SHARESLUG/download?token=$NEWTOK" |
 curl -s -X POST "$BASE/api/admin/rules?mode=text" -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"name":"默认规则","slug":"default-rules","client_type":"shadowrocket","schemes":["shadowrocket://add/{url}"],"text":"rules: []"}' > /dev/null
 RULE=$(curl -s $BASE/api/rules -H "$AUTH")
-RULESLUG=$(echo "$RULE" | J "['data'][0]['slug']")
-RULETOK=$(echo "$RULE" | J "['data'][0]['token']")
+RULESLUG=$(echo "$RULE" | J "['data']['list'][0]['slug']")
+RULETOK=$(echo "$RULE" | J "['data']['list'][0]['token']")
 echo "11) 规则下载: $(curl -s "$BASE/rules/$RULESLUG/download?token=$RULETOK" | head -1)"
 
 echo "=== SMOKE ALL DONE ==="
