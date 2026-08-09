@@ -350,7 +350,7 @@ func (s *Service) CurrentNo(ctx context.Context, ot OwnerType, ownerID int64) (i
 // ListVersions 资源版本列表（当前激活标记由调用方传入 current 版本号填充）
 func (s *Service) ListVersions(ctx context.Context, ot OwnerType, ownerID, currentNo int64) ([]Version, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT version_no, file_path, created_at, updated_at FROM versions
+		`SELECT version_no, file_path, file_name, created_at, updated_at FROM versions
 		 WHERE owner_type = ? AND owner_id = ? ORDER BY version_no`, ot, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("读取版本列表失败: %w", err)
@@ -359,7 +359,7 @@ func (s *Service) ListVersions(ctx context.Context, ot OwnerType, ownerID, curre
 	out := make([]Version, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var v Version
-		if err := rows.Scan(&v.No, &v.FilePath, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("解析版本行失败: %w", err)
 		}
 		v.Current = v.No == currentNo

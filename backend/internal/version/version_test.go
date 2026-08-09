@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -260,6 +261,37 @@ func TestCreateRollbackCleanup(t *testing.T) {
 	// 版本文件无残留（空目录残留无害，仅断言版本文件不存在）
 	if _, err := os.Stat(filepath.Join(svc.dataDir, "contents", "subscription", "1", "v1")); !os.IsNotExist(err) {
 		t.Errorf("事务回滚后版本文件应无残留: %v", err)
+	}
+}
+
+// TestListVersionsFileName 版本列表返回 file_name（R08-03：文件模式记录原始名，文本模式补类型默认名）
+func TestListVersionsFileName(t *testing.T) {
+	st, svc := newTestVersionService(t, true)
+	ctx := context.Background()
+	owner := newOwner(t, st)
+	// 文件模式：ReaderContent 携带原始文件名
+	if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, ReaderContent{R: strings.NewReader("v1"), Max: 1024, Name: "my-sub.yaml"}); err != nil {
+		t.Fatalf("创建文件版本失败: %v", err)
+	}
+	// 文本模式：无原始文件名 → 补类型默认名 subscription.yaml
+	if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2"))); err != nil {
+		t.Fatalf("创建文本版本失败: %v", err)
+	}
+	list, err := svc.ListVersions(ctx, OwnerSubscription, owner, 2)
+	if err != nil {
+		t.Fatalf("读取版本列表失败: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("版本数应为 2，got %d", len(list))
+	}
+	if list[0].FileName != "my-sub.yaml" {
+		t.Errorf("文件模式 file_name 应为 my-sub.yaml，got %q", list[0].FileName)
+	}
+	if list[1].FileName != "subscription.yaml" {
+		t.Errorf("文本模式 file_name 应为 subscription.yaml，got %q", list[1].FileName)
+	}
+	if list[1].Current != true {
+		t.Errorf("v2 应标记为当前激活版本")
 	}
 }
 

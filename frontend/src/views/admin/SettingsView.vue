@@ -360,7 +360,7 @@ async function doSaveDebug() {
 const exportPwd = ref('')
 const exporting = ref(false)
 const importOpen = ref(false)
-const importForm = reactive({ file: null as File | null, password: '', confirmWord: '' })
+const importForm = reactive({ file: null as File | null, password: '' })
 const importing = ref(false)
 
 // downloadBlob 触发浏览器下载
@@ -418,7 +418,8 @@ async function doImport() {
     const fd = new FormData()
     fd.append('file', importForm.file)
     fd.append('password', importForm.password)
-    fd.append('confirm_word', importForm.confirmWord)
+    // 确认词由 ConfirmModal 按钮禁用保证输入正确（okDisabled），后端二次校验兜底；与 SetupView 硬编码模式统一（R08-02）
+    fd.append('confirm_word', 'IMPORT')
     await importConfig(fd)
     importOpen.value = false
     Modal.warning({
@@ -458,15 +459,14 @@ async function doBackup() {
 // --- 危险操作区：一键清空所有数据（RESET 确认词 + 二次确认） ---
 const clearOpen = ref(false)
 const clearing = ref(false)
-const confirmWordInput = ref('')
 function openClear() {
-  confirmWordInput.value = ''
   clearOpen.value = true
 }
 async function doClearAll() {
   clearing.value = true
   try {
-    await clearAll(confirmWordInput.value)
+    // 确认词由 ConfirmModal 按钮禁用保证输入正确（okDisabled），后端二次校验兜底；与 SetupView 硬编码模式统一（R08-01）
+    await clearAll('RESET')
     Notify.success('系统已重置')
     clearOpen.value = false
     // 签名密钥已轮换，旧会话全部失效：立即清除本地凭据（R07-08，防残留失效 token 触发首页 me() 401 全局提示）
@@ -765,6 +765,7 @@ onMounted(() => {
                 <Upload :before-upload="onImportFile" :max-count="1">
                   <Button>选择文件</Button>
                 </Upload>
+                <Input.Password v-model:value="importForm.password" placeholder="导出密码（≥8 字符）" style="max-width: 220px" />
                 <Button danger @click="importOpen = true">导入</Button>
               </Space>
               <div class="text-xs text-gray-400 mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；完成后需重启容器并重新登录</div>
