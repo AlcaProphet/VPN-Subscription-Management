@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button, Dropdown, Space, Switch, Tag } from 'ant-design-vue'
+import { Button, Dropdown, Switch, Tag } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { useTheme } from '@/theme'
@@ -43,10 +43,11 @@ async function onLogout() {
       <Dropdown :trigger="['click']">
         <Button size="small">{{ auth.user?.username }}</Button>
         <template #overlay>
-          <div class="bg-white dark:bg-gray-800 p-3 shadow rounded w-48">
-            <Space :wrap="true">
-              <Tag :color="isAdmin ? 'blue' : 'default'">{{ isAdmin ? '管理员' : '用户' }}</Tag>
-            </Space>
+          <div class="bg-white dark:bg-gray-800 p-3 shadow rounded w-auto min-w-32">
+            <!-- 角色标签水平居中（R09-11；m-0 消除 AntD Tag 默认右 margin 导致的视觉偏移） -->
+            <div class="flex justify-center">
+              <Tag :color="isAdmin ? 'blue' : 'default'" class="m-0">{{ isAdmin ? '管理员' : '用户' }}</Tag>
+            </div>
             <div class="mt-2 flex flex-col gap-1">
               <Button size="small" type="text" @click="router.push('/profile')">个人中心</Button>
               <Button size="small" type="text" danger @click="onLogout">退出登录</Button>

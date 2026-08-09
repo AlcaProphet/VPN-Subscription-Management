@@ -156,11 +156,11 @@ const custom = (card: PlatformCard) => card.status === 'custom'
             <!-- 管理员：池内全部订阅折叠列表（每份三按钮） -->
             <Collapse v-else ghost>
               <Collapse.Panel :key="card.platform_id" :header="`池内订阅（${card.subscriptions?.length ?? 0}）`">
-                <div v-for="sub in card.subscriptions ?? []" :key="sub.id" class="py-1 border-b last:border-0">
+                <div v-for="sub in card.subscriptions ?? []" :key="sub.id" class="py-2 border-b last:border-0">
                   <div class="flex items-center justify-between gap-2 flex-wrap">
-                    <div class="text-sm min-w-0">
+                    <!-- 仅展示订阅名称，不展示标识（R09-11：标识为系统内部唯一 ID，主界面无需暴露） -->
+                    <div class="text-sm min-w-0 truncate">
                       <span class="font-medium">{{ sub.name }}</span>
-                      <TypographyText code class="ml-2 text-xs">{{ sub.slug }}</TypographyText>
                     </div>
                     <Space :wrap="true">
                       <Button size="small" type="primary" @click="oneClickImport(card, sub.download_url)">一键导入</Button>
