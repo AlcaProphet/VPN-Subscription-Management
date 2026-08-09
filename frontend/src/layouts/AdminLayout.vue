@@ -7,11 +7,10 @@ import {
   CloudUploadOutlined, TeamOutlined, ShareAltOutlined, AppstoreOutlined,
   BranchesOutlined, BlockOutlined, HomeOutlined, MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, AuditOutlined, SettingOutlined, FileTextOutlined,
 } from '@ant-design/icons-vue'
-import { useTheme } from '@/theme'
+import AppHeader from '@/components/AppHeader.vue'
 
 const route = useRoute()
 const router = useRouter()
-const { dark, toggle } = useTheme()
 
 // isMobile：matchMedia('(max-width: 767px)') 响应式布尔（与三档断点 <768 对齐）；
 // 必须监听窗口缩放，窗口跨越 768px 断点时侧边栏/Drawer 响应式切换
@@ -55,14 +54,6 @@ const selectedKeys = computed(() => {
 function onMenuClick(key: string) {
   drawerOpen.value = false
   router.push(key)
-}
-
-// 退出登录
-async function onLogout() {
-  const { useAuthStore } = await import('@/stores/auth')
-  const auth = useAuthStore()
-  await auth.logoutAction()
-  router.push('/login')
 }
 
 // 返回主界面（用户端首页）
@@ -113,17 +104,12 @@ function goHome() {
     </Drawer>
 
     <Layout>
-      <Layout.Header v-if="isMobile" class="bg-white dark:bg-gray-800 flex items-center justify-between px-3">
-        <Button type="text" @click="drawerOpen = true">☰</Button>
-        <Button type="text" size="small" @click="toggle()">{{ dark ? '浅色' : '暗色' }}</Button>
-      </Layout.Header>
+      <!-- 通用顶栏（问题 R08-UI05：管理面板显示主界面式 header；
+           R08-UI07：自定义 header 元素替代 AntD Layout.Header，避免其默认深色背景覆盖 Tailwind 底色） -->
+      <AppHeader :burger="isMobile" @open-drawer="drawerOpen = true" />
       <!-- 右侧内容区：白底卡片容器（24px 内边距） -->
       <Layout.Content class="p-6">
         <div class="bg-white dark:bg-gray-800 rounded-lg p-6 min-h-full">
-          <div class="flex justify-end mb-2">
-            <Button size="small" type="text" @click="toggle()">{{ dark ? '切换到浅色' : '切换到暗色' }}</Button>
-            <Button size="small" type="text" danger @click="onLogout">退出</Button>
-          </div>
           <RouterView />
         </div>
       </Layout.Content>

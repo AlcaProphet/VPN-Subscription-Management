@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Form, Input, Button, Checkbox, Alert, Divider } from 'ant-design-vue'
+import { Form, Input, Button, Checkbox, Alert, Divider, Switch } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { useTheme } from '@/theme'
@@ -144,6 +144,6 @@ onMounted(async () => {
         还没有账号？<RouterLink to="/register">立即注册</RouterLink>
       </div>
     </div>
-    <div class="text-right mt-3"><Button size="small" @click="toggle">{{ dark ? '浅色模式' : '暗色模式' }}</Button></div>
+    <div class="text-right mt-3"><Switch :checked="dark" checked-children="🌙" un-checked-children="☀️" size="small" title="切换暗色/浅色模式" @change="toggle" /></div>
   </div>
 </template>
