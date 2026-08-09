@@ -84,6 +84,9 @@ export const getDebug = () => http.get<any, { on: boolean }>('/admin/settings/de
 export const saveDebug = (on: boolean) => http.put('/admin/settings/debug', { on })
 // 站点信息公开端点（无需鉴权，独立 axios 实例）
 export const siteInfoPublic = () => axios.get<any, { data: { code: number; data: SiteInfo } }>('/api/site/info').then((r) => r.data.data)
+// 公告公开端点（无需鉴权，未登录可获取——Design1 §3.3/§5.2；仅登录后首页展示由 HomeView 控制，R07-02）
+export const getPublicAnnouncement = () =>
+  axios.get<any, { data: { code: number; data: { content: string } } }>('/api/public/announcement').then((r) => r.data.data)
 
 // --- 运维端点（Build3 Step 4：配置导入导出/备份下载/一键清空） ---
 export const exportConfig = (password: string) =>

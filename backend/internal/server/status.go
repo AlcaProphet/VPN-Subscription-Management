@@ -23,6 +23,15 @@ type StatusHandler struct {
 func registerStatus(engine *gin.Engine, cfg *config.Service, users *user.Service, oidcSvc *oidc.Service, captchaSvc *captcha.Service, mode string, emSvc *emergency.Service) {
 	h := &StatusHandler{cfg: cfg, users: users, oidcSvc: oidcSvc, captchaSvc: captchaSvc, emSvc: emSvc}
 	engine.GET("/api/system/status", h.handle(mode))
+	// 公告公开端点（Design1 §3.3/§5.2：数据接口公开，未登录可获取；UI 仅登录后首页展示由前端控制）
+	// 不注册到 NewEmergency（应急页不依赖，保持最小面，§3.8）
+	engine.GET("/api/public/announcement", h.announcement)
+}
+
+// announcement 公告公开端点：返回公告纯文本（仅管理员面板可写，无敏感信息，R07-02）
+func (h *StatusHandler) announcement(c *gin.Context) {
+	content, _ := h.cfg.Get(c.Request.Context(), "announcement")
+	OK(c, gin.H{"content": content})
 }
 
 // handle 返回系统状态：configured / app_mode / emergency / 本地认证与注册入口字段 / OIDC 字段

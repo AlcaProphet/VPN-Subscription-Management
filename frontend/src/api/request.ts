@@ -30,6 +30,7 @@ http.interceptors.response.use(
     const st = err.response?.status ?? 0
     const msg = err.response?.data?.message
     if (st === 401) {
+      if (import.meta.env.DEV) console.warn('[request] 401:', err.config?.url) // 诊断日志（R07-08）
       const auth = useAuthStore()
       auth.logout()
       // 登录页自身的 401（密码错误）不跳转，由页面展示统一措辞

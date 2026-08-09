@@ -13,7 +13,7 @@
 - **根因：** Build3 Step 3 只实现了 `/api/admin/settings/announcement` 管理端读写；`HomeView.vue` 无公告渲染，后端未注册公开公告端点——Design1 §3.3「公告栏卡片（有内容才显示，仅登录后首页展示）」/ §3.4.8「首页展示」未落地。
 - **影响范围：** 公告功能整体不可用（配置内容无处展示），设计验收失败项。
 - **修复方案：** ① 后端 `server/status.go` 新增公开端点 `GET /api/public/announcement`（复用 StatusHandler 的 cfg 依赖，返回 `{content: cfg.Get("announcement")}`，无敏感信息），在 `server.go New()` 的 registerStatus 旁注册；**不注册到 NewEmergency**（应急页不依赖，保持最小面，符合 §3.8）；② 前端 `api/settings.ts` 新增 `getPublicAnnouncement()`；③ `HomeView.vue` main 区平台网格前加公告卡片，`v-if="announcement"`（有内容才显示），纯文本插值 `{{ announcement }}` 天然转义禁 HTML（§3.4.8），与 `homePlatforms` 并行获取。验证：未配置不渲染/配置后首页展示/含 `<script>` 内容按文本显示。
-- **状态：** ☐ 待修复（2026-08-09 端到端核查发现）
+- **状态：** ✅ 已修复（2026-08-09；验收：`go build/vet/test` 全绿含新增 `TestPublicAnnouncement`（未配置空串/配置后返回）；`npm run build` + `vitest` 20/20（home-view.spec 补 `getPublicAnnouncement` mock）；Dev 实例实测：未配置返回 `{"content":""}`，面板保存公告后公开端点返回内容，含 `<script>` 原样返回（前端插值转义禁 HTML））
 
 ### R07-03 访问日志日期筛选时区错位
 
@@ -29,7 +29,7 @@
   q.from = toUtcDate(range.value[0]); q.to = toUtcDate(range.value[1])
   ```
   原理：本地 08-09 00:00（+08:00）→ UTC 日期 "2026-08-08"；本地 08-09 23:59 → "2026-08-09"，后端 UTC 解析后恰好覆盖本地全天。验证：本地 00:00~08:00 产生的日志用「今天」可筛出；跨月/跨年边界（本地 1/1 00:30 → UTC 上年 12/31）正确。
-- **状态：** ☐ 待修复（2026-08-09 端到端核查发现）
+- **状态：** ✅ 已修复（2026-08-09；验收：`npm run build` + `vitest` 20/20；仅改前端 `LogsView.vue` 传参为 UTC 日期，后端 `parseRange` 保持 UTC 解析不变）
 
 ### R07-04 首页订阅更新时间戳错位
 
@@ -37,7 +37,7 @@
 - **根因：** `/api/home/updated_at` 直接返回 SQLite `MAX(updated_at)` 的无时区字符串（`YYYY-MM-DD HH:MM:SS`），前端 `dayjs(updatedAt)` 按本地时区解析；版本列表等其他接口返回 RFC3339（带 `Z`）无此问题——**接口格式不一致**。
 - **影响范围：** 首页更新时间戳展示错误（分发功能不受影响）。
 - **修复方案：** 同类无时区问题共 3 处（access_logs/approval/version 已用 `time.Time` scan 按 UTC 解析，正确），统一改 `time.Time` 返回 RFC3339：① `server/home.go updatedAt`：`ts.String` → `time.Parse("2006-01-02 15:04:05", ts.String)` 后返回 `time.Time`（空值保持 nil）；② `share/share.go` `CreatedAt` 字段 `string` → `time.Time`，Scan 目标直接用 `time.Time`（与 access.go 已验证的 scan 模式一致）；③ `rule/rule.go` `RefreshedAt` 字段改 `time.Time`，**注意空串无法 scan 到 time.Time**——`COALESCE(...,'')` 改 LEFT JOIN 原生 NULL，用 `sql.NullTime` 接收，空值输出 null/前端 `'—'`。前端配套：`SharesView.vue:191`、`RulesView.vue:171` 原样展示改 `fmtTime()`（dayjs 本地化，对齐 VersionManageView 已有模式）；HomeView 的 updatedText 已用 dayjs 自动修正。验证：本地时区四处时间差 8 小时问题消除；分享/规则空时间显示 `—`。
-- **状态：** ☐ 待修复（2026-08-09 端到端核查发现）
+- **状态：** ✅ 已修复（2026-08-09；验收：`go build/vet/test` 全绿；Dev 实例实测 `/api/home/updated_at`、分享 `created_at`、规则 `refreshed_at` 均返回 RFC3339 带 `Z`（如 `2026-08-09T06:00:10Z`）；`npm run build` + `vitest` 20/20；SharesView/RulesView 空时间显示 `—`）
 
 ### R07-05 无版本订阅管理员预览返回 500
 
@@ -46,7 +46,7 @@
 - **根因：** `download.PreviewForUser` 管理员分支对无版本资源返回 `version.ErrVersionNotFound`，`server/download.go preview` 未映射该错误（非 ErrTokenInvalid/ErrUnassigned → 落入 500 分支）。
 - **期望行为：** 与版本管理页一致映射 404（或返回空内容）。
 - **修复方案：** `server/download.go` 四个 handler（preview/userDownload/shareDownload/ruleDownload）统一补 `errors.Is(err, version.ErrVersionNotFound) → 404`（与无效 Token 同 404，不泄露差异）：`WriteAccessLog(entry, false)` 记 fail_reason=`version_missing` + 禁缓存头 + `Fail(404, "资源不存在")`。覆盖场景：管理员预览无版本订阅、显式 Token 下载无版本订阅（管理员首页预览生成显式 Token 后订阅仍无版本时）。验证：无版本订阅预览/显式 Token 下载均 404 且日志记 version_missing；有版本场景回归正常。
-- **状态：** ☐ 待修复（2026-08-09 端到端核查发现）
+- **状态：** ✅ 已修复（2026-08-09；验收：`go build/vet/test` 全绿含新增 `TestPreviewNoVersion`（无版本 404 + 日志 `version_missing` + 有版本回归 200）；Dev 实例实测无版本订阅预览 HTTP 404（原 500）、访问日志 `('subscription','fail','version_missing')`、有版本预览回归 200）
 
 ### R07-06 Dev 模式配置导入返回 400 非 403
 
@@ -54,7 +54,7 @@
 - **根因：** `settings_ops.go importCommon` 对 `ExportService` 的「仅 Production 模式提供」错误统一映射 400（export handler 单独映射 403）。
 - **影响范围：** 仅错误码语义不一致，功能正确（Dev 模式导入确实被拒绝）。
 - **修复方案：** ① `config/export.go` 新增哨兵错误 `var ErrModeRestricted = errors.New("配置导入导出仅 Production 模式提供")`，导出/导入两处模式校验返回哨兵（替换裸 errors.New）；② `server/settings_ops.go` export handler 兜底分支与 `importCommon` 兜底分支均改为先判 `errors.Is(err, config.ErrModeRestricted) → 403`，其余保持原映射；③ Setup 导入（importSetup）经 importCommon 自动获得 403（Dev 模式 Setup 导入同样应拒绝，与「仅 Production 提供」边界一致）。验证：Dev 模式导出/面板导入/Setup 导入均 403；Prod 往返正常；`export_test.go` 补 import 403 断言。
-- **状态：** ☐ 待修复（2026-08-09 端到端核查发现）
+- **状态：** ✅ 已修复（2026-08-09；验收：`go build/vet/test` 全绿含 `TestExportDevModeDenied` 哨兵断言（Export/Import/Setup 导入三路径）；Dev 实例实测面板导入与 Setup 导入均 HTTP 403「配置导入导出仅 Production 模式提供」（原 400））
 
 ### R07-07 模拟 OIDC 表单缺 role/group 附加属性
 
@@ -62,16 +62,15 @@
 - **根因：** `LoginView.vue` mock 表单未实现 role/group 输入项（`mockForm` 仅 email/username/email_verified）。
 - **影响范围：** 无法通过 UI 测试 Role/Group 白名单与审批逻辑（API 层不受影响）。
 - **修复方案：** **仅改前端**（后端 `MockLogin(ctx, email, username, emailVerified, roles, groups)` 与 `api/oidc.ts mockLogin` 均已支持 roles/groups）：`LoginView.vue` ① `mockForm` 加 `role: ''`、`group: ''`；② 按 UI §2.2 交互补两个 `Checkbox`「附加 role」「附加 group」，勾选后显示对应 `Input`；③ `onMockLogin` 透传 `roles: mockForm.role ? [mockForm.role] : undefined`（空则 undefined，保持「可留空」语义）。验证：勾选 role 输入值模拟登录 → 数据库 `oidc_claims` 含 role 快照（审批中心可展示）；白名单命中/未命中分支可经 UI 测试。
-- **状态：** ☐ 待修复（2026-08-09 端到端核查发现）
+- **状态：** ✅ 已修复（2026-08-09；验收：`npm run build` + `vitest` 20/20；勾选「附加 role/group」输入值后模拟登录，后端 `oidc_claims` 含 role/group 快照可供审批中心展示）
 
-### R07-08 登录页瞬态「会话凭据无效或已过期」提示（存疑）
+### R07-08 登录页瞬态「会话凭据无效或已过期」提示（根因已确认）
 
 - **现象：** Setup 完成点击「前往登录」后，登录页短暂出现 message.error「会话凭据无效或已过期」，刷新后消失；无法稳定复现。
-- **复现步骤：** 全新部署 Setup 快速开始 → 完成页 → 前往登录（偶现）；重载登录页不再出现。
-- **根因：** 未定位（无 console 错误、localStorage 无残留凭据、LoginView/SetupView/守卫均无 me() 调用路径）。
-- **影响范围：** 体验瑕疵，无功能影响。
-- **修复方案：** 静态分析结论——setup→login 导航链路（守卫 5 步/LoginView/SetupView 挂载/401 拦截器/handleApiError 全项目无调用点/Notify.error 均位于 Setup 流程 catch）**无任何 me()/401 调用路径**，无法静态定位（疑似测试期服务重启/时序噪音）。诊断优先、最小改动：① `request.ts` 401 拦截器加开发期日志 `if (import.meta.env.DEV) console.warn('[request] 401:', err.config?.url)`——复现时直接看到来源；② `LoginView.vue` onMounted 两个公开请求补 `.catch(() => {})` 防 unhandled rejection 噪音；③ 若加日志后仍无法复现，标记为低优先观察项暂不深挖。
-- **状态：** ☐ 待修复（存疑，2026-08-09 端到端核查发现）
+- **根因（2026-08-09 深查确认）：** 一键清空（`SettingsView.doClearAll`）与 Setup 导入（`SetupView.doSetupImport` 的 onOk）**密钥轮换后未清理前端 localStorage 凭据**（面板导入已 `logoutAction`，这两处遗漏）。残留失效 token 触发完整链路：登录页 onMounted `if (auth.token) router.replace('/')` 带失效 token 跳首页 → `HomeView` 调 `me()` 返回 401 → 401 拦截器清凭据并跳回 /login，HomeView catch 弹全局 message「会话凭据无效或已过期」——页面已回到登录页，表现即「登录页短暂提示」；刷新后 token 已被拦截器清除，不再出现。
+- **影响范围：** 体验瑕疵（仅「一键清空/Setup 导入 → Setup 完成 → 前往登录」且浏览器残留旧凭据时出现），无功能影响。
+- **修复方案：** ① `SettingsView.doClearAll` 成功后先 `auth.logoutAction()` 再跳 /setup；② `SetupView` 导入完成 onOk 先 `logoutAction()` 再跳 /login；③ `LoginView` onMounted 两个公开请求补 `.catch(() => {})` 防 unhandled rejection 噪音；④ `request.ts` 401 拦截器加 Dev 诊断日志（`console.warn('[request] 401:', url)`）。
+- **状态：** ✅ 已修复（2026-08-09；验收：`npm run build` + `vitest` 20/20；链路静态验证：三处密钥轮换操作后前端凭据均被清除，`LoginView` 不再携带失效 token 跳转首页）
 
 已闭环问题见下：
 
@@ -257,3 +256,4 @@
 | v1.4 | 2026-08-09 | 追加 R05-01/02：Setup 导入前端入口缺失（配置导入双入口仅面板侧）+ Setup 导入限流缺专门单测（Build3 全量审查补漏） |
 | v1.5 | 2026-08-09 | 追加 R06-01~08：审阅报告 8 项问题修复闭环（用户管理下拉不 可用/SSE 401/DB 损坏未进应急/站点名不生效/验证码未接入/上传缺 50MB 预校验/smoke 契约滞后/邮箱即时误报） |
 | v1.6 | 2026-08-09 | 追加 R07-01~08：端到端核查发现——R07-01 新用户未自动加入默认组（三路径 INSERT 缺 group_id）已修复闭环；R07-02~08 待修复（公告首页缺失/日志日期筛选时区错位/首页更新时间戳无时区/无版本订阅预览 500/Dev 导入 400 非 403/模拟 OIDC 表单缺 role-group 属性/登录页瞬态 401 存疑） |
+| v1.7 | 2026-08-09 | R07-02~08 全部修复闭环：公告公开端点 + 首页展示（TestPublicAnnouncement）、日志日期 UTC 转换（仅前端）、三处时间戳统一 RFC3339（home/share/rule + 前端 fmtTime）、无版本预览/下载 404 + version_missing 日志（TestPreviewNoVersion）、Dev 导入 403 哨兵映射（ErrModeRestricted）、模拟 OIDC 表单补 role/group、瞬态 401 根因确认（一键清空/Setup 导入未清失效凭据 → 三处清理）。验收：`go build/vet/test` 25 包全绿、`npm run build` + `vitest` 20/20、Dev 实例端到端冒烟全部符合预期 |

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -323,7 +324,13 @@ func (h *HomeHandler) updatedAt(c *gin.Context) {
 		OK(c, gin.H{"updated_at": nil})
 		return
 	}
-	OK(c, gin.H{"updated_at": ts.String})
+	// SQLite CURRENT_TIMESTAMP 为 UTC 无时区字符串 → time.Time 输出 RFC3339（前端按本地时区展示，R07-04）
+	t, err := time.Parse("2006-01-02 15:04:05", ts.String)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, gin.H{"updated_at": t})
 }
 
 // parseSchemes 解析平台 schemes JSON 数组

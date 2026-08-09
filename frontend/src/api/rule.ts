@@ -10,7 +10,7 @@ export interface RuleItem {
   token: string // 全局共享 Token（一键导入用）
   current_version: number
   created_at: string
-  refreshed_at: string
+  refreshed_at: string | null // UTC RFC3339；无 Token 时 null（R07-04）
 }
 
 export const listAdminRules = () =>

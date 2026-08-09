@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"vpn-sub/internal/slug"
 	"vpn-sub/internal/store"
@@ -34,13 +35,13 @@ func NewService(st *store.Store, versions *version.Service, tokens *token.Servic
 
 // Share 分享订阅
 type Share struct {
-	ID             int64  `json:"id"`
-	Slug           string `json:"slug"`
-	Name           string `json:"name"`
-	TokenStatus    string `json:"token_status"` // active/revoked
-	Token          string `json:"token"`        // 有效时返回（吊销后为空）
-	CurrentVersion int64  `json:"current_version"`
-	CreatedAt      string `json:"created_at"`
+	ID             int64     `json:"id"`
+	Slug           string    `json:"slug"`
+	Name           string    `json:"name"`
+	TokenStatus    string    `json:"token_status"` // active/revoked
+	Token          string    `json:"token"`        // 有效时返回（吊销后为空）
+	CurrentVersion int64     `json:"current_version"`
+	CreatedAt      *time.Time `json:"created_at"` // UTC RFC3339；空值 null（R07-04）
 }
 
 // Create 名称 + 首版本上传 → 自动生成标识（share- 前缀）与分享 Token（同一事务语义）
@@ -186,12 +187,12 @@ func (s *Service) List(ctx context.Context) ([]Share, error) {
 	out := make([]Share, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var sh Share
-		var created sql.NullString
+		var created sql.NullTime
 		if err := rows.Scan(&sh.ID, &sh.Slug, &sh.Name, &sh.TokenStatus, &sh.CurrentVersion, &created, &sh.Token); err != nil {
 			return nil, err
 		}
 		if created.Valid {
-			sh.CreatedAt = created.String
+			sh.CreatedAt = &created.Time
 		}
 		if sh.TokenStatus != "active" {
 			sh.Token = "" // 吊销后不返回 Token
@@ -204,7 +205,7 @@ func (s *Service) List(ctx context.Context) ([]Share, error) {
 // Get 单个分享
 func (s *Service) Get(ctx context.Context, id int64) (*Share, error) {
 	var sh Share
-	var created sql.NullString
+	var created sql.NullTime
 	err := s.store.DB().QueryRowContext(ctx,
 		`SELECT id, slug, name, token_status, COALESCE(current_version,0), created_at FROM share_subscriptions WHERE id = ?`, id).
 		Scan(&sh.ID, &sh.Slug, &sh.Name, &sh.TokenStatus, &sh.CurrentVersion, &created)
@@ -215,7 +216,7 @@ func (s *Service) Get(ctx context.Context, id int64) (*Share, error) {
 		return nil, err
 	}
 	if created.Valid {
-		sh.CreatedAt = created.String
+		sh.CreatedAt = &created.Time
 	}
 	return &sh, nil
 }

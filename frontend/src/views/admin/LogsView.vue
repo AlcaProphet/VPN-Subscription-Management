@@ -16,13 +16,20 @@ const page = ref(1)
 const size = ref(20)
 const range = ref<any>(null)
 
+// 本地日期 → 该时刻对应的 UTC 日期（后端 parseRange 按 UTC 解析，容器时区通常为 UTC，R07-03）
+// 原理：本地 08-09 00:00（+08:00）→ "2026-08-08"；本地 08-09 23:59 → "2026-08-09"，后端 UTC 解析后恰好覆盖本地全天
+const toUtcDate = (d: dayjs.Dayjs) => {
+  const t = d.toDate()
+  return new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
 async function loadAccess() {
   loading.value = true
   try {
     const q: { from: string; to: string; page: number; size: number } = { from: '', to: '', page: page.value, size: size.value }
     if (range.value && range.value[0] && range.value[1]) {
-      q.from = range.value[0].format('YYYY-MM-DD')
-      q.to = range.value[1].format('YYYY-MM-DD')
+      q.from = toUtcDate(range.value[0])
+      q.to = toUtcDate(range.value[1])
     }
     const res = await queryAccessLogs(q)
     list.value = res.list

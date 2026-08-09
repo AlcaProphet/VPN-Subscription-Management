@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Steps, Card, Button, Tag, Alert, Result, Radio, Form, Input, Collapse, Space, Upload, Modal } from 'ant-design-vue'
 import { useSystemStore } from '@/stores/system'
+import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/theme'
 import { http } from '@/api/request'
 import { Notify } from '@/components/Notify'
@@ -13,6 +14,7 @@ import ConfirmModal from '@/components/ConfirmModal.vue'
 
 const router = useRouter()
 const system = useSystemStore()
+const auth = useAuthStore()
 const { dark, toggle } = useTheme()
 const current = ref(0)                     // a-steps 当前步：认证方式 → 完成
 const submitting = ref(false)
@@ -73,7 +75,11 @@ async function doSetupImport() {
       title: '导入完成',
       content: '配置已整体覆盖（导出文件中不存在的配置键已清除）；签名密钥已替换，如有旧会话将全部失效。请立即重启容器后再重新登录。',
       okText: '前往登录',
-      onOk: () => void router.push('/login'),
+      onOk: async () => {
+        // 签名密钥已替换，旧会话全部失效：先清本地凭据再跳登录（R07-08，防残留失效 token 触发首页 me() 401 全局提示）
+        await auth.logoutAction()
+        void router.push('/login')
+      },
     })
   } catch (err) {
     Notify.error((err as Error).message) // 确认词/密码错误或文件损坏提示

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { Alert, Button, Card, Collapse, Dropdown, Empty, Modal, Space, Tag, TypographyText } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { homePlatforms, refreshHomeToken, homeUpdatedAt, type PlatformCard } from '@/api/home'
+import { getPublicAnnouncement } from '@/api/settings'
 import { buildImportUrl } from '@/utils/importUrl'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
@@ -21,6 +22,7 @@ const { dark, toggle } = useTheme()
 const loading = ref(true)
 const cards = ref<PlatformCard[]>([])
 const updatedAt = ref<string | null>(null)
+const announcement = ref('')
 
 onMounted(async () => {
   try {
@@ -28,6 +30,12 @@ onMounted(async () => {
     const [c, u] = await Promise.all([homePlatforms(), homeUpdatedAt()])
     cards.value = c
     updatedAt.value = u?.updated_at ?? null
+    // 公告公开端点独立获取：失败不阻塞平台卡片渲染（Design1 §3.3 有内容才显示）
+    try {
+      announcement.value = (await getPublicAnnouncement())?.content ?? ''
+    } catch {
+      announcement.value = ''
+    }
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -150,6 +158,10 @@ const custom = (card: PlatformCard) => card.status === 'custom'
       <div v-if="loading" class="text-center py-16 text-gray-400">加载中…</div>
 
       <template v-else>
+        <!-- 公告栏卡片（Design1 §3.3：有内容才显示；纯文本插值天然转义禁 HTML，§3.4.8） -->
+        <Card v-if="announcement" class="mb-4 shadow-sm">
+          <div class="text-sm whitespace-pre-wrap">{{ announcement }}</div>
+        </Card>
         <!-- 平台卡片网格：大屏 3 列 / 中屏 2 列 / 小屏 1 列 -->
         <div v-if="cards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <Card v-for="card in cards" :key="card.platform_id" class="shadow-sm">

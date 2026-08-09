@@ -22,15 +22,22 @@ const errorMsg = ref('')
 const oidcError = ref('')
 watch(() => route.query.oidc_error, (v) => { if (v) oidcError.value = String(v) }, { immediate: true })
 
-// 模拟登录表单
-const mockForm = reactive({ email: '', username: '', email_verified: true })
+// 模拟登录表单（UI §2.2：role/group 附加属性，勾选后输入，R07-07）
+const mockForm = reactive({ email: '', username: '', email_verified: true, with_role: false, role: '', with_group: false, group: '' })
 const mockSubmitting = ref(false)
 
 async function onMockLogin() {
   mockSubmitting.value = true
   errorMsg.value = ''
   try {
-    await mockLogin({ email: mockForm.email, username: mockForm.username || undefined, email_verified: mockForm.email_verified })
+    await mockLogin({
+      email: mockForm.email,
+      username: mockForm.username || undefined,
+      email_verified: mockForm.email_verified,
+      // 附加属性：勾选且输入值才透传，空则 undefined（保持「可留空」语义）
+      roles: mockForm.with_role && mockForm.role ? [mockForm.role] : undefined,
+      groups: mockForm.with_group && mockForm.group ? [mockForm.group] : undefined,
+    })
     await router.push('/')
   } catch (err) {
     errorMsg.value = (err as Error).message
@@ -66,8 +73,9 @@ async function onSubmit() {
   }
 }
 onMounted(async () => {
-  await system.fetchStatus(true)
-  void system.fetchSiteInfo(true) // 登录页顶部站点 ICON + 名称（Design1 §3.4.8/UI §2.2）
+  // 公开请求失败不阻断页面渲染（R07-08 防 unhandled rejection 噪音）
+  await system.fetchStatus(true).catch(() => {})
+  void system.fetchSiteInfo(true).catch(() => {})
   if (auth.token) router.replace('/') // 已登录访问自动跳 /
 })
 </script>
@@ -113,6 +121,15 @@ onMounted(async () => {
           </Form.Item>
           <Form.Item label="用户名（可留空，默认取邮箱前缀）"><Input v-model:value="mockForm.username" /></Form.Item>
           <Checkbox v-model:checked="mockForm.email_verified" class="mb-3">email_verified（默认勾选）</Checkbox>
+          <!-- 附加属性（UI §2.2，R07-07）：勾选后显示输入，供测试 Role/Group 白名单与审批逻辑 -->
+          <Checkbox v-model:checked="mockForm.with_role" class="mb-1">附加 role</Checkbox>
+          <Form.Item v-if="mockForm.with_role" label="role 值">
+            <Input v-model:value="mockForm.role" placeholder="如 user / admin" />
+          </Form.Item>
+          <Checkbox v-model:checked="mockForm.with_group" class="mb-1">附加 group</Checkbox>
+          <Form.Item v-if="mockForm.with_group" label="group 值">
+            <Input v-model:value="mockForm.group" placeholder="如 default" />
+          </Form.Item>
           <Button block :loading="mockSubmitting" html-type="submit">模拟登录</Button>
         </Form>
         <!-- 真实提供商：主按钮直接跳后端发起授权 -->

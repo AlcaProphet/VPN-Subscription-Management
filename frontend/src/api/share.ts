@@ -8,7 +8,7 @@ export interface ShareItem {
   token_status: 'active' | 'revoked'
   token: string // 仅 active 时返回
   current_version: number
-  created_at: string
+  created_at: string | null // UTC RFC3339；空值 null（R07-04）
 }
 
 export const listShares = () =>

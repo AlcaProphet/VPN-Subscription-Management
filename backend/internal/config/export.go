@@ -30,6 +30,9 @@ const (
 	MinExportPassword = 8        // 导出密码 ≥8 字符
 )
 
+// ErrModeRestricted 配置导入导出仅 Production 模式提供（接入层映射 403，R07-06）
+var ErrModeRestricted = errors.New("配置导入导出仅 Production 模式提供")
+
 // ExportPayload 导出内容（不含业务数据与日志）
 type ExportPayload struct {
 	FormatVersion int               `json:"format_version"`
@@ -64,7 +67,7 @@ func (s *ExportService) SetSeedPresets(fn func(ctx context.Context, tx *sql.Tx, 
 // 内容含全部系统配置（含签名密钥与敏感密文——密文原样导出，导入侧原样落库）+ 站点信息（ICON base64）
 func (s *ExportService) Export(ctx context.Context, password string) ([]byte, error) {
 	if s.mode != "prod" {
-		return nil, errors.New("配置导出仅 Production 模式提供")
+		return nil, ErrModeRestricted
 	}
 	if utf8.RuneCountInString(password) < MinExportPassword {
 		return nil, fmt.Errorf("%w: 导出密码至少 8 字符", ErrBadRequest)
@@ -133,7 +136,7 @@ func (s *ExportService) Export(ctx context.Context, password string) ([]byte, er
 // setupMode=true 时（Setup 入口）同事务创建预置默认组与默认平台
 func (s *ExportService) Import(ctx context.Context, data []byte, password, confirmWord string, setupMode bool) error {
 	if s.mode != "prod" {
-		return errors.New("配置导入仅 Production 模式提供")
+		return ErrModeRestricted
 	}
 	if confirmWord != ConfirmWordImport {
 		return errors.New("确认词不正确")

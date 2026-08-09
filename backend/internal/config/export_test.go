@@ -161,15 +161,18 @@ func TestImportSetupModeSeedsPresets(t *testing.T) {
 	}
 }
 
-// TestExportDevModeDenied Dev 模式：导出/导入返回 403 语义（错误提示）
+// TestExportDevModeDenied Dev 模式：导出/导入返回 ErrModeRestricted 哨兵（接入层映射 403，R07-06）
 func TestExportDevModeDenied(t *testing.T) {
 	st, svc := newTestExport(t, "dev")
 	ctx := context.Background()
-	if _, err := svc.Export(ctx, "export-pass-123"); err == nil {
-		t.Error("Dev 模式导出应拒绝")
+	if _, err := svc.Export(ctx, "export-pass-123"); !errors.Is(err, ErrModeRestricted) {
+		t.Errorf("Dev 模式导出应拒绝并返回哨兵错误: %v", err)
 	}
-	if err := svc.Import(ctx, []byte("x"), "export-pass-123", ConfirmWordImport, false); err == nil {
-		t.Error("Dev 模式导入应拒绝")
+	if err := svc.Import(ctx, []byte("x"), "export-pass-123", ConfirmWordImport, false); !errors.Is(err, ErrModeRestricted) {
+		t.Errorf("Dev 模式导入应拒绝并返回哨兵错误: %v", err)
+	}
+	if err := svc.Import(ctx, []byte("x"), "export-pass-123", ConfirmWordImport, true); !errors.Is(err, ErrModeRestricted) {
+		t.Errorf("Dev 模式 Setup 导入应拒绝并返回哨兵错误: %v", err)
 	}
 	_ = st
 }

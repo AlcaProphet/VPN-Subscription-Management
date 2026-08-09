@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -145,5 +147,69 @@ func TestPreviewRequiresSession(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "会话凭据") {
 		t.Errorf("401 文案异常: %s", w.Body.String())
+	}
+}
+
+// TestPreviewNoVersion 无版本订阅：管理员预览返回 404 且访问日志记 version_missing；有版本后回归 200（R07-05）
+func TestPreviewNoVersion(t *testing.T) {
+	t.Helper()
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir, "test.db")
+	if err != nil {
+		t.Fatalf("打开测试库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(context.Background(), downloadTestFS()); err != nil {
+		t.Fatalf("迁移失败: %v", err)
+	}
+	cfg := config.NewService(st, log.New("error", "console"))
+	users := user.NewService(st, cfg, log.New("error", "console"))
+	streamSvc := log.NewStreamService(log.NewRingBuffer(), log.New("error", "console"))
+	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", dataDir, streamSvc)
+	if err != nil {
+		t.Fatalf("装配 server 失败: %v", err)
+	}
+	ctx := context.Background()
+	token := regUser(t, srv, "admin", "admin@x.com", "password123")
+	// 播种平台 + 无版本订阅（current_version=0）
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO platforms (slug, name) VALUES ('platform-x','平台X')`); err != nil {
+		t.Fatalf("播种平台失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO subscriptions (slug, name, platform_id) VALUES ('subscription-a','订阅A',1)`); err != nil {
+		t.Fatalf("播种订阅失败: %v", err)
+	}
+	// 场景 1：管理员预览无版本订阅 → 404（原 500，R07-05）
+	w := profileReq(t, srv, http.MethodGet, "/api/subscriptions/preview?platform=platform-x&subscription_id=1", token, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("无版本订阅预览应 404: %d %s", w.Code, w.Body.String())
+	}
+	// 访问日志应记 fail_reason=version_missing
+	var reason string
+	if err := st.DB().QueryRowContext(ctx, `SELECT fail_reason FROM access_logs ORDER BY id DESC LIMIT 1`).Scan(&reason); err != nil {
+		t.Fatalf("查询访问日志失败: %v", err)
+	}
+	if reason != "version_missing" {
+		t.Errorf("访问日志 fail_reason 应为 version_missing: %q", reason)
+	}
+	// 场景 2：补建版本后预览回归 200
+	if err := os.MkdirAll(filepath.Join(dataDir, "contents", "subscription", "1"), 0o755); err != nil {
+		t.Fatalf("建版本目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "contents", "subscription", "1", "v1"), []byte("proxies: []\n"), 0o644); err != nil {
+		t.Fatalf("写版本文件失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO versions (owner_type, owner_id, version_no, file_path, file_name) VALUES ('subscription',1,1,'subscription/1/v1','sub.yaml')`); err != nil {
+		t.Fatalf("插入版本记录失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE subscriptions SET current_version = 1 WHERE id = 1`); err != nil {
+		t.Fatalf("更新当前版本失败: %v", err)
+	}
+	w2 := profileReq(t, srv, http.MethodGet, "/api/subscriptions/preview?platform=platform-x&subscription_id=1", token, nil)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("有版本订阅预览应 200: %d %s", w2.Code, w2.Body.String())
+	}
+	if !strings.Contains(w2.Body.String(), "proxies:") {
+		t.Errorf("预览内容异常: %s", w2.Body.String())
 	}
 }

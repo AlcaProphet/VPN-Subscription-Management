@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/subscription"
@@ -36,15 +37,15 @@ func NewService(st *store.Store, versions *version.Service, tokens *token.Servic
 
 // Rule 规则
 type Rule struct {
-	ID             int64    `json:"id"`
-	Slug           string   `json:"slug"`
-	Name           string   `json:"name"`
-	ClientType     string   `json:"client_type"`
-	Schemes        []string `json:"schemes"`
-	Token          string   `json:"token"` // 全局共享 Token（每规则一份，不绑定用户）
-	CurrentVersion int64    `json:"current_version"`
-	CreatedAt      string   `json:"created_at"`
-	RefreshedAt    string   `json:"refreshed_at"`
+	ID             int64      `json:"id"`
+	Slug           string     `json:"slug"`
+	Name           string     `json:"name"`
+	ClientType     string     `json:"client_type"`
+	Schemes        []string   `json:"schemes"`
+	Token          string     `json:"token"` // 全局共享 Token（每规则一份，不绑定用户）
+	CurrentVersion int64      `json:"current_version"`
+	CreatedAt      string     `json:"created_at"`
+	RefreshedAt    *time.Time `json:"refreshed_at"` // UTC RFC3339；无 Token 时 null（R07-04）
 }
 
 // Create 名称 + 客户端类型 + scheme + 首版本上传；标识为空时自动生成（rule- 前缀，见 Design1 §2.2）；自动生成规则 Token
@@ -162,13 +163,13 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// List 规则列表（含全局 Token 与刷新时间）
+// List 规则列表（含全局 Token 与刷新时间；LEFT JOIN 保证无 Token 时 refreshed_at 为原生 NULL，R07-04）
 func (s *Service) List(ctx context.Context) ([]Rule, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
 		`SELECT r.id, r.slug, r.name, r.client_type, r.schemes, COALESCE(r.current_version,0), r.created_at,
 		        COALESCE((SELECT rt.token FROM rule_tokens rt WHERE rt.rule_id = r.id LIMIT 1), ''),
-		        COALESCE((SELECT rt.refreshed_at FROM rule_tokens rt WHERE rt.rule_id = r.id LIMIT 1), '')
-		 FROM rules r ORDER BY r.id`)
+		        rt.refreshed_at
+		 FROM rules r LEFT JOIN rule_tokens rt ON rt.rule_id = r.id ORDER BY r.id`)
 	if err != nil {
 		return nil, fmt.Errorf("读取规则列表失败: %w", err)
 	}
@@ -177,10 +178,14 @@ func (s *Service) List(ctx context.Context) ([]Rule, error) {
 	for rows.Next() {
 		var r Rule
 		var schemesRaw string
-		if err := rows.Scan(&r.ID, &r.Slug, &r.Name, &r.ClientType, &schemesRaw, &r.CurrentVersion, &r.CreatedAt, &r.Token, &r.RefreshedAt); err != nil {
+		var refreshed sql.NullTime
+		if err := rows.Scan(&r.ID, &r.Slug, &r.Name, &r.ClientType, &schemesRaw, &r.CurrentVersion, &r.CreatedAt, &r.Token, &refreshed); err != nil {
 			return nil, err
 		}
 		r.Schemes = parseSchemes(schemesRaw)
+		if refreshed.Valid {
+			r.RefreshedAt = &refreshed.Time
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()

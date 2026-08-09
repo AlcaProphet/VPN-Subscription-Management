@@ -2,11 +2,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import dayjs from 'dayjs'
 import { Badge, Button, Input, Modal, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
 import { listShares, createShare, renameShare, deleteShare, refreshShareToken, revokeShareToken, type ShareItem } from '@/api/share'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
+
+// 创建时间 UTC → 本地化展示（R07-04 后端已返回 RFC3339）
+function fmtTime(t: string | null) {
+  return t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '—'
+}
 
 const router = useRouter()
 const loading = ref(false)
@@ -188,7 +194,7 @@ async function doDelete() {
       <Table :data-source="shares" row-key="id" :pagination="false">
         <Table.Column key="name" title="名称" data-index="name" />
         <Table.Column key="created" title="创建时间" width="160">
-          <template #default="{ record }">{{ record.created_at }}</template>
+          <template #default="{ record }">{{ fmtTime(record.created_at) }}</template>
         </Table.Column>
         <Table.Column key="version" title="当前版本" width="100">
           <template #default="{ record }">

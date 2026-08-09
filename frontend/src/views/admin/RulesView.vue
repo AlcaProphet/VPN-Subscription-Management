@@ -2,11 +2,17 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import dayjs from 'dayjs'
 import { Button, Input, Modal, Select, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
 import { listAdminRules, createRule, renameRule, deleteRule, refreshRuleToken, type RuleItem } from '@/api/rule'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
+
+// Token 刷新时间 UTC → 本地化展示（R07-04 后端已返回 RFC3339）
+function fmtTime(t: string | null) {
+  return t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '—'
+}
 
 const router = useRouter()
 const loading = ref(false)
@@ -168,7 +174,7 @@ async function doDelete() {
           </template>
         </Table.Column>
         <Table.Column key="refreshed" title="Token 刷新时间" width="160">
-          <template #default="{ record }">{{ record.refreshed_at || '—' }}</template>
+          <template #default="{ record }">{{ fmtTime(record.refreshed_at) }}</template>
         </Table.Column>
         <Table.Column key="actions" title="操作" width="330">
           <template #default="{ record }">

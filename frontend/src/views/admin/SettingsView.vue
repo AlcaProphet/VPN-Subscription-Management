@@ -469,6 +469,8 @@ async function doClearAll() {
     await clearAll(confirmWordInput.value)
     Notify.success('系统已重置')
     clearOpen.value = false
+    // 签名密钥已轮换，旧会话全部失效：立即清除本地凭据（R07-08，防残留失效 token 触发首页 me() 401 全局提示）
+    await auth.logoutAction()
     await system.fetchStatus(true) // configured=false → 守卫自动跳 /setup
     void router.push('/setup')
   } catch (err) {

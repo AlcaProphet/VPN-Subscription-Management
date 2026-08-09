@@ -83,6 +83,10 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 			return nil, &AccessEntry{UserID: rec.UserID, Platform: platformSlug, FailReason: "token_invalid"}, ErrTokenInvalid
 		}
 		content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerSubscription, rec.SubscriptionID)
+		if errors.Is(err, version.ErrVersionNotFound) {
+			// 无版本：带 fail_reason 的 entry 供访问日志记录（R07-05）
+			return nil, &AccessEntry{UserID: rec.UserID, Platform: platformSlug, Type: "explicit", ResourceID: rec.SubscriptionID, FailReason: "version_missing"}, err
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -101,6 +105,10 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 			return nil, nil, err
 		}
 		content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerSubscription, subID)
+		if errors.Is(err, version.ErrVersionNotFound) {
+			// 无版本：带 fail_reason 的 entry 供访问日志记录（R07-05）
+			return nil, &AccessEntry{UserID: rec.UserID, Platform: platformSlug, Type: "subscription", ResourceID: subID, FailReason: "version_missing"}, err
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -205,6 +213,10 @@ func (s *Service) ResolveShare(ctx context.Context, tokenValue, slug string) (*R
 		return nil, nil, err
 	}
 	content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerShare, shareID)
+	if errors.Is(err, version.ErrVersionNotFound) {
+		// 无版本：带 fail_reason 的 entry 供访问日志记录（R07-05）
+		return nil, &AccessEntry{Type: "share", ResourceID: shareID, FailReason: "version_missing"}, err
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -229,6 +241,10 @@ func (s *Service) ResolveRule(ctx context.Context, tokenValue, slug string) (*Re
 		return nil, nil, err
 	}
 	content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerRule, ruleID)
+	if errors.Is(err, version.ErrVersionNotFound) {
+		// 无版本：带 fail_reason 的 entry 供访问日志记录（R07-05）
+		return nil, &AccessEntry{Type: "rule", ResourceID: ruleID, FailReason: "version_missing"}, err
+	}
 	if err != nil {
 		return nil, nil, err
 	}

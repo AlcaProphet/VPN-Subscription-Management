@@ -64,11 +64,15 @@ func (h *SettingsOpsHandler) export(c *gin.Context) {
 	}
 	data, err := h.exportSvc.Export(c.Request.Context(), req.Password)
 	if err != nil {
+		if errors.Is(err, config.ErrModeRestricted) {
+			Fail(c, http.StatusForbidden, err.Error()) // 仅 Production 提供（R07-06 哨兵映射）
+			return
+		}
 		if errors.Is(err, config.ErrBadRequest) {
 			Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
-		Fail(c, http.StatusForbidden, err.Error()) // 仅 Production 提供
+		Fail(c, http.StatusForbidden, err.Error())
 		return
 	}
 	c.Header("Content-Disposition", `attachment; filename="vpn-sub-config-`+time.Now().Format("20060102")+`.enc"`)
@@ -119,6 +123,10 @@ func (h *SettingsOpsHandler) importCommon(c *gin.Context, setupMode bool) {
 		return
 	}
 	if err := h.exportSvc.Import(c.Request.Context(), data, password, confirmWord, setupMode); err != nil {
+		if errors.Is(err, config.ErrModeRestricted) {
+			Fail(c, http.StatusForbidden, err.Error()) // 仅 Production 提供（R07-06 哨兵映射，Setup 导入同路径）
+			return
+		}
 		if errors.Is(err, config.ErrBadRequest) {
 			Fail(c, http.StatusBadRequest, err.Error())
 			return

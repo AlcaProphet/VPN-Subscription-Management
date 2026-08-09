@@ -86,6 +86,47 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+// TestPublicAnnouncement 公告公开端点：无需鉴权返回公告内容；未配置返回空串（R07-02）
+func TestPublicAnnouncement(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+	// 未配置：空串
+	w := doReq(t, srv, http.MethodGet, "/api/public/announcement")
+	if w.Code != http.StatusOK {
+		t.Fatalf("公告端点状态码异常: %d", w.Code)
+	}
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			Content string `json:"content"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if resp.Code != 0 || resp.Data.Content != "" {
+		t.Errorf("未配置公告应返回空串: %+v", resp)
+	}
+	// 配置公告后原样返回（含 HTML 原样透传，前端插值转义禁 HTML，§3.4.8）
+	if _, err := srv.store.DB().ExecContext(ctx,
+		`INSERT INTO system_config (key, value) VALUES ('announcement', '维护通知 <script>alert(1)</script>')`); err != nil {
+		t.Fatalf("写入公告失败: %v", err)
+	}
+	w2 := doReq(t, srv, http.MethodGet, "/api/public/announcement")
+	var resp2 struct {
+		Code int `json:"code"`
+		Data struct {
+			Content string `json:"content"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w2.Body.Bytes(), &resp2); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if resp2.Data.Content != "维护通知 <script>alert(1)</script>" {
+		t.Errorf("公告内容异常: %q", resp2.Data.Content)
+	}
+}
+
 // TestSystemStatus 系统状态返回 configured/app_mode/emergency
 func TestSystemStatus(t *testing.T) {
 	srv := newTestServer(t)

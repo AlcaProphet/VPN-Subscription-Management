@@ -10,6 +10,7 @@ import (
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/download"
 	"vpn-sub/internal/ratelimit"
+	"vpn-sub/internal/version"
 )
 
 // DownloadHandler 下载处理器（结构体 Handler + 依赖注入）
@@ -43,6 +44,10 @@ func (h *DownloadHandler) userDownload(c *gin.Context) {
 		h.dlSvc.WriteAccessLog(ctx, ip, entry, false)
 		setNoCache(c)
 		Fail(c, http.StatusNotFound, "资源不存在") // 统一 404，不泄露资源存在性
+	case errors.Is(err, version.ErrVersionNotFound):
+		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无版本：记 fail_reason=version_missing（R07-05）
+		setNoCache(c)
+		Fail(c, http.StatusNotFound, "资源不存在") // 与无效 Token 同 404
 	case errors.Is(err, download.ErrUnassigned):
 		h.dlSvc.WriteAccessLog(ctx, ip, entry, false)
 		setNoCache(c)
@@ -74,6 +79,10 @@ func (h *DownloadHandler) shareDownload(c *gin.Context) {
 		h.dlSvc.WriteAccessLog(ctx, ip, entry, false)
 		setNoCache(c)
 		Fail(c, http.StatusNotFound, "资源不存在")
+	case errors.Is(err, version.ErrVersionNotFound):
+		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无版本：记 fail_reason=version_missing（R07-05）
+		setNoCache(c)
+		Fail(c, http.StatusNotFound, "资源不存在") // 与无效 Token 同 404
 	case err != nil:
 		Fail(c, http.StatusInternalServerError, err.Error())
 	default:
@@ -99,6 +108,10 @@ func (h *DownloadHandler) ruleDownload(c *gin.Context) {
 		h.dlSvc.WriteAccessLog(ctx, ip, entry, false)
 		setNoCache(c)
 		Fail(c, http.StatusNotFound, "资源不存在")
+	case errors.Is(err, version.ErrVersionNotFound):
+		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无版本：记 fail_reason=version_missing（R07-05）
+		setNoCache(c)
+		Fail(c, http.StatusNotFound, "资源不存在") // 与无效 Token 同 404
 	case err != nil:
 		Fail(c, http.StatusInternalServerError, err.Error())
 	default:
@@ -126,6 +139,13 @@ func (h *DownloadHandler) preview(c *gin.Context) {
 	case errors.Is(err, download.ErrUnassigned):
 		setNoCache(c)
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("# error: unassigned\n"))
+	case errors.Is(err, version.ErrVersionNotFound):
+		// 无版本：与无效 Token 同 404；构造 entry 记 fail_reason=version_missing（R07-05）
+		h.dlSvc.WriteAccessLog(ctx, c.ClientIP(), &download.AccessEntry{
+			UserID: userID, Platform: c.Query("platform"), Type: "subscription", FailReason: "version_missing",
+		}, false)
+		setNoCache(c)
+		Fail(c, http.StatusNotFound, "资源不存在")
 	case err != nil:
 		Fail(c, http.StatusInternalServerError, err.Error())
 	default:
