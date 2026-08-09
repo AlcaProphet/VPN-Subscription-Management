@@ -7,11 +7,10 @@ import {
   CloudUploadOutlined, TeamOutlined, ShareAltOutlined, AppstoreOutlined,
   BranchesOutlined, BlockOutlined, HomeOutlined, MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, AuditOutlined, SettingOutlined, FileTextOutlined,
 } from '@ant-design/icons-vue'
-import { useTheme } from '@/theme'
+import AppHeader from '@/components/AppHeader.vue'
 
 const route = useRoute()
 const router = useRouter()
-const { dark, toggle } = useTheme()
 
 // isMobile：matchMedia('(max-width: 767px)') 响应式布尔（与三档断点 <768 对齐）；
 // 必须监听窗口缩放，窗口跨越 768px 断点时侧边栏/Drawer 响应式切换
@@ -31,8 +30,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
 })
 
-// 侧边栏菜单：9 模块 + 1 预留，平铺不分组（图标+文字）；
-// 「用户/审批中心/面板配置/日志」在 Build3 实现，本 Step 隐藏（Build3 补充显示）
+// 侧边栏菜单：9 模块 + 1 预留，平铺不分组（图标+文字）
 const menuItems = computed(() => [
   { key: '/admin/subscriptions', icon: () => h(CloudUploadOutlined), label: '订阅' },
   { key: '/admin/groups', icon: () => h(TeamOutlined), label: '用户组' },
@@ -57,14 +55,6 @@ function onMenuClick(key: string) {
   router.push(key)
 }
 
-// 退出登录
-async function onLogout() {
-  const { useAuthStore } = await import('@/stores/auth')
-  const auth = useAuthStore()
-  await auth.logoutAction()
-  router.push('/login')
-}
-
 // 返回主界面（用户端首页）
 function goHome() {
   drawerOpen.value = false
@@ -75,12 +65,14 @@ function goHome() {
 <template>
   <Layout class="min-h-screen">
     <!-- ≥768：固定 Sider（展开 220px / 收起 64px，浅色主题，当前路由高亮）；
-         trigger 置空避免默认折叠按钮与底部操作区重叠（自定义折叠按钮见下） -->
+         trigger 置空避免默认折叠按钮与底部操作区重叠（自定义折叠按钮见下）；
+         内联 position:sticky 吸顶（AntD 默认 position:relative 会与 Tailwind sticky 类同特异性冲突，内联样式优先级最高） -->
     <Layout.Sider v-if="!isMobile" v-model:collapsed="collapsed" theme="light"
-                  :width="220" :collapsed-width="64" collapsible :trigger="null">
+                  :width="220" :collapsed-width="64" collapsible :trigger="null"
+                  :style="{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }">
       <div class="h-16 flex items-center justify-center font-semibold truncate">
         <span v-if="!collapsed">管理面板</span>
-        <span v-else>管</span>
+        <SettingOutlined v-else class="text-lg" />
       </div>
       <div class="flex flex-col h-[calc(100vh-4rem)]">
         <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"
@@ -113,17 +105,12 @@ function goHome() {
     </Drawer>
 
     <Layout>
-      <Layout.Header v-if="isMobile" class="bg-white dark:bg-gray-800 flex items-center justify-between px-3">
-        <Button type="text" @click="drawerOpen = true">☰</Button>
-        <Button type="text" size="small" @click="toggle()">{{ dark ? '浅色' : '暗色' }}</Button>
-      </Layout.Header>
+      <!-- 通用顶栏（问题 R08-UI05：管理面板显示主界面式 header；
+           R08-UI07：自定义 header 元素替代 AntD Layout.Header，避免其默认深色背景覆盖 Tailwind 底色） -->
+      <AppHeader :burger="isMobile" @open-drawer="drawerOpen = true" />
       <!-- 右侧内容区：白底卡片容器（24px 内边距） -->
       <Layout.Content class="p-6">
         <div class="bg-white dark:bg-gray-800 rounded-lg p-6 min-h-full">
-          <div class="flex justify-end mb-2">
-            <Button size="small" type="text" @click="toggle()">{{ dark ? '切换到浅色' : '切换到暗色' }}</Button>
-            <Button size="small" type="text" danger @click="onLogout">退出</Button>
-          </div>
           <RouterView />
         </div>
       </Layout.Content>

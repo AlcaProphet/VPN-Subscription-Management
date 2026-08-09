@@ -1,4 +1,4 @@
-<!-- HomeLayout.vue：本 Build 仅首页占位容器，Build2 替换为完整用户端布局 -->
+<!-- HomeLayout.vue：用户端布局——页面底色容器，页面组件自带顶栏（HomeView 使用 AppHeader） -->
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
     <slot />

@@ -1,15 +1,15 @@
-<!-- HomeView.vue：用户首页（UI §4.1）——顶栏 + 平台卡片网格（三态）+ 规则入口；替换 Build1 占位 -->
+<!-- HomeView.vue：用户首页（UI §4.1）——通用顶栏 + 平台卡片网格（三态）+ 规则入口 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Card, Collapse, Dropdown, Empty, Modal, Space, Tag, TypographyText } from 'ant-design-vue'
+import { Alert, Button, Card, Collapse, Empty, Modal, TypographyText } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { homePlatforms, refreshHomeToken, homeUpdatedAt, type PlatformCard } from '@/api/home'
 import { getPublicAnnouncement } from '@/api/settings'
 import { buildImportUrl } from '@/utils/importUrl'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
-import { useTheme } from '@/theme'
+import AppHeader from '@/components/AppHeader.vue'
 import { me } from '@/api/auth'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import { Notify } from '@/components/Notify'
@@ -17,7 +17,6 @@ import { Notify } from '@/components/Notify'
 const router = useRouter()
 const auth = useAuthStore()
 const system = useSystemStore()
-const { dark, toggle } = useTheme()
 
 const loading = ref(true)
 const cards = ref<PlatformCard[]>([])
@@ -46,15 +45,9 @@ onMounted(async () => {
 
 // 顶栏
 const isAdmin = computed(() => auth.user?.role === 'admin')
-const groupName = computed(() => auth.user?.group_name ?? '')
 const updatedText = computed(() =>
   updatedAt.value ? `订阅更新于 ${dayjs(updatedAt.value).format('YYYY-MM-DD HH:mm')}` : '暂无订阅',
 )
-
-async function onLogout() {
-  await auth.logoutAction()
-  router.push('/login')
-}
 
 // 绑定类 Token（复制时警示）：group_selected/custom 与账号绑定
 const isUserBound = (card: PlatformCard) => card.status !== 'admin_pool'
@@ -127,32 +120,8 @@ const custom = (card: PlatformCard) => card.status === 'custom'
 
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
-    <!-- 顶栏（吸顶） -->
-    <header class="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm h-16 flex items-center px-4">
-      <div class="flex-1 min-w-0">
-        <span class="font-semibold text-lg">{{ system.siteName }}</span>
-        <span class="ml-3 text-xs text-gray-500 hidden md:inline">{{ updatedText }}</span>
-      </div>
-      <div class="flex items-center gap-3">
-        <Button v-if="isAdmin" type="primary" size="small" @click="router.push('/admin/subscriptions')">管理面板</Button>
-        <Dropdown>
-          <span class="cursor-pointer text-sm">{{ auth.user?.username }}</span>
-          <template #overlay>
-            <div class="bg-white dark:bg-gray-800 p-3 shadow rounded w-48">
-              <Space :wrap="true">
-                <Tag :color="isAdmin ? 'blue' : 'default'">{{ isAdmin ? '管理员' : '用户' }}</Tag>
-                <Tag v-if="groupName" color="cyan">{{ groupName }}</Tag>
-              </Space>
-              <div class="mt-2 flex flex-col gap-1">
-                <Button size="small" type="text" @click="toggle()">{{ dark ? '切换到浅色' : '切换到暗色' }}</Button>
-                <Button size="small" type="text" @click="router.push('/profile')">个人中心</Button>
-                <Button size="small" type="text" danger @click="onLogout">退出登录</Button>
-              </div>
-            </div>
-          </template>
-        </Dropdown>
-      </div>
-    </header>
+    <!-- 通用顶栏（UI §4.1：站点名 + 更新时间 + 管理面板按钮 + 组名 + 用户名 Dropdown + 暗色开关） -->
+    <AppHeader :updated-at="updatedText" manage-btn />
 
     <main class="max-w-6xl mx-auto p-4">
       <div v-if="loading" class="text-center py-16 text-gray-400">加载中…</div>
@@ -187,16 +156,21 @@ const custom = (card: PlatformCard) => card.status === 'custom'
             <!-- 管理员：池内全部订阅折叠列表（每份三按钮） -->
             <Collapse v-else ghost>
               <Collapse.Panel :key="card.platform_id" :header="`池内订阅（${card.subscriptions?.length ?? 0}）`">
-                <div v-for="sub in card.subscriptions ?? []" :key="sub.id" class="py-1 border-b last:border-0">
-                  <div class="flex items-center justify-between gap-2 flex-wrap">
-                    <div class="text-sm min-w-0">
-                      <span class="font-medium">{{ sub.name }}</span>
-                      <TypographyText code class="ml-2 text-xs">{{ sub.slug }}</TypographyText>
+                <!-- 圆角浅色块行（方案 C）：每行独立浅灰圆角容器，块状分隔，暗色模式深灰底；
+                     按钮用普通 flex 容器（AntD Space 在 flex 行内有 4px 垂直偏移异常，导致文本与按钮不对齐） -->
+                <div class="space-y-2">
+                  <div v-for="sub in card.subscriptions ?? []" :key="sub.id"
+                       class="rounded-md bg-gray-100 dark:bg-gray-700/50 px-3 py-2">
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                      <!-- 仅展示订阅名称，不展示标识（R09-11：标识为系统内部唯一 ID，主界面无需暴露） -->
+                      <div class="text-sm min-w-0 truncate">
+                        <span class="font-medium">{{ sub.name }}</span>
+                      </div>
+                      <div class="flex items-center gap-2 flex-shrink-0">
+                        <Button size="small" type="primary" @click="oneClickImport(card, sub.download_url)">一键导入</Button>
+                        <Button size="small" @click="openCopy(card, sub.download_url)">复制链接</Button>
+                      </div>
                     </div>
-                    <Space :wrap="true">
-                      <Button size="small" type="primary" @click="oneClickImport(card, sub.download_url)">一键导入</Button>
-                      <Button size="small" @click="openCopy(card, sub.download_url)">复制链接</Button>
-                    </Space>
                   </div>
                 </div>
               </Collapse.Panel>

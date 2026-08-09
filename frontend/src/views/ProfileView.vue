@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Alert, Button, Card, Descriptions, Form, Input, Tabs, Tag } from 'ant-design-vue'
+import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { updateUsername, updateEmail, updatePassword } from '@/api/profile'
 import { me } from '@/api/auth'
 import { http } from '@/api/request'
@@ -103,7 +104,13 @@ async function startBind() {
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
     <main class="max-w-2xl mx-auto p-4">
-      <h2 class="text-lg font-semibold mb-4">个人中心</h2>
+      <div class="flex items-center gap-2 mb-4">
+        <Button type="text" @click="router.push('/')">
+          <template #icon><ArrowLeftOutlined /></template>
+          返回主界面
+        </Button>
+        <h2 class="text-lg font-semibold m-0">个人中心</h2>
+      </div>
       <Card :loading="loading" class="shadow-sm">
         <Tabs>
           <!-- 基本信息 -->
