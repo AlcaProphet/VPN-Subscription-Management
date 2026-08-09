@@ -494,9 +494,12 @@ onMounted(() => {
     </div>
 
     <div class="flex gap-6">
-      <!-- 左侧锚点导航（<768 隐藏，改用顶部 Select） -->
+      <!-- 左侧锚点导航（<768 隐藏，改用顶部 Select）；
+           sticky 吸顶（顶栏 64px 下） + 限高独立滚动条，不随页面滚动出屏 -->
       <div class="hidden md:block w-40 shrink-0">
-        <Anchor :items="sections.map((s) => ({ key: s.key, href: `#${s.key}`, title: s.title }))" />
+        <div class="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto">
+          <Anchor :items="sections.map((s) => ({ key: s.key, href: `#${s.key}`, title: s.title }))" />
+        </div>
       </div>
 
       <div class="flex-1 space-y-4 min-w-0">

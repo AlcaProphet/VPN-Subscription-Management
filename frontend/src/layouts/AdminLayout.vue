@@ -66,9 +66,11 @@ function goHome() {
 <template>
   <Layout class="min-h-screen">
     <!-- ≥768：固定 Sider（展开 220px / 收起 64px，浅色主题，当前路由高亮）；
-         trigger 置空避免默认折叠按钮与底部操作区重叠（自定义折叠按钮见下） -->
+         trigger 置空避免默认折叠按钮与底部操作区重叠（自定义折叠按钮见下）；
+         内联 position:sticky 吸顶（AntD 默认 position:relative 会与 Tailwind sticky 类同特异性冲突，内联样式优先级最高） -->
     <Layout.Sider v-if="!isMobile" v-model:collapsed="collapsed" theme="light"
-                  :width="220" :collapsed-width="64" collapsible :trigger="null">
+                  :width="220" :collapsed-width="64" collapsible :trigger="null"
+                  :style="{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }">
       <div class="h-16 flex items-center justify-center font-semibold truncate">
         <span v-if="!collapsed">管理面板</span>
         <span v-else>管</span>
