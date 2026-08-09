@@ -400,3 +400,4 @@
 | v1.13 | 2026-08-09 | R09-11 主界面池内订阅展示与对齐调整（用户确认最终方案）：移除 slug 仅展示名称；逐行 border-b 改圆角浅色块行（方案 C：rounded-md + 浅灰/暗色半透明底 + space-y-2）；用户名 Dropdown 宽自适应（w-auto min-w-32）；按钮容器 AntD Space 改普通 flex div（消除 4px 垂直偏移异常，实测 diff=0）。验收：`npm run build` + `vitest` 20/20、双行文本/按钮中心完全对齐、浅/暗色样式正常；同步 Design1-UI.md v1.4、清理 HomeLayout 过时注释 |
 | v1.14 | 2026-08-09 | R09-12 移动端易用性：补齐分享订阅/用户组/规则管理/访问日志四处 <768 卡片双态实现（此前仅平台/订阅有卡片；日志 8 列精简展示、需重选组橙色描边）。验收：`npm run build` + `vitest` 20/20、浏览器 575px 移动端实测四页卡片渲染正常表格隐藏；Design1-UI.md v1.5 |
 | v1.15 | 2026-08-09 | R09-13 用户名 dropdown 暗色模式可读性增强：overlay 加 shadow-lg + border（浅色 gray-200 / 暗色 gray-600 边框）。验收：生产构建实测暗色 1px gray-600 边框 + 多层阴影、浅色 gray-200 边框、vitest 20/20；备注 dev server 环境 popup 渲染异常（生产正常） |
+| v1.16 | 2026-08-09 | 代码质量核验清理：修复 HomeView 文件头过期注释（「替换 Build1 占位」）与 AdminLayout 菜单注释（「Build3 实现，本 Step 隐藏」——Build3 已验收，与实际不符）两处历史遗留注释；核验结论：全部改动无未使用 import、无中间方案残留、无魔法数、符合 AGENTS 规范。验收：`npm run build` + `vitest` 20/20 |

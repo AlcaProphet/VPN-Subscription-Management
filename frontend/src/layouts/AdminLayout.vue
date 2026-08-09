@@ -30,8 +30,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
 })
 
-// 侧边栏菜单：9 模块 + 1 预留，平铺不分组（图标+文字）；
-// 「用户/审批中心/面板配置/日志」在 Build3 实现，本 Step 隐藏（Build3 补充显示）
+// 侧边栏菜单：9 模块 + 1 预留，平铺不分组（图标+文字）
 const menuItems = computed(() => [
   { key: '/admin/subscriptions', icon: () => h(CloudUploadOutlined), label: '订阅' },
   { key: '/admin/groups', icon: () => h(TeamOutlined), label: '用户组' },

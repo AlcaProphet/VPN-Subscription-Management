@@ -1,4 +1,4 @@
-<!-- HomeView.vue：用户首页（UI §4.1）——顶栏 + 平台卡片网格（三态）+ 规则入口；替换 Build1 占位 -->
+<!-- HomeView.vue：用户首页（UI §4.1）——通用顶栏 + 平台卡片网格（三态）+ 规则入口 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
