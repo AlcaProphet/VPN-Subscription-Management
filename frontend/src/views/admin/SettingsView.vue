@@ -498,11 +498,12 @@ onMounted(() => {
            sticky 吸顶（顶栏 64px 下） + 限高独立滚动条，不随页面滚动出屏 -->
       <div class="hidden md:block w-40 shrink-0">
         <div class="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto">
-          <Anchor :items="sections.map((s) => ({ key: s.key, href: `#${s.key}`, title: s.title }))" />
+          <!-- offset-top=80：点击锚点滚动目标时预留 sticky 顶栏（64px）+ 间距，避免目标被顶栏遮挡 -->
+          <Anchor :items="sections.map((s) => ({ key: s.key, href: `#${s.key}`, title: s.title }))" :offset-top="80" />
         </div>
       </div>
 
-      <div class="flex-1 space-y-4 min-w-0">
+      <div class="flex-1 space-y-4 min-w-0 settings-scroll">
         <!-- OIDC 配置 -->
         <Card id="oidc" title="OIDC 配置" size="small">
           <div class="space-y-3 max-w-xl">
@@ -817,3 +818,11 @@ onMounted(() => {
                   @confirm="doClearAll" @update:open="clearOpen = false" />
   </div>
 </template>
+
+<style scoped>
+/* 锚点滚动目标预留 sticky 顶栏高度（64px + 16px 间距）：
+   覆盖浏览器原生 #hash 直链跳转场景（AntD Anchor offset-top 仅作用于点击路径） */
+.settings-scroll :deep([id]) {
+  scroll-margin-top: 80px;
+}
+</style>

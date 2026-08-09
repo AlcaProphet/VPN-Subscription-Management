@@ -113,6 +113,14 @@
 - **修复方案：** ① 主边栏 Sider 加内联样式 `position: sticky; top: 0; height: 100vh; overflow-y: auto`——用内联样式而非 Tailwind sticky 类，规避与 AntD `position: relative` 的同特异性覆盖冲突（R09-07 同类坑）；② 辅边栏 Anchor 外层包 `sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto`——吸顶于顶栏下方、限高、内容超限时出现独立滚动条。
 - **状态：** ✅ 已修复（2026-08-09；验收：`npm run build` + `vitest` 20/20；浏览器实测滚动 2953px 后主边栏 top 保持 ≈0、辅边栏 top=80px 均吸顶；注入超限内容后 clientH 受限 834px、可独立滚动）
 
+### R09-10 面板配置锚点跳转目标被 sticky 顶栏遮挡（UI 体验）
+
+- **现象：** 点击辅边栏（锚点目录）任意链接，右侧滚动目标卡片顶部被 sticky AppHeader（64px）遮挡；URL 直链 `#hash` 访问同样遮挡。
+- **根因：** AntD Anchor 点击与浏览器原生 hash 跳转均将目标滚动到视口顶部，未预留 sticky 顶栏高度。
+- **影响范围：** 面板配置页锚点导航定位不准（功能正常，体验缺陷）。
+- **修复方案（双保险）：** ① `Anchor` 补 `:offset-top="80"`（AntD 点击路径：目标位置 - 80px = 顶栏 64px + 间距 16px）；② 内容区容器加 `settings-scroll` 类 + scoped style 给全部分区卡片（`:deep([id])`）设 `scroll-margin-top: 80px`（原生 `#hash` 直链兜底，AntD offset-top 不介入原生跳转）。
+- **状态：** ✅ 已修复（2026-08-09；验收：`npm run build` + `vitest` 无回归；浏览器实测点击「SMTP」锚点与 URL 直链 `#smtp` 双路径目标 Card top 均 = 80.14px、与顶栏间距 16px 不被遮挡）
+
 ### R07-02 公告功能缺失：首页无公告展示与公开端点
 
 - **现象：** 面板配置可保存公告内容，但用户首页无公告栏卡片，后端也无公告公开端点（Design1 §5.2 要求「公告数据接口公开，未登录可获取」）。
@@ -367,3 +375,4 @@
 | v1.9 | 2026-08-09 | R08-01~05 修复闭环：R08-01 一键清空硬编码 RESET（删 confirmWordInput 依赖）、R08-02 面板导入补密码输入框 + 硬编码 IMPORT（核查修正：原记载「提交空确认词 400」实为密码框缺失请求未发出，双缺陷一并修复）、R08-03 ListVersions 补 file_name（新增 TestListVersionsFileName 守护）；R08-04/R08-05 用户决策保持现状，Design1 §2.2/§3.4.8 表述同步修订（无代码变更）。验收：`go build/vet/test` 25 包全绿、`npm run build` + `vitest` 20/20 |
 | v1.10 | 2026-08-09 | UI 体验 8 项修复闭环（R09-01~08）：新增通用顶栏组件 AppHeader（用户名按钮/组名直示/点击展开 Dropdown/暗色 emoji+开关），主页与管理面板共用；管理面板补顶栏（桌面+移动）；个人中心补返回按钮；登录页暗色改 emoji+开关；深色顶栏文字补 dark 配色；移动端浅色背景覆盖根治（废弃 AntD Layout.Header）。验收：`npm run build` + `vitest` 20/20、浏览器实测（桌面 1044px/移动 575px 双视口计算样式取证）全部符合预期；Design1-UI.md 同步 v1.3 |
 | v1.11 | 2026-08-09 | R09-09 面板配置页双侧栏滚动修复：主边栏 Sider 内联 `position:sticky` 吸顶（规避 AntD position:relative 同特异性覆盖）+ 高 100vh + overflow-y-auto；辅边栏 Anchor 容器 sticky top-20 + 限高 calc(100vh-6rem) + 独立滚动条。验收：`npm run build` + `vitest` 20/20、浏览器实测滚动 2953px 后双侧栏吸顶（top 保持 0/80px）、注入超限内容出现独立滚动条 |
+| v1.12 | 2026-08-09 | R09-10 面板配置锚点跳转被顶栏遮挡修复：Anchor 补 `:offset-top="80"`（点击路径）+ 分区卡片 `scroll-margin-top: 80px`（原生 #hash 直链兜底）。验收：`npm run build` + `vitest` 无回归、浏览器实测点击锚点与 URL 直链双路径目标 top=80px 不被遮挡 |
