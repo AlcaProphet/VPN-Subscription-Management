@@ -177,7 +177,8 @@ async function confirmDelete() {
            description="前往订阅管理创建第一份订阅，再为各用户组选定分发" @close="dismissGuide" />
 
     <TriStateList :loading="loading" :empty="groups.length === 0" empty-text="暂无用户组">
-      <Table :data-source="groups" row-key="id" :pagination="false"
+      <!-- ≥768：表格 -->
+      <Table :data-source="groups" row-key="id" :pagination="false" class="hidden md:block"
              :row-class-name="(r: GroupItem) => (r.needs_reselect ? 'row-warn' : '')">
         <Table.Column key="name" title="组名" data-index="name">
           <template #default="{ record }">
@@ -204,6 +205,27 @@ async function confirmDelete() {
           </template>
         </Table.Column>
       </Table>
+
+      <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致） -->
+      <div class="grid grid-cols-1 gap-3 md:hidden">
+        <div v-for="g in groups" :key="g.id"
+             class="border rounded-lg p-3 bg-white dark:bg-gray-800"
+             :class="g.needs_reselect ? 'border-orange-300' : ''">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-medium truncate">{{ g.name }}</span>
+            <div class="flex gap-1 shrink-0">
+              <Tag v-if="g.is_default" color="gold">默认组</Tag>
+              <Tag v-if="g.needs_reselect" color="orange">需重选</Tag>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500 mt-1">关联订阅 {{ g.sub_count }} · 组内用户 {{ g.user_count }}</div>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <Button size="small" type="primary" ghost @click="openEdit(g)">编辑</Button>
+            <Button v-if="g.needs_reselect" size="small" @click="openEdit(g)">重新选定</Button>
+            <Button v-if="!g.is_default" size="small" danger @click="toDelete = g">删除</Button>
+          </div>
+        </div>
+      </div>
     </TriStateList>
 
     <!-- 新建组弹窗 -->

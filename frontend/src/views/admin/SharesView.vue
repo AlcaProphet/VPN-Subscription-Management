@@ -191,7 +191,8 @@ async function doDelete() {
     </div>
 
     <TriStateList :loading="loading" :empty="shares.length === 0" empty-text="还没有分享订阅">
-      <Table :data-source="shares" row-key="id" :pagination="false">
+      <!-- ≥768：表格 -->
+      <Table :data-source="shares" row-key="id" :pagination="false" class="hidden md:block">
         <Table.Column key="name" title="名称" data-index="name" />
         <Table.Column key="created" title="创建时间" width="160">
           <template #default="{ record }">{{ fmtTime(record.created_at) }}</template>
@@ -220,6 +221,29 @@ async function doDelete() {
           </template>
         </Table.Column>
       </Table>
+
+      <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致） -->
+      <div class="grid grid-cols-1 gap-3 md:hidden">
+        <div v-for="s in shares" :key="s.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-medium truncate">{{ s.name }}</span>
+            <Badge :status="revoked(s) ? 'error' : 'success'" :text="revoked(s) ? '已吊销' : '有效'" />
+          </div>
+          <div class="text-xs text-gray-500 mt-1">创建 {{ fmtTime(s.created_at) }}</div>
+          <div class="mt-1">
+            <Tag v-if="s.current_version > 0" color="green">v{{ s.current_version }}</Tag>
+            <Tag v-else color="default">无版本</Tag>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <Button size="small" @click="openRename(s)">改名</Button>
+            <Button size="small" @click="router.push(`/admin/shares/${s.id}/versions`)">版本管理</Button>
+            <Button size="small" :disabled="revoked(s)" @click="copyLink(s)">复制链接</Button>
+            <Button size="small" type="primary" ghost @click="refreshTarget = s">刷新 Token</Button>
+            <Button size="small" danger :disabled="revoked(s)" @click="revokeTarget = s">吊销</Button>
+            <Button size="small" danger @click="deleteTarget = s">删除</Button>
+          </div>
+        </div>
+      </div>
     </TriStateList>
 
     <!-- 创建对话框：名称 + 首版本（文件/文本页签） -->

@@ -159,7 +159,8 @@ async function doDelete() {
     </div>
 
     <TriStateList :loading="loading" :empty="rules.length === 0" empty-text="还没有规则">
-      <Table :data-source="rules" row-key="id" :pagination="false">
+      <!-- ≥768：表格 -->
+      <Table :data-source="rules" row-key="id" :pagination="false" class="hidden md:block">
         <Table.Column key="name" title="名称" data-index="name" />
         <Table.Column key="slug" title="标识" width="180">
           <template #default="{ record }"><TypographyText code>{{ record.slug }}</TypographyText></template>
@@ -188,6 +189,29 @@ async function doDelete() {
           </template>
         </Table.Column>
       </Table>
+
+      <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致） -->
+      <div class="grid grid-cols-1 gap-3 md:hidden">
+        <div v-for="r in rules" :key="r.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-medium truncate">{{ r.name }}</span>
+            <Tag color="blue" class="shrink-0">{{ r.client_type }}</Tag>
+          </div>
+          <div class="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-2">
+            <TypographyText code>{{ r.slug }}</TypographyText>
+            <Tag v-if="r.current_version > 0" color="green">v{{ r.current_version }}</Tag>
+            <Tag v-else color="default">无版本</Tag>
+            <span>刷新 {{ fmtTime(r.refreshed_at) }}</span>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <Button size="small" @click="renameTarget = r; renameValue = r.name">改名</Button>
+            <Button size="small" @click="router.push(`/admin/rules/${r.id}/versions`)">版本管理</Button>
+            <Button size="small" :disabled="!r.token" @click="copyLink(r)">复制链接</Button>
+            <Button size="small" type="primary" ghost @click="refreshTarget = r">刷新 Token</Button>
+            <Button size="small" danger @click="deleteTarget = r">删除</Button>
+          </div>
+        </div>
+      </div>
     </TriStateList>
 
     <!-- 创建弹窗：名称 + 客户端类型 + scheme + 首版本（文件/文本）；标识由后端自动生成 -->

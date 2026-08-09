@@ -73,7 +73,7 @@ function goHome() {
                   :style="{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }">
       <div class="h-16 flex items-center justify-center font-semibold truncate">
         <span v-if="!collapsed">管理面板</span>
-        <span v-else>管</span>
+        <SettingOutlined v-else class="text-lg" />
       </div>
       <div class="flex flex-col h-[calc(100vh-4rem)]">
         <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"

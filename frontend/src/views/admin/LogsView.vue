@@ -160,7 +160,8 @@ onUnmounted(disconnect)
           <Button danger @click="clearOpen = true">清空日志</Button>
         </div>
         <TriStateList :loading="loading" :empty="list.length === 0 && total === 0" empty-text="所选日期范围内无记录">
-          <Table :data-source="list" row-key="id" :pagination="false" size="small">
+          <!-- ≥768：表格 -->
+          <Table :data-source="list" row-key="id" :pagination="false" size="small" class="hidden md:block">
             <Table.Column key="type" title="下载类型" width="120">
               <template #default="{ record }">{{ typeText[record.download_type] ?? record.download_type }}</template>
             </Table.Column>
@@ -189,6 +190,23 @@ onUnmounted(disconnect)
               <template #default="{ record }">{{ dayjs(record.created_at).format('YYYY-MM-DD HH:mm:ss') }}</template>
             </Table.Column>
           </Table>
+
+          <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致；8 列精简展示） -->
+          <div class="grid grid-cols-1 gap-2 md:hidden">
+            <div v-for="log in list" :key="log.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium truncate">{{ typeText[log.download_type] ?? log.download_type }}</span>
+                <Badge :color="log.status === 'success' ? 'green' : 'red'"
+                       :text="log.status === 'success' ? '成功' : '失败'" />
+              </div>
+              <div class="text-xs text-gray-500 mt-1 space-y-0.5">
+                <div>用户：{{ log.username || '—' }} · 平台：{{ log.platform || '—' }} · IP：{{ log.ip }}</div>
+                <div class="font-mono">资源：{{ log.resource_slug }}</div>
+                <div v-if="log.fail_reason">原因：{{ log.fail_reason }}</div>
+                <div>{{ dayjs(log.created_at).format('YYYY-MM-DD HH:mm:ss') }}</div>
+              </div>
+            </div>
+          </div>
         </TriStateList>
         <div class="flex justify-end mt-3">
           <Pagination v-model:current="page" :page-size="size" :total="total"

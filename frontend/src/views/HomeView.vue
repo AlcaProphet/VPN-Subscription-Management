@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Card, Collapse, Empty, Modal, Space, TypographyText } from 'ant-design-vue'
+import { Alert, Button, Card, Collapse, Empty, Modal, TypographyText } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { homePlatforms, refreshHomeToken, homeUpdatedAt, type PlatformCard } from '@/api/home'
 import { getPublicAnnouncement } from '@/api/settings'
@@ -156,16 +156,21 @@ const custom = (card: PlatformCard) => card.status === 'custom'
             <!-- 管理员：池内全部订阅折叠列表（每份三按钮） -->
             <Collapse v-else ghost>
               <Collapse.Panel :key="card.platform_id" :header="`池内订阅（${card.subscriptions?.length ?? 0}）`">
-                <div v-for="sub in card.subscriptions ?? []" :key="sub.id" class="py-2 border-b last:border-0">
-                  <div class="flex items-center justify-between gap-2 flex-wrap">
-                    <!-- 仅展示订阅名称，不展示标识（R09-11：标识为系统内部唯一 ID，主界面无需暴露） -->
-                    <div class="text-sm min-w-0 truncate">
-                      <span class="font-medium">{{ sub.name }}</span>
+                <!-- 圆角浅色块行（方案 C）：每行独立浅灰圆角容器，块状分隔，暗色模式深灰底；
+                     按钮用普通 flex 容器（AntD Space 在 flex 行内有 4px 垂直偏移异常，导致文本与按钮不对齐） -->
+                <div class="space-y-2">
+                  <div v-for="sub in card.subscriptions ?? []" :key="sub.id"
+                       class="rounded-md bg-gray-100 dark:bg-gray-700/50 px-3 py-2">
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                      <!-- 仅展示订阅名称，不展示标识（R09-11：标识为系统内部唯一 ID，主界面无需暴露） -->
+                      <div class="text-sm min-w-0 truncate">
+                        <span class="font-medium">{{ sub.name }}</span>
+                      </div>
+                      <div class="flex items-center gap-2 flex-shrink-0">
+                        <Button size="small" type="primary" @click="oneClickImport(card, sub.download_url)">一键导入</Button>
+                        <Button size="small" @click="openCopy(card, sub.download_url)">复制链接</Button>
+                      </div>
                     </div>
-                    <Space :wrap="true">
-                      <Button size="small" type="primary" @click="oneClickImport(card, sub.download_url)">一键导入</Button>
-                      <Button size="small" @click="openCopy(card, sub.download_url)">复制链接</Button>
-                    </Space>
                   </div>
                 </div>
               </Collapse.Panel>

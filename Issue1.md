@@ -121,6 +121,20 @@
 - **修复方案（双保险）：** ① `Anchor` 补 `:offset-top="80"`（AntD 点击路径：目标位置 - 80px = 顶栏 64px + 间距 16px）；② 内容区容器加 `settings-scroll` 类 + scoped style 给全部分区卡片（`:deep([id])`）设 `scroll-margin-top: 80px`（原生 `#hash` 直链兜底，AntD offset-top 不介入原生跳转）。
 - **状态：** ✅ 已修复（2026-08-09；验收：`npm run build` + `vitest` 无回归；浏览器实测点击「SMTP」锚点与 URL 直链 `#smtp` 双路径目标 Card top 均 = 80.14px、与顶栏间距 16px 不被遮挡）
 
+### R09-11 主界面池内订阅展示与对齐调整（UI 体验，用户确认最终方案）
+
+- **现象：** ① 管理员主界面池内订阅行显示订阅标识 slug（如 `test-sub-1`）与名称并排——视觉错位且暴露系统内部 ID；② 逐行分割线（border-b）与「一键导入/复制链接」按钮存在重叠；③ 用户名 Dropdown 固定宽 192px 偏大；④ 圆角块行内文本与按钮中心偏移 4px 未对齐。
+- **根因：** ① slug 与名称字体/基线差异（code 样式基线偏差 2px）产生错位感；② 行内 flex 容器被压缩为 20px，按钮（24px）底边向下溢出 2px、越过分割线 1px；③ dropdown 固定 `w-48`；④ **AntD `Space` 组件（inline-flex + css-in-js 注入）在 flex 行内存在 4px 垂直偏移异常**——实验验证：父容器 align-items:center 与强制 align-self:center 均无法消除。
+- **修复方案（用户确认最终方案）：** ① 移除 slug，仅展示订阅名称（truncate 防溢出）；② 逐行 border-b 改为**圆角浅色块行**（`rounded-md` + `bg-gray-100`/暗色 `bg-gray-700/50` + 块间 `space-y-2`；浅色底色经用户微调加深一档提升可读性）；③ dropdown `w-48` → `w-auto min-w-32`（自适应）；④ 按钮容器 `Space` → **普通 flex div**（消除 4px 偏移，实测文本与按钮中心 diff=0）。
+- **状态：** ✅ 已修复（2026-08-09；用户确认效果满意，定为最终方案；验收：`npm run build` + `vitest` 20/20、浏览器实测两行文本/按钮中心完全对齐 diff=0、浅色/暗色块样式正常）
+
+### R09-12 分享/用户组/规则管理/日志缺移动端卡片（UI 体验）
+
+- **现象：** 管理面板分享订阅、用户组、规则管理、日志（访问日志）四页在移动端（<768）仍为纯表格渲染——8 列表格（日志）在窄屏严重溢出难用；Design1-UI §1.1「<768 统一卡片化」及 §5.2/5.3/5.7/5.9「双态列表」规格此前仅平台/订阅两页落地。
+- **根因：** 四处实现仅渲染 `a-table`，无 <768 卡片分支。
+- **修复方案：** 参照 PlatformsView 双态模式补齐四处：`a-table` 加 `hidden md:block`（≥768 表格）+ 新增 `md:hidden` 卡片网格（`border rounded-lg p-3 bg-white dark:bg-gray-800`，与平台/订阅卡片风格一致）；日志 8 列精简为卡片（类型+状态 Badge 头部，用户/平台/IP/资源标识/失败原因/时间信息区）；需重选组卡片橙色描边（`border-orange-300`）。
+- **状态：** ✅ 已修复（2026-08-09；验收：`npm run build` + `vitest` 20/20、浏览器 575px 移动端实测四页卡片正常渲染且表格隐藏（高度 0）、卡片字段完整；Design1-UI.md 变更记录 v1.5）
+
 ### R07-02 公告功能缺失：首页无公告展示与公开端点
 
 - **现象：** 面板配置可保存公告内容，但用户首页无公告栏卡片，后端也无公告公开端点（Design1 §5.2 要求「公告数据接口公开，未登录可获取」）。
@@ -376,3 +390,5 @@
 | v1.10 | 2026-08-09 | UI 体验 8 项修复闭环（R09-01~08）：新增通用顶栏组件 AppHeader（用户名按钮/组名直示/点击展开 Dropdown/暗色 emoji+开关），主页与管理面板共用；管理面板补顶栏（桌面+移动）；个人中心补返回按钮；登录页暗色改 emoji+开关；深色顶栏文字补 dark 配色；移动端浅色背景覆盖根治（废弃 AntD Layout.Header）。验收：`npm run build` + `vitest` 20/20、浏览器实测（桌面 1044px/移动 575px 双视口计算样式取证）全部符合预期；Design1-UI.md 同步 v1.3 |
 | v1.11 | 2026-08-09 | R09-09 面板配置页双侧栏滚动修复：主边栏 Sider 内联 `position:sticky` 吸顶（规避 AntD position:relative 同特异性覆盖）+ 高 100vh + overflow-y-auto；辅边栏 Anchor 容器 sticky top-20 + 限高 calc(100vh-6rem) + 独立滚动条。验收：`npm run build` + `vitest` 20/20、浏览器实测滚动 2953px 后双侧栏吸顶（top 保持 0/80px）、注入超限内容出现独立滚动条 |
 | v1.12 | 2026-08-09 | R09-10 面板配置锚点跳转被顶栏遮挡修复：Anchor 补 `:offset-top="80"`（点击路径）+ 分区卡片 `scroll-margin-top: 80px`（原生 #hash 直链兜底）。验收：`npm run build` + `vitest` 无回归、浏览器实测点击锚点与 URL 直链双路径目标 top=80px 不被遮挡 |
+| v1.13 | 2026-08-09 | R09-11 主界面池内订阅展示与对齐调整（用户确认最终方案）：移除 slug 仅展示名称；逐行 border-b 改圆角浅色块行（方案 C：rounded-md + 浅灰/暗色半透明底 + space-y-2）；用户名 Dropdown 宽自适应（w-auto min-w-32）；按钮容器 AntD Space 改普通 flex div（消除 4px 垂直偏移异常，实测 diff=0）。验收：`npm run build` + `vitest` 20/20、双行文本/按钮中心完全对齐、浅/暗色样式正常；同步 Design1-UI.md v1.4、清理 HomeLayout 过时注释 |
+| v1.14 | 2026-08-09 | R09-12 移动端易用性：补齐分享订阅/用户组/规则管理/访问日志四处 <768 卡片双态实现（此前仅平台/订阅有卡片；日志 8 列精简展示、需重选组橙色描边）。验收：`npm run build` + `vitest` 20/20、浏览器 575px 移动端实测四页卡片渲染正常表格隐藏；Design1-UI.md v1.5 |
