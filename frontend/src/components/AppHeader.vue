@@ -43,7 +43,8 @@ async function onLogout() {
       <Dropdown :trigger="['click']">
         <Button size="small">{{ auth.user?.username }}</Button>
         <template #overlay>
-          <div class="bg-white dark:bg-gray-800 p-3 shadow rounded w-auto min-w-32">
+          <!-- 边框 + 增强阴影：暗色模式 gray-800 背景与顶栏同色，靠边框/阴影增强区分（R09-13） -->
+          <div class="bg-white dark:bg-gray-800 p-3 shadow-lg rounded border border-gray-200 dark:border-gray-600 w-auto min-w-32">
             <!-- 角色标签水平居中（R09-11；m-0 消除 AntD Tag 默认右 margin 导致的视觉偏移） -->
             <div class="flex justify-center">
               <Tag :color="isAdmin ? 'blue' : 'default'" class="m-0">{{ isAdmin ? '管理员' : '用户' }}</Tag>

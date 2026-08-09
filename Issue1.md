@@ -135,6 +135,13 @@
 - **修复方案：** 参照 PlatformsView 双态模式补齐四处：`a-table` 加 `hidden md:block`（≥768 表格）+ 新增 `md:hidden` 卡片网格（`border rounded-lg p-3 bg-white dark:bg-gray-800`，与平台/订阅卡片风格一致）；日志 8 列精简为卡片（类型+状态 Badge 头部，用户/平台/IP/资源标识/失败原因/时间信息区）；需重选组卡片橙色描边（`border-orange-300`）。
 - **状态：** ✅ 已修复（2026-08-09；验收：`npm run build` + `vitest` 20/20、浏览器 575px 移动端实测四页卡片正常渲染且表格隐藏（高度 0）、卡片字段完整；Design1-UI.md 变更记录 v1.5）
 
+### R09-13 用户名 dropdown 暗色模式可读性差（UI 体验）
+
+- **现象：** 暗色模式下用户名 dropdown 背景（gray-800）与顶栏同色，仅基础阴影（暗色下不明显）、无边框，边界模糊可读性差。
+- **根因：** `AppHeader.vue` overlay 仅有 `shadow`（阴影弱、暗色模式几乎不可见），无边框——暗色下与同色顶栏难以区分。
+- **修复方案：** overlay 样式增强——`shadow` → `shadow-lg`（多层增强阴影）+ 新增 `border border-gray-200 dark:border-gray-600`（浅色浅灰边 / 暗色深灰边，暗色下与背景形成清晰边界）。
+- **状态：** ✅ 已修复（2026-08-09；用户确认满意；验收：生产构建 `docker compose build` + `up -d` 后实测——暗色模式 1px solid gray-600 边框 + shadow-lg 多层阴影、浅色 gray-200 边框均生效，dropdown 正常展开；`vitest` 20/20。备注：dev server 环境存在 popup 渲染异常（面板高度 0/overlay 空，无控制台报错，生产构建正常），验证改走生产构建路径）
+
 ### R07-02 公告功能缺失：首页无公告展示与公开端点
 
 - **现象：** 面板配置可保存公告内容，但用户首页无公告栏卡片，后端也无公告公开端点（Design1 §5.2 要求「公告数据接口公开，未登录可获取」）。
@@ -392,3 +399,4 @@
 | v1.12 | 2026-08-09 | R09-10 面板配置锚点跳转被顶栏遮挡修复：Anchor 补 `:offset-top="80"`（点击路径）+ 分区卡片 `scroll-margin-top: 80px`（原生 #hash 直链兜底）。验收：`npm run build` + `vitest` 无回归、浏览器实测点击锚点与 URL 直链双路径目标 top=80px 不被遮挡 |
 | v1.13 | 2026-08-09 | R09-11 主界面池内订阅展示与对齐调整（用户确认最终方案）：移除 slug 仅展示名称；逐行 border-b 改圆角浅色块行（方案 C：rounded-md + 浅灰/暗色半透明底 + space-y-2）；用户名 Dropdown 宽自适应（w-auto min-w-32）；按钮容器 AntD Space 改普通 flex div（消除 4px 垂直偏移异常，实测 diff=0）。验收：`npm run build` + `vitest` 20/20、双行文本/按钮中心完全对齐、浅/暗色样式正常；同步 Design1-UI.md v1.4、清理 HomeLayout 过时注释 |
 | v1.14 | 2026-08-09 | R09-12 移动端易用性：补齐分享订阅/用户组/规则管理/访问日志四处 <768 卡片双态实现（此前仅平台/订阅有卡片；日志 8 列精简展示、需重选组橙色描边）。验收：`npm run build` + `vitest` 20/20、浏览器 575px 移动端实测四页卡片渲染正常表格隐藏；Design1-UI.md v1.5 |
+| v1.15 | 2026-08-09 | R09-13 用户名 dropdown 暗色模式可读性增强：overlay 加 shadow-lg + border（浅色 gray-200 / 暗色 gray-600 边框）。验收：生产构建实测暗色 1px gray-600 边框 + 多层阴影、浅色 gray-200 边框、vitest 20/20；备注 dev server 环境 popup 渲染异常（生产正常） |
