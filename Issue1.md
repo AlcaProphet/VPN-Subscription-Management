@@ -7,6 +7,47 @@
 
 ## 一、进行中问题
 
+### R08-01 面板「一键清空所有数据」UI 提交空确认词导致 400（UI 不可用）
+
+- **现象：** 面板配置「危险操作区」点击一键清空 → 输入确认词 RESET（确认按钮解锁）→ 确定 → 请求 `POST /api/admin/settings/clear_all` 返回 400「确认词不正确」，清空无法执行；API 层直接调用（带 confirm_word=RESET）正常。
+- **复现步骤：** 管理面板 → 面板配置 → 危险操作区 → 一键清空所有数据 → 输入 RESET → 确定（Network 面板 clear_all 400）。
+- **根因：** `SettingsView.vue` `doClearAll()` 提交 `confirmWordInput.value`，但 `confirmWordInput`（L461 声明）**从未绑定任何输入框**——`ConfirmModal.vue` 内部确认词输入（`word` ref）仅用于控制 ok 按钮禁用（`okDisabled`），`emit('confirm')` 不带确认词，父组件无接收参数 → 提交 `confirm_word: ""` → 400。
+- **影响范围：** 面板一键清空 UI 操作不可用（API 可用）；R07-08 中「清空成功后清理前端凭据」链路因清空从未成功而未生效。
+- **修复方案：** ① `ConfirmModal.vue` `emit('confirm')` 改为 `emit('confirm', word.value)`；② 使用方（SettingsView doClearAll/doImport 等）`@confirm="(w) => ..."` 接收确认词并提交；或 ③ 最简：SettingsView 删除 `confirmWordInput` 依赖，`doClearAll` 直接 `clearAll('RESET')`（确认词已由 ConfirmModal 按钮禁用保证输入正确，后端二次校验兜底）——推荐 ③，与 SetupView 硬编码 `IMPORT` 的模式一致。
+- **状态：** ☐ 待修复
+
+### R08-02 面板「配置导入」UI 提交空确认词导致 400（UI 不可用）
+
+- **现象：** 面板配置「配置导入/导出 → 导入」上传文件 + 输入密码 → IMPORT 确认弹窗输入确认词 → 确定 → 400「确认词不正确」（Dev 模式先被 403 模式拦截；Production 模式必现）。
+- **根因：** 同 R08-01：`SettingsView.vue` `doImport()` 提交 `importForm.confirmWord`（L363 声明、L421 使用），**从未绑定输入框**；ConfirmModal 内部确认词不传回父组件。Setup 页导入（`SetupView.doSetupImport` 硬编码 `'IMPORT'`）不受影响。
+- **影响范围：** 面板导入 UI 不可用（Setup 导入正常；API 正常）。R07-06 验收「面板导入 403」因 Dev 模式先被模式检查拦截，未暴露此缺陷。
+- **修复方案：** `doImport` 提交 `fd.append('confirm_word', 'IMPORT')`（确认词由 ConfirmModal 按钮禁用保证，后端二次校验兜底），删除 `importForm.confirmWord` 依赖；与 SetupView 硬编码模式统一。
+- **状态：** ☐ 待修复
+
+### R08-03 版本列表接口 file_name 恒空（低）
+
+- **现象：** 四类资源版本列表 `GET /api/admin/*/:id/versions` 返回的 `file_name` 恒为 `""`，即使上传文件（如 `my-sub.yaml`）或文本模式（应补默认名）。
+- **根因：** `version.go ListVersions` SQL 仅 SELECT `version_no, file_path, created_at, updated_at`，未包含 `file_name` 列（`readCurrentWithName` 下载链路已正确读取，下载文件名不受影响）。
+- **影响范围：** API 契约字段缺失（前端版本列表不展示文件名，当前无实际影响）；与 R03-03「记录原始文件名」的设计意图（列表可展示）不一致。
+- **修复方案：** `ListVersions` SELECT 补 `file_name` 列并 Scan 到 `v.FileName`。
+- **状态：** ☐ 待修复
+
+### R08-04 unassigned 状态仍生成下载 Token（设计文字冲突，低）
+
+- **现象：** 普通用户首页 `GET /api/home/platforms` 对 `status=unassigned`（组未选定）的平台仍返回非空 `download_token` 与 `download_url`；Design1 §2.2 要求「不生成 Token，不兜底不回退，三按钮隐藏（无 Token 可操作）」。
+- **根因：** `server/home.go` L142 注释「仍返无标识 Token（下载时返回 unassigned 注释块）」为**有意实现**：Token 生成与分发解析解耦，下载时实时解析返回 `# error: unassigned`（HTTP 200 注释块），无越权。
+- **影响范围：** 仅多生成一条 Token 记录（DB 冗余）；前端已按 status 正确隐藏三按钮，行为安全。与设计文字描述存在出入。
+- **修复方案（取舍）：** ① 保持现状，同步修订 Design1 §2.2 表述（推荐——无标识 Token 下载语义统一为「解析失败返回 unassigned」更简洁）；② 按设计改不生成（需拆分 Token 生成与卡片渲染逻辑）。
+- **状态：** ☐ 待决策
+
+### R08-05 同机导出→导入（密钥相同）旧会话不失效（边界行为，低）
+
+- **现象：** 同一实例导出配置后立即导入（签名密钥相同），旧会话凭据仍有效（me 200）；跨实例导入（密钥不同）旧会话必然 401。Design1 §3.4.8 字面「导入后签名密钥替换 → 全部会话立即失效」。
+- **根因：** 导入=整体覆盖写入导出文件内容（含签名密钥）；同机往返密钥无变化，验签自然通过。
+- **影响范围：** 同机往返场景会话不失效无安全风险（导入操作本身由管理员执行）；跨实例迁移场景（设计主场景）会话失效机制验证通过（TestD2 跨实例导入 401）。
+- **修复方案（取舍）：** ① 保持现状并同步文档（推荐——密钥实际未变化时强制失效无意义）；② 导入时强制轮换签名密钥（破坏「导出=精确还原」语义）。
+- **状态：** ☐ 待决策
+
 ### R07-02 公告功能缺失：首页无公告展示与公开端点
 
 - **现象：** 面板配置可保存公告内容，但用户首页无公告栏卡片，后端也无公告公开端点（Design1 §5.2 要求「公告数据接口公开，未登录可获取」）。
@@ -257,3 +298,4 @@
 | v1.5 | 2026-08-09 | 追加 R06-01~08：审阅报告 8 项问题修复闭环（用户管理下拉不 可用/SSE 401/DB 损坏未进应急/站点名不生效/验证码未接入/上传缺 50MB 预校验/smoke 契约滞后/邮箱即时误报） |
 | v1.6 | 2026-08-09 | 追加 R07-01~08：端到端核查发现——R07-01 新用户未自动加入默认组（三路径 INSERT 缺 group_id）已修复闭环；R07-02~08 待修复（公告首页缺失/日志日期筛选时区错位/首页更新时间戳无时区/无版本订阅预览 500/Dev 导入 400 非 403/模拟 OIDC 表单缺 role-group 属性/登录页瞬态 401 存疑） |
 | v1.7 | 2026-08-09 | R07-02~08 全部修复闭环：公告公开端点 + 首页展示（TestPublicAnnouncement）、日志日期 UTC 转换（仅前端）、三处时间戳统一 RFC3339（home/share/rule + 前端 fmtTime）、无版本预览/下载 404 + version_missing 日志（TestPreviewNoVersion）、Dev 导入 403 哨兵映射（ErrModeRestricted）、模拟 OIDC 表单补 role/group、瞬态 401 根因确认（一键清空/Setup 导入未清失效凭据 → 三处清理）。验收：`go build/vet/test` 25 包全绿、`npm run build` + `vitest` 20/20、Dev 实例端到端冒烟全部符合预期 |
+| v1.8 | 2026-08-09 | 追加 R08-01~05：全量端到端复验（五阶段）发现——R08-01/02 面板一键清空与面板配置导入 UI 提交空确认词致 400（ConfirmModal 确认词不回传父组件，API 层正常；Setup 导入硬编码不受影响）、R08-03 版本列表 file_name 恒空、R08-04 unassigned 仍生成 Token（设计文字冲突，待决策）、R08-05 同机往返导入会话不失效（边界行为，待决策）。复验结论：AGENTS 强要求全部合规、Build3 六步验收标准复验通过、R07 系列回归通过（含新增模块 A~G 动态测试 178 项断言 + 应急/破坏性全链路） |
