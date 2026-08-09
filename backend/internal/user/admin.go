@@ -207,9 +207,14 @@ func (s *AdminService) Create(ctx context.Context, username, emailRaw, password 
 		if dup > 0 {
 			return ErrEmailConflict
 		}
+		// 新用户自动加入预置默认组（Design1 §2.2）
+		gid, err := defaultGroupIDTx(ctx, tx)
+		if err != nil {
+			return err
+		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO users (username, email, password_hash, role, user_source, status) VALUES (?,?,?,?,?,?)`,
-			username, email, hash, "user", "local", "active")
+			`INSERT INTO users (username, email, password_hash, role, user_source, status, group_id) VALUES (?,?,?,?,?,?,?)`,
+			username, email, hash, "user", "local", "active", gid)
 		if err != nil {
 			return ErrEmailConflict // 并发下 UNIQUE 约束失败同样按 409 处理
 		}

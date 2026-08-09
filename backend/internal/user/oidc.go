@@ -83,9 +83,14 @@ func (s *Service) CreateFromOidc(ctx context.Context, username, email, subject, 
 		if first {
 			role, status = "admin", "active" // 首管理员免审批，不受任何审批开关影响
 		}
+		// 新用户自动加入预置默认组（Design1 §2.2）
+		gid, err := defaultGroupIDTx(ctx, tx)
+		if err != nil {
+			return err
+		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO users (username, email, oidc_subject, role, user_source, status, oidc_claims) VALUES (?,?,?,?,?,?,?)`,
-			username, emailOrNil(email), subject, role, source, status, claimsOrNil(rawClaims, pending))
+			`INSERT INTO users (username, email, oidc_subject, role, user_source, status, oidc_claims, group_id) VALUES (?,?,?,?,?,?,?,?)`,
+			username, emailOrNil(email), subject, role, source, status, claimsOrNil(rawClaims, pending), gid)
 		if err != nil {
 			return fmt.Errorf("创建 OIDC 用户失败: %w", err)
 		}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/config"
@@ -37,6 +38,20 @@ func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service 
 // SetWelcomeSender 注入欢迎邮件发送函数（Build3 Step 2 SMTP 接通时调用）
 func (s *Service) SetWelcomeSender(fn func(ctx context.Context, to, source string) error) {
 	s.sendWelcome = fn
+}
+
+// defaultGroupIDTx 查询预置默认组 ID（Setup 事务内创建，理论恒存在）；
+// 查不到或 groups 表未建立（单测/极端场景）返回 nil → 用户 group_id 存 NULL（单组互斥语义下不越权）
+func defaultGroupIDTx(ctx context.Context, tx *sql.Tx) (any, error) {
+	var id int64
+	err := tx.QueryRowContext(ctx, `SELECT id FROM groups WHERE is_default = 1 LIMIT 1`).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table") {
+		return nil, nil
+	}
+	return nil, err
 }
 
 // sendWelcomeIf 新用户首次激活时发送欢迎邮件（Design1 §3.4.6）；失败不阻断主流程
@@ -103,9 +118,14 @@ func (s *Service) Register(ctx context.Context, username, emailRaw, password str
 		if first {
 			role, status = "admin", "active" // 首管理员免审批，不受任何审批开关影响
 		}
+		// 新用户自动加入预置默认组（Design1 §2.2：OIDC/自注册/管理员创建统一口径）
+		gid, err := defaultGroupIDTx(ctx, tx)
+		if err != nil {
+			return err
+		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO users (username, email, password_hash, role, user_source, status) VALUES (?,?,?,?,?,?)`,
-			username, email, hash, role, source, status)
+			`INSERT INTO users (username, email, password_hash, role, user_source, status, group_id) VALUES (?,?,?,?,?,?,?)`,
+			username, email, hash, role, source, status, gid)
 		if err != nil {
 			return ErrEmailConflict // 并发下 UNIQUE 约束失败同样按 409 处理
 		}

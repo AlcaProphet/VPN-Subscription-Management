@@ -49,6 +49,31 @@ func newTestUserService(t *testing.T) (*store.Store, *Service) {
 	return st, svc
 }
 
+// TestRegisterJoinsDefaultGroup 新用户（自注册/管理员创建/OIDC）自动加入预置默认组（Design1 §2.2）
+func TestRegisterJoinsDefaultGroup(t *testing.T) {
+	st, svc := newTestUserService(t)
+	ctx := context.Background()
+	// 模拟 Setup 预置：groups 表 + 默认组行
+	if _, err := st.DB().ExecContext(ctx, `CREATE TABLE IF NOT EXISTS groups (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE, name TEXT NOT NULL,
+		is_default INTEGER NOT NULL DEFAULT 0, needs_reselect INTEGER NOT NULL DEFAULT 0);
+		INSERT INTO groups (slug, name, is_default) VALUES ('group-default', '默认组', 1);`); err != nil {
+		t.Fatalf("预置默认组失败: %v", err)
+	}
+	// 自注册路径
+	u, err := svc.Register(ctx, "kyle", "kyle@example.com", "password123")
+	if err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	var gid any
+	if err := st.DB().QueryRowContext(ctx, `SELECT group_id FROM users WHERE id = ?`, u.ID).Scan(&gid); err != nil {
+		t.Fatalf("查询 group_id 失败: %v", err)
+	}
+	if gid == nil {
+		t.Errorf("新注册用户应自动加入默认组，实际 group_id=NULL")
+	}
+}
+
 // TestRegisterFirstAdmin 首个注册用户自动成为 admin 并置位初始化标记
 func TestRegisterFirstAdmin(t *testing.T) {
 	_, svc := newTestUserService(t)
