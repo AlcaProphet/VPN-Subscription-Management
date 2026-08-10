@@ -10,6 +10,7 @@ import { buildImportUrl } from '@/utils/importUrl'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import AppHeader from '@/components/AppHeader.vue'
+import MarkdownView from '@/components/MarkdownView.vue'
 import { me } from '@/api/auth'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import { Notify } from '@/components/Notify'
@@ -127,9 +128,9 @@ const custom = (card: PlatformCard) => card.status === 'custom'
       <div v-if="loading" class="text-center py-16 text-gray-400">加载中…</div>
 
       <template v-else>
-        <!-- 公告栏卡片（Design1 §3.3：有内容才显示；纯文本插值天然转义禁 HTML，§3.4.8） -->
-        <Card v-if="announcement" class="mb-4 shadow-sm">
-          <div class="text-sm whitespace-pre-wrap">{{ announcement }}</div>
+        <!-- 公告栏卡片（Design1 §3.3：有内容才显示；MarkdownView html:false 渲染 MD，原始 HTML 转义禁注入，R10-06） -->
+        <Card v-if="announcement" class="mb-4 shadow-sm dark:text-gray-100">
+          <MarkdownView :source="announcement" />
         </Card>
         <!-- 平台卡片网格：大屏 3 列 / 中屏 2 列 / 小屏 1 列 -->
         <div v-if="cards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

@@ -2,12 +2,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Form, Input, Button, Checkbox, Alert, Divider, Switch } from 'ant-design-vue'
+import { Form, Input, Button, Checkbox, Alert, Divider, Switch, Card } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { useTheme } from '@/theme'
 import { mockLogin } from '@/api/oidc'
+import { getPublicAnnouncement } from '@/api/settings'
 import CaptchaWidget from '@/components/CaptchaWidget.vue'
+import MarkdownView from '@/components/MarkdownView.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -72,21 +74,35 @@ async function onSubmit() {
     submitting.value = false
   }
 }
+// 登录页公告/页脚（R10-06）：公开端点获取，MD 渲染；有内容才显示
+const notice = reactive({ content: '', footer: '' })
+
 onMounted(async () => {
   // 公开请求失败不阻断页面渲染（R07-08 防 unhandled rejection 噪音）
   await system.fetchStatus(true).catch(() => {})
   void system.fetchSiteInfo(true).catch(() => {})
+  try {
+    const n = await getPublicAnnouncement()
+    notice.content = n.content ?? ''
+    notice.footer = n.footer ?? ''
+  } catch {
+    // 公告/页脚获取失败不阻断登录页
+  }
   if (auth.token) router.replace('/') // 已登录访问自动跳 /
 })
 </script>
 
 <template>
   <div class="w-full max-w-md">
+    <!-- 自定义公告：登录 card 上方，MD 渲染（R10-06；深色模式文字继承浅色） -->
+    <Card v-if="notice.content" class="mb-4 dark:text-gray-100">
+      <MarkdownView :source="notice.content" />
+    </Card>
     <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-8">
-      <!-- 顶部：站点 ICON + 站点名称（UI §2.2；未设置时回退默认标题） -->
-      <div class="flex items-center justify-center gap-2 mb-6">
-        <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="h-8 w-8 object-contain" />
-        <span class="text-lg font-semibold">{{ system.siteName }}</span>
+      <!-- 顶部：Logo 垂直布局（ICON 上、站点标题下，标题更大；R10-06） -->
+      <div class="flex flex-col items-center gap-3 mb-6">
+        <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="h-16 w-16 object-contain" />
+        <span class="text-2xl font-semibold">{{ system.siteName }}</span>
       </div>
       <h1 class="text-xl font-semibold mb-6">登录</h1>
       <!-- 本地登录区块：仅当 allow_local_login 开启时显示（Design1 §3.2） -->
@@ -144,6 +160,10 @@ onMounted(async () => {
         还没有账号？<RouterLink to="/register">立即注册</RouterLink>
       </div>
     </div>
+    <!-- 自定义页脚：登录 card 下方，MD 渲染（R10-06） -->
+    <Card v-if="notice.footer" class="mt-4 dark:text-gray-100">
+      <MarkdownView :source="notice.footer" />
+    </Card>
     <div class="text-right mt-3"><Switch :checked="dark" checked-children="🌙" un-checked-children="☀️" size="small" title="切换暗色/浅色模式" @change="toggle" /></div>
   </div>
 </template>

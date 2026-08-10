@@ -302,21 +302,29 @@ func (h *SettingsHandler) saveLogLevel(c *gin.Context) {
 	OK(c, nil)
 }
 
-// --- 系统公告分区 ---
+// --- 系统公告与页脚分区（R10-06）---
 
 func (h *SettingsHandler) getAnnouncement(c *gin.Context) {
-	OK(c, gin.H{"content": h.adminCfg.GetAnnouncement(c.Request.Context())})
+	OK(c, gin.H{
+		"content": h.adminCfg.GetAnnouncement(c.Request.Context()),
+		"footer":  h.adminCfg.GetFooter(c.Request.Context()),
+	})
 }
 
 func (h *SettingsHandler) saveAnnouncement(c *gin.Context) {
 	var req struct {
 		Content string `json:"content"`
+		Footer  string `json:"footer"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
 	if err := h.adminCfg.SaveAnnouncement(c.Request.Context(), req.Content); err != nil {
+		mapSettingsErr(c, err)
+		return
+	}
+	if err := h.adminCfg.SaveFooter(c.Request.Context(), req.Footer); err != nil {
 		mapSettingsErr(c, err)
 		return
 	}

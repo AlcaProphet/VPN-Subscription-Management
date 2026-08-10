@@ -7,6 +7,22 @@
 
 ## 一、进行中问题
 
+### R10-05 Favicon 未加载：dev server 不代理 /public + 默认 favicon.svg 缺失
+
+- **现象：** 首页 favicon 区域存在但图片未加载（自定义 ICON 与默认回退均如此）；浏览器标签页无站点图标。
+- **根因（双）：** ① **dev server**：`vite.config.js`（编译产物，vite 加载优先级高于 `.ts`）的 proxy 未配置 `/public`——该路径被 SPA fallback 吞掉返回 `index.html`（`text/html`），图片加载必然失败；生产 8080 的 `/public` 静态服务正常（GET 200 `image/png`，此前 curl -I 的 404 为 gin 对 HEAD 不匹配 GET 路由的正常行为，浏览器用 GET 不受影响）；② **默认 favicon 缺失**：`frontend/public/` 目录不存在，`index.html` 引用的 `/favicon.svg` 在构建产物中 404（此前验证 favicon 回退成功仅因 dev 下 store 状态更新，回退目标本身 404）。
+- **影响范围：** 浏览器 favicon 不可用（顶栏 ICON 与登录页 ICON 走 img 标签不受影响）；dev/prod 双环境。
+- **修复方案（已实施）：** ① `vite.config.ts` 与 `vite.config.js` 同步补 proxy `/public → 127.0.0.1:8080`（js 为实际生效配置，ts 保持一致防回归）；② 新建 `frontend/public/favicon.svg` 默认图标（主色圆角底 + 白色 V 形），Vite 构建自动拷入 dist。
+- **状态：** ✅ 已修复（2026-08-10；验收：dev `curl /public/site/icon.png?v=1` 200 `image/png`（原 text/html）；浏览器实测 favicon 加载成功 192×192；生产 GET 200；`docker compose build` 后 dist 含 favicon.svg、8080 访问 200；`npm run build` + `vitest` 20/20）
+
+### R10-03 OIDC 启用规则白名单预填空格：零值回显被 AntD Select 渲染为空 tag（UI 体验）
+
+- **现象：** 面板配置「OIDC 启用规则」的 Role/Group 声明路径与白名单共 4 个 Select 各预填一个空格（空 tag）；未配置过 OIDC 启用规则时必现。
+- **根因（三层）：** ① 后端 `GetOidcRules` 对未配置键返回零值（`claim_path=""`、`role_values/group_values` 为 nil → JSON null）；② 前端 `loadOidcRules` 用 `Object.assign` 将零值覆盖预设默认值（`realm_access.roles`/`groups`/`[]`）；③ AntD Select 把 `value=""` 当作有效选中值渲染空 tag（视觉空格）——与 R02-01「nil slice 序列化 null」同类模式。
+- **影响范围：** 仅视觉（未配置态显示空格 tag + 声明路径默认值丢失）；白名单为空时 `Empty()` 判定仍正确，无功能损害。
+- **修复方案（已实施，方案 A 前端归一化）：** `loadOidcRules` 改为逐字段归一化——`role_claim_path || 'realm_access.roles'`、`group_claim_path || 'groups'`、`role_values ?? []`、`group_values ?? []`；后端零改动。
+- **状态：** ✅ 已修复（2026-08-10；验收：`npm run build` + `vitest` 20/20；浏览器实测 4 个 Select 空 tag 全部消失、声明路径恢复默认值、白名单显示 placeholder）
+
 ### R10-01 用户组编辑弹窗组名空白且保存必败：getGroup 未解包嵌套响应（UI 不可用）
 
 - **现象：** 用户组管理点「编辑」→ 弹窗标题显示「编辑组：」（空白）+ 组名输入框空白（不回显组名）；输入框可输入文字，但点保存必然失败（400「参数错误」）。
@@ -410,3 +426,5 @@
 | v1.15 | 2026-08-09 | R09-13 用户名 dropdown 暗色模式可读性增强：overlay 加 shadow-lg + border（浅色 gray-200 / 暗色 gray-600 边框）。验收：生产构建实测暗色 1px gray-600 边框 + 多层阴影、浅色 gray-200 边框、vitest 20/20；备注 dev server 环境 popup 渲染异常（生产正常） |
 | v1.16 | 2026-08-09 | 代码质量核验清理：修复 HomeView 文件头过期注释（「替换 Build1 占位」）与 AdminLayout 菜单注释（「Build3 实现，本 Step 隐藏」——Build3 已验收，与实际不符）两处历史遗留注释；核验结论：全部改动无未使用 import、无中间方案残留、无魔法数、符合 AGENTS 规范。验收：`npm run build` + `vitest` 20/20 |
 | v1.17 | 2026-08-10 | 追加 R10-01：用户组编辑弹窗组名空白且保存必败（getGroup 未解包嵌套响应 {group,selections}，detail.name/id 为 undefined）。修复：api/group.ts getGroup 解包嵌套结构为扁平 GroupDetail（方案 A，前端最小改动，后端零改动）。验收：`npm run build` + `vitest` 20/20、browser-use 实测弹窗回显「默认组」+ 保存 200 |
+| v1.18 | 2026-08-10 | 追加 R10-03：OIDC 启用规则 4 个 Select 预填空格（未配置态零值回显被 AntD 渲染为空 tag）。修复：loadOidcRules 逐字段归一化（声明路径空→默认值、白名单 null→[]）。验收：`npm run build` + `vitest` 20/20、浏览器实测空 tag 消失 |
+| v1.19 | 2026-08-10 | 追加 R10-05：favicon 未加载（dev proxy 缺 /public + 默认 favicon.svg 缺失，双根因）。修复：vite.config.ts/js 同步补 /public 代理、新建 public/favicon.svg。验收：dev/prod 均 200 图片类型、浏览器实测 favicon 192×192 加载成功 |

@@ -36,7 +36,7 @@ const sections = [
   { key: 'mode', title: '运行模式信息' },
   { key: 'ratelimit', title: '速率限制' },
   { key: 'log-level', title: '日志级别' },
-  { key: 'announcement', title: '系统公告' },
+  { key: 'announcement', title: '公告与页脚' },
   { key: 'debug', title: '调试模式' },
   { key: 'import-export', title: '配置导入/导出' },
   { key: 'backup', title: '备份下载' },
@@ -125,7 +125,12 @@ async function loadOidcRules() {
   try {
     const res = await getOidcRules()
     oidcRules.approval_on = res.approval_on
-    Object.assign(oidcRules.whitelist, res.whitelist)
+    // 归一化零值（R10-03）：未配置时后端返回 claim_path=""、values=null；
+    // Object.assign 会覆盖预设默认值并让 AntD Select 把空字符串渲染为空 tag（视觉空格）
+    oidcRules.whitelist.role_claim_path = res.whitelist.role_claim_path || 'realm_access.roles'
+    oidcRules.whitelist.group_claim_path = res.whitelist.group_claim_path || 'groups'
+    oidcRules.whitelist.role_values = res.whitelist.role_values ?? []
+    oidcRules.whitelist.group_values = res.whitelist.group_values ?? []
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -175,7 +180,12 @@ const captchaPages = [
 ]
 async function loadCaptcha() {
   try {
-    Object.assign(captcha, await getCaptcha())
+    const res = await getCaptcha()
+    // 归一化零值（R10-04）：未配置时后端返回 provider=""，Object.assign 覆盖预设 'off' 导致 Radio 无勾选
+    captcha.provider = res.provider || 'off'
+    captcha.site_key = res.site_key
+    captcha.secret_key = res.secret_key
+    captcha.pages = res.pages ?? []
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -194,7 +204,7 @@ async function doSaveCaptcha() {
 }
 
 // --- SMTP ---
-const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', from: '', tls: true, scopes: [] })
+const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', from: '', tls: false, scopes: [] })
 const smtpSaving = ref(false)
 const smtpTesting = ref(false)
 const scopeOptions = [
@@ -322,12 +332,12 @@ async function doSaveLogLevel() {
   }
 }
 
-// --- 系统公告 ---
-const announcement = ref('')
+// --- 系统公告与页脚（R10-06）---
+const announcement = reactive({ content: '', footer: '' })
 const announcementSaving = ref(false)
 async function loadAnnouncement() {
   try {
-    announcement.value = (await getAnnouncement()).content
+    Object.assign(announcement, await getAnnouncement())
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -335,8 +345,8 @@ async function loadAnnouncement() {
 async function doSaveAnnouncement() {
   announcementSaving.value = true
   try {
-    await saveAnnouncement(announcement.value)
-    Notify.success('公告已保存')
+    await saveAnnouncement({ content: announcement.content, footer: announcement.footer })
+    Notify.success('公告与页脚已保存')
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -742,12 +752,20 @@ onMounted(() => {
           </div>
         </Card>
 
-        <!-- 系统公告 -->
-        <Card id="announcement" title="系统公告" size="small">
+        <!-- 公告与页脚（R10-06：登录页/首页展示，支持 Markdown） -->
+        <Card id="announcement" title="公告与页脚" size="small">
           <div class="space-y-3 max-w-xl">
-            <Alert type="warning" show-icon message="公告内容接口公开可见（未登录可获取），请勿写入内部信息" />
-            <Input.TextArea v-model:value="announcement" :rows="4" :maxlength="2000" show-count
-                            placeholder="首页展示的公告内容（纯文本，≤2000 字符）" />
+            <Alert type="warning" show-icon message="公告与页脚内容接口公开可见（未登录可获取），请勿写入内部信息" />
+            <div>
+              <div class="mb-1 text-sm">公告内容</div>
+              <Input.TextArea v-model:value="announcement.content" :rows="4" :maxlength="2000" show-count
+                              placeholder="登录页与首页展示的公告内容（支持 Markdown，≤2000 字符）" />
+            </div>
+            <div>
+              <div class="mb-1 text-sm">页脚内容</div>
+              <Input.TextArea v-model:value="announcement.footer" :rows="3" :maxlength="2000" show-count
+                              placeholder="登录页底部展示的页脚内容（支持 Markdown，≤2000 字符）" />
+            </div>
             <Button type="primary" :loading="announcementSaving" @click="doSaveAnnouncement">保存</Button>
           </div>
         </Card>

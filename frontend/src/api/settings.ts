@@ -78,15 +78,15 @@ export const getRateLimit = () =>
 export const saveRateLimit = (data: RateLimitSettings) => http.put('/admin/settings/ratelimit', data)
 export const getLogLevel = () => http.get<any, { level: string }>('/admin/settings/log-level')
 export const saveLogLevel = (level: string) => http.put('/admin/settings/log-level', { level })
-export const getAnnouncement = () => http.get<any, { content: string }>('/admin/settings/announcement')
-export const saveAnnouncement = (content: string) => http.put('/admin/settings/announcement', { content })
+export const getAnnouncement = () => http.get<any, { content: string; footer: string }>('/admin/settings/announcement')
+export const saveAnnouncement = (data: { content: string; footer: string }) => http.put('/admin/settings/announcement', data)
 export const getDebug = () => http.get<any, { on: boolean }>('/admin/settings/debug')
 export const saveDebug = (on: boolean) => http.put('/admin/settings/debug', { on })
 // 站点信息公开端点（无需鉴权，独立 axios 实例）
 export const siteInfoPublic = () => axios.get<any, { data: { code: number; data: SiteInfo } }>('/api/site/info').then((r) => r.data.data)
-// 公告公开端点（无需鉴权，未登录可获取——Design1 §3.3/§5.2；仅登录后首页展示由 HomeView 控制，R07-02）
+// 公告/页脚公开端点（无需鉴权，未登录可获取——Design1 §3.3/§5.2；R07-02/R10-06）
 export const getPublicAnnouncement = () =>
-  axios.get<any, { data: { code: number; data: { content: string } } }>('/api/public/announcement').then((r) => r.data.data)
+  axios.get<any, { data: { code: number; data: { content: string; footer: string } } }>('/api/public/announcement').then((r) => r.data.data)
 
 // --- 运维端点（Build3 Step 4：配置导入导出/备份下载/一键清空） ---
 export const exportConfig = (password: string) =>

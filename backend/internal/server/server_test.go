@@ -86,7 +86,7 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-// TestPublicAnnouncement 公告公开端点：无需鉴权返回公告内容；未配置返回空串（R07-02）
+// TestPublicAnnouncement 公告/页脚公开端点：无需鉴权返回内容；未配置返回空串（R07-02/R10-06）
 func TestPublicAnnouncement(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
@@ -99,24 +99,30 @@ func TestPublicAnnouncement(t *testing.T) {
 		Code int `json:"code"`
 		Data struct {
 			Content string `json:"content"`
+			Footer  string `json:"footer"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("解析响应失败: %v", err)
 	}
-	if resp.Code != 0 || resp.Data.Content != "" {
-		t.Errorf("未配置公告应返回空串: %+v", resp)
+	if resp.Code != 0 || resp.Data.Content != "" || resp.Data.Footer != "" {
+		t.Errorf("未配置应返回空串: %+v", resp)
 	}
-	// 配置公告后原样返回（含 HTML 原样透传，前端插值转义禁 HTML，§3.4.8）
+	// 配置公告与页脚后原样返回（含 HTML 原样透传，前端 markdown-it html:false 转义禁原始 HTML，§3.4.8）
 	if _, err := srv.store.DB().ExecContext(ctx,
 		`INSERT INTO system_config (key, value) VALUES ('announcement', '维护通知 <script>alert(1)</script>')`); err != nil {
 		t.Fatalf("写入公告失败: %v", err)
+	}
+	if _, err := srv.store.DB().ExecContext(ctx,
+		`INSERT INTO system_config (key, value) VALUES ('footer_content', '**页脚** md')`); err != nil {
+		t.Fatalf("写入页脚失败: %v", err)
 	}
 	w2 := doReq(t, srv, http.MethodGet, "/api/public/announcement")
 	var resp2 struct {
 		Code int `json:"code"`
 		Data struct {
 			Content string `json:"content"`
+			Footer  string `json:"footer"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w2.Body.Bytes(), &resp2); err != nil {
@@ -124,6 +130,9 @@ func TestPublicAnnouncement(t *testing.T) {
 	}
 	if resp2.Data.Content != "维护通知 <script>alert(1)</script>" {
 		t.Errorf("公告内容异常: %q", resp2.Data.Content)
+	}
+	if resp2.Data.Footer != "**页脚** md" {
+		t.Errorf("页脚内容异常: %q", resp2.Data.Footer)
 	}
 }
 

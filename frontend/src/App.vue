@@ -21,6 +21,16 @@ onMounted(() => {
 watch(() => system.siteName, (v) => {
   document.title = v
 }, { immediate: true })
+// 站点 ICON → favicon（R10-04）：未设置回退默认 /favicon.svg；带版本参数防浏览器缓存旧图
+watch(() => system.siteIconUrl, (v) => {
+  let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+  if (!link) {
+    link = document.createElement('link')
+    link.rel = 'icon'
+    document.head.appendChild(link)
+  }
+  link.href = v || '/favicon.svg'
+}, { immediate: true })
 </script>
 
 <template>

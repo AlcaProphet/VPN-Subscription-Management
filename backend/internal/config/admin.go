@@ -346,7 +346,7 @@ func (s *AdminService) GetSMTP(ctx context.Context) SMTPSettings {
 		User:     mustStr(s.cfg.Get(ctx, "smtp_user")),
 		Password: s.getMasked(ctx, "smtp_password"),
 		From:     mustStr(s.cfg.Get(ctx, "smtp_from")),
-		TLS:      s.cfg.GetBool(ctx, "smtp_tls", true),
+		TLS:      s.cfg.GetBool(ctx, "smtp_tls", false), // 默认关闭（R10-04）
 		Scopes:   s.cfg.GetJSONStringSlice(ctx, "smtp_enabled_scopes"),
 	}
 }
@@ -521,20 +521,36 @@ func (s *AdminService) SetLogLevel(ctx context.Context, level string) error {
 	return nil
 }
 
-// --- 系统公告分区 ---
+// --- 系统公告与页脚分区（R10-06：登录页/首页展示；前端 markdown-it html:false 渲染 MD，禁原始 HTML 防存储型 XSS）---
 
-const MaxAnnouncementLen = 2000
+const (
+	MaxAnnouncementLen = 2000
+	MaxFooterLen       = 2000
+)
 
 func (s *AdminService) GetAnnouncement(ctx context.Context) string {
 	return mustStr(s.cfg.Get(ctx, "announcement"))
 }
 
-// SaveAnnouncement 纯文本 ≤2000 字符（前端转义禁 HTML——Vue 默认转义，禁 v-html）
+// SaveAnnouncement 纯文本/MD 源 ≤2000 字符（前端 markdown-it html:false 渲染，原始 HTML 按文本转义）
 func (s *AdminService) SaveAnnouncement(ctx context.Context, content string) error {
 	if utf8.RuneCountInString(content) > MaxAnnouncementLen {
 		return fmt.Errorf("%w: 公告不超过 2000 字符", ErrBadRequest)
 	}
 	return s.cfg.Set(ctx, "announcement", content)
+}
+
+// GetFooter 页脚内容（登录页展示，R10-06）
+func (s *AdminService) GetFooter(ctx context.Context) string {
+	return mustStr(s.cfg.Get(ctx, "footer_content"))
+}
+
+// SaveFooter 页脚 ≤2000 字符（同公告：MD 渲染，禁原始 HTML）
+func (s *AdminService) SaveFooter(ctx context.Context, content string) error {
+	if utf8.RuneCountInString(content) > MaxFooterLen {
+		return fmt.Errorf("%w: 页脚不超过 2000 字符", ErrBadRequest)
+	}
+	return s.cfg.Set(ctx, "footer_content", content)
 }
 
 // --- 调试模式分区 ---

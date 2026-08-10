@@ -9,6 +9,8 @@ export default defineConfig({
     proxy: {
       '/api': 'http://127.0.0.1:8080',
       '/health': 'http://127.0.0.1:8080',
+      // 站点 ICON/安装包等可缓存资源（R10-04）：不代理会被 SPA fallback 吞掉返回 HTML 导致图片加载失败
+      '/public': 'http://127.0.0.1:8080',
     },
   },
   build: {
