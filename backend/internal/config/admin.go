@@ -521,36 +521,50 @@ func (s *AdminService) SetLogLevel(ctx context.Context, level string) error {
 	return nil
 }
 
-// --- 系统公告与页脚分区（R10-06：登录页/首页展示；前端 markdown-it html:false 渲染 MD，禁原始 HTML 防存储型 XSS）---
+// --- 公告与页脚分区（R10-07：首页公告 / 登录页公告 / 登录页页脚三份独立配置；前端 markdown-it html:false 渲染 MD，禁原始 HTML 防存储型 XSS）---
 
 const (
 	MaxAnnouncementLen = 2000
 	MaxFooterLen       = 2000
 )
 
+// GetAnnouncement 首页公告（键 announcement，R10-07 前为登录页+首页共用，拆分后语义为首页）
 func (s *AdminService) GetAnnouncement(ctx context.Context) string {
 	return mustStr(s.cfg.Get(ctx, "announcement"))
 }
 
-// SaveAnnouncement 纯文本/MD 源 ≤2000 字符（前端 markdown-it html:false 渲染，原始 HTML 按文本转义）
+// SaveAnnouncement 首页公告（MD 源 ≤2000 字符；前端 markdown-it html:false 渲染，原始 HTML 按文本转义）
 func (s *AdminService) SaveAnnouncement(ctx context.Context, content string) error {
 	if utf8.RuneCountInString(content) > MaxAnnouncementLen {
-		return fmt.Errorf("%w: 公告不超过 2000 字符", ErrBadRequest)
+		return fmt.Errorf("%w: 首页公告不超过 2000 字符", ErrBadRequest)
 	}
 	return s.cfg.Set(ctx, "announcement", content)
 }
 
-// GetFooter 页脚内容（登录页展示，R10-06）
-func (s *AdminService) GetFooter(ctx context.Context) string {
-	return mustStr(s.cfg.Get(ctx, "footer_content"))
+// GetLoginAnnouncement 登录页公告（R10-07 新增独立配置）
+func (s *AdminService) GetLoginAnnouncement(ctx context.Context) string {
+	return mustStr(s.cfg.Get(ctx, "login_announcement"))
 }
 
-// SaveFooter 页脚 ≤2000 字符（同公告：MD 渲染，禁原始 HTML）
-func (s *AdminService) SaveFooter(ctx context.Context, content string) error {
-	if utf8.RuneCountInString(content) > MaxFooterLen {
-		return fmt.Errorf("%w: 页脚不超过 2000 字符", ErrBadRequest)
+// SaveLoginAnnouncement 登录页公告 ≤2000 字符（同首页公告：MD 渲染，禁原始 HTML）
+func (s *AdminService) SaveLoginAnnouncement(ctx context.Context, content string) error {
+	if utf8.RuneCountInString(content) > MaxAnnouncementLen {
+		return fmt.Errorf("%w: 登录页公告不超过 2000 字符", ErrBadRequest)
 	}
-	return s.cfg.Set(ctx, "footer_content", content)
+	return s.cfg.Set(ctx, "login_announcement", content)
+}
+
+// GetLoginFooter 登录页页脚（R10-07）
+func (s *AdminService) GetLoginFooter(ctx context.Context) string {
+	return mustStr(s.cfg.Get(ctx, "login_footer"))
+}
+
+// SaveLoginFooter 登录页页脚 ≤2000 字符（同公告：MD 渲染，禁原始 HTML）
+func (s *AdminService) SaveLoginFooter(ctx context.Context, content string) error {
+	if utf8.RuneCountInString(content) > MaxFooterLen {
+		return fmt.Errorf("%w: 登录页页脚不超过 2000 字符", ErrBadRequest)
+	}
+	return s.cfg.Set(ctx, "login_footer", content)
 }
 
 // --- 调试模式分区 ---

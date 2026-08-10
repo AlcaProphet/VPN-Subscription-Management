@@ -30,9 +30,9 @@ onMounted(async () => {
     const [c, u] = await Promise.all([homePlatforms(), homeUpdatedAt()])
     cards.value = c
     updatedAt.value = u?.updated_at ?? null
-    // 公告公开端点独立获取：失败不阻塞平台卡片渲染（Design1 §3.3 有内容才显示）
+    // 首页公告公开端点独立获取（R10-07：与登录页公告/页脚独立配置）：失败不阻塞平台卡片渲染（Design1 §3.3 有内容才显示）
     try {
-      announcement.value = (await getPublicAnnouncement())?.content ?? ''
+      announcement.value = (await getPublicAnnouncement())?.home_announcement ?? ''
     } catch {
       announcement.value = ''
     }

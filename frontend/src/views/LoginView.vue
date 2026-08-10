@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Form, Input, Button, Checkbox, Alert, Divider, Switch, Card } from 'ant-design-vue'
+import { Form, Input, Button, Checkbox, Alert, Divider, Switch } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { useTheme } from '@/theme'
@@ -74,8 +74,8 @@ async function onSubmit() {
     submitting.value = false
   }
 }
-// 登录页公告/页脚（R10-06）：公开端点获取，MD 渲染；有内容才显示
-const notice = reactive({ content: '', footer: '' })
+// 登录页公告/页脚（R10-07：登录页公告 + 登录页页脚独立配置，公开端点获取，MD 渲染；有内容才显示）
+const notice = reactive({ login_announcement: '', login_footer: '' })
 
 onMounted(async () => {
   // 公开请求失败不阻断页面渲染（R07-08 防 unhandled rejection 噪音）
@@ -83,8 +83,8 @@ onMounted(async () => {
   void system.fetchSiteInfo(true).catch(() => {})
   try {
     const n = await getPublicAnnouncement()
-    notice.content = n.content ?? ''
-    notice.footer = n.footer ?? ''
+    notice.login_announcement = n.login_announcement ?? ''
+    notice.login_footer = n.login_footer ?? ''
   } catch {
     // 公告/页脚获取失败不阻断登录页
   }
@@ -94,10 +94,11 @@ onMounted(async () => {
 
 <template>
   <div class="w-full max-w-md">
-    <!-- 自定义公告：登录 card 上方，MD 渲染（R10-06；深色模式文字继承浅色） -->
-    <Card v-if="notice.content" class="mb-4 dark:text-gray-100">
-      <MarkdownView :source="notice.content" />
-    </Card>
+    <!-- 自定义登录页公告：登录 card 上方，MD 渲染；容器与登录 card 同款样式（R10-07 边框阴影统一） -->
+    <div v-if="notice.login_announcement"
+         class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-4 mb-4">
+      <MarkdownView :source="notice.login_announcement" />
+    </div>
     <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-8">
       <!-- 顶部：Logo 垂直布局（ICON 上、站点标题下，标题更大；R10-06） -->
       <div class="flex flex-col items-center gap-3 mb-6">
@@ -160,10 +161,11 @@ onMounted(async () => {
         还没有账号？<RouterLink to="/register">立即注册</RouterLink>
       </div>
     </div>
-    <!-- 自定义页脚：登录 card 下方，MD 渲染（R10-06） -->
-    <Card v-if="notice.footer" class="mt-4 dark:text-gray-100">
-      <MarkdownView :source="notice.footer" />
-    </Card>
+    <!-- 自定义登录页页脚：登录 card 下方，MD 渲染；容器与登录 card 同款样式（R10-07 边框阴影统一） -->
+    <div v-if="notice.login_footer"
+         class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-4 mt-4">
+      <MarkdownView :source="notice.login_footer" />
+    </div>
     <div class="text-right mt-3"><Switch :checked="dark" checked-children="🌙" un-checked-children="☀️" size="small" title="切换暗色/浅色模式" @change="toggle" /></div>
   </div>
 </template>

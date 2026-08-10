@@ -302,29 +302,35 @@ func (h *SettingsHandler) saveLogLevel(c *gin.Context) {
 	OK(c, nil)
 }
 
-// --- 系统公告与页脚分区（R10-06）---
+// --- 公告与页脚分区（R10-07：首页公告 / 登录页公告 / 登录页页脚三份独立配置）---
 
 func (h *SettingsHandler) getAnnouncement(c *gin.Context) {
 	OK(c, gin.H{
-		"content": h.adminCfg.GetAnnouncement(c.Request.Context()),
-		"footer":  h.adminCfg.GetFooter(c.Request.Context()),
+		"home_announcement": h.adminCfg.GetAnnouncement(c.Request.Context()),
+		"login_announcement": h.adminCfg.GetLoginAnnouncement(c.Request.Context()),
+		"login_footer":       h.adminCfg.GetLoginFooter(c.Request.Context()),
 	})
 }
 
 func (h *SettingsHandler) saveAnnouncement(c *gin.Context) {
 	var req struct {
-		Content string `json:"content"`
-		Footer  string `json:"footer"`
+		HomeAnnouncement  string `json:"home_announcement"`
+		LoginAnnouncement string `json:"login_announcement"`
+		LoginFooter       string `json:"login_footer"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	if err := h.adminCfg.SaveAnnouncement(c.Request.Context(), req.Content); err != nil {
+	if err := h.adminCfg.SaveAnnouncement(c.Request.Context(), req.HomeAnnouncement); err != nil {
 		mapSettingsErr(c, err)
 		return
 	}
-	if err := h.adminCfg.SaveFooter(c.Request.Context(), req.Footer); err != nil {
+	if err := h.adminCfg.SaveLoginAnnouncement(c.Request.Context(), req.LoginAnnouncement); err != nil {
+		mapSettingsErr(c, err)
+		return
+	}
+	if err := h.adminCfg.SaveLoginFooter(c.Request.Context(), req.LoginFooter); err != nil {
 		mapSettingsErr(c, err)
 		return
 	}

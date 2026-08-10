@@ -12,7 +12,7 @@ import {
   getRateLimit, saveRateLimit, getLogLevel, saveLogLevel, getAnnouncement, saveAnnouncement,
   getDebug, saveDebug, exportConfig, importConfig, clearAll, downloadBackup,
   type OidcSettings, type WhitelistConfig, type LocalAuthSettings,
-  type CaptchaSettings, type SMTPSettings, type RateLimitSettings, type SiteInfo,
+  type CaptchaSettings, type SMTPSettings, type RateLimitSettings, type SiteInfo, type NoticeSettings,
 } from '@/api/settings'
 import { useSystemStore } from '@/stores/system'
 import { useAuthStore } from '@/stores/auth'
@@ -48,6 +48,7 @@ const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', re
 const oidcSaving = ref(false)
 const oidcTest = ref<{ ok: boolean; message: string } | null>(null)
 const providerOptions = [
+  { label: '暂未启用（本地账号模式）', value: 'off' }, // R10-08：off 为前端显示值，映射 provider_type 空串（未配置）
   { label: 'Keycloak', value: 'keycloak' },
   { label: 'Auth0', value: 'auth0' },
   { label: 'Generic OIDC', value: 'generic' },
@@ -70,18 +71,23 @@ function applyProvider(v: string) {
   oidc.provider_type = v
   if (v !== 'keycloak') oidc.realm = ''
 }
+// onProviderChange：'off'（暂未启用）映射为空串；首次配置直接生效，启用态之间切换需确认（含切到暂未启用——R10-08）
 function onProviderChange(v: any) {
-  if (v && v !== oidc.provider_type && oidc.provider_type) {
-    Modal.confirm({
-      title: '切换提供商类型',
-      content: '已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后通用字段（地址/Client ID/Secret）保留；Realm 为 Keycloak 专用，切换后自动清空。',
-      okText: '继续切换',
-      cancelText: '取消',
-      onOk: () => { if (v) applyProvider(v) },
-    })
-  } else if (v) {
-    applyProvider(v)
+  const target = v === 'off' ? '' : v
+  if (target === oidc.provider_type) return
+  if (oidc.provider_type === '') {
+    applyProvider(target) // 首次配置：直接生效
+    return
   }
+  Modal.confirm({
+    title: '切换提供商类型',
+    content: target === ''
+      ? '切换为暂未启用将停用 OIDC 登录，已绑定 OIDC 身份的账号将无法通过 OIDC 登录（本地密码登录不受影响）。确定？'
+      : '已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后通用字段（地址/Client ID/Secret）保留；Realm 为 Keycloak 专用，切换后自动清空。',
+    okText: '继续切换',
+    cancelText: '取消',
+    onOk: () => applyProvider(target),
+  })
 }
 async function doSaveOidc() {
   oidcSaving.value = true
@@ -332,8 +338,8 @@ async function doSaveLogLevel() {
   }
 }
 
-// --- 系统公告与页脚（R10-06）---
-const announcement = reactive({ content: '', footer: '' })
+// --- 公告与页脚（R10-07：首页公告 / 登录页公告 / 登录页页脚三份独立配置）---
+const announcement = reactive<NoticeSettings>({ home_announcement: '', login_announcement: '', login_footer: '' })
 const announcementSaving = ref(false)
 async function loadAnnouncement() {
   try {
@@ -345,7 +351,7 @@ async function loadAnnouncement() {
 async function doSaveAnnouncement() {
   announcementSaving.value = true
   try {
-    await saveAnnouncement({ content: announcement.content, footer: announcement.footer })
+    await saveAnnouncement({ ...announcement })
     Notify.success('公告与页脚已保存')
   } catch (err) {
     Notify.error((err as Error).message)
@@ -529,43 +535,47 @@ onMounted(() => {
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">提供商类型</span>
-              <Select class="flex-1" :value="oidc.provider_type" :options="providerOptions" @change="onProviderChange" />
+              <Select class="flex-1" :value="oidc.provider_type || 'off'" :options="providerOptions" @change="onProviderChange" />
             </div>
-            <template v-if="!isMockProvider">
+            <!-- 未配置（暂未启用）：折叠全部配置框（R10-08） -->
+            <template v-if="oidc.provider_type">
+              <template v-if="!isMockProvider">
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm">{{ urlLabel }}</span>
+                  <Input v-model:value="oidc.base_url" :placeholder="urlPlaceholder" />
+                </div>
+                <div v-if="showRealm" class="flex items-center gap-3">
+                  <span class="w-24 text-sm">Realm</span>
+                  <Input v-model:value="oidc.realm" placeholder="Keycloak 专用，如 master" />
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm">Client ID</span>
+                  <Input v-model:value="oidc.client_id" placeholder="客户端标识" />
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm">Client Secret</span>
+                  <Input.Password v-model:value="oidc.client_secret" placeholder="已配置时留空不修改" />
+                </div>
+              </template>
+              <Alert v-else type="info" show-icon message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
+              <Alert type="info" show-icon message="接入提示" description="OIDC 回调要求公网可达的 HTTPS 域名，局域网直连模式可能无法完成回调" />
               <div class="flex items-center gap-3">
-                <span class="w-24 text-sm">{{ urlLabel }}</span>
-                <Input v-model:value="oidc.base_url" :placeholder="urlPlaceholder" />
-              </div>
-              <div v-if="showRealm" class="flex items-center gap-3">
-                <span class="w-24 text-sm">Realm</span>
-                <Input v-model:value="oidc.realm" placeholder="Keycloak 专用，如 master" />
+                <span class="w-24 text-sm">前端地址</span>
+                <Input v-model:value="oidc.frontend_url" placeholder="https://app.example.com" />
               </div>
               <div class="flex items-center gap-3">
-                <span class="w-24 text-sm">Client ID</span>
-                <Input v-model:value="oidc.client_id" placeholder="客户端标识" />
+                <span class="w-24 text-sm">回调地址</span>
+                <Input v-model:value="oidc.callback_url" placeholder="https://app.example.com/api/auth/oidc/callback" />
               </div>
-              <div class="flex items-center gap-3">
-                <span class="w-24 text-sm">Client Secret</span>
-                <Input.Password v-model:value="oidc.client_secret" placeholder="已配置时留空不修改" />
-              </div>
+              <Alert v-if="oidc.frontend_url || oidc.callback_url" type="warning" show-icon message="前端地址/回调地址修改后需重启容器生效" />
+              <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" />
+              <Space>
+                <Button type="primary" :loading="oidcSaving" @click="doSaveOidc">保存</Button>
+                <Button @click="doTestOidc">测试连接</Button>
+                <Button danger @click="clearOidcOpen = true">清空 OIDC 配置</Button>
+              </Space>
             </template>
-            <Alert v-else type="info" show-icon message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
-            <Alert type="info" show-icon message="接入提示" description="OIDC 回调要求公网可达的 HTTPS 域名，局域网直连模式可能无法完成回调" />
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">前端地址</span>
-              <Input v-model:value="oidc.frontend_url" placeholder="https://app.example.com" />
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">回调地址</span>
-              <Input v-model:value="oidc.callback_url" placeholder="https://app.example.com/api/auth/oidc/callback" />
-            </div>
-            <Alert v-if="oidc.frontend_url || oidc.callback_url" type="warning" show-icon message="前端地址/回调地址修改后需重启容器生效" />
-            <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" />
-            <Space>
-              <Button type="primary" :loading="oidcSaving" @click="doSaveOidc">保存</Button>
-              <Button @click="doTestOidc">测试连接</Button>
-              <Button danger @click="clearOidcOpen = true">清空 OIDC 配置</Button>
-            </Space>
+            <Alert v-else type="info" show-icon message="暂未启用 OIDC：保持本地账号模式，或选择上方提供商开始配置" />
           </div>
         </Card>
 
@@ -752,19 +762,24 @@ onMounted(() => {
           </div>
         </Card>
 
-        <!-- 公告与页脚（R10-06：登录页/首页展示，支持 Markdown） -->
+        <!-- 公告与页脚（R10-07：三份独立配置，支持 Markdown） -->
         <Card id="announcement" title="公告与页脚" size="small">
           <div class="space-y-3 max-w-xl">
             <Alert type="warning" show-icon message="公告与页脚内容接口公开可见（未登录可获取），请勿写入内部信息" />
             <div>
-              <div class="mb-1 text-sm">公告内容</div>
-              <Input.TextArea v-model:value="announcement.content" :rows="4" :maxlength="2000" show-count
-                              placeholder="登录页与首页展示的公告内容（支持 Markdown，≤2000 字符）" />
+              <div class="mb-1 text-sm">首页公告</div>
+              <Input.TextArea v-model:value="announcement.home_announcement" :rows="3" :maxlength="2000" show-count
+                              placeholder="登录后首页顶部展示（支持 Markdown，≤2000 字符）" />
             </div>
             <div>
-              <div class="mb-1 text-sm">页脚内容</div>
-              <Input.TextArea v-model:value="announcement.footer" :rows="3" :maxlength="2000" show-count
-                              placeholder="登录页底部展示的页脚内容（支持 Markdown，≤2000 字符）" />
+              <div class="mb-1 text-sm">登录页公告</div>
+              <Input.TextArea v-model:value="announcement.login_announcement" :rows="3" :maxlength="2000" show-count
+                              placeholder="登录卡片上方展示（支持 Markdown，≤2000 字符）" />
+            </div>
+            <div>
+              <div class="mb-1 text-sm">登录页页脚</div>
+              <Input.TextArea v-model:value="announcement.login_footer" :rows="3" :maxlength="2000" show-count
+                              placeholder="登录卡片下方展示（支持 Markdown，≤2000 字符）" />
             </div>
             <Button type="primary" :loading="announcementSaving" @click="doSaveAnnouncement">保存</Button>
           </div>
