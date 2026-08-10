@@ -110,6 +110,15 @@ const providerOptions = computed(() => {
 // 模拟提供商无需参数；真实提供商按类型动态提示字段
 const isMock = computed(() => providerType.value === 'mock')
 const origin = window.location.origin // 高级折叠面板展示前端/回调地址推导值
+// OIDC 字段随提供商动态显隐（R10-02）：Auth0 用 Domain 标识；Realm 仅 Keycloak 适用
+const urlLabel = computed(() => (providerType.value === 'auth0' ? 'Domain' : 'Base URL'))
+const urlPlaceholder = computed(() => (providerType.value === 'auth0' ? 'your-tenant.auth0.com' : 'https://auth.example.com'))
+// 切换提供商：清空不适用字段（realm 残留会导致 Auth0/通用发现文档 URL 拼接错误）
+function onProviderChange(e: { target: { value?: unknown } }) {
+  const v = String(e.target.value ?? '')
+  providerType.value = v
+  if (v !== 'keycloak') oidcForm.realm = ''
+}
 
 async function runTest() {
   testing.value = true
@@ -211,12 +220,12 @@ async function completeOidc() {
         <Card v-if="advancedOpen" class="mb-4">
           <div class="mb-4">
             <div class="font-medium mb-2">提供商</div>
-            <Radio.Group v-model:value="providerType" :options="providerOptions" option-type="button" />
+            <Radio.Group v-model:value="providerType" :options="providerOptions" option-type="button" @change="onProviderChange" />
           </div>
           <template v-if="!isMock">
             <Form layout="vertical" class="mt-4">
-              <Form.Item label="Base URL">
-                <Input v-model:value="oidcForm.base_url" placeholder="https://auth.example.com" />
+              <Form.Item :label="urlLabel">
+                <Input v-model:value="oidcForm.base_url" :placeholder="urlPlaceholder" />
               </Form.Item>
               <Form.Item v-if="providerType === 'keycloak'" label="Realm">
                 <Input v-model:value="oidcForm.realm" placeholder="master" />

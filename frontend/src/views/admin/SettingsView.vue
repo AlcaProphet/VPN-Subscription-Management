@@ -1,6 +1,6 @@
 <!-- SettingsView.vue：面板配置（UI §5.8，Design1 §3.4.8）——左侧锚点 + 右侧分区卡片；<768 锚点转顶部 Select -->
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import {
@@ -60,17 +60,27 @@ async function loadOidc() {
     Notify.error((err as Error).message)
   }
 }
+// OIDC 字段随提供商动态显隐（R10-02）：Auth0 用 Domain 标识；Realm 仅 Keycloak 适用；Mock 无参数
+const isMockProvider = computed(() => oidc.provider_type === 'mock')
+const urlLabel = computed(() => (oidc.provider_type === 'auth0' ? 'Domain' : 'Base URL'))
+const urlPlaceholder = computed(() => (oidc.provider_type === 'auth0' ? 'your-tenant.auth0.com' : 'https://idp.example.com'))
+const showRealm = computed(() => oidc.provider_type === 'keycloak')
+// 切换提供商：写入类型并清空不适用字段（realm 仅 Keycloak 适用；残留会导致 Auth0/通用发现文档 URL 拼接错误）
+function applyProvider(v: string) {
+  oidc.provider_type = v
+  if (v !== 'keycloak') oidc.realm = ''
+}
 function onProviderChange(v: any) {
   if (v && v !== oidc.provider_type && oidc.provider_type) {
     Modal.confirm({
       title: '切换提供商类型',
-      content: '已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后已填字段保留。',
+      content: '已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后通用字段（地址/Client ID/Secret）保留；Realm 为 Keycloak 专用，切换后自动清空。',
       okText: '继续切换',
       cancelText: '取消',
-      onOk: () => { if (v) oidc.provider_type = v },
+      onOk: () => { if (v) applyProvider(v) },
     })
   } else if (v) {
-    oidc.provider_type = v
+    applyProvider(v)
   }
 }
 async function doSaveOidc() {
@@ -511,22 +521,25 @@ onMounted(() => {
               <span class="w-24 text-sm">提供商类型</span>
               <Select class="flex-1" :value="oidc.provider_type" :options="providerOptions" @change="onProviderChange" />
             </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">Base URL</span>
-              <Input v-model:value="oidc.base_url" placeholder="https://idp.example.com" />
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">Realm</span>
-              <Input v-model:value="oidc.realm" placeholder="Keycloak 专用" />
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">Client ID</span>
-              <Input v-model:value="oidc.client_id" placeholder="客户端标识" />
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">Client Secret</span>
-              <Input.Password v-model:value="oidc.client_secret" placeholder="已配置时留空不修改" />
-            </div>
+            <template v-if="!isMockProvider">
+              <div class="flex items-center gap-3">
+                <span class="w-24 text-sm">{{ urlLabel }}</span>
+                <Input v-model:value="oidc.base_url" :placeholder="urlPlaceholder" />
+              </div>
+              <div v-if="showRealm" class="flex items-center gap-3">
+                <span class="w-24 text-sm">Realm</span>
+                <Input v-model:value="oidc.realm" placeholder="Keycloak 专用，如 master" />
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="w-24 text-sm">Client ID</span>
+                <Input v-model:value="oidc.client_id" placeholder="客户端标识" />
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="w-24 text-sm">Client Secret</span>
+                <Input.Password v-model:value="oidc.client_secret" placeholder="已配置时留空不修改" />
+              </div>
+            </template>
+            <Alert v-else type="info" show-icon message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
             <Alert type="info" show-icon message="接入提示" description="OIDC 回调要求公网可达的 HTTPS 域名，局域网直连模式可能无法完成回调" />
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">前端地址</span>
