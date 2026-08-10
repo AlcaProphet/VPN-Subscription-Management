@@ -7,6 +7,14 @@
 
 ## 一、进行中问题
 
+### R10-10 首页下载链接为相对路径：一键导入/复制链接缺前端域名前缀（功能缺陷）
+
+- **现象：** 首页平台卡片一键导入与复制链接生成的下载地址为相对路径 `/subscriptions/{平台}/download?token=...`——客户端一键导入唤起时 scheme 内嵌相对路径无法解析；复制的链接粘贴到客户端也缺域名。
+- **根因：** `server/home.go` 构造 `download_url` 直接拼相对路径（普通用户卡片 L150 与管理员池内订阅 L182 两处），未拼接系统推导的前端地址（`frontend_url` 配置键，Setup 时写入、Design1 §3.4.8）。
+- **影响范围：** 首页订阅下载链接（普通用户 + 管理员池预览）全部为相对路径；分享/规则链接前端已用 `location.origin` 拼接不受影响。
+- **修复方案（已实施）：** ① `HomeHandler` 注入 `cfg` 依赖；② 新增 `frontendBase(ctx)` helper（读 `frontend_url`，TrimSuffix "/"，为空保持相对路径——Setup 完成时必写，异常场景不触发）；③ 两处 DownloadURL 构造拼前缀；④ 前端 `api/home.ts` 类型注释同步。
+- **状态：** ✅ 已修复（2026-08-10；验收：`go build/vet/test` 全绿；容器部署后实测 `/api/home/platforms` 管理员池内订阅 `download_url` 为 `http://localhost:8080/subscriptions/.../download?token=...`（原相对路径）；普通用户分支共用同一 helper 逻辑一致）
+
 ### R10-05 Favicon 未加载：dev server 不代理 /public + 默认 favicon.svg 缺失
 
 - **现象：** 首页 favicon 区域存在但图片未加载（自定义 ICON 与默认回退均如此）；浏览器标签页无站点图标。
@@ -428,3 +436,4 @@
 | v1.17 | 2026-08-10 | 追加 R10-01：用户组编辑弹窗组名空白且保存必败（getGroup 未解包嵌套响应 {group,selections}，detail.name/id 为 undefined）。修复：api/group.ts getGroup 解包嵌套结构为扁平 GroupDetail（方案 A，前端最小改动，后端零改动）。验收：`npm run build` + `vitest` 20/20、browser-use 实测弹窗回显「默认组」+ 保存 200 |
 | v1.18 | 2026-08-10 | 追加 R10-03：OIDC 启用规则 4 个 Select 预填空格（未配置态零值回显被 AntD 渲染为空 tag）。修复：loadOidcRules 逐字段归一化（声明路径空→默认值、白名单 null→[]）。验收：`npm run build` + `vitest` 20/20、浏览器实测空 tag 消失 |
 | v1.19 | 2026-08-10 | 追加 R10-05：favicon 未加载（dev proxy 缺 /public + 默认 favicon.svg 缺失，双根因）。修复：vite.config.ts/js 同步补 /public 代理、新建 public/favicon.svg。验收：dev/prod 均 200 图片类型、浏览器实测 favicon 192×192 加载成功 |
+| v1.20 | 2026-08-10 | 追加 R10-10：首页下载链接相对路径缺域名。修复：HomeHandler 注入 cfg + frontendBase helper 拼 frontend_url（普通用户卡片与管理员池两处）。验收：go 全绿、容器部署后实测 download_url 完整（http://localhost:8080/subscriptions/...） |

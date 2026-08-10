@@ -19,7 +19,7 @@ export interface PlatformCard {
   installer_url: string
   status: 'group_selected' | 'custom' | 'unassigned' | 'admin_pool'
   download_token: string
-  download_url: string // /subscriptions/{平台标识}/download?token=
+  download_url: string // {frontend_url}/subscriptions/{平台标识}/download?token=（R10-10 完整 URL）
   subscription_name?: string
   subscriptions?: AdminPoolSub[] // 管理员池内订阅列表
 }
