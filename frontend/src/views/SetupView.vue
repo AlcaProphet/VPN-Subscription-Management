@@ -154,7 +154,7 @@ async function completeOidc() {
 
 <template>
   <!-- 独立全屏路由：居中单列卡片 max-w-720px；顶部 ICON + 「首次配置」+ 模式徽标；右上角暗色切换 -->
-  <div class="w-full max-w-3xl">
+  <div class="w-full max-w-3xl dark:text-gray-100">
     <div class="flex justify-end mb-2">
       <Button size="small" @click="toggle">{{ dark ? '浅色模式' : '暗色模式' }}</Button>
     </div>

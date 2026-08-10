@@ -82,7 +82,7 @@ onMounted(async () => {
 
 <template>
   <div class="w-full max-w-md">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-8">
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-8">
       <!-- 顶部：站点 ICON + 站点名称（UI §2.2；未设置时回退默认标题） -->
       <div class="flex items-center justify-center gap-2 mb-6">
         <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="h-8 w-8 object-contain" />

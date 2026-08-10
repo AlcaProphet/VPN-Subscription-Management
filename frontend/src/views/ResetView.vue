@@ -42,7 +42,7 @@ async function onSubmit() {
 
 <template>
   <div class="w-full max-w-md">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-8">
+    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-8">
       <Result v-if="done" status="success" title="密码已重置" sub-title="请使用新密码登录">
         <template #extra><Button type="primary" @click="router.push('/login')">前往登录</Button></template>
       </Result>
