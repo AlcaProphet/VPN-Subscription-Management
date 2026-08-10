@@ -80,7 +80,7 @@ async function save() {
       // 标识由后端自动生成（subscription- 前缀 + 8 位随机短码），创建后列表展示供复制
       await createSubscription({ platform_id: form.platform_id, name: form.name.trim(), group_ids: form.group_ids })
       Notify.success('订阅已创建')
-      guideOpen.value = true // 创建成功引导（Step 3 接通「每平台选定」直达）
+      guideOpen.value = true // 创建成功引导（Step 3 接通「设置平台默认订阅」直达）
     }
     modalOpen.value = false
     await load()

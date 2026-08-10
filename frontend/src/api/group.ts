@@ -7,7 +7,7 @@ export interface GroupItem {
   name: string
   is_default: boolean
   needs_reselect: boolean
-  sub_count: number // 关联订阅数
+  sub_count: number // 可用订阅数（R10-06 文案统一）
   user_count: number // 组内用户数
 }
 

@@ -157,8 +157,6 @@ async function completeOidc() {
     saving.value = false
   }
 }
-
-// 「导入已有配置」卡片：仅 Production 模式渲染；本 Step 直接隐藏（Build3 补充）
 </script>
 
 <template>
