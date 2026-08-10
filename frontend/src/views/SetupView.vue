@@ -1,4 +1,4 @@
-<!-- SetupView.vue：首次配置向导（UI §2.1）快速开始 + 高级配置（OIDC）+ 导入已有配置 + 完成页抢注提示 -->
+<!-- SetupView.vue：首次配置向导（UI §2.1）快速开始（含确认步）+ 高级配置（OIDC）+ 导入已有配置 + 完成页抢注提示 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -34,7 +34,7 @@ async function quickStart() {
   submitting.value = true
   try {
     await http.post('/setup/quickstart')
-    current.value = 1
+    current.value = 2
     done.value = true
     await system.fetchStatus(true)         // 刷新守卫状态，后续访问 /setup 将被守卫跳到 /login
   } catch (err) {
@@ -139,7 +139,7 @@ async function completeOidc() {
       client_id: oidcForm.client_id,
       client_secret: oidcForm.client_secret,
     })
-    current.value = 1
+    current.value = 2
     done.value = true
     await system.fetchStatus(true)
   } catch (err) {
@@ -163,18 +163,18 @@ async function completeOidc() {
         <h1 class="text-xl font-semibold">首次配置</h1>
         <Tag :color="isProd ? 'green' : 'blue'">{{ isProd ? 'Production' : 'Dev' }}</Tag>
       </div>
-      <Steps :current="current" :items="[{ title: '认证方式' }, { title: '完成' }]"
+      <Steps :current="current" :items="[{ title: '认证方式' }, { title: '确认' }, { title: '完成' }]"
              class="mb-6" :direction="isMobile ? 'vertical' : 'horizontal'" />
 
-      <template v-if="!done">
-        <!-- 快速开始卡片（本 Step 唯一可用入口） -->
+      <template v-if="!done && current === 0">
+        <!-- 快速开始卡片：点击「下一步」进入确认步（不直接提交） -->
         <Card class="mb-4" hoverable>
           <div class="flex items-center justify-between">
             <div>
               <div class="font-medium">快速开始 <Tag color="processing">推荐</Tag></div>
               <div class="text-gray-500 text-sm mt-1">本地账号模式，零配置一键完成</div>
             </div>
-            <Button type="primary" :loading="submitting" @click="quickStart">完成配置</Button>
+            <Button type="primary" @click="current = 1">下一步</Button>
           </div>
         </Card>
         <!-- 高级配置卡片：选中后展开 OIDC 配置（Step 6 填充） -->
@@ -247,6 +247,21 @@ async function completeOidc() {
             <Alert type="info" class="mt-4 mb-4" message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
             <Button type="primary" :loading="saving" @click="completeOidc">完成配置</Button>
           </template>
+        </Card>
+      </template>
+      <!-- 快速开始确认步：仅快速开始路径进入（current===1），「返回」回到选择界面，确认后才提交 -->
+      <template v-else-if="!done && current === 1">
+        <Card class="mb-4">
+          <div class="font-medium mb-2">确认快速开始</div>
+          <p class="text-gray-500 text-sm mb-4">
+            将采用本地账号模式完成配置：注册本地账号即可登录，无需接入外部身份提供商（OIDC）。
+            点击「确认完成」后系统立即进入已配置状态，此操作不可撤销。
+          </p>
+          <Alert type="warning" show-icon class="mb-4" message="配置完成后请部署者本人立即注册成为管理员" />
+          <Space>
+            <Button @click="current = 0">返回</Button>
+            <Button type="primary" :loading="submitting" @click="quickStart">确认完成</Button>
+          </Space>
         </Card>
       </template>
 
