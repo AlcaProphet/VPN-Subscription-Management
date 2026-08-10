@@ -7,6 +7,14 @@
 
 ## 一、进行中问题
 
+### R10-01 用户组编辑弹窗组名空白且保存必败：getGroup 未解包嵌套响应（UI 不可用）
+
+- **现象：** 用户组管理点「编辑」→ 弹窗标题显示「编辑组：」（空白）+ 组名输入框空白（不回显组名）；输入框可输入文字，但点保存必然失败（400「参数错误」）。
+- **根因：** 后端 `GET /api/admin/groups/:id`（`server/group.go` get）返回嵌套结构 `data: {group:{...}, selections:[...]}`，前端 `api/group.ts` `getGroup` 类型标注为扁平 `GroupDetail` 并直接取 `body.data` → `detail.name`/`detail.id` 均为 undefined → 组名回显缺失；保存时 `updateGroup(undefined, ...)` 请求 `PUT /api/admin/groups/undefined` → parseID 失败 400。
+- **影响范围：** 用户组编辑弹窗全部不可用（改名/关联/选定均无法保存；新建与删除正常）。
+- **修复方案（已实施，方案 A 前端最小改动）：** `getGroup` 改为显式声明响应类型 `{group, selections}` 并解包 `({...d.group, selections: d.selections})` 后返回扁平 `GroupDetail`；后端零改动。
+- **状态：** ✅ 已修复（2026-08-10；验收：`npm run build` + `vitest` 20/20；browser-use 实测弹窗标题「编辑组：默认组」、组名输入框回显「默认组」、`PUT /api/admin/groups/2` 200 保存链路打通；问题 2「关联订阅改选提示」经解释确认设计正确，文案优化待用户决策）
+
 ### R08-01 面板「一键清空所有数据」UI 提交空确认词导致 400（UI 不可用）
 
 - **现象：** 面板配置「危险操作区」点击一键清空 → 输入确认词 RESET（确认按钮解锁）→ 确定 → 请求 `POST /api/admin/settings/clear_all` 返回 400「确认词不正确」，清空无法执行；API 层直接调用（带 confirm_word=RESET）正常。
@@ -401,3 +409,4 @@
 | v1.14 | 2026-08-09 | R09-12 移动端易用性：补齐分享订阅/用户组/规则管理/访问日志四处 <768 卡片双态实现（此前仅平台/订阅有卡片；日志 8 列精简展示、需重选组橙色描边）。验收：`npm run build` + `vitest` 20/20、浏览器 575px 移动端实测四页卡片渲染正常表格隐藏；Design1-UI.md v1.5 |
 | v1.15 | 2026-08-09 | R09-13 用户名 dropdown 暗色模式可读性增强：overlay 加 shadow-lg + border（浅色 gray-200 / 暗色 gray-600 边框）。验收：生产构建实测暗色 1px gray-600 边框 + 多层阴影、浅色 gray-200 边框、vitest 20/20；备注 dev server 环境 popup 渲染异常（生产正常） |
 | v1.16 | 2026-08-09 | 代码质量核验清理：修复 HomeView 文件头过期注释（「替换 Build1 占位」）与 AdminLayout 菜单注释（「Build3 实现，本 Step 隐藏」——Build3 已验收，与实际不符）两处历史遗留注释；核验结论：全部改动无未使用 import、无中间方案残留、无魔法数、符合 AGENTS 规范。验收：`npm run build` + `vitest` 20/20 |
+| v1.17 | 2026-08-10 | 追加 R10-01：用户组编辑弹窗组名空白且保存必败（getGroup 未解包嵌套响应 {group,selections}，detail.name/id 为 undefined）。修复：api/group.ts getGroup 解包嵌套结构为扁平 GroupDetail（方案 A，前端最小改动，后端零改动）。验收：`npm run build` + `vitest` 20/20、browser-use 实测弹窗回显「默认组」+ 保存 200 |

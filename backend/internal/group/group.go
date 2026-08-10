@@ -16,8 +16,8 @@ import (
 var (
 	ErrNameConflict = errors.New("组名已存在")
 	ErrDefaultGroup = errors.New("预置默认组不可删除")
-	ErrSubInSelection = errors.New("该组正在选定此订阅，请先在选定区改选")
-	ErrSubNotLinked = errors.New("选定的订阅不在该组关联范围内")
+	ErrSubInSelection = errors.New("该订阅正被设为组内某平台的默认订阅，请先改选默认订阅")
+	ErrSubNotLinked = errors.New("默认订阅必须来自组内订阅可用范围")
 	ErrNotFound     = errors.New("用户组不存在")
 )
 

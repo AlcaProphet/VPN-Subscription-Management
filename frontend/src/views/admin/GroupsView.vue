@@ -1,4 +1,4 @@
-<!-- GroupsView.vue：用户组与订阅分发管理（UI §5.2）——双态列表 + 编辑弹窗（改名/关联/每平台选定） -->
+<!-- GroupsView.vue：用户组与订阅分发管理（UI §5.2）——双态列表 + 编辑弹窗（改名/可用范围/平台默认订阅） -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Alert, Button, Input, Modal, Select, Space, Table, Tag } from 'ant-design-vue'
@@ -41,7 +41,7 @@ function subOptions(platformId: number) {
   return (pg?.subscriptions ?? []).map((s: SubscriptionItem) => ({ label: s.name, value: s.id }))
 }
 
-// --- 编辑弹窗（改名 + 关联订阅多选 + 每平台选定区） ---
+// --- 编辑弹窗（改名 + 可用范围多选 + 平台默认订阅区） ---
 const editOpen = ref(false)
 const editing = ref<GroupDetail | null>(null)
 const saving = ref(false)
@@ -70,14 +70,14 @@ async function openEdit(g: GroupItem) {
   }
 }
 
-// 关联订阅回显：订阅列表已带 groups 字段，反查该组关联的订阅
+// 可用范围回显：订阅列表已带 groups 字段，反查该组关联的订阅
 async function loadRel(groupId: number) {
   const all = subsByPlatform.value.flatMap((pg) => pg.subscriptions)
   const rel = all.filter((s) => s.groups?.some((g) => g.id === groupId))
   form.sub_ids = rel.map((s) => s.id)
 }
 
-// 每平台选定更新（subscription_id=0 表示取消选定）
+// 平台默认订阅更新（subscription_id=0 表示取消选定）
 function setSelection(platformId: number, subscriptionId: number) {
   const idx = form.selections.findIndex((s) => s.platform_id === platformId)
   if (idx >= 0) {
@@ -114,7 +114,7 @@ async function saveEdit() {
     editOpen.value = false
     await load()
   } catch (err) {
-    Notify.error((err as Error).message) // 「该组正在选定此订阅，请先在选定区改选」等
+    Notify.error((err as Error).message) // 「该订阅正被设为组内某平台的默认订阅，请先改选默认订阅」等
   } finally {
     saving.value = false
   }
@@ -174,7 +174,7 @@ async function confirmDelete() {
 
     <!-- 分发引导：一次性 a-alert「创建第一份订阅」 -->
     <Alert v-if="showGuide" type="info" closable class="mb-4" message="还没有订阅内容？"
-           description="前往订阅管理创建第一份订阅，再为各用户组选定分发" @close="dismissGuide" />
+           description="前往订阅管理创建第一份订阅，再为各用户组设置平台默认订阅" @close="dismissGuide" />
 
     <TriStateList :loading="loading" :empty="groups.length === 0" empty-text="暂无用户组">
       <!-- ≥768：表格 -->
@@ -185,11 +185,11 @@ async function confirmDelete() {
             <Space>
               {{ record.name }}
               <Tag v-if="record.is_default" color="gold">默认组</Tag>
-              <Tag v-if="record.needs_reselect" color="orange">需要重新选定</Tag>
+              <Tag v-if="record.needs_reselect" color="orange">需要重新设置</Tag>
             </Space>
           </template>
         </Table.Column>
-        <Table.Column key="subs" title="关联订阅数" width="110">
+        <Table.Column key="subs" title="可用订阅数" width="110">
           <template #default="{ record }">{{ record.sub_count }}</template>
         </Table.Column>
         <Table.Column key="users" title="组内用户数" width="110">
@@ -199,7 +199,7 @@ async function confirmDelete() {
           <template #default="{ record }">
             <Space>
               <Button size="small" type="primary" ghost @click="openEdit(record)">编辑</Button>
-              <Button v-if="record.needs_reselect" size="small" @click="openEdit(record)">重新选定</Button>
+              <Button v-if="record.needs_reselect" size="small" @click="openEdit(record)">重新设置</Button>
               <Button v-if="!record.is_default" size="small" danger @click="toDelete = record">删除</Button>
             </Space>
           </template>
@@ -215,13 +215,13 @@ async function confirmDelete() {
             <span class="font-medium truncate">{{ g.name }}</span>
             <div class="flex gap-1 shrink-0">
               <Tag v-if="g.is_default" color="gold">默认组</Tag>
-              <Tag v-if="g.needs_reselect" color="orange">需重选</Tag>
+              <Tag v-if="g.needs_reselect" color="orange">需重设</Tag>
             </div>
           </div>
-          <div class="text-xs text-gray-500 mt-1">关联订阅 {{ g.sub_count }} · 组内用户 {{ g.user_count }}</div>
+          <div class="text-xs text-gray-500 mt-1">可用订阅 {{ g.sub_count }} · 组内用户 {{ g.user_count }}</div>
           <div class="mt-2 flex flex-wrap gap-2">
             <Button size="small" type="primary" ghost @click="openEdit(g)">编辑</Button>
-            <Button v-if="g.needs_reselect" size="small" @click="openEdit(g)">重新选定</Button>
+            <Button v-if="g.needs_reselect" size="small" @click="openEdit(g)">重新设置</Button>
             <Button v-if="!g.is_default" size="small" danger @click="toDelete = g">删除</Button>
           </div>
         </div>
@@ -236,7 +236,7 @@ async function confirmDelete() {
       </div>
     </Modal>
 
-    <!-- 组编辑弹窗：改名 + 关联订阅多选 + 每平台选定区 -->
+    <!-- 组编辑弹窗：改名 + 可用范围多选 + 平台默认订阅区 -->
     <Modal v-model:open="editOpen" :title="`编辑组：${editing?.name ?? ''}`" :footer="null" :width="720"
            destroy-on-close>
       <div class="space-y-4">
@@ -245,7 +245,8 @@ async function confirmDelete() {
           <Input v-model:value="form.name" :maxlength="64" />
         </div>
         <div>
-          <div class="mb-1 text-sm">关联订阅（取消正被选定的订阅会被拒绝，请先在下方改选）</div>
+          <div class="mb-1 text-sm">组内订阅可用范围</div>
+          <div class="text-xs text-gray-400 mb-1">组可分发这些订阅；取消正被设为平台默认订阅的订阅会被拒绝，请先在下方默认订阅区改选</div>
           <Select v-model:value="form.sub_ids" mode="multiple" class="w-full" placeholder="选择关联的订阅">
             <Select.Option v-for="pg in subsByPlatform" :key="pg.platform_id" :label="pg.platform_name" disabled>
               {{ pg.platform_name }}
@@ -259,7 +260,7 @@ async function confirmDelete() {
         </div>
         <div>
           <div class="mb-1 text-sm flex items-center gap-2">
-            每平台选定
+            组内平台默认订阅
             <span v-if="selectionChanged" class="text-xs text-orange-500">变更将影响 {{ affectedUsers }} 名用户</span>
           </div>
           <div v-for="p in platforms" :key="p.id" class="flex items-center gap-2 mb-2">

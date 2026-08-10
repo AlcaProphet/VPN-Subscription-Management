@@ -27,7 +27,7 @@ async function load() {
 }
 onMounted(() => {
   void load()
-  // 新建平台成功返回列表时：引导「为各用户组选定该平台的订阅」
+  // 新建平台成功返回列表时：引导「为各用户组设置该平台的默认订阅」
   if (route.query.created === '1') {
     guideOpen.value = true
     void router.replace({ path: '/admin/platforms' })
@@ -75,7 +75,7 @@ async function confirmDelete() {
   }
 }
 
-// 新建成功引导：为各用户组选定该平台的订阅（直达组管理按钮 + 跳过；Step 3 接通组管理页）
+// 新建成功引导：为各用户组设置该平台的默认订阅（直达组管理按钮 + 跳过；Step 3 接通组管理页）
 const guideOpen = ref(false)
 function goGroups() {
   guideOpen.value = false
@@ -144,9 +144,9 @@ function goGroups() {
     <ConfirmModal :open="toDelete !== null" title="删除平台" danger :loading="deleting"
                   :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />
 
-    <!-- 新建成功引导：为各用户组选定该平台的订阅 -->
+    <!-- 新建成功引导：为各用户组设置该平台的默认订阅 -->
     <ConfirmModal v-model:open="guideOpen" title="平台已创建"
-                  content="接下来请为各用户组选定该平台的订阅，组内用户才能通过无标识链接获取订阅内容。"
+                  content="接下来请为各用户组设置该平台的默认订阅，组内用户才能通过无标识链接获取订阅内容。"
                   :ok-button-props="{ danger: false }" @confirm="goGroups">
       <template #default>
         <Space class="mt-2">
