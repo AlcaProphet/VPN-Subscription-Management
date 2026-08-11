@@ -21,14 +21,14 @@
 - [它解决什么问题](#它解决什么问题)
 - [功能特性](#功能特性)
 - [界面预览](#界面预览)
-- [快速开始（0 基础版）](#快速开始0-基础版)
+- [快速开始（一键部署）](#快速开始一键部署)
 - [日常使用](#日常使用)
 - [两种部署形态](#两种部署形态)
 - [备份与升级](#备份与升级)
 - [常见问题 FAQ](#常见问题-faq)
 - [高级运维](#高级运维)
-- [本地开发](#本地开发)
 - [技术栈](#技术栈)
+- [本地部署与开发](#本地部署与开发)
 
 ---
 
@@ -77,44 +77,11 @@
 
 ---
 
-## 快速开始（0 基础版）
+## 快速开始（一键部署）
 
-> ⏱️ 全程大约 5 分钟。只需要会「复制粘贴命令」和「打开浏览器」。
+> ⏱️ 全程大约 5 分钟。前提：已安装 Docker（含 Docker Compose）。剩下的只需要会「复制粘贴命令」和「打开浏览器」。
 
-### 第 0 步：准备一台服务器
-
-任选其一：
-
-- **云服务器**：阿里云 / 腾讯云 / 华为云等，系统选 **Ubuntu 22.04 / 24.04**（或 Debian），2 核 2G 起步即可
-- **你自己的电脑 / 旧笔记本**：Windows / macOS / Linux 都可以（Docker 均支持）
-
-### 第 1 步：安装 Docker
-
-Docker 是运行本系统的「容器引擎」，安装一次即可，以后无需再装。
-
-**Linux（Ubuntu / Debian）**——复制下面整段命令，粘贴到终端执行：
-
-```bash
-curl -fsSL https://get.docker.com | sh
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
-```
-
-> 执行完最后一条后，**注销并重新登录**（或重启服务器），`docker` 命令才免 sudo。
-
-**Windows**：安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/)（一路下一步即可）。安装后打开它，等待左下角显示引擎已运行。
-
-**macOS**：安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/)（Apple 芯片选 Apple Silicon 版本），同样一路下一步。
-
-验证安装是否成功——终端执行：
-
-```bash
-docker --version && docker compose version
-```
-
-能看到版本号即成功 ✅
-
-### 第 2 步：获取项目文件
+### 第 1 步：获取项目文件
 
 **方式一（推荐，无需 Git）**：下载本项目 zip 包并解压
 
@@ -129,7 +96,7 @@ git clone https://github.com/AlcaProphet/VPN-Subscription-Management.git
 cd VPN-Subscription-Management
 ```
 
-### 第 3 步：一键启动
+### 第 2 步：一键启动
 
 ```bash
 docker compose up -d
@@ -139,7 +106,7 @@ docker compose up -d
 
 > 生产部署建议改用预构建镜像（秒级启动、无需本地构建），见 [两种部署形态](#两种部署形态)。
 
-### 第 4 步：打开网页，完成首次配置
+### 第 3 步：打开网页，完成首次配置
 
 浏览器访问：**http://服务器IP:8080**（服务器就在本机则访问 http://localhost:8080）
 
@@ -157,7 +124,7 @@ docker compose up -d
 
 ![Setup 第三步](docs/screenshots/08-setup-complete.png)
 
-### 第 5 步：注册管理员账号
+### 第 4 步：注册管理员账号
 
 > ⚠️ **重要**：系统采用「先到先得」机制——**第一个注册的用户自动成为管理员**。公网部署时请部署者本人立即注册，否则可能被别人抢注！
 
@@ -300,7 +267,24 @@ docker compose logs vpn-sub | grep 操作码
 
 ---
 
-## 本地开发
+## 技术栈
+
+- **后端**：Go 1.25 + Gin + SQLite（纯 Go 零 CGO 驱动，嵌入式存储，无需外部数据库）
+- **前端**：Vue 3 + Vite + Ant Design Vue + Tailwind CSS
+- **部署**：单容器（API + 前端页面 + 静态资源一体），多阶段构建，非 root 运行，数据卷持久化
+- **CI/CD**：GitHub Actions 自动构建并推送 Docker 镜像（打 `v*` 标签触发）
+
+---
+
+## 本地部署与开发
+
+### 本地部署（局域网直连）
+
+适合家庭 / 公司内网快速体验：直接暴露 8080 端口（修改 `docker-compose.yml` 中 `ports` 为 `"8080:8080"`），浏览器访问 `http://服务器IP:8080` 即可。
+
+> ⚠️ 直连模式下凭据与订阅链接均为明文传输，**仅限可信内网**，公网部署请使用「两种部署形态」中的方式 A。
+
+### 本地开发
 
 - 后端：`cd backend && go run ./cmd/server`（内嵌前端产物，仅 API）
 - 前端：`cd frontend && npm run dev`（Vite dev server 代理 `/api` 到 `127.0.0.1:8080`）
@@ -313,13 +297,6 @@ docker compose logs vpn-sub | grep 操作码
 | 前端构建 | `cd frontend && npm run build` |
 
 ---
-
-## 技术栈
-
-- **后端**：Go 1.25 + Gin + SQLite（纯 Go 零 CGO 驱动，嵌入式存储，无需外部数据库）
-- **前端**：Vue 3 + Vite + Ant Design Vue + Tailwind CSS
-- **部署**：单容器（API + 前端页面 + 静态资源一体），多阶段构建，非 root 运行，数据卷持久化
-- **CI/CD**：GitHub Actions 自动构建并推送 Docker 镜像（打 `v*` 标签触发）
 
 ## 许可证
 
