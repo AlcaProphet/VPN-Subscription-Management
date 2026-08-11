@@ -1,0 +1,40 @@
+# docker-compose.yml.example —— 生产部署模板（复制为 docker-compose.yml 使用）
+# 部署形态与两种接入方式详见 README「部署向导」与 Design1 §7.1
+# 生产镜像由 GitHub Actions 自动构建推送（.github/workflows/docker-build.yml，打 v* 标签或手动触发）
+
+services:
+  vpn-sub:
+    # 生产镜像：ghcr.io 拉取（含具体版本 tag 示例，如 :v1.2.3；latest 随默认分支更新）
+    image: ghcr.io/alcaprophet/vpnmanagement:latest
+    # 本地构建方式（开发调试）：注释掉上面 image 行，取消下行注释
+    # build: .
+    # ====== 接入方式二选一（Design1 §7.1）======
+    # 方式 A（推荐，公网部署）：仅绑回环，由外部反代承担 TLS 与域名接入（OIDC 回调要求 HTTPS 域名）
+    ports:
+      - "127.0.0.1:8080:8080"
+    # 方式 B（局域网直连）：注释掉上面一行，改用下面一行（注意 HTTP 明文风险，仅限可信内网）
+    #   - "8080:8080"
+    volumes:
+      - vpn-data:/data          # 单一数据卷：数据库 + 内容文件 + /public 资源（唯一持久化载体）
+    environment:
+      APP_MODE: prod            # 生产模式；dev 仅本地调试（数据库文件独立：app-dev.db / app-prod.db）
+      LOG_LEVEL: info           # 初始日志级别（面板可运行时切换并持久化）
+      LOG_FORMAT: console       # console / json（接入日志采集系统时用 json）
+      # TRUST_PROXY 真实客户端 IP 解析策略（auto/on/off，默认 auto，Design1 §6.4）：
+      #   auto = 信任回环与私有网段来源的 X-Forwarded-*（容器化反代/内网反代适用，默认推荐）
+      #   on   = 始终信任（前置反代多跳场景）
+      #   off  = 从不信任（公网直连场景，防转发头伪造绕过限流）
+      TRUST_PROXY: auto
+      # 应急恢复（Design1 §3.8）：管理员密码救援时取消下行注释并重启容器；
+      # 一次性操作码见 docker compose logs vpn-sub | grep 操作码；完成后移除变量并重启恢复正常服务
+      # RESET_ADMIN_PASSWORD: "1"
+    restart: unless-stopped
+    healthcheck:
+      # 仅作状态展示，不触发重启动作（应急模式 exit + 拉起循环为预期行为，Design1 §7.1/3.8）
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  vpn-data:
