@@ -1,5 +1,6 @@
 // config/admin.go：面板配置服务（Build3 Step 3）——各分区配置读写与生效逻辑（Design1 §3.4.8）。
-// 敏感字段加密落库、回显一律脱敏；本地登录与 OIDC 均不可用禁止保存（防认证死锁）。
+// 敏感字段（OIDC Client Secret / SMTP 密码）加密落库、回显脱敏；验证码双密钥为明文存储（面板回显真实值）。
+// 本地登录与 OIDC 均不可用禁止保存（防认证死锁）。
 package config
 
 import (
@@ -283,21 +284,23 @@ func (s *AdminService) SaveLocalAuth(ctx context.Context, in LocalAuthSettings) 
 
 type CaptchaSettings struct {
 	Provider  string   `json:"provider"`   // recaptcha/turnstile/off
-	SiteKey   string   `json:"site_key"`   // GET 脱敏；PUT 空=不修改
-	SecretKey string   `json:"secret_key"` // GET 脱敏；PUT 空=不修改（敏感加密）
+	SiteKey   string   `json:"site_key"`   // 明文存储；PUT 空=不修改
+	SecretKey string   `json:"secret_key"` // 明文存储；PUT 空=不修改
 	Pages     []string `json:"pages"`      // register/login/forgot
 }
 
+// GetCaptcha 回显验证码配置（双密钥返回明文：非敏感配置，切换提供商/停用后可复用，Design1 §3.4.8）
 func (s *AdminService) GetCaptcha(ctx context.Context) CaptchaSettings {
 	return CaptchaSettings{
 		Provider:  mustStr(s.cfg.Get(ctx, captchaKeyProvider)),
-		SiteKey:   s.getMasked(ctx, captchaKeySiteKey),
-		SecretKey: s.getMasked(ctx, captchaKeySecretKey),
+		SiteKey:   mustStr(s.cfg.Get(ctx, captchaKeySiteKey)),
+		SecretKey: mustStr(s.cfg.Get(ctx, captchaKeySecretKey)),
 		Pages:     s.cfg.GetJSONStringSlice(ctx, captchaKeyPages),
 	}
 }
 
-// SaveCaptcha 提供商 + 双密钥 + 启用页面；勾选未配密钥 → 校验拦截（防静默降级，Design1 §3.2）
+// SaveCaptcha 提供商 + 双密钥 + 启用页面；勾选未配密钥 → 校验拦截（防静默降级，Design1 §3.2）；
+// 双密钥明文落库（非敏感配置）：空=不修改，停用/切换提供商后密钥保留可复用
 func (s *AdminService) SaveCaptcha(ctx context.Context, in CaptchaSettings) error {
 	if in.Provider != "off" && in.Provider != "recaptcha" && in.Provider != "turnstile" {
 		return fmt.Errorf("%w: 验证码提供商无效", ErrBadRequest)
@@ -317,8 +320,10 @@ func (s *AdminService) SaveCaptcha(ctx context.Context, in CaptchaSettings) erro
 			return err
 		}
 	}
-	if err := s.setSensitive(ctx, captchaKeySecretKey, in.SecretKey); err != nil {
-		return err
+	if in.SecretKey != "" {
+		if err := s.cfg.Set(ctx, captchaKeySecretKey, in.SecretKey); err != nil {
+			return err
+		}
 	}
 	pages, err := json.Marshal(in.Pages)
 	if err != nil {

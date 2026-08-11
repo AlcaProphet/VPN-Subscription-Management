@@ -44,7 +44,7 @@
 8. **职责分层**与**按业务域拆分处理器文件**的约束同 Build1。
 9. **所有管理端点必须叠加会话校验 + 角色校验双层中间件**；权限信息每次请求实时查库，禁止缓存。
 10. **错误码约定**同 Build1 执行约束第 11 条。
-11. **敏感配置（OIDC Client Secret、SMTP 密码、验证码服务端密钥）必须以 AES-256-GCM 加密落库，面板回显一律脱敏（`a-input-password`），禁止返回明文**。
+11. **敏感配置（OIDC Client Secret、SMTP 密码）必须以 AES-256-GCM 加密落库，面板回显一律脱敏（`a-input-password`），禁止返回明文；验证码站点/服务端密钥为明文存储（面板回显真实值，非敏感配置，R11-01）**。
 
 ---
 
@@ -817,11 +817,11 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
 - **前置条件：** Step 2（SMTP 邮件服务）已完成并验收；Build1（OIDC/验证码/限流机制）已验收。
 - **产出文件与操作：**
 
-  1. **创建 `backend/internal/config/admin.go`（业务层）**：面板配置服务。必须实现各分区配置的读取与保存（敏感字段加密落库、回显脱敏）：
+  1. **创建 `backend/internal/config/admin.go`（业务层）**：面板配置服务。必须实现各分区配置的读取与保存（敏感字段加密落库、回显脱敏；**验证码双密钥明文存储例外**）：
      - **OIDC 配置**：查看/修改提供商参数（Client Secret 脱敏回显）、测试连接（复用 Build1 OIDC 测试，本 Step 加管理员校验的专用端点）、**清空 OIDC 配置**（二次确认；受「本地登录与 OIDC 均不可用禁止保存」约束）、切换提供商类型（保留已填字段；切换前提示旧绑定失效）。**前端地址与回调地址启动时缓存（推导值为初始值，手动覆盖优先、重启后沿用不再被推导覆盖）、修改需重启生效，保存时提示「需重启容器生效」**。
      - **OIDC 启用规则**：审批开关（默认关闭）+ Role/Group 白名单（值列表 + 可配置声明路径，默认常见值下拉）+ **白名单为空时跳过校验直接激活，保存时显著警告「白名单为空，新用户将全部直接激活」**。
      - **本地认证**：允许本地登录（默认开）/允许自注册（默认关）/自注册审批（默认关）三开关；**本地登录关且 OIDC 不可用 → 禁止保存 + 显著警告**（防认证死锁）。
-     - **验证码**：提供商 Radio + 双密钥 + 启用页面 Checkbox；**勾选未配密钥 → 校验拦截**。
+     - **验证码**：提供商 Radio + 双密钥 + 启用页面 Checkbox；**勾选未配密钥 → 校验拦截**；**双密钥明文落库、回显真实值（切换提供商/停用后保留可复用，R11-01）**。
      - **SMTP**：服务器/端口/账号/密码（加密）/发件人/TLS + 启用范围 Checkbox + 发送测试邮件（复用 Step 2）。
      - **站点信息**：名称（≤50 字符）+ ICON 上传（≤2MB，png/jpeg/webp/ico，排除 SVG/GIF；存 `/public/site/` 固定路径覆盖即更新；引用带版本参数 `?v=更新序号`）+ 删除恢复默认。
      - **速率限制**：登录/注册/找回/下载四个数字输入 + 当前 IP 解析策略展示（TRUST_PROXY 生效值）+ auto 模式伪造风险警示；**修改后立即生效**。
@@ -830,21 +830,21 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
      - **调试模式开关**：开启后 5xx 返回详细内部信息（生产默认关闭，状态持久化）。
      - **运行模式信息**：只读展示当前模式（Dev/Production）+ 「由启动环境变量决定，修改需重启容器」说明。
 
-  2. **创建面板配置端点（接入层，`backend/internal/server/settings.go`）**：会话 + 管理员。按分区分端点（`GET/PUT /api/admin/settings/oidc`、`/oidc-rules`、`/local-auth`、`/captcha`、`/smtp`、`/site`、`/ratelimit`、`/log-level`、`/announcement`、`/debug`），或聚合 `GET /api/admin/settings` + 分区 `PUT`（执行时择一并全程统一）。**敏感字段 GET 返回脱敏值，PUT 接受新值（空表示不修改）**。
+  2. **创建面板配置端点（接入层，`backend/internal/server/settings.go`）**：会话 + 管理员。按分区分端点（`GET/PUT /api/admin/settings/oidc`、`/oidc-rules`、`/local-auth`、`/captcha`、`/smtp`、`/site`、`/ratelimit`、`/log-level`、`/announcement`、`/debug`），或聚合 `GET /api/admin/settings` + 分区 `PUT`（执行时择一并全程统一）。**敏感字段 GET 返回脱敏值（验证码双密钥例外：明文回显），PUT 接受新值（空表示不修改）**。
      - **站点信息公开端点**：`GET /api/site/info`（站点名称 + ICON URL，**无需鉴权**，供登录页/Setup/首页渲染）。
 
   3. **创建前端 `frontend/src/views/admin/SettingsView.vue`**（UI §5.8）：左侧 `a-anchor` 锚点导航 + 右侧分区 `a-card` 堆叠（<768 锚点转顶部 Select 定位）。分区顺序与组件按 UI §5.8 表格：OIDC 配置 / OIDC 启用规则 / 本地认证 / 验证码 / SMTP / 站点信息 / **运行模式信息** / 速率限制 / 日志级别 / 系统公告 / 调试模式（配置导入导出/备份下载/危险操作区在 Step 4 补入本页）。`frontend/src/api/settings.ts`。
 
 - **参考代码/伪代码：**
 
-  > 端点风格已确认：按分区独立 `GET/PUT`（不聚合）。编写顺序：config/admin.go（分区读写 + 死锁防护 + 加密脱敏）→ server/settings.go（分区端点 + 公开站点信息）→ SettingsView.vue。复用：config 敏感加密、OIDC 测试连接（Build1 Step 6）、限流键（Build1 Step 7）。
+  > 端点风格已确认：按分区独立 `GET/PUT`（不聚合）。编写顺序：config/admin.go（分区读写 + 死锁防护 + 加密脱敏；验证码双密钥明文）→ server/settings.go（分区端点 + 公开站点信息）→ SettingsView.vue。复用：config 敏感加密、OIDC 测试连接（Build1 Step 6）、限流键（Build1 Step 7）。
 
   **1. `backend/internal/config/admin.go`（业务层：面板配置服务）**
 
   ```go
   // 敏感配置键登记（Build1 Step 1 预留的 sensitiveKeys 集合在本 Step 补全）
-  //   oidc_client_secret / smtp_password / captcha_secret_key
-  // GET 回显一律脱敏（前端 a-input-password 占位显示「已配置」）；PUT 空串表示不修改
+  //   oidc_client_secret / smtp_password（验证码双密钥明文存储，不登记，R11-01）
+  // GET 回显一律脱敏（前端 a-input-password 占位显示「已配置」；验证码双密钥明文回显）；PUT 空串表示不修改
   //
   // 本文件 import 必须包含："unicode/utf8"（字符数校验用，站点名称/公告/导出密码长度按字符数计）；
   // 禁止使用第三方 utf8 包，禁止以 len(string)（字节数）代替字符数校验。
@@ -2351,3 +2351,4 @@ Step 3/4 ──▶ Step 6（应急恢复依赖配置存储与用户体系；全�
 | v1.1 | 2026-08-09 | 同步 Build2 修复：① 执行约束第 5 条补充列表统一 ListData 包裹 + 前端 api 层解包约定（R02-01）；② Step 1 注明 customs 版本路由返回按钮 backPath 待改 /admin/users（R04-01）；③ Step 1 列表 api 分页包裹与全量解包区分注释 |
 | v1.2 | 2026-08-09 | 全部 6 个 Step 验收通过（✅ 2026-08-09）：后端 go build/vet/test 全绿（25 包）；前端 npm run build/test 通过（20 用例）；应急模式手动验证通过（RESET_ADMIN_PASSWORD 触发、操作码一次性、业务 API 503、SPA 回退正常） |
 | v1.3 | 2026-08-09 | 全量审查补漏（R05-01/02）：① Setup 页补「导入已有配置」卡片（仅 Production 渲染，配置导入双入口闭环，`api/settings.ts` 新增 `setupImportConfig`）；② server_test 补 `TestSetupImportRateLimit` 端点级限流测试（前 5 次放行、第 6 次 429）；复验后端 25 包全绿 + 前端构建/20 用例全绿 |
+| v1.4 | 2026-08-11 | 验证码缺陷修复（R11-01/02，静态验证通过，运行测试待部署后手动）：① R11-01 验证码双密钥改明文存储——移除 `captcha_secret_key` 敏感登记，`GetCaptcha` 明文回显、`SaveCaptcha` 明文落库，前端 placeholder 同步（切换提供商/停用后密钥保留可复用，不再被「***」回显覆盖损坏）；② R11-02 验证码启用后登录/注册/找回密码永远 400——中间件与处理器统一改用 gin `ShouldBindBodyWithJSON`（body 缓存进 context 复用，`ShouldBindJSON` 直接消费 body 不缓存）；③ 附带修复 Turnstile 组件永不渲染（Turnstile api.js 不支持 `onload` 参数，改在 script.onload 渲染）；④ 补充回归测试：`TestMiddlewareBodyReuse`（mock siteverify，无真实网络）、`TestCaptchaPlainStorage`（明文回显 + 停用重开复用） |

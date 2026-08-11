@@ -648,11 +648,11 @@ onMounted(() => {
             </div>
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">站点密钥</span>
-              <Input v-model:value="captcha.site_key" placeholder="已配置时留空不修改" />
+              <Input v-model:value="captcha.site_key" placeholder="reCAPTCHA / Turnstile 站点密钥（明文回显）" />
             </div>
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">服务端密钥</span>
-              <Input.Password v-model:value="captcha.secret_key" placeholder="已配置时留空不修改" />
+              <Input.Password v-model:value="captcha.secret_key" placeholder="reCAPTCHA / Turnstile 服务端密钥（明文回显）" />
             </div>
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">启用页面</span>

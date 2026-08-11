@@ -37,7 +37,7 @@ const (
 )
 
 // sensitiveKeys 敏感配置键集合（值以 AES-256-GCM 密文落库）；
-// 本 Step 预留框架，Build3 的 oidc_client_secret/smtp_password/captcha_secret_key 等在此登记
+// 当前登记：smtp_password（mail 包 init）；OIDC Client Secret 由 oidc 包手动加密，验证码双密钥明文存储不入集合
 var sensitiveKeys = map[string]bool{}
 
 // RegisterSensitive 登记敏感配置键（供各业务包在初始化时注册）

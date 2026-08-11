@@ -23,14 +23,9 @@ import (
 const (
 	KeyProvider  = "captcha_provider"  // recaptcha/turnstile/off，默认 off
 	KeySiteKey   = "captcha_site_key"
-	KeySecretKey = "captcha_secret_key" // 敏感加密（登记入 config.sensitiveKeys）
+	KeySecretKey = "captcha_secret_key" // 明文存储（面板回显真实值，切换提供商/停用后可复用）
 	KeyPages     = "captcha_pages"      // JSON 数组：register/login/forgot
 )
-
-// init 登记敏感配置键：captcha_secret_key 以 AES-256-GCM 加密落库（Build3 Step 3 面板配置接通）
-func init() {
-	config.RegisterSensitive(KeySecretKey)
-}
 
 // Service 验证码服务
 type Service struct {
@@ -110,7 +105,8 @@ func (s *Service) Verify(ctx context.Context, page, captchaToken string) error {
 	return nil
 }
 
-// Middleware 接入层包装，按页面名强制校验（captchaToken 从请求体 captcha_token 字段取）
+// Middleware 接入层包装，按页面名强制校验（captchaToken 从请求体 captcha_token 字段取）；
+// 用 ShouldBindBodyWithJSON 读取：body 缓存进 context，后续处理器仍可正常绑定（gin 多次绑定唯一安全姿势）
 func (s *Service) Middleware(page string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !s.Enforced(c.Request.Context(), page) {
@@ -120,7 +116,7 @@ func (s *Service) Middleware(page string) gin.HandlerFunc {
 		var body struct {
 			CaptchaToken string `json:"captcha_token"`
 		}
-		_ = c.ShouldBindJSON(&body) // 校验失败由 Verify 统一处理
+		_ = c.ShouldBindBodyWithJSON(&body) // 校验失败由 Verify 统一处理
 		if err := s.Verify(c.Request.Context(), page, body.CaptchaToken); err != nil {
 			response.Fail(c, http.StatusBadRequest, err.Error())
 			c.Abort()
