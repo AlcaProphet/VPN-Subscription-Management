@@ -7,7 +7,7 @@ export interface GroupItem {
   name: string
   is_default: boolean
   needs_reselect: boolean
-  sub_count: number // 关联订阅数
+  sub_count: number // 可用订阅数（R10-06 文案统一）
   user_count: number // 组内用户数
 }
 
@@ -22,7 +22,11 @@ export interface GroupDetail extends GroupItem {
 
 export const listGroups = () =>
   http.get<any, { list: GroupItem[]; total: number }>('/admin/groups').then((d) => d.list)
-export const getGroup = (id: number) => http.get<any, GroupDetail>(`/admin/groups/${id}`)
+// 后端 GET /admin/groups/:id 返回嵌套结构 { group, selections }（server/group.go get），解包为扁平 GroupDetail
+// （R10-01：此前直接取 body.data 导致 detail.name/id 为 undefined，编辑弹窗组名空白且保存请求 /groups/undefined 报 400）
+export const getGroup = (id: number) =>
+  http.get<any, { group: GroupItem; selections: SelectionItem[] }>(`/admin/groups/${id}`)
+    .then((d) => ({ ...d.group, selections: d.selections }))
 export const createGroup = (name: string) => http.post<any, GroupItem>('/admin/groups', { name })
 export const updateGroup = (id: number, data: { name: string; sub_ids: number[]; selections: SelectionItem[] }) =>
   http.put(`/admin/groups/${id}`, data)

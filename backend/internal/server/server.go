@@ -98,7 +98,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	tokenSvc := token.NewService(st, lg)
 	subSvc.SetOnTokenDeleted(tokenSvc.DeleteBySubscriptionTx)
 	dlSvc := download.NewService(st, versionSvc, cfg, lg)
-	homeHandler := &HomeHandler{store: st, tokenSvc: tokenSvc, dlSvc: dlSvc}
+	homeHandler := &HomeHandler{store: st, tokenSvc: tokenSvc, dlSvc: dlSvc, cfg: cfg}
 	RegisterDownloadRoutes(engine, &DownloadHandler{dlSvc: dlSvc, limiter: limiter, sessionMW: authSvc.SessionMiddleware()})
 	RegisterHomeRoutes(engine, homeHandler, authSvc.SessionMiddleware())
 	// 自定义订阅 + 分享订阅（Build2 Step 5；会话 + 管理员双中间件）

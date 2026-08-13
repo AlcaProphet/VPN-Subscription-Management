@@ -28,10 +28,12 @@ func registerStatus(engine *gin.Engine, cfg *config.Service, users *user.Service
 	engine.GET("/api/public/announcement", h.announcement)
 }
 
-// announcement 公告公开端点：返回公告纯文本（仅管理员面板可写，无敏感信息，R07-02）
+// announcement 公告/页脚公开端点：返回首页公告 / 登录页公告 / 登录页页脚（仅管理员面板可写，无敏感信息；R07-02/R10-07）
 func (h *StatusHandler) announcement(c *gin.Context) {
-	content, _ := h.cfg.Get(c.Request.Context(), "announcement")
-	OK(c, gin.H{"content": content})
+	home, _ := h.cfg.Get(c.Request.Context(), "announcement")
+	login, _ := h.cfg.Get(c.Request.Context(), "login_announcement")
+	footer, _ := h.cfg.Get(c.Request.Context(), "login_footer")
+	OK(c, gin.H{"home_announcement": home, "login_announcement": login, "login_footer": footer})
 }
 
 // handle 返回系统状态：configured / app_mode / emergency / 本地认证与注册入口字段 / OIDC 字段

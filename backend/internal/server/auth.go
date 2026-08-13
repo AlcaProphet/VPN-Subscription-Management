@@ -33,7 +33,8 @@ func RegisterAuthRoutes(engine *gin.Engine, h *AuthHandler, limiter *ratelimit.L
 	g.POST("/logout", h.authSvc.SessionMiddleware(), h.logout)
 }
 
-// 表单入参统一长度限制（AGENTS §八-6）
+// 表单入参统一长度限制（AGENTS §八-6）；绑定用 ShouldBindBodyWithJSON：
+// 与验证码中间件共用 context 缓存 body（gin 多次绑定唯一安全姿势）
 type registerReq struct {
 	Username string `json:"username" binding:"required,min=1,max=64"`
 	Email    string `json:"email" binding:"required,max=254"`
@@ -42,7 +43,7 @@ type registerReq struct {
 
 func (h *AuthHandler) register(c *gin.Context) {
 	var req registerReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
@@ -97,7 +98,7 @@ type loginReq struct {
 
 func (h *AuthHandler) login(c *gin.Context) {
 	var req loginReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
@@ -158,7 +159,7 @@ func (h *AuthHandler) logout(c *gin.Context) {
 // forgot 忘记密码：统一防枚举响应
 func (h *AuthHandler) forgot(c *gin.Context) {
 	var req struct{ Email string `json:"email" binding:"required,max=254"` }
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}

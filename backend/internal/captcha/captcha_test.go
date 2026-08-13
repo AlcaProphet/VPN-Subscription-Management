@@ -2,8 +2,14 @@ package captcha
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
@@ -85,5 +91,48 @@ func TestVerifyEmptyToken(t *testing.T) {
 	// 非强制页面 → 直接放行
 	if err := svc.Verify(ctx, "forgot", ""); err != nil {
 		t.Errorf("非强制页面应放行: %v", err)
+	}
+}
+
+// mockRoundTripper 拦截 siteverify 请求返回固定结果（避免真实网络调用）
+type mockRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// TestMiddlewareBodyReuse 验证码中间件读 body 后处理器仍可正常绑定：
+// 中间件与处理器须统一 ShouldBindBodyWithJSON（gin 多次绑定唯一安全姿势，R11 修复）
+func TestMiddlewareBodyReuse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc, cfg := newCaptchaEnv(t)
+	ctx := context.Background()
+	_ = cfg.Set(ctx, KeyProvider, "recaptcha")
+	_ = cfg.Set(ctx, KeyPages, `["login"]`)
+	_ = cfg.Set(ctx, KeySecretKey, "secret-value")
+	// mock siteverify：token 视为有效
+	svc.httpCli = &http.Client{Transport: mockRoundTripper(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"success":true}`)), Header: make(http.Header)}, nil
+	})}
+	engine := gin.New()
+	engine.POST("/api/auth/login", svc.Middleware("login"), func(c *gin.Context) {
+		var req struct {
+			Email        string `json:"email"`
+			CaptchaToken string `json:"captcha_token"`
+		}
+		if err := c.ShouldBindBodyWithJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"email": req.Email, "token": req.CaptchaToken})
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		strings.NewReader(`{"email":"a@b.com","captcha_token":"valid-token"}`))
+	r.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("验证码通过后处理器应可绑定 body: %d %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"email":"a@b.com"`) || !strings.Contains(w.Body.String(), `"token":"valid-token"`) {
+		t.Errorf("处理器应读到表单与验证码字段: %s", w.Body.String())
 	}
 }

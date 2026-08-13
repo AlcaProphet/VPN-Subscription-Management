@@ -61,8 +61,9 @@ onMounted(() => {
   script.src = providerScriptURL(st.captcha_provider!, st.captcha_site_key!)
   script.async = true
   script.onerror = () => { loadError.value = true }
-  window.onCaptchaLoad = () => renderWidget()
-  script.onload = () => { /* onCaptchaLoad 由脚本内部触发 */ }
+  // reCAPTCHA 脚本加载后自行调用 onCaptchaLoad；Turnstile api.js 不支持 onload 参数，须在 onload 事件里渲染
+  window.onCaptchaLoad = () => { if (st.captcha_provider === 'recaptcha') renderWidget() }
+  script.onload = () => { if (st.captcha_provider === 'turnstile') renderWidget() }
   document.head.appendChild(script)
 })
 </script>

@@ -152,6 +152,37 @@ func TestCaptchaKeyMissing(t *testing.T) {
 	}
 }
 
+// TestCaptchaPlainStorage 验证码双密钥明文存储：回显明文 + 库内即明文（切换提供商/停用后可复用，R11 修复）
+func TestCaptchaPlainStorage(t *testing.T) {
+	st, svc := newTestAdmin(t, &mockOidcOps{})
+	ctx := context.Background()
+	if err := svc.SaveCaptcha(ctx, CaptchaSettings{Provider: "turnstile", SiteKey: "site-123", SecretKey: "secret-456", Pages: []string{"login"}}); err != nil {
+		t.Fatalf("保存失败: %v", err)
+	}
+	got := svc.GetCaptcha(ctx)
+	if got.SiteKey != "site-123" || got.SecretKey != "secret-456" {
+		t.Errorf("回显应为明文: site=%q secret=%q", got.SiteKey, got.SecretKey)
+	}
+	// 库内原始值即明文（不再是 AES 密文，停用后再开启无需重新配置）
+	var raw string
+	if err := st.DB().QueryRowContext(ctx, `SELECT value FROM system_config WHERE key = ?`, captchaKeySecretKey).Scan(&raw); err != nil {
+		t.Fatalf("读取库内密钥失败: %v", err)
+	}
+	if raw != "secret-456" {
+		t.Errorf("库内应为明文密钥: %q", raw)
+	}
+	// 停用后重新开启：密钥保留，留空即可复用（不再被 *** 覆盖损坏）
+	if err := svc.SaveCaptcha(ctx, CaptchaSettings{Provider: "off", Pages: nil}); err != nil {
+		t.Fatalf("停用保存失败: %v", err)
+	}
+	if err := svc.SaveCaptcha(ctx, CaptchaSettings{Provider: "turnstile", Pages: []string{"login"}}); err != nil {
+		t.Fatalf("停用后重新开启失败: %v", err)
+	}
+	if got := svc.GetCaptcha(ctx); got.SiteKey != "site-123" || got.SecretKey != "secret-456" {
+		t.Errorf("重新开启后密钥应保留明文: %+v", got)
+	}
+}
+
 // TestLogLevelSwitch 日志级别：持久化 + LevelVar 立即生效
 func TestLogLevelSwitch(t *testing.T) {
 	logger := log.New("error", "console")

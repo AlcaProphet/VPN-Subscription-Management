@@ -1,5 +1,6 @@
 // config/admin.go：面板配置服务（Build3 Step 3）——各分区配置读写与生效逻辑（Design1 §3.4.8）。
-// 敏感字段加密落库、回显一律脱敏；本地登录与 OIDC 均不可用禁止保存（防认证死锁）。
+// 敏感字段（OIDC Client Secret / SMTP 密码）加密落库、回显脱敏；验证码双密钥为明文存储（面板回显真实值）。
+// 本地登录与 OIDC 均不可用禁止保存（防认证死锁）。
 package config
 
 import (
@@ -283,21 +284,23 @@ func (s *AdminService) SaveLocalAuth(ctx context.Context, in LocalAuthSettings) 
 
 type CaptchaSettings struct {
 	Provider  string   `json:"provider"`   // recaptcha/turnstile/off
-	SiteKey   string   `json:"site_key"`   // GET 脱敏；PUT 空=不修改
-	SecretKey string   `json:"secret_key"` // GET 脱敏；PUT 空=不修改（敏感加密）
+	SiteKey   string   `json:"site_key"`   // 明文存储；PUT 空=不修改
+	SecretKey string   `json:"secret_key"` // 明文存储；PUT 空=不修改
 	Pages     []string `json:"pages"`      // register/login/forgot
 }
 
+// GetCaptcha 回显验证码配置（双密钥返回明文：非敏感配置，切换提供商/停用后可复用，Design1 §3.4.8）
 func (s *AdminService) GetCaptcha(ctx context.Context) CaptchaSettings {
 	return CaptchaSettings{
 		Provider:  mustStr(s.cfg.Get(ctx, captchaKeyProvider)),
-		SiteKey:   s.getMasked(ctx, captchaKeySiteKey),
-		SecretKey: s.getMasked(ctx, captchaKeySecretKey),
+		SiteKey:   mustStr(s.cfg.Get(ctx, captchaKeySiteKey)),
+		SecretKey: mustStr(s.cfg.Get(ctx, captchaKeySecretKey)),
 		Pages:     s.cfg.GetJSONStringSlice(ctx, captchaKeyPages),
 	}
 }
 
-// SaveCaptcha 提供商 + 双密钥 + 启用页面；勾选未配密钥 → 校验拦截（防静默降级，Design1 §3.2）
+// SaveCaptcha 提供商 + 双密钥 + 启用页面；勾选未配密钥 → 校验拦截（防静默降级，Design1 §3.2）；
+// 双密钥明文落库（非敏感配置）：空=不修改，停用/切换提供商后密钥保留可复用
 func (s *AdminService) SaveCaptcha(ctx context.Context, in CaptchaSettings) error {
 	if in.Provider != "off" && in.Provider != "recaptcha" && in.Provider != "turnstile" {
 		return fmt.Errorf("%w: 验证码提供商无效", ErrBadRequest)
@@ -317,8 +320,10 @@ func (s *AdminService) SaveCaptcha(ctx context.Context, in CaptchaSettings) erro
 			return err
 		}
 	}
-	if err := s.setSensitive(ctx, captchaKeySecretKey, in.SecretKey); err != nil {
-		return err
+	if in.SecretKey != "" {
+		if err := s.cfg.Set(ctx, captchaKeySecretKey, in.SecretKey); err != nil {
+			return err
+		}
 	}
 	pages, err := json.Marshal(in.Pages)
 	if err != nil {
@@ -346,7 +351,7 @@ func (s *AdminService) GetSMTP(ctx context.Context) SMTPSettings {
 		User:     mustStr(s.cfg.Get(ctx, "smtp_user")),
 		Password: s.getMasked(ctx, "smtp_password"),
 		From:     mustStr(s.cfg.Get(ctx, "smtp_from")),
-		TLS:      s.cfg.GetBool(ctx, "smtp_tls", true),
+		TLS:      s.cfg.GetBool(ctx, "smtp_tls", false), // 默认关闭（R10-04）
 		Scopes:   s.cfg.GetJSONStringSlice(ctx, "smtp_enabled_scopes"),
 	}
 }
@@ -521,20 +526,50 @@ func (s *AdminService) SetLogLevel(ctx context.Context, level string) error {
 	return nil
 }
 
-// --- 系统公告分区 ---
+// --- 公告与页脚分区（R10-07：首页公告 / 登录页公告 / 登录页页脚三份独立配置；前端 markdown-it html:false 渲染 MD，禁原始 HTML 防存储型 XSS）---
 
-const MaxAnnouncementLen = 2000
+const (
+	MaxAnnouncementLen = 2000
+	MaxFooterLen       = 2000
+)
 
+// GetAnnouncement 首页公告（键 announcement，R10-07 前为登录页+首页共用，拆分后语义为首页）
 func (s *AdminService) GetAnnouncement(ctx context.Context) string {
 	return mustStr(s.cfg.Get(ctx, "announcement"))
 }
 
-// SaveAnnouncement 纯文本 ≤2000 字符（前端转义禁 HTML——Vue 默认转义，禁 v-html）
+// SaveAnnouncement 首页公告（MD 源 ≤2000 字符；前端 markdown-it html:false 渲染，原始 HTML 按文本转义）
 func (s *AdminService) SaveAnnouncement(ctx context.Context, content string) error {
 	if utf8.RuneCountInString(content) > MaxAnnouncementLen {
-		return fmt.Errorf("%w: 公告不超过 2000 字符", ErrBadRequest)
+		return fmt.Errorf("%w: 首页公告不超过 2000 字符", ErrBadRequest)
 	}
 	return s.cfg.Set(ctx, "announcement", content)
+}
+
+// GetLoginAnnouncement 登录页公告（R10-07 新增独立配置）
+func (s *AdminService) GetLoginAnnouncement(ctx context.Context) string {
+	return mustStr(s.cfg.Get(ctx, "login_announcement"))
+}
+
+// SaveLoginAnnouncement 登录页公告 ≤2000 字符（同首页公告：MD 渲染，禁原始 HTML）
+func (s *AdminService) SaveLoginAnnouncement(ctx context.Context, content string) error {
+	if utf8.RuneCountInString(content) > MaxAnnouncementLen {
+		return fmt.Errorf("%w: 登录页公告不超过 2000 字符", ErrBadRequest)
+	}
+	return s.cfg.Set(ctx, "login_announcement", content)
+}
+
+// GetLoginFooter 登录页页脚（R10-07）
+func (s *AdminService) GetLoginFooter(ctx context.Context) string {
+	return mustStr(s.cfg.Get(ctx, "login_footer"))
+}
+
+// SaveLoginFooter 登录页页脚 ≤2000 字符（同公告：MD 渲染，禁原始 HTML）
+func (s *AdminService) SaveLoginFooter(ctx context.Context, content string) error {
+	if utf8.RuneCountInString(content) > MaxFooterLen {
+		return fmt.Errorf("%w: 登录页页脚不超过 2000 字符", ErrBadRequest)
+	}
+	return s.cfg.Set(ctx, "login_footer", content)
 }
 
 // --- 调试模式分区 ---

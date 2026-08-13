@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/download"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
@@ -23,6 +24,14 @@ type HomeHandler struct {
 	store    *store.Store
 	tokenSvc *token.Service
 	dlSvc    *download.Service
+	cfg      *config.Service // frontend_url 前缀拼接（R10-10）
+}
+
+// frontendBase 下载链接前缀：frontend_url（Setup 推导初始值/面板可覆盖，修改需重启生效，Design1 §3.4.8）；
+// 为空时保持相对路径（异常场景——Setup 完成时必写，正常不触发）
+func (h *HomeHandler) frontendBase(ctx context.Context) string {
+	f, _ := h.cfg.Get(ctx, config.KeyFrontendURL)
+	return strings.TrimSuffix(f, "/")
 }
 
 // RegisterHomeRoutes 注册用户端数据端点；全部需会话
@@ -147,7 +156,7 @@ func (h *HomeHandler) platforms(c *gin.Context) {
 				return
 			}
 			card.DownloadToken = t.Token
-			card.DownloadURL = "/subscriptions/" + p.slug + "/download?token=" + t.Token
+			card.DownloadURL = h.frontendBase(ctx) + "/subscriptions/" + p.slug + "/download?token=" + t.Token // R10-10：完整 URL（含 frontend_url 前缀）
 		}
 		out = append(out, card)
 	}
@@ -179,7 +188,7 @@ func (h *HomeHandler) adminPool(ctx context.Context, userID, platformID int64, p
 			return nil, err
 		}
 		subs[i].Token = t.Token
-		subs[i].DownloadURL = "/subscriptions/" + platformSlug + "/download?token=" + t.Token
+		subs[i].DownloadURL = h.frontendBase(ctx) + "/subscriptions/" + platformSlug + "/download?token=" + t.Token // R10-10：完整 URL（含 frontend_url 前缀）
 	}
 	return subs, nil
 }

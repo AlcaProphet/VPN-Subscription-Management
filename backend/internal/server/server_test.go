@@ -86,7 +86,7 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-// TestPublicAnnouncement 公告公开端点：无需鉴权返回公告内容；未配置返回空串（R07-02）
+// TestPublicAnnouncement 公告/页脚公开端点：无需鉴权返回三份独立内容（首页公告/登录页公告/登录页页脚）；未配置返回空串（R07-02/R10-07）
 func TestPublicAnnouncement(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
@@ -98,32 +98,50 @@ func TestPublicAnnouncement(t *testing.T) {
 	var resp struct {
 		Code int `json:"code"`
 		Data struct {
-			Content string `json:"content"`
+			HomeAnnouncement  string `json:"home_announcement"`
+			LoginAnnouncement string `json:"login_announcement"`
+			LoginFooter       string `json:"login_footer"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("解析响应失败: %v", err)
 	}
-	if resp.Code != 0 || resp.Data.Content != "" {
-		t.Errorf("未配置公告应返回空串: %+v", resp)
+	if resp.Code != 0 || resp.Data.HomeAnnouncement != "" || resp.Data.LoginAnnouncement != "" || resp.Data.LoginFooter != "" {
+		t.Errorf("未配置应返回空串: %+v", resp)
 	}
-	// 配置公告后原样返回（含 HTML 原样透传，前端插值转义禁 HTML，§3.4.8）
+	// 配置三份内容后原样返回（含 HTML 原样透传，前端 markdown-it html:false 转义禁原始 HTML，§3.4.8）
 	if _, err := srv.store.DB().ExecContext(ctx,
-		`INSERT INTO system_config (key, value) VALUES ('announcement', '维护通知 <script>alert(1)</script>')`); err != nil {
-		t.Fatalf("写入公告失败: %v", err)
+		`INSERT INTO system_config (key, value) VALUES ('announcement', '首页公告 <script>alert(1)</script>')`); err != nil {
+		t.Fatalf("写入首页公告失败: %v", err)
+	}
+	if _, err := srv.store.DB().ExecContext(ctx,
+		`INSERT INTO system_config (key, value) VALUES ('login_announcement', '**登录公告** md')`); err != nil {
+		t.Fatalf("写入登录公告失败: %v", err)
+	}
+	if _, err := srv.store.DB().ExecContext(ctx,
+		`INSERT INTO system_config (key, value) VALUES ('login_footer', '**页脚** md')`); err != nil {
+		t.Fatalf("写入页脚失败: %v", err)
 	}
 	w2 := doReq(t, srv, http.MethodGet, "/api/public/announcement")
 	var resp2 struct {
 		Code int `json:"code"`
 		Data struct {
-			Content string `json:"content"`
+			HomeAnnouncement  string `json:"home_announcement"`
+			LoginAnnouncement string `json:"login_announcement"`
+			LoginFooter       string `json:"login_footer"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w2.Body.Bytes(), &resp2); err != nil {
 		t.Fatalf("解析响应失败: %v", err)
 	}
-	if resp2.Data.Content != "维护通知 <script>alert(1)</script>" {
-		t.Errorf("公告内容异常: %q", resp2.Data.Content)
+	if resp2.Data.HomeAnnouncement != "首页公告 <script>alert(1)</script>" {
+		t.Errorf("首页公告内容异常: %q", resp2.Data.HomeAnnouncement)
+	}
+	if resp2.Data.LoginAnnouncement != "**登录公告** md" {
+		t.Errorf("登录页公告内容异常: %q", resp2.Data.LoginAnnouncement)
+	}
+	if resp2.Data.LoginFooter != "**页脚** md" {
+		t.Errorf("登录页页脚内容异常: %q", resp2.Data.LoginFooter)
 	}
 }
 

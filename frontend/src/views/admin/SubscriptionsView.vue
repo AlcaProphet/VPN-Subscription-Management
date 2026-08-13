@@ -80,7 +80,7 @@ async function save() {
       // 标识由后端自动生成（subscription- 前缀 + 8 位随机短码），创建后列表展示供复制
       await createSubscription({ platform_id: form.platform_id, name: form.name.trim(), group_ids: form.group_ids })
       Notify.success('订阅已创建')
-      guideOpen.value = true // 创建成功引导（Step 3 接通「每平台选定」直达）
+      guideOpen.value = true // 创建成功引导（Step 3 接通「设置平台默认订阅」直达）
     }
     modalOpen.value = false
     await load()
@@ -109,7 +109,7 @@ async function confirmDelete() {
   }
 }
 
-// 创建成功引导：关联用户组 → 每平台选定（组管理页在 Step 3 建立，本 Step 仅提示）
+// 创建成功引导：加入组可用范围 → 设置平台默认订阅（组管理页在 Step 3 建立，本 Step 仅提示）
 const guideOpen = ref(false)
 </script>
 
@@ -131,7 +131,7 @@ const guideOpen = ref(false)
               <Tag v-if="sub.current_version > 0" color="green">v{{ sub.current_version }}</Tag>
               <Tag v-else color="default">无版本</Tag>
               <Tag v-for="grp in sub.groups" :key="grp.id" color="blue">{{ grp.name }}</Tag>
-              <Tag v-if="sub.selected_by > 0" color="cyan">被 {{ sub.selected_by }} 个组选定中</Tag>
+              <Tag v-if="sub.selected_by > 0" color="cyan">作为 {{ sub.selected_by }} 个组的默认订阅</Tag>
               <Space class="ml-auto">
                 <Button size="small" @click="goVersions(sub)">版本管理</Button>
                 <Button size="small" @click="openEdit(sub)">编辑</Button>
@@ -163,7 +163,7 @@ const guideOpen = ref(false)
           <TypographyText code>{{ editing.slug }}</TypographyText>
         </div>
         <div>
-          <div class="mb-1 text-sm">关联用户组</div>
+          <div class="mb-1 text-sm">可用用户组</div>
           <!-- 组数据源在 Build2 Step 3 接通（/api/admin/groups），本 Step 先渲染占位 -->
           <Select v-model:value="form.group_ids" class="w-full" mode="multiple" :options="groupOptions"
                   placeholder="选择关联的用户组（可空）" />
@@ -175,9 +175,9 @@ const guideOpen = ref(false)
       </div>
     </Modal>
 
-    <!-- 创建成功引导：关联用户组 → 每平台选定（Step 3 接通组管理直达按钮） -->
+    <!-- 创建成功引导：加入组可用范围 → 设置平台默认订阅（Step 3 接通组管理直达按钮） -->
     <ConfirmModal v-model:open="guideOpen" title="订阅已创建"
-                  content="请前往用户组管理：① 为组关联该订阅；② 按平台选定该订阅，组内用户即可通过无标识链接获取内容。"
+                  content="请前往用户组管理：① 将该订阅加入组的可用范围；② 设为组内平台的默认订阅，组内用户即可通过无标识链接获取内容。"
                   :ok-button-props="{ danger: false }" @confirm="guideOpen = false" />
 
     <!-- 删除确认 -->

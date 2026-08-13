@@ -1,4 +1,4 @@
-<!-- SetupView.vue：首次配置向导（UI §2.1）快速开始 + 高级配置（OIDC）+ 导入已有配置 + 完成页抢注提示 -->
+<!-- SetupView.vue：首次配置向导（UI §2.1）快速开始（含确认步）+ 高级配置（OIDC）+ 导入已有配置 + 完成页抢注提示 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -34,7 +34,7 @@ async function quickStart() {
   submitting.value = true
   try {
     await http.post('/setup/quickstart')
-    current.value = 1
+    current.value = 2
     done.value = true
     await system.fetchStatus(true)         // 刷新守卫状态，后续访问 /setup 将被守卫跳到 /login
   } catch (err) {
@@ -110,6 +110,15 @@ const providerOptions = computed(() => {
 // 模拟提供商无需参数；真实提供商按类型动态提示字段
 const isMock = computed(() => providerType.value === 'mock')
 const origin = window.location.origin // 高级折叠面板展示前端/回调地址推导值
+// OIDC 字段随提供商动态显隐（R10-02）：Auth0 用 Domain 标识；Realm 仅 Keycloak 适用
+const urlLabel = computed(() => (providerType.value === 'auth0' ? 'Domain' : 'Base URL'))
+const urlPlaceholder = computed(() => (providerType.value === 'auth0' ? 'your-tenant.auth0.com' : 'https://auth.example.com'))
+// 切换提供商：清空不适用字段（realm 残留会导致 Auth0/通用发现文档 URL 拼接错误）
+function onProviderChange(e: { target: { value?: unknown } }) {
+  const v = String(e.target.value ?? '')
+  providerType.value = v
+  if (v !== 'keycloak') oidcForm.realm = ''
+}
 
 async function runTest() {
   testing.value = true
@@ -139,7 +148,7 @@ async function completeOidc() {
       client_id: oidcForm.client_id,
       client_secret: oidcForm.client_secret,
     })
-    current.value = 1
+    current.value = 2
     done.value = true
     await system.fetchStatus(true)
   } catch (err) {
@@ -148,13 +157,11 @@ async function completeOidc() {
     saving.value = false
   }
 }
-
-// 「导入已有配置」卡片：仅 Production 模式渲染；本 Step 直接隐藏（Build3 补充）
 </script>
 
 <template>
   <!-- 独立全屏路由：居中单列卡片 max-w-720px；顶部 ICON + 「首次配置」+ 模式徽标；右上角暗色切换 -->
-  <div class="w-full max-w-3xl">
+  <div class="w-full max-w-3xl dark:text-gray-100">
     <div class="flex justify-end mb-2">
       <Button size="small" @click="toggle">{{ dark ? '浅色模式' : '暗色模式' }}</Button>
     </div>
@@ -163,18 +170,18 @@ async function completeOidc() {
         <h1 class="text-xl font-semibold">首次配置</h1>
         <Tag :color="isProd ? 'green' : 'blue'">{{ isProd ? 'Production' : 'Dev' }}</Tag>
       </div>
-      <Steps :current="current" :items="[{ title: '认证方式' }, { title: '完成' }]"
+      <Steps :current="current" :items="[{ title: '认证方式' }, { title: '确认' }, { title: '完成' }]"
              class="mb-6" :direction="isMobile ? 'vertical' : 'horizontal'" />
 
-      <template v-if="!done">
-        <!-- 快速开始卡片（本 Step 唯一可用入口） -->
+      <template v-if="!done && current === 0">
+        <!-- 快速开始卡片：点击「下一步」进入确认步（不直接提交） -->
         <Card class="mb-4" hoverable>
           <div class="flex items-center justify-between">
             <div>
               <div class="font-medium">快速开始 <Tag color="processing">推荐</Tag></div>
               <div class="text-gray-500 text-sm mt-1">本地账号模式，零配置一键完成</div>
             </div>
-            <Button type="primary" :loading="submitting" @click="quickStart">完成配置</Button>
+            <Button type="primary" @click="current = 1">下一步</Button>
           </div>
         </Card>
         <!-- 高级配置卡片：选中后展开 OIDC 配置（Step 6 填充） -->
@@ -211,12 +218,12 @@ async function completeOidc() {
         <Card v-if="advancedOpen" class="mb-4">
           <div class="mb-4">
             <div class="font-medium mb-2">提供商</div>
-            <Radio.Group v-model:value="providerType" :options="providerOptions" option-type="button" />
+            <Radio.Group v-model:value="providerType" :options="providerOptions" option-type="button" @change="onProviderChange" />
           </div>
           <template v-if="!isMock">
             <Form layout="vertical" class="mt-4">
-              <Form.Item label="Base URL">
-                <Input v-model:value="oidcForm.base_url" placeholder="https://auth.example.com" />
+              <Form.Item :label="urlLabel">
+                <Input v-model:value="oidcForm.base_url" :placeholder="urlPlaceholder" />
               </Form.Item>
               <Form.Item v-if="providerType === 'keycloak'" label="Realm">
                 <Input v-model:value="oidcForm.realm" placeholder="master" />
@@ -247,6 +254,21 @@ async function completeOidc() {
             <Alert type="info" class="mt-4 mb-4" message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
             <Button type="primary" :loading="saving" @click="completeOidc">完成配置</Button>
           </template>
+        </Card>
+      </template>
+      <!-- 快速开始确认步：仅快速开始路径进入（current===1），「返回」回到选择界面，确认后才提交 -->
+      <template v-else-if="!done && current === 1">
+        <Card class="mb-4">
+          <div class="font-medium mb-2">确认快速开始</div>
+          <p class="text-gray-500 text-sm mb-4">
+            将采用本地账号模式完成配置：注册本地账号即可登录，无需接入外部身份提供商（OIDC）。
+            点击「确认完成」后系统立即进入已配置状态，此操作不可撤销。
+          </p>
+          <Alert type="warning" show-icon class="mb-4" message="配置完成后请部署者本人立即注册成为管理员" />
+          <Space>
+            <Button @click="current = 0">返回</Button>
+            <Button type="primary" :loading="submitting" @click="quickStart">确认完成</Button>
+          </Space>
         </Card>
       </template>
 

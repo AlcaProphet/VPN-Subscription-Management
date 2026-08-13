@@ -33,7 +33,9 @@ async function onLogout() {
   <!-- 自定义 header 元素（非 AntD Layout.Header——避免其默认深色背景覆盖 Tailwind 底色，R08-UI07） -->
   <header class="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm h-16 flex items-center px-4 gap-3">
     <Button v-if="burger" type="text" @click="$emit('open-drawer')">☰</Button>
-    <div class="flex-1 min-w-0">
+    <div class="flex-1 min-w-0 flex items-center gap-2">
+      <!-- 站点 ICON（R10-06）：顶栏站点名左侧，尺寸调大；未设置不显示 -->
+      <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="h-8 w-8 object-contain" />
       <span class="font-semibold text-lg dark:text-gray-100 truncate">{{ system.siteName }}</span>
       <span v-if="updatedAt" class="ml-3 text-xs text-gray-500 dark:text-gray-400 hidden md:inline">{{ updatedAt }}</span>
     </div>
