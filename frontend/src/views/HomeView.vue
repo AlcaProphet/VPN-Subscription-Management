@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Card, Collapse, Empty, Modal, TypographyText } from 'ant-design-vue'
+import { Alert, Button, Card, Collapse, Empty } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { homePlatforms, refreshHomeToken, homeUpdatedAt, type PlatformCard } from '@/api/home'
 import { getPublicAnnouncement } from '@/api/settings'
@@ -65,19 +65,12 @@ function oneClickImport(card: PlatformCard, urlOverride?: string) {
   setTimeout(() => Notify.info('请确认已安装对应客户端'), 3000)
 }
 
-// 复制链接：弹窗展示 URL + 复制；绑定类 Token 警示
-const copyTarget = ref<{ card: PlatformCard; url: string } | null>(null)
-function openCopy(card: PlatformCard, urlOverride?: string) {
+// 复制链接：点击即复制 + Toast（与规则管理端一致）；绑定类 Token 复制时警示勿分享
+async function copyLink(card: PlatformCard, urlOverride?: string) {
   const url = urlOverride ?? card.download_url
-  if (isUserBound(card)) Notify.warning('该链接与您的账号绑定，请勿分享')
-  copyTarget.value = { card, url }
-}
-async function doCopy() {
-  if (!copyTarget.value) return
   try {
-    await navigator.clipboard.writeText(copyTarget.value.url)
-    Notify.success('链接已复制')
-    copyTarget.value = null
+    await navigator.clipboard.writeText(url)
+    Notify.success(isUserBound(card) ? '链接已复制（该链接与您的账号绑定，请勿分享）' : '链接已复制')
   } catch {
     Notify.error('复制失败，请手动复制')
   }
@@ -106,7 +99,6 @@ async function doRefresh() {
 
 // 弹窗关闭（供 :open + @update:open 使用）
 const closeRefresh = () => { refreshTarget.value = null }
-const closeCopy = () => { copyTarget.value = null }
 
 // 下载客户端
 const hasInstaller = (card: PlatformCard) => !!card.installer_file_url || !!card.installer_url
@@ -169,7 +161,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
                         <Button size="small" type="primary" @click="oneClickImport(card, sub.download_url)">一键导入</Button>
-                        <Button size="small" @click="openCopy(card, sub.download_url)">复制链接</Button>
+                        <Button size="small" @click="copyLink(card, sub.download_url)">复制链接</Button>
                       </div>
                     </div>
                   </div>
@@ -180,7 +172,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
             <!-- 操作按钮组（未分配时三按钮隐藏；管理员显式 Token 无刷新接口不显示刷新） -->
             <div v-if="!unassigned(card) || isAdmin" class="mt-3 flex flex-wrap gap-2">
               <Button v-if="card.schemes?.length" type="primary" @click="oneClickImport(card)">一键导入</Button>
-              <Button @click="openCopy(card)">复制链接</Button>
+              <Button @click="copyLink(card)">复制链接</Button>
               <Button v-if="!isAdmin" @click="refreshTarget = card">刷新链接</Button>
             </div>
 
@@ -209,14 +201,6 @@ const custom = (card: PlatformCard) => card.status === 'custom'
         </Card>
       </template>
     </main>
-
-    <!-- 复制链接弹窗（绑定类 Token 复制时已弹警示） -->
-    <Modal :open="copyTarget !== null" title="复制链接" :footer="null" :width="560" @cancel="closeCopy">
-      <TypographyText code class="break-all text-xs">{{ copyTarget?.url }}</TypographyText>
-      <div class="mt-3">
-        <Button type="primary" @click="doCopy">复制链接</Button>
-      </div>
-    </Modal>
 
     <!-- 刷新确认 -->
     <ConfirmModal :open="refreshTarget !== null" title="刷新链接" :loading="refreshing"

@@ -7,7 +7,7 @@ export interface RuleItem {
   name: string
   client_type: string
   schemes: string[]
-  token: string // 全局共享 Token（一键导入用）
+  token: string // 全局共享 Token（复制链接下载用）
   current_version: number
   created_at: string
   refreshed_at: string | null // UTC RFC3339；无 Token 时 null（R07-04）
