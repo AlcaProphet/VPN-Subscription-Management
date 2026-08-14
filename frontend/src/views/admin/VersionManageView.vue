@@ -1,8 +1,8 @@
 <!-- VersionManageView.vue：通用版本管理视图组件（四类资源复用，props 驱动，UI §5.1/7.1） -->
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button, Input, Modal, Space, Table, Tabs, Tag, Tooltip, TypographyText, Upload } from 'ant-design-vue'
+import { Button, Dropdown, Input, Menu, Modal, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import { versionApi, type VersionItem } from '@/api/version'
@@ -19,6 +19,12 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+
+// 响应式：≥768 表格 / <768 卡片（与其他管理页一致）
+const isMobile = ref(false)
+function checkMobile() {
+  isMobile.value = window.matchMedia('(max-width: 767px)').matches
+}
 
 // 返回上级列表页（如订阅管理）；custom 暂回订阅管理（用户管理在 Build3 接通后修正）
 function goBack() {
@@ -52,7 +58,27 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+  void load()
+})
+onUnmounted(() => window.removeEventListener('resize', checkMobile))
+
+// 移动端卡片「更多 ▾」菜单：编辑 / 删除（当前激活版本禁删）
+function cardMenuItems(v: VersionItem) {
+  return [
+    { key: 'edit', label: '编辑' },
+    {
+      key: 'delete', label: '删除', danger: true, disabled: !!v.current,
+      title: v.current ? '当前激活版本不可删除，请先切换' : '',
+    },
+  ] as MenuProps['items']
+}
+function onCardMenuClick(key: string, v: VersionItem) {
+  if (key === 'edit') void openEdit(v.version_no)
+  if (key === 'delete') toDelete.value = v.version_no
+}
 
 // 创建新版本：文件上传（自动提交新版本；前端 50MB 预校验对齐后端 MaxContentSize，AGENTS §4.1 双重校验）
 async function onUpload(file: File) {
@@ -178,35 +204,64 @@ function fmtTime(ts: string): string {
     </div>
 
     <TriStateList :loading="loading" :empty="versions.length === 0" empty-text="暂无版本，请创建第一个版本">
-      <Table :data-source="versions" :pagination="false" row-key="version_no" size="middle">
-        <Table.Column key="no" title="版本号" width="90">
-          <template #default="{ record }">
-            <Space>
-              <TypographyText code>v{{ record.version_no }}</TypographyText>
-              <Tag v-if="record.current" color="green">当前</Tag>
-            </Space>
-          </template>
-        </Table.Column>
-        <Table.Column key="created" title="创建时间" width="160">
-          <template #default="{ record }">{{ fmtTime(record.created_at) }}</template>
-        </Table.Column>
-        <Table.Column key="updated" title="更新时间" width="160">
-          <template #default="{ record }">{{ fmtTime(record.updated_at) }}</template>
-        </Table.Column>
-        <Table.Column key="actions" title="操作" width="220">
-          <template #default="{ record }">
-            <Space>
-              <Button size="small" @click="doPreview(record.version_no)">预览</Button>
-              <Button size="small" @click="openEdit(record.version_no)">编辑</Button>
-              <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">设为当前</Button>
-              <Tooltip v-else title="当前激活版本不可删除，请先切换">
-                <Button size="small" danger disabled>删除</Button>
-              </Tooltip>
-              <Button v-if="!record.current" size="small" danger @click="toDelete = record.version_no">删除</Button>
-            </Space>
-          </template>
-        </Table.Column>
-      </Table>
+      <!-- ≥768 表格态 -->
+      <template v-if="!isMobile">
+        <Table :data-source="versions" :pagination="false" row-key="version_no" size="middle">
+          <Table.Column key="no" title="版本号" width="90">
+            <template #default="{ record }">
+              <Space>
+                <TypographyText code>v{{ record.version_no }}</TypographyText>
+                <Tag v-if="record.current" color="green">当前</Tag>
+              </Space>
+            </template>
+          </Table.Column>
+          <Table.Column key="created" title="创建时间" width="160">
+            <template #default="{ record }">{{ fmtTime(record.created_at) }}</template>
+          </Table.Column>
+          <Table.Column key="updated" title="更新时间" width="160">
+            <template #default="{ record }">{{ fmtTime(record.updated_at) }}</template>
+          </Table.Column>
+          <Table.Column key="actions" title="操作" width="220">
+            <template #default="{ record }">
+              <Space>
+                <Button size="small" @click="doPreview(record.version_no)">预览</Button>
+                <Button size="small" @click="openEdit(record.version_no)">编辑</Button>
+                <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">设为当前</Button>
+                <Tooltip v-else title="当前激活版本不可删除，请先切换">
+                  <Button size="small" danger disabled>删除</Button>
+                </Tooltip>
+                <Button v-if="!record.current" size="small" danger @click="toDelete = record.version_no">删除</Button>
+              </Space>
+            </template>
+          </Table.Column>
+        </Table>
+      </template>
+      <!-- <768 卡片态：预览/设为当前直显，编辑/删除进「更多 ▾」 -->
+      <template v-else>
+        <div class="space-y-3">
+          <div v-for="v in versions" :key="v.version_no" class="border rounded-lg p-3">
+            <div class="flex items-center justify-between gap-2">
+              <Space>
+                <TypographyText code>v{{ v.version_no }}</TypographyText>
+                <Tag v-if="v.current" color="green">当前</Tag>
+              </Space>
+              <Space>
+                <Button size="small" @click="doPreview(v.version_no)">预览</Button>
+                <Button v-if="!v.current" size="small" @click="toSwitch = v.version_no">设为当前</Button>
+                <Dropdown>
+                  <Button size="small">更多 ▾</Button>
+                  <template #overlay>
+                    <Menu :items="cardMenuItems(v)" @click="(e: any) => onCardMenuClick(e.key, v)" />
+                  </template>
+                </Dropdown>
+              </Space>
+            </div>
+            <div class="text-sm text-gray-500 mt-1">
+              创建 {{ fmtTime(v.created_at) }} · 更新 {{ fmtTime(v.updated_at) }}
+            </div>
+          </div>
+        </div>
+      </template>
     </TriStateList>
 
     <!-- 创建新版本弹窗：文件上传 / 在线文本编辑双页签（在线编辑从空白起点开始） -->
@@ -224,12 +279,19 @@ function fmtTime(ts: string): string {
       </Tabs>
     </Modal>
 
-    <!-- 按版本在线编辑弹窗：预填所选版本内容，修改后保存为新版本（原版本保留不覆盖） -->
+    <!-- 按版本在线编辑弹窗：预填所选版本内容，修改后保存为新版本（原版本保留不覆盖）；
+         加载中 Spin 占位，完成后一次性渲染编辑区（避免空白可输入框闪烁） -->
     <Modal :open="editOpen" :title="editTarget !== null ? `编辑版本 v${editTarget}` : '在线编辑'"
            :footer="null" :width="720" @cancel="editOpen = false; editTarget = null">
-      <Input.TextArea v-model:value="editText" :rows="14" :disabled="editLoading"
-                      placeholder="基于所选版本内容修改，保存后将创建为新版本" />
-      <Button type="primary" class="mt-2" :loading="saving || editLoading" @click="saveText">保存为新版本</Button>
+      <div v-if="editLoading" class="py-12 text-center">
+        <Spin size="large" />
+        <div class="mt-2 text-gray-500 dark:text-gray-400">加载版本内容中…</div>
+      </div>
+      <template v-else>
+        <Input.TextArea v-model:value="editText" :rows="14"
+                        placeholder="基于所选版本内容修改，保存后将创建为新版本" />
+        <Button type="primary" class="mt-2" :loading="saving" @click="saveText">保存为新版本</Button>
+      </template>
     </Modal>
 
     <!-- 预览弹窗：宽屏纯文本（禁 HTML） -->
