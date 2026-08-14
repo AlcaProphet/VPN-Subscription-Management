@@ -1,0 +1,17 @@
+full:a1.mzstatic.com
+full:a2.mzstatic.com
+full:a3.mzstatic.com
+full:a4.mzstatic.com
+full:a5.mzstatic.com
+full:adcdownload.apple.com.akadns.net
+full:adcdownload.apple.com
+full:amp-api-updates.apps.apple.com
+000webhost.com
+0rz.tw
+1-apple.com.tw
+1000giri.net
+10beasts.net
+10musume.com
+12bet.com
+12vpn.com
+12vpn.net
