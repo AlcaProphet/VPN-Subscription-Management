@@ -24,8 +24,8 @@ func RegisterPlatformRoutes(engine *gin.Engine, h *PlatformHandler, sessionMW, a
 	admin.GET("/:id", h.get)
 	admin.PUT("/:id", h.update)    // slug 只读：不接收 slug 字段
 	admin.DELETE("/:id", h.delete) // 级联删除，二次确认由前端 ConfirmModal 负责
-	admin.POST("/:id/installer", h.uploadInstaller)
-	admin.DELETE("/:id/installer", h.deleteInstaller)
+	admin.POST("/:id/installers", h.uploadInstaller)     // 追加上传一个安装包
+	admin.DELETE("/:id/installers/:file", h.deleteInstallerFile) // 按磁盘文件名删一个安装包
 	// 公开下载端点：GET /public/installers/<file> 已由 Build1 static.go 承载（可缓存、无需鉴权、不限流、不记访问日志）
 }
 
@@ -39,12 +39,14 @@ func parsePlatformID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-// platformReq 创建/编辑入参；slug 一律不接收（创建后不可修改）
+// platformReq 创建/编辑入参；slug 一律不接收（创建后不可修改）；外部下载链接列表随平台保存
+// （本地安装包由独立上传端点追加，不经本结构）
 type platformReq struct {
-	Name        string            `json:"name" binding:"required,min=1,max=100"`
-	Description string            `json:"description" binding:"max=500"`
-	Schemes     []string          `json:"schemes"`
-	ExtraHeaders map[string]string `json:"extra_headers"`
+	Name         string                     `json:"name" binding:"required,min=1,max=100"`
+	Description  string                     `json:"description" binding:"max=500"`
+	Schemes      []string                   `json:"schemes"`
+	ExtraHeaders map[string]string          `json:"extra_headers"`
+	InstallerURLs []platform.InstallerURLItem `json:"installer_urls"`
 }
 
 func (h *PlatformHandler) list(c *gin.Context) {
@@ -79,7 +81,7 @@ func (h *PlatformHandler) create(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	p, err := h.platformSvc.Create(c.Request.Context(), req.Name, req.Description, req.Schemes, req.ExtraHeaders)
+	p, err := h.platformSvc.Create(c.Request.Context(), req.Name, req.Description, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
 	if errors.Is(err, platform.ErrBadRequest) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
@@ -101,7 +103,7 @@ func (h *PlatformHandler) update(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	err := h.platformSvc.Update(c.Request.Context(), id, req.Name, req.Description, req.Schemes, req.ExtraHeaders)
+	err := h.platformSvc.Update(c.Request.Context(), id, req.Name, req.Description, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
 	if errors.Is(err, platform.ErrBadRequest) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
@@ -134,7 +136,7 @@ func (h *PlatformHandler) delete(c *gin.Context) {
 	OK(c, nil)
 }
 
-// uploadInstaller 流式透传 c.Request.Body（限流在业务层 LimitReader，禁止整读内存）
+// uploadInstaller 流式透传 c.Request.Body（限流在业务层 LimitReader，禁止整读内存）；追加上传，返回更新后列表
 func (h *PlatformHandler) uploadInstaller(c *gin.Context) {
 	id, ok := parsePlatformID(c)
 	if !ok {
@@ -146,7 +148,7 @@ func (h *PlatformHandler) uploadInstaller(c *gin.Context) {
 		return
 	}
 	defer file.Close()
-	err = h.platformSvc.UploadInstaller(c.Request.Context(), id, file, header.Filename)
+	list, err := h.platformSvc.UploadInstaller(c.Request.Context(), id, file, header.Filename)
 	if errors.Is(err, platform.ErrInstallerTooLarge) {
 		Fail(c, http.StatusBadRequest, "安装包超过 300MB 限制")
 		return
@@ -159,15 +161,20 @@ func (h *PlatformHandler) uploadInstaller(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, nil)
+	OK(c, ListData{List: list, Total: int64(len(list))})
 }
 
-func (h *PlatformHandler) deleteInstaller(c *gin.Context) {
+// deleteInstallerFile 按磁盘文件名删除单个安装包（文件名校验在业务层：必须为基本文件名）
+func (h *PlatformHandler) deleteInstallerFile(c *gin.Context) {
 	id, ok := parsePlatformID(c)
 	if !ok {
 		return
 	}
-	err := h.platformSvc.DeleteInstaller(c.Request.Context(), id)
+	err := h.platformSvc.DeleteInstallerFile(c.Request.Context(), id, c.Param("file"))
+	if errors.Is(err, platform.ErrBadRequest) {
+		Fail(c, http.StatusBadRequest, "参数错误")
+		return
+	}
 	if errors.Is(err, platform.ErrNotFound) {
 		Fail(c, http.StatusNotFound, "平台不存在")
 		return

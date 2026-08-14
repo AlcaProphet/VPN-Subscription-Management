@@ -3,7 +3,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Alert, Button, Card, Form, Input, Space, TypographyText, Upload } from 'ant-design-vue'
-import { getPlatform, createPlatform, updatePlatform, uploadInstaller, deleteInstaller } from '@/api/platform'
+import {
+  getPlatform, createPlatform, updatePlatform, uploadInstaller, deleteInstallerFile,
+  type InstallerFileItem, type InstallerURLItem,
+} from '@/api/platform'
 import { Notify } from '@/components/Notify'
 
 const route = useRoute()
@@ -14,16 +17,16 @@ const isEdit = computed(() => id.value > 0)
 const saving = ref(false)
 const uploading = ref(false)
 const uploadPct = ref(0)
-const deletingFile = ref(false)
+const deletingFile = ref<string>('') // 正在删除的磁盘文件名
 const form = reactive({
   name: '',
   description: '',
   slug: '',
   schemes: [''] as string[],
   headers: [{ key: '', value: '' }] as { key: string; value: string }[],
-  installer_url: '',
-  installer_file: '',
+  installer_urls: [] as InstallerURLItem[],
 })
+const installerFiles = ref<InstallerFileItem[]>([])
 
 onMounted(async () => {
   if (!isEdit.value) return
@@ -35,8 +38,8 @@ onMounted(async () => {
     form.schemes = p.schemes?.length ? [...p.schemes] : ['']
     form.headers = Object.entries(p.extra_headers ?? {}).map(([key, value]) => ({ key, value }))
     if (!form.headers.length) form.headers = [{ key: '', value: '' }]
-    form.installer_url = p.installer_url ?? ''
-    form.installer_file = p.installer_file ?? ''
+    form.installer_urls = p.installer_urls?.length ? p.installer_urls.map((it) => ({ ...it })) : []
+    installerFiles.value = p.installer_files ?? []
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -61,7 +64,7 @@ function headerError(row: { key: string; value: string }): string {
   return ''
 }
 
-// --- 安装包：本地上传 ≤300MB（前端预校验 + 进度条）/ 外部链接输入框，两者并存 ---
+// --- 本地安装包：追加上传 ≤300MB（前端预校验 + 进度条），多包并存，逐个可删 ---
 const MAX_INSTALLER = 300 << 20
 function beforeUpload(file: File) {
   if (file.size > MAX_INSTALLER) {
@@ -75,26 +78,24 @@ async function uploadInstallerFile(file: File) {
   uploading.value = true
   uploadPct.value = 0
   try {
-    await uploadInstaller(id.value, file, (pct) => { uploadPct.value = pct })
+    installerFiles.value = await uploadInstaller(id.value, file, (pct) => { uploadPct.value = pct })
     Notify.success('安装包已上传')
-    const p = await getPlatform(id.value)
-    form.installer_file = p.installer_file ?? ''
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
     uploading.value = false
   }
 }
-async function removeInstallerFile() {
-  deletingFile.value = true
+async function removeInstallerFile(item: InstallerFileItem) {
+  deletingFile.value = item.file
   try {
-    await deleteInstaller(id.value)
-    form.installer_file = ''
+    await deleteInstallerFile(id.value, item.file)
+    installerFiles.value = installerFiles.value.filter((it) => it.file !== item.file)
     Notify.success('安装包已删除')
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
-    deletingFile.value = false
+    deletingFile.value = ''
   }
 }
 
@@ -111,14 +112,16 @@ async function save() {
     }
     headers[row.key.trim()] = row.value
   }
+  // 外部下载链接：剔除全空行（地址为空的行直接忽略，其余整行提交由后端校验）
+  const installer_urls = form.installer_urls.filter((it) => it.url.trim() !== '')
   saving.value = true
   try {
     if (isEdit.value) {
-      await updatePlatform(id.value, { name: form.name, description: form.description, schemes, extra_headers: headers, installer_url: form.installer_url })
+      await updatePlatform(id.value, { name: form.name, description: form.description, schemes, extra_headers: headers, installer_urls })
       Notify.success('平台已更新')
       router.push('/admin/platforms')
     } else {
-      await createPlatform({ name: form.name, description: form.description, schemes, extra_headers: headers, installer_url: form.installer_url })
+      await createPlatform({ name: form.name, description: form.description, schemes, extra_headers: headers, installer_urls })
       Notify.success('平台已创建')
       router.push({ path: '/admin/platforms', query: { created: '1' } }) // 返回列表触发「为各用户组选定」引导
     }
@@ -175,19 +178,36 @@ async function save() {
           <Button size="small" @click="form.headers.push({ key: '', value: '' })">添加响应头</Button>
         </Form.Item>
 
-        <!-- 安装包区：本地上传 / 外部链接，两者并存 -->
+        <!-- 安装包区：本地上传（多包并存，追加上传 + 逐个删除）/ 外部下载链接（动态列表），两种来源并存 -->
         <Form.Item label="客户端安装包">
           <Space direction="vertical" class="w-full">
-            <Upload :show-upload-list="false" :before-upload="beforeUpload">
-              <Button :loading="uploading" :disabled="!isEdit">上传安装包（≤300MB）</Button>
-            </Upload>
-            <div v-if="uploading" class="text-xs text-gray-500">上传中 {{ uploadPct }}%</div>
-            <div v-if="form.installer_file" class="flex items-center gap-2">
-              <TypographyText code>{{ form.installer_file }}</TypographyText>
-              <Button size="small" danger :loading="deletingFile" @click="removeInstallerFile">删除</Button>
-            </div>
-            <Input v-model:value="form.installer_url" placeholder="外部下载链接（可选，与本地安装包并存）" />
+            <Alert v-if="!isEdit" type="info" show-icon
+                   message="安装包需在平台创建后上传" />
+            <template v-else>
+              <Upload :show-upload-list="false" :before-upload="beforeUpload">
+                <Button :loading="uploading">追加安装包（≤300MB）</Button>
+              </Upload>
+              <div v-if="uploading" class="text-xs text-gray-500">上传中 {{ uploadPct }}%</div>
+              <div v-if="installerFiles.length" class="border rounded divide-y dark:divide-gray-700 w-full">
+                <div v-for="item in installerFiles" :key="item.file" class="flex items-center gap-2 px-2 py-1">
+                  <span class="text-xs text-gray-500 flex-none">📦</span>
+                  <TypographyText code class="flex-1 min-w-0 truncate">{{ item.name || item.file }}</TypographyText>
+                  <Button size="small" danger :loading="deletingFile === item.file"
+                          @click="removeInstallerFile(item)">删除</Button>
+                </div>
+              </div>
+              <div v-else class="text-xs text-gray-400">暂无本地安装包</div>
+            </template>
           </Space>
+        </Form.Item>
+
+        <Form.Item label="外部下载链接">
+          <div v-for="(row, i) in form.installer_urls" :key="i" class="flex gap-2 mb-2 items-center">
+            <Input v-model:value="row.name" class="w-40" placeholder="展示名（可选）" :maxlength="200" />
+            <Input v-model:value="row.url" placeholder="https://…（http/https 地址）" />
+            <Button size="small" danger @click="form.installer_urls.splice(i, 1)">删除</Button>
+          </div>
+          <Button size="small" @click="form.installer_urls.push({ name: '', url: '' })">添加下载链接</Button>
         </Form.Item>
 
         <Space>

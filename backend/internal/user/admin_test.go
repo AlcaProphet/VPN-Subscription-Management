@@ -54,7 +54,7 @@ func newTestAdminService(t *testing.T) (*store.Store, *AdminService, *token.Serv
 			CREATE TABLE IF NOT EXISTS platforms (
 			id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
 			description TEXT NOT NULL DEFAULT '', schemes TEXT NOT NULL DEFAULT '[]',
-			extra_headers TEXT NOT NULL DEFAULT '{}', installer_file TEXT, installer_url TEXT,
+			extra_headers TEXT NOT NULL DEFAULT '{}', installer_files TEXT NOT NULL DEFAULT '[]', installer_urls TEXT NOT NULL DEFAULT '[]',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 		"1002_subscriptions_versions.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS versions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

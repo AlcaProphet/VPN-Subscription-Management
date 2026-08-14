@@ -32,17 +32,17 @@ const mockMe = me as unknown as ReturnType<typeof vi.fn>
 // 三态卡片样例
 const groupCard = {
   platform_id: 1, name: 'Clash Verge', description: '桌面端', schemes: ['clash://{url}'],
-  installer_file_url: '', installer_url: '', status: 'group_selected',
+  installer_files: [], installer_urls: [], status: 'group_selected',
   download_token: 't1', download_url: '/subscriptions/p1/download?token=t1', subscription_name: '主力订阅',
 }
 const customCard = {
   platform_id: 2, name: 'v2rayNG', description: 'Android', schemes: ['v2rayng://{url}'],
-  installer_file_url: '', installer_url: '', status: 'custom',
+  installer_files: [], installer_urls: [], status: 'custom',
   download_token: 't2', download_url: '/subscriptions/p2/download?token=t2', subscription_name: '自定义订阅',
 }
 const unassignedCard = {
   platform_id: 3, name: 'Shadowrocket', description: 'iOS', schemes: ['shadowrocket://{url}'],
-  installer_file_url: '', installer_url: '', status: 'unassigned',
+  installer_files: [], installer_urls: [], status: 'unassigned',
   download_token: 't3', download_url: '/subscriptions/p3/download?token=t3',
 }
 

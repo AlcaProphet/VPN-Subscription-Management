@@ -34,10 +34,13 @@ onMounted(() => {
   }
 })
 
-// 安装包状态：本地已传 / 外链 / 无
+// 安装包状态：本地包数量 / 外链数量 / 无（多包并存）
 function installerStatus(p: PlatformItem): { text: string; color: string } {
-  if (p.installer_file) return { text: '本地已传', color: 'green' }
-  if (p.installer_url) return { text: '外链', color: 'blue' }
+  const files = p.installer_files?.length ?? 0
+  const urls = p.installer_urls?.length ?? 0
+  if (files > 0 && urls > 0) return { text: `本地 ${files} · 外链 ${urls}`, color: 'cyan' }
+  if (files > 0) return { text: `本地 ${files}`, color: 'green' }
+  if (urls > 0) return { text: `外链 ${urls}`, color: 'blue' }
   return { text: '无', color: 'default' }
 }
 
@@ -55,7 +58,7 @@ const deleteContent = computed(() => {
     `将删除平台「${p.name}」及其标识 ${p.slug}`,
     `影响：${p.cascade?.subscriptions ?? 0} 份订阅、${p.cascade?.tokens ?? 0} 个下载 Token、${p.cascade?.customs ?? 0} 份自定义订阅`,
   ]
-  if (p.installer_file) parts.push('本地安装包文件将一并删除')
+  if ((p.installer_files?.length ?? 0) > 0) parts.push('本地安装包文件将一并删除')
   parts.push('删除后不可恢复，请谨慎操作')
   return parts.join('\n')
 })

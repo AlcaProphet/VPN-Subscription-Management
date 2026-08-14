@@ -13,6 +13,7 @@ Thumbs.db
 *.swo
 *~
 .ui-check/
+.qoder/
 
 # ==============================
 # Go

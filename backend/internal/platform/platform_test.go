@@ -55,8 +55,8 @@ func newTestService(t *testing.T) (*store.Store, *Service) {
 			description TEXT NOT NULL DEFAULT '',
 			schemes TEXT NOT NULL DEFAULT '[]',
 			extra_headers TEXT NOT NULL DEFAULT '{}',
-			installer_file TEXT,
-			installer_url TEXT,
+			installer_files TEXT NOT NULL DEFAULT '[]',
+			installer_urls TEXT NOT NULL DEFAULT '[]',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 		// 平台删除完整级联所需的关联表（订阅/版本/自定义/Token/组选定）
@@ -130,12 +130,12 @@ func TestValidateExtraHeaders(t *testing.T) {
 func TestUploadInstallerTooLarge(t *testing.T) {
 	_, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", []string{"clash://{url}"}, nil)
+	p, err := svc.Create(ctx, "测试平台", "", []string{"clash://{url}"}, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
 	big := io.LimitReader(zeroReader{}, MaxInstallerSize+1) // 300MB + 1 字节
-	if err := svc.UploadInstaller(ctx, p.ID, big, "huge.exe"); err != ErrInstallerTooLarge {
+	if _, err := svc.UploadInstaller(ctx, p.ID, big, "huge.exe"); err != ErrInstallerTooLarge {
 		t.Fatalf("超限应返回 ErrInstallerTooLarge: %v", err)
 	}
 	// 无残留文件
@@ -149,82 +149,146 @@ func TestUploadInstallerTooLarge(t *testing.T) {
 	}
 }
 
-// TestUploadInstallerOverwrite 覆盖上传后旧时间戳文件被删
-func TestUploadInstallerOverwrite(t *testing.T) {
+// TestUploadInstallerAppend 多安装包并存：多次上传全部保留且列表按序返回
+func TestUploadInstallerAppend(t *testing.T) {
 	_, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
-	if err := svc.UploadInstaller(ctx, p.ID, strings.NewReader("v1"), "a.exe"); err != nil {
+	list, err := svc.UploadInstaller(ctx, p.ID, strings.NewReader("v1"), "a.exe")
+	if err != nil {
 		t.Fatalf("首次上传失败: %v", err)
 	}
+	first := list[0]
+	if len(list) != 1 || first.Name != "a.exe" {
+		t.Fatalf("首次上传后列表异常: %+v", list)
+	}
+	list, err = svc.UploadInstaller(ctx, p.ID, strings.NewReader("v2"), "b.exe")
+	if err != nil {
+		t.Fatalf("二次上传失败: %v", err)
+	}
+	if len(list) != 2 || list[0].File != first.File || list[1].Name != "b.exe" {
+		t.Fatalf("二次上传后列表应追加而非覆盖: %+v", list)
+	}
+	// 两个文件都在磁盘上
+	for _, it := range list {
+		if _, err := os.Stat(filepath.Join(svc.dataDir, installerDir, it.File)); err != nil {
+			t.Errorf("安装包文件应存在: %s => %v", it.File, err)
+		}
+	}
+	// DB 与磁盘一致
 	got, err := svc.Get(ctx, p.ID)
 	if err != nil {
 		t.Fatalf("读取平台失败: %v", err)
 	}
-	oldName := got.InstallerFile
-	if oldName == "" {
-		t.Fatal("首次上传后 installer_file 应为空串以外的值")
-	}
-	if err := svc.UploadInstaller(ctx, p.ID, strings.NewReader("v2"), "b.exe"); err != nil {
-		t.Fatalf("覆盖上传失败: %v", err)
-	}
-	// 旧文件已删，新文件存在
-	if _, err := os.Stat(filepath.Join(svc.dataDir, installerDir, oldName)); !os.IsNotExist(err) {
-		t.Errorf("旧安装包文件应被删除: %v", err)
-	}
-	got, err = svc.Get(ctx, p.ID)
-	if err != nil {
-		t.Fatalf("读取平台失败: %v", err)
-	}
-	if got.InstallerFile == oldName {
-		t.Error("installer_file 应已更新为新文件名")
-	}
-	if _, err := os.Stat(filepath.Join(svc.dataDir, installerDir, got.InstallerFile)); err != nil {
-		t.Errorf("新安装包文件应存在: %v", err)
+	if len(got.InstallerFiles) != 2 {
+		t.Fatalf("DB 应存 2 个安装包: %+v", got.InstallerFiles)
 	}
 }
 
-// TestUploadInstallerConcurrent 并发上传串行完成且仅最新文件存活（BEGIN IMMEDIATE 防互删）
+// TestUploadInstallerConcurrent 并发上传串行完成且两个文件都存活（BEGIN IMMEDIATE 防互删）
 func TestUploadInstallerConcurrent(t *testing.T) {
 	_, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
 	var wg sync.WaitGroup
-	errs := make([]error, 2)
+	results := make([][]InstallerFileItem, 2)
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = svc.UploadInstaller(ctx, p.ID, strings.NewReader("v"), "c.exe")
+			results[i], _ = svc.UploadInstaller(ctx, p.ID, strings.NewReader("v"), "c.exe")
 		}(i)
 	}
 	wg.Wait()
-	for i, e := range errs {
-		if e != nil {
-			t.Fatalf("并发上传 %d 失败: %v", i, e)
+	for i, list := range results {
+		if len(list) == 0 {
+			t.Fatalf("并发上传 %d 未返回列表", i)
 		}
 	}
-	// 目录中应仅存 1 个文件（最后一次上传的），且与 DB 记录一致
+	// 目录中应存 2 个文件，与 DB 记录一致
 	dir := filepath.Join(svc.dataDir, installerDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("读取安装包目录失败: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("并发上传后应仅存活 1 个文件: %d", len(entries))
+	if len(entries) != 2 {
+		t.Fatalf("并发上传后应存活 2 个文件: %d", len(entries))
 	}
 	got, err := svc.Get(ctx, p.ID)
 	if err != nil {
 		t.Fatalf("读取平台失败: %v", err)
 	}
-	if got.InstallerFile != entries[0].Name() {
-		t.Errorf("DB 记录与存活文件不一致: db=%s file=%s", got.InstallerFile, entries[0].Name())
+	if len(got.InstallerFiles) != 2 {
+		t.Errorf("DB 记录与磁盘不一致: db=%d file=%d", len(got.InstallerFiles), len(entries))
+	}
+}
+
+// TestDeleteInstallerFile 单独删除指定安装包：只删目标文件，其余保留
+func TestDeleteInstallerFile(t *testing.T) {
+	_, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("创建平台失败: %v", err)
+	}
+	list, err := svc.UploadInstaller(ctx, p.ID, strings.NewReader("v1"), "a.exe")
+	if err != nil {
+		t.Fatalf("上传 a 失败: %v", err)
+	}
+	list, err = svc.UploadInstaller(ctx, p.ID, strings.NewReader("v2"), "b.exe")
+	if err != nil {
+		t.Fatalf("上传 b 失败: %v", err)
+	}
+	target := list[0].File
+	if err := svc.DeleteInstallerFile(ctx, p.ID, target); err != nil {
+		t.Fatalf("删除失败: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(svc.dataDir, installerDir, target)); !os.IsNotExist(err) {
+		t.Errorf("目标安装包文件应被删除: %v", err)
+	}
+	got, err := svc.Get(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("读取平台失败: %v", err)
+	}
+	if len(got.InstallerFiles) != 1 || got.InstallerFiles[0].File == target {
+		t.Errorf("应仅剩另一个安装包: %+v", got.InstallerFiles)
+	}
+	// 幂等：重复删除不报错
+	if err := svc.DeleteInstallerFile(ctx, p.ID, target); err != nil {
+		t.Errorf("重复删除应幂等成功: %v", err)
+	}
+	// 路径穿越防护：非基本文件名拒绝
+	if err := svc.DeleteInstallerFile(ctx, p.ID, "../evil.exe"); err != ErrBadRequest {
+		t.Errorf("非基本文件名应拒绝: %v", err)
+	}
+}
+
+// TestValidateInstallerURLs 外链校验：非 http/https 拒绝、控制字符拒绝、空地址拒绝、合法通过
+func TestValidateInstallerURLs(t *testing.T) {
+	if _, err := ValidateInstallerURLs([]InstallerURLItem{{URL: "javascript:alert(1)"}}); err == nil {
+		t.Error("javascript 伪协议应拒绝")
+	}
+	if _, err := ValidateInstallerURLs([]InstallerURLItem{{URL: "ftp://x.com/a.exe"}}); err == nil {
+		t.Error("ftp 协议应拒绝")
+	}
+	if _, err := ValidateInstallerURLs([]InstallerURLItem{{URL: "http://x.com/a\r\nX: 1"}}); err == nil {
+		t.Error("含控制字符应拒绝")
+	}
+	if _, err := ValidateInstallerURLs([]InstallerURLItem{{URL: ""}}); err == nil {
+		t.Error("空地址应拒绝")
+	}
+	out, err := ValidateInstallerURLs([]InstallerURLItem{{Name: "官网", URL: " https://x.com/a.exe "}})
+	if err != nil {
+		t.Fatalf("合法 http 地址应通过: %v", err)
+	}
+	if out[0].URL != "https://x.com/a.exe" {
+		t.Errorf("应去除首尾空白: %+v", out[0])
 	}
 }
 
@@ -232,11 +296,12 @@ func TestUploadInstallerConcurrent(t *testing.T) {
 func TestUpdateKeepsSlug(t *testing.T) {
 	st, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "原名", "", nil, nil)
+	p, err := svc.Create(ctx, "原名", "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
-	if err := svc.Update(ctx, p.ID, "新名", "描述", []string{"v2rayng://{url}"}, map[string]string{"X-A": "1"}); err != nil {
+	if err := svc.Update(ctx, p.ID, "新名", "描述", []string{"v2rayng://{url}"}, map[string]string{"X-A": "1"},
+		[]InstallerURLItem{{Name: "官网", URL: "https://x.com/a.exe"}}); err != nil {
 		t.Fatalf("更新失败: %v", err)
 	}
 	var slug string
@@ -246,18 +311,28 @@ func TestUpdateKeepsSlug(t *testing.T) {
 	if slug != p.Slug {
 		t.Errorf("slug 不应被修改: got=%s want=%s", slug, p.Slug)
 	}
+	got, err := svc.Get(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("读取平台失败: %v", err)
+	}
+	if len(got.InstallerURLs) != 1 || got.InstallerURLs[0].URL != "https://x.com/a.exe" {
+		t.Errorf("外链应随更新保存: %+v", got.InstallerURLs)
+	}
 }
 
-// TestDeleteCascadesInstaller 删除平台级联删安装包文件
+// TestDeleteCascadesInstaller 删除平台级联删全部安装包文件
 func TestDeleteCascadesInstaller(t *testing.T) {
 	st, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
-	if err := svc.UploadInstaller(ctx, p.ID, bytes.NewReader([]byte("v")), "a.exe"); err != nil {
-		t.Fatalf("上传失败: %v", err)
+	if _, err := svc.UploadInstaller(ctx, p.ID, bytes.NewReader([]byte("v1")), "a.exe"); err != nil {
+		t.Fatalf("上传 a 失败: %v", err)
+	}
+	if _, err := svc.UploadInstaller(ctx, p.ID, bytes.NewReader([]byte("v2")), "b.exe"); err != nil {
+		t.Fatalf("上传 b 失败: %v", err)
 	}
 	if err := svc.Delete(ctx, p.ID); err != nil {
 		t.Fatalf("删除平台失败: %v", err)
@@ -270,7 +345,7 @@ func TestDeleteCascadesInstaller(t *testing.T) {
 	if n != 0 {
 		t.Error("平台行应已删除")
 	}
-	// 安装包文件已级联删除
+	// 全部安装包文件已级联删除
 	dir := filepath.Join(svc.dataDir, installerDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -285,7 +360,7 @@ func TestDeleteCascadesInstaller(t *testing.T) {
 func TestDeleteFullCascade(t *testing.T) {
 	st, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}

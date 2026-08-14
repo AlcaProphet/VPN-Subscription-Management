@@ -64,7 +64,7 @@ func testMigrateFS(withSubscriptions bool) fstest.MapFS {
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
 				description TEXT NOT NULL DEFAULT '', schemes TEXT NOT NULL DEFAULT '[]',
-				extra_headers TEXT NOT NULL DEFAULT '{}', installer_file TEXT, installer_url TEXT,
+				extra_headers TEXT NOT NULL DEFAULT '{}', installer_files TEXT NOT NULL DEFAULT '[]', installer_urls TEXT NOT NULL DEFAULT '[]',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)}
 	}
 	return fsys

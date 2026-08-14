@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Card, Collapse, Empty } from 'ant-design-vue'
+import { Alert, Button, Card, Collapse, Dropdown, Empty } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { homePlatforms, refreshHomeToken, homeUpdatedAt, type PlatformCard } from '@/api/home'
 import { getPublicAnnouncement } from '@/api/settings'
@@ -100,8 +100,18 @@ async function doRefresh() {
 // 弹窗关闭（供 :open + @update:open 使用）
 const closeRefresh = () => { refreshTarget.value = null }
 
-// 下载客户端
-const hasInstaller = (card: PlatformCard) => !!card.installer_file_url || !!card.installer_url
+// 下载客户端：本地安装包 + 外部下载链接合并为 Dropdown 菜单条目（点击按钮弹出）
+interface InstallerEntryUI { kind: 'local' | 'url'; label: string; url: string }
+function installerEntries(card: PlatformCard): InstallerEntryUI[] {
+  const out: InstallerEntryUI[] = []
+  for (const it of card.installer_files ?? []) {
+    out.push({ kind: 'local', label: it.name || it.url, url: it.url })
+  }
+  for (const it of card.installer_urls ?? []) {
+    out.push({ kind: 'url', label: it.name || it.url, url: it.url })
+  }
+  return out
+}
 function openInstaller(url: string) {
   window.open(url, '_blank')
 }
@@ -176,14 +186,21 @@ const custom = (card: PlatformCard) => card.status === 'custom'
               <Button v-if="!isAdmin" @click="refreshTarget = card">刷新链接</Button>
             </div>
 
-            <!-- 底部：下载客户端（本地/外链并存则两个都显示） -->
-            <div v-if="hasInstaller(card)" class="mt-3 pt-3 border-t flex flex-wrap gap-2">
-              <Button v-if="card.installer_file_url" size="small" @click="openInstaller(card.installer_file_url)">
-                下载客户端
-              </Button>
-              <Button v-if="card.installer_url" size="small" @click="openInstaller(card.installer_url)">
-                官网下载
-              </Button>
+            <!-- 底部：下载客户端（本地安装包 + 外部下载链接合并，点击按钮弹出下拉） -->
+            <div v-if="installerEntries(card).length" class="mt-3 pt-3 border-t">
+              <Dropdown :trigger="['click']">
+                <Button size="small">下载客户端</Button>
+                <template #overlay>
+                  <div class="bg-white dark:bg-gray-800 p-1 shadow-lg rounded border border-gray-200 dark:border-gray-600 min-w-44 max-w-80 max-h-64 overflow-auto">
+                    <div v-for="(it, i) in installerEntries(card)" :key="i"
+                         class="px-3 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                         @click="openInstaller(it.url)">
+                      <span class="flex-none">{{ it.kind === 'local' ? '📦' : '🔗' }}</span>
+                      <span class="truncate" :title="it.url">{{ it.label }}</span>
+                    </div>
+                  </div>
+                </template>
+              </Dropdown>
             </div>
           </Card>
         </div>

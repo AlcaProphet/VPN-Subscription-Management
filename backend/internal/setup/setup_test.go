@@ -40,8 +40,8 @@ func newTestSetupService(t *testing.T) (*store.Store, *Service) {
 			description TEXT NOT NULL DEFAULT '',
 			schemes TEXT NOT NULL DEFAULT '[]',
 			extra_headers TEXT NOT NULL DEFAULT '{}',
-			installer_file TEXT,
-			installer_url TEXT,
+			installer_files TEXT NOT NULL DEFAULT '[]',
+			installer_urls TEXT NOT NULL DEFAULT '[]',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 	}
