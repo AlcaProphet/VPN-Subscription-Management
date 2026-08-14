@@ -97,4 +97,46 @@ describe('首页平台卡片三态渲染', () => {
     expect(wrapper.text()).toContain('已被分配自定义订阅')
     expect(wrapper.text()).toContain('一键导入')
   })
+
+  it('管理员：池内订阅直接平铺展示，每份自带按钮，无卡片级通用按钮', async () => {
+    const adminCard = {
+      platform_id: 4, name: 'Clash Verge', description: '桌面端', schemes: ['clash://{url}'],
+      installer_files: [], installer_urls: [], status: 'admin_pool',
+      download_token: '', download_url: '',
+      subscriptions: [
+        { id: 11, name: '订阅A', slug: 'subscription-a', current_version: 1, token: 'ta', download_url: '/subscriptions/p4/download?token=ta' },
+        { id: 12, name: '订阅B', slug: 'subscription-b', current_version: 2, token: 'tb', download_url: '/subscriptions/p4/download?token=tb' },
+      ],
+    }
+    mockHome.mockResolvedValue([adminCard])
+    const auth = useAuthStore()
+    auth.setSession('tok', { id: 1, username: 'u1', email: 'u1@x.com', role: 'admin', group_id: 1, status: 'active', user_source: 'local' })
+    const wrapper = mount(HomeView, { global: { plugins: [makeRouter()] } })
+    await flushPromises()
+    // 订阅名称直接可见（非折叠）
+    expect(wrapper.text()).toContain('池内订阅（2）')
+    expect(wrapper.text()).toContain('订阅A')
+    expect(wrapper.text()).toContain('订阅B')
+    // 每份订阅各自带按钮：各出现 2 次（无卡片级通用按钮）
+    expect(wrapper.text().match(/一键导入/g)?.length).toBe(2)
+    expect(wrapper.text().match(/复制链接/g)?.length).toBe(2)
+    expect(wrapper.text()).not.toContain('刷新链接')
+  })
+
+  it('管理员：无池内订阅时显示空态提示', async () => {
+    const emptyCard = {
+      platform_id: 5, name: 'Shadowrocket', description: 'iOS', schemes: ['shadowrocket://{url}'],
+      installer_files: [], installer_urls: [], status: 'admin_pool',
+      download_token: '', download_url: '', subscriptions: [],
+    }
+    mockHome.mockResolvedValue([emptyCard])
+    const auth = useAuthStore()
+    auth.setSession('tok', { id: 1, username: 'u1', email: 'u1@x.com', role: 'admin', group_id: 1, status: 'active', user_source: 'local' })
+    const wrapper = mount(HomeView, { global: { plugins: [makeRouter()] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('池内订阅（0）')
+    expect(wrapper.text()).toContain('该平台暂无池内订阅')
+    expect(wrapper.text()).not.toContain('一键导入')
+    expect(wrapper.text()).not.toContain('复制链接')
+  })
 })

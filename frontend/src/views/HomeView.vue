@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Card, Collapse, Dropdown, Empty } from 'ant-design-vue'
+import { Alert, Button, Card, Dropdown, Empty } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { homePlatforms, refreshHomeToken, homeUpdatedAt, type PlatformCard } from '@/api/home'
 import { getPublicAnnouncement } from '@/api/settings'
@@ -144,7 +144,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
               </div>
             </template>
 
-            <!-- 订阅区段：普通用户三态 -->
+            <!-- 订阅区段：普通用户三态 / 管理员直接平铺展示池内全部订阅 -->
             <div v-if="!isAdmin">
               <Alert v-if="custom(card)" type="info" show-icon class="mb-2"
                      message="已被分配自定义订阅" description="由管理员单独配置，覆盖组内分发" />
@@ -156,34 +156,37 @@ const custom = (card: PlatformCard) => card.status === 'custom'
               </div>
             </div>
 
-            <!-- 管理员：池内全部订阅折叠列表（每份三按钮） -->
-            <Collapse v-else ghost>
-              <Collapse.Panel :key="card.platform_id" :header="`池内订阅（${card.subscriptions?.length ?? 0}）`">
-                <!-- 圆角浅色块行（方案 C）：每行独立浅灰圆角容器，块状分隔，暗色模式深灰底；
-                     按钮用普通 flex 容器（AntD Space 在 flex 行内有 4px 垂直偏移异常，导致文本与按钮不对齐） -->
-                <div class="space-y-2">
-                  <div v-for="sub in card.subscriptions ?? []" :key="sub.id"
-                       class="rounded-md bg-gray-100 dark:bg-gray-700/50 px-3 py-2">
-                    <div class="flex items-center justify-between gap-2 flex-wrap">
-                      <!-- 仅展示订阅名称，不展示标识（R09-11：标识为系统内部唯一 ID，主界面无需暴露） -->
-                      <div class="text-sm min-w-0 truncate">
-                        <span class="font-medium">{{ sub.name }}</span>
-                      </div>
-                      <div class="flex items-center gap-2 flex-shrink-0">
-                        <Button size="small" type="primary" @click="oneClickImport(card, sub.download_url)">一键导入</Button>
-                        <Button size="small" @click="copyLink(card, sub.download_url)">复制链接</Button>
-                      </div>
+            <!-- 管理员：池内全部订阅直接平铺展示（每份订阅自带按钮，不展示卡片级通用按钮） -->
+            <div v-else>
+              <div class="mb-2 text-sm font-medium">池内订阅（{{ card.subscriptions?.length ?? 0 }}）</div>
+              <!-- 圆角浅色块行（方案 C）：每行独立浅灰圆角容器，块状分隔，暗色模式深灰底；
+                   按钮用普通 flex 容器（AntD Space 在 flex 行内有 4px 垂直偏移异常，导致文本与按钮不对齐） -->
+              <div v-if="card.subscriptions?.length" class="space-y-2">
+                <div v-for="sub in card.subscriptions" :key="sub.id"
+                     class="rounded-md bg-gray-100 dark:bg-gray-700/50 px-3 py-2">
+                  <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <!-- 仅展示订阅名称，不展示标识（R09-11：标识为系统内部唯一 ID，主界面无需暴露） -->
+                    <div class="text-sm min-w-0 truncate">
+                      <span class="font-medium">{{ sub.name }}</span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                      <Button v-if="card.schemes?.length" size="small" type="primary"
+                              @click="oneClickImport(card, sub.download_url)">一键导入</Button>
+                      <Button size="small" @click="copyLink(card, sub.download_url)">复制链接</Button>
                     </div>
                   </div>
                 </div>
-              </Collapse.Panel>
-            </Collapse>
+              </div>
+              <div v-else class="text-gray-400 text-center py-4 border rounded bg-gray-50 dark:bg-gray-700">
+                该平台暂无池内订阅
+              </div>
+            </div>
 
-            <!-- 操作按钮组（未分配时三按钮隐藏；管理员显式 Token 无刷新接口不显示刷新） -->
-            <div v-if="!unassigned(card) || isAdmin" class="mt-3 flex flex-wrap gap-2">
+            <!-- 操作按钮组（仅普通用户；管理员直接在池内订阅行操作，见上方平铺列表） -->
+            <div v-if="!unassigned(card) && !isAdmin" class="mt-3 flex flex-wrap gap-2">
               <Button v-if="card.schemes?.length" type="primary" @click="oneClickImport(card)">一键导入</Button>
               <Button @click="copyLink(card)">复制链接</Button>
-              <Button v-if="!isAdmin" @click="refreshTarget = card">刷新链接</Button>
+              <Button @click="refreshTarget = card">刷新链接</Button>
             </div>
 
             <!-- 底部：下载客户端（本地安装包 + 外部下载链接合并，点击按钮弹出下拉） -->
