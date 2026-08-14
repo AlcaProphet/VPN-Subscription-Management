@@ -70,7 +70,7 @@ function goHome() {
     <Layout.Sider v-if="!isMobile" v-model:collapsed="collapsed" theme="light"
                   :width="220" :collapsed-width="64" collapsible :trigger="null"
                   :style="{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }">
-      <div class="h-16 flex items-center justify-center font-semibold truncate">
+      <div class="h-16 flex items-center justify-center font-semibold truncate text-gray-900">
         <span v-if="!collapsed">管理面板</span>
         <SettingOutlined v-else class="text-lg" />
       </div>
@@ -92,7 +92,8 @@ function goHome() {
     </Layout.Sider>
     <!-- <768：汉堡按钮唤出 Drawer 抽屉式菜单 -->
     <Drawer v-else :open="drawerOpen" placement="left" :width="220" @close="drawerOpen = false">
-      <div class="h-8 font-semibold mb-2">管理面板</div>
+      <!-- 纯 HTML 标题：暗色模式需手动加 dark:text 类（Drawer 背景跟随暗色算法） -->
+      <div class="h-8 font-semibold mb-2 dark:text-gray-100">管理面板</div>
       <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"
             @click="(e: any) => onMenuClick(e.key)" />
       <!-- 返回主界面：Drawer 底部固定入口 -->
