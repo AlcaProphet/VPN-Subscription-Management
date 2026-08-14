@@ -44,12 +44,6 @@ function installerStatus(p: PlatformItem): { text: string; color: string } {
   return { text: '无', color: 'default' }
 }
 
-// 复制标识
-async function copySlug(slug: string) {
-  await navigator.clipboard.writeText(slug)
-  Notify.success('标识已复制')
-}
-
 // 删除确认：逐项列出影响清单（N 份订阅、M 个 Token、K 份自定义订阅 + 文件不可恢复提示）
 const deleteContent = computed(() => {
   const p = toDelete.value
@@ -99,9 +93,7 @@ function goGroups() {
         <Table.Column key="name" title="名称" data-index="name" />
         <Table.Column key="slug" title="标识" data-index="slug">
           <template #default="{ record }">
-            <!-- 点击标识即复制（移除独立复制按钮） -->
-            <TypographyText code class="cursor-pointer hover:text-blue-500" title="点击复制"
-                             @click="copySlug(record.slug)">{{ record.slug }}</TypographyText>
+            <TypographyText code>{{ record.slug }}</TypographyText>
           </template>
         </Table.Column>
         <Table.Column key="installer" title="安装包" data-index="installer_file">
@@ -126,10 +118,9 @@ function goGroups() {
             <span class="font-medium">{{ p.name }}</span>
             <Tag :color="installerStatus(p).color">{{ installerStatus(p).text }}</Tag>
           </div>
-          <!-- 点击标识即复制（移除独立复制按钮） -->
+          <!-- 标识只读展示 -->
           <div class="text-xs text-gray-500 mt-1">
-            <TypographyText code class="cursor-pointer hover:text-blue-500" title="点击复制"
-                             @click="copySlug(p.slug)">{{ p.slug }}</TypographyText>
+            <TypographyText code>{{ p.slug }}</TypographyText>
           </div>
           <div class="mt-2 flex gap-2">
             <Button size="small" @click="router.push(`/admin/platforms/${p.id}/edit`)">编辑</Button>
