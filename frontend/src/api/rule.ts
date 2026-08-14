@@ -15,7 +15,11 @@ export interface RuleItem {
 
 export const listAdminRules = () =>
   http.get<any, { list: RuleItem[]; total: number }>('/admin/rules').then((d) => d.list)
-export const createRule = (payload: FormData) => http.post<any, RuleItem>('/admin/rules', payload)
+// 双模式：FormData=文件上传；JSON=文本创建（必须带 ?mode=text，后端按查询参数区分）
+export const createRule = (payload: FormData | { name: string; client_type: string; schemes: string[]; text: string }) => {
+  const isText = !(payload instanceof FormData)
+  return http.post<any, RuleItem>(`/admin/rules${isText ? '?mode=text' : ''}`, payload)
+}
 export const renameRule = (id: number, name: string) => http.put(`/admin/rules/${id}`, { name })
 export const deleteRule = (id: number) => http.delete(`/admin/rules/${id}`)
 export const refreshRuleToken = (id: number) => http.post<any, { token: string }>(`/admin/rules/${id}/token/refresh`)

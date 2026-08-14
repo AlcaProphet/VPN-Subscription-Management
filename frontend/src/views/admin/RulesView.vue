@@ -64,8 +64,8 @@ async function doCreate(file?: File) {
         Notify.error('请填写内容')
         return
       }
-      payload.append('text', form.text)
-      await createRule(payload)
+      // 文本模式：JSON body + ?mode=text（FormData 会导致后端走文件分支报「未接收到文件」）
+      await createRule({ name: form.name.trim(), client_type: form.client_type, schemes, text: form.text })
     }
     Notify.success('规则已创建')
     createOpen.value = false
