@@ -41,6 +41,7 @@ const editTarget = ref<number | null>(null) // 正在编辑的版本号（编辑
 const editLoading = ref(false) // 拉取编辑起点内容中
 const editText = ref('')
 const saving = ref(false)
+const previewOpen = ref(false) // 预览弹窗独立开关：点击立即打开显示加载态
 const previewContent = ref<string | null>(null)
 const previewing = ref(false)
 const toDelete = ref<number | null>(null)
@@ -174,12 +175,16 @@ async function doDelete() {
   }
 }
 
+// 预览：先开弹窗显示 Spin 占位，内容返回后渲染（与编辑弹窗加载样式一致，避免点击后无反馈）
 async function doPreview(ver: number) {
   previewing.value = true
+  previewOpen.value = true
+  previewContent.value = null
   try {
     previewContent.value = await api.preview(props.ownerId, ver)
   } catch (err) {
     Notify.error((err as Error).message)
+    previewOpen.value = false
   } finally {
     previewing.value = false
   }
@@ -294,10 +299,14 @@ function fmtTime(ts: string): string {
       </template>
     </Modal>
 
-    <!-- 预览弹窗：宽屏纯文本（禁 HTML） -->
-    <Modal :open="previewContent !== null" title="内容预览"
-           width="80%" :footer="null" :loading="previewing" @cancel="previewContent = null">
-      <pre class="text-xs overflow-auto max-h-[70vh] whitespace-pre-wrap break-all">{{ previewContent }}</pre>
+    <!-- 预览弹窗：宽屏纯文本（禁 HTML）；加载中 Spin 占位，完成后一次性渲染内容 -->
+    <Modal :open="previewOpen" title="内容预览"
+           width="80%" :footer="null" @cancel="previewOpen = false; previewContent = null">
+      <div v-if="previewing" class="py-12 text-center">
+        <Spin size="large" />
+        <div class="mt-2 text-gray-500 dark:text-gray-400">加载内容中…</div>
+      </div>
+      <pre v-else class="text-xs overflow-auto max-h-[70vh] whitespace-pre-wrap break-all">{{ previewContent }}</pre>
     </Modal>
 
     <ConfirmModal :open="toDelete !== null" title="删除版本" danger :loading="deleting"

@@ -63,10 +63,8 @@ async function doCreate() {
         Notify.error('请填写内容')
         return
       }
-      const form = new FormData()
-      form.append('name', createName.value.trim())
-      form.append('text', createText.value)
-      createdShare.value = await createShare(form)
+      // 文本模式：JSON body + ?mode=text（FormData 会导致后端走文件分支报「未接收到文件」）
+      createdShare.value = await createShare({ name: createName.value.trim(), text: createText.value })
     } else {
       // 文件模式由 beforeUpload 触发
       return
