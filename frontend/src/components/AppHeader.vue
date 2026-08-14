@@ -33,10 +33,10 @@ async function onLogout() {
 <template>
   <!-- 自定义 header 元素（非 AntD Layout.Header——避免其默认深色背景覆盖 Tailwind 底色，R08-UI07） -->
   <header class="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm h-16 flex items-center px-4 gap-3">
-    <!-- 汉堡按钮（手机端管理面板）：图标 text-2xl 放大 + 44px 触控区（移动端触控目标规范） -->
-    <Button v-if="burger" type="text" class="!w-11 !h-11 flex items-center justify-center flex-shrink-0"
+    <!-- 汉堡按钮（手机端管理面板）：图标 text-xl + 40px 触控区（移动端触控目标规范，R11 略调小） -->
+    <Button v-if="burger" type="text" class="!w-10 !h-10 flex items-center justify-center flex-shrink-0"
             @click="$emit('open-drawer')">
-      <template #icon><MenuOutlined class="text-2xl" /></template>
+      <template #icon><MenuOutlined class="text-xl" /></template>
     </Button>
     <div class="flex-1 min-w-0 flex items-center gap-2">
       <!-- 站点 ICON（R10-06）：顶栏站点名左侧，尺寸调大；未设置不显示 -->

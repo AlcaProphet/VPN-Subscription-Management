@@ -1,6 +1,6 @@
 <!-- AdminLayout.vue：管理面板布局（UI §5.0）——Sider 220/64 + <768 汉堡 Drawer；9 模块 + 1 预留 -->
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Layout, Menu, Drawer, Button, type MenuProps } from 'ant-design-vue'
 import {
@@ -28,6 +28,15 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
+})
+
+// 移动端 Drawer 打开时锁背景滚动（scroll chaining 穿透：抽屉内滚动/触摸不应带动被遮挡的背景内容）；
+// html + body 双锁（iOS Safari 上仅 body overflow:hidden 可能失效）；overscroll-behavior 阻断边缘回弹穿透
+watch(drawerOpen, (open) => {
+  const doc = document.documentElement
+  doc.style.overflow = open ? 'hidden' : ''
+  doc.style.overscrollBehavior = open ? 'contain' : ''
+  document.body.style.overflow = open ? 'hidden' : ''
 })
 
 // 侧边栏菜单：9 模块 + 1 预留，平铺不分组（图标+文字）
