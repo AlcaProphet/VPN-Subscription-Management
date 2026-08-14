@@ -425,7 +425,8 @@ const roleConfirmContent = computed(() => {
   <div>
     <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
       <h2 class="text-lg font-semibold m-0">用户管理</h2>
-      <Space>
+      <!-- Space wrap：长文案按钮 + 新建按钮在窄屏自动换行，防止溢出页面框架 -->
+      <Space :wrap="true">
         <Button :loading="sendingLinks" :disabled="!smtpConfigured"
                 :title="smtpConfigured ? '' : 'SMTP 未配置，请先在面板配置'"
                 @click="batchSendLinks">为所有无密码用户发送密码设置链接</Button>

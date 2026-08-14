@@ -709,11 +709,13 @@ onMounted(() => {
               <Input v-model:value="site.site_name" :maxlength="50" show-count placeholder="≤50 字符" />
             </div>
             <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">站点 ICON</span>
+              <span class="w-24 text-sm flex-none">站点 ICON</span>
               <Upload :before-upload="onSiteFile" :max-count="1" accept=".png,.jpeg,.jpg,.webp,.ico">
                 <Button>选择文件（≤2MB）</Button>
               </Upload>
-              <span v-if="site.icon_url" class="text-xs text-gray-400">当前：{{ site.icon_url }}</span>
+              <!-- flex-1 + min-w-0 + truncate：完整 URL 超长时省略号截断不溢出（title 提示完整路径） -->
+              <span v-if="site.icon_url" class="text-xs text-gray-400 flex-1 min-w-0 truncate"
+                    :title="site.icon_url">当前：{{ site.icon_url }}</span>
             </div>
             <Space>
               <Button type="primary" :loading="siteSaving" @click="doSaveSite">保存</Button>
