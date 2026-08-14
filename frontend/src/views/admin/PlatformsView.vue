@@ -99,14 +99,10 @@ function goGroups() {
         <Table.Column key="name" title="名称" data-index="name" />
         <Table.Column key="slug" title="标识" data-index="slug">
           <template #default="{ record }">
-            <Space>
-              <TypographyText code>{{ record.slug }}</TypographyText>
-              <Button size="small" type="text" @click="copySlug(record.slug)">复制</Button>
-            </Space>
+            <!-- 点击标识即复制（移除独立复制按钮） -->
+            <TypographyText code class="cursor-pointer hover:text-blue-500" title="点击复制"
+                             @click="copySlug(record.slug)">{{ record.slug }}</TypographyText>
           </template>
-        </Table.Column>
-        <Table.Column key="schemes" title="scheme 数量" data-index="schemes">
-          <template #default="{ record }">{{ record.schemes?.length ?? 0 }}</template>
         </Table.Column>
         <Table.Column key="installer" title="安装包" data-index="installer_file">
           <template #default="{ record }">
@@ -130,11 +126,11 @@ function goGroups() {
             <span class="font-medium">{{ p.name }}</span>
             <Tag :color="installerStatus(p).color">{{ installerStatus(p).text }}</Tag>
           </div>
-          <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
-            <TypographyText code>{{ p.slug }}</TypographyText>
-            <Button size="small" type="text" @click="copySlug(p.slug)">复制</Button>
+          <!-- 点击标识即复制（移除独立复制按钮） -->
+          <div class="text-xs text-gray-500 mt-1">
+            <TypographyText code class="cursor-pointer hover:text-blue-500" title="点击复制"
+                             @click="copySlug(p.slug)">{{ p.slug }}</TypographyText>
           </div>
-          <div class="text-xs text-gray-500 mt-1">scheme {{ p.schemes?.length ?? 0 }} 个</div>
           <div class="mt-2 flex gap-2">
             <Button size="small" @click="router.push(`/admin/platforms/${p.id}/edit`)">编辑</Button>
             <Button size="small" danger @click="toDelete = p">删除</Button>
