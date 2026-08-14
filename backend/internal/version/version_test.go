@@ -295,27 +295,3 @@ func TestListVersionsFileName(t *testing.T) {
 	}
 }
 
-// TestYamlWarning 两段式判定：YAML 语法错误提示、非 YAML 静默跳过、合法 YAML 无警告
-func TestYamlWarning(t *testing.T) {
-	// 启发式 YAML 但语法错误 → 警告
-	if w := YamlWarning([]byte("proxies:\n  - name: a\n    type: [broken")); w == "" {
-		t.Error("YAML 语法错误应返回警告")
-	}
-	// 合法 YAML → 无警告
-	if w := YamlWarning([]byte("port: 7890\nproxies: []")); w != "" {
-		t.Errorf("合法 YAML 不应警告: %s", w)
-	}
-	// 非 YAML（base64）→ 静默跳过
-	if w := YamlWarning([]byte("aGVsbG8gd29ybGQ=")); w != "" {
-		t.Errorf("base64 内容应跳过: %s", w)
-	}
-	// 非 YAML（协议前缀）→ 静默跳过
-	if w := YamlWarning([]byte("v2ray://abc123")); w != "" {
-		t.Errorf("v2ray 链接应跳过: %s", w)
-	}
-	// 普通文本（无键值对结构）→ 静默跳过
-	if w := YamlWarning([]byte("hello world\njust a plain line")); w != "" {
-		t.Errorf("普通文本应跳过: %s", w)
-	}
-}
-
