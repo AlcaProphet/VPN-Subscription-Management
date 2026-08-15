@@ -1,7 +1,7 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前设计基线见 [Design1.md](./Design1.md)（非强制，供参考）；GUI 样式规格见 [Design1-UI.md](./Design1-UI.md)；暂缓项详细设计见 [DesignOnHold.md](./DesignOnHold.md)；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design0.md、[AchievedDocuments/](./AchievedDocuments/)）已存档，仅用于核查，不再用于构建。
+> 当前设计：第一期基线见 [Design1.md](./docs/AchievedDocuments/Design1.md)（已构建完成，存档），增量能力（订阅装配与 Xray 对接，已定稿待构建）见 [Design2.md](./Design2.md)；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design0/Design1/Design1-UI/DesignOnHold/Build1~3/Issue1 等）统一存档于 [docs/AchievedDocuments/](./docs/AchievedDocuments/)，仅用于核查，不再用于构建。
 
 ---
 
@@ -11,7 +11,7 @@
 - **后端**：Go 1.25，module `vpn-sub`，目录 `backend/`
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design1.md](./Design1.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design2.md](./Design2.md)（增量能力，非强制）与 [Design1.md](./docs/AchievedDocuments/Design1.md)（第一期基线，存档）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
 
 ---
 
@@ -182,9 +182,8 @@
 | 文档类型 | 文件 | 定位 | 约束力 |
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
-| Design 文档 | [Design1.md](./Design1.md)（当前设计基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策 | 非强制，供参考 |
-| Design GUI 规格 | [Design1-UI.md](./Design1-UI.md) | Design1.md 全部界面部件的 GUI 样式规格（布局/组件映射/状态分支/响应式）；功能行为以 Design1.md 为准 | 非强制，供参考 |
-| Design 暂缓文档 | [DesignOnHold.md](./DesignOnHold.md) | 承载已确认但暂缓开发功能的详细设计与已确认决策；仅其中「第一次构建预留接口」部分参与当期构建 | 非强制，供参考 |
+| Design 文档 | [Design2.md](./Design2.md)（增量能力，当前设计） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
+| Design GUI 规格 | Design1-UI.md（存档，待补增量页面规格） | 已建界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；功能行为以 Design 文档为准 | 非强制，供参考 |
 | Build 文档 | [BuildN.md](./BuildN.md) | 将 Design 的设计转化为指导 AI 构建的构建手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
 | Issue 文档 | [IssueN.md](./IssueN.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
 
@@ -193,11 +192,11 @@
 ### 8.2 文档分工规则
 
 - **AGENTS.md 不含具体设计内容**：产品定义、功能流程、数据模型、架构细节等设计信息全部留在 Design 文档中，本文件仅通过引用指向
-- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；新设计构想经用户确认后落入 Design
+- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；新设计构想经用户确认后落入 Design；当期设计为 Design2.md（增量能力已定稿，构建时不得偏离），Design1.md 为第一期已建成功能基线（存档参考）
 - **Build 文档**面向 AI 执行，每个 Step 必须含：目标、前置条件、产出文件与参考代码/伪代码、验收规范与验证命令；每次仅执行一个 Step，验收通过后再进入下一步
 - **Issue 文档**只记录 bug 与修复闭环；非问题的优化候选归 Design 文档记录
-- **DesignOnHold 文档**承载已确认但暂缓开发的功能：完整详细设计与已确认决策留存在此，恢复开发时以其中决策为准；当期构建仅落地其列明的预留接口，不得提前实现暂缓功能
-- 新建文档参照 [DocTemplates/](./DocTemplates/) 中对应模板的结构与样式
+- **归档规则**：构建验收完成或被后续文档取代的 Design/Build/Issue 文档移入 [docs/AchievedDocuments/](./docs/AchievedDocuments/)，仅作核查，不用于构建；研究参考资料存于 [docs/Reference/](./docs/Reference/)
+- 新建文档参照 [docs/DocTemplates/](./docs/DocTemplates/) 中对应模板的结构与样式
 
 ### 8.3 执行规则
 
@@ -210,10 +209,10 @@
 | 文档 | 目标读者 | 内容 | 状态 |
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
-| [Design1.md](./Design1.md) | 人类（开发者/用户） | 当前设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维 | 活跃 |
-| [Design1-UI.md](./Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | GUI 样式规格：13 个页面/部件的布局结构、AntD 组件映射、状态分支、响应式规则、全局风格基调 | 活跃 |
-| [DesignOnHold.md](./DesignOnHold.md) | 人类（开发者/用户）与 AI 编码助手 | 暂缓项详细设计：模块化订阅装配器（数据模型/双渲染器/外部数据源/已确认决策/第一次构建预留接口） | 活跃（暂缓） |
-| [Build1.md](./Build1.md)、[Build2.md](./Build2.md)（已归档）、[Build3.md](./Build3.md) | AI 编码助手 | 分步构建方案：TODO LIST + 参考代码 + 验收命令；Build3 为当前构建方案 | Build1/Build2 已验收归档，Build3 活跃（未开始） |
-| [Issue1.md](./Issue1.md) | 开发者 | 问题追踪：R01-01 生产构建白屏（manualChunks 循环依赖）已修复闭环 | 活跃 |
-| [DocTemplates/](./DocTemplates/) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue） | 活跃 |
-| Design0.md、[AchievedDocuments/](./AchievedDocuments/) | 开发者 | 历史文档（初始设计大纲与历史构建记录，已存档，仅核查，不用于构建） | 已存档 |
+| [Design2.md](./Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 增量能力设计：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接（24 项决策），已定稿待构建 | 活跃 |
+| [docs/DocTemplates/](./docs/DocTemplates/) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue）与 Clash/Shadowrocket 配置参考样例 | 活跃 |
+| [docs/Reference/](./docs/Reference/) | 开发者 | 研究参考资料：Xray-core API 研究、SSpanel 订阅输出逻辑 | 活跃 |
+| [docs/AchievedDocuments/Design1.md](./docs/AchievedDocuments/Design1.md) | 人类（开发者/用户） | 第一期设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维（已构建完成） | 已存档 |
+| [docs/AchievedDocuments/Design1-UI.md](./docs/AchievedDocuments/Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已建界面 GUI 样式规格：13 个页面/部件；增量页面规格待设计完善后补齐 | 已存档 |
+| [docs/AchievedDocuments/DesignOnHold.md](./docs/AchievedDocuments/DesignOnHold.md) | 开发者 | 增量设计源稿（含修订过程记录），内容已全量转入 Design2.md | 已存档 |
+| [docs/AchievedDocuments/](./docs/AchievedDocuments/) 内 Build1~3、Issue1、Design0 及研究画布报告 | AI 编码助手 / 开发者 | 历史构建方案（Build1~3 均已验收）、问题追踪闭环、初始设计大纲、DesignOnHold 研究报告 | 已存档 |

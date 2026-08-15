@@ -1,6 +1,6 @@
 # Design1-UI.md — GUI 样式规格（承载 Design1.md 全部界面部件）
 
-> **文档定位：** 本文档是 [Design1.md](./Design1.md) 全部界面部件的 GUI 样式规格：布局结构、Ant Design Vue 组件映射、状态分支、关键交互与响应式规则。功能行为与业务规则一律以 Design1.md 为准（本文不重复定义）；编码约束遵循 [AGENTS.md](./AGENTS.md)（**唯一强要求**）；暂缓项预留见 [DesignOnHold.md](./DesignOnHold.md)。
+> **文档定位：** 本文档是 [Design1.md](./Design1.md) 全部界面部件的 GUI 样式规格：布局结构、Ant Design Vue 组件映射、状态分支、关键交互与响应式规则。功能行为与业务规则一律以 Design1.md 为准（本文不重复定义）；编码约束遵循 [AGENTS.md](../../AGENTS.md)（**唯一强要求**）；暂缓项预留见 [DesignOnHold.md](./DesignOnHold.md)。
 > 本规格面向第一次构建可直接实施；与 Design1.md 冲突时以 Design1.md 为准并提示用户。
 
 ---

@@ -1,6 +1,6 @@
 # Xray-Core-API.md — Xray-core API 研究与参考资料
 
-> **文档定位：** 本文档是 Xray-core gRPC API 的研究结论与参考资料库，供 vpn-sub 项目 Xray 对接（高级模式）开发与排查时查阅。设计决策与方案见 [DesignOnHold.md](../DesignOnHold.md) 第五章；SSPanel-UIM 参照研究见 [SSpanel.md](./SSpanel.md)。
+> **文档定位：** 本文档是 Xray-core gRPC API 的研究结论与参考资料库，供 vpn-sub 项目 Xray 对接（高级模式）开发与排查时查阅。设计决策与方案见 [DesignOnHold.md](../AchievedDocuments/DesignOnHold.md) 第五章；SSPanel-UIM 参照研究见 [SSpanel.md](./SSpanel.md)。
 > **核验来源：** 本地仓库 `/Users/kyle/Desktop/Repo/Xray-core`（go 1.26 版本）源码核验 + 互联网公开资料（XTLS 官方讨论、Marzban、3x-ui、vless URI 社区规范）。
 
 ---
