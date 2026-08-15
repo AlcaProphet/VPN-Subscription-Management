@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button, Dropdown, Switch, Tag } from 'ant-design-vue'
+import { MenuOutlined } from '@ant-design/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { useTheme } from '@/theme'
@@ -32,7 +33,11 @@ async function onLogout() {
 <template>
   <!-- 自定义 header 元素（非 AntD Layout.Header——避免其默认深色背景覆盖 Tailwind 底色，R08-UI07） -->
   <header class="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm h-16 flex items-center px-4 gap-3">
-    <Button v-if="burger" type="text" @click="$emit('open-drawer')">☰</Button>
+    <!-- 汉堡按钮（手机端管理面板）：图标 text-xl + 40px 触控区（移动端触控目标规范，R11 略调小） -->
+    <Button v-if="burger" type="text" class="!w-10 !h-10 flex items-center justify-center flex-shrink-0"
+            @click="$emit('open-drawer')">
+      <template #icon><MenuOutlined class="text-xl" /></template>
+    </Button>
     <div class="flex-1 min-w-0 flex items-center gap-2">
       <!-- 站点 ICON（R10-06）：顶栏站点名左侧，尺寸调大；未设置不显示 -->
       <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="h-8 w-8 object-contain" />
@@ -47,9 +52,9 @@ async function onLogout() {
         <template #overlay>
           <!-- 边框 + 增强阴影：暗色模式 gray-800 背景与顶栏同色，靠边框/阴影增强区分（R09-13） -->
           <div class="bg-white dark:bg-gray-800 p-3 shadow-lg rounded border border-gray-200 dark:border-gray-600 w-auto min-w-32">
-            <!-- 角色标签水平居中（R09-11；m-0 消除 AntD Tag 默认右 margin 导致的视觉偏移） -->
-            <div class="flex justify-center">
-              <Tag :color="isAdmin ? 'blue' : 'default'" class="m-0">{{ isAdmin ? '管理员' : '用户' }}</Tag>
+            <!-- 角色标签仅管理员展示（R11：普通用户不再显示「用户」标签） -->
+            <div v-if="isAdmin" class="flex justify-center">
+              <Tag color="blue" class="m-0">管理员</Tag>
             </div>
             <div class="mt-2 flex flex-col gap-1">
               <Button size="small" type="text" @click="router.push('/profile')">个人中心</Button>

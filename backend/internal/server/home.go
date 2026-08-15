@@ -42,19 +42,31 @@ func RegisterHomeRoutes(engine *gin.Engine, h *HomeHandler, sessionMW gin.Handle
 	g.GET("/updated_at", h.updatedAt)
 }
 
+// installerFileCard 首页本地安装包条目（已拼接公开可缓存路径）
+type installerFileCard struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// installerURLCard 首页外部下载链接条目
+type installerURLCard struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
 // platformCard 平台卡片（普通用户三态 / 管理员池）
 type platformCard struct {
-	PlatformID       int64             `json:"platform_id"`
-	Name             string            `json:"name"`
-	Description      string            `json:"description"`
-	Schemes          []string          `json:"schemes"`
-	InstallerFileURL string            `json:"installer_file_url"`
-	InstallerURL     string            `json:"installer_url"`
-	Status           string            `json:"status"` // group_selected/custom/unassigned/admin_pool
-	DownloadToken    string            `json:"download_token"`
-	DownloadURL      string            `json:"download_url"`
-	SubscriptionName string            `json:"subscription_name,omitempty"`
-	Subscriptions    []adminPoolSub    `json:"subscriptions,omitempty"` // 管理员池内订阅列表
+	PlatformID       int64                `json:"platform_id"`
+	Name             string               `json:"name"`
+	Description      string               `json:"description"`
+	Schemes          []string             `json:"schemes"`
+	InstallerFiles   []installerFileCard  `json:"installer_files"`
+	InstallerURLs    []installerURLCard   `json:"installer_urls"`
+	Status           string               `json:"status"` // group_selected/custom/unassigned/admin_pool
+	DownloadToken    string               `json:"download_token"`
+	DownloadURL      string               `json:"download_url"`
+	SubscriptionName string               `json:"subscription_name,omitempty"`
+	Subscriptions    []adminPoolSub       `json:"subscriptions,omitempty"` // 管理员池内订阅列表
 }
 
 type adminPoolSub struct {
@@ -72,7 +84,7 @@ func (h *HomeHandler) platforms(c *gin.Context) {
 	userID := c.GetInt64(auth.CtxUserID)
 	role := c.GetString(auth.CtxUserRole)
 	rows, err := h.store.DB().QueryContext(ctx,
-		`SELECT id, slug, name, COALESCE(description,''), schemes, COALESCE(installer_file,''), COALESCE(installer_url,'')
+		`SELECT id, slug, name, COALESCE(description,''), schemes, COALESCE(installer_files,'[]'), COALESCE(installer_urls,'[]')
 		 FROM platforms ORDER BY id`)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
@@ -84,13 +96,13 @@ func (h *HomeHandler) platforms(c *gin.Context) {
 		slug, name     string
 		desc           string
 		schemesRaw     string
-		installerFile  string
-		installerURL   string
+		installerFiles string
+		installerURLs  string
 	}
 	var plats []platRow
 	for rows.Next() {
 		var p platRow
-		if err := rows.Scan(&p.id, &p.slug, &p.name, &p.desc, &p.schemesRaw, &p.installerFile, &p.installerURL); err != nil {
+		if err := rows.Scan(&p.id, &p.slug, &p.name, &p.desc, &p.schemesRaw, &p.installerFiles, &p.installerURLs); err != nil {
 			_ = rows.Close()
 			Fail(c, http.StatusInternalServerError, err.Error())
 			return
@@ -105,12 +117,12 @@ func (h *HomeHandler) platforms(c *gin.Context) {
 	out := make([]platformCard, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for _, p := range plats {
 		card := platformCard{
-			PlatformID:       p.id,
-			Name:             p.name,
-			Description:      p.desc,
-			Schemes:          parseSchemes(p.schemesRaw),
-			InstallerFileURL: installerURLOf(p.installerFile),
-			InstallerURL:     p.installerURL,
+			PlatformID:     p.id,
+			Name:           p.name,
+			Description:    p.desc,
+			Schemes:        parseSchemes(p.schemesRaw),
+			InstallerFiles: installerFilesOf(p.installerFiles),
+			InstallerURLs:  installerURLsOf(p.installerURLs),
 		}
 		if role == "admin" {
 			// 管理员：池内全部订阅（预览用显式 Token）
@@ -351,10 +363,36 @@ func parseSchemes(raw string) []string {
 	return out
 }
 
-// installerURLOf 安装包公开路径（/public 可缓存路径）
-func installerURLOf(file string) string {
-	if file == "" {
-		return ""
+// installerFilesOf 解析本地安装包列表并拼接公开可缓存路径（/public/installers/<file>）
+func installerFilesOf(raw string) []installerFileCard {
+	var items []struct {
+		Name string `json:"name"`
+		File string `json:"file"`
 	}
-	return "/public/installers/" + file
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	out := make([]installerFileCard, 0, len(items))
+	for _, it := range items {
+		if it.File == "" {
+			continue
+		}
+		out = append(out, installerFileCard{Name: it.Name, URL: "/public/installers/" + it.File})
+	}
+	return out
+}
+
+// installerURLsOf 解析外部下载链接列表（非法 JSON 容错返回空列表）
+func installerURLsOf(raw string) []installerURLCard {
+	var items []installerURLCard
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	out := make([]installerURLCard, 0, len(items))
+	for _, it := range items {
+		if it.URL != "" {
+			out = append(out, it)
+		}
+	}
+	return out
 }

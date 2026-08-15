@@ -192,7 +192,7 @@ func versionList(c *gin.Context, verSvc *version.Service, ot version.OwnerType) 
 }
 
 // versionCreate 双模式——mode=upload 取 multipart 文件流（ReaderContent，≤50MB，Design1 §6.3）；
-// mode=text 取文本体（BytesContent）；文本模式返回 yaml_warning 标记（不阻断）
+// mode=text 取文本体（BytesContent）
 func versionCreate(c *gin.Context, verSvc *version.Service, ot version.OwnerType) {
 	id, ok := parseID(c, "id")
 	if !ok {
@@ -227,11 +227,7 @@ func versionCreate(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	yamlWarning := ""
-	if text, ok := src.(version.BytesContent); ok {
-		yamlWarning = version.YamlWarning(text)
-	}
-	OK(c, gin.H{"version_no": v.No, "yaml_warning": yamlWarning})
+	OK(c, gin.H{"version_no": v.No})
 }
 
 // versionSwitch 切换当前版本（原子切换）

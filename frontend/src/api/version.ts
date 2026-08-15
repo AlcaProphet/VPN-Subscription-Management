@@ -16,7 +16,7 @@ export function versionApi(prefix: string) {
     create: (ownerId: number, payload: FormData | { text: string }) => {
       // 文本模式必须带 ?mode=text（后端按查询参数区分文件/文本双模式）；FormData 为文件上传
       const isText = !(payload instanceof FormData)
-      return http.post<any, { version_no: number; yaml_warning?: string }>(
+      return http.post<any, { version_no: number }>(
         `${prefix}/${ownerId}/versions${isText ? '?mode=text' : ''}`,
         payload,
       )

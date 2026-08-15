@@ -34,17 +34,14 @@ onMounted(() => {
   }
 })
 
-// 安装包状态：本地已传 / 外链 / 无
+// 安装包状态：本地包数量 / 外链数量 / 无（多包并存）
 function installerStatus(p: PlatformItem): { text: string; color: string } {
-  if (p.installer_file) return { text: '本地已传', color: 'green' }
-  if (p.installer_url) return { text: '外链', color: 'blue' }
+  const files = p.installer_files?.length ?? 0
+  const urls = p.installer_urls?.length ?? 0
+  if (files > 0 && urls > 0) return { text: `本地 ${files} · 外链 ${urls}`, color: 'cyan' }
+  if (files > 0) return { text: `本地 ${files}`, color: 'green' }
+  if (urls > 0) return { text: `外链 ${urls}`, color: 'blue' }
   return { text: '无', color: 'default' }
-}
-
-// 复制标识
-async function copySlug(slug: string) {
-  await navigator.clipboard.writeText(slug)
-  Notify.success('标识已复制')
 }
 
 // 删除确认：逐项列出影响清单（N 份订阅、M 个 Token、K 份自定义订阅 + 文件不可恢复提示）
@@ -55,7 +52,7 @@ const deleteContent = computed(() => {
     `将删除平台「${p.name}」及其标识 ${p.slug}`,
     `影响：${p.cascade?.subscriptions ?? 0} 份订阅、${p.cascade?.tokens ?? 0} 个下载 Token、${p.cascade?.customs ?? 0} 份自定义订阅`,
   ]
-  if (p.installer_file) parts.push('本地安装包文件将一并删除')
+  if ((p.installer_files?.length ?? 0) > 0) parts.push('本地安装包文件将一并删除')
   parts.push('删除后不可恢复，请谨慎操作')
   return parts.join('\n')
 })
@@ -96,14 +93,8 @@ function goGroups() {
         <Table.Column key="name" title="名称" data-index="name" />
         <Table.Column key="slug" title="标识" data-index="slug">
           <template #default="{ record }">
-            <Space>
-              <TypographyText code>{{ record.slug }}</TypographyText>
-              <Button size="small" type="text" @click="copySlug(record.slug)">复制</Button>
-            </Space>
+            <TypographyText code>{{ record.slug }}</TypographyText>
           </template>
-        </Table.Column>
-        <Table.Column key="schemes" title="scheme 数量" data-index="schemes">
-          <template #default="{ record }">{{ record.schemes?.length ?? 0 }}</template>
         </Table.Column>
         <Table.Column key="installer" title="安装包" data-index="installer_file">
           <template #default="{ record }">
@@ -127,11 +118,10 @@ function goGroups() {
             <span class="font-medium">{{ p.name }}</span>
             <Tag :color="installerStatus(p).color">{{ installerStatus(p).text }}</Tag>
           </div>
-          <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
+          <!-- 标识只读展示 -->
+          <div class="text-xs text-gray-500 mt-1">
             <TypographyText code>{{ p.slug }}</TypographyText>
-            <Button size="small" type="text" @click="copySlug(p.slug)">复制</Button>
           </div>
-          <div class="text-xs text-gray-500 mt-1">scheme {{ p.schemes?.length ?? 0 }} 个</div>
           <div class="mt-2 flex gap-2">
             <Button size="small" @click="router.push(`/admin/platforms/${p.id}/edit`)">编辑</Button>
             <Button size="small" danger @click="toDelete = p">删除</Button>

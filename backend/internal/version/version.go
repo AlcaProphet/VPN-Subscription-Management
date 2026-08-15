@@ -6,7 +6,6 @@ package version
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -14,10 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 
 	"vpn-sub/internal/store"
 )
@@ -512,65 +508,4 @@ func (s *Service) DeleteVersionsTx(ctx context.Context, tx *sql.Tx, ot OwnerType
 	_, err := tx.ExecContext(ctx,
 		`DELETE FROM versions WHERE owner_type = ? AND owner_id = ?`, ot, ownerID)
 	return err
-}
-
-// YamlWarning 文本编辑保存前 YAML 语法检测——先启发式判定「是否 YAML」，是 YAML 再做语法检测并提示，
-// 非 YAML（base64/v2ray/.conf）静默跳过；均不阻断保存（提示由前端 a-alert warning 展示）
-func YamlWarning(content []byte) string {
-	if looksNonYaml(content) { // 启发式：可 base64 解码，或以 v2ray://、clash:// 等协议前缀开头 → 静默跳过
-		return ""
-	}
-	if !looksLikeYaml(content) { // 启发式：不含「键: 值」行结构且非 --- 开头 → 不视为 YAML，静默跳过
-		return ""
-	}
-	var probe any
-	if err := yaml.Unmarshal(content, &probe); err != nil {
-		return "YAML 语法问题：" + err.Error() // 判定为 YAML 但语法错误 → 返回警告标记（不阻断）
-	}
-	return "" // 合法 YAML → 无警告
-}
-
-// looksNonYaml 明显非 YAML 内容：可完整 base64 解码（典型订阅编码），或以客户端协议前缀开头
-func looksNonYaml(content []byte) bool {
-	trimmed := strings.TrimSpace(string(content))
-	if trimmed == "" {
-		return false
-	}
-	for _, prefix := range []string{"v2ray://", "clash://", "trojan://", "vmess://", "ss://", "ssr://", "hysteria2://", "tuic://"} {
-		if strings.HasPrefix(trimmed, prefix) {
-			return true
-		}
-	}
-	if _, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
-		return true
-	}
-	if _, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil {
-		return true
-	}
-	return false
-}
-
-// looksLikeYaml 启发式 YAML 识别：--- 开头，或存在「非空键 + 冒号 + 空格/换行」的行（如 proxies:、port: 8080）
-func looksLikeYaml(content []byte) bool {
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if trimmed == "---" {
-			return true
-		}
-		if idx := strings.Index(trimmed, ":"); idx > 0 {
-			key := strings.TrimSpace(trimmed[:idx])
-			if key == "" {
-				continue
-			}
-			rest := trimmed[idx+1:]
-			if rest == "" || strings.HasPrefix(strings.TrimSpace(rest), " ") || strings.HasPrefix(rest, " ") {
-				return true
-			}
-		}
-	}
-	return false
 }

@@ -3,7 +3,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Alert, Badge, Button, Dropdown, Input, Menu, Modal, Pagination, Radio, Select, Space, Table, Tag, Upload,
+  Alert, Badge, Button, Dropdown, Input, Menu, Modal, Pagination, Radio, Select, Space, Table, Tabs, Tag, Upload,
 } from 'ant-design-vue'
 import {
   listUsers, createUser, updateUser, changeRole, revokeTokens, resetPassword, clearOidc, setStatus, deleteUser,
@@ -425,7 +425,8 @@ const roleConfirmContent = computed(() => {
   <div>
     <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
       <h2 class="text-lg font-semibold m-0">用户管理</h2>
-      <Space>
+      <!-- Space wrap：长文案按钮 + 新建按钮在窄屏自动换行，防止溢出页面框架 -->
+      <Space :wrap="true">
         <Button :loading="sendingLinks" :disabled="!smtpConfigured"
                 :title="smtpConfigured ? '' : 'SMTP 未配置，请先在面板配置'"
                 @click="batchSendLinks">为所有无密码用户发送密码设置链接</Button>
@@ -567,14 +568,17 @@ const roleConfirmContent = computed(() => {
             <Select.Option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</Select.Option>
           </Select>
         </div>
-        <Radio.Group v-model:value="customForm.mode" button-style="solid">
-          <Radio.Button value="upload">上传文件</Radio.Button>
-          <Radio.Button value="text">粘贴文本</Radio.Button>
-        </Radio.Group>
-        <Upload v-if="customForm.mode === 'upload'" :before-upload="onFileChange" :max-count="1" accept=".yaml,.yml,.txt,.conf">
-          <Button>选择文件</Button>
-        </Upload>
-        <Input.TextArea v-else v-model:value="customForm.text" :rows="6" placeholder="粘贴订阅配置内容（覆盖该用户该平台的组分配）" />
+        <!-- 文件/文本双页签（与版本管理、分享订阅创建弹窗统一，避免按钮错位） -->
+        <Tabs v-model:activeKey="customForm.mode">
+          <Tabs.TabPane key="upload" tab="文件上传">
+            <Upload :before-upload="onFileChange" accept=".yaml,.yml,.txt,.conf">
+              <Button>选择文件（≤50MB）</Button>
+            </Upload>
+          </Tabs.TabPane>
+          <Tabs.TabPane key="text" tab="在线编辑">
+            <Input.TextArea v-model:value="customForm.text" :rows="6" placeholder="粘贴订阅配置内容（覆盖该用户该平台的组分配）" />
+          </Tabs.TabPane>
+        </Tabs>
         <div class="flex justify-end">
           <Button type="primary" :loading="uploading" @click="doCustom">上传</Button>
         </div>
