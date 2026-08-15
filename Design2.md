@@ -1,13 +1,14 @@
 # Design2.md — VPN 订阅管理系统增量能力设计（订阅装配与 Xray 对接）
 
 > **文档定位**：本文档是本系统增量能力的设计文档，由 [DesignOnHold.md](./docs/AchievedDocuments/DesignOnHold.md) 的多轮确认定稿内容规范化整理而成，全部设计已定稿、无待决事项，构建时不得偏离。能力构成：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](./docs/Reference/Xray-Core-API.md) 与 [Reference/SSpanel.md](./docs/Reference/SSpanel.md)。
-> **术语约定**：「**规则素材池**」（第二章）= 规则条目素材池（域名/IP/进程名等，供规则拼接）；「**订阅地址池**」（第四章）= 每平台存放订阅文件的池（单模板 + 版本历史，即既有「订阅池」）。两池职责分离，不混用。
+> **术语约定**：「**规则素材池**」（第二章）= 规则条目素材池（域名/IP/进程名等，供规则拼接）；「**订阅地址池**」（第四章）= 每平台存放订阅文件的池（单模板 + 版本历史，即既有「订阅池」）；「**分流规则**」= Shadowrocket 装配产出的 .conf 分流配置（[General] + [Rule]），归入现有「规则」实体共享分发（见 4.4）。各池/实体职责分离，不混用。
 > **文档关系**：设计基线见 [Design1.md](./docs/AchievedDocuments/Design1.md)，编码约束遵循 [AGENTS.md](./AGENTS.md)（**唯一强要求**）。本文档与 Design1.md 冲突时以本文档为准，构建完成后定稿结论同步落入基线。
 >
 > **参考样例**（位于 `docs/DocTemplates/`）：
 > - `ClashOfficial.yaml.template.md`：Clash（mihomo）官方 YAML 全字段参考
 > - `Clash.yaml.template.md`：作者个人实际 Clash YAML 配置（表单默认值与代理组预置库参考）
-> - `Shadowrocket.conf.template.md`：作者个人实际 Shadowrocket .conf 分流规则参考
+> - `Shadowrocket.conf.template.md`：作者个人实际 Shadowrocket .conf 分流规则参考（[General] + [Rule] + [Host] + [URL Rewrite]）
+> - `Shadowrocket.subs.template.md`：Shadowrocket 节点订阅内容样例（STATUS=/REMARKS= 头部行 + 逐行节点链接，整体 base64 编码）
 > - `DailyData.txt.template.md`：规则素材池订阅 URL 返回数据内容样例
 
 ---
@@ -66,7 +67,7 @@
 
 ### 2.5 与装配的衔接
 
-装配时管理员勾选规则素材池并指定其目标（Clash 的代理组 / Shadowrocket 的代理双态）；系统读取池内当前全部条目，逐条拼接为规则行（见 3.5）。装配只读库内数据；生成的版本为渲染时点快照，不随后续池内容更新而回改。
+装配时管理员勾选规则素材池并指定其目标（Clash 的代理组 / SR 分流规则的 PROXY/DIRECT 双态，见 3.4/3.5）；系统读取池内当前全部条目，逐条拼接为规则行（见 3.5）。装配只读库内数据；生成的版本为渲染时点快照，不随后续池内容更新而回改。
 
 ---
 
@@ -74,7 +75,7 @@
 
 ### 3.1 功能定位
 
-Clash YAML 与 Shadowrocket .conf 订阅语法不同，但用户期望多端统一的体验。装配拼接让管理员勾选同一套节点、代理组（Clash）/ 代理双态（Shadowrocket）与规则素材池条目，由系统按目标平台语法自动拼接出完整分流配置。管理面板侧边栏「订阅装配」入口（现为占位页）即本功能落地点。
+Clash YAML 与 Shadowrocket .conf 订阅语法与产物形态均不同：Clash 单文件即含节点（proxies）、代理组（proxy-groups）与分流规则（rules）；Shadowrocket 则拆分为**节点订阅**（base64 编码的节点链接列表，见 `Shadowrocket.subs.template.md`）与**分流规则**（.conf，见 `Shadowrocket.conf.template.md`）两份独立内容。装配拼接让管理员勾选同一套节点与规则素材池，由系统按目标平台形态自动生成对应产物。管理面板侧边栏「订阅装配」入口（现为占位页）即本功能落地点，SR 平台提供**两个独立装配器**（节点订阅 / 分流规则），可单独生成（见 3.4）。
 
 ### 3.2 节点：统一模型与双来源
 
@@ -82,11 +83,11 @@ Clash YAML 与 Shadowrocket .conf 订阅语法不同，但用户期望多端统�
 
 | 来源 | 录入方式 | 输出行为 |
 |------|---------|---------|
-| `manual` | 未配置 Xray 服务（或需补充节点）时，管理员按页面模板表单手动添加；协议支持 VLESS / VMESS，字段参考 `ClashOfficial.yaml.template.md`（vless：server / port / uuid / network / tls / udp / flow / client-fingerprint / servername / reality-opts 等；vmess：server / port / uuid / alterId / cipher / udp） | 静态节点，生成配置时直接内联渲染；**UUID 凭据以 AES-256-GCM 加密存储（复用签名密钥派生机制，与决策 #16 同口径）** |
+| `manual` | 未配置 Xray 服务（或需补充节点）时，管理员按页面模板表单手动添加；**协议支持 `ClashOfficial.yaml.template.md` 中全部代理协议类型**（ss / ssr / vmess / vless / trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 / snell / anytls / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale 等）；节点参数按所选协议以 JSON 存储该协议的 Clash 原生字段集（含凭据字段：uuid / password / private-key 等） | 静态节点：Clash YAML 按存储字段**原样内联渲染**（proxies 条目，零转换）；SR 节点订阅按 4.5 链接映射转为节点链接，**无法转为链接的协议跳过并在生成结果中提示**；**凭据以 AES-256-GCM 加密存储（复用签名密钥派生机制，与决策 #16 同口径）** |
 | `xray` | 已配置 Xray（高级模式）时，装配页侧边自动提示检测到的 Xray 节点，供管理员直接选用；手动添加仍并行可用 | 动态节点，下载时按用户 UUID 注入节点行（见 5.7）；**装配器勾选的 Xray 节点构成全局候选集**（模板可注入的节点上限），组在候选集内为每组分配子集，下载按组分配注入（见 5.6） |
 
 - **节点命名约定**（Xray 节点）：`{实例标识}-{入站tag}`（如 `tokyo-a-vless`），代理组引用名与下载注入节点名保持一致，保证引用闭环
-- 协议范围与 5.4 决策 #20 一致：仅 VLESS 与 VMESS
+- 协议范围：manual 来源支持 ClashOfficial 全量代理协议（见上表）；**xray 来源仍仅 VLESS 与 VMESS**（Xray 服务端 inbound 协议范围，5.4 决策 #20 不变）
 
 ### 3.3 代理组（Clash）
 
@@ -99,9 +100,13 @@ Clash YAML 与 Shadowrocket .conf 订阅语法不同，但用户期望多端统�
 - **持久化**：代理组定义存全局 `proxy_groups` 表（见 5.9），与装配快照分离；预置组库以种子数据随迁移内置（参考 `Clash.yaml.template.md`），管理员自建组入库同表；装配快照仅记录组的勾选引用
 - **组内容约束**：每个代理组须至少包含节点、「直接连接」组、「国外流量」组三者之一；管理员可勾选此前添加过的节点；各组可再包含「直接连接」「国外流量」组作为可切换项（同个人配置形态）
 
-### 3.4 Shadowrocket 双态勾选
+### 3.4 Shadowrocket 双装配器
 
-Shadowrocket 无代理组概念，装配采用简化双态交互：规则素材（素材池条目 / 手工规则行）仅需勾选**代理或不代理**，渲染为 `PROXY` / `DIRECT`。不复用 Clash 代理组，保证各端语法原生、交互最简。
+Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提供两个可单独使用的装配器，不复用 Clash 代理组，保证各端语法原生、交互最简：
+
+- **节点订阅装配器**：勾选节点（manual / xray 来源）+ 填写订阅头部（STATUS / REMARKS，见 4.2），产出 subs 内容（头部行 + 逐行节点链接，base64 编码，见 4.5）；**不含规则**
+- **分流规则装配器**：填写 [General] 表单 + 勾选规则素材（素材池条目 / 手工规则行），每条仅需勾选**代理或不代理**，渲染为 `PROXY` / `DIRECT`，产出 .conf（[General] + [Rule] + 兜底规则，见 3.6）；**不含节点**
+- 两装配器各自生成各自版本（subs 入订阅地址池、conf 入规则实体，见 4.4），不强制同时操作
 
 ### 3.5 规则拼接规则
 
@@ -128,38 +133,46 @@ Shadowrocket 无代理组概念，装配采用简化双态交互：规则素材�
 
 ### 4.1 生成流程
 
-1. 选择目标平台（语法随平台确定：Clash 平台 → YAML；Shadowrocket 平台 → .conf）
-2. 以类 form 表单填写配置头部（见 4.2），提供预填写默认值，可一键采用
-3. 勾选节点（manual / xray 来源，见 3.2）；配置代理组（Clash，见 3.3）或代理双态（Shadowrocket，见 3.4）
-4. 勾选规则素材池并指定目标（见 2.5），可手工补充规则行
-5. 预览：全文纯文本渲染，可与当前激活版本做 diff 对比（文本差异高亮，前端实现，**采用成熟 diff 库**；具体选型在 Build 阶段确定，倾向轻量文本 diff 库（如 jsdiff），避免引入 monaco 等重型编辑器，防止重现 Issue1 的 manualChunks 循环依赖问题）
-6. 确认生成 → 事务创建该平台订阅新版本（写渲染产物文件 + 保存生成参数快照 + 更新版本列表）；**新版本仅入订阅地址池，不自动生效**，由管理员显式分发（见 4.4）
+1. 选择装配类型（语法与产物形态随之确定）：**Clash YAML**（Clash 平台，单文件含节点+代理组+规则）/ **SR 节点订阅**（subs）/ **SR 分流规则**（conf，见 3.4 双装配器）
+2. 以类 form 表单填写头部（见 4.2：Clash 顶层键 / SR conf 的 [General] 键值 / SR subs 的 STATUS 与 REMARKS），提供预填写默认值，可一键采用
+3. Clash YAML：勾选节点（manual / xray 来源，见 3.2）并配置代理组（见 3.3）；SR 节点订阅：勾选节点；SR 分流规则：跳过本步（conf 不含节点）
+4. Clash YAML 与 SR 分流规则：勾选规则素材池并指定目标（见 2.5），可手工补充规则行；SR 节点订阅：跳过本步（subs 不含规则）
+5. 预览：全文纯文本渲染，可与当前激活版本做 diff 对比（文本差异高亮，前端实现，**采用成熟 diff 库**；具体选型在 Build 阶段确定，倾向轻量文本 diff 库（如 jsdiff），避免引入 monaco 等重型编辑器，防止重现 Issue1 的 manualChunks 循环依赖问题）；SR subs 预览显示 base64 解码后原文
+6. 确认生成 → 事务创建对应实体的新版本（写渲染产物文件 + 保存生成参数快照 + 更新版本列表）；**新版本仅入池不自动生效**（subs/YAML 入订阅地址池、conf 入规则实体），由管理员显式分发（见 4.4）
 
 ### 4.2 配置头部表单与默认值
 
 - **Clash**：顶层键 port / socks-port / mixed-port / allow-lan / mode / geox-url / geo-auto-update / log-level / ipv6 / ntp / dns（含 fallback-filter / fake-ip-filter）等，字段范围参考 `ClashOfficial.yaml.template.md`；**默认值以作者个人配置（`Clash.yaml.template.md` 头部）预填写**
-- **Shadowrocket**：`[General]` 段键值（bypass-system / skip-proxy / tun-excluded-routes / dns-server / fallback-dns-server / ipv6 等），默认值参考 `Shadowrocket.conf.template.md`
+- **SR 分流规则**：`[General]` 段键值（bypass-system / skip-proxy / tun-excluded-routes / dns-server / fallback-dns-server / ipv6 等），默认值参考 `Shadowrocket.conf.template.md`
+- **SR 节点订阅**：头部两行——STATUS（自动生成建议格式：日期 + 版本标识，管理员可改）与 REMARKS（订阅显示名，管理员填写，默认取站点名）；预填默认值可一键采用（见 `Shadowrocket.subs.template.md` 样例）
 - `[Host]` / `[URL Rewrite]` 不纳入装配范围，如需可在表单扩展区自行补充
 
 ### 4.3 节点输出形态
 
-- **manual 节点**：静态内联渲染进生成配置（Clash `proxies` 列表 / Shadowrocket `[Proxy]` 段）
-- **xray 节点**：节点区输出占位标记 `# {{xray_nodes}}`（注释行，保证模板可独立预览/校验）；下载时系统按「用户所属组分配的节点 + 用户 UUID」替换为实际节点行（见 5.7）；无占位标记的模板原样返回
+- **manual 节点**：静态渲染——Clash YAML 内联 proxies 条目（原样字段）；SR 节点订阅按 4.5 链接映射转为节点链接行；不可转协议跳过并提示
+- **xray 节点**：节点区输出占位标记 `# {{xray_nodes}}`（注释行，保证模板可独立预览/校验）；下载时系统按「用户所属组分配的节点 + 用户 UUID」替换为实际节点行（Clash YAML 为 proxies 条目、SR subs 为节点链接行，见 5.7）；无占位标记的模板原样返回
 - 管理员预览显示模板原文（含占位标记）；用户预览按自身渲染
 
 ### 4.4 订阅地址池衔接、分发与重新编辑
 
-- 生成产物归属**订阅地址池**：**每平台一份全局模板**（创建时平台唯一校验）+ 版本历史，版本管理统一适用 Design1.md 4.1（5 版本上限、`BEGIN IMMEDIATE` 事务、不可删当前激活版本等）
-- **分发机制（入池 + 显式分发）**：生成与上传均只作为新版本入池，不自动生效；管理员在订阅地址池页面对某平台显式「激活/分发」某版本后，该版本成为当前激活版本并对全体用户生效（基础模式全体用户获得同一份订阅；用户级例外仍由自定义订阅承载，见第一章）
+- 生成产物按**平台 + 产物类型**归属：**Clash YAML 与 SR 节点订阅（subs）入订阅地址池**（各平台一份全局模板，创建时「平台 + 产物类型」唯一校验）+ 版本历史，版本管理统一适用 Design1.md 4.1（5 版本上限、`BEGIN IMMEDIATE` 事务、不可删当前激活版本等）；**SR 分流规则（conf）入现有「规则」实体**（规则的版本管理、激活与规则 Token 下载机制沿用 Design1.md，装配生成的 conf 作为该规则的新版本，同样不自动生效、需显式切换）
+- **分发机制（入池 + 显式分发）**：生成与上传均只作为新版本入池，不自动生效；管理员在订阅地址池页面（或规则页面）显式「激活/分发」某版本后，该版本成为当前激活版本并对全体用户生效（基础模式全体用户获得同一份订阅；用户级例外仍由自定义订阅承载，见第一章）
 - **版本组件改造**：`CreateVersion` 增加 `activate` opt-in 参数——生成/上传等入池调用一律传 false，不再沿用现有「事务内强制切换激活指针」行为；激活动作仅由订阅地址池页面的「激活/分发」触发（复用 `SwitchVersion`）
 - **首次入池自动激活**：平台尚无任何激活版本时，首个入池版本（无论生成或上传）自动成为激活版本，避免新部署后用户下载无可用版本的空窗；后续版本仍须显式分发
-- 生成参数（头部表单值 + 节点/代理组/素材池勾选 + 手工规则行）随版本快照保存（`assembly_blueprints` 表，version_id 1:1）
+- 生成参数（头部表单值 + 节点/代理组或双态/素材池勾选 + 手工规则行）随版本快照保存（`assembly_blueprints` 表，version_id 1:1；SR 分流规则的快照随规则版本同表存储）
 - **重新编辑**：生成过的版本提供重新编辑入口，加载快照修改后生成**新版本**（不改写旧版本；新版本仅入池，需再次显式分发）
-- 下载/日志/限流：生成产物下载复用现有下载端点、访问日志与限流
+- 下载/日志/限流：Clash YAML 与 SR subs 复用现有订阅下载端点、访问日志与限流；SR conf 走规则下载端点（规则 Token）
 
 ### 4.5 Shadowrocket 输出编码
 
-Shadowrocket 配置生成规则与 Clash 类似（头部 → 节点 → 规则的对应关系，见 3.5），但输出编码不一样：节点链接与订阅内容的编码处理参考 [Reference/SSpanel.md](./docs/Reference/SSpanel.md) 的订阅输出逻辑；.conf 正文以纯文本下发，下载端点返回禁缓存头（`no-store` 等，AGENTS §4.5）。
+SR 双产物的编码方式不同：
+
+- **节点订阅（subs）**：明文内容为头部行（STATUS/REMARKS）+ 逐行节点链接，**整体 base64 编码下发**（见 `Shadowrocket.subs.template.md` 样例）；节点链接按 **SR 原生参数风格**渲染，映射规则参照 **urlclash-converter**（Clash ↔ Link 节点转换工具，本地参照实现位于 `/Users/kylechen/Desktop/Repo/urlclash-converter`，其 Clash→Link 转换为纯前端确定性映射）：
+  - **manual 节点**：按协议转为对应链接——ss：`ss://base64(cipher:password)@server:port#name`；vmess：`vmess://base64(JSON)`（v/ps/add/port/id/aid/scy/net/type/host/path/tls/sni/alpn/fp）+ `?remarks=&udp=1&alterId=`；vless：`vless://uuid@server:port?type=&encryption=none&flow=...`，TLS 附加 `tls=1&peer=SNI`，REALITY 附加 `xtls=2&pbk=公钥&sid=short-id`（SR 原生 REALITY 参数）；trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 等同理映射；**无法转为链接的协议（snell / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale 等）跳过，在生成结果中列出跳过节点与原因**
+  - **xray 节点**：注入时同样按 SR 原生参数风格渲染（vless REALITY：tls=1 + xtls=2 + peer + pbk + sid；vmess：base64(JSON) + remarks/udp/alterId），与 Clash YAML 端的 XTLS 标准参数渲染（见 5.7）为同一节点数据的两种客户端表达
+  - 节点名（remarks / #fragment）经 URL 编码，支持中文与 emoji；域名非 ASCII 字符转 Punycode
+- **分流规则（conf）**：.conf 正文以纯文本下发；编码处理另参考 [Reference/SSpanel.md](./docs/Reference/SSpanel.md) 的订阅输出逻辑
+- 两类下载端点均返回禁缓存头（`no-store` 等，AGENTS §4.5）
 
 ---
 
@@ -218,7 +231,7 @@ Shadowrocket 配置生成规则与 Clash 类似（头部 → 节点 → 规则�
 | 7 | 用户侧展示 | 展示**已用流量 / 总分配流量**（首页平台卡片 + 个人中心） |
 | 8 | 管理员侧 | 复用现有用户管理面板（UsersView 扩展：用量/同步状态/覆盖配额/重置），**不新增独立用户数据页** |
 | 9 | 推送粒度 | **参考用户组模式**：组分配节点（节点级），用户激活向所属组分配的全部节点推送 |
-| 10 | 用户组改造 | 组分配从「每平台选定订阅」**改为「用户可用的 Xray 节点 + 用户默认流量配额」**；订阅地址池简化为每平台一份全局模板（见 4.4） |
+| 10 | 用户组改造 | 组分配从「每平台选定订阅」**改为「用户可用的 Xray 节点 + 用户默认流量配额」**；订阅地址池简化为每平台一份全局模板（见 4.4；后按「平台 + 产物类型」细化，见变更记录 2026-08-15 核验改进项） |
 | 11 | 模板生成 | 配置文档（YAML 等）由**订阅装配功能动态生成**（见第三/四章），下载时自动按组节点注入 |
 | 12 | 配额粒度 | **组默认配额 + 用户可覆盖**（users.quota_override 可空，NULL=继承组） |
 | 13 | 换组处理 | **自动迁移**：换组事务提交后，旧组节点移除该用户、新组节点推送（同 UUID） |
@@ -278,16 +291,17 @@ groups（+ default_quota 默认月度配额 GB）
 ### 5.7 下载渲染机制（每用户专属订阅）
 
 ```
-用户下载 → Token 校验（现有链路）→ 定位平台全局模板（当前版本文件）
+用户下载 → Token 校验（现有链路）→ 定位平台全局模板（当前版本文件；SR 平台为 subs 模板）
   → 读用户所属组 → 组分配的节点列表（按分配顺序，决策 #22）∪ 公共节点（is_public=1，排后）
-  → 生成节点行（每个节点一行：name={实例标识}-{入站tag}，
-    vless://{用户UUID}@host:port?flow=...&...，按协议渲染字段；跳过 enabled=0）
-  → 替换模板中的节点占位标记 `# {{xray_nodes}}` → no-store 返回
+  → 生成节点行（每个节点一行：name={实例标识}-{入站tag}，按协议与目标语法渲染字段；跳过 enabled=0）：
+    · Clash YAML 模板 → proxies 条目（vless：encryption/flow/security/sni/fp/pbk/sid/…，见决策 #20）
+    · SR subs 模板 → SR 原生节点链接（vless://{用户UUID}@host:port?remarks={节点名}&tls=1&peer={SNI}&udp=1&xtls=2&pbk={公钥}&sid={short-id}，见 4.5）
+  → 替换模板中的节点占位标记 `# {{xray_nodes}}` → no-store 返回（SR subs 为替换后全文 base64）
 ```
 
 关键规则：
 
-- **模板** = 装配生成的**平台全局模板**（含 `# {{xray_nodes}}` 占位标记，见 4.3；无标记的模板原样返回，兼容纯规则模板与基础模式静态节点模板）
+- **模板** = 装配生成的**平台全局模板**（含 `# {{xray_nodes}}` 占位标记，见 4.3；无标记的模板原样返回，兼容纯规则模板与基础模式静态节点模板）；**SR 平台的模板为 subs（base64 节点链接列表）**，占位标记位于解码后明文中，注入完成后全文重新 base64 返回；SR conf 不含节点、无占位
 - **节点名约定**：`{实例标识}-{入站tag}`，与装配器节点命名约定闭环（见 3.2）
 - **注入范围（候选集约束，见 5.6）**：注入节点 = 组分配节点 ∪ 公共节点；装配生成的模板两者均须属于当前激活模板的装配候选集（装配器勾选快照，见 4.4），候选集之外的节点不注入；**无装配快照的直接上传模板不受候选集约束**，按「组分配节点 ∪ 公共节点」注入
 - **注入条件（决策 #15）**：**users.uuid_encrypted 非空即注入**（用户激活时生成）——推送状态（pending/failed）不影响注入；管理员重试成功后立即生效，无需用户重新下载；未生成 UUID 的用户（从未激活/推送未启动）占位标记替换为注释 `# 节点未开通，请联系管理员`，模板其余部分原样——订阅链接始终可用、YAML 语法完整
@@ -321,15 +335,15 @@ groups（+ default_quota 默认月度配额 GB）
 | 表 | 关键字段 | 说明 |
 |----|---------|------|
 | `xray_instances` | id, name, api_addr, api_tag, enabled | 实例（1-5 台），api_addr 为 TCP 地址（IP 白名单防护）；**纳入配置导入导出**（决策 #24，format_version=2） |
-| `nodes` | id, source（**CHECK 仅 manual/xray**）, name, instance_id（xray 来源必填，manual 可空）, tag（xray 来源）, protocol（**CHECK 仅 vless/vmess**，决策 #20）, host, port, flow, network, path, security, sni, fingerprint, is_public 默认 0, enabled, uuid_encrypted（manual 来源，AES-256-GCM 加密，见 3.2） | **统一节点表**：manual 节点由管理员表单录入，xray 节点由实例检测入库；客户端表达字段供节点行渲染；is_public=1 对所有组自动可见（决策 #21） |
+| `nodes` | id, source（**CHECK 仅 manual/xray**）, name, instance_id（xray 来源必填，manual 可空）, tag（xray 来源）, protocol（**xray 来源 CHECK 仅 vless/vmess**（决策 #20）；manual 来源支持 ClashOfficial 全量代理协议（见 3.2））, host, port, **protocol_json**（协议完整参数，manual 来源为 Clash 原生字段集 JSON，凭据字段 AES-256-GCM 加密，见 3.2；替代原按协议平铺的 flow/network/path/security/sni/fingerprint 等列）, is_public 默认 0, enabled | **统一节点表**：manual 节点由管理员表单录入，xray 节点由实例检测入库；客户端表达字段供节点行渲染（Clash proxies 条目 / SR 节点链接，见 4.5/5.7）；is_public=1 对所有组自动可见（决策 #21） |
 | `proxy_groups` | id, name, type（preset/custom）, preset_key（预置组标识，可空）, definition_json（组类型、含节点引用与子组引用） | Clash 代理组全局定义：预置库以种子数据随迁移内置（参考 `Clash.yaml.template.md`，见 3.3）；管理员自建组入库同表；装配快照仅记录勾选引用 |
 | `group_nodes` | group_id, node_id, sort_order | 组 ↔ 节点分配（替代 group_selections）；sort_order 为组内顺序，UI 可调（决策 #22） |
 | `groups`（改） | + default_quota | 组默认月度配额 |
 | `users`（改） | + quota_override（可空）、+ uuid_encrypted、+ expire_at（预留，NULL） | 用户配额覆盖（NULL=继承组）；每用户一个 UUID 加密存储（决策 #16）；expire_at 为到期语义预留字段，本期不使用（到期不纳入本期） |
 | `xray_users` | user_id, instance_id, inbound_tag, email, sync_status, last_error | 用户 Xray 账号推送状态（**不含 UUID**，决策 #16）；外键 ON DELETE CASCADE（用户删除级联） |
 | `traffic_records` | user_id, ym, uplink, downlink | 自然月流量累计（采集差值 UPSERT）；外键 ON DELETE CASCADE（用户删除级联） |
-| `subscriptions`（改） | 平台唯一约束 | 每平台一份全局模板（版本管理保留）；**不做任何迁移，项目内既有数据均视为可放弃，升级后订阅地址池清空重建**（见第一章存量数据项） |
-| `assembly_blueprints`（新增） | version_id 1:1（NOT NULL REFERENCES versions）, target_syntax, fixed_params_json, selection_json（节点/代理组或双态/素材池勾选，含 Xray 候选集）, custom_rules_json | 装配生成参数快照（见 4.4）；装配生成的版本行 1:1 快照，重新编辑读此恢复 |
+| `subscriptions`（改） | 「平台 + 产物类型（yaml/subs）」唯一约束 | Clash YAML 与 SR subs 各平台一份全局模板（版本管理保留）；**不做任何迁移，项目内既有数据均视为可放弃，升级后订阅地址池清空重建**（见第一章存量数据项）；SR conf 不入本表（入规则实体，见 4.4） |
+| `assembly_blueprints`（新增） | version_id 1:1（NOT NULL REFERENCES versions）, target_syntax（**clash-yaml / sr-subs / sr-conf**）, fixed_params_json, selection_json（节点/代理组或双态/素材池勾选，含 Xray 候选集）, custom_rules_json | 装配生成参数快照（见 4.4）；装配生成的版本行 1:1 快照，重新编辑读此恢复；**SR 分流规则的快照随规则版本存储**（version_id 指向规则版本行） |
 | 删除 | group_selections / subscription_group_rel | 组选定机制移除 |
 
 ### 5.10 管理端点与 UI 影响
@@ -339,7 +353,7 @@ groups（+ default_quota 默认月度配额 GB）
 - `internal/xray/`（新包）：client.go（gRPC 封装，依赖 **xtls/xray-core command 包** + 调用串行化 + 幂等错误映射）/ sync.go（生命周期同步）/ stats.go（流量采集）/ quota.go（配额检查）
 - `internal/server/xray.go`：实例与节点 CRUD、连通性测试、用户同步状态、手动重试、配额重置、流量报表端点
 - `internal/download/`：渲染插入（模板 + 组节点 + UUID）+ **Subscription-Userinfo 响应头注入**（决策 #23）
-- `internal/group/`、`internal/subscription/`：组改造（节点分配 + 排序 + 默认配额 + 公共节点标注 + 候选集约束）、订阅地址池简化（每平台一份）
+- `internal/group/`、`internal/subscription/`：组改造（节点分配 + 排序 + 默认配额 + 公共节点标注 + 候选集约束）、订阅地址池简化（平台 + 产物类型：Clash YAML / SR subs）与 SR conf 入规则实体（见 4.4）
 - `internal/approval/`、`internal/user/admin.go`：推送钩子（事务提交后）
 - `internal/server/home.go`：平台卡片携带已用/总流量；用户面板超限提示（决策 #17）
 - `internal/config/export.go`：**xray_instances 纳入导入导出**（format_version=2，决策 #24）
@@ -350,8 +364,8 @@ groups（+ default_quota 默认月度配额 GB）
 
 - `views/admin/XrayInstancesView.vue`（新增）：实例/节点管理（含 is_public 标记）
 - `views/admin/GroupsView.vue`（重构）：节点分配（含公共节点标注）+ **排序调整** + 默认配额（替代订阅选定）
-- `views/admin/SubscriptionsView.vue`（改造）：平台模板管理（每平台一份）
-- `views/admin/AssemblyView.vue`（占位页 → 实现）：规则素材池管理 + 装配器（含重新编辑，见第二~四章）
+- `views/admin/SubscriptionsView.vue`（改造）：平台模板管理（Clash YAML / SR subs，各平台一份）
+- `views/admin/AssemblyView.vue`（占位页 → 实现）：规则素材池管理 + 三类装配器（Clash YAML / SR 节点订阅 / SR 分流规则，含重新编辑，见第二~四章）；SR 分流规则产物在规则管理页面展示与激活
 - `views/admin/UsersView.vue`（扩展）：用量、Xray 同步状态、覆盖配额、手动重置
 - `views/HomeView.vue` / `ProfileView.vue`（扩展）：已用/总流量展示 + **超限提示**
 - `api/xray.ts`（新增）、`layouts/AdminLayout.vue` 菜单、`router/index.ts` 路由
@@ -364,4 +378,5 @@ groups（+ default_quota 默认月度配额 GB）
 
 | 日期 | 说明 |
 |------|------|
+| 2026-08-15 | 核验改进（参照 ClashOfficial 协议全集、Shadowrocket.subs.template.md 样例与 urlclash-converter 转换逻辑）：①manual 节点协议范围扩展为 ClashOfficial 全量代理协议，参数改 protocol_json 存储（Clash 原生字段集，YAML 原样输出零转换，凭据 AES-256-GCM 加密），xray 来源仍仅 VLESS/VMESS（决策 #20 不变）；②产物归属修正：装配产物按「平台 + 产物类型」分流——Clash YAML 与 SR subs 入订阅地址池，SR conf 入现有规则实体；③SR 拆分为节点订阅/分流规则两个独立装配器，可单独生成；④subs 输出形态定稿：STATUS/REMARKS 头部行表单可配 + 逐行节点链接，整体 base64；节点链接按 SR 原生参数风格渲染（vless REALITY：tls=1/xtls=2/peer/pbk/sid），映射参照 urlclash-converter；不可转链接协议跳过并提示；⑤占位注入同步支持 SR subs（注入链接行后全文重新 base64） |
 | 2026-08-15 | 由 DesignOnHold.md 定稿内容规范化整理为 Design2：全部设计与决策（模式分层、规则素材池、装配拼接、配置生成与分发、Xray 对接 24 项决策）转入本文档；源文档演进历史见 DesignOnHold.md 变更记录 |

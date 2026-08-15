@@ -65,5 +65,4 @@ backend/tmp/
 # ==============================
 # Keys / Certs
 # ==============================
-/DocTemplates/shadowrocket.template.md
-/DocTemplates/Clashyaml.template.md
+/docs/DocTemplates/Shadowrocket.subs.template.md
