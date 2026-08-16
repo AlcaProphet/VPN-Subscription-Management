@@ -1,6 +1,6 @@
 # Design2.md — VPN 订阅管理系统增量能力设计（订阅装配与 Xray 对接）
 
-> **文档定位：** 本文档是本系统增量能力的设计文档，由 [DesignOnHold.md](./docs/AchievedDocuments/DesignOnHold.md) 的多轮确认定稿内容规范化整理而成。经 Design2Report1~4 四轮审核报告合并核验、用户逐项决策确认（2026-08-16，15 项决策落文，见第六章变更记录），全部设计已定稿、无待决事项，构建时不得偏离。能力构成：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](./docs/Reference/Xray-Core-API.md)、[Reference/Node-Link-Standards.md](./docs/Reference/Node-Link-Standards.md)、[Reference/SSpanel-Subscribe.md](./docs/Reference/SSpanel-Subscribe.md) 与 [Reference/SSpanel.md](./docs/Reference/SSpanel.md)。
+> **文档定位：** 本文档是本系统增量能力的设计文档，由 [DesignOnHold.md](./docs/AchievedDocuments/DesignOnHold.md) 的多轮确认定稿内容规范化整理而成。经 Design2Report1~4 四轮审核报告合并核验与两轮设计审查（2026-08-16，决策与勘误落文见第六章变更记录），全部设计已定稿、无待决事项，构建时不得偏离。能力构成：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](./docs/Reference/Xray-Core-API.md)、[Reference/Node-Link-Standards.md](./docs/Reference/Node-Link-Standards.md)、[Reference/SSpanel-Subscribe.md](./docs/Reference/SSpanel-Subscribe.md) 与 [Reference/SSpanel.md](./docs/Reference/SSpanel.md)。
 > **术语约定**：「**规则素材池**」（第二章）= 规则条目素材池（域名/IP/进程名等，供规则拼接）；「**订阅地址池**」（第四章）= 每平台存放订阅文件的池（**单模板** + 版本历史，即既有「订阅池」的**单模板化**形态——每平台仅一份，见 4.4 审核 A1 决策）；「**分流规则**」= Shadowrocket 装配产出的 .conf 分流配置（[General] + [Rule]），归入现有「规则」实体共享分发（见 4.4）。各池/实体职责分离，不混用。
 > **文档关系**：设计基线见 [Design1.md](./docs/AchievedDocuments/Design1.md)，编码约束遵循 [AGENTS.md](./AGENTS.md)（**唯一强要求**）。本文档与 Design1.md 冲突时以本文档为准，构建完成后定稿结论同步落入基线。
 >
@@ -61,7 +61,7 @@
 
 ### 2.4 同步机制
 
-- **触发方式**：手动触发为主（点击「同步」）；每个池可选开启定时自动同步（**每日执行，每池可配执行时刻，默认凌晨 04:00 低峰，按 UTC**（与 5.8 流量月界口径一致）；进程内 ticker 检查到期池执行）；**停机错过不补偿**：错过当日执行时刻则等待下一周期，不做补跑（用户决策，审核 D12 推荐方案未采纳）；**同步执行采用异步任务 + 轮询模式**（提交任务后前端轮询状态查询端点，避免同步耗时超过前端请求超时；任务端点见 5.10，审核 F1-4）
+- **触发方式**：手动触发为主（点击「同步」）；每个池可选开启定时自动同步（**每日执行，每池可配执行时刻，默认凌晨 04:00 低峰，按 UTC**——与 5.8 流量月界口径一致；进程内 ticker 检查到期池执行）；**停机错过不补偿**：错过当日执行时刻则等待下一周期，不做补跑（用户决策，审核 D12 推荐方案未采纳）；**同步执行采用异步任务 + 轮询模式**（提交任务后前端轮询状态查询端点，避免同步耗时超过前端请求超时；任务端点见 5.10，审核 F1-4）
 - **同步更新语义（差量 + 来源隔离）**：URL 同步仅对 **url 来源**条目做差量更新——按本次同步结果新增/更新，源中已消失的行删除；**manual 来源条目永不受同步影响**；事务批量 UPSERT + 差量删除，支持数万行规模（暂不增加条目来源 URL 追踪列，origin_url 不纳入本期）
 - **数万行规模应对**：条目去重索引 UNIQUE(pool_id, rule_type, match_value)；批量写入事务化；条目管理页分页展示（不整表加载）；装配时读池内全部条目拼接（规则行数达数万时产物文件体积可接受，无额外限制）
 - **约束**：拉取超时预设 1 分钟；内容大小上限 50MB；目标地址不设限制——安全边界由部署者自行决策
@@ -157,7 +157,7 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 ### 4.3 节点输出形态
 
 - **manual 节点**：静态渲染——Clash YAML 内联 proxies 条目（原样字段）；SR 节点订阅按 4.5 链接映射转为节点链接行；不可转协议跳过并提示
-- **xray 节点**：节点区输出占位标记 `# {{xray_nodes}}`（注释行，保证模板可独立预览/校验）；下载时系统按「用户所属组分配的节点 ∪ 公共节点 + 用户凭据（UUID / 代理密码）」替换为实际节点行——**SR subs 走占位文本替换；装配生成的 Clash 模板按 5.7 蓝图全量重渲染（非文本替换）**；无占位标记的模板原样返回（**适用于直接上传模板；装配生成的 Clash 模板按 5.7 蓝图全量重渲染**）
+- **xray 节点**：节点区输出占位标记 `# {{xray_nodes}}`（注释行，保证模板可独立预览/校验）；下载时系统按「用户所属组分配的节点 ∪ 公共节点 + 用户凭据（UUID / 代理密码）」替换为实际节点行——**SR subs 走占位文本替换；装配生成的 Clash 模板按 5.7 蓝图全量重渲染（非文本替换）**；无占位标记的模板原样返回（**适用于直接上传模板**）
 - 管理员预览显示模板原文（含占位标记）；用户预览按自身渲染
 
 ### 4.4 订阅地址池衔接、分发与重新编辑
@@ -167,7 +167,7 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 - **版本组件改造**：`CreateVersion` 增加 `activate` opt-in 参数——**订阅地址池（Clash YAML / SR subs）与装配产物（含 SR conf 入规则版本）的生成/上传调用一律传 false**，不再沿用现有「事务内强制切换激活指针」行为；激活动作仅由订阅地址池页面（或规则页面）的「激活/分发」触发（复用 `SwitchVersion`）；**适用范围边界：规则/分享订阅/自定义订阅的手工上传与在线编辑保持 Design1 既有「创建即激活」行为不变**（传 true），避免四类资源行为剧变
 - **首次入池自动激活**：**按订阅行判定**——该订阅行（或规则实体）`current_version=0` 时，首个入池版本（无论生成或上传）自动成为激活版本，避免新部署后用户下载无可用版本的空窗（不按「平台」判定，与每平台一份模板模型配套，审核 A1 决策）；**规则实体同规则适用**：目标规则实体尚无激活版本时，首个装配 conf 版本自动激活（避免新规则实体「装配完但规则 Token 无激活版本」的空窗）；后续版本均须显式分发/切换
 - **空池下载口径**：平台（或规则实体）尚无任何版本/无激活版本时，下载端点按 AGENTS §4.8 返回 HTTP 200 + 纯文本注释块（如 `# error: no active version`），不返回 JSON/HTML
-- 生成参数（头部表单值 + 节点/代理组或双装配器池级勾选/素材池勾选 + 手工规则行）随版本快照保存（`assembly_blueprints` 表，version_id 1:1；SR 分流规则的快照随规则版本同表存储）；**Clash YAML 装配产物另存结构化渲染计划**（头部 / manual proxies / proxy-groups 结构 / rules / 兜底规则）至 `assembly_blueprints.render_plan_json` 列（见 5.9，审核 F1-1），供下载时蓝图全量重渲染使用（见 5.7，审核 A2 决策）
+- 生成参数（头部表单值 + 节点/代理组/素材池勾选（SR 分流规则为池级勾选）+ 手工规则行）随版本快照保存（`assembly_blueprints` 表，version_id 1:1；SR 分流规则的快照随规则版本同表存储）；**Clash YAML 装配产物另存结构化渲染计划**（头部 / manual proxies / proxy-groups 结构 / rules / 兜底规则）至 `assembly_blueprints.render_plan_json` 列（见 5.9，审核 F1-1），供下载时蓝图全量重渲染使用（见 5.7，审核 A2 决策）
 - **重新编辑**：生成过的版本提供重新编辑入口，加载快照修改后生成**新版本**（不改写旧版本；新版本仅入池，需再次显式分发）；**快照悬空容错**：加载快照时逐项校验引用（proxy_groups / 素材池 / 节点），失效项标记并提示管理员剔除或替换后再生成；实体删除不阻断（快照为历史参考，不反向约束实体生命周期；下载侧已有「候选集之外不注入」兜底，见 5.7）
 - 下载/日志/限流：Clash YAML 与 SR subs 复用现有订阅下载端点、访问日志与限流；SR conf 走规则下载端点（规则 Token）
 - **SR conf 用户分发（用户端规则卡片 + 引导）**：SR 平台用户在首页/个人中心除订阅卡片外，另见「分流规则」卡片（复用现有规则卡片机制）：展示当前激活 conf 版本信息与规则 Token 复制链接（用户自行粘贴导入 SR；不使用一键 scheme 唤起，与 Design1 3.5「移除一键导入 UI」口径一致，审核 C6 订正），并提供 SR 双内容导入引导文案（先添加订阅获取节点、再导入分流规则）；**卡片仅做入口**——点击跳转现有 /rules 列表页（全部 Shadowrocket 规则，不引入规则平台归属模型，审核 F4-4）
@@ -285,7 +285,7 @@ SR 双产物的编码方式不同：
 - **Account 形态（按协议）**：AddUser 的 Account 按节点协议构造——vless：`vless.Account{Id: UUID}`；vmess：`vmess.Account{Id: UUID}`；trojan：`trojan.Account{Password: 代理密码}`；shadowsocks：`shadowsocks.Account{Password: 代理密码, Cipher: 节点 cipher}`（决策 #20）
 - 推送状态：`xray_users.sync_status = pending/synced/failed`，失败记 `last_error`，管理面板可见、可手动重试
 - **超限标记**：超限状态存 `users.quota_exceeded`（布尔，见 5.9），超限置 1、管理员重置配额时复位；用于面板超限提示（决策 #17）与「上月超限本月不自动恢复」判定（5.8）
-- **超限前置拦截**：所有 AddUser 类钩子（注册/审批/管理员创建/启用/换组/组删除迁移/组节点分配变更 diff 推送/开关批量初始化，**含实例级对账补推**）执行前统一检查 `quota_exceeded`：**超限用户不推送**（xray_users 记录保持，推送跳过并记原因），UI 提示先重置配额；重置配额时恢复推送——防止换组/启用/对账补推等操作绕过配额管控（审核 G2/C-新16 收敛）
+- **超限前置拦截**：所有 AddUser 类钩子（注册/审批/管理员创建/启用/换组/组删除迁移/组节点分配变更 diff 推送/**节点 enabled 切换 diff 推送/公共节点 is_public 变化 diff 推送**/开关批量初始化，**含实例级对账补推**）执行前统一检查 `quota_exceeded`：**超限用户不推送**（xray_users 记录保持，推送跳过并记原因），UI 提示先重置配额；重置配额时恢复推送——防止换组/启用/对账补推等操作绕过配额管控（审核 G2/C-新16/F3-2/F3-3 收敛）
 - **推送集合口径（审核 A6 决策）**：全部 AddUser/RemoveUser 类触发器的目标节点 = 「所属组分配的全部 xray 节点 ∪ 公共 xray 节点（is_public=1）」，仍受候选集与 enabled=1 过滤
 - **凭据并发首建守卫（审核 B2/F5 口径）**：UUID 与代理密码首建参照 Token 首建模式——`BEGIN IMMEDIATE` 事务内按**同一 WHERE 条件**（`... WHERE id=? AND uuid_encrypted IS NULL AND proxy_secret_encrypted IS NULL`）条件更新两字段（同事务同生同灭，审核 F3-7），按 RowsAffected 判定，生成与加密在事务内完成；**适用范围：全部 AddUser 类钩子统一前置**（注册/审批/管理员创建/启用/换组/组删除迁移/节点与公共节点变更 diff/开关 ON 批量初始化/对账补推）——无凭据用户先建凭据再推送（审核 D4 决策），防止 ON 批量初始化与注册/审批钩子并发命中同一用户
 - **高级开关检查（审核 B3/F3-4 口径）**：全部 Xray 同步钩子入口先**实时查 DB** 高级模式标记（advanced_mode 配置键，每次查库不缓存），OFF 时静默跳过；OFF 清空事务内置位后提交，钩子在事务提交后执行时读到的即最新标记，防清空与钩子并发交错补推（见第一章并发口径）
@@ -372,7 +372,7 @@ groups（+ default_quota 默认月度配额 GB）
 | `traffic_records` | **PK(user_id, ym)**, user_id, ym, uplink, downlink | 自然月流量累计（采集差值 UPSERT；**字节整数，ym 按 UTC**，审核 B9）；外键 ON DELETE CASCADE（用户删除级联） |
 | `subscriptions`（改） | **UNIQUE(platform_id)** + product_type（yaml/subs）展示/校验属性 | **每平台一份订阅模板**（版本管理保留；同平台需两种格式时建两个平台，审核 A1 决策）；**升级不迁移存量订阅数据**（既有数据视为可放弃，1009 以「新表 + rename」切换重建，见第一章存量数据项/下方 1009 口径）；SR conf 不入本表（入规则实体，见 4.4） |
 | **1009 迁移清理口径（审核 A3/D1/F1-3 决策）** | 显式 SQL 按序执行 + 框架钩子 | ①`DELETE FROM download_tokens WHERE subscription_id IS NOT NULL`（显式订阅 Token 不再新发，存量一并清；无标识/自定义 Token 保留）；②`DELETE FROM versions WHERE owner_type='subscription'`；③删 group_selections / subscription_group_rel；④**以「新表 + rename」切换重建 subscriptions**（含 UNIQUE(platform_id) 与 product_type）：**先重建 download_tokens**（保留 subscription_id 列、去掉指向 subscriptions 的外键）→ **创建新 subscriptions 表** → **rename 替换** → **DROP 旧表**（避免 foreign_keys=ON 下 DROP 被外键定义拒绝；注意 SQLite rename 会改写引用外键，须先去外键再 rename，审核 D1）；⑤**迁移框架新增「迁移后钩子注册表」机制**：注册 1009 钩子删除 contents/subscription/ 目录（幂等——目录不存在即跳过；失败记日志不阻断启动，审核 F1-3） |
-| `assembly_blueprints`（新增） | version_id 1:1（NOT NULL REFERENCES versions **ON DELETE CASCADE**，版本驱逐/删除时快照同级联，审核 D11）, target_syntax（**clash-yaml / sr-subs / sr-conf**）, fixed_params_json, selection_json（节点/代理组或双装配器池级勾选/素材池勾选，含 Xray 候选集）, custom_rules_json, **render_plan_json（Clash YAML 装配产物的结构化渲染计划：头部 / manual proxies / proxy-groups 结构 / rules / 兜底规则，供下载时蓝图全量重渲染，见 4.4/5.7，审核 F1-1）** | 装配生成参数快照（见 4.4）；装配生成的版本行 1:1 快照，重新编辑读此恢复；**SR 分流规则的快照随规则版本存储**（version_id 指向规则版本行） |
+| `assembly_blueprints`（新增） | version_id 1:1（NOT NULL REFERENCES versions **ON DELETE CASCADE**，版本驱逐/删除时快照同级联，审核 D11）, target_syntax（**clash-yaml / sr-subs / sr-conf**）, fixed_params_json, selection_json（节点/代理组/素材池勾选（SR 分流规则为池级勾选），含 Xray 候选集）, custom_rules_json, **render_plan_json（Clash YAML 装配产物的结构化渲染计划：头部 / manual proxies / proxy-groups 结构 / rules / 兜底规则，供下载时蓝图全量重渲染，见 4.4/5.7，审核 F1-1）** | 装配生成参数快照（见 4.4）；装配生成的版本行 1:1 快照，重新编辑读此恢复；**SR 分流规则的快照随规则版本存储**（version_id 指向规则版本行） |
 | 删除 | group_selections / subscription_group_rel | 组选定机制移除 |
 
 ### 5.10 管理端点与 UI 影响
