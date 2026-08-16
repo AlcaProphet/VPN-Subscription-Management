@@ -1,6 +1,6 @@
 # Design2.md — VPN 订阅管理系统增量能力设计（订阅装配与 Xray 对接）
 
-> **文档定位：** 本文档是本系统增量能力的设计文档，由 [DesignOnHold.md](./docs/AchievedDocuments/DesignOnHold.md) 的多轮确认定稿内容规范化整理而成，全部设计已定稿、无待决事项，构建时不得偏离。能力构成：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](./docs/Reference/Xray-Core-API.md)、[Reference/Node-Link-Standards.md](./docs/Reference/Node-Link-Standards.md)、[Reference/SSpanel-Subscribe.md](./docs/Reference/SSpanel-Subscribe.md) 与 [Reference/SSpanel.md](./docs/Reference/SSpanel.md)。
+> **文档定位：** 本文档是本系统增量能力的设计文档，由 [DesignOnHold.md](./docs/AchievedDocuments/DesignOnHold.md) 的多轮确认定稿内容规范化整理而成。经 Design2Report1~4 四轮审核报告合并核验、用户逐项决策确认（2026-08-16，15 项决策落文，见第六章变更记录），全部设计已定稿、无待决事项，构建时不得偏离。能力构成：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](./docs/Reference/Xray-Core-API.md)、[Reference/Node-Link-Standards.md](./docs/Reference/Node-Link-Standards.md)、[Reference/SSpanel-Subscribe.md](./docs/Reference/SSpanel-Subscribe.md) 与 [Reference/SSpanel.md](./docs/Reference/SSpanel.md)。
 > **术语约定**：「**规则素材池**」（第二章）= 规则条目素材池（域名/IP/进程名等，供规则拼接）；「**订阅地址池**」（第四章）= 每平台存放订阅文件的池（单模板 + 版本历史，即既有「订阅池」）；「**分流规则**」= Shadowrocket 装配产出的 .conf 分流配置（[General] + [Rule]），归入现有「规则」实体共享分发（见 4.4）。各池/实体职责分离，不混用。
 > **文档关系**：设计基线见 [Design1.md](./docs/AchievedDocuments/Design1.md)，编码约束遵循 [AGENTS.md](./AGENTS.md)（**唯一强要求**）。本文档与 Design1.md 冲突时以本文档为准，构建完成后定稿结论同步落入基线。
 >
@@ -19,10 +19,10 @@
 
 - **功能归属**：第二~四章不依赖 Xray；仅第五章能力属高级模式。开关开启后侧边栏新增「Xray 实例」「用户组」两个入口，用户管理扩展用量/同步状态/配额覆盖列；开关关闭时入口与扩展列全部隐藏，后端高级接口返回 403
 - **组概念**：基础模式全面隐藏（侧边栏无入口、用户首页/个人中心不显示所属组、用户列表隐藏「所属组」列，数据层保留默认组关联不变）；高级模式解锁多组 CRUD（组 = Xray 节点授权 + 默认配额，见 5.6）
-- **高级开关 OFF（清空）**：开关关闭**一并移除所有由高级模式产生的配置**：Xray 实例数据、**source=xray 的节点数据**（**manual 节点属基础模式能力，保留**）、组节点分配、Xray 用户推送记录、流量记录、用户 UUID（users.uuid_encrypted）、**用户代理密码（users.proxy_secret_encrypted）**、配额字段（users.quota_override / groups.default_quota），系统回到纯基础模式形态；**proxy_groups、groups 行与用户组归属保留**（基础模式数据层保留默认组关联不变）；**用量响应头（subscription-userinfo 等）停止携带**（无流量数据可报）；关闭前给予足够警告提示并要求**如同清空数据的二次输入确认**（清单展示区分 xray/manual 节点），开启时同样提示需重新录入实例与分配；关闭后无任何高级数据保留，重新开启须全量重新配置，用户重新生成 UUID 并重新推送；**装配快照（assembly_blueprints）保留不清理**：快照内对已删 xray 节点的勾选引用成为悬空引用，重新编辑时复用 4.4「失效项标记并提示剔除」容错机制（与「实体删除不阻断、快照为历史参考」原则一致）
-- **开关 ON 时批量初始化**：开关开启（含 OFF 清空后重新开启）的事务提交后，系统自动对全部 active 用户执行批量初始化：无 UUID 与代理密码者生成（users.uuid_encrypted / users.proxy_secret_encrypted）+ 向所属组分配节点全量推送（AddUser），失败记 xray_users.failed + last_error 可手动重试；一次机制同时覆盖基础模式期存量用户与重新开启的全量重推送
-- **开关关闭后的占位行为**：当前激活模板若含节点占位标记，下载时将占位替换为注释（`# Xray 高级模式未启用`）返回，保证 YAML/.conf 语法完整
-- **存量数据**：升级重建不做任何迁移，项目内既有订阅数据均视为可放弃，管理员重新上传/装配每平台模板
+- **高级开关 OFF（清空）**：开关关闭**一并移除所有由高级模式产生的配置**：Xray 实例数据、**source=xray 的节点数据**（**manual 节点属基础模式能力，保留**）、组节点分配、Xray 用户推送记录、流量记录、用户 UUID（users.uuid_encrypted）、**用户代理密码（users.proxy_secret_encrypted）**、配额字段（users.quota_override / groups.default_quota），系统回到纯基础模式形态；**Xray 侧账号清理**：OFF 清空事务提交前收集 xray_users 全部记录（user_id / instance_id / inbound_tag），事务提交并清库后逐实例 best-effort `RemoveUser`——实例不可达则跳过并记 warn，确认弹窗与部署文档明确提示「不可达实例需手动清理」（与 5.7 实例删除口径一致，审核 A5 决策）；**proxy_groups、groups 行与用户组归属保留**（基础模式数据层保留默认组关联不变）；**用量响应头（subscription-userinfo 等）停止携带**（无流量数据可报）；关闭前给予足够警告提示并要求**如同清空数据的二次输入确认**（清单展示区分 xray/manual 节点），开启时同样提示需重新录入实例与分配；关闭后无任何高级数据保留，重新开启须全量重新配置，用户重新生成 UUID 并重新推送；**装配快照（assembly_blueprints）保留不清理**：快照内对已删 xray 节点的勾选引用成为悬空引用，重新编辑时复用 4.4「失效项标记并提示剔除」容错机制（与「实体删除不阻断、快照为历史参考」原则一致）
+- **开关 ON 时批量初始化**：开关开启（含 OFF 清空后重新开启）的事务提交后，系统自动对全部 active 用户执行批量初始化：无 UUID 与代理密码者生成（users.uuid_encrypted / users.proxy_secret_encrypted）+ 向所属组分配节点全量推送（AddUser），失败记 xray_users.failed + last_error 可手动重试；一次机制同时覆盖基础模式期存量用户与重新开启的全量重推送；**组无节点分配时跳过该用户不记失败**（审核 C-新11 口径）
+- **开关关闭后的占位行为**：当前激活模板若含节点占位标记，下载时将占位替换为注释（`# Xray 高级模式未启用`）返回，并同样执行 5.7「proxy-groups 蓝图全量重渲染」（空强制组降级 DIRECT、rules 降级 DIRECT），保证 YAML 语法与 Clash 加载语义双完整（审核 A2 决策）
+- **存量数据**：升级重建不做任何迁移，项目内既有订阅数据均视为可放弃，管理员重新上传/装配每平台模板；**连锁清理口径**：1009 迁移显式按序清理 download_tokens（显式订阅 Token）/ versions（owner_type='subscription'）/ group_selections / subscription_group_rel 后 DROP+重建 subscriptions，迁移框架一次性钩子删除 contents/subscription/ 目录，无标识/自定义 Token 保留（见 5.9，审核 A3 决策）
 - **显式 Token**：仅保留于分享订阅与规则；订阅地址池单模板仅走无标识组解析 Token；**落地处置**：download_tokens.subscription_id 列与订阅删除级联清理逻辑保留不动（兼容既有库，该态不再新发即可）；管理员指定订阅预览端点简化为**按平台预览当前模板**（新模型每平台一份，subscription_id 参数失去意义）
 - **用户首页**：两模式布局完全一致，流量条为独立 Card；基础模式**仅显示「不限流量」**（无流量采集数据源，隐藏已用数值）；高级模式强制显示「已用 X / 配额 Y GB」进度条 + 超限提示（保证超限提示可达）（流量卡片可经面板开关隐藏，默认开启）
 - **自定义订阅**：两模式均完整保留（用户级覆盖，优先级最高，不注入节点，内容原样返回）
@@ -61,7 +61,7 @@
 
 ### 2.4 同步机制
 
-- **触发方式**：手动触发为主（点击「同步」）；每个池可选开启定时自动同步（**每日执行，每池可配执行时刻，默认凌晨 04:00 低峰**；进程内 ticker 检查到期池执行）
+- **触发方式**：手动触发为主（点击「同步」）；每个池可选开启定时自动同步（**每日执行，每池可配执行时刻，默认凌晨 04:00 低峰**；进程内 ticker 检查到期池执行）；**停机错过不补偿**：错过当日执行时刻则等待下一周期，不做补跑（用户决策，审核 D12 推荐方案未采纳）
 - **同步更新语义（差量 + 来源隔离）**：URL 同步仅对 **url 来源**条目做差量更新——按本次同步结果新增/更新，源中已消失的行删除；**manual 来源条目永不受同步影响**；事务批量 UPSERT + 差量删除，支持数万行规模
 - **数万行规模应对**：条目去重索引 UNIQUE(pool_id, rule_type, match_value)；批量写入事务化；条目管理页分页展示（不整表加载）；装配时读池内全部条目拼接（规则行数达数万时产物文件体积可接受，无额外限制）
 - **约束**：拉取超时预设 1 分钟；内容大小上限 50MB；目标地址不设限制——安全边界由部署者自行决策
@@ -112,7 +112,7 @@ Clash YAML 与 Shadowrocket .conf 订阅语法与产物形态均不同：Clash �
 Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提供两个可单独使用的装配器，不复用 Clash 代理组，保证各端语法原生、交互最简：
 
 - **节点订阅装配器**：勾选节点（manual / xray 来源）+ 填写订阅头部（STATUS / REMARKS，见 4.2），产出 subs 内容（头部行 + 逐行节点链接，base64 编码，见 4.5）；**不含规则**
-- **分流规则装配器**：填写 [General] 表单 + 勾选规则素材（**素材池池级勾选**，与 3.5 口径一致；手工规则行逐条补充）+ **选择兜底流量方向**（FINAL,DIRECT / FINAL,PROXY 二选一，默认 PROXY，见 3.6），每个素材池仅需勾选**代理或不代理**，池内条目整体继承目标，渲染为 `PROXY` / `DIRECT`，产出 .conf（[General] + [Rule] + 兜底规则，见 3.6）；**不含节点**；装配时**选择目标规则实体**（管理员预先在规则页手动新建，如「Shadowrocket 分流规则」），生成的 conf 作为该实体的新版本入池（不自动生效，见 4.4）
+- **分流规则装配器**：填写 [General] 表单 + 勾选规则素材（**素材池池级勾选**，与 3.5 口径一致；手工规则行逐条补充）+ **选择兜底流量方向**（FINAL,DIRECT / FINAL,PROXY 二选一，默认 PROXY，见 3.6），每个素材池仅需勾选**代理或不代理**，池内条目整体继承目标，渲染为 `PROXY` / `DIRECT`，产出 .conf（[General] + [Rule] + 兜底规则，见 3.6）；**不含节点**；装配时**选择目标规则实体**（管理员预先在规则页手动新建，如「Shadowrocket 分流规则」；**允许创建无版本的空规则实体**——放宽 Design1「创建必带首版」校验，审核 D8 决策），生成的 conf 作为该实体的新版本入池（不自动生效，见 4.4；空实体首个 conf 自动激活除外）
 - 两装配器各自生成各自版本（subs 入订阅地址池、conf 入规则实体，见 4.4），不强制同时操作
 
 ### 3.5 规则拼接规则
@@ -162,15 +162,15 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 
 ### 4.4 订阅地址池衔接、分发与重新编辑
 
-- 生成产物按**平台 + 产物类型**归属：**Clash YAML 与 SR 节点订阅（subs）入订阅地址池**（各平台一份全局模板，创建时「平台 + 产物类型」唯一校验）+ 版本历史，版本管理统一适用 Design1.md 4.1（5 版本上限、`BEGIN IMMEDIATE` 事务、不可删当前激活版本等）；**SR 分流规则（conf）入现有「规则」实体**（规则的版本管理、激活与规则 Token 下载机制沿用 Design1.md，装配生成的 conf 作为该规则的新版本，不自动生效、需显式切换；首次入池自动激活规则除外，见下）
+- 生成产物按**平台**归属：**Clash YAML 与 SR 节点订阅（subs）入订阅地址池**（**每平台仅一份订阅模板，UNIQUE(platform_id)**；模板携带 product_type 属性（yaml/subs），用于创建/上传时的格式校验、默认下载扩展名与 UI 展示——同平台需要两种格式时建两个平台，审核 A1 决策）+ 版本历史，版本管理统一适用 Design1.md 4.1（5 版本上限、`BEGIN IMMEDIATE` 事务、不可删当前激活版本等）；**SR 分流规则（conf）入现有「规则」实体**（规则的版本管理、激活与规则 Token 下载机制沿用 Design1.md，装配生成的 conf 作为该规则的新版本，不自动生效、需显式切换；首次入池自动激活规则除外，见下）
 - **分发机制（入池 + 显式分发）**：生成与上传均只作为新版本入池，不自动生效；管理员在订阅地址池页面（或规则页面）显式「激活/分发」某版本后，该版本成为当前激活版本并对全体用户生效（基础模式全体用户获得同一份订阅；用户级例外仍由自定义订阅承载，见第一章）
 - **版本组件改造**：`CreateVersion` 增加 `activate` opt-in 参数——**订阅地址池（Clash YAML / SR subs）与装配产物（含 SR conf 入规则版本）的生成/上传调用一律传 false**，不再沿用现有「事务内强制切换激活指针」行为；激活动作仅由订阅地址池页面（或规则页面）的「激活/分发」触发（复用 `SwitchVersion`）；**适用范围边界：规则/分享订阅/自定义订阅的手工上传与在线编辑保持 Design1 既有「创建即激活」行为不变**（传 true），避免四类资源行为剧变
-- **首次入池自动激活**：订阅地址池按平台判定——平台尚无任何激活版本时，首个入池版本（无论生成或上传）自动成为激活版本，避免新部署后用户下载无可用版本的空窗；**规则实体同规则适用**：目标规则实体尚无激活版本时，首个装配 conf 版本自动激活（避免新规则实体「装配完但规则 Token 无激活版本」的空窗）；后续版本均须显式分发/切换
+- **首次入池自动激活**：**按订阅行判定**——该订阅行（或规则实体）`current_version=0` 时，首个入池版本（无论生成或上传）自动成为激活版本，避免新部署后用户下载无可用版本的空窗（不按「平台」判定，与每平台一份模板模型配套，审核 A1 决策）；**规则实体同规则适用**：目标规则实体尚无激活版本时，首个装配 conf 版本自动激活（避免新规则实体「装配完但规则 Token 无激活版本」的空窗）；后续版本均须显式分发/切换
 - **空池下载口径**：平台（或规则实体）尚无任何版本/无激活版本时，下载端点按 AGENTS §4.8 返回 HTTP 200 + 纯文本注释块（如 `# error: no active version`），不返回 JSON/HTML
-- 生成参数（头部表单值 + 节点/代理组或双态/素材池勾选 + 手工规则行）随版本快照保存（`assembly_blueprints` 表，version_id 1:1；SR 分流规则的快照随规则版本同表存储）
+- 生成参数（头部表单值 + 节点/代理组或双态/素材池勾选 + 手工规则行）随版本快照保存（`assembly_blueprints` 表，version_id 1:1；SR 分流规则的快照随规则版本同表存储）；**Clash YAML 装配产物另存结构化渲染计划**（头部 / manual proxies / proxy-groups 结构 / rules / 兜底规则），供下载时蓝图全量重渲染使用（见 5.7，审核 A2 决策）
 - **重新编辑**：生成过的版本提供重新编辑入口，加载快照修改后生成**新版本**（不改写旧版本；新版本仅入池，需再次显式分发）；**快照悬空容错**：加载快照时逐项校验引用（proxy_groups / 素材池 / 节点），失效项标记并提示管理员剔除或替换后再生成；实体删除不阻断（快照为历史参考，不反向约束实体生命周期；下载侧已有「候选集之外不注入」兜底，见 5.7）
 - 下载/日志/限流：Clash YAML 与 SR subs 复用现有订阅下载端点、访问日志与限流；SR conf 走规则下载端点（规则 Token）
-- **SR conf 用户分发（用户端规则卡片 + 引导）**：SR 平台用户在首页/个人中心除订阅卡片外，另见「分流规则」卡片（复用现有规则卡片机制）：展示当前激活 conf 版本信息与规则 Token 一键导入链接，并提供 SR 双内容导入引导文案（先添加订阅获取节点、再导入分流规则）
+- **SR conf 用户分发（用户端规则卡片 + 引导）**：SR 平台用户在首页/个人中心除订阅卡片外，另见「分流规则」卡片（复用现有规则卡片机制）：展示当前激活 conf 版本信息与规则 Token 复制链接（用户自行粘贴导入 SR；不使用一键 scheme 唤起，与 Design1 3.5「移除一键导入 UI」口径一致，审核 C6 订正），并提供 SR 双内容导入引导文案（先添加订阅获取节点、再导入分流规则）
 
 ### 4.5 Shadowrocket 输出编码
 
@@ -241,7 +241,7 @@ SR 双产物的编码方式不同：
 | 7 | 用户侧展示 | 展示**已用流量 / 总分配流量**（首页平台卡片 + 个人中心） |
 | 8 | 管理员侧 | 复用现有用户管理面板（UsersView 扩展：用量/同步状态/覆盖配额/重置），**不新增独立用户数据页** |
 | 9 | 推送粒度 | **参考用户组模式**：组分配节点（节点级），用户激活向所属组分配的全部节点推送 |
-| 10 | 用户组改造 | 组分配从「每平台选定订阅」**改为「用户可用的 Xray 节点 + 用户默认流量配额」**；订阅地址池简化为每平台一份全局模板（见 4.4；后按「平台 + 产物类型」细化，见变更记录 2026-08-15 核验改进项） |
+| 10 | 用户组改造 | 组分配从「每平台选定订阅」**改为「用户可用的 Xray 节点 + 用户默认流量配额」**；订阅地址池简化为**每平台一份订阅模板**（见 4.4；UNIQUE(platform_id)，产物类型为模板属性，审核 A1 决策） |
 | 11 | 模板生成 | 配置文档（YAML 等）由**订阅装配功能动态生成**（见第三/四章），下载时自动按组节点注入 |
 | 12 | 配额粒度 | **组默认配额 + 用户可覆盖**（users.quota_override 可空，NULL=继承组） |
 | 13 | 换组处理 | **自动迁移**：换组事务提交后，旧组节点移除该用户、新组节点推送（同凭据：UUID 与代理密码不变） |
@@ -252,9 +252,9 @@ SR 双产物的编码方式不同：
 | 18 | **节点停用** | **渲染过滤 + 分配保留**：渲染只注入 enabled=1 节点；组分配记录保留，重新启用即恢复注入 |
 | 19 | **组删除联动** | **自动迁移**：组删除后组内用户迁默认组，Xray 账号自动迁移（旧组节点移除 + 默认组节点推送，同凭据：UUID 与代理密码不变），与换组语义一致 |
 | 20 | **协议范围** | **xray 来源支持 vless / vmess / trojan / shadowsocks 四协议**（Xray UserManager 用户增删 API 的源码能力边界；经用户决策放宽，原「仅 VLESS/VMESS」口径废弃）：**每用户凭据注入**——vless/vmess = 每用户 UUID（users.uuid_encrypted），trojan/ss = 每用户统一代理密码（users.proxy_secret_encrypted，见 5.5）；节点行渲染字段集：vless（encryption/flow/security/sni/fp/pbk/sid/type/network/path/host）、vmess（base64 JSON：ps/add/port/id/aid/net/type/host/path/tls）、trojan（password）、ss（cipher 随 inbound 检测 + password）；检测到的其他协议 inbound 无 per-user 能力，标记不可分配并提示；协议类型整体可扩展注册（见 3.2） |
-| 21 | **公共节点** | **增加 is_public 标记**：nodes.is_public=1 的节点对所有组自动可见（下载渲染 = 组分配节点 ∪ 公共节点），组分配 UI 标注公共节点无需分配 |
+| 21 | **公共节点** | **增加 is_public 标记**：nodes.is_public=1 的节点对所有组自动可见（下载渲染 = 组分配节点 ∪ 公共节点），组分配 UI 标注公共节点无需分配；**公共 xray 节点自动进入每个 active 用户的 AddUser 集合**（与组分配节点同等参与 ON 批量初始化/注册审批启用/换组 diff/删除移除等全部触发器，仍受候选集与 enabled 过滤，审核 A6 决策） |
 | 22 | **节点顺序** | **按组分配顺序输出**（group_nodes 记录顺序，UI 支持排序调整）；公共节点排于组分配节点之后 |
-| 23 | **用量响应头** | 采纳 **Subscription-Userinfo 标准头**（XTLS 官方事实标准，见 docs/Reference/Xray-Core-API.md）：下载响应注入 `upload=/download=/total=/expire=` 四字段，expire 输出**远未来时间戳 4102444800（2100-01-01）表达无到期**（不用 0，避免部分客户端按 Unix 时间戳解释为「已过期」）；与平台附加头机制融合；**增配两个约定头**：`profile-update-interval`（建议值 6 小时，客户端自动更新间隔）与 `profile-web-page-url`（站点 URL）（SSPanel 实现核验仅 clash 格式携带，本系统对全部订阅下载携带；v2rayNG/Clash Meta/SingBox 等客户端支持，见 SSpanel-Subscribe.md） |
+| 23 | **用量响应头** | 采纳 **Subscription-Userinfo 标准头**（XTLS 官方事实标准，见 docs/Reference/Xray-Core-API.md）：下载响应注入 `upload=/download=/total=/expire=` 四字段，expire 输出**远未来时间戳 4102444800（2100-01-01）表达无到期**（不用 0，避免部分客户端按 Unix 时间戳解释为「已过期」）；与平台附加头机制融合；**增配两个约定头**：`profile-update-interval`（建议值 6 小时，客户端自动更新间隔）与 `profile-web-page-url`（站点 URL）（SSPanel 实现核验仅 clash 格式携带，本系统对全部订阅下载携带；v2rayNG/Clash Meta/SingBox 等客户端支持，见 SSpanel-Subscribe.md）；**同名冲突优先级：高级模式系统注入头覆盖平台附加头同名键**（或保存平台附加头时拒绝同名键），高级模式 profile-update-interval 定 21600（6 小时）、基础模式沿用平台值（审核 D11 决策） |
 | 24 | **配置导入导出** | **xray_instances 数据纳入配置导入导出**：export.go 扩展导出实例连接数据，导出格式升级 format_version=2 |
 
 ### 5.5 用户生命周期同步
@@ -283,7 +283,10 @@ SR 双产物的编码方式不同：
 - **Account 形态（按协议）**：AddUser 的 Account 按节点协议构造——vless：`vless.Account{Id: UUID}`；vmess：`vmess.Account{Id: UUID}`；trojan：`trojan.Account{Password: 代理密码}`；shadowsocks：`shadowsocks.Account{Password: 代理密码, Cipher: 节点 cipher}`（决策 #20）
 - 推送状态：`xray_users.sync_status = pending/synced/failed`，失败记 `last_error`，管理面板可见、可手动重试
 - **超限标记**：超限状态存 `users.quota_exceeded`（布尔，见 5.9），超限置 1、管理员重置配额时复位；用于面板超限提示（决策 #17）与「上月超限本月不自动恢复」判定（5.8）
-- **超限前置拦截**：所有 AddUser 类钩子（注册/审批/管理员创建/启用/换组/组删除迁移/组节点分配变更 diff 推送/开关批量初始化）执行前统一检查 `quota_exceeded`：**超限用户不推送**（xray_users 记录保持，推送跳过并记原因），UI 提示先重置配额；重置配额时恢复推送——防止换组/启用等操作绕过配额管控（审核 G2 收敛）
+- **超限前置拦截**：所有 AddUser 类钩子（注册/审批/管理员创建/启用/换组/组删除迁移/组节点分配变更 diff 推送/开关批量初始化，**含实例级对账补推**）执行前统一检查 `quota_exceeded`：**超限用户不推送**（xray_users 记录保持，推送跳过并记原因），UI 提示先重置配额；重置配额时恢复推送——防止换组/启用/对账补推等操作绕过配额管控（审核 G2/C-新16 收敛）
+- **推送集合口径（审核 A6 决策）**：全部 AddUser/RemoveUser 类触发器的目标节点 = 「所属组分配的全部 xray 节点 ∪ 公共 xray 节点（is_public=1）」，仍受候选集与 enabled=1 过滤
+- **凭据并发首建守卫（审核 B2/F5 口径）**：UUID 与代理密码首建参照 Token 首建模式——`BEGIN IMMEDIATE` 事务内条件更新 `... WHERE id=? AND uuid_encrypted IS NULL`，按 RowsAffected 判定，生成与加密在事务内完成；防止 ON 批量初始化与注册/审批钩子并发命中同一用户
+- **高级开关检查（审核 B3 口径）**：全部 Xray 同步钩子入口先检查高级模式开关（advanced_mode 配置键），OFF 时静默跳过
 - **级联**：用户删除时 `xray_users` / `traffic_records` 随外键 ON DELETE CASCADE 清理，无孤儿数据（AGENTS §4.7）
 
 ### 5.6 用户组模型（组 = 节点授权 + 配额）
@@ -295,7 +298,7 @@ groups（+ default_quota 默认月度配额 GB）
 ```
 
 - **节点分配**：组可勾选多个节点（**仅限 xray 来源**：manual 节点为共享静态凭据、无 per-user 语义，仅通过装配勾选静态渲染进模板，不参与组级差异化分配与下载注入，见 5.7）；用户激活/换组时按此推送；组内记录保持**排序字段**（下载渲染按此顺序输出，UI 支持排序调整，决策 #22）；**组管理页对不属于当前激活模板候选集的分配节点做标注提示**（参考 Design1 needs_reselect 高亮模式，避免「分配了但下载没有」的静默过滤困惑）
-- **候选集约束（见 3.2）**：组的节点分配只能在装配器勾选的候选集内选择（装配器定范围、组定授权）；装配器取消勾选某候选节点时，各组该节点的分配记录级联清理并在 UI 提示（AGENTS §4.7 无悬空引用）；**清理时机：级联清理仅在新版本被显式激活/分发时执行**——生成入池未激活期间不动组分配，避免旧激活版本（旧快照）的注入结果被未生效的新版本追溯改变；未激活版本不产生副作用（候选集之外的节点本就不注入，见 5.7）；单组场景下装配器勾选与组分配自然重合
+- **候选集约束（见 3.2）**：组的节点分配只能在装配器勾选的候选集内选择（装配器定范围、组定授权）；装配器取消勾选某候选节点时，各组该节点的分配记录级联清理并在 UI 提示（AGENTS §4.7 无悬空引用）；**清理时机：级联清理仅在新版本被显式激活/分发时执行**——生成入池未激活期间不动组分配，避免旧激活版本（旧快照）的注入结果被未生效的新版本追溯改变；未激活版本不产生副作用（候选集之外的节点本就不注入，见 5.7）；单组场景下装配器勾选与组分配自然重合；**候选集口径与激活回收（审核 A7 决策）**：①组管理页候选集 = **当前所有已激活装配蓝图的 xray 候选节点并集**；②下载渲染仍按各模板自身蓝图过滤；③新版本激活时比较新旧蓝图候选集差集，删除 group_nodes 后**对受影响 active 用户执行 RemoveUser diff**（事务提交后，幂等失败记同步状态，防授权残留）；④组管理页对「仅部分模板候选」的节点做提示
 - **公共节点（决策 #21）**：nodes.is_public=1 的节点**对所有组自动可见**（无需分配，渲染时排于组分配节点之后）；组分配 UI 标注公共节点无需分配
 - **默认配额**：组内用户默认月度流量（GB）；用户级可覆盖（users.quota_override）
 - **级联**：组删除 → 节点分配级联删；组内用户迁默认组（现有逻辑保留），其 Xray 账号随新组自动迁移（旧组节点移除 + 默认组节点推送，决策 #19）
@@ -315,10 +318,10 @@ groups（+ default_quota 默认月度配额 GB）
 
 关键规则：
 
-- **模板** = 装配生成的**平台全局模板**（含 `# {{xray_nodes}}` 占位标记，见 4.3；无标记的模板原样返回，兼容纯规则模板与基础模式静态节点模板）；**SR 平台的模板为 subs（base64 节点链接列表）**，占位标记位于解码后明文中，注入完成后全文重新 base64 返回；SR conf 不含节点、无占位
+- **模板** = 装配生成的**平台全局模板**（含 `# {{xray_nodes}}` 占位标记，见 4.3；无标记的模板原样返回，兼容纯规则模板与基础模式静态节点模板）；**SR 平台的模板为 subs**：**模板文件存储解码后明文**（下载注入完成后全文重新 base64 返回，避免每次解码歧义，审核 B6 口径），占位标记位于明文中；**默认下载文件名按产物类型区分**（clash-yaml → `.yaml`、sr-subs → `.txt`、sr-conf → `.conf`，上传模板保留原始扩展名）；SR conf 不含节点、无占位
 - **节点名约定**：`{实例标识}-{入站tag}`，与装配器节点命名约定闭环（见 3.2）
 - **注入范围（候选集约束，见 5.6）**：注入节点 = 组分配节点 ∪ 公共节点；装配生成的模板两者均须属于当前激活模板的装配候选集（装配器勾选快照，见 4.4），候选集之外的节点不注入；**无装配快照的直接上传模板不受候选集约束**，按「组分配节点 ∪ 公共节点」注入
-- **proxy-groups 动态重建**：多组差异化分配时用户实际注入节点可能少于模板 proxy-groups 引用的候选集节点，为避免引用不存在节点导致 Clash/mihomo 加载失败，**渲染层按用户实际注入节点动态重建 proxy-groups**：递归剔除「成员中不含任何已注入节点、且不含子组间接可达已注入节点」的代理组（三类强制组与仅含 DIRECT/子组的组按约束保留），rules 中引用被剔除组的规则行同步降级为 DIRECT 并保留行（保证规则链完整）；SR conf 无代理组概念不受影响
+- **proxy-groups 蓝图全量重渲染（审核 A2 决策）**：装配生成的 Clash YAML 版本同时保存**结构化渲染计划**于 blueprint（见 4.4），用户下载时按蓝图**全量重渲染**（而非仅文本替换）：①注入节点 = 组分配节点 ∪ 公共节点（过滤 enabled=0 与候选集之外）；②所有 proxy-groups 按「可达注入节点」递归重建（剔除成员中不含任何已注入节点、且不含子组间接可达已注入节点的组，manual 静态节点计入已注入集合防纯 manual 组误剔除）；③**强制组在注入集为空时降级为 `proxies: [DIRECT]`**（与 rules 降级口径统一，防空 select 组 Clash/mihomo 加载失败）；④rules 中引用被剔除组的规则行同步降级为 DIRECT 并保留行（保证规则链完整）；⑤无凭据/高级未启用/OFF 等「占位仅替换为注释」场景同样执行 ②~④；**直接上传的模板（无蓝图）仅做占位文本替换、不重建**（模板作者自负其责）；SR conf 无代理组概念不受影响
 - **注入条件（决策 #15）**：**users.uuid_encrypted 非空即注入**（用户激活时生成，trojan/ss 注入使用的 proxy_secret_encrypted 与 UUID 同步生成/清空，判定口径一致）——推送状态（pending/failed）不影响注入；管理员重试成功后立即生效，无需用户重新下载；未生成凭据的用户（从未激活/推送未启动）占位标记替换为注释 `# 节点未开通，请联系管理员`，模板其余部分原样——订阅链接始终可用、YAML 语法完整
 - **节点停用（决策 #18）**：渲染只注入 enabled=1 节点；组分配记录保留，重新启用即恢复注入
 - **节点删除级联**：xray 来源节点删除 → group_nodes 分配记录外键 CASCADE；xray_users 中该节点（instance_id+inbound_tag）的推送记录级联删除，同时触发对受影响 active 用户的 `RemoveUser`（幂等容忍不存在，失败记同步状态可重试）；manual 节点删除仅影响装配引用（重新编辑按快照悬空容错处理，见 4.4）
@@ -341,11 +344,13 @@ groups（+ default_quota 默认月度配额 GB）
   → 清当月累计 + 重新 AddUser（凭据不变）+ 状态复位
 ```
 
-- **自然月**：`traffic_records` 按 `ym`（YYYY-MM）聚合，跟随真实日历滚动，**无需定时重置表**；上月超限用户本月不会自动恢复（恢复 = 管理员手动重置，决策 #4）
+- **自然月**：`traffic_records` 按 `ym`（YYYY-MM）聚合，跟随真实日历滚动，**无需定时重置表**；上月超限用户本月不会自动恢复（恢复 = 管理员手动重置，决策 #4）；**单位与口径（审核 B1 决策）**：uplink/downlink 存**字节整数**（Subscription-Userinfo 按字节输出，UI 展示时换算 GB）；`ym` 月界按 **UTC** 计算
 - **采集方式**：Xray `GetUsersStats` 仅覆盖在线用户（核验结论见 docs/Reference/Xray-Core-API.md），故**必须逐用户 `QueryStats` 串行采集**（实例规模 1-5 台 × 用户量可控，配合并发限制串行化）；单次采集可合并 pattern 为 `user>>>{email}>>>traffic` 一次取上下行
 - **采集状态与告警**：采集任务对每实例记录最近成功/失败状态与原因（xray_instances 扩展字段，见 5.9）；连续失败在 XrayInstancesView 展示告警标记（复用同步状态 UI 模式），使流量漏计从静默变为可观测；超限 `RemoveUser` 失败并入用户同步状态机（failed + last_error + 手动重试）
 - **采集实现细则**（Xray-Core-API.md §11.2 取证）：QueryStats 的 pattern 为子串匹配，**禁止传空 pattern**（会返回并 reset 全部 counters，含 inbound/outbound 维度），必须传完整前缀；**counter 惰性注册且删除用户后不注销**（残留历史值），解析时按 email 过滤并与面板用户归一；reset=true 为原子 swap，不丢并发流量；「查无数据」≠「零流量」（counter 未注册）；**落库使用原子增量（UPSERT 累加），禁止先读后写**（AGENTS §4.6）
 - **超限用户**：RemoveUser 后该用户 counter 停止产生，**本月累计保留**（不删除）；管理员重置时重新 AddUser（凭据不变，quota_exceeded 复位），counter 从 0 重新累计；超限期间任何 AddUser 类钩子被前置拦截（见 5.5）
+- **配额 0/NULL 语义（审核 D9 决策）**：groups.default_quota / users.quota_override 为 **NULL 或 0 均视为不限流量**（跳过配额检查，Subscription-Userinfo 的 total 留空/省略），与基础模式「不限流量」心智一致
+- **重置配额前置校验（审核 C-2 口径）**：reset-quota 仅对 status=active 用户执行重新 AddUser（禁用用户不推送，符合禁用语义）
 - **已知损失**：Xray 重启 counter 清零导致差值丢失（业界通病，接受）；超限生效延迟 ≤ 1 个采集周期
 - **Xray 侧前提**：服务器须开启 `policy.statsUserUplink/Downlink`（未开则统计恒为空，管理面板提示）
 
@@ -355,15 +360,16 @@ groups（+ default_quota 默认月度配额 GB）
 |----|---------|------|
 | `rule_pools`（新增） | id, name, urls_json（挂接 URL 列表）, last_synced_at, sync_status, sync_error, auto_sync（定时同步开关）, **sync_time**（定时同步每日执行时刻，默认 04:00，见 2.4） | 规则素材池（第二章；审核 G3 补齐）；仅管理员可增删改（2.4） |
 | `pool_entries`（新增） | id, pool_id, rule_type, match_value, **source（url/manual）**；**UNIQUE(pool_id, rule_type, match_value)**（2.2 去重合并） | 素材池条目；入库前白名单校验（2.3）；**URL 同步仅差量更新 url 来源，manual 条目永不受影响**（2.4）；外键 ON DELETE CASCADE（池删除级联） |
-| `xray_instances` | id, name, api_addr, api_tag, enabled, **last_collect_at / collect_status / collect_error**（采集状态与告警，见 5.8） | 实例（1-5 台），api_addr 为 TCP 地址（IP 白名单防护）；**纳入配置导入导出**（决策 #24，format_version=2；**导入范围仅实例连接配置，不触碰 xray_users/traffic_records 等业务数据**，审核 D10） |
-| `nodes` | id, source（**CHECK 仅 manual/xray**）, name, instance_id（xray 来源必填，manual 可空）, tag（xray 来源）, protocol（字符串，**无硬编码枚举 CHECK，由应用层协议注册表校验**（可扩展注册，见 3.2）；xray 来源限 vless/vmess/trojan/shadowsocks 四协议（决策 #20）；manual 来源 ClashOfficial 全量协议（ssr 除外）；**xray ss 节点的 cipher 随 inbound 检测入库**）, host, port, **protocol_json**（协议完整参数，manual 来源为 Clash 原生字段集 JSON；**仅凭据字段（uuid / password / private-key 等）以 AES-256-GCM 加密存储，非凭据字段明文**，见 3.2；替代原按协议平铺的 flow/network/path/security/sni/fingerprint 等列）, is_public 默认 0, enabled | **统一节点表**：manual 节点由管理员表单录入，xray 节点由实例检测入库；客户端表达字段供节点行渲染（Clash proxies 条目 / SR 节点链接，见 4.5/5.7）；is_public=1 对所有组自动可见（决策 #21） |
+| `xray_instances` | id, **name（UNIQUE，防节点名 {实例标识}-{入站tag} 冲突，审核 C-新13）**, api_addr, api_tag, enabled, **last_collect_at / collect_status / collect_error**（采集状态与告警，见 5.8） | 实例（1-5 台），api_addr 为 TCP 地址（IP 白名单防护）；**纳入配置导入导出**（决策 #24，format_version=2；**导入范围仅实例连接配置，不触碰 xray_users/traffic_records 等业务数据**，审核 D10；**导入保护：向已配置系统导入时若 signing_key 将变化且存在任一业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 凭据字段），拒绝导入并提示「配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复」，审核 A4 决策**） |
+| `nodes` | id, source（**CHECK 仅 manual/xray**）, **name（全局唯一，防 Clash proxies 同名冲突，审核 C-7）**, instance_id（xray 来源必填，manual 可空）, tag（xray 来源）, protocol（字符串，**无硬编码枚举 CHECK，由应用层协议注册表校验**（可扩展注册，见 3.2）；xray 来源限 vless/vmess/trojan/shadowsocks 四协议（决策 #20）；manual 来源 ClashOfficial 全量协议（ssr 除外）；**xray ss 节点的 cipher 随 inbound 检测入库**）, host, port, **protocol_json**（协议完整参数，manual 来源为 Clash 原生字段集 JSON；**仅凭据字段（uuid / password / private-key 等）以 AES-256-GCM 加密存储，非凭据字段明文**，见 3.2；替代原按协议平铺的 flow/network/path/security/sni/fingerprint 等列）, is_public 默认 0, enabled, **last_seen_at / missing（Xray 侧已删 inbound 标记，检测未覆盖时提示管理员处置，审核 C-新18）** | **统一节点表**：manual 节点由管理员表单录入，xray 节点由实例检测入库；客户端表达字段供节点行渲染（Clash proxies 条目 / SR 节点链接，见 4.5/5.7）；is_public=1 对所有组自动可见（决策 #21） |
 | `proxy_groups` | id, name, type（preset/custom）, preset_key（预置组标识，可空）, definition_json（**组类型（Clash proxy-group 类型：select/url-test/fallback，见 3.3）**、有序节点引用与子组引用） | Clash 代理组全局定义：预置库以种子数据随迁移内置（参考 `Clash.yaml.template.md`，见 3.3）；管理员自建组入库同表；装配快照仅记录勾选引用 |
 | `group_nodes` | group_id, node_id, sort_order | 组 ↔ 节点分配（替代 group_selections；**仅 xray 来源节点可分配**，见 5.6）；sort_order 为组内顺序，UI 可调（决策 #22）；外键 ON DELETE CASCADE（**group_id / node_id 双侧**：组删除与节点删除均级联清理分配记录，见 5.6/5.7） |
-| `groups`（改） | + default_quota | 组默认月度配额 |
-| `users`（改） | + quota_override（可空）、+ uuid_encrypted、+ expire_at（预留，NULL）、+ **quota_exceeded**（超限标记，重置复位，见 5.5/5.8）、+ **proxy_secret_encrypted**（每用户统一代理密码，trojan/ss 每用户凭据，AES-256-GCM，见 5.5） | 用户配额覆盖（NULL=继承组）；每用户一个 UUID 加密存储（决策 #16）；expire_at 为到期语义预留字段，本期不使用（到期不纳入本期） |
-| `xray_users` | user_id, instance_id, inbound_tag, email, sync_status, last_error | 用户 Xray 账号推送状态（**不含 UUID**，决策 #16）；外键 ON DELETE CASCADE（用户删除级联） |
-| `traffic_records` | user_id, ym, uplink, downlink | 自然月流量累计（采集差值 UPSERT）；外键 ON DELETE CASCADE（用户删除级联） |
-| `subscriptions`（改） | 「平台 + 产物类型（yaml/subs）」唯一约束 | Clash YAML 与 SR subs 各平台一份全局模板（版本管理保留）；**不做任何迁移，项目内既有数据均视为可放弃，升级后订阅地址池清空重建**（见第一章存量数据项）；SR conf 不入本表（入规则实体，见 4.4） |
+| `groups`（改） | + default_quota | 组默认月度配额（**NULL 或 0 = 不限流量**，审核 D9 决策） |
+| `users`（改） | + quota_override（可空）、+ uuid_encrypted、+ expire_at（预留，NULL）、+ **quota_exceeded**（超限标记，重置复位，见 5.5/5.8）、+ **proxy_secret_encrypted**（每用户统一代理密码，trojan/ss 每用户凭据，AES-256-GCM，见 5.5） | 用户配额覆盖（NULL=继承组，**0/NULL 不限流量**）；每用户一个 UUID 加密存储（决策 #16）；expire_at 为到期语义预留字段，本期不使用（到期不纳入本期） |
+| `xray_users` | user_id, instance_id, inbound_tag, email, sync_status, last_error；**复合 PK (user_id, instance_id, inbound_tag)**，node_id 关联支持节点删除级联（审核 B4/C-新3） | 用户 Xray 账号推送状态（**不含 UUID**，决策 #16）；外键 ON DELETE CASCADE（用户删除级联） |
+| `traffic_records` | user_id, ym, uplink, downlink | 自然月流量累计（采集差值 UPSERT；**字节整数，ym 按 UTC**，审核 B1）；外键 ON DELETE CASCADE（用户删除级联） |
+| `subscriptions`（改） | **UNIQUE(platform_id)** + product_type（yaml/subs）展示/校验属性 | **每平台一份订阅模板**（版本管理保留；同平台需两种格式时建两个平台，审核 A1 决策）；**不做任何迁移，项目内既有数据均视为可放弃，升级后订阅地址池清空重建**（见第一章存量数据项）；SR conf 不入本表（入规则实体，见 4.4） |
+| **1009 迁移清理口径（审核 A3 决策）** | 显式 SQL 按序执行 | ①`DELETE FROM download_tokens WHERE subscription_id IS NOT NULL`（显式订阅 Token 不再新发，存量一并清；无标识/自定义 Token 保留）；②`DELETE FROM versions WHERE owner_type='subscription'`；③删 group_selections / subscription_group_rel；④DROP + 重建 subscriptions（新唯一约束）；⑤迁移框架一次性钩子删除 contents/subscription/ 目录（失败记日志不阻断启动） |
 | `assembly_blueprints`（新增） | version_id 1:1（NOT NULL REFERENCES versions **ON DELETE CASCADE**，版本驱逐/删除时快照同级联，审核 D11）, target_syntax（**clash-yaml / sr-subs / sr-conf**）, fixed_params_json, selection_json（节点/代理组或双态/素材池勾选，含 Xray 候选集）, custom_rules_json | 装配生成参数快照（见 4.4）；装配生成的版本行 1:1 快照，重新编辑读此恢复；**SR 分流规则的快照随规则版本存储**（version_id 指向规则版本行） |
 | 删除 | group_selections / subscription_group_rel | 组选定机制移除 |
 
@@ -375,9 +381,10 @@ groups（+ default_quota 默认月度配额 GB）
 - `internal/pool/`（新包，审核 G3）：规则素材池与条目 CRUD、URL 同步（逐行解析 + 白名单校验 + 单 URL 失败隔离，第二章）、可选定时同步（复用 cron ticker 模式）
 - `internal/assembly/`（新包）：三类装配器渲染（Clash YAML / SR subs / SR conf）与快照存取（第四章）
 - `internal/server/xray.go`：实例与节点 CRUD、连通性测试、**节点检测刷新（ListInbounds upsert，见 3.2）**、用户同步状态、手动重试、配额重置、流量报表、**实例级账号对账**（GetInboundUsers 与面板 xray_users 比对，展示差异：面板有/实例无→补推、实例有/面板无→建议清理，支持一键执行；见 Xray-Core-API.md §11.1）端点
-- `internal/download/`：渲染插入（模板 + 组节点 + UUID）+ **Subscription-Userinfo 响应头注入**（决策 #23）
-- `internal/group/`、`internal/subscription/`：组改造（节点分配 + 排序 + 默认配额 + 公共节点标注 + 候选集约束）、订阅地址池简化（平台 + 产物类型：Clash YAML / SR subs）与 SR conf 入规则实体（见 4.4）
-- `internal/approval/`、`internal/user/admin.go`：推送钩子（事务提交后）
+- `internal/download/`：渲染插入（模板 + 组节点 + UUID）+ **Subscription-Userinfo 响应头注入**（决策 #23）+ **无激活版本改 HTTP 200 注释块**（现有 ErrVersionNotFound 404 口径改造，同步更新 download_test.go 断言，审核 D10 决策）
+- `internal/group/`、`internal/subscription/`：组改造（节点分配 + 排序 + 默认配额 + 公共节点标注 + 候选集约束）、订阅地址池简化（每平台一份订阅模板，product_type 为模板属性，审核 A1 决策）与 SR conf 入规则实体（见 4.4）
+- `internal/approval/`、`internal/user/admin.go`：推送钩子（事务提交后，入口先检查 advanced_mode 开关，见 5.5）
+- `internal/dataclear/`：**ClearTablesTx 表清单扩展 9 张增量新表**（rule_pools / pool_entries / xray_instances / nodes / proxy_groups / group_nodes / xray_users / traffic_records / assembly_blueprints，一键清空与应急重新初始化共用，审核 G-4/B8）
 - `internal/server/home.go`：平台卡片携带已用/总流量；用户面板超限提示（决策 #17）
 - `internal/config/export.go`：**xray_instances 纳入导入导出**（format_version=2，决策 #24）
 - `internal/cron/`：流量采集（逐用户 QueryStats 串行）与配额检查任务
@@ -401,6 +408,7 @@ groups（+ default_quota 默认月度配额 GB）
 
 | 日期 | 说明 |
 |------|------|
+| 2026-08-16 | Design2Report1~4 四轮审核报告合并核验，经用户逐轮决策确认 15 项（提问工具四轮确认）：①产物类型模型：**每平台一份订阅模板 UNIQUE(platform_id)**，product_type 为模板属性，下载路由/Token 零改动，首次激活改按订阅行 current_version=0 判定（审核 A1/G-3/F1，R2 与 R4 推荐方案冲突由用户裁决）；②**Clash proxy-groups 改蓝图全量重渲染**：装配存结构化渲染计划，空强制组降级 DIRECT、rules 降级 DIRECT，无凭据/OFF 场景同重建，直传模板仅文本替换（审核 A2/G-新1/G-1/G-2/F3）；③**1009 迁移显式 SQL 清理 + 一次性钩子删 contents/subscription/ 目录**，无标识/自定义 Token 保留（审核 A3/F6）；④**配置导入保护**：signing_key 变化且存在业务密文时拒绝导入（审核 A4/G-新3）；⑤**OFF 清空后 best-effort RemoveUser 清 Xray 侧账号**，不可达跳过记 warn 并提示（审核 A5/G-新2）；⑥**公共 xray 节点自动 AddUser 至全部 active 用户**（审核 A6/C-新5）；⑦**候选集 = 已激活蓝图并集 + 下载按模板过滤 + 激活时差集删分配并 RemoveUser diff**（审核 A7/C-新12）；⑧允许空规则实体（审核 C-1/D8）；⑨配额 0/NULL = 不限流量（审核 C-新8/F2/D9）；⑩无激活版本下载返 200 注释块并改测试（审核 D10）；⑪系统注入头覆盖平台附加头同名键，高级 profile-update-interval=21600（审核 D-新6/C-4/F7/D11）；⑫素材池定时同步**停机错过不补偿**（用户决策未采纳审核 D12 推荐）；⑬B 级口径批量采纳（xray_users 复合 PK/凭据并发首建守卫/SR subs 明文存储+默认扩展名/dataclear 补 9 表/advanced_mode 开关与钩子静默跳过/流量字节与 UTC 月界等）；⑭Go 1.26 升级维持 BuildN Step 0 先行；⑮规则 Token「一键导入」措辞订正为「复制链接」（审核 C6） |
 | 2026-08-16 | 全文核验审查收敛（7 决策 + 10 错误修正，经用户逐项决策）：决策类：①条目去重冲突→手工添加与既有条目同（类型+值）时拒绝并提示（2.2 隐含于去重合并语义）；②空产物从警示升级为硬校验拒绝生成（强制组至少 1 节点/SR subs 至少 1 节点，3.3/4.1）；③vless cipher 改空占位对齐样例（4.5/5.7）；④首次入池自动激活扩展到规则实体（首个 conf 版本，4.4）；⑤代理组类型枚举 select/url-test/fallback（3.3/5.9）；⑥基础模式流量卡隐藏已用数值仅显「不限流量」（第一章/5.10）；⑦OFF 保留装配快照、悬空引用复用 4.4 容错（第一章）。错误类：凭据措辞残留修正（4.3/5.1→决策 #2 口径、决策 #2/#4/#13/#15/#19 UUID→凭据）；rule_pools 补 sync_time 字段；5.2 并发表述对齐 Reference §11.4；5.5 超限拦截枚举补组节点分配变更；4.5 删 SSpanel 不当引用；group_nodes 外键双侧 CASCADE；补空池下载口径（AGENTS §4.8）；另：同步并发互斥、「预置」改「预设」 |
 | 2026-08-16 | 设计细节完善（用户 7 点改进 + 未决策项清点，经用户决策）：①素材池条目增加 source（url/manual）标记，URL 同步差量更新仅作用于 url 来源、manual 永不受影响，部分失败不差删（2.2/2.4/5.9）；②数万行规模应对（去重索引/批量事务/分页/拼接无限制，2.4）；③协议可扩展注册（应用层注册表 + protocol 字符串无硬编码 CHECK，3.2/5.9）；④决策 #20 修订：xray 来源放宽为 vless/vmess/trojan/shadowsocks 四协议（UserManager 源码边界），每用户凭据 = UUID（vless/vmess）+ 统一代理密码 users.proxy_secret_encrypted（trojan/ss），注入渲染/开关清空/批量初始化/Account 形态同步扩展（3.2/5.4/5.5/5.7/4.5/第一章/5.9）；⑤代理组内节点顺序可调（definition_json 有序 + 拖拽，select 组首节点默认选中，3.3）；⑥SR 兜底 FINAL 改手选 DIRECT/PROXY 二选一默认 PROXY（3.4/3.6/4.2）；⑦订阅管理页含版本内容查看（蓝图模板可见，5.10）；⑧清点决策：定时同步每日可配时刻默认 04:00（2.4）、diff 库定 jsdiff（4.1） |
 | 2026-08-15 | 外部审核报告收敛（B1/G1~G4/C1~C8/D 级逐项核对，经用户决策）：①B1 Go 版本冲突修正：项目 Go 升级 1.26 + 引入 xray-core 模块（原「不动 Go 版本」口径废弃，5.3）；②G1 quota_exceeded 标记落 users 表（5.5/5.8/5.9）；③G2 全部 AddUser 钩子前置拦截超限用户（5.5）；④G3 补齐 rule_pools/pool_entries 表定义（5.9）；⑤C1 activate opt-in 范围界定：仅订阅池+装配产物 false，规则/分享/自定义保持创建即激活（4.4）；⑥C2 显式 Token 落地处置（表列保留/预览端点简化，第一章）；⑦C3 Clash 装配跳过 USER-AGENT 并提示（3.5）；⑧C4 组分配仅限 xray 节点，manual 仅静态渲染（5.6）；⑨C5b 候选集外分配组页标注（5.6）；⑩C6 素材勾选统一池级（3.4）；⑪C7 实例删除级联补齐（5.7）；⑫D4 用量头仅高级模式携带（5.7）；⑬D10 导入范围仅实例连接配置（5.9）；⑭D11 blueprint 外键 ON DELETE CASCADE（5.9）；已修项确认：G4/C5a/C8/节点删除级联均已在前轮决策落文 |
