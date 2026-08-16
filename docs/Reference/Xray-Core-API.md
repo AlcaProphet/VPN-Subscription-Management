@@ -19,7 +19,7 @@
 | 服务 | 方法 | 用途 |
 |------|------|------|
 | HandlerService | `AddInbound` / `RemoveInbound` / `AlterInbound` / `ListInbounds` | 入站管理 |
-| HandlerService | `AlterInbound` + `AddUserOperation` | **向入站添加用户**（vless/vmess=UUID；均需 `Level` + `Email`；trojan=密码、SS=密码+加密方式——本项目仅使用 vless/vmess） |
+| HandlerService | `AlterInbound` + `AddUserOperation` | **向入站添加用户**（vless/vmess=UUID、trojan=密码、SS=密码+加密方式；均需 `Level` + `Email`——本项目四协议均使用，见 Design2 决策 #20） |
 | HandlerService | `AlterInbound` + `RemoveUserOperation` | **按 email 移除用户** |
 | HandlerService | `GetInboundUsers` / `GetInboundUsersCount` | 查询入站用户（email 空=全部） |
 | HandlerService | `AddOutbound` / `RemoveOutbound` / `AlterOutbound` / `ListOutbounds` | 出站管理 |
@@ -48,8 +48,8 @@
 |------|-------------|---------|
 | vless | `vless.Account{id=UUID, flow}` | UUID |
 | vmess | `vmess.Account{id=UUID}` | UUID |
-| trojan | `trojan.Account{password}` | 密码（本项目不使用） |
-| shadowsocks | 密码 + 加密方式 | （本项目不使用） |
+| trojan | `trojan.Account{password}` | 密码（本项目使用：每用户统一代理密码 users.proxy_secret_encrypted，见 Design2 §5.5） |
+| shadowsocks | 密码 + 加密方式 | 密码 + 加密方式（本项目使用：每用户统一代理密码 + 节点 cipher，见 Design2 决策 #20） |
 
 ## 五、传输字段全集（节点行渲染所需，`transport/internet/*/config.proto`）
 
@@ -158,5 +158,6 @@ vless://{uuid}@{server}:{port}?encryption=none&flow=xtls-rprx-vision&security=re
 
 | 日期 | 说明 |
 |------|------|
+| 2026-08-16 | 同步修订 §二/§四：trojan / shadowsocks 由「本项目不使用」改为四协议使用口径（每用户统一代理密码 users.proxy_secret_encrypted + 节点 cipher），对齐 Design2 决策 #20（xray 来源支持 vless/vmess/trojan/shadowsocks） |
 | 2026-08-15 | 新增第十一节 v26.7.28 深度取证：HandlerService 错误匹配表（codes.Unknown+字符串匹配）、QueryStats 子串匹配与空 pattern 风险、counter 惰性注册不注销、vmess alter_id 移除、文档仓库滞后清单；核验版本升级为 v26.7.28（core/core.go:21-23）；链接指向更新为 Design2.md 与新增 Reference 文档 |
 | 2026-08-13 | 从 DesignOnHold.md（v1.2~v1.4）提取整理：Xray-core 源码核验结论（3.2/4.3）、互联网生态研究（4.5）、Reality LimitFallback 跟踪项（4.7 #1） |

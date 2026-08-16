@@ -8,7 +8,7 @@
 ## 一、项目基本信息
 
 - **项目**：自托管 VPN 订阅管理系统（单容器 + SQLite，面向小团队）
-- **后端**：Go 1.25，module `vpn-sub`，目录 `backend/`
+- **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`（Go 版本升级为 Design2 §5.3 决策：xray 对接引入 xray-core 依赖，BuildN Step 0 执行实际升级与构建核验）
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
 - **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design2.md](./Design2.md)（增量能力，非强制）与 [Design1.md](./docs/AchievedDocuments/Design1.md)（第一期基线，存档）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
@@ -210,6 +210,8 @@
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
 | [Design2.md](./Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 增量能力设计：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接（24 项决策），已定稿待构建 | 活跃 |
+| [BuildN.md](./BuildN.md) | AI 编码助手 | 增量构建方案：将 Design2 转化为分步 TODO LIST（每步含目标/前置条件/产出文件与参考代码/验收规范与验证命令；模板见 DocTemplates/Build.template.md） | 待建（进入构建时按模板创建） |
+| [IssueN.md](./IssueN.md) | AI 编码助手 / 开发者 | 问题记录：bug 与修复闭环（现象/根因/影响范围/修复方案/状态；模板见 DocTemplates/Issue.template.md） | 待建（出现问题时按模板创建） |
 | [docs/DocTemplates/](./docs/DocTemplates/) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue）与 Clash/Shadowrocket 配置参考样例 | 活跃 |
 | [docs/Reference/](./docs/Reference/) | 开发者 | 研究参考资料：Xray-core API 研究、SSpanel 订阅输出逻辑 | 活跃 |
 | [docs/AchievedDocuments/Design1.md](./docs/AchievedDocuments/Design1.md) | 人类（开发者/用户） | 第一期设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维（已构建完成） | 已存档 |
