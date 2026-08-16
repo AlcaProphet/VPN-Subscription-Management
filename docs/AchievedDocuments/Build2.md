@@ -405,7 +405,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
   ```
 
   ```vue
-  <!-- PlatformsView.vue 骨架（UI §5.4）：双态列表（≥768 表格 / <768 卡片，ResponsiveTable Build2 Step 2 建，本 Step 可先用条件渲染占位） -->
+  <!-- PlatformsView.vue 骨架（UI §5.4）：双态列表（≥768 表格 / <768 卡片，逐页内联实现——2026-08-16 确认口径，本 Step 可先用条件渲染占位） -->
   <script setup lang="ts">
   // 列：名称、标识（只读复制）、scheme 数量、安装包状态（本地已传/外链/无）、操作（编辑/删除危险）
   const toDelete = ref<PlatformItem | null>(null) // ConfirmModal 目标
@@ -2162,10 +2162,10 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
 - **前置条件：** Step 2（版本组件）、Step 4（Token/下载/首页数据）、Step 5（自定义，首页自定义展示）已完成并验收。
 - **产出文件与操作：**
 
-  1. **创建 `backend/migrations/1006_rules.sql`**：`rules` 表：`id`、`slug`（UNIQUE，**手填**，四类命名空间交叉校验）、`name`（不强制唯一）、`client_type`（当前仅 `shadowrocket`）、`schemes`（JSON 数组，含 `{url}` 占位符）、`current_version`、`created_at`、`updated_at`。
+  1. **创建 `backend/migrations/1006_rules.sql`**：`rules` 表：`id`、`slug`（UNIQUE，**系统自动生成**（`rule-` 前缀 + 8 位随机短码），四类命名空间交叉校验；后端兼容手填）、`name`（不强制唯一）、`client_type`（当前仅 `shadowrocket`）、`schemes`（JSON 数组，含 `{url}` 占位符）、`current_version`、`created_at`、`updated_at`。
 
   2. **创建 `backend/internal/rule/`（业务层）**：规则服务。必须实现：
-     - CRUD：名称 + 手填标识 + 客户端类型 + scheme + 首版本上传；**创建后仅可改名（客户端类型与 scheme 不可修改）**。
+     - CRUD：名称 + 客户端类型 + scheme + 首版本上传；**标识由系统自动生成（`rule-` 前缀，后端兼容手填校验）**；**创建后仅可改名（客户端类型与 scheme 不可修改）**。
      - **规则 Token 全局共享**（每规则一份，不绑定用户）；**任何持有链接者均可下载，不随用户禁用/删除失效**。
      - 版本管理复用版本组件（owner_type=rule）；Token 刷新=物理轮替；删除级联删文件 + Token。
      - 规则下载走 Step 4 的 `/rules/{slug}/download?token=`（公开）。
@@ -2192,7 +2192,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
   ```sql
   CREATE TABLE rules (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug            TEXT NOT NULL UNIQUE,    -- 手填，四类命名空间交叉校验
+      slug            TEXT NOT NULL UNIQUE,    -- 自动生成（rule- 前缀 + 8 位随机短码；兼容手填），四类命名空间交叉校验
       name            TEXT NOT NULL,           -- 不强制唯一
       client_type     TEXT NOT NULL DEFAULT 'shadowrocket', -- 当前仅 shadowrocket；创建后不可改
       schemes         TEXT NOT NULL DEFAULT '[]',           -- JSON 数组，含 {url} 占位符；创建后不可改
@@ -2224,7 +2224,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
       CurrentVersion int64
   }
 
-  // Create：名称 + 手填标识（跨四类校验）+ 客户端类型 + scheme + 首版本上传；自动生成规则 Token
+  // Create：名称 + 客户端类型 + scheme + 首版本上传；标识由系统自动生成（rule- 前缀，后端兼容手填跨四类校验）；自动生成规则 Token
   func (s *Service) Create(ctx context.Context, name, slugVal, clientType string, schemes []string, src version.ContentProvider) (*Rule, error) {
       ok, err := s.subs.CheckSlugAvailable(ctx, slugVal, "", 0)
       if err != nil {
@@ -2437,7 +2437,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
 
   **6. 单元测试要点（验收要求）**
 
-  - 后端：规则标识手填跨四类校验（与既有订阅/分享/自定义冲突 409；至此四表查重全部生效）；规则 Token 全局共享（禁用/删除其他用户后 Token 仍可下载）；改邮箱/改密码递增 credential_version（旧会话 401）；改邮箱冲突 409；OIDC 首设密码免旧密码、已设密码必填旧密码。
+  - 后端：规则标识自动生成（兼容手填跨四类校验；与既有订阅/分享/自定义冲突 409；至此四表查重全部生效）；规则 Token 全局共享（禁用/删除其他用户后 Token 仍可下载）；改邮箱/改密码递增 credential_version（旧会话 401）；改邮箱冲突 409；OIDC 首设密码免旧密码、已设密码必填旧密码。
   - 前端：首页平台卡片三态渲染（已分配/未分配/自定义）；一键导入 URL 编码拼接（`encodeURIComponent` 验证特殊字符）。
 
 - **测试与验收命令：**
@@ -2447,7 +2447,7 @@ Step 1~6 ──▶ Step 7（面板布局承载各管理页；装配预留依赖�
   ```
 - **验收标准：**
   - 全部命令通过。
-  - 后端单测覆盖：规则标识手填跨四类校验、规则 Token 全局共享（不随用户禁用失效）、改邮箱/密码递增凭据版本号、改邮箱冲突 409。
+  - 后端单测覆盖：规则标识自动生成与兼容手填跨四类校验、规则 Token 全局共享（不随用户禁用失效）、改邮箱/密码递增凭据版本号、改邮箱冲突 409。
   - 前端单测覆盖：首页平台卡片三态（已分配/未分配/自定义）、一键导入 URL 编码拼接。
   - 手动验证：创建规则 → 用户端规则页下载/一键导入；用户首页一键导入唤起 scheme、复制链接、刷新链接；个人中心改邮箱后会话失效跳登录。
 
