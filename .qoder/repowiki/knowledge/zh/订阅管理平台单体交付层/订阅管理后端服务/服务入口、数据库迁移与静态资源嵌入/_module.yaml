@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: backend/entry_and_data
+title: 服务入口、数据库迁移与静态资源嵌入
+scope:
+    - backend/cmd/server/
+    - backend/migrations/
+    - backend/web/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/infrastructure
+    - path: backend/server_routes

@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: backend/infrastructure
+title: 基础设施层（配置/存储/响应/短码/限流/OIDC）
+scope:
+    - backend/internal/config/
+    - backend/internal/store/
+    - backend/internal/response/
+    - backend/internal/slug/
+    - backend/internal/ratelimit/
+    - backend/internal/oidc/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/entry_and_data
+    - path: backend/support_services

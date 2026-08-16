@@ -1,0 +1,24 @@
+schema_version: 1
+module_path: ""
+title: 订阅管理平台单体交付层
+scope:
+    - README.md
+    - Build1.md
+    - Build2.md
+    - Build3.md
+    - Design0.md
+    - Design1.md
+    - Design1-UI.md
+    - Issue1.md
+    - AGENTS.md
+    - Dockerfile
+    - docker-compose.yml
+    - docker-compose.yml.example
+    - .github/workflows/
+    - .smoke-test.sh
+    - .dockerignore
+    - .gitignore
+    - DesignOnHold.md
+source_files: []
+depends_on: []
+related_to: []

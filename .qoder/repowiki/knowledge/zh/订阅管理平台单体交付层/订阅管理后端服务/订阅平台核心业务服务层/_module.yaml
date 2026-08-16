@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: backend/subscription_platform
+title: 订阅平台核心业务服务层
+scope:
+    - backend/internal/subscription/
+    - backend/internal/platform/
+    - backend/internal/group/
+    - backend/internal/rule/
+    - backend/internal/custom/
+    - backend/internal/share/
+    - backend/internal/version/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/server_routes

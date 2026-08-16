@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: frontend/shared_ui
+title: 共享 UI 组件与布局（Ant Design + Tailwind）
+scope:
+    - frontend/src/components/
+    - frontend/src/layouts/
+    - frontend/src/utils/
+    - frontend/src/theme.ts
+    - frontend/src/style.css
+source_files: []
+depends_on: []
+related_to:
+    - path: frontend/app_shell

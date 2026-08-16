@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: backend/support_services
+title: 支撑服务（邮件/下载解析/验证码/日志/初始化）
+scope:
+    - backend/internal/mail/
+    - backend/internal/download/
+    - backend/internal/captcha/
+    - backend/internal/log/
+    - backend/internal/setup/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/admin_operations
+    - path: backend/infrastructure
+    - path: backend/server_routes
+    - path: backend/user_auth

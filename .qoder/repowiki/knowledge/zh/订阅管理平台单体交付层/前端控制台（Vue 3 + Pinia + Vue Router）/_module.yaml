@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend
+title: 前端控制台（Vue 3 + Pinia + Vue Router）
+scope:
+    - frontend/
+source_files: []
+depends_on: []
+related_to: []

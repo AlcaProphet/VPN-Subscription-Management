@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: frontend/tests
+title: 前端单元测试套件（Vitest + Vue Test Utils）
+scope:
+    - frontend/tests/
+source_files: []
+depends_on: []
+related_to:
+    - path: frontend/app_shell

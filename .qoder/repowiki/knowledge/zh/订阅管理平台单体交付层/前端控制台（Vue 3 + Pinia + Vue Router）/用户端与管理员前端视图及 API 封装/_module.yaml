@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: frontend/user_views
+title: 用户端与管理员前端视图及 API 封装
+scope:
+    - frontend/src/views/
+    - frontend/src/api/auth.ts
+    - frontend/src/api/profile.ts
+    - frontend/src/api/home.ts
+    - frontend/src/api/emergency.ts
+    - frontend/src/api/settings.ts
+    - frontend/src/api/log.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/server_routes
+    - path: frontend/app_shell

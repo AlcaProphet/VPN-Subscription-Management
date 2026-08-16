@@ -1,0 +1,18 @@
+schema_version: 1
+module_path: frontend/admin_views
+title: 后台管理视图与领域 API 封装
+scope:
+    - frontend/src/views/admin/
+    - frontend/src/api/approval.ts
+    - frontend/src/api/group.ts
+    - frontend/src/api/platform.ts
+    - frontend/src/api/rule.ts
+    - frontend/src/api/share.ts
+    - frontend/src/api/subscription.ts
+    - frontend/src/api/system.ts
+    - frontend/src/api/version.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/server_routes
+    - path: frontend/app_shell
