@@ -17,7 +17,15 @@
 - [backend/internal/server/share.go](file://backend/internal/server/share.go)
 - [backend/internal/server/home.go](file://backend/internal/server/home.go)
 - [backend/internal/server/status.go](file://backend/internal/server/status.go)
+- [backend/internal/user/user.go](file://backend/internal/user/user.go)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增Xray实例管理API端点，支持动态节点检测与用户生命周期同步
+- 增强订阅组装端点，支持异步激活模式与蓝图版本管理
+- 改进用户生命周期同步API，增加并发首建守卫与配额超限拦截机制
+- 完善高级模式开关控制，支持Xray集成功能的条件启用
 
 ## 目录
 1. [简介](#简介)
@@ -40,6 +48,7 @@
 - 认证方式（会话Cookie、短期Token、OIDC回调）
 - WebSocket/SSE实时日志连接协议
 - 版本管理、速率限制与安全注意事项
+- **新增**：Xray实例管理与用户生命周期同步API
 
 ## 项目结构
 后端采用Gin路由装配，按业务域拆分处理器并集中注册：
@@ -49,6 +58,7 @@
 - 下载与预览：/subscriptions/*、/share/*、/rules/*、/api/subscriptions/preview
 - 系统能力：/api/system/status、/api/public/announcement、/api/site/info
 - 日志SSE：/api/admin/logs/stream
+- **新增**：Xray实例管理：/api/admin/xray-instances/*
 
 ```mermaid
 graph TB
@@ -59,6 +69,7 @@ A --> E["用户端路由<br/>/api/home, /api/rules"]
 A --> F["下载路由<br/>/subscriptions/*, /share/*, /rules/*"]
 A --> G["系统状态<br/>/api/system/status, /api/public/*"]
 A --> H["日志SSE<br/>/api/admin/logs/stream"]
+A --> I["Xray实例管理<br/>/api/admin/xray-instances/*"]
 ```
 
 图表来源
@@ -71,6 +82,7 @@ A --> H["日志SSE<br/>/api/admin/logs/stream"]
 - 统一响应封装：OK/Fail/ListData
 - 中间件链：请求日志、panic恢复、信任代理、限流、验证码、会话/管理员鉴权
 - 服务装配：auth、setup、oidc、captcha、ratelimit、version、platform、subscription、group、token、download、custom、share、rule、mail、approval、config、log、backup、dataclear、emergency
+- **新增**：Xray实例管理服务，支持节点检测与用户生命周期同步
 
 章节来源
 - [backend/internal/server/server.go:40-157](file://backend/internal/server/server.go#L40-L157)
@@ -83,12 +95,15 @@ participant Gin as "Gin引擎"
 participant MW as "中间件(限流/验证码/会话/管理员)"
 participant Handler as "业务Handler"
 participant Svc as "领域Service"
+participant Xray as "Xray实例服务"
 participant DB as "数据库/存储"
 Client->>Gin : HTTP请求
 Gin->>MW : 校验(限流/验证码/会话/管理员)
 MW-->>Gin : 通过/拒绝
 Gin->>Handler : 调用处理器
 Handler->>Svc : 执行业务逻辑
+Svc->>Xray : Xray实例操作(高级模式)
+Xray-->>Svc : 节点检测结果
 Svc->>DB : 读写数据
 DB-->>Svc : 结果
 Svc-->>Handler : 结果
@@ -114,6 +129,7 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - OIDC：授权码流程+state Cookie保护
 - 限流：按IP或Key计数，超限返回429
 - 缓存控制：下载类端点强制no-store/no-cache
+- **新增**：高级模式开关检查，Xray相关功能需advanced_mode配置开启
 
 章节来源
 - [backend/internal/server/server.go:40-50](file://backend/internal/server/server.go#L40-L50)
@@ -222,6 +238,12 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 描述：批量发送密码设置链接（回执计数）
   - 状态码：200/400/500
 
+**新增**：用户生命周期同步机制
+- 自动触发：用户激活时生成UUID和代理密码，AES-256-GCM加密存储
+- 并发守卫：BEGIN IMMEDIATE事务内条件更新，防止重复生成凭据
+- 配额拦截：超限用户不推送Xray节点，需管理员重置配额后恢复
+- 推送范围：所属组节点 ∪ 公共节点（is_public=1）
+
 章节来源
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/user.go:54-67](file://backend/internal/server/user.go#L54-L67)
@@ -306,6 +328,12 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 描述：标识唯一性即时校验
   - 查询：slug、type、id
   - 状态码：200/500
+
+**增强**：订阅组装端点升级
+- 异步激活：支持opt-in激活模式，避免自动切换影响生产环境
+- 蓝图版本：保存结构化渲染计划，支持重新编辑与悬空引用容错
+- 首次激活：新订阅首个版本自动激活，避免空窗期
+- 候选集管理：基于已激活蓝图构建全局节点候选集
 
 章节来源
 - [backend/internal/server/subscription.go:21-38](file://backend/internal/server/subscription.go#L21-L38)
@@ -482,6 +510,11 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 描述：站点信息公开（无需鉴权）
   - 状态码：200
 
+**新增**：高级模式配置
+- advanced_mode：控制Xray实例管理功能开关
+- 配置项：xray_api_addr、xray_api_tag等实例连接参数
+- 安全考虑：仅管理员可访问，支持配置导入导出时的签名验证
+
 章节来源
 - [backend/internal/server/settings.go:51-81](file://backend/internal/server/settings.go#L51-L81)
 - [backend/internal/server/settings.go:83-137](file://backend/internal/server/settings.go#L83-L137)
@@ -506,7 +539,7 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
 
 章节来源
 - [backend/internal/server/custom.go:21-32](file://backend/internal/server/custom.go#L21-L32)
-- [backend/internal/server/custom.go:34-82](file://backend/internal/server/custom.go#L34-L82)
+- [backend/internal/server/custom.go:34-82](file://backend/internal/server/custom.go#L34-82)
 - [backend/internal/server/custom.go:84-103](file://backend/internal/server/custom.go#L84-L103)
 - [backend/internal/server/custom.go:105-126](file://backend/internal/server/custom.go#L105-L126)
 
@@ -548,6 +581,11 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 描述：公告/页脚公开端点
   - 状态码：200
 
+**新增**：高级模式状态检测
+- 系统状态包含advanced_mode标志位
+- 支持Xray实例连接状态检测
+- 提供实例管理能力可用性指示
+
 章节来源
 - [backend/internal/server/status.go:22-37](file://backend/internal/server/status.go#L22-L37)
 - [backend/internal/server/status.go:39-79](file://backend/internal/server/status.go#L39-L79)
@@ -585,6 +623,7 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
 - 限流中间件：按Key（register/login/forgot/download）限制频率
 - 验证码中间件：在注册/登录/忘记密码上叠加
 - 版本模块：订阅/规则/自定义/分享共用版本CRUD与预览
+- **新增**：Xray实例服务依赖高级模式配置，支持节点检测与用户同步
 
 ```mermaid
 graph LR
@@ -602,6 +641,7 @@ R --> SH["分享(share.go)"]
 R --> H["主页(home.go)"]
 R --> L["日志(log.go)"]
 R --> SS["状态(status.go)"]
+R --> X["Xray实例(xray_instance.go)"]
 ```
 
 图表来源
@@ -618,6 +658,7 @@ R --> SS["状态(status.go)"]
 - 内存安全：大文件流式处理，避免整读内存
 - 并发与连接：SSE连接上限8；事件源一次性Token防重放
 - 优雅退出：HTTP服务支持上下文关闭与超时
+- **新增**：Xray实例操作限流，避免频繁API调用导致Xray服务压力
 
 章节来源
 - [backend/internal/server/auth.go:24-34](file://backend/internal/server/auth.go#L24-L34)
@@ -639,6 +680,11 @@ R --> SS["状态(status.go)"]
   - 检查限流Key与阈值
   - 确认OIDC state Cookie与回调参数一致
   - SSE连接失败时检查短期Token是否已消费
+- **新增**：Xray集成问题排查
+  - 检查advanced_mode配置是否开启
+  - 验证Xray实例连接参数正确性
+  - 查看用户同步状态（pending/synced/failed）
+  - 检查配额超限标记（quota_exceeded）
 
 章节来源
 - [backend/internal/server/server.go:225-237](file://backend/internal/server/server.go#L225-L237)
@@ -646,7 +692,7 @@ R --> SS["状态(status.go)"]
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
 
 ## 结论
-本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
+本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。**新增的Xray实例管理功能**提供了完整的用户生命周期同步能力，包括并发安全的凭据生成、配额超限拦截、高级模式开关控制等特性。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
 
 ## 附录
 
@@ -686,3 +732,31 @@ Note over Admin,SSE : 连接断开自动清理；Token一次性
 
 图表来源
 - [backend/internal/server/log.go:53-113](file://backend/internal/server/log.go#L53-L113)
+
+### Xray用户生命周期同步流程
+```mermaid
+sequenceDiagram
+participant User as "用户"
+participant API as "用户管理API"
+participant Sync as "同步服务"
+participant Xray as "Xray实例"
+User->>API : 用户激活/启用/换组
+API->>Sync : 触发用户同步
+Sync->>Sync : 检查高级模式开关
+alt 高级模式开启
+Sync->>Sync : 检查配额超限
+alt 未超限
+Sync->>Xray : AddUser/RemoveUser
+Xray-->>Sync : 同步结果
+Sync->>API : 更新同步状态
+else 超限
+Sync->>API : 记录跳过原因
+end
+else 高级模式关闭
+Sync->>API : 静默跳过
+end
+```
+
+图表来源
+- [backend/internal/user/user.go:82-154](file://backend/internal/user/user.go#L82-L154)
+- [Design2.md:260-290](file://Design2.md#L260-L290)

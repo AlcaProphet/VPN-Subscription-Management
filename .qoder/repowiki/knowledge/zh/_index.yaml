@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: beta
 nodes_managed: true
-exported_at: "2026-08-16T07:20:40Z"
+exported_at: "2026-08-16T07:51:34Z"
 modules:
     "":
         dir_name: VPN 订阅管理平台（单体交付根）
