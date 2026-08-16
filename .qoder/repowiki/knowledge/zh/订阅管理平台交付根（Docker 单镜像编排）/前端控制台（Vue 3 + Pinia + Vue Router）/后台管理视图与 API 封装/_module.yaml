@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: frontend/admin_views
-title: 后台管理视图与领域 API 封装
+title: 后台管理视图与 API 封装
 scope:
     - frontend/src/views/admin/
     - frontend/src/api/approval.ts

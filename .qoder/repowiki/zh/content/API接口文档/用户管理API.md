@@ -12,7 +12,16 @@
 - [backend/migrations/1003_groups.sql](file://backend/migrations/1003_groups.sql)
 - [frontend/src/api/user.ts](file://frontend/src/api/user.ts)
 - [frontend/src/api/group.ts](file://frontend/src/api/group.ts)
+- [frontend/src/views/admin/UsersView.vue](file://frontend/src/views/admin/UsersView.vue)
+- [frontend/src/views/admin/RulesView.vue](file://frontend/src/views/admin/RulesView.vue)
+- [frontend/src/views/admin/SharesView.vue](file://frontend/src/views/admin/SharesView.vue)
 </cite>
+
+## 更新摘要
+**所做更改**
+- 更新了用户管理界面响应式设计部分，添加了Space组件wrap属性的使用说明
+- 新增了前端界面优化章节，详细说明按钮溢出问题的解决方案
+- 更新了移动端适配相关的技术实现说明
 
 ## 目录
 1. [简介](#简介)
@@ -27,7 +36,9 @@
 10. [附录：接口规范与示例](#附录接口规范与示例)
 
 ## 简介
-本文件面向“用户管理”相关API，覆盖用户CRUD、用户组管理、权限分配、状态管理（启用/禁用）、密码重置、邮箱变更、批量操作等能力。文档同时说明管理员专用接口与普通用户接口的差异，并提供完整的工作流示例与权限验证机制说明。
+本文件面向"用户管理"相关API，覆盖用户CRUD、用户组管理、权限分配、状态管理（启用/禁用）、密码重置、邮箱变更、批量操作等能力。文档同时说明管理员专用接口与普通用户接口的差异，并提供完整的工作流示例与权限验证机制说明。
+
+**最新更新**：用户管理界面的按钮溢出问题已修复，通过Space组件的wrap属性确保在窄屏幕上的操作按钮能够自动换行，避免水平滚动或布局破坏。
 
 ## 项目结构
 后端采用分层设计：
@@ -49,12 +60,12 @@ GroupSvc --> DB
 AuthMW --> AuthSvc["认证服务(会话/角色)"]
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/group.go:18-27](file://backend/internal/server/group.go#L18-L27)
 - [backend/internal/auth/auth.go:144-192](file://backend/internal/auth/auth.go#L144-L192)
 
-章节来源
+**章节来源**
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/group.go:18-27](file://backend/internal/server/group.go#L18-L27)
 - [backend/internal/auth/auth.go:144-192](file://backend/internal/auth/auth.go#L144-L192)
@@ -65,7 +76,7 @@ AuthMW --> AuthSvc["认证服务(会话/角色)"]
 - 认证服务（auth.Service）：提供会话中间件、管理员中间件、凭据版本控制、密码哈希/校验、邮箱规范化等。
 - 接入层处理器（server.UserAdminHandler / server.GroupHandler）：暴露REST端点、参数校验、错误映射、统一响应。
 
-章节来源
+**章节来源**
 - [backend/internal/user/user.go:25-36](file://backend/internal/user/user.go#L25-L36)
 - [backend/internal/user/admin.go:32-45](file://backend/internal/user/admin.go#L32-L45)
 - [backend/internal/group/group.go:24-32](file://backend/internal/group/group.go#L24-L32)
@@ -74,7 +85,7 @@ AuthMW --> AuthSvc["认证服务(会话/角色)"]
 - [backend/internal/server/group.go:13-27](file://backend/internal/server/group.go#L13-L27)
 
 ## 架构总览
-用户管理API通过“会话+管理员”双中间件保护，所有写操作均进入业务层进行五重管理员保护校验与事务处理。用户组管理同样受管理员中间件保护，支持按平台为组选定订阅，并在删组时自动将成员迁回默认组。
+用户管理API通过"会话+管理员"双中间件保护，所有写操作均进入业务层进行五重管理员保护校验与事务处理。用户组管理同样受管理员中间件保护，支持按平台为组选定订阅，并在删组时自动将成员迁回默认组。
 
 ```mermaid
 sequenceDiagram
@@ -91,12 +102,12 @@ A-->>H : 返回{ id, username, email }
 H-->>C : 200 OK
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/server/user.go:69-89](file://backend/internal/server/user.go#L69-L89)
 - [backend/internal/user/admin.go:187-235](file://backend/internal/user/admin.go#L187-L235)
 - [backend/internal/user/user.go:82-154](file://backend/internal/user/user.go#L82-L154)
 
-章节来源
+**章节来源**
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/group.go:18-27](file://backend/internal/server/group.go#L18-L27)
 - [backend/internal/auth/auth.go:144-192](file://backend/internal/auth/auth.go#L144-L192)
@@ -131,13 +142,13 @@ ErrSelf --> End
 ErrLast --> End
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/user/admin.go:47-63](file://backend/internal/user/admin.go#L47-L63)
 - [backend/internal/user/admin.go:258-297](file://backend/internal/user/admin.go#L258-L297)
 - [backend/internal/user/admin.go:411-454](file://backend/internal/user/admin.go#L411-L454)
 - [backend/internal/user/admin.go:487-569](file://backend/internal/user/admin.go#L487-L569)
 
-章节来源
+**章节来源**
 - [backend/internal/server/user.go:54-274](file://backend/internal/server/user.go#L54-L274)
 - [backend/internal/user/admin.go:73-618](file://backend/internal/user/admin.go#L73-L618)
 
@@ -162,11 +173,11 @@ GS-->>GH : 成功
 GH-->>C : 200 OK
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/server/group.go:89-117](file://backend/internal/server/group.go#L89-L117)
 - [backend/internal/group/group.go:82-141](file://backend/internal/group/group.go#L82-L141)
 
-章节来源
+**章节来源**
 - [backend/internal/server/group.go:18-168](file://backend/internal/server/group.go#L18-L168)
 - [backend/internal/group/group.go:24-373](file://backend/internal/group/group.go#L24-L373)
 
@@ -191,11 +202,11 @@ AMW->>AMW : 校验cv与status
 AMW-->>C : 通过/拒绝
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/auth/auth.go:144-192](file://backend/internal/auth/auth.go#L144-L192)
 - [backend/internal/user/user.go:189-202](file://backend/internal/user/user.go#L189-L202)
 
-章节来源
+**章节来源**
 - [backend/internal/auth/auth.go:22-50](file://backend/internal/auth/auth.go#L22-L50)
 - [backend/internal/auth/auth.go:144-192](file://backend/internal/auth/auth.go#L144-L192)
 - [backend/internal/user/user.go:189-202](file://backend/internal/user/user.go#L189-L202)
@@ -204,7 +215,7 @@ AMW-->>C : 通过/拒绝
 - users表：包含id、username、email、role、group_id、password_hash、user_source、status、credential_version等字段；email唯一；role取值admin/user；status取值pending/active/disabled。
 - groups与group_selections：groups记录组信息与是否默认；group_selections记录每组每平台的选定订阅，支持取消选定（subscription_id置空）。
 
-章节来源
+**章节来源**
 - [backend/migrations/0002_users.sql:1-17](file://backend/migrations/0002_users.sql#L1-L17)
 - [backend/migrations/1003_groups.sql:1-16](file://backend/migrations/1003_groups.sql#L1-L16)
 
@@ -226,15 +237,15 @@ ServerUser --> AuthMW["auth/auth.go 中间件"]
 ServerGroup --> AuthMW
 ```
 
-图表来源
+**图表来源**
 - [frontend/src/api/user.ts:24-42](file://frontend/src/api/user.ts#L24-L42)
-- [frontend/src/api/group.ts:23-36](file://frontend/src/api/group.ts#L23-L36)
+- [frontend/src/api/group.ts:23-36](file://frontend/src/api/group.ts#L23-36)
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/group.go:18-27](file://backend/internal/server/group.go#L18-L27)
 
-章节来源
+**章节来源**
 - [frontend/src/api/user.ts:24-42](file://frontend/src/api/user.ts#L24-L42)
-- [frontend/src/api/group.ts:23-36](file://frontend/src/api/group.ts#L23-L36)
+- [frontend/src/api/group.ts:23-36](file://frontend/src/api/group.ts#L23-36)
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/group.go:18-27](file://backend/internal/server/group.go#L18-L27)
 
@@ -244,8 +255,6 @@ ServerGroup --> AuthMW
 - 用户组更新在单事务内完成改名、关联重建与选定重建，减少往返与锁竞争。
 - 会话校验每次实时查库，确保凭据版本与状态最新，避免缓存不一致导致的越权。
 
-[本节为通用指导，不直接分析具体文件]
-
 ## 故障排查指南
 - 400 参数错误：常见于邮箱格式非法、密码长度不足、参数缺失或非法值。
 - 403 权限不足：尝试操作最后一个活跃管理员（删除/降级/禁用）或普通用户访问管理员接口。
@@ -254,15 +263,13 @@ ServerGroup --> AuthMW
 - 未配置SMTP：send_email模式或批量发送密码链接时会失败，需先配置SMTP。
 - 会话失效：密码重置或禁用后credential_version递增，旧会话立即失效，需重新登录。
 
-章节来源
+**章节来源**
 - [backend/internal/server/user.go:34-52](file://backend/internal/server/user.go#L34-L52)
 - [backend/internal/user/admin.go:22-30](file://backend/internal/user/admin.go#L22-L30)
 - [backend/internal/auth/auth.go:144-192](file://backend/internal/auth/auth.go#L144-L192)
 
 ## 结论
 用户管理API提供了完善的管理员能力，涵盖用户全生命周期、用户组与订阅分发、权限与状态管理、密码与邮箱维护、批量操作等。通过严格的中间件与事务约束，保证了安全性与一致性。建议在生产环境合理配置SMTP、定期审计管理员操作、关注凭据版本与Token吊销策略。
-
-[本节为总结性内容，不直接分析具体文件]
 
 ## 附录：接口规范与示例
 
@@ -294,7 +301,7 @@ ServerGroup --> AuthMW
 - POST /api/admin/users/send_password_links
   - 响应：{ sent, skipped_pending, skipped_disabled, skipped_no_email }
 
-章节来源
+**章节来源**
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/user.go:54-274](file://backend/internal/server/user.go#L54-L274)
 - [frontend/src/api/user.ts:24-42](file://frontend/src/api/user.ts#L24-L42)
@@ -316,10 +323,10 @@ ServerGroup --> AuthMW
   - 请求体：{ selections: [{ platform_id, subscription_id }] }
   - 响应：空
 
-章节来源
+**章节来源**
 - [backend/internal/server/group.go:18-27](file://backend/internal/server/group.go#L18-L27)
 - [backend/internal/server/group.go:29-168](file://backend/internal/server/group.go#L29-L168)
-- [frontend/src/api/group.ts:23-36](file://frontend/src/api/group.ts#L23-L36)
+- [frontend/src/api/group.ts:23-36](file://frontend/src/api/group.ts#L23-36)
 
 ### 工作流示例
 - 新建用户并分配组
@@ -335,7 +342,7 @@ ServerGroup --> AuthMW
   - 调用DELETE /api/admin/groups/:id
   - 系统自动将组成员迁入默认组
 
-章节来源
+**章节来源**
 - [backend/internal/server/user.go:69-274](file://backend/internal/server/user.go#L69-L274)
 - [backend/internal/server/group.go:62-168](file://backend/internal/server/group.go#L62-L168)
 - [backend/internal/user/admin.go:187-618](file://backend/internal/user/admin.go#L187-L618)
@@ -346,7 +353,32 @@ ServerGroup --> AuthMW
 - 会话中间件每次请求实时查库校验用户快照，确保credential_version与status一致。
 - 敏感操作（如删除/禁用/降级管理员）内置五重保护，防止误操作与越权。
 
-章节来源
+**章节来源**
 - [backend/internal/auth/auth.go:144-192](file://backend/internal/auth/auth.go#L144-L192)
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/group.go:18-27](file://backend/internal/server/group.go#L18-L27)
+
+### 前端界面优化与响应式设计
+
+**新增功能**：用户管理界面现已支持响应式设计，解决了按钮溢出问题。
+
+#### Space组件wrap属性应用
+在用户管理界面的头部操作区域，使用了Ant Design Vue的Space组件并设置了`:wrap="true"`属性，确保在窄屏幕设备上：
+- 长文案按钮（如"为所有无密码用户发送密码设置链接"）能够自动换行
+- 避免水平滚动条出现
+- 保持界面布局的完整性
+
+#### 移动端适配实现
+- **双态显示**：≥768px显示表格视图，<768px显示卡片视图
+- **响应式按钮布局**：使用Space组件的wrap属性确保按钮在不同屏幕尺寸下正确排列
+- **触摸友好**：移动端卡片视图提供更大的点击区域和更简洁的信息展示
+
+#### 其他管理界面的统一优化
+类似的空间优化也应用于其他管理界面：
+- 规则管理界面：操作按钮区域使用Space wrap确保多按钮的正确换行
+- 分享管理界面：复杂的操作按钮集合在窄屏下自动适应布局
+
+**章节来源**
+- [frontend/src/views/admin/UsersView.vue:429](file://frontend/src/views/admin/UsersView.vue#L429)
+- [frontend/src/views/admin/RulesView.vue:182](file://frontend/src/views/admin/RulesView.vue#L182)
+- [frontend/src/views/admin/SharesView.vue:211](file://frontend/src/views/admin/SharesView.vue#L211)

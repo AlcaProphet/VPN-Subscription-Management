@@ -1,7 +1,7 @@
 # 系统设置API
 
 <cite>
-**本文引用的文件 **
+**本文引用的文件**
 - [backend/internal/server/settings.go](file://backend/internal/server/settings.go)
 - [backend/internal/server/settings_ops.go](file://backend/internal/server/settings_ops.go)
 - [backend/internal/config/config.go](file://backend/internal/config/config.go)
@@ -10,8 +10,14 @@
 - [backend/internal/backup/backup.go](file://backend/internal/backup/backup.go)
 - [backend/internal/dataclear/dataclear.go](file://backend/internal/dataclear/dataclear.go)
 - [backend/internal/setup/setup.go](file://backend/internal/setup/setup.go)
-- [backend/internal/server/setup.go](file://backend/internal/server/setup.go)
+- [frontend/src/views/admin/SettingsView.vue](file://frontend/src/views/admin/SettingsView.vue)
 </cite>
+
+## 更新摘要
+**所做更改**
+- 更新了站点信息配置界面的UI布局说明，包括响应式设计和可访问性改进
+- 添加了前端界面优化的详细描述
+- 保持了现有文档结构和内容的一致性
 
 ## 目录
 1. [简介](#简介)
@@ -26,13 +32,16 @@
 10. [附录：API 清单与示例](#附录api-清单与示例)
 
 ## 简介
-本文件面向系统设置相关 API，覆盖配置管理、备份恢复、数据导入导出、数据清理、调试模式切换等运维能力。文档按“基础设置、邮件服务、安全设置”等分类梳理配置项；说明配置更新接口、验证机制；记录备份创建与下载流程；提供系统初始化、配置迁移、故障恢复的实用示例。
+本文件面向系统设置相关 API，覆盖配置管理、备份恢复、数据导入导出、数据清理、调试模式切换等运维能力。文档按"基础设置、邮件服务、安全设置"等分类梳理配置项；说明配置更新接口、验证机制；记录备份创建与下载流程；提供系统初始化、配置迁移、故障恢复的实用示例。
+
+**更新** 新增了站点信息配置界面的UI布局改进说明，包括响应式设计优化和可访问性增强功能。
 
 ## 项目结构
 后端采用分层设计：
 - 接入层（server）：路由注册与请求处理，负责鉴权、参数校验、错误映射。
 - 业务层（config、setup、backup、dataclear）：实现配置读写、加密解密、导入导出、备份打包、一键清空等核心逻辑。
 - 存储层（store）：数据库访问与事务封装。
+- 前端层（Vue.js + Ant Design Vue）：提供管理员界面，支持响应式布局和可访问性优化。
 
 ```mermaid
 graph TB
@@ -47,9 +56,10 @@ AdminCfg --> CfgSvc["ConfigService<br/>配置存取/加解密"]
 ExportSvc --> Store["Store<br/>DB/事务"]
 BackupSvc --> Store
 ClearSvc --> Store
+Frontend["Vue前端界面<br/>响应式布局"] --> Settings
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/server/settings.go:52-81](file://backend/internal/server/settings.go#L52-L81)
 - [backend/internal/server/settings_ops.go:29-38](file://backend/internal/server/settings_ops.go#L29-L38)
 - [backend/internal/config/admin.go:76-87](file://backend/internal/config/admin.go#L76-L87)
@@ -69,14 +79,15 @@ ClearSvc --> Store
 - 备份服务（BackupService）：SQLite 一致性快照 + contents/public 打包 tar.gz 流式下载。
 - 数据清理服务（DataClearService）：一键清空所有数据（确认词 RESET），先清库再删文件，内存态复位。
 - Setup 服务（SetupService）：快速开始与 OIDC 高级配置，推导前端地址，预置默认组与平台。
+- **新增** 前端界面服务：基于Vue.js和Ant Design Vue构建的管理界面，支持响应式布局和可访问性优化。
 
 章节来源
 - [backend/internal/config/config.go:48-55](file://backend/internal/config/config.go#L48-L55)
 - [backend/internal/config/admin.go:76-87](file://backend/internal/config/admin.go#L76-L87)
 - [backend/internal/config/export.go:46-59](file://backend/internal/config/export.go#L46-L59)
 - [backend/internal/backup/backup.go:19-28](file://backend/internal/backup/backup.go#L19-L28)
-- [backend/internal/dataclear/dataclear.go:19-30](file://backend/internal/dataclear/dataclear.go#L19-L30)
-- [backend/internal/setup/setup.go:21-31](file://backend/internal/setup/setup.go#L21-L31)
+- [backend/internal/dataclear/dataclear.go:19-30](file://backend/internal/setup/setup.go:21-31)
+- [frontend/src/views/admin/SettingsView.vue:1-50](file://frontend/src/views/admin/SettingsView.vue#L1-L50)
 
 ## 架构总览
 系统设置 API 通过两个分组暴露：
@@ -108,7 +119,7 @@ E-->>H : 加密二进制
 H-->>U : 200 + .enc 附件
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/server/settings_ops.go:29-38](file://backend/internal/server/settings_ops.go#L29-L38)
 - [backend/internal/server/settings_ops.go:41-80](file://backend/internal/server/settings_ops.go#L41-L80)
 - [backend/internal/backup/backup.go:30-65](file://backend/internal/backup/backup.go#L30-L65)
@@ -137,6 +148,8 @@ H-->>U : 200 + .enc 附件
   - 配置导入：POST /import（面板）与 /api/setup/import（未配置状态，限流）
   - 备份下载：GET /backup
 
+**更新** 站点信息配置界面现已支持响应式布局，确保在不同屏幕尺寸下都能提供良好的用户体验。
+
 章节来源
 - [backend/internal/server/settings.go:52-81](file://backend/internal/server/settings.go#L52-L81)
 - [backend/internal/server/settings_ops.go:29-38](file://backend/internal/server/settings_ops.go#L29-L38)
@@ -155,12 +168,12 @@ H-->>U : 200 + .enc 附件
   - 前端地址/回调地址变更需重启容器生效（启动缓存语义）。
 
 章节来源
-- [backend/internal/config/admin.go:157-212](file://backend/internal/config/admin.go#L157-L212)
-- [backend/internal/config/admin.go:250-333](file://backend/internal/config/admin.go#L250-L333)
-- [backend/internal/config/admin.go:335-388](file://backend/internal/config/admin.go#L335-L388)
-- [backend/internal/config/admin.go:390-469](file://backend/internal/config/admin.go#L390-L469)
-- [backend/internal/config/admin.go:471-527](file://backend/internal/config/admin.go#L471-L527)
-- [backend/internal/config/admin.go:529-585](file://backend/internal/config/admin.go#L529-L585)
+- [backend/internal/config/admin.go:157-212](file://backend/internal/config/admin.go#L157-212)
+- [backend/internal/config/admin.go:250-333](file://backend/internal/config/admin.go#L250-333)
+- [backend/internal/config/admin.go:335-388](file://backend/internal/config/admin.go#L335-388)
+- [backend/internal/config/admin.go:390-469](file://backend/internal/config/admin.go#L390-469)
+- [backend/internal/config/admin.go:471-527](file://backend/internal/config/admin.go#L471-527)
+- [backend/internal/config/admin.go:529-585](file://backend/internal/config/admin.go#L529-585)
 
 ### 配置加密与敏感字段
 - 签名密钥：系统首次生成或确保存在，用于派生配置加密密钥。
@@ -171,7 +184,47 @@ H-->>U : 200 + .enc 附件
 - [backend/internal/config/config.go:24-46](file://backend/internal/config/config.go#L24-L46)
 - [backend/internal/config/config.go:57-111](file://backend/internal/config/config.go#L57-L111)
 - [backend/internal/config/config.go:113-168](file://backend/internal/config/config.go#L113-L168)
-- [backend/internal/config/config.go:220-361](file://backend/internal/config/config.go#L220-L361)
+- [backend/internal/config/config.go:220-361](file://backend/internal/config/config.go#L220-361)
+
+### 站点信息配置界面UI优化
+**新增** 站点信息配置界面进行了重要的UI布局改进，提升了用户体验和可访问性：
+
+#### 响应式布局设计
+- **固定宽度标签**：站点图标标签使用 `flex-none` 类保持固定宽度（w-24），确保在不同屏幕尺寸下标签对齐一致
+- **弹性布局**：使用 flexbox 布局实现自适应排列，确保在小屏幕上也能良好显示
+
+#### URL显示优化
+- **长URL截断**：当前图标URL显示添加了 `flex-1 min-w-0 truncate` 类组合，当URL过长时自动显示省略号截断
+- **可访问性增强**：为截断的URL添加了 `title` 属性，鼠标悬停时可查看完整的URL路径
+- **视觉反馈**：使用 `text-xs text-gray-400` 样式类提供清晰的视觉层次
+
+#### 用户体验改进
+- **空间利用**：通过合理的布局优化，确保在有限的屏幕空间内展示所有必要信息
+- **交互友好**：上传按钮、删除按钮和操作区域保持良好的间距和对齐
+- **响应式适配**：界面能够适应从桌面端到移动端的各种屏幕尺寸
+
+```mermaid
+flowchart TD
+Label["站点图标标签<br/>flex-none 固定宽度"] --> Upload["上传控件<br/>选择文件按钮"]
+Upload --> URLDisplay["URL显示区域<br/>flex-1 min-w-0 truncate"]
+URLDisplay --> TitleAttr["title属性<br/>完整URL可访问性"]
+subgraph "响应式布局特性"
+FixedWidth["固定宽度标签<br/>确保对齐一致性"]
+FlexibleSpace["弹性空间分配<br/>自适应剩余空间"]
+TruncateLong["长文本截断<br/>省略号显示"]
+Accessible["可访问性增强<br/>悬停查看完整内容"]
+end
+FixedWidth -.-> Label
+FlexibleSpace -.-> URLDisplay
+TruncateLong -.-> URLDisplay
+Accessible -.-> TitleAttr
+```
+
+**图表来源**
+- [frontend/src/views/admin/SettingsView.vue:712-718](file://frontend/src/views/admin/SettingsView.vue#L712-L718)
+
+章节来源
+- [frontend/src/views/admin/SettingsView.vue:704-725](file://frontend/src/views/admin/SettingsView.vue#L704-L725)
 
 ### 备份创建与下载流程
 - 一致性快照：优先 VACUUM INTO；不支持时降级为 WAL checkpoint(FULL) 后拷贝主文件。
@@ -187,7 +240,7 @@ Tar --> Stream["流式写出到响应"]
 Stream --> End(["结束"])
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/backup/backup.go:30-65](file://backend/internal/backup/backup.go#L30-L65)
 - [backend/internal/backup/backup.go:67-79](file://backend/internal/backup/backup.go#L67-L79)
 - [backend/internal/server/settings_ops.go:141-150](file://backend/internal/server/settings_ops.go#L141-L150)
@@ -215,7 +268,7 @@ C-->>H : 成功
 H-->>A : 200 + 提示
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/server/settings_ops.go:41-54](file://backend/internal/server/settings_ops.go#L41-L54)
 - [backend/internal/dataclear/dataclear.go:54-82](file://backend/internal/dataclear/dataclear.go#L54-L82)
 
@@ -252,7 +305,7 @@ E-->>H : 成功
 H-->>U : 200 + 提示需重启容器
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
 - [backend/internal/config/export.go:135-187](file://backend/internal/config/export.go#L135-L187)
 - [backend/internal/server/settings_ops.go:56-139](file://backend/internal/server/settings_ops.go#L56-L139)
@@ -283,7 +336,7 @@ SS->>SS : SaveParams(加密) + SeedPresetsTx + Set flags
 SH-->>U : 200 + 提示
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/server/setup.go:29-49](file://backend/internal/server/setup.go#L29-L49)
 - [backend/internal/server/setup.go:51-113](file://backend/internal/server/setup.go#L51-L113)
 - [backend/internal/setup/setup.go:41-69](file://backend/internal/setup/setup.go#L41-L69)
@@ -306,6 +359,9 @@ SH-->>U : 200 + 提示
 - 循环依赖规避：
   - config 包通过 OidcOps 接口避免与 oidc 包循环依赖。
   - export 包通过注入 seedPresets 函数避免与 setup 包循环依赖。
+- **新增** 前端依赖：
+  - SettingsView 依赖 Ant Design Vue 组件库和自定义 ConfirmModal 组件。
+  - 前端通过 TypeScript 接口定义确保类型安全。
 
 ```mermaid
 classDiagram
@@ -379,15 +435,22 @@ class SetupService {
 +CompleteQuickStart()
 +CompleteOidcSetup()
 }
+class SettingsView {
++loadSiteInfo()
++doSaveSite()
++iconDeleteOpen
++siteSaving
+}
 SettingsHandler --> AdminService : "调用"
 AdminService --> ConfigService : "调用"
 ExportService --> ConfigService : "读取/写入"
 ExportService --> SetupService : "注入预置"
 BackupService --> ConfigService : "无直接依赖"
 DataClearService --> ConfigService : "无直接依赖"
+SettingsView --> SettingsHandler : "API调用"
 ```
 
-图表来源
+**图表来源**
 - [backend/internal/server/settings.go:17-81](file://backend/internal/server/settings.go#L17-L81)
 - [backend/internal/config/admin.go:76-87](file://backend/internal/config/admin.go#L76-L87)
 - [backend/internal/config/config.go:48-55](file://backend/internal/config/config.go#L48-L55)
@@ -395,6 +458,7 @@ DataClearService --> ConfigService : "无直接依赖"
 - [backend/internal/backup/backup.go:19-28](file://backend/internal/backup/backup.go#L19-L28)
 - [backend/internal/dataclear/dataclear.go:19-30](file://backend/internal/dataclear/dataclear.go#L19-L30)
 - [backend/internal/setup/setup.go:21-31](file://backend/internal/setup/setup.go#L21-L31)
+- [frontend/src/views/admin/SettingsView.vue:1-50](file://frontend/src/views/admin/SettingsView.vue#L1-L50)
 
 章节来源
 - [backend/internal/server/settings.go:17-81](file://backend/internal/server/settings.go#L17-L81)
@@ -413,6 +477,10 @@ DataClearService --> ConfigService : "无直接依赖"
   - 导入：事务内整体覆盖，失败回滚，保证原子性。
 - 运行时配置：限流、日志级别、调试模式等即时生效，无需重启。
 - 前端地址/回调地址：修改后需重启容器生效（启动缓存语义）。
+- **新增** 前端性能优化：
+  - 响应式布局减少不必要的重绘和回流
+  - 图片懒加载和缓存优化
+  - 组件按需加载减少初始包大小
 
 [本节为通用性能讨论，不直接分析具体文件]
 
@@ -430,18 +498,22 @@ DataClearService --> ConfigService : "无直接依赖"
   - 快照失败且 WAL checkpoint 降级失败将返回 500；检查 SQLite 驱动版本与权限。
 - 一键清空后无法登录
   - 签名密钥已轮换，旧会话失效属预期；重新登录即可。
+- **新增** 前端界面问题排查
+  - 响应式布局异常：检查浏览器开发者工具的响应式设计模式
+  - URL截断显示问题：确认CSS类是否正确应用，检查控制台是否有JavaScript错误
+  - 可访问性问题：使用屏幕阅读器测试title属性的正确显示
 
 章节来源
 - [backend/internal/config/config.go:57-111](file://backend/internal/config/config.go#L57-L111)
 - [backend/internal/config/admin.go:24-29](file://backend/internal/config/admin.go#L24-L29)
-- [backend/internal/config/admin.go:157-212](file://backend/internal/config/admin.go#L157-L212)
+- [backend/internal/config/admin.go:157-212](file://backend/internal/config/admin.go#L157-212)
 - [backend/internal/config/admin.go:302-333](file://backend/internal/config/admin.go#L302-L333)
 - [backend/internal/config/export.go:135-187](file://backend/internal/config/export.go#L135-L187)
 - [backend/internal/backup/backup.go:67-79](file://backend/internal/backup/backup.go#L67-L79)
 - [backend/internal/dataclear/dataclear.go:54-82](file://backend/internal/dataclear/dataclear.go#L54-L82)
 
 ## 结论
-系统设置 API 提供了完整的配置管理、备份恢复、导入导出与运维能力。通过严格的参数校验、敏感字段加密、事务原子性与一致性快照，保障了配置的安全性与可恢复性。建议在生产环境启用导出/导入功能，定期备份，并在变更前做好迁移核对与回滚预案。
+系统设置 API 提供了完整的配置管理、备份恢复、导入导出与运维能力。通过严格的参数校验、敏感字段加密、事务原子性与一致性快照，保障了配置的安全性与可恢复性。**最新的UI布局改进进一步提升了用户体验，确保了在各种设备上的良好显示效果和可访问性**。建议在生产环境启用导出/导入功能，定期备份，并在变更前做好迁移核对与回滚预案。
 
 [本节为总结，不直接分析具体文件]
 
@@ -518,8 +590,13 @@ DataClearService --> ConfigService : "无直接依赖"
   - 恢复：手动解包至数据卷，启动后以 DB 为准重建符号链接指针。
 - 数据清理
   - 一键清空：POST /api/admin/settings/clear_all，确认词 RESET，系统回到未配置状态。
+- **新增** 前端界面使用示例
+  - 站点图标上传：通过响应式界面上传图标文件，支持拖拽和点击两种方式
+  - URL查看：鼠标悬停在截断的URL上可查看完整路径
+  - 移动端适配：在移动设备上自动调整布局，确保操作便捷性
 
 章节来源
 - [backend/internal/server/setup.go:29-113](file://backend/internal/server/setup.go#L29-L113)
 - [backend/internal/server/settings_ops.go:41-150](file://backend/internal/server/settings_ops.go#L41-L150)
 - [backend/internal/backup/backup.go:30-65](file://backend/internal/backup/backup.go#L30-L65)
+- [frontend/src/views/admin/SettingsView.vue:704-725](file://frontend/src/views/admin/SettingsView.vue#L704-L725)

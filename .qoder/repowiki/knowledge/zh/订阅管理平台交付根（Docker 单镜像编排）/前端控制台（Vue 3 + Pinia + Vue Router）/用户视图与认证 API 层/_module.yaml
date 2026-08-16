@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: frontend/user_views
-title: 用户端与管理员前端视图及 API 封装
+title: 用户视图与认证 API 层
 scope:
     - frontend/src/views/
     - frontend/src/api/auth.ts

@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: beta
 nodes_managed: true
-exported_at: "2026-08-14T08:03:06Z"
+exported_at: "2026-08-16T05:08:06Z"
 modules:
     "":
-        dir_name: 订阅管理平台单体交付层
-        title: 订阅管理平台单体交付层
+        dir_name: 订阅管理平台交付根（Docker 单镜像编排）
+        title: 订阅管理平台交付根（Docker 单镜像编排）
         scope:
             - README.md
             - Build1.md
@@ -182,8 +182,8 @@ modules:
         depends_on: []
         related_to: []
     frontend/admin_views:
-        dir_name: 后台管理视图与领域 API 封装
-        title: 后台管理视图与领域 API 封装
+        dir_name: 后台管理视图与 API 封装
+        title: 后台管理视图与 API 封装
         scope:
             - frontend/src/views/admin/
             - frontend/src/api/approval.ts
@@ -242,8 +242,8 @@ modules:
         related_to:
             - path: frontend/app_shell
     frontend/user_views:
-        dir_name: 用户端与管理员前端视图及 API 封装
-        title: 用户端与管理员前端视图及 API 封装
+        dir_name: 用户视图与认证 API 层
+        title: 用户视图与认证 API 层
         scope:
             - frontend/src/views/
             - frontend/src/api/auth.ts
