@@ -18,14 +18,17 @@
 - [backend/internal/server/home.go](file://backend/internal/server/home.go)
 - [backend/internal/server/status.go](file://backend/internal/server/status.go)
 - [backend/internal/user/user.go](file://backend/internal/user/user.go)
+- [Design2.md](file://Design2.md)
+- [Xray-Core-API.md](file://docs/Reference/Xray-Core-API.md)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 新增Xray实例管理API端点，支持动态节点检测与用户生命周期同步
-- 增强订阅组装端点，支持异步激活模式与蓝图版本管理
-- 改进用户生命周期同步API，增加并发首建守卫与配额超限拦截机制
-- 完善高级模式开关控制，支持Xray集成功能的条件启用
+- **扩展协议支持范围**：从仅支持 vless/vmess 扩展至完整四协议（vless、vmess、trojan、shadowsocks），与 Xray-core UserManager API 源码能力对齐
+- **统一用户凭据机制**：trojan/shadowsocks 协议采用每用户统一代理密码（users.proxy_secret_encrypted），与 vless/vmess 的 UUID 凭据并存
+- **节点特定加密配置**：shadowsocks 协议的 cipher 随 inbound 检测动态注入，实现节点级差异化加密方式
+- **订阅装配增强**：下载时按协议类型智能注入对应凭据字段（UUID 或代理密码），支持 Clash YAML 与 SR 链接两种格式
+- **同步机制升级**：AddUser/RemoveUser 钩子全面支持四协议 Account 构造，含 trojan.Account{Password} 与 shadowsocks.Account{Password, Cipher}
 
 ## 目录
 1. [简介](#简介)
@@ -48,7 +51,9 @@
 - 认证方式（会话Cookie、短期Token、OIDC回调）
 - WebSocket/SSE实时日志连接协议
 - 版本管理、速率限制与安全注意事项
-- **新增**：Xray实例管理与用户生命周期同步API
+- **新增**：Xray实例管理与用户生命周期同步API，支持四协议（vless/vmess/trojan/shadowsocks）完整对接
+
+**重要更新**：系统现已全面支持四种Xray协议，每种协议使用统一的凭据管理机制——vless/vmess使用UUID，trojan/shadowsocks使用每用户统一代理密码，确保跨协议的一致性与安全性。
 
 ## 项目结构
 后端采用Gin路由装配，按业务域拆分处理器并集中注册：
@@ -82,10 +87,20 @@ A --> I["Xray实例管理<br/>/api/admin/xray-instances/*"]
 - 统一响应封装：OK/Fail/ListData
 - 中间件链：请求日志、panic恢复、信任代理、限流、验证码、会话/管理员鉴权
 - 服务装配：auth、setup、oidc、captcha、ratelimit、version、platform、subscription、group、token、download、custom、share、rule、mail、approval、config、log、backup、dataclear、emergency
-- **新增**：Xray实例管理服务，支持节点检测与用户生命周期同步
+- **新增**：Xray实例管理服务，支持四协议节点检测与用户生命周期同步
+
+**协议支持矩阵**：
+| 协议 | 凭据类型 | 存储字段 | 注入场景 |
+|------|----------|----------|----------|
+| vless | UUID | users.uuid_encrypted | AddUser/订阅装配 |
+| vmess | UUID | users.uuid_encrypted | AddUser/订阅装配 |
+| trojan | 代理密码 | users.proxy_secret_encrypted | AddUser/订阅装配 |
+| shadowsocks | 代理密码+cipher | users.proxy_secret_encrypted + 节点cipher | AddUser/订阅装配 |
 
 章节来源
 - [backend/internal/server/server.go:40-157](file://backend/internal/server/server.go#L40-L157)
+- [Design2.md:254](file://Design2.md#L254)
+- [Xray-Core-API.md:45-52](file://docs/Reference/Xray-Core-API.md#L45-L52)
 
 ## 架构总览
 ```mermaid
@@ -103,17 +118,21 @@ MW-->>Gin : 通过/拒绝
 Gin->>Handler : 调用处理器
 Handler->>Svc : 执行业务逻辑
 Svc->>Xray : Xray实例操作(高级模式)
+alt 四协议支持
+Xray->>Xray : 根据协议构造Account(vless/vmess/trojan/ss)
+end
 Xray-->>Svc : 节点检测结果
 Svc->>DB : 读写数据
 DB-->>Svc : 结果
-Svc-->>Handler : 结果
-Handler-->>Client : 统一响应(OK/Fail/ListData)
+Svc-->>Handler : 统一响应(OK/Fail/ListData)
+Handler-->>Client : 统一响应
 ```
 
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
 - [backend/internal/server/auth.go:24-34](file://backend/internal/server/auth.go#L24-L34)
 - [backend/internal/server/settings.go:51-81](file://backend/internal/server/settings.go#L51-L81)
+- [Design2.md:285](file://Design2.md#L285)
 
 ## 详细端点说明
 
@@ -238,16 +257,17 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 描述：批量发送密码设置链接（回执计数）
   - 状态码：200/400/500
 
-**新增**：用户生命周期同步机制
+**新增**：用户生命周期同步机制（四协议支持）
 - 自动触发：用户激活时生成UUID和代理密码，AES-256-GCM加密存储
 - 并发守卫：BEGIN IMMEDIATE事务内条件更新，防止重复生成凭据
 - 配额拦截：超限用户不推送Xray节点，需管理员重置配额后恢复
 - 推送范围：所属组节点 ∪ 公共节点（is_public=1）
+- **协议适配**：根据节点协议类型构造对应Account（vless/vmess使用UUID，trojan/ss使用代理密码）
 
 章节来源
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/user.go:54-67](file://backend/internal/server/user.go#L54-L67)
-- [backend/internal/server/user.go:69-89](file://backend/internal/server/user.go#L69-L89)
+- [backend/internal/server/user.go:69-89](file://backend/internal/server/user.go#L69-89)
 - [backend/internal/server/user.go:91-121](file://backend/internal/server/user.go#L91-L121)
 - [backend/internal/server/user.go:123-146](file://backend/internal/server/user.go#L123-L146)
 - [backend/internal/server/user.go:148-159](file://backend/internal/server/user.go#L148-L159)
@@ -256,6 +276,7 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
 - [backend/internal/server/user.go:215-238](file://backend/internal/server/user.go#L215-L238)
 - [backend/internal/server/user.go:240-256](file://backend/internal/server/user.go#L240-L256)
 - [backend/internal/server/user.go:258-274](file://backend/internal/server/user.go#L258-L274)
+- [Design2.md:285](file://Design2.md#L285)
 
 ### 管理员-平台
 - GET /api/admin/platforms
@@ -329,11 +350,12 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 查询：slug、type、id
   - 状态码：200/500
 
-**增强**：订阅组装端点升级
+**增强**：订阅组装端点升级（四协议支持）
 - 异步激活：支持opt-in激活模式，避免自动切换影响生产环境
 - 蓝图版本：保存结构化渲染计划，支持重新编辑与悬空引用容错
 - 首次激活：新订阅首个版本自动激活，避免空窗期
 - 候选集管理：基于已激活蓝图构建全局节点候选集
+- **协议适配**：下载时按节点协议类型注入对应凭据字段（UUID或代理密码）
 
 章节来源
 - [backend/internal/server/subscription.go:21-38](file://backend/internal/server/subscription.go#L21-L38)
@@ -348,6 +370,7 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
 - [backend/internal/server/subscription.go:237-260](file://backend/internal/server/subscription.go#L237-L260)
 - [backend/internal/server/subscription.go:262-283](file://backend/internal/server/subscription.go#L262-L283)
 - [backend/internal/server/subscription.go:285-309](file://backend/internal/server/subscription.go#L285-L309)
+- [Design2.md:316-317](file://Design2.md#L316-L317)
 
 ### 管理员-用户组
 - GET /api/admin/groups
@@ -444,12 +467,19 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 鉴权：会话
   - 状态码：200/404/500
 
+**增强**：四协议订阅装配
+- **凭据注入**：根据节点协议类型自动注入对应凭据（vless/vmess注入UUID，trojan/ss注入代理密码）
+- **Shadowsocks支持**：cipher字段随inbound检测动态注入，支持多种加密方式
+- **SR链接生成**：trojan/ss协议生成标准SR链接格式，包含用户代理密码
+- **Clash配置**：trojan使用password字段，ss使用cipher+password组合
+
 章节来源
 - [backend/internal/server/download.go:23-30](file://backend/internal/server/download.go#L23-L30)
 - [backend/internal/server/download.go:38-69](file://backend/internal/server/download.go#L38-L69)
 - [backend/internal/server/download.go:71-98](file://backend/internal/server/download.go#L71-L98)
 - [backend/internal/server/download.go:100-127](file://backend/internal/server/download.go#L100-L127)
 - [backend/internal/server/download.go:129-156](file://backend/internal/server/download.go#L129-L156)
+- [Design2.md:316-317](file://Design2.md#L316-L317)
 
 ### 用户端-主页数据
 - GET /api/home/platforms
@@ -510,10 +540,11 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 描述：站点信息公开（无需鉴权）
   - 状态码：200
 
-**新增**：高级模式配置
+**新增**：高级模式配置（四协议支持）
 - advanced_mode：控制Xray实例管理功能开关
 - 配置项：xray_api_addr、xray_api_tag等实例连接参数
 - 安全考虑：仅管理员可访问，支持配置导入导出时的签名验证
+- **协议支持**：高级模式启用后支持四协议（vless/vmess/trojan/shadowsocks）的完整功能
 
 章节来源
 - [backend/internal/server/settings.go:51-81](file://backend/internal/server/settings.go#L51-L81)
@@ -539,7 +570,7 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
 
 章节来源
 - [backend/internal/server/custom.go:21-32](file://backend/internal/server/custom.go#L21-L32)
-- [backend/internal/server/custom.go:34-82](file://backend/internal/server/custom.go#L34-82)
+- [backend/internal/server/custom.go:34-82](file://backend/internal/server/custom.go#L34-L82)
 - [backend/internal/server/custom.go:84-103](file://backend/internal/server/custom.go#L84-L103)
 - [backend/internal/server/custom.go:105-126](file://backend/internal/server/custom.go#L105-L126)
 
@@ -581,10 +612,11 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
   - 描述：公告/页脚公开端点
   - 状态码：200
 
-**新增**：高级模式状态检测
+**新增**：高级模式状态检测（四协议支持）
 - 系统状态包含advanced_mode标志位
 - 支持Xray实例连接状态检测
 - 提供实例管理能力可用性指示
+- **协议支持检测**：显示当前支持的协议类型（vless/vmess/trojan/shadowsocks）
 
 章节来源
 - [backend/internal/server/status.go:22-37](file://backend/internal/server/status.go#L22-L37)
@@ -623,7 +655,7 @@ Handler-->>Client : 统一响应(OK/Fail/ListData)
 - 限流中间件：按Key（register/login/forgot/download）限制频率
 - 验证码中间件：在注册/登录/忘记密码上叠加
 - 版本模块：订阅/规则/自定义/分享共用版本CRUD与预览
-- **新增**：Xray实例服务依赖高级模式配置，支持节点检测与用户同步
+- **新增**：Xray实例服务依赖高级模式配置，支持四协议节点检测与用户同步
 
 ```mermaid
 graph LR
@@ -659,6 +691,7 @@ R --> X["Xray实例(xray_instance.go)"]
 - 并发与连接：SSE连接上限8；事件源一次性Token防重放
 - 优雅退出：HTTP服务支持上下文关闭与超时
 - **新增**：Xray实例操作限流，避免频繁API调用导致Xray服务压力
+- **协议优化**：四协议Account构造采用缓存机制，减少重复计算
 
 章节来源
 - [backend/internal/server/auth.go:24-34](file://backend/internal/server/auth.go#L24-L34)
@@ -680,11 +713,13 @@ R --> X["Xray实例(xray_instance.go)"]
   - 检查限流Key与阈值
   - 确认OIDC state Cookie与回调参数一致
   - SSE连接失败时检查短期Token是否已消费
-- **新增**：Xray集成问题排查
+- **新增**：Xray集成问题排查（四协议支持）
   - 检查advanced_mode配置是否开启
   - 验证Xray实例连接参数正确性
   - 查看用户同步状态（pending/synced/failed）
   - 检查配额超限标记（quota_exceeded）
+  - **协议诊断**：确认节点协议类型与凭据注入是否正确（UUID vs 代理密码）
+  - **Shadowsocks专项**：检查cipher字段是否与inbound配置匹配
 
 章节来源
 - [backend/internal/server/server.go:225-237](file://backend/internal/server/server.go#L225-L237)
@@ -692,7 +727,7 @@ R --> X["Xray实例(xray_instance.go)"]
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
 
 ## 结论
-本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。**新增的Xray实例管理功能**提供了完整的用户生命周期同步能力，包括并发安全的凭据生成、配额超限拦截、高级模式开关控制等特性。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
+本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。**重大更新**：系统现已全面支持四种Xray协议（vless、vmess、trojan、shadowsocks），实现了统一的凭据管理机制——vless/vmess使用UUID，trojan/shadowsocks使用每用户统一代理密码，确保跨协议的一致性与安全性。新增的Xray实例管理功能提供了完整的用户生命周期同步能力，包括并发安全的凭据生成、配额超限拦截、高级模式开关控制等特性。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
 
 ## 附录
 
@@ -733,7 +768,7 @@ Note over Admin,SSE : 连接断开自动清理；Token一次性
 图表来源
 - [backend/internal/server/log.go:53-113](file://backend/internal/server/log.go#L53-L113)
 
-### Xray用户生命周期同步流程
+### Xray用户生命周期同步流程（四协议支持）
 ```mermaid
 sequenceDiagram
 participant User as "用户"
@@ -746,7 +781,12 @@ Sync->>Sync : 检查高级模式开关
 alt 高级模式开启
 Sync->>Sync : 检查配额超限
 alt 未超限
-Sync->>Xray : AddUser/RemoveUser
+Sync->>Sync : 根据协议构造Account
+alt vless/vmess
+Sync->>Xray : AddUser(UUID凭据)
+else trojan/ss
+Sync->>Xray : AddUser(代理密码凭据)
+end
 Xray-->>Sync : 同步结果
 Sync->>API : 更新同步状态
 else 超限
@@ -759,4 +799,18 @@ end
 
 图表来源
 - [backend/internal/user/user.go:82-154](file://backend/internal/user/user.go#L82-L154)
-- [Design2.md:260-290](file://Design2.md#L260-L290)
+- [Design2.md:285](file://Design2.md#L285)
+- [Design2.md:254](file://Design2.md#L254)
+
+### 四协议凭据映射表
+| 协议 | 凭据类型 | 存储字段 | 注入位置 | 示例 |
+|------|----------|----------|----------|------|
+| vless | UUID | users.uuid_encrypted | AddUser.Account.Id | `vless.Account{Id: UUID}` |
+| vmess | UUID | users.uuid_encrypted | AddUser.Account.Id | `vmess.Account{Id: UUID}` |
+| trojan | 代理密码 | users.proxy_secret_encrypted | AddUser.Account.Password | `trojan.Account{Password: 密码}` |
+| shadowsocks | 代理密码+cipher | users.proxy_secret_encrypted + 节点cipher | AddUser.Account | `shadowsocks.Account{Password: 密码, Cipher: 节点cipher}` |
+
+**Section sources**
+- [Design2.md:254](file://Design2.md#L254)
+- [Design2.md:285](file://Design2.md#L285)
+- [Xray-Core-API.md:45-52](file://docs/Reference/Xray-Core-API.md#L45-L52)

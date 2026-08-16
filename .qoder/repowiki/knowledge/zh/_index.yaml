@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: beta
 nodes_managed: true
-exported_at: "2026-08-16T07:51:34Z"
+exported_at: "2026-08-16T08:51:13Z"
 modules:
     "":
-        dir_name: VPN 订阅管理平台（单体交付根）
-        title: VPN 订阅管理平台（单体交付根）
+        dir_name: 订阅管理服务平台（单镜像交付根）
+        title: 订阅管理服务平台（单镜像交付根）
         scope:
             - README.md
             - Build1.md
