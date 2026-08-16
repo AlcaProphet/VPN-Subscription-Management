@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: 订阅管理平台交付根（Docker 单镜像编排）
+title: VPN 订阅管理平台（单体交付根）
 scope:
     - README.md
     - Build1.md

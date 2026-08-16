@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: beta
 nodes_managed: true
-exported_at: "2026-08-16T05:08:06Z"
+exported_at: "2026-08-16T05:13:23Z"
 modules:
     "":
-        dir_name: 订阅管理平台交付根（Docker 单镜像编排）
-        title: 订阅管理平台交付根（Docker 单镜像编排）
+        dir_name: VPN 订阅管理平台（单体交付根）
+        title: VPN 订阅管理平台（单体交付根）
         scope:
             - README.md
             - Build1.md
@@ -157,8 +157,8 @@ modules:
             - path: backend/server_routes
             - path: backend/support_services
     docs_and_templates:
-        dir_name: 文档模板与参考规范
-        title: 文档模板与参考规范
+        dir_name: 文档模板与参考资料库（DocTemplates & Reference）
+        title: 文档模板与参考资料库（DocTemplates & Reference）
         scope:
             - DocTemplates/
             - Reference/

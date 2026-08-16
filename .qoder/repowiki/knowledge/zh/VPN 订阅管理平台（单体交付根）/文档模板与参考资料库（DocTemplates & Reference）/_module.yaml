@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: docs_and_templates
-title: 文档模板与参考规范
+title: 文档模板与参考资料库（DocTemplates & Reference）
 scope:
     - DocTemplates/
     - Reference/
