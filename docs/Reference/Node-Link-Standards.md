@@ -90,7 +90,7 @@
 3. **ss**：SIP002 `ss://base64(cipher:password)@server:port#name`；避免 2022-blake3 系（工具链降级损坏）
 4. **vmess**：V2rayN JSON + UTF-8 base64，名称放 `ps`，不追加 fragment
 5. **端口必须显式**（缺省 443 兜底会掩盖配置错误）；参数值避免空格
-6. **SSR 链接需自行实现生成**（urlclash-converter 不提供，Design2 的 SSR 节点在 SR subs 输出时需自研 ssr:// 编码——整串 base64 + remarks/protoparam/obfsparam 二次 base64，parseUri :360-404 可作回读格式参照）
+6. **SSR 已从 Design2 移除**：urlclash-converter 对 SSR 只收不生成，自研编码无验证基准；本系统不再输出 ssr://，parseUri :360-404 仅作历史参照
 
 ## 六、SR 原生参数风格交叉验证（Design2 4.5 定稿口径的可靠性）
 
