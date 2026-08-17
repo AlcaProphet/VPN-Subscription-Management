@@ -82,7 +82,7 @@ func TestCompleteQuickStart(t *testing.T) {
 	if err := st.DB().QueryRow(`SELECT extra_headers FROM platforms WHERE name = 'Clash Verge'`).Scan(&headers); err != nil {
 		t.Fatalf("查询附加头失败: %v", err)
 	}
-	if headers != `{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"300","profile-web-page-url":"{frontend_url}"}` {
+	if headers != `{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"6","profile-web-page-url":"{frontend_url}"}` {
 		t.Errorf("Clash Verge 附加头异常: %s", headers)
 	}
 	// configured 与 frontend_url

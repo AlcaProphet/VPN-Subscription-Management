@@ -148,7 +148,8 @@ func defaultPlatforms(frontendURL string) []struct{ Name, Description, Schemes, 
 		{"Clash Verge", "桌面端 Clash 内核客户端",
 			`["clash://install-config?url={url}"]`,
 			// 三条兼容附加头；Content-Disposition 文件名在下载时按订阅名动态生成，此处存模板
-			`{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"300","profile-web-page-url":"{frontend_url}"}`},
+			// profile-update-interval 生态单位为小时（6 = 每 6 小时自动更新；Design2 决策 #23 勘误）
+			`{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"6","profile-web-page-url":"{frontend_url}"}`},
 		{"v2rayNG", "Android 端 V2Ray 客户端",
 			`["v2rayng://install-config?url={url}"]`, `{}`},
 		{"Shadowrocket", "iOS 端代理客户端",
