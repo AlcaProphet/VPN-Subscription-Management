@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: beta
 nodes_managed: true
-exported_at: "2026-08-16T08:51:13Z"
+exported_at: "2026-08-16T09:21:29Z"
 modules:
     "":
         dir_name: 订阅管理服务平台（单镜像交付根）

@@ -15,9 +15,10 @@
 
 ## 更新摘要
 **所做更改**
-- 更新了站点信息配置界面的UI布局说明，包括响应式设计和可访问性改进
-- 添加了前端界面优化的详细描述
-- 保持了现有文档结构和内容的一致性
+- 更新了配置导入导出功能，实现了整体表覆盖和级联清理机制
+- 添加了vmess链接兼容性支持，包括alterId=0参数处理
+- 增强了配置迁移的完整性和安全性
+- 优化了前端界面布局和可访问性
 
 ## 目录
 1. [简介](#简介)
@@ -34,7 +35,7 @@
 ## 简介
 本文件面向系统设置相关 API，覆盖配置管理、备份恢复、数据导入导出、数据清理、调试模式切换等运维能力。文档按"基础设置、邮件服务、安全设置"等分类梳理配置项；说明配置更新接口、验证机制；记录备份创建与下载流程；提供系统初始化、配置迁移、故障恢复的实用示例。
 
-**更新** 新增了站点信息配置界面的UI布局改进说明，包括响应式设计优化和可访问性增强功能。
+**更新** 新增了配置导入导出的整体表覆盖功能和级联清理机制，以及vmess链接的alterId=0参数兼容性支持，确保配置迁移的完整性和客户端兼容性。
 
 ## 项目结构
 后端采用分层设计：
@@ -86,7 +87,8 @@ Frontend["Vue前端界面<br/>响应式布局"] --> Settings
 - [backend/internal/config/admin.go:76-87](file://backend/internal/config/admin.go#L76-L87)
 - [backend/internal/config/export.go:46-59](file://backend/internal/config/export.go#L46-L59)
 - [backend/internal/backup/backup.go:19-28](file://backend/internal/backup/backup.go#L19-L28)
-- [backend/internal/dataclear/dataclear.go:19-30](file://backend/internal/setup/setup.go:21-31)
+- [backend/internal/dataclear/dataclear.go:19-30](file://backend/internal/dataclear/dataclear.go#L19-L30)
+- [backend/internal/setup/setup.go:21-31](file://backend/internal/setup/setup.go#L21-L31)
 - [frontend/src/views/admin/SettingsView.vue:1-50](file://frontend/src/views/admin/SettingsView.vue#L1-L50)
 
 ## 架构总览
@@ -224,7 +226,7 @@ Accessible -.-> TitleAttr
 - [frontend/src/views/admin/SettingsView.vue:712-718](file://frontend/src/views/admin/SettingsView.vue#L712-L718)
 
 章节来源
-- [frontend/src/views/admin/SettingsView.vue:704-725](file://frontend/src/views/admin/SettingsView.vue#L704-L725)
+- [frontend/src/views/admin/SettingsView.vue:704-725](file://frontend/src/views/admin/SettingsView.vue#L704-725)
 
 ### 备份创建与下载流程
 - 一致性快照：优先 VACUUM INTO；不支持时降级为 WAL checkpoint(FULL) 后拷贝主文件。
@@ -284,7 +286,7 @@ H-->>A : 200 + 提示
 - 导入
   - 面板导入：/api/admin/settings/import（multipart 文件 + password + confirm_word=IMPORT）。
   - Setup 导入：/api/setup/import（未配置状态暴露，叠加限流 5/min）。
-  - 事务内严格整体覆盖：先清空 system_config 再写入导出内容（导出文件中不存在的键一并清除）。
+  - **更新** 事务内严格整体覆盖：先清空 system_config 再写入导出内容（导出文件中不存在的键一并清除），实现完整的表覆盖语义。
   - Setup 导入分支同事务创建预置默认组与默认平台。
   - 导入后 ICON 写入 /public/site/；签名密钥替换导致全部会话立即失效；若含前端地址/回调地址需重启容器。
 
@@ -301,6 +303,7 @@ U->>H : POST /import (file,password,confirm_word="IMPORT")
 H->>E : Import(ctx,data,password,"IMPORT",setupMode?)
 E->>E : 解密并校验
 E->>E : 事务内 DELETE system_config + INSERT
+E->>E : 级联清理缺失的配置项
 E-->>H : 成功
 H-->>U : 200 + 提示需重启容器
 ```
@@ -313,6 +316,23 @@ H-->>U : 200 + 提示需重启容器
 章节来源
 - [backend/internal/config/export.go:1-253](file://backend/internal/config/export.go#L1-L253)
 - [backend/internal/server/settings_ops.go:56-139](file://backend/internal/server/settings_ops.go#L56-L139)
+
+### vmess链接兼容性支持
+**新增** 系统现在支持vmess链接的alterId=0参数，确保与V2rayN、Clash、Shadowrocket等客户端的兼容性：
+
+#### vmess链接格式规范
+- **JSON格式**：vmess链接采用V2rayN JSON格式，包含v/ps/add/port/id/aid/scy/net/type/host/path/tls/sni/alpn/fp等字段
+- **查询参数**：添加remarks、udp、alterId=0等查询参数，确保跨客户端兼容性
+- **生态兼容**：该混合形态已在SR、Clash、V2rayN等主流客户端中验证
+
+#### 配置模板支持
+- **Clash模板**：在vmess节点配置中包含alterId: 0字段
+- **Shadowrocket模板**：在vmess链接中添加?alterId=0查询参数
+- **标准化处理**：确保生成的vmess链接符合各客户端解析要求
+
+章节来源
+- [Design2.md:419-420](file://Design2.md#L419-L420)
+- [docs/DocTemplates/Clash.yaml.template.md:107-125](file://docs/DocTemplates/Clash.yaml.template.md#L107-L125)
 
 ### 系统初始化（快速开始与 OIDC 高级配置）
 - 快速开始：确保签名密钥 → 预置默认组与 3 个默认平台 → configured=true → 推导 frontend_url。
@@ -474,7 +494,7 @@ SettingsView --> SettingsHandler : "API调用"
 - 流式备份：tar.gz 直接写入响应 Writer，降低内存占用。
 - 导入导出：
   - 导出：Argon2id 高成本密钥派生（time=1, memory=64MB, threads=4）提升暴力破解成本。
-  - 导入：事务内整体覆盖，失败回滚，保证原子性。
+  - 导入：事务内整体覆盖，失败回滚，保证原子性。**更新** 现在支持严格的整体表覆盖语义，确保配置完整性。
 - 运行时配置：限流、日志级别、调试模式等即时生效，无需重启。
 - 前端地址/回调地址：修改后需重启容器生效（启动缓存语义）。
 - **新增** 前端性能优化：
@@ -494,6 +514,7 @@ SettingsView --> SettingsHandler : "API调用"
   - 启用验证码页面但未配置密钥将被拒绝。
 - 导入失败
   - 确认词不正确、密码错误或文件损坏将返回 400；格式版本不匹配仅警告不阻断。
+  - **更新** 整体表覆盖失败时会回滚所有变更，确保数据一致性。
 - 备份失败
   - 快照失败且 WAL checkpoint 降级失败将返回 500；检查 SQLite 驱动版本与权限。
 - 一键清空后无法登录
@@ -502,6 +523,10 @@ SettingsView --> SettingsHandler : "API调用"
   - 响应式布局异常：检查浏览器开发者工具的响应式设计模式
   - URL截断显示问题：确认CSS类是否正确应用，检查控制台是否有JavaScript错误
   - 可访问性问题：使用屏幕阅读器测试title属性的正确显示
+- **新增** vmess链接问题排查
+  - alterId参数兼容性：确认客户端版本支持alterId=0参数
+  - JSON格式验证：检查vmess链接的JSON结构是否符合规范
+  - 跨客户端测试：在V2rayN、Clash、Shadowrocket等不同客户端中验证链接有效性
 
 章节来源
 - [backend/internal/config/config.go:57-111](file://backend/internal/config/config.go#L57-L111)
@@ -513,7 +538,7 @@ SettingsView --> SettingsHandler : "API调用"
 - [backend/internal/dataclear/dataclear.go:54-82](file://backend/internal/dataclear/dataclear.go#L54-L82)
 
 ## 结论
-系统设置 API 提供了完整的配置管理、备份恢复、导入导出与运维能力。通过严格的参数校验、敏感字段加密、事务原子性与一致性快照，保障了配置的安全性与可恢复性。**最新的UI布局改进进一步提升了用户体验，确保了在各种设备上的良好显示效果和可访问性**。建议在生产环境启用导出/导入功能，定期备份，并在变更前做好迁移核对与回滚预案。
+系统设置 API 提供了完整的配置管理、备份恢复、导入导出与运维能力。通过严格的参数校验、敏感字段加密、事务原子性与一致性快照，保障了配置的安全性与可恢复性。**最新的改进包括配置导入导出的整体表覆盖功能、级联清理机制以及vmess链接的alterId=0参数兼容性支持**，进一步提升了系统的可靠性和客户端兼容性。建议在生产环境启用导出/导入功能，定期备份，并在变更前做好迁移核对与回滚预案。
 
 [本节为总结，不直接分析具体文件]
 
@@ -585,6 +610,7 @@ SettingsView --> SettingsHandler : "API调用"
 - 配置迁移
   - 导出：POST /api/admin/settings/export，获得加密文件。
   - 导入：POST /api/admin/settings/import 或 /api/setup/import，输入密码与确认词 IMPORT，完成严格整体覆盖。
+  - **更新** 导入过程现在支持完整的表覆盖语义，确保配置的一致性。
 - 故障恢复
   - 备份：GET /api/admin/settings/backup 下载 tar.gz。
   - 恢复：手动解包至数据卷，启动后以 DB 为准重建符号链接指针。
@@ -594,9 +620,15 @@ SettingsView --> SettingsHandler : "API调用"
   - 站点图标上传：通过响应式界面上传图标文件，支持拖拽和点击两种方式
   - URL查看：鼠标悬停在截断的URL上可查看完整路径
   - 移动端适配：在移动设备上自动调整布局，确保操作便捷性
+- **新增** vmess链接兼容性示例
+  - 生成vmess链接：确保包含alterId=0参数以兼容V2rayN、Clash等客户端
+  - 模板配置：在Clash YAML配置中使用alterId: 0字段
+  - 客户端验证：在不同客户端中测试vmess链接的有效性
 
 章节来源
 - [backend/internal/server/setup.go:29-113](file://backend/internal/server/setup.go#L29-L113)
 - [backend/internal/server/settings_ops.go:41-150](file://backend/internal/server/settings_ops.go#L41-L150)
 - [backend/internal/backup/backup.go:30-65](file://backend/internal/backup/backup.go#L30-L65)
 - [frontend/src/views/admin/SettingsView.vue:704-725](file://frontend/src/views/admin/SettingsView.vue#L704-L725)
+- [Design2.md:419-420](file://Design2.md#L419-L420)
+- [docs/DocTemplates/Clash.yaml.template.md:107-125](file://docs/DocTemplates/Clash.yaml.template.md#L107-L125)
