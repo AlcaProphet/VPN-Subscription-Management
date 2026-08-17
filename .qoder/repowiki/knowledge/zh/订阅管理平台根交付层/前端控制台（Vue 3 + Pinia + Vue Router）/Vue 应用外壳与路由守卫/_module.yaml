@@ -9,8 +9,4 @@ scope:
     - frontend/src/vite-env.d.ts
 source_files: []
 depends_on: []
-related_to:
-    - path: frontend/admin_views
-    - path: frontend/shared_ui
-    - path: frontend/tests
-    - path: frontend/user_views
+related_to: []

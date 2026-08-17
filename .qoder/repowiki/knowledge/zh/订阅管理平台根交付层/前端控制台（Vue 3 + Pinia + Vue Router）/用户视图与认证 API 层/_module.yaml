@@ -13,4 +13,4 @@ source_files: []
 depends_on: []
 related_to:
     - path: backend/server_routes
-    - path: frontend/app_shell
+    - path: backend/support_services

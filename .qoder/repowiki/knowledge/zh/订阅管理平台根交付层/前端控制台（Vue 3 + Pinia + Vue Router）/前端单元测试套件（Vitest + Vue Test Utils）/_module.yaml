@@ -5,5 +5,4 @@ scope:
     - frontend/tests/
 source_files: []
 depends_on: []
-related_to:
-    - path: frontend/app_shell
+related_to: []

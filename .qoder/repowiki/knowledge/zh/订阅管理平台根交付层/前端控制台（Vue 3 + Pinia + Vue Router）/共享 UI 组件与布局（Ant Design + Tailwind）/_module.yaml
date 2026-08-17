@@ -9,5 +9,4 @@ scope:
     - frontend/src/style.css
 source_files: []
 depends_on: []
-related_to:
-    - path: frontend/app_shell
+related_to: []

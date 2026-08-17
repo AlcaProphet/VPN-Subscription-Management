@@ -10,7 +10,5 @@ scope:
 source_files: []
 depends_on: []
 related_to:
-    - path: backend/admin_operations
-    - path: backend/infrastructure
     - path: backend/server_routes
-    - path: backend/user_auth
+    - path: frontend/user_views

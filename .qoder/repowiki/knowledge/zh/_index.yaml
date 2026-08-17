@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: beta
 nodes_managed: true
-exported_at: "2026-08-17T03:24:31Z"
+exported_at: "2026-08-17T05:21:53Z"
 modules:
     "":
         dir_name: 订阅管理平台根交付层
@@ -63,7 +63,7 @@ modules:
         depends_on: []
         related_to:
             - path: backend/server_routes
-            - path: backend/support_services
+            - path: frontend/admin_views
     backend/entry_and_data:
         dir_name: 服务入口、数据库迁移与静态资源嵌入
         title: 服务入口、数据库迁移与静态资源嵌入
@@ -75,8 +75,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: backend/infrastructure
-            - path: backend/server_routes
+            - path: frontend
     backend/infrastructure:
         dir_name: 基础设施层（配置_存储_响应_短码_限流_OIDC）
         title: 基础设施层（配置/存储/响应/短码/限流/OIDC）
@@ -91,8 +90,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: backend/entry_and_data
-            - path: backend/support_services
+            - path: backend/server_routes
     backend/server_routes:
         dir_name: HTTP 服务装配与路由接入层
         title: HTTP 服务装配与路由接入层
@@ -103,11 +101,10 @@ modules:
         depends_on: []
         related_to:
             - path: backend/admin_operations
-            - path: backend/entry_and_data
+            - path: backend/infrastructure
             - path: backend/subscription_platform
             - path: backend/support_services
             - path: backend/user_auth
-            - path: docs_and_templates
             - path: frontend/admin_views
             - path: frontend/user_views
     backend/subscription_platform:
@@ -139,10 +136,8 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: backend/admin_operations
-            - path: backend/infrastructure
             - path: backend/server_routes
-            - path: backend/user_auth
+            - path: frontend/user_views
     backend/user_auth:
         dir_name: 用户认证与会话凭据管理
         title: 用户认证与会话凭据管理
@@ -155,7 +150,6 @@ modules:
         depends_on: []
         related_to:
             - path: backend/server_routes
-            - path: backend/support_services
     docs_and_templates:
         dir_name: 文档模板与参考资料库（DocTemplates & Reference）
         title: 文档模板与参考资料库（DocTemplates & Reference）
@@ -165,8 +159,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: backend/server_routes
+        related_to: []
     frontend:
         dir_name: 前端控制台（Vue 3 + Pinia + Vue Router）
         title: 前端控制台（Vue 3 + Pinia + Vue Router）
@@ -180,7 +173,8 @@ modules:
             - frontend/tests
             - frontend/user_views
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend/entry_and_data
     frontend/admin_views:
         dir_name: 后台管理视图与 API 封装
         title: 后台管理视图与 API 封装
@@ -198,8 +192,8 @@ modules:
         children: []
         depends_on: []
         related_to:
+            - path: backend/admin_operations
             - path: backend/server_routes
-            - path: frontend/app_shell
     frontend/app_shell:
         dir_name: Vue 应用外壳与路由守卫
         title: Vue 应用外壳与路由守卫
@@ -212,11 +206,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: frontend/admin_views
-            - path: frontend/shared_ui
-            - path: frontend/tests
-            - path: frontend/user_views
+        related_to: []
     frontend/shared_ui:
         dir_name: 共享 UI 组件与布局（Ant Design + Tailwind）
         title: 共享 UI 组件与布局（Ant Design + Tailwind）
@@ -229,8 +219,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: frontend/app_shell
+        related_to: []
     frontend/tests:
         dir_name: 前端单元测试套件（Vitest + Vue Test Utils）
         title: 前端单元测试套件（Vitest + Vue Test Utils）
@@ -239,8 +228,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: frontend/app_shell
+        related_to: []
     frontend/user_views:
         dir_name: 用户视图与认证 API 层
         title: 用户视图与认证 API 层
@@ -257,4 +245,4 @@ modules:
         depends_on: []
         related_to:
             - path: backend/server_routes
-            - path: frontend/app_shell
+            - path: backend/support_services

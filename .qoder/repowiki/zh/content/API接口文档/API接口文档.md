@@ -13,10 +13,13 @@
 - [backend/internal/server/rule.go](file://backend/internal/server/rule.go)
 - [backend/internal/server/download.go](file://backend/internal/server/download.go)
 - [backend/internal/server/settings.go](file://backend/internal/server/settings.go)
-- [backend/internal/server/custom.go](file://backend/internal/server/custom.go)
-- [backend/internal/server/share.go](file://backend/internal/server/share.go)
-- [backend/internal/server/home.go](file://backend/internal/server/home.go)
-- [backend/internal/server/status.go](file://backend/internal/server/status.go)
+- [backend/internal/server/settings_ops.go](file://backend/internal/server/settings_ops.go)
+- [backend/internal/config/export.go](file://backend/internal/config/export.go)
+- [backend/internal/config/config.go](file://backend/internal/config/config.go)
+- [backend/internal/custom.go](file://backend/internal/custom.go)
+- [backend/internal/share.go](file://backend/internal/share.go)
+- [backend/internal/home.go](file://backend/internal/home.go)
+- [backend/internal/status.go](file://backend/internal/status.go)
 - [backend/internal/user/user.go](file://backend/internal/user/user.go)
 - [Design2.md](file://Design2.md)
 - [Xray-Core-API.md](file://docs/Reference/Xray-Core-API.md)
@@ -24,11 +27,10 @@
 
 ## 更新摘要
 **变更内容**
-- **扩展协议支持范围**：从仅支持 vless/vmess 扩展至完整四协议（vless、vmess、trojan、shadowsocks），与 Xray-core UserManager API 源码能力对齐
-- **统一用户凭据机制**：trojan/shadowsocks 协议采用每用户统一代理密码（users.proxy_secret_encrypted），与 vless/vmess 的 UUID 凭据并存
-- **节点特定加密配置**：shadowsocks 协议的 cipher 随 inbound 检测动态注入，实现节点级差异化加密方式
-- **订阅装配增强**：下载时按协议类型智能注入对应凭据字段（UUID 或代理密码），支持 Clash YAML 与 SR 链接两种格式
-- **同步机制升级**：AddUser/RemoveUser 钩子全面支持四协议 Account 构造，含 trojan.Account{Password} 与 shadowsocks.Account{Password, Cipher}
+- **配置导入导出功能增强**：扩展支持完整的Xray实例数据导出，格式版本升级至2，包含所有实例字段和slug保持
+- **Xray实例管理集成**：新增xray_instances表的完整数据导出能力，包括name、slug、api_addr、api_tag、enabled等全字段
+- **导入语义优化**：实现整体覆盖语义，确保slug原样沿用，保证节点命名一致性
+- **高级模式配置同步**：advanced_mode配置键随payload整体覆盖导入，支持高级模式自动恢复
 
 ## 目录
 1. [简介](#简介)
@@ -51,9 +53,9 @@
 - 认证方式（会话Cookie、短期Token、OIDC回调）
 - WebSocket/SSE实时日志连接协议
 - 版本管理、速率限制与安全注意事项
-- **新增**：Xray实例管理与用户生命周期同步API，支持四协议（vless/vmess/trojan/shadowsocks）完整对接
+- **新增**：增强的配置导入导出功能，支持完整的Xray实例数据导出与管理
 
-**重要更新**：系统现已全面支持四种Xray协议，每种协议使用统一的凭据管理机制——vless/vmess使用UUID，trojan/shadowsocks使用每用户统一代理密码，确保跨协议的一致性与安全性。
+**重要更新**：配置导入导出功能现已全面支持Xray实例数据的完整导出，格式版本升级至2，包含所有实例字段（name、slug、api_addr、api_tag、enabled）和slug保持机制，确保节点命名一致性与装配快照重绑的准确性。
 
 ## 项目结构
 后端采用Gin路由装配，按业务域拆分处理器并集中注册：
@@ -63,7 +65,7 @@
 - 下载与预览：/subscriptions/*、/share/*、/rules/*、/api/subscriptions/preview
 - 系统能力：/api/system/status、/api/public/announcement、/api/site/info
 - 日志SSE：/api/admin/logs/stream
-- **新增**：Xray实例管理：/api/admin/xray-instances/*
+- **新增**：增强的配置导入导出：/api/admin/settings/export、/api/admin/settings/import、/api/setup/import
 
 ```mermaid
 graph TB
@@ -74,7 +76,7 @@ A --> E["用户端路由<br/>/api/home, /api/rules"]
 A --> F["下载路由<br/>/subscriptions/*, /share/*, /rules/*"]
 A --> G["系统状态<br/>/api/system/status, /api/public/*"]
 A --> H["日志SSE<br/>/api/admin/logs/stream"]
-A --> I["Xray实例管理<br/>/api/admin/xray-instances/*"]
+A --> I["配置导入导出<br/>/api/admin/settings/*, /api/setup/import"]
 ```
 
 图表来源
@@ -87,20 +89,21 @@ A --> I["Xray实例管理<br/>/api/admin/xray-instances/*"]
 - 统一响应封装：OK/Fail/ListData
 - 中间件链：请求日志、panic恢复、信任代理、限流、验证码、会话/管理员鉴权
 - 服务装配：auth、setup、oidc、captcha、ratelimit、version、platform、subscription、group、token、download、custom、share、rule、mail、approval、config、log、backup、dataclear、emergency
-- **新增**：Xray实例管理服务，支持四协议节点检测与用户生命周期同步
+- **新增**：增强的配置导入导出服务，支持Xray实例数据完整导出与管理
 
-**协议支持矩阵**：
-| 协议 | 凭据类型 | 存储字段 | 注入场景 |
-|------|----------|----------|----------|
-| vless | UUID | users.uuid_encrypted | AddUser/订阅装配 |
-| vmess | UUID | users.uuid_encrypted | AddUser/订阅装配 |
-| trojan | 代理密码 | users.proxy_secret_encrypted | AddUser/订阅装配 |
-| shadowsocks | 代理密码+cipher | users.proxy_secret_encrypted + 节点cipher | AddUser/订阅装配 |
+**配置导入导出特性**：
+| 特性 | 描述 | 版本 |
+|------|------|------|
+| 格式版本 | 导出文件格式版本 | v2 |
+| Xray实例支持 | 完整实例数据导出 | ✓ |
+| Slug保持 | 实例slug原样沿用 | ✓ |
+| 高级模式同步 | advanced_mode配置整体覆盖 | ✓ |
+| 安全加密 | Argon2id + AES-256-GCM | ✓ |
 
 章节来源
 - [backend/internal/server/server.go:40-157](file://backend/internal/server/server.go#L40-L157)
-- [Design2.md:254](file://Design2.md#L254)
-- [Xray-Core-API.md:45-52](file://docs/Reference/Xray-Core-API.md#L45-L52)
+- [backend/internal/config/export.go:27-31](file://backend/internal/config/export.go#L27-L31)
+- [Design2.md:259](file://Design2.md#L259)
 
 ## 架构总览
 ```mermaid
@@ -109,30 +112,26 @@ participant Client as "客户端"
 participant Gin as "Gin引擎"
 participant MW as "中间件(限流/验证码/会话/管理员)"
 participant Handler as "业务Handler"
-participant Svc as "领域Service"
-participant Xray as "Xray实例服务"
+participant ExportSvc as "配置导入导出服务"
 participant DB as "数据库/存储"
 Client->>Gin : HTTP请求
 Gin->>MW : 校验(限流/验证码/会话/管理员)
 MW-->>Gin : 通过/拒绝
 Gin->>Handler : 调用处理器
-Handler->>Svc : 执行业务逻辑
-Svc->>Xray : Xray实例操作(高级模式)
-alt 四协议支持
-Xray->>Xray : 根据协议构造Account(vless/vmess/trojan/ss)
+alt 配置导入导出
+Handler->>ExportSvc : 执行导入/导出操作
+ExportSvc->>DB : 读取/写入系统配置
+ExportSvc->>DB : 读取/写入Xray实例数据
+DB-->>ExportSvc : 结果
+ExportSvc-->>Handler : 统一响应
 end
-Xray-->>Svc : 节点检测结果
-Svc->>DB : 读写数据
-DB-->>Svc : 结果
-Svc-->>Handler : 统一响应(OK/Fail/ListData)
 Handler-->>Client : 统一响应
 ```
 
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
-- [backend/internal/server/auth.go:24-34](file://backend/internal/server/auth.go#L24-L34)
-- [backend/internal/server/settings.go:51-81](file://backend/internal/server/settings.go#L51-L81)
-- [Design2.md:285](file://Design2.md#L285)
+- [backend/internal/server/settings_ops.go:28-38](file://backend/internal/server/settings_ops.go#L28-L38)
+- [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
 
 ## 详细端点说明
 
@@ -148,11 +147,12 @@ Handler-->>Client : 统一响应
   - OIDC：授权码流程+state Cookie保护
 - 限流：按IP或Key计数，超限返回429
 - 缓存控制：下载类端点强制no-store/no-cache
-- **新增**：高级模式开关检查，Xray相关功能需advanced_mode配置开启
+- **新增**：配置导入导出仅Production模式提供，Dev模式返回403
 
 章节来源
 - [backend/internal/server/server.go:40-50](file://backend/internal/server/server.go#L40-L50)
-- [backend/internal/server/download.go:23-36](file://backend/internal/server/download.go#L23-L36)
+- [backend/internal/server/settings_ops.go:56-80](file://backend/internal/server/settings_ops.go#L56-L80)
+- [backend/internal/config/export.go:68-71](file://backend/internal/config/export.go#L68-L71)
 
 ### 认证接口
 - POST /api/auth/register
@@ -257,13 +257,6 @@ Handler-->>Client : 统一响应
   - 描述：批量发送密码设置链接（回执计数）
   - 状态码：200/400/500
 
-**新增**：用户生命周期同步机制（四协议支持）
-- 自动触发：用户激活时生成UUID和代理密码，AES-256-GCM加密存储
-- 并发守卫：BEGIN IMMEDIATE事务内条件更新，防止重复生成凭据
-- 配额拦截：超限用户不推送Xray节点，需管理员重置配额后恢复
-- 推送范围：所属组节点 ∪ 公共节点（is_public=1）
-- **协议适配**：根据节点协议类型构造对应Account（vless/vmess使用UUID，trojan/ss使用代理密码）
-
 章节来源
 - [backend/internal/server/user.go:19-32](file://backend/internal/server/user.go#L19-L32)
 - [backend/internal/server/user.go:54-67](file://backend/internal/server/user.go#L54-L67)
@@ -276,7 +269,6 @@ Handler-->>Client : 统一响应
 - [backend/internal/server/user.go:215-238](file://backend/internal/server/user.go#L215-L238)
 - [backend/internal/server/user.go:240-256](file://backend/internal/server/user.go#L240-L256)
 - [backend/internal/server/user.go:258-274](file://backend/internal/server/user.go#L258-L274)
-- [Design2.md:285](file://Design2.md#L285)
 
 ### 管理员-平台
 - GET /api/admin/platforms
@@ -350,13 +342,6 @@ Handler-->>Client : 统一响应
   - 查询：slug、type、id
   - 状态码：200/500
 
-**增强**：订阅组装端点升级（四协议支持）
-- 异步激活：支持opt-in激活模式，避免自动切换影响生产环境
-- 蓝图版本：保存结构化渲染计划，支持重新编辑与悬空引用容错
-- 首次激活：新订阅首个版本自动激活，避免空窗期
-- 候选集管理：基于已激活蓝图构建全局节点候选集
-- **协议适配**：下载时按节点协议类型注入对应凭据字段（UUID或代理密码）
-
 章节来源
 - [backend/internal/server/subscription.go:21-38](file://backend/internal/server/subscription.go#L21-L38)
 - [backend/internal/server/subscription.go:56-63](file://backend/internal/server/subscription.go#L56-L63)
@@ -370,7 +355,6 @@ Handler-->>Client : 统一响应
 - [backend/internal/server/subscription.go:237-260](file://backend/internal/server/subscription.go#L237-L260)
 - [backend/internal/server/subscription.go:262-283](file://backend/internal/server/subscription.go#L262-L283)
 - [backend/internal/server/subscription.go:285-309](file://backend/internal/server/subscription.go#L285-L309)
-- [Design2.md:316-317](file://Design2.md#L316-L317)
 
 ### 管理员-用户组
 - GET /api/admin/groups
@@ -467,19 +451,12 @@ Handler-->>Client : 统一响应
   - 鉴权：会话
   - 状态码：200/404/500
 
-**增强**：四协议订阅装配
-- **凭据注入**：根据节点协议类型自动注入对应凭据（vless/vmess注入UUID，trojan/ss注入代理密码）
-- **Shadowsocks支持**：cipher字段随inbound检测动态注入，支持多种加密方式
-- **SR链接生成**：trojan/ss协议生成标准SR链接格式，包含用户代理密码
-- **Clash配置**：trojan使用password字段，ss使用cipher+password组合
-
 章节来源
 - [backend/internal/server/download.go:23-30](file://backend/internal/server/download.go#L23-L30)
 - [backend/internal/server/download.go:38-69](file://backend/internal/server/download.go#L38-L69)
 - [backend/internal/server/download.go:71-98](file://backend/internal/server/download.go#L71-L98)
 - [backend/internal/server/download.go:100-127](file://backend/internal/server/download.go#L100-L127)
 - [backend/internal/server/download.go:129-156](file://backend/internal/server/download.go#L129-L156)
-- [Design2.md:316-317](file://Design2.md#L316-L317)
 
 ### 用户端-主页数据
 - GET /api/home/platforms
@@ -649,13 +626,49 @@ Handler-->>Client : 统一响应
 - [backend/internal/server/log.go:53-61](file://backend/internal/server/log.go#L53-L61)
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
 
+### **新增**：配置导入导出接口
+- POST /api/admin/settings/export
+  - 描述：导出加密配置文件（仅Production模式）
+  - 请求体：{ password }（≥8字符）
+  - 响应：加密文件下载（application/octet-stream）
+  - 内容：全部系统配置 + 站点信息（ICON base64）
+  - 格式版本：v2（支持Xray实例数据）
+  - 状态码：200/400/403/500
+- POST /api/admin/settings/import
+  - 描述：导入配置文件（仅Production模式）
+  - 请求体：multipart form（file + password + confirm_word=IMPORT）
+  - 行为：事务内严格整体覆盖（先清空再写入）
+  - 效果：签名密钥替换 → 全部会话立即失效
+  - 状态码：200/400/403/500
+- POST /api/setup/import
+  - 描述：Setup导入（未配置状态暴露）
+  - 限制：按IP限流（5/min）
+  - 行为：同事务创建预置默认组与默认平台
+  - 状态码：200/400/403/409/500
+
+**增强功能特性**：
+- **Xray实例数据支持**：完整导出xray_instances表的所有字段（name、slug、api_addr、api_tag、enabled）
+- **Slug保持机制**：导入时slug原样沿用，不重新生成，确保节点命名一致性
+- **高级模式同步**：advanced_mode配置键随payload整体覆盖导入
+- **安全保护**：Argon2id派生密钥 + AES-256-GCM加密，防止配置泄露
+- **回滚机制**：导入失败时事务回滚，确保数据一致性
+
+章节来源
+- [backend/internal/server/settings_ops.go:28-38](file://backend/internal/server/settings_ops.go#L28-L38)
+- [backend/internal/server/settings_ops.go:56-80](file://backend/internal/server/settings_ops.go#L56-L80)
+- [backend/internal/server/settings_ops.go:82-99](file://backend/internal/server/settings_ops.go#L82-L99)
+- [backend/internal/server/settings_ops.go:101-139](file://backend/internal/server/settings_ops.go#L101-L139)
+- [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
+- [backend/internal/config/export.go:135-187](file://backend/internal/config/export.go#L135-L187)
+- [Design2.md:259](file://Design2.md#L259)
+
 ## 依赖关系分析
 - 路由注册集中在server.New中，按顺序注入各域服务与中间件
 - 鉴权中间件复用：SessionMiddleware与AdminMiddleware
 - 限流中间件：按Key（register/login/forgot/download）限制频率
 - 验证码中间件：在注册/登录/忘记密码上叠加
 - 版本模块：订阅/规则/自定义/分享共用版本CRUD与预览
-- **新增**：Xray实例服务依赖高级模式配置，支持四协议节点检测与用户同步
+- **新增**：配置导入导出服务依赖生产环境模式检查与安全验证
 
 ```mermaid
 graph LR
@@ -668,16 +681,19 @@ R --> G["组(group.go)"]
 R --> RU["规则(rule.go)"]
 R --> D["下载(download.go)"]
 R --> ST["设置(settings.go)"]
+R --> SO["设置操作(settings_ops.go)"]
 R --> C["自定义(custom.go)"]
 R --> SH["分享(share.go)"]
 R --> H["主页(home.go)"]
 R --> L["日志(log.go)"]
 R --> SS["状态(status.go)"]
-R --> X["Xray实例(xray_instance.go)"]
+SO --> ES["导出服务(export.go)"]
+ES --> CFG["配置服务(config.go)"]
 ```
 
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
+- [backend/internal/server/settings_ops.go:28-38](file://backend/internal/server/settings_ops.go#L28-L38)
 
 章节来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
@@ -686,24 +702,25 @@ R --> X["Xray实例(xray_instance.go)"]
 - 限流策略：
   - 注册/登录/忘记密码：分别限制（KeyRegister/Login/Forgot）
   - 下载：按IP限制20次/分钟
+  - Setup导入：按IP限制5次/分钟
 - 缓存控制：下载类端点强制no-store/no-cache
 - 内存安全：大文件流式处理，避免整读内存
 - 并发与连接：SSE连接上限8；事件源一次性Token防重放
 - 优雅退出：HTTP服务支持上下文关闭与超时
-- **新增**：Xray实例操作限流，避免频繁API调用导致Xray服务压力
-- **协议优化**：四协议Account构造采用缓存机制，减少重复计算
+- **新增**：配置导入导出生产环境限制，Dev模式返回403
 
 章节来源
 - [backend/internal/server/auth.go:24-34](file://backend/internal/server/auth.go#L24-L34)
 - [backend/internal/server/download.go:23-36](file://backend/internal/server/download.go#L23-L36)
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
 - [backend/internal/server/server.go:239-258](file://backend/internal/server/server.go#L239-L258)
+- [backend/internal/server/settings_ops.go:35-37](file://backend/internal/server/settings_ops.go#L35-L37)
 
 ## 故障排查指南
 - 常见状态码：
   - 400：参数校验失败/业务参数错误
   - 401：会话无效/短期Token无效
-  - 403：权限不足/最后管理员保护
+  - 403：权限不足/最后管理员保护/生产环境限制
   - 404：资源不存在/版本缺失
   - 409：冲突（邮箱/标识重复）
   - 429：限流触发
@@ -713,21 +730,22 @@ R --> X["Xray实例(xray_instance.go)"]
   - 检查限流Key与阈值
   - 确认OIDC state Cookie与回调参数一致
   - SSE连接失败时检查短期Token是否已消费
-- **新增**：Xray集成问题排查（四协议支持）
-  - 检查advanced_mode配置是否开启
-  - 验证Xray实例连接参数正确性
-  - 查看用户同步状态（pending/synced/failed）
-  - 检查配额超限标记（quota_exceeded）
-  - **协议诊断**：确认节点协议类型与凭据注入是否正确（UUID vs 代理密码）
-  - **Shadowsocks专项**：检查cipher字段是否与inbound配置匹配
+- **新增**：配置导入导出问题排查
+  - 检查运行模式是否为Production
+  - 验证导出密码长度（≥8字符）
+  - 确认导入确认词为"IMPORT"
+  - 检查文件格式与加密完整性
+  - 查看导入后的会话失效情况
 
 章节来源
 - [backend/internal/server/server.go:225-237](file://backend/internal/server/server.go#L225-L237)
 - [backend/internal/server/settings.go:340-359](file://backend/internal/server/settings.go#L340-L359)
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
+- [backend/internal/server/settings_ops.go:67-76](file://backend/internal/server/settings_ops.go#L67-L76)
+- [backend/internal/config/export.go:68-74](file://backend/internal/config/export.go#L68-L74)
 
 ## 结论
-本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。**重大更新**：系统现已全面支持四种Xray协议（vless、vmess、trojan、shadowsocks），实现了统一的凭据管理机制——vless/vmess使用UUID，trojan/shadowsocks使用每用户统一代理密码，确保跨协议的一致性与安全性。新增的Xray实例管理功能提供了完整的用户生命周期同步能力，包括并发安全的凭据生成、配额超限拦截、高级模式开关控制等特性。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
+本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。**重大更新**：配置导入导出功能现已全面支持Xray实例数据的完整导出与管理，格式版本升级至2，包含所有实例字段和slug保持机制。新增的配置导入导出接口提供了安全的配置备份与迁移能力，支持高级模式配置同步和严格的整体覆盖语义。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
 
 ## 附录
 
@@ -768,49 +786,39 @@ Note over Admin,SSE : 连接断开自动清理；Token一次性
 图表来源
 - [backend/internal/server/log.go:53-113](file://backend/internal/server/log.go#L53-L113)
 
-### Xray用户生命周期同步流程（四协议支持）
+### 配置导入导出流程
 ```mermaid
 sequenceDiagram
-participant User as "用户"
-participant API as "用户管理API"
-participant Sync as "同步服务"
-participant Xray as "Xray实例"
-User->>API : 用户激活/启用/换组
-API->>Sync : 触发用户同步
-Sync->>Sync : 检查高级模式开关
-alt 高级模式开启
-Sync->>Sync : 检查配额超限
-alt 未超限
-Sync->>Sync : 根据协议构造Account
-alt vless/vmess
-Sync->>Xray : AddUser(UUID凭据)
-else trojan/ss
-Sync->>Xray : AddUser(代理密码凭据)
-end
-Xray-->>Sync : 同步结果
-Sync->>API : 更新同步状态
-else 超限
-Sync->>API : 记录跳过原因
-end
-else 高级模式关闭
-Sync->>API : 静默跳过
-end
+participant Admin as "管理员"
+participant API as "配置API"
+participant ExportSvc as "导出服务"
+participant DB as "数据库"
+Admin->>API : POST /api/admin/settings/export
+API->>ExportSvc : 验证模式 + 密码
+ExportSvc->>DB : 读取系统配置
+DB-->>ExportSvc : 配置数据
+ExportSvc->>ExportSvc : Argon2id + AES-GCM加密
+ExportSvc-->>API : 加密数据
+API-->>Admin : 加密文件下载
+Note over Admin,ExportSvc : 格式版本v2，支持Xray实例数据
 ```
 
 图表来源
-- [backend/internal/user/user.go:82-154](file://backend/internal/user/user.go#L82-L154)
-- [Design2.md:285](file://Design2.md#L285)
-- [Design2.md:254](file://Design2.md#L254)
+- [backend/internal/server/settings_ops.go:56-80](file://backend/internal/server/settings_ops.go#L56-L80)
+- [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
 
-### 四协议凭据映射表
-| 协议 | 凭据类型 | 存储字段 | 注入位置 | 示例 |
-|------|----------|----------|----------|------|
-| vless | UUID | users.uuid_encrypted | AddUser.Account.Id | `vless.Account{Id: UUID}` |
-| vmess | UUID | users.uuid_encrypted | AddUser.Account.Id | `vmess.Account{Id: UUID}` |
-| trojan | 代理密码 | users.proxy_secret_encrypted | AddUser.Account.Password | `trojan.Account{Password: 密码}` |
-| shadowsocks | 代理密码+cipher | users.proxy_secret_encrypted + 节点cipher | AddUser.Account | `shadowsocks.Account{Password: 密码, Cipher: 节点cipher}` |
+### 配置导入导出特性对比
+| 特性 | 基础版 | 增强版(v2) |
+|------|--------|------------|
+| 格式版本 | v1 | v2 |
+| Xray实例数据 | ✗ | ✓ |
+| 实例字段完整度 | ✗ | name/slug/api_addr/api_tag/enabled |
+| Slug保持机制 | ✗ | ✓ |
+| 高级模式同步 | ✗ | ✓ |
+| 安全加密 | ✓ | ✓ |
+| 事务回滚 | ✓ | ✓ |
 
 **Section sources**
-- [Design2.md:254](file://Design2.md#L254)
-- [Design2.md:285](file://Design2.md#L285)
-- [Xray-Core-API.md:45-52](file://docs/Reference/Xray-Core-API.md#L45-L52)
+- [backend/internal/server/settings_ops.go:56-80](file://backend/internal/server/settings_ops.go#L56-L80)
+- [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
+- [Design2.md:259](file://Design2.md#L259)

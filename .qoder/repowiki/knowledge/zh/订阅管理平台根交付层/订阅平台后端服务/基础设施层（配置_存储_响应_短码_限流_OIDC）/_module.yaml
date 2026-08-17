@@ -11,5 +11,4 @@ scope:
 source_files: []
 depends_on: []
 related_to:
-    - path: backend/entry_and_data
-    - path: backend/support_services
+    - path: backend/server_routes
