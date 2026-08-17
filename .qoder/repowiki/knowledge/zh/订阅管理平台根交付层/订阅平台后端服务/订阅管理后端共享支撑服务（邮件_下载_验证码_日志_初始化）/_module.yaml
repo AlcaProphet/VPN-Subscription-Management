@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: backend/support_services
-title: 支撑服务（邮件/下载解析/验证码/日志/初始化）
+title: 订阅管理后端共享支撑服务（邮件/下载/验证码/日志/初始化）
 scope:
     - backend/internal/mail/
     - backend/internal/download/

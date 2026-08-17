@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: beta
 nodes_managed: true
-exported_at: "2026-08-16T09:21:29Z"
+exported_at: "2026-08-17T03:24:31Z"
 modules:
     "":
-        dir_name: 订阅管理服务平台（单镜像交付根）
-        title: 订阅管理服务平台（单镜像交付根）
+        dir_name: 订阅管理平台根交付层
+        title: 订阅管理平台根交付层
         scope:
             - README.md
             - Build1.md
@@ -34,8 +34,8 @@ modules:
         depends_on: []
         related_to: []
     backend:
-        dir_name: 订阅管理后端服务
-        title: 订阅管理后端服务
+        dir_name: 订阅平台后端服务
+        title: 订阅平台后端服务
         scope:
             - backend/
         source_files: []
@@ -127,8 +127,8 @@ modules:
         related_to:
             - path: backend/server_routes
     backend/support_services:
-        dir_name: 支撑服务（邮件_下载解析_验证码_日志_初始化）
-        title: 支撑服务（邮件/下载解析/验证码/日志/初始化）
+        dir_name: 订阅管理后端共享支撑服务（邮件_下载_验证码_日志_初始化）
+        title: 订阅管理后端共享支撑服务（邮件/下载/验证码/日志/初始化）
         scope:
             - backend/internal/mail/
             - backend/internal/download/

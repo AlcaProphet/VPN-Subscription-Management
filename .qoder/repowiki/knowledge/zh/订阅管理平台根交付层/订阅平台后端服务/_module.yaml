@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: backend
-title: 订阅管理后端服务
+title: 订阅平台后端服务
 scope:
     - backend/
 source_files: []

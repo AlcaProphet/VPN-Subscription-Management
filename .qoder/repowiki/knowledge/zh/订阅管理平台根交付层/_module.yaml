@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: 订阅管理服务平台（单镜像交付根）
+title: 订阅管理平台根交付层
 scope:
     - README.md
     - Build1.md
