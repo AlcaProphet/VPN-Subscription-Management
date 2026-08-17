@@ -16,18 +16,12 @@
 - [backend/internal/server/settings_ops.go](file://backend/internal/server/settings_ops.go)
 - [backend/internal/config/export.go](file://backend/internal/config/export.go)
 - [backend/internal/config/config.go](file://backend/internal/config/config.go)
-- [backend/internal/custom.go](file://backend/internal/custom.go)
-- [backend/internal/share.go](file://backend/internal/share.go)
-- [backend/internal/home.go](file://backend/internal/home.go)
-- [backend/internal/status.go](file://backend/internal/status.go)
-- [backend/internal/user/user.go](file://backend/internal/user/user.go)
 - [Design2.md](file://Design2.md)
-- [Xray-Core-API.md](file://docs/Reference/Xray-Core-API.md)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- **配置导入导出功能增强**：扩展支持完整的Xray实例数据导出，格式版本升级至2，包含所有实例字段和slug保持
+- **配置导入导出功能增强**：扩展支持完整的Xray实例数据导出，格式版本升级至v2，包含所有实例字段和slug保持
 - **Xray实例管理集成**：新增xray_instances表的完整数据导出能力，包括name、slug、api_addr、api_tag、enabled等全字段
 - **导入语义优化**：实现整体覆盖语义，确保slug原样沿用，保证节点命名一致性
 - **高级模式配置同步**：advanced_mode配置键随payload整体覆盖导入，支持高级模式自动恢复
@@ -55,7 +49,7 @@
 - 版本管理、速率限制与安全注意事项
 - **新增**：增强的配置导入导出功能，支持完整的Xray实例数据导出与管理
 
-**重要更新**：配置导入导出功能现已全面支持Xray实例数据的完整导出，格式版本升级至2，包含所有实例字段（name、slug、api_addr、api_tag、enabled）和slug保持机制，确保节点命名一致性与装配快照重绑的准确性。
+**重要更新**：配置导入导出功能现已全面支持Xray实例数据的完整导出，格式版本升级至v2，包含所有实例字段（name、slug、api_addr、api_tag、enabled）和slug保持机制，确保节点命名一致性与装配快照重绑的准确性。
 
 ## 项目结构
 后端采用Gin路由装配，按业务域拆分处理器并集中注册：
@@ -382,9 +376,9 @@ Handler-->>Client : 统一响应
 章节来源
 - [backend/internal/server/group.go:18-27](file://backend/internal/server/group.go#L18-L27)
 - [backend/internal/server/group.go:29-36](file://backend/internal/server/group.go#L29-L36)
-- [backend/internal/server/group.go:38-60](file://backend/internal/server/group.go#L38-L60)
-- [backend/internal/server/group.go:62-80](file://backend/internal/server/group.go#L62-L80)
-- [backend/internal/server/group.go:82-117](file://backend/internal/server/group.go#L82-L117)
+- [backend/internal/server/group.go:38-60](file://backend/internal/server/group.go#L38-60)
+- [backend/internal/server/group.go:62-80](file://backend/internal/server/group.go#L62-80)
+- [backend/internal/server/group.go:82-117](file://backend/internal/server/group.go#L82-117)
 - [backend/internal/server/group.go:119-138](file://backend/internal/server/group.go#L119-L138)
 - [backend/internal/server/group.go:140-167](file://backend/internal/server/group.go#L140-L167)
 
