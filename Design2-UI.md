@@ -40,10 +40,10 @@
 | 组件 / 约定 | 职责 | 要点 |
 |------------|------|------|
 | `DiffView` 文本差异视图 | 装配预览步「与当前激活版本对比」的行级差异高亮 | 采用 **jsdiff**（npm `diff` 包，Design2.md §4.1 已定选型）做行级 diff，前端自渲染**三色高亮**（新增行绿底 / 删除行红底 / 上下文默认色），等宽字体、纵向滚动容器（max-height 60vh）；**禁止引入 monaco 等重型编辑器**；目标版本不存在（无激活版本）时整体展示为新增行 |
-| 拖拽排序交互 | 组节点分配排序、代理组节点引用排序、平台 scheme 排序（沿用） | 桌面端（≥768）使用拖拽手柄（`HolderOutlined` 图标）拖拽排序；**<768 移动端降级为「上移 / 下移」按钮**（触屏拖拽不可靠，统一降级口径，见 10.1）；排序变更即时调更新端点，失败回滚本地顺序并 `Notify.error` |
+| 拖拽排序交互 | 组节点分配排序、代理组节点引用排序、**装配第④步素材池整体排序**、平台 scheme 排序（沿用） | 桌面端（≥768）使用拖拽手柄（`HolderOutlined` 图标）拖拽排序；**<768 移动端降级为「上移 / 下移」按钮**（触屏拖拽不可靠，统一降级口径，见 10.1）；排序变更即时调更新端点，失败回滚本地顺序并 `Notify.error` |
 | `pollTask` 轮询任务封装 | 异步任务（素材池同步）状态轮询 | `api/request.ts` 新增封装，契约见 9.2：提交任务 → 按 1.5s 间隔轮询状态端点 → 终态返回结果；**组件卸载自动取消**（AbortController / 取消标志）；进行中 UI 统一 loading 态 + 防重复触发 |
-| 装配器双形态切换 | 三类装配器共用的「步骤条 ⇄ 单页多分区」形态切换 | **默认步骤条形态**；分区右上角 `a-segmented`（「分步 / 单页」）切换；选择持久化 `localStorage('assembly_layout_mode')`，三种装配器共用同一记忆键；切换时**表单数据不丢失**（同一份响应式状态，仅渲染形态变化） |
-| 同步状态 Badge 色系 | 素材池同步状态、Xray 推送同步状态、采集状态统一口径 | `a-badge` / `a-tag` 四色：**pending 橙（`#FAAD14`）/ synced 绿（`#52C41A`）/ failed 红（`#FF4D4F`）/ missing 灰（AntD 默认灰）**；失败态附「原因」Tooltip（展示后端 last_error / sync_error 可展示信息） |
+| 装配器双形态切换 | 四类装配器共用的「步骤条 ⇄ 单页多分区」形态切换 | **默认步骤条形态**；分区右上角 `a-segmented`（「分步 / 单页」）切换；选择持久化 `localStorage('assembly_layout_mode')`，四种装配器共用同一记忆键；切换时**表单数据不丢失**（同一份响应式状态，仅渲染形态变化） |
+| 同步状态 Badge 色系 | 素材池同步任务、Xray 推送同步状态、采集状态统一口径 | `a-badge` / `a-tag`：**pending 橙（`#FAAD14`）/ running 蓝（processing）/ synced 与 succeeded 绿（`#52C41A`）/ failed 红（`#FF4D4F`）/ partial 橙（warning）/ missing 灰（AntD 默认灰）**；失败态附「原因」Tooltip（展示后端 last_error / sync_error 可展示信息） |
 
 ### 1.3 复用件沿用清单
 
@@ -144,8 +144,8 @@
 
 | 状态 | 展示 |
 |------|------|
-| 有激活版本 | 订阅名称 + product_type 标签（yaml / subs）+ 版本时间戳 |
-| 平台无任何版本 / 无激活版本 | 灰色占位「暂无可用版本，请联系管理员」（下载口径为 200 注释块，Design2.md §4.4，用户侧以占位文案前置提示） |
+| 有激活版本 | 订阅名称 + product_type 标签（yaml / subs / generic-subs）+ 版本时间戳 |
+| 平台无任何版本 / 无激活版本 | 灰色占位「暂无可用版本，请联系管理员」（下载口径为 200 注释块，Design2.md §4.4，用户侧以占位文案前置提示；**一键导入 / 复制链接 / 刷新链接三按钮隐藏**） |
 | 有自定义订阅 | `a-alert info`「已被分配自定义订阅」+ 自定义操作按钮（沿用） |
 
 **管理员——预览形态**（替代 Design1「池内订阅平铺 + 一键导入/复制链接」）：
@@ -176,12 +176,12 @@
 
 ### 4.1 订阅管理（改造）
 
-- **列表页**：`PageHeader`（标题 + 「新建订阅」按钮）；**主体为平铺双态列表（不再按平台分组折叠**——每平台至多一份条目，分组结构退化为平台列）；列：平台名称、订阅名称、product_type 标签（`a-tag`：yaml 蓝 / subs 青）、内容形态标签（装配模板紫 / 直接上传灰）、当前版本（版本号 + 激活 `a-tag`；无激活版本灰字「未激活」）、操作（版本管理 / 编辑 / 删除）
+- **列表页**：`PageHeader`（标题 + 「新建订阅」按钮）；**主体为平铺双态列表（不再按平台分组折叠**——每平台至多一份条目，分组结构退化为平台列）；列：平台名称、订阅名称、product_type 标签（`a-tag`：yaml 蓝 / subs 青 / generic-subs 紫）、内容形态标签（装配模板紫 / 直接上传灰）、当前版本（版本号 + 激活 `a-tag`；无激活版本灰字「未激活」）、操作（版本管理 / 编辑 / 删除）
 - **新建订阅弹窗**：`a-modal` 表单（平台 `a-select` + 名称；标识后端自动生成）；**平台下拉中被占用的平台（已存在订阅条目）选项禁用 + 后缀「（已有订阅）」**；提交后后端 409 兜底 → `Notify.error` 展示冲突描述（UNIQUE(platform_id) 语义 UI 化，Design2.md §4.4）；**创建成功后不再弹「加入组可用范围 / 设置平台默认」引导**（组选定机制已删除），改为轻提示「可上传内容或前往订阅装配生成模板」
 - **编辑弹窗**：仅名称修改（平台只读展示；product_type 只读展示）；**组关联多选移除**
 - **「已入池未生效」引导口径**：上传 / 装配生成完成后，列表对应行临时高亮 + 行内 `a-alert info` 风格标签「已入池未生效，请激活」+「去激活」快捷链接（直达该订阅版本管理页，Design2.md §4.4 分发机制）
 - **装配入口**：`PageHeader` 右侧「新建订阅」旁新增「前往装配」按钮（跳转 `/admin/assembly`）；版本管理页另有装配生成创建方式，见 4.2
-- 删除订阅：ConfirmModal **逐项影响清单**（版本文件 / Token / 自定义订阅级联提示；现状为单句文案，按本规格新写）
+- 删除订阅：ConfirmModal **逐项影响清单**（版本文件 / 指向该订阅的 Token；**不级联自定义订阅**——自定义订阅随平台删除才级联；现状为单句文案，按本规格新写）
 
 ### 4.2 版本管理页 VersionManageView（改造，订阅 / 分享 / 规则 / 自定义四类同构页共用）
 
@@ -189,10 +189,10 @@
 
 | 改造点 | 规格 |
 |--------|------|
-| 创建新版本第三方式 | 创建区由「文件上传 / 在线文本编辑」双页签扩展为三入口：页签不变 + 页签栏右侧「**装配生成**」按钮 → 跳转 `/admin/assembly?tab={对应装配器}&platform_id={订阅行平台}` 带目标参数进入装配器（SR 分流规则场景为规则版本页入口，tab=sr-conf 且带 rule_id）；**规则 / 分享 / 自定义的版本页仅订阅池（yaml/subs）与规则页渲染该按钮**（分享与自定义无装配语义，不渲染） |
+| 创建新版本第三方式 | 创建区由「文件上传 / 在线文本编辑」双页签扩展为三入口：页签不变 + 页签栏右侧「**装配生成**」按钮 → 跳转 `/admin/assembly?tab={对应装配器}&platform_id={订阅行平台}` 带目标参数进入装配器（SR 分流规则场景为规则版本页入口，tab=sr-conf 且带 rule_id）；**规则 / 分享 / 自定义三类版本页中，仅订阅池（yaml / subs / generic-subs）与规则页渲染该按钮**（分享与自定义无装配语义，不渲染） |
 | 装配版本辨识 | 装配蓝图生成的版本行显示 `a-tag` 紫色「装配」（直接上传版本无此标签） |
 | 重新编辑入口 | 「装配」标签版本的操作区显示「**重新编辑**」按钮 → 跳转 `/admin/assembly?tab={target_syntax}&edit_version_id={id}`（流程见 5.4）；直接上传版本不显示 |
-| 「激活/分发」文案 | **订阅池（yaml/subs）与规则页**的版本行「设为当前」按钮文案改为「**激活/分发**」，确认弹窗文案同步为「激活后对全体用户生效」；**分享 / 自定义版本页保持「设为当前」不变**（Design2.md §4.4 版本组件改造适用范围边界） |
+| 「激活/分发」文案 | **订阅池（yaml / subs / generic-subs）与规则页**的版本行「设为当前」按钮文案改为「**激活/分发**」，确认弹窗文案同步为「激活后对全体用户生效」；**分享 / 自定义版本页保持「设为当前」不变**（Design2.md §4.4 版本组件改造适用范围边界） |
 | 首次自动激活提示 | 首个入池版本自动激活属后端行为，UI 无需分支；版本列表照常展示激活 `a-tag` |
 
 ### 4.3 用户组管理 GroupsView（重构，**仅高级模式可见**）
@@ -200,11 +200,11 @@
 - **组列表**（双态列表）：组名（预置默认组带 `a-tag` 且无删除操作）、**默认配额**（GB 数值或「不限流量」）、分配节点数、组内用户数、操作（编辑 / 删除——默认组不可删）；**原「可用订阅数 / 重新设置」列与 needs_reselect 机制全部移除**（Design2.md §5.6 删除项）；首管理员「创建第一份订阅」引导条移除（订阅不再经组分发）
 - **组编辑弹窗**（720px，`a-modal`）自上而下四区：
   1. **改名**（唯一校验，沿用）
-  2. **节点分配**：`a-checkbox-group` 多选，候选集 = 全部已激活 clash-yaml 与 sr-subs 装配蓝图的 xray 候选节点并集（Design2.md §5.6 候选集口径 ①）；候选节点行展示节点名 + 可用性标注：
+  2. **节点分配**：`a-checkbox-group` 多选，候选集 = 全部已激活 clash-yaml / sr-subs / generic-subs 装配蓝图的 xray 候选节点并集（Design2.md §5.6 候选集口径 ①）；候选节点行展示节点名 + 可用性标注：
      - **公共节点**（is_public=1）：行内 `a-tag`「公共 · 免分配」置灰不可勾选 + 副说明「公共节点对所有组自动可见」
      - **非候选集的已分配节点**：以红色警示标注「不在任何已激活模板候选集内，下载不会注入」（参考 Design1 needs_reselect 高亮模式）
      - **仅部分模板候选**：橙色提示「仅部分激活模板包含该节点」
-     - **候选集并集为空**：分配区整体替换为 `a-empty` 引导态「请先装配并激活 Clash YAML 或 SR 节点订阅模板」+「前往装配」按钮（Design2.md §5.6 口径 ⑤）
+     - **候选集并集为空**：分配区整体替换为 `a-empty` 引导态「请先装配并激活 Clash YAML / SR 节点订阅 / 通用节点订阅模板」+「前往装配」按钮（Design2.md §5.6 口径 ⑤）
   3. **分配排序**：已勾选节点以有序列表展示（拖拽排序，<768 上移/下移降级，见 1.2）；顺序即下载渲染输出顺序
   4. **默认配额**：`a-input-number`（GB，≥0）+ 副说明「0 或留空 = 不限流量」
 - **保存**：提交后后端执行受影响用户 diff 推送/移除（后端行为）；前端 `Notify.success`「已保存，节点变更将同步至 Xray」
@@ -213,9 +213,9 @@
 
 ### 4.4 平台管理 PlatformsView / PlatformEditView（改造）
 
-- **列表**：双态列表新增 **product_type 列**（`a-tag`：yaml 蓝 / subs 青）；其余（名称 / 标识 / 安装包状态 / 操作）沿用 Design1-UI §5.4
-- **新建平台**：表单新增 **product_type `a-radio-group`**（yaml「Clash YAML 订阅」/ subs「Shadowrocket 节点订阅」，**默认 yaml**）；新建成功后引导文案更新为「可前往订阅管理为平台创建订阅条目，或前往订阅装配生成模板」（原「为各用户组设置默认订阅」引导移除）
-- **平台编辑页**：product_type 以 `a-radio-group` **可校正**展示；**校正提交时若与既有订阅条目 product_type 不一致 → 后端 400 拒绝，前端表单级错误提示「该平台已有 {yaml|subs} 订阅条目，请先处理后再变更产物格式」**；无订阅条目的平台可自由校正
+- **列表**：双态列表新增 **product_type 列**（`a-tag`：yaml 蓝 / subs 青 / generic-subs 紫）；其余（名称 / 标识 / 安装包状态 / 操作）沿用 Design1-UI §5.4
+- **新建平台**：表单新增 **product_type `a-radio-group`**（yaml「Clash YAML 订阅」/ subs「Shadowrocket 节点订阅」/ generic-subs「通用节点订阅（v2rayNG/v2rayN 等）」，**默认 yaml**）；新建成功后引导文案更新为「可前往订阅管理为平台创建订阅条目，或前往订阅装配生成模板」（原「为各用户组设置默认订阅」引导移除）
+- **平台编辑页**：product_type 以 `a-radio-group` **可校正**展示；**校正提交时若与既有订阅条目 product_type 不一致 → 后端 400 拒绝，前端表单级错误提示「该平台已有 {yaml|subs|generic-subs} 订阅条目，请先处理后再变更产物格式」**；无订阅条目的平台可自由校正
 - 删除平台 ConfirmModal 影响清单沿用
 
 ### 4.5 用户管理 UsersView（扩展）
@@ -253,14 +253,14 @@
 | **开启（OFF→ON）** | 直接开关 + 保存提示「开启后请前往 Xray 实例页录入实例并完成初始化配置；开启本身不执行任何推送」（保存即生效，刷新系统状态后侧边栏解锁「用户组 / Xray 实例」入口） |
 | **关闭（ON→OFF，清空）** | 触发**如同清空数据的二次输入确认弹窗**（ConfirmModal 内嵌确认词输入框）：弹窗内**清单式展示将被移除的内容**——Xray 实例数据、**source=xray 的节点（标注：manual 节点保留）**、组节点分配、用户 Xray 推送记录、**独立 Xray 账号（凭据与推送记录）**、流量记录、用户 UUID 与代理密码、配额字段；显著 `a-alert warning` 两条：①「Xray 侧不可达实例的账号需手动清理」②「重新开启须全量重新配置并手动执行『开始初始化』」（Design2.md 第一章 OFF 清空口径） |
 | 流量采集间隔 | `a-input-number`（分钟，默认 10，≥1）+ 说明「逐用户串行采集 Xray 流量，间隔过短会增加实例压力」（仅高级模式展示该控件） |
-| 流量卡片显示开关 | `a-switch`（默认开启）+ 说明「控制用户首页与个人中心的流量卡片是否展示」（两模式均展示该控件） |
+| 流量卡片显示开关 | `a-switch`（默认开启）+ 说明「控制首页流量卡片与个人中心「本月流量」行的展示」（两模式均展示该控件） |
 
 #### 4.7.2 配置导入/导出分区文案更新（沿用分区，仅文案与提示增量）
 
-- 导出说明追加：「含 Xray 实例清单（format_version=2）」
+- 导出说明追加：「含 Xray 实例清单与独立账号（含推送目标，format_version=2）」
 - **导入确认弹窗追加影响项**：「Xray 实例将整体覆盖（slug 沿用），**组节点分配将被级联清空，导入后需重新分配**」
 - **signing_key 保护拒绝提示**：后端拒绝导入时（密钥将变化且存在业务密文），前端 `a-alert error` 展示后端文案「配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复」，不做任何变更
-- 导入完成提示追加「系统将自动执行节点检测刷新与账号对账」
+- 导入完成提示追加「系统将自动执行节点检测刷新、独立账号推送目标重绑（未匹配目标标记失败）与账号对账」
 
 ### 4.8 管理面板交互走查结论（编写后自检）
 
@@ -274,15 +274,15 @@
 
 ### 5.1 页面骨架：单菜单入口页内 Tabs
 
-- `PageHeader`（标题「订阅装配」）+ `a-tabs` 四页签：**规则素材池 / Clash YAML / SR 节点订阅 / SR 分流规则**（页签 key：`pool` / `clash-yaml` / `sr-subs` / `sr-conf`）；页签切换不重新拉取无关数据（各页签独立挂载，`keep-alive` 或惰性渲染二选一由实现决定，对外行为一致）
-- URL query 驱动页签：`?tab=` 无效值回退首页签；三类装配器页签接受 `platform_id` / `rule_id` / `edit_version_id` 带参进入（见 2.3/4.2）
+- `PageHeader`（标题「订阅装配」）+ `a-tabs` 五页签：**规则素材池 / Clash YAML / SR 节点订阅 / 通用节点订阅 / SR 分流规则**（页签 key：`pool` / `clash-yaml` / `sr-subs` / `generic-subs` / `sr-conf`）；页签切换不重新拉取无关数据（各页签独立挂载，`keep-alive` 或惰性渲染二选一由实现决定，对外行为一致）
+- URL query 驱动页签：`?tab=` 无效值回退首页签；四类装配器页签接受 `platform_id` / `rule_id` / `edit_version_id` 带参进入（见 2.3/4.2）
 - `<768`：页签转横向滚动（AntD 默认行为），页内分区纵向堆叠
 
 ### 5.2 页签一：规则素材池
 
 #### 5.2.1 池列表（双态列表）
 
-列：池名称、挂接 URL 数、条目数、上次同步时间（本地时区）、同步状态 Badge（色系见 1.2，failed 附原因 Tooltip）、定时同步（`a-switch` 行内开关 + 时刻展示「每日 04:00 UTC」）、操作（详情 / 同步 / 编辑 / 删除）。**行内「同步」按钮**（loading 态防重复，见 5.2.3 轮询流）；定时开关行内切换即时保存，时刻编辑在池编辑弹窗内（`a-time-picker`，默认 04:00，副说明「按 UTC 每日执行，停机错过不补跑」）。
+列：池名称、挂接 URL 数、条目数、上次同步时间（本地时区）、同步状态 Badge（色系见 1.2，failed 附原因 Tooltip；**状态取自 pool_sync_tasks 最近任务，服务重启中断任务显示 failed**）、定时同步（`a-switch` 行内开关 + 时刻展示「每日 04:00 UTC」）、操作（详情 / 同步 / 编辑 / 删除）。**行内「同步」按钮**（loading 态防重复，见 5.2.3 轮询流）；定时开关行内切换即时保存，时刻编辑在池编辑弹窗内（`a-time-picker`，默认 04:00，副说明「按 UTC 每日执行，停机错过不补跑」）。
 
 - **新建/编辑池弹窗**（480px）：名称（重名 409 提示）+ URL 动态列表（`a-form-list`，http/https 校验，逐行增删）+ 定时开关与时刻
 - **删除池**：ConfirmModal「池内 N 条条目将级联删除；已装配版本为快照不受影响」
@@ -292,25 +292,25 @@
 
 - **顶部信息条**：池名 + URL 数 + 条目总数 + 上次同步时间 + 状态 Badge + 「同步」「编辑」「返回」按钮
 - **条目列表**（双态列表 + **后端分页，默认 20 条/页**——数万行规模不整表加载，Design2.md §2.4）：规则类型 Tag（代码风格 `a-tag`）、匹配值（`code` 样式）、来源标签（**manual / url 分段展示**：列表默认混合按渲染顺序展示，段间以分隔标题行「手动条目（前段）/ URL 同步条目（后段）」区分，见下）
-- **两段拼接排序口径**（Design2.md §2.2）：条目按渲染顺序 = manual 段（前）+ url 段（后）展示；**条目顺序由系统维护**（manual 段按创建先后、url 段按同步首次出现顺序），**不提供条目级手动调序**（数万行分页场景不可操作；规则顺序需求由池级勾选目标与手动补充规则行承载）
+- **两段拼接排序口径**（Design2.md §2.2）：条目按渲染顺序 = manual 段（前）+ url 段（后）展示；**条目顺序由系统维护**（manual 段按创建先后、url 段按同步首次出现顺序），**不提供条目级手动调序**（数万行分页场景不可操作；池间顺序在装配第④步调整，池内规则顺序需求由池级勾选目标与手动补充规则行承载）
 - **手动条目增删改**：「新增条目」按钮 → 弹窗（规则类型 `a-select` 全类型含 USER-AGENT + 匹配值输入，白名单格式实时校验）；**去重冲突**：后端 409 → `Notify.error`「同类型同匹配值条目已存在（含 URL 来源）」；行内编辑/删除（删除单条无需确认弹窗，非危险）
 
 #### 5.2.3 同步轮询状态 UI（pollTask 契约见 9.2）
 
 1. 点击「同步」→ 提交同步任务 → 按钮转 loading + 池行/详情顶部展示「同步中…」内联 Spinner
-2. 轮询状态端点（1.5s）；**页面切走/组件卸载自动取消轮询**（后端任务继续执行，再次进入重新拉状态即可）
+2. 轮询状态端点（1.5s）；**页面切走/组件卸载自动取消轮询**（后端任务继续执行，再次进入重新拉状态即可）；**任务持久化于 pool_sync_tasks，服务重启时 running 任务置 failed，UI 展示「服务重启，任务中断」**
 3. 终态后展示**逐 URL 结果回执**（`a-alert` 列表，一 URL 一行）：成功（绿 success，含条目变化摘要）/ 失败（红 error，展示失败原因：拉取失败 / 空响应 / 零条目保护「响应无有效规则条目，已保留旧数据」/ 解析跳过行数）/ 部分失败（橙 warning 总提示 + 逐行明细，**部分失败时不执行差量删除**属后端行为，UI 仅展示原因）
 4. **进行中再触发**：同步未完成时再点「同步」→ `message.warning`「同步进行中，请等待完成」（后端同池不并发，Design2.md §2.4）
 5. 轮询超时兜底文案见 10.1
 
-### 5.3 三类装配器共用框架与各自规格
+### 5.3 四类装配器共用框架与各自规格
 
 #### 5.3.0 共用框架
 
 - **双形态切换**（见 1.2）：默认步骤条形态；`a-segmented`「分步 / 单页」切换，localStorage 记忆
-- **步骤条形态**：`a-steps` 六步（Design2.md §4.1 生成流程）：① 类型与目标 → ② 头部表单 → ③ 节点与代理组 → ④ 规则素材 → ⑤ 预览 → ⑥ 确认生成；步间「上一步/下一步」，已填步骤可点击回跳，数据不丢失；**SR 节点订阅跳过④，SR 分流规则跳过③**（步骤条同步隐藏跳过的步骤，实际呈现四步）
+- **步骤条形态**：`a-steps` 六步（Design2.md §4.1 生成流程）：① 类型与目标 → ② 头部表单 → ③ 节点与代理组 → ④ 规则素材 → ⑤ 预览 → ⑥ 确认生成；步间「上一步/下一步」，已填步骤可点击回跳，数据不丢失；**SR 节点订阅与通用节点订阅跳过④，SR 分流规则跳过③**（步骤条同步隐藏跳过的步骤：前者呈现五步，后者呈现五步）
 - **单页形态**：全部步骤转为纵向分区卡片（`a-card` + 锚点侧栏或顺序滚动），底部固定操作条「预览产物」直达预览区；**两形态共享同一份表单状态与校验**
-- **步骤①类型与目标**：装配类型由所在页签确定（只读展示）；目标选择：Clash YAML / SR 节点订阅 → 目标平台 `a-select`（**仅列出 product_type 匹配的 yaml/subs 平台**，无匹配平台时空态提示「请先创建对应格式的平台」+ 直达平台管理链接）；SR 分流规则 → 目标规则实体选择（见 5.3.4）
+- **步骤①类型与目标**：装配类型由所在页签确定（只读展示）；目标选择：Clash YAML / SR 节点订阅 / 通用节点订阅 → 目标平台 `a-select`（**仅列出 product_type 匹配的 yaml / subs / generic-subs 平台**，无匹配平台时空态提示「请先创建对应格式的平台」+ 直达平台管理链接）；SR 分流规则 → 目标规则实体选择（见 5.3.4）
 - **防重复提交**：生成按钮提交期间 loading 禁用；成功后页内显著 `a-result success` 风格回执：「已入池未生效，请激活」+「去版本管理激活」/「继续装配」两按钮（Design2.md §4.4 引导口径）；首次入池自动激活时后端回执带激活标记，UI 改示「首个版本已自动激活」（订阅行/规则实体无激活版本的例外条款，Design2.md §4.4）
 
 #### 5.3.1 Clash YAML 装配器
@@ -320,7 +320,7 @@
 | ② 头部表单 | Clash 顶层键表单（字段范围见 Design2.md §4.2），**默认值以作者个人配置头部预填** + 「一键采用默认值」按钮（覆盖已改字段前 ConfirmModal「将覆盖当前已填头部」）；长表单折叠分区（基础键 / DNS / 其他） |
 | ③ 节点勾选 | 双来源分组列表：manual 区（含协议 Tag）与 xray 区（高级模式且有检测节点时展示；基础模式/无实例时 xray 区空态文案「未检测到 Xray 节点（高级模式录入实例后手动刷新节点发现）」）；**allocatable=0 节点行置灰不可勾 + Tooltip「该协议无 per-user 能力，不可分配」**；missing=1 节点不列入候选 |
 | ③ 代理组配置 | 三区块：强制组（直接连接 / 国外流量 / 无法归属的流量）锁定勾选态（Checkbox 选中禁用 + 锁图标）；预设组库 `a-checkbox-group`（内置参考组，含组类型标注）；自建组列表（引用代理组管理页已建组，勾选 + 「前往代理组管理」链接）；**「国外流量」组成员配置区**：为其勾选节点/子组成员（空组硬校验前置引导；**成员配置随装配快照保存**，重新编辑自快照恢复，见 Design2.md §3.3 强制组落库口径） |
-| ④ 规则素材 | 池级勾选列表（池名 + 条目数 + 每池目标代理组 `a-select`）+ 手动补充规则行（动态行：类型 + 匹配值 + 目标组，格式实时校验）；副说明「USER-AGENT 条目将被跳过（Clash 不支持）」 |
+| ④ 规则素材 | **已勾选池为有序列表**（池名 + 条目数 + 每池目标代理组 `a-select`；桌面端拖拽排序，<768 上移/下移，顺序随装配快照保存并供重新编辑恢复）+ 手动补充规则行（动态行：类型 + 匹配值 + 目标组，格式实时校验）；副说明「多个池按此顺序依次拼接；USER-AGENT 条目将被跳过（Clash 不支持）」 |
 | ⑤ 预览 | 见 5.3.5 |
 | ⑥ 生成 | **空组硬校验**（前端预校验 + 后端兜底）：强制组（尤其「国外流量」）成员为空时拒绝进入生成，`a-alert error` 定位提示「『国外流量』组未包含任何节点，空组将导致 Clash 加载失败」；规则为空允许生成但预览区提示「未勾选任何规则，仅含兜底规则」 |
 
@@ -329,13 +329,20 @@
 - ② 头部表单：STATUS（预填建议格式：日期 + 版本标识，可改）+ REMARKS（预填站点名）+ 「一键采用默认值」
 - ③ 节点勾选：同 5.3.1 双来源分组列表（无代理组步骤）
 - ④ 跳过（subs 不含规则）
-- ⑥ **空产物校验**：未勾选任何节点拒绝生成，提示「请至少勾选 1 个节点」；**不可转协议跳过提示**在预览/生成回执中列出（如 snell/openvpn 等，见 Design2.md §4.5）
+- ⑥ **空产物校验**：未勾选任何节点或**跳过不可转协议后有效链接数为 0** 时拒绝生成（提示「请至少勾选 1 个可转换节点」）；**不可转协议跳过提示**在预览/生成回执中列出（如 snell/openvpn 等，见 Design2.md §4.5）
+
+#### 5.3.2a 通用节点订阅装配器
+
+- ② 头部表单：**无**（generic-subs 不输出 STATUS/REMARKS 头部，Design2.md §4.5）
+- ③ 节点勾选：同 5.3.1 双来源分组列表（无代理组步骤）
+- ④ 跳过（generic-subs 不含规则）
+- ⑥ **空产物校验**：与 5.3.2 同口径（至少 1 个可转换节点）
 
 #### 5.3.3 SR 分流规则装配器
 
 - ② 头部表单：`[General]` 键值表单（bypass-system / skip-proxy / dns-server 等，预填默认值可一键采用）
 - ③ 跳过（conf 不含节点）
-- ④ 规则素材：池级勾选 + **每池 PROXY / DIRECT 双态切换**（`a-radio-group` 行内，默认 PROXY）+ 手动规则行（动态行：类型含 USER-AGENT + 匹配值 + PROXY/DIRECT）
+- ④ 规则素材：**已勾选池为有序列表**（桌面端拖拽排序，<768 上移/下移，顺序随装配快照保存并供重新编辑恢复）+ **每池 PROXY / DIRECT 双态切换**（`a-radio-group` 行内，默认 PROXY）+ 手动规则行（动态行：类型含 USER-AGENT + 匹配值 + PROXY/DIRECT）
 - **兜底 FINAL 方向**：表单区 `a-radio-group` 二选一（FINAL,PROXY 默认 / FINAL,DIRECT），副说明「GEOIP,CN,DIRECT 固定追加」（Design2.md §3.6）
 - ⑥ 生成前选目标规则实体（见下）；规则为空允许生成（仅兜底）并提示
 
@@ -344,11 +351,11 @@
 - `a-select` 列出全部规则实体（含无版本空实体，后缀「（空实体）」标注）+ 行内「新建空规则实体」快捷入口（弹窗仅名称 + 客户端类型固定 Shadowrocket，放宽首版校验，Design2.md §3.4）
 - 选中空实体时提示「该规则无激活版本，首个装配版本将自动激活」（Design2.md §4.4 首次自动激活）
 
-#### 5.3.5 预览步（⑤，三类共用）
+#### 5.3.5 预览步（⑤，四类共用）
 
-- **全文纯文本预览**（等宽字体只读容器，`a-typography-paragraph code` 风格，禁 HTML，Design2.md §3.5）；SR subs 预览直接显示明文原文（base64 为下发编码，非存储形态）
+- **全文纯文本预览**（等宽字体只读容器，`a-typography-paragraph code` 风格，禁 HTML，Design2.md §3.5）；SR subs / generic-subs 预览直接显示明文原文（base64 为下发编码，非存储形态）
 - **diff 对比**：目标实体存在激活版本时提供「与当前激活版本对比」开关 → 切换为 `DiffView` 三色行级高亮（见 1.2）；无激活版本时开关隐藏并注「无激活版本可对比」
-- **跳过项提示清单**：预览区顶部 `a-alert warning`（有跳过项才渲染）：Clash 装配的 USER-AGENT 条目清单 / SR subs 的不可转协议节点清单（逐项列出名称与原因）
+- **跳过项提示清单**：预览区顶部 `a-alert warning`（有跳过项才渲染）：Clash 装配的 USER-AGENT 条目清单 / SR subs 与 generic-subs 的不可转协议节点清单（逐项列出名称与原因）
 - **占位标记说明**：勾选了 xray 节点的装配产物预览中可见 `# {{xray_nodes}}` 注释行，旁注 Tooltip「下载时按用户分配节点动态注入」
 
 ### 5.4 重新编辑流（从版本入口载入快照）
@@ -360,7 +367,7 @@
 
 ### 5.5 装配页自检结论（编写后）
 
-- 功能匹配：素材池（Design2 第二章）/ 三装配器六步（§4.1）/ 头部表单（§4.2）/ 节点双来源（§3.2）/ 强制组与预设库（§3.3）/ 双装配器（§3.4）/ 规则拼接与 USER-AGENT（§3.5）/ 兜底 FINAL（§3.6）/ diff jsdiff（§4.1）/ 入池引导与重新编辑（§4.4）均有着落
+- 功能匹配：素材池（Design2 第二章）/ 四装配器六步（§4.1，SR subs 与 generic-subs 跳过④、SR conf 跳过③）/ 头部表单（§4.2）/ 节点双来源（§3.2）/ 强制组与预设库（§3.3）/ SR 双装配器与通用装配器（§3.4）/ 规则拼接与 USER-AGENT（§3.5）/ 兜底 FINAL（§3.6）/ diff jsdiff（§4.1）/ 入池引导与重新编辑（§4.4）均有着落
 - 动线：新建池 → 同步轮询回执 → 手动条目 → Clash 装配六步 → 预览 diff → 生成回执 → 去激活；重新编辑 → 悬空剔除 → 生成新版本
 - 八项：空态（无池/无条目/无匹配平台/无候选节点）；加载（列表 TriStateList、同步 Spinner、快照载入 Spin）；错误（同步失败回执、409 重名、生成校验）；<768（页签滚动、条目卡片态）；暗色随主题；权限（整页仅管理员路由）；防重复（同步/生成按钮 loading、进行中再触发提示）；危险确认（删池 ConfirmModal、头部覆盖确认）
 
@@ -374,25 +381,25 @@
 
 - **行内 enabled 开关**：切换即保存（后端触发受影响用户 AddUser/RemoveUser diff，属后端行为）；切换中开关 loading 防重复；失败回滚 + `Notify.error`
 - **is_public 开关**（仅 source=xray 且 allocatable=1 / missing=0 的行渲染，其余不展示该控件）：切换前 ConfirmModal「公共节点变更将对全部活跃用户同步增删 Xray 账号」
-- **删除节点**：ConfirmModal 影响说明（xray 节点：组分配与推送记录级联清理；manual 节点：仅影响装配引用，重新编辑时按悬空容错处理）；危险样式
+- **删除节点**：**xray 来源节点仅 missing=1 的行可删除**；非 missing 行删除按钮禁用 + Tooltip「该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测」；ConfirmModal 影响说明（xray 节点：组分配与推送记录级联清理；manual 节点：仅影响装配引用，重新编辑时按悬空容错处理）；危险样式
 - 空态：「还没有节点」+ 引导文案「手动添加节点，或在高级模式录入 Xray 实例后自动检测」（见 10.2）
 - 筛选工具栏（可选）：来源筛选 `a-segmented`（全部 / manual / xray）——节点量增长后的易用性补充，不强制
 
 ### 6.2 manual 节点新增/编辑弹窗（720px）
 
-- **协议选择**：`a-select` 协议注册表清单（ClashOfficial 全量代理协议，**ssr 除外**，Design2.md §4.5）；选择后表单字段按协议注册表 schema **动态渲染**（基础字段：名称 / host / port；协议特有字段按注册表展开）
+- **协议选择**：`a-select` 协议注册表清单（由 `GET /api/admin/nodes/protocols` 下发：ClashOfficial 全量代理协议，**ssr 除外**，Design2.md §4.5）；选择后表单字段按协议注册表 schema **动态渲染**（基础字段：名称 / host / port；协议特有字段按注册表展开，敏感字段按注册表标记渲染为 `a-input-password`）
 - **凭据字段**（uuid / password / private-key 等注册表敏感清单）：统一 `a-input-password` 脱敏输入；**编辑回显时凭据字段留空，placeholder 提示「留空 = 保留原凭据」**（Design2.md §3.2 编辑回显口径）
-- **重名冲突**：后端 409 → `Notify.error`「节点名称已存在」（nodes.name 全局唯一）
+- **名称规则**：**创建后不可修改**（编辑弹窗名称只读；后端拒绝改名）；创建时实时校验——禁止控制字符、逗号与首尾空白，允许中文/emoji；重名冲突后端 409 → `Notify.error`「节点名称已存在」（nodes.name 全局唯一）
 - 表单校验：host/port 格式实时校验；提交失败字段级回显
 
 ### 6.3 xray 节点展示（只读为主）
 
-- xray 节点不支持整体编辑（字段由实例检测维护）：操作列无「编辑」按钮，仅行内 enabled / is_public 两开关（约束见 6.1）+ 删除；行内 Tooltip 说明「节点信息由 Xray 实例检测维护，请在实例页刷新节点」
-- missing=1 节点提供「删除」作为处置手段之一（重检测恢复为另一途径，在实例页，见 8.2）
+- xray 节点不支持整体编辑（字段由实例检测维护）：操作列无「编辑」按钮，仅行内 enabled / is_public 两开关（约束见 6.1）+ 删除；**删除按钮仅 missing=1 行可点**（非 missing 行置灰 + Tooltip「该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测」）；行内 Tooltip 说明「节点信息由 Xray 实例检测维护，请在实例页刷新节点」
+- missing=1 节点提供「删除」作为处置手段之一（重检测恢复为另一途径，在实例页，见 8.2）；**非 missing 的 xray 节点禁止删除，避免删除后又被检测重建**
 
 ### 6.4 自检结论（编写后）
 
-- 功能匹配：双来源展示与约束（Design2.md §3.2）、命名与重名 409（§3.2）、allocatable/missing 标注与处置（§3.2/5.9）、enabled/is_public 切换同步语义（§5.5 触发器表）、凭据加密回显口径（§3.2/5.9）均有着落
+- 功能匹配：双来源展示与约束（Design2.md §3.2）、**名称创建后只读与字符集校验、协议注册表端点**、命名与重名 409（§3.2）、allocatable/missing 标注与处置（§3.2/5.9）、**xray 节点仅 missing 可删**、enabled/is_public 切换同步语义（§5.5 触发器表）、凭据加密回显口径（§3.2/5.9）均有着落
 - 八项：空态/加载（TriStateList）/错误（开关失败回滚、409）/<768 卡片态/暗色/权限（管理员路由；manual 能力基础模式可用）/防重复（开关 loading）/危险确认（is_public 切换、删除 ConfirmModal）
 
 ---
@@ -401,9 +408,9 @@
 
 ### 7.1 列表（双态列表）
 
-列：组名称、类型 Tag（`a-tag`：preset 蓝「预设」/ custom 绿「自建」）、组类型（select / url-test / fallback 代码风格 Tag）、成员摘要（N 个节点 · M 个子组）、启用勾选（仅预设组，见下）、操作（编辑 / 删除——预设组不可删不可改名）。
+列：组名称、类型 Tag（`a-tag`：preset 蓝「预设」/ custom 绿「自建」）、组类型（select / url-test / fallback 代码风格 Tag）、成员摘要（N 个节点 · M 个子组）、启用勾选（仅预设组，见下）、操作（编辑 / 删除——预设组不可删；**全部组名创建后不可改**，自建组编辑弹窗名称只读）。
 
-- **预设组启用勾选**：预设库组以行首 Checkbox 启用/停用（启用后才在装配器预设组库中可勾选）；切换即时保存（持久化于 proxy_groups.enabled，预设组默认启用，见 Design2.md §5.9）
+- **预设组启用勾选**：预设库组以行首 Checkbox 启用/停用（启用后才在装配器预设组库中可勾选）；切换即时保存（持久化于 proxy_groups.enabled，预设组默认启用，见 Design2.md §5.9）；**种子成员默认为「直接连接」**（成员摘要至少 1 项），管理员可编辑成员
 - **自建组删除**：ConfirmModal「已被装配快照引用的记录不受影响（历史快照悬空容错）」
 - 空态：预设组种子随迁移内置，列表至少含预设组；自建组为空的理论态不单独处理（见 10.2）
 
@@ -411,7 +418,7 @@
 
 自上而下四区：
 
-1. **基本信息**：名称（重名 409 提示）+ 组类型 `a-radio-group`（select 默认 / url-test / fallback，附各类型一句话说明）
+1. **基本信息**：名称（**创建后不可修改**：新建可输入、编辑只读，后端拒绝改名；重名 409 提示；禁止控制字符、逗号与首尾空白，允许中文/emoji）+ 组类型 `a-radio-group`（select 默认 / url-test / fallback，附各类型一句话说明）
 2. **节点引用**（有序列表）：从全部节点中选入（manual + 可用 xray 节点，搜索过滤）；已选节点有序列表支持**拖拽排序**（<768 上移/下移降级）；列表副说明「select 类组的第一个节点即默认选中节点」（Design2.md §3.3）
 3. **子组引用**：多选已存在的其他代理组（含强制组「直接连接」「国外流量」作为可切换项）；同样有序列表
 4. **校验与保存**：
@@ -421,7 +428,7 @@
 
 ### 7.3 自检结论（编写后）
 
-- 功能匹配：强制组/预设库/自建组三类（Design2.md §3.3）、组类型三枚举、有序节点引用与 select 首项语义、DAG 校验、组内容约束均有着落；强制组不在本页管理（系统内置渲染结构、不入 proxy_groups 表，仅装配器锁定展示，见 Design2.md §3.3 强制组落库口径）
+- 功能匹配：强制组/预设库/自建组三类（Design2.md §3.3）、组类型三枚举、有序节点引用与 select 首项语义、DAG 校验、组内容约束、**名称创建后只读与字符集校验**均有着落；预设组种子默认成员「直接连接」；强制组不在本页管理（系统内置渲染结构、不入 proxy_groups 表，仅装配器锁定展示，见 Design2.md §3.3 强制组落库口径）
 - 八项：空态/加载/错误（环形校验、约束校验、409）/<768 卡片态/暗色/权限（管理员）/防重复（保存 loading）/危险确认（删组 ConfirmModal）
 
 ---
@@ -454,9 +461,9 @@
 ### 8.4 账号对账区（实例级）
 
 - 实例行「对账」按钮 → 展开对账面板（`a-drawer` 或页内分区，按实例维度）：调对账端点获取期望集比对结果
-- **比对结果表**（双态列表）：**三分区** —— ①「待补推」（期望集有 / 实例无，含面板用户与独立账号两类，来源 Tag 区分 user / ext）：用户名或账号名 + 节点 + 「补推」行操作；②「无头用户」（实例有 / 期望集无，**`user-` 前缀**）：Xray email + 所在 inbound + 清理勾选；③「**疑似独立账号残留**」（**`ext-` 前缀或无法匹配前缀者**，黄色警示分区 + 说明文案「此类账号可能为手动维护的独立账号或配置导入/重装后的残留，请确认后再清理」，**清理勾选默认不勾选**，Design2.md §5.11 对账防护）：Xray email + 所在 inbound + 清理勾选
-- **一键补推**（对待补推全集，loading 防重复；**超限面板用户与超限独立账号均跳过并提示**，同 Design2.md §5.5 超限前置拦截口径）与 **一键清理**（对 ②③ 分区勾选项，**ConfirmModal 危险确认**「将从 Xray 删除 N 个无主账号，不可恢复」）；执行结果计数回执；单条补推行内可操作
-- 空态：三分区均空时 `a-result success` 风格提示「账号已一致，无需处理」
+- **比对结果表**（双态列表）：**四分区** —— ①「待补推」（期望集有 / 实例无，含面板用户与独立账号两类，来源 Tag 区分 user / ext）：用户名或账号名 + 节点 + 「补推」行操作；②「无头用户」（实例有 / 期望集无，**`user-` 前缀**）：Xray email + 所在 inbound + 清理勾选；③「**疑似独立账号残留**」（**`ext-` 前缀或无法匹配前缀者**，黄色警示分区 + 说明文案「此类账号可能为手动维护的独立账号或配置导入/重装后的残留，请确认后再清理」，**清理勾选默认不勾选**，Design2.md §5.11 对账防护）：Xray email + 所在 inbound + 清理勾选；④「**凭据不一致**」（期望集命中 email，但实例侧 Account 与面板 UUID/代理密码不一致）：面板账号/独立账号 + 节点 + 「移除并重推」行操作（后端以 GetInboundUsers 返回的 Account 比对，Design2.md §5.5/§5.10）
+- **一键补推**（对待补推全集，loading 防重复；**超限面板用户与超限独立账号均跳过并提示**，同 Design2.md §5.5 超限前置拦截口径）、**一键清理**（对 ②③ 分区勾选项，**ConfirmModal 危险确认**「将从 Xray 删除 N 个无主账号，不可恢复」）与**凭据不一致「移除并重推」**（对 ④ 分区勾选项，先 RemoveUser 再 AddUser，执行结果计数回执）；单条补推/修复行内可操作
+- 空态：四分区均空时 `a-result success` 风格提示「账号已一致，无需处理」
 
 ### 8.5 独立账号 Tab（Design2.md §5.11）
 
@@ -495,13 +502,14 @@
 | listEntries | GET /api/admin/pools/:id/entries?page=&page_size= | 分页参数 | `{ list: Entry[], total }`（rule_type/match_value/source/sort_order） | 条目分页（5.2.2） |
 | createEntry / updateEntry / deleteEntry | POST/PUT/DELETE | 类型 + 匹配值 | 统一结构；重名 409 | 手动条目 |
 | submitSync | POST /api/admin/pools/:id/sync | — | `{ task_id }` | 提交同步任务 |
-| getSyncStatus | GET /api/admin/pools/:id/sync/status | — | `{ status: running/succeeded/failed/partial, per_url: [{url, ok, added, removed, error}] }` | 轮询终态（9.2） |
+| getSyncStatus | GET /api/admin/pools/:id/sync/status | — | `{ task_id, status: running/succeeded/failed/partial, per_url: [{url, ok, added, removed, error}], started_at, finished_at, error }` | 轮询最近任务终态（9.2；任务持久化，重启中断置 failed） |
 
 #### `api/node.ts` / `api/proxyGroup.ts`（新增）
 
 | 函数 | 方法/路径 | 备注 |
 |------|-----------|------|
-| listNodes / createNode / updateNode / deleteNode | GET/POST/PUT/DELETE /api/admin/nodes(/:id) | 列表含 source/protocol/host/port/is_public/enabled/allocatable/missing；manual 创建/编辑（xray 行仅 enabled/is_public 两字段的 PATCH 式更新） |
+| listNodes / createNode / updateNode / deleteNode | GET/POST/PUT/DELETE /api/admin/nodes(/:id) | 列表含 source/protocol/host/port/is_public/enabled/allocatable/missing；manual 创建/编辑（**名称创建后只读**；xray 行仅 enabled/is_public 两字段的 PATCH 式更新） |
+| getProtocols | GET /api/admin/nodes/protocols | `{ list: [{ protocol, form_schema, link_mappings, sensitive_fields }] }` | 协议注册表：manual 节点表单动态渲染与敏感字段脱敏输入（6.2） |
 | toggleNode | PUT /api/admin/nodes/:id/toggle | enabled / is_public 行内开关（400：非法切换如 allocatable=0 置 public） |
 | listProxyGroups / createProxyGroup / updateProxyGroup / deleteProxyGroup | GET/POST/PUT/DELETE /api/admin/proxy-groups(/:id) | definition 含组类型 + 有序节点/子组引用名；环形引用/内容约束后端 400 兜底 |
 | togglePresetGroup | PUT /api/admin/proxy-groups/:id/preset-toggle | 预设组启用勾选 |
@@ -514,11 +522,11 @@
 | testConnection | POST /api/admin/xray/instances/test | `{ ok, error? }`（不落库） |
 | detectNodes | POST /api/admin/xray/instances/:id/detect | `{ added, updated, missing, skipped: [{tag, reason}] }`（8.2 回执） |
 | runInit | POST /api/admin/xray/init | `{ synced, failed }`（8.3 计数回执） |
-| reconcile | GET /api/admin/xray/instances/:id/reconcile | `{ to_push: [...], orphans: [...], ext_orphans: [...] }`（8.4 比对结果；ext_orphans = 疑似独立账号残留，默认不勾选） |
-| pushRepair / cleanOrphans | POST …/reconcile/push、…/reconcile/clean | 计数回执 |
+| reconcile | GET /api/admin/xray/instances/:id/reconcile | `{ to_push: [...], orphans: [...], ext_orphans: [...], credential_mismatches: [...] }`（8.4 四分区比对结果；ext_orphans = 疑似独立账号残留，默认不勾选） |
+| pushRepair / cleanOrphans / repairCredentials | POST …/reconcile/push、…/reconcile/clean、…/reconcile/credentials | 计数回执；repairCredentials = 对「凭据不一致」勾选项先 RemoveUser 再 AddUser（8.4 ④ 分区） |
 | retryUserSync | POST /api/admin/xray/users/:id/retry | 4.5 行内重试 |
 | resetQuota | POST /api/admin/xray/users/:id/reset-quota | 4.5 重置配额（沿用 Design2.md §5.8 端点） |
-| listExtAccounts / createExtAccount / updateExtAccount / deleteExtAccount | GET/POST/PUT/DELETE /api/admin/xray/ext(/:id) | 账号行含 name/email/quota/quota_exceeded/本月用量/推送摘要；创建请求含 credential_mode（generate/manual）+ 凭据（手填时）+ 推送目标列表（8.5） |
+| listExtAccounts / createExtAccount / updateExtAccount / deleteExtAccount | GET/POST/PUT/DELETE /api/admin/xray/ext(/:id) | 账号行含 name/email/quota/quota_exceeded/本月用量/推送摘要/push_targets；创建请求含 credential_mode（generate/manual）+ 凭据（手填时）+ 推送目标列表（8.5）；配置导入导出中 push_targets 随账号导出、导入后按 instance+tag 重绑 node_id（Design2.md §5.4） |
 | getExtCredentials | GET /api/admin/xray/ext/:id/credentials | `{ uuid, proxy_secret }` 解密返回供复制（敏感端点，前端复制警示文案见 8.5） |
 | resetExtQuota | POST /api/admin/xray/ext/:id/reset-quota | 同 resetQuota 口径（Design2.md §5.11） |
 
@@ -526,10 +534,10 @@
 
 | 函数 | 方法/路径 | 备注 |
 |------|-----------|------|
-| getAssemblyContext | GET /api/admin/assembly/context | 一次性拉取装配器候选数据：节点列表 / 代理组 / 素材池摘要 / 平台 / 规则实体（减少多端点并发） |
+| getAssemblyContext | GET /api/admin/assembly/context | 一次性拉取装配器候选数据：节点列表 / 代理组 / 素材池摘要 / 平台（含 product_type 过滤）/ 规则实体（减少多端点并发） |
 | getBlueprint | GET /api/admin/versions/:id/blueprint | 重新编辑载入快照（含失效引用标记，见 5.4） |
-| generate | POST /api/admin/assembly/generate | 请求：target_syntax + 目标实体 + 头部 + 勾选 + 手动规则；响应：`{ version_id, auto_activated }` + preview 端点 |
-| preview | POST /api/admin/assembly/preview | 同请求体，返回纯文本产物与跳过项清单（不落库，预览步使用） |
+| generate | POST /api/admin/assembly/generate | 请求：target_syntax（clash-yaml / sr-subs / generic-subs / sr-conf）+ 目标实体 + 头部 + 勾选（**规则素材池为有序数组**）+ 手动规则；响应：`{ version_id, auto_activated }` + preview 端点 |
+| preview | POST /api/admin/assembly/preview | 同请求体，返回纯文本产物与跳过项清单（不落库，预览步使用）；SR subs / generic-subs 返回明文原文 |
 
 ### 9.2 `api/request.ts` 增量：pollTask 轮询封装与 timeout 覆盖
 
@@ -548,8 +556,8 @@
 | 文件 | 增量 |
 |------|------|
 | `api/system.ts` | `/api/system/status` 响应新增 `advanced_mode` 布尔字段；`useSystemStore` 据此驱动侧边栏与路由守卫（见 2.1/2.4） |
-| `api/home.ts` | 首页端点新增：流量字段（used_bytes / quota_bytes，可空）、首页默认规则卡片字段（规则名 / 版本信息 / 规则 Token 链接 / 未设置标记）、**管理员平台卡片预览形态字段**（模板信息 + 激活版本摘要，替代原池内订阅平铺与一键导入/复制字段） |
-| `api/subscription.ts` | 订阅行增 product_type / 内容形态字段；创建/编辑请求移除组关联字段；按平台预览端点（会话凭据，无 subscription_id 参数，Design2.md 第一章） |
+| `api/home.ts` | 首页端点新增：流量字段（used_bytes / quota_bytes，可空）、首页默认规则卡片字段（规则名 / 版本信息 / 规则 Token 链接 / 未设置标记；**仅首页展示，个人中心不展示**）、**管理员平台卡片预览形态字段**（模板信息 + 激活版本摘要，替代原池内订阅平铺与一键导入/复制字段） |
+| `api/subscription.ts` | 订阅行增 product_type（yaml / subs / generic-subs）/ 内容形态字段；创建/编辑请求移除组关联字段；按平台预览端点（会话凭据，无 subscription_id 参数，Design2.md 第一章） |
 | `api/group.ts` | group_selections 相关字段/函数全部移除；新增节点分配（含排序）与 default_quota 字段（高级端点，基础模式 403 兜底） |
 | `api/rule.ts` | 增 is_home_default 字段与设置默认端点；创建请求首版本改为可选 |
 | `api/settings.ts` | 增 advanced_mode 开关、采集间隔、流量卡片开关三键读写；导入导出沿用现有端点（format_version=2 为后端事项） |
@@ -579,7 +587,7 @@
 | 超限提示统一文案 | 用户端：「本月流量已超限，代理账号已暂停，请联系管理员重置」；管理端行标签：「已超限」；两处同源可维护 |
 | 同步状态 Badge | 四色口径见 1.2；失败态必附原因 Tooltip（不静默） |
 | 轮询兜底文案 | pollTask 超时：「任务仍在后台执行，请稍后刷新查看结果」；轮询网络中断：「状态查询失败，点击重试」 |
-| 移动端拖拽降级 | 全部拖拽排序场景 <768 统一降级为「上移 / 下移」按钮（组节点分配 / 代理组节点引用 / 平台 scheme），不引入触屏拖拽库 |
+| 移动端拖拽降级 | 全部拖拽排序场景 <768 统一降级为「上移 / 下移」按钮（组节点分配 / 代理组节点引用 / 装配第④步素材池顺序 / 平台 scheme），不引入触屏拖拽库 |
 | 暗色模式 | 新增页面全部随 ConfigProvider 主题算法，无逐组件手工适配；无固定深色底例外区（实时日志区不在本期范围） |
 | 时间展示 | 沿用 Design1-UI §六：后端 UTC → 前端本地时区；定时同步时刻标注 UTC（避免跨时区误解） |
 | 防重复提交 | 沿用 Design1-UI §7.4：异步提交按钮 loading 禁用；轮询中同步按钮、行内开关切换、重试/补推/清理等长操作一律 loading 防重复 |
@@ -600,7 +608,7 @@
 | 对账结果 | 账号已一致，无需处理 | — |
 | 装配：无匹配目标平台 | 请先创建对应格式的平台 | 直达平台管理链接 |
 | 装配：xray 节点区 | 未检测到 Xray 节点 | 高级模式录入实例后手动刷新节点发现 |
-| 组编辑：候选集并集为空 | 请先装配并激活 Clash YAML 或 SR 节点订阅模板 | 「前往装配」按钮 |
+| 组编辑：候选集并集为空 | 请先装配并激活 Clash YAML / SR 节点订阅 / 通用节点订阅模板 | 「前往装配」按钮 |
 | 首页：分流规则卡 | 管理员暂未设置分流规则 | 卡片入口跳 /rules 保留 |
 | 首页：平台卡（管理员预览） | 未激活 | 预览按钮禁用 + Tooltip |
 
@@ -617,3 +625,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v1.0 | 2026-08-17 | 初始版本：承载 Design2.md 全部受影响界面的 GUI 规格（十章主体 + 未受影响页面核验结论）；全量重写式自包含文档，Design1-UI.md 冻结不回写 |
 | v1.1 | 2026-08-18 | 新增独立 Xray 账号功能规格（Design2.md §5.11）：第八章双页签骨架与 8.5 独立账号 Tab（列表/双轨创建弹窗/凭据复制/配额重置/删除）、8.4 对账区改三分区（ext 残留分区默认不勾选，防误清理）、4.7 OFF 清空清单加项、9.1 增 ext 端点与 reconcile 响应扩展、9.4 冲突映射增独立账号名、10.1/10.2 危险确认与空态补充 |
 | v1.2 | 2026-08-18 | 构建前深度审阅修订：强制组落库口径（内置渲染结构、国外流量成员随快照，5.3.1/7.3）与预设组启用状态持久化（proxy_groups.enabled，7.1）；移除素材池条目手动调序（1.2/5.2.2/5.5/9.1/10.1 联动，顺序改系统维护）；xray 节点区空态文案改「手动刷新节点发现」（5.3.1/10.2）；PageHeader/CopyField 改「本期新建」口径（1.3）；懒加载分组补「无 vite 配置动作」注记（2.3）；删除订阅影响清单改「按本规格新写」（4.1）；对账补推超限提示补面板用户（8.4） |
+| v1.3 | 2026-08-18 | 构建前决策落盘：新增 generic-subs 产物类型与「通用节点订阅」页签（A1/A2）、首页仅展示分流规则卡片（A5）、素材池整体排序（B7）、全新部署纯增量 1009 DDL、候选集并集重算、名称不可修改与字符集校验、节点 missing 恢复补推、对账凭据不一致分区、协议注册表端点、pool_sync_tasks 持久化、xray 节点仅 missing 可删等（详见本轮审阅修订） |

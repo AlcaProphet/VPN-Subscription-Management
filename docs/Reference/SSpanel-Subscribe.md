@@ -102,7 +102,7 @@
 | is_banned 横切四层（Middleware/User.php:35 等） | 基础模式禁用即停推送（5.5 RemoveUser） | Design2 推模型需主动同步，语义等价 |
 | /mod_mu 拉模型 + NodeToken（muKey+Host+IP 白名单） | gRPC 推模型 + IP 白名单（5.3 路径 A） | 架构相反但鉴权思路一致；gRPC 无鉴权需部署者白名单（已定稿） |
 | Subscription-Userinfo 头四字段（SubController.php:66-73） | 决策 #23 用量响应头 | **完全对齐**：total=总配额、expire=Unix 秒；Design2 用远未来时间戳表无到期（SSPanel 用真实过期时间，本期无到期概念故合理） |
-| Profile-Update-Interval / Profile-Web-Page-Url（仅 clash） | 未设计 | 【推断】可作为 Build 阶段低成本增强项（平台附加头机制已存在，Design1 4.3） |
+| Profile-Update-Interval / Profile-Web-Page-Url（仅 clash） | 已纳入 Design2 §5.4/§5.7（基础模式沿用平台附加头，高级模式系统注入并覆盖平台同键） | 平台附加头机制已存在（Design1 4.3），Design2 已落文 |
 | Clash 骨架+按索引插入节点名（Clash.php:177-189） | 装配器生成完整 YAML（第四章） | Design2 的装配快照+重新编辑强于 SSPanel 静态骨架 |
 | 下发侧配额过滤（WebAPI/UserController.php:92-99） | 决策 #3/#17：超限仅移除 Xray 账号、下载内容不变 | 语义一致（订阅内容不受超限影响） |
 | 无缓存头（全仓无 Cache-Control） | no-store 禁缓存（AGENTS §4.5） | Design2 更严谨 |
@@ -121,3 +121,4 @@
 | 日期 | 说明 |
 |------|------|
 | 2026-08-15 | 新建：SSPanel-UIM v25.1.0 订阅链路深度取证（两轮：渲染层 + 管理链路全景），含功能映射总表与 Design2 对照评估；核验版本 VERSION=25.1.0（HEAD d55a607） |
+| 2026-08-18 | 同步 Design2 修订：Profile-Update-Interval / Profile-Web-Page-Url 已纳入 Design2 §5.4/§5.7，本表旧「未设计」口径订正 |
