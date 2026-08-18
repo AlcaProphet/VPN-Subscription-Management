@@ -13,15 +13,16 @@
 - [frontend/src/api/user.ts](file://frontend/src/api/user.ts)
 - [frontend/src/api/group.ts](file://frontend/src/api/group.ts)
 - [frontend/src/views/admin/UsersView.vue](file://frontend/src/views/admin/UsersView.vue)
-- [frontend/src/views/admin/RulesView.vue](file://frontend/src/views/admin/RulesView.vue)
-- [frontend/src/views/admin/SharesView.vue](file://frontend/src/views/admin/SharesView.vue)
+- [Design2.md](file://Design2.md)
+- [Design2-UI.md](file://Design2-UI.md)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 更新了用户管理界面响应式设计部分，添加了Space组件wrap属性的使用说明
-- 新增了前端界面优化章节，详细说明按钮溢出问题的解决方案
-- 更新了移动端适配相关的技术实现说明
+- 新增月度使用字节计数器功能，支持流量配额管理和超限控制
+- 增强Xray同步状态聚合字段，提供完整的用户同步状态监控
+- 添加配额覆盖值(quota_override)和quota_exceeded标记字段，实现精细化配额管理
+- 扩展用户管理API以支持高级模式的流量统计和配额控制功能
 
 ## 目录
 1. [简介](#简介)
@@ -38,7 +39,7 @@
 ## 简介
 本文件面向"用户管理"相关API，覆盖用户CRUD、用户组管理、权限分配、状态管理（启用/禁用）、密码重置、邮箱变更、批量操作等能力。文档同时说明管理员专用接口与普通用户接口的差异，并提供完整的工作流示例与权限验证机制说明。
 
-**最新更新**：用户管理界面的按钮溢出问题已修复，通过Space组件的wrap属性确保在窄屏幕上的操作按钮能够自动换行，避免水平滚动或布局破坏。
+**最新更新**：用户管理API新增了月度使用字节计数器、Xray同步状态聚合字段、配额覆盖值和quota_exceeded标记字段，增强了用户监控和管理能力。现在支持流量配额管理、超限检测和自动拦截等功能。
 
 ## 项目结构
 后端采用分层设计：
@@ -80,7 +81,7 @@ AuthMW --> AuthSvc["认证服务(会话/角色)"]
 - [backend/internal/user/user.go:25-36](file://backend/internal/user/user.go#L25-L36)
 - [backend/internal/user/admin.go:32-45](file://backend/internal/user/admin.go#L32-L45)
 - [backend/internal/group/group.go:24-32](file://backend/internal/group/group.go#L24-L32)
-- [backend/internal/auth/auth.go:87-96](file://backend/internal/auth/auth.go#L87-L96)
+- [backend/internal/auth/auth.go:87-96](file://backend/internal/auth/auth.go#L87-96)
 - [backend/internal/server/user.go:14-32](file://backend/internal/server/user.go#L14-L32)
 - [backend/internal/server/group.go:13-27](file://backend/internal/server/group.go#L13-L27)
 
@@ -219,6 +220,69 @@ AMW-->>C : 通过/拒绝
 - [backend/migrations/0002_users.sql:1-17](file://backend/migrations/0002_users.sql#L1-L17)
 - [backend/migrations/1003_groups.sql:1-16](file://backend/migrations/1003_groups.sql#L1-L16)
 
+### 流量配额管理机制（新增）
+**更新**：系统新增了完整的流量配额管理功能，包括月度使用字节计数器、配额覆盖值和超限检测机制。
+
+#### 流量采集与统计
+- **自然月统计**：`traffic_records`表按`ym`（YYYY-MM）聚合，跟随真实日历滚动，无需定时重置表
+- **采集方式**：通过Xray `QueryStats`逐用户串行采集上下行流量，使用原子增量UPSERT累加
+- **单位口径**：uplink/downlink存储字节整数，UI展示时换算GB，ym月界按UTC计算
+
+#### 配额控制机制
+- **配额优先级**：`users.quota_override` > `groups.default_quota`，NULL或0视为不限流量
+- **超限检测**：同采集任务中比较SUM(本月累计) vs 用户配额，超限则触发RemoveUser并设置`quota_exceeded=1`
+- **前置拦截**：所有AddUser类钩子执行前检查`quota_exceeded`，超限用户不推送并提示先重置配额
+
+#### 管理员配额管理
+- **手动重置**：POST `/api/admin/xray/users/:id/reset-quota`清当月累计+重新AddUser+状态复位
+- **超限标记**：`users.quota_exceeded`布尔字段，超限置1，管理员重置配额时复位
+- **面板显示**：超限用户行高亮警示，用户名后红色标签「已超限」+操作引导「重置配额」
+
+```mermaid
+sequenceDiagram
+participant Cron as "定时任务"
+participant Xray as "Xray服务器"
+participant DB as "数据库"
+participant UI as "管理面板"
+Cron->>Xray : QueryStats("user>>email>>traffic", reset=true)
+Xray-->>Cron : 返回上下行流量差值
+Cron->>DB : UPSERT traffic_records(user_id, ym, uplink, downlink)
+Cron->>DB : SUM(本月累计) vs 用户配额
+alt 超限
+Cron->>Xray : RemoveUser(email)
+Cron->>DB : users.quota_exceeded=1
+Cron->>UI : 显示超限警告
+else 未超限
+DB-->>Cron : 继续监控
+end
+```
+
+**图表来源**
+- [Design2.md:318-337](file://Design2.md#L318-L337)
+- [Design2.md:329-333](file://Design2.md#L329-L333)
+
+**章节来源**
+- [Design2.md:318-337](file://Design2.md#L318-L337)
+- [Design2.md:329-333](file://Design2.md#L329-L333)
+- [Design2-UI.md:232](file://Design2-UI.md#L232)
+
+### Xray同步状态聚合（新增）
+**更新**：系统增强了Xray同步状态的聚合显示功能，提供更完整的用户同步状态监控。
+
+#### 同步状态管理
+- **状态字段**：`xray_users.sync_status = pending/synced/failed`，失败记`last_error`
+- **生命周期**：AddUser前先写入/恢复`pending`记录，成功后置`synced`，失败置`failed`
+- **级联清理**：RemoveUser成功后删除对应记录，失败保留记录并置`failed`（可重试）
+
+#### 聚合显示功能
+- **前端展示**：用户列表行新增Xray同步状态聚合字段，含last_error摘要
+- **状态监控**：管理面板可见同步状态，支持手动重试失败的操作
+- **实例状态**：对每个Xray实例记录最近成功/失败状态与原因，连续失败展示告警标记
+
+**章节来源**
+- [Design2.md:264-269](file://Design2.md#L264-L269)
+- [Design2.md:330-332](file://Design2.md#L330-L332)
+
 ## 依赖关系分析
 - 接入层依赖业务层：UserAdminHandler依赖AdminService；GroupHandler依赖group.Service。
 - 业务层依赖数据层：通过store.Store访问数据库；使用事务保证一致性。
@@ -254,6 +318,7 @@ ServerGroup --> AuthMW
 - 批量填充自定义订阅时使用IN查询避免N+1问题。
 - 用户组更新在单事务内完成改名、关联重建与选定重建，减少往返与锁竞争。
 - 会话校验每次实时查库，确保凭据版本与状态最新，避免缓存不一致导致的越权。
+- **新增**：流量采集使用原子增量UPSERT，避免并发冲突；配额检查在同事务内完成，减少数据库往返。
 
 ## 故障排查指南
 - 400 参数错误：常见于邮箱格式非法、密码长度不足、参数缺失或非法值。
@@ -262,6 +327,8 @@ ServerGroup --> AuthMW
 - 409 冲突：邮箱重复或组名重复。
 - 未配置SMTP：send_email模式或批量发送密码链接时会失败，需先配置SMTP。
 - 会话失效：密码重置或禁用后credential_version递增，旧会话立即失效，需重新登录。
+- **新增**：流量采集失败：检查Xray服务器是否开启`policy.statsUserUplink/Downlink`，确认QueryStats pattern正确传递。
+- **新增**：配额超限：检查`users.quota_exceeded`标记，管理员需手动重置配额才能恢复推送。
 
 **章节来源**
 - [backend/internal/server/user.go:34-52](file://backend/internal/server/user.go#L34-L52)
@@ -269,7 +336,7 @@ ServerGroup --> AuthMW
 - [backend/internal/auth/auth.go:144-192](file://backend/internal/auth/auth.go#L144-L192)
 
 ## 结论
-用户管理API提供了完善的管理员能力，涵盖用户全生命周期、用户组与订阅分发、权限与状态管理、密码与邮箱维护、批量操作等。通过严格的中间件与事务约束，保证了安全性与一致性。建议在生产环境合理配置SMTP、定期审计管理员操作、关注凭据版本与Token吊销策略。
+用户管理API提供了完善的管理员能力，涵盖用户全生命周期、用户组与订阅分发、权限与状态管理、密码与邮箱维护、批量操作等。通过严格的中间件与事务约束，保证了安全性与一致性。**最新更新**：新增的流量配额管理机制和Xray同步状态聚合功能，进一步增强了系统的监控和管理能力，支持精细化的用户流量控制和同步状态追踪。建议在生产环境合理配置SMTP、定期审计管理员操作、关注凭据版本与Token吊销策略，并充分利用新的配额管理和同步状态监控功能。
 
 ## 附录：接口规范与示例
 

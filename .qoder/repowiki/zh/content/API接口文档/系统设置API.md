@@ -11,14 +11,15 @@
 - [backend/internal/dataclear/dataclear.go](file://backend/internal/dataclear/dataclear.go)
 - [backend/internal/setup/setup.go](file://backend/internal/setup/setup.go)
 - [frontend/src/views/admin/SettingsView.vue](file://frontend/src/views/admin/SettingsView.vue)
+- [frontend/src/api/settings.ts](file://frontend/src/api/settings.ts)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 更新了配置导入导出功能，实现了整体表覆盖和级联清理机制
-- 添加了vmess链接兼容性支持，包括alterId=0参数处理
-- 增强了配置迁移的完整性和安全性
-- 优化了前端界面布局和可访问性
+- 新增高级模式操作支持，包括流量收集间隔、流量卡片显示控制、高级模式切换等新配置项
+- 升级导入导出格式至format_version=2，增强配置迁移的完整性和安全性
+- 扩展配置分区以支持高级模式相关配置项
+- 优化前端界面布局，新增高级模式管理界面
 
 ## 目录
 1. [简介](#简介)
@@ -33,9 +34,9 @@
 10. [附录：API 清单与示例](#附录api-清单与示例)
 
 ## 简介
-本文件面向系统设置相关 API，覆盖配置管理、备份恢复、数据导入导出、数据清理、调试模式切换等运维能力。文档按"基础设置、邮件服务、安全设置"等分类梳理配置项；说明配置更新接口、验证机制；记录备份创建与下载流程；提供系统初始化、配置迁移、故障恢复的实用示例。
+本文件面向系统设置相关 API，覆盖配置管理、备份恢复、数据导入导出、数据清理、调试模式切换等运维能力。文档按"基础设置、邮件服务、安全设置、高级模式"等分类梳理配置项；说明配置更新接口、验证机制；记录备份创建与下载流程；提供系统初始化、配置迁移、故障恢复的实用示例。
 
-**更新** 新增了配置导入导出的整体表覆盖功能和级联清理机制，以及vmess链接的alterId=0参数兼容性支持，确保配置迁移的完整性和客户端兼容性。
+**更新** 新增了高级模式操作支持，包括流量收集间隔配置、流量卡片显示控制开关、高级模式切换功能，以及format_version=2的导入导出格式支持，确保配置迁移的完整性和客户端兼容性。
 
 ## 项目结构
 后端采用分层设计：
@@ -57,7 +58,7 @@ AdminCfg --> CfgSvc["ConfigService<br/>配置存取/加解密"]
 ExportSvc --> Store["Store<br/>DB/事务"]
 BackupSvc --> Store
 ClearSvc --> Store
-Frontend["Vue前端界面<br/>响应式布局"] --> Settings
+Frontend["Vue前端界面<br/>高级模式支持"] --> Settings
 ```
 
 **图表来源**
@@ -65,7 +66,7 @@ Frontend["Vue前端界面<br/>响应式布局"] --> Settings
 - [backend/internal/server/settings_ops.go:29-38](file://backend/internal/server/settings_ops.go#L29-L38)
 - [backend/internal/config/admin.go:76-87](file://backend/internal/config/admin.go#L76-L87)
 - [backend/internal/config/config.go:48-55](file://backend/internal/config/config.go#L48-L55)
-- [backend/internal/config/export.go:46-59](file://backend/internal/config/export.go#L46-L59)
+- [backend/internal/config/export.go:46-59](file://backend/internal/config/export.go#L46-59)
 - [backend/internal/backup/backup.go:19-28](file://backend/internal/backup/backup.go#L19-L28)
 - [backend/internal/dataclear/dataclear.go:19-30](file://backend/internal/dataclear/dataclear.go#L19-L30)
 
@@ -75,12 +76,13 @@ Frontend["Vue前端界面<br/>响应式布局"] --> Settings
 
 ## 核心组件
 - 配置服务（ConfigService）：统一读取/写入 system_config，敏感字段自动加密/解密，支持事务内操作与类型化读取。
-- 面板配置服务（AdminService）：按分区组织配置项（OIDC、本地认证、验证码、SMTP、站点信息、限流、日志级别、公告页脚、调试），包含参数校验与安全约束。
-- 导入导出服务（ExportService）：仅生产模式可用；导出使用 Argon2id + AES-GCM 加密；导入严格整体覆盖并可选 Setup 预置。
+- 面板配置服务（AdminService）：按分区组织配置项（OIDC、本地认证、验证码、SMTP、站点信息、限流、日志级别、公告页脚、调试、高级模式），包含参数校验与安全约束。
+- 导入导出服务（ExportService）：仅生产模式可用；导出使用 Argon2id + AES-GCM 加密；导入严格整体覆盖并可选 Setup 预置，支持format_version=2。
 - 备份服务（BackupService）：SQLite 一致性快照 + contents/public 打包 tar.gz 流式下载。
 - 数据清理服务（DataClearService）：一键清空所有数据（确认词 RESET），先清库再删文件，内存态复位。
 - Setup 服务（SetupService）：快速开始与 OIDC 高级配置，推导前端地址，预置默认组与平台。
-- **新增** 前端界面服务：基于Vue.js和Ant Design Vue构建的管理界面，支持响应式布局和可访问性优化。
+- **新增** 高级模式管理服务：支持流量收集间隔配置、流量卡片显示控制、高级模式切换等功能。
+- **新增** 前端界面服务：基于Vue.js和Ant Design Vue构建的管理界面，支持高级模式配置界面。
 
 章节来源
 - [backend/internal/config/config.go:48-55](file://backend/internal/config/config.go#L48-L55)
@@ -144,13 +146,17 @@ H-->>U : 200 + .enc 附件
   - 速率限制：GET/PUT /ratelimit（登录/注册/忘记密码/下载）
   - OIDC：GET/PUT/DELETE /oidc（提供商类型、BaseURL、Realm、ClientID、Secret 脱敏）、测试连接 /oidc/test
   - OIDC 规则：GET/PUT /oidc-rules（审批开关、白名单）
+- 高级模式设置
+  - 高级模式开关：GET/PUT /advanced-mode（高级模式切换控制）
+  - 流量收集间隔：GET/PUT /traffic-interval（分钟，默认10，≥1）
+  - 流量卡片显示：GET/PUT /traffic-card-display（流量卡片显示控制开关）
 - 运维操作
   - 一键清空：POST /clear_all
   - 配置导出：POST /export（仅生产）
   - 配置导入：POST /import（面板）与 /api/setup/import（未配置状态，限流）
   - 备份下载：GET /backup
 
-**更新** 站点信息配置界面现已支持响应式布局，确保在不同屏幕尺寸下都能提供良好的用户体验。
+**更新** 新增高级模式相关配置项，包括高级模式开关、流量收集间隔配置、流量卡片显示控制等功能。
 
 章节来源
 - [backend/internal/server/settings.go:52-81](file://backend/internal/server/settings.go#L52-L81)
@@ -161,21 +167,24 @@ H-->>U : 200 + .enc 附件
 - 参数校验
   - JSON 绑定失败返回 400。
   - 业务校验：如 SMTP Host 必填、限流值为正整数、日志级别枚举、ICON 扩展名与大小限制、公告长度限制等。
+  - 高级模式参数校验：流量收集间隔必须为正整数且≥1分钟。
 - 安全约束
   - 防认证死锁：本地登录关闭时，若 OIDC 不可用则禁止保存；清空 OIDC 时若本地登录也关则拒绝。
   - 验证码启用时需配置密钥，否则拒绝。
   - 敏感字段 GET 脱敏（***），PUT 空串表示不修改；非空值经 ConfigService 自动加密落库。
 - 生效策略
   - 限流、日志级别、调试模式等运行时立即生效。
+  - 高级模式开关变更立即生效，影响侧边栏入口显示。
+  - 流量收集间隔配置立即生效，影响采集任务调度。
   - 前端地址/回调地址变更需重启容器生效（启动缓存语义）。
 
 章节来源
-- [backend/internal/config/admin.go:157-212](file://backend/internal/config/admin.go#L157-212)
-- [backend/internal/config/admin.go:250-333](file://backend/internal/config/admin.go#L250-333)
-- [backend/internal/config/admin.go:335-388](file://backend/internal/config/admin.go#L335-388)
-- [backend/internal/config/admin.go:390-469](file://backend/internal/config/admin.go#L390-469)
-- [backend/internal/config/admin.go:471-527](file://backend/internal/config/admin.go#L471-527)
-- [backend/internal/config/admin.go:529-585](file://backend/internal/config/admin.go#L529-585)
+- [backend/internal/config/admin.go:157-212](file://backend/internal/config/admin.go#L157-L212)
+- [backend/internal/config/admin.go:250-333](file://backend/internal/config/admin.go#L250-L333)
+- [backend/internal/config/admin.go:335-388](file://backend/internal/config/admin.go#L335-L388)
+- [backend/internal/config/admin.go:390-469](file://backend/internal/config/admin.go#L390-L469)
+- [backend/internal/config/admin.go:471-527](file://backend/internal/config/admin.go#L471-L527)
+- [backend/internal/config/admin.go:529-585](file://backend/internal/config/admin.go#L529-L585)
 
 ### 配置加密与敏感字段
 - 签名密钥：系统首次生成或确保存在，用于派生配置加密密钥。
@@ -186,10 +195,60 @@ H-->>U : 200 + .enc 附件
 - [backend/internal/config/config.go:24-46](file://backend/internal/config/config.go#L24-L46)
 - [backend/internal/config/config.go:57-111](file://backend/internal/config/config.go#L57-L111)
 - [backend/internal/config/config.go:113-168](file://backend/internal/config/config.go#L113-L168)
-- [backend/internal/config/config.go:220-361](file://backend/internal/config/config.go#L220-361)
+- [backend/internal/config/config.go:220-361](file://backend/internal/config/config.go#L220-L361)
+
+### 高级模式配置管理
+**新增** 系统现在支持高级模式操作，提供完整的配置管理能力：
+
+#### 高级模式开关
+- **功能描述**：控制是否启用Xray实例对接、多用户组与流量配额管控
+- **配置项**：`advanced_mode` 布尔值
+- **行为特性**：
+  - 开启后解锁侧边栏「用户组」和「Xray 实例」入口
+  - 关闭时一并移除所有高级模式产生的配置数据
+  - 实时生效，无需重启容器
+
+#### 流量收集间隔配置
+- **功能描述**：控制逐用户串行采集 Xray 流量的时间间隔
+- **配置项**：`traffic_collection_interval` 整数值（分钟）
+- **默认值**：10分钟
+- **约束条件**：最小值为1分钟，过短会增加实例压力
+- **生效方式**：配置变更后立即影响采集任务调度
+
+#### 流量卡片显示控制
+- **功能描述**：控制用户首页与个人中心的流量卡片是否展示
+- **配置项**：`traffic_card_display` 布尔值
+- **默认值**：true（开启）
+- **影响范围**：用户首页流量卡片和个人中心流量统计显示
+- **两模式通用**：基础模式和高级模式均支持此配置
+
+```mermaid
+flowchart TD
+AdvancedMode["高级模式开关"] --> TrafficInterval["流量收集间隔配置"]
+TrafficInterval --> TrafficCard["流量卡片显示控制"]
+TrafficCard --> UserInterface["用户界面显示"]
+UserInterface --> Dashboard["用户首页"]
+UserInterface --> Profile["个人中心"]
+subgraph "高级模式特性"
+XrayIntegration["Xray实例对接"]
+MultiGroups["多用户组管理"]
+QuotaControl["流量配额管控"]
+end
+AdvancedMode -.-> XrayIntegration
+AdvancedMode -.-> MultiGroups
+AdvancedMode -.-> QuotaControl
+```
+
+**图表来源**
+- [Design2.md:8-21](file://Design2.md#L8-L21)
+- [Design2-UI.md:248-256](file://Design2-UI.md#L248-L256)
+
+章节来源
+- [Design2.md:8-21](file://Design2.md#L8-L21)
+- [Design2-UI.md:248-256](file://Design2-UI.md#L248-L256)
 
 ### 站点信息配置界面UI优化
-**新增** 站点信息配置界面进行了重要的UI布局改进，提升了用户体验和可访问性：
+**更新** 站点信息配置界面现已支持响应式布局，确保在不同屏幕尺寸下都能提供良好的用户体验。
 
 #### 响应式布局设计
 - **固定宽度标签**：站点图标标签使用 `flex-none` 类保持固定宽度（w-24），确保在不同屏幕尺寸下标签对齐一致
@@ -226,7 +285,7 @@ Accessible -.-> TitleAttr
 - [frontend/src/views/admin/SettingsView.vue:712-718](file://frontend/src/views/admin/SettingsView.vue#L712-L718)
 
 章节来源
-- [frontend/src/views/admin/SettingsView.vue:704-725](file://frontend/src/views/admin/SettingsView.vue#L704-725)
+- [frontend/src/views/admin/SettingsView.vue:704-725](file://frontend/src/views/admin/SettingsView.vue#L704-L725)
 
 ### 备份创建与下载流程
 - 一致性快照：优先 VACUUM INTO；不支持时降级为 WAL checkpoint(FULL) 后拷贝主文件。
@@ -283,6 +342,7 @@ H-->>A : 200 + 提示
   - 仅生产模式。
   - 收集 system_config 全量键值（含签名密钥与敏感密文原样导出）+ 站点名称与 ICON base64。
   - 使用 Argon2id 派生密钥 + AES-GCM 加密整个 payload，返回二进制供下载。
+  - **更新** 支持format_version=2格式，向后兼容version=1。
 - 导入
   - 面板导入：/api/admin/settings/import（multipart 文件 + password + confirm_word=IMPORT）。
   - Setup 导入：/api/setup/import（未配置状态暴露，叠加限流 5/min）。
@@ -297,11 +357,11 @@ participant H as "SettingsOpsHandler"
 participant E as "ExportService"
 U->>H : POST /export {password}
 H->>E : Export(ctx,password)
-E-->>H : 加密二进制
+E-->>H : 加密二进制 (format_version=2)
 H-->>U : 200 + .enc 附件
 U->>H : POST /import (file,password,confirm_word="IMPORT")
 H->>E : Import(ctx,data,password,"IMPORT",setupMode?)
-E->>E : 解密并校验
+E->>E : 解密并校验 format_version
 E->>E : 事务内 DELETE system_config + INSERT
 E->>E : 级联清理缺失的配置项
 E-->>H : 成功
@@ -318,7 +378,7 @@ H-->>U : 200 + 提示需重启容器
 - [backend/internal/server/settings_ops.go:56-139](file://backend/internal/server/settings_ops.go#L56-L139)
 
 ### vmess链接兼容性支持
-**新增** 系统现在支持vmess链接的alterId=0参数，确保与V2rayN、Clash、Shadowrocket等客户端的兼容性：
+**更新** 系统现在支持vmess链接的alterId=0参数，确保与V2rayN、Clash、Shadowrocket等客户端的兼容性：
 
 #### vmess链接格式规范
 - **JSON格式**：vmess链接采用V2rayN JSON格式，包含v/ps/add/port/id/aid/scy/net/type/host/path/tls/sni/alpn/fp等字段
@@ -379,9 +439,10 @@ SH-->>U : 200 + 提示
 - 循环依赖规避：
   - config 包通过 OidcOps 接口避免与 oidc 包循环依赖。
   - export 包通过注入 seedPresets 函数避免与 setup 包循环依赖。
-- **新增** 前端依赖：
+- **更新** 前端依赖：
   - SettingsView 依赖 Ant Design Vue 组件库和自定义 ConfirmModal 组件。
   - 前端通过 TypeScript 接口定义确保类型安全。
+  - 新增高级模式相关的前端组件和状态管理。
 
 ```mermaid
 classDiagram
@@ -494,13 +555,15 @@ SettingsView --> SettingsHandler : "API调用"
 - 流式备份：tar.gz 直接写入响应 Writer，降低内存占用。
 - 导入导出：
   - 导出：Argon2id 高成本密钥派生（time=1, memory=64MB, threads=4）提升暴力破解成本。
-  - 导入：事务内整体覆盖，失败回滚，保证原子性。**更新** 现在支持严格的整体表覆盖语义，确保配置完整性。
+  - 导入：事务内整体覆盖，失败回滚，保证原子性。**更新** 现在支持严格的整体表覆盖语义和format_version=2格式，确保配置完整性。
 - 运行时配置：限流、日志级别、调试模式等即时生效，无需重启。
+- 高级模式配置：高级模式开关、流量收集间隔等配置变更立即生效，无需重启。
 - 前端地址/回调地址：修改后需重启容器生效（启动缓存语义）。
-- **新增** 前端性能优化：
+- **更新** 前端性能优化：
   - 响应式布局减少不必要的重绘和回流
   - 图片懒加载和缓存优化
   - 组件按需加载减少初始包大小
+  - 高级模式相关组件的延迟加载
 
 [本节为通用性能讨论，不直接分析具体文件]
 
@@ -514,16 +577,21 @@ SettingsView --> SettingsHandler : "API调用"
   - 启用验证码页面但未配置密钥将被拒绝。
 - 导入失败
   - 确认词不正确、密码错误或文件损坏将返回 400；格式版本不匹配仅警告不阻断。
-  - **更新** 整体表覆盖失败时会回滚所有变更，确保数据一致性。
+  - **更新** 整体表覆盖失败时会回滚所有变更，确保数据一致性；format_version=2格式支持向后兼容。
 - 备份失败
   - 快照失败且 WAL checkpoint 降级失败将返回 500；检查 SQLite 驱动版本与权限。
 - 一键清空后无法登录
   - 签名密钥已轮换，旧会话失效属预期；重新登录即可。
-- **新增** 前端界面问题排查
+- **更新** 高级模式相关问题排查
+  - 高级模式开关无效：检查数据库中的advanced_mode配置项是否正确设置
+  - 流量收集间隔异常：确认配置值为正整数且≥1分钟
+  - 流量卡片不显示：检查traffic_card_display配置项和用户权限
+  - 高级模式数据丢失：确认关闭高级模式时的确认操作流程
+- **更新** 前端界面问题排查
   - 响应式布局异常：检查浏览器开发者工具的响应式设计模式
   - URL截断显示问题：确认CSS类是否正确应用，检查控制台是否有JavaScript错误
   - 可访问性问题：使用屏幕阅读器测试title属性的正确显示
-- **新增** vmess链接问题排查
+- **更新** vmess链接问题排查
   - alterId参数兼容性：确认客户端版本支持alterId=0参数
   - JSON格式验证：检查vmess链接的JSON结构是否符合规范
   - 跨客户端测试：在V2rayN、Clash、Shadowrocket等不同客户端中验证链接有效性
@@ -531,14 +599,14 @@ SettingsView --> SettingsHandler : "API调用"
 章节来源
 - [backend/internal/config/config.go:57-111](file://backend/internal/config/config.go#L57-L111)
 - [backend/internal/config/admin.go:24-29](file://backend/internal/config/admin.go#L24-L29)
-- [backend/internal/config/admin.go:157-212](file://backend/internal/config/admin.go#L157-212)
+- [backend/internal/config/admin.go:157-212](file://backend/internal/config/admin.go#L157-L212)
 - [backend/internal/config/admin.go:302-333](file://backend/internal/config/admin.go#L302-L333)
 - [backend/internal/config/export.go:135-187](file://backend/internal/config/export.go#L135-L187)
 - [backend/internal/backup/backup.go:67-79](file://backend/internal/backup/backup.go#L67-L79)
 - [backend/internal/dataclear/dataclear.go:54-82](file://backend/internal/dataclear/dataclear.go#L54-L82)
 
 ## 结论
-系统设置 API 提供了完整的配置管理、备份恢复、导入导出与运维能力。通过严格的参数校验、敏感字段加密、事务原子性与一致性快照，保障了配置的安全性与可恢复性。**最新的改进包括配置导入导出的整体表覆盖功能、级联清理机制以及vmess链接的alterId=0参数兼容性支持**，进一步提升了系统的可靠性和客户端兼容性。建议在生产环境启用导出/导入功能，定期备份，并在变更前做好迁移核对与回滚预案。
+系统设置 API 提供了完整的配置管理、备份恢复、导入导出与运维能力。通过严格的参数校验、敏感字段加密、事务原子性与一致性快照，保障了配置的安全性与可恢复性。**最新的改进包括高级模式操作支持、流量收集间隔配置、流量卡片显示控制、format_version=2的导入导出格式支持**，进一步提升了系统的可靠性和功能完整性。建议在生产环境启用导出/导入功能，定期备份，并在变更前做好迁移核对与回滚预案。
 
 [本节为总结，不直接分析具体文件]
 
@@ -578,6 +646,13 @@ SettingsView --> SettingsHandler : "API调用"
 - 调试模式
   - GET /api/admin/settings/debug
   - PUT /api/admin/settings/debug
+- **新增** 高级模式设置
+  - GET /api/admin/settings/advanced-mode
+  - PUT /api/admin/settings/advanced-mode
+  - GET /api/admin/settings/traffic-interval
+  - PUT /api/admin/settings/traffic-interval
+  - GET /api/admin/settings/traffic-card-display
+  - PUT /api/admin/settings/traffic-card-display
 
 章节来源
 - [backend/internal/server/settings.go:52-81](file://backend/internal/server/settings.go#L52-L81)
@@ -610,17 +685,21 @@ SettingsView --> SettingsHandler : "API调用"
 - 配置迁移
   - 导出：POST /api/admin/settings/export，获得加密文件。
   - 导入：POST /api/admin/settings/import 或 /api/setup/import，输入密码与确认词 IMPORT，完成严格整体覆盖。
-  - **更新** 导入过程现在支持完整的表覆盖语义，确保配置的一致性。
+  - **更新** 导入过程现在支持format_version=2格式和完整的表覆盖语义，确保配置的一致性。
 - 故障恢复
   - 备份：GET /api/admin/settings/backup 下载 tar.gz。
   - 恢复：手动解包至数据卷，启动后以 DB 为准重建符号链接指针。
 - 数据清理
   - 一键清空：POST /api/admin/settings/clear_all，确认词 RESET，系统回到未配置状态。
-- **新增** 前端界面使用示例
+- **更新** 高级模式配置示例
+  - 开启高级模式：PUT /api/admin/settings/advanced-mode {enabled: true}
+  - 设置流量收集间隔：PUT /api/admin/settings/traffic-interval {interval: 15}
+  - 控制流量卡片显示：PUT /api/admin/settings/traffic-card-display {display: false}
+- **更新** 前端界面使用示例
   - 站点图标上传：通过响应式界面上传图标文件，支持拖拽和点击两种方式
   - URL查看：鼠标悬停在截断的URL上可查看完整路径
   - 移动端适配：在移动设备上自动调整布局，确保操作便捷性
-- **新增** vmess链接兼容性示例
+- **更新** vmess链接兼容性示例
   - 生成vmess链接：确保包含alterId=0参数以兼容V2rayN、Clash等客户端
   - 模板配置：在Clash YAML配置中使用alterId: 0字段
   - 客户端验证：在不同客户端中测试vmess链接的有效性
