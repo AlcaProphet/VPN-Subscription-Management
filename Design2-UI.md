@@ -536,6 +536,7 @@
 | `api/rule.ts` | 增 is_home_default 字段与设置默认端点；创建请求首版本改为可选 |
 | `api/settings.ts` | 增 advanced_mode 开关、采集间隔、流量卡片开关三键读写；导入导出沿用现有端点（format_version=2 为后端事项） |
 | `api/version.ts` | 版本行增 blueprint 存在标记（驱动「装配」Tag 与重新编辑按钮）；装配生成创建走 assembly.generate |
+| `api/user.ts` | 用户列表行新增字段（高级模式）：本月用量字节数、Xray 同步状态聚合（含 last_error 摘要）、配额覆盖值与有效配额、quota_exceeded 标记（对应 4.5 四个扩展点） |
 | `package.json` | 新增 `diff`（jsdiff）依赖（4.1 预览 diff，见 1.2 DiffView） |
 
 ### 9.4 错误码 → UI 映射增量（对齐 AGENTS.md §4.8，沿用 Design1-UI §7.3 基线）
@@ -574,7 +575,6 @@
 |-----------|------|---------|
 | 素材池列表 | 还没有规则素材池 | 「新建素材池」按钮 |
 | 池详情条目 | 池内暂无条目 | 「新增条目」+「同步」按钮 |
-| 同步结果（终态空） | 理论不出现（零条目保护视为失败） | — |
 | 节点管理 | 还没有节点 | 「添加节点」按钮 + 高级模式检测提示 |
 | 代理组管理 | 预设组随迁移内置，此态仅理论出现 | — |
 | Xray 实例 | 还没有 Xray 实例 | 「新增实例」按钮 + policy.stats 前置提示 |
