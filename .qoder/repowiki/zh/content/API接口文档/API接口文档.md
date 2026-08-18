@@ -15,16 +15,17 @@
 - [backend/internal/server/settings.go](file://backend/internal/server/settings.go)
 - [backend/internal/server/settings_ops.go](file://backend/internal/server/settings_ops.go)
 - [backend/internal/config/export.go](file://backend/internal/config/export.go)
-- [backend/internal/config/config.go](file://backend/internal/config/config.go)
 - [Design2.md](file://Design2.md)
+- [Design2-UI.md](file://Design2-UI.md)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- **配置导入导出功能增强**：扩展支持完整的Xray实例数据导出，格式版本升级至v2，包含所有实例字段和slug保持
-- **Xray实例管理集成**：新增xray_instances表的完整数据导出能力，包括name、slug、api_addr、api_tag、enabled等全字段
-- **导入语义优化**：实现整体覆盖语义，确保slug原样沿用，保证节点命名一致性
-- **高级模式配置同步**：advanced_mode配置键随payload整体覆盖导入，支持高级模式自动恢复
+- **新增独立账号管理API**：完整实现Xray独立账号CRUD端点（/api/admin/xray/ext/*），支持凭据生成与手填接管、配额管理、推送目标选择
+- **增强对账响应结构**：reconcile端点返回扩展的ext_orphans数组，区分疑似独立账号残留与常规无头用户
+- **高级模式中间件保护**：所有/api/admin/xray/*端点受advanced_mode配置开关保护，OFF时统一返回403
+- **配置导入导出增强**：format_version=2支持xray_instances与独立账号数据完整导出，slug保持机制确保节点命名一致性
+- **实例级对账能力**：支持按实例维度进行账号对账，包含待补推、无头用户、疑似独立账号残留三分区展示
 
 ## 目录
 1. [简介](#简介)
@@ -47,57 +48,66 @@
 - 认证方式（会话Cookie、短期Token、OIDC回调）
 - WebSocket/SSE实时日志连接协议
 - 版本管理、速率限制与安全注意事项
-- **新增**：增强的配置导入导出功能，支持完整的Xray实例数据导出与管理
+- **新增**：完整的Xray实例管理与独立账号管理能力，支持高级模式下的四协议代理管理
 
-**重要更新**：配置导入导出功能现已全面支持Xray实例数据的完整导出，格式版本升级至v2，包含所有实例字段（name、slug、api_addr、api_tag、enabled）和slug保持机制，确保节点命名一致性与装配快照重绑的准确性。
+**重要更新**：系统现已全面支持Xray实例管理和独立账号功能，通过高级模式中间件保护高级端点，提供完整的实例CRUD、节点检测、账号对账、独立账号管理等高级特性。配置导入导出功能升级至v2格式，支持完整的Xray实例数据和独立账号数据迁移。
 
 ## 项目结构
 后端采用Gin路由装配，按业务域拆分处理器并集中注册：
 - 认证与OIDC：/api/auth、/api/auth/oidc
 - 管理员面板：/api/admin/*
+- Xray高级管理：/api/admin/xray/*（高级模式）
 - 用户端数据：/api/home、/api/rules
 - 下载与预览：/subscriptions/*、/share/*、/rules/*、/api/subscriptions/preview
 - 系统能力：/api/system/status、/api/public/announcement、/api/site/info
 - 日志SSE：/api/admin/logs/stream
-- **新增**：增强的配置导入导出：/api/admin/settings/export、/api/admin/settings/import、/api/setup/import
+- 配置导入导出：/api/admin/settings/export、/api/admin/settings/import、/api/setup/import
 
 ```mermaid
 graph TB
 A["HTTP入口<br/>server.New()"] --> B["认证路由<br/>/api/auth/*"]
 A --> C["OIDC路由<br/>/api/auth/oidc/*"]
 A --> D["管理员路由<br/>/api/admin/*"]
-A --> E["用户端路由<br/>/api/home, /api/rules"]
-A --> F["下载路由<br/>/subscriptions/*, /share/*, /rules/*"]
-A --> G["系统状态<br/>/api/system/status, /api/public/*"]
-A --> H["日志SSE<br/>/api/admin/logs/stream"]
-A --> I["配置导入导出<br/>/api/admin/settings/*, /api/setup/import"]
+A --> E["Xray高级路由<br/>/api/admin/xray/*"]
+A --> F["用户端路由<br/>/api/home, /api/rules"]
+A --> G["下载路由<br/>/subscriptions/*, /share/*, /rules/*"]
+A --> H["系统状态<br/>/api/system/status, /api/public/*"]
+A --> I["日志SSE<br/>/api/admin/logs/stream"]
+A --> J["配置导入导出<br/>/api/admin/settings/*, /api/setup/import"]
+E --> K["高级模式中间件<br/>advancedMode检查"]
+K --> L["Xray实例管理<br/>/instances/*"]
+K --> M["独立账号管理<br/>/ext/*"]
+K --> N["账号对账<br/>/instances/:id/reconcile"]
 ```
 
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
 
 章节来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
 
 ## 核心组件
 - 统一响应封装：OK/Fail/ListData
 - 中间件链：请求日志、panic恢复、信任代理、限流、验证码、会话/管理员鉴权
 - 服务装配：auth、setup、oidc、captcha、ratelimit、version、platform、subscription、group、token、download、custom、share、rule、mail、approval、config、log、backup、dataclear、emergency
-- **新增**：增强的配置导入导出服务，支持Xray实例数据完整导出与管理
+- **新增**：高级模式中间件（advancedMode）保护Xray相关端点
+- **新增**：Xray实例管理与独立账号管理服务
 
-**配置导入导出特性**：
-| 特性 | 描述 | 版本 |
-|------|------|------|
-| 格式版本 | 导出文件格式版本 | v2 |
-| Xray实例支持 | 完整实例数据导出 | ✓ |
-| Slug保持 | 实例slug原样沿用 | ✓ |
-| 高级模式同步 | advanced_mode配置整体覆盖 | ✓ |
-| 安全加密 | Argon2id + AES-256-GCM | ✓ |
+**高级模式特性**：
+| 特性 | 描述 | 保护范围 |
+|------|------|----------|
+| advanced_mode开关 | 控制高级功能可用性 | /api/admin/xray/* 全部端点 |
+| 四协议支持 | vless/vmess/trojan/shadowsocks | 实例节点管理 |
+| 独立账号管理 | 面板账号体系之外的Xray账号 | /api/admin/xray/ext/* |
+| 实例级对账 | 按实例维度进行账号同步检查 | /api/admin/xray/instances/:id/reconcile |
+| 流量采集 | 逐用户和独立账号串行采集 | cron任务 |
 
 章节来源
 - [backend/internal/server/server.go:40-157](file://backend/internal/server/server.go#L40-L157)
-- [backend/internal/config/export.go:27-31](file://backend/internal/config/export.go#L27-L31)
-- [Design2.md:259](file://Design2.md#L259)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
+- [Design2.md:401-411](file://Design2.md#L401-L411)
 
 ## 架构总览
 ```mermaid
@@ -105,27 +115,31 @@ sequenceDiagram
 participant Client as "客户端"
 participant Gin as "Gin引擎"
 participant MW as "中间件(限流/验证码/会话/管理员)"
+participant AdvancedMW as "高级模式中间件"
 participant Handler as "业务Handler"
-participant ExportSvc as "配置导入导出服务"
+participant XraySvc as "Xray服务"
 participant DB as "数据库/存储"
 Client->>Gin : HTTP请求
 Gin->>MW : 校验(限流/验证码/会话/管理员)
 MW-->>Gin : 通过/拒绝
+alt Xray高级端点
+Gin->>AdvancedMW : advancedMode检查
+AdvancedMW-->>Gin : 允许/403拒绝
+end
 Gin->>Handler : 调用处理器
-alt 配置导入导出
-Handler->>ExportSvc : 执行导入/导出操作
-ExportSvc->>DB : 读取/写入系统配置
-ExportSvc->>DB : 读取/写入Xray实例数据
-DB-->>ExportSvc : 结果
-ExportSvc-->>Handler : 统一响应
+alt 配置导入导出/Xray管理
+Handler->>XraySvc : 执行Xray操作
+XraySvc->>DB : 读取/写入Xray实例数据
+XraySvc->>DB : 读取/写入独立账号数据
+DB-->>XraySvc : 结果
+XraySvc-->>Handler : 统一响应
 end
 Handler-->>Client : 统一响应
 ```
 
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
-- [backend/internal/server/settings_ops.go:28-38](file://backend/internal/server/settings_ops.go#L28-L38)
-- [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
 
 ## 详细端点说明
 
@@ -141,12 +155,11 @@ Handler-->>Client : 统一响应
   - OIDC：授权码流程+state Cookie保护
 - 限流：按IP或Key计数，超限返回429
 - 缓存控制：下载类端点强制no-store/no-cache
-- **新增**：配置导入导出仅Production模式提供，Dev模式返回403
+- **新增**：高级模式中间件保护，advanced_mode=OFF时返回403
 
 章节来源
 - [backend/internal/server/server.go:40-50](file://backend/internal/server/server.go#L40-L50)
-- [backend/internal/server/settings_ops.go:56-80](file://backend/internal/server/settings_ops.go#L56-L80)
-- [backend/internal/config/export.go:68-71](file://backend/internal/config/export.go#L68-L71)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
 
 ### 认证接口
 - POST /api/auth/register
@@ -212,6 +225,93 @@ Handler-->>Client : 统一响应
 - [backend/internal/server/oidc.go:92-125](file://backend/internal/server/oidc.go#L92-L125)
 - [backend/internal/server/oidc.go:127-139](file://backend/internal/server/oidc.go#L127-L139)
 - [backend/internal/server/oidc.go:141-163](file://backend/internal/server/oidc.go#L141-L163)
+
+### **新增**：Xray实例管理（高级模式）
+- GET /api/admin/xray/instances
+  - 描述：Xray实例列表（含采集状态）
+  - 鉴权：会话 + 管理员 + 高级模式
+  - 响应：list包含name/slug/api_addr/api_tag/enabled/last_collect_at/collect_status/collect_error
+  - 状态码：200/403/500
+- POST /api/admin/xray/instances
+  - 描述：创建Xray实例
+  - 请求体：name、slug、api_addr、api_tag、enabled
+  - 状态码：200/400/409/403/500
+- PUT /api/admin/xray/instances/:id
+  - 描述：更新实例配置
+  - 请求体：name、api_addr、api_tag、enabled
+  - 状态码：200/400/404/403/500
+- DELETE /api/admin/xray/instances/:id
+  - 描述：删除实例（级联清理关联数据）
+  - 状态码：200/404/403/500
+- POST /api/admin/xray/instances/test
+  - 描述：测试实例连接（不落库）
+  - 请求体：api_addr、api_tag
+  - 响应：{ ok, error? }
+  - 状态码：200/400/403/500
+- POST /api/admin/xray/instances/:id/detect
+  - 描述：检测实例节点（ListInbounds upsert）
+  - 响应：{ added, updated, missing, skipped: [{tag, reason}] }
+  - 状态码：200/400/404/403/500
+- POST /api/admin/xray/init
+  - 描述：批量初始化（对所有active用户执行AddUser）
+  - 响应：{ synced, failed }
+  - 状态码：200/403/500
+
+章节来源
+- [Design2-UI.md:514-517](file://Design2-UI.md#L514-L517)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
+
+### **新增**：账号对账（高级模式）
+- GET /api/admin/xray/instances/:id/reconcile
+  - 描述：实例级账号对账（期望集 vs 实际集合）
+  - 响应：{ to_push: [...], orphans: [...], ext_orphans: [...] }
+  - 说明：to_push=待补推，orphans=常规无头用户，ext_orphans=疑似独立账号残留
+  - 状态码：200/404/403/500
+- POST /api/admin/xray/instances/:id/reconcile/push
+  - 描述：一键补推（对待补推全集）
+  - 响应：计数回执
+  - 状态码：200/404/403/500
+- POST /api/admin/xray/instances/:id/reconcile/clean
+  - 描述：一键清理（对无头用户和疑似独立账号残留）
+  - 请求体：勾选的清理项
+  - 响应：计数回执
+  - 状态码：200/404/403/500
+
+章节来源
+- [Design2-UI.md:518](file://Design2-UI.md#L518)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
+
+### **新增**：独立账号管理（高级模式）
+- GET /api/admin/xray/ext
+  - 描述：独立账号列表（含本月用量和推送摘要）
+  - 鉴权：会话 + 管理员 + 高级模式
+  - 响应：list包含name/email/quota/quota_exceeded/本月用量/推送摘要
+  - 状态码：200/403/500
+- POST /api/admin/xray/ext
+  - 描述：创建独立账号（双轨：自动生成或手填接管）
+  - 请求体：name、credential_mode（generate/manual）、凭据（手填时）、推送目标列表
+  - 说明：推送目标仅限四协议、allocatable=1、enabled节点
+  - 状态码：200/400/409/403/500
+- PUT /api/admin/xray/ext/:id
+  - 描述：更新独立账号（名称、配额、推送目标）
+  - 请求体：name、quota、推送目标列表
+  - 状态码：200/400/404/409/403/500
+- DELETE /api/admin/xray/ext/:id
+  - 描述：删除独立账号（级联清理推送记录）
+  - 状态码：200/404/403/500
+- GET /api/admin/xray/ext/:id/credentials
+  - 描述：获取独立账号凭据（AES-256-GCM解密）
+  - 响应：{ uuid, proxy_secret }
+  - 安全：敏感端点，前端复制警示文案
+  - 状态码：200/404/403/500
+- POST /api/admin/xray/ext/:id/reset-quota
+  - 描述：重置独立账号配额（清当月累计 + 重新AddUser）
+  - 响应：计数回执
+  - 状态码：200/404/403/500
+
+章节来源
+- [Design2-UI.md:522-524](file://Design2-UI.md#L522-L524)
+- [Design2.md:401-411](file://Design2.md#L401-L411)
 
 ### 管理员-用户管理
 - GET /api/admin/users
@@ -378,7 +478,7 @@ Handler-->>Client : 统一响应
 - [backend/internal/server/group.go:29-36](file://backend/internal/server/group.go#L29-L36)
 - [backend/internal/server/group.go:38-60](file://backend/internal/server/group.go#L38-60)
 - [backend/internal/server/group.go:62-80](file://backend/internal/server/group.go#L62-80)
-- [backend/internal/server/group.go:82-117](file://backend/internal/server/group.go#L82-117)
+- [backend/internal/server/group.go:82-117](file://backend/internal/server/group.go#L82-L117)
 - [backend/internal/server/group.go:119-138](file://backend/internal/server/group.go#L119-L138)
 - [backend/internal/server/group.go:140-167](file://backend/internal/server/group.go#L140-L167)
 
@@ -404,7 +504,7 @@ Handler-->>Client : 统一响应
 - 版本端点：/api/admin/rules/:id/versions/*（同订阅通用模式）
 
 章节来源
-- [backend/internal/server/rule.go:22-40](file://backend/internal/server/rule.go#L22-L40)
+- [backend/internal/server/rule.go:22-40](file://backend/internal/server/rule.go#L22-40)
 - [backend/internal/server/rule.go:42-49](file://backend/internal/server/rule.go#L42-L49)
 - [backend/internal/server/rule.go:51-105](file://backend/internal/server/rule.go#L51-L105)
 - [backend/internal/server/rule.go:107-129](file://backend/internal/server/rule.go#L107-L129)
@@ -626,7 +726,7 @@ Handler-->>Client : 统一响应
   - 请求体：{ password }（≥8字符）
   - 响应：加密文件下载（application/octet-stream）
   - 内容：全部系统配置 + 站点信息（ICON base64）
-  - 格式版本：v2（支持Xray实例数据）
+  - 格式版本：v2（支持Xray实例数据和独立账号）
   - 状态码：200/400/403/500
 - POST /api/admin/settings/import
   - 描述：导入配置文件（仅Production模式）
@@ -642,6 +742,7 @@ Handler-->>Client : 统一响应
 
 **增强功能特性**：
 - **Xray实例数据支持**：完整导出xray_instances表的所有字段（name、slug、api_addr、api_tag、enabled）
+- **独立账号数据支持**：完整导出xray_ext_accounts和xray_ext_users表的账号信息和推送记录
 - **Slug保持机制**：导入时slug原样沿用，不重新生成，确保节点命名一致性
 - **高级模式同步**：advanced_mode配置键随payload整体覆盖导入
 - **安全保护**：Argon2id派生密钥 + AES-256-GCM加密，防止配置泄露
@@ -662,6 +763,7 @@ Handler-->>Client : 统一响应
 - 限流中间件：按Key（register/login/forgot/download）限制频率
 - 验证码中间件：在注册/登录/忘记密码上叠加
 - 版本模块：订阅/规则/自定义/分享共用版本CRUD与预览
+- **新增**：高级模式中间件保护Xray相关端点
 - **新增**：配置导入导出服务依赖生产环境模式检查与安全验证
 
 ```mermaid
@@ -681,13 +783,17 @@ R --> SH["分享(share.go)"]
 R --> H["主页(home.go)"]
 R --> L["日志(log.go)"]
 R --> SS["状态(status.go)"]
+R --> XR["Xray管理(xray.go)"]
 SO --> ES["导出服务(export.go)"]
 ES --> CFG["配置服务(config.go)"]
+XR --> AM["高级模式中间件"]
+AM --> XRH["Xray处理器"]
 ```
 
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
 - [backend/internal/server/settings_ops.go:28-38](file://backend/internal/server/settings_ops.go#L28-L38)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
 
 章节来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
@@ -702,6 +808,7 @@ ES --> CFG["配置服务(config.go)"]
 - 并发与连接：SSE连接上限8；事件源一次性Token防重放
 - 优雅退出：HTTP服务支持上下文关闭与超时
 - **新增**：配置导入导出生产环境限制，Dev模式返回403
+- **新增**：高级模式中间件保护，减少不必要的Xray操作开销
 
 章节来源
 - [backend/internal/server/auth.go:24-34](file://backend/internal/server/auth.go#L24-L34)
@@ -709,12 +816,13 @@ ES --> CFG["配置服务(config.go)"]
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
 - [backend/internal/server/server.go:239-258](file://backend/internal/server/server.go#L239-L258)
 - [backend/internal/server/settings_ops.go:35-37](file://backend/internal/server/settings_ops.go#L35-L37)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
 
 ## 故障排查指南
 - 常见状态码：
   - 400：参数校验失败/业务参数错误
   - 401：会话无效/短期Token无效
-  - 403：权限不足/最后管理员保护/生产环境限制
+  - 403：权限不足/最后管理员保护/生产环境限制/高级模式未开启
   - 404：资源不存在/版本缺失
   - 409：冲突（邮箱/标识重复）
   - 429：限流触发
@@ -730,16 +838,22 @@ ES --> CFG["配置服务(config.go)"]
   - 确认导入确认词为"IMPORT"
   - 检查文件格式与加密完整性
   - 查看导入后的会话失效情况
+- **新增**：高级模式问题排查
+  - 检查advanced_mode配置开关状态
+  - 验证Xray实例连接配置（api_addr、api_tag）
+  - 确认节点检测刷新是否成功
+  - 检查独立账号推送目标是否有效
 
 章节来源
 - [backend/internal/server/server.go:225-237](file://backend/internal/server/server.go#L225-L237)
 - [backend/internal/server/settings.go:340-359](file://backend/internal/server/settings.go#L340-L359)
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
-- [backend/internal/server/settings_ops.go:67-76](file://backend/internal/server/settings_ops.go#L67-L76)
+- [backend/internal/server/settings_ops.go:67-76](file://backend/internal/server/settings_ops.go#L67-76)
 - [backend/internal/config/export.go:68-74](file://backend/internal/config/export.go#L68-L74)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
 
 ## 结论
-本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。**重大更新**：配置导入导出功能现已全面支持Xray实例数据的完整导出与管理，格式版本升级至2，包含所有实例字段和slug保持机制。新增的配置导入导出接口提供了安全的配置备份与迁移能力，支持高级模式配置同步和严格的整体覆盖语义。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
+本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。**重大更新**：系统现已全面支持Xray实例管理和独立账号功能，通过高级模式中间件保护高级端点，提供完整的实例CRUD、节点检测、账号对账、独立账号管理等高级特性。新增的配置导入导出接口提供了安全的配置备份与迁移能力，支持高级模式配置同步和严格的整体覆盖语义。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
 
 ## 附录
 
@@ -794,18 +908,72 @@ DB-->>ExportSvc : 配置数据
 ExportSvc->>ExportSvc : Argon2id + AES-GCM加密
 ExportSvc-->>API : 加密数据
 API-->>Admin : 加密文件下载
-Note over Admin,ExportSvc : 格式版本v2，支持Xray实例数据
+Note over Admin,ExportSvc : 格式版本v2，支持Xray实例数据和独立账号
 ```
 
 图表来源
 - [backend/internal/server/settings_ops.go:56-80](file://backend/internal/server/settings_ops.go#L56-L80)
 - [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
 
+### Xray实例管理流程
+```mermaid
+sequenceDiagram
+participant Admin as "管理员"
+participant API as "Xray API"
+participant AdvancedMW as "高级模式中间件"
+participant XraySvc as "Xray服务"
+participant XrayCore as "Xray核心"
+Admin->>API : POST /api/admin/xray/instances
+API->>AdvancedMW : advancedMode检查
+AdvancedMW-->>API : 允许
+API->>XraySvc : 创建实例
+XraySvc->>DB : 保存实例配置
+DB-->>XraySvc : 成功
+XraySvc->>XrayCore : 测试连接
+XrayCore-->>XraySvc : 连接结果
+XraySvc-->>API : 返回实例信息
+API-->>Admin : 创建成功
+```
+
+图表来源
+- [Design2.md:375-376](file://Design2.md#L375-L376)
+- [Design2-UI.md:514-517](file://Design2-UI.md#L514-L517)
+
+### 独立账号管理流程
+```mermaid
+sequenceDiagram
+participant Admin as "管理员"
+participant API as "独立账号API"
+participant AdvancedMW as "高级模式中间件"
+participant ExtSvc as "独立账号服务"
+participant DB as "数据库"
+Admin->>API : POST /api/admin/xray/ext
+API->>AdvancedMW : advancedMode检查
+AdvancedMW-->>API : 允许
+API->>ExtSvc : 创建独立账号
+alt 自动生成凭据
+ExtSvc->>ExtSvc : 生成UUID + 高熵密码
+else 手填接管
+ExtSvc->>ExtSvc : 验证凭据格式
+end
+ExtSvc->>DB : 保存账号信息
+DB-->>ExtSvc : 成功
+ExtSvc->>XrayCore : AddUser推送至目标节点
+XrayCore-->>ExtSvc : 推送结果
+ExtSvc-->>API : 返回账号信息
+API-->>Admin : 创建成功
+```
+
+图表来源
+- [Design2.md:401-411](file://Design2.md#L401-L411)
+- [Design2-UI.md:522-524](file://Design2-UI.md#L522-L524)
+
 ### 配置导入导出特性对比
 | 特性 | 基础版 | 增强版(v2) |
 |------|--------|------------|
 | 格式版本 | v1 | v2 |
 | Xray实例数据 | ✗ | ✓ |
+| 独立账号数据 | ✗ | ✓ |
 | 实例字段完整度 | ✗ | name/slug/api_addr/api_tag/enabled |
 | Slug保持机制 | ✗ | ✓ |
 | 高级模式同步 | ✗ | ✓ |
@@ -816,3 +984,6 @@ Note over Admin,ExportSvc : 格式版本v2，支持Xray实例数据
 - [backend/internal/server/settings_ops.go:56-80](file://backend/internal/server/settings_ops.go#L56-L80)
 - [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
 - [Design2.md:259](file://Design2.md#L259)
+- [Design2.md:375-376](file://Design2.md#L375-L376)
+- [Design2.md:401-411](file://Design2.md#L401-L411)
+- [Design2-UI.md:514-524](file://Design2-UI.md#L514-L524)
