@@ -161,7 +161,7 @@ Step 6 ──▶ Step 7（端到端验收）
      - 预设组种子写入 `proxy_groups`：9 个预设组，`enabled=1`，`type='preset'`，`definition_json` 含组类型与默认成员「直接连接」（**空节点数组 + 子组数组 `["直接连接"]`**）。
   2. **修改 `backend/internal/dataclear/dataclear.go`**：`ClearTablesTx` 的表清单改为下方顺序；**必须移除 `subscription_group_rel`、`group_selections`**（迁移后这两张表已不存在，继续 DELETE 会报错）；新增 13 张增量表。
   3. **修改 `backend/internal/dataclear/dataclear_test.go`**：其 fstest.MapFS 增补 1009 简表定义（新表名与列可简化，但必须包含清表清单引用的所有表名）；断言保持不变，新增「13 张增量表可被清空」的用例（向其中若干表插 1 行，清空后计数为 0）。
-  4. **不改其它代码**：本 Step 之后、Step 2 完成之前，**不要启动旧业务服务**（旧代码仍引用已 DROP 的两张表，属预期过渡态）；只执行编译与单测验收。
+  4. **启动验证口径**：本 Step 允许启动旧业务服务做迁移与 `/health` 验证；若旧代码因已 DROP 的两张表在业务端点报错，属预期过渡态，按全新部署口径清空已有数据重新开始（不要用旧业务库做验收）。
 
 - **参考代码/伪代码：**
 
@@ -354,7 +354,7 @@ Step 6 ──▶ Step 7（端到端验收）
 
   -- 预设代理组种子（Design2 §3.3）：名称 + 组类型 + 默认成员「直接连接」；管理员后续可编辑成员
   INSERT INTO proxy_groups (name, type, preset_key, enabled, definition_json) VALUES
-    ('YouTube',     'preset', 'youtube',         1, '{"type":"url-test","nodes":[],"groups":["直接连接"]}'),
+    ('YouTube',     'preset', 'youtube',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
     ('Netflix',     'preset', 'netflix',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
     ('哔哩哔哩',    'preset', 'bilibili',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
     ('国外流媒体',  'preset', 'global-streaming', 1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
@@ -369,7 +369,7 @@ Step 6 ──▶ Step 7（端到端验收）
   DROP TABLE subscription_group_rel;
   ```
 
-  > 预设组名称用上表**无 emoji 明文名**（与迁移种子口径一致；渲染时名称即代理组名）。`YouTube` 组类型按 Design2 §3.3 示例取 `url-test`，其余 `select`。若 SQLite 版本对 partial index 或 CHECK 报错，先确认 SQLite ≥3.35（本项目基线已满足）。
+  > 预设组名称用上表**无 emoji 明文名**（与迁移种子口径一致；渲染时名称即代理组名）。`YouTube` 组类型与 `Clash.yaml.template.md` 作者配置一致取 `select`，其余 `select`。若 SQLite 版本对 partial index 或 CHECK 报错，先确认 SQLite ≥3.35（本项目基线已满足）。
 
   **2. `backend/internal/dataclear/dataclear.go` 的 `ClearTablesTx` 表清单（严格按此顺序）**
 
@@ -691,19 +691,20 @@ Step 6 ──▶ Step 7（端到端验收）
   3. **`backend/internal/pool/sync.go`**：同步任务。
      - `SubmitSync(ctx, poolID)`：先查池存在与「是否已有 running 任务」，有则返回 `ErrSyncRunning`（409）；事务插入 `pool_sync_tasks(status='running')`，返回 task id；提交后启动 goroutine `runSyncTask`。
      - `runSyncTask`：串行拉取全部 URL（`http.Client{Timeout: 60s}`，`io.LimitReader(50MB+1)`）；每个 URL 结果 `{url, ok, added, removed, skipped, error}`；**任一 URL 失败、空响应或零有效条目，则该 URL ok=false；只有全部 URL 成功才执行 url 来源差量删除**；成功 URL 的条目照常 upsert。
-     - 入库（单个事务）：新 url 条目 sort_order 从 `urlSortBase + 当前 url 段最大序号 + 1` 起追加；**既有条目 sort_order 一律不改写**；删除仅删 `source='url'` 且不在本次成功结果并集中的行，且只在无任何失败时执行。manual 条目不触碰。
+     - 入库（单个事务）：新 url 条目 sort_order 从 `MAX(当前 URL 段最大序号, urlBase-1)+1` 起追加；**既有条目 sort_order 一律不改写**；删除仅删 `source='url'` 且不在本次成功结果并集中的行，且只在无任何失败时执行。manual 条目不触碰。
      - 终态写回任务行（succeeded/failed/partial）并更新 rule_pools.last_synced_at/sync_status/sync_error。
      - `GetStatus(ctx, poolID)`：读最近一次任务，返回 `{task_id,status,per_url,started_at,finished_at,error}`。
+       - `ListTasks(ctx, poolID, page, pageSize)`：按 id DESC 分页读历史任务（供 UI §5.2.2 历史列表）。
   4. **`backend/internal/pool/sort.go`（或并入 pool.go）**：排序口径实现。
-     - `sortOrderManual` 从 0 起；`sortOrderURLBase = 1 << 30`（manual 段恒小于 url 段）。manual 新增取 `MAX(sort_order)+1`（当 max < urlBase 时）；url 新增取 `MAX(sort_order, urlBase-1)+1`。注释说明「两段拼接、系统维护」。
+     - `sortOrderManual` 从 0 起；`sortOrderURLBase = 1 << 30`（manual 段恒小于 url 段）。**manual 新增取 manual 段内 `MAX(sort_order WHERE sort_order < urlBase)+1`；url 新增取 URL 段内 `MAX(sort_order, urlBase-1)+1`**；两段各自维护，互不穿越。注释说明「两段拼接、系统维护」。
   5. **`backend/internal/server/pool.go`**：路由 `/api/admin/pools`（session+admin）：
      - `GET /api/admin/pools`；`POST /api/admin/pools`；`PUT/DELETE /api/admin/pools/:id`；
      - `GET /api/admin/pools/:id/entries?page=&page_size=`（默认 20，上限 100）；
      - `POST/PUT/DELETE /api/admin/pools/:id/entries(/:entryId)`；
-     - `POST /api/admin/pools/:id/sync` → `{task_id}`；`GET /api/admin/pools/:id/sync/status` → 状态形状按 Design2-UI §9.1。
+     - `POST /api/admin/pools/:id/sync` → `{task_id}`；`GET /api/admin/pools/:id/sync/status` → 状态形状按 Design2-UI §9.1；`GET /api/admin/pools/:id/sync/tasks?page=&page_size=` → 历史任务分页列表（同 UI §9.1 listSyncTasks）。
   6. **`backend/internal/server/server.go`**：构造 `poolSvc := pool.NewService(st, log)`，注册 `RegisterPoolRoutes`。
   7. **`backend/internal/cron/pool.go` 或并入现有 cron 包**：`StartPoolAutoSync(db, poolSvc, lg)` 每 1 分钟 tick：查 `auto_sync=1 AND sync_time=?`（当前 UTC `15:04`）的池，逐个 `SubmitSync`；已有 running 或 ErrSyncRunning 跳过；返回 stop 函数。**同一分钟内只触发一次**（用 `lastRun map[string]bool` 或 DB running 判重）。
-  8. **`backend/cmd/server/main.go`**：启动时执行 `UPDATE pool_sync_tasks SET status='failed', error='服务重启，任务中断', finished_at=CURRENT_TIMESTAMP WHERE status='running'`（若表存在——1009 后必存在）；`StartPoolAutoSync` 启动并注册 stop。
+  8. **`backend/cmd/server/main.go`**：启动时执行 `UPDATE pool_sync_tasks SET status='failed', error='服务重启，任务中断', finished_at=CURRENT_TIMESTAMP WHERE status='running'`，并**同步执行 `UPDATE rule_pools SET sync_status='failed', sync_error='服务重启，任务中断' WHERE id IN (SELECT DISTINCT pool_id FROM pool_sync_tasks WHERE status='failed' AND error='服务重启，任务中断')`**（快照与任务行一致，Design2Report8 P2-3）；`StartPoolAutoSync` 启动并注册 stop。
   9. **单测**：parser 全规则类型/白名单/零条目；sort 两段；sync 用 `httptest.Server` 覆盖「全成功差量删除」「单 URL 失败不删除」「空响应失败」「零条目保护」；CRUD 唯一冲突与分页。
 
 - **参考代码/伪代码：**
@@ -783,16 +784,17 @@ Step 6 ──▶ Step 7（端到端验收）
   1. **`frontend/src/api/request.ts`**：新增 `pollTask` 与单请求 timeout 覆写能力（契约严格按 Design2-UI §9.2）：
      - `pollTask({submit, query, interval=1500, timeout=5*60*1000})`；终态 `succeeded/failed/partial`；超时抛特定错误；返回 `{result, cancel}`；连续 3 次网络失败才终止。
      - `http` 调用支持 `config.timeout` 覆写（axios 原生即可，封装一个便捷函数 `httpWithTimeout` 或文档说明直接传 config；禁止改全局 15s 默认值）。
-  2. **`frontend/src/api/pool.ts`**：函数与类型完全按 Design2-UI §9.1 `api/pool.ts` 表实现（`listPools/createPool/updatePool/deletePool/listEntries/createEntry/updateEntry/deleteEntry/submitSync/getSyncStatus`）。
+  2. **`frontend/src/api/pool.ts`**：函数与类型完全按 Design2-UI §9.1 `api/pool.ts` 表实现（`listPools/createPool/updatePool/deletePool/listEntries/createEntry/updateEntry/deleteEntry/submitSync/getSyncStatus/listSyncTasks`）。
   3. **`frontend/src/views/admin/AssemblyView.vue`**：重写为 `PageHeader` + `a-tabs` 五页签（key：`pool/clash-yaml/sr-subs/generic-subs/sr-conf`）；URL query `?tab=` 驱动，无效回退 `pool`；每个页签懒加载/独立挂载；`pool` 页签实现，其余四个渲染 `a-result`「将在下一轮构建实现」占位（**不要**沿用旧的「即将推出」整页占位）。
   4. **新建池页签子组件**（建议 `frontend/src/views/admin/assembly/PoolTab.vue`、`PoolDetail.vue`、`PoolFormModal.vue`，目录不存在则创建）：
      - 池列表双态列表（≥768 表格 / <768 卡片）：池名、URL 数、条目数、上次同步（本地时区）、同步状态 Badge（色系：pending 橙 / running 蓝 processing / succeeded 绿 / failed 红 / partial 橙；失败附原因 Tooltip）、定时同步行内 `a-switch` + 「每日 04:00 UTC」、操作（详情/同步/编辑/删除）。
      - 新建/编辑弹窗 480px：名称 + URL 动态列表（http/https 校验）+ 定时开关与 `a-time-picker`（副说明 UTC）。
      - 详情面包屑「素材池 / {池名}」：顶部信息条 + 条目分页表（默认 20/页；来源 manual/url 段分隔标题行；规则类型 Tag、匹配值 code、手动条目增删改；不提供条目级排序控件）。
+     - **同步历史列表**：详情页内分区/弹窗分页展示最近 N 条任务（状态 Badge、开始/结束时间、逐 URL 明细摘要、错误 Tooltip），调用 `listSyncTasks`（Design2-UI §5.2.2）。
      - 同步流：点「同步」→ `submitSync` 得 task_id → `pollTask` 轮询 `getSyncStatus` → 按钮 loading、池行/详情「同步中…」；终态展示逐 URL 回执（成功/失败/部分失败文案按 Design2-UI §5.2.3）；进行中再点提示「同步进行中，请等待完成」；组件卸载调用 cancel（后端任务不中断）。
      - 删除池 ConfirmModal：「池内 N 条条目将级联删除；已装配版本为快照不受影响」。
   5. **`frontend/src/views/admin/AssemblyView.vue` 之外的复用**：`PageHeader`/`CopyField`（Step 4 已建）在池页使用；`TriStateList`/`ConfirmModal`/`Notify` 沿用。
-  6. **前端单测**：新增 `frontend/tests/pool-tab.spec.ts` 与 `request-poll.spec.ts`（mock axios），覆盖列表加载、同步轮询终态与卸载取消、进行中重复触发提示、空态文案。
+  6. **前端单测**：新增 `frontend/tests/pool-tab.spec.ts` 与 `request-poll.spec.ts`（mock axios），覆盖列表加载、同步轮询终态与卸载取消、进行中重复触发提示、**同步历史列表分页**、空态文案。
 
 - **参考代码/伪代码：**
 
@@ -891,3 +893,4 @@ Step 6 ──▶ Step 7（端到端验收）
 | v1.0 | 2026-08-19 | 初始版本：Build4 构建方案（Go 1.26 + 1009 迁移 + 旧分发拆除 + 规则素材池），7 个 Step；后续 Build5/6/7 范围说明 |
 | v1.1 | 2026-08-19 | Design2Report5 核验修订：预设组种子默认成员改为 `groups:["直接连接"]`（空节点数组）；首页 home_rule 字段统一为 `{rule_id,name,current_version,token,download_url}` |
 | v1.2 | 2026-08-19 | Design2Report7 核验修订：Step2 grep 验收命令限定 backend/frontend 目录（P2-6）；Step4 status.go 注记 `traffic_card_enabled` 由 Build6 Step5 补入（Q3） |
+| v1.3 | 2026-08-19 | Design2Report8 修订：Step1 允许启动旧服务做迁移/健康验证并可清空数据重新开始（P2-1）；YouTube 种子改 select（P2-16）；两段排序 manual/URL 各自维护（Q6）；启动同步刷新 rule_pools 快照（P2-3）；池历史任务端点与 UI（Q12） |
