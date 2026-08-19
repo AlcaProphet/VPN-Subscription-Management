@@ -27,13 +27,13 @@
 | 节点凭据加密 | AES-256-GCM（复用签名密钥派生机制）；密文字段编辑回显空值 = 保留原凭据 | Design2 §3.2 |
 | 代理组名称规则 | name 创建后不可改；禁止控制字符、逗号、首尾空白，允许中文/emoji；**创建时不得与任一节点有效渲染名、强制组名或 Clash/mihomo 内建保留代理名重复，冲突 409** | Design2 §3.3 |
 | 代理组类型 | `select` / `url-test` / `fallback`（三枚举）；名称创建后不可改，**组类型创建后允许修改**；名称字符集同节点 | Design2 §3.3 |
-| 强制组 | 直接连接（DIRECT）/ 国外流量 / 无法归属的流量（MATCH 兜底目标）；系统内置渲染结构，**不入 proxy_groups 表** | Design2 §3.3 |
-| 代理组内容约束 | 至少含节点 / 「直接连接」组 / 「国外流量」组三者之一；子组引用 DAG，禁止环形 | Design2 §3.3 |
+| 强制组 | 🚀直接连接（成员固定 [DIRECT]）/ 🌎国外流量 / 🛟无法归属的流量（MATCH 兜底目标，成员固定 [🚀直接连接, 🌎国外流量]）；系统内置渲染结构，**不入 proxy_groups 表**，组名与模板逐字一致 | Design2 §3.3 |
+| 代理组内容约束 | 至少含节点 / 「🚀直接连接」组 / 「🌎国外流量」组三者之一；子组引用 DAG，禁止环形 | Design2 §3.3 |
 | 规则类型 | DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / IP-CIDR / IP-CIDR6 / PROCESS-NAME / PROCESS-NAME-REGEX / USER-AGENT（Clash 渲染跳过 USER-AGENT 并提示） | Design2 §3.5 |
 | IP 规则 | IP-CIDR / IP-CIDR6 一律附加 `no-resolve` | Design2 §3.5 |
-| Clash 兜底 | `GEOIP,CN,直接连接` + `MATCH,无法归属的流量`（固定） | Design2 §3.6 |
+| Clash 兜底 | `GEOIP,CN,DIRECT` + `MATCH,🛟无法归属的流量`（固定，与模板逐字一致） | Design2 §3.6 |
 | SR 兜底 | `GEOIP,CN,DIRECT` 固定；`FINAL` 方向表单二选一，默认 `FINAL,PROXY` | Design2 §3.6 |
-| 空产物硬校验 | Clash「国外流量」至少 1 个节点否则拒绝；SR subs/generic-subs 至少 1 个且转换后有效链接 ≥1，否则拒绝；规则为空允许生成 | Design2 §4.1 |
+| 空产物硬校验 | Clash「🌎国外流量」至少 1 个节点否则拒绝；SR subs/generic-subs 至少 1 个且转换后有效链接 ≥1，否则拒绝；规则为空允许生成 | Design2 §4.1 |
 | 生成与激活 | 生成/上传一律 `activate=false`（首版 current_version=0 自动激活除外）；后续版本由「激活/分发」显式切换 | Design2 §4.4 |
 | 快照 | `assembly_blueprints.version_id` 1:1；Clash 另存 render_plan_json；直接上传版本无 blueprint | Design2 §4.4/§5.9 |
 | 默认文件名 | clash-yaml→`.yaml`、sr-subs/generic-subs→`.txt`、sr-conf→`.conf`；直接上传保留原始扩展名 | Design2 §5.7 |
@@ -122,7 +122,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `GET /api/admin/nodes/protocols` 返回 `{list:[{protocol, label, form_schema, link_mappings, sensitive_fields}]}`（前端动态渲染表单；`link_mappings` 描述该协议的 SR/标准链接映射能力与参数名，按 Design2-UI §9.1 契约）。
   2. **`backend/internal/node/node.go`**：服务与 CRUD。
      - `Node` 结构对应表字段（含 `DisplayName *string`），`ProtocolJSON map[string]any`；`RenderName()` 返回有效渲染名（DisplayName 非空则用之，否则 Name）。
-     - `CreateManual`：名称校验（禁止控制字符/逗号/**空格**/首尾空白，允许中文 emoji；`name != strings.TrimSpace(name)`、`strings.Contains(name, ",")`、`strings.Contains(name, " ")` 或含 `<0x20/0x7F` 拒绝）；`nodes.name` 全局唯一（409）；**跨命名空间校验：有效渲染名不得与任一节点有效渲染名、proxy_groups.name、强制组名「直接连接 / 国外流量 / 无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**；host/port 校验；protocol 在注册表；按注册表 field schema 校验 protocol_json；敏感字段值加密。
+     - `CreateManual`：名称校验（`ValidateNodeName`：禁止控制字符/逗号/**空格**/首尾空白，允许中文 emoji；`name != strings.TrimSpace(name)`、`strings.Contains(name, ",")`、`strings.Contains(name, " ")` 或含 `<0x20/0x7F` 拒绝）；`nodes.name` 全局唯一（409）；**跨命名空间校验：有效渲染名不得与任一节点有效渲染名、proxy_groups.name、强制组名「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**；host/port 校验；protocol 在注册表；按注册表 field schema 校验 protocol_json；敏感字段值加密。
      - 敏感字段存储格式统一 `"enc:v1:" + base64.RawURLEncoding(...)`，加解密复用 `config.Encrypt/Decrypt`（签名密钥从 config 读取；测试用固定密钥）。`decryptProtocolJSON` 在渲染/读取时恢复明文；**列表接口不返回凭据明文**（敏感字段返回空串/`***`，按 UI 脱敏口径）。
      - `UpdateManual`：名称只读（请求带 name 且与库不一致 → 400）；编辑回显凭据字段空值 = 保留原密文；其余字段按新值替换；协议变更允许但必须整体校验（Build 期决策：协议变更等价重新填表，不保留不兼容旧字段）。
      - `SetDisplayName(ctx, id, displayName)`：**仅 source=xray**（manual 400）；空串 → 写 NULL（清空回退 name）；非空走名称字符集校验 + **有效渲染名唯一（排除自身，表达式唯一索引兜底）** + **跨命名空间校验（不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名重复）**；冲突 409；本 Build 仅落库，不触发任何 Xray 推送/候选集重算。
@@ -137,14 +137,26 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
 - **参考代码/伪代码：**
 
-  **名称校验**
+  **名称校验（两个导出函数，字符集不同，禁止混用）**
 
   ```go
-  func validateNodeName(name string) error {
+  // ValidateNodeName：节点名（manual 录入名与 xray 系统名），禁止空格
+  func ValidateNodeName(name string) error {
       if name == "" || len([]rune(name)) > 128 { return errors.New("名称不能为空且不超过 128 字符") }
       if name != strings.TrimSpace(name) { return errors.New("名称禁止首尾空白") }
       if strings.Contains(name, ",") { return errors.New("名称禁止逗号") }
       if strings.Contains(name, " ") { return errors.New("名称禁止空格") }
+      for _, r := range name {
+          if r < 0x20 || r == 0x7f { return errors.New("名称禁止控制字符") }
+      }
+      return nil
+  }
+
+  // ValidateProxyGroupName：代理组名，允许空格（Design2 §3.3 组名不禁空格），其余同节点名
+  func ValidateProxyGroupName(name string) error {
+      if name == "" || len([]rune(name)) > 128 { return errors.New("名称不能为空且不超过 128 字符") }
+      if name != strings.TrimSpace(name) { return errors.New("名称禁止首尾空白") }
+      if strings.Contains(name, ",") { return errors.New("名称禁止逗号") }
       for _, r := range name {
           if r < 0x20 || r == 0x7f { return errors.New("名称禁止控制字符") }
       }
@@ -158,9 +170,9 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
   }
 
   // 跨命名空间校验：有效渲染名不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名重复
-  func checkRenderNameNamespace(ctx context.Context, tx *sql.Tx, name string) error {
+  func CheckRenderNameNamespaceTx(ctx context.Context, tx *sql.Tx, name string) error {
       switch name {
-      case "直接连接", "国外流量", "无法归属的流量",
+      case "🚀直接连接", "🌎国外流量", "🛟无法归属的流量",
           "DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE":
           return errors.New("节点名称不得与代理组/强制组/内建保留代理名重复")
       }
@@ -216,25 +228,25 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
   1. **`backend/internal/proxygroup/proxygroup.go`**：
      - `Group { ID, Name, Type, PresetKey, Enabled, Definition }`；`Definition { GroupType string; Nodes []string; Groups []string }`（有序）。
-     - 名称校验复用 node 的同一字符集规则（提取 `internal/nodename` 或导出 `node.ValidateName`；禁止复制两份不同实现）；**跨命名空间校验使用 node 包导出的 `CheckNameNamespaceTx`：组名不得与任一节点有效渲染名、强制组名「直接连接 / 国外流量 / 无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**。
+     - 名称校验用 `node.ValidateProxyGroupName`（**组名允许空格**，与节点名 `ValidateNodeName` 禁空格口径不同；共用字符集规则提取 `internal/nodename` 或由 node 包导出，禁止复制两份不同实现）；**跨命名空间校验使用 node 包导出的 `CheckRenderNameNamespaceTx`：组名不得与任一节点有效渲染名、强制组名「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**。
      - `CreateCustom(name, groupType string, def Definition)`：type=custom；name 唯一 + 跨命名空间校验；groupType ∈ select/url-test/fallback；校验定义。
      - `Update(id, groupType, def)`：preset 与 custom 均可编辑成员；**name/preset_key 不可改，groupType 允许修改（三枚举校验）**；preset 的 `enabled` 通过 `SetPresetEnabled` 单独切换。
      - `Delete`：preset 不可删；custom 删除（**历史装配快照悬空容错，不做反向约束；被其他代理组作为子组引用时允许删除，引用组编辑页按悬空红标剔除处理**）。
      - `List`/`Get`；`SetPresetEnabled`。
      - 校验函数：
-       - 节点引用必须存在于 `nodes` 表（不含 `source` 限制；xray 行也允许引用）；子组引用允许 `直接连接`、`国外流量`（强制组常量）或 `proxy_groups` 中其他组。
+       - 节点引用必须存在于 `nodes` 表（不含 `source` 限制；xray 行也允许引用）；子组引用允许 `🚀直接连接`、`🌎国外流量`（强制组常量）或 `proxy_groups` 中其他组。
        - **DAG 校验**：建图 `groupName -> []subGroups`，检测自环与环（DFS 三色）；节点名是叶子。
-       - **内容约束**：节点数组非空，或子组数组包含「直接连接」/「国外流量」；否则 400「代理组至少需直接包含一个节点、直接连接组或国外流量组」。
+       - **内容约束**：节点数组非空，或子组数组包含「🚀直接连接」/「🌎国外流量」；否则 400「代理组至少需直接包含一个节点、🚀直接连接组或🌎国外流量组」。
   2. **`backend/internal/server/proxy_group.go`**：`/api/admin/proxy-groups` CRUD + `PUT /:id/preset-toggle`。错误 400/404/409。
   3. **`backend/internal/server/server.go`** 注册。
-  4. **单测**：DAG 环（A→B→A）、自环、引用不存在节点/组、强制组引用合法、内容为空拒绝、**只有自定义子组拒绝、只有节点/直接连接通过**、组名与节点有效渲染名/强制组名/内建保留名冲突 409、**组类型修改成功与非法类型 400**、预设不可删/名不可改、**预设种子（groups:["直接连接"]）可加载/可编辑/可渲染**、种子启用默认 1。
+  4. **单测**：DAG 环（A→B→A）、自环、引用不存在节点/组、强制组引用合法、内容为空拒绝、**只有自定义子组拒绝、只有节点/🚀直接连接通过**、组名与节点有效渲染名/强制组名/内建保留名冲突 409、**组类型修改成功与非法类型 400**、预设不可删/名不可改、**预设种子（groups:["🚀直接连接"]）可加载/可编辑/可渲染**、种子启用默认 1。
 
 - **参考代码/伪代码：**
 
   **Definition JSON 结构（库中存字符串）**
 
   ```json
-  { "type": "select", "nodes": ["节点A", "节点B"], "groups": ["直接连接"] }
+  { "type": "select", "nodes": ["节点A", "节点B"], "groups": ["🚀直接连接"] }
   ```
 
   **DAG 校验核心**
@@ -243,7 +255,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
   func validateDAG(groups []proxygroupRow) error {
       const (white, gray, black = 0, 1, 2)
       color := map[string]int{}
-      // 先建邻接表；对每个 group 做 DFS，命中 gray 即环；强制组「直接连接/国外流量」无定义视为叶子
+      // 先建邻接表；对每个 group 做 DFS，命中 gray 即环；强制组「🚀直接连接/🌎国外流量」无定义视为叶子
   }
   ```
 
@@ -276,8 +288,8 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - 头部按 `FixedParams` 输出（用 `gopkg.in/yaml.v3` 序列化 `map[string]any`，保证键序按输入顺序——yaml.v3 的 MapSlice 或自定义 `yaml.MapSlice`；**必须保留管理员填写顺序**）。
      - `proxies:`：manual 选中节点输出 `{name: renderName(node), type, server, port, ...protocol_json}`，**禁止输出 name/type/server/port 之外的冲突字段覆盖**；敏感字段解密后输出。
      - 勾选 xray 节点时在 proxies 区写注释行 `# {{xray_nodes}}`（占位），否则不写。
-     - `proxy-groups:`：先三个强制组（直接连接=DIRECT；国外流量=本次 overseas members；无法归属的流量=[DIRECT, 国外流量]），再按勾选顺序输出预设/自建组定义（子组名原样；节点成员按 `renderName(node)` 输出，xray 节点同样适用）。
-     - `rules:`：勾选池按序、池内条目按序输出 `- TYPE,VALUE,TARGET`；IP 类加 `no-resolve`；**USER-AGENT 跳过并记录**；手动规则行追加在池后（同目标规则格式）；末尾固定 `- GEOIP,CN,直接连接`、`- MATCH,无法归属的流量`。
+     - `proxy-groups:`：先三个强制组（🚀直接连接=DIRECT；🌎国外流量=本次 overseas members；🛟无法归属的流量=[🚀直接连接, 🌎国外流量]），再按勾选顺序输出预设/自建组定义（子组名原样；节点成员按 `renderName(node)` 输出，xray 节点同样适用）。
+     - `rules:`：勾选池按序、池内条目按序输出 `- TYPE,VALUE,TARGET`；IP 类加 `no-resolve`；**USER-AGENT 跳过并记录**；手动规则行追加在池后（同目标规则格式）；末尾固定 `- GEOIP,CN,DIRECT`、`- MATCH,🛟无法归属的流量`（与模板逐字一致）。
      - `render_plan_json`：结构化保存头部、manual proxies、proxy-groups 结构（含引用关系）、rules 与兜底；**节点引用在计划内统一存 `nodes.name` 稳定键**，Build6 下载重渲染时按节点表实时映射 `renderName`（字段可自行设计但必须自包含且能无状态重建全文）。
   4. **`backend/internal/assembly/render_sr.go`**：
      - `sr-conf`：`[General]` 按 FixedParams 输出 `key = value`；`[Rule]` 条目 + `GEOIP,CN,DIRECT` + `FINAL,{PROXY|DIRECT}`；USER-AGENT 保留；IP 加 no-resolve。
@@ -295,11 +307,11 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - **不可转协议**：snell/mieru/masque/openvpn/ssh/shadowquic/trusttunnel/tailscale → `SkipItem{Kind:"node", Name:..., Reason:"协议无标准链接映射"}`。
   6. **`backend/internal/assembly/validate.go`**：
      - 输入存在性与语法目标匹配（clash-yaml→platform product_type=yaml；sr-subs→subs；generic-subs→generic-subs；sr-conf→rule）；**目标平台必须已存在订阅条目，否则 400「请先在订阅管理为该平台创建订阅条目」**。
-     - 规则类型白名单（与 pool 共用校验函数）；**规则目标组必须属于本次渲染输出的代理组集合，其中强制组「直接连接 / 国外流量 / 无法归属的流量」允许作为目标**；**勾选的代理组定义中悬空节点/子组引用拒绝生成（400 定位到具体组）**；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**。
+     - 规则类型白名单（与 pool 共用校验函数）；**规则目标组必须属于本次渲染输出的代理组集合，其中强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为目标**；**勾选的代理组定义中悬空节点/子组引用拒绝生成（400 定位到具体组）**；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**。
      - **勾选节点可用性校验**：xray 节点必须 enabled=1 / allocatable=1 / missing=0 / 所属实例 enabled=1，否则拒绝生成并提示具体节点（前端已置灰，后端兜底）。
-     - 空产物校验：Clash `overseas members` 为空拒绝（文案「『国外流量』组未包含任何节点」）；sr-subs/generic-subs 选中节点为空或转换后有效链接为 0 拒绝。
+     - 空产物校验：Clash `overseas members` 为空拒绝（文案「『🌎国外流量』组未包含任何节点」）；sr-subs/generic-subs 选中节点为空或转换后有效链接为 0 拒绝。
      - 规则为空允许生成（返回提示而非错误，提示由 Skipped/Warning 携带）。
-  7. **单测（本 Step 重点）**：golden 测试四种产物（输入固定，比对关键行与占位标记有无；**含 xray 节点 display_name 非空与空回退两种渲染分支**）；链接编码与 `Shadowrocket.subs.template.md` 样例形态一致；中文名/emoji、punycode、空格转义；USER-AGENT Clash 跳过；IP no-resolve；兜底顺序；空产物校验；**停用预设组拒绝生成**；**悬空代理组引用/未勾选目标组/不可用 xray 节点/平台无订阅行拒绝生成**；**1 万规则渲染 benchmark 测试（`BenchmarkRenderClash10kRules`）**。
+  7. **单测（本 Step 重点）**：golden 测试四种产物（输入固定，比对关键行与占位标记有无；**含 xray 节点 display_name 非空与空回退两种渲染分支**）；链接编码与 `Shadowrocket.subs.template.md` 样例形态一致；中文名/emoji、punycode、空格转义；USER-AGENT Clash 跳过；IP no-resolve；兜底顺序；空产物校验；**停用预设组拒绝生成**；**悬空代理组引用/未勾选目标组/不可用 xray 节点/平台无订阅行拒绝生成**；**1 万规则渲染 benchmark 测试（`BenchmarkRenderClash10kRules` 与 `BenchmarkRenderSrConf10kRules` 双具名，各配阈值断言测试）**。
 
 - **参考代码/伪代码：**
 
@@ -318,31 +330,31 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
       uuid: ...
     # {{xray_nodes}}
   proxy-groups:
-    - name: "直接连接"
+    - name: "🚀直接连接"
       type: select
       proxies: [DIRECT]
-    - name: "国外流量"
+    - name: "🌎国外流量"
       type: select
-      proxies: ["节点A", "直接连接"]
-    - name: "无法归属的流量"
+      proxies: ["节点A", "🚀直接连接"]
+    - name: "🛟无法归属的流量"
       type: select
-      proxies: [DIRECT, "国外流量"]
+      proxies: ["🚀直接连接", "🌎国外流量"]
     - name: "🎬YouTube"
-      type: url-test
-      proxies: ["节点A", "直接连接"]
+      type: select
+      proxies: ["节点A", "🚀直接连接"]
   rules:
     - DOMAIN-SUFFIX,example.com,🎬YouTube
     - IP-CIDR,1.2.3.0/24,🎬YouTube,no-resolve
-    - GEOIP,CN,直接连接
-    - MATCH,无法归属的流量
+    - GEOIP,CN,DIRECT
+    - MATCH,🛟无法归属的流量
   ```
 
 - **测试与验收命令：**
 
   ```bash
   cd backend && go build ./... && go vet ./... && go test ./internal/assembly/... ./...
-  cd backend && go test ./internal/assembly -bench BenchmarkRenderClash10kRules -benchtime=1x
-  cd backend && go test ./internal/assembly -run TestRenderClash10kRulesThreshold -v  # 阈值断言测试（与 benchmark 同口径）
+  cd backend && go test ./internal/assembly -bench "BenchmarkRenderClash10kRules|BenchmarkRenderSrConf10kRules" -benchtime=1x
+  cd backend && go test ./internal/assembly -run "TestRenderClash10kRulesThreshold|TestRenderSrConf10kRulesThreshold" -v  # 阈值断言测试（与 benchmark 同口径）
   ```
 
 - **验收标准：** 全部测试通过；golden 产物满足模板语义；benchmark 达标；渲染内核无任何 HTTP/DB 写操作（仅注入只读加载器接口，便于测试）。
@@ -439,7 +451,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `AssemblerShell.vue`：双形态切换（`a-segmented` 分步/单页，localStorage `assembly_layout_mode` 共享）；步骤条动态隐藏跳过步骤（Clash 六步；SR subs/generic 五步跳④；sr-conf 五步跳③）；单页纵向分区 + 底部「预览产物」。
      - `TypeTargetStep.vue`：类型只读；目标平台按 product_type 过滤（无匹配时空态引导建平台）；sr-conf 目标规则实体选择（含空实体后缀与新建空规则快捷）。
      - `HeaderStep.vue`：Clash 头部表单（默认值按 `Clash.yaml.template.md` 头部内置常量预填）+「一键采用默认值」ConfirmModal；SR subs STATUS/REMARKS；sr-conf [General]；generic 无头部。
-     - `NodesGroupsStep.vue`：manual/xray 双来源分组；**xray 节点显示 render_name，有自定义 display_name 时副行系统名**；allocatable=0 置灰；missing=1 不列；代理组三区块（强制组锁定；预设组勾选；自建组勾选）；「国外流量」成员配置。
+     - `NodesGroupsStep.vue`：manual/xray 双来源分组；**xray 节点显示 render_name，有自定义 display_name 时副行系统名**；allocatable=0 置灰；missing=1 不列；代理组三区块（强制组锁定；预设组勾选；自建组勾选）；「🌎国外流量」成员配置。
      - `RulesStep.vue`：已勾选池有序列表（拖拽/上移下移）+ 每池目标选择 + 手动规则行；Clash 与 sr-conf 共用，目标控件分别为代理组选择与 PROXY/DIRECT；**Clash 场景手动规则行类型下拉排除 USER-AGENT**（Clash 不支持该类型，Design2 §3.5，Design2Report7 P2-3）。
      - `PreviewStep.vue`：`preview` 请求（不落库）→ 纯文本预览；「与当前激活版本对比」开关 → **先调用既有版本预览端点拉取当前激活版本原文** → `DiffView`；跳过项 `a-alert warning` 清单；占位标记旁 Tooltip；`name_changed` 非空时显示「用户下载按当前显示名实时渲染」Tooltip。
      - `GenerateStep.vue` / 回执：生成校验前端预检 + 后端兜底；成功 `a-result`「已入池未生效，请激活」（`auto_activated=true` 时「首个版本已自动激活」）+「去版本管理激活」/「继续装配」。
@@ -478,7 +490,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - 订阅/规则「激活/分发」文案与确认弹窗（分享/自定义保持「设为当前」）；首次自动激活提示。
   4. **`frontend/src/views/admin/RulesView.vue`**：规则版本页装配入口；空实体「可作为 SR 分流规则装配目标」引导。
   5. **`frontend/src/views/HomeView.vue`**：管理员「按平台预览当前版本」按钮接 `/api/subscriptions/preview?platform={slug}`（无 subscription_id）；弹窗纯文本，装配模板显示含 `# {{xray_nodes}}` 的原文。
-  6. **后端渲染 benchmark 收口**：确保 `BenchmarkRenderClash10kRules` 与 SR conf 同量级 benchmark 可跑并记录，并补 `TestRenderClash10kRulesThreshold` 阈值断言测试（<500ms）；若超过 500ms，先做 profile 定位（预编译模板/缓冲池/减少重复序列化），禁止通过降低产物完整性优化。
+  6. **后端渲染 benchmark 收口**：确认 Step3 的 `BenchmarkRenderClash10kRules` / `BenchmarkRenderSrConf10kRules` 与对应阈值断言测试（`TestRenderClash10kRulesThreshold` / `TestRenderSrConf10kRulesThreshold`，<500ms）可跑并记录结果（不重复新建）；若超过 500ms，先做 profile 定位（预编译模板/缓冲池/减少重复序列化），禁止通过降低产物完整性优化。
   7. **端到端手工动线**（全新库，Build4 数据可复用）：
      - 新建 manual 节点 2 个（vless + 不可转协议 snell）→ 代理组新建自建组 → Clash 装配：选平台、头部默认、勾节点、配置国外流量成员、勾素材池指向组 → 预览（含跳过项）→ 生成 → 订阅行「已入池未生效」→ 激活 → 用户端下载可读。
      - SR 节点订阅装配：勾 vless 成功、勾 snell 时预览提示跳过；只勾 snell 生成被 400 拒绝。
@@ -522,4 +534,5 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 | v1.1 | 2026-08-19 | Design2Report5 核验修订：代理组名双向命名空间校验；组类型创建后允许修改；组内容约束收紧为三选一口径；预设组种子回归；停用预设组拒绝装配；preview/generate 统一 120s；NodesGroupsStep 显示名双行展示 |
 | v1.2 | 2026-08-19 | Design2Report7 核验修订：Step4 新增 subs/generic-subs 装配模板下载整体 base64 实现步骤与单测（Q2，基础模式下载可用）；Step6 Clash 手动规则行类型下拉排除 USER-AGENT（P2-3） |
 | v1.3 | 2026-08-19 | Design2Report8 修订：节点/显示名禁止空格（P2-10）；代理组删除影响清单补悬空引用（P2-9）；装配严格校验（悬空引用/未勾选目标/不可用节点/平台无订阅行/强制组可作规则目标，Q10）；preview/generate/blueprint 响应补 skipped/warnings/name_changed（P2-5/P2-7）；预览 diff 复用版本预览端点（P2-6）；benchmark 命令与阈值断言修正（P2-2） |
+| v1.4 | 2026-08-19 | Design2Report9 修订：强制组 emoji 化连锁（约束表/校验常量/渲染伪代码/兜底行/YAML 示例，M4）；名称校验拆 `ValidateNodeName`（禁空格）/`ValidateProxyGroupName`（允许空格）并统一 `CheckRenderNameNamespaceTx` 函数名（M8）；SR conf benchmark 具名 `BenchmarkRenderSrConf10kRules` 与阈值测试、Step7 删重复（M10）；YouTube 示例组类型改 select 与种子一致 |
 

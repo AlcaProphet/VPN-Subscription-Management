@@ -159,7 +159,7 @@ Step 6 ──▶ Step 7（端到端验收）
 
   1. **创建 `backend/migrations/1009_xray.sql`**：内容按下述参考 SQL 完整写入，禁止增删表/列/索引或改名。SQL 内注释使用中文。
      - 先做 5 张既有表 ALTER；再做全部新表（按外键依赖顺序）；最后 DROP 两张旧表。
-     - 预设组种子写入 `proxy_groups`：9 个预设组，`enabled=1`，`type='preset'`，`definition_json` 含组类型与默认成员「直接连接」（**空节点数组 + 子组数组 `["直接连接"]`）；**组名与 `Clash.yaml.template.md` 作者配置逐字一致（含 emoji 前缀）**。
+     - 预设组种子写入 `proxy_groups`：9 个预设组，`enabled=1`，`type='preset'`，`definition_json` 含组类型与默认成员「🚀直接连接」（**空节点数组 + 子组数组 `["🚀直接连接"]`）；**组名与 `Clash.yaml.template.md` 作者配置逐字一致（含 emoji 前缀）**。
   2. **修改 `backend/internal/dataclear/dataclear.go`**：`ClearTablesTx` 的表清单改为下方顺序；**必须移除 `subscription_group_rel`、`group_selections`**（迁移后这两张表已不存在，继续 DELETE 会报错）；新增 13 张增量表。
   3. **修改 `backend/internal/dataclear/dataclear_test.go`**：其 fstest.MapFS 增补 1009 简表定义（新表名与列可简化，但必须包含清表清单引用的所有表名）；断言保持不变，新增「13 张增量表可被清空」的用例（向其中若干表插 1 行，清空后计数为 0）。
   4. **启动验证口径**：本 Step 允许启动旧业务服务做迁移与 `/health` 验证；若旧代码因已 DROP 的两张表在业务端点报错，属预期过渡态，按全新部署口径清空已有数据重新开始（不要用旧业务库做验收）。
@@ -353,17 +353,17 @@ Step 6 ──▶ Step 7（端到端验收）
       PRIMARY KEY (ext_account_id, ym)
   );
 
-  -- 预设代理组种子（Design2 §3.3）：名称 + 组类型 + 默认成员「直接连接」；管理员后续可编辑成员
+  -- 预设代理组种子（Design2 §3.3）：名称 + 组类型 + 默认成员「🚀直接连接」（强制组名与模板逐字一致）；管理员后续可编辑成员
   INSERT INTO proxy_groups (name, type, preset_key, enabled, definition_json) VALUES
-    ('🎬YouTube',     'preset', 'youtube',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('🍿Netflix',     'preset', 'netflix',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('🍻哔哩哔哩',    'preset', 'bilibili',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('📽️国外流媒体',  'preset', 'global-streaming', 1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('🍎苹果海外服务','preset', 'apple-overseas',  1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('🍏苹果国内服务','preset', 'apple-cn',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('🤖AI',          'preset', 'ai',              1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('🎮Steam',       'preset', 'steam',           1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('🧩Steam下载',   'preset', 'steam-download',  1, '{"type":"select","nodes":[],"groups":["直接连接"]}');
+    ('🎬YouTube',     'preset', 'youtube',         1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}'),
+    ('🍿Netflix',     'preset', 'netflix',         1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}'),
+    ('🍻哔哩哔哩',    'preset', 'bilibili',        1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}'),
+    ('📽️国外流媒体',  'preset', 'global-streaming', 1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}'),
+    ('🍎苹果海外服务','preset', 'apple-overseas',  1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}'),
+    ('🍏苹果国内服务','preset', 'apple-cn',        1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}'),
+    ('🤖AI',          'preset', 'ai',              1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}'),
+    ('🎮Steam',       'preset', 'steam',           1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}'),
+    ('🧩Steam下载',   'preset', 'steam-download',  1, '{"type":"select","nodes":[],"groups":["🚀直接连接"]}');
 
   -- g) 旧分发模型下线（全新部署口径；业务代码在 Build4 Step 2 全部停止引用）
   DROP TABLE group_selections;
@@ -464,7 +464,7 @@ Step 6 ──▶ Step 7（端到端验收）
   8. **`backend/internal/server/server.go`**：
      - 删除 `subSvc.SetOnSubscriptionDeleted(groupSvc.OnSubscriptionDeleted)`；`GroupHandler` 构造不变。
      - `tokenSvc` 照旧；`dlSvc` 构造不变（本 Step 无新依赖）。
-  9. **同步更新单测**：`group_test.go`、`subscription_test.go`、`download_test.go`、`server/download_test.go` 中的旧表 fstest 与断言按新模型改写；**代码目录（backend/ 与 frontend/）`grep -R "group_selections\|subscription_group_rel"` 必须为 0 命中**（与验收命令范围一致，Design2Report7 P2-6）。
+  9. **同步更新单测**：`group_test.go`、`subscription_test.go`、`download_test.go`、`server/download_test.go`、`server/home_test.go`（platformCard 新形状）、`server/rule_test.go`（preview 200 注释块，对应 item 6b）中的旧表 fstest 与断言按新模型改写；**代码目录（backend/ 与 frontend/）`grep -R "group_selections\|subscription_group_rel"` 必须为 0 命中**（与验收命令范围一致，Design2Report7 P2-6）。
 
 - **参考代码/伪代码：**
 
@@ -896,3 +896,4 @@ Step 6 ──▶ Step 7（端到端验收）
 | v1.2 | 2026-08-19 | Design2Report7 核验修订：Step2 grep 验收命令限定 backend/frontend 目录（P2-6）；Step4 status.go 注记 `traffic_card_enabled` 由 Build6 Step5 补入（Q3） |
 | v1.3 | 2026-08-19 | Design2Report8 修订：Step1 允许启动旧服务做迁移/健康验证并可清空数据重新开始（P2-1）；YouTube 种子改 select（P2-16）；两段排序 manual/URL 各自维护（Q6）；启动同步刷新 rule_pools 快照（P2-3）；池历史任务端点与 UI（Q12） |
 | v1.4 | 2026-08-19 | 构建前核验修订（用户确认）：预设组种子改用 `Clash.yaml.template.md` 模板 emoji 名（Step1 种子与注记）；同步任务历史保留 7 天超期动态清理（约束表 + Step5 终态清理与单测 + Step6 历史列表注记）；RulesView 取消默认固定为专设操作（Step4 item 13） |
+| v1.5 | 2026-08-19 | Design2Report9 修订：预设组种子默认成员同步改 `groups:["🚀直接连接"]`（M4 强制组 emoji 连锁）；Step2 单测清单补 server/home_test.go 与 server/rule_test.go |
