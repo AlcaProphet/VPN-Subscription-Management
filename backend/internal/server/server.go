@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/approval"
+	"vpn-sub/internal/assembly"
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/backup"
 	"vpn-sub/internal/captcha"
@@ -23,9 +24,11 @@ import (
 	"vpn-sub/internal/group"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/mail"
+	"vpn-sub/internal/node"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/platform"
 	"vpn-sub/internal/pool"
+	"vpn-sub/internal/proxygroup"
 	"vpn-sub/internal/ratelimit"
 	"vpn-sub/internal/response"
 	"vpn-sub/internal/rule"
@@ -97,6 +100,12 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	// 规则素材池（Build4 Step 5：CRUD / 条目 / 异步同步与历史任务）
 	poolSvc := pool.NewService(st, lg)
 	RegisterPoolRoutes(engine, &PoolHandler{poolSvc: poolSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 节点服务（Build5 Step 1：manual 节点 CRUD + 协议注册表 + xray 显示名/启停占位）
+	nodeSvc := node.NewService(st, cfg, lg)
+	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 代理组服务（Build5 Step 2：预设/自建组 CRUD + DAG + 内容约束）
+	proxyGroupSvc := proxygroup.NewService(st, lg)
+	RegisterProxyGroupRoutes(engine, &ProxyGroupHandler{groupSvc: proxyGroupSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// Token 服务 + 下载解析 + 用户端数据：订阅删除 Token 级联回调注入
 	tokenSvc := token.NewService(st, lg)
 	subSvc.SetOnTokenDeleted(tokenSvc.DeleteBySubscriptionTx)
@@ -112,6 +121,12 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	// 规则 + 个人中心（Build2 Step 6）：规则 Token 全局共享；改邮箱/密码递增凭据版本号
 	ruleSvc := rule.NewService(st, versionSvc, tokenSvc, subSvc, lg)
 	RegisterRuleRoutes(engine, &RuleHandler{ruleSvc: ruleSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 装配端点（Build5 Step 4：context/preview/generate/blueprint）
+	assemblySvc := assembly.NewService(st, cfg, lg)
+	RegisterAssemblyRoutes(engine, &AssemblyHandler{
+		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
+		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc, store: st,
+	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	RegisterProfileRoutes(engine, &ProfileHandler{store: st}, authSvc.SessionMiddleware())
 	// 用户管理（Build3 Step 1）：五重管理员保护 + 全生命周期操作；复用 Token/重置令牌/版本组件
 	adminUserSvc := user.NewAdminService(st, users, tokenSvc, resetSvc, cfg, versionSvc, lg)

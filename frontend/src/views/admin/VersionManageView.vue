@@ -27,6 +27,19 @@ const switchContent = computed(() =>
   activationOwner.value ? '激活后对全体用户生效' : '切换后所有下载立即生效',
 )
 
+// 装配生成入口：订阅/规则页显示
+const assemblyUrl = computed(() => {
+  if (props.ownerType === 'rule') return `/admin/assembly?tab=sr-conf&rule_id=${props.ownerId}`
+  if (props.ownerType === 'subscription') return '/admin/assembly'
+  return ''
+})
+
+// 重新编辑装配版本入口
+function reEditUrl(v: VersionItem): string {
+  const tab = v.blueprint && props.ownerType === 'rule' ? 'sr-conf' : 'clash-yaml'
+  return `/admin/assembly?tab=${tab}&edit_version_id=${v.id}`
+}
+
 // 响应式：≥768 表格 / <768 卡片（与其他管理页一致）
 const isMobile = ref(false)
 function checkMobile() {
@@ -226,7 +239,10 @@ function fmtTime(ts: string): string {
         </Button>
         <h2 class="text-lg font-semibold m-0">版本管理{{ resourceName ? `（${resourceName}）` : '' }}</h2>
       </div>
-      <Button type="primary" @click="openCreate">创建新版本</Button>
+      <Space>
+        <Button v-if="assemblyUrl" @click="router.push(assemblyUrl)">装配生成</Button>
+        <Button type="primary" @click="openCreate">创建新版本</Button>
+      </Space>
     </div>
 
     <TriStateList :loading="loading" :empty="versions.length === 0"
@@ -239,6 +255,7 @@ function fmtTime(ts: string): string {
               <Space>
                 <TypographyText code>v{{ record.version_no }}</TypographyText>
                 <Tag v-if="record.current" color="green">当前</Tag>
+                  <Tag v-if="record.blueprint" color="purple">装配</Tag>
               </Space>
             </template>
           </Table.Column>
@@ -253,6 +270,7 @@ function fmtTime(ts: string): string {
               <Space>
                 <Button size="small" @click="doPreview(record.version_no)">预览</Button>
                 <Button size="small" @click="openEdit(record.version_no)">编辑</Button>
+                <Button v-if="record.blueprint" size="small" type="link" @click="router.push(reEditUrl(record))">重新编辑</Button>
                 <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">{{ switchLabel }}</Button>
                 <Tooltip v-else title="当前激活版本不可删除，请先切换">
                   <Button size="small" danger disabled>删除</Button>
@@ -271,6 +289,7 @@ function fmtTime(ts: string): string {
               <Space>
                 <TypographyText code>v{{ v.version_no }}</TypographyText>
                 <Tag v-if="v.current" color="green">当前</Tag>
+                <Tag v-if="v.blueprint" color="purple">装配</Tag>
               </Space>
               <Space>
                 <Button size="small" @click="doPreview(v.version_no)">预览</Button>

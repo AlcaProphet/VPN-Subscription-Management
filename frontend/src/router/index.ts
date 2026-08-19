@@ -35,8 +35,8 @@ const adminRoutes = [
   { path: '/admin/platforms/new', component: () => import('@/views/admin/PlatformEditView.vue') },
   { path: '/admin/rules', component: () => import('@/views/admin/RulesView.vue') },
   { path: '/admin/assembly', component: () => import('@/views/admin/AssemblyView.vue') },
-  { path: '/admin/nodes', component: () => import('@/views/admin/PlaceholderView.vue'), props: { title: '节点管理', description: '将在 Build5 实现（manual 节点与协议注册表）' } },
-  { path: '/admin/proxy-groups', component: () => import('@/views/admin/PlaceholderView.vue'), props: { title: '代理组管理', description: '将在 Build5 实现（预设组/自建组）' } },
+  { path: '/admin/nodes', component: () => import('@/views/admin/NodesView.vue') },
+  { path: '/admin/proxy-groups', component: () => import('@/views/admin/ProxyGroupsView.vue') },
   { path: '/admin/xray', component: () => import('@/views/admin/PlaceholderView.vue'), props: { title: 'Xray 实例', description: '将在 Build7 实现（高级模式）' } },
   // Build3 Step 1：用户管理
   { path: '/admin/users', component: () => import('@/views/admin/UsersView.vue') },

@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"testing"
@@ -92,6 +93,17 @@ func testMigrateFS() fstest.MapFS {
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				UNIQUE (user_id, platform_id));`)},
+		"1009_assembly_blueprints.sql": &fstest.MapFile{Data: []byte(`
+			CREATE TABLE IF NOT EXISTS assembly_blueprints (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				version_id INTEGER NOT NULL UNIQUE REFERENCES versions(id) ON DELETE CASCADE,
+				target_syntax TEXT NOT NULL,
+				fixed_params_json TEXT NOT NULL DEFAULT '{}',
+				selection_json TEXT NOT NULL DEFAULT '{}',
+				custom_rules_json TEXT NOT NULL DEFAULT '[]',
+				render_plan_json TEXT NOT NULL DEFAULT '{}',
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 	}
 }
 
@@ -278,6 +290,63 @@ func TestNoActiveVersion(t *testing.T) {
 	}
 	if entry.FailReason != "no_active_version" {
 		t.Errorf("失败原因异常: %s", entry.FailReason)
+	}
+}
+
+// TestAssemblySubscriptionDownloadBase64 装配生成的 subs 模板下载整体 base64，预览保持明文
+func TestAssemblySubscriptionDownloadBase64(t *testing.T) {
+	e := newTestDownload(t)
+	ctx := context.Background()
+	if _, err := e.st.DB().Exec(`UPDATE platforms SET product_type='subs' WHERE id=?`, e.plat); err != nil {
+		t.Fatalf("更新平台类型失败: %v", err)
+	}
+	if _, err := e.st.DB().Exec(`UPDATE subscriptions SET product_type='subs' WHERE id=?`, e.sub); err != nil {
+		t.Fatalf("更新订阅类型失败: %v", err)
+	}
+	var versionID int64
+	if err := e.st.DB().QueryRow(`SELECT id FROM versions WHERE owner_type='subscription' AND owner_id=?`, e.sub).Scan(&versionID); err != nil {
+		t.Fatalf("查询版本失败: %v", err)
+	}
+	if _, err := e.st.DB().Exec(
+		`INSERT INTO assembly_blueprints (version_id, target_syntax) VALUES (?, 'sr-subs')`, versionID); err != nil {
+		t.Fatalf("插入蓝图失败: %v", err)
+	}
+	tk := e.mkToken(t, 0, 0)
+	res, _, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x")
+	if err != nil {
+		t.Fatalf("解析下载失败: %v", err)
+	}
+	want := base64.StdEncoding.EncodeToString([]byte("proxies: [x]"))
+	if string(res.Content) != want {
+		t.Fatalf("装配模板下载应整体 base64: got=%q want=%q", res.Content, want)
+	}
+	// 预览保持明文
+	preview, err := e.svc.PreviewForUser(ctx, e.user, "platform-x")
+	if err != nil {
+		t.Fatalf("预览失败: %v", err)
+	}
+	if string(preview) != "proxies: [x]" {
+		t.Fatalf("预览应返回明文: %q", preview)
+	}
+}
+
+// TestDirectUploadSubsDownloadRaw 直接上传的 subs 模板下载不 base64
+func TestDirectUploadSubsDownloadRaw(t *testing.T) {
+	e := newTestDownload(t)
+	ctx := context.Background()
+	if _, err := e.st.DB().Exec(`UPDATE platforms SET product_type='subs' WHERE id=?`, e.plat); err != nil {
+		t.Fatalf("更新平台类型失败: %v", err)
+	}
+	if _, err := e.st.DB().Exec(`UPDATE subscriptions SET product_type='subs' WHERE id=?`, e.sub); err != nil {
+		t.Fatalf("更新订阅类型失败: %v", err)
+	}
+	tk := e.mkToken(t, 0, 0)
+	res, _, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x")
+	if err != nil {
+		t.Fatalf("解析下载失败: %v", err)
+	}
+	if string(res.Content) != "proxies: [x]" {
+		t.Fatalf("直接上传内容应原样返回: %q", res.Content)
 	}
 }
 

@@ -2,6 +2,7 @@
 import { http } from './request'
 
 export interface VersionItem {
+  id: number
   version_no: number
   file_path: string
   file_name?: string
@@ -10,6 +11,10 @@ export interface VersionItem {
   updated_at: string
   blueprint?: boolean // 装配蓝图版本标记（Build5 起回传；可缺省）
 }
+
+// 读取装配蓝图（重新编辑流）
+export const getVersionBlueprint = (versionId: number) =>
+  http.get<any, any>(`/admin/versions/${versionId}/blueprint`)
 
 export function versionApi(prefix: string) {
   return {

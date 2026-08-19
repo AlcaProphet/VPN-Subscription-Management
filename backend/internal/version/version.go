@@ -56,10 +56,12 @@ func NewService(st *store.Store, dataDir string, lg *slog.Logger) *Service {
 
 // Version 版本记录
 type Version struct {
+	ID        int64     `json:"id"`
 	No        int64     `json:"version_no"`
 	FilePath  string    `json:"file_path"`
 	FileName  string    `json:"file_name"` // 上传时的原始文件名（文本模式为类型默认名）；下载文件名扩展名来源
 	Current   bool      `json:"current"`   // 由调用方对照 owner 的 current_version 填充
+	Blueprint bool      `json:"blueprint"` // 装配生成版本（assembly_blueprints 存在）
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -203,7 +205,7 @@ func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64
 		if err := s.evictOldest(ctx, tx, ot, ownerID, effectiveCurrent); err != nil {
 			return err
 		}
-		created = &Version{No: newNo, FilePath: rel, FileName: fileName, Current: activated}
+		created = &Version{ID: versionID, No: newNo, FilePath: rel, FileName: fileName, Current: activated}
 		return nil
 	})
 	return created, activated, err
@@ -388,9 +390,13 @@ func (s *Service) CurrentNo(ctx context.Context, ot OwnerType, ownerID int64) (i
 
 // ListVersions 资源版本列表（当前激活标记由调用方传入 current 版本号填充）
 func (s *Service) ListVersions(ctx context.Context, ot OwnerType, ownerID, currentNo int64) ([]Version, error) {
-	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT version_no, file_path, file_name, created_at, updated_at FROM versions
-		 WHERE owner_type = ? AND owner_id = ? ORDER BY version_no`, ot, ownerID)
+	hasBlueprint := hasTable(ctx, s.store.DB(), "assembly_blueprints")
+	query := `SELECT v.version_no, v.file_path, v.file_name, v.created_at, v.updated_at`
+	if hasBlueprint {
+		query += `, EXISTS(SELECT 1 FROM assembly_blueprints b WHERE b.version_id = v.id)`
+	}
+	query += ` FROM versions v WHERE v.owner_type = ? AND v.owner_id = ? ORDER BY v.version_no`
+	rows, err := s.store.DB().QueryContext(ctx, query, ot, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("读取版本列表失败: %w", err)
 	}
@@ -398,10 +404,18 @@ func (s *Service) ListVersions(ctx context.Context, ot OwnerType, ownerID, curre
 	out := make([]Version, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var v Version
-		if err := rows.Scan(&v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("解析版本行失败: %w", err)
+		var blueprint int
+		if hasBlueprint {
+			if err := rows.Scan(&v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt, &blueprint); err != nil {
+				return nil, fmt.Errorf("解析版本行失败: %w", err)
+			}
+		} else {
+			if err := rows.Scan(&v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt); err != nil {
+				return nil, fmt.Errorf("解析版本行失败: %w", err)
+			}
 		}
 		v.Current = v.No == currentNo
+		v.Blueprint = blueprint == 1
 		out = append(out, v)
 	}
 	return out, rows.Err()
@@ -462,6 +476,16 @@ func (s *Service) readCurrentWithName(ctx context.Context, ot OwnerType, ownerID
 	}
 	content, err := os.ReadFile(filepath.Join(s.dataDir, "contents", rel))
 	return content, fileName, err
+}
+
+// hasTable 检查表是否存在（供可选关联列兼容旧测试/迁移前状态）
+func hasTable(ctx context.Context, db *sql.DB, name string) bool {
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
 }
 
 // ownerTable 资源类型 → owner 表名（仅白名单固定值，防动态 SQL 注入）

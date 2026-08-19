@@ -1,0 +1,271 @@
+<!-- NodesView.vue：节点管理页（Design2-UI §6）——manual/xray 双态列表 + 动态表单 -->
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag } from 'ant-design-vue'
+import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, type NodeItem, type ProtocolInfo, type NodeForm } from '@/api/node'
+import ConfirmModal from '@/components/ConfirmModal.vue'
+import TriStateList from '@/components/TriStateList.vue'
+import { Notify } from '@/components/Notify'
+
+const loading = ref(false)
+const nodes = ref<NodeItem[]>([])
+const protocols = ref<ProtocolInfo[]>([])
+const editing = ref<NodeItem | null>(null)
+const creating = ref(false)
+const naming = ref<NodeItem | null>(null)
+const displayNameInput = ref('')
+const toDelete = ref<NodeItem | null>(null)
+const deleting = ref(false)
+const disableTarget = ref<NodeItem | null>(null)
+const disabling = ref(false)
+const saving = ref(false)
+
+const form = reactive<NodeForm>({
+  name: '', protocol: 'vless', host: '', port: 443, protocol_json: {},
+})
+const nameReadonly = computed(() => editing.value !== null)
+
+async function load() {
+  loading.value = true
+  try {
+    nodes.value = await listNodes()
+    if (protocols.value.length === 0) protocols.value = await getProtocols()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(() => void load())
+
+function currentSchema() {
+  return protocols.value.find((p) => p.protocol === form.protocol) ?? null
+}
+function sensitiveFields() {
+  return new Set(currentSchema()?.sensitive_fields ?? [])
+}
+function openCreate() {
+  creating.value = true
+  editing.value = null
+  form.name = ''
+  form.protocol = 'vless'
+  form.host = ''
+  form.port = 443
+  form.protocol_json = {}
+}
+function openEdit(n: NodeItem) {
+  if (n.source !== 'manual') return
+  editing.value = n
+  creating.value = true
+  form.name = n.name
+  form.protocol = n.protocol
+  form.host = n.host
+  form.port = n.port
+  form.protocol_json = { ...(n.protocol_json ?? {}) }
+}
+async function save() {
+  saving.value = true
+  try {
+    if (editing.value) {
+      await updateNode(editing.value.id, { ...form })
+    } else {
+      await createNode({ ...form })
+    }
+    Notify.success(editing.value ? '节点已更新' : '节点已创建')
+    creating.value = false
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function onToggleEnabled(n: NodeItem, enabled: boolean) {
+  if (!enabled) {
+    disableTarget.value = n
+    return
+  }
+  try {
+    await toggleNode(n.id, { enabled })
+    n.enabled = enabled
+  } catch (err) {
+    Notify.error((err as Error).message)
+    await load()
+  }
+}
+async function confirmDisable() {
+  if (!disableTarget.value) return
+  disabling.value = true
+  try {
+    await toggleNode(disableTarget.value.id, { enabled: false })
+    disableTarget.value.enabled = false
+    Notify.success('节点已停用')
+    disableTarget.value = null
+  } catch (err) {
+    Notify.error((err as Error).message)
+    await load()
+  } finally {
+    disabling.value = false
+  }
+}
+async function onTogglePublic(n: NodeItem, isPublic: boolean) {
+  try {
+    await toggleNode(n.id, { is_public: isPublic })
+    n.is_public = isPublic
+  } catch (err) {
+    Notify.error((err as Error).message)
+    await load()
+  }
+}
+async function saveDisplayName() {
+  if (!naming.value) return
+  saving.value = true
+  try {
+    await setNodeDisplayName(naming.value.id, displayNameInput.value)
+    Notify.success('显示名已更新')
+    naming.value = null
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    saving.value = false
+  }
+}
+async function confirmDelete() {
+  if (!toDelete.value) return
+  deleting.value = true
+  try {
+    await deleteNode(toDelete.value.id)
+    Notify.success('节点已删除')
+    toDelete.value = null
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    deleting.value = false
+  }
+}
+
+const deleteContent = computed(() => {
+  const n = toDelete.value
+  if (!n) return ''
+  return `将删除节点「${n.render_name}」。装配快照与代理组定义中的引用将按悬空容错处理。\n删除后不可恢复。`
+})
+
+function fieldValue(key: string): unknown {
+  return form.protocol_json[key]
+}
+function setField(key: string, val: unknown) {
+  form.protocol_json = { ...form.protocol_json, [key]: val }
+}
+</script>
+
+<template>
+  <div>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold m-0">节点管理</h2>
+      <Button type="primary" @click="openCreate">新建节点</Button>
+    </div>
+
+    <TriStateList :loading="loading" :empty="nodes.length === 0" empty-text="暂无节点">
+      <Table :data-source="nodes" row-key="id" :pagination="false" class="hidden md:block">
+        <Table.Column key="render_name" title="节点">
+          <template #default="{ record }">
+            <div class="font-medium">{{ record.render_name }}</div>
+            <div v-if="record.source === 'xray' && record.display_name" class="text-xs text-gray-500">{{ record.name }}</div>
+          </template>
+        </Table.Column>
+        <Table.Column key="source" title="来源" width="100">
+          <template #default="{ record }">
+            <Tag :color="record.source === 'manual' ? 'blue' : 'purple'">{{ record.source }}</Tag>
+          </template>
+        </Table.Column>
+        <Table.Column key="protocol" title="协议" data-index="protocol" width="110" />
+        <Table.Column key="addr" title="地址">
+          <template #default="{ record }">{{ record.host }}:{{ record.port }}</template>
+        </Table.Column>
+        <Table.Column key="enabled" title="启用" width="90">
+          <template #default="{ record }">
+            <Switch :checked="record.enabled" @change="(v: any) => onToggleEnabled(record, v)" />
+          </template>
+        </Table.Column>
+        <Table.Column key="public" title="公共" width="90">
+          <template #default="{ record }">
+            <Switch v-if="record.source === 'xray' && record.allocatable && !record.missing" :checked="record.is_public" @change="(v: any) => onTogglePublic(record, v)" />
+          </template>
+        </Table.Column>
+        <Table.Column key="actions" title="操作" width="200">
+          <template #default="{ record }">
+            <Space>
+              <Button v-if="record.source === 'manual'" size="small" @click="openEdit(record)">编辑</Button>
+              <Button v-if="record.source === 'xray'" size="small" @click="naming = { ...record }; displayNameInput = record.display_name ?? ''">命名</Button>
+              <Button size="small" danger :disabled="record.source === 'xray' && !record.missing" @click="toDelete = record">删除</Button>
+            </Space>
+          </template>
+        </Table.Column>
+      </Table>
+
+      <div class="grid grid-cols-1 gap-3 md:hidden">
+        <div v-for="n in nodes" :key="n.id" class="border rounded-lg p-3">
+          <div class="flex items-center justify-between">
+            <span class="font-medium">{{ n.render_name }}</span>
+            <Tag :color="n.source === 'manual' ? 'blue' : 'purple'">{{ n.source }}</Tag>
+          </div>
+          <div v-if="n.source === 'xray' && n.display_name" class="text-xs text-gray-500">{{ n.name }}</div>
+          <div class="text-xs text-gray-500 mt-1">{{ n.protocol }} · {{ n.host }}:{{ n.port }}</div>
+          <div class="mt-2 flex items-center gap-2">
+            <Switch :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
+            <Button v-if="n.source === 'manual'" size="small" @click="openEdit(n)">编辑</Button>
+            <Button v-if="n.source === 'xray'" size="small" @click="naming = { ...n }; displayNameInput = n.display_name ?? ''">命名</Button>
+            <Button size="small" danger :disabled="n.source === 'xray' && !n.missing" @click="toDelete = n">删除</Button>
+          </div>
+        </div>
+      </div>
+    </TriStateList>
+
+    <Modal :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="720" :confirm-loading="saving" @ok="save" @cancel="creating = false">
+      <Form layout="vertical">
+        <Form.Item label="名称" required>
+          <Input v-model:value="form.name" :disabled="nameReadonly" placeholder="禁止空格/逗号，支持中文与 emoji" />
+        </Form.Item>
+        <div class="grid grid-cols-3 gap-3">
+          <Form.Item label="协议" required>
+            <Select v-model:value="form.protocol">
+              <Select.Option v-for="p in protocols" :key="p.protocol" :value="p.protocol">{{ p.label }}</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item label="服务器" required class="col-span-2">
+            <Input v-model:value="form.host" placeholder="域名或 IP" />
+          </Form.Item>
+          <Form.Item label="端口" required>
+            <InputNumber v-model:value="form.port" :min="1" :max="65535" class="w-full" />
+          </Form.Item>
+        </div>
+        <template v-if="currentSchema()">
+          <div v-for="f in currentSchema()!.form_schema" :key="f.name" class="mb-3">
+            <label class="text-sm text-gray-600">{{ f.label }}<span v-if="f.required" class="text-red-500"> *</span></label>
+            <Input.Password v-if="f.type === 'password'" :value="String(fieldValue(f.name) ?? '')" :placeholder="sensitiveFields().has(f.name) ? '留空 = 保留原凭据' : ''" @change="(e: any) => setField(f.name, e.target.value)" />
+            <InputNumber v-else-if="f.type === 'number'" :value="Number(fieldValue(f.name) ?? f.default ?? 0)" class="w-full" @change="(v: any) => setField(f.name, v ?? 0)" />
+            <Select v-else-if="f.type === 'select'" :value="String(fieldValue(f.name) ?? f.default ?? '')" class="w-full" @change="(v: any) => setField(f.name, v)">
+              <Select.Option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</Select.Option>
+            </Select>
+            <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)" @change="(v: any) => setField(f.name, v)" />
+            <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
+          </div>
+        </template>
+      </Form>
+    </Modal>
+
+    <Modal :open="naming !== null" title="节点显示名" :confirm-loading="saving" @ok="saveDisplayName" @cancel="naming = null">
+      <p class="text-sm text-gray-500">仅 Xray 节点可设置显示名；留空保存将清空并恢复系统名。</p>
+      <Input v-model:value="displayNameInput" placeholder="系统名" />
+    </Modal>
+
+    <ConfirmModal :open="disableTarget !== null" title="停用节点" danger :loading="disabling"
+                  content="停用该节点将移除受影响用户的 Xray 账号（重新启用后需重新分配）。确定停用吗？"
+                  @confirm="confirmDisable" @update:open="disableTarget = null" />
+
+    <ConfirmModal :open="toDelete !== null" title="删除节点" danger :loading="deleting" :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />
+  </div>
+</template>

@@ -4,6 +4,7 @@ package download
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -89,6 +90,10 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 		if err != nil {
 			return nil, nil, err
 		}
+		content, err = s.maybeEncodeSubscriptionContent(ctx, rec.SubscriptionID, content)
+		if err != nil {
+			return nil, nil, err
+		}
 		return s.withPlatformHeaders(ctx, content, fileName, rec.PlatformID, "explicit", rec.SubscriptionID, rec.UserID)
 	default: // 无标识：按平台读唯一订阅条目（Design2 §4.4/§5.10）
 		var subID int64
@@ -108,8 +113,38 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 		if err != nil {
 			return nil, nil, err
 		}
+		content, err = s.maybeEncodeSubscriptionContent(ctx, subID, content)
+		if err != nil {
+			return nil, nil, err
+		}
 		return s.withPlatformHeaders(ctx, content, fileName, rec.PlatformID, "subscription", subID, rec.UserID)
 	}
+}
+
+// maybeEncodeSubscriptionContent 订阅下载下发前整体 base64 编码：
+// 仅 product_type ∈ {subs, generic-subs} 且当前激活版本为装配生成模板时编码；直接上传内容原样返回。
+func (s *Service) maybeEncodeSubscriptionContent(ctx context.Context, subID int64, content []byte) ([]byte, error) {
+	var productType string
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT product_type FROM subscriptions WHERE id = ?`, subID).Scan(&productType); err != nil {
+		return nil, err
+	}
+	if productType != "subs" && productType != "generic-subs" {
+		return content, nil
+	}
+	var n int
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM assembly_blueprints b
+		 JOIN versions v ON v.id = b.version_id
+		 WHERE v.owner_type = 'subscription' AND v.owner_id = ?
+		   AND v.version_no = (SELECT current_version FROM subscriptions WHERE id = ?)`,
+		subID, subID).Scan(&n); err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return content, nil
+	}
+	return []byte(base64.StdEncoding.EncodeToString(content)), nil
 }
 
 // withPlatformHeaders 附加响应头注入（{frontend_url} 占位符替换为当前前端地址）+ 下载文件名（资源名 + 原始扩展名）

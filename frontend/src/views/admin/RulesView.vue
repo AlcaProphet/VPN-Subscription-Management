@@ -185,7 +185,10 @@ async function cancelDefault(r: RuleItem) {
   <div>
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold m-0">规则管理</h2>
-      <Button type="primary" @click="openCreate">创建规则</Button>
+      <Space>
+        <Button @click="router.push('/admin/assembly?tab=sr-conf')">装配生成</Button>
+        <Button type="primary" @click="openCreate">创建规则</Button>
+      </Space>
     </div>
 
     <TriStateList :loading="loading" :empty="rules.length === 0" empty-text="还没有规则">
