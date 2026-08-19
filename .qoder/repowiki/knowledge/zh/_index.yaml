@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: beta
 nodes_managed: true
-exported_at: "2026-08-18T08:16:25Z"
+exported_at: "2026-08-19T01:51:20Z"
 modules:
     "":
-        dir_name: 订阅管理平台根交付层
-        title: 订阅管理平台根交付层
+        dir_name: 订阅平台交付根（Docker 多阶段构建与编排）
+        title: 订阅平台交付根（Docker 多阶段构建与编排）
         scope:
             - README.md
             - Build1.md

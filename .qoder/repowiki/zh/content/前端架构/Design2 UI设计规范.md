@@ -1,4 +1,4 @@
-# 设计2 UI设计规范
+# Design2 UI设计规范
 
 <cite>
 **本文引用的文件**
@@ -13,6 +13,7 @@
 - [HomeView.vue](file://frontend/src/views/HomeView.vue)
 - [SubscriptionsView.vue](file://frontend/src/views/admin/SubscriptionsView.vue)
 - [PlatformsView.vue](file://frontend/src/views/admin/PlatformsView.vue)
+- [router/index.ts](file://frontend/src/router/index.ts)
 - [package.json](file://frontend/package.json)
 </cite>
 
@@ -23,6 +24,10 @@
 - 完善Xray实例管理：实例级对账、批量初始化、节点检测刷新、采集状态监控
 - 新增错误处理增强：超限前置拦截、409冲突提示、高级模式权限控制
 - 改进用户体验：空状态文案统一、移动端响应式适配、暗色模式支持
+- **新增 admin-assembly 路由分组规范**：将装配器、节点管理、代理组管理、Xray 实例等页面统一归入 admin-assembly 懒加载分组
+- **增强 product_type 字段支持**：正确处理 yaml、subs 和 generic-subs 三种格式的平台产品类型
+- **改进订阅管理界面**：平铺双态列表展示、product_type 标签显示、内容形态标识
+- **优化节点分配体验**：候选集并集计算、公共节点免分配标注、缺失节点处置引导
 
 ## 目录
 1. [引言](#引言)
@@ -39,13 +44,14 @@
 ## 引言
 本规范承接 Design2.md 的增量能力（规则素材池、装配拼接与 Xray 对接），对受影响的全部界面给出可落地的 GUI 样式规格：布局结构、Ant Design Vue 组件映射、状态分支、关键交互与响应式规则。本文档为全量重写式自包含文档，不与存档的 Design1-UI.md 做增量拼接；Design1-UI.md 冻结不回写。范围红线：仅覆盖 UI 层、前端实现与前后端连接契约（端点形状/字段/轮询协议）；功能行为以 Design2.md 为准。
 
-**更新** 本次更新重点增强了Xray实例管理功能，包括独立的账户管理系统、三区域对账接口和全面的UI改进，特别是双轨凭据管理和增强的错误处理机制。
+**更新** 本次更新重点增强了Xray实例管理功能，包括独立的账户管理系统、三区域对账接口和全面的UI改进，特别是双轨凭据管理和增强的错误处理机制。同时新增了admin-assembly路由分组规范和增强的product_type字段支持。
 
 ## 项目结构
 - 前端采用 Vue 3 + Ant Design Vue + Tailwind CSS；主题通过 ConfigProvider 全局注入中文与主色，暗色模式由 useTheme composable 管理并持久化到 localStorage。
 - 管理面板使用侧边栏 + 顶栏 + 内容区布局；移动端 Drawer 抽屉菜单，锁背景滚动。
 - 用户首页按平台卡片网格展示，新增流量卡片与分流规则卡片。
 - 新增路由与菜单项：订阅装配、节点管理、代理组管理、Xray 实例（高级模式）。
+- **新增 admin-assembly 路由分组**：将装配器、节点管理、代理组管理、Xray 实例等页面统一归入 admin-assembly 懒加载分组，提升打包效率。
 
 ```mermaid
 graph TB
@@ -55,6 +61,10 @@ B --> D["SubscriptionsView.vue<br/>订阅管理"]
 B --> E["PlatformsView.vue<br/>平台管理"]
 A --> F["theme.ts<br/>主题与暗色切换"]
 A --> G["style.css<br/>Tailwind 基础样式"]
+B --> H["AssemblyView.vue<br/>订阅装配admin-assembly分组"]
+B --> I["NodesView.vue<br/>节点管理admin-assembly分组"]
+B --> J["ProxyGroupsView.vue<br/>代理组管理admin-assembly分组"]
+B --> K["XrayInstancesView.vue<br/>Xray实例admin-assembly分组"]
 ```
 
 **图表来源**
@@ -63,6 +73,7 @@ A --> G["style.css<br/>Tailwind 基础样式"]
 - [HomeView.vue:1-231](file://frontend/src/views/HomeView.vue#L1-L231)
 - [SubscriptionsView.vue:1-188](file://frontend/src/views/admin/SubscriptionsView.vue#L1-L188)
 - [PlatformsView.vue:1-150](file://frontend/src/views/admin/PlatformsView.vue#L1-L150)
+- [router/index.ts:27-45](file://frontend/src/router/index.ts#L27-L45)
 - [theme.ts:1-27](file://frontend/src/theme.ts#L1-L27)
 - [style.css:1-16](file://frontend/src/style.css#L1-L16)
 
@@ -70,6 +81,7 @@ A --> G["style.css<br/>Tailwind 基础样式"]
 - [App.vue:1-43](file://frontend/src/App.vue#L1-L43)
 - [AdminLayout.vue:1-130](file://frontend/src/layouts/AdminLayout.vue#L1-L130)
 - [HomeView.vue:1-231](file://frontend/src/views/HomeView.vue#L1-L231)
+- [router/index.ts:27-45](file://frontend/src/router/index.ts#L27-L45)
 - [theme.ts:1-27](file://frontend/src/theme.ts#L1-L27)
 - [style.css:1-16](file://frontend/src/style.css#L1-L16)
 
@@ -92,6 +104,7 @@ A --> G["style.css<br/>Tailwind 基础样式"]
 ## 架构总览
 - 页面骨架：管理面板（Sider + Header + Content）、用户端（顶栏 + 主体卡片）。
 - 路由与菜单：新增订阅装配、节点、代理组、Xray 实例；高级模式驱动显隐。
+- **新增 admin-assembly 路由分组**：将装配器、节点管理、代理组管理、Xray 实例等页面统一归入 admin-assembly 懒加载分组，提升打包效率和代码组织性。
 - 数据流：前端通过 api/* 模块调用后端端点；长任务使用 pollTask 轮询；超时与失败有兜底文案。
 - 主题与国际化：ConfigProvider 全局 zh_CN，主色 #1677FF；暗色模式随 ConfigProvider 联动。
 
@@ -144,7 +157,7 @@ AdminMode --> End
 
 ### 管理面板布局与路由骨架（增量）
 - 侧边栏菜单新增：订阅装配、节点、代理组、Xray 实例（高级模式）。
-- 路由表新增三行并迁组一行；懒加载分组调整至 admin-assembly。
+- **新增 admin-assembly 路由分组**：将 `/admin/assembly`、`/admin/nodes`、`/admin/proxy-groups`、`/admin/xray` 四个路由迁至 admin-assembly 懒加载分组，提升代码分割效率。
 - 路由守卫：高级模式未开启时访问高级路由重定向并提示。
 
 ```mermaid
@@ -156,13 +169,15 @@ R --> G["路由守卫<br/>高级模式检查"]
 
 **图表来源**
 - [AdminLayout.vue:1-130](file://frontend/src/layouts/AdminLayout.vue#L1-L130)
+- [router/index.ts:27-45](file://frontend/src/router/index.ts#L27-L45)
 - [Design2-UI.md:54-108](file://Design2-UI.md#L54-L108)
 
 **章节来源**
 - [Design2-UI.md:54-108](file://Design2-UI.md#L54-L108)
 
 ### 订阅管理（改造）
-- 列表页改为平铺双态列表（不再按平台分组折叠）；列含平台名称、product_type、内容形态、当前版本、操作。
+- **列表页改为平铺双态列表**（不再按平台分组折叠）；列含平台名称、product_type、内容形态、当前版本、操作。
+- **新增 product_type 支持**：正确处理 yaml、subs 和 generic-subs 三种格式，使用不同颜色标签区分（yaml 蓝 / subs 青 / generic-subs 紫）。
 - 新建订阅弹窗：平台选择 + 名称；被占用平台禁用并标注「已有订阅」。
 - 编辑弹窗：仅名称修改；组关联多选移除。
 - 「已入池未生效」引导：行内高亮 + 快捷激活链接。
@@ -189,7 +204,8 @@ U->>SV : 编辑/删除/版本管理
 - [SubscriptionsView.vue:1-188](file://frontend/src/views/admin/SubscriptionsView.vue#L1-L188)
 
 ### 平台管理（改造）
-- 列表新增 product_type 列；新建平台表单新增 product_type 单选（yaml/subs，默认 yaml）。
+- **列表新增 product_type 列**：显示平台的产品类型（yaml/subs/generic-subs），使用不同颜色标签区分。
+- **新建平台表单新增 product_type 单选**：yaml「Clash YAML 订阅」/ subs「Shadowrocket 节点订阅」/ generic-subs「通用节点订阅（v2rayNG/v2rayN 等）」，默认 yaml。
 - 平台编辑页：product_type 可校正；若与既有订阅条目不一致则拒绝并提示。
 - 删除 ConfirmModal 影响清单沿用。
 
@@ -306,6 +322,7 @@ P --> I["diff<br/>jsdiff"]
 - 轮询优化：pollTask 支持网络抖动容忍（连续失败 3 次才报错），卸载自动取消。
 - 渲染性能：预览产物纯文本渲染，避免引入重型编辑器；DiffView 行级高亮轻量实现。
 - 主题切换：ConfigProvider 全局联动，无逐组件手工适配。
+- **路由懒加载优化**：admin-assembly 分组内的装配器、节点管理、代理组管理、Xray 实例页面统一懒加载，减少初始包体积。
 
 [本节为通用指导，不直接分析具体文件]
 
@@ -315,6 +332,7 @@ P --> I["diff<br/>jsdiff"]
 - 重复冲突：池名/节点名/平台订阅占用/实例名/代理组名 409 提示。
 - 轮询超时：任务仍在后台执行，请稍后刷新查看结果。
 - 移动端兼容：<768 表格卡片化，拖拽降级为「上移/下移」按钮。
+- **product_type 冲突**：平台格式校正时若与既有订阅条目 product_type 不一致，后端 400 拒绝，前端表单级错误提示。
 
 **更新** 新增了独立账号相关的故障排查指南，包括凭据冲突、配额超限等情况的处理方法。
 
@@ -325,6 +343,12 @@ P --> I["diff<br/>jsdiff"]
 ## 结论
 本规范完整覆盖了 Design2 受影响界面的 GUI 样式规格，包括用户首页改造、管理面板增强、订阅装配实现、节点/代理组/Xray 管理等。**更新** 本次更新特别增强了Xray实例管理功能，包括独立的账户管理系统、三区域对账界面和全面的功能改进。通过统一的组件约定、响应式策略与前后端契约，确保实施一致性与可维护性。建议构建前核对空态、加载态、错误态与移动端兼容性，遵循 AGENTS.md 编码约束。
 
+**新增特性总结**：
+- admin-assembly 路由分组规范提升了代码组织和打包效率
+- 增强的 product_type 字段支持正确处理 yaml、subs 和 generic-subs 三种格式
+- 改进的订阅管理界面提供更好的用户体验
+- 优化的节点分配和组管理功能提升了管理效率
+
 [本节为总结，不直接分析具体文件]
 
 ## 附录
@@ -332,6 +356,7 @@ P --> I["diff<br/>jsdiff"]
 - 响应式断点：台式 ≥1200 / 平板 768~1199 / 手机 <768。
 - 空状态文案：新增页面空态统一口径，见 Design2-UI §10.2。
 - 错误码映射：对齐 AGENTS.md §4.8，沿用 Design1-UI §7.3 基线。
+- **新增 admin-assembly 路由分组**：将装配器、节点管理、代理组管理、Xray 实例等页面统一归入 admin-assembly 懒加载分组。
 
 **更新** 新增了独立账号相关的空状态文案和错误处理规范。
 
