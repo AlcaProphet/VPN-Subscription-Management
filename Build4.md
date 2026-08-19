@@ -419,13 +419,13 @@ Step 6 ──▶ Step 7（端到端验收）
 - **产出文件与操作：**
 
   1. **`backend/internal/group/group.go`**：
-     - 删除 `ErrSubInSelection`、`ErrSubNotLinked`、`Selection` 类型、`SetSelections`、`Selections`、`rebuildSelections`、`diffRemovedSubs`、`OnSubscriptionDeleted`；`Group` 结构删除 `NeedsReselect`、`SubCount`，新增 `DefaultQuota *float64`（JSON 名 `default_quota`；扫描 `groups.default_quota` 可空列用 `sql.NullFloat64`）。
+     - 删除 `ErrSubInSelection`、`ErrSubNotLinked`、`Selection` 类型、`SetSelections`、`Selections`、`rebuildSelections`、`diffRemovedSubs`、`OnSubscriptionDeleted`；`Group` 结构删除 `NeedsReselect`、`SubCount`，新增 `DefaultQuota *float64`（JSON 名 `default_quota`，**序列化用 `json:"default_quota,omitempty"`**；扫描 `groups.default_quota` 可空列用 `sql.NullFloat64`）。**advanced_mode=off 时（本 Build 恒 off）`groups.default_quota` 恒为 NULL，列表与详情响应均自然省略该高级字段**，对齐 Design2 §5.10 / UI §9.1「off 时仅返回基础组信息，省略 default_quota」。
      - `Update(ctx, id, name)` 仅改名；不再接收订阅关联与选定。
      - `List` 返回组名、是否默认组、默认配额、组内用户数、`NodeCount`（json `node_count`；直接 `COUNT(*) FROM group_nodes WHERE group_id=?`，本 Build 恒 0，Build6 起有分配数据）；`Get` 返回基础信息。
      - `Delete` 保留「默认组不可删 + 组内用户迁默认组」逻辑，删除关联/选定的代码。
      - 单元测试改为新模型（删除所有 sub/selections 用例，新增 default_quota 回显与迁组断言）。
   2. **`backend/internal/server/group.go`**：
-     - 删除 `/api/admin/groups/:id/selections` 路由与 `setSelections` handler；`updateReq` 仅 `{name}`；GET 详情直接返回 `{group}`（不再嵌 selections）。
+     - 删除 `/api/admin/groups/:id/selections` 路由与 `setSelections` handler；`updateReq` 仅 `{name}`；GET 详情直接返回 `{group}`（不再嵌 selections）；**advanced_mode=off 时 `{group}` 省略 `default_quota`**（omitempty 或条件序列化，仅含基础组信息，Design2 §5.10 / UI §9.1）。
      - 错误映射保留 `ErrDefaultGroup`/`ErrNameConflict`/`ErrNotFound`。
   3. **`backend/internal/subscription/subscription.go`**：
      - 删除 `GroupBrief`、`Groups`、`SelectedBy`、`PlatformGroup`、`SetOnSubscriptionDeleted`、`groupRel`、`selectedByCount`、`CreateInput.GroupIDs/FirstContent`。
@@ -442,7 +442,7 @@ Step 6 ──▶ Step 7（端到端验收）
         WHERE s.platform_id = ?
        ```
         按平台唯一条目解析（**不要在 SQL 层过滤 current_version**，让 `ReadCurrentWithName` 对 current=0 返回 `version.ErrVersionNotFound`，从而区分两种业务错误）；`ErrNoRows` 返回 `ErrUnassigned`。
-        > 注意区分：平台无任何订阅行 → `ErrUnassigned` → HTTP 200 `# error: unassigned`；平台存在订阅行但无激活版本 → `version.ErrVersionNotFound` → 接入层 HTTP 200 `# error: no active version`。二者都必须是 200 纯文本，无效 Token 仍是 404。
+        > 注意区分：平台无任何订阅行 → `ErrUnassigned` → HTTP 200 `# error: unassigned`；平台存在订阅行但无激活版本 → `version.ErrVersionNotFound` → 接入层 HTTP 200 `# error: no active version`。二者都必须是 200 纯文本，无效 Token 仍是 404。（两态拆分经 Design2Report11 确认）
      - 显式 Token 分支保留只读兼容（不再新发；用于老库残留 Token 与 Build4 前数据），不新增写入。
      - `PreviewForUser`：移除 `subIDParam` 与管理员指定订阅语义；管理员预览也走「平台 → 唯一订阅 → 当前版本」；普通用户优先自定义、否则平台订阅；无订阅行返回 `ErrUnassigned`，无版本返回 `ErrVersionNotFound`。
      - `withPlatformHeaders` 保持平台附加头；`subscription` 文件名按 subscription.name + 版本原始扩展名（product_type 扩展名规则在 Build5 精细化，本 Step 不阻断）。
@@ -464,7 +464,7 @@ Step 6 ──▶ Step 7（端到端验收）
   8. **`backend/internal/server/server.go`**：
      - 删除 `subSvc.SetOnSubscriptionDeleted(groupSvc.OnSubscriptionDeleted)`；`GroupHandler` 构造不变。
      - `tokenSvc` 照旧；`dlSvc` 构造不变（本 Step 无新依赖）。
-  9. **同步更新单测**：`group_test.go`、`subscription_test.go`、`download_test.go`、`server/download_test.go`、`server/home_test.go`（platformCard 新形状）、`server/rule_test.go`（preview 200 注释块，对应 item 6b）中的旧表 fstest 与断言按新模型改写；**代码目录（backend/ 与 frontend/）`grep -R "group_selections\|subscription_group_rel"` 必须为 0 命中**（与验收命令范围一致，Design2Report7 P2-6）。
+  9. **新增/更新单测**：`group_test.go`、`subscription_test.go`、`download_test.go`、`server/download_test.go` 的旧表 fstest 与断言按新模型改写；**新建** `server/home_test.go`（platformCard 新形状）与 `server/rule_test.go`（preview 200 注释块，对应 item 6b）；**`backend/internal/emergency/emergency_test.go` 与 `backend/internal/platform/platform_test.go` 的 fstest 夹具含 `group_selections` / `subscription_group_rel` CREATE TABLE，必须一并按新模型改写**（否则本 Step 验收 grep=0 命中）；**代码目录（backend/ 与 frontend/）`grep -R "group_selections\|subscription_group_rel"` 必须为 0 命中**（与验收命令范围一致，Design2Report7 P2-6）。
 
 - **参考代码/伪代码：**
 
@@ -530,7 +530,7 @@ Step 6 ──▶ Step 7（端到端验收）
   2. **`backend/internal/server/subscription.go`**：`versionCreate` 调用 `verSvc.CreateVersion(..., version.CreateOptions{Activate:false})`；响应增加 `auto_activated` 布尔（返回第二个值），供前端展示「首个版本已自动激活」。
   3. **`backend/internal/platform/platform.go`**：
      - 常量 `ProductYAML="yaml"`、`ProductSubs="subs"`、`ProductGenericSubs="generic-subs"`；`ProductType` 结构字段加入 `Platform`。
-     - `Create`/`Update` 入参增加 productType，校验枚举；`Update` 事务内校验：若存在 `subscriptions.platform_id=? AND product_type != ?`，返回 `ErrProductTypeInUse = errors.New("该平台已有订阅条目，产物格式不可变更")`（接入层 400）。
+     - `Create`/`Update` 入参增加 productType，校验枚举；`Update` 事务内校验：若存在 `subscriptions.platform_id=? AND product_type != ?`，返回 `ErrProductTypeInUse`（接入层 400），**文案含既有订阅条目的 product_type 插值：「该平台已有 {yaml|subs|generic-subs} 订阅条目，请先处理后再变更产物格式」**（与 Design2-UI §4.4 定稿逐字一致）。
      - `Get`/`List` SELECT 增加 `product_type`；cascadeCounts 不变。
   4. **`backend/internal/server/platform.go`**：create/update 请求增加 `product_type`（默认 `yaml`），错误映射。
   5. **`backend/internal/setup/setup.go`**：`defaultPlatforms` 返回结构增加 `ProductType`；插入 SQL 增加 `product_type` 列；种子口径 **Clash Verge→yaml、v2rayNG→generic-subs、Shadowrocket→subs**。
@@ -542,9 +542,12 @@ Step 6 ──▶ Step 7（端到端验收）
   7. **`backend/internal/server/rule.go`**：
      - `create`：文本模式 `text` 与文件模式 `file` 均改为可选；两者都缺省时 `src=nil`（空实体）。
      - 新增 `PUT /api/admin/rules/:id/home-default`，请求 `{is_default: bool}`，返回统一成功结构。
-  8. **`backend/internal/server/home.go`**：新增首页默认规则字段到 `/api/home` 或复用 `/api/home/platforms`？按 Design2-UI §9.3，在 `/api/home/platforms` 响应顶层增加 `home_rule` 字段更集中，但现有端点响应是列表包裹。**采用新增字段方案**：在 `HomeHandler.platforms` 返回的 `data` 对象中加 `home_rule` 与 `traffic` 两个顶层字段（列表仍放 `list`）。字段形状见 Step 4 前端 API 定义；基础模式 `traffic={unlimited:true}`，`home_rule` 为 `{rule_id, name, current_version, token, download_url}` 或 `null`（未设置/无激活版本）。
-     > 该形状偏离原 `{list,total}` 纯列表，属 Design2-UI §9.3 明确增量；若前端 Step 4 发现既有调用不适配，以本字段方案为准同步修改。
-  9. **同步更新单测**：`version_test.go`（activate=false 不切当前、首版自动激活、双首版事务）、`platform_test.go`、`setup_test.go`、`rule_test.go`。
+  8. **`backend/internal/server/home.go`**：**新增独立汇总端点 `GET /api/home/summary`（会话凭据，Design2Report11 决策）**，返回 `{traffic, home_rule}` 两字段：
+     - `traffic`：本 Build 阶段恒 `{unlimited:true}`（高级模式用量/配额字段由 Build6 Step5 补入）；
+     - `home_rule`：`{rule_id, name, current_version, token, download_url}` 或 `null`（未设置默认规则/无激活版本）；读取 `rules.is_home_default=1` 规则及其当前激活版本与规则 Token，供首页分流规则卡片展示与复制链接（Design2-UI §3.1.2/§9.3）。
+     - **`/api/home/platforms` 恢复纯列表包裹（`{list, total}` 不变）**，不再承载 home_rule/traffic 顶层字段。
+     > Design2Report11 决策：home_rule/traffic 不与平台列表混用响应结构，独立端点承载；`traffic_card_enabled` 对流量卡显隐的控制待 Build6 Step5 暴露字段后接入。
+  9. **同步更新单测**：`version_test.go`（activate=false 不切当前、首版自动激活、双首版事务）、`platform_test.go`、`setup_test.go`、`rule_test.go`；**`server/home_test.go`（Step 2 新建）补 `/api/home/summary` 用例**：`traffic={unlimited:true}`、未设置默认规则时 `home_rule=null`、**删除 `is_home_default=1` 规则后 `home_rule` 返回 null（首页分流规则卡片回未设置空态）**。
 
 - **参考代码/伪代码：**
 
@@ -597,7 +600,7 @@ Step 6 ──▶ Step 7（端到端验收）
   cd backend && go build ./... && go vet ./... && go test ./...
   ```
 
-- **验收标准：** 全部单测通过；新单测覆盖：activate=false 不激活（已有当前版本）、首版自动激活、rule/share/custom 手动版本仍激活、平台 product_type 种子三值、产品格式变更冲突、空规则实体与首页默认唯一。
+- **验收标准：** 全部单测通过；新单测覆盖：activate=false 不激活（已有当前版本）、首版自动激活、rule/share/custom 手动版本仍激活、平台 product_type 种子三值、产品格式变更冲突、空规则实体与首页默认唯一；`/api/home/summary` 单测覆盖 `traffic={unlimited:true}`、`home_rule` 未设置为 null、**删除默认规则后 `home_rule` 回 null**。
 
 ---
 
@@ -612,20 +615,20 @@ Step 6 ──▶ Step 7（端到端验收）
   1. **后端小改 `backend/internal/server/status.go`**：`/api/system/status` 响应增加 `advanced_mode` 布尔（`cfg.GetBool(ctx, "advanced_mode", false)`；应急模式恒 false）。配置文件新增常量 `config.KeyAdvancedMode = "advanced_mode"`（在 `internal/config/config.go`）。**`traffic_card_enabled` 键不在本 Build 暴露，由 Build6 Step5 补入 status 响应**（Design2Report7 Q3）。
   2. **`frontend/src/api/system.ts`**：`SystemStatus` 类型增加 `advanced_mode: boolean`（该类型在 `vite-env.d.ts` 或全局声明处，同步更新）。
   3. **`frontend/src/api/subscription.ts`**：类型与函数按新模型重写——`SubscriptionItem { id, slug, name, platform_id, product_type: 'yaml'|'subs'|'generic-subs', current_version, content_kind: 'blueprint'|'upload'|null, platform_name? }`；`listSubscriptions` 返回平铺列表；`createSubscription({platform_id, name, slug?})`；`updateSubscription(id,{name})`。
-  4. **`frontend/src/api/home.ts`**：`PlatformCard` 与响应类型按 Design2-UI §3.1/§9.3 更新（普通用户 `status: 'custom'|'ready'|'unassigned'`，管理员 `status:'admin_preview'`；新增 `home_rule`、`traffic` 顶层字段）。`refreshHomeToken` 逻辑不变但仅 ready/custom 时可用。
-  5. **`frontend/src/api/group.ts`**：`GroupItem` 更新为 `{id, slug, name, is_default, default_quota: number|null, node_count, user_count}`；`updateGroup(id,{name})`；删除 `setSelections` 与 `SelectionItem`。
+  4. **`frontend/src/api/home.ts`**：`PlatformCard` 与响应类型按 Design2-UI §3.1/§9.3 更新（普通用户 `status: 'custom'|'ready'|'unassigned'`，管理员 `status:'admin_preview'`）；**新增 `getHomeSummary()` 调 `GET /api/home/summary`，返回 `{traffic, home_rule}`**（`traffic` 本 Build 恒 `{unlimited:true}`；`home_rule` 形状见 Step 3 item 8）；`/api/home/platforms` 保持纯列表包裹。`refreshHomeToken` 逻辑不变但仅 ready/custom 时可用。
+  5. **`frontend/src/api/group.ts`**：`GroupItem` 更新为 `{id, slug, name, is_default, default_quota?: number|null, node_count, user_count}`（**advanced_mode=off 时后端省略 `default_quota`，字段可缺省**）；`updateGroup(id,{name})`；删除 `setSelections` 与 `SelectionItem`。
   6. **`frontend/src/api/platform.ts`**：类型与 create/update 请求增加 `product_type`。
   7. **`frontend/src/api/rule.ts`**：`RuleItem` 增加 `is_home_default`；新增 `setHomeDefault(id,is_default)`；`createRule` 类型允许无首版本（FormData 无 file 或 JSON 无 text）。
   8. **`frontend/src/api/version.ts`**：`VersionItem` 增加 `blueprint: boolean`（后端 Build5 才回传，现在可缺省）；`versionApi` 类型不变。
   9. **`frontend/src/stores/system.ts` / `router/index.ts` / `layouts/AdminLayout.vue`**：
      - 菜单增加「节点 `/admin/nodes`」「代理组 `/admin/proxy-groups`」「Xray 实例 `/admin/xray`」三项（Build5/7 页面落地前可暂用占位组件，或路由懒加载到 Build5 组件——**本 Step 只加路由与占位**）；「用户组」与「Xray 实例」菜单 `v-if="system.status?.advanced_mode"` 渲染；节点/代理组/订阅装配始终显示。
-     - 路由守卫：`to.path` 为 `/admin/groups` 或 `/admin/xray` 且 `status.advanced_mode === false` → `return '/admin/subscriptions'` + `message.warning('高级功能未开启，请在面板配置中开启高级模式')`（按 Design2-UI §2.4）。
-  10. **`frontend/src/views/admin/SubscriptionsView.vue`**：按 Design2-UI §4.1 改造为平铺双态列表：平台名、订阅名、product_type 标签（yaml 蓝 / subs 青 / generic-subs 紫）、当前版本与「未激活」灰字、操作（版本管理/编辑/删除）；新建弹窗仅平台+名称，占用平台禁用并标「（已有订阅）」；删除 ConfirmModal 新影响清单；PageHeader 右侧「前往装配」按钮（跳 `/admin/assembly`，本 Build 目标页存在但装配器为占位）。**移除组关联多选与「加入组可用范围」引导**。
-  11. **`frontend/src/views/admin/VersionManageView.vue`**：订阅/规则页的「设为当前」文案改「激活/分发」，确认文案「激活后对全体用户生效」；分享/自定义保持「设为当前」。**蓝图标签与重新编辑按钮本 Build 不实现（Build5）**；创建成功订阅版本时若响应 `auto_activated=true` 提示「首个版本已自动激活」。
+     - 路由守卫：`to.path` 为 `/admin/groups` 或 `/admin/xray` 且 `system.status?.advanced_mode !== true` → `return '/admin/subscriptions'` + `message.warning('高级功能未开启，请在面板配置中开启高级模式')`（**用 `!== true` 而非 `=== false`：系统状态未加载（status 为 null）时同样视为 off 并重定向**，按 Design2-UI §2.4）。
+  10. **`frontend/src/views/admin/SubscriptionsView.vue`**：按 Design2-UI §4.1 改造为平铺双态列表：平台名、订阅名、product_type 标签（yaml 蓝 / subs 青 / generic-subs 紫）、当前版本与「未激活」灰字、操作（版本管理/编辑/删除）；新建弹窗仅平台+名称，占用平台禁用并标「（已有订阅）」；新建成功轻提示「**可上传内容或前往订阅装配生成模板**」（UI §4.1）；删除 ConfirmModal 新影响清单；PageHeader 右侧「前往装配」按钮（跳 `/admin/assembly`，本 Build 目标页存在但装配器为占位）。**移除组关联多选与「加入组可用范围」引导**。**「内容形态标签」列（装配模板紫 / 直接上传灰）由 Build5 补齐**（后端 `content_kind` 字段本 Build 已提供，当前全量为上传内容）。**「已入池未生效」引导（Design2 §4.4 / UI §4.1）：上传或装配生成完成后，对应行临时高亮 + 行内 `a-alert info` 风格标签「已入池未生效，请激活」+「去激活」快捷链接（直达该订阅版本管理页）**。
+  11. **`frontend/src/views/admin/VersionManageView.vue`**：订阅/规则页的「设为当前」文案改「激活/分发」，确认文案「激活后对全体用户生效」；分享/自定义保持「设为当前」。**蓝图标签与重新编辑按钮本 Build 不实现（Build5）**；创建成功订阅版本时若响应 `auto_activated=true` 提示「首个版本已自动激活」；**`auto_activated=false`（非首个版本）时同口径提示「已入池未生效，请激活」**（Design2 §4.4 / UI §4.1 入池未生效引导）。
   12. **`frontend/src/views/admin/PlatformsView.vue` / `PlatformEditView.vue`**：列表新增 product_type 列；新建/编辑表单 `a-radio-group` 三选一，默认 yaml；编辑提交 400 时表单级展示后端文案（Design2-UI §4.4）。
   13. **`frontend/src/views/admin/RulesView.vue`**：创建弹窗首版本改为可选（「暂不创建版本」）；列表无激活版本实体展示灰字「无激活版本」；新增「首页默认展示」单选列，切换走 ConfirmModal 与 `setHomeDefault`；**默认行专设「取消默认」操作（仅默认行显示，ConfirmModal 确认后调 `setHomeDefault(id,false)`，Design2-UI §4.6 定稿口径）**。
-  14. **`frontend/src/views/admin/GroupsView.vue`**：按当前后端契约最小化改造（Build7 再做节点分配等高级 UI）：列表显示组名、默认组标签、默认配额（暂无则「不限流量」）、用户数；编辑仅改名；删除文案保留迁默认组。因 advanced_mode=false 菜单隐藏，本页仅兜底编译与深链重定向。
-  15. **`frontend/src/views/HomeView.vue`**：按 Design2-UI §3.1 改造卡片顺序与形态：流量卡（基础模式仅「不限流量」，受 `traffic_card_enabled` 配置待 Build7——本 Build 恒显示）→ 分流规则卡（读 `home_rule`，空态文案「管理员暂未设置分流规则」，SR 双内容引导，点击跳 `/rules`）→ 平台卡（普通用户 ready/unassigned/custom 三态；管理员 admin_preview 仅「按平台预览当前版本」按钮，无激活禁用）。**管理员平台卡不再生成/展示 Token 与复制链接**。
+  14. **`frontend/src/views/admin/GroupsView.vue`**：按当前后端契约最小化改造（Build7 再做节点分配等高级 UI）：列表显示组名、默认组标签、默认配额（**off 时后端省略 `default_quota`，前端缺省即显示「不限流量」**）、用户数；编辑仅改名；删除文案保留迁默认组。因 advanced_mode=false 菜单隐藏，本页仅兜底编译与深链重定向。
+  15. **`frontend/src/views/HomeView.vue`**：按 Design2-UI §3.1 改造卡片顺序与形态（**流量卡与分流规则卡数据源为 `getHomeSummary()`**）：流量卡（基础模式仅「不限流量」= `traffic.unlimited`，受 `traffic_card_enabled` 配置待 Build7——本 Build 恒显示）→ 分流规则卡（读 `home_rule`，空态文案「管理员暂未设置分流规则」，SR 双内容引导，点击跳 `/rules`）→ 平台卡（普通用户 ready/unassigned/custom 三态；**无激活版本态显示灰色占位「暂无可用版本，请联系管理员」+ 一键导入/复制链接/刷新链接三按钮隐藏（UI §3.1.3）**；管理员 admin_preview 仅「按平台预览当前版本」按钮，无激活禁用）。**管理员平台卡不再生成/展示 Token 与复制链接**。
   16. **`frontend/src/views/ProfileView.vue`**：基本信息新增「本月流量」行（基础模式「不限流量」）；「所属组」行基础模式隐藏（读 advanced_mode）。
   17. **`frontend/src/components/PageHeader.vue`、`frontend/src/components/CopyField.vue`**：按 Design2-UI §1.3 新建通用组件（标题 + 副标题 + 右侧操作区；复制字段按钮 + Toast）。后续页面统一使用，禁止各页继续复制实现。
   18. **`frontend/src/AppHeader.vue`**：所属组名标签基础模式隐藏（读 `advanced_mode`）。
@@ -668,7 +671,7 @@ Step 6 ──▶ Step 7（端到端验收）
   cd ../backend && go build ./... && go vet ./... && go test ./...
   ```
 
-- **验收标准：** 前后端构建与测试通过；前端无旧 `group_ids`/`selections`/`admin_pool`/`subscriptions[]` 类型引用（grep 核对）；`/api/system/status` 返回 `advanced_mode:false`；手动访问 `/admin/groups` 被守卫重定向并提示（可用前端路由单测覆盖）。
+- **验收标准：** 前后端构建与测试通过；前端无旧 `group_ids`/`selections`/`admin_pool`/`subscriptions[]` 类型引用（grep 核对）；`/api/system/status` 返回 `advanced_mode:false`；`/api/home/summary` 返回 `{traffic:{unlimited:true}, home_rule:null}`（未设置默认规则时）；手动访问 `/admin/groups` 被守卫重定向并提示（**含系统状态未加载场景，`!== true` 判定，前端路由单测覆盖**）；订阅上传后行内出现「已入池未生效，请激活」引导（含「去激活」链接）；普通用户平台卡无激活版本态显示占位文案「暂无可用版本，请联系管理员」且三按钮隐藏。
 
 ---
 
@@ -683,7 +686,7 @@ Step 6 ──▶ Step 7（端到端验收）
   1. **`backend/internal/pool/pool.go`**：模型与 CRUD。
      - `Pool { ID, Name, URLs []string, EntryCount, LastSyncedAt, SyncStatus, SyncError, AutoSync, SyncTime }`。
      - `Entry { ID, PoolID, RuleType, MatchValue, Source, SortOrder }`。
-     - `Create/Update`：name 唯一（409）、URL 列表校验（http/https、去重、禁止控制字符）、auto_sync/sync_time 校验（HH:MM）。
+     - `Create/Update`：name 唯一（409）、URL 列表校验（http/https、去重、禁止控制字符）、auto_sync/sync_time 校验（HH:MM）。（**URL http/https scheme 校验经 Design2Report11 确认**：Design2 §2.4「目标地址不设限制」指不设白名单/域名限制，scheme 合法性校验保留。）
      - `ListPools` 带 entry_count 聚合；`ListEntries(pool,page,size)` 按 `sort_order,id` 排序分页。
      - `CreateEntry/UpdateEntry/DeleteEntry`：仅 manual；类型白名单 + 匹配值白名单；唯一冲突返回 `ErrEntryConflict`（409）。
   2. **`backend/internal/pool/parser.go`**：逐行解析。
@@ -694,7 +697,7 @@ Step 6 ──▶ Step 7（端到端验收）
      - `SubmitSync(ctx, poolID)`：**在同一个 `BEGIN IMMEDIATE` 事务内**完成「池存在性检查 + 是否已有 running 任务检查 + 插入 `pool_sync_tasks(status='running')`」（Design2Report10 Q12-8），已有 running 任务则返回 `ErrSyncRunning`（409）；事务提交后启动 goroutine `runSyncTask`，返回 task id。
      - `runSyncTask`：串行拉取全部 URL（`http.Client{Timeout: 60s}`，`io.LimitReader(50MB+1)`）；每个 URL 结果 `{url, ok, added, removed, skipped, error}`；**任一 URL 失败、空响应或零有效条目，则该 URL ok=false；只有全部 URL 成功才执行 url 来源差量删除**；成功 URL 的条目照常 upsert。
      - **任务边界**（Design2Report10 Q12-9）：删除池或编辑池 URL 不取消已启动任务；池已被删除时，任务终态写回失败仅记日志、不崩溃；URL 编辑只影响下一次同步；任务历史按保留策略继续展示。
-     - 入库（单个事务）：新 url 条目 sort_order 从 `MAX(当前 URL 段最大序号, urlBase-1)+1` 起追加；**既有条目 sort_order 一律不改写**；删除仅删 `source='url'` 且不在本次成功结果并集中的行，且只在无任何失败时执行。manual 条目不触碰。
+     - 入库（单个事务）：新 url 条目 sort_order 从 `MAX(当前 URL 段最大序号, urlBase-1)+1` 起追加；**既有条目 sort_order 一律不改写**；删除仅删 `source='url'` 且不在本次成功结果并集中的行，且只在无任何失败时执行。manual 条目不触碰。**差量删除实现不得用单条 NOT IN 大列表**（数万行规模会超 SQLite 参数上限：默认 999 / 编译上限 32766，Design2 §2.4 要求支持数万行规模）——采用临时表 JOIN 删除或分批（chunk）删除，见参考代码。
      - 终态写回任务行（succeeded/failed/partial）并更新 rule_pools.last_synced_at/sync_status/sync_error；**同事务内顺手清理该池超期历史：`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at < datetime('now','-7 days')`（保留 7 天口径，Design2 §5.9）**。
      - `GetStatus(ctx, poolID)`：读最近一次任务，返回 `{task_id,status,per_url,started_at,finished_at,error}`。
        - `ListTasks(ctx, poolID, page, pageSize)`：按 id DESC 分页读历史任务（供 UI §5.2.2 历史列表）。
@@ -759,8 +762,15 @@ Step 6 ──▶ Step 7（端到端验收）
           }
       }
       if !partial {
-          // DELETE FROM pool_entries WHERE pool_id=? AND source='url' AND (rule_type,match_value) NOT IN (...)
-          // 成功结果为空也要清空 url 段
+          // 差量删除（数万行规模，单条 NOT IN 大列表会超 SQLite 参数上限：默认 999 / 编译上限 32766）
+          // 方案 A（推荐）临时表 JOIN：
+          //   CREATE TEMP TABLE _sync_keep(pool_id INTEGER, rule_type TEXT, match_value TEXT);
+          //   分批 INSERT 本次全部成功 URL 的并集条目；
+          //   DELETE FROM pool_entries WHERE pool_id=? AND source='url'
+          //     AND (rule_type, match_value) NOT IN
+          //       (SELECT rule_type, match_value FROM _sync_keep WHERE pool_id=?);
+          //   成功结果为空也要清空 url 段（全失败已在 partial 分支拦截，此处仅全成功路径）。
+          // 方案 B：按 (rule_type, match_value) 分批 NOT IN（每批 <500 对）循环删除。
       }
       return nil
   })
@@ -772,7 +782,7 @@ Step 6 ──▶ Step 7（端到端验收）
   cd backend && go build ./... && go vet ./... && go test ./internal/pool/... ./internal/cron/... ./...
   ```
 
-- **验收标准：** 全部测试通过；`grep -R "ParseLine\|ValidateEntry" backend/internal/pool` 有实现与测试；同步状态端点形状与 UI §9.1 一致；任务持久化与启动置 failed 有测试覆盖。
+- **验收标准：** 全部测试通过；`grep -R "ParseLine\|ValidateEntry" backend/internal/pool` 有实现与测试；同步状态端点形状与 UI §9.1 一致；任务持久化与启动置 failed 有测试覆盖；**差量删除走临时表 JOIN / 分批实现（不依赖单条 NOT IN 大列表）并有「全成功差量删除」单测覆盖**。
 
 ---
 
@@ -794,7 +804,7 @@ Step 6 ──▶ Step 7（端到端验收）
      - 新建/编辑弹窗 480px：名称 + URL 动态列表（http/https 校验）+ 定时开关与 `a-time-picker`（副说明 UTC）。
      - 详情面包屑「素材池 / {池名}」：顶部信息条 + 条目分页表（默认 20/页；来源 manual/url 段分隔标题行；规则类型 Tag、匹配值 code、手动条目增删改；不提供条目级排序控件）。
      - **同步历史列表**：详情页内分区/弹窗分页展示最近 N 条任务（后端保留 7 天，超期行已在终态写回时清理；状态 Badge、开始/结束时间、逐 URL 明细摘要、错误 Tooltip），调用 `listSyncTasks`（Design2-UI §5.2.2）。
-     - 同步流：点「同步」→ `submitSync` 得 task_id → `pollTask` 轮询 `getSyncStatus` → 按钮 loading、池行/详情「同步中…」；终态展示逐 URL 回执（成功/失败/部分失败文案按 Design2-UI §5.2.3）；进行中再点提示「同步进行中，请等待完成」；组件卸载调用 cancel（后端任务不中断）。
+     - 同步流：点「同步」→ `submitSync` 得 task_id → `pollTask` 轮询 `getSyncStatus` → 按钮 loading、池行/详情「同步中…」；终态展示逐 URL 回执（成功/失败/部分失败文案按 Design2-UI §5.2.3）；**进行中再点：后端返回 409（ErrSyncRunning）→ 前端按后端错误串匹配或专用错误码特判为 `message.warning`「同步进行中，请等待完成」**（不落入 §9.4 通用 409 `Notify.error`，UI §5.2.3）；组件卸载调用 cancel（后端任务不中断）。
      - 删除池 ConfirmModal：「池内 N 条条目将级联删除；已装配版本为快照不受影响」。
   5. **`frontend/src/views/admin/AssemblyView.vue` 之外的复用**：`PageHeader`/`CopyField`（Step 4 已建）在池页使用；`TriStateList`/`ConfirmModal`/`Notify` 沿用。
   6. **前端单测**：新增 `frontend/tests/pool-tab.spec.ts` 与 `request-poll.spec.ts`（mock axios），覆盖列表加载、同步轮询终态与卸载取消、进行中重复触发提示、**同步历史列表分页**、空态文案。
@@ -858,7 +868,7 @@ Step 6 ──▶ Step 7（端到端验收）
      - 订阅管理：同平台重复创建被 409 提示；创建成功后无「首版本」，订阅列表「未激活」；上传内容版本后「首个版本已自动激活」；用户端平台卡可见复制链接；管理端平台卡仅「按平台预览当前版本」。
      - 规则：创建空规则实体成功，列表显示「无激活版本」；设置首页默认后首页分流规则卡空态切换；规则下载无版本返回 `# error: no active version`。
      - 素材池：新建池 → 添加 `https://...` 测试 URL（或本地 `python3 -m http.server` 提供 txt）→ 同步成功/失败回执 → 手动条目 → 定时开关保存。
-  3. 更新本文件「TODOLIST CheckList」与「一、构建进度追踪」全部勾选为 ✅，变更记录追加 v1.0 行。
+  3. 更新本文件「TODOLIST CheckList」与「一、构建进度追踪」全部勾选为 ✅，变更记录追加新版本行。
   4. 核对：
      - `grep -R "group_selections\|subscription_group_rel" backend frontend`（本文件与存档除外）应为空。
      - `grep -R "TODO(Build4\|FIXME(Build4" backend frontend` 应为空。
@@ -900,3 +910,4 @@ Step 6 ──▶ Step 7（端到端验收）
 | v1.4 | 2026-08-19 | 构建前核验修订（用户确认）：预设组种子改用 `Clash.yaml.template.md` 模板 emoji 名（Step1 种子与注记）；同步任务历史保留 7 天超期动态清理（约束表 + Step5 终态清理与单测 + Step6 历史列表注记）；RulesView 取消默认固定为专设操作（Step4 item 13） |
 | v1.5 | 2026-08-19 | Design2Report9 修订：预设组种子默认成员同步改 `groups:["🚀直接连接"]`（M4 强制组 emoji 连锁）；Step2 单测清单补 server/home_test.go 与 server/rule_test.go |
 | v1.6 | 2026-08-19 | Design2Report10 修订：CreateVersion 事务顺序改为「AfterCreate 先于 setCurrent」且 AfterCreate 传 versions.id（Q3/Q11）；池同步 SubmitSync 查+插同事务（Q12-8）；补同步期间删池/改 URL 边界（Q12-9） |
+| v1.7 | 2026-08-19 | Design2Report11 核验修订：Step2 测试清单补 emergency/platform 两测试文件与组详情 off 省略 default_quota；Step3 ErrProductTypeInUse 文案含类型插值、home_rule/traffic 改独立端点 /api/home/summary；Step4 入池未生效引导/平台卡空态三按钮隐藏/新建订阅轻提示/路由守卫 !== true；Step5 差量删除改临时表或分批；Step6 同步进行中 409 前端特判 warning |

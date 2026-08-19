@@ -312,7 +312,7 @@
 - **步骤条形态**：`a-steps` 六步（Design2.md §4.1 生成流程）：① 类型与目标 → ② 头部表单 → ③ 节点与代理组 → ④ 规则素材 → ⑤ 预览 → ⑥ 确认生成；步间「上一步/下一步」，已填步骤可点击回跳，数据不丢失；**SR 节点订阅与通用节点订阅跳过④，SR 分流规则跳过③**（步骤条同步隐藏跳过的步骤：前者呈现五步，后者呈现五步）
 - **单页形态**：全部步骤转为纵向分区卡片（`a-card` + 锚点侧栏或顺序滚动），底部固定操作条「预览产物」直达预览区；**两形态共享同一份表单状态与校验**
 - **步骤①类型与目标**：装配类型由所在页签确定（只读展示）；目标选择：Clash YAML / SR 节点订阅 / 通用节点订阅 → 目标平台 `a-select`（**仅列出 product_type 匹配的 yaml / subs / generic-subs 平台**，无匹配平台时空态提示「请先创建对应格式的平台」+ 直达平台管理链接；**平台存在但尚未创建订阅条目时，该平台选项后缀「（无订阅条目）」并禁止生成，提示先到订阅管理创建订阅条目**）；SR 分流规则 → 目标规则实体选择（见 5.3.4）
-- **生成严格校验（前端预检 + 后端兜底）**：悬空代理组引用、**勾选组引用的子组不在本次输出集合（强制组或已勾选组）**、规则目标指向未勾选代理组一律拒绝生成并定位提示（Design2Report10 Q7）；不可用 xray 节点（enabled=0 / allocatable=0 / missing=1 / 实例 enabled=0）前端置灰不可勾选，后端拒绝；**强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为 Clash 规则目标**
+- **生成严格校验（前端预检 + 后端兜底）**：悬空代理组引用、**勾选组引用的子组不在本次输出集合（强制组或已勾选组）**、规则目标指向未勾选代理组一律拒绝生成并定位提示（Design2Report10 Q7）；**勾选到已停用预设组（enabled=0）同样拒绝生成（400「预设组已停用，请先启用或移除勾选」），不纳入 5.4 失效项剔除容错（Design2Report11 决策）**；不可用 xray 节点（enabled=0 / allocatable=0 / missing=1 / 实例 enabled=0）前端置灰不可勾选，后端拒绝；**强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为 Clash 规则目标**
 - **防重复提交**：生成按钮提交期间 loading 禁用；成功后页内显著 `a-result success` 风格回执：「已入池未生效，请激活」+「去版本管理激活」/「继续装配」两按钮（Design2.md §4.4 引导口径）；首次入池自动激活时后端回执带激活标记，UI 改示「首个版本已自动激活」（订阅行/规则实体无激活版本的例外条款，Design2.md §4.4）
 
 #### 5.3.1 Clash YAML 装配器
@@ -346,9 +346,9 @@
 - ③ 跳过（conf 不含节点）
 - ④ 规则素材：**已勾选池为有序列表**（桌面端拖拽排序，<768 上移/下移，顺序随装配快照保存并供重新编辑恢复）+ **每池 PROXY / DIRECT 双态切换**（`a-radio-group` 行内，默认 PROXY）+ 手动规则行（动态行：类型含 USER-AGENT + 匹配值 + PROXY/DIRECT）
 - **兜底 FINAL 方向**：表单区 `a-radio-group` 二选一（FINAL,PROXY 默认 / FINAL,DIRECT），副说明「GEOIP,CN,DIRECT 固定追加」（Design2.md §3.6）
-- ⑥ 生成前选目标规则实体（见下）；规则为空允许生成（仅兜底）并提示
+- ① 类型与目标步骤内选目标规则实体（见 5.3.4）；规则为空允许生成（仅兜底）并提示
 
-#### 5.3.4 目标规则实体选择（SR 分流规则专属，步骤①或⑥前置）
+#### 5.3.4 目标规则实体选择（SR 分流规则专属，固定于步骤①）
 
 - `a-select` 列出全部规则实体（含无版本空实体，后缀「（空实体）」标注）+ 行内「新建空规则实体」快捷入口（弹窗仅名称 + 客户端类型固定 Shadowrocket，放宽首版校验，Design2.md §3.4）
 - 选中空实体时提示「该规则无激活版本，首个装配版本将自动激活」（Design2.md §4.4 首次自动激活）
@@ -390,7 +390,7 @@
 
 ### 6.2 manual 节点新增/编辑弹窗（720px）
 
-- **协议选择**：`a-select` 协议注册表清单（由 `GET /api/admin/nodes/protocols` 下发：ClashOfficial 全量代理协议，**ssr 除外**，Design2.md §4.5）；选择后表单字段按协议注册表 schema **动态渲染**（基础字段：名称 / host / port；协议特有字段按注册表展开，敏感字段按注册表标记渲染为 `a-input-password`）
+- **协议选择**：`a-select` 协议注册表清单（由 `GET /api/admin/nodes/protocols` 下发：ClashOfficial 全量代理协议，**ssr 除外**，Design2.md §4.5）；选择后表单字段按协议注册表 schema **动态渲染**（基础字段：名称 / host / port；协议特有字段按注册表展开，敏感字段按注册表标记渲染为 `a-input-password`）；**编辑时允许变更协议：变更等价整体重新填表、不保留不兼容旧字段**（凭据字段仍按「留空=保留原凭据」口径，Design2Report11 决策）
 - **凭据字段**（uuid / password / private-key 等注册表敏感清单）：统一 `a-input-password` 脱敏输入；**编辑回显时凭据字段留空，placeholder 提示「留空 = 保留原凭据」**（Design2.md §3.2 编辑回显口径）
 - **名称规则**：**创建后不可修改**（编辑弹窗名称只读；后端拒绝改名）；创建时实时校验——禁止控制字符、逗号、空格与首尾空白，允许中文/emoji；重名冲突（与其他节点有效渲染名、proxy_groups.name、强制组名「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复）后端 409 → `Notify.error`「节点名称已存在或与代理组/保留名冲突」
 - 表单校验：host/port 格式实时校验；提交失败字段级回显
@@ -591,9 +591,9 @@
 | 文件 | 增量 |
 |------|------|
 | `api/system.ts` | `/api/system/status` 响应新增 `advanced_mode` 布尔字段；`useSystemStore` 据此驱动侧边栏与路由守卫（见 2.1/2.4）；**另新增 `traffic_card_enabled` 布尔（默认 true）**：首页流量卡（3.1.1）与个人中心「本月流量」行（3.2）显隐共用（后端 Build6 Step5 暴露） |
-| `api/home.ts` | 首页端点新增：**顶层 `traffic` 字段 `{unlimited, used_bytes, quota_bytes|null, exceeded}`**（基础模式 `{unlimited:true}`；高级模式配额不限时亦 `unlimited=true` 且省略 quota_bytes，见 3.1.1 三态）、首页默认规则卡片字段（规则名 / 版本信息 / 规则 Token 链接 / 未设置标记；**仅首页展示，个人中心不展示**）、**管理员平台卡片预览形态字段**（模板信息 + 激活版本摘要，替代原池内订阅平铺与一键导入/复制字段） |
+| `api/home.ts` | **新增独立汇总端点 `GET /api/home/summary`（会话凭据）**：顶层 `traffic` 字段 `{unlimited, used_bytes, quota_bytes|null, exceeded}`（基础模式 `{unlimited:true}`；高级模式配额不限时亦 `unlimited=true` 且 **`quota_bytes=null`**，见 3.1.1 三态）+ 首页默认规则卡片字段（规则名 / 版本信息 / 规则 Token 链接 / 未设置标记；**仅首页展示，个人中心不展示**）；`/api/home/platforms` 保持纯列表包裹，仅承载平台卡片（含**管理员平台卡片预览形态字段**：模板信息 + 激活版本摘要，替代原池内订阅平铺与一键导入/复制字段）（Design2Report11 决策） |
 | `api/profile.ts` | 新增 `getProfileTraffic()` 调 `GET /api/profile/traffic`（会话凭据），响应 `{unlimited, used_bytes, quota_bytes|null, exceeded}`；个人中心「本月流量」行（3.2）数据源，基础模式 `{unlimited:true}`（Design2 §5.10） |
-| `api/subscription.ts` | 订阅行增 product_type（yaml / subs / generic-subs）/ 内容形态字段；创建/编辑请求移除组关联字段；按平台预览端点（会话凭据，无 subscription_id 参数，Design2.md 第一章） |
+| `api/subscription.ts` | 订阅行增 product_type（yaml / subs / generic-subs）/ 内容形态字段；创建/编辑请求移除组关联字段；按平台预览端点（会话凭据，无 subscription_id 参数，Design2.md 第一章）；**用户会话预览 subs / generic-subs 装配模板返回明文原文**（与存储形态一致，base64 仅为下载下发编码，Design2Report11 决策） |
 | `api/group.ts` | group_selections 相关字段/函数全部移除；新增节点分配与 default_quota 函数（`getGroupDetail` / `updateGroupNodes` / `updateGroupQuota`，端点契约见 9.1 `api/group.ts`；**updateGroupNodes/updateGroupQuota off 时 403，getGroupDetail off 不 403 且省略高级字段**） |
 | `api/rule.ts` | 增 is_home_default 字段与设置默认端点；创建请求首版本改为可选 |
 | `api/settings.ts` | 增 `getAdvancedSettings` / `saveAdvancedSettings`（advanced_mode / 采集间隔 / 流量卡片开关三键；**ON→OFF 翻转**须确认词 DISABLE 且返回 task_id，已 OFF 重复保存幂等 no-op）；**导入与任务状态新增 `importConfig`（POST 现有导入端点；**响应含 `task_id` 为 v2 走 pollTask，不含为 v1 同步完成**，Design2Report10 Q5）与 `getAdminTask`（GET /api/admin/tasks/:id，全局任务端点，kind 含 off_clear/import/xray_init/reconcile_exec/instance_delete）** |
@@ -661,7 +661,7 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-17 | 初始版本：承载 Design2.md 全部受影响界面的 GUI 规格（十章主体 + 未受影响页面核验结论）；全量重写式自包含文档，Design1-UI.md 冻结不回写 |
-| v1.1 | 2026-08-18 | 新增独立 Xray 账号功能规格（Design2.md §5.11）：第八章双页签骨架与 8.5 独立账号 Tab（列表/双轨创建弹窗/凭据复制/配额重置/删除）、8.4 对账区改三分区（ext 残留分区默认不勾选，防误清理）、4.7 OFF 清空清单加项、9.1 增 ext 端点与 reconcile 响应扩展、9.4 冲突映射增独立账号名、10.1/10.2 危险确认与空态补充 |
+| v1.1 | 2026-08-18 | 新增独立 Xray 账号功能规格（Design2.md §5.11）：第八章双页签骨架与 8.5 独立账号 Tab（列表/双轨创建弹窗/凭据复制/配额重置/删除）、8.4 对账区改四分区（新增 ext 残留分区默认不勾选，防误清理）、4.7 OFF 清空清单加项、9.1 增 ext 端点与 reconcile 响应扩展、9.4 冲突映射增独立账号名、10.1/10.2 危险确认与空态补充 |
 | v1.2 | 2026-08-18 | 构建前深度审阅修订：强制组落库口径（内置渲染结构、国外流量成员随快照，5.3.1/7.3）与预设组启用状态持久化（proxy_groups.enabled，7.1）；移除素材池条目手动调序（1.2/5.2.2/5.5/9.1/10.1 联动，顺序改系统维护）；xray 节点区空态文案改「手动刷新节点发现」（5.3.1/10.2）；PageHeader/CopyField 改「本期新建」口径（1.3）；懒加载分组补「无 vite 配置动作」注记（2.3）；删除订阅影响清单改「按本规格新写」（4.1）；对账补推超限提示补面板用户（8.4） |
 | v1.3 | 2026-08-18 | 构建前决策落盘：新增 generic-subs 产物类型与「通用节点订阅」页签（A1/A2）、首页仅展示分流规则卡片（A5）、素材池整体排序（B7）、全新部署纯增量 1009 DDL、候选集并集重算、名称不可修改与字符集校验、节点 missing 恢复补推、对账凭据不一致分区、协议注册表端点、pool_sync_tasks 持久化、xray 节点仅 missing 可删等（详见本轮审阅修订） |
 | v1.4 | 2026-08-19 | Xray 节点显示名（display_name）：xray 节点「命名」入口与检测回执批量命名（6.1/6.3/8.2）、有效渲染名双行展示（4.3/5.3/7.2）、display-name API 与 detectNodes added_nodes（9.1）、显示名 409 冲突映射（9.4）、跨命名空间唯一校验说明（6.2/6.3，含代理组名/强制组名/Clash-mihomo 内建保留代理名） |
@@ -671,3 +671,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v1.8 | 2026-08-19 | 构建前核验修订（用户确认）：§4.6 取消首页默认交互定稿为「默认行专设取消默认操作」（不再两案并列） |
 | v1.9 | 2026-08-19 | Design2Report9 修订：强制组 emoji 化（🚀直接连接/🌎国外流量/🛟无法归属的流量，5.3.1/6.2/6.3/7.2/7.3）；长操作异步化与全局任务端点 /api/admin/tasks/:id（8.3/8.4/9.1/9.2/9.3，120s 清单闭合）；OFF 幂等 no-op 与独立账号整行删除措辞（4.7）；enabled 停用 ConfirmModal、删订阅清单补候选集副作用（6.1/4.1）；版本列表空态、四色→六态五色、DiffView 不可达分支移除与暗色、池 Badge 数据源注记、用量无数据显示—、检测零新增提示、getExtCredentials no-store、错误串截断口径、超限管理端处置指引、api/group.ts 标题、protocols 契约补 label |
 | v2.0 | 2026-08-19 | Design2Report10 修订：DiffView 恢复无目标「整体新增」分支（Q4，按用户决策改 UI）；导入双确认词 IMPORT→DISABLE 与 v1 同步/v2 异步响应口径（Q5）；装配校验补未勾选子组拒绝（Q7）；🌎国外流量成员仅节点（Q8）；对账单条同步端点 push-one/credentials-one 契约与行内交互（Q9）；实例删除轮询、检测/对账不可达错误态、api_addr 变更提示、push_targets 形状与移除确认（Q12） |
+| v2.1 | 2026-08-19 | Design2Report11 核验修订：目标规则实体选择固定步骤①（5.3.3/5.3.4）；v1.1 变更记录「三分区」勘误为「四分区」；首页 traffic 与分流规则卡片改独立端点 `GET /api/home/summary`、quota_bytes 不限时统一 `null`（9.3）；manual 节点编辑允许变更协议=整体重新填表（6.2）；停用预设组 400 拒绝生成（5.3.0）；用户预览 subs/generic-subs 装配模板返回明文原文（9.3） |

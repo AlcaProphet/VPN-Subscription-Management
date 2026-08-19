@@ -23,7 +23,7 @@
 | 参数 | 取值 | 出处 |
 |------|------|------|
 | manual 协议范围 | ss / vmess / vless / trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 / snell / anytls / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale；**ssr 除外** | Design2 §3.2/§4.5 |
-| 节点名称规则 | `nodes.name` 创建后不可修改（manual=管理员名，xray=`{实例slug}-{入站tag}` 系统名）；`display_name` 仅 source=xray 可编辑，空=回退 name；两者均禁止控制字符、逗号、首尾空白，允许中文/emoji；**有效渲染名（display_name 非空则用之，否则 name）全局唯一，且不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复** | Design2 §3.2 |
+| 节点名称规则 | `nodes.name` 创建后不可修改（manual=管理员名，xray=`{实例slug}-{入站tag}` 系统名）；`display_name` 仅 source=xray 可编辑，空=回退 name；两者均禁止控制字符、逗号、空格与首尾空白，允许中文/emoji；**有效渲染名（display_name 非空则用之，否则 name）全局唯一，且不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复** | Design2 §3.2 |
 | 节点凭据加密 | AES-256-GCM（复用签名密钥派生机制）；密文字段编辑回显空值 = 保留原凭据 | Design2 §3.2 |
 | 代理组名称规则 | name 创建后不可改；禁止控制字符、逗号、首尾空白，允许中文/emoji；**创建时不得与任一节点有效渲染名、强制组名或 Clash/mihomo 内建保留代理名重复，冲突 409** | Design2 §3.3 |
 | 代理组类型 | `select` / `url-test` / `fallback`（三枚举）；名称创建后不可改，**组类型创建后允许修改**；名称字符集同节点 | Design2 §3.3 |
@@ -124,7 +124,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `Node` 结构对应表字段（含 `DisplayName *string`），`ProtocolJSON map[string]any`；`RenderName()` 返回有效渲染名（DisplayName 非空则用之，否则 Name）。
      - `CreateManual`：名称校验（`ValidateNodeName`：禁止控制字符/逗号/**空格**/首尾空白，允许中文 emoji；`name != strings.TrimSpace(name)`、`strings.Contains(name, ",")`、`strings.Contains(name, " ")` 或含 `<0x20/0x7F` 拒绝）；`nodes.name` 全局唯一（409）；**跨命名空间校验：有效渲染名不得与任一节点有效渲染名、proxy_groups.name、强制组名「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**；host/port 校验；protocol 在注册表；按注册表 field schema 校验 protocol_json；敏感字段值加密。
      - 敏感字段存储格式统一 `"enc:v1:" + base64.RawURLEncoding(...)`，加解密复用 `config.Encrypt/Decrypt`（签名密钥从 config 读取；测试用固定密钥）。`decryptProtocolJSON` 在渲染/读取时恢复明文；**列表接口不返回凭据明文**（敏感字段返回空串/`***`，按 UI 脱敏口径）。
-     - `UpdateManual`：名称只读（请求带 name 且与库不一致 → 400）；编辑回显凭据字段空值 = 保留原密文；其余字段按新值替换；协议变更允许但必须整体校验（Build 期决策：协议变更等价重新填表，不保留不兼容旧字段）。
+     - `UpdateManual`：名称只读（请求带 name 且与库不一致 → 400）；编辑回显凭据字段空值 = 保留原密文；其余字段按新值替换；**协议允许变更，变更等价整体重新填表、不保留不兼容旧字段（凭据字段仍按「留空=保留原凭据」）**（Design2Report11 定稿，Design2 §3.2 已同步回写）。
      - `SetDisplayName(ctx, id, displayName)`：**仅 source=xray**（manual 400）；空串 → 写 NULL（清空回退 name）；非空走名称字符集校验 + **有效渲染名唯一（排除自身，表达式唯一索引兜底）** + **跨命名空间校验（不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名重复）**；冲突 409；本 Build 仅落库，不触发任何 Xray 推送/候选集重算。
      - `SetEnabled`/`SetPublic`：`source=xray` 行才允许 is_public；`is_public=1` 仅 `allocatable=1 AND missing=0`；非法切换 400。本 Build 仅落库，副作用钩子留接口 `onXrayChanged func(ctx, node, oldEnabled, oldPublic)`（Build6 注入）。
      - `Delete`：`source=xray` 且 `missing!=1` 拒绝（400，文案「请先删除 Xray 入站并刷新节点检测」）；manual 可直接删除。
@@ -212,7 +212,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
   cd backend && go build ./... && go vet ./... && go test ./internal/node/... ./...
   ```
 
-- **验收标准：** 全部测试通过；`go test ./internal/node` 覆盖上表约束；手工 `go run` 后登录管理员调用 `GET /api/admin/nodes/protocols` 返回 19 协议且 ssr 不存在。
+- **验收标准：** 全部测试通过；`go test ./internal/node/...` 覆盖上表约束；手工 `go run` 后登录管理员调用 `GET /api/admin/nodes/protocols` 返回 19 协议且 ssr 不存在。
 
 
 
@@ -228,7 +228,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
   1. **`backend/internal/proxygroup/proxygroup.go`**：
      - `Group { ID, Name, Type, PresetKey, Enabled, Definition }`；`Definition { GroupType string; Nodes []string; Groups []string }`（有序）。
-     - 名称校验用 `node.ValidateProxyGroupName`（**组名允许空格**，与节点名 `ValidateNodeName` 禁空格口径不同；共用字符集规则提取 `internal/nodename` 或由 node 包导出，禁止复制两份不同实现）；**跨命名空间校验使用 node 包导出的 `CheckRenderNameNamespaceTx`：组名不得与任一节点有效渲染名、强制组名「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**。
+     - 名称校验用 `node.ValidateProxyGroupName`（**组名允许空格**，与节点名 `ValidateNodeName` 禁空格口径不同）；**共享基础字符集校验函数（禁止复制两份不同实现），空格策略在调用侧参数化（节点名禁空格 / 组名允许空格）**；**跨命名空间校验使用 node 包导出的 `CheckRenderNameNamespaceTx`：组名不得与任一节点有效渲染名、强制组名「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**。
      - `CreateCustom(name, groupType string, def Definition)`：type=custom；name 唯一 + 跨命名空间校验；groupType ∈ select/url-test/fallback；校验定义。
      - `Update(id, groupType, def)`：preset 与 custom 均可编辑成员；**name/preset_key 不可改，groupType 允许修改（三枚举校验）**；preset 的 `enabled` 通过 `SetPresetEnabled` 单独切换。
      - `Delete`：preset 不可删；custom 删除（**历史装配快照悬空容错，不做反向约束；被其他代理组作为子组引用时允许删除，引用组编辑页按悬空红标剔除处理**）。
@@ -283,6 +283,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `TargetSyntax` 常量 `clash-yaml/sr-subs/generic-subs/sr-conf`。
      - `PoolSelection { PoolID int64; Target string }`（有序数组）、`RuleLine { RuleType, MatchValue, Target string }`、`GenerateInput { TargetSyntax; PlatformID; RuleID; FixedParams map[string]any; NodeNames []string; GroupNames []string; OverseasMembers []string（**仅允许节点稳定名 `nodes.name`，不接受子组引用，Design2Report10 Q8**）; Pools []PoolSelection; CustomRules []RuleLine; FinalDirection string }`。
      - `RenderResult { Content []byte; Skipped []SkipItem; RenderPlan json.RawMessage }`；`SkipItem { Kind, Name, Reason string }`。
+     - **蓝图列映射**（`assembly_blueprints`，Design2 §5.9）：`fixed_params_json` = 头部表单值（SR conf 含 FINAL 方向）；`selection_json` = 节点勾选（xray 节点按 `nodes.name` 稳定键）+ 代理组勾选 + 素材池**有序数组**（含每池目标）+ 强制组「🌎国外流量」成员配置 + **Xray 候选集**；`custom_rules_json` = 手动补充规则行；`render_plan_json` = Clash 结构化渲染计划（头部 / manual proxies / proxy-groups 结构 / rules / 兜底规则）。重新编辑（Step 4 `getBlueprint` / Step 6 重编辑流）从四列恢复全部表单。
   2. **`backend/internal/assembly/load.go`**：上下文加载（只读）——按名称（`nodes.name` 稳定键）读节点（含解密后的 protocol_json 与 display_name）、代理组定义、素材池全部条目（按 sort_order）、平台/规则目标校验；节点对象提供 `renderName()`（display_name 非空则用之，否则 name）。
   3. **`backend/internal/assembly/render_clash.go`**：
      - 头部按 `FixedParams` 输出（用 `gopkg.in/yaml.v3` 序列化 `map[string]any`，保证键序按输入顺序——yaml.v3 的 MapSlice 或自定义 `yaml.MapSlice`；**必须保留管理员填写顺序**）。
@@ -307,7 +308,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - **不可转协议**：snell/mieru/masque/openvpn/ssh/shadowquic/trusttunnel/tailscale → `SkipItem{Kind:"node", Name:..., Reason:"协议无标准链接映射"}`。
   6. **`backend/internal/assembly/validate.go`**：
      - 输入存在性与语法目标匹配（clash-yaml→platform product_type=yaml；sr-subs→subs；generic-subs→generic-subs；sr-conf→rule）；**目标平台必须已存在订阅条目，否则 400「请先在订阅管理为该平台创建订阅条目」**。
-     - 规则类型白名单（与 pool 共用校验函数）；**规则目标组必须属于本次渲染输出的代理组集合，其中强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为目标**；**勾选的代理组定义中悬空节点/子组引用拒绝生成（400 定位到具体组）**；**勾选组引用的子组必须属于本次渲染输出集合（强制组或已勾选组），未勾选子组同样拒绝生成并定位「组 X 引用了未勾选的组 Y」**（Design2Report10 Q7）；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**。
+     - 规则类型白名单（与 pool 共用校验函数）；**规则目标组必须属于本次渲染输出的代理组集合，其中强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为目标**；**勾选的代理组定义中悬空节点/子组引用拒绝生成（400 定位到具体组）**；**勾选组引用的子组必须属于本次渲染输出集合（强制组或已勾选组），未勾选子组同样拒绝生成并定位「组 X 引用了未勾选的组 Y」**（Design2Report10 Q7）；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**（Design2Report11 定稿：不纳入 §4.4/§5.4 失效项剔除容错）。
      - **勾选节点可用性校验**：xray 节点必须 enabled=1 / allocatable=1 / missing=0 / 所属实例 enabled=1，否则拒绝生成并提示具体节点（前端已置灰，后端兜底）。
      - 空产物校验：Clash `overseas members` 为空拒绝（文案「『🌎国外流量』组未包含任何节点」）；sr-subs/generic-subs 选中节点为空或转换后有效链接为 0 拒绝。
      - 规则为空允许生成（返回提示而非错误，提示由 Skipped/Warning 携带）。
@@ -335,7 +336,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
       proxies: [DIRECT]
     - name: "🌎国外流量"
       type: select
-      proxies: ["节点A", "🚀直接连接"]
+      proxies: ["节点A"]
     - name: "🛟无法归属的流量"
       type: select
       proxies: ["🚀直接连接", "🌎国外流量"]
@@ -378,15 +379,15 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
        1. 校验 + 渲染；
        2. 定位 owner：subscription 类按 platform_id 唯一订阅；sr-conf 按 rule_id；
        3. 构造 `version.TextContent{Name: targetFileName(target), Text: content}`；
-       4. 调用 `versionSvc.CreateVersion(ctx, ownerType, ownerID, src, version.CreateOptions{Activate:false, AfterCreate: func(tx, versionID, content) { return assemblySvc.SaveBlueprintTx(ctx, tx, versionID, in, renderPlan) }})`；**versionID 为 Build4 Step3 回调传入的新 `versions.id`，不是 version_no**（Design2Report10 Q11）；
+       4. 调用 `versionSvc.CreateVersion(ctx, ownerType, ownerID, src, version.CreateOptions{Activate:false, AfterCreate: func(tx, versionID, content) { return assemblySvc.SaveBlueprintTx(ctx, tx, versionID, in, renderPlan) }})`；**versionID 为 Build4 Step3 回调传入的新 `versions.id`，不是 version_no**（Design2Report10 Q11）；`SaveBlueprintTx` 按 Step 3 蓝图列映射落库：`fixed_params_json`（头部表单值，SR conf 含 FINAL 方向）/ `selection_json`（节点勾选按 `nodes.name` 稳定键、代理组勾选、素材池有序数组含每池目标、强制组「🌎国外流量」成员配置、Xray 候选集）/ `custom_rules_json`（手动补充规则行）/ `render_plan_json`（Clash 渲染计划，见 Step 3）；
        5. 返回 `{version_id, auto_activated, skipped, warnings}`；**前端调用统一 `timeout: 120_000`**。
-     - `GET /api/admin/versions/:id/blueprint`：读 assembly_blueprints + 校验引用，返回 `{blueprint, invalid_refs:[{kind,name}], name_changed}`（悬空项标记口径 Design2 §4.4/UI §5.4；`name_changed` 供重新编辑/预览提示）。
+     - `GET /api/admin/versions/:id/blueprint`：读 assembly_blueprints + 校验引用，返回 `{blueprint, invalid_refs:[{kind,name}], name_changed}`（悬空项标记口径 Design2 §4.4/UI §5.4；`name_changed` 供重新编辑/预览提示）；**重新编辑按四列映射回填全部表单（Step 6 重编辑流）**。
   2. **`backend/internal/version/version.go` 小改**：`Version` 增加 `Blueprint bool`（json `blueprint`）；`ListVersions` SQL 增加 `EXISTS(SELECT 1 FROM assembly_blueprints b WHERE b.version_id = v.id)` 列。
   3. **`backend/internal/server/server.go`**：构造 assembly 服务（注入 store/version/node/proxygroup/pool/cfg/logger），注册路由。
   4. **错误处理**：校验类 400（message 定位到字段/组/池）；目标平台尚无订阅条目 → 400「请先在订阅管理为该平台创建订阅条目」（不自动创建）；目标不存在 404；版本组件错误按既有映射；所有响应统一结构。
   5. **subs / generic-subs 下载 base64 收口（`backend/internal/download/download.go`）**（Design2 §4.5/§5.7，Design2Report7 Q2）：
      - `ResolveUserDownload` 解析平台唯一订阅后：订阅 `product_type ∈ {subs, generic-subs}` 且当前激活版本为装配生成模板（assembly_blueprints EXISTS）→ **下发前整体 base64 编码**；直接上传内容（无 blueprint）按上传字节原样返回；Clash YAML 不受影响；禁缓存头不变。
-     - 普通用户预览（`PreviewForUser` 用户分支）与下载同口径（按自身渲染）；管理员预览保持返回原文明文（Design2 §5.7 预览口径）。
+     - 普通用户预览（`PreviewForUser` 用户分支）与管理员预览一致：subs/generic-subs 装配模板均返回**明文原文**（与存储形态一致，base64 仅为下载下发编码，Design2Report11 决策）；直接上传内容原样返回（Design2 §5.7 预览口径）。
      - 本 Step 只实现「无注入的下载 base64」；高级模式注入后重新 base64 由 Build6 Step4 在此路径上叠加，不得重复编码。
   6. **单测**：preview 不产生版本与 blueprint 行；generate 首版 auto_activated=true 且 blueprint 1:1；第二版 auto_activated=false 且未激活；AfterCreate 失败时版本文件与记录回滚；blueprint 悬空引用标记；**subs/generic-subs 装配模板下载返回 base64、直接上传原字节、Clash 不受影响**。
 
@@ -413,7 +414,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
   1. **`frontend/src/api/node.ts`**：按 UI §9.1 `api/node.ts` 表实现（list/create/update/delete/getProtocols/toggleNode/setNodeDisplayName）；类型含 `source/protocol/host/port/is_public/enabled/allocatable/missing/display_name/render_name`。
   2. **`frontend/src/api/proxyGroup.ts`**：list/create/update/delete/togglePreset；`definition` 含组类型与有序 nodes/groups。
   3. **`frontend/src/views/admin/NodesView.vue`**：按 UI §6.1~6.3 实现：
-     - 双态列表；manual/xray 标签；节点名显示 `render_name`，xray 有自定义 display_name 时双行展示系统名；行内 enabled 开关（loading，失败回滚）；is_public 仅 source=xray 且 allocatable=1/missing=0 渲染，切换前 ConfirmModal；xray 行无整体编辑按钮，提供「命名」弹窗（display_name，留空清空，409 字段级提示），删除仅 missing=1；manual 删除影响说明（**装配快照与代理组定义中的引用按悬空容错处理**）。
+     - 双态列表；manual/xray 标签；节点名显示 `render_name`，xray 有自定义 display_name 时双行展示系统名；行内 enabled 开关（loading，失败回滚），**enabled 1→0 停用切换前 ConfirmModal「停用该节点将移除受影响用户的 Xray 账号（重新启用后需重新分配）」，0→1 无需确认（UI §6.1/§10.1）**；is_public 仅 source=xray 且 allocatable=1/missing=0 渲染，切换前 ConfirmModal；xray 行无整体编辑按钮，提供「命名」弹窗（display_name，留空清空，409 字段级提示），删除仅 missing=1；manual 删除影响说明（**装配快照与代理组定义中的引用按悬空容错处理**）。
      - manual 新建/编辑弹窗（720px）：协议下拉（注册表）、动态表单、凭据字段 `a-input-password` + 「留空 = 保留原凭据」、名称创建后只读、实时校验（**禁止空格**）、409 提示。
   4. **`frontend/src/views/admin/ProxyGroupsView.vue`**：按 UI §7.1~7.2：
      - 双态列表；preset/custom 标签；组类型 Tag；成员摘要；预设启用勾选（行首 Checkbox，即时保存）；预设不可删、自建组名只读；**自建组删除 ConfirmModal 说明被其他代理组引用为子组时产生悬空引用**。
@@ -429,7 +430,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
   cd ../backend && go test ./...
   ```
 
-- **验收标准：** 前端构建与测试通过；两页空态/加载/错误/危险确认/权限/防重复八项自检（按 UI §6.4/§7.3）走查通过。
+- **验收标准：** 前端构建与测试通过；两页空态/加载/错误/危险确认/权限/防重复八项自检（按 UI §6.4/§7.3）走查通过；**enabled 1→0 停用确认弹窗按 UI §6.1 走查通过**。
 
 
 
@@ -445,7 +446,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
   1. **`frontend/package.json`**：安装 `diff`（jsdiff）依赖（`npm install diff` + `npm install -D @types/diff`），版本用 npm 当前稳定版并在 package-lock 落锁。
   2. **`frontend/src/api/assembly.ts`**：按 UI §9.1 `api/assembly.ts` 表实现 `getAssemblyContext/getBlueprint/generate/preview`；请求类型与后端 GenerateInput 对齐（**规则素材池为有序数组**；节点/子组引用发送 `nodes.name` / `proxy_groups.name` 稳定键，不发送显示名）。
-  3. **`frontend/src/components/DiffView.vue`**：jsdiff `diffLines`；三色高亮（新增绿底/删除红底/上下文默认）；等宽字体、max-height 60vh 纵向滚动；目标版本不存在时整体新增；禁止 monaco。
+  3. **`frontend/src/components/DiffView.vue`**：jsdiff `diffLines`；三色高亮（新增绿底/删除红底/上下文默认）；等宽字体、max-height 60vh 纵向滚动；目标版本不存在时整体新增并注「目标尚无激活版本，本次对比为整体新增」（UI §5.3.5）；禁止 monaco。
   4. **`frontend/src/views/admin/AssemblyView.vue`**：Build4 五页签壳保留，四个装配器页签替换为真实组件。
   5. **装配器子组件**（建议目录 `frontend/src/views/admin/assembly/`）：
      - `AssemblerShell.vue`：双形态切换（`a-segmented` 分步/单页，localStorage `assembly_layout_mode` 共享）；步骤条动态隐藏跳过步骤（Clash 六步；SR subs/generic 五步跳④；sr-conf 五步跳③）；单页纵向分区 + 底部「预览产物」。
@@ -481,13 +482,14 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
   1. **`frontend/src/api/version.ts`**：`VersionItem.blueprint: boolean` 接通；`versionApi` 增加 `getBlueprint(versionId)`（供版本页重新编辑入口，内部走 assembly API）。
   2. **`frontend/src/views/admin/SubscriptionsView.vue`**：
-     - 列表新增「内容形态」标签：装配模板紫 / 直接上传灰（数据源由订阅行/版本列表的 blueprint 字段提供）。
+     - 列表新增「内容形态」标签：装配模板紫 / 直接上传灰（消费订阅行 `content_kind` 字段：blueprint/upload/空，Build4 已实现 `Subscription.ContentKind`，UI §4.1）。
      - 上传/装配生成后「已入池未生效，请激活」高亮 + 「去激活」快捷链接；PageHeader「前往装配」带目标平台参数。
      - 删除 ConfirmModal 影响清单按 UI §4.1 新写。
   3. **`frontend/src/views/admin/VersionManageView.vue`**（按 Design2-UI §4.2）：
      - 创建区第三入口「装配生成」→ `/admin/assembly?tab={对应装配器}&platform_id={平台}`（订阅）；规则页 `tab=sr-conf&rule_id={规则}`；分享/自定义不渲染。
      - `blueprint` 版本行显示紫色「装配」标签 + 「重新编辑」按钮；直接上传版本不显示。
      - 订阅/规则「激活/分发」文案与确认弹窗（分享/自定义保持「设为当前」）；首次自动激活提示。
+      - 版本列表空态：文案「暂无版本」+ 引导「上传文件 / 在线编辑 / 装配生成（订阅与规则页）」（UI §10.2）。
   4. **`frontend/src/views/admin/RulesView.vue`**：规则版本页装配入口；空实体「可作为 SR 分流规则装配目标」引导。
   5. **`frontend/src/views/HomeView.vue`**：管理员「按平台预览当前版本」按钮接 `/api/subscriptions/preview?platform={slug}`（无 subscription_id）；弹窗纯文本，装配模板显示含 `# {{xray_nodes}}` 的原文。
   6. **后端渲染 benchmark 收口**：确认 Step3 的 `BenchmarkRenderClash10kRules` / `BenchmarkRenderSrConf10kRules` 与对应阈值断言测试（`TestRenderClash10kRulesThreshold` / `TestRenderSrConf10kRulesThreshold`，<500ms）可跑并记录结果（不重复新建）；若超过 500ms，先做 profile 定位（预编译模板/缓冲池/减少重复序列化），禁止通过降低产物完整性优化。
@@ -508,7 +510,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
   cd ../frontend && npm run build && npm test
   ```
 
-- **验收标准：** 全部命令通过；手工动线完整；benchmark <500ms 级；前端无旧占位页；`grep -R "即将推出" frontend/src/views/admin/AssemblyView.vue` 无结果。
+- **验收标准：** 全部命令通过；手工动线完整；benchmark <500ms 级；前端无旧占位页；版本列表空态「暂无版本」及引导符合 UI §10.2；`grep -R "将在下一轮构建实现" frontend/src/views/admin/AssemblyView.vue` 无结果。
 
 ---
 
@@ -536,4 +538,5 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 | v1.3 | 2026-08-19 | Design2Report8 修订：节点/显示名禁止空格（P2-10）；代理组删除影响清单补悬空引用（P2-9）；装配严格校验（悬空引用/未勾选目标/不可用节点/平台无订阅行/强制组可作规则目标，Q10）；preview/generate/blueprint 响应补 skipped/warnings/name_changed（P2-5/P2-7）；预览 diff 复用版本预览端点（P2-6）；benchmark 命令与阈值断言修正（P2-2） |
 | v1.4 | 2026-08-19 | Design2Report9 修订：强制组 emoji 化连锁（约束表/校验常量/渲染伪代码/兜底行/YAML 示例，M4）；名称校验拆 `ValidateNodeName`（禁空格）/`ValidateProxyGroupName`（允许空格）并统一 `CheckRenderNameNamespaceTx` 函数名（M8）；SR conf benchmark 具名 `BenchmarkRenderSrConf10kRules` 与阈值测试、Step7 删重复（M10）；YouTube 示例组类型改 select 与种子一致 |
 | v1.5 | 2026-08-19 | Design2Report10 修订：装配校验补「勾选组引用的子组必须在本次输出集合内」（Q7）；🌎国外流量成员改为仅节点（Q8）；AfterCreate 回调改为传 versions.id（Q11） |
+| v1.6 | 2026-08-19 | Design2Report11 核验修订：用户预览明文口径；协议变更与停用预设组两处决策定稿；assembly_blueprints 四列映射明示；🌎国外流量伪代码去子组；约束表补空格；enabled 1→0 ConfirmModal 与版本空态验收落点；验收 grep 修正；DiffView 整体新增提示；内容形态标签列补齐 |
 

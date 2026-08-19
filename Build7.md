@@ -23,8 +23,8 @@
 | 参数 | 取值 | 出处 |
 |------|------|------|
 | 独立账号 email | `ext-{id}@vpn.local`，全小写；与 `user-` 前缀体系区分 | Design2 §5.11 |
-| 独立账号推送范围 | 手动勾选实例/inbound；仅四协议、allocatable=1、missing=0、实例 enabled=1；**不参与组分配/公共节点/候选集** | Design2 §5.11 |
-| 对账期望集 | 用户部分 = 全部 active 用户 ×（组分配 ∪ 公共），经候选集与可用性过滤；独立账号部分 = 其 xray_ext_users 推送目标，**仅可用性过滤、不经候选集**（独立账号不参与候选集口径）；xray_users 非用户部分期望集来源（实时计算），xray_ext_users 为独立账号推送目标载体 | Design2 §5.10/§5.11 |
+| 独立账号推送范围 | 手动勾选实例/inbound；仅四协议、allocatable=1、missing=0、节点 enabled=1、实例 enabled=1；**不参与组分配/公共节点/候选集** | Design2 §5.11 |
+| 对账期望集 | 用户部分 = 全部 active 用户 ×（组分配 ∪ 公共），经候选集与可用性过滤；独立账号部分 = 其 xray_ext_users 推送目标，**仅可用性过滤、不经候选集**（独立账号不参与候选集口径）；用户部分期望集由 active×分配/公共实时计算（xray_users 仅承载状态/重试、非期望集来源），xray_ext_users 为独立账号推送目标载体 | Design2 §5.10/§5.11 |
 | 对账分区 | 待补推 / 无头用户（user- 前缀）/ 疑似独立账号残留（ext- 或无法匹配前缀，默认不勾选）/ 凭据不一致 | Design2 §5.10/§5.11 |
 | 导出格式 | `format_version=2`；instances 全字段导出（slug 导入沿用）并附带节点命名映射 `nodes: [{tag, display_name}]`（仅非空显示名）；accounts 含 **quota_exceeded** 与 push_targets（instance slug + inbound tag）；**带实例/账号导入且 advanced_mode=false 时自动置为 true**；**无实例/账号且 advanced_mode=false 导入时要求 DISABLE**；v1 导入兼容仅配置、同步执行 | Design2 §5.4 |
 | 导入保护 | 若 signing_key 将变化且存在业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 凭据字段 / xray_ext_accounts 两个密文字段），拒绝导入并提示「配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复」 | Design2 §5.4 |
@@ -110,14 +110,14 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
        - 事务插入账号（email 先占位 `ext-{id}@vpn.local`，取 LastInsertId 后回填 email；全小写）。
        - 凭据双轨：`generate` 面板生成 UUID v4 + 高熵密码；`manual` 用传入值（非空校验）。两者均 AES-256-GCM 落库。
        - 写 `xray_ext_users`（pending）与 `xray_ext_traffic` 不预建（按需）；事务内复查 advanced_mode，off 中止。
-       - 提交后对 targets 逐个 AddUser；成功 synced、失败 failed；幂等 `already exists.` 视为接管成功（管理员保证手填凭据一致，面板不校验 Xray 侧原值）。
+       - 提交后对 targets 逐个 AddUser；成功 synced、失败 failed。**凭据接管按模式区分（Design2Report11 决策）**：`generate` 模式若 Xray 侧已存在同 email 账号（AddUser 返回 `already exists.`），**先 RemoveUser 再以新生成凭据 AddUser 覆盖**（会踢除 Xray 侧既有账号，创建弹窗/确认文案须提示该风险）；`manual`（手填接管）模式保持原口径——`already exists.` 视为接管成功（管理员保证手填凭据一致，面板不校验 Xray 侧原值）。
        - **返回形状**：`generate` 模式响应含 `{account, credentials:{uuid, proxy_secret}}`（一次性明文，前端展示后即焚）；`manual` 模式仅返回 `{account}`（Design2Report8 P2-14）。
      - `UpdateExt`：名称可改（唯一 409）；凭据字段留空保留；push_targets 全量 diff（Remove/Add，超限账号 AddUser 类跳过；**目标校验同 CreateExt**）；配额更新（NULL/0/正数，负数 400）。
      - `RetryExt(ctx, extAccountID)`：对 `xray_ext_users.sync_status='failed'` 记录逐个重试——期望集仍含该目标则 AddUser（超限账号跳过），否则 RemoveUser；返回计数回执（Design2Report8 Q4）。
      - `GetExtCredentials`：解密返回 `{uuid, proxy_secret}`（敏感端点，日志不得输出值；**响应必须携带 no-store 禁缓存头**，Design2Report10 Q12-1）。
      - `DeleteExt`：事务前收集 targets；删除记录；提交后 RemoveUser；不可达跳过记 warn。
      - `CollectExtTraffic(ctx, instance)` 与 `ResetExtQuota`：沿用 Build6 Step5 用户口径，但写入 `xray_ext_traffic(ext_account_id, ym)`；超限判定按 ext 自己的 quota；超限 → 全部已推 inbound RemoveUser + quota_exceeded=1；重置 → 清当月 + 重新 AddUser（凭据不变）。
-     - **实例/节点删除钩子补丁**：与 Build6 Step3 对接——实例删除与 missing 节点删除的收集清单必须包含既有 `xray_ext_users` 推送目标，提交后对可达实例执行面板用户与独立账号两类 RemoveUser；本 Step 单测覆盖两类目标收集与调用序。
+     - **实例/节点删除钩子（去重，仅补单测）**：Build6 Step1/Step3 已实现实例删除与 missing 节点删除时面板用户 + 既有 `xray_ext_users` 两类目标的收集与 RemoveUser（含单测）；本 Step **不重复实现**，仅在 ext 服务落地后补充独立账号维度（ext 推送目标收集与调用序）的单测断言。
   2. **`backend/internal/xray/reconcile.go`**：
      - `Reconcile(ctx, instanceID)`：
        1. 期望集 =【全部 active 用户 ×（组分配 ∪ 公共节点），经**候选集与可用性过滤**】∪【独立账号 × 其 xray_ext_users 推送目标，**仅可用性过滤、不经候选集**（独立账号不参与候选集口径，Design2 §5.11）】；**再与本实例节点（nodes.instance_id=instanceID）取交集，to_push / credential_mismatches 仅含本实例目标，防止误推其他实例**（Design2Report7 P2-4 / Design2Report9 M3）。
@@ -141,7 +141,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - `POST /api/admin/xray/instances/:id/reconcile/push|clean|credentials`；
      - `POST /api/admin/xray/instances/:id/reconcile/push-one|credentials-one`（单条同步，Design2Report10 Q9）。
   4. **`backend/internal/cron/`**：采集任务在用户采集后追加逐独立账号采集与超限检查（同一任务、同样 advanced_mode 入口检查）。
-  5. **单测（fake API）**：ext 创建 generate/manual、email 前缀、**name 唯一与 quota 负数拒绝**、**创建响应含一次性凭据（generate）且库内为密文**、**retry 对 failed 记录 AddUser/RemoveUser 计数**、**push_targets 非法目标（非 xray/非四协议/allocatable=0/missing=1/节点或实例停用）400**、编辑留空保留、target diff、超限摘除与重置；对账四分区（含 `ext-` 残留与不匹配前缀）、**期望集实例交集断言（to_push / credential_mismatches 不含其他实例节点目标，P2-4）**、clean 仅清理勾选项、credential mismatch 修复顺序（先 Remove 后 Add）、**push-one/credentials-one 单条同步端点**；**实例/节点删除收集 user+ext 两类目标并 RemoveUser**。
+  5. **单测（fake API）**：ext 创建 generate/manual、email 前缀、**name 唯一与 quota 负数拒绝**、**创建响应含一次性凭据（generate）且库内为密文**、**generate 模式同 email 已存在 → 先 RemoveUser 再 AddUser 以新凭据覆盖（manual 模式保持 already exists 视为成功）**、**retry 对 failed 记录 AddUser/RemoveUser 计数**、**push_targets 非法目标（非 xray/非四协议/allocatable=0/missing=1/节点或实例停用）400**、编辑留空保留、target diff、超限摘除与重置；对账四分区（含 `ext-` 残留与不匹配前缀）、**期望集实例交集断言（to_push / credential_mismatches 不含其他实例节点目标，P2-4）**、clean 仅清理勾选项、credential mismatch 修复顺序（先 Remove 后 Add）、**push-one/credentials-one 单条同步端点**；**实例/节点删除收集 user+ext 两类目标并 RemoveUser（user+ext 收集与调用序断言沿用 Build6 Step1/Step3 单测，本 Step 仅补 ext 服务落地后的独立账号维度断言）**。
 
 - **参考代码/伪代码：**
 
@@ -253,11 +253,11 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 - **前置条件：** Step 2 验收通过。
 - **产出文件与操作：**
 
-  1. **`frontend/src/api/xray.ts`**：按 UI §9.1 `api/xray.ts` 表逐函数实现（listInstances/createInstance/updateInstance/deleteInstance/testConnection/detectNodes/runInit/reconcile/pushRepair/cleanOrphans/repairCredentials/**pushOne/repairCredentialsOne**/retryUserSync/resetQuota/getUserSync/getInstanceStats/listExtAccounts/createExtAccount/updateExtAccount/deleteExtAccount/**retryExtSync**/getExtCredentials/resetExtQuota）；**detectNodes 类型含 `added_nodes: [{node_id, tag, name}]`**；**createExtAccount generate 响应含一次性凭据，展示后即焚**；**runInit/reconcile/detect/deleteInstance/createExtAccount/updateExtAccount/deleteExtAccount/retry*/resetQuota 及 testConnection 请求统一 `timeout: 120_000`**（Design2Report10 Q12-2）。
+  1. **`frontend/src/api/xray.ts`**：按 UI §9.1 `api/xray.ts` 表逐函数实现（listInstances/createInstance/updateInstance/deleteInstance/testConnection/detectNodes/runInit/reconcile/pushRepair/cleanOrphans/repairCredentials/**pushOne/repairCredentialsOne**/retryUserSync/resetQuota/getUserSync/getInstanceStats/listExtAccounts/createExtAccount/updateExtAccount/deleteExtAccount/**retryExtSync**/getExtCredentials/resetExtQuota）；**detectNodes 类型含 `added_nodes: [{node_id, tag, name}]`**；**createExtAccount generate 响应含一次性凭据，展示后即焚**；**同步长操作统一 `timeout: 120_000`**（Design2Report10 Q12-2）：对账查询（reconcile GET）、节点检测（detectNodes）、createExtAccount/updateExtAccount/deleteExtAccount、retry*/resetQuota、pushOne/repairCredentialsOne 及 testConnection（装配生成/预览 120s 同口径见 Build5）；**runInit、reconcile 三执行端点（push/clean/credentials）与 deleteInstance 为异步提交端点，提交即返回 task_id、走 pollTask 轮询，不适用 120s**。
      - **`frontend/src/api/request.ts` 同步适配 UI §9.4**：403 且后端 message 为「高级功能未开启」时，`message.warning('高级功能未开启')` 并刷新 system status（区别于普通「权限不足」）；409 冲突直接展示后端描述（实例名/独立账号名/节点显示名等）。
   2. **`frontend/src/views/admin/XrayInstancesView.vue`**：页面骨架 `a-tabs` 双页签（Xray 实例 / 独立账号）；`PageHeader` 右侧常驻「开始初始化」按钮（仅作用于面板用户）。
   3. **实例 Tab**（按 UI §8.1~§8.4）：
-     - 双态列表：名称/slug/api_addr/enabled 行内开关（Tooltip 停用语义）/采集状态 Badge + 连续失败告警/操作（编辑/刷新节点/对账/删除）。
+     - 双态列表：名称/slug/api_addr/enabled 行内开关（Tooltip 停用语义）/采集状态 Badge + 连续失败告警/操作（编辑/刷新节点/对账/删除）；**列表空态 `a-empty`「还没有 Xray 实例」+「新增实例」按钮 + 前置提示「需先在 Xray 服务器开启 gRPC API 与流量统计（policy.stats）」（UI §10.2）**。
      - 新增/编辑弹窗（480px）：名称 + api_addr + api_tag + 「测试连接」（loading → 成功/失败 alert；不落库）；**编辑保存成功后提示「已保存，建议执行『刷新节点』以同步 api_addr 变化后的节点信息」**（Design2Report10 Q12-7）。
      - 「刷新节点」→ detectNodes → 结果回执 Modal：新增 N / 更新 M / missing K / 撞名跳过 J（列出 tag+reason）；**新增节点命名区**：`added_nodes` 逐行 `tag + 系统名 + display_name 输入框`，留空=暂不命名，「保存显示名」逐行调用 `setNodeDisplayName`（409 字段级提示）；完成后刷新节点管理页同源数据；**实例不可达/gRPC 失败时 `a-alert error` 展示错误摘要与「检查 api_addr/实例状态后重试」引导，不弹回执**（Design2Report10 Q12-4）。
      - **删除实例**：ConfirmModal 确认后调用 `deleteInstance`，响应 `task_id` 按 pollTask 轮询全局任务端点（见 9.2），按钮 loading 防重复，终态后刷新列表（Design2Report10 Q12-3）。
@@ -269,9 +269,9 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
        ④ 凭据不一致（面板账号 + 节点 + 移除并重推行操作）；
        一键清理危险 ConfirmModal；执行结果计数回执；四区全空 success 空态。**行内补推调用 `pushOne`、行内凭据修复调用 `repairCredentialsOne`（同步 120s）**（Design2Report10 Q9）；**对账 GET 失败/实例不可达时以 `a-alert error` 展示错误摘要与「检查实例状态后重试」引导，不渲染四分区**（Design2Report10 Q12-4）。
   4. **独立账号 Tab**（按 UI §8.5）：
-     - 双态列表：名称/email/配额/本月用量/推送摘要聚合 Badge/超限标记/操作（复制凭据/编辑/重置配额/删除）。
+     - 双态列表：名称/email/配额/本月用量/推送摘要聚合 Badge/超限标记/操作（复制凭据/编辑/重置配额/删除）；**列表空态 `a-empty`「还没有独立账号」+「创建独立账号」按钮 + 用途说明「用于向面板账号体系之外的人员/场景分发凭据（可手写入自定义订阅内容）」（UI §10.2）**。
      - 创建/编辑弹窗（720px）四区：基本信息；凭据区双轨（自动生成/手填接管，`a-input-password`，编辑留空=保留）；推送目标按实例分组 inbound 多选（过滤规则；inbound 标签展示有效渲染名，有自定义显示名时副行系统标识名；**提交形状 `push_targets: [{instance_id, inbound_tag}]`**，Design2Report10 Q12-6）；配额 input-number（0/留空不限）；**编辑移除已推送目标在保存前提示「将同步从 Xray 移除已取消目标的账号」**（Design2Report10 Q12-6）。
-     - 创建成功弹窗一次性展示 `createExtAccount` 响应中的明文凭据（自动生成模式）+ 复制 + 警示文案；「复制凭据」按钮调专用端点 + Toast 警示；**失败推送行内重试调 `retryExtSync`**；删除/重置 ConfirmModal 文案按 UI。
+     - 创建成功弹窗一次性展示 `createExtAccount` 响应中的明文凭据（自动生成模式）+ 复制 + 警示文案；**创建（自动生成模式）确认文案提示「若 Xray 侧已存在同 email 账号，将先移除旧账号并以新生成凭据重新推送（覆盖接管，Xray 侧旧账号被踢除）」**（Design2Report11）；「复制凭据」按钮调专用端点 + Toast 警示；**失败推送行内重试调 `retryExtSync`**；删除/重置 ConfirmModal 文案按 UI。
   5. **路由/菜单**：Build4 已加 `/admin/xray` 路由与高级可见性；本 Step 替换占位组件。
   6. **前端单测**：实例列表加载/开关失败回滚、测试连接、检测回执、初始化确认、对账四分区渲染与 ext 默认不勾选、独立账号双轨表单与一次性凭据展示、**ext 行内重试 loading**。
 
@@ -307,7 +307,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
   4. **`frontend/src/views/admin/UsersView.vue`**：按 UI §4.5 扩展：
      - 基础模式隐藏「所属组」列（advanced_mode）；高级模式显示用量 `X / Y GB`、同步状态聚合 Badge（synced/pending/failed + Tooltip + 行内重试）、超限红标与行高亮。
      - Dropdown 新增「配额覆盖」（input-number，留空=继承；0=不限）与「重置配额」（ConfirmModal；禁用用户按钮置灰 + Tooltip）。
-  5. **`frontend/src/api/settings.ts`**：新增 `AdvancedSettings` 类型与 `getAdvancedSettings/saveAdvancedSettings`（关闭时请求含 `confirm_word: "DISABLE"`）。
+  5. **`frontend/src/api/settings.ts`**：新增 `AdvancedSettings` 类型与 `getAdvancedSettings/saveAdvancedSettings`（关闭时请求含 `confirm_word: "DISABLE"`）；另新增 **`importConfig`**（POST 现有导入端点；**响应含 `task_id` 为 v2 走 pollTask 轮询，不含为 v1 同步完成处理**）与 **`getAdminTask`**（GET /api/admin/tasks/:id，全局任务端点，kind 含 off_clear/import/xray_init/reconcile_exec/instance_delete）（UI §9.3）。
   6. **`frontend/src/views/admin/SettingsView.vue`**：按 UI §4.7：
      - 新增「高级模式」分区（锚点置于运行模式信息之后）：开关 + 状态 Tag；开启保存轻提示；关闭触发确认词弹窗（**确认词 DISABLE**，清单式展示将被移除内容，manual 节点保留说明，两条 warning：不可达实例手动清理/重开全量重配），**提交后按 task_id 轮询 OFF 清空任务**；采集间隔（分钟，默认 10，**仅 advanced_mode=on 时展示该控件**，Design2Report10 Q12-5）；流量卡片开关（默认开，两模式均展示）。
      - 配置导入/导出分区文案更新：导出说明追加 v2 内容（实例清单含节点显示名映射 + 独立账号推送目标/超限标记）；导入确认弹窗追加「实例整体覆盖、组节点分配将被级联清空」与「带实例/账号导入且高级关闭时将自动开启」；**无实例/账号且高级关闭分支采用双确认词分步：先按现有流程校验 IMPORT，再追加 DISABLE 并显著警告**（Design2Report10 Q5）；signing_key 保护错误以 `a-alert error` 展示后端文案；**v1 导入响应无 task_id 按同步完成处理，v2 导入提交后按 task_id 轮询**，完成提示自动检测（enabled=0 实例跳过并提示）/回填节点显示名/重绑/对账。
@@ -336,10 +336,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 - **前置条件：** Step 4 验收通过。
 - **产出文件与操作：**
 
-  1. **`frontend/src/api/home.ts`**：类型与 Build4/6 后端响应最终对齐（Design2-UI §9.3）：
-     - 顶层 `traffic`：基础模式 `{unlimited:true}`；高级模式 `{unlimited, used_bytes, quota_bytes|null, exceeded:boolean}`（**配额不限时亦 `unlimited=true` 且省略 quota_bytes**，与 Build6 Step5 实现及 UI §9.3 形状对齐）。
-     - 顶层 `home_rule`：`null` 或 `{rule_id, name, current_version, token, download_url}`。
-     - 平台卡普通用户 `status: 'custom'|'ready'|'unassigned'`；管理员 `status:'admin_preview'` + `subscription` 预览字段。
+  1. **`frontend/src/api/home.ts`**：沿用 Build4 Step4 已落地的 `getHomeSummary()`（**`GET /api/home/summary`**，Design2Report11 Q13 决策：独立汇总端点）——响应含顶层 `traffic`：基础模式 `{unlimited:true}`；高级模式 `{unlimited, used_bytes, quota_bytes|null, exceeded:boolean}`（**配额不限时亦 `unlimited=true` 且 `quota_bytes=null`**，与 Build6 Step5 实现及 UI §9.3 形状对齐）；含顶层 `home_rule`：`null` 或 `{rule_id, name, current_version, token, download_url}`。**平台卡片字段（普通用户 `status: 'custom'|'ready'|'unassigned'`；管理员 `status:'admin_preview'` + `subscription` 预览字段）仍来自 platforms 端点**（`/api/home/platforms` 保持纯列表，不承载汇总字段）。
   2. **`frontend/src/views/HomeView.vue`**：按 UI §3.1：
      - 卡片顺序流量 → 分流规则 → 平台卡 → 公告栏；流量卡受 `traffic_card_enabled` 控制；高级未超限进度条（<80 蓝 / 80~99 橙 / 100 红），超限红色 alert 文案统一；字节→GB 两位小数。
      - 分流规则卡全体用户可见；正常/空态；SR 双内容引导；点击跳 `/rules`。
@@ -437,4 +434,5 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 | v1.5 | 2026-08-19 | 构建前核验修订：Step5 条目编号修正（原「1a」并入序列，HomeView 子项归位）；Step6 覆盖矩阵 Build7 表述修正为 §5.4/§5.10/§5.11 剩余后端 |
 | v1.6 | 2026-08-19 | Design2Report9 修订：对账期望集拆分用户部分（候选集+可用性）与独立账号部分（仅可用性，M3）；对账执行三端点与实例删除异步化、全局任务端点 /api/admin/tasks/:id 与 kind 枚举（M7/M6）；OFF 幂等 no-op（M15）；采集间隔映射读写单测承接（M9）；v1 导入兼容与装配快照重绑注记；归档范围写明 Design2 保持活跃 |
 | v1.7 | 2026-08-19 | Design2Report10 修订：全局任务 registry 改为复用 Build6（Q1）；对账单条同步端点 push-one/credentials-one（Q9）；导入双确认词 IMPORT→DISABLE 与 v1 同步/v2 异步响应口径（Q5）；OFF 翻转判定与任务登记同事务互斥（Q15）；getExtCredentials no-store、testConnection 120s、实例删除轮询 UI、检测/对账错误态、api_addr 变更提示、采集间隔仅高级展示、push_targets 形状与移除确认（Q12） |
+| v1.8 | 2026-08-19 | Design2Report11 核验修订：删除钩子补丁去重（仅补 ext 单测）；generate 模式同 email 先 Remove 再 Add 定稿；参数表补节点 enabled=1；120s 清单剔除异步端点；期望集措辞修正；实例/独立账号空态显式列；home 数据改 /api/home/summary；importConfig/getAdminTask 点名 |
 
