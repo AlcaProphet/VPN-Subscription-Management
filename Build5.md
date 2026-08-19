@@ -281,7 +281,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
   1. **`backend/internal/assembly/models.go`**：定义
      - `TargetSyntax` 常量 `clash-yaml/sr-subs/generic-subs/sr-conf`。
-     - `PoolSelection { PoolID int64; Target string }`（有序数组）、`RuleLine { RuleType, MatchValue, Target string }`、`GenerateInput { TargetSyntax; PlatformID; RuleID; FixedParams map[string]any; NodeNames []string; GroupNames []string; OverseasMembers []string; Pools []PoolSelection; CustomRules []RuleLine; FinalDirection string }`。
+     - `PoolSelection { PoolID int64; Target string }`（有序数组）、`RuleLine { RuleType, MatchValue, Target string }`、`GenerateInput { TargetSyntax; PlatformID; RuleID; FixedParams map[string]any; NodeNames []string; GroupNames []string; OverseasMembers []string（**仅允许节点稳定名 `nodes.name`，不接受子组引用，Design2Report10 Q8**）; Pools []PoolSelection; CustomRules []RuleLine; FinalDirection string }`。
      - `RenderResult { Content []byte; Skipped []SkipItem; RenderPlan json.RawMessage }`；`SkipItem { Kind, Name, Reason string }`。
   2. **`backend/internal/assembly/load.go`**：上下文加载（只读）——按名称（`nodes.name` 稳定键）读节点（含解密后的 protocol_json 与 display_name）、代理组定义、素材池全部条目（按 sort_order）、平台/规则目标校验；节点对象提供 `renderName()`（display_name 非空则用之，否则 name）。
   3. **`backend/internal/assembly/render_clash.go`**：
@@ -307,11 +307,11 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - **不可转协议**：snell/mieru/masque/openvpn/ssh/shadowquic/trusttunnel/tailscale → `SkipItem{Kind:"node", Name:..., Reason:"协议无标准链接映射"}`。
   6. **`backend/internal/assembly/validate.go`**：
      - 输入存在性与语法目标匹配（clash-yaml→platform product_type=yaml；sr-subs→subs；generic-subs→generic-subs；sr-conf→rule）；**目标平台必须已存在订阅条目，否则 400「请先在订阅管理为该平台创建订阅条目」**。
-     - 规则类型白名单（与 pool 共用校验函数）；**规则目标组必须属于本次渲染输出的代理组集合，其中强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为目标**；**勾选的代理组定义中悬空节点/子组引用拒绝生成（400 定位到具体组）**；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**。
+     - 规则类型白名单（与 pool 共用校验函数）；**规则目标组必须属于本次渲染输出的代理组集合，其中强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为目标**；**勾选的代理组定义中悬空节点/子组引用拒绝生成（400 定位到具体组）**；**勾选组引用的子组必须属于本次渲染输出集合（强制组或已勾选组），未勾选子组同样拒绝生成并定位「组 X 引用了未勾选的组 Y」**（Design2Report10 Q7）；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**。
      - **勾选节点可用性校验**：xray 节点必须 enabled=1 / allocatable=1 / missing=0 / 所属实例 enabled=1，否则拒绝生成并提示具体节点（前端已置灰，后端兜底）。
      - 空产物校验：Clash `overseas members` 为空拒绝（文案「『🌎国外流量』组未包含任何节点」）；sr-subs/generic-subs 选中节点为空或转换后有效链接为 0 拒绝。
      - 规则为空允许生成（返回提示而非错误，提示由 Skipped/Warning 携带）。
-  7. **单测（本 Step 重点）**：golden 测试四种产物（输入固定，比对关键行与占位标记有无；**含 xray 节点 display_name 非空与空回退两种渲染分支**）；链接编码与 `Shadowrocket.subs.template.md` 样例形态一致；中文名/emoji、punycode、空格转义；USER-AGENT Clash 跳过；IP no-resolve；兜底顺序；空产物校验；**停用预设组拒绝生成**；**悬空代理组引用/未勾选目标组/不可用 xray 节点/平台无订阅行拒绝生成**；**1 万规则渲染 benchmark 测试（`BenchmarkRenderClash10kRules` 与 `BenchmarkRenderSrConf10kRules` 双具名，各配阈值断言测试）**。
+  7. **单测（本 Step 重点）**：golden 测试四种产物（输入固定，比对关键行与占位标记有无；**含 xray 节点 display_name 非空与空回退两种渲染分支**）；链接编码与 `Shadowrocket.subs.template.md` 样例形态一致；中文名/emoji、punycode、空格转义；USER-AGENT Clash 跳过；IP no-resolve；兜底顺序；空产物校验；**停用预设组拒绝生成**；**悬空代理组引用/未勾选子组/未勾选目标组/不可用 xray 节点/平台无订阅行拒绝生成**；**1 万规则渲染 benchmark 测试（`BenchmarkRenderClash10kRules` 与 `BenchmarkRenderSrConf10kRules` 双具名，各配阈值断言测试）**。
 
 - **参考代码/伪代码：**
 
@@ -378,7 +378,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
        1. 校验 + 渲染；
        2. 定位 owner：subscription 类按 platform_id 唯一订阅；sr-conf 按 rule_id；
        3. 构造 `version.TextContent{Name: targetFileName(target), Text: content}`；
-       4. 调用 `versionSvc.CreateVersion(ctx, ownerType, ownerID, src, version.CreateOptions{Activate:false, AfterCreate: func(tx, no, content) { return assemblySvc.SaveBlueprintTx(ctx, tx, no, in, renderPlan) }})`；
+       4. 调用 `versionSvc.CreateVersion(ctx, ownerType, ownerID, src, version.CreateOptions{Activate:false, AfterCreate: func(tx, versionID, content) { return assemblySvc.SaveBlueprintTx(ctx, tx, versionID, in, renderPlan) }})`；**versionID 为 Build4 Step3 回调传入的新 `versions.id`，不是 version_no**（Design2Report10 Q11）；
        5. 返回 `{version_id, auto_activated, skipped, warnings}`；**前端调用统一 `timeout: 120_000`**。
      - `GET /api/admin/versions/:id/blueprint`：读 assembly_blueprints + 校验引用，返回 `{blueprint, invalid_refs:[{kind,name}], name_changed}`（悬空项标记口径 Design2 §4.4/UI §5.4；`name_changed` 供重新编辑/预览提示）。
   2. **`backend/internal/version/version.go` 小改**：`Version` 增加 `Blueprint bool`（json `blueprint`）；`ListVersions` SQL 增加 `EXISTS(SELECT 1 FROM assembly_blueprints b WHERE b.version_id = v.id)` 列。
@@ -535,4 +535,5 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 | v1.2 | 2026-08-19 | Design2Report7 核验修订：Step4 新增 subs/generic-subs 装配模板下载整体 base64 实现步骤与单测（Q2，基础模式下载可用）；Step6 Clash 手动规则行类型下拉排除 USER-AGENT（P2-3） |
 | v1.3 | 2026-08-19 | Design2Report8 修订：节点/显示名禁止空格（P2-10）；代理组删除影响清单补悬空引用（P2-9）；装配严格校验（悬空引用/未勾选目标/不可用节点/平台无订阅行/强制组可作规则目标，Q10）；preview/generate/blueprint 响应补 skipped/warnings/name_changed（P2-5/P2-7）；预览 diff 复用版本预览端点（P2-6）；benchmark 命令与阈值断言修正（P2-2） |
 | v1.4 | 2026-08-19 | Design2Report9 修订：强制组 emoji 化连锁（约束表/校验常量/渲染伪代码/兜底行/YAML 示例，M4）；名称校验拆 `ValidateNodeName`（禁空格）/`ValidateProxyGroupName`（允许空格）并统一 `CheckRenderNameNamespaceTx` 函数名（M8）；SR conf benchmark 具名 `BenchmarkRenderSrConf10kRules` 与阈值测试、Step7 删重复（M10）；YouTube 示例组类型改 select 与种子一致 |
+| v1.5 | 2026-08-19 | Design2Report10 修订：装配校验补「勾选组引用的子组必须在本次输出集合内」（Q7）；🌎国外流量成员改为仅节点（Q8）；AfterCreate 回调改为传 versions.id（Q11） |
 

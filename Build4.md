@@ -521,10 +521,10 @@ Step 6 ──▶ Step 7（端到端验收）
 - **产出文件与操作：**
 
   1. **`backend/internal/version/version.go`**：
-     - 新增 `type CreateOptions struct { Activate bool; AfterCreate func(tx *sql.Tx, versionNo int64, content []byte) error }`。
+     - 新增 `type CreateOptions struct { Activate bool; AfterCreate func(tx *sql.Tx, versionID int64, content []byte) error }`。**AfterCreate 传入的是新插入 `versions.id`（不是 version_no）**，供 assembly_blueprints.version_id 直接使用（Design2Report10 Q11）。
      - `CreateVersion` 签名改为 `CreateVersion(ctx, ot, ownerID, src, opts CreateOptions) (*Version, bool, error)`，第二个返回值为「是否激活」。
-     - 事务内逻辑改为：写文件 → 插入版本行 → 计算 `effectiveCurrent`（`current==0` 或 `opts.Activate` 则 setCurrentLocked 并激活新版本；否则保持 owner 当前版本）→ `opts.AfterCreate`（如需）→ `evictOldest(..., effectiveCurrent)`。**`current==0` 判定与 setCurrent 在同一 `BEGIN IMMEDIATE` 事务内完成**（防双首版并发）。
-     - `opts.AfterCreate` 出错时删除刚写文件并返回错误（事务回滚）；文件写失败/记录写失败清理逻辑沿用。
+     - 事务内逻辑改为：写文件 → 插入版本行（取 `LastInsertId` 作为 versionID）→ `opts.AfterCreate(tx, versionID, content)`（如需；**先于 setCurrent 执行，失败时 current symlink 尚未被改动，只需删刚写文件即可**）→ 读取 owner 当前版本并计算 `effectiveCurrent`（`current==0` 或 `opts.Activate` 则 setCurrentLocked 并激活新版本；否则保持 owner 当前版本）→ `evictOldest(..., effectiveCurrent)`。**`current==0` 判定与 setCurrent 在同一 `BEGIN IMMEDIATE` 事务内完成**（防双首版并发）。
+     - `opts.AfterCreate` 出错时删除刚写文件并返回错误（事务回滚，不涉及 symlink 恢复）；文件写失败/记录写失败清理逻辑沿用。
      - 更新所有调用点：`server/versionCreate`、`rule.Create`、`share.Create`、`custom.Upsert`、`subscription`（已无首版调用）；订阅 owner 与后续 assembly 传 `Activate:false`，rule/share/custom 手动上传/文本编辑传 `Activate:true`。
      - 为订阅文本模式补默认文件名：新增 `type TextContent struct { Text []byte; Name string }` 实现 ContentProvider（Build5 装配也会复用）；`versionCreate` 对订阅按 product_type 选名：yaml→`subscription.yaml`，subs/generic-subs→`subscription.txt`；rule→`rule.conf`；share/custom→默认 `subscription.yaml`。
   2. **`backend/internal/server/subscription.go`**：`versionCreate` 调用 `verSvc.CreateVersion(..., version.CreateOptions{Activate:false})`；响应增加 `auto_activated` 布尔（返回第二个值），供前端展示「首个版本已自动激活」。
@@ -553,7 +553,7 @@ Step 6 ──▶ Step 7（端到端验收）
   ```go
   type CreateOptions struct {
       Activate    bool
-      AfterCreate func(tx *sql.Tx, versionNo int64, content []byte) error
+      AfterCreate func(tx *sql.Tx, versionID int64, content []byte) error
   }
 
   func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64, src ContentProvider, opts CreateOptions) (*Version, bool, error) {
@@ -561,16 +561,17 @@ Step 6 ──▶ Step 7（端到端验收）
       var created *Version
       activated := false
       err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-          // 写文件、INSERT versions 不变 ...
+          // 写文件、INSERT versions 后取得 versionID（LastInsertId） ...
+          if opts.AfterCreate != nil {
+              // 先于 setCurrent：失败时 current symlink 尚未改动，只需删刚写文件
+              if err := opts.AfterCreate(tx, versionID, content); err != nil { _ = os.Remove(full); return err }
+          }
           current, err := ownerCurrent(ctx, tx, ot, ownerID)
           if err != nil { _ = os.Remove(full); return err }
           if current == 0 || opts.Activate {
               if err := s.setCurrentLocked(ctx, tx, ot, ownerID, newNo); err != nil { _ = os.Remove(full); return err }
               activated = true
               current = newNo
-          }
-          if opts.AfterCreate != nil {
-              if err := opts.AfterCreate(tx, newNo, content); err != nil { _ = os.Remove(full); return err }
           }
           if err := s.evictOldest(ctx, tx, ot, ownerID, current); err != nil { return err }
           created = &Version{No: newNo, FilePath: rel, FileName: fileName, Current: activated}
@@ -690,8 +691,9 @@ Step 6 ──▶ Step 7（端到端验收）
      - 全部入库值过 `ValidateEntry(ruleType, matchValue)`：域名 lowercase、无 scheme/路径/空格/逗号/控制字符；IP-CIDR/6 用 `net.ParseCIDR` 并回写规范串；PROCESS-NAME/PROCESS-NAME-REGEX/USER-AGENT 禁止逗号/换行/控制字符且长度上限（建议 512）。**规则类型白名单：DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / IP-CIDR / IP-CIDR6 / PROCESS-NAME / PROCESS-NAME-REGEX / USER-AGENT**。
      - 去重：同一 URL 结果内先按（类型,值）合并；同值冲突时保留首个并记 skip。
   3. **`backend/internal/pool/sync.go`**：同步任务。
-     - `SubmitSync(ctx, poolID)`：先查池存在与「是否已有 running 任务」，有则返回 `ErrSyncRunning`（409）；事务插入 `pool_sync_tasks(status='running')`，返回 task id；提交后启动 goroutine `runSyncTask`。
+     - `SubmitSync(ctx, poolID)`：**在同一个 `BEGIN IMMEDIATE` 事务内**完成「池存在性检查 + 是否已有 running 任务检查 + 插入 `pool_sync_tasks(status='running')`」（Design2Report10 Q12-8），已有 running 任务则返回 `ErrSyncRunning`（409）；事务提交后启动 goroutine `runSyncTask`，返回 task id。
      - `runSyncTask`：串行拉取全部 URL（`http.Client{Timeout: 60s}`，`io.LimitReader(50MB+1)`）；每个 URL 结果 `{url, ok, added, removed, skipped, error}`；**任一 URL 失败、空响应或零有效条目，则该 URL ok=false；只有全部 URL 成功才执行 url 来源差量删除**；成功 URL 的条目照常 upsert。
+     - **任务边界**（Design2Report10 Q12-9）：删除池或编辑池 URL 不取消已启动任务；池已被删除时，任务终态写回失败仅记日志、不崩溃；URL 编辑只影响下一次同步；任务历史按保留策略继续展示。
      - 入库（单个事务）：新 url 条目 sort_order 从 `MAX(当前 URL 段最大序号, urlBase-1)+1` 起追加；**既有条目 sort_order 一律不改写**；删除仅删 `source='url'` 且不在本次成功结果并集中的行，且只在无任何失败时执行。manual 条目不触碰。
      - 终态写回任务行（succeeded/failed/partial）并更新 rule_pools.last_synced_at/sync_status/sync_error；**同事务内顺手清理该池超期历史：`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at < datetime('now','-7 days')`（保留 7 天口径，Design2 §5.9）**。
      - `GetStatus(ctx, poolID)`：读最近一次任务，返回 `{task_id,status,per_url,started_at,finished_at,error}`。
@@ -897,3 +899,4 @@ Step 6 ──▶ Step 7（端到端验收）
 | v1.3 | 2026-08-19 | Design2Report8 修订：Step1 允许启动旧服务做迁移/健康验证并可清空数据重新开始（P2-1）；YouTube 种子改 select（P2-16）；两段排序 manual/URL 各自维护（Q6）；启动同步刷新 rule_pools 快照（P2-3）；池历史任务端点与 UI（Q12） |
 | v1.4 | 2026-08-19 | 构建前核验修订（用户确认）：预设组种子改用 `Clash.yaml.template.md` 模板 emoji 名（Step1 种子与注记）；同步任务历史保留 7 天超期动态清理（约束表 + Step5 终态清理与单测 + Step6 历史列表注记）；RulesView 取消默认固定为专设操作（Step4 item 13） |
 | v1.5 | 2026-08-19 | Design2Report9 修订：预设组种子默认成员同步改 `groups:["🚀直接连接"]`（M4 强制组 emoji 连锁）；Step2 单测清单补 server/home_test.go 与 server/rule_test.go |
+| v1.6 | 2026-08-19 | Design2Report10 修订：CreateVersion 事务顺序改为「AfterCreate 先于 setCurrent」且 AfterCreate 传 versions.id（Q3/Q11）；池同步 SubmitSync 查+插同事务（Q12-8）；补同步期间删池/改 URL 边界（Q12-9） |

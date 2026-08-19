@@ -76,7 +76,7 @@
 | Step | 涉及文件（核心） | 要点 |
 |------|----------------|------|
 | 0 | `backend/go.mod`、`backend/internal/xray/{client,account,errors}.go`、测试 | 依赖 v26.7.28；串行 gRPC；dial/调用超时；错误幂等映射；四协议 Account 构造 |
-| 1 | `backend/internal/xray/instance.go`、`backend/internal/server/xray.go`、`backend/internal/server/server.go`、测试 | 实例 CRUD/slug/连接测试；ListInbounds 解析与 nodes upsert、missing 标记 |
+| 1 | `backend/internal/xray/instance.go`、`backend/internal/server/xray.go`、`backend/internal/server/tasks.go`、`backend/internal/server/server.go`、测试 | 实例 CRUD/slug/连接测试；ListInbounds 解析与 nodes upsert、missing/allocatable 标记；全局任务 registry 落地 |
 | 2 | `backend/internal/group/group.go`、`backend/internal/server/group.go`、`backend/internal/server/middleware.go`、测试 | advancedMode 中间件；group_nodes/候选集并集/公共节点/default_quota |
 | 3 | `backend/internal/xray/{credentials,sync}.go`、`backend/internal/user/admin.go`、`backend/internal/user/user.go`、`backend/internal/approval/approval.go`、`backend/internal/group/group.go`、`backend/internal/node/node.go`、`backend/internal/server/xray.go`、测试 | 凭据首建事务；触发器 wiring；xray_users 状态机；补偿 RemoveUser；批量初始化 |
 | 4 | `backend/internal/download/download.go`、`backend/internal/xray/render.go`、`backend/internal/assembly/`（render plan 读取）、测试/benchmark | 直接上传原样；蓝图全量重渲染；占位替换/base64；Subscription-Userinfo |
@@ -168,7 +168,7 @@ Step 4+5 ──▶ Step 6（集成验收）
 
 ### Step 1：Xray 实例 CRUD、连通性测试与节点检测入库
 
-**本 Step 完成后，`/api/admin/xray/instances` CRUD、`/api/admin/xray/instances/test`、`/api/admin/xray/instances/:id/detect` 可用；检测结果以 instance_id+tag 为键 upsert 到 nodes，撞名/非法名跳过不崩溃。**
+**本 Step 完成后，`/api/admin/xray/instances` CRUD、`/api/admin/xray/instances/test`、`/api/admin/xray/instances/:id/detect` 可用；检测结果以 instance_id+tag 为键 upsert 到 nodes，撞名/非法名跳过不崩溃；全局长任务 registry 与 `GET /api/admin/tasks/:id` 在本 Step 落地。**
 
 - **目标：** 实现实例数据模型与 ListInbounds 解析入库。
 - **前置条件：** Step 0 验收通过。
@@ -176,7 +176,7 @@ Step 4+5 ──▶ Step 6（集成验收）
 
   1. **`backend/internal/xray/instance.go`**：实例服务。
      - 结构 `Instance {ID, Name, Slug, APIAddr, APITag, Enabled, LastCollectAt, CollectStatus, CollectError}`。
-     - `Create/Update`：name 唯一（409）、api_addr 非空 TCP 地址、api_tag 可空；slug 自动生成 `instance-` 前缀（用 `internal/slug`，唯一冲突重试）。**api_tag 作为展示/日志/导出的实例标签原样保存；gRPC 调用定位用 api_addr，入站定位用 nodes.tag**（Xray-Core-API §一/§11.1）；**enabled 变化时事务提交后仅刷新内存可见状态，不触发候选集重算与 AddUser/RemoveUser diff（暂停管理口径：停用仅暂停检测/推送/采集/注入，账号与 group_nodes 保留，重启用后由同步与实例级对账兜底，Design2 §5.9/H1）**。
+     - `Create/Update`：name 唯一（409）、api_addr 非空 TCP 地址、api_tag 可空；slug 自动生成 `instance-` 前缀（用 `internal/slug`，唯一冲突重试）。**实例服务按实例缓存同一个 `internal/xray.Client`（含其互斥锁），检测/推送/采集/对账全部复用该 Client，确保每实例串行**（Design2Report10 Q13）。**api_tag 作为展示/日志/导出的实例标签原样保存；gRPC 调用定位用 api_addr，入站定位用 nodes.tag**（Xray-Core-API §一/§11.1）；**enabled 变化时事务提交后仅刷新内存可见状态，不触发候选集重算与 AddUser/RemoveUser diff（暂停管理口径：停用仅暂停检测/推送/采集/注入，账号与 group_nodes 保留，重启用后由同步与实例级对账兜底，Design2 §5.9/H1）**。
      - `List/Get`；`Delete`：**端点异步化——提交即返回 `{task_id}`（全局任务 registry，kind=instance_delete，Design2 §5.4）**，任务体内：事务前收集 `xray_users` 与 `xray_ext_users` 的（email, instance_id, inbound_tag, api_addr）清单；事务内删实例行（nodes / xray_users / xray_ext_users 随 FK 级联）；提交后逐条 best-effort `RemoveUser`（面板用户与独立账号两类），不可达跳过记 warn。**Step 3 接入 sync 后**，把收集口径升级为「受影响 active 用户 × 该实例节点」∪「既有 xray_ext_users 推送目标 × 该实例」期望集，而不是只依赖既有 xray_users 状态行；本 Step 先预留回调并在 Step 3 补接。
      - `TestConnection(ctx, apiAddr)`：拨号 + `ListInbounds`，返回 ok/error 摘要；不落库。
   2. **`backend/internal/xray/detect.go`**：`DetectNodes(ctx, instanceID)`。
@@ -187,7 +187,8 @@ Step 4+5 ──▶ Step 6（集成验收）
        - `protocol_json`：从 ProxySettings 与 StreamSettings 归一化为渲染所需字段（network / security / tls server_name / fingerprint / reality pbk-sid / ws path+host / grpc service_name / httpupgrade path / ss cipher / vless flow 等）。**仅把解析得到的字段写入；解析不到的字段不虚构默认值**。REALITY：若配置含私钥，用 x25519 公钥推导写入 `public_key`；`short_id` 取配置首个短 id；`server_name` 取首个 serverNames。
        - 稳定名 `{实例slug}-{tag}`；复用 `internal/node` 导出的 `ValidateName` 与 `CheckRenderNameNamespaceTx`（禁止复制实现）；校验失败，或与**任一节点有效渲染名**（`display_name` 非空则 display_name，否则 name）撞名（非自身），或与 `proxy_groups.name`/强制组名/Clash-mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复 → 记错误日志并跳过该 inbound，返回 skipped 项，**不中断检测、不崩溃**。
        - 四协议（vless/vmess/trojan/shadowsocks）`allocatable=1`；其余 `allocatable=0`。
-     - upsert 键 `UNIQUE(instance_id, tag)`：新行插入（enabled=1, is_public=0, missing=0, **display_name=NULL**，last_seen_at=now）；已有行仅更新 protocol/host/port/protocol_json/last_seen_at 与 allocatable（**不覆盖 enabled/is_public/display_name/装配勾选状态**），若 tag 消失后重现则 missing=0。
+     - upsert 键 `UNIQUE(instance_id, tag)`：新行插入（enabled=1, is_public=0, missing=0, **display_name=NULL**，last_seen_at=now）；已有行仅更新 protocol/host/port/protocol_json/last_seen_at 与 allocatable（**不覆盖 enabled/is_public/display_name**；蓝图勾选状态存在 assembly_blueprints，本就不在节点行），若 tag 消失后重现则 missing=0。
+     - **allocatable 变化清单**：检测事务内收集 `allocatable_changed`（1→0 或 0→1 的节点 id/tag）；事务提交后逐节点调用注入的 `OnNodeVisibilityChanged`（本 Step 预留 nil 安全跳过，Build6 Step3 接线为候选集重算与 Add/Remove diff，Design2Report10 Q2）。
      - 本实例既有节点不在本次响应集合 → `missing=1`（**事务提交后调用 `OnNodeVisibilityChanged`/候选集重算回调，摘除对应 group_nodes 并 RemoveUser diff**）。
      - **missing 恢复清单**：检测事务内收集 `recovered_nodes`（missing 1→0 的节点 id/tag）；事务提交后逐节点调用注入的 `OnNodeVisibilityChanged`（本 Step 预留 nil 安全跳过，Build6 Step3 接线为 AddUser diff）。
      - 返回 `{added, updated, missing, skipped:[{tag, reason}], added_nodes:[{node_id, tag, name}]}`（added_nodes 供 UI 检测回执行内命名；recovered_nodes 仅内部/单测使用，不在 HTTP 响应暴露）。
@@ -198,7 +199,8 @@ Step 4+5 ──▶ Step 6（集成验收）
      - 统一响应结构；错误 400/404/409。
   4. **`backend/internal/server/server.go`** 注册实例路由（暂不注册高级中间件，Step 2 引入后再套用）。
   5. **节点删除的 Xray 清理钩子**：`node.Service.Delete` 删除 `source=xray AND missing=1` 行时，事务前先按既有 `xray_users` 与 `xray_ext_users` 记录收集（email/instance_id/inbound_tag/api_addr）清单；提交后 best-effort `RemoveUser`（面板用户与独立账号两类；Step 3 接入 sync 服务后把口径升级为「受影响 active 用户 × 该节点」∪「既有 xray_ext_users 推送目标 × 该节点」期望集）。**非 missing 的 xray 节点仍禁止删除**（Build5 已实现 UI/后端约束，保持）。
-  6. **单测**：地址校验、slug 生成、稳定名撞名跳过（含与 display_name/代理组名/强制组名/Clash-mihomo 内建保留代理名冲突）、detect upsert 不覆盖 enabled/is_public/display_name、missing 置位与恢复、**recovered_nodes 清单收集与回调出口（nil 安全）**、返回 added_nodes、xray 节点删除前收集 xray_users/xray_ext_users 清单（用假 `Lister` 接口注入解析函数，不依赖真实 gRPC）。
+  6. **全局长任务 registry（本 Build 落地，Design2Report10 Q1）**：新增 `backend/internal/server/tasks.go`——进程内任务 registry（提交生成 `task_id`、kind 与结果写入；查询 `GET /api/admin/tasks/:id`，session+admin；响应 `{id, kind, status: running/succeeded/failed, result, error}`；kind 枚举 `instance_delete|xray_init|reconcile_exec|off_clear|import` 全量预留给 Build7）；**未知 task id 或服务重启后查询一律返回 failed「服务重启，任务中断」**。本 Step 的实例删除、Step 3 的初始化、Build7 的对账/OFF/导入全部复用此 registry。
+  7. **单测**：地址校验、slug 生成、稳定名撞名跳过（含与 display_name/代理组名/强制组名/Clash-mihomo 内建保留代理名冲突）、detect upsert 不覆盖 enabled/is_public/display_name、missing 置位与恢复、**recovered_nodes 与 allocatable_changed 清单收集与回调出口（nil 安全）**、返回 added_nodes、xray 节点删除前收集 xray_users/xray_ext_users 清单（用假 `Lister` 接口注入解析函数，不依赖真实 gRPC）；**任务 registry 提交/终态/未知 id 合成 failed 单测**。
 
 - **参考代码/伪代码：**
 
@@ -221,7 +223,7 @@ Step 4+5 ──▶ Step 6（集成验收）
   cd backend && go build ./... && go vet ./... && go test ./internal/xray/... ./internal/server/... ./...
   ```
 
-- **验收标准：** 全部测试通过；检测 upsert 语义符合 Design2 §3.2；删除实例在 FK 级联后无孤儿 rows；测试连接不落库。
+- **验收标准：** 全部测试通过；检测 upsert 语义符合 Design2 §3.2；删除实例在 FK 级联后无孤儿 rows；测试连接不落库；`GET /api/admin/tasks/:id` 对合法 task_id 返回任务状态、未知 task_id 返回 failed「服务重启，任务中断」。
 
 ---
 
@@ -255,6 +257,7 @@ Step 4+5 ──▶ Step 6（集成验收）
   3. **候选集重算触发点**（本 Step 接线，回调先为空）：
      - 订阅版本激活切换（`server/subscription.go` 的 versionSwitch，owner=subscription 分支）；
      - 订阅删除（`subscription.Service.Delete` 提交后，通过注入回调 `onSubDeleted` 或 server handler 调用）；
+     - **平台删除**（`platform.Service.Delete` 事务后，对事务前收集到的全部订阅 ID 逐个触发同一候选集重算回调；现有 platform.Delete 是直接 SQL 删订阅，必须在此补接线，Design2Report10 Q2）；
      - assembly generate 首版自动激活后（Build5 handler，若 target_syntax 非 sr-conf 且 auto_activated）；
      - **节点 enabled/allocatable/missing 变化**（Step 1/Step 3 注入回调），用于摘除不可用 group_nodes；**实例 enabled 变化不触发重算（暂停管理口径，见 Step 1 实例服务与 Design2 §5.9）**；
      - 每次调用幂等：全量重算并只删多余/不可用分配。
@@ -336,16 +339,17 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `group.Service.Delete`：用户迁默认组后 diff（旧组节点移除 + 默认组节点推送）；`group.Service.SetNodes` 与 `RecomputeCandidateSet`：受影响 active 用户 diff。
      - `node.Service.SetEnabled`/`SetPublic`：调用注入回调 `OnNodeVisibilityChanged(node)` → **先按 Step 2 口径重算候选集并摘除不可用 group_nodes**，再执行 enabled 1→0 对受影响 active 用户 RemoveUser diff；enabled 0→1 仅对公共节点及仍有 group_nodes 分配的用户 AddUser diff（组分配已被候选集重算摘除的用户须先重新分配，口径同 Design2 §5.6/§5.7）；is_public 变化对全部 active 用户 diff。
      - `node missing 1→0`（Step 1 检测恢复）与 **missing 0→1**：**均先重算候选集（missing=1 摘除分配）**；DetectNodes 事务提交后对 recovered_nodes 逐节点按同口径 diff（幂等；超限前置拦截同其他 AddUser 钩子；advanced_mode off 时入口跳过）。
+     - `node allocatable 1→0 / 0→1`（Step 1 检测收集的 allocatable_changed）：先按 Step 2 口径重算候选集（allocatable=0 摘除分配），再对受影响 active 用户执行 RemoveUser/AddUser diff（Design2Report10 Q2；超限前置拦截同其他 AddUser 钩子）。
      - `node.Service.Delete`（仅 `source=xray AND missing=1` 可删）：删除事务提交前按「受影响 active 用户 × 该节点」∪「既有 xray_ext_users 推送目标 × 该节点」收集连接信息与 email（不依赖 xray_users 状态行），提交后 `RemoveUserFromTargets`（幂等；不可达/不存在容忍）；xray_users/xray_ext_users 行由 FK 级联清理。
      - `xray.InstanceService.Delete`：本 Step 起按期望集口径收集「受影响 active 用户 × 该实例节点」（组分配 ∪ 公共）∪「既有 xray_ext_users 推送目标 × 该实例」，删除事务提交后 best-effort `RemoveUser`（实例不可达跳过记 warn）。
      - `user.AdminService.ChangeRole`：**无操作**（代理账号与面板角色无关，Design2 §5.5 触发器表）。
      - 回调注入在 `server.New` 中按依赖顺序完成；**禁止业务包 import server 或形成环**，均用函数字段注入。
   4. **`backend/internal/server/xray.go`** 新增：
-     - `POST /api/admin/xray/init`：**异步长任务**——提交即返回 `{task_id}`（全局任务 registry，kind=xray_init），任务体对全部 active 用户 PushUser，终态写入 `{synced, failed}` 供 `GET /api/admin/tasks/:id` 轮询；幂等。
+     - `POST /api/admin/xray/init`：**异步长任务**——提交即返回 `{task_id}`（**复用 Step 1 落地的全局任务 registry**，kind=xray_init），任务体对全部 active 用户 PushUser，终态写入 `{synced, failed}` 供 `GET /api/admin/tasks/:id` 轮询；幂等。
      - `GET /api/admin/xray/users/:id/sync`：该用户 xray_users 聚合状态与 last_error 摘要。
      - `POST /api/admin/xray/users/:id/retry`：对 failed 记录逐个重试（AddUser 或 RemoveUser 按状态语义；failed 行若期望集仍有则重推，不在期望集则移除）。
   5. **`backend/internal/user/admin.go` 的 List** 增加高级字段（仅 advanced_mode=on 时查询）：本月用量字节、聚合同步状态、quota_exceeded（Build7 前端消费）。
-  6. **单测（fake API）**：凭据首建并发守卫（两 goroutine 仅一个 RowsAffected=1）；AddUser 成功/失败状态迁移；`already exists.` 幂等；RemoveUser 成功删行失败保留；advanced off 时入口跳过、事务复查中止、gRPC 后补偿 RemoveUser（用可控 fake 验证调用序）；批量 init 幂等；换组 diff 只碰差异集；**非 active 用户换组/组删除迁移不 AddUser、仅清理旧目标**；**missing 1→0 检测恢复触发 AddUser diff**；**实例/节点删除收集面板用户 + 既有 xray_ext_users 两类目标并 RemoveUser**。
+  6. **单测（fake API）**：凭据首建并发守卫（两 goroutine 仅一个 RowsAffected=1）；AddUser 成功/失败状态迁移；`already exists.` 幂等；RemoveUser 成功删行失败保留；advanced off 时入口跳过、事务复查中止、gRPC 后补偿 RemoveUser（用可控 fake 验证调用序）；批量 init 幂等；换组 diff 只碰差异集；**非 active 用户换组/组删除迁移不 AddUser、仅清理旧目标**；**missing 1→0 检测恢复触发 AddUser diff**；**allocatable 1→0 重算并 RemoveUser、0→1 对仍分配用户 AddUser**；**实例/节点删除收集面板用户 + 既有 xray_ext_users 两类目标并 RemoveUser**。
 
 - **参考代码/伪代码：**
 
@@ -403,7 +407,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `RenderUserSubscription(ctx, subID, userID, content, fileName) ([]byte, error)`：
        - 读当前激活版本是否有 blueprint；无 → 直接返回 content（**直接上传静态成品，不识别占位**）；blueprint 查询本身出错返回 500，不静默按直接上传处理。
        - 读用户组节点 ∪ 公共节点，按可用性过滤 + 候选集过滤（以 `nodes.name` 稳定名匹配 blueprint.selection_json 的 xray 候选集，display_name 不参与候选身份判定），**按 node_id 去重兜底（组分配与公共节点重叠时只注入一次）**；manual 静态节点不注入（已在模板/渲染计划中）。
-       - 解密用户 UUID/代理密码；**UUID 为空** → 占位替换为注释 `# 节点未开通，请联系管理员`，并执行 Clash 蓝图空组降级；**advanced_mode=off** → 占位统一替换为 `# Xray 高级模式未启用`（**优先于「节点未开通」**），同样执行蓝图空组降级。
+       - 解密用户 UUID/代理密码；**UUID 为空** → 占位替换为注释 `# 节点未开通，请联系管理员`，并执行 Clash 蓝图空组降级；**UUID 非空但过滤后的组分配 ∪ 公共节点为空** → SR subs/generic-subs 占位**移除整行**（Clash 仍按蓝图全量重渲染，Design2Report10 Q10）；**advanced_mode=off** → 占位统一替换为 `# Xray 高级模式未启用`（**优先于「节点未开通」**），同样执行蓝图空组降级。
        - 按 target_syntax 分支：
          - `clash-yaml`：按 `render_plan_json` **全量重渲染**。proxies = manual 节点（计划中原样，名称用 `renderName`）+ 动态 xray 节点（vless/vmess/trojan/ss 按协议构造 Clash 条目，`name` 用节点当前 `renderName`）；**render_plan 中的节点引用为 `nodes.name` 稳定键，渲染时通过节点表映射为当前 `renderName`**；所有 proxy-groups 按可达注入节点递归重建（可达集合含 manual 静态节点与 DIRECT；**单个成员不在可达集合内时逐项剔除**；剔除后完全不可达的组整体删除（**强制组豁免删除，成员不可达或注入集为空时统一降级 `[DIRECT]`**）；强制组「🚀直接连接」保留；rules 引用**被删除组**（不含降级保留的强制组）的目标降级 DIRECT 并保留行）。
          - `sr-subs` / `generic-subs`：**装配生成模板下载时无论有无占位都必须整体重新 base64**（存储明文、下发 base64，Design2 §5.7）；占位存在时先替换 `# {{xray_nodes}}` 为动态节点行（SR/generic 链接形态，复用 Build5 links.go 的注入渲染函数，凭据为用户 UUID/代理密码），无占位则只重新 base64。**本 Step 起蓝图内容的编码由本分支接管：Build5 Step4 的 base64 收口步骤对蓝图内容不再生效（改由本分支统一执行），避免重复编码（Design2Report7 Q2/R2）**。
@@ -414,9 +418,9 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `PreviewForUser`：管理员预览返回当前激活版本**原文**（装配模板含占位，直接上传原样）；普通用户预览按自身渲染（装配模板走 `RenderUserSubscription`，直接上传原样）——与 Design2 §5.7「管理员预览原文、用户预览按自身渲染」一致。
      - `withPlatformHeaders` 增加高级模式系统注入：`profile-update-interval=6`、`profile-web-page-url`（覆盖平台同键）；`subscription-userinfo` 仅用户订阅类（subscription/custom）且 advanced_mode=on 时携带；`upload/download` 为 traffic_records 当月累计字节，`total` 为有效配额（quota_override ?? group default_quota；NULL/0 省略），`expire=4102444800`。
      - 分享/规则下载不加 usage 头且内容原样（不渲染）。
-  3. **无占位/无凭据/高级 off 场景**：Clash 仍执行蓝图全量重渲染；SR/generic 装配模板仍重新 base64（跳过替换与否都不影响 base64 步骤）；**任何路径不得返回半截 `{{xray_nodes}}` 文本**——占位必须替换为实际节点或注释。
+  3. **无占位/无凭据/高级 off 场景**：Clash 仍执行蓝图全量重渲染；SR/generic 装配模板仍重新 base64（跳过替换与否都不影响 base64 步骤）；**任何路径不得返回半截 `{{xray_nodes}}` 文本**——占位必须替换为实际节点、注释或整行移除（空目标集，Design2Report10 Q10）。
   4. **性能**：新增 `TestRenderUserSubscription10kRules` 断言 <500ms 级（1 万规则 + 20 用户规模最坏口径）。
-  5. **单测**：直接上传原样（字节级比对）；Clash 蓝图剔除不可达组/空组降级/rules 降级；**组内混合有效/失效成员时逐项过滤且输出 YAML 无未定义代理名**；**manual 节点删除后下载仍可解析**；SR/generic 占位替换与重新 base64；无凭据注释；usage 头四字段与省略规则；advanced off 时无 usage 头、平台头恢复；分享/规则不注入。
+  5. **单测**：直接上传原样（字节级比对）；Clash 蓝图剔除不可达组/空组降级/rules 降级；**组内混合有效/失效成员时逐项过滤且输出 YAML 无未定义代理名**；**manual 节点删除后下载仍可解析**；SR/generic 占位替换与重新 base64；无凭据注释；**有凭据但空目标集时占位整行移除**；usage 头四字段与省略规则；advanced off 时无 usage 头、平台头恢复；分享/规则不注入。
 
 - **参考代码/伪代码：**
 
@@ -485,7 +489,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `ResetQuota(ctx, userID)`：仅 active 用户；`DELETE FROM traffic_records WHERE user_id=? AND ym=?` + `quota_exceeded=0` + 重新 PushUser（凭据不变）；禁用用户 400。
   3. **`backend/internal/cron/`**：
      - `StartXrayCollect(st, xraySvc, cfg, lg)`：ticker 每分钟检查，距上次执行 ≥ `xray_collect_interval_minutes`（默认 10，≥1）才执行；**任务入口每次实时查 advanced_mode，off 跳过**；执行中禁止重入（互斥标记）。
-     - 采集顺序：仅 `enabled=1` 实例参与；每实例逐 active 用户串行（全局串行即可）；采集完成后逐用户 CheckQuota。
+     - 采集顺序：仅 `enabled=1` 实例参与；**每实例先做一次廉价连通性探测（如带 deadline 的 `ListInbounds`），探测失败则跳过该实例本轮并写实例级 collect_error/连续失败告警，不逐用户重试**（Design2Report10 Q14）；探测成功后逐 active 用户串行（全局串行即可）；采集完成后逐用户 CheckQuota。
      - **`backend/cmd/server/main.go` 启动与优雅退出时接入 `StartXrayCollect`/stop**（与访问日志清理同模式）；Build7 Step1 把独立账号采集追加进同一任务。
   4. **`backend/internal/server/xray.go`** 新增：
      - `GET /api/admin/xray/instances/:id/stats`（采集状态与最近成功时间，Build7 UI 用）；
@@ -497,17 +501,22 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `internal/server/home.go`：`advanced_mode=on` 时顶层 `traffic` 返回 `{unlimited:false, used_bytes, quota_bytes: null|bytes, exceeded}`（used_bytes 取 traffic_records 当月 ym 聚合；quota_bytes 取 EffectiveQuota，NULL/0 不限时 `unlimited=true` 且省略 quota_bytes；exceeded 取 users.quota_exceeded）；基础模式维持 `{unlimited:true}`。
      - `internal/server/status.go`：`/api/system/status` 响应新增 `traffic_card_enabled` 布尔（`cfg.GetBool(ctx, "traffic_card_enabled", true)`，补 Build4 Step4 预留注记），首页流量卡与个人中心「本月流量」行显隐共用。
      - **`xray_collect_interval_minutes` 为内部配置键，本 Step 采集任务直接读取（默认 10，≥1）；API 字段 `collect_interval_minutes` ↔ 内部键的映射归设置服务层，随 Build7 Step2（config/admin.go）实现并补读写单测，本 Step 不提前实现（Design2Report8 Q8 / Design2Report9 M9）**。
-  8. **单测（fake StatsAPI）**：pattern 完整前缀断言（fake 拒绝空 pattern）；reset=true 原子语义（fake 返回旧值后清零）；差值累加 UPSERT；重启后 counter 重置差值口径；超限摘除与失败状态；NULL/0 不限；重置恢复并清当月；OFF 跳过采集；已删用户外键失败静默跳过；**home/profile traffic 两模式形态与 status traffic_card_enabled 默认 true**；**采集间隔内部键 xray_collect_interval_minutes 读取默认 10 与 ≥1 生效（API 字段映射单测在 Build7 Step2）**。
+  8. **单测（fake StatsAPI）**：pattern 完整前缀断言（fake 拒绝空 pattern）；reset=true 原子语义（fake 返回旧值后清零）；差值累加 UPSERT；重启后 counter 重置差值口径；超限摘除与失败状态；NULL/0 不限；重置恢复并清当月；OFF 跳过采集；已删用户外键失败静默跳过；**实例探测失败跳过本轮且不产生逐用户超时**；**home/profile traffic 两模式形态与 status traffic_card_enabled 默认 true**；**采集间隔内部键 xray_collect_interval_minutes 读取默认 10 与 ≥1 生效（API 字段映射单测在 Build7 Step2）**。
 
 - **参考代码/伪代码：**
 
   **采集主循环（单实例）**
 
   ```go
+  // 实例级廉价探测：失败即跳过本实例本轮（Design2Report10 Q14）
+  if _, err := client.ListInbounds(probeCtx); err != nil {
+      recordCollectError(instance, err)
+      continue
+  }
   for _, u := range activeUsers {
       email := xray.UserEmail(u.ID)
       resp, err := client.QueryStats(ctx, "user>>>"+email+">>>traffic", true)
-      if err != nil { recordCollectError(instance, err); continue }
+      if err != nil { recordCollectError(instance, err); break } // 探测后仍失败：中止该实例本轮
       var up, down uint64
       for _, stat := range resp.Stat {
           name := stat.Name // user>>>{email}>>>traffic>>>uplink|downlink
@@ -599,4 +608,5 @@ Step 4+5 ──▶ Step 6（集成验收）
 | v1.3 | 2026-08-19 | Design2Report7 复核补齐：Step4 sr-subs 分支写明蓝图编码由本分支接管、Build5 base64 收口对蓝图内容不再生效（R2），并修复该 bullet 缩进 |
 | v1.4 | 2026-08-19 | Design2Report8 修订：每实例串行措辞（P2-17）；组详情 off 不 403、省略高级字段（P2-12）；PushUser/DiffPush 统一 active 校验（P2-11）；新增 GET /api/profile/traffic（Q3）；collect_interval_minutes ↔ xray_collect_interval_minutes 映射与单测（Q8）；实例规模建议 1~5 台（P2-15） |
 | v1.5 | 2026-08-19 | Design2Report9 修订：实例停用改暂停管理口径，移除实例 enabled 的候选集重算/diff 触发（H1）；初始化端点异步化返回 task_id 与全局任务 registry（M7）；gRPC dial 10s/调用 30s deadline（M7 配套）；文件清单补 errors.go；下载注入按 node_id 去重兜底显式化；采集间隔映射读写单测挪 Build7 Step2（M9）；钩子异步执行口径（M14） |
+| v1.6 | 2026-08-19 | Design2Report10 修订：全局任务 registry 与 GET /api/admin/tasks/:id 在本 Build Step1 落地（Q1）；候选集重算补平台删除与 allocatable 变化回调（Q2）；实例服务按实例缓存 Client 确保串行（Q13）；下载空目标集占位整行移除（Q10）；采集实例级探测失败快速中止（Q14） |
 
