@@ -25,7 +25,8 @@
 | manual 协议范围 | ss / vmess / vless / trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 / snell / anytls / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale；**ssr 除外** | Design2 §3.2/§4.5 |
 | 节点名称规则 | `nodes.name` 创建后不可修改（manual=管理员名，xray=`{实例slug}-{入站tag}` 系统名）；`display_name` 仅 source=xray 可编辑，空=回退 name；两者均禁止控制字符、逗号、首尾空白，允许中文/emoji；**有效渲染名（display_name 非空则用之，否则 name）全局唯一，且不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复** | Design2 §3.2 |
 | 节点凭据加密 | AES-256-GCM（复用签名密钥派生机制）；密文字段编辑回显空值 = 保留原凭据 | Design2 §3.2 |
-| 代理组类型 | `select` / `url-test` / `fallback`（三枚举）；名称创建后不可改；名称字符集同节点 | Design2 §3.3 |
+| 代理组名称规则 | name 创建后不可改；禁止控制字符、逗号、首尾空白，允许中文/emoji；**创建时不得与任一节点有效渲染名、强制组名或 Clash/mihomo 内建保留代理名重复，冲突 409** | Design2 §3.3 |
+| 代理组类型 | `select` / `url-test` / `fallback`（三枚举）；名称创建后不可改，**组类型创建后允许修改**；名称字符集同节点 | Design2 §3.3 |
 | 强制组 | 直接连接（DIRECT）/ 国外流量 / 无法归属的流量（MATCH 兜底目标）；系统内置渲染结构，**不入 proxy_groups 表** | Design2 §3.3 |
 | 代理组内容约束 | 至少含节点 / 「直接连接」组 / 「国外流量」组三者之一；子组引用 DAG，禁止环形 | Design2 §3.3 |
 | 规则类型 | DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / IP-CIDR / IP-CIDR6 / PROCESS-NAME / PROCESS-NAME-REGEX / USER-AGENT（Clash 渲染跳过 USER-AGENT 并提示） | Design2 §3.5 |
@@ -214,18 +215,18 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
   1. **`backend/internal/proxygroup/proxygroup.go`**：
      - `Group { ID, Name, Type, PresetKey, Enabled, Definition }`；`Definition { GroupType string; Nodes []string; Groups []string }`（有序）。
-     - 名称校验复用 node 的同一规则（提取 `internal/nodename` 或导出 `node.ValidateName`；禁止复制两份不同实现）。
-     - `CreateCustom(name, groupType string, def Definition)`：type=custom；name 唯一；groupType ∈ select/url-test/fallback；校验定义。
-     - `Update(id, groupType, def)`：preset 与 custom 均可编辑成员；**name/preset_key/type 不可改**；preset 的 `enabled` 通过 `SetPresetEnabled` 单独切换。
+     - 名称校验复用 node 的同一字符集规则（提取 `internal/nodename` 或导出 `node.ValidateName`；禁止复制两份不同实现）；**跨命名空间校验使用 node 包导出的 `CheckNameNamespaceTx`：组名不得与任一节点有效渲染名、强制组名「直接连接 / 国外流量 / 无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**。
+     - `CreateCustom(name, groupType string, def Definition)`：type=custom；name 唯一 + 跨命名空间校验；groupType ∈ select/url-test/fallback；校验定义。
+     - `Update(id, groupType, def)`：preset 与 custom 均可编辑成员；**name/preset_key 不可改，groupType 允许修改（三枚举校验）**；preset 的 `enabled` 通过 `SetPresetEnabled` 单独切换。
      - `Delete`：preset 不可删；custom 删除（历史装配快照悬空容错，不做反向约束）。
      - `List`/`Get`；`SetPresetEnabled`。
      - 校验函数：
        - 节点引用必须存在于 `nodes` 表（不含 `source` 限制；xray 行也允许引用）；子组引用允许 `直接连接`、`国外流量`（强制组常量）或 `proxy_groups` 中其他组。
        - **DAG 校验**：建图 `groupName -> []subGroups`，检测自环与环（DFS 三色）；节点名是叶子。
-       - **内容约束**：`len(def.Nodes)+len(def.Groups) > 0`，否则 400「代理组至少需包含一个节点或子组」。
+       - **内容约束**：节点数组非空，或子组数组包含「直接连接」/「国外流量」；否则 400「代理组至少需直接包含一个节点、直接连接组或国外流量组」。
   2. **`backend/internal/server/proxy_group.go`**：`/api/admin/proxy-groups` CRUD + `PUT /:id/preset-toggle`。错误 400/404/409。
   3. **`backend/internal/server/server.go`** 注册。
-  4. **单测**：DAG 环（A→B→A）、自环、引用不存在节点/组、强制组引用合法、内容为空拒绝、预设不可删/名不可改、种子启用默认 1。
+  4. **单测**：DAG 环（A→B→A）、自环、引用不存在节点/组、强制组引用合法、内容为空拒绝、**只有自定义子组拒绝、只有节点/直接连接通过**、组名与节点有效渲染名/强制组名/内建保留名冲突 409、**组类型修改成功与非法类型 400**、预设不可删/名不可改、**预设种子（groups:["直接连接"]）可加载/可编辑/可渲染**、种子启用默认 1。
 
 - **参考代码/伪代码：**
 
@@ -293,10 +294,10 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - **不可转协议**：snell/mieru/masque/openvpn/ssh/shadowquic/trusttunnel/tailscale → `SkipItem{Kind:"node", Name:..., Reason:"协议无标准链接映射"}`。
   6. **`backend/internal/assembly/validate.go`**：
      - 输入存在性与语法目标匹配（clash-yaml→platform product_type=yaml；sr-subs→subs；generic-subs→generic-subs；sr-conf→rule）。
-     - 规则类型白名单（与 pool 共用校验函数）；目标组存在性。
+     - 规则类型白名单（与 pool 共用校验函数）；目标组存在性；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**。
      - 空产物校验：Clash `overseas members` 为空拒绝（文案「『国外流量』组未包含任何节点」）；sr-subs/generic-subs 选中节点为空或转换后有效链接为 0 拒绝。
      - 规则为空允许生成（返回提示而非错误，提示由 Skipped/Warning 携带）。
-  7. **单测（本 Step 重点）**：golden 测试四种产物（输入固定，比对关键行与占位标记有无；**含 xray 节点 display_name 非空与空回退两种渲染分支**）；链接编码与 `Shadowrocket.subs.template.md` 样例形态一致；中文名/emoji、punycode、空格转义；USER-AGENT Clash 跳过；IP no-resolve；兜底顺序；空产物校验；**1 万规则渲染 benchmark 测试（`BenchmarkRenderClash10kRules`）**。
+  7. **单测（本 Step 重点）**：golden 测试四种产物（输入固定，比对关键行与占位标记有无；**含 xray 节点 display_name 非空与空回退两种渲染分支**）；链接编码与 `Shadowrocket.subs.template.md` 样例形态一致；中文名/emoji、punycode、空格转义；USER-AGENT Clash 跳过；IP no-resolve；兜底顺序；空产物校验；**停用预设组拒绝生成**；**1 万规则渲染 benchmark 测试（`BenchmarkRenderClash10kRules`）**。
 
 - **参考代码/伪代码：**
 
@@ -357,13 +358,13 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
   1. **`backend/internal/server/assembly.go`**：
      - `GET /api/admin/assembly/context`：一次性返回 `{nodes, proxy_groups, pools, platforms, rules}`（形状按 Design2-UI §9.1；pools 为摘要含 entry_count；nodes 列表不返回凭据明文）。
-     - `POST /api/admin/assembly/preview`：请求 = GenerateInput；调用 `assembly.Preview`，返回 `{content, skipped, warnings}`（纯文本内容），**不落库**。
+     - `POST /api/admin/assembly/preview`：请求 = GenerateInput；调用 `assembly.Preview`，返回 `{content, skipped, warnings}`（纯文本内容），**不落库**；**前端调用统一 `timeout: 120_000`**。
      - `POST /api/admin/assembly/generate`：
        1. 校验 + 渲染；
        2. 定位 owner：subscription 类按 platform_id 唯一订阅；sr-conf 按 rule_id；
        3. 构造 `version.TextContent{Name: targetFileName(target), Text: content}`；
        4. 调用 `versionSvc.CreateVersion(ctx, ownerType, ownerID, src, version.CreateOptions{Activate:false, AfterCreate: func(tx, no, content) { return assemblySvc.SaveBlueprintTx(ctx, tx, no, in, renderPlan) }})`；
-       5. 返回 `{version_id, auto_activated, skipped, warnings}`。
+       5. 返回 `{version_id, auto_activated, skipped, warnings}`；**前端调用统一 `timeout: 120_000`**。
      - `GET /api/admin/versions/:id/blueprint`：读 assembly_blueprints + 校验引用，返回 `{blueprint, invalid_refs:[{kind,name}]}`（悬空项标记口径 Design2 §4.4/UI §5.4）。
   2. **`backend/internal/version/version.go` 小改**：`Version` 增加 `Blueprint bool`（json `blueprint`）；`ListVersions` SQL 增加 `EXISTS(SELECT 1 FROM assembly_blueprints b WHERE b.version_id = v.id)` 列。
   3. **`backend/internal/server/server.go`**：构造 assembly 服务（注入 store/version/node/proxygroup/pool/cfg/logger），注册路由。
@@ -431,7 +432,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `AssemblerShell.vue`：双形态切换（`a-segmented` 分步/单页，localStorage `assembly_layout_mode` 共享）；步骤条动态隐藏跳过步骤（Clash 六步；SR subs/generic 五步跳④；sr-conf 五步跳③）；单页纵向分区 + 底部「预览产物」。
      - `TypeTargetStep.vue`：类型只读；目标平台按 product_type 过滤（无匹配时空态引导建平台）；sr-conf 目标规则实体选择（含空实体后缀与新建空规则快捷）。
      - `HeaderStep.vue`：Clash 头部表单（默认值按 `Clash.yaml.template.md` 头部内置常量预填）+「一键采用默认值」ConfirmModal；SR subs STATUS/REMARKS；sr-conf [General]；generic 无头部。
-     - `NodesGroupsStep.vue`：manual/xray 双来源分组；allocatable=0 置灰；missing=1 不列；代理组三区块（强制组锁定；预设组勾选；自建组勾选）；「国外流量」成员配置。
+     - `NodesGroupsStep.vue`：manual/xray 双来源分组；**xray 节点显示 render_name，有自定义 display_name 时副行系统名**；allocatable=0 置灰；missing=1 不列；代理组三区块（强制组锁定；预设组勾选；自建组勾选）；「国外流量」成员配置。
      - `RulesStep.vue`：已勾选池有序列表（拖拽/上移下移）+ 每池目标选择 + 手动规则行；Clash 与 sr-conf 共用，目标控件分别为代理组选择与 PROXY/DIRECT。
      - `PreviewStep.vue`：`preview` 请求（不落库）→ 纯文本预览；「与当前激活版本对比」开关 → `DiffView`；跳过项 `a-alert warning` 清单；占位标记旁 Tooltip。
      - `GenerateStep.vue` / 回执：生成校验前端预检 + 后端兜底；成功 `a-result`「已入池未生效，请激活」（`auto_activated=true` 时「首个版本已自动激活」）+「去版本管理激活」/「继续装配」。
@@ -510,4 +511,5 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build5 构建方案（节点/代理组/四类装配器/分发收口），7 个 Step；xray 运行时能力明确划归 Build6/7 |
+| v1.1 | 2026-08-19 | Design2Report5 核验修订：代理组名双向命名空间校验；组类型创建后允许修改；组内容约束收紧为三选一口径；预设组种子回归；停用预设组拒绝装配；preview/generate 统一 120s；NodesGroupsStep 显示名双行展示 |
 

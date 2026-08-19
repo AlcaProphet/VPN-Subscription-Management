@@ -158,7 +158,7 @@ Step 6 ──▶ Step 7（端到端验收）
 
   1. **创建 `backend/migrations/1009_xray.sql`**：内容按下述参考 SQL 完整写入，禁止增删表/列/索引或改名。SQL 内注释使用中文。
      - 先做 5 张既有表 ALTER；再做全部新表（按外键依赖顺序）；最后 DROP 两张旧表。
-     - 预设组种子写入 `proxy_groups`：9 个预设组，`enabled=1`，`type='preset'`，`definition_json` 含组类型与默认成员 `["直接连接"]`（节点数组 + 空子组数组）。
+     - 预设组种子写入 `proxy_groups`：9 个预设组，`enabled=1`，`type='preset'`，`definition_json` 含组类型与默认成员「直接连接」（**空节点数组 + 子组数组 `["直接连接"]`**）。
   2. **修改 `backend/internal/dataclear/dataclear.go`**：`ClearTablesTx` 的表清单改为下方顺序；**必须移除 `subscription_group_rel`、`group_selections`**（迁移后这两张表已不存在，继续 DELETE 会报错）；新增 13 张增量表。
   3. **修改 `backend/internal/dataclear/dataclear_test.go`**：其 fstest.MapFS 增补 1009 简表定义（新表名与列可简化，但必须包含清表清单引用的所有表名）；断言保持不变，新增「13 张增量表可被清空」的用例（向其中若干表插 1 行，清空后计数为 0）。
   4. **不改其它代码**：本 Step 之后、Step 2 完成之前，**不要启动旧业务服务**（旧代码仍引用已 DROP 的两张表，属预期过渡态）；只执行编译与单测验收。
@@ -354,15 +354,15 @@ Step 6 ──▶ Step 7（端到端验收）
 
   -- 预设代理组种子（Design2 §3.3）：名称 + 组类型 + 默认成员「直接连接」；管理员后续可编辑成员
   INSERT INTO proxy_groups (name, type, preset_key, enabled, definition_json) VALUES
-    ('YouTube',     'preset', 'youtube',         1, '{"type":"url-test","nodes":["直接连接"],"groups":[]}'),
-    ('Netflix',     'preset', 'netflix',         1, '{"type":"select","nodes":["直接连接"],"groups":[]}'),
-    ('哔哩哔哩',    'preset', 'bilibili',        1, '{"type":"select","nodes":["直接连接"],"groups":[]}'),
-    ('国外流媒体',  'preset', 'global-streaming', 1, '{"type":"select","nodes":["直接连接"],"groups":[]}'),
-    ('苹果海外服务','preset', 'apple-overseas',  1, '{"type":"select","nodes":["直接连接"],"groups":[]}'),
-    ('苹果国内服务','preset', 'apple-cn',        1, '{"type":"select","nodes":["直接连接"],"groups":[]}'),
-    ('AI',          'preset', 'ai',              1, '{"type":"select","nodes":["直接连接"],"groups":[]}'),
-    ('Steam',       'preset', 'steam',           1, '{"type":"select","nodes":["直接连接"],"groups":[]}'),
-    ('Steam下载',   'preset', 'steam-download',  1, '{"type":"select","nodes":["直接连接"],"groups":[]}');
+    ('YouTube',     'preset', 'youtube',         1, '{"type":"url-test","nodes":[],"groups":["直接连接"]}'),
+    ('Netflix',     'preset', 'netflix',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('哔哩哔哩',    'preset', 'bilibili',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('国外流媒体',  'preset', 'global-streaming', 1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('苹果海外服务','preset', 'apple-overseas',  1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('苹果国内服务','preset', 'apple-cn',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('AI',          'preset', 'ai',              1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('Steam',       'preset', 'steam',           1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('Steam下载',   'preset', 'steam-download',  1, '{"type":"select","nodes":[],"groups":["直接连接"]}');
 
   -- g) 旧分发模型下线（全新部署口径；业务代码在 Build4 Step 2 全部停止引用）
   DROP TABLE group_selections;
@@ -540,7 +540,7 @@ Step 6 ──▶ Step 7（端到端验收）
   7. **`backend/internal/server/rule.go`**：
      - `create`：文本模式 `text` 与文件模式 `file` 均改为可选；两者都缺省时 `src=nil`（空实体）。
      - 新增 `PUT /api/admin/rules/:id/home-default`，请求 `{is_default: bool}`，返回统一成功结构。
-  8. **`backend/internal/server/home.go`**：新增首页默认规则字段到 `/api/home` 或复用 `/api/home/platforms`？按 Design2-UI §9.3，在 `/api/home/platforms` 响应顶层增加 `home_rule` 字段更集中，但现有端点响应是列表包裹。**采用新增字段方案**：在 `HomeHandler.platforms` 返回的 `data` 对象中加 `home_rule` 与 `traffic` 两个顶层字段（列表仍放 `list`）。字段形状见 Step 4 前端 API 定义；基础模式 `traffic={unlimited:true}`，`home_rule` 为 `{rule_name, current_version, token, download_url}` 或 `null`（未设置/无激活版本）。
+  8. **`backend/internal/server/home.go`**：新增首页默认规则字段到 `/api/home` 或复用 `/api/home/platforms`？按 Design2-UI §9.3，在 `/api/home/platforms` 响应顶层增加 `home_rule` 字段更集中，但现有端点响应是列表包裹。**采用新增字段方案**：在 `HomeHandler.platforms` 返回的 `data` 对象中加 `home_rule` 与 `traffic` 两个顶层字段（列表仍放 `list`）。字段形状见 Step 4 前端 API 定义；基础模式 `traffic={unlimited:true}`，`home_rule` 为 `{rule_id, name, current_version, token, download_url}` 或 `null`（未设置/无激活版本）。
      > 该形状偏离原 `{list,total}` 纯列表，属 Design2-UI §9.3 明确增量；若前端 Step 4 发现既有调用不适配，以本字段方案为准同步修改。
   9. **同步更新单测**：`version_test.go`（activate=false 不切当前、首版自动激活、双首版事务）、`platform_test.go`、`setup_test.go`、`rule_test.go`。
 
@@ -888,3 +888,4 @@ Step 6 ──▶ Step 7（端到端验收）
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build4 构建方案（Go 1.26 + 1009 迁移 + 旧分发拆除 + 规则素材池），7 个 Step；后续 Build5/6/7 范围说明 |
+| v1.1 | 2026-08-19 | Design2Report5 核验修订：预设组种子默认成员改为 `groups:["直接连接"]`（空节点数组）；首页 home_rule 字段统一为 `{rule_id,name,current_version,token,download_url}` |

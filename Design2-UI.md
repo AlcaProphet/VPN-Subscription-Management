@@ -251,14 +251,14 @@
 |------|------|
 | 高级模式开关 | `a-switch`；当前状态旁 `a-tag`（已开启绿 / 未开启灰）+ 分区顶部说明文案「解锁 Xray 实例对接、多用户组与流量配额管控」 |
 | **开启（OFF→ON）** | 直接开关 + 保存提示「开启后请前往 Xray 实例页录入实例并完成初始化配置；开启本身不执行任何推送」（保存即生效，刷新系统状态后侧边栏解锁「用户组 / Xray 实例」入口） |
-| **关闭（ON→OFF，清空）** | 触发**如同清空数据的二次输入确认弹窗**（ConfirmModal 内嵌确认词输入框）：弹窗内**清单式展示将被移除的内容**——Xray 实例数据、**source=xray 的节点（标注：manual 节点保留）**、组节点分配、用户 Xray 推送记录、**独立 Xray 账号（凭据与推送记录）**、流量记录、用户 UUID 与代理密码、配额字段；显著 `a-alert warning` 两条：①「Xray 侧不可达实例的账号需手动清理」②「重新开启须全量重新配置并手动执行『开始初始化』」（Design2.md 第一章 OFF 清空口径） |
+| **关闭（ON→OFF，清空）** | 触发**如同清空数据的二次输入确认弹窗**（ConfirmModal 内嵌确认词输入框，**确认词固定 `DISABLE`**）：弹窗内**清单式展示将被移除的内容**——Xray 实例数据、**source=xray 的节点（标注：manual 节点保留）**、组节点分配、用户 Xray 推送记录、**独立 Xray 账号（凭据与推送记录）**、流量记录、用户 UUID 与代理密码、配额字段；显著 `a-alert warning` 两条：①「Xray 侧不可达实例的账号需手动清理」②「重新开启须全量重新配置并手动执行『开始初始化』」（Design2.md 第一章 OFF 清空口径） |
 | 流量采集间隔 | `a-input-number`（分钟，默认 10，≥1）+ 说明「逐用户串行采集 Xray 流量，间隔过短会增加实例压力」（仅高级模式展示该控件） |
 | 流量卡片显示开关 | `a-switch`（默认开启）+ 说明「控制首页流量卡片与个人中心「本月流量」行的展示」（两模式均展示该控件） |
 
 #### 4.7.2 配置导入/导出分区文案更新（沿用分区，仅文案与提示增量）
 
 - 导出说明追加：「含 Xray 实例清单（含节点显示名映射）与独立账号（含推送目标，format_version=2）」
-- **导入确认弹窗追加影响项**：「Xray 实例将整体覆盖（slug 沿用），**组节点分配将被级联清空，导入后需重新分配**」
+- **导入确认弹窗追加影响项**：「Xray 实例将整体覆盖（slug 沿用），**组节点分配将被级联清空，导入后需重新分配**」；**若导入文件带 Xray 实例/独立账号且高级模式为关，系统将自动开启高级模式并在完成提示中显著说明**
 - **signing_key 保护拒绝提示**：后端拒绝导入时（密钥将变化且存在业务密文），前端 `a-alert error` 展示后端文案「配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复」，不做任何变更
 - 导入完成提示追加「系统将自动执行节点检测刷新、按 (实例, inbound tag) 回填节点显示名（未匹配映射提示）、独立账号推送目标重绑（未匹配目标标记失败）与账号对账」
 
@@ -357,6 +357,7 @@
 - **diff 对比**：目标实体存在激活版本时提供「与当前激活版本对比」开关 → 切换为 `DiffView` 三色行级高亮（见 1.2）；无激活版本时开关隐藏并注「无激活版本可对比」
 - **跳过项提示清单**：预览区顶部 `a-alert warning`（有跳过项才渲染）：Clash 装配的 USER-AGENT 条目清单 / SR subs 与 generic-subs 的不可转协议节点清单（逐项列出名称与原因）
 - **占位标记说明**：勾选了 xray 节点的装配产物预览中可见 `# {{xray_nodes}}` 注释行，旁注 Tooltip「下载时按用户分配节点动态注入」
+- **显示名变更提示**：xray 节点 display_name 在版本生成后发生过变更时，预览原文可能显示旧名；旁注 Tooltip「存储原文为生成时快照，用户下载按当前显示名实时渲染」（Design2.md §5.7）
 
 ### 5.4 重新编辑流（从版本入口载入快照）
 
@@ -397,7 +398,7 @@
 - xray 节点除显示名（display_name）外不支持整体编辑（字段由实例检测维护）：操作列无「编辑」按钮，仅「命名」+ 行内 enabled / is_public 两开关（约束见 6.1）+ 删除；**删除按钮仅 missing=1 行可点**（非 missing 行置灰 + Tooltip「该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测」）；行内 Tooltip 说明「节点信息由 Xray 实例检测维护，显示名可自定义；系统标识名仅作内部引用，不可修改」
 - **命名弹窗（420px）**：
   - 单输入「订阅显示名」（placeholder 显示当前系统名；留空保存 = 清空并恢复系统名）；实时校验同 6.2 名称规则；重名冲突（与其他节点有效渲染名、proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名重复）后端 409 → 字段级 `Notify.error`「显示名已存在或与代理组/保留名冲突」
-  - 说明文案：「显示名将用于 Clash `name:`、SR `remarks` 与通用订阅节点名；修改后立即影响所有已激活模板的下载内容，系统内部引用不变」
+  - 说明文案：「显示名将用于 Clash `name:`、SR `remarks` 与通用订阅节点名；修改后立即影响所有已激活模板的下载内容，系统内部引用不变；**用户端刷新订阅后可能需重新选择节点**」
   - 保存成功 `Notify.success`「显示名已更新」；保存中按钮 loading 防重复
 - missing=1 节点提供「删除」作为处置手段之一（重检测恢复为另一途径，在实例页，见 8.2）；**非 missing 的 xray 节点禁止删除，避免删除后又被检测重建**；missing 节点同样可命名，重检测恢复后显示名保留
 
@@ -422,7 +423,7 @@
 
 自上而下四区：
 
-1. **基本信息**：名称（**创建后不可修改**：新建可输入、编辑只读，后端拒绝改名；重名 409 提示；禁止控制字符、逗号与首尾空白，允许中文/emoji）+ 组类型 `a-radio-group`（select 默认 / url-test / fallback，附各类型一句话说明）
+1. **基本信息**：名称（**创建后不可修改**：新建可输入、编辑只读，后端拒绝改名；重名 409 提示——重名范围含其他组名、任一节点有效渲染名、强制组名与 Clash/mihomo 内建保留代理名；禁止控制字符、逗号与首尾空白，允许中文/emoji）+ 组类型 `a-radio-group`（select 默认 / url-test / fallback，附各类型一句话说明；**名称只读、组类型创建后可修改**；预设组编辑时名称/preset_key 只读，组类型同样可改）
 2. **节点引用**（有序列表）：从全部节点中选入（manual + 可用 xray 节点，搜索过滤）；xray 节点展示有效渲染名（display_name 非空则用之，否则系统名），有自定义名时副行 `code` 风格展示系统标识名；已选节点有序列表支持**拖拽排序**（<768 上移/下移降级）；列表副说明「select 类组的第一个节点即默认选中节点；节点引用按系统标识名持久化，显示名变更不影响引用」（Design2.md §3.3/§5.4）
 3. **子组引用**：多选已存在的其他代理组（含强制组「直接连接」「国外流量」作为可切换项）；同样有序列表
 4. **校验与保存**：
@@ -476,7 +477,7 @@
 - **创建/编辑弹窗**（720px）自上而下四区：
   1. **基本信息**：名称（重名 409 提示；email 系统分配，创建后只读展示）
   2. **凭据区（双轨）**：`a-radio-group`「自动生成 / 手填接管」——自动生成：提交时生成（创建成功弹窗一次性展示，见下）；手填接管：UUID + 代理密码输入（`a-input-password`）+ 说明文案「系统分配 email 并推送至所选入站；若 Xray 侧已存在同 email 账号则按幂等口径接管成功，请确保所填凭据与 Xray 侧一致」；**编辑时凭据字段留空 = 保留原凭据**（同 6.2 manual 节点编辑口径）
-  3. **推送目标**：按实例分组的 inbound 多选（仅列四协议、allocatable=1、enabled 节点；**inbound 标签展示有效渲染名，有自定义显示名时副行展示系统标识名**；无可用节点时空态「请先在实例页检测节点」）
+  3. **推送目标**：按实例分组的 inbound 多选（**仅列四协议、allocatable=1、missing=0、所属实例 enabled=1 且节点 enabled=1 的 inbound**；**inbound 标签展示有效渲染名，有自定义显示名时副行展示系统标识名**；无可用节点时空态「请先在实例页检测节点」）
   4. **配额**：`a-input-number`（GB）+ 副说明「0 或留空 = 不限流量」
 - **凭据展示与复制**：创建成功弹窗一次性展示 UUID / 代理密码（`code` 风格 + 复制按钮）+ 警示文案「凭据即该账号的唯一凭证，请妥善保管」；列表「复制凭据」按钮复制解密凭据（专用端点，见 9.1）+ Toast 同款警示
 - **超限与重置**：超限行红色标记 + 副文案「账号已从 Xray 移除，重置配额可恢复」；重置配额 ConfirmModal「将清空该账号本月流量累计并恢复 Xray 账号（凭据不变）」；结果回执同 4.5
@@ -519,6 +520,14 @@
 | listProxyGroups / createProxyGroup / updateProxyGroup / deleteProxyGroup | GET/POST/PUT/DELETE /api/admin/proxy-groups(/:id) | definition 含组类型 + 有序节点/子组引用名；环形引用/内容约束后端 400 兜底 |
 | togglePresetGroup | PUT /api/admin/proxy-groups/:id/preset-toggle | 预设组启用勾选 |
 
+#### `api/group.ts`（高级模式，仅 advanced_mode=on）
+
+| 函数 | 方法/路径 | 备注 |
+|------|-----------|------|
+| getGroupDetail | GET /api/admin/groups/:id | 返回组基础信息 + 节点分配（node_id/node_name/display_name/render_name/is_public/source/sort_order）+ `candidate_nodes`（含 `in_partial_blueprint`）+ default_quota；off 时 403 |
+| updateGroupNodes | PUT /api/admin/groups/:id/nodes | 请求 `{ node_ids }`；后端校验候选集/公共节点/可用性（越界 400）；off 时 403 |
+| updateGroupQuota | PUT /api/admin/groups/:id/quota | 请求 `{ default_quota: number 或 null }`；0/NULL 不限，负数 400；off 时 403 |
+
 #### `api/xray.ts`（新增，仅高级模式调用）
 
 | 函数 | 方法/路径 | 响应形状要点 |
@@ -531,9 +540,24 @@
 | pushRepair / cleanOrphans / repairCredentials | POST …/reconcile/push、…/reconcile/clean、…/reconcile/credentials | 计数回执；repairCredentials = 对「凭据不一致」勾选项先 RemoveUser 再 AddUser（8.4 ④ 分区） |
 | retryUserSync | POST /api/admin/xray/users/:id/retry | 4.5 行内重试 |
 | resetQuota | POST /api/admin/xray/users/:id/reset-quota | 4.5 重置配额（沿用 Design2.md §5.8 端点） |
+| getUserSync | GET /api/admin/xray/users/:id/sync | 该用户 xray_users 聚合状态与 last_error 摘要（用户详情/重试诊断备用） |
+| getInstanceStats | GET /api/admin/xray/instances/:id/stats | 采集状态与最近成功时间（实例列表已聚合该字段，端点备用） |
 | listExtAccounts / createExtAccount / updateExtAccount / deleteExtAccount | GET/POST/PUT/DELETE /api/admin/xray/ext(/:id) | 账号行含 name/email/quota/quota_exceeded/本月用量/推送摘要/push_targets；创建请求含 credential_mode（generate/manual）+ 凭据（手填时）+ 推送目标列表（8.5）；配置导入导出中 push_targets 随账号导出、导入后按 instance+tag 重绑 node_id（Design2.md §5.4） |
 | getExtCredentials | GET /api/admin/xray/ext/:id/credentials | `{ uuid, proxy_secret }` 解密返回供复制（敏感端点，前端复制警示文案见 8.5） |
 | resetExtQuota | POST /api/admin/xray/ext/:id/reset-quota | 同 resetQuota 口径（Design2.md §5.11） |
+
+#### `api/settings.ts`（高级模式分区）
+
+| 函数 | 方法/路径 | 备注 |
+|------|-----------|------|
+| getAdvancedSettings | GET /api/admin/settings/advanced | `{ advanced_mode, collect_interval_minutes, traffic_card_enabled }` |
+| saveAdvancedSettings | PUT /api/admin/settings/advanced | 请求 `{ advanced_mode, collect_interval_minutes, traffic_card_enabled, confirm_word? }`；advanced_mode=false 时必须携带 `confirm_word=DISABLE`；开启仅置位不推送（4.7） |
+
+#### `api/user.ts`（高级模式扩展）
+
+| 函数 | 方法/路径 | 备注 |
+|------|-----------|------|
+| setUserQuota | PUT /api/admin/users/:id/quota | 请求 `{ quota_override: number 或 null }`；NULL=继承组默认配额、0=不限流量；仅高级模式，off 时 403（4.5 配额覆盖） |
 
 #### `api/assembly.ts`（新增，装配域）
 
@@ -554,7 +578,7 @@
   - **最大等待**：默认 5 分钟（可参覆写），超时抛特定错误 → UI 展示兜底文案「任务仍在后台执行，请稍后刷新查看结果」（10.1）
   - **卸载取消**：返回取消句柄；组件 onUnmounted 调用后停止轮询（仅停前端轮询，后端任务不中断）
   - **网络抖动容忍**：单次轮询请求失败不终止任务，连续失败 3 次才报错
-- **按请求 timeout 覆盖**：`http` 实例支持单请求 config 覆写 timeout；适用：装配生成 / 预览（大产物渲染）、开始初始化、对账执行、节点检测（建议 60s 档位；具体值 Build 期定，契约保留覆写能力即可）
+- **按请求 timeout 覆盖**：`http` 实例支持单请求 config 覆写 timeout；**装配生成 / 预览、开始初始化、对账执行、节点检测统一 120s**（普通请求维持全局 15s；素材池同步走 pollTask 轮询，不受此限）
 
 ### 9.3 既有 API 适配增量
 
@@ -563,11 +587,11 @@
 | `api/system.ts` | `/api/system/status` 响应新增 `advanced_mode` 布尔字段；`useSystemStore` 据此驱动侧边栏与路由守卫（见 2.1/2.4） |
 | `api/home.ts` | 首页端点新增：流量字段（used_bytes / quota_bytes，可空）、首页默认规则卡片字段（规则名 / 版本信息 / 规则 Token 链接 / 未设置标记；**仅首页展示，个人中心不展示**）、**管理员平台卡片预览形态字段**（模板信息 + 激活版本摘要，替代原池内订阅平铺与一键导入/复制字段） |
 | `api/subscription.ts` | 订阅行增 product_type（yaml / subs / generic-subs）/ 内容形态字段；创建/编辑请求移除组关联字段；按平台预览端点（会话凭据，无 subscription_id 参数，Design2.md 第一章） |
-| `api/group.ts` | group_selections 相关字段/函数全部移除；新增节点分配（含排序）与 default_quota 字段（高级端点，基础模式 403 兜底） |
+| `api/group.ts` | group_selections 相关字段/函数全部移除；新增节点分配与 default_quota 函数（`getGroupDetail` / `updateGroupNodes` / `updateGroupQuota`，端点契约见 9.1 `api/group.ts`，off 时 403 兜底） |
 | `api/rule.ts` | 增 is_home_default 字段与设置默认端点；创建请求首版本改为可选 |
-| `api/settings.ts` | 增 advanced_mode 开关、采集间隔、流量卡片开关三键读写；导入导出沿用现有端点（format_version=2 为后端事项） |
+| `api/settings.ts` | 增 `getAdvancedSettings` / `saveAdvancedSettings`（advanced_mode / 采集间隔 / 流量卡片开关三键；关闭须确认词 DISABLE）；导入导出沿用现有端点（format_version=2 为后端事项） |
 | `api/version.ts` | 版本行增 blueprint 存在标记（驱动「装配」Tag 与重新编辑按钮）；装配生成创建走 assembly.generate |
-| `api/user.ts` | 用户列表行新增字段（高级模式）：本月用量字节数、Xray 同步状态聚合（含 last_error 摘要）、配额覆盖值与有效配额、quota_exceeded 标记（对应 4.5 四个扩展点） |
+| `api/user.ts` | 用户列表行新增字段（高级模式）：本月用量字节数、Xray 同步状态聚合（含 last_error 摘要）、配额覆盖值与有效配额、quota_exceeded 标记；新增 `setUserQuota`（端点契约见 9.1 `api/user.ts` 扩展，对应 4.5 四个扩展点） |
 | `package.json` | 新增 `diff`（jsdiff）依赖（4.1 预览 diff，见 1.2 DiffView） |
 
 ### 9.4 错误码 → UI 映射增量（对齐 AGENTS.md §4.8，沿用 Design1-UI §7.3 基线）
@@ -632,3 +656,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v1.2 | 2026-08-18 | 构建前深度审阅修订：强制组落库口径（内置渲染结构、国外流量成员随快照，5.3.1/7.3）与预设组启用状态持久化（proxy_groups.enabled，7.1）；移除素材池条目手动调序（1.2/5.2.2/5.5/9.1/10.1 联动，顺序改系统维护）；xray 节点区空态文案改「手动刷新节点发现」（5.3.1/10.2）；PageHeader/CopyField 改「本期新建」口径（1.3）；懒加载分组补「无 vite 配置动作」注记（2.3）；删除订阅影响清单改「按本规格新写」（4.1）；对账补推超限提示补面板用户（8.4） |
 | v1.3 | 2026-08-18 | 构建前决策落盘：新增 generic-subs 产物类型与「通用节点订阅」页签（A1/A2）、首页仅展示分流规则卡片（A5）、素材池整体排序（B7）、全新部署纯增量 1009 DDL、候选集并集重算、名称不可修改与字符集校验、节点 missing 恢复补推、对账凭据不一致分区、协议注册表端点、pool_sync_tasks 持久化、xray 节点仅 missing 可删等（详见本轮审阅修订） |
 | v1.4 | 2026-08-19 | Xray 节点显示名（display_name）：xray 节点「命名」入口与检测回执批量命名（6.1/6.3/8.2）、有效渲染名双行展示（4.3/5.3/7.2）、display-name API 与 detectNodes added_nodes（9.1）、显示名 409 冲突映射（9.4）、跨命名空间唯一校验说明（6.2/6.3，含代理组名/强制组名/Clash-mihomo 内建保留代理名） |
+| v1.5 | 2026-08-19 | Design2Report5 核验修订：组名双向命名空间校验与组类型可编辑（7.2）、OFF 确认词 DISABLE（4.7）、导入带实例自动开高级提示（4.7）、预览旧名 Tooltip 与命名客户端提示（5.3.5/6.3）、推送目标过滤补全（8.5）、API 契约补 group/settings/userQuota/sync/stats（9.1/9.3）、长请求统一 120s（9.2） |

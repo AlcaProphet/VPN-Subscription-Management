@@ -177,7 +177,7 @@ Step 4+5 ──▶ Step 6（集成验收）
   1. **`backend/internal/xray/instance.go`**：实例服务。
      - 结构 `Instance {ID, Name, Slug, APIAddr, APITag, Enabled, LastCollectAt, CollectStatus, CollectError}`。
      - `Create/Update`：name 唯一（409）、api_addr 非空 TCP 地址、api_tag 可空；slug 自动生成 `instance-` 前缀（用 `internal/slug`，唯一冲突重试）。**api_tag 作为展示/日志/导出的实例标签原样保存；gRPC 调用定位用 api_addr，入站定位用 nodes.tag**（Xray-Core-API §一/§11.1）。
-     - `List/Get`；`Delete`：事务前收集 `xray_users` 的（email, instance_id, inbound_tag, api_addr）清单；事务内删实例行（nodes / xray_users / xray_ext_users 随 FK 级联）；提交后逐条 best-effort `RemoveUser`，不可达跳过记 warn。**Step 3 接入 sync 后**，把收集口径升级为「受影响 active 用户 × 该实例节点」期望集（组分配 ∪ 公共节点，同 Design2 §5.7 删除级联口径），而不是只依赖既有 xray_users 状态行；本 Step 先预留回调并在 Step 3 补接。
+     - `List/Get`；`Delete`：事务前收集 `xray_users` 与 `xray_ext_users` 的（email, instance_id, inbound_tag, api_addr）清单；事务内删实例行（nodes / xray_users / xray_ext_users 随 FK 级联）；提交后逐条 best-effort `RemoveUser`（面板用户与独立账号两类），不可达跳过记 warn。**Step 3 接入 sync 后**，把收集口径升级为「受影响 active 用户 × 该实例节点」∪「既有 xray_ext_users 推送目标 × 该实例」期望集，而不是只依赖既有 xray_users 状态行；本 Step 先预留回调并在 Step 3 补接。
      - `TestConnection(ctx, apiAddr)`：拨号 + `ListInbounds`，返回 ok/error 摘要；不落库。
   2. **`backend/internal/xray/detect.go`**：`DetectNodes(ctx, instanceID)`。
      - 实例 enabled=0 拒绝（400「实例已停用，不参与节点检测」）。
@@ -185,19 +185,20 @@ Step 4+5 ──▶ Step 6（集成验收）
        - `protocol`：由 `ProxySettings.TypeUrl` 的最后一段映射（如 `xray.proxy.vless.inbound.Config` → `vless`；无法识别也保留协议名）。
        - `tag` 取 inbound.Tag；`port` 取 inbound.Port；`host` 取实例 api_addr 的 host 部分（若 api_addr 为 `host:port`）。
        - `protocol_json`：从 ProxySettings 与 StreamSettings 归一化为渲染所需字段（network / security / tls server_name / fingerprint / reality pbk-sid / ws path+host / grpc service_name / httpupgrade path / ss cipher / vless flow 等）。**仅把解析得到的字段写入；解析不到的字段不虚构默认值**。REALITY：若配置含私钥，用 x25519 公钥推导写入 `public_key`；`short_id` 取配置首个短 id；`server_name` 取首个 serverNames。
-       - 稳定名 `{实例slug}-{tag}`；`validateNodeName` 失败，或与**任一节点有效渲染名**（`display_name` 非空则 display_name，否则 name）撞名（非自身），或与 `proxy_groups.name`/强制组名/Clash-mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复 → 记错误日志并跳过该 inbound，返回 skipped 项，**不中断检测、不崩溃**。
+       - 稳定名 `{实例slug}-{tag}`；复用 `internal/node` 导出的 `ValidateName` 与 `CheckRenderNameNamespaceTx`（禁止复制实现）；校验失败，或与**任一节点有效渲染名**（`display_name` 非空则 display_name，否则 name）撞名（非自身），或与 `proxy_groups.name`/强制组名/Clash-mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复 → 记错误日志并跳过该 inbound，返回 skipped 项，**不中断检测、不崩溃**。
        - 四协议（vless/vmess/trojan/shadowsocks）`allocatable=1`；其余 `allocatable=0`。
      - upsert 键 `UNIQUE(instance_id, tag)`：新行插入（enabled=1, is_public=0, missing=0, **display_name=NULL**，last_seen_at=now）；已有行仅更新 protocol/host/port/protocol_json/last_seen_at 与 allocatable（**不覆盖 enabled/is_public/display_name/装配勾选状态**），若 tag 消失后重现则 missing=0。
      - 本实例既有节点不在本次响应集合 → `missing=1`。
-     - 返回 `{added, updated, missing, skipped:[{tag, reason}], added_nodes:[{node_id, tag, name}]}`（added_nodes 供 UI 检测回执行内命名）。
+     - **missing 恢复清单**：检测事务内收集 `recovered_nodes`（missing 1→0 的节点 id/tag）；事务提交后逐节点调用注入的 `OnNodeVisibilityChanged`（本 Step 预留 nil 安全跳过，Build6 Step3 接线为 AddUser diff）。
+     - 返回 `{added, updated, missing, skipped:[{tag, reason}], added_nodes:[{node_id, tag, name}]}`（added_nodes 供 UI 检测回执行内命名；recovered_nodes 仅内部/单测使用，不在 HTTP 响应暴露）。
   3. **`backend/internal/server/xray.go`**：路由（Build2 会话+管理员中间件）
      - `GET/POST/PUT/DELETE /api/admin/xray/instances(/:id)`；
      - `POST /api/admin/xray/instances/test`；
      - `POST /api/admin/xray/instances/:id/detect`。
      - 统一响应结构；错误 400/404/409。
   4. **`backend/internal/server/server.go`** 注册实例路由（暂不注册高级中间件，Step 2 引入后再套用）。
-  5. **节点删除的 Xray 清理钩子**：`node.Service.Delete` 删除 `source=xray AND missing=1` 行时，事务前先按既有 `xray_users` 记录收集（email/instance_id/inbound_tag/api_addr）清单；提交后 best-effort `RemoveUser`（Step 3 接入 sync 服务后把口径升级为「受影响 active 用户 × 该节点」期望集）。**非 missing 的 xray 节点仍禁止删除**（Build5 已实现 UI/后端约束，保持）。
-  6. **单测**：地址校验、slug 生成、稳定名撞名跳过（含与 display_name/代理组名/强制组名/Clash-mihomo 内建保留代理名冲突）、detect upsert 不覆盖 enabled/is_public/display_name、missing 置位与恢复、返回 added_nodes、xray 节点删除前收集清单（用假 `Lister` 接口注入解析函数，不依赖真实 gRPC）。
+  5. **节点删除的 Xray 清理钩子**：`node.Service.Delete` 删除 `source=xray AND missing=1` 行时，事务前先按既有 `xray_users` 与 `xray_ext_users` 记录收集（email/instance_id/inbound_tag/api_addr）清单；提交后 best-effort `RemoveUser`（面板用户与独立账号两类；Step 3 接入 sync 服务后把口径升级为「受影响 active 用户 × 该节点」∪「既有 xray_ext_users 推送目标 × 该节点」期望集）。**非 missing 的 xray 节点仍禁止删除**（Build5 已实现 UI/后端约束，保持）。
+  6. **单测**：地址校验、slug 生成、稳定名撞名跳过（含与 display_name/代理组名/强制组名/Clash-mihomo 内建保留代理名冲突）、detect upsert 不覆盖 enabled/is_public/display_name、missing 置位与恢复、**recovered_nodes 清单收集与回调出口（nil 安全）**、返回 added_nodes、xray 节点删除前收集 xray_users/xray_ext_users 清单（用假 `Lister` 接口注入解析函数，不依赖真实 gRPC）。
 
 - **参考代码/伪代码：**
 
@@ -333,9 +334,9 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `user.AdminService.UpdateGroup`：事务提交后按 diff（旧组分配∪公共 − 新组分配∪公共）执行 Remove/Add。
      - `group.Service.Delete`：用户迁默认组后 diff（旧组节点移除 + 默认组节点推送）；`group.Service.SetNodes` 与 `RecomputeCandidateSet`：受影响 active 用户 diff。
      - `node.Service.SetEnabled`/`SetPublic`：调用注入回调 `OnNodeVisibilityChanged(node)` → enabled 0→1 AddUser diff；1→0 RemoveUser diff；is_public 变化对全部 active 用户 diff。
-     - `node missing 1→0`（Step 1 检测恢复）同 enabled 恢复口径。
-     - `node.Service.Delete`（仅 `source=xray AND missing=1` 可删）：删除事务提交前按「受影响 active 用户 × 该节点」收集连接信息与 email（不依赖 xray_users 状态行），提交后 `RemoveUserFromTargets`（幂等；不可达/不存在容忍）；xray_users 行由 FK 级联清理。
-     - `xray.InstanceService.Delete`：本 Step 起按期望集口径收集「受影响 active 用户 × 该实例节点」（组分配 ∪ 公共），删除事务提交后 best-effort `RemoveUser`（实例不可达跳过记 warn）。
+     - `node missing 1→0`（Step 1 检测恢复）：**本 Step 将 Step 1 预留的 `OnNodeVisibilityChanged` 回调接线为 sync 服务**；DetectNodes 事务提交后对 recovered_nodes 逐节点 AddUser diff（幂等；超限前置拦截同其他 AddUser 钩子；advanced_mode off 时入口跳过）。
+     - `node.Service.Delete`（仅 `source=xray AND missing=1` 可删）：删除事务提交前按「受影响 active 用户 × 该节点」∪「既有 xray_ext_users 推送目标 × 该节点」收集连接信息与 email（不依赖 xray_users 状态行），提交后 `RemoveUserFromTargets`（幂等；不可达/不存在容忍）；xray_users/xray_ext_users 行由 FK 级联清理。
+     - `xray.InstanceService.Delete`：本 Step 起按期望集口径收集「受影响 active 用户 × 该实例节点」（组分配 ∪ 公共）∪「既有 xray_ext_users 推送目标 × 该实例」，删除事务提交后 best-effort `RemoveUser`（实例不可达跳过记 warn）。
      - `user.AdminService.ChangeRole`：**无操作**（代理账号与面板角色无关，Design2 §5.5 触发器表）。
      - 回调注入在 `server.New` 中按依赖顺序完成；**禁止业务包 import server 或形成环**，均用函数字段注入。
   4. **`backend/internal/server/xray.go`** 新增：
@@ -343,7 +344,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `GET /api/admin/xray/users/:id/sync`：该用户 xray_users 聚合状态与 last_error 摘要。
      - `POST /api/admin/xray/users/:id/retry`：对 failed 记录逐个重试（AddUser 或 RemoveUser 按状态语义；failed 行若期望集仍有则重推，不在期望集则移除）。
   5. **`backend/internal/user/admin.go` 的 List** 增加高级字段（仅 advanced_mode=on 时查询）：本月用量字节、聚合同步状态、quota_exceeded（Build7 前端消费）。
-  6. **单测（fake API）**：凭据首建并发守卫（两 goroutine 仅一个 RowsAffected=1）；AddUser 成功/失败状态迁移；`already exists.` 幂等；RemoveUser 成功删行失败保留；advanced off 时入口跳过、事务复查中止、gRPC 后补偿 RemoveUser（用可控 fake 验证调用序）；批量 init 幂等；换组 diff 只碰差异集。
+  6. **单测（fake API）**：凭据首建并发守卫（两 goroutine 仅一个 RowsAffected=1）；AddUser 成功/失败状态迁移；`already exists.` 幂等；RemoveUser 成功删行失败保留；advanced off 时入口跳过、事务复查中止、gRPC 后补偿 RemoveUser（用可控 fake 验证调用序）；批量 init 幂等；换组 diff 只碰差异集；**missing 1→0 检测恢复触发 AddUser diff**；**实例/节点删除收集面板用户 + 既有 xray_ext_users 两类目标并 RemoveUser**。
 
 - **参考代码/伪代码：**
 
@@ -403,7 +404,7 @@ Step 4+5 ──▶ Step 6（集成验收）
        - 读用户组节点 ∪ 公共节点，按可用性过滤 + 候选集过滤（以 `nodes.name` 稳定名匹配 blueprint.selection_json 的 xray 候选集，display_name 不参与候选身份判定）；manual 静态节点不注入（已在模板/渲染计划中）。
        - 解密用户 UUID/代理密码；**UUID 为空** → 占位替换为注释 `# 节点未开通，请联系管理员`，并执行 Clash 蓝图空组降级；**advanced_mode=off** → 占位统一替换为 `# Xray 高级模式未启用`（**优先于「节点未开通」**），同样执行蓝图空组降级。
        - 按 target_syntax 分支：
-         - `clash-yaml`：按 `render_plan_json` **全量重渲染**。proxies = manual 节点（计划中原样，名称用 `renderName`）+ 动态 xray 节点（vless/vmess/trojan/ss 按协议构造 Clash 条目，`name` 用节点当前 `renderName`）；**render_plan 中的节点引用为 `nodes.name` 稳定键，渲染时通过节点表映射为当前 `renderName`**；所有 proxy-groups 按可达注入节点递归重建（可达集合含 manual 静态节点与 DIRECT；剔除完全不可达组；强制组「直接连接」保留；强制组为空降级 `[DIRECT]`；rules 引用被剔除组的目标降级 DIRECT 并保留行）。
+         - `clash-yaml`：按 `render_plan_json` **全量重渲染**。proxies = manual 节点（计划中原样，名称用 `renderName`）+ 动态 xray 节点（vless/vmess/trojan/ss 按协议构造 Clash 条目，`name` 用节点当前 `renderName`）；**render_plan 中的节点引用为 `nodes.name` 稳定键，渲染时通过节点表映射为当前 `renderName`**；所有 proxy-groups 按可达注入节点递归重建（可达集合含 manual 静态节点与 DIRECT；**单个成员不在可达集合内时逐项剔除**；剔除后完全不可达的组整体删除；强制组「直接连接」保留；强制组为空降级 `[DIRECT]`；rules 引用被剔除组的目标降级 DIRECT 并保留行）。
          - `sr-subs` / `generic-subs`：**装配生成模板下载时无论有无占位都必须整体重新 base64**（存储明文、下发 base64，Design2 §5.7）；占位存在时先替换 `# {{xray_nodes}}` 为动态节点行（SR/generic 链接形态，复用 Build5 links.go 的注入渲染函数，凭据为用户 UUID/代理密码），无占位则只重新 base64。
          - `sr-conf`：无节点/占位，原样。
      - 动态节点渲染名统一取 `renderName(node)`（display_name 非空则用之，否则 `{实例slug}-{入站tag}`）；同名冲突由 Build4 表达式唯一索引 + 应用层校验保证；改名实时生效，不触发快照改写。
@@ -414,7 +415,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - 分享/规则下载不加 usage 头且内容原样（不渲染）。
   3. **无占位/无凭据/高级 off 场景**：Clash 仍执行蓝图全量重渲染；SR/generic 装配模板仍重新 base64（跳过替换与否都不影响 base64 步骤）；**任何路径不得返回半截 `{{xray_nodes}}` 文本**——占位必须替换为实际节点或注释。
   4. **性能**：新增 `TestRenderUserSubscription10kRules` 断言 <500ms 级（1 万规则 + 20 用户规模最坏口径）。
-  5. **单测**：直接上传原样（字节级比对）；Clash 蓝图剔除不可达组/空组降级/rules 降级；SR/generic 占位替换与重新 base64；无凭据注释；usage 头四字段与省略规则；advanced off 时无 usage 头、平台头恢复；分享/规则不注入。
+  5. **单测**：直接上传原样（字节级比对）；Clash 蓝图剔除不可达组/空组降级/rules 降级；**组内混合有效/失效成员时逐项过滤且输出 YAML 无未定义代理名**；**manual 节点删除后下载仍可解析**；SR/generic 占位替换与重新 base64；无凭据注释；usage 头四字段与省略规则；advanced off 时无 usage 头、平台头恢复；分享/规则不注入。
 
 - **参考代码/伪代码：**
 
@@ -587,4 +588,5 @@ Step 4+5 ──▶ Step 6（集成验收）
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build6 构建方案（Xray 后端核心），7 个 Step（Step 0~6）；对账/独立账号/OFF 清空/导入导出与前端明确划归 Build7 |
+| v1.1 | 2026-08-19 | Design2Report5 核验修订：missing 1→0 检测恢复自动补推接线；实例/节点删除收集面板用户 + 既有 xray_ext_users 两类目标；检测复用 node 包命名校验；下载重渲染逐项过滤悬空成员并补单测 |
 
