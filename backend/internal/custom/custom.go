@@ -90,7 +90,7 @@ func (s *Service) Upsert(ctx context.Context, userID, platformID int64, src vers
 		return nil, err
 	}
 	// 版本创建在独立事务（版本组件自带 BEGIN IMMEDIATE）；失败需回滚首次创建的空记录
-	v, err := s.versions.CreateVersion(ctx, version.OwnerCustom, c.ID, src)
+	v, _, err := s.versions.CreateVersion(ctx, version.OwnerCustom, c.ID, src, version.CreateOptions{Activate: true})
 	if err != nil {
 		s.rollbackEmptyRecord(ctx, c.ID)
 		return nil, err

@@ -1,6 +1,6 @@
 <!-- VersionManageView.vue：通用版本管理视图组件（四类资源复用，props 驱动，UI §5.1/7.1） -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button, Dropdown, Input, Menu, Modal, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
@@ -19,6 +19,13 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+
+// 订阅地址池与规则使用「入池 + 显式分发」语义；分享/自定义保持「设为当前」
+const activationOwner = computed(() => props.ownerType === 'subscription' || props.ownerType === 'rule')
+const switchLabel = computed(() => (activationOwner.value ? '激活/分发' : '设为当前'))
+const switchContent = computed(() =>
+  activationOwner.value ? '激活后对全体用户生效' : '切换后所有下载立即生效',
+)
 
 // 响应式：≥768 表格 / <768 卡片（与其他管理页一致）
 const isMobile = ref(false)
@@ -91,8 +98,15 @@ async function onUpload(file: File) {
   form.append('file', file)
   saving.value = true
   try {
-    await api.create(props.ownerId, form)
-    Notify.success('新版本已创建并切换为当前')
+    const res = await api.create(props.ownerId, form)
+    if (res.auto_activated) {
+      Notify.success('首个版本已自动激活')
+    } else if (activationOwner.value) {
+      if (props.ownerType === 'subscription') sessionStorage.setItem(`pooled_sub_${props.ownerId}`, '1')
+      Notify.success('已入池未生效，请激活')
+    } else {
+      Notify.success('新版本已创建并切换为当前')
+    }
     createOpen.value = false
     await load()
   } catch (err) {
@@ -131,8 +145,15 @@ async function openEdit(ver: number) {
 async function saveText() {
   saving.value = true
   try {
-    await api.create(props.ownerId, { text: editText.value })
-    Notify.success('新版本已创建并切换为当前')
+    const res = await api.create(props.ownerId, { text: editText.value })
+    if (res.auto_activated) {
+      Notify.success('首个版本已自动激活')
+    } else if (activationOwner.value) {
+      if (props.ownerType === 'subscription') sessionStorage.setItem(`pooled_sub_${props.ownerId}`, '1')
+      Notify.success('已入池未生效，请激活')
+    } else {
+      Notify.success('新版本已创建并切换为当前')
+    }
     createOpen.value = false
     editOpen.value = false
     editTarget.value = null
@@ -208,7 +229,8 @@ function fmtTime(ts: string): string {
       <Button type="primary" @click="openCreate">创建新版本</Button>
     </div>
 
-    <TriStateList :loading="loading" :empty="versions.length === 0" empty-text="暂无版本，请创建第一个版本">
+    <TriStateList :loading="loading" :empty="versions.length === 0"
+                  empty-text="暂无版本，可通过上传文件 / 在线编辑 / 装配生成创建">
       <!-- ≥768 表格态 -->
       <template v-if="!isMobile">
         <Table :data-source="versions" :pagination="false" row-key="version_no" size="middle">
@@ -231,7 +253,7 @@ function fmtTime(ts: string): string {
               <Space>
                 <Button size="small" @click="doPreview(record.version_no)">预览</Button>
                 <Button size="small" @click="openEdit(record.version_no)">编辑</Button>
-                <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">设为当前</Button>
+                <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">{{ switchLabel }}</Button>
                 <Tooltip v-else title="当前激活版本不可删除，请先切换">
                   <Button size="small" danger disabled>删除</Button>
                 </Tooltip>
@@ -252,7 +274,7 @@ function fmtTime(ts: string): string {
               </Space>
               <Space>
                 <Button size="small" @click="doPreview(v.version_no)">预览</Button>
-                <Button v-if="!v.current" size="small" @click="toSwitch = v.version_no">设为当前</Button>
+                <Button v-if="!v.current" size="small" @click="toSwitch = v.version_no">{{ switchLabel }}</Button>
                 <Dropdown>
                   <Button size="small">更多 ▾</Button>
                   <template #overlay>
@@ -312,6 +334,6 @@ function fmtTime(ts: string): string {
     <ConfirmModal :open="toDelete !== null" title="删除版本" danger :loading="deleting"
                   content="删除后不可恢复" @confirm="doDelete" @update:open="toDelete = null" />
     <ConfirmModal :open="toSwitch !== null" title="切换当前版本" :loading="switching"
-                  content="切换后所有下载立即生效" @confirm="doSwitch" @update:open="toSwitch = null" />
+                  :content="switchContent" @confirm="doSwitch" @update:open="toSwitch = null" />
   </div>
 </template>

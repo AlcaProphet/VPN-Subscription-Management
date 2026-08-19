@@ -24,7 +24,7 @@ type ApprovalHandler struct {
 // SMTP 测试邮件端点（Step 3 面板复用，本 Step 建立）
 func RegisterApprovalRoutes(engine *gin.Engine, h *ApprovalHandler, sessionMW, adminMW gin.HandlerFunc) {
 	g := engine.Group("/api/admin/approvals", sessionMW, adminMW)
-	g.GET("", h.list)                        // ?page=&size=
+	g.GET("", h.list) // ?page=&size=
 	g.POST("/:id/approve", h.approve)
 	g.POST("/:id/reject", h.reject)
 	g.POST("/batch_approve", h.batchApprove) // body: { ids: [] }

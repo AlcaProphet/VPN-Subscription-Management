@@ -1,4 +1,4 @@
-// api/group.ts：用户组接口封装
+// api/group.ts：用户组接口封装（Build4：旧订阅选定移除；高级节点字段 Build6/7 追加）
 import { http } from './request'
 
 export interface GroupItem {
@@ -6,30 +6,16 @@ export interface GroupItem {
   slug: string
   name: string
   is_default: boolean
-  needs_reselect: boolean
-  sub_count: number // 可用订阅数（R10-06 文案统一）
-  user_count: number // 组内用户数
-}
-
-export interface SelectionItem {
-  platform_id: number
-  subscription_id: number // 0 = 取消选定
-}
-
-export interface GroupDetail extends GroupItem {
-  selections: SelectionItem[]
+  default_quota?: number | null // advanced_mode=off 时后端省略
+  node_count: number
+  user_count: number
 }
 
 export const listGroups = () =>
   http.get<any, { list: GroupItem[]; total: number }>('/admin/groups').then((d) => d.list)
-// 后端 GET /admin/groups/:id 返回嵌套结构 { group, selections }（server/group.go get），解包为扁平 GroupDetail
-// （R10-01：此前直接取 body.data 导致 detail.name/id 为 undefined，编辑弹窗组名空白且保存请求 /groups/undefined 报 400）
 export const getGroup = (id: number) =>
-  http.get<any, { group: GroupItem; selections: SelectionItem[] }>(`/admin/groups/${id}`)
-    .then((d) => ({ ...d.group, selections: d.selections }))
+  http.get<any, { group: GroupItem }>(`/admin/groups/${id}`).then((d) => d.group)
 export const createGroup = (name: string) => http.post<any, GroupItem>('/admin/groups', { name })
-export const updateGroup = (id: number, data: { name: string; sub_ids: number[]; selections: SelectionItem[] }) =>
+export const updateGroup = (id: number, data: { name: string }) =>
   http.put(`/admin/groups/${id}`, data)
 export const deleteGroup = (id: number) => http.delete(`/admin/groups/${id}`)
-export const setSelections = (id: number, selections: SelectionItem[]) =>
-  http.put(`/admin/groups/${id}/selections`, { selections })

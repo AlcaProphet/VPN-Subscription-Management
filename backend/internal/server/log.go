@@ -23,9 +23,9 @@ type LogHandler struct {
 // 若置于会话组内 EventSource 请求必被 401 拒绝
 func RegisterLogRoutes(engine *gin.Engine, h *LogHandler, sessionMW, adminMW gin.HandlerFunc) {
 	g := engine.Group("/api/admin/logs", sessionMW, adminMW)
-	g.GET("/access", h.queryAccess)             // ?from=&to=&page=&size=
+	g.GET("/access", h.queryAccess) // ?from=&to=&page=&size=
 	g.POST("/access/clear", h.clearAccess)
-	g.POST("/stream/token", h.issueStreamToken) // 换一次性短期 Token（会话凭据鉴权）
+	g.POST("/stream/token", h.issueStreamToken)    // 换一次性短期 Token（会话凭据鉴权）
 	engine.GET("/api/admin/logs/stream", h.stream) // SSE：?token= 短期 Token（EventSource 无法带 Header）
 }
 

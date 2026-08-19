@@ -24,8 +24,13 @@ import (
 // 关键参数（Design1 §6.3/3.4.4，禁止修改）
 const (
 	MaxInstallerSize = 300 << 20 // 安装包 ≤300MB
-	MaxInstallerName = 200        // 展示名长度上限（安装包原始文件名/外链展示名）
+	MaxInstallerName = 200       // 展示名长度上限（安装包原始文件名/外链展示名）
 	installerDir     = "public/installers"
+
+	// 平台/订阅产物格式（Design2 §4.4/§5.9）
+	ProductYAML        = "yaml"
+	ProductSubs        = "subs"
+	ProductGenericSubs = "generic-subs"
 )
 
 // 业务错误（接入层映射 HTTP 状态码）
@@ -33,12 +38,28 @@ var (
 	ErrBadRequest        = errors.New("参数错误")
 	ErrNotFound          = errors.New("平台不存在")
 	ErrInstallerTooLarge = errors.New("安装包超过 300MB 限制")
+	ErrProductTypeInUse  = errors.New("该平台已有订阅条目，请先处理后再变更产物格式")
 )
+
+// productTypeInUseError 平台产物格式变更冲突（携带既有订阅条目的 product_type 插值文案）
+type productTypeInUseError struct {
+	existing string
+}
+
+func (e *productTypeInUseError) Error() string {
+	return "该平台已有 " + e.existing + " 订阅条目，请先处理后再变更产物格式"
+}
+
+func (e *productTypeInUseError) Unwrap() error { return ErrProductTypeInUse }
+
+func validProductType(v string) bool {
+	return v == ProductYAML || v == ProductSubs || v == ProductGenericSubs
+}
 
 // Service 平台服务
 type Service struct {
 	store    *store.Store
-	dataDir  string // 安装包落盘根目录（/data）
+	dataDir  string           // 安装包落盘根目录（/data）
 	versions *version.Service // 版本组件（Step 5 起用于平台删除完整级联）
 	log      *slog.Logger
 }
@@ -65,11 +86,12 @@ type Platform struct {
 	Slug           string              `json:"slug"`
 	Name           string              `json:"name"`
 	Description    string              `json:"description"`
-	Schemes        []string            `json:"schemes"`          // 有序数组；一键导入取首项；含 {url} 占位符
-	ExtraHeaders   map[string]string   `json:"extra_headers"`    // 附加响应头；值支持 {frontend_url} 占位符
-	InstallerFiles []InstallerFileItem `json:"installer_files"`  // 多个本地安装包
-	InstallerURLs  []InstallerURLItem  `json:"installer_urls"`   // 多个外部下载链接
-	Cascade        CascadeCounts      `json:"cascade"`          // 删除预览用影响统计
+	ProductType    string              `json:"product_type"`    // yaml / subs / generic-subs
+	Schemes        []string            `json:"schemes"`         // 有序数组；一键导入取首项；含 {url} 占位符
+	ExtraHeaders   map[string]string   `json:"extra_headers"`   // 附加响应头；值支持 {frontend_url} 占位符
+	InstallerFiles []InstallerFileItem `json:"installer_files"` // 多个本地安装包
+	InstallerURLs  []InstallerURLItem  `json:"installer_urls"`  // 多个外部下载链接
+	Cascade        CascadeCounts       `json:"cascade"`         // 删除预览用影响统计
 }
 
 // CascadeCounts 删除平台的影响统计（订阅/Token/自定义数量；表未建立时计 0）
@@ -79,8 +101,15 @@ type CascadeCounts struct {
 	Customs       int64 `json:"customs"`
 }
 
-// Create 创建平台：slug 由生成器自动生成（platform- 前缀）；名称不强制唯一；可携带外部下载链接列表
-func (s *Service) Create(ctx context.Context, name, description string, schemes []string, headers map[string]string, installerURLs []InstallerURLItem) (*Platform, error) {
+// Create 创建平台：slug 由生成器自动生成（platform- 前缀）；名称不强制唯一；product_type 默认 yaml；
+// 可携带外部下载链接列表
+func (s *Service) Create(ctx context.Context, name, description, productType string, schemes []string, headers map[string]string, installerURLs []InstallerURLItem) (*Platform, error) {
+	if productType == "" {
+		productType = ProductYAML
+	}
+	if !validProductType(productType) {
+		return nil, fmt.Errorf("%w: product_type 仅支持 yaml/subs/generic-subs", ErrBadRequest)
+	}
 	if err := ValidateSchemes(schemes); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -100,8 +129,8 @@ func (s *Service) Create(ctx context.Context, name, description string, schemes 
 			return err
 		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO platforms (slug, name, description, schemes, extra_headers, installer_urls) VALUES (?,?,?,?,?,?)`,
-			value, name, description, toJSON(schemes), toJSON(headers), toJSON(installerURLs))
+			`INSERT INTO platforms (slug, name, description, product_type, schemes, extra_headers, installer_urls) VALUES (?,?,?,?,?,?,?)`,
+			value, name, description, productType, toJSON(schemes), toJSON(headers), toJSON(installerURLs))
 		if err != nil {
 			return fmt.Errorf("创建平台失败: %w", err)
 		}
@@ -110,14 +139,21 @@ func (s *Service) Create(ctx context.Context, name, description string, schemes 
 			return err
 		}
 		created = &Platform{ID: id, Slug: value, Name: name, Description: description,
-			Schemes: schemes, ExtraHeaders: headers, InstallerURLs: installerURLs}
+			ProductType: productType, Schemes: schemes, ExtraHeaders: headers, InstallerURLs: installerURLs}
 		return nil
 	})
 	return created, err
 }
 
-// Update 编辑平台：创建后 slug 不可修改（接入层不接收 slug 字段）；可改名称/描述/scheme/附加头/外部下载链接列表
-func (s *Service) Update(ctx context.Context, id int64, name, description string, schemes []string, headers map[string]string, installerURLs []InstallerURLItem) error {
+// Update 编辑平台：创建后 slug 不可修改（接入层不接收 slug 字段）；可改名称/描述/product_type/scheme/附加头/外部下载链接列表。
+// product_type 变更时校验与既有订阅条目一致（有冲突返回 ErrProductTypeInUse，接入层 400）。
+func (s *Service) Update(ctx context.Context, id int64, name, description, productType string, schemes []string, headers map[string]string, installerURLs []InstallerURLItem) error {
+	if productType == "" {
+		productType = ProductYAML
+	}
+	if !validProductType(productType) {
+		return fmt.Errorf("%w: product_type 仅支持 yaml/subs/generic-subs", ErrBadRequest)
+	}
 	if err := ValidateSchemes(schemes); err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -128,16 +164,31 @@ func (s *Service) Update(ctx context.Context, id int64, name, description string
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	res, err := s.store.DB().ExecContext(ctx,
-		`UPDATE platforms SET name = ?, description = ?, schemes = ?, extra_headers = ?, installer_urls = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		name, description, toJSON(schemes), toJSON(headers), toJSON(installerURLs), id)
-	if err != nil {
-		return fmt.Errorf("更新平台失败: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM platforms WHERE id = ?`, id).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return ErrNotFound
+		}
+		var existing string
+		err := tx.QueryRowContext(ctx,
+			`SELECT s.product_type FROM subscriptions s WHERE s.platform_id = ? AND s.product_type != ? LIMIT 1`,
+			id, productType).Scan(&existing)
+		if err == nil {
+			return &productTypeInUseError{existing: existing}
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE platforms SET name = ?, description = ?, product_type = ?, schemes = ?, extra_headers = ?, installer_urls = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			name, description, productType, toJSON(schemes), toJSON(headers), toJSON(installerURLs), id); err != nil {
+			return fmt.Errorf("更新平台失败: %w", err)
+		}
+		return nil
+	})
 }
 
 // Get 读取单个平台（编辑回显）
@@ -145,8 +196,8 @@ func (s *Service) Get(ctx context.Context, id int64) (*Platform, error) {
 	var p Platform
 	var schemesJSON, headersJSON, filesJSON, urlsJSON sql.NullString
 	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT id, slug, name, description, schemes, extra_headers, installer_files, installer_urls FROM platforms WHERE id = ?`, id).
-		Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON)
+		`SELECT id, slug, name, description, product_type, schemes, extra_headers, installer_files, installer_urls FROM platforms WHERE id = ?`, id).
+		Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.ProductType, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -163,7 +214,7 @@ func (s *Service) Get(ctx context.Context, id int64) (*Platform, error) {
 // List 平台列表（附删除预览影响统计；订阅/Token/自定义表未建立时跳过统计）
 func (s *Service) List(ctx context.Context) ([]Platform, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT id, slug, name, description, schemes, extra_headers, installer_files, installer_urls FROM platforms ORDER BY id`)
+		`SELECT id, slug, name, description, product_type, schemes, extra_headers, installer_files, installer_urls FROM platforms ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("读取平台列表失败: %w", err)
 	}
@@ -172,7 +223,7 @@ func (s *Service) List(ctx context.Context) ([]Platform, error) {
 	for rows.Next() {
 		var p Platform
 		var schemesJSON, headersJSON, filesJSON, urlsJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.ProductType, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON); err != nil {
 			return nil, fmt.Errorf("解析平台行失败: %w", err)
 		}
 		p.Schemes = parseJSONSlice(schemesJSON.String)

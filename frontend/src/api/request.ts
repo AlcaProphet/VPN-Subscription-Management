@@ -86,3 +86,74 @@ export function handleApiError(err: unknown, fallback?: () => void) {
   message.error(err instanceof Error ? err.message : '网络异常，请重试')
   fallback?.()
 }
+
+// --- pollTask：异步任务轮询封装（Design2-UI §9.2） ---
+
+export class PollTimeoutError extends Error {
+  constructor(message = '任务仍在后台执行，请稍后刷新查看结果') { super(message) }
+}
+export class PollNetworkError extends Error {
+  constructor(message = '状态查询失败，点击重试') { super(message) }
+}
+
+export interface PollTaskOptions<T> {
+  submit: () => Promise<unknown>
+  query: () => Promise<T>
+  isDone: (r: T) => boolean
+  interval?: number
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+export interface PollTaskHandle<T> {
+  run: () => Promise<T>
+  cancel: () => void
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new PollTimeoutError('轮询已取消')); return }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      window.clearTimeout(timer)
+      reject(new PollTimeoutError('轮询已取消'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+// pollTask 提交任务后按 interval 轮询 query；终态判定由 isDone 提供；
+// 单次网络失败容忍（连续 3 次才报错）；超时抛 PollTimeoutError。
+// 返回 { run, cancel }：run 执行提交+轮询，cancel 仅停止前端轮询（后端任务继续执行）。
+export function pollTask<T>(opts: PollTaskOptions<T>): PollTaskHandle<T> {
+  let aborted = false
+  return {
+    async run() {
+      await opts.submit()
+      const deadline = Date.now() + (opts.timeoutMs ?? 5 * 60 * 1000)
+      let failures = 0
+      while (Date.now() < deadline) {
+        if (aborted || opts.signal?.aborted) throw new PollTimeoutError('轮询已取消')
+        try {
+          const r = await opts.query()
+          failures = 0
+          if (opts.isDone(r)) return r
+        } catch {
+          failures += 1
+          if (failures >= 3) throw new PollNetworkError()
+        }
+        try {
+          await sleep(opts.interval ?? 1500, opts.signal)
+        } catch {
+          if (aborted || opts.signal?.aborted) throw new PollTimeoutError('轮询已取消')
+          throw new PollTimeoutError()
+        }
+      }
+      throw new PollTimeoutError()
+    },
+    cancel() { aborted = true },
+  }
+}

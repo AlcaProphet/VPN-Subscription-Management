@@ -38,8 +38,14 @@ func (s *Service) SetResetRuntimeState(fn func()) {
 // schema_migrations 保留（迁移框架自持）
 func (s *Service) ClearTablesTx(ctx context.Context, tx *sql.Tx) error {
 	tables := []string{
+		// Build4 新增（先子后父，避免外键扫描差异）
+		"pool_sync_tasks", "pool_entries", "rule_pools",
+		"xray_ext_traffic", "xray_ext_users", "xray_ext_accounts",
+		"traffic_records", "xray_users", "group_nodes", "assembly_blueprints",
+		"nodes", "xray_instances", "proxy_groups",
+		// 既有表（保留）
 		"download_tokens", "share_tokens", "rule_tokens", "password_reset_tokens", "oidc_states",
-		"access_logs", "versions", "subscription_group_rel", "group_selections",
+		"access_logs", "versions",
 		"custom_subscriptions", "share_subscriptions", "rules", "subscriptions",
 		"users", "groups", "platforms", "system_config",
 	}

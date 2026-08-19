@@ -20,9 +20,9 @@ type EmergencyHandler struct {
 // RegisterEmergencyRoutes 仅在应急模式下调用（main 按 DetectTrigger 结果分支装配）
 func RegisterEmergencyRoutes(engine *gin.Engine, h *EmergencyHandler) {
 	g := engine.Group("/api/emergency")
-	g.POST("/verify", h.verify)               // 校验操作码，通过返回管理员名单（若可重置）
+	g.POST("/verify", h.verify)                // 校验操作码，通过返回管理员名单（若可重置）
 	g.POST("/reset_password", h.resetPassword) // 操作码 + user_id + 新密码
-	g.POST("/reinitialize", h.reinitialize)   // 操作码 + 二次确认
+	g.POST("/reinitialize", h.reinitialize)    // 操作码 + 二次确认
 }
 
 // verify 校验操作码；通过后返回可用能力与管理员名单（验码前不暴露名单）

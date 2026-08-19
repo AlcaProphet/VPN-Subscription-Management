@@ -19,16 +19,16 @@ type UserAdminHandler struct {
 // RegisterUserAdminRoutes 注册用户管理端点；全部叠加会话 + 管理员双中间件
 func RegisterUserAdminRoutes(engine *gin.Engine, h *UserAdminHandler, sessionMW, adminMW gin.HandlerFunc) {
 	g := engine.Group("/api/admin/users", sessionMW, adminMW)
-	g.GET("", h.list)                                  // ?page=&size=&keyword=
-	g.POST("", h.create)                               // 新建用户
-	g.PUT("/:id", h.update)                            // 编辑/换组（body: group_id；email 非空时补填）
-	g.PUT("/:id/role", h.changeRole)                   // body: { role: admin|user }
-	g.POST("/:id/tokens/revoke", h.revokeTokens)       // 吊销所有下载 Token
-	g.POST("/:id/password/reset", h.resetPassword)     // body: { mode: "send_email"|"direct" }
-	g.DELETE("/:id/oidc", h.clearOidc)                 // 清除 OIDC 绑定
-	g.PUT("/:id/status", h.setStatus)                  // body: { disabled: bool }
-	g.DELETE("/:id", h.delete)                         // 删除用户
-	g.POST("/send_password_links", h.batchSendLinks)   // 批量发密码设置链接
+	g.GET("", h.list)                                // ?page=&size=&keyword=
+	g.POST("", h.create)                             // 新建用户
+	g.PUT("/:id", h.update)                          // 编辑/换组（body: group_id；email 非空时补填）
+	g.PUT("/:id/role", h.changeRole)                 // body: { role: admin|user }
+	g.POST("/:id/tokens/revoke", h.revokeTokens)     // 吊销所有下载 Token
+	g.POST("/:id/password/reset", h.resetPassword)   // body: { mode: "send_email"|"direct" }
+	g.DELETE("/:id/oidc", h.clearOidc)               // 清除 OIDC 绑定
+	g.PUT("/:id/status", h.setStatus)                // body: { disabled: bool }
+	g.DELETE("/:id", h.delete)                       // 删除用户
+	g.POST("/send_password_links", h.batchSendLinks) // 批量发密码设置链接
 }
 
 // mapProtectErr 统一保护错误映射：SelfOperation/PendingNotAllowed/参数类 → 400；LastAdmin → 403；
@@ -266,10 +266,10 @@ func (h *UserAdminHandler) batchSendLinks(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{
-		"sent":              sent,
-		"skipped_pending":   skippedPending,
-		"skipped_disabled":  skippedDisabled,
-		"skipped_no_email":  skippedNoEmail,
+		"sent":             sent,
+		"skipped_pending":  skippedPending,
+		"skipped_disabled": skippedDisabled,
+		"skipped_no_email": skippedNoEmail,
 	})
 }
 

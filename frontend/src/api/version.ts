@@ -1,12 +1,14 @@
-// api/version.ts：通用版本接口封装（四类资源复用，前缀参数化，UI §5.1/7.1）
+// api/version.ts：通用版本接口封装（四类资源复用，前缀参数化）
 import { http } from './request'
 
 export interface VersionItem {
   version_no: number
   file_path: string
+  file_name?: string
   current: boolean
   created_at: string
   updated_at: string
+  blueprint?: boolean // 装配蓝图版本标记（Build5 起回传；可缺省）
 }
 
 export function versionApi(prefix: string) {
@@ -16,7 +18,7 @@ export function versionApi(prefix: string) {
     create: (ownerId: number, payload: FormData | { text: string }) => {
       // 文本模式必须带 ?mode=text（后端按查询参数区分文件/文本双模式）；FormData 为文件上传
       const isText = !(payload instanceof FormData)
-      return http.post<any, { version_no: number }>(
+      return http.post<any, { version_no: number; auto_activated: boolean }>(
         `${prefix}/${ownerId}/versions${isText ? '?mode=text' : ''}`,
         payload,
       )

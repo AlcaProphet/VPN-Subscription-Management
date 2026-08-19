@@ -49,14 +49,14 @@
 
 > 执行 AI 必须逐个完成并勾选，便于核对构建进度。状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
-- ☐ Step 0：Go 1.26 升级与 Dockerfile 同步（编译核验）
-- ☐ Step 1：1009 增量迁移（全量 DDL + proxy_groups 种子）与 dataclear 清表清单适配
-- ☐ Step 2：拆除 group_selections / subscription_group_rel 旧分发链路（后端）
-- ☐ Step 3：CreateVersion activate 语义、订阅新模型、平台 product_type、空规则实体与首页默认规则
-- ☐ Step 4：前端基线适配（订阅/平台/组/规则/首页/版本管理）+ advanced_mode 状态与路由骨架
-- ☐ Step 5：规则素材池后端（CRUD / 解析白名单 / URL 同步任务 / 定时同步）
-- ☐ Step 6：规则素材池前端（AssemblyView 页签壳 + 池列表/详情/同步轮询）
-- ☐ Step 7：Build4 端到端验收与文档核对
+- ✅ Step 0：Go 1.26 升级与 Dockerfile 同步（编译核验）
+- ✅ Step 1：1009 增量迁移（全量 DDL + proxy_groups 种子）与 dataclear 清表清单适配
+- ✅ Step 2：拆除 group_selections / subscription_group_rel 旧分发链路（后端）
+- ✅ Step 3：CreateVersion activate 语义、订阅新模型、平台 product_type、空规则实体与首页默认规则
+- ✅ Step 4：前端基线适配（订阅/平台/组/规则/首页/版本管理）+ advanced_mode 状态与路由骨架
+- ✅ Step 5：规则素材池后端（CRUD / 解析白名单 / URL 同步任务 / 定时同步）
+- ✅ Step 6：规则素材池前端（AssemblyView 页签壳 + 池列表/详情/同步轮询）
+- ✅ Step 7：Build4 端到端验收与文档核对
 
 ---
 
@@ -64,14 +64,14 @@
 
 | Step | 内容 | 设计依据 | 状态 |
 |------|------|---------|------|
-| 0 | Go 1.26 升级与 Dockerfile 同步 | Design2 §5.3 | ☐ 未开始 |
-| 1 | 1009 增量迁移与 dataclear 清表清单 | Design2 §5.9，AGENTS §4.7 | ☐ 未开始 |
-| 2 | 拆除旧分发链路（后端） | Design2 §一/§4.4/§5.10 | ☐ 未开始 |
-| 3 | CreateVersion activate 语义与平台/规则改造 | Design2 §4.4/§5.9 | ☐ 未开始 |
-| 4 | 前端基线适配与 advanced_mode 骨架 | Design2-UI §2~4 | ☐ 未开始 |
-| 5 | 规则素材池后端 | Design2 §二 | ☐ 未开始 |
-| 6 | 规则素材池前端 | Design2-UI §5.1/§5.2/§9.1/§9.2 | ☐ 未开始 |
-| 7 | Build4 端到端验收 | Design2 §一/§二 | ☐ 未开始 |
+| 0 | Go 1.26 升级与 Dockerfile 同步 | Design2 §5.3 | ✅ 验收通过 |
+| 1 | 1009 增量迁移与 dataclear 清表清单 | Design2 §5.9，AGENTS §4.7 | ✅ 验收通过 |
+| 2 | 拆除旧分发链路（后端） | Design2 §一/§4.4/§5.10 | ✅ 验收通过 |
+| 3 | CreateVersion activate 语义与平台/规则改造 | Design2 §4.4/§5.9 | ✅ 验收通过 |
+| 4 | 前端基线适配与 advanced_mode 骨架 | Design2-UI §2~4 | ✅ 验收通过 |
+| 5 | 规则素材池后端 | Design2 §二 | ✅ 验收通过 |
+| 6 | 规则素材池前端 | Design2-UI §5.1/§5.2/§9.1/§9.2 | ✅ 验收通过 |
+| 7 | Build4 端到端验收 | Design2 §一/§二 | ✅ 验收通过 |
 
 ---
 
@@ -911,3 +911,4 @@ Step 6 ──▶ Step 7（端到端验收）
 | v1.5 | 2026-08-19 | Design2Report9 修订：预设组种子默认成员同步改 `groups:["🚀直接连接"]`（M4 强制组 emoji 连锁）；Step2 单测清单补 server/home_test.go 与 server/rule_test.go |
 | v1.6 | 2026-08-19 | Design2Report10 修订：CreateVersion 事务顺序改为「AfterCreate 先于 setCurrent」且 AfterCreate 传 versions.id（Q3/Q11）；池同步 SubmitSync 查+插同事务（Q12-8）；补同步期间删池/改 URL 边界（Q12-9） |
 | v1.7 | 2026-08-19 | Design2Report11 核验修订：Step2 测试清单补 emergency/platform 两测试文件与组详情 off 省略 default_quota；Step3 ErrProductTypeInUse 文案含类型插值、home_rule/traffic 改独立端点 /api/home/summary；Step4 入池未生效引导/平台卡空态三按钮隐藏/新建订阅轻提示/路由守卫 !== true；Step5 差量删除改临时表或分批；Step6 同步进行中 409 前端特判 warning |
+| v1.8 | 2026-08-19 | Build4 全部 Step 执行验收通过（2026-08-19）。执行口径记录：Step2 旧表 grep 按用户决策限定 `backend/internal`、`backend/cmd`、`frontend`（历史迁移 1002/1003/1009 保留迁移链、不作为业务代码命中）；Go 1.26 经下载工具链执行，前端测试环境补齐 localStorage 内存实现（Node 26 + jsdom 组合）；Step7 全新库自动冒烟覆盖 Setup/平台种子/订阅唯一与首版自动激活/普通用户与管理员首页形态/空规则与默认规则/规则下载 200 注释块/素材池同步与 manual 段排序 |

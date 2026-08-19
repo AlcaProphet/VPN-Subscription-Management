@@ -22,7 +22,10 @@ const system = useSystemStore()
 const { dark, toggle } = useTheme()
 
 const isAdmin = computed(() => auth.user?.role === 'admin')
-const groupName = computed(() => auth.user?.group_name ?? '')
+// 所属组标签仅高级模式展示（基础模式全面隐藏组概念，Design2 第一章）
+const groupName = computed(() =>
+  system.status?.advanced_mode === true ? (auth.user?.group_name ?? '') : '',
+)
 
 async function onLogout() {
   await auth.logoutAction()

@@ -27,9 +27,9 @@ async function load() {
 }
 onMounted(() => {
   void load()
-  // 新建平台成功返回列表时：引导「为各用户组设置该平台的默认订阅」
+  // 新建平台成功返回列表：引导前往订阅管理创建条目或装配生成模板
   if (route.query.created === '1') {
-    guideOpen.value = true
+    Notify.info('平台已创建，可前往订阅管理创建订阅条目，或前往订阅装配生成模板')
     void router.replace({ path: '/admin/platforms' })
   }
 })
@@ -42,6 +42,12 @@ function installerStatus(p: PlatformItem): { text: string; color: string } {
   if (files > 0) return { text: `本地 ${files}`, color: 'green' }
   if (urls > 0) return { text: `外链 ${urls}`, color: 'blue' }
   return { text: '无', color: 'default' }
+}
+
+const productTypeMeta: Record<string, { label: string; color: string }> = {
+  yaml: { label: 'yaml', color: 'blue' },
+  subs: { label: 'subs', color: 'cyan' },
+  'generic-subs': { label: 'generic-subs', color: 'purple' },
 }
 
 // 删除确认：逐项列出影响清单（N 份订阅、M 个 Token、K 份自定义订阅 + 文件不可恢复提示）
@@ -72,12 +78,6 @@ async function confirmDelete() {
   }
 }
 
-// 新建成功引导：为各用户组设置该平台的默认订阅（直达组管理按钮 + 跳过；Step 3 接通组管理页）
-const guideOpen = ref(false)
-function goGroups() {
-  guideOpen.value = false
-  void router.push('/admin/groups')
-}
 </script>
 
 <template>
@@ -91,6 +91,11 @@ function goGroups() {
       <!-- ≥768：表格 -->
       <Table :data-source="platforms" row-key="id" :pagination="false" class="hidden md:block">
         <Table.Column key="name" title="名称" data-index="name" />
+        <Table.Column key="product_type" title="产物格式">
+          <template #default="{ record }">
+            <Tag :color="productTypeMeta[record.product_type]?.color">{{ record.product_type }}</Tag>
+          </template>
+        </Table.Column>
         <Table.Column key="slug" title="标识" data-index="slug">
           <template #default="{ record }">
             <TypographyText code>{{ record.slug }}</TypographyText>
@@ -121,6 +126,7 @@ function goGroups() {
           <!-- 标识只读展示 -->
           <div class="text-xs text-gray-500 mt-1">
             <TypographyText code>{{ p.slug }}</TypographyText>
+              <Tag class="ml-1" :color="productTypeMeta[p.product_type]?.color">{{ p.product_type }}</Tag>
           </div>
           <div class="mt-2 flex gap-2">
             <Button size="small" @click="router.push(`/admin/platforms/${p.id}/edit`)">编辑</Button>
@@ -133,17 +139,5 @@ function goGroups() {
     <!-- 删除确认（影响清单 + 文件不可恢复提示） -->
     <ConfirmModal :open="toDelete !== null" title="删除平台" danger :loading="deleting"
                   :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />
-
-    <!-- 新建成功引导：为各用户组设置该平台的默认订阅 -->
-    <ConfirmModal v-model:open="guideOpen" title="平台已创建"
-                  content="接下来请为各用户组设置该平台的默认订阅，组内用户才能通过无标识链接获取订阅内容。"
-                  :ok-button-props="{ danger: false }" @confirm="goGroups">
-      <template #default>
-        <Space class="mt-2">
-          <Button @click="guideOpen = false">跳过</Button>
-          <Button type="primary" @click="goGroups">去用户组管理</Button>
-        </Space>
-      </template>
-    </ConfirmModal>
   </div>
 </template>

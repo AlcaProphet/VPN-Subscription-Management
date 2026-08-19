@@ -11,8 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"vpn-sub/internal/auth"
 	"vpn-sub/internal/approval"
+	"vpn-sub/internal/auth"
 	"vpn-sub/internal/backup"
 	"vpn-sub/internal/captcha"
 	"vpn-sub/internal/config"
@@ -25,6 +25,7 @@ import (
 	"vpn-sub/internal/mail"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/platform"
+	"vpn-sub/internal/pool"
 	"vpn-sub/internal/ratelimit"
 	"vpn-sub/internal/response"
 	"vpn-sub/internal/rule"
@@ -90,15 +91,17 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	RegisterPlatformRoutes(engine, &PlatformHandler{platformSvc: platformSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	subSvc := subscription.NewService(st, versionSvc, lg)
 	RegisterSubscriptionRoutes(engine, &SubscriptionHandler{subSvc: subSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
-	// 用户组服务与路由（Build2 Step 3）：订阅删除级联回调注入（清选定 + needs_reselect）
+	// 用户组服务与路由（旧分发模型已拆除：组仅保留基础 CRUD，节点分配/默认配额由 Build6 接入）
 	groupSvc := group.NewService(st, lg)
-	subSvc.SetOnSubscriptionDeleted(groupSvc.OnSubscriptionDeleted)
 	RegisterGroupRoutes(engine, &GroupHandler{groupSvc: groupSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
-	// Token 服务 + 下载解析 + 用户端数据（Build2 Step 4）：订阅删除 Token 级联回调注入
+	// 规则素材池（Build4 Step 5：CRUD / 条目 / 异步同步与历史任务）
+	poolSvc := pool.NewService(st, lg)
+	RegisterPoolRoutes(engine, &PoolHandler{poolSvc: poolSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// Token 服务 + 下载解析 + 用户端数据：订阅删除 Token 级联回调注入
 	tokenSvc := token.NewService(st, lg)
 	subSvc.SetOnTokenDeleted(tokenSvc.DeleteBySubscriptionTx)
 	dlSvc := download.NewService(st, versionSvc, cfg, lg)
-	homeHandler := &HomeHandler{store: st, tokenSvc: tokenSvc, dlSvc: dlSvc, cfg: cfg}
+	homeHandler := &HomeHandler{store: st, tokenSvc: tokenSvc, cfg: cfg}
 	RegisterDownloadRoutes(engine, &DownloadHandler{dlSvc: dlSvc, limiter: limiter, sessionMW: authSvc.SessionMiddleware()})
 	RegisterHomeRoutes(engine, homeHandler, authSvc.SessionMiddleware())
 	// 自定义订阅 + 分享订阅（Build2 Step 5；会话 + 管理员双中间件）
@@ -194,6 +197,7 @@ func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service
 
 // Engine 暴露 gin 引擎（供各业务域注册路由）
 func (s *Server) Engine() *gin.Engine { return s.engine }
+
 // applyTrustProxy auto=仅信任回环+私有网段转发头；on=全信任；off=不信任
 func applyTrustProxy(engine *gin.Engine, mode string) error {
 	switch mode {

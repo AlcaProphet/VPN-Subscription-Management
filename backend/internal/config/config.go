@@ -28,12 +28,13 @@ const (
 	KeyLogLevel   = "log_level"
 	KeyAppMode    = "app_mode"
 	// Step 4 新增：本地认证与首管理员相关
-	KeyAllowLocalLogin = "allow_local_login"  // 允许本地登录（默认 true）
-	KeyAllowSelfreg    = "allow_selfreg"      // 允许自注册（默认 false）
-	KeySelfRegApproval = "selfreg_approval"   // 自注册审批开关（默认 false）
+	KeyAllowLocalLogin  = "allow_local_login" // 允许本地登录（默认 true）
+	KeyAllowSelfreg     = "allow_selfreg"     // 允许自注册（默认 false）
+	KeySelfRegApproval  = "selfreg_approval"  // 自注册审批开关（默认 false）
 	KeyAdminInitialized = "admin_initialized" // 首管理员已初始化标记
-	KeyFrontendURL     = "frontend_url"       // 前端地址（Setup 推导初始值，Build3 面板可手动覆盖）
-	KeyCallbackURL     = "callback_url"       // OIDC 回调地址（OIDC Setup 推导初始值）
+	KeyFrontendURL      = "frontend_url"      // 前端地址（Setup 推导初始值，Build3 面板可手动覆盖）
+	KeyCallbackURL      = "callback_url"      // OIDC 回调地址（OIDC Setup 推导初始值）
+	KeyAdvancedMode     = "advanced_mode"     // 高级模式开关（"true"/"false"，未设置视为 false；Build4 只读暴露）
 )
 
 // sensitiveKeys 敏感配置键集合（值以 AES-256-GCM 密文落库）；

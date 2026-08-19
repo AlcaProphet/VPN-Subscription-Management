@@ -36,11 +36,12 @@ func downloadTestFS() fstest.MapFS {
 			CREATE TABLE IF NOT EXISTS groups (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE,
-				is_default INTEGER NOT NULL DEFAULT 0, needs_reselect INTEGER NOT NULL DEFAULT 0,
+				is_default INTEGER NOT NULL DEFAULT 0, default_quota REAL,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 			CREATE TABLE IF NOT EXISTS platforms (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+				product_type TEXT NOT NULL DEFAULT 'yaml',
 				description TEXT NOT NULL DEFAULT '', schemes TEXT NOT NULL DEFAULT '[]',
 				extra_headers TEXT NOT NULL DEFAULT '{}', installer_files TEXT NOT NULL DEFAULT '[]', installer_urls TEXT NOT NULL DEFAULT '[]',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
@@ -49,6 +50,7 @@ func downloadTestFS() fstest.MapFS {
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
 				platform_id INTEGER NOT NULL, current_version INTEGER NOT NULL DEFAULT 0,
+				product_type TEXT NOT NULL DEFAULT 'yaml',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 			CREATE TABLE IF NOT EXISTS versions (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,13 +59,20 @@ func downloadTestFS() fstest.MapFS {
 								file_name TEXT NOT NULL DEFAULT '',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				UNIQUE (owner_type, owner_id, version_no));`)},
-		"1003_groups.sql": &fstest.MapFile{Data: []byte(`
-			CREATE TABLE IF NOT EXISTS group_selections (
+		"1009_xray.sql": &fstest.MapFile{Data: []byte(`
+			CREATE TABLE IF NOT EXISTS nodes (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				group_id INTEGER NOT NULL,
-				platform_id INTEGER NOT NULL,
-				subscription_id INTEGER,
-				UNIQUE (group_id, platform_id));`)},
+				source TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
+				instance_id INTEGER);
+			CREATE TABLE IF NOT EXISTS group_nodes (
+				group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+				node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+				sort_order INTEGER NOT NULL DEFAULT 0,
+				PRIMARY KEY (group_id, node_id));
+			CREATE TABLE IF NOT EXISTS assembly_blueprints (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				version_id INTEGER NOT NULL UNIQUE,
+				target_syntax TEXT NOT NULL);`)},
 		"1004_tokens.sql": &fstest.MapFile{Data: []byte(`
 			CREATE TABLE IF NOT EXISTS download_tokens (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,13 +89,37 @@ func downloadTestFS() fstest.MapFS {
 				download_type TEXT NOT NULL, platform TEXT,
 				resource_slug TEXT NOT NULL, status TEXT NOT NULL,
 				fail_reason TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		"1005_custom_share.sql": &fstest.MapFile{Data: []byte(`
+			CREATE TABLE IF NOT EXISTS custom_subscriptions (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				slug TEXT NOT NULL UNIQUE,
+				user_id INTEGER NOT NULL,
+				platform_id INTEGER NOT NULL,
+				current_version INTEGER NOT NULL DEFAULT 0,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE (user_id, platform_id));`)},
+		"1006_rules.sql": &fstest.MapFile{Data: []byte(`
+			CREATE TABLE IF NOT EXISTS rules (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				slug TEXT NOT NULL UNIQUE,
+				name TEXT NOT NULL,
+				current_version INTEGER NOT NULL DEFAULT 0,
+				is_home_default INTEGER NOT NULL DEFAULT 0);
+			CREATE TABLE IF NOT EXISTS rule_tokens (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				token TEXT NOT NULL UNIQUE,
+				rule_id INTEGER NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				refreshed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 	}
 }
 
 // newDownloadTestServer 构造含下载路由的测试 server
 func newDownloadTestServer(t *testing.T) *Server {
 	t.Helper()
-	st, err := store.Open(t.TempDir(), "test.db")
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir, "test.db")
 	if err != nil {
 		t.Fatalf("打开测试库失败: %v", err)
 	}
@@ -97,7 +130,7 @@ func newDownloadTestServer(t *testing.T) *Server {
 	cfg := config.NewService(st, log.New("error", "console"))
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	streamSvc := log.NewStreamService(log.NewRingBuffer(), log.New("error", "console"))
-	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", t.TempDir(), streamSvc)
+	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", dataDir, streamSvc)
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}
@@ -150,7 +183,7 @@ func TestPreviewRequiresSession(t *testing.T) {
 	}
 }
 
-// TestPreviewNoVersion 无版本订阅：管理员预览返回 404 且访问日志记 version_missing；有版本后回归 200（R07-05）
+// TestPreviewNoVersion 无激活版本订阅：预览返回 HTTP 200 注释块；有版本后回归 200 正文（Design2 §4.4）
 func TestPreviewNoVersion(t *testing.T) {
 	t.Helper()
 	dataDir := t.TempDir()
@@ -178,20 +211,23 @@ func TestPreviewNoVersion(t *testing.T) {
 	if _, err := st.DB().ExecContext(ctx, `INSERT INTO subscriptions (slug, name, platform_id) VALUES ('subscription-a','订阅A',1)`); err != nil {
 		t.Fatalf("播种订阅失败: %v", err)
 	}
-	// 场景 1：管理员预览无版本订阅 → 404（原 500，R07-05）
-	w := profileReq(t, srv, http.MethodGet, "/api/subscriptions/preview?platform=platform-x&subscription_id=1", token, nil)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("无版本订阅预览应 404: %d %s", w.Code, w.Body.String())
+	// 场景 1：无激活版本预览 → 200 + 纯文本注释块
+	w := profileReq(t, srv, http.MethodGet, "/api/subscriptions/preview?platform=platform-x", token, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("无激活版本预览应 200: %d %s", w.Code, w.Body.String())
 	}
-	// 访问日志应记 fail_reason=version_missing
+	if strings.TrimSpace(w.Body.String()) != "# error: no active version" {
+		t.Fatalf("无激活版本注释块异常: %s", w.Body.String())
+	}
+	// 访问日志应记 fail_reason=no_active_version
 	var reason string
 	if err := st.DB().QueryRowContext(ctx, `SELECT fail_reason FROM access_logs ORDER BY id DESC LIMIT 1`).Scan(&reason); err != nil {
 		t.Fatalf("查询访问日志失败: %v", err)
 	}
-	if reason != "version_missing" {
-		t.Errorf("访问日志 fail_reason 应为 version_missing: %q", reason)
+	if reason != "no_active_version" {
+		t.Errorf("访问日志 fail_reason 应为 no_active_version: %q", reason)
 	}
-	// 场景 2：补建版本后预览回归 200
+	// 场景 2：补建版本后预览回归 200 正文
 	if err := os.MkdirAll(filepath.Join(dataDir, "contents", "subscription", "1"), 0o755); err != nil {
 		t.Fatalf("建版本目录失败: %v", err)
 	}
@@ -205,7 +241,7 @@ func TestPreviewNoVersion(t *testing.T) {
 	if _, err := st.DB().ExecContext(ctx, `UPDATE subscriptions SET current_version = 1 WHERE id = 1`); err != nil {
 		t.Fatalf("更新当前版本失败: %v", err)
 	}
-	w2 := profileReq(t, srv, http.MethodGet, "/api/subscriptions/preview?platform=platform-x&subscription_id=1", token, nil)
+	w2 := profileReq(t, srv, http.MethodGet, "/api/subscriptions/preview?platform=platform-x", token, nil)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("有版本订阅预览应 200: %d %s", w2.Code, w2.Body.String())
 	}

@@ -79,14 +79,14 @@ type ContentProvider interface {
 type BytesContent []byte
 
 func (b BytesContent) Content() ([]byte, error) { return b, nil }
-func (b BytesContent) FileName() string          { return "" }
+func (b BytesContent) FileName() string         { return "" }
 
 // ReaderContent 文件上传来源（流式，限大小）；Name 为上传原始文件名
 // 接入层从 multipart 的 file.Filename 传入
 // 非上传场景（如测试）Name 可为空，扩展名按类型默认补齐
 type ReaderContent struct {
-	R   io.Reader
-	Max int64
+	R    io.Reader
+	Max  int64
 	Name string
 }
 
@@ -118,20 +118,31 @@ func (s *Service) ContentsRoot() string {
 	return filepath.Join(s.dataDir, "contents")
 }
 
+// CreateOptions 版本创建选项（Design2 §4.4）：
+// Activate=true 保持 Design1「创建即激活」；Activate=false 仅入池，由显式分发切换。
+// AfterCreate 在新版本记录插入后、setCurrent 之前调用，用于 assembly_blueprints 等与 versions.id 1:1 的关联写入。
+type CreateOptions struct {
+	Activate    bool
+	AfterCreate func(tx *sql.Tx, versionID int64, content []byte) error
+}
+
 // CreateVersion 单个 BEGIN IMMEDIATE 事务内：计算版本号（已有最大编号 + 1，禁止列表长度 + 1）
-// → 写版本文件 → 写版本记录 → 切换当前指针 → 5 版上限驱逐；任一步失败完整回滚清理（删文件 + 回滚记录）
-func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64, src ContentProvider) (*Version, error) {
+// → 写版本文件 → 写版本记录 → AfterCreate → 按 activate 语义切换当前指针 → 5 版上限驱逐。
+// current==0（首版）时无论 Activate 取值均自动激活；该判定与切换在同一事务内完成（防双首版并发）。
+// 返回 (新版本, 是否激活)。
+func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64, src ContentProvider, opts CreateOptions) (*Version, bool, error) {
 	if src == nil {
-		return nil, errors.New("版本内容来源缺失")
+		return nil, false, errors.New("版本内容来源缺失")
 	}
 	content, err := src.Content()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if int64(len(content)) > MaxContentSize {
-		return nil, ErrContentTooLarge
+		return nil, false, ErrContentTooLarge
 	}
 	var created *Version
+	activated := false
 	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		// 版本号 = 已有最大编号 + 1（删除后不复用，Design1 §4.1）
 		var maxNo int64
@@ -154,26 +165,58 @@ func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64
 		if fileName == "" {
 			fileName = defaultFileName(ot)
 		}
-		if _, err := tx.ExecContext(ctx,
+		res, err := tx.ExecContext(ctx,
 			`INSERT INTO versions (owner_type, owner_id, version_no, file_path, file_name) VALUES (?,?,?,?,?)`,
-			ot, ownerID, newNo, rel, fileName); err != nil {
+			ot, ownerID, newNo, rel, fileName)
+		if err != nil {
 			_ = os.Remove(full) // 失败清理：删文件
 			return fmt.Errorf("写版本记录失败: %w", err)
 		}
-		// 切换当前指针（DB + symlink；事务内任一失败回滚后文件由外层清理）
-		if err := s.setCurrentLocked(ctx, tx, ot, ownerID, newNo); err != nil {
+		versionID, err := res.LastInsertId()
+		if err != nil {
 			_ = os.Remove(full)
 			return err
 		}
-		// 5 版上限：超出自动删最旧（文件 + 记录，不含当前激活版本）
-		if err := s.evictOldest(ctx, tx, ot, ownerID, newNo); err != nil {
+		// 关联写入先于 setCurrent：失败时 current 指针尚未改动，仅需删刚写文件
+		if opts.AfterCreate != nil {
+			if err := opts.AfterCreate(tx, versionID, content); err != nil {
+				_ = os.Remove(full)
+				return err
+			}
+		}
+		// 激活语义：首版自动激活；非首版按 opts.Activate
+		current, err := ownerCurrent(ctx, tx, ot, ownerID)
+		if err != nil {
+			_ = os.Remove(full)
 			return err
 		}
-		created = &Version{No: newNo, FilePath: rel, FileName: fileName, Current: true}
+		effectiveCurrent := current
+		if current == 0 || opts.Activate {
+			if err := s.setCurrentLocked(ctx, tx, ot, ownerID, newNo); err != nil {
+				_ = os.Remove(full)
+				return err
+			}
+			activated = true
+			effectiveCurrent = newNo
+		}
+		// 5 版上限：超出自动删最旧（文件 + 记录，不含当前激活版本）
+		if err := s.evictOldest(ctx, tx, ot, ownerID, effectiveCurrent); err != nil {
+			return err
+		}
+		created = &Version{No: newNo, FilePath: rel, FileName: fileName, Current: activated}
 		return nil
 	})
-	return created, err
+	return created, activated, err
 }
+
+// TextContent 文本内容来源（指定文件名；供订阅 product_type 默认文件名与后续装配复用）
+type TextContent struct {
+	Text []byte
+	Name string
+}
+
+func (t TextContent) Content() ([]byte, error) { return t.Text, nil }
+func (t TextContent) FileName() string         { return t.Name }
 
 // evictOldest 版本数 > MaxVersions 时删最旧（不删当前激活；文件 + 记录同步删，事务内完成）
 func (s *Service) evictOldest(ctx context.Context, tx *sql.Tx, ot OwnerType, ownerID, currentNo int64) error {

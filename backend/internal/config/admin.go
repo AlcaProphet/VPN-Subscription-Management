@@ -489,8 +489,8 @@ func (s *AdminService) GetRateLimit(ctx context.Context) RateLimitSettings {
 // SaveRateLimit 四个数字输入；修改后立即生效（限流中间件每次请求读配置，Build1/2 已实现）
 func (s *AdminService) SaveRateLimit(ctx context.Context, in RateLimitSettings) error {
 	for k, v := range map[string]int{
-		ratelimitKeyLogin: in.Login,
-		ratelimitKeyReg:   in.Register,
+		ratelimitKeyLogin:  in.Login,
+		ratelimitKeyReg:    in.Register,
 		ratelimitKeyForgot: in.Forgot,
 		ratelimitKeyDown:   in.Download,
 	} {

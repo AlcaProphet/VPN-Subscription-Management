@@ -15,9 +15,9 @@ import (
 
 // AuthHandler 认证端点处理器（接入层）
 type AuthHandler struct {
-	authSvc *auth.Service
-	userSvc *user.Service
-	cfg     *config.Service
+	authSvc  *auth.Service
+	userSvc  *user.Service
+	cfg      *config.Service
 	resetSvc *auth.ResetService
 }
 
@@ -158,7 +158,9 @@ func (h *AuthHandler) logout(c *gin.Context) {
 
 // forgot 忘记密码：统一防枚举响应
 func (h *AuthHandler) forgot(c *gin.Context) {
-	var req struct{ Email string `json:"email" binding:"required,max=254"` }
+	var req struct {
+		Email string `json:"email" binding:"required,max=254"`
+	}
 	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return

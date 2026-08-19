@@ -94,8 +94,8 @@ func (s *Service) seedPresets(ctx context.Context, tx *sql.Tx, frontendURL strin
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO platforms (slug, name, description, schemes, extra_headers) VALUES (?,?,?,?,?)`,
-			value, p.Name, p.Description, p.Schemes, p.ExtraHeaders); err != nil {
+			`INSERT INTO platforms (slug, name, description, product_type, schemes, extra_headers) VALUES (?,?,?,?,?,?)`,
+			value, p.Name, p.Description, p.ProductType, p.Schemes, p.ExtraHeaders); err != nil {
 			return fmt.Errorf("创建默认平台 %s 失败: %w", p.Name, err)
 		}
 	}
@@ -141,19 +141,20 @@ func (s *Service) CompleteOidcSetup(ctx context.Context, r *http.Request, provid
 	})
 }
 
-// defaultPlatforms 预置平台的 scheme 与附加头（Design1 §3.4.4/4.3）；
-// v2rayNG 与 Shadowrocket 取各自客户端常用导入 scheme
-func defaultPlatforms(frontendURL string) []struct{ Name, Description, Schemes, ExtraHeaders string } {
-	return []struct{ Name, Description, Schemes, ExtraHeaders string }{
+// defaultPlatforms 预置平台的 scheme / 附加头 / product_type（Design2 §4.4/§5.9）：
+// Clash Verge→yaml、v2rayNG→generic-subs、Shadowrocket→subs
+func defaultPlatforms(frontendURL string) []struct{ Name, Description, Schemes, ExtraHeaders, ProductType string } {
+	return []struct{ Name, Description, Schemes, ExtraHeaders, ProductType string }{
 		{"Clash Verge", "桌面端 Clash 内核客户端",
 			`["clash://install-config?url={url}"]`,
 			// 三条兼容附加头；Content-Disposition 文件名在下载时按订阅名动态生成，此处存模板
 			// profile-update-interval 生态单位为小时（6 = 每 6 小时自动更新；Design2 决策 #23 勘误）
-			`{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"6","profile-web-page-url":"{frontend_url}"}`},
+			`{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"6","profile-web-page-url":"{frontend_url}"}`,
+			"yaml"},
 		{"v2rayNG", "Android 端 V2Ray 客户端",
-			`["v2rayng://install-config?url={url}"]`, `{}`},
+			`["v2rayng://install-config?url={url}"]`, `{}`, "generic-subs"},
 		{"Shadowrocket", "iOS 端代理客户端",
-			`["shadowrocket://add/{url}"]`, `{}`},
+			`["shadowrocket://add/{url}"]`, `{}`, "subs"},
 	}
 }
 

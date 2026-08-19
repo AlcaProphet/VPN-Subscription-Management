@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Alert, Button, Card, Form, Input, Space, TypographyText, Upload } from 'ant-design-vue'
+import { Alert, Button, Card, Form, Input, Radio, Space, TypographyText, Upload } from 'ant-design-vue'
 import {
   getPlatform, createPlatform, updatePlatform, uploadInstaller, deleteInstallerFile,
   type InstallerFileItem, type InstallerURLItem,
@@ -21,6 +21,7 @@ const deletingFile = ref<string>('') // 正在删除的磁盘文件名
 const form = reactive({
   name: '',
   description: '',
+  product_type: 'yaml' as 'yaml' | 'subs' | 'generic-subs',
   slug: '',
   schemes: [''] as string[],
   headers: [{ key: '', value: '' }] as { key: string; value: string }[],
@@ -34,6 +35,7 @@ onMounted(async () => {
     const p = await getPlatform(id.value)
     form.name = p.name
     form.description = p.description
+    form.product_type = p.product_type
     form.slug = p.slug
     form.schemes = p.schemes?.length ? [...p.schemes] : ['']
     form.headers = Object.entries(p.extra_headers ?? {}).map(([key, value]) => ({ key, value }))
@@ -117,11 +119,11 @@ async function save() {
   saving.value = true
   try {
     if (isEdit.value) {
-      await updatePlatform(id.value, { name: form.name, description: form.description, schemes, extra_headers: headers, installer_urls })
+      await updatePlatform(id.value, { name: form.name, description: form.description, product_type: form.product_type, schemes, extra_headers: headers, installer_urls })
       Notify.success('平台已更新')
       router.push('/admin/platforms')
     } else {
-      await createPlatform({ name: form.name, description: form.description, schemes, extra_headers: headers, installer_urls })
+      await createPlatform({ name: form.name, description: form.description, product_type: form.product_type, schemes, extra_headers: headers, installer_urls })
       Notify.success('平台已创建')
       router.push({ path: '/admin/platforms', query: { created: '1' } }) // 返回列表触发「为各用户组选定」引导
     }
@@ -147,6 +149,14 @@ async function save() {
         </Form.Item>
         <Form.Item label="描述">
           <Input.TextArea v-model:value="form.description" :maxlength="500" :rows="2" placeholder="平台描述" />
+        </Form.Item>
+        <Form.Item label="产物格式">
+          <Radio.Group v-model:value="form.product_type">
+            <Radio.Button value="yaml">Clash YAML 订阅</Radio.Button>
+            <Radio.Button value="subs">Shadowrocket 节点订阅</Radio.Button>
+            <Radio.Button value="generic-subs">通用节点订阅（v2rayNG/v2rayN 等）</Radio.Button>
+          </Radio.Group>
+          <div class="text-xs text-gray-400 mt-1">已有订阅条目时，与条目格式不一致的变更将被后端拒绝</div>
         </Form.Item>
         <Form.Item label="标识">
           <TypographyText v-if="isEdit" code>{{ form.slug }}</TypographyText>

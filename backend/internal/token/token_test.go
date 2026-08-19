@@ -266,4 +266,3 @@ func TestShareRuleTokenRotate(t *testing.T) {
 		t.Errorf("轮替后应仅一条有效 Token: %d", count)
 	}
 }
-

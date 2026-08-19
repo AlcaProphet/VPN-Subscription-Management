@@ -6,11 +6,14 @@ import { Layout, Menu, Drawer, Button, type MenuProps } from 'ant-design-vue'
 import {
   CloudUploadOutlined, TeamOutlined, ShareAltOutlined, AppstoreOutlined,
   BranchesOutlined, BlockOutlined, HomeOutlined, MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, AuditOutlined, SettingOutlined, FileTextOutlined,
+  ApartmentOutlined, DeploymentUnitOutlined, CloudServerOutlined,
 } from '@ant-design/icons-vue'
+import { useSystemStore } from '@/stores/system'
 import AppHeader from '@/components/AppHeader.vue'
 
 const route = useRoute()
 const router = useRouter()
+const system = useSystemStore()
 
 // isMobile：matchMedia('(max-width: 767px)') 响应式布尔（与三档断点 <768 对齐）；
 // 必须监听窗口缩放，窗口跨越 768px 断点时侧边栏/Drawer 响应式切换
@@ -39,19 +42,28 @@ watch(drawerOpen, (open) => {
   document.body.style.overflow = open ? 'hidden' : ''
 })
 
-// 侧边栏菜单：9 模块 + 1 预留，平铺不分组（图标+文字）
-const menuItems = computed(() => [
-  { key: '/admin/subscriptions', icon: () => h(CloudUploadOutlined), label: '订阅' },
-  { key: '/admin/groups', icon: () => h(TeamOutlined), label: '用户组' },
-  { key: '/admin/shares', icon: () => h(ShareAltOutlined), label: '分享' },
-  { key: '/admin/platforms', icon: () => h(AppstoreOutlined), label: '平台' },
-  { key: '/admin/users', icon: () => h(UserOutlined), label: '用户' }, // Build3 Step 1
-  { key: '/admin/approvals', icon: () => h(AuditOutlined), label: '审批中心' }, // Build3 Step 2
-  { key: '/admin/rules', icon: () => h(BranchesOutlined), label: '规则' },
-  { key: '/admin/settings', icon: () => h(SettingOutlined), label: '面板配置' }, // Build3 Step 3
-  { key: '/admin/logs', icon: () => h(FileTextOutlined), label: '日志' }, // Build3 Step 5
-  { key: '/admin/assembly', icon: () => h(BlockOutlined), label: '订阅装配' }, // 预留占位页
-] as MenuProps['items'])
+// 侧边栏菜单：13 项平铺不分组；「用户组」与「Xray 实例」仅高级模式可见
+const advanced = computed(() => system.status?.advanced_mode === true)
+const menuItems = computed(() => {
+  const items: MenuProps['items'] = [
+    { key: '/admin/subscriptions', icon: () => h(CloudUploadOutlined), label: '订阅' },
+    { key: '/admin/shares', icon: () => h(ShareAltOutlined), label: '分享' },
+    { key: '/admin/platforms', icon: () => h(AppstoreOutlined), label: '平台' },
+    { key: '/admin/users', icon: () => h(UserOutlined), label: '用户' },
+    { key: '/admin/approvals', icon: () => h(AuditOutlined), label: '审批中心' },
+    { key: '/admin/rules', icon: () => h(BranchesOutlined), label: '规则' },
+    { key: '/admin/settings', icon: () => h(SettingOutlined), label: '面板配置' },
+    { key: '/admin/logs', icon: () => h(FileTextOutlined), label: '日志' },
+    { key: '/admin/assembly', icon: () => h(BlockOutlined), label: '订阅装配' },
+    { key: '/admin/nodes', icon: () => h(ApartmentOutlined), label: '节点' },
+    { key: '/admin/proxy-groups', icon: () => h(DeploymentUnitOutlined), label: '代理组' },
+  ]
+  if (advanced.value) {
+    items.splice(1, 0, { key: '/admin/groups', icon: () => h(TeamOutlined), label: '用户组' })
+    items.push({ key: '/admin/xray', icon: () => h(CloudServerOutlined), label: 'Xray 实例' })
+  }
+  return items
+})
 
 const selectedKeys = computed(() => {
   // 版本管理子路由高亮对应父菜单（/admin/subscriptions/:id/versions → 订阅）

@@ -41,10 +41,10 @@ func NewService(st *store.Store, mail MailSender, cfg *config.Service, lg *slog.
 type PendingUser struct {
 	ID         int64     `json:"id"`
 	Username   string    `json:"username"`
-	Email      string    `json:"email"`      // 空串 = 无邮箱
-	Source     string    `json:"source"`     // oidc/selfreg
+	Email      string    `json:"email"`       // 空串 = 无邮箱
+	Source     string    `json:"source"`      // oidc/selfreg
 	OidcClaims string    `json:"oidc_claims"` // JSON 快照（可空）
-	CreatedAt  time.Time `json:"created_at"` // UTC
+	CreatedAt  time.Time `json:"created_at"`  // UTC
 }
 
 // List 待审批列表（后端分页，默认 20 条/页）

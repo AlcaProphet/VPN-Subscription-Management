@@ -1,15 +1,16 @@
-<!-- admin/RulesView.vue：规则管理（UI §5.7）——双态列表 + 创建弹窗（标识自动生成 + scheme + 首版本） -->
+<!-- admin/RulesView.vue：规则管理（Design2-UI §4.6）——空规则实体 + 首页默认展示 + 双态列表 -->
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Button, Input, Modal, Select, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
-import { listAdminRules, createRule, renameRule, deleteRule, refreshRuleToken, type RuleItem } from '@/api/rule'
+import { Alert, Button, Input, Modal, Radio, Select, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
+import {
+  listAdminRules, createRule, renameRule, deleteRule, refreshRuleToken, setHomeDefault, type RuleItem,
+} from '@/api/rule'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
-// Token 刷新时间 UTC → 本地化展示（R07-04 后端已返回 RFC3339）
 function fmtTime(t: string | null) {
   return t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '—'
 }
@@ -29,7 +30,7 @@ async function load() {
 }
 onMounted(load)
 
-// --- 创建弹窗 ---
+// --- 创建弹窗（首版本可选：留空创建空规则实体） ---
 const createOpen = ref(false)
 const creating = ref(false)
 const createMode = ref<'upload' | 'text'>('upload')
@@ -51,23 +52,18 @@ async function doCreate(file?: File) {
   const schemes = form.schemes.map((s) => s.trim()).filter(Boolean)
   creating.value = true
   try {
-    const payload = new FormData()
-    payload.append('name', form.name.trim())
-    payload.append('client_type', form.client_type)
-    payload.append('schemes', JSON.stringify(schemes))
-    // 标识由后端自动生成（rule- 前缀 + 8 位随机短码），创建后列表展示供复制
     if (file) {
+      const payload = new FormData()
+      payload.append('name', form.name.trim())
+      payload.append('client_type', form.client_type)
+      payload.append('schemes', JSON.stringify(schemes))
       payload.append('file', file)
       await createRule(payload)
     } else {
-      if (!form.text) {
-        Notify.error('请填写内容')
-        return
-      }
-      // 文本模式：JSON body + ?mode=text（FormData 会导致后端走文件分支报「未接收到文件」）
+      // 文本可空 = 空规则实体（Design2 §3.4 放宽「创建必带首版」）
       await createRule({ name: form.name.trim(), client_type: form.client_type, schemes, text: form.text })
     }
-    Notify.success('规则已创建')
+    Notify.success(form.text ? '规则已创建' : '空规则实体已创建（可作为 SR 分流规则装配目标）')
     createOpen.value = false
     await load()
   } catch (err) {
@@ -77,15 +73,15 @@ async function doCreate(file?: File) {
   }
 }
 function beforeUpload(file: File) {
-  if (file.size > 50 << 20) { // 前端预校验对齐后端 MaxContentSize（AGENTS §4.1 双重校验）
+  if (file.size > 50 << 20) {
     Notify.error('文件超过 50MB 限制')
     return false
   }
   void doCreate(file)
-  return false // 拦截默认上传
+  return false
 }
 
-// --- 改名 ---
+// --- 改名 / 复制 / 刷新 / 删除 ---
 const renameTarget = ref<RuleItem | null>(null)
 const renameValue = ref('')
 const renaming = ref(false)
@@ -104,7 +100,6 @@ async function doRename() {
   }
 }
 
-// --- 复制链接（全局 Token）---
 async function copyLink(r: RuleItem) {
   if (!r.token) return
   const url = `${location.origin}/rules/${r.slug}/download?token=${r.token}`
@@ -116,7 +111,6 @@ async function copyLink(r: RuleItem) {
   }
 }
 
-// --- 刷新 Token / 删除 ---
 const refreshTarget = ref<RuleItem | null>(null)
 const refreshing = ref(false)
 async function doRefresh() {
@@ -133,6 +127,7 @@ async function doRefresh() {
     refreshing.value = false
   }
 }
+
 const deleteTarget = ref<RuleItem | null>(null)
 const deleting = ref(false)
 async function doDelete() {
@@ -149,6 +144,41 @@ async function doDelete() {
     deleting.value = false
   }
 }
+
+// --- 首页默认展示：单选切换（ConfirmModal）+ 默认行专设「取消默认」 ---
+const toSetDefault = ref<RuleItem | null>(null)
+const settingDefault = ref(false)
+const oldDefault = () => rules.value.find((r) => r.is_home_default)?.name ?? ''
+function askSetDefault(r: RuleItem) {
+  if (r.is_home_default) return
+  toSetDefault.value = r
+}
+async function doSetDefault() {
+  if (!toSetDefault.value) return
+  settingDefault.value = true
+  try {
+    await setHomeDefault(toSetDefault.value.id, true)
+    Notify.success('已设为首页默认规则')
+    toSetDefault.value = null
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    settingDefault.value = false
+  }
+}
+async function cancelDefault(r: RuleItem) {
+  settingDefault.value = true
+  try {
+    await setHomeDefault(r.id, false)
+    Notify.success('已取消首页默认')
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    settingDefault.value = false
+  }
+}
 </script>
 
 <template>
@@ -161,6 +191,11 @@ async function doDelete() {
     <TriStateList :loading="loading" :empty="rules.length === 0" empty-text="还没有规则">
       <!-- ≥768：表格 -->
       <Table :data-source="rules" row-key="id" :pagination="false" class="hidden md:block">
+        <Table.Column key="default" title="首页默认" width="90">
+          <template #default="{ record }">
+            <Radio :checked="record.is_home_default" @click="askSetDefault(record)" />
+          </template>
+        </Table.Column>
         <Table.Column key="name" title="名称" data-index="name" />
         <Table.Column key="slug" title="标识" width="180">
           <template #default="{ record }"><TypographyText code>{{ record.slug }}</TypographyText></template>
@@ -168,39 +203,43 @@ async function doDelete() {
         <Table.Column key="type" title="客户端类型" width="130">
           <template #default="{ record }"><Tag color="blue">{{ record.client_type }}</Tag></template>
         </Table.Column>
-        <Table.Column key="version" title="当前版本" width="100">
+        <Table.Column key="version" title="当前版本" width="110">
           <template #default="{ record }">
             <Tag v-if="record.current_version > 0" color="green">v{{ record.current_version }}</Tag>
-            <Tag v-else color="default">无版本</Tag>
+            <span v-else class="text-gray-400">无激活版本</span>
           </template>
         </Table.Column>
         <Table.Column key="refreshed" title="Token 刷新时间" width="160">
           <template #default="{ record }">{{ fmtTime(record.refreshed_at) }}</template>
         </Table.Column>
-        <Table.Column key="actions" title="操作" width="330">
+        <Table.Column key="actions" title="操作" width="380">
           <template #default="{ record }">
             <Space :wrap="true">
               <Button size="small" @click="renameTarget = record; renameValue = record.name">改名</Button>
               <Button size="small" @click="router.push(`/admin/rules/${record.id}/versions`)">版本管理</Button>
               <Button size="small" :disabled="!record.token" @click="copyLink(record)">复制链接</Button>
               <Button size="small" type="primary" ghost @click="refreshTarget = record">刷新 Token</Button>
+              <Button v-if="record.is_home_default" size="small" :loading="settingDefault" @click="cancelDefault(record)">取消默认</Button>
               <Button size="small" danger @click="deleteTarget = record">删除</Button>
             </Space>
           </template>
         </Table.Column>
       </Table>
 
-      <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致） -->
+      <!-- <768：卡片 -->
       <div class="grid grid-cols-1 gap-3 md:hidden">
         <div v-for="r in rules" :key="r.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
           <div class="flex items-center justify-between gap-2">
-            <span class="font-medium truncate">{{ r.name }}</span>
+            <div class="flex items-center gap-2 min-w-0">
+              <Radio :checked="r.is_home_default" @click="askSetDefault(r)" />
+              <span class="font-medium truncate">{{ r.name }}</span>
+            </div>
             <Tag color="blue" class="shrink-0">{{ r.client_type }}</Tag>
           </div>
           <div class="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-2">
             <TypographyText code>{{ r.slug }}</TypographyText>
             <Tag v-if="r.current_version > 0" color="green">v{{ r.current_version }}</Tag>
-            <Tag v-else color="default">无版本</Tag>
+            <span v-else class="text-gray-400">无激活版本</span>
             <span>刷新 {{ fmtTime(r.refreshed_at) }}</span>
           </div>
           <div class="mt-2 flex flex-wrap gap-2">
@@ -208,13 +247,14 @@ async function doDelete() {
             <Button size="small" @click="router.push(`/admin/rules/${r.id}/versions`)">版本管理</Button>
             <Button size="small" :disabled="!r.token" @click="copyLink(r)">复制链接</Button>
             <Button size="small" type="primary" ghost @click="refreshTarget = r">刷新 Token</Button>
+            <Button v-if="r.is_home_default" size="small" :loading="settingDefault" @click="cancelDefault(r)">取消默认</Button>
             <Button size="small" danger @click="deleteTarget = r">删除</Button>
           </div>
         </div>
       </div>
     </TriStateList>
 
-    <!-- 创建弹窗：名称 + 客户端类型 + scheme + 首版本（文件/文本）；标识由后端自动生成 -->
+    <!-- 创建弹窗（首版本可选） -->
     <Modal v-model:open="createOpen" title="创建规则" :footer="null" :width="560" destroy-on-close>
       <div class="space-y-3">
         <Input v-model:value="form.name" :maxlength="100" placeholder="名称（不强制唯一）" />
@@ -229,6 +269,7 @@ async function doDelete() {
           </div>
           <Button size="small" @click="form.schemes.push('')">添加 scheme</Button>
         </div>
+        <Alert type="info" show-icon message="首版本可选：暂不填写内容将创建空规则实体（可作为 SR 分流规则装配目标）" />
         <Tabs v-model:activeKey="createMode">
           <Tabs.TabPane key="upload" tab="文件上传">
             <Upload :show-upload-list="false" :before-upload="beforeUpload">
@@ -236,14 +277,13 @@ async function doDelete() {
             </Upload>
           </Tabs.TabPane>
           <Tabs.TabPane key="text" tab="在线编辑">
-            <Input.TextArea v-model:value="form.text" :rows="6" placeholder="粘贴规则内容" />
+            <Input.TextArea v-model:value="form.text" :rows="6" placeholder="粘贴规则内容；留空=创建空规则实体" />
             <Button type="primary" class="mt-2" :loading="creating" @click="doCreate()">创建</Button>
           </Tabs.TabPane>
         </Tabs>
       </div>
     </Modal>
 
-    <!-- 改名弹窗 -->
     <Modal :open="renameTarget !== null" title="改名" :footer="null" :width="420" destroy-on-close
            @cancel="renameTarget = null">
       <Input v-model:value="renameValue" :maxlength="100" @press-enter="doRename" />
@@ -252,6 +292,9 @@ async function doDelete() {
       </div>
     </Modal>
 
+    <ConfirmModal :open="toSetDefault !== null" title="设为首页默认" :loading="settingDefault"
+                  :content="`设为首页默认后，原默认规则「${oldDefault() || '无'}」将自动取消默认`"
+                  @confirm="doSetDefault" @update:open="toSetDefault = null" />
     <ConfirmModal :open="refreshTarget !== null" title="刷新 Token" :loading="refreshing"
                   content="刷新后旧链接立即失效；规则 Token 全局共享，不随用户状态变化" @confirm="doRefresh" @update:open="refreshTarget = null" />
     <ConfirmModal :open="deleteTarget !== null" title="删除规则" danger :loading="deleting"

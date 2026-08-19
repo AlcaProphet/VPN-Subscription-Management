@@ -58,9 +58,14 @@ func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 			emergencyReason = string(h.emSvc.Reason())
 			canResetPassword = h.emSvc.CanResetPassword(ctx)
 		}
+		advancedMode := false
+		if !emergencyOn { // 应急模式恒 false（高级能力不可用）
+			advancedMode = h.cfg.GetBool(ctx, config.KeyAdvancedMode, false)
+		}
 		OK(c, gin.H{
 			"configured":         configured,
 			"app_mode":           mode,
+			"advanced_mode":      advancedMode,
 			"emergency":          emergencyOn,
 			"emergency_reason":   emergencyReason,
 			"can_reset_password": canResetPassword,

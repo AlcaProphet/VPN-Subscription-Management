@@ -335,7 +335,7 @@ func TestAdminDeleteUserCascade(t *testing.T) {
 		t.Fatalf("创建 Token 失败: %v", err)
 	}
 	customID := seedCustom(t, st, userID)
-	if _, err := verSvc.CreateVersion(ctx, "custom", customID, version.BytesContent([]byte("proxies: []"))); err != nil {
+	if _, _, err := verSvc.CreateVersion(ctx, "custom", customID, version.BytesContent([]byte("proxies: []")), version.CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建版本失败: %v", err)
 	}
 	// 版本文件已落盘

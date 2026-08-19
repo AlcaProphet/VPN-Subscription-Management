@@ -21,15 +21,15 @@ const (
 	KeyHost     = "smtp_host"
 	KeyPort     = "smtp_port"
 	KeyUser     = "smtp_user"
-	KeyPassword = "smtp_password"        // 敏感加密
+	KeyPassword = "smtp_password" // 敏感加密
 	KeyFrom     = "smtp_from"
-	KeyTLS      = "smtp_tls"             // "true"/"false"
-	KeyScopes   = "smtp_enabled_scopes"  // JSON 数组：password_reset/approval_notify/welcome，默认全不启用
+	KeyTLS      = "smtp_tls"            // "true"/"false"
+	KeyScopes   = "smtp_enabled_scopes" // JSON 数组：password_reset/approval_notify/welcome，默认全不启用
 )
 
 // 邮件启用范围（smtp_enabled_scopes 取值）
 const (
-	ScopePasswordReset = "password_reset"
+	ScopePasswordReset  = "password_reset"
 	ScopeApprovalNotify = "approval_notify"
 	ScopeWelcome        = "welcome"
 )

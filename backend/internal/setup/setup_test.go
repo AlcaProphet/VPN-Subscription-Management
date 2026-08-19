@@ -37,6 +37,7 @@ func newTestSetupService(t *testing.T) (*store.Store, *Service) {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			slug TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL,
+			product_type TEXT NOT NULL DEFAULT 'yaml',
 			description TEXT NOT NULL DEFAULT '',
 			schemes TEXT NOT NULL DEFAULT '[]',
 			extra_headers TEXT NOT NULL DEFAULT '{}',
@@ -84,6 +85,17 @@ func TestCompleteQuickStart(t *testing.T) {
 	}
 	if headers != `{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"6","profile-web-page-url":"{frontend_url}"}` {
 		t.Errorf("Clash Verge 附加头异常: %s", headers)
+	}
+	// 三个默认平台 product_type：Clash Verge→yaml、v2rayNG→generic-subs、Shadowrocket→subs
+	expectedTypes := map[string]string{"Clash Verge": "yaml", "v2rayNG": "generic-subs", "Shadowrocket": "subs"}
+	for name, want := range expectedTypes {
+		var got string
+		if err := st.DB().QueryRow(`SELECT product_type FROM platforms WHERE name = ?`, name).Scan(&got); err != nil {
+			t.Fatalf("查询 %s product_type 失败: %v", name, err)
+		}
+		if got != want {
+			t.Errorf("%s product_type 应为 %s，got %s", name, want, got)
+		}
 	}
 	// configured 与 frontend_url
 	cfgVal, _ := svc.cfg.Get(ctx, config.KeyConfigured)

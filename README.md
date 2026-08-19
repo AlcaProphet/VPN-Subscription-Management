@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" alt="Go"/>
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go"/>
   <img src="https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white" alt="Vue 3"/>
   <img src="https://img.shields.io/badge/SQLite-嵌入式-003B57" alt="SQLite"/>
   <img src="https://img.shields.io/badge/Docker-单容器-2496ED?logo=docker&logoColor=white" alt="Docker"/>
@@ -220,7 +220,7 @@ docker compose logs vpn-sub | grep 操作码
 
 ## 技术栈
 
-- **后端**：Go 1.25 + Gin + SQLite（纯 Go 零 CGO 驱动，嵌入式存储，无需外部数据库）
+- **后端**：Go 1.26 + Gin + SQLite（纯 Go 零 CGO 驱动，嵌入式存储，无需外部数据库）
 - **前端**：Vue 3 + Vite + Ant Design Vue + Tailwind CSS
 - **部署**：单容器（API + 前端页面 + 静态资源一体），多阶段构建，非 root 运行，数据卷持久化
 - **CI/CD**：GitHub Actions 自动构建并推送 Docker 镜像（打 `v*` 标签触发）

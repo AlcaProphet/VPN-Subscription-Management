@@ -155,9 +155,10 @@ func TestSystemStatus(t *testing.T) {
 	var resp struct {
 		Code int `json:"code"`
 		Data struct {
-			Configured bool   `json:"configured"`
-			AppMode    string `json:"app_mode"`
-			Emergency  bool   `json:"emergency"`
+			Configured   bool   `json:"configured"`
+			AppMode      string `json:"app_mode"`
+			AdvancedMode bool   `json:"advanced_mode"`
+			Emergency    bool   `json:"emergency"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -168,6 +169,9 @@ func TestSystemStatus(t *testing.T) {
 	}
 	if resp.Data.Configured || resp.Data.Emergency {
 		t.Error("全新库 configured/emergency 应为 false")
+	}
+	if resp.Data.AdvancedMode {
+		t.Error("全新库 advanced_mode 应为 false")
 	}
 	if resp.Data.AppMode != "dev" {
 		t.Errorf("app_mode 异常: %s", resp.Data.AppMode)
@@ -384,7 +388,7 @@ func TestEmergencyServer(t *testing.T) {
 	var status struct {
 		Code int `json:"code"`
 		Data struct {
-			Emergency      bool   `json:"emergency"`
+			Emergency       bool   `json:"emergency"`
 			EmergencyReason string `json:"emergency_reason"`
 		} `json:"data"`
 	}

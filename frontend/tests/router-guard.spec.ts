@@ -49,4 +49,17 @@ describe('路由守卫（configured 逻辑）', () => {
     const redirect = (status?.configured && to.path === '/setup') ? '/login' : null
     expect(redirect).toBe('/login')
   })
+
+  it('advanced_mode !== true 时访问 /admin/groups 或 /admin/xray 重定向订阅管理', async () => {
+    mockGetStatus.mockResolvedValue({ configured: true, app_mode: 'dev', emergency: false, advanced_mode: false })
+    const system = useSystemStore()
+    const status = await system.fetchStatus(true)
+    for (const path of ['/admin/groups', '/admin/xray']) {
+      const to = { path, meta: {} }
+      const redirect = ((to.path === '/admin/groups' || to.path === '/admin/xray') && status?.advanced_mode !== true)
+        ? '/admin/subscriptions'
+        : null
+      expect(redirect).toBe('/admin/subscriptions')
+    }
+  })
 })

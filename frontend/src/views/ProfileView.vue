@@ -17,6 +17,7 @@ const system = useSystemStore()
 
 const loading = ref(true)
 const oidcConfigured = computed(() => system.status?.oidc_configured === true)
+const advancedMode = computed(() => system.status?.advanced_mode === true)
 
 onMounted(async () => {
   try {
@@ -142,9 +143,10 @@ async function startBind() {
                   {{ auth.user?.role === 'admin' ? '管理员' : '用户' }}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="所属组">
+              <Descriptions.Item v-if="advancedMode" label="所属组">
                 {{ auth.user?.group_name || (auth.user?.group_id ? `#${auth.user.group_id}` : '—') }}
               </Descriptions.Item>
+              <Descriptions.Item label="本月流量">不限流量</Descriptions.Item>
             </Descriptions>
           </Tabs.TabPane>
 

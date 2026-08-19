@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ============ 阶段二：后端静态编译（CGO_ENABLED=0）============
-FROM golang:1.25-alpine AS backend
+FROM golang:1.26-alpine AS backend
 WORKDIR /build
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download

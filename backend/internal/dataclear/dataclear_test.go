@@ -2,6 +2,7 @@ package dataclear
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -41,11 +42,48 @@ func newTestClear(t *testing.T) (*store.Store, *Service, string) {
 			CREATE TABLE IF NOT EXISTS versions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT, owner_type TEXT NOT NULL, owner_id INTEGER NOT NULL,
 			version_no INTEGER NOT NULL, file_path TEXT NOT NULL, file_name TEXT NOT NULL DEFAULT '');`)},
-		"1003_groups.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS subscription_group_rel (
-			subscription_id INTEGER NOT NULL, group_id INTEGER NOT NULL, PRIMARY KEY (subscription_id, group_id));
-			CREATE TABLE IF NOT EXISTS group_selections (
-			group_id INTEGER NOT NULL, platform_id INTEGER NOT NULL, subscription_id INTEGER,
-			PRIMARY KEY (group_id, platform_id));`)},
+		"1009_xray.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS rule_pools (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+			CREATE TABLE IF NOT EXISTS pool_entries (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL REFERENCES rule_pools(id) ON DELETE CASCADE);
+			CREATE TABLE IF NOT EXISTS pool_sync_tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL REFERENCES rule_pools(id) ON DELETE CASCADE);
+			CREATE TABLE IF NOT EXISTS xray_instances (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+			CREATE TABLE IF NOT EXISTS nodes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
+			instance_id INTEGER REFERENCES xray_instances(id) ON DELETE CASCADE);
+			CREATE TABLE IF NOT EXISTS proxy_groups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+			CREATE TABLE IF NOT EXISTS group_nodes (
+			group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+			node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+			PRIMARY KEY (group_id, node_id));
+			CREATE TABLE IF NOT EXISTS xray_users (
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			instance_id INTEGER NOT NULL REFERENCES xray_instances(id) ON DELETE CASCADE,
+			inbound_tag TEXT NOT NULL,
+			node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+			PRIMARY KEY (user_id, instance_id, inbound_tag));
+			CREATE TABLE IF NOT EXISTS traffic_records (
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			ym TEXT NOT NULL,
+			PRIMARY KEY (user_id, ym));
+			CREATE TABLE IF NOT EXISTS assembly_blueprints (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			version_id INTEGER NOT NULL UNIQUE REFERENCES versions(id) ON DELETE CASCADE);
+			CREATE TABLE IF NOT EXISTS xray_ext_accounts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+			CREATE TABLE IF NOT EXISTS xray_ext_users (
+			ext_account_id INTEGER NOT NULL REFERENCES xray_ext_accounts(id) ON DELETE CASCADE,
+			instance_id INTEGER NOT NULL REFERENCES xray_instances(id) ON DELETE CASCADE,
+			inbound_tag TEXT NOT NULL,
+			node_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
+			PRIMARY KEY (ext_account_id, instance_id, inbound_tag));
+			CREATE TABLE IF NOT EXISTS xray_ext_traffic (
+			ext_account_id INTEGER NOT NULL REFERENCES xray_ext_accounts(id) ON DELETE CASCADE,
+			ym TEXT NOT NULL,
+			PRIMARY KEY (ext_account_id, ym));`)},
 		"1004_tokens.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS download_tokens (
 			id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL UNIQUE, user_id INTEGER NOT NULL,
 			platform_id INTEGER NOT NULL, custom_sub_id INTEGER, subscription_id INTEGER);
@@ -142,3 +180,55 @@ func TestClearAllFileErrorDoesNotBlock(t *testing.T) {
 	}
 }
 
+// TestClearTablesTxClearsBuild4Tables 验证 13 张增量新表可被一键清空（清表顺序与 Build4 清单一致）
+func TestClearTablesTxClearsBuild4Tables(t *testing.T) {
+	st, svc, _ := newTestClear(t)
+	ctx := context.Background()
+	db := st.DB()
+
+	inserts := []string{
+		`INSERT INTO rule_pools (id, name) VALUES (1, 'p1')`,
+		`INSERT INTO pool_entries (id, pool_id) VALUES (1, 1)`,
+		`INSERT INTO pool_sync_tasks (id, pool_id) VALUES (1, 1)`,
+		`INSERT INTO xray_instances (id, name) VALUES (1, 'i1')`,
+		`INSERT INTO nodes (id, source, name, instance_id) VALUES (1, 'xray', 'n1', 1)`,
+		`INSERT INTO proxy_groups (id, name) VALUES (1, 'g1')`,
+		`INSERT INTO groups (id, slug, name, is_default) VALUES (1, 'group-1', '默认组', 1)`,
+		`INSERT INTO group_nodes (group_id, node_id) VALUES (1, 1)`,
+		`INSERT INTO users (id, username, email) VALUES (1, 'u1', 'u1@example.com')`,
+		`INSERT INTO xray_users (user_id, instance_id, inbound_tag, node_id) VALUES (1, 1, 't1', 1)`,
+		`INSERT INTO traffic_records (user_id, ym) VALUES (1, '2026-08')`,
+		`INSERT INTO versions (id, owner_type, owner_id, version_no, file_path) VALUES (1, 'subscription', 1, 1, 'x')`,
+		`INSERT INTO assembly_blueprints (id, version_id) VALUES (1, 1)`,
+		`INSERT INTO xray_ext_accounts (id, name) VALUES (1, 'ext1')`,
+		`INSERT INTO xray_ext_users (ext_account_id, instance_id, inbound_tag, node_id) VALUES (1, 1, 't1', 1)`,
+		`INSERT INTO xray_ext_traffic (ext_account_id, ym) VALUES (1, '2026-08')`,
+	}
+	for _, q := range inserts {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatalf("插入测试数据失败: %v\nSQL: %s", err, q)
+		}
+	}
+
+	if err := st.TxImmediate(ctx, func(tx *sql.Tx) error {
+		return svc.ClearTablesTx(ctx, tx)
+	}); err != nil {
+		t.Fatalf("清空失败: %v", err)
+	}
+
+	tables := []string{
+		"rule_pools", "pool_entries", "pool_sync_tasks",
+		"xray_instances", "nodes", "proxy_groups", "group_nodes",
+		"xray_users", "traffic_records", "assembly_blueprints",
+		"xray_ext_accounts", "xray_ext_users", "xray_ext_traffic",
+	}
+	for _, name := range tables {
+		var n int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+name).Scan(&n); err != nil {
+			t.Fatalf("查询表 %s 失败: %v", name, err)
+		}
+		if n != 0 {
+			t.Errorf("表 %s 清空后应无数据，实际 %d 行", name, n)
+		}
+	}
+}

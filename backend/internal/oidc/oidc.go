@@ -28,7 +28,7 @@ const (
 	// 各提供商参数以 JSON 存于独立键（敏感字段在 JSON 内单独加密）：
 	//   oidc_params_keycloak / oidc_params_auth0 / oidc_params_generic / oidc_params_mock
 	// 结构：{ base_url, realm, client_id, client_secret(密文) }
-	KeyOidcApproval = "oidc_approval" // OIDC 新用户审批开关（默认关闭，Build3 面板接通）
+	KeyOidcApproval = "oidc_approval"  // OIDC 新用户审批开关（默认关闭，Build3 面板接通）
 	KeyWhitelist    = "oidc_whitelist" // OIDC 白名单 JSON（Build3 面板接通）：{role_claim_path, role_values, group_claim_path, group_values}
 )
 

@@ -47,8 +47,10 @@ func testMigrateFS() fstest.MapFS {
 				client_type TEXT NOT NULL DEFAULT 'shadowrocket',
 				schemes TEXT NOT NULL DEFAULT '[]',
 				current_version INTEGER NOT NULL DEFAULT 0,
+				is_home_default INTEGER NOT NULL DEFAULT 0,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_home_default ON rules(is_home_default) WHERE is_home_default = 1;`)},
 	}
 }
 
@@ -158,5 +160,85 @@ func TestInvalidClientType(t *testing.T) {
 	ctx := context.Background()
 	if _, err := svc.Create(ctx, "规则", "bad-type", "clash", nil, version.BytesContent([]byte("v1"))); !errors.Is(err, ErrBadRequest) {
 		t.Errorf("非法客户端类型应报参数错误: %v", err)
+	}
+}
+
+// TestCreateEmptyRule 空规则实体：src=nil 时仅创建规则行 + Token，无版本（供 SR 分流规则装配目标）
+func TestCreateEmptyRule(t *testing.T) {
+	st, svc, _, _ := newTestRuleService(t)
+	ctx := context.Background()
+	r, err := svc.Create(ctx, "空规则", "empty-rule", "shadowrocket", nil, nil)
+	if err != nil {
+		t.Fatalf("创建空规则失败: %v", err)
+	}
+	if r.CurrentVersion != 0 {
+		t.Errorf("空规则 current_version 应为 0: %d", r.CurrentVersion)
+	}
+	if r.Token == "" {
+		t.Error("空规则仍应自动生成规则 Token")
+	}
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM versions WHERE owner_type='rule' AND owner_id=?`, r.ID).Scan(&n); err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("空规则不应创建版本: %d", n)
+	}
+}
+
+// TestSetHomeDefaultUnique 首页默认规则唯一：切换时清旧置新；取消后回空态；删除默认规则后无默认行
+func TestSetHomeDefaultUnique(t *testing.T) {
+	st, svc, _, _ := newTestRuleService(t)
+	ctx := context.Background()
+	a, err := svc.Create(ctx, "规则A", "home-a", "shadowrocket", nil, nil)
+	if err != nil {
+		t.Fatalf("创建 A 失败: %v", err)
+	}
+	b, err := svc.Create(ctx, "规则B", "home-b", "shadowrocket", nil, nil)
+	if err != nil {
+		t.Fatalf("创建 B 失败: %v", err)
+	}
+	if err := svc.SetHomeDefault(ctx, a.ID, true); err != nil {
+		t.Fatalf("设置 A 为默认失败: %v", err)
+	}
+	if err := svc.SetHomeDefault(ctx, b.ID, true); err != nil {
+		t.Fatalf("切换默认到 B 失败: %v", err)
+	}
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM rules WHERE is_home_default = 1`).Scan(&count); err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("默认规则应至多一条: %d", count)
+	}
+	var currentID int64
+	if err := st.DB().QueryRow(`SELECT id FROM rules WHERE is_home_default = 1`).Scan(&currentID); err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if currentID != b.ID {
+		t.Errorf("默认规则应为 B: %d", currentID)
+	}
+	// 取消默认
+	if err := svc.SetHomeDefault(ctx, b.ID, false); err != nil {
+		t.Fatalf("取消默认失败: %v", err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM rules WHERE is_home_default = 1`).Scan(&count); err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("取消后应无默认规则: %d", count)
+	}
+	// 删除默认规则后同样无默认行
+	if err := svc.SetHomeDefault(ctx, a.ID, true); err != nil {
+		t.Fatalf("设置 A 为默认失败: %v", err)
+	}
+	if err := svc.Delete(ctx, a.ID); err != nil {
+		t.Fatalf("删除默认规则失败: %v", err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM rules WHERE is_home_default = 1`).Scan(&count); err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("删除默认规则后应无默认行: %d", count)
 	}
 }

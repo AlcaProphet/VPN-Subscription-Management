@@ -86,17 +86,17 @@ type CustomSubItem struct {
 }
 
 type AdminUser struct {
-	ID          int64          `json:"id"`
-	Username    string         `json:"username"`
-	Email       string         `json:"email"`     // 空串 = 无邮箱（前端灰 tag）
-	Role        string         `json:"role"`
-	GroupID     int64          `json:"group_id"`  // 0 = 无组
-	GroupName   string         `json:"group_name"` // 空串 = 无组
-	Source      string         `json:"source"`    // oidc/local/selfreg
-	Status      string          `json:"status"`        // pending/active/disabled
-	HasPassword bool            `json:"has_password"` // 清 OIDC 绑定警告用
+	ID          int64           `json:"id"`
+	Username    string          `json:"username"`
+	Email       string          `json:"email"` // 空串 = 无邮箱（前端灰 tag）
+	Role        string          `json:"role"`
+	GroupID     int64           `json:"group_id"`         // 0 = 无组
+	GroupName   string          `json:"group_name"`       // 空串 = 无组
+	Source      string          `json:"source"`           // oidc/local/selfreg
+	Status      string          `json:"status"`           // pending/active/disabled
+	HasPassword bool            `json:"has_password"`     // 清 OIDC 绑定警告用
 	HasOidcBind bool            `json:"has_oidc_binding"` // 是否已绑定 OIDC 身份（清绑定入口可见性）
-	CustomSubs  []CustomSubItem `json:"custom_subs"`  // 自定义订阅列表（空 = 无）
+	CustomSubs  []CustomSubItem `json:"custom_subs"`      // 自定义订阅列表（空 = 无）
 }
 
 func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int64, error) {

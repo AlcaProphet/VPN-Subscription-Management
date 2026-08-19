@@ -35,12 +35,12 @@ func NewService(st *store.Store, versions *version.Service, tokens *token.Servic
 
 // Share 分享订阅
 type Share struct {
-	ID             int64     `json:"id"`
-	Slug           string    `json:"slug"`
-	Name           string    `json:"name"`
-	TokenStatus    string    `json:"token_status"` // active/revoked
-	Token          string    `json:"token"`        // 有效时返回（吊销后为空）
-	CurrentVersion int64     `json:"current_version"`
+	ID             int64      `json:"id"`
+	Slug           string     `json:"slug"`
+	Name           string     `json:"name"`
+	TokenStatus    string     `json:"token_status"` // active/revoked
+	Token          string     `json:"token"`        // 有效时返回（吊销后为空）
+	CurrentVersion int64      `json:"current_version"`
 	CreatedAt      *time.Time `json:"created_at"` // UTC RFC3339；空值 null（R07-04）
 }
 
@@ -73,7 +73,7 @@ func (s *Service) Create(ctx context.Context, name string, src version.ContentPr
 		return nil, err
 	}
 	// 首版本创建（版本组件事务）；失败回滚分享记录与 Token（失败清理模式）
-	v, err := s.versions.CreateVersion(ctx, version.OwnerShare, sh.ID, src)
+	v, _, err := s.versions.CreateVersion(ctx, version.OwnerShare, sh.ID, src, version.CreateOptions{Activate: true})
 	if err != nil {
 		s.rollbackRecord(ctx, sh.ID) // DELETE share_tokens + share_subscriptions
 		return nil, err

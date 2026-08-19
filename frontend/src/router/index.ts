@@ -1,5 +1,6 @@
 // 路由表与守卫：emergency → configured → 登录态 → 登录页跳过（UI §7.2）
 import { createRouter, createWebHistory } from 'vue-router'
+import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { me } from '@/api/auth'
@@ -34,6 +35,9 @@ const adminRoutes = [
   { path: '/admin/platforms/new', component: () => import('@/views/admin/PlatformEditView.vue') },
   { path: '/admin/rules', component: () => import('@/views/admin/RulesView.vue') },
   { path: '/admin/assembly', component: () => import('@/views/admin/AssemblyView.vue') },
+  { path: '/admin/nodes', component: () => import('@/views/admin/PlaceholderView.vue'), props: { title: '节点管理', description: '将在 Build5 实现（manual 节点与协议注册表）' } },
+  { path: '/admin/proxy-groups', component: () => import('@/views/admin/PlaceholderView.vue'), props: { title: '代理组管理', description: '将在 Build5 实现（预设组/自建组）' } },
+  { path: '/admin/xray', component: () => import('@/views/admin/PlaceholderView.vue'), props: { title: 'Xray 实例', description: '将在 Build7 实现（高级模式）' } },
   // Build3 Step 1：用户管理
   { path: '/admin/users', component: () => import('@/views/admin/UsersView.vue') },
   // Build3 Step 2：审批中心
@@ -123,6 +127,11 @@ router.beforeEach(async (to) => {
       }
     }
     if (auth.user.role !== 'admin') return '/' // 非管理员访问管理路由 → 回首页
+  }
+  // 6) 高级模式路由守卫：advanced_mode 非 true 时（含状态未加载）视为 off 并重定向
+  if ((to.path === '/admin/groups' || to.path === '/admin/xray') && status?.advanced_mode !== true) {
+    message.warning('高级功能未开启，请在面板配置中开启高级模式')
+    return '/admin/subscriptions'
   }
   return true
 })

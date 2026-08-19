@@ -21,9 +21,9 @@ type ShareHandler struct {
 // 分享下载走 Step 4 已注册的 GET /share/{slug}/download?token=（公开，无需登录）
 func RegisterShareRoutes(engine *gin.Engine, h *ShareHandler, sessionMW, adminMW gin.HandlerFunc) {
 	admin := engine.Group("/api/admin/shares", sessionMW, adminMW)
-	admin.GET("", h.list)                       // 含 token_status；Token 值仅 active 时返回
-	admin.POST("", h.create)                    // 名称 + 首版本（文件/文本）
-	admin.PUT("/:id", h.rename)                 // 仅改名
+	admin.GET("", h.list)       // 含 token_status；Token 值仅 active 时返回
+	admin.POST("", h.create)    // 名称 + 首版本（文件/文本）
+	admin.PUT("/:id", h.rename) // 仅改名
 	admin.DELETE("/:id", h.delete)
 	admin.POST("/:id/token/refresh", h.refresh) // 轮替（含 revoked 恢复）
 	admin.POST("/:id/token/revoke", h.revoke)

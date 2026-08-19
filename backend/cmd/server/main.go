@@ -14,6 +14,7 @@ import (
 	"vpn-sub/internal/dataclear"
 	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/pool"
 	"vpn-sub/internal/server"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
@@ -66,6 +67,23 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// 规则素材池：启动时把服务重启前残留的 running 任务置 failed，并同步刷新池快照
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE pool_sync_tasks SET status = 'failed', error = '服务重启，任务中断', finished_at = CURRENT_TIMESTAMP
+		 WHERE status = 'running'`); err != nil {
+		log.Error("重置素材池同步任务失败", "err", err)
+		os.Exit(1)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE rule_pools SET sync_status = 'failed', sync_error = '服务重启，任务中断'
+		 WHERE id IN (SELECT DISTINCT pool_id FROM pool_sync_tasks WHERE status = 'failed' AND error = '服务重启，任务中断')`); err != nil {
+		log.Error("刷新素材池同步快照失败", "err", err)
+		os.Exit(1)
+	}
+	poolSvc := pool.NewService(st, logger)
+	stopPoolSync := cron.StartPoolAutoSync(st, poolSvc, logger)
+	defer stopPoolSync()
 
 	// 应急模式触发判定（Build3 Step 6）：手动（RESET_ADMIN_PASSWORD）/自动（数据库损坏/关键配置损坏）
 	reason, dbReadable := emergency.Detect(ctx, st, cfg, logger)

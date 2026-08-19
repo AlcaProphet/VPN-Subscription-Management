@@ -27,10 +27,10 @@ const opCodeCharset = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 type TriggerReason string
 
 const (
-	TriggerNone       TriggerReason = ""              // 正常模式
-	TriggerManual     TriggerReason = "manual"        // 环境变量手动触发
-	TriggerDBCorrupt  TriggerReason = "db_corrupt"    // 数据库无法连接/损坏
-	TriggerKeyMissing TriggerReason = "key_missing"   // 关键配置损坏（configured=true 但签名密钥缺失）
+	TriggerNone       TriggerReason = ""            // 正常模式
+	TriggerManual     TriggerReason = "manual"      // 环境变量手动触发
+	TriggerDBCorrupt  TriggerReason = "db_corrupt"  // 数据库无法连接/损坏
+	TriggerKeyMissing TriggerReason = "key_missing" // 关键配置损坏（configured=true 但签名密钥缺失）
 )
 
 // Service 应急服务

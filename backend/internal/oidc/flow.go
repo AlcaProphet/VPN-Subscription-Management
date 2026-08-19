@@ -187,11 +187,11 @@ func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (
 		return nil, err
 	}
 	var claims struct {
-		Sub           string   `json:"sub"`
-		Email         string   `json:"email"`
-		EmailVerified *bool    `json:"email_verified"`
-		PreferredName string   `json:"preferred_username"`
-		Name          string   `json:"name"`
+		Sub           string `json:"sub"`
+		Email         string `json:"email"`
+		EmailVerified *bool  `json:"email_verified"`
+		PreferredName string `json:"preferred_username"`
+		Name          string `json:"name"`
 		RealmAccess   struct {
 			Roles []string `json:"roles"`
 		} `json:"realm_access"`

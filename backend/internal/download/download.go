@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -38,7 +37,7 @@ func NewService(st *store.Store, versions *version.Service, cfg *config.Service,
 type Result struct {
 	Content      []byte
 	ExtraHeaders map[string]string // 平台级附加头（{frontend_url} 已替换）
-	Filename     string           // 分享/规则下载的文件名（资源名称；空则用标识）
+	Filename     string            // 分享/规则下载的文件名（资源名称；空则用标识）
 }
 
 // AccessEntry 访问日志写入参数；ResourceID 由写入时转换为 slug（无标识解析失败记平台标识）
@@ -91,13 +90,10 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 			return nil, nil, err
 		}
 		return s.withPlatformHeaders(ctx, content, fileName, rec.PlatformID, "explicit", rec.SubscriptionID, rec.UserID)
-	default: // 无标识：实时解析「用户所属组 → 组在该平台选定 → 内容」
+	default: // 无标识：按平台读唯一订阅条目（Design2 §4.4/§5.10）
 		var subID int64
 		err := s.store.DB().QueryRowContext(ctx,
-			`SELECT gs.subscription_id FROM users u
-			 JOIN group_selections gs ON gs.group_id = u.group_id AND gs.platform_id = ?
-			 WHERE u.id = ? AND u.group_id IS NOT NULL AND gs.subscription_id IS NOT NULL`,
-			rec.PlatformID, rec.UserID).Scan(&subID)
+			`SELECT id FROM subscriptions WHERE platform_id = ?`, rec.PlatformID).Scan(&subID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, &AccessEntry{UserID: rec.UserID, Platform: platformSlug, FailReason: "unassigned"}, ErrUnassigned
 		}
@@ -106,8 +102,8 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 		}
 		content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerSubscription, subID)
 		if errors.Is(err, version.ErrVersionNotFound) {
-			// 无版本：带 fail_reason 的 entry 供访问日志记录（R07-05）
-			return nil, &AccessEntry{UserID: rec.UserID, Platform: platformSlug, Type: "subscription", ResourceID: subID, FailReason: "version_missing"}, err
+			// 平台有订阅条目但无激活版本：带 fail_reason 的 entry 供访问日志记录
+			return nil, &AccessEntry{UserID: rec.UserID, Platform: platformSlug, Type: "subscription", ResourceID: subID, FailReason: "no_active_version"}, err
 		}
 		if err != nil {
 			return nil, nil, err
@@ -145,32 +141,16 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 		&AccessEntry{UserID: userID, Type: dlType, Platform: "", ResourceID: resID}, nil
 }
 
-// PreviewForUser 会话凭据预览（Design1 §4.3）：
-// 管理员可指定 subscription_id 预览池内任意订阅；非管理员传 subscription_id 一律忽略；
-// 普通用户跟随分发优先级：有自定义返回自定义，否则返回组选定，未分配返 ErrUnassigned
-func (s *Service) PreviewForUser(ctx context.Context, userID int64, role, platformSlug, subIDParam string) ([]byte, error) {
-	if role == "admin" && subIDParam != "" {
-		var subID int64
-		if _, err := fmt.Sscan(subIDParam, &subID); err != nil || subID <= 0 {
-			return nil, errors.New("参数错误")
-		}
-		var n int
-		if err := s.store.DB().QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM subscriptions WHERE id = ?`, subID).Scan(&n); err != nil {
-			return nil, err
-		}
-		if n == 0 {
-			return nil, ErrTokenInvalid // 统一 404 语义
-		}
-		return s.versions.ReadCurrent(ctx, version.OwnerSubscription, subID)
-	}
-	// 平台解析
+// PreviewForUser 会话凭据预览（Design2 §4.4/§5.10）：
+// 管理员与普通用户统一按「平台 → 唯一订阅 → 当前激活版本」解析；
+// 普通用户有自定义订阅时优先返回自定义内容；平台无订阅行返回 ErrUnassigned。
+func (s *Service) PreviewForUser(ctx context.Context, userID int64, platformSlug string) ([]byte, error) {
 	var platformID int64
 	if err := s.store.DB().QueryRowContext(ctx,
 		`SELECT id FROM platforms WHERE slug = ?`, platformSlug).Scan(&platformID); err != nil {
 		return nil, ErrTokenInvalid // 平台不存在与无权限同等对待
 	}
-	// 分发优先级：自定义 → 组选定 → 未分配
+	// 分发优先级：自定义 → 平台唯一订阅 → 未分配
 	var customID int64
 	err := s.store.DB().QueryRowContext(ctx,
 		`SELECT id FROM custom_subscriptions WHERE user_id = ? AND platform_id = ?`, userID, platformID).Scan(&customID)
@@ -182,10 +162,7 @@ func (s *Service) PreviewForUser(ctx context.Context, userID int64, role, platfo
 	}
 	var subID int64
 	err = s.store.DB().QueryRowContext(ctx,
-		`SELECT gs.subscription_id FROM users u
-		 JOIN group_selections gs ON gs.group_id = u.group_id AND gs.platform_id = ?
-		 WHERE u.id = ? AND u.group_id IS NOT NULL AND gs.subscription_id IS NOT NULL`,
-		platformID, userID).Scan(&subID)
+		`SELECT id FROM subscriptions WHERE platform_id = ?`, platformID).Scan(&subID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUnassigned
 	}

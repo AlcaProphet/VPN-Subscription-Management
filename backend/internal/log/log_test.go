@@ -276,4 +276,3 @@ func TestNewFormats(t *testing.T) {
 		t.Error("切换 debug 后 debug 应启用")
 	}
 }
-

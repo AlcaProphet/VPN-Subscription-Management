@@ -3,6 +3,7 @@ package platform
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -52,6 +53,7 @@ func newTestService(t *testing.T) (*store.Store, *Service) {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			slug TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL,
+			product_type TEXT NOT NULL DEFAULT 'yaml',
 			description TEXT NOT NULL DEFAULT '',
 			schemes TEXT NOT NULL DEFAULT '[]',
 			extra_headers TEXT NOT NULL DEFAULT '{}',
@@ -64,6 +66,7 @@ func newTestService(t *testing.T) (*store.Store, *Service) {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
 			platform_id INTEGER NOT NULL, current_version INTEGER NOT NULL DEFAULT 0,
+			product_type TEXT NOT NULL DEFAULT 'yaml',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 			CREATE TABLE IF NOT EXISTS versions (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,12 +75,6 @@ func newTestService(t *testing.T) (*store.Store, *Service) {
 								file_name TEXT NOT NULL DEFAULT '',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				UNIQUE (owner_type, owner_id, version_no));`)},
-		"1003_groups.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS group_selections (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-			platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,
-			subscription_id INTEGER,
-			UNIQUE (group_id, platform_id));`)},
 		"1004_tokens.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS download_tokens (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			token TEXT NOT NULL UNIQUE,
@@ -130,7 +127,7 @@ func TestValidateExtraHeaders(t *testing.T) {
 func TestUploadInstallerTooLarge(t *testing.T) {
 	_, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", []string{"clash://{url}"}, nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", "yaml", []string{"clash://{url}"}, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
@@ -153,7 +150,7 @@ func TestUploadInstallerTooLarge(t *testing.T) {
 func TestUploadInstallerAppend(t *testing.T) {
 	_, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", "yaml", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
@@ -192,7 +189,7 @@ func TestUploadInstallerAppend(t *testing.T) {
 func TestUploadInstallerConcurrent(t *testing.T) {
 	_, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", "yaml", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
@@ -233,7 +230,7 @@ func TestUploadInstallerConcurrent(t *testing.T) {
 func TestDeleteInstallerFile(t *testing.T) {
 	_, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", "yaml", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
@@ -296,11 +293,11 @@ func TestValidateInstallerURLs(t *testing.T) {
 func TestUpdateKeepsSlug(t *testing.T) {
 	st, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "原名", "", nil, nil, nil)
+	p, err := svc.Create(ctx, "原名", "", "yaml", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
-	if err := svc.Update(ctx, p.ID, "新名", "描述", []string{"v2rayng://{url}"}, map[string]string{"X-A": "1"},
+	if err := svc.Update(ctx, p.ID, "新名", "描述", "yaml", []string{"v2rayng://{url}"}, map[string]string{"X-A": "1"},
 		[]InstallerURLItem{{Name: "官网", URL: "https://x.com/a.exe"}}); err != nil {
 		t.Fatalf("更新失败: %v", err)
 	}
@@ -324,7 +321,7 @@ func TestUpdateKeepsSlug(t *testing.T) {
 func TestDeleteCascadesInstaller(t *testing.T) {
 	st, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", "yaml", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
@@ -360,7 +357,7 @@ func TestDeleteCascadesInstaller(t *testing.T) {
 func TestDeleteFullCascade(t *testing.T) {
 	st, svc := newTestService(t)
 	ctx := context.Background()
-	p, err := svc.Create(ctx, "测试平台", "", nil, nil, nil)
+	p, err := svc.Create(ctx, "测试平台", "", "yaml", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
@@ -372,10 +369,10 @@ func TestDeleteFullCascade(t *testing.T) {
 	if err := st.DB().QueryRow(`SELECT id FROM subscriptions WHERE platform_id = ?`, p.ID).Scan(&subID); err != nil {
 		t.Fatalf("查询订阅失败: %v", err)
 	}
-	if _, err := svc.versions.CreateVersion(ctx, version.OwnerSubscription, subID, version.BytesContent([]byte("v1"))); err != nil {
+	if _, _, err := svc.versions.CreateVersion(ctx, version.OwnerSubscription, subID, version.BytesContent([]byte("v1")), version.CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建订阅版本失败: %v", err)
 	}
-	if _, err := svc.versions.CreateVersion(ctx, version.OwnerSubscription, subID, version.BytesContent([]byte("v2"))); err != nil {
+	if _, _, err := svc.versions.CreateVersion(ctx, version.OwnerSubscription, subID, version.BytesContent([]byte("v2")), version.CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建订阅版本失败: %v", err)
 	}
 	if _, err := st.DB().Exec(`INSERT INTO custom_subscriptions (slug, user_id, platform_id) VALUES ('custom-c', 1, ?)`, p.ID); err != nil {
@@ -385,7 +382,7 @@ func TestDeleteFullCascade(t *testing.T) {
 	if err := st.DB().QueryRow(`SELECT id FROM custom_subscriptions WHERE platform_id = ?`, p.ID).Scan(&customID); err != nil {
 		t.Fatalf("查询自定义失败: %v", err)
 	}
-	if _, err := svc.versions.CreateVersion(ctx, version.OwnerCustom, customID, version.BytesContent([]byte("cv1"))); err != nil {
+	if _, _, err := svc.versions.CreateVersion(ctx, version.OwnerCustom, customID, version.BytesContent([]byte("cv1")), version.CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建自定义版本失败: %v", err)
 	}
 	if _, err := st.DB().Exec(`INSERT INTO download_tokens (token, user_id, platform_id, subscription_id) VALUES ('tk-1', 1, ?, ?)`, p.ID, subID); err != nil {
@@ -429,3 +426,42 @@ func TestDeleteFullCascade(t *testing.T) {
 	}
 }
 
+// TestCreateProductType 创建平台携带 product_type，非法枚举拒绝
+func TestCreateProductType(t *testing.T) {
+	_, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "SR平台", "", "subs", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("创建平台失败: %v", err)
+	}
+	if p.ProductType != "subs" {
+		t.Errorf("product_type 异常: %s", p.ProductType)
+	}
+	if _, err := svc.Create(ctx, "非法平台", "", "ssr", nil, nil, nil); !errors.Is(err, ErrBadRequest) {
+		t.Errorf("非法 product_type 应拒绝: %v", err)
+	}
+}
+
+// TestUpdateProductTypeConflict 平台产物格式变更与既有订阅条目不一致时拒绝（文案含类型插值）
+func TestUpdateProductTypeConflict(t *testing.T) {
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "测试平台", "", "yaml", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("创建平台失败: %v", err)
+	}
+	if _, err := st.DB().Exec(`INSERT INTO subscriptions (slug, name, platform_id, product_type) VALUES ('sub-p','订阅',?, 'yaml')`, p.ID); err != nil {
+		t.Fatalf("创建订阅失败: %v", err)
+	}
+	err = svc.Update(ctx, p.ID, "测试平台", "", "subs", nil, nil, nil)
+	if !errors.Is(err, ErrProductTypeInUse) {
+		t.Fatalf("格式冲突应返回 ErrProductTypeInUse: %v", err)
+	}
+	if err.Error() != "该平台已有 yaml 订阅条目，请先处理后再变更产物格式" {
+		t.Errorf("冲突文案异常: %s", err.Error())
+	}
+	// 与既有条目一致时成功
+	if err := svc.Update(ctx, p.ID, "测试平台", "", "yaml", nil, nil, nil); err != nil {
+		t.Errorf("一致格式应允许保存: %v", err)
+	}
+}

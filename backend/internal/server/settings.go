@@ -149,8 +149,8 @@ func (h *SettingsHandler) getOidcRules(c *gin.Context) {
 
 func (h *SettingsHandler) saveOidcRules(c *gin.Context) {
 	var req struct {
-		ApprovalOn bool                    `json:"approval_on"`
-		Whitelist  config.WhitelistConfig  `json:"whitelist"`
+		ApprovalOn bool                   `json:"approval_on"`
+		Whitelist  config.WhitelistConfig `json:"whitelist"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
@@ -306,7 +306,7 @@ func (h *SettingsHandler) saveLogLevel(c *gin.Context) {
 
 func (h *SettingsHandler) getAnnouncement(c *gin.Context) {
 	OK(c, gin.H{
-		"home_announcement": h.adminCfg.GetAnnouncement(c.Request.Context()),
+		"home_announcement":  h.adminCfg.GetAnnouncement(c.Request.Context()),
 		"login_announcement": h.adminCfg.GetLoginAnnouncement(c.Request.Context()),
 		"login_footer":       h.adminCfg.GetLoginFooter(c.Request.Context()),
 	})

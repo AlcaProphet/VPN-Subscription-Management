@@ -22,9 +22,9 @@ func RegisterPlatformRoutes(engine *gin.Engine, h *PlatformHandler, sessionMW, a
 	admin.GET("", h.list)
 	admin.POST("", h.create)
 	admin.GET("/:id", h.get)
-	admin.PUT("/:id", h.update)    // slug 只读：不接收 slug 字段
-	admin.DELETE("/:id", h.delete) // 级联删除，二次确认由前端 ConfirmModal 负责
-	admin.POST("/:id/installers", h.uploadInstaller)     // 追加上传一个安装包
+	admin.PUT("/:id", h.update)                                  // slug 只读：不接收 slug 字段
+	admin.DELETE("/:id", h.delete)                               // 级联删除，二次确认由前端 ConfirmModal 负责
+	admin.POST("/:id/installers", h.uploadInstaller)             // 追加上传一个安装包
 	admin.DELETE("/:id/installers/:file", h.deleteInstallerFile) // 按磁盘文件名删一个安装包
 	// 公开下载端点：GET /public/installers/<file> 已由 Build1 static.go 承载（可缓存、无需鉴权、不限流、不记访问日志）
 }
@@ -42,10 +42,11 @@ func parsePlatformID(c *gin.Context) (int64, bool) {
 // platformReq 创建/编辑入参；slug 一律不接收（创建后不可修改）；外部下载链接列表随平台保存
 // （本地安装包由独立上传端点追加，不经本结构）
 type platformReq struct {
-	Name         string                     `json:"name" binding:"required,min=1,max=100"`
-	Description  string                     `json:"description" binding:"max=500"`
-	Schemes      []string                   `json:"schemes"`
-	ExtraHeaders map[string]string          `json:"extra_headers"`
+	Name          string                      `json:"name" binding:"required,min=1,max=100"`
+	Description   string                      `json:"description" binding:"max=500"`
+	ProductType   string                      `json:"product_type"` // 默认 yaml（空值由业务层补默认）
+	Schemes       []string                    `json:"schemes"`
+	ExtraHeaders  map[string]string           `json:"extra_headers"`
 	InstallerURLs []platform.InstallerURLItem `json:"installer_urls"`
 }
 
@@ -81,7 +82,7 @@ func (h *PlatformHandler) create(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	p, err := h.platformSvc.Create(c.Request.Context(), req.Name, req.Description, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
+	p, err := h.platformSvc.Create(c.Request.Context(), req.Name, req.Description, req.ProductType, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
 	if errors.Is(err, platform.ErrBadRequest) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
@@ -103,8 +104,12 @@ func (h *PlatformHandler) update(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	err := h.platformSvc.Update(c.Request.Context(), id, req.Name, req.Description, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
+	err := h.platformSvc.Update(c.Request.Context(), id, req.Name, req.Description, req.ProductType, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
 	if errors.Is(err, platform.ErrBadRequest) {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if errors.Is(err, platform.ErrProductTypeInUse) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
