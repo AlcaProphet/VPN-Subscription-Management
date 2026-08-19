@@ -1,17 +1,17 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前设计：第一期基线见 [Design1.md](./docs/AchievedDocuments/Design1.md)（已构建完成，存档），增量能力（订阅装配与 Xray 对接，已定稿待构建）见 [Design2.md](./Design2.md)；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design0/Design1/Design1-UI/DesignOnHold/Build1~3/Issue1 等）统一存档于 [docs/AchievedDocuments/](./docs/AchievedDocuments/)，仅用于核查，不再用于构建。
+> 当前设计：[Design2.md](./Design2.md) 与 [Design2-UI.md](./Design2-UI.md) 为**当前最新的设计文档**（增量能力：订阅装配与 Xray 对接，已定稿待构建）；[Design1.md](./docs/AchievedDocuments/Design1.md) 为第一期基线（已构建完成，存档）。当前构建方案为 [Build4.md](./Build4.md)～[Build7.md](./Build7.md)（基础模式地基 / 节点与装配器 / Xray 后端 / 高级 UI 收口）；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design0/Design1/Design1-UI/DesignOnHold/Build1~3/Issue1 等）统一存档于 [docs/AchievedDocuments/](./docs/AchievedDocuments/)，仅用于核查，不再用于构建。
 
 ---
 
 ## 一、项目基本信息
 
 - **项目**：自托管 VPN 订阅管理系统（单容器 + SQLite，面向小团队）
-- **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`（Go 版本升级为 Design2 §5.3 决策：xray 对接引入 xray-core 依赖，BuildN Step 0 执行实际升级与构建核验）
+- **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`（Go 版本升级见 Build4 Step 0；xray-core 依赖引入见 Build6 Step 0，均为 Design2 §5.3 决策的构建落点）
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design2.md](./Design2.md)（增量能力，非强制）与 [Design1.md](./docs/AchievedDocuments/Design1.md)（第一期基线，存档）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前设计见 [Design2.md](./Design2.md) 与 [Design2-UI.md](./Design2-UI.md)（增量能力，非强制），第一期基线见存档的 [Design1.md](./docs/AchievedDocuments/Design1.md)；当前构建方案见 [Build4.md](./Build4.md)～[Build7.md](./Build7.md)；问题记录见 [IssueN.md](./IssueN.md)
 
 ---
 
@@ -182,9 +182,9 @@
 | 文档类型 | 文件 | 定位 | 约束力 |
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
-| Design 文档 | [Design2.md](./Design2.md)（增量能力，当前设计） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
-| Design GUI 规格 | [Design2-UI.md](./Design2-UI.md)（活跃，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；功能行为以 Design2.md 为准 | 非强制，供参考 |
-| Build 文档 | [BuildN.md](./BuildN.md) | 将 Design 的设计转化为指导 AI 构建的构建手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
+| Design 文档 | [Design2.md](./Design2.md)（增量能力，当前最新设计） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
+| Design GUI 规格 | [Design2-UI.md](./Design2-UI.md)（当前最新 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；功能行为以 Design2.md 为准 | 非强制，供参考 |
+| Build 文档 | [Build4.md](./Build4.md)～[Build7.md](./Build7.md)（当前最新构建方案） | 将 Design2 的设计转化为指导 AI 构建的构建手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
 | Issue 文档 | [IssueN.md](./IssueN.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
 
 **优先级**：AGENTS.md > Design > Build > Issue。
@@ -192,7 +192,7 @@
 ### 8.2 文档分工规则
 
 - **AGENTS.md 不含具体设计内容**：产品定义、功能流程、数据模型、架构细节等设计信息全部留在 Design 文档中，本文件仅通过引用指向
-- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；新设计构想经用户确认后落入 Design；当期设计为 Design2.md（增量能力已定稿，构建时不得偏离），Design1.md 为第一期已建成功能基线（存档参考）
+- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；新设计构想经用户确认后落入 Design；当前设计为 Design2.md + Design2-UI.md（增量能力已定稿，构建时不得偏离），Design1.md 为第一期已建成功能基线（存档参考）
 - **Build 文档**面向 AI 执行，每个 Step 必须含：目标、前置条件、产出文件与参考代码/伪代码、验收规范与验证命令；每次仅执行一个 Step，验收通过后再进入下一步
 - **Issue 文档**只记录 bug 与修复闭环；非问题的优化候选归 Design 文档记录
 - **归档规则**：构建验收完成或被后续文档取代的 Design/Build/Issue 文档移入 [docs/AchievedDocuments/](./docs/AchievedDocuments/)，仅作核查，不用于构建；研究参考资料存于 [docs/Reference/](./docs/Reference/)
@@ -209,9 +209,12 @@
 | 文档 | 目标读者 | 内容 | 状态 |
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
-| [Design2.md](./Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 增量能力设计：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接，已定稿待构建 | 活跃 |
-| [Design2-UI.md](./Design2-UI.md) | 人类（开发者/用户）与 AI 编码助手 | Design2 受影响界面的 GUI 样式规格（全量重写式自包含） | 活跃 |
-| [BuildN.md](./BuildN.md) | AI 编码助手 | 增量构建方案：将 Design2 转化为分步 TODO LIST（每步含目标/前置条件/产出文件与参考代码/验收规范与验证命令；模板见 DocTemplates/Build.template.md） | 待建（进入构建时按模板创建） |
+| [Design2.md](./Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 当前最新增量设计：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接，已定稿待构建 | 活跃 |
+| [Design2-UI.md](./Design2-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 当前最新 GUI 规格：Design2 受影响界面的布局/组件/状态分支/交互契约（全量重写式自包含） | 活跃 |
+| [Build4.md](./Build4.md) | AI 编码助手 | 第四轮构建：Go 1.26 + 1009 迁移 + 旧分发模型拆除 + 规则素材池（含节点表 display_name 列与有效渲染名唯一索引） | 活跃（未验收） |
+| [Build5.md](./Build5.md) | AI 编码助手 | 第五轮构建：协议注册表/manual 节点与 display-name 服务（有效渲染名唯一：节点间 + 代理组/强制组/Clash-mihomo 内建保留代理名）、代理组、四类装配器渲染与分发 | 活跃（未验收） |
+| [Build6.md](./Build6.md) | AI 编码助手 | 第六轮构建：xray-core 客户端、实例与节点检测（保留/校验 display_name）、组分配与候选集、用户同步、下载动态渲染（按有效渲染名） | 活跃（未验收） |
+| [Build7.md](./Build7.md) | AI 编码助手 | 第七轮构建：对账/独立账号/导入导出 v2（含节点命名映射）/OFF 清空/高级 UI 收口 | 活跃（未验收） |
 | [IssueN.md](./IssueN.md) | AI 编码助手 / 开发者 | 问题记录：bug 与修复闭环（现象/根因/影响范围/修复方案/状态；模板见 DocTemplates/Issue.template.md） | 待建（出现问题时按模板创建） |
 | [docs/DocTemplates/](./docs/DocTemplates/) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue）与 Clash/Shadowrocket 配置参考样例 | 活跃 |
 | [docs/Reference/](./docs/Reference/) | 开发者 | 研究参考资料：Xray-core API 研究、SSpanel 订阅输出逻辑 | 活跃 |

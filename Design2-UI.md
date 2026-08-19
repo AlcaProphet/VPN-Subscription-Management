@@ -200,7 +200,7 @@
 - **组列表**（双态列表）：组名（预置默认组带 `a-tag` 且无删除操作）、**默认配额**（GB 数值或「不限流量」）、分配节点数、组内用户数、操作（编辑 / 删除——默认组不可删）；**原「可用订阅数 / 重新设置」列与 needs_reselect 机制全部移除**（Design2.md §5.6 删除项）；首管理员「创建第一份订阅」引导条移除（订阅不再经组分发）
 - **组编辑弹窗**（720px，`a-modal`）自上而下四区：
   1. **改名**（唯一校验，沿用）
-  2. **节点分配**：`a-checkbox-group` 多选，候选集 = 全部已激活 clash-yaml / sr-subs / generic-subs 装配蓝图的 xray 候选节点并集（Design2.md §5.6 候选集口径 ①）；候选节点行展示节点名 + 可用性标注：
+  2. **节点分配**：`a-checkbox-group` 多选，候选集 = 全部已激活 clash-yaml / sr-subs / generic-subs 装配蓝图的 xray 候选节点并集（Design2.md §5.6 候选集口径 ①）；候选节点行展示节点有效渲染名（display_name 非空则用之，否则系统名；有自定义名时副行 `code` 风格展示系统标识名）+ 可用性标注：
      - **公共节点**（is_public=1）：行内 `a-tag`「公共 · 免分配」置灰不可勾选 + 副说明「公共节点对所有组自动可见」
      - **非候选集的已分配节点**：以红色警示标注「不在任何已激活模板候选集内，下载不会注入」（参考 Design1 needs_reselect 高亮模式）
      - **仅部分模板候选**：橙色提示「仅部分激活模板包含该节点」
@@ -257,10 +257,10 @@
 
 #### 4.7.2 配置导入/导出分区文案更新（沿用分区，仅文案与提示增量）
 
-- 导出说明追加：「含 Xray 实例清单与独立账号（含推送目标，format_version=2）」
+- 导出说明追加：「含 Xray 实例清单（含节点显示名映射）与独立账号（含推送目标，format_version=2）」
 - **导入确认弹窗追加影响项**：「Xray 实例将整体覆盖（slug 沿用），**组节点分配将被级联清空，导入后需重新分配**」
 - **signing_key 保护拒绝提示**：后端拒绝导入时（密钥将变化且存在业务密文），前端 `a-alert error` 展示后端文案「配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复」，不做任何变更
-- 导入完成提示追加「系统将自动执行节点检测刷新、独立账号推送目标重绑（未匹配目标标记失败）与账号对账」
+- 导入完成提示追加「系统将自动执行节点检测刷新、按 (实例, inbound tag) 回填节点显示名（未匹配映射提示）、独立账号推送目标重绑（未匹配目标标记失败）与账号对账」
 
 ### 4.8 管理面板交互走查结论（编写后自检）
 
@@ -318,7 +318,7 @@
 | 步骤 | 规格 |
 |------|------|
 | ② 头部表单 | Clash 顶层键表单（字段范围见 Design2.md §4.2），**默认值以作者个人配置头部预填** + 「一键采用默认值」按钮（覆盖已改字段前 ConfirmModal「将覆盖当前已填头部」）；长表单折叠分区（基础键 / DNS / 其他） |
-| ③ 节点勾选 | 双来源分组列表：manual 区（含协议 Tag）与 xray 区（高级模式且有检测节点时展示；基础模式/无实例时 xray 区空态文案「未检测到 Xray 节点（高级模式录入实例后手动刷新节点发现）」）；**allocatable=0 节点行置灰不可勾 + Tooltip「该协议无 per-user 能力，不可分配」**；missing=1 节点不列入候选 |
+| ③ 节点勾选 | 双来源分组列表：manual 区（含协议 Tag）与 xray 区（高级模式且有检测节点时展示；基础模式/无实例时 xray 区空态文案「未检测到 Xray 节点（高级模式录入实例后手动刷新节点发现）」）；xray 区节点行展示有效渲染名（display_name 非空则用之，否则系统名；有自定义名时副行 `code` 风格展示系统标识名）；**allocatable=0 节点行置灰不可勾 + Tooltip「该协议无 per-user 能力，不可分配」**；missing=1 节点不列入候选 |
 | ③ 代理组配置 | 三区块：强制组（直接连接 / 国外流量 / 无法归属的流量）锁定勾选态（Checkbox 选中禁用 + 锁图标）；预设组库 `a-checkbox-group`（内置参考组，含组类型标注）；自建组列表（引用代理组管理页已建组，勾选 + 「前往代理组管理」链接）；**「国外流量」组成员配置区**：为其勾选节点/子组成员（空组硬校验前置引导；**成员配置随装配快照保存**，重新编辑自快照恢复，见 Design2.md §3.3 强制组落库口径） |
 | ④ 规则素材 | **已勾选池为有序列表**（池名 + 条目数 + 每池目标代理组 `a-select`；桌面端拖拽排序，<768 上移/下移，顺序随装配快照保存并供重新编辑恢复）+ 手动补充规则行（动态行：类型 + 匹配值 + 目标组，格式实时校验）；副说明「多个池按此顺序依次拼接；USER-AGENT 条目将被跳过（Clash 不支持）」 |
 | ⑤ 预览 | 见 5.3.5 |
@@ -377,7 +377,7 @@
 
 ### 6.1 列表（双态列表）
 
-列：节点名称（`code` 风格）、来源标签（`a-tag`：manual 灰 / xray 紫）、协议（代码风格 Tag）、地址:端口、公共节点标记（is_public=1 时 `a-tag`「公共」）、启用开关（`a-switch` 行内）、allocatable 标注（xray 非四协议节点橙色 `a-tag`「不可分配」+ Tooltip「该协议无 per-user 能力」）、missing 标注（xray 侧已删节点灰色 `a-tag`「实例侧已删除」+ Tooltip「待管理员处置：删除或等待重检测恢复」）、操作（编辑 / 删除）。
+列：节点名称（**有效渲染名**：manual = name；xray = display_name 非空则 display_name，否则系统名；xray 有自定义名时双行展示，副行系统标识名 `code` 风格）、来源标签（`a-tag`：manual 灰 / xray 紫）、协议（代码风格 Tag）、地址:端口、公共节点标记（is_public=1 时 `a-tag`「公共」）、启用开关（`a-switch` 行内）、allocatable 标注（xray 非四协议节点橙色 `a-tag`「不可分配」+ Tooltip「该协议无 per-user 能力」）、missing 标注（xray 侧已删节点灰色 `a-tag`「实例侧已删除」+ Tooltip「待管理员处置：删除或等待重检测恢复」）、操作（编辑（manual）/ 命名（xray）/ 删除）。
 
 - **行内 enabled 开关**：切换即保存（后端触发受影响用户 AddUser/RemoveUser diff，属后端行为）；切换中开关 loading 防重复；失败回滚 + `Notify.error`
 - **is_public 开关**（仅 source=xray 且 allocatable=1 / missing=0 的行渲染，其余不展示该控件）：切换前 ConfirmModal「公共节点变更将对全部活跃用户同步增删 Xray 账号」
@@ -389,17 +389,21 @@
 
 - **协议选择**：`a-select` 协议注册表清单（由 `GET /api/admin/nodes/protocols` 下发：ClashOfficial 全量代理协议，**ssr 除外**，Design2.md §4.5）；选择后表单字段按协议注册表 schema **动态渲染**（基础字段：名称 / host / port；协议特有字段按注册表展开，敏感字段按注册表标记渲染为 `a-input-password`）
 - **凭据字段**（uuid / password / private-key 等注册表敏感清单）：统一 `a-input-password` 脱敏输入；**编辑回显时凭据字段留空，placeholder 提示「留空 = 保留原凭据」**（Design2.md §3.2 编辑回显口径）
-- **名称规则**：**创建后不可修改**（编辑弹窗名称只读；后端拒绝改名）；创建时实时校验——禁止控制字符、逗号与首尾空白，允许中文/emoji；重名冲突后端 409 → `Notify.error`「节点名称已存在」（nodes.name 全局唯一）
+- **名称规则**：**创建后不可修改**（编辑弹窗名称只读；后端拒绝改名）；创建时实时校验——禁止控制字符、逗号与首尾空白，允许中文/emoji；重名冲突（与其他节点有效渲染名、proxy_groups.name、强制组名「直接连接 / 国外流量 / 无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复）后端 409 → `Notify.error`「节点名称已存在或与代理组/保留名冲突」
 - 表单校验：host/port 格式实时校验；提交失败字段级回显
 
-### 6.3 xray 节点展示（只读为主）
+### 6.3 xray 节点展示与命名
 
-- xray 节点不支持整体编辑（字段由实例检测维护）：操作列无「编辑」按钮，仅行内 enabled / is_public 两开关（约束见 6.1）+ 删除；**删除按钮仅 missing=1 行可点**（非 missing 行置灰 + Tooltip「该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测」）；行内 Tooltip 说明「节点信息由 Xray 实例检测维护，请在实例页刷新节点」
-- missing=1 节点提供「删除」作为处置手段之一（重检测恢复为另一途径，在实例页，见 8.2）；**非 missing 的 xray 节点禁止删除，避免删除后又被检测重建**
+- xray 节点除显示名（display_name）外不支持整体编辑（字段由实例检测维护）：操作列无「编辑」按钮，仅「命名」+ 行内 enabled / is_public 两开关（约束见 6.1）+ 删除；**删除按钮仅 missing=1 行可点**（非 missing 行置灰 + Tooltip「该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测」）；行内 Tooltip 说明「节点信息由 Xray 实例检测维护，显示名可自定义；系统标识名仅作内部引用，不可修改」
+- **命名弹窗（420px）**：
+  - 单输入「订阅显示名」（placeholder 显示当前系统名；留空保存 = 清空并恢复系统名）；实时校验同 6.2 名称规则；重名冲突（与其他节点有效渲染名、proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名重复）后端 409 → 字段级 `Notify.error`「显示名已存在或与代理组/保留名冲突」
+  - 说明文案：「显示名将用于 Clash `name:`、SR `remarks` 与通用订阅节点名；修改后立即影响所有已激活模板的下载内容，系统内部引用不变」
+  - 保存成功 `Notify.success`「显示名已更新」；保存中按钮 loading 防重复
+- missing=1 节点提供「删除」作为处置手段之一（重检测恢复为另一途径，在实例页，见 8.2）；**非 missing 的 xray 节点禁止删除，避免删除后又被检测重建**；missing 节点同样可命名，重检测恢复后显示名保留
 
 ### 6.4 自检结论（编写后）
 
-- 功能匹配：双来源展示与约束（Design2.md §3.2）、**名称创建后只读与字符集校验、协议注册表端点**、命名与重名 409（§3.2）、allocatable/missing 标注与处置（§3.2/5.9）、**xray 节点仅 missing 可删**、enabled/is_public 切换同步语义（§5.5 触发器表）、凭据加密回显口径（§3.2/5.9）均有着落
+- 功能匹配：双来源展示与约束（Design2.md §3.2）、**manual 名称创建后只读、xray display_name 可编辑与有效渲染名唯一/跨命名空间校验、协议注册表端点**、命名与重名 409（§3.2）、allocatable/missing 标注与处置（§3.2/5.9）、**xray 节点仅 missing 可删**、enabled/is_public 切换同步语义（§5.5 触发器表）、凭据加密回显口径（§3.2/5.9）均有着落
 - 八项：空态/加载（TriStateList）/错误（开关失败回滚、409）/<768 卡片态/暗色/权限（管理员路由；manual 能力基础模式可用）/防重复（开关 loading）/危险确认（is_public 切换、删除 ConfirmModal）
 
 ---
@@ -419,7 +423,7 @@
 自上而下四区：
 
 1. **基本信息**：名称（**创建后不可修改**：新建可输入、编辑只读，后端拒绝改名；重名 409 提示；禁止控制字符、逗号与首尾空白，允许中文/emoji）+ 组类型 `a-radio-group`（select 默认 / url-test / fallback，附各类型一句话说明）
-2. **节点引用**（有序列表）：从全部节点中选入（manual + 可用 xray 节点，搜索过滤）；已选节点有序列表支持**拖拽排序**（<768 上移/下移降级）；列表副说明「select 类组的第一个节点即默认选中节点」（Design2.md §3.3）
+2. **节点引用**（有序列表）：从全部节点中选入（manual + 可用 xray 节点，搜索过滤）；xray 节点展示有效渲染名（display_name 非空则用之，否则系统名），有自定义名时副行 `code` 风格展示系统标识名；已选节点有序列表支持**拖拽排序**（<768 上移/下移降级）；列表副说明「select 类组的第一个节点即默认选中节点；节点引用按系统标识名持久化，显示名变更不影响引用」（Design2.md §3.3/§5.4）
 3. **子组引用**：多选已存在的其他代理组（含强制组「直接连接」「国外流量」作为可切换项）；同样有序列表
 4. **校验与保存**：
    - **DAG 环形引用即时校验**：选择子组时前端即时检测成环 → 拒绝选择并 `Notify.error`「检测到环形引用：A → B → A」（保存时后端兜底校验）
@@ -449,7 +453,7 @@
 
 ### 8.2 节点检测（「刷新节点」）
 
-- 实例行「刷新节点」按钮（loading 防重复）→ 调 ListInbounds 检测端点 → **检测结果回执**（`a-modal` 或页内 `a-alert` 汇总）：新增 N 个节点 / 更新 M 个节点 / missing 标注 K 个（实例侧已删，待处置）/ 撞名跳过 J 个（列出 inbound tag 与原因，Design2.md §3.2 撞名跳过口径）；完成后节点列表数据刷新（节点管理页同源）
+- 实例行「刷新节点」按钮（loading 防重复）→ 调 ListInbounds 检测端点 → **检测结果回执**（`a-modal`）：汇总新增 N 个节点 / 更新 M 个节点 / missing 标注 K 个（实例侧已删，待处置）/ 撞名跳过 J 个（列出 inbound tag 与原因，Design2.md §3.2 撞名跳过口径）；**新增节点命名区**：新增节点数 > 0 时逐行展示 `tag + 系统名 + 显示名输入框`（留空=暂不命名，稍后可在节点管理页命名）；「保存显示名」对已填写行逐行调用 display-name 端点，字段级 409 提示；完成后节点列表数据刷新（节点管理页同源）
 - 保存实例（新增/编辑）成功后提示「可执行刷新节点发现入站」引导
 
 ### 8.3 「开始初始化」（批量初始化，手动触发）
@@ -472,7 +476,7 @@
 - **创建/编辑弹窗**（720px）自上而下四区：
   1. **基本信息**：名称（重名 409 提示；email 系统分配，创建后只读展示）
   2. **凭据区（双轨）**：`a-radio-group`「自动生成 / 手填接管」——自动生成：提交时生成（创建成功弹窗一次性展示，见下）；手填接管：UUID + 代理密码输入（`a-input-password`）+ 说明文案「系统分配 email 并推送至所选入站；若 Xray 侧已存在同 email 账号则按幂等口径接管成功，请确保所填凭据与 Xray 侧一致」；**编辑时凭据字段留空 = 保留原凭据**（同 6.2 manual 节点编辑口径）
-  3. **推送目标**：按实例分组的 inbound 多选（仅列四协议、allocatable=1、enabled 节点；无可用节点时空态「请先在实例页检测节点」）
+  3. **推送目标**：按实例分组的 inbound 多选（仅列四协议、allocatable=1、enabled 节点；**inbound 标签展示有效渲染名，有自定义显示名时副行展示系统标识名**；无可用节点时空态「请先在实例页检测节点」）
   4. **配额**：`a-input-number`（GB）+ 副说明「0 或留空 = 不限流量」
 - **凭据展示与复制**：创建成功弹窗一次性展示 UUID / 代理密码（`code` 风格 + 复制按钮）+ 警示文案「凭据即该账号的唯一凭证，请妥善保管」；列表「复制凭据」按钮复制解密凭据（专用端点，见 9.1）+ Toast 同款警示
 - **超限与重置**：超限行红色标记 + 副文案「账号已从 Xray 移除，重置配额可恢复」；重置配额 ConfirmModal「将清空该账号本月流量累计并恢复 Xray 账号（凭据不变）」；结果回执同 4.5
@@ -481,7 +485,7 @@
 
 ### 8.6 自检结论（编写后）
 
-- 功能匹配：实例 CRUD 与 enabled 停用语义（Design2.md §5.9）、连通性测试、节点检测刷新与撞名跳过（§3.2）、手动初始化幂等与计数（第一章）、采集状态与连续失败告警（§5.8）、实例级对账补推/清理（§5.10）、**独立账号模型与凭据双轨 / 手动推送目标 / 配额管理 / 对账 ext 分区防护 / OFF 清单（§5.11）**均有着落
+- 功能匹配：实例 CRUD 与 enabled 停用语义（Design2.md §5.9）、连通性测试、节点检测刷新与撞名跳过（§3.2）、**新增节点行内命名（display_name）**、手动初始化幂等与计数（第一章）、采集状态与连续失败告警（§5.8）、实例级对账补推/清理（§5.10）、**独立账号模型与凭据双轨 / 手动推送目标 / 配额管理 / 对账 ext 分区防护 / OFF 清单（§5.11）**均有着落
 - 动线：实例线：开关 ON → 录实例 → 测试连接 → 保存 → 刷新节点 → 组分配 → 开始初始化 → 对账兜底；独立账号线：创建（生成/接管）→ 勾选推送目标 → 复制凭据 → 写入自定义订阅；配额线：用量展示 → 超限摘除标记 → 重置恢复
 - 八项：空态（实例/对账/独立账号各自空态）/加载（列表 TriStateList、测试/检测/初始化/对账/凭据复制各自 loading）/错误（测试失败 alert、409 重名、采集告警、推送失败重试）/<768 卡片态/暗色/权限（advanced_mode 驱动菜单与路由守卫，后端 403 兜底）/防重复（全部长操作按钮 loading）/危险确认（删实例、一键清理、删独立账号、重置配额 ConfirmModal；凭据复制警示 Toast）
 
@@ -508,8 +512,9 @@
 
 | 函数 | 方法/路径 | 备注 |
 |------|-----------|------|
-| listNodes / createNode / updateNode / deleteNode | GET/POST/PUT/DELETE /api/admin/nodes(/:id) | 列表含 source/protocol/host/port/is_public/enabled/allocatable/missing；manual 创建/编辑（**名称创建后只读**；xray 行仅 enabled/is_public 两字段的 PATCH 式更新） |
-| getProtocols | GET /api/admin/nodes/protocols | `{ list: [{ protocol, form_schema, link_mappings, sensitive_fields }] }` | 协议注册表：manual 节点表单动态渲染与敏感字段脱敏输入（6.2） |
+| listNodes / createNode / updateNode / deleteNode | GET/POST/PUT/DELETE /api/admin/nodes(/:id) | 列表含 source/protocol/host/port/is_public/enabled/allocatable/missing/display_name/render_name；manual 创建/编辑（**名称创建后只读**）；xray 行整体字段只读，仅 enabled/is_public 开关与 display_name 可改 |
+| setNodeDisplayName | PUT /api/admin/nodes/:id/display-name | 请求 `{ display_name }`（空串=清空并恢复系统名）；仅 source=xray；有效渲染名全局唯一 + 跨命名空间校验，冲突 409；用于节点管理页「命名」与检测回执批量命名（6.3/8.2） |
+| getProtocols | GET /api/admin/nodes/protocols | 返回 `{ list: [{ protocol, form_schema, link_mappings, sensitive_fields }] }`；协议注册表：manual 节点表单动态渲染与敏感字段脱敏输入（6.2） |
 | toggleNode | PUT /api/admin/nodes/:id/toggle | enabled / is_public 行内开关（400：非法切换如 allocatable=0 置 public） |
 | listProxyGroups / createProxyGroup / updateProxyGroup / deleteProxyGroup | GET/POST/PUT/DELETE /api/admin/proxy-groups(/:id) | definition 含组类型 + 有序节点/子组引用名；环形引用/内容约束后端 400 兜底 |
 | togglePresetGroup | PUT /api/admin/proxy-groups/:id/preset-toggle | 预设组启用勾选 |
@@ -520,7 +525,7 @@
 |------|-----------|--------------|
 | listInstances / createInstance / updateInstance / deleteInstance | GET/POST/PUT/DELETE /api/admin/xray/instances(/:id) | 实例行含 name/slug/api_addr/api_tag/enabled/last_collect_at/collect_status/collect_error |
 | testConnection | POST /api/admin/xray/instances/test | `{ ok, error? }`（不落库） |
-| detectNodes | POST /api/admin/xray/instances/:id/detect | `{ added, updated, missing, skipped: [{tag, reason}] }`（8.2 回执） |
+| detectNodes | POST /api/admin/xray/instances/:id/detect | `{ added, updated, missing, skipped: [{tag, reason}], added_nodes: [{node_id, tag, name}] }`（8.2 回执；added_nodes 供新增节点行内命名） |
 | runInit | POST /api/admin/xray/init | `{ synced, failed }`（8.3 计数回执） |
 | reconcile | GET /api/admin/xray/instances/:id/reconcile | `{ to_push: [...], orphans: [...], ext_orphans: [...], credential_mismatches: [...] }`（8.4 四分区比对结果；ext_orphans = 疑似独立账号残留，默认不勾选） |
 | pushRepair / cleanOrphans / repairCredentials | POST …/reconcile/push、…/reconcile/clean、…/reconcile/credentials | 计数回执；repairCredentials = 对「凭据不一致」勾选项先 RemoveUser 再 AddUser（8.4 ④ 分区） |
@@ -570,7 +575,7 @@
 | 响应 | 前端展示（增量） |
 |------|------------------|
 | 403 高级未开启 | 高级端点返回 403 且系统状态 advanced_mode=off → `message.warning`「高级功能未开启」（区别于普通「权限不足」）；同时刷新系统状态联动菜单隐藏 |
-| 409 池名 / 节点名 / 平台订阅占用 / 实例名 / 代理组名 / 独立账号名 | `Notify.error` 展示后端冲突描述（对应 5.2.1 / 6.2 / 4.1 / 8.1 / 7.2 / 8.5） |
+| 409 池名 / 节点名 / 节点显示名 / 平台订阅占用 / 实例名 / 代理组名 / 独立账号名 | `Notify.error` 展示后端冲突描述（对应 5.2.1 / 6.2/6.3/8.2 / 4.1 / 8.1 / 7.2 / 8.5） |
 | 409 素材池条目去重 | 手动添加条目冲突提示（见 5.2.2） |
 | 400 候选集/约束类校验 | 组分配越候选集、代理组 DAG/内容约束、平台格式校正不一致 → 表单级/页面级错误定位（见 4.3/4.4/7.2） |
 | 200 业务错误注释块 | 沿用 Design1-UI §7.3：预览内容以 `# error:` 开头时弹窗顶部 alert 转人话（覆盖新增「无激活版本」注释块场景） |
@@ -626,3 +631,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v1.1 | 2026-08-18 | 新增独立 Xray 账号功能规格（Design2.md §5.11）：第八章双页签骨架与 8.5 独立账号 Tab（列表/双轨创建弹窗/凭据复制/配额重置/删除）、8.4 对账区改三分区（ext 残留分区默认不勾选，防误清理）、4.7 OFF 清空清单加项、9.1 增 ext 端点与 reconcile 响应扩展、9.4 冲突映射增独立账号名、10.1/10.2 危险确认与空态补充 |
 | v1.2 | 2026-08-18 | 构建前深度审阅修订：强制组落库口径（内置渲染结构、国外流量成员随快照，5.3.1/7.3）与预设组启用状态持久化（proxy_groups.enabled，7.1）；移除素材池条目手动调序（1.2/5.2.2/5.5/9.1/10.1 联动，顺序改系统维护）；xray 节点区空态文案改「手动刷新节点发现」（5.3.1/10.2）；PageHeader/CopyField 改「本期新建」口径（1.3）；懒加载分组补「无 vite 配置动作」注记（2.3）；删除订阅影响清单改「按本规格新写」（4.1）；对账补推超限提示补面板用户（8.4） |
 | v1.3 | 2026-08-18 | 构建前决策落盘：新增 generic-subs 产物类型与「通用节点订阅」页签（A1/A2）、首页仅展示分流规则卡片（A5）、素材池整体排序（B7）、全新部署纯增量 1009 DDL、候选集并集重算、名称不可修改与字符集校验、节点 missing 恢复补推、对账凭据不一致分区、协议注册表端点、pool_sync_tasks 持久化、xray 节点仅 missing 可删等（详见本轮审阅修订） |
+| v1.4 | 2026-08-19 | Xray 节点显示名（display_name）：xray 节点「命名」入口与检测回执批量命名（6.1/6.3/8.2）、有效渲染名双行展示（4.3/5.3/7.2）、display-name API 与 detectNodes added_nodes（9.1）、显示名 409 冲突映射（9.4）、跨命名空间唯一校验说明（6.2/6.3，含代理组名/强制组名/Clash-mihomo 内建保留代理名） |

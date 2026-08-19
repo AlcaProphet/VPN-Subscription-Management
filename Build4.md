@@ -241,6 +241,7 @@ Step 6 ──▶ Step 7（端到端验收）
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       source        TEXT NOT NULL CHECK (source IN ('manual','xray')),
       name          TEXT NOT NULL UNIQUE,
+      display_name  TEXT,
       instance_id   INTEGER REFERENCES xray_instances(id) ON DELETE CASCADE,
       tag           TEXT,
       protocol      TEXT NOT NULL,
@@ -258,6 +259,8 @@ Step 6 ──▶ Step 7（端到端验收）
       CHECK ((source = 'xray' AND instance_id IS NOT NULL) OR (source = 'manual' AND instance_id IS NULL))
   );
   CREATE INDEX idx_nodes_instance ON nodes(instance_id);
+  -- 有效渲染名全局唯一兜底（display_name 非空则用之，否则 name）；跨表（代理组/强制组/Clash-mihomo 内建保留代理名）冲突由应用层校验
+  CREATE UNIQUE INDEX idx_nodes_render_name ON nodes(COALESCE(NULLIF(display_name,''), name));
 
   CREATE TABLE proxy_groups (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -394,14 +397,15 @@ Step 6 ──▶ Step 7（端到端验收）
   rm -rf /tmp/vpn-sub-b4-mig && mkdir -p /tmp/vpn-sub-b4-mig && APP_MODE=dev DATA_DIR=/tmp/vpn-sub-b4-mig go run ./cmd/server &
   # 等日志出现「迁移已应用 ... 1009_xray.sql」后：
   curl -s http://127.0.0.1:8080/health
-  # 检查新表与旧表消失：
+  # 检查新表与旧表消失（另确认 nodes 的 display_name 列与 idx_nodes_render_name 唯一索引存在）：
   sqlite3 /tmp/vpn-sub-b4-mig/app-dev.db ".tables"
+  sqlite3 /tmp/vpn-sub-b4-mig/app-dev.db "PRAGMA table_info(nodes); PRAGMA index_list(nodes);"
   # 停掉进程后清理 /tmp/vpn-sub-b4-mig
   ```
 
   > 本机若未安装 `sqlite3` CLI，用 `go test` 内新写的表存在性断言替代；不要跳过表清单核验。
 
-- **验收标准：** 编译/静态检查通过；dataclear 单测通过；全新库迁移成功且 `.tables` 可见全部新表、无 `group_selections`/`subscription_group_rel`；旧库不做迁移验证（按全新部署口径）。
+- **验收标准：** 编译/静态检查通过；dataclear 单测通过；全新库迁移成功且 `.tables` 可见全部新表、无 `group_selections`/`subscription_group_rel`；`nodes` 表含 `display_name` 列与 `idx_nodes_render_name` 唯一索引；旧库不做迁移验证（按全新部署口径）。
 
 ---
 

@@ -185,11 +185,11 @@ Step 4+5 ──▶ Step 6（集成验收）
        - `protocol`：由 `ProxySettings.TypeUrl` 的最后一段映射（如 `xray.proxy.vless.inbound.Config` → `vless`；无法识别也保留协议名）。
        - `tag` 取 inbound.Tag；`port` 取 inbound.Port；`host` 取实例 api_addr 的 host 部分（若 api_addr 为 `host:port`）。
        - `protocol_json`：从 ProxySettings 与 StreamSettings 归一化为渲染所需字段（network / security / tls server_name / fingerprint / reality pbk-sid / ws path+host / grpc service_name / httpupgrade path / ss cipher / vless flow 等）。**仅把解析得到的字段写入；解析不到的字段不虚构默认值**。REALITY：若配置含私钥，用 x25519 公钥推导写入 `public_key`；`short_id` 取配置首个短 id；`server_name` 取首个 serverNames。
-       - 名称 `{实例slug}-{tag}`；`validateNodeName` 失败或与 nodes.name 撞名（非自身）→ 记错误日志并跳过该 inbound，返回 skipped 项，**不中断检测、不崩溃**。
+       - 稳定名 `{实例slug}-{tag}`；`validateNodeName` 失败，或与**任一节点有效渲染名**（`display_name` 非空则 display_name，否则 name）撞名（非自身），或与 `proxy_groups.name`/强制组名/Clash-mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复 → 记错误日志并跳过该 inbound，返回 skipped 项，**不中断检测、不崩溃**。
        - 四协议（vless/vmess/trojan/shadowsocks）`allocatable=1`；其余 `allocatable=0`。
-     - upsert 键 `UNIQUE(instance_id, tag)`：新行插入（enabled=1, is_public=0, missing=0, last_seen_at=now）；已有行仅更新 protocol/host/port/protocol_json/last_seen_at 与 allocatable（**不覆盖 enabled/is_public/装配勾选状态**），若 tag 消失后重现则 missing=0。
+     - upsert 键 `UNIQUE(instance_id, tag)`：新行插入（enabled=1, is_public=0, missing=0, **display_name=NULL**，last_seen_at=now）；已有行仅更新 protocol/host/port/protocol_json/last_seen_at 与 allocatable（**不覆盖 enabled/is_public/display_name/装配勾选状态**），若 tag 消失后重现则 missing=0。
      - 本实例既有节点不在本次响应集合 → `missing=1`。
-     - 返回 `{added, updated, missing, skipped:[{tag, reason}]}`。
+     - 返回 `{added, updated, missing, skipped:[{tag, reason}], added_nodes:[{node_id, tag, name}]}`（added_nodes 供 UI 检测回执行内命名）。
   3. **`backend/internal/server/xray.go`**：路由（Build2 会话+管理员中间件）
      - `GET/POST/PUT/DELETE /api/admin/xray/instances(/:id)`；
      - `POST /api/admin/xray/instances/test`；
@@ -197,7 +197,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - 统一响应结构；错误 400/404/409。
   4. **`backend/internal/server/server.go`** 注册实例路由（暂不注册高级中间件，Step 2 引入后再套用）。
   5. **节点删除的 Xray 清理钩子**：`node.Service.Delete` 删除 `source=xray AND missing=1` 行时，事务前先按既有 `xray_users` 记录收集（email/instance_id/inbound_tag/api_addr）清单；提交后 best-effort `RemoveUser`（Step 3 接入 sync 服务后把口径升级为「受影响 active 用户 × 该节点」期望集）。**非 missing 的 xray 节点仍禁止删除**（Build5 已实现 UI/后端约束，保持）。
-  6. **单测**：地址校验、slug 生成、名称撞名跳过、detect upsert 不覆盖 enabled/is_public、missing 置位与恢复、xray 节点删除前收集清单（用假 `Lister` 接口注入解析函数，不依赖真实 gRPC）。
+  6. **单测**：地址校验、slug 生成、稳定名撞名跳过（含与 display_name/代理组名/强制组名/Clash-mihomo 内建保留代理名冲突）、detect upsert 不覆盖 enabled/is_public/display_name、missing 置位与恢复、返回 added_nodes、xray 节点删除前收集清单（用假 `Lister` 接口注入解析函数，不依赖真实 gRPC）。
 
 - **参考代码/伪代码：**
 
@@ -211,7 +211,7 @@ Step 4+5 ──▶ Step 6（集成验收）
       protocol = excluded.protocol, host = excluded.host, port = excluded.port,
       protocol_json = excluded.protocol_json, allocatable = excluded.allocatable,
       last_seen_at = CURRENT_TIMESTAMP, missing = 0
-  -- 注意：enabled/is_public 不在 UPDATE 列中（Design2 §3.2 检测不覆盖）
+  -- 注意：enabled/is_public/display_name 不在 UPDATE 列中（Design2 §3.2 检测不覆盖）
   ```
 
 - **测试与验收命令：**
@@ -239,7 +239,7 @@ Step 4+5 ──▶ Step 6（集成验收）
   1. **`backend/internal/server/middleware.go`**：`AdvancedMode(cfg)` 中间件——每次请求 `cfg.Get(ctx, config.KeyAdvancedMode)` 实时查 DB；false 返回 403 统一文案「高级功能未开启」。**禁止缓存布尔值**。`/api/admin/xray/*` 全部套用；groups 的节点分配与默认配额端点套用；groups 基础 CRUD 不套用。
   2. **`backend/internal/group/group.go`**：
      - `Group` 增加 `DefaultQuota *float64`、`NodeCount int64`（列表聚合）。
-     - 新增 `GroupNode {NodeID, NodeName, SortOrder, IsPublic, Source}`；`SetNodes(ctx, id, nodeIDs []int64)`：**拒绝 is_public=1 节点**（400）；只允许 source=xray、enabled=1、allocatable=1、missing=0、实例 enabled=1 的节点；写 group_nodes（先删后插，sort_order=数组下标）；保存后执行 `onNodesChanged` 回调（Step 3 注入同步 diff；本 Step 留 nil 安全跳过）。
+     - 新增 `GroupNode {NodeID, NodeName, DisplayName, SortOrder, IsPublic, Source}`；`SetNodes(ctx, id, nodeIDs []int64)`：**拒绝 is_public=1 节点**（400）；只允许 source=xray、enabled=1、allocatable=1、missing=0、实例 enabled=1 的节点；写 group_nodes（先删后插，sort_order=数组下标）；保存后执行 `onNodesChanged` 回调（Step 3 注入同步 diff；本 Step 留 nil 安全跳过）。
      - 新增 `SetDefaultQuota(ctx, id, quota *float64)`（NULL 或 0 均不限；负数拒绝）。
      - 删除 `SetSelections` 残留与旧字段（若 Build4 未删尽，本 Step 清干净）。
      - `CandidateSet(ctx)`：**当前所有已激活 clash-yaml / sr-subs / generic-subs 装配蓝图的 xray 候选节点并集**。SQL 思路：
@@ -249,14 +249,14 @@ Step 4+5 ──▶ Step 6（集成验收）
        JOIN subscriptions s ON s.id = v.owner_id AND v.owner_type='subscription'
        WHERE s.current_version = v.version_no AND b.target_syntax IN ('clash-yaml','sr-subs','generic-subs')
        ```
-       逐行解析 selection_json 中 xray 节点名（Build5 快照格式），按名查 nodes。
+       逐行解析 selection_json 中 xray 节点稳定名（nodes.name，Build5 快照格式），按名查 nodes；display_name 不参与解析。
      - `RecomputeCandidateSet(ctx)`：事务后重算并集；删除 group_nodes 中不在并集或不再满足可用性过滤的分配；返回受影响用户/节点清单供回调。**公共节点退出并集或取消 is_public 时对全部 active 用户 RemoveUser，新增/恢复时 AddUser**——具体推送在 Step 3 回调中执行，本 Step 只把变更事实收集进回调参数。
   3. **候选集重算触发点**（本 Step 接线，回调先为空）：
      - 订阅版本激活切换（`server/subscription.go` 的 versionSwitch，owner=subscription 分支）；
      - 订阅删除（`subscription.Service.Delete` 提交后，通过注入回调 `onSubDeleted` 或 server handler 调用）；
      - assembly generate 首版自动激活后（Build5 handler，若 target_syntax 非 sr-conf 且 auto_activated）。
      - 每次调用幂等：全量重算并只删多余分配。
-  4. **`backend/internal/server/group.go`**：新增 `PUT /api/admin/groups/:id/nodes`、`PUT /api/admin/groups/:id/quota`；GET 详情返回节点分配（含 is_public 标注）、`candidate_nodes`（当前候选集并集，含 `in_partial_blueprint` 标注供 UI 提示）、default_quota；这些路由套 advancedMode。
+  4. **`backend/internal/server/group.go`**：新增 `PUT /api/admin/groups/:id/nodes`、`PUT /api/admin/groups/:id/quota`；GET 详情返回节点分配（含 is_public 标注与 display_name，供 UI 展示有效渲染名）、`candidate_nodes`（当前候选集并集，含 `in_partial_blueprint` 标注供 UI 提示）、default_quota；这些路由套 advancedMode。
   5. **`backend/internal/server/server.go`**：`/api/admin/xray` 路由组套 advancedMode（Step 1 的实例路由现在收口）；构造 group service 注入后续同步回调字段。
   6. **`backend/internal/server/status.go`**：确认 advanced_mode 暴露（Build4 已做，本 Step 加单测保证 off 时 false、on 时 true）。
   7. **单测**：off 时 xray/组分配端点 403；候选集并集解析（空并集/多蓝图并集/仅部分模板候选）；SetNodes 越候选集拒绝；is_public 拒绝；RecomputeCandidateSet 删除多余分配且不删公共节点以外的合法分配。
@@ -319,7 +319,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `Credentials(ctx, userID)`：解密返回（uuid, proxySecret）。
   2. **`backend/internal/xray/sync.go`**：`SyncService`。
      - `type API interface { AddUser/RemoveUser }` 便于 fake 测试；真实实现包 `Client`。
-     - `Targets(ctx, userID)`：查「组分配 ∪ 公共」xray 节点，过滤 enabled/allocatable/missing/实例 enabled **以及候选集并集**（节点名必须属于当前已激活蓝图 xray 候选集，口径同 Step 2）；去重（node_id）；排序：组分配按 sort_order、公共节点排后。
+     - `Targets(ctx, userID)`：查「组分配 ∪ 公共」xray 节点，过滤 enabled/allocatable/missing/实例 enabled **以及候选集并集**（以 `nodes.name` 稳定名匹配当前已激活蓝图 xray 候选集，display_name 不参与，口径同 Step 2）；去重（node_id）；排序：组分配按 sort_order、公共节点排后；返回项含 node_id/name/display_name 供状态展示与日志。
      - `PushUser(ctx, userID) (synced, failed int, err)`：入口查 advanced_mode（off 静默跳过）；quota_exceeded=1 跳过并记原因（Step 5 写字段，本 Step 先查列）；EnsureCredentials；**目标集为空（组分配与公共节点均为空）时直接返回 0/0，不记失败**；对每个 target：写 pending（事务内复查 advanced_mode，off 中止）→ AddUser → 复查 advanced_mode，off 则立即 RemoveUser 补偿 → 成功置 synced，失败置 failed+last_error。
      - `RemoveUserFromTargets(ctx, userID, targets []Target) (removed, failed int)`：每个 target RemoveUser；成功删 xray_users 行，失败置 failed+last_error。删除用户路径必须传入事务提交前收集的 targets。
      - `DiffPush(ctx, userID, oldTargets, newTargets)`：旧 − 新 RemoveUser；新 − 旧 PushUser（同凭据不变）；交集不动。
@@ -400,13 +400,13 @@ Step 4+5 ──▶ Step 6（集成验收）
   1. **`backend/internal/xray/render.go`**（或 `internal/download/render.go`，二选一，推荐 download 包避免反向依赖）：
      - `RenderUserSubscription(ctx, subID, userID, content, fileName) ([]byte, error)`：
        - 读当前激活版本是否有 blueprint；无 → 直接返回 content（**直接上传静态成品，不识别占位**）；blueprint 查询本身出错返回 500，不静默按直接上传处理。
-       - 读用户组节点 ∪ 公共节点，按可用性过滤 + 候选集过滤（节点名必须在 blueprint.selection_json 的 xray 候选集中）；manual 静态节点不注入（已在模板/渲染计划中）。
+       - 读用户组节点 ∪ 公共节点，按可用性过滤 + 候选集过滤（以 `nodes.name` 稳定名匹配 blueprint.selection_json 的 xray 候选集，display_name 不参与候选身份判定）；manual 静态节点不注入（已在模板/渲染计划中）。
        - 解密用户 UUID/代理密码；**UUID 为空** → 占位替换为注释 `# 节点未开通，请联系管理员`，并执行 Clash 蓝图空组降级；**advanced_mode=off** → 占位统一替换为 `# Xray 高级模式未启用`（**优先于「节点未开通」**），同样执行蓝图空组降级。
        - 按 target_syntax 分支：
-         - `clash-yaml`：按 `render_plan_json` **全量重渲染**。proxies = manual 节点（计划中原样）+ 动态 xray 节点（vless/vmess/trojan/ss 按协议构造 Clash 条目）；所有 proxy-groups 按可达注入节点递归重建（可达集合含 manual 静态节点与 DIRECT；剔除完全不可达组；强制组「直接连接」保留；强制组为空降级 `[DIRECT]`；rules 引用被剔除组的目标降级 DIRECT 并保留行）。
+         - `clash-yaml`：按 `render_plan_json` **全量重渲染**。proxies = manual 节点（计划中原样，名称用 `renderName`）+ 动态 xray 节点（vless/vmess/trojan/ss 按协议构造 Clash 条目，`name` 用节点当前 `renderName`）；**render_plan 中的节点引用为 `nodes.name` 稳定键，渲染时通过节点表映射为当前 `renderName`**；所有 proxy-groups 按可达注入节点递归重建（可达集合含 manual 静态节点与 DIRECT；剔除完全不可达组；强制组「直接连接」保留；强制组为空降级 `[DIRECT]`；rules 引用被剔除组的目标降级 DIRECT 并保留行）。
          - `sr-subs` / `generic-subs`：**装配生成模板下载时无论有无占位都必须整体重新 base64**（存储明文、下发 base64，Design2 §5.7）；占位存在时先替换 `# {{xray_nodes}}` 为动态节点行（SR/generic 链接形态，复用 Build5 links.go 的注入渲染函数，凭据为用户 UUID/代理密码），无占位则只重新 base64。
          - `sr-conf`：无节点/占位，原样。
-     - 节点名统一 `{实例slug}-{入站tag}`，与检测入库一致；同名冲突理论上已被检测跳过。
+     - 动态节点渲染名统一取 `renderName(node)`（display_name 非空则用之，否则 `{实例slug}-{入站tag}`）；同名冲突由 Build4 表达式唯一索引 + 应用层校验保证；改名实时生效，不触发快照改写。
   2. **`backend/internal/download/download.go`**：
      - `ResolveUserDownload`：无标识订阅分支（平台唯一订阅）调用 `RenderUserSubscription`（装配模板动态渲染，直接上传字节原样）；**custom 分支只原样返回自定义内容，不注入节点、不重建**，但仍按用户订阅类附加 usage 头。
      - `PreviewForUser`：管理员预览返回当前激活版本**原文**（装配模板含占位，直接上传原样）；普通用户预览按自身渲染（装配模板走 `RenderUserSubscription`，直接上传原样）——与 Design2 §5.7「管理员预览原文、用户预览按自身渲染」一致。
@@ -429,7 +429,7 @@ Step 4+5 ──▶ Step 6（集成验收）
       Fallback []string
   }
   func (r *Renderer) RenderClash(plan plan, dynamic []nodeLine, reachable map[string]bool) ([]byte, error) {
-      // 1) proxies: manual + dynamic
+      // 1) proxies: manual + dynamic（name 一律用 renderName；plan 内节点引用是 nodes.name 稳定键，先经 name→renderName 映射替换）
       // 2) groups: 递归判定可达（DIRECT 恒可达）；剔除不可达；强制组空时 proxies=[DIRECT]
       // 3) rules: 目标组被剔除 → 目标改 DIRECT，行保留
   }

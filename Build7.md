@@ -26,7 +26,7 @@
 | 独立账号推送范围 | 手动勾选实例/inbound；仅四协议、allocatable=1、missing=0、实例 enabled=1；**不参与组分配/公共节点/候选集** | Design2 §5.11 |
 | 对账期望集 | 全部 active 用户 ×（组分配 ∪ 公共）∪ 独立账号 × 其推送记录；xray_users/xray_ext_users 只是状态载体，不是期望集来源 | Design2 §5.10 |
 | 对账分区 | 待补推 / 无头用户（user- 前缀）/ 疑似独立账号残留（ext- 或无法匹配前缀，默认不勾选）/ 凭据不一致 | Design2 §5.10/§5.11 |
-| 导出格式 | `format_version=2`；instances 全字段导出（slug 导入沿用）；accounts 含 push_targets（instance slug + inbound tag）；v1 导入兼容仅配置 | Design2 §5.4 |
+| 导出格式 | `format_version=2`；instances 全字段导出（slug 导入沿用）并附带节点命名映射 `nodes: [{tag, display_name}]`（仅非空显示名）；accounts 含 push_targets（instance slug + inbound tag）；v1 导入兼容仅配置 | Design2 §5.4 |
 | 导入保护 | 若 signing_key 将变化且存在业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 凭据字段 / xray_ext_accounts 两个密文字段），拒绝导入并提示「配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复」 | Design2 §5.4 |
 | OFF 清空 | 开关关闭一并移除：xray_instances、source=xray 节点、group_nodes、xray_users、独立账号（凭据+推送记录）、traffic_records、用户 UUID/代理密码/配额字段；保留 proxy_groups/groups 行/用户组归属/assembly_blueprints（悬空引用容错） | Design2 §一 |
 | OFF 清理口径 | 事务内置 advanced_mode=off；事务提交前收集 user/ext 推送记录与连接信息；提交后逐实例 best-effort RemoveUser；不可达跳过记 warn | Design2 §一 |
@@ -189,11 +189,11 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - 并发送口径：所有同步钩子入口实时查 DB（Build6 已实现）；AddUser 完成后补偿（Build6 已实现）；本方法事务内置位后提交，钩子任一复查读到即最新标记。
   3. **`backend/internal/server/settings.go`**：新增 `GET/PUT /api/admin/settings/advanced`；关闭请求含 `{advanced_mode:false, confirm_word}`；返回清理摘要（实例数/不可达数）。
   4. **`backend/internal/config/export.go`**：升级 v2。
-     - `ExportPayload` 增 `Instances []ExportedInstance`（name/slug/api_addr/api_tag/enabled）与 `Accounts []ExportedExtAccount`（name/email/uuid_encrypted/proxy_secret_encrypted/quota/push_targets `[{instance_slug,inbound_tag}]`）；`FormatVersion=2`。
-     - 导出时读 xray_instances 与 xray_ext_accounts/xray_ext_users（按 slug+tag 关联）；密文原样导出，不导出明文。
+     - `ExportPayload` 增 `Instances []ExportedInstance`（name/slug/api_addr/api_tag/enabled + **`Nodes []ExportedNodeName`（tag/display_name，仅导出 display_name 非空项）**）与 `Accounts []ExportedExtAccount`（name/email/uuid_encrypted/proxy_secret_encrypted/quota/push_targets `[{instance_slug,inbound_tag}]`）；`FormatVersion=2`。
+     - 导出时读 xray_instances（含其 xray 节点 display_name 非空项）与 xray_ext_accounts/xray_ext_users（按 slug+tag 关联）；密文原样导出，不导出明文；display_name 为明文展示属性，原样导出。
      - `Import`：接受 v1（仅配置，保持旧语义）与 v2；v2 在配置覆盖事务内：先收集旧实例连接信息与旧 user/ext 推送清单 → 删除旧 `xray_instances` 与 `xray_ext_accounts`（FK 级联）→ 按 payload 重建 instances（slug 原样沿用，冲突/重复返回 400）与 ext accounts（name/email/密文/quota 原样写入，email 全小写）→ 按 push_targets 写 `xray_ext_users`（node_id 暂空/0，sync_status=pending）。**导入保护**：比较 payload 中 signing_key 与当前库 signing_key；若将变化且存在任一业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 中 `enc:v1:` 敏感字段 / xray_ext_accounts 两密文字段），整个导入拒绝，不做任何变更。
-     - **依赖方向**：`config/export.go` 不 import xray/assembly；由 `server` 注入「导入后处理回调」（与现有 `SetSeedPresets` 同模式），在事务提交后执行：对旧实例 best-effort RemoveUser → 自动节点检测刷新 → 按 instance slug+tag 重绑 xray_ext_users.node_id（未匹配置 failed）→ 执行账号对账（Build7 Step1）。返回完成提示字段。
-  5. **单测**：OFF 清空保留/删除清单逐表断言、确认词错误、不可达清理记 warn；重新开启不推送；导入保护命中拒绝且库不变；v2 往返（导出→清库→导入）恢复 instances/accounts 与 push_targets；v1 兼容。
+     - **依赖方向**：`config/export.go` 不 import xray/assembly；由 `server` 注入「导入后处理回调」（与现有 `SetSeedPresets` 同模式），在事务提交后执行：对旧实例 best-effort RemoveUser → 自动节点检测刷新 → **按 (instance slug, inbound tag) 回填 nodes.display_name（未匹配映射计入完成提示，不阻断）** → 按 instance slug+tag 重绑 xray_ext_users.node_id（未匹配置 failed）→ 执行账号对账（Build7 Step1）。返回完成提示字段。
+  5. **单测**：OFF 清空保留/删除清单逐表断言、确认词错误、不可达清理记 warn；重新开启不推送；导入保护命中拒绝且库不变；v2 往返（导出→清库→导入）恢复 instances（含 display_name 命名映射）/accounts 与 push_targets、未匹配命名映射计入提示；v1 兼容。
 
 - **参考代码/伪代码：**
 
@@ -244,13 +244,13 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 - **前置条件：** Step 2 验收通过。
 - **产出文件与操作：**
 
-  1. **`frontend/src/api/xray.ts`**：按 UI §9.1 `api/xray.ts` 表逐函数实现（listInstances/createInstance/updateInstance/deleteInstance/testConnection/detectNodes/runInit/reconcile/pushRepair/cleanOrphans/repairCredentials/retryUserSync/resetQuota/listExtAccounts/createExtAccount/updateExtAccount/deleteExtAccount/getExtCredentials/resetExtQuota）。
-     - **`frontend/src/api/request.ts` 同步适配 UI §9.4**：403 且后端 message 为「高级功能未开启」时，`message.warning('高级功能未开启')` 并刷新 system status（区别于普通「权限不足」）；409 冲突直接展示后端描述（实例名/独立账号名等）。
+  1. **`frontend/src/api/xray.ts`**：按 UI §9.1 `api/xray.ts` 表逐函数实现（listInstances/createInstance/updateInstance/deleteInstance/testConnection/detectNodes/runInit/reconcile/pushRepair/cleanOrphans/repairCredentials/retryUserSync/resetQuota/listExtAccounts/createExtAccount/updateExtAccount/deleteExtAccount/getExtCredentials/resetExtQuota）；**detectNodes 类型含 `added_nodes: [{node_id, tag, name}]`**。
+     - **`frontend/src/api/request.ts` 同步适配 UI §9.4**：403 且后端 message 为「高级功能未开启」时，`message.warning('高级功能未开启')` 并刷新 system status（区别于普通「权限不足」）；409 冲突直接展示后端描述（实例名/独立账号名/节点显示名等）。
   2. **`frontend/src/views/admin/XrayInstancesView.vue`**：页面骨架 `a-tabs` 双页签（Xray 实例 / 独立账号）；`PageHeader` 右侧常驻「开始初始化」按钮（仅作用于面板用户）。
   3. **实例 Tab**（按 UI §8.1~§8.4）：
      - 双态列表：名称/slug/api_addr/enabled 行内开关（Tooltip 停用语义）/采集状态 Badge + 连续失败告警/操作（编辑/刷新节点/对账/删除）。
      - 新增/编辑弹窗（480px）：名称 + api_addr + api_tag + 「测试连接」（loading → 成功/失败 alert；不落库）。
-     - 「刷新节点」→ detectNodes → 结果回执 Modal/alert：新增 N / 更新 M / missing K / 撞名跳过 J（列出 tag+reason）；完成后刷新节点管理页同源数据。
+     - 「刷新节点」→ detectNodes → 结果回执 Modal：新增 N / 更新 M / missing K / 撞名跳过 J（列出 tag+reason）；**新增节点命名区**：`added_nodes` 逐行 `tag + 系统名 + display_name 输入框`，留空=暂不命名，「保存显示名」逐行调用 `setNodeDisplayName`（409 字段级提示）；完成后刷新节点管理页同源数据。
      - 「开始初始化」→ ConfirmModal 三点说明 → 执行 runInit → `Notify.success` 计数；failed>0 提示用户管理页重试。
      - 「对账」→ `a-drawer` 对账面板四分区：
        ① 待补推（user/ext 来源 Tag）行内补推 + 一键补推（超限提示）；
@@ -260,7 +260,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
        一键清理危险 ConfirmModal；执行结果计数回执；四区全空 success 空态。
   4. **独立账号 Tab**（按 UI §8.5）：
      - 双态列表：名称/email/配额/本月用量/推送摘要聚合 Badge/超限标记/操作（复制凭据/编辑/重置配额/删除）。
-     - 创建/编辑弹窗（720px）四区：基本信息；凭据区双轨（自动生成/手填接管，`a-input-password`，编辑留空=保留）；推送目标按实例分组 inbound 多选（过滤规则）；配额 input-number（0/留空不限）。
+     - 创建/编辑弹窗（720px）四区：基本信息；凭据区双轨（自动生成/手填接管，`a-input-password`，编辑留空=保留）；推送目标按实例分组 inbound 多选（过滤规则；inbound 标签展示有效渲染名，有自定义显示名时副行系统标识名）；配额 input-number（0/留空不限）。
      - 创建成功一次性展示 UUID/代理密码 + 复制 + 警示文案；「复制凭据」按钮调专用端点 + Toast 警示；删除/重置 ConfirmModal 文案按 UI。
   5. **路由/菜单**：Build4 已加 `/admin/xray` 路由与高级可见性；本 Step 替换占位组件。
   6. **前端单测**：实例列表加载/开关失败回滚、测试连接、检测回执、初始化确认、对账四分区渲染与 ext 默认不勾选、独立账号双轨表单与一次性凭据展示。
@@ -288,10 +288,10 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 - **前置条件：** Step 3 验收通过。
 - **产出文件与操作：**
 
-  1. **`frontend/src/api/group.ts`**：新增/调整——`GroupItem.default_quota/node_count`；`GroupDetail` 含 `nodes:[{node_id,node_name,is_public,source,sort_order}]`；`updateGroupNodes(id,{node_ids})`、`updateGroupQuota(id,{default_quota})`。移除 Build4 临时最小字段。
+  1. **`frontend/src/api/group.ts`**：新增/调整——`GroupItem.default_quota/node_count`；`GroupDetail` 含 `nodes:[{node_id,node_name,display_name,render_name,is_public,source,sort_order}]`；`updateGroupNodes(id,{node_ids})`、`updateGroupQuota(id,{default_quota})`。移除 Build4 临时最小字段。
   2. **`frontend/src/views/admin/GroupsView.vue`**：按 UI §4.3 重写：
      - 列表：组名/默认配额（GB 或「不限流量」）/分配节点数/用户数/操作（编辑/删除；默认组不可删）。
-     - 编辑弹窗四区：改名；节点分配（候选集=后端返回已激活蓝图 xray 并集；公共节点灰置 +「公共·免分配」；非候选集已分配红警；仅部分模板候选橙警；并集为空 `a-empty` + 前往装配）；分配排序（拖拽/上移下移）；默认配额（0/留空不限）。
+     - 编辑弹窗四区：改名；节点分配（候选集=后端返回已激活蓝图 xray 并集；节点标签显示 render_name，有自定义 display_name 时副行系统名；公共节点灰置 +「公共·免分配」；非候选集已分配红警；仅部分模板候选橙警；并集为空 `a-empty` + 前往装配）；分配排序（拖拽/上移下移）；默认配额（0/留空不限）。
      - 删除 ConfirmModal 迁默认组文案。
   3. **`frontend/src/api/user.ts`**：`AdminUser` 增加高级字段（本月用量字节、有效配额、聚合同步状态、last_error 摘要、quota_override、quota_exceeded）。
   4. **`frontend/src/views/admin/UsersView.vue`**：按 UI §4.5 扩展：
@@ -300,7 +300,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
   5. **`frontend/src/api/settings.ts`**：新增 `AdvancedSettings` 类型与 `getAdvanced/saveAdvanced`。
   6. **`frontend/src/views/admin/SettingsView.vue`**：按 UI §4.7：
      - 新增「高级模式」分区（锚点置于运行模式信息之后）：开关 + 状态 Tag；开启保存轻提示；关闭触发确认词弹窗（清单式展示将被移除内容，manual 节点保留说明，两条 warning：不可达实例手动清理/重开全量重配）；采集间隔（分钟，默认 10）；流量卡片开关（默认开）。
-     - 配置导入/导出分区文案更新：导出说明追加 v2 内容；导入确认弹窗追加「实例整体覆盖、组节点分配将被级联清空」；signing_key 保护错误以 `a-alert error` 展示后端文案；导入完成提示自动检测/重绑/对账。
+     - 配置导入/导出分区文案更新：导出说明追加 v2 内容（实例清单含节点显示名映射 + 独立账号推送目标）；导入确认弹窗追加「实例整体覆盖、组节点分配将被级联清空」；signing_key 保护错误以 `a-alert error` 展示后端文案；导入完成提示自动检测/回填节点显示名/重绑/对账。
   7. **前端单测**：组编辑四态与排序；用户高级列显隐与重试/重置 loading；设置关闭确认词清单与导入错误展示。
 
 - **测试与验收命令：**

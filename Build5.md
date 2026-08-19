@@ -23,7 +23,7 @@
 | 参数 | 取值 | 出处 |
 |------|------|------|
 | manual 协议范围 | ss / vmess / vless / trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 / snell / anytls / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale；**ssr 除外** | Design2 §3.2/§4.5 |
-| 节点名称规则 | 创建后不可修改；禁止控制字符、逗号、首尾空白；允许中文/emoji；nodes.name 全局唯一 | Design2 §3.2 |
+| 节点名称规则 | `nodes.name` 创建后不可修改（manual=管理员名，xray=`{实例slug}-{入站tag}` 系统名）；`display_name` 仅 source=xray 可编辑，空=回退 name；两者均禁止控制字符、逗号、首尾空白，允许中文/emoji；**有效渲染名（display_name 非空则用之，否则 name）全局唯一，且不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复** | Design2 §3.2 |
 | 节点凭据加密 | AES-256-GCM（复用签名密钥派生机制）；密文字段编辑回显空值 = 保留原凭据 | Design2 §3.2 |
 | 代理组类型 | `select` / `url-test` / `fallback`（三枚举）；名称创建后不可改；名称字符集同节点 | Design2 §3.3 |
 | 强制组 | 直接连接（DIRECT）/ 国外流量 / 无法归属的流量（MATCH 兜底目标）；系统内置渲染结构，**不入 proxy_groups 表** | Design2 §3.3 |
@@ -76,7 +76,7 @@
 
 | Step | 涉及文件（核心） | 要点 |
 |------|----------------|------|
-| 1 | `backend/internal/node/`、`backend/internal/server/node.go`、`backend/internal/server/server.go`、测试 | 协议注册表、manual 节点 CRUD、凭据加密/回显保留、xray 行只读占位 |
+| 1 | `backend/internal/node/`、`backend/internal/server/node.go`、`backend/internal/server/server.go`、测试 | 协议注册表、manual 节点 CRUD、凭据加密/回显保留、xray 行 display-name 命名与只读占位 |
 | 2 | `backend/internal/proxygroup/`、`backend/internal/server/proxy_group.go`、测试 | preset/custom、定义 JSON、DAG 校验、预设启用开关 |
 | 3 | `backend/internal/assembly/`（models.go/render_clash.go/render_sr.go/validate.go/registry 联动）、测试 | 四语法渲染、链接编码、快照模型、跳过项提示 |
 | 4 | `backend/internal/server/assembly.go`、`backend/internal/version/version.go` 小改、测试 | context/preview/generate/blueprint 端点、版本列表 blueprint 标记 |
@@ -109,7 +109,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
 ### Step 1：协议注册表与 manual 节点后端
 
-**本 Step 完成后，`/api/admin/nodes` CRUD 与 `/api/admin/nodes/protocols` 可用：manual 节点按注册表动态校验，敏感字段 AES-256-GCM 加密存储、编辑留空保留；xray 节点行只读（仅 enabled/is_public 可切，Build6 接通推送副作用）。**
+**本 Step 完成后，`/api/admin/nodes` CRUD 与 `/api/admin/nodes/protocols` 可用：manual 节点按注册表动态校验，敏感字段 AES-256-GCM 加密存储、编辑留空保留；xray 节点行除 display_name 外只读（enabled/is_public 可切、display_name 可命名，Build6 接通推送副作用）。**
 
 - **目标：** 新建 `internal/node` 业务包与接入层，实现统一节点表的 manual 来源能力与协议可扩展注册表。
 - **前置条件：** Build4 全部验收通过。
@@ -120,18 +120,19 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - 协议清单严格为约束表列出的 19 个协议（ssr 除外）。无法转链接协议（snell/mieru/masque/openvpn/ssh/shadowquic/trusttunnel/tailscale）`SRLink=false && GenericLink=false`。
      - `GET /api/admin/nodes/protocols` 返回 `{list:[{protocol, label, form_schema, link_mappings, sensitive_fields}]}`（前端动态渲染表单；`link_mappings` 描述该协议的 SR/标准链接映射能力与参数名，按 Design2-UI §9.1 契约）。
   2. **`backend/internal/node/node.go`**：服务与 CRUD。
-     - `Node` 结构对应表字段，`ProtocolJSON map[string]any`。
-     - `CreateManual`：名称校验（禁止控制字符/逗号/首尾空白，允许中文 emoji；`name != strings.TrimSpace(name)`、`strings.Contains(name, ",")` 或含 `<0x20/0x7F` 拒绝）；nodes.name 全局唯一（409）；host/port 校验；protocol 在注册表；按注册表 field schema 校验 protocol_json；敏感字段值加密。
+     - `Node` 结构对应表字段（含 `DisplayName *string`），`ProtocolJSON map[string]any`；`RenderName()` 返回有效渲染名（DisplayName 非空则用之，否则 Name）。
+     - `CreateManual`：名称校验（禁止控制字符/逗号/首尾空白，允许中文 emoji；`name != strings.TrimSpace(name)`、`strings.Contains(name, ",")` 或含 `<0x20/0x7F` 拒绝）；`nodes.name` 全局唯一（409）；**跨命名空间校验：有效渲染名不得与任一节点有效渲染名、proxy_groups.name、强制组名「直接连接 / 国外流量 / 无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**；host/port 校验；protocol 在注册表；按注册表 field schema 校验 protocol_json；敏感字段值加密。
      - 敏感字段存储格式统一 `"enc:v1:" + base64.RawURLEncoding(...)`，加解密复用 `config.Encrypt/Decrypt`（签名密钥从 config 读取；测试用固定密钥）。`decryptProtocolJSON` 在渲染/读取时恢复明文；**列表接口不返回凭据明文**（敏感字段返回空串/`***`，按 UI 脱敏口径）。
      - `UpdateManual`：名称只读（请求带 name 且与库不一致 → 400）；编辑回显凭据字段空值 = 保留原密文；其余字段按新值替换；协议变更允许但必须整体校验（Build 期决策：协议变更等价重新填表，不保留不兼容旧字段）。
+     - `SetDisplayName(ctx, id, displayName)`：**仅 source=xray**（manual 400）；空串 → 写 NULL（清空回退 name）；非空走名称字符集校验 + **有效渲染名唯一（排除自身，表达式唯一索引兜底）** + **跨命名空间校验（不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名重复）**；冲突 409；本 Build 仅落库，不触发任何 Xray 推送/候选集重算。
      - `SetEnabled`/`SetPublic`：`source=xray` 行才允许 is_public；`is_public=1` 仅 `allocatable=1 AND missing=0`；非法切换 400。本 Build 仅落库，副作用钩子留接口 `onXrayChanged func(ctx, node, oldEnabled, oldPublic)`（Build6 注入）。
      - `Delete`：`source=xray` 且 `missing!=1` 拒绝（400，文案「请先删除 Xray 入站并刷新节点检测」）；manual 可直接删除。
-     - `List`：JOIN xray_instances 取实例 slug；支持 `?source=manual|xray` 筛选。
+     - `List`：JOIN xray_instances 取实例 slug；支持 `?source=manual|xray` 筛选；返回 `display_name` 与 `render_name`（后端计算或前端按规则计算，契约见 UI §9.1）。
   3. **`backend/internal/server/node.go`**：路由全部 `/api/admin/nodes`（session+admin）：
-     - `GET /api/admin/nodes`、`POST`、`PUT /:id`、`DELETE /:id`、`PUT /:id/toggle`、`GET /api/admin/nodes/protocols`。`POST/PUT /:id` 仅 manual（xray 行返回 400「节点信息由实例检测维护」；xray 的 enabled/is_public 走 `/toggle`）。
-     - 错误映射：409 名称冲突 / 400 校验与非法切换 / 404 不存在。
+     - `GET /api/admin/nodes`、`POST`、`PUT /:id`、`DELETE /:id`、`PUT /:id/toggle`、`PUT /:id/display-name`、`GET /api/admin/nodes/protocols`。`POST/PUT /:id` 仅 manual（xray 行返回 400「节点信息由实例检测维护」；xray 的 enabled/is_public 走 `/toggle`，display_name 走 `/display-name`）。
+     - 错误映射：409 名称/显示名冲突 / 400 校验与非法切换 / 404 不存在。
   4. **`backend/internal/server/server.go`**：构造 `nodeSvc := node.NewService(st, cfg, lg)` 并注册。
-  5. **单测**：名称校验（中文/emoji 通过，逗号/控制字符/首尾空白拒绝）、重名 409、凭据加密后库内不以明文出现、留空保留、xray 行只读与非法 is_public、协议注册表完整性（19 协议、ssr 缺失、每协议敏感字段非空且合法）。
+  5. **单测**：名称校验（中文/emoji 通过，逗号/控制字符/首尾空白拒绝）、重名 409、**display_name 清空/设置/仅 xray 可改、有效渲染名唯一（含 name 与 display_name 交叉冲突）、与代理组名/强制组名/Clash-mihomo 内建保留代理名冲突 409**、凭据加密后库内不以明文出现、留空保留、xray 行只读与非法 is_public、协议注册表完整性（19 协议、ssr 缺失、每协议敏感字段非空且合法）。
 
 - **参考代码/伪代码：**
 
@@ -144,6 +145,28 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
       if strings.Contains(name, ",") { return errors.New("名称禁止逗号") }
       for _, r := range name {
           if r < 0x20 || r == 0x7f { return errors.New("名称禁止控制字符") }
+      }
+      return nil
+  }
+
+  // 有效渲染名：display_name 非空则用之，否则回退稳定引用名 nodes.name
+  func renderName(n Node) string {
+      if n.DisplayName != nil && *n.DisplayName != "" { return *n.DisplayName }
+      return n.Name
+  }
+
+  // 跨命名空间校验：有效渲染名不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名重复
+  func checkRenderNameNamespace(ctx context.Context, tx *sql.Tx, name string) error {
+      switch name {
+      case "直接连接", "国外流量", "无法归属的流量",
+          "DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE":
+          return errors.New("节点名称不得与代理组/强制组/内建保留代理名重复")
+      }
+      var id int64
+      if err := tx.QueryRowContext(ctx, `SELECT id FROM proxy_groups WHERE name = ? LIMIT 1`, name).Scan(&id); err == nil {
+          return errors.New("节点名称不得与代理组名重复")
+      } else if !errors.Is(err, sql.ErrNoRows) {
+          return err
       }
       return nil
   }
@@ -246,21 +269,21 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `TargetSyntax` 常量 `clash-yaml/sr-subs/generic-subs/sr-conf`。
      - `PoolSelection { PoolID int64; Target string }`（有序数组）、`RuleLine { RuleType, MatchValue, Target string }`、`GenerateInput { TargetSyntax; PlatformID; RuleID; FixedParams map[string]any; NodeNames []string; GroupNames []string; OverseasMembers []string; Pools []PoolSelection; CustomRules []RuleLine; FinalDirection string }`。
      - `RenderResult { Content []byte; Skipped []SkipItem; RenderPlan json.RawMessage }`；`SkipItem { Kind, Name, Reason string }`。
-  2. **`backend/internal/assembly/load.go`**：上下文加载（只读）——按名称读节点（含解密后的 protocol_json）、代理组定义、素材池全部条目（按 sort_order）、平台/规则目标校验。
+  2. **`backend/internal/assembly/load.go`**：上下文加载（只读）——按名称（`nodes.name` 稳定键）读节点（含解密后的 protocol_json 与 display_name）、代理组定义、素材池全部条目（按 sort_order）、平台/规则目标校验；节点对象提供 `renderName()`（display_name 非空则用之，否则 name）。
   3. **`backend/internal/assembly/render_clash.go`**：
      - 头部按 `FixedParams` 输出（用 `gopkg.in/yaml.v3` 序列化 `map[string]any`，保证键序按输入顺序——yaml.v3 的 MapSlice 或自定义 `yaml.MapSlice`；**必须保留管理员填写顺序**）。
-     - `proxies:`：manual 选中节点输出 `{name, type, server, port, ...protocol_json}`，**禁止输出 name/type/server/port 之外的冲突字段覆盖**；敏感字段解密后输出。
+     - `proxies:`：manual 选中节点输出 `{name: renderName(node), type, server, port, ...protocol_json}`，**禁止输出 name/type/server/port 之外的冲突字段覆盖**；敏感字段解密后输出。
      - 勾选 xray 节点时在 proxies 区写注释行 `# {{xray_nodes}}`（占位），否则不写。
-     - `proxy-groups:`：先三个强制组（直接连接=DIRECT；国外流量=本次 overseas members；无法归属的流量=[DIRECT, 国外流量]），再按勾选顺序输出预设/自建组定义（引用组/节点名原样）。
+     - `proxy-groups:`：先三个强制组（直接连接=DIRECT；国外流量=本次 overseas members；无法归属的流量=[DIRECT, 国外流量]），再按勾选顺序输出预设/自建组定义（子组名原样；节点成员按 `renderName(node)` 输出，xray 节点同样适用）。
      - `rules:`：勾选池按序、池内条目按序输出 `- TYPE,VALUE,TARGET`；IP 类加 `no-resolve`；**USER-AGENT 跳过并记录**；手动规则行追加在池后（同目标规则格式）；末尾固定 `- GEOIP,CN,直接连接`、`- MATCH,无法归属的流量`。
-     - `render_plan_json`：结构化保存头部、manual proxies、proxy-groups 结构（含引用关系）、rules 与兜底；Build6 下载重渲染用（字段可自行设计但必须自包含且能无状态重建全文）。
+     - `render_plan_json`：结构化保存头部、manual proxies、proxy-groups 结构（含引用关系）、rules 与兜底；**节点引用在计划内统一存 `nodes.name` 稳定键**，Build6 下载重渲染时按节点表实时映射 `renderName`（字段可自行设计但必须自包含且能无状态重建全文）。
   4. **`backend/internal/assembly/render_sr.go`**：
      - `sr-conf`：`[General]` 按 FixedParams 输出 `key = value`；`[Rule]` 条目 + `GEOIP,CN,DIRECT` + `FINAL,{PROXY|DIRECT}`；USER-AGENT 保留；IP 加 no-resolve。
      - `sr-subs`：明文 = `STATUS={}` + `REMARKS={}` + 逐行节点链接 +（如勾选 xray 节点）`# {{xray_nodes}}`。
      - `generic-subs`：明文 = 逐行标准节点链接 +（如勾选 xray 节点）`# {{xray_nodes}}`；无头部行。
      - **链接渲染**统一在 `links.go`：每个可转协议一个函数，输入节点+凭据 map，输出 URI；无映射返回 SkipItem。
   5. **`backend/internal/assembly/links.go`**：链接编码规则严格按 [Node-Link-Standards.md](./docs/Reference/Node-Link-Standards.md) 二/四章与 Design2 §4.5 实现：
-     - 公共：节点名 `url.QueryEscape`（或 encodeURIComponent 等价）作为 `#fragment`/remarks；域名非 ASCII 转 punycode（`golang.org/x/net/idna`，已在依赖图）；参数值用 `url.Values.Encode` 后把 `+` 替换为 `%20`（避免空格不对称）。
+     - 公共：节点名统一取 `renderName(node)`，经 `url.QueryEscape`（或 encodeURIComponent 等价）作为 `#fragment`/remarks；域名非 ASCII 转 punycode（`golang.org/x/net/idna`，已在依赖图）；参数值用 `url.Values.Encode` 后把 `+` 替换为 `%20`（避免空格不对称）。
      - ss（SIP002）：`ss://base64(cipher:password)@host:port#name`（标准 base64，与样例一致）。
      - vmess-SR：`vmess://base64("auto:{uuid}@{host}:{port}")?remarks={name}&udp=1&alterId=0`（manual 节点无 UUID 时用 protocol_json.uuid）。
      - vmess-generic：`vmess://base64(JSON)`，JSON 必含 `v:2,ps,add,port,id,aid:0,scy:auto,net,type,host,path,tls`；不追加 query/fragment。
@@ -273,7 +296,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - 规则类型白名单（与 pool 共用校验函数）；目标组存在性。
      - 空产物校验：Clash `overseas members` 为空拒绝（文案「『国外流量』组未包含任何节点」）；sr-subs/generic-subs 选中节点为空或转换后有效链接为 0 拒绝。
      - 规则为空允许生成（返回提示而非错误，提示由 Skipped/Warning 携带）。
-  7. **单测（本 Step 重点）**：golden 测试四种产物（输入固定，比对关键行与占位标记有无）；链接编码与 `Shadowrocket.subs.template.md` 样例形态一致；中文名/emoji、punycode、空格转义；USER-AGENT Clash 跳过；IP no-resolve；兜底顺序；空产物校验；**1 万规则渲染 benchmark 测试（`BenchmarkRenderClash10kRules`）**。
+  7. **单测（本 Step 重点）**：golden 测试四种产物（输入固定，比对关键行与占位标记有无；**含 xray 节点 display_name 非空与空回退两种渲染分支**）；链接编码与 `Shadowrocket.subs.template.md` 样例形态一致；中文名/emoji、punycode、空格转义；USER-AGENT Clash 跳过；IP no-resolve；兜底顺序；空产物校验；**1 万规则渲染 benchmark 测试（`BenchmarkRenderClash10kRules`）**。
 
 - **参考代码/伪代码：**
 
@@ -367,14 +390,14 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 - **前置条件：** Step 4 验收通过。
 - **产出文件与操作：**
 
-  1. **`frontend/src/api/node.ts`**：按 UI §9.1 `api/node.ts` 表实现（list/create/update/delete/getProtocols/toggleNode）；类型含 `source/protocol/host/port/is_public/enabled/allocatable/missing`。
+  1. **`frontend/src/api/node.ts`**：按 UI §9.1 `api/node.ts` 表实现（list/create/update/delete/getProtocols/toggleNode/setNodeDisplayName）；类型含 `source/protocol/host/port/is_public/enabled/allocatable/missing/display_name/render_name`。
   2. **`frontend/src/api/proxyGroup.ts`**：list/create/update/delete/togglePreset；`definition` 含组类型与有序 nodes/groups。
   3. **`frontend/src/views/admin/NodesView.vue`**：按 UI §6.1~6.3 实现：
-     - 双态列表；manual/xray 标签；行内 enabled 开关（loading，失败回滚）；is_public 仅 source=xray 且 allocatable=1/missing=0 渲染，切换前 ConfirmModal；xray 行无编辑按钮，删除仅 missing=1；manual 删除影响说明。
+     - 双态列表；manual/xray 标签；节点名显示 `render_name`，xray 有自定义 display_name 时双行展示系统名；行内 enabled 开关（loading，失败回滚）；is_public 仅 source=xray 且 allocatable=1/missing=0 渲染，切换前 ConfirmModal；xray 行无整体编辑按钮，提供「命名」弹窗（display_name，留空清空，409 字段级提示），删除仅 missing=1；manual 删除影响说明。
      - manual 新建/编辑弹窗（720px）：协议下拉（注册表）、动态表单、凭据字段 `a-input-password` + 「留空 = 保留原凭据」、名称创建后只读、实时校验、409 提示。
   4. **`frontend/src/views/admin/ProxyGroupsView.vue`**：按 UI §7.1~7.2：
      - 双态列表；preset/custom 标签；组类型 Tag；成员摘要；预设启用勾选（行首 Checkbox，即时保存）；预设不可删、自建组名只读。
-     - 自建组创建/编辑弹窗（720px）四区：基本信息、节点引用（有序，拖拽 ≥768，<768 上移/下移）、子组引用（含强制组两项）、校验与保存（DAG 前端即时检测 + 内容约束 + 悬空引用红标剔除）。
+     - 自建组创建/编辑弹窗（720px）四区：基本信息、节点引用（有序，xray 节点显示 render_name，有自定义名时副行系统名；**提交时发送 nodes.name 稳定键**；拖拽 ≥768，<768 上移/下移）、子组引用（含强制组两项）、校验与保存（DAG 前端即时检测 + 内容约束 + 悬空引用红标剔除）。
   5. **排序交互**：新建 `useSortableList` 组合式函数（`HolderOutlined` 拖拽 + <768 上移/下移；无外部拖拽库）。
   6. **router**：`/admin/nodes`、`/admin/proxy-groups` 页面组件替换 Build4 占位。
   7. **前端单测**：节点表单动态渲染/敏感字段留空；代理组环检测提示；移动端排序降级渲染。
@@ -401,7 +424,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 - **产出文件与操作：**
 
   1. **`frontend/package.json`**：安装 `diff`（jsdiff）依赖（`npm install diff` + `npm install -D @types/diff`），版本用 npm 当前稳定版并在 package-lock 落锁。
-  2. **`frontend/src/api/assembly.ts`**：按 UI §9.1 `api/assembly.ts` 表实现 `getAssemblyContext/getBlueprint/generate/preview`；请求类型与后端 GenerateInput 对齐（**规则素材池为有序数组**）。
+  2. **`frontend/src/api/assembly.ts`**：按 UI §9.1 `api/assembly.ts` 表实现 `getAssemblyContext/getBlueprint/generate/preview`；请求类型与后端 GenerateInput 对齐（**规则素材池为有序数组**；节点/子组引用发送 `nodes.name` / `proxy_groups.name` 稳定键，不发送显示名）。
   3. **`frontend/src/components/DiffView.vue`**：jsdiff `diffLines`；三色高亮（新增绿底/删除红底/上下文默认）；等宽字体、max-height 60vh 纵向滚动；目标版本不存在时整体新增；禁止 monaco。
   4. **`frontend/src/views/admin/AssemblyView.vue`**：Build4 五页签壳保留，四个装配器页签替换为真实组件。
   5. **装配器子组件**（建议目录 `frontend/src/views/admin/assembly/`）：
