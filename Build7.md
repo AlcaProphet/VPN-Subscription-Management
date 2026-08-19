@@ -338,13 +338,13 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - 平台卡普通用户 `status: 'custom'|'ready'|'unassigned'`；管理员 `status:'admin_preview'` + `subscription` 预览字段。
   2. **`frontend/src/views/HomeView.vue`**：按 UI §3.1：
      - 卡片顺序流量 → 分流规则 → 平台卡 → 公告栏；流量卡受 `traffic_card_enabled` 控制；高级未超限进度条（<80 蓝 / 80~99 橙 / 100 红），超限红色 alert 文案统一；字节→GB 两位小数。
-  1a. **`frontend/src/api/profile.ts`**：新增 `getProfileTraffic()` 调 `GET /api/profile/traffic`，类型与 home.traffic 同形；供 ProfileView 消费（Design2Report8 Q3）。
      - 分流规则卡全体用户可见；正常/空态；SR 双内容引导；点击跳 `/rules`。
      - 平台卡普通用户三态三按钮；管理员预览形态（模板信息 + 内容形态标签 + 激活状态 + 预览按钮禁用 Tooltip）。
-  3. **`frontend/src/views/ProfileView.vue`**：基本信息「所属组」行基础模式隐藏；「本月流量」行数据源改为 `getProfileTraffic()`，两模式（不限 / 已用 X GB / 配额 Y GB；超限红色附注）；**`traffic_card_enabled=false` 时该行一并隐藏**（Design2-UI §4.7 流量卡片开关口径）。
-  4. **`frontend/src/components/AppHeader.vue`**：所属组 `a-tag` 仅高级模式显示（Build4 已做，若为临时实现则按 UI §2.2 收口）。
-  5. **`frontend/src/stores/system.ts` / `api/system.ts`**：确保 `advanced_mode` 在守卫、菜单、页面显隐三处共用；`fetchStatus` 在高级设置保存后强制刷新。
-  6. **前端单测**：流量卡三态、规则卡空态、管理员预览按钮禁用、Profile 两模式行显隐、AppHeader 组标签显隐。
+  3. **`frontend/src/api/profile.ts`**：新增 `getProfileTraffic()` 调 `GET /api/profile/traffic`，类型与 home.traffic 同形；供 ProfileView 消费（Design2Report8 Q3）。
+  4. **`frontend/src/views/ProfileView.vue`**：基本信息「所属组」行基础模式隐藏；「本月流量」行数据源改为 `getProfileTraffic()`，两模式（不限 / 已用 X GB / 配额 Y GB；超限红色附注）；**`traffic_card_enabled=false` 时该行一并隐藏**（Design2-UI §4.7 流量卡片开关口径）。
+  5. **`frontend/src/components/AppHeader.vue`**：所属组 `a-tag` 仅高级模式显示（Build4 已做，若为临时实现则按 UI §2.2 收口）。
+  6. **`frontend/src/stores/system.ts` / `api/system.ts`**：确保 `advanced_mode` 在守卫、菜单、页面显隐三处共用；`fetchStatus` 在高级设置保存后强制刷新。
+  7. **前端单测**：流量卡三态、规则卡空态、管理员预览按钮禁用、Profile 两模式行显隐、AppHeader 组标签显隐。
 
 - **测试与验收命令：**
 
@@ -389,7 +389,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - Build4：第一~二章、§4.4 版本/分发基础、§5.9 迁移、§5.10 基础改造；
      - Build5：第三章、§4.1~4.5、UI §5~7、UI §9.1 基础 API；
      - Build6：§5.1~5.8 后端；
-     - Build7：§5.9~5.11 剩余后端 + UI §2~4/§8/§9/§10。
+     - Build7：§5.4/§5.10/§5.11 剩余后端（对账/独立账号/导入导出 v2/OFF 清空/高级设置） + UI §2~4/§8/§9/§10。
      - 任何「设计有、Build 无」的条目必须列出并让用户决策（补齐或挂起），禁止静默忽略；**Design2Report5 的 A1–A12 / B1–B14 修订项必须逐条勾销后方可验收**。
   5. **文档同步**：
      - 四个 Build 文档勾选 ✅、变更记录补执行完成日期；
@@ -430,4 +430,5 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 | v1.2 | 2026-08-19 | Design2Report7 核验修订：Step1 对账期望集与本实例节点取交集写明（P2-4）；Step2 导入重绑前 xray_ext_users.node_id 统一置 NULL，禁止插 0（P2-5） |
 | v1.3 | 2026-08-19 | Design2Report7 复核补齐：Step1 单测补期望集实例交集断言（R3）；Step5 home traffic 类型补高级模式配额不限 `unlimited=true` 分支（R5） |
 | v1.4 | 2026-08-19 | Design2Report8 修订：ext retry 端点与一次性凭据创建响应（Q4/P2-14）；导入/OFF 清空异步任务+轮询与 DISABLE 分支（Q5/Q9）；导入 quota_exceeded 导出、disabled 实例跳过检测（P2-13/P2-19）；实例/独立账号长操作 120s；ProfileView 接入 getProfileTraffic；smoke 测试失败即验收失败（P2-18） |
+| v1.5 | 2026-08-19 | 构建前核验修订：Step5 条目编号修正（原「1a」并入序列，HomeView 子项归位）；Step6 覆盖矩阵 Build7 表述修正为 §5.4/§5.10/§5.11 剩余后端 |
 

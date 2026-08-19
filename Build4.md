@@ -31,6 +31,7 @@
 | 条目排序口径 | manual 段恒在 url 段之前；manual 段按创建序、url 段按同步首次出现序；**系统维护，禁止条目级手动调序** | Design2 §2.2 |
 | 定时同步 | 每池每日执行；`sync_time` 默认 `04:00` 按 **UTC**；停机错过不补跑 | Design2 §2.4 |
 | 池同步任务持久化 | `pool_sync_tasks` 状态：running/succeeded/failed/partial；服务启动时把 running 置 failed（原因「服务重启，任务中断」） | Design2 §2.4/§5.9 |
+| 同步任务历史保留 | **保留 7 天，超期动态清理**（任务终态写回同事务内顺手清理该池超期旧行） | Design2 §5.9 |
 | 空池下载口径 | 订阅/分享/规则下载端点与 `/api/subscriptions/preview` 在无激活版本时返回 **HTTP 200 + text/plain**，内容 `# error: no active version\n`；无效/过期 Token 仍统一 404 | Design2 §4.4/§5.10，AGENTS §4.8 |
 | 高级模式配置键 | `advanced_mode`（"true"/"false"，未设置视为 false）；本 Build 只读取并暴露 status，**开关写入口在 Build7** | Design2 §5.10 |
 | 首页默认规则 | `rules.is_home_default`，至多一条 =1（partial unique index）；切换时事务内清旧置新 | Design2 §5.9 |
@@ -158,7 +159,7 @@ Step 6 ──▶ Step 7（端到端验收）
 
   1. **创建 `backend/migrations/1009_xray.sql`**：内容按下述参考 SQL 完整写入，禁止增删表/列/索引或改名。SQL 内注释使用中文。
      - 先做 5 张既有表 ALTER；再做全部新表（按外键依赖顺序）；最后 DROP 两张旧表。
-     - 预设组种子写入 `proxy_groups`：9 个预设组，`enabled=1`，`type='preset'`，`definition_json` 含组类型与默认成员「直接连接」（**空节点数组 + 子组数组 `["直接连接"]`**）。
+     - 预设组种子写入 `proxy_groups`：9 个预设组，`enabled=1`，`type='preset'`，`definition_json` 含组类型与默认成员「直接连接」（**空节点数组 + 子组数组 `["直接连接"]`）；**组名与 `Clash.yaml.template.md` 作者配置逐字一致（含 emoji 前缀）**。
   2. **修改 `backend/internal/dataclear/dataclear.go`**：`ClearTablesTx` 的表清单改为下方顺序；**必须移除 `subscription_group_rel`、`group_selections`**（迁移后这两张表已不存在，继续 DELETE 会报错）；新增 13 张增量表。
   3. **修改 `backend/internal/dataclear/dataclear_test.go`**：其 fstest.MapFS 增补 1009 简表定义（新表名与列可简化，但必须包含清表清单引用的所有表名）；断言保持不变，新增「13 张增量表可被清空」的用例（向其中若干表插 1 行，清空后计数为 0）。
   4. **启动验证口径**：本 Step 允许启动旧业务服务做迁移与 `/health` 验证；若旧代码因已 DROP 的两张表在业务端点报错，属预期过渡态，按全新部署口径清空已有数据重新开始（不要用旧业务库做验收）。
@@ -354,22 +355,22 @@ Step 6 ──▶ Step 7（端到端验收）
 
   -- 预设代理组种子（Design2 §3.3）：名称 + 组类型 + 默认成员「直接连接」；管理员后续可编辑成员
   INSERT INTO proxy_groups (name, type, preset_key, enabled, definition_json) VALUES
-    ('YouTube',     'preset', 'youtube',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('Netflix',     'preset', 'netflix',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('哔哩哔哩',    'preset', 'bilibili',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('国外流媒体',  'preset', 'global-streaming', 1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('苹果海外服务','preset', 'apple-overseas',  1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('苹果国内服务','preset', 'apple-cn',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('AI',          'preset', 'ai',              1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('Steam',       'preset', 'steam',           1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
-    ('Steam下载',   'preset', 'steam-download',  1, '{"type":"select","nodes":[],"groups":["直接连接"]}');
+    ('🎬YouTube',     'preset', 'youtube',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('🍿Netflix',     'preset', 'netflix',         1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('🍻哔哩哔哩',    'preset', 'bilibili',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('📽️国外流媒体',  'preset', 'global-streaming', 1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('🍎苹果海外服务','preset', 'apple-overseas',  1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('🍏苹果国内服务','preset', 'apple-cn',        1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('🤖AI',          'preset', 'ai',              1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('🎮Steam',       'preset', 'steam',           1, '{"type":"select","nodes":[],"groups":["直接连接"]}'),
+    ('🧩Steam下载',   'preset', 'steam-download',  1, '{"type":"select","nodes":[],"groups":["直接连接"]}');
 
   -- g) 旧分发模型下线（全新部署口径；业务代码在 Build4 Step 2 全部停止引用）
   DROP TABLE group_selections;
   DROP TABLE subscription_group_rel;
   ```
 
-  > 预设组名称用上表**无 emoji 明文名**（与迁移种子口径一致；渲染时名称即代理组名）。`YouTube` 组类型与 `Clash.yaml.template.md` 作者配置一致取 `select`，其余 `select`。若 SQLite 版本对 partial index 或 CHECK 报错，先确认 SQLite ≥3.35（本项目基线已满足）。
+  > 预设组名称与 `Clash.yaml.template.md` 作者配置的可选组名**逐字一致（含 emoji 前缀）**（渲染时名称即代理组名，Design2 §3.3；组名允许 emoji，见 Design2 §3.3 字符集口径）。全部组类型与模板一致取 `select`。若 SQLite 版本对 partial index 或 CHECK 报错，先确认 SQLite ≥3.35（本项目基线已满足）。
 
   **2. `backend/internal/dataclear/dataclear.go` 的 `ClearTablesTx` 表清单（严格按此顺序）**
 
@@ -621,7 +622,7 @@ Step 6 ──▶ Step 7（端到端验收）
   10. **`frontend/src/views/admin/SubscriptionsView.vue`**：按 Design2-UI §4.1 改造为平铺双态列表：平台名、订阅名、product_type 标签（yaml 蓝 / subs 青 / generic-subs 紫）、当前版本与「未激活」灰字、操作（版本管理/编辑/删除）；新建弹窗仅平台+名称，占用平台禁用并标「（已有订阅）」；删除 ConfirmModal 新影响清单；PageHeader 右侧「前往装配」按钮（跳 `/admin/assembly`，本 Build 目标页存在但装配器为占位）。**移除组关联多选与「加入组可用范围」引导**。
   11. **`frontend/src/views/admin/VersionManageView.vue`**：订阅/规则页的「设为当前」文案改「激活/分发」，确认文案「激活后对全体用户生效」；分享/自定义保持「设为当前」。**蓝图标签与重新编辑按钮本 Build 不实现（Build5）**；创建成功订阅版本时若响应 `auto_activated=true` 提示「首个版本已自动激活」。
   12. **`frontend/src/views/admin/PlatformsView.vue` / `PlatformEditView.vue`**：列表新增 product_type 列；新建/编辑表单 `a-radio-group` 三选一，默认 yaml；编辑提交 400 时表单级展示后端文案（Design2-UI §4.4）。
-  13. **`frontend/src/views/admin/RulesView.vue`**：创建弹窗首版本改为可选（「暂不创建版本」）；列表无激活版本实体展示灰字「无激活版本」；新增「首页默认展示」单选列，切换走 ConfirmModal 与 `setHomeDefault`。
+  13. **`frontend/src/views/admin/RulesView.vue`**：创建弹窗首版本改为可选（「暂不创建版本」）；列表无激活版本实体展示灰字「无激活版本」；新增「首页默认展示」单选列，切换走 ConfirmModal 与 `setHomeDefault`；**默认行专设「取消默认」操作（仅默认行显示，ConfirmModal 确认后调 `setHomeDefault(id,false)`，Design2-UI §4.6 定稿口径）**。
   14. **`frontend/src/views/admin/GroupsView.vue`**：按当前后端契约最小化改造（Build7 再做节点分配等高级 UI）：列表显示组名、默认组标签、默认配额（暂无则「不限流量」）、用户数；编辑仅改名；删除文案保留迁默认组。因 advanced_mode=false 菜单隐藏，本页仅兜底编译与深链重定向。
   15. **`frontend/src/views/HomeView.vue`**：按 Design2-UI §3.1 改造卡片顺序与形态：流量卡（基础模式仅「不限流量」，受 `traffic_card_enabled` 配置待 Build7——本 Build 恒显示）→ 分流规则卡（读 `home_rule`，空态文案「管理员暂未设置分流规则」，SR 双内容引导，点击跳 `/rules`）→ 平台卡（普通用户 ready/unassigned/custom 三态；管理员 admin_preview 仅「按平台预览当前版本」按钮，无激活禁用）。**管理员平台卡不再生成/展示 Token 与复制链接**。
   16. **`frontend/src/views/ProfileView.vue`**：基本信息新增「本月流量」行（基础模式「不限流量」）；「所属组」行基础模式隐藏（读 advanced_mode）。
@@ -692,7 +693,7 @@ Step 6 ──▶ Step 7（端到端验收）
      - `SubmitSync(ctx, poolID)`：先查池存在与「是否已有 running 任务」，有则返回 `ErrSyncRunning`（409）；事务插入 `pool_sync_tasks(status='running')`，返回 task id；提交后启动 goroutine `runSyncTask`。
      - `runSyncTask`：串行拉取全部 URL（`http.Client{Timeout: 60s}`，`io.LimitReader(50MB+1)`）；每个 URL 结果 `{url, ok, added, removed, skipped, error}`；**任一 URL 失败、空响应或零有效条目，则该 URL ok=false；只有全部 URL 成功才执行 url 来源差量删除**；成功 URL 的条目照常 upsert。
      - 入库（单个事务）：新 url 条目 sort_order 从 `MAX(当前 URL 段最大序号, urlBase-1)+1` 起追加；**既有条目 sort_order 一律不改写**；删除仅删 `source='url'` 且不在本次成功结果并集中的行，且只在无任何失败时执行。manual 条目不触碰。
-     - 终态写回任务行（succeeded/failed/partial）并更新 rule_pools.last_synced_at/sync_status/sync_error。
+     - 终态写回任务行（succeeded/failed/partial）并更新 rule_pools.last_synced_at/sync_status/sync_error；**同事务内顺手清理该池超期历史：`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at < datetime('now','-7 days')`（保留 7 天口径，Design2 §5.9）**。
      - `GetStatus(ctx, poolID)`：读最近一次任务，返回 `{task_id,status,per_url,started_at,finished_at,error}`。
        - `ListTasks(ctx, poolID, page, pageSize)`：按 id DESC 分页读历史任务（供 UI §5.2.2 历史列表）。
   4. **`backend/internal/pool/sort.go`（或并入 pool.go）**：排序口径实现。
@@ -705,7 +706,7 @@ Step 6 ──▶ Step 7（端到端验收）
   6. **`backend/internal/server/server.go`**：构造 `poolSvc := pool.NewService(st, log)`，注册 `RegisterPoolRoutes`。
   7. **`backend/internal/cron/pool.go` 或并入现有 cron 包**：`StartPoolAutoSync(db, poolSvc, lg)` 每 1 分钟 tick：查 `auto_sync=1 AND sync_time=?`（当前 UTC `15:04`）的池，逐个 `SubmitSync`；已有 running 或 ErrSyncRunning 跳过；返回 stop 函数。**同一分钟内只触发一次**（用 `lastRun map[string]bool` 或 DB running 判重）。
   8. **`backend/cmd/server/main.go`**：启动时执行 `UPDATE pool_sync_tasks SET status='failed', error='服务重启，任务中断', finished_at=CURRENT_TIMESTAMP WHERE status='running'`，并**同步执行 `UPDATE rule_pools SET sync_status='failed', sync_error='服务重启，任务中断' WHERE id IN (SELECT DISTINCT pool_id FROM pool_sync_tasks WHERE status='failed' AND error='服务重启，任务中断')`**（快照与任务行一致，Design2Report8 P2-3）；`StartPoolAutoSync` 启动并注册 stop。
-  9. **单测**：parser 全规则类型/白名单/零条目；sort 两段；sync 用 `httptest.Server` 覆盖「全成功差量删除」「单 URL 失败不删除」「空响应失败」「零条目保护」；CRUD 唯一冲突与分页。
+  9. **单测**：parser 全规则类型/白名单/零条目；sort 两段；sync 用 `httptest.Server` 覆盖「全成功差量删除」「单 URL 失败不删除」「空响应失败」「零条目保护」；CRUD 唯一冲突与分页；**终态写回清理超 7 天历史任务（超期行被删、7 天内行保留）**。
 
 - **参考代码/伪代码：**
 
@@ -790,7 +791,7 @@ Step 6 ──▶ Step 7（端到端验收）
      - 池列表双态列表（≥768 表格 / <768 卡片）：池名、URL 数、条目数、上次同步（本地时区）、同步状态 Badge（色系：pending 橙 / running 蓝 processing / succeeded 绿 / failed 红 / partial 橙；失败附原因 Tooltip）、定时同步行内 `a-switch` + 「每日 04:00 UTC」、操作（详情/同步/编辑/删除）。
      - 新建/编辑弹窗 480px：名称 + URL 动态列表（http/https 校验）+ 定时开关与 `a-time-picker`（副说明 UTC）。
      - 详情面包屑「素材池 / {池名}」：顶部信息条 + 条目分页表（默认 20/页；来源 manual/url 段分隔标题行；规则类型 Tag、匹配值 code、手动条目增删改；不提供条目级排序控件）。
-     - **同步历史列表**：详情页内分区/弹窗分页展示最近 N 条任务（状态 Badge、开始/结束时间、逐 URL 明细摘要、错误 Tooltip），调用 `listSyncTasks`（Design2-UI §5.2.2）。
+     - **同步历史列表**：详情页内分区/弹窗分页展示最近 N 条任务（后端保留 7 天，超期行已在终态写回时清理；状态 Badge、开始/结束时间、逐 URL 明细摘要、错误 Tooltip），调用 `listSyncTasks`（Design2-UI §5.2.2）。
      - 同步流：点「同步」→ `submitSync` 得 task_id → `pollTask` 轮询 `getSyncStatus` → 按钮 loading、池行/详情「同步中…」；终态展示逐 URL 回执（成功/失败/部分失败文案按 Design2-UI §5.2.3）；进行中再点提示「同步进行中，请等待完成」；组件卸载调用 cancel（后端任务不中断）。
      - 删除池 ConfirmModal：「池内 N 条条目将级联删除；已装配版本为快照不受影响」。
   5. **`frontend/src/views/admin/AssemblyView.vue` 之外的复用**：`PageHeader`/`CopyField`（Step 4 已建）在池页使用；`TriStateList`/`ConfirmModal`/`Notify` 沿用。
@@ -894,3 +895,4 @@ Step 6 ──▶ Step 7（端到端验收）
 | v1.1 | 2026-08-19 | Design2Report5 核验修订：预设组种子默认成员改为 `groups:["直接连接"]`（空节点数组）；首页 home_rule 字段统一为 `{rule_id,name,current_version,token,download_url}` |
 | v1.2 | 2026-08-19 | Design2Report7 核验修订：Step2 grep 验收命令限定 backend/frontend 目录（P2-6）；Step4 status.go 注记 `traffic_card_enabled` 由 Build6 Step5 补入（Q3） |
 | v1.3 | 2026-08-19 | Design2Report8 修订：Step1 允许启动旧服务做迁移/健康验证并可清空数据重新开始（P2-1）；YouTube 种子改 select（P2-16）；两段排序 manual/URL 各自维护（Q6）；启动同步刷新 rule_pools 快照（P2-3）；池历史任务端点与 UI（Q12） |
+| v1.4 | 2026-08-19 | 构建前核验修订（用户确认）：预设组种子改用 `Clash.yaml.template.md` 模板 emoji 名（Step1 种子与注记）；同步任务历史保留 7 天超期动态清理（约束表 + Step5 终态清理与单测 + Step6 历史列表注记）；RulesView 取消默认固定为专设操作（Step4 item 13） |

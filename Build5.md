@@ -327,12 +327,12 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
     - name: "无法归属的流量"
       type: select
       proxies: [DIRECT, "国外流量"]
-    - name: "YouTube"
+    - name: "🎬YouTube"
       type: url-test
       proxies: ["节点A", "直接连接"]
   rules:
-    - DOMAIN-SUFFIX,example.com,YouTube
-    - IP-CIDR,1.2.3.0/24,YouTube,no-resolve
+    - DOMAIN-SUFFIX,example.com,🎬YouTube
+    - IP-CIDR,1.2.3.0/24,🎬YouTube,no-resolve
     - GEOIP,CN,直接连接
     - MATCH,无法归属的流量
   ```
