@@ -118,7 +118,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - **实例/节点删除钩子补丁**：与 Build6 Step3 对接——实例删除与 missing 节点删除的收集清单必须包含既有 `xray_ext_users` 推送目标，提交后对可达实例执行面板用户与独立账号两类 RemoveUser；本 Step 单测覆盖两类目标收集与调用序。
   2. **`backend/internal/xray/reconcile.go`**：
      - `Reconcile(ctx, instanceID)`：
-       1. 期望集 =【全部 active 用户 ×（组分配 ∪ 公共节点）】∪【独立账号 × xray_ext_users 记录】；两者都经候选集/可用性过滤（口径同 Build6 Step3 Targets）。
+       1. 期望集 =【全部 active 用户 ×（组分配 ∪ 公共节点）】∪【独立账号 × xray_ext_users 记录】；两者都经候选集/可用性过滤（口径同 Build6 Step3 Targets）；**再与本实例节点（nodes.instance_id=instanceID）取交集，to_push / credential_mismatches 仅含本实例目标，防止误推其他实例**（Design2Report7 P2-4）。
        2. 实际集 = 对实例全部 inbound 调 `GetInboundUsers`（可逐个 tag，email 空传空）。
        3. 四分区：
           - `to_push`：期望有/实例无（user/ext 来源标记）；
@@ -136,7 +136,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - `GET /api/admin/xray/instances/:id/reconcile`；
      - `POST /api/admin/xray/instances/:id/reconcile/push|clean|credentials`。
   4. **`backend/internal/cron/`**：采集任务在用户采集后追加逐独立账号采集与超限检查（同一任务、同样 advanced_mode 入口检查）。
-  5. **单测（fake API）**：ext 创建 generate/manual、email 前缀、**name 唯一与 quota 负数拒绝**、**push_targets 非法目标（非 xray/非四协议/allocatable=0/missing=1/节点或实例停用）400**、编辑留空保留、target diff、超限摘除与重置；对账四分区（含 `ext-` 残留与不匹配前缀）、clean 仅清理勾选项、credential mismatch 修复顺序（先 Remove 后 Add）；**实例/节点删除收集 user+ext 两类目标并 RemoveUser**。
+  5. **单测（fake API）**：ext 创建 generate/manual、email 前缀、**name 唯一与 quota 负数拒绝**、**push_targets 非法目标（非 xray/非四协议/allocatable=0/missing=1/节点或实例停用）400**、编辑留空保留、target diff、超限摘除与重置；对账四分区（含 `ext-` 残留与不匹配前缀）、**期望集实例交集断言（to_push / credential_mismatches 不含其他实例节点目标，P2-4）**、clean 仅清理勾选项、credential mismatch 修复顺序（先 Remove 后 Add）；**实例/节点删除收集 user+ext 两类目标并 RemoveUser**。
 
 - **参考代码/伪代码：**
 
@@ -194,7 +194,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
   4. **`backend/internal/config/export.go`**：升级 v2。
      - `ExportPayload` 增 `Instances []ExportedInstance`（name/slug/api_addr/api_tag/enabled + **`Nodes []ExportedNodeName`（tag/display_name，仅导出 display_name 非空项）**）与 `Accounts []ExportedExtAccount`（name/email/uuid_encrypted/proxy_secret_encrypted/quota/push_targets `[{instance_slug,inbound_tag}]`）；`FormatVersion=2`。
      - 导出时读 xray_instances（含其 xray 节点 display_name 非空项）与 xray_ext_accounts/xray_ext_users（按 slug+tag 关联）；密文原样导出，不导出明文；display_name 为明文展示属性，原样导出。
-     - `Import`：接受 v1（仅配置，保持旧语义）与 v2；v2 在配置覆盖事务内：先收集旧实例连接信息与旧 user/ext 推送清单 → 删除旧 `xray_instances` 与 `xray_ext_accounts`（FK 级联）→ 按 payload 重建 instances（slug 原样沿用，冲突/重复返回 400）与 ext accounts（name/email/密文/quota 原样写入，email 全小写）→ 按 push_targets 写 `xray_ext_users`（node_id 暂空/0，sync_status=pending）。**advanced_mode 一致性**：payload 携带非空 instances/accounts 且 advanced_mode=false 时，事务内置 advanced_mode=true 并在完成提示中说明「检测到 Xray 实例/独立账号，已自动开启高级模式」；payload 无 instances/accounts 且 advanced_mode=false 时，按 OFF 清空口径清理旧高级数据（用户 UUID/代理密码/配额字段、traffic_records、xray_ext_traffic、旧推送记录）。**导入保护**：比较 payload 中 signing_key 与当前库 signing_key；若将变化且存在任一业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 中 `enc:v1:` 敏感字段 / xray_ext_accounts 两密文字段），整个导入拒绝，不做任何变更。
+     - `Import`：接受 v1（仅配置，保持旧语义）与 v2；v2 在配置覆盖事务内：先收集旧实例连接信息与旧 user/ext 推送清单 → 删除旧 `xray_instances` 与 `xray_ext_accounts`（FK 级联）→ 按 payload 重建 instances（slug 原样沿用，冲突/重复返回 400）与 ext accounts（name/email/密文/quota 原样写入，email 全小写）→ 按 push_targets 写 `xray_ext_users`（node_id 暂置 NULL，sync_status=pending；**禁止插入 0——启用外键时违反 FK，Design2Report7 P2-5**）。**advanced_mode 一致性**：payload 携带非空 instances/accounts 且 advanced_mode=false 时，事务内置 advanced_mode=true 并在完成提示中说明「检测到 Xray 实例/独立账号，已自动开启高级模式」；payload 无 instances/accounts 且 advanced_mode=false 时，按 OFF 清空口径清理旧高级数据（用户 UUID/代理密码/配额字段、traffic_records、xray_ext_traffic、旧推送记录）。**导入保护**：比较 payload 中 signing_key 与当前库 signing_key；若将变化且存在任一业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 中 `enc:v1:` 敏感字段 / xray_ext_accounts 两密文字段），整个导入拒绝，不做任何变更。
      - **依赖方向**：`config/export.go` 不 import xray/assembly；由 `server` 注入「导入后处理回调」（与现有 `SetSeedPresets` 同模式），在事务提交后执行：对旧实例 best-effort RemoveUser → 自动节点检测刷新 → **按 (instance slug, inbound tag) 回填 nodes.display_name（未匹配映射计入完成提示，不阻断）** → 按 instance slug+tag 重绑 xray_ext_users.node_id（未匹配置 failed）→ 执行账号对账（Build7 Step1）。返回完成提示字段。
   5. **单测**：OFF 清空保留/删除清单逐表断言、确认词错误（DISABLE 之外 400）、不可达清理记 warn；重新开启不推送；导入保护命中拒绝且库不变；v2 往返（导出→清库→导入）恢复 instances（含 display_name 命名映射）/accounts 与 push_targets、未匹配命名映射计入提示；**off 导入带实例→自动置 advanced_mode=true 并提示**；**off 导入无实例→旧高级数据完整清理**；v1 兼容。
 
@@ -330,7 +330,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 - **产出文件与操作：**
 
   1. **`frontend/src/api/home.ts`**：类型与 Build4/6 后端响应最终对齐（Design2-UI §9.3）：
-     - 顶层 `traffic`：基础模式 `{unlimited:true}`；高级模式 `{unlimited:false, used_bytes, quota_bytes|null, exceeded:boolean}`。
+     - 顶层 `traffic`：基础模式 `{unlimited:true}`；高级模式 `{unlimited, used_bytes, quota_bytes|null, exceeded:boolean}`（**配额不限时亦 `unlimited=true` 且省略 quota_bytes**，与 Build6 Step5 实现及 UI §9.3 形状对齐）。
      - 顶层 `home_rule`：`null` 或 `{rule_id, name, current_version, token, download_url}`。
      - 平台卡普通用户 `status: 'custom'|'ready'|'unassigned'`；管理员 `status:'admin_preview'` + `subscription` 预览字段。
   2. **`frontend/src/views/HomeView.vue`**：按 UI §3.1：
@@ -423,4 +423,6 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build7 构建方案（对账/独立账号/导入导出 v2/OFF 清空/高级 UI/交付收口），6 个 Step；为 Design2 最后一轮 |
 | v1.1 | 2026-08-19 | Design2Report5 核验修订：ext 目标后端强校验与 name/quota 校验；实例/节点删除补 ext 目标清理；导入带实例自动开高级、off 无实例执行 OFF 清空；OFF 确认词固定 DISABLE；长请求统一 120s；端到端剧本补节点命名与导入恢复名称 |
+| v1.2 | 2026-08-19 | Design2Report7 核验修订：Step1 对账期望集与本实例节点取交集写明（P2-4）；Step2 导入重绑前 xray_ext_users.node_id 统一置 NULL，禁止插 0（P2-5） |
+| v1.3 | 2026-08-19 | Design2Report7 复核补齐：Step1 单测补期望集实例交集断言（R3）；Step5 home traffic 类型补高级模式配额不限 `unlimited=true` 分支（R5） |
 

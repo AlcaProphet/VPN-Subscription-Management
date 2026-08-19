@@ -463,7 +463,7 @@ Step 6 ──▶ Step 7（端到端验收）
   8. **`backend/internal/server/server.go`**：
      - 删除 `subSvc.SetOnSubscriptionDeleted(groupSvc.OnSubscriptionDeleted)`；`GroupHandler` 构造不变。
      - `tokenSvc` 照旧；`dlSvc` 构造不变（本 Step 无新依赖）。
-  9. **同步更新单测**：`group_test.go`、`subscription_test.go`、`download_test.go`、`server/download_test.go` 中的旧表 fstest 与断言按新模型改写；**全仓 `grep -R "group_selections\|subscription_group_rel"` 必须为 0 命中（历史存档目录与本文档除外）**。
+  9. **同步更新单测**：`group_test.go`、`subscription_test.go`、`download_test.go`、`server/download_test.go` 中的旧表 fstest 与断言按新模型改写；**代码目录（backend/ 与 frontend/）`grep -R "group_selections\|subscription_group_rel"` 必须为 0 命中**（与验收命令范围一致，Design2Report7 P2-6）。
 
 - **参考代码/伪代码：**
 
@@ -503,7 +503,8 @@ Step 6 ──▶ Step 7（端到端验收）
 
   ```bash
   cd backend && go build ./... && go vet ./... && go test ./...
-  grep -R "group_selections\|subscription_group_rel" -n . --exclude-dir=.git || true
+  # 限定代码目录，避免命中本 Build 文档与存档文档（Design2Report7 P2-6）
+  grep -R "group_selections\|subscription_group_rel" -n backend frontend || true
   ```
 
 - **验收标准：** 编译/静态检查/全部单测通过；grep 无业务代码引用旧表；新下载解析与新 home 形状有单测覆盖（含「平台无订阅行→unassigned」「平台有订阅无版本→no active version」「无效 token→404」三态）。
@@ -606,7 +607,7 @@ Step 6 ──▶ Step 7（端到端验收）
 - **前置条件：** Step 3 验收通过。
 - **产出文件与操作：**
 
-  1. **后端小改 `backend/internal/server/status.go`**：`/api/system/status` 响应增加 `advanced_mode` 布尔（`cfg.GetBool(ctx, "advanced_mode", false)`；应急模式恒 false）。配置文件新增常量 `config.KeyAdvancedMode = "advanced_mode"`（在 `internal/config/config.go`）。
+  1. **后端小改 `backend/internal/server/status.go`**：`/api/system/status` 响应增加 `advanced_mode` 布尔（`cfg.GetBool(ctx, "advanced_mode", false)`；应急模式恒 false）。配置文件新增常量 `config.KeyAdvancedMode = "advanced_mode"`（在 `internal/config/config.go`）。**`traffic_card_enabled` 键不在本 Build 暴露，由 Build6 Step5 补入 status 响应**（Design2Report7 Q3）。
   2. **`frontend/src/api/system.ts`**：`SystemStatus` 类型增加 `advanced_mode: boolean`（该类型在 `vite-env.d.ts` 或全局声明处，同步更新）。
   3. **`frontend/src/api/subscription.ts`**：类型与函数按新模型重写——`SubscriptionItem { id, slug, name, platform_id, product_type: 'yaml'|'subs'|'generic-subs', current_version, content_kind: 'blueprint'|'upload'|null, platform_name? }`；`listSubscriptions` 返回平铺列表；`createSubscription({platform_id, name, slug?})`；`updateSubscription(id,{name})`。
   4. **`frontend/src/api/home.ts`**：`PlatformCard` 与响应类型按 Design2-UI §3.1/§9.3 更新（普通用户 `status: 'custom'|'ready'|'unassigned'`，管理员 `status:'admin_preview'`；新增 `home_rule`、`traffic` 顶层字段）。`refreshHomeToken` 逻辑不变但仅 ready/custom 时可用。
@@ -889,3 +890,4 @@ Step 6 ──▶ Step 7（端到端验收）
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build4 构建方案（Go 1.26 + 1009 迁移 + 旧分发拆除 + 规则素材池），7 个 Step；后续 Build5/6/7 范围说明 |
 | v1.1 | 2026-08-19 | Design2Report5 核验修订：预设组种子默认成员改为 `groups:["直接连接"]`（空节点数组）；首页 home_rule 字段统一为 `{rule_id,name,current_version,token,download_url}` |
+| v1.2 | 2026-08-19 | Design2Report7 核验修订：Step2 grep 验收命令限定 backend/frontend 目录（P2-6）；Step4 status.go 注记 `traffic_card_enabled` 由 Build6 Step5 补入（Q3） |

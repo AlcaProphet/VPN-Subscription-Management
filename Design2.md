@@ -78,7 +78,7 @@ Clash YAML 与 Shadowrocket .conf 订阅语法与产物形态均不同：Clash �
 
 | 来源 | 录入方式 | 输出行为 |
 |------|---------|---------|
-| `manual` | 未配置 Xray 服务（或需补充节点）时，管理员按页面模板表单手动添加；**协议支持 `ClashOfficial.yaml.template.md` 中全部代理协议类型**（ss / vmess / vless / trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 / snell / anytls / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale 等；**ssr 除外**，见 4.5）；节点参数按所选协议以 JSON 存储该协议的 Clash 原生字段集（含凭据字段：uuid / password / private-key 等） | 静态节点：Clash YAML 按存储字段**原样内联渲染**（proxies 条目，零转换）；SR 节点订阅按 4.5 链接映射转为节点链接，**无法转为链接的协议跳过并在生成结果中提示**；**凭据以 AES-256-GCM 加密存储（复用签名密钥派生机制，与 UUID 加密存储同口径）** |
+| `manual` | 未配置 Xray 服务（或需补充节点）时，管理员按页面模板表单手动添加；**协议支持 19 项代理协议封闭清单**（ss / vmess / vless / trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 / snell / anytls / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale；**ssr 除外**，见 4.5；模板中的 gost-relay / hysteria2-realm / socks / sudoku **同因不纳入**——无可靠链接转换参照，见 [Design2Report7.md](./docs/AchievedDocuments/Design2Report7.md) Q1）；节点参数按所选协议以 JSON 存储该协议的 Clash 原生字段集（含凭据字段：uuid / password / private-key 等） | 静态节点：Clash YAML 按存储字段**原样内联渲染**（proxies 条目，零转换）；SR 节点订阅按 4.5 链接映射转为节点链接，**无法转为链接的协议跳过并在生成结果中提示**；**凭据以 AES-256-GCM 加密存储（复用签名密钥派生机制，与 UUID 加密存储同口径）** |
 | `xray` | 已配置 Xray（高级模式）时，由**实例检测入库**：实例保存时 + XrayInstancesView 手动「刷新节点」触发 `ListInbounds` 检测（手动为主，不做定时轮询，避免 Xray API 并发受限压力）；以 instance_id+tag 为 upsert 键（nodes UNIQUE(instance_id, tag)，见 5.9）：新 inbound 入库（默认 enabled）、字段变更更新、**已入库节点的 enabled / allocatable / 装配勾选状态与 display_name 自定义显示名不被检测覆盖**；Xray 侧已删除的 inbound 标记提示由管理员处置（重新检测到该 tag 时 missing 复位为 0）；装配页侧边自动提示检测到的 Xray 节点供选用；手动添加仍并行可用 | 动态节点，下载时按用户凭据注入节点行（UUID / 代理密码，见 5.5/5.7）；**装配器勾选的 Xray 节点构成装配时点候选集**（模板可注入的节点上限；组管理候选集以已激活蓝图并集为准，见 5.6），组在候选集内为每组分配子集，下载按组分配注入（见 5.6） |
 
 - **节点稳定标识**（Xray 节点）：`nodes.name` 由系统生成 `{实例slug}-{入站tag}`（如 `tokyo-a-vless`；实例 slug 为 xray_instances.slug 列，`instance-` 前缀短码，见 5.9），**创建后不可修改**，作为代理组定义、装配快照、候选集与导入重绑的内部稳定引用键；manual 节点的 name 仍为管理员录入名，创建后不可修改
@@ -87,14 +87,14 @@ Clash YAML 与 Shadowrocket .conf 订阅语法与产物形态均不同：Clash �
 - **名称字符集与唯一性**：nodes.name 与 display_name 均禁止控制字符、逗号与首尾空白，允许中文/emoji；**有效渲染名全局唯一**（跨全部节点：manual 的 name、xray 的 name 与 display_name），由 nodes 表表达式唯一索引兜底（见 5.9）；display_name 冲突时 409 拒绝；Xray 检测生成的 nodes.name 若含非法字符或与任一节点有效渲染名撞名，记错误日志并跳过该 inbound，不中断其余检测、不崩溃退出
 - **跨命名空间校验**：有效渲染名不得与任何 `proxy_groups.name`、强制组名「直接连接」「国外流量」「无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT」「REJECT」「REJECT-DROP」「PASS」「COMPATIBLE」重复（Clash 的 proxies 与 proxy-groups/内建代理共享名称空间）；manual 节点创建、xray display_name 编辑与检测入库统一按此校验
 - **协议可扩展注册**：协议类型不硬编码——应用层维护协议注册表（表单 schema + SR/标准链接映射规则 + **每协议敏感字段清单**：uuid / password / private-key 等凭据字段，仅清单内字段加密存储与解密渲染；**编辑回显时密文字段空值 = 保留原凭据**，见 5.9），节点 protocol 存字符串（无硬编码枚举 CHECK，由应用层按注册表校验）；Clash YAML 按存储字段原样渲染天然支持新协议（零转换）；SR/标准节点链接按注册表映射转换，无映射的协议跳过并提示（同 4.5 口径）；新增协议仅需扩展注册表，无 schema 迁移
-- 协议范围：manual 来源支持 ClashOfficial 全量代理协议（见上表，ssr 除外，见 4.5）；**xray 来源支持 vless / vmess / trojan / shadowsocks 四协议**（Xray UserManager 用户增删 API 的源码能力边界）；检测到的其他协议 inbound（无 per-user 能力）以 **nodes.allocatable=0** 标记不可分配并在 UI 提示；**allocatable=0 节点禁止组分配、禁止 is_public、排除在推送与下载注入之外**（见 5.9）
+- 协议范围：manual 来源支持 19 项代理协议封闭清单（见上表；ssr 与模板中的 gost-relay / hysteria2-realm / socks / sudoku 除外，见 4.5 与 [Design2Report7.md](./docs/AchievedDocuments/Design2Report7.md) Q1）；**xray 来源支持 vless / vmess / trojan / shadowsocks 四协议**（Xray UserManager 用户增删 API 的源码能力边界）；检测到的其他协议 inbound（无 per-user 能力）以 **nodes.allocatable=0** 标记不可分配并在 UI 提示；**allocatable=0 节点禁止组分配、禁止 is_public、排除在推送与下载注入之外**（见 5.9）
 
 ### 3.3 代理组（Clash）
 
-- **三类强制组**（系统强制勾选，不可移除）：
-  - **直接连接**：内含内置 DIRECT
+- **三类强制组**（系统强制勾选，不可移除；三组渲染类型均为 `select`）：
+  - **直接连接**：内含内置 DIRECT（成员固定 `[DIRECT]`）
   - **国外流量**
-  - **无法归属的流量**：兜底组（见 3.6 兜底规则）
+  - **无法归属的流量**：兜底组（见 3.6 兜底规则；成员固定 `[DIRECT, 国外流量]`）
 - **强制组落库口径**：三个强制组为系统内置渲染结构（**不入 proxy_groups 表**、代理组管理页不管理，见 Design2-UI.md §7.1）；「直接连接」内含 DIRECT、「无法归属的流量」为 MATCH 兜底目标；**「国外流量」组成员在装配器步骤③从本次装配候选节点勾选，并随装配快照保存**（selection_json / render_plan_json），重新编辑自快照恢复；装配结果恒为三强制组 + 管理员勾选的预设/自建组（勾选 D 得 ABCD，不勾任何可选组仅得强制组）；下载渲染按用户可用节点过滤各组成员（见 5.7），强制组不与特定用户绑定
 - **预设组库**：内置参考 `Clash.yaml.template.md` 个人配置的可选组（YouTube / Netflix / 哔哩哔哩 / 国外流媒体 / 苹果海外服务 / 苹果国内服务 / AI / Steam / Steam下载 等），管理员勾选启用（**启用状态持久化于 proxy_groups.enabled，预设组默认启用**），作为更丰富的细节化配置；**种子数据写入名称 + 组类型 + 默认成员「直接连接」**，保证任何勾选都非空，管理员可后续编辑成员
 - **自建组**：支持管理员自定义新建代理组
@@ -185,7 +185,7 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
   - 节点名（有效渲染名；remarks / #fragment）经 URL 编码，支持中文与 emoji；域名非 ASCII 字符转 Punycode；**参数值避免空格**（URLSearchParams 的 `+` 编码与部分解析器不对称，见 Node-Link-Standards.md 第四章）
 - **通用节点订阅（generic-subs，装配生成）**：**不输出 STATUS/REMARKS 头部**；明文内容为逐行节点链接，**模板文件存储明文、下载注入完成后整体 base64 编码下发**；节点链接按**标准 URI**渲染（映射规则见 Node-Link-Standards.md 第二章）：**vmess 用纯 V2rayN JSON**（`vmess://base64(JSON)`，名称放 `ps`，不追加 query/fragment）；**vless 用标准形态**（`vless://uuid@host:port?encryption=none&type=tcp&security=...&flow/sni/fp/pbk/sid...`，按 protocol_json.security 分支）；trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 等同理按标准映射；不可转协议跳过并提示；**xray 节点注入同样走标准形态**（vless 标准 security 参数、vmess 纯 V2rayN JSON、trojan/ss 凭据替换）
 - **分流规则（conf）**：.conf 正文以纯文本下发（无特殊编码）
-- **ssr 协议不纳入**：manual 节点协议范围不含 ssr——生态无可靠的 SSR 链接生成参照（urlclash-converter 对 SSR 只收不生成、静默丢弃），自研编码无验证基准，故移除
+- **ssr 协议不纳入**：manual 节点协议范围不含 ssr——生态无可靠的 SSR 链接生成参照（urlclash-converter 对 SSR 只收不生成、静默丢弃），自研编码无验证基准，故移除；gost-relay / hysteria2-realm / socks / sudoku 同因不纳入（19 协议封闭清单，见 3.2 与 [Design2Report7.md](./docs/AchievedDocuments/Design2Report7.md) Q1）
 - **空产物校验**：SR subs 与 generic-subs 在跳过不可转协议后有效链接数为 0 时，按空产物拒绝生成（见 4.1）
 - 三类下载端点均返回禁缓存头（`no-store` 等，AGENTS §4.5）
 
@@ -371,7 +371,7 @@ groups（+ default_quota 默认月度配额 GB）
 | `xray_users` | user_id, **instance_id（REFERENCES xray_instances(id) ON DELETE CASCADE，实例删除/导入覆盖时级联清理推送记录）**, inbound_tag, **node_id（NOT NULL REFERENCES nodes(id) ON DELETE CASCADE，节点删除时推送记录级联清理）**, email, sync_status, last_error；**复合 PK (user_id, instance_id, inbound_tag)** | 用户 Xray 账号推送状态（**不含 UUID**）；外键 ON DELETE CASCADE（用户删除级联）；**生命周期：AddUser 前写 pending、成功 synced、失败 failed；RemoveUser 成功删行、失败置 failed 可重试（见 5.5）**；**instance_id / inbound_tag 为 node_id 的冗余快照**（OFF 清空与删除前收集便利；**对账期望集由 active×节点计算，不依赖本表行**，由节点检测 upsert 与节点删除级联同步维护） |
 | `traffic_records` | **PK(user_id, ym)**, user_id, ym, uplink, downlink | 自然月流量累计（采集差值 UPSERT；**字节整数，ym 按 UTC**）；外键 ON DELETE CASCADE（用户删除级联） |
 | `xray_ext_accounts`（新增） | id, **name（备注名，UNIQUE）**, **email（系统分配 `ext-{id}@vpn.local`，全小写，与 `user-` 前缀体系区分）**, uuid_encrypted / proxy_secret_encrypted（凭据面板生成或手填接管，AES-256-GCM 同用户凭据机制）, **quota（NULL/0 不限流量）**, **quota_exceeded**, created_at | **独立 Xray 账号（见 5.11）**：面板账号体系之外、手动管理；凭据供管理员复制分发至自定义订阅覆盖或其他场景；不参与下载渲染与响应头机制（无 Token 概念） |
-| `xray_ext_users`（新增） | ext_account_id, instance_id, inbound_tag, **node_id（可空：0/NULL=待重绑；REFERENCES nodes(id) ON DELETE CASCADE）**, sync_status, last_error；**复合 PK (ext_account_id, instance_id, inbound_tag)**；外键 ON DELETE CASCADE（账号 / 实例级联；节点删除级联） | 独立账号推送记录，结构镜像 xray_users；**推送集合 = 手动勾选的实例/inbound（仅限四协议、allocatable=1、missing=0、所属实例 enabled=1 节点，可用性口径同 5.5 推送集合），不参与组分配 / 公共节点 / 候选集口径**；**配置导入时先按 instance slug+tag 落 pending（node_id 留空），节点检测后重绑 node_id，未匹配目标置 failed（见 5.4）** |
+| `xray_ext_users`（新增） | ext_account_id, instance_id, inbound_tag, **node_id（可空，NULL=待重绑；REFERENCES nodes(id) ON DELETE CASCADE；禁止插入 0——启用外键时违反 FK）**, sync_status, last_error；**复合 PK (ext_account_id, instance_id, inbound_tag)**；外键 ON DELETE CASCADE（账号 / 实例级联；节点删除级联） | 独立账号推送记录，结构镜像 xray_users；**推送集合 = 手动勾选的实例/inbound（仅限四协议、allocatable=1、missing=0、所属实例 enabled=1 节点，可用性口径同 5.5 推送集合），不参与组分配 / 公共节点 / 候选集口径**；**配置导入时先按 instance slug+tag 落 pending（node_id 留空），节点检测后重绑 node_id，未匹配目标置 failed（见 5.4）** |
 | `xray_ext_traffic`（新增） | **PK(ext_account_id, ym)**, ext_account_id（**REFERENCES xray_ext_accounts(id) ON DELETE CASCADE**）, ym, uplink, downlink | 独立账号自然月流量（采集差值 UPSERT；字节整数，ym 按 UTC）；独立新表，不改动 traffic_records 用户维度结构 |
 | `subscriptions`（改） | **name（保留）** + **UNIQUE(platform_id)** + product_type（**yaml/subs/generic-subs**）展示/装配属性（直接上传内容不做格式解析） | **每平台一份订阅条目**（装配生成模板或直接上传静态内容；版本管理保留；同平台需要两种格式时建两个平台）；**name 保留**：下载文件名与列表 UI 直接复用（现有 withPlatformHeaders 依赖）；**全新部署口径：1009 以 ALTER TABLE 增加 product_type 并建 UNIQUE(platform_id) 索引，不重建表、不迁移旧数据**；SR conf 不入本表（入规则实体，见 4.4） |
 | `platforms`（改） | + product_type（**yaml/subs/generic-subs，默认 yaml**） | 平台承载的订阅产物格式（装配时按此过滤目标平台）；**订阅条目 product_type 须与平台 product_type 一致**（创建/装配时校验；直接上传内容不做格式解析）；**新部署默认平台口径：Clash Verge→yaml、v2rayNG→generic-subs、Shadowrocket→subs（Setup 种子写入，管理员可在平台编辑页校正）** |

@@ -584,8 +584,8 @@
 
 | 文件 | 增量 |
 |------|------|
-| `api/system.ts` | `/api/system/status` 响应新增 `advanced_mode` 布尔字段；`useSystemStore` 据此驱动侧边栏与路由守卫（见 2.1/2.4） |
-| `api/home.ts` | 首页端点新增：流量字段（used_bytes / quota_bytes，可空）、首页默认规则卡片字段（规则名 / 版本信息 / 规则 Token 链接 / 未设置标记；**仅首页展示，个人中心不展示**）、**管理员平台卡片预览形态字段**（模板信息 + 激活版本摘要，替代原池内订阅平铺与一键导入/复制字段） |
+| `api/system.ts` | `/api/system/status` 响应新增 `advanced_mode` 布尔字段；`useSystemStore` 据此驱动侧边栏与路由守卫（见 2.1/2.4）；**另新增 `traffic_card_enabled` 布尔（默认 true）**：首页流量卡（3.1.1）与个人中心「本月流量」行（3.2）显隐共用（后端 Build6 Step5 暴露） |
+| `api/home.ts` | 首页端点新增：**顶层 `traffic` 字段 `{unlimited, used_bytes, quota_bytes|null, exceeded}`**（基础模式 `{unlimited:true}`；高级模式配额不限时亦 `unlimited=true` 且省略 quota_bytes，见 3.1.1 三态）、首页默认规则卡片字段（规则名 / 版本信息 / 规则 Token 链接 / 未设置标记；**仅首页展示，个人中心不展示**）、**管理员平台卡片预览形态字段**（模板信息 + 激活版本摘要，替代原池内订阅平铺与一键导入/复制字段） |
 | `api/subscription.ts` | 订阅行增 product_type（yaml / subs / generic-subs）/ 内容形态字段；创建/编辑请求移除组关联字段；按平台预览端点（会话凭据，无 subscription_id 参数，Design2.md 第一章） |
 | `api/group.ts` | group_selections 相关字段/函数全部移除；新增节点分配与 default_quota 函数（`getGroupDetail` / `updateGroupNodes` / `updateGroupQuota`，端点契约见 9.1 `api/group.ts`，off 时 403 兜底） |
 | `api/rule.ts` | 增 is_home_default 字段与设置默认端点；创建请求首版本改为可选 |
@@ -657,3 +657,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v1.3 | 2026-08-18 | 构建前决策落盘：新增 generic-subs 产物类型与「通用节点订阅」页签（A1/A2）、首页仅展示分流规则卡片（A5）、素材池整体排序（B7）、全新部署纯增量 1009 DDL、候选集并集重算、名称不可修改与字符集校验、节点 missing 恢复补推、对账凭据不一致分区、协议注册表端点、pool_sync_tasks 持久化、xray 节点仅 missing 可删等（详见本轮审阅修订） |
 | v1.4 | 2026-08-19 | Xray 节点显示名（display_name）：xray 节点「命名」入口与检测回执批量命名（6.1/6.3/8.2）、有效渲染名双行展示（4.3/5.3/7.2）、display-name API 与 detectNodes added_nodes（9.1）、显示名 409 冲突映射（9.4）、跨命名空间唯一校验说明（6.2/6.3，含代理组名/强制组名/Clash-mihomo 内建保留代理名） |
 | v1.5 | 2026-08-19 | Design2Report5 核验修订：组名双向命名空间校验与组类型可编辑（7.2）、OFF 确认词 DISABLE（4.7）、导入带实例自动开高级提示（4.7）、预览旧名 Tooltip 与命名客户端提示（5.3.5/6.3）、推送目标过滤补全（8.5）、API 契约补 group/settings/userQuota/sync/stats（9.1/9.3）、长请求统一 120s（9.2） |
+| v1.6 | 2026-08-19 | Design2Report7 复核补齐：§9.3 `api/system.ts` 增 `traffic_card_enabled` 字段；`api/home.ts` traffic 字段形状补齐 `{unlimited, used_bytes, quota_bytes|null, exceeded}`（与 Build6 Step5 实现对齐，Q3） |

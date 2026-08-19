@@ -80,7 +80,7 @@
 | 2 | `backend/internal/group/group.go`、`backend/internal/server/group.go`、`backend/internal/server/middleware.go`、测试 | advancedMode 中间件；group_nodes/候选集并集/公共节点/default_quota |
 | 3 | `backend/internal/xray/{credentials,sync}.go`、`backend/internal/user/admin.go`、`backend/internal/user/user.go`、`backend/internal/approval/approval.go`、`backend/internal/group/group.go`、`backend/internal/node/node.go`、`backend/internal/server/xray.go`、测试 | 凭据首建事务；触发器 wiring；xray_users 状态机；补偿 RemoveUser；批量初始化 |
 | 4 | `backend/internal/download/download.go`、`backend/internal/xray/render.go`、`backend/internal/assembly/`（render plan 读取）、测试/benchmark | 直接上传原样；蓝图全量重渲染；占位替换/base64；Subscription-Userinfo |
-| 5 | `backend/internal/xray/{stats,quota}.go`、`backend/internal/cron/`、`backend/cmd/server/main.go`、`backend/internal/server/xray.go`、测试 | 逐用户 QueryStats、原子增量、超限摘除、重置配额、采集状态 |
+| 5 | `backend/internal/xray/{stats,quota}.go`、`backend/internal/cron/`、`backend/cmd/server/main.go`、`backend/internal/server/{xray,home,status}.go`、测试 | 逐用户 QueryStats、原子增量、超限摘除、重置配额、采集状态、home 高级流量与流量卡片开关 |
 | 6 | `backend/internal/xray/fake_test.go` 或 `backend/tests/`、集成测试 | 假 HandlerService/StatsService；全链路验证 |
 
 ---
@@ -257,7 +257,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - 订阅删除（`subscription.Service.Delete` 提交后，通过注入回调 `onSubDeleted` 或 server handler 调用）；
      - assembly generate 首版自动激活后（Build5 handler，若 target_syntax 非 sr-conf 且 auto_activated）。
      - 每次调用幂等：全量重算并只删多余分配。
-  4. **`backend/internal/server/group.go`**：新增 `PUT /api/admin/groups/:id/nodes`、`PUT /api/admin/groups/:id/quota`；GET 详情返回节点分配（含 is_public 标注与 display_name，供 UI 展示有效渲染名）、`candidate_nodes`（当前候选集并集，含 `in_partial_blueprint` 标注供 UI 提示）、default_quota；这些路由套 advancedMode。
+  4. **`backend/internal/server/group.go`**：新增 `PUT /api/admin/groups/:id/nodes`、`PUT /api/admin/groups/:id/quota`；GET 详情返回节点分配（含 is_public 标注与 display_name，供 UI 展示有效渲染名）、`candidate_nodes`（当前候选集并集，含 `in_partial_blueprint` 标注供 UI 提示）、default_quota；这些路由套 advancedMode。**「非候选集已分配」标注为防御性兜底展示**：SetNodes 拒绝候选集外节点、候选集重算事件自动删除越界分配，该态仅在重算失败/时序窗口出现，UI 红警保留不删（Design2Report7 P2-2）。
   5. **`backend/internal/server/server.go`**：`/api/admin/xray` 路由组套 advancedMode（Step 1 的实例路由现在收口）；构造 group service 注入后续同步回调字段。
   6. **`backend/internal/server/status.go`**：确认 advanced_mode 暴露（Build4 已做，本 Step 加单测保证 off 时 false、on 时 true）。
   7. **单测**：off 时 xray/组分配端点 403；候选集并集解析（空并集/多蓝图并集/仅部分模板候选）；SetNodes 越候选集拒绝；is_public 拒绝；RecomputeCandidateSet 删除多余分配且不删公共节点以外的合法分配。
@@ -405,7 +405,7 @@ Step 4+5 ──▶ Step 6（集成验收）
        - 解密用户 UUID/代理密码；**UUID 为空** → 占位替换为注释 `# 节点未开通，请联系管理员`，并执行 Clash 蓝图空组降级；**advanced_mode=off** → 占位统一替换为 `# Xray 高级模式未启用`（**优先于「节点未开通」**），同样执行蓝图空组降级。
        - 按 target_syntax 分支：
          - `clash-yaml`：按 `render_plan_json` **全量重渲染**。proxies = manual 节点（计划中原样，名称用 `renderName`）+ 动态 xray 节点（vless/vmess/trojan/ss 按协议构造 Clash 条目，`name` 用节点当前 `renderName`）；**render_plan 中的节点引用为 `nodes.name` 稳定键，渲染时通过节点表映射为当前 `renderName`**；所有 proxy-groups 按可达注入节点递归重建（可达集合含 manual 静态节点与 DIRECT；**单个成员不在可达集合内时逐项剔除**；剔除后完全不可达的组整体删除；强制组「直接连接」保留；强制组为空降级 `[DIRECT]`；rules 引用被剔除组的目标降级 DIRECT 并保留行）。
-         - `sr-subs` / `generic-subs`：**装配生成模板下载时无论有无占位都必须整体重新 base64**（存储明文、下发 base64，Design2 §5.7）；占位存在时先替换 `# {{xray_nodes}}` 为动态节点行（SR/generic 链接形态，复用 Build5 links.go 的注入渲染函数，凭据为用户 UUID/代理密码），无占位则只重新 base64。
+         - `sr-subs` / `generic-subs`：**装配生成模板下载时无论有无占位都必须整体重新 base64**（存储明文、下发 base64，Design2 §5.7）；占位存在时先替换 `# {{xray_nodes}}` 为动态节点行（SR/generic 链接形态，复用 Build5 links.go 的注入渲染函数，凭据为用户 UUID/代理密码），无占位则只重新 base64。**本 Step 起蓝图内容的编码由本分支接管：Build5 Step4 的 base64 收口步骤对蓝图内容不再生效（改由本分支统一执行），避免重复编码（Design2Report7 Q2/R2）**。
          - `sr-conf`：无节点/占位，原样。
      - 动态节点渲染名统一取 `renderName(node)`（display_name 非空则用之，否则 `{实例slug}-{入站tag}`）；同名冲突由 Build4 表达式唯一索引 + 应用层校验保证；改名实时生效，不触发快照改写。
   2. **`backend/internal/download/download.go`**：
@@ -461,7 +461,7 @@ Step 4+5 ──▶ Step 6（集成验收）
 
 ### Step 5：流量采集、配额检查、超限摘除与重置配额
 
-**本 Step 完成后，cron 每 10 分钟（可配）逐用户串行采集 Xray 流量并原子累加；超限自动 RemoveUser + quota_exceeded=1；管理员重置配额恢复推送；实例采集状态可观测。**
+**本 Step 完成后，cron 每 10 分钟（可配）逐用户串行采集 Xray 流量并原子累加；超限自动 RemoveUser + quota_exceeded=1；管理员重置配额恢复推送；实例采集状态可观测；首页流量字段高级模式形态与流量卡片开关暴露可用。**
 
 - **目标：** 落地 Design2 §5.8。
 - **前置条件：** Step 3 验收通过（可用客户端与同步状态机）。
@@ -491,7 +491,10 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `POST /api/admin/xray/users/:id/reset-quota`；
      - `PUT /api/admin/users/:id/quota`（或在 `server/user.go` 注册并套 advancedMode）：请求 `{quota_override: number|null}`，NULL=继承组默认配额、0=不限流量；写 users.quota_override（Design2 §5.10 users 配额覆盖端点）。
   5. **`backend/internal/user/admin.go` List** 补本月用量与有效配额字段（供 Build7）。
-  6. **单测（fake StatsAPI）**：pattern 完整前缀断言（fake 拒绝空 pattern）；reset=true 原子语义（fake 返回旧值后清零）；差值累加 UPSERT；重启后 counter 重置差值口径；超限摘除与失败状态；NULL/0 不限；重置恢复并清当月；OFF 跳过采集；已删用户外键失败静默跳过。
+  6. **首页流量高级形态与流量卡片开关暴露**（Design2 §5.10，Design2Report7 Q3）：
+     - `internal/server/home.go`：`advanced_mode=on` 时顶层 `traffic` 返回 `{unlimited:false, used_bytes, quota_bytes: null|bytes, exceeded}`（used_bytes 取 traffic_records 当月 ym 聚合；quota_bytes 取 EffectiveQuota，NULL/0 不限时 `unlimited=true` 且省略 quota_bytes；exceeded 取 users.quota_exceeded）；基础模式维持 `{unlimited:true}`。
+     - `internal/server/status.go`：`/api/system/status` 响应新增 `traffic_card_enabled` 布尔（`cfg.GetBool(ctx, "traffic_card_enabled", true)`，补 Build4 Step4 预留注记），首页流量卡与个人中心「本月流量」行显隐共用。
+  7. **单测（fake StatsAPI）**：pattern 完整前缀断言（fake 拒绝空 pattern）；reset=true 原子语义（fake 返回旧值后清零）；差值累加 UPSERT；重启后 counter 重置差值口径；超限摘除与失败状态；NULL/0 不限；重置恢复并清当月；OFF 跳过采集；已删用户外键失败静默跳过；**home traffic 两模式形态与 status traffic_card_enabled 默认 true**。
 
 - **参考代码/伪代码：**
 
@@ -589,4 +592,6 @@ Step 4+5 ──▶ Step 6（集成验收）
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build6 构建方案（Xray 后端核心），7 个 Step（Step 0~6）；对账/独立账号/OFF 清空/导入导出与前端明确划归 Build7 |
 | v1.1 | 2026-08-19 | Design2Report5 核验修订：missing 1→0 检测恢复自动补推接线；实例/节点删除收集面板用户 + 既有 xray_ext_users 两类目标；检测复用 node 包命名校验；下载重渲染逐项过滤悬空成员并补单测 |
+| v1.2 | 2026-08-19 | Design2Report7 核验修订：Step5 新增 home traffic 高级模式形态实现与 `/api/system/status` 暴露 `traffic_card_enabled`（Q3）；Step2 注明非候选集标注为防御性兜底展示（P2-2） |
+| v1.3 | 2026-08-19 | Design2Report7 复核补齐：Step4 sr-subs 分支写明蓝图编码由本分支接管、Build5 base64 收口对蓝图内容不再生效（R2），并修复该 bullet 缩进 |
 

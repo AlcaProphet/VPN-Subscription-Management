@@ -80,7 +80,7 @@
 | 1 | `backend/internal/node/`、`backend/internal/server/node.go`、`backend/internal/server/server.go`、测试 | 协议注册表、manual 节点 CRUD、凭据加密/回显保留、xray 行 display-name 命名与只读占位 |
 | 2 | `backend/internal/proxygroup/`、`backend/internal/server/proxy_group.go`、测试 | preset/custom、定义 JSON、DAG 校验、预设启用开关 |
 | 3 | `backend/internal/assembly/`（models.go/render_clash.go/render_sr.go/validate.go/registry 联动）、测试 | 四语法渲染、链接编码、快照模型、跳过项提示 |
-| 4 | `backend/internal/server/assembly.go`、`backend/internal/version/version.go` 小改、测试 | context/preview/generate/blueprint 端点、版本列表 blueprint 标记 |
+| 4 | `backend/internal/server/assembly.go`、`backend/internal/version/version.go` 小改、`backend/internal/download/download.go`（subs/generic-subs 下载 base64）、测试 | context/preview/generate/blueprint 端点、版本列表 blueprint 标记、下载编码收口 |
 | 5 | `frontend/src/api/{node,proxyGroup}.ts`、`frontend/src/views/admin/{NodesView,ProxyGroupsView}.vue`、router | 动态表单、只读约束、排序、DAG 前端提示 |
 | 6 | `frontend/src/api/assembly.ts`、`frontend/src/components/DiffView.vue`、`frontend/src/views/admin/AssemblyView.vue` + `assembly/` 子组件、`package.json`（diff） | 五页签四装配器、六步/单页、预览 diff、重新编辑 |
 | 7 | `frontend/src/views/admin/{SubscriptionsView,VersionManageView,RulesView}.vue`、`frontend/src/api/{version,subscription,rule}.ts`、`backend` benchmark 测试 | 入池未生效引导、装配版本标签、重新编辑入口、验收 |
@@ -350,7 +350,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
 ### Step 4：装配 HTTP 端点与版本/蓝图集成
 
-**本 Step 完成后，`/api/admin/assembly/context`、`/api/admin/assembly/preview`、`/api/admin/assembly/generate`、`/api/admin/versions/:id/blueprint` 可用；generate 在同一版本事务内写入蓝图；版本列表返回 blueprint 标记。**
+**本 Step 完成后，`/api/admin/assembly/context`、`/api/admin/assembly/preview`、`/api/admin/assembly/generate`、`/api/admin/versions/:id/blueprint` 可用；generate 在同一版本事务内写入蓝图；版本列表返回 blueprint 标记；subs / generic-subs 装配模板下载整体 base64 下发（基础模式下载可用）。**
 
 - **目标：** 把渲染内核接入 HTTP 与版本组件。
 - **前置条件：** Step 3 验收通过。
@@ -369,7 +369,11 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
   2. **`backend/internal/version/version.go` 小改**：`Version` 增加 `Blueprint bool`（json `blueprint`）；`ListVersions` SQL 增加 `EXISTS(SELECT 1 FROM assembly_blueprints b WHERE b.version_id = v.id)` 列。
   3. **`backend/internal/server/server.go`**：构造 assembly 服务（注入 store/version/node/proxygroup/pool/cfg/logger），注册路由。
   4. **错误处理**：校验类 400（message 定位到字段/组/池）；目标平台尚无订阅条目 → 400「请先在订阅管理为该平台创建订阅条目」（不自动创建）；目标不存在 404；版本组件错误按既有映射；所有响应统一结构。
-  5. **单测**：preview 不产生版本与 blueprint 行；generate 首版 auto_activated=true 且 blueprint 1:1；第二版 auto_activated=false 且未激活；AfterCreate 失败时版本文件与记录回滚；blueprint 悬空引用标记。
+  5. **subs / generic-subs 下载 base64 收口（`backend/internal/download/download.go`）**（Design2 §4.5/§5.7，Design2Report7 Q2）：
+     - `ResolveUserDownload` 解析平台唯一订阅后：订阅 `product_type ∈ {subs, generic-subs}` 且当前激活版本为装配生成模板（assembly_blueprints EXISTS）→ **下发前整体 base64 编码**；直接上传内容（无 blueprint）按上传字节原样返回；Clash YAML 不受影响；禁缓存头不变。
+     - 普通用户预览（`PreviewForUser` 用户分支）与下载同口径（按自身渲染）；管理员预览保持返回原文明文（Design2 §5.7 预览口径）。
+     - 本 Step 只实现「无注入的下载 base64」；高级模式注入后重新 base64 由 Build6 Step4 在此路径上叠加，不得重复编码。
+  6. **单测**：preview 不产生版本与 blueprint 行；generate 首版 auto_activated=true 且 blueprint 1:1；第二版 auto_activated=false 且未激活；AfterCreate 失败时版本文件与记录回滚；blueprint 悬空引用标记；**subs/generic-subs 装配模板下载返回 base64、直接上传原字节、Clash 不受影响**。
 
 - **测试与验收命令：**
 
@@ -433,7 +437,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `TypeTargetStep.vue`：类型只读；目标平台按 product_type 过滤（无匹配时空态引导建平台）；sr-conf 目标规则实体选择（含空实体后缀与新建空规则快捷）。
      - `HeaderStep.vue`：Clash 头部表单（默认值按 `Clash.yaml.template.md` 头部内置常量预填）+「一键采用默认值」ConfirmModal；SR subs STATUS/REMARKS；sr-conf [General]；generic 无头部。
      - `NodesGroupsStep.vue`：manual/xray 双来源分组；**xray 节点显示 render_name，有自定义 display_name 时副行系统名**；allocatable=0 置灰；missing=1 不列；代理组三区块（强制组锁定；预设组勾选；自建组勾选）；「国外流量」成员配置。
-     - `RulesStep.vue`：已勾选池有序列表（拖拽/上移下移）+ 每池目标选择 + 手动规则行；Clash 与 sr-conf 共用，目标控件分别为代理组选择与 PROXY/DIRECT。
+     - `RulesStep.vue`：已勾选池有序列表（拖拽/上移下移）+ 每池目标选择 + 手动规则行；Clash 与 sr-conf 共用，目标控件分别为代理组选择与 PROXY/DIRECT；**Clash 场景手动规则行类型下拉排除 USER-AGENT**（Clash 不支持该类型，Design2 §3.5，Design2Report7 P2-3）。
      - `PreviewStep.vue`：`preview` 请求（不落库）→ 纯文本预览；「与当前激活版本对比」开关 → `DiffView`；跳过项 `a-alert warning` 清单；占位标记旁 Tooltip。
      - `GenerateStep.vue` / 回执：生成校验前端预检 + 后端兜底；成功 `a-result`「已入池未生效，请激活」（`auto_activated=true` 时「首个版本已自动激活」）+「去版本管理激活」/「继续装配」。
   6. **重新编辑流**：路由 `?tab={target_syntax}&edit_version_id={id}` → `getBlueprint` 载入 → 顶部 alert「正在重新编辑版本 vN」→ 失效引用红标 + 一键剔除 → 正常生成新版本。
@@ -512,4 +516,5 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build5 构建方案（节点/代理组/四类装配器/分发收口），7 个 Step；xray 运行时能力明确划归 Build6/7 |
 | v1.1 | 2026-08-19 | Design2Report5 核验修订：代理组名双向命名空间校验；组类型创建后允许修改；组内容约束收紧为三选一口径；预设组种子回归；停用预设组拒绝装配；preview/generate 统一 120s；NodesGroupsStep 显示名双行展示 |
+| v1.2 | 2026-08-19 | Design2Report7 核验修订：Step4 新增 subs/generic-subs 装配模板下载整体 base64 实现步骤与单测（Q2，基础模式下载可用）；Step6 Clash 手动规则行类型下拉排除 USER-AGENT（P2-3） |
 
