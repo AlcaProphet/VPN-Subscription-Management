@@ -203,11 +203,11 @@
 
 ### R13-01 DiffView 未使用 jsdiff，手写 LCS 在大规模产物对比下有性能风险
 
-- **现象：** Build5 Step6 要求 DiffView 使用 jsdiff `diffLines`（`diff` 依赖已安装于 `package.json`：`diff ^9.0.0` + `@types/diff`），但实际实现引用 `frontend/src/lib/diff.ts` 的手写 LCS 算法；`diff` 依赖全仓无任何 import。手写实现分配 (n+1)×(m+1) 的 DP 数组，对 1 万行级订阅产物 diff 需约 10^8 个数字单元（数百 MB 内存），浏览器可能卡死或崩溃。
-- **根因：** R12-21 修复时注释称「环境无 npm 依赖时本地实现」，但依赖实际已安装；未切回 jsdiff。
+- **现象：** Build5 Step6 要求 DiffView 使用 jsdiff `diffLines`（`diff` 依赖已安装于 `package.json`：`diff ^9.0.0` + `@types/diff`），但实际实现引用 `frontend/src/lib/diff.ts` 的手写 LCS 算法；`diff` 依赖全仓无任何 import（且 node_modules 中从未实际安装，仅 lock 锁定）。手写实现分配 (n+1)×(m+1) 的 DP 数组，对 1 万行级订阅产物 diff 需约 10^8 个数字单元（数百 MB 内存），浏览器可能卡死或崩溃。
+- **根因：** R12-21 修复时依赖未实际安装（注释「环境无 npm 依赖时本地实现」），改用本地实现后未切回 jsdiff。
 - **影响范围：** 装配预览「与当前激活版本对比」在大规则量场景不可用；`diff`/`@types/diff` 成为死依赖。
-- **修复方案：** DiffView 改为 `import { diffLines } from 'diff'`，删除 `src/lib/diff.ts`（或仅保留类型适配）；补大规模文本 diff 不卡顿的单测/断言。（决策后同步更新至 Build5 Step6 验收注记）
-- **状态：** ☐ 待修复
+- **修复方案（已实施，用户确认 2026-08-20）：** ① `npm install` 按 lock 安装 `diff`/`@types/diff`；② `DiffView.vue` 改为 `import { diffLines } from 'diff'`，删除手写 `src/lib/diff.ts`；③ 新增手动启动开关与防过载机制：新旧总行数 ≤ 5000 行自动计算，超阈值时不自动计算、显示警告与「仍要启动行级对比」按钮，由用户手动启动；④ 所有计算传 `timeout: 2000`，超时返回粗粒度结果并提示；⑤ 新增 `tests/diff-view.spec.ts` 覆盖三色渲染/targetMissing 整体新增/超大文本手动开关三场景。
+- **状态：** ✅ 已修复（2026-08-20，验证：`npm run build` 与 `npm test`（35 passed）通过）
 
 ### R13-02 装配页未按 Build5 Step6 拆分子组件，步骤模板整段重复
 
@@ -363,3 +363,4 @@ cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold
 | v1.4 | 2026-08-20 | 增加“附、后续修复顺序（交接给下一轮）”：记录 R12-05 → R12-20 → R12-21 → R12-22 → R12-03 的继续修复顺序、涉及文件、验收命令，供下一轮对话直接接续。 |
 | v1.5 | 2026-08-20 | 按交接顺序完成 R12-05/20/21/22/03 并标记 ✅：补齐素材池交互单测；代理组 DAG 环检测与悬空红标/一键剔除；装配页分步/单页双形态、步骤条、头部默认、节点/组/规则步骤、预览 Diff、生成回执与失效剔除；订阅/规则/版本页装配入口带参闭环；素材池详情顶部编辑与面包屑返回。验证：`vue-tsc --noEmit`、前端单测（32 passed）、`vite build` 通过。 |
 | v1.6 | 2026-08-20 | Build4/Build5 深度核查（全部验收命令实测通过：后端 build/vet/test、前端 build/32 单测、渲染 benchmark ≈ 1ms/op、旧表/1.25/占位 grep 均 0 命中；R12-01~24 修复全部核实落地），新追加 R13-01~09：DiffView 未用 jsdiff（手写 LCS 性能风险）、装配页未拆分子组件、死代码与忽略 error、vmess tls 口径（用户确认修正）、onXrayChanged 钩子缺失、openvpn 敏感字段（用户确认合理例外）、preview name_changed（用户确认合理简化）、Clash 条目键序、cron 无单测。 |
+| v1.7 | 2026-08-20 | 修复 R13-01：安装 diff/@types/diff，DiffView 切换 jsdiff diffLines，删除手写 src/lib/diff.ts；新增手动启动开关（总行数 >5000 时不自动计算，需点击「仍要启动行级对比」）与 timeout:2000 超时保护；新增 tests/diff-view.spec.ts。验证：`npm run build`、`npm test`（35 passed）。 |
