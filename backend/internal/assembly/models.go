@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 )
 
 // TargetSyntax 装配目标语法。
@@ -112,7 +113,10 @@ func (m *OrderedMap) MarshalJSON() ([]byte, error) {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		kb, _ := json.Marshal(k)
+		kb, err := json.Marshal(k)
+		if err != nil {
+			return nil, fmt.Errorf("序列化 OrderedMap 键失败: %w", err)
+		}
 		buf.Write(kb)
 		buf.WriteByte(':')
 		vb, err := json.Marshal(m.values[k])

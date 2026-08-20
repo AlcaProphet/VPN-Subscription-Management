@@ -281,7 +281,7 @@
 - **根因：** Build5 Step7 装配入口改造引入前端调用，后端对应路由未同步落地；NoRoute 对 /api/ 前缀 GET 返回 SPA 页面放大了故障形态。
 - **影响范围：** 全部订阅的版本管理页；管理员每次进入均见错误提示且装配入口退化。
 - **修复方案（用户已决策 2026-08-20）：** 后端补 `GET /api/admin/subscriptions/:id`（与 group/platform 的 GET /:id 同款模式，返回 SubscriptionItem）；同时 NoRoute 对 `/api/` 前缀 GET 未匹配改为返回 404 JSON（与非 GET 一致，SPA 回退不受影响）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-02 Clash proxy-groups 条目键序不稳定（R13-08 同类遗漏面）
 
@@ -289,7 +289,7 @@
 - **根因：** R13-08 仅修复 proxies 条目（clashProxy 改 OrderedMap），proxy-groups 条目遗漏。
 - **影响范围：** 同一输入重复生成产生虚假 diff，影响预览对比与版本 diff 可读性；不影响客户端解析（YAML 键序无语义）。
 - **修复方案：** 组条目改有序结构输出（name/type/proxies 固定序），并补键序稳定单测（同 TestClashProxyKeyOrder 口径）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-03 链接渲染静默丢弃注册表已填字段（anytls/tuic/wireguard）
 
@@ -297,7 +297,7 @@
 - **根因：** 注册表字段与链接渲染白名单未保持同步，逐协议映射遗漏。
 - **影响范围：** 管理员已填写的 ALPN/指纹/预共享密钥不进订阅链接，对应节点连接参数缺失。
 - **修复方案（用户已决策 2026-08-20，并入 R14-04 统一执行）：** 三协议渲染白名单补齐对应参数并补单测（含「注册表字段 vs 渲染输出」一致性遍历测试）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-04 链接参数对 Node-Link-Standards 不全（registry 与渲染双缺）
 
@@ -305,7 +305,7 @@
 - **根因：** 注册表 schema 按常用子集定义，未与标准表逐项对齐。
 - **影响范围：** 对应参数用户无从填写；trojan 的 LinkMappings 声明误导。
 - **修复方案（用户已决策 2026-08-20）：** 全部按 Node-Link-Standards §2 补齐——registry 缺失字段（hysteria alpn/mport/insecure、hysteria2 alpn、vless alpn、vmess alpn/fp）与渲染输出一并补齐；trojan `alpn` 保留并补渲染支持。统一补双方向一致性单测。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-05 链接空参数集尾部多 `?`，http/socks5 空凭据输出 `:@`
 
@@ -313,7 +313,7 @@
 - **根因：** 缺「无参数不输出 `?`」「凭据有才输出」的后处理（Node-Link-Standards §2 公共规则与 http/socks5 行明示）。
 - **影响范围：** 生成的链接与标准形态不符，部分客户端解析异常。
 - **修复方案：** encodeQuery 结果为空时不拼 `?`；http/socks5 凭据均为空时不输出 userinfo 段；补对应单测。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-06 render_plan_json 不自包含，违反 Build5 Step3 与版本快照语义（Build6 Step4 前置依赖）
 
@@ -337,7 +337,7 @@
 - **根因：** Build4 Step4 item 13 定稿口径（ConfirmModal「取消后首页分流规则卡片将回到未设置空态」）未落地。
 - **影响范围：** 取消首页默认规则无二次确认，误点即生效。
 - **修复方案：** 取消默认走 ConfirmModal（文案按 Design2-UI §4.6）确认后调接口。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-09 装配生成流不写 pooled_sub 标记，「已入池未生效」引导对装配流缺失
 
@@ -345,7 +345,7 @@
 - **根因：** Build5 Step7 item 2「上传/装配生成后」双口径只覆盖了上传流。
 - **影响范围：** 装配生成的新版本回列表后缺少入池未生效引导，与上传流行为不一致（Design2 §4.4 / UI §4.1）。
 - **修复方案：** 装配生成成功且 auto_activated=false 时，按目标订阅写入 `pooled_sub_${subscriptionId}`（订阅 id 由目标平台唯一条目解析）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-10 PoolTab 桌面表格未做断点互斥，<768 表格与卡片同时渲染
 
@@ -353,38 +353,38 @@
 - **根因：** 双态互斥类名漏加。
 - **影响范围：** 移动端池列表重复渲染（表格+卡片），布局混乱。
 - **修复方案：** 表格容器加 `hidden md:block`（与 NodesView 等页同款互斥）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-11 订阅管理两处规格偏差
 
 - **现象：** ① 桌面表格态「已入池未生效」仅行底色+「去激活」按钮，无行内 a-alert info 风格标签（移动卡片有，SubscriptionsView.vue:150-183；UI §4.1 口径为行内 a-alert 标签）；② 删除订阅 ConfirmModal 影响清单缺「不级联自定义订阅」项（:236，§4.1 四项清单之一）。
 - **根因：** Build5 Step7 item 2/Build4 Step4 item 10 的两处 UI 细节未完整落地。
 - **修复方案：** 桌面行内补 a-alert 标签；删除清单补「不级联自定义订阅」。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-12 版本管理页三处规格偏差
 
 - **现象：** ① 移动端卡片「更多 ▾」菜单（VersionManageView.vue:113-125）无「重新编辑」项（桌面 :296 有）；② 空态引导「暂无版本，可通过上传文件 / 在线编辑 / 装配生成创建」为静态串，分享/自定义页也显示「装配生成」（:272；UI §10.2 限定订阅与规则页）；③ 「装配生成」按钮在页头（:266）而非 §4.2 的创建弹窗页签栏右侧。
 - **修复方案：** 移动端菜单补「重新编辑」；空态引导按 ownerType 条件渲染；按钮位置按 §4.2 迁移（或确认维持现状并回写 Design2-UI §4.2）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-13 平台编辑与规则空实体两处引导缺失
 
 - **现象：** ① `PlatformEditView.vue:130-131` 的 400 冲突走全局 Notify.error 而非 §4.4 表单级内联（后端文案正确，platform.go:41-50）；② `RulesView.vue:223,257` 空实体行缺「可作为 SR 分流规则装配目标」Tooltip/副文案（§4.6，现仅创建流程内有引导）。
 - **修复方案：** 400 改表单级展示；空实体行补 Tooltip/副文案。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-14 节点/代理组管理页 UI 细节簇
 
 - **现象：** ① manual 标签色 blue 应为灰（NodesView.vue:194,226；§6.1 manual 灰/xray 紫）；② 非 missing xray 删除置灰缺 Tooltip「该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测」（:216）；③ manual 名称禁空格无前端实时校验（:68-84,243）；④ 命名 409 为通用 Notify 非字段级（:142-143）；⑤ preset/custom 标签色颠倒（ProxyGroupsView.vue:202,228：实 preset 紫/custom 蓝，§7.1 定 preset 蓝/custom 绿）；⑥ 预设启用 Checkbox 在独立列而非行首（:209-213）；⑦ DAG 环检测在保存时而非选择子组时即时拒绝，文案不符 §7.2（:125-134）；⑧ 拖拽无 HolderOutlined 手柄且未按 ≥768/<768 断点门控（useSortableList.ts；ProxyGroupsView.vue:260-267）。
 - **修复方案：** 逐项按 Design2-UI §6.1/§7.1/§7.2/§1.2 口径收口。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-15 装配页 UI 细节簇
 
 - **现象：** ① TypeTargetStep 无「无匹配平台空态引导+直达平台管理链接」（TypeTargetStep.vue:24-26；§5.3.0）；② sr-conf 目标规则实体缺「新建空规则实体」快捷入口（:19-23；§5.3.4）；③ Clash 头部默认值未预填（fixed_params_text 初始 `'{}'`，仅「一键采用默认值」按钮应用，AssemblyView.vue:67；Build5 Step6 要求预填）；④ RulesStep 池有序列表无桌面端拖拽（RulesStep.vue:42-43；§5.3.1）；⑤ PreviewStep 缺 `# {{xray_nodes}}` 占位旁 Tooltip「下载时按用户分配节点动态注入」（§5.3.5）；⑥ 重编辑顶部 alert 缺版本号 vN（AssemblyView.vue:393；§5.4）；⑦ Build5 Step6 item7 所列装配器单测（页签回退/步骤跳过/表单校验/preview 调用/失效剔除）未落地，tests/ 无装配页 spec；⑧ 池弹窗 URL 无前端 http/https 校验（PoolTab.vue:58-78，仅后端 400 兜底）。
 - **修复方案：** 逐项按 §5.3/§5.4/Build5 Step6 收口；补装配页 spec。
-- **状态：** ☐ 待修复
+- **状态：** ◧ 部分修复（TypeTarget/Header/Pool URL/Preview/重编辑提示等已落地；RulesStep 拖拽与装配页 spec 仍待补）
 
 ### R14-16 server/home.go 与 profile.go 接入层直接 SQL（AGENTS §五分层红线）
 
@@ -392,56 +392,56 @@
 - **根因：** Build1~Build4 期间首页/个人中心查询就地编写，未下沉业务层。
 - **影响范围：** 违反「接入层不直接操作存储」强约束；业务规则散在接入层，难以复用与测试。
 - **修复方案（用户已决策 2026-08-20：本轮一并整改）：** 查询下沉业务层（home 查询并入既有服务或新建 internal/home），profile 走 user 服务；移除 ProfileHandler.users 死字段。
-- **状态：** ☐ 待修复
+- **状态：** ◧ 部分修复（profile 与 assembly 接入层已下沉；home.go 直连 SQL 仍待收口）
 
 ### R14-17 CopyField 组件 0 引用、PageHeader 复用不足
 
 - **现象：** `components/CopyField.vue` 全仓 0 引用（含 tests），`HomeView.vue:87-118` 内联实现复制逻辑（Design2-UI §3.1.2 规定复制规则链接用 CopyField）；`PageHeader` 仅 3/13 管理页使用，其余页内联 `<h2>`（Build4 Step4 item 17「后续页面统一使用，禁止各页继续复制实现」）。
 - **修复方案：** HomeView 复制规则链接/平台卡链接改用 CopyField；新页面统一 PageHeader（旧页内联头逐步收口）。
-- **状态：** ☐ 待修复
+- **状态：** ◧ 部分修复（HomeView 已接入 CopyField；PageHeader 全量复用仍待继续）
 
 ### R14-18 ValidateNodeName/ValidateProxyGroupName 复制实现未共享基础函数
 
 - **现象：** `node.go:100-138` 两函数为逐行复制实现，仅空格策略不同；Build5 Step2 要求「共享基础字符集校验函数（禁止复制两份不同实现），空格策略在调用侧参数化」。
 - **影响范围：** 行为等价、无功能影响；结构不符合文档要求，后续改字符集需双处同步。
 - **修复方案：** 抽 `validateName(name, allowSpace bool)` 基础函数，两导出函数参数化调用。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-19 error 处理三处遗漏
 
 - **现象：** ① `assembly/models.go:115` `kb, _ := json.Marshal(k)`（实际不可触发，违约束字面）；② `pool/sync.go:332` failTask `_ = s.store.TxImmediate(...)` 兜底终态写回失败无任何感知；③ `rule/rule.go:112` rollbackRecord 首个 DELETE `_, _ =`（边界项，可类比清理白名单）。
 - **修复方案：** ①② 改为处理 error（failTask 失败至少记 error 日志）；③ 随修复一并确认口径。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-20 死代码一批
 
 - **现象：** `oidc/flow.go:258` `var _ = log.Info` 残留（R13-03 同类）；`custom.go:148/163` Get/ListByUser；`log/log.go:36/38` 包级 Warn/Debug；`registry.go:277` ProtocolNames；`pool.go:181` Get；`rule.go:229/248` Get/Name；`share.go:225` Name；`store.go:197` IsNoRows；`server/profile.go:19` ProfileHandler.users 死字段；`subscription_test.go:70/81` 死测试辅助 seedPlatform/timeNowUnix；`api/subscription.ts:30` checkSlug；`api/request.ts:64` handleApiError。（`node.SetOnXrayChanged` 属 Build6 预留，不计。）
 - **修复方案：** 逐项删除（确认无 Build6/7 消费计划者）；profile 死字段随 R14-16 一并处理。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-21 request.ts 429 Retry-After 提示分支不可达
 
 - **现象：** `request.ts:68-70` 构造 ApiError 时未从 `err.response.headers` 提取 `retry-after`，`retryAfter` 恒 undefined，「请 N 秒后重试」提示永不显示（后端 ratelimit.go:53 确实设置了该头）。
 - **修复方案：** 响应拦截器内提取 `retry-after` 头写入 ApiError。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-22 旧模型注释残留三处
 
 - **现象：** ① `download.go:22` ErrUnassigned 注释残留「组未选定」旧语义（实际为「平台无订阅条目」）；② `platform.go:494-495/553` Delete 注释引用已 DROP 的「组的关联与选定/needs_reselect」；③ `PlatformEditView.vue:128` 注释残留「为各用户组选定」。
 - **修复方案：** 更新为新模型语义注释。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-23 R12-03 部分回潮：PoolDetail 条目列表 <768 卡片分支未落地
 
 - **现象：** R12-03 修复方案含「详情条目列表补 <768 卡片分支」且已标 ✅；实际 `PoolDetail.vue` 条目区仅 a-table（:186 起），全文件无 md:hidden / hidden md:block 双态分支（manual/url 分段标题行已落地，不受影响）。
 - **修复方案：** 条目列表补 <768 卡片分支，或确认表格横滚为可接受形态并回写 R12-03 记录。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-24 路由守卫单测未覆盖系统状态未加载场景
 
 - **现象：** `tests/router-guard.spec.ts:53-64` 仅覆盖 advanced_mode:false，未覆盖 status=null（未加载）时 `!== true` 判定（Build4 Step4 验收标准点名「含系统状态未加载场景，前端路由单测覆盖」）。
 - **修复方案：** 补 status=null 重定向用例。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-25（已决策）config.Get 错误的系统性静默
 
@@ -449,7 +449,7 @@
 - **根因：** 配置读取的 fail-safe 惯例。
 - **影响范围：** 低危（方向安全）；DB 故障时配置静默回退默认，可能掩盖故障。
 - **修复方案（用户决策 2026-08-20）：** 对关键路径改为显式错误——签名密钥读取、advanced_mode 读取（高级模式开关判定）与相关鉴权/同步钩子入口优先显式返回错误或告警；非关键展示类配置（公告、站点名、邮件参数等）维持 fail-safe 并补口径注释。纳入 Build4/5 修复收口执行。
-- **状态：** ☐ 待修复（已决策）
+- **状态：** ◧ 部分实施（新增 GetBoolStrict 并在 status 等关键路径显式报错；其余关键路径待收口）
 
 ### R14-26（已确认）node/proxygroup 先读后写 TOCTOU 窗口
 
@@ -570,3 +570,4 @@ cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold
 | v1.9 | 2026-08-20 | 逐项复核 R12/R13 全部条目与代码事实一致性：R13-01~09 修复全部核实落地（七子组件接入且 AssemblyView 双份模板已消除、vmess tls/sni 含双单测、XrayChangedFunc 钩子定义与两处调用、TestClashProxyKeyOrder、cron 三用例），R12 抽样（URL 快照/source_url/空 URL/蓝图目标列）与事实一致；无 ☐/◧ 残留、无新增问题、无需修复。验证：后端 `go build/vet/test ./...` 全绿、前端 `npm run build` + `npm test`（35 passed）。 |
 | v2.0 | 2026-08-20 | Build4/Build5 双重核验（事后验收）追加 R14-01~R14-26：验收命令全绿实测（后端 build/vet/test、前端 build/35 单测、benchmark Clash≈15ms/SR≈1.1ms、grep 四项 0 命中、全新库迁移实测）基础上的深度核查新发现——P1：后端缺 GET /api/admin/subscriptions/:id（R14-01）、render_plan 不自包含（R14-06）、xray_candidates 恒空（R14-07，后两项为 Build6 前置依赖）；P2：proxy-groups 键序（R14-02）、链接参数缺失与形态（R14-03/04/05）、取消默认无确认（R14-08）、装配流 pooled 标记（R14-09）、PoolTab 双态（R14-10）、分层红线（R14-16）；其余为 UI 规格簇与整洁项。用户决策：R14-01 后端补路由 + NoRoute 对 /api/ 前缀 GET 改 404 JSON；R14-03/04 全部按 Node-Link-Standards 标准表补齐；R14-06/07 随 Build6 Step4/Step2 实施时修；R14-16 本轮一并整改；R14-25/26 维持待确认。同步修订 Build6.md v2.0 / Build7.md v1.10 / Build5.md v1.9（事前预检确定性问题闭合）。 |
 | v2.1 | 2026-08-20 | 第三轮 Build6/7 事前预检用户决策落盘：Q1 先执行 Build4/5 修复收口，完成后方可启动 Build6（附、后续修复顺序已新增优先级 0）；Q2 全局任务 registry 下沉为中性包 `internal/tasks`（Build6 v2.2 / Build7 v1.12）；Q3 OFF 清空维持“状态翻转+任务登记同事务”字面口径并接受回滚残留幽灵任务边界（Build6 v2.2 / Build7 v1.12）；Q4a R14-25 改为关键路径显式错误（其余 fail-safe 补口径注释），状态更新为 ☐ 待修复（已决策）；Q4b R14-26 维持现状，状态更新为 ✅ 已确认。 |
+| v2.2 | 2026-08-20 | Build4/5 修复收口首轮执行：完成 R14-01/02/03/04/05/08/09/10/11/12/13/14/18/19/20/21/22/23/24 与 N1/N2/N4；R14-15/16/17/25 部分落地（见各状态）；R14-06/07 按既有决策随 Build6 实施；N3 前端单测仍待补。验证：后端 `go build/vet/test ./...` 全绿，前端 `npm run build` + `npm test`（36 passed）。 |

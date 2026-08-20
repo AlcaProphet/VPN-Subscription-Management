@@ -25,6 +25,8 @@ const emit = defineEmits<{ preview: []; 'toggle-diff': [] }>()
     </Space>
     <Alert v-for="(w, i) in previewWarnings" :key="i" type="warning" show-icon :message="w" />
     <Alert v-for="(s, i) in previewSkipped" :key="'s'+i" type="warning" show-icon :message="`跳过 ${s.name}：${s.reason}`" />
+    <Alert v-if="previewText.includes('# {{xray_nodes}}')" type="info" show-icon
+           message="# {{xray_nodes}} 占位将在下载时按用户分配节点动态注入" />
     <div v-if="previewText">
       <h3 class="font-semibold mb-2">预览</h3>
       <pre class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap">{{ previewText }}</pre>

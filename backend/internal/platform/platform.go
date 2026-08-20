@@ -491,8 +491,7 @@ func sanitizeExt(ext string) string {
 }
 
 // Delete 级联删除（Design1 §4.4，关键约束）：全部安装包文件 + 全部订阅（含版本文件）+ 指向它们的下载 Token
-// + 全部自定义订阅（含版本文件与 Token）+ 组在该平台的关联与选定（外键 CASCADE）
-// 平台删除后组在该平台已无订阅可重选，不置 needs_reselect 标记
+// + 全部自定义订阅（含版本文件与 Token）；订阅/自定义订阅按平台唯一条目模型级联清理（R14-22 新语义）
 func (s *Service) Delete(ctx context.Context, id int64) error {
 	var installers []InstallerFileItem
 	var files []string
@@ -550,7 +549,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM custom_subscriptions WHERE platform_id = ?`, id); err != nil {
 			return err
 		}
-		// 6) 删平台（组在该平台的选定由外键 ON DELETE CASCADE 清理；不置 needs_reselect）
+		// 6) 删平台（订阅/自定义订阅已先级联清理；无旧“组选定”模型，R14-22）
 		if _, err := tx.ExecContext(ctx, `DELETE FROM platforms WHERE id = ?`, id); err != nil {
 			return fmt.Errorf("删除平台失败: %w", err)
 		}

@@ -186,6 +186,22 @@ func (s *Service) GetBool(ctx context.Context, key string, def bool) bool {
 	return b
 }
 
+// GetBoolStrict 关键路径布尔读取：DB 错误直接返回，不做 fail-safe（R14-25 用户决策）。
+func (s *Service) GetBoolStrict(ctx context.Context, key string, def bool) (bool, error) {
+	v, err := s.Get(ctx, key)
+	if err != nil {
+		return false, err
+	}
+	if v == "" {
+		return def, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def, fmt.Errorf("解析配置 %s 失败: %w", key, err)
+	}
+	return b, nil
+}
+
 // GetInt 类型化读取：解析失败按默认值并记 warn 日志
 func (s *Service) GetInt(ctx context.Context, key string, def int) int {
 	v, err := s.Get(ctx, key)

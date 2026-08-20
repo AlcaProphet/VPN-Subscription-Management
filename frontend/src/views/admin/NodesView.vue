@@ -1,11 +1,12 @@
 <!-- NodesView.vue：节点管理页（Design2-UI §6）——manual/xray 双态列表 + 动态表单 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag } from 'ant-design-vue'
+import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
 import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, type NodeItem, type ProtocolInfo, type NodeForm } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
+import { ApiError } from '@/api/request'
 
 const loading = ref(false)
 const nodes = ref<NodeItem[]>([])
@@ -13,6 +14,7 @@ const protocols = ref<ProtocolInfo[]>([])
 const editing = ref<NodeItem | null>(null)
 const creating = ref(false)
 const naming = ref<NodeItem | null>(null)
+const namingError = ref('')
 const displayNameInput = ref('')
 const toDelete = ref<NodeItem | null>(null)
 const deleting = ref(false)
@@ -26,6 +28,10 @@ const form = reactive<NodeForm>({
   name: '', protocol: 'vless', host: '', port: 443, protocol_json: {},
 })
 const nameReadonly = computed(() => editing.value !== null)
+const nameSpaceError = computed(() => {
+  if (!creating.value || nameReadonly.value) return ''
+  return form.name.includes(' ') ? '名称禁止空格' : ''
+})
 
 async function load() {
   loading.value = true
@@ -131,16 +137,26 @@ async function confirmPublic() {
     publicChanging.value = false
   }
 }
+function openNaming(n: NodeItem) {
+  naming.value = { ...n }
+  displayNameInput.value = n.display_name ?? ''
+  namingError.value = ''
+}
 async function saveDisplayName() {
   if (!naming.value) return
   saving.value = true
+  namingError.value = ''
   try {
     await setNodeDisplayName(naming.value.id, displayNameInput.value)
     Notify.success('显示名已更新')
     naming.value = null
     await load()
   } catch (err) {
-    Notify.error((err as Error).message)
+    if (err instanceof ApiError && err.status === 409) {
+      namingError.value = err.message // R14-14：显示名冲突字段级提示
+    } else {
+      Notify.error((err as Error).message)
+    }
   } finally {
     saving.value = false
   }
@@ -191,7 +207,7 @@ function setField(key: string, val: unknown) {
         </Table.Column>
         <Table.Column key="source" title="来源" width="100">
           <template #default="{ record }">
-            <Tag :color="record.source === 'manual' ? 'blue' : 'purple'">{{ record.source }}</Tag>
+            <Tag :color="record.source === 'manual' ? 'default' : 'purple'">{{ record.source }}</Tag>
           </template>
         </Table.Column>
         <Table.Column key="protocol" title="协议" data-index="protocol" width="110" />
@@ -212,8 +228,10 @@ function setField(key: string, val: unknown) {
           <template #default="{ record }">
             <Space>
               <Button v-if="record.source === 'manual'" size="small" @click="openEdit(record)">编辑</Button>
-              <Button v-if="record.source === 'xray'" size="small" @click="naming = { ...record }; displayNameInput = record.display_name ?? ''">命名</Button>
-              <Button size="small" danger :disabled="record.source === 'xray' && !record.missing" @click="toDelete = record">删除</Button>
+              <Button v-if="record.source === 'xray'" size="small" @click="openNaming(record)">命名</Button>
+              <Tooltip :title="record.source === 'xray' && !record.missing ? '该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测' : ''">
+                <Button size="small" danger :disabled="record.source === 'xray' && !record.missing" @click="toDelete = record">删除</Button>
+              </Tooltip>
             </Space>
           </template>
         </Table.Column>
@@ -223,15 +241,17 @@ function setField(key: string, val: unknown) {
         <div v-for="n in nodes" :key="n.id" class="border rounded-lg p-3">
           <div class="flex items-center justify-between">
             <span class="font-medium">{{ n.render_name }}</span>
-            <Tag :color="n.source === 'manual' ? 'blue' : 'purple'">{{ n.source }}</Tag>
+            <Tag :color="n.source === 'manual' ? 'default' : 'purple'">{{ n.source }}</Tag>
           </div>
           <div v-if="n.source === 'xray' && n.display_name" class="text-xs text-gray-500">{{ n.name }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ n.protocol }} · {{ n.host }}:{{ n.port }}</div>
           <div class="mt-2 flex items-center gap-2">
             <Switch :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
             <Button v-if="n.source === 'manual'" size="small" @click="openEdit(n)">编辑</Button>
-            <Button v-if="n.source === 'xray'" size="small" @click="naming = { ...n }; displayNameInput = n.display_name ?? ''">命名</Button>
-            <Button size="small" danger :disabled="n.source === 'xray' && !n.missing" @click="toDelete = n">删除</Button>
+            <Button v-if="n.source === 'xray'" size="small" @click="openNaming(n)">命名</Button>
+            <Tooltip :title="n.source === 'xray' && !n.missing ? '该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测' : ''">
+              <Button size="small" danger :disabled="n.source === 'xray' && !n.missing" @click="toDelete = n">删除</Button>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -239,7 +259,7 @@ function setField(key: string, val: unknown) {
 
     <Modal :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="720" :confirm-loading="saving" @ok="save" @cancel="creating = false">
       <Form layout="vertical">
-        <Form.Item label="名称" required>
+        <Form.Item label="名称" required :validate-status="nameSpaceError ? 'error' : undefined" :help="nameSpaceError || undefined">
           <Input v-model:value="form.name" :disabled="nameReadonly" placeholder="禁止空格/逗号，支持中文与 emoji" />
         </Form.Item>
         <div class="grid grid-cols-3 gap-3">
@@ -274,6 +294,7 @@ function setField(key: string, val: unknown) {
 
     <Modal :open="naming !== null" title="节点显示名" :confirm-loading="saving" @ok="saveDisplayName" @cancel="naming = null">
       <p class="text-sm text-gray-500">仅 Xray 节点可设置显示名；留空保存将清空并恢复系统名。</p>
+      <Alert v-if="namingError" type="error" show-icon class="mb-2" :message="namingError" />
       <Input v-model:value="displayNameInput" placeholder="系统名" />
     </Modal>
 

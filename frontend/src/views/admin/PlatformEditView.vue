@@ -8,6 +8,7 @@ import {
   type InstallerFileItem, type InstallerURLItem,
 } from '@/api/platform'
 import { Notify } from '@/components/Notify'
+import { ApiError } from '@/api/request'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,6 +16,7 @@ const id = computed(() => (route.params.id ? Number(route.params.id) : 0))
 const isEdit = computed(() => id.value > 0)
 
 const saving = ref(false)
+const formError = ref('')
 const uploading = ref(false)
 const uploadPct = ref(0)
 const deletingFile = ref<string>('') // 正在删除的磁盘文件名
@@ -125,10 +127,14 @@ async function save() {
     } else {
       await createPlatform({ name: form.name, description: form.description, product_type: form.product_type, schemes, extra_headers: headers, installer_urls })
       Notify.success('平台已创建')
-      router.push({ path: '/admin/platforms', query: { created: '1' } }) // 返回列表触发「为各用户组选定」引导
+      router.push({ path: '/admin/platforms', query: { created: '1' } }) // 返回列表触发「可前往订阅管理/订阅装配」引导（R14-22 新语义）
     }
   } catch (err) {
-    Notify.error((err as Error).message)
+    if (err instanceof ApiError && err.status === 400) {
+      formError.value = err.message // R14-13：400 冲突/校验改为表单级展示
+    } else {
+      Notify.error((err as Error).message)
+    }
   } finally {
     saving.value = false
   }
@@ -144,6 +150,7 @@ async function save() {
 
     <Card>
       <Form layout="vertical" @submit.prevent="save">
+        <Alert v-if="formError" type="error" show-icon class="mb-3" :message="formError" />
         <Form.Item label="名称" required>
           <Input v-model:value="form.name" :maxlength="100" placeholder="平台名称（不强制唯一）" />
         </Form.Item>

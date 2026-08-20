@@ -27,6 +27,12 @@ const switchLabel = computed(() => (activationOwner.value ? '激活/分发' : '�
 const switchContent = computed(() =>
   activationOwner.value ? '激活后对全体用户生效' : '切换后所有下载立即生效',
 )
+// UI §10.2：版本列表空态引导仅订阅/规则页显示「装配生成」，分享/自定义不显示
+const emptyText = computed(() =>
+  activationOwner.value
+    ? '暂无版本，可通过上传文件 / 在线编辑 / 装配生成创建'
+    : '暂无版本，可通过上传文件 / 在线编辑创建',
+)
 
 // 装配生成入口：订阅/规则页显示；订阅页额外带 platform_id 与对应装配器页签
 const assemblyUrl = ref('')
@@ -109,9 +115,10 @@ onMounted(() => {
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
-// 移动端卡片「更多 ▾」菜单：编辑 / 删除（当前激活版本禁删）
+// 移动端卡片「更多 ▾」菜单：重新编辑（装配）/ 编辑 / 删除（当前激活版本禁删）
 function cardMenuItems(v: VersionItem) {
   return [
+    ...(v.blueprint ? [{ key: 'reedit', label: '重新编辑' }] : []),
     { key: 'edit', label: '编辑' },
     {
       key: 'delete', label: '删除', danger: true, disabled: !!v.current,
@@ -120,6 +127,7 @@ function cardMenuItems(v: VersionItem) {
   ] as MenuProps['items']
 }
 function onCardMenuClick(key: string, v: VersionItem) {
+  if (key === 'reedit') void reEdit(v)
   if (key === 'edit') void openEdit(v.version_no)
   if (key === 'delete') toDelete.value = v.version_no
 }
@@ -263,13 +271,12 @@ function fmtTime(ts: string): string {
         <h2 class="text-lg font-semibold m-0">版本管理{{ resourceName ? `（${resourceName}）` : '' }}</h2>
       </div>
       <Space>
-        <Button v-if="assemblyUrl" @click="router.push(assemblyUrl)">装配生成</Button>
         <Button type="primary" @click="openCreate">创建新版本</Button>
       </Space>
     </div>
 
     <TriStateList :loading="loading" :empty="versions.length === 0"
-                  empty-text="暂无版本，可通过上传文件 / 在线编辑 / 装配生成创建">
+                  :empty-text="emptyText">
       <!-- ≥768 表格态 -->
       <template v-if="!isMobile">
         <Table :data-source="versions" :pagination="false" row-key="version_no" size="middle">
@@ -336,6 +343,9 @@ function fmtTime(ts: string): string {
     <!-- 创建新版本弹窗：文件上传 / 在线文本编辑双页签（在线编辑从空白起点开始） -->
     <Modal v-model:open="createOpen" title="创建新版本" :footer="null" :width="560">
       <Tabs v-model:activeKey="createMode">
+        <template #tabBarExtraContent>
+          <Button v-if="assemblyUrl" size="small" @click="router.push(assemblyUrl)">装配生成</Button>
+        </template>
         <Tabs.TabPane key="upload" tab="文件上传">
           <Upload :show-upload-list="false" :before-upload="onUpload" :disabled="saving">
             <Button :loading="saving">选择文件上传（≤50MB）</Button>

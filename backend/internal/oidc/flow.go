@@ -11,8 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"vpn-sub/internal/log"
 )
 
 // StateRecord oidc_states 记录
@@ -253,6 +251,3 @@ func (s *Service) mockExchange(rec *StateRecord, code string) (*Identity, error)
 		RawClaims:     string(raw),
 	}, nil
 }
-
-// 日志引用（避免未使用告警）
-var _ = log.Info

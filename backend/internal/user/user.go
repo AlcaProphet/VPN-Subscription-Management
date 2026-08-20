@@ -220,6 +220,55 @@ func (s *Service) GetByID(ctx context.Context, id int64) (*User, error) {
 		FROM users WHERE id = ?`, id)
 }
 
+// UpdateUsername 个人中心改名（R14-16 分层下沉）
+func (s *Service) UpdateUsername(ctx context.Context, id int64, username string) error {
+	_, err := s.store.DB().ExecContext(ctx,
+		`UPDATE users SET username = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, username, id)
+	if err != nil {
+		return fmt.Errorf("更新用户名失败: %w", err)
+	}
+	return nil
+}
+
+// UpdateEmail 个人中心改邮箱：邮箱占用返回 ErrEmailConflict；成功递增 credential_version（旧会话失效）
+func (s *Service) UpdateEmail(ctx context.Context, id int64, email string) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var dup int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE email = ? AND id != ?`, email, id).Scan(&dup); err != nil {
+			return err
+		}
+		if dup > 0 {
+			return ErrEmailConflict
+		}
+		_, err := tx.ExecContext(ctx,
+			`UPDATE users SET email = ?, credential_version = credential_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			email, id)
+		return err
+	})
+}
+
+// UpdatePassword 个人中心改密：已设密码需验证旧密码；成功递增 credential_version
+func (s *Service) UpdatePassword(ctx context.Context, id int64, currentPassword, newPassword string) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var hash string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COALESCE(password_hash,'') FROM users WHERE id = ?`, id).Scan(&hash); err != nil {
+			return err
+		}
+		if hash != "" && !auth.CheckPassword(hash, currentPassword) {
+			return ErrAuthFailed
+		}
+		newHash, err := auth.HashPassword(newPassword)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
+			`UPDATE users SET password_hash = ?, credential_version = credential_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			newHash, id)
+		return err
+	})
+}
+
 // GroupNameByID 组名查询（首页顶栏所属组标签用；组不存在返回空串）
 func (s *Service) GroupNameByID(ctx context.Context, groupID int64) (string, error) {
 	var name string

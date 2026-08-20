@@ -109,7 +109,9 @@ func (s *Service) Create(ctx context.Context, name, slugVal, clientType string, 
 // rollbackRecord 首版本创建失败时回滚规则与 Token
 func (s *Service) rollbackRecord(ctx context.Context, id int64) {
 	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		_, _ = tx.ExecContext(ctx, `DELETE FROM rule_tokens WHERE rule_id = ?`, id)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM rule_tokens WHERE rule_id = ?`, id); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM rules WHERE id = ?`, id)
 		return err
 	}); err != nil {
@@ -223,35 +225,6 @@ func (s *Service) List(ctx context.Context) ([]Rule, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-// Get 单个规则
-func (s *Service) Get(ctx context.Context, id int64) (*Rule, error) {
-	var r Rule
-	var schemesRaw string
-	var isHomeDefault int
-	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT id, slug, name, client_type, schemes, COALESCE(current_version,0), is_home_default FROM rules WHERE id = ?`, id).
-		Scan(&r.ID, &r.Slug, &r.Name, &r.ClientType, &schemesRaw, &r.CurrentVersion, &isHomeDefault)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	r.IsHomeDefault = isHomeDefault == 1
-	r.Schemes = parseSchemes(schemesRaw)
-	return &r, nil
-}
-
-// Name 取规则名称（下载 Content-Disposition 用）
-func (s *Service) Name(ctx context.Context, id int64) (string, error) {
-	var name string
-	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT name FROM rules WHERE id = ?`, id).Scan(&name); err != nil {
-		return "", err
-	}
-	return name, nil
 }
 
 func toJSON(v any) string {

@@ -60,7 +60,11 @@ func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 		}
 		advancedMode := false
 		if !emergencyOn { // 应急模式恒 false（高级能力不可用）
-			advancedMode = h.cfg.GetBool(ctx, config.KeyAdvancedMode, false)
+			advancedMode, err = h.cfg.GetBoolStrict(ctx, config.KeyAdvancedMode, false)
+			if err != nil {
+				Fail(c, 500, err.Error())
+				return
+			}
 		}
 		OK(c, gin.H{
 			"configured":         configured,

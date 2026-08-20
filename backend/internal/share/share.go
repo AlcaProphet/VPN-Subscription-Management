@@ -220,13 +220,3 @@ func (s *Service) Get(ctx context.Context, id int64) (*Share, error) {
 	}
 	return &sh, nil
 }
-
-// Name 取分享名称（下载 Content-Disposition 用）
-func (s *Service) Name(ctx context.Context, id int64) (string, error) {
-	var name string
-	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT name FROM share_subscriptions WHERE id = ?`, id).Scan(&name); err != nil {
-		return "", err
-	}
-	return name, nil
-}

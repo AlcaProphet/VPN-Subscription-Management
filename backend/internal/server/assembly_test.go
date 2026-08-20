@@ -53,7 +53,7 @@ func newAssemblyTestEnv(t *testing.T) (*gin.Engine, *store.Store, *config.Servic
 	h := &AssemblyHandler{
 		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
 		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc,
-		versionSvc: versionSvc, store: st,
+		versionSvc: versionSvc,
 	}
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
@@ -131,8 +131,8 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 	}
 	var genResp struct {
 		Data struct {
-			VersionID    int64 `json:"version_id"`
-			AutoActivated bool `json:"auto_activated"`
+			VersionID     int64 `json:"version_id"`
+			AutoActivated bool  `json:"auto_activated"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &genResp); err != nil {
@@ -195,10 +195,10 @@ func TestAssemblyGenerateSrConf(t *testing.T) {
 		t.Fatalf("查询规则失败: %v", err)
 	}
 	body := map[string]any{
-		"target_syntax": "sr-conf",
-		"rule_id":       ruleID,
-		"fixed_params":  map[string]any{"loglevel": "warning"},
-		"pools":         []any{},
+		"target_syntax":   "sr-conf",
+		"rule_id":         ruleID,
+		"fixed_params":    map[string]any{"loglevel": "warning"},
+		"pools":           []any{},
 		"final_direction": "DIRECT",
 	}
 	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", body)

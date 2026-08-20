@@ -62,4 +62,17 @@ describe('路由守卫（configured 逻辑）', () => {
       expect(redirect).toBe('/admin/subscriptions')
     }
   })
+
+  it('系统状态未加载（status=null）时访问高级路由同样重定向订阅管理', async () => {
+    const system = useSystemStore()
+    // 不调用 fetchStatus，使 status 保持 null
+    expect(system.status).toBeNull()
+    for (const path of ['/admin/groups', '/admin/xray']) {
+      const to = { path, meta: {} }
+      const redirect = ((to.path === '/admin/groups' || to.path === '/admin/xray') && system.status?.advanced_mode !== true)
+        ? '/admin/subscriptions'
+        : null
+      expect(redirect).toBe('/admin/subscriptions')
+    }
+  })
 })

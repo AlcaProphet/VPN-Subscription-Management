@@ -1,6 +1,5 @@
 // api/request.ts：Axios 实例 + Bearer 注入 + 401 拦截 + 错误码→UI 映射（UI §7.3）
 import axios, { AxiosError } from 'axios'
-import { message } from 'ant-design-vue'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -38,7 +37,7 @@ http.interceptors.response.use(
         void router.push('/login')
       }
     }
-    return Promise.reject(new ApiError(st, msg ?? defaultMsg(st)))
+    return Promise.reject(new ApiError(st, msg ?? defaultMsg(st), err.response?.headers?.['retry-after'] as string | undefined))
   },
 )
 
@@ -53,38 +52,9 @@ function defaultMsg(st: number): string {
   }
 }
 
-// ApiError：携带 HTTP 状态码，供页面区分「表单定位」与「全局提示」
+// ApiError：携带 HTTP 状态码与 Retry-After（429 专用），供页面区分「表单定位」与「全局提示」
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message) }
-}
-
-// handleApiError：错误码 → UI 映射统一入口（UI §7.3）
-// 400：页面优先做表单定位/message.error；403/409：message.error；
-// 429：message.warning（有 Retry-After 时提示等待秒数）；500：通用文案
-export function handleApiError(err: unknown, fallback?: () => void) {
-  if (err instanceof ApiError) {
-    switch (err.status) {
-      case 429: {
-        const retryAfter = (err as unknown as { retryAfter?: string }).retryAfter
-        if (retryAfter) {
-          message.warning(`操作过于频繁，请 ${retryAfter} 秒后重试`)
-        } else {
-          message.warning('操作过于频繁，请稍后再试')
-        }
-        return
-      }
-      case 400:
-      case 403:
-      case 409:
-        message.error(err.message)
-        return
-      case 500:
-        message.error('服务器内部错误')
-        return
-    }
-  }
-  message.error(err instanceof Error ? err.message : '网络异常，请重试')
-  fallback?.()
+  constructor(public status: number, message: string, public retryAfter?: string) { super(message) }
 }
 
 // --- pollTask：异步任务轮询封装（Design2-UI §9.2） ---

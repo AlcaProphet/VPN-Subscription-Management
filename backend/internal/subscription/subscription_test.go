@@ -66,22 +66,6 @@ func newTestSubscriptionService(t *testing.T) (*store.Store, *Service, *version.
 	return st, svc, verSvc, dataDir
 }
 
-// seedPlatform 预置一个平台，返回 ID
-func seedPlatform(t *testing.T, st *store.Store, productType string) int64 {
-	t.Helper()
-	res, err := st.DB().Exec(`INSERT INTO platforms (slug, name, product_type) VALUES (?, '测试平台', ?)`,
-		"platform-"+strconv.FormatInt(timeNowUnix(), 10)+"-"+productType, productType)
-	if err != nil {
-		t.Fatalf("创建平台失败: %v", err)
-	}
-	id, _ := res.LastInsertId()
-	return id
-}
-
-func timeNowUnix() int64 {
-	return 0 // 由调用方用递增序号替代，见 seedPlatformN
-}
-
 // seedPlatformN 预置指定序号平台（slug 唯一，避免重复创建冲突）
 func seedPlatformN(t *testing.T, st *store.Store, n int, productType string) int64 {
 	t.Helper()

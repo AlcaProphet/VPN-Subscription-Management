@@ -16,13 +16,13 @@ import (
 
 // 强制组名与 Clash/mihomo 内建保留代理名（Design2 §3.3，逐字一致）。
 const (
-	ForceDirect    = "🚀直接连接"
-	ForceOverseas  = "🌎国外流量"
-	ForceFallback  = "🛟无法归属的流量"
-	ReservedDirect = "DIRECT"
-	ReservedReject = "REJECT"
+	ForceDirect        = "🚀直接连接"
+	ForceOverseas      = "🌎国外流量"
+	ForceFallback      = "🛟无法归属的流量"
+	ReservedDirect     = "DIRECT"
+	ReservedReject     = "REJECT"
 	ReservedRejectDrop = "REJECT-DROP"
-	ReservedPass   = "PASS"
+	ReservedPass       = "PASS"
 	ReservedCompatible = "COMPATIBLE"
 )
 
@@ -80,10 +80,10 @@ type XrayChangedFunc func(ctx context.Context, node Node, oldEnabled, oldPublic 
 
 // Service 节点服务。
 type Service struct {
-	store          *store.Store
-	cfg            *config.Service
-	log            *slog.Logger
-	onXrayChanged  XrayChangedFunc
+	store         *store.Store
+	cfg           *config.Service
+	log           *slog.Logger
+	onXrayChanged XrayChangedFunc
 }
 
 // NewService 构造节点服务。
@@ -97,7 +97,9 @@ func (s *Service) SetOnXrayChanged(fn XrayChangedFunc) {
 }
 
 // ValidateNodeName 节点名（manual 录入名与 xray 系统名），禁止空格。
-func ValidateNodeName(name string) error {
+// validateName 共享基础字符集校验：禁止控制字符、逗号、首尾空白；
+// 是否禁止空格由调用侧参数化（节点名禁空格 / 代理组名允许空格）。
+func validateName(name string, allowSpace bool) error {
 	if name == "" || utf8.RuneCountInString(name) > 128 {
 		return errors.New("名称不能为空且不超过 128 字符")
 	}
@@ -107,7 +109,7 @@ func ValidateNodeName(name string) error {
 	if strings.Contains(name, ",") {
 		return errors.New("名称禁止逗号")
 	}
-	if strings.Contains(name, " ") {
+	if !allowSpace && strings.Contains(name, " ") {
 		return errors.New("名称禁止空格")
 	}
 	for _, r := range name {
@@ -118,23 +120,14 @@ func ValidateNodeName(name string) error {
 	return nil
 }
 
+// ValidateNodeName 节点名（manual 录入名与 xray 系统名），禁止空格。
+func ValidateNodeName(name string) error {
+	return validateName(name, false)
+}
+
 // ValidateProxyGroupName 代理组名，允许空格，其余同节点名。
 func ValidateProxyGroupName(name string) error {
-	if name == "" || utf8.RuneCountInString(name) > 128 {
-		return errors.New("名称不能为空且不超过 128 字符")
-	}
-	if name != strings.TrimSpace(name) {
-		return errors.New("名称禁止首尾空白")
-	}
-	if strings.Contains(name, ",") {
-		return errors.New("名称禁止逗号")
-	}
-	for _, r := range name {
-		if r < 0x20 || r == 0x7f {
-			return errors.New("名称禁止控制字符")
-		}
-	}
-	return nil
+	return validateName(name, true)
 }
 
 // RenderName 返回有效渲染名：display_name 非空则用之，否则 name。

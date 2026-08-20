@@ -58,6 +58,12 @@ function openEdit(p: PoolItem) {
 async function save() {
   if (!form.name.trim()) { Notify.error('请填写名称'); return }
   const urls = form.urls.map((u) => u.trim()).filter(Boolean)
+  for (const u of urls) {
+    if (!/^https?:\/\//i.test(u)) {
+      Notify.error(`URL 仅支持 http/https 地址：${u}`)
+      return
+    }
+  }
   saving.value = true
   try {
     const data = { name: form.name.trim(), urls, auto_sync: form.auto_sync, sync_time: form.sync_time }
@@ -159,7 +165,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
       </div>
 
       <TriStateList :loading="loading" :empty="pools.length === 0" empty-text="还没有规则素材池">
-        <Table :data-source="pools" :pagination="false" row-key="id" size="middle">
+        <Table :data-source="pools" :pagination="false" row-key="id" size="middle" class="hidden md:block">
           <Table.Column title="池名称" key="name">
             <template #default="{ record }">
               <a class="text-blue-500" @click="detailID = record.id">{{ record.name }}</a>

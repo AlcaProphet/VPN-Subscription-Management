@@ -33,7 +33,7 @@ func srLink(nd *nodeData) (string, error) {
 		q.Set("remarks", nd.RenderName)
 		q.Set("udp", "1")
 		q.Set("alterId", "0")
-		return "vmess://" + userinfo + "?" + encodeQuery(q), nil
+		return "vmess://" + userinfo + querySuffix(q), nil
 	case "vless":
 		uuid := str(nd.ProtocolJSON, "uuid", "")
 		userinfo := base64.StdEncoding.EncodeToString([]byte(":" + uuid + "@" + host + ":" + strconv.Itoa(nd.Port)))
@@ -59,22 +59,31 @@ func srLink(nd *nodeData) (string, error) {
 				q.Set("peer", sni)
 			}
 		}
-		return "vless://" + userinfo + "?" + encodeQuery(q), nil
+		return "vless://" + userinfo + querySuffix(q), nil
 	case "trojan":
 		password := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
 		q := url.Values{}
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
 		}
+		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+			q.Set("alpn", alpn)
+		}
 		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("allowInsecure", "1")
 		}
-		return "trojan://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "trojan://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "anytls":
 		password := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
 		q := url.Values{}
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
+		}
+		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+			q.Set("alpn", alpn)
+		}
+		if fp := str(nd.ProtocolJSON, "client-fingerprint", ""); fp != "" {
+			q.Set("client-fingerprint", fp)
 		}
 		if boolVal(nd.ProtocolJSON, "allowInsecure", false) || boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("allowInsecure", "1")
@@ -82,12 +91,15 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "udp", true) {
 			q.Set("udp", "1")
 		}
-		return "anytls://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "anytls://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "hysteria2":
 		password := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
 		q := url.Values{}
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
+		}
+		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+			q.Set("alpn", alpn)
 		}
 		if obfs := str(nd.ProtocolJSON, "obfs", ""); obfs != "" {
 			q.Set("obfs", obfs)
@@ -98,7 +110,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "insecure", false) {
 			q.Set("insecure", "1")
 		}
-		return "hysteria2://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "hysteria2://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "hysteria":
 		q := url.Values{}
 		if p := str(nd.ProtocolJSON, "protocol", "udp"); p != "" {
@@ -116,10 +128,19 @@ func srLink(nd *nodeData) (string, error) {
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
 		}
+		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+			q.Set("alpn", alpn)
+		}
+		if mport := str(nd.ProtocolJSON, "mport", ""); mport != "" {
+			q.Set("mport", mport)
+		}
+		if boolVal(nd.ProtocolJSON, "insecure", false) {
+			q.Set("insecure", "1")
+		}
 		if obfs := str(nd.ProtocolJSON, "obfs", ""); obfs != "" {
 			q.Set("obfs", obfs)
 		}
-		return "hysteria://" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "hysteria://" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "tuic":
 		uuid := str(nd.ProtocolJSON, "uuid", "")
 		password := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
@@ -127,19 +148,22 @@ func srLink(nd *nodeData) (string, error) {
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
 		}
+		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+			q.Set("alpn", alpn)
+		}
 		if boolVal(nd.ProtocolJSON, "allow_insecure", false) || boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("allow_insecure", "1")
 		}
-		return "tuic://" + uuid + ":" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "tuic://" + uuid + ":" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "wireguard":
 		privateKey := url.QueryEscape(str(nd.ProtocolJSON, "private-key", ""))
 		q := url.Values{}
-		for _, k := range []string{"public-key", "address", "allowed-ips", "mtu", "dns", "reserved"} {
+		for _, k := range []string{"public-key", "address", "allowed-ips", "pre-shared-key", "mtu", "dns", "reserved"} {
 			if v := str(nd.ProtocolJSON, k, ""); v != "" {
 				q.Set(k, v)
 			}
 		}
-		return "wireguard://" + privateKey + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "wireguard://" + privateKey + "@" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "http":
 		user := url.QueryEscape(str(nd.ProtocolJSON, "username", ""))
 		pass := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
@@ -150,7 +174,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("skip-cert-verify", "1")
 		}
-		return "http://" + user + ":" + pass + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "http://" + userinfoPart(user, pass) + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "socks5":
 		user := url.QueryEscape(str(nd.ProtocolJSON, "username", ""))
 		pass := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
@@ -164,7 +188,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("skip-cert-verify", "1")
 		}
-		return "socks5://" + user + ":" + pass + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "socks5://" + userinfoPart(user, pass) + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	default:
 		return "", fmt.Errorf("协议无标准链接映射: %s", nd.Protocol)
 	}
@@ -195,6 +219,12 @@ func genericLink(nd *nodeData) (string, error) {
 		if sni := firstNonEmpty(nd.ProtocolJSON, "servername", "sni"); sni != "" {
 			obj["sni"] = sni
 		}
+		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+			obj["alpn"] = alpn
+		}
+		if fp := str(nd.ProtocolJSON, "client-fingerprint", ""); fp != "" {
+			obj["fp"] = fp
+		}
 		raw, err := json.Marshal(obj)
 		if err != nil {
 			return "", fmt.Errorf("序列化 vmess 链接失败: %w", err)
@@ -205,6 +235,9 @@ func genericLink(nd *nodeData) (string, error) {
 		q := url.Values{}
 		q.Set("encryption", "none")
 		q.Set("type", str(nd.ProtocolJSON, "network", "tcp"))
+		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+			q.Set("alpn", alpn)
+		}
 		reality := realityOpts(nd.ProtocolJSON)
 		if reality != nil {
 			q.Set("security", "reality")
@@ -232,7 +265,7 @@ func genericLink(nd *nodeData) (string, error) {
 		if flow := str(nd.ProtocolJSON, "flow", ""); flow != "" {
 			q.Set("flow", flow)
 		}
-		return "vless://" + uuid + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
+		return "vless://" + uuid + "@" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "trojan":
 		return srLink(nd)
 	case "anytls":
@@ -306,6 +339,22 @@ func firstNonEmpty(m map[string]any, keys ...string) string {
 // encodeQuery 编码查询参数，并按 Build5 要求把 `+` 替换为 `%20`，避免空格不对称。
 func encodeQuery(q url.Values) string {
 	return strings.ReplaceAll(q.Encode(), "+", "%20")
+}
+
+// querySuffix 空参数时不输出 `?`（R14-05）。
+func querySuffix(q url.Values) string {
+	if len(q) == 0 {
+		return ""
+	}
+	return "?" + encodeQuery(q)
+}
+
+// userinfoPart http/socks5 空凭据时不输出 `user:pass@`（R14-05）。
+func userinfoPart(user, pass string) string {
+	if user == "" && pass == "" {
+		return ""
+	}
+	return user + ":" + pass + "@"
 }
 
 func realityOpts(m map[string]any) map[string]any {

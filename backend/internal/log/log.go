@@ -33,9 +33,7 @@ func SetLevel(level string) {
 }
 
 func Info(msg string, args ...any)  { defaultLogger.Info(msg, args...) }
-func Warn(msg string, args ...any)  { defaultLogger.Warn(msg, args...) }
 func Error(msg string, args ...any) { defaultLogger.Error(msg, args...) }
-func Debug(msg string, args ...any) { defaultLogger.Debug(msg, args...) }
 
 // New 构建分级 + 双格式 logger：format="json" 用 JSONHandler，否则 TextHandler，均输出 stdout。
 // 内部以 *slog.LevelVar 代替固定 Level，并暴露 SetLevel：运行时切换立即生效。

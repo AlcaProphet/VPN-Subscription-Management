@@ -1,7 +1,7 @@
 <!-- PoolDetail.vue：素材池详情（条目分页 + 手动条目 CRUD + 同步历史） -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { Alert, Badge, Button, Input, Modal, Pagination, Select, Table, Tag, Tooltip } from 'ant-design-vue'
+import { Alert, Badge, Button, Input, Modal, Pagination, Select, Space, Table, Tag, Tooltip } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import {
   listEntries, createEntry, updateEntry, deleteEntry,
@@ -183,7 +183,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
     <div v-else-if="entries.length === 0" class="py-8 text-center text-gray-400">池内暂无条目</div>
     <template v-else>
       <div v-if="manualEntries.length" class="text-sm font-medium text-gray-600 mt-2 mb-1">手动条目（前段）</div>
-      <Table v-if="manualEntries.length" :data-source="manualEntries" :pagination="false" row-key="id" size="small">
+      <Table v-if="manualEntries.length" :data-source="manualEntries" :pagination="false" row-key="id" size="small" class="hidden md:block">
         <Table.Column title="规则类型" key="type" width="170">
           <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
         </Table.Column>
@@ -201,7 +201,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         </Table.Column>
       </Table>
       <div v-if="urlEntries.length" class="text-sm font-medium text-gray-600 mt-4 mb-1">URL 同步条目（后段）</div>
-      <Table v-if="urlEntries.length" :data-source="urlEntries" :pagination="false" row-key="id" size="small">
+      <Table v-if="urlEntries.length" :data-source="urlEntries" :pagination="false" row-key="id" size="small" class="hidden md:block">
         <Table.Column title="规则类型" key="type" width="170">
           <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
         </Table.Column>
@@ -215,6 +215,36 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           <template #default><span class="text-xs text-gray-400">系统维护</span></template>
         </Table.Column>
       </Table>
+      <!-- <768 卡片态：条目按 manual/url 分段 -->
+      <div class="md:hidden space-y-2 mt-2">
+        <template v-if="manualEntries.length">
+          <div class="text-sm font-medium text-gray-600">手动条目（前段）</div>
+          <div v-for="e in manualEntries" :key="e.id" class="border rounded-lg p-2">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <Tag>{{ e.rule_type }}</Tag>
+                <span class="font-mono text-xs">{{ e.match_value }}</span>
+              </div>
+              <Space :size="4">
+                <Button size="small" @click="openEditEntry(e)">编辑</Button>
+                <Button size="small" danger @click="removeEntry(e)">删除</Button>
+              </Space>
+            </div>
+          </div>
+        </template>
+        <template v-if="urlEntries.length">
+          <div class="text-sm font-medium text-gray-600">URL 同步条目（后段）</div>
+          <div v-for="e in urlEntries" :key="e.id" class="border rounded-lg p-2">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <Tag>{{ e.rule_type }}</Tag>
+                <span class="font-mono text-xs">{{ e.match_value }}</span>
+              </div>
+              <span class="text-xs text-gray-400">系统维护</span>
+            </div>
+          </div>
+        </template>
+      </div>
     </template>
     <Pagination v-if="total > pageSize" class="mt-3" v-model:current="page" :page-size="pageSize"
                 :total="total" show-size-changer :page-size-options="['20', '50', '100']" />

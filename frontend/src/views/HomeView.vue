@@ -19,6 +19,7 @@ import { buildImportUrl } from '@/utils/importUrl'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import AppHeader from '@/components/AppHeader.vue'
+import CopyField from '@/components/CopyField.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
 import { me } from '@/api/auth'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -84,15 +85,7 @@ const trafficColor = computed(() => {
 })
 
 // --- 分流规则卡 ---
-async function copyRuleLink() {
-  if (!homeRule.value) return
-  try {
-    await navigator.clipboard.writeText(homeRule.value.download_url)
-    Notify.success('规则链接已复制（规则内容公开，链接请谨慎分发）')
-  } catch {
-    Notify.error('复制失败，请手动复制')
-  }
-}
+// 复制规则链接统一使用 CopyField（R14-17）
 
 // --- 平台卡操作 ---
 const isUserBound = (card: PlatformCard) => card.status === 'ready' || card.status === 'custom'
@@ -208,7 +201,9 @@ const custom = (card: PlatformCard) => card.status === 'custom'
                 Shadowrocket 使用指引：先添加订阅获取节点，再导入分流规则
               </div>
             </div>
-            <Button v-if="homeRule" size="small" @click.stop="copyRuleLink">复制规则链接</Button>
+            <div v-if="homeRule" @click.stop>
+              <CopyField :value="homeRule.download_url" label="规则链接" />
+            </div>
           </div>
         </Card>
 

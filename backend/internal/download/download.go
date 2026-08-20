@@ -19,7 +19,7 @@ import (
 // 业务错误（接入层映射：ErrTokenInvalid → 404；ErrUnassigned → HTTP 200 注释块）
 var (
 	ErrTokenInvalid = errors.New("token_invalid") // 无效/标识不一致 → 404，不泄露差异信息
-	ErrUnassigned   = errors.New("unassigned")    // 组未选定 → HTTP 200 注释块
+	ErrUnassigned   = errors.New("unassigned")    // 平台无订阅条目 → HTTP 200 注释块
 )
 
 // Service 下载解析服务
@@ -168,9 +168,13 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 	var resName string
 	switch dlType {
 	case "custom": // 自定义订阅无名称，用标识
-		_ = s.store.DB().QueryRowContext(ctx, `SELECT slug FROM custom_subscriptions WHERE id = ?`, resID).Scan(&resName)
+		if err := s.store.DB().QueryRowContext(ctx, `SELECT slug FROM custom_subscriptions WHERE id = ?`, resID).Scan(&resName); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, err
+		}
 	default: // subscription / explicit：用订阅名称
-		_ = s.store.DB().QueryRowContext(ctx, `SELECT name FROM subscriptions WHERE id = ?`, resID).Scan(&resName)
+		if err := s.store.DB().QueryRowContext(ctx, `SELECT name FROM subscriptions WHERE id = ?`, resID).Scan(&resName); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, err
+		}
 	}
 	return &Result{Content: content, Filename: joinDownloadName(resName, fileName, ".yaml"), ExtraHeaders: headers},
 		&AccessEntry{UserID: userID, Type: dlType, Platform: "", ResourceID: resID}, nil

@@ -125,9 +125,9 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	assemblySvc := assembly.NewService(st, cfg, lg)
 	RegisterAssemblyRoutes(engine, &AssemblyHandler{
 		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
-		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc, store: st,
+		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc,
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
-	RegisterProfileRoutes(engine, &ProfileHandler{store: st}, authSvc.SessionMiddleware())
+	RegisterProfileRoutes(engine, &ProfileHandler{userSvc: users}, authSvc.SessionMiddleware())
 	// 用户管理（Build3 Step 1）：五重管理员保护 + 全生命周期操作；复用 Token/重置令牌/版本组件
 	adminUserSvc := user.NewAdminService(st, users, tokenSvc, resetSvc, cfg, versionSvc, lg)
 	RegisterUserAdminRoutes(engine, &UserAdminHandler{adminSvc: adminUserSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())

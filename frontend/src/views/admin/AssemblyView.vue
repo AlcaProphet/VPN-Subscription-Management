@@ -64,7 +64,7 @@ const generateResult = ref<{ version_id: number; version_no: number; auto_activa
 const form = reactive({
   platform_id: undefined as number | undefined,
   rule_id: undefined as number | undefined,
-  fixed_params_text: '{}',
+  fixed_params_text: DEFAULT_HEADERS['clash-yaml'],
   node_names: [] as string[],
   group_names: [] as string[],
   overseas_members: [] as string[],
@@ -167,7 +167,7 @@ async function loadEditIfAny() {
     form.custom_rules = bp.custom_rules ?? []
     invalidRefs.value = data.invalid_refs ?? []
     nameChanged.value = data.name_changed ?? {}
-    Notify.info('正在重新编辑版本，请检查失效引用')
+    Notify.info(`正在重新编辑版本 #${editVersionId.value}，请检查失效引用`)
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -344,6 +344,16 @@ async function doGenerate() {
     const res = await generateAssembly(buildInput())
     generateResult.value = res
     Notify.success(res.auto_activated ? '首个版本已自动激活' : '已入池未生效，请激活')
+    if (!res.auto_activated && !isSrConf.value && form.platform_id) {
+      // R14-09：装配生成入池后与上传流一致，标记订阅行「已入池未生效」
+      try {
+        const subs = await listSubscriptions()
+        const sub = subs.find((s) => s.platform_id === form.platform_id)
+        if (sub) sessionStorage.setItem(`pooled_sub_${sub.id}`, '1')
+      } catch {
+        // 标记失败不阻断生成回执
+      }
+    }
     editVersionId.value = null
   } catch (err) {
     Notify.error((err as Error).message)
@@ -390,7 +400,7 @@ const outputGroups = computed(() => {
 <template>
   <div>
     <PageHeader title="订阅装配" subtitle="四类装配器：选择目标 → 填头部 → 勾选节点/组 → 规则 → 预览 → 生成" />
-    <Alert v-if="editVersionId" type="info" show-icon class="mb-4" message="正在重新编辑版本，请检查失效引用后生成新版本" />
+    <Alert v-if="editVersionId" type="info" show-icon class="mb-4" :message="`正在重新编辑版本 #${editVersionId}，请检查失效引用后生成新版本`" />
     <Alert v-if="invalidRefs.length" type="error" show-icon class="mb-2"
            :message="`${invalidRefs.length} 项引用已失效，请剔除或替换后生成`">
       <template #action>

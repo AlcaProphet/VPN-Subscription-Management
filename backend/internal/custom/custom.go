@@ -143,39 +143,3 @@ func (s *Service) Delete(ctx context.Context, userID, platformID int64) error {
 	}
 	return nil
 }
-
-// Get 单个自定义订阅
-func (s *Service) Get(ctx context.Context, id int64) (*Custom, error) {
-	var c Custom
-	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT id, slug, user_id, platform_id, COALESCE(current_version,0) FROM custom_subscriptions WHERE id = ?`, id).
-		Scan(&c.ID, &c.Slug, &c.UserID, &c.PlatformID, &c.CurrentVersion)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &c, nil
-}
-
-// ListByUser 用户的自定义订阅列表（Build3 用户管理用）
-func (s *Service) ListByUser(ctx context.Context, userID int64) ([]Custom, error) {
-	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT c.id, c.slug, c.user_id, c.platform_id, COALESCE(c.current_version,0), COALESCE(p.name,'')
-		 FROM custom_subscriptions c LEFT JOIN platforms p ON p.id = c.platform_id
-		 WHERE c.user_id = ? ORDER BY c.id`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]Custom, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
-	for rows.Next() {
-		var c Custom
-		if err := rows.Scan(&c.ID, &c.Slug, &c.UserID, &c.PlatformID, &c.CurrentVersion, &c.PlatformName); err != nil {
-			return nil, err
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
-}

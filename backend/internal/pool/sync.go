@@ -329,7 +329,7 @@ func (s *Service) runSyncTask(poolID, taskID int64, urls []string) {
 
 // failTask 将任务与池快照置为 failed；池已删除时静默跳过。
 func (s *Service) failTask(ctx context.Context, poolID, taskID int64, results []PerURLResult, msg string) {
-	_ = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		var exists int
 		if e := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); e != nil {
 			return e
@@ -346,7 +346,9 @@ func (s *Service) failTask(ctx context.Context, poolID, taskID int64, results []
 			`UPDATE rule_pools SET last_synced_at = CURRENT_TIMESTAMP, sync_status = 'failed', sync_error = ? WHERE id = ?`,
 			truncateError(msg, 200), poolID)
 		return e
-	})
+	}); err != nil {
+		s.log.Error("素材池任务终态写回失败", "pool_id", poolID, "task_id", taskID, "err", err)
+	}
 }
 
 // syncURL 拉取并解析单个 URL；空响应/零有效条目视为失败（保留旧数据）

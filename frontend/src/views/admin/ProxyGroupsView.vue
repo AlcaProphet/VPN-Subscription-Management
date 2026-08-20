@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Table, Tag } from 'ant-design-vue'
+import { HolderOutlined } from '@ant-design/icons-vue'
 import { listProxyGroups, createProxyGroup, updateProxyGroup, deleteProxyGroup, togglePresetGroup, type ProxyGroupItem, type ProxyGroupDefinition } from '@/api/proxyGroup'
 import { listNodes, type NodeItem } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -12,6 +13,7 @@ import { Notify } from '@/components/Notify'
 const loading = ref(false)
 const groups = ref<ProxyGroupItem[]>([])
 const nodes = ref<NodeItem[]>([])
+const isMobile = ref(false)
 const editing = ref<ProxyGroupItem | null>(null)
 const creating = ref(false)
 const toDelete = ref<ProxyGroupItem | null>(null)
@@ -91,7 +93,15 @@ function detectCycle(): string | null {
   return null
 }
 
+// R14-14：选择子组时即时 DAG 检测（保存时仍会二次兜底）
+function onGroupRefsChange(v: any) {
+  form.group_names = v as string[] ?? []
+  const cycle = detectCycle()
+  if (cycle) Notify.warning(`代理组存在环：${cycle}`)
+}
+
 async function load() {
+  isMobile.value = window.matchMedia('(max-width: 767px)').matches
   loading.value = true
   try {
     groups.value = await listProxyGroups()
@@ -196,10 +206,17 @@ function memberSummary(g: ProxyGroupItem): string {
 
     <TriStateList :loading="loading" :empty="groups.length === 0" empty-text="暂无代理组">
       <Table :data-source="groups" row-key="id" :pagination="false" class="hidden md:block">
-        <Table.Column key="name" title="名称" data-index="name" />
+        <Table.Column key="name" title="名称">
+          <template #default="{ record }">
+            <Space>
+              <Checkbox v-if="record.type === 'preset'" :checked="record.enabled" @change="(e: any) => onTogglePreset(record, e.target.checked)" />
+              <span>{{ record.name }}</span>
+            </Space>
+          </template>
+        </Table.Column>
         <Table.Column key="type" title="类型" width="110">
           <template #default="{ record }">
-            <Tag :color="record.type === 'preset' ? 'purple' : 'blue'">{{ record.type }}</Tag>
+            <Tag :color="record.type === 'preset' ? 'blue' : 'green'">{{ record.type }}</Tag>
             <Tag>{{ record.definition.type }}</Tag>
           </template>
         </Table.Column>
@@ -224,8 +241,11 @@ function memberSummary(g: ProxyGroupItem): string {
       <div class="grid grid-cols-1 gap-3 md:hidden">
         <div v-for="g in groups" :key="g.id" class="border rounded-lg p-3">
           <div class="flex items-center justify-between">
-            <span class="font-medium">{{ g.name }}</span>
-            <Tag :color="g.type === 'preset' ? 'purple' : 'blue'">{{ g.type }}</Tag>
+            <Space>
+              <Checkbox v-if="g.type === 'preset'" :checked="g.enabled" @change="(e: any) => onTogglePreset(g, e.target.checked)" />
+              <span class="font-medium">{{ g.name }}</span>
+            </Space>
+            <Tag :color="g.type === 'preset' ? 'blue' : 'green'">{{ g.type }}</Tag>
           </div>
           <div class="text-xs text-gray-500 mt-1">{{ memberSummary(g) }}</div>
           <div class="mt-2 flex items-center gap-2">
@@ -257,8 +277,9 @@ function memberSummary(g: ProxyGroupItem): string {
         </Form.Item>
         <Form.Item label="节点引用（有序）">
           <div class="space-y-2">
-            <div v-for="(name, idx) in form.node_names" :key="name" draggable="true" class="flex items-center gap-2 cursor-move"
+            <div v-for="(name, idx) in form.node_names" :key="name" :draggable="!isMobile" class="flex items-center gap-2"
                  @dragstart="onDragStart(idx)" @dragover.prevent @drop="onDrop(idx)">
+              <HolderOutlined v-if="!isMobile" class="cursor-move text-gray-400" />
               <span class="flex-1">{{ name }}</span>
               <Tag v-if="staleNodeNames.includes(name)" color="red">已失效</Tag>
               <Button v-if="staleNodeNames.includes(name)" size="small" danger @click="removeNodeRef(name)">剔除</Button>
@@ -282,7 +303,7 @@ function memberSummary(g: ProxyGroupItem): string {
             :value="form.group_names"
             placeholder="可引用强制组或其它代理组"
             class="w-full"
-            @change="(v: any) => form.group_names = v as string[]"
+            @change="onGroupRefsChange"
           >
             <Select.Option value="🚀直接连接">🚀直接连接</Select.Option>
             <Select.Option value="🌎国外流量">🌎国外流量</Select.Option>

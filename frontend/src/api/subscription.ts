@@ -27,5 +27,3 @@ export const previewSubscriptionByPlatform = (platformSlug: string) =>
   http.get<any, string>(`/subscriptions/preview?platform=${encodeURIComponent(platformSlug)}`, {
     responseType: 'text',
   })
-export const checkSlug = (slug: string, type?: string, id?: number) =>
-  http.get<any, { available: boolean }>('/admin/slug/check', { params: { slug, type, id } })

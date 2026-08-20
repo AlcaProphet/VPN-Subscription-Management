@@ -56,11 +56,13 @@ func ManualProtocols() []Protocol {
 				{Name: "network", Type: "select", Default: "tcp", Label: "传输", Options: []string{"tcp", "ws", "grpc", "h2", "http"}},
 				{Name: "tls", Type: "bool", Default: false, Label: "TLS"},
 				{Name: "servername", Type: "text", Label: "SNI"},
+				{Name: "alpn", Type: "text", Label: "ALPN"},
+				{Name: "client-fingerprint", Type: "text", Label: "指纹"},
 				{Name: "path", Type: "text", Label: "Path"},
 				{Name: "host", Type: "text", Label: "Host"},
 			},
 			SensitiveFields: []string{"uuid"},
-			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"uuid", "alterId", "cipher", "network", "tls", "servername"}},
+			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"uuid", "alterId", "cipher", "network", "tls", "servername", "alpn", "client-fingerprint"}},
 		},
 		{
 			Protocol: "vless", Label: "VLESS",
@@ -70,12 +72,13 @@ func ManualProtocols() []Protocol {
 				{Name: "network", Type: "select", Default: "tcp", Label: "传输", Options: []string{"tcp", "ws", "grpc", "h2", "http"}},
 				{Name: "tls", Type: "bool", Default: false, Label: "TLS"},
 				{Name: "servername", Type: "text", Label: "SNI"},
+				{Name: "alpn", Type: "text", Label: "ALPN"},
 				{Name: "client-fingerprint", Type: "text", Label: "指纹"},
 				{Name: "reality-opts", Type: "object", Label: "REALITY 公钥/ShortId", Help: "JSON 对象，如 {\"public-key\":\"...\",\"short-id\":\"...\"}"},
 				{Name: "udp", Type: "bool", Default: true, Label: "UDP"},
 			},
 			SensitiveFields: []string{"uuid"},
-			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"uuid", "flow", "network", "tls", "servername", "reality-opts"}},
+			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"uuid", "flow", "network", "tls", "servername", "alpn", "client-fingerprint", "reality-opts"}},
 		},
 		{
 			Protocol: "trojan", Label: "Trojan",
@@ -97,22 +100,26 @@ func ManualProtocols() []Protocol {
 				{Name: "up", Type: "text", Label: "上行"},
 				{Name: "down", Type: "text", Label: "下行"},
 				{Name: "sni", Type: "text", Label: "SNI"},
+				{Name: "alpn", Type: "text", Label: "ALPN"},
+				{Name: "mport", Type: "text", Label: "mport"},
+				{Name: "insecure", Type: "bool", Default: false, Label: "允许不安全"},
 				{Name: "obfs", Type: "text", Label: "混淆"},
 			},
 			SensitiveFields: []string{"auth"},
-			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"auth", "protocol", "up", "down", "sni", "obfs"}},
+			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"auth", "protocol", "up", "down", "sni", "alpn", "mport", "insecure", "obfs"}},
 		},
 		{
 			Protocol: "hysteria2", Label: "Hysteria2",
 			FormSchema: []FieldSchema{
 				{Name: "password", Type: "password", Required: true, Label: "密码"},
 				{Name: "sni", Type: "text", Label: "SNI"},
+				{Name: "alpn", Type: "text", Label: "ALPN"},
 				{Name: "obfs", Type: "text", Label: "混淆"},
 				{Name: "obfs-password", Type: "password", Label: "混淆密码"},
 				{Name: "insecure", Type: "bool", Default: false, Label: "允许不安全"},
 			},
 			SensitiveFields: []string{"password", "obfs-password"},
-			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"password", "sni", "obfs", "obfs-password"}},
+			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"password", "sni", "alpn", "obfs", "obfs-password", "insecure"}},
 		},
 		{
 			Protocol: "tuic", Label: "TUIC",
@@ -138,7 +145,7 @@ func ManualProtocols() []Protocol {
 				{Name: "dns", Type: "text", Label: "DNS"},
 			},
 			SensitiveFields: []string{"private-key", "pre-shared-key"},
-			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"private-key", "public-key", "address", "allowed-ips"}},
+			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"private-key", "public-key", "address", "allowed-ips", "pre-shared-key", "mtu", "dns"}},
 		},
 		{
 			Protocol: "http", Label: "HTTP",
@@ -184,7 +191,7 @@ func ManualProtocols() []Protocol {
 				{Name: "udp", Type: "bool", Default: true, Label: "UDP"},
 			},
 			SensitiveFields: []string{"password"},
-			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"password", "sni", "alpn"}},
+			LinkMappings:    LinkMapping{SR: true, Generic: true, Params: []string{"password", "sni", "alpn", "client-fingerprint", "allowInsecure"}},
 		},
 		{
 			Protocol: "mieru", Label: "Mieru",
@@ -271,15 +278,6 @@ func GetProtocol(name string) (Protocol, error) {
 func HasProtocol(name string) bool {
 	_, ok := protocolIndex[name]
 	return ok
-}
-
-// ProtocolNames 返回 manual 协议名列表（按注册表顺序）。
-func ProtocolNames() []string {
-	out := make([]string, 0, len(ManualProtocols()))
-	for _, p := range ManualProtocols() {
-		out = append(out, p.Protocol)
-	}
-	return out
 }
 
 // SensitiveFieldsOf 返回某协议敏感字段清单。

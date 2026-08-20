@@ -59,6 +59,9 @@ func (h *SubscriptionHandler) list(c *gin.Context) {
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
+	}
+	OK(c, ListData{List: list, Total: int64(len(list))}) // 列表统一包裹结构（AGENTS §4.8）
+}
 
 func (h *SubscriptionHandler) get(c *gin.Context) {
 	id, ok := parseID(c, "id")
@@ -75,10 +78,6 @@ func (h *SubscriptionHandler) get(c *gin.Context) {
 		return
 	}
 	OK(c, sub)
-}
-
-	}
-	OK(c, ListData{List: list, Total: int64(len(list))}) // 列表统一包裹结构（AGENTS §4.8）
 }
 
 func (h *SubscriptionHandler) create(c *gin.Context) {

@@ -3,7 +3,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Alert, Button, Input, Modal, Radio, Select, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
+import { Alert, Button, Input, Modal, Radio, Select, Space, Table, Tabs, Tag, Tooltip, TypographyText, Upload } from 'ant-design-vue'
 import {
   listAdminRules, createRule, renameRule, deleteRule, refreshRuleToken, setHomeDefault, type RuleItem,
 } from '@/api/rule'
@@ -178,11 +178,17 @@ async function doSetDefault() {
     settingDefault.value = false
   }
 }
-async function cancelDefault(r: RuleItem) {
+const cancelTarget = ref<RuleItem | null>(null)
+function cancelDefault(r: RuleItem) {
+  cancelTarget.value = r
+}
+async function doCancelDefault() {
+  if (!cancelTarget.value) return
   settingDefault.value = true
   try {
-    await setHomeDefault(r.id, false)
+    await setHomeDefault(cancelTarget.value.id, false)
     Notify.success('已取消首页默认')
+    cancelTarget.value = null
     await load()
   } catch (err) {
     Notify.error((err as Error).message)
@@ -220,7 +226,9 @@ async function cancelDefault(r: RuleItem) {
         <Table.Column key="version" title="当前版本" width="110">
           <template #default="{ record }">
             <Tag v-if="record.current_version > 0" color="green">v{{ record.current_version }}</Tag>
-            <span v-else class="text-gray-400">无激活版本</span>
+            <Tooltip v-else title="可作为 SR 分流规则装配目标">
+              <span class="text-gray-400">无激活版本</span>
+            </Tooltip>
           </template>
         </Table.Column>
         <Table.Column key="refreshed" title="Token 刷新时间" width="160">
@@ -254,7 +262,9 @@ async function cancelDefault(r: RuleItem) {
           <div class="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-2">
             <TypographyText code>{{ r.slug }}</TypographyText>
             <Tag v-if="r.current_version > 0" color="green">v{{ r.current_version }}</Tag>
-            <span v-else class="text-gray-400">无激活版本</span>
+            <Tooltip v-else title="可作为 SR 分流规则装配目标">
+              <span class="text-gray-400">无激活版本</span>
+            </Tooltip>
             <span>刷新 {{ fmtTime(r.refreshed_at) }}</span>
           </div>
           <div class="mt-2 flex flex-wrap gap-2">
@@ -311,6 +321,8 @@ async function cancelDefault(r: RuleItem) {
     <ConfirmModal :open="toSetDefault !== null" title="设为首页默认" :loading="settingDefault"
                   :content="`设为首页默认后，原默认规则「${oldDefault() || '无'}」将自动取消默认`"
                   @confirm="doSetDefault" @update:open="toSetDefault = null" />
+    <ConfirmModal :open="cancelTarget !== null" title="取消首页默认" :loading="settingDefault"
+                  content="取消后首页分流规则卡片将回到未设置空态" @confirm="doCancelDefault" @update:open="cancelTarget = null" />
     <ConfirmModal :open="refreshTarget !== null" title="刷新 Token" :loading="refreshing"
                   content="刷新后旧链接立即失效；规则 Token 全局共享，不随用户状态变化" @confirm="doRefresh" @update:open="refreshTarget = null" />
     <ConfirmModal :open="deleteTarget !== null" title="删除规则" danger :loading="deleting"

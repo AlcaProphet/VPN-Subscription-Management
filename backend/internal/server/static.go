@@ -66,7 +66,8 @@ func registerStatic(engine *gin.Engine, dataDir string) error {
 		return fmt.Errorf("读取嵌入 index.html 失败: %w", err)
 	}
 	engine.NoRoute(func(c *gin.Context) {
-		if c.Request.Method != http.MethodGet {
+		if c.Request.Method != http.MethodGet || strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			// 未匹配的 /api/* GET 也返回 404 JSON，避免 SPA 回退吞掉 API 错误（R14-01 用户决策）
 			Fail(c, http.StatusNotFound, "接口不存在")
 			return
 		}

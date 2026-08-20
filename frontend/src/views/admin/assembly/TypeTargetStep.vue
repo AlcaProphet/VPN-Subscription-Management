@@ -21,9 +21,17 @@ defineProps<{
           {{ r.name }}<span v-if="r.current_version <= 0" class="text-xs text-gray-400">（空实体）</span>
         </Select.Option>
       </Select>
-      <Select v-else :value="form.platform_id" placeholder="选择平台" class="w-full" @change="(v: any) => form.platform_id = Number(v)">
-        <Select.Option v-for="p in filteredPlatforms" :key="p.id" :value="p.id">{{ p.name }}（{{ p.product_type }}）</Select.Option>
-      </Select>
+      <template v-else>
+        <Select :value="form.platform_id" placeholder="选择平台" class="w-full" @change="(v: any) => form.platform_id = Number(v)">
+          <Select.Option v-for="p in filteredPlatforms" :key="p.id" :value="p.id">{{ p.name }}（{{ p.product_type }}）</Select.Option>
+        </Select>
+        <div v-if="filteredPlatforms.length === 0" class="text-xs text-gray-500 mt-2">
+          暂无匹配格式的平台，请先创建对应格式平台：<a href="/admin/platforms">前往平台管理</a>
+        </div>
+      </template>
+      <div v-if="isSrConf && (context?.rules ?? []).length === 0" class="text-xs text-gray-500 mt-2">
+        暂无规则实体，可先创建空规则实体：<a href="/admin/rules">前往规则管理</a>
+      </div>
     </div>
     <div v-if="isSrConf">
       <div class="text-sm mb-1">FINAL 方向</div>

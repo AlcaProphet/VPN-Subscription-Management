@@ -49,11 +49,11 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	root.Content = append(root.Content, scalarNode("proxies"), proxiesNode)
 	// proxy-groups
 	groupsNode := &yaml.Node{Kind: yaml.SequenceNode}
-	// 三个强制组
-	forceGroups := []map[string]any{
-		{"name": node.ForceDirect, "type": "select", "proxies": []string{"DIRECT"}},
-		{"name": node.ForceOverseas, "type": "select", "proxies": s.overseasRenderNames(in, ld)},
-		{"name": node.ForceFallback, "type": "select", "proxies": []string{node.ForceDirect, node.ForceOverseas}},
+	// 三个强制组（固定键序 name/type/proxies，R14-02）
+	forceGroups := []*OrderedMap{
+		NewOrderedMap().Set("name", node.ForceDirect).Set("type", "select").Set("proxies", []string{"DIRECT"}),
+		NewOrderedMap().Set("name", node.ForceOverseas).Set("type", "select").Set("proxies", s.overseasRenderNames(in, ld)),
+		NewOrderedMap().Set("name", node.ForceFallback).Set("type", "select").Set("proxies", []string{node.ForceDirect, node.ForceOverseas}),
 	}
 	for _, g := range forceGroups {
 		gn, err := toYAMLNode(g)
@@ -62,7 +62,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 		}
 		groupsNode.Content = append(groupsNode.Content, gn)
 	}
-	// 勾选代理组
+	// 勾选代理组（固定键序 name/type/proxies）
 	for _, name := range in.GroupNames {
 		g := ld.groups[name]
 		proxies := make([]string, 0, len(g.Nodes)+len(g.Groups))
@@ -72,7 +72,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			}
 		}
 		proxies = append(proxies, g.Groups...)
-		gn, err := toYAMLNode(map[string]any{"name": g.Name, "type": g.GroupType, "proxies": proxies})
+		gn, err := toYAMLNode(NewOrderedMap().Set("name", g.Name).Set("type", g.GroupType).Set("proxies", proxies))
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +117,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 		return nil, fmt.Errorf("序列化 Clash YAML 失败: %w", err)
 	}
 	plan := map[string]any{
-		"head":          in.FixedParams,
+		"head":           in.FixedParams,
 		"manual_proxies": in.NodeNames,
 		"proxy_groups":   in.GroupNames,
 		"rules":          in.Pools,

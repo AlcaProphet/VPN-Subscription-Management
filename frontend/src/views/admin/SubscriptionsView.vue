@@ -169,6 +169,11 @@ async function confirmDelete() {
             <span v-else class="text-gray-400">未激活</span>
           </template>
         </Table.Column>
+        <Table.Column title="状态" key="status">
+          <template #default="{ record }">
+            <Alert v-if="pooled(record.id)" type="info" show-icon message="已入池未生效，请激活" />
+          </template>
+        </Table.Column>
         <Table.Column title="操作" key="actions">
           <template #default="{ record }">
             <div class="flex items-center gap-1">
@@ -233,7 +238,7 @@ async function confirmDelete() {
     </Modal>
 
     <ConfirmModal :open="toDelete !== null" title="删除订阅" danger :loading="deleting"
-                  content="将删除该订阅的全部版本文件与指向它的下载 Token；装配蓝图级联删除将触发候选集重算（高级模式下可能摘除受影响的组节点分配并移除对应 Xray 账号）。删除后不可恢复。"
+                  content="将删除该订阅的全部版本文件与指向它的下载 Token；装配蓝图级联删除将触发候选集重算（高级模式下可能摘除受影响的组节点分配并移除对应 Xray 账号）；不级联自定义订阅。删除后不可恢复。"
                   @confirm="confirmDelete" @update:open="toDelete = null" />
   </div>
 </template>

@@ -177,19 +177,6 @@ func (s *Service) Update(ctx context.Context, id int64, name string, urls []stri
 	})
 }
 
-// Get 单个素材池
-func (s *Service) Get(ctx context.Context, id int64) (*Pool, error) {
-	row := s.store.DB().QueryRowContext(ctx,
-		`SELECT p.id, p.name, p.urls_json, p.last_synced_at, p.sync_status, p.sync_error, p.auto_sync, p.sync_time,
-		        (SELECT COUNT(*) FROM pool_entries e WHERE e.pool_id = p.id)
-		 FROM rule_pools p WHERE p.id = ?`, id)
-	p, err := scanPoolRow(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return &p, err
-}
-
 // List 池列表（含条目数）
 func (s *Service) List(ctx context.Context) ([]Pool, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
