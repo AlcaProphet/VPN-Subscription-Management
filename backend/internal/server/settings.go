@@ -73,6 +73,8 @@ func RegisterSettingsRoutes(engine *gin.Engine, h *SettingsHandler, sessionMW, a
 	g.PUT("/announcement", h.saveAnnouncement)
 	g.GET("/debug", h.getDebug)
 	g.PUT("/debug", h.saveDebug)
+	g.GET("/advanced", h.getAdvanced)
+	g.PUT("/advanced", h.saveAdvanced)
 	// OIDC 测试连接（管理员专用，复用 Build1 Step 6 TestConnection）
 	g.POST("/oidc/test", h.testOidc)
 
@@ -356,6 +358,34 @@ func (h *SettingsHandler) saveDebug(c *gin.Context) {
 		return
 	}
 	OK(c, nil)
+}
+
+
+// --- 高级模式分区 ---
+
+func (h *SettingsHandler) getAdvanced(c *gin.Context) {
+	OK(c, h.adminCfg.GetAdvancedSettings(c.Request.Context()))
+}
+
+func (h *SettingsHandler) saveAdvanced(c *gin.Context) {
+	var req struct {
+		config.AdvancedSettings
+		ConfirmWord string `json:"confirm_word"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	taskID, err := h.adminCfg.SaveAdvancedSettings(c.Request.Context(), req.AdvancedSettings, req.ConfirmWord)
+	if err != nil {
+		mapSettingsErr(c, err)
+		return
+	}
+	if taskID != "" {
+		OK(c, gin.H{"task_id": taskID})
+		return
+	}
+	OK(c, gin.H{"message": "高级模式设置已保存"})
 }
 
 // mapSettingsErr 面板配置错误映射：参数类 → 400（含死锁/验证码密钥缺失提示）

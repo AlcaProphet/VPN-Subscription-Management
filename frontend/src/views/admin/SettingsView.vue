@@ -11,9 +11,12 @@ import {
   getCaptcha, saveCaptcha, getSMTP, saveSMTP, testSMTP, getSite, saveSite, deleteSiteIcon,
   getRateLimit, saveRateLimit, getLogLevel, saveLogLevel, getAnnouncement, saveAnnouncement,
   getDebug, saveDebug, exportConfig, importConfig, clearAll, downloadBackup,
+  getAdvancedSettings, saveAdvancedSettings, getAdminTask,
   type OidcSettings, type WhitelistConfig, type LocalAuthSettings,
   type CaptchaSettings, type SMTPSettings, type RateLimitSettings, type SiteInfo, type NoticeSettings,
+  type AdvancedSettings,
 } from '@/api/settings'
+import { pollTask } from '@/api/request'
 import { useSystemStore } from '@/stores/system'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/api/request'
@@ -35,6 +38,7 @@ const sections = [
   { key: 'smtp', title: 'SMTP' },
   { key: 'site', title: '站点信息' },
   { key: 'mode', title: '运行模式信息' },
+  { key: 'advanced', title: '高级模式' },
   { key: 'ratelimit', title: '速率限制' },
   { key: 'log-level', title: '日志级别' },
   { key: 'announcement', title: '公告与页脚' },
@@ -383,6 +387,56 @@ async function doSaveDebug() {
   }
 }
 
+// --- 高级模式（Build7 Step2/Step4） ---
+const advanced = ref<AdvancedSettings>({ advanced_mode: false, collect_interval_minutes: 10, traffic_card_enabled: true })
+const advancedSaving = ref(false)
+const advancedConfirmOpen = ref(false)
+async function loadAdvanced() {
+  try {
+    Object.assign(advanced.value, await getAdvancedSettings())
+  } catch (err) {
+    Notify.error((err as Error).message)
+  }
+}
+async function doSaveAdvanced() {
+  advancedSaving.value = true
+  try {
+    const data = { ...advanced.value }
+    if (!data.advanced_mode) {
+      advancedConfirmOpen.value = true
+      return
+    }
+    await saveAdvancedSettings(data)
+    Notify.success('高级模式已开启')
+    await system.fetchStatus(true)
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    advancedSaving.value = false
+  }
+}
+async function confirmDisableAdvanced() {
+  advancedSaving.value = true
+  try {
+    const res = await saveAdvancedSettings({ ...advanced.value, confirm_word: 'DISABLE' })
+    if (res.task_id) {
+      await pollTask({
+        submit: () => Promise.resolve(),
+        query: () => getAdminTask(res.task_id!),
+        isDone: (t) => t.status === 'succeeded' || t.status === 'failed',
+      }).run()
+    }
+    advancedConfirmOpen.value = false
+    Notify.success('高级模式已关闭，数据已清空')
+    await system.fetchStatus(true)
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    advancedSaving.value = false
+  }
+}
+
+
 // --- 配置导入/导出（仅 Production；Dev 显示说明文案） ---
 const exportPwd = ref('')
 const exporting = ref(false)
@@ -509,7 +563,7 @@ async function doClearAll() {
 
 onMounted(() => {
   void Promise.all([loadOidc(), loadOidcRules(), loadLocalAuth(), loadCaptcha(), loadSMTP(),
-    loadSite(), loadRateLimit(), loadLogLevel(), loadAnnouncement(), loadDebug()])
+    loadSite(), loadRateLimit(), loadLogLevel(), loadAnnouncement(), loadDebug(), loadAdvanced()])
   void system.fetchStatus()
 })
 </script>
@@ -731,6 +785,35 @@ onMounted(() => {
             <span class="text-xs text-gray-400">由启动环境变量决定，修改需重启容器</span>
           </div>
         </Card>
+
+          <!-- 高级模式 -->
+          <Card id="advanced" title="高级模式" size="small">
+            <div class="space-y-3 max-w-xl">
+              <div class="flex items-center gap-3">
+                <span class="w-28 text-sm">高级模式</span>
+                <Switch v-model:checked="advanced.advanced_mode" />
+                <Tag :color="advanced.advanced_mode ? 'green' : 'default'">{{ advanced.advanced_mode ? '已开启' : '未开启' }}</Tag>
+              </div>
+              <div v-if="advanced.advanced_mode" class="flex items-center gap-3">
+                <span class="w-28 text-sm">采集间隔（分钟）</span>
+                <InputNumber v-model:value="advanced.collect_interval_minutes" :min="1" class="w-32" />
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="w-28 text-sm">流量卡片</span>
+                <Switch v-model:checked="advanced.traffic_card_enabled" />
+              </div>
+              <Space>
+                <Button type="primary" :loading="advancedSaving" @click="doSaveAdvanced">保存</Button>
+              </Space>
+              <Alert v-if="!advanced.advanced_mode" type="info" show-icon
+                     message="开启高级模式后将解锁用户组节点分配、Xray 实例与独立账号管理。关闭高级模式会清空 Xray 相关数据，需输入确认词 DISABLE。" />
+            </div>
+          </Card>
+
+          <ConfirmModal :open="advancedConfirmOpen" title="关闭高级模式" danger :loading="advancedSaving"
+                        content="将移除全部 Xray 实例、Xray 节点、组分配、独立账号、流量记录与用户凭据；保留 proxy_groups、用户组与装配蓝图。此操作不可恢复。"
+                        @confirm="confirmDisableAdvanced" @update:open="advancedConfirmOpen = false" />
+
 
         <!-- 速率限制 -->
         <Card id="ratelimit" title="速率限制" size="small">

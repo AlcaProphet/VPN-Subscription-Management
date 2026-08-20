@@ -132,7 +132,9 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	RegisterTasksRoutes(engine, &TasksHandler{registry: taskReg}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	xraySvc := xray.NewInstanceService(st, lg, taskReg)
 	credsSvc := xray.NewCredentialService(st, cfg)
+	extSvc := xray.NewExtService(st, cfg, xraySvc, lg)
 	syncSvc := xray.NewSyncService(st, cfg, credsSvc, xraySvc, taskReg, lg)
+	syncSvc.SetExtService(extSvc)
 	// 组节点变化/删除后对受影响用户做精确 diff（Build6-2 补强）
 	groupSvc.SetOnNodesChanged(func(ctx context.Context, _ int64, userIDs []int64) {
 		for _, uid := range userIDs {
@@ -141,8 +143,8 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 			}
 		}
 	})
-	cron.StartXrayCollect(st, xraySvc, syncSvc, cfg, lg)
-	RegisterXrayRoutes(engine, &XrayHandler{instanceSvc: xraySvc, syncSvc: syncSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
+	cron.StartXrayCollect(st, xraySvc, syncSvc, extSvc, cfg, lg)
+	RegisterXrayRoutes(engine, &XrayHandler{instanceSvc: xraySvc, syncSvc: syncSvc, extSvc: extSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
 	// 候选集重算与同步 diff 接线：节点启停/公共变化、检测可见性变化
 	nodeSvc.SetOnXrayChanged(func(ctx context.Context, n node.Node, oldEnabled, oldPublic bool) {
 		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
@@ -297,7 +299,9 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	response.SetDebugProvider(func(ctx context.Context) bool {
 		return cfg.GetBool(ctx, "debug_mode", false)
 	})
+	offClearSvc := xray.NewOffClearService(st, cfg, taskReg, lg)
 	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, lg)
+	adminCfgSvc.SetAdvancedModeSwitcher(offClearSvc)
 	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trustProxy},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 运维端点（Build3 Step 4）：一键清空/配置导入导出/备份下载；内存态复位回调（Step 5 追加 SSE 复位）
@@ -309,6 +313,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	}
 	exportSvc := config.NewExportService(st, cfg, dataDir, mode, lg)
 	exportSvc.SetSeedPresets(setupSvc.SeedPresetsTx) // Setup 导入分支预置默认组/平台
+	exportSvc.SetTaskRegistry(taskReg)
 	backupSvc := backup.NewService(st, dataDir, lg)
 	RegisterSettingsOpsRoutes(engine, &SettingsOpsHandler{
 		clearSvc: clearSvc, exportSvc: exportSvc, backupSvc: backupSvc, setupSvc: setupSvc, limiter: limiter,

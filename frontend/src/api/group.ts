@@ -11,11 +11,32 @@ export interface GroupItem {
   user_count: number
 }
 
+export interface GroupNode {
+  node_id: number
+  node_name: string
+  display_name?: string | null
+  render_name: string
+  sort_order: number
+  is_public: boolean
+  source: string
+}
+
+export interface GroupDetail extends GroupItem {
+  nodes?: GroupNode[]
+  candidate_nodes?: string[]
+  in_partial_blueprint?: boolean
+}
+
 export const listGroups = () =>
   http.get<any, { list: GroupItem[]; total: number }>('/admin/groups').then((d) => d.list)
 export const getGroup = (id: number) =>
-  http.get<any, { group: GroupItem }>(`/admin/groups/${id}`).then((d) => d.group)
+  http.get<any, { group: GroupItem; nodes?: GroupNode[]; candidate_nodes?: string[] }>(`/admin/groups/${id}`)
+    .then((d) => ({ ...d.group, nodes: d.nodes ?? [], candidate_nodes: d.candidate_nodes ?? [] }) as GroupDetail)
 export const createGroup = (name: string) => http.post<any, GroupItem>('/admin/groups', { name })
 export const updateGroup = (id: number, data: { name: string }) =>
   http.put(`/admin/groups/${id}`, data)
 export const deleteGroup = (id: number) => http.delete(`/admin/groups/${id}`)
+export const updateGroupNodes = (id: number, data: { node_ids: number[] }) =>
+  http.put(`/admin/groups/${id}/nodes`, data)
+export const updateGroupQuota = (id: number, data: { default_quota?: number | null }) =>
+  http.put(`/admin/groups/${id}/quota`, data)

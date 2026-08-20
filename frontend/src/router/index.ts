@@ -37,7 +37,7 @@ const adminRoutes = [
   { path: '/admin/assembly', component: () => import('@/views/admin/AssemblyView.vue') },
   { path: '/admin/nodes', component: () => import('@/views/admin/NodesView.vue') },
   { path: '/admin/proxy-groups', component: () => import('@/views/admin/ProxyGroupsView.vue') },
-  { path: '/admin/xray', component: () => import('@/views/admin/PlaceholderView.vue'), props: { title: 'Xray 实例', description: '将在 Build7 实现（高级模式）' } },
+  { path: '/admin/xray', component: () => import('@/views/admin/XrayInstancesView.vue') },
   // Build3 Step 1：用户管理
   { path: '/admin/users', component: () => import('@/views/admin/UsersView.vue') },
   // Build3 Step 2：审批中心

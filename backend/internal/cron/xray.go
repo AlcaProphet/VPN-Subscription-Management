@@ -14,7 +14,7 @@ import (
 
 // StartXrayCollect 每分钟检查，按 xray_collect_interval_minutes 间隔执行采集与配额检查。
 // 返回 stop 函数供优雅退出时调用。
-func StartXrayCollect(st *store.Store, instSvc *xray.InstanceService, syncSvc *xray.SyncService, cfg *config.Service, lg *slog.Logger) (stop func()) {
+func StartXrayCollect(st *store.Store, instSvc *xray.InstanceService, syncSvc *xray.SyncService, extSvc *xray.ExtService, cfg *config.Service, lg *slog.Logger) (stop func()) {
 	ticker := time.NewTicker(time.Minute)
 	done := make(chan struct{})
 	var mu sync.Mutex
@@ -48,8 +48,11 @@ func StartXrayCollect(st *store.Store, instSvc *xray.InstanceService, syncSvc *x
 				lg.Warn("Xray 实例采集失败", "instance", inst.ID, "err", err)
 				continue
 			}
+			if err := extSvc.CollectExtTraffic(ctx, inst); err != nil {
+				lg.Warn("Xray 独立账号采集失败", "instance", inst.ID, "err", err)
+			}
 		}
-		// 配额检查
+		// 配额检查（面板用户 + 独立账号）
 		ids, err := syncSvc.ActiveUserIDs(ctx)
 		if err != nil {
 			lg.Error("读取 active 用户失败", "err", err)
@@ -59,6 +62,9 @@ func StartXrayCollect(st *store.Store, instSvc *xray.InstanceService, syncSvc *x
 			if err := syncSvc.CheckQuota(ctx, id); err != nil {
 				lg.Warn("配额检查失败", "user_id", id, "err", err)
 			}
+		}
+		if err := extSvc.CheckAllExtQuota(ctx); err != nil {
+			lg.Warn("独立账号配额检查失败", "err", err)
 		}
 	}
 

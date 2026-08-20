@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/config"
@@ -129,6 +130,13 @@ type AdminUser struct {
 	HasPassword bool            `json:"has_password"`     // 清 OIDC 绑定警告用
 	HasOidcBind bool            `json:"has_oidc_binding"` // 是否已绑定 OIDC 身份（清绑定入口可见性）
 	CustomSubs  []CustomSubItem `json:"custom_subs"`      // 自定义订阅列表（空 = 无）
+	// 高级模式字段（advanced_mode=on 时填充）
+	UsedBytes      int64    `json:"used_bytes,omitempty"`
+	EffectiveQuota *float64 `json:"effective_quota,omitempty"`
+	QuotaOverride  *float64 `json:"quota_override,omitempty"`
+	QuotaExceeded  bool     `json:"quota_exceeded,omitempty"`
+	SyncStatus     string   `json:"sync_status,omitempty"`
+	SyncError      string   `json:"sync_error,omitempty"`
 }
 
 func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int64, error) {
@@ -211,6 +219,36 @@ func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int6
 		}
 		if err := crows.Err(); err != nil {
 			return nil, 0, err
+		}
+	}
+	// 高级模式：填充用量/配额/同步状态（仅 advanced_mode=on 时查询）
+	if s.cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
+		ym := time.Now().UTC().Format("2006-01")
+		for i := range out {
+			u := &out[i]
+			_ = s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(SUM(uplink+downlink),0) FROM traffic_records WHERE user_id = ? AND ym = ?`, u.ID, ym).Scan(&u.UsedBytes)
+			var quota sql.NullFloat64
+			var override sql.NullFloat64
+			var exceeded int
+			_ = s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(u.quota_override, g.default_quota), u.quota_override, u.quota_exceeded
+				 FROM users u LEFT JOIN groups g ON g.id = u.group_id WHERE u.id = ?`, u.ID).
+				Scan(&quota, &override, &exceeded)
+			if quota.Valid {
+				u.EffectiveQuota = &quota.Float64
+			}
+			if override.Valid {
+				u.QuotaOverride = &override.Float64
+			}
+			u.QuotaExceeded = exceeded == 1
+			var status string
+			_ = s.store.DB().QueryRowContext(ctx,
+				`SELECT CASE WHEN COUNT(*)=0 THEN '' WHEN SUM(sync_status='failed')>0 THEN 'failed' WHEN SUM(sync_status='pending')>0 THEN 'pending' ELSE 'synced' END
+				 FROM xray_users WHERE user_id = ?`, u.ID).Scan(&status)
+			u.SyncStatus = status
+			_ = s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(last_error,'') FROM xray_users WHERE user_id = ? AND last_error != '' ORDER BY updated_at DESC LIMIT 1`, u.ID).Scan(&u.SyncError)
 		}
 	}
 	return out, total, nil

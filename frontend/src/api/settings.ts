@@ -54,6 +54,17 @@ export interface SiteInfo {
   icon_url: string
 }
 
+export interface AdvancedSettings {
+  advanced_mode: boolean
+  collect_interval_minutes: number
+  traffic_card_enabled: boolean
+}
+
+export const getAdvancedSettings = () => http.get<any, AdvancedSettings>('/admin/settings/advanced')
+export const saveAdvancedSettings = (data: AdvancedSettings & { confirm_word?: string }) =>
+  http.put<any, { task_id?: string; message?: string }>('/admin/settings/advanced', data)
+export const getAdminTask = (id: string) => http.get<any, { id: string; kind: string; status: string; result?: unknown; error?: string }>(`/admin/tasks/${id}`)
+
 export const getOidc = () => http.get<any, OidcSettings>('/admin/settings/oidc')
 export const saveOidc = (data: OidcSettings) => http.put<any, { need_restart?: boolean }>('/admin/settings/oidc', data)
 export const clearOidc = () => http.delete('/admin/settings/oidc')
@@ -97,7 +108,8 @@ export const getPublicAnnouncement = () =>
 // --- 运维端点（Build3 Step 4：配置导入导出/备份下载/一键清空） ---
 export const exportConfig = (password: string) =>
   http.post<any, Blob>('/admin/settings/export', { password }, { responseType: 'blob' })
-export const importConfig = (form: FormData) => http.post('/admin/settings/import', form)
+export const importConfig = (form: FormData) =>
+  http.post<any, { task_id?: string; message?: string }>('/admin/settings/import', form)
 // Setup 导入（未配置状态暴露，无会话保护；依赖导出密码 + 按 IP 限流 5/min）
 export const setupImportConfig = (form: FormData) => http.post('/setup/import', form)
 export const clearAll = (confirmWord: string) => http.post('/admin/settings/clear_all', { confirm_word: confirmWord })

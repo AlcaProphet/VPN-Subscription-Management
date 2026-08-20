@@ -73,17 +73,28 @@ type OidcOps interface {
 	ClearDiscCache()
 }
 
+// AdvancedModeSwitcher 高级模式开关能力接口（由 server 注入 xray.OffClear 实现，避免 config↔xray 循环依赖）。
+type AdvancedModeSwitcher interface {
+	SubmitAdvancedMode(ctx context.Context, on bool, confirmWord string) (string, error)
+}
+
 // AdminService 面板配置服务
 type AdminService struct {
-	cfg     *Service
-	store   *store.Store
-	oidcOps OidcOps
-	dataDir string // 数据卷根目录（站点 ICON 落盘用）
-	log     *slog.Logger
+	cfg              *Service
+	store            *store.Store
+	oidcOps          OidcOps
+	advancedSwitcher AdvancedModeSwitcher
+	dataDir          string // 数据卷根目录（站点 ICON 落盘用）
+	log              *slog.Logger
 }
 
 func NewAdminService(cfg *Service, st *store.Store, oidcOps OidcOps, dataDir string, lg *slog.Logger) *AdminService {
 	return &AdminService{cfg: cfg, store: st, oidcOps: oidcOps, dataDir: dataDir, log: lg}
+}
+
+// SetAdvancedModeSwitcher 注入高级模式开关实现（server 装配时调用）。
+func (s *AdminService) SetAdvancedModeSwitcher(fn AdvancedModeSwitcher) {
+	s.advancedSwitcher = fn
 }
 
 // --- 通用读写辅助 ---
@@ -582,6 +593,52 @@ func (s *AdminService) GetDebug(ctx context.Context) bool {
 // server.Fail 的 5xx 脱敏分支读取 debug_mode（Build1 Step 1 的 Fail 在此接通）
 func (s *AdminService) SetDebug(ctx context.Context, on bool) error {
 	return s.cfg.Set(ctx, "debug_mode", strconv.FormatBool(on))
+}
+
+// --- 高级模式分区（Build7 Step2） ---
+
+// AdvancedSettings 高级模式相关设置。
+type AdvancedSettings struct {
+	AdvancedMode           bool `json:"advanced_mode"`
+	CollectIntervalMinutes int  `json:"collect_interval_minutes"`
+	TrafficCardEnabled     bool `json:"traffic_card_enabled"`
+}
+
+// GetAdvancedSettings 读取高级模式三键。
+func (s *AdminService) GetAdvancedSettings(ctx context.Context) AdvancedSettings {
+	return AdvancedSettings{
+		AdvancedMode:           s.cfg.GetBool(ctx, KeyAdvancedMode, false),
+		CollectIntervalMinutes: s.cfg.GetInt(ctx, "xray_collect_interval_minutes", 10),
+		TrafficCardEnabled:     s.cfg.GetBool(ctx, "traffic_card_enabled", true),
+	}
+}
+
+// SaveAdvancedSettings 保存高级模式设置。
+// advanced_mode 变更必须经注入的 AdvancedModeSwitcher 执行 OFF/ON 分支，禁止普通 Set 绕过。
+// confirmWord 仅关闭高级模式时需要（固定 DISABLE，由接入层校验）。
+func (s *AdminService) SaveAdvancedSettings(ctx context.Context, in AdvancedSettings, confirmWord string) (string, error) {
+	if in.CollectIntervalMinutes < 1 {
+		return "", fmt.Errorf("%w: 采集间隔必须 ≥1 分钟", ErrBadRequest)
+	}
+	current := s.cfg.GetBool(ctx, KeyAdvancedMode, false)
+	taskID := ""
+	if in.AdvancedMode != current {
+		if s.advancedSwitcher == nil {
+			return "", errors.New("高级模式开关实现未注入")
+		}
+		var err error
+		taskID, err = s.advancedSwitcher.SubmitAdvancedMode(ctx, in.AdvancedMode, confirmWord)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := s.cfg.Set(ctx, "xray_collect_interval_minutes", strconv.Itoa(in.CollectIntervalMinutes)); err != nil {
+		return "", err
+	}
+	if err := s.cfg.Set(ctx, "traffic_card_enabled", strconv.FormatBool(in.TrafficCardEnabled)); err != nil {
+		return "", err
+	}
+	return taskID, nil
 }
 
 // --- 辅助 ---

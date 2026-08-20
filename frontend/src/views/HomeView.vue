@@ -172,7 +172,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
 
       <template v-else>
         <!-- 1) 流量卡片（基础模式仅「不限流量」） -->
-        <Card class="mb-4 shadow-sm dark:text-gray-100">
+        <Card v-if="system.status?.traffic_card_enabled !== false" class="mb-4 shadow-sm dark:text-gray-100">
           <div class="text-sm font-medium mb-2">流量</div>
           <template v-if="traffic.unlimited">
             <div class="text-gray-500">不限流量</div>

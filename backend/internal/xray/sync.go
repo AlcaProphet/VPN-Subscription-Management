@@ -42,7 +42,11 @@ type SyncService struct {
 	registry  *tasks.Registry
 	log       *slog.Logger
 	apiFor    func(ctx context.Context, instanceID int64) (API, error)
+	ext       *ExtService
 }
+
+// SetExtService 注入独立账号服务（对账/修复使用）。
+func (s *SyncService) SetExtService(e *ExtService) { s.ext = e }
 
 func NewSyncService(st *store.Store, cfg *config.Service, creds *CredentialService, instances *InstanceService, reg *tasks.Registry, lg *slog.Logger) *SyncService {
 	return &SyncService{

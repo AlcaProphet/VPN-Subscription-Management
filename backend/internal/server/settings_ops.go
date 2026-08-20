@@ -122,7 +122,8 @@ func (h *SettingsOpsHandler) importCommon(c *gin.Context, setupMode bool) {
 		Fail(c, http.StatusBadRequest, "导出密码与确认词必填")
 		return
 	}
-	if err := h.exportSvc.Import(c.Request.Context(), data, password, confirmWord, setupMode); err != nil {
+	taskID, err := h.exportSvc.ImportV2(c.Request.Context(), data, password, confirmWord, setupMode)
+	if err != nil {
 		if errors.Is(err, config.ErrModeRestricted) {
 			Fail(c, http.StatusForbidden, err.Error()) // 仅 Production 提供（R07-06 哨兵映射，Setup 导入同路径）
 			return
@@ -132,6 +133,11 @@ func (h *SettingsOpsHandler) importCommon(c *gin.Context, setupMode bool) {
 			return
 		}
 		Fail(c, http.StatusBadRequest, err.Error()) // 确认词错误/密码错误或文件损坏
+		return
+	}
+	// v2 导入异步返回 task_id；v1 保持同步完成提示。
+	if taskID != "" {
+		OK(c, gin.H{"task_id": taskID})
 		return
 	}
 	// 导入后效果：签名密钥替换 → 全部会话立即失效（含执行导入的管理员）；含前端地址/回调地址时需重启生效

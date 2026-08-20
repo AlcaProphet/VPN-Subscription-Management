@@ -19,6 +19,13 @@ export interface AdminUser {
   has_password: boolean
   has_oidc_binding: boolean
   custom_subs: CustomSubItem[]
+  // 高级模式字段
+  used_bytes?: number
+  effective_quota?: number | null
+  quota_override?: number | null
+  quota_exceeded?: boolean
+  sync_status?: string
+  sync_error?: string
 }
 
 // 分页列表保留 {list,total} 包裹（调用方取 list/total），与全量列表 api 的 .then(d => d.list) 解包约定区分（R02-01）
@@ -39,3 +46,5 @@ export const sendPasswordLinks = () =>
   http.post<any, { sent: number; skipped_pending: number; skipped_disabled: number; skipped_no_email: number }>(
     '/admin/users/send_password_links',
   )
+export const setUserQuota = (id: number, data: { quota_override?: number | null }) =>
+  http.put(`/admin/users/${id}/quota`, data)

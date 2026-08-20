@@ -1,7 +1,9 @@
 // api/request.ts：Axios 实例 + Bearer 注入 + 401 拦截 + 错误码→UI 映射（UI §7.3）
 import axios, { AxiosError } from 'axios'
+import { message } from 'ant-design-vue'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { useSystemStore } from '@/stores/system'
 
 export const http = axios.create({ baseURL: '/api', timeout: 15000 })
 
@@ -37,6 +39,10 @@ http.interceptors.response.use(
         void router.push('/login')
       }
     }
+      if (st === 403 && msg === '高级功能未开启') {
+        message.warning('高级功能未开启')
+        void useSystemStore().fetchStatus(true)
+      }
     return Promise.reject(new ApiError(st, msg ?? defaultMsg(st), err.response?.headers?.['retry-after'] as string | undefined))
   },
 )
