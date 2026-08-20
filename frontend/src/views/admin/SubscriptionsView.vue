@@ -54,6 +54,19 @@ function goVersions(sub: SubscriptionItem) {
   void router.push(`/admin/subscriptions/${sub.id}/versions`)
 }
 
+function goAssembly(sub: SubscriptionItem) {
+  const tab = sub.product_type === 'yaml' ? 'clash-yaml' : sub.product_type === 'subs' ? 'sr-subs' : 'generic-subs'
+  void router.push(`/admin/assembly?tab=${tab}&platform_id=${sub.platform_id}`)
+}
+
+function goAssemblyHeader() {
+  if (subs.value.length > 0) {
+    goAssembly(subs.value[0])
+  } else {
+    void router.push('/admin/assembly')
+  }
+}
+
 // 平台选项：已被订阅条目占用的平台禁用 + 后缀
 const platformOptions = () =>
   platforms.value.map((p) => ({
@@ -127,7 +140,7 @@ async function confirmDelete() {
   <div>
     <PageHeader title="订阅管理">
       <template #actions>
-        <Button @click="router.push('/admin/assembly')">前往装配</Button>
+        <Button @click="goAssemblyHeader">前往装配</Button>
         <Button type="primary" @click="openCreate">新建订阅</Button>
       </template>
     </PageHeader>
@@ -160,6 +173,7 @@ async function confirmDelete() {
           <template #default="{ record }">
             <div class="flex items-center gap-1">
               <Button size="small" @click="goVersions(record)">版本管理</Button>
+              <Button size="small" @click="goAssembly(record)">装配生成</Button>
               <Button v-if="pooled(record.id)" size="small" type="primary" ghost @click="goVersions(record)">去激活</Button>
               <Button size="small" @click="openEdit(record)">编辑</Button>
               <Button size="small" danger @click="toDelete = record">删除</Button>
@@ -179,6 +193,7 @@ async function confirmDelete() {
             </div>
             <div class="flex gap-1">
               <Button size="small" @click="goVersions(sub)">版本管理</Button>
+              <Button size="small" @click="goAssembly(sub)">装配生成</Button>
               <Button size="small" @click="openEdit(sub)">编辑</Button>
               <Button size="small" danger @click="toDelete = sub">删除</Button>
             </div>

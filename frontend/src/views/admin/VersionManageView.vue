@@ -6,6 +6,7 @@ import { Button, Dropdown, Input, Menu, Modal, Space, Spin, Table, Tabs, Tag, To
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import { versionApi, getVersionBlueprint, type VersionItem } from '@/api/version'
+import { getSubscription } from '@/api/subscription'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -27,12 +28,26 @@ const switchContent = computed(() =>
   activationOwner.value ? '激活后对全体用户生效' : '切换后所有下载立即生效',
 )
 
-// 装配生成入口：订阅/规则页显示
-const assemblyUrl = computed(() => {
-  if (props.ownerType === 'rule') return `/admin/assembly?tab=sr-conf&rule_id=${props.ownerId}`
-  if (props.ownerType === 'subscription') return '/admin/assembly'
-  return ''
-})
+// 装配生成入口：订阅/规则页显示；订阅页额外带 platform_id 与对应装配器页签
+const assemblyUrl = ref('')
+async function refreshAssemblyUrl() {
+  if (props.ownerType === 'rule') {
+    assemblyUrl.value = `/admin/assembly?tab=sr-conf&rule_id=${props.ownerId}`
+    return
+  }
+  if (props.ownerType !== 'subscription') {
+    assemblyUrl.value = ''
+    return
+  }
+  try {
+    const sub = await getSubscription(props.ownerId)
+    const tab = sub.product_type === 'yaml' ? 'clash-yaml' : sub.product_type === 'subs' ? 'sr-subs' : 'generic-subs'
+    assemblyUrl.value = `/admin/assembly?tab=${tab}&platform_id=${sub.platform_id}`
+  } catch (err) {
+    Notify.error((err as Error).message)
+    assemblyUrl.value = '/admin/assembly'
+  }
+}
 
 // 重新编辑装配版本入口：先读取 blueprint 拿到真实 target_syntax，避免 sr-subs/generic-subs 被错误带到 clash-yaml
 async function reEdit(v: VersionItem) {
@@ -90,6 +105,7 @@ onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
   void load()
+  void refreshAssemblyUrl()
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 

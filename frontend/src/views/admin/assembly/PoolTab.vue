@@ -150,7 +150,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 <template>
   <div>
     <!-- 详情钻取视图（页内） -->
-    <PoolDetail v-if="detailID" :pool="currentDetail()!" @back="detailID = 0" @changed="load" />
+    <PoolDetail v-if="detailID" :pool="currentDetail()!" @back="detailID = 0" @changed="load" @edit="openEdit(currentDetail()!)" />
 
     <template v-else>
       <div class="flex items-center justify-between mb-3">

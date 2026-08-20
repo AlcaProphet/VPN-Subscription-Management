@@ -1,7 +1,7 @@
 <!-- DiffView.vue：文本行级 Diff 预览（jsdiff diffLines，三色高亮） -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { diffLines } from 'diff'
+import { diffLines } from '@/lib/diff'
 
 const props = withDefaults(defineProps<{
   oldText?: string

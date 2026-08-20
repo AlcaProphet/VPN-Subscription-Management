@@ -30,6 +30,17 @@ async function load() {
 }
 onMounted(load)
 
+function goAssembly(r: RuleItem) {
+  void router.push(`/admin/assembly?tab=sr-conf&rule_id=${r.id}`)
+}
+function goAssemblyHeader() {
+  if (rules.value.length > 0) {
+    goAssembly(rules.value[0])
+  } else {
+    void router.push('/admin/assembly?tab=sr-conf')
+  }
+}
+
 // --- 创建弹窗（首版本可选：留空创建空规则实体） ---
 const createOpen = ref(false)
 const creating = ref(false)
@@ -186,7 +197,7 @@ async function cancelDefault(r: RuleItem) {
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold m-0">规则管理</h2>
       <Space>
-        <Button @click="router.push('/admin/assembly?tab=sr-conf')">装配生成</Button>
+        <Button @click="goAssemblyHeader">装配生成</Button>
         <Button type="primary" @click="openCreate">创建规则</Button>
       </Space>
     </div>
@@ -220,6 +231,7 @@ async function cancelDefault(r: RuleItem) {
             <Space :wrap="true">
               <Button size="small" @click="renameTarget = record; renameValue = record.name">改名</Button>
               <Button size="small" @click="router.push(`/admin/rules/${record.id}/versions`)">版本管理</Button>
+              <Button size="small" @click="goAssembly(record)">装配生成</Button>
               <Button size="small" :disabled="!record.token" @click="copyLink(record)">复制链接</Button>
               <Button size="small" type="primary" ghost @click="refreshTarget = record">刷新 Token</Button>
               <Button v-if="record.is_home_default" size="small" :loading="settingDefault" @click="cancelDefault(record)">取消默认</Button>
@@ -248,6 +260,7 @@ async function cancelDefault(r: RuleItem) {
           <div class="mt-2 flex flex-wrap gap-2">
             <Button size="small" @click="renameTarget = r; renameValue = r.name">改名</Button>
             <Button size="small" @click="router.push(`/admin/rules/${r.id}/versions`)">版本管理</Button>
+            <Button size="small" @click="goAssembly(r)">装配生成</Button>
             <Button size="small" :disabled="!r.token" @click="copyLink(r)">复制链接</Button>
             <Button size="small" type="primary" ghost @click="refreshTarget = r">刷新 Token</Button>
             <Button v-if="r.is_home_default" size="small" :loading="settingDefault" @click="cancelDefault(r)">取消默认</Button>

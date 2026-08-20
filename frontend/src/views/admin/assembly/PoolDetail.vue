@@ -12,7 +12,7 @@ import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 
 const props = defineProps<{ pool: PoolItem }>()
-const emit = defineEmits<{ back: []; changed: [] }>()
+const emit = defineEmits<{ back: []; changed: []; edit: [] }>()
 
 const RULE_TYPES = ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'IP-CIDR6', 'PROCESS-NAME', 'PROCESS-NAME-REGEX', 'USER-AGENT']
 
@@ -150,10 +150,16 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 <template>
   <div>
     <div class="flex items-center gap-2 mb-3 flex-wrap">
-      <Button size="small" @click="emit('back')">返回素材池</Button>
-      <h3 class="font-medium m-0">{{ pool.name }}</h3>
-      <span class="text-xs text-gray-400">URL {{ pool.urls.length }} · 条目 {{ pool.entry_count }}</span>
-      <Button size="small" type="primary" :loading="syncing" @click="doSync">同步</Button>
+      <Button size="small" type="link" class="px-1" @click="emit('back')">
+        <span class="text-gray-500">素材池</span><span class="mx-1 text-gray-300">/</span><span class="text-gray-800 dark:text-gray-100">{{ pool.name }}</span>
+      </Button>
+      <span class="text-xs text-gray-400">URL {{ pool.urls.length }} · 条目 {{ pool.entry_count }} · 上次同步 {{ fmtTime(pool.last_synced_at) }}</span>
+      <Badge v-if="pool.sync_status" :status="(statusMeta[pool.sync_status]?.color ?? 'default') as any"
+             :text="statusMeta[pool.sync_status]?.text ?? pool.sync_status" />
+      <div class="flex-1" />
+      <Button size="small" :loading="syncing" @click="doSync">同步</Button>
+      <Button size="small" @click="emit('edit')">编辑</Button>
+      <Button size="small" @click="emit('back')">返回</Button>
     </div>
 
     <!-- 同步回执 -->

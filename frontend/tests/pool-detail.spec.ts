@@ -1,0 +1,105 @@
+// pool-detail.spec.ts：素材池详情同步历史分页与卸载取消轮询（R12-05）
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import PoolDetail from '@/views/admin/assembly/PoolDetail.vue'
+
+vi.mock('@/api/pool', () => ({
+  listEntries: vi.fn(),
+  createEntry: vi.fn(),
+  updateEntry: vi.fn(),
+  deleteEntry: vi.fn(),
+  submitSync: vi.fn(),
+  getSyncStatus: vi.fn(),
+  listSyncTasks: vi.fn(),
+}))
+
+vi.mock('@/api/request', () => {
+  class ApiError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.status = status
+    }
+  }
+  return { pollTask: vi.fn(), ApiError }
+})
+
+vi.mock('@/components/Notify', () => ({
+  Notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), detail: vi.fn() },
+}))
+
+import { listEntries, listSyncTasks } from '@/api/pool'
+import { pollTask } from '@/api/request'
+
+const mockListEntries = listEntries as unknown as ReturnType<typeof vi.fn>
+const mockListTasks = listSyncTasks as unknown as ReturnType<typeof vi.fn>
+const mockPollTask = pollTask as unknown as ReturnType<typeof vi.fn>
+
+const pool = {
+  id: 1, name: '苹果域名', urls: ['https://example.com/rules.txt'], entry_count: 2,
+  last_synced_at: '2026-08-19T10:00:00Z', sync_status: 'succeeded', sync_error: '',
+  auto_sync: true, sync_time: '04:00',
+}
+const entry = {
+  id: 1, pool_id: 1, rule_type: 'DOMAIN-SUFFIX', match_value: 'example.com', source: 'manual' as const, sort_order: 1,
+}
+
+function deferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((res) => { resolve = res })
+  return { promise, resolve }
+}
+
+describe('PoolDetail', () => {
+  beforeEach(() => {
+    mockListEntries.mockReset()
+    mockListTasks.mockReset()
+    mockPollTask.mockReset()
+  })
+
+  it('同步历史支持分页加载', async () => {
+    mockListEntries.mockResolvedValue({ list: [entry], total: 2 })
+    mockListTasks
+      .mockResolvedValueOnce({
+        list: [{
+          task_id: 1, pool_id: 1, status: 'succeeded', per_url: [], error: '',
+          started_at: '2026-08-19T10:00:00Z', finished_at: '2026-08-19T10:01:00Z',
+        }],
+        total: 2,
+      })
+      .mockResolvedValueOnce({
+        list: [{
+          task_id: 2, pool_id: 1, status: 'failed', per_url: [], error: '拉取失败',
+          started_at: '2026-08-19T11:00:00Z', finished_at: '2026-08-19T11:01:00Z',
+        }],
+        total: 2,
+      })
+    const wrapper = mount(PoolDetail, { props: { pool } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('成功')
+    const vm = wrapper.vm as unknown as { taskPage: number }
+    vm.taskPage = 2
+    await flushPromises()
+    expect(mockListTasks).toHaveBeenCalledWith(1, 2, 20)
+    expect(wrapper.text()).toContain('失败')
+    expect(wrapper.text()).toContain('原因')
+  })
+
+  it('组件卸载时取消正在进行的同步轮询', async () => {
+    mockListEntries.mockResolvedValue({ list: [entry], total: 1 })
+    mockListTasks.mockResolvedValue({ list: [], total: 0 })
+    const d = deferred<{ status: string }>()
+    const cancel = vi.fn()
+    const run = vi.fn(() => d.promise)
+    mockPollTask.mockReturnValue({ run, cancel })
+    const wrapper = mount(PoolDetail, { props: { pool } })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { doSync: () => Promise<void> }
+    const first = vm.doSync()
+    await Promise.resolve()
+    wrapper.unmount()
+    expect(cancel).toHaveBeenCalled()
+    d.resolve({ status: 'succeeded' })
+    await first
+  })
+})

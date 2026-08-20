@@ -1,7 +1,7 @@
 <!-- ProxyGroupsView.vue：代理组管理页（Design2-UI §7）——预设/自建双态列表 + DAG 校验 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Button, Checkbox, Form, Input, Modal, Select, Space, Table, Tag } from 'ant-design-vue'
+import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Table, Tag } from 'ant-design-vue'
 import { listProxyGroups, createProxyGroup, updateProxyGroup, deleteProxyGroup, togglePresetGroup, type ProxyGroupItem, type ProxyGroupDefinition } from '@/api/proxyGroup'
 import { listNodes, type NodeItem } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -37,6 +37,60 @@ function onDrop(idx: number) {
   dragIndex.value = null
 }
 
+const FORCE_SUBGROUPS = ['🚀直接连接', '🌎国外流量']
+const availableNodeNames = computed(() => new Set(nodes.value.map((n) => n.name)))
+const availableGroupNames = computed(() => new Set(groups.value.filter((g) => g.id !== editing.value?.id).map((g) => g.name)))
+const staleNodeNames = computed(() => form.node_names.filter((n) => !availableNodeNames.value.has(n)))
+const staleGroupNames = computed(() => form.group_names.filter((n) => !FORCE_SUBGROUPS.includes(n) && !availableGroupNames.value.has(n)))
+const staleRefCount = computed(() => staleNodeNames.value.length + staleGroupNames.value.length)
+
+function removeNodeRef(name: string) {
+  form.node_names = form.node_names.filter((n) => n !== name)
+}
+function removeGroupRef(name: string) {
+  form.group_names = form.group_names.filter((n) => n !== name)
+}
+function removeAllStaleRefs() {
+  staleNodeNames.value.forEach(removeNodeRef)
+  staleGroupNames.value.forEach(removeGroupRef)
+}
+
+// 前端 DAG 环检测：与后端同口径，保存前拦截。
+function detectCycle(): string | null {
+  const currentName = editing.value?.name || form.name || '（新建）'
+  const adj = new Map<string, string[]>()
+  for (const g of groups.value) {
+    if (editing.value && g.id === editing.value.id) {
+      adj.set(g.name, [...form.group_names])
+    } else {
+      adj.set(g.name, [...(g.definition.groups ?? [])])
+    }
+  }
+  if (!editing.value) adj.set(currentName, [...form.group_names])
+  const color = new Map<string, 0 | 1 | 2>()
+  const dfs = (name: string): string | null => {
+    color.set(name, 1)
+    for (const next of adj.get(name) ?? []) {
+      if (FORCE_SUBGROUPS.includes(next)) continue
+      const nextColor = color.get(next)
+      if (nextColor === 1) return `${name} → ${next}`
+      if (!nextColor) {
+        const cycle = dfs(next)
+        if (cycle) return cycle
+      }
+    }
+    color.set(name, 2)
+    return null
+  }
+  for (const name of adj.keys()) {
+    if (!color.get(name)) {
+      const cycle = dfs(name)
+      if (cycle) return cycle
+    }
+  }
+  return null
+}
+
 async function load() {
   loading.value = true
   try {
@@ -69,6 +123,15 @@ function openEdit(g: ProxyGroupItem) {
   form.group_names = [...(g.definition.groups ?? [])]
 }
 async function save() {
+  if (staleRefCount.value > 0) {
+    Notify.error('存在失效引用，请先剔除后再保存')
+    return
+  }
+  const cycle = detectCycle()
+  if (cycle) {
+    Notify.error(`代理组存在环：${cycle}`)
+    return
+  }
   saving.value = true
   try {
     const definition: ProxyGroupDefinition = {
@@ -176,6 +239,12 @@ function memberSummary(g: ProxyGroupItem): string {
 
     <Modal :open="creating" :title="editing ? '编辑代理组' : '新建代理组'" :width="720" :confirm-loading="saving" @ok="save" @cancel="creating = false">
       <Form layout="vertical">
+        <Alert v-if="staleRefCount > 0" type="error" show-icon class="mb-3"
+               :message="`${staleRefCount} 项引用已失效，请剔除或替换后保存`">
+          <template #action>
+            <Button size="small" danger @click="removeAllStaleRefs">一键剔除全部失效项</Button>
+          </template>
+        </Alert>
         <Form.Item label="名称" required>
           <Input v-model:value="form.name" :disabled="editing !== null" placeholder="允许空格，禁止逗号与首尾空白" />
         </Form.Item>
@@ -191,6 +260,8 @@ function memberSummary(g: ProxyGroupItem): string {
             <div v-for="(name, idx) in form.node_names" :key="name" draggable="true" class="flex items-center gap-2 cursor-move"
                  @dragstart="onDragStart(idx)" @dragover.prevent @drop="onDrop(idx)">
               <span class="flex-1">{{ name }}</span>
+              <Tag v-if="staleNodeNames.includes(name)" color="red">已失效</Tag>
+              <Button v-if="staleNodeNames.includes(name)" size="small" danger @click="removeNodeRef(name)">剔除</Button>
               <Button size="small" @click="nodeUp(idx)">上移</Button>
               <Button size="small" @click="nodeDown(idx)">下移</Button>
               <Button size="small" danger @click="form.node_names.splice(idx, 1)">移除</Button>
@@ -217,6 +288,11 @@ function memberSummary(g: ProxyGroupItem): string {
             <Select.Option value="🌎国外流量">🌎国外流量</Select.Option>
             <Select.Option v-for="g in groups.filter((x) => x.id !== editing?.id)" :key="g.name" :value="g.name">{{ g.name }}</Select.Option>
           </Select>
+          <div v-for="name in form.group_names" :key="name" class="mt-1 flex items-center gap-2">
+            <span class="text-sm">{{ name }}</span>
+            <Tag v-if="staleGroupNames.includes(name)" color="red">已失效</Tag>
+            <Button v-if="staleGroupNames.includes(name)" size="small" danger @click="removeGroupRef(name)">剔除</Button>
+          </div>
         </Form.Item>
       </Form>
     </Modal>
