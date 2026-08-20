@@ -24,6 +24,7 @@ func RegisterSubscriptionRoutes(engine *gin.Engine, h *SubscriptionHandler, sess
 	admin := engine.Group("/api/admin/subscriptions", sessionMW, adminMW)
 	admin.GET("", h.list) // 平铺列表（每平台一份订阅条目）
 	admin.POST("", h.create)
+	admin.GET("/:id", h.get) // 单条订阅（版本管理页装配入口预填等场景）
 	admin.PUT("/:id", h.update)
 	admin.DELETE("/:id", h.delete)
 
@@ -58,6 +59,24 @@ func (h *SubscriptionHandler) list(c *gin.Context) {
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
+
+func (h *SubscriptionHandler) get(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	sub, err := h.subSvc.Get(c.Request.Context(), id)
+	if errors.Is(err, subscription.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "订阅不存在")
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, sub)
+}
+
 	}
 	OK(c, ListData{List: list, Total: int64(len(list))}) // 列表统一包裹结构（AGENTS §4.8）
 }

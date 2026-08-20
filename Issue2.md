@@ -443,27 +443,44 @@
 - **修复方案：** 补 status=null 重定向用例。
 - **状态：** ☐ 待修复
 
-### R14-25（待确认）config.Get 错误的系统性静默
+### R14-25（已决策）config.Get 错误的系统性静默
 
 - **现象：** 约 40 处 `v, _ := s.cfg.Get(ctx, key)`（config/admin.go、mail、oidc、captcha、emergency、server 等）；config.Get 对缺 key 返回 ("",nil) 属设计，但真实 DB 错误同样被静默为「未配置」。
 - **根因：** 配置读取的 fail-safe 惯例。
 - **影响范围：** 低危（方向安全）；DB 故障时配置静默回退默认，可能掩盖故障。
-- **修复方案（待决策）：** 维持现状并记录口径，或对关键路径（签名密钥/高级开关）改为显式错误。
-- **状态：** ☐ 待确认
+- **修复方案（用户决策 2026-08-20）：** 对关键路径改为显式错误——签名密钥读取、advanced_mode 读取（高级模式开关判定）与相关鉴权/同步钩子入口优先显式返回错误或告警；非关键展示类配置（公告、站点名、邮件参数等）维持 fail-safe 并补口径注释。纳入 Build4/5 修复收口执行。
+- **状态：** ☐ 待修复（已决策）
 
-### R14-26（待确认）node/proxygroup 先读后写 TOCTOU 窗口
+### R14-26（已确认）node/proxygroup 先读后写 TOCTOU 窗口
 
 - **现象：** `node.go:368-425` SetEnabled/SetPublic 先 tx 外 getRaw 再 tx 内 UPDATE；`proxygroup.go:87-91,130-134` 引用校验 SELECT 在 TxImmediate 之外，校验与写入间存在窗口。
 - **影响范围：** 低危（单连接 SQLite 窗口极小；node 有重读 NotFound 兜底，装配期有 invalid_refs 二次校验兜底）。
-- **修复方案（待决策）：** 维持现状，或将校验并入事务。
-- **状态：** ☐ 待确认
+- **修复方案（用户决策 2026-08-20）：** 维持现状；在 Issue2/设计结论中记录「单连接 + 重读 NotFound 兜底 + 装配期 invalid_refs 二次校验」的合理解释，不改动代码。
+- **状态：** ✅ 已确认（2026-08-20，维持现状，无需代码修复）
 
 
 ## 附、后续修复顺序（交接给下一轮）
 
-> 本附件用于下一个新对话快速接续。当前 `R12-01~24` 与 `R13-01~09` 均已处理并通过验证（R13-06/07 为用户确认的合理例外/简化）。以下为 R12 按顺序执行的交接记录。
+> 本附件用于下一个新对话快速接续。**最新优先级（用户决策 2026-08-20）：先执行下方「0. Build4/5 修复收口」，全部验收通过后才允许启动 Build6。** 原 R12 交接记录（1~5）已全部完成，仅留档备查。
 
-### 1. R12-05：补齐前端单测（低风险，先做）
+### 0. Build4/5 修复收口（用户决策 2026-08-20，Build6 前置条件）
+
+- **目标：** 关闭 Issue2 中仍为 `☐` 的 R14-01~24（R14-06/07 按用户既有决策随 Build6 Step2/Step4 实施时修，不在此轮）与 BuildReport1 新发现 N1~N4；R14-25 按已决策口径实施，R14-26 维持现状。
+- **P1（先做，阻塞后续验证）：**
+  - R14-01：后端补 `GET /api/admin/subscriptions/:id`；`static.go` NoRoute 对 `/api/` 前缀 GET 返回 404 JSON。
+  - R14-03/04/05：`links.go`/`registry.go` 按 Node-Link-Standards §2 补齐参数与形态，并补 registry↔渲染双向一致性单测（Build6 Step4 抽取 links 的前置）。
+  - R14-16 + N1 + N2：home/profile/assembly 接入层 SQL 下沉业务层；移除 `ProfileHandler.users` 死字段；`download.go` 两处忽略 error 修正。
+- **P2（UI/交互与结构项）：** R14-02、R14-08~15、R14-17~24、N3；R14-25 关键路径显式错误。
+- **验收：**
+  ```bash
+  cd backend && go build ./... && go vet ./... && go test ./...
+  cd frontend && npm run build && npm test
+  cd backend && go test ./internal/assembly -bench 'BenchmarkRenderClash10kRules|BenchmarkRenderSrConf10kRules' -benchtime=1x
+  cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold|TestRenderSrConf10kRulesThreshold' -v
+  ```
+  并复验 Build4/Build5 文档中的 grep 检查；重写 `.smoke-test.sh` 至 Build4/5 新模型（N4）。
+
+### 1. R12-05：补齐前端单测（低风险，先做）【已完成的旧交接记录】
 
 - **内容：** 为 `PoolTab`/`PoolDetail` 补充单测：进行中再次点击同步提示 warning、同步历史分页加载、组件卸载取消轮询。
 - **涉及文件：** `frontend/tests/pool-tab.spec.ts`、`frontend/tests/request-poll.spec.ts`，必要时新增 `frontend/tests/pool-detail.spec.ts`。
@@ -552,3 +569,4 @@ cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold
 | v1.8 | 2026-08-20 | 完成 R13-02~09 核查与修复：拆分 AssemblerShell/TypeTargetStep/HeaderStep/NodesGroupsStep/RulesStep/PreviewStep/GenerateStep 七个子组件并接入装配页，回执按钮直达版本管理页；清理死代码/`var _=`/未用参数并处理 json.Marshal error；修正 vmess tls/sni 并补单测；预留 onXrayChanged 钩子；Clash proxies 键序稳定；cron 抽取可测 run 并补单测。验证：后端 build/vet/test（assembly/cron/node/server 通过）、前端 vue-tsc、vite build、35 单测通过。 |
 | v1.9 | 2026-08-20 | 逐项复核 R12/R13 全部条目与代码事实一致性：R13-01~09 修复全部核实落地（七子组件接入且 AssemblyView 双份模板已消除、vmess tls/sni 含双单测、XrayChangedFunc 钩子定义与两处调用、TestClashProxyKeyOrder、cron 三用例），R12 抽样（URL 快照/source_url/空 URL/蓝图目标列）与事实一致；无 ☐/◧ 残留、无新增问题、无需修复。验证：后端 `go build/vet/test ./...` 全绿、前端 `npm run build` + `npm test`（35 passed）。 |
 | v2.0 | 2026-08-20 | Build4/Build5 双重核验（事后验收）追加 R14-01~R14-26：验收命令全绿实测（后端 build/vet/test、前端 build/35 单测、benchmark Clash≈15ms/SR≈1.1ms、grep 四项 0 命中、全新库迁移实测）基础上的深度核查新发现——P1：后端缺 GET /api/admin/subscriptions/:id（R14-01）、render_plan 不自包含（R14-06）、xray_candidates 恒空（R14-07，后两项为 Build6 前置依赖）；P2：proxy-groups 键序（R14-02）、链接参数缺失与形态（R14-03/04/05）、取消默认无确认（R14-08）、装配流 pooled 标记（R14-09）、PoolTab 双态（R14-10）、分层红线（R14-16）；其余为 UI 规格簇与整洁项。用户决策：R14-01 后端补路由 + NoRoute 对 /api/ 前缀 GET 改 404 JSON；R14-03/04 全部按 Node-Link-Standards 标准表补齐；R14-06/07 随 Build6 Step4/Step2 实施时修；R14-16 本轮一并整改；R14-25/26 维持待确认。同步修订 Build6.md v2.0 / Build7.md v1.10 / Build5.md v1.9（事前预检确定性问题闭合）。 |
+| v2.1 | 2026-08-20 | 第三轮 Build6/7 事前预检用户决策落盘：Q1 先执行 Build4/5 修复收口，完成后方可启动 Build6（附、后续修复顺序已新增优先级 0）；Q2 全局任务 registry 下沉为中性包 `internal/tasks`（Build6 v2.2 / Build7 v1.12）；Q3 OFF 清空维持“状态翻转+任务登记同事务”字面口径并接受回滚残留幽灵任务边界（Build6 v2.2 / Build7 v1.12）；Q4a R14-25 改为关键路径显式错误（其余 fail-safe 补口径注释），状态更新为 ☐ 待修复（已决策）；Q4b R14-26 维持现状，状态更新为 ✅ 已确认。 |

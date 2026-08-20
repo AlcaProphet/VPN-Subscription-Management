@@ -107,9 +107,9 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - `ExtAccount {ID, Name, Email, Quota *float64, QuotaExceeded, PushTargets}`；`CreateExt(ctx, name, credentialMode, uuid, proxySecret, quota, targets)`：
        - **基础校验**：name 唯一（409）；quota 为 NULL/0/正数，负数 400。
        - **推送目标后端强校验**（Design2 §5.11）：每个 target 必须满足 source=xray、protocol ∈ {vless,vmess,trojan,shadowsocks}、allocatable=1、missing=0、nodes.enabled=1、所属实例 enabled=1；非法目标 400 并指明具体节点。**请求形状为 `push_targets: [{instance_id, inbound_tag}]`**（Design2Report10 Q12-6）。
-       - 事务插入账号（email 先写临时占位值，取 LastInsertId 后回填为 `ext-{id}@vpn.local`；全小写）。
+       - 事务插入账号（email 先写**唯一临时占位值**——例如 `ext-pending-{随机串}@vpn.local`，不得使用固定占位串；取 LastInsertId 后回填为 `ext-{id}@vpn.local`；全小写）。**并发创建时固定占位串会命中 `xray_ext_accounts.email` UNIQUE 约束，必须唯一化**。
        - 凭据双轨：`generate` 面板生成 UUID v4 + 高熵密码；`manual` 用传入值（非空校验）。两者均 AES-256-GCM 落库。
-       - 写 `xray_ext_users`（pending）与 `xray_ext_traffic` 不预建（按需）；事务内复查 advanced_mode，off 中止。
+       - 写 `xray_ext_users`（pending，**node_id 按 (instance_id, inbound_tag) 从 nodes 表解析写入**）与 `xray_ext_traffic` 不预建（按需）；事务内复查 advanced_mode，off 中止。
        - 提交后对 targets 逐个 AddUser；成功 synced、失败 failed。**凭据接管按模式区分（Design2Report11 决策）**：`generate` 模式若 Xray 侧已存在同 email 账号（AddUser 返回 `already exists.`），**先 RemoveUser 再以新生成凭据 AddUser 覆盖**（会踢除 Xray 侧既有账号，创建弹窗/确认文案须提示该风险）；`manual`（手填接管）模式保持原口径——`already exists.` 视为接管成功（管理员保证手填凭据一致，面板不校验 Xray 侧原值）。
        - **返回形状**：`generate` 模式响应含 `{account, credentials:{uuid, proxy_secret}}`（一次性明文，前端展示后即焚）；`manual` 模式仅返回 `{account}`（Design2Report8 P2-14）。
      - `UpdateExt`：名称可改（唯一 409）；凭据字段留空保留；push_targets 全量 diff（Remove/Add，超限账号 AddUser 类跳过；**目标校验同 CreateExt**）；配额更新（NULL/0/正数，负数 400）。
@@ -189,19 +189,19 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
   2. **`backend/internal/xray/offclear.go`**：`SubmitAdvancedMode(ctx, on bool, confirmWord string) (taskID string, err error)`。
      - `on=true`：同步只置位 `advanced_mode=true`，**不推送**；返回提示文案（无 task_id）。
      - **幂等 no-op：当前已 OFF 时再次以 advanced_mode=false 保存，直接返回当前状态，不要求确认词、不建任务**（Design2Report9 M15）。
-     - `on=false`（**仅 ON→OFF 状态翻转**）：确认词固定 `DISABLE`（与 RESET/IMPORT 区分，前端同常量）；**状态翻转判定与任务登记在同一 `BEGIN IMMEDIATE` 事务内完成（先读当前 advanced_mode，仅 ON→OFF 翻转才落位并登记任务；并发第二次提交读到已 OFF/已有任务时按幂等 no-op 返回，不建第二个任务）**（Design2Report10 Q15）；**创建异步任务并返回 `task_id`**，任务体内事务执行：
+     - `on=false`（**仅 ON→OFF 状态翻转**）：确认词固定 `DISABLE`（与 RESET/IMPORT 区分，前端同常量）；**状态翻转判定与任务登记在同一 `BEGIN IMMEDIATE` 事务内完成（先读当前 advanced_mode，仅 ON→OFF 翻转才落位并登记任务；并发第二次提交读到已 OFF/已有任务时按幂等 no-op 返回，不建第二个任务）**（Design2Report10 Q15）。任务登记使用 Build6 落地的 **`internal/tasks.Registry`**（由 server 构造注入，业务包不 import server）；**用户决策 2026-08-20：按字面同事务执行，若 DB 事务回滚而内存任务已登记，接受残留幽灵任务边界（该任务重启后统一 failed 兜底）**；**创建异步任务并返回 `task_id`**，任务体内事务执行：
        1. 置 `advanced_mode=false`（与清空同事务）；
        2. 收集 `xray_users`（user_id/instance_id/inbound_tag）与 `xray_ext_users` 及实例连接信息（api_addr/api_tag）快照；
        3. `DELETE FROM xray_instances`（nodes/group_nodes/xray_users/xray_ext_users 随 FK 级联）；`DELETE FROM xray_ext_accounts`；`DELETE FROM traffic_records`、`xray_ext_traffic`；`UPDATE users SET uuid_encrypted=NULL, proxy_secret_encrypted=NULL, quota_override=NULL, quota_exceeded=0`；`UPDATE groups SET default_quota=NULL`；
        4. **保留** proxy_groups、groups 行、用户组归属、assembly_blueprints、**manual 节点**（manual 行 instance_id 为 NULL，不随 xray_instances 级联）；装配快照中 xray 引用成为悬空引用，按重新编辑容错处理。
-     - 事务提交后按快照逐实例 best-effort `RemoveUser`（user 与 ext 都清；**复用 Build6 Step3 落地的 `AfterAdvancedOff` 补偿辅助**，避免重复实现）；不可达跳过并记 warn；任务状态写入**全局任务 registry（Build6 Step1 已落地）**，服务重启后未完成任务置 failed（「服务重启，任务中断」），残留 Xray 账号由对账/部署文档手动清理口径兜底。
+     - 事务提交后按快照逐实例 best-effort `RemoveUser`（user 与 ext 都清；**复用 Build6 Step3 落地的 `AfterAdvancedOff` 补偿辅助**，避免重复实现）；不可达跳过并记 warn；任务状态写入注入的 **`internal/tasks.Registry`（Build6 Step1 已落地）**，服务重启后未完成任务置 failed（「服务重启，任务中断」），残留 Xray 账号由对账/部署文档手动清理口径兜底。
      - 并发送口径：所有同步钩子入口实时查 DB（Build6 已实现）；AddUser 完成后补偿（Build6 已实现）；本方法事务内置位后提交，钩子任一复查读到即最新标记。
-  3. **`backend/internal/server/settings.go`**：新增 `GET/PUT /api/admin/settings/advanced`；**全局任务查询端点 `GET /api/admin/tasks/:id` 已在 Build6 Step1 落地，本 Step 只复用、不重复定义**（Design2Report10 Q1）；关闭请求含 `{advanced_mode:false, confirm_word}`，响应 `{task_id}`；任务查询返回 `{id, kind: off_clear|import|xray_init|reconcile_exec|instance_delete, status: running/succeeded/failed, result, error}`；开启与幂等 no-op 响应不返回 task_id。**任务状态由全局长任务 registry 进程内维护（不落库），服务重启后任何查询（含未知 task id）一律返回 failed（「服务重启，任务中断」），未完成 Xray 清理由实例对账与手动清理兜底（Design2 §5.4，Design2Report9 M6/M7）**。
+  3. **`backend/internal/server/settings.go`**：新增 `GET/PUT /api/admin/settings/advanced`（**只叠加 session+admin，不得套 advancedMode 中间件——否则 OFF 状态下无法关闭/重新开启高级模式，且 OFF 清空任务轮询会被自身挡死**）；**全局任务查询端点 `GET /api/admin/tasks/:id` 已在 Build6 Step1 落地，本 Step 只复用、不重复定义**（Design2Report10 Q1）；关闭请求含 `{advanced_mode:false, confirm_word}`，响应 `{task_id}`；任务查询返回 `{id, kind: off_clear|import|xray_init|reconcile_exec|instance_delete, status: running/succeeded/failed, result, error}`；开启与幂等 no-op 响应不返回 task_id。**任务状态由全局长任务 registry 进程内维护（不落库），服务重启后任何查询（含未知 task id）一律返回 failed（「服务重启，任务中断」），未完成 Xray 清理由实例对账与手动清理兜底（Design2 §5.4，Design2Report9 M6/M7）**。
   4. **`backend/internal/config/export.go`**：升级 v2。
      - `ExportPayload` 增 `Instances []ExportedInstance`（name/slug/api_addr/api_tag/enabled + **`Nodes []ExportedNodeName`（tag/display_name，仅导出 display_name 非空项）**）与 `Accounts []ExportedExtAccount`（name/email/uuid_encrypted/proxy_secret_encrypted/quota/**quota_exceeded**/push_targets `[{instance_slug,inbound_tag}]`）；`FormatVersion=2`。
      - 导出时读 xray_instances（含其 xray 节点 display_name 非空项）与 xray_ext_accounts/xray_ext_users（按 slug+tag 关联）；密文原样导出，不导出明文；display_name 为明文展示属性，原样导出。
-     - `Import`：接受 v1（仅配置，保持旧语义、同步执行；**v1 兼容为本 Build 保留口径：Design2 §5.4 仅定义 v2 语义，v1 为现行 prod 实现，导入导出须保证 v1 往返可用**）与 v2；**v2 改为异步任务并返回 `task_id`**，任务体在配置覆盖事务内：先收集旧实例连接信息与旧 user/ext 推送清单 → 删除旧 `xray_instances` 与 `xray_ext_accounts`（FK 级联）→ 按 payload 重建 instances（slug 原样沿用，冲突/重复返回 400）与 ext accounts（name/email/密文/quota/quota_exceeded 原样写入，email 全小写）→ 按 push_targets 写 `xray_ext_users`（node_id 暂置 NULL，sync_status=pending；**禁止插入 0——启用外键时违反 FK，Design2Report7 P2-5**）。**advanced_mode 一致性**：payload 携带非空 instances/accounts 且 advanced_mode=false 时，事务内置 advanced_mode=true 并在完成提示中说明「检测到 Xray 实例/独立账号，已自动开启高级模式」；payload 无 instances/accounts 且 advanced_mode=false 时，按 OFF 清空口径清理旧高级数据（用户 UUID/代理密码/配额字段、traffic_records、xray_ext_traffic、旧推送记录）——**该分支采用双确认词分步：先按既有导入流程校验 `IMPORT`，再校验 `DISABLE`（前端分步弹窗要求输入，Design2Report10 Q5）**。**导入保护**：比较 payload 中 signing_key 与当前库 signing_key；若将变化且存在任一业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 中 `enc:v1:` 敏感字段 / xray_ext_accounts 两密文字段），整个导入拒绝，不做任何变更。**响应口径：v1 导入保持同步返回 `{message}`；v2 导入异步返回 `{task_id}` 供前端轮询**（Design2Report10 Q5）。
-     - **依赖方向**：`config/export.go` 不 import xray/assembly；由 `server` 注入「导入后处理回调」（与现有 `SetSeedPresets` 同模式），在事务提交后执行：对旧实例 best-effort RemoveUser → 自动节点检测刷新（**enabled=0 实例跳过并在完成提示中列出**）→ **按 (instance slug, inbound tag) 回填 nodes.display_name（未匹配映射计入完成提示，不阻断）** → 按 instance slug+tag 重绑 xray_ext_users.node_id（未匹配置 failed）→ **装配快照（selection_json / render_plan_json）xray 引用按节点稳定名重绑（同名重绑、失配悬空容错，Design2 §5.9 xray_instances 行口径）** → **执行账号对账（Build7 Step1，best-effort：失败不阻断任务终态 succeeded，失败原因记入完成提示，管理员可在实例页手动再触发对账，用户决策）**。返回完成提示字段。
+     - `Import`：接受 v1（仅配置，保持旧语义、同步执行；**v1 兼容为本 Build 保留口径：Design2 §5.4 仅定义 v2 语义，v1 为现行 prod 实现，导入导出须保证 v1 往返可用**）与 v2；**v2 改为异步任务并返回 `task_id`**，任务体在配置覆盖事务内：先收集旧实例连接信息与旧 user/ext 推送清单 → 删除旧 `xray_instances` 与 `xray_ext_accounts`（FK 级联）→ 按 payload 重建 instances（slug 原样沿用；**冲突/重复为任务内校验失败：任务终态置 failed，`error` 按 400 口径文案返回给轮询方，HTTP 提交阶段无法同步返回 400**）与 ext accounts（name/email/密文/quota/quota_exceeded 原样写入，email 全小写）→ 按 push_targets 写 `xray_ext_users`（node_id 暂置 NULL，sync_status=pending；**禁止插入 0——启用外键时违反 FK，Design2Report7 P2-5**）。**advanced_mode 一致性**：payload 携带非空 instances/accounts 且 advanced_mode=false 时，事务内置 advanced_mode=true 并在完成提示中说明「检测到 Xray 实例/独立账号，已自动开启高级模式」；payload 无 instances/accounts 且 advanced_mode=false 时，按 OFF 清空口径清理旧高级数据（用户 UUID/代理密码/配额字段、traffic_records、xray_ext_traffic、旧推送记录）——**该分支采用双确认词分步：先按既有导入流程校验 `IMPORT`，再校验 `DISABLE`（前端分步弹窗要求输入，Design2Report10 Q5）**。**导入保护**：比较 payload 中 signing_key 与当前库 signing_key；若将变化且存在任一业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 中 `enc:v1:` 敏感字段 / xray_ext_accounts 两密文字段），整个导入拒绝，不做任何变更。**响应口径：v1 导入保持同步返回 `{message}`；v2 导入异步返回 `{task_id}` 供前端轮询**（Design2Report10 Q5）。
+     - **依赖方向**：`config/export.go` 不 import xray/assembly/server；`internal/tasks.Registry` 与「导入后处理回调」均由 server 构造注入（与现有 `SetSeedPresets` 同模式；v2 导入任务经注入 Registry 登记）。事务提交后执行：对旧实例 best-effort RemoveUser → 自动节点检测刷新（**enabled=0 实例跳过并在完成提示中列出**）→ **按 (instance slug, inbound tag) 回填 nodes.display_name（未匹配映射计入完成提示，不阻断）** → 按 instance slug+tag 重绑 xray_ext_users.node_id（未匹配置 failed）→ **装配快照（selection_json / render_plan_json）xray 引用按节点稳定名重绑（同名重绑、失配悬空容错，Design2 §5.9 xray_instances 行口径）** → **执行账号对账（Build7 Step1，best-effort：失败不阻断任务终态 succeeded，失败原因记入完成提示，管理员可在实例页手动再触发对账，用户决策）**。返回完成提示字段。
   5. **单测**：OFF 清空保留/删除清单逐表断言、确认词错误（DISABLE 之外 400）、**异步任务提交→轮询终态**、**已 OFF 再保存幂等 no-op（不建任务、不要求确认词）**、**并发两次 OFF 提交只产生一个任务**、未知 task id 返回 failed、不可达清理记 warn；重新开启不推送；导入保护命中拒绝且库不变；v2 往返（导出→清库→导入）恢复 instances（含 display_name 命名映射）/accounts（含 quota_exceeded）与 push_targets、未匹配命名映射计入提示；**off 导入带实例→自动置 advanced_mode=true 并提示**；**off 导入无实例→先 IMPORT 后 DISABLE 双确认词均通过才执行，缺任一 400，且旧高级数据完整清理**；**enabled=0 实例导入后跳过检测并提示**；v1 兼容同步执行。
 
 - **参考代码/伪代码：**
@@ -305,7 +305,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - 删除 ConfirmModal 迁默认组文案。
   3. **`frontend/src/api/user.ts`**：`AdminUser` 增加高级字段（本月用量字节、有效配额、聚合同步状态、last_error 摘要、quota_override、quota_exceeded）；新增 `setUserQuota(id, {quota_override})`（路径与语义按 UI §9.1 `api/user.ts` 扩展的 setUserQuota 行）。
   4. **`frontend/src/views/admin/UsersView.vue`**：按 UI §4.5 扩展：
-     - 基础模式隐藏「所属组」列（advanced_mode；**编辑弹窗换组 Select 同步隐藏**，Design2-UI §4.5 定稿口径）；高级模式显示用量 `X / Y GB`（**不限流量显示 `X GB / 不限`；无任何流量记录显示 `—`**），同步状态聚合 Badge（synced/pending/failed + Tooltip + 行内重试；**无任何推送记录时显示灰「未推送」第四态**），超限红标与行高亮（UI §4.5）。
+     - 基础模式隐藏「所属组」列与移动卡片中的所属组字段（advanced_mode；**编辑弹窗换组 Select 同步隐藏**，Design2-UI §4.5 定稿口径）；高级模式显示用量 `X / Y GB`（**不限流量显示 `X GB / 不限`；无任何流量记录显示 `—`**），同步状态聚合 Badge（synced/pending/failed + Tooltip + 行内重试；**无任何推送记录时显示灰「未推送」第四态**），超限红标与行高亮（UI §4.5）。
      - Dropdown 新增「配额覆盖」（input-number，留空=继承；0=不限）与「重置配额」（ConfirmModal；禁用用户按钮置灰 + Tooltip）。
   5. **`frontend/src/api/settings.ts`**：新增 `AdvancedSettings` 类型与 `getAdvancedSettings/saveAdvancedSettings`（关闭时请求含 `confirm_word: "DISABLE"`）；**`importConfig` 已存在（Build5 产物），本 Step 适配 v2 响应分支**（POST 现有导入端点；**响应含 `task_id` 为 v2 走 pollTask 轮询，不含为 v1 同步完成处理**）；新增 **`getAdminTask`**（GET /api/admin/tasks/:id，全局任务端点，kind 含 off_clear/import/xray_init/reconcile_exec/instance_delete）（UI §9.3）。
   6. **`frontend/src/views/admin/SettingsView.vue`**：按 UI §4.7：
@@ -396,7 +396,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - 四个 Build 文档勾选 ✅、变更记录补执行完成日期；
      - 按 AGENTS §8.2，构建验收完成后将 Build4~7 移入 `docs/AchievedDocuments/`；当前活跃 Build 索引（如 AGENTS.md 文档清单或 README 引用）更新为「已构建完成，见存档」；**Design2.md / Design2-UI.md 保持活跃不归档（本期产品设计基线，后续增量设计另起 DesignN）；Design2Report 系列核验报告随同 Build 归档**；
      - 若执行中出现 bug，按 Issue 模板创建 IssueN.md；若产生新的设计结论，落 Design 文档并经用户确认。
-  6. **发布前检查**：`grep -R "TODO\|FIXME\|占位" backend frontend` 无 Build 期遗留；`.smoke-test.sh` 通过（脚本不存在可跳过并注明，存在则失败必须修复）；README 部署文档与高级模式前置条件（Xray policy.stats、IP 白名单、建议 1~5 台实例、OFF 手动清理提示）同步。
+  6. **发布前检查**：`grep -R "TODO\|FIXME\|占位" backend frontend` 无 Build 期遗留；**本 Step 必须同步重写 `.smoke-test.sh` 至 Build4/5 新模型**（现行脚本仍为 Build2/3 旧模型：固定 18080 端口、组选定 `sub_ids/selections`、旧首页 `subscriptions[]` 形状，按当前 API 执行必然失败；重写为：Setup → 注册 → 平台三格式 → 订阅/版本 → 规则/分享 → 首页平台卡新形状，并保持脚本通过）；README 部署文档与高级模式前置条件（Xray policy.stats、IP 白名单、建议 1~5 台实例、OFF 手动清理提示）同步。
 
 - **测试与验收命令：**
 
@@ -405,7 +405,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
   cd backend && go test -race ./internal/xray/... ./internal/download/... ./internal/group/...
   cd ../frontend && npm run build && npm test
   cd .. && docker compose build
-  bash .smoke-test.sh   # 脚本不存在可跳过并注明；存在则失败必须修复
+  bash .smoke-test.sh   # 已按 Step 6 item 6 重写至 Build4/5 新模型；失败必须修复
   ```
 
 - **验收标准：** 全部命令通过；两份手工剧本无未关闭问题；覆盖矩阵经用户确认无遗漏；文档归档与 Issue/Design 同步完成。
@@ -437,4 +437,6 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 | v1.8 | 2026-08-19 | Design2Report11 核验修订：删除钩子补丁去重（仅补 ext 单测）；generate 模式同 email 先 Remove 再 Add 定稿；参数表补节点 enabled=1；120s 清单剔除异步端点；期望集措辞修正；实例/独立账号空态显式列；home 数据改 /api/home/summary；importConfig/getAdminTask 点名 |
 | v1.9 | 2026-08-20 | 构建前核验修订（代码事实对照 Build4/5 已落地产物）：Step3 新建组件并更新 router 引用（占位为 PlaceholderView）、setNodeDisplayName 复用 api/node.ts、删实例 ConfirmModal 影响清单+不可达 warning、检测四项全 0 Notify.info 分支、推送目标无可用节点空态（UI §8.1/§8.2/§8.5）；Step4 importConfig 改已存在适配措辞、用量「—/不限」与「未推送」第四态、组保存提示与预置默认组 Tag（UI §4.3/§4.5）；Step2 导入后自动对账失败口径定稿（任务 succeeded+完成提示记录，用户决策） |
 | v1.10 | 2026-08-20 | 第二轮构建前深度核验修订（Build4/5 验收后代码事实对照）：① Step1 CreateExt email 占位措辞修正（先写临时占位值、LastInsertId 后回填 `ext-{id}@vpn.local`，原措辞字面上用未知 id 占位不可实施）；② Step4 补 UI §4.5「编辑弹窗换组 Select 同步隐藏」（基础模式组概念全面隐藏口径的遗漏点）；③ Step2 OFF 清空提交后清理循环注明复用 Build6 Step3 的 `AfterAdvancedOff` 补偿辅助（闭合跨 Build 衔接，防 Build6 预建辅助成死代码） |
+| v1.11 | 2026-08-20 | 第三轮 Build6/7 事前预检确定性问题修订：① Step1 CreateExt 临时 email 必须唯一化（固定占位串在并发创建时撞 UNIQUE），并明确 `xray_ext_users.node_id` 按 (instance_id, inbound_tag) 解析写入；② Step2 `/api/admin/settings/advanced` 明确只叠加 session+admin、不得套 advancedMode（否则 OFF 态无法开启/关闭与轮询）；③ Step2 Import v2 的 slug 冲突/重复明确为「任务终态 failed + error 文案按 400 口径」，HTTP 提交阶段无法同步返回 400；④ Step4 基础模式所属组隐藏补移动卡片态；⑤ Step6 明确必须先重写 `.smoke-test.sh`（现行脚本仍为 Build2/3 旧模型，按当前 API 必然失败） |
+| v1.12 | 2026-08-20 | 用户决策落盘：Q2 全局任务 registry 下沉为中性包 `internal/tasks`（server 构造注入；OFF 清空与配置导入的业务包经注入 Registry 登记，不 import server）；Q3 OFF 清空保持「状态翻转+任务登记同事务」字面口径，接受 DB 回滚残留幽灵任务边界（重启后 failed 兜底）。Step2 item2/item3/item4 同步修订 |
 

@@ -76,8 +76,8 @@
 | Step | 涉及文件（核心） | 要点 |
 |------|----------------|------|
 | 0 | `backend/go.mod`、`backend/internal/xray/{client,account,errors}.go`、测试 | 依赖远端 latest（当前 v1.260327.0）；串行 gRPC；dial/调用超时；错误幂等映射；四协议 Account 构造 |
-| 1 | `backend/internal/xray/instance.go`、`backend/internal/server/xray.go`、`backend/internal/server/tasks.go`、`backend/internal/server/server.go`、测试 | 实例 CRUD/slug/连接测试；ListInbounds 解析与 nodes upsert、missing/allocatable 标记；全局任务 registry 落地 |
-| 2 | `backend/internal/group/group.go`、`backend/internal/server/group.go`、`backend/internal/server/middleware.go`、`backend/internal/assembly/service.go`（xray_candidates 填充修补）、测试 | advancedMode 中间件；group_nodes/候选集并集/公共节点/default_quota |
+| 1 | `backend/internal/xray/{instance,detect}.go`、`backend/internal/node/node.go`（删除清理钩子）、`backend/internal/tasks/registry.go`（中性任务包）、`backend/internal/server/{xray,tasks,server}.go`、测试 | 实例 CRUD/slug/连接测试；ListInbounds 解析与 nodes upsert、missing/allocatable 标记；全局任务 registry 落地 |
+| 2 | `backend/internal/group/group.go`、`backend/internal/platform/platform.go`（删除后触发回调）、`backend/internal/subscription/subscription.go`（删除后触发回调）、`backend/internal/server/{group,subscription}.go`（版本切换触发回调）、`backend/internal/server/middleware.go`、`backend/internal/assembly/service.go`（xray_candidates 填充修补）、测试 | advancedMode 中间件；group_nodes/候选集并集/公共节点/default_quota |
 | 3 | `backend/internal/xray/{credentials,sync}.go`、`backend/internal/user/admin.go`、`backend/internal/user/user.go`、`backend/internal/approval/approval.go`、`backend/internal/group/group.go`、`backend/internal/node/node.go`、`backend/internal/server/xray.go`、测试 | 凭据首建事务；触发器 wiring；xray_users 状态机；补偿 RemoveUser；批量初始化 |
 | 4 | `backend/internal/download/download.go`、`backend/internal/download/render.go`（定稿）、`backend/internal/assembly/links/` 共享子包（自 Build5 links.go 抽取，用户决策）、测试/benchmark | 直接上传原样；蓝图全量重渲染；占位替换/base64；Subscription-Userinfo |
 | 5 | `backend/internal/xray/{stats,quota}.go`、`backend/internal/cron/`、`backend/cmd/server/main.go`、`backend/internal/server/{xray,home,status}.go`、测试 | 逐用户 QueryStats、原子增量、超限摘除、重置配额、采集状态、home 高级流量与流量卡片开关 |
@@ -176,7 +176,7 @@ Step 4+5 ──▶ Step 6（集成验收）
 
   1. **`backend/internal/xray/instance.go`**：实例服务。
      - 结构 `Instance {ID, Name, Slug, APIAddr, APITag, Enabled, LastCollectAt, CollectStatus, CollectError}`。
-     - `Create/Update`：name 唯一（409）、api_addr 非空 TCP 地址、api_tag 可空；slug 自动生成 `instance-` 前缀（用 `internal/slug`，唯一冲突重试；**注意现有 `TableHasSlug` 白名单不含 xray_instances，本 Step 一并扩展白名单使 instance- slug 参与共享 slug 命名空间校验**）。**实例服务按实例缓存同一个 `internal/xray.Client`（含其互斥锁），检测/推送/采集/对账全部复用该 Client，确保每实例串行**（Design2Report10 Q13）。**api_tag 作为展示/日志/导出的实例标签原样保存；gRPC 调用定位用 api_addr，入站定位用 nodes.tag**（Xray-Core-API §一/§11.1）；**enabled 变化时事务提交后仅刷新内存可见状态，不触发候选集重算与 AddUser/RemoveUser diff（暂停管理口径：停用仅暂停检测/推送/采集/注入，账号与 group_nodes 保留，重启用后由同步与实例级对账兜底，Design2 §5.9/H1）**。
+     - `Create/Update`：name 唯一（409）、api_addr 非空 TCP 地址、api_tag 可空；slug 自动生成 `instance-` 前缀（用 `internal/slug`，唯一冲突重试；**注意现有 `TableHasSlug` 白名单不含 xray_instances，本 Step 必须把 `xray_instances` 加入该白名单，并同步加入共享 slug 命名空间的交叉查重表清单（`subscription.slugExistsTx` 与 `slug.ExistsInFourTables` 的四表清单），否则 instance- slug 不会与 subscriptions/rules/custom_subscriptions/share_subscriptions 互斥**）。**实例服务按实例缓存同一个 `internal/xray.Client`（含其互斥锁），检测/推送/采集/对账全部复用该 Client，确保每实例串行**（Design2Report10 Q13）。**api_tag 作为展示/日志/导出的实例标签原样保存；gRPC 调用定位用 api_addr，入站定位用 nodes.tag**（Xray-Core-API §一/§11.1）；**enabled 变化时事务提交后仅刷新内存可见状态，不触发候选集重算与 AddUser/RemoveUser diff（暂停管理口径：停用仅暂停检测/推送/采集/注入，账号与 group_nodes 保留，重启用后由同步与实例级对账兜底，Design2 §5.9/H1）**。
      - `List/Get`；`Delete`：**端点异步化——提交即返回 `{task_id}`（全局任务 registry，kind=instance_delete，Design2 §5.4）**，任务体内：事务前收集 `xray_users` 与 `xray_ext_users` 的（email, instance_id, inbound_tag, api_addr）清单；事务内删实例行（nodes / xray_users / xray_ext_users 随 FK 级联）；提交后逐条 best-effort `RemoveUser`（面板用户与独立账号两类），不可达跳过记 warn。**Step 3 接入 sync 后**，把收集口径升级为「受影响 active 用户 × 该实例节点」∪「既有 xray_ext_users 推送目标 × 该实例」期望集，而不是只依赖既有 xray_users 状态行；本 Step 先预留回调并在 Step 3 补接。
      - `TestConnection(ctx, apiAddr)`：拨号 + `ListInbounds`，返回 ok/error 摘要；不落库。
   2. **`backend/internal/xray/detect.go`**：`DetectNodes(ctx, instanceID)`。
@@ -199,7 +199,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - 统一响应结构；错误 400/404/409。
   4. **`backend/internal/server/server.go`** 注册实例路由（暂不注册高级中间件，Step 2 引入后再套用）。
   5. **节点删除的 Xray 清理钩子**：`node.Service.Delete` 删除 `source=xray AND missing=1` 行时，事务前先按既有 `xray_users` 与 `xray_ext_users` 记录收集（email/instance_id/inbound_tag/api_addr）清单；提交后 best-effort `RemoveUser`（面板用户与独立账号两类；Step 3 接入 sync 服务后把口径升级为「受影响 active 用户 × 该节点」∪「既有 xray_ext_users 推送目标 × 该节点」期望集）。**非 missing 的 xray 节点仍禁止删除**（Build5 已实现 UI/后端约束，保持）。
-  6. **全局长任务 registry（本 Build 落地，Design2Report10 Q1）**：新增 `backend/internal/server/tasks.go`——进程内任务 registry（提交生成 `task_id`、kind 与结果写入；查询 `GET /api/admin/tasks/:id`，session+admin；响应 `{id, kind, status: running/succeeded/failed, result, error}`；kind 枚举 `instance_delete|xray_init|reconcile_exec|off_clear|import`，其中 `instance_delete`（本 Step）/`xray_init`（Step 3）本 Build 落地，`reconcile_exec|off_clear|import` 预留给 Build7）；**未知 task id 或服务重启后查询一律返回 failed「服务重启，任务中断」**。本 Step 的实例删除、Step 3 的初始化、Build7 的对账/OFF/导入全部复用此 registry。
+  6. **全局长任务 registry（本 Build 落地，Design2Report10 Q1；用户决策 2026-08-20：registry 下沉为中性包）**：新增 **`backend/internal/tasks`** 中性包——`Registry` 结构（构造注入，禁止包级全局变量持有实例）提供任务登记/终态写回/查询能力；`backend/internal/server/tasks.go` 只做 `GET /api/admin/tasks/:id` 的 session+admin 接入层适配。响应 `{id, kind, status: running/succeeded/failed, result, error}`；kind 枚举 `instance_delete|xray_init|reconcile_exec|off_clear|import`，其中 `instance_delete`（本 Step）/`xray_init`（Step 3）本 Build 落地，`reconcile_exec|off_clear|import` 预留给 Build7。`Registry` 实例由 `server.New` 构造后注入 xray 实例/初始化、Build7 的 OFF 清空与配置导入等服务，业务包 import `internal/tasks`（不 import server）。**registry 进程内维护、不落库；未知 task id 或服务重启后查询一律返回 failed「服务重启，任务中断」**。**Build7 OFF 清空采用「事务内登记」的字面同事务口径：若 DB 事务回滚，内存中会残留幽灵任务，该边界已被用户确认接受（重启后统一 failed 兜底）**。本 Step 的实例删除、Step 3 的初始化、Build7 的对账/OFF/导入全部复用此 registry。
   7. **单测**：地址校验、slug 生成、稳定名撞名跳过（含与 display_name/代理组名/强制组名/Clash-mihomo 内建保留代理名冲突）、detect upsert 不覆盖 enabled/is_public/display_name、missing 置位与恢复、**recovered_nodes 与 allocatable_changed 清单收集与回调出口（nil 安全）**、返回 added_nodes、xray 节点删除前收集 xray_users/xray_ext_users 清单（用假 `Lister` 接口注入解析函数，不依赖真实 gRPC）；**任务 registry 提交/终态/未知 id 合成 failed 单测**。
 
 - **参考代码/伪代码：**
@@ -256,7 +256,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `RecomputeCandidateSet(ctx)`：事务后重算并集；删除 group_nodes 中不在并集或不再满足可用性过滤的分配；返回受影响用户/节点清单供回调。**公共节点退出并集或取消 is_public 时对全部 active 用户 RemoveUser，新增/恢复时 AddUser**——具体推送在 Step 3 回调中执行，本 Step 只把变更事实收集进回调参数。
   3. **候选集重算触发点**（本 Step 接线，回调先为空）：
      - 订阅版本激活切换（`server/subscription.go` 的 versionSwitch，owner=subscription 分支）；
-     - 订阅删除（`subscription.Service.Delete` 提交后，通过注入回调 `onSubDeleted` 或 server handler 调用）；
+     - 订阅删除（在 `subscription.Service` 注入「候选集重算」函数字段，或由 server handler 在 `Delete` 提交后调用；禁止业务包反向依赖 server）；
      - **平台删除**（`platform.Service.Delete` 事务后，对事务前收集到的全部订阅 ID 逐个触发同一候选集重算回调；现有 platform.Delete 是直接 SQL 删订阅，必须在此补接线，Design2Report10 Q2）；
      - assembly generate 首版自动激活后（Build5 handler，若 target_syntax 非 sr-conf 且 auto_activated）；
      - **节点 enabled/allocatable/missing 变化**（Step 1/Step 3 注入回调），用于摘除不可用 group_nodes；**实例 enabled 变化不触发重算（暂停管理口径，见 Step 1 实例服务与 Design2 §5.9）**；
@@ -321,6 +321,7 @@ Step 4+5 ──▶ Step 6（集成验收）
        1. 读 advanced_mode（off → 返回 ErrAdvancedOff，中止）；
        2. 条件更新 `UPDATE users SET uuid_encrypted=?, proxy_secret_encrypted=? WHERE id=? AND uuid_encrypted IS NULL AND proxy_secret_encrypted IS NULL`（两字段同事务同生同灭，RowsAffected=1 表示本次生成）；UUID v4 + 高熵随机密码在事务内生成并 AES-256-GCM 加密；
        3. 若两字段均已有值直接复用；一有一无视为数据异常返回错误（不自动补齐）。
+       > **事务内读取实现约束**：advanced_mode 与签名密钥在事务内必须使用既有 `config.Service.GetTx` / `config.Service.GetSigningKeyTx`；禁止在 `TxImmediate` 闭包内调用 `cfg.Get`/`store.DB()`（当前 `MaxOpenConns=1`，会因连接被事务占用而死锁）。
      - `Credentials(ctx, userID)`：解密返回（uuid, proxySecret）。
   2. **`backend/internal/xray/sync.go`**：`SyncService`（**写入 last_error 前统一截断至 200 字符，不做地址脱敏，Design2 §5.4 错误串口径**）。
      - `type API interface { AddUser/RemoveUser }` 便于 fake 测试；真实实现包 `Client`。
@@ -337,7 +338,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `user.AdminService.Create`（active）与 `SetStatus`：active→disabled 收集后移除；disabled→active 推送。
      - `user.AdminService.UpdateGroup`：事务提交后按 diff（旧组分配∪公共 − 新组分配∪公共）执行 Remove/Add。
      - `group.Service.Delete`：用户迁默认组后 diff（旧组节点移除 + 默认组节点推送）；`group.Service.SetNodes` 与 `RecomputeCandidateSet`：受影响 active 用户 diff。
-     - `node.Service.SetEnabled`/`SetPublic`：调用注入回调 `OnNodeVisibilityChanged(node)` → **先按 Step 2 口径重算候选集并摘除不可用 group_nodes**，再执行 enabled 1→0 对受影响 active 用户 RemoveUser diff；enabled 0→1 仅对公共节点及仍有 group_nodes 分配的用户 AddUser diff（组分配已被候选集重算摘除的用户须先重新分配，口径同 Design2 §5.6/§5.7）；is_public 变化对全部 active 用户 diff。
+     - `node.Service.SetEnabled`/`SetPublic`：复用 Build5 已预留的 `SetOnXrayChanged` 注入点（`XrayChangedFunc(ctx, node, oldEnabled, oldPublic)`）接线 → **先按 Step 2 口径重算候选集并摘除不可用 group_nodes**，再执行 enabled 1→0 对受影响 active 用户 RemoveUser diff；enabled 0→1 仅对公共节点及仍有 group_nodes 分配的用户 AddUser diff（组分配已被候选集重算摘除的用户须先重新分配，口径同 Design2 §5.6/§5.7）；is_public 变化对全部 active 用户 diff。（检测路径的 `OnNodeVisibilityChanged` 是 xray detect 服务回调，与本注入点分别接线，勿混用。）
      - `node missing 0→1`（本次响应缺失的既有节点置 missing=1，Step 1 检测）：事务提交后回调内收集受影响节点清单，先按 Step 2 口径重算候选集（missing=1 摘除对应 group_nodes），再对受影响 active 用户执行 RemoveUser diff（幂等，失败记同步状态可重试）。
      - `node missing 1→0`（Step 1 检测恢复，recovered_nodes）：事务提交后逐节点按「组分配节点 ∪ 公共节点」口径对受影响 active 用户 AddUser diff（幂等；超限前置拦截同其他 AddUser 钩子；组分配已被候选集重算摘除的用户须先重新分配；advanced_mode off 时入口跳过）。
      - `node allocatable 1→0 / 0→1`（Step 1 检测收集的 allocatable_changed）：先按 Step 2 口径重算候选集（allocatable=0 摘除分配），再对受影响 active 用户执行 RemoveUser/AddUser diff（Design2Report10 Q2；超限前置拦截同其他 AddUser 钩子）。
@@ -405,11 +406,11 @@ Step 4+5 ──▶ Step 6（集成验收）
 - **产出文件与操作：**
 
   1. **`backend/internal/download/render.go`**（定稿 download 包，避免反向依赖）：
-     - **链接渲染共享化（用户决策）**：Step 实施时先把 Build5 `assembly/links.go` 中非导出的 `srLink`/`genericLink` 及其辅助函数抽取到 `backend/internal/assembly/links/` 共享子包并导出（assembly 包改为调用子包，行为不变），本 Step 的 SR/generic 动态节点链接渲染复用该子包，禁止重复实现。
+     - **链接渲染共享化（用户决策）**：Step 实施时先把 Build5 `assembly/links.go` 中非导出的 `srLink`/`genericLink` 及其辅助函数抽取到 `backend/internal/assembly/links/` 共享子包并导出（assembly 包改为调用子包）。**抽取前必须同步关闭 Issue2 R14-03/R14-04/R14-05 的链接缺口**：按 `docs/Reference/Node-Link-Standards.md` §2 补齐 anytls `alpn`/`client-fingerprint`、tuic `alpn`、wireguard `pre-shared-key`、hysteria `alpn`/`mport`/`insecure`、hysteria2 `alpn`、vless `alpn`、vmess(generic) `alpn`/`fp`、trojan `alpn` 等参数（registry 缺失字段一并补齐），并落实「空查询不输出 `?`」「http/socks5 空凭据不输出 userinfo」；补齐 registry↔渲染双向一致性单测后再抽取。本 Step 的 SR/generic 动态节点链接渲染复用该子包，禁止重复实现。
      - `RenderUserSubscription(ctx, subID, userID, content, fileName) ([]byte, error)`：
        - 读当前激活版本是否有 blueprint；无 → 直接返回 content（**直接上传静态成品，不识别占位**）；blueprint 查询本身出错返回 500，不静默按直接上传处理。
        - 读用户组节点 ∪ 公共节点，按可用性过滤 + 候选集过滤（以 `nodes.name` 稳定名匹配 blueprint.selection_json 的 `xray_candidates`（Step 2 已修补为生成时填充），display_name 不参与候选身份判定），**按 node_id 去重兜底（组分配与公共节点重叠时只注入一次）**；manual 静态节点不注入（已在模板/渲染计划中）。
-        - **前置修补（Build5 遗留缺陷，版本快照语义前提）：Build5 `render_clash.go` 的 render plan 当前仅存引用（`manual_proxies`=节点名数组、`proxy_groups`=组名数组、`rules`=素材池引用数组），不满足 Build5 Step3「自包含且能无状态重建全文」与本 Step 重渲染需求。实施本 Step 前必须先扩展 render plan 生成：`manual_proxies` 存完整 Clash 条目（map 含 type/server/port/解密后协议字段，节点键为 nodes.name 稳定键）、`proxy_groups` 存生成时点结构（名称+类型+有序成员：节点稳定键与子组名）、`rules` 存冻结规则行（type,value,target，IP 类含 no-resolve 后缀）、`fallback` 两行兜底。版本快照语义（Design2 §2.5「生成的版本为渲染时点快照，不随后续池内容更新而回改」）要求 rules 与 manual proxies 冻结在计划内，**禁止下载重渲染时重读 pool_entries / nodes / proxy_groups 当前定义**（节点实时信息仅用于稳定键→renderName 映射与可用性过滤）。**
+        - **前置修补（Build5 遗留缺陷，版本快照语义前提）：Build5 `render_clash.go` 的 render plan 当前仅存引用（`manual_proxies`=节点名数组、`proxy_groups`=组名数组、`rules`=素材池引用数组），不满足 Build5 Step3「自包含且能无状态重建全文」与本 Step 重渲染需求。实施本 Step 前必须先扩展 render plan 生成：`manual_proxies` 存完整 Clash 条目（map 含 type/server/port/解密后协议字段，节点键为 nodes.name 稳定键）、`proxy_groups` 存生成时点结构（名称+类型+有序成员：节点稳定键与子组名）、`rules` 存冻结规则行（type,value,target，IP 类含 no-resolve 后缀）、`fallback` 两行兜底。版本快照语义（Design2 §2.5「生成的版本为渲染时点快照，不随后续池内容更新而回改」）要求 rules、manual proxies 与 proxy-groups 结构均冻结在计划内，**禁止下载重渲染时重读 pool_entries / proxy_groups 当前定义**；`nodes` 表仅用于：①xray 动态节点行自身的 protocol_json/可用性过滤，②计划内稳定键→当前 `renderName` 映射，**不得用当前 nodes/proxy_groups 定义重建组结构或 manual 条目**。**
        - 解密用户 UUID/代理密码；**UUID 为空** → 占位替换为注释 `# 节点未开通，请联系管理员`，并执行 Clash 蓝图空组降级；**UUID 非空但过滤后的组分配 ∪ 公共节点为空** → SR subs/generic-subs 占位**移除整行**（Clash 仍按蓝图全量重渲染，Design2Report10 Q10）；**advanced_mode=off** → 占位统一替换为 `# Xray 高级模式未启用`（**优先于「节点未开通」**），同样执行蓝图空组降级。
        - 按 target_syntax 分支：
          - `clash-yaml`：按 `render_plan_json` **全量重渲染**。proxies = manual 节点（计划中原样，名称用 `renderName`）+ 动态 xray 节点（vless/vmess/trojan/ss 按协议构造 Clash 条目，`name` 用节点当前 `renderName`）；**render_plan 中的节点引用为 `nodes.name` 稳定键，渲染时通过节点表映射为当前 `renderName`**；所有 proxy-groups 按可达注入节点递归重建（可达集合含 manual 静态节点与 DIRECT；**单个成员不在可达集合内时逐项剔除**；剔除后完全不可达的组整体删除（**强制组豁免删除，成员不可达或注入集为空时统一降级 `[DIRECT]`**）；强制组「🚀直接连接」保留；rules 引用**被删除组**（不含降级保留的强制组）的目标降级 DIRECT 并保留行；**无凭据（UUID 为空）或 advanced_mode=off 场景，在重渲染产物 proxies 区首行输出注释行 `# 节点未开通，请联系管理员`（off 时输出 `# Xray 高级模式未启用`，优先于前者）**（与 SR/generic「占位替换为注释」语义一致，Design2Report11 决策））。
@@ -617,4 +618,6 @@ Step 4+5 ──▶ Step 6（集成验收）
 | v1.8 | 2026-08-20 | 用户决策：xray-core 依赖改为远端 latest（当前 v1.260327.0），不锁定 v26.7.28；同步更新 Step0 命令与验收标准 |
 | v1.9 | 2026-08-20 | 构建前核验修订（代码事实对照 Build4/5 已落地产物）：Step0 dial 懒连接口径澄清（grpc.NewClient 不阻塞，10s 施加于 TestConnection/探测首个 RPC 并加 WithReturnConnectionError）；Step1 slug 白名单扩展注记；Step4 render.go 定稿 download 包、链接渲染抽取 assembly/links 共享子包（用户决策）；Step5 配额端点定稿 server/user.go；里程碑 Xray 版本措辞与约束表统一 |
 | v2.0 | 2026-08-20 | 第二轮构建前深度核验修订（Build4/5 验收后代码事实对照）：① Step2 候选集解析钉死读 `selection_json.xray_candidates`，并注明 `SaveBlueprintTx` 当前恒写空数组必须先修补为按 xray 勾选子集填充（否则候选集恒空、组分配被全部摘除）；② Step4 补「render plan 自包含前置修补」——Build5 render plan 仅存名字/引用，不满足 Build5 Step3 自包含要求与重渲染需求，必须先扩展为 manual proxies 完整条目/组生成时点结构/冻结规则行，禁止下载时重读 pool_entries 等当前定义（Design2 §2.5 快照语义）；③ Step0 修正 `WithReturnConnectionError` 措辞（grpc.NewClient 官方文档明示忽略该类选项，快速失败由 ctx deadline 达成）；④ Step0 补 `NodeView` 定义位置；⑤ Step2 `GroupNode` 补 `RenderName`（对齐 UI §9.1 getGroupDetail 契约）；⑥ Step3/Step5 List 高级字段补「last_error 摘要」与「quota_override 原值」（对齐 UI §9.3） |
+| v2.1 | 2026-08-20 | 第三轮 Build6/7 事前预检确定性问题修订：① Step1 文件清单补 `detect.go`/`node.go`，slug 共享命名空间补「TableHasSlug 白名单 + subscription.slugExistsTx / slug.ExistsInFourTables 四表清单」双处扩展；② Step2 文件清单补 `platform.go`/`subscription.go`/`server/subscription.go`，订阅删除触发改为注入函数字段或 server handler 调用；③ Step3 node 启停触发改为复用 Build5 已预留 `SetOnXrayChanged`/`XrayChangedFunc`（与 detect 的 OnNodeVisibilityChanged 分开），事务内配置读取点名使用既有 `GetTx`/`GetSigningKeyTx` 防 MaxOpenConns=1 死锁；④ Step4 链接抽取前必须先关闭 Issue2 R14-03/04/05（Node-Link-Standards §2 参数与 `?`/userinfo 形态）并补一致性单测；render plan 冻结口径明确 nodes 表仅用于动态 xray 行/可用性/命名映射 |
+| v2.2 | 2026-08-20 | 用户决策落盘：Q2 全局任务 registry 下沉为中性包 `backend/internal/tasks`（server 只做查询路由适配，Registry 构造注入，业务包不 import server）；Q3 OFF 清空按「事务内登记」字面同事务执行，接受 DB 回滚残留幽灵任务边界（重启后统一 failed 兜底）。Step1 文件清单与 item 6 同步修订 |
 
