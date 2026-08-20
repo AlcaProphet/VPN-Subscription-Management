@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"strings"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/store"
@@ -141,9 +140,4 @@ func containsString(list []string, v string) bool {
 		}
 	}
 	return false
-}
-
-// joinStrings 供错误定位拼接。
-func joinStrings(list []string) string {
-	return strings.Join(list, ",")
 }

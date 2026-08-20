@@ -181,14 +181,24 @@ func genericLink(nd *nodeData) (string, error) {
 	case "ss":
 		return srLink(nd)
 	case "vmess":
+		tls := ""
+		if boolVal(nd.ProtocolJSON, "tls", false) {
+			tls = "tls"
+		}
 		obj := map[string]any{
 			"v": "2", "ps": nd.RenderName, "add": host, "port": strconv.Itoa(nd.Port),
 			"id": str(nd.ProtocolJSON, "uuid", ""), "aid": str(nd.ProtocolJSON, "alterId", "0"),
 			"scy": str(nd.ProtocolJSON, "cipher", "auto"), "net": str(nd.ProtocolJSON, "network", "tcp"),
 			"type": "none", "host": str(nd.ProtocolJSON, "host", ""), "path": str(nd.ProtocolJSON, "path", ""),
-			"tls": str(nd.ProtocolJSON, "tls", ""),
+			"tls": tls,
 		}
-		raw, _ := json.Marshal(obj)
+		if sni := firstNonEmpty(nd.ProtocolJSON, "servername", "sni"); sni != "" {
+			obj["sni"] = sni
+		}
+		raw, err := json.Marshal(obj)
+		if err != nil {
+			return "", fmt.Errorf("序列化 vmess 链接失败: %w", err)
+		}
 		return "vmess://" + base64.StdEncoding.EncodeToString(raw), nil
 	case "vless":
 		uuid := str(nd.ProtocolJSON, "uuid", "")
@@ -317,5 +327,3 @@ func realityOpts(m map[string]any) map[string]any {
 	}
 	return nil
 }
-
-var _ = strings.TrimSpace

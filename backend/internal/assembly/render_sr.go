@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"vpn-sub/internal/node"
 )
 
 // renderSrSubs 渲染 SR 节点订阅（带 STATUS/REMARKS 头）或通用节点订阅（无头）。
@@ -49,7 +47,10 @@ func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*Rend
 		b.WriteString("# {{xray_nodes}}\n")
 	}
 	content := []byte(b.String())
-	plan, _ := json.Marshal(map[string]any{"node_names": in.NodeNames})
+	plan, err := json.Marshal(map[string]any{"node_names": in.NodeNames})
+	if err != nil {
+		return nil, fmt.Errorf("序列化 SR 订阅渲染计划失败: %w", err)
+	}
 	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: plan}, nil
 }
 
@@ -64,11 +65,11 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 	b.WriteString("\n[Rule]\n")
 	for _, psel := range in.Pools {
 		for _, e := range ld.pools[psel.PoolID] {
-			b.WriteString(formatRuleLine(e.RuleType, e.MatchValue, psel.Target, true) + "\n")
+			b.WriteString(formatRuleLine(e.RuleType, e.MatchValue, psel.Target) + "\n")
 		}
 	}
 	for _, r := range in.CustomRules {
-		b.WriteString(formatRuleLine(r.RuleType, r.MatchValue, r.Target, true) + "\n")
+		b.WriteString(formatRuleLine(r.RuleType, r.MatchValue, r.Target) + "\n")
 	}
 	b.WriteString("GEOIP,CN,DIRECT\n")
 	final := in.FinalDirection
@@ -80,18 +81,18 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 	}
 	b.WriteString("FINAL," + final + "\n")
 	content := []byte(b.String())
-	plan, _ := json.Marshal(map[string]any{"final_direction": final})
+	plan, err := json.Marshal(map[string]any{"final_direction": final})
+	if err != nil {
+		return nil, fmt.Errorf("序列化 SR 分流渲染计划失败: %w", err)
+	}
 	return &RenderResult{Content: content, Skipped: nil, RenderPlan: plan}, nil
 }
 
-// formatRuleLine 生成规则行；sr=true 时保留 USER-AGENT 并给 IP 加 no-resolve。
-func formatRuleLine(ruleType, value, target string, sr bool) string {
+// formatRuleLine 生成规则行；IP-CIDR/IP-CIDR6 追加 no-resolve。
+func formatRuleLine(ruleType, value, target string) string {
 	line := ruleType + "," + value + "," + target
 	if ruleType == "IP-CIDR" || ruleType == "IP-CIDR6" {
 		line += ",no-resolve"
 	}
 	return line
 }
-
-// ensure validRuleTypes imported in this file? validate uses it; this file not.
-var _ = node.ForceDirect

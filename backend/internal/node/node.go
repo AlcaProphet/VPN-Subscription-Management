@@ -75,16 +75,25 @@ type UpdateManualInput struct {
 	ProtocolJSON map[string]any `json:"protocol_json"`
 }
 
+// XrayChangedFunc 节点启停/公共标记变更后的副作用钩子（Build6 注入 Xray 推送）。
+type XrayChangedFunc func(ctx context.Context, node Node, oldEnabled, oldPublic bool)
+
 // Service 节点服务。
 type Service struct {
-	store *store.Store
-	cfg   *config.Service
-	log   *slog.Logger
+	store          *store.Store
+	cfg            *config.Service
+	log            *slog.Logger
+	onXrayChanged  XrayChangedFunc
 }
 
 // NewService 构造节点服务。
 func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service {
 	return &Service{store: st, cfg: cfg, log: lg}
+}
+
+// SetOnXrayChanged 注入 Xray 副作用钩子（本 Build 可为 nil，Build6 由装配侧注入）。
+func (s *Service) SetOnXrayChanged(fn XrayChangedFunc) {
+	s.onXrayChanged = fn
 }
 
 // ValidateNodeName 节点名（manual 录入名与 xray 系统名），禁止空格。
@@ -371,11 +380,12 @@ func (s *Service) SetEnabled(ctx context.Context, id int64, enabled bool) (*Node
 	if err != nil {
 		return nil, err
 	}
-	// 副作用钩子本 Build 留空（Build6 注入）
-	_ = existing
 	n, err := s.getRaw(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if s.onXrayChanged != nil {
+		s.onXrayChanged(ctx, n, existing.Enabled, existing.IsPublic)
 	}
 	s.redactSensitive(&n)
 	return &n, nil
@@ -406,6 +416,9 @@ func (s *Service) SetPublic(ctx context.Context, id int64, isPublic bool) (*Node
 	n, err := s.getRaw(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if s.onXrayChanged != nil {
+		s.onXrayChanged(ctx, n, existing.Enabled, existing.IsPublic)
 	}
 	s.redactSensitive(&n)
 	return &n, nil

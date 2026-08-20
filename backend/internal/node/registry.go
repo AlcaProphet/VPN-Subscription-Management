@@ -3,7 +3,6 @@
 package node
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -291,6 +290,3 @@ func SensitiveFieldsOf(protocol string) []string {
 	}
 	return p.SensitiveFields
 }
-
-// ErrProtocolNotFound 供调用方判断协议不存在。
-var ErrProtocolNotFound = errors.New("协议不在注册表")

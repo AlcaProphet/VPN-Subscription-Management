@@ -3,6 +3,7 @@ package assembly
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"gopkg.in/yaml.v3"
@@ -123,23 +124,30 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 		"custom_rules":   in.CustomRules,
 		"fallback":       []string{"GEOIP,CN,DIRECT", "MATCH," + node.ForceFallback},
 	}
-	planRaw, _ := json.Marshal(plan)
+	planRaw, err := json.Marshal(plan)
+	if err != nil {
+		return nil, fmt.Errorf("序列化 Clash 渲染计划失败: %w", err)
+	}
 	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw}, nil
 }
 
-// clashProxy 构造 Clash proxies 条目（按 protocol_json 原样输出，敏感字段已解密）。
-func (s *Service) clashProxy(nd *nodeData) map[string]any {
-	p := map[string]any{
-		"name":   nd.RenderName,
-		"type":   nd.Protocol,
-		"server": nd.Host,
-		"port":   nd.Port,
-	}
-	for k, v := range nd.ProtocolJSON {
+// clashProxy 构造 Clash proxies 条目（固定 name/type/server/port 在前，其余协议字段按键名排序，保证产物键序稳定）。
+func (s *Service) clashProxy(nd *nodeData) *OrderedMap {
+	p := NewOrderedMap()
+	p.Set("name", nd.RenderName)
+	p.Set("type", nd.Protocol)
+	p.Set("server", nd.Host)
+	p.Set("port", nd.Port)
+	keys := make([]string, 0, len(nd.ProtocolJSON))
+	for k := range nd.ProtocolJSON {
 		if k == "name" || k == "type" || k == "server" || k == "port" {
 			continue
 		}
-		p[k] = v
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		p.Set(k, nd.ProtocolJSON[k])
 	}
 	return p
 }
@@ -187,6 +195,17 @@ func toYAMLNode(v any) (*yaml.Node, error) {
 				return nil, err
 			}
 			n.Content = append(n.Content, child)
+		}
+		return n, nil
+	case *OrderedMap:
+		n := &yaml.Node{Kind: yaml.MappingNode}
+		for _, k := range val.Keys() {
+			item, _ := val.Get(k)
+			child, err := toYAMLNode(item)
+			if err != nil {
+				return nil, err
+			}
+			n.Content = append(n.Content, scalarNode(k), child)
 		}
 		return n, nil
 	case map[string]any:

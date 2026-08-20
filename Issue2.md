@@ -215,7 +215,7 @@
 - **根因：** R12-21 修复时选择了单文件实现，未做组件拆分；重复模板违反 AGENTS.md §五「重复页面逻辑抽取为通用组件复用」。
 - **影响范围：** 装配页可维护性差，模板双份易失同步；生成后用户需多一次点击进入版本管理。
 - **修复方案：** 按 Build5 Step6 拆分七个子组件，单页/分步形态共用同一份步骤模板（仅外层容器不同）；回执按钮跳转 `订阅的版本管理页`（携带订阅 ID）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，前端构建/单测通过）
 
 ### R13-03 装配/节点包存在死代码与忽略 error 返回值
 
@@ -223,7 +223,7 @@
 - **根因：** 构建与 R12 修复过程中的遗留清理不彻底。
 - **影响范围：** 违反 AGENTS.md「所有 error 必须处理，不可忽略返回值」与代码整洁要求；无功能影响。
 - **修复方案：** 删除未用符号与 `var _=` 残留；删除 `formatRuleLine` 的 `sr` 参数；三处 `json.Marshal` 改为处理错误（返回/包装）；清理 health.go 的 Build3 TODO 或确认其归属。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 build/vet/test 通过）
 
 ### R13-04 通用 vmess 链接 JSON 的 tls 字段输出 bool 字符串且缺 sni
 
@@ -231,7 +231,7 @@
 - **根因：** `str()` 通用取值函数对 bool 直接 `FormatBool`，未针对 vmess tls 语义做映射。
 - **影响范围：** 通用节点订阅的 vmess 链接在部分客户端可能不启用 TLS；缺 sni 影响 SNI 校验场景连接。
 - **修复方案（用户已确认 2026-08-20）：** tls=true 输出 `"tls"`、false 输出 `""`；servername 非空时补 `sni` 字段；补对应单测。（决策后同步更新至 Build5 Step3 links.go 注记）
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 assembly 单测通过）
 
 ### R13-05 SetEnabled/SetPublic 未预留 onXrayChanged 副作用钩子接口
 
@@ -239,7 +239,7 @@
 - **根因：** R12 系列修复未涉及该项，实现时以注释代替了接口预留。
 - **影响范围：** Build6 接入 Xray 推送副作用时需再改 `Service` 结构与构造签名，接口契约未提前固化。
 - **修复方案：** 在 `node.Service` 增加 `onXrayChanged` 函数字段与 `SetOnXrayChanged` 注入方法，`SetEnabled`/`SetPublic` 落库成功后携带旧值调用（本 Build 回调可为 nil）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 node 单测通过）
 
 ### R13-06 openvpn 协议 SensitiveFields 为空数组
 
@@ -263,7 +263,7 @@
 - **根因：** 头部已改 OrderedMap，但 proxies 条目仍用普通 map。
 - **影响范围：** 不影响 Clash 客户端解析（YAML 键序无语义），但同一输入两次生成的产物可能出现虚假 diff，影响预览对比与版本 diff 的可读性。
 - **修复方案：** `clashProxy` 改为有序结构输出（先固定 name/type/server/port，其余协议字段按键名排序或按注册表字段顺序）；golden 测试断言条目键序稳定。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 assembly 单测通过）
 
 ### R13-09 internal/cron 包无单元测试
 
@@ -271,12 +271,12 @@
 - **根因：** Build4 Step5 item 9 单测清单未显式点名 cron 用例，实现时未补。
 - **影响范围：** 定时同步逻辑回归风险；Build4 Step5 验收命令虽通过但实际无覆盖。
 - **修复方案：** 将 `run` 逻辑抽出可注入时钟的函数，补「到期触发一次」「同分钟不重复」「running 跳过」单测（可用内存 store）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-20，后端 cron 单测通过）
 
 
 ## 附、后续修复顺序（交接给下一轮）
 
-> 本附件用于下一个新对话快速接续。当前 `R12-01~24` 已全部修复并通过验证；`R13-01~09` 为 2026-08-20 深度核查新发现（其中 R13-06/07 已经用户确认为合理例外/简化，无需修复；R13-04 修复口径已经用户确认），建议按 R13-04（链接正确性）→ R13-01（性能风险）→ R13-03（整洁）→ R13-08 → R13-05 → R13-02 → R13-09 顺序修复。以下为 R12 按顺序执行的交接记录。
+> 本附件用于下一个新对话快速接续。当前 `R12-01~24` 与 `R13-01~09` 均已处理并通过验证（R13-06/07 为用户确认的合理例外/简化）。以下为 R12 按顺序执行的交接记录。
 
 ### 1. R12-05：补齐前端单测（低风险，先做）
 
@@ -364,3 +364,4 @@ cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold
 | v1.5 | 2026-08-20 | 按交接顺序完成 R12-05/20/21/22/03 并标记 ✅：补齐素材池交互单测；代理组 DAG 环检测与悬空红标/一键剔除；装配页分步/单页双形态、步骤条、头部默认、节点/组/规则步骤、预览 Diff、生成回执与失效剔除；订阅/规则/版本页装配入口带参闭环；素材池详情顶部编辑与面包屑返回。验证：`vue-tsc --noEmit`、前端单测（32 passed）、`vite build` 通过。 |
 | v1.6 | 2026-08-20 | Build4/Build5 深度核查（全部验收命令实测通过：后端 build/vet/test、前端 build/32 单测、渲染 benchmark ≈ 1ms/op、旧表/1.25/占位 grep 均 0 命中；R12-01~24 修复全部核实落地），新追加 R13-01~09：DiffView 未用 jsdiff（手写 LCS 性能风险）、装配页未拆分子组件、死代码与忽略 error、vmess tls 口径（用户确认修正）、onXrayChanged 钩子缺失、openvpn 敏感字段（用户确认合理例外）、preview name_changed（用户确认合理简化）、Clash 条目键序、cron 无单测。 |
 | v1.7 | 2026-08-20 | 修复 R13-01：安装 diff/@types/diff，DiffView 切换 jsdiff diffLines，删除手写 src/lib/diff.ts；新增手动启动开关（总行数 >5000 时不自动计算，需点击「仍要启动行级对比」）与 timeout:2000 超时保护；新增 tests/diff-view.spec.ts。验证：`npm run build`、`npm test`（35 passed）。 |
+| v1.8 | 2026-08-20 | 完成 R13-02~09 核查与修复：拆分 AssemblerShell/TypeTargetStep/HeaderStep/NodesGroupsStep/RulesStep/PreviewStep/GenerateStep 七个子组件并接入装配页，回执按钮直达版本管理页；清理死代码/`var _=`/未用参数并处理 json.Marshal error；修正 vmess tls/sni 并补单测；预留 onXrayChanged 钩子；Clash proxies 键序稳定；cron 抽取可测 run 并补单测。验证：后端 build/vet/test（assembly/cron/node/server 通过）、前端 vue-tsc、vite build、35 单测通过。 |
