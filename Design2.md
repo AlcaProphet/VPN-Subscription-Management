@@ -231,7 +231,7 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 
 - Xray 已在**另一台服务器**运行（建议 1~5 台实例，不硬限制），API 安全由**部署者 IP 白名单**控制
 - 本系统作为 gRPC 管理面：用户推送/移除、流量采集、配额检查
-- 依赖增量：**引入 `github.com/xtls/xray-core` 模块**，直接使用其 command 包 proto 生成代码（HandlerService/StatsService 等）；go.mod/go.sum 依赖膨胀可接受（编译仅用部分包，不内嵌 Xray 运行时）；**项目 Go 版本升级至 1.26**（xray-core v26 系列要求 go 1.26，原「不动 Go 版本」口径经核验不可行；AGENTS.md 已同步更新 Go 版本表述，Dockerfile 基础镜像同步升级 golang:1.26-alpine 与构建核验）
+- 依赖增量：**引入 `github.com/xtls/xray-core` 模块**，直接使用其 command 包 proto 生成代码（HandlerService/StatsService 等）；go.mod/go.sum 依赖膨胀可接受（编译仅用部分包，不内嵌 Xray 运行时）；**版本策略以远端 latest 为准，不锁定 v26.7.28**（当前 latest 为 v1.260327.0；API 行为研究仍以本地 v26.7.28 源码为基准）；**项目 Go 版本升级至 1.26**（xray-core v26 系列要求 go 1.26，原「不动 Go 版本」口径经核验不可行；AGENTS.md 已同步更新 Go 版本表述，Dockerfile 基础镜像同步升级 golang:1.26-alpine 与构建核验）
 
 ### 5.4 关键设计约束
 

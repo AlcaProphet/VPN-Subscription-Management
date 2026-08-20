@@ -18,12 +18,12 @@
 1. **严格按 Step 顺序执行**；完成一个 Step 并验收通过后进入下一个；**禁止跳步、并行、合并、跨 Build 提前实现后续功能**。
 2. **每个 Step 完成后必须运行该 Step 的「验证命令」**；任一失败修复后重验，禁止带错进入下一 Step。
 3. **遇到模糊、歧义或设计未覆盖的细节，必须停止并使用提问工具向用户询问**。Xray API 行为一律以 [Xray-Core-API.md](./docs/Reference/Xray-Core-API.md) §11 源码取证为准，禁止凭旧教程实现。
-4. **依赖白名单**：本 Build 只新增 `github.com/xtls/xray-core@v26.7.28`（及 `go mod tidy` 拉取的既有传递依赖）；gRPC 客户端库使用 xray-core 依赖图中的 `google.golang.org/grpc` 版本，禁止另选 gRPC 框架。
+4. **依赖白名单**：本 Build 只新增 `github.com/xtls/xray-core`（以远端 latest 为准，不锁定具体版本号；当前 latest 为 `v1.260327.0`，及 `go mod tidy` 拉取的既有传递依赖）；gRPC 客户端库使用 xray-core 依赖图中的 `google.golang.org/grpc` 版本，禁止另选 gRPC 框架。
 5. **关键设计参数必须严格按下表取值**，与 Design2.md 保持一致，禁止修改：
 
 | 参数 | 取值 | 出处 |
 |------|------|------|
-| Xray 版本 | `github.com/xtls/xray-core@v26.7.28`（Reference 已逐行核验） | Xray-Core-API.md |
+| Xray 版本 | `github.com/xtls/xray-core`（远端 latest，不锁定版本号；当前 latest 为 `v1.260327.0`） | 用户决策：以 latest 为准 |
 | Xray 协议范围 | 用户增删仅 vless/vmess/trojan/shadowsocks；其他 inbound 检测入库但 `allocatable=0` | Design2 §3.2/§5.2 |
 | Xray email | 面板用户 `user-{id}@vpn.local`；**全小写**（vless 侧 ToLower） | Design2 §5.5 |
 | 用户凭据 | 每用户一个 UUID v4 + 一个高熵代理密码；AES-256-GCM 存 users.uuid_encrypted / proxy_secret_encrypted；**首建同事务同生同灭** | Design2 §5.5 |
@@ -75,7 +75,7 @@
 
 | Step | 涉及文件（核心） | 要点 |
 |------|----------------|------|
-| 0 | `backend/go.mod`、`backend/internal/xray/{client,account,errors}.go`、测试 | 依赖 v26.7.28；串行 gRPC；dial/调用超时；错误幂等映射；四协议 Account 构造 |
+| 0 | `backend/go.mod`、`backend/internal/xray/{client,account,errors}.go`、测试 | 依赖远端 latest（当前 v1.260327.0）；串行 gRPC；dial/调用超时；错误幂等映射；四协议 Account 构造 |
 | 1 | `backend/internal/xray/instance.go`、`backend/internal/server/xray.go`、`backend/internal/server/tasks.go`、`backend/internal/server/server.go`、测试 | 实例 CRUD/slug/连接测试；ListInbounds 解析与 nodes upsert、missing/allocatable 标记；全局任务 registry 落地 |
 | 2 | `backend/internal/group/group.go`、`backend/internal/server/group.go`、`backend/internal/server/middleware.go`、测试 | advancedMode 中间件；group_nodes/候选集并集/公共节点/default_quota |
 | 3 | `backend/internal/xray/{credentials,sync}.go`、`backend/internal/user/admin.go`、`backend/internal/user/user.go`、`backend/internal/approval/approval.go`、`backend/internal/group/group.go`、`backend/internal/node/node.go`、`backend/internal/server/xray.go`、测试 | 凭据首建事务；触发器 wiring；xray_users 状态机；补偿 RemoveUser；批量初始化 |
@@ -105,13 +105,13 @@ Step 4+5 ──▶ Step 6（集成验收）
 
 ### Step 0：xray-core 依赖与 internal/xray gRPC 客户端封装
 
-**本 Step 完成后，项目依赖 xray-core v26.7.28 且可编译；`internal/xray` 提供串行 gRPC 客户端与四协议 Account 构造，幂等错误映射通过单测。**
+**本 Step 完成后，项目依赖远端 latest xray-core（当前为 v1.260327.0，不锁定版本号）且可编译；`internal/xray` 提供串行 gRPC 客户端与四协议 Account 构造，幂等错误映射通过单测。**
 
 - **目标：** 引入 Xray 模块并封装 HandlerService/StatsService 调用。
 - **前置条件：** Build5 全部验收通过；Go 1.26（Build4 Step 0）。
 - **产出文件与操作：**
 
-  1. **依赖引入**：`cd backend && go get github.com/xtls/xray-core@v26.7.28 && go mod tidy`。若网络受限，用内网 GOPROXY 或与现有 go.sum 缓存一致镜像；**不得手写 require 不存在的版本**。完成后 `go build ./...` 必须通过。
+  1. **依赖引入**：`cd backend && go get github.com/xtls/xray-core@latest && go mod tidy`。若网络受限，用内网 GOPROXY 或与现有 go.sum 缓存一致镜像；**不得手写 require 不存在的版本**。完成后 `go build ./...` 必须通过。
   2. **`backend/internal/xray/client.go`**：
      - `type Client struct { conn *grpc.ClientConn; handler handlercmd.HandlerServiceClient; stats statscmd.StatsServiceClient; mu sync.Mutex }`。
      - `Dial(apiAddr string) (*Client, error)`：校验 TCP 地址；`grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))`；**dial 超时 10s（用 `context.WithTimeout` 实现，`grpc.WithTimeout` 在现代 grpc-go 已移除），全部 RPC 调用带单次 30s deadline（`context.WithTimeout`），不可达实例快速失败，避免异步长任务挂起无终态（Design2 §5.4）**；包导入别名 `handlercmd "github.com/xtls/xray-core/app/proxyman/command"`、`statscmd "github.com/xtls/xray-core/app/stats/command"`。
@@ -156,11 +156,11 @@ Step 4+5 ──▶ Step 6（集成验收）
 - **测试与验收命令：**
 
   ```bash
-  cd backend && go get github.com/xtls/xray-core@v26.7.28 && go mod tidy
+  cd backend && go get github.com/xtls/xray-core@latest && go mod tidy
   cd backend && go build ./... && go vet ./... && go test ./internal/xray/... ./...
   ```
 
-- **验收标准：** go.mod 锁定 v26.7.28；编译/静态检查/测试通过；`go list -m all | grep xtls/xray-core` 显示 v26.7.28；客户端所有 gRPC 方法均有串行锁与错误上下文。
+- **验收标准：** go.mod 使用远端 latest xray-core（当前为 v1.260327.0，不锁定版本号）；编译/静态检查/测试通过；`go list -m all | grep xtls/xray-core` 显示当前 latest 版本；客户端所有 gRPC 方法均有串行锁与错误上下文。
 
 
 
@@ -612,4 +612,5 @@ Step 4+5 ──▶ Step 6（集成验收）
 | v1.5 | 2026-08-19 | Design2Report9 修订：实例停用改暂停管理口径，移除实例 enabled 的候选集重算/diff 触发（H1）；初始化端点异步化返回 task_id 与全局任务 registry（M7）；gRPC dial 10s/调用 30s deadline（M7 配套）；文件清单补 errors.go；下载注入按 node_id 去重兜底显式化；采集间隔映射读写单测挪 Build7 Step2（M9）；钩子异步执行口径（M14） |
 | v1.6 | 2026-08-19 | Design2Report10 修订：全局任务 registry 与 GET /api/admin/tasks/:id 在本 Build Step1 落地（Q1）；候选集重算补平台删除与 allocatable 变化回调（Q2）；实例服务按实例缓存 Client 确保串行（Q13）；下载空目标集占位整行移除（Q10）；采集实例级探测失败快速中止（Q14） |
 | v1.7 | 2026-08-19 | Design2Report11 核验修订：ValidateNodeName 引用修正；下载文件名 target_syntax 映射落实；REALITY 私钥不落库；missing 双向表述拆分；quota_bytes 统一 null；traffic 改独立端点 /api/home/summary；Clash 无凭据注释行；超限写 last_error；host 取 api_addr 定稿；kind 措辞/List 字段/WithTimeout/站点 URL 修正；SetNodes 显式事务 |
+| v1.8 | 2026-08-20 | 用户决策：xray-core 依赖改为远端 latest（当前 v1.260327.0），不锁定 v26.7.28；同步更新 Step0 命令与验收标准 |
 
