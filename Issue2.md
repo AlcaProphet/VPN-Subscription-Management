@@ -201,6 +201,60 @@
 - **修复方案：** 对 `Encode()` 结果统一 `strings.ReplaceAll(s, "+", "%20")`，并补含空格参数单测。
 - **状态：** ✅ 已修复（2026-08-20，后端单测通过）
 
+## 附、后续修复顺序（交接给下一轮）
+
+> 本附件用于下一个新对话快速接续。当前 `R12-01/02/04/06~19/23/24` 已修复并通过验证；以下问题仍未完成，请按下述顺序继续，不要跳过。
+
+### 1. R12-05：补齐前端单测（低风险，先做）
+
+- **内容：** 为 `PoolTab`/`PoolDetail` 补充单测：进行中再次点击同步提示 warning、同步历史分页加载、组件卸载取消轮询。
+- **涉及文件：** `frontend/tests/pool-tab.spec.ts`、`frontend/tests/request-poll.spec.ts`，必要时新增 `frontend/tests/pool-detail.spec.ts`。
+- **验收：** `cd frontend && npm run build && npm test`。
+
+### 2. R12-20：补前端 DAG 即时检测与悬空引用红标
+
+- **当前进度：** 已补 `is_public` ConfirmModal、节点列表/卡片双态、代理组节点拖拽（HTML5 drag）。
+- **剩余内容：** `ProxyGroupsView.vue` 在保存前做前端 DAG 环检测；编辑代理组时对已失效节点/子组引用显示红标并提供一键剔除。
+- **涉及文件：** `frontend/src/views/admin/ProxyGroupsView.vue`、`frontend/src/composables/useSortableList.ts`。
+- **验收：** 前端构建/测试通过；手工在代理组弹窗制造环/悬空引用可见提示。
+
+### 3. R12-21：装配页完整重构（最大项）
+
+- **当前进度：** `AssemblyView.vue` 已支持无效 tab 回退、读取 `platform_id/rule_id`、重新编辑回填与失效引用/显示名提示；但仍为简化表单。
+- **剩余内容：**
+  - `a-segmented` 分步/单页双形态与 localStorage 记忆；
+  - Clash 六步、SR subs/generic 五步、SR-conf 五步的步骤条与动态跳过；
+  - 各装配器子组件：目标选择、头部默认值/一键采用默认、节点/代理组选择、规则素材池有序选择、预览与 Diff、生成回执；
+  - 预览时拉取当前激活版本原文进行 Diff；
+  - 重新编辑失效引用红标/一键剔除完整交互。
+- **涉及文件：** `frontend/src/views/admin/AssemblyView.vue` 及 `frontend/src/views/admin/assembly/` 下新增子组件。
+- **验收：** 前端构建/测试通过；四种装配器均可按 Build5 Step6 手工走通。
+
+### 4. R12-22：装配入口与重新编辑参数收口
+
+- **当前进度：** `AssemblyView` 已能读取 `platform_id/rule_id`，版本页“重新编辑”已按 blueprint 的真实 `target_syntax` 跳转。
+- **剩余内容：** `SubscriptionsView`“前往装配”带 `platform_id`；`RulesView`“装配生成”带 `rule_id`；各入口与装配页 query 参数完整闭环。
+- **涉及文件：** `frontend/src/views/admin/SubscriptionsView.vue`、`frontend/src/views/admin/RulesView.vue`、`frontend/src/views/admin/AssemblyView.vue`。
+- **验收：** 从订阅/规则/版本页进入装配均能预选目标，重新编辑打开正确页签。
+
+### 5. R12-03：素材池剩余 UI 细节
+
+- **当前进度：** 已补 `<768` 卡片、条目 manual/url 分段标题、`a-time-picker`。
+- **剩余内容：** `PoolDetail` 顶部信息条补“编辑”入口与面包屑式返回；确认移动端详情卡片完整可用。
+- **涉及文件：** `frontend/src/views/admin/assembly/PoolDetail.vue`、`PoolTab.vue`。
+- **验收：** 前端构建/测试通过；移动端素材池详情手工走查通过。
+
+### 下一轮开始前必做
+
+```bash
+cd backend && go build ./... && go vet ./... && go test ./...
+cd frontend && npm run build && npm test
+cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold|TestRenderSrConf10kRulesThreshold' -v
+```
+
+先阅读本文件“一、进行中问题”中仍为 `☐` 的条目，再按上述 1→5 顺序执行。
+
+
 ## 二、格式说明（新问题记录模板）
 
 发现问题时，按以下结构追加到「进行中问题」：
@@ -233,3 +287,4 @@
 | v1.1 | 2026-08-20 | Build4/Build5 全面核查：确认 R12-01~R12-05 仍开放，并追加 R12-06~R12-24（素材池状态/空 URL/类型规范化/added 口径/列表存在性/启动失败遗留 running、Clash 键序、蓝图目标与引用校验、装配校验、节点敏感字段/REALITY、代理组子组白名单、Step5/6/7 前端缺失、蓝图列映射、链接编码） |
 | v1.2 | 2026-08-20 | 用户确认修复决策：R12-19 代理组不允许引用「🛟无法归属的流量」作为子组；R12-02 新增 `pool_entries.source_url` 精确统计 removed；R12-07 空 URL 同步返回 failed“未配置 URL”；R12-09 added 仅统计实际新增行；R12-13 新增 `assembly_blueprints.platform_id/rule_id` 列；R12-17 `reality-opts` 改为结构化对象字段。同步更新对应 Issue 的修复方案与状态。 |
 | v1.3 | 2026-08-20 | 执行修复并验收：新增迁移 1010；修复 R12-01/02/04/06~19/23/24 并标记 ✅；R12-03/05/20/21/22 仍为 ☐（R12-20 已补 is_public 确认与拖拽，但前端 DAG/悬空红标未完整；R12-21/22 仅部分落地）。验证：`go build/vet/test ./...`、前端 build/test、渲染阈值测试均通过。 |
+| v1.4 | 2026-08-20 | 增加“附、后续修复顺序（交接给下一轮）”：记录 R12-05 → R12-20 → R12-21 → R12-22 → R12-03 的继续修复顺序、涉及文件、验收命令，供下一轮对话直接接续。 |
