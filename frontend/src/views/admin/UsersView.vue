@@ -15,6 +15,7 @@ import { upsertCustom, upsertCustomText, deleteCustom } from '@/api/custom'
 import { getSMTP } from '@/api/settings'
 import { useAuthStore } from '@/stores/auth'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -423,16 +424,17 @@ const roleConfirmContent = computed(() => {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-      <h2 class="text-lg font-semibold m-0">用户管理</h2>
-      <!-- Space wrap：长文案按钮 + 新建按钮在窄屏自动换行，防止溢出页面框架 -->
-      <Space :wrap="true">
-        <Button :loading="sendingLinks" :disabled="!smtpConfigured"
-                :title="smtpConfigured ? '' : 'SMTP 未配置，请先在面板配置'"
-                @click="batchSendLinks">为所有无密码用户发送密码设置链接</Button>
-        <Button type="primary" @click="openCreate">新建用户</Button>
-      </Space>
-    </div>
+    <PageHeader title="用户管理">
+      <template #actions>
+        <!-- Space wrap：长文案按钮 + 新建按钮在窄屏自动换行，防止溢出页面框架 -->
+        <Space :wrap="true">
+          <Button :loading="sendingLinks" :disabled="!smtpConfigured"
+                  :title="smtpConfigured ? '' : 'SMTP 未配置，请先在面板配置'"
+                  @click="batchSendLinks">为所有无密码用户发送密码设置链接</Button>
+          <Button type="primary" @click="openCreate">新建用户</Button>
+        </Space>
+      </template>
+    </PageHeader>
 
     <div class="mb-3">
       <Input v-model:value="keyword" allow-clear placeholder="搜索用户名 / 邮箱" style="max-width: 320px" />

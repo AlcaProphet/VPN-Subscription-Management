@@ -5,6 +5,7 @@ import dayjs from 'dayjs'
 import { Button, Checkbox, Pagination, Space, Table, Tag, TypographyParagraph } from 'ant-design-vue'
 import { listApprovals, approve, reject, batchApproveApi, type PendingUser } from '@/api/approval'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -120,14 +121,15 @@ const expandedClaims = ref<Record<number, boolean>>({})
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-      <h2 class="text-lg font-semibold m-0">审批中心</h2>
-      <Space>
-        <Button type="primary" :disabled="selected.length === 0" @click="batchOpen = true">
-          批量通过{{ selected.length ? `（${selected.length}）` : '' }}
-        </Button>
-      </Space>
-    </div>
+    <PageHeader title="审批中心">
+      <template #actions>
+        <Space>
+          <Button type="primary" :disabled="selected.length === 0" @click="batchOpen = true">
+            批量通过{{ selected.length ? `（${selected.length}）` : '' }}
+          </Button>
+        </Space>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="list.length === 0 && total === 0" empty-text="暂无待审批用户">
       <!-- ≥768 表格态 -->

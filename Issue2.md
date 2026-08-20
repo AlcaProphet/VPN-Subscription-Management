@@ -384,7 +384,7 @@
 
 - **现象：** ① TypeTargetStep 无「无匹配平台空态引导+直达平台管理链接」（TypeTargetStep.vue:24-26；§5.3.0）；② sr-conf 目标规则实体缺「新建空规则实体」快捷入口（:19-23；§5.3.4）；③ Clash 头部默认值未预填（fixed_params_text 初始 `'{}'`，仅「一键采用默认值」按钮应用，AssemblyView.vue:67；Build5 Step6 要求预填）；④ RulesStep 池有序列表无桌面端拖拽（RulesStep.vue:42-43；§5.3.1）；⑤ PreviewStep 缺 `# {{xray_nodes}}` 占位旁 Tooltip「下载时按用户分配节点动态注入」（§5.3.5）；⑥ 重编辑顶部 alert 缺版本号 vN（AssemblyView.vue:393；§5.4）；⑦ Build5 Step6 item7 所列装配器单测（页签回退/步骤跳过/表单校验/preview 调用/失效剔除）未落地，tests/ 无装配页 spec；⑧ 池弹窗 URL 无前端 http/https 校验（PoolTab.vue:58-78，仅后端 400 兜底）。
 - **修复方案：** 逐项按 §5.3/§5.4/Build5 Step6 收口；补装配页 spec。
-- **状态：** ◧ 部分修复（TypeTarget/Header/Pool URL/Preview/重编辑提示等已落地；RulesStep 拖拽与装配页 spec 仍待补）
+- **状态：** ✅ 已修复（2026-08-20，RulesStep 桌面拖拽、装配页 spec、重编辑 vN 提示已补齐；后端 build/vet/test 与前端 build/test 通过）
 
 ### R14-16 server/home.go 与 profile.go 接入层直接 SQL（AGENTS §五分层红线）
 
@@ -392,13 +392,13 @@
 - **根因：** Build1~Build4 期间首页/个人中心查询就地编写，未下沉业务层。
 - **影响范围：** 违反「接入层不直接操作存储」强约束；业务规则散在接入层，难以复用与测试。
 - **修复方案（用户已决策 2026-08-20：本轮一并整改）：** 查询下沉业务层（home 查询并入既有服务或新建 internal/home），profile 走 user 服务；移除 ProfileHandler.users 死字段。
-- **状态：** ◧ 部分修复（profile 与 assembly 接入层已下沉；home.go 直连 SQL 仍待收口）
+- **状态：** ✅ 已修复（2026-08-20，新增 internal/home 下沉首页全部查询；server 接入层已无直连 SQL；后端 build/vet/test 通过）
 
 ### R14-17 CopyField 组件 0 引用、PageHeader 复用不足
 
 - **现象：** `components/CopyField.vue` 全仓 0 引用（含 tests），`HomeView.vue:87-118` 内联实现复制逻辑（Design2-UI §3.1.2 规定复制规则链接用 CopyField）；`PageHeader` 仅 3/13 管理页使用，其余页内联 `<h2>`（Build4 Step4 item 17「后续页面统一使用，禁止各页继续复制实现」）。
 - **修复方案：** HomeView 复制规则链接/平台卡链接改用 CopyField；新页面统一 PageHeader（旧页内联头逐步收口）。
-- **状态：** ◧ 部分修复（HomeView 已接入 CopyField；PageHeader 全量复用仍待继续）
+- **状态：** ✅ 已修复（2026-08-20，HomeView 已接入 CopyField；管理页 PageHeader 全量复用完成；前端 build/test 通过）
 
 ### R14-18 ValidateNodeName/ValidateProxyGroupName 复制实现未共享基础函数
 
@@ -449,7 +449,8 @@
 - **根因：** 配置读取的 fail-safe 惯例。
 - **影响范围：** 低危（方向安全）；DB 故障时配置静默回退默认，可能掩盖故障。
 - **修复方案（用户决策 2026-08-20）：** 对关键路径改为显式错误——签名密钥读取、advanced_mode 读取（高级模式开关判定）与相关鉴权/同步钩子入口优先显式返回错误或告警；非关键展示类配置（公告、站点名、邮件参数等）维持 fail-safe 并补口径注释。纳入 Build4/5 修复收口执行。
-- **状态：** ◧ 部分实施（新增 GetBoolStrict 并在 status 等关键路径显式报错；其余关键路径待收口）
+- **补充记录（用户决策 2026-08-20）：** `config/admin.go` 的面板配置读取、`oidc.IsConfigured()` 等暂不改为显式报错，维持 fail-safe / fail-closed；后续如需纳入关键路径再单独处理。
+- **状态：** ✅ 已修复（2026-08-20，关键路径已显式报错：签名密钥、advanced_mode、configured、本地登录/注册开关、OIDC 审批开关；非关键展示类维持 fail-safe 并补注释；后端 build/vet/test 通过）
 
 ### R14-26（已确认）node/proxygroup 先读后写 TOCTOU 窗口
 
@@ -571,3 +572,4 @@ cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold
 | v2.0 | 2026-08-20 | Build4/Build5 双重核验（事后验收）追加 R14-01~R14-26：验收命令全绿实测（后端 build/vet/test、前端 build/35 单测、benchmark Clash≈15ms/SR≈1.1ms、grep 四项 0 命中、全新库迁移实测）基础上的深度核查新发现——P1：后端缺 GET /api/admin/subscriptions/:id（R14-01）、render_plan 不自包含（R14-06）、xray_candidates 恒空（R14-07，后两项为 Build6 前置依赖）；P2：proxy-groups 键序（R14-02）、链接参数缺失与形态（R14-03/04/05）、取消默认无确认（R14-08）、装配流 pooled 标记（R14-09）、PoolTab 双态（R14-10）、分层红线（R14-16）；其余为 UI 规格簇与整洁项。用户决策：R14-01 后端补路由 + NoRoute 对 /api/ 前缀 GET 改 404 JSON；R14-03/04 全部按 Node-Link-Standards 标准表补齐；R14-06/07 随 Build6 Step4/Step2 实施时修；R14-16 本轮一并整改；R14-25/26 维持待确认。同步修订 Build6.md v2.0 / Build7.md v1.10 / Build5.md v1.9（事前预检确定性问题闭合）。 |
 | v2.1 | 2026-08-20 | 第三轮 Build6/7 事前预检用户决策落盘：Q1 先执行 Build4/5 修复收口，完成后方可启动 Build6（附、后续修复顺序已新增优先级 0）；Q2 全局任务 registry 下沉为中性包 `internal/tasks`（Build6 v2.2 / Build7 v1.12）；Q3 OFF 清空维持“状态翻转+任务登记同事务”字面口径并接受回滚残留幽灵任务边界（Build6 v2.2 / Build7 v1.12）；Q4a R14-25 改为关键路径显式错误（其余 fail-safe 补口径注释），状态更新为 ☐ 待修复（已决策）；Q4b R14-26 维持现状，状态更新为 ✅ 已确认。 |
 | v2.2 | 2026-08-20 | Build4/5 修复收口首轮执行：完成 R14-01/02/03/04/05/08/09/10/11/12/13/14/18/19/20/21/22/23/24 与 N1/N2/N4；R14-15/16/17/25 部分落地（见各状态）；R14-06/07 按既有决策随 Build6 实施；N3 前端单测仍待补。验证：后端 `go build/vet/test ./...` 全绿，前端 `npm run build` + `npm test`（36 passed）。 |
+| v2.3 | 2026-08-20 | 收口 R14-15/16/17/25：装配页 RulesStep 桌面拖拽、装配页 spec（页签回退/步骤跳过/表单校验/preview/失效剔除）、重编辑 vN 提示；新增 internal/home 下沉首页全部 SQL；管理页 PageHeader 全量复用；config 关键路径（configured/本地登录/注册/OIDC 审批/advanced_mode）显式报错；并记录 `config/admin.go` 面板配置读取与 `oidc.IsConfigured()` 暂维持 fail-safe/fail-closed。验证：后端 `go build/vet/test ./...` 全绿，前端 `npm run build` + `npm test`（42 passed）。 |

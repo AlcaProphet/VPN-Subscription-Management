@@ -8,6 +8,7 @@ import {
   listAdminRules, createRule, renameRule, deleteRule, refreshRuleToken, setHomeDefault, type RuleItem,
 } from '@/api/rule'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -200,13 +201,14 @@ async function doCancelDefault() {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">规则管理</h2>
-      <Space>
-        <Button @click="goAssemblyHeader">装配生成</Button>
-        <Button type="primary" @click="openCreate">创建规则</Button>
-      </Space>
-    </div>
+    <PageHeader title="规则管理">
+      <template #actions>
+        <Space>
+          <Button @click="goAssemblyHeader">装配生成</Button>
+          <Button type="primary" @click="openCreate">创建规则</Button>
+        </Space>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="rules.length === 0" empty-text="还没有规则">
       <!-- ≥768：表格 -->

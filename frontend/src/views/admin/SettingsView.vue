@@ -18,6 +18,7 @@ import { useSystemStore } from '@/stores/system'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/api/request'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import { Notify } from '@/components/Notify'
 
 const system = useSystemStore()
@@ -515,9 +516,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="mb-4">
-      <h2 class="text-lg font-semibold m-0">面板配置</h2>
-    </div>
+    <PageHeader title="面板配置" />
 
     <div class="flex gap-6">
       <!-- 左侧锚点导航（<768 隐藏，改用顶部 Select）；

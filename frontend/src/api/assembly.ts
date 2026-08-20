@@ -50,6 +50,7 @@ export interface AssemblyContext {
 export interface BlueprintResponse {
   blueprint: {
     target_syntax: TargetSyntax
+    version_no?: number
     platform_id?: number | null
     rule_id?: number | null
     fixed_params: Record<string, unknown>

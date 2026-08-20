@@ -21,6 +21,7 @@ type BlueprintInvalidRef struct {
 // BlueprintData 蓝图读取结果（含失效引用与显示名变化）。
 type BlueprintData struct {
 	TargetSyntax string                `json:"target_syntax"`
+	VersionNo    int64                 `json:"version_no"`
 	FixedParams  json.RawMessage       `json:"fixed_params"`
 	Selection    json.RawMessage       `json:"selection"`
 	CustomRules  json.RawMessage       `json:"custom_rules"`
@@ -49,6 +50,7 @@ func (s *Service) FindSubscriptionByPlatform(ctx context.Context, platformID int
 func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*BlueprintData, error) {
 	var row struct {
 		TargetSyntax    string
+		VersionNo       int64
 		FixedParamsJSON string
 		SelectionJSON   string
 		CustomRulesJSON string
@@ -57,9 +59,11 @@ func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*Blueprint
 		RuleID          *int64
 	}
 	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT target_syntax, fixed_params_json, selection_json, custom_rules_json, render_plan_json, platform_id, rule_id
-		 FROM assembly_blueprints WHERE version_id = ?`, versionID).Scan(
-		&row.TargetSyntax, &row.FixedParamsJSON, &row.SelectionJSON, &row.CustomRulesJSON, &row.RenderPlanJSON,
+		`SELECT b.target_syntax, v.version_no, b.fixed_params_json, b.selection_json, b.custom_rules_json, b.render_plan_json, b.platform_id, b.rule_id
+		 FROM assembly_blueprints b
+		 JOIN versions v ON v.id = b.version_id
+		 WHERE b.version_id = ?`, versionID).Scan(
+		&row.TargetSyntax, &row.VersionNo, &row.FixedParamsJSON, &row.SelectionJSON, &row.CustomRulesJSON, &row.RenderPlanJSON,
 		&row.PlatformID, &row.RuleID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("蓝图不存在")
@@ -78,6 +82,7 @@ func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*Blueprint
 	}
 	out := &BlueprintData{
 		TargetSyntax: row.TargetSyntax,
+		VersionNo:    row.VersionNo,
 		FixedParams:  json.RawMessage(row.FixedParamsJSON),
 		Selection:    json.RawMessage(row.SelectionJSON),
 		CustomRules:  json.RawMessage(row.CustomRulesJSON),

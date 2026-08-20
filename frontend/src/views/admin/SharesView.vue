@@ -6,6 +6,7 @@ import dayjs from 'dayjs'
 import { Badge, Button, Input, Modal, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
 import { listShares, createShare, renameShare, deleteShare, refreshShareToken, revokeShareToken, type ShareItem } from '@/api/share'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -183,10 +184,11 @@ async function doDelete() {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">分享订阅</h2>
-      <Button type="primary" @click="createOpen = true">创建分享</Button>
-    </div>
+    <PageHeader title="分享订阅">
+      <template #actions>
+        <Button type="primary" @click="createOpen = true">创建分享</Button>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="shares.length === 0" empty-text="还没有分享订阅">
       <!-- ≥768：表格 -->

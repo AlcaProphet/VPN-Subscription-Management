@@ -6,6 +6,7 @@ import { HolderOutlined } from '@ant-design/icons-vue'
 import { listProxyGroups, createProxyGroup, updateProxyGroup, deleteProxyGroup, togglePresetGroup, type ProxyGroupItem, type ProxyGroupDefinition } from '@/api/proxyGroup'
 import { listNodes, type NodeItem } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { useSortableList } from '@/composables/useSortableList'
 import { Notify } from '@/components/Notify'
@@ -199,10 +200,11 @@ function memberSummary(g: ProxyGroupItem): string {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">代理组管理</h2>
-      <Button type="primary" @click="openCreate">新建代理组</Button>
-    </div>
+    <PageHeader title="代理组管理">
+      <template #actions>
+        <Button type="primary" @click="openCreate">新建代理组</Button>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="groups.length === 0" empty-text="暂无代理组">
       <Table :data-source="groups" row-key="id" :pagination="false" class="hidden md:block">

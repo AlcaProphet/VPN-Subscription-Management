@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Button, Space, Table, Tag, TypographyText } from 'ant-design-vue'
 import { listPlatforms, deletePlatform, type PlatformItem } from '@/api/platform'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -82,10 +83,11 @@ async function confirmDelete() {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">平台管理</h2>
-      <Button type="primary" @click="router.push('/admin/platforms/new')">新建平台</Button>
-    </div>
+    <PageHeader title="平台管理">
+      <template #actions>
+        <Button type="primary" @click="router.push('/admin/platforms/new')">新建平台</Button>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="platforms.length === 0" empty-text="暂无平台">
       <!-- ≥768：表格 -->

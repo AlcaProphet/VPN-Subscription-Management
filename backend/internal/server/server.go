@@ -22,6 +22,7 @@ import (
 	"vpn-sub/internal/download"
 	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/group"
+	"vpn-sub/internal/home"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/mail"
 	"vpn-sub/internal/node"
@@ -110,7 +111,8 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	tokenSvc := token.NewService(st, lg)
 	subSvc.SetOnTokenDeleted(tokenSvc.DeleteBySubscriptionTx)
 	dlSvc := download.NewService(st, versionSvc, cfg, lg)
-	homeHandler := &HomeHandler{store: st, tokenSvc: tokenSvc, cfg: cfg}
+	homeSvc := home.NewService(st, tokenSvc, cfg)
+	homeHandler := &HomeHandler{homeSvc: homeSvc}
 	RegisterDownloadRoutes(engine, &DownloadHandler{dlSvc: dlSvc, limiter: limiter, sessionMW: authSvc.SessionMiddleware()})
 	RegisterHomeRoutes(engine, homeHandler, authSvc.SessionMiddleware())
 	// 自定义订阅 + 分享订阅（Build2 Step 5；会话 + 管理员双中间件）

@@ -49,12 +49,22 @@ func (h *AuthHandler) register(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	// 注册入口可见性：依赖本地登录开启（Design1 §3.2：本地登录关闭时注册产物无法本地登录，无意义）
-	if !h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true) {
+	// R14-25：鉴权入口配置读取显式报错，不静默回退默认值。
+	allowLocal, err := h.cfg.GetBoolStrict(ctx, config.KeyAllowLocalLogin, true)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !allowLocal {
 		Fail(c, http.StatusForbidden, "本地登录已关闭")
 		return
 	}
 	// 注册入口可见性：allow_selfreg 开启，或用户表为空（例外，Design1 §5.2）
-	allowSelf := h.cfg.GetBool(ctx, config.KeyAllowSelfreg, false)
+	allowSelf, err := h.cfg.GetBoolStrict(ctx, config.KeyAllowSelfreg, false)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 	empty, err := h.userSvc.IsTableEmpty(ctx)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
@@ -104,7 +114,13 @@ func (h *AuthHandler) login(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	// 本地登录开关（Design1 §3.2：本地登录为基底，可关闭；关闭后本端点不可用，注册入口同步隐藏）
-	if !h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true) {
+	// R14-25：鉴权入口配置读取显式报错，不静默回退默认值。
+	allowLocal, err := h.cfg.GetBoolStrict(ctx, config.KeyAllowLocalLogin, true)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !allowLocal {
 		Fail(c, http.StatusForbidden, "本地登录已关闭")
 		return
 	}

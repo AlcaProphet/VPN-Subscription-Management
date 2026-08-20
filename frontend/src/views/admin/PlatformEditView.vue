@@ -8,6 +8,7 @@ import {
   type InstallerFileItem, type InstallerURLItem,
 } from '@/api/platform'
 import { Notify } from '@/components/Notify'
+import PageHeader from '@/components/PageHeader.vue'
 import { ApiError } from '@/api/request'
 
 const route = useRoute()
@@ -143,10 +144,11 @@ async function save() {
 
 <template>
   <div class="max-w-2xl">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">{{ isEdit ? '编辑平台' : '新建平台' }}</h2>
-      <Button @click="router.back()">返回</Button>
-    </div>
+    <PageHeader :title="isEdit ? '编辑平台' : '新建平台'">
+      <template #actions>
+        <Button @click="router.back()">返回</Button>
+      </template>
+    </PageHeader>
 
     <Card>
       <Form layout="vertical" @submit.prevent="save">

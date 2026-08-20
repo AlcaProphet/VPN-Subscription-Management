@@ -53,6 +53,7 @@ const showDiff = ref(false)
 const diffOld = ref('')
 const diffMissing = ref(false)
 const editVersionId = ref<number | null>(null)
+const editVersionNo = ref<number | null>(null)
 const invalidRefs = ref<Array<{ kind: string; name: string }>>([])
 const nameChanged = ref<Record<string, string>>({})
 const layoutMode = ref<'step' | 'page'>(localStorage.getItem('assembly_layout_mode') === 'page' ? 'page' : 'step')
@@ -156,6 +157,7 @@ async function loadEditIfAny() {
     const data = await getBlueprint(id)
     const bp = data.blueprint
     activeTab.value = bp.target_syntax
+    editVersionNo.value = bp.version_no ?? null
     form.platform_id = bp.platform_id ?? undefined
     form.rule_id = bp.rule_id ?? undefined
     form.node_names = bp.selection?.node_names ?? []
@@ -167,7 +169,7 @@ async function loadEditIfAny() {
     form.custom_rules = bp.custom_rules ?? []
     invalidRefs.value = data.invalid_refs ?? []
     nameChanged.value = data.name_changed ?? {}
-    Notify.info(`正在重新编辑版本 #${editVersionId.value}，请检查失效引用`)
+    Notify.info(editVersionNo.value ? `正在重新编辑版本 v${editVersionNo.value}，请检查失效引用` : `正在重新编辑版本 #${editVersionId.value}，请检查失效引用`)
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -355,6 +357,7 @@ async function doGenerate() {
       }
     }
     editVersionId.value = null
+    editVersionNo.value = null
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -400,7 +403,8 @@ const outputGroups = computed(() => {
 <template>
   <div>
     <PageHeader title="订阅装配" subtitle="四类装配器：选择目标 → 填头部 → 勾选节点/组 → 规则 → 预览 → 生成" />
-    <Alert v-if="editVersionId" type="info" show-icon class="mb-4" :message="`正在重新编辑版本 #${editVersionId}，请检查失效引用后生成新版本`" />
+    <Alert v-if="editVersionId" type="info" show-icon class="mb-4"
+           :message="editVersionNo ? `正在重新编辑版本 v${editVersionNo}，请检查失效引用后生成新版本` : `正在重新编辑版本 #${editVersionId}，请检查失效引用后生成新版本`" />
     <Alert v-if="invalidRefs.length" type="error" show-icon class="mb-2"
            :message="`${invalidRefs.length} 项引用已失效，请剔除或替换后生成`">
       <template #action>

@@ -5,6 +5,7 @@ import dayjs from 'dayjs'
 import { Badge, Button, DatePicker, Pagination, Select, Space, Table, Tabs } from 'ant-design-vue'
 import { queryAccessLogs, clearAccessLogs, issueStreamToken, type AccessLog, type LogEntry } from '@/api/log'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -148,7 +149,7 @@ onUnmounted(disconnect)
 
 <template>
   <div>
-    <h2 class="text-lg font-semibold mb-4">日志查看</h2>
+    <PageHeader title="日志查看" />
     <Tabs :active-key="activeTab" @change="onTabChange">
       <!-- 访问日志页签 -->
       <Tabs.TabPane key="access" tab="访问日志">

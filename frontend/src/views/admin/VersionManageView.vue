@@ -8,6 +8,7 @@ import dayjs from 'dayjs'
 import { versionApi, getVersionBlueprint, type VersionItem } from '@/api/version'
 import { getSubscription } from '@/api/subscription'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -262,18 +263,17 @@ function fmtTime(ts: string): string {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-1">
-        <Button v-if="backPath" type="text" class="-ml-2" @click="goBack">
-          <template #icon><ArrowLeftOutlined /></template>
-          返回
-        </Button>
-        <h2 class="text-lg font-semibold m-0">版本管理{{ resourceName ? `（${resourceName}）` : '' }}</h2>
-      </div>
-      <Space>
-        <Button type="primary" @click="openCreate">创建新版本</Button>
-      </Space>
-    </div>
+    <PageHeader :title="`版本管理${resourceName ? `（${resourceName}）` : ''}`">
+      <template #actions>
+        <Space>
+          <Button v-if="backPath" type="text" class="-ml-2" @click="goBack">
+            <template #icon><ArrowLeftOutlined /></template>
+            返回
+          </Button>
+          <Button type="primary" @click="openCreate">创建新版本</Button>
+        </Space>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="versions.length === 0"
                   :empty-text="emptyText">

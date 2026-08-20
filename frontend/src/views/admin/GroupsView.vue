@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Button, Input, Modal, Table, Tag } from 'ant-design-vue'
 import { listGroups, getGroup, createGroup, updateGroup, deleteGroup, type GroupItem } from '@/api/group'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -83,10 +84,11 @@ async function confirmDelete() {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">用户组管理</h2>
-      <Button type="primary" @click="createOpen = true">新建组</Button>
-    </div>
+    <PageHeader title="用户组管理">
+      <template #actions>
+        <Button type="primary" @click="createOpen = true">新建组</Button>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="groups.length === 0" empty-text="暂无用户组">
       <Table :data-source="groups" row-key="id" :pagination="false">

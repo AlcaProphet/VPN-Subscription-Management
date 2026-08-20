@@ -179,6 +179,7 @@ func (h *AssemblyHandler) blueprint(c *gin.Context) {
 	}
 	blueprint := gin.H{
 		"target_syntax": data.TargetSyntax,
+		"version_no":    data.VersionNo,
 		"fixed_params":  data.FixedParams,
 		"selection":     data.Selection,
 		"custom_rules":  data.CustomRules,

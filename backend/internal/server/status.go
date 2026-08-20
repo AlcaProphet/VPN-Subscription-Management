@@ -40,7 +40,11 @@ func (h *StatusHandler) announcement(c *gin.Context) {
 func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
-		configured := h.cfg.GetBool(ctx, config.KeyConfigured, false)
+		configured, err := h.cfg.GetBoolStrict(ctx, config.KeyConfigured, false)
+		if err != nil {
+			Fail(c, 500, err.Error())
+			return
+		}
 		empty, err := h.users.IsTableEmpty(ctx)
 		if err != nil {
 			Fail(c, 500, err.Error())

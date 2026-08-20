@@ -1,5 +1,6 @@
 <!-- RulesStep.vue：装配步骤④ 规则素材（Design2-UI §5.3.1/5.3.3） -->
 <script setup lang="ts">
+import { ref } from 'vue'
 import { Button, Input, Radio, Select } from 'ant-design-vue'
 import type { AssemblyContext, TargetSyntax } from '@/api/assembly'
 
@@ -21,6 +22,18 @@ const emit = defineEmits<{
   'add-rule': []
   'remove-rule': [index: number]
 }>()
+
+// 素材池有序列表桌面拖拽（R14-15）：使用原生 HTML5 DnD，移动端仍走按钮
+const dragIndex = ref<number | null>(null)
+function onDragStart(idx: number) {
+  dragIndex.value = idx
+}
+function onDrop(idx: number) {
+  if (dragIndex.value !== null && dragIndex.value !== idx) {
+    emit('move-pool', dragIndex.value, idx)
+  }
+  dragIndex.value = null
+}
 </script>
 
 <template>
@@ -28,7 +41,8 @@ const emit = defineEmits<{
     <div>
       <div class="text-sm font-medium mb-1">已勾选素材池（有序）</div>
       <div v-if="form.pools.length === 0" class="text-xs text-gray-400">尚未添加素材池</div>
-      <div v-for="(p, idx) in form.pools" :key="idx" class="flex items-center gap-2 mb-2">
+      <div v-for="(p, idx) in form.pools" :key="idx" :draggable="true" class="flex items-center gap-2 mb-2 cursor-move"
+           @dragstart="onDragStart(idx)" @dragover.prevent @drop="onDrop(idx)">
         <Select :value="p.pool_id" class="w-48" @change="(v: any) => form.pools[idx] = { ...form.pools[idx], pool_id: Number(v) }">
           <Select.Option v-for="pool in context?.pools ?? []" :key="pool.id" :value="pool.id">{{ pool.name }}</Select.Option>
         </Select>

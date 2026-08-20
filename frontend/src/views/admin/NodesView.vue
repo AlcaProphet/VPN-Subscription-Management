@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
 import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, type NodeItem, type ProtocolInfo, type NodeForm } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
@@ -192,10 +193,11 @@ function setField(key: string, val: unknown) {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">节点管理</h2>
-      <Button type="primary" @click="openCreate">新建节点</Button>
-    </div>
+    <PageHeader title="节点管理">
+      <template #actions>
+        <Button type="primary" @click="openCreate">新建节点</Button>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="nodes.length === 0" empty-text="暂无节点">
       <Table :data-source="nodes" row-key="id" :pagination="false" class="hidden md:block">

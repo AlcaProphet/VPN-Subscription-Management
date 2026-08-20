@@ -31,7 +31,8 @@ func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger, trustProx
 }
 
 func (s *Service) IsConfigured(ctx context.Context) (bool, error) {
-	return s.cfg.GetBool(ctx, config.KeyConfigured, false), nil
+	// R14-25：Setup/导入/鉴权前置依赖 configured，DB 错误不能静默为“未配置”。
+	return s.cfg.GetBoolStrict(ctx, config.KeyConfigured, false)
 }
 
 // --- 标识生成器（Build2 抽取为共享包 internal/slug，Setup 复用 slug.Generate）---
