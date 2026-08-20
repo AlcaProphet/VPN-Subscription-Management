@@ -77,7 +77,7 @@
 |------|----------------|------|
 | 0 | `backend/go.mod`、`backend/internal/xray/{client,account,errors}.go`、测试 | 依赖远端 latest（当前 v1.260327.0）；串行 gRPC；dial/调用超时；错误幂等映射；四协议 Account 构造 |
 | 1 | `backend/internal/xray/instance.go`、`backend/internal/server/xray.go`、`backend/internal/server/tasks.go`、`backend/internal/server/server.go`、测试 | 实例 CRUD/slug/连接测试；ListInbounds 解析与 nodes upsert、missing/allocatable 标记；全局任务 registry 落地 |
-| 2 | `backend/internal/group/group.go`、`backend/internal/server/group.go`、`backend/internal/server/middleware.go`、测试 | advancedMode 中间件；group_nodes/候选集并集/公共节点/default_quota |
+| 2 | `backend/internal/group/group.go`、`backend/internal/server/group.go`、`backend/internal/server/middleware.go`、`backend/internal/assembly/service.go`（xray_candidates 填充修补）、测试 | advancedMode 中间件；group_nodes/候选集并集/公共节点/default_quota |
 | 3 | `backend/internal/xray/{credentials,sync}.go`、`backend/internal/user/admin.go`、`backend/internal/user/user.go`、`backend/internal/approval/approval.go`、`backend/internal/group/group.go`、`backend/internal/node/node.go`、`backend/internal/server/xray.go`、测试 | 凭据首建事务；触发器 wiring；xray_users 状态机；补偿 RemoveUser；批量初始化 |
 | 4 | `backend/internal/download/download.go`、`backend/internal/download/render.go`（定稿）、`backend/internal/assembly/links/` 共享子包（自 Build5 links.go 抽取，用户决策）、测试/benchmark | 直接上传原样；蓝图全量重渲染；占位替换/base64；Subscription-Userinfo |
 | 5 | `backend/internal/xray/{stats,quota}.go`、`backend/internal/cron/`、`backend/cmd/server/main.go`、`backend/internal/server/{xray,home,status}.go`、测试 | 逐用户 QueryStats、原子增量、超限摘除、重置配额、采集状态、home 高级流量与流量卡片开关 |
@@ -114,14 +114,14 @@ Step 4+5 ──▶ Step 6（集成验收）
   1. **依赖引入**：`cd backend && go get github.com/xtls/xray-core@latest && go mod tidy`。若网络受限，用内网 GOPROXY 或与现有 go.sum 缓存一致镜像；**不得手写 require 不存在的版本**。完成后 `go build ./...` 必须通过。
   2. **`backend/internal/xray/client.go`**：
      - `type Client struct { conn *grpc.ClientConn; handler handlercmd.HandlerServiceClient; stats statscmd.StatsServiceClient; mu sync.Mutex }`。
-     - `Dial(apiAddr string) (*Client, error)`：校验 TCP 地址；`grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithReturnConnectionError())`；**`grpc.NewClient` 为懒建连（dial 不阻塞），10s「拨号超时」施加于首个 RPC：TestConnection 与检测探测显式携带 10s deadline 的 ctx（配合 `WithReturnConnectionError` 使连接建立失败快速返回），不可达实例快速失败；其余 RPC 调用携带单次 30s deadline（`context.WithTimeout`），避免异步长任务挂起无终态（Design2 §5.4）**；包导入别名 `handlercmd "github.com/xtls/xray-core/app/proxyman/command"`、`statscmd "github.com/xtls/xray-core/app/stats/command"`。
+     - `Dial(apiAddr string) (*Client, error)`：校验 TCP 地址；`grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))`；**`grpc.NewClient` 为懒建连（dial 不阻塞），10s「拨号超时」施加于首个 RPC：TestConnection 与检测探测显式携带 10s deadline 的 ctx，不可达实例在该 deadline 内快速失败（注意：`grpc.NewClient` 官方文档明示忽略 `WithBlock`/`WithTimeout`/`WithReturnConnectionError`/`FailOnNonTempDialError` 等阻塞类选项，快速失败由 ctx deadline 达成，勿引入这些选项）；其余 RPC 调用携带单次 30s deadline（`context.WithTimeout`），避免异步长任务挂起无终态（Design2 §5.4）**；包导入别名 `handlercmd "github.com/xtls/xray-core/app/proxyman/command"`、`statscmd "github.com/xtls/xray-core/app/stats/command"`。
      - 所有方法持 `c.mu.Lock()` 串行执行（每实例串行、多实例间可并行，符合 Xray-Core-API §11.4 结论）。
      - `AddUser(ctx, tag string, u *protocol.User) error`：`serial.ToTypedMessage(&handlercmd.AddUserOperation{User: u})` → `AlterInbound`；错误 `already exists.` 子串视为 nil。
      - `RemoveUser(ctx, tag, email string) error`：`serial.ToTypedMessage(&handlercmd.RemoveUserOperation{Email: email})`；错误 `not found.` 子串视为 nil。
      - `ListInbounds(ctx)`、`GetInboundUsers(ctx, tag, email string)`、`QueryStats(ctx, pattern string, reset bool) (*statscmd.QueryStatsResponse, error)` 直接透传并包装错误（错误信息必须带 api_addr/tag 上下文）。
      - 任何错误不得用 `codes` 判定（全部 Unknown，只做字符串子串匹配）。
   3. **`backend/internal/xray/account.go`**：
-     - `BuildUser(userID int64, uuid, proxySecret string, node NodeView) *protocol.User`；email 固定 `user-{id}@vpn.local` 全小写；`Level: 0`。
+     - `BuildUser(userID int64, uuid, proxySecret string, node NodeView) *protocol.User`；email 固定 `user-{id}@vpn.local` 全小写；`Level: 0`。**`NodeView` 在本文件定义**（Account 构造所需的节点视图，字段含 `Protocol/Cipher/Flow/Tag/Host/Port` 等；Step 1 检测归一化产物与 Step 3 推送目标复用同一类型，避免再引 node 包形成依赖环）。
      - vless：`&vless.Account{Id: uuid, Flow: nodeFlow, Encryption: "none"}`（flow 为空则空串；vision 节点必须与节点 flow 一致）。
      - vmess：`&vmess.Account{Id: uuid}`（**不要设置 alter_id**）。
      - trojan：`&trojan.Account{Password: proxySecret}`。
@@ -242,7 +242,7 @@ Step 4+5 ──▶ Step 6（集成验收）
   1. **`backend/internal/server/middleware.go`**：`AdvancedMode(cfg)` 中间件——每次请求 `cfg.Get(ctx, config.KeyAdvancedMode)` 实时查 DB；false 返回 403 统一文案「高级功能未开启」。**禁止缓存布尔值**。`/api/admin/xray/*` 全部套用；groups 的节点分配与默认配额端点套用；groups 基础 CRUD 不套用。
   2. **`backend/internal/group/group.go`**：
      - `Group` 增加 `DefaultQuota *float64`、`NodeCount int64`（列表聚合）。
-     - 新增 `GroupNode {NodeID, NodeName, DisplayName, SortOrder, IsPublic, Source}`；`SetNodes(ctx, id, nodeIDs []int64)`：**拒绝 is_public=1 节点**（400）；只允许 source=xray、enabled=1、allocatable=1、missing=0、实例 enabled=1 的节点；写 group_nodes（**在 `BEGIN IMMEDIATE` 事务内完成「先删后插 + 受影响 active 用户清单收集」，AGENTS §4.6**，sort_order=数组下标）；事务提交后执行 `onNodesChanged` 回调（Step 3 注入同步 diff；本 Step 留 nil 安全跳过）。
+     - 新增 `GroupNode {NodeID, NodeName, DisplayName, RenderName, SortOrder, IsPublic, Source}`（`RenderName` 复用 node 包 `RenderName()` 计算，契约对齐 Design2-UI §9.1 `getGroupDetail` 响应的 `render_name` 字段）；`SetNodes(ctx, id, nodeIDs []int64)`：**拒绝 is_public=1 节点**（400）；只允许 source=xray、enabled=1、allocatable=1、missing=0、实例 enabled=1 的节点；写 group_nodes（**在 `BEGIN IMMEDIATE` 事务内完成「先删后插 + 受影响 active 用户清单收集」，AGENTS §4.6**，sort_order=数组下标）；事务提交后执行 `onNodesChanged` 回调（Step 3 注入同步 diff；本 Step 留 nil 安全跳过）。
      - 新增 `SetDefaultQuota(ctx, id, quota *float64)`（NULL 或 0 均不限；负数拒绝）。
      - 删除 `SetSelections` 残留与旧字段（若 Build4 未删尽，本 Step 清干净）。
      - `CandidateSet(ctx)`：**当前所有已激活 clash-yaml / sr-subs / generic-subs 装配蓝图的 xray 候选节点并集**。SQL 思路：
@@ -252,7 +252,7 @@ Step 4+5 ──▶ Step 6（集成验收）
        JOIN subscriptions s ON s.id = v.owner_id AND v.owner_type='subscription'
        WHERE s.current_version = v.version_no AND b.target_syntax IN ('clash-yaml','sr-subs','generic-subs')
        ```
-       逐行解析 selection_json 中 xray 节点稳定名（nodes.name，Build5 快照格式），按名查 nodes；display_name 不参与解析。
+       逐行解析 selection_json 的 `xray_candidates` 字段（xray 节点稳定名 nodes.name 数组），按名查 nodes；display_name 不参与解析。**注意：Build5 `assembly/service.go` 的 `SaveBlueprintTx` 当前把 `selection_json.xray_candidates` 恒写为空数组（占位注释「Build6 注入前为空候选集」）；本 Step 必须先将其改为按生成时勾选节点中 `source='xray'` 的子集填充（node.source 创建后不可变，与 `node_names ∩ xray` 等价），候选集解析统一读 `xray_candidates` 字段——否则候选集恒空、组分配会被全部摘除。**
      - `RecomputeCandidateSet(ctx)`：事务后重算并集；删除 group_nodes 中不在并集或不再满足可用性过滤的分配；返回受影响用户/节点清单供回调。**公共节点退出并集或取消 is_public 时对全部 active 用户 RemoveUser，新增/恢复时 AddUser**——具体推送在 Step 3 回调中执行，本 Step 只把变更事实收集进回调参数。
   3. **候选集重算触发点**（本 Step 接线，回调先为空）：
      - 订阅版本激活切换（`server/subscription.go` 的 versionSwitch，owner=subscription 分支）；
@@ -349,7 +349,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `POST /api/admin/xray/init`：**异步长任务**——提交即返回 `{task_id}`（**复用 Step 1 落地的全局任务 registry**，kind=xray_init），任务体对全部 active 用户 PushUser，终态写入 `{synced, failed}` 供 `GET /api/admin/tasks/:id` 轮询；幂等。
      - `GET /api/admin/xray/users/:id/sync`：该用户 xray_users 聚合状态与 last_error 摘要。
      - `POST /api/admin/xray/users/:id/retry`：对 failed 记录逐个重试（AddUser 或 RemoveUser 按状态语义；failed 行若期望集仍有则重推，不在期望集则移除）。
-  5. **`backend/internal/user/admin.go` 的 List** 增加高级字段（仅 advanced_mode=on 时查询）：本月用量字节、聚合同步状态、quota_exceeded（Build7 前端消费）。
+  5. **`backend/internal/user/admin.go` 的 List** 增加高级字段（仅 advanced_mode=on 时查询）：本月用量字节、聚合同步状态（含 last_error 摘要，对齐 Design2-UI §9.3）、quota_exceeded（Build7 前端消费）。
   6. **单测（fake API）**：凭据首建并发守卫（两 goroutine 仅一个 RowsAffected=1）；AddUser 成功/失败状态迁移；`already exists.` 幂等；RemoveUser 成功删行失败保留；advanced off 时入口跳过、事务复查中止、gRPC 后补偿 RemoveUser（用可控 fake 验证调用序）；批量 init 幂等；换组 diff 只碰差异集；**非 active 用户换组/组删除迁移不 AddUser、仅清理旧目标**；**missing 1→0 检测恢复触发 AddUser diff**；**allocatable 1→0 重算并 RemoveUser、0→1 对仍分配用户 AddUser**；**实例/节点删除收集面板用户 + 既有 xray_ext_users 两类目标并 RemoveUser**。
 
 - **参考代码/伪代码：**
@@ -408,7 +408,8 @@ Step 4+5 ──▶ Step 6（集成验收）
      - **链接渲染共享化（用户决策）**：Step 实施时先把 Build5 `assembly/links.go` 中非导出的 `srLink`/`genericLink` 及其辅助函数抽取到 `backend/internal/assembly/links/` 共享子包并导出（assembly 包改为调用子包，行为不变），本 Step 的 SR/generic 动态节点链接渲染复用该子包，禁止重复实现。
      - `RenderUserSubscription(ctx, subID, userID, content, fileName) ([]byte, error)`：
        - 读当前激活版本是否有 blueprint；无 → 直接返回 content（**直接上传静态成品，不识别占位**）；blueprint 查询本身出错返回 500，不静默按直接上传处理。
-       - 读用户组节点 ∪ 公共节点，按可用性过滤 + 候选集过滤（以 `nodes.name` 稳定名匹配 blueprint.selection_json 的 xray 候选集，display_name 不参与候选身份判定），**按 node_id 去重兜底（组分配与公共节点重叠时只注入一次）**；manual 静态节点不注入（已在模板/渲染计划中）。
+       - 读用户组节点 ∪ 公共节点，按可用性过滤 + 候选集过滤（以 `nodes.name` 稳定名匹配 blueprint.selection_json 的 `xray_candidates`（Step 2 已修补为生成时填充），display_name 不参与候选身份判定），**按 node_id 去重兜底（组分配与公共节点重叠时只注入一次）**；manual 静态节点不注入（已在模板/渲染计划中）。
+        - **前置修补（Build5 遗留缺陷，版本快照语义前提）：Build5 `render_clash.go` 的 render plan 当前仅存引用（`manual_proxies`=节点名数组、`proxy_groups`=组名数组、`rules`=素材池引用数组），不满足 Build5 Step3「自包含且能无状态重建全文」与本 Step 重渲染需求。实施本 Step 前必须先扩展 render plan 生成：`manual_proxies` 存完整 Clash 条目（map 含 type/server/port/解密后协议字段，节点键为 nodes.name 稳定键）、`proxy_groups` 存生成时点结构（名称+类型+有序成员：节点稳定键与子组名）、`rules` 存冻结规则行（type,value,target，IP 类含 no-resolve 后缀）、`fallback` 两行兜底。版本快照语义（Design2 §2.5「生成的版本为渲染时点快照，不随后续池内容更新而回改」）要求 rules 与 manual proxies 冻结在计划内，**禁止下载重渲染时重读 pool_entries / nodes / proxy_groups 当前定义**（节点实时信息仅用于稳定键→renderName 映射与可用性过滤）。**
        - 解密用户 UUID/代理密码；**UUID 为空** → 占位替换为注释 `# 节点未开通，请联系管理员`，并执行 Clash 蓝图空组降级；**UUID 非空但过滤后的组分配 ∪ 公共节点为空** → SR subs/generic-subs 占位**移除整行**（Clash 仍按蓝图全量重渲染，Design2Report10 Q10）；**advanced_mode=off** → 占位统一替换为 `# Xray 高级模式未启用`（**优先于「节点未开通」**），同样执行蓝图空组降级。
        - 按 target_syntax 分支：
          - `clash-yaml`：按 `render_plan_json` **全量重渲染**。proxies = manual 节点（计划中原样，名称用 `renderName`）+ 动态 xray 节点（vless/vmess/trojan/ss 按协议构造 Clash 条目，`name` 用节点当前 `renderName`）；**render_plan 中的节点引用为 `nodes.name` 稳定键，渲染时通过节点表映射为当前 `renderName`**；所有 proxy-groups 按可达注入节点递归重建（可达集合含 manual 静态节点与 DIRECT；**单个成员不在可达集合内时逐项剔除**；剔除后完全不可达的组整体删除（**强制组豁免删除，成员不可达或注入集为空时统一降级 `[DIRECT]`**）；强制组「🚀直接连接」保留；rules 引用**被删除组**（不含降级保留的强制组）的目标降级 DIRECT 并保留行；**无凭据（UUID 为空）或 advanced_mode=off 场景，在重渲染产物 proxies 区首行输出注释行 `# 节点未开通，请联系管理员`（off 时输出 `# Xray 高级模式未启用`，优先于前者）**（与 SR/generic「占位替换为注释」语义一致，Design2Report11 决策））。
@@ -499,7 +500,7 @@ Step 4+5 ──▶ Step 6（集成验收）
      - `POST /api/admin/xray/users/:id/reset-quota`；
      - `PUT /api/admin/users/:id/quota`（**定稿在 `server/user.go` 注册**并套 advancedMode）：请求 `{quota_override: number|null}`，NULL=继承组默认配额、0=不限流量；写 users.quota_override（Design2 §5.10 users 配额覆盖端点）。
   5. **`backend/internal/server/profile.go`** 新增 `GET /api/profile/traffic`（会话凭据，不受 advancedMode 屏蔽）：返回 `{unlimited, used_bytes, quota_bytes|null, exceeded}`；基础模式 `{unlimited:true}`；高级模式按 traffic_records 当月聚合 + EffectiveQuota 计算（**不限流量（NULL/0）时 `unlimited=true` 且 `quota_bytes=null`**，Design2Report11 决策；Design2Report8 Q3/Design2-UI §9.3）。
-  6. **`backend/internal/user/admin.go` List** 补「有效配额」字段（供 Build7；本月用量/聚合同步状态/quota_exceeded 等其余高级字段 Step 3 已声明，不重复）。
+  6. **`backend/internal/user/admin.go` List** 补「有效配额」与「quota_override 原值」字段（供 Build7 配额覆盖弹窗回显，对齐 Design2-UI §9.3「配额覆盖值与有效配额」；本月用量/聚合同步状态/quota_exceeded 等其余高级字段 Step 3 已声明，不重复）。
   7. **首页流量高级形态与流量卡片开关暴露**（Design2 §5.10，Design2Report7 Q3；Design2Report11 决策：traffic 移出平台列表、改独立汇总端点）：
      - `internal/server/home.go`：**Build4 Step3 已落地的独立汇总端点 `GET /api/home/summary`（会话凭据），本 Step 补高级模式数值**：`advanced_mode=on` 时 `traffic` 返回 `{unlimited, used_bytes, quota_bytes|null, exceeded}`（used_bytes 取 traffic_records 当月 ym 聚合；quota_bytes 取 EffectiveQuota，**不限流量（NULL/0）时 `unlimited=true` 且 `quota_bytes=null`**；exceeded 取 users.quota_exceeded）；基础模式恒 `{unlimited:true}`（与 Build4 基础模式口径对齐）；**`/api/home/platforms` 保持纯列表包裹、不携带 traffic 字段**（Design2Report11 决策）。
      - `internal/server/status.go`：`/api/system/status` 响应新增 `traffic_card_enabled` 布尔（`cfg.GetBool(ctx, "traffic_card_enabled", true)`，补 Build4 Step4 预留注记），首页流量卡与个人中心「本月流量」行显隐共用。
@@ -615,4 +616,5 @@ Step 4+5 ──▶ Step 6（集成验收）
 | v1.7 | 2026-08-19 | Design2Report11 核验修订：ValidateNodeName 引用修正；下载文件名 target_syntax 映射落实；REALITY 私钥不落库；missing 双向表述拆分；quota_bytes 统一 null；traffic 改独立端点 /api/home/summary；Clash 无凭据注释行；超限写 last_error；host 取 api_addr 定稿；kind 措辞/List 字段/WithTimeout/站点 URL 修正；SetNodes 显式事务 |
 | v1.8 | 2026-08-20 | 用户决策：xray-core 依赖改为远端 latest（当前 v1.260327.0），不锁定 v26.7.28；同步更新 Step0 命令与验收标准 |
 | v1.9 | 2026-08-20 | 构建前核验修订（代码事实对照 Build4/5 已落地产物）：Step0 dial 懒连接口径澄清（grpc.NewClient 不阻塞，10s 施加于 TestConnection/探测首个 RPC 并加 WithReturnConnectionError）；Step1 slug 白名单扩展注记；Step4 render.go 定稿 download 包、链接渲染抽取 assembly/links 共享子包（用户决策）；Step5 配额端点定稿 server/user.go；里程碑 Xray 版本措辞与约束表统一 |
+| v2.0 | 2026-08-20 | 第二轮构建前深度核验修订（Build4/5 验收后代码事实对照）：① Step2 候选集解析钉死读 `selection_json.xray_candidates`，并注明 `SaveBlueprintTx` 当前恒写空数组必须先修补为按 xray 勾选子集填充（否则候选集恒空、组分配被全部摘除）；② Step4 补「render plan 自包含前置修补」——Build5 render plan 仅存名字/引用，不满足 Build5 Step3 自包含要求与重渲染需求，必须先扩展为 manual proxies 完整条目/组生成时点结构/冻结规则行，禁止下载时重读 pool_entries 等当前定义（Design2 §2.5 快照语义）；③ Step0 修正 `WithReturnConnectionError` 措辞（grpc.NewClient 官方文档明示忽略该类选项，快速失败由 ctx deadline 达成）；④ Step0 补 `NodeView` 定义位置；⑤ Step2 `GroupNode` 补 `RenderName`（对齐 UI §9.1 getGroupDetail 契约）；⑥ Step3/Step5 List 高级字段补「last_error 摘要」与「quota_override 原值」（对齐 UI §9.3） |
 

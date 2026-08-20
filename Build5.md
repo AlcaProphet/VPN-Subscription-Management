@@ -541,3 +541,4 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 | v1.6 | 2026-08-19 | Design2Report11 核验修订：用户预览明文口径；协议变更与停用预设组两处决策定稿；assembly_blueprints 四列映射明示；🌎国外流量伪代码去子组；约束表补空格；enabled 1→0 ConfirmModal 与版本空态验收落点；验收 grep 修正；DiffView 整体新增提示；内容形态标签列补齐 |
 | v1.7 | 2026-08-20 | Build5 执行完成：Step1~7 全部验收通过；manual 节点/代理组/装配内核/HTTP 端点/前端节点与代理组页/装配页/分发 UI 收口已实现，benchmark 达标 |
 | v1.8 | 2026-08-20 | Build6 衔接注记（用户决策）：links.go 中非导出的 srLink/genericLink 及辅助函数将在 Build6 Step4 抽取到 `assembly/links` 共享子包并导出，供 assembly 与 download 两包复用（仅结构调整，渲染行为不变） |
+| v1.9 | 2026-08-20 | Build6 衔接注记（第二轮构建前核验）：① `SaveBlueprintTx` 的 `selection_json.xray_candidates` 当前恒写空数组，将在 Build6 Step2 修补为按生成时勾选节点中 source='xray' 子集填充；② `render_clash.go` 的 render plan 当前仅存引用（节点名/组名/池引用），不满足本 Build Step3「自包含可无状态重建全文」要求，将在 Build6 Step4 前置修补为 manual proxies 完整条目 + 组生成时点结构 + 冻结规则行（版本快照语义，Design2 §2.5）；两项已记录为 Issue2 R14-07/R14-06，**修复时机经用户决策：随 Build6 Step2/Step4 实施时修** |
