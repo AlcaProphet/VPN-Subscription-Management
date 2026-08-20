@@ -26,6 +26,8 @@ type AssemblyHandler struct {
 	platformSvc   *platform.Service
 	ruleSvc       *rule.Service
 	versionSvc    *version.Service
+	// onGenerateActivated 装配首版自动激活后的候选集重算回调（Build6 Step2）
+	onGenerateActivated func(ctx context.Context)
 }
 
 // RegisterAssemblyRoutes 注册装配相关路由（会话 + 管理员双中间件）。
@@ -125,6 +127,9 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if activated && h.onGenerateActivated != nil {
+		h.onGenerateActivated(ctx)
 	}
 	OK(c, gin.H{
 		"version_id":     created.ID,

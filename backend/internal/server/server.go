@@ -17,6 +17,7 @@ import (
 	"vpn-sub/internal/backup"
 	"vpn-sub/internal/captcha"
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/cron"
 	"vpn-sub/internal/custom"
 	"vpn-sub/internal/dataclear"
 	"vpn-sub/internal/download"
@@ -37,9 +38,11 @@ import (
 	"vpn-sub/internal/share"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/subscription"
+	"vpn-sub/internal/tasks"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/user"
 	"vpn-sub/internal/version"
+	"vpn-sub/internal/xray"
 )
 
 // Response 统一响应结构（类型别名，定义见 internal/response）
@@ -94,16 +97,82 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	platformSvc := platform.NewService(st, dataDir, versionSvc, lg)
 	RegisterPlatformRoutes(engine, &PlatformHandler{platformSvc: platformSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	subSvc := subscription.NewService(st, versionSvc, lg)
-	RegisterSubscriptionRoutes(engine, &SubscriptionHandler{subSvc: subSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	subHandler := &SubscriptionHandler{subSvc: subSvc, verSvc: versionSvc}
+	RegisterSubscriptionRoutes(engine, subHandler, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 用户组服务与路由（旧分发模型已拆除：组仅保留基础 CRUD，节点分配/默认配额由 Build6 接入）
 	groupSvc := group.NewService(st, lg)
-	RegisterGroupRoutes(engine, &GroupHandler{groupSvc: groupSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	RegisterGroupRoutes(engine, &GroupHandler{groupSvc: groupSvc, cfg: cfg}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
+	// 候选集重算接线：平台删除、订阅删除、版本切换
+	subHandler.onVersionSwitched = func(ctx context.Context, ot version.OwnerType, ownerID int64) {
+		if ot != version.OwnerSubscription {
+			return
+		}
+		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+			lg.Warn("版本切换后候选集重算失败", "err", err)
+		}
+	}
+	platformSvc.SetOnAfterDelete(func(ctx context.Context) {
+		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+			lg.Warn("平台删除后候选集重算失败", "err", err)
+		}
+	})
+	subSvc.SetOnAfterDelete(func(ctx context.Context, _ int64) {
+		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+			lg.Warn("订阅删除后候选集重算失败", "err", err)
+		}
+	})
 	// 规则素材池（Build4 Step 5：CRUD / 条目 / 异步同步与历史任务）
 	poolSvc := pool.NewService(st, lg)
 	RegisterPoolRoutes(engine, &PoolHandler{poolSvc: poolSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 节点服务（Build5 Step 1：manual 节点 CRUD + 协议注册表 + xray 显示名/启停占位）
 	nodeSvc := node.NewService(st, cfg, lg)
 	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 全局长任务 registry + Xray 实例/检测路由（Build6 Step1）
+	taskReg := tasks.NewRegistry()
+	RegisterTasksRoutes(engine, &TasksHandler{registry: taskReg}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	xraySvc := xray.NewInstanceService(st, lg, taskReg)
+	credsSvc := xray.NewCredentialService(st, cfg)
+	syncSvc := xray.NewSyncService(st, cfg, credsSvc, xraySvc, taskReg, lg)
+	cron.StartXrayCollect(st, xraySvc, syncSvc, cfg, lg)
+	RegisterXrayRoutes(engine, &XrayHandler{instanceSvc: xraySvc, syncSvc: syncSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
+	// 候选集重算与同步 diff 接线：节点启停/公共变化、检测可见性变化
+	nodeSvc.SetOnXrayChanged(func(ctx context.Context, n node.Node, oldEnabled, oldPublic bool) {
+		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+			lg.Warn("节点变化后候选集重算失败", "err", err)
+		}
+		// Step3 简版：节点启停/公共变化后，对全部 active 用户执行 diff（由 sync 内部按当前目标处理）
+		if err := syncSvc.SyncAllActive(ctx); err != nil {
+			lg.Warn("节点变化后同步失败", "err", err)
+		}
+	})
+	xraySvc.SetOnNodeVisibilityChanged(func(ctx context.Context, _ []xray.NodeChange) {
+		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+			lg.Warn("节点检测后候选集重算失败", "err", err)
+		}
+		if err := syncSvc.SyncAllActive(ctx); err != nil {
+			lg.Warn("节点检测后同步失败", "err", err)
+		}
+	})
+	// 节点删除后的 Xray 清理钩子（Step1 先落地，Step3 可升级为期望集口径）
+	nodeSvc.SetOnXrayNodeDeleted(func(ctx context.Context, targets []node.XrayDeleteTarget) {
+		for _, t := range targets {
+			if t.APIAddr == "" || t.Tag == "" || t.Email == "" {
+				continue
+			}
+			client, err := xray.Dial(t.APIAddr)
+			if err != nil {
+				lg.Warn("节点删除后清理 Xray 用户失败（拨号）", "email", t.Email, "addr", t.APIAddr, "err", err)
+				continue
+			}
+			rctx, cancel := context.WithTimeout(ctx, xray.RPCTimeout)
+			err = client.RemoveUser(rctx, t.Tag, t.Email)
+			cancel()
+			_ = client.Close()
+			if err != nil && !xray.IsNotFound(err) {
+				lg.Warn("节点删除后清理 Xray 用户失败", "email", t.Email, "tag", t.Tag, "err", err)
+			}
+		}
+	})
 	// 代理组服务（Build5 Step 2：预设/自建组 CRUD + DAG + 内容约束）
 	proxyGroupSvc := proxygroup.NewService(st, lg)
 	RegisterProxyGroupRoutes(engine, &ProxyGroupHandler{groupSvc: proxyGroupSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
@@ -111,8 +180,11 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	tokenSvc := token.NewService(st, lg)
 	subSvc.SetOnTokenDeleted(tokenSvc.DeleteBySubscriptionTx)
 	dlSvc := download.NewService(st, versionSvc, cfg, lg)
+	dlSvc.SetRenderUser(func(ctx context.Context, subID, userID int64, content []byte, fileName string) ([]byte, error) {
+		return renderUserSubscription(ctx, st, cfg, syncSvc, credsSvc, subID, userID, content, fileName)
+	})
 	homeSvc := home.NewService(st, tokenSvc, cfg)
-	homeHandler := &HomeHandler{homeSvc: homeSvc}
+	homeHandler := &HomeHandler{homeSvc: homeSvc, st: st, cfg: cfg, syncSvc: syncSvc}
 	RegisterDownloadRoutes(engine, &DownloadHandler{dlSvc: dlSvc, limiter: limiter, sessionMW: authSvc.SessionMiddleware()})
 	RegisterHomeRoutes(engine, homeHandler, authSvc.SessionMiddleware())
 	// 自定义订阅 + 分享订阅（Build2 Step 5；会话 + 管理员双中间件）
@@ -128,11 +200,42 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	RegisterAssemblyRoutes(engine, &AssemblyHandler{
 		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
 		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc,
+		onGenerateActivated: func(ctx context.Context) {
+			if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+				lg.Warn("装配首版激活后候选集重算失败", "err", err)
+			}
+		},
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
-	RegisterProfileRoutes(engine, &ProfileHandler{userSvc: users}, authSvc.SessionMiddleware())
+	RegisterProfileRoutes(engine, &ProfileHandler{userSvc: users, st: st, cfg: cfg, syncSvc: syncSvc}, authSvc.SessionMiddleware())
 	// 用户管理（Build3 Step 1）：五重管理员保护 + 全生命周期操作；复用 Token/重置令牌/版本组件
 	adminUserSvc := user.NewAdminService(st, users, tokenSvc, resetSvc, cfg, versionSvc, lg)
-	RegisterUserAdminRoutes(engine, &UserAdminHandler{adminSvc: adminUserSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	RegisterUserAdminRoutes(engine, &UserAdminHandler{adminSvc: adminUserSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
+	// 用户生命周期 Xray 同步接线（Build6 Step3）
+	users.SetOnUserActive(func(ctx context.Context, userID int64) {
+		if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
+			lg.Warn("用户激活后 Xray 同步失败", "user_id", userID, "err", err)
+		}
+	})
+	adminUserSvc.SetOnUserActive(func(ctx context.Context, userID int64) {
+		if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
+			lg.Warn("管理员激活用户后 Xray 同步失败", "user_id", userID, "err", err)
+		}
+	})
+	adminUserSvc.SetOnUserDisabled(func(ctx context.Context, userID int64) {
+		targets, err := syncSvc.Targets(ctx, userID)
+		if err != nil {
+			lg.Warn("读取禁用用户目标失败", "user_id", userID, "err", err)
+			return
+		}
+		if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
+			lg.Warn("禁用用户后 Xray 移除失败", "user_id", userID, "err", err)
+		}
+	})
+	adminUserSvc.SetOnUserGroupChanged(func(ctx context.Context, userID int64) {
+		if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
+			lg.Warn("换组后 Xray 同步失败", "user_id", userID, "err", err)
+		}
+	})
 	// 邮件服务 + 审批中心（Build3 Step 2）：接通密码重置邮件与欢迎邮件注入点（SMTP 未配置/失败不阻断主流程）
 	mailSvc := mail.NewService(cfg, lg)
 	resetSvc.SetSendMail(func(ctx context.Context, to, resetURL string) error {
@@ -147,6 +250,15 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	approvalSvc := approval.NewService(st, mailSvc, cfg, lg)
 	RegisterApprovalRoutes(engine, &ApprovalHandler{approvalSvc: approvalSvc, mailSvc: mailSvc, users: users},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	approvalSvc.SetOnApproved(func(ctx context.Context, userID int64) {
+		if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
+			lg.Warn("审批通过后 Xray 同步失败", "user_id", userID, "err", err)
+		}
+	})
+	approvalSvc.SetOnRejected(func(ctx context.Context, userID int64) {
+		// 待审批用户通常未推送；若有残留由对账兜底。
+		_ = userID
+	})
 	// 面板配置（Build3 Step 3）：分区读写 + 死锁防护 + 加密脱敏；接通调试模式 5xx 详情
 	response.SetDebugProvider(func(ctx context.Context) bool {
 		return cfg.GetBool(ctx, "debug_mode", false)

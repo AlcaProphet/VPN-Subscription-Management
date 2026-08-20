@@ -38,10 +38,29 @@ type AdminService struct {
 	cfg      *config.Service
 	versions *version.Service
 	log      *slog.Logger
+
+	onUserActive       func(ctx context.Context, userID int64)
+	onUserDisabled     func(ctx context.Context, userID int64)
+	onUserGroupChanged func(ctx context.Context, userID int64)
 }
 
 func NewAdminService(st *store.Store, users *Service, tokens *token.Service, resetSvc *auth.ResetService, cfg *config.Service, versions *version.Service, lg *slog.Logger) *AdminService {
 	return &AdminService{store: st, users: users, tokens: tokens, resetSvc: resetSvc, cfg: cfg, versions: versions, log: lg}
+}
+
+// SetOnUserActive 注入用户激活同步回调（Build6 Step3）。
+func (s *AdminService) SetOnUserActive(fn func(ctx context.Context, userID int64)) {
+	s.onUserActive = fn
+}
+
+// SetOnUserDisabled 注入用户禁用同步回调（Build6 Step3）。
+func (s *AdminService) SetOnUserDisabled(fn func(ctx context.Context, userID int64)) {
+	s.onUserDisabled = fn
+}
+
+// SetOnUserGroupChanged 注入换组同步回调（Build6 Step3）。
+func (s *AdminService) SetOnUserGroupChanged(fn func(ctx context.Context, userID int64)) {
+	s.onUserGroupChanged = fn
 }
 
 // --- 五重保护校验辅助（均在事务内实时查库，不缓存）---
@@ -230,6 +249,9 @@ func (s *AdminService) Create(ctx context.Context, username, emailRaw, password 
 	}
 	// 欢迎邮件：管理员创建的本地用户默认直接激活（Design1 §3.4.6，Step 2 注入回调后发送）
 	s.users.sendWelcomeIf(ctx, created.Email, created.Source)
+	if s.onUserActive != nil {
+		s.onUserActive(ctx, created.ID)
+	}
 	s.log.Info("管理员创建用户", "user_id", created.ID, "operator", "admin")
 	return created, nil
 }
@@ -251,6 +273,9 @@ func (s *AdminService) UpdateGroup(ctx context.Context, targetID, groupID int64)
 	}
 	if affected, _ := res.RowsAffected(); affected == 0 {
 		return ErrUserNotFound
+	}
+	if s.onUserGroupChanged != nil {
+		s.onUserGroupChanged(ctx, targetID)
 	}
 	return nil
 }
@@ -412,7 +437,7 @@ func (s *AdminService) SetStatus(ctx context.Context, operatorID, targetID int64
 	if err := s.checkNotSelf(operatorID, targetID); err != nil { // 禁止禁用自己
 		return err
 	}
-	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if disable {
 			var role string
 			if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, targetID).Scan(&role); err != nil {
@@ -451,6 +476,16 @@ func (s *AdminService) SetStatus(ctx context.Context, operatorID, targetID int64
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if disable && s.onUserDisabled != nil {
+		s.onUserDisabled(ctx, targetID)
+	}
+	if !disable && s.onUserActive != nil {
+		s.onUserActive(ctx, targetID)
+	}
+	return nil
 }
 
 // --- 吊销所有下载 Token（物理删除，无标记态；用户下次访问首页重新生成，Design1 §3.4.5）---
@@ -565,6 +600,26 @@ func (s *AdminService) Delete(ctx context.Context, operatorID, targetID int64) e
 		}
 	}
 	s.log.Info("用户已删除", "user_id", targetID, "operator_id", operatorID)
+	return nil
+}
+
+// SetQuotaOverride 设置用户配额覆盖值；NULL=继承组默认，0=不限流量，负数拒绝。
+func (s *AdminService) SetQuotaOverride(ctx context.Context, userID int64, quota *float64) error {
+	if quota != nil && *quota < 0 {
+		return fmt.Errorf("%w: 配额不能为负数", ErrBadRequest)
+	}
+	var q any
+	if quota != nil {
+		q = *quota
+	}
+	res, err := s.store.DB().ExecContext(ctx,
+		`UPDATE users SET quota_override = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, q, userID)
+	if err != nil {
+		return fmt.Errorf("更新用户配额覆盖失败: %w", err)
+	}
+	if affected, _ := res.RowsAffected(); affected == 0 {
+		return ErrUserNotFound
+	}
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"vpn-sub/internal/config"
@@ -82,13 +83,17 @@ func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int
 	} else {
 		platformID = in.PlatformID
 	}
+	xrayCandidates, err := s.xrayCandidateNamesTx(ctx, tx, in.NodeNames)
+	if err != nil {
+		return err
+	}
 	selection := map[string]any{
 		"node_names":       in.NodeNames,
 		"group_names":      in.GroupNames,
 		"overseas_members": in.OverseasMembers,
 		"pools":            in.Pools,
 		"final_direction":  in.FinalDirection,
-		"xray_candidates":  []string{}, // Build6 注入前为空候选集
+		"xray_candidates":  xrayCandidates,
 	}
 	sel, err := json.Marshal(selection)
 	if err != nil {
@@ -106,6 +111,22 @@ func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int
 		 VALUES (?,?,?,?,?,?,?,?)`,
 		versionID, string(in.TargetSyntax), string(fixed), string(sel), string(custom), string(renderPlan), platformID, ruleID)
 	return err
+}
+
+// xrayCandidateNamesTx 返回本次勾选节点中 source='xray' 的稳定名列表。
+func (s *Service) xrayCandidateNamesTx(ctx context.Context, tx *sql.Tx, names []string) ([]string, error) {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		var n int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM nodes WHERE name = ? AND source = 'xray'`, name).Scan(&n); err != nil {
+			return nil, fmt.Errorf("查询 xray 候选节点失败: %w", err)
+		}
+		if n > 0 {
+			out = append(out, name)
+		}
+	}
+	return out, nil
 }
 
 // Warnings 从渲染跳过项等生成用户提示。

@@ -17,7 +17,7 @@ type UserAdminHandler struct {
 }
 
 // RegisterUserAdminRoutes 注册用户管理端点；全部叠加会话 + 管理员双中间件
-func RegisterUserAdminRoutes(engine *gin.Engine, h *UserAdminHandler, sessionMW, adminMW gin.HandlerFunc) {
+func RegisterUserAdminRoutes(engine *gin.Engine, h *UserAdminHandler, sessionMW, adminMW, advancedMW gin.HandlerFunc) {
 	g := engine.Group("/api/admin/users", sessionMW, adminMW)
 	g.GET("", h.list)                                // ?page=&size=&keyword=
 	g.POST("", h.create)                             // 新建用户
@@ -29,6 +29,9 @@ func RegisterUserAdminRoutes(engine *gin.Engine, h *UserAdminHandler, sessionMW,
 	g.PUT("/:id/status", h.setStatus)                // body: { disabled: bool }
 	g.DELETE("/:id", h.delete)                       // 删除用户
 	g.POST("/send_password_links", h.batchSendLinks) // 批量发密码设置链接
+	// 高级端点：配额覆盖
+	adv := g.Group("", advancedMW)
+	adv.PUT("/:id/quota", h.setQuota)
 }
 
 // mapProtectErr 统一保护错误映射：SelfOperation/PendingNotAllowed/参数类 → 400；LastAdmin → 403；
@@ -271,6 +274,29 @@ func (h *UserAdminHandler) batchSendLinks(c *gin.Context) {
 		"skipped_disabled": skippedDisabled,
 		"skipped_no_email": skippedNoEmail,
 	})
+}
+
+func (h *UserAdminHandler) setQuota(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	var req struct {
+		QuotaOverride *float64 `json:"quota_override"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	err := h.adminSvc.SetQuotaOverride(c.Request.Context(), id, req.QuotaOverride)
+	if mapProtectErr(c, err) {
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, nil)
 }
 
 // atoiDefault 查询参数整数解析（非法或空 → 默认值）

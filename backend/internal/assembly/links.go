@@ -357,6 +357,21 @@ func userinfoPart(user, pass string) string {
 	return user + ":" + pass + "@"
 }
 
+// RenderLink 导出给下载渲染复用：按协议生成 SR 或通用标准链接。
+func RenderLink(protocol, renderName, host string, port int, params map[string]any, generic bool) (string, error) {
+	nd := &nodeData{
+		Protocol:     protocol,
+		RenderName:   renderName,
+		Host:         host,
+		Port:         port,
+		ProtocolJSON: params,
+	}
+	if generic {
+		return genericLink(nd)
+	}
+	return srLink(nd)
+}
+
 func realityOpts(m map[string]any) map[string]any {
 	if v, ok := m["reality-opts"]; ok {
 		if mm, ok := v.(map[string]any); ok {

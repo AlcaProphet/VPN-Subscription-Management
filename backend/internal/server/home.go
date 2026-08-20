@@ -8,13 +8,19 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/home"
+	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
+	"vpn-sub/internal/xray"
 )
 
 // HomeHandler 用户端数据处理器（结构体 Handler + 依赖注入；R14-16：查询已下沉 internal/home）
 type HomeHandler struct {
 	homeSvc *home.Service
+	st      *store.Store
+	cfg     *config.Service
+	syncSvc *xray.SyncService
 }
 
 // RegisterHomeRoutes 注册用户端数据端点；全部需会话
@@ -41,12 +47,17 @@ func (h *HomeHandler) platforms(c *gin.Context) {
 
 // summary 首页独立汇总端点（Design2Report11 决策）：traffic + home_rule。
 func (h *HomeHandler) summary(c *gin.Context) {
-	resp, err := h.homeSvc.Summary(c.Request.Context())
+	ctx := c.Request.Context()
+	resp, err := h.homeSvc.Summary(ctx)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, resp)
+	userID := c.GetInt64(auth.CtxUserID)
+	OK(c, gin.H{
+		"traffic":   trafficPayload(ctx, h.st, h.cfg, h.syncSvc, userID),
+		"home_rule": resp.HomeRule,
+	})
 }
 
 // refreshToken 刷新指定平台下载 Token（旧失效）——业务逻辑在 internal/home

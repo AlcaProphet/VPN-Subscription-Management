@@ -7,9 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/store"
@@ -28,10 +30,18 @@ type Service struct {
 	versions *version.Service
 	cfg      *config.Service
 	log      *slog.Logger
+
+	// renderUser 装配生成模板的用户动态渲染器（Build6 Step4 由装配侧注入；nil 时保持旧逻辑）
+	renderUser func(ctx context.Context, subID, userID int64, content []byte, fileName string) ([]byte, error)
 }
 
 func NewService(st *store.Store, versions *version.Service, cfg *config.Service, lg *slog.Logger) *Service {
 	return &Service{store: st, versions: versions, cfg: cfg, log: lg}
+}
+
+// SetRenderUser 注入用户下载动态渲染函数（Build6 Step4）。
+func (s *Service) SetRenderUser(fn func(ctx context.Context, subID, userID int64, content []byte, fileName string) ([]byte, error)) {
+	s.renderUser = fn
 }
 
 // Result 下载结果
@@ -90,7 +100,11 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 		if err != nil {
 			return nil, nil, err
 		}
-		content, err = s.maybeEncodeSubscriptionContent(ctx, rec.SubscriptionID, content)
+		if s.renderUser != nil {
+			content, err = s.renderUser(ctx, rec.SubscriptionID, rec.UserID, content, fileName)
+		} else {
+			content, err = s.maybeEncodeSubscriptionContent(ctx, rec.SubscriptionID, content)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -113,7 +127,11 @@ func (s *Service) ResolveUserDownload(ctx context.Context, tokenValue, platformS
 		if err != nil {
 			return nil, nil, err
 		}
-		content, err = s.maybeEncodeSubscriptionContent(ctx, subID, content)
+		if s.renderUser != nil {
+			content, err = s.renderUser(ctx, subID, rec.UserID, content, fileName)
+		} else {
+			content, err = s.maybeEncodeSubscriptionContent(ctx, subID, content)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -164,7 +182,23 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 			headers[k] = strings.ReplaceAll(v, "{frontend_url}", frontendURL)
 		}
 	}
-	// 下载文件名：资源名 + 原始文件扩展名（保留上传格式，Issue1 R03）
+	// 高级模式系统注入：profile 头覆盖平台同键，subscription-userinfo 仅用户订阅类携带
+	if s.cfg.GetBool(ctx, config.KeyAdvancedMode, false) && (dlType == "subscription" || dlType == "custom" || dlType == "explicit") {
+		frontendURL, _ := s.cfg.Get(ctx, config.KeyFrontendURL)
+		headers["profile-update-interval"] = "6"
+		headers["profile-web-page-url"] = frontendURL
+		up, down, total, err := s.userUsage(ctx, userID)
+		if err != nil {
+			return nil, nil, err
+		}
+		parts := []string{fmt.Sprintf("upload=%d", up), fmt.Sprintf("download=%d", down)}
+		if total > 0 {
+			parts = append(parts, fmt.Sprintf("total=%d", total))
+		}
+		parts = append(parts, "expire=4102444800")
+		headers["subscription-userinfo"] = strings.Join(parts, "; ")
+	}
+	// 下载文件名：资源名 + 原始文件扩展名（保留上传格式，Issue1 R03）；装配模板按 target_syntax 映射
 	var resName string
 	switch dlType {
 	case "custom": // 自定义订阅无名称，用标识
@@ -176,8 +210,60 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 			return nil, nil, err
 		}
 	}
-	return &Result{Content: content, Filename: joinDownloadName(resName, fileName, ".yaml"), ExtraHeaders: headers},
+	ext := ".yaml"
+	if dlType == "subscription" || dlType == "explicit" {
+		if t, ok, err := s.blueprintTargetSyntax(ctx, resID); err != nil {
+			return nil, nil, err
+		} else if ok {
+			ext = map[string]string{"clash-yaml": ".yaml", "sr-subs": ".txt", "generic-subs": ".txt", "sr-conf": ".conf"}[t]
+		}
+	}
+	return &Result{Content: content, Filename: joinDownloadName(resName, fileName, ext), ExtraHeaders: headers},
 		&AccessEntry{UserID: userID, Type: dlType, Platform: "", ResourceID: resID}, nil
+}
+
+// userUsage 返回用户当月用量与有效配额（字节）；配额 NULL/0 时 total=0。
+func (s *Service) userUsage(ctx context.Context, userID int64) (up, down, total int64, err error) {
+	ym := currentYM()
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(uplink),0), COALESCE(SUM(downlink),0) FROM traffic_records WHERE user_id = ? AND ym = ?`,
+		userID, ym).Scan(&up, &down); err != nil {
+		return 0, 0, 0, err
+	}
+	var quota sql.NullFloat64
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT COALESCE(u.quota_override, g.default_quota)
+		 FROM users u LEFT JOIN groups g ON g.id = u.group_id WHERE u.id = ?`, userID).Scan(&quota); err != nil {
+		return 0, 0, 0, err
+	}
+	if quota.Valid && quota.Float64 > 0 {
+		total = int64(quota.Float64 * 1024 * 1024 * 1024)
+	}
+	return up, down, total, nil
+}
+
+// blueprintTargetSyntax 返回当前激活装配蓝图的 target_syntax；无蓝图时 ok=false。
+func (s *Service) blueprintTargetSyntax(ctx context.Context, subID int64) (string, bool, error) {
+	var t string
+	err := s.store.DB().QueryRowContext(ctx,
+		`SELECT b.target_syntax
+		 FROM assembly_blueprints b
+		 JOIN versions v ON v.id = b.version_id
+		 WHERE v.owner_type = 'subscription' AND v.owner_id = ?
+		   AND v.version_no = (SELECT current_version FROM subscriptions WHERE id = ?)`,
+		subID, subID).Scan(&t)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return t, true, nil
+}
+
+// currentYM 返回 UTC 当前月份 YYYY-MM。
+func currentYM() string {
+	return time.Now().UTC().Format("2006-01")
 }
 
 // PreviewForUser 会话凭据预览（Design2 §4.4/§5.10）：

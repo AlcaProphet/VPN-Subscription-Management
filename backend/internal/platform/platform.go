@@ -58,14 +58,20 @@ func validProductType(v string) bool {
 
 // Service 平台服务
 type Service struct {
-	store    *store.Store
-	dataDir  string           // 安装包落盘根目录（/data）
-	versions *version.Service // 版本组件（Step 5 起用于平台删除完整级联）
-	log      *slog.Logger
+	store         *store.Store
+	dataDir       string           // 安装包落盘根目录（/data）
+	versions      *version.Service // 版本组件（Step 5 起用于平台删除完整级联）
+	log           *slog.Logger
+	onAfterDelete func(ctx context.Context)
 }
 
 func NewService(st *store.Store, dataDir string, versions *version.Service, lg *slog.Logger) *Service {
 	return &Service{store: st, dataDir: dataDir, versions: versions, log: lg}
+}
+
+// SetOnAfterDelete 注入平台删除后的候选集重算回调（Build6 Step2）。
+func (s *Service) SetOnAfterDelete(fn func(ctx context.Context)) {
+	s.onAfterDelete = fn
 }
 
 // InstallerFileItem 本地上传安装包条目：name=原始文件名（展示用），file=磁盘文件名（时间戳）
@@ -581,6 +587,9 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		if err := s.versions.RemoveOwnerDir(version.OwnerCustom, cid); err != nil {
 			s.log.Warn("删除自定义版本目录失败", "id", cid, "err", err)
 		}
+	}
+	if s.onAfterDelete != nil {
+		s.onAfterDelete(ctx)
 	}
 	return nil
 }

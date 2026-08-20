@@ -8,12 +8,18 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/config"
+	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
+	"vpn-sub/internal/xray"
 )
 
 // ProfileHandler 个人中心处理器（结构体 Handler + 依赖注入）
 type ProfileHandler struct {
 	userSvc *user.Service
+	st      *store.Store
+	cfg     *config.Service
+	syncSvc *xray.SyncService
 }
 
 // RegisterProfileRoutes 注册个人中心端点；全部需会话
@@ -22,6 +28,7 @@ func RegisterProfileRoutes(engine *gin.Engine, h *ProfileHandler, sessionMW gin.
 	g.PUT("/username", h.updateUsername)
 	g.PUT("/email", h.updateEmail)
 	g.PUT("/password", h.updatePassword)
+	g.GET("/traffic", h.traffic)
 }
 
 // updateUsername 改用户名：即时生效（OIDC 用户下次 OIDC 登录会被提供商最新值覆盖，Design1 §4.6）
@@ -93,4 +100,9 @@ func (h *ProfileHandler) updatePassword(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{"message": "密码已更新，请重新登录"})
+}
+
+func (h *ProfileHandler) traffic(c *gin.Context) {
+	userID := c.GetInt64(auth.CtxUserID)
+	OK(c, trafficPayload(c.Request.Context(), h.st, h.cfg, h.syncSvc, userID))
 }

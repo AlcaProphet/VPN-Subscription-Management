@@ -178,7 +178,7 @@ func (h *ShareHandler) createVersion(c *gin.Context) {
 }
 
 func (h *ShareHandler) switchVersion(c *gin.Context) {
-	versionSwitch(c, h.verSvc, version.OwnerShare)
+	versionSwitch(c, h.verSvc, version.OwnerShare, nil)
 }
 
 func (h *ShareHandler) previewVersion(c *gin.Context) {

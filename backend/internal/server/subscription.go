@@ -17,6 +17,8 @@ import (
 type SubscriptionHandler struct {
 	subSvc *subscription.Service
 	verSvc *version.Service
+	// onVersionSwitched 订阅版本激活切换后的候选集重算回调（Build6 Step2）
+	onVersionSwitched func(ctx context.Context, ot version.OwnerType, ownerID int64)
 }
 
 // RegisterSubscriptionRoutes 注册订阅与版本端点；全部叠加会话 + 管理员双中间件
@@ -185,7 +187,7 @@ func (h *SubscriptionHandler) createVersion(c *gin.Context) {
 }
 
 func (h *SubscriptionHandler) switchVersion(c *gin.Context) {
-	versionSwitch(c, h.verSvc, version.OwnerSubscription)
+	versionSwitch(c, h.verSvc, version.OwnerSubscription, h.onVersionSwitched)
 }
 
 func (h *SubscriptionHandler) previewVersion(c *gin.Context) {
@@ -282,7 +284,7 @@ func subscriptionTextFileName(productType string) string {
 }
 
 // versionSwitch 切换当前版本（原子切换）
-func versionSwitch(c *gin.Context, verSvc *version.Service, ot version.OwnerType) {
+func versionSwitch(c *gin.Context, verSvc *version.Service, ot version.OwnerType, onSwitched func(ctx context.Context, ot version.OwnerType, ownerID int64)) {
 	id, ok := parseID(c, "id")
 	if !ok {
 		return
@@ -294,7 +296,8 @@ func versionSwitch(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	err := verSvc.SwitchVersion(c.Request.Context(), ot, id, req.VersionNo)
+	ctx := c.Request.Context()
+	err := verSvc.SwitchVersion(ctx, ot, id, req.VersionNo)
 	if errors.Is(err, version.ErrVersionNotFound) {
 		Fail(c, http.StatusNotFound, "版本不存在")
 		return
@@ -302,6 +305,9 @@ func versionSwitch(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if onSwitched != nil {
+		onSwitched(ctx, ot, id)
 	}
 	OK(c, nil)
 }

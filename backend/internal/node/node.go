@@ -78,12 +78,23 @@ type UpdateManualInput struct {
 // XrayChangedFunc 节点启停/公共标记变更后的副作用钩子（Build6 注入 Xray 推送）。
 type XrayChangedFunc func(ctx context.Context, node Node, oldEnabled, oldPublic bool)
 
+// XrayDeleteTarget 节点删除后清理 Xray 用户所需的最小连接信息。
+type XrayDeleteTarget struct {
+	Email   string
+	Tag     string
+	APIAddr string
+}
+
+// XrayNodeDeletedFunc 节点删除后的 Xray 清理回调。
+type XrayNodeDeletedFunc func(ctx context.Context, targets []XrayDeleteTarget)
+
 // Service 节点服务。
 type Service struct {
-	store         *store.Store
-	cfg           *config.Service
-	log           *slog.Logger
-	onXrayChanged XrayChangedFunc
+	store             *store.Store
+	cfg               *config.Service
+	log               *slog.Logger
+	onXrayChanged     XrayChangedFunc
+	onXrayNodeDeleted XrayNodeDeletedFunc
 }
 
 // NewService 构造节点服务。
@@ -94,6 +105,11 @@ func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service 
 // SetOnXrayChanged 注入 Xray 副作用钩子（本 Build 可为 nil，Build6 由装配侧注入）。
 func (s *Service) SetOnXrayChanged(fn XrayChangedFunc) {
 	s.onXrayChanged = fn
+}
+
+// SetOnXrayNodeDeleted 注入节点删除后的 Xray 清理回调（Build6 Step1 由装配侧注入）。
+func (s *Service) SetOnXrayNodeDeleted(fn XrayNodeDeletedFunc) {
+	s.onXrayNodeDeleted = fn
 }
 
 // ValidateNodeName 节点名（manual 录入名与 xray 系统名），禁止空格。
@@ -426,12 +442,46 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	if existing.Source == "xray" && !existing.Missing {
 		return fmt.Errorf("%w: 请先删除 Xray 入站并刷新节点检测", ErrForbidden)
 	}
-	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	var targets []XrayDeleteTarget
+	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if existing.Source == "xray" {
+			rows, err := tx.QueryContext(ctx,
+				`SELECT xu.email, xu.inbound_tag, i.api_addr
+				 FROM xray_users xu JOIN xray_instances i ON i.id = xu.instance_id
+				 WHERE xu.node_id = ?
+				 UNION ALL
+				 SELECT a.email, xu.inbound_tag, i.api_addr
+				 FROM xray_ext_users xu
+				 JOIN xray_ext_accounts a ON a.id = xu.ext_account_id
+				 JOIN xray_instances i ON i.id = xu.instance_id
+				 WHERE xu.node_id = ?`, id, id)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var t XrayDeleteTarget
+				if err := rows.Scan(&t.Email, &t.Tag, &t.APIAddr); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				targets = append(targets, t)
+			}
+			if err := rows.Close(); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id); err != nil {
 			return fmt.Errorf("删除节点失败: %w", err)
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if len(targets) > 0 && s.onXrayNodeDeleted != nil {
+		s.onXrayNodeDeleted(ctx, targets)
+	}
+	return nil
 }
 
 // List 节点列表，支持 ?source=manual|xray。

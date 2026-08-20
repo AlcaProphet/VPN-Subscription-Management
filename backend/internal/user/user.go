@@ -29,6 +29,8 @@ type Service struct {
 	log   *slog.Logger
 	// sendWelcome 预留：新用户首次激活时发送欢迎邮件（Build3 Step 2 注入 mail 包；nil 时跳过）
 	sendWelcome func(ctx context.Context, to, source string) error
+	// onUserActive 用户激活后的 Xray 同步回调（Build6 Step3 注入）
+	onUserActive func(ctx context.Context, userID int64)
 }
 
 func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service {
@@ -38,6 +40,11 @@ func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service 
 // SetWelcomeSender 注入欢迎邮件发送函数（Build3 Step 2 SMTP 接通时调用）
 func (s *Service) SetWelcomeSender(fn func(ctx context.Context, to, source string) error) {
 	s.sendWelcome = fn
+}
+
+// SetOnUserActive 注入用户激活后的 Xray 同步回调（Build6 Step3）。
+func (s *Service) SetOnUserActive(fn func(ctx context.Context, userID int64)) {
+	s.onUserActive = fn
 }
 
 // defaultGroupIDTx 查询预置默认组 ID（Setup 事务内创建，理论恒存在）；
@@ -148,6 +155,9 @@ func (s *Service) Register(ctx context.Context, username, emailRaw, password str
 	// 欢迎邮件：直接激活（含首管理员）时发送；待审批不发（审批通过时由审批中心发送）
 	if created.Status == "active" {
 		s.sendWelcomeIf(ctx, created.Email, created.Source)
+		if s.onUserActive != nil {
+			s.onUserActive(ctx, created.ID)
+		}
 	}
 	s.log.Info("用户注册成功", "user_id", created.ID, "role", created.Role, "first_admin", created.Role == "admin")
 	return created, nil

@@ -4,6 +4,7 @@ package group
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,16 +18,37 @@ var (
 	ErrNameConflict = errors.New("组名已存在")
 	ErrDefaultGroup = errors.New("预置默认组不可删除")
 	ErrNotFound     = errors.New("用户组不存在")
+	ErrBadRequest   = errors.New("参数错误")
 )
+
+// GroupNode 组节点分配项。
+type GroupNode struct {
+	NodeID      int64   `json:"node_id"`
+	NodeName    string  `json:"node_name"`
+	DisplayName *string `json:"display_name,omitempty"`
+	RenderName  string  `json:"render_name"`
+	SortOrder   int     `json:"sort_order"`
+	IsPublic    bool    `json:"is_public"`
+	Source      string  `json:"source"`
+}
+
+// NodesChangedFunc 组节点分配变化后的回调（Step3 注入同步 diff）。
+type NodesChangedFunc func(ctx context.Context, groupID int64, userIDs []int64)
 
 // Service 用户组服务
 type Service struct {
-	store *store.Store
-	log   *slog.Logger
+	store          *store.Store
+	log            *slog.Logger
+	onNodesChanged NodesChangedFunc
 }
 
 func NewService(st *store.Store, lg *slog.Logger) *Service {
 	return &Service{store: st, log: lg}
+}
+
+// SetOnNodesChanged 注入组节点变化回调（Build6 Step2 先留空，Step3 接线）。
+func (s *Service) SetOnNodesChanged(fn NodesChangedFunc) {
+	s.onNodesChanged = fn
 }
 
 // Group 用户组（高级模式下 default_quota 才可能有值；base 模式为 NULL，JSON 省略）
@@ -170,6 +192,272 @@ func (s *Service) Get(ctx context.Context, id int64) (*Group, error) {
 		return nil, err
 	}
 	return &g, nil
+}
+
+// SetDefaultQuota 设置组默认月度配额；NULL/0 均不限流量，负数拒绝。
+func (s *Service) SetDefaultQuota(ctx context.Context, id int64, quota *float64) error {
+	if quota != nil && *quota < 0 {
+		return fmt.Errorf("%w: 配额不能为负数", ErrBadRequest)
+	}
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if err := s.checkEditable(ctx, tx, id); err != nil {
+			return err
+		}
+		var q any
+		if quota != nil {
+			q = *quota
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE groups SET default_quota = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, q, id); err != nil {
+			return fmt.Errorf("更新组默认配额失败: %w", err)
+		}
+		return nil
+	})
+}
+
+// SetNodes 设置组节点分配：仅允许候选集内且满足可用性过滤的 xray 非公共节点。
+// 先删后插 + 受影响 active 用户清单收集在同一 BEGIN IMMEDIATE 事务内完成。
+func (s *Service) SetNodes(ctx context.Context, id int64, nodeIDs []int64) error {
+	var affected []int64
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if err := s.checkEditable(ctx, tx, id); err != nil {
+			return err
+		}
+		candidates, err := s.candidateSetTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		candidateMap := map[string]bool{}
+		for _, name := range candidates {
+			candidateMap[name] = true
+		}
+		// 校验每个节点
+		for _, nid := range nodeIDs {
+			var name, source string
+			var isPublic, enabled, allocatable, missing, instEnabled int
+			err := tx.QueryRowContext(ctx,
+				`SELECT n.name, n.source, n.is_public, n.enabled, n.allocatable, n.missing, COALESCE(i.enabled,0)
+				 FROM nodes n LEFT JOIN xray_instances i ON i.id = n.instance_id WHERE n.id = ?`, nid).
+				Scan(&name, &source, &isPublic, &enabled, &allocatable, &missing, &instEnabled)
+			if err != nil {
+				return fmt.Errorf("%w: 节点不存在", ErrBadRequest)
+			}
+			if source != "xray" || isPublic == 1 || enabled != 1 || allocatable != 1 || missing != 0 || instEnabled != 1 {
+				return fmt.Errorf("%w: 节点不可分配", ErrBadRequest)
+			}
+			if !candidateMap[name] {
+				return fmt.Errorf("%w: 节点不在当前候选集", ErrBadRequest)
+			}
+		}
+		// 收集受影响 active 用户
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM users WHERE group_id = ? AND status = 'active'`, id)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var uid int64
+			if err := rows.Scan(&uid); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			affected = append(affected, uid)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		// 先删后插
+		if _, err := tx.ExecContext(ctx, `DELETE FROM group_nodes WHERE group_id = ?`, id); err != nil {
+			return fmt.Errorf("清空组节点分配失败: %w", err)
+		}
+		for i, nid := range nodeIDs {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO group_nodes (group_id, node_id, sort_order) VALUES (?,?,?)`, id, nid, i); err != nil {
+				return fmt.Errorf("写入组节点分配失败: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if s.onNodesChanged != nil && len(affected) > 0 {
+		s.onNodesChanged(ctx, id, affected)
+	}
+	return nil
+}
+
+// CandidateSet 返回当前所有已激活装配蓝图的 xray 候选节点并集（按稳定名）。
+func (s *Service) CandidateSet(ctx context.Context) ([]string, error) {
+	return s.candidateSetTx(ctx, nil)
+}
+
+func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]string, error) {
+	query := func(q interface {
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	}) (*sql.Rows, error) {
+		return q.QueryContext(ctx,
+			`SELECT b.selection_json
+			 FROM assembly_blueprints b
+			 JOIN versions v ON v.id = b.version_id
+			 JOIN subscriptions s ON s.id = v.owner_id AND v.owner_type = 'subscription'
+			 WHERE s.current_version = v.version_no
+			   AND b.target_syntax IN ('clash-yaml','sr-subs','generic-subs')`)
+	}
+	var rows *sql.Rows
+	var err error
+	if tx != nil {
+		rows, err = query(tx)
+	} else {
+		rows, err = query(s.store.DB())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取候选集失败: %w", err)
+	}
+	defer rows.Close()
+	set := map[string]bool{}
+	var order []string
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var sel struct {
+			XrayCandidates []string `json:"xray_candidates"`
+		}
+		if err := json.Unmarshal([]byte(raw), &sel); err != nil {
+			continue
+		}
+		for _, name := range sel.XrayCandidates {
+			if !set[name] {
+				set[name] = true
+				order = append(order, name)
+			}
+		}
+	}
+	return order, rows.Err()
+}
+
+// RecomputeCandidateSet 重算候选集并集并删除越界/不可用分配；返回受影响 active 用户 ID。
+func (s *Service) RecomputeCandidateSet(ctx context.Context) ([]int64, error) {
+	candidates, err := s.CandidateSet(ctx)
+	if err != nil {
+		return nil, err
+	}
+	candidateMap := map[string]bool{}
+	for _, name := range candidates {
+		candidateMap[name] = true
+	}
+	type removed struct {
+		groupID int64
+		userIDs []int64
+	}
+	var removedGroups []removed
+	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			`SELECT gn.group_id, gn.node_id, n.name, n.source, n.is_public, n.enabled, n.allocatable, n.missing, COALESCE(i.enabled,0)
+			 FROM group_nodes gn
+			 JOIN nodes n ON n.id = gn.node_id
+			 LEFT JOIN xray_instances i ON i.id = n.instance_id`)
+		if err != nil {
+			return err
+		}
+		type rowInfo struct {
+			groupID                                              int64
+			nodeID                                               int64
+			name                                                 string
+			source                                               string
+			isPublic, enabled, allocatable, missing, instEnabled int
+		}
+		var toDelete []rowInfo
+		for rows.Next() {
+			var r rowInfo
+			if err := rows.Scan(&r.groupID, &r.nodeID, &r.name, &r.source, &r.isPublic, &r.enabled, &r.allocatable, &r.missing, &r.instEnabled); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			// 公共节点不可写入 group_nodes；越界或不可用删除
+			if r.source != "xray" || r.isPublic == 1 || r.enabled != 1 || r.allocatable != 1 || r.missing != 0 || r.instEnabled != 1 || !candidateMap[r.name] {
+				toDelete = append(toDelete, r)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		groupSet := map[int64]bool{}
+		for _, r := range toDelete {
+			groupSet[r.groupID] = true
+		}
+		for gid := range groupSet {
+			urows, err := tx.QueryContext(ctx, `SELECT id FROM users WHERE group_id = ? AND status = 'active'`, gid)
+			if err != nil {
+				return err
+			}
+			var uids []int64
+			for urows.Next() {
+				var uid int64
+				if err := urows.Scan(&uid); err != nil {
+					_ = urows.Close()
+					return err
+				}
+				uids = append(uids, uid)
+			}
+			if err := urows.Close(); err != nil {
+				return err
+			}
+			removedGroups = append(removedGroups, removed{groupID: gid, userIDs: uids})
+		}
+		for _, r := range toDelete {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM group_nodes WHERE group_id = ? AND node_id = ?`, r.groupID, r.nodeID); err != nil {
+				return fmt.Errorf("删除越界组节点分配失败: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var all []int64
+	seen := map[int64]bool{}
+	for _, g := range removedGroups {
+		if s.onNodesChanged != nil && len(g.userIDs) > 0 {
+			s.onNodesChanged(ctx, g.groupID, g.userIDs)
+		}
+		for _, uid := range g.userIDs {
+			if !seen[uid] {
+				seen[uid] = true
+				all = append(all, uid)
+			}
+		}
+	}
+	return all, nil
+}
+
+// GroupNodes 返回组内节点分配（含公共节点标注由上层合并）。
+func (s *Service) GroupNodes(ctx context.Context, id int64) ([]GroupNode, error) {
+	rows, err := s.store.DB().QueryContext(ctx,
+		`SELECT gn.node_id, n.name, n.display_name, gn.sort_order, n.is_public, n.source,
+		        COALESCE(NULLIF(n.display_name,''), n.name)
+		 FROM group_nodes gn JOIN nodes n ON n.id = gn.node_id
+		 WHERE gn.group_id = ? ORDER BY gn.sort_order`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]GroupNode, 0)
+	for rows.Next() {
+		var gn GroupNode
+		var display sql.NullString
+		var isPublic int
+		if err := rows.Scan(&gn.NodeID, &gn.NodeName, &display, &gn.SortOrder, &isPublic, &gn.Source, &gn.RenderName); err != nil {
+			return nil, err
+		}
+		if display.Valid && display.String != "" {
+			gn.DisplayName = &display.String
+		}
+		gn.IsPublic = isPublic == 1
+		out = append(out, gn)
+	}
+	return out, rows.Err()
 }
 
 // rowScanner 兼容 *sql.Row 与 *sql.Rows 的扫描接口

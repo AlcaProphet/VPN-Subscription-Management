@@ -226,7 +226,7 @@ func (h *RuleHandler) createVersion(c *gin.Context) {
 }
 
 func (h *RuleHandler) switchVersion(c *gin.Context) {
-	versionSwitch(c, h.verSvc, version.OwnerRule)
+	versionSwitch(c, h.verSvc, version.OwnerRule, nil)
 }
 
 func (h *RuleHandler) previewVersion(c *gin.Context) {

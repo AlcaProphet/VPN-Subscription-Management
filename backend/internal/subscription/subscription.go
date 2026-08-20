@@ -35,6 +35,8 @@ type Service struct {
 	log      *slog.Logger
 	// onTokenDeleted 删订阅 Token 级联回调（由 token 服务注入）
 	onTokenDeleted func(ctx context.Context, tx *sql.Tx, subscriptionID int64) error
+	// onAfterDelete 删订阅后的候选集重算回调（Build6 Step2）
+	onAfterDelete func(ctx context.Context, subscriptionID int64)
 }
 
 func NewService(st *store.Store, versions *version.Service, lg *slog.Logger) *Service {
@@ -44,6 +46,11 @@ func NewService(st *store.Store, versions *version.Service, lg *slog.Logger) *Se
 // SetOnTokenDeleted 注入删订阅 Token 级联回调（由 token 服务提供）
 func (s *Service) SetOnTokenDeleted(fn func(ctx context.Context, tx *sql.Tx, subscriptionID int64) error) {
 	s.onTokenDeleted = fn
+}
+
+// SetOnAfterDelete 注入删订阅后的候选集重算回调（Build6 Step2）。
+func (s *Service) SetOnAfterDelete(fn func(ctx context.Context, subscriptionID int64)) {
+	s.onAfterDelete = fn
 }
 
 // Subscription 订阅地址池条目（每平台唯一）
@@ -71,7 +78,7 @@ func (s *Service) CheckSlugAvailable(ctx context.Context, slugVal, excludeOwner 
 	if !slugRe.MatchString(slugVal) {
 		return false, nil // 格式不合法直接不可用
 	}
-	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions"} {
+	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions", "xray_instances"} {
 		ok, err := tableExists(ctx, s.store.DB(), table)
 		if err != nil {
 			return false, err
@@ -118,7 +125,7 @@ func tableExistsTx(ctx context.Context, tx *sql.Tx, name string) (bool, error) {
 
 // slugExistsTx 事务内检查标识是否已被四类资源占用（自动生成标识的 exists 回调）
 func slugExistsTx(ctx context.Context, tx *sql.Tx, slugVal string) (bool, error) {
-	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions"} {
+	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions", "xray_instances"} {
 		ok, err := tableExistsTx(ctx, tx, table)
 		if err != nil {
 			return false, err
@@ -282,6 +289,9 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	}
 	if err := s.versions.RemoveOwnerDir(version.OwnerSubscription, id); err != nil {
 		s.log.Warn("删除订阅版本目录失败", "id", id, "err", err)
+	}
+	if s.onAfterDelete != nil {
+		s.onAfterDelete(ctx, id)
 	}
 	return nil
 }

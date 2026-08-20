@@ -113,7 +113,7 @@ func (h *CustomHandler) createVersion(c *gin.Context) {
 }
 
 func (h *CustomHandler) switchVersion(c *gin.Context) {
-	versionSwitch(c, h.verSvc, version.OwnerCustom)
+	versionSwitch(c, h.verSvc, version.OwnerCustom, nil)
 }
 
 func (h *CustomHandler) previewVersion(c *gin.Context) {
