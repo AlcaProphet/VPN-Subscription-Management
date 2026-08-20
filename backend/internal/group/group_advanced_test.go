@@ -153,3 +153,54 @@ func TestSetDefaultQuota(t *testing.T) {
 		t.Fatal("负数配额应拒绝")
 	}
 }
+
+func TestGroupDeleteNotifiesAffectedUsers(t *testing.T) {
+	st, svc := newFullTestGroupService(t)
+	ctx := context.Background()
+	groupID, _, _ := seedCandidateSet(t, st)
+	// 补默认组（seedCandidateSet 未创建）
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO groups (slug, name, is_default) VALUES ('group-default', '默认组', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO users (username, email, group_id, user_source, status) VALUES ('u1','u1@x.com',?, 'local', 'active')`, groupID); err != nil {
+		t.Fatal(err)
+	}
+	var uid int64
+	if err := st.DB().QueryRowContext(ctx, `SELECT id FROM users WHERE email='u1@x.com'`).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	var got []int64
+	svc.SetOnNodesChanged(func(_ context.Context, _ int64, userIDs []int64) { got = append(got, userIDs...) })
+	if err := svc.Delete(ctx, groupID); err != nil {
+		t.Fatalf("删除组失败: %v", err)
+	}
+	if len(got) != 1 || got[0] != uid {
+		t.Fatalf("删除组应通知受影响用户: %+v", got)
+	}
+}
+
+func TestSetNodesNotifiesAffectedUsers(t *testing.T) {
+	st, svc := newFullTestGroupService(t)
+	ctx := context.Background()
+	groupID, nodeA, _ := seedCandidateSet(t, st)
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO groups (slug, name, is_default) VALUES ('group-default', '默认组', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO users (username, email, group_id, user_source, status) VALUES ('u1','u1@x.com',?, 'local', 'active')`, groupID); err != nil {
+		t.Fatal(err)
+	}
+	var uid int64
+	if err := st.DB().QueryRowContext(ctx, `SELECT id FROM users WHERE email='u1@x.com'`).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	var got []int64
+	svc.SetOnNodesChanged(func(_ context.Context, _ int64, userIDs []int64) { got = append(got, userIDs...) })
+	if err := svc.SetNodes(ctx, groupID, []int64{nodeA}); err != nil {
+		t.Fatalf("设置节点失败: %v", err)
+	}
+	if len(got) != 1 || got[0] != uid {
+		t.Fatalf("设置节点应通知受影响用户: %+v", got)
+	}
+}

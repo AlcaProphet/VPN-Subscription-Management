@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -16,49 +17,76 @@ import (
 
 // renderUserSubscription 是下载服务注入的用户动态渲染器。
 func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Service, syncSvc *xray.SyncService, creds *xray.CredentialService, subID, userID int64, content []byte, fileName string) ([]byte, error) {
-	var targetSyntax, selectionRaw string
+	var targetSyntax, planRaw string
 	err := st.DB().QueryRowContext(ctx,
-		`SELECT b.target_syntax, b.selection_json
+		`SELECT b.target_syntax, COALESCE(b.render_plan_json, '{}')
 		 FROM assembly_blueprints b
 		 JOIN versions v ON v.id = b.version_id
 		 WHERE v.owner_type = 'subscription' AND v.owner_id = ?
 		   AND v.version_no = (SELECT current_version FROM subscriptions WHERE id = ?)`,
-		subID, subID).Scan(&targetSyntax, &selectionRaw)
+		subID, subID).Scan(&targetSyntax, &planRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return content, nil // 直接上传内容，原样返回
 	}
 	if err != nil {
 		return nil, err
 	}
+
 	// 高级模式关闭：占位替换为注释，仍保证语法完整。
+	comment := ""
 	if !cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
-		return replacePlaceholder(content, targetSyntax, "# Xray 高级模式未启用"), nil
+		comment = "# Xray 高级模式未启用"
 	}
 	uuid, secret, credErr := creds.Credentials(ctx, userID)
 	hasCreds := credErr == nil
 	if credErr != nil && !errors.Is(credErr, xray.ErrIncompleteCredentials) {
 		return nil, credErr
 	}
+	if !hasCreds {
+		comment = "# 节点未开通，请联系管理员"
+	}
 	targets, err := syncSvc.Targets(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	if !hasCreds {
-		return replacePlaceholder(content, targetSyntax, "# 节点未开通，请联系管理员"), nil
-	}
-	var lines []string
-	for _, t := range targets {
-		protocol, params, err := syncSvc.NodeRenderParams(ctx, t.NodeID)
+
+	// Clash 全量重渲染：使用自包含 render_plan_json。
+	if targetSyntax == "clash-yaml" {
+		if isLegacyClashPlan(planRaw) {
+			// 旧版蓝图（Build6 修复前）回退到占位行替换，避免空渲染。
+			if comment != "" {
+				return replacePlaceholder(content, targetSyntax, comment), nil
+			}
+			lines := renderLinkLines(ctx, syncSvc, targets, targetSyntax, uuid, secret, hasCreds)
+			return replacePlaceholderLines(content, lines), nil
+		}
+		manualNames, err := manualRenderNames(ctx, st)
 		if err != nil {
 			return nil, err
 		}
-		generic := targetSyntax == "generic-subs"
-		link, err := assembly.RenderLink(protocol, t.RenderName, hostOf(t.APIAddr), portOf(t.APIAddr), withCreds(params, protocol, uuid, secret), generic)
-		if err != nil {
-			continue
+		dynamic := make([]assembly.DynamicNode, 0, len(targets))
+		for _, t := range targets {
+			protocol, params, err := syncSvc.NodeRenderParams(ctx, t.NodeID)
+			if err != nil {
+				return nil, err
+			}
+			dynamic = append(dynamic, assembly.DynamicNode{
+				Name:         t.Name,
+				RenderName:   t.RenderName,
+				Protocol:     protocol,
+				Host:         hostOf(t.APIAddr),
+				Port:         portOf(t.APIAddr),
+				ProtocolJSON: withCreds(params, protocol, uuid, secret),
+			})
 		}
-		lines = append(lines, link)
+		return assembly.RenderClashPlan([]byte(planRaw), dynamic, manualNames, comment)
 	}
+
+	// SR / generic 订阅：占位替换或整行移除后整体 base64。
+	if comment != "" {
+		return replacePlaceholder(content, targetSyntax, comment), nil
+	}
+	lines := renderLinkLines(ctx, syncSvc, targets, targetSyntax, uuid, secret, true)
 	switch targetSyntax {
 	case "sr-subs", "generic-subs":
 		if len(lines) == 0 {
@@ -67,12 +95,75 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 		}
 		replaced := replacePlaceholderLines(content, lines)
 		return []byte(base64.StdEncoding.EncodeToString(replaced)), nil
-	case "clash-yaml":
-		replaced := replacePlaceholderLines(content, lines)
-		return replaced, nil
 	default:
 		return content, nil
 	}
+}
+
+func renderLinkLines(ctx context.Context, syncSvc *xray.SyncService, targets []xray.Target, targetSyntax, uuid, secret string, hasCreds bool) []string {
+	if !hasCreds {
+		return nil
+	}
+	var lines []string
+	for _, t := range targets {
+		protocol, params, err := syncSvc.NodeRenderParams(ctx, t.NodeID)
+		if err != nil {
+			continue
+		}
+		generic := targetSyntax == "generic-subs"
+		link, err := assembly.RenderLink(protocol, t.RenderName, hostOf(t.APIAddr), portOf(t.APIAddr), withCreds(params, protocol, uuid, secret), generic)
+		if err != nil {
+			continue
+		}
+		lines = append(lines, link)
+	}
+	return lines
+}
+
+func manualRenderNames(ctx context.Context, st *store.Store) (map[string]string, error) {
+	rows, err := st.DB().QueryContext(ctx,
+		`SELECT name, COALESCE(NULLIF(display_name,''), name) FROM nodes WHERE source = 'manual'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var name, render string
+		if err := rows.Scan(&name, &render); err != nil {
+			return nil, err
+		}
+		out[name] = render
+	}
+	return out, rows.Err()
+}
+
+func isLegacyClashPlan(raw string) bool {
+	if strings.TrimSpace(raw) == "" || strings.TrimSpace(raw) == "{}" {
+		return true
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return true
+	}
+	if v, ok := m["manual_proxies"].([]any); ok && len(v) > 0 {
+		if _, ok := v[0].(string); ok {
+			return true
+		}
+	}
+	if v, ok := m["proxy_groups"].([]any); ok && len(v) > 0 {
+		if _, ok := v[0].(string); ok {
+			return true
+		}
+	}
+	if v, ok := m["rules"].([]any); ok && len(v) > 0 {
+		if first, ok := v[0].(map[string]any); ok {
+			if _, hasType := first["type"]; !hasType {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func replacePlaceholder(content []byte, targetSyntax, comment string) []byte {

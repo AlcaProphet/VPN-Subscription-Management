@@ -116,13 +116,57 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash YAML 失败: %w", err)
 	}
-	plan := map[string]any{
-		"head":           in.FixedParams,
-		"manual_proxies": in.NodeNames,
-		"proxy_groups":   in.GroupNames,
-		"rules":          in.Pools,
-		"custom_rules":   in.CustomRules,
-		"fallback":       []string{"GEOIP,CN,DIRECT", "MATCH," + node.ForceFallback},
+	plan := ClashPlan{
+		Head: in.FixedParams,
+		ManualProxies: func() []*OrderedMap {
+			out := make([]*OrderedMap, 0, len(in.NodeNames))
+			for _, name := range in.NodeNames {
+				nd := ld.nodes[name]
+				if nd.Source != "manual" {
+					continue
+				}
+				p := s.clashProxy(nd)
+				// 计划内节点引用统一存 nodes.name 稳定键，渲染时再映射当前 renderName。
+				p.Set("name", nd.Name)
+				out = append(out, p)
+			}
+			return out
+		}(),
+		ProxyGroups: func() []ClashPlanGroup {
+			out := make([]ClashPlanGroup, 0, len(in.GroupNames)+3)
+			out = append(out,
+				ClashPlanGroup{Name: node.ForceDirect, Type: "select", Proxies: []string{"DIRECT"}, Force: true},
+				ClashPlanGroup{Name: node.ForceOverseas, Type: "select", Proxies: append([]string{}, in.OverseasMembers...), Force: true},
+				ClashPlanGroup{Name: node.ForceFallback, Type: "select", Proxies: []string{node.ForceDirect, node.ForceOverseas}, Force: true},
+			)
+			for _, name := range in.GroupNames {
+				g := ld.groups[name]
+				proxies := make([]string, 0, len(g.Nodes)+len(g.Groups))
+				proxies = append(proxies, g.Nodes...)
+				proxies = append(proxies, g.Groups...)
+				out = append(out, ClashPlanGroup{Name: g.Name, Type: g.GroupType, Proxies: proxies, Force: false})
+			}
+			return out
+		}(),
+		Rules: func() []ClashPlanRule {
+			out := make([]ClashPlanRule, 0)
+			for _, psel := range in.Pools {
+				for _, e := range ld.pools[psel.PoolID] {
+					if e.RuleType == "USER-AGENT" {
+						continue
+					}
+					out = append(out, ClashPlanRule{Type: e.RuleType, Value: e.MatchValue, Target: psel.Target})
+				}
+			}
+			for _, r := range in.CustomRules {
+				if r.RuleType == "USER-AGENT" {
+					continue
+				}
+				out = append(out, ClashPlanRule{Type: r.RuleType, Value: r.MatchValue, Target: r.Target})
+			}
+			return out
+		}(),
+		Fallback: []string{"GEOIP,CN,DIRECT", "MATCH," + node.ForceFallback},
 	}
 	planRaw, err := json.Marshal(plan)
 	if err != nil {

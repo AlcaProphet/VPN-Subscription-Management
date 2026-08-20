@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/xtls/xray-core/common/protocol"
 
@@ -347,6 +348,51 @@ func (s *SyncService) SyncAllActive(ctx context.Context) error {
 	return nil
 }
 
+// SyncUsersForNodes 仅对受指定节点影响的 active 用户执行 ReconcileUser（精确 diff）。
+func (s *SyncService) SyncUsersForNodes(ctx context.Context, nodeIDs []int64) error {
+	if len(nodeIDs) == 0 {
+		return nil
+	}
+	ids, err := s.affectedActiveUserIDsForNodes(ctx, nodeIDs)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := s.ReconcileUser(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SyncService) affectedActiveUserIDsForNodes(ctx context.Context, nodeIDs []int64) ([]int64, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(nodeIDs)), ",")
+	args := make([]any, len(nodeIDs))
+	for i, id := range nodeIDs {
+		args[i] = id
+	}
+	rows, err := s.store.DB().QueryContext(ctx,
+		`SELECT DISTINCT u.id
+		 FROM users u
+		 WHERE u.status = 'active' AND (
+		   EXISTS (SELECT 1 FROM nodes n WHERE n.id IN (`+placeholders+`) AND n.is_public = 1)
+		   OR EXISTS (SELECT 1 FROM group_nodes gn WHERE gn.group_id = u.group_id AND gn.node_id IN (`+placeholders+`))
+		 )`, append(args, args...)...)
+	if err != nil {
+		return nil, fmt.Errorf("查询节点影响用户失败: %w", err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // UserSyncStatus 返回用户 xray_users 聚合状态。
 func (s *SyncService) UserSyncStatus(ctx context.Context, userID int64) ([]map[string]any, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
@@ -437,6 +483,12 @@ func (s *SyncService) activeUserIDs(ctx context.Context) ([]int64, error) {
 }
 
 func (s *SyncService) candidateNames(ctx context.Context, q interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}) ([]string, error) {
+	return candidateNamesFrom(ctx, q)
+}
+
+func candidateNamesFrom(ctx context.Context, q interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }) ([]string, error) {
 	rows, err := q.QueryContext(ctx,

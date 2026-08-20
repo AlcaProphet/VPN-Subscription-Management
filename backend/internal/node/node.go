@@ -469,6 +469,35 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 			if err := rows.Close(); err != nil {
 				return err
 			}
+			// Build6-2 补强：额外收集“受影响 active 用户 × 该节点”期望集，
+			// 即使 xray_users 尚未落记录也尝试清理。
+			rows, err = tx.QueryContext(ctx,
+				`SELECT 'user-' || u.id || '@vpn.local', n.tag, i.api_addr
+				 FROM users u
+				 JOIN group_nodes gn ON gn.group_id = u.group_id
+				 JOIN nodes n ON n.id = gn.node_id
+				 JOIN xray_instances i ON i.id = n.instance_id
+				 WHERE u.status = 'active' AND n.id = ?
+				 UNION
+				 SELECT 'user-' || u.id || '@vpn.local', n.tag, i.api_addr
+				 FROM users u
+				 JOIN nodes n ON n.id = ? AND n.is_public = 1
+				 JOIN xray_instances i ON i.id = n.instance_id
+				 WHERE u.status = 'active'`, id, id)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var t XrayDeleteTarget
+				if err := rows.Scan(&t.Email, &t.Tag, &t.APIAddr); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				targets = append(targets, t)
+			}
+			if err := rows.Close(); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id); err != nil {
 			return fmt.Errorf("删除节点失败: %w", err)

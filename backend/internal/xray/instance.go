@@ -270,6 +270,51 @@ func (s *InstanceService) deleteAndClean(ctx context.Context, id int64) error {
 		if err := rows.Close(); err != nil {
 			return err
 		}
+		// Build6-2 补强：按“受影响 active 用户 × 当前期望目标集”收集面板用户清理目标，
+		// 不依赖 xray_users 是否已有记录；同时按候选集过滤。
+		candidates, err := candidateNamesFrom(ctx, tx)
+		if err != nil {
+			return err
+		}
+		candidateSet := map[string]bool{}
+		for _, c := range candidates {
+			candidateSet[c] = true
+		}
+		if len(candidateSet) > 0 {
+			rows, err = tx.QueryContext(ctx,
+				`SELECT 'user-' || u.id || '@vpn.local', i.id, n.tag, i.api_addr, n.name
+				 FROM users u
+				 JOIN group_nodes gn ON gn.group_id = u.group_id
+				 JOIN nodes n ON n.id = gn.node_id
+				 JOIN xray_instances i ON i.id = n.instance_id
+				 WHERE u.status = 'active' AND i.id = ? AND n.source = 'xray'
+				   AND n.enabled = 1 AND n.allocatable = 1 AND n.missing = 0 AND i.enabled = 1
+				 UNION
+				 SELECT 'user-' || u.id || '@vpn.local', i.id, n.tag, i.api_addr, n.name
+				 FROM users u
+				 JOIN nodes n ON n.is_public = 1
+				 JOIN xray_instances i ON i.id = n.instance_id
+				 WHERE u.status = 'active' AND i.id = ? AND n.source = 'xray'
+				   AND n.enabled = 1 AND n.allocatable = 1 AND n.missing = 0 AND i.enabled = 1`, id, id)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var t target
+				var name string
+				if err := rows.Scan(&t.Email, &t.Instance, &t.Tag, &t.APIAddr, &name); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				if !candidateSet[name] {
+					continue
+				}
+				targets = append(targets, t)
+			}
+			if err := rows.Close(); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM xray_instances WHERE id = ?`, id); err != nil {
 			return fmt.Errorf("删除 Xray 实例失败: %w", err)
 		}

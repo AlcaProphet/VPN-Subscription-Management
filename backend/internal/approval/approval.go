@@ -12,6 +12,7 @@ import (
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/store"
+	"vpn-sub/internal/xray"
 )
 
 // MailSender 邮件发送接口（mail.Service 实现；测试注入 mock）
@@ -34,6 +35,9 @@ type Service struct {
 
 	onApproved func(ctx context.Context, userID int64)
 	onRejected func(ctx context.Context, userID int64)
+
+	onUserDeleting func(ctx context.Context, userID int64) ([]xray.Target, error)
+	onUserDeleted  func(ctx context.Context, userID int64, targets []xray.Target)
 }
 
 func NewService(st *store.Store, mail MailSender, cfg *config.Service, lg *slog.Logger) *Service {
@@ -48,6 +52,16 @@ func (s *Service) SetOnApproved(fn func(ctx context.Context, userID int64)) {
 // SetOnRejected 注入审批拒绝后的 Xray 清理回调（Build6 Step3）。
 func (s *Service) SetOnRejected(fn func(ctx context.Context, userID int64)) {
 	s.onRejected = fn
+}
+
+// SetOnUserDeleting 注入拒绝删除前收集 Xray 清理目标回调（Build6-2 补强）。
+func (s *Service) SetOnUserDeleting(fn func(ctx context.Context, userID int64) ([]xray.Target, error)) {
+	s.onUserDeleting = fn
+}
+
+// SetOnUserDeleted 注入拒绝删除后 Xray 清理回调（Build6-2 补强）。
+func (s *Service) SetOnUserDeleted(fn func(ctx context.Context, userID int64, targets []xray.Target)) {
+	s.onUserDeleted = fn
 }
 
 // PendingUser 待审批用户
@@ -139,6 +153,14 @@ func (s *Service) Approve(ctx context.Context, id int64) error {
 
 // Reject 拒绝：删除账号（邮箱释放可重新注册）；claims 随账号删除；拒绝通知在动作时触发发送
 func (s *Service) Reject(ctx context.Context, id int64) error {
+	var cleanupTargets []xray.Target
+	if s.onUserDeleting != nil {
+		var err error
+		cleanupTargets, err = s.onUserDeleting(ctx, id)
+		if err != nil {
+			return err
+		}
+	}
 	var email string
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if err := tx.QueryRowContext(ctx,
@@ -164,6 +186,9 @@ func (s *Service) Reject(ctx context.Context, id int64) error {
 	}
 	if s.onRejected != nil {
 		s.onRejected(ctx, id)
+	}
+	if s.onUserDeleted != nil && len(cleanupTargets) > 0 {
+		s.onUserDeleted(ctx, id, cleanupTargets)
 	}
 	s.log.Info("审批拒绝", "user_id", id)
 	return nil

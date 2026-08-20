@@ -17,6 +17,7 @@ import (
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/version"
+	"vpn-sub/internal/xray"
 )
 
 // newTestAdminService 创建临时库 + 管理服务（含用户管理所需的全部表）
@@ -371,6 +372,31 @@ func TestAdminDeleteUserCascade(t *testing.T) {
 	// 版本文件级联删除
 	if _, err := os.Stat(verFile); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("版本文件应级联删除: %v", err)
+	}
+}
+
+// TestAdminDeleteCallsXrayCleanupHooks 删除用户前收集期望目标，删除后执行清理回调。
+func TestAdminDeleteCallsXrayCleanupHooks(t *testing.T) {
+	st, adminSvc, _, _, _ := newTestAdminService(t)
+	ctx := context.Background()
+	adminID, userID := seedAdminPair(t, st.DB())
+	want := []xray.Target{{NodeID: 1, InstanceID: 2, Tag: "in-a", APIAddr: "127.0.0.1:10086"}}
+	var gotCollect []xray.Target
+	var gotDeletedUser int64
+	var gotDeletedTargets []xray.Target
+	adminSvc.SetOnUserDeleting(func(_ context.Context, uid int64) ([]xray.Target, error) {
+		gotCollect = append(gotCollect, want...)
+		return want, nil
+	})
+	adminSvc.SetOnUserDeleted(func(_ context.Context, uid int64, targets []xray.Target) {
+		gotDeletedUser = uid
+		gotDeletedTargets = append(gotDeletedTargets, targets...)
+	})
+	if err := adminSvc.Delete(ctx, adminID, userID); err != nil {
+		t.Fatalf("删除用户失败: %v", err)
+	}
+	if len(gotCollect) != 1 || len(gotDeletedTargets) != 1 || gotDeletedUser != userID {
+		t.Fatalf("清理回调未按期望执行 collect=%+v deletedUser=%d targets=%+v", gotCollect, gotDeletedUser, gotDeletedTargets)
 	}
 }
 

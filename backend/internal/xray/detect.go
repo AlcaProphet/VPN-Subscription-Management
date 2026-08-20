@@ -104,10 +104,16 @@ func (s *InstanceService) DetectNodes(ctx context.Context, instanceID int64) (*D
 			if err != nil {
 				return err
 			}
+			oldMissing := false
 			if existingID == 0 {
 				if err := checkRenderNameForNewXray(ctx, tx, stableName); err != nil {
 					result.Skipped = append(result.Skipped, SkippedItem{Tag: tag, Reason: err.Error()})
 					continue
+				}
+			} else {
+				oldMissing, err = nodeMissing(ctx, tx, existingID)
+				if err != nil {
+					return err
 				}
 			}
 			allocatable := isAllocatable(protocolName)
@@ -147,7 +153,10 @@ func (s *InstanceService) DetectNodes(ctx context.Context, instanceID int64) (*D
 				allocatableChanged = append(allocatableChanged, NodeChange{NodeID: id, Tag: tag, Kind: NodeChangeAdded})
 			} else {
 				result.Updated++
-				// 检测 allocatable 变化（1→0 或 0→1）在提交后回调。
+				// 检测 missing 恢复（1→0）与 allocatable 变化（1→0 或 0→1）在提交后回调。
+				if oldMissing {
+					recovered = append(recovered, NodeChange{NodeID: existingID, Tag: tag, Kind: NodeChangeRecovered})
+				}
 				oldAlloc, err := nodeAllocatable(ctx, tx, existingID)
 				if err != nil {
 					return err
@@ -451,6 +460,14 @@ func existingNodeID(ctx context.Context, tx *sql.Tx, instanceID int64, tag strin
 func nodeAllocatable(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
 	var v int
 	if err := tx.QueryRowContext(ctx, `SELECT allocatable FROM nodes WHERE id = ?`, id).Scan(&v); err != nil {
+		return false, err
+	}
+	return v == 1, nil
+}
+
+func nodeMissing(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
+	var v int
+	if err := tx.QueryRowContext(ctx, `SELECT missing FROM nodes WHERE id = ?`, id).Scan(&v); err != nil {
 		return false, err
 	}
 	return v == 1, nil

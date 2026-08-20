@@ -133,6 +133,14 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	xraySvc := xray.NewInstanceService(st, lg, taskReg)
 	credsSvc := xray.NewCredentialService(st, cfg)
 	syncSvc := xray.NewSyncService(st, cfg, credsSvc, xraySvc, taskReg, lg)
+	// 组节点变化/删除后对受影响用户做精确 diff（Build6-2 补强）
+	groupSvc.SetOnNodesChanged(func(ctx context.Context, _ int64, userIDs []int64) {
+		for _, uid := range userIDs {
+			if err := syncSvc.ReconcileUser(ctx, uid); err != nil {
+				lg.Warn("组节点变化后同步失败", "user_id", uid, "err", err)
+			}
+		}
+	})
 	cron.StartXrayCollect(st, xraySvc, syncSvc, cfg, lg)
 	RegisterXrayRoutes(engine, &XrayHandler{instanceSvc: xraySvc, syncSvc: syncSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
 	// 候选集重算与同步 diff 接线：节点启停/公共变化、检测可见性变化
@@ -140,16 +148,25 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
 			lg.Warn("节点变化后候选集重算失败", "err", err)
 		}
-		// Step3 简版：节点启停/公共变化后，对全部 active 用户执行 diff（由 sync 内部按当前目标处理）
-		if err := syncSvc.SyncAllActive(ctx); err != nil {
+		// Build6-2 精确 diff：只同步受该节点影响的 active 用户
+		if err := syncSvc.SyncUsersForNodes(ctx, []int64{n.ID}); err != nil {
 			lg.Warn("节点变化后同步失败", "err", err)
 		}
 	})
-	xraySvc.SetOnNodeVisibilityChanged(func(ctx context.Context, _ []xray.NodeChange) {
+	xraySvc.SetOnNodeVisibilityChanged(func(ctx context.Context, changes []xray.NodeChange) {
 		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
 			lg.Warn("节点检测后候选集重算失败", "err", err)
 		}
-		if err := syncSvc.SyncAllActive(ctx); err != nil {
+		ids := make([]int64, 0, len(changes))
+		seen := map[int64]bool{}
+		for _, ch := range changes {
+			if ch.NodeID == 0 || seen[ch.NodeID] {
+				continue
+			}
+			seen[ch.NodeID] = true
+			ids = append(ids, ch.NodeID)
+		}
+		if err := syncSvc.SyncUsersForNodes(ctx, ids); err != nil {
 			lg.Warn("节点检测后同步失败", "err", err)
 		}
 	})
@@ -236,6 +253,15 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 			lg.Warn("换组后 Xray 同步失败", "user_id", userID, "err", err)
 		}
 	})
+	// 用户删除前按“当前期望目标集”收集清理目标，删除后执行 RemoveUser（Build6-2 补强）
+	adminUserSvc.SetOnUserDeleting(func(ctx context.Context, userID int64) ([]xray.Target, error) {
+		return syncSvc.Targets(ctx, userID)
+	})
+	adminUserSvc.SetOnUserDeleted(func(ctx context.Context, userID int64, targets []xray.Target) {
+		if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
+			lg.Warn("删除用户后 Xray 清理失败", "user_id", userID, "err", err)
+		}
+	})
 	// 邮件服务 + 审批中心（Build3 Step 2）：接通密码重置邮件与欢迎邮件注入点（SMTP 未配置/失败不阻断主流程）
 	mailSvc := mail.NewService(cfg, lg)
 	resetSvc.SetSendMail(func(ctx context.Context, to, resetURL string) error {
@@ -256,8 +282,16 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 		}
 	})
 	approvalSvc.SetOnRejected(func(ctx context.Context, userID int64) {
-		// 待审批用户通常未推送；若有残留由对账兜底。
+		// 保留原回调；实际清理由下方 onUserDeleting/onUserDeleted 负责。
 		_ = userID
+	})
+	approvalSvc.SetOnUserDeleting(func(ctx context.Context, userID int64) ([]xray.Target, error) {
+		return syncSvc.Targets(ctx, userID)
+	})
+	approvalSvc.SetOnUserDeleted(func(ctx context.Context, userID int64, targets []xray.Target) {
+		if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
+			lg.Warn("审批拒绝后 Xray 清理失败", "user_id", userID, "err", err)
+		}
 	})
 	// 面板配置（Build3 Step 3）：分区读写 + 死锁防护 + 加密脱敏；接通调试模式 5xx 详情
 	response.SetDebugProvider(func(ctx context.Context) bool {

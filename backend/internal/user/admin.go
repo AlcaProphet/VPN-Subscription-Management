@@ -17,6 +17,7 @@ import (
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/version"
+	"vpn-sub/internal/xray"
 )
 
 // 业务错误（接入层映射 HTTP 状态码）
@@ -42,6 +43,8 @@ type AdminService struct {
 	onUserActive       func(ctx context.Context, userID int64)
 	onUserDisabled     func(ctx context.Context, userID int64)
 	onUserGroupChanged func(ctx context.Context, userID int64)
+	onUserDeleting     func(ctx context.Context, userID int64) ([]xray.Target, error)
+	onUserDeleted      func(ctx context.Context, userID int64, targets []xray.Target)
 }
 
 func NewAdminService(st *store.Store, users *Service, tokens *token.Service, resetSvc *auth.ResetService, cfg *config.Service, versions *version.Service, lg *slog.Logger) *AdminService {
@@ -61,6 +64,16 @@ func (s *AdminService) SetOnUserDisabled(fn func(ctx context.Context, userID int
 // SetOnUserGroupChanged 注入换组同步回调（Build6 Step3）。
 func (s *AdminService) SetOnUserGroupChanged(fn func(ctx context.Context, userID int64)) {
 	s.onUserGroupChanged = fn
+}
+
+// SetOnUserDeleting 注入删除前收集 Xray 清理目标回调（Build6-2 补强）。
+func (s *AdminService) SetOnUserDeleting(fn func(ctx context.Context, userID int64) ([]xray.Target, error)) {
+	s.onUserDeleting = fn
+}
+
+// SetOnUserDeleted 注入删除后 Xray 清理回调（Build6-2 补强）。
+func (s *AdminService) SetOnUserDeleted(fn func(ctx context.Context, userID int64, targets []xray.Target)) {
+	s.onUserDeleted = fn
 }
 
 // --- 五重保护校验辅助（均在事务内实时查库，不缓存）---
@@ -525,6 +538,14 @@ func (s *AdminService) Delete(ctx context.Context, operatorID, targetID int64) e
 	if err := s.checkNotSelf(operatorID, targetID); err != nil { // 禁止删自己
 		return err
 	}
+	var cleanupTargets []xray.Target
+	if s.onUserDeleting != nil {
+		var err error
+		cleanupTargets, err = s.onUserDeleting(ctx, targetID)
+		if err != nil {
+			return err
+		}
+	}
 	var files []string
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		var role, status string
@@ -598,6 +619,9 @@ func (s *AdminService) Delete(ctx context.Context, operatorID, targetID int64) e
 		if err := os.Remove(clean); err != nil && !errors.Is(err, os.ErrNotExist) {
 			s.log.Warn("删除自定义订阅版本文件失败", "file", clean, "err", err)
 		}
+	}
+	if s.onUserDeleted != nil && len(cleanupTargets) > 0 {
+		s.onUserDeleted(ctx, targetID, cleanupTargets)
 	}
 	s.log.Info("用户已删除", "user_id", targetID, "operator_id", operatorID)
 	return nil

@@ -129,7 +129,8 @@ func (s *Service) checkEditable(ctx context.Context, tx *sql.Tx, id int64) error
 
 // Delete 默认组不可删；组内用户自动迁入默认组（Token 无需清理，实时解析自动跟随）
 func (s *Service) Delete(ctx context.Context, id int64) error {
-	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	var affected []int64
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		var isDefault int
 		if err := tx.QueryRowContext(ctx, `SELECT is_default FROM groups WHERE id = ?`, id).Scan(&isDefault); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -139,6 +140,22 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		}
 		if isDefault == 1 {
 			return ErrDefaultGroup // 「预置默认组不可删除」，接入层 400
+		}
+		// 收集受影响 active 用户（删除后迁入默认组，推送目标会变化）
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM users WHERE group_id = ? AND status = 'active'`, id)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var uid int64
+			if err := rows.Scan(&uid); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			affected = append(affected, uid)
+		}
+		if err := rows.Close(); err != nil {
+			return err
 		}
 		var defaultID int64
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM groups WHERE is_default = 1 LIMIT 1`).Scan(&defaultID); err != nil {
@@ -153,6 +170,13 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if s.onNodesChanged != nil && len(affected) > 0 {
+		s.onNodesChanged(ctx, id, affected)
+	}
+	return nil
 }
 
 // List 组列表：组名、是否默认组、默认配额、节点分配数、组内用户数
