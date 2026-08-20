@@ -1,7 +1,7 @@
 <!-- PoolTab.vue：规则素材池列表（Design2-UI §5.2.1）+ 新建/编辑弹窗 -->
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { Badge, Button, Modal, Input, Switch, Table, Tooltip } from 'ant-design-vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { Badge, Button, Modal, Input, Switch, Table, TimePicker, Tooltip } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { listPools, createPool, updatePool, deletePool, submitSync, getSyncStatus, type PoolItem, type SyncTaskItem } from '@/api/pool'
 import { pollTask, ApiError } from '@/api/request'
@@ -25,6 +25,10 @@ async function load() {
   }
 }
 onMounted(load)
+onUnmounted(() => {
+  pollHandles.forEach((h) => h.cancel())
+  pollHandles.clear()
+})
 
 function currentDetail() {
   return pools.value.find((p) => p.id === detailID.value) ?? null
@@ -198,6 +202,28 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
             </template>
           </Table.Column>
         </Table>
+
+        <div class="grid grid-cols-1 gap-3 md:hidden">
+          <div v-for="p in pools" :key="p.id" class="border rounded-lg p-3">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <a class="text-blue-500 font-medium" @click="detailID = p.id">{{ p.name }}</a>
+              <Tooltip :title="p.sync_error || ''">
+                <Badge :status="(statusMeta[p.sync_status]?.color ?? 'default') as any"
+                       :text="statusMeta[p.sync_status]?.text ?? '未同步'" />
+              </Tooltip>
+            </div>
+            <div class="text-xs text-gray-500 mt-1">URL {{ p.urls.length }} · 条目 {{ p.entry_count }} · 上次同步 {{ fmtTime(p.last_synced_at) }}</div>
+            <div class="mt-2 flex items-center gap-2 flex-wrap">
+              <Switch :checked="p.auto_sync" :loading="toggling === p.id" size="small"
+                      @change="(v: boolean | string | number) => toggleAuto(p, Boolean(v))" />
+              <span class="text-xs text-gray-400">每日 {{ p.sync_time }} UTC</span>
+              <Button size="small" @click="detailID = p.id">详情</Button>
+              <Button size="small" :loading="syncingID === p.id" @click="doSync(p)">同步</Button>
+              <Button size="small" @click="openEdit(p)">编辑</Button>
+              <Button size="small" danger @click="toDelete = p">删除</Button>
+            </div>
+          </div>
+        </div>
       </TriStateList>
     </template>
 
@@ -220,7 +246,8 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         <div class="flex items-center gap-3 flex-wrap">
           <span class="text-sm">定时同步</span>
           <Switch v-model:checked="form.auto_sync" size="small" />
-          <Input v-model:value="form.sync_time" class="!w-24" placeholder="04:00" :maxlength="5" />
+          <TimePicker :value="form.sync_time ? dayjs(form.sync_time, 'HH:mm') : undefined" format="HH:mm" :minute-step="1"
+                      @change="(t: any) => form.sync_time = t ? t.format('HH:mm') : '04:00'" />
           <span class="text-xs text-gray-400">HH:MM，按 UTC 每日执行，停机错过不补跑</span>
         </div>
         <div class="flex justify-end gap-2">

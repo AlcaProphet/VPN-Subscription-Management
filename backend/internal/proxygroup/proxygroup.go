@@ -214,9 +214,9 @@ func (s *Service) validateDefinitionWithDAG(ctx context.Context, existing Group,
 			return fmt.Errorf("%w: 节点不存在: %s", ErrBadRequest, name)
 		}
 	}
-	// 子组引用：允许强制组或已存在代理组；不允许自引用（自环由 DAG 检测）
+	// 子组引用：允许 🚀直接连接 / 🌎国外流量 或已存在代理组；🛟无法归属的流量不允许作为子组。
 	for _, name := range def.Groups {
-		if name == node.ForceDirect || name == node.ForceOverseas || name == node.ForceFallback {
+		if name == node.ForceDirect || name == node.ForceOverseas {
 			continue
 		}
 		var n int

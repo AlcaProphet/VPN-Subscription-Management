@@ -61,16 +61,35 @@ func (s *Service) Render(ctx context.Context, in GenerateInput) (*RenderResult, 
 
 // SaveBlueprintTx 在版本事务内写入 assembly_blueprints（version_id 1:1）。
 func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int64, in GenerateInput, renderPlan json.RawMessage) error {
-	fixed, err := json.Marshal(in.FixedParams)
+	if in.FixedParams == nil {
+		in.FixedParams = NewOrderedMap()
+	}
+	// SR conf 的 FINAL 方向按 Build5 要求并入 fixed_params_json（仅存储，不影响渲染输出）。
+	fixedForStorage := NewOrderedMap()
+	for _, k := range in.FixedParams.Keys() {
+		v, _ := in.FixedParams.Get(k)
+		fixedForStorage.Set(k, v)
+	}
+	if in.TargetSyntax == SrConf {
+		fixedForStorage.Set("final_direction", in.FinalDirection)
+	}
+	fixed, err := json.Marshal(fixedForStorage)
 	if err != nil {
 		return err
 	}
+	var platformID, ruleID any
+	if in.TargetSyntax == SrConf {
+		ruleID = in.RuleID
+	} else {
+		platformID = in.PlatformID
+	}
 	selection := map[string]any{
-		"node_names":        in.NodeNames,
-		"group_names":       in.GroupNames,
-		"overseas_members":  in.OverseasMembers,
-		"pools":             in.Pools,
-		"final_direction":   in.FinalDirection,
+		"node_names":       in.NodeNames,
+		"group_names":      in.GroupNames,
+		"overseas_members": in.OverseasMembers,
+		"pools":            in.Pools,
+		"final_direction":  in.FinalDirection,
+		"xray_candidates":  []string{}, // Build6 注入前为空候选集
 	}
 	sel, err := json.Marshal(selection)
 	if err != nil {
@@ -84,9 +103,9 @@ func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int
 		renderPlan = json.RawMessage(`{}`)
 	}
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO assembly_blueprints (version_id, target_syntax, fixed_params_json, selection_json, custom_rules_json, render_plan_json)
-		 VALUES (?,?,?,?,?,?)`,
-		versionID, string(in.TargetSyntax), string(fixed), string(sel), string(custom), string(renderPlan))
+		`INSERT INTO assembly_blueprints (version_id, target_syntax, fixed_params_json, selection_json, custom_rules_json, render_plan_json, platform_id, rule_id)
+		 VALUES (?,?,?,?,?,?,?,?)`,
+		versionID, string(in.TargetSyntax), string(fixed), string(sel), string(custom), string(renderPlan), platformID, ruleID)
 	return err
 }
 

@@ -33,7 +33,7 @@ func srLink(nd *nodeData) (string, error) {
 		q.Set("remarks", nd.RenderName)
 		q.Set("udp", "1")
 		q.Set("alterId", "0")
-		return "vmess://" + userinfo + "?" + q.Encode(), nil
+		return "vmess://" + userinfo + "?" + encodeQuery(q), nil
 	case "vless":
 		uuid := str(nd.ProtocolJSON, "uuid", "")
 		userinfo := base64.StdEncoding.EncodeToString([]byte(":" + uuid + "@" + host + ":" + strconv.Itoa(nd.Port)))
@@ -59,7 +59,7 @@ func srLink(nd *nodeData) (string, error) {
 				q.Set("peer", sni)
 			}
 		}
-		return "vless://" + userinfo + "?" + q.Encode(), nil
+		return "vless://" + userinfo + "?" + encodeQuery(q), nil
 	case "trojan":
 		password := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
 		q := url.Values{}
@@ -69,7 +69,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("allowInsecure", "1")
 		}
-		return "trojan://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "trojan://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	case "anytls":
 		password := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
 		q := url.Values{}
@@ -82,7 +82,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "udp", true) {
 			q.Set("udp", "1")
 		}
-		return "anytls://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "anytls://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	case "hysteria2":
 		password := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
 		q := url.Values{}
@@ -98,7 +98,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "insecure", false) {
 			q.Set("insecure", "1")
 		}
-		return "hysteria2://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "hysteria2://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	case "hysteria":
 		q := url.Values{}
 		if p := str(nd.ProtocolJSON, "protocol", "udp"); p != "" {
@@ -119,7 +119,7 @@ func srLink(nd *nodeData) (string, error) {
 		if obfs := str(nd.ProtocolJSON, "obfs", ""); obfs != "" {
 			q.Set("obfs", obfs)
 		}
-		return "hysteria://" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "hysteria://" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	case "tuic":
 		uuid := str(nd.ProtocolJSON, "uuid", "")
 		password := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
@@ -130,7 +130,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "allow_insecure", false) || boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("allow_insecure", "1")
 		}
-		return "tuic://" + uuid + ":" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "tuic://" + uuid + ":" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	case "wireguard":
 		privateKey := url.QueryEscape(str(nd.ProtocolJSON, "private-key", ""))
 		q := url.Values{}
@@ -139,7 +139,7 @@ func srLink(nd *nodeData) (string, error) {
 				q.Set(k, v)
 			}
 		}
-		return "wireguard://" + privateKey + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "wireguard://" + privateKey + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	case "http":
 		user := url.QueryEscape(str(nd.ProtocolJSON, "username", ""))
 		pass := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
@@ -150,7 +150,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("skip-cert-verify", "1")
 		}
-		return "http://" + user + ":" + pass + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "http://" + user + ":" + pass + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	case "socks5":
 		user := url.QueryEscape(str(nd.ProtocolJSON, "username", ""))
 		pass := url.QueryEscape(str(nd.ProtocolJSON, "password", ""))
@@ -164,7 +164,7 @@ func srLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("skip-cert-verify", "1")
 		}
-		return "socks5://" + user + ":" + pass + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "socks5://" + user + ":" + pass + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	default:
 		return "", fmt.Errorf("协议无标准链接映射: %s", nd.Protocol)
 	}
@@ -222,7 +222,7 @@ func genericLink(nd *nodeData) (string, error) {
 		if flow := str(nd.ProtocolJSON, "flow", ""); flow != "" {
 			q.Set("flow", flow)
 		}
-		return "vless://" + uuid + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + q.Encode() + "#" + name, nil
+		return "vless://" + uuid + "@" + host + ":" + strconv.Itoa(nd.Port) + "?" + encodeQuery(q) + "#" + name, nil
 	case "trojan":
 		return srLink(nd)
 	case "anytls":
@@ -293,10 +293,21 @@ func firstNonEmpty(m map[string]any, keys ...string) string {
 	return ""
 }
 
+// encodeQuery 编码查询参数，并按 Build5 要求把 `+` 替换为 `%20`，避免空格不对称。
+func encodeQuery(q url.Values) string {
+	return strings.ReplaceAll(q.Encode(), "+", "%20")
+}
+
 func realityOpts(m map[string]any) map[string]any {
 	if v, ok := m["reality-opts"]; ok {
 		if mm, ok := v.(map[string]any); ok {
 			return mm
+		}
+		if s, ok := v.(string); ok && s != "" {
+			var mm map[string]any
+			if err := json.Unmarshal([]byte(s), &mm); err == nil {
+				return mm
+			}
 		}
 	}
 	if v, ok := m["reality"]; ok {

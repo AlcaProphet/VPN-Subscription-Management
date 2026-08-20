@@ -12,8 +12,14 @@ import (
 func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*RenderResult, error) {
 	var b strings.Builder
 	if sr {
-		status, _ := in.FixedParams["status"].(string)
-		remarks, _ := in.FixedParams["remarks"].(string)
+		status := ""
+		if v, ok := in.FixedParams.Get("status"); ok {
+			status, _ = v.(string)
+		}
+		remarks := ""
+		if v, ok := in.FixedParams.Get("remarks"); ok {
+			remarks, _ = v.(string)
+		}
 		if status == "" {
 			status = "2026/01/01 Version"
 		}
@@ -51,7 +57,8 @@ func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*Rend
 func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult, error) {
 	var b strings.Builder
 	b.WriteString("[General]\n")
-	for k, v := range in.FixedParams {
+	for _, k := range in.FixedParams.Keys() {
+		v, _ := in.FixedParams.Get(k)
 		b.WriteString(k + " = " + fmt.Sprint(v) + "\n")
 	}
 	b.WriteString("\n[Rule]\n")

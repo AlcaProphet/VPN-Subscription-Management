@@ -51,41 +51,42 @@ func ParseLine(raw string) (string, string, string, bool) {
 	return typ, val, skip, true
 }
 
-// ValidateEntry 入库白名单校验（域名 lowercase；CIDR 归一；控制字符/逗号/换行拒绝防拼接注入）
-func ValidateEntry(ruleType, matchValue string) (string, error) {
+// ValidateEntry 入库白名单校验（类型统一大写；域名 lowercase；CIDR 归一；控制字符/逗号/换行拒绝防拼接注入）
+// 返回规范化后的 (规则类型, 匹配值)，调用方必须使用返回值入库，避免大小写不一致。
+func ValidateEntry(ruleType, matchValue string) (string, string, error) {
 	typ := strings.ToUpper(strings.TrimSpace(ruleType))
 	val := strings.TrimSpace(matchValue)
 	if !supportedTypes[typ] {
-		return "", fmt.Errorf("不支持的规则类型: %s", typ)
+		return "", "", fmt.Errorf("不支持的规则类型: %s", typ)
 	}
 	if val == "" || val != strings.TrimSpace(val) {
-		return "", fmt.Errorf("%s 匹配值不能为空且禁止首尾空白", typ)
+		return "", "", fmt.Errorf("%s 匹配值不能为空且禁止首尾空白", typ)
 	}
 	if containsControl(val) || strings.ContainsAny(val, ",\r\n") {
-		return "", fmt.Errorf("%s 匹配值含非法字符", typ)
+		return "", "", fmt.Errorf("%s 匹配值含非法字符", typ)
 	}
 	switch typ {
 	case "DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD":
 		v := strings.ToLower(val) // 域名统一 lowercase 规范化
 		if strings.Contains(v, "/") || strings.Contains(v, ":") || strings.Contains(v, " ") {
-			return "", fmt.Errorf("%s 匹配值不是合法域名", typ)
+			return "", "", fmt.Errorf("%s 匹配值不是合法域名", typ)
 		}
 		if !utf8.ValidString(v) {
-			return "", fmt.Errorf("%s 匹配值含非法 UTF-8", typ)
+			return "", "", fmt.Errorf("%s 匹配值含非法 UTF-8", typ)
 		}
-		return v, nil
+		return typ, v, nil
 	case "IP-CIDR", "IP-CIDR6":
 		_, ipNet, err := net.ParseCIDR(val)
 		if err != nil {
-			return "", fmt.Errorf("%s 匹配值不是合法 CIDR: %v", typ, err)
+			return "", "", fmt.Errorf("%s 匹配值不是合法 CIDR: %v", typ, err)
 		}
-		return ipNet.String(), nil // CIDR 按规范格式归一
+		return typ, ipNet.String(), nil // CIDR 按规范格式归一
 	case "PROCESS-NAME", "PROCESS-NAME-REGEX", "USER-AGENT":
 		if len(val) > 512 {
-			return "", fmt.Errorf("%s 匹配值超过 512 字符", typ)
+			return "", "", fmt.Errorf("%s 匹配值超过 512 字符", typ)
 		}
-		return val, nil
+		return typ, val, nil
 	default:
-		return "", fmt.Errorf("不支持的规则类型: %s", typ)
+		return "", "", fmt.Errorf("不支持的规则类型: %s", typ)
 	}
 }

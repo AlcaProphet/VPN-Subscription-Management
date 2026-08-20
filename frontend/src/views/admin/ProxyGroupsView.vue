@@ -29,7 +29,13 @@ const nodeList = computed<string[]>({
   get: () => form.node_names,
   set: (v) => { form.node_names = v },
 })
-const { up: nodeUp, down: nodeDown } = useSortableList(nodeList)
+const { move: nodeMove, up: nodeUp, down: nodeDown } = useSortableList(nodeList)
+const dragIndex = ref<number | null>(null)
+function onDragStart(idx: number) { dragIndex.value = idx }
+function onDrop(idx: number) {
+  if (dragIndex.value !== null && dragIndex.value !== idx) nodeMove(dragIndex.value, idx)
+  dragIndex.value = null
+}
 
 async function load() {
   loading.value = true
@@ -182,7 +188,8 @@ function memberSummary(g: ProxyGroupItem): string {
         </Form.Item>
         <Form.Item label="节点引用（有序）">
           <div class="space-y-2">
-            <div v-for="(name, idx) in form.node_names" :key="name" class="flex items-center gap-2">
+            <div v-for="(name, idx) in form.node_names" :key="name" draggable="true" class="flex items-center gap-2 cursor-move"
+                 @dragstart="onDragStart(idx)" @dragover.prevent @drop="onDrop(idx)">
               <span class="flex-1">{{ name }}</span>
               <Button size="small" @click="nodeUp(idx)">上移</Button>
               <Button size="small" @click="nodeDown(idx)">下移</Button>
@@ -208,7 +215,6 @@ function memberSummary(g: ProxyGroupItem): string {
           >
             <Select.Option value="🚀直接连接">🚀直接连接</Select.Option>
             <Select.Option value="🌎国外流量">🌎国外流量</Select.Option>
-            <Select.Option value="🛟无法归属的流量">🛟无法归属的流量</Select.Option>
             <Select.Option v-for="g in groups.filter((x) => x.id !== editing?.id)" :key="g.name" :value="g.name">{{ g.name }}</Select.Option>
           </Select>
         </Form.Item>

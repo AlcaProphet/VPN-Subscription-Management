@@ -18,6 +18,8 @@ const toDelete = ref<NodeItem | null>(null)
 const deleting = ref(false)
 const disableTarget = ref<NodeItem | null>(null)
 const disabling = ref(false)
+const publicTarget = ref<NodeItem | null>(null)
+const publicChanging = ref(false)
 const saving = ref(false)
 
 const form = reactive<NodeForm>({
@@ -110,12 +112,23 @@ async function confirmDisable() {
   }
 }
 async function onTogglePublic(n: NodeItem, isPublic: boolean) {
+  publicTarget.value = { ...n, is_public: isPublic }
+}
+async function confirmPublic() {
+  if (!publicTarget.value) return
+  publicChanging.value = true
   try {
-    await toggleNode(n.id, { is_public: isPublic })
-    n.is_public = isPublic
+    const target = publicTarget.value
+    await toggleNode(target.id, { is_public: target.is_public })
+    const row = nodes.value.find((x) => x.id === target.id)
+    if (row) row.is_public = target.is_public
+    Notify.success(target.is_public ? '已设为公共节点' : '已取消公共节点')
+    publicTarget.value = null
   } catch (err) {
     Notify.error((err as Error).message)
     await load()
+  } finally {
+    publicChanging.value = false
   }
 }
 async function saveDisplayName() {
@@ -251,6 +264,8 @@ function setField(key: string, val: unknown) {
               <Select.Option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</Select.Option>
             </Select>
             <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)" @change="(v: any) => setField(f.name, v)" />
+            <Input.TextArea v-else-if="f.type === 'object'" :value="JSON.stringify(fieldValue(f.name) ?? f.default ?? {}, null, 2)" :rows="3"
+              @change="(e: any) => { try { setField(f.name, JSON.parse(e.target.value || '{}')) } catch { Notify.error('对象字段 JSON 格式错误') } }" />
             <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
           </div>
         </template>
@@ -265,6 +280,10 @@ function setField(key: string, val: unknown) {
     <ConfirmModal :open="disableTarget !== null" title="停用节点" danger :loading="disabling"
                   content="停用该节点将移除受影响用户的 Xray 账号（重新启用后需重新分配）。确定停用吗？"
                   @confirm="confirmDisable" @update:open="disableTarget = null" />
+
+    <ConfirmModal :open="publicTarget !== null" title="切换公共标记" :loading="publicChanging"
+                  :content="`确定${publicTarget?.is_public ? '设为' : '取消'}公共节点吗？公共节点将进入候选集供用户分配。`"
+                  @confirm="confirmPublic" @update:open="publicTarget = null" />
 
     <ConfirmModal :open="toDelete !== null" title="删除节点" danger :loading="deleting" :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />
   </div>

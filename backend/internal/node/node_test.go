@@ -319,3 +319,28 @@ func TestListFilter(t *testing.T) {
 		t.Fatalf("列表 JSON 序列化失败: %v", err)
 	}
 }
+
+// TestProtocolChangeDropsOldSensitiveAndRedactsWrite 协议变更清理旧敏感字段，写响应脱敏
+func TestProtocolChangeDropsOldSensitiveAndRedactsWrite(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	n := createManual(t, svc, "协议变更节点")
+	updated, err := svc.UpdateManual(ctx, n.ID, UpdateManualInput{
+		Protocol: "ss", Host: "1.2.3.4", Port: 8388,
+		ProtocolJSON: map[string]any{"cipher": "aes-256-gcm", "password": "new-pw"},
+	})
+	if err != nil {
+		t.Fatalf("协议变更失败: %v", err)
+	}
+	raw, err := svc.getRaw(ctx, n.ID)
+	if err != nil {
+		t.Fatalf("读取原始节点失败: %v", err)
+	}
+	if _, ok := raw.ProtocolJSON["uuid"]; ok {
+		t.Fatal("旧协议敏感字段 uuid 不应残留")
+	}
+	if updated.ProtocolJSON["password"] != "" {
+		t.Fatalf("写响应应脱敏敏感字段，实际 %v", updated.ProtocolJSON["password"])
+	}
+}
+

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -166,7 +167,7 @@ func (h *AssemblyHandler) resolveOwner(ctx context.Context, in assembly.Generate
 	return version.OwnerSubscription, subID, name, nil
 }
 
-// blueprint 读取装配快照并校验引用。
+// blueprint 读取装配快照并校验引用，返回失效引用与显示名变化。
 func (h *AssemblyHandler) blueprint(c *gin.Context) {
 	id, ok := parseID(c, "id")
 	if !ok {
@@ -174,16 +175,19 @@ func (h *AssemblyHandler) blueprint(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	var row struct {
-		TargetSyntax     string
-		FixedParamsJSON  string
-		SelectionJSON    string
-		CustomRulesJSON  string
-		RenderPlanJSON   string
+		TargetSyntax    string
+		FixedParamsJSON string
+		SelectionJSON   string
+		CustomRulesJSON string
+		RenderPlanJSON  string
+		PlatformID      *int64
+		RuleID          *int64
 	}
 	err := h.store.DB().QueryRowContext(ctx,
-		`SELECT target_syntax, fixed_params_json, selection_json, custom_rules_json, render_plan_json
+		`SELECT target_syntax, fixed_params_json, selection_json, custom_rules_json, render_plan_json, platform_id, rule_id
 		 FROM assembly_blueprints WHERE version_id = ?`, id).Scan(
-		&row.TargetSyntax, &row.FixedParamsJSON, &row.SelectionJSON, &row.CustomRulesJSON, &row.RenderPlanJSON)
+		&row.TargetSyntax, &row.FixedParamsJSON, &row.SelectionJSON, &row.CustomRulesJSON, &row.RenderPlanJSON,
+		&row.PlatformID, &row.RuleID)
 	if errors.Is(err, sql.ErrNoRows) {
 		Fail(c, http.StatusNotFound, "蓝图不存在")
 		return
@@ -192,12 +196,71 @@ func (h *AssemblyHandler) blueprint(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	var sel struct {
+		NodeNames       []string               `json:"node_names"`
+		GroupNames      []string               `json:"group_names"`
+		Pools           []assembly.PoolSelection `json:"pools"`
+		OverseasMembers []string               `json:"overseas_members"`
+	}
+	if err := json.Unmarshal([]byte(row.SelectionJSON), &sel); err != nil {
+		Fail(c, http.StatusInternalServerError, "蓝图 selection_json 解析失败")
+		return
+	}
+	invalid := make([]gin.H, 0)
+	checkExists := func(table, column string, value any, kind, name string) error {
+		var n int
+		if err := h.store.DB().QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM `+table+` WHERE `+column+` = ?`, value).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			invalid = append(invalid, gin.H{"kind": kind, "name": name})
+		}
+		return nil
+	}
+	for _, name := range sel.NodeNames {
+		if err := checkExists("nodes", "name", name, "node", name); err != nil {
+			Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	for _, name := range sel.GroupNames {
+		if err := checkExists("proxy_groups", "name", name, "group", name); err != nil {
+			Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	for _, p := range sel.Pools {
+		if err := checkExists("rule_pools", "id", p.PoolID, "pool", fmt.Sprintf("%d", p.PoolID)); err != nil {
+			Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	nameChanged := map[string]string{}
+	for _, name := range sel.NodeNames {
+		var dbName string
+		var display sql.NullString
+		err := h.store.DB().QueryRowContext(ctx,
+			`SELECT name, display_name FROM nodes WHERE name = ?`, name).Scan(&dbName, &display)
+		if err != nil {
+			continue
+		}
+		render := dbName
+		if display.Valid && display.String != "" {
+			render = display.String
+		}
+		if render != name {
+			nameChanged[name] = render
+		}
+	}
 	blueprint := gin.H{
 		"target_syntax":    row.TargetSyntax,
 		"fixed_params":     json.RawMessage(row.FixedParamsJSON),
 		"selection":        json.RawMessage(row.SelectionJSON),
 		"custom_rules":     json.RawMessage(row.CustomRulesJSON),
 		"render_plan":      json.RawMessage(row.RenderPlanJSON),
+		"platform_id":      row.PlatformID,
+		"rule_id":          row.RuleID,
 	}
-	OK(c, gin.H{"blueprint": blueprint, "invalid_refs": []any{}, "name_changed": nil})
+	OK(c, gin.H{"blueprint": blueprint, "invalid_refs": invalid, "name_changed": nameChanged})
 }

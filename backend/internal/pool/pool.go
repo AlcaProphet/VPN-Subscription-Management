@@ -252,7 +252,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 
 // --- 条目 CRUD（仅 manual 来源） ---
 
-// ListEntries 分页读取条目（渲染顺序 = sort_order,id；数万行不整表加载）
+// ListEntries 分页读取条目（渲染顺序 = sort_order,id；数万行不整表加载）；池不存在返回 ErrNotFound
 func (s *Service) ListEntries(ctx context.Context, poolID, page, pageSize int64) ([]Entry, int64, error) {
 	if page < 1 {
 		page = 1
@@ -262,6 +262,14 @@ func (s *Service) ListEntries(ctx context.Context, poolID, page, pageSize int64)
 	}
 	if pageSize > MaxPageSize {
 		pageSize = MaxPageSize
+	}
+	var exists int
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
+		return nil, 0, err
+	}
+	if exists == 0 {
+		return nil, 0, ErrNotFound
 	}
 	var total int64
 	if err := s.store.DB().QueryRowContext(ctx,
@@ -295,7 +303,7 @@ func scanEntry(row rowScanner) (Entry, error) {
 
 // CreateEntry 手动新增条目（manual 段追加）
 func (s *Service) CreateEntry(ctx context.Context, poolID int64, ruleType, matchValue string) (*Entry, error) {
-	value, err := ValidateEntry(ruleType, matchValue)
+	normType, value, err := ValidateEntry(ruleType, matchValue)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -307,7 +315,7 @@ func (s *Service) CreateEntry(ctx context.Context, poolID int64, ruleType, match
 		var dup int
 		if err := tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM pool_entries WHERE pool_id = ? AND rule_type = ? AND match_value = ?`,
-			poolID, ruleType, value).Scan(&dup); err != nil {
+			poolID, normType, value).Scan(&dup); err != nil {
 			return err
 		}
 		if dup > 0 {
@@ -319,7 +327,7 @@ func (s *Service) CreateEntry(ctx context.Context, poolID int64, ruleType, match
 		}
 		res, err := tx.ExecContext(ctx,
 			`INSERT INTO pool_entries (pool_id, rule_type, match_value, source, sort_order) VALUES (?,?,?, 'manual', ?)`,
-			poolID, ruleType, value, order)
+			poolID, normType, value, order)
 		if err != nil {
 			return err
 		}
@@ -327,7 +335,7 @@ func (s *Service) CreateEntry(ctx context.Context, poolID int64, ruleType, match
 		if err != nil {
 			return err
 		}
-		created = &Entry{ID: id, PoolID: poolID, RuleType: ruleType, MatchValue: value, Source: "manual", SortOrder: order}
+		created = &Entry{ID: id, PoolID: poolID, RuleType: normType, MatchValue: value, Source: "manual", SortOrder: order}
 		return nil
 	})
 	return created, err
@@ -335,7 +343,7 @@ func (s *Service) CreateEntry(ctx context.Context, poolID int64, ruleType, match
 
 // UpdateEntry 修改 manual 条目（类型/匹配值可改；去重冲突 409）
 func (s *Service) UpdateEntry(ctx context.Context, entryID int64, ruleType, matchValue string) error {
-	value, err := ValidateEntry(ruleType, matchValue)
+	normType, value, err := ValidateEntry(ruleType, matchValue)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -355,7 +363,7 @@ func (s *Service) UpdateEntry(ctx context.Context, entryID int64, ruleType, matc
 		var dup int
 		if err := tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM pool_entries WHERE pool_id = ? AND rule_type = ? AND match_value = ? AND id != ?`,
-			poolID, ruleType, value, entryID).Scan(&dup); err != nil {
+			poolID, normType, value, entryID).Scan(&dup); err != nil {
 			return err
 		}
 		if dup > 0 {
@@ -363,7 +371,7 @@ func (s *Service) UpdateEntry(ctx context.Context, entryID int64, ruleType, matc
 		}
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE pool_entries SET rule_type = ?, match_value = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			ruleType, value, entryID); err != nil {
+			normType, value, entryID); err != nil {
 			return err
 		}
 		return nil

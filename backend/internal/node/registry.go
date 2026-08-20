@@ -72,7 +72,7 @@ func ManualProtocols() []Protocol {
 				{Name: "tls", Type: "bool", Default: false, Label: "TLS"},
 				{Name: "servername", Type: "text", Label: "SNI"},
 				{Name: "client-fingerprint", Type: "text", Label: "指纹"},
-				{Name: "reality-opts", Type: "text", Label: "REALITY 公钥/ShortId（JSON）"},
+				{Name: "reality-opts", Type: "object", Label: "REALITY 公钥/ShortId", Help: "JSON 对象，如 {\"public-key\":\"...\",\"short-id\":\"...\"}"},
 				{Name: "udp", Type: "bool", Default: true, Label: "UDP"},
 			},
 			SensitiveFields: []string{"uuid"},

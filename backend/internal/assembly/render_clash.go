@@ -13,8 +13,9 @@ import (
 // renderClash 渲染 Clash YAML 产物。
 func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, error) {
 	root := &yaml.Node{Kind: yaml.MappingNode}
-	// 头部表单值（按 map 展开）
-	for k, v := range in.FixedParams {
+	// 头部表单值（按管理员填写顺序输出）
+	for _, k := range in.FixedParams.Keys() {
+		v, _ := in.FixedParams.Get(k)
 		valNode, err := toYAMLNode(v)
 		if err != nil {
 			return nil, err

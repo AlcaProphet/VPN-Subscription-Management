@@ -257,6 +257,7 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 		return nil, err
 	}
 	s.log.Info("manual 节点已创建", "id", created.ID, "name", created.Name)
+	s.redactSensitive(created)
 	return created, nil
 }
 
@@ -307,6 +308,7 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err != nil {
 		return nil, err
 	}
+	s.redactSensitive(&n)
 	return &n, nil
 }
 
@@ -349,6 +351,7 @@ func (s *Service) SetDisplayName(ctx context.Context, id int64, displayName stri
 	if err != nil {
 		return nil, err
 	}
+	s.redactSensitive(&n)
 	return &n, nil
 }
 
@@ -374,6 +377,7 @@ func (s *Service) SetEnabled(ctx context.Context, id int64, enabled bool) (*Node
 	if err != nil {
 		return nil, err
 	}
+	s.redactSensitive(&n)
 	return &n, nil
 }
 
@@ -403,6 +407,7 @@ func (s *Service) SetPublic(ctx context.Context, id int64, isPublic bool) (*Node
 	if err != nil {
 		return nil, err
 	}
+	s.redactSensitive(&n)
 	return &n, nil
 }
 
@@ -552,14 +557,25 @@ func (s *Service) encryptProtocolJSON(ctx context.Context, in map[string]any, se
 }
 
 // mergeSensitive 编辑时敏感字段留空保留原密文；非空替换为新密文。
+// 协议变更时只保留新协议 schema 内的字段，旧协议不兼容的敏感字段一律丢弃。
 func (s *Service) mergeSensitive(ctx context.Context, existing Node, proto Protocol, in map[string]any) (map[string]any, error) {
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
+	// 仅保留新协议表单中声明的字段，避免旧协议残留字段进入渲染。
+	out := make(map[string]any, len(proto.FormSchema))
+	for _, f := range proto.FormSchema {
+		if v, ok := in[f.Name]; ok {
+			out[f.Name] = v
+		}
 	}
-	// 先按现有密文填充敏感字段（当输入为空串时保留）
+	newSensitive := map[string]bool{}
+	for _, f := range proto.SensitiveFields {
+		newSensitive[f] = true
+	}
+	// 旧协议中与新协议同名的敏感字段，在输入缺失或为空时沿用旧密文。
 	existingSensitive := SensitiveFieldsOf(existing.Protocol)
 	for _, field := range existingSensitive {
+		if !newSensitive[field] {
+			continue
+		}
 		if v, ok := existing.ProtocolJSON[field]; ok {
 			if _, exists := out[field]; !exists {
 				out[field] = v

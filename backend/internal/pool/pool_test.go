@@ -37,6 +37,7 @@ func testMigrateFS() fstest.MapFS {
 				match_value TEXT NOT NULL,
 				source TEXT NOT NULL CHECK (source IN ('url','manual')),
 				sort_order INTEGER NOT NULL,
+				source_url TEXT NOT NULL DEFAULT '',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				UNIQUE (pool_id, rule_type, match_value));
@@ -106,17 +107,17 @@ func TestParser(t *testing.T) {
 			t.Errorf("ParseLine(%q) = (%q,%q,%v), want (%q,%q,%v)", c.line, typ, val, ok, c.typ, c.val, c.ok)
 		}
 	}
-	// 白名单校验：域名小写 / CIDR 归一 / 非法拒绝
-	if v, err := ValidateEntry("DOMAIN-SUFFIX", "APPLE.COM"); err != nil || v != "apple.com" {
-		t.Errorf("域名应 lowercase: %q %v", v, err)
+	// 白名单校验：类型统一大写、域名小写 / CIDR 归一 / 非法拒绝
+	if typ, v, err := ValidateEntry("domain-suffix", "APPLE.COM"); err != nil || typ != "DOMAIN-SUFFIX" || v != "apple.com" {
+		t.Errorf("类型/域名应规范化: %q %q %v", typ, v, err)
 	}
-	if v, err := ValidateEntry("IP-CIDR", "1.2.3.0/24"); err != nil || v != "1.2.3.0/24" {
-		t.Errorf("CIDR 应保持规范: %q %v", v, err)
+	if typ, v, err := ValidateEntry("ip-cidr", "1.2.3.0/24"); err != nil || typ != "IP-CIDR" || v != "1.2.3.0/24" {
+		t.Errorf("类型/CIDR 应规范化: %q %q %v", typ, v, err)
 	}
-	if _, err := ValidateEntry("DOMAIN", "bad,value"); err == nil {
+	if _, _, err := ValidateEntry("DOMAIN", "bad,value"); err == nil {
 		t.Error("含逗号应拒绝")
 	}
-	if _, err := ValidateEntry("UNKNOWN", "x"); err == nil {
+	if _, _, err := ValidateEntry("UNKNOWN", "x"); err == nil {
 		t.Error("未知类型应拒绝")
 	}
 }
@@ -342,3 +343,123 @@ func TestSyncCleanupOldTasks(t *testing.T) {
 		t.Errorf("历史任务清理异常，应保留 2 条，实际 %d", total)
 	}
 }
+
+// TestGetStatusEmptyAndListEntriesNotFound 无任务状态返回空，不存在池列表返回 404
+func TestGetStatusEmptyAndListEntriesNotFound(t *testing.T) {
+	_, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "空状态池", nil, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	task, err := svc.GetStatus(ctx, p.ID)
+	if err != nil || task != nil {
+		t.Fatalf("无任务应返回 nil,nil，实际 task=%+v err=%v", task, err)
+	}
+	if _, _, err := svc.ListEntries(ctx, 99999, 1, 20); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("不存在池列表应 ErrNotFound，实际 %v", err)
+	}
+	if _, _, err := svc.ListTasks(ctx, 99999, 1, 20); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("不存在池任务列表应 ErrNotFound，实际 %v", err)
+	}
+}
+
+// TestSyncEmptyURLFails 无 URL 池同步返回 failed 且不清空旧数据
+func TestSyncEmptyURLFails(t *testing.T) {
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "无URL池", nil, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	if _, err := st.DB().Exec(`INSERT INTO pool_entries (pool_id, rule_type, match_value, source, sort_order, source_url)
+		VALUES (?, 'DOMAIN-SUFFIX', 'keep.com', 'url', ?, 'https://old')`, p.ID, URLBase); err != nil {
+		t.Fatalf("插入旧条目失败: %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p.ID); err != nil {
+		t.Fatalf("提交失败: %v", err)
+	}
+	task := waitTask(t, svc, p.ID, "failed")
+	if !strings.Contains(task.Error, "未配置 URL") {
+		t.Fatalf("错误信息异常: %s", task.Error)
+	}
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM pool_entries WHERE pool_id=?`, p.ID).Scan(&n); err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("空 URL 同步不应清空旧数据，实际 %d", n)
+	}
+}
+
+// TestSyncRemovedAndSourceURL 差量删除回写 removed 且新条目记录 source_url
+func TestSyncRemovedAndSourceURL(t *testing.T) {
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("a.com\n"))
+	}))
+	defer srv.Close()
+	p, err := svc.Create(ctx, "删除统计池", []string{srv.URL}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	if _, err := st.DB().Exec(`INSERT INTO pool_entries (pool_id, rule_type, match_value, source, sort_order, source_url)
+		VALUES (?, 'DOMAIN-SUFFIX', 'old.com', 'url', ?, ?)`, p.ID, URLBase, srv.URL); err != nil {
+		t.Fatalf("插入旧条目失败: %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p.ID); err != nil {
+		t.Fatalf("提交失败: %v", err)
+	}
+	task := waitTask(t, svc, p.ID, "succeeded")
+	if len(task.PerURL) != 1 || task.PerURL[0].Removed != 1 {
+		t.Fatalf("removed 应统计为 1，实际 %+v", task.PerURL)
+	}
+	var src string
+	if err := st.DB().QueryRow(`SELECT source_url FROM pool_entries WHERE pool_id=? AND match_value='a.com'`, p.ID).Scan(&src); err != nil {
+		t.Fatalf("查询 source_url 失败: %v", err)
+	}
+	if src != srv.URL {
+		t.Fatalf("source_url 应为 %s，实际 %s", srv.URL, src)
+	}
+}
+
+// TestSyncAddedOnlyNew 同一 URL 第二次同步 added 应为 0
+func TestSyncAddedOnlyNew(t *testing.T) {
+	_, svc := newTestService(t)
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("a.com\n"))
+	}))
+	defer srv.Close()
+	p, err := svc.Create(ctx, "新增统计池", []string{srv.URL}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p.ID); err != nil {
+		t.Fatalf("首次提交失败: %v", err)
+	}
+	task1 := waitTask(t, svc, p.ID, "succeeded")
+	if len(task1.PerURL) != 1 || task1.PerURL[0].Added != 1 {
+		t.Fatalf("首次 added 应为 1，实际 %+v", task1.PerURL)
+	}
+	if _, err := svc.SubmitSync(ctx, p.ID); err != nil {
+		t.Fatalf("二次提交失败: %v", err)
+	}
+	task2 := waitTask(t, svc, p.ID, "succeeded")
+	if len(task2.PerURL) != 1 || task2.PerURL[0].Added != 0 {
+		t.Fatalf("二次 added 应为 0，实际 %+v", task2.PerURL)
+	}
+}
+
+// TestParseURLBodySkipReasons 解析返回跳过原因
+func TestParseURLBodySkipReasons(t *testing.T) {
+	entries, skipped, reasons := parseURLBody([]byte("DOMAIN-SUFFIX,a.com,extra\n#comment\nbad line\n"))
+	if len(entries) != 1 || entries[0].RuleType != "DOMAIN-SUFFIX" || entries[0].MatchValue != "a.com" {
+		t.Fatalf("有效条目异常: %+v", entries)
+	}
+	if skipped < 2 || len(reasons) == 0 {
+		t.Fatalf("应记录跳过原因，skipped=%d reasons=%v", skipped, reasons)
+	}
+}
+

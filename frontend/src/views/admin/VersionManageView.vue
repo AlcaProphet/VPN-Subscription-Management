@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { Button, Dropdown, Input, Menu, Modal, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
-import { versionApi, type VersionItem } from '@/api/version'
+import { versionApi, getVersionBlueprint, type VersionItem } from '@/api/version'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -34,10 +34,17 @@ const assemblyUrl = computed(() => {
   return ''
 })
 
-// 重新编辑装配版本入口
-function reEditUrl(v: VersionItem): string {
-  const tab = v.blueprint && props.ownerType === 'rule' ? 'sr-conf' : 'clash-yaml'
-  return `/admin/assembly?tab=${tab}&edit_version_id=${v.id}`
+// 重新编辑装配版本入口：先读取 blueprint 拿到真实 target_syntax，避免 sr-subs/generic-subs 被错误带到 clash-yaml
+async function reEdit(v: VersionItem) {
+  let tab = 'clash-yaml'
+  try {
+    const data = await getVersionBlueprint(v.id)
+    tab = data.blueprint?.target_syntax ?? tab
+  } catch (err) {
+    Notify.error((err as Error).message)
+    return
+  }
+  void router.push(`/admin/assembly?tab=${tab}&edit_version_id=${v.id}`)
 }
 
 // 响应式：≥768 表格 / <768 卡片（与其他管理页一致）
@@ -270,7 +277,7 @@ function fmtTime(ts: string): string {
               <Space>
                 <Button size="small" @click="doPreview(record.version_no)">预览</Button>
                 <Button size="small" @click="openEdit(record.version_no)">编辑</Button>
-                <Button v-if="record.blueprint" size="small" type="link" @click="router.push(reEditUrl(record))">重新编辑</Button>
+                <Button v-if="record.blueprint" size="small" type="link" @click="reEdit(record)">重新编辑</Button>
                 <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">{{ switchLabel }}</Button>
                 <Tooltip v-else title="当前激活版本不可删除，请先切换">
                   <Button size="small" danger disabled>删除</Button>

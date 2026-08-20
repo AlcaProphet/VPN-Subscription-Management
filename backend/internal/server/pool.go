@@ -132,6 +132,10 @@ func (h *PoolHandler) listEntries(c *gin.Context) {
 	}
 	page, size := pagination(c)
 	list, total, err := h.poolSvc.ListEntries(c.Request.Context(), id, page, size)
+	if errors.Is(err, pool.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "素材池不存在")
+		return
+	}
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
@@ -275,6 +279,10 @@ func (h *PoolHandler) listSyncTasks(c *gin.Context) {
 	}
 	page, size := pagination(c)
 	list, total, err := h.poolSvc.ListTasks(c.Request.Context(), id, page, size)
+	if errors.Is(err, pool.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "素材池不存在")
+		return
+	}
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return

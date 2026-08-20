@@ -74,7 +74,8 @@ func (s *Service) validate(ctx context.Context, in GenerateInput, ld *loadedData
 			}
 		}
 		for _, ref := range g.Groups {
-			if ref == node.ForceDirect || ref == node.ForceOverseas || ref == node.ForceFallback {
+			// 代理组子组只允许引用 🚀直接连接 / 🌎国外流量；🛟无法归属的流量是 MATCH 兜底终点，不允许作为子组。
+			if ref == node.ForceDirect || ref == node.ForceOverseas {
 				continue
 			}
 			if !containsString(in.GroupNames, ref) {
@@ -114,6 +115,14 @@ func (s *Service) validate(ctx context.Context, in GenerateInput, ld *loadedData
 	case ClashYAML:
 		if len(in.OverseasMembers) == 0 {
 			return fmt.Errorf("%w: 『🌎国外流量』组未包含任何节点", ErrBadRequest)
+		}
+		for _, name := range in.OverseasMembers {
+			if !containsString(in.NodeNames, name) {
+				return fmt.Errorf("%w: 🌎国外流量成员必须是已勾选节点: %s", ErrBadRequest, name)
+			}
+			if _, ok := ld.nodes[name]; !ok {
+				return fmt.Errorf("%w: 🌎国外流量成员节点不存在: %s", ErrBadRequest, name)
+			}
 		}
 	case SrSubs, GenericSubs:
 		if len(in.NodeNames) == 0 || !s.hasLinkableNode(in, ld) {

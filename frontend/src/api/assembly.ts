@@ -50,6 +50,8 @@ export interface AssemblyContext {
 export interface BlueprintResponse {
   blueprint: {
     target_syntax: TargetSyntax
+    platform_id?: number | null
+    rule_id?: number | null
     fixed_params: Record<string, unknown>
     selection: {
       node_names: string[]

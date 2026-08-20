@@ -28,6 +28,7 @@ export interface PerURLResult {
   added: number
   removed: number
   skipped: number
+  skip_reasons?: string[]
   error: string
 }
 

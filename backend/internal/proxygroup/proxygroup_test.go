@@ -192,3 +192,17 @@ func TestGroupTypeUpdateAndPreset(t *testing.T) {
 		t.Fatal("预设组应已停用")
 	}
 }
+
+// TestRejectForceFallbackSubgroup 代理组不允许引用「🛟无法归属的流量」作为子组
+func TestRejectForceFallbackSubgroup(t *testing.T) {
+	svc, st := newTestService(t)
+	insertNode(t, st, "节点A")
+	_, err := svc.CreateCustom(context.Background(), "兜底引用组", "select", Definition{
+		Nodes:  []string{"节点A"},
+		Groups: []string{"🛟无法归属的流量"},
+	})
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("引用兜底组应 ErrBadRequest，实际 %v", err)
+	}
+}
+

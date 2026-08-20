@@ -14,8 +14,13 @@ import { Notify } from '@/components/Notify'
 
 const route = useRoute()
 const router = useRouter()
-const activeTab = ref<string>(String(route.query.tab ?? 'pool'))
-watch(() => route.query.tab, () => { activeTab.value = String(route.query.tab ?? 'pool') })
+const TAB_KEYS = ['pool', 'clash-yaml', 'sr-subs', 'generic-subs', 'sr-conf'] as const
+function normalizeTab(v: unknown): string {
+  const s = String(v ?? 'pool')
+  return (TAB_KEYS as readonly string[]).includes(s) ? s : 'pool'
+}
+const activeTab = ref<string>(normalizeTab(route.query.tab))
+watch(() => route.query.tab, () => { activeTab.value = normalizeTab(route.query.tab) })
 function onTabChange(key: string | number) {
   void router.replace({ query: { ...route.query, tab: String(key) } })
 }
@@ -31,6 +36,8 @@ const showDiff = ref(false)
 const diffOld = ref('')
 const diffMissing = ref(false)
 const editVersionId = ref<number | null>(null)
+const invalidRefs = ref<Array<{ kind: string; name: string }>>([])
+const nameChanged = ref<Record<string, string>>({})
 
 const form = reactive({
   platform_id: undefined as number | undefined,
@@ -62,6 +69,11 @@ async function loadContext() {
   loadingContext.value = true
   try {
     context.value = await getAssemblyContext()
+    // 支持从订阅/规则页带目标参数进入装配
+    const platformId = Number(route.query.platform_id ?? 0)
+    if (platformId > 0) form.platform_id = platformId
+    const ruleId = Number(route.query.rule_id ?? 0)
+    if (ruleId > 0) form.rule_id = ruleId
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -81,8 +93,8 @@ async function loadEditIfAny() {
     const data = await getBlueprint(id)
     const bp = data.blueprint
     activeTab.value = bp.target_syntax
-    form.platform_id = bp.selection ? undefined : undefined
-    form.rule_id = undefined
+    form.platform_id = bp.platform_id ?? undefined
+    form.rule_id = bp.rule_id ?? undefined
     form.node_names = bp.selection?.node_names ?? []
     form.group_names = bp.selection?.group_names ?? []
     form.overseas_members = bp.selection?.overseas_members ?? []
@@ -90,6 +102,8 @@ async function loadEditIfAny() {
     form.final_direction = bp.selection?.final_direction ?? 'PROXY'
     form.fixed_params_text = JSON.stringify(bp.fixed_params ?? {}, null, 2)
     form.custom_rules_text = (bp.custom_rules ?? []).map((r: RuleLine) => `${r.rule_type},${r.match_value},${r.target}`).join('\n')
+    invalidRefs.value = data.invalid_refs ?? []
+    nameChanged.value = data.name_changed ?? {}
     Notify.info('正在重新编辑版本，请检查失效引用')
   } catch (err) {
     Notify.error((err as Error).message)
@@ -165,6 +179,10 @@ const outputGroups = computed(() => {
   <div>
     <PageHeader title="订阅装配" subtitle="四类装配器：选择目标 → 填头部 → 勾选节点/组 → 规则 → 预览 → 生成" />
     <Alert v-if="editVersionId" type="info" show-icon class="mb-4" message="正在重新编辑版本，请检查失效引用后生成新版本" />
+    <Alert v-for="ref in invalidRefs" :key="`${ref.kind}-${ref.name}`" type="error" show-icon class="mb-2"
+           :message="`失效${ref.kind === 'node' ? '节点' : ref.kind === 'group' ? '代理组' : '素材池'}：${ref.name}`" />
+    <Alert v-if="Object.keys(nameChanged).length" type="warning" show-icon class="mb-2"
+           message="以下节点显示名已变化，生成时将按当前显示名渲染" :description="Object.entries(nameChanged).map(([k,v]) => `${k} → ${v}`).join('；')" />
     <Tabs v-model:activeKey="activeTab" @change="onTabChange">
       <Tabs.TabPane key="pool" tab="规则素材池">
         <PoolTab />

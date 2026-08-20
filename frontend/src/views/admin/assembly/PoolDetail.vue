@@ -1,6 +1,6 @@
 <!-- PoolDetail.vue：素材池详情（条目分页 + 手动条目 CRUD + 同步历史） -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { Alert, Badge, Button, Input, Modal, Pagination, Select, Table, Tag, Tooltip } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import {
@@ -8,7 +8,7 @@ import {
   submitSync, getSyncStatus, listSyncTasks,
   type PoolItem, type PoolEntryItem, type SyncTaskItem,
 } from '@/api/pool'
-import { pollTask } from '@/api/request'
+import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 
 const props = defineProps<{ pool: PoolItem }>()
@@ -21,6 +21,8 @@ const entries = ref<PoolEntryItem[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 20
+const manualEntries = computed(() => entries.value.filter((e) => e.source === 'manual'))
+const urlEntries = computed(() => entries.value.filter((e) => e.source === 'url'))
 
 async function loadEntries() {
   loading.value = true
@@ -108,7 +110,11 @@ async function doSync() {
     await loadEntries()
   } catch (err) {
     if (err instanceof Error && err.message === '轮询已取消') return
-    Notify.error((err as Error).message)
+    if (err instanceof ApiError && err.status === 409) {
+      Notify.warning('同步进行中，请等待完成')
+    } else {
+      Notify.error((err as Error).message)
+    }
   } finally {
     syncing.value = false
     pollHandle = null
@@ -155,7 +161,8 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
       <template #message>同步{{ syncResult.status === 'succeeded' ? '成功' : '存在失败项' }}</template>
       <div v-for="(u, i) in syncResult.per_url" :key="i" class="text-xs">
         <span :class="u.ok ? 'text-green-600' : 'text-red-500'">{{ u.url }}</span>
-        ：{{ u.ok ? `新增 ${u.added}，跳过 ${u.skipped}` : (u.error || '失败') }}
+        ：{{ u.ok ? `新增 ${u.added} · 删除 ${u.removed} · 跳过 ${u.skipped}` : (u.error || '失败') }}
+        <span v-if="u.skip_reasons?.length" class="text-gray-400 ml-1">{{ u.skip_reasons.join('；') }}</span>
       </div>
     </Alert>
 
@@ -168,28 +175,41 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 
     <div v-if="loading" class="py-8 text-center text-gray-400">加载中…</div>
     <div v-else-if="entries.length === 0" class="py-8 text-center text-gray-400">池内暂无条目</div>
-    <Table v-else :data-source="entries" :pagination="false" row-key="id" size="small">
-      <Table.Column title="规则类型" key="type" width="170">
-        <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
-      </Table.Column>
-      <Table.Column title="匹配值" key="value">
-        <template #default="{ record }"><span class="font-mono text-xs">{{ record.match_value }}</span></template>
-      </Table.Column>
-      <Table.Column title="来源" key="source" width="90">
-        <template #default="{ record }">
-          <Tag :color="record.source === 'manual' ? 'green' : 'blue'">{{ record.source === 'manual' ? 'manual' : 'url' }}</Tag>
-        </template>
-      </Table.Column>
-      <Table.Column title="操作" key="actions" width="140">
-        <template #default="{ record }">
-          <template v-if="record.source === 'manual'">
+    <template v-else>
+      <div v-if="manualEntries.length" class="text-sm font-medium text-gray-600 mt-2 mb-1">手动条目（前段）</div>
+      <Table v-if="manualEntries.length" :data-source="manualEntries" :pagination="false" row-key="id" size="small">
+        <Table.Column title="规则类型" key="type" width="170">
+          <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
+        </Table.Column>
+        <Table.Column title="匹配值" key="value">
+          <template #default="{ record }"><span class="font-mono text-xs">{{ record.match_value }}</span></template>
+        </Table.Column>
+        <Table.Column title="来源" key="source" width="90">
+          <template #default><Tag color="green">manual</Tag></template>
+        </Table.Column>
+        <Table.Column title="操作" key="actions" width="140">
+          <template #default="{ record }">
             <Button size="small" @click="openEditEntry(record)">编辑</Button>
             <Button size="small" class="ml-1" @click="removeEntry(record)">删除</Button>
           </template>
-          <span v-else class="text-xs text-gray-400">系统维护</span>
-        </template>
-      </Table.Column>
-    </Table>
+        </Table.Column>
+      </Table>
+      <div v-if="urlEntries.length" class="text-sm font-medium text-gray-600 mt-4 mb-1">URL 同步条目（后段）</div>
+      <Table v-if="urlEntries.length" :data-source="urlEntries" :pagination="false" row-key="id" size="small">
+        <Table.Column title="规则类型" key="type" width="170">
+          <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
+        </Table.Column>
+        <Table.Column title="匹配值" key="value">
+          <template #default="{ record }"><span class="font-mono text-xs">{{ record.match_value }}</span></template>
+        </Table.Column>
+        <Table.Column title="来源" key="source" width="90">
+          <template #default><Tag color="blue">url</Tag></template>
+        </Table.Column>
+        <Table.Column title="操作" key="actions" width="140">
+          <template #default><span class="text-xs text-gray-400">系统维护</span></template>
+        </Table.Column>
+      </Table>
+    </template>
     <Pagination v-if="total > pageSize" class="mt-3" v-model:current="page" :page-size="pageSize"
                 :total="total" show-size-changer :page-size-options="['20', '50', '100']" />
 
@@ -202,6 +222,12 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         <Tooltip v-if="t.error" :title="t.error">
           <span class="text-xs text-red-500 ml-2">原因</span>
         </Tooltip>
+        <div v-for="(u, i) in t.per_url" :key="i" class="text-xs mt-1 border-t pt-1">
+          <span :class="u.ok ? 'text-green-600' : 'text-red-500'">{{ u.url }}</span>
+          <span v-if="u.ok" class="text-gray-500 ml-2">新增 {{ u.added }} · 删除 {{ u.removed }} · 跳过 {{ u.skipped }}</span>
+          <span v-else class="text-red-500 ml-2">{{ u.error || '失败' }}</span>
+          <div v-if="u.skip_reasons?.length" class="text-gray-400 ml-2">{{ u.skip_reasons.join('；') }}</div>
+        </div>
       </div>
       <Pagination v-if="taskTotal > 20" class="mt-2" v-model:current="taskPage" :page-size="20" :total="taskTotal" />
     </div>

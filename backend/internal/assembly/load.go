@@ -189,6 +189,14 @@ func (s *Service) loadGroups(ctx context.Context, ld *loadedData, names []string
 }
 
 func (s *Service) loadPoolEntries(ctx context.Context, poolID int64) ([]poolEntry, error) {
+	var exists int
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if exists == 0 {
+		return nil, fmt.Errorf("%w: 素材池不存在: %d", ErrBadRequest, poolID)
+	}
 	rows, err := s.store.DB().QueryContext(ctx,
 		`SELECT rule_type, match_value FROM pool_entries WHERE pool_id = ? ORDER BY sort_order, id`, poolID)
 	if err != nil {

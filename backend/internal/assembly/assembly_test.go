@@ -138,7 +138,7 @@ func TestPreviewClash(t *testing.T) {
 	)
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		FixedParams:     map[string]any{"port": 7890, "mode": "rule"},
+		FixedParams:     NewOrderedMap().Set("port", 7890).Set("mode", "rule"),
 		NodeNames:       []string{"节点A"},
 		GroupNames:      []string{"组A"},
 		OverseasMembers: []string{"节点A"},
@@ -167,7 +167,7 @@ func TestPreviewSubsAndGeneric(t *testing.T) {
 	// SR subs
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: SrSubs, PlatformID: sp,
-		FixedParams: map[string]any{"status": "2026/01/01 Version", "remarks": "My VPN"},
+		FixedParams: NewOrderedMap().Set("status", "2026/01/01 Version").Set("remarks", "My VPN"),
 		NodeNames:   []string{"中文节点", "Snell节点"},
 	})
 	if err != nil {
@@ -214,7 +214,7 @@ func TestPreviewSrConf(t *testing.T) {
 	)
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: SrConf, RuleID: rid,
-		FixedParams:    map[string]any{"loglevel": "warning"},
+		FixedParams:    NewOrderedMap().Set("loglevel", "warning"),
 		Pools:          []PoolSelection{{PoolID: poolID, Target: "PROXY"}},
 		FinalDirection: "DIRECT",
 	})
@@ -357,3 +357,61 @@ func TestOnlySnellSubsRejected(t *testing.T) {
 		t.Fatalf("仅不可转节点应拒绝，实际 %v", err)
 	}
 }
+
+// TestClashHeaderOrder 保留头部表单键序
+func TestClashHeaderOrder(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
+	res, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid,
+		FixedParams:    NewOrderedMap().Set("mode", "rule").Set("port", 7890),
+		NodeNames:      []string{"节点A"},
+		GroupNames:     []string{"组A"},
+		OverseasMembers: []string{"节点A"},
+	})
+	if err != nil {
+		t.Fatalf("Clash 预览失败: %v", err)
+	}
+	content := string(res.Content)
+	modeIdx := strings.Index(content, "mode:")
+	portIdx := strings.Index(content, "port:")
+	if modeIdx < 0 || portIdx < 0 || modeIdx > portIdx {
+		t.Fatalf("头部键序未保留：mode=%d port=%d\n%s", modeIdx, portIdx, content)
+	}
+}
+
+// TestOverseasMemberMustBeSelected 国外流量成员必须是已勾选节点
+func TestOverseasMemberMustBeSelected(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	_, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid,
+		NodeNames:      []string{"节点A"},
+		OverseasMembers: []string{"未勾选节点"},
+	})
+	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "必须是已勾选节点") {
+		t.Fatalf("未勾选国外流量成员应拒绝，实际 %v", err)
+	}
+}
+
+// TestNonexistentPoolRejected 不存在的素材池应拒绝
+func TestNonexistentPoolRejected(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
+	_, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid,
+		NodeNames:      []string{"节点A"},
+		GroupNames:     []string{"组A"},
+		OverseasMembers: []string{"节点A"},
+		Pools:          []PoolSelection{{PoolID: 99999, Target: "组A"}},
+	})
+	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "素材池不存在") {
+		t.Fatalf("不存在池应拒绝，实际 %v", err)
+	}
+}
+
