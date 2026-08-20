@@ -539,6 +539,5 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 | v1.4 | 2026-08-19 | Design2Report9 修订：强制组 emoji 化连锁（约束表/校验常量/渲染伪代码/兜底行/YAML 示例，M4）；名称校验拆 `ValidateNodeName`（禁空格）/`ValidateProxyGroupName`（允许空格）并统一 `CheckRenderNameNamespaceTx` 函数名（M8）；SR conf benchmark 具名 `BenchmarkRenderSrConf10kRules` 与阈值测试、Step7 删重复（M10）；YouTube 示例组类型改 select 与种子一致 |
 | v1.5 | 2026-08-19 | Design2Report10 修订：装配校验补「勾选组引用的子组必须在本次输出集合内」（Q7）；🌎国外流量成员改为仅节点（Q8）；AfterCreate 回调改为传 versions.id（Q11） |
 | v1.6 | 2026-08-19 | Design2Report11 核验修订：用户预览明文口径；协议变更与停用预设组两处决策定稿；assembly_blueprints 四列映射明示；🌎国外流量伪代码去子组；约束表补空格；enabled 1→0 ConfirmModal 与版本空态验收落点；验收 grep 修正；DiffView 整体新增提示；内容形态标签列补齐 |
-
-
 | v1.7 | 2026-08-20 | Build5 执行完成：Step1~7 全部验收通过；manual 节点/代理组/装配内核/HTTP 端点/前端节点与代理组页/装配页/分发 UI 收口已实现，benchmark 达标 |
+| v1.8 | 2026-08-20 | Build6 衔接注记（用户决策）：links.go 中非导出的 srLink/genericLink 及辅助函数将在 Build6 Step4 抽取到 `assembly/links` 共享子包并导出，供 assembly 与 download 两包复用（仅结构调整，渲染行为不变） |

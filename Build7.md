@@ -201,7 +201,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - `ExportPayload` 增 `Instances []ExportedInstance`（name/slug/api_addr/api_tag/enabled + **`Nodes []ExportedNodeName`（tag/display_name，仅导出 display_name 非空项）**）与 `Accounts []ExportedExtAccount`（name/email/uuid_encrypted/proxy_secret_encrypted/quota/**quota_exceeded**/push_targets `[{instance_slug,inbound_tag}]`）；`FormatVersion=2`。
      - 导出时读 xray_instances（含其 xray 节点 display_name 非空项）与 xray_ext_accounts/xray_ext_users（按 slug+tag 关联）；密文原样导出，不导出明文；display_name 为明文展示属性，原样导出。
      - `Import`：接受 v1（仅配置，保持旧语义、同步执行；**v1 兼容为本 Build 保留口径：Design2 §5.4 仅定义 v2 语义，v1 为现行 prod 实现，导入导出须保证 v1 往返可用**）与 v2；**v2 改为异步任务并返回 `task_id`**，任务体在配置覆盖事务内：先收集旧实例连接信息与旧 user/ext 推送清单 → 删除旧 `xray_instances` 与 `xray_ext_accounts`（FK 级联）→ 按 payload 重建 instances（slug 原样沿用，冲突/重复返回 400）与 ext accounts（name/email/密文/quota/quota_exceeded 原样写入，email 全小写）→ 按 push_targets 写 `xray_ext_users`（node_id 暂置 NULL，sync_status=pending；**禁止插入 0——启用外键时违反 FK，Design2Report7 P2-5**）。**advanced_mode 一致性**：payload 携带非空 instances/accounts 且 advanced_mode=false 时，事务内置 advanced_mode=true 并在完成提示中说明「检测到 Xray 实例/独立账号，已自动开启高级模式」；payload 无 instances/accounts 且 advanced_mode=false 时，按 OFF 清空口径清理旧高级数据（用户 UUID/代理密码/配额字段、traffic_records、xray_ext_traffic、旧推送记录）——**该分支采用双确认词分步：先按既有导入流程校验 `IMPORT`，再校验 `DISABLE`（前端分步弹窗要求输入，Design2Report10 Q5）**。**导入保护**：比较 payload 中 signing_key 与当前库 signing_key；若将变化且存在任一业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 中 `enc:v1:` 敏感字段 / xray_ext_accounts 两密文字段），整个导入拒绝，不做任何变更。**响应口径：v1 导入保持同步返回 `{message}`；v2 导入异步返回 `{task_id}` 供前端轮询**（Design2Report10 Q5）。
-     - **依赖方向**：`config/export.go` 不 import xray/assembly；由 `server` 注入「导入后处理回调」（与现有 `SetSeedPresets` 同模式），在事务提交后执行：对旧实例 best-effort RemoveUser → 自动节点检测刷新（**enabled=0 实例跳过并在完成提示中列出**）→ **按 (instance slug, inbound tag) 回填 nodes.display_name（未匹配映射计入完成提示，不阻断）** → 按 instance slug+tag 重绑 xray_ext_users.node_id（未匹配置 failed）→ **装配快照（selection_json / render_plan_json）xray 引用按节点稳定名重绑（同名重绑、失配悬空容错，Design2 §5.9 xray_instances 行口径）** → 执行账号对账（Build7 Step1）。返回完成提示字段。
+     - **依赖方向**：`config/export.go` 不 import xray/assembly；由 `server` 注入「导入后处理回调」（与现有 `SetSeedPresets` 同模式），在事务提交后执行：对旧实例 best-effort RemoveUser → 自动节点检测刷新（**enabled=0 实例跳过并在完成提示中列出**）→ **按 (instance slug, inbound tag) 回填 nodes.display_name（未匹配映射计入完成提示，不阻断）** → 按 instance slug+tag 重绑 xray_ext_users.node_id（未匹配置 failed）→ **装配快照（selection_json / render_plan_json）xray 引用按节点稳定名重绑（同名重绑、失配悬空容错，Design2 §5.9 xray_instances 行口径）** → **执行账号对账（Build7 Step1，best-effort：失败不阻断任务终态 succeeded，失败原因记入完成提示，管理员可在实例页手动再触发对账，用户决策）**。返回完成提示字段。
   5. **单测**：OFF 清空保留/删除清单逐表断言、确认词错误（DISABLE 之外 400）、**异步任务提交→轮询终态**、**已 OFF 再保存幂等 no-op（不建任务、不要求确认词）**、**并发两次 OFF 提交只产生一个任务**、未知 task id 返回 failed、不可达清理记 warn；重新开启不推送；导入保护命中拒绝且库不变；v2 往返（导出→清库→导入）恢复 instances（含 display_name 命名映射）/accounts（含 quota_exceeded）与 push_targets、未匹配命名映射计入提示；**off 导入带实例→自动置 advanced_mode=true 并提示**；**off 导入无实例→先 IMPORT 后 DISABLE 双确认词均通过才执行，缺任一 400，且旧高级数据完整清理**；**enabled=0 实例导入后跳过检测并提示**；v1 兼容同步执行。
 
 - **参考代码/伪代码：**
@@ -259,8 +259,8 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
   3. **实例 Tab**（按 UI §8.1~§8.4）：
      - 双态列表：名称/slug/api_addr/enabled 行内开关（Tooltip 停用语义）/采集状态 Badge + 连续失败告警/操作（编辑/刷新节点/对账/删除）；**列表空态 `a-empty`「还没有 Xray 实例」+「新增实例」按钮 + 前置提示「需先在 Xray 服务器开启 gRPC API 与流量统计（policy.stats）」（UI §10.2）**。
      - 新增/编辑弹窗（480px）：名称 + api_addr + api_tag + 「测试连接」（loading → 成功/失败 alert；不落库）；**编辑保存成功后提示「已保存，建议执行『刷新节点』以同步 api_addr 变化后的节点信息」**（Design2Report10 Q12-7）。
-     - 「刷新节点」→ detectNodes → 结果回执 Modal：新增 N / 更新 M / missing K / 撞名跳过 J（列出 tag+reason）；**新增节点命名区**：`added_nodes` 逐行 `tag + 系统名 + display_name 输入框`，留空=暂不命名，「保存显示名」逐行调用 `setNodeDisplayName`（409 字段级提示）；完成后刷新节点管理页同源数据；**实例不可达/gRPC 失败时 `a-alert error` 展示错误摘要与「检查 api_addr/实例状态后重试」引导，不弹回执**（Design2Report10 Q12-4）。
-     - **删除实例**：ConfirmModal 确认后调用 `deleteInstance`，响应 `task_id` 按 pollTask 轮询全局任务端点（见 9.2），按钮 loading 防重复，终态后刷新列表（Design2Report10 Q12-3）。
+     - 「刷新节点」→ detectNodes → 结果回执 Modal：新增 N / 更新 M / missing K / 撞名跳过 J（列出 tag+reason）；**四项全 0 时以 `Notify.info`「节点无变化」提示，不弹回执**（UI §8.2）；**新增节点命名区**：`added_nodes` 逐行 `tag + 系统名 + display_name 输入框`，留空=暂不命名，「保存显示名」逐行调用 `setNodeDisplayName`（**复用 Build5 已实现的 `api/node.ts` 同名函数**，409 字段级提示）；完成后刷新节点管理页同源数据；**实例不可达/gRPC 失败时 `a-alert error` 展示错误摘要与「检查 api_addr/实例状态后重试」引导，不弹回执**（Design2Report10 Q12-4）。
+     - **删除实例**：ConfirmModal（影响清单：xray 来源节点级联删除、组分配级联清理、推送记录清理；附 `a-alert warning`「实例不可达时 Xray 侧残留账号需手动清理」，UI §8.1）确认后调用 `deleteInstance`，响应 `task_id` 按 pollTask 轮询全局任务端点（见 9.2），按钮 loading 防重复，终态后刷新列表（Design2Report10 Q12-3）。
      - 「开始初始化」→ ConfirmModal 三点说明 → 执行 runInit → `Notify.success` 计数；failed>0 提示用户管理页重试。
      - 「对账」→ `a-drawer` 对账面板四分区：
        ① 待补推（user/ext 来源 Tag）行内补推 + 一键补推（超限提示）；
@@ -270,9 +270,9 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
        一键清理危险 ConfirmModal；执行结果计数回执；四区全空 success 空态。**行内补推调用 `pushOne`、行内凭据修复调用 `repairCredentialsOne`（同步 120s）**（Design2Report10 Q9）；**对账 GET 失败/实例不可达时以 `a-alert error` 展示错误摘要与「检查实例状态后重试」引导，不渲染四分区**（Design2Report10 Q12-4）。
   4. **独立账号 Tab**（按 UI §8.5）：
      - 双态列表：名称/email/配额/本月用量/推送摘要聚合 Badge/超限标记/操作（复制凭据/编辑/重置配额/删除）；**列表空态 `a-empty`「还没有独立账号」+「创建独立账号」按钮 + 用途说明「用于向面板账号体系之外的人员/场景分发凭据（可手写入自定义订阅内容）」（UI §10.2）**。
-     - 创建/编辑弹窗（720px）四区：基本信息；凭据区双轨（自动生成/手填接管，`a-input-password`，编辑留空=保留）；推送目标按实例分组 inbound 多选（过滤规则；inbound 标签展示有效渲染名，有自定义显示名时副行系统标识名；**提交形状 `push_targets: [{instance_id, inbound_tag}]`**，Design2Report10 Q12-6）；配额 input-number（0/留空不限）；**编辑移除已推送目标在保存前提示「将同步从 Xray 移除已取消目标的账号」**（Design2Report10 Q12-6）。
+     - 创建/编辑弹窗（720px）四区：基本信息；凭据区双轨（自动生成/手填接管，`a-input-password`，编辑留空=保留）；推送目标按实例分组 inbound 多选（过滤规则；**无可用节点时空态提示「请先在实例页检测节点」**（UI §8.5）；inbound 标签展示有效渲染名，有自定义显示名时副行系统标识名；**提交形状 `push_targets: [{instance_id, inbound_tag}]`**，Design2Report10 Q12-6）；配额 input-number（0/留空不限）；**编辑移除已推送目标在保存前提示「将同步从 Xray 移除已取消目标的账号」**（Design2Report10 Q12-6）。
      - 创建成功弹窗一次性展示 `createExtAccount` 响应中的明文凭据（自动生成模式）+ 复制 + 警示文案；**创建（自动生成模式）确认文案提示「若 Xray 侧已存在同 email 账号，将先移除旧账号并以新生成凭据重新推送（覆盖接管，Xray 侧旧账号被踢除）」**（Design2Report11）；「复制凭据」按钮调专用端点 + Toast 警示；**失败推送行内重试调 `retryExtSync`**；删除/重置 ConfirmModal 文案按 UI。
-  5. **路由/菜单**：Build4 已加 `/admin/xray` 路由与高级可见性；本 Step 替换占位组件。
+  5. **路由/菜单**：Build4 已加 `/admin/xray` 路由与高级可见性，当前占位为通用 `PlaceholderView.vue`（仓库无 XrayInstancesView.vue）；本 Step **新建 `XrayInstancesView.vue` 并将 router 引用从 PlaceholderView 改为新组件**。
   6. **前端单测**：实例列表加载/开关失败回滚、测试连接、检测回执、初始化确认、对账四分区渲染与 ext 默认不勾选、独立账号双轨表单与一次性凭据展示、**ext 行内重试 loading**。
 
 - **测试与验收命令：**
@@ -301,16 +301,16 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
   1. **`frontend/src/api/group.ts`**：新增/调整——`GroupItem.default_quota/node_count`；`getGroupDetail(id)` 返回 `GroupDetail`（含 `nodes:[{node_id,node_name,display_name,render_name,is_public,source,sort_order}]` 与 `candidate_nodes`/`in_partial_blueprint`）；`updateGroupNodes(id,{node_ids})`、`updateGroupQuota(id,{default_quota})`。移除 Build4 临时最小字段。
   2. **`frontend/src/views/admin/GroupsView.vue`**：按 UI §4.3 重写：
      - 列表：组名/默认配额（GB 或「不限流量」）/分配节点数/用户数/操作（编辑/删除；默认组不可删）。
-     - 编辑弹窗四区：改名；节点分配（候选集=后端返回已激活蓝图 xray 并集；节点标签显示 render_name，有自定义 display_name 时副行系统名；公共节点灰置 +「公共·免分配」；非候选集已分配红警；仅部分模板候选橙警；并集为空 `a-empty` + 前往装配）；分配排序（拖拽/上移下移）；默认配额（0/留空不限）。
+     - 编辑弹窗四区：改名；节点分配（候选集=后端返回已激活蓝图 xray 并集；节点标签显示 render_name，有自定义 display_name 时副行系统名；公共节点灰置 +「公共·免分配」；非候选集已分配红警；仅部分模板候选橙警；并集为空 `a-empty` + 前往装配）；分配排序（拖拽/上移下移）；默认配额（0/留空不限）；**保存成功 `Notify.success`「已保存，节点变更将同步至 Xray」；列表预置默认组带 a-tag**（UI §4.3）。
      - 删除 ConfirmModal 迁默认组文案。
   3. **`frontend/src/api/user.ts`**：`AdminUser` 增加高级字段（本月用量字节、有效配额、聚合同步状态、last_error 摘要、quota_override、quota_exceeded）；新增 `setUserQuota(id, {quota_override})`（路径与语义按 UI §9.1 `api/user.ts` 扩展的 setUserQuota 行）。
   4. **`frontend/src/views/admin/UsersView.vue`**：按 UI §4.5 扩展：
-     - 基础模式隐藏「所属组」列（advanced_mode）；高级模式显示用量 `X / Y GB`、同步状态聚合 Badge（synced/pending/failed + Tooltip + 行内重试）、超限红标与行高亮。
+     - 基础模式隐藏「所属组」列（advanced_mode）；高级模式显示用量 `X / Y GB`（**不限流量显示 `X GB / 不限`；无任何流量记录显示 `—`**），同步状态聚合 Badge（synced/pending/failed + Tooltip + 行内重试；**无任何推送记录时显示灰「未推送」第四态**），超限红标与行高亮（UI §4.5）。
      - Dropdown 新增「配额覆盖」（input-number，留空=继承；0=不限）与「重置配额」（ConfirmModal；禁用用户按钮置灰 + Tooltip）。
-  5. **`frontend/src/api/settings.ts`**：新增 `AdvancedSettings` 类型与 `getAdvancedSettings/saveAdvancedSettings`（关闭时请求含 `confirm_word: "DISABLE"`）；另新增 **`importConfig`**（POST 现有导入端点；**响应含 `task_id` 为 v2 走 pollTask 轮询，不含为 v1 同步完成处理**）与 **`getAdminTask`**（GET /api/admin/tasks/:id，全局任务端点，kind 含 off_clear/import/xray_init/reconcile_exec/instance_delete）（UI §9.3）。
+  5. **`frontend/src/api/settings.ts`**：新增 `AdvancedSettings` 类型与 `getAdvancedSettings/saveAdvancedSettings`（关闭时请求含 `confirm_word: "DISABLE"`）；**`importConfig` 已存在（Build5 产物），本 Step 适配 v2 响应分支**（POST 现有导入端点；**响应含 `task_id` 为 v2 走 pollTask 轮询，不含为 v1 同步完成处理**）；新增 **`getAdminTask`**（GET /api/admin/tasks/:id，全局任务端点，kind 含 off_clear/import/xray_init/reconcile_exec/instance_delete）（UI §9.3）。
   6. **`frontend/src/views/admin/SettingsView.vue`**：按 UI §4.7：
      - 新增「高级模式」分区（锚点置于运行模式信息之后）：开关 + 状态 Tag；开启保存轻提示；关闭触发确认词弹窗（**确认词 DISABLE**，清单式展示将被移除内容，manual 节点保留说明，两条 warning：不可达实例手动清理/重开全量重配），**提交后按 task_id 轮询 OFF 清空任务**；采集间隔（分钟，默认 10，**仅 advanced_mode=on 时展示该控件**，Design2Report10 Q12-5）；流量卡片开关（默认开，两模式均展示）。
-     - 配置导入/导出分区文案更新：导出说明追加 v2 内容（实例清单含节点显示名映射 + 独立账号推送目标/超限标记）；导入确认弹窗追加「实例整体覆盖、组节点分配将被级联清空」与「带实例/账号导入且高级关闭时将自动开启」；**无实例/账号且高级关闭分支采用双确认词分步：先按现有流程校验 IMPORT，再追加 DISABLE 并显著警告**（Design2Report10 Q5）；signing_key 保护错误以 `a-alert error` 展示后端文案；**v1 导入响应无 task_id 按同步完成处理，v2 导入提交后按 task_id 轮询**，完成提示自动检测（enabled=0 实例跳过并提示）/回填节点显示名/重绑/对账。
+     - 配置导入/导出分区文案更新：导出说明追加 v2 内容（实例清单含节点显示名映射 + 独立账号推送目标/超限标记）；导入确认弹窗追加「实例整体覆盖、组节点分配将被级联清空」与「带实例/账号导入且高级关闭时将自动开启」；**无实例/账号且高级关闭分支采用双确认词分步：先按现有流程校验 IMPORT，再追加 DISABLE 并显著警告**（Design2Report10 Q5）；signing_key 保护错误以 `a-alert error` 展示后端文案；**v1 导入响应无 task_id 按同步完成处理，v2 导入提交后按 task_id 轮询**，完成提示自动检测（enabled=0 实例跳过并提示）/回填节点显示名/重绑/对账（**对账执行失败不阻断任务，失败原因在提示中展示**）。
   7. **前端单测**：组编辑四态与排序；用户高级列显隐与重试/重置 loading；设置关闭确认词清单与导入错误展示。
 
 - **测试与验收命令：**
@@ -435,4 +435,5 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 | v1.6 | 2026-08-19 | Design2Report9 修订：对账期望集拆分用户部分（候选集+可用性）与独立账号部分（仅可用性，M3）；对账执行三端点与实例删除异步化、全局任务端点 /api/admin/tasks/:id 与 kind 枚举（M7/M6）；OFF 幂等 no-op（M15）；采集间隔映射读写单测承接（M9）；v1 导入兼容与装配快照重绑注记；归档范围写明 Design2 保持活跃 |
 | v1.7 | 2026-08-19 | Design2Report10 修订：全局任务 registry 改为复用 Build6（Q1）；对账单条同步端点 push-one/credentials-one（Q9）；导入双确认词 IMPORT→DISABLE 与 v1 同步/v2 异步响应口径（Q5）；OFF 翻转判定与任务登记同事务互斥（Q15）；getExtCredentials no-store、testConnection 120s、实例删除轮询 UI、检测/对账错误态、api_addr 变更提示、采集间隔仅高级展示、push_targets 形状与移除确认（Q12） |
 | v1.8 | 2026-08-19 | Design2Report11 核验修订：删除钩子补丁去重（仅补 ext 单测）；generate 模式同 email 先 Remove 再 Add 定稿；参数表补节点 enabled=1；120s 清单剔除异步端点；期望集措辞修正；实例/独立账号空态显式列；home 数据改 /api/home/summary；importConfig/getAdminTask 点名 |
+| v1.9 | 2026-08-20 | 构建前核验修订（代码事实对照 Build4/5 已落地产物）：Step3 新建组件并更新 router 引用（占位为 PlaceholderView）、setNodeDisplayName 复用 api/node.ts、删实例 ConfirmModal 影响清单+不可达 warning、检测四项全 0 Notify.info 分支、推送目标无可用节点空态（UI §8.1/§8.2/§8.5）；Step4 importConfig 改已存在适配措辞、用量「—/不限」与「未推送」第四态、组保存提示与预置默认组 Tag（UI §4.3/§4.5）；Step2 导入后自动对账失败口径定稿（任务 succeeded+完成提示记录，用户决策） |
 
