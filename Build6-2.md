@@ -21,7 +21,7 @@ Build6 已按步骤完成并通过现有 `go build ./...`、`go vet ./...`、`go
 | 2 | Step 3 | 组删除、组节点变更、节点 missing/allocatable 变化等触发器的 diff 推送未逐条精确实现，当前以 `SyncAllActive` / `ReconcileUser` 做整体收敛 | ✅ 已完成（本轮补强） | Build6-2 |
 | 3 | Step 4 | Clash 下载动态渲染未完整实现“render_plan 自包含 + 全量重渲染 + 组可达性递归重建 + 强制组降级 + rules 降级”的完整逻辑；当前为占位替换 + 基础行注入 | ✅ 已完成（本轮补强） | Build6-2 |
 | 4 | Step 4 | `assembly/links` 共享子包抽取未完成；当前通过 `assembly.RenderLink` 导出函数复用，未按 Build6.md 要求拆分为独立子包 | ✅ 已完成（本轮补强） | Build6-2 |
-| 5 | Step 5 | 采集任务已接入，但独立账号采集与配额检查未在本 Build 实现（原规划归 Build7 Step1） | ⏳ 按规划延后 | Build7 Step1 |
+| 5 | Step 5 | 采集任务已接入，但独立账号采集与配额检查未在本 Build 实现（原规划归 Build7 Step1） | 📋 已整理进 Build7 Step1 | Build7 Step1 |
 | 6 | Step 6 | 假 Xray 集成测试仅覆盖 gRPC 客户端核心链路（AddUser/RemoveUser/ListInbounds/QueryStats），未完整跑通文档中的端到端剧本 | ✅ 已完成（本轮补强） | Build6-2 |
 | 7 | Step 1/3 | 实例删除、节点删除的清理目标收集仍以既有 `xray_users` / `xray_ext_users` 为主，未完全升级为“受影响 active 用户 × 节点/实例”期望集口径 | ✅ 已完成（本轮补强） | Build6-2 |
 
@@ -39,7 +39,7 @@ Build6 已按步骤完成并通过现有 `go build ./...`、`go vet ./...`、`go
 **本轮推断/标注**：
 - Clash 旧版蓝图（非自包含 `render_plan_json`）无法无损升级为全量重渲染，本轮保留旧路径的占位替换兜底；新建/重新生成蓝图后即为自包含计划。
 - 节点删除时即使节点已 `missing=1`，只要仍存在 `group_nodes`/公共标记分配，也纳入清理目标，以避免 Xray 侧残留。
-- 独立账号采集与配额检查（#5）仍按原规划归属 Build7 Step1，不在本轮实现。
+- 独立账号采集与配额检查（#5）不在本轮实现，已按用户要求整理进 Build7 Step1（含承接说明与验收口径）。
 
 ---
 
@@ -74,3 +74,4 @@ Build6 已按步骤完成并通过现有 `go build ./...`、`go vet ./...`、`go
 |------|------|------|
 | v1.0 | 2026-08-20 | 初始版本：记录 Build6 主流程中未完成/简化项，作为后续补强与 Build7 衔接清单 |
 | v1.1 | 2026-08-20 | 完成 #1/#2/#3/#4/#6/#7 补强；#5 继续按规划延后至 Build7 Step1；补充单测与端到端 fake 剧本 |
+| v1.2 | 2026-08-20 | 按用户要求将 #5 需要实现的内容整理进 Build7 Step1，并更新状态为“已整理进 Build7 Step1” |

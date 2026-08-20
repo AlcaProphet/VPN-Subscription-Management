@@ -99,8 +99,10 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 
 **本 Step 完成后，`/api/admin/xray/ext` CRUD、凭据查询/复制、配额重置与 ext 流量采集可用；`/api/admin/xray/instances/:id/reconcile` 及 push/clean/credentials 执行端点可用，四分区语义与 ext 防护落地。**
 
-- **目标：** 实现 Design2 §5.11 独立账号与 §5.10 实例级对账。
-- **前置条件：** Build6 全部验收通过。
+> **承接 Build6-2 #5（独立账号采集与配额检查）**：Build6 已接入面板用户采集任务，但独立账号（ext）采集与配额检查未在 Build6 实现，原规划归属本 Step。本 Step 必须补齐：`CollectExtTraffic` 写入 `xray_ext_traffic(ext_account_id, ym)`、ext 超限摘除、重置恢复，并在 `cron.StartXrayCollect` 的用户采集之后追加 ext 采集与超限检查；相关口径沿用 Build6 Step5，仅数据表与账号维度切换为 ext。
+
+- **目标：** 实现 Design2 §5.11 独立账号与 §5.10 实例级对账，并闭环 Build6-2 #5。
+- **前置条件：** Build6 全部验收通过（含 Build6-2 补强）。
 - **产出文件与操作：**
 
   1. **`backend/internal/xray/ext.go`**：独立账号服务。
@@ -140,7 +142,7 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
      - `GET /api/admin/xray/instances/:id/reconcile`；
      - `POST /api/admin/xray/instances/:id/reconcile/push|clean|credentials`；
      - `POST /api/admin/xray/instances/:id/reconcile/push-one|credentials-one`（单条同步，Design2Report10 Q9）。
-  4. **`backend/internal/cron/`**：采集任务在用户采集后追加逐独立账号采集与超限检查（同一任务、同样 advanced_mode 入口检查）。
+  4. **`backend/internal/cron/`**：采集任务在用户采集后追加逐独立账号采集与超限检查（同一任务、同样 advanced_mode 入口检查；**承接 Build6-2 #5，必须在本 Step 闭环**）。
   5. **单测（fake API）**：ext 创建 generate/manual、email 前缀、**name 唯一与 quota 负数拒绝**、**创建响应含一次性凭据（generate）且库内为密文**、**generate 模式同 email 已存在 → 先 RemoveUser 再 AddUser 以新凭据覆盖（manual 模式保持 already exists 视为成功）**、**retry 对 failed 记录 AddUser/RemoveUser 计数**、**push_targets 非法目标（非 xray/非四协议/allocatable=0/missing=1/节点或实例停用）400**、编辑留空保留、target diff、超限摘除与重置；对账四分区（含 `ext-` 残留与不匹配前缀）、**期望集实例交集断言（to_push / credential_mismatches 不含其他实例节点目标，P2-4）**、clean 仅清理勾选项、credential mismatch 修复顺序（先 Remove 后 Add）、**push-one/credentials-one 单条同步端点**；**实例/节点删除收集 user+ext 两类目标并 RemoveUser（user+ext 收集与调用序断言沿用 Build6 Step1/Step3 单测，本 Step 仅补 ext 服务落地后的独立账号维度断言）**。
 
 - **参考代码/伪代码：**
@@ -439,4 +441,5 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 | v1.10 | 2026-08-20 | 第二轮构建前深度核验修订（Build4/5 验收后代码事实对照）：① Step1 CreateExt email 占位措辞修正（先写临时占位值、LastInsertId 后回填 `ext-{id}@vpn.local`，原措辞字面上用未知 id 占位不可实施）；② Step4 补 UI §4.5「编辑弹窗换组 Select 同步隐藏」（基础模式组概念全面隐藏口径的遗漏点）；③ Step2 OFF 清空提交后清理循环注明复用 Build6 Step3 的 `AfterAdvancedOff` 补偿辅助（闭合跨 Build 衔接，防 Build6 预建辅助成死代码） |
 | v1.11 | 2026-08-20 | 第三轮 Build6/7 事前预检确定性问题修订：① Step1 CreateExt 临时 email 必须唯一化（固定占位串在并发创建时撞 UNIQUE），并明确 `xray_ext_users.node_id` 按 (instance_id, inbound_tag) 解析写入；② Step2 `/api/admin/settings/advanced` 明确只叠加 session+admin、不得套 advancedMode（否则 OFF 态无法开启/关闭与轮询）；③ Step2 Import v2 的 slug 冲突/重复明确为「任务终态 failed + error 文案按 400 口径」，HTTP 提交阶段无法同步返回 400；④ Step4 基础模式所属组隐藏补移动卡片态；⑤ Step6 明确必须先重写 `.smoke-test.sh`（现行脚本仍为 Build2/3 旧模型，按当前 API 必然失败） |
 | v1.12 | 2026-08-20 | 用户决策落盘：Q2 全局任务 registry 下沉为中性包 `internal/tasks`（server 构造注入；OFF 清空与配置导入的业务包经注入 Registry 登记，不 import server）；Q3 OFF 清空保持「状态翻转+任务登记同事务」字面口径，接受 DB 回滚残留幽灵任务边界（重启后 failed 兜底）。Step2 item2/item3/item4 同步修订 |
+| v1.13 | 2026-08-20 | 将 Build6-2 #5（独立账号采集与配额检查）显式整理进 Step1：补充承接说明、目标/前置条件更新，并在 cron 条目标注必须在本 Step 闭环 |
 
