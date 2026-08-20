@@ -1,7 +1,7 @@
 <!-- NodesView.vue：节点管理页（Design2-UI §6）——manual/xray 双态列表 + 动态表单 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
+import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
 import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, type NodeItem, type ProtocolInfo, type NodeForm } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'

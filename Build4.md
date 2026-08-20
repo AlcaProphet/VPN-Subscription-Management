@@ -53,10 +53,10 @@
 - ✅ Step 1：1009 增量迁移（全量 DDL + proxy_groups 种子）与 dataclear 清表清单适配
 - ✅ Step 2：拆除 group_selections / subscription_group_rel 旧分发链路（后端）
 - ✅ Step 3：CreateVersion activate 语义、订阅新模型、平台 product_type、空规则实体与首页默认规则
-- ◧ Step 4：前端基线适配（订阅/平台/组/规则/首页/版本管理）+ advanced_mode 状态与路由骨架（第三轮核验发现 R14-08~17/24 未关闭，用户决策纳入 Build4/5 修复收口）
-- ◧ Step 5：规则素材池后端（CRUD / 解析白名单 / URL 同步任务 / 定时同步）（R14-19 failTask 兜底错误处理未关闭）
-- ◧ Step 6：规则素材池前端（AssemblyView 页签壳 + 池列表/详情/同步轮询）（R14-10/R14-23/R14-15⑧ 未关闭）
-- ◧ Step 7：Build4 端到端验收与文档核对（受 Step4~6 未关闭项影响，未完全达标）
+- ✅ Step 4：前端基线适配（订阅/平台/组/规则/首页/版本管理）+ advanced_mode 状态与路由骨架（R14 修复收口已完成）
+- ✅ Step 5：规则素材池后端（CRUD / 解析白名单 / URL 同步任务 / 定时同步）（R14-19 已关闭）
+- ✅ Step 6：规则素材池前端（AssemblyView 页签壳 + 池列表/详情/同步轮询）（R14-10/R14-23/R14-15⑧ 已关闭）
+- ✅ Step 7：Build4 端到端验收与文档核对（已随修复收口完成）
 
 ---
 
@@ -68,10 +68,10 @@
 | 1 | 1009 增量迁移与 dataclear 清表清单 | Design2 §5.9，AGENTS §4.7 | ✅ 验收通过 |
 | 2 | 拆除旧分发链路（后端） | Design2 §一/§4.4/§5.10 | ✅ 验收通过 |
 | 3 | CreateVersion activate 语义与平台/规则改造 | Design2 §4.4/§5.9 | ✅ 验收通过 |
-| 4 | 前端基线适配与 advanced_mode 骨架 | Design2-UI §2~4 | ◧ 修复收口中（R14-08~17/24） |
-| 5 | 规则素材池后端 | Design2 §二 | ◧ 修复收口中（R14-19） |
-| 6 | 规则素材池前端 | Design2-UI §5.1/§5.2/§9.1/§9.2 | ◧ 修复收口中（R14-10/23，R14-15⑧） |
-| 7 | Build4 端到端验收 | Design2 §一/§二 | ◧ 修复收口中 |
+| 4 | 前端基线适配与 advanced_mode 骨架 | Design2-UI §2~4 | ✅ 验收通过 |
+| 5 | 规则素材池后端 | Design2 §二 | ✅ 验收通过 |
+| 6 | 规则素材池前端 | Design2-UI §5.1/§5.2/§9.1/§9.2 | ✅ 验收通过 |
+| 7 | Build4 端到端验收 | Design2 §一/§二 | ✅ 验收通过 |
 
 ---
 
@@ -913,3 +913,4 @@ Step 6 ──▶ Step 7（端到端验收）
 | v1.7 | 2026-08-19 | Design2Report11 核验修订：Step2 测试清单补 emergency/platform 两测试文件与组详情 off 省略 default_quota；Step3 ErrProductTypeInUse 文案含类型插值、home_rule/traffic 改独立端点 /api/home/summary；Step4 入池未生效引导/平台卡空态三按钮隐藏/新建订阅轻提示/路由守卫 !== true；Step5 差量删除改临时表或分批；Step6 同步进行中 409 前端特判 warning |
 | v1.8 | 2026-08-19 | Build4 全部 Step 执行验收通过（2026-08-19）。执行口径记录：Step2 旧表 grep 按用户决策限定 `backend/internal`、`backend/cmd`、`frontend`（历史迁移 1002/1003/1009 保留迁移链、不作为业务代码命中）；Go 1.26 经下载工具链执行，前端测试环境补齐 localStorage 内存实现（Node 26 + jsdom 组合）；Step7 全新库自动冒烟覆盖 Setup/平台种子/订阅唯一与首版自动激活/普通用户与管理员首页形态/空规则与默认规则/规则下载 200 注释块/素材池同步与 manual 段排序 |
 | v1.9 | 2026-08-20 | 第三轮事后验收修订：Build4 Step4~7 因 Issue2 R14 未关闭项未完全达标，状态回退为 ◧ 修复收口中（Step0~3 保持 ✅）；用户决策先执行 Build4/5 修复收口，详细清单见 Issue2 附件优先级 0 与 AchievedDocuments/BuildReport1.md |
+| v1.10 | 2026-08-20 | Build4/5 修复收口完成：Issue2 R14 相关未关闭项已全部按状态关闭；Build4 Step4~7 恢复为 ✅ 验收通过。验证：后端 `go build/vet/test ./...`、前端 `npm run build` + `npm test`（45 passed）通过。 |

@@ -50,12 +50,12 @@
 > 执行 AI 必须逐个完成并勾选。状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
 - ✅ Step 1：协议注册表与 manual 节点后端
-- ◧ Step 2：代理组后端（preset/custom、DAG、内容约束）（R14-18 基础校验函数未共享）
-- ◧ Step 3：装配器渲染内核（四语法 + 快照 + 校验 + 链接编码）（R14-02/03/04/05/06 未关闭）
-- ◧ Step 4：装配 HTTP 端点与版本/蓝图集成（R14-06/07 + N1 assembly 接入层直连 SQL）
-- ◧ Step 5：节点管理页与代理组管理页前端（R14-14 + N3 前端单测缺失）
-- ◧ Step 6：订阅装配页前端（四装配器 + DiffView + 重新编辑）（R14-09/R14-15 未关闭）
-- ◧ Step 7：分发 UI 收口、渲染 benchmark 与 Build5 端到端验收（R14-01/08/21 + N4 smoke 脚本旧模型）
+- ✅ Step 2：代理组后端（preset/custom、DAG、内容约束）（R14-18 已关闭）
+- ✅ Step 3：装配器渲染内核（四语法 + 快照 + 校验 + 链接编码）（R14-02/03/04/05 已关闭；R14-06 按决策随 Build6 Step4 实施）
+- ✅ Step 4：装配 HTTP 端点与版本/蓝图集成（N1 已关闭；R14-06/07 按决策随 Build6 Step4/Step2 实施）
+- ✅ Step 5：节点管理页与代理组管理页前端（R14-14 已关闭；N3 已补齐 NodesView/ProxyGroupsView 前端单测）
+- ✅ Step 6：订阅装配页前端（四装配器 + DiffView + 重新编辑）（R14-09/R14-15 已关闭）
+- ✅ Step 7：分发 UI 收口、渲染 benchmark 与 Build5 端到端验收（R14-01/08/21 + N4 smoke 脚本已更新）
 
 ---
 
@@ -64,12 +64,12 @@
 | Step | 内容 | 设计依据 | 状态 |
 |------|------|---------|------|
 | 1 | 协议注册表与 manual 节点后端 | Design2 §3.2/§5.10，UI §6/§9.1 | ✅ 验收通过 |
-| 2 | 代理组后端 | Design2 §3.3，UI §7/§9.1 | ◧ 修复收口中（R14-18） |
-| 3 | 装配器渲染内核 | Design2 §3/§4，Reference 文档 | ◧ 修复收口中（R14-02/03/04/05/06） |
-| 4 | 装配 HTTP 端点与版本集成 | Design2 §4.1/§4.4/§5.10，UI §9.1 | ◧ 修复收口中（R14-06/07，N1） |
-| 5 | 节点/代理组前端 | Design2-UI §6/§7 | ◧ 修复收口中（R14-14，N3） |
-| 6 | 装配页前端 | Design2-UI §5 | ◧ 修复收口中（R14-09/15） |
-| 7 | 分发 UI 收口与验收 | Design2 §4.4/§4.5，UI §3~4 | ◧ 修复收口中（R14-01/08/21，N4） |
+| 2 | 代理组后端 | Design2 §3.3，UI §7/§9.1 | ✅ 验收通过 |
+| 3 | 装配器渲染内核 | Design2 §3/§4，Reference 文档 | ✅ 验收通过（R14-06 随 Build6 Step4） |
+| 4 | 装配 HTTP 端点与版本集成 | Design2 §4.1/§4.4/§5.10，UI §9.1 | ✅ 验收通过（R14-06/07 随 Build6） |
+| 5 | 节点/代理组前端 | Design2-UI §6/§7 | ✅ 验收通过（含 N3 前端单测） |
+| 6 | 装配页前端 | Design2-UI §5 | ✅ 验收通过 |
+| 7 | 分发 UI 收口与验收 | Design2 §4.4/§4.5，UI §3~4 | ✅ 验收通过 |
 
 ---
 
@@ -544,3 +544,4 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 | v1.9 | 2026-08-20 | Build6 衔接注记（第二轮构建前核验）：① `SaveBlueprintTx` 的 `selection_json.xray_candidates` 当前恒写空数组，将在 Build6 Step2 修补为按生成时勾选节点中 source='xray' 子集填充；② `render_clash.go` 的 render plan 当前仅存引用（节点名/组名/池引用），不满足本 Build Step3「自包含可无状态重建全文」要求，将在 Build6 Step4 前置修补为 manual proxies 完整条目 + 组生成时点结构 + 冻结规则行（版本快照语义，Design2 §2.5）；两项已记录为 Issue2 R14-07/R14-06，**修复时机经用户决策：随 Build6 Step2/Step4 实施时修** |
 | v1.10 | 2026-08-20 | Build6/7 事前预检衔接注记：Issue2 R14-03/R14-04/R14-05 的链接缺口（anytls/tuic/wireguard/hysteria/hysteria2/vless/vmess/trojan 参数白名单、空查询 `?`、http/socks5 空凭据 userinfo）经用户确认须关闭；**实施 Build6 Step4 抽取 `assembly/links` 共享子包前先在本 Step3 links.go 补齐上述参数与形态并补 registry↔渲染一致性单测**（Build6 v2.1 已同步钉死） |
 | v1.11 | 2026-08-20 | 第三轮事后验收用户决策落盘：Build5 Step2~7 因 Issue2 R14 未关闭项未完全达标，状态回退为 ◧ 修复收口中（Step1 保持 ✅）；用户决策先执行 Build4/5 修复收口，清单见 Issue2 附件优先级 0 与 AchievedDocuments/BuildReport1.md |
+| v1.12 | 2026-08-20 | Build4/5 修复收口完成：Issue2 R14 相关未关闭项已关闭，N3 前端单测已补齐（新增 NodesView/ProxyGroupsView spec）；Build5 Step2~7 恢复为 ✅ 验收通过。R14-06/R14-07 仍按用户决策随 Build6 Step4/Step2 实施。验证：后端 `go build/vet/test ./...`、前端 `npm run build` + `npm test`（45 passed）通过。 |
