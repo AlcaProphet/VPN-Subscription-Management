@@ -52,8 +52,8 @@
 - ✅ Step 2：advancedMode 中间件、组节点分配/候选集/公共节点/默认配额
 - ✅ Step 3：用户凭据首建、生命周期同步、xray_users 状态机与批量初始化
 - ✅ Step 4：下载动态渲染（蓝图全量重渲染/占位替换）与 Subscription-Userinfo
-- ✅ Step 5：流量采集、配额检查、超限摘除与重置配额
-- ✅ Step 6：假 Xray 服务集成测试与 Build6 端到端验收
+- ◧ Step 5：流量采集、配额检查、超限摘除与重置配额（Issue3 R16-01/07/08 未闭环，2026-08-21 回退）
+- ◧ Step 6：假 Xray 服务集成测试与 Build6 端到端验收（Issue3 R16-07/09 测试与 smoke 缺口，2026-08-21 回退）
 
 ---
 
@@ -66,8 +66,8 @@
 | 2 | 高级中间件与组节点模型 | Design2 §一/§5.6/§5.10 | ✅ 验收通过 |
 | 3 | 用户生命周期同步与初始化 | Design2 §5.5 | ✅ 验收通过 |
 | 4 | 下载动态渲染与响应头 | Design2 §5.7 | ✅ 验收通过 |
-| 5 | 流量采集与配额 | Design2 §5.8 | ✅ 验收通过 |
-| 6 | 假 Xray 集成测试与验收 | Design2 第五章全量 | ✅ 验收通过 |
+| 5 | 流量采集与配额 | Design2 §5.8 | ◧ 修复中（Issue3 R16-01/07/08） |
+| 6 | 假 Xray 集成测试与验收 | Design2 第五章全量 | ◧ 修复中（Issue3 R16-07/09） |
 
 ---
 
@@ -623,4 +623,5 @@ Step 4+5 ──▶ Step 6（集成验收）
 | v2.3 | 2026-08-20 | 依据 Build6-2 完成 Build6 内部补强：Clash `render_plan_json` 自包含化与 `RenderClashPlan` 全量重渲染；`assembly/links` 共享子包抽取；用户删除/审批拒绝、组删除/组节点变更、节点 missing/allocatable 精确 diff；实例/节点删除期望集清理；假 Xray 端到端剧本。详见 [Build6-2.md](./Build6-2.md) |
 | v2.4 | 2026-08-21 | Build6/Build7 交付核查未完全达标：对应问题见 [Issue2.md](./Issue2.md) R15-01~R15-14（异步任务请求 Context、动态节点端口、protocol_json flow/cipher、Clash ss 映射、候选集契约、同步回调/超时、SR/generic 注释与预览、测试缺口、error/死代码）。用户决策：归档由用户决定；`AfterAdvancedOff` 补实现并接线；R15 修复开始时本 Build 受影响 Step 回退 ◧，复验通过后恢复 ✅。暂不修改代码。 |
 | v2.5 | 2026-08-21 | 执行 R15 首轮修复：异步任务 Context、节点端口、protocol_json、Clash ss 映射、OFF 事务、Client 30s deadline、回调异步、SR/generic 注释与预览、候选集对象、AfterAdvancedOff、cron stop、trafficPayload 错误处理等已落地；后端 `go test ./...` 通过。R15-07/08/14 仍部分进行，见 Issue2 状态表。 |
+| v2.6 | 2026-08-21 | Build1~7 全量核查（见 [Issue3.md](./Issue3.md) R16 系列）：按用户决策与 Issue2 决策 3，Step5/6 勾选回退 ◧（R16-01 超限摘除销毁期望集、R16-07 测试缺口、R16-08 error 残留、R16-09 smoke 缺口）；R16-01 修复方案用户已确认采用方案 A（摘除不删行）；修复仅记录于 Issue3，未改代码。 |
 
