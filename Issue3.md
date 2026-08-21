@@ -181,6 +181,23 @@
 - **修复方案：** 按 Design2-UI §4.7 更新导出说明、导入确认内容、signing_key 错误 alert。
 - **状态：** ✅ 已修复（2026-08-21，SettingsView 导出/导入文案与 signing_key 保护提示补齐）
 
+### R18-01 高级模式用户列表对“无同步错误”未容错 sql.ErrNoRows，导致 /api/admin/users 500
+
+- **现象：** 配置 Xray 并点击「开始初始化」后，用户仍可登录，但「用户管理」界面无法显示用户列表；日志出现：
+  ```text
+  vpn-sub-1  | time=2026-08-21T06:36:02.808Z level=ERROR msg=内部错误 path=/api/admin/users msg="查询用户同步错误失败: sql: no rows in result set"
+  ```
+- **根因：** `backend/internal/user/admin.go` 的 `AdminService.List` 在高级模式下查询用户同步错误：
+  ```sql
+  SELECT COALESCE(last_error,'') FROM xray_users
+  WHERE user_id = ? AND last_error != ''
+  ORDER BY updated_at DESC LIMIT 1
+  ```
+  当用户没有任何 `last_error != ''` 记录（例如初始化成功、`sync_status='synced'`、`last_error=''`，或尚无 `xray_users` 行）时，`QueryRow` 返回 `sql.ErrNoRows`；当前代码未将 `sql.ErrNoRows` 视为正常空值，而是作为系统错误返回，导致整个用户列表接口 500。
+- **影响范围：** `/api/admin/users` 接口 500，前端用户管理列表为空；用户数据未被删除，登录不受影响；高级模式下几乎所有正常用户都会触发（只要没有同步错误记录）。
+- **修复方案：** 在读取 `u.SyncError` 时对 `errors.Is(err, sql.ErrNoRows)` 做容错，置 `u.SyncError = ""` 后继续；或改用聚合/`LEFT JOIN` 保证查询恒有一行；并补「高级模式开启 + 用户无同步错误记录」时 `AdminService.List` 正常返回的单测。
+- **状态：** ☐ 待修复（2026-08-21 用户要求先记录，不改动代码）
+
 ---
 
 ## 一-A、自 Issue2 迁移的未闭环条目（2026-08-21，用户已确认迁移）
@@ -258,6 +275,10 @@
 17. **R17-07**：◧ 进行中（已要求 Production 并校验 HTTP 200；自动拉起 Production 临时实例待补）。
 18. **R17-08**：✅ 已修复（导入导出文案与保护提示）。
 
+### 优先级 6：R18 收口（用户反馈新发现）
+
+19. **R18-01**：☐ 待修复（高级模式用户列表对 `sql.ErrNoRows` 未容错，`/api/admin/users` 500；修复方案见「进行中问题」R18-01）。
+
 ### 验收口径
 
 - 每项修复完成后执行对应 Build Step 的原始验收命令；全部完成后：
@@ -307,3 +328,4 @@
 | v1.6 | 2026-08-21 | 执行优先级 2/3：R15-07/R16-06 ✅（前端补齐）、R15-08/R16-07 ✅（cron/xray 测试、10k 用户渲染测试、前端 spec）、R15-14/R16-08 ✅（error/死代码清理、DiffPush/SetOnRejected 删除、IPv6 兼容）、R16-09 ✅（smoke 脚本重写）；Build7 Step3/4、Build6 Step5/6 恢复 ✅。 |
 | v1.7 | 2026-08-21 | 全量复验：确认 R16-06/R16-07/R16-09/R15-07/R15-08 为部分修复；新增 R17-01~R17-08（ext action 未过滤、ext 凭据修复超限/错误、OFF 确认词、Xray/Groups/Settings UI 残留、测试缺口、smoke v2 导出假成功、导入导出文案）。验收命令仍全绿，但按文档状态不应恢复 Build6/7 对应 Step 为 ✅。 |
 | v1.8 | 2026-08-21 | 执行 R17 修复：R17-01/02/03/04/05/08 ✅；R17-06/07 ◧（测试交互覆盖、smoke Production 自动拉起待补）；Build6 Step5/6、Build7 Step1~4 同步回退 ◧。后端 build/vet/test、前端 build/test、Production smoke 全绿。 |
+| v1.9 | 2026-08-21 | 新增 R18-01：高级模式用户列表对 `sql.ErrNoRows` 未容错，点击「开始初始化」后 `/api/admin/users` 500、用户管理列表为空（用户数据未丢失）。用户要求先记录、不改动代码；状态 ☐ 待修复。 |
