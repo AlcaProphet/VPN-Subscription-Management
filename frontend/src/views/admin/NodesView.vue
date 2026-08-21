@@ -189,6 +189,20 @@ function fieldValue(key: string): unknown {
 function setField(key: string, val: unknown) {
   form.protocol_json = { ...form.protocol_json, [key]: val }
 }
+
+// 对象字段（如旧版 REALITY JSON）改为失焦时解析，避免逐字符报错
+const objectError = ref('')
+const objectErrorField = ref('')
+function handleObjectFieldBlur(name: string, e: any) {
+  try {
+    setField(name, JSON.parse(e.target.value || '{}'))
+    objectError.value = ''
+    objectErrorField.value = ''
+  } catch {
+    objectError.value = '对象字段 JSON 格式错误'
+    objectErrorField.value = name
+  }
+}
 </script>
 
 <template>
@@ -277,8 +291,8 @@ function setField(key: string, val: unknown) {
             <InputNumber v-model:value="form.port" :min="1" :max="65535" class="w-full" />
           </Form.Item>
         </div>
-        <template v-if="currentSchema()">
-          <div v-for="f in currentSchema()!.form_schema" :key="f.name" class="mb-3">
+        <div v-if="currentSchema()" class="grid grid-cols-1 md:grid-cols-2 gap-x-3">
+          <div v-for="f in currentSchema()!.form_schema" :key="f.name" :class="f.type === 'object' ? 'col-span-2 mb-3' : 'mb-3'">
             <label class="text-sm text-gray-600">{{ f.label }}<span v-if="f.required" class="text-red-500"> *</span></label>
             <Input.Password v-if="f.type === 'password'" :value="String(fieldValue(f.name) ?? '')" :placeholder="sensitiveFields().has(f.name) ? '留空 = 保留原凭据' : ''" @change="(e: any) => setField(f.name, e.target.value)" />
             <InputNumber v-else-if="f.type === 'number'" :value="Number(fieldValue(f.name) ?? f.default ?? 0)" class="w-full" @change="(v: any) => setField(f.name, v ?? 0)" />
@@ -287,10 +301,11 @@ function setField(key: string, val: unknown) {
             </Select>
             <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)" @change="(v: any) => setField(f.name, v)" />
             <Input.TextArea v-else-if="f.type === 'object'" :value="JSON.stringify(fieldValue(f.name) ?? f.default ?? {}, null, 2)" :rows="3"
-              @change="(e: any) => { try { setField(f.name, JSON.parse(e.target.value || '{}')) } catch { Notify.error('对象字段 JSON 格式错误') } }" />
+              @blur="(e: any) => handleObjectFieldBlur(f.name, e)" />
+            <div v-if="objectError && objectErrorField === f.name" class="text-xs text-red-500 mt-1">{{ objectError }}</div>
             <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
           </div>
-        </template>
+        </div>
       </Form>
     </Modal>
 

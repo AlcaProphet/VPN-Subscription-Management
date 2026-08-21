@@ -222,16 +222,22 @@ func (s *Service) runSyncTask(poolID, taskID int64, urls []string) {
 		removedByURL := map[string]int{}
 		// 成功 URL 条目照常插入（manual 冲突行自动忽略，manual 段永不受同步改写；
 		// 使用 INSERT OR IGNORE 使 RowsAffected 仅反映真正新增行，用于 added 统计）
+		// 一次性取得 URL 段当前最大排序值，后续在内存中递增，避免逐条 SELECT MAX。
+		var nextOrder int64
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COALESCE(MAX(sort_order), ?) FROM pool_entries WHERE pool_id = ? AND sort_order >= ?`,
+			URLBase-1, poolID, URLBase).Scan(&nextOrder); err != nil {
+			return err
+		}
+		nextOrder++
 		for i := range results {
 			r := &results[i]
 			if !r.OK {
 				continue
 			}
 			for _, e := range r.entries {
-				order, err := nextURLOrderTx(ctx, tx, poolID)
-				if err != nil {
-					return err
-				}
+				order := nextOrder
+				nextOrder++
 				res, err := tx.ExecContext(ctx,
 					`INSERT OR IGNORE INTO pool_entries (pool_id, rule_type, match_value, source, sort_order, source_url)
 					 VALUES (?, ?, ?, 'url', ?, ?)`,

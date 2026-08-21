@@ -6,7 +6,7 @@ import { Layout, Menu, Drawer, Button, type MenuProps } from 'ant-design-vue'
 import {
   CloudUploadOutlined, TeamOutlined, ShareAltOutlined, AppstoreOutlined,
   BranchesOutlined, BlockOutlined, HomeOutlined, MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, AuditOutlined, SettingOutlined, FileTextOutlined,
-  ApartmentOutlined, DeploymentUnitOutlined, CloudServerOutlined,
+  ApartmentOutlined, CloudServerOutlined,
 } from '@ant-design/icons-vue'
 import { useSystemStore } from '@/stores/system'
 import AppHeader from '@/components/AppHeader.vue'
@@ -56,7 +56,6 @@ const menuItems = computed(() => {
     { key: '/admin/logs', icon: () => h(FileTextOutlined), label: '日志' },
     { key: '/admin/assembly', icon: () => h(BlockOutlined), label: '订阅装配' },
     { key: '/admin/nodes', icon: () => h(ApartmentOutlined), label: '节点' },
-    { key: '/admin/proxy-groups', icon: () => h(DeploymentUnitOutlined), label: '代理组' },
   ]
   if (advanced.value) {
     items.splice(1, 0, { key: '/admin/groups', icon: () => h(TeamOutlined), label: '用户组' })

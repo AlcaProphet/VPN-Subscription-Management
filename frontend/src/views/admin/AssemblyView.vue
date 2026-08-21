@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Alert, Button, Modal, Result, Space, Tabs, message } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PoolTab from './assembly/PoolTab.vue'
+import ProxyGroupsView from './ProxyGroupsView.vue'
 import AssemblerShell from './assembly/AssemblerShell.vue'
 import TypeTargetStep from './assembly/TypeTargetStep.vue'
 import HeaderStep from './assembly/HeaderStep.vue'
@@ -22,14 +23,30 @@ import { versionApi } from '@/api/version'
 
 const route = useRoute()
 const router = useRouter()
-const TAB_KEYS = ['pool', 'clash-yaml', 'sr-subs', 'generic-subs', 'sr-conf'] as const
-function normalizeTab(v: unknown): string {
+const SUB_TABS = ['clash-yaml', 'sr-subs', 'generic-subs', 'sr-conf'] as const
+function normalizeTab(v: unknown): { main: string; sub?: string } {
   const s = String(v ?? 'pool')
-  return (TAB_KEYS as readonly string[]).includes(s) ? s : 'pool'
+  if (s === 'pool') return { main: 'pool' }
+  if (s === 'proxy-groups') return { main: 'proxy-groups' }
+  if ((SUB_TABS as readonly string[]).includes(s)) return { main: 'build', sub: s }
+  return { main: 'pool' }
 }
-const activeTab = ref<string>(normalizeTab(route.query.tab))
-watch(() => route.query.tab, () => { activeTab.value = normalizeTab(route.query.tab) })
-function onTabChange(key: string | number) {
+const initialTab = normalizeTab(route.query.tab)
+const mainTab = ref<string>(initialTab.main)
+const subTab = ref<TargetSyntax>((initialTab.sub as TargetSyntax) ?? 'clash-yaml')
+watch(() => route.query.tab, () => {
+  const t = normalizeTab(route.query.tab)
+  mainTab.value = t.main
+  if (t.sub) subTab.value = t.sub as TargetSyntax
+})
+function onMainTabChange(key: string | number) {
+  const k = String(key)
+  mainTab.value = k
+  const tab = k === 'build' ? subTab.value : k
+  void router.replace({ query: { ...route.query, tab: String(tab) } })
+}
+function onSubTabChange(key: string | number) {
+  subTab.value = key as TargetSyntax
   void router.replace({ query: { ...route.query, tab: String(key) } })
 }
 
@@ -68,24 +85,33 @@ const form = reactive({
   fixed_params_text: DEFAULT_HEADERS['clash-yaml'],
   node_names: [] as string[],
   group_names: [] as string[],
+  group_node_orders: {} as Record<string, string[]>,
   overseas_members: [] as string[],
   pools: [] as PoolSelection[],
   custom_rules: [] as RuleLine[],
   final_direction: 'PROXY',
 })
 
-const targetSyntax = computed<TargetSyntax>(() => {
-  const t = activeTab.value
-  return (['clash-yaml', 'sr-subs', 'generic-subs', 'sr-conf'] as TargetSyntax[]).includes(t as TargetSyntax)
-    ? (t as TargetSyntax)
-    : 'clash-yaml'
-})
+const targetSyntax = computed<TargetSyntax>(() => subTab.value)
 const isSrConf = computed(() => targetSyntax.value === 'sr-conf')
 const filteredPlatforms = computed(() => {
   if (!context.value) return []
   const map: Record<TargetSyntax, string> = { 'clash-yaml': 'yaml', 'sr-subs': 'subs', 'generic-subs': 'generic-subs', 'sr-conf': '' }
   const want = map[targetSyntax.value]
   return context.value.platforms.filter((p) => !want || p.product_type === want)
+})
+const buildPreflightMissing = computed<string[]>(() => {
+  if (!context.value) return []
+  const missing: string[] = []
+  const hasNode = (context.value.nodes ?? []).some((n) => !n.missing && n.enabled && (n.source === 'manual' || n.allocatable))
+  if (!hasNode) missing.push('至少一个可用节点')
+  if (targetSyntax.value === 'sr-conf') {
+    if ((context.value.rules ?? []).length === 0) missing.push('至少一个规则实体')
+  } else {
+    const want = filteredPlatforms.value.length > 0 ? '' : '匹配的目标平台'
+    if (want) missing.push(want)
+  }
+  return missing
 })
 
 watch(layoutMode, (v) => localStorage.setItem('assembly_layout_mode', v))
@@ -156,12 +182,14 @@ async function loadEditIfAny() {
   try {
     const data = await getBlueprint(id)
     const bp = data.blueprint
-    activeTab.value = bp.target_syntax
+    mainTab.value = 'build'
+    subTab.value = bp.target_syntax
     editVersionNo.value = bp.version_no ?? null
     form.platform_id = bp.platform_id ?? undefined
     form.rule_id = bp.rule_id ?? undefined
     form.node_names = bp.selection?.node_names ?? []
     form.group_names = bp.selection?.group_names ?? []
+    form.group_node_orders = bp.selection?.group_node_orders ?? {}
     form.overseas_members = bp.selection?.overseas_members ?? []
     form.pools = bp.selection?.pools ?? []
     form.final_direction = bp.selection?.final_direction ?? 'PROXY'
@@ -199,6 +227,7 @@ function buildInput(): GenerateInput {
     fixed_params: parseFixedParams(),
     node_names: form.node_names,
     group_names: form.group_names,
+    group_node_orders: form.group_node_orders,
     overseas_members: form.overseas_members,
     pools: form.pools,
     custom_rules: parseCustomRules(),
@@ -226,9 +255,19 @@ function toggleNode(name: string) {
     : [...form.node_names, name]
 }
 function toggleGroup(name: string) {
-  form.group_names = form.group_names.includes(name)
-    ? form.group_names.filter((n) => n !== name)
-    : [...form.group_names, name]
+  if (form.group_names.includes(name)) {
+    form.group_names = form.group_names.filter((n) => n !== name)
+    const next = { ...form.group_node_orders }
+    delete next[name]
+    form.group_node_orders = next
+    return
+  }
+  form.group_names = [...form.group_names, name]
+  const g = context.value?.proxy_groups.find((x) => x.name === name)
+  form.group_node_orders = {
+    ...form.group_node_orders,
+    [name]: (g?.definition.nodes ?? []).filter((n) => form.node_names.includes(n)),
+  }
 }
 function toggleOverseas(name: string) {
   form.overseas_members = form.overseas_members.includes(name)
@@ -415,66 +454,80 @@ const outputGroups = computed(() => {
            :message="`失效${invalidLabel(ref.kind)}：${ref.name}`" />
     <Alert v-if="Object.keys(nameChanged).length" type="warning" show-icon class="mb-2"
            message="以下节点显示名已变化，生成时将按当前显示名渲染" :description="Object.entries(nameChanged).map(([k,v]) => `${k} → ${v}`).join('；')" />
-    <Tabs v-model:activeKey="activeTab" @change="onTabChange">
+    <Tabs :active-key="mainTab" @change="onMainTabChange">
       <Tabs.TabPane key="pool" tab="规则素材池">
         <PoolTab />
       </Tabs.TabPane>
-      <Tabs.TabPane v-for="tab in (['clash-yaml','sr-subs','generic-subs','sr-conf'] as const)" :key="tab" :tab="tab">
-        <div v-if="loadingContext" class="py-12 text-center text-gray-400">加载装配上下文中…</div>
-        <div v-else>
-          <AssemblerShell
-            :layout-mode="layoutMode"
-            :step-defs="stepDefs"
-            :current-step="currentStep"
-            :current-step-key="currentStepKey"
-            :has-header-step="hasHeaderStep"
-            :has-nodes-step="hasNodesStep"
-            :has-rules-step="hasRulesStep"
-            :generating="generating"
-            @update:layout-mode="(v: string) => layoutMode = (v === 'page' ? 'page' : 'step')"
-            @update:current-step="(v: number) => currentStep = v"
-            @next="nextStep"
-            @prev="prevStep"
-            @generate="doGenerate"
-          >
-            <template #target>
-              <TypeTargetStep :form="form" :context="context" :is-sr-conf="isSrConf" :filtered-platforms="filteredPlatforms" />
-            </template>
-            <template #header>
-              <HeaderStep :form="form" :target-syntax="targetSyntax" @apply-default="headerConfirmOpen = true" />
-            </template>
-            <template #nodes>
-              <NodesGroupsStep :form="form" :context="context" :target-syntax="targetSyntax" :invalid-refs="invalidRefs"
-                               :manual-nodes="manualNodes" :xray-nodes="xrayNodes" :preset-groups="presetGroups" :custom-groups="customGroups"
-                               @toggle-node="toggleNode" @toggle-group="toggleGroup" @toggle-overseas="toggleOverseas" />
-            </template>
-            <template #rules>
-              <RulesStep :form="form" :context="context" :target-syntax="targetSyntax" :output-groups="outputGroups" :rule-type-options="ruleTypeOptions"
-                         @add-pool="addPool" @move-pool="movePool" @remove-pool="(i: number) => form.pools.splice(i, 1)"
-                         @add-rule="addRule" @remove-rule="removeRule" />
-            </template>
-            <template #preview>
-              <PreviewStep :previewing="previewing" :preview-warnings="previewWarnings" :preview-skipped="previewSkipped"
-                           :preview-text="previewText" :show-diff="showDiff" :diff-old="diffOld" :diff-missing="diffMissing" :diff-loading="diffLoading"
-                           @preview="doPreview" @toggle-diff="toggleDiff" />
-            </template>
-            <template #generate>
-              <GenerateStep :invalid-count="invalidRefs.length" :clash-empty-overseas="targetSyntax === 'clash-yaml' && form.overseas_members.length === 0"
-                            :generating="generating" @generate="doGenerate" />
-            </template>
-          </AssemblerShell>
+      <Tabs.TabPane key="proxy-groups" tab="代理组">
+        <ProxyGroupsView />
+      </Tabs.TabPane>
+      <Tabs.TabPane key="build" tab="构建订阅/规则">
+        <Tabs :active-key="subTab" @change="onSubTabChange" class="mb-4">
+          <Tabs.TabPane v-for="tab in SUB_TABS" :key="tab" :tab="tab">
+            <div v-if="loadingContext" class="py-12 text-center text-gray-400">加载装配上下文中…</div>
+            <div v-else>
+              <Alert v-if="buildPreflightMissing.length" type="warning" show-icon class="mb-4"
+                     :message="'构建前缺少：' + buildPreflightMissing.join('、')">
+                <template #description>请先前往对应管理页完成配置后再构建。</template>
+              </Alert>
+              <template v-else>
+              <AssemblerShell
+                :layout-mode="layoutMode"
+                :step-defs="stepDefs"
+                :current-step="currentStep"
+                :current-step-key="currentStepKey"
+                :has-header-step="hasHeaderStep"
+                :has-nodes-step="hasNodesStep"
+                :has-rules-step="hasRulesStep"
+                :generating="generating"
+                @update:layout-mode="(v: string) => layoutMode = (v === 'page' ? 'page' : 'step')"
+                @update:current-step="(v: number) => currentStep = v"
+                @next="nextStep"
+                @prev="prevStep"
+                @generate="doGenerate"
+              >
+                <template #target>
+                  <TypeTargetStep :form="form" :context="context" :is-sr-conf="isSrConf" :filtered-platforms="filteredPlatforms" />
+                </template>
+                <template #header>
+                  <HeaderStep :form="form" :target-syntax="targetSyntax" @apply-default="headerConfirmOpen = true" />
+                </template>
+                <template #nodes>
+                  <NodesGroupsStep :form="form" :group-node-orders="form.group_node_orders" :context="context" :target-syntax="targetSyntax" :invalid-refs="invalidRefs"
+                                   :manual-nodes="manualNodes" :xray-nodes="xrayNodes" :preset-groups="presetGroups" :custom-groups="customGroups"
+                                   @toggle-node="toggleNode" @toggle-group="toggleGroup" @toggle-overseas="toggleOverseas"
+                                   @update-group-node-order="(g: string, nodes: string[]) => form.group_node_orders = { ...form.group_node_orders, [g]: nodes }" />
+                </template>
+                <template #rules>
+                  <RulesStep :form="form" :context="context" :target-syntax="targetSyntax" :output-groups="outputGroups" :rule-type-options="ruleTypeOptions"
+                             @add-pool="addPool" @move-pool="movePool" @remove-pool="(i: number) => form.pools.splice(i, 1)"
+                             @add-rule="addRule" @remove-rule="removeRule" />
+                </template>
+                <template #preview>
+                  <PreviewStep :previewing="previewing" :preview-warnings="previewWarnings" :preview-skipped="previewSkipped"
+                               :preview-text="previewText" :show-diff="showDiff" :diff-old="diffOld" :diff-missing="diffMissing" :diff-loading="diffLoading"
+                               @preview="doPreview" @toggle-diff="toggleDiff" />
+                </template>
+                <template #generate>
+                  <GenerateStep :invalid-count="invalidRefs.length" :clash-empty-overseas="targetSyntax === 'clash-yaml' && form.overseas_members.length === 0"
+                                :generating="generating" @generate="doGenerate" />
+                </template>
+              </AssemblerShell>
 
-          <Result v-if="generateResult" status="success"
-                  :title="generateResult.auto_activated ? '首个版本已自动激活' : '已入池未生效，请激活'"
-                  :sub-title="`版本 v${generateResult.version_no} 已入池${generateResult.auto_activated ? '并激活' : '，请到版本管理激活'}`">
-            <template #extra>
-              <Space>
-                <Button type="primary" @click="goActivation">去版本管理激活</Button>
-                <Button @click="continueAssembly">继续装配</Button>
-              </Space>
-            </template>
-          </Result>
-        </div>
+              <Result v-if="generateResult" status="success"
+                      :title="generateResult.auto_activated ? '首个版本已自动激活' : '已入池未生效，请激活'"
+                      :sub-title="`版本 v${generateResult.version_no} 已入池${generateResult.auto_activated ? '并激活' : '，请到版本管理激活'}`">
+                <template #extra>
+                  <Space>
+                    <Button type="primary" @click="goActivation">去版本管理激活</Button>
+                    <Button @click="continueAssembly">继续装配</Button>
+                  </Space>
+                </template>
+              </Result>
+              </template>
+            </div>
+          </Tabs.TabPane>
+        </Tabs>
       </Tabs.TabPane>
     </Tabs>
 

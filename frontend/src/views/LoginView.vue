@@ -133,7 +133,7 @@ onMounted(async () => {
         <!-- mock 提供商（仅 Dev）：模拟登录表单，标题标注「Dev 模拟登录」 -->
         <Form v-if="system.status.oidc_provider_type === 'mock'" layout="vertical" :model="mockForm" @finish="onMockLogin">
           <div class="text-sm text-gray-400 mb-2">Dev 模拟登录</div>
-          <Form.Item label="邮箱" name="mock_email" :rules="[{ required: true, type: 'email' }]">
+          <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email', trigger: 'blur' }]">
             <Input v-model:value="mockForm.email" />
           </Form.Item>
           <Form.Item label="用户名（可留空，默认取邮箱前缀）"><Input v-model:value="mockForm.username" /></Form.Item>

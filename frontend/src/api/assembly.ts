@@ -24,6 +24,7 @@ export interface GenerateInput {
   fixed_params?: Record<string, unknown>
   node_names: string[]
   group_names: string[]
+  group_node_orders?: Record<string, string[]>
   overseas_members: string[]
   pools: PoolSelection[]
   custom_rules: RuleLine[]
@@ -57,6 +58,7 @@ export interface BlueprintResponse {
     selection: {
       node_names: string[]
       group_names: string[]
+      group_node_orders?: Record<string, string[]>
       overseas_members: string[]
       pools: PoolSelection[]
       final_direction?: string

@@ -382,6 +382,21 @@ func Render(protocol, renderName, host string, port int, params map[string]any, 
 }
 
 func realityOpts(m map[string]any) map[string]any {
+	// 新结构：顶层独立字段（R19-07）
+	out := map[string]any{}
+	if v, ok := m["public-key"]; ok {
+		out["public-key"] = v
+	}
+	if v, ok := m["private-key"]; ok {
+		out["private-key"] = v
+	}
+	if v, ok := m["short-id"]; ok {
+		out["short-id"] = v
+	}
+	if len(out) > 0 {
+		return out
+	}
+	// 兼容旧结构：reality-opts / reality 嵌套对象
 	if v, ok := m["reality-opts"]; ok {
 		if mm, ok := v.(map[string]any); ok {
 			return mm

@@ -72,10 +72,11 @@ func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*Blueprint
 		return nil, fmt.Errorf("读取装配蓝图失败: %w", err)
 	}
 	var sel struct {
-		NodeNames       []string        `json:"node_names"`
-		GroupNames      []string        `json:"group_names"`
-		Pools           []PoolSelection `json:"pools"`
-		OverseasMembers []string        `json:"overseas_members"`
+		NodeNames       []string            `json:"node_names"`
+		GroupNames      []string            `json:"group_names"`
+		GroupNodeOrders map[string][]string `json:"group_node_orders"`
+		Pools           []PoolSelection     `json:"pools"`
+		OverseasMembers []string            `json:"overseas_members"`
 	}
 	if err := json.Unmarshal([]byte(row.SelectionJSON), &sel); err != nil {
 		return nil, fmt.Errorf("蓝图 selection_json 解析失败: %w", err)

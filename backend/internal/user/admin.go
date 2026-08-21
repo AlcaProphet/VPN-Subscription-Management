@@ -253,8 +253,11 @@ func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int6
 				return nil, 0, fmt.Errorf("查询用户同步状态失败: %w", err)
 			}
 			u.SyncStatus = status
-			if err := s.store.DB().QueryRowContext(ctx,
-				`SELECT COALESCE(last_error,'') FROM xray_users WHERE user_id = ? AND last_error != '' ORDER BY updated_at DESC LIMIT 1`, u.ID).Scan(&u.SyncError); err != nil {
+			err := s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(last_error,'') FROM xray_users WHERE user_id = ? AND last_error != '' ORDER BY updated_at DESC LIMIT 1`, u.ID).Scan(&u.SyncError)
+			if errors.Is(err, sql.ErrNoRows) {
+				u.SyncError = "" // 无同步错误记录属于正常空值
+			} else if err != nil {
 				return nil, 0, fmt.Errorf("查询用户同步错误失败: %w", err)
 			}
 		}

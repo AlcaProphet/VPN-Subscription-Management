@@ -196,7 +196,7 @@
   当用户没有任何 `last_error != ''` 记录（例如初始化成功、`sync_status='synced'`、`last_error=''`，或尚无 `xray_users` 行）时，`QueryRow` 返回 `sql.ErrNoRows`；当前代码未将 `sql.ErrNoRows` 视为正常空值，而是作为系统错误返回，导致整个用户列表接口 500。
 - **影响范围：** `/api/admin/users` 接口 500，前端用户管理列表为空；用户数据未被删除，登录不受影响；高级模式下几乎所有正常用户都会触发（只要没有同步错误记录）。
 - **修复方案：** 在读取 `u.SyncError` 时对 `errors.Is(err, sql.ErrNoRows)` 做容错，置 `u.SyncError = ""` 后继续；或改用聚合/`LEFT JOIN` 保证查询恒有一行；并补「高级模式开启 + 用户无同步错误记录」时 `AdminService.List` 正常返回的单测。
-- **状态：** ☐ 待修复（2026-08-21 用户要求先记录，不改动代码）
+- **状态：** ✅ 已修复（2026-08-21，`AdminService.List` 对 `sql.ErrNoRows` 容错并置空 SyncError；后端 `go build/vet/test` 通过）
 
 ---
 
@@ -329,3 +329,4 @@
 | v1.7 | 2026-08-21 | 全量复验：确认 R16-06/R16-07/R16-09/R15-07/R15-08 为部分修复；新增 R17-01~R17-08（ext action 未过滤、ext 凭据修复超限/错误、OFF 确认词、Xray/Groups/Settings UI 残留、测试缺口、smoke v2 导出假成功、导入导出文案）。验收命令仍全绿，但按文档状态不应恢复 Build6/7 对应 Step 为 ✅。 |
 | v1.8 | 2026-08-21 | 执行 R17 修复：R17-01/02/03/04/05/08 ✅；R17-06/07 ◧（测试交互覆盖、smoke Production 自动拉起待补）；Build6 Step5/6、Build7 Step1~4 同步回退 ◧。后端 build/vet/test、前端 build/test、Production smoke 全绿。 |
 | v1.9 | 2026-08-21 | 新增 R18-01：高级模式用户列表对 `sql.ErrNoRows` 未容错，点击「开始初始化」后 `/api/admin/users` 500、用户管理列表为空（用户数据未丢失）。用户要求先记录、不改动代码；状态 ☐ 待修复。 |
+| v1.10 | 2026-08-21 | R18-01 修复完成：`AdminService.List` 对 `sql.ErrNoRows` 容错并置空 SyncError；后端 build/vet/test 通过。 |

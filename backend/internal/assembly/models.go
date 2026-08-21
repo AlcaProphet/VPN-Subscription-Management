@@ -150,6 +150,7 @@ type GenerateInput struct {
 	FixedParams     *OrderedMap     `json:"fixed_params"`
 	NodeNames       []string        `json:"node_names"`
 	GroupNames      []string        `json:"group_names"`
+	GroupNodeOrders map[string][]string `json:"group_node_orders,omitempty"`
 	OverseasMembers []string        `json:"overseas_members"`
 	Pools           []PoolSelection `json:"pools"`
 	CustomRules     []RuleLine      `json:"custom_rules"`

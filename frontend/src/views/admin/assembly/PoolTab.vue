@@ -155,11 +155,12 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 
 <template>
   <div>
-    <!-- 详情钻取视图（页内） -->
-    <PoolDetail v-if="detailID" :pool="currentDetail()!" @back="detailID = 0" @changed="load" @edit="openEdit(currentDetail()!)" />
+    <!-- 素材池详情弹窗 -->
+    <Modal :open="detailID !== 0" :footer="null" :width="760" @cancel="detailID = 0">
+      <PoolDetail v-if="detailID" :pool="currentDetail()!" @back="detailID = 0" @changed="load" @edit="openEdit(currentDetail()!)" />
+    </Modal>
 
-    <template v-else>
-      <div class="flex items-center justify-between mb-3">
+    <div class="flex items-center justify-between mb-3">
         <div class="text-sm text-gray-500">维护规则素材池，供订阅装配时勾选拼接</div>
         <Button type="primary" @click="openCreate">新建素材池</Button>
       </div>
@@ -231,8 +232,6 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           </div>
         </div>
       </TriStateList>
-    </template>
-
     <!-- 新建/编辑弹窗 -->
     <Modal v-model:open="formOpen" :title="editing ? '编辑素材池' : '新建素材池'" :footer="null" :width="480"
            destroy-on-close>

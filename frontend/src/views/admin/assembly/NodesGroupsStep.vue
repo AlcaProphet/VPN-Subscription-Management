@@ -1,12 +1,13 @@
 <!-- NodesGroupsStep.vue：装配步骤③ 节点与代理组（Design2-UI §5.3.1） -->
 <script setup lang="ts">
-import { Checkbox, Tag } from 'ant-design-vue'
+import { Button, Checkbox, Tag } from 'ant-design-vue'
 import type { AssemblyContext, TargetSyntax } from '@/api/assembly'
 import type { NodeItem } from '@/api/node'
 import type { ProxyGroupItem } from '@/api/proxyGroup'
 
-defineProps<{
+const props = defineProps<{
   form: { node_names: string[]; group_names: string[]; overseas_members: string[] }
+  groupNodeOrders: Record<string, string[]>
   context: AssemblyContext | null
   targetSyntax: TargetSyntax
   invalidRefs: Array<{ kind: string; name: string }>
@@ -20,9 +21,24 @@ const emit = defineEmits<{
   'toggle-node': [name: string]
   'toggle-group': [name: string]
   'toggle-overseas': [name: string]
+  'update-group-node-order': [group: string, nodes: string[]]
 }>()
 
 const FORCE_GROUPS = ['🚀直接连接', '🌎国外流量', '🛟无法归属的流量']
+
+function moveOrder(group: string, index: number, delta: number) {
+  const arr = [...(props.groupNodeOrders[group] ?? [])]
+  const target = index + delta
+  if (target < 0 || target >= arr.length) return
+  const [item] = arr.splice(index, 1)
+  arr.splice(target, 0, item)
+  emit('update-group-node-order', group, arr)
+}
+function removeOrder(group: string, index: number) {
+  const arr = [...(props.groupNodeOrders[group] ?? [])]
+  arr.splice(index, 1)
+  emit('update-group-node-order', group, arr)
+}
 </script>
 
 <template>
@@ -59,6 +75,21 @@ const FORCE_GROUPS = ['🚀直接连接', '🌎国外流量', '🛟无法归属�
         <Checkbox v-for="g in customGroups" :key="g.name" :checked="form.group_names.includes(g.name)" @change="emit('toggle-group', g.name)">
           {{ g.name }}<Tag class="ml-1">自建</Tag>
         </Checkbox>
+      </div>
+      <div v-if="form.group_names.length" class="mt-4 space-y-2">
+        <div class="text-sm font-medium">已勾选代理组的节点引用顺序</div>
+        <div v-for="g in [...presetGroups, ...customGroups].filter((x) => form.group_names.includes(x.name))" :key="g.name" class="border rounded p-2">
+          <div class="text-sm font-medium mb-1">{{ g.name }}</div>
+          <div v-if="(groupNodeOrders[g.name] ?? []).length" class="space-y-1">
+            <div v-for="(name, idx) in groupNodeOrders[g.name]" :key="name" class="flex items-center gap-2 text-sm">
+              <span class="flex-1">{{ name }}</span>
+              <Button size="small" :disabled="idx === 0" @click="moveOrder(g.name, idx, -1)">上移</Button>
+              <Button size="small" :disabled="idx === groupNodeOrders[g.name].length - 1" @click="moveOrder(g.name, idx, 1)">下移</Button>
+              <Button size="small" danger @click="removeOrder(g.name, idx)">移除</Button>
+            </div>
+          </div>
+          <div v-else class="text-xs text-gray-400">未设置节点引用顺序（将使用代理组全局定义）</div>
+        </div>
       </div>
     </div>
     <div v-if="targetSyntax === 'clash-yaml'">

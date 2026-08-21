@@ -85,8 +85,8 @@ describe('AssemblyView 装配页核心交互', () => {
 
   it('无效 tab 回退到 pool', async () => {
     const wrapper = await mountWith('tab=bad')
-    const vm = wrapper.vm as unknown as { activeTab: string }
-    expect(vm.activeTab).toBe('pool')
+    const vm = wrapper.vm as unknown as { mainTab: string }
+    expect(vm.mainTab).toBe('pool')
   })
 
   it('sr-conf 步骤定义跳过 nodes 步骤', async () => {
