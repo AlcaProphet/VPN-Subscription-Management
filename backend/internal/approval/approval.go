@@ -34,7 +34,6 @@ type Service struct {
 	log   *slog.Logger
 
 	onApproved func(ctx context.Context, userID int64)
-	onRejected func(ctx context.Context, userID int64)
 
 	onUserDeleting func(ctx context.Context, userID int64) ([]xray.Target, error)
 	onUserDeleted  func(ctx context.Context, userID int64, targets []xray.Target)
@@ -47,11 +46,6 @@ func NewService(st *store.Store, mail MailSender, cfg *config.Service, lg *slog.
 // SetOnApproved 注入审批通过后的 Xray 同步回调（Build6 Step3）。
 func (s *Service) SetOnApproved(fn func(ctx context.Context, userID int64)) {
 	s.onApproved = fn
-}
-
-// SetOnRejected 注入审批拒绝后的 Xray 清理回调（Build6 Step3）。
-func (s *Service) SetOnRejected(fn func(ctx context.Context, userID int64)) {
-	s.onRejected = fn
 }
 
 // SetOnUserDeleting 注入拒绝删除前收集 Xray 清理目标回调（Build6-2 补强）。
@@ -183,9 +177,6 @@ func (s *Service) Reject(ctx context.Context, id int64) error {
 		if err := s.mail.SendApprovalNotify(ctx, email, siteName, false); err != nil {
 			s.log.Warn("拒绝通知邮件发送失败", "user_id", id, "err", err) // 不阻断
 		}
-	}
-	if s.onRejected != nil {
-		s.onRejected(ctx, id)
 	}
 	if s.onUserDeleted != nil && len(cleanupTargets) > 0 {
 		s.onUserDeleted(ctx, id, cleanupTargets)

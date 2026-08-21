@@ -319,10 +319,6 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 			}
 		})
 	})
-	approvalSvc.SetOnRejected(func(ctx context.Context, userID int64) {
-		// 保留原回调；实际清理由下方 onUserDeleting/onUserDeleted 负责。
-		_ = userID
-	})
 	approvalSvc.SetOnUserDeleting(func(ctx context.Context, userID int64) ([]xray.Target, error) {
 		return syncSvc.Targets(ctx, userID)
 	})
@@ -401,10 +397,31 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	})
 	exportSvc.SetPostImportRebindReconcile(func(ctx context.Context, _ *config.ExportPayload) []string {
 		var hints []string
-		if err := syncSvc.SyncAllActive(ctx); err != nil {
-			hints = append(hints, "面板用户重推失败: "+err.Error())
+		if refHints, err := assemblySvc.CheckXrayReferences(ctx); err != nil {
+			hints = append(hints, "装配快照 Xray 引用核对失败: "+err.Error())
+		} else {
+			hints = append(hints, refHints...)
 		}
-		hints = append(hints, extSvc.SyncAllExt(ctx)...)
+		// best-effort 账号对账：遍历启用实例执行 Reconcile + PushOne，失败不阻断导入任务。
+		instances, err := xraySvc.List(ctx)
+		if err != nil {
+			return append(hints, "读取实例列表失败: "+err.Error())
+		}
+		for _, inst := range instances {
+			if !inst.Enabled {
+				continue
+			}
+			res, err := syncSvc.Reconcile(ctx, inst.ID)
+			if err != nil {
+				hints = append(hints, fmt.Sprintf("实例 %s 对账失败: %v", inst.Name, err))
+				continue
+			}
+			for _, item := range res.ToPush {
+				if err := syncSvc.PushOne(ctx, item); err != nil {
+					hints = append(hints, fmt.Sprintf("实例 %s 补推 %s/%s 失败: %v", inst.Name, item.Email, item.InboundTag, err))
+				}
+			}
+		}
 		return hints
 	})
 	backupSvc := backup.NewService(st, dataDir, lg)

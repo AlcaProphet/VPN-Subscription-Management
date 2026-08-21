@@ -72,7 +72,7 @@ func (s *SyncService) Reconcile(ctx context.Context, instanceID int64) (*Reconci
 	// 独立账号部分：xray_ext_users 推送目标，仅可用性过滤、不经候选集。
 	if s.ext != nil {
 		rows, err := s.store.DB().QueryContext(ctx,
-			`SELECT xu.ext_account_id, xu.instance_id, xu.inbound_tag, xu.node_id, n.name,
+			`SELECT xu.ext_account_id, xu.inbound_tag, xu.node_id, n.name,
 			        COALESCE(NULLIF(n.display_name,''), n.name), n.enabled, n.allocatable, n.missing, i.enabled
 			 FROM xray_ext_users xu
 			 JOIN nodes n ON n.id = xu.node_id
@@ -82,14 +82,13 @@ func (s *SyncService) Reconcile(ctx context.Context, instanceID int64) (*Reconci
 			return nil, err
 		}
 		for rows.Next() {
-			var extID, instID, nodeID int64
+			var extID, nodeID int64
 			var tag, name, renderName string
 			var nEnabled, allocatable, missing, iEnabled int
-			if err := rows.Scan(&extID, &instID, &tag, &nodeID, &name, &renderName, &nEnabled, &allocatable, &missing, &iEnabled); err != nil {
+			if err := rows.Scan(&extID, &tag, &nodeID, &name, &renderName, &nEnabled, &allocatable, &missing, &iEnabled); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}
-			_ = instID
 			if nEnabled != 1 || allocatable != 1 || missing != 0 || iEnabled != 1 {
 				continue
 			}

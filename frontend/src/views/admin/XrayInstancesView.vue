@@ -1,13 +1,15 @@
 <!-- XrayInstancesView.vue：Xray 实例与独立账号管理（Build7 Step3） -->
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { Button, Empty, Modal, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
+import { computed, onMounted, ref } from 'vue'
+import { Button, Checkbox, Empty, Input, InputNumber, Modal, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
 import {
   listInstances, listExtAccounts, createInstance, updateInstance, deleteInstance, detectNodes, testConnection,
   runInit, reconcile, pushRepair, cleanOrphans, repairCredentials,
-  createExtAccount, deleteExtAccount, retryExtSync, resetExtQuota, getExtCredentials,
-  type XrayInstance, type ExtAccount, type DetectResult, type ReconcileResult,
+  createExtAccount, updateExtAccount, deleteExtAccount, retryExtSync, resetExtQuota, getExtCredentials,
+  pushOne, repairCredentialsOne,
+  type XrayInstance, type ExtAccount, type DetectResult, type ReconcileResult, type ReconcileItem, type ExtPushTarget,
 } from '@/api/xray'
+import { listNodes, setNodeDisplayName, type NodeItem } from '@/api/node'
 import PageHeader from '@/components/PageHeader.vue'
 import { Notify } from '@/components/Notify'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -16,14 +18,16 @@ import { getAdminTask } from '@/api/settings'
 
 const instances = ref<XrayInstance[]>([])
 const extAccounts = ref<ExtAccount[]>([])
+const xrayNodes = ref<NodeItem[]>([])
 const loading = ref(false)
 
 async function load() {
   loading.value = true
   try {
-    const [ins, exts] = await Promise.all([listInstances(), listExtAccounts()])
+    const [ins, exts, nodes] = await Promise.all([listInstances(), listExtAccounts(), listNodes('xray')])
     instances.value = ins
     extAccounts.value = exts
+    xrayNodes.value = nodes
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -31,6 +35,19 @@ async function load() {
   }
 }
 onMounted(load)
+
+// 独立账号推送目标选项：按实例分组展示 xray 节点（仅启用/可分配/未缺失）。
+const targetOptions = computed(() => {
+  const map = new Map<number, { label: string; options: { label: string; value: string }[] }>()
+  for (const n of xrayNodes.value) {
+    if (n.source !== 'xray' || !n.enabled || !n.allocatable || n.missing) continue
+    if (!map.has(n.instance_id ?? 0)) {
+      map.set(n.instance_id ?? 0, { label: n.instance_slug || `实例 ${n.instance_id}`, options: [] })
+    }
+    map.get(n.instance_id ?? 0)!.options.push({ label: `${n.render_name}（${n.tag}）`, value: `${n.instance_id}/${n.tag}` })
+  }
+  return Array.from(map.values())
+})
 
 const createOpen = ref(false)
 const createForm = ref({ name: '', api_addr: '', api_tag: '' })
@@ -100,19 +117,70 @@ async function doSaveEdit() {
   }
 }
 
+const editTestResult = ref('')
+const editTesting = ref(false)
+async function doEditTestConnection() {
+  if (!editForm.value.api_addr) return
+  editTesting.value = true
+  editTestResult.value = ''
+  try {
+    await testConnection(editForm.value.api_addr)
+    editTestResult.value = '连接成功'
+  } catch (err) {
+    editTestResult.value = `连接失败：${(err as Error).message}`
+  } finally {
+    editTesting.value = false
+  }
+}
+
+async function doToggleInstance(inst: XrayInstance) {
+  try {
+    await updateInstance(inst.id, { name: inst.name, api_addr: inst.api_addr, api_tag: inst.api_tag ?? '', enabled: !inst.enabled })
+    Notify.success(inst.enabled ? '实例已停用（暂停管理）' : '实例已启用')
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  }
+}
+
 const detectTarget = ref<XrayInstance | null>(null)
 const detectResult = ref<DetectResult | null>(null)
 const detecting = ref(false)
+const addedNodeNames = ref<Record<number, string>>({})
+const namingNodeID = ref<number | null>(null)
 async function doDetect(inst: XrayInstance) {
   detectTarget.value = inst
   detecting.value = true
   detectResult.value = null
   try {
-    detectResult.value = await detectNodes(inst.id)
+    const res = await detectNodes(inst.id)
+    detectResult.value = res
+    addedNodeNames.value = {}
+    for (const n of res.added_nodes) addedNodeNames.value[n.node_id] = n.name
+    if (res.added === 0 && res.updated === 0 && res.missing === 0) {
+      Notify.info('节点无变化')
+    }
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
     detecting.value = false
+  }
+}
+async function doSetNodeDisplayName(nodeId: number) {
+  const name = (addedNodeNames.value[nodeId] ?? '').trim()
+  if (!name) return
+  namingNodeID.value = nodeId
+  try {
+    await setNodeDisplayName(nodeId, name)
+    Notify.success('节点显示名已设置')
+    if (detectResult.value) {
+      detectResult.value.added_nodes = detectResult.value.added_nodes.filter((n) => n.node_id !== nodeId)
+    }
+    delete addedNodeNames.value[nodeId]
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    namingNodeID.value = null
   }
 }
 
@@ -138,17 +206,21 @@ async function confirmDelete() {
   }
 }
 
+const initOpen = ref(false)
 const initLoading = ref(false)
 async function doInit() {
+  initOpen.value = false
   initLoading.value = true
   try {
     const res = await runInit()
-    await pollTask({
+    const task = await pollTask({
       submit: () => Promise.resolve(),
       query: () => getAdminTask(res.task_id),
       isDone: (t) => t.status === 'succeeded' || t.status === 'failed',
     }).run()
-    Notify.success('初始化完成')
+    if (task.status === 'failed') throw new Error(task.error || '初始化失败')
+    const r = (task.result ?? {}) as { synced?: number; failed?: number }
+    Notify.success(`初始化完成：成功 ${r.synced ?? 0}，失败 ${r.failed ?? 0}`)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -158,45 +230,102 @@ async function doInit() {
 
 const reconcileResult = ref<ReconcileResult | null>(null)
 const reconcileTarget = ref<XrayInstance | null>(null)
+const cleanOrphanEmails = ref<string[]>([])
+const cleanExtEmails = ref<string[]>([])
+const reconcileBusy = ref(false)
 async function doReconcile(inst: XrayInstance) {
   reconcileTarget.value = inst
   reconcileResult.value = null
+  cleanOrphanEmails.value = []
+  cleanExtEmails.value = []
   try {
     reconcileResult.value = await reconcile(inst.id)
   } catch (err) {
     Notify.error((err as Error).message)
   }
 }
+async function runTask(taskID: string, successText: string) {
+  const task = await pollTask({
+    submit: () => Promise.resolve(),
+    query: () => getAdminTask(taskID),
+    isDone: (t) => t.status === 'succeeded' || t.status === 'failed',
+  }).run()
+  if (task.status === 'failed') throw new Error(task.error || '任务失败')
+  Notify.success(successText)
+  await load()
+}
 async function doPushRepair() {
   if (!reconcileTarget.value) return
+  reconcileBusy.value = true
   try {
-    await pushRepair(reconcileTarget.value.id)
-    Notify.success('补推任务已提交')
+    const res = await pushRepair(reconcileTarget.value.id)
+    const task = await pollTask({
+      submit: () => Promise.resolve(),
+      query: () => getAdminTask(res.task_id),
+      isDone: (t) => t.status === 'succeeded' || t.status === 'failed',
+    }).run()
+    if (task.status === 'failed') throw new Error(task.error || '补推失败')
+    const r = (task.result ?? {}) as { pushed?: number; skipped?: number; failed?: number }
+    Notify.success(`补推完成：成功 ${r.pushed ?? 0}，跳过 ${r.skipped ?? 0}，失败 ${r.failed ?? 0}`)
   } catch (err) {
     Notify.error((err as Error).message)
+  } finally {
+    reconcileBusy.value = false
   }
 }
 async function doClean() {
   if (!reconcileTarget.value || !reconcileResult.value) return
+  const emails = [...cleanOrphanEmails.value, ...cleanExtEmails.value]
+  if (emails.length === 0) {
+    Notify.error('请先勾选要清理的残留账号')
+    return
+  }
+  reconcileBusy.value = true
   try {
-    await cleanOrphans(reconcileTarget.value.id, reconcileResult.value.orphans.map((o) => o.email))
-    Notify.success('清理任务已提交')
+    const res = await cleanOrphans(reconcileTarget.value.id, emails)
+    await runTask(res.task_id, '清理任务已完成')
+    reconcileResult.value = await reconcile(reconcileTarget.value.id)
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    reconcileBusy.value = false
+  }
+}
+async function doRepairCredentials() {
+  if (!reconcileTarget.value || !reconcileResult.value || reconcileResult.value.credential_mismatches.length === 0) return
+  reconcileBusy.value = true
+  try {
+    const res = await repairCredentials(reconcileTarget.value.id, reconcileResult.value.credential_mismatches)
+    await runTask(res.task_id, '凭据修复任务已完成')
+    reconcileResult.value = await reconcile(reconcileTarget.value.id)
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    reconcileBusy.value = false
+  }
+}
+async function doPushOne(item: ReconcileItem) {
+  if (!reconcileTarget.value) return
+  try {
+    await pushOne(reconcileTarget.value.id, item)
+    Notify.success('已补推：' + item.email)
   } catch (err) {
     Notify.error((err as Error).message)
   }
 }
-async function doRepairCredentials() {
-  if (!reconcileTarget.value || !reconcileResult.value) return
+async function doCredentialsOne(item: ReconcileItem) {
+  if (!reconcileTarget.value) return
   try {
-    await repairCredentials(reconcileTarget.value.id, reconcileResult.value.credential_mismatches)
-    Notify.success('凭据修复任务已提交')
+    await repairCredentialsOne(reconcileTarget.value.id, item)
+    Notify.success('凭据已修复：' + item.email)
   } catch (err) {
     Notify.error((err as Error).message)
   }
 }
 
 const extCreateOpen = ref(false)
-const extForm = ref({ name: '', credential_mode: 'generate' as 'generate' | 'manual', uuid: '', proxy_secret: '', quota: null as number | null, push_targets: [] as { instance_id: number; inbound_tag: string }[] })
+const extForm = ref({ name: '', credential_mode: 'generate' as 'generate' | 'manual', uuid: '', proxy_secret: '', quota: undefined as number | undefined })
+const extSelectedTargets = ref<string[]>([])
 const extCreating = ref(false)
 async function doExtCreate() {
   if (!extForm.value.name) {
@@ -205,9 +334,19 @@ async function doExtCreate() {
   }
   extCreating.value = true
   try {
-    const res = await createExtAccount({ ...extForm.value, push_targets: extForm.value.push_targets })
-    Notify.success(`独立账号已创建${res.credentials ? '，请复制一次性凭据' : ''}`)
+    const push_targets: ExtPushTarget[] = extSelectedTargets.value.map((v) => {
+      const [instance_id, inbound_tag] = v.split('/')
+      return { instance_id: Number(instance_id), inbound_tag }
+    })
+    const res = await createExtAccount({ ...extForm.value, push_targets })
+    if (res.credentials) {
+      Modal.info({ title: `${res.account.name} 一次性凭据`, content: `UUID: ${res.credentials.uuid}\n代理密码: ${res.credentials.proxy_secret}` })
+    } else {
+      Notify.success('独立账号已创建')
+    }
     extCreateOpen.value = false
+    extForm.value = { name: '', credential_mode: 'generate', uuid: '', proxy_secret: '', quota: undefined }
+    extSelectedTargets.value = []
     await load()
   } catch (err) {
     Notify.error((err as Error).message)
@@ -216,31 +355,75 @@ async function doExtCreate() {
   }
 }
 
+const extEditOpen = ref(false)
+const extEditing = ref<ExtAccount | null>(null)
+const extEditForm = ref({ name: '', quota: undefined as number | undefined })
+const extEditSelectedTargets = ref<string[]>([])
+const extSaving = ref(false)
+function openExtEdit(acc: ExtAccount) {
+  extEditing.value = acc
+  extEditForm.value = { name: acc.name, quota: acc.quota ?? undefined }
+  extEditSelectedTargets.value = (acc.push_targets ?? []).map((t) => `${t.instance_id}/${t.inbound_tag}`)
+  extEditOpen.value = true
+}
+async function doExtUpdate() {
+  if (!extEditing.value || !extEditForm.value.name) return
+  extSaving.value = true
+  try {
+    const push_targets: ExtPushTarget[] = extEditSelectedTargets.value.map((v) => {
+      const [instance_id, inbound_tag] = v.split('/')
+      return { instance_id: Number(instance_id), inbound_tag }
+    })
+    await updateExtAccount(extEditing.value.id, { name: extEditForm.value.name, quota: extEditForm.value.quota, push_targets })
+    Notify.success('独立账号已更新')
+    extEditOpen.value = false
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    extSaving.value = false
+  }
+}
+
 async function doExtRetry(acc: ExtAccount) {
   try {
-    await retryExtSync(acc.id)
-    Notify.success('重试任务已执行')
+    const res = await retryExtSync(acc.id)
+    Notify.success(`重试完成：新增 ${res.added ?? 0}，失败 ${res.add_failed ?? 0}，移除 ${res.removed ?? 0}`)
     await load()
   } catch (err) {
     Notify.error((err as Error).message)
   }
 }
-async function doExtReset(acc: ExtAccount) {
+const extResetTarget = ref<ExtAccount | null>(null)
+const extResetting = ref(false)
+async function confirmExtReset() {
+  if (!extResetTarget.value) return
+  extResetting.value = true
   try {
-    await resetExtQuota(acc.id)
+    await resetExtQuota(extResetTarget.value.id)
     Notify.success('配额已重置并重新推送')
+    extResetTarget.value = null
     await load()
   } catch (err) {
     Notify.error((err as Error).message)
+  } finally {
+    extResetting.value = false
   }
 }
-async function doExtDelete(acc: ExtAccount) {
+const extDeleteTarget = ref<ExtAccount | null>(null)
+const extDeleting = ref(false)
+async function confirmExtDelete() {
+  if (!extDeleteTarget.value) return
+  extDeleting.value = true
   try {
-    await deleteExtAccount(acc.id)
+    await deleteExtAccount(extDeleteTarget.value.id)
     Notify.success('独立账号已删除')
+    extDeleteTarget.value = null
     await load()
   } catch (err) {
     Notify.error((err as Error).message)
+  } finally {
+    extDeleting.value = false
   }
 }
 async function doExtCredentials(acc: ExtAccount) {
@@ -257,7 +440,7 @@ async function doExtCredentials(acc: ExtAccount) {
   <div>
     <PageHeader title="Xray 实例">
       <template #actions>
-        <Button :loading="initLoading" @click="doInit">开始初始化</Button>
+        <Button :loading="initLoading" @click="initOpen = true">开始初始化</Button>
         <Button type="primary" @click="createOpen = true">新增实例</Button>
       </template>
     </PageHeader>
@@ -277,8 +460,11 @@ async function doExtCredentials(acc: ExtAccount) {
             </Table.Column>
           <Table.Column title="状态">
             <template #default="{ record }">
-              <Tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</Tag>
-              <Tag v-if="record.collect_status === 'error'" color="red" class="ml-1">采集异常</Tag>
+              <div class="flex items-center gap-2">
+                <Switch :checked="record.enabled" @change="doToggleInstance(record)" />
+                <Tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</Tag>
+                <Tag v-if="record.collect_status === 'error'" color="red" class="ml-1">采集异常</Tag>
+              </div>
             </template>
           </Table.Column>
           <Table.Column title="操作" width="300">
@@ -306,12 +492,13 @@ async function doExtCredentials(acc: ExtAccount) {
               <span v-else>—</span>
             </template>
           </Table.Column>
-          <Table.Column title="操作" width="320">
+          <Table.Column title="操作" width="360">
             <template #default="{ record }">
+              <Button size="small" class="mr-1" @click="openExtEdit(record)">编辑</Button>
               <Button size="small" class="mr-1" @click="doExtCredentials(record)">复制凭据</Button>
               <Button size="small" class="mr-1" @click="doExtRetry(record)">重试</Button>
-              <Button size="small" class="mr-1" @click="doExtReset(record)">重置配额</Button>
-              <Button size="small" danger @click="doExtDelete(record)">删除</Button>
+              <Button size="small" class="mr-1" @click="extResetTarget = record">重置配额</Button>
+              <Button size="small" danger @click="extDeleteTarget = record">删除</Button>
             </template>
           </Table.Column>
         </Table>
@@ -334,40 +521,112 @@ async function doExtCredentials(acc: ExtAccount) {
         <input v-model="editForm.name" placeholder="名称" class="w-full border rounded px-3 py-2" />
         <input v-model="editForm.api_addr" placeholder="api_addr (host:port)" class="w-full border rounded px-3 py-2" />
         <input v-model="editForm.api_tag" placeholder="api_tag（可空）" class="w-full border rounded px-3 py-2" />
+        <div class="flex items-center gap-2">
+          <Button :loading="editTesting" @click="doEditTestConnection">测试连接</Button>
+          <span v-if="editTestResult" class="text-sm">{{ editTestResult }}</span>
+        </div>
         <Button type="primary" :loading="saving" @click="doSaveEdit">保存</Button>
       </div>
     </Modal>
 
-    <Modal :open="detectTarget !== null" title="刷新节点结果" :footer="null" width="520" @update:open="detectTarget = null">
-      <div v-if="detectResult">
+    <Modal :open="detectTarget !== null" title="刷新节点结果" :footer="null" width="560" @update:open="detectTarget = null">
+      <div v-if="detectResult" class="space-y-3">
         <p>新增 {{ detectResult.added }} / 更新 {{ detectResult.updated }} / 缺失 {{ detectResult.missing }}</p>
         <p v-if="detectResult.skipped.length">跳过：{{ detectResult.skipped.map((s) => `${s.tag}: ${s.reason}`).join('；') }}</p>
+        <div v-if="detectResult.added_nodes.length">
+          <div class="text-sm font-medium mb-2">为新增节点设置显示名（可选，留空则使用默认名）</div>
+          <div v-for="n in detectResult.added_nodes" :key="n.node_id" class="flex items-center gap-2 mb-2">
+            <span class="text-xs w-40 truncate">{{ n.name }}</span>
+            <Input v-model:value="addedNodeNames[n.node_id]" :placeholder="n.name" class="flex-1" />
+            <Button size="small" type="primary" :loading="namingNodeID === n.node_id" @click="doSetNodeDisplayName(n.node_id)">设置</Button>
+          </div>
+        </div>
       </div>
     </Modal>
 
-    <Modal :open="reconcileTarget !== null" title="实例对账" :footer="null" width="720" @update:open="reconcileTarget = null">
-      <div v-if="reconcileResult">
+    <Modal :open="reconcileTarget !== null" title="实例对账" :footer="null" width="820" @update:open="reconcileTarget = null">
+      <div v-if="reconcileResult" class="space-y-4">
         <p>待补推 {{ reconcileResult.to_push.length }} / 无头 {{ reconcileResult.orphans.length }} / 疑似残留 {{ reconcileResult.ext_orphans.length }} / 凭据不一致 {{ reconcileResult.credential_mismatches.length }}</p>
-        <div class="mt-3 space-x-2">
-          <Button type="primary" @click="doPushRepair">一键补推</Button>
-          <Button @click="doClean">清理无头</Button>
-          <Button @click="doRepairCredentials">修复凭据</Button>
+        <div>
+          <div class="text-sm font-medium mb-2">待补推</div>
+          <div v-if="reconcileResult.to_push.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-for="item in reconcileResult.to_push" :key="item.email" class="flex items-center justify-between py-1">
+            <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
+            <Button size="small" @click="doPushOne(item)">单条补推</Button>
+          </div>
+        </div>
+        <div>
+          <div class="text-sm font-medium mb-2">无头用户（勾选后清理）</div>
+          <div v-if="reconcileResult.orphans.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-for="item in reconcileResult.orphans" :key="item.email" class="flex items-center gap-2 py-1">
+            <Checkbox :checked="cleanOrphanEmails.includes(item.email)" @change="cleanOrphanEmails = cleanOrphanEmails.includes(item.email) ? cleanOrphanEmails.filter((x) => x !== item.email) : [...cleanOrphanEmails, item.email]" />
+            <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
+          </div>
+        </div>
+        <div>
+          <div class="text-sm font-medium mb-2">疑似独立账号残留（勾选后清理）</div>
+          <div v-if="reconcileResult.ext_orphans.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-for="item in reconcileResult.ext_orphans" :key="item.email" class="flex items-center gap-2 py-1">
+            <Checkbox :checked="cleanExtEmails.includes(item.email)" @change="cleanExtEmails = cleanExtEmails.includes(item.email) ? cleanExtEmails.filter((x) => x !== item.email) : [...cleanExtEmails, item.email]" />
+            <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
+          </div>
+        </div>
+        <div>
+          <div class="text-sm font-medium mb-2">凭据不一致</div>
+          <div v-if="reconcileResult.credential_mismatches.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-for="item in reconcileResult.credential_mismatches" :key="item.email" class="flex items-center justify-between py-1">
+            <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
+            <Button size="small" @click="doCredentialsOne(item)">修复凭据</Button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 pt-2 border-t">
+          <Button type="primary" :loading="reconcileBusy" @click="doPushRepair">一键补推</Button>
+          <Button :loading="reconcileBusy" @click="doClean">清理勾选残留</Button>
+          <Button :loading="reconcileBusy" @click="doRepairCredentials">修复全部凭据</Button>
         </div>
       </div>
     </Modal>
 
     <Modal v-model:open="extCreateOpen" title="创建独立账号" :footer="null" width="720" destroy-on-close>
       <div class="space-y-3">
-        <input v-model="extForm.name" placeholder="名称" class="w-full border rounded px-3 py-2" />
-        <select v-model="extForm.credential_mode" class="w-full border rounded px-3 py-2">
-          <option value="generate">自动生成</option>
-          <option value="manual">手填接管</option>
-        </select>
-        <input v-if="extForm.credential_mode === 'manual'" v-model="extForm.uuid" placeholder="UUID" class="w-full border rounded px-3 py-2" />
-        <input v-if="extForm.credential_mode === 'manual'" v-model="extForm.proxy_secret" placeholder="代理密码" class="w-full border rounded px-3 py-2" />
+        <Input v-model:value="extForm.name" placeholder="名称" class="w-full" />
+        <Select v-model:value="extForm.credential_mode" class="w-full" :options="[{ value: 'generate', label: '自动生成' }, { value: 'manual', label: '手填接管' }]" />
+        <template v-if="extForm.credential_mode === 'manual'">
+          <Input v-model:value="extForm.uuid" placeholder="UUID" class="w-full" />
+          <Input v-model:value="extForm.proxy_secret" placeholder="代理密码" class="w-full" />
+        </template>
+        <InputNumber v-model:value="extForm.quota" :min="0" class="w-48" placeholder="配额（GB，0/空=不限）" />
+        <div>
+          <div class="text-sm text-gray-400 mb-1">推送目标（可多选）</div>
+          <Select v-model:value="extSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
+        </div>
         <Button type="primary" :loading="extCreating" @click="doExtCreate">创建</Button>
       </div>
     </Modal>
+
+    <Modal :open="extEditOpen" title="编辑独立账号" :footer="null" width="720" destroy-on-close @cancel="extEditOpen = false">
+      <div class="space-y-3">
+        <Input v-model:value="extEditForm.name" placeholder="名称" class="w-full" />
+        <InputNumber v-model:value="extEditForm.quota" :min="0" class="w-48" placeholder="配额（GB，0/空=不限）" />
+        <div>
+          <div class="text-sm text-gray-400 mb-1">推送目标（可多选，移除已选目标会同步删除 Xray 账号）</div>
+          <Select v-model:value="extEditSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
+        </div>
+        <Button type="primary" :loading="extSaving" @click="doExtUpdate">保存</Button>
+      </div>
+    </Modal>
+
+    <ConfirmModal :open="initOpen" title="开始初始化" danger :loading="initLoading"
+                  content="初始化将：1）为所有 active 用户生成/补齐 UUID 与代理密码；2）按当前候选集向全部 Xray 实例推送账号；3）写入 xray_users 同步状态。请确认已配置实例并完成节点检测。"
+                  @confirm="doInit" @update:open="initOpen = false" />
+
+    <ConfirmModal :open="extResetTarget !== null" title="重置独立账号配额" :loading="extResetting"
+                  content="将清空该账号当月流量并重新推送全部目标；若已超限，重置后恢复推送。"
+                  @confirm="confirmExtReset" @update:open="extResetTarget = null" />
+
+    <ConfirmModal :open="extDeleteTarget !== null" title="删除独立账号" danger :loading="extDeleting"
+                  content="将删除独立账号、推送目标并尝试从 Xray 侧移除账号；不可达时残留需手动清理。"
+                  @confirm="confirmExtDelete" @update:open="extDeleteTarget = null" />
 
     <ConfirmModal :open="deleting !== null" title="删除实例" danger :loading="deleteLoading"
                   content="将级联删除该实例下 Xray 节点、组分配与推送记录；实例不可达时 Xray 侧残留账号需手动清理。"

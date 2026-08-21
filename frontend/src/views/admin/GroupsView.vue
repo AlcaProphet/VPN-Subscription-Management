@@ -53,6 +53,31 @@ const selectedNodeIDs = ref<number[]>([])
 const candidateNodes = ref<CandidateNode[]>([])
 const editQuota = ref<number | undefined>(undefined)
 const saving = ref(false)
+const assignedNonCandidate = computed(() =>
+  (editing.value?.nodes ?? []).filter((n) => !(candidateNodes.value ?? []).some((c) => c.node_id === n.node_id)),
+)
+const selectedNodes = computed(() =>
+  selectedNodeIDs.value
+    .map((id) => {
+      const n = editing.value?.nodes?.find((x) => x.node_id === id)
+      const c = candidateNodes.value.find((x) => x.node_id === id)
+      return {
+        node_id: id,
+        name: n?.node_name || c?.name || String(id),
+        render_name: n?.render_name || c?.name || '',
+        is_public: !!n?.is_public,
+        in_candidate: !!c,
+      }
+    })
+    .filter(Boolean),
+)
+function moveSelected(index: number, dir: -1 | 1) {
+  const target = index + dir
+  if (target < 0 || target >= selectedNodeIDs.value.length) return
+  const arr = [...selectedNodeIDs.value]
+  ;[arr[index], arr[target]] = [arr[target], arr[index]]
+  selectedNodeIDs.value = arr
+}
 async function openEdit(g: GroupItem) {
   try {
     const detail = await getGroup(g.id)
@@ -141,8 +166,12 @@ async function confirmDelete() {
         </div>
         <div>
           <div class="text-xs text-gray-400 mb-1">节点分配（候选集）</div>
-          <div v-if="candidateNodes.length === 0" class="text-gray-400 text-sm">暂无候选节点，请先在装配中勾选 Xray 节点</div>
-          <div v-else class="space-y-1">
+          <div v-if="candidateNodes.length === 0 && selectedNodes.length === 0" class="text-gray-400 text-sm">暂无候选节点，请先在装配中勾选 Xray 节点</div>
+          <div v-if="assignedNonCandidate.length > 0" class="mb-2">
+            <Tag color="red">存在非候选集已分配节点</Tag>
+            <div class="text-xs text-red-500">{{ assignedNonCandidate.map((n) => n.node_name).join('、') }} 不在当前候选集，保存后可能被候选集重算摘除。</div>
+          </div>
+          <div v-if="candidateNodes.length > 0" class="space-y-1 mb-3">
             <div v-for="c in candidateNodes" :key="c.name" class="flex items-center gap-2">
               <Checkbox :checked="selectedNodeIDs.includes(c.node_id)" @change="() => {
                 const id = c.node_id
@@ -150,6 +179,17 @@ async function confirmDelete() {
                 else selectedNodeIDs = [...selectedNodeIDs, id]
               }">{{ c.name }}</Checkbox>
               <Tag v-if="c.in_partial_blueprint" color="orange">仅部分模板</Tag>
+            </div>
+          </div>
+          <div v-if="selectedNodes.length > 0">
+            <div class="text-xs text-gray-400 mb-1">分配排序（顺序将写入 sort_order）</div>
+            <div v-for="(n, i) in selectedNodes" :key="n.node_id" class="flex items-center gap-2 py-1">
+              <span class="w-6 text-gray-400">{{ i + 1 }}</span>
+              <span :class="n.is_public ? 'text-gray-400' : ''" class="flex-1 text-sm">{{ n.render_name || n.name }}</span>
+              <Tag v-if="n.is_public" color="default">公共·免分配</Tag>
+              <Tag v-if="!n.in_candidate" color="red">非候选</Tag>
+              <Button size="small" :disabled="i === 0" @click="moveSelected(i, -1)">↑</Button>
+              <Button size="small" :disabled="i === selectedNodes.length - 1" @click="moveSelected(i, 1)">↓</Button>
             </div>
           </div>
         </div>

@@ -226,15 +226,19 @@ func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int6
 		ym := time.Now().UTC().Format("2006-01")
 		for i := range out {
 			u := &out[i]
-			_ = s.store.DB().QueryRowContext(ctx,
-				`SELECT COALESCE(SUM(uplink+downlink),0) FROM traffic_records WHERE user_id = ? AND ym = ?`, u.ID, ym).Scan(&u.UsedBytes)
+			if err := s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(SUM(uplink+downlink),0) FROM traffic_records WHERE user_id = ? AND ym = ?`, u.ID, ym).Scan(&u.UsedBytes); err != nil {
+				return nil, 0, fmt.Errorf("查询用户用量失败: %w", err)
+			}
 			var quota sql.NullFloat64
 			var override sql.NullFloat64
 			var exceeded int
-			_ = s.store.DB().QueryRowContext(ctx,
+			if err := s.store.DB().QueryRowContext(ctx,
 				`SELECT COALESCE(u.quota_override, g.default_quota), u.quota_override, u.quota_exceeded
 				 FROM users u LEFT JOIN groups g ON g.id = u.group_id WHERE u.id = ?`, u.ID).
-				Scan(&quota, &override, &exceeded)
+				Scan(&quota, &override, &exceeded); err != nil {
+				return nil, 0, fmt.Errorf("查询用户配额失败: %w", err)
+			}
 			if quota.Valid {
 				u.EffectiveQuota = &quota.Float64
 			}
@@ -243,12 +247,16 @@ func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int6
 			}
 			u.QuotaExceeded = exceeded == 1
 			var status string
-			_ = s.store.DB().QueryRowContext(ctx,
+			if err := s.store.DB().QueryRowContext(ctx,
 				`SELECT CASE WHEN COUNT(*)=0 THEN '' WHEN SUM(sync_status='failed')>0 THEN 'failed' WHEN SUM(sync_status='pending')>0 THEN 'pending' ELSE 'synced' END
-				 FROM xray_users WHERE user_id = ?`, u.ID).Scan(&status)
+				 FROM xray_users WHERE user_id = ?`, u.ID).Scan(&status); err != nil {
+				return nil, 0, fmt.Errorf("查询用户同步状态失败: %w", err)
+			}
 			u.SyncStatus = status
-			_ = s.store.DB().QueryRowContext(ctx,
-				`SELECT COALESCE(last_error,'') FROM xray_users WHERE user_id = ? AND last_error != '' ORDER BY updated_at DESC LIMIT 1`, u.ID).Scan(&u.SyncError)
+			if err := s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(last_error,'') FROM xray_users WHERE user_id = ? AND last_error != '' ORDER BY updated_at DESC LIMIT 1`, u.ID).Scan(&u.SyncError); err != nil {
+				return nil, 0, fmt.Errorf("查询用户同步错误失败: %w", err)
+			}
 		}
 	}
 	return out, total, nil

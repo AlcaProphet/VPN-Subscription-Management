@@ -63,4 +63,44 @@ echo "   刷新后=$(curl -s "$BASE/share/$SHARESLUG/download?token=$NEWTOK" | h
 # 10) 无效 Token → 404
 echo "10) 无效Token HTTP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/subscriptions/platform-1/download?token=bad")"
 
+# --- Build4~7 核心路径 ---
+# 11) 规则素材池 CRUD + 手动条目
+POOL=$(curl -s -X POST $BASE/api/admin/pools -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-pool","urls":[],"auto_sync":false,"sync_time":"04:00"}')
+POOLID=$(echo "$POOL" | J "['data']['id']")
+curl -s -X POST "$BASE/api/admin/pools/$POOLID/entries" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"rule_type":"DOMAIN-SUFFIX","match_value":"smoke.example"}' > /dev/null
+echo "11) 素材池 id=$POOLID entries=$(curl -s "$BASE/api/admin/pools/$POOLID/entries" -H "$AUTH" | J "['data']['total']")"
+
+# 12) manual 节点 + 代理组
+NODE=$(curl -s -X POST $BASE/api/admin/nodes -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-node","protocol":"vless","host":"1.2.3.4","port":443,"protocol_json":{"uuid":"11111111-2222-3333-4444-555555555555"}}')
+NODEID=$(echo "$NODE" | J "['data']['id']")
+curl -s -X POST $BASE/api/admin/proxy-groups -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-group","group_type":"select","definition":{"type":"select","nodes":["smoke-node"],"groups":[]}}' > /dev/null
+echo "12) manual 节点 id=$NODEID 代理组已建"
+
+# 13) 装配生成（Clash YAML，自动激活首版）
+GEN=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT"}')
+GENID=$(echo "$GEN" | J "['data']['version_id']")
+echo "13) 装配生成 version_id=$GENID auto=$(echo "$GEN" | J "['data']['auto_activated']")"
+
+# 14) Xray 高级模式：开启 + 实例（可选；无 Xray 时跳过检测只验证接口不 5xx）
+curl -s -X PUT $BASE/api/admin/settings/advanced -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"advanced_mode":true,"collect_interval_minutes":10,"traffic_card_enabled":true}' > /dev/null
+echo "14) 高级模式=$(curl -s $BASE/api/system/status | J "['data']['advanced_mode']")"
+if [ -n "${XRAY_FAKE_ADDR:-}" ]; then
+  XR=$(curl -s -X POST $BASE/api/admin/xray/instances -H "$AUTH" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"smoke-xray\",\"slug\":\"instance-smoke\",\"api_addr\":\"$XRAY_FAKE_ADDR\",\"api_tag\":\"smoke\",\"enabled\":true}")
+  echo "15) Xray 实例=$(echo "$XR" | J "['data']['id']")"
+else
+  echo "15) Xray 实例跳过（未设置 XRAY_FAKE_ADDR）"
+fi
+
+# 15/16) v2 导出导入往返（仅验证导出接口可返回文件；导入破坏性较大默认跳过，可用 SMOKE_IMPORT=1 开启）
+curl -s -X POST $BASE/api/admin/settings/export -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"password":"smoke-pass-123"}' -o /tmp/vpn-smoke-export.enc
+echo "16) v2 导出文件大小=$(wc -c < /tmp/vpn-smoke-export.enc) 字节"
+
 echo "=== SMOKE ALL DONE ==="

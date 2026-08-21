@@ -232,40 +232,6 @@ func (s *SyncService) RemoveUserFromTargets(ctx context.Context, userID int64, t
 	return removed, failed, nil
 }
 
-// DiffPush 按旧新目标集合执行差异推送/移除。
-func (s *SyncService) DiffPush(ctx context.Context, userID int64, oldTargets, newTargets []Target) error {
-	oldMap := map[int64]Target{}
-	newMap := map[int64]Target{}
-	for _, t := range oldTargets {
-		oldMap[t.NodeID] = t
-	}
-	for _, t := range newTargets {
-		newMap[t.NodeID] = t
-	}
-	var removeTargets, addTargets []Target
-	for id, t := range oldMap {
-		if _, ok := newMap[id]; !ok {
-			removeTargets = append(removeTargets, t)
-		}
-	}
-	for id, t := range newMap {
-		if _, ok := oldMap[id]; !ok {
-			addTargets = append(addTargets, t)
-		}
-	}
-	if len(removeTargets) > 0 {
-		_, _, _ = s.RemoveUserFromTargets(ctx, userID, removeTargets)
-	}
-	if len(addTargets) > 0 {
-		var status string
-		_ = s.store.DB().QueryRowContext(ctx, `SELECT status FROM users WHERE id = ?`, userID).Scan(&status)
-		if status == "active" {
-			_, _, _ = s.PushUser(ctx, userID)
-		}
-	}
-	return nil
-}
-
 // CollectTargetsTx 在事务内收集用户目标（删除/禁用前使用）。
 func (s *SyncService) CollectTargetsTx(ctx context.Context, tx *sql.Tx, userID int64) ([]Target, error) {
 	return s.targetsDB(ctx, tx, userID)

@@ -490,18 +490,17 @@ function onImportFile(file: File) {
   return false
 }
 
-// 第一步确认 IMPORT 后进入第二步 DISABLE（v2 导入在无实例/账号且高级关闭时强制需要；
-// 其它导入也会提交该字段，由后端按 payload 决定是否校验）。
+// 第一步确认 IMPORT 后先按普通导入提交；仅当后端要求 DISABLE（无实例/账号且高级关闭）时再弹第二步。
 function doImport() {
   if (!importForm.file || !importForm.password) {
     Notify.error('请选择文件并输入导出密码')
     return
   }
   importOpen.value = false
-  disableImportOpen.value = true
+  void submitImport(false)
 }
 
-async function submitImport() {
+async function submitImport(withDisable = true) {
   if (!importForm.file || !importForm.password) {
     Notify.error('请选择文件并输入导出密码')
     return
@@ -513,21 +512,28 @@ async function submitImport() {
     fd.append('password', importForm.password)
     // 确认词由 ConfirmModal 按钮禁用保证输入正确（okDisabled），后端二次校验兜底；与 SetupView 硬编码模式统一（R08-02）
     fd.append('confirm_word', 'IMPORT')
-    fd.append('disable_confirm_word', 'DISABLE')
+    fd.append('disable_confirm_word', withDisable ? 'DISABLE' : '')
     const res = await importConfig(fd)
     disableImportOpen.value = false
+    let importHintText = '配置已整体覆盖（导出文件中不存在的配置键已清除）；前端地址与回调地址已按导出值覆盖，若域名/端口有变化请先核对修改（修改后需重启生效）。请立即重启容器后再重新登录。'
     if (res.task_id) {
-      await pollTask({
+      const task = await pollTask({
         submit: () => Promise.resolve(),
         query: () => getAdminTask(res.task_id!),
         isDone: (t) => t.status === 'succeeded' || t.status === 'failed',
       }).run()
+      if (task.status === 'failed') {
+        throw new Error(task.error || '导入任务失败')
+      }
+      const result = (task.result ?? {}) as { hints?: string[] }
+      const hints = result.hints ?? []
+      importHintText = hints.length > 0
+        ? '配置已导入并完成异步处理，完成提示：\n' + hints.join('\n')
+        : '配置已导入并完成异步处理，请刷新页面后确认高级模式状态。'
     }
     Modal.warning({
       title: '导入完成',
-      content: res.task_id
-        ? '配置已导入并完成异步处理，请刷新页面后确认高级模式状态。'
-        : '配置已整体覆盖（导出文件中不存在的配置键已清除）；前端地址与回调地址已按导出值覆盖，若域名/端口有变化请先核对修改（修改后需重启生效）。请立即重启容器后再重新登录。',
+      content: importHintText,
       okText: '退出登录',
       onOk: async () => {
         await auth.logoutAction()
@@ -535,7 +541,13 @@ async function submitImport() {
       },
     })
   } catch (err) {
-    Notify.error((err as Error).message) // 确认词/密码错误提示
+    const msg = (err as Error).message
+    // 首次普通提交被要求 DISABLE 时，静默进入第二步确认弹窗。
+    if (!withDisable && msg.includes('DISABLE')) {
+      disableImportOpen.value = true
+      return
+    }
+    Notify.error(msg) // 确认词/密码错误提示
   } finally {
     importing.value = false
   }
@@ -963,7 +975,7 @@ onMounted(() => {
       <!-- v2 导入第二确认（DISABLE；仅当导入会清空高级模式数据时后端强制校验） -->
       <ConfirmModal :open="disableImportOpen" title="确认清空高级模式数据" danger confirm-word="DISABLE" :loading="importing"
                     content="该导入文件不包含 Xray 实例/独立账号且高级模式为关闭状态，将按 OFF 清空口径移除旧高级数据（用户凭据、配额、流量记录、Xray 表等）。请输入 DISABLE 继续。"
-                    @confirm="submitImport" @update:open="disableImportOpen = false" />
+                    @confirm="submitImport(true)" @update:open="disableImportOpen = false" />
     <!-- 备份确认 -->
     <ConfirmModal :open="backupOpen" title="下载备份"
                   content="将生成数据库一致性快照并打包全部内容文件下载（tar.gz），确定继续？"

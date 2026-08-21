@@ -44,10 +44,10 @@
 
 > 执行 AI 必须逐个完成并勾选。状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
-- ◧ Step 1：独立 Xray 账号后端 + 实例级账号对账后端（Issue3 R16-01/02 未闭环，2026-08-21 回退）
-- ◧ Step 2：高级设置后端、OFF 清空与配置导入导出 format_version=2（Issue3 R16-03/04/05 未闭环，2026-08-21 回退）
-- ◧ Step 3：Xray 实例页前端（实例/检测/初始化/对账/独立账号）（Issue3 R16-06 完成度约 50%，2026-08-21 回退）
-- ◧ Step 4：用户组/用户管理/面板设置高级前端（Issue3 R16-06 完成度约 55%，2026-08-21 回退）
+- ✅ Step 1：独立 Xray 账号后端 + 实例级账号对账后端（Issue3 R16-01/02 已闭环，2026-08-21 恢复）
+- ✅ Step 2：高级设置后端、OFF 清空与配置导入导出 format_version=2（Issue3 R16-03/04/05 已闭环，2026-08-21 恢复）
+- ✅ Step 3：Xray 实例页前端（实例/检测/初始化/对账/独立账号）（Issue3 R16-06 已闭环，2026-08-21 恢复）
+- ✅ Step 4：用户组/用户管理/面板设置高级前端（Issue3 R16-06 已闭环，2026-08-21 恢复）
 - ✅ Step 5：首页/个人中心/AppHeader 高级展示收口
 - ◧ Step 6：全量端到端验收、文档核对与归档
 
@@ -57,10 +57,10 @@
 
 | Step | 内容 | 设计依据 | 状态 |
 |------|------|---------|------|
-| 1 | 独立账号 + 实例级对账后端 | Design2 §5.10/§5.11 | ◧ 修复中（Issue3 R16-01/02） |
-| 2 | 高级设置后端 + OFF 清空 + 导入导出 v2 | Design2 §一/§5.4/§5.10 | ◧ 修复中（Issue3 R16-03/04/05） |
-| 3 | Xray 实例页前端 | Design2-UI §8 | ◧ 修复中（Issue3 R16-06） |
-| 4 | 组/用户/设置高级前端 | Design2-UI §4.3/§4.5/§4.7 | ◧ 修复中（Issue3 R16-06） |
+| 1 | 独立账号 + 实例级对账后端 | Design2 §5.10/§5.11 | ✅ 验收通过（Issue3 R16-01/02 已闭环） |
+| 2 | 高级设置后端 + OFF 清空 + 导入导出 v2 | Design2 §一/§5.4/§5.10 | ✅ 验收通过（Issue3 R16-03/04/05 已闭环） |
+| 3 | Xray 实例页前端 | Design2-UI §8 | ✅ 验收通过（Issue3 R16-06 已闭环） |
+| 4 | 组/用户/设置高级前端 | Design2-UI §4.3/§4.5/§4.7 | ✅ 验收通过（Issue3 R16-06 已闭环） |
 | 5 | 首页/个人中心/AppHeader 收口 | Design2-UI §2.2/§3 | ✅ 验收通过 |
 | 6 | 全量验收与归档 | Design2 全量 + AGENTS §8.2 | ◧ 进行中 |
 
@@ -445,4 +445,8 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 | v1.14 | 2026-08-21 | Build6/Build7 交付核查未完全达标：对应问题见 [Issue2.md](./Issue2.md) R15-01~R15-14（v2 导入不完整与双确认词、OFF 并发任务、Build7 前端页面未完整落地、专项测试缺失等）。用户决策：归档 Build4~7 与 AGENTS/README 状态更新由用户决定时机；`AfterAdvancedOff` 补实现并接线；R15 修复开始时本 Build 受影响 Step 回退 ◧，复验通过后恢复 ✅。暂不修改代码。 |
 | v1.15 | 2026-08-21 | 执行 R15 首轮修复：v2 导入双确认与后处理、OFF 并发事务、异步任务 Context、Client 30s deadline、对账/独立账号 action 状态机、前端 Settings/Groups/Xray 部分高级 UI 已落地；后端 `go test ./...`、前端 `npm run build && npm test` 通过。R15-07/08/14 仍部分进行，见 Issue2 状态表。 |
 | v1.16 | 2026-08-21 | Build1~7 全量核查（见 [Issue3.md](./Issue3.md) R16 系列）：按用户决策与 Issue2 决策 3，Step1~4 勾选回退 ◧（Step1 R16-01/02、Step2 R16-03/04/05、Step3/4 R16-06 前端完成度约 50%/55%）；R16-01 修复方案用户已确认采用方案 A（摘除不删行）；修复方案与顺序已记录于 Issue3，本轮未改代码。 |
+| v1.17 | 2026-08-21 | 执行 Issue3 优先级 1 前两项：R16-01 超限摘除保留本地期望集、R16-02 manual 接管 already-exists 视为成功；新增 `internal/xray/ext_test.go` 两个单测；Step1 勾选恢复 ✅，验收命令通过。 |
+| v1.18 | 2026-08-21 | 执行 Issue3 优先级 1 R16-03/04：导入重绑失配置 failed、importV2 返回 hints 并写入任务终态、SettingsView 展示 hints；新增 `internal/config/export_v2_test.go`；Step2 仍待 R16-05 确认后恢复。 |
+| v1.19 | 2026-08-21 | 执行 Issue3 优先级 1 R16-05（用户已确认轻量方案）：新增 `assembly.CheckXrayReferences` 同名重绑/失配悬空提示，server 导入后改为 best-effort Reconcile+PushOne 对账；新增 `internal/assembly/rebind_test.go`；Step2 勾选恢复 ✅。 |
+| v1.20 | 2026-08-21 | 执行 Issue3 优先级 2/3：前端 Step3/4 补齐（R15-07/R16-06）、测试补齐（R15-08/R16-07）、error/死代码清理（R15-14/R16-08）、smoke 重写（R16-09）；Step3/4 勾选恢复 ✅。 |
 

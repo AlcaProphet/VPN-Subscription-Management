@@ -600,7 +600,10 @@ func (s *ExtService) CheckExtQuota(ctx context.Context, id int64) error {
 		return err
 	}
 	for _, t := range targets {
-		_ = s.removeOne(ctx, id, t)
+		// 超限摘除只从 Xray 侧移除，不删除本地期望集记录；保留目标行以便重置后重推。
+		if err := s.removeQuotaExceededTarget(ctx, id, t); err != nil {
+			s.log.Warn("超限摘除独立账号 Xray 用户失败", "ext_id", id, "tag", t.InboundTag, "err", err)
+		}
 	}
 	_, err = s.store.DB().ExecContext(ctx,
 		`UPDATE xray_ext_accounts SET quota_exceeded = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
@@ -775,15 +778,25 @@ func (s *ExtService) pushOne(ctx context.Context, extID int64, t ExtPushTarget, 
 			GetInboundUsers(ctx context.Context, tag, email string) (*command.GetInboundUserResponse, error)
 		}); ok {
 			if resp, lerr := lister.GetInboundUsers(ctx, t.InboundTag, ExtEmail(extID)); lerr == nil && len(resp.GetUsers()) > 0 {
-				_ = client.RemoveUser(ctx, t.InboundTag, ExtEmail(extID))
+				if rerr := client.RemoveUser(ctx, t.InboundTag, ExtEmail(extID)); rerr != nil && !IsNotFound(rerr) {
+					s.log.Warn("generate 覆盖前移除旧 Xray 账号失败", "ext_id", extID, "tag", t.InboundTag, "err", rerr)
+				}
 			}
 		}
 	}
 	err = client.AddUser(ctx, t.InboundTag, user)
 	if err != nil {
-		if overwrite && IsAlreadyExists(err) {
-			_ = client.RemoveUser(ctx, t.InboundTag, ExtEmail(extID))
-			err = client.AddUser(ctx, t.InboundTag, user)
+		if IsAlreadyExists(err) {
+			if overwrite {
+				// generate 模式：已存在时先移除旧账号，再以新凭据覆盖。
+				if rerr := client.RemoveUser(ctx, t.InboundTag, ExtEmail(extID)); rerr != nil && !IsNotFound(rerr) {
+					s.log.Warn("generate 覆盖移除旧 Xray 账号失败", "ext_id", extID, "tag", t.InboundTag, "err", rerr)
+				}
+				err = client.AddUser(ctx, t.InboundTag, user)
+			} else {
+				// manual 接管模式：已存在视为接管成功（Build7 Step1 口径）。
+				err = nil
+			}
 		}
 		if err != nil {
 			s.markExtFailed(ctx, extID, t, err)
@@ -795,6 +808,17 @@ func (s *ExtService) pushOne(ctx context.Context, extID int64, t ExtPushTarget, 
 }
 
 func (s *ExtService) removeOne(ctx context.Context, extID int64, t ExtPushTarget) error {
+	if err := s.removeFromXray(ctx, extID, t); err != nil {
+		return err
+	}
+	_, err := s.store.DB().ExecContext(ctx,
+		`DELETE FROM xray_ext_users WHERE ext_account_id = ? AND instance_id = ? AND inbound_tag = ?`,
+		extID, t.InstanceID, t.InboundTag)
+	return err
+}
+
+// removeFromXray 仅从 Xray 侧移除账号，不删除本地推送目标行；失败时记录 remove 状态。
+func (s *ExtService) removeFromXray(ctx context.Context, extID int64, t ExtPushTarget) error {
 	client, err := s.api(ctx, t.InstanceID)
 	if err != nil {
 		return err
@@ -804,9 +828,20 @@ func (s *ExtService) removeOne(ctx context.Context, extID int64, t ExtPushTarget
 		s.markExtRemoveFailed(ctx, extID, t, err)
 		return err
 	}
-	_, _ = s.store.DB().ExecContext(ctx,
-		`DELETE FROM xray_ext_users WHERE ext_account_id = ? AND instance_id = ? AND inbound_tag = ?`,
-		extID, t.InstanceID, t.InboundTag)
+	return nil
+}
+
+// removeQuotaExceededTarget 超限摘除专用：仅 RemoveUser，保留本地目标行并标记为 failed/add 以便重置后重推。
+func (s *ExtService) removeQuotaExceededTarget(ctx context.Context, extID int64, t ExtPushTarget) error {
+	client, err := s.api(ctx, t.InstanceID)
+	if err != nil {
+		return err
+	}
+	err = client.RemoveUser(ctx, t.InboundTag, ExtEmail(extID))
+	if err != nil && !IsNotFound(err) {
+		return err
+	}
+	s.markExtFailed(ctx, extID, t, errors.New("已超限，已从 Xray 移除（保留目标）"))
 	return nil
 }
 

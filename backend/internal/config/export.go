@@ -170,10 +170,18 @@ func (s *ExportService) Export(ctx context.Context, password string) ([]byte, er
 	}
 	// v2：导出 Xray 实例与独立账号（表不存在时跳过，兼容最小测试库）。
 	if s.hasTable(ctx, "xray_instances") {
-		payload.Instances, _ = s.exportInstances(ctx)
+		instances, err := s.exportInstances(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("导出 Xray 实例失败: %w", err)
+		}
+		payload.Instances = instances
 	}
 	if s.hasTable(ctx, "xray_ext_accounts") {
-		payload.Accounts, _ = s.exportAccounts(ctx)
+		accounts, err := s.exportAccounts(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("导出独立账号失败: %w", err)
+		}
+		payload.Accounts = accounts
 	}
 	// ICON base64 内嵌（/public/site/icon.*）
 	if iconData, err := readSiteIcon(s.dataDir); err == nil {
@@ -294,23 +302,24 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 	taskID := s.registry.Register(tasks.KindImport)
 	bg := context.WithoutCancel(ctx)
 	go func() {
-		if err := s.importV2(bg, payload, confirmWord, setupMode); err != nil {
+		hints, err := s.importV2(bg, payload, confirmWord, setupMode)
+		if err != nil {
 			s.registry.Fail(taskID, err.Error())
 			return
 		}
-		s.registry.Succeed(taskID, map[string]any{"imported": true})
+		s.registry.Succeed(taskID, map[string]any{"imported": true, "hints": hints})
 	}()
 	return taskID, nil
 }
 
-// importV2 在任务体内执行 v2 导入。
-func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, confirmWord string, setupMode bool) error {
+// importV2 在任务体内执行 v2 导入，返回完成提示。
+func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, confirmWord string, setupMode bool) ([]string, error) {
 	if confirmWord != ConfirmWordImport {
-		return errors.New("确认词不正确")
+		return nil, errors.New("确认词不正确")
 	}
 	// 导入保护：signing_key 变化且存在业务密文时拒绝。
 	if err := s.checkImportProtection(ctx, payload); err != nil {
-		return err
+		return nil, err
 	}
 	var oldTargets []ImportCleanupTarget
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
@@ -437,7 +446,7 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if payload.SiteIconB64 != "" {
 		if err := s.writeSiteIcon(payload.SiteIconB64); err != nil {
@@ -462,7 +471,7 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 		hints = append(hints, s.postImportRebindReconcile(ctx, payload)...)
 	}
 	s.log.Warn("配置导入已执行", "setup_mode", setupMode, "format_version", payload.FormatVersion, "hints", hints)
-	return nil
+	return hints, nil
 }
 
 // checkImportProtection 导入保护：signing_key 将变化且存在业务密文时拒绝。
@@ -511,12 +520,27 @@ func (s *ExportService) rebindImportedExtNodes(ctx context.Context, payload *Exp
 				}
 				return err
 			}
+			var nodeID int64
+			err := s.store.DB().QueryRowContext(ctx,
+				`SELECT id FROM nodes WHERE instance_id = ? AND tag = ? AND source = 'xray' LIMIT 1`,
+				instID, pt.InboundTag).Scan(&nodeID)
+			if err == sql.ErrNoRows {
+				// 未匹配节点：按 Build7 Step2 口径置 failed，避免 NULL+pending 永久悬挂。
+				if _, uerr := s.store.DB().ExecContext(ctx,
+					`UPDATE xray_ext_users SET node_id = NULL, sync_status = 'failed', action = 'add', last_error = '导入重绑未匹配节点', updated_at = CURRENT_TIMESTAMP
+					 WHERE ext_account_id = ? AND instance_id = ? AND inbound_tag = ?`,
+					accID, instID, pt.InboundTag); uerr != nil {
+					return uerr
+				}
+				continue
+			}
+			if err != nil {
+				return err
+			}
 			if _, err := s.store.DB().ExecContext(ctx,
-				`UPDATE xray_ext_users SET node_id = (
-				   SELECT id FROM nodes WHERE instance_id = ? AND tag = ? AND source = 'xray' LIMIT 1
-				 )
+				`UPDATE xray_ext_users SET node_id = ?, updated_at = CURRENT_TIMESTAMP
 				 WHERE ext_account_id = ? AND instance_id = ? AND inbound_tag = ?`,
-				instID, pt.InboundTag, accID, instID, pt.InboundTag); err != nil {
+				nodeID, accID, instID, pt.InboundTag); err != nil {
 				return err
 			}
 		}

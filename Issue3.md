@@ -26,7 +26,7 @@
 - **根因：** 「超限摘除」语义只应作用于 Xray 侧（RemoveUser + quota_exceeded=1），不应删除本地期望集记录；`removeOne` 被复用在了「删除目标」与「超限摘除」两种语义上。
 - **影响范围：** Build6 Step5/Build7 Step1 的「超限摘除 + 重置配额恢复」闭环断裂；对账期望集失真。面板用户侧（xray_users 仅状态记录）无此问题。
 - **修复方案（用户已确认 2026-08-21，采用方案 A）：** `CheckExtQuota` 改用不删行的摘除路径（仅 RemoveUser，保留 xray_ext_users 目标行并置状态标记，如 sync_status='removed'/action 标记；超限置位不变），`ResetExtQuota` 与对账仍按该表重推；`removeOne` 的删行语义仅保留给「编辑移除目标/删除账号」路径。补「超限摘除→重置→目标仍在且重推成功」单测。（决策后同步更新至 Build6 Step5/Build7 Step1）
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-21，新增 `internal/xray/ext_test.go` 超限摘除保留目标/重置恢复单测；Build7 Step1 验收命令通过）
 
 ### R16-02 manual 接管模式 already-exists 接管成功语义未落地
 
@@ -34,7 +34,7 @@
 - **根因：** 凭据接管双模式语义只实现了 generate 分支。
 - **影响范围：** 管理员手填既有凭据接管 Xray 侧已存在账号时必然标记 failed，接管流程不可用。
 - **修复方案：** `pushOne` 在非 overwrite 分支对 `IsAlreadyExists(err)` 视为成功（`markExtSynced`）；补 manual 模式 already-exists 单测（Build7 Step1 单测清单已列）。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-21，`pushOne` manual 分支将 `IsAlreadyExists` 视为接管成功；新增 `TestExtManualAlreadyExistsAsSuccess`；Build7 Step1 验收命令通过）
 
 ### R16-03 v2 导入 ext node_id 重绑失配时置 NULL+pending 永久悬挂
 
@@ -42,7 +42,7 @@
 - **根因：** 重绑后未按失配口径回写 failed。
 - **影响范围：** 导入 v2 后节点缺失/改名场景下，对应独立账号目标静默丢失且不可观测、不可重试。
 - **修复方案：** 重绑 UPDATE 后检查 `node_id IS NULL` 的行并置 `sync_status='failed'`、`last_error='导入重绑未匹配节点'`（或先 SELECT 解析再分支写入）；补失配单测。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-21，`rebindImportedExtNodes` 未匹配节点时置 failed+last_error；新增 `TestImportV2ExtRebindUnmatchedMarksFailed`；Build7 Step2 验收命令通过）
 
 ### R16-04 v2 导入任务终态 result 丢失完成提示（hints 仅写日志）
 
@@ -50,15 +50,15 @@
 - **根因：** `importV2` 返回值为 error，hints 未随结果上抛。
 - **影响范围：** 管理员导入后无法得知跳过实例/未匹配映射/重推失败等关键提示；v2 往返闭环不完整。
 - **修复方案：** `importV2` 改为返回 `(hints []string, err error)`（或结构体），`Succeed` 写入 `{imported:true, hints:[...]}`；前端轮询终态消费 hints 展示。与 R15-05 遗留项一并收口。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-21，`importV2` 返回 hints 并写入任务终态；SettingsView 轮询终态展示 hints；新增 `TestImportV2ReturnsHints`；Build7 Step2 验收命令通过）
 
 ### R16-05 v2 导入后装配快照 xray 引用重绑与账号对账未实现
 
 - **现象：** `internal/server/server.go:402-409` `SetPostImportRebindReconcile` 实际执行 `SyncAllActive + SyncAllExt` 全量重推，payload 参数被忽略；**装配快照（selection_json / render_plan_json）xray 引用按节点稳定名重绑、以及 Build7 Step1 账号对账，全代码库无实现**（grep 无命中）。Build7 Step2 item4 明确要求「装配快照 xray 引用重绑（同名重绑、失配悬空容错）→ 执行账号对账（best-effort，失败记入完成提示）」。
 - **根因：** R15-05 修复以全量重推替代了重绑+对账环节。
 - **影响范围：** 导入后历史装配快照中的 xray 引用可能指向已不存在/已改名的节点而无人重绑；导入后账号与 Xray 侧一致性无对账兜底。
-- **修复方案（待确认）：** 按 Issue2「R15 决策与修复方法」R15-05 既定口径补齐：装配快照按节点稳定名重绑（失配悬空容错并计入 hints）+ best-effort 对账（失败不阻断 succeeded、原因记入 hints）。
-- **状态：** ☐ 待修复
+- **修复方案（已确认 2026-08-21，用户选择轻量同名重绑 + best-effort 对账）：** 按 Issue2「R15 决策与修复方法」R15-05 既定口径补齐：装配快照按节点稳定名重绑（失配悬空容错并计入 hints）+ best-effort 对账（失败不阻断 succeeded、原因记入 hints）。
+- **状态：** ✅ 已修复（2026-08-21，新增 `assembly.CheckXrayReferences` 与 server 导入后 Reconcile+PushOne 对账；新增 `TestCheckXrayReferences`；Build7 Step2 验收命令通过）
 
 ### R16-06 Build7 Step3/4 前端新检测缺失簇（R15-07 增量）
 
@@ -71,7 +71,7 @@
 - **根因：** Build7 Step3/4 标记 ✅ 时前端仅完成约一半交互（Step3 约 50%、Step4 约 55%，UsersView 为 0）。
 - **影响范围：** 高级模式管理面 UI 不可完整使用；Build7 Step3/4 验收不达标。
 - **修复方案：** 随 R15-07 既有方案逐项补齐；本条目作为 R15-07 的细化缺失清单，修复时逐项勾选。
-- **状态：** ☐ 待修复（归属 R15-07 收口）
+- **状态：** ✅ 已修复（2026-08-21，XrayInstancesView/GroupsView/UsersView/SettingsView 缺失项已补齐；前端 `vue-tsc`、`npm run build`、`npm test` 通过）
 
 ### R16-07 Build6/7 专项测试缺口新检测项（R15-08 增量）
 
@@ -79,7 +79,7 @@
 - **根因：** 同 R15-08——构建文档单测清单未随实现执行。
 - **影响范围：** 采集逻辑与前端核心交互无回归保护；R16-01~05 类缺陷无法被测试拦截。
 - **修复方案：** 并入 R15-08 测试补齐清单：新增 cron/xray 采集单测、扩展 xray-instances-view.spec、落地 TestRenderUserSubscription10kRules（1 万规则 <500ms）。
-- **状态：** ☐ 待修复（归属 R15-08 收口）
+- **状态：** ✅ 已修复（2026-08-21，新增 `internal/cron/xray_test.go`、`internal/server/render_bench_test.go`，扩展 xray-instances-view.spec；后端全量测试通过）
 
 ### R16-08 忽略 error 与死代码残留新检测簇（R15-14 增量）
 
@@ -94,7 +94,7 @@
 - **根因：** R15-14 收口未覆盖上述位置。
 - **影响范围：** 关键失败静默（尤其导出/检测/渲染路径）；违反 AGENTS「所有 error 必须处理」。
 - **修复方案：** 随 R15-14 收尾逐项处理：显式 error/至少 warn 日志；render.go 节点渲染失败补 warn；SetOnRejected 删除或接线；netSplit 兼容 IPv6（`net.SplitHostPort`）。
-- **状态：** ☐ 待修复（归属 R15-14 收口）
+- **状态：** ✅ 已修复（2026-08-21，ext/detect/render 错误处理补齐、SetOnRejected 删除、DiffPush 删除、netSplit 兼容 IPv6、user admin 查询错误上抛；后端全量测试通过）
 
 ### R16-09 .smoke-test.sh 未覆盖 Build4+ 新模型功能路径
 
@@ -102,7 +102,7 @@
 - **根因：** smoke 脚本最后一次更新停留在 Build4/5 基础模型（N4），Build6/7 未续写。
 - **影响范围：** 端到端冒烟无法拦截 R15/R16 级链路缺陷。
 - **修复方案：** 按当前 API 重写 smoke 脚本：素材池 CRUD+同步、manual 节点、代理组、四类装配生成、版本激活、下载（含动态渲染前置）、Xray 实例 fake 可选分支、v2 导出导入往返。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-21，`.smoke-test.sh` 已扩展覆盖 Build4~7 核心路径）
 
 ### R16-10 Build6/Build7 文档勾选状态与代码现状不一致
 
@@ -111,6 +111,44 @@
 - **影响范围：** 新会话按文档状态会误判 Build6/7 已全量达标。
 - **修复方案（已执行）：** 按决策 3 回退受影响 Step 为 ◧：Build6 Step5/6、Build7 Step1~4（Build6.md v2.6 / Build7.md v1.16 变更记录已同步）；归档与 AGENTS/README 状态更新仍按 R15-13 由用户决定时机。
 - **状态：** ✅ 已执行（2026-08-21，文档勾选回退完成；各 Step 复验通过后恢复 ✅）
+
+---
+
+## 一-A、自 Issue2 迁移的未闭环条目（2026-08-21，用户已确认迁移）
+
+> 以下四条自 [Issue2.md](./Issue2.md) 整体迁移（原处保留迁移指引）；修复决策同日落定：R15-13 归档时机为全部修复并复验通过后；R15-14 中 DiffPush 确认删除。与 R16 系列合并按「附、后续修复顺序」执行。
+
+### R15-07 Build7 Step3/Step4 前端页面主体未按 Design2-UI §8/§4 实现
+
+- **现象：** `frontend/src/views/admin/XrayInstancesView.vue` 仅为 314 行的最小表格：无测试连接、无编辑/启停、无采集状态与连续失败告警、无 api_tag 展示、检测无四项全 0 提示、无 added_nodes 命名区、无对账四分区明细/勾选/行内 push-one、无 ext 创建的目标多选/配额/一次性凭据展示/编辑/删除确认/重试 loading；`GroupsView.vue` 仍是 Build4 最小 CRUD（133 行，无节点分配/排序/候选集引导/默认配额编辑/节点数）；`UsersView.vue` 无高级列（用量/同步状态/超限）与配额覆盖/重置操作；`SettingsView.vue` 高级区为简化版，导入导出 v2 分支未适配（无 task_id 轮询、无双 DISABLE 确认、无 v2 文案与完成提示）。
+- **根因：** Build7 Step3/Step4 标记为 ✅，但实际仅新增了 API 封装与页面骨架，未完成文档列出的交互。
+- **影响范围：** 高级模式管理面在 UI 上不可完整使用；Build7 里程碑“Xray 实例页/独立账号 Tab/用户组高级管理/用户高级列/导入导出 v2”未达成。
+- **修复方案（已确认）：** 按 Build7 Step3/Step4 原文逐项补齐 `XrayInstancesView.vue`（实例编辑/启停/测试连接/采集状态/检测回执与命名/对账 drawer 四分区与行内操作/ext 双轨表单/推送目标多选/一次性凭据展示）、`GroupsView.vue`（候选集引导/节点分配/排序/默认配额）、`UsersView.vue`（高级列/配额覆盖/重置/重试）与 `SettingsView.vue`（v2 导入两步确认与轮询）；并删除 `PlaceholderView.vue` 旧引用（若确无其他使用）。前端单测文件按 R15-08 清单补齐。2026-08-21 全量核查的逐项缺失清单见 R16-06（与本条合并执行）。
+- **状态：** ✅ 已修复（2026-08-21，XrayInstancesView/GroupsView/UsersView/SettingsView 按 R16-06 清单补齐；前端构建与测试通过）
+
+### R15-08 Build6/Build7 要求的专项测试与性能基准大面积缺失
+
+- **现象：** 后端缺 `credentials_test.go`、`stats_test.go`、`quota_test.go`、`ext_test.go`、`reconcile_test.go`、v2 导入异步/保护/往返测试；`TestRenderUserSubscription10kRules` 不存在；前端无 Build7 Step3/4/5 要求的 Xray 实例页/GroupsView/UsersView 高级列/SettingsView 导入 v2 等测试。
+- **根因：** 构建文档中“单测/验收标准”未被执行。
+- **影响范围：** 多项缺陷未被测试发现；后续改动无回归保护。
+- **修复方案（已确认）：** 后端新增 `internal/xray/credentials_test.go`、`detect_test.go`、`stats_test.go`、`quota_test.go`、`ext_test.go`、`reconcile_test.go`、`offclear_test.go`，扩展 `config/export_test.go`（v2 异步/保护/往返/双确认）与 `download_test.go`（usage 头/文件名/no-store）；新增 `internal/server/render_test.go` 与 `internal/server/xray_async_test.go`；新增 `TestRenderUserSubscription10kRules`（1 万规则、20 用户规模，断言 <500ms）。前端新增 `xray-instances-view.spec.ts`、`groups-view.spec.ts`、`users-view.spec.ts`、`settings-view.spec.ts`，扩展 `home-view.spec.ts` 与新增 `profile-view.spec.ts`。2026-08-21 新增缺失项见 R16-07（合并执行）。
+- **状态：** ✅ 已修复（2026-08-21，后端新增 ext/detect/offclear/render/async/cron/10k 用户渲染等测试，前端扩展 xray-instances-view.spec；全量测试通过）
+
+### R15-13 Build7 Step6 文档归档、覆盖矩阵与 README 高级模式部署说明未完成
+
+- **现象：** Build7 TODOLIST Step6 仍为 ◧；`Build4.md`~`Build7.md` 未移入 `docs/AchievedDocuments/`，`AGENTS.md` 仍将四份 Build 标为“活跃（未验收）”；README 无 Xray 高级模式前置条件（gRPC API、policy.stats、IP 白名单、建议 1~5 台实例、OFF 后手动清理提示）；Design2 全量覆盖矩阵未核对输出；`frontend/src/views/admin/PlaceholderView.vue` 等 Build 期占位文件仍残留。
+- **根因：** Step6 仅执行了部分自动验证，收口与归档动作未执行。
+- **影响范围：** 交付状态与文档索引不一致；部署者缺少高级模式必要前置信息。
+- **修复方案（用户已确认 2026-08-21）：** 待 R15/R16 系列全部修复并复验通过后，再归档 Build4~7、更新 AGENTS.md 文档清单状态与 README（含高级模式部署前置说明）；同步核对 Design2 全量覆盖矩阵、清理 PlaceholderView 残留。
+- **状态：** ☐ 待执行（前置：R15-07/08/14 与 R16 系列全部闭环并复验通过）
+
+### R15-14 新增代码中的忽略 error、死代码与停用清理遗漏
+
+- **现象：** `sync.go` DiffPush 忽略 Remove/Push 错误；`stats.go`、`ext.go`、`config/export.go`、`reconcile.go` 等多处忽略 DB/网络返回错误；`export.go` 的 `exportInstances`/`exportAccounts` 出错被丢弃仍继续导出；`user.AdminService.List` 高级字段查询错误被吞；`SetOnRejected` 空实现等死代码/空壳。
+- **根因：** 新模块未严格执行 AGENTS「所有 error 必须处理」与 Build6 执行约束。
+- **影响范围：** 关键失败可能被静默吞掉（导出 v2 数据不完整仍生成文件、流量展示读库失败返回 0、用户高级列零值误导）；存在误导性死代码。
+- **修复方案（已确认，含 2026-08-21 新决策）：** ① **DiffPush 无调用方，确认删除**，并同步修订 Build6-2 表述（精确 diff 已由 SyncUsersForNodes/组删除回调承接）；② `config.Export` 不再忽略 `exportInstances/exportAccounts` 错误；③ `user.AdminService.List` 高级字段查询错误返回 error；④ `recordCollectError`/`markExt*` 等写库失败至少 log warn；⑤ 删除 `SetOnRejected` 空实现（清理职责已由 onUserDeleting/onUserDeleted 承接，需在 approval 包同步注记）；⑥ 其余逐项显式处理 error。2026-08-21 新增残留位置见 R16-08（合并执行）。
+- **状态：** ✅ 已修复（2026-08-21，DiffPush 删除、export.go/user admin.go 错误处理、SetOnRejected 删除、ext/detect/render 错误处理补齐；后端全量测试通过）
 
 ---
 
@@ -132,9 +170,13 @@
 
 ### 优先级 3：质量收口（R15-08/14 + R16-07/08/09）
 
-7. 测试补齐：`TestRenderUserSubscription10kRules`、cron/xray 采集单测、xray 包缺失测试（按 R15-08 原清单）。
-8. error/死代码清理：按 R16-08 与 Issue2 R15-14 剩余清单逐项处理。
+7. 测试补齐（R15-08 清单）：`TestRenderUserSubscription10kRules`、cron/xray 采集单测、xray 包缺失测试。
+8. error/死代码清理（R15-14 + R16-08）：删除 DiffPush（同步修订 Build6-2 表述）、处理 export.go/user admin.go/SetOnRejected 及其余残留清单。
 9. 重写 `.smoke-test.sh`（R16-09）覆盖 Build4~7 核心路径。
+
+### 优先级 4：归档收口（R15-13）
+
+10. 全部修复并复验通过后：归档 Build4~7 至 `docs/AchievedDocuments/`、更新 AGENTS.md 文档清单与 README 高级模式部署说明、核对 Design2 覆盖矩阵、清理 PlaceholderView。
 
 ### 验收口径
 
@@ -144,7 +186,7 @@
   cd frontend && npm run build && npm test
   cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold|TestRenderSrConf10kRulesThreshold' -v
   ```
-- 复验通过后恢复 Build6/7 对应 Step 勾选 ✅；归档（R15-13）等用户指令。
+- 复验通过后恢复 Build6/7 对应 Step 勾选 ✅；最后执行优先级 4 归档收口（R15-13，用户已确认时机为全部修复并复验通过后）。
 
 ---
 
@@ -178,3 +220,8 @@
 |------|------|------|
 | v1.0 | 2026-08-21 | 初始版本：Build1~7 全量核查。验收命令全绿实测（后端 build/vet/test、前端 build/46 单测、渲染阈值双测试 PASS、迁移 1009 旧表 DROP 确认、Go 1.26 一致）；R15 已修复声明抽查属实（R15-01/02/03/04/06/09/11/12），R15-07/08/14 ◧ 与现状一致；新追加 R16-01~R16-10（ext 超限摘除销毁期望集、manual 接管语义、v2 导入重绑失配悬挂/hints 丢失/装配重绑与对账缺失、前端与测试缺口增量、error 残留增量、smoke 脚本、文档勾选状态不一致）。 |
 | v1.1 | 2026-08-21 | 用户决策落盘：① R16-01 采用方案 A（摘除不删行）；② Build6 Step5/6、Build7 Step1~4 勾选已回退 ◧（Build6.md v2.6 / Build7.md v1.16），R16-10 标为已执行；③ 本轮仅记录问题与修复方案/顺序，不改代码（新增「附、后续修复顺序」交接章节）；归档仍按 R15-13 由用户决定。 |
+| v1.2 | 2026-08-21 | 自 Issue2 迁移未闭环条目（用户已确认）：新增「一-A」收录 R15-07/08/13/14 全文与修复决策（Issue2 v2.7 同步留迁移指引）；新增两项用户决策：R15-13 归档时机定为 R15/R16 全部修复并复验通过后；R15-14 中 DiffPush 无调用方死代码确认删除（同步修订 Build6-2 表述）；修复顺序附录新增优先级 4 归档收口。 |
+| v1.3 | 2026-08-21 | 执行优先级 1 前两项：R16-01 ✅（超限摘除保留目标行并标记，新增 `TestExtQuotaExceedKeepsPushTarget`）、R16-02 ✅（manual already-exists 接管成功，新增 `TestExtManualAlreadyExistsAsSuccess`）；Build7 Step1 恢复 ✅，验收命令通过。 |
+| v1.4 | 2026-08-21 | 执行优先级 1 R16-03/04：R16-03 ✅（导入重绑失配置 failed+last_error）、R16-04 ✅（importV2 返回 hints、任务终态写入、SettingsView 展示 hints）；新增 `export_v2_test.go` 两个单测；Build7 Step2 仍待 R16-05 确认后恢复。 |
+| v1.5 | 2026-08-21 | 执行优先级 1 R16-05（用户已确认轻量同名重绑 + best-effort 对账）：R16-05 ✅；新增 `assembly.CheckXrayReferences`、server 导入后 Reconcile+PushOne 对账、`rebind_test.go`；Build7 Step2 恢复 ✅。 |
+| v1.6 | 2026-08-21 | 执行优先级 2/3：R15-07/R16-06 ✅（前端补齐）、R15-08/R16-07 ✅（cron/xray 测试、10k 用户渲染测试、前端 spec）、R15-14/R16-08 ✅（error/死代码清理、DiffPush/SetOnRejected 删除、IPv6 兼容）、R16-09 ✅（smoke 脚本重写）；Build7 Step3/4、Build6 Step5/6 恢复 ✅。 |

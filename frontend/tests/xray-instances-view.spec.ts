@@ -16,10 +16,17 @@ vi.mock('@/api/xray', () => ({
   cleanOrphans: vi.fn(),
   repairCredentials: vi.fn(),
   createExtAccount: vi.fn(),
+  updateExtAccount: vi.fn(),
   deleteExtAccount: vi.fn(),
   retryExtSync: vi.fn(),
   resetExtQuota: vi.fn(),
   getExtCredentials: vi.fn(),
+  pushOne: vi.fn(),
+  repairCredentialsOne: vi.fn(),
+}))
+vi.mock('@/api/node', () => ({
+  listNodes: vi.fn().mockResolvedValue([]),
+  setNodeDisplayName: vi.fn(),
 }))
 vi.mock('@/api/settings', () => ({
   getAdminTask: vi.fn(),

@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"net"
 	"strings"
 
 	"vpn-sub/internal/assembly"
@@ -109,11 +111,13 @@ func renderLinkLines(ctx context.Context, syncSvc *xray.SyncService, targets []x
 	for _, t := range targets {
 		protocol, params, err := syncSvc.NodeRenderParams(ctx, t.NodeID)
 		if err != nil {
+			slog.Warn("读取动态节点渲染参数失败", "node", t.Name, "err", err)
 			continue
 		}
 		generic := targetSyntax == "generic-subs"
 		link, err := assembly.RenderLink(protocol, t.RenderName, hostOf(t.APIAddr), t.Port, withCreds(params, protocol, uuid, secret), generic)
 		if err != nil {
+			slog.Warn("生成订阅链接失败", "node", t.Name, "err", err)
 			continue
 		}
 		lines = append(lines, link)
@@ -225,6 +229,10 @@ func hostOf(apiAddr string) string {
 }
 
 func netSplit(addr string) (string, string, error) {
+	// 带方括号的 IPv6 使用标准库解析；无括号形式按最后一个冒号切分端口。
+	if strings.HasPrefix(addr, "[") {
+		return net.SplitHostPort(addr)
+	}
 	idx := strings.LastIndex(addr, ":")
 	if idx < 0 {
 		return "", "", errors.New("missing port")

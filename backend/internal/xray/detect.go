@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"golang.org/x/crypto/curve25519"
@@ -363,7 +364,11 @@ func mergeStreamSettings(dst map[string]any, sc *internet.StreamConfig) {
 		if err != nil {
 			continue
 		}
-		raw, _ := json.Marshal(inst)
+		raw, err := json.Marshal(inst)
+		if err != nil {
+			slog.Warn("序列化传输设置失败", "err", err)
+			continue
+		}
 		var m map[string]any
 		if err := json.Unmarshal(raw, &m); err != nil {
 			continue
@@ -408,7 +413,11 @@ func mergeStreamSettings(dst map[string]any, sc *internet.StreamConfig) {
 		if err != nil {
 			continue
 		}
-		raw, _ := json.Marshal(inst)
+		raw, err := json.Marshal(inst)
+		if err != nil {
+			slog.Warn("序列化安全设置失败", "err", err)
+			continue
+		}
 		var m map[string]any
 		if err := json.Unmarshal(raw, &m); err != nil {
 			continue
