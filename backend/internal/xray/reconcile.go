@@ -25,12 +25,13 @@ type ReconcileItem struct {
 	RenderName   string `json:"render_name,omitempty"`
 }
 
-// ReconcileResult 对账四分区结果。
+// ReconcileResult 对账结果（待补推/无头/疑似残留/凭据不一致/待移除）。
 type ReconcileResult struct {
 	ToPush               []ReconcileItem `json:"to_push"`
 	Orphans              []ReconcileItem `json:"orphans"`
 	ExtOrphans           []ReconcileItem `json:"ext_orphans"`
 	CredentialMismatches []ReconcileItem `json:"credential_mismatches"`
+	ToRemove             []ReconcileItem `json:"to_remove"`
 }
 
 // Reconcile 计算指定实例的期望集与实际集并返回四分区。
@@ -45,6 +46,7 @@ func (s *SyncService) Reconcile(ctx context.Context, instanceID int64) (*Reconci
 	}
 
 	desired := map[string]ReconcileItem{}
+	removeCandidates := map[string]ReconcileItem{}
 
 	// 用户部分：全部 active 用户 ×（组分配 ∪ 公共），经候选集与可用性过滤，再与本实例交集。
 	userIDs, err := s.activeUserIDs(ctx)
@@ -73,7 +75,7 @@ func (s *SyncService) Reconcile(ctx context.Context, instanceID int64) (*Reconci
 	if s.ext != nil {
 		rows, err := s.store.DB().QueryContext(ctx,
 			`SELECT xu.ext_account_id, xu.inbound_tag, xu.node_id, n.name,
-			        COALESCE(NULLIF(n.display_name,''), n.name), n.enabled, n.allocatable, n.missing, i.enabled
+			        COALESCE(NULLIF(n.display_name,''), n.name), n.enabled, n.allocatable, n.missing, i.enabled, xu.action
 			 FROM xray_ext_users xu
 			 JOIN nodes n ON n.id = xu.node_id
 			 JOIN xray_instances i ON i.id = xu.instance_id
@@ -83,9 +85,9 @@ func (s *SyncService) Reconcile(ctx context.Context, instanceID int64) (*Reconci
 		}
 		for rows.Next() {
 			var extID, nodeID int64
-			var tag, name, renderName string
+			var tag, name, renderName, action string
 			var nEnabled, allocatable, missing, iEnabled int
-			if err := rows.Scan(&extID, &tag, &nodeID, &name, &renderName, &nEnabled, &allocatable, &missing, &iEnabled); err != nil {
+			if err := rows.Scan(&extID, &tag, &nodeID, &name, &renderName, &nEnabled, &allocatable, &missing, &iEnabled, &action); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}
@@ -94,11 +96,16 @@ func (s *SyncService) Reconcile(ctx context.Context, instanceID int64) (*Reconci
 			}
 			email := ExtEmail(extID)
 			key := email + "|" + tag
-			desired[key] = ReconcileItem{
+			item := ReconcileItem{
 				Email: email, Source: "ext", ExtAccountID: &extID,
 				InstanceID: instanceID, InboundTag: tag, NodeID: nodeID,
 				Name: name, RenderName: renderName,
 			}
+			if action == "remove" {
+				removeCandidates[key] = item
+				continue
+			}
+			desired[key] = item
 		}
 		if err := rows.Close(); err != nil {
 			return nil, err
@@ -132,7 +139,14 @@ func (s *SyncService) Reconcile(ctx context.Context, instanceID int64) (*Reconci
 		}
 	}
 
-	res := &ReconcileResult{ToPush: []ReconcileItem{}, Orphans: []ReconcileItem{}, ExtOrphans: []ReconcileItem{}, CredentialMismatches: []ReconcileItem{}}
+	res := &ReconcileResult{ToPush: []ReconcileItem{}, Orphans: []ReconcileItem{}, ExtOrphans: []ReconcileItem{}, CredentialMismatches: []ReconcileItem{}, ToRemove: []ReconcileItem{}}
+
+	// 待移除：action='remove' 且 Xray 侧仍存在的账号，供管理员确认后清理/重试。
+	for key, item := range removeCandidates {
+		if _, ok := actual[key]; ok {
+			res.ToRemove = append(res.ToRemove, item)
+		}
+	}
 
 	// 待补推 / 凭据不一致
 	for key, exp := range desired {
@@ -202,8 +216,18 @@ func (s *SyncService) CredentialsOne(ctx context.Context, item ReconcileItem) er
 		if s.ext == nil || item.ExtAccountID == nil {
 			return errors.New("独立账号服务未注入")
 		}
+		var exceeded int
+		if err := s.store.DB().QueryRowContext(ctx,
+			`SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, *item.ExtAccountID).Scan(&exceeded); err != nil {
+			return err
+		}
+		if exceeded == 1 {
+			return ErrQuotaExceeded
+		}
 		t := ExtPushTarget{InstanceID: item.InstanceID, InboundTag: item.InboundTag, NodeID: item.NodeID}
-		_ = s.ext.removeOne(ctx, *item.ExtAccountID, t)
+		if err := s.ext.removeOne(ctx, *item.ExtAccountID, t); err != nil {
+			return err
+		}
 		return s.ext.pushOne(ctx, *item.ExtAccountID, t, false)
 	}
 	if item.UserID == nil {
@@ -213,8 +237,6 @@ func (s *SyncService) CredentialsOne(ctx context.Context, item ReconcileItem) er
 	_, _, _ = s.RemoveUserFromTargets(ctx, *item.UserID, []Target{target})
 	return s.pushUserTarget(ctx, *item.UserID, target)
 }
-
-// RepairPushAsync 异步执行待补推。
 func (s *SyncService) RepairPushAsync(ctx context.Context, instanceID int64) (string, error) {
 	taskID := s.registry.Register(tasks.KindReconcileExec)
 	bg := context.WithoutCancel(ctx)
@@ -275,15 +297,18 @@ func (s *SyncService) RepairCredentialsAsync(ctx context.Context, instanceID int
 	taskID := s.registry.Register(tasks.KindReconcileExec)
 	bg := context.WithoutCancel(ctx)
 	go func() {
-		success, failed := 0, 0
+		success, skipped, failed := 0, 0, 0
 		for _, item := range items {
-			if err := s.CredentialsOne(bg, item); err != nil {
+			err := s.CredentialsOne(bg, item)
+			if errors.Is(err, ErrQuotaExceeded) {
+				skipped++
+			} else if err != nil {
 				failed++
 			} else {
 				success++
 			}
 		}
-		s.registry.Succeed(taskID, map[string]any{"repaired": success, "failed": failed})
+		s.registry.Succeed(taskID, map[string]any{"repaired": success, "skipped": skipped, "failed": failed})
 	}()
 	return taskID, nil
 }

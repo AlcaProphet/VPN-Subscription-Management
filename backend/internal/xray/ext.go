@@ -13,9 +13,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/xtls/xray-core/app/proxyman/command"
+	statscmd "github.com/xtls/xray-core/app/stats/command"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/serial"
-	statscmd "github.com/xtls/xray-core/app/stats/command"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/store"
@@ -31,6 +31,9 @@ type ExtPushTarget struct {
 	RenderName  string  `json:"render_name,omitempty"`
 	APIAddr     string  `json:"api_addr,omitempty"`
 	Protocol    string  `json:"protocol,omitempty"`
+	SyncStatus  string  `json:"sync_status,omitempty"`
+	LastError   string  `json:"last_error,omitempty"`
+	Action      string  `json:"action,omitempty"`
 }
 
 // ExtCredentials 独立账号明文凭据（仅创建/查询端点一次性返回）。
@@ -722,11 +725,13 @@ func isSupportedExtProtocol(p string) bool {
 
 func (s *ExtService) pushTargetsFor(ctx context.Context, id int64) ([]ExtPushTarget, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT xu.instance_id, xu.inbound_tag, xu.node_id, n.name, n.display_name, n.protocol, i.api_addr
+		`SELECT xu.instance_id, xu.inbound_tag, xu.node_id, n.name, n.display_name, n.protocol, i.api_addr,
+		        xu.sync_status, xu.last_error, xu.action
 		 FROM xray_ext_users xu
 		 JOIN nodes n ON n.id = xu.node_id
 		 JOIN xray_instances i ON i.id = xu.instance_id
-		 WHERE xu.ext_account_id = ? ORDER BY xu.instance_id, xu.inbound_tag`, id)
+		 WHERE xu.ext_account_id = ? AND xu.action = 'add'
+		 ORDER BY xu.instance_id, xu.inbound_tag`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -735,7 +740,8 @@ func (s *ExtService) pushTargetsFor(ctx context.Context, id int64) ([]ExtPushTar
 	for rows.Next() {
 		var t ExtPushTarget
 		var display sql.NullString
-		if err := rows.Scan(&t.InstanceID, &t.InboundTag, &t.NodeID, &t.Name, &display, &t.Protocol, &t.APIAddr); err != nil {
+		if err := rows.Scan(&t.InstanceID, &t.InboundTag, &t.NodeID, &t.Name, &display, &t.Protocol, &t.APIAddr,
+			&t.SyncStatus, &t.LastError, &t.Action); err != nil {
 			return nil, err
 		}
 		if display.Valid && display.String != "" {

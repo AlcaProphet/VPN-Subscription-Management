@@ -85,7 +85,6 @@ func withRPCDeadline(ctx context.Context) (context.Context, context.CancelFunc) 
 	return context.WithTimeout(ctx, RPCTimeout)
 }
 
-
 // AddUser 向指定 inbound 添加用户；`already exists.` 视为幂等成功。
 func (c *Client) AddUser(ctx context.Context, tag string, u *protocol.User) error {
 	c.mu.Lock()

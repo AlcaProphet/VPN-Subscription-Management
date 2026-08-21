@@ -24,6 +24,8 @@ export interface GroupNode {
 export interface CandidateNode {
   node_id: number
   name: string
+  render_name: string
+  is_public: boolean
   in_partial_blueprint: boolean
 }
 

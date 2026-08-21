@@ -444,6 +444,7 @@ const importOpen = ref(false)
 const disableImportOpen = ref(false)
 const importForm = reactive({ file: null as File | null, password: '' })
 const importing = ref(false)
+const importProtectError = ref('')
 
 // downloadBlob 触发浏览器下载
 function downloadBlob(blob: Blob, filename: string) {
@@ -546,6 +547,9 @@ async function submitImport(withDisable = true) {
     if (!withDisable && msg.includes('DISABLE')) {
       disableImportOpen.value = true
       return
+    }
+    if (msg.includes('signing_key') || msg.includes('签名密钥') || msg.includes('配置导入仅适用全新部署')) {
+      importProtectError.value = msg
     }
     Notify.error(msg) // 确认词/密码错误提示
   } finally {
@@ -844,8 +848,8 @@ onMounted(() => {
             </div>
           </Card>
 
-          <ConfirmModal :open="advancedConfirmOpen" title="关闭高级模式" danger :loading="advancedSaving"
-                        content="将移除全部 Xray 实例、Xray 节点、组分配、独立账号、流量记录与用户凭据；保留 proxy_groups、用户组与装配蓝图。此操作不可恢复。"
+          <ConfirmModal :open="advancedConfirmOpen" title="关闭高级模式" danger confirm-word="DISABLE" :loading="advancedSaving"
+                        content="将移除全部 Xray 实例、Xray 节点、组分配、独立账号、流量记录与用户凭据；保留 proxy_groups、用户组与装配蓝图。此操作不可恢复。请输入 DISABLE 确认。"
                         @confirm="confirmDisableAdvanced" @update:open="advancedConfirmOpen = false" />
 
 
@@ -925,7 +929,7 @@ onMounted(() => {
                 <Input.Password v-model:value="exportPwd" placeholder="设置导出密码（≥8 字符）" style="max-width: 260px" />
                 <Button type="primary" :loading="exporting" @click="doExport">导出并下载</Button>
               </div>
-              <div class="text-xs text-gray-400 mt-1">内容：全部系统配置（含签名密钥与敏感密文）+ 站点信息（ICON 内嵌）；不含业务数据与日志</div>
+              <div class="text-xs text-gray-400 mt-1">内容：全部系统配置（含签名密钥与敏感密文）+ 站点信息（ICON 内嵌）；v2 额外包含 Xray 实例清单（含节点显示名映射）与独立账号推送目标/超限标记；不含业务数据与日志</div>
             </div>
             <div>
               <div class="mb-1 text-sm font-medium">导入配置（整体覆盖）</div>
@@ -936,7 +940,8 @@ onMounted(() => {
                 <Input.Password v-model:value="importForm.password" placeholder="导出密码（≥8 字符）" style="max-width: 220px" />
                 <Button danger @click="importOpen = true">导入</Button>
               </Space>
-              <div class="text-xs text-gray-400 mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；完成后需重启容器并重新登录</div>
+              <Alert v-if="importProtectError" type="error" show-icon class="mt-2" :message="importProtectError" />
+              <div class="text-xs text-gray-400 mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；完成后需重启容器并重新登录</div>
             </div>
           </div>
         </Card>
@@ -970,7 +975,7 @@ onMounted(() => {
                   @confirm="confirmIconDelete" @update:open="iconDeleteOpen = false" />
     <!-- 导入确认（IMPORT 确认词） -->
     <ConfirmModal :open="importOpen" title="导入配置（整体覆盖）" danger confirm-word="IMPORT" :loading="importing"
-                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；签名密钥替换后全部会话立即失效（含当前管理员）；导入完成后请立即重启容器再重新登录。"
+                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员）；导入完成后请立即重启容器再重新登录。"
                   @confirm="doImport" @update:open="importOpen = false" />
       <!-- v2 导入第二确认（DISABLE；仅当导入会清空高级模式数据时后端强制校验） -->
       <ConfirmModal :open="disableImportOpen" title="确认清空高级模式数据" danger confirm-word="DISABLE" :loading="importing"

@@ -98,9 +98,32 @@ else
   echo "15) Xray 实例跳过（未设置 XRAY_FAKE_ADDR）"
 fi
 
-# 15/16) v2 导出导入往返（仅验证导出接口可返回文件；导入破坏性较大默认跳过，可用 SMOKE_IMPORT=1 开启）
-curl -s -X POST $BASE/api/admin/settings/export -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"password":"smoke-pass-123"}' -o /tmp/vpn-smoke-export.enc
-echo "16) v2 导出文件大小=$(wc -c < /tmp/vpn-smoke-export.enc) 字节"
+# 15/16) v2 导出导入往返（必须 Production；Dev 会 403，禁止假绿）
+APP_MODE=$(curl -s $BASE/api/system/status | J "['data']['app_mode']")
+if [ "$APP_MODE" != "prod" ]; then
+  echo "16) v2 导出/导入要求 Production 模式，当前 app_mode=$APP_MODE；请使用 Production 临时实例运行" >&2
+  exit 1
+fi
+HTTP=$(curl -s -o /tmp/vpn-smoke-export.enc -w '%{http_code}' -X POST $BASE/api/admin/settings/export -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"password":"smoke-pass-123"}')
+if [ "$HTTP" != "200" ]; then
+  echo "16) v2 导出失败 HTTP=$HTTP body=$(cat /tmp/vpn-smoke-export.enc)" >&2
+  exit 1
+fi
+if head -c 1 /tmp/vpn-smoke-export.enc | grep -q '{'; then
+  echo "16) v2 导出返回 JSON 错误：$(cat /tmp/vpn-smoke-export.enc)" >&2
+  exit 1
+fi
+echo "16) v2 导出 HTTP=$HTTP 文件大小=$(wc -c < /tmp/vpn-smoke-export.enc) 字节"
+
+if [ "${SMOKE_IMPORT:-0}" = "1" ]; then
+  IMPORT_HTTP=$(curl -s -o /tmp/vpn-smoke-import.out -w '%{http_code}' -X POST $BASE/api/admin/settings/import -H "$AUTH" \
+    -F "file=@/tmp/vpn-smoke-export.enc" -F "password=smoke-pass-123" -F "confirm_word=IMPORT" -F "disable_confirm_word=DISABLE")
+  echo "17) v2 导入 HTTP=$IMPORT_HTTP body=$(cat /tmp/vpn-smoke-import.out)"
+  if [ "$IMPORT_HTTP" != "200" ]; then
+    echo "17) v2 导入失败" >&2
+    exit 1
+  fi
+fi
 
 echo "=== SMOKE ALL DONE ==="

@@ -12,9 +12,9 @@
 - **Build1~3（第一期基线）：** 安全基线抽查全部成立（token 日志脱敏、下载 no-store、/public 路径穿越防护、enc:v1 加密存储、sessionMW+adminMW 双层管理端校验），无新发现。
 - **Build4/5：** R12/R13/R14 系列修复全部核实落地（含 R14-06 自包含 ClashPlan、R14-07 xray_candidates 填充），无新发现。
 - **Build6：** R15-01/02/03/04/06/09/11/12 的「✅ 已修复」声明经抽查**全部属实**；遗留问题集中在 error 处理与测试缺口（并入 R16-07/08）。
-- **Build7：** R15-05 修复**部分落地**（见 R16-04/05）；独立账号状态机存在两处新语义缺陷（R16-01/02）；Step3/4 前端完成度约 50%/55%（R16-06）；Step5 已落地属实。
-- **Issue2 未闭环项复核：** R15-07/08/14 标记 ◧ 与代码现状一致，无虚报；R15-13 待用户决定。
-- **新发现问题编号：** R16 系列（延续 Issue2 编号体系）。与 Issue2 未闭环项重叠的部分（前端未落地簇/测试缺口/error 残留），本文只记录**新检测到的增量**，并在条目中注明归属关系。
+- **Build7：** R15-05 修复**部分落地**（见 R16-04/05）；独立账号状态机存在两处新语义缺陷（R16-01/02）；Step3/4 前端完成度约 50%/55%（R16-06），本轮复验确认 R16-06/R15-07 仍为部分修复（R17-04/05/08）；Step5 已落地属实。
+- **Issue2 未闭环项复核：** R15-13 仍待用户决定；R15-07/08 已执行部分修复但未完全闭环（见 R17-04/05/06/08）；R15-14 已闭环。
+- **新发现问题编号：** R16 系列（延续 Issue2 编号体系）；本轮复验新发现 R17 系列（ext 移除动作未过滤、ext 凭据修复超限/错误、OFF 确认词、Xray/Groups/Settings UI 残留、测试缺口、smoke 假成功）。与 Issue2 未闭环项重叠的部分只记录**新检测到的增量**，并注明归属关系。
 
 ---
 
@@ -71,7 +71,7 @@
 - **根因：** Build7 Step3/4 标记 ✅ 时前端仅完成约一半交互（Step3 约 50%、Step4 约 55%，UsersView 为 0）。
 - **影响范围：** 高级模式管理面 UI 不可完整使用；Build7 Step3/4 验收不达标。
 - **修复方案：** 随 R15-07 既有方案逐项补齐；本条目作为 R15-07 的细化缺失清单，修复时逐项勾选。
-- **状态：** ✅ 已修复（2026-08-21，XrayInstancesView/GroupsView/UsersView/SettingsView 缺失项已补齐；前端 `vue-tsc`、`npm run build`、`npm test` 通过）
+- **状态：** ✅ 已修复（2026-08-21，R17-04/05/08 全部闭环）
 
 ### R16-07 Build6/7 专项测试缺口新检测项（R15-08 增量）
 
@@ -79,7 +79,7 @@
 - **根因：** 同 R15-08——构建文档单测清单未随实现执行。
 - **影响范围：** 采集逻辑与前端核心交互无回归保护；R16-01~05 类缺陷无法被测试拦截。
 - **修复方案：** 并入 R15-08 测试补齐清单：新增 cron/xray 采集单测、扩展 xray-instances-view.spec、落地 TestRenderUserSubscription10kRules（1 万规则 <500ms）。
-- **状态：** ✅ 已修复（2026-08-21，新增 `internal/cron/xray_test.go`、`internal/server/render_bench_test.go`，扩展 xray-instances-view.spec；后端全量测试通过）
+- **状态：** ◧ 部分修复（2026-08-21 已补 cron/render/10k；仍缺 R17-06 所列前端专项与后端 credentials/stats/quota/reconcile）
 
 ### R16-08 忽略 error 与死代码残留新检测簇（R15-14 增量）
 
@@ -102,7 +102,7 @@
 - **根因：** smoke 脚本最后一次更新停留在 Build4/5 基础模型（N4），Build6/7 未续写。
 - **影响范围：** 端到端冒烟无法拦截 R15/R16 级链路缺陷。
 - **修复方案：** 按当前 API 重写 smoke 脚本：素材池 CRUD+同步、manual 节点、代理组、四类装配生成、版本激活、下载（含动态渲染前置）、Xray 实例 fake 可选分支、v2 导出导入往返。
-- **状态：** ✅ 已修复（2026-08-21，`.smoke-test.sh` 已扩展覆盖 Build4~7 核心路径）
+- **状态：** ◧ 部分修复（2026-08-21 已扩展路径，但 v2 导出在 Dev 下 403 被误判成功，见 R17-07）
 
 ### R16-10 Build6/Build7 文档勾选状态与代码现状不一致
 
@@ -111,6 +111,75 @@
 - **影响范围：** 新会话按文档状态会误判 Build6/7 已全量达标。
 - **修复方案（已执行）：** 按决策 3 回退受影响 Step 为 ◧：Build6 Step5/6、Build7 Step1~4（Build6.md v2.6 / Build7.md v1.16 变更记录已同步）；归档与 AGENTS/README 状态更新仍按 R15-13 由用户决定时机。
 - **状态：** ✅ 已执行（2026-08-21，文档勾选回退完成；各 Step 复验通过后恢复 ✅）
+
+### R17-01 独立账号移除失败目标仍被当作期望账号参与对账/重推
+
+- **现象：** `internal/xray/ext.go` 的 `pushTargetsFor`、`internal/xray/reconcile.go` 的 ext 期望集、`SyncAllExt`、`ResetExtQuota`、`CollectExtTraffic` 等查询均未过滤 `xray_ext_users.action='remove'`。当 `markExtRemoveFailed` 写入 action='remove' 后，该行仍会出现在期望集中：对账时若 Xray 侧已无账号会进入“待补推”（错误重推），若仍存在则不会被归入残留清理；`ResetExtQuota`/`SyncAllExt` 也可能把本应移除的账号重新 Add；`CheckExtQuota` 还会用 `markExtFailed` 把 action 覆盖回 'add'。
+- **根因：** R15-10 引入 action 列后只让 `RetryExt` 消费，其余查询/推送路径未同步按 action 过滤。
+- **影响范围：** 独立账号“移除失败→重试移除”状态机被破坏；失败移除可能变成重新推送，对账四分区失真。
+- **修复方案：** `pushTargetsFor` 增加 `AND action='add'`（或 `action != 'remove'`）；`Reconcile` ext 期望集、`SyncAllExt`、`ResetExtQuota`、`CheckExtQuota`、`ListExt/GetExt` 的推送摘要统一只取 add 目标；`CollectExtTraffic` 可仅采集 add 目标；补“remove 失败行不进入对账期望/不参与重推”的单测。
+- **状态：** ✅ 已修复（2026-08-21，ext 推送/对账/摘要过滤 action='remove'，新增 ReconcileResult.ToRemove 分区与测试；后端全量测试通过）
+
+### R17-02 独立账号凭据修复未做超限跳过且忽略 removeOne 错误
+
+- **现象：** `internal/xray/reconcile.go` `CredentialsOne` 的 ext 分支先 `_ = s.ext.removeOne(...)` 忽略错误，再直接 `s.ext.pushOne(...)`，未检查 `quota_exceeded`。超限独立账号会被“修复凭据”重新 Add；若 RemoveUser 失败且 Xray 侧账号仍存在，manual 模式会把 `already exists.` 当作成功，导致凭据未真正修复却显示成功。
+- **根因：** 凭据修复路径未复用带超限/状态检查的推送逻辑，且忽略移除错误。
+- **影响范围：** 违反“超限用户所有 AddUser 类钩子前置跳过”；凭据不一致修复可能假成功。
+- **修复方案：** ext 分支先查 `quota_exceeded`，超限返回 `ErrQuotaExceeded`（RepairCredentialsAsync 计 skipped）；`removeOne` 错误必须处理，失败则不执行 Add 并返回错误；对 ext 凭据修复使用强制覆盖语义或显式 Remove+Add；补超限跳过与 Remove 失败单测。
+- **状态：** ✅ 已修复（2026-08-21，CredentialsOne ext 超限跳过、removeOne 错误处理，RepairCredentialsAsync 计 skipped；新增测试）
+
+### R17-03 SettingsView 关闭高级模式未要求输入 DISABLE 确认词
+
+- **现象：** `frontend/src/views/admin/SettingsView.vue` 的关闭高级模式 ConfirmModal 未传 `confirm-word="DISABLE"`，`confirmDisableAdvanced` 仍硬编码提交 `confirm_word:'DISABLE'`；用户无需输入确认词即可关闭。
+- **根因：** R16-06 中“OFF 确认弹窗内嵌 DISABLE 确认词输入框”未真正落地。
+- **影响范围：** 危险 OFF 清空缺少 UI 侧二次确认，与 Build7 Step4/Design2-UI 不符。
+- **修复方案：** 给该 ConfirmModal 增加 `confirm-word="DISABLE"`，将用户输入值作为 `confirm_word` 提交（或由 ConfirmModal 的 okDisabled 保证后再提交硬编码值也可，但必须可见输入框）。
+- **状态：** ✅ 已修复（2026-08-21，SettingsView OFF 确认弹窗增加 DISABLE 确认词输入）
+
+### R17-04 XrayInstancesView 仍缺危险确认、凭据复制、列表字段与错误展示（R16-06 增量）
+
+- **现象：** 当前 `XrayInstancesView.vue` 虽已补主体交互，但对照 Design2-UI §8 仍缺：
+  - “一键清理残留”直接执行，无 ConfirmModal 危险确认；
+  - 独立账号自动生成成功弹窗仅 `Modal.info` 展示明文，无复制按钮与“凭据即该账号唯一凭证”警示；
+  - 独立账号列表缺少配额/本月用量/推送摘要列；实例列表缺少 slug、最近采集成功时间、连续失败告警；
+  - 测试连接/检测失败使用普通文本/Notify，未按规格用 `a-alert error`；
+  - 未实现 <768 卡片态。
+- **根因：** R16-06 标记 ✅ 时仅完成主体，细节未闭环。
+- **影响范围：** Build7 Step3 前端验收仍不达标；危险清理缺少确认、敏感凭据展示不便。
+- **修复方案：** 按 Design2-UI §8 补齐上述交互；补前端单测覆盖。
+- **状态：** ✅ 已修复（2026-08-21，一键清理确认/凭据复制/列表字段/错误展示/<768 卡片态全部补齐）
+
+### R17-05 GroupsView 公共节点/非候选移除/空候选引导未完整落地
+
+- **现象：** `GroupsView.vue` 候选节点列表未展示/禁用公共节点（`CandidateNode` API 也无 `is_public` 字段），用户可勾选公共节点但保存时被后端拒绝；已分配的非候选节点仅红警提示，没有移除操作；候选集为空时只有文字提示，没有“前往装配”按钮。
+- **根因：** R16-06 部分落地，后端 `CandidateNode` 未扩展 `is_public`，前端无移除控件。
+- **影响范围：** 用户组高级管理 UI 误导且无法清理越界分配。
+- **修复方案：** 后端 `CandidateNode` 增加 `is_public`（及 render_name/系统名副行所需字段），前端公共节点灰置不可勾选、非候选节点提供移除按钮、空候选集提供“前往装配”按钮。
+- **状态：** ✅ 已修复（2026-08-21，CandidateNode 增加 is_public/render_name，前端公共节点禁选/非候选移除/空候选按钮）
+
+### R17-06 R15-08/R16-07 测试补齐仍缺前端专项与后端 credentials/stats/quota/reconcile
+
+- **现象：** 当前仓库仍无 `frontend/tests/groups-view.spec.ts`、`users-view.spec.ts`、`settings-view.spec.ts`；`xray-instances-view.spec.ts` 仍只有 1 个空态用例；后端仍无 `internal/xray/credentials_test.go`、`stats_test.go`、`quota_test.go`、`reconcile_test.go`（相关行为仅部分被 ext/sync 测试间接覆盖）。
+- **根因：** R15-08/R16-07 的清单未全部执行。
+- **影响范围：** Build7 Step3/4 前端交互与 Build6/7 后端核心状态机缺少回归保护。
+- **修复方案：** 按 R15-08/R16-07 原始清单补齐文件与用例；扩展 xray-instances-view.spec 覆盖开关回滚/测试连接/检测回执/对账四分区/ext 双轨/重试 loading。
+- **状态：** ◧ 部分修复（2026-08-21 已新增 groups/users/settings spec、扩展 xray spec、后端 credentials/stats/quota/reconcile 测试；原清单中部分交互覆盖仍未完整）
+
+### R17-07 .smoke-test.sh v2 导出在 Dev 模式把 403 当成功
+
+- **现象：** `.smoke-test.sh` 第 16 步直接 `curl ... -o /tmp/vpn-smoke-export.enc` 后仅打印文件大小；Dev 模式下导出接口返回 403 JSON（70 字节），脚本仍输出成功并继续。
+- **根因：** smoke 脚本未校验 HTTP 状态/响应内容，也未在 Production 模式运行导出分支。
+- **影响范围：** Build7 Step6 的 v2 导出冒烟实际未验证，验收可能假绿。
+- **修复方案：** 在 smoke 中断言 HTTP 200 且响应不是 JSON 错误；或将导出/导入分支放到 Production 临时实例执行；或显式跳过并输出 skip 原因。
+- **状态：** ◧ 部分修复（2026-08-21 已修正 Dev 下 403 假绿，要求 Production 并校验 HTTP 200；Production 临时实例自动拉起尚未落地）
+
+### R17-08 SettingsView v2 导入/导出文案与保护提示未完全落地
+
+- **现象：** `SettingsView.vue` 导出说明仍为旧版“全部系统配置…不含业务数据”，未说明 v2 实例/节点显示名/独立账号推送目标；导入确认弹窗未追加“实例整体覆盖、组节点分配级联清空”“带实例/账号导入且高级关闭将自动开启”等影响项；未提供 signing_key 保护失败时的表单级 `a-alert`。
+- **根因：** R16-06 中 SettingsView 相关项只完成了 task_id 轮询与 hints，文案/保护提示未补齐。
+- **影响范围：** 管理员对 v2 导入影响与保护错误理解不足；Build7 Step4 验收不完整。
+- **修复方案：** 按 Design2-UI §4.7 更新导出说明、导入确认内容、signing_key 错误 alert。
+- **状态：** ✅ 已修复（2026-08-21，SettingsView 导出/导入文案与 signing_key 保护提示补齐）
 
 ---
 
@@ -124,7 +193,7 @@
 - **根因：** Build7 Step3/Step4 标记为 ✅，但实际仅新增了 API 封装与页面骨架，未完成文档列出的交互。
 - **影响范围：** 高级模式管理面在 UI 上不可完整使用；Build7 里程碑“Xray 实例页/独立账号 Tab/用户组高级管理/用户高级列/导入导出 v2”未达成。
 - **修复方案（已确认）：** 按 Build7 Step3/Step4 原文逐项补齐 `XrayInstancesView.vue`（实例编辑/启停/测试连接/采集状态/检测回执与命名/对账 drawer 四分区与行内操作/ext 双轨表单/推送目标多选/一次性凭据展示）、`GroupsView.vue`（候选集引导/节点分配/排序/默认配额）、`UsersView.vue`（高级列/配额覆盖/重置/重试）与 `SettingsView.vue`（v2 导入两步确认与轮询）；并删除 `PlaceholderView.vue` 旧引用（若确无其他使用）。前端单测文件按 R15-08 清单补齐。2026-08-21 全量核查的逐项缺失清单见 R16-06（与本条合并执行）。
-- **状态：** ✅ 已修复（2026-08-21，XrayInstancesView/GroupsView/UsersView/SettingsView 按 R16-06 清单补齐；前端构建与测试通过）
+- **状态：** ✅ 已修复（2026-08-21，R17-04/05/08 全部闭环）
 
 ### R15-08 Build6/Build7 要求的专项测试与性能基准大面积缺失
 
@@ -132,7 +201,7 @@
 - **根因：** 构建文档中“单测/验收标准”未被执行。
 - **影响范围：** 多项缺陷未被测试发现；后续改动无回归保护。
 - **修复方案（已确认）：** 后端新增 `internal/xray/credentials_test.go`、`detect_test.go`、`stats_test.go`、`quota_test.go`、`ext_test.go`、`reconcile_test.go`、`offclear_test.go`，扩展 `config/export_test.go`（v2 异步/保护/往返/双确认）与 `download_test.go`（usage 头/文件名/no-store）；新增 `internal/server/render_test.go` 与 `internal/server/xray_async_test.go`；新增 `TestRenderUserSubscription10kRules`（1 万规则、20 用户规模，断言 <500ms）。前端新增 `xray-instances-view.spec.ts`、`groups-view.spec.ts`、`users-view.spec.ts`、`settings-view.spec.ts`，扩展 `home-view.spec.ts` 与新增 `profile-view.spec.ts`。2026-08-21 新增缺失项见 R16-07（合并执行）。
-- **状态：** ✅ 已修复（2026-08-21，后端新增 ext/detect/offclear/render/async/cron/10k 用户渲染等测试，前端扩展 xray-instances-view.spec；全量测试通过）
+- **状态：** ◧ 部分修复（2026-08-21 已补后端部分测试与 10k 渲染；仍缺 R17-06 所列前端专项与后端 credentials/stats/quota/reconcile）
 
 ### R15-13 Build7 Step6 文档归档、覆盖矩阵与 README 高级模式部署说明未完成
 
@@ -177,6 +246,17 @@
 ### 优先级 4：归档收口（R15-13）
 
 10. 全部修复并复验通过后：归档 Build4~7 至 `docs/AchievedDocuments/`、更新 AGENTS.md 文档清单与 README 高级模式部署说明、核对 Design2 覆盖矩阵、清理 PlaceholderView。
+
+### 优先级 5：本轮新发现 R17 收口（在恢复 Build6/7 ✅ 前必须闭环）
+
+11. **R17-01**：✅ 已修复（ext 推送/对账/摘要过滤 action='remove'，新增 ToRemove 分区与测试）。
+12. **R17-02**：✅ 已修复（超限跳过、remove 错误处理、skipped 计数与测试）。
+13. **R17-03**：✅ 已修复（OFF 确认弹窗增加 DISABLE 输入）。
+14. **R17-04**：✅ 已修复（危险确认/凭据复制/列表字段/错误展示/<768 卡片态）。
+15. **R17-05**：✅ 已修复（公共节点禁选/非候选移除/空候选按钮）。
+16. **R17-06**：◧ 进行中（已新增文件与基础用例；交互覆盖仍待补全）。
+17. **R17-07**：◧ 进行中（已要求 Production 并校验 HTTP 200；自动拉起 Production 临时实例待补）。
+18. **R17-08**：✅ 已修复（导入导出文案与保护提示）。
 
 ### 验收口径
 
@@ -225,3 +305,5 @@
 | v1.4 | 2026-08-21 | 执行优先级 1 R16-03/04：R16-03 ✅（导入重绑失配置 failed+last_error）、R16-04 ✅（importV2 返回 hints、任务终态写入、SettingsView 展示 hints）；新增 `export_v2_test.go` 两个单测；Build7 Step2 仍待 R16-05 确认后恢复。 |
 | v1.5 | 2026-08-21 | 执行优先级 1 R16-05（用户已确认轻量同名重绑 + best-effort 对账）：R16-05 ✅；新增 `assembly.CheckXrayReferences`、server 导入后 Reconcile+PushOne 对账、`rebind_test.go`；Build7 Step2 恢复 ✅。 |
 | v1.6 | 2026-08-21 | 执行优先级 2/3：R15-07/R16-06 ✅（前端补齐）、R15-08/R16-07 ✅（cron/xray 测试、10k 用户渲染测试、前端 spec）、R15-14/R16-08 ✅（error/死代码清理、DiffPush/SetOnRejected 删除、IPv6 兼容）、R16-09 ✅（smoke 脚本重写）；Build7 Step3/4、Build6 Step5/6 恢复 ✅。 |
+| v1.7 | 2026-08-21 | 全量复验：确认 R16-06/R16-07/R16-09/R15-07/R15-08 为部分修复；新增 R17-01~R17-08（ext action 未过滤、ext 凭据修复超限/错误、OFF 确认词、Xray/Groups/Settings UI 残留、测试缺口、smoke v2 导出假成功、导入导出文案）。验收命令仍全绿，但按文档状态不应恢复 Build6/7 对应 Step 为 ✅。 |
+| v1.8 | 2026-08-21 | 执行 R17 修复：R17-01/02/03/04/05/08 ✅；R17-06/07 ◧（测试交互覆盖、smoke Production 自动拉起待补）；Build6 Step5/6、Build7 Step1~4 同步回退 ◧。后端 build/vet/test、前端 build/test、Production smoke 全绿。 |

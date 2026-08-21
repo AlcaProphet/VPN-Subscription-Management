@@ -14,6 +14,7 @@ import (
 	handlercmd "github.com/xtls/xray-core/app/proxyman/command"
 	statscmd "github.com/xtls/xray-core/app/stats/command"
 	xnet "github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
@@ -60,6 +61,18 @@ func (f *fakeHandlerServer) AlterInbound(ctx context.Context, req *handlercmd.Al
 		delete(f.users[req.GetTag()], op.GetEmail())
 	}
 	return &handlercmd.AlterInboundResponse{}, nil
+}
+
+func (f *fakeHandlerServer) GetInboundUsers(ctx context.Context, req *handlercmd.GetInboundUserRequest) (*handlercmd.GetInboundUserResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var users []*protocol.User
+	for email := range f.users[req.GetTag()] {
+		if req.GetEmail() == "" || req.GetEmail() == email {
+			users = append(users, &protocol.User{Email: email})
+		}
+	}
+	return &handlercmd.GetInboundUserResponse{Users: users}, nil
 }
 
 func (f *fakeHandlerServer) ListInbounds(ctx context.Context, req *handlercmd.ListInboundsRequest) (*handlercmd.ListInboundsResponse, error) {

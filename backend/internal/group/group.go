@@ -36,9 +36,10 @@ type GroupNode struct {
 type CandidateNode struct {
 	NodeID             int64  `json:"node_id"`
 	Name               string `json:"name"`
+	RenderName         string `json:"render_name"`
+	IsPublic           bool   `json:"is_public"`
 	InPartialBlueprint bool   `json:"in_partial_blueprint"`
 }
-
 
 // NodesChangedFunc 组节点分配变化后的回调（Step3 注入同步 diff）。
 type NodesChangedFunc func(ctx context.Context, groupID int64, userIDs []int64)
@@ -389,18 +390,20 @@ func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]CandidateNo
 	out := make([]CandidateNode, 0, len(order))
 	for _, name := range order {
 		var nodeID int64
+		var displayName sql.NullString
+		var isPublic int
 		var nrows *sql.Rows
 		var qerr error
 		if tx != nil {
-			nrows, qerr = tx.QueryContext(ctx, `SELECT id FROM nodes WHERE name = ? AND source = 'xray'`, name)
+			nrows, qerr = tx.QueryContext(ctx, `SELECT id, display_name, is_public FROM nodes WHERE name = ? AND source = 'xray'`, name)
 		} else {
-			nrows, qerr = s.store.DB().QueryContext(ctx, `SELECT id FROM nodes WHERE name = ? AND source = 'xray'`, name)
+			nrows, qerr = s.store.DB().QueryContext(ctx, `SELECT id, display_name, is_public FROM nodes WHERE name = ? AND source = 'xray'`, name)
 		}
 		if qerr != nil {
 			return nil, qerr
 		}
 		if nrows.Next() {
-			if err := nrows.Scan(&nodeID); err != nil {
+			if err := nrows.Scan(&nodeID, &displayName, &isPublic); err != nil {
 				_ = nrows.Close()
 				return nil, err
 			}
@@ -408,9 +411,15 @@ func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]CandidateNo
 		if err := nrows.Close(); err != nil {
 			return nil, err
 		}
+		renderName := name
+		if displayName.Valid && displayName.String != "" {
+			renderName = displayName.String
+		}
 		out = append(out, CandidateNode{
 			NodeID:             nodeID,
 			Name:               name,
+			RenderName:         renderName,
+			IsPublic:           isPublic == 1,
 			InPartialBlueprint: blueprintsWithCandidates > 0 && count[name] < blueprintsWithCandidates,
 		})
 	}

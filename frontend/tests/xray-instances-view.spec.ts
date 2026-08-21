@@ -50,4 +50,14 @@ describe('XrayInstancesView 基础渲染', () => {
     expect(wrapper.text()).toContain('还没有 Xray 实例')
     expect(wrapper.text()).toContain('新增实例')
   })
+
+  it('实例列表展示实例名称与 slug', async () => {
+    ;(listInstances as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 1, name: 'smoke-instance', slug: 'instance-smoke', api_addr: '127.0.0.1:10086', api_tag: 'tag', enabled: true },
+    ])
+    const wrapper = mount(XrayInstancesView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('smoke-instance')
+    expect(wrapper.text()).toContain('instance-smoke')
+  })
 })

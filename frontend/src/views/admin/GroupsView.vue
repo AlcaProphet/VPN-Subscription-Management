@@ -1,7 +1,7 @@
 <!-- GroupsView.vue：用户组管理（Build7 高级：节点分配 + 默认配额 + 候选集引导） -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Button, Checkbox, Input, InputNumber, Modal, Table, Tag } from 'ant-design-vue'
+import { Button, Checkbox, Empty, Input, InputNumber, Modal, Table, Tag } from 'ant-design-vue'
 import {
   listGroups, getGroup, createGroup, updateGroup, deleteGroup, updateGroupNodes, updateGroupQuota,
   type GroupItem, type CandidateNode, type GroupDetail,
@@ -64,7 +64,7 @@ const selectedNodes = computed(() =>
       return {
         node_id: id,
         name: n?.node_name || c?.name || String(id),
-        render_name: n?.render_name || c?.name || '',
+        render_name: n?.render_name || c?.render_name || c?.name || '',
         is_public: !!n?.is_public,
         in_candidate: !!c,
       }
@@ -77,6 +77,9 @@ function moveSelected(index: number, dir: -1 | 1) {
   const arr = [...selectedNodeIDs.value]
   ;[arr[index], arr[target]] = [arr[target], arr[index]]
   selectedNodeIDs.value = arr
+}
+function removeSelected(nodeId: number) {
+  selectedNodeIDs.value = selectedNodeIDs.value.filter((id) => id !== nodeId)
 }
 async function openEdit(g: GroupItem) {
   try {
@@ -94,9 +97,7 @@ async function doSaveEdit() {
   saving.value = true
   try {
     await updateGroup(editing.value.id, { name: editName.value.trim() })
-    if (candidateNodes.value.length > 0) {
-      await updateGroupNodes(editing.value.id, { node_ids: selectedNodeIDs.value })
-    }
+    await updateGroupNodes(editing.value.id, { node_ids: selectedNodeIDs.value })
     await updateGroupQuota(editing.value.id, { default_quota: editQuota.value })
     Notify.success('已保存，节点变更将同步至 Xray')
     editOpen.value = false
@@ -166,18 +167,25 @@ async function confirmDelete() {
         </div>
         <div>
           <div class="text-xs text-gray-400 mb-1">节点分配（候选集）</div>
-          <div v-if="candidateNodes.length === 0 && selectedNodes.length === 0" class="text-gray-400 text-sm">暂无候选节点，请先在装配中勾选 Xray 节点</div>
+          <Empty v-if="candidateNodes.length === 0 && selectedNodes.length === 0" description="请先装配并激活 Clash YAML / SR 节点订阅 / 通用节点订阅模板">
+            <Button type="primary" @click="$router.push('/admin/assembly')">前往装配</Button>
+          </Empty>
           <div v-if="assignedNonCandidate.length > 0" class="mb-2">
             <Tag color="red">存在非候选集已分配节点</Tag>
             <div class="text-xs text-red-500">{{ assignedNonCandidate.map((n) => n.node_name).join('、') }} 不在当前候选集，保存后可能被候选集重算摘除。</div>
           </div>
           <div v-if="candidateNodes.length > 0" class="space-y-1 mb-3">
             <div v-for="c in candidateNodes" :key="c.name" class="flex items-center gap-2">
-              <Checkbox :checked="selectedNodeIDs.includes(c.node_id)" @change="() => {
+              <Checkbox :checked="selectedNodeIDs.includes(c.node_id)" :disabled="c.is_public" @change="() => {
+                if (c.is_public) return
                 const id = c.node_id
                 if (selectedNodeIDs.includes(id)) selectedNodeIDs = selectedNodeIDs.filter((x) => x !== id)
                 else selectedNodeIDs = [...selectedNodeIDs, id]
-              }">{{ c.name }}</Checkbox>
+              }">
+                <span>{{ c.render_name || c.name }}</span>
+                <span v-if="c.render_name && c.render_name !== c.name" class="ml-1 text-xs text-gray-400">{{ c.name }}</span>
+              </Checkbox>
+              <Tag v-if="c.is_public" color="default">公共·免分配</Tag>
               <Tag v-if="c.in_partial_blueprint" color="orange">仅部分模板</Tag>
             </div>
           </div>
@@ -190,6 +198,7 @@ async function confirmDelete() {
               <Tag v-if="!n.in_candidate" color="red">非候选</Tag>
               <Button size="small" :disabled="i === 0" @click="moveSelected(i, -1)">↑</Button>
               <Button size="small" :disabled="i === selectedNodes.length - 1" @click="moveSelected(i, 1)">↓</Button>
+              <Button size="small" danger @click="removeSelected(n.node_id)">移除</Button>
             </div>
           </div>
         </div>

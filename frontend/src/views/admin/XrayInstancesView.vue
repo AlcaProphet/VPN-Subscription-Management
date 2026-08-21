@@ -1,7 +1,7 @@
 <!-- XrayInstancesView.vue：Xray 实例与独立账号管理（Build7 Step3） -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { Button, Checkbox, Empty, Input, InputNumber, Modal, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Alert, Button, Checkbox, Empty, Input, InputNumber, Modal, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
 import {
   listInstances, listExtAccounts, createInstance, updateInstance, deleteInstance, detectNodes, testConnection,
   runInit, reconcile, pushRepair, cleanOrphans, repairCredentials,
@@ -20,6 +20,36 @@ const instances = ref<XrayInstance[]>([])
 const extAccounts = ref<ExtAccount[]>([])
 const xrayNodes = ref<NodeItem[]>([])
 const loading = ref(false)
+const isMobile = ref(false)
+function checkMobile() {
+  isMobile.value = window.matchMedia('(max-width: 767px)').matches
+}
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+onUnmounted(() => window.removeEventListener('resize', checkMobile))
+const detectError = ref('')
+const cleanOpen = ref(false)
+const cleanEmails = ref<string[]>([])
+const credentialsModal = ref(false)
+const credentialsData = ref<{ title: string; uuid: string; secret: string } | null>(null)
+
+function formatBytes(v?: number) {
+  if (v == null) return '—'
+  if (v < 1024) return `${v} B`
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`
+  if (v < 1024 * 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
+  return `${(v / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    Notify.success('已复制')
+  } catch {
+    Notify.error('复制失败，请手动复制')
+  }
+}
 
 async function load() {
   loading.value = true
@@ -152,6 +182,7 @@ async function doDetect(inst: XrayInstance) {
   detectTarget.value = inst
   detecting.value = true
   detectResult.value = null
+  detectError.value = ''
   try {
     const res = await detectNodes(inst.id)
     detectResult.value = res
@@ -161,7 +192,7 @@ async function doDetect(inst: XrayInstance) {
       Notify.info('节点无变化')
     }
   } catch (err) {
-    Notify.error((err as Error).message)
+    detectError.value = (err as Error).message
   } finally {
     detecting.value = false
   }
@@ -280,9 +311,15 @@ async function doClean() {
     Notify.error('请先勾选要清理的残留账号')
     return
   }
+  cleanEmails.value = emails
+  cleanOpen.value = true
+}
+async function confirmClean() {
+  if (!reconcileTarget.value) return
+  cleanOpen.value = false
   reconcileBusy.value = true
   try {
-    const res = await cleanOrphans(reconcileTarget.value.id, emails)
+    const res = await cleanOrphans(reconcileTarget.value.id, cleanEmails.value)
     await runTask(res.task_id, '清理任务已完成')
     reconcileResult.value = await reconcile(reconcileTarget.value.id)
   } catch (err) {
@@ -322,6 +359,17 @@ async function doCredentialsOne(item: ReconcileItem) {
     Notify.error((err as Error).message)
   }
 }
+async function doRetryExtRemove(item: ReconcileItem) {
+  if (item.ext_account_id == null) return
+  try {
+    const res = await retryExtSync(item.ext_account_id)
+    Notify.success(`移除重试完成：移除 ${res.removed ?? 0}，失败 ${res.remove_failed ?? 0}`)
+    await load()
+    if (reconcileTarget.value) reconcileResult.value = await reconcile(reconcileTarget.value.id)
+  } catch (err) {
+    Notify.error((err as Error).message)
+  }
+}
 
 const extCreateOpen = ref(false)
 const extForm = ref({ name: '', credential_mode: 'generate' as 'generate' | 'manual', uuid: '', proxy_secret: '', quota: undefined as number | undefined })
@@ -340,7 +388,8 @@ async function doExtCreate() {
     })
     const res = await createExtAccount({ ...extForm.value, push_targets })
     if (res.credentials) {
-      Modal.info({ title: `${res.account.name} 一次性凭据`, content: `UUID: ${res.credentials.uuid}\n代理密码: ${res.credentials.proxy_secret}` })
+      credentialsData.value = { title: `${res.account.name} 一次性凭据`, uuid: res.credentials.uuid, secret: res.credentials.proxy_secret }
+        credentialsModal.value = true
     } else {
       Notify.success('独立账号已创建')
     }
@@ -429,7 +478,8 @@ async function confirmExtDelete() {
 async function doExtCredentials(acc: ExtAccount) {
   try {
     const creds = await getExtCredentials(acc.id)
-    Modal.info({ title: `${acc.name} 凭据`, content: `UUID: ${creds.uuid}\n密码: ${creds.proxy_secret}` })
+    credentialsData.value = { title: `${acc.name} 凭据`, uuid: creds.uuid, secret: creds.proxy_secret }
+    credentialsModal.value = true
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -452,30 +502,51 @@ async function doExtCredentials(acc: ExtAccount) {
             <Button type="primary" @click="createOpen = true">新增实例</Button>
           </Empty>
         </div>
-        <Table v-else :data-source="instances" row-key="id" :loading="loading" :pagination="false">
-          <Table.Column title="名称" data-index="name" />
-          <Table.Column title="API 地址" data-index="api_addr" />
-            <Table.Column title="API Tag">
-              <template #default="{ record }">{{ record.api_tag || '—' }}</template>
+        <template v-else-if="!isMobile">
+          <Table :data-source="instances" row-key="id" :loading="loading" :pagination="false">
+            <Table.Column title="名称" data-index="name" />
+            <Table.Column title="slug" data-index="slug" />
+            <Table.Column title="API 地址" data-index="api_addr" />
+              <Table.Column title="API Tag">
+                <template #default="{ record }">{{ record.api_tag || '—' }}</template>
+              </Table.Column>
+            <Table.Column title="最近采集">
+              <template #default="{ record }">{{ record.last_collect_at ? new Date(record.last_collect_at).toLocaleString() : '—' }}</template>
             </Table.Column>
-          <Table.Column title="状态">
-            <template #default="{ record }">
-              <div class="flex items-center gap-2">
-                <Switch :checked="record.enabled" @change="doToggleInstance(record)" />
-                <Tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</Tag>
-                <Tag v-if="record.collect_status === 'error'" color="red" class="ml-1">采集异常</Tag>
-              </div>
-            </template>
-          </Table.Column>
-          <Table.Column title="操作" width="300">
-            <template #default="{ record }">
-              <Button size="small" class="mr-1" @click="openEdit(record)">编辑</Button>
-              <Button size="small" class="mr-1" @click="doDetect(record)">刷新节点</Button>
-              <Button size="small" class="mr-1" @click="doReconcile(record)">对账</Button>
-              <Button size="small" danger @click="deleting = record">删除</Button>
-            </template>
-          </Table.Column>
-        </Table>
+            <Table.Column title="状态">
+              <template #default="{ record }">
+                <div class="flex items-center gap-2">
+                  <Switch :checked="record.enabled" @change="doToggleInstance(record)" />
+                  <Tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</Tag>
+                  <Tag v-if="record.collect_status === 'error'" color="red" class="ml-1" :title="record.collect_error || '采集异常'">采集异常</Tag>
+                </div>
+              </template>
+            </Table.Column>
+            <Table.Column title="操作" width="300">
+              <template #default="{ record }">
+                <Button size="small" class="mr-1" @click="openEdit(record)">编辑</Button>
+                <Button size="small" class="mr-1" @click="doDetect(record)">刷新节点</Button>
+                <Button size="small" class="mr-1" @click="doReconcile(record)">对账</Button>
+                <Button size="small" danger @click="deleting = record">删除</Button>
+              </template>
+            </Table.Column>
+          </Table>
+        </template>
+        <div v-else class="space-y-3 py-2">
+          <div v-for="inst in instances" :key="inst.id" class="border rounded-lg p-3">
+            <div class="flex items-center justify-between">
+              <span class="font-medium">{{ inst.name }}</span>
+              <Switch :checked="inst.enabled" size="small" @change="doToggleInstance(inst)" />
+            </div>
+            <div class="text-sm text-gray-500 mt-1">{{ inst.slug }} · {{ inst.api_addr }}</div>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <Button size="small" @click="openEdit(inst)">编辑</Button>
+              <Button size="small" @click="doDetect(inst)">刷新节点</Button>
+              <Button size="small" @click="doReconcile(inst)">对账</Button>
+              <Button size="small" danger @click="deleting = inst">删除</Button>
+            </div>
+          </div>
+        </div>
       </TabPane>
       <TabPane key="ext" tab="独立账号">
         <div v-if="extAccounts.length === 0 && !loading" class="py-16">
@@ -483,25 +554,58 @@ async function doExtCredentials(acc: ExtAccount) {
             <Button type="primary" @click="extCreateOpen = true">创建独立账号</Button>
           </Empty>
         </div>
-        <Table v-else :data-source="extAccounts" row-key="id" :loading="loading" :pagination="false">
-          <Table.Column title="名称" data-index="name" />
-          <Table.Column title="Email" data-index="email" />
-          <Table.Column title="超限">
-            <template #default="{ record }">
-              <Tag v-if="record.quota_exceeded" color="red">已超限</Tag>
-              <span v-else>—</span>
-            </template>
-          </Table.Column>
-          <Table.Column title="操作" width="360">
-            <template #default="{ record }">
-              <Button size="small" class="mr-1" @click="openExtEdit(record)">编辑</Button>
-              <Button size="small" class="mr-1" @click="doExtCredentials(record)">复制凭据</Button>
-              <Button size="small" class="mr-1" @click="doExtRetry(record)">重试</Button>
-              <Button size="small" class="mr-1" @click="extResetTarget = record">重置配额</Button>
-              <Button size="small" danger @click="extDeleteTarget = record">删除</Button>
-            </template>
-          </Table.Column>
-        </Table>
+        <template v-else-if="!isMobile">
+          <Table :data-source="extAccounts" row-key="id" :loading="loading" :pagination="false">
+            <Table.Column title="名称" data-index="name" />
+            <Table.Column title="Email" data-index="email" />
+            <Table.Column title="配额">
+              <template #default="{ record }">{{ record.quota == null ? '不限' : `${record.quota} GB` }}</template>
+            </Table.Column>
+            <Table.Column title="本月用量">
+              <template #default="{ record }">{{ formatBytes(record.used_bytes) }}</template>
+            </Table.Column>
+            <Table.Column title="推送摘要">
+              <template #default="{ record }">
+                <span v-if="!record.push_targets?.length">—</span>
+                <template v-else>
+                  <Tag v-if="record.push_targets.some((t: any) => t.sync_status === 'failed')" color="red">{{ record.push_targets.filter((t: any) => t.sync_status === 'failed').length }} 条失败</Tag>
+                  <Tag v-else color="green">{{ record.push_targets.length }} 个已同步</Tag>
+                </template>
+              </template>
+            </Table.Column>
+            <Table.Column title="超限">
+              <template #default="{ record }">
+                <Tag v-if="record.quota_exceeded" color="red">已超限</Tag>
+                <span v-else>—</span>
+              </template>
+            </Table.Column>
+            <Table.Column title="操作" width="360">
+              <template #default="{ record }">
+                <Button size="small" class="mr-1" @click="openExtEdit(record)">编辑</Button>
+                <Button size="small" class="mr-1" @click="doExtCredentials(record)">复制凭据</Button>
+                <Button size="small" class="mr-1" @click="doExtRetry(record)">重试</Button>
+                <Button size="small" class="mr-1" @click="extResetTarget = record">重置配额</Button>
+                <Button size="small" danger @click="extDeleteTarget = record">删除</Button>
+              </template>
+            </Table.Column>
+          </Table>
+        </template>
+        <div v-else class="space-y-3 py-2">
+          <div v-for="acc in extAccounts" :key="acc.id" class="border rounded-lg p-3">
+            <div class="flex items-center justify-between">
+              <span class="font-medium">{{ acc.name }}</span>
+              <Tag v-if="acc.quota_exceeded" color="red">已超限</Tag>
+            </div>
+            <div class="text-sm text-gray-500 mt-1">{{ acc.email }} · {{ acc.quota == null ? '不限流量' : `${acc.quota} GB` }} · 本月 {{ formatBytes(acc.used_bytes) }}</div>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <Button size="small" @click="openExtEdit(acc)">编辑</Button>
+              <Button size="small" @click="doExtCredentials(acc)">复制凭据</Button>
+              <Button size="small" @click="doExtRetry(acc)">重试</Button>
+              <Button size="small" @click="extResetTarget = acc">重置配额</Button>
+              <Button size="small" danger @click="extDeleteTarget = acc">删除</Button>
+            </div>
+          </div>
+        </div>
       </TabPane>
     </Tabs>
 
@@ -511,7 +615,7 @@ async function doExtCredentials(acc: ExtAccount) {
         <input v-model="createForm.api_addr" placeholder="api_addr (host:port)" class="w-full border rounded px-3 py-2" />
         <input v-model="createForm.api_tag" placeholder="api_tag（可空）" class="w-full border rounded px-3 py-2" />
         <Button :loading="testing" @click="doTestConnection">测试连接</Button>
-        <p v-if="testResult" class="text-sm">{{ testResult }}</p>
+        <Alert v-if="testResult" :type="testResult.startsWith('连接成功') ? 'success' : 'error'" show-icon :message="testResult" />
         <Button type="primary" :loading="creating" @click="doCreate">创建</Button>
       </div>
     </Modal>
@@ -523,13 +627,14 @@ async function doExtCredentials(acc: ExtAccount) {
         <input v-model="editForm.api_tag" placeholder="api_tag（可空）" class="w-full border rounded px-3 py-2" />
         <div class="flex items-center gap-2">
           <Button :loading="editTesting" @click="doEditTestConnection">测试连接</Button>
-          <span v-if="editTestResult" class="text-sm">{{ editTestResult }}</span>
+          <Alert v-if="editTestResult" :type="editTestResult.startsWith('连接成功') ? 'success' : 'error'" show-icon :message="editTestResult" class="flex-1" />
         </div>
         <Button type="primary" :loading="saving" @click="doSaveEdit">保存</Button>
       </div>
     </Modal>
 
     <Modal :open="detectTarget !== null" title="刷新节点结果" :footer="null" width="560" @update:open="detectTarget = null">
+      <Alert v-if="detectError" type="error" show-icon class="mb-3" :message="detectError" description="请检查 api_addr / 实例状态后重试" />
       <div v-if="detectResult" class="space-y-3">
         <p>新增 {{ detectResult.added }} / 更新 {{ detectResult.updated }} / 缺失 {{ detectResult.missing }}</p>
         <p v-if="detectResult.skipped.length">跳过：{{ detectResult.skipped.map((s) => `${s.tag}: ${s.reason}`).join('；') }}</p>
@@ -546,7 +651,15 @@ async function doExtCredentials(acc: ExtAccount) {
 
     <Modal :open="reconcileTarget !== null" title="实例对账" :footer="null" width="820" @update:open="reconcileTarget = null">
       <div v-if="reconcileResult" class="space-y-4">
-        <p>待补推 {{ reconcileResult.to_push.length }} / 无头 {{ reconcileResult.orphans.length }} / 疑似残留 {{ reconcileResult.ext_orphans.length }} / 凭据不一致 {{ reconcileResult.credential_mismatches.length }}</p>
+        <p>待补推 {{ reconcileResult.to_push.length }} / 无头 {{ reconcileResult.orphans.length }} / 疑似残留 {{ reconcileResult.ext_orphans.length }} / 凭据不一致 {{ reconcileResult.credential_mismatches.length }} / 待移除 {{ reconcileResult.to_remove.length }}</p>
+        <div>
+          <div class="text-sm font-medium mb-2">待移除（移除失败，确认后可从 Xray 清理）</div>
+          <div v-if="reconcileResult.to_remove.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-for="item in reconcileResult.to_remove" :key="item.email" class="flex items-center justify-between py-1">
+            <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
+            <Button size="small" @click="doRetryExtRemove(item)">重试移除</Button>
+          </div>
+        </div>
         <div>
           <div class="text-sm font-medium mb-2">待补推</div>
           <div v-if="reconcileResult.to_push.length === 0" class="text-gray-400 text-sm">无</div>
@@ -631,5 +744,25 @@ async function doExtCredentials(acc: ExtAccount) {
     <ConfirmModal :open="deleting !== null" title="删除实例" danger :loading="deleteLoading"
                   content="将级联删除该实例下 Xray 节点、组分配与推送记录；实例不可达时 Xray 侧残留账号需手动清理。"
                   @confirm="confirmDelete" @update:open="deleting = null" />
+
+    <ConfirmModal :open="cleanOpen" title="清理勾选残留" danger :loading="reconcileBusy"
+                  :content="`将从 Xray 删除 ${cleanEmails.length} 个无主账号，不可恢复。`"
+                  @confirm="confirmClean" @update:open="cleanOpen = false" />
+
+    <Modal :open="credentialsModal" :title="credentialsData?.title" :footer="null" width="520" @update:open="credentialsModal = false">
+      <Alert type="warning" show-icon class="mb-3" message="凭据即该账号的唯一凭证，请妥善保管；关闭后将不再展示。" />
+      <div class="space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="w-20 text-gray-500">UUID</span>
+          <code class="flex-1 break-all bg-gray-100 rounded px-2 py-1">{{ credentialsData?.uuid }}</code>
+          <Button size="small" @click="copyText(credentialsData?.uuid ?? '')">复制</Button>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-20 text-gray-500">代理密码</span>
+          <code class="flex-1 break-all bg-gray-100 rounded px-2 py-1">{{ credentialsData?.secret }}</code>
+          <Button size="small" @click="copyText(credentialsData?.secret ?? '')">复制</Button>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>

@@ -34,6 +34,9 @@ export interface ExtPushTarget {
   name?: string
   display_name?: string | null
   render_name?: string
+  sync_status?: string
+  last_error?: string
+  action?: string
 }
 
 export interface ExtAccount {
@@ -68,6 +71,7 @@ export interface ReconcileResult {
   orphans: ReconcileItem[]
   ext_orphans: ReconcileItem[]
   credential_mismatches: ReconcileItem[]
+  to_remove: ReconcileItem[]
 }
 
 export interface AdminTask {
