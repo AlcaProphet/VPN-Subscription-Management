@@ -460,9 +460,160 @@
 - **状态：** ✅ 已确认（2026-08-20，维持现状，无需代码修复）
 
 
+### R15-01 全部 Build6/7 异步长任务复用请求 Context，经 HTTP 提交后任务立即失败
+
+- **现象：** 实际启动服务后调用 `DELETE /api/admin/xray/instances/:id`，接口正常返回 `{"task_id":"task-1"}`，随后 `GET /api/admin/tasks/task-1` 恒为 `failed`，error 为 `开启事务失败: context canceled`。同类实现还包括 `POST /api/admin/xray/init`、`/instances/:id/reconcile/push|clean|credentials`、`PUT /api/admin/settings/advanced`（关闭高级模式的 OFF 清空任务）与 v2 配置导入任务。
+- **根因：** 各异步方法（`instance.go:211`、`sync.go:274`、`reconcile.go:210/232/261`、`offclear.go:50`、`config/export.go:261`）的 goroutine 直接使用 handler 传入的 `c.Request.Context()`；Go `net/http` 在 `ServeHTTP` 返回后即取消该 Context，而事务执行发生在 handler 返回之后，故必然失败。`pool/sync.go:192` 已使用 `context.Background()`，但 Build6/7 新增任务未沿用该模式。
+- **影响范围：** Build6 Step1 实例删除、Step3 初始化、Build7 Step1 三项对账执行、Step2 OFF 清空与 v2 导入在真实 HTTP 路径下全部不可用；单测均直接传 `context.Background()` 调用业务方法，未覆盖 HTTP 生命周期，所以 `go test ./...` 全绿仍漏检。
+- **修复方案（待确认）：** 在各异步服务入口统一使用 `context.WithoutCancel(ctx)`（Go 1.26 可用）或创建 `context.Background()` 派生上下文（保留日志字段），再传给任务 goroutine；同时补 HTTP 集成测试：提交后轮询任务必须达到 `succeeded`（对可完成场景）而非 `context canceled`。
+- **状态：** ☐ 待修复
+
+### R15-02 动态订阅渲染错误使用 gRPC API 端口作为节点端口
+
+- **现象：** `backend/internal/server/render.go:77-78` 与 `:114` 用 `hostOf(t.APIAddr)` / `portOf(t.APIAddr)` 生成动态节点的 server/port；`Target` 结构中只有 `APIAddr`，没有节点 `port` 字段。Xray 的 gRPC API 端口与入站监听端口通常不同（例如 API=10085、入站=443）。
+- **根因：** Build6 Step1 检测时已把 `inbound.Port` 写入 `nodes.port`，但下载渲染没有读取 `nodes.port`；`NodeRenderParams` 也只返回 protocol 与 protocol_json，不含端口。
+- **影响范围：** 所有用户下载的 Clash/SR/generic 动态节点都指向 gRPC 管理端口而非代理端口，配置实际不可用；这是高级模式核心下载链路的阻断级缺陷。
+- **修复方案（待确认）：** `Target` 增加 `Port int`（从 `nodes.port` 读取），`NodeRenderParams` 或 Target 查询一并返回端口，`renderUserSubscription`/`renderLinkLines` 改为使用节点端口；补端口来源单测（api_addr 端口 ≠ 入站端口）。
+- **状态：** ☐ 待修复
+
+### R15-03 节点检测 protocol_json 未提取 vless flow 与 shadowsocks cipher
+
+- **现象：** 临时单测直接构造 vless（client Flow=`xtls-rprx-vision`）与 shadowsocks（`CipherType_AES_256_GCM`）入站后调用 `buildProtocolJSON`，两者输出均为 `{}`；`protocol_json` 中没有 `flow`/`cipher`。
+- **根因：** `backend/internal/xray/detect.go:266-280` 先 `mergeProtoMap` 序列化整个 ProxySettings，随后无条件 `delete(out, "users")`、`delete(out, "clients")`；而 vless 的 `flow` 位于 `clients[].account`，shadowsocks 的 cipher 位于 `users[].account`，删除后字段丢失。
+- **影响范围：** ① `PushUser` 构造 Xray Account 时 vless vision 节点 Flow 为空、ss 节点 CipherType 为 NONE，与 Xray 入站实际加密/流控不一致；② 动态下载渲染缺少 flow/cipher，产物不完整或不可用。Build6 Step1/Step4 明确要求归一化 `vless flow` 与 `ss cipher`。
+- **修复方案（待确认）：** 在删除 `clients`/`users` 之前，按协议从首个 client/user 的 Account TypedMessage 中解析 `vless.Account.Flow`、`shadowsocks.Account.CipherType` 并写入 `out["flow"]` / `out["cipher"]`；无账号时可省略但不得虚构默认值；补上述两种协议的单测。
+- **状态：** ☐ 待修复
+
+### R15-04 Clash 动态渲染把 shadowsocks 输出为 `type: shadowsocks`
+
+- **现象：** `backend/internal/assembly/render_clash.go:251` 的 `dynamicClashProxy` 直接 `p.Set("type", d.Protocol)`；检测协议名为 `shadowsocks`，生成的 YAML 为 `type: shadowsocks`，Clash/Mihomo 只识别 `ss`。
+- **根因：** 动态节点构造缺少 `shadowsocks → ss` 的协议名映射。
+- **影响范围：** 含 shadowsocks 入站的用户下载 Clash 配置时出现无效节点；Build6 Step4 明确要求按 `vless/vmess/trojan/ss` 构造 Clash 条目。
+- **修复方案（待确认）：** 在 `dynamicClashProxy`（或 `renderUserSubscription` 构造 `DynamicNode` 时）增加协议映射：`shadowsocks→ss`、`vless/vmess/trojan` 原样；补动态 ss 节点 YAML 断言。
+- **状态：** ☐ 待修复
+
+### R15-05 v2 配置导入仅完成“重建行”，事务前后处理与双确认词均未落地
+
+- **现象：** `backend/internal/config/export.go:272` 的 `importV2` 只做「删配置→写配置→删旧实例/账号→插 payload 实例/账号→ext 推送 node_id 暂置 NULL」，随后写 ICON 即返回 `{imported:true}`。Build7 Step2 要求的事务前旧实例/旧 user+ext 推送快照与 RemoveUser、提交后自动检测、display_name 回填、xray_ext_users.node_id 重绑、装配快照 xray 引用重绑、best-effort 对账均未实现；无实例/账号且 advanced_mode=false 时的 `IMPORT→DISABLE` 双确认词也未实现（`ImportV2` 只校验 `IMPORT`）。
+- **根因：** Build7 Step2 的实现被简化为最小行重建；`ExportService` 没有注入检测/同步/装配重绑所需的回调，前端 `SettingsView.vue:503` 也只发送 `IMPORT`。
+- **影响范围：** 导入 v2 后独立账号推送目标 `node_id=NULL`，`pushTargetsFor` 内连接 nodes 后查不到目标，独立账号实际不可推送；旧 Xray 侧账号残留；节点显示名映射未恢复；装配快照悬空引用未重绑；带实例/账号关闭态导入不会自动开高级；v2 往返不闭环。Build7 Step2 验收不通过。
+- **修复方案（待确认）：** 按 Build7 Step2 item4 补齐导入任务全流程；为 `ExportService` 注入 ImportPostProcessor 回调（检测/命名映射/重绑/对账）或由 server 装配侧注入函数字段；前端 v2 导入按 `task_id` 轮询并展示完成提示，双确认词分支补 `DISABLE` 步骤。
+- **状态：** ☐ 待修复
+
+### R15-06 OFF 清空任务登记未与状态翻转同事务，并发关闭会创建两个任务
+
+- **现象：** `backend/internal/xray/offclear.go:50` 在校验确认词后、开启 DB 事务前就调用 `registry.Register`；`offClear` 事务内才复查 advanced_mode。两次并发 OFF 提交若都读到 `advanced_mode=true`，会注册两个 `off_clear` 任务，其中第二个事务读到 off 后空跑并以 `succeeded` 结束。
+- **根因：** Build7 Step2 明确要求“状态翻转判定与任务登记在同一 `BEGIN IMMEDIATE` 事务内完成，并发第二次提交不建第二个任务”；代码未按该口径实现。
+- **影响范围：** 任务列表出现重复/虚假成功任务，前端轮询两个任务后状态混乱；并发关闭语义不符合文档。
+- **修复方案（待确认）：** 先开启 `TxImmediate`，在事务内先查询并翻转 advanced_mode，再调用可注入的 `Registry.RegisterInTx` 式登记接口（或登记动作与 DB 行同一事务后置；用户已接受幽灵任务边界），提交后启动 goroutine；补并发两次 OFF 仅产生一个任务的单测。
+- **状态：** ☐ 待修复
+
+### R15-07 Build7 Step3/Step4 前端页面主体未按 Design2-UI §8/§4 实现
+
+- **现象：** `frontend/src/views/admin/XrayInstancesView.vue` 仅为 314 行的最小表格：无测试连接、无编辑/启停、无采集状态与连续失败告警、无 api_tag 展示、检测无四项全 0 提示、无 added_nodes 命名区、无对账四分区明细/勾选/行内 push-one、无 ext 创建的目标多选/配额/一次性凭据展示/编辑/删除确认/重试 loading；`GroupsView.vue` 仍是 Build4 最小 CRUD（133 行，无节点分配/排序/候选集引导/默认配额编辑/节点数）；`UsersView.vue` 无高级列（用量/同步状态/超限）与配额覆盖/重置操作；`SettingsView.vue` 高级区为简化版，导入导出 v2 分支未适配（无 task_id 轮询、无双 DISABLE 确认、无 v2 文案与完成提示）。
+- **根因：** Build7 Step3/Step4 标记为 ✅，但实际仅新增了 API 封装与页面骨架，未完成文档列出的交互。
+- **影响范围：** 高级模式管理面在 UI 上不可完整使用；Build7 里程碑“Xray 实例页/独立账号 Tab/用户组高级管理/用户高级列/导入导出 v2”未达成。
+- **修复方案（待确认）：** 按 Build7 Step3/Step4 逐项重做三个页面并接入已有 API；补 `frontend/tests/xray-instances-view.spec.ts`、`groups-view.spec.ts`、`users-view.spec.ts`、`settings-view.spec.ts`。
+- **状态：** ☐ 待修复
+
+### R15-08 Build6/Build7 要求的专项测试与性能基准大面积缺失
+
+- **现象：** 后端仅 `internal/xray/{account,client,errors,instance,sync,fake}_test.go`，没有 `credentials_test.go`、`stats_test.go`、`quota_test.go`、`ext_test.go`、`reconcile_test.go`、`offclear_test.go`、v2 导入异步/保护/往返测试；`TestRenderUserSubscription10kRules` 不存在（执行 `go test ./internal/download -run TestRenderUserSubscription10kRules -v` 输出 `no tests to run`）；前端测试仅 15 个文件 45 例，无 Build7 Step3/4/5 要求的 Xray 实例页/独立账号、GroupsView、UsersView 高级列、SettingsView 导入 v2 等测试。
+- **根因：** 构建文档中“单测/验收标准”未被执行；Build6/Build7 各 Step 仍标记 ✅。
+- **影响范围：** R15-01~R15-07 均因此未被测试发现；后续改动无回归保护。
+- **修复方案（待确认）：** 按 Build6 Step1~6、Build7 Step1~5 的“单测”清单补齐缺失测试（尤其 HTTP 异步任务、ext CRUD/对账四分区、OFF 清空并发、v2 往返、动态渲染），并新增 `TestRenderUserSubscription10kRules`（1 万规则 <500ms 断言）。
+- **状态：** ☐ 待修复
+
+### R15-09 同步/候选集回调同步执行且普通 gRPC 调用未施加 30s deadline
+
+- **现象：** `server.go` 中 `groupSvc.SetOnNodesChanged`、`xraySvc.SetOnNodeVisibilityChanged`、用户激活/禁用/换组/删除等回调直接在当前 HTTP 请求内执行 `syncSvc.ReconcileUser` / `RemoveUserFromTargets`，未按 Build6 Step3 要求 `go func` 异步；`sync.go` 的 AddUser/RemoveUser 直接使用请求 ctx，没有 `context.WithTimeout(ctx, xray.RPCTimeout)`（`client.go` 仅定义常量，测试只断言常量存在）。
+- **根因：** 将“事务提交后回调”实现为同步调用，且未在调用点统一施加 30s 超时。
+- **影响范围：** 用户激活、组节点变更、节点检测等管理操作可能被 Xray 网络阻塞到 HTTP 超时/断连；多目标时串行累积耗时；与“不阻塞主流程、普通 RPC 30s 超时”的执行约束不符。
+- **修复方案（待确认）：** 所有副作用回调统一改为 `context.WithoutCancel` + goroutine（或显式后台任务），所有业务 gRPC 调用在进入 API 前统一包 30s deadline；补回调异步与超时单测。
+- **状态：** ☐ 待修复
+
+### R15-10 对账执行与独立账号失败路径未落实“超限跳过”与状态机回写
+
+- **现象：** `reconcile.go:175` 的 `PushOne` 对面板用户直接 `pushUserTarget`，不查 `status=active`/`quota_exceeded`，也不像 `PushUser` 一样对超限写 last_error；异步 `RepairPushAsync` 只把失败计数加一，不区分“超限跳过”；ext 的 `removeOne` 失败不写 `xray_ext_users.failed`，`UpdateExt` 删除目标失败后记录仍为 pending，`RetryExt` 只重试 failed 而看不到这些失败；`CheckExtQuota` 忽略每个目标的 RemoveUser 错误后仍置 `quota_exceeded=1`。
+- **根因：** Build7 Step1 的“补推时超限面板用户与超限独立账号跳过并记入结果”“失败并入状态机可重试”未实现完整。
+- **影响范围：** 管理员在对账/重试时会绕过超限保护重新推送超限账号；ext 移除失败不可观测、不可重试；对账计数口径与 UI 文案不符。
+- **修复方案（待确认）：** `PushOne`/异步补推统一走带 active/quota_exceeded 检查的推送入口并返回 `skipped` 计数；ext `removeOne`/`CheckExtQuota` 失败时写 `failed+last_error`，`RetryExt` 按期望集区分 Add/Remove。
+- **状态：** ☐ 待修复
+
+### R15-11 SR/generic 无凭据注释、OFF 优先级与用户预览渲染不符合 Build6 Step4
+
+- **现象：** `server/render.go` 的 `replacePlaceholder` 对 sr-subs/generic-subs 先 `removePlaceholderLine`，无占位后直接 base64，导致无凭据/advanced off 时注释 `# 节点未开通，请联系管理员` / `# Xray 高级模式未启用` 实际不会出现在产物中；无凭据时 `comment` 会覆盖 off 注释（OFF 优先级要求相反）；`download.PreviewForUser` 对所有用户只返回当前版本原文，普通用户预览未调用 `RenderUserSubscription`。
+- **根因：** 占位替换分支混淆了“无凭据→注释替换”与“有凭据但空目标集→整行移除”两种语义；预览路径未接入动态渲染。
+- **影响范围：** 用户拿到的 SR/generic 产物在未开通/关闭高级时缺少设计要求的说明注释；普通用户预览看到 `{{xray_nodes}}` 明文模板；Build6 Step4 验收不通过。
+- **修复方案（待确认）：** 将 `hasCreds`/`advanced_mode`/`len(targets)` 三态分支拆开：off 优先输出 off 注释，无凭据输出未开通注释，有凭据空目标才整行移除；`PreviewForUser` 增加 admin 原文/普通用户动态渲染分支并补测试。
+- **状态：** ☐ 待修复
+
+### R15-12 组详情候选节点契约缺少 `in_partial_blueprint` 标注
+
+- **现象：** `backend/internal/server/group.go:77` 返回 `candidate_nodes` 为 `[]string`；`Design2-UI.md:530` 与 Build6 Step2 要求候选集并集“含 `in_partial_blueprint` 标注供 UI 提示”。前端 `api/group.ts` 的 `GroupDetail.in_partial_blueprint` 字段无法获得数据，GroupsView 也未消费。
+- **根因：** 候选集实现只计算并集，未统计每个候选是否仅被部分蓝图包含。
+- **影响范围：** 前端无法显示“仅部分模板候选”橙色提示，候选集引导信息缺失；前后端契约不一致。
+- **修复方案（已确认 2026-08-21）：** 候选集接口改为对象数组 `[{name, in_partial_blueprint}]`；计算口径见「R15 决策与修复方法」R15-12；同步更新前端类型与 GroupsView 橙色提示。
+- **状态：** ☐ 待修复（方案已确认 2026-08-21）
+
+### R15-13 Build7 Step6 文档归档、覆盖矩阵与 README 高级模式部署说明未完成
+
+- **现象：** Build7 TODOLIST Step6 仍为 ◧；`Build4.md`~`Build7.md` 未移入 `docs/AchievedDocuments/`，`AGENTS.md:183-195` 仍将四份 Build 标为“活跃（未验收）”；README 无 Xray 高级模式前置条件（gRPC API、policy.stats、IP 白名单、建议 1~5 台实例、OFF 后手动清理提示）；Design2 全量覆盖矩阵未核对输出；`frontend/src/views/admin/PlaceholderView.vue` 等 Build 期占位文件仍残留。
+- **根因：** Step6 仅执行了部分自动验证，收口与归档动作未执行。
+- **影响范围：** 交付状态与文档索引不一致，新会话按 AGENTS 文档清单会误判 Build4~7 未验收；部署者缺少高级模式必要前置信息。
+- **修复方案（已确认 2026-08-21）：** 归档 Build4~7、更新 AGENTS/README 状态由用户决定时机；在用户命令前不执行。完成 R15-01~R15-12、R15-14 修复与覆盖矩阵核对后，再由用户决定归档与状态更新。
+- **状态：** ◧ 进行中（修复前置项未完成；归档时机由用户决定）
+
+### R15-14 新增代码中的忽略 error、死代码与停用清理遗漏
+
+- **现象：** `sync.go:256-262` DiffPush 忽略 Remove/Push 错误与状态查询错误；`sync.go:596-603`、`stats.go:87-89`、`traffic.go:24-32`、`ext.go:284/287/293/336/368/436/465/590/755`、`config/export.go:146-149` 等多处忽略 DB/网络返回错误；`export.go` 的 `exportInstances`/`exportAccounts` 出错时被 `_` 丢弃仍继续导出；`download.go` 的 `userUsage` 中 `total = int64(...)` 重复一行；`FormatVersionV1`、`InstanceService.StoreDB`、`approval.Server.SetOnRejected` 空实现等为死代码/空壳；`server.New:146` 调用 `cron.StartXrayCollect` 但忽略返回的 stop 函数，优雅退出时 goroutine/ticker 不停止；Build6 Step3 提到的 `AfterAdvancedOff` 补偿辅助在代码库中不存在。
+- **根因：** 新模块未严格执行 AGENTS「所有 error 必须处理」与 Build6 执行约束。
+- **影响范围：** 关键失败可能被静默吞掉（尤其导出 v2 数据不完整仍生成文件、流量展示读库失败返回 0）；存在资源泄漏与误导性死代码；`AfterAdvancedOff` 缺失使 Build7 Step2 的“复用”说明落空（当前 offclear 自行实现了等价清理）。
+- **修复方案（已确认 2026-08-21）：** `AfterAdvancedOff` 按 Build6 Step3/Build7 Step2 原意补实现并接线（详见「R15 决策与修复方法」）；其余逐项显式处理 error、删除死代码与重复行、保存并调用 cron stop、修正 `protocolFromType`。
+- **状态：** ☐ 待修复（方案已确认 2026-08-21）
+
+
+
+
+### R15 决策与修复方法（用户已确认 2026-08-21；先记录、暂不修复）
+
+> 本节是对 R15-01~R15-14 各条目中「修复方案（待确认）」的最终确认与细化；后续修复以本节为准，各条目不再单独重复修订方案正文。
+
+**全局决策：**
+1. **R15-13 归档时机由用户决定**：在用户明确下令前，不归档 Build4~7、不修改 AGENTS.md 文档清单状态、不改 README 部署状态。
+2. **AfterAdvancedOff 归属**：补实现该辅助函数并按 Build6 Step3 / Build7 Step2 原意接线到 OFF 清空提交后清理，不采用“修订文档取消该函数”的方案。
+3. **Build 文档勾选状态**：R15 修复开始时，将 Build6/Build7 中受影响的 Step 回退为 ◧；修复完成并执行该 Step 原验收命令通过后，才恢复 ✅。Build7 Step6 保持 ◧ 直至全量复验与用户决定归档。
+4. **其余问题按核查推荐执行**：R15-12 采用候选节点对象数组 `[{name, in_partial_blueprint}]`；R15-01/02/03/04/05/06/07/08/09/10/11/14 按下方方法修复。
+
+**分项修复方法研究结论：**
+
+- **R15-01（异步任务 Context）**：在 `InstanceService.DeleteAsync`、`SyncService.StartInit`、`RepairPushAsync`、`CleanOrphansAsync`、`RepairCredentialsAsync`、`OffClearService.SubmitAdvancedMode`、`ExportService.ImportV2` 七处启动 goroutine 前增加 `bg := context.WithoutCancel(ctx)`（Go 1.26 原生支持；保留 ctx 值、解除请求生命周期绑定），goroutine 内全部改用 `bg`。不得把这些任务改回同步执行。测试：新增 `internal/server/xray_async_test.go`，使用完整 `migrations.FS` 构造带认证的测试服务，经 HTTP 提交删除实例/初始化/OFF 清空后轮询 `/api/admin/tasks/:id` 必须达到 `succeeded`（可完成场景），并保留 `context canceled` 反例注释；各业务包单测改为先 cancel ctx 再调用异步方法，断言任务仍成功。
+- **R15-02（节点端口）**：`xray.Target` 增加 `Port int`（json:`port`）；`sync.go targetsDB` 的 SELECT 增加 `n.port` 并扫描；`server/render.go` 两处 `portOf(t.APIAddr)` 改为 `t.Port`（`hostOf(t.APIAddr)` 维持 host 口径）。禁止保留“Port==0 时回退 API 端口”的兜底，避免再次静默产出错误端口。测试：新增 `internal/server/render_test.go`，构造 `APIAddr="127.0.0.1:10085"`、`Port=443` 的 Target，断言 Clash/SR 产物端口为 443；更新 `sync_test.go` Target 构造。
+- **R15-03（protocol_json 提取）**：在 `detect.go buildProtocolJSON` 中先对 `proxyTM.GetInstance()` 做类型分支：`*vlessinbound.Config` 取首个 client 的 `Account` TypedMessage，解析为 `*vless.Account` 后写 `out["flow"]`；`*shadowsocks.ServerConfig` 取首个 user 的 Account，解析为 `*shadowsocks.Account` 后经新的 `cipherNameOf(CipherType)`（与 `account.go cipherTypeOf` 反查表共用一套常量）写 `out["cipher"]`；然后才执行 `mergeProtoMap` 与 `delete(out, "users"/"clients")`。测试：新增 `internal/xray/detect_test.go`，用 fake inbound 直接断言 flow/cipher 落库、私钥/用户列表不落库。
+- **R15-04（Clash ss 类型）**：在 `assembly/render_clash.go` 增加 `clashProtocolName(protocol string) string`（`shadowsocks→ss`，`ss/vless/vmess/trojan` 原样），`dynamicClashProxy` 使用映射后的值写 `type`；`clash_plan_test.go` 增加动态 ss 节点 YAML 解析断言。
+- **R15-05（v2 导入全流程）**：`config/export.go` 保持不 import xray/assembly/server，由 `server.New` 注入三组函数字段：`CleanupXrayTargets(ctx, []ImportCleanupTarget)`（封装 `xray.Dial`+`RemoveUser`）、`DetectImportedInstances(ctx, payload)`（封装 `InstanceService.DetectNodes`，enabled=0 跳过并记录提示）、`PostImportRebindAndReconcile(ctx)`（封装装配快照重绑与对账，失败不阻断 succeeded、写入 hints）。`importV2` 事务内在删除旧实例/账号前自行收集旧 `xray_users`/`xray_ext_users` 快照；提交后依次执行清理、检测、display_name/ext node_id SQL 回填、快照重绑、对账，终态 result 返回 `{imported, hints, skipped_instances, reconcile_errors}`。slug 冲突/重复在事务内先校验，失败文案按 400 口径写入 task.error。双确认词：`ImportV2` 增加可选 `disableConfirmWord`；当 payload 无 instances/accounts 且 advanced_mode=false 时，必须 `confirm_word=="IMPORT"` 且 `disable_confirm_word=="DISABLE"`，否则任务 failed；前端 `SettingsView.doImport` 改为两步弹窗（先 IMPORT、再 DISABLE）后一次提交两个字段，后端按 payload 分支决定是否强制第二个词。前端 v2 响应含 `task_id` 时走 `pollTask(getAdminTask)`，按终态展示 hints/错误；v1 无 task_id 保持现有同步完成提示。
+- **R15-06（OFF 并发）**：`SubmitAdvancedMode` 改为：先普通读取当前值；on=true 同步置位；on=false 且当前 off 幂等返回；on=false 且当前 on 时，在同一个 `store.TxImmediate` 内用 `cfg.GetTx` 再次读取，仅当仍为 true 时执行 `UPDATE advanced_mode='false'` 并调用 `registry.Register(KindOffClear)` 得到 taskID；提交后启动 goroutine 执行 `runOffClear(bg)`。`runOffClear` 不再自行翻转/复查 advanced_mode（避免空跑假成功），只收集快照、清空数据、提交后 best-effort RemoveUser；同时保留事务回滚残留幽灵任务的已确认边界。并发测试：新 `internal/xray/offclear_test.go` 用 barrier 同时发起多次 OFF，断言仅一个非空 taskID、仅一个注册任务且终态 succeeded、清空只执行一次。
+- **R15-07（前端页面）**：按 Build7 Step3/Step4 原文逐项补齐 `XrayInstancesView.vue`（实例编辑/启停/测试连接/采集状态/检测回执与命名/对账 drawer 四分区与行内操作/ext 双轨表单/推送目标多选/一次性凭据展示）、`GroupsView.vue`（候选集引导/节点分配/排序/默认配额）、`UsersView.vue`（高级列/配额覆盖/重置/重试）与 `SettingsView.vue`（v2 导入两步确认与轮询）；并删除 `PlaceholderView.vue` 旧引用（若确无其他使用）。前端单测文件按 R15-08 清单补齐。
+- **R15-08（测试补齐清单）**：后端新增 `internal/xray/credentials_test.go`、`detect_test.go`、`stats_test.go`、`quota_test.go`、`ext_test.go`、`reconcile_test.go`、`offclear_test.go`，扩展 `config/export_test.go`（v2 异步/保护/往返/双确认）与 `download_test.go`（usage 头/文件名/no-store）；新增 `internal/server/render_test.go` 与 `internal/server/xray_async_test.go`；新增 `TestRenderUserSubscription10kRules`（1 万规则、20 用户规模，断言 <500ms）。前端新增 `xray-instances-view.spec.ts`、`groups-view.spec.ts`、`users-view.spec.ts`、`settings-view.spec.ts`，扩展 `home-view.spec.ts` 与新增 `profile-view.spec.ts`。
+- **R15-09（异步与超时）**：`xray.Client` 的每个 gRPC 方法统一加“无 deadline 则包 `RPCTimeout`”的保护（探测类仍由调用方传 `DialTimeout`）；`server.New` 中所有 Xray 副作用回调（组节点变更、节点可见性变化、用户激活/禁用/换组/删除、审批通过/拒绝等）统一改为 `context.WithoutCancel` + goroutine，goroutine 内按用户逐个执行并 log warn；测试用 fake API 在 AddUser 内断言 `ctx.Deadline()` 存在，并断言回调不阻塞请求返回。
+- **R15-10（对账/独立账号状态机）**：新增迁移 1011 为 `xray_ext_users`（可选同步给 `xray_users`）增加 `action TEXT NOT NULL DEFAULT 'add' CHECK(action IN ('add','remove'))`；`removeOne` 失败且账号仍存在时写 `sync_status='failed'`、`action='remove'`、`last_error`；`RetryExt` 按 `action` 决定 RemoveUser 或 AddUser（无 action 列迁移前按当前目标集兼容判定）。`PushOne`/`RepairPushAsync` 统一调用带 `status=active` 与 `quota_exceeded` 检查的 `pushUserTargetChecked`，超限记 `skipped` 与 `last_error`；ext 同口径。`CheckExtQuota` 逐目标记录移除失败但不阻断置 `quota_exceeded=1`，Reset 后重推。
+- **R15-11（SR/generic 注释与预览）**：`server/render.go` 将注释判定改为严格优先级：`!advancedOn → # Xray 高级模式未启用`；`advancedOn && !hasCreds → # 节点未开通，请联系管理员`；`advancedOn && hasCreds && len(targets)==0 → SR/generic 整行移除`。`replacePlaceholder` 拆分 `replacePlaceholderWithComment` 与 `removePlaceholderLine`，禁止注释分支先删行。`download.Service.PreviewForUser` 增加 `isAdmin bool` 入参（handler 从 `auth.CtxUserRole` 取）：管理员返回当前版本原文；普通用户有自定义订阅返回自定义原文，否则对订阅走已注入的 `renderUser`；测试分别断言两分支。
+- **R15-12（候选集契约）**：`group.Service` 新增 `CandidateNode{Name string; InPartialBlueprint bool}`，`CandidateSet(ctx)` 返回 `[]CandidateNode`；新增 `CandidateNames(ctx)` 供 SetNodes/RecomputeCandidateSet 内部使用。`in_partial_blueprint` 计算口径：分母=当前激活且 `xray_candidates` 非空的 clash-yaml/sr-subs/generic-subs 蓝图数；分子=包含该稳定名的蓝图数；`0<分子<分母` 时为 true，分母=0 时全部 false。`server/group.go` GET 详情返回对象数组，前端 `api/group.ts` 与 `GroupsView.vue` 同步类型和橙色提示。
+- **R15-13（归档与文档状态）**：不执行归档/AGENTS/README 更新，等待用户命令；Issue2 与 Build6/Build7 变更记录中仅记录该决策与 R15 关联。
+- **R15-14（error/死代码/AfterAdvancedOff）**：`SyncService` 补 `AfterAdvancedOff(ctx, targets []OffClearTarget)`——直接按快照 `xray.Dial` + 30s `RemoveUser` + warn，不依赖已删除的 xray_instances；`OffClearService` 经构造注入 `afterOff func`（server.New 接线到 `syncSvc.AfterAdvancedOff`），替换 offclear.go 提交后自写清理循环。`DiffPush` 当前无调用方：若继续保留则改为返回/记录 Remove/Push 错误并在 server 接线精确 diff；否则删除并同步修订 Build6-2 表述。`trafficPayload` 改为返回 `(gin.H, error)`，`profile/home` 对 DB 错误返回 500；`user.AdminService.List` 高级字段查询错误返回 error；`config.Export` 不再忽略 `exportInstances/exportAccounts` 错误；`recordCollectError`/`markExt*` 等写库失败至少 log warn；删除 `userUsage` 重复行、未用 `FormatVersionV1`、`StoreDB`、`SetOnRejected` 空实现；`Server` 保存 `cron.StartXrayCollect` 返回的 stop 并在 `Run` 退出时调用；修正 `protocolFromType`（未知协议应返回 `xray.proxy.<协议>.inbound.Config` 中的协议名而非 `inbound`）。
+
 ## 附、后续修复顺序（交接给下一轮）
 
-> 本附件用于下一个新对话快速接续。**最新优先级（用户决策 2026-08-20）：先执行下方「0. Build4/5 修复收口」，全部验收通过后才允许启动 Build6。** 原 R12 交接记录（1~5）已全部完成，仅留档备查。
+> 本附件用于下一个新对话快速接续。**最新优先级（用户决策 2026-08-21）：先执行下方「0-R15. Build6/Build7 修复」；Build4/5 修复收口（旧 0~5 项）已全部完成，仅留档备查。**
+
+
+### 0-R15. Build6/Build7 修复（用户已确认 2026-08-21；先记录，暂不修复）
+
+- **触发条件：** 用户下令开始修复后执行；当前只做记录与方案准备，不改代码。
+- **决策：** ① R15-13 归档 Build4~7 与 AGENTS/README 状态更新由用户决定时机；② 补实现 `AfterAdvancedOff` 并接线；③ 修复开始时将 Build6/Build7 受影响 Step 回退 ◧，复验通过后恢复 ✅；④ R15-12 采用 `[{name, in_partial_blueprint}]`；⑤ 其余按「R15 决策与修复方法」执行。
+- **执行顺序建议：** R15-01 → R15-02/03/04 → R15-05/06 → R15-07/08 → R15-09/10/11/12/14 → 全量复验 → 等待用户决定 R15-13 归档。
+- **每项修复完成后必须执行对应 Build Step 的原始验收命令；全部通过后再更新 Issue2 状态与 Build 文档勾选。**
+
 
 ### 0. Build4/5 修复收口（用户决策 2026-08-20，Build6 前置条件）
 
@@ -574,3 +725,5 @@ cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold
 | v2.2 | 2026-08-20 | Build4/5 修复收口首轮执行：完成 R14-01/02/03/04/05/08/09/10/11/12/13/14/18/19/20/21/22/23/24 与 N1/N2/N4；R14-15/16/17/25 部分落地（见各状态）；R14-06/07 按既有决策随 Build6 实施；N3 前端单测仍待补。验证：后端 `go build/vet/test ./...` 全绿，前端 `npm run build` + `npm test`（36 passed）。 |
 | v2.3 | 2026-08-20 | 收口 R14-15/16/17/25：装配页 RulesStep 桌面拖拽、装配页 spec（页签回退/步骤跳过/表单校验/preview/失效剔除）、重编辑 vN 提示；新增 internal/home 下沉首页全部 SQL；管理页 PageHeader 全量复用；config 关键路径（configured/本地登录/注册/OIDC 审批/advanced_mode）显式报错；并记录 `config/admin.go` 面板配置读取与 `oidc.IsConfigured()` 暂维持 fail-safe/fail-closed。验证：后端 `go build/vet/test ./...` 全绿，前端 `npm run build` + `npm test`（42 passed）。 |
 | v2.4 | 2026-08-20 | 补齐 N3 前端单测并同步 Build4/5 文档：新增 NodesView/ProxyGroupsView 前端单测（节点动态表单/敏感字段留空、代理组环检测提示、移动端排序降级渲染）；Build4 Step4~7、Build5 Step2~7 恢复为 ✅ 验收通过。验证：后端 `go build/vet/test ./...`、前端 `npm run build` + `npm test`（45 passed）。 |
+| v2.5 | 2026-08-21 | Build6/Build7 交付核查：追加 R15-01~R15-14（异步任务请求 Context 必失败、动态节点端口/protocol_json/Clash ss 映射缺陷、v2 导入不完整、OFF 并发任务、Build7 前端未完整落地、专项测试缺失、同步回调/超时、对账超限口径、SR/generic 注释与预览、候选集契约、Step6 归档、error/死代码）。验证事实：后端 `go build/vet/test ./...`、`go test -race ./internal/xray/... ./internal/download/... ./internal/group/...`、前端 `npm run build`+45 单测、Docker 镜像构建与 `.smoke-test.sh` 均通过；HTTP 实测实例删除任务复现 `context canceled`；`TestRenderUserSubscription10kRules` 为 `no tests to run`；动态渲染/检测 protocol_json 缺陷经临时单测复现。 |
+| v2.6 | 2026-08-21 | 用户确认 R15 决策：归档 Build4~7 与 AGENTS/README 状态更新由用户决定时机；`AfterAdvancedOff` 补实现并接线；R15 修复开始时 Build6/Build7 受影响 Step 回退 ◧、复验通过后恢复 ✅；其余按核查推荐方案。已新增「R15 决策与修复方法」与「0-R15 交接优先级」，暂不改代码。 |
