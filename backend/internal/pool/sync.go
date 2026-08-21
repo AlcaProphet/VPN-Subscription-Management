@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"vpn-sub/internal/store"
 )
 
 // 关键参数（Design2 §2.4）
@@ -211,7 +214,15 @@ func (s *Service) runSyncTask(poolID, taskID int64, urls []string) {
 		status = "partial"
 	}
 	finalErr := summarizePartial(results)
-	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	// 后台同步使用独立数据库连接，避免长事务占用 API 共用连接。
+	bgStore, err := store.Open(filepath.Dir(s.store.DBPath()), filepath.Base(s.store.DBPath()))
+	if err != nil {
+		s.log.Error("素材池同步打开后台数据库连接失败", "pool_id", poolID, "task_id", taskID, "err", err)
+		s.failTask(ctx, poolID, taskID, results, "打开后台数据库连接失败: "+err.Error())
+		return
+	}
+	defer bgStore.Close()
+	err = bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
 		var exists int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
 			return err
@@ -230,23 +241,34 @@ func (s *Service) runSyncTask(poolID, taskID int64, urls []string) {
 			return err
 		}
 		nextOrder++
+		const batchSize = 500
 		for i := range results {
 			r := &results[i]
 			if !r.OK {
 				continue
 			}
-			for _, e := range r.entries {
-				order := nextOrder
-				nextOrder++
-				res, err := tx.ExecContext(ctx,
-					`INSERT OR IGNORE INTO pool_entries (pool_id, rule_type, match_value, source, sort_order, source_url)
-					 VALUES (?, ?, ?, 'url', ?, ?)`,
-					poolID, e.RuleType, e.MatchValue, order, r.URL)
+			for start := 0; start < len(r.entries); start += batchSize {
+				end := start + batchSize
+				if end > len(r.entries) {
+					end = len(r.entries)
+				}
+				var sb strings.Builder
+				sb.WriteString(`INSERT OR IGNORE INTO pool_entries (pool_id, rule_type, match_value, source, sort_order, source_url) VALUES `)
+				args := make([]any, 0, (end-start)*5)
+				for j := start; j < end; j++ {
+					if j > start {
+						sb.WriteString(",")
+					}
+					sb.WriteString(`(?,?,?,'url',?,?)`)
+					args = append(args, poolID, r.entries[j].RuleType, r.entries[j].MatchValue, nextOrder, r.URL)
+					nextOrder++
+				}
+				res, err := tx.ExecContext(ctx, sb.String(), args...)
 				if err != nil {
 					return err
 				}
 				if n, _ := res.RowsAffected(); n > 0 {
-					r.Added++
+					r.Added += int(n)
 				}
 			}
 		}
@@ -257,13 +279,30 @@ func (s *Service) runSyncTask(poolID, taskID int64, urls []string) {
 				`CREATE TEMP TABLE `+keepTable+` (rule_type TEXT NOT NULL, match_value TEXT NOT NULL)`); err != nil {
 				return err
 			}
+			allEntries := make([]parsedEntry, 0)
 			for _, r := range results {
-				for _, e := range r.entries {
-					if _, err := tx.ExecContext(ctx,
-						`INSERT OR IGNORE INTO `+keepTable+` (rule_type, match_value) VALUES (?, ?)`,
-						e.RuleType, e.MatchValue); err != nil {
-						return err
+				if !r.OK {
+					continue
+				}
+				allEntries = append(allEntries, r.entries...)
+			}
+			for start := 0; start < len(allEntries); start += batchSize {
+				end := start + batchSize
+				if end > len(allEntries) {
+					end = len(allEntries)
+				}
+				var sb strings.Builder
+				sb.WriteString(`INSERT OR IGNORE INTO ` + keepTable + ` (rule_type, match_value) VALUES `)
+				args := make([]any, 0, (end-start)*2)
+				for j := start; j < end; j++ {
+					if j > start {
+						sb.WriteString(",")
 					}
+					sb.WriteString(`(?,?)`)
+					args = append(args, allEntries[j].RuleType, allEntries[j].MatchValue)
+				}
+				if _, err := tx.ExecContext(ctx, sb.String(), args...); err != nil {
+					return err
 				}
 			}
 			// 删除前按 source_url 统计将被删除的行数，用于 per-URL removed 精确回执

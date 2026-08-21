@@ -158,6 +158,31 @@ func TestPreviewClash(t *testing.T) {
 	}
 }
 
+func TestPreviewClashGroupNodeOrder(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertManualNode(t, st, "节点B", "vless", map[string]any{"uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+	insertGroup(t, st, "组A", "select", []string{"节点A", "节点B"}, nil, true, false)
+	res, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid,
+		NodeNames:       []string{"节点A", "节点B"},
+		GroupNames:      []string{"组A"},
+		GroupNodeOrders: map[string][]string{"组A": {"节点B", "节点A"}},
+		OverseasMembers: []string{"节点A", "节点B"},
+	})
+	if err != nil {
+		t.Fatalf("Clash 预览失败: %v", err)
+	}
+	content := string(res.Content)
+	groupSeg := content[strings.Index(content, "name: 组A"):]
+	idxB := strings.Index(groupSeg, "- 节点B")
+	idxA := strings.Index(groupSeg, "- 节点A")
+	if idxB < 0 || idxA < 0 || idxB > idxA {
+		t.Errorf("group_node_orders 应让节点B排在节点A之前:\n%s", content)
+	}
+}
+
 func TestPreviewSubsAndGeneric(t *testing.T) {
 	svc, st, _ := newTestService(t)
 	sp := insertPlatform(t, st, "subs")
