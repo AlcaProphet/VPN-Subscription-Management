@@ -2,7 +2,6 @@ package xray
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -104,6 +103,3 @@ func upsertTraffic(ctx context.Context, st *store.Store, userID int64, ym string
 func currentYM() string {
 	return time.Now().UTC().Format("2006-01")
 }
-
-// StoreDB 暴露给同包测试/外部统计使用。
-func (s *InstanceService) StoreDB() *sql.DB { return s.store.DB() }

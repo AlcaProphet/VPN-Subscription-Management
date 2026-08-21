@@ -12,6 +12,9 @@ import (
 
 	proxyman "github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/proxy/shadowsocks"
+	"github.com/xtls/xray-core/proxy/vless"
+	vlessinbound "github.com/xtls/xray-core/proxy/vless/inbound"
 	"github.com/xtls/xray-core/transport/internet"
 	"github.com/xtls/xray-core/transport/internet/reality"
 
@@ -234,8 +237,13 @@ func protocolFromType(typeURL string) string {
 		return ""
 	}
 	last := parts[len(parts)-1]
-	if last == "Config" && len(parts) >= 2 {
-		return parts[len(parts)-2]
+	if last == "Config" {
+		if len(parts) >= 3 && parts[len(parts)-2] == "inbound" {
+			return parts[len(parts)-3]
+		}
+		if len(parts) >= 2 {
+			return parts[len(parts)-2]
+		}
 	}
 	return last
 }
@@ -261,6 +269,7 @@ func buildProtocolJSON(proxyTM, receiverTM *serial.TypedMessage) map[string]any 
 	out := map[string]any{}
 	if proxyTM != nil {
 		if inst, err := proxyTM.GetInstance(); err == nil {
+			extractInboundProtocolParams(out, inst)
 			mergeProtoMap(out, inst)
 		}
 	}
@@ -284,6 +293,42 @@ func buildProtocolJSON(proxyTM, receiverTM *serial.TypedMessage) map[string]any 
 	delete(out, "default")
 	delete(out, "detour")
 	return out
+}
+
+// extractInboundProtocolParams 在删除 users/clients 前提取渲染/推送必需的入站协议参数。
+func extractInboundProtocolParams(out map[string]any, inst any) {
+	switch cfg := inst.(type) {
+	case *vlessinbound.Config:
+		for _, u := range cfg.GetClients() {
+			if u.GetAccount() == nil {
+				continue
+			}
+			a, err := u.GetAccount().GetInstance()
+			if err != nil {
+				continue
+			}
+			if va, ok := a.(*vless.Account); ok && va.GetFlow() != "" {
+				out["flow"] = va.GetFlow()
+				return
+			}
+		}
+	case *shadowsocks.ServerConfig:
+		for _, u := range cfg.GetUsers() {
+			if u.GetAccount() == nil {
+				continue
+			}
+			a, err := u.GetAccount().GetInstance()
+			if err != nil {
+				continue
+			}
+			if sa, ok := a.(*shadowsocks.Account); ok {
+				if name := cipherNameOf(sa.GetCipherType()); name != "" {
+					out["cipher"] = name
+					return
+				}
+			}
+		}
+	}
 }
 
 func mergeProtoMap(dst map[string]any, msg any) {

@@ -271,7 +271,7 @@ func clashGroupReachable(g ClashPlanGroup, renderNames map[string]string, reacha
 func dynamicClashProxy(d DynamicNode) *OrderedMap {
 	p := NewOrderedMap()
 	p.Set("name", d.RenderName)
-	p.Set("type", d.Protocol)
+	p.Set("type", clashProtocolName(d.Protocol))
 	p.Set("server", d.Host)
 	p.Set("port", d.Port)
 	keys := make([]string, 0, len(d.ProtocolJSON))
@@ -286,4 +286,12 @@ func dynamicClashProxy(d DynamicNode) *OrderedMap {
 		p.Set(k, d.ProtocolJSON[k])
 	}
 	return p
+}
+
+// clashProtocolName 将检测/渲染使用的协议名映射为 Clash/Mihomo 配置中的类型名。
+func clashProtocolName(protocol string) string {
+	if protocol == "shadowsocks" {
+		return "ss"
+	}
+	return protocol
 }

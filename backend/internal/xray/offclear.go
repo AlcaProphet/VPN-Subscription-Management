@@ -14,12 +14,21 @@ import (
 // ConfirmWordDisable OFF 清空确认词。
 const ConfirmWordDisable = "DISABLE"
 
+// OffClearTarget 是 OFF 清空后需要从 Xray 侧移除的账号快照。
+type OffClearTarget struct {
+	Email   string
+	Tag     string
+	APIAddr string
+}
+
 // OffClearService 处理高级模式关闭/OFF 清空。
 type OffClearService struct {
 	store    *store.Store
 	cfg      *config.Service
 	registry *tasks.Registry
 	log      *slog.Logger
+	// afterOff 提交后 best-effort 清理；由 server.New 接入 SyncService.AfterAdvancedOff。
+	afterOff func(ctx context.Context, targets []OffClearTarget)
 }
 
 // NewOffClearService 构造 OFF 清空服务。
@@ -27,8 +36,14 @@ func NewOffClearService(st *store.Store, cfg *config.Service, reg *tasks.Registr
 	return &OffClearService{store: st, cfg: cfg, registry: reg, log: lg}
 }
 
+// SetAfterAdvancedOff 注入 OFF 清空提交后的补偿清理函数。
+func (s *OffClearService) SetAfterAdvancedOff(fn func(ctx context.Context, targets []OffClearTarget)) {
+	s.afterOff = fn
+}
+
 // SubmitAdvancedMode 提交高级模式开关。
 // on=true 同步置位，不推送；on=false 校验 DISABLE 并异步执行 OFF 清空，返回 task_id。
+// 状态翻转与任务登记在同一 BEGIN IMMEDIATE 事务内完成，防止并发重复创建任务。
 func (s *OffClearService) SubmitAdvancedMode(ctx context.Context, on bool, confirmWord string) (string, error) {
 	current := s.cfg.GetBool(ctx, config.KeyAdvancedMode, false)
 	if on {
@@ -47,26 +62,8 @@ func (s *OffClearService) SubmitAdvancedMode(ctx context.Context, on bool, confi
 	if confirmWord != ConfirmWordDisable {
 		return "", errors.New("确认词不正确")
 	}
-	taskID := s.registry.Register(tasks.KindOffClear)
-	go func() {
-		if err := s.offClear(ctx); err != nil {
-			s.registry.Fail(taskID, err.Error())
-			return
-		}
-		s.registry.Succeed(taskID, map[string]any{"cleared": true})
-	}()
-	return taskID, nil
-}
-
-func (s *OffClearService) offClear(ctx context.Context) error {
-	type target struct {
-		Email   string
-		Tag     string
-		APIAddr string
-	}
-	var targets []target
+	var taskID string
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		// 状态翻转判定在事务内再做一次，防止并发重复执行。
 		advanced, err := s.cfg.GetTx(ctx, tx, config.KeyAdvancedMode)
 		if err != nil {
 			return err
@@ -78,6 +75,30 @@ func (s *OffClearService) offClear(ctx context.Context) error {
 			`UPDATE system_config SET value = 'false', updated_at = CURRENT_TIMESTAMP WHERE key = ?`, config.KeyAdvancedMode); err != nil {
 			return err
 		}
+		taskID = s.registry.Register(tasks.KindOffClear)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if taskID == "" {
+		return "", nil
+	}
+	bg := context.WithoutCancel(ctx)
+	go func() {
+		if err := s.offClear(bg); err != nil {
+			s.registry.Fail(taskID, err.Error())
+			return
+		}
+		s.registry.Succeed(taskID, map[string]any{"cleared": true})
+	}()
+	return taskID, nil
+}
+
+func (s *OffClearService) offClear(ctx context.Context) error {
+	var targets []OffClearTarget
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		// 状态翻转已在 SubmitAdvancedMode 的同一事务内完成；这里只收集快照并清空数据。
 		// 收集面板用户推送记录
 		rows, err := tx.QueryContext(ctx,
 			`SELECT xu.email, xu.inbound_tag, i.api_addr
@@ -86,7 +107,7 @@ func (s *OffClearService) offClear(ctx context.Context) error {
 			return err
 		}
 		for rows.Next() {
-			var t target
+			var t OffClearTarget
 			if err := rows.Scan(&t.Email, &t.Tag, &t.APIAddr); err != nil {
 				_ = rows.Close()
 				return err
@@ -106,7 +127,7 @@ func (s *OffClearService) offClear(ctx context.Context) error {
 			return err
 		}
 		for rows.Next() {
-			var t target
+			var t OffClearTarget
 			if err := rows.Scan(&t.Email, &t.Tag, &t.APIAddr); err != nil {
 				_ = rows.Close()
 				return err
@@ -141,7 +162,12 @@ func (s *OffClearService) offClear(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// 提交后 best-effort 清理 Xray 侧账号
+	// 提交后 best-effort 清理 Xray 侧账号；优先复用 SyncService.AfterAdvancedOff。
+	if s.afterOff != nil {
+		s.afterOff(ctx, targets)
+		return nil
+	}
+	// 兜底：未注入时保持原直接清理逻辑。
 	for _, t := range targets {
 		if t.APIAddr == "" || t.Tag == "" || t.Email == "" {
 			continue

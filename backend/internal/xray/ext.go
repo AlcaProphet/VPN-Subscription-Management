@@ -348,18 +348,23 @@ func (s *ExtService) RetryExt(ctx context.Context, id int64) (map[string]any, er
 		return nil, ErrExtNotFound
 	}
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT instance_id, inbound_tag, node_id FROM xray_ext_users WHERE ext_account_id = ? AND sync_status = 'failed'`, id)
+		`SELECT instance_id, inbound_tag, node_id, action FROM xray_ext_users WHERE ext_account_id = ? AND sync_status = 'failed'`, id)
 	if err != nil {
 		return nil, err
 	}
-	var failed []ExtPushTarget
+	type failedTarget struct {
+		ExtPushTarget
+		Action string
+	}
+	var failed []failedTarget
 	for rows.Next() {
 		var t ExtPushTarget
-		if err := rows.Scan(&t.InstanceID, &t.InboundTag, &t.NodeID); err != nil {
+		var action string
+		if err := rows.Scan(&t.InstanceID, &t.InboundTag, &t.NodeID, &action); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
-		failed = append(failed, t)
+		failed = append(failed, failedTarget{ExtPushTarget: t, Action: action})
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -368,12 +373,20 @@ func (s *ExtService) RetryExt(ctx context.Context, id int64) (map[string]any, er
 	_ = s.store.DB().QueryRowContext(ctx, `SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, id).Scan(&exceeded)
 	added, addFailed := 0, 0
 	removed, removeFailed := 0, 0
-	for _, t := range failed {
+	for _, ft := range failed {
+		if ft.Action == "remove" {
+			if err := s.removeOne(ctx, id, ft.ExtPushTarget); err != nil {
+				removeFailed++
+			} else {
+				removed++
+			}
+			continue
+		}
 		if exceeded {
 			addFailed++
 			continue
 		}
-		if err := s.pushOne(ctx, id, t, false); err != nil {
+		if err := s.pushOne(ctx, id, ft.ExtPushTarget, false); err != nil {
 			addFailed++
 		} else {
 			added++
@@ -613,6 +626,44 @@ func (s *ExtService) CheckAllExtQuota(ctx context.Context) error {
 	return nil
 }
 
+// SyncAllExt 对全部独立账号执行一次全量推送（导入/初始化后使用；超限账号跳过并记录提示）。
+func (s *ExtService) SyncAllExt(ctx context.Context) []string {
+	rows, err := s.store.DB().QueryContext(ctx, `SELECT id FROM xray_ext_accounts ORDER BY id`)
+	if err != nil {
+		return []string{"读取独立账号列表失败: " + err.Error()}
+	}
+	defer rows.Close()
+	var hints []string
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			hints = append(hints, fmt.Sprintf("读取独立账号 ID 失败: %v", err))
+			continue
+		}
+		var exceeded int
+		if err := s.store.DB().QueryRowContext(ctx,
+			`SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, id).Scan(&exceeded); err != nil {
+			hints = append(hints, fmt.Sprintf("读取独立账号配额状态失败: %v", err))
+			continue
+		}
+		if exceeded == 1 {
+			hints = append(hints, fmt.Sprintf("独立账号 %d 已超限，跳过推送", id))
+			continue
+		}
+		targets, err := s.pushTargetsFor(ctx, id)
+		if err != nil {
+			hints = append(hints, fmt.Sprintf("读取独立账号 %d 推送目标失败: %v", id, err))
+			continue
+		}
+		for _, t := range targets {
+			if err := s.pushOne(ctx, id, t, false); err != nil {
+				hints = append(hints, fmt.Sprintf("独立账号 %d 推送 %d/%s 失败: %v", id, t.InstanceID, t.InboundTag, err))
+			}
+		}
+	}
+	return hints
+}
+
 // --- 内部辅助 ---
 
 var (
@@ -750,6 +801,7 @@ func (s *ExtService) removeOne(ctx context.Context, extID int64, t ExtPushTarget
 	}
 	err = client.RemoveUser(ctx, t.InboundTag, ExtEmail(extID))
 	if err != nil && !IsNotFound(err) {
+		s.markExtRemoveFailed(ctx, extID, t, err)
 		return err
 	}
 	_, _ = s.store.DB().ExecContext(ctx,
@@ -760,10 +812,10 @@ func (s *ExtService) removeOne(ctx context.Context, extID int64, t ExtPushTarget
 
 func (s *ExtService) markExtSynced(ctx context.Context, extID int64, t ExtPushTarget) {
 	_, err := s.store.DB().ExecContext(ctx,
-		`INSERT INTO xray_ext_users (ext_account_id, instance_id, inbound_tag, node_id, sync_status)
-		 VALUES (?,?,?,?,'synced')
+		`INSERT INTO xray_ext_users (ext_account_id, instance_id, inbound_tag, node_id, sync_status, action)
+		 VALUES (?,?,?,?,'synced','add')
 		 ON CONFLICT(ext_account_id, instance_id, inbound_tag) DO UPDATE SET
-		   node_id = excluded.node_id, sync_status = 'synced', last_error = '', updated_at = CURRENT_TIMESTAMP`,
+		   node_id = excluded.node_id, sync_status = 'synced', action = 'add', last_error = '', updated_at = CURRENT_TIMESTAMP`,
 		extID, t.InstanceID, t.InboundTag, t.NodeID)
 	if err != nil {
 		s.log.Warn("更新独立账号 synced 失败", "ext_id", extID, "tag", t.InboundTag, "err", err)
@@ -776,13 +828,30 @@ func (s *ExtService) markExtFailed(ctx context.Context, extID int64, t ExtPushTa
 		msg = msg[:200]
 	}
 	_, dbErr := s.store.DB().ExecContext(ctx,
-		`INSERT INTO xray_ext_users (ext_account_id, instance_id, inbound_tag, node_id, sync_status, last_error)
-		 VALUES (?,?,?,?,'failed',?)
+		`INSERT INTO xray_ext_users (ext_account_id, instance_id, inbound_tag, node_id, sync_status, action, last_error)
+		 VALUES (?,?,?,?,'failed','add',?)
 		 ON CONFLICT(ext_account_id, instance_id, inbound_tag) DO UPDATE SET
-		   node_id = excluded.node_id, sync_status = 'failed', last_error = excluded.last_error, updated_at = CURRENT_TIMESTAMP`,
+		   node_id = excluded.node_id, sync_status = 'failed', action = 'add', last_error = excluded.last_error, updated_at = CURRENT_TIMESTAMP`,
 		extID, t.InstanceID, t.InboundTag, t.NodeID, msg)
 	if dbErr != nil {
 		s.log.Warn("更新独立账号 failed 失败", "ext_id", extID, "tag", t.InboundTag, "err", dbErr)
+	}
+}
+
+// markExtRemoveFailed 记录“移除失败”的独立账号推送目标，供 RetryExt 按 action=remove 重试移除。
+func (s *ExtService) markExtRemoveFailed(ctx context.Context, extID int64, t ExtPushTarget, err error) {
+	msg := err.Error()
+	if len(msg) > 200 {
+		msg = msg[:200]
+	}
+	_, dbErr := s.store.DB().ExecContext(ctx,
+		`INSERT INTO xray_ext_users (ext_account_id, instance_id, inbound_tag, node_id, sync_status, action, last_error)
+		 VALUES (?,?,?,?,'failed','remove',?)
+		 ON CONFLICT(ext_account_id, instance_id, inbound_tag) DO UPDATE SET
+		   node_id = excluded.node_id, sync_status = 'failed', action = 'remove', last_error = excluded.last_error, updated_at = CURRENT_TIMESTAMP`,
+		extID, t.InstanceID, t.InboundTag, t.NodeID, msg)
+	if dbErr != nil {
+		s.log.Warn("更新独立账号移除失败状态失败", "ext_id", extID, "tag", t.InboundTag, "err", dbErr)
 	}
 }
 

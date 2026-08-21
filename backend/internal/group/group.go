@@ -32,6 +32,14 @@ type GroupNode struct {
 	Source      string  `json:"source"`
 }
 
+// CandidateNode 候选集节点项；InPartialBlueprint 表示该节点仅出现在部分已激活蓝图中。
+type CandidateNode struct {
+	NodeID             int64  `json:"node_id"`
+	Name               string `json:"name"`
+	InPartialBlueprint bool   `json:"in_partial_blueprint"`
+}
+
+
 // NodesChangedFunc 组节点分配变化后的回调（Step3 注入同步 diff）。
 type NodesChangedFunc func(ctx context.Context, groupID int64, userIDs []int64)
 
@@ -252,8 +260,8 @@ func (s *Service) SetNodes(ctx context.Context, id int64, nodeIDs []int64) error
 			return err
 		}
 		candidateMap := map[string]bool{}
-		for _, name := range candidates {
-			candidateMap[name] = true
+		for _, cand := range candidates {
+			candidateMap[cand.Name] = true
 		}
 		// 校验每个节点
 		for _, nid := range nodeIDs {
@@ -310,12 +318,25 @@ func (s *Service) SetNodes(ctx context.Context, id int64, nodeIDs []int64) error
 	return nil
 }
 
-// CandidateSet 返回当前所有已激活装配蓝图的 xray 候选节点并集（按稳定名）。
-func (s *Service) CandidateSet(ctx context.Context) ([]string, error) {
+// CandidateSet 返回当前所有已激活装配蓝图的 xray 候选节点并集（含 partial 标注）。
+func (s *Service) CandidateSet(ctx context.Context) ([]CandidateNode, error) {
 	return s.candidateSetTx(ctx, nil)
 }
 
-func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]string, error) {
+// CandidateNames 返回候选节点稳定名列表（供内部分配校验/重算使用）。
+func (s *Service) CandidateNames(ctx context.Context) ([]string, error) {
+	nodes, err := s.CandidateSet(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, n.Name)
+	}
+	return out, nil
+}
+
+func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]CandidateNode, error) {
 	query := func(q interface {
 		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	}) (*sql.Rows, error) {
@@ -339,7 +360,9 @@ func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]string, err
 	}
 	defer rows.Close()
 	set := map[string]bool{}
+	count := map[string]int{}
 	var order []string
+	blueprintsWithCandidates := 0
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
@@ -351,14 +374,47 @@ func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]string, err
 		if err := json.Unmarshal([]byte(raw), &sel); err != nil {
 			continue
 		}
+		if len(sel.XrayCandidates) == 0 {
+			continue
+		}
+		blueprintsWithCandidates++
 		for _, name := range sel.XrayCandidates {
 			if !set[name] {
 				set[name] = true
 				order = append(order, name)
 			}
+			count[name]++
 		}
 	}
-	return order, rows.Err()
+	out := make([]CandidateNode, 0, len(order))
+	for _, name := range order {
+		var nodeID int64
+		var nrows *sql.Rows
+		var qerr error
+		if tx != nil {
+			nrows, qerr = tx.QueryContext(ctx, `SELECT id FROM nodes WHERE name = ? AND source = 'xray'`, name)
+		} else {
+			nrows, qerr = s.store.DB().QueryContext(ctx, `SELECT id FROM nodes WHERE name = ? AND source = 'xray'`, name)
+		}
+		if qerr != nil {
+			return nil, qerr
+		}
+		if nrows.Next() {
+			if err := nrows.Scan(&nodeID); err != nil {
+				_ = nrows.Close()
+				return nil, err
+			}
+		}
+		if err := nrows.Close(); err != nil {
+			return nil, err
+		}
+		out = append(out, CandidateNode{
+			NodeID:             nodeID,
+			Name:               name,
+			InPartialBlueprint: blueprintsWithCandidates > 0 && count[name] < blueprintsWithCandidates,
+		})
+	}
+	return out, rows.Err()
 }
 
 // RecomputeCandidateSet 重算候选集并集并删除越界/不可用分配；返回受影响 active 用户 ID。
@@ -368,8 +424,8 @@ func (s *Service) RecomputeCandidateSet(ctx context.Context) ([]int64, error) {
 		return nil, err
 	}
 	candidateMap := map[string]bool{}
-	for _, name := range candidates {
-		candidateMap[name] = true
+	for _, cand := range candidates {
+		candidateMap[cand.Name] = true
 	}
 	type removed struct {
 		groupID int64

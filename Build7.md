@@ -443,4 +443,5 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 | v1.12 | 2026-08-20 | 用户决策落盘：Q2 全局任务 registry 下沉为中性包 `internal/tasks`（server 构造注入；OFF 清空与配置导入的业务包经注入 Registry 登记，不 import server）；Q3 OFF 清空保持「状态翻转+任务登记同事务」字面口径，接受 DB 回滚残留幽灵任务边界（重启后 failed 兜底）。Step2 item2/item3/item4 同步修订 |
 | v1.13 | 2026-08-20 | 将 Build6-2 #5（独立账号采集与配额检查）显式整理进 Step1：补充承接说明、目标/前置条件更新，并在 cron 条目标注必须在本 Step 闭环 |
 | v1.14 | 2026-08-21 | Build6/Build7 交付核查未完全达标：对应问题见 [Issue2.md](./Issue2.md) R15-01~R15-14（v2 导入不完整与双确认词、OFF 并发任务、Build7 前端页面未完整落地、专项测试缺失等）。用户决策：归档 Build4~7 与 AGENTS/README 状态更新由用户决定时机；`AfterAdvancedOff` 补实现并接线；R15 修复开始时本 Build 受影响 Step 回退 ◧，复验通过后恢复 ✅。暂不修改代码。 |
+| v1.15 | 2026-08-21 | 执行 R15 首轮修复：v2 导入双确认与后处理、OFF 并发事务、异步任务 Context、Client 30s deadline、对账/独立账号 action 状态机、前端 Settings/Groups/Xray 部分高级 UI 已落地；后端 `go test ./...`、前端 `npm run build && npm test` 通过。R15-07/08/14 仍部分进行，见 Issue2 状态表。 |
 

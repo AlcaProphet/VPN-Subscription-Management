@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	"vpn-sub/internal/assembly"
@@ -32,9 +31,10 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 		return nil, err
 	}
 
-	// 高级模式关闭：占位替换为注释，仍保证语法完整。
+	// 注释优先级：高级模式关闭 > 无凭据 > 有凭据但空目标集（空目标集仅对 SR/generic 整行移除）。
+	advancedOn := cfg.GetBool(ctx, config.KeyAdvancedMode, false)
 	comment := ""
-	if !cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
+	if !advancedOn {
 		comment = "# Xray 高级模式未启用"
 	}
 	uuid, secret, credErr := creds.Credentials(ctx, userID)
@@ -42,7 +42,7 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 	if credErr != nil && !errors.Is(credErr, xray.ErrIncompleteCredentials) {
 		return nil, credErr
 	}
-	if !hasCreds {
+	if advancedOn && !hasCreds {
 		comment = "# 节点未开通，请联系管理员"
 	}
 	targets, err := syncSvc.Targets(ctx, userID)
@@ -75,7 +75,7 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 				RenderName:   t.RenderName,
 				Protocol:     protocol,
 				Host:         hostOf(t.APIAddr),
-				Port:         portOf(t.APIAddr),
+				Port:         t.Port,
 				ProtocolJSON: withCreds(params, protocol, uuid, secret),
 			})
 		}
@@ -84,13 +84,14 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 
 	// SR / generic 订阅：占位替换或整行移除后整体 base64。
 	if comment != "" {
-		return replacePlaceholder(content, targetSyntax, comment), nil
+		replaced := replacePlaceholderLines(content, []string{comment})
+		return []byte(base64.StdEncoding.EncodeToString(replaced)), nil
 	}
 	lines := renderLinkLines(ctx, syncSvc, targets, targetSyntax, uuid, secret, true)
 	switch targetSyntax {
 	case "sr-subs", "generic-subs":
 		if len(lines) == 0 {
-			// 空目标集：占位整行移除。
+			// 有凭据但空目标集：占位整行移除。
 			return []byte(base64.StdEncoding.EncodeToString(removePlaceholderLine(content))), nil
 		}
 		replaced := replacePlaceholderLines(content, lines)
@@ -111,7 +112,7 @@ func renderLinkLines(ctx context.Context, syncSvc *xray.SyncService, targets []x
 			continue
 		}
 		generic := targetSyntax == "generic-subs"
-		link, err := assembly.RenderLink(protocol, t.RenderName, hostOf(t.APIAddr), portOf(t.APIAddr), withCreds(params, protocol, uuid, secret), generic)
+		link, err := assembly.RenderLink(protocol, t.RenderName, hostOf(t.APIAddr), t.Port, withCreds(params, protocol, uuid, secret), generic)
 		if err != nil {
 			continue
 		}
@@ -221,16 +222,6 @@ func hostOf(apiAddr string) string {
 		return apiAddr
 	}
 	return host
-}
-
-func portOf(apiAddr string) int {
-	_, portStr, err := netSplit(apiAddr)
-	if err != nil {
-		return 0
-	}
-	var p int
-	_, _ = fmt.Sscanf(portStr, "%d", &p)
-	return p
 }
 
 func netSplit(addr string) (string, string, error) {

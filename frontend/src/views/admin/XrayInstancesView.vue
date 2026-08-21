@@ -3,7 +3,7 @@
 import { onMounted, ref } from 'vue'
 import { Button, Empty, Modal, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
 import {
-  listInstances, listExtAccounts, createInstance, deleteInstance, detectNodes,
+  listInstances, listExtAccounts, createInstance, updateInstance, deleteInstance, detectNodes, testConnection,
   runInit, reconcile, pushRepair, cleanOrphans, repairCredentials,
   createExtAccount, deleteExtAccount, retryExtSync, resetExtQuota, getExtCredentials,
   type XrayInstance, type ExtAccount, type DetectResult, type ReconcileResult,
@@ -35,6 +35,24 @@ onMounted(load)
 const createOpen = ref(false)
 const createForm = ref({ name: '', api_addr: '', api_tag: '' })
 const creating = ref(false)
+const testing = ref(false)
+const testResult = ref('')
+async function doTestConnection() {
+  if (!createForm.value.api_addr) {
+    Notify.error('请先填写 api_addr')
+    return
+  }
+  testing.value = true
+  testResult.value = ''
+  try {
+    await testConnection(createForm.value.api_addr)
+    testResult.value = '连接成功'
+  } catch (err) {
+    testResult.value = `连接失败：${(err as Error).message}`
+  } finally {
+    testing.value = false
+  }
+}
 async function doCreate() {
   if (!createForm.value.name || !createForm.value.api_addr) {
     Notify.error('名称与 api_addr 必填')
@@ -46,11 +64,39 @@ async function doCreate() {
     Notify.success('实例已创建')
     createOpen.value = false
     createForm.value = { name: '', api_addr: '', api_tag: '' }
+    testResult.value = ''
     await load()
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
     creating.value = false
+  }
+}
+
+const editOpen = ref(false)
+const editing = ref<XrayInstance | null>(null)
+const editForm = ref({ name: '', api_addr: '', api_tag: '' })
+const saving = ref(false)
+function openEdit(inst: XrayInstance) {
+  editing.value = inst
+  editForm.value = { name: inst.name, api_addr: inst.api_addr, api_tag: inst.api_tag ?? '' }
+  editOpen.value = true
+}
+async function doSaveEdit() {
+  if (!editing.value || !editForm.value.name || !editForm.value.api_addr) {
+    Notify.error('名称与 api_addr 必填')
+    return
+  }
+  saving.value = true
+  try {
+    await updateInstance(editing.value.id, { ...editForm.value, enabled: editing.value.enabled })
+    Notify.success('已保存，建议执行「刷新节点」以同步 api_addr 变化后的节点信息')
+    editOpen.value = false
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    saving.value = false
   }
 }
 
@@ -226,13 +272,18 @@ async function doExtCredentials(acc: ExtAccount) {
         <Table v-else :data-source="instances" row-key="id" :loading="loading" :pagination="false">
           <Table.Column title="名称" data-index="name" />
           <Table.Column title="API 地址" data-index="api_addr" />
+            <Table.Column title="API Tag">
+              <template #default="{ record }">{{ record.api_tag || '—' }}</template>
+            </Table.Column>
           <Table.Column title="状态">
             <template #default="{ record }">
               <Tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</Tag>
+              <Tag v-if="record.collect_status === 'error'" color="red" class="ml-1">采集异常</Tag>
             </template>
           </Table.Column>
-          <Table.Column title="操作" width="260">
+          <Table.Column title="操作" width="300">
             <template #default="{ record }">
+              <Button size="small" class="mr-1" @click="openEdit(record)">编辑</Button>
               <Button size="small" class="mr-1" @click="doDetect(record)">刷新节点</Button>
               <Button size="small" class="mr-1" @click="doReconcile(record)">对账</Button>
               <Button size="small" danger @click="deleting = record">删除</Button>
@@ -272,7 +323,18 @@ async function doExtCredentials(acc: ExtAccount) {
         <input v-model="createForm.name" placeholder="名称" class="w-full border rounded px-3 py-2" />
         <input v-model="createForm.api_addr" placeholder="api_addr (host:port)" class="w-full border rounded px-3 py-2" />
         <input v-model="createForm.api_tag" placeholder="api_tag（可空）" class="w-full border rounded px-3 py-2" />
+        <Button :loading="testing" @click="doTestConnection">测试连接</Button>
+        <p v-if="testResult" class="text-sm">{{ testResult }}</p>
         <Button type="primary" :loading="creating" @click="doCreate">创建</Button>
+      </div>
+    </Modal>
+
+    <Modal :open="editOpen" title="编辑实例" :footer="null" width="480" destroy-on-close @cancel="editOpen = false">
+      <div class="space-y-3">
+        <input v-model="editForm.name" placeholder="名称" class="w-full border rounded px-3 py-2" />
+        <input v-model="editForm.api_addr" placeholder="api_addr (host:port)" class="w-full border rounded px-3 py-2" />
+        <input v-model="editForm.api_tag" placeholder="api_tag（可空）" class="w-full border rounded px-3 py-2" />
+        <Button type="primary" :loading="saving" @click="doSaveEdit">保存</Button>
       </div>
     </Modal>
 

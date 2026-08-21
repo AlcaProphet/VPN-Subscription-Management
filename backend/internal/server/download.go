@@ -131,8 +131,9 @@ func (h *DownloadHandler) ruleDownload(c *gin.Context) {
 func (h *DownloadHandler) preview(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID := c.GetInt64(auth.CtxUserID)
+	isAdmin := c.GetString(auth.CtxUserRole) == "admin"
 	platformSlug := c.Query("platform")
-	content, err := h.dlSvc.PreviewForUser(ctx, userID, platformSlug)
+	content, err := h.dlSvc.PreviewForUser(ctx, isAdmin, userID, platformSlug)
 	switch {
 	case errors.Is(err, download.ErrTokenInvalid):
 		Fail(c, http.StatusNotFound, "资源不存在")

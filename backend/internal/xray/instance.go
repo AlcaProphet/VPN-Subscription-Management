@@ -210,8 +210,9 @@ func (s *InstanceService) List(ctx context.Context) ([]Instance, error) {
 // DeleteAsync 异步删除实例：先登记任务，事务内收集清理目标并删除，提交后 best-effort RemoveUser。
 func (s *InstanceService) DeleteAsync(ctx context.Context, id int64) (string, error) {
 	taskID := s.registry.Register(tasks.KindInstanceDelete)
+	bg := context.WithoutCancel(ctx)
 	go func() {
-		err := s.deleteAndClean(ctx, id)
+		err := s.deleteAndClean(bg, id)
 		if err != nil {
 			s.registry.Fail(taskID, err.Error())
 			return

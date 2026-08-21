@@ -21,16 +21,21 @@ export interface GroupNode {
   source: string
 }
 
+export interface CandidateNode {
+  node_id: number
+  name: string
+  in_partial_blueprint: boolean
+}
+
 export interface GroupDetail extends GroupItem {
   nodes?: GroupNode[]
-  candidate_nodes?: string[]
-  in_partial_blueprint?: boolean
+  candidate_nodes?: CandidateNode[]
 }
 
 export const listGroups = () =>
   http.get<any, { list: GroupItem[]; total: number }>('/admin/groups').then((d) => d.list)
 export const getGroup = (id: number) =>
-  http.get<any, { group: GroupItem; nodes?: GroupNode[]; candidate_nodes?: string[] }>(`/admin/groups/${id}`)
+  http.get<any, { group: GroupItem; nodes?: GroupNode[]; candidate_nodes?: CandidateNode[] }>(`/admin/groups/${id}`)
     .then((d) => ({ ...d.group, nodes: d.nodes ?? [], candidate_nodes: d.candidate_nodes ?? [] }) as GroupDetail)
 export const createGroup = (name: string) => http.post<any, GroupItem>('/admin/groups', { name })
 export const updateGroup = (id: number, data: { name: string }) =>

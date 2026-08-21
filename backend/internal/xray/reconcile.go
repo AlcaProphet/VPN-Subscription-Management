@@ -172,10 +172,19 @@ func (s *SyncService) Reconcile(ctx context.Context, instanceID int64) (*Reconci
 }
 
 // PushOne 单条补推（同步，120s 由接入层超时控制）。
+// 用户/独立账号超限时返回 ErrQuotaExceeded，异步补推将其计为 skipped。
 func (s *SyncService) PushOne(ctx context.Context, item ReconcileItem) error {
 	if item.Source == "ext" {
 		if s.ext == nil || item.ExtAccountID == nil {
 			return errors.New("独立账号服务未注入")
+		}
+		var exceeded int
+		if err := s.store.DB().QueryRowContext(ctx,
+			`SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, *item.ExtAccountID).Scan(&exceeded); err != nil {
+			return err
+		}
+		if exceeded == 1 {
+			return ErrQuotaExceeded
 		}
 		return s.ext.pushOne(ctx, *item.ExtAccountID, ExtPushTarget{
 			InstanceID: item.InstanceID, InboundTag: item.InboundTag, NodeID: item.NodeID,
@@ -209,21 +218,25 @@ func (s *SyncService) CredentialsOne(ctx context.Context, item ReconcileItem) er
 // RepairPushAsync 异步执行待补推。
 func (s *SyncService) RepairPushAsync(ctx context.Context, instanceID int64) (string, error) {
 	taskID := s.registry.Register(tasks.KindReconcileExec)
+	bg := context.WithoutCancel(ctx)
 	go func() {
-		res, err := s.Reconcile(ctx, instanceID)
+		res, err := s.Reconcile(bg, instanceID)
 		if err != nil {
 			s.registry.Fail(taskID, err.Error())
 			return
 		}
-		success, failed := 0, 0
+		success, skipped, failed := 0, 0, 0
 		for _, item := range res.ToPush {
-			if err := s.PushOne(ctx, item); err != nil {
+			err := s.PushOne(bg, item)
+			if errors.Is(err, ErrQuotaExceeded) {
+				skipped++
+			} else if err != nil {
 				failed++
 			} else {
 				success++
 			}
 		}
-		s.registry.Succeed(taskID, map[string]any{"pushed": success, "failed": failed})
+		s.registry.Succeed(taskID, map[string]any{"pushed": success, "skipped": skipped, "failed": failed})
 	}()
 	return taskID, nil
 }
@@ -231,21 +244,22 @@ func (s *SyncService) RepairPushAsync(ctx context.Context, instanceID int64) (st
 // CleanOrphansAsync 异步清理显式勾选的孤儿账号。
 func (s *SyncService) CleanOrphansAsync(ctx context.Context, instanceID int64, emails []string) (string, error) {
 	taskID := s.registry.Register(tasks.KindReconcileExec)
+	bg := context.WithoutCancel(ctx)
 	go func() {
 		success, failed := 0, 0
 		for _, email := range emails {
-			tags, err := s.instanceTags(ctx, instanceID)
+			tags, err := s.instanceTags(bg, instanceID)
 			if err != nil {
 				s.registry.Fail(taskID, err.Error())
 				return
 			}
-			client, err := s.instances.ClientFor(ctx, instanceID)
+			client, err := s.instances.ClientFor(bg, instanceID)
 			if err != nil {
 				s.registry.Fail(taskID, err.Error())
 				return
 			}
 			for _, tag := range tags {
-				if err := client.RemoveUser(ctx, tag, email); err != nil && !IsNotFound(err) {
+				if err := client.RemoveUser(bg, tag, email); err != nil && !IsNotFound(err) {
 					failed++
 				} else {
 					success++
@@ -260,10 +274,11 @@ func (s *SyncService) CleanOrphansAsync(ctx context.Context, instanceID int64, e
 // RepairCredentialsAsync 异步修复勾选项凭据。
 func (s *SyncService) RepairCredentialsAsync(ctx context.Context, instanceID int64, items []ReconcileItem) (string, error) {
 	taskID := s.registry.Register(tasks.KindReconcileExec)
+	bg := context.WithoutCancel(ctx)
 	go func() {
 		success, failed := 0, 0
 		for _, item := range items {
-			if err := s.CredentialsOne(ctx, item); err != nil {
+			if err := s.CredentialsOne(bg, item); err != nil {
 				failed++
 			} else {
 				success++
@@ -276,6 +291,20 @@ func (s *SyncService) RepairCredentialsAsync(ctx context.Context, instanceID int
 
 // pushUserTarget 推送单个用户到单个目标。
 func (s *SyncService) pushUserTarget(ctx context.Context, userID int64, t Target) error {
+	var status string
+	if err := s.store.DB().QueryRowContext(ctx, `SELECT status FROM users WHERE id = ?`, userID).Scan(&status); err != nil {
+		return err
+	}
+	if status != "active" {
+		return errors.New("用户非激活，不推送")
+	}
+	var exceeded int
+	if err := s.store.DB().QueryRowContext(ctx, `SELECT quota_exceeded FROM users WHERE id = ?`, userID).Scan(&exceeded); err != nil {
+		return err
+	}
+	if exceeded == 1 {
+		return ErrQuotaExceeded
+	}
 	client, err := s.apiFor(ctx, t.InstanceID)
 	if err != nil {
 		s.markFailed(ctx, userID, t, err)

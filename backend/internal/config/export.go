@@ -26,10 +26,10 @@ import (
 )
 
 const (
-	ConfirmWordImport = "IMPORT" // 配置导入确认词（固定，二次确认由前端负责）
-	FormatVersion     = 2        // 导出格式版本
-	FormatVersionV1   = 1        // v1 兼容导入
-	MinExportPassword = 8        // 导出密码 ≥8 字符
+	ConfirmWordImport  = "IMPORT"  // 配置导入确认词（固定，二次确认由前端负责）
+	ConfirmWordDisable = "DISABLE" // 导入清空高级模式数据分支的第二确认词
+	FormatVersion      = 2         // 导出格式版本
+	MinExportPassword  = 8         // 导出密码 ≥8 字符
 )
 
 // ErrModeRestricted 配置导入导出仅 Production 模式提供（接入层映射 403，R07-06）
@@ -90,6 +90,18 @@ type ExportService struct {
 	registry *tasks.Registry
 	// seedPresets Setup 导入分支预置默认组/平台（由 server.New 注入 setup.SeedPresetsTx；避免 config↔setup 循环依赖）
 	seedPresets func(ctx context.Context, tx *sql.Tx, frontendURL string) error
+
+	// v2 导入后处理钩子（均由 server.New 注入，避免 config 包反向依赖 xray/assembly/server）
+	cleanupXrayTargets      func(ctx context.Context, targets []ImportCleanupTarget)
+	detectImportedInstances func(ctx context.Context, payload *ExportPayload) []string
+	postImportRebindReconcile func(ctx context.Context, payload *ExportPayload) []string
+}
+
+// ImportCleanupTarget 是导入覆盖前需要从 Xray 侧清理的旧账号快照。
+type ImportCleanupTarget struct {
+	Email   string
+	Tag     string
+	APIAddr string
 }
 
 func NewExportService(st *store.Store, cfg *Service, dataDir, mode string, lg *slog.Logger) *ExportService {
@@ -104,6 +116,21 @@ func (s *ExportService) SetTaskRegistry(reg *tasks.Registry) {
 // SetSeedPresets 注入 Setup 预置逻辑（Setup 导入分支使用）
 func (s *ExportService) SetSeedPresets(fn func(ctx context.Context, tx *sql.Tx, frontendURL string) error) {
 	s.seedPresets = fn
+}
+
+// SetCleanupXrayTargets 注入 v2 导入覆盖后对旧 Xray 账号的 best-effort 清理函数。
+func (s *ExportService) SetCleanupXrayTargets(fn func(ctx context.Context, targets []ImportCleanupTarget)) {
+	s.cleanupXrayTargets = fn
+}
+
+// SetDetectImportedInstances 注入 v2 导入提交后的节点自动检测函数，返回完成提示（如跳过实例）。
+func (s *ExportService) SetDetectImportedInstances(fn func(ctx context.Context, payload *ExportPayload) []string) {
+	s.detectImportedInstances = fn
+}
+
+// SetPostImportRebindReconcile 注入 v2 导入提交后的装配快照重绑与对账函数，返回完成提示/错误说明。
+func (s *ExportService) SetPostImportRebindReconcile(fn func(ctx context.Context, payload *ExportPayload) []string) {
+	s.postImportRebindReconcile = fn
 }
 
 // Export 导出：导出密码（≥8）→ Argon2id 派生密钥 + AES-256-GCM 加密整个配置文件 → 返回密文供下载。
@@ -237,7 +264,8 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 }
 
 // ImportV2 导入入口：v1 保持同步兼容；v2 返回异步任务 ID。
-func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, confirmWord string, setupMode bool) (string, error) {
+// disableConfirmWord 用于“无实例/账号且 advanced_mode=false”分支的 DISABLE 第二确认词。
+func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, confirmWord, disableConfirmWord string, setupMode bool) (string, error) {
 	if s.mode != "prod" {
 		return "", ErrModeRestricted
 	}
@@ -255,12 +283,18 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 	if confirmWord != ConfirmWordImport {
 		return "", errors.New("确认词不正确")
 	}
+	// 无实例/账号且高级模式关闭：按 OFF 清空口径清理旧高级数据，需要额外的 DISABLE 确认。
+	hasAdvancedData := len(payload.Instances) > 0 || len(payload.Accounts) > 0
+	if !hasAdvancedData && payload.Config[KeyAdvancedMode] != "true" && disableConfirmWord != ConfirmWordDisable {
+		return "", errors.New("该导入会清空高级模式数据，请输入 DISABLE 确认")
+	}
 	if s.registry == nil {
 		return "", errors.New("任务注册表未注入")
 	}
 	taskID := s.registry.Register(tasks.KindImport)
+	bg := context.WithoutCancel(ctx)
 	go func() {
-		if err := s.importV2(ctx, payload, confirmWord, setupMode); err != nil {
+		if err := s.importV2(bg, payload, confirmWord, setupMode); err != nil {
 			s.registry.Fail(taskID, err.Error())
 			return
 		}
@@ -278,6 +312,7 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 	if err := s.checkImportProtection(ctx, payload); err != nil {
 		return err
 	}
+	var oldTargets []ImportCleanupTarget
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM system_config`); err != nil {
 			return err
@@ -286,6 +321,31 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO system_config (key, value) VALUES (?, ?)`, k, v); err != nil {
 				return fmt.Errorf("写入配置键 %s 失败: %w", k, err)
+			}
+		}
+		// 收集旧 Xray 推送快照（在删除实例/账号前）
+		if s.hasTableTx(ctx, tx, "xray_instances") {
+			rows, err := tx.QueryContext(ctx,
+				`SELECT xu.email, xu.inbound_tag, i.api_addr
+				 FROM xray_users xu JOIN xray_instances i ON i.id = xu.instance_id
+				 UNION ALL
+				 SELECT a.email, xu.inbound_tag, i.api_addr
+				 FROM xray_ext_users xu
+				 JOIN xray_ext_accounts a ON a.id = xu.ext_account_id
+				 JOIN xray_instances i ON i.id = xu.instance_id`)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var t ImportCleanupTarget
+				if err := rows.Scan(&t.Email, &t.Tag, &t.APIAddr); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				oldTargets = append(oldTargets, t)
+			}
+			if err := rows.Close(); err != nil {
+				return err
 			}
 		}
 		// 高级模式一致性
@@ -384,11 +444,86 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 			s.log.Warn("导入站点 ICON 失败", "err", err)
 		}
 	}
-	s.log.Warn("配置导入已执行", "setup_mode", setupMode, "format_version", payload.FormatVersion)
+	hints := []string{}
+	if s.cleanupXrayTargets != nil && len(oldTargets) > 0 {
+		s.cleanupXrayTargets(ctx, oldTargets)
+		hints = append(hints, fmt.Sprintf("已执行旧 Xray 账号清理，共 %d 个目标", len(oldTargets)))
+	}
+	if s.detectImportedInstances != nil {
+		hints = append(hints, s.detectImportedInstances(ctx, payload)...)
+	}
+	if err := s.rebindImportedDisplayNames(ctx, payload); err != nil {
+		hints = append(hints, "节点显示名回填失败: "+err.Error())
+	}
+	if err := s.rebindImportedExtNodes(ctx, payload); err != nil {
+		hints = append(hints, "独立账号推送目标重绑失败: "+err.Error())
+	}
+	if s.postImportRebindReconcile != nil {
+		hints = append(hints, s.postImportRebindReconcile(ctx, payload)...)
+	}
+	s.log.Warn("配置导入已执行", "setup_mode", setupMode, "format_version", payload.FormatVersion, "hints", hints)
 	return nil
 }
 
 // checkImportProtection 导入保护：signing_key 将变化且存在业务密文时拒绝。
+
+// rebindImportedDisplayNames 在自动检测后，将导出文件中的节点显示名映射回填到新建节点。
+func (s *ExportService) rebindImportedDisplayNames(ctx context.Context, payload *ExportPayload) error {
+	if !s.hasTable(ctx, "nodes") {
+		return nil
+	}
+	for _, inst := range payload.Instances {
+		for _, nd := range inst.Nodes {
+			if nd.DisplayName == "" {
+				continue
+			}
+			if _, err := s.store.DB().ExecContext(ctx,
+				`UPDATE nodes SET display_name = ?, updated_at = CURRENT_TIMESTAMP
+				 WHERE instance_id = (SELECT id FROM xray_instances WHERE slug = ?) AND tag = ? AND source = 'xray'`,
+				nd.DisplayName, inst.Slug, nd.Tag); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// rebindImportedExtNodes 将导入的独立账号推送目标按 (instance slug, inbound tag) 重绑到检测后的 node_id。
+func (s *ExportService) rebindImportedExtNodes(ctx context.Context, payload *ExportPayload) error {
+	if !s.hasTable(ctx, "xray_ext_users") || !s.hasTable(ctx, "xray_ext_accounts") {
+		return nil
+	}
+	for _, acc := range payload.Accounts {
+		var accID int64
+		if err := s.store.DB().QueryRowContext(ctx,
+			`SELECT id FROM xray_ext_accounts WHERE email = ?`, acc.Email).Scan(&accID); err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return err
+		}
+		for _, pt := range acc.PushTargets {
+			var instID int64
+			if err := s.store.DB().QueryRowContext(ctx,
+				`SELECT id FROM xray_instances WHERE slug = ?`, pt.InstanceSlug).Scan(&instID); err != nil {
+				if err == sql.ErrNoRows {
+					continue
+				}
+				return err
+			}
+			if _, err := s.store.DB().ExecContext(ctx,
+				`UPDATE xray_ext_users SET node_id = (
+				   SELECT id FROM nodes WHERE instance_id = ? AND tag = ? AND source = 'xray' LIMIT 1
+				 )
+				 WHERE ext_account_id = ? AND instance_id = ? AND inbound_tag = ?`,
+				instID, pt.InboundTag, accID, instID, pt.InboundTag); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (s *ExportService) checkImportProtection(ctx context.Context, payload *ExportPayload) error {
 	newKey, _ := payload.Config[KeySigningKey]
 	currentKey, _ := s.cfg.GetRaw(ctx, KeySigningKey)

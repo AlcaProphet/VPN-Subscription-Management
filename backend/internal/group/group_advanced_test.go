@@ -82,7 +82,7 @@ func TestCandidateSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取候选集失败: %v", err)
 	}
-	if len(candidates) != 2 || candidates[0] != "node-a" || candidates[1] != "node-b" {
+	if len(candidates) != 2 || candidates[0].Name != "node-a" || candidates[1].Name != "node-b" {
 		t.Fatalf("候选集异常: %+v", candidates)
 	}
 }

@@ -31,6 +31,7 @@ type Target struct {
 	Tag         string  `json:"tag"`
 	InstanceID  int64   `json:"instance_id"`
 	APIAddr     string  `json:"api_addr"`
+	Port        int     `json:"port"`
 }
 
 // SyncService 处理用户生命周期 Xray 推送/移除。
@@ -78,7 +79,7 @@ func (s *SyncService) targetsDB(ctx context.Context, q interface {
 		return nil, nil
 	}
 	rows, err := q.QueryContext(ctx,
-		`SELECT n.id, n.name, n.display_name, n.tag, n.instance_id, i.api_addr, n.is_public,
+		`SELECT n.id, n.name, n.display_name, n.tag, n.instance_id, i.api_addr, n.port, n.is_public,
 		        COALESCE(gn.sort_order, 999999)
 		 FROM nodes n
 		 JOIN xray_instances i ON i.id = n.instance_id
@@ -100,7 +101,7 @@ func (s *SyncService) targetsDB(ctx context.Context, q interface {
 		var display sql.NullString
 		var isPublic int
 		var sortOrder int
-		if err := rows.Scan(&t.NodeID, &t.Name, &display, &t.Tag, &t.InstanceID, &t.APIAddr, &isPublic, &sortOrder); err != nil {
+		if err := rows.Scan(&t.NodeID, &t.Name, &display, &t.Tag, &t.InstanceID, &t.APIAddr, &t.Port, &isPublic, &sortOrder); err != nil {
 			return nil, err
 		}
 		if !candidateMap[t.Name] {
@@ -273,15 +274,16 @@ func (s *SyncService) CollectTargetsTx(ctx context.Context, tx *sql.Tx, userID i
 // StartInit 注册并启动全量初始化任务。
 func (s *SyncService) StartInit(ctx context.Context) (string, error) {
 	taskID := s.registry.Register(tasks.KindXrayInit)
+	bg := context.WithoutCancel(ctx)
 	go func() {
-		ids, err := s.activeUserIDs(ctx)
+		ids, err := s.activeUserIDs(bg)
 		if err != nil {
 			s.registry.Fail(taskID, err.Error())
 			return
 		}
 		totalSynced, totalFailed := 0, 0
 		for _, id := range ids {
-			synced, failed, err := s.PushUser(ctx, id)
+			synced, failed, err := s.PushUser(bg, id)
 			if err != nil {
 				s.registry.Fail(taskID, err.Error())
 				return
@@ -640,3 +642,25 @@ func (s *SyncService) nodeViewForTarget(ctx context.Context, nodeID int64) (Node
 	}
 	return nv, nil
 }
+
+// AfterAdvancedOff 是 Build7 OFF 清空提交后的补偿辅助：按快照直连 Xray 实例移除 user/ext 账号。
+func (s *SyncService) AfterAdvancedOff(ctx context.Context, targets []OffClearTarget) {
+	for _, t := range targets {
+		if t.APIAddr == "" || t.Tag == "" || t.Email == "" {
+			continue
+		}
+		client, err := Dial(t.APIAddr)
+		if err != nil {
+			s.log.Warn("OFF 清空后清理 Xray 用户失败（拨号）", "email", t.Email, "addr", t.APIAddr, "err", err)
+			continue
+		}
+		rctx, cancel := context.WithTimeout(ctx, RPCTimeout)
+		err = client.RemoveUser(rctx, t.Tag, t.Email)
+		cancel()
+		_ = client.Close()
+		if err != nil && !IsNotFound(err) {
+			s.log.Warn("OFF 清空后清理 Xray 用户失败", "email", t.Email, "tag", t.Tag, "err", err)
+		}
+	}
+}
+

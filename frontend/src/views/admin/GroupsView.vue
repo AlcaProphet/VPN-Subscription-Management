@@ -1,8 +1,11 @@
-<!-- GroupsView.vue：用户组管理（Build4 最小化：基础 CRUD；Build7 重构为节点分配 + 默认配额高级 UI） -->
+<!-- GroupsView.vue：用户组管理（Build7 高级：节点分配 + 默认配额 + 候选集引导） -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Button, Input, Modal, Table, Tag } from 'ant-design-vue'
-import { listGroups, getGroup, createGroup, updateGroup, deleteGroup, type GroupItem } from '@/api/group'
+import { Button, Checkbox, Input, InputNumber, Modal, Table, Tag } from 'ant-design-vue'
+import {
+  listGroups, getGroup, createGroup, updateGroup, deleteGroup, updateGroupNodes, updateGroupQuota,
+  type GroupItem, type CandidateNode, type GroupDetail,
+} from '@/api/group'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
@@ -26,7 +29,7 @@ onMounted(load)
 const quotaText = (g: GroupItem) =>
   g.default_quota == null ? '不限流量' : `${g.default_quota} GB`
 
-// --- 新建/改名 ---
+// --- 新建组 ---
 const createOpen = ref(false)
 const newName = ref('')
 const creating = ref(false)
@@ -42,15 +45,22 @@ async function doCreate() {
   } catch (err) { Notify.error((err as Error).message) } finally { creating.value = false }
 }
 
+// --- 编辑：名称 + 节点分配 + 默认配额 ---
 const editOpen = ref(false)
-const editing = ref<GroupItem | null>(null)
+const editing = ref<GroupDetail | null>(null)
 const editName = ref('')
+const selectedNodeIDs = ref<number[]>([])
+const candidateNodes = ref<CandidateNode[]>([])
+const editQuota = ref<number | undefined>(undefined)
 const saving = ref(false)
 async function openEdit(g: GroupItem) {
   try {
     const detail = await getGroup(g.id)
     editing.value = detail
     editName.value = detail.name
+    selectedNodeIDs.value = (detail.nodes ?? []).map((n) => n.node_id)
+    candidateNodes.value = detail.candidate_nodes ?? []
+    editQuota.value = detail.default_quota ?? undefined
     editOpen.value = true
   } catch (err) { Notify.error((err as Error).message) }
 }
@@ -59,7 +69,11 @@ async function doSaveEdit() {
   saving.value = true
   try {
     await updateGroup(editing.value.id, { name: editName.value.trim() })
-    Notify.success('组已更新')
+    if (candidateNodes.value.length > 0) {
+      await updateGroupNodes(editing.value.id, { node_ids: selectedNodeIDs.value })
+    }
+    await updateGroupQuota(editing.value.id, { default_quota: editQuota.value })
+    Notify.success('已保存，节点变更将同步至 Xray')
     editOpen.value = false
     await load()
   } catch (err) { Notify.error((err as Error).message) } finally { saving.value = false }
@@ -101,6 +115,7 @@ async function confirmDelete() {
         <Table.Column key="quota" title="默认配额">
           <template #default="{ record }">{{ quotaText(record) }}</template>
         </Table.Column>
+        <Table.Column key="nodes" title="分配节点数" data-index="node_count" width="120" />
         <Table.Column key="users" title="用户数" data-index="user_count" width="100" />
         <Table.Column key="actions" title="操作" width="160">
           <template #default="{ record }">
@@ -118,12 +133,33 @@ async function confirmDelete() {
       </div>
     </Modal>
 
-    <Modal :open="editOpen" title="编辑组" :footer="null" :width="420" destroy-on-close
-           @cancel="editOpen = false">
-      <div class="text-xs text-gray-400 mb-2">名称（全局唯一校验）</div>
-      <Input v-model:value="editName" :maxlength="64" @press-enter="doSaveEdit" />
-      <div class="flex justify-end mt-3">
-        <Button type="primary" :loading="saving" @click="doSaveEdit">保存</Button>
+    <Modal :open="editOpen" title="编辑组" :footer="null" :width="560" destroy-on-close @cancel="editOpen = false">
+      <div class="space-y-4">
+        <div>
+          <div class="text-xs text-gray-400 mb-1">名称（全局唯一校验）</div>
+          <Input v-model:value="editName" :maxlength="64" />
+        </div>
+        <div>
+          <div class="text-xs text-gray-400 mb-1">节点分配（候选集）</div>
+          <div v-if="candidateNodes.length === 0" class="text-gray-400 text-sm">暂无候选节点，请先在装配中勾选 Xray 节点</div>
+          <div v-else class="space-y-1">
+            <div v-for="c in candidateNodes" :key="c.name" class="flex items-center gap-2">
+              <Checkbox :checked="selectedNodeIDs.includes(c.node_id)" @change="() => {
+                const id = c.node_id
+                if (selectedNodeIDs.includes(id)) selectedNodeIDs = selectedNodeIDs.filter((x) => x !== id)
+                else selectedNodeIDs = [...selectedNodeIDs, id]
+              }">{{ c.name }}</Checkbox>
+              <Tag v-if="c.in_partial_blueprint" color="orange">仅部分模板</Tag>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="text-xs text-gray-400 mb-1">默认配额（GB，0/留空不限）</div>
+          <InputNumber v-model:value="editQuota" :min="0" class="w-40" />
+        </div>
+        <div class="flex justify-end">
+          <Button type="primary" :loading="saving" @click="doSaveEdit">保存</Button>
+        </div>
       </div>
     </Modal>
 

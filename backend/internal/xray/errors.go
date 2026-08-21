@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// ErrQuotaExceeded 表示账号已超限，AddUser 类操作应跳过（对账时计为 skipped）。
+var ErrQuotaExceeded = errors.New("已超限，请先重置配额")
+
 // OpError 携带操作与实例上下文，便于日志定位。
 type OpError struct {
 	Op       string

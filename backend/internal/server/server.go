@@ -57,13 +57,21 @@ func OK(c *gin.Context, data any) { response.OK(c, data) }
 // Fail 错误响应（便捷包装）；httpStatus 与业务码同步取值（400/401/403/409/429/500）
 func Fail(c *gin.Context, httpStatus int, msg string) { response.Fail(c, httpStatus, msg) }
 
+// detach 将事务提交后的副作用回调放入后台 goroutine，并解除请求 Context 的取消绑定。
+func detach(ctx context.Context, fn func(context.Context)) {
+	bg := context.WithoutCancel(ctx)
+	go fn(bg)
+}
+
+
 type Server struct {
-	engine  *gin.Engine
-	httpSrv *http.Server
-	cfg     *config.Service
-	store   *store.Store
-	mode    string
-	log     *slog.Logger
+	engine          *gin.Engine
+	httpSrv         *http.Server
+	cfg             *config.Service
+	store           *store.Store
+	mode            string
+	log             *slog.Logger
+	stopXrayCollect func()
 	// 后续 Step 的 Handler 经构造函数追加注入（setup/oidc...）
 }
 
@@ -107,19 +115,25 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 		if ot != version.OwnerSubscription {
 			return
 		}
-		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
-			lg.Warn("版本切换后候选集重算失败", "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+				lg.Warn("版本切换后候选集重算失败", "err", err)
+			}
+		})
 	}
 	platformSvc.SetOnAfterDelete(func(ctx context.Context) {
-		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
-			lg.Warn("平台删除后候选集重算失败", "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+				lg.Warn("平台删除后候选集重算失败", "err", err)
+			}
+		})
 	})
 	subSvc.SetOnAfterDelete(func(ctx context.Context, _ int64) {
-		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
-			lg.Warn("订阅删除后候选集重算失败", "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+				lg.Warn("订阅删除后候选集重算失败", "err", err)
+			}
+		})
 	})
 	// 规则素材池（Build4 Step 5：CRUD / 条目 / 异步同步与历史任务）
 	poolSvc := pool.NewService(st, lg)
@@ -137,60 +151,68 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	syncSvc.SetExtService(extSvc)
 	// 组节点变化/删除后对受影响用户做精确 diff（Build6-2 补强）
 	groupSvc.SetOnNodesChanged(func(ctx context.Context, _ int64, userIDs []int64) {
-		for _, uid := range userIDs {
-			if err := syncSvc.ReconcileUser(ctx, uid); err != nil {
-				lg.Warn("组节点变化后同步失败", "user_id", uid, "err", err)
+		detach(ctx, func(ctx context.Context) {
+			for _, uid := range userIDs {
+				if err := syncSvc.ReconcileUser(ctx, uid); err != nil {
+					lg.Warn("组节点变化后同步失败", "user_id", uid, "err", err)
+				}
 			}
-		}
+		})
 	})
-	cron.StartXrayCollect(st, xraySvc, syncSvc, extSvc, cfg, lg)
+	s.stopXrayCollect = cron.StartXrayCollect(st, xraySvc, syncSvc, extSvc, cfg, lg)
 	RegisterXrayRoutes(engine, &XrayHandler{instanceSvc: xraySvc, syncSvc: syncSvc, extSvc: extSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
 	// 候选集重算与同步 diff 接线：节点启停/公共变化、检测可见性变化
 	nodeSvc.SetOnXrayChanged(func(ctx context.Context, n node.Node, oldEnabled, oldPublic bool) {
-		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
-			lg.Warn("节点变化后候选集重算失败", "err", err)
-		}
-		// Build6-2 精确 diff：只同步受该节点影响的 active 用户
-		if err := syncSvc.SyncUsersForNodes(ctx, []int64{n.ID}); err != nil {
-			lg.Warn("节点变化后同步失败", "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+				lg.Warn("节点变化后候选集重算失败", "err", err)
+			}
+			// Build6-2 精确 diff：只同步受该节点影响的 active 用户
+			if err := syncSvc.SyncUsersForNodes(ctx, []int64{n.ID}); err != nil {
+				lg.Warn("节点变化后同步失败", "err", err)
+			}
+		})
 	})
 	xraySvc.SetOnNodeVisibilityChanged(func(ctx context.Context, changes []xray.NodeChange) {
-		if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
-			lg.Warn("节点检测后候选集重算失败", "err", err)
-		}
-		ids := make([]int64, 0, len(changes))
-		seen := map[int64]bool{}
-		for _, ch := range changes {
-			if ch.NodeID == 0 || seen[ch.NodeID] {
-				continue
+		detach(ctx, func(ctx context.Context) {
+			if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+				lg.Warn("节点检测后候选集重算失败", "err", err)
 			}
-			seen[ch.NodeID] = true
-			ids = append(ids, ch.NodeID)
-		}
-		if err := syncSvc.SyncUsersForNodes(ctx, ids); err != nil {
-			lg.Warn("节点检测后同步失败", "err", err)
-		}
+			ids := make([]int64, 0, len(changes))
+			seen := map[int64]bool{}
+			for _, ch := range changes {
+				if ch.NodeID == 0 || seen[ch.NodeID] {
+					continue
+				}
+				seen[ch.NodeID] = true
+				ids = append(ids, ch.NodeID)
+			}
+			if err := syncSvc.SyncUsersForNodes(ctx, ids); err != nil {
+				lg.Warn("节点检测后同步失败", "err", err)
+			}
+		})
 	})
 	// 节点删除后的 Xray 清理钩子（Step1 先落地，Step3 可升级为期望集口径）
 	nodeSvc.SetOnXrayNodeDeleted(func(ctx context.Context, targets []node.XrayDeleteTarget) {
-		for _, t := range targets {
-			if t.APIAddr == "" || t.Tag == "" || t.Email == "" {
-				continue
+		detach(ctx, func(ctx context.Context) {
+			for _, t := range targets {
+				if t.APIAddr == "" || t.Tag == "" || t.Email == "" {
+					continue
+				}
+				client, err := xray.Dial(t.APIAddr)
+				if err != nil {
+					lg.Warn("节点删除后清理 Xray 用户失败（拨号）", "email", t.Email, "addr", t.APIAddr, "err", err)
+					continue
+				}
+				rctx, cancel := context.WithTimeout(ctx, xray.RPCTimeout)
+				err = client.RemoveUser(rctx, t.Tag, t.Email)
+				cancel()
+				_ = client.Close()
+				if err != nil && !xray.IsNotFound(err) {
+					lg.Warn("节点删除后清理 Xray 用户失败", "email", t.Email, "tag", t.Tag, "err", err)
+				}
 			}
-			client, err := xray.Dial(t.APIAddr)
-			if err != nil {
-				lg.Warn("节点删除后清理 Xray 用户失败（拨号）", "email", t.Email, "addr", t.APIAddr, "err", err)
-				continue
-			}
-			rctx, cancel := context.WithTimeout(ctx, xray.RPCTimeout)
-			err = client.RemoveUser(rctx, t.Tag, t.Email)
-			cancel()
-			_ = client.Close()
-			if err != nil && !xray.IsNotFound(err) {
-				lg.Warn("节点删除后清理 Xray 用户失败", "email", t.Email, "tag", t.Tag, "err", err)
-			}
-		}
+		})
 	})
 	// 代理组服务（Build5 Step 2：预设/自建组 CRUD + DAG + 内容约束）
 	proxyGroupSvc := proxygroup.NewService(st, lg)
@@ -220,9 +242,11 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
 		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc,
 		onGenerateActivated: func(ctx context.Context) {
-			if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
-				lg.Warn("装配首版激活后候选集重算失败", "err", err)
-			}
+			detach(ctx, func(ctx context.Context) {
+				if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
+					lg.Warn("装配首版激活后候选集重算失败", "err", err)
+				}
+			})
 		},
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	RegisterProfileRoutes(engine, &ProfileHandler{userSvc: users, st: st, cfg: cfg, syncSvc: syncSvc}, authSvc.SessionMiddleware())
@@ -231,38 +255,48 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	RegisterUserAdminRoutes(engine, &UserAdminHandler{adminSvc: adminUserSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
 	// 用户生命周期 Xray 同步接线（Build6 Step3）
 	users.SetOnUserActive(func(ctx context.Context, userID int64) {
-		if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
-			lg.Warn("用户激活后 Xray 同步失败", "user_id", userID, "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
+				lg.Warn("用户激活后 Xray 同步失败", "user_id", userID, "err", err)
+			}
+		})
 	})
 	adminUserSvc.SetOnUserActive(func(ctx context.Context, userID int64) {
-		if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
-			lg.Warn("管理员激活用户后 Xray 同步失败", "user_id", userID, "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
+				lg.Warn("管理员激活用户后 Xray 同步失败", "user_id", userID, "err", err)
+			}
+		})
 	})
 	adminUserSvc.SetOnUserDisabled(func(ctx context.Context, userID int64) {
-		targets, err := syncSvc.Targets(ctx, userID)
-		if err != nil {
-			lg.Warn("读取禁用用户目标失败", "user_id", userID, "err", err)
-			return
-		}
-		if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
-			lg.Warn("禁用用户后 Xray 移除失败", "user_id", userID, "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			targets, err := syncSvc.Targets(ctx, userID)
+			if err != nil {
+				lg.Warn("读取禁用用户目标失败", "user_id", userID, "err", err)
+				return
+			}
+			if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
+				lg.Warn("禁用用户后 Xray 移除失败", "user_id", userID, "err", err)
+			}
+		})
 	})
 	adminUserSvc.SetOnUserGroupChanged(func(ctx context.Context, userID int64) {
-		if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
-			lg.Warn("换组后 Xray 同步失败", "user_id", userID, "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
+				lg.Warn("换组后 Xray 同步失败", "user_id", userID, "err", err)
+			}
+		})
 	})
 	// 用户删除前按“当前期望目标集”收集清理目标，删除后执行 RemoveUser（Build6-2 补强）
 	adminUserSvc.SetOnUserDeleting(func(ctx context.Context, userID int64) ([]xray.Target, error) {
 		return syncSvc.Targets(ctx, userID)
 	})
 	adminUserSvc.SetOnUserDeleted(func(ctx context.Context, userID int64, targets []xray.Target) {
-		if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
-			lg.Warn("删除用户后 Xray 清理失败", "user_id", userID, "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
+				lg.Warn("删除用户后 Xray 清理失败", "user_id", userID, "err", err)
+			}
+		})
 	})
 	// 邮件服务 + 审批中心（Build3 Step 2）：接通密码重置邮件与欢迎邮件注入点（SMTP 未配置/失败不阻断主流程）
 	mailSvc := mail.NewService(cfg, lg)
@@ -279,9 +313,11 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	RegisterApprovalRoutes(engine, &ApprovalHandler{approvalSvc: approvalSvc, mailSvc: mailSvc, users: users},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	approvalSvc.SetOnApproved(func(ctx context.Context, userID int64) {
-		if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
-			lg.Warn("审批通过后 Xray 同步失败", "user_id", userID, "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if err := syncSvc.ReconcileUser(ctx, userID); err != nil {
+				lg.Warn("审批通过后 Xray 同步失败", "user_id", userID, "err", err)
+			}
+		})
 	})
 	approvalSvc.SetOnRejected(func(ctx context.Context, userID int64) {
 		// 保留原回调；实际清理由下方 onUserDeleting/onUserDeleted 负责。
@@ -291,15 +327,18 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 		return syncSvc.Targets(ctx, userID)
 	})
 	approvalSvc.SetOnUserDeleted(func(ctx context.Context, userID int64, targets []xray.Target) {
-		if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
-			lg.Warn("审批拒绝后 Xray 清理失败", "user_id", userID, "err", err)
-		}
+		detach(ctx, func(ctx context.Context) {
+			if _, _, err := syncSvc.RemoveUserFromTargets(ctx, userID, targets); err != nil {
+				lg.Warn("审批拒绝后 Xray 清理失败", "user_id", userID, "err", err)
+			}
+		})
 	})
 	// 面板配置（Build3 Step 3）：分区读写 + 死锁防护 + 加密脱敏；接通调试模式 5xx 详情
 	response.SetDebugProvider(func(ctx context.Context) bool {
 		return cfg.GetBool(ctx, "debug_mode", false)
 	})
 	offClearSvc := xray.NewOffClearService(st, cfg, taskReg, lg)
+	offClearSvc.SetAfterAdvancedOff(syncSvc.AfterAdvancedOff)
 	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, lg)
 	adminCfgSvc.SetAdvancedModeSwitcher(offClearSvc)
 	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trustProxy},
@@ -314,6 +353,60 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	exportSvc := config.NewExportService(st, cfg, dataDir, mode, lg)
 	exportSvc.SetSeedPresets(setupSvc.SeedPresetsTx) // Setup 导入分支预置默认组/平台
 	exportSvc.SetTaskRegistry(taskReg)
+	// v2 导入后处理：旧 Xray 清理、自动检测、显示名/ext 重绑、装配重绑与对账
+	exportSvc.SetCleanupXrayTargets(func(ctx context.Context, targets []config.ImportCleanupTarget) {
+		for _, t := range targets {
+			if t.APIAddr == "" || t.Tag == "" || t.Email == "" {
+				continue
+			}
+			client, err := xray.Dial(t.APIAddr)
+			if err != nil {
+				lg.Warn("导入后清理旧 Xray 账号失败（拨号）", "email", t.Email, "addr", t.APIAddr, "err", err)
+				continue
+			}
+			rctx, cancel := context.WithTimeout(ctx, xray.RPCTimeout)
+			err = client.RemoveUser(rctx, t.Tag, t.Email)
+			cancel()
+			_ = client.Close()
+			if err != nil && !xray.IsNotFound(err) {
+				lg.Warn("导入后清理旧 Xray 账号失败", "email", t.Email, "tag", t.Tag, "err", err)
+			}
+		}
+	})
+	exportSvc.SetDetectImportedInstances(func(ctx context.Context, payload *config.ExportPayload) []string {
+		var hints []string
+		instances, err := xraySvc.List(ctx)
+		if err != nil {
+			return append(hints, "读取导入实例列表失败: "+err.Error())
+		}
+		bySlug := map[string]xray.Instance{}
+		for _, inst := range instances {
+			bySlug[inst.Slug] = inst
+		}
+		for _, exp := range payload.Instances {
+			inst, ok := bySlug[exp.Slug]
+			if !ok {
+				hints = append(hints, "实例 "+exp.Slug+" 未找到，跳过检测")
+				continue
+			}
+			if !inst.Enabled {
+				hints = append(hints, "实例 "+exp.Name+" 已停用，跳过自动检测")
+				continue
+			}
+			if _, err := xraySvc.DetectNodes(ctx, inst.ID); err != nil {
+				hints = append(hints, "实例 "+exp.Name+" 自动检测失败: "+err.Error())
+			}
+		}
+		return hints
+	})
+	exportSvc.SetPostImportRebindReconcile(func(ctx context.Context, _ *config.ExportPayload) []string {
+		var hints []string
+		if err := syncSvc.SyncAllActive(ctx); err != nil {
+			hints = append(hints, "面板用户重推失败: "+err.Error())
+		}
+		hints = append(hints, extSvc.SyncAllExt(ctx)...)
+		return hints
+	})
 	backupSvc := backup.NewService(st, dataDir, lg)
 	RegisterSettingsOpsRoutes(engine, &SettingsOpsHandler{
 		clearSvc: clearSvc, exportSvc: exportSvc, backupSvc: backupSvc, setupSvc: setupSvc, limiter: limiter,
@@ -420,6 +513,9 @@ func (s *Server) Run(ctx context.Context) error {
 	case err := <-errCh:
 		return fmt.Errorf("HTTP 服务异常退出: %w", err)
 	case <-ctx.Done(): // 非阻塞优雅退出：等待在途请求收尾
+		if s.stopXrayCollect != nil {
+			s.stopXrayCollect()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.httpSrv.Shutdown(shutdownCtx); err != nil {

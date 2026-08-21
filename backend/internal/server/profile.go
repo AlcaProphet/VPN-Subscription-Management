@@ -104,5 +104,10 @@ func (h *ProfileHandler) updatePassword(c *gin.Context) {
 
 func (h *ProfileHandler) traffic(c *gin.Context) {
 	userID := c.GetInt64(auth.CtxUserID)
-	OK(c, trafficPayload(c.Request.Context(), h.st, h.cfg, h.syncSvc, userID))
+	payload, err := trafficPayload(c.Request.Context(), h.st, h.cfg, h.syncSvc, userID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, payload)
 }

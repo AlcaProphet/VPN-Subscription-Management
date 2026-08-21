@@ -94,5 +94,21 @@ func cipherTypeOf(cipher string) (shadowsocks.CipherType, error) {
 	}
 }
 
+// cipherNameOf 将 shadowsocks.CipherType 反查为 protocol_json 使用的规范化字符串。
+func cipherNameOf(t shadowsocks.CipherType) string {
+	switch t {
+	case shadowsocks.CipherType_CHACHA20_POLY1305:
+		return "chacha20-ietf-poly1305"
+	case shadowsocks.CipherType_XCHACHA20_POLY1305:
+		return "xchacha20-ietf-poly1305"
+	case shadowsocks.CipherType_AES_256_GCM:
+		return "aes-256-gcm"
+	case shadowsocks.CipherType_AES_128_GCM:
+		return "aes-128-gcm"
+	default:
+		return ""
+	}
+}
+
 // ErrUnsupportedProtocol 供调用方识别不支持协议。
 var ErrUnsupportedProtocol = errors.New("不支持的 Xray 节点协议")

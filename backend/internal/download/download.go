@@ -267,9 +267,9 @@ func currentYM() string {
 }
 
 // PreviewForUser 会话凭据预览（Design2 §4.4/§5.10）：
-// 管理员与普通用户统一按「平台 → 唯一订阅 → 当前激活版本」解析；
-// 普通用户有自定义订阅时优先返回自定义内容；平台无订阅行返回 ErrUnassigned。
-func (s *Service) PreviewForUser(ctx context.Context, userID int64, platformSlug string) ([]byte, error) {
+// 管理员返回当前激活版本原文；普通用户有自定义订阅时优先返回自定义内容，
+// 订阅装配模板按自身动态渲染（走注入的 renderUser），直接上传内容原样返回。
+func (s *Service) PreviewForUser(ctx context.Context, isAdmin bool, userID int64, platformSlug string) ([]byte, error) {
 	var platformID int64
 	if err := s.store.DB().QueryRowContext(ctx,
 		`SELECT id FROM platforms WHERE slug = ?`, platformSlug).Scan(&platformID); err != nil {
@@ -294,7 +294,14 @@ func (s *Service) PreviewForUser(ctx context.Context, userID int64, platformSlug
 	if err != nil {
 		return nil, err
 	}
-	return s.versions.ReadCurrent(ctx, version.OwnerSubscription, subID)
+	content, fileName, err := s.versions.ReadCurrentWithName(ctx, version.OwnerSubscription, subID)
+	if err != nil {
+		return nil, err
+	}
+	if isAdmin || s.renderUser == nil {
+		return content, nil
+	}
+	return s.renderUser(ctx, subID, userID, content, fileName)
 }
 
 // ResolveShare 分享下载解析（Step 5 接通）：token 查 share_tokens → 读当前版本；

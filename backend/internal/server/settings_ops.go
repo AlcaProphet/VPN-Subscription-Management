@@ -118,11 +118,12 @@ func (h *SettingsOpsHandler) importCommon(c *gin.Context, setupMode bool) {
 	}
 	password := c.PostForm("password")
 	confirmWord := c.PostForm("confirm_word")
+	disableConfirmWord := c.PostForm("disable_confirm_word")
 	if password == "" || confirmWord == "" {
 		Fail(c, http.StatusBadRequest, "导出密码与确认词必填")
 		return
 	}
-	taskID, err := h.exportSvc.ImportV2(c.Request.Context(), data, password, confirmWord, setupMode)
+	taskID, err := h.exportSvc.ImportV2(c.Request.Context(), data, password, confirmWord, disableConfirmWord, setupMode)
 	if err != nil {
 		if errors.Is(err, config.ErrModeRestricted) {
 			Fail(c, http.StatusForbidden, err.Error()) // 仅 Production 提供（R07-06 哨兵映射，Setup 导入同路径）

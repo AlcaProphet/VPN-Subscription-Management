@@ -77,12 +77,23 @@ func ValidateAddr(apiAddr string) error {
 	return nil
 }
 
+// withRPCDeadline 为普通 gRPC 调用补齐 30s 单次超时；若调用方已带 deadline 则沿用。
+func withRPCDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, RPCTimeout)
+}
+
+
 // AddUser 向指定 inbound 添加用户；`already exists.` 视为幂等成功。
 func (c *Client) AddUser(ctx context.Context, tag string, u *protocol.User) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	rctx, cancel := withRPCDeadline(ctx)
+	defer cancel()
 	op := serial.ToTypedMessage(&handlercmd.AddUserOperation{User: u})
-	_, err := c.handler.AlterInbound(ctx, &handlercmd.AlterInboundRequest{Tag: tag, Operation: op})
+	_, err := c.handler.AlterInbound(rctx, &handlercmd.AlterInboundRequest{Tag: tag, Operation: op})
 	if err == nil || strings.Contains(err.Error(), "already exists.") {
 		return nil
 	}
@@ -93,8 +104,10 @@ func (c *Client) AddUser(ctx context.Context, tag string, u *protocol.User) erro
 func (c *Client) RemoveUser(ctx context.Context, tag, email string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	rctx, cancel := withRPCDeadline(ctx)
+	defer cancel()
 	op := serial.ToTypedMessage(&handlercmd.RemoveUserOperation{Email: email})
-	_, err := c.handler.AlterInbound(ctx, &handlercmd.AlterInboundRequest{Tag: tag, Operation: op})
+	_, err := c.handler.AlterInbound(rctx, &handlercmd.AlterInboundRequest{Tag: tag, Operation: op})
 	if err == nil || strings.Contains(err.Error(), "not found.") {
 		return nil
 	}
@@ -105,7 +118,9 @@ func (c *Client) RemoveUser(ctx context.Context, tag, email string) error {
 func (c *Client) ListInbounds(ctx context.Context) (*handlercmd.ListInboundsResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	resp, err := c.handler.ListInbounds(ctx, &handlercmd.ListInboundsRequest{})
+	rctx, cancel := withRPCDeadline(ctx)
+	defer cancel()
+	resp, err := c.handler.ListInbounds(rctx, &handlercmd.ListInboundsRequest{})
 	if err != nil {
 		return nil, &OpError{Op: "ListInbounds", Instance: c.addr(), Err: err}
 	}
@@ -116,7 +131,9 @@ func (c *Client) ListInbounds(ctx context.Context) (*handlercmd.ListInboundsResp
 func (c *Client) GetInboundUsers(ctx context.Context, tag, email string) (*handlercmd.GetInboundUserResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	resp, err := c.handler.GetInboundUsers(ctx, &handlercmd.GetInboundUserRequest{Tag: tag, Email: email})
+	rctx, cancel := withRPCDeadline(ctx)
+	defer cancel()
+	resp, err := c.handler.GetInboundUsers(rctx, &handlercmd.GetInboundUserRequest{Tag: tag, Email: email})
 	if err != nil {
 		return nil, &OpError{Op: "GetInboundUsers", Instance: c.addr(), Tag: tag, Err: err}
 	}
@@ -127,7 +144,9 @@ func (c *Client) GetInboundUsers(ctx context.Context, tag, email string) (*handl
 func (c *Client) QueryStats(ctx context.Context, pattern string, reset bool) (*statscmd.QueryStatsResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	resp, err := c.stats.QueryStats(ctx, &statscmd.QueryStatsRequest{Pattern: pattern, Reset_: reset})
+	rctx, cancel := withRPCDeadline(ctx)
+	defer cancel()
+	resp, err := c.stats.QueryStats(rctx, &statscmd.QueryStatsRequest{Pattern: pattern, Reset_: reset})
 	if err != nil {
 		return nil, &OpError{Op: "QueryStats", Instance: c.addr(), Err: err}
 	}

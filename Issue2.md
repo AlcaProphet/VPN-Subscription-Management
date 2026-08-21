@@ -602,12 +602,32 @@
 - **R15-13（归档与文档状态）**：不执行归档/AGENTS/README 更新，等待用户命令；Issue2 与 Build6/Build7 变更记录中仅记录该决策与 R15 关联。
 - **R15-14（error/死代码/AfterAdvancedOff）**：`SyncService` 补 `AfterAdvancedOff(ctx, targets []OffClearTarget)`——直接按快照 `xray.Dial` + 30s `RemoveUser` + warn，不依赖已删除的 xray_instances；`OffClearService` 经构造注入 `afterOff func`（server.New 接线到 `syncSvc.AfterAdvancedOff`），替换 offclear.go 提交后自写清理循环。`DiffPush` 当前无调用方：若继续保留则改为返回/记录 Remove/Push 错误并在 server 接线精确 diff；否则删除并同步修订 Build6-2 表述。`trafficPayload` 改为返回 `(gin.H, error)`，`profile/home` 对 DB 错误返回 500；`user.AdminService.List` 高级字段查询错误返回 error；`config.Export` 不再忽略 `exportInstances/exportAccounts` 错误；`recordCollectError`/`markExt*` 等写库失败至少 log warn；删除 `userUsage` 重复行、未用 `FormatVersionV1`、`StoreDB`、`SetOnRejected` 空实现；`Server` 保存 `cron.StartXrayCollect` 返回的 stop 并在 `Run` 退出时调用；修正 `protocolFromType`（未知协议应返回 `xray.proxy.<协议>.inbound.Config` 中的协议名而非 `inbound`）。
 
+
+### R15 当前修复状态（2026-08-21 执行后）
+
+| 编号 | 状态 | 说明 |
+|---|---|---|
+| R15-01 | ✅ 已修复 | 异步任务改用 `context.WithoutCancel`；后端全量测试通过 |
+| R15-02 | ✅ 已修复 | `Target.Port` + 渲染使用节点端口 |
+| R15-03 | ✅ 已修复 | `buildProtocolJSON` 提取 vless flow / ss cipher；新增 detect_test |
+| R15-04 | ✅ 已修复 | `clashProtocolName` 映射 shadowsocks→ss |
+| R15-05 | ✅ 已修复 | v2 导入增加旧清理/检测/display_name/ext 重绑/重推/双确认词；前端两步确认与 task_id 轮询 |
+| R15-06 | ✅ 已修复 | OFF 状态翻转与任务登记同事务；新增 offclear_test 并发单任务 |
+| R15-07 | ◧ 进行中 | XrayInstancesView 已补编辑/测试连接/API Tag/采集异常；GroupsView 已补候选集/节点分配/默认配额；SettingsView 已补 v2 两步导入；UsersView 高级列与配额操作仍待补 |
+| R15-08 | ◧ 进行中 | 已新增 detect_test、offclear_test、xray-instances-view.spec；其余测试仍待补 |
+| R15-09 | ✅ 已修复 | Client 无 deadline 自动 30s；副作用回调异步化 |
+| R15-10 | ✅ 已修复 | ext action 迁移、PushOne/Retry 超限与 remove 状态机 |
+| R15-11 | ✅ 已修复 | SR/generic 注释优先级与普通用户预览渲染 |
+| R15-12 | ✅ 已修复 | CandidateNode 含 node_id/in_partial_blueprint，前后端契约同步 |
+| R15-13 | ◧ 待用户决定 | 未执行归档/AGENTS/README 更新 |
+| R15-14 | ◧ 进行中 | 已补 AfterAdvancedOff、protocolFromType、cron stop、trafficPayload 错误、清理部分死代码；DiffPush/SetOnRejected/Admin List 错误处理等仍待收尾 |
+
 ## 附、后续修复顺序（交接给下一轮）
 
 > 本附件用于下一个新对话快速接续。**最新优先级（用户决策 2026-08-21）：先执行下方「0-R15. Build6/Build7 修复」；Build4/5 修复收口（旧 0~5 项）已全部完成，仅留档备查。**
 
 
-### 0-R15. Build6/Build7 修复（用户已确认 2026-08-21；先记录，暂不修复）
+### 0-R15. Build6/Build7 修复（用户已确认 2026-08-21；已执行首轮，仍有 R15-07/08/14 未闭环）
 
 - **触发条件：** 用户下令开始修复后执行；当前只做记录与方案准备，不改代码。
 - **决策：** ① R15-13 归档 Build4~7 与 AGENTS/README 状态更新由用户决定时机；② 补实现 `AfterAdvancedOff` 并接线；③ 修复开始时将 Build6/Build7 受影响 Step 回退 ◧，复验通过后恢复 ✅；④ R15-12 采用 `[{name, in_partial_blueprint}]`；⑤ 其余按「R15 决策与修复方法」执行。

@@ -622,4 +622,5 @@ Step 4+5 ──▶ Step 6（集成验收）
 | v2.2 | 2026-08-20 | 用户决策落盘：Q2 全局任务 registry 下沉为中性包 `backend/internal/tasks`（server 只做查询路由适配，Registry 构造注入，业务包不 import server）；Q3 OFF 清空按「事务内登记」字面同事务执行，接受 DB 回滚残留幽灵任务边界（重启后统一 failed 兜底）。Step1 文件清单与 item 6 同步修订 |
 | v2.3 | 2026-08-20 | 依据 Build6-2 完成 Build6 内部补强：Clash `render_plan_json` 自包含化与 `RenderClashPlan` 全量重渲染；`assembly/links` 共享子包抽取；用户删除/审批拒绝、组删除/组节点变更、节点 missing/allocatable 精确 diff；实例/节点删除期望集清理；假 Xray 端到端剧本。详见 [Build6-2.md](./Build6-2.md) |
 | v2.4 | 2026-08-21 | Build6/Build7 交付核查未完全达标：对应问题见 [Issue2.md](./Issue2.md) R15-01~R15-14（异步任务请求 Context、动态节点端口、protocol_json flow/cipher、Clash ss 映射、候选集契约、同步回调/超时、SR/generic 注释与预览、测试缺口、error/死代码）。用户决策：归档由用户决定；`AfterAdvancedOff` 补实现并接线；R15 修复开始时本 Build 受影响 Step 回退 ◧，复验通过后恢复 ✅。暂不修改代码。 |
+| v2.5 | 2026-08-21 | 执行 R15 首轮修复：异步任务 Context、节点端口、protocol_json、Clash ss 映射、OFF 事务、Client 30s deadline、回调异步、SR/generic 注释与预览、候选集对象、AfterAdvancedOff、cron stop、trafficPayload 错误处理等已落地；后端 `go test ./...` 通过。R15-07/08/14 仍部分进行，见 Issue2 状态表。 |
 

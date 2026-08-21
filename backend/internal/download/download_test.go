@@ -320,8 +320,8 @@ func TestAssemblySubscriptionDownloadBase64(t *testing.T) {
 	if string(res.Content) != want {
 		t.Fatalf("装配模板下载应整体 base64: got=%q want=%q", res.Content, want)
 	}
-	// 预览保持明文
-	preview, err := e.svc.PreviewForUser(ctx, e.user, "platform-x")
+	// 预览保持明文（测试环境未注入 renderUser，普通用户也走原文）
+	preview, err := e.svc.PreviewForUser(ctx, false, e.user, "platform-x")
 	if err != nil {
 		t.Fatalf("预览失败: %v", err)
 	}

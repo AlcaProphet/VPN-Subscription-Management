@@ -441,6 +441,7 @@ async function confirmDisableAdvanced() {
 const exportPwd = ref('')
 const exporting = ref(false)
 const importOpen = ref(false)
+const disableImportOpen = ref(false)
 const importForm = reactive({ file: null as File | null, password: '' })
 const importing = ref(false)
 
@@ -489,7 +490,18 @@ function onImportFile(file: File) {
   return false
 }
 
-async function doImport() {
+// 第一步确认 IMPORT 后进入第二步 DISABLE（v2 导入在无实例/账号且高级关闭时强制需要；
+// 其它导入也会提交该字段，由后端按 payload 决定是否校验）。
+function doImport() {
+  if (!importForm.file || !importForm.password) {
+    Notify.error('请选择文件并输入导出密码')
+    return
+  }
+  importOpen.value = false
+  disableImportOpen.value = true
+}
+
+async function submitImport() {
   if (!importForm.file || !importForm.password) {
     Notify.error('请选择文件并输入导出密码')
     return
@@ -501,11 +513,21 @@ async function doImport() {
     fd.append('password', importForm.password)
     // 确认词由 ConfirmModal 按钮禁用保证输入正确（okDisabled），后端二次校验兜底；与 SetupView 硬编码模式统一（R08-02）
     fd.append('confirm_word', 'IMPORT')
-    await importConfig(fd)
-    importOpen.value = false
+    fd.append('disable_confirm_word', 'DISABLE')
+    const res = await importConfig(fd)
+    disableImportOpen.value = false
+    if (res.task_id) {
+      await pollTask({
+        submit: () => Promise.resolve(),
+        query: () => getAdminTask(res.task_id!),
+        isDone: (t) => t.status === 'succeeded' || t.status === 'failed',
+      }).run()
+    }
     Modal.warning({
       title: '导入完成',
-      content: '配置已整体覆盖（导出文件中不存在的配置键已清除）；前端地址与回调地址已按导出值覆盖，若域名/端口有变化请先核对修改（修改后需重启生效）。请立即重启容器后再重新登录。',
+      content: res.task_id
+        ? '配置已导入并完成异步处理，请刷新页面后确认高级模式状态。'
+        : '配置已整体覆盖（导出文件中不存在的配置键已清除）；前端地址与回调地址已按导出值覆盖，若域名/端口有变化请先核对修改（修改后需重启生效）。请立即重启容器后再重新登录。',
       okText: '退出登录',
       onOk: async () => {
         await auth.logoutAction()
@@ -938,6 +960,10 @@ onMounted(() => {
     <ConfirmModal :open="importOpen" title="导入配置（整体覆盖）" danger confirm-word="IMPORT" :loading="importing"
                   content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；签名密钥替换后全部会话立即失效（含当前管理员）；导入完成后请立即重启容器再重新登录。"
                   @confirm="doImport" @update:open="importOpen = false" />
+      <!-- v2 导入第二确认（DISABLE；仅当导入会清空高级模式数据时后端强制校验） -->
+      <ConfirmModal :open="disableImportOpen" title="确认清空高级模式数据" danger confirm-word="DISABLE" :loading="importing"
+                    content="该导入文件不包含 Xray 实例/独立账号且高级模式为关闭状态，将按 OFF 清空口径移除旧高级数据（用户凭据、配额、流量记录、Xray 表等）。请输入 DISABLE 继续。"
+                    @confirm="submitImport" @update:open="disableImportOpen = false" />
     <!-- 备份确认 -->
     <ConfirmModal :open="backupOpen" title="下载备份"
                   content="将生成数据库一致性快照并打包全部内容文件下载（tar.gz），确定继续？"

@@ -54,8 +54,13 @@ func (h *HomeHandler) summary(c *gin.Context) {
 		return
 	}
 	userID := c.GetInt64(auth.CtxUserID)
+	traffic, err := trafficPayload(ctx, h.st, h.cfg, h.syncSvc, userID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 	OK(c, gin.H{
-		"traffic":   trafficPayload(ctx, h.st, h.cfg, h.syncSvc, userID),
+		"traffic":   traffic,
 		"home_rule": resp.HomeRule,
 	})
 }
