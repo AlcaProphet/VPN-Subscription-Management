@@ -83,6 +83,41 @@ func (s *Service) validate(ctx context.Context, in GenerateInput, ld *loadedData
 			}
 		}
 	}
+	// 本次装配的代理组节点引用顺序校验：key 必须是已勾选组，value 只能引用该组定义中且已勾选的节点，且不能重复。
+	selectedGroupSet := map[string]bool{}
+	for _, name := range in.GroupNames {
+		selectedGroupSet[name] = true
+	}
+	selectedNodeSet := map[string]bool{}
+	for _, name := range in.NodeNames {
+		selectedNodeSet[name] = true
+	}
+	for gName, order := range in.GroupNodeOrders {
+		if !selectedGroupSet[gName] {
+			return fmt.Errorf("%w: 代理组节点顺序引用了未勾选的组: %s", ErrBadRequest, gName)
+		}
+		g, ok := ld.groups[gName]
+		if !ok {
+			return fmt.Errorf("%w: 代理组节点顺序引用了不存在的组: %s", ErrBadRequest, gName)
+		}
+		groupNodeSet := map[string]bool{}
+		for _, ref := range g.Nodes {
+			groupNodeSet[ref] = true
+		}
+		seen := map[string]bool{}
+		for _, ref := range order {
+			if !selectedNodeSet[ref] {
+				return fmt.Errorf("%w: 组 %s 节点顺序引用了未勾选节点: %s", ErrBadRequest, gName, ref)
+			}
+			if !groupNodeSet[ref] {
+				return fmt.Errorf("%w: 组 %s 节点顺序引用了非本组定义节点: %s", ErrBadRequest, gName, ref)
+			}
+			if seen[ref] {
+				return fmt.Errorf("%w: 组 %s 节点顺序存在重复节点: %s", ErrBadRequest, gName, ref)
+			}
+			seen[ref] = true
+		}
+	}
 	// 规则目标组必须属于本次输出集合（强制组或已勾选组；sr-conf 允许 PROXY/DIRECT）
 	outputGroups := map[string]bool{node.ForceDirect: true, node.ForceOverseas: true, node.ForceFallback: true}
 	for _, name := range in.GroupNames {

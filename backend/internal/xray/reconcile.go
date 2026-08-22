@@ -9,6 +9,7 @@ import (
 	"github.com/xtls/xray-core/common/protocol"
 	"google.golang.org/protobuf/proto"
 
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/tasks"
 )
 
@@ -234,7 +235,16 @@ func (s *SyncService) CredentialsOne(ctx context.Context, item ReconcileItem) er
 		return errors.New("缺少用户 ID")
 	}
 	target := Target{NodeID: item.NodeID, InstanceID: item.InstanceID, Tag: item.InboundTag}
-	_, _, _ = s.RemoveUserFromTargets(ctx, *item.UserID, []Target{target})
+	removed, failed, err := s.RemoveUserFromTargets(ctx, *item.UserID, []Target{target})
+	if err != nil {
+		return err
+	}
+	if failed > 0 {
+		return errors.New("移除旧账号失败，已中止凭据修复")
+	}
+	if removed == 0 && !s.cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
+		return nil
+	}
 	return s.pushUserTarget(ctx, *item.UserID, target)
 }
 func (s *SyncService) RepairPushAsync(ctx context.Context, instanceID int64) (string, error) {
@@ -341,6 +351,13 @@ func (s *SyncService) pushUserTarget(ctx context.Context, userID int64, t Target
 		s.markFailed(ctx, userID, t, err)
 		return err
 	}
+	if err := s.creds.EnsureCredentials(ctx, userID); err != nil {
+		if errors.Is(err, ErrAdvancedOff) {
+			return nil
+		}
+		s.markFailed(ctx, userID, t, err)
+		return err
+	}
 	uuid, secret, err := s.creds.Credentials(ctx, userID)
 	if err != nil {
 		s.markFailed(ctx, userID, t, err)
@@ -360,6 +377,14 @@ func (s *SyncService) pushUserTarget(ctx context.Context, userID int64, t Target
 	if err := client.AddUser(ctx, t.Tag, u); err != nil {
 		s.markFailed(ctx, userID, t, err)
 		return err
+	}
+	if !s.cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
+		if rerr := client.RemoveUser(ctx, t.Tag, UserEmail(userID)); rerr != nil && !IsNotFound(rerr) {
+			s.log.Warn("高级模式关闭后补偿移除用户失败", "user_id", userID, "tag", t.Tag, "err", rerr)
+		}
+		compErr := errors.New("高级模式已关闭，已补偿移除")
+		s.markFailed(ctx, userID, t, compErr)
+		return compErr
 	}
 	s.markSynced(ctx, userID, t)
 	return nil

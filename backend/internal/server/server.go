@@ -72,6 +72,7 @@ type Server struct {
 	mode            string
 	log             *slog.Logger
 	stopXrayCollect func()
+	xrayInstances   *xray.InstanceService
 	// 后续 Step 的 Handler 经构造函数追加注入（setup/oidc...）
 }
 
@@ -145,6 +146,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	taskReg := tasks.NewRegistry()
 	RegisterTasksRoutes(engine, &TasksHandler{registry: taskReg}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	xraySvc := xray.NewInstanceService(st, lg, taskReg)
+	s.xrayInstances = xraySvc
 	credsSvc := xray.NewCredentialService(st, cfg)
 	extSvc := xray.NewExtService(st, cfg, xraySvc, lg)
 	syncSvc := xray.NewSyncService(st, cfg, credsSvc, xraySvc, taskReg, lg)
@@ -537,6 +539,9 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		if err := s.httpSrv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("优雅退出失败: %w", err)
+		}
+		if s.xrayInstances != nil {
+			s.xrayInstances.CloseAll()
 		}
 		return nil
 	}

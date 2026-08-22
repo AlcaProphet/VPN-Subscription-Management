@@ -234,6 +234,10 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 	if payload.FormatVersion != FormatVersion {
 		s.log.Warn("导入配置 format_version 不匹配", "got", payload.FormatVersion, "want", FormatVersion)
 	}
+	// 导入保护：v1 兼容路径同样必须检查签名密钥变化，防止空 key/不同 key 破坏既有业务密文。
+	if err := s.checkImportProtection(ctx, payload); err != nil {
+		return err
+	}
 	// 事务内整体覆盖：先清空全部现有配置键再写入导出内容（导出文件中不存在的键一并清除——严格整体覆盖）
 	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM system_config`); err != nil {
@@ -549,18 +553,24 @@ func (s *ExportService) rebindImportedExtNodes(ctx context.Context, payload *Exp
 }
 
 func (s *ExportService) checkImportProtection(ctx context.Context, payload *ExportPayload) error {
-	newKey, _ := payload.Config[KeySigningKey]
-	currentKey, _ := s.cfg.GetRaw(ctx, KeySigningKey)
-	if newKey == "" || newKey == currentKey {
+	newKey := payload.Config[KeySigningKey]
+	currentKey, err := s.cfg.GetRaw(ctx, KeySigningKey)
+	if err != nil {
+		return err
+	}
+	// 只要导入后的签名密钥与当前不同（含导入文件缺失/为空导致清除当前密钥），且存在业务密文，就拒绝整个导入。
+	if newKey == currentKey {
 		return nil
 	}
 	var count int
-	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM users WHERE (uuid_encrypted IS NOT NULL AND uuid_encrypted != '') OR (proxy_secret_encrypted IS NOT NULL AND proxy_secret_encrypted != '')`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return errors.New("配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复")
+	if s.hasTable(ctx, "users") {
+		if err := s.store.DB().QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM users WHERE (uuid_encrypted IS NOT NULL AND uuid_encrypted != '') OR (proxy_secret_encrypted IS NOT NULL AND proxy_secret_encrypted != '')`).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复")
+		}
 	}
 	if s.hasTable(ctx, "nodes") {
 		var nodeCount int

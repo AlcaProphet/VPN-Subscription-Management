@@ -82,7 +82,10 @@ func (s *Service) CheckXrayReferences(ctx context.Context) ([]string, error) {
 			} `json:"proxy_groups"`
 			NodeNames []string `json:"node_names"`
 		}
-		_ = json.Unmarshal([]byte(b.plan), &plan)
+		if err := json.Unmarshal([]byte(b.plan), &plan); err != nil {
+			hints = append(hints, fmt.Sprintf("蓝图 %d（版本 %d）render_plan_json 解析失败，跳过 render_plan 引用核对", b.id, b.versionID))
+			continue
+		}
 		manualNames := map[string]bool{}
 		for _, mp := range plan.ManualProxies {
 			if mp.Name != "" {

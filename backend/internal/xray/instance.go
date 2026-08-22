@@ -207,8 +207,16 @@ func (s *InstanceService) List(ctx context.Context) ([]Instance, error) {
 	return out, rows.Err()
 }
 
-// DeleteAsync 异步删除实例：先登记任务，事务内收集清理目标并删除，提交后 best-effort RemoveUser。
+// DeleteAsync 异步删除实例：先同步校验实例存在并登记任务，事务内收集清理目标并删除，提交后 best-effort RemoveUser。
 func (s *InstanceService) DeleteAsync(ctx context.Context, id int64) (string, error) {
+	var exists int
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM xray_instances WHERE id = ?`, id).Scan(&exists); err != nil {
+		return "", err
+	}
+	if exists == 0 {
+		return "", ErrInstanceNotFound
+	}
 	taskID := s.registry.Register(tasks.KindInstanceDelete)
 	bg := context.WithoutCancel(ctx)
 	go func() {
@@ -316,8 +324,16 @@ func (s *InstanceService) deleteAndClean(ctx context.Context, id int64) error {
 				return err
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM xray_instances WHERE id = ?`, id); err != nil {
+		res, err := tx.ExecContext(ctx, `DELETE FROM xray_instances WHERE id = ?`, id)
+		if err != nil {
 			return fmt.Errorf("删除 Xray 实例失败: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrInstanceNotFound
 		}
 		return nil
 	})

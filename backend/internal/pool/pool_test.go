@@ -454,12 +454,24 @@ func TestSyncAddedOnlyNew(t *testing.T) {
 
 // TestParseURLBodySkipReasons 解析返回跳过原因
 func TestParseURLBodySkipReasons(t *testing.T) {
-	entries, skipped, reasons := parseURLBody([]byte("DOMAIN-SUFFIX,a.com,extra\n#comment\nbad line\n"))
+	entries, skipped, reasons, err := parseURLBody([]byte("DOMAIN-SUFFIX,a.com,extra\n#comment\nbad line\n"))
+	if err != nil {
+		t.Fatalf("解析不应失败: %v", err)
+	}
 	if len(entries) != 1 || entries[0].RuleType != "DOMAIN-SUFFIX" || entries[0].MatchValue != "a.com" {
 		t.Fatalf("有效条目异常: %+v", entries)
 	}
 	if skipped < 2 || len(reasons) == 0 {
 		t.Fatalf("应记录跳过原因，skipped=%d reasons=%v", skipped, reasons)
+	}
+}
+
+// TestParseURLBodyScannerError 超长行必须返回错误，防止调用方把不完整解析结果当成功。
+func TestParseURLBodyScannerError(t *testing.T) {
+	longLine := strings.Repeat("a", 1024*1024+1)
+	_, _, _, err := parseURLBody([]byte("DOMAIN-SUFFIX,ok.example\n" + longLine + "\n"))
+	if err == nil {
+		t.Fatal("超长行应返回 Scanner 错误")
 	}
 }
 

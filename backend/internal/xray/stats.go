@@ -83,8 +83,10 @@ func (s *InstanceService) recordCollectError(ctx context.Context, instanceID int
 	if len(msg) > 200 {
 		msg = msg[:200]
 	}
-	_, _ = s.store.DB().ExecContext(ctx,
-		`UPDATE xray_instances SET collect_status = 'error', collect_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, msg, instanceID)
+	if _, err := s.store.DB().ExecContext(ctx,
+		`UPDATE xray_instances SET collect_status = 'error', collect_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, msg, instanceID); err != nil {
+		s.log.Warn("记录采集错误状态失败", "instance_id", instanceID, "err", err)
+	}
 }
 
 func upsertTraffic(ctx context.Context, st *store.Store, userID int64, ym string, up, down int64) error {

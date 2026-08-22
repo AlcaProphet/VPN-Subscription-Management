@@ -3,7 +3,7 @@
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Badge, Button, Modal, Input, Switch, Table, TimePicker, Tooltip } from 'ant-design-vue'
 import dayjs from 'dayjs'
-import { listPools, createPool, updatePool, deletePool, submitSync, getSyncStatus, type PoolItem, type SyncTaskItem } from '@/api/pool'
+import { listPools, createPool, updatePool, deletePool, submitSync, cancelSync, getSyncStatus, type PoolItem, type SyncTaskItem } from '@/api/pool'
 import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -99,14 +99,19 @@ async function toggleAuto(p: PoolItem, value: boolean) {
   }
 }
 
-// 行内同步（pollTask 轮询）
+// 行内同步（pollTask 轮询 + 可取消）
 const syncingID = ref(0)
+const syncTaskID = ref(0)
 const pollHandles = new Map<number, { cancel: () => void }>()
 async function doSync(p: PoolItem) {
   if (syncingID.value) { Notify.warning('同步进行中，请等待完成'); return }
   syncingID.value = p.id
+  syncTaskID.value = 0
   const handle = pollTask<SyncTaskItem>({
-    submit: () => submitSync(p.id),
+    submit: async () => {
+      const r = await submitSync(p.id)
+      syncTaskID.value = r.task_id
+    },
     query: () => getSyncStatus(p.id),
     isDone: (r) => ['succeeded', 'failed', 'partial'].includes(r.status),
   })
@@ -123,7 +128,17 @@ async function doSync(p: PoolItem) {
     else Notify.error((err as Error).message)
   } finally {
     syncingID.value = 0
+    syncTaskID.value = 0
     pollHandles.delete(p.id)
+  }
+}
+async function doCancelSync(p: PoolItem) {
+  if (!syncTaskID.value) { Notify.warning('任务尚未开始，无法取消'); return }
+  try {
+    await cancelSync(p.id, syncTaskID.value)
+    Notify.success('已请求取消，任务将尽快结束')
+  } catch (err) {
+    Notify.error((err as Error).message)
   }
 }
 
@@ -203,6 +218,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
               <div class="flex items-center gap-1">
                 <Button size="small" @click="detailID = record.id">详情</Button>
                 <Button size="small" :loading="syncingID === record.id" @click="doSync(record)">同步</Button>
+                <Button v-if="syncingID === record.id" size="small" danger @click="doCancelSync(record)">取消</Button>
                 <Button size="small" @click="openEdit(record)">编辑</Button>
                 <Button size="small" danger @click="toDelete = record">删除</Button>
               </div>
@@ -226,6 +242,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
               <span class="text-xs text-gray-400">每日 {{ p.sync_time }} UTC</span>
               <Button size="small" @click="detailID = p.id">详情</Button>
               <Button size="small" :loading="syncingID === p.id" @click="doSync(p)">同步</Button>
+              <Button v-if="syncingID === p.id" size="small" danger @click="doCancelSync(p)">取消</Button>
               <Button size="small" @click="openEdit(p)">编辑</Button>
               <Button size="small" danger @click="toDelete = p">删除</Button>
             </div>

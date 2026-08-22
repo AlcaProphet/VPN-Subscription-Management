@@ -264,8 +264,13 @@ func (s *Service) SetNodes(ctx context.Context, id int64, nodeIDs []int64) error
 		for _, cand := range candidates {
 			candidateMap[cand.Name] = true
 		}
-		// 校验每个节点
+		// 校验每个节点（先拒绝重复 ID，避免 PK 冲突变成 500）
+		seen := map[int64]bool{}
 		for _, nid := range nodeIDs {
+			if seen[nid] {
+				return fmt.Errorf("%w: 节点 ID 重复: %d", ErrBadRequest, nid)
+			}
+			seen[nid] = true
 			var name, source string
 			var isPublic, enabled, allocatable, missing, instEnabled int
 			err := tx.QueryRowContext(ctx,
@@ -342,7 +347,7 @@ func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]CandidateNo
 		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	}) (*sql.Rows, error) {
 		return q.QueryContext(ctx,
-			`SELECT b.selection_json
+			`SELECT b.selection_json, b.id, v.version_no
 			 FROM assembly_blueprints b
 			 JOIN versions v ON v.id = b.version_id
 			 JOIN subscriptions s ON s.id = v.owner_id AND v.owner_type = 'subscription'
@@ -366,14 +371,15 @@ func (s *Service) candidateSetTx(ctx context.Context, tx *sql.Tx) ([]CandidateNo
 	blueprintsWithCandidates := 0
 	for rows.Next() {
 		var raw string
-		if err := rows.Scan(&raw); err != nil {
+		var blueprintID, versionNo int64
+		if err := rows.Scan(&raw, &blueprintID, &versionNo); err != nil {
 			return nil, err
 		}
 		var sel struct {
 			XrayCandidates []string `json:"xray_candidates"`
 		}
 		if err := json.Unmarshal([]byte(raw), &sel); err != nil {
-			continue
+			return nil, fmt.Errorf("解析蓝图 %d（版本 %d）selection_json 失败: %w", blueprintID, versionNo, err)
 		}
 		if len(sel.XrayCandidates) == 0 {
 			continue

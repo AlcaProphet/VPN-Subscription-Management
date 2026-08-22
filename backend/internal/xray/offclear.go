@@ -3,7 +3,7 @@ package xray
 import (
 	"context"
 	"database/sql"
-	"errors"
+	"fmt"
 	"log/slog"
 
 	"vpn-sub/internal/config"
@@ -60,7 +60,7 @@ func (s *OffClearService) SubmitAdvancedMode(ctx context.Context, on bool, confi
 		return "", nil // 幂等 no-op
 	}
 	if confirmWord != ConfirmWordDisable {
-		return "", errors.New("确认词不正确")
+		return "", fmt.Errorf("%w: 确认词不正确", config.ErrBadRequest)
 	}
 	var taskID string
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {

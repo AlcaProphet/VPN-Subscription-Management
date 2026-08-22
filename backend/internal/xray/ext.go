@@ -284,16 +284,35 @@ func (s *ExtService) UpdateExt(ctx context.Context, id int64, name, uuidVal, pro
 		newMap[fmt.Sprintf("%d/%s", t.InstanceID, t.InboundTag)] = t
 	}
 	var exceeded bool
-	_ = s.store.DB().QueryRowContext(ctx, `SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, id).Scan(&exceeded)
+	if err := s.store.DB().QueryRowContext(ctx, `SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, id).Scan(&exceeded); err != nil {
+		s.log.Warn("读取独立账号超限状态失败", "ext_id", id, "err", err)
+	}
 	for key, t := range oldMap {
 		if _, ok := newMap[key]; !ok {
-			_ = s.removeOne(ctx, id, t)
+			if err := s.removeOne(ctx, id, t); err != nil {
+				s.log.Warn("编辑独立账号移除旧目标失败", "ext_id", id, "tag", t.InboundTag, "err", err)
+			}
 		}
 	}
+	credentialsChanged := uuidVal != "" || proxySecret != ""
 	if !exceeded {
 		for key, t := range newMap {
 			if _, ok := oldMap[key]; !ok {
-				_ = s.pushOne(ctx, id, t, false)
+				if err := s.pushOne(ctx, id, t, false); err != nil {
+					s.log.Warn("编辑独立账号推送新目标失败", "ext_id", id, "tag", t.InboundTag, "err", err)
+				}
+				continue
+			}
+			// 凭据变更时，对保留目标也必须 Remove+Add，确保 Xray 侧与面板最终一致。
+			if credentialsChanged {
+				if err := s.removeFromXray(ctx, id, t); err != nil {
+					s.log.Warn("编辑独立账号凭据前移除旧账号失败", "ext_id", id, "tag", t.InboundTag, "err", err)
+					return nil, err
+				}
+				if err := s.pushOne(ctx, id, t, false); err != nil {
+					s.log.Warn("编辑独立账号凭据后重推目标失败", "ext_id", id, "tag", t.InboundTag, "err", err)
+					return nil, err
+				}
 			}
 		}
 	}
@@ -336,7 +355,9 @@ func (s *ExtService) DeleteExt(ctx context.Context, id int64) error {
 		return err
 	}
 	for _, t := range targets {
-		_ = s.removeOne(ctx, id, t)
+		if err := s.removeOne(ctx, id, t); err != nil {
+			s.log.Warn("删除独立账号后清理 Xray 目标失败", "ext_id", id, "tag", t.InboundTag, "err", err)
+		}
 	}
 	return nil
 }
@@ -373,7 +394,9 @@ func (s *ExtService) RetryExt(ctx context.Context, id int64) (map[string]any, er
 		return nil, err
 	}
 	var exceeded bool
-	_ = s.store.DB().QueryRowContext(ctx, `SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, id).Scan(&exceeded)
+	if err := s.store.DB().QueryRowContext(ctx, `SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, id).Scan(&exceeded); err != nil {
+		s.log.Warn("读取独立账号超限状态失败", "ext_id", id, "err", err)
+	}
 	added, addFailed := 0, 0
 	removed, removeFailed := 0, 0
 	for _, ft := range failed {
@@ -449,8 +472,10 @@ func (s *ExtService) GetExt(ctx context.Context, id int64) (*ExtAccount, error) 
 	if err != nil {
 		return nil, err
 	}
-	_ = s.store.DB().QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(uplink+downlink),0) FROM xray_ext_traffic WHERE ext_account_id = ? AND ym = ?`, id, currentYM()).Scan(&acc.UsedBytes)
+	if err := s.store.DB().QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(uplink+downlink),0) FROM xray_ext_traffic WHERE ext_account_id = ? AND ym = ?`, id, currentYM()).Scan(&acc.UsedBytes); err != nil {
+		s.log.Warn("读取独立账号本月用量失败", "ext_id", id, "err", err)
+	}
 	return &acc, nil
 }
 
@@ -478,8 +503,10 @@ func (s *ExtService) ListExt(ctx context.Context) ([]ExtAccount, error) {
 		if err != nil {
 			return nil, err
 		}
-		_ = s.store.DB().QueryRowContext(ctx,
-			`SELECT COALESCE(SUM(uplink+downlink),0) FROM xray_ext_traffic WHERE ext_account_id = ? AND ym = ?`, acc.ID, currentYM()).Scan(&acc.UsedBytes)
+		if err := s.store.DB().QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(uplink+downlink),0) FROM xray_ext_traffic WHERE ext_account_id = ? AND ym = ?`, acc.ID, currentYM()).Scan(&acc.UsedBytes); err != nil {
+			s.log.Warn("读取独立账号本月用量失败", "ext_id", acc.ID, "err", err)
+		}
 		out = append(out, acc)
 	}
 	return out, rows.Err()
@@ -632,44 +659,6 @@ func (s *ExtService) CheckAllExtQuota(ctx context.Context) error {
 	return nil
 }
 
-// SyncAllExt 对全部独立账号执行一次全量推送（导入/初始化后使用；超限账号跳过并记录提示）。
-func (s *ExtService) SyncAllExt(ctx context.Context) []string {
-	rows, err := s.store.DB().QueryContext(ctx, `SELECT id FROM xray_ext_accounts ORDER BY id`)
-	if err != nil {
-		return []string{"读取独立账号列表失败: " + err.Error()}
-	}
-	defer rows.Close()
-	var hints []string
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			hints = append(hints, fmt.Sprintf("读取独立账号 ID 失败: %v", err))
-			continue
-		}
-		var exceeded int
-		if err := s.store.DB().QueryRowContext(ctx,
-			`SELECT quota_exceeded FROM xray_ext_accounts WHERE id = ?`, id).Scan(&exceeded); err != nil {
-			hints = append(hints, fmt.Sprintf("读取独立账号配额状态失败: %v", err))
-			continue
-		}
-		if exceeded == 1 {
-			hints = append(hints, fmt.Sprintf("独立账号 %d 已超限，跳过推送", id))
-			continue
-		}
-		targets, err := s.pushTargetsFor(ctx, id)
-		if err != nil {
-			hints = append(hints, fmt.Sprintf("读取独立账号 %d 推送目标失败: %v", id, err))
-			continue
-		}
-		for _, t := range targets {
-			if err := s.pushOne(ctx, id, t, false); err != nil {
-				hints = append(hints, fmt.Sprintf("独立账号 %d 推送 %d/%s 失败: %v", id, t.InstanceID, t.InboundTag, err))
-			}
-		}
-	}
-	return hints
-}
-
 // --- 内部辅助 ---
 
 var (
@@ -682,7 +671,13 @@ func (s *ExtService) validateTargetsTx(ctx context.Context, tx *sql.Tx, targets 
 		return []ExtPushTarget{}, nil
 	}
 	valid := make([]ExtPushTarget, 0, len(targets))
+	seen := map[string]bool{}
 	for _, t := range targets {
+		key := fmt.Sprintf("%d/%s", t.InstanceID, t.InboundTag)
+		if seen[key] {
+			return nil, fmt.Errorf("%w: 推送目标重复: %s", ErrBadRequest, key)
+		}
+		seen[key] = true
 		var id int64
 		var name, tag, protocol, apiAddr string
 		var display sql.NullString
@@ -783,7 +778,10 @@ func (s *ExtService) pushOne(ctx context.Context, extID int64, t ExtPushTarget, 
 		if lister, ok := client.(interface {
 			GetInboundUsers(ctx context.Context, tag, email string) (*command.GetInboundUserResponse, error)
 		}); ok {
-			if resp, lerr := lister.GetInboundUsers(ctx, t.InboundTag, ExtEmail(extID)); lerr == nil && len(resp.GetUsers()) > 0 {
+			resp, lerr := lister.GetInboundUsers(ctx, t.InboundTag, ExtEmail(extID))
+			if lerr != nil {
+				s.log.Warn("generate 覆盖前探测 Xray 账号失败", "ext_id", extID, "tag", t.InboundTag, "err", lerr)
+			} else if len(resp.GetUsers()) > 0 {
 				if rerr := client.RemoveUser(ctx, t.InboundTag, ExtEmail(extID)); rerr != nil && !IsNotFound(rerr) {
 					s.log.Warn("generate 覆盖前移除旧 Xray 账号失败", "ext_id", extID, "tag", t.InboundTag, "err", rerr)
 				}
@@ -808,6 +806,14 @@ func (s *ExtService) pushOne(ctx context.Context, extID int64, t ExtPushTarget, 
 			s.markExtFailed(ctx, extID, t, err)
 			return err
 		}
+	}
+	if !s.cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
+		if rerr := client.RemoveUser(ctx, t.InboundTag, ExtEmail(extID)); rerr != nil && !IsNotFound(rerr) {
+			s.log.Warn("高级模式关闭后补偿移除独立账号失败", "ext_id", extID, "tag", t.InboundTag, "err", rerr)
+		}
+		compErr := errors.New("高级模式已关闭，已补偿移除")
+		s.markExtFailed(ctx, extID, t, compErr)
+		return compErr
 	}
 	s.markExtSynced(ctx, extID, t)
 	return nil

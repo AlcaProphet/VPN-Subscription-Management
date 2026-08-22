@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -87,7 +88,11 @@ func (h *AssemblyHandler) preview(c *gin.Context) {
 	}
 	res, err := h.assemblySvc.Preview(c.Request.Context(), in)
 	if err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
+		if errors.Is(err, assembly.ErrBadRequest) {
+			Fail(c, http.StatusBadRequest, err.Error())
+		} else {
+			Fail(c, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	OK(c, gin.H{
@@ -108,12 +113,20 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 	}
 	res, err := h.assemblySvc.Render(ctx, in)
 	if err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
+		if errors.Is(err, assembly.ErrBadRequest) {
+			Fail(c, http.StatusBadRequest, err.Error())
+		} else {
+			Fail(c, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	ownerType, ownerID, fileName, err := h.resolveOwner(ctx, in)
 	if err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
+		if errors.Is(err, assembly.ErrBadRequest) {
+			Fail(c, http.StatusBadRequest, err.Error())
+		} else {
+			Fail(c, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	created, activated, err := h.versionSvc.CreateVersion(ctx, ownerType, ownerID,
@@ -144,16 +157,16 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 func (h *AssemblyHandler) resolveOwner(ctx context.Context, in assembly.GenerateInput) (version.OwnerType, int64, string, error) {
 	if in.TargetSyntax == assembly.SrConf {
 		if in.RuleID <= 0 {
-			return "", 0, "", errors.New("请选择分流规则实体")
+			return "", 0, "", fmt.Errorf("%w: 请选择分流规则实体", assembly.ErrBadRequest)
 		}
 		return version.OwnerRule, in.RuleID, "rule.conf", nil
 	}
 	if in.PlatformID <= 0 {
-		return "", 0, "", errors.New("请选择目标平台")
+		return "", 0, "", fmt.Errorf("%w: 请选择目标平台", assembly.ErrBadRequest)
 	}
 	subID, err := h.assemblySvc.FindSubscriptionByPlatform(ctx, in.PlatformID)
 	if errors.Is(err, assembly.ErrSubscriptionNotFound) {
-		return "", 0, "", errors.New("请先在订阅管理为该平台创建订阅条目")
+		return "", 0, "", fmt.Errorf("%w: 请先在订阅管理为该平台创建订阅条目", assembly.ErrBadRequest)
 	}
 	if err != nil {
 		return "", 0, "", err

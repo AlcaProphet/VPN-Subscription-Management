@@ -18,7 +18,7 @@ import {
   type AssemblyContext, type GenerateInput, type TargetSyntax, type PoolSelection, type RuleLine,
 } from '@/api/assembly'
 import { Notify } from '@/components/Notify'
-import { listSubscriptions } from '@/api/subscription'
+import { listSubscriptions, type SubscriptionItem } from '@/api/subscription'
 import { versionApi } from '@/api/version'
 
 const route = useRoute()
@@ -60,6 +60,7 @@ const DEFAULT_HEADERS: Record<TargetSyntax, string> = {
 }
 
 const context = ref<AssemblyContext | null>(null)
+const subscriptions = ref<SubscriptionItem[]>([])
 const loadingContext = ref(false)
 const previewing = ref(false)
 const generating = ref(false)
@@ -108,8 +109,11 @@ const buildPreflightMissing = computed<string[]>(() => {
   if (targetSyntax.value === 'sr-conf') {
     if ((context.value.rules ?? []).length === 0) missing.push('至少一个规则实体')
   } else {
-    const want = filteredPlatforms.value.length > 0 ? '' : '匹配的目标平台'
-    if (want) missing.push(want)
+    if (filteredPlatforms.value.length === 0) {
+      missing.push('匹配的目标平台')
+    } else if (!filteredPlatforms.value.some((p) => subscriptions.value.some((s) => s.platform_id === p.id))) {
+      missing.push('目标平台订阅条目')
+    }
   }
   return missing
 })
@@ -158,7 +162,9 @@ const ruleTypeOptions = computed(() => targetSyntax.value === 'clash-yaml' ? CLA
 async function loadContext() {
   loadingContext.value = true
   try {
-    context.value = await getAssemblyContext()
+    const [ctxData, subs] = await Promise.all([getAssemblyContext(), listSubscriptions()])
+    context.value = ctxData
+    subscriptions.value = subs
     // 支持从订阅/规则页带目标参数进入装配
     const platformId = Number(route.query.platform_id ?? 0)
     if (platformId > 0) form.platform_id = platformId

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -73,6 +74,10 @@ func ValidateAddr(apiAddr string) error {
 	}
 	if host == "" || port == "" {
 		return errors.New("api_addr 缺少 host 或 port")
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("api_addr 端口必须为 1~65535 的数字")
 	}
 	return nil
 }

@@ -39,13 +39,18 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 	if !advancedOn {
 		comment = "# Xray 高级模式未启用"
 	}
-	uuid, secret, credErr := creds.Credentials(ctx, userID)
-	hasCreds := credErr == nil
-	if credErr != nil && !errors.Is(credErr, xray.ErrIncompleteCredentials) {
-		return nil, credErr
-	}
-	if advancedOn && !hasCreds {
-		comment = "# 节点未开通，请联系管理员"
+	uuid, secret := "", ""
+	hasCreds := false
+	if advancedOn {
+		var credErr error
+		uuid, secret, credErr = creds.Credentials(ctx, userID)
+		hasCreds = credErr == nil
+		if credErr != nil && !errors.Is(credErr, xray.ErrIncompleteCredentials) {
+			return nil, credErr
+		}
+		if !hasCreds {
+			comment = "# 节点未开通，请联系管理员"
+		}
 	}
 	targets, err := syncSvc.Targets(ctx, userID)
 	if err != nil {

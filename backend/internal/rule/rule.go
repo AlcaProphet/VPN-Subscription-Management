@@ -83,7 +83,10 @@ func (s *Service) Create(ctx context.Context, name, slugVal, clientType string, 
 		if err != nil {
 			return fmt.Errorf("创建规则失败: %w", err)
 		}
-		id, _ := res.LastInsertId()
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
 		tk, err := s.tokens.CreateRuleTokenTx(ctx, tx, id) // 创建时自动生成
 		if err != nil {
 			return err

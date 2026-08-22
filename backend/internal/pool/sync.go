@@ -89,8 +89,46 @@ func (s *Service) SubmitSync(ctx context.Context, poolID int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	go s.runSyncTask(poolID, taskID, urls) // 后台执行，不阻塞请求；只使用提交时快照
+	// 后台任务使用可取消 context + 整体超时，避免无限挂起；终态回写使用脱离该 context 的连接，确保取消后仍能落 failed。
+	ctx, cancel := context.WithCancelCause(context.Background())
+	timer := time.AfterFunc(SyncTaskTimeout, func() { cancel(errSyncTimeout) })
+	s.mu.Lock()
+	s.cancels[taskID] = cancel
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			timer.Stop()
+			s.mu.Lock()
+			delete(s.cancels, taskID)
+			s.mu.Unlock()
+		}()
+		s.runSyncTask(ctx, poolID, taskID, urls) // 后台执行，不阻塞请求；只使用提交时快照
+	}()
 	return taskID, nil
+}
+
+// CancelSync 取消指定素材池的运行中同步任务。取消后任务终态复用 failed，error 写“同步任务已取消”。
+func (s *Service) CancelSync(ctx context.Context, poolID, taskID int64) error {
+	var status string
+	err := s.store.DB().QueryRowContext(ctx,
+		`SELECT status FROM pool_sync_tasks WHERE id = ? AND pool_id = ?`, taskID, poolID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status != "running" {
+		return fmt.Errorf("%w: 任务不在运行中", ErrBadRequest)
+	}
+	s.mu.Lock()
+	cancel, ok := s.cancels[taskID]
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("%w: 任务无法取消（可能已结束或服务重启）", ErrBadRequest)
+	}
+	cancel(errSyncCancelled)
+	return nil
 }
 
 // GetStatus 读取最近一次任务状态（任务持久化于 pool_sync_tasks）。
@@ -192,10 +230,9 @@ func parsePerURL(raw string) []PerURLResult {
 
 // runSyncTask 后台执行：串行拉取提交时 URL 快照 → 成功项 upsert → 全部成功才差量删除；
 // 池已删除时仅记日志不崩溃；编辑 URL 只影响下一次同步。
-func (s *Service) runSyncTask(poolID, taskID int64, urls []string) {
-	ctx := context.Background()
+func (s *Service) runSyncTask(ctx context.Context, poolID, taskID int64, urls []string) {
 	if len(urls) == 0 {
-		s.failTask(ctx, poolID, taskID, nil, "未配置 URL")
+		s.failTask(context.WithoutCancel(ctx), poolID, taskID, nil, "未配置 URL")
 		return
 	}
 	client := &http.Client{Timeout: urlTimeout}
@@ -218,7 +255,7 @@ func (s *Service) runSyncTask(poolID, taskID int64, urls []string) {
 	bgStore, err := store.Open(filepath.Dir(s.store.DBPath()), filepath.Base(s.store.DBPath()))
 	if err != nil {
 		s.log.Error("素材池同步打开后台数据库连接失败", "pool_id", poolID, "task_id", taskID, "err", err)
-		s.failTask(ctx, poolID, taskID, results, "打开后台数据库连接失败: "+err.Error())
+		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "打开后台数据库连接失败: "+err.Error())
 		return
 	}
 	defer bgStore.Close()
@@ -368,7 +405,13 @@ func (s *Service) runSyncTask(poolID, taskID int64, urls []string) {
 	})
 	if err != nil {
 		s.log.Error("素材池同步任务失败", "pool_id", poolID, "task_id", taskID, "err", err)
-		s.failTask(ctx, poolID, taskID, results, err.Error())
+		msg := err.Error()
+		if errors.Is(context.Cause(ctx), errSyncTimeout) {
+			msg = errSyncTimeout.Error()
+		} else if errors.Is(context.Cause(ctx), errSyncCancelled) {
+			msg = errSyncCancelled.Error()
+		}
+		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, msg)
 	}
 }
 
@@ -427,7 +470,13 @@ func (s *Service) syncURL(ctx context.Context, client *http.Client, target strin
 		r.Error = "空响应，已保留旧数据"
 		return r
 	}
-	entries, skipped, reasons := parseURLBody(body)
+	entries, skipped, reasons, err := parseURLBody(body)
+	if err != nil {
+		r.Error = "解析响应失败: " + err.Error()
+		r.Skipped = skipped
+		r.SkipReasons = reasons
+		return r
+	}
 	if len(entries) == 0 {
 		r.Error = "响应无有效规则条目，已保留旧数据"
 		r.Skipped = skipped
@@ -441,8 +490,9 @@ func (s *Service) syncURL(ctx context.Context, client *http.Client, target strin
 	return r
 }
 
-// parseURLBody 逐行解析并按（类型,值）去重合并；返回有效条目、跳过计数与跳过原因。
-func parseURLBody(body []byte) ([]parsedEntry, int, []string) {
+// parseURLBody 逐行解析并按（类型,值）去重合并；返回有效条目、跳过计数、跳过原因与 Scanner 错误。
+// Scanner 错误（如超长行）必须显式返回，调用方将 URL 记为失败并保留旧数据，避免差量删除误删。
+func parseURLBody(body []byte) ([]parsedEntry, int, []string, error) {
 	sc := bufio.NewScanner(bytes.NewReader(body))
 	sc.Buffer(make([]byte, 64*1024), 1024*1024) // 支持长行
 	seen := map[string]bool{}
@@ -473,7 +523,10 @@ func parseURLBody(body []byte) ([]parsedEntry, int, []string) {
 		seen[key] = true
 		out = append(out, parsedEntry{RuleType: normType, MatchValue: norm})
 	}
-	return out, skipped, reasons
+	if err := sc.Err(); err != nil {
+		return out, skipped, reasons, err
+	}
+	return out, skipped, reasons, nil
 }
 
 // summarizePartial 汇总部分失败原因（pool 快照 sync_error）

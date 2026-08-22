@@ -32,6 +32,7 @@ func RegisterPoolRoutes(engine *gin.Engine, h *PoolHandler, sessionMW, adminMW g
 	admin.POST("/:id/sync", h.submitSync)
 	admin.GET("/:id/sync/status", h.syncStatus)
 	admin.GET("/:id/sync/tasks", h.listSyncTasks)
+	admin.POST("/:id/sync/tasks/:taskId/cancel", h.cancelSync)
 }
 
 type poolReq struct {
@@ -249,6 +250,31 @@ func (h *PoolHandler) submitSync(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{"task_id": taskID})
+}
+
+func (h *PoolHandler) cancelSync(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	taskID, ok := parseID(c, "taskId")
+	if !ok {
+		return
+	}
+	err := h.poolSvc.CancelSync(c.Request.Context(), id, taskID)
+	if errors.Is(err, pool.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "同步任务不存在")
+		return
+	}
+	if errors.Is(err, pool.ErrBadRequest) {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, gin.H{"task_id": taskID, "status": "cancel_requested"})
 }
 
 func (h *PoolHandler) syncStatus(c *gin.Context) {

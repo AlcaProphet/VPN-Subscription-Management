@@ -85,7 +85,9 @@ func (s *Service) Create(ctx context.Context, name string, src version.ContentPr
 // rollbackRecord 首版本创建失败时回滚分享记录与 Token
 func (s *Service) rollbackRecord(ctx context.Context, id int64) {
 	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		_, _ = tx.ExecContext(ctx, `DELETE FROM share_tokens WHERE share_id = ?`, id)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM share_tokens WHERE share_id = ?`, id); err != nil {
+			s.log.Warn("回滚分享 Token 清理失败", "share_id", id, "err", err)
+		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM share_subscriptions WHERE id = ?`, id)
 		return err
 	}); err != nil {

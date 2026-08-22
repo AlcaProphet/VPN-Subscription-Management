@@ -52,11 +52,12 @@ func (h *CustomHandler) upsert(c *gin.Context) {
 		platformID = req.PlatformID
 		src = version.BytesContent([]byte(req.Text))
 	} else {
-		platformID, _ = strconv.ParseInt(c.PostForm("platform_id"), 10, 64)
-		if platformID <= 0 {
+		parsedPlatformID, err := strconv.ParseInt(c.PostForm("platform_id"), 10, 64)
+		if err != nil || parsedPlatformID <= 0 {
 			Fail(c, http.StatusBadRequest, "platform_id 必填")
 			return
 		}
+		platformID = parsedPlatformID
 		file, fileHeader, err := c.Request.FormFile("file")
 		if err != nil {
 			Fail(c, http.StatusBadRequest, "未接收到文件")

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"vpn-sub/internal/store"
@@ -24,6 +25,8 @@ const (
 	DefaultPageSize = 20
 	MaxPageSize     = 100
 	DefaultSyncTime = "04:00"
+	// SyncTaskTimeout 素材池同步整体超时（用户决策 2026-08-22）。
+	SyncTaskTimeout = 30 * time.Minute
 )
 
 // 业务错误
@@ -35,14 +38,22 @@ var (
 	ErrSyncRunning   = errors.New("同步进行中，请等待完成")
 )
 
+var (
+	errSyncTimeout  = errors.New("同步任务超时（30 分钟）")
+	errSyncCancelled = errors.New("同步任务已取消")
+)
+
 // Service 规则素材池服务
 type Service struct {
 	store *store.Store
 	log   *slog.Logger
+
+	mu      sync.Mutex
+	cancels map[int64]context.CancelCauseFunc // taskID → 取消函数（仅内存态，重启后任务由启动逻辑置 failed）
 }
 
 func NewService(st *store.Store, lg *slog.Logger) *Service {
-	return &Service{store: st, log: lg}
+	return &Service{store: st, log: lg, cancels: map[int64]context.CancelCauseFunc{}}
 }
 
 // Pool 素材池
@@ -403,17 +414,6 @@ func nextManualOrderTx(ctx context.Context, tx *sql.Tx, poolID int64) (int64, er
 	if err := tx.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(sort_order), -1) FROM pool_entries WHERE pool_id = ? AND sort_order < ?`,
 		poolID, URLBase).Scan(&max); err != nil {
-		return 0, err
-	}
-	return max + 1, nil
-}
-
-// nextURLOrderTx url 段内追加顺序（URLBase 起；同步不改写既有条目排序）
-func nextURLOrderTx(ctx context.Context, tx *sql.Tx, poolID int64) (int64, error) {
-	var max int64
-	if err := tx.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(sort_order), ?) FROM pool_entries WHERE pool_id = ? AND sort_order >= ?`,
-		URLBase-1, poolID, URLBase).Scan(&max); err != nil {
 		return 0, err
 	}
 	return max + 1, nil

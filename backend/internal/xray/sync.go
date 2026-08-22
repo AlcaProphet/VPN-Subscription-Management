@@ -306,20 +306,6 @@ func (s *SyncService) ReconcileUser(ctx context.Context, userID int64) error {
 	return nil
 }
 
-// SyncAllActive 对全部 active 用户执行 ReconcileUser（节点/组变化后简化 diff 使用）。
-func (s *SyncService) SyncAllActive(ctx context.Context) error {
-	ids, err := s.activeUserIDs(ctx)
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		if err := s.ReconcileUser(ctx, id); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // SyncUsersForNodes 仅对受指定节点影响的 active 用户执行 ReconcileUser（精确 diff）。
 func (s *SyncService) SyncUsersForNodes(ctx context.Context, nodeIDs []int64) error {
 	if len(nodeIDs) == 0 {
@@ -464,7 +450,7 @@ func candidateNamesFrom(ctx context.Context, q interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }) ([]string, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT b.selection_json
+		`SELECT b.selection_json, b.id, v.version_no
 		 FROM assembly_blueprints b
 		 JOIN versions v ON v.id = b.version_id
 		 JOIN subscriptions s ON s.id = v.owner_id AND v.owner_type = 'subscription'
@@ -478,14 +464,15 @@ func candidateNamesFrom(ctx context.Context, q interface {
 	seen := map[string]bool{}
 	for rows.Next() {
 		var raw string
-		if err := rows.Scan(&raw); err != nil {
+		var blueprintID, versionNo int64
+		if err := rows.Scan(&raw, &blueprintID, &versionNo); err != nil {
 			return nil, err
 		}
 		var sel struct {
 			XrayCandidates []string `json:"xray_candidates"`
 		}
 		if err := json.Unmarshal([]byte(raw), &sel); err != nil {
-			continue
+			return nil, fmt.Errorf("解析蓝图 %d（版本 %d）selection_json 失败: %w", blueprintID, versionNo, err)
 		}
 		for _, name := range sel.XrayCandidates {
 			if !seen[name] {
@@ -566,9 +553,11 @@ func (s *SyncService) writeQuotaExceededError(ctx context.Context, userID int64)
 		if err := rows.Scan(&instanceID, &tag, &nodeID); err != nil {
 			continue
 		}
-		_, _ = s.store.DB().ExecContext(ctx,
+		if _, err := s.store.DB().ExecContext(ctx,
 			`UPDATE xray_users SET sync_status='failed', last_error='已超限，请先重置配额', updated_at=CURRENT_TIMESTAMP
-			 WHERE user_id=? AND instance_id=? AND inbound_tag=?`, userID, instanceID, tag)
+			 WHERE user_id=? AND instance_id=? AND inbound_tag=?`, userID, instanceID, tag); err != nil {
+			s.log.Warn("写入用户超限原因失败", "user_id", userID, "tag", tag, "err", err)
+		}
 	}
 }
 

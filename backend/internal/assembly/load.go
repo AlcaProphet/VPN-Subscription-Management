@@ -122,7 +122,7 @@ func (s *Service) loadNodes(ctx context.Context, ld *loadedData, names []string)
 			Scan(&nd.Source, &nd.Name, &display, &nd.Protocol, &nd.Host, &nd.Port, &protocolRaw,
 				&enabled, &allocatable, &missing, &instanceEnabled)
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("节点不存在: %s", name)
+			return fmt.Errorf("%w: 节点不存在: %s", ErrBadRequest, name)
 		}
 		if err != nil {
 			return err
@@ -222,7 +222,7 @@ func (s *Service) loadPlatform(ctx context.Context, id int64) (*platformInfo, er
 		        (SELECT COUNT(*) FROM subscriptions s WHERE s.platform_id = p.id)
 		 FROM platforms p WHERE p.id = ?`, id).Scan(&pi.ID, &pi.ProductType, &hasSub)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("平台不存在")
+		return nil, fmt.Errorf("%w: 平台不存在", ErrBadRequest)
 	}
 	if err != nil {
 		return nil, err
@@ -235,7 +235,7 @@ func (s *Service) loadRule(ctx context.Context, id int64) (*ruleInfo, error) {
 	var ri ruleInfo
 	err := s.store.DB().QueryRowContext(ctx, `SELECT id FROM rules WHERE id = ?`, id).Scan(&ri.ID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("规则不存在")
+		return nil, fmt.Errorf("%w: 规则不存在", ErrBadRequest)
 	}
 	return &ri, err
 }

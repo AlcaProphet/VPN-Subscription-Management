@@ -335,10 +335,12 @@ func extractInboundProtocolParams(out map[string]any, inst any) {
 func mergeProtoMap(dst map[string]any, msg any) {
 	raw, err := json.Marshal(msg)
 	if err != nil {
+		slog.Warn("序列化协议参数失败", "err", err)
 		return
 	}
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
+		slog.Warn("反序列化协议参数失败", "err", err)
 		return
 	}
 	for k, v := range m {
@@ -371,6 +373,7 @@ func mergeStreamSettings(dst map[string]any, sc *internet.StreamConfig) {
 		}
 		var m map[string]any
 		if err := json.Unmarshal(raw, &m); err != nil {
+			slog.Warn("反序列化传输设置失败", "err", err)
 			continue
 		}
 		for k, v := range m {
@@ -420,6 +423,7 @@ func mergeStreamSettings(dst map[string]any, sc *internet.StreamConfig) {
 		}
 		var m map[string]any
 		if err := json.Unmarshal(raw, &m); err != nil {
+			slog.Warn("反序列化安全设置失败", "err", err)
 			continue
 		}
 		switch v := inst.(type) {

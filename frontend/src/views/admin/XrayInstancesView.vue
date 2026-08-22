@@ -1,7 +1,7 @@
 <!-- XrayInstancesView.vue：Xray 实例与独立账号管理（Build7 Step3） -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Alert, Button, Checkbox, Empty, Input, InputNumber, Modal, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
+import { Alert, Button, Checkbox, Empty, Input, InputNumber, Modal, Result, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
 import {
   listInstances, listExtAccounts, createInstance, updateInstance, deleteInstance, detectNodes, testConnection,
   runInit, reconcile, pushRepair, cleanOrphans, repairCredentials,
@@ -66,11 +66,14 @@ async function load() {
 }
 onMounted(load)
 
-// 独立账号推送目标选项：按实例分组展示 xray 节点（仅启用/可分配/未缺失）。
+// 独立账号推送目标选项：按实例分组展示 xray 节点（仅启用/可分配/未缺失，且实例启用）。
 const targetOptions = computed(() => {
+  const instEnabled = new Map<number, boolean>()
+  for (const inst of instances.value) instEnabled.set(inst.id, inst.enabled)
   const map = new Map<number, { label: string; options: { label: string; value: string }[] }>()
   for (const n of xrayNodes.value) {
     if (n.source !== 'xray' || !n.enabled || !n.allocatable || n.missing) continue
+    if (instEnabled.get(n.instance_id ?? 0) === false) continue
     if (!map.has(n.instance_id ?? 0)) {
       map.set(n.instance_id ?? 0, { label: n.instance_slug || `实例 ${n.instance_id}`, options: [] })
     }
@@ -185,12 +188,14 @@ async function doDetect(inst: XrayInstance) {
   detectError.value = ''
   try {
     const res = await detectNodes(inst.id)
+    if (res.added === 0 && res.updated === 0 && res.missing === 0) {
+      Notify.info('节点无变化')
+      detectTarget.value = null
+      return
+    }
     detectResult.value = res
     addedNodeNames.value = {}
     for (const n of res.added_nodes) addedNodeNames.value[n.node_id] = n.name
-    if (res.added === 0 && res.updated === 0 && res.missing === 0) {
-      Notify.info('节点无变化')
-    }
   } catch (err) {
     detectError.value = (err as Error).message
   } finally {
@@ -264,6 +269,10 @@ const reconcileTarget = ref<XrayInstance | null>(null)
 const cleanOrphanEmails = ref<string[]>([])
 const cleanExtEmails = ref<string[]>([])
 const reconcileBusy = ref(false)
+const reconcileEmpty = computed(() => {
+  const r = reconcileResult.value
+  return !!r && r.to_push.length === 0 && r.orphans.length === 0 && r.ext_orphans.length === 0 && r.credential_mismatches.length === 0 && r.to_remove.length === 0
+})
 async function doReconcile(inst: XrayInstance) {
   reconcileTarget.value = inst
   reconcileResult.value = null
@@ -372,6 +381,7 @@ async function doRetryExtRemove(item: ReconcileItem) {
 }
 
 const extCreateOpen = ref(false)
+const extCreateConfirmOpen = ref(false)
 const extForm = ref({ name: '', credential_mode: 'generate' as 'generate' | 'manual', uuid: '', proxy_secret: '', quota: undefined as number | undefined })
 const extSelectedTargets = ref<string[]>([])
 const extCreating = ref(false)
@@ -406,12 +416,12 @@ async function doExtCreate() {
 
 const extEditOpen = ref(false)
 const extEditing = ref<ExtAccount | null>(null)
-const extEditForm = ref({ name: '', quota: undefined as number | undefined })
+const extEditForm = ref({ name: '', quota: undefined as number | undefined, uuid: '', proxy_secret: '' })
 const extEditSelectedTargets = ref<string[]>([])
 const extSaving = ref(false)
 function openExtEdit(acc: ExtAccount) {
   extEditing.value = acc
-  extEditForm.value = { name: acc.name, quota: acc.quota ?? undefined }
+  extEditForm.value = { name: acc.name, quota: acc.quota ?? undefined, uuid: '', proxy_secret: '' }
   extEditSelectedTargets.value = (acc.push_targets ?? []).map((t) => `${t.instance_id}/${t.inbound_tag}`)
   extEditOpen.value = true
 }
@@ -423,7 +433,13 @@ async function doExtUpdate() {
       const [instance_id, inbound_tag] = v.split('/')
       return { instance_id: Number(instance_id), inbound_tag }
     })
-    await updateExtAccount(extEditing.value.id, { name: extEditForm.value.name, quota: extEditForm.value.quota, push_targets })
+    await updateExtAccount(extEditing.value.id, {
+      name: extEditForm.value.name,
+      quota: extEditForm.value.quota,
+      uuid: extEditForm.value.uuid || undefined,
+      proxy_secret: extEditForm.value.proxy_secret || undefined,
+      push_targets,
+    })
     Notify.success('独立账号已更新')
     extEditOpen.value = false
     await load()
@@ -498,6 +514,7 @@ async function doExtCredentials(acc: ExtAccount) {
     <Tabs>
       <TabPane key="instances" tab="Xray 实例">
         <div v-if="instances.length === 0 && !loading" class="py-16">
+          <Alert type="info" show-icon class="mb-3" message="需先在 Xray 服务器开启 gRPC API 与流量统计（policy.stats）" />
           <Empty description="还没有 Xray 实例">
             <Button type="primary" @click="createOpen = true">新增实例</Button>
           </Empty>
@@ -550,6 +567,7 @@ async function doExtCredentials(acc: ExtAccount) {
       </TabPane>
       <TabPane key="ext" tab="独立账号">
         <div v-if="extAccounts.length === 0 && !loading" class="py-16">
+          <Alert type="info" show-icon class="mb-3" message="用于向面板账号体系之外的人员/场景分发凭据（可手写入自定义订阅内容）" />
           <Empty description="还没有独立账号">
             <Button type="primary" @click="extCreateOpen = true">创建独立账号</Button>
           </Empty>
@@ -651,7 +669,8 @@ async function doExtCredentials(acc: ExtAccount) {
 
     <Modal :open="reconcileTarget !== null" title="实例对账" :footer="null" width="820" @update:open="reconcileTarget = null">
       <div v-if="reconcileResult" class="space-y-4">
-        <p>待补推 {{ reconcileResult.to_push.length }} / 无头 {{ reconcileResult.orphans.length }} / 疑似残留 {{ reconcileResult.ext_orphans.length }} / 凭据不一致 {{ reconcileResult.credential_mismatches.length }} / 待移除 {{ reconcileResult.to_remove.length }}</p>
+        <Result v-if="reconcileEmpty" status="success" title="账号已一致，无需处理" />
+        <p v-if="!reconcileEmpty">待补推 {{ reconcileResult.to_push.length }} / 无头 {{ reconcileResult.orphans.length }} / 疑似残留 {{ reconcileResult.ext_orphans.length }} / 凭据不一致 {{ reconcileResult.credential_mismatches.length }} / 待移除 {{ reconcileResult.to_remove.length }}</p>
         <div>
           <div class="text-sm font-medium mb-2">待移除（移除失败，确认后可从 Xray 清理）</div>
           <div v-if="reconcileResult.to_remove.length === 0" class="text-gray-400 text-sm">无</div>
@@ -705,22 +724,32 @@ async function doExtCredentials(acc: ExtAccount) {
         <Input v-model:value="extForm.name" placeholder="名称" class="w-full" />
         <Select v-model:value="extForm.credential_mode" class="w-full" :options="[{ value: 'generate', label: '自动生成' }, { value: 'manual', label: '手填接管' }]" />
         <template v-if="extForm.credential_mode === 'manual'">
-          <Input v-model:value="extForm.uuid" placeholder="UUID" class="w-full" />
-          <Input v-model:value="extForm.proxy_secret" placeholder="代理密码" class="w-full" />
+          <Input.Password v-model:value="extForm.uuid" placeholder="UUID" class="w-full" />
+          <Input.Password v-model:value="extForm.proxy_secret" placeholder="代理密码" class="w-full" />
         </template>
         <InputNumber v-model:value="extForm.quota" :min="0" class="w-48" placeholder="配额（GB，0/空=不限）" />
         <div>
           <div class="text-sm text-gray-400 mb-1">推送目标（可多选）</div>
           <Select v-model:value="extSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
+          <div v-if="targetOptions.length === 0" class="text-xs text-gray-400 mt-1">请先在实例页检测节点</div>
         </div>
-        <Button type="primary" :loading="extCreating" @click="doExtCreate">创建</Button>
+        <Button type="primary" :loading="extCreating" @click="extForm.credential_mode === 'generate' ? extCreateConfirmOpen = true : doExtCreate()">创建</Button>
       </div>
     </Modal>
+
+    <ConfirmModal :open="extCreateConfirmOpen" title="创建独立账号（自动生成）" danger :loading="extCreating"
+                  content="若 Xray 侧已存在同 email 账号，将先移除旧账号并以新生成凭据重新推送（覆盖接管，Xray 侧旧账号被踢除）。"
+                  @confirm="extCreateConfirmOpen = false; doExtCreate()" @update:open="extCreateConfirmOpen = false" />
 
     <Modal :open="extEditOpen" title="编辑独立账号" :footer="null" width="720" destroy-on-close @cancel="extEditOpen = false">
       <div class="space-y-3">
         <Input v-model:value="extEditForm.name" placeholder="名称" class="w-full" />
         <InputNumber v-model:value="extEditForm.quota" :min="0" class="w-48" placeholder="配额（GB，0/空=不限）" />
+        <div>
+          <div class="text-sm text-gray-400 mb-1">凭据（留空=保留原凭据；修改后将对保留目标重推）</div>
+          <Input.Password v-model:value="extEditForm.uuid" placeholder="UUID（留空保留）" class="w-full" />
+          <Input.Password v-model:value="extEditForm.proxy_secret" placeholder="代理密码（留空保留）" class="w-full" />
+        </div>
         <div>
           <div class="text-sm text-gray-400 mb-1">推送目标（可多选，移除已选目标会同步删除 Xray 账号）</div>
           <Select v-model:value="extEditSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />

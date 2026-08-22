@@ -63,6 +63,8 @@ export const deleteEntry = (poolId: number, entryId: number) =>
 
 export const submitSync = (poolId: number) =>
   http.post<any, { task_id: number }>(`/admin/pools/${poolId}/sync`)
+export const cancelSync = (poolId: number, taskId: number) =>
+  http.post<any, { task_id: number; status: string }>(`/admin/pools/${poolId}/sync/tasks/${taskId}/cancel`)
 export const getSyncStatus = (poolId: number) =>
   http.get<any, SyncTaskItem>(`/admin/pools/${poolId}/sync/status`)
 export const listSyncTasks = (poolId: number, page = 1, pageSize = 20) =>

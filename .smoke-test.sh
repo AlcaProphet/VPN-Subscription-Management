@@ -86,6 +86,28 @@ GEN=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-T
 GENID=$(echo "$GEN" | J "['data']['version_id']")
 echo "13) 装配生成 version_id=$GENID auto=$(echo "$GEN" | J "['data']['auto_activated']")"
 
+# 13b) 其他三类装配器（generic-subs / sr-subs / sr-conf）
+SUB2=$(curl -s -X POST $BASE/api/admin/subscriptions -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"platform_id":2,"name":"generic-smoke-sub","slug":"generic-smoke-sub"}')
+SUB2ID=$(echo "$SUB2" | J "['data']['id']")
+GEN2=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"generic-subs","platform_id":2,"node_names":["smoke-node"],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"DIRECT"}')
+GEN2ID=$(echo "$GEN2" | J "['data']['version_id']")
+echo "13b) generic-subs 装配 version_id=$GEN2ID"
+
+SUB3=$(curl -s -X POST $BASE/api/admin/subscriptions -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"platform_id":3,"name":"sr-smoke-sub","slug":"sr-smoke-sub"}')
+SUB3ID=$(echo "$SUB3" | J "['data']['id']")
+GEN3=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"sr-subs","platform_id":3,"node_names":["smoke-node"],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"DIRECT"}')
+GEN3ID=$(echo "$GEN3" | J "['data']['version_id']")
+echo "13c) sr-subs 装配 version_id=$GEN3ID"
+
+GENR=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"sr-conf","rule_id":'$RULEID',"node_names":[],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"PROXY"}')
+GENRID=$(echo "$GENR" | J "['data']['version_id']")
+echo "13d) sr-conf 装配 version_id=$GENRID"
+
 # 14) Xray 高级模式：开启 + 实例（可选；无 Xray 时跳过检测只验证接口不 5xx）
 curl -s -X PUT $BASE/api/admin/settings/advanced -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"advanced_mode":true,"collect_interval_minutes":10,"traffic_card_enabled":true}' > /dev/null

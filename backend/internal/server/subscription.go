@@ -159,7 +159,12 @@ func (h *SubscriptionHandler) checkSlug(c *gin.Context) {
 	ownerType := c.Query("type")
 	var ownerID int64
 	if v := c.Query("id"); v != "" {
-		ownerID, _ = strconv.ParseInt(v, 10, 64)
+		parsed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			Fail(c, http.StatusBadRequest, "id 参数必须是数字")
+			return
+		}
+		ownerID = parsed
 	}
 	available, err := h.subSvc.CheckSlug(c.Request.Context(), slugVal, ownerType, ownerID)
 	if err != nil {

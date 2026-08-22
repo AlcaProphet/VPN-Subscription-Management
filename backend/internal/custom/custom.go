@@ -73,7 +73,10 @@ func (s *Service) Upsert(ctx context.Context, userID, platformID int64, src vers
 			if err != nil {
 				return fmt.Errorf("创建自定义订阅失败: %w", err)
 			}
-			id, _ = res.LastInsertId()
+			id, err = res.LastInsertId()
+			if err != nil {
+				return err
+			}
 			c = &Custom{ID: id, Slug: value, UserID: userID, PlatformID: platformID}
 		} else if err != nil {
 			return err
