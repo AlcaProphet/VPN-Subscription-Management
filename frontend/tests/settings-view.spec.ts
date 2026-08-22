@@ -58,4 +58,14 @@ describe('SettingsView 基础渲染', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('高级模式')
   })
+
+  it('渲染配置导入导出入口', async () => {
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toMatch(/导出|导入/)
+  })
 })

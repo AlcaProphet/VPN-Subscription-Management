@@ -39,6 +39,7 @@ describe('XrayInstancesView 基础渲染', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     localStorage.clear()
+    document.body.innerHTML = ''
     vi.clearAllMocks()
     ;(listInstances as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([])
     ;(listExtAccounts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([])
@@ -85,9 +86,10 @@ describe('XrayInstancesView 基础渲染', () => {
     })
     const wrapper = mount(XrayInstancesView)
     await flushPromises()
-    const reconcileBtn = wrapper.findAll('button').find((b) => b.text().includes('对账'))
-    await reconcileBtn?.trigger('click')
+    const reconcileBtn = wrapper.findAll('button').find((b) => b.text().replace(/\s/g, '').includes('对账'))
+    expect(reconcileBtn).toBeTruthy()
+    await reconcileBtn!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('账号已一致，无需处理')
+    expect(document.body.textContent ?? '').toContain('账号已一致，无需处理')
   })
 })

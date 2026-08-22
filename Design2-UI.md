@@ -72,7 +72,7 @@
 | 9 | 日志 | `/admin/logs` | 始终 |
 | 10 | 订阅装配 | `/admin/assembly` | 始终（占位页移除，见第五章） |
 | 11 | 节点 | `/admin/nodes` | 始终（manual 节点属基础模式能力） |
-| 12 | 代理组 | `/admin/proxy-groups` | 始终 |
+| 12 | 代理组 | `/admin/assembly?tab=proxy-groups` | 始终（已并入订阅装配，不再独立菜单） |
 | 13 | Xray 实例 | `/admin/xray` | **仅高级模式（advanced_mode=on）** |
 
 - 显隐数据源：`useSystemStore` 的 `/api/system/status` 新增 `advanced_mode` 字段（见 9.3）；开关切换后下次拉取系统状态即联动，无需整页刷新机制
@@ -85,16 +85,15 @@
 
 ### 2.3 路由表增量
 
-在 Design1-UI §7.1 路由总表基础上新增三行并迁组一行（其余路由不变；`/admin/assembly` 路径不变、懒加载分组迁入 admin-assembly）：
+在 Design1-UI §7.1 路由总表基础上新增两行并迁组一行（其余路由不变；`/admin/assembly` 路径不变、懒加载分组迁入 admin-assembly；代理组不再独立路由，已并入装配页 `?tab=proxy-groups`）：
 
 | 路径 | 页面 | 布局 | 懒加载分组 |
 |------|------|------|-----------|
-| `/admin/assembly` | 订阅装配（Tabs 单入口，见第五章） | 管理面板 | admin-assembly |
+| `/admin/assembly` | 订阅装配（Tabs 单入口，含代理组 Tab，见第五章） | 管理面板 | admin-assembly |
 | `/admin/nodes` | 节点管理（见第六章） | 管理面板 | admin-assembly |
-| `/admin/proxy-groups` | 代理组管理（见第七章） | 管理面板 | admin-assembly |
 | `/admin/xray` | Xray 实例（见第八章） | 管理面板 | admin-assembly |
 
-- **懒加载分组调整**：原 `admin-settings` 分组中的装配占位页迁出，新增 **`admin-assembly` 分组**承载装配与节点域四个页面（装配器、节点、代理组、Xray 实例共享大量节点/组勾选类子组件，同组打包收益明确）；`admin-settings` 保留面板配置与日志。**注：一期实现未配置 vite manualChunks**（ant-design-vue 4.x 模块循环依赖，手动拆 chunk 会白屏，见 vite.config.ts 注释），路由级懒加载由 rollup 自动分割——本表「懒加载分组」仅为规格归类，**无 vite 配置动作**
+- **懒加载分组调整**：原 `admin-settings` 分组中的装配占位页迁出，新增 **`admin-assembly` 分组**承载装配与节点域三个页面（装配器含代理组 Tab、节点、Xray 实例共享大量节点/组勾选类子组件，同组打包收益明确）；`admin-settings` 保留面板配置与日志。**注：一期实现未配置 vite manualChunks**（ant-design-vue 4.x 模块循环依赖，手动拆 chunk 会白屏，见 vite.config.ts 注释），路由级懒加载由 rollup 自动分割——本表「懒加载分组」仅为规格归类，**无 vite 配置动作**
 - 装配页支持 query 参数带目标进入（如 `/admin/assembly?tab=clash-yaml&platform_id=3&edit_version_id=5`，见 4.2/5.3 重新编辑流）；未知 tab 回退默认第一个页签
 
 ### 2.4 路由守卫增量
@@ -274,8 +273,8 @@
 
 ### 5.1 页面骨架：单菜单入口页内 Tabs
 
-- `PageHeader`（标题「订阅装配」）+ `a-tabs` 五页签：**规则素材池 / Clash YAML / SR 节点订阅 / 通用节点订阅 / SR 分流规则**（页签 key：`pool` / `clash-yaml` / `sr-subs` / `generic-subs` / `sr-conf`）；页签切换不重新拉取无关数据（各页签独立挂载，`keep-alive` 或惰性渲染二选一由实现决定，对外行为一致）
-- URL query 驱动页签：`?tab=` 无效值回退首页签；四类装配器页签接受 `platform_id` / `rule_id` / `edit_version_id` 带参进入（见 2.3/4.2）
+- `PageHeader`（标题「订阅装配」）+ `a-tabs` **三个一级页签**：**规则素材池 / 代理组 / 构建订阅·规则**（页签 key：`pool` / `proxy-groups` / `build`）；其中「构建订阅·规则」内部再以二级 Tab 提供四个子平台：**Clash YAML / SR 节点订阅 / 通用节点订阅 / SR 分流规则**（key：`clash-yaml` / `sr-subs` / `generic-subs` / `sr-conf`）；页签切换不重新拉取无关数据（各页签独立挂载，`keep-alive` 或惰性渲染二选一由实现决定，对外行为一致）
+- URL query 驱动页签：`?tab=` 无效值回退首页签；`?tab=clash-yaml` 等会定位到「构建订阅·规则」对应子平台；四个子平台接受 `platform_id` / `rule_id` / `edit_version_id` 带参进入（见 2.3/4.2）
 - `<768`：页签转横向滚动（AntD 默认行为），页内分区纵向堆叠
 
 ### 5.2 页签一：规则素材池
@@ -411,7 +410,7 @@
 
 ---
 
-## 七、代理组管理页 ProxyGroupsView（新独立菜单 `/admin/proxy-groups`）
+## 七、代理组管理（订阅装配内 Tab：`/admin/assembly?tab=proxy-groups`）
 
 ### 7.1 列表（双态列表）
 
@@ -672,3 +671,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v1.9 | 2026-08-19 | Design2Report9 修订：强制组 emoji 化（🚀直接连接/🌎国外流量/🛟无法归属的流量，5.3.1/6.2/6.3/7.2/7.3）；长操作异步化与全局任务端点 /api/admin/tasks/:id（8.3/8.4/9.1/9.2/9.3，120s 清单闭合）；OFF 幂等 no-op 与独立账号整行删除措辞（4.7）；enabled 停用 ConfirmModal、删订阅清单补候选集副作用（6.1/4.1）；版本列表空态、四色→六态五色、DiffView 不可达分支移除与暗色、池 Badge 数据源注记、用量无数据显示—、检测零新增提示、getExtCredentials no-store、错误串截断口径、超限管理端处置指引、api/group.ts 标题、protocols 契约补 label |
 | v2.0 | 2026-08-19 | Design2Report10 修订：DiffView 恢复无目标「整体新增」分支（Q4，按用户决策改 UI）；导入双确认词 IMPORT→DISABLE 与 v1 同步/v2 异步响应口径（Q5）；装配校验补未勾选子组拒绝（Q7）；🌎国外流量成员仅节点（Q8）；对账单条同步端点 push-one/credentials-one 契约与行内交互（Q9）；实例删除轮询、检测/对账不可达错误态、api_addr 变更提示、push_targets 形状与移除确认（Q12） |
 | v2.1 | 2026-08-19 | Design2Report11 核验修订：目标规则实体选择固定步骤①（5.3.3/5.3.4）；v1.1 变更记录「三分区」勘误为「四分区」；首页 traffic 与分流规则卡片改独立端点 `GET /api/home/summary`、quota_bytes 不限时统一 `null`（9.3）；manual 节点编辑允许变更协议=整体重新填表（6.2）；停用预设组 400 拒绝生成（5.3.0）；用户预览 subs/generic-subs 装配模板返回明文原文（9.3） |
+| v2.2 | 2026-08-22 | 同步 Issue4 R19-02/R19-08 已落地决策：装配页改为「规则素材池 / 代理组 / 构建订阅·规则」三个一级 Tab，四个子平台并入构建 Tab；代理组不再独立路由/侧边栏菜单，改为 `/admin/assembly?tab=proxy-groups`。 |

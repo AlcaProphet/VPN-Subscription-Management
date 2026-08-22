@@ -32,4 +32,18 @@ describe('GroupsView 基础渲染', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('暂无用户组')
   })
+
+  it('列表展示组名与节点数', async () => {
+    ;(listGroups as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 1, name: '研发组', node_count: 3, user_count: 5 },
+    ])
+    const wrapper = mount(GroupsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('研发组')
+    expect(wrapper.text()).toContain('3')
+  })
 })

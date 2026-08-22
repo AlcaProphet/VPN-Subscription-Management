@@ -58,4 +58,19 @@ describe('UsersView 基础渲染', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('暂无用户')
   })
+
+  it('列表展示用户名与邮箱', async () => {
+    ;(listUsers as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      list: [{ id: 1, username: 'admin1', email: 'admin1@x.com', role: 'admin', status: 'active', custom_subs: [] }],
+      total: 1,
+    })
+    const wrapper = mount(UsersView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin1')
+    expect(wrapper.text()).toContain('admin1@x.com')
+  })
 })
