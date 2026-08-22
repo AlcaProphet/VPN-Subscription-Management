@@ -40,11 +40,13 @@ vi.mock('@/api/system', () => ({
 
 import UsersView from '@/views/admin/UsersView.vue'
 import { listUsers } from '@/api/user'
+import { getSystemStatus } from '@/api/system'
 
 describe('UsersView 基础渲染', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     localStorage.clear()
+    document.body.innerHTML = ''
     vi.clearAllMocks()
     ;(listUsers as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ list: [], total: 0 })
   })
@@ -72,5 +74,26 @@ describe('UsersView 基础渲染', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('admin1')
     expect(wrapper.text()).toContain('admin1@x.com')
+  })
+
+  it('高级模式下展示用量、配额与同步状态列', async () => {
+    ;(getSystemStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ configured: true, app_mode: 'dev', advanced_mode: true })
+    ;(listUsers as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      list: [{
+        id: 1, username: 'u1', email: 'u1@x.com', role: 'user', status: 'active', custom_subs: [],
+        group_name: '默认组', used_bytes: 1024, effective_quota: 10, quota_override: null, quota_exceeded: false, sync_status: 'synced',
+      }],
+      total: 1,
+    })
+    const wrapper = mount(UsersView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('本月用量')
+    expect(wrapper.text()).toContain('同步状态')
+    expect(wrapper.text()).toContain('默认组')
+    expect(wrapper.text()).toContain('已同步')
   })
 })

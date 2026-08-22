@@ -68,4 +68,25 @@ describe('SettingsView 基础渲染', () => {
     await flushPromises()
     expect(wrapper.text()).toMatch(/导出|导入/)
   })
+
+  it('高级模式未开启时展示 DISABLE 确认说明', async () => {
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('DISABLE')
+    expect(wrapper.text()).toContain('关闭高级模式会清空')
+  })
+
+  it('Dev 模式展示配置导入导出不可用提示', async () => {
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Dev 模式不提供配置导入导出')
+  })
 })
