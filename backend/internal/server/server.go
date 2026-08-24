@@ -63,7 +63,6 @@ func detach(ctx context.Context, fn func(context.Context)) {
 	go fn(bg)
 }
 
-
 type Server struct {
 	engine          *gin.Engine
 	httpSrv         *http.Server
@@ -99,7 +98,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	// Setup 路由（本 Build Step 5/6）
 	RegisterSetupRoutes(engine, &SetupHandler{setupSvc: setupSvc, oidcSvc: oidcSvc})
 	// OIDC 路由（本 Build Step 6）
-	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc}, authSvc.SessionMiddleware())
+	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc}, authSvc.SessionMiddleware(), limiter)
 	// 版本组件 + 订阅池路由（Build2 Step 2；会话 + 管理员双中间件）
 	versionSvc := version.NewService(st, dataDir, lg)
 	// 平台路由（Build2 Step 1；会话 + 管理员双中间件；Step 5 起持有版本组件用于完整级联）
@@ -242,7 +241,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	assemblySvc := assembly.NewService(st, cfg, lg)
 	RegisterAssemblyRoutes(engine, &AssemblyHandler{
 		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
-		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc,
+		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc, subSvc: subSvc,
 		onGenerateActivated: func(ctx context.Context) {
 			detach(ctx, func(ctx context.Context) {
 				if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {

@@ -15,6 +15,7 @@ import (
 	"vpn-sub/internal/pool"
 	"vpn-sub/internal/proxygroup"
 	"vpn-sub/internal/rule"
+	"vpn-sub/internal/subscription"
 	"vpn-sub/internal/version"
 )
 
@@ -27,6 +28,7 @@ type AssemblyHandler struct {
 	platformSvc   *platform.Service
 	ruleSvc       *rule.Service
 	versionSvc    *version.Service
+	subSvc        *subscription.Service
 	// onGenerateActivated 装配首版自动激活后的候选集重算回调（Build6 Step2）
 	onGenerateActivated func(ctx context.Context)
 }
@@ -70,12 +72,18 @@ func (h *AssemblyHandler) context(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	subs, err := h.subSvc.List(ctx)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 	OK(c, gin.H{
-		"nodes":        nodes,
-		"proxy_groups": groups,
-		"pools":        pools,
-		"platforms":    platforms,
-		"rules":        rules,
+		"nodes":         nodes,
+		"proxy_groups":  groups,
+		"pools":         pools,
+		"platforms":     platforms,
+		"rules":         rules,
+		"subscriptions": subs,
 	})
 }
 

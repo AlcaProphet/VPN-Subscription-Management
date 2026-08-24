@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -65,9 +66,46 @@ type Service struct {
 }
 
 func NewService(st *store.Store, cfg *config.Service, authSvc *auth.Service, users *user.Service, mode string, lg *slog.Logger) *Service {
+	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			var dialIP string
+			for _, ip := range ips {
+				if isBlockedIP(ip.IP) {
+					return nil, fmt.Errorf("禁止访问非公网地址: %s", ip.IP)
+				}
+				if dialIP == "" {
+					dialIP = ip.IP.String()
+				}
+			}
+			if dialIP == "" {
+				return nil, errors.New("URL 主机无可用解析结果")
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(dialIP, port))
+		},
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
 	return &Service{
 		store: st, cfg: cfg, authSvc: authSvc, users: users, mode: mode, log: lg,
-		httpCli:   &http.Client{Timeout: 10 * time.Second},
+		httpCli: &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: transport,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return errors.New("重定向次数过多")
+				}
+				return validateOIDCURL(req.URL.String())
+			},
+		},
 		discCache: map[string]*Discovery{},
 	}
 }

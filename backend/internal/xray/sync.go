@@ -189,7 +189,9 @@ func (s *SyncService) PushUser(ctx context.Context, userID int64) (int, int, err
 		err = client.AddUser(ctx, t.Tag, user)
 		if err == nil && !s.cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
 			// AddUser 完成后复查，off 则立即补偿 RemoveUser。
-			_ = client.RemoveUser(ctx, t.Tag, UserEmail(userID))
+			if rerr := client.RemoveUser(ctx, t.Tag, UserEmail(userID)); rerr != nil && !IsNotFound(rerr) {
+				s.log.Warn("高级模式关闭后补偿移除用户失败", "user_id", userID, "tag", t.Tag, "err", rerr)
+			}
 			s.markFailed(ctx, userID, t, errors.New("高级模式已关闭，已补偿移除"))
 			failed++
 			continue

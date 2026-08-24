@@ -8,6 +8,7 @@ import (
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/oidc"
+	"vpn-sub/internal/ratelimit"
 )
 
 // OidcHandler OIDC 端点处理器（接入层）
@@ -17,13 +18,27 @@ type OidcHandler struct {
 }
 
 // RegisterOidcRoutes 注册 OIDC 路由
-func RegisterOidcRoutes(engine *gin.Engine, h *OidcHandler, sessionMW gin.HandlerFunc) {
+func RegisterOidcRoutes(engine *gin.Engine, h *OidcHandler, sessionMW gin.HandlerFunc, limiter *ratelimit.Limiter) {
 	g := engine.Group("/api/auth/oidc")
-	g.GET("/login", h.login)              // 发起授权（302），不限流
-	g.GET("/callback", h.callback)        // 回调，不限流（state 一次性 + 三重校验已防重放）
-	g.POST("/mock/login", h.mockLogin)    // 模拟登录（仅 Dev + mock）
-	g.POST("/bind", sessionMW, h.bind)    // 发起绑定（需会话）
-	engine.POST("/api/oidc/test", h.test) // 本 Step 不加鉴权；Build3 新增管理员专用测试端点
+	g.GET("/login", h.login)           // 发起授权（302），不限流
+	g.GET("/callback", h.callback)     // 回调，不限流（state 一次性 + 三重校验已防重放）
+	g.POST("/mock/login", h.mockLogin) // 模拟登录（仅 Dev + mock）
+	g.POST("/bind", sessionMW, h.bind) // 发起绑定（需会话）
+	// 测试连接：未配置时允许 Setup 匿名测试；已配置后要求会话 + 管理员。
+	// 通过“在 handler 内手动调用中间件后再执行 h.test”的方式，避免 sessionMW 提前触发 h.test。
+	engine.POST("/api/oidc/test", limiter.Middleware("oidc_test", "ratelimit_oidc_test", 10), func(c *gin.Context) {
+		if h.oidcSvc.IsConfigured(c.Request.Context()) {
+			sessionMW(c)
+			if c.IsAborted() {
+				return
+			}
+			auth.AdminMiddleware()(c)
+			if c.IsAborted() {
+				return
+			}
+		}
+		h.test(c)
+	})
 }
 
 const stateCookie = "oidc_state"

@@ -53,6 +53,7 @@ const context = {
   pools: [{ id: 1, name: '池A', urls: [], entry_count: 0, last_synced_at: '', sync_status: '', sync_error: '', auto_sync: false, sync_time: '04:00' }],
   platforms: [{ id: 1, name: '平台A', product_type: 'yaml' }],
   rules: [{ id: 2, name: '规则A', current_version: 0 }],
+  subscriptions: [],
 }
 
 function makeRouter(query = 'tab=bad'): Router {

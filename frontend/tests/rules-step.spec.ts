@@ -20,6 +20,7 @@ const baseProps = {
     proxy_groups: [],
     platforms: [],
     rules: [],
+    subscriptions: [],
   },
   targetSyntax: 'sr-conf' as const,
   outputGroups: ['PROXY', 'DIRECT'],

@@ -5,6 +5,7 @@ import type { ProxyGroupItem } from './proxyGroup'
 import type { PoolItem } from './pool'
 import type { PlatformItem } from './platform'
 import type { RuleItem } from './rule'
+import type { SubscriptionItem } from './subscription'
 
 export type TargetSyntax = 'clash-yaml' | 'sr-subs' | 'generic-subs' | 'sr-conf'
 
@@ -47,6 +48,7 @@ export interface AssemblyContext {
   pools: PoolItem[]
   platforms: PlatformItem[]
   rules: RuleItem[]
+  subscriptions: SubscriptionItem[]
 }
 export interface BlueprintResponse {
   blueprint: {

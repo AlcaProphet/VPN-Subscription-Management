@@ -111,7 +111,7 @@ const buildPreflightMissing = computed<string[]>(() => {
   } else {
     if (filteredPlatforms.value.length === 0) {
       missing.push('匹配的目标平台')
-    } else if (!filteredPlatforms.value.some((p) => subscriptions.value.some((s) => s.platform_id === p.id))) {
+    } else if (!filteredPlatforms.value.some((p) => (context.value?.subscriptions ?? []).some((s) => s.platform_id === p.id))) {
       missing.push('目标平台订阅条目')
     }
   }
@@ -162,9 +162,9 @@ const ruleTypeOptions = computed(() => targetSyntax.value === 'clash-yaml' ? CLA
 async function loadContext() {
   loadingContext.value = true
   try {
-    const [ctxData, subs] = await Promise.all([getAssemblyContext(), listSubscriptions()])
+    const ctxData = await getAssemblyContext()
     context.value = ctxData
-    subscriptions.value = subs
+    subscriptions.value = ctxData.subscriptions ?? []
     // 支持从订阅/规则页带目标参数进入装配
     const platformId = Number(route.query.platform_id ?? 0)
     if (platformId > 0) form.platform_id = platformId
