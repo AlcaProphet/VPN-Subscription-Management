@@ -1,7 +1,9 @@
-# Issue2.md — VPN 订阅管理系统 问题追踪（当前）
+# Issue2.md — VPN 订阅管理系统 问题追踪（已归档）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前问题记录**（记录错误与修复方案，非强制，经验参考），承接已存档的 [Issue1.md](./docs/AchievedDocuments/Issue1.md)。
-> 设计记录见 [Design2.md](./Design2.md) 与 [Design2-UI.md](./Design2-UI.md)；构建方案见 [Build4.md](./docs/AchievedDocuments/Build4.md)（已归档）；编码指令见 [AGENTS.md](./AGENTS.md)（**唯一强要求**）。
+> **文档定位：** 本文档是 VPN 订阅管理系统的**已归档问题记录**（记录错误与修复方案，非强制，经验参考），承接已存档的 [Issue1.md](./Issue1.md)。
+>
+> **归档说明（2026-08-24）：** R12~R15 系列问题均已修复或迁移至后续 Issue（R15-07/08/13/14 已迁移至 Issue3），不再作为当前问题追踪。
+> 设计记录见 [Design2.md](../Design2.md) 与 [Design2-UI.md](../Design2-UI.md)；构建方案见 [Build4.md](./Build4.md)（已归档）；编码指令见 [AGENTS.md](../AGENTS.md)（**唯一强要求**）。
 
 ---
 
@@ -723,9 +725,9 @@ cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold
 
 1. 问题发现 → 记录现象/根因/影响范围；
 2. 存在方案取舍时，使用提问工具附推荐选项与用户确认；
-3. 修复方案确定后，由 [BuildN.md](./BuildN.md) 承接为构建 Step；
+3. 修复方案确定后，由 [BuildN.md](../BuildN.md) 承接为构建 Step；
 4. 修复完成并验收通过后，更新状态为 ✅ 并记录验收命令与实际结果；
-5. 非问题的优化候选 / 已知遗留事项归 [DesignN.md](./DesignN.md) §三「后续设计候选」记录，不记录在本文件。
+5. 非问题的优化候选 / 已知遗留事项归 [DesignN.md](../DesignN.md) §三「后续设计候选」记录，不记录在本文件。
 
 ---
 
@@ -751,3 +753,4 @@ cd backend && go test ./internal/assembly -run 'TestRenderClash10kRulesThreshold
 | v2.5 | 2026-08-21 | Build6/Build7 交付核查：追加 R15-01~R15-14（异步任务请求 Context 必失败、动态节点端口/protocol_json/Clash ss 映射缺陷、v2 导入不完整、OFF 并发任务、Build7 前端未完整落地、专项测试缺失、同步回调/超时、对账超限口径、SR/generic 注释与预览、候选集契约、Step6 归档、error/死代码）。验证事实：后端 `go build/vet/test ./...`、`go test -race ./internal/xray/... ./internal/download/... ./internal/group/...`、前端 `npm run build`+45 单测、Docker 镜像构建与 `.smoke-test.sh` 均通过；HTTP 实测实例删除任务复现 `context canceled`；`TestRenderUserSubscription10kRules` 为 `no tests to run`；动态渲染/检测 protocol_json 缺陷经临时单测复现。 |
 | v2.6 | 2026-08-21 | 用户确认 R15 决策：归档 Build4~7 与 AGENTS/README 状态更新由用户决定时机；`AfterAdvancedOff` 补实现并接线；R15 修复开始时 Build6/Build7 受影响 Step 回退 ◧、复验通过后恢复 ✅；其余按核查推荐方案。已新增「R15 决策与修复方法」与「0-R15 交接优先级」，暂不改代码。 |
 | v2.7 | 2026-08-21 | 未闭环条目迁移（用户已确认）：R15-07/08/13/14 连同修复决策整体迁移至 Issue3.md，原处留迁移指引；R15-01~06/09~12 正文状态行对齐为 ✅ 已修复（与「R15 当前修复状态」表一致）；R14-06/07 经代码复核实已随 Build6 修复，状态补记 ✅；「附 0-R15」交接段改为迁移指引。本轮新增用户决策：R15-13 归档时机为 R15/R16 全部修复并复验通过后；R15-14 中 DiffPush 无调用方死代码确认删除（同步修订 Build6-2 表述）。 |
+| v2.8 | 2026-08-24 | 复核确认 R12~R15 全部修复或迁移；归档至 docs/AchievedDocuments。 |

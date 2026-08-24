@@ -1,7 +1,9 @@
-# Issue3.md — VPN 订阅管理系统 问题追踪（当前）
+# Issue3.md — VPN 订阅管理系统 问题追踪（已归档）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前问题记录**（记录错误与修复方案，非强制，经验参考），承接 [Issue2.md](./Issue2.md)（R12~R15 系列，保留备查）。
-> 设计记录见 [Design2.md](./Design2.md) 与 [Design2-UI.md](./Design2-UI.md)；构建方案见 [Build4.md](./docs/AchievedDocuments/Build4.md)～[Build7.md](./docs/AchievedDocuments/Build7.md)（已归档）；编码指令见 [AGENTS.md](./AGENTS.md)（**唯一强要求**）。
+> **文档定位：** 本文档是 VPN 订阅管理系统的**已归档问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档的 [Issue2.md](./Issue2.md)（R12~R15 系列，保留备查）。
+>
+> **归档说明（2026-08-24）：** 经复核，R16~R18 及自 Issue2 迁移条目均已闭环；原部分修复项（R15-08/R16-07/R16-09/R17-06/R17-07）已由后续测试/smoke/README 补齐，残余文档收口项已由 Issue5 承接。不再作为当前问题追踪。
+> 设计记录见 [Design2.md](../Design2.md) 与 [Design2-UI.md](../Design2-UI.md)；构建方案见 [Build4.md](./Build4.md)～[Build7.md](./Build7.md)（已归档）；编码指令见 [AGENTS.md](../AGENTS.md)（**唯一强要求**）。
 
 ---
 
@@ -79,7 +81,7 @@
 - **根因：** 同 R15-08——构建文档单测清单未随实现执行。
 - **影响范围：** 采集逻辑与前端核心交互无回归保护；R16-01~05 类缺陷无法被测试拦截。
 - **修复方案：** 并入 R15-08 测试补齐清单：新增 cron/xray 采集单测、扩展 xray-instances-view.spec、落地 TestRenderUserSubscription10kRules（1 万规则 <500ms）。
-- **状态：** ◧ 部分修复（2026-08-21 已补 cron/render/10k；仍缺 R17-06 所列前端专项与后端 credentials/stats/quota/reconcile）
+- **状态：** ✅ 已修复（2026-08-24 复核：cron/xray 采集测试、10k 用户渲染测试、前端专项与后端 credentials/stats/quota/reconcile 测试均已落地；`go test`/`npm test` 通过）
 
 ### R16-08 忽略 error 与死代码残留新检测簇（R15-14 增量）
 
@@ -102,7 +104,7 @@
 - **根因：** smoke 脚本最后一次更新停留在 Build4/5 基础模型（N4），Build6/7 未续写。
 - **影响范围：** 端到端冒烟无法拦截 R15/R16 级链路缺陷。
 - **修复方案：** 按当前 API 重写 smoke 脚本：素材池 CRUD+同步、manual 节点、代理组、四类装配生成、版本激活、下载（含动态渲染前置）、Xray 实例 fake 可选分支、v2 导出导入往返。
-- **状态：** ◧ 部分修复（2026-08-21 已扩展路径；Production 模式实机验证已转 [ProdTestList.md](./ProdTestList.md)，待用户自行执行）
+- **状态：** ✅ 已修复（2026-08-24 复核：`.smoke-test.sh` 已覆盖 Build4~7 核心路径，`.smoke-test-prod.sh` 可自动拉起 Production 临时实例；Production 实机验证继续由 [ProdTestList.md](../ProdTestList.md) 承接）
 
 ### R16-10 Build6/Build7 文档勾选状态与代码现状不一致
 
@@ -163,7 +165,7 @@
 - **根因：** R15-08/R16-07 的清单未全部执行。
 - **影响范围：** Build7 Step3/4 前端交互与 Build6/7 后端核心状态机缺少回归保护。
 - **修复方案：** 按 R15-08/R16-07 原始清单补齐文件与用例；扩展 xray-instances-view.spec 覆盖开关回滚/测试连接/检测回执/对账四分区/ext 双轨/重试 loading。
-- **状态：** ◧ 部分修复（2026-08-21 已新增 groups/users/settings spec、扩展 xray spec、后端 credentials/stats/quota/reconcile 测试；原清单中部分交互覆盖仍未完整）
+- **状态：** ✅ 已修复（2026-08-24 复核：前端专项测试 65 例通过，覆盖实例开关回滚/测试连接/检测回执/对账四分区/ext 双轨/重试 loading；后端 credentials/stats/quota/reconcile 测试均存在并通过）
 
 ### R17-07 .smoke-test.sh v2 导出在 Dev 模式把 403 当成功
 
@@ -171,7 +173,7 @@
 - **根因：** smoke 脚本未校验 HTTP 状态/响应内容，也未在 Production 模式运行导出分支。
 - **影响范围：** Build7 Step6 的 v2 导出冒烟实际未验证，验收可能假绿。
 - **修复方案：** 在 smoke 中断言 HTTP 200 且响应不是 JSON 错误；或将导出/导入分支放到 Production 临时实例执行；或显式跳过并输出 skip 原因。
-- **状态：** ◧ 部分修复（2026-08-21 已修正 Dev 下 403 假绿，要求 Production 并校验 HTTP 200；Production 临时实例自动拉起不做，已转 [ProdTestList.md](./ProdTestList.md) 待用户自行测试）
+- **状态：** ✅ 已修复（2026-08-24 复核：`.smoke-test-prod.sh` 已实现自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；Production 实机验证继续由 [ProdTestList.md](../ProdTestList.md) 承接）
 
 ### R17-08 SettingsView v2 导入/导出文案与保护提示未完全落地
 
@@ -218,7 +220,7 @@
 - **根因：** 构建文档中“单测/验收标准”未被执行。
 - **影响范围：** 多项缺陷未被测试发现；后续改动无回归保护。
 - **修复方案（已确认）：** 后端新增 `internal/xray/credentials_test.go`、`detect_test.go`、`stats_test.go`、`quota_test.go`、`ext_test.go`、`reconcile_test.go`、`offclear_test.go`，扩展 `config/export_test.go`（v2 异步/保护/往返/双确认）与 `download_test.go`（usage 头/文件名/no-store）；新增 `internal/server/render_test.go` 与 `internal/server/xray_async_test.go`；新增 `TestRenderUserSubscription10kRules`（1 万规则、20 用户规模，断言 <500ms）。前端新增 `xray-instances-view.spec.ts`、`groups-view.spec.ts`、`users-view.spec.ts`、`settings-view.spec.ts`，扩展 `home-view.spec.ts` 与新增 `profile-view.spec.ts`。2026-08-21 新增缺失项见 R16-07（合并执行）。
-- **状态：** ◧ 部分修复（2026-08-21 已补后端部分测试与 10k 渲染；仍缺 R17-06 所列前端专项与后端 credentials/stats/quota/reconcile）
+- **状态：** ✅ 已修复（2026-08-24 复核：后端 credentials/stats/quota/reconcile 测试与前端专项 spec 均已落地，`go test`/`npm test` 通过）
 
 ### R15-13 Build7 Step6 文档归档、覆盖矩阵与 README 高级模式部署说明未完成
 
@@ -226,7 +228,7 @@
 - **根因：** Step6 仅执行了部分自动验证，收口与归档动作未执行。
 - **影响范围：** 交付状态与文档索引不一致；部署者缺少高级模式必要前置信息。
 - **修复方案（用户已确认 2026-08-21）：** 待 R15/R16 系列全部修复并复验通过后，再归档 Build4~7、更新 AGENTS.md 文档清单状态与 README（含高级模式部署前置说明）；同步核对 Design2 全量覆盖矩阵、清理 PlaceholderView 残留。
-- **状态：** ✅ 已执行（2026-08-21，Build4~7 已归档至 docs/AchievedDocuments，AGENTS.md 文档清单与链接已更新；README 高级模式部署说明仍可后续补充）
+- **状态：** ✅ 已执行（2026-08-24 复核：Build4~7 已归档，AGENTS.md 文档清单与链接已更新，README 高级模式部署说明已补齐）
 
 ### R15-14 新增代码中的忽略 error、死代码与停用清理遗漏
 
@@ -271,13 +273,13 @@
 13. **R17-03**：✅ 已修复（OFF 确认弹窗增加 DISABLE 输入）。
 14. **R17-04**：✅ 已修复（危险确认/凭据复制/列表字段/错误展示/<768 卡片态）。
 15. **R17-05**：✅ 已修复（公共节点禁选/非候选移除/空候选按钮）。
-16. **R17-06**：◧ 进行中（已新增文件与基础用例；交互覆盖仍待补全）。
-17. **R17-07**：◧ 进行中（已要求 Production 并校验 HTTP 200；自动拉起 Production 临时实例待补）。
+16. **R17-06**：✅ 已修复（2026-08-24 复核：前端专项测试 65 例通过，后端 credentials/stats/quota/reconcile 测试均存在并通过）。
+17. **R17-07**：✅ 已修复（2026-08-24 复核：`.smoke-test-prod.sh` 已自动拉起 Production 临时实例并执行四类装配器 + v2 往返）。
 18. **R17-08**：✅ 已修复（导入导出文案与保护提示）。
 
 ### 优先级 6：R18 收口（用户反馈新发现）
 
-19. **R18-01**：☐ 待修复（高级模式用户列表对 `sql.ErrNoRows` 未容错，`/api/admin/users` 500；修复方案见「进行中问题」R18-01）。
+19. **R18-01**：✅ 已修复（2026-08-21，`AdminService.List` 对 `sql.ErrNoRows` 容错并置空 SyncError；后端 build/vet/test 通过）。
 
 ### 验收口径
 
@@ -309,9 +311,9 @@
 
 1. 问题发现 → 记录现象/根因/影响范围；
 2. 存在方案取舍时，使用提问工具附推荐选项与用户确认；
-3. 修复方案确定后，由 [BuildN.md](./BuildN.md) 承接为构建 Step；
+3. 修复方案确定后，由 [BuildN.md](../BuildN.md) 承接为构建 Step；
 4. 修复完成并验收通过后，更新状态为 ✅ 并记录验收命令与实际结果；
-5. 非问题的优化候选 / 已知遗留事项归 [Design2.md](./Design2.md) §三「后续设计候选」记录，不记录在本文件。
+5. 非问题的优化候选 / 已知遗留事项归 [Design2.md](../Design2.md) §三「后续设计候选」记录，不记录在本文件。
 
 ---
 
@@ -331,3 +333,4 @@
 | v1.9 | 2026-08-21 | 新增 R18-01：高级模式用户列表对 `sql.ErrNoRows` 未容错，点击「开始初始化」后 `/api/admin/users` 500、用户管理列表为空（用户数据未丢失）。用户要求先记录、不改动代码；状态 ☐ 待修复。 |
 | v1.10 | 2026-08-21 | R18-01 修复完成：`AdminService.List` 对 `sql.ErrNoRows` 容错并置空 SyncError；后端 build/vet/test 通过。 |
 | v1.11 | 2026-08-21 | R15-13 归档收口：Build4~7 已确认归档至 docs/AchievedDocuments，AGENTS.md 文档清单与链接关系已更新；R15-13 状态置为 ✅。 |
+| v1.12 | 2026-08-24 | 复核确认 R16~R18 及自 Issue2 迁移条目全部闭环；归档至 docs/AchievedDocuments，残余文档收口项由 Issue5 承接。 |

@@ -1,6 +1,6 @@
 # Issue5.md — VPN 订阅管理系统 问题追踪（当前）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前问题记录**（记录错误与修复方案，非强制，经验参考），承接 [Issue4.md](./Issue4.md)（R19 系列，保留备查）。
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档的 [Issue4.md](./docs/AchievedDocuments/Issue4.md)（R19 系列，保留备查）。
 > 设计记录见 [Design2.md](./Design2.md) 与 [Design2-UI.md](./Design2-UI.md)；构建方案见 [Build4.md](./docs/AchievedDocuments/Build4.md)～[Build7.md](./docs/AchievedDocuments/Build7.md)（已归档）；编码指令见 [AGENTS.md](./AGENTS.md)（**唯一强要求**）。
 
 ---
@@ -10,9 +10,9 @@
 - **核查范围：** 依据 Build1~7、Issue1~4、Design2/Design2-UI 对当前代码做静态核验；不执行构建/测试/压力测试。
 - **总体结论：**
   - Build4/5 主体能力（规则素材池、manual 节点、代理组、四类装配器、分发 UI）与 Build6/7 主体后端（Xray 实例/同步/下载渲染/独立账号/导入导出/OFF 清空）均已落地，旧分发表已清零，Go 1.26/xray-core 版本与文档一致。
-  - Issue1 历史问题基本已修复；Issue2 中 R12~R15 已闭环项经抽查基本属实。
-  - Issue3 中 **R17-06（前端专项测试覆盖不足）与 R17-07（smoke Production 自动拉起未闭环）仍为 ◧**，与文档状态一致。
-  - Issue4 中 R19 系列大部分已修复，但 **R19-05 的“重启后平台数据疑似丢失/平台列表为空”补充现象仍未现场排查**，不能视为完全闭环。
+  - Issue1/Issue2 已归档：Issue1 历史问题基本已修复，Issue2 中 R12~R15 已闭环或迁移至 Issue3/Issue5。
+  - Issue3 已归档：R16~R18 及自 Issue2 迁移条目经复核均已闭环；原部分修复项已由后续测试/smoke/README 补齐，残余文档收口项由 Issue5 承接。
+  - Issue4 已归档：R19 系列均已修复闭环；R19-05 补充现象已在 Issue5 R20-11 闭环并转 ProdTestList 人工验证。
   - 本轮（二轮）逐文件复扫后新增 **R20-16~R20-27**：素材池 Scanner 错误误删风险、OFF 下载仍依赖凭据解密、单条/独立账号 AddUser 缺首建与 OFF 补偿、导入保护绕过、Xray 页 UI 分支缺失、实例删除 404 契约、装配 400/500 映射、候选集解析 fail-open、error 处理残余、Design2-UI 未同步 Issue4、Build6/7 文档勾选不一致、参数校验缺口等。
 
 ---
@@ -115,7 +115,7 @@
 - **现象：** `.smoke-test.sh` 已改为非 Production 直接退出并要求手动验证，但未自动拉起 Production 临时实例；且当前 smoke 仅覆盖 Clash YAML 装配，未覆盖 SR subs / generic-subs / sr-conf / 导入 v2 完整往返。
 - **影响范围：** Build7 Step6 的端到端验收仍依赖人工；CI/自动化不能完整拦截。
 - **修复方案：** 按 R17-07 计划增加 Production 临时实例自动拉起（或提供明确的一键脚本），并扩展四类装配器路径。
-- **状态：** ◧ 进行中（与 Issue3 R17-07 一致）
+- **状态：** ✅ 已修复（2026-08-24 复核：`.smoke-test-prod.sh` 已自动拉起 Production 临时实例，`.smoke-test.sh` 已覆盖四类装配器与 v2 导出/导入往返；Build8 Step4 验收通过）
 
 ### R20-11 Issue4 R19-05 “重启后平台数据疑似丢失”仍未现场排查
 
@@ -146,7 +146,7 @@
 - **根因：** R15-13 只更新了 AGENTS/归档，README 未补。
 - **影响范围：** 部署者缺少高级模式必要前置信息。
 - **修复方案：** 在 README 增加高级模式部署章节。
-- **状态：** ☐ 待修复
+- **状态：** ✅ 已修复（2026-08-24 复核：README 已新增“高级模式（Xray 对接）”部署章节，包含 gRPC API、IP 白名单、1~5 台实例、OFF 手动清理提示）
 
 ### R20-15 Build6/Build7 文档勾选状态与归档状态多处不一致
 
@@ -156,7 +156,7 @@
   - AGENTS.md 已把 Build4~7 整体列为“已存档/已验收”，与 Build7 Step6 ◧ 冲突；且 AGENTS.md 文档清单仍只列 Issue3/Issue4 为当前问题记录，未索引本轮新增的 [Issue5.md](./Issue5.md)。
 - **影响范围：** 新会话可能误判 Build6/7 各 Step 尚未完成或已完成；问题追踪链条（Issue3→Issue5）入口缺失。
 - **修复方案：** 由用户确认后统一回写：Build6 Step5/6 与 Build7 Step1~4 按最新修复状态恢复 ✅；Build7 Step6 明确标“部分收口/待 ProdTestList 人工验收”；AGENTS.md 文档清单补 Issue5（及 Build6-2）索引。
-- **状态：** ◧ 待用户决策复核
+- **状态：** ✅ 已修复（2026-08-24 复核：Build6/7 勾选已恢复 ✅，AGENTS.md 已更新为仅 Issue5 活跃、Issue1~4 归档）
 
 ### R20-16 素材池解析忽略 `bufio.Scanner` 错误，超长行会导致后续条目被误删
 
@@ -253,7 +253,7 @@
 - **根因：** 修复只回写 Issue4，未按 AGENTS §3.6 同步 Design2-UI。
 - **影响范围：** 后续会话按 Design2-UI 恢复开发时会“回退”已被用户否决的交互结构。
 - **修复方案：** 更新 Design2-UI §2.3 路由表、§5.1 页签结构与 §7 入口说明（代理组并入订阅装配 Tab），变更记录注明 R19-02/R19-08 决策。
-- **状态：** ◧ 待用户决策复核（代码与 Issue4 已一致，仅设计文档回写需要用户确认时机）
+- **状态：** ✅ 已修复（2026-08-24 复核：Design2-UI §2.3/§5.1/§7 已按“规则素材池 / 代理组 / 构建订阅·规则”三 Tab 回写，变更记录 v2.2 已注明）
 
 ### R20-26 输入校验缺口：api_addr 端口不合法与重复推送目标/节点导致 500
 
@@ -272,6 +272,24 @@
 - **根因/影响：** Build7 Step1 只字面写“凭据留空保留、push_targets 全量 diff”，未明确“非空修改凭据是否重推不变目标”；Design2-UI §8.5 又明确编辑弹窗有凭据区，因此按设计意图推测应重推，但需用户确认。
 - **修复方案（推测）：** `UpdateExt` 在 `uuidVal` 或 `proxySecret` 非空时，对全部保留目标执行“先 Remove 再 Add”；或在 UI 隐藏凭据编辑并文档化“创建后凭据不可改”。请用户二选一。
 - **状态：** ◧ 待用户决策复核
+
+### R21-01 /api/oidc/test 未鉴权 SSRF——公网匿名可用的内网探测原语
+
+- **现象：**
+  - `backend/internal/server/oidc.go:20-27` 将 `POST /api/oidc/test` 注册在 `/api/auth/oidc` 分组之外，未叠加 `sessionMW`/`AdminMiddleware`；`server.go` 全局也没有登录校验。
+  - 已存在管理员专用 `POST /api/admin/settings/oidc/test`（`backend/internal/server/settings.go:52-79`），但旧公开端点未下线，也未做“仅系统未配置时可用”的限制。
+  - `backend/internal/oidc/mock.go:83-107` 的 `TestConnection` 直接使用攻击者提交的 `base_url` 调 `fetchDiscoveryWithParams` 发起 GET；若提交 `client_secret`，还会向发现文档中攻击者自定的 `token_endpoint` 发起 POST（`verifyClientCredentials`）。
+  - `http.Client` 仅设置 `Timeout: 10s`（`backend/internal/oidc/oidc.go:70`），无 `CheckRedirect`/`DialContext`/IP 段校验，默认跟随重定向，可被用于访问内网/云元数据。
+  - `verifyClientCredentials` 对非 2xx 返回 `HTTP %d: %s`，将上游响应体回显到接口响应，辅助端口/服务指纹探测。
+  - 该 handler 不检查系统是否已完成配置，Setup 结束后仍可匿名调用；也没有限流/验证码。
+- **根因：** Build1 为 Setup 阶段无会话而开放了该测试端点，但 Build3 只新增了管理员专用端点，未将原公开端点按“配置完成前后”收敛或移除；业务层也未做 SSRF 目标校验与响应体收敛。
+- **影响范围：** 公网匿名攻击者可借该端点探测内网/云元数据、对自定 `token_endpoint` 发起 POST，并通过回显判断存活端口与服务指纹；属于未鉴权 SSRF，可被自动化批量利用。
+- **修复方案：**
+  1. 路由收敛：系统未配置完成时仅允许 Setup 匿名测试；已配置后要求 `SessionMiddleware + AdminMiddleware`，或直接禁用 `/api/oidc/test` 仅保留 `/api/admin/settings/oidc/test`。
+  2. SSRF 防护：仅允许 `https`；解析目标 IP 并拒绝回环/私网/链路本地/多播等非公网地址；配置 `CheckRedirect`/`DialContext` 防 DNS rebinding 与重定向绕过。
+  3. 错误收敛：`verifyClientCredentials` 不再回显上游响应体。
+  4. 补充限流：即使保留 Setup 匿名测试，也应对该端点增加 IP 限流。
+- **状态：** ☐ 待修复
 
 ---
 
@@ -317,3 +335,5 @@
 | v1.0 | 2026-08-22 | 初始版本：Build1~7 + Issue1~4 双重静态核验。确认 Build4/5 主体与 Build6/7 后端主体已落地；确认 Issue3 R17-06/07、Issue4 R19-05 补充现象未完全闭环；新增 R20-01~R20-15（error 处理、死代码、装配参数校验、前端预检缺口、README/文档状态不一致等）。未修改代码，仅记录。 |
 | v1.1 | 2026-08-22 | 二轮逐文件复扫：复核 R20-01~15 全部仍成立；R20-04 增补死代码 `nextURLOrderTx`；R20-15 扩为 Build6/7 多处勾选与归档不一致；新增 R20-16~R20-27（Scanner 误删、OFF 下载解密、AddUser 首建/补偿、导入保护绕过、Xray 页 UI 分支、实例删除 404、装配错误码、候选集 fail-open、error 残余、Design2-UI/AGENTS 文档同步、参数校验、ext 凭据编辑重推待决策）。未修改代码。 |
 | v2.0 | 2026-08-22 | 用户决策已确认（R20-08 超时+取消、R20-11 转人工、R20-15/25 文档统一回写、R20-27 凭据重推、R20-26 重复项 400、R20-09 完整测试、R20-10 一键 Production smoke、R20-19 严格导入保护、先写 Build8）。已创建 [Build8.md](./Build8.md) 并完成 Step1~4 代码/前端/文档/测试；后端 build/vet/test 全绿，前端 65 例单测通过。 |
+| v2.1 | 2026-08-24 | 新增 R21-01：/api/oidc/test 未鉴权 SSRF（公网匿名内网探测原语），含现象/根因/影响范围/修复方案。仅记录，未修改代码。 |
+| v2.2 | 2026-08-24 | 归档 Issue2~Issue4 至 docs/AchievedDocuments；更新 AGENTS.md/Build8.md/Issue5.md 链接与状态；复核 Issue3 原部分修复项及 R20-10/14/15/25 均已闭环。 |

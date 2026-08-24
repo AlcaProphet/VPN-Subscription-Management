@@ -1,7 +1,7 @@
 # ProdTestList.md — 待用户自行执行的 Production 测试清单
 
 > **定位：** 记录当前无法在本环境自动完成的 Production 模式测试项，由用户后续自行在真实/临时 Production 实例中执行。
-> 关联：[R16-09](./Issue3.md)、[R17-07](./Issue3.md)、[R19-05](./Issue4.md)。
+> 关联：[R16-09](./docs/AchievedDocuments/Issue3.md)、[R17-07](./docs/AchievedDocuments/Issue3.md)、[R19-05](./docs/AchievedDocuments/Issue4.md)。
 
 ---
 
