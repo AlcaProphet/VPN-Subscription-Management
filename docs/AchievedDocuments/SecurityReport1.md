@@ -707,6 +707,205 @@ CREATE INDEX idx_oidc_login_tickets_exp ON oidc_login_tickets(expires_at);
 
 ---
 
+### 8.17 P0 → P1 → P2 文件级实施计划（已结合当前代码研究，供后续 Build 承接）
+
+> 本节约 2026-08-25 按用户确认写入：只更新 SecurityReport1.md，不改动代码。实施顺序严格按 §8.14；各项决策以 §8.15 为准，不再重复确认。
+
+#### 8.17.1 共同前置约定
+
+1. 数据库迁移只新增文件，不改老迁移；新增列必须带默认值。
+2. 所有 `frontend/` 改动完成后必须重新 `npm run build`，如有需要把产物同步到 `backend/web/dist`。
+3. 通用验证命令：
+   - `cd backend && go build ./... && go vet ./... && go test ./...`
+   - `cd frontend && npm run build && npm test`
+4. 若实施中发现与本计划/§8.15 冲突，先暂停并回写本报告向用户确认，再进入编码。
+5. 本计划中的“新增文件”允许在 Build 阶段创建；当前工作区仍未修改代码。
+
+#### 8.17.2 P0 批：F01、F03、F06、F07、F08、F09
+
+##### P0-F01 OIDC id_token 验签 + nonce/iss/aud/exp/azp
+
+- `backend/go.mod` / `go.sum`：新增 `github.com/coreos/go-oidc/v3`（本地模块缓存已含 v3.10.0/v3.19.0/v3.20.0，建议 `go mod tidy` 解析到 v3.20.0；若网络受限使用模块缓存）。
+- 新增 `backend/migrations/1012_oidc_nonce.sql`：
+  `ALTER TABLE oidc_states ADD COLUMN nonce TEXT NOT NULL DEFAULT '';`
+- `backend/internal/oidc/flow.go`：
+  - `StateRecord` 增加 `Nonce string`；
+  - `StartFlow` 生成 32 字节随机 nonce，`saveState` 写入；授权 URL 增加 `nonce=<base64url>`；
+  - `saveState` 的 INSERT 列增加 `nonce`；
+  - `ConsumeState` 的 SELECT 增加 `nonce` 并回填。
+- `backend/internal/oidc/oidc.go`：
+  - 在 `Service` 中增加按 issuer/JWKS 缓存的 verifier（建议 `verifierCache map[string]*goidc.IDTokenVerifier` 与 `verifierMu`）；
+  - 用 `goidc.NewRemoteKeySet(goidc.ClientContext(ctx, s.httpCli), disc.JWKSURI)` + `goidc.NewVerifier(issuer, keySet, &goidc.Config{...})` 构造；
+  - `Config`：`ClientID`、`SkipIssuerCheck:false`、`SkipExpiryCheck:false`、`SupportedSigningAlgs` 只含 RS/ES/PS/EdDSA 等非对称算法，禁止 HS/none；
+  - `ClearDiscCache` 同步清空 verifier 缓存。
+- `backend/internal/oidc/flow.go` `Exchange`：
+  - 真实模式删除直接 `decodeJWTPayload` 信任路径，改为 `verifier.Verify`；
+  - 校验 `idToken.Nonce == rec.Nonce`；
+  - 通过 `idToken.Claims(&claims)` 读取 `azp`，若存在必须等于 `p.ClientID`；
+  - `Identity.RawClaims` 用验签后 claims 序列化保存，保持审批/白名单语义不变；
+  - mock 模式继续走 `mockExchange`。
+- 测试：`backend/internal/oidc/oidc_test.go` 增加固定 JWKS 单测：合法 RS/ES 通过；错误签名/none/HS/错 iss/aud/exp/nonce/azp 拒绝；JWKS 轮换通过；StartFlow 授权 URL 与 state 记录含 nonce。
+
+##### P0-F03 安装包附件下载 + 危险扩展名 + nosniff + noopener
+
+- `backend/internal/platform/platform.go`：
+  - 新增危险扩展名集合：`html/htm/xhtml/svg/svgz/js/mjs/xml`；
+  - `UploadInstaller` 在 `sanitizeExt` 后校验，命中返回可识别错误（建议新增 `ErrUnsafeInstallerExt` 或复用 `ErrBadRequest`）；
+  - 保持 300MB 与路径穿越防护不变。
+- `backend/internal/server/platform.go`：将新错误映射为 400，并给出“仅允许可下载安装包格式”提示。
+- `backend/internal/server/static.go`：
+  - 新增安全响应头中间件（`X-Content-Type-Options: nosniff`），普通与应急模式都注册；
+  - `/public/installers/*` 分支设置 `Content-Disposition: attachment`，文件名用 `mime.FormatMediaType` 安全构造；
+  - `/public/site/*` 保持 inline。
+- `frontend/src/views/HomeView.vue`：`openInstaller` 改为 `window.open(url, '_blank', 'noopener,noreferrer')`，或使用带 `rel` 的临时 `<a>`。
+- 测试：平台上传 `.html/.svg/.js` 被拒且不落盘；`.zip/.dmg/.exe` 成功；GET 安装包含 nosniff + attachment；ICON 无 attachment；路径穿越保持 404。
+
+##### P0-F06 OIDC 测试端点收敛 + DNS rebinding 消除
+
+- `backend/internal/server/setup.go` / `RegisterSetupRoutes`：
+  - 新增 `POST /api/setup/oidc/test`，仅系统未配置时匿名可用；已配置返回 404/403 不再匿名；
+  - 保留 `ratelimit_oidc_test` 10/min；管理员专用 `/api/admin/settings/oidc/test` 不变。
+- `backend/internal/server/oidc.go`：删除原 `/api/oidc/test` 匿名入口，或仅保留内部测试函数供 Setup/Admin 复用。
+- `backend/internal/oidc/ssrf.go`：
+  - `validateOIDCURL` 改为只做 URL 语法/HTTPS/host 校验，不再 DNS 预解析；
+  - `Service.httpCli.Transport.DialContext` 作为唯一拨号点：`LookupIPAddr` 后拒绝任一非公网 IP，并直接向解析出的 IP 拨号；
+  - `CheckRedirect` 只做语法与次数限制，实际目标由 DialContext 兜底。
+- `backend/internal/oidc/oidc.go` 中 `fetchDiscoveryWithParams`、`verifyClientCredentials` 改调用语法校验版。
+- `frontend/src/api/oidc.ts`：`oidcTest` 路径改为 `/setup/oidc/test`。
+- 测试：系统已配置时匿名调用拒绝；未配置时匿名可测且限流；DNS 混合公网/私网、重定向到私网/HTTP 均拒绝。
+
+##### P0-F07 日志脱敏补全 + 重置链接 fragment + L09 IP
+
+- `backend/internal/log/log.go`：
+  - 重写 `Redact`：路径段 `/reset/<token>` 大小写不敏感替换；查询串按分段解析，`token/code/state` 键名经 `url.QueryUnescape` 后命中即替换值；
+  - 保留字符串正则兜底；`RedactHandler` 继续统一覆盖 stdout/缓冲/panic 日志。
+- `backend/internal/server/server.go`：
+  - `requestLogger` 增加 `ip` 字段：`c.ClientIP()`（与 F09 信任策略一致）；
+  - `panicRecovery` 继续记录 `path`，确保经脱敏。
+- `backend/internal/auth/reset.go`：`resetLink` 改为 `/reset#token=<url.QueryEscape(token)>`。
+- `frontend/src/router/index.ts`：移除 `/reset/:token`，新增 `/reset`（公开）。
+- `frontend/src/views/ResetView.vue`：从 `route.hash` 解析 token，读取后用 `history.replaceState` 清除；API 调用不变。
+- `backend/internal/server/emergency_gate.go`：`isSPAPath` 增加 `path == "/reset"`，并按 D-F07 移除旧 `/reset/` 前缀白名单。
+- 测试：`log.Redact` 覆盖 `/reset/TOKEN`、`?token=`、`?TOKEN=`、`?code=`、`?state=`、编码/大小写变体；前端 ResetView 覆盖 fragment 读取与清理。
+
+##### P0-F08 HTTP 超时 + 请求体限制（配置化）
+
+- `backend/internal/config/admin.go`：
+  - 扩展 `RateLimitSettings` 增加 5 个字段（`http_read_header_timeout_sec`、`http_read_timeout_sec`、`http_write_timeout_sec`、`http_idle_timeout_sec`、`http_max_body_mb`）；
+  - 新增持久化键与默认值；`GetRateLimit`/`SaveRateLimit` 支持新字段，旧前端缺省时取默认值（建议新字段用指针或“0=未填写”兼容）。
+- `backend/internal/server/`（建议新增 `server/hardening.go`）：
+  - 构造共享 `http.Server` 配置，普通与应急模式共用；
+  - 从 `system_config` 读取超时值设置 `ReadHeaderTimeout/ReadTimeout/WriteTimeout/IdleTimeout`；
+  - 新增请求体限制中间件，按 `c.FullPath()` 分级：
+    - 默认 API：`http_max_body_mb`（默认 4 MiB）；
+    - 订阅/规则/自定义/分享版本上传：55 MiB；
+    - 安装包上传：320 MiB；
+    - `/api/setup/import` 与 `/api/admin/settings/import`：豁免（维持部署边界）。
+  - 超限统一 413，识别 `http.MaxBytesReader` 错误避免落 500。
+- 长传输豁免：
+  - SSE `/api/admin/logs/stream`、备份下载、配置导出、`/public/*` 下载：清 write deadline；
+  - 安装包/版本文件上传：清 read deadline；
+  - 普通 API 不豁免。
+- `frontend/src/api/settings.ts` / `frontend/src/views/admin/SettingsView.vue`：
+  - 速率限制卡片增加连接防护字段；
+  - 保存时提示超时字段需重启容器生效，`http_max_body_mb` 即时生效。
+- `frontend/src/api/request.ts`：`defaultMsg` 增加 413 文案。
+- 测试：慢头断开；4 MiB JSON 413；安装包/50MB 上传不回归；SSE/备份/导出不断开；面板新字段持久化与旧字段兼容。
+
+##### P0-F09 TRUST_PROXY 显式 CIDR + X-Forwarded-Proto 同口径
+
+- 新增 `backend/internal/proxytrust/proxytrust.go`：
+  - 支持 `auto/on/off/cidr`；
+  - `cidr` = 显式 `TRUST_PROXY_CIDRS` + `127.0.0.1/8`、`::1/128`；
+  - 提供 `Trusted(remoteAddr)`、`TrustedProxies()`、`Parse` 等。
+- `backend/cmd/server/main.go`：
+  - 读取 `TRUST_PROXY_CIDRS` 并随 `TRUST_PROXY` 一起传给 `server.New`、`server.NewEmergency`、`setup.NewService`；
+  - 非法值启动失败。
+- `backend/internal/server/server.go`：
+  - `applyTrustProxy` 改用 `proxytrust` 策略；
+  - 支持 `cidr` 档位，`off` 忽略 CIDR，`on` 保持全信任。
+- `backend/internal/setup/setup.go`：
+  - `trustedForwarded` 改用 `proxytrust`；
+  - `DeriveFrontendURL` 只有在可信来源时才接受 `X-Forwarded-Proto/Host`。
+- `backend/internal/server/settings.go`：`getRateLimit` 返回 `TRUST_PROXY_CIDRS` 生效摘要（条目数/原始列表）。
+- 测试：cidr 内/段外/回环 XFF 生效；不可信 XFP 不改变 scheme；非法 CIDR 启动失败。
+
+#### 8.17.3 P1 批：L01、L02、L04、L08、L09
+
+##### P1-L01 OIDC 一次性 ticket + HttpOnly Cookie 换票
+
+- 新增 `backend/migrations/1013_oidc_login_tickets.sql`：建表 `oidc_login_tickets`（ticket 主键、session_token、expires_at、created_at），并建过期索引。
+- `backend/internal/server/oidc.go`：
+  - 回调登录成功后不再 302 携带 `?token=`，改为生成 ticket、写入上表、设置 `HttpOnly + SameSite=Lax` Cookie（名 `oidc_login_ticket`，Path 限定 `/api/auth/oidc/exchange`），302 到 `/login/callback`；
+  - 新增 `POST /api/auth/oidc/exchange`：读取 Cookie → 事务内查/删 ticket（严格一次性）→ 返回 `{token, expires_at}`；失败 401。
+  - 写入前顺带删除过期 ticket。
+- `frontend/src/api/oidc.ts`：新增 `exchangeOidc`。
+- `frontend/src/views/OidcCallbackView.vue`：`onMounted` 调 exchange，成功写 store 跳首页；失败跳 `/login?oidc_error=exchange_failed`；不再读取 `?token=`。
+- 测试：回调 Location 无 token；exchange 首次成功、二次 401、过期 401；Cookie 属性断言；前端成功/失败分支。
+
+##### P1-L02 配置导入“认证死锁”校验
+
+- `backend/internal/config/export.go`：
+  - 新增纯函数 `ValidateImportedAuthUsable(cfgMap map[string]string) error`：
+    - `configured != "true"` 跳过；
+    - `allow_local_login` 缺省按 true；非法布尔拒绝；
+    - local 关闭时要求 `oidc_provider_type` 非空且对应 `oidc_params_<type>` JSON 的 `base_url`、`client_id`、`client_secret` 非空，否则返回 `ErrAuthDeadlock`。
+  - 在 `Import`（v1）和 `importV2`（v2）解密成功、事务前调用；正常导出文件应通过。
+- `backend/internal/server/settings_ops.go`：导入路径把 `ErrAuthDeadlock` 映射为 400。
+- 测试：本地关+OIDC 可用成功；本地关+OIDC 参数缺/secret 空 400 且零写入；本地开成功；`configured=false` 跳过；非法布尔 400。
+
+##### P1-L04 反代 TLS 下 Secure Cookie
+
+- `backend/internal/server/`（建议与 F09 共用 `proxytrust`）新增 `requestIsSecure(c, policy)`：
+  - 判定顺序：`TLS != nil` → 可信 `X-Forwarded-Proto=https` → `frontend_url` 为 https。
+- `backend/internal/server/oidc.go`：
+  - login/bind 的 state Cookie 改用该判定；
+  - L01 ticket Cookie 同样使用该判定。
+- 测试：TLS 直连 Secure；可信反代+XFP=https Secure；不可信+XFP=https 不 Secure；frontend_url=https 兜底 Secure。
+
+##### P1-L08 过期重置令牌每日清理
+
+- `backend/internal/cron/`（新增或扩展 cleanup.go）：`StartResetTokenCleanup(db, lg)`，启动立即执行一次，随后每 24 小时执行；删除 `expires_at < now OR used = 1`；返回 stop。
+- `backend/cmd/server/main.go`：与访问日志清理并列启动，defer stop。
+- 测试：插入过期/已用/未过期记录，清理后仅保留未过期未用；stop 后不再执行。
+
+##### P1-L09 请求日志 IP（已在 P0-F07 覆盖）
+
+- 按 §8.12：`requestLogger` 增 `ip`；README 补充日志含客户端 IP 的合规提示（P2 文档步落地）。
+
+#### 8.17.4 P2 批：L05、README/compose 补充
+
+##### P2-L05 前端工具链升级 + npm audit CI 门禁
+
+- `frontend/package.json` / `frontend/package-lock.json`：
+  - Vite 7 最新稳定版，Vitest 同步升级且 `>=3.2.6`；
+  - `@vitejs/plugin-vue`、`vue-tsc`、`@vue/test-utils` 等适配 Vite 7；
+  - 让 `esbuild >=0.25.0`、`nanoid >=3.3.18` 由依赖树自然解析；必要时用 `npm ls`/`overrides` 定位残留。
+- `.github/workflows/docker-build.yml`：增加 `npm audit --audit-level=high` 门禁（或在前端构建 job 中执行）。
+- `.smoke-test.sh`：同步加入 `npm audit --audit-level=high` 检查。
+- 验证：`npm audit --package-lock-only`、`npm run build`、`npm test`、Docker build；剩余高危若无法消除需用户签字。
+
+##### P2-README/compose 与文档同步
+
+- `README.md`、`docker-compose.yml`、`docker-compose.yml.example`：
+  - 补充 F02/F04/F05/F10/F11 部署边界提示；
+  - 环境变量表增加 `TRUST_PROXY_CIDRS`（`cidr` 档语义、Cloudflare/EdgeOne 示例）；
+  - 快速开始示例建议显式 `APP_MODE: prod` 与回环/反代二选一；
+  - 补充“日志含客户端 IP，按当地合规要求管理日志留存”；
+  - 补充 413 与连接防护配置说明。
+- `AGENTS.md`：按 §8.5 同步 §4.8 错误码表（新增 413）与安全相关默认值说明。
+- 文档闭环：当前 Issue/Build 文档按批次更新；SecurityReport1 总表与本节状态同步。
+
+#### 8.17.5 建议落地顺序与批次验收
+
+- **P0 建议顺序**：F03 → F01/F06（OIDC 相关）→ F07/L09 → F09 → F08；或按依赖分为“静态/文件安全”与“OIDC/服务加固”，但必须在进入 P1 前完成 F03 与 F07，降低同源 XSS 与日志泄露面。
+- **P1 建议顺序**：L01（依赖 P0 的 F01/secure 判定）→ L04 → L02 → L08 → 回归 L09。
+- **P2 最后**：L05 工具链 + README/compose/AGENTS 同步。
+- 每个批次完成后执行 §8.0 通用验证，并按 §8.16 矩阵勾选；全部通过后再进入下一批。
+
+
+---
+
 ## 九、变更记录
 
 | 版本 | 日期 | 说明 |
@@ -714,3 +913,4 @@ CREATE INDEX idx_oidc_login_tickets_exp ON oidc_login_tickets(expires_at);
 | v1.0 | 2026-08-25 | 初始版本：完成第一期静态网络安全审计，逐项与用户确认，记录已确认待修复项、低风险硬化项、不纳入/部署边界项。 |
 | v1.1 | 2026-08-25 | 新增第八章修复方案研究：逐项形成 F01/F03/F06/F07/F08/F09 与 L01/L02/L04/L05/L08/L09 的推荐方案、副作用评估、测试点与待决策清单；本次仅更新文档，未修改代码。 |
 | v1.2 | 2026-08-25 | 使用提问工具与用户逐项确认 D-F01～D-L08 及 D-F03-1/D-F09-1，将确认结果回写 §8.15 与各小节方案、§8.16 验证矩阵；新增 413 错误码、cidr 档位、危险扩展名拒绝、Vite 7 升级等确认口径。 |
+| v1.3 | 2026-08-25 | 新增 §8.17：按 §8.14 的 P0→P1→P2 顺序形成文件级实施计划，包含涉及文件、迁移、改动点、测试与验收；仅更新文档，未修改代码。 |
