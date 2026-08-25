@@ -150,16 +150,13 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 <template>
   <div>
     <div class="flex items-center gap-2 mb-3 flex-wrap">
-      <Button size="small" type="link" class="px-1" @click="emit('back')">
-        <span class="text-gray-500">素材池</span><span class="mx-1 text-gray-300">/</span><span class="text-gray-800 dark:text-gray-100">{{ pool.name }}</span>
-      </Button>
+      <div class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ pool.name }}</div>
       <span class="text-xs text-gray-400">URL {{ pool.urls.length }} · 条目 {{ pool.entry_count }} · 上次同步 {{ fmtTime(pool.last_synced_at) }}</span>
       <Badge v-if="pool.sync_status" :status="(statusMeta[pool.sync_status]?.color ?? 'default') as any"
              :text="statusMeta[pool.sync_status]?.text ?? pool.sync_status" />
       <div class="flex-1" />
       <Button size="small" :loading="syncing" @click="doSync">同步</Button>
       <Button size="small" @click="emit('edit')">编辑</Button>
-      <Button size="small" @click="emit('back')">返回</Button>
     </div>
 
     <!-- 同步回执 -->

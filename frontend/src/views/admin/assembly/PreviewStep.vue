@@ -20,7 +20,7 @@ const emit = defineEmits<{ preview: []; 'toggle-diff': [] }>()
 <template>
   <div class="space-y-3">
     <Space>
-      <Button type="primary" :loading="previewing" @click="emit('preview')">预览产物</Button>
+      <Button type="primary" :loading="previewing" @click="emit('preview')">刷新预览</Button>
       <Button :loading="diffLoading" @click="emit('toggle-diff')">与当前激活版本对比</Button>
     </Space>
     <Alert v-for="(w, i) in previewWarnings" :key="i" type="warning" show-icon :message="w" />

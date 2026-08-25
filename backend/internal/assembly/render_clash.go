@@ -65,10 +65,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	// 勾选代理组（固定键序 name/type/proxies）
 	for _, name := range in.GroupNames {
 		g := ld.groups[name]
-		nodes := g.Nodes
-		if order, ok := in.GroupNodeOrders[g.Name]; ok {
-			nodes = order
-		}
+		nodes := in.GroupNodeOrders[g.Name]
 		proxies := make([]string, 0, len(nodes)+len(g.Groups))
 		for _, ref := range nodes {
 			if nd, ok := ld.nodes[ref]; ok {
@@ -145,10 +142,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			)
 			for _, name := range in.GroupNames {
 				g := ld.groups[name]
-				nodes := g.Nodes
-				if order, ok := in.GroupNodeOrders[g.Name]; ok {
-					nodes = order
-				}
+				nodes := in.GroupNodeOrders[g.Name]
 				proxies := make([]string, 0, len(nodes)+len(g.Groups))
 				proxies = append(proxies, nodes...)
 				proxies = append(proxies, g.Groups...)

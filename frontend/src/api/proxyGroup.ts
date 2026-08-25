@@ -3,7 +3,6 @@ import { http } from './request'
 
 export interface ProxyGroupDefinition {
   type: 'select' | 'url-test' | 'fallback'
-  nodes: string[]
   groups: string[]
 }
 

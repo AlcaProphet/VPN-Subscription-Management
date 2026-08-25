@@ -12,7 +12,6 @@ import HeaderStep from './assembly/HeaderStep.vue'
 import NodesGroupsStep from './assembly/NodesGroupsStep.vue'
 import RulesStep from './assembly/RulesStep.vue'
 import PreviewStep from './assembly/PreviewStep.vue'
-import GenerateStep from './assembly/GenerateStep.vue'
 import {
   getAssemblyContext, previewAssembly, generateAssembly, getBlueprint,
   type AssemblyContext, type GenerateInput, type TargetSyntax, type PoolSelection, type RuleLine,
@@ -76,6 +75,7 @@ const invalidRefs = ref<Array<{ kind: string; name: string }>>([])
 const nameChanged = ref<Record<string, string>>({})
 const layoutMode = ref<'step' | 'page'>(localStorage.getItem('assembly_layout_mode') === 'page' ? 'page' : 'step')
 const currentStep = ref(0)
+const skipTargetStep = ref(false)
 const headerConfirmOpen = ref(false)
 const diffLoading = ref(false)
 const generateResult = ref<{ version_id: number; version_no: number; auto_activated: boolean; skipped: any[]; warnings: string[] } | null>(null)
@@ -101,18 +101,25 @@ const filteredPlatforms = computed(() => {
   const want = map[targetSyntax.value]
   return context.value.platforms.filter((p) => !want || p.product_type === want)
 })
-const buildPreflightMissing = computed<string[]>(() => {
+interface PreflightIssue {
+  id: string
+  text: string
+  actionText: string
+  to: string
+}
+
+const buildPreflightMissing = computed<PreflightIssue[]>(() => {
   if (!context.value) return []
-  const missing: string[] = []
+  const missing: PreflightIssue[] = []
   const hasNode = (context.value.nodes ?? []).some((n) => !n.missing && n.enabled && (n.source === 'manual' || n.allocatable))
-  if (!hasNode) missing.push('至少一个可用节点')
+  if (!hasNode) missing.push({ id: 'nodes', text: '至少一个可用节点', actionText: '前往节点管理', to: '/admin/nodes' })
   if (targetSyntax.value === 'sr-conf') {
-    if ((context.value.rules ?? []).length === 0) missing.push('至少一个规则实体')
+    if ((context.value.rules ?? []).length === 0) missing.push({ id: 'rules', text: '至少一个规则实体', actionText: '前往规则管理', to: '/admin/rules' })
   } else {
     if (filteredPlatforms.value.length === 0) {
-      missing.push('匹配的目标平台')
+      missing.push({ id: 'platforms', text: '匹配的目标平台', actionText: '前往平台管理', to: '/admin/platforms' })
     } else if (!filteredPlatforms.value.some((p) => (context.value?.subscriptions ?? []).some((s) => s.platform_id === p.id))) {
-      missing.push('目标平台订阅条目')
+      missing.push({ id: 'subscriptions', text: '目标平台未创建订阅池', actionText: '前往订阅管理', to: '/admin/subscriptions' })
     }
   }
   return missing
@@ -122,34 +129,41 @@ watch(layoutMode, (v) => localStorage.setItem('assembly_layout_mode', v))
 watch(targetSyntax, () => { currentStep.value = 0 })
 
 const stepDefs = computed<Array<{ key: string; title: string }>>(() => {
+  let defs: Array<{ key: string; title: string }>
   if (targetSyntax.value === 'clash-yaml') {
-    return [
+    defs = [
       { key: 'target', title: '类型与目标' },
       { key: 'header', title: '头部表单' },
       { key: 'nodes', title: '节点与代理组' },
       { key: 'rules', title: '规则素材' },
       { key: 'preview', title: '预览' },
-      { key: 'generate', title: '确认生成' },
     ]
-  }
-  if (targetSyntax.value === 'sr-subs' || targetSyntax.value === 'generic-subs') {
-    return [
+  } else if (targetSyntax.value === 'sr-subs' || targetSyntax.value === 'generic-subs') {
+    defs = [
       { key: 'target', title: '类型与目标' },
       { key: 'header', title: '头部表单' },
       { key: 'nodes', title: '节点勾选' },
       { key: 'preview', title: '预览' },
-      { key: 'generate', title: '确认生成' },
+    ]
+  } else {
+    defs = [
+      { key: 'target', title: '类型与目标' },
+      { key: 'header', title: '头部表单' },
+      { key: 'rules', title: '规则素材' },
+      { key: 'preview', title: '预览' },
     ]
   }
-  return [
-    { key: 'target', title: '类型与目标' },
-    { key: 'header', title: '头部表单' },
-    { key: 'rules', title: '规则素材' },
-    { key: 'preview', title: '预览' },
-    { key: 'generate', title: '确认生成' },
-  ]
+  if (skipTargetStep.value) defs = defs.filter((s) => s.key !== 'target')
+  return defs
 })
 const currentStepKey = computed(() => stepDefs.value[currentStep.value]?.key ?? 'target')
+
+watch([currentStepKey, layoutMode], ([key, mode]) => {
+  if (generateResult.value) return
+  if (key === 'preview' || mode === 'page') {
+    void doPreview()
+  }
+})
 const hasHeaderStep = computed(() => stepDefs.value.some((s) => s.key === 'header'))
 const hasNodesStep = computed(() => stepDefs.value.some((s) => s.key === 'nodes'))
 const hasRulesStep = computed(() => stepDefs.value.some((s) => s.key === 'rules'))
@@ -165,11 +179,12 @@ async function loadContext() {
     const ctxData = await getAssemblyContext()
     context.value = ctxData
     subscriptions.value = ctxData.subscriptions ?? []
-    // 支持从订阅/规则页带目标参数进入装配
+    // 支持从订阅/规则页带目标参数进入装配；已带目标时跳过“类型与目标”步骤
     const platformId = Number(route.query.platform_id ?? 0)
     if (platformId > 0) form.platform_id = platformId
     const ruleId = Number(route.query.rule_id ?? 0)
     if (ruleId > 0) form.rule_id = ruleId
+    skipTargetStep.value = platformId > 0 || ruleId > 0
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -203,6 +218,7 @@ async function loadEditIfAny() {
     form.custom_rules = bp.custom_rules ?? []
     invalidRefs.value = data.invalid_refs ?? []
     nameChanged.value = data.name_changed ?? {}
+    skipTargetStep.value = true
     Notify.info(editVersionNo.value ? `正在重新编辑版本 v${editVersionNo.value}，请检查失效引用` : `正在重新编辑版本 #${editVersionId.value}，请检查失效引用`)
   } catch (err) {
     Notify.error((err as Error).message)
@@ -269,10 +285,9 @@ function toggleGroup(name: string) {
     return
   }
   form.group_names = [...form.group_names, name]
-  const g = context.value?.proxy_groups.find((x) => x.name === name)
   form.group_node_orders = {
     ...form.group_node_orders,
-    [name]: (g?.definition.nodes ?? []).filter((n) => form.node_names.includes(n)),
+    [name]: [],
   }
 }
 function toggleOverseas(name: string) {
@@ -472,12 +487,18 @@ const outputGroups = computed(() => {
           <Tabs.TabPane v-for="tab in SUB_TABS" :key="tab" :tab="tab">
             <div v-if="loadingContext" class="py-12 text-center text-gray-400">加载装配上下文中…</div>
             <div v-else>
-              <Alert v-if="buildPreflightMissing.length" type="warning" show-icon class="mb-4"
-                     :message="'构建前缺少：' + buildPreflightMissing.join('、')">
-                <template #description>请先前往对应管理页完成配置后再构建。</template>
+              <Alert v-if="buildPreflightMissing.length" type="warning" show-icon class="mb-4" message="构建前缺少以下前置条件：">
+                <template #description>
+                  <ol class="list-decimal ml-4 space-y-1">
+                    <li v-for="item in buildPreflightMissing" :key="item.id" class="flex items-center gap-2 flex-wrap">
+                      <span>{{ item.text }}</span>
+                      <Button type="link" size="small" class="px-0" @click="router.push(item.to)">{{ item.actionText }}</Button>
+                    </li>
+                  </ol>
+                </template>
               </Alert>
               <template v-else>
-              <AssemblerShell
+              <AssemblerShell v-if="!generateResult"
                 :layout-mode="layoutMode"
                 :step-defs="stepDefs"
                 :current-step="currentStep"
@@ -513,10 +534,6 @@ const outputGroups = computed(() => {
                   <PreviewStep :previewing="previewing" :preview-warnings="previewWarnings" :preview-skipped="previewSkipped"
                                :preview-text="previewText" :show-diff="showDiff" :diff-old="diffOld" :diff-missing="diffMissing" :diff-loading="diffLoading"
                                @preview="doPreview" @toggle-diff="toggleDiff" />
-                </template>
-                <template #generate>
-                  <GenerateStep :invalid-count="invalidRefs.length" :clash-empty-overseas="targetSyntax === 'clash-yaml' && form.overseas_members.length === 0"
-                                :generating="generating" @generate="doGenerate" />
                 </template>
               </AssemblerShell>
 

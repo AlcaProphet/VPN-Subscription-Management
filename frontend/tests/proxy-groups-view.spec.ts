@@ -66,21 +66,16 @@ describe('ProxyGroupsView 代理组管理页', () => {
     wrapper.unmount()
   })
 
-  it('移动端节点引用降级为按钮排序，不渲染拖拽手柄', async () => {
+  it('编辑弹窗不再展示“节点引用（有序）”，仅保留子组引用', async () => {
     const wrapper = mount(ProxyGroupsView, { attachTo: document.body })
     await flushPromises()
     const vm = wrapper.vm as unknown as {
-      isMobile: boolean
       openCreate: () => void
-      form: { node_names: string[] }
     }
-    vm.isMobile = true
     vm.openCreate()
-    vm.form.node_names = ['n1']
     await nextTick()
-    expect(document.body.querySelector('[draggable="true"]')).toBeNull()
-    expect(document.body.textContent).toMatch(/上\s*移/)
-    expect(document.body.textContent).toMatch(/下\s*移/)
+    expect(document.body.textContent).not.toContain('节点引用（有序）')
+    expect(document.body.textContent).toContain('子组引用')
     wrapper.unmount()
   })
 })

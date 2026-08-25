@@ -28,13 +28,12 @@ type nodeData struct {
 	RenderName     string
 }
 
-// groupData 渲染用代理组数据。
+// groupData 渲染用代理组数据（节点引用仅来自本次装配 GroupNodeOrders）。
 type groupData struct {
 	Name      string
 	Type      string // preset / custom
 	GroupType string
 	Enabled   bool
-	Nodes     []string
 	Groups    []string
 }
 
@@ -170,14 +169,12 @@ func (s *Service) loadGroups(ctx context.Context, ld *loadedData, names []string
 		g.Enabled = enabled == 1
 		var def struct {
 			GroupType string   `json:"type"`
-			Nodes     []string `json:"nodes"`
 			Groups    []string `json:"groups"`
 		}
 		if err := json.Unmarshal([]byte(raw), &def); err != nil {
 			return fmt.Errorf("解析代理组定义失败: %s", g.Name)
 		}
 		g.GroupType = def.GroupType
-		g.Nodes = def.Nodes
 		g.Groups = def.Groups
 		ld.allGroups[g.Name] = &g
 		if want[g.Name] {

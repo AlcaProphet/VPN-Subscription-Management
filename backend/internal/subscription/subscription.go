@@ -331,13 +331,23 @@ func (s *Service) List(ctx context.Context) ([]Subscription, error) {
 		if err := rows.Scan(&sub.ID, &sub.Slug, &sub.Name, &sub.PlatformID, &sub.CurrentVersion, &sub.ProductType, &sub.PlatformName); err != nil {
 			return nil, fmt.Errorf("解析订阅行失败: %w", err)
 		}
-		sub.ContentKind, err = s.contentKind(ctx, sub.ID, sub.CurrentVersion)
+		out = append(out, sub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 先关闭/释放外层 Rows，再逐行补充 contentKind，
+	// 避免 SetMaxOpenConns(1) 下嵌套查询导致唯一连接死锁。
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].ContentKind, err = s.contentKind(ctx, out[i].ID, out[i].CurrentVersion)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, sub)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // contentKind 当前激活版本的内容形态：assembly_blueprints 存在 → blueprint，否则 upload；无激活版本为空

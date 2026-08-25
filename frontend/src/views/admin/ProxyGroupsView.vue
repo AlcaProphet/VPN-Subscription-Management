@@ -2,19 +2,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Table, Tag } from 'ant-design-vue'
-import { HolderOutlined } from '@ant-design/icons-vue'
 import { listProxyGroups, createProxyGroup, updateProxyGroup, deleteProxyGroup, togglePresetGroup, type ProxyGroupItem, type ProxyGroupDefinition } from '@/api/proxyGroup'
-import { listNodes, type NodeItem } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
-import { useSortableList } from '@/composables/useSortableList'
 import { Notify } from '@/components/Notify'
 
 const loading = ref(false)
 const groups = ref<ProxyGroupItem[]>([])
-const nodes = ref<NodeItem[]>([])
-const isMobile = ref(false)
 const editing = ref<ProxyGroupItem | null>(null)
 const creating = ref(false)
 const toDelete = ref<ProxyGroupItem | null>(null)
@@ -24,37 +19,18 @@ const saving = ref(false)
 const form = reactive({
   name: '',
   group_type: 'select' as 'select' | 'url-test' | 'fallback',
-  node_names: [] as string[],
   group_names: [] as string[],
 })
-const addNodeName = ref<string | undefined>(undefined)
-const nodeList = computed<string[]>({
-  get: () => form.node_names,
-  set: (v) => { form.node_names = v },
-})
-const { move: nodeMove, up: nodeUp, down: nodeDown } = useSortableList(nodeList)
-const dragIndex = ref<number | null>(null)
-function onDragStart(idx: number) { dragIndex.value = idx }
-function onDrop(idx: number) {
-  if (dragIndex.value !== null && dragIndex.value !== idx) nodeMove(dragIndex.value, idx)
-  dragIndex.value = null
-}
 
 const FORCE_SUBGROUPS = ['🚀直接连接', '🌎国外流量']
-const availableNodeNames = computed(() => new Set(nodes.value.map((n) => n.name)))
 const availableGroupNames = computed(() => new Set(groups.value.filter((g) => g.id !== editing.value?.id).map((g) => g.name)))
-const staleNodeNames = computed(() => form.node_names.filter((n) => !availableNodeNames.value.has(n)))
 const staleGroupNames = computed(() => form.group_names.filter((n) => !FORCE_SUBGROUPS.includes(n) && !availableGroupNames.value.has(n)))
-const staleRefCount = computed(() => staleNodeNames.value.length + staleGroupNames.value.length)
+const staleRefCount = computed(() => staleGroupNames.value.length)
 
-function removeNodeRef(name: string) {
-  form.node_names = form.node_names.filter((n) => n !== name)
-}
 function removeGroupRef(name: string) {
   form.group_names = form.group_names.filter((n) => n !== name)
 }
 function removeAllStaleRefs() {
-  staleNodeNames.value.forEach(removeNodeRef)
   staleGroupNames.value.forEach(removeGroupRef)
 }
 
@@ -102,13 +78,9 @@ function onGroupRefsChange(v: any) {
 }
 
 async function load() {
-  isMobile.value = window.matchMedia('(max-width: 767px)').matches
   loading.value = true
   try {
     groups.value = await listProxyGroups()
-    nodes.value = await listNodes('manual')
-    const xray = await listNodes('xray')
-    nodes.value = nodes.value.concat(xray)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -122,7 +94,6 @@ function openCreate() {
   editing.value = null
   form.name = ''
   form.group_type = 'select'
-  form.node_names = []
   form.group_names = []
 }
 function openEdit(g: ProxyGroupItem) {
@@ -130,7 +101,6 @@ function openEdit(g: ProxyGroupItem) {
   creating.value = true
   form.name = g.name
   form.group_type = g.definition.type
-  form.node_names = [...(g.definition.nodes ?? [])]
   form.group_names = [...(g.definition.groups ?? [])]
 }
 async function save() {
@@ -147,7 +117,6 @@ async function save() {
   try {
     const definition: ProxyGroupDefinition = {
       type: form.group_type,
-      nodes: form.node_names,
       groups: form.group_names,
     }
     if (editing.value) {
@@ -194,7 +163,7 @@ const deleteContent = computed(() => {
 })
 
 function memberSummary(g: ProxyGroupItem): string {
-  return [...(g.definition.nodes ?? []), ...(g.definition.groups ?? [])].join('、') || '空'
+  return [...(g.definition.groups ?? [])].join('、') || '空'
 }
 </script>
 
@@ -277,28 +246,7 @@ function memberSummary(g: ProxyGroupItem): string {
             <Select.Option value="fallback">fallback</Select.Option>
           </Select>
         </Form.Item>
-        <Form.Item label="节点引用（有序）">
-          <div class="space-y-2">
-            <div v-for="(name, idx) in form.node_names" :key="name" :draggable="!isMobile" class="flex items-center gap-2"
-                 @dragstart="onDragStart(idx)" @dragover.prevent @drop="onDrop(idx)">
-              <HolderOutlined v-if="!isMobile" class="cursor-move text-gray-400" />
-              <span class="flex-1">{{ name }}</span>
-              <Tag v-if="staleNodeNames.includes(name)" color="red">已失效</Tag>
-              <Button v-if="staleNodeNames.includes(name)" size="small" danger @click="removeNodeRef(name)">剔除</Button>
-              <Button size="small" @click="nodeUp(idx)">上移</Button>
-              <Button size="small" @click="nodeDown(idx)">下移</Button>
-              <Button size="small" danger @click="form.node_names.splice(idx, 1)">移除</Button>
-            </div>
-            <Select
-              v-model:value="addNodeName"
-              placeholder="添加节点（提交 nodes.name 稳定键）"
-              class="w-full"
-              @change="(v: any) => { if (v && !form.node_names.includes(v)) form.node_names.push(v as string); addNodeName = undefined }"
-            >
-              <Select.Option v-for="n in nodes" :key="n.name" :value="n.name">{{ n.render_name }}<span v-if="n.source === 'xray' && n.display_name" class="text-xs text-gray-400">（{{ n.name }}）</span></Select.Option>
-            </Select>
-          </div>
-        </Form.Item>
+
         <Form.Item label="子组引用">
           <Select
             mode="multiple"

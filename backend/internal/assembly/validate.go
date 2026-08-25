@@ -68,11 +68,6 @@ func (s *Service) validate(ctx context.Context, in GenerateInput, ld *loadedData
 		if g.Type == "preset" && !g.Enabled {
 			return fmt.Errorf("%w: 预设组已停用，请先启用或移除勾选: %s", ErrBadRequest, name)
 		}
-		for _, ref := range g.Nodes {
-			if !containsString(in.NodeNames, ref) {
-				return fmt.Errorf("%w: 组 %s 引用了未勾选或已失效的节点 %s", ErrBadRequest, name, ref)
-			}
-		}
 		for _, ref := range g.Groups {
 			// 代理组子组只允许引用 🚀直接连接 / 🌎国外流量；🛟无法归属的流量是 MATCH 兜底终点，不允许作为子组。
 			if ref == node.ForceDirect || ref == node.ForceOverseas {
@@ -83,7 +78,8 @@ func (s *Service) validate(ctx context.Context, in GenerateInput, ld *loadedData
 			}
 		}
 	}
-	// 本次装配的代理组节点引用顺序校验：key 必须是已勾选组，value 只能引用该组定义中且已勾选的节点，且不能重复。
+	// 本次装配的代理组节点引用顺序校验：key 必须是已勾选组，
+	// value 只能是本次已勾选的节点且不能重复（代理组全局不再维护节点引用）。
 	selectedGroupSet := map[string]bool{}
 	for _, name := range in.GroupNames {
 		selectedGroupSet[name] = true
@@ -96,21 +92,13 @@ func (s *Service) validate(ctx context.Context, in GenerateInput, ld *loadedData
 		if !selectedGroupSet[gName] {
 			return fmt.Errorf("%w: 代理组节点顺序引用了未勾选的组: %s", ErrBadRequest, gName)
 		}
-		g, ok := ld.groups[gName]
-		if !ok {
+		if _, ok := ld.groups[gName]; !ok {
 			return fmt.Errorf("%w: 代理组节点顺序引用了不存在的组: %s", ErrBadRequest, gName)
-		}
-		groupNodeSet := map[string]bool{}
-		for _, ref := range g.Nodes {
-			groupNodeSet[ref] = true
 		}
 		seen := map[string]bool{}
 		for _, ref := range order {
 			if !selectedNodeSet[ref] {
 				return fmt.Errorf("%w: 组 %s 节点顺序引用了未勾选节点: %s", ErrBadRequest, gName, ref)
-			}
-			if !groupNodeSet[ref] {
-				return fmt.Errorf("%w: 组 %s 节点顺序引用了非本组定义节点: %s", ErrBadRequest, gName, ref)
 			}
 			if seen[ref] {
 				return fmt.Errorf("%w: 组 %s 节点顺序存在重复节点: %s", ErrBadRequest, gName, ref)

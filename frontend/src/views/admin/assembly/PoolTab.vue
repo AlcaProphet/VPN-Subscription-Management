@@ -171,8 +171,11 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 <template>
   <div>
     <!-- 素材池详情弹窗 -->
-    <Modal :open="detailID !== 0" :footer="null" :width="760" @cancel="detailID = 0">
-      <PoolDetail v-if="detailID" :pool="currentDetail()!" @back="detailID = 0" @changed="load" @edit="openEdit(currentDetail()!)" />
+    <Modal :open="detailID !== 0" :footer="null" :width="760" :centered="true"
+           :title="currentDetail() ? `素材池详情 · ${currentDetail()!.name}` : ''"
+           :body-style="{ maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }"
+           @cancel="detailID = 0">
+      <PoolDetail v-if="detailID" :pool="currentDetail()!" @changed="load" @edit="openEdit(currentDetail()!)" />
     </Modal>
 
     <div class="flex items-center justify-between mb-3">

@@ -27,7 +27,6 @@ const stepTitles: Record<string, string> = {
   nodes: '③ 节点与代理组',
   rules: '④ 规则素材',
   preview: '⑤ 预览',
-  generate: '⑥ 确认生成',
 }
 </script>
 
@@ -81,17 +80,13 @@ const stepTitles: Record<string, string> = {
       <div v-else><slot name="preview" /></div>
     </div>
 
-    <div v-show="layoutMode === 'page' || currentStepKey === 'generate'">
-      <Card v-if="layoutMode === 'page'" :title="stepTitles.generate" size="small" class="mb-3">
-        <slot name="generate" />
-      </Card>
-      <div v-else><slot name="generate" /></div>
-    </div>
-
     <div v-if="layoutMode === 'step'" class="flex items-center justify-between">
       <Button :disabled="currentStep === 0" @click="emit('prev')">上一步</Button>
       <Button v-if="currentStep < stepDefs.length - 1" type="primary" @click="emit('next')">下一步</Button>
-      <Button v-else type="primary" :loading="generating" @click="emit('generate')">生成版本</Button>
+      <Button v-else type="primary" :loading="generating" @click="emit('generate')">确认生成</Button>
+    </div>
+    <div v-if="layoutMode === 'page'" class="flex justify-end">
+      <Button type="primary" :loading="generating" @click="emit('generate')">确认生成</Button>
     </div>
   </div>
 </template>

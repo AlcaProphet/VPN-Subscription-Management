@@ -275,16 +275,16 @@ function handleObjectFieldBlur(name: string, e: any) {
 
     <Modal :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="720" :confirm-loading="saving" @ok="save" @cancel="creating = false">
       <Form layout="vertical">
-        <Form.Item label="名称" required :validate-status="nameSpaceError ? 'error' : undefined" :help="nameSpaceError || undefined">
-          <Input v-model:value="form.name" :disabled="nameReadonly" placeholder="禁止空格/逗号，支持中文与 emoji" />
+        <Form.Item label="协议" required>
+          <Select v-model:value="form.protocol">
+            <Select.Option v-for="p in protocols" :key="p.protocol" :value="p.protocol">{{ p.label }}</Select.Option>
+          </Select>
         </Form.Item>
-        <div class="grid grid-cols-3 gap-3">
-          <Form.Item label="协议" required>
-            <Select v-model:value="form.protocol">
-              <Select.Option v-for="p in protocols" :key="p.protocol" :value="p.protocol">{{ p.label }}</Select.Option>
-            </Select>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Form.Item label="名称" required :validate-status="nameSpaceError ? 'error' : undefined" :help="nameSpaceError || undefined">
+            <Input v-model:value="form.name" :disabled="nameReadonly" placeholder="禁止空格/逗号，支持中文与 emoji" />
           </Form.Item>
-          <Form.Item label="服务器" required class="col-span-2">
+          <Form.Item label="服务器" required>
             <Input v-model:value="form.host" placeholder="域名或 IP" />
           </Form.Item>
           <Form.Item label="端口" required>
@@ -302,8 +302,8 @@ function handleObjectFieldBlur(name: string, e: any) {
             <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)" @change="(v: any) => setField(f.name, v)" />
             <Input.TextArea v-else-if="f.type === 'object'" :value="JSON.stringify(fieldValue(f.name) ?? f.default ?? {}, null, 2)" :rows="3"
               @blur="(e: any) => handleObjectFieldBlur(f.name, e)" />
-            <div v-if="objectError && objectErrorField === f.name" class="text-xs text-red-500 mt-1">{{ objectError }}</div>
             <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
+            <div v-if="objectError && objectErrorField === f.name" class="text-xs text-red-500 mt-1">{{ objectError }}</div>
           </div>
         </div>
       </Form>

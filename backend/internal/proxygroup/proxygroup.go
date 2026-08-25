@@ -24,10 +24,10 @@ var (
 	ErrForbidden  = errors.New("操作不允许")
 )
 
-// Definition 代理组定义（有序节点/子组引用）。
+// Definition 代理组定义（仅子组引用；节点引用已改为装配时按组选择/排序）。
 type Definition struct {
 	GroupType string   `json:"type"`
-	Nodes     []string `json:"nodes"`
+	Nodes     []string `json:"-"` // 兼容旧代码/测试结构体，不再序列化，不再参与校验与渲染
 	Groups    []string `json:"groups"`
 }
 
@@ -203,17 +203,6 @@ func (s *Service) validateDefinitionWithDAG(ctx context.Context, existing Group,
 	if !validGroupTypes[def.GroupType] {
 		return fmt.Errorf("%w: 组类型仅支持 select/url-test/fallback", ErrBadRequest)
 	}
-	// 节点引用必须存在（按 nodes.name 稳定键）
-	for _, name := range def.Nodes {
-		var n int
-		if err := s.store.DB().QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM nodes WHERE name = ?`, name).Scan(&n); err != nil {
-			return err
-		}
-		if n == 0 {
-			return fmt.Errorf("%w: 节点不存在: %s", ErrBadRequest, name)
-		}
-	}
 	// 子组引用：允许 🚀直接连接 / 🌎国外流量 或已存在代理组；🛟无法归属的流量不允许作为子组。
 	for _, name := range def.Groups {
 		if name == node.ForceDirect || name == node.ForceOverseas {
@@ -231,9 +220,9 @@ func (s *Service) validateDefinitionWithDAG(ctx context.Context, existing Group,
 			return fmt.Errorf("%w: 代理组不能引用自身", ErrBadRequest)
 		}
 	}
-	// 内容约束：至少含节点 / 🚀直接连接 / 🌎国外流量 三者之一
-	if len(def.Nodes) == 0 && !contains(def.Groups, node.ForceDirect) && !contains(def.Groups, node.ForceOverseas) {
-		return fmt.Errorf("%w: 代理组至少需直接包含一个节点、🚀直接连接组或🌎国外流量组", ErrBadRequest)
+	// 内容约束：至少包含一个子组（节点引用已移至装配时按组选择/排序）
+	if len(def.Groups) == 0 {
+		return fmt.Errorf("%w: 代理组至少需包含一个子组", ErrBadRequest)
 	}
 	// 全量 DAG 校验（含本次变更后的组）
 	return s.validateDAG(ctx, existing, def)

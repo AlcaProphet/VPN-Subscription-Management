@@ -67,22 +67,22 @@ func TestCreateCustomNameConflicts(t *testing.T) {
 	svc, st := newTestService(t)
 	insertNode(t, st, "节点A")
 	// 与节点有效渲染名冲突
-	_, err := svc.CreateCustom(context.Background(), "节点A", "select", Definition{Nodes: []string{"节点A"}})
+	_, err := svc.CreateCustom(context.Background(), "节点A", "select", Definition{Groups: []string{"🚀直接连接"}})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("与节点名冲突应 ErrConflict，实际 %v", err)
 	}
 	// 与预设组名冲突
-	_, err = svc.CreateCustom(context.Background(), "🎬YouTube", "select", Definition{Nodes: []string{"节点A"}})
+	_, err = svc.CreateCustom(context.Background(), "🎬YouTube", "select", Definition{Groups: []string{"🚀直接连接"}})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("与预设组名冲突应 ErrConflict，实际 %v", err)
 	}
 	// 与强制组名冲突
-	_, err = svc.CreateCustom(context.Background(), "🚀直接连接", "select", Definition{Nodes: []string{"节点A"}})
+	_, err = svc.CreateCustom(context.Background(), "🚀直接连接", "select", Definition{Groups: []string{"🚀直接连接"}})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("与强制组名冲突应 ErrConflict，实际 %v", err)
 	}
 	// 与内建保留名冲突
-	_, err = svc.CreateCustom(context.Background(), "DIRECT", "select", Definition{Nodes: []string{"节点A"}})
+	_, err = svc.CreateCustom(context.Background(), "DIRECT", "select", Definition{Groups: []string{"🚀直接连接"}})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("与内建保留名冲突应 ErrConflict，实际 %v", err)
 	}
@@ -91,13 +91,8 @@ func TestCreateCustomNameConflicts(t *testing.T) {
 func TestValidateReferencesAndContent(t *testing.T) {
 	svc, st := newTestService(t)
 	insertNode(t, st, "节点A")
-	// 引用不存在节点
-	_, err := svc.CreateCustom(context.Background(), "组A", "select", Definition{Nodes: []string{"不存在"}})
-	if !errors.Is(err, ErrBadRequest) {
-		t.Fatalf("引用不存在节点应 ErrBadRequest，实际 %v", err)
-	}
 	// 引用不存在子组
-	_, err = svc.CreateCustom(context.Background(), "组B", "select", Definition{Nodes: []string{"节点A"}, Groups: []string{"不存在组"}})
+	_, err := svc.CreateCustom(context.Background(), "组B", "select", Definition{Groups: []string{"不存在组"}})
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("引用不存在子组应 ErrBadRequest，实际 %v", err)
 	}
@@ -106,23 +101,22 @@ func TestValidateReferencesAndContent(t *testing.T) {
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("内容为空应 ErrBadRequest，实际 %v", err)
 	}
-	// 只有自定义子组（不含节点/强制组）拒绝
-	if _, err := svc.CreateCustom(context.Background(), "底层组", "select", Definition{Nodes: []string{"节点A"}}); err != nil {
+	// 至少一个子组即可：自定义子组在装配时再选节点
+	if _, err := svc.CreateCustom(context.Background(), "底层组", "select", Definition{Groups: []string{"🚀直接连接"}}); err != nil {
 		t.Fatalf("创建底层组失败: %v", err)
 	}
-	_, err = svc.CreateCustom(context.Background(), "上层组", "select", Definition{Groups: []string{"底层组"}})
-	if !errors.Is(err, ErrBadRequest) {
-		t.Fatalf("只有自定义子组应 ErrBadRequest，实际 %v", err)
+	if _, err := svc.CreateCustom(context.Background(), "上层组", "select", Definition{Groups: []string{"底层组"}}); err != nil {
+		t.Fatalf("只含自定义子组应允许创建: %v", err)
 	}
 }
 
 func TestDAGCycle(t *testing.T) {
 	svc, st := newTestService(t)
 	insertNode(t, st, "节点A")
-	if _, err := svc.CreateCustom(context.Background(), "组A", "select", Definition{Nodes: []string{"节点A"}}); err != nil {
+	if _, err := svc.CreateCustom(context.Background(), "组A", "select", Definition{Groups: []string{"🚀直接连接"}}); err != nil {
 		t.Fatalf("创建组A失败: %v", err)
 	}
-	if _, err := svc.CreateCustom(context.Background(), "组B", "select", Definition{Nodes: []string{"节点A"}}); err != nil {
+	if _, err := svc.CreateCustom(context.Background(), "组B", "select", Definition{Groups: []string{"🚀直接连接"}}); err != nil {
 		t.Fatalf("创建组B失败: %v", err)
 	}
 	// A -> B
@@ -136,16 +130,16 @@ func TestDAGCycle(t *testing.T) {
 			idB = g.ID
 		}
 	}
-	if _, err := svc.Update(context.Background(), idA, "select", Definition{Nodes: []string{"节点A"}, Groups: []string{"组B"}}); err != nil {
+	if _, err := svc.Update(context.Background(), idA, "select", Definition{Groups: []string{"组B"}}); err != nil {
 		t.Fatalf("更新组A引用组B失败: %v", err)
 	}
 	// B -> A 形成环
-	_, err := svc.Update(context.Background(), idB, "select", Definition{Nodes: []string{"节点A"}, Groups: []string{"组A"}})
+	_, err := svc.Update(context.Background(), idB, "select", Definition{Groups: []string{"组A"}})
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("环应 ErrBadRequest，实际 %v", err)
 	}
 	// 自环
-	_, err = svc.Update(context.Background(), idA, "select", Definition{Nodes: []string{"节点A"}, Groups: []string{"组A"}})
+	_, err = svc.Update(context.Background(), idA, "select", Definition{Groups: []string{"组A"}})
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("自环应 ErrBadRequest，实际 %v", err)
 	}
@@ -154,12 +148,12 @@ func TestDAGCycle(t *testing.T) {
 func TestGroupTypeUpdateAndPreset(t *testing.T) {
 	svc, st := newTestService(t)
 	insertNode(t, st, "节点A")
-	g, err := svc.CreateCustom(context.Background(), "类型组", "select", Definition{Nodes: []string{"节点A"}})
+	g, err := svc.CreateCustom(context.Background(), "类型组", "select", Definition{Groups: []string{"🚀直接连接"}})
 	if err != nil {
 		t.Fatalf("创建类型组失败: %v", err)
 	}
 	// 类型可修改
-	g, err = svc.Update(context.Background(), g.ID, "url-test", Definition{Nodes: []string{"节点A"}})
+	g, err = svc.Update(context.Background(), g.ID, "url-test", Definition{Groups: []string{"🚀直接连接"}})
 	if err != nil {
 		t.Fatalf("修改组类型失败: %v", err)
 	}
@@ -167,7 +161,7 @@ func TestGroupTypeUpdateAndPreset(t *testing.T) {
 		t.Fatalf("组类型未更新: %+v", g.Definition)
 	}
 	// 非法类型
-	_, err = svc.Update(context.Background(), g.ID, "invalid", Definition{Nodes: []string{"节点A"}})
+	_, err = svc.Update(context.Background(), g.ID, "invalid", Definition{Groups: []string{"🚀直接连接"}})
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("非法类型应 ErrBadRequest，实际 %v", err)
 	}
@@ -198,7 +192,6 @@ func TestRejectForceFallbackSubgroup(t *testing.T) {
 	svc, st := newTestService(t)
 	insertNode(t, st, "节点A")
 	_, err := svc.CreateCustom(context.Background(), "兜底引用组", "select", Definition{
-		Nodes:  []string{"节点A"},
 		Groups: []string{"🛟无法归属的流量"},
 	})
 	if !errors.Is(err, ErrBadRequest) {

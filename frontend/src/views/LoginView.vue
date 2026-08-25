@@ -32,7 +32,7 @@ async function onMockLogin() {
   mockSubmitting.value = true
   errorMsg.value = ''
   try {
-    await mockLogin({
+    const res = await mockLogin({
       email: mockForm.email,
       username: mockForm.username || undefined,
       email_verified: mockForm.email_verified,
@@ -40,6 +40,15 @@ async function onMockLogin() {
       roles: mockForm.with_role && mockForm.role ? [mockForm.role] : undefined,
       groups: mockForm.with_group && mockForm.group ? [mockForm.group] : undefined,
     })
+    if (res.status === 'pending') {
+      errorMsg.value = res.message ?? '账号待审批，请等待管理员审核'
+      return
+    }
+    if (!res.token) {
+      errorMsg.value = '模拟登录未返回会话令牌'
+      return
+    }
+    auth.setSession(res.token)
     await router.push('/')
   } catch (err) {
     errorMsg.value = (err as Error).message
