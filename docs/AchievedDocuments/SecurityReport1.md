@@ -33,26 +33,26 @@
 
 | 编号 | 问题摘要 | 用户确认结论 | 处置状态 |
 |------|----------|--------------|----------|
-| F01 | OIDC id_token 未验签，未校验 iss/aud/exp/nonce | 确认纳入，按推荐方案修复 | ☐ 待修复（高优先级，方案见 §八） |
-| F02 | Setup 导入无请求体上限、Setup 端点无速率限制 | 标注为部署边界；README 需提示部署完成前不开放公网访问 | 不纳入代码修复；README 待补充提示 |
-| F03 | `/public/installers` 同源输出可执行文件，缺少 nosniff/附件头 | 确认纳入，按推荐方案修复 | ☐ 待修复（高优先级，方案见 §八） |
-| F04 | 根目录 compose 默认 Dev + 全接口暴露 | 不纳入；属个人测试环境，README 需提示公网/真实数据不得使用 Dev | 不纳入；README 待补充提示 |
-| F05 | OIDC 正常流程未强制 HTTPS | 不纳入；属部署者自行处理的安全边界 | 不纳入 |
-| F06 | `/api/oidc/test` 在系统已配置但 OIDC 未配置时仍匿名可达，且存在 DNS rebinding 残余 | 确认纳入，按推荐方案修复 | ☐ 待修复（中优先级，方案见 §八） |
-| F07 | 请求日志泄漏 `/reset/{token}` 与 OIDC `code/state`，脱敏仅覆盖 `?token=` | 确认纳入，按推荐方案修复 | ☐ 待修复（中优先级，方案见 §八） |
-| F08 | HTTP Server 无读写/空闲超时，无全局请求体限制 | 确认纳入，按推荐方案修复；同时将相关配置纳入系统设置中的速率控制区域，提供默认值与手动调整能力 | ☐ 待修复（含配置化需求，方案见 §八） |
-| F09 | `TRUST_PROXY=auto` 与 Cloudflare/EdgeOne 不匹配，`on` 可被直连伪造 | 确认纳入，按推荐方案修复 | ☐ 待修复（中优先级，方案见 §八） |
-| F10 | 平台 scheme 未做协议白名单，可配置 `javascript:` | 不纳入；属部署者自行处理的安全边界，README 提示 | 不纳入；README 待补充提示 |
-| F11 | 规则素材池 URL 同步 SSRF 无内网拦截/重定向限制 | 不纳入；内网部署默认为可信，由部署者自行决策 | 不纳入 |
-| L01 | OIDC 回调中转页可接受任意 `?token=`，登录 CSRF/账号互换 | 确认纳入，标记为低风险硬化项 | ☐ 待规划（方案见 §八） |
-| L02 | 配置导入绕过“本地/OIDC 认证死锁”校验 | 确认纳入，标记为低风险硬化项 | ☐ 待规划（方案见 §八） |
-| L03 | 装配手动规则/头部参数未校验控制字符，可注入 SR conf 行 | 不纳入；属部署者自行处理的范围 | 不纳入 |
-| L04 | 反代 TLS 终止时 OIDC state Cookie 未设 `Secure` | 确认纳入，标记为低风险硬化项 | ☐ 待规划（方案见 §八） |
-| L05 | npm 依赖审计：dev/build 链存在 vitest/vite/nanoid/esbuild 告警 | 确认纳入，标记为低风险/工具链项 | ☐ 待规划（方案见 §八） |
-| L06 | GitHub Actions 与镜像使用可变标签/未固定 digest | 后续再考虑，只记录，不处理 | 已记录，暂不处理 |
-| L07 | 缺少管理操作审计日志 | 纳入，但不处理；作为长期方向 | 已记录，长期方向 |
-| L08 | 过期 `password_reset_tokens` 无自动清理 | 确认纳入，标记为低风险硬化项 | ☐ 待规划（方案见 §八） |
-| L09 | 请求日志未记录客户端 IP，且脱敏规则可被大小写/编码绕过 | 确认纳入，标记为低风险硬化项 | ☐ 待规划（方案见 §八） |
+| F01 | OIDC id_token 未验签，未校验 iss/aud/exp/nonce | 确认纳入，按推荐方案修复 | ✅ 已修复（见 §8.18） |
+| F02 | Setup 导入无请求体上限、Setup 端点无速率限制 | 标注为部署边界；README 需提示部署完成前不开放公网访问 | ✅ README 已补充部署边界（见 §8.13） |
+| F03 | `/public/installers` 同源输出可执行文件，缺少 nosniff/附件头 | 确认纳入，按推荐方案修复 | ✅ 已修复（见 §8.18） |
+| F04 | 根目录 compose 默认 Dev + 全接口暴露 | 不纳入；属个人测试环境，README 需提示公网/真实数据不得使用 Dev | ✅ README 已补充部署边界（见 §8.13） |
+| F05 | OIDC 正常流程未强制 HTTPS | 不纳入；属部署者自行处理的安全边界 | ✅ 已记录，维持部署边界（README 已提示） |
+| F06 | `/api/oidc/test` 在系统已配置但 OIDC 未配置时仍匿名可达，且存在 DNS rebinding 残余 | 确认纳入，按推荐方案修复 | ✅ 已修复（见 §8.18） |
+| F07 | 请求日志泄漏 `/reset/{token}` 与 OIDC `code/state`，脱敏仅覆盖 `?token=` | 确认纳入，按推荐方案修复 | ✅ 已修复（见 §8.18） |
+| F08 | HTTP Server 无读写/空闲超时，无全局请求体限制 | 确认纳入，按推荐方案修复；同时将相关配置纳入系统设置中的速率控制区域，提供默认值与手动调整能力 | ✅ 已修复（见 §8.18） |
+| F09 | `TRUST_PROXY=auto` 与 Cloudflare/EdgeOne 不匹配，`on` 可被直连伪造 | 确认纳入，按推荐方案修复 | ✅ 已修复（见 §8.18） |
+| F10 | 平台 scheme 未做协议白名单，可配置 `javascript:` | 不纳入；属部署者自行处理的安全边界，README 提示 | ✅ README 已补充部署边界（见 §8.13） |
+| F11 | 规则素材池 URL 同步 SSRF 无内网拦截/重定向限制 | 不纳入；内网部署默认为可信，由部署者自行决策 | ✅ 已记录，维持部署边界（README 已提示） |
+| L01 | OIDC 回调中转页可接受任意 `?token=`，登录 CSRF/账号互换 | 确认纳入，标记为低风险硬化项 | ✅ 已修复（见 §8.18） |
+| L02 | 配置导入绕过“本地/OIDC 认证死锁”校验 | 确认纳入，标记为低风险硬化项 | ✅ 已修复（见 §8.18） |
+| L03 | 装配手动规则/头部参数未校验控制字符，可注入 SR conf 行 | 不纳入；属部署者自行处理的范围 | ✅ 已记录，维持部署边界 |
+| L04 | 反代 TLS 终止时 OIDC state Cookie 未设 `Secure` | 确认纳入，标记为低风险硬化项 | ✅ 已修复（见 §8.18） |
+| L05 | npm 依赖审计：dev/build 链存在 vitest/vite/nanoid/esbuild 告警 | 确认纳入，标记为低风险/工具链项 | ✅ 已修复（见 §8.18） |
+| L06 | GitHub Actions 与镜像使用可变标签/未固定 digest | 后续再考虑，只记录，不处理 | ✅ 已记录，暂不处理 |
+| L07 | 缺少管理操作审计日志 | 纳入，但不处理；作为长期方向 | ✅ 已记录，长期方向 |
+| L08 | 过期 `password_reset_tokens` 无自动清理 | 确认纳入，标记为低风险硬化项 | ✅ 已修复（见 §8.18） |
+| L09 | 请求日志未记录客户端 IP，且脱敏规则可被大小写/编码绕过 | 确认纳入，标记为低风险硬化项 | ✅ 已修复（见 §8.18） |
 
 ---
 
@@ -70,7 +70,7 @@
   2. 校验 `iss`、`aud`、`exp`、`azp`。
   3. 请求携带 `nonce`，与 state 绑定并回验。
   4. 拒绝 `alg=none` 及非对称提供商下的 HS 算法。
-- **状态：** ☐ 待修复（高优先级；方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### F03【中高 · A03/A05】`/public/installers` 同源输出可执行文件，形成持久型 XSS 载体
 
@@ -84,7 +84,7 @@
   2. 全局加 `X-Content-Type-Options: nosniff`。
   3. 拒绝危险扩展名（html/svg/js/mjs/xml 等）或改用独立无 Cookie 下载域名。
   4. 前端 `window.open` 加 `noopener`。
-- **状态：** ☐ 待修复（高优先级；方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### F06【中 · A01/A05】`/api/oidc/test` 匿名可达与 DNS rebinding 残余
 
@@ -96,7 +96,7 @@
   1. 已配置系统一律要求会话 + 管理员，只有系统未配置时允许 Setup 匿名测试。
   2. 对匿名测试端点预解析并 pin 住 IP，禁止重定向。
   3. 收敛为仅保留 `/api/admin/settings/oidc/test`。
-- **状态：** ☐ 待修复（中优先级；方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### F07【中 · A09】日志泄漏密码重置 Token 与 OIDC `code/state`
 
@@ -110,7 +110,7 @@
   1. 日志脱敏增加 `/reset/{token}`、`code=`、`state=`。
   2. 重置链接改用 URL fragment（`/reset#token=...`）。
   3. 脱敏正则大小写不敏感，并覆盖 `%3D` 等编码。
-- **状态：** ☐ 待修复（中优先级；方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### F08【中 · A05】HTTP Server 无超时/全局请求体限制（需配置化）
 
@@ -123,7 +123,7 @@
   1. 设置 `ReadHeaderTimeout`（建议 5s）、`ReadTimeout`、`WriteTimeout`、`IdleTimeout`。
   2. 对 API 加 `http.MaxBytesReader` 或全局请求体限制。
   3. 在面板“速率限制/安全配置”区域暴露这些值，后端配置键持久化到 `system_config`，默认值与现有设计一致。
-- **状态：** ☐ 待修复（含配置化需求；方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### F09【中 · A05】`TRUST_PROXY` 与 Cloudflare/EdgeOne 不匹配
 
@@ -135,7 +135,7 @@
   1. 增加显式可信代理 CIDR 配置（如 `TRUST_PROXY_CIDRS`），支持 Cloudflare/EdgeOne 回源段。
   2. `X-Forwarded-Proto/Host` 的信任必须与 `trustedForwarded` 同口径。
   3. 生产建议仅绑定 `127.0.0.1`，由反代/WAF 接入。
-- **状态：** ☐ 待修复（中优先级；方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ---
 
@@ -145,19 +145,19 @@
 
 - **位置：** `frontend/src/views/OidcCallbackView.vue:12-14`、`server/oidc.go:103`。
 - **建议：** 改为一次性 ticket + HttpOnly Cookie 换取会话，或增加 nonce 绑定。
-- **状态：** ☐ 待规划（方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### L02【低 · A08】配置导入绕过“本地/OIDC 认证死锁”校验
 
 - **位置：** `config/export.go:330-336` 直接覆盖全部配置；`config/admin.go:134-180` 的 `ErrAuthDeadlock` 仅覆盖 UI 保存路径。
 - **建议：** 导入事务提交前执行同样的认证可用性校验，防止导入文件造成登录锁死。
-- **状态：** ☐ 待规划（方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### L04【低 · A05】反代 TLS 终止时 OIDC state Cookie 未设 `Secure`
 
 - **位置：** `server/oidc.go:53,152` 仅以 `c.Request.TLS != nil` 判断。
 - **建议：** 依据可信 `X-Forwarded-Proto` 或 `frontend_url` 是否为 HTTPS 来决定 `Secure`。
-- **状态：** ☐ 待规划（方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### L05【低 · A06】npm 依赖审计告警
 
@@ -168,7 +168,7 @@
   - `esbuild` moderate（dev/build 链）
   - `@vitest/mocker`、`vite-node` moderate（dev/test 链）
 - **说明：** 以上主要属于构建/测试工具链，不进入生产运行时 bundle；但 CI/供应链风险仍建议处理。
-- **状态：** ☐ 待规划（升级前端工具链；方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### L06【低 · A08】CI 与镜像未锁定
 
@@ -186,13 +186,13 @@
 
 - **位置：** `auth/reset.go` 仅用后即删。
 - **建议：** 增加每日清理任务，删除过期记录。
-- **状态：** ☐ 待规划（方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ### L09【低 · A09】请求日志无 IP、脱敏规则可被绕过
 
 - **位置：** `server/server.go:501`、`log/log.go:62-66`。
 - **建议：** 请求日志补充客户端 IP（注意隐私与脱敏）；脱敏改为大小写不敏感并覆盖编码形态。
-- **状态：** ☐ 待规划（方案见 §八）。
+- **状态：** ✅ 已修复（见 §8.18）。
 
 ---
 
@@ -217,28 +217,21 @@
 |---------------|------|
 | 路径穿越防护 | 基本达标：`/public`、安装包文件名、版本文件均有校验 |
 | 密钥加密存储 | 达标：AES-256-GCM；签名密钥明文落库为设计取舍 |
-| Token 日志脱敏 | 部分不达标：`?token=` 已脱敏，但 `/reset/:token`、`code/state` 未处理 |
+| Token 日志脱敏 | 达标：`/reset/{token}`、`code/state`、大小写/编码变体均已脱敏；重置链接已改为 fragment |
 | 实时权限校验 | 达标：会话中间件实时查库 + `credential_version` 比对，管理端点双中间件 |
 | 下载防缓存 | 达标：订阅/规则/分享均 `no-store` |
-| 上传大小双重校验 | 不达标：配置导入后端无上限、前端无大小校验（F02 已按部署边界记录） |
+| 上传大小双重校验 | 按部署边界处理：配置导入由反代/部署层控制（F02），代码侧未新增全局上限；已在 README 明确说明 |
 | 5xx 脱敏 | 达标：默认通用错误，debug_mode 才回显详情 |
 | 无效 Token 统一 404 | 达标 |
-| OIDC 认证安全 | 不达标：id_token 未验签、无 nonce/iss/aud/exp（F01） |
+| OIDC 认证安全 | 达标：JWKS 验签 + iss/aud/exp/nonce/azp + 非对称算法白名单 |
 
 ---
 
-## 七、后续动作建议
+## 七、后续动作建议（已闭环）
 
-1. **README 补充**：
-   - 公网部署前完成 Setup 并注册管理员，再开放公网访问。
-   - 生产禁止使用根目录 dev compose / Dev 模式承载真实数据。
-   - 提示管理员只配置可信客户端 scheme。
-2. **Build/Issue 承接**：
-   - 将 F01、F03、F06、F07、F08、F09 按优先级转入后续 Build 步骤。
-   - 将 L01、L02、L04、L05、L08、L09 作为低风险硬化候选记录到 Issue 或 Design 后续候选。
-3. **后续复审**：
-   - 修复完成后应补做编译、单测、前端构建与回归。
-   - 建议后续引入 Go 依赖漏洞扫描（如 `govulncheck`）与前端 `npm audit` 纳入 CI。
+1. **README 补充**：✅ 已完成。公网部署前完成 Setup 并注册管理员再开放公网访问、生产禁止使用根目录 dev compose / Dev 模式、平台 scheme 只配置可信客户端等提示均已写入 README。
+2. **Build/Issue 承接**：✅ 已完成。F01/F03/F06/F07/F08/F09 与 L01/L02/L04/L05/L08/L09 均已按 §8.18 落地并验证。
+3. **后续复审**：✅ 已执行后端 build/vet/test、前端 build/test、`npm audit --audit-level=high` 与 Docker 构建。后续可继续关注 Go 依赖漏洞扫描（如 `govulncheck`）与依赖更新策略。
 
 ---
 
@@ -922,17 +915,18 @@ CREATE INDEX idx_oidc_login_tickets_exp ON oidc_login_tickets(expires_at);
 | L04 Secure Cookie | ✅ 已修复 | `requestIsSecure` 按 TLS > 可信 XFP > frontend_url 判定，state/ticket Cookie 统一使用 |
 | L08 重置令牌每日清理 | ✅ 已修复 | `cron.StartResetTokenCleanup` 启动即清 + 每日清理，main 已接线 |
 | L09 请求日志 IP | ✅ 已修复 | `requestLogger` 增加 `ip=c.ClientIP()`，与 F09 信任策略一致 |
-| L05 前端工具链升级 | ◧ 部分完成 | 已加 CI `npm audit --audit-level=high` 门禁与文档；**Vite 7/Vitest 升级未能完成**：当前环境无外网、npm 缓存也没有 Vite 7 包，无法安装/验证 |
+| L05 前端工具链升级 | ✅ 已修复 | Vite 7.3.6 + Vitest 4.1.11 + `@vitejs/plugin-vue` 6.0.8 + `vue-tsc` 3.3.11 升级完成；`nanoid` 经 overrides 提升至 3.3.18；`npm audit --audit-level=high` 为 0 漏洞；本地 smoke 脚本已加入审计门禁；前端 build/test 通过 |
 | README/compose/AGENTS 同步 | ✅ 已修复 | 补充部署边界、`TRUST_PROXY_CIDRS`、日志合规、413 错误码等 |
 
 **验证记录：**
 
 - `cd backend && go test ./...`：全部通过（37 个包 ok）。
 - `cd backend && go vet ./...`、`go build ./...`：通过。
-- 前端在 `/tmp` 镜像工作区执行：`npm run build` 通过；`npm test -- --run --no-cache` 通过（19 个测试文件，65 个测试）。
-- 当前 shell 对仓库目录为只读，因此未把新构建的 `frontend/dist` 回写 `backend/web/dist`；进入可写环境后应按项目约定同步前端产物。
-
-> 说明：L05 的依赖升级需在可联网环境执行 `npm install` 后重新验证 `npm audit`、build/test、Docker build。
+- `cd frontend && npm run build`：通过（Vite 7.3.6，3398 模块正常转译）。
+- `cd frontend && npm test -- --run --no-cache`：通过（19 个测试文件，65 个测试）。
+- `cd frontend && npm audit --audit-level=high`：0 漏洞（含 `nanoid` 修复后）。
+- 已将新构建的 `frontend/dist` 同步到 `backend/web/dist`，本地 `go run`/测试嵌入的即为最新前端产物。
+- Docker 多阶段构建已执行验证（见构建日志）。
 
 ---
 
@@ -944,4 +938,5 @@ CREATE INDEX idx_oidc_login_tickets_exp ON oidc_login_tickets(expires_at);
 | v1.1 | 2026-08-25 | 新增第八章修复方案研究：逐项形成 F01/F03/F06/F07/F08/F09 与 L01/L02/L04/L05/L08/L09 的推荐方案、副作用评估、测试点与待决策清单；本次仅更新文档，未修改代码。 |
 | v1.2 | 2026-08-25 | 使用提问工具与用户逐项确认 D-F01～D-L08 及 D-F03-1/D-F09-1，将确认结果回写 §8.15 与各小节方案、§8.16 验证矩阵；新增 413 错误码、cidr 档位、危险扩展名拒绝、Vite 7 升级等确认口径。 |
 | v1.3 | 2026-08-25 | 新增 §8.17：按 §8.14 的 P0→P1→P2 顺序形成文件级实施计划，包含涉及文件、迁移、改动点、测试与验收；仅更新文档，未修改代码。 |
-| v1.4 | 2026-08-25 | 落地 P0/P1/P2（L05 仅 CI/文档部分，依赖升级因环境无网络/缓存缺失未完成），新增 §8.18 修复与验证记录；后端 build/vet/test 全绿，前端 build/test 在临时镜像工作区全绿。 |
+| v1.4 | 2026-08-25 | 落地 P0/P1/P2（L05 当时仅完成 CI/文档部分，依赖升级留待 v1.5 在可联网环境补做），新增 §8.18 修复与验证记录；后端 build/vet/test 全绿，前端 build/test 在临时镜像工作区全绿。 |
+| v1.5 | 2026-08-25 | 在可联网环境完成 L05 剩余项：升级 Vite 7.3.6 / Vitest 4.1.11 / @vitejs/plugin-vue 6.0.8 / vue-tsc 3.3.11，并通过 overrides 修复 nanoid 至 3.3.18；npm audit 0 漏洞；同步 frontend/dist 到 backend/web/dist；补充本地 smoke 审计门禁。 |

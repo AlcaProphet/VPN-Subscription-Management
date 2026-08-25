@@ -1,5 +1,11 @@
 #!/bin/bash
 set -e
+
+# L05 安全门禁：本地 smoke 时同步检查前端依赖不存在 high/critical 漏洞
+if [ -d frontend ] && command -v npm >/dev/null 2>&1; then
+  (cd frontend && npm audit --audit-level=high)
+fi
+
 BASE="${BASE:-http://127.0.0.1:18080}"
 J() { python3 -c "import sys,json; d=json.load(sys.stdin); print(d$1)"; }
 
