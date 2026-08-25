@@ -52,6 +52,7 @@ func (h *RuleHandler) list(c *gin.Context) {
 // create 创建规则：mode=upload 文件 / mode=text 文本（名称+标识+客户端类型+scheme+可选首版本内容）。
 // 首版本内容可选：两者都缺省时创建空规则实体（供 SR 分流规则装配目标，Design2 §3.4）。
 func (h *RuleHandler) create(c *gin.Context) {
+	clearReadDeadline(c)
 	ctx := c.Request.Context()
 	var name, slugVal, clientType string
 	var schemes []string

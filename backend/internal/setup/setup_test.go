@@ -9,6 +9,7 @@ import (
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/store"
 )
 
@@ -50,7 +51,8 @@ func newTestSetupService(t *testing.T) (*store.Store, *Service) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
-	svc := NewService(st, cfg, log.New("error", "console"), "auto")
+	policy, _ := proxytrust.Parse("auto", "")
+	svc := NewService(st, cfg, log.New("error", "console"), policy)
 	return st, svc
 }
 
@@ -135,7 +137,8 @@ func TestQuickStartRollback(t *testing.T) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
-	svc := NewService(st, cfg, log.New("error", "console"), "auto")
+	policyAuto, _ := proxytrust.Parse("auto", "")
+	svc := NewService(st, cfg, log.New("error", "console"), policyAuto)
 	req := httptest.NewRequest("POST", "http://vpn.example.com/api/setup/quickstart", nil)
 	if err := svc.CompleteQuickStart(context.Background(), req); err == nil {
 		t.Fatal("缺表场景应失败")
@@ -176,7 +179,8 @@ func TestDeriveFrontendURL(t *testing.T) {
 // TestTrustProxyTiers TRUST_PROXY 三档对 X-Forwarded-Host 信任的影响（Design1 §6.4）
 func TestTrustProxyTiers(t *testing.T) {
 	// on：公网来源也信任转发头
-	onSvc := NewService(nil, nil, log.New("error", "console"), "on")
+	onPolicy, _ := proxytrust.Parse("on", "")
+	onSvc := NewService(nil, nil, log.New("error", "console"), onPolicy)
 	req := httptest.NewRequest("POST", "http://inner/api", nil)
 	req.RemoteAddr = "203.0.113.5:12345" // 公网 IP
 	req.Header.Set("X-Forwarded-Host", "vpn.example.com")
@@ -185,7 +189,8 @@ func TestTrustProxyTiers(t *testing.T) {
 	}
 
 	// off：即使回环来源也不信任
-	offSvc := NewService(nil, nil, log.New("error", "console"), "off")
+	offPolicy, _ := proxytrust.Parse("off", "")
+	offSvc := NewService(nil, nil, log.New("error", "console"), offPolicy)
 	req2 := httptest.NewRequest("POST", "http://inner/api", nil)
 	req2.RemoteAddr = "127.0.0.1:12345" // 回环
 	req2.Header.Set("X-Forwarded-Host", "vpn.example.com")
@@ -194,7 +199,8 @@ func TestTrustProxyTiers(t *testing.T) {
 	}
 
 	// auto：回环来源信任
-	autoSvc := NewService(nil, nil, log.New("error", "console"), "auto")
+	autoPolicy, _ := proxytrust.Parse("auto", "")
+	autoSvc := NewService(nil, nil, log.New("error", "console"), autoPolicy)
 	req3 := httptest.NewRequest("POST", "http://inner/api", nil)
 	req3.RemoteAddr = "127.0.0.1:12345"
 	req3.Header.Set("X-Forwarded-Host", "vpn.example.com")

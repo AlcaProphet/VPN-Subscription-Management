@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"vpn-sub/internal/store"
@@ -107,9 +108,9 @@ func (s *ResetService) IssueForUser(ctx context.Context, userID int64, email str
 	return nil
 }
 
-// resetLink 构造重置链接（Build3 邮件模板使用；当前仅日志记录）
+// resetLink 构造重置链接（新格式使用 URL fragment，避免 token 进入访问日志/Referer）
 func resetLink(token string) string {
-	return "/reset/" + token
+	return "/reset#token=" + url.QueryEscape(token)
 }
 
 // Complete 校验令牌（存在 + 未过期 + 未使用）→ 设新密码 → 用后即删 → 递增 credential_version

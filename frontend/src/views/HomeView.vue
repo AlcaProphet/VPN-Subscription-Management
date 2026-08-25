@@ -157,7 +157,7 @@ function installerEntries(card: PlatformCard): InstallerEntryUI[] {
   for (const it of card.installer_urls ?? []) out.push({ kind: 'url', label: it.name || it.url, url: it.url })
   return out
 }
-function openInstaller(url: string) { window.open(url, '_blank') }
+function openInstaller(url: string) { window.open(url, '_blank', 'noopener,noreferrer') }
 
 const unassigned = (card: PlatformCard) => card.status === 'unassigned'
 const custom = (card: PlatformCard) => card.status === 'custom'

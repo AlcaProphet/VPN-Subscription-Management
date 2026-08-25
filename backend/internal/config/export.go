@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -238,6 +239,10 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 	if err := s.checkImportProtection(ctx, payload); err != nil {
 		return err
 	}
+	// 认证可用性校验：防止导入文件导致本地/OIDC 同时不可用。
+	if err := ValidateImportedAuthUsable(payload.Config); err != nil {
+		return err
+	}
 	// 事务内整体覆盖：先清空全部现有配置键再写入导出内容（导出文件中不存在的键一并清除——严格整体覆盖）
 	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM system_config`); err != nil {
@@ -323,6 +328,10 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 	}
 	// 导入保护：signing_key 变化且存在业务密文时拒绝。
 	if err := s.checkImportProtection(ctx, payload); err != nil {
+		return nil, err
+	}
+	// 认证可用性校验：与 UI 保存路径同口径，防止导入造成认证死锁。
+	if err := ValidateImportedAuthUsable(payload.Config); err != nil {
 		return nil, err
 	}
 	var oldTargets []ImportCleanupTarget
@@ -593,6 +602,46 @@ func (s *ExportService) checkImportProtection(ctx context.Context, payload *Expo
 	}
 	return nil
 }
+
+// ValidateImportedAuthUsable 按“导入后视角”校验认证可用性：若本地登录关闭，则 OIDC 参数必须完整可用。
+// 该函数只读 map，不做任何写入。
+func ValidateImportedAuthUsable(cfgMap map[string]string) error {
+	if cfgMap[KeyConfigured] != "true" {
+		return nil
+	}
+	allowLocal := cfgMap[KeyAllowLocalLogin]
+	if allowLocal == "" {
+		allowLocal = "true"
+	}
+	ok, err := strconv.ParseBool(allowLocal)
+	if err != nil {
+		return fmt.Errorf("%w: allow_local_login 非法", ErrBadRequest)
+	}
+	if ok {
+		return nil
+	}
+	providerType := cfgMap["oidc_provider_type"]
+	if providerType == "" {
+		return ErrAuthDeadlock
+	}
+	raw := cfgMap["oidc_params_"+providerType]
+	if raw == "" {
+		return ErrAuthDeadlock
+	}
+	var p struct {
+		BaseURL      string `json:"base_url"`
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	}
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		return fmt.Errorf("%w: OIDC 参数 JSON 非法", ErrBadRequest)
+	}
+	if p.BaseURL == "" || p.ClientID == "" || p.ClientSecret == "" {
+		return ErrAuthDeadlock
+	}
+	return nil
+}
+
 
 // decrypt 解密导入文件（Argon2id + AES-GCM 逆过程）；失败返回「密码错误或文件损坏」
 func (s *ExportService) decrypt(data []byte, password string) (*ExportPayload, error) {

@@ -4,8 +4,10 @@ package log
 import (
 	"context"
 	"log/slog"
+	"net/url"
 	"os"
 	"regexp"
+	"strings"
 )
 
 // 包级默认 logger（仅日志设施自身例外；业务服务实例一律构造注入）
@@ -57,13 +59,56 @@ func New(level, format string, bufs ...*RingBuffer) *slog.Logger {
 // 当前默认 logger（供测试与特殊场景取用）
 func Default() *slog.Logger { return defaultLogger }
 
-// --- token 脱敏：?token=xxx / &token=xxx 的值一律替换为 ***（AGENTS §4.3）---
+// --- token 脱敏：?token=xxx、/reset/<token>、code/state 均替换为 ***（AGENTS §4.3）---
 
-var tokenValueRe = regexp.MustCompile(`([?&]token=)[^&\s]*`)
+var (
+	tokenValueRe  = regexp.MustCompile(`([?&]token=)[^&\s]*`)
+	resetPathRe   = regexp.MustCompile(`(?i)(/reset/)[^/?#\s]*`)
+	sensitiveKeyRe = regexp.MustCompile(`(?i)^(token|code|state)$`)
+)
 
-// Redact 对字符串中的 token 查询参数值脱敏
+// Redact 对字符串中的敏感参数与密码重置路径进行脱敏，覆盖大小写与常见编码形态。
 func Redact(s string) string {
-	return tokenValueRe.ReplaceAllString(s, "${1}***")
+	// 1) 路径段：/reset/<token> 整段替换
+	s = resetPathRe.ReplaceAllString(s, "${1}***")
+	// 2) 查询串：按 & 或 ; 分段，键名经 URL 解码后命中 token/code/state 即替换值
+	qIdx := strings.IndexByte(s, '?')
+	if qIdx < 0 {
+		return tokenValueRe.ReplaceAllString(s, "${1}***")
+	}
+	var b strings.Builder
+	b.WriteString(s[:qIdx+1])
+	tail := s[qIdx+1:]
+	start := 0
+	for i := 0; i <= len(tail); i++ {
+		if i == len(tail) || tail[i] == '&' || tail[i] == ';' {
+			seg := tail[start:i]
+			if seg != "" {
+				b.WriteString(redactQuerySegment(seg))
+			}
+			if i < len(tail) {
+				b.WriteByte(tail[i])
+			}
+			start = i + 1
+		}
+	}
+	return b.String()
+}
+
+func redactQuerySegment(seg string) string {
+	eq := strings.IndexByte(seg, '=')
+	if eq < 0 {
+		return seg
+	}
+	keyPart := seg[:eq]
+	decoded, err := url.QueryUnescape(keyPart)
+	if err != nil {
+		decoded = keyPart
+	}
+	if sensitiveKeyRe.MatchString(decoded) {
+		return keyPart + "=***"
+	}
+	return seg
 }
 
 // RedactHandler 包装任意 slog.Handler：消息与字符串属性统一经脱敏（关键约束 AGENTS §4.3）

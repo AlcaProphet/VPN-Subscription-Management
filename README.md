@@ -66,6 +66,8 @@
 
 > ⏱️ 全程大约 5 分钟。前提：已安装 Docker（含 Docker Compose）。
 
+> ⚠️ **首次 Setup 完成并注册管理员之前，不要把服务暴露到公网。** 公网部署请先仅绑定 `127.0.0.1`，完成 Setup 后再开放反代接入。
+
 ### 第 1 步：一键启动（ghcr.io 预构建镜像）
 
 新建 `docker-compose.yml`，粘贴以下内容：
@@ -199,7 +201,8 @@ server {
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `LOG_FORMAT` | `console` | `console` / `json` |
 | `PORT` | `8080` | 监听端口 |
-| `TRUST_PROXY` | `auto` | `auto` / `on` / `off`，真实客户端 IP 解析策略 |
+| `TRUST_PROXY` | `auto` | `auto` / `on` / `off` / `cidr`，真实客户端 IP 解析策略 |
+| `TRUST_PROXY_CIDRS` | 空 | 仅在 `TRUST_PROXY=cidr` 时生效，逗号分隔可信反代 CIDR（自动包含回环） |
 | `RESET_ADMIN_PASSWORD` | — | 应急恢复：管理员密码救援 |
 
 ### 高级模式（Xray 对接）
@@ -256,6 +259,13 @@ docker compose up -d --build
 适合家庭 / 公司内网：compose 中 `ports` 保持 `"8080:8080"` 直接暴露即可，浏览器访问 `http://服务器IP:8080`。
 
 > ⚠️ 直连模式凭据为明文传输，**仅限可信内网**；公网请使用预构建镜像 + 反向代理（见高级运维）。
+
+> 🔒 **安全边界提示**
+> - OIDC 授权回调承载登录凭据，公网部署必须由 HTTPS 反代接入，不得公网 HTTP 直连启用 OIDC。
+> - 根目录 `docker-compose.yml` 为 Dev/全接口暴露示例，仅限个人本机或可信内网测试；公网或真实数据必须使用 `docker-compose.yml.example` 的 Production 配置。
+> - 平台 scheme 会唤起本机客户端，只应配置可信客户端 scheme，不要配置来源不明的 scheme。
+> - 规则素材池 URL 同步为管理员配置的服务端拉取；在共享/云环境部署时应自行限制出网目标，系统当前不默认拦截私网地址。
+> - 运行日志包含客户端 IP，请按当地合规要求管理日志留存。
 
 ### 本地开发
 

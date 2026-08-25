@@ -904,6 +904,36 @@ CREATE INDEX idx_oidc_login_tickets_exp ON oidc_login_tickets(expires_at);
 - 每个批次完成后执行 §8.0 通用验证，并按 §8.16 矩阵勾选；全部通过后再进入下一批。
 
 
+
+---
+
+### 8.18 修复落地与验证记录（2026-08-25）
+
+| 项 | 状态 | 验证说明 |
+|---|---|---|
+| F01 OIDC 验签 | ✅ 已修复 | 使用现有 `golang-jwt/jwt/v5` + JWKS 实现验签，校验 iss/aud/exp/nonce/azp；新增迁移 `1012_oidc_nonce.sql`；`go test ./...` 通过 |
+| F03 安装包附件下载 | ✅ 已修复 | 危险扩展名拒绝、`securityHeaders` nosniff、attachment、前端 noopener；`go test`、前端 build/test 通过 |
+| F06 Setup 测试端点收敛 | ✅ 已修复 | 新增 `/api/setup/oidc/test`，删除匿名 `/api/oidc/test`；DNS 解析收敛到 DialContext 单次 pin |
+| F07 日志脱敏/重置 fragment | ✅ 已修复 | `log.Redact` 覆盖 path/query/code/state/大小写/编码；重置链接改 `/reset#token=`；`ResetView` 读 fragment |
+| F08 HTTP 超时/请求体限制 | ✅ 已修复 | 新增 `server/hardening.go`，连接超时配置化 + 分级 body 限制 + 长传输豁免；面板配置同步 |
+| F09 TRUST_PROXY CIDR | ✅ 已修复 | 新增 `internal/proxytrust`，支持 `auto/on/off/cidr`；server/setup/settings 共用同口径 |
+| L01 ticket 换票 | ✅ 已修复 | 新增迁移 `1013_oidc_login_tickets.sql`；回调不再携带 token，HttpOnly Cookie + POST exchange |
+| L02 导入认证死锁校验 | ✅ 已修复 | `ValidateImportedAuthUsable` 在 v1/v2 导入事务前执行，返回 400 |
+| L04 Secure Cookie | ✅ 已修复 | `requestIsSecure` 按 TLS > 可信 XFP > frontend_url 判定，state/ticket Cookie 统一使用 |
+| L08 重置令牌每日清理 | ✅ 已修复 | `cron.StartResetTokenCleanup` 启动即清 + 每日清理，main 已接线 |
+| L09 请求日志 IP | ✅ 已修复 | `requestLogger` 增加 `ip=c.ClientIP()`，与 F09 信任策略一致 |
+| L05 前端工具链升级 | ◧ 部分完成 | 已加 CI `npm audit --audit-level=high` 门禁与文档；**Vite 7/Vitest 升级未能完成**：当前环境无外网、npm 缓存也没有 Vite 7 包，无法安装/验证 |
+| README/compose/AGENTS 同步 | ✅ 已修复 | 补充部署边界、`TRUST_PROXY_CIDRS`、日志合规、413 错误码等 |
+
+**验证记录：**
+
+- `cd backend && go test ./...`：全部通过（37 个包 ok）。
+- `cd backend && go vet ./...`、`go build ./...`：通过。
+- 前端在 `/tmp` 镜像工作区执行：`npm run build` 通过；`npm test -- --run --no-cache` 通过（19 个测试文件，65 个测试）。
+- 当前 shell 对仓库目录为只读，因此未把新构建的 `frontend/dist` 回写 `backend/web/dist`；进入可写环境后应按项目约定同步前端产物。
+
+> 说明：L05 的依赖升级需在可联网环境执行 `npm install` 后重新验证 `npm audit`、build/test、Docker build。
+
 ---
 
 ## 九、变更记录
@@ -914,3 +944,4 @@ CREATE INDEX idx_oidc_login_tickets_exp ON oidc_login_tickets(expires_at);
 | v1.1 | 2026-08-25 | 新增第八章修复方案研究：逐项形成 F01/F03/F06/F07/F08/F09 与 L01/L02/L04/L05/L08/L09 的推荐方案、副作用评估、测试点与待决策清单；本次仅更新文档，未修改代码。 |
 | v1.2 | 2026-08-25 | 使用提问工具与用户逐项确认 D-F01～D-L08 及 D-F03-1/D-F09-1，将确认结果回写 §8.15 与各小节方案、§8.16 验证矩阵；新增 413 错误码、cidr 档位、危险扩展名拒绝、Vite 7 升级等确认口径。 |
 | v1.3 | 2026-08-25 | 新增 §8.17：按 §8.14 的 P0→P1→P2 顺序形成文件级实施计划，包含涉及文件、迁移、改动点、测试与验收；仅更新文档，未修改代码。 |
+| v1.4 | 2026-08-25 | 落地 P0/P1/P2（L05 仅 CI/文档部分，依赖升级因环境无网络/缓存缺失未完成），新增 §8.18 修复与验证记录；后端 build/vet/test 全绿，前端 build/test 在临时镜像工作区全绿。 |

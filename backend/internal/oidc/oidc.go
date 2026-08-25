@@ -63,6 +63,9 @@ type Service struct {
 
 	mu        sync.Mutex
 	discCache map[string]*Discovery // 发现文档缓存（key = base_url）
+
+	jwksMu    sync.Mutex
+	jwksCache map[string]*jwkSet // JWKS 缓存（key = jwks_uri）
 }
 
 func NewService(st *store.Store, cfg *config.Service, authSvc *auth.Service, users *user.Service, mode string, lg *slog.Logger) *Service {
@@ -106,7 +109,8 @@ func NewService(st *store.Store, cfg *config.Service, authSvc *auth.Service, use
 				return validateOIDCURL(req.URL.String())
 			},
 		},
-		discCache: map[string]*Discovery{},
+		discCache:  map[string]*Discovery{},
+		jwksCache:  map[string]*jwkSet{},
 	}
 }
 
@@ -242,12 +246,58 @@ func (s *Service) fetchDiscovery(ctx context.Context, p *Params) (*Discovery, er
 	return &disc, nil
 }
 
-// ClearDiscCache 清空发现文档缓存（配置变更后调用）
+// ClearDiscCache 清空发现文档与 JWKS 缓存（配置变更后调用）
 func (s *Service) ClearDiscCache() {
 	s.mu.Lock()
 	s.discCache = map[string]*Discovery{}
 	s.mu.Unlock()
+	s.jwksMu.Lock()
+	s.jwksCache = map[string]*jwkSet{}
+	s.jwksMu.Unlock()
 }
+
+// getJWKS 获取并缓存 OIDC 提供商 JWKS；使用当前 httpCli 以沿用 SSRF/代理策略。
+func (s *Service) getJWKS(ctx context.Context, jwksURI string) (*jwkSet, error) {
+	s.jwksMu.Lock()
+	if set, ok := s.jwksCache[jwksURI]; ok {
+		s.jwksMu.Unlock()
+		return set, nil
+	}
+	s.jwksMu.Unlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
+	if err != nil {
+		return nil, fmt.Errorf("构造 JWKS 请求失败: %w", err)
+	}
+	resp, err := s.httpCli.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("获取 JWKS 失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("JWKS 返回 %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("读取 JWKS 失败: %w", err)
+	}
+	var set jwkSet
+	if err := json.Unmarshal(body, &set); err != nil {
+		return nil, fmt.Errorf("解析 JWKS 失败: %w", err)
+	}
+	s.jwksMu.Lock()
+	s.jwksCache[jwksURI] = &set
+	s.jwksMu.Unlock()
+	return &set, nil
+}
+
+// refreshJWKS 删除指定 JWKS 缓存，下次 getJWKS 会重新拉取（用于密钥轮换后的重试）。
+func (s *Service) refreshJWKS(jwksURI string) {
+	s.jwksMu.Lock()
+	delete(s.jwksCache, jwksURI)
+	s.jwksMu.Unlock()
+}
+
 
 // matchWhitelist 白名单匹配（Build3 Step 3 接通配置）：
 // 读取 oidc_whitelist（JSON：{role_claim_path, role_values, group_claim_path, group_values}）；

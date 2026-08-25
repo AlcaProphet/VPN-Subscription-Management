@@ -46,6 +46,7 @@ func (h *ShareHandler) list(c *gin.Context) {
 
 // create 名称 + 首版本（mode=upload 文件 / mode=text 文本）
 func (h *ShareHandler) create(c *gin.Context) {
+	clearReadDeadline(c)
 	ctx := c.Request.Context()
 	var name string
 	var src version.ContentProvider

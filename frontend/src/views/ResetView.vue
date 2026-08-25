@@ -1,4 +1,4 @@
-<!-- ResetView.vue：重置密码（/reset/:token）——新密码 + 确认密码 → 提交 → 成功跳 /login -->
+<!-- ResetView.vue：重置密码（/reset#token=...）——新密码 + 确认密码 → 提交 → 成功跳 /login -->
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -13,6 +13,10 @@ const form = reactive({ password: '', confirm: '' })
 const submitting = ref(false)
 const errorMsg = ref('')
 const done = ref(false)
+
+// 新格式：token 放 URL fragment，不进入服务器/反代访问日志。读取后立即清除 hash。
+const token = new URLSearchParams(route.hash.slice(1)).get('token') ?? ''
+if (token) history.replaceState(null, '', route.path)
 
 const rules = {
   password: [{ required: true, min: 8, message: '密码至少 8 个字符', trigger: 'blur' as const }],
@@ -30,7 +34,7 @@ async function onSubmit() {
   submitting.value = true
   errorMsg.value = ''
   try {
-    await resetPassword({ token: String(route.params.token), password: form.password })
+    await resetPassword({ token, password: form.password })
     done.value = true
   } catch (err) {
     errorMsg.value = (err as Error).message

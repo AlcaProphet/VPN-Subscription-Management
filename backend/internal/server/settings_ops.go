@@ -55,6 +55,7 @@ func (h *SettingsOpsHandler) clearAll(c *gin.Context) {
 
 // export 导出加密配置（仅 Production；body 含导出密码 ≥8）
 func (h *SettingsOpsHandler) export(c *gin.Context) {
+	clearWriteDeadline(c)
 	var req struct {
 		Password string `json:"password" binding:"required"`
 	}
@@ -133,6 +134,10 @@ func (h *SettingsOpsHandler) importCommon(c *gin.Context, setupMode bool) {
 			Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
+		if errors.Is(err, config.ErrAuthDeadlock) {
+			Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		Fail(c, http.StatusBadRequest, err.Error()) // 确认词错误/密码错误或文件损坏
 		return
 	}
@@ -147,6 +152,7 @@ func (h *SettingsOpsHandler) importCommon(c *gin.Context, setupMode bool) {
 
 // backup 备份下载（tar.gz 流式；打包前预检失败时仍返回 500）
 func (h *SettingsOpsHandler) backup(c *gin.Context) {
+	clearWriteDeadline(c)
 	c.Header("Content-Disposition", `attachment; filename="vpn-sub-backup-`+time.Now().Format("20060102-150405")+`.tar.gz"`)
 	c.Header("Content-Type", "application/gzip")
 	if err := h.backupSvc.CreateBackup(c.Request.Context(), c.Writer); err != nil {

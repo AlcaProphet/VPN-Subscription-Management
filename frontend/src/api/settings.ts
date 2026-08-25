@@ -47,6 +47,11 @@ export interface RateLimitSettings {
   register: number
   forgot: number
   download: number
+  http_read_header_timeout_sec: number
+  http_read_timeout_sec: number
+  http_write_timeout_sec: number
+  http_idle_timeout_sec: number
+  http_max_body_mb: number
 }
 
 export interface SiteInfo {
@@ -85,7 +90,7 @@ export const getSite = () => http.get<any, SiteInfo>('/admin/settings/site')
 export const saveSite = (form: FormData) => http.put<any, SiteInfo>('/admin/settings/site', form)
 export const deleteSiteIcon = () => http.delete('/admin/settings/site/icon')
 export const getRateLimit = () =>
-  http.get<any, { settings: RateLimitSettings; trust_proxy: string }>('/admin/settings/ratelimit')
+  http.get<any, { settings: RateLimitSettings; trust_proxy: string; trust_proxy_cidrs: string }>('/admin/settings/ratelimit')
 export const saveRateLimit = (data: RateLimitSettings) => http.put('/admin/settings/ratelimit', data)
 export const getLogLevel = () => http.get<any, { level: string }>('/admin/settings/log-level')
 export const saveLogLevel = (level: string) => http.put('/admin/settings/log-level', { level })

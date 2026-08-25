@@ -44,7 +44,7 @@ func (s *Service) ClearTablesTx(ctx context.Context, tx *sql.Tx) error {
 		"traffic_records", "xray_users", "group_nodes", "assembly_blueprints",
 		"nodes", "xray_instances", "proxy_groups",
 		// 既有表（保留）
-		"download_tokens", "share_tokens", "rule_tokens", "password_reset_tokens", "oidc_states",
+		"download_tokens", "share_tokens", "rule_tokens", "password_reset_tokens", "oidc_login_tickets", "oidc_states",
 		"access_logs", "versions",
 		"custom_subscriptions", "share_subscriptions", "rules", "subscriptions",
 		"users", "groups", "platforms", "system_config",

@@ -143,6 +143,7 @@ func (h *PlatformHandler) delete(c *gin.Context) {
 
 // uploadInstaller 流式透传 c.Request.Body（限流在业务层 LimitReader，禁止整读内存）；追加上传，返回更新后列表
 func (h *PlatformHandler) uploadInstaller(c *gin.Context) {
+	clearReadDeadline(c)
 	id, ok := parsePlatformID(c)
 	if !ok {
 		return
@@ -156,6 +157,10 @@ func (h *PlatformHandler) uploadInstaller(c *gin.Context) {
 	list, err := h.platformSvc.UploadInstaller(c.Request.Context(), id, file, header.Filename)
 	if errors.Is(err, platform.ErrInstallerTooLarge) {
 		Fail(c, http.StatusBadRequest, "安装包超过 300MB 限制")
+		return
+	}
+	if errors.Is(err, platform.ErrUnsafeInstallerExt) {
+		Fail(c, http.StatusBadRequest, "安装包扩展名不安全，仅允许可下载安装包格式")
 		return
 	}
 	if errors.Is(err, platform.ErrNotFound) {

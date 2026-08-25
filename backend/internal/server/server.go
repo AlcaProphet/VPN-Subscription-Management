@@ -31,6 +31,7 @@ import (
 	"vpn-sub/internal/platform"
 	"vpn-sub/internal/pool"
 	"vpn-sub/internal/proxygroup"
+	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/ratelimit"
 	"vpn-sub/internal/response"
 	"vpn-sub/internal/rule"
@@ -76,18 +77,18 @@ type Server struct {
 }
 
 // New 构造注入装配：全部依赖经参数传入，禁止包级全局变量持有服务实例
-func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Logger, mode, trustProxy, port, dataDir string, streamSvc *log.StreamService) (*Server, error) {
+func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Logger, mode string, trust *proxytrust.Policy, port, dataDir string, streamSvc *log.StreamService) (*Server, error) {
 	engine := gin.New() // 不用 gin.Default，避免默认 logger/recovery 绕过脱敏与统一响应
-	if err := applyTrustProxy(engine, trustProxy); err != nil {
+	if err := applyTrustProxy(engine, trust); err != nil {
 		return nil, err
 	}
-	engine.Use(requestLogger(), panicRecovery())
+	engine.Use(requestLogger(), panicRecovery(), securityHeaders(), bodyLimitMiddleware(cfg))
 	s := &Server{engine: engine, cfg: cfg, store: st, mode: mode, log: lg,
-		httpSrv: &http.Server{Addr: ":" + port, Handler: engine}}
+		httpSrv: newHTTPServer(":"+port, engine, cfg)}
 	registerHealth(engine)
 	// 依赖装配：auth/setup/oidc/captcha/ratelimit 服务（构造注入）
 	authSvc := auth.NewService(cfg, users, lg)
-	setupSvc := setup.NewService(st, cfg, lg, trustProxy)
+	setupSvc := setup.NewService(st, cfg, lg, trust)
 	oidcSvc := oidc.NewService(st, cfg, authSvc, users, mode, lg)
 	captchaSvc := captcha.NewService(cfg, lg)
 	limiter := ratelimit.New(cfg, lg)
@@ -98,7 +99,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	// Setup 路由（本 Build Step 5/6）
 	RegisterSetupRoutes(engine, &SetupHandler{setupSvc: setupSvc, oidcSvc: oidcSvc})
 	// OIDC 路由（本 Build Step 6）
-	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc}, authSvc.SessionMiddleware(), limiter)
+	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc, setupSvc: setupSvc, store: st, cfg: cfg, trust: trust}, authSvc.SessionMiddleware(), limiter)
 	// 版本组件 + 订阅池路由（Build2 Step 2；会话 + 管理员双中间件）
 	versionSvc := version.NewService(st, dataDir, lg)
 	// 平台路由（Build2 Step 1；会话 + 管理员双中间件；Step 5 起持有版本组件用于完整级联）
@@ -338,7 +339,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	offClearSvc.SetAfterAdvancedOff(syncSvc.AfterAdvancedOff)
 	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, lg)
 	adminCfgSvc.SetAdvancedModeSwitcher(offClearSvc)
-	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trustProxy},
+	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trust},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 运维端点（Build3 Step 4）：一键清空/配置导入导出/备份下载；内存态复位回调（Step 5 追加 SSE 复位）
 	clearSvc := dataclear.NewService(st, dataDir, lg)
@@ -442,14 +443,14 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 // NewEmergency 应急模式装配（Build3 Step 6）：仅注册 系统状态/站点信息/应急端点/静态资源（/assets、/public、SPA 回退）；
 // 业务 API 与下载端点由 emergencyGate 拦截返回 503；/health 返回 503（Build1 预留注释在此接通）。
 // 仅在 main 按 emergency.Detect 分支调用，正常运行时不使用
-func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service, lg *slog.Logger, mode, trustProxy, port, dataDir string) (*Server, error) {
+func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service, lg *slog.Logger, mode string, trust *proxytrust.Policy, port, dataDir string) (*Server, error) {
 	engine := gin.New()
-	if err := applyTrustProxy(engine, trustProxy); err != nil {
+	if err := applyTrustProxy(engine, trust); err != nil {
 		return nil, err
 	}
-	engine.Use(requestLogger(), panicRecovery(), emergencyGate())
+	engine.Use(requestLogger(), panicRecovery(), securityHeaders(), bodyLimitMiddleware(cfg), emergencyGate())
 	s := &Server{engine: engine, cfg: cfg, store: st, mode: mode, log: lg,
-		httpSrv: &http.Server{Addr: ":" + port, Handler: engine}}
+		httpSrv: newHTTPServer(":"+port, engine, cfg)}
 	// /health 应急模式返回 503（docker compose 仅状态展示，不触发重启）
 	engine.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "emergency"})
@@ -478,17 +479,8 @@ func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service
 func (s *Server) Engine() *gin.Engine { return s.engine }
 
 // applyTrustProxy auto=仅信任回环+私有网段转发头；on=全信任；off=不信任
-func applyTrustProxy(engine *gin.Engine, mode string) error {
-	switch mode {
-	case "on":
-		// 信任所有代理（gin v1.12 中 SetTrustedProxies(nil) 表示不信任任何代理，
-		// 全信任须显式 0.0.0.0/0 + ::/0；gin 会输出不安全 WARNING，符合 on 档设计语义）
-		return engine.SetTrustedProxies([]string{"0.0.0.0/0", "::/0"})
-	case "off":
-		return engine.SetTrustedProxies([]string{})
-	default: // "auto"
-		return engine.SetTrustedProxies([]string{"127.0.0.1/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
-	}
+func applyTrustProxy(engine *gin.Engine, policy *proxytrust.Policy) error {
+	return engine.SetTrustedProxies(policy.TrustedProxies())
 }
 
 // requestLogger 方法/路径/状态/耗时；路径中 ?token= 值由 slog 脱敏 Handler 统一处理
@@ -499,6 +491,7 @@ func requestLogger() gin.HandlerFunc {
 		log.Info("http_request",
 			"method", c.Request.Method,
 			"path", c.Request.URL.RequestURI(),
+			"ip", c.ClientIP(),
 			"status", c.Writer.Status(),
 			"latency_ms", time.Since(start).Milliseconds(),
 		)

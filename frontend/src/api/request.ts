@@ -52,6 +52,7 @@ function defaultMsg(st: number): string {
     case 400: return '输入校验失败，请检查表单'
     case 403: return '权限不足'
     case 409: return '数据冲突，请刷新后重试'
+    case 413: return '请求体过大'
     case 429: return '操作过于频繁，请稍后再试'
     case 500: return '服务器内部错误'
     default: return '网络异常，请重试'

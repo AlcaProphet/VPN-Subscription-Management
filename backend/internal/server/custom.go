@@ -33,6 +33,7 @@ func RegisterCustomRoutes(engine *gin.Engine, h *CustomHandler, sessionMW, admin
 
 // upsert 上传/覆盖自定义订阅：mode=upload 取 multipart 文件流（platform_id 在表单字段）；mode=text 取 JSON 文本体
 func (h *CustomHandler) upsert(c *gin.Context) {
+	clearReadDeadline(c)
 	userID, ok := parseID(c, "id")
 	if !ok {
 		return

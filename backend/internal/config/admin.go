@@ -46,6 +46,12 @@ const (
 	ratelimitKeyReg     = "ratelimit_register"
 	ratelimitKeyForgot  = "ratelimit_forgot"
 	ratelimitKeyDown    = "ratelimit_download"
+
+	httpReadHeaderTimeoutSecKey = "http_read_header_timeout_sec"
+	httpReadTimeoutSecKey       = "http_read_timeout_sec"
+	httpWriteTimeoutSecKey      = "http_write_timeout_sec"
+	httpIdleTimeoutSecKey       = "http_idle_timeout_sec"
+	httpMaxBodyMbKey            = "http_max_body_mb"
 )
 
 // WhitelistConfig OIDC Role/Group 白名单配置（Design1 §3.4.8；oidc 包 matchWhitelist 同构读取）
@@ -486,18 +492,30 @@ type RateLimitSettings struct {
 	Register int `json:"register"`
 	Forgot   int `json:"forgot"`
 	Download int `json:"download"`
+
+	// HTTP 连接防护（0 = 旧前端未提交，保存时取默认值）
+	HTTPReadHeaderTimeoutSec int `json:"http_read_header_timeout_sec"`
+	HTTPReadTimeoutSec       int `json:"http_read_timeout_sec"`
+	HTTPWriteTimeoutSec      int `json:"http_write_timeout_sec"`
+	HTTPIdleTimeoutSec       int `json:"http_idle_timeout_sec"`
+	HTTPMaxBodyMb            int `json:"http_max_body_mb"`
 }
 
 func (s *AdminService) GetRateLimit(ctx context.Context) RateLimitSettings {
 	return RateLimitSettings{
-		Login:    s.cfg.GetInt(ctx, ratelimitKeyLogin, 10),
-		Register: s.cfg.GetInt(ctx, ratelimitKeyReg, 5),
-		Forgot:   s.cfg.GetInt(ctx, ratelimitKeyForgot, 5),
-		Download: s.cfg.GetInt(ctx, ratelimitKeyDown, 20),
+		Login:                    s.cfg.GetInt(ctx, ratelimitKeyLogin, 10),
+		Register:                 s.cfg.GetInt(ctx, ratelimitKeyReg, 5),
+		Forgot:                   s.cfg.GetInt(ctx, ratelimitKeyForgot, 5),
+		Download:                 s.cfg.GetInt(ctx, ratelimitKeyDown, 20),
+		HTTPReadHeaderTimeoutSec: s.cfg.GetInt(ctx, httpReadHeaderTimeoutSecKey, 5),
+		HTTPReadTimeoutSec:       s.cfg.GetInt(ctx, httpReadTimeoutSecKey, 60),
+		HTTPWriteTimeoutSec:      s.cfg.GetInt(ctx, httpWriteTimeoutSecKey, 300),
+		HTTPIdleTimeoutSec:       s.cfg.GetInt(ctx, httpIdleTimeoutSecKey, 120),
+		HTTPMaxBodyMb:            s.cfg.GetInt(ctx, httpMaxBodyMbKey, 4),
 	}
 }
 
-// SaveRateLimit 四个数字输入；修改后立即生效（限流中间件每次请求读配置，Build1/2 已实现）
+// SaveRateLimit 保存四个限流值与 HTTP 连接防护值。旧前端未提交新字段时，0 视为采用默认值。
 func (s *AdminService) SaveRateLimit(ctx context.Context, in RateLimitSettings) error {
 	for k, v := range map[string]int{
 		ratelimitKeyLogin:  in.Login,
@@ -509,6 +527,30 @@ func (s *AdminService) SaveRateLimit(ctx context.Context, in RateLimitSettings) 
 			return fmt.Errorf("%w: 限流值必须为正整数", ErrBadRequest)
 		}
 		if err := s.cfg.Set(ctx, k, strconv.Itoa(v)); err != nil {
+			return err
+		}
+	}
+	type hardening struct {
+		key string
+		val int
+		def int
+		max int
+	}
+	for _, h := range []hardening{
+		{httpReadHeaderTimeoutSecKey, in.HTTPReadHeaderTimeoutSec, 5, 60},
+		{httpReadTimeoutSecKey, in.HTTPReadTimeoutSec, 60, 3600},
+		{httpWriteTimeoutSecKey, in.HTTPWriteTimeoutSec, 300, 3600},
+		{httpIdleTimeoutSecKey, in.HTTPIdleTimeoutSec, 120, 3600},
+		{httpMaxBodyMbKey, in.HTTPMaxBodyMb, 4, 320},
+	} {
+		v := h.val
+		if v == 0 {
+			v = h.def
+		}
+		if v < 1 || v > h.max {
+			return fmt.Errorf("%w: HTTP 防护值超范围", ErrBadRequest)
+		}
+		if err := s.cfg.Set(ctx, h.key, strconv.Itoa(v)); err != nil {
 			return err
 		}
 	}

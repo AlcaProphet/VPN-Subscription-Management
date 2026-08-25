@@ -15,9 +15,20 @@ import (
 	"vpn-sub/internal/dataclear"
 	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
 )
+
+func mustPolicy(t *testing.T, mode string) *proxytrust.Policy {
+	t.Helper()
+	p, err := proxytrust.Parse(mode, "")
+	if err != nil {
+		t.Fatalf("proxytrust.Parse(%q) 失败: %v", mode, err)
+	}
+	return p
+}
+
 
 // newTestServer 构造测试用 server（临时库）
 func newTestServer(t *testing.T) *Server {
@@ -54,7 +65,7 @@ func newTestServer(t *testing.T) *Server {
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	buf := log.NewRingBuffer()
 	streamSvc := log.NewStreamService(buf, log.New("error", "console"))
-	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", t.TempDir(), streamSvc)
+	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", mustPolicy(t, "off"), "0", t.TempDir(), streamSvc)
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}
@@ -186,7 +197,7 @@ func TestNewEmergencyNilStore(t *testing.T) {
 	clearSvc := dataclear.NewService(nil, dataDir, lg)
 	cfg := config.NewService(nil, lg) // store 不可读的空配置源（Get 按未设置处理）
 	emSvc := emergency.NewService(emergency.TriggerDBCorrupt, false, nil, cfg, clearSvc, dataDir, "test.db", lg)
-	srv, err := NewEmergency(nil, cfg, emSvc, lg, "prod", "off", "0", dataDir)
+	srv, err := NewEmergency(nil, cfg, emSvc, lg, "prod", mustPolicy(t, "off"), "0", dataDir)
 	if err != nil {
 		t.Fatalf("装配应急服务失败: %v", err)
 	}
@@ -260,7 +271,11 @@ func TestTrustProxyClientIPTiers(t *testing.T) {
 	// 构造带回显 ClientIP 的引擎
 	newEcho := func(trustProxy string) *gin.Engine {
 		e := gin.New()
-		if err := applyTrustProxy(e, trustProxy); err != nil {
+		policy, err := proxytrust.Parse(trustProxy, "")
+		if err != nil {
+			t.Fatalf("proxytrust.Parse 失败: %v", err)
+		}
+		if err := applyTrustProxy(e, policy); err != nil {
 			t.Fatalf("applyTrustProxy 失败: %v", err)
 		}
 		e.GET("/ip", func(c *gin.Context) { c.String(http.StatusOK, c.ClientIP()) })
@@ -360,7 +375,7 @@ func TestEmergencyServer(t *testing.T) {
 	cfg := config.NewService(st, log.New("error", "console"))
 	clearSvc := dataclear.NewService(st, t.TempDir(), log.New("error", "console"))
 	emSvc := emergency.NewService(emergency.TriggerManual, true, st, cfg, clearSvc, t.TempDir(), "test.db", log.New("error", "console"))
-	srv, err := NewEmergency(st, cfg, emSvc, log.New("error", "console"), "dev", "off", "0", t.TempDir())
+	srv, err := NewEmergency(st, cfg, emSvc, log.New("error", "console"), "dev", mustPolicy(t, "off"), "0", t.TempDir())
 	if err != nil {
 		t.Fatalf("装配应急 server 失败: %v", err)
 	}

@@ -35,11 +35,20 @@ const (
 
 // 业务错误（接入层映射 HTTP 状态码）
 var (
-	ErrBadRequest        = errors.New("参数错误")
-	ErrNotFound          = errors.New("平台不存在")
-	ErrInstallerTooLarge = errors.New("安装包超过 300MB 限制")
-	ErrProductTypeInUse  = errors.New("该平台已有订阅条目，请先处理后再变更产物格式")
+	ErrBadRequest         = errors.New("参数错误")
+	ErrNotFound           = errors.New("平台不存在")
+	ErrInstallerTooLarge  = errors.New("安装包超过 300MB 限制")
+	ErrUnsafeInstallerExt = errors.New("安装包扩展名不安全，仅允许可下载安装包格式")
+	ErrProductTypeInUse   = errors.New("该平台已有订阅条目，请先处理后再变更产物格式")
 )
+
+// dangerousInstallerExts 上传安装包时拒绝的危险/可执行/可被浏览器同源解析的扩展名。
+// 该黑名单为安全收紧项，附件下载与 nosniff 仍作为纵深防御保留。
+var dangerousInstallerExts = map[string]bool{
+	".html": true, ".htm": true, ".xhtml": true,
+	".svg": true, ".svgz": true,
+	".js": true, ".mjs": true, ".xml": true,
+}
 
 // productTypeInUseError 平台产物格式变更冲突（携带既有订阅条目的 product_type 插值文案）
 type productTypeInUseError struct {
@@ -363,6 +372,9 @@ func (s *Service) installerAbs(name string) (string, error) {
 func (s *Service) UploadInstaller(ctx context.Context, id int64, body io.Reader, filename string) ([]InstallerFileItem, error) {
 	ext := filepath.Ext(filepath.Base(filename)) // 路径穿越防护：仅取基名扩展名，丢弃任何目录部分
 	ext = sanitizeExt(ext)
+	if dangerousInstallerExts[ext] {
+		return nil, ErrUnsafeInstallerExt
+	}
 	name := sanitizeInstallerName(filepath.Base(filename)) // 展示名：原始文件名（控制字符剥离 + 长度上限）
 	if err := os.MkdirAll(filepath.Join(s.dataDir, installerDir), 0o755); err != nil {
 		return nil, fmt.Errorf("创建安装包目录失败: %w", err)

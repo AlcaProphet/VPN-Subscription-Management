@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/slug"
 	"vpn-sub/internal/store"
 )
@@ -23,10 +23,10 @@ type Service struct {
 	store      *store.Store
 	cfg        *config.Service
 	log        *slog.Logger
-	trustProxy string // TRUST_PROXY 策略（auto/on/off）：frontend_url 推导时判定转发头可信性
+	trustProxy *proxytrust.Policy // TRUST_PROXY 策略：frontend_url 推导时判定转发头可信性
 }
 
-func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger, trustProxy string) *Service {
+func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger, trustProxy *proxytrust.Policy) *Service {
 	return &Service{store: st, cfg: cfg, log: lg, trustProxy: trustProxy}
 }
 
@@ -161,38 +161,20 @@ func defaultPlatforms(frontendURL string) []struct{ Name, Description, Schemes, 
 
 // --- 前端地址推导（Design1 §3.1/6.4）---
 // DeriveFrontendURL TRUST_PROXY 信任来源时优先取 X-Forwarded-Host，否则取 Host 头；
-// scheme 按 X-Forwarded-Proto / TLS 状态推导
+// scheme 仅在 TLS 直连或可信代理声明 X-Forwarded-Proto=https 时使用 https。
 func DeriveFrontendURL(r *http.Request, trusted bool) string {
 	host := r.Host
 	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" && trusted {
 		host = strings.TrimSpace(strings.Split(xfh, ",")[0])
 	}
 	scheme := "http"
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+	if r.TLS != nil || (trusted && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")) {
 		scheme = "https"
 	}
 	return scheme + "://" + host
 }
 
-// trustedForwarded 按 TRUST_PROXY 策略判定远端是否可信（Design1 §6.4）：
-// on=始终信任转发头；off=从不信任；auto=仅回环+私有网段来源信任（与 gin SetTrustedProxies 的 auto 档口径一致）
+// trustedForwarded 按 TRUST_PROXY 策略判定远端是否可信（与 gin SetTrustedProxies 同口径）。
 func (s *Service) trustedForwarded(r *http.Request) bool {
-	switch s.trustProxy {
-	case "on":
-		return true
-	case "off":
-		return false
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() {
-		return true
-	}
-	return false
+	return s.trustProxy.Trusted(r.RemoteAddr)
 }

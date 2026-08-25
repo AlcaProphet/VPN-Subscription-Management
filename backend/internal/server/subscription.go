@@ -233,6 +233,7 @@ func versionCreate(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 
 // versionCreateWith 通用版本创建：activate 显式传参；textName 用于订阅文本模式按 product_type 补默认文件名
 func versionCreateWith(c *gin.Context, verSvc *version.Service, ot version.OwnerType, activate bool, textName func(ctx context.Context, id int64) (string, error)) {
+	clearReadDeadline(c)
 	id, ok := parseID(c, "id")
 	if !ok {
 		return

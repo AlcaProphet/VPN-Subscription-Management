@@ -14,6 +14,14 @@ import (
 	"vpn-sub/web"
 )
 
+// securityHeaders 全局安全响应头；当前仅增加 nosniff，不扩大行为面。
+func securityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Next()
+	}
+}
+
 // registerStatic 静态资源分级 + SPA 回退（Design1 §5.6，缓存策略见 Design1 表格）。
 // 需在 health/status 之后注册（NoRoute 兜底不影响已注册路由）。
 func registerStatic(engine *gin.Engine, dataDir string) error {
@@ -55,6 +63,12 @@ func registerStatic(engine *gin.Engine, dataDir string) error {
 			return
 		}
 		c.Header("Cache-Control", "public, max-age=86400")
+		// 安装包统一以附件下载，避免同源新标签页执行 HTML/SVG 等造成持久型 XSS。
+		if strings.HasPrefix(rel, "installers/") {
+			filename := filepath.Base(full)
+			c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+		}
+		clearWriteDeadline(c)
 		c.File(full) // 文件不存在时由 gin 返回 404
 	})
 

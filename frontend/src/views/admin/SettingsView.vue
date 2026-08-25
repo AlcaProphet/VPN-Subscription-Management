@@ -301,14 +301,20 @@ async function confirmIconDelete() {
 }
 
 // --- 速率限制 ---
-const rate = reactive<RateLimitSettings>({ login: 10, register: 5, forgot: 5, download: 20 })
+const rate = reactive<RateLimitSettings>({
+  login: 10, register: 5, forgot: 5, download: 20,
+  http_read_header_timeout_sec: 5, http_read_timeout_sec: 60,
+  http_write_timeout_sec: 300, http_idle_timeout_sec: 120, http_max_body_mb: 4,
+})
 const trustProxy = ref('auto')
+const trustProxyCidrs = ref('')
 const rateSaving = ref(false)
 async function loadRateLimit() {
   try {
     const res = await getRateLimit()
     Object.assign(rate, res.settings)
     trustProxy.value = res.trust_proxy
+    trustProxyCidrs.value = res.trust_proxy_cidrs ?? ''
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -317,7 +323,7 @@ async function doSaveRateLimit() {
   rateSaving.value = true
   try {
     await saveRateLimit({ ...rate })
-    Notify.success('速率限制已保存并立即生效')
+    Notify.success('速率限制已保存；连接超时字段需重启容器后生效')
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -854,7 +860,7 @@ onMounted(() => {
 
 
         <!-- 速率限制 -->
-        <Card id="ratelimit" title="速率限制" size="small">
+        <Card id="ratelimit" title="速率限制与连接防护" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="grid grid-cols-2 gap-3">
               <div><span class="text-sm">登录（次/分钟）</span><InputNumber v-model:value="rate.login" class="w-full mt-1" :min="1" /></div>
@@ -862,10 +868,19 @@ onMounted(() => {
               <div><span class="text-sm">找回密码（次/分钟）</span><InputNumber v-model:value="rate.forgot" class="w-full mt-1" :min="1" /></div>
               <div><span class="text-sm">下载（次/分钟）</span><InputNumber v-model:value="rate.download" class="w-full mt-1" :min="1" /></div>
             </div>
+            <div class="grid grid-cols-2 gap-3 border-t pt-3">
+              <div><span class="text-sm">读头超时（秒）</span><InputNumber v-model:value="rate.http_read_header_timeout_sec" class="w-full mt-1" :min="1" :max="60" /></div>
+              <div><span class="text-sm">读取超时（秒）</span><InputNumber v-model:value="rate.http_read_timeout_sec" class="w-full mt-1" :min="1" :max="3600" /></div>
+              <div><span class="text-sm">写出超时（秒）</span><InputNumber v-model:value="rate.http_write_timeout_sec" class="w-full mt-1" :min="1" :max="3600" /></div>
+              <div><span class="text-sm">空闲超时（秒）</span><InputNumber v-model:value="rate.http_idle_timeout_sec" class="w-full mt-1" :min="1" :max="3600" /></div>
+              <div><span class="text-sm">API 请求体上限（MB）</span><InputNumber v-model:value="rate.http_max_body_mb" class="w-full mt-1" :min="1" :max="320" /></div>
+            </div>
             <div class="text-sm">当前 IP 解析策略（TRUST_PROXY）：<Tag>{{ trustProxy }}</Tag></div>
+            <div v-if="trustProxyCidrs" class="text-sm">TRUST_PROXY_CIDRS：<Tag>{{ trustProxyCidrs }}</Tag></div>
             <Alert v-if="trustProxy === 'auto'" type="warning" show-icon
                    message="auto 模式伪造风险：局域网直连的客户端可构造转发头伪造 IP 绕过限流，建议直连部署设 TRUST_PROXY=off" />
-            <Button type="primary" :loading="rateSaving" @click="doSaveRateLimit">保存（立即生效）</Button>
+            <Alert type="info" show-icon message="超时字段在服务启动时读取，保存后需重启容器生效；API 请求体上限即时生效。" />
+            <Button type="primary" :loading="rateSaving" @click="doSaveRateLimit">保存</Button>
           </div>
         </Card>
 

@@ -85,6 +85,8 @@ var emergencyTestFS = fstest.MapFS{
 	"0004_oidc.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_states (
 		state TEXT PRIMARY KEY, code_verifier TEXT NOT NULL, intent TEXT NOT NULL DEFAULT '',
 		bind_user_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+	"1013_oidc_login_tickets.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_login_tickets (
+		ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL);`)},
 }
 
 // newTestEmergency 创建临时库 + 应急服务（reason/dbReadable 可指定）

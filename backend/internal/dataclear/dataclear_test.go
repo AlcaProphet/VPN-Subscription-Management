@@ -106,6 +106,8 @@ func newTestClear(t *testing.T) (*store.Store, *Service, string) {
 		"0004_oidc.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_states (
 			state TEXT PRIMARY KEY, code_verifier TEXT NOT NULL, intent TEXT NOT NULL DEFAULT '',
 			bind_user_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		"1013_oidc_login_tickets.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_login_tickets (
+			ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)

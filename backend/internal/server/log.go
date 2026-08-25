@@ -62,6 +62,7 @@ func (h *LogHandler) issueStreamToken(c *gin.Context) {
 
 // stream SSE 端点——先推缓冲历史，再实时推增量；Token 单次连接建立后即删；连接断开自动清理
 func (h *LogHandler) stream(c *gin.Context) {
+	clearWriteDeadline(c)
 	if !h.streamSvc.ConsumeToken(c.Query("token")) { // 一次性校验（用后即删）
 		Fail(c, http.StatusUnauthorized, "短期 Token 无效或已过期")
 		return

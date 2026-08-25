@@ -12,13 +12,14 @@ import (
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/oidc"
+	"vpn-sub/internal/proxytrust"
 )
 
 // SettingsHandler 面板配置处理器（结构体 Handler + 依赖注入）
 type SettingsHandler struct {
 	adminCfg   *config.AdminService
 	oidcSvc    *oidc.Service
-	trustProxy string // TRUST_PROXY 策略（速率限制分区展示生效值）
+	trustProxy *proxytrust.Policy // TRUST_PROXY 策略（速率限制分区展示生效值）
 }
 
 // oidcOpsAdapter 将 oidc.Service 适配为 config.OidcOps 接口（config 包避免循环依赖）
@@ -266,8 +267,12 @@ func (h *SettingsHandler) siteInfo(c *gin.Context) {
 // --- 速率限制分区 ---
 
 func (h *SettingsHandler) getRateLimit(c *gin.Context) {
-	// 返回当前 TRUST_PROXY 生效值供前端展示（auto 模式附伪造风险警示，Design1 §3.4.8）
-	OK(c, gin.H{"settings": h.adminCfg.GetRateLimit(c.Request.Context()), "trust_proxy": h.trustProxy})
+	// 返回当前 TRUST_PROXY 生效值与 CIDR 摘要供前端展示（Design1 §3.4.8）
+	OK(c, gin.H{
+		"settings":           h.adminCfg.GetRateLimit(c.Request.Context()),
+		"trust_proxy":        string(h.trustProxy.Mode()),
+		"trust_proxy_cidrs":  h.trustProxy.RawCIDRs(),
+	})
 }
 
 func (h *SettingsHandler) saveRateLimit(c *gin.Context) {
