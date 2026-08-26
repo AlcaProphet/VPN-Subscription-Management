@@ -6,7 +6,7 @@
 - [backend/internal/version/version.go](file://backend/internal/version/version.go)
 - [backend/internal/store/store.go](file://backend/internal/store/store.go)
 - [frontend/src/api/version.ts](file://frontend/src/api/version.ts)
-- [Build2.md](file://Build2.md)
+- [Build2.md](../../../../../../../docs/reports/Build/Build2.md)
 </cite>
 
 ## 目录
@@ -277,4 +277,4 @@ PUT /api/admin/subscriptions/:id/versions/current 提供了安全、原子、可
 - 切换时更新该版本时间戳，首页反映“分发内容最近变动”。
 
 章节来源
-- [Build2.md:445-483](file://Build2.md#L445-L483)
+- [Build2.md:445-483](../../../../../../../docs/reports/Build/Build2.md#L445-L483)

@@ -1,10 +1,10 @@
 # Build4.md — 基础模式地基：Go 1.26 + 1009 迁移 + 旧分发模型拆除 + 规则素材池（当前构建方案·第四轮）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**第四轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则），承接已归档的 [Build1.md](./docs/AchievedDocuments/Build1.md)、[Build2.md](./docs/AchievedDocuments/Build2.md)、[Build3.md](./docs/AchievedDocuments/Build3.md)（前三轮均已验收归档）。
-> - 设计基线：[Design2.md](./Design2.md)（增量能力：订阅装配与 Xray 对接；与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - GUI 规格：[Design2-UI.md](./Design2-UI.md)（活跃，承载 Design2 全部界面部件）
-> - 编码指令：[AGENTS.md](./AGENTS.md)（**唯一强要求**）
-> - 后续轮次：[Build5.md](./Build5.md)（节点/代理组/四类装配器与分发）、[Build6.md](./Build6.md)（高级模式 Xray 对接后端）、[Build7.md](./Build7.md)（高级模式管理面与交付收口），本轮验收后按序启动
+> **文档定位：** 本文档是 VPN 订阅管理系统的**第四轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则），承接已归档的 [Build1.md](Build1.md)、[Build2.md](Build2.md)、[Build3.md](Build3.md)（前三轮均已验收归档）。
+> - 设计基线：[Design2.md](../../../Design2.md)（增量能力：订阅装配与 Xray 对接；与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - GUI 规格：[Design2-UI.md](../../../Design2-UI.md)（活跃，承载 Design2 全部界面部件）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 后续轮次：[Build5.md](Build5.md)（节点/代理组/四类装配器与分发）、[Build6.md](Build6.md)（高级模式 Xray 对接后端）、[Build7.md](Build7.md)（高级模式管理面与交付收口），本轮验收后按序启动
 >
 > **里程碑：本 Build 全部 Step 完成后，系统必须在 Go 1.26 上编译通过、已应用 1009 增量迁移、代码中不再存在 group_selections / subscription_group_rel 旧分发模型、订阅地址池为「每平台一份 + product_type」模型、空池下载返回 200 注释块，并具备完整的规则素材池管理（CRUD / URL 同步 / 异步轮询 / 可选定时同步）与基础模式前端骨架。**
 >
@@ -442,7 +442,7 @@ Step 6 ──▶ Step 7（端到端验收）
         WHERE s.platform_id = ?
        ```
         按平台唯一条目解析（**不要在 SQL 层过滤 current_version**，让 `ReadCurrentWithName` 对 current=0 返回 `version.ErrVersionNotFound`，从而区分两种业务错误）；`ErrNoRows` 返回 `ErrUnassigned`。
-        > 注意区分：平台无任何订阅行 → `ErrUnassigned` → HTTP 200 `# error: unassigned`；平台存在订阅行但无激活版本 → `version.ErrVersionNotFound` → 接入层 HTTP 200 `# error: no active version`。二者都必须是 200 纯文本，无效 Token 仍是 404。（两态拆分经 Design2Report11 确认）
+        > 注意区分：平台无任何订阅行 → `ErrUnassigned` → HTTP 200 `# error: unassigned`；平台存在订阅行但无激活版本 → `version.ErrVersionNotFound` → 接入层 HTTP 200 `# error: no active version`。二者都必须是 200 纯文本，无效 Token 仍是 404。（两态拆分经 DesignReport10 确认）
      - 显式 Token 分支保留只读兼容（不再新发；用于老库残留 Token 与 Build4 前数据），不新增写入。
      - `PreviewForUser`：移除 `subIDParam` 与管理员指定订阅语义；管理员预览也走「平台 → 唯一订阅 → 当前版本」；普通用户优先自定义、否则平台订阅；无订阅行返回 `ErrUnassigned`，无版本返回 `ErrVersionNotFound`。
      - `withPlatformHeaders` 保持平台附加头；`subscription` 文件名按 subscription.name + 版本原始扩展名（product_type 扩展名规则在 Build5 精细化，本 Step 不阻断）。
@@ -464,7 +464,7 @@ Step 6 ──▶ Step 7（端到端验收）
   8. **`backend/internal/server/server.go`**：
      - 删除 `subSvc.SetOnSubscriptionDeleted(groupSvc.OnSubscriptionDeleted)`；`GroupHandler` 构造不变。
      - `tokenSvc` 照旧；`dlSvc` 构造不变（本 Step 无新依赖）。
-  9. **新增/更新单测**：`group_test.go`、`subscription_test.go`、`download_test.go`、`server/download_test.go` 的旧表 fstest 与断言按新模型改写；**新建** `server/home_test.go`（platformCard 新形状）与 `server/rule_test.go`（preview 200 注释块，对应 item 6b）；**`backend/internal/emergency/emergency_test.go` 与 `backend/internal/platform/platform_test.go` 的 fstest 夹具含 `group_selections` / `subscription_group_rel` CREATE TABLE，必须一并按新模型改写**（否则本 Step 验收 grep=0 命中）；**代码目录（backend/ 与 frontend/）`grep -R "group_selections\|subscription_group_rel"` 必须为 0 命中**（与验收命令范围一致，Design2Report7 P2-6）。
+  9. **新增/更新单测**：`group_test.go`、`subscription_test.go`、`download_test.go`、`server/download_test.go` 的旧表 fstest 与断言按新模型改写；**新建** `server/home_test.go`（platformCard 新形状）与 `server/rule_test.go`（preview 200 注释块，对应 item 6b）；**`backend/internal/emergency/emergency_test.go` 与 `backend/internal/platform/platform_test.go` 的 fstest 夹具含 `group_selections` / `subscription_group_rel` CREATE TABLE，必须一并按新模型改写**（否则本 Step 验收 grep=0 命中）；**代码目录（backend/ 与 frontend/）`grep -R "group_selections\|subscription_group_rel"` 必须为 0 命中**（与验收命令范围一致，DesignReport6 P2-6）。
 
 - **参考代码/伪代码：**
 
@@ -504,7 +504,7 @@ Step 6 ──▶ Step 7（端到端验收）
 
   ```bash
   cd backend && go build ./... && go vet ./... && go test ./...
-  # 限定代码目录，避免命中本 Build 文档与存档文档（Design2Report7 P2-6）
+  # 限定代码目录，避免命中本 Build 文档与存档文档（DesignReport6 P2-6）
   grep -R "group_selections\|subscription_group_rel" -n backend frontend || true
   ```
 
@@ -521,7 +521,7 @@ Step 6 ──▶ Step 7（端到端验收）
 - **产出文件与操作：**
 
   1. **`backend/internal/version/version.go`**：
-     - 新增 `type CreateOptions struct { Activate bool; AfterCreate func(tx *sql.Tx, versionID int64, content []byte) error }`。**AfterCreate 传入的是新插入 `versions.id`（不是 version_no）**，供 assembly_blueprints.version_id 直接使用（Design2Report10 Q11）。
+     - 新增 `type CreateOptions struct { Activate bool; AfterCreate func(tx *sql.Tx, versionID int64, content []byte) error }`。**AfterCreate 传入的是新插入 `versions.id`（不是 version_no）**，供 assembly_blueprints.version_id 直接使用（DesignReport9 Q11）。
      - `CreateVersion` 签名改为 `CreateVersion(ctx, ot, ownerID, src, opts CreateOptions) (*Version, bool, error)`，第二个返回值为「是否激活」。
      - 事务内逻辑改为：写文件 → 插入版本行（取 `LastInsertId` 作为 versionID）→ `opts.AfterCreate(tx, versionID, content)`（如需；**先于 setCurrent 执行，失败时 current symlink 尚未被改动，只需删刚写文件即可**）→ 读取 owner 当前版本并计算 `effectiveCurrent`（`current==0` 或 `opts.Activate` 则 setCurrentLocked 并激活新版本；否则保持 owner 当前版本）→ `evictOldest(..., effectiveCurrent)`。**`current==0` 判定与 setCurrent 在同一 `BEGIN IMMEDIATE` 事务内完成**（防双首版并发）。
      - `opts.AfterCreate` 出错时删除刚写文件并返回错误（事务回滚，不涉及 symlink 恢复）；文件写失败/记录写失败清理逻辑沿用。
@@ -542,11 +542,11 @@ Step 6 ──▶ Step 7（端到端验收）
   7. **`backend/internal/server/rule.go`**：
      - `create`：文本模式 `text` 与文件模式 `file` 均改为可选；两者都缺省时 `src=nil`（空实体）。
      - 新增 `PUT /api/admin/rules/:id/home-default`，请求 `{is_default: bool}`，返回统一成功结构。
-  8. **`backend/internal/server/home.go`**：**新增独立汇总端点 `GET /api/home/summary`（会话凭据，Design2Report11 决策）**，返回 `{traffic, home_rule}` 两字段：
+  8. **`backend/internal/server/home.go`**：**新增独立汇总端点 `GET /api/home/summary`（会话凭据，DesignReport10 决策）**，返回 `{traffic, home_rule}` 两字段：
      - `traffic`：本 Build 阶段恒 `{unlimited:true}`（高级模式用量/配额字段由 Build6 Step5 补入）；
      - `home_rule`：`{rule_id, name, current_version, token, download_url}` 或 `null`（未设置默认规则/无激活版本）；读取 `rules.is_home_default=1` 规则及其当前激活版本与规则 Token，供首页分流规则卡片展示与复制链接（Design2-UI §3.1.2/§9.3）。
      - **`/api/home/platforms` 恢复纯列表包裹（`{list, total}` 不变）**，不再承载 home_rule/traffic 顶层字段。
-     > Design2Report11 决策：home_rule/traffic 不与平台列表混用响应结构，独立端点承载；`traffic_card_enabled` 对流量卡显隐的控制待 Build6 Step5 暴露字段后接入。
+     > DesignReport10 决策：home_rule/traffic 不与平台列表混用响应结构，独立端点承载；`traffic_card_enabled` 对流量卡显隐的控制待 Build6 Step5 暴露字段后接入。
   9. **同步更新单测**：`version_test.go`（activate=false 不切当前、首版自动激活、双首版事务）、`platform_test.go`、`setup_test.go`、`rule_test.go`；**`server/home_test.go`（Step 2 新建）补 `/api/home/summary` 用例**：`traffic={unlimited:true}`、未设置默认规则时 `home_rule=null`、**删除 `is_home_default=1` 规则后 `home_rule` 返回 null（首页分流规则卡片回未设置空态）**。
 
 - **参考代码/伪代码：**
@@ -612,7 +612,7 @@ Step 6 ──▶ Step 7（端到端验收）
 - **前置条件：** Step 3 验收通过。
 - **产出文件与操作：**
 
-  1. **后端小改 `backend/internal/server/status.go`**：`/api/system/status` 响应增加 `advanced_mode` 布尔（`cfg.GetBool(ctx, "advanced_mode", false)`；应急模式恒 false）。配置文件新增常量 `config.KeyAdvancedMode = "advanced_mode"`（在 `internal/config/config.go`）。**`traffic_card_enabled` 键不在本 Build 暴露，由 Build6 Step5 补入 status 响应**（Design2Report7 Q3）。
+  1. **后端小改 `backend/internal/server/status.go`**：`/api/system/status` 响应增加 `advanced_mode` 布尔（`cfg.GetBool(ctx, "advanced_mode", false)`；应急模式恒 false）。配置文件新增常量 `config.KeyAdvancedMode = "advanced_mode"`（在 `internal/config/config.go`）。**`traffic_card_enabled` 键不在本 Build 暴露，由 Build6 Step5 补入 status 响应**（DesignReport6 Q3）。
   2. **`frontend/src/api/system.ts`**：`SystemStatus` 类型增加 `advanced_mode: boolean`（该类型在 `vite-env.d.ts` 或全局声明处，同步更新）。
   3. **`frontend/src/api/subscription.ts`**：类型与函数按新模型重写——`SubscriptionItem { id, slug, name, platform_id, product_type: 'yaml'|'subs'|'generic-subs', current_version, content_kind: 'blueprint'|'upload'|null, platform_name? }`；`listSubscriptions` 返回平铺列表；`createSubscription({platform_id, name, slug?})`；`updateSubscription(id,{name})`。
   4. **`frontend/src/api/home.ts`**：`PlatformCard` 与响应类型按 Design2-UI §3.1/§9.3 更新（普通用户 `status: 'custom'|'ready'|'unassigned'`，管理员 `status:'admin_preview'`）；**新增 `getHomeSummary()` 调 `GET /api/home/summary`，返回 `{traffic, home_rule}`**（`traffic` 本 Build 恒 `{unlimited:true}`；`home_rule` 形状见 Step 3 item 8）；`/api/home/platforms` 保持纯列表包裹。`refreshHomeToken` 逻辑不变但仅 ready/custom 时可用。
@@ -686,7 +686,7 @@ Step 6 ──▶ Step 7（端到端验收）
   1. **`backend/internal/pool/pool.go`**：模型与 CRUD。
      - `Pool { ID, Name, URLs []string, EntryCount, LastSyncedAt, SyncStatus, SyncError, AutoSync, SyncTime }`。
      - `Entry { ID, PoolID, RuleType, MatchValue, Source, SortOrder }`。
-     - `Create/Update`：name 唯一（409）、URL 列表校验（http/https、去重、禁止控制字符）、auto_sync/sync_time 校验（HH:MM）。（**URL http/https scheme 校验经 Design2Report11 确认**：Design2 §2.4「目标地址不设限制」指不设白名单/域名限制，scheme 合法性校验保留。）
+     - `Create/Update`：name 唯一（409）、URL 列表校验（http/https、去重、禁止控制字符）、auto_sync/sync_time 校验（HH:MM）。（**URL http/https scheme 校验经 DesignReport10 确认**：Design2 §2.4「目标地址不设限制」指不设白名单/域名限制，scheme 合法性校验保留。）
      - `ListPools` 带 entry_count 聚合；`ListEntries(pool,page,size)` 按 `sort_order,id` 排序分页。
      - `CreateEntry/UpdateEntry/DeleteEntry`：仅 manual；类型白名单 + 匹配值白名单；唯一冲突返回 `ErrEntryConflict`（409）。
   2. **`backend/internal/pool/parser.go`**：逐行解析。
@@ -694,9 +694,9 @@ Step 6 ──▶ Step 7（端到端验收）
      - 全部入库值过 `ValidateEntry(ruleType, matchValue)`：域名 lowercase、无 scheme/路径/空格/逗号/控制字符；IP-CIDR/6 用 `net.ParseCIDR` 并回写规范串；PROCESS-NAME/PROCESS-NAME-REGEX/USER-AGENT 禁止逗号/换行/控制字符且长度上限（建议 512）。**规则类型白名单：DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / IP-CIDR / IP-CIDR6 / PROCESS-NAME / PROCESS-NAME-REGEX / USER-AGENT**。
      - 去重：同一 URL 结果内先按（类型,值）合并；同值冲突时保留首个并记 skip。
   3. **`backend/internal/pool/sync.go`**：同步任务。
-     - `SubmitSync(ctx, poolID)`：**在同一个 `BEGIN IMMEDIATE` 事务内**完成「池存在性检查 + 是否已有 running 任务检查 + 插入 `pool_sync_tasks(status='running')`」（Design2Report10 Q12-8），已有 running 任务则返回 `ErrSyncRunning`（409）；事务提交后启动 goroutine `runSyncTask`，返回 task id。
+     - `SubmitSync(ctx, poolID)`：**在同一个 `BEGIN IMMEDIATE` 事务内**完成「池存在性检查 + 是否已有 running 任务检查 + 插入 `pool_sync_tasks(status='running')`」（DesignReport9 Q12-8），已有 running 任务则返回 `ErrSyncRunning`（409）；事务提交后启动 goroutine `runSyncTask`，返回 task id。
      - `runSyncTask`：串行拉取全部 URL（`http.Client{Timeout: 60s}`，`io.LimitReader(50MB+1)`）；每个 URL 结果 `{url, ok, added, removed, skipped, error}`；**任一 URL 失败、空响应或零有效条目，则该 URL ok=false；只有全部 URL 成功才执行 url 来源差量删除**；成功 URL 的条目照常 upsert。
-     - **任务边界**（Design2Report10 Q12-9）：删除池或编辑池 URL 不取消已启动任务；池已被删除时，任务终态写回失败仅记日志、不崩溃；URL 编辑只影响下一次同步；任务历史按保留策略继续展示。
+     - **任务边界**（DesignReport9 Q12-9）：删除池或编辑池 URL 不取消已启动任务；池已被删除时，任务终态写回失败仅记日志、不崩溃；URL 编辑只影响下一次同步；任务历史按保留策略继续展示。
      - 入库（单个事务）：新 url 条目 sort_order 从 `MAX(当前 URL 段最大序号, urlBase-1)+1` 起追加；**既有条目 sort_order 一律不改写**；删除仅删 `source='url'` 且不在本次成功结果并集中的行，且只在无任何失败时执行。manual 条目不触碰。**差量删除实现不得用单条 NOT IN 大列表**（数万行规模会超 SQLite 参数上限：默认 999 / 编译上限 32766，Design2 §2.4 要求支持数万行规模）——采用临时表 JOIN 删除或分批（chunk）删除，见参考代码。
      - 终态写回任务行（succeeded/failed/partial）并更新 rule_pools.last_synced_at/sync_status/sync_error；**同事务内顺手清理该池超期历史：`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at < datetime('now','-7 days')`（保留 7 天口径，Design2 §5.9）**。
      - `GetStatus(ctx, poolID)`：读最近一次任务，返回 `{task_id,status,per_url,started_at,finished_at,error}`。
@@ -710,7 +710,7 @@ Step 6 ──▶ Step 7（端到端验收）
      - `POST /api/admin/pools/:id/sync` → `{task_id}`；`GET /api/admin/pools/:id/sync/status` → 状态形状按 Design2-UI §9.1；`GET /api/admin/pools/:id/sync/tasks?page=&page_size=` → 历史任务分页列表（同 UI §9.1 listSyncTasks）。
   6. **`backend/internal/server/server.go`**：构造 `poolSvc := pool.NewService(st, log)`，注册 `RegisterPoolRoutes`。
   7. **`backend/internal/cron/pool.go` 或并入现有 cron 包**：`StartPoolAutoSync(db, poolSvc, lg)` 每 1 分钟 tick：查 `auto_sync=1 AND sync_time=?`（当前 UTC `15:04`）的池，逐个 `SubmitSync`；已有 running 或 ErrSyncRunning 跳过；返回 stop 函数。**同一分钟内只触发一次**（用 `lastRun map[string]bool` 或 DB running 判重）。
-  8. **`backend/cmd/server/main.go`**：启动时执行 `UPDATE pool_sync_tasks SET status='failed', error='服务重启，任务中断', finished_at=CURRENT_TIMESTAMP WHERE status='running'`，并**同步执行 `UPDATE rule_pools SET sync_status='failed', sync_error='服务重启，任务中断' WHERE id IN (SELECT DISTINCT pool_id FROM pool_sync_tasks WHERE status='failed' AND error='服务重启，任务中断')`**（快照与任务行一致，Design2Report8 P2-3）；`StartPoolAutoSync` 启动并注册 stop。
+  8. **`backend/cmd/server/main.go`**：启动时执行 `UPDATE pool_sync_tasks SET status='failed', error='服务重启，任务中断', finished_at=CURRENT_TIMESTAMP WHERE status='running'`，并**同步执行 `UPDATE rule_pools SET sync_status='failed', sync_error='服务重启，任务中断' WHERE id IN (SELECT DISTINCT pool_id FROM pool_sync_tasks WHERE status='failed' AND error='服务重启，任务中断')`**（快照与任务行一致，DesignReport7 P2-3）；`StartPoolAutoSync` 启动并注册 stop。
   9. **单测**：parser 全规则类型/白名单/零条目；sort 两段；sync 用 `httptest.Server` 覆盖「全成功差量删除」「单 URL 失败不删除」「空响应失败」「零条目保护」；CRUD 唯一冲突与分页；**终态写回清理超 7 天历史任务（超期行被删、7 天内行保留）**。
 
 - **参考代码/伪代码：**
@@ -904,13 +904,13 @@ Step 6 ──▶ Step 7（端到端验收）
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build4 构建方案（Go 1.26 + 1009 迁移 + 旧分发拆除 + 规则素材池），7 个 Step；后续 Build5/6/7 范围说明 |
-| v1.1 | 2026-08-19 | Design2Report5 核验修订：预设组种子默认成员改为 `groups:["直接连接"]`（空节点数组）；首页 home_rule 字段统一为 `{rule_id,name,current_version,token,download_url}` |
-| v1.2 | 2026-08-19 | Design2Report7 核验修订：Step2 grep 验收命令限定 backend/frontend 目录（P2-6）；Step4 status.go 注记 `traffic_card_enabled` 由 Build6 Step5 补入（Q3） |
-| v1.3 | 2026-08-19 | Design2Report8 修订：Step1 允许启动旧服务做迁移/健康验证并可清空数据重新开始（P2-1）；YouTube 种子改 select（P2-16）；两段排序 manual/URL 各自维护（Q6）；启动同步刷新 rule_pools 快照（P2-3）；池历史任务端点与 UI（Q12） |
+| v1.1 | 2026-08-19 | DesignReport5 核验修订：预设组种子默认成员改为 `groups:["直接连接"]`（空节点数组）；首页 home_rule 字段统一为 `{rule_id,name,current_version,token,download_url}` |
+| v1.2 | 2026-08-19 | DesignReport6 核验修订：Step2 grep 验收命令限定 backend/frontend 目录（P2-6）；Step4 status.go 注记 `traffic_card_enabled` 由 Build6 Step5 补入（Q3） |
+| v1.3 | 2026-08-19 | DesignReport7 修订：Step1 允许启动旧服务做迁移/健康验证并可清空数据重新开始（P2-1）；YouTube 种子改 select（P2-16）；两段排序 manual/URL 各自维护（Q6）；启动同步刷新 rule_pools 快照（P2-3）；池历史任务端点与 UI（Q12） |
 | v1.4 | 2026-08-19 | 构建前核验修订（用户确认）：预设组种子改用 `Clash.yaml.template.md` 模板 emoji 名（Step1 种子与注记）；同步任务历史保留 7 天超期动态清理（约束表 + Step5 终态清理与单测 + Step6 历史列表注记）；RulesView 取消默认固定为专设操作（Step4 item 13） |
-| v1.5 | 2026-08-19 | Design2Report9 修订：预设组种子默认成员同步改 `groups:["🚀直接连接"]`（M4 强制组 emoji 连锁）；Step2 单测清单补 server/home_test.go 与 server/rule_test.go |
-| v1.6 | 2026-08-19 | Design2Report10 修订：CreateVersion 事务顺序改为「AfterCreate 先于 setCurrent」且 AfterCreate 传 versions.id（Q3/Q11）；池同步 SubmitSync 查+插同事务（Q12-8）；补同步期间删池/改 URL 边界（Q12-9） |
-| v1.7 | 2026-08-19 | Design2Report11 核验修订：Step2 测试清单补 emergency/platform 两测试文件与组详情 off 省略 default_quota；Step3 ErrProductTypeInUse 文案含类型插值、home_rule/traffic 改独立端点 /api/home/summary；Step4 入池未生效引导/平台卡空态三按钮隐藏/新建订阅轻提示/路由守卫 !== true；Step5 差量删除改临时表或分批；Step6 同步进行中 409 前端特判 warning |
+| v1.5 | 2026-08-19 | DesignReport8 修订：预设组种子默认成员同步改 `groups:["🚀直接连接"]`（M4 强制组 emoji 连锁）；Step2 单测清单补 server/home_test.go 与 server/rule_test.go |
+| v1.6 | 2026-08-19 | DesignReport9 修订：CreateVersion 事务顺序改为「AfterCreate 先于 setCurrent」且 AfterCreate 传 versions.id（Q3/Q11）；池同步 SubmitSync 查+插同事务（Q12-8）；补同步期间删池/改 URL 边界（Q12-9） |
+| v1.7 | 2026-08-19 | DesignReport10 核验修订：Step2 测试清单补 emergency/platform 两测试文件与组详情 off 省略 default_quota；Step3 ErrProductTypeInUse 文案含类型插值、home_rule/traffic 改独立端点 /api/home/summary；Step4 入池未生效引导/平台卡空态三按钮隐藏/新建订阅轻提示/路由守卫 !== true；Step5 差量删除改临时表或分批；Step6 同步进行中 409 前端特判 warning |
 | v1.8 | 2026-08-19 | Build4 全部 Step 执行验收通过（2026-08-19）。执行口径记录：Step2 旧表 grep 按用户决策限定 `backend/internal`、`backend/cmd`、`frontend`（历史迁移 1002/1003/1009 保留迁移链、不作为业务代码命中）；Go 1.26 经下载工具链执行，前端测试环境补齐 localStorage 内存实现（Node 26 + jsdom 组合）；Step7 全新库自动冒烟覆盖 Setup/平台种子/订阅唯一与首版自动激活/普通用户与管理员首页形态/空规则与默认规则/规则下载 200 注释块/素材池同步与 manual 段排序 |
-| v1.9 | 2026-08-20 | 第三轮事后验收修订：Build4 Step4~7 因 Issue2 R14 未关闭项未完全达标，状态回退为 ◧ 修复收口中（Step0~3 保持 ✅）；用户决策先执行 Build4/5 修复收口，详细清单见 Issue2 附件优先级 0 与 AchievedDocuments/BuildReport1.md |
+| v1.9 | 2026-08-20 | 第三轮事后验收修订：Build4 Step4~7 因 Issue2 R14 未关闭项未完全达标，状态回退为 ◧ 修复收口中（Step0~3 保持 ✅）；用户决策先执行 Build4/5 修复收口，详细清单见 Issue2 附件优先级 0 与 docs/reports/BuildReport/BuildReport1.md |
 | v1.10 | 2026-08-20 | Build4/5 修复收口完成：Issue2 R14 相关未关闭项已全部按状态关闭；Build4 Step4~7 恢复为 ✅ 验收通过。验证：后端 `go build/vet/test ./...`、前端 `npm run build` + `npm test`（45 passed）通过。 |

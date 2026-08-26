@@ -1,4 +1,4 @@
-# Design2Report1.md — Design2.md 增量能力设计深度研究验证报告
+# DesignReport1.md — Design2.md 增量能力设计深度研究验证报告
 
 > **文档定位：** 本文档为 Design2.md（增量能力：规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接）的多轮多角度深度研究验证报告，由完成报告画布（design2-research-report.canvas.tsx）转为 Markdown 存档。研究针对 Design2.md 修订版（2026-08-16，410 行）与 Design1.md 基线（926 行）、现有代码及 docs/Reference 参考资料进行交叉验证。
 > **研究约束**：全程只读——未修改任何代码文件（backend/、frontend/、配置文件）与 Design2.md/Design1.md；结论标注来源（【文档事实】/【代码事实】/【推断】）。
@@ -43,15 +43,15 @@
 
 | 类别 | 验证项 | 结果 |
 |------|--------|------|
-| 代码扩展点 | ContentProvider 接口预留装配生成第三种实现（[version.go](backend/internal/version/version.go) L72-75） | ✅ 吻合 |
+| 代码扩展点 | ContentProvider 接口预留装配生成第三种实现（[version.go](../../../backend/internal/version/version.go) L72-75） | ✅ 吻合 |
 | 代码扩展点 | CreateVersion 无 activate 参数，改造点清晰有界（Design2 4.4） | ✅ 吻合 |
-| 代码扩展点 | 下载解析两处 JOIN group_selections（[download.go](backend/internal/download/download.go) L96-100/L185-188；5.6 删表后改造点吻合） | ✅ 吻合 |
-| 代码扩展点 | withPlatformHeaders 附加头注入机制（[download.go](backend/internal/download/download.go) L120-135，Subscription-Userinfo 融合点） | ✅ 吻合 |
+| 代码扩展点 | 下载解析两处 JOIN group_selections（[download.go](../../../backend/internal/download/download.go) L96-100/L185-188；5.6 删表后改造点吻合） | ✅ 吻合 |
+| 代码扩展点 | withPlatformHeaders 附加头注入机制（[download.go](../../../backend/internal/download/download.go) L120-135，Subscription-Userinfo 融合点） | ✅ 吻合 |
 | 代码扩展点 | 9 个生命周期钩子点全部存在（Register/CreateFromOidc/Approve/Reject/AdminService.Create/SetStatus/Delete/UpdateGroup/ChangeRole） | ✅ 吻合 |
-| 代码扩展点 | HKDF-SHA256 派生 AES-256-GCM（[config.go](backend/internal/config/config.go) L222-230，UUID 加密复用机制） | ✅ 吻合 |
+| 代码扩展点 | HKDF-SHA256 派生 AES-256-GCM（[config.go](../../../backend/internal/config/config.go) L222-230，UUID 加密复用机制） | ✅ 吻合 |
 | 代码扩展点 | cron ticker 模式（定时同步/流量采集复用）；迁移编号 1009 起（1001~1008 已占用）；export.go format_version=1→2 改造点 | ✅ 吻合 |
 | 协议验证 | SR subs 样例实测：vless 空 cipher base64 userinfo（`Shadowrocket.subs.template.md` 解码验证）与 4.5/5.7 口径一致 | ✅ 一致 |
-| 协议验证 | ss=SIP002 / vmess=V2rayN JSON / trojan 映射与 [Node-Link-Standards.md](docs/Reference/Node-Link-Standards.md) 一致 | ✅ 一致 |
+| 协议验证 | ss=SIP002 / vmess=V2rayN JSON / trojan 映射与 [Node-Link-Standards.md](../../Reference/Node-Link-Standards.md) 一致 | ✅ 一致 |
 | 设计自洽 | 首次入池自动激活/候选集清理时机/组删除迁移链/审批拒绝幂等（RemoveUser not found 幂等成功），均闭环 | ✅ 自洽 |
 
 ---

@@ -1,8 +1,8 @@
 # Build6-2.md — Build6 未完成/简化项补充构建记录
 
 > **文档定位：** 本文档记录 Build6 主流程已验收但未完全达到 Build6.md 原始深度要求的内容，作为后续补强与 Build7 衔接的追踪清单。
-> - 关联文档：[Build6.md](./Build6.md)、[Design2.md](./Design2.md)、[Design2-UI.md](./Design2-UI.md)
-> - 编码指令：[AGENTS.md](./AGENTS.md)（**唯一强要求**）
+> - 关联文档：[Build6.md](Build6.md)、[Design2.md](../../../Design2.md)、[Design2-UI.md](../../../Design2-UI.md)
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 
 ---
 
@@ -76,5 +76,5 @@ Build6 已按步骤完成并通过现有 `go build ./...`、`go vet ./...`、`go
 | v1.1 | 2026-08-20 | 完成 #1/#2/#3/#4/#6/#7 补强；#5 继续按规划延后至 Build7 Step1；补充单测与端到端 fake 剧本 |
 | v1.2 | 2026-08-20 | 按用户要求将 #5 需要实现的内容整理进 Build7 Step1，并更新状态为“已整理进 Build7 Step1” |
 
-| v1.3 | 2026-08-21 | Build6/7 交付核查发现 R15-01~R15-14（详见 [Issue2.md](./Issue2.md)），其中部分补强项仍存在未闭环或测试缺口；用户决策暂不修复，修复方案与顺序已记录于 Issue2「R15 决策与修复方法」与「0-R15 交接优先级」。 |
+| v1.3 | 2026-08-21 | Build6/7 交付核查发现 R15-01~R15-14（详见 [Issue2.md](../Issue/Issue2.md)），其中部分补强项仍存在未闭环或测试缺口；用户决策暂不修复，修复方案与顺序已记录于 Issue2「R15 决策与修复方法」与「0-R15 交接优先级」。 |
 | v1.4 | 2026-08-21 | 按 Issue3 R15-14 决策删除 `SyncService.DiffPush`（无调用方）；精确 diff 已由 `SyncUsersForNodes`/组删除回调承接，不再保留死代码。 |

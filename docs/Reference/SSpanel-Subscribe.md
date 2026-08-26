@@ -1,6 +1,6 @@
 # SSpanel-Subscribe.md — SSPanel-UIM 订阅生成与分发机制研究
 
-> **文档定位：** 本文档是对成熟面板 SSPanel-UIM（PHP 8.2 + Slim 4 + Eloquent）订阅分发链路及其配套管理功能的取证研究，为 Design2.md 的配置生成与分发（第四章）与 Xray 对接的用户生命周期/流量配额机制（第五章）提供参照。与姊妹文档 [SSpanel.md](./SSpanel.md) 的关系：SSpanel.md 为早期速览，本文档为深度取证版（以其为准）。
+> **文档定位：** 本文档是对成熟面板 SSPanel-UIM（PHP 8.2 + Slim 4 + Eloquent）订阅分发链路及其配套管理功能的取证研究，为 Design2.md 的配置生成与分发（第四章）与 Xray 对接的用户生命周期/流量配额机制（第五章）提供参照。与姊妹文档 [SSpanel.md](SSpanel.md) 的关系：SSpanel.md 为早期速览，本文档为深度取证版（以其为准）。
 > **核验来源：** 本地仓库 `/Users/kylechen/Desktop/Repo/SSPanel-UIM`（VERSION='25.1.0' 代号 "The Restoration"，app/predefine.php:9-10；HEAD d55a607，2026-07-11）。框架为 Slim 4（非 Laravel），仅复用 illuminate/database。
 > **标注约定：** 【源码事实】= 直接引自代码行；【推断】= 由源码逻辑推出；【猜测】= 基于领域经验的推测。
 

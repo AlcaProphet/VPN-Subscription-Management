@@ -1,6 +1,6 @@
 # BuildReport1.md — Build4/Build5 事后验收与 Build6/Build7 事前预检报告
 
-> 核验日期：2026-08-20。核验对象：当前工作区代码（Build4/Build5 已落地产物）、[Issue2.md](./Issue2.md) 未修复问题、[Build4.md](./Build4.md) / [Build5.md](./Build5.md) 验收要求，以及 [Build6.md](./Build6.md) / [Build7.md](./Build7.md) 的构建前深度核验。
+> 核验日期：2026-08-20。核验对象：当前工作区代码（Build4/Build5 已落地产物）、[Issue2.md](../Issue/Issue2.md) 未修复问题、[Build4.md](../Build/Build4.md) / [Build5.md](../Build/Build5.md) 验收要求，以及 [Build6.md](../Build/Build6.md) / [Build7.md](../Build/Build7.md) 的构建前深度核验。
 > 结论前置：**Build4/Build5 的自动验收命令全部通过，但对照 Build 文档与 Design2-UI 的“完全达标”不能成立**——Issue2 中 R14-01~R14-24 仍为未修复状态并已逐条与代码事实核对；本次另发现 4 项 Issue2 未覆盖问题。Build6/Build7 的设计一致性总体可用，已对确定性问题直接修订，并保留 3 项需用户决策的不确定问题。
 
 ---

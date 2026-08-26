@@ -1,10 +1,10 @@
 # DesignOnHold.md — 订阅地址池 / 装配拼接 / 配置生成与 Xray 对接设计（已归档）
 
-> **归档说明**：本文档为增量能力设计的源稿（含修订过程记录），内容已全量规范化转入 [Design2.md](../../Design2.md)，于 2026-08-15 移入 docs/AchievedDocuments/ 存档；后续构建以 Design2.md 为准。
+> **归档说明**：本文档为增量能力设计的源稿（含修订过程记录），内容已全量规范化转入 [Design2.md](../../../Design2.md)，于 2026-08-15 移入 docs/reports/ 存档；后续构建以 Design2.md 为准。
 
-> **文档定位：** 本文档承载 vpn-sub 增量能力的定稿设计（无暂缓项，经多轮用户确认，构建时不得偏离）：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](../Reference/Xray-Core-API.md) 与 [Reference/SSpanel.md](../Reference/SSpanel.md)。
+> **文档定位：** 本文档承载 vpn-sub 增量能力的定稿设计（无暂缓项，经多轮用户确认，构建时不得偏离）：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](../../Reference/Xray-Core-API.md) 与 [Reference/SSpanel.md](../../Reference/SSpanel.md)。
 > **术语约定**：「**规则素材池**」（第二章）= 规则条目素材池（域名/IP/进程名等，供规则拼接）；「**订阅地址池**」（第四章）= 每平台存放订阅文件的池（单模板 + 版本历史，即既有「订阅池」）。两池职责分离，不混用。
-> 设计基线见 [Design1.md](./Design1.md)；编码约束遵循 [AGENTS.md](../../AGENTS.md)（**唯一强要求**）。本文档与 Design1.md 冲突时以本文档为准，定稿内容后续应同步落入 Design 基线。
+> 设计基线见 [Design1.md](Design1.md)；编码约束遵循 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。本文档与 Design1.md 冲突时以本文档为准，定稿内容后续应同步落入 Design 基线。
 >
 > **参考样例**（位于 `docs/DocTemplates/`）：
 > - `ClashOfficial.yaml.template.md`：Clash（mihomo）官方 YAML 全字段参考
@@ -161,13 +161,13 @@ Shadowrocket 无代理组概念，装配采用简化双态交互：规则素材�
 
 ### 4.5 Shadowrocket 输出编码
 
-Shadowrocket 配置生成规则与 Clash 类似（头部 → 节点 → 规则的对应关系，见 3.5），但输出编码不一样：节点链接与订阅内容的编码处理参考 [Reference/SSpanel.md](../Reference/SSpanel.md) 的订阅输出逻辑；.conf 正文以纯文本下发，下载端点返回禁缓存头（`no-store` 等，AGENTS §4.5）。
+Shadowrocket 配置生成规则与 Clash 类似（头部 → 节点 → 规则的对应关系，见 3.5），但输出编码不一样：节点链接与订阅内容的编码处理参考 [Reference/SSpanel.md](../../Reference/SSpanel.md) 的订阅输出逻辑；.conf 正文以纯文本下发，下载端点返回禁缓存头（`no-store` 等，AGENTS §4.5）。
 
 ---
 
 ## 五、Xray-core 对接设计（高级模式）
 
-> 本章全部能力归属**高级模式**（见第一章）。API 能力、硬约束与生态研究结论见 [Reference/Xray-Core-API.md](../Reference/Xray-Core-API.md)。设计已定稿（决策见 5.4，共 24 项），无待决事项。
+> 本章全部能力归属**高级模式**（见第一章）。API 能力、硬约束与生态研究结论见 [Reference/Xray-Core-API.md](../../Reference/Xray-Core-API.md)。设计已定稿（决策见 5.4，共 24 项），无待决事项。
 
 ### 5.1 背景与目标
 
@@ -182,7 +182,7 @@ Shadowrocket 配置生成规则与 Clash 类似（头部 → 节点 → 规则�
 
 ### 5.2 Xray-core API 能力与硬约束（设计相关要点）
 
-> 完整研究结论（API 服务机制、全量 API 能力表、传输字段、幂等性核验、生态验证）见 [Reference/Xray-Core-API.md](../Reference/Xray-Core-API.md)。影响本设计的关键要点：
+> 完整研究结论（API 服务机制、全量 API 能力表、传输字段、幂等性核验、生态验证）见 [Reference/Xray-Core-API.md](../../Reference/Xray-Core-API.md)。影响本设计的关键要点：
 
 - API **无认证无 TLS**（裸 gRPC），安全边界由部署者 IP 白名单控制；**并发受限**（约 10 并发后丢弃请求），客户端必须串行化
 - 流量统计需 Xray 配置显式开启（`policy.statsUserUplink/Downlink`），未开则查询恒为空
@@ -369,4 +369,4 @@ groups（+ default_quota 默认月度配额 GB）
 | 2026-08-15 | 研究报告收敛修订（Q1~Q10）：①xray_inbounds 升级为统一 nodes 表，manual/xray 同表，manual UUID AES-256-GCM 加密（D1/Q1/Q8）；②新增 proxy_groups 全局表 + 预置库种子数据（D2/Q2）；③CreateVersion 增加 activate opt-in 参数、首次入池自动激活（C1/Q3/Q4）；④无蓝图上传模板按组分配∪公共节点注入、无候选集约束（D3/Q5）；⑤高级开关 OFF 改为彻底清空全部高级配置 + 二次输入确认，占位替换为注释（Q6）；⑥素材条目白名单校验（Q7）；⑦装配预览 diff 采用成熟 diff 库（Q9）；⑧新增页面 UI 规格待设计完善后补齐（Q10） |
 | 2026-08-15 | 补充确认四项：①两池改名避歧义（规则素材池 / 订阅地址池，文档首部增术语约定）；②生效方式改为「入池 + 显式分发」（生成/上传仅入池不自动生效，4.1/4.4）；③高级模式节点模型定为「装配器候选集 + 组分配子集」（3.2/5.6/5.7，含取消勾选级联清理）；④维持基础/高级模式命名；随改 assembly_blueprints 快照字段（selection_json 含候选集） |
 | 2026-08-15 | 文档重构：按「订阅地址池 / 装配拼接 / 配置生成与分发 / Xray 对接」四大版块重组；原「模块化订阅装配器」设计（RAW 中间模型、模块/子模块体系、蓝图四层模型）清理融合为第二~四章（地址池 + 表单装配 + 节点双来源 + 代理组预置库）；原第四章分层设计融入第一章；Xray 对接（原第三章）原样迁移为第五章，随迁移修正：迁移编号 1008→1009（1008 已被占用）、生命周期触发器补充 OIDC 直接激活路径（`CreateFromOidc`） |
-| 2026-08-07 ~ 08-13 | v1.0~v1.4 多轮用户确认定稿（装配器 11 项决策 + Xray 对接 24 项决策 + 分层 14 项决策）；研究与核验记录拆分至 [Reference/](../Reference/)，各版本演进过程见 git 历史 |
+| 2026-08-07 ~ 08-13 | v1.0~v1.4 多轮用户确认定稿（装配器 11 项决策 + Xray 对接 24 项决策 + 分层 14 项决策）；研究与核验记录拆分至 [Reference/](../../Reference/)，各版本演进过程见 git 历史 |

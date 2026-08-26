@@ -240,12 +240,12 @@ AdvancedMode -.-> QuotaControl
 ```
 
 **图表来源**
-- [Design2.md:8-21](file://Design2.md#L8-L21)
-- [Design2-UI.md:248-256](file://Design2-UI.md#L248-L256)
+- [Design2.md:8-21](../../../../../Design2.md#L8-L21)
+- [Design2-UI.md:248-256](../../../../../Design2-UI.md#L248-L256)
 
 章节来源
-- [Design2.md:8-21](file://Design2.md#L8-L21)
-- [Design2-UI.md:248-256](file://Design2-UI.md#L248-L256)
+- [Design2.md:8-21](../../../../../Design2.md#L8-L21)
+- [Design2-UI.md:248-256](../../../../../Design2-UI.md#L248-L256)
 
 ### 站点信息配置界面UI优化
 **更新** 站点信息配置界面现已支持响应式布局，确保在不同屏幕尺寸下都能提供良好的用户体验。
@@ -391,8 +391,8 @@ H-->>U : 200 + 提示需重启容器
 - **标准化处理**：确保生成的vmess链接符合各客户端解析要求
 
 章节来源
-- [Design2.md:419-420](file://Design2.md#L419-L420)
-- [docs/DocTemplates/Clash.yaml.template.md:107-125](file://docs/DocTemplates/Clash.yaml.template.md#L107-L125)
+- [Design2.md:419-420](../../../../../Design2.md#L419-L420)
+- [docs/DocTemplates/Clash.yaml.template.md:107-125](../../../../../docs/DocTemplates/Clash.yaml.template.md#L107-L125)
 
 ### 系统初始化（快速开始与 OIDC 高级配置）
 - 快速开始：确保签名密钥 → 预置默认组与 3 个默认平台 → configured=true → 推导 frontend_url。
@@ -709,5 +709,5 @@ SettingsView --> SettingsHandler : "API调用"
 - [backend/internal/server/settings_ops.go:41-150](file://backend/internal/server/settings_ops.go#L41-L150)
 - [backend/internal/backup/backup.go:30-65](file://backend/internal/backup/backup.go#L30-L65)
 - [frontend/src/views/admin/SettingsView.vue:704-725](file://frontend/src/views/admin/SettingsView.vue#L704-L725)
-- [Design2.md:419-420](file://Design2.md#L419-L420)
-- [docs/DocTemplates/Clash.yaml.template.md:107-125](file://docs/DocTemplates/Clash.yaml.template.md#L107-L125)
+- [Design2.md:419-420](../../../../../Design2.md#L419-L420)
+- [docs/DocTemplates/Clash.yaml.template.md:107-125](../../../../../docs/DocTemplates/Clash.yaml.template.md#L107-L125)

@@ -10,7 +10,7 @@
 - [frontend/package.json](file://frontend/package.json)
 - [backend/web/web.go](file://backend/web/web.go)
 - [frontend/vite.config.ts](file://frontend/vite.config.ts)
-- [README.md](file://README.md)
+- [README.md](../../../../../README.md)
 - [backend/cmd/server/main.go](file://backend/cmd/server/main.go)
 </cite>
 
@@ -88,7 +88,7 @@ Health-->>Container : 200 OK
 图表来源
 - [docker-compose.yml:1-28](file://docker-compose.yml#L1-L28)
 - [docker-compose.yml.example:1-41](file://docker-compose.yml.example#L1-L41)
-- [README.md:165-204](file://README.md#L165-L204)
+- [README.md:165-204](../../../../../README.md#L165-L204)
 
 ## 详细组件分析
 
@@ -136,7 +136,7 @@ Runtime --> End(["完成镜像"])
 这些变量在程序启动时读取，用于初始化日志、路由、限流策略等。
 
 章节来源
-- [README.md:194-204](file://README.md#L194-L204)
+- [README.md:194-204](../../../../../README.md#L194-L204)
 - [backend/cmd/server/main.go:24-37](file://backend/cmd/server/main.go#L24-L37)
 
 ### 数据持久化与存储
@@ -158,7 +158,7 @@ Runtime --> End(["完成镜像"])
 - [Dockerfile:28-30](file://Dockerfile#L28-L30)
 - [docker-compose.yml:6-9,19-24:6-9](file://docker-compose.yml#L6-L9)
 - [docker-compose.yml.example:12-16,32-37:12-16](file://docker-compose.yml.example#L12-L16)
-- [README.md:167-192](file://README.md#L167-L192)
+- [README.md:167-192](../../../../../README.md#L167-L192)
 
 ### CI/CD与镜像发布
 - GitHub Actions在推送v*标签或手动触发时构建并推送到ghcr.io
@@ -219,7 +219,7 @@ Embed --> Image
 章节来源
 - [docker-compose.yml:19-24](file://docker-compose.yml#L19-L24)
 - [docker-compose.yml.example:19-30](file://docker-compose.yml.example#L19-L30)
-- [README.md:205-218](file://README.md#L205-L218)
+- [README.md:205-218](../../../../../README.md#L205-L218)
 
 ## 结论
 本项目采用三阶段Docker构建，将前端静态资源嵌入后端二进制，最终镜像极小且安全。通过数据卷实现零侵入持久化，配合健康检查与CI/CD，适合快速上线与持续交付。生产环境推荐反向代理+回环端口绑定，开发环境可直接暴露端口以便调试。
@@ -249,4 +249,4 @@ Embed --> Image
 
 章节来源
 - [docker-compose.yml.example:19-30](file://docker-compose.yml.example#L19-L30)
-- [README.md:167-204](file://README.md#L167-L204)
+- [README.md:167-204](../../../../../README.md#L167-L204)

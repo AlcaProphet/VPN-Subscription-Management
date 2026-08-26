@@ -1,6 +1,6 @@
-# Design2Report11.md — Design2 / Design2-UI / Build4~7 第十一轮只读设计核验报告
+# DesignReport10.md — Design2 / Design2-UI / Build4~7 第十一轮只读设计核验报告
 
-> **报告定位：** 本文档是对 [Design2.md](../../Design2.md)、[Design2-UI.md](../../Design2-UI.md) 与 [Build4.md](../../Build4.md)～[Build7.md](../../Build7.md) 的**第十一轮完整只读设计核验报告**（构建前最后一轮系统核验）。
+> **报告定位：** 本文档是对 [Design2.md](../../../Design2.md)、[Design2-UI.md](../../../Design2-UI.md) 与 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md) 的**第十一轮完整只读设计核验报告**（构建前最后一轮系统核验）。
 > **审核对象：** 当前工作区版本的六份活跃文档（Design2.md、Design2-UI.md、Build4.md、Build5.md、Build6.md、Build7.md）。
 > **审核约束：** 核验阶段全程只读，未开始构建，未修改任何设计/构建文档、代码或配置；发现问题后先整理清单经提问工具与用户逐项确认，再按用户确认结果创建本报告并执行修复（修复记录见第七章）。
 > **审核时间：** 2026-08-19
@@ -18,7 +18,7 @@
 | 构建文档 | `Build5.md` | 539 | Step 1~7：协议注册表与 manual 节点、display-name 服务、代理组、四装配器渲染与分发 |
 | 构建文档 | `Build6.md` | 612 | Step 0~6：xray-core 客户端、实例与节点检测、组分配与候选集、用户同步、下载动态渲染、流量配额 |
 | 构建文档 | `Build7.md` | 440 | Step 1~6：对账、独立账号、导入导出 v2、OFF 清空、高级 UI 收口 |
-| 基准参照 | `AGENTS.md`、`docs/AchievedDocuments/*`（Design1 系列、Design2Report1~10）、`docs/DocTemplates/*`、`docs/Reference/*` | 按需抽查 | 既有决策闭环、模板/参考事实、报告连续性 |
+| 基准参照 | `AGENTS.md`、`docs/reports/*`（Design1 系列、DesignReport1~10）、`docs/DocTemplates/*`、`docs/Reference/*` | 按需抽查 | 既有决策闭环、模板/参考事实、报告连续性 |
 | 既有代码 | `backend/`（migrations、version/download/platform/group/subscription/home/emergency/dataclear 及各测试）、`frontend/`（router、api、views） | 只读抽查 | 验证 Build 文档对现状代码事实的假设是否成立 |
 
 重点闭环核查项（用户指定）：基础/高级模式边界、advanced_mode 开关语义、OFF 清空、ON 初始化、订阅装配、规则素材池、节点/代理组/候选集、下载渲染、流量配额、Xray 对账、独立账号、配置导入导出、首页/个人中心展示；以及 Design2-UI 对 Design2 全部界面、交互状态、前后端契约与错误处理要求的承载完整性。
@@ -181,7 +181,7 @@
 7. Step4 路由守卫改 `system.status?.advanced_mode !== true`（L9）。
 8. home_rule/traffic 移独立端点 `GET /api/home/summary`（Step3 后端 + Step4 `getHomeSummary()`），`/api/home/platforms` 恢复纯列表（Q13/L10）。
 9. 零星落点：平台卡无版本占位文案+三按钮隐藏、新建订阅轻提示、删除默认规则 home_rule 回 null 断言、内容形态标签列注记归 Build5（L19）。
-10. 空池两态拆分与池 URL http/https 校验补「Design2Report11 确认」注记（Q11/Q12）。
+10. 空池两态拆分与池 URL http/https 校验补「DesignReport10 确认」注记（Q11/Q12）。
 11. Step7 变更记录措辞修正 + 追加 v1.7 行（L20）。
 
 ### 7.4 Build5.md（12 项，变更记录 v1.6）

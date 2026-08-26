@@ -1,6 +1,6 @@
-# Design2Report5.md — Design2 / Design2-UI 与 Build4–7 完整设计核验报告（第五轮）
+# DesignReport5.md — Design2 / Design2-UI 与 Build4–7 完整设计核验报告（第五轮）
 
-> **报告定位：** 本文档是对 [Design2.md](../../Design2.md)、[Design2-UI.md](../../Design2-UI.md) 与 [Build4.md](../../Build4.md)～[Build7.md](../../Build7.md) 的**第五轮完整设计核验报告**。本轮从**用户视角**与**管理员视角**双向走查，重点核验四份 Build 文档是否忠实承接 Design2/Design2-UI，并检查设计冲突、语义不明与遗漏点。
+> **报告定位：** 本文档是对 [Design2.md](../../../Design2.md)、[Design2-UI.md](../../../Design2-UI.md) 与 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md) 的**第五轮完整设计核验报告**。本轮从**用户视角**与**管理员视角**双向走查，重点核验四份 Build 文档是否忠实承接 Design2/Design2-UI，并检查设计冲突、语义不明与遗漏点。
 > **审核对象：** 当前工作区版本的 Design2.md、Design2-UI.md、Build4.md、Build5.md、Build6.md、Build7.md、AGENTS.md（含上一轮已确认并落盘的 Xray 节点 `display_name` 命名设计）。
 > **审核约束：** 本轮只读核验，**未修改任何现有设计/构建文档，未开始构建，未运行构建命令**；仅在本报告文件落盘审核结论。终端操作均为短时只读检索（无网络、无长任务）。
 > **审核时间：** 2026-08-19
@@ -241,7 +241,7 @@ Design2-UI 十章的 GUI 覆盖：第三章（用户端）由 Build4 Step4 + Bui
 1. 按第三章 A1–A12 与第四章 B1–B14，修订 Design2.md、Design2-UI.md、Build4–7.md；修订后同步各文档变更记录（Build4–7 补 v1.1）。
 2. 修订完成后，Build7 Step6“设计覆盖矩阵核对”应按本报告更新核对清单，确保 A/B 项全部关闭。
 3. 修订期间不得开始构建；全部文档修订经用户确认后，再从 Build4 Step 0 按序执行。
-4. 本报告归档于 `docs/AchievedDocuments/Design2Report5.md`，与 Report1–4 同一用途：历史核查，当前状态以 Design2/Design2-UI 与 Build4–7 最终修订版为准。
+4. 本报告归档于 `docs/reports/DesignReport/DesignReport5.md`，与 Report1–4 同一用途：历史核查，当前状态以 Design2/Design2-UI 与 Build4–7 最终修订版为准。
 
 ---
 

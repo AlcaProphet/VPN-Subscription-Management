@@ -1,7 +1,7 @@
 # Issue5.md — VPN 订阅管理系统 问题追踪（当前）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档的 [Issue4.md](./docs/AchievedDocuments/Issue4.md)（R19 系列，保留备查）。
-> 设计记录见 [Design2.md](./Design2.md) 与 [Design2-UI.md](./Design2-UI.md)；构建方案见 [Build4.md](./docs/AchievedDocuments/Build4.md)～[Build7.md](./docs/AchievedDocuments/Build7.md)（已归档）；编码指令见 [AGENTS.md](./AGENTS.md)（**唯一强要求**）。
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档的 [Issue4.md](docs/reports/Issue/Issue4.md)（R19 系列，保留备查）。
+> 设计记录见 [Design2.md](Design2.md) 与 [Design2-UI.md](Design2-UI.md)；构建方案见 [Build4.md](docs/reports/Build/Build4.md)～[Build7.md](docs/reports/Build/Build7.md)（已归档）；编码指令见 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
 
 ---
 
@@ -151,9 +151,9 @@
 ### R20-15 Build6/Build7 文档勾选状态与归档状态多处不一致
 
 - **现象：**
-  - `docs/AchievedDocuments/Build7.md` 当前 TODOLIST/进度表中 **Step1~4 与 Step6 仍为 ◧**（备注还指向“Issue3 R17-01/02/04/05/06/08 未闭环”），但其变更记录 v1.17~v1.20 已写明 Step1/2/3/4 恢复 ✅；Issue3 对应条目也已标 ✅/部分修复。
-  - `docs/AchievedDocuments/Build6.md` 当前 Step5/Step6 仍为 ◧，但其变更记录 v2.7 已写明恢复 ✅。
-  - AGENTS.md 已把 Build4~7 整体列为“已存档/已验收”，与 Build7 Step6 ◧ 冲突；且 AGENTS.md 文档清单仍只列 Issue3/Issue4 为当前问题记录，未索引本轮新增的 [Issue5.md](./Issue5.md)。
+  - `docs/reports/Build/Build7.md` 当前 TODOLIST/进度表中 **Step1~4 与 Step6 仍为 ◧**（备注还指向“Issue3 R17-01/02/04/05/06/08 未闭环”），但其变更记录 v1.17~v1.20 已写明 Step1/2/3/4 恢复 ✅；Issue3 对应条目也已标 ✅/部分修复。
+  - `docs/reports/Build/Build6.md` 当前 Step5/Step6 仍为 ◧，但其变更记录 v2.7 已写明恢复 ✅。
+  - AGENTS.md 已把 Build4~7 整体列为“已存档/已验收”，与 Build7 Step6 ◧ 冲突；且 AGENTS.md 文档清单仍只列 Issue3/Issue4 为当前问题记录，未索引本轮新增的 [Issue5.md](Issue5.md)。
 - **影响范围：** 新会话可能误判 Build6/7 各 Step 尚未完成或已完成；问题追踪链条（Issue3→Issue5）入口缺失。
 - **修复方案：** 由用户确认后统一回写：Build6 Step5/6 与 Build7 Step1~4 按最新修复状态恢复 ✅；Build7 Step6 明确标“部分收口/待 ProdTestList 人工验收”；AGENTS.md 文档清单补 Issue5（及 Build6-2）索引。
 - **状态：** ✅ 已修复（2026-08-24 复核：Build6/7 勾选已恢复 ✅，AGENTS.md 已更新为仅 Issue5 活跃、Issue1~4 归档）
@@ -324,7 +324,7 @@
 2. 存在方案取舍时，使用提问工具附推荐选项与用户确认；
 3. 修复方案确定后，由 [BuildN.md](./BuildN.md) 承接为构建 Step；
 4. 修复完成并验收通过后，更新状态为 ✅ 并记录验收命令与实际结果；
-5. 非问题的优化候选 / 已知遗留事项归 [Design2.md](./Design2.md) §三「后续设计候选」记录，不记录在本文件。
+5. 非问题的优化候选 / 已知遗留事项归 [Design2.md](Design2.md) §三「后续设计候选」记录，不记录在本文件。
 
 ---
 
@@ -334,7 +334,7 @@
 |------|------|------|
 | v1.0 | 2026-08-22 | 初始版本：Build1~7 + Issue1~4 双重静态核验。确认 Build4/5 主体与 Build6/7 后端主体已落地；确认 Issue3 R17-06/07、Issue4 R19-05 补充现象未完全闭环；新增 R20-01~R20-15（error 处理、死代码、装配参数校验、前端预检缺口、README/文档状态不一致等）。未修改代码，仅记录。 |
 | v1.1 | 2026-08-22 | 二轮逐文件复扫：复核 R20-01~15 全部仍成立；R20-04 增补死代码 `nextURLOrderTx`；R20-15 扩为 Build6/7 多处勾选与归档不一致；新增 R20-16~R20-27（Scanner 误删、OFF 下载解密、AddUser 首建/补偿、导入保护绕过、Xray 页 UI 分支、实例删除 404、装配错误码、候选集 fail-open、error 残余、Design2-UI/AGENTS 文档同步、参数校验、ext 凭据编辑重推待决策）。未修改代码。 |
-| v2.0 | 2026-08-22 | 用户决策已确认（R20-08 超时+取消、R20-11 转人工、R20-15/25 文档统一回写、R20-27 凭据重推、R20-26 重复项 400、R20-09 完整测试、R20-10 一键 Production smoke、R20-19 严格导入保护、先写 Build8）。已创建 [Build8.md](./Build8.md) 并完成 Step1~4 代码/前端/文档/测试；后端 build/vet/test 全绿，前端 65 例单测通过。 |
+| v2.0 | 2026-08-22 | 用户决策已确认（R20-08 超时+取消、R20-11 转人工、R20-15/25 文档统一回写、R20-27 凭据重推、R20-26 重复项 400、R20-09 完整测试、R20-10 一键 Production smoke、R20-19 严格导入保护、先写 Build8）。已创建 [Build8.md](Build8.md) 并完成 Step1~4 代码/前端/文档/测试；后端 build/vet/test 全绿，前端 65 例单测通过。 |
 | v2.1 | 2026-08-24 | 新增 R21-01：/api/oidc/test 未鉴权 SSRF（公网匿名内网探测原语），含现象/根因/影响范围/修复方案。仅记录，未修改代码。 |
-| v2.2 | 2026-08-24 | 归档 Issue2~Issue4 至 docs/AchievedDocuments；更新 AGENTS.md/Build8.md/Issue5.md 链接与状态；复核 Issue3 原部分修复项及 R20-10/14/15/25 均已闭环。 |
+| v2.2 | 2026-08-24 | 归档 Issue2~Issue4 至 docs/reports；更新 AGENTS.md/Build8.md/Issue5.md 链接与状态；复核 Issue3 原部分修复项及 R20-10/14/15/25 均已闭环。 |
 | v2.3 | 2026-08-24 | 实施 Issue5 剩余修复：R21-01 OIDC SSRF 防护；R20-06 装配 context 增加订阅摘要；R20-24 OFF 补偿移除失败补日志。复核确认其余 R20 开放项均已由既有代码/测试闭环；后端 go test ./...、前端 npm run build && npm test 全部通过，状态同步更新为 ✅。 |

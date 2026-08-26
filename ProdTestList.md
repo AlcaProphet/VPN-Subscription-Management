@@ -1,14 +1,14 @@
 # ProdTestList.md — 待用户自行执行的 Production 测试清单
 
 > **定位：** 记录当前无法在本环境自动完成的 Production 模式测试项，由用户后续自行在真实/临时 Production 实例中执行。
-> 关联：[R16-09](./docs/AchievedDocuments/Issue3.md)、[R17-07](./docs/AchievedDocuments/Issue3.md)、[R19-05](./docs/AchievedDocuments/Issue4.md)。
+> 关联：[R16-09](docs/reports/Issue/Issue3.md)、[R17-07](docs/reports/Issue/Issue3.md)、[R19-05](docs/reports/Issue/Issue4.md)。
 
 ---
 
 ## 一、.smoke-test.sh Production 模式验证
 
 - **背景：** `.smoke-test.sh` 中的 v2 导出/导入必须运行在 Production 模式（`app_mode=prod`），否则会因 Dev 模式 403 导致假绿或直接失败。
-- **当前状态：** 已新增 [.smoke-test-prod.sh](./.smoke-test-prod.sh) 可自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；仍需要用户在有 Docker 的环境中执行。
+- **当前状态：** 已新增 [.smoke-test-prod.sh](.smoke-test-prod.sh) 可自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；仍需要用户在有 Docker 的环境中执行。
 - **执行方式：**
   ```bash
   bash .smoke-test-prod.sh

@@ -1,8 +1,8 @@
 # Build8.md — VPN 订阅管理系统 当前构建方案（Issue5 R20 修复）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**，承接已存档 Build4~7，针对 [Issue5.md](./Issue5.md) 中 R20-01~R20-27 的修复执行。
-> - 编码指令：[AGENTS.md](./AGENTS.md)（**唯一强要求**）
-> - 问题追踪：[Issue5.md](./Issue5.md)（历史 Issue1~4 已归档至 [docs/AchievedDocuments/](./docs/AchievedDocuments/)）
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**，承接已存档 Build4~7，针对 [Issue5.md](Issue5.md) 中 R20-01~R20-27 的修复执行。
+> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
+> - 问题追踪：[Issue5.md](Issue5.md)（历史 Issue1~4 已归档至 [docs/reports/](docs/reports)）
 > - 用户决策（2026-08-22）：
 >   1. R20-08：增加 30 分钟整体超时 + 取消端点 + 前端取消按钮；
 >   2. R20-11：环境已不可用，按“未能复现”闭环并转 ProdTestList 人工验证；
@@ -38,7 +38,7 @@
 | 1 | `backend/internal/pool/sync.go`、`backend/internal/group/group.go`、`backend/internal/xray/sync.go`、`backend/internal/config/export.go`、`backend/internal/assembly/{validate.go,load.go,service.go,rebind.go}`、`backend/internal/server/assembly.go`、`backend/internal/xray/instance.go`、`internal/server/xray.go` 及对应测试 | Scanner 防误删、候选集 fail-closed、导入保护、装配校验/错误码、实例删除 404 |
 | 2 | `backend/internal/xray/{reconcile.go,credentials.go,sync.go,ext.go,offclear.go,detect.go,stats.go,instance.go}`、`backend/internal/custom/custom.go`、`backend/internal/rule/rule.go`、`backend/internal/share/share.go`、`backend/internal/server/{subscription.go,custom.go,settings.go,render.go,server.go}` 及测试 | 凭据首建/OFF 补偿、OFF 下载短路、错误处理、死代码、参数校验、ext 凭据重推 |
 | 3 | `backend/internal/pool/{sync.go,pool.go}`、`backend/internal/server/pool.go`、`frontend/src/api/pool.ts`、`frontend/src/views/admin/assembly/PoolTab.vue`、测试 | 同步超时/取消 |
-| 4 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/XrayInstancesView.vue`、`frontend/tests/*.spec.ts`、`.smoke-test-prod.sh`、`.smoke-test.sh`、`README.md`、`docs/AchievedDocuments/Build6.md`、`docs/AchievedDocuments/Build7.md`、`AGENTS.md`、`Design2-UI.md`、`Issue5.md`、`ProdTestList.md` | 预检、Xray UI、测试、smoke、README/文档同步 |
+| 4 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/XrayInstancesView.vue`、`frontend/tests/*.spec.ts`、`.smoke-test-prod.sh`、`.smoke-test.sh`、`README.md`、`docs/reports/Build/Build6.md`、`docs/reports/Build/Build7.md`、`AGENTS.md`、`Design2-UI.md`、`Issue5.md`、`ProdTestList.md` | 预检、Xray UI、测试、smoke、README/文档同步 |
 
 ---
 
@@ -104,7 +104,7 @@
   - `.smoke-test-prod.sh`：自动拉起临时 Production 容器跑四类装配器 + v2 往返。
   - `.smoke-test.sh`：补充四类装配器路径。
   - `README.md`：高级模式部署章节。
-  - `docs/AchievedDocuments/Build6.md`、`docs/AchievedDocuments/Build7.md`、`AGENTS.md`、`Design2-UI.md`、`Issue5.md`、`ProdTestList.md`：状态与文档同步。
+  - `docs/reports/Build/Build6.md`、`docs/reports/Build/Build7.md`、`AGENTS.md`、`Design2-UI.md`、`Issue5.md`、`ProdTestList.md`：状态与文档同步。
 - **测试与验收：**
   ```bash
   cd frontend && npm run build && npm test -- --run

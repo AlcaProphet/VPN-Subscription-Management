@@ -1,9 +1,9 @@
 # SecurityReport1.md — VPN 订阅管理系统 网络安全静态审计报告（第一期）
 
-> **文档定位：** 本文档记录对本项目的**静态网络安全审计**结果、逐项用户确认结论、处置状态与后续建议。属于存档核查文档，不作为当前强要求；编码强要求仍见 [AGENTS.md](../../AGENTS.md)。
+> **文档定位：** 本文档记录对本项目的**静态网络安全审计**结果、逐项用户确认结论、处置状态与后续建议。属于存档核查文档，不作为当前强要求；编码强要求仍见 [AGENTS.md](../../../AGENTS.md)。
 > **审计方式：** 仅静态代码/文档/依赖清单审查，**未构建、未运行项目**。
 > **审计基线：** `beta` 分支 HEAD `bad1750`，工作区干净。
-> **归档说明：** 本文档于 2026-08-25 新建于 `docs/AchievedDocuments/`，供后续 Build/Issue 承接安全修复时引用。
+> **归档说明：** 本文档于 2026-08-25 新建于 `docs/reports/`，供后续 Build/Issue 承接安全修复时引用。
 
 ---
 
@@ -14,7 +14,7 @@
 - 后端：`backend/` 全部 Go 源码、迁移 SQL、Dockerfile。
 - 前端：`frontend/` 的 Vue/TS 源码、CSP、路由与静态资源策略。
 - 部署：`docker-compose.yml`、`docker-compose.yml.example`、README 部署路径。
-- 设计：`AGENTS.md`、`docs/AchievedDocuments/Design1.md`、`Design2.md`。
+- 设计：`AGENTS.md`、`docs/reports/Design/Design1.md`、`Design2.md`。
 - 已知排除：Xray gRPC 无 TLS/无鉴权问题（按项目设计，由部署者 IP 白名单控制）；部署者自行管理的白名单、内网/回环访问边界。
 
 ### 1.2 方法

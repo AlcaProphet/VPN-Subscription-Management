@@ -1,9 +1,9 @@
 # Issue3.md — VPN 订阅管理系统 问题追踪（已归档）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**已归档问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档的 [Issue2.md](./Issue2.md)（R12~R15 系列，保留备查）。
+> **文档定位：** 本文档是 VPN 订阅管理系统的**已归档问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档的 [Issue2.md](Issue2.md)（R12~R15 系列，保留备查）。
 >
 > **归档说明（2026-08-24）：** 经复核，R16~R18 及自 Issue2 迁移条目均已闭环；原部分修复项（R15-08/R16-07/R16-09/R17-06/R17-07）已由后续测试/smoke/README 补齐，残余文档收口项已由 Issue5 承接。不再作为当前问题追踪。
-> 设计记录见 [Design2.md](../Design2.md) 与 [Design2-UI.md](../Design2-UI.md)；构建方案见 [Build4.md](./Build4.md)～[Build7.md](./Build7.md)（已归档）；编码指令见 [AGENTS.md](../AGENTS.md)（**唯一强要求**）。
+> 设计记录见 [Design2.md](../../../Design2.md) 与 [Design2-UI.md](../../../Design2-UI.md)；构建方案见 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md)（已归档）；编码指令见 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
 
 ---
 
@@ -104,7 +104,7 @@
 - **根因：** smoke 脚本最后一次更新停留在 Build4/5 基础模型（N4），Build6/7 未续写。
 - **影响范围：** 端到端冒烟无法拦截 R15/R16 级链路缺陷。
 - **修复方案：** 按当前 API 重写 smoke 脚本：素材池 CRUD+同步、manual 节点、代理组、四类装配生成、版本激活、下载（含动态渲染前置）、Xray 实例 fake 可选分支、v2 导出导入往返。
-- **状态：** ✅ 已修复（2026-08-24 复核：`.smoke-test.sh` 已覆盖 Build4~7 核心路径，`.smoke-test-prod.sh` 可自动拉起 Production 临时实例；Production 实机验证继续由 [ProdTestList.md](../ProdTestList.md) 承接）
+- **状态：** ✅ 已修复（2026-08-24 复核：`.smoke-test.sh` 已覆盖 Build4~7 核心路径，`.smoke-test-prod.sh` 可自动拉起 Production 临时实例；Production 实机验证继续由 [ProdTestList.md](../../../ProdTestList.md) 承接）
 
 ### R16-10 Build6/Build7 文档勾选状态与代码现状不一致
 
@@ -173,7 +173,7 @@
 - **根因：** smoke 脚本未校验 HTTP 状态/响应内容，也未在 Production 模式运行导出分支。
 - **影响范围：** Build7 Step6 的 v2 导出冒烟实际未验证，验收可能假绿。
 - **修复方案：** 在 smoke 中断言 HTTP 200 且响应不是 JSON 错误；或将导出/导入分支放到 Production 临时实例执行；或显式跳过并输出 skip 原因。
-- **状态：** ✅ 已修复（2026-08-24 复核：`.smoke-test-prod.sh` 已实现自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；Production 实机验证继续由 [ProdTestList.md](../ProdTestList.md) 承接）
+- **状态：** ✅ 已修复（2026-08-24 复核：`.smoke-test-prod.sh` 已实现自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；Production 实机验证继续由 [ProdTestList.md](../../../ProdTestList.md) 承接）
 
 ### R17-08 SettingsView v2 导入/导出文案与保护提示未完全落地
 
@@ -204,7 +204,7 @@
 
 ## 一-A、自 Issue2 迁移的未闭环条目（2026-08-21，用户已确认迁移）
 
-> 以下四条自 [Issue2.md](./Issue2.md) 整体迁移（原处保留迁移指引）；修复决策同日落定：R15-13 归档时机为全部修复并复验通过后；R15-14 中 DiffPush 确认删除。与 R16 系列合并按「附、后续修复顺序」执行。
+> 以下四条自 [Issue2.md](Issue2.md) 整体迁移（原处保留迁移指引）；修复决策同日落定：R15-13 归档时机为全部修复并复验通过后；R15-14 中 DiffPush 确认删除。与 R16 系列合并按「附、后续修复顺序」执行。
 
 ### R15-07 Build7 Step3/Step4 前端页面主体未按 Design2-UI §8/§4 实现
 
@@ -224,7 +224,7 @@
 
 ### R15-13 Build7 Step6 文档归档、覆盖矩阵与 README 高级模式部署说明未完成
 
-- **现象：** Build7 TODOLIST Step6 仍为 ◧；`Build4.md`~`Build7.md` 未移入 `docs/AchievedDocuments/`，`AGENTS.md` 仍将四份 Build 标为“活跃（未验收）”；README 无 Xray 高级模式前置条件（gRPC API、policy.stats、IP 白名单、建议 1~5 台实例、OFF 后手动清理提示）；Design2 全量覆盖矩阵未核对输出；`frontend/src/views/admin/PlaceholderView.vue` 等 Build 期占位文件仍残留。
+- **现象：** Build7 TODOLIST Step6 仍为 ◧；`Build4.md`~`Build7.md` 未移入 `docs/reports/`，`AGENTS.md` 仍将四份 Build 标为“活跃（未验收）”；README 无 Xray 高级模式前置条件（gRPC API、policy.stats、IP 白名单、建议 1~5 台实例、OFF 后手动清理提示）；Design2 全量覆盖矩阵未核对输出；`frontend/src/views/admin/PlaceholderView.vue` 等 Build 期占位文件仍残留。
 - **根因：** Step6 仅执行了部分自动验证，收口与归档动作未执行。
 - **影响范围：** 交付状态与文档索引不一致；部署者缺少高级模式必要前置信息。
 - **修复方案（用户已确认 2026-08-21）：** 待 R15/R16 系列全部修复并复验通过后，再归档 Build4~7、更新 AGENTS.md 文档清单状态与 README（含高级模式部署前置说明）；同步核对 Design2 全量覆盖矩阵、清理 PlaceholderView 残留。
@@ -264,7 +264,7 @@
 
 ### 优先级 4：归档收口（R15-13）
 
-10. 全部修复并复验通过后：归档 Build4~7 至 `docs/AchievedDocuments/`、更新 AGENTS.md 文档清单与 README 高级模式部署说明、核对 Design2 覆盖矩阵、清理 PlaceholderView。
+10. 全部修复并复验通过后：归档 Build4~7 至 `docs/reports/`、更新 AGENTS.md 文档清单与 README 高级模式部署说明、核对 Design2 覆盖矩阵、清理 PlaceholderView。
 
 ### 优先级 5：本轮新发现 R17 收口（在恢复 Build6/7 ✅ 前必须闭环）
 
@@ -313,7 +313,7 @@
 2. 存在方案取舍时，使用提问工具附推荐选项与用户确认；
 3. 修复方案确定后，由 [BuildN.md](../BuildN.md) 承接为构建 Step；
 4. 修复完成并验收通过后，更新状态为 ✅ 并记录验收命令与实际结果；
-5. 非问题的优化候选 / 已知遗留事项归 [Design2.md](../Design2.md) §三「后续设计候选」记录，不记录在本文件。
+5. 非问题的优化候选 / 已知遗留事项归 [Design2.md](../../../Design2.md) §三「后续设计候选」记录，不记录在本文件。
 
 ---
 
@@ -332,5 +332,5 @@
 | v1.8 | 2026-08-21 | 执行 R17 修复：R17-01/02/03/04/05/08 ✅；R17-06/07 ◧（测试交互覆盖、smoke Production 自动拉起待补）；Build6 Step5/6、Build7 Step1~4 同步回退 ◧。后端 build/vet/test、前端 build/test、Production smoke 全绿。 |
 | v1.9 | 2026-08-21 | 新增 R18-01：高级模式用户列表对 `sql.ErrNoRows` 未容错，点击「开始初始化」后 `/api/admin/users` 500、用户管理列表为空（用户数据未丢失）。用户要求先记录、不改动代码；状态 ☐ 待修复。 |
 | v1.10 | 2026-08-21 | R18-01 修复完成：`AdminService.List` 对 `sql.ErrNoRows` 容错并置空 SyncError；后端 build/vet/test 通过。 |
-| v1.11 | 2026-08-21 | R15-13 归档收口：Build4~7 已确认归档至 docs/AchievedDocuments，AGENTS.md 文档清单与链接关系已更新；R15-13 状态置为 ✅。 |
-| v1.12 | 2026-08-24 | 复核确认 R16~R18 及自 Issue2 迁移条目全部闭环；归档至 docs/AchievedDocuments，残余文档收口项由 Issue5 承接。 |
+| v1.11 | 2026-08-21 | R15-13 归档收口：Build4~7 已确认归档至 docs/reports，AGENTS.md 文档清单与链接关系已更新；R15-13 状态置为 ✅。 |
+| v1.12 | 2026-08-24 | 复核确认 R16~R18 及自 Issue2 迁移条目全部闭环；归档至 docs/reports，残余文档收口项由 Issue5 承接。 |

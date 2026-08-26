@@ -1,7 +1,7 @@
-# Design2Report7.md — Design2 / Design2-UI / Build4~7 全量只读核验报告
+# DesignReport6.md — Design2 / Design2-UI / Build4~7 全量只读核验报告
 
-> **文档定位：** 本报告是 Design2.md、Design2-UI.md 与 Build4.md~Build7.md 的构建前**只读核验**结论（第七轮核验报告，承接 Design2Report1~5）。核验过程未开始构建、未修改任何文档/代码/配置；发现的决策项已经用户确认（见第六节），落地修订动作列入「建议后续处理项」，由用户指令触发执行。
-> 参考模板：[Report.template.md](../DocTemplates/Report.template.md)（如无则按 Issue 模板风格归档）。
+> **文档定位：** 本报告是 Design2.md、Design2-UI.md 与 Build4.md~Build7.md 的构建前**只读核验**结论（第七轮核验报告，承接 DesignReport1~5）。核验过程未开始构建、未修改任何文档/代码/配置；发现的决策项已经用户确认（见第六节），落地修订动作列入「建议后续处理项」，由用户指令触发执行。
+> 参考模板：无独立报告模板，按 [Issue 模板](../../DocTemplates/Issue.template.md) 风格归档。
 
 ---
 
@@ -74,7 +74,7 @@
 | P2-3 | 交互分支未定义 | UI §5.3.1 ④ | Clash 装配手动补充规则行的类型选择是否含 USER-AGENT 未明示（Design §3.5 已定 Clash 跳过 USER-AGENT）。建议 Build5 在 Clash 场景手动行类型下拉直接排除 USER-AGENT，或渲染层统一跳过并计入跳过项提示。 |
 | P2-4 | 口径补明 | Build7 Step1 对账 | 对账端点按实例维度，但 Step1 未显式写「期望集与该实例节点取交集」。实际集按实例取、to_push 天然应仅含本实例目标，建议 Build7 实施时在文案中写明，避免误推其他实例目标。 |
 | P2-5 | 可实施性 | Design2 §5.9 / Build7 Step2 | `xray_ext_users.node_id`「0/NULL=待重绑」：SQLite 启用外键时插入 0 会违反 FK（无 id=0 节点）。应统一用 NULL（列可空），Build7 实施时按 NULL 落地。 |
-| P2-6 | 验收命令细节 | Build4 Step2 | `grep group_selections` 验证命令未排除 `docs/AchievedDocuments` 与 Build 文档自身（Step7 已排除）。执行时补 `--exclude-dir` 即可。 |
+| P2-6 | 验收命令细节 | Build4 Step2 | `grep group_selections` 验证命令未排除 `docs/reports` 与 Build 文档自身（Step7 已排除）。执行时补 `--exclude-dir` 即可。 |
 
 ### 4.3 已核验通过的关键闭环（抽样列示）
 

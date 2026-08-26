@@ -1,6 +1,6 @@
 # Xray-Core-API.md — Xray-core API 研究与参考资料
 
-> **文档定位：** 本文档是 Xray-core gRPC API 的研究结论与参考资料库，供 vpn-sub 项目 Xray 对接（高级模式）开发与排查时查阅。设计决策与方案见 [Design2.md](../../Design2.md) 第五章；SSPanel-UIM 参照研究见 [SSpanel-Subscribe.md](./SSpanel-Subscribe.md)；节点链接标准见 [Node-Link-Standards.md](./Node-Link-Standards.md)。
+> **文档定位：** 本文档是 Xray-core gRPC API 的研究结论与参考资料库，供 vpn-sub 项目 Xray 对接（高级模式）开发与排查时查阅。设计决策与方案见 [Design2.md](../../Design2.md) 第五章；SSPanel-UIM 参照研究见 [SSpanel-Subscribe.md](SSpanel-Subscribe.md)；节点链接标准见 [Node-Link-Standards.md](Node-Link-Standards.md)。
 > **核验来源：** 本地仓库 `/Users/kylechen/Desktop/Repo/Xray-core`（**v26.7.28**，core/core.go:21-23；go.mod module github.com/xtls/xray-core）源码核验 + `/Users/kylechen/Desktop/Repo/Xray-API-documents`（docs/ 与 examples/）交叉验证 + 互联网公开资料（XTLS 官方讨论、Marzban、3x-ui、vless URI 社区规范）。
 > **实现版本策略（用户决策 2026-08-20）：** 项目依赖 `github.com/xtls/xray-core` 以远端 latest 为准，不锁定 v26.7.28；当前 latest 为 `v1.260327.0`。本文仍以本地 v26.7.28 源码作为 API 行为研究基准。
 > **标注约定：** 【源码事实】= 直接引自代码行；【推断】= 由源码逻辑推出；【猜测】= 基于领域经验的推测。

@@ -1,10 +1,10 @@
 # <项目名> 功能构建计划（BuildN：当前构建方案）
 
-> **文档定位：** 本文档是 <项目名> 的**当前构建方案**（依据 AGENTS.md §12.1：Build 文档为详细构建方案，非强规则），承接已存档的 [Build1-(N-1)](HistoryDocs/)（见 `HistoryDocs/`，仅核查）。
+> **文档定位：** 本文档是 <项目名> 的**当前构建方案**（依据 AGENTS.md §12.1：Build 文档为详细构建方案，非强规则），承接已存档的 [Build1-(N-1)](../reports/)（见 `../reports/`，仅核查）。
 > - 设计记录：[DesignN.md](./DesignN.md)（当前设计记录；与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - 编码指令：[AGENTS.md](./AGENTS.md)（**唯一强要求**）
+> - 编码指令：[AGENTS.md](../../AGENTS.md)（**唯一强要求**）
 > - 问题追踪：[IssueN.md](./IssueN.md)（当前问题记录）
-> - 历史构建与问题记录：见 [HistoryDocs/](./HistoryDocs/)（均已存档，仅核查）
+> - 历史构建与问题记录：见 [../reports/](../reports/)（均已存档，仅核查）
 >
 > **执行原则（与 Build1-(N-1) 一致）：**
 > - 每一步完成后均可编译、可测试。不跳步、不并行多步。

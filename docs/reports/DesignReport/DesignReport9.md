@@ -1,6 +1,6 @@
-# Design2Report10.md — Design2 / Design2-UI / Build4~7 第十轮只读设计核验报告
+# DesignReport9.md — Design2 / Design2-UI / Build4~7 第十轮只读设计核验报告
 
-> **报告定位：** 本文档是对 [Design2.md](../../Design2.md)、[Design2-UI.md](../../Design2-UI.md) 与 [Build4.md](../../Build4.md)～[Build7.md](../../Build7.md) 的**第十轮完整只读设计核验报告**。
+> **报告定位：** 本文档是对 [Design2.md](../../../Design2.md)、[Design2-UI.md](../../../Design2-UI.md) 与 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md) 的**第十轮完整只读设计核验报告**。
 > **审核对象：** 当前工作区版本的六份活跃文档（Design2.md、Design2-UI.md、Build4.md、Build5.md、Build6.md、Build7.md）。
 > **审核约束：** 本轮全程只读，未开始构建，未修改任何设计/构建文档、代码或配置；仅在用户确认后创建本报告。
 > **审核时间：** 2026-08-19
@@ -18,7 +18,7 @@
 | 构建文档 | `Build5.md` | 538 | Step 1~7：协议注册表与 manual 节点、代理组、四装配器渲染内核、装配端点、节点/代理组/装配前端、分发收口 |
 | 构建文档 | `Build6.md` | 602 | Step 0~6：xray-core 客户端、实例与节点检测、高级中间件与组模型、生命周期同步、下载动态渲染、流量配额、假 Xray 集成测试 |
 | 构建文档 | `Build7.md` | 436 | Step 1~6：独立账号与对账、OFF 清空与导入导出 v2、Xray 实例页、组/用户/设置高级前端、用户端收口、全量验收 |
-| 基准参照 | `AGENTS.md`、`docs/AchievedDocuments/Design1.md`、`Design1-UI.md`、`Design2Report5/7/8/9.md`、`docs/DocTemplates/*`、`docs/Reference/*` | 按需抽查 | 既有决策闭环、模板/参考事实、报告连续性 |
+| 基准参照 | `AGENTS.md`、`docs/reports/Design/Design1.md`、`Design1-UI.md`、`DesignReport5/6/7/8.md`、`docs/DocTemplates/*`、`docs/Reference/*` | 按需抽查 | 既有决策闭环、模板/参考事实、报告连续性 |
 | 既有代码 | `backend/`（migrations、version/download/platform/config/export/settings 等）、`frontend/`（router、api、SettingsView 等） | 只读抽查 | 验证 Build 文档对现状代码事实的假设是否成立 |
 
 重点闭环核查项：基础/高级模式边界、advanced_mode 开关语义、OFF 清空、ON 初始化、订阅装配、规则素材池、节点/代理组/候选集、下载渲染、流量配额、Xray 对账、独立账号、配置导入导出、首页/个人中心展示。

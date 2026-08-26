@@ -10,7 +10,7 @@
 |------|------|------|
 | 设计文档 | `Design2.md`、`Design2-UI.md` | 431 + 668 行 |
 | 构建文档 | `Build4.md`、`Build5.md`、`Build6.md`、`Build7.md` | 898 + 525 + 601 + 434 行 |
-| 基准参照 | `AGENTS.md`、`docs/AchievedDocuments/Design1.md`、`Design1-UI.md`、`Design2Report5/7/8.md`、`docs/DocTemplates/*`、`docs/Reference/*` | 按需抽查 |
+| 基准参照 | `AGENTS.md`、`docs/reports/Design/Design1.md`、`Design1-UI.md`、`DesignReport5/6/7.md`、`docs/DocTemplates/*`、`docs/Reference/*` | 按需抽查 |
 | 既有代码 | `backend/`（migrations、internal 各包符号）、`frontend/`（api、views） | 只读抽查 |
 
 核验维度：① 设计文档正确性/自洽性/可实施性；② 两份设计文档间冲突/重复定义/引用错误/术语一致性；③ Design2-UI 对 Design2 界面、交互状态、前后端契约、错误处理的承载完整性；④ Build4~7 对设计的对齐度与范围边界；⑤ 遗漏点（空态/加载/错误/权限/移动端/暗色/防重复/危险确认/超时轮询/日志脱敏/禁缓存/事务/幂等/级联/候选集重算/凭据加密/Xray 串行与重试）；⑥ 普通用户与管理员双视角动线。

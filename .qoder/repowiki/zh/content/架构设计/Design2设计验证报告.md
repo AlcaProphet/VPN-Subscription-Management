@@ -2,9 +2,9 @@
 
 <cite>
 **本文引用的文件**
-- [README.md](file://README.md)
-- [Design2.md](file://Design2.md)
-- [Design2Report5.md](file://docs/AchievedDocuments/Design2Report5.md)
+- [README.md](../../../../../README.md)
+- [Design2.md](../../../../../Design2.md)
+- [DesignReport5.md](../../../../../docs/reports/DesignReport/DesignReport5.md)
 - [main.go](file://backend/cmd/server/main.go)
 - [server.go](file://backend/internal/server/server.go)
 - [config.go](file://backend/internal/config/config.go)
@@ -52,8 +52,8 @@ B --> H["静态资源/SPA 回退"]
 - [config.go:57-168](file://backend/internal/config/config.go#L57-L168)
 
 **章节来源**
-- [README.md:32-63](file://README.md#L32-L63)
-- [README.md:221-227](file://README.md#L221-L227)
+- [README.md:32-63](../../../../../README.md#L32-L63)
+- [README.md:221-227](../../../../../README.md#L221-L227)
 - [main.go:24-99](file://backend/cmd/server/main.go#L24-L99)
 - [server.go:62-157](file://backend/internal/server/server.go#L62-L157)
 
@@ -98,11 +98,11 @@ end
 **图表来源**
 - [server.go:86-112](file://backend/internal/server/server.go#L86-L112)
 - [config.go:57-168](file://backend/internal/config/config.go#L57-L168)
-- [Design2.md:304-333](file://Design2.md#L304-L333)
+- [Design2.md:304-333](../../../../../Design2.md#L304-L333)
 
 **章节来源**
-- [Design2.md:8-22](file://Design2.md#L8-L22)
-- [Design2.md:304-333](file://Design2.md#L304-L333)
+- [Design2.md:8-22](../../../../../Design2.md#L8-L22)
+- [Design2.md:304-333](../../../../../Design2.md#L304-L333)
 
 ## 详细组件分析
 

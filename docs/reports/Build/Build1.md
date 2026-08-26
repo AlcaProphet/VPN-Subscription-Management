@@ -1,9 +1,9 @@
 # Build1.md — 工程骨架与认证闭环（当前构建方案）
 
 > **文档定位：** 本文档是 VPN 订阅管理系统的**第一轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则）。本系统为零基础全新构建，无历史 Build 文档。
-> - 设计基线：[Design1.md](./Design1.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - GUI 规格：[Design1-UI.md](./Design1-UI.md)
-> - 编码指令：[AGENTS.md](../../AGENTS.md)（**唯一强要求**）
+> - 设计基线：[Design1.md](../Design/Design1.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - GUI 规格：[Design1-UI.md](../Design/Design1-UI.md)
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 后续轮次：Build2.md（订阅核心与用户端）、Build3.md（管理面与运维），本轮全部验收归档后再启动
 >
 > **里程碑：本 Build 全部 Step 完成后，系统必须能够启动、完成 Setup 首次配置、并完成本地账号与 OIDC 的注册/登录/登出闭环。**（✅ 2026-08-07 全部 7 个 Step 验收通过）

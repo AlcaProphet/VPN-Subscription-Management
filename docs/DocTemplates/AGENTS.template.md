@@ -1,7 +1,7 @@
 # AGENTS.md — <项目名> AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「十二、文档体系与优先级」）。
-> 项目设计方向见 [DesignN.md](./DesignN.md)（设计记录，当前），当前构建方案见 [BuildN.md](./BuildN.md)，当前问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design1-N、Build1-N、Issue1-N）已移入 [HistoryDocs/](./HistoryDocs/)（已存档，仅记录，不再用于构建，仅用于核查等情况）。
+> 项目设计方向见 [DesignN.md](./DesignN.md)（设计记录，当前），当前构建方案见 [BuildN.md](./BuildN.md)，当前问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design1-N、Build1-N、Issue1-N）已移入 [../reports/](../reports/)（已存档，仅记录，不再用于构建，仅用于核查等情况）。
 
 ---
 
@@ -9,7 +9,7 @@
 
 - **模块路径**：`<module/path>`
 - **语言/版本**：`<language> <version>`
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计记录见 [DesignN.md](./DesignN.md)（当前，非强制，供参考）；详细构建方案见 [BuildN.md](./BuildN.md)（当前）；当前问题记录见 [IssueN.md](./IssueN.md)；历史文档见 [HistoryDocs/](./HistoryDocs/)（已存档，仅记录，不再用于构建，仅用于核查等情况）
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计记录见 [DesignN.md](./DesignN.md)（当前，非强制，供参考）；详细构建方案见 [BuildN.md](./BuildN.md)（当前）；当前问题记录见 [IssueN.md](./IssueN.md)；历史文档见 [../reports/](../reports/)（已存档，仅记录，不再用于构建，仅用于核查等情况）
 
 ---
 
@@ -148,9 +148,9 @@
 | 文档类型 | 文件 | 定位 | 约束力 |
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码指令与约束 | **唯一强要求，尽量不违背** |
-| 设计构想 | [DesignN.md](./DesignN.md)（当前）；历史：[HistoryDocs/](./HistoryDocs/) | 设计大方向、架构构想、决策记录 | 非强制，供参考 |
-| 构建方案 | [BuildN.md](./BuildN.md)（当前）；历史：[HistoryDocs/](./HistoryDocs/) | 详细的分步构建方案与验收命令 | 非强制，执行建议 |
-| 问题记录 | [IssueN.md](./IssueN.md)（当前）；历史：[HistoryDocs/](./HistoryDocs/) | 记录的错误与修复方案 | 非强制，经验参考 |
+| 设计构想 | [DesignN.md](./DesignN.md)（当前）；历史：[../reports/](../reports/) | 设计大方向、架构构想、决策记录 | 非强制，供参考 |
+| 构建方案 | [BuildN.md](./BuildN.md)（当前）；历史：[../reports/](../reports/) | 详细的分步构建方案与验收命令 | 非强制，执行建议 |
+| 问题记录 | [IssueN.md](./IssueN.md)（当前）；历史：[../reports/](../reports/) | 记录的错误与修复方案 | 非强制，经验参考 |
 
 **执行规则：**
 
@@ -168,7 +168,7 @@
 | [DesignN.md](./DesignN.md) | 人类（开发者/用户） | 当前设计记录：功能全景、设计决策记录、后续候选（设计构想） | 活跃 |
 | [BuildN.md](./BuildN.md) | 开发者 | 当前构建方案：文档体系重构（Step 1）+ 候选构建项 | 活跃 |
 | [IssueN.md](./IssueN.md) | 开发者 | 当前问题追踪：进行中问题 + 已知遗留/候选事项 | 活跃 |
-| [HistoryDocs/](./HistoryDocs/) | 开发者 | 历史文档（已存档，仅记录，不再用于构建，仅用于核查等情况） | 已存档 |
+| [../reports/](../reports/) | 开发者 | 历史文档（已存档，仅记录，不再用于构建，仅用于核查等情况） | 已存档 |
 
 ### 12.3 平台 API 使用要求文档
 

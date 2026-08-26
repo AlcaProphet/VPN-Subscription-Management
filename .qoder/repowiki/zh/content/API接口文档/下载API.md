@@ -15,7 +15,7 @@
 - [frontend/src/api/subscription.ts](file://frontend/src/api/subscription.ts)
 - [frontend/src/api/rule.ts](file://frontend/src/api/rule.ts)
 - [frontend/src/api/share.ts](file://frontend/src/api/share.ts)
-- [README.md](file://README.md)
+- [README.md](../../../../../README.md)
 </cite>
 
 ## 目录

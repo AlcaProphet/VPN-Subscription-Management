@@ -1,10 +1,10 @@
 # Build5.md — 基础模式装配与分发：manual 节点、代理组、四类装配器（当前构建方案·第五轮）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**第五轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则），承接 [Build4.md](./Build4.md)（第四轮：基础模式地基与规则素材池，须全部验收通过后本轮方可启动）。
-> - 设计基线：[Design2.md](./Design2.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - GUI 规格：[Design2-UI.md](./Design2-UI.md)（活跃，承载 Design2 全部界面部件）
-> - 编码指令：[AGENTS.md](./AGENTS.md)（**唯一强要求**）
-> - 前置轮次：[Build4.md](./Build4.md)；后续轮次：[Build6.md](./Build6.md)（高级模式 Xray 后端）、[Build7.md](./Build7.md)（高级模式管理面与交付收口）
+> **文档定位：** 本文档是 VPN 订阅管理系统的**第五轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则），承接 [Build4.md](Build4.md)（第四轮：基础模式地基与规则素材池，须全部验收通过后本轮方可启动）。
+> - 设计基线：[Design2.md](../../../Design2.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - GUI 规格：[Design2-UI.md](../../../Design2-UI.md)（活跃，承载 Design2 全部界面部件）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 前置轮次：[Build4.md](Build4.md)；后续轮次：[Build6.md](Build6.md)（高级模式 Xray 后端）、[Build7.md](Build7.md)（高级模式管理面与交付收口）
 >
 > **里程碑：本 Build 全部 Step 完成后，基础模式（第二~四章）能力完整可用：管理员可维护 manual 节点与代理组，通过订阅装配页以四类装配器（Clash YAML / SR 节点订阅 / 通用节点订阅 / SR 分流规则）生成带快照的版本；产物入池后按「入池 + 显式激活」分发；用户端与管理员端展示新订阅地址池模型；渲染性能满足 1 万规则 <500ms 级。**
 >
@@ -16,7 +16,7 @@
 
 1. **严格按 Step 顺序执行**，完成一个 Step 并验收通过后，方可进入下一个 Step；**禁止跳步、并行、合并步骤、跨 Build 提前实现后续功能**。
 2. **每个 Step 完成后必须运行该 Step 的「验证命令」**，全部通过才算完成；任一失败修复后重验。
-3. **遇到模糊、歧义或设计未覆盖的细节，必须停止并向用户提问**；禁止自行假设。链接编码细节先查 [Node-Link-Standards.md](./docs/Reference/Node-Link-Standards.md)，Clash 结构先查 [Clash.yaml.template.md](./docs/DocTemplates/Clash.yaml.template.md) 与 [ClashOfficial.yaml.template.md](./docs/DocTemplates/ClashOfficial.yaml.template.md)，SR 结构先查 [Shadowrocket.subs.template.md](./docs/DocTemplates/Shadowrocket.subs.template.md) / [Shadowrocket.conf.template.md](./docs/DocTemplates/Shadowrocket.conf.template.md)。
+3. **遇到模糊、歧义或设计未覆盖的细节，必须停止并向用户提问**；禁止自行假设。链接编码细节先查 [Node-Link-Standards.md](../../Reference/Node-Link-Standards.md)，Clash 结构先查 [Clash.yaml.template.md](../../DocTemplates/Clash.yaml.template.md) 与 [ClashOfficial.yaml.template.md](../../DocTemplates/ClashOfficial.yaml.template.md)，SR 结构先查 [Shadowrocket.subs.template.md](../../DocTemplates/Shadowrocket.subs.template.md) / [Shadowrocket.conf.template.md](../../DocTemplates/Shadowrocket.conf.template.md)。
 4. **依赖白名单**：本 Build 新增 Go 依赖仅允许 `gopkg.in/yaml.v3`（YAML 渲染，依赖图中已存在）；前端新增 `diff`（jsdiff）。禁止引入其它库（如 monaco、拖拽库）。
 5. **关键设计参数必须严格按下表取值**，与 Design2.md 保持一致，禁止修改：
 
@@ -124,7 +124,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `Node` 结构对应表字段（含 `DisplayName *string`），`ProtocolJSON map[string]any`；`RenderName()` 返回有效渲染名（DisplayName 非空则用之，否则 Name）。
      - `CreateManual`：名称校验（`ValidateNodeName`：禁止控制字符/逗号/**空格**/首尾空白，允许中文 emoji；`name != strings.TrimSpace(name)`、`strings.Contains(name, ",")`、`strings.Contains(name, " ")` 或含 `<0x20/0x7F` 拒绝）；`nodes.name` 全局唯一（409）；**跨命名空间校验：有效渲染名不得与任一节点有效渲染名、proxy_groups.name、强制组名「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复，冲突 409**；host/port 校验；protocol 在注册表；按注册表 field schema 校验 protocol_json；敏感字段值加密。
      - 敏感字段存储格式统一 `"enc:v1:" + base64.RawURLEncoding(...)`，加解密复用 `config.Encrypt/Decrypt`（签名密钥从 config 读取；测试用固定密钥）。`decryptProtocolJSON` 在渲染/读取时恢复明文；**列表接口不返回凭据明文**（敏感字段返回空串/`***`，按 UI 脱敏口径）。
-     - `UpdateManual`：名称只读（请求带 name 且与库不一致 → 400）；编辑回显凭据字段空值 = 保留原密文；其余字段按新值替换；**协议允许变更，变更等价整体重新填表、不保留不兼容旧字段（凭据字段仍按「留空=保留原凭据」）**（Design2Report11 定稿，Design2 §3.2 已同步回写）。
+     - `UpdateManual`：名称只读（请求带 name 且与库不一致 → 400）；编辑回显凭据字段空值 = 保留原密文；其余字段按新值替换；**协议允许变更，变更等价整体重新填表、不保留不兼容旧字段（凭据字段仍按「留空=保留原凭据」）**（DesignReport10 定稿，Design2 §3.2 已同步回写）。
      - `SetDisplayName(ctx, id, displayName)`：**仅 source=xray**（manual 400）；空串 → 写 NULL（清空回退 name）；非空走名称字符集校验 + **有效渲染名唯一（排除自身，表达式唯一索引兜底）** + **跨命名空间校验（不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名重复）**；冲突 409；本 Build 仅落库，不触发任何 Xray 推送/候选集重算。
      - `SetEnabled`/`SetPublic`：`source=xray` 行才允许 is_public；`is_public=1` 仅 `allocatable=1 AND missing=0`；非法切换 400。本 Build 仅落库，副作用钩子留接口 `onXrayChanged func(ctx, node, oldEnabled, oldPublic)`（Build6 注入）。
      - `Delete`：`source=xray` 且 `missing!=1` 拒绝（400，文案「请先删除 Xray 入站并刷新节点检测」）；manual 可直接删除。
@@ -281,7 +281,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 
   1. **`backend/internal/assembly/models.go`**：定义
      - `TargetSyntax` 常量 `clash-yaml/sr-subs/generic-subs/sr-conf`。
-     - `PoolSelection { PoolID int64; Target string }`（有序数组）、`RuleLine { RuleType, MatchValue, Target string }`、`GenerateInput { TargetSyntax; PlatformID; RuleID; FixedParams map[string]any; NodeNames []string; GroupNames []string; OverseasMembers []string（**仅允许节点稳定名 `nodes.name`，不接受子组引用，Design2Report10 Q8**）; Pools []PoolSelection; CustomRules []RuleLine; FinalDirection string }`。
+     - `PoolSelection { PoolID int64; Target string }`（有序数组）、`RuleLine { RuleType, MatchValue, Target string }`、`GenerateInput { TargetSyntax; PlatformID; RuleID; FixedParams map[string]any; NodeNames []string; GroupNames []string; OverseasMembers []string（**仅允许节点稳定名 `nodes.name`，不接受子组引用，DesignReport9 Q8**）; Pools []PoolSelection; CustomRules []RuleLine; FinalDirection string }`。
      - `RenderResult { Content []byte; Skipped []SkipItem; RenderPlan json.RawMessage }`；`SkipItem { Kind, Name, Reason string }`。
      - **蓝图列映射**（`assembly_blueprints`，Design2 §5.9）：`fixed_params_json` = 头部表单值（SR conf 含 FINAL 方向）；`selection_json` = 节点勾选（xray 节点按 `nodes.name` 稳定键）+ 代理组勾选 + 素材池**有序数组**（含每池目标）+ 强制组「🌎国外流量」成员配置 + **Xray 候选集**；`custom_rules_json` = 手动补充规则行；`render_plan_json` = Clash 结构化渲染计划（头部 / manual proxies / proxy-groups 结构 / rules / 兜底规则）。重新编辑（Step 4 `getBlueprint` / Step 6 重编辑流）从四列恢复全部表单。
   2. **`backend/internal/assembly/load.go`**：上下文加载（只读）——按名称（`nodes.name` 稳定键）读节点（含解密后的 protocol_json 与 display_name）、代理组定义、素材池全部条目（按 sort_order）、平台/规则目标校验；节点对象提供 `renderName()`（display_name 非空则用之，否则 name）。
@@ -297,7 +297,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `sr-subs`：明文 = `STATUS={}` + `REMARKS={}` + 逐行节点链接 +（如勾选 xray 节点）`# {{xray_nodes}}`。
      - `generic-subs`：明文 = 逐行标准节点链接 +（如勾选 xray 节点）`# {{xray_nodes}}`；无头部行。
      - **链接渲染**统一在 `links.go`：每个可转协议一个函数，输入节点+凭据 map，输出 URI；无映射返回 SkipItem。
-  5. **`backend/internal/assembly/links.go`**：链接编码规则严格按 [Node-Link-Standards.md](./docs/Reference/Node-Link-Standards.md) 二/四章与 Design2 §4.5 实现：
+  5. **`backend/internal/assembly/links.go`**：链接编码规则严格按 [Node-Link-Standards.md](../../Reference/Node-Link-Standards.md) 二/四章与 Design2 §4.5 实现：
      - 公共：节点名统一取 `renderName(node)`，经 `url.QueryEscape`（或 encodeURIComponent 等价）作为 `#fragment`/remarks；域名非 ASCII 转 punycode（`golang.org/x/net/idna`，已在依赖图）；参数值用 `url.Values.Encode` 后把 `+` 替换为 `%20`（避免空格不对称）。
      - ss（SIP002）：`ss://base64(cipher:password)@host:port#name`（标准 base64，与样例一致）。
      - vmess-SR：`vmess://base64("auto:{uuid}@{host}:{port}")?remarks={name}&udp=1&alterId=0`（manual 节点无 UUID 时用 protocol_json.uuid）。
@@ -308,7 +308,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - **不可转协议**：snell/mieru/masque/openvpn/ssh/shadowquic/trusttunnel/tailscale → `SkipItem{Kind:"node", Name:..., Reason:"协议无标准链接映射"}`。
   6. **`backend/internal/assembly/validate.go`**：
      - 输入存在性与语法目标匹配（clash-yaml→platform product_type=yaml；sr-subs→subs；generic-subs→generic-subs；sr-conf→rule）；**目标平台必须已存在订阅条目，否则 400「请先在订阅管理为该平台创建订阅条目」**。
-     - 规则类型白名单（与 pool 共用校验函数）；**规则目标组必须属于本次渲染输出的代理组集合，其中强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为目标**；**勾选的代理组定义中悬空节点/子组引用拒绝生成（400 定位到具体组）**；**勾选组引用的子组必须属于本次渲染输出集合（强制组或已勾选组），未勾选子组同样拒绝生成并定位「组 X 引用了未勾选的组 Y」**（Design2Report10 Q7）；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**（Design2Report11 定稿：不纳入 §4.4/§5.4 失效项剔除容错）。
+     - 规则类型白名单（与 pool 共用校验函数）；**规则目标组必须属于本次渲染输出的代理组集合，其中强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为目标**；**勾选的代理组定义中悬空节点/子组引用拒绝生成（400 定位到具体组）**；**勾选组引用的子组必须属于本次渲染输出集合（强制组或已勾选组），未勾选子组同样拒绝生成并定位「组 X 引用了未勾选的组 Y」**（DesignReport9 Q7）；**勾选的预设组必须 `type=preset AND enabled=1`，停用预设组拒绝生成（400「预设组已停用，请先启用或移除勾选」）**（DesignReport10 定稿：不纳入 §4.4/§5.4 失效项剔除容错）。
      - **勾选节点可用性校验**：xray 节点必须 enabled=1 / allocatable=1 / missing=0 / 所属实例 enabled=1，否则拒绝生成并提示具体节点（前端已置灰，后端兜底）。
      - 空产物校验：Clash `overseas members` 为空拒绝（文案「『🌎国外流量』组未包含任何节点」）；sr-subs/generic-subs 选中节点为空或转换后有效链接为 0 拒绝。
      - 规则为空允许生成（返回提示而非错误，提示由 Skipped/Warning 携带）。
@@ -379,15 +379,15 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
        1. 校验 + 渲染；
        2. 定位 owner：subscription 类按 platform_id 唯一订阅；sr-conf 按 rule_id；
        3. 构造 `version.TextContent{Name: targetFileName(target), Text: content}`；
-       4. 调用 `versionSvc.CreateVersion(ctx, ownerType, ownerID, src, version.CreateOptions{Activate:false, AfterCreate: func(tx, versionID, content) { return assemblySvc.SaveBlueprintTx(ctx, tx, versionID, in, renderPlan) }})`；**versionID 为 Build4 Step3 回调传入的新 `versions.id`，不是 version_no**（Design2Report10 Q11）；`SaveBlueprintTx` 按 Step 3 蓝图列映射落库：`fixed_params_json`（头部表单值，SR conf 含 FINAL 方向）/ `selection_json`（节点勾选按 `nodes.name` 稳定键、代理组勾选、素材池有序数组含每池目标、强制组「🌎国外流量」成员配置、Xray 候选集）/ `custom_rules_json`（手动补充规则行）/ `render_plan_json`（Clash 渲染计划，见 Step 3）；
+       4. 调用 `versionSvc.CreateVersion(ctx, ownerType, ownerID, src, version.CreateOptions{Activate:false, AfterCreate: func(tx, versionID, content) { return assemblySvc.SaveBlueprintTx(ctx, tx, versionID, in, renderPlan) }})`；**versionID 为 Build4 Step3 回调传入的新 `versions.id`，不是 version_no**（DesignReport9 Q11）；`SaveBlueprintTx` 按 Step 3 蓝图列映射落库：`fixed_params_json`（头部表单值，SR conf 含 FINAL 方向）/ `selection_json`（节点勾选按 `nodes.name` 稳定键、代理组勾选、素材池有序数组含每池目标、强制组「🌎国外流量」成员配置、Xray 候选集）/ `custom_rules_json`（手动补充规则行）/ `render_plan_json`（Clash 渲染计划，见 Step 3）；
        5. 返回 `{version_id, auto_activated, skipped, warnings}`；**前端调用统一 `timeout: 120_000`**。
      - `GET /api/admin/versions/:id/blueprint`：读 assembly_blueprints + 校验引用，返回 `{blueprint, invalid_refs:[{kind,name}], name_changed}`（悬空项标记口径 Design2 §4.4/UI §5.4；`name_changed` 供重新编辑/预览提示）；**重新编辑按四列映射回填全部表单（Step 6 重编辑流）**。
   2. **`backend/internal/version/version.go` 小改**：`Version` 增加 `Blueprint bool`（json `blueprint`）；`ListVersions` SQL 增加 `EXISTS(SELECT 1 FROM assembly_blueprints b WHERE b.version_id = v.id)` 列。
   3. **`backend/internal/server/server.go`**：构造 assembly 服务（注入 store/version/node/proxygroup/pool/cfg/logger），注册路由。
   4. **错误处理**：校验类 400（message 定位到字段/组/池）；目标平台尚无订阅条目 → 400「请先在订阅管理为该平台创建订阅条目」（不自动创建）；目标不存在 404；版本组件错误按既有映射；所有响应统一结构。
-  5. **subs / generic-subs 下载 base64 收口（`backend/internal/download/download.go`）**（Design2 §4.5/§5.7，Design2Report7 Q2）：
+  5. **subs / generic-subs 下载 base64 收口（`backend/internal/download/download.go`）**（Design2 §4.5/§5.7，DesignReport6 Q2）：
      - `ResolveUserDownload` 解析平台唯一订阅后：订阅 `product_type ∈ {subs, generic-subs}` 且当前激活版本为装配生成模板（assembly_blueprints EXISTS）→ **下发前整体 base64 编码**；直接上传内容（无 blueprint）按上传字节原样返回；Clash YAML 不受影响；禁缓存头不变。
-     - 普通用户预览（`PreviewForUser` 用户分支）与管理员预览一致：subs/generic-subs 装配模板均返回**明文原文**（与存储形态一致，base64 仅为下载下发编码，Design2Report11 决策）；直接上传内容原样返回（Design2 §5.7 预览口径）。
+     - 普通用户预览（`PreviewForUser` 用户分支）与管理员预览一致：subs/generic-subs 装配模板均返回**明文原文**（与存储形态一致，base64 仅为下载下发编码，DesignReport10 决策）；直接上传内容原样返回（Design2 §5.7 预览口径）。
      - 本 Step 只实现「无注入的下载 base64」；高级模式注入后重新 base64 由 Build6 Step4 在此路径上叠加，不得重复编码。
   6. **单测**：preview 不产生版本与 blueprint 行；generate 首版 auto_activated=true 且 blueprint 1:1；第二版 auto_activated=false 且未激活；AfterCreate 失败时版本文件与记录回滚；blueprint 悬空引用标记；**subs/generic-subs 装配模板下载返回 base64、直接上传原字节、Clash 不受影响**。
 
@@ -453,7 +453,7 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
      - `TypeTargetStep.vue`：类型只读；目标平台按 product_type 过滤（无匹配时空态引导建平台）；sr-conf 目标规则实体选择（含空实体后缀与新建空规则快捷）。
      - `HeaderStep.vue`：Clash 头部表单（默认值按 `Clash.yaml.template.md` 头部内置常量预填）+「一键采用默认值」ConfirmModal；SR subs STATUS/REMARKS；sr-conf [General]；generic 无头部。
      - `NodesGroupsStep.vue`：manual/xray 双来源分组；**xray 节点显示 render_name，有自定义 display_name 时副行系统名**；allocatable=0 置灰；missing=1 不列；代理组三区块（强制组锁定；预设组勾选；自建组勾选）；「🌎国外流量」成员配置。
-     - `RulesStep.vue`：已勾选池有序列表（拖拽/上移下移）+ 每池目标选择 + 手动规则行；Clash 与 sr-conf 共用，目标控件分别为代理组选择与 PROXY/DIRECT；**Clash 场景手动规则行类型下拉排除 USER-AGENT**（Clash 不支持该类型，Design2 §3.5，Design2Report7 P2-3）。
+     - `RulesStep.vue`：已勾选池有序列表（拖拽/上移下移）+ 每池目标选择 + 手动规则行；Clash 与 sr-conf 共用，目标控件分别为代理组选择与 PROXY/DIRECT；**Clash 场景手动规则行类型下拉排除 USER-AGENT**（Clash 不支持该类型，Design2 §3.5，DesignReport6 P2-3）。
      - `PreviewStep.vue`：`preview` 请求（不落库）→ 纯文本预览；「与当前激活版本对比」开关 → **先调用既有版本预览端点拉取当前激活版本原文** → `DiffView`；跳过项 `a-alert warning` 清单；占位标记旁 Tooltip；`name_changed` 非空时显示「用户下载按当前显示名实时渲染」Tooltip。
      - `GenerateStep.vue` / 回执：生成校验前端预检 + 后端兜底；成功 `a-result`「已入池未生效，请激活」（`auto_activated=true` 时「首个版本已自动激活」）+「去版本管理激活」/「继续装配」。
   6. **重新编辑流**：路由 `?tab={target_syntax}&edit_version_id={id}` → `getBlueprint` 载入 → 顶部 alert「正在重新编辑版本 vN」→ 失效引用红标 + 一键剔除 → 正常生成新版本。
@@ -533,15 +533,15 @@ Step 4+5+6 ──▶ Step 7（分发 UI 与端到端验收）
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-19 | 初始版本：Build5 构建方案（节点/代理组/四类装配器/分发收口），7 个 Step；xray 运行时能力明确划归 Build6/7 |
-| v1.1 | 2026-08-19 | Design2Report5 核验修订：代理组名双向命名空间校验；组类型创建后允许修改；组内容约束收紧为三选一口径；预设组种子回归；停用预设组拒绝装配；preview/generate 统一 120s；NodesGroupsStep 显示名双行展示 |
-| v1.2 | 2026-08-19 | Design2Report7 核验修订：Step4 新增 subs/generic-subs 装配模板下载整体 base64 实现步骤与单测（Q2，基础模式下载可用）；Step6 Clash 手动规则行类型下拉排除 USER-AGENT（P2-3） |
-| v1.3 | 2026-08-19 | Design2Report8 修订：节点/显示名禁止空格（P2-10）；代理组删除影响清单补悬空引用（P2-9）；装配严格校验（悬空引用/未勾选目标/不可用节点/平台无订阅行/强制组可作规则目标，Q10）；preview/generate/blueprint 响应补 skipped/warnings/name_changed（P2-5/P2-7）；预览 diff 复用版本预览端点（P2-6）；benchmark 命令与阈值断言修正（P2-2） |
-| v1.4 | 2026-08-19 | Design2Report9 修订：强制组 emoji 化连锁（约束表/校验常量/渲染伪代码/兜底行/YAML 示例，M4）；名称校验拆 `ValidateNodeName`（禁空格）/`ValidateProxyGroupName`（允许空格）并统一 `CheckRenderNameNamespaceTx` 函数名（M8）；SR conf benchmark 具名 `BenchmarkRenderSrConf10kRules` 与阈值测试、Step7 删重复（M10）；YouTube 示例组类型改 select 与种子一致 |
-| v1.5 | 2026-08-19 | Design2Report10 修订：装配校验补「勾选组引用的子组必须在本次输出集合内」（Q7）；🌎国外流量成员改为仅节点（Q8）；AfterCreate 回调改为传 versions.id（Q11） |
-| v1.6 | 2026-08-19 | Design2Report11 核验修订：用户预览明文口径；协议变更与停用预设组两处决策定稿；assembly_blueprints 四列映射明示；🌎国外流量伪代码去子组；约束表补空格；enabled 1→0 ConfirmModal 与版本空态验收落点；验收 grep 修正；DiffView 整体新增提示；内容形态标签列补齐 |
+| v1.1 | 2026-08-19 | DesignReport5 核验修订：代理组名双向命名空间校验；组类型创建后允许修改；组内容约束收紧为三选一口径；预设组种子回归；停用预设组拒绝装配；preview/generate 统一 120s；NodesGroupsStep 显示名双行展示 |
+| v1.2 | 2026-08-19 | DesignReport6 核验修订：Step4 新增 subs/generic-subs 装配模板下载整体 base64 实现步骤与单测（Q2，基础模式下载可用）；Step6 Clash 手动规则行类型下拉排除 USER-AGENT（P2-3） |
+| v1.3 | 2026-08-19 | DesignReport7 修订：节点/显示名禁止空格（P2-10）；代理组删除影响清单补悬空引用（P2-9）；装配严格校验（悬空引用/未勾选目标/不可用节点/平台无订阅行/强制组可作规则目标，Q10）；preview/generate/blueprint 响应补 skipped/warnings/name_changed（P2-5/P2-7）；预览 diff 复用版本预览端点（P2-6）；benchmark 命令与阈值断言修正（P2-2） |
+| v1.4 | 2026-08-19 | DesignReport8 修订：强制组 emoji 化连锁（约束表/校验常量/渲染伪代码/兜底行/YAML 示例，M4）；名称校验拆 `ValidateNodeName`（禁空格）/`ValidateProxyGroupName`（允许空格）并统一 `CheckRenderNameNamespaceTx` 函数名（M8）；SR conf benchmark 具名 `BenchmarkRenderSrConf10kRules` 与阈值测试、Step7 删重复（M10）；YouTube 示例组类型改 select 与种子一致 |
+| v1.5 | 2026-08-19 | DesignReport9 修订：装配校验补「勾选组引用的子组必须在本次输出集合内」（Q7）；🌎国外流量成员改为仅节点（Q8）；AfterCreate 回调改为传 versions.id（Q11） |
+| v1.6 | 2026-08-19 | DesignReport10 核验修订：用户预览明文口径；协议变更与停用预设组两处决策定稿；assembly_blueprints 四列映射明示；🌎国外流量伪代码去子组；约束表补空格；enabled 1→0 ConfirmModal 与版本空态验收落点；验收 grep 修正；DiffView 整体新增提示；内容形态标签列补齐 |
 | v1.7 | 2026-08-20 | Build5 执行完成：Step1~7 全部验收通过；manual 节点/代理组/装配内核/HTTP 端点/前端节点与代理组页/装配页/分发 UI 收口已实现，benchmark 达标 |
 | v1.8 | 2026-08-20 | Build6 衔接注记（用户决策）：links.go 中非导出的 srLink/genericLink 及辅助函数将在 Build6 Step4 抽取到 `assembly/links` 共享子包并导出，供 assembly 与 download 两包复用（仅结构调整，渲染行为不变） |
 | v1.9 | 2026-08-20 | Build6 衔接注记（第二轮构建前核验）：① `SaveBlueprintTx` 的 `selection_json.xray_candidates` 当前恒写空数组，将在 Build6 Step2 修补为按生成时勾选节点中 source='xray' 子集填充；② `render_clash.go` 的 render plan 当前仅存引用（节点名/组名/池引用），不满足本 Build Step3「自包含可无状态重建全文」要求，将在 Build6 Step4 前置修补为 manual proxies 完整条目 + 组生成时点结构 + 冻结规则行（版本快照语义，Design2 §2.5）；两项已记录为 Issue2 R14-07/R14-06，**修复时机经用户决策：随 Build6 Step2/Step4 实施时修** |
 | v1.10 | 2026-08-20 | Build6/7 事前预检衔接注记：Issue2 R14-03/R14-04/R14-05 的链接缺口（anytls/tuic/wireguard/hysteria/hysteria2/vless/vmess/trojan 参数白名单、空查询 `?`、http/socks5 空凭据 userinfo）经用户确认须关闭；**实施 Build6 Step4 抽取 `assembly/links` 共享子包前先在本 Step3 links.go 补齐上述参数与形态并补 registry↔渲染一致性单测**（Build6 v2.1 已同步钉死） |
-| v1.11 | 2026-08-20 | 第三轮事后验收用户决策落盘：Build5 Step2~7 因 Issue2 R14 未关闭项未完全达标，状态回退为 ◧ 修复收口中（Step1 保持 ✅）；用户决策先执行 Build4/5 修复收口，清单见 Issue2 附件优先级 0 与 AchievedDocuments/BuildReport1.md |
+| v1.11 | 2026-08-20 | 第三轮事后验收用户决策落盘：Build5 Step2~7 因 Issue2 R14 未关闭项未完全达标，状态回退为 ◧ 修复收口中（Step1 保持 ✅）；用户决策先执行 Build4/5 修复收口，清单见 Issue2 附件优先级 0 与 docs/reports/BuildReport/BuildReport1.md |
 | v1.12 | 2026-08-20 | Build4/5 修复收口完成：Issue2 R14 相关未关闭项已关闭，N3 前端单测已补齐（新增 NodesView/ProxyGroupsView spec）；Build5 Step2~7 恢复为 ✅ 验收通过。R14-06/R14-07 仍按用户决策随 Build6 Step4/Step2 实施。验证：后端 `go build/vet/test ./...`、前端 `npm run build` + `npm test`（45 passed）通过。 |
