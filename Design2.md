@@ -53,7 +53,7 @@
 
 ### 2.4 同步机制
 
-- **触发方式**：手动触发为主（点击「同步」）；每个池可选开启定时自动同步（**每日执行，每池可配执行时刻，默认凌晨 04:00 低峰，按 UTC**——与 5.8 流量月界口径一致；进程内 ticker 检查到期池执行）；**停机错过不补偿**：错过当日执行时刻则等待下一周期，不做补跑；**同步执行采用异步任务 + 轮询模式**（提交任务后前端轮询状态查询端点，避免同步耗时超过前端请求超时；任务记录持久化于 pool_sync_tasks，服务重启时将 running 任务置 failed，任务端点见 5.9/5.10）
+- **触发方式**：手动触发为主（点击「同步」）；每个池可选开启定时自动同步（**每日执行，每池可配执行时刻，默认凌晨 04:00 低峰，按 UTC**——与 5.8 流量月界口径一致；进程内 ticker 检查到期池执行）；**启动补跑**：服务启动时补跑“今日应跑但停机错过”的池，且与当前分钟命中去重，避免同一池重复提交；**同步执行采用异步任务 + 轮询模式**（提交任务后前端轮询状态查询端点，避免同步耗时超过前端请求超时；任务记录持久化于 pool_sync_tasks，服务重启时将 running 任务置 failed，任务端点见 5.9/5.10）
 - **同步更新语义（差量 + 来源隔离）**：URL 同步仅对 **url 来源**条目做差量更新——按本次同步结果新增/更新，源中已消失的行删除；**既有条目 sort_order 不被改写，新增条目追加至 url 段末尾**（见 2.2）；**manual 来源条目永不受同步影响**；事务批量 UPSERT + 差量删除，支持数万行规模（暂不增加条目来源 URL 追踪列，origin_url 不纳入本期）
 - **数万行规模应对**：条目去重索引 UNIQUE(pool_id, rule_type, match_value)；批量写入事务化；条目管理页分页展示（不整表加载）；装配时读池内全部条目拼接（规则行数达数万时产物文件体积可接受，无额外限制）
 - **约束**：拉取超时预设 1 分钟；内容大小上限 50MB；目标地址不设白名单限制——安全边界由部署者自行决策（**仅做 http/https scheme 与基本合法性校验**，DesignReport10 确认）
@@ -88,6 +88,7 @@ Clash YAML 与 Shadowrocket .conf 订阅语法与产物形态均不同：Clash �
 - **跨命名空间校验**：有效渲染名不得与任何 `proxy_groups.name`、强制组名「🚀直接连接」「🌎国外流量」「🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT」「REJECT」「REJECT-DROP」「PASS」「COMPATIBLE」重复（Clash 的 proxies 与 proxy-groups/内建代理共享名称空间）；manual 节点创建、xray display_name 编辑与检测入库统一按此校验
 - **协议可扩展注册**：协议类型不硬编码——应用层维护协议注册表（表单 schema + SR/标准链接映射规则 + **每协议敏感字段清单**：uuid / password / private-key 等凭据字段，仅清单内字段加密存储与解密渲染；**编辑回显时密文字段空值 = 保留原凭据**，见 5.9），节点 protocol 存字符串（无硬编码枚举 CHECK，由应用层按注册表校验）；Clash YAML 按存储字段原样渲染天然支持新协议（零转换）；SR/标准节点链接按注册表映射转换，无映射的协议跳过并提示（同 4.5 口径）；新增协议仅需扩展注册表，无 schema 迁移；**manual 节点编辑允许变更协议：协议变更等价整体重新填表、不保留不兼容旧字段**（凭据字段仍按「编辑回显留空=保留原凭据」口径，DesignReport10 决策）
 - 协议范围：manual 来源支持 19 项代理协议封闭清单（见上表；ssr 与模板中的 gost-relay / hysteria2-realm / socks / sudoku 除外，见 4.5 与 [DesignReport6.md](docs/reports/DesignReport/DesignReport6.md) Q1）；**xray 来源支持 vless / vmess / trojan / shadowsocks 四协议**（Xray UserManager 用户增删 API 的源码能力边界）；检测到的其他协议 inbound（无 per-user 能力）以 **nodes.allocatable=0** 标记不可分配并在 UI 提示；**allocatable=0 节点禁止组分配、禁止 is_public、排除在推送与下载注入之外**（见 5.9）
+- **manual 节点 URI 批量导入**：节点管理页支持粘贴多行 URI 或整块 Base64 订阅文本批量创建 manual 节点，覆盖 ss / vmess（V2rayN JSON 与 Shadowrocket 形态）/ vless（标准与 SR base64 userinfo）/ trojan / anytls / hysteria2 / hysteria / tuic / wireguard / http(s) / socks5；解析失败逐行跳过并回执，按节点名去重（与已有节点同名跳过且不覆盖）；ssr 等无 URI 映射协议不纳入导入。
 
 ### 3.3 代理组（Clash）
 
@@ -98,7 +99,8 @@ Clash YAML 与 Shadowrocket .conf 订阅语法与产物形态均不同：Clash �
 - **强制组落库口径**：三个强制组为系统内置渲染结构（**不入 proxy_groups 表**、代理组管理页不管理，见 Design2-UI.md §7.3）；「🚀直接连接」内含 DIRECT、「🛟无法归属的流量」为 MATCH 兜底目标；**「🌎国外流量」组成员在装配器步骤③从本次装配候选节点勾选，并随装配快照保存**（selection_json / render_plan_json），重新编辑自快照恢复；装配结果恒为三强制组 + 管理员勾选的预设/自建组（勾选 D 得 ABCD，不勾任何可选组仅得强制组）；下载渲染按用户可用节点过滤各组成员（见 5.7），强制组不与特定用户绑定
 - **预设组库**：内置参考 `Clash.yaml.template.md` 个人配置的可选组（🎬YouTube / 🍿Netflix / 🍻哔哩哔哩 / 📽️国外流媒体 / 🍎苹果海外服务 / 🍏苹果国内服务 / 🤖AI / 🎮Steam / 🧩Steam下载，**组名与模板逐字一致，含 emoji 前缀**），管理员勾选启用（**启用状态持久化于 proxy_groups.enabled，预设组默认启用**），作为更丰富的细节化配置；**强制组与预设组名均与 `Clash.yaml.template.md` 模板逐字一致（含 emoji 前缀）**；**种子数据写入名称 + 组类型 + 默认成员「🚀直接连接」**，保证任何勾选都非空，管理员可后续编辑成员；**装配勾选到已停用预设组（enabled=0）时拒绝生成（400「预设组已停用，请先启用或移除勾选」），不纳入 4.4 失效项剔除容错（DesignReport10 决策）**
 - **自建组**：支持管理员自定义新建代理组
-- **组类型（Clash proxy-group 类型）**：组定义含类型字段，枚举 **select / url-test / fallback**（其他类型如 load-balance 按需 Build 期扩展）；自建组创建时选择类型（默认 select），预设库组类型与 `Clash.yaml.template.md` 作者配置保持一致（YouTube=select）；渲染时 proxy-group 按定义类型输出；**组类型创建后允许修改**（name/preset_key 不可改；历史装配快照保持生成时类型，新生成版本使用新类型）
+- **组类型（Clash proxy-group 类型）**：组定义含类型字段，枚举 **select / url-test / fallback / load-balance / relay**；自建组创建时选择类型（默认 select），预设库组类型与 `Clash.yaml.template.md` 作者配置保持一致（YouTube=select）；渲染时 proxy-group 按定义类型输出；**组类型创建后允许修改**（name/preset_key 不可改；历史装配快照保持生成时类型，新生成版本使用新类型）
+- **组高级字段**：自建/预设组支持 mihomo 扩展字段，包括 `use`（Provider 引用）、`url` / `expected-status` / `interval` / `timeout` / `max-failed-times`（健康检查）、`lazy` / `disable-udp` / `interface-name` / `routing-mark`、`filter` / `exclude-filter` / `exclude-type`、`include-all` / `include-all-proxies` / `include-all-providers`、`hidden` / `icon`；保存与渲染时按组类型允许范围校验。
 - **持久化**：代理组定义存全局 `proxy_groups` 表（见 5.9），与装配快照分离；预设组库以种子数据随迁移内置（参考 `Clash.yaml.template.md`），管理员自建组入库同表；装配快照记录预设/自建组的勾选引用**与强制组「🌎国外流量」的成员配置**（见强制组落库口径）
 - **名称不可修改与字符集**：proxy_groups.name 创建后不可修改（前端只读、后端拒绝改名）；名称禁止控制字符、逗号与首尾空白，允许中文/emoji（见 5.9）
 - **组内容约束**：每个代理组须至少包含节点、「🚀直接连接」组、「🌎国外流量」组三者之一；管理员可勾选此前添加过的节点；各组可再包含「🚀直接连接」「🌎国外流量」组作为可切换项（同个人配置形态）；**子组引用必须构成 DAG**（保存时校验，禁止环形引用）；**装配生成时，勾选组引用的子组也必须属于本次输出集合（强制组或已勾选组），否则拒绝生成并定位提示**（DesignReport9 Q7）
@@ -121,8 +123,8 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 - 管理员勾选规则素材池（可另加手动补充规则行）并指定目标后，系统逐条拼接规则行：`规则类型,匹配值,目标`；**拼接顺序：已勾选池按序拼接在前，手动补充规则行追加在所有池之后**（DesignReport9 Q12-10）
   - Clash 的目标为管理员指定的代理组名；Shadowrocket 的目标为 PROXY / DIRECT
   - 例：勾选「苹果域名」池指向「苹果国内服务」组 → `- DOMAIN-SUFFIX,aaplimg.com,🍏苹果国内服务`（`full:` 前缀解析的条目渲染为 `DOMAIN,...`）
-- **规则类型支持**：DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / IP-CIDR / IP-CIDR6 / PROCESS-NAME / PROCESS-NAME-REGEX；**USER-AGENT 为 Shadowrocket 专属类型**（如 `USER-AGENT,AppleNews*,PROXY`）；**Clash YAML 装配时跳过 USER-AGENT 条目并在预览/生成结果中列出提示**（Clash 不支持该类型，与 4.5 不可转协议跳过提示同口径）
-- **IP 规则**：IP-CIDR / IP-CIDR6 规则行一律附加 `no-resolve`
+- **规则类型支持**：以 mihomo/CVR 规则全集为共享元数据（`internal/rulespec`），当前支持 34 类：DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / DOMAIN-REGEX / GEOSITE / GEOIP / SRC-GEOIP / IP-ASN / SRC-IP-ASN / IP-CIDR / IP-CIDR6 / SRC-IP-CIDR / IP-SUFFIX / SRC-IP-SUFFIX / SRC-PORT / DST-PORT / IN-PORT / DSCP / PROCESS-NAME / PROCESS-PATH / PROCESS-NAME-REGEX / PROCESS-PATH-REGEX / NETWORK / UID / IN-TYPE / IN-USER / IN-NAME / SUB-RULE / RULE-SET / AND / OR / NOT / MATCH / USER-AGENT；**USER-AGENT 为 Shadowrocket 专属类型**（如 `USER-AGENT,AppleNews*,PROXY`）；**Clash YAML 装配时跳过 USER-AGENT 条目并在预览/生成结果中列出提示**（Clash 不支持该类型，与 4.5 不可转协议跳过提示同口径）；AND/OR/NOT 逻辑规则支持括号配平解析；SR 分流规则使用 SR 支持子集（DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / GEOIP / IP-CIDR / IP-CIDR6 / PROCESS-NAME / PROCESS-NAME-REGEX / USER-AGENT）
+- **no-resolve 规则**：具备该元数据的规则类型（如 GEOIP / IP-CIDR / IP-CIDR6 / IP-ASN / IP-SUFFIX / RULE-SET 等）渲染时自动附加 `no-resolve`，与 mihomo 规则语义一致
 - DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD 两端逻辑通用，语法差异由渲染层映射，管理员只维护一套勾选
 - 输出始终为纯文本；预览遵循 Design1.md 3.4.1「纯文本/代码视图渲染，禁止 HTML」；控制字符按 Design1.md 6.3 输入安全口径处理
 
@@ -153,6 +155,9 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 4. Clash YAML 与 SR 分流规则：勾选规则素材池（**已勾选池为有序列表，按序渲染**，见 3.5）并指定目标（见 2.5），可手动补充规则行；SR 节点订阅与通用节点订阅：跳过本步（subs 不含规则）
 5. 预览：全文纯文本渲染，可与当前激活版本做 diff 对比（文本差异高亮，前端实现，**采用 jsdiff**（npm diff 包：轻量行级 diff，前端自渲染三色高亮；选型已定），避免引入 monaco 等重型编辑器）；SR subs / generic-subs 装配产物预览直接显示明文原文（装配模板按明文存储，见 5.7）；**空产物硬校验**（拒绝生成）：Clash YAML 装配强制组（尤其「🌎国外流量」）至少含 1 个节点，SR 节点订阅与通用节点订阅至少勾选 1 个节点且**转换后有效链接数必须 ≥1**，否则拒绝生成并提示具体原因（空 select 组/空节点列表/全部不可转会导致客户端加载失败，见 3.3/4.5）；规则为空允许生成（见 3.6 兜底规则仍有效）并在预览中提示
 6. 确认生成 → 事务创建对应实体的新版本（写渲染产物文件 + 保存生成参数快照 + 更新版本列表）；**新版本仅入池不自动生效**（subs / generic-subs / YAML 入订阅地址池、conf 入规则实体），由管理员显式分发（见 4.4 首次入池自动激活例外条款）
+
+- **Clash YAML 输出与自检**：Clash YAML 统一使用 `goccy/go-yaml` 序列化（保持键序、输出真实 UTF-8 emoji、注释用 CommentMap）；预览/生成前执行 `CheckClashContent` 静态自检（CVR 导入兼容、节点/组/规则引用、必填字段与规则元数据校验），自检失败时阻断生成。
+- **版本文件原子写入**：版本内容使用同目录临时文件 + `rename` 原子替换写入，避免半写文件；装配生成版本同时写入 blueprint 快照与渲染计划，供下载重渲染和重新编辑使用。
 
 ### 4.2 配置头部表单与默认值
 
@@ -193,7 +198,7 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 - **分流规则（conf）**：.conf 正文以纯文本下发（无特殊编码）
 - **ssr 协议不纳入**：manual 节点协议范围不含 ssr——生态无可靠的 SSR 链接生成参照（urlclash-converter 对 SSR 只收不生成、静默丢弃），自研编码无验证基准，故移除；gost-relay / hysteria2-realm / socks / sudoku 同因不纳入（19 协议封闭清单，见 3.2 与 [DesignReport6.md](docs/reports/DesignReport/DesignReport6.md) Q1）
 - **空产物校验**：SR subs 与 generic-subs 在跳过不可转协议后有效链接数为 0 时，按空产物拒绝生成（见 4.1）
-- 三类下载端点均返回禁缓存头（`no-store` 等，AGENTS §4.5）
+- **下载响应头**：三类下载端点均返回禁缓存头（`no-store` 等，AGENTS §4.5）；下载文件名使用 `Content-Disposition` 同时输出 ASCII `filename` 与 RFC 5987 `filename*=UTF-8''...`（Clash Verge 等客户端优先读取后者）；平台附加头与系统注入头（`profile-update-interval` / `profile-web-page-url` / 高级模式 `subscription-userinfo`）按既有语义合并，系统动态文件名覆盖旧模板值。
 
 ---
 
@@ -373,7 +378,7 @@ groups（+ default_quota 默认月度配额 GB）
 | `pool_entries`（新增） | id, pool_id, rule_type, match_value, **source（url/manual）**, **sort_order（渲染顺序，系统维护：manual 段按创建序、url 段按同步首次出现序；同步不改写既有排序，见 2.2）**；**UNIQUE(pool_id, rule_type, match_value)**（2.2 去重合并） | 素材池条目；入库前白名单校验（2.3）；**URL 同步仅差量更新 url 来源，manual 条目永不受影响**（2.4）；渲染按 sort_order 输出（分流规则顺序有语义，见 2.2/3.5）；外键 ON DELETE CASCADE（池删除级联） |
 | `xray_instances` | id, **name（UNIQUE）**, **slug（UNIQUE，`instance-` 前缀短码；xray 节点稳定名 {实例slug}-{入站tag} 的实例 slug 来源）**, api_addr, api_tag, enabled, **last_collect_at / collect_status / collect_error**（采集状态与告警，见 5.8） | 实例（建议 1-5 台，不硬限制），api_addr 为 TCP 地址（IP 白名单防护）；api_tag 为展示/日志/导出标签，gRPC 定位用 api_addr、入站定位用 nodes.tag；**enabled=0 时该实例暂停管理：不参与节点检测、推送/移除、流量采集与下载注入，既有 Xray 账号保留；重新启用后恢复同步，暂停期间遗漏的变更由实例级对账兜底**（见 5.5/5.7/5.8/5.10）；**被 xray_users.instance_id 与 nodes.instance_id 外键引用（ON DELETE CASCADE，见下行与 xray_users 行）**；**纳入配置导入导出**（format_version=2；**导出全字段 name/slug/api_addr/api_tag/enabled 与节点命名映射 nodes（[{tag, display_name}]，仅非空显示名导出），导入时 slug 原样沿用、不重新生成；导入完成节点检测后按 (slug, tag) 回填 nodes.display_name，未匹配映射计入完成提示**；**导入语义：整体覆盖 xray_instances 表**——事务前收集旧实例连接信息（api_addr / api_tag）与 xray_users / xray_ext_users 清单，事务内删除既有实例行（xray_users / nodes / group_nodes 随 FK 级联清理）并按导出内容重建，事务提交后对旧实例 best-effort RemoveUser（含面板用户与独立账号推送记录；不可达跳过并记 warn）；导入确认与完成提示列出「组节点分配将被级联清空，导入后需重新分配」，完成后执行节点检测刷新、账号对账补推与装配快照 xray 引用按名称重绑；traffic_records 等不引用实例的表不受影响；**advanced_mode 配置键随 payload 配置键整体覆盖导入（带实例/账号且 off 时自动置 true；off 且无实例/账号时执行 OFF 清空）**；**导入保护：向已配置系统导入时若 signing_key 将变化且存在任一业务密文（users.uuid_encrypted / users.proxy_secret_encrypted / nodes.protocol_json 凭据字段 / xray_ext_accounts.uuid_encrypted / xray_ext_accounts.proxy_secret_encrypted），拒绝导入并提示「配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复」**） |
 | `nodes` | id, source（**CHECK 仅 manual/xray**）, **name（全局唯一，稳定引用键；manual 节点同时用作渲染名）**, **display_name（可空，仅 source=xray 有效）**, instance_id（**xray 来源必填 REFERENCES xray_instances(id) ON DELETE CASCADE**，manual 可空）, tag（xray 来源）, **UNIQUE(instance_id, tag)（xray 检测 upsert 唯一键）**, **UNIQUE 表达式索引 idx_nodes_render_name（COALESCE(NULLIF(display_name,''), name)，有效渲染名全局唯一兜底）**, protocol（字符串，**无硬编码枚举 CHECK，由应用层协议注册表校验**（可扩展注册，见 3.2）；xray 来源限 vless/vmess/trojan/shadowsocks 四协议；manual 来源为 §3.2 的 19 项代理协议封闭清单（ssr 及 gost-relay / hysteria2-realm / socks / sudoku 除外，DesignReport9 Q12-10）；**xray ss 节点的 cipher 随 inbound 检测入库**）, host, port, **protocol_json**（协议完整参数，manual 来源为 Clash 原生字段集 JSON；**仅凭据字段（uuid / password / private-key 等，清单由协议注册表定义，见 3.2）以 AES-256-GCM 加密存储，非凭据字段明文**；替代原按协议平铺的 flow/network/path/security/sni/fingerprint 等列）, is_public 默认 0（**仅 source=xray 有效**）, enabled, **allocatable（xray 来源 per-user 能力标记，默认 1；非四协议 inbound 置 0 并在 UI 提示）**, **last_seen_at / missing（Xray 侧已删 inbound 标记，missing=1 时排除在推送与下载注入之外，待管理员处置）** | **统一节点表**：manual 节点由管理员表单录入，xray 节点由实例检测入库；客户端表达字段供节点行渲染（Clash proxies 条目 / SR 节点链接，见 4.5/5.7）；is_public=1 对所有组自动可见（仅 xray）；**nodes.name 创建后不可修改（前端只读、后端拒绝改名）；display_name 仅 source=xray 可编辑（清空=回退 nodes.name，修改实时生效于全部已激活蓝图下载渲染）；两者均禁止控制字符、逗号、空格与首尾空白，允许中文/emoji；有效渲染名（display_name 非空则用之，否则 name）全局唯一，且不得与 proxy_groups.name、强制组名或 Clash/mihomo 内建保留代理名（DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE）重复（表达式唯一索引兜底节点间冲突）；检测 upsert 不覆盖/不清空 display_name，生成的 `{实例slug}-{入站tag}` 若含非法字符或与任一节点有效渲染名撞名，记错误日志并跳过该 inbound，不中断其余检测、不崩溃退出**；**xray 来源节点的 host 取所属实例 api_addr 的 host 部分**（自托管场景 api_addr 通常即公网地址，DesignReport10 决策）；**xray 检测归一时 REALITY 私钥不落库，仅写入推导公钥 `public_key`**（DesignReport10 安全口径） |
-| `proxy_groups` | id, **name（UNIQUE）**, type（preset/custom）, preset_key（预设组标识，可空）, **enabled（预设组启用状态，默认 1，仅 preset 类型有效，控制装配器预设组库可勾选性；自建组恒启用）**, definition_json（**组类型（Clash proxy-group 类型：select/url-test/fallback，见 3.3）**、有序节点引用与子组引用；**节点引用按 nodes.name 稳定引用键（不使用 display_name）、子组引用按 proxy_groups.name；渲染/下载时按当前有效渲染名输出，导入/重检测后同名恢复，失配按悬空容错**；**引用关系校验为 DAG**；**name 创建后不可修改，名称禁止控制字符、逗号与首尾空白，允许中文/emoji；创建时执行与节点有效渲染名/强制组名/Clash-mihomo 内建保留代理名的跨命名空间校验**） | Clash 代理组全局定义：预设库以种子数据随迁移内置（参考 `Clash.yaml.template.md`，见 3.3）；管理员自建组入库同表；装配快照仅记录勾选引用 |
+| `proxy_groups` | id, **name（UNIQUE）**, type（preset/custom）, preset_key（预设组标识，可空）, **enabled（预设组启用状态，默认 1，仅 preset 类型有效，控制装配器预设组库可勾选性；自建组恒启用）**, definition_json（**组类型（Clash proxy-group 类型：select/url-test/fallback/load-balance/relay，见 3.3）**、有序节点引用与子组引用；**节点引用按 nodes.name 稳定引用键（不使用 display_name）、子组引用按 proxy_groups.name；渲染/下载时按当前有效渲染名输出，导入/重检测后同名恢复，失配按悬空容错**；**引用关系校验为 DAG**；**name 创建后不可修改，名称禁止控制字符、逗号与首尾空白，允许中文/emoji；创建时执行与节点有效渲染名/强制组名/Clash-mihomo 内建保留代理名的跨命名空间校验**） | Clash 代理组全局定义：预设库以种子数据随迁移内置（参考 `Clash.yaml.template.md`，见 3.3）；管理员自建组入库同表；装配快照仅记录勾选引用 |
 | `rules`（改） | + **is_home_default**（默认 0） | 首页默认分流规则：至多一条 =1（partial unique index）；规则管理页选择框设置，切换时事务内清旧置新；选中规则删除后首页卡片回到未设置空态 |
 | `group_nodes` | **PK(group_id, node_id)**, group_id, node_id, sort_order | 组 ↔ 节点分配（替代 group_selections；**仅 xray 来源节点可分配**，见 5.6）；sort_order 为组内顺序，UI 可调；外键 ON DELETE CASCADE（**group_id / node_id 双侧**：组删除与节点删除均级联清理分配记录，见 5.6/5.7） |
 | `groups`（改） | + default_quota（REAL，可空） | 组默认月度配额（**NULL 或 0 = 不限流量**） |
