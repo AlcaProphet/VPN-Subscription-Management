@@ -19,7 +19,6 @@ import { buildImportUrl } from '@/utils/importUrl'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import AppHeader from '@/components/AppHeader.vue'
-import CopyField from '@/components/CopyField.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
 import { me } from '@/api/auth'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -85,7 +84,16 @@ const trafficColor = computed(() => {
 })
 
 // --- 分流规则卡 ---
-// 复制规则链接统一使用 CopyField（R14-17）
+async function copyRuleLink() {
+  const url = homeRule.value?.download_url
+  if (!url) return
+  try {
+    await navigator.clipboard.writeText(url)
+    Notify.success('规则链接已复制')
+  } catch {
+    Notify.error('复制失败，请手动复制')
+  }
+}
 
 // --- 平台卡操作 ---
 const isUserBound = (card: PlatformCard) => card.status === 'ready' || card.status === 'custom'
@@ -190,20 +198,20 @@ const custom = (card: PlatformCard) => card.status === 'custom'
 
         <!-- 2) 分流规则卡片（全体用户可见） -->
         <Card class="mb-4 shadow-sm dark:text-gray-100" hoverable @click="router.push('/rules')">
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <div>
-              <div class="font-medium">分流规则</div>
-              <div v-if="homeRule" class="text-sm text-gray-500">
-                {{ homeRule.name }} · v{{ homeRule.current_version }}
+          <template v-if="homeRule">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <div class="font-medium">分流规则</div>
+                <div class="text-sm text-gray-500">{{ homeRule.name }} · v{{ homeRule.current_version }}</div>
               </div>
-              <div v-else class="text-sm text-gray-400">管理员暂未设置分流规则</div>
-              <div class="text-xs text-gray-400 mt-1">
-                Shadowrocket 使用指引：先添加订阅获取节点，再导入分流规则
+              <div @click.stop>
+                <Button type="primary" @click="copyRuleLink">复制规则链接</Button>
               </div>
             </div>
-            <div v-if="homeRule" @click.stop>
-              <CopyField :value="homeRule.download_url" label="规则链接" />
-            </div>
+          </template>
+          <div v-else class="text-center py-6">
+            <div class="text-lg font-semibold">分流规则为 Shadowrocket 客户端专用</div>
+            <div class="text-sm text-gray-400 mt-2">使用指引：先添加订阅获取节点，再导入分流规则</div>
           </div>
         </Card>
 

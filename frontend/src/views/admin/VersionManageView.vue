@@ -304,7 +304,7 @@ function fmtTime(ts: string): string {
               <Space>
                 <Button size="small" @click="doPreview(record.version_no)">预览</Button>
                 <Button size="small" @click="openEdit(record.version_no)">编辑</Button>
-                <Button v-if="record.blueprint" size="small" type="link" @click="reEdit(record)">重新编辑</Button>
+                <Button v-if="record.blueprint" size="small" @click="reEdit(record)">重新编辑</Button>
                 <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">{{ switchLabel }}</Button>
                 <Tooltip v-else title="当前激活版本不可删除，请先切换">
                   <Button size="small" danger disabled>删除</Button>
