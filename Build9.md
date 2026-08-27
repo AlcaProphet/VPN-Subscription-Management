@@ -1,9 +1,9 @@
 # Build9.md — VPN 订阅管理系统 当前构建方案（Clash Verge Rev 深度借鉴轮）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**下一轮当前构建方案**，承接已验收的 [Build8.md](Build8.md)（当前活跃）、已归档的 [docs/reports/Build/Build4~7](docs/reports/Build)，并基于：
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案（v1.1 修订中）**，承接已验收的 [Build8.md](Build8.md)、已归档的 [docs/reports/Build/Build4~7](docs/reports/Build)，并基于：
 > - 项目内研究资料：[docs/Reference/Clash-Subscription-Validation-Emoji-API.md](docs/Reference/Clash-Subscription-Validation-Emoji-API.md)、[docs/Reference/Clash-Verge-Rev-Node-Parameters.md](docs/Reference/Clash-Verge-Rev-Node-Parameters.md)、[docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md](docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md)；
 > - 第三方代码仓库：`~/Desktop/Repo/clash-verge-rev`（本地 git 提交 `3503a2da29d68a4398c0b8e9234cffb711e65783`，2026-08-26）；
-> - 当前项目代码与文档（本地 git 提交 `ce22a3143f14c4060689bc2cd806d13731ae3398`，2026-08-26）。
+> - 当前项目代码与文档（本地 git 提交 `c681742`，2026-08-27；此前的 `ce22a31` 已不再代表当前 HEAD）。
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 当前设计：[Design2.md](Design2.md) / [Design2-UI.md](Design2-UI.md)
 > - 当前问题：[Issue7.md](Issue7.md)（R22 系列，部分开放项纳入本 Build 前置修复）
@@ -34,15 +34,15 @@
 | Step | 内容 | 状态 |
 |------|------|------|
 | 0 | 创建 Build9 文档与事实基线 | ✅ 已完成（本文档） |
-| 1 | 前置修复：Issue7 R22-02/03/06/07/08（版本 id、装配 UI、SR-conf 直建规则） | ☐ 未开始 |
-| 2 | Clash 产物静态自检 + YAML Emoji/UTF-8 输出修复 | ☐ 未开始 |
+| 1 | 前置修复：Issue7 R22-02/03/06/07/08（版本 id、装配 UI、SR-conf 直建规则） | ◧ 进行中：R22-02/06/07/08 已实施（a0cd819）；R22-03 仅剩“条件化目标选择区” |
+| 2 | Clash 产物静态自检 + YAML Emoji/UTF-8 输出修复 | ☐ 未开始（Emoji 实现方式待小实验定稿，见 §4.5） |
 | 3 | 订阅响应头语义层与 RFC 5987 文件名（Clash Verge 导入兼容） | ☐ 未开始 |
 | 4 | 节点协议注册表/字段补全 + Clash 渲染与 URI 参数对齐 | ☐ 未开始 |
 | 5 | 规则类型与素材池解析扩展（mihomo 规则全集） | ☐ 未开始 |
 | 6 | 代理组类型与字段扩展（load-balance/relay/use/健康检查等） | ☐ 未开始 |
 | 7 | 分层装配：Merge + Rules/Proxies/Groups 覆盖层（核心借鉴） | ☐ 未开始 |
 | 8 | 节点批量 URI 导入（借鉴 ProxiesEditor 粘贴解析与去重） | ☐ 未开始 |
-| 9 | 素材池同步长事务拆分（Issue7 R22-01）+ 启动补跑 | ☐ 未开始 |
+| 9 | 素材池同步长事务拆分（Issue7 R22-01）+ 启动补跑 | ◧ 进行中：R22-01 短事务/索引已实施；剩余启动补跑 |
 | 10 | 版本文件原子写入与下载渲染覆盖层接线 | ☐ 未开始 |
 | 11 | 前端/测试/文档/smoke 收口 | ☐ 未开始 |
 
@@ -54,7 +54,7 @@
 
 | Step | 涉及文件 | 要点 |
 |------|---------|------|
-| 1 | `backend/internal/version/version.go`、`backend/internal/assembly/{models.go,validate.go,load.go}`、`backend/internal/server/assembly.go`、`frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/{TypeTargetStep.vue,NodesGroupsStep.vue}`、`frontend/src/api/assembly.ts` 及测试 | 修复版本列表 `id=0`；目标选择上移；SR-conf 可直接创建规则；节点步骤 UI 收口 |
+| 1 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/{TypeTargetStep.vue,AssemblerShell.vue}`（其余 R22-02/06/07/08 已实施，见 §4.5） | 剩余仅：R22-03 条件化目标选择区；其余为核验与回归 |
 | 2 | `backend/internal/assembly/{selfcheck.go,yaml_text.go,render_clash.go,service.go,models.go}`、`backend/internal/assembly/*_test.go` | 静态自检、Emoji 还原、预览告警/生成阻断 |
 | 3 | `backend/internal/download/download.go`、`backend/internal/server/download.go`、`backend/internal/platform/platform.go`、`backend/internal/setup/setup.go`、`frontend/src/views/admin/PlatformEditView.vue` 及测试 | RFC 5987 Content-Disposition、profile 头语义校验、系统头优先级 |
 | 4 | `backend/internal/node/{registry.go,node.go}`、`backend/internal/assembly/links/links.go`、`backend/internal/assembly/render_clash.go`、`frontend/src/views/admin/NodesView.vue` 及测试 | 协议字段补全、嵌套敏感字段、数组字段归一化、传输参数链接 |
@@ -62,7 +62,7 @@
 | 6 | `backend/internal/proxygroup/proxygroup.go`、`backend/internal/assembly/{models.go,load.go,clash_plan.go,render_clash.go}`、`frontend/src/views/admin/ProxyGroupsView.vue` 及测试 | 组类型 5 枚举、use/健康检查/过滤等字段、渲染 |
 | 7 | `backend/internal/assembly/{overlay.go,models.go,service.go,render_clash.go,clash_plan.go,blueprint.go}`、`frontend/src/views/admin/assembly/OverlayStep.vue`（新增）、`AssemblyView.vue` 及测试 | 四类覆盖层、控制面保护、清理悬空、排序、蓝图持久化与下载重渲染 |
 | 8 | `backend/internal/uriparse/uriparse.go`（新增）、`backend/internal/node/uri_import.go`（新增）、`backend/internal/server/node.go`、`frontend/src/views/admin/NodesView.vue` 及测试 | URI 批量导入、逐行跳过与去重、事务批量创建 |
-| 9 | `backend/internal/pool/sync.go`、`backend/internal/pool/pool.go`、`backend/internal/cron/pool.go` 及测试 | 同步短事务分批、keep 表索引、启动补跑错过的同步 |
+| 9 | `backend/internal/cron/pool.go` 及测试（`pool/sync.go` 与 `migrations/1014` 已实施，见 §4.5） | 剩余仅：启动补跑今日错过任务；R22-01 短事务/索引已落地 |
 | 10 | `backend/internal/version/version.go`、`backend/internal/server/render.go`、`backend/internal/download/download.go` 及测试 | 版本文件 temp+rename 原子写、Clash 下载渲染应用覆盖层 |
 | 11 | `frontend/src/views/admin/assembly/`、`frontend/tests/`、`.smoke-test.sh`、`.smoke-test-prod.sh`、`Design2.md`、`Design2-UI.md`、`AGENTS.md`、`Issue7.md`、`ProdTestList.md` | UI 集成、专项测试、smoke、文档状态回写 |
 
@@ -72,7 +72,7 @@
 
 ```
 Step 0（本文档）
-  → Step 1（Issue7 前置修复，解锁“重新编辑/覆盖层编辑”）
+  → Step 1（R22-03 条件化目标区收口，其余 R22 已实施）
   → Step 2（输出自检与 Emoji，后续所有 Clash 改动的安全网）
   → Step 3（响应头兼容，可独立，但建议在 2 后）
   → Step 4（节点字段，Step 7/8 依赖其字段模型）
@@ -80,7 +80,7 @@ Step 0（本文档）
   → Step 6（代理组字段，Step 7 覆盖层与渲染依赖）
   → Step 7（分层装配覆盖层，核心）
   → Step 8（URI 导入，依赖 Step 4 注册表）
-  → Step 9（池同步长事务，独立于 7，可与 8 并行观察）
+  → Step 9（池同步启动补跑，独立于 7，可与 8 并行观察）
   → Step 10（版本原子写 + 下载覆盖层接线，依赖 7/9）
   → Step 11（收口）
 ```
@@ -94,7 +94,7 @@ Step 0（本文档）
 | 来源 | 标识/路径 | 说明 |
 |------|-----------|------|
 | 第三方客户端源码 | `~/Desktop/Repo/clash-verge-rev` @ `3503a2d`（2026-08-26） | 本文所有 CVR 事实的第一来源 |
-| 本项目源码 | `~/Desktop/Repo/VPN-Subscription-Management` @ `ce22a31`（2026-08-26） | 当前实现对照 |
+| 本项目源码 | `~/Desktop/Repo/VPN-Subscription-Management` @ `c681742`（2026-08-27） | 当前实现对照；核验时同时参考了 `a0cd819`（R22 系列修复） |
 | Reference 1 | `docs/Reference/Clash-Subscription-Validation-Emoji-API.md` | 导入校验、格式、Emoji、响应头 |
 | Reference 2 | `docs/Reference/Clash-Verge-Rev-Node-Parameters.md` | 节点字段定义 |
 | Reference 3 | `docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md` | 订阅/扩展装配机制 |
@@ -122,7 +122,7 @@ Step 0（本文档）
 17. **URI 导入与去重**：`proxies-editor-viewer.tsx` 多行 URI 粘贴，先 `atob` 尝试 Base64 解码，逐行 `parseUri`，解析失败跳过不阻塞，按 name 去重保留第一条，空 name 节点从可视化列表过滤但保留原文；`uri-parser/` 支持 `ss/ssr/vmess/vless/trojan/anytls/hysteria2(h2)/hysteria(hy)/tuic/wireguard(wg)/http(s)/socks5(socks)`，并识别 VLESS 的 Shadowrocket base64 userinfo 形态。
 18. **Emoji 实测**：本项目 `gopkg.in/yaml.v3 v3.0.1` 会把 4 字节 emoji 输出为 `"\U0001F680..."`；Go yaml.v3 与 js-yaml 均能解析回原串；但为可读性与老解析器兼容，应还原真实 UTF-8。实测 `github.com/goccy/go-yaml v1.19.2`（当前 `go.mod` 中已有 indirect）原生输出真实 emoji，可作为替代方案。
 19. **当前项目已有对齐点**：下载端点已注入 `profile-update-interval/profile-web-page-url/subscription-userinfo` 与禁缓存头；`RenderClashPlan` 已有可达性收敛；节点已有 `display_name/有效渲染名` 全局唯一；规则素材池已有 URL 同步、30 分钟超时、取消端点。
-20. **当前项目主要差距**：无输出静态自检；Emoji 被 yaml.v3 转义；Content-Disposition 只有单行 `filename*`；协议字段明显少于 CVR；规则类型 8 类；组类型 3 类且无 `use/健康检查`；无 merge/seq 覆盖层；无 URI 导入；素材池同步仍单长事务（Issue7 R22-01）；版本列表缺 `id`（R22-02）。
+20. **当前项目主要差距（核验后更新）**：无输出静态自检；Emoji 被 yaml.v3 转义；Content-Disposition 只有单行 `filename*` 且系统头被平台手写头覆盖；协议字段明显少于 CVR；规则类型 8 类；组类型 3 类且无 `use/健康检查`；无 merge/seq 覆盖层；无 URI 导入；版本文件非原子写入。**已闭环的差距另行注明**：素材池同步长事务（R22-01）已由短事务 + 联合索引修复，仅缺启动补跑；版本列表缺 `id`（R22-02）已修复；R22-03 仅剩“条件化目标选择区”。
 
 ### 4.3 关键【推断】（有事实依据，仍需测试确认）
 
@@ -135,14 +135,39 @@ Step 0（本文档）
 
 ### 4.4 本轮【假设】清单（用户离开后按授权做出，实施前建议复核）
 
-- **A1 兼容性不设限**：允许改动现有表结构、接口字段与前端布局；当前无活跃用户与有价值数据（用户确认口径）。因此 Step 7 的覆盖层存储、Step 9 的同步事务拆分可直接落地。
+- **A1 兼容性不设限**：允许改动现有表结构、接口字段与前端布局；当前无活跃用户与有价值数据（用户确认口径）。因此 Step 7 的覆盖层存储可直接落地，Step 9 的同步事务拆分已落地、仅剩启动补跑。
 - **A2 不内置 mihomo 二进制**：本轮只做静态自检；“可选 `core -t` 真校验”进入候选列表，需用户决定二进制分发与资源占用。
 - **A3 不实现 JS Script 扩展**：与 AGENTS“简单轻量化”冲突较大；Step 7 只实现 Merge + Rules/Proxies/Groups Seq 四层，Script 保留扩展点并进入候选。
 - **A4 覆盖层首轮只服务 Clash YAML**：SR subs/generic-subs/sr-conf 暂不应用 Merge/Seq；共用层（规则元数据、响应头）仍顺带覆盖。
-- **A5 Issue7 纳入范围裁剪**：R22-02/03/06/07/08 因与装配 UI/重新编辑强相关纳入 Step 1；R22-01 纳入 Step 9；R22-04/R22-05 与本轮主题弱相关，暂不纳入（保持 Issue7 开放，避免本 Build 范围失控）。
+- **A5 Issue7 纳入范围裁剪（核验后更新）**：R22-02/03/06/07/08 因与装配 UI/重新编辑强相关纳入 Step 1；其中 R22-02/06/07/08 已在 `a0cd819` 实施，R22-01 已在 `a0cd819` 完成主体修复；R22-03 仍开放，本次仅需按 Issue7 v1.11 后补修订实现“条件化目标选择区”；R22-04/R22-05 已在 `a0cd819` 闭环，不再纳入本 Build。
 - **A6 池同步补跑口径**：当前池是“每日固定时刻”模型，不引入 per-pool 相对间隔列；启动补跑仅补偿“今天应跑但停机错过”的任务，保持现有数据模型简单。
 - **A7 覆盖层输入为 YAML 文本**：与 CVR 一致，前端不做 JSON 表单化；后端统一 `yaml.v3` 解析并在预览时给出定位错误。
 - **A8 Step 顺序可执行**：每步完成后均可编译测试，不跳步；执行者仍应遵守 AGENTS“每次仅执行一个 Step，验收后再下一步”。
+
+### 4.5 核验后修订要点与用户确认（v1.1）
+
+- **核验基于当前 HEAD：** `c681742`（2026-08-27），并对照 `a0cd819`（R22 系列修复）与 CVR `3503a2d`。核验期间未修改任何代码。
+- **已实施确认：**
+  - R22-02：`ListVersions` 已返回 `v.id`，前端已加保护；
+  - R22-06：高级模式关闭时隐藏/剔除 Xray 节点，预设组不再常显 `preset`；
+  - R22-07：节点选择弹窗已改为“可选在上、已选在下”，无移除按钮；
+  - R22-08：SR-conf 支持新建规则名并自动创建规则；
+  - R22-01：`pool/sync.go` 已改为短事务分批 + 临时 keep 表索引 + `1014` 联合索引。
+- **R22-03 仍未闭环：** 当前 `AssemblyView.vue` 仍无条件显示“目标选择”卡片；Issue7 v1.11 要求：
+  1. 若平台中不存在自定义平台（`is_default=false`），隐藏目标选择区，并自动选中匹配当前副 Tab 的原生默认平台；
+  2. 若存在自定义平台，显示目标平台选择器，并默认选中匹配当前类型且已有订阅的平台；
+  3. SR-conf 不受该条件影响，仍保留“新建规则/选择已有规则”入口。
+- **用户已确认决策（2026-08-27 核验问答）：**
+  - **Build9 先修订再继续**：已实施项不再重复实现，R22-03 按 Issue7 最新方案修订；
+  - **Emoji 实现先小实验再定稿**：已实测 `goccy/go-yaml` 原生输出真实 emoji；自定义 `restoreYAMLUnicodeEscapes` 作为备选，仍需补边界测试后二选一；
+  - **Step7 控制面保护完整采纳 CVR**：Merge 不能覆盖 `external-controller/secret/mixed-port/socks-port/port/tun/mode/allow-lan/log-level/ipv6/unified-delay` 等权威键；
+  - **Step8 URI 导入遇同名节点**：跳过并回执，不覆盖已有节点。
+- **写入 Step 计划的技术提醒：**
+  - Step5 的 `AND/OR/NOT` 表达式允许逗号，解析与校验需单独处理；
+  - Step7 `cleanupProxyGroups` 需保留 CVR 的 `has_valid_provider` 细节，并保持本项目 `COMPATIBLE` 白名单扩展；
+  - Step9 启动补跑必须避免与当前分钟命中的定时检查重复提交同一池；
+  - Step10 版本原子写需明确临时文件失败清理。
+
 
 ---
 
@@ -157,7 +182,7 @@ Step 0（本文档）
 | C5 | 远程订阅完整导入模型（URL + 5 扩展子项） | 将 CVR `PrfItem` 模型引入订阅管理 | CVR `prfitem.rs` |
 | C6 | proxy-providers / rule-providers / sub-rules 管理 | 与 Step 6 的 `use`、Step 5 的 `RULE-SET/SUB-RULE` 配套的下一层能力 | CVR 编辑器与 `enhance` |
 | C7 | 池同步代理退避（直连 → 内核代理 → 系统代理） | 服务器侧需先定义“可用代理”来源，安全边界待定 | CVR `feat/profile.rs` |
-| C8 | Issue7 R22-04 / R22-05 | 默认平台锁定、日志显示名切换；与本轮主题弱相关，留待 Issue7 或下一轮 | Issue7 |
+| C8 | ~~Issue7 R22-04 / R22-05~~ | 已在 `a0cd819` 修复并验证，不再属于本 Build 候选；保留此处供历史追踪 | Issue7 |
 
 ---
 
@@ -165,188 +190,62 @@ Step 0（本文档）
 
 > 每步格式遵循 [docs/DocTemplates/Build.template.md](docs/DocTemplates/Build.template.md)：目标 → 前置条件 → 产出文件与操作（含参考代码）→ 测试与验收命令 → 验收标准。执行者每次仅执行一个 Step。
 
-### Step 1：前置修复 — Issue7 R22-02 / R22-03 / R22-06 / R22-07 / R22-08
+### Step 1：R22-03 收口（其余 R22 项已实施，核验后修订）
 
-- **目标：** 先把 Issue7 已记录、用户已确认方向的装配入口缺陷修掉，否则 Step 7 的覆盖层“重新编辑”与 Step 8 的 UI 会叠加在坏底座上。本步不引入 CVR 借鉴层。
-- **前置条件：** Step 0；Issue7 相关条目方向已确认（变更记录 v1.3/v1.6/v1.7/v1.8）。
-- **产出文件与操作：**
+- **目标：** 当前 HEAD 已完成 R22-02/06/07/08 与 R22-01 主体；本步只处理仍开放的 R22-03：把“目标选择”从无条件常驻改为按 Issue7 v1.11 条件化展示，并做回归确认，避免 Step 7/8 的覆盖层与 URI 导入叠加在旧交互上。
+- **前置条件：** Step 0；当前代码已通过后端相关包测试与前端构建；R22-03 方向已按 Issue7 v1.11 确认。
+- **现状（核验确认，不再重复实现）：**
+  - R22-02：`ListVersions` 已返回 `v.id`，前端已加保护；
+  - R22-06：高级模式关闭时隐藏/剔除 Xray，预设组标签已调整；
+  - R22-07：节点选择弹窗已改为“可选在上、已选在下”，无移除按钮；
+  - R22-08：SR-conf 支持新建规则名并自动创建规则，失败路径清理已存在；
+  - R22-01：素材池同步已短事务分批 + 临时 keep 表索引 + 联合索引。
+- **本步产出文件与操作：**
 
-  1. `backend/internal/version/version.go`：修复 R22-02。`ListVersions` 查询与扫描补上 `v.id`。
+  1. R22-02 已实施：`ListVersions` 已返回 `v.id`，本步无需再改 `version.go`。
 
-  ```go
-  // 【源码事实】当前 SELECT 不含 v.id，导致前端拿到的 Version.ID 恒为 0，
-  // “重新编辑”实际请求 /api/admin/versions/0/blueprint（Issue7 R22-02）。
-  query := `SELECT v.id, v.version_no, v.file_path, v.file_name, v.created_at, v.updated_at`
-  // ...hasBlueprint 分支不变...
-  for rows.Next() {
-      var v Version
-      var blueprint int
-      if hasBlueprint {
-          if err := rows.Scan(&v.ID, &v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt, &blueprint); err != nil {
-              return nil, fmt.Errorf("解析版本行失败: %w", err)
-          }
-      } else {
-          if err := rows.Scan(&v.ID, &v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt); err != nil {
-              return nil, fmt.Errorf("解析版本行失败: %w", err)
-          }
-      }
-      v.Current = v.No == currentNo
-      v.Blueprint = blueprint == 1
-      out = append(out, v)
-  }
-  ```
+  2. R22-08 已实施：`GenerateInput.RuleName`、后端自动建规则与失败清理、前端规则名入口均已落地，无需再改后端 `assembly.go`/`models.go`/`validate.go`。
+  3. R22-06/07 已实施：`NodesGroupsStep.vue` 的 Xray 隐藏、preset 标签移除、节点弹窗排序/移除按钮调整均已落地。
 
-  2. `backend/internal/assembly/models.go`：为 R22-08 增加 `RuleName`；Step 7 的 Overlay 字段同步预留（本步不实现逻辑）。
-
-  ```go
-  type GenerateInput struct {
-      // ...现有字段...
-      RuleName string `json:"rule_name,omitempty"` // sr-conf 直建规则名（Issue7 R22-08）
-  }
-  ```
-
-  3. `backend/internal/assembly/validate.go` / `load.go`：SrConf 分支改为“已有 RuleID 或新规则名二选一”。
-
-  ```go
-  case SrConf:
-      if ld.rule == nil {
-          if strings.TrimSpace(in.RuleName) == "" {
-              return fmt.Errorf("%w: 请选择规则实体或填写新规则名称", ErrBadRequest)
-          }
-          if utf8.RuneCountInString(strings.TrimSpace(in.RuleName)) > 100 {
-              return fmt.Errorf("%w: 规则名称不超过 100 字符", ErrBadRequest)
-          }
-      }
-  ```
-
-  `loadData` 保持“`in.RuleID > 0` 才查库”，不把 `RuleName` 当 ID 使用。
-
-  4. `backend/internal/server/assembly.go`：`resolveOwner` 支持直建规则；`generate` 对“新建规则后版本创建失败”做清理。
-
-  ```go
-  // resolveOwner 增加 createdRuleID 返回；新建规则在版本事务前落库，失败路径清理。
-  func (h *AssemblyHandler) resolveOwner(ctx context.Context, in assembly.GenerateInput) (
-      version.OwnerType, int64, string, int64, error) {
-      if in.TargetSyntax == assembly.SrConf {
-          if in.RuleID > 0 {
-              return version.OwnerRule, in.RuleID, "rule.conf", 0, nil
-          }
-          // 【假设 A5】按 Issue7 R22-08 已确认方向：装配器直接创建空规则实体。
-          r, err := h.ruleSvc.Create(ctx, strings.TrimSpace(in.RuleName), "", "shadowrocket", nil, nil)
-          if err != nil {
-              return "", 0, "", 0, fmt.Errorf("创建规则实体失败: %w", err)
-          }
-          return version.OwnerRule, r.ID, "rule.conf", r.ID, nil
-      }
-      // 非 sr-conf 沿用原逻辑...
-  }
-
-  // generate 中：
-  ownerType, ownerID, fileName, createdRuleID, err := h.resolveOwner(ctx, in)
-  // ...
-  created, activated, err := h.versionSvc.CreateVersion(...)
-  if err != nil {
-      if createdRuleID > 0 {
-          if cerr := h.ruleSvc.Delete(ctx, createdRuleID); cerr != nil {
-              // 记 warn，不掩盖主错误
-          }
-      }
-      Fail(c, http.StatusInternalServerError, err.Error())
-      return
-  }
-  ```
-
-  5. `frontend/src/views/admin/AssemblyView.vue`：
-     - R22-03：`stepDefs` 不再含 `{ key: 'target' }`；新增顶部目标选择卡片（复用/改造 `TypeTargetStep.vue`，把它从 AssemblerShell 插槽中移出）。删除 `skipTargetStep` 过滤逻辑，`platform_id/rule_id` query 仅预填。
-     - R22-08：`isSrConf` 目标区改为「规则实体（可选）+ 新建规则名称（二选一）」，`targetReady()` 改为 `!!form.rule_id || !!form.rule_name.trim()`；`buildPreflightMissing` 对 sr-conf 不再要求 `rules.length > 0`；`buildInput()` 传 `rule_name`。
-
-  ```vue
-  <!-- 顶部目标选择卡片（替换原步骤①） -->
-  <Card v-if="!generateResult" size="small" class="mb-4">
-    <Space wrap>
-      <template v-if="!isSrConf">
-        <span class="text-sm text-gray-500">目标平台</span>
-        <Select v-model:value="form.platform_id" class="w-64"
-                :options="filteredPlatforms.map(p => ({ label: p.name, value: p.id }))" />
-      </template>
-      <template v-else>
-        <span class="text-sm text-gray-500">规则实体（可选）</span>
-        <Select v-model:value="form.rule_id" class="w-56" allow-clear
-                :options="(context?.rules ?? []).map(r => ({ label: r.name, value: r.id }))" />
-        <span class="text-sm text-gray-500">或新建规则</span>
-        <Input v-model:value="form.rule_name" class="w-56" placeholder="新规则名称" />
-        <span class="text-sm text-gray-500">FINAL</span>
-        <Radio.Group v-model:value="form.final_direction">
-          <Radio value="PROXY">PROXY</Radio>
-          <Radio value="DIRECT">DIRECT</Radio>
-        </Radio.Group>
-      </template>
-    </Space>
-  </Card>
-  ```
-
-  ```ts
-  const form = reactive({
-    // ...
-    rule_name: '',
-  })
-  function targetReady(): boolean {
-    return isSrConf.value
-      ? Boolean(form.rule_id) || form.rule_name.trim().length > 0
-      : Boolean(form.platform_id)
-  }
-  function buildInput(): GenerateInput {
-    return {
-      // ...
-      rule_id: isSrConf.value ? form.rule_id : undefined,
-      rule_name: isSrConf.value ? form.rule_name.trim() : undefined,
-    }
-  }
-  ```
-
-  6. `frontend/src/views/admin/assembly/NodesGroupsStep.vue`：
-     - R22-06：删除未勾选预设组的 `preset` Tag；`AssemblyView.vue` 传 `show-xray`（`useSystemStore().status?.advanced_mode === true`），组件 `v-if="showXray"` 包住 xray 节点板块；`availableNodes` 在 showXray=false 时仅 manual。
-     - R22-07：Modal 内“可选节点（勾选）”在上、“已选节点（有序）”在下；删除已选行“移除”按钮，取消下方勾选即可移除；保留上移/下移与拖拽。
-
-  ```vue
-  <div v-if="showXray">
-    <div class="text-sm font-medium mb-1">xray 节点</div>
-    <!-- 原 checkbox 列表 -->
-  </div>
-  <!-- 代理组 checkbox：删除 <Tag v-if="!form.group_names.includes(g.name)">preset</Tag> -->
-  ```
-
-  ```ts
-  const availableNodes = computed(() => {
-    const manual = props.manualNodes
-    if (!props.showXray) return manual
-    return [...manual, ...props.xrayNodes].filter((n) => n.allocatable && n.enabled !== false)
-  })
-  ```
+  4. `frontend/src/views/admin/AssemblyView.vue`：R22-03 条件化目标选择区。
+     - 增加 `hasCustomPlatform` 计算：
+       ```ts
+       const hasCustomPlatform = computed(() =>
+         (context.value?.platforms ?? []).some((p) => p.is_default === false)
+       )
+       ```
+     - 非 SR-conf 时：
+       - 如果 `hasCustomPlatform` 为 true，渲染 `<Card title="目标选择">`；
+       - 如果只有内置默认平台，隐藏目标选择卡片，并在 `loadContext` / `watch(targetSyntax)` 中自动选中匹配当前副 Tab、且已有订阅的原生默认平台。
+     - SR-conf 始终显示“新建规则 / 选择已有规则”入口，不依赖平台卡片。
+     - 路由 `platform_id/rule_id` 仅预填，不控制步骤条。
+  5. `frontend/src/views/admin/assembly/TypeTargetStep.vue`：保持现有紧凑选择组件；若后续需要，可增加“默认平台自动匹配”提示文案。
+  6. `frontend/src/views/admin/assembly/AssemblerShell.vue`：复核 target 步骤已移除、无遗留 `#target` 插槽。
 
 - **测试与验收命令：**
 
   ```bash
-  cd backend && go test ./internal/version ./internal/assembly ./internal/server
   cd frontend && npm run build && npm test -- --run
+  cd backend && go test ./internal/version ./internal/assembly ./internal/server
   ```
 
 - **验收标准：**
-  - `ListVersions` 返回的每个 `Version.ID > 0`，且等于 DB `versions.id`；
-  - sr-conf 在无预建规则时 Preview/Generate 成功，自动创建规则且首个版本自动激活；版本创建失败时新规则被清理；
-  - 从构建 Tab 进入四类装配器不再出现“类型与目标”步骤，顶部目标区可见；
-  - 高级模式关闭时不显示 xray 节点板块与 xray 排序候选项；
-  - 节点选择弹窗为“先勾选、后排序”，已选列表无移除按钮；
-  - 前端 build + 既有测试全绿。
+  - 仅有内置默认平台时，非 SR 装配器不出现“目标选择”卡片，并自动选中匹配当前类型的默认平台；
+  - 存在自定义平台时显示目标选择器，默认选中匹配当前类型且已有订阅的平台；
+  - SR-conf 始终保留规则名称/已有规则入口，不受平台条件影响；
+  - 已实施的 R22-02/06/07/08 回归通过。
 
 
 ### Step 2：Clash 产物静态自检 + YAML Emoji/UTF-8 输出修复
 
 - **目标：** 对齐 CVR 两层校验中可静态表达的部分：顶层结构、节点必填字段、组/规则引用、空 select 组；并修复 yaml.v3 把 emoji 转义为 `\U...` 的可读性/兼容性问题。
 - **前置条件：** Step 1。
+
+> **Emoji 输出方案（v1.1 核验后待定）：** 已实测 `goccy/go-yaml v1.19.2` 原生输出真实 emoji；自定义 `restoreYAMLUnicodeEscapes` 仍需补充边界测试。实施本步前应先完成小实验并二选一；下文先保留自定义还原方案作为参考实现，若选择 goccy 则相应替换 `yaml.Marshal`/序列化路径。
+
 - **产出文件与操作：**
 
-  1. 新增 `backend/internal/assembly/yaml_text.go`：安全还原 YAML 双引号标量里的 Unicode 转义，只还原 `\Uxxxxxxxx` / `\uxxxx`，不触碰 `\\U...` 字面文本、单引号标量与裸标量。
+  1. 【参考实现，待定】新增 `backend/internal/assembly/yaml_text.go`：安全还原 YAML 双引号标量里的 Unicode 转义，只还原 `\Uxxxxxxxx` / `\uxxxx`，不触碰 `\\U...` 字面文本、单引号标量与裸标量。
 
   ```go
   // 【源码事实】yaml.v3 v3.0.1 把 🚀 输出为 "\U0001F680"；Go yaml.v3 与 js-yaml
@@ -1003,12 +902,16 @@ Step 0（本文档）
       "external-controller", "secret", "mixed-port", "socks-port", "port",
       "tun", "mode", "allow-lan", "log-level", "ipv6", "unified-delay",
       // 平台键按部署目标选择性纳入；本项目生成的是客户端订阅，
-      // 保护这些键可防止 Merge 误改影响 Clash Verge 的控制面接管。【推断】
+      // 保护这些键可防止 Merge 误改影响 Clash Verge 的控制面接管。
+      // 【用户已确认】完整采纳 CVR 控制面保护。
   }
 
   // cleanupProxyGroups：与 CVR cleanup_proxy_groups 同口径——
   // 合法名 = proxies 名 ∪ proxy-groups 名 ∪ proxy-providers 名 ∪ 内置策略；
-  // 清理 use 中不存在的 provider、proxies 中不存在的节点/组/provider。
+  // 清理 use 中不存在的 provider、proxies 中不存在的节点/组/provider；
+  // 【核验提醒】需保留 CVR 的 has_valid_provider 语义：组存在合法 use provider 时，
+  // 其 proxies 中未命中合法名的字符串成员仍应保留（可能来自 provider）。
+  // 本项目额外保留 COMPATIBLE 作为合法内置策略。
   func cleanupProxyGroups(root *yaml.Node) { /* 见下 */ }
 
   // sortTopLevel：对齐 CVR use_sort——控制面键 → 其他键 → proxies/proxy-providers/
@@ -1180,6 +1083,7 @@ Step 0（本文档）
   // ImportURIs：解析 → 全局 name 去重（保留第一条）→ 逐条加密敏感字段 →
   // 单事务内批量 INSERT；任何一行违反唯一索引/跨命名空间校验只跳过该行，
   // 不中断整批（与 CVR parseUri 失败跳过、按 name 去重同口径）。
+  // 【用户已确认】与已有节点同名时同样跳过并回执，不覆盖既有节点。
   func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResult, error) { /* ... */ }
   ```
 
@@ -1196,51 +1100,22 @@ Step 0（本文档）
 - **验收标准：**
   - 标准 VLESS、SR base64 VLESS、V2rayN VMess、SR VMess、SS SIP002、Trojan、Hysteria2 URI 均能解析为 Step 4 的 protocol_json；
   - 与 CVR `uri-parser` 对同一批 URI 的解析结果字段一致（关键字段逐项比对）；
-  - 重复 name 只导入第一条，第二条进入 skipped 回执；snell/mieru 等无 URI 协议返回“暂不支持”；
+  - 重复 name 只导入第一条，第二条进入 skipped 回执；与已有节点同名时跳过并回执，不覆盖；snell/mieru 等无 URI 协议返回“暂不支持”；
   - 批量导入中的非法行不阻断其余合法行；前端回执可读。
 
 ---
 
-### Step 9：素材池同步长事务拆分（Issue7 R22-01）+ 启动补跑
+### Step 9：素材池同步启动补跑（R22-01 主体已实施，核验后修订）
 
-- **目标：** 消除数万行规则源同步时 SQLite 单写者长事务锁死；并在服务启动时补跑“今日应跑但停机错过”的每日同步。
-- **前置条件：** 无（可与 Step 8 并行）；实施前确认 Issue7 R22-01 用户已确认“短事务分批 + 临时表索引”方向。
-- **产出文件与操作：**
+- **目标：** R22-01 的“短事务分批 + keep 表索引 + 联合索引”已在 `a0cd819` 落地；本步只剩服务启动时补跑“今日应跑但停机错过”的每日同步。
+- **前置条件：** 无（可与 Step 8 并行）；当前 `pool/sync.go` 已通过相关测试。
+- **现状（核验确认，不再重复实现）：**
+  - `backend/internal/pool/sync.go`：插入阶段每批 500 行独立短事务；全部成功才建临时 keep 表；删除前统计与差量删除分批；终态独立回写；
+  - `backend/migrations/1014_pool_sync_optimize.sql`：联合索引已存在；
+  - 失败时保留已插入条目、跳过删除并落 `failed` 的语义已实现。
+- **本步产出文件与操作：**
 
-  1. `backend/internal/pool/sync.go`：重构 `runSyncTask` 的落库阶段，禁止在单一 `TxImmediate` 内完成“插入 + keep 表 + 删除 + 状态回写”。
-
-  ```go
-  // 阶段 A：成功 URL 的条目分批插入，每批独立短事务。
-  // 批次大小 500（沿用现有常量）；全部成功才进入删除阶段。
-  for i := range results {
-      if !results[i].OK { continue }
-      for start := 0; start < len(results[i].entries); start += batchSize {
-          end := min(start+batchSize, len(results[i].entries))
-          err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-              return insertEntriesBatch(tx, poolID, results[i].URL, nextOrder, results[i].entries[start:end], &results[i])
-          })
-          if err != nil { /* 保留旧数据，直接进入失败终态 */ }
-          nextOrder += end - start
-      }
-  }
-
-  // 阶段 B：仅全部 URL 成功时，创建 keep 表并在同连接上分批插入 + 建索引。
-  // 【源码事实】SQLite TEMP 表生命周期绑定连接；bgStore 为单连接，分事务安全。
-  if !partial {
-      keepTable := fmt.Sprintf("_pool_sync_keep_%d", taskID)
-      // 每批一个短事务插入 keep；全部插入后一个短事务：
-      // CREATE INDEX idx_keep ON keepTable(rule_type, match_value);
-      // 然后先按 pool_entries.id 分批执行 DELETE ... NOT EXISTS (...)，每批 1000 行。
-      // 删除统计另用只读查询完成，不再与 DELETE 同事务。
-  }
-
-  // 阶段 C：任务终态 + 池快照 + 清理 7 天历史，单独最后一个短事务。
-  ```
-
-  > 若删除阶段中途失败：任务落 `failed`，不执行历史清理；已插入条目保留（下轮同步幂等 `INSERT OR IGNORE` 会修正 added 统计），旧数据不丢。【推断】
-
-  2. `backend/migrations/1014_pool_sync_index.sql`（新增）：`CREATE INDEX IF NOT EXISTS idx_pool_entries_pool_source_type_value ON pool_entries(pool_id, source, rule_type, match_value);`（Issue7 R22-01 推荐的第 3 项）。
-  3. `backend/internal/cron/pool.go`：启动补跑。`StartPoolAutoSync` 首轮除“当前分钟匹配”外，增加：
+  1. `backend/internal/cron/pool.go`：在 `StartPoolAutoSync` 首轮中，除“当前分钟匹配”外，增加“今日错过”查询：
 
   ```go
   // 【源码事实】CVR Timer.init 会补跑 overdue 订阅；本项目按 A6 只补跑“今日错过”的池。
@@ -1255,7 +1130,13 @@ Step 0（本文档）
         )`, now.UTC().Format("15:04"))
   ```
 
-  对结果逐池 `SubmitSync`，已有 `ErrSyncRunning` 跳过即可。
+  2. 对结果逐池 `SubmitSync`，已有 `ErrSyncRunning` 跳过即可。
+  3. 补充防重复：若当前分钟命中与补跑查询命中同一池，应使用同一 `poolAutoSyncState` 去重或合并为一次提交，避免同分钟重复同步。
+  4. 补测试：
+     - `last_synced_at` 为昨天、当前时间晚于 `sync_time` 的池被提交一次；
+     - 当前分钟命中的池不与补跑重复提交；
+     - 运行中任务不重复提交。
+
 - **测试与验收命令：**
 
   ```bash
@@ -1263,10 +1144,10 @@ Step 0（本文档）
   ```
 
 - **验收标准：**
-  - 用 3 万行合成规则源同步时，`POST /api/admin/pools/:id/sync` 不再 5 秒内报 `database is locked`；插入阶段单个事务平均耗时明显低于 5 秒（测试可用短 busy_timeout 压测）；
-  - 部分 URL 失败时仍不删除旧数据；全部成功时删除统计与旧数据正确；
-  - keep 表索引存在且删除走索引（测试断言 schema 或执行计划）；
-  - 启动首轮补跑测试：`last_synced_at` 昨天、当前时间晚于 `sync_time` 的池被提交一次；运行中任务不重复提交。
+  - 启动首轮补跑：昨日已同步、今日已到点的池被提交一次；
+  - 当前分钟命中与补跑去重，同一池不会被重复提交；
+  - 运行中任务会被跳过；
+  - 既有短事务/索引相关测试保持全绿。
 
 ---
 
@@ -1342,7 +1223,7 @@ Step 0（本文档）
      - `Design2.md`：§3.3 代理组 5 类型与字段、§3.5 规则全集、§4.1 自检、新增“覆盖层”小节；
      - `Design2-UI.md`：§5 装配流程（目标区上移、Overlay 步骤、节点弹窗、批量导入）、§7 代理组高级字段；
      - `AGENTS.md`：文档清单增加 Build9（当前构建方案）；
-     - `Issue7.md`：R22-01/02/03/06/07/08 标记 ✅ 并注明由 Build9 Step X 实施；R22-04/05 保持开放；
+     - `Issue7.md`：R22-01/02/03/06/07/08 按实际状态回写；R22-03 标注由本 Build Step 1 实施；R22-04/05 已在 `a0cd819` 闭环，不再列入开放项；
      - `ProdTestList.md`：增加 Emoji 输出、RFC5987 文件名、覆盖层下载、大规则源同步。
 - **测试与验收命令：**
 
@@ -1362,4 +1243,5 @@ Step 0（本文档）
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-27 | 基于 clash-verge-rev 本地源码 `3503a2d`、三份 Reference 文档与 Issue7 开放项研究生成 Build9；含事实基线、假设清单、候选构建项与 Step 1~11 分步计划；未改动任何代码与既有文档。 |
+| v1.1 | 2026-08-27 | 深入核验后修订：以当前 HEAD `c681742` 对齐代码；标记 R22-02/06/07/08 与 R22-01 主体已实施；Step 1 收窄为 R22-03 条件化目标区；Step 9 收窄为启动补跑；新增 §4.5 核验结论与用户确认（Emoji 小实验、完整控制面保护、URI 导入同名跳过并回执）；同步候选与文档收口口径。未改动任何代码。 |
 
