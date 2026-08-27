@@ -1,9 +1,9 @@
 # Build9.md — VPN 订阅管理系统 当前构建方案（Clash Verge Rev 深度借鉴轮）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案（v1.1 修订中）**，承接已验收的 [Build8.md](Build8.md)、已归档的 [docs/reports/Build/Build4~7](docs/reports/Build)，并基于：
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案（v1.3 修订中）**，承接已验收的 [Build8.md](Build8.md)、已归档的 [docs/reports/Build/Build4~7](docs/reports/Build)，并基于：
 > - 项目内研究资料：[docs/Reference/Clash-Subscription-Validation-Emoji-API.md](docs/Reference/Clash-Subscription-Validation-Emoji-API.md)、[docs/Reference/Clash-Verge-Rev-Node-Parameters.md](docs/Reference/Clash-Verge-Rev-Node-Parameters.md)、[docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md](docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md)；
 > - 第三方代码仓库：`~/Desktop/Repo/clash-verge-rev`（本地 git 提交 `3503a2da29d68a4398c0b8e9234cffb711e65783`，2026-08-26）；
-> - 当前项目代码与文档（本地 git 提交 `c681742`，2026-08-27；此前的 `ce22a31` 已不再代表当前 HEAD）。
+> - 当前项目代码与文档（本地 git 提交 `1745eae`，2026-08-27；`c681742` 为最近一次业务代码提交，其后提交仅修改 Build9.md，代码与 `c681742` 一致）。
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 当前设计：[Design2.md](Design2.md) / [Design2-UI.md](Design2-UI.md)
 > - 当前问题：[Issue7.md](Issue7.md)（R22 系列，部分开放项纳入本 Build 前置修复）
@@ -54,12 +54,12 @@
 
 | Step | 涉及文件 | 要点 |
 |------|---------|------|
-| 1 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/{TypeTargetStep.vue,AssemblerShell.vue}`（其余 R22-02/06/07/08 已实施，见 §4.5） | 剩余仅：R22-03 条件化目标选择区；其余为核验与回归 |
+| 1 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/{TypeTargetStep.vue,AssemblerShell.vue}`、`frontend/tests/{assembly-view.spec.ts,home-view.spec.ts}`（其余 R22-02/06/07/08 已实施，见 §4.5） | 剩余仅：R22-03 条件化目标选择区；同步修复 R22-03/Issue8 后的两个过期前端测试；其余为核验与回归 |
 | 2 | `backend/internal/assembly/{goccy_yaml.go,selfcheck.go,render_clash.go,clash_plan.go,service.go,models.go}`、`backend/go.mod`、`backend/internal/assembly/*_test.go` | goccy 全量迁移：MapSlice 输出、CommentMap 注释、自检、静态校验、预览告警/生成阻断 |
-| 3 | `backend/internal/download/download.go`、`backend/internal/server/download.go`、`backend/internal/platform/platform.go`、`backend/internal/setup/setup.go`、`frontend/src/views/admin/PlatformEditView.vue` 及测试 | RFC 5987 Content-Disposition、profile 头语义校验、系统头优先级 |
-| 4 | `backend/internal/node/{registry.go,node.go}`、`backend/internal/assembly/links/links.go`、`backend/internal/assembly/render_clash.go`、`frontend/src/views/admin/NodesView.vue` 及测试 | 协议字段补全、嵌套敏感字段、数组字段归一化、传输参数链接 |
-| 5 | `backend/internal/rulespec/spec.go`（新增）、`backend/internal/pool/parser.go`、`backend/internal/assembly/{validate.go,render_clash.go,render_sr.go}`、`frontend/src/views/admin/AssemblyView.vue` 及测试 | mihomo 规则全集、no-resolve 元数据、逻辑规则解析 |
-| 6 | `backend/internal/proxygroup/proxygroup.go`、`backend/internal/assembly/{models.go,load.go,clash_plan.go,render_clash.go}`、`frontend/src/views/admin/ProxyGroupsView.vue` 及测试 | 组类型 5 枚举、use/健康检查/过滤等字段、渲染 |
+| 3 | `backend/internal/download/download.go`、`backend/internal/server/download.go`、`backend/internal/platform/platform.go`、`backend/internal/setup/setup.go`、`frontend/src/views/admin/PlatformEditView.vue` 及测试 | RFC 5987 Content-Disposition、profile 头语义校验（兼容 {frontend_url}、interval 允许 0）、系统头优先级 |
+| 4 | `backend/internal/node/{registry.go,node.go}`、`backend/internal/assembly/links/links.go`、`backend/internal/assembly/render_clash.go`、`frontend/src/views/admin/NodesView.vue` 及测试 | 协议字段补全、嵌套敏感字段、数组字段归一化、传输参数链接；新注册表为唯一口径，不做旧字段兼容 |
+| 5 | `backend/internal/rulespec/spec.go`（新增）、`backend/internal/pool/{parser.go,sync.go}`、`backend/internal/assembly/{selfcheck.go,validate.go,render_clash.go,render_sr.go}`、`frontend/src/views/admin/AssemblyView.vue` 及测试 | mihomo 规则全集、Clash no-resolve 元数据、SR 支持面、逻辑规则括号配平解析、自检同步扩展 |
+| 6 | `backend/internal/proxygroup/proxygroup.go`、`backend/internal/assembly/{selfcheck.go,models.go,load.go,clash_plan.go,render_clash.go}`、`frontend/src/views/admin/ProxyGroupsView.vue` 及测试 | 组类型 5 枚举、use/健康检查/过滤等字段、渲染与自检同步扩展 |
 | 7 | `backend/internal/assembly/{overlay.go,models.go,service.go,render_clash.go,clash_plan.go,blueprint.go}`、`frontend/src/views/admin/assembly/OverlayStep.vue`（新增）、`AssemblyView.vue` 及测试 | 四类覆盖层、控制面保护、清理悬空、排序、蓝图持久化与下载重渲染 |
 | 8 | `backend/internal/uriparse/uriparse.go`（新增）、`backend/internal/node/uri_import.go`（新增）、`backend/internal/server/node.go`、`frontend/src/views/admin/NodesView.vue` 及测试 | URI 批量导入、逐行跳过与去重、事务批量创建 |
 | 9 | `backend/internal/cron/pool.go` 及测试（`pool/sync.go` 与 `migrations/1014` 已实施，见 §4.5） | 剩余仅：启动补跑今日错过任务；R22-01 短事务/索引已落地 |
@@ -94,7 +94,7 @@ Step 0（本文档）
 | 来源 | 标识/路径 | 说明 |
 |------|-----------|------|
 | 第三方客户端源码 | `~/Desktop/Repo/clash-verge-rev` @ `3503a2d`（2026-08-26） | 本文所有 CVR 事实的第一来源 |
-| 本项目源码 | `~/Desktop/Repo/VPN-Subscription-Management` @ `c681742`（2026-08-27） | 当前实现对照；核验时同时参考了 `a0cd819`（R22 系列修复） |
+| 本项目源码 | `~/Desktop/Repo/VPN-Subscription-Management` @ `1745eae`（2026-08-27） | 当前实现对照；业务代码与 `c681742` 一致（其后仅 Build9.md 变更）；核验时同时参考了 `a0cd819`（R22 系列修复） |
 | Reference 1 | `docs/Reference/Clash-Subscription-Validation-Emoji-API.md` | 导入校验、格式、Emoji、响应头 |
 | Reference 2 | `docs/Reference/Clash-Verge-Rev-Node-Parameters.md` | 节点字段定义 |
 | Reference 3 | `docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md` | 订阅/扩展装配机制 |
@@ -122,20 +122,20 @@ Step 0（本文档）
 17. **URI 导入与去重**：`proxies-editor-viewer.tsx` 多行 URI 粘贴，先 `atob` 尝试 Base64 解码，逐行 `parseUri`，解析失败跳过不阻塞，按 name 去重保留第一条，空 name 节点从可视化列表过滤但保留原文；`uri-parser/` 支持 `ss/ssr/vmess/vless/trojan/anytls/hysteria2(h2)/hysteria(hy)/tuic/wireguard(wg)/http(s)/socks5(socks)`，并识别 VLESS 的 Shadowrocket base64 userinfo 形态。
 18. **Emoji 实测与方案选择**：本项目 `gopkg.in/yaml.v3 v3.0.1` 会把 4 字节 emoji 输出为 `"\U0001F680..."`；Go yaml.v3 与 js-yaml 均能解析回原串；但为可读性与老解析器兼容，需要真实 UTF-8。实测 `github.com/goccy/go-yaml v1.19.2`（当前 `go.mod` 中已有 indirect）原生输出真实 emoji，并支持 `MapSlice` 保序、`UseOrderedMap` 嵌套保序、`CommentMap` 注释、`AutoInt` 整数归一。**【用户已确认】Step2 选择方案B：全量迁移到 goccy；方案A（yaml.v3 + restoreYAMLUnicodeEscapes）保留为回退记录。**
 19. **当前项目已有对齐点**：下载端点已注入 `profile-update-interval/profile-web-page-url/subscription-userinfo` 与禁缓存头；`RenderClashPlan` 已有可达性收敛；节点已有 `display_name/有效渲染名` 全局唯一；规则素材池已有 URL 同步、30 分钟超时、取消端点。
-20. **当前项目主要差距（核验后更新）**：无输出静态自检；Emoji 被 yaml.v3 转义；Content-Disposition 只有单行 `filename*` 且系统头被平台手写头覆盖；协议字段明显少于 CVR；规则类型 8 类；组类型 3 类且无 `use/健康检查`；无 merge/seq 覆盖层；无 URI 导入；版本文件非原子写入。**已闭环的差距另行注明**：素材池同步长事务（R22-01）已由短事务 + 联合索引修复，仅缺启动补跑；版本列表缺 `id`（R22-02）已修复；R22-03 仅剩“条件化目标选择区”。
+20. **当前项目主要差距（核验后更新）**：无输出静态自检；Emoji 被 yaml.v3 转义；Content-Disposition 现状为“系统端点只写单行 `filename=`，默认 Clash Verge 平台模板只写单行 `filename*=UTF-8''subscription.yaml`，且 server 先写系统头后写平台头，平台旧模板会覆盖系统值”；协议字段明显少于 CVR；规则类型 8 类；组类型 3 类且无 `use/健康检查`；无 merge/seq 覆盖层；无 URI 导入；版本文件非原子写入。**已闭环的差距另行注明**：素材池同步长事务（R22-01）已由短事务 + 联合索引修复，仅缺启动补跑；版本列表缺 `id`（R22-02）已修复；R22-03 仅剩“条件化目标选择区”。
 
 ### 4.3 关键【推断】（有事实依据，仍需测试确认）
 
 - 对装配生成内容做“CVR 导入校验 + 引用/结构静态检查”的组合，可以等价覆盖绝大多数 `core -t` 能发现的配置错误；不能替代内核对协议字段语义的最终校验。【推断】
-- 覆盖层在“基础蓝图 + 动态 Xray 节点注入之后”应用，才能保证 `delete` 与 `prepend/append` 对最终用户下载内容生效；这偏离了 CVR“seq 先于默认配置”的顺序，但适合本项目的动态渲染模型。【推断】
+- 覆盖层必须在“完整基础文档（蓝图 + 动态 Xray 节点注入）组装之后、可达性收敛之前”应用，才能保证 `delete` 与 `prepend/append` 以及 Merge 注入的 provider 参与最终收敛；这偏离了 CVR“seq 先于默认配置”的严格顺序，但适合本项目的动态渲染模型。【推断】
 - 若在生成预览与下载重渲染使用同一覆盖层实现，`RenderClashPlan` 的自包含结构保持成立，历史蓝图缺省覆盖层时天然等价于当前行为。【推断】
 - CVR 的 `use_sort` 输出顺序可作为本项目 Clash 输出的固定键序；管理员头部 JSON 的原始顺序不再作为唯一顺序依据，但可保留为未声明键的次序。【推断】
 - 对平台 `extra_headers` 增加已知头语义校验不会破坏既有能力；系统生成的 Content-Disposition 应覆盖平台手填的旧模板值，否则无法提供动态订阅名。【推断】
-- URI 导入的解析器可先覆盖 CVR `uri-parser` 支持的主流 10 类 scheme；snell/mieru/masque/openvpn/ssh 等无标准 URI 的协议继续保持“不可导入”并在回执中说明。【推断】
+- URI 导入的解析器可先覆盖 CVR `uri-parser` 支持的 scheme，但 **ssr 按 Design2 §4.5 排除（归入候选 C2）**；snell/mieru/masque/openvpn/ssh 等无标准 URI 的协议继续保持“不可导入”并在回执中说明。【推断】
 
 ### 4.4 本轮【假设】清单（用户离开后按授权做出，实施前建议复核）
 
-- **A1 兼容性不设限**：允许改动现有表结构、接口字段与前端布局；当前无活跃用户与有价值数据（用户确认口径）。因此 Step 7 的覆盖层存储可直接落地，Step 9 的同步事务拆分已落地、仅剩启动补跑。
+- **A1 兼容性不设限**：允许改动现有表结构、接口字段与前端布局；当前无活跃用户与有价值数据（用户确认口径，2026-08-27 二次确认数据库可重新初始化）。因此 Step 7 的覆盖层存储可直接落地，Step 9 的同步事务拆分已落地、仅剩启动补跑，Step 4 不做旧字段兼容。
 - **A2 不内置 mihomo 二进制**：本轮只做静态自检；“可选 `core -t` 真校验”进入候选列表，需用户决定二进制分发与资源占用。
 - **A3 不实现 JS Script 扩展**：与 AGENTS“简单轻量化”冲突较大；Step 7 只实现 Merge + Rules/Proxies/Groups Seq 四层，Script 保留扩展点并进入候选。
 - **A4 覆盖层首轮只服务 Clash YAML**：SR subs/generic-subs/sr-conf 暂不应用 Merge/Seq；共用层（规则元数据、响应头）仍顺带覆盖。
@@ -144,9 +144,9 @@ Step 0（本文档）
 - **A7 覆盖层输入为 YAML 文本（v1.2 更新为 goccy）**：与 CVR 一致，前端不做 JSON 表单化；后端统一使用 `goccy/go-yaml` 的 `MapSlice` + `UseOrderedMap` 解析，并在预览时给出定位错误。
 - **A8 Step 顺序可执行**：每步完成后均可编译测试，不跳步；执行者仍应遵守 AGENTS“每次仅执行一个 Step，验收后再下一步”。
 
-### 4.5 核验后修订要点与用户确认（v1.1）
+### 4.5 核验后修订要点与用户确认（v1.1；v1.3 增补）
 
-- **核验基于当前 HEAD：** `c681742`（2026-08-27），并对照 `a0cd819`（R22 系列修复）与 CVR `3503a2d`。核验期间未修改任何代码。
+- **核验基于当前 HEAD：** `1745eae`（2026-08-27；业务代码与 `c681742` 一致），并对照 `a0cd819`（R22 系列修复）与 CVR `3503a2d`。核验期间未修改任何代码。
 - **已实施确认：**
   - R22-02：`ListVersions` 已返回 `v.id`，前端已加保护；
   - R22-06：高级模式关闭时隐藏/剔除 Xray 节点，预设组不再常显 `preset`；
@@ -162,8 +162,15 @@ Step 0（本文档）
   - **Step2 选择方案B（goccy 全量迁移）**：经小实验后确认，YAML 序列化与后续解析统一迁移到 `goccy/go-yaml`；方案A（yaml.v3 + `restoreYAMLUnicodeEscapes`）保留作为回退记录，若方案B出现不可接受问题可回滚；
   - **接受方案B的文本差异**：goccy 会对 `on/yes/空字符串` 等自动加引号，使用 `AutoInt()` 保持整数输出；与现有 yaml.v3 输出为语义等价但文本可能不同，需同步调整少量测试断言；
   - **注释用 CommentMap 管理**：`# {{xray_nodes}}` 和下载提示注释改用 `goccy.CommentMap` 在序列化时生成，不再依赖 `yaml.Node.HeadComment`；
-  - **Step7 控制面保护完整采纳 CVR**：Merge 不能覆盖 `external-controller/secret/mixed-port/socks-port/port/tun/mode/allow-lan/log-level/ipv6/unified-delay` 等权威键；
+  - **Step7 控制面保护完整采纳 CVR**：Merge 不能覆盖完整 `CONTROL_PLANE_KEYS`（`external-controller`、`external-controller-cors`、平台相关控制通道、`secret`、`mixed-port`、`socks-port`、`port`、`redir-port/tproxy-port`（按平台门控）、`tun`、`mode`、`allow-lan`、`log-level`、`ipv6`、`unified-delay`），并按 CVR 单独保护 `dns.ipv6`；merge 顶层 key 先小写化；
   - **Step8 URI 导入遇同名节点**：跳过并回执，不覆盖已有节点。
+- **用户已确认决策（2026-08-27 二次核验，v1.3 增补）：**
+  - **Step7 覆盖层先于可达性收敛**：下载重渲染先组装完整基础文档并应用覆盖层，再基于最终文档做组可达性收敛与规则降级；新增“覆盖层 prepend 节点/provider 可救活依赖组”测试；
+  - **Step4 不做旧字段兼容**：当前数据库可以重新初始化；删除 `normalizeLegacyTransport` 与旧键兼容策略，新协议注册表为唯一口径；
+  - **Step5 逻辑规则括号配平解析**：AND/OR/NOT 按括号配平取表达式并剥离末尾 policy；URL 源仅存表达式、手动源 target 入目标字段；`selfcheck.go` 同步使用共享解析逻辑；
+  - **Step3 响应头校验兼容生态**：`profile-web-page-url` 允许 `{frontend_url}` 占位符；`profile-update-interval` 允许 0（u64 口径，0=不自动更新）；`subscription-userinfo` 各值要求非负整数；
+  - **Step1 同步修复前端过期测试**：`assembly-view.spec.ts`（R22-03 后下一步行为变化）与 `home-view.spec.ts`（Issue8 后分流规则空态文案变化）列入 Step1 产出，Step1 起前端测试必须全绿；
+  - **selfcheck 随元数据演进**：`selfcheck.go` 以 `rulespec`/`proxygroup` 共享元数据为最终口径（Step2 先落地基础检查，Step5/6 删除临时白名单并切换共享定义），并列入 Step5/6 产出清单与测试，避免逻辑规则与 `use/include-all` 误报/漏报。
 - **写入 Step 计划的技术提醒：**
   - Step5 的 `AND/OR/NOT` 表达式允许逗号，解析与校验需单独处理；
   - Step7 `cleanupProxyGroups` 需保留 CVR 的 `has_valid_provider` 细节，并保持本项目 `COMPATIBLE` 白名单扩展；
@@ -195,7 +202,7 @@ Step 0（本文档）
 ### Step 1：R22-03 收口（其余 R22 项已实施，核验后修订）
 
 - **目标：** 当前 HEAD 已完成 R22-02/06/07/08 与 R22-01 主体；本步只处理仍开放的 R22-03：把“目标选择”从无条件常驻改为按 Issue7 v1.11 条件化展示，并做回归确认，避免 Step 7/8 的覆盖层与 URI 导入叠加在旧交互上。
-- **前置条件：** Step 0；当前代码已通过后端相关包测试与前端构建；R22-03 方向已按 Issue7 v1.11 确认。
+- **前置条件：** Step 0；当前代码已通过后端相关包测试与前端构建；R22-03 方向已按 Issue7 v1.11 确认。核验确认 `npm test -- --run` 现有 2 个失败用例由 R22-03/Issue8 改造产生，本步一并修复，Step 1 结束时前端测试必须全绿。
 - **现状（核验确认，不再重复实现）：**
   - R22-02：`ListVersions` 已返回 `v.id`，前端已加保护；
   - R22-06：高级模式关闭时隐藏/剔除 Xray，预设组标签已调整；
@@ -223,6 +230,8 @@ Step 0（本文档）
      - 路由 `platform_id/rule_id` 仅预填，不控制步骤条。
   5. `frontend/src/views/admin/assembly/TypeTargetStep.vue`：保持现有紧凑选择组件；若后续需要，可增加“默认平台自动匹配”提示文案。
   6. `frontend/src/views/admin/assembly/AssemblerShell.vue`：复核 target 步骤已移除、无遗留 `#target` 插槽。
+  7. `frontend/tests/assembly-view.spec.ts`：更新“未选择目标时下一步被拦截”为 R22-03 后的真实行为（仅默认平台时自动选中目标；自定义平台场景按本步目标就绪规则断言）。
+  8. `frontend/tests/home-view.spec.ts`：将“管理员暂未设置分流规则”断言更新为 Issue8 后的当前空态/引导文案（`分流规则为 Shadowrocket 客户端专用…` 口径），与 `HomeView.vue` 实际输出一致。
 
 - **测试与验收命令：**
 
@@ -235,7 +244,8 @@ Step 0（本文档）
   - 仅有内置默认平台时，非 SR 装配器不出现“目标选择”卡片，并自动选中匹配当前类型的默认平台；
   - 存在自定义平台时显示目标选择器，默认选中匹配当前类型且已有订阅的平台；
   - SR-conf 始终保留规则名称/已有规则入口，不受平台条件影响；
-  - 已实施的 R22-02/06/07/08 回归通过。
+  - 已实施的 R22-02/06/07/08 回归通过；
+  - `assembly-view.spec.ts` 与 `home-view.spec.ts` 按新交互/新文案更新后，`npm test -- --run` 全绿。
 
 
 ### Step 2：Clash YAML 输出迁移到 goccy + 静态自检（方案B；方案A为回退记录）
@@ -299,6 +309,7 @@ Step 0（本文档）
     - 组类型/引用、空 select 组；
     - rules 目标引用；
     - warning 级：兜底规则缺失。
+  - **自检必须元数据驱动**：规则类型/取值/no-resolve 判据最终消费 `rulespec`，代理组类型/use/include-all 判据最终消费 `proxygroup` 的共享定义。Step2 先落地基础检查（当前 node 注册表 + 现有组类型），Step5/6 引入/扩展共享元数据后**必须删除 selfcheck 内的临时规则/组白名单并切到共享定义**；Step5/6 会同步扩展本文件并补测试。
 
   **B.4 覆盖层/后续 YAML 解析全量统一**
   - Step7 的 `OverlayInput` 解析也改为 `gyaml.UnmarshalWithOptions(..., gyaml.UseOrderedMap())`；
@@ -555,23 +566,26 @@ Step 0（本文档）
   func validateKnownHeader(k, v string) error {
       switch strings.ToLower(k) {
       case "profile-update-interval":
-          // 【源码事实】CVR 按 u64 解析，单位小时，乘以 60 转分钟；非正整数小时无意义。
-          n, err := strconv.ParseUint(strings.TrimSpace(v), 10, 64)
-          if err != nil || n < 1 {
-              return errors.New("profile-update-interval 必须是正整数小时")
+          // 【源码事实】CVR 按 u64 解析，单位小时，乘以 60 转分钟；0 会被解析，
+          // 但 CVR 调度层以 interval>0 过滤，等价于“不自动更新”，故允许 0。
+          if _, err := strconv.ParseUint(strings.TrimSpace(v), 10, 64); err != nil {
+              return errors.New("profile-update-interval 必须是非负整数小时（u64）")
           }
       case "profile-web-page-url":
-          u, err := url.Parse(strings.TrimSpace(v))
+          v = strings.TrimSpace(v)
+          // 平台附加头允许 {frontend_url} 占位符；下载时由 withPlatformHeaders 替换为真实地址。
+          if v == "{frontend_url}" { return nil }
+          u, err := url.Parse(v)
           if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-              return errors.New("profile-web-page-url 必须是带 host 的 http/https 地址")
+              return errors.New("profile-web-page-url 必须是带 host 的 http/https 地址或 {frontend_url}")
           }
       case "subscription-userinfo":
-          // upload=..; download=..; total=..; expire=..，值均为整数
+          // upload/download/total/expire 值均须为非负整数；未知键/缺失项由 CVR 忽略，本系统只校验已出现项。
           for _, part := range strings.Split(v, ";") {
               kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
               if len(kv) != 2 { return errors.New("subscription-userinfo 格式须为 key=value; ...") }
-              if _, err := strconv.ParseInt(strings.TrimSpace(kv[1]), 10, 64); err != nil {
-                  return fmt.Errorf("subscription-userinfo 的 %s 必须是整数", kv[0])
+              if _, err := strconv.ParseUint(strings.TrimSpace(kv[1]), 10, 64); err != nil {
+                  return fmt.Errorf("subscription-userinfo 的 %s 必须是非负整数", kv[0])
               }
           }
       }
@@ -579,8 +593,8 @@ Step 0（本文档）
   }
   ```
 
-  4. `backend/internal/setup/setup.go`：默认 Clash Verge 平台的 `extra_headers` 去掉手写 `Content-Disposition`（文件名由下载端点动态生成，避免旧模板写死 `subscription.yaml`）；保留 `profile-update-interval` 与 `profile-web-page-url`。
-  5. `frontend/src/views/admin/PlatformEditView.vue`：附加响应头区增加「Clash 生态预设」快捷行：`profile-update-interval`（小时）、`profile-web-page-url`、`subscription-userinfo` 三键的可视化开关/输入；手工键值编辑器保留。保存时仍以键值对提交，前端按行内校验即时提示。
+  4. `backend/internal/setup/setup.go`：默认 Clash Verge 平台的 `extra_headers` 去掉手写 `Content-Disposition`（文件名由下载端点动态生成，避免旧模板写死 `subscription.yaml`）；保留 `profile-update-interval` 与 `profile-web-page-url`。既有数据库中的旧模板无需迁移：系统生成的 Content-Disposition 最后写入，天然覆盖平台旧值。
+  5. `frontend/src/views/admin/PlatformEditView.vue`：附加响应头区增加「Clash 生态预设」快捷行：`profile-update-interval`（小时，允许 0）、`profile-web-page-url`（允许 `{frontend_url}`）、`subscription-userinfo` 三键的可视化开关/输入；手工键值编辑器保留。保存时仍以键值对提交，前端按行内校验即时提示，与后端 `validateKnownHeader` 同口径。
   6. `backend/internal/download/download.go`：高级模式系统注入的 `subscription-userinfo` 改用 `strings.Join` 已有逻辑不变；仅补 `expire` 可由 `users.expire_at` 推导的 TODO 注释，不改变本步语义。
 
 - **测试与验收命令：**
@@ -593,13 +607,14 @@ Step 0（本文档）
 - **验收标准：**
   - 下载响应同时含 `filename` 与 `filename*=UTF-8''...`，中文/emoji 文件名被百分号编码；
   - 平台手写 `Content-Disposition` 不覆盖系统生成值（系统值最后写入）；
-  - `profile-update-interval: 0`、`profile-web-page-url: ftp://x` 等被 400 拒绝；
+  - `profile-update-interval: -1/abc`、`profile-web-page-url: ftp://x` 等被 400 拒绝；`profile-update-interval: 0` 与 `profile-web-page-url: {frontend_url}` 被接受；
+  - `subscription-userinfo` 中 `upload=-1` 或非整数被 400 拒绝；
   - 默认 Clash Verge 平台仍下发 `profile-update-interval: 6` 与合法主页头。
 
 
 ### Step 4：节点协议注册表 / 字段补全 + Clash 渲染与 URI 参数对齐
 
-- **目标：** 以 CVR `src/types/global.d.ts` 的字段定义为准，把 manual 协议注册表从“能跑的最小字段集”补到“与 CVR 编辑/渲染语义对齐”；同时修正当前 Clash YAML 中扁平 `path/host` 等无法被现代 mihomo 识别的字段形态（【推断】）。
+- **目标：** 以 CVR `src/types/global.d.ts` 的字段定义为准，把 manual 协议注册表从“能跑的最小字段集”补到“与 CVR 编辑/渲染语义对齐”；新注册表为唯一口径，旧库中的非 mihomo 原生字段（扁平 `path/host`、`mport/insecure/allow_insecure/allowInsecure/address` 等）不做兼容，当前数据库允许重新初始化（用户确认）。
 - **前置条件：** Step 2（自检依赖注册表 Required 字段）。
 - **产出文件与操作：**
 
@@ -639,18 +654,20 @@ Step 0（本文档）
   | 协议 | 新增/调整字段 |
   |------|---------------|
   | ss | `plugin`（select: 空/obfs/v2ray-plugin/shadow-tls/restls）、`plugin-opts`（object）、`udp-over-tcp`、`udp-over-tcp-version`、`client-fingerprint`、`smux` |
-  | vmess | `packet-addr`、`xudp`、`packet-encoding`、`skip-cert-verify`、`fingerprint`、`reality-opts`、`http-opts`、`h2-opts`、`grpc-opts`、`ws-opts`、`global-padding`、`authenticated-length`、`smux`；废弃扁平 `path/host`（迁移到 `ws-opts`/`http-opts` 等） |
-  | vless | 见上方代码注释；另将 `reality-opts` 与既有顶层 `public-key/private-key/short-id` 双形态兼容 |
+  | vmess | `packet-addr`、`xudp`、`packet-encoding`、`skip-cert-verify`、`fingerprint`、`reality-opts`、`http-opts`、`h2-opts`、`grpc-opts`、`ws-opts`、`global-padding`、`authenticated-length`、`smux`；删除扁平 `path/host`（transport 只走 `ws-opts/http-opts` 等对象） |
+  | vless | 见上方代码注释；`reality-opts` 对象为唯一口径，不再保留既有顶层 `public-key/private-key/short-id` 双形态 |
   | trojan | `alpn` 改 text-list、`fingerprint`、`network`、`reality-opts`、`grpc-opts`、`ws-opts`、`ss-opts`、`client-fingerprint` |
   | hysteria / hysteria2 | `ports`、`hop-interval`、`up`/`down`、`obfs-protocol`、`skip-cert-verify`、`fingerprint`、`ca`/`ca-str`、`recv-window*`、`fast-open`、`cwnd`、`udp-mtu` 等按协议子集补齐 |
   | tuic | `token`、`ip`、`heartbeat-interval`、`reduce-rtt`、`request-timeout`、`udp-relay-mode`、`congestion-controller`、`disable-sni`、`max-open-streams`、`cwnd`、`ca`/`ca-str`、`recv-window*`、`disable-mtu-discovery`、`udp-over-stream*` |
   | wireguard | `ip`、`ipv6`、`workers`、`persistent-keepalive`、`peers`（object）、`remote-dns-resolve`、`refresh-server-ip-interval`；`allowed-ips` 改 text-list（逗号分隔），渲染时输出数组 |
-  | http / socks5 | `sni`、`fingerprint`；http 增加 `headers`（object） |
+  | http / socks5 | http 增加 `sni`、`fingerprint`、`headers`（object）；socks5 增加 `fingerprint`（CVR `IProxySocks5Config` 无 `sni`，不新增） |
   | snell | `udp` |
   | anytls | `certificate`、`ech-opts`、`idle-session-check-interval`、`idle-session-timeout`、`min-idle-session`；`alpn` 改 text-list |
   | mieru / masque | 按 Reference 2 全量补齐（transport/multiplexing/handshake-mode；ip/ipv6/mtu/remote-dns-resolve/dns 等） |
   | ssh | `password`、`private-key-passphrase`、`host-key`、`host-key-algorithms` |
   | openvpn / shadowquic / trusttunnel / tailscale | 维持现状（CVR 无对应 interface，本项目独有） |
+
+  **删除旧键（v1.3，不做兼容）：** 新 schema 不得再声明 hysteria 的 `mport/insecure`、hysteria2 的 `insecure`、tuic 的 `allow_insecure`、anytls 的 `allowInsecure`、wireguard 的 `address` 等旧键；`mergeSensitive` 的“仅保留 schema 字段”过滤可自然清理重建后的数据。
 
   2. `backend/internal/node/node.go`：敏感字段支持**点路径**（如 `plugin-opts.password`、`private-key-passphrase`），加密/合并/解密函数统一走 `getPath/setPath`；`validateProtocolFields` 支持 `text-list/int-list/object` 的 JSON 类型校验。
 
@@ -663,7 +680,7 @@ Step 0（本文档）
   // mergeSensitive：同一路径语义；edit 留空 = 保留旧密文。
   ```
 
-  3. `backend/internal/assembly/render_clash.go`：`clashProxy` 与 `dynamicClashProxy` 先做字段归一化，保证输出给 mihomo 的是数组/对象而不是逗号字符串或扁平旧字段。
+  3. `backend/internal/assembly/render_clash.go`：`clashProxy` 与 `dynamicClashProxy` 先做字段归一化，保证输出给 mihomo 的是数组/对象而不是逗号字符串；新注册表之外的历史字段因数据库可重建，不再做旧键兼容。
 
   ```go
   // normalizeClashFields：把 registry 标注为 text-list 的字符串切分为 []string；
@@ -693,7 +710,7 @@ Step 0（本文档）
   }
   ```
 
-  4. `backend/internal/assembly/links/links.go`：链接生成补齐 transport/Reality/插件参数；`genericLink` 的 vmess 补 `udp`，vless 读取 `ws-opts/h2-opts/grpc-opts/http-opts/xhttp-opts` 输出 `type/path/host/serviceName/mode` 等标准 query；`srLink` 的 vmess/vless 在 SR 形态参数基础上补 `tfo`（若存在）等 CVR URI parser 能回读的键。
+  4. `backend/internal/assembly/links/links.go`：链接生成补齐 transport/Reality/插件参数；`realityOpts` 只读 `reality-opts` 对象（v1.3：删除顶层 `public-key/private-key/short-id` 旧口径）；`genericLink` 的 vmess 补 `udp`，vless 读取 `ws-opts/h2-opts/grpc-opts/http-opts/xhttp-opts` 输出 `type/path/host/serviceName/mode` 等标准 query；`srLink` 的 vmess/vless 在 SR 形态参数基础上补 `tfo`（若存在）等 CVR URI parser 能回读的键。
 
   ```go
   // 伪代码：vless 标准链接的 transport 段
@@ -716,7 +733,7 @@ Step 0（本文档）
   ```
 
   5. `frontend/src/views/admin/NodesView.vue`：动态表单支持 `text-list`（Input + helper 文案“逗号分隔”）与 `int-list`；`object` 字段继续沿用失焦 JSON.parse 的现有处理；敏感字段密文空值提示沿用。
-  6. 兼容策略：旧库 `protocol_json` 中已有扁平 `path/host` 的 vmess/vless 节点，在 Clash 渲染前由 `normalizeLegacyTransport` 尝试迁移到 `ws-opts`（仅内存迁移，不写库）；SR/generic 链接读取时同时兼容新旧两种形态。【假设 A1：允许改写语义，但保留一次轻量兼容映射】
+  6. 兼容策略：**不做旧字段兼容**（用户确认当前数据库可重新初始化）。`mergeSensitive` 现有“仅保留新协议 schema 声明字段”的过滤继续保留，使更新/重建后的节点只含注册表字段；不实现 `normalizeLegacyTransport`，旧扁平 `path/host` 节点在重建数据库后自然消失。
 
 - **测试与验收命令：**
 
@@ -730,7 +747,7 @@ Step 0（本文档）
   - Clash YAML 中 `allowed-ips/alpn` 等以数组形态输出；`ws-opts`/`grpc-opts` 结构体输出正确；
   - `plugin-opts.password` 等嵌套敏感字段加密存储、编辑留空保留旧密文；
   - URI 生成的 vless WS/gRPC 链接可被本地 Go 端到端反解析（Step 8 的 uriparse 复用作回读器）；
-  - 旧扁平 `path/host` 节点渲染不 panic，产物自检通过。
+  - 数据库重建后，按新注册表创建的节点 Clash 渲染不产生 `path/host/mport/insecure/allow_insecure/allowInsecure` 等旧键。
 
 ---
 
@@ -747,47 +764,49 @@ Step 0（本文档）
 
   type RuleDef struct {
       SR            bool   // Shadowrocket 是否支持
-      NoResolve     bool   // 渲染时是否可追加 no-resolve
+      NoResolve     bool   // Clash 渲染是否可追加 no-resolve（SR 渲染不适用）
       ValueRequired bool   // false 仅 MATCH
       ValueLabel    string
   }
 
-  // 类型全集取自 CVR rules-editor-viewer.tsx（【源码事实】），并按本项目判断标 SR 支持面。
+  // 类型全集取自 CVR rules-editor-viewer.tsx（【源码事实】）。
+  // ValueRequired 为 false 仅 MATCH；其余 33 类必须显式写 true（Go 零值陷阱）。
+  // NoResolve 为 Clash/mihomo 渲染元数据；SR 渲染仍按既有口径仅 IP-CIDR/IP-CIDR6 追加。
   var Definitions = map[string]RuleDef{
-      "DOMAIN":             {SR: true},
-      "DOMAIN-SUFFIX":      {SR: true},
-      "DOMAIN-KEYWORD":     {SR: true},
-      "DOMAIN-REGEX":       {SR: false},               // 【推断】SR 不支持，Clash 渲染保留
-      "GEOSITE":            {SR: false},
-      "GEOIP":              {NoResolve: true},
-      "SRC-GEOIP":          {SR: false},
-      "IP-ASN":             {NoResolve: true},
-      "SRC-IP-ASN":         {SR: false},
-      "IP-CIDR":            {SR: true, NoResolve: true},
-      "IP-CIDR6":           {SR: true, NoResolve: true},
-      "SRC-IP-CIDR":        {SR: false},
-      "IP-SUFFIX":          {NoResolve: true},
-      "SRC-IP-SUFFIX":      {SR: false},
-      "SRC-PORT":           {SR: false},
-      "DST-PORT":           {SR: false},
-      "IN-PORT":            {SR: false},
-      "DSCP":               {SR: false},
-      "PROCESS-NAME":       {SR: true},
-      "PROCESS-PATH":       {SR: false},
-      "PROCESS-NAME-REGEX": {SR: true},
-      "PROCESS-PATH-REGEX": {SR: false},
-      "NETWORK":            {SR: false},
-      "UID":                {SR: false},
-      "IN-TYPE":            {SR: false},
-      "IN-USER":            {SR: false},
-      "IN-NAME":            {SR: false},
-      "SUB-RULE":           {SR: false},
-      "RULE-SET":           {SR: false, NoResolve: true},
-      "AND":                {SR: false},
-      "OR":                 {SR: false},
-      "NOT":                {SR: false},
-      "MATCH":              {SR: true, ValueRequired: false},
-      "USER-AGENT":         {SR: true}, // Clash 渲染跳过并提示，沿用现有口径
+      "DOMAIN":             {SR: true, ValueRequired: true},
+      "DOMAIN-SUFFIX":      {SR: true, ValueRequired: true},
+      "DOMAIN-KEYWORD":     {SR: true, ValueRequired: true},
+      "DOMAIN-REGEX":       {SR: false, ValueRequired: true}, // 【推断】SR 不支持，Clash 渲染保留
+      "GEOSITE":            {SR: false, ValueRequired: true},
+      "GEOIP":              {SR: true, ValueRequired: true, NoResolve: true},
+      "SRC-GEOIP":          {SR: false, ValueRequired: true},
+      "IP-ASN":             {SR: false, ValueRequired: true, NoResolve: true},
+      "SRC-IP-ASN":         {SR: false, ValueRequired: true},
+      "IP-CIDR":            {SR: true, ValueRequired: true, NoResolve: true},
+      "IP-CIDR6":           {SR: true, ValueRequired: true, NoResolve: true},
+      "SRC-IP-CIDR":        {SR: false, ValueRequired: true},
+      "IP-SUFFIX":          {SR: false, ValueRequired: true, NoResolve: true},
+      "SRC-IP-SUFFIX":      {SR: false, ValueRequired: true},
+      "SRC-PORT":           {SR: false, ValueRequired: true},
+      "DST-PORT":           {SR: false, ValueRequired: true},
+      "IN-PORT":            {SR: false, ValueRequired: true},
+      "DSCP":               {SR: false, ValueRequired: true},
+      "PROCESS-NAME":       {SR: true, ValueRequired: true},
+      "PROCESS-PATH":       {SR: false, ValueRequired: true},
+      "PROCESS-NAME-REGEX": {SR: true, ValueRequired: true},
+      "PROCESS-PATH-REGEX": {SR: false, ValueRequired: true},
+      "NETWORK":            {SR: false, ValueRequired: true},
+      "UID":                {SR: false, ValueRequired: true},
+      "IN-TYPE":            {SR: false, ValueRequired: true},
+      "IN-USER":            {SR: false, ValueRequired: true},
+      "IN-NAME":            {SR: false, ValueRequired: true},
+      "SUB-RULE":           {SR: false, ValueRequired: true},
+      "RULE-SET":           {SR: false, ValueRequired: true, NoResolve: true},
+      "AND":                {SR: false, ValueRequired: true},
+      "OR":                 {SR: false, ValueRequired: true},
+      "NOT":                {SR: false, ValueRequired: true},
+      "MATCH":              {SR: false, ValueRequired: false}, // SR 使用 FINAL，不接受 MATCH 条目
+      "USER-AGENT":         {SR: true, ValueRequired: true},   // Clash 渲染跳过并提示，沿用现有口径
   }
 
   // ValidateValue 按类型校验：IP-ASN/SRC-IP-ASN/UID 数值；端口 1-65535；
@@ -795,20 +814,34 @@ Step 0（本文档）
   // AND/OR/NOT 至少校验括号配对；MATCH 值必须为空。
   ```
 
-  2. `backend/internal/pool/parser.go`：`ParseLine` 增加逻辑规则与 MATCH 的处理；`ValidateEntry` 改为调 `rulespec`。
+  2. `backend/internal/pool/parser.go` / `sync.go`：`ParseLine` 增加逻辑规则与 MATCH 的处理；`ValidateEntry` 改为调 `rulespec`；`parseURLBody` 在 `ok==true && reason!=""` 时把 reason 作为信息提示追加（不计数、不跳过），保证“行内 policy 已忽略”进入同步回执。
 
   ```go
   // 【源码事实】CVR 规则编辑器对 AND/OR/NOT 保存的是含逗号的完整表达式；
-  // 现有 SplitN(line, ",", 3) 会截断这些类型，必须特殊处理。
+  // 现有 SplitN(line, ",", 3) 会截断这些类型，必须按括号配平解析。
+  // 返回 (ruleType, matchValue, skip, valid)；第三返回值保持为 skip 原因。
+  // 逻辑规则若带行内 policy，先按括号配平剥离该 policy（URL 池目标由装配层另行指定）。
   func ParseLine(raw string) (string, string, string, bool) {
       // 去注释/空行逻辑不变...
       typ := strings.ToUpper(strings.TrimSpace(parts[0]))
       if typ == "AND" || typ == "OR" || typ == "NOT" {
           rest := strings.TrimSpace(line[len(parts[0])+1:])
           if rest == "" { return "", "", "逻辑规则缺少表达式", false }
-          // URL 来源行可能带 target；仅当 rest 不以 "(" 开头时尝试去掉最后一逗号段。
-          // 本项目手动规则行有独立 target 字段，素材池 URL 行不带 target 时不受影响。【推断】
-          return typ, rest, "", true
+          if !strings.HasPrefix(rest, "(") { return "", "", "逻辑规则表达式必须以 ( 开头", false }
+          // 括号配平定位表达式结束位置；end 为匹配右括号下标。
+          end := balancedCloseParen(rest)
+          if end < 0 { return "", "", "逻辑规则括号不配对", false }
+          expr := strings.TrimSpace(rest[:end+1])
+          remainder := strings.TrimSpace(rest[end+1:])
+          // 仅当匹配右括号之后恰好还有 ,policy 时剥离末尾 target；
+          // ParseLine 第三返回值为 skip 原因：URL 池目标由装配层指定，因此丢弃行内 policy 并回执。
+          if strings.HasPrefix(remainder, ",") {
+              target := strings.TrimSpace(strings.TrimPrefix(remainder, ","))
+              if target == "" { return "", "", "逻辑规则目标为空", false }
+              return typ, expr, "逻辑规则末尾 policy 已忽略（目标由装配层指定）", true
+          }
+          if remainder != "" { return "", "", "逻辑规则表达式后存在无法识别的尾部", false }
+          return typ, expr, "", true
       }
       if typ == "MATCH" {
           return "MATCH", "", "", true
@@ -817,9 +850,13 @@ Step 0（本文档）
   }
   ```
 
-  3. `backend/internal/assembly/validate.go`：删除 `validRuleTypes`，使用 `rulespec.Definitions`；Clash 允许全部 34 类（CVR 33 类 + 本项目保留的 USER-AGENT；USER-AGENT 在渲染层跳过并提示），SrConf 只允许 `SR==true` 的类型，对不支持类型在 Preview/Generate 回执中列出（跳过语义与 USER-AGENT 同口径）。
-  4. `backend/internal/assembly/render_clash.go` / `render_sr.go`：`appendRule/formatRuleLine` 使用 `RuleDef.NoResolve`；MATCH 输出 `MATCH,<target>`（无匹配值）；逻辑规则输出 `TYPE,<表达式>,<target>`。
-  5. `frontend/src/views/admin/AssemblyView.vue`：`RULE_TYPES` 扩展为 34 类；Clash 下拉排除 `USER-AGENT`（既有逻辑保持），SR 下拉由 `rulespec` 的 SR 集合映射（后端 context 可增加 `rule_type_options` 以避免前端重复维护，二者取其一，建议后端下发）。
+  `ValidateEntry` 同步调整：逻辑规则允许表达式内逗号（以括号配平结果为准）；其余类型维持现有“匹配值禁止逗号/控制字符”口径。
+
+  3. `backend/internal/assembly/validate.go`：删除 `validRuleTypes`，使用 `rulespec.Definitions`；Clash 允许全部 34 类（CVR 33 类 + 本项目保留的 USER-AGENT；USER-AGENT 在渲染层跳过并提示），SrConf 只允许 `SR==true` 的类型（`MATCH` SR=false，SR 继续使用 `FINAL`），对不支持类型在 Preview/Generate 回执中列出（跳过语义与 USER-AGENT 同口径）。
+  4. `backend/internal/assembly/render_clash.go`：`appendRule` 使用 `RuleDef.NoResolve`；MATCH 输出 `MATCH,<target>`（无匹配值）；逻辑规则输出 `TYPE,<表达式>,<target>`。
+  5. `backend/internal/assembly/render_sr.go`：SR 渲染**不使用** CVR 的 `NoResolve` 全集，保持既有口径仅 `IP-CIDR/IP-CIDR6` 追加 `no-resolve`；逻辑/MATCH 等非 SR 类型跳过并回执。
+  6. `backend/internal/assembly/selfcheck.go`：规则行解析改用 `rulespec` 共享逻辑（逻辑规则按括号配平解析），规则目标校验、`no-resolve` 合法性与必填值校验统一消费 `RuleDef`，补充对应测试。
+  7. `frontend/src/views/admin/AssemblyView.vue`：`RULE_TYPES` 扩展为 34 类；Clash 下拉排除 `USER-AGENT`（既有逻辑保持），SR 下拉由 `rulespec` 的 SR 集合映射（后端 context 可增加 `rule_type_options` 以避免前端重复维护，二者取其一，建议后端下发）。
 - **测试与验收命令：**
 
   ```bash
@@ -827,9 +864,10 @@ Step 0（本文档）
   ```
 
 - **验收标准：**
-  - `GEOSITE`、`RULE-SET`、`SRC-*`、端口类、逻辑类规则可入库/渲染；MATCH 输出无空逗号；
-  - IP-CIDR/IP-CIDR6 保持 `no-resolve`；新增 `GEOIP/IP-ASN/IP-SUFFIX/SRC-IP-CIDR/RULE-SET` 的 `no-resolve` 行为符合 CVR 元数据；
-  - AND/OR/NOT URL 源解析不再被截断；SrConf 对不支持类型跳过并提示；
+  - `GEOSITE`、`RULE-SET`、`SRC-*`、端口类、逻辑类规则可入库/渲染；MATCH 在 Clash 输出无空逗号，且 SrConf 拒绝 MATCH 条目；
+  - Clash 中 IP-CIDR/IP-CIDR6 保持 `no-resolve`；新增 `GEOIP/IP-ASN/IP-SUFFIX/SRC-IP-CIDR/RULE-SET` 的 Clash `no-resolve` 行为符合 CVR 元数据；SR 渲染仍仅 IP-CIDR/IP-CIDR6 带 `no-resolve`；
+  - AND/OR/NOT URL 源解析不再被截断，行内 policy 被剥离并在回执说明；SrConf 对不支持类型跳过并提示；
+  - 每个非 MATCH 规则类型缺匹配值均被 `rulespec` 拒绝（防止 `ValueRequired` 零值失效）；
   - 既有 8 类规则行为不回归。
 
 
@@ -892,7 +930,8 @@ Step 0（本文档）
   ```
 
   4. `RenderClashPlan` 的 `clashGroupReachable` 同步考虑 `Use`：组若有 `use` 且最终 providers 非空，即可达（否则下载渲染会误删组）。
-  5. `frontend/src/views/admin/ProxyGroupsView.vue`：组类型下拉增加 `load-balance/relay`；编辑弹窗增加“高级字段”折叠区：`use`（逗号分隔标签输入）、健康检查四件套、`filter/exclude-filter/exclude-type/include-all*/disable-udp/hidden/icon`；预设组与自建组共用同一表单，name/preset_key 仍不可改。
+  5. `backend/internal/assembly/selfcheck.go`：同步消费 `proxygroup` 的组类型/字段元数据——空 select 组仅在既无 `proxies` 又无 `use/include-all*` 时判 error；`use` 引用命中最终 `proxy-providers`；补充对应测试。
+  6. `frontend/src/views/admin/ProxyGroupsView.vue`：组类型下拉增加 `load-balance/relay`；编辑弹窗增加“高级字段”折叠区：`use`（逗号分隔标签输入）、健康检查四件套、`filter/exclude-filter/exclude-type/include-all*/disable-udp/hidden/icon`；预设组与自建组共用同一表单，name/preset_key 仍不可改。
 - **测试与验收命令：**
 
   ```bash
@@ -903,7 +942,7 @@ Step 0（本文档）
 - **验收标准：**
   - 5 种组类型可创建/编辑；非法 `url`、未知 `exclude-type` 被 400 拒绝；
   - Clash YAML 输出完整 `url-test/fallback/load-balance/relay` 字段，且 `select` 组不再强制要求 `groups` 非空（有 `use` 或 include-all 即合法）；
-  - `RenderClashPlan` 不会删除仅有 `use` 可达的组；
+  - `RenderClashPlan` 不会删除仅有 `use` 可达的组；`CheckClashContent` 不把合法 `use/include-all` 组误判为空 select；
   - 历史 `definition_json`（只有 type/groups）加载与渲染不回归。
 
 ---
@@ -915,7 +954,7 @@ Step 0（本文档）
 - **关键设计决策（已在 §4.4 标注假设 A1/A4/A7）：**
   - 覆盖层输入为**YAML 文本**（与 CVR 编辑形态一致），后端用 `goccy/go-yaml` 的 `MapSlice` + `UseOrderedMap` 解析；
   - 本轮只服务 `clash-yaml`；覆盖层保存在 `selection_json.overlay` 与 `render_plan_json.overlay` 两个位置，避免新增数据库列（旧蓝图缺省即空覆盖层）；
-  - 应用顺序：【假设】基础蓝图 + 动态 Xray 注入 → Rules seq → Proxies seq → Groups seq → Merge 深合并 → 控制面恢复 → 悬空清理 → 顶层排序。
+  - 应用顺序（v1.3 定稿）：**完整基础文档组装（蓝图 + 动态 Xray 注入 + 头部/组/规则） → Rules seq → Proxies seq → Groups seq → Merge 深合并 → 控制面恢复 → 悬空清理 → 顶层排序 → 基于最终文档做组可达性收敛与规则降级**。可达性收敛必须发生在覆盖层之后，否则覆盖层 prepend 的节点/组与 Merge 注入的 provider 无法救活依赖组。
 
 - **产出文件与操作：**
 
@@ -956,17 +995,24 @@ Step 0（本文档）
   func applySeq(root *gyaml.MapSlice, field string, seq *SeqMap) error { /* 见下 */ }
 
   // deepMerge 实现 CVR use_merge 语义：MapSlice 递归合并，其余以 patch 覆盖。
+  // 调用前必须先对 patch 顶层 key 小写化（lowercaseTopLevelKeys），与 CVR 一致。
   func deepMerge(base, patch *gyaml.MapSlice) { /* 见下 */ }
 
   // snapshotControlPlane / enforceControlPlane 对应 CVR AuthoritativeFields：
   // 保存 CONTROL_PLANE_KEYS 的现值，merge 后恢复，缺失键删除。
+  // 【用户已确认】完整采纳 CVR 控制面保护（v1.3）。
   var controlPlaneKeys = []string{
-      "external-controller", "secret", "mixed-port", "socks-port", "port",
+      "external-controller", "external-controller-cors",
+      // 平台通道键按部署目标门控纳入（本项目生成客户端订阅，通常不存在，
+      // 但快照/恢复逻辑保留，防止 Merge 注入后被写入下载内容）：
+      "external-controller-unix", "external-controller-pipe",
+      "secret", "mixed-port", "socks-port", "port",
+      "redir-port", "tproxy-port",
       "tun", "mode", "allow-lan", "log-level", "ipv6", "unified-delay",
-      // 平台键按部署目标选择性纳入；本项目生成的是客户端订阅，
-      // 保护这些键可防止 Merge 误改影响 Clash Verge 的控制面接管。
-      // 【用户已确认】完整采纳 CVR 控制面保护。
   }
+
+  // dns.ipv6 按 CVR AuthoritativeFields 单独快照/恢复：
+  // snapshot 记录基础文档 dns.ipv6（若存在）；enforce 时仅当最终文档仍有 dns 映射时恢复。
 
   // cleanupProxyGroups：与 CVR cleanup_proxy_groups 同口径——
   // 合法名 = proxies 名 ∪ proxy-groups 名 ∪ proxy-providers 名 ∪ 内置策略；
@@ -990,14 +1036,17 @@ Step 0（本文档）
       if err := applySeq(root, "proxy-groups", groups); err != nil { return err }
 
       control := snapshotControlPlane(root)
+      dnsIPv6 := snapshotDNSIPv6(root)
       if strings.TrimSpace(ov.MergeYAML) != "" {
           var mergeRoot gyaml.MapSlice
           if err := gyaml.UnmarshalWithOptions([]byte(ov.MergeYAML), &mergeRoot, gyaml.UseOrderedMap()); err != nil {
               return fmt.Errorf("Merge YAML 解析失败: %w", err)
           }
+          lowercaseTopLevelKeys(&mergeRoot) // 【源码事实】CVR use_merge 先小写化 merge 顶层 key
           deepMerge(root, &mergeRoot)
       }
       enforceControlPlane(root, control)
+      enforceDNSIPv6(root, dnsIPv6)
       cleanupProxyGroups(root)
       sortTopLevel(root)
       return nil
@@ -1036,8 +1085,13 @@ Step 0（本文档）
   }
   ```
 
-  3. `backend/internal/assembly/render_clash.go`：基础 `gyaml.MapSlice` 构建完成后调用 `applyClashOverlay(doc, in.Overlay)`，再通过 `marshalClashYAML` 输出；`plan.Overlay = in.Overlay` 写入 render_plan_json。
-  4. `backend/internal/assembly/clash_plan.go`：`RenderClashPlan` 解出 `plan.Overlay`，在动态节点注入与基础组收敛后调用 `applyClashOverlay(doc, plan.Overlay)`，随后执行现有规则目标降级/fallback 改写与输出。历史蓝图无 `overlay` 时是零值，行为不变。
+  3. `backend/internal/assembly/render_clash.go`（生成/预览路径）：基础 `gyaml.MapSlice` 构建完成后调用 `applyClashOverlay(doc, in.Overlay)`，再通过 `marshalClashYAML` 输出；`plan.Overlay = in.Overlay` 写入 render_plan_json。
+  4. `backend/internal/assembly/clash_plan.go`（下载重渲染路径）：`RenderClashPlan` 解出 `plan.Overlay`，**重构为以下顺序**：
+     - 先组装完整基础文档（计划头部 + 计划 manual proxies + 动态 Xray 节点 + 计划全量 proxy-groups + 计划 rules/fallback，**暂不做可达性删组**）；
+     - 调用 `applyClashOverlay(doc, plan.Overlay)`（内部完成 seq → merge → 控制面恢复 → 清理 → 排序）；
+     - 解析最终文档的 proxies / proxy-groups / proxy-providers，执行组可达性收敛（强制组保留、普通组按最终引用与 provider `use` 判定）；
+     - 基于最终保留组执行规则目标降级与 fallback 改写；
+     - 重新清理/排序后经 `marshalClashYAML` 输出。历史蓝图无 `overlay` 时是零值，行为不变。
   5. `backend/internal/assembly/service.go` / `blueprint.go`：`SaveBlueprintTx` 把 `in.Overlay` 写入 selection_json 的 `"overlay"` 键；`GetBlueprint` 解析并返回 `overlay`；`loadEditIfAny` 前端恢复四个 YAML 文本。
   6. 新增 `frontend/src/views/admin/assembly/OverlayStep.vue`：仅 Clash YAML 装配器显示；四个 `Input.TextArea`（Merge/Rules/Proxies/Groups），提供 CVR 同款空模板填充按钮与字段说明。按项目简单轻量化原则先不引入 Monaco，文本域 + 预览 diff 即可覆盖首轮需求；预览前把四个文本并入 `buildInput().overlay`。
   7. `frontend/src/api/assembly.ts`：`GenerateInput.overlay`、`BlueprintResponse.selection.overlay` 类型同步。
@@ -1050,10 +1104,10 @@ Step 0（本文档）
 
 - **验收标准：**
   - `TestOverlaySeqSemantics`：rules/proxies/groups 的 prepend/delete/append 顺序与 CVR `use_seq` 一致；delete 会从所有组移除节点；新增节点自动进入第一个 selector 组最前；
-  - `TestOverlayMergeAndControlPlane`：嵌套 Mapping 深合并、非 Mapping 覆盖；merge 不能覆盖被保护的 `port/mode/allow-lan` 等控制面值；
+  - `TestOverlayMergeAndControlPlane`：嵌套 Mapping 深合并、非 Mapping 覆盖；merge 顶层 key 大小写归一；merge 不能覆盖完整 `CONTROL_PLANE_KEYS` 与 `dns.ipv6` 快照值；
   - `TestOverlayCleanupAndSort`：不存在的节点/组/provider 引用被清理；顶层键序符合 use_sort；
   - `TestBlueprintOverlayRoundtrip`：生成 → GetBlueprint 返回四个 YAML 文本 → 重新编辑加载一致；
-  - `TestDownloadRendersOverlay`：激活蓝图的下载重渲染结果包含 prepend 节点/规则与 merge 字段，且动态 Xray 节点仍正确注入；
+  - `TestDownloadRendersOverlay`：激活蓝图的下载重渲染结果包含 prepend 节点/规则与 merge 字段，且动态 Xray 节点仍正确注入；**覆盖层 prepend 的节点或 Merge 注入的 provider 能救活依赖它们的普通组，不被提前删除**；
   - 无覆盖层的既有蓝图渲染结果与当前行为一致。
 
 
@@ -1079,6 +1133,7 @@ Step 0（本文档）
   // Parse 支持：ss / vmess（V2rayN JSON 与 Shadowrocket base64）/ vless（标准与
   // SR base64 userinfo）/ trojan / anytls / hysteria2 / hysteria / tuic / wireguard /
   // http(s) / socks5。解析规则与 CVR src/utils/uri-parser/* 保持一致。【源码事实】
+  // 注意：CVR 也支持 ssr，但本项目按 Design2 §4.5 排除 ssr，归入候选 C2；此处不实现。
   func Parse(raw string) (*Result, error) {
       s := strings.TrimSpace(raw)
       if s == "" { return nil, errors.New("空行") }
@@ -1235,13 +1290,7 @@ Step 0（本文档）
 
   `CreateVersion` 内：`writeFileAtomic(full, content, 0o644)`；DB 插入或 AfterCreate 失败时删除 `full`（事务回滚语义与现逻辑一致）；`evictOldest` 删除文件逻辑不变。
 
-  2. `backend/internal/server/render.go`：`renderUserSubscription` 查询从
-
-  ```go
-  SELECT b.target_syntax, COALESCE(b.render_plan_json, '{}')
-  ```
-
-  改为在 Clash 分支解出 `plan.Overlay` 即可（Step 7 已把 overlay 写进 render_plan_json）。`RenderClashPlan` 本身已通过 `marshalClashYAML` 输出真实 UTF-8，不再需要 `restoreYAMLUnicodeEscapes`；输出后若 `CheckClashContent` 出现 error，只 `slog.Warn` 不阻断下载（系统生成版本已在 Step 2 阻断过，这里仅防历史脏蓝图）。
+  2. `backend/internal/server/render.go`：`renderUserSubscription` 现有查询已读取 `COALESCE(b.render_plan_json, '{}')`，无需改 SQL；Step 7 已把 overlay 写入 `render_plan_json`，`RenderClashPlan` 内部按 Step7 新顺序（先应用覆盖层、后可达性收敛）处理。`RenderClashPlan` 已通过 `marshalClashYAML` 输出真实 UTF-8，不再需要 `restoreYAMLUnicodeEscapes`；输出后若 `CheckClashContent` 出现 error，只 `slog.Warn` 不阻断下载（系统生成版本已在 Step 2 阻断过，这里仅防历史脏蓝图）。
   3. `backend/internal/download/download.go`：确认直接上传内容（无 blueprint）仍原样返回，不经过覆盖层/自检。
 - **测试与验收命令：**
 
@@ -1303,4 +1352,5 @@ Step 0（本文档）
 | v1.0 | 2026-08-27 | 基于 clash-verge-rev 本地源码 `3503a2d`、三份 Reference 文档与 Issue7 开放项研究生成 Build9；含事实基线、假设清单、候选构建项与 Step 1~11 分步计划；未改动任何代码与既有文档。 |
 | v1.1 | 2026-08-27 | 深入核验后修订：以当前 HEAD `c681742` 对齐代码；标记 R22-02/06/07/08 与 R22-01 主体已实施；Step 1 收窄为 R22-03 条件化目标区；Step 9 收窄为启动补跑；新增 §4.5 核验结论与用户确认（Emoji 小实验、完整控制面保护、URI 导入同名跳过并回执）；同步候选与文档收口口径。未改动任何代码。 |
 | v1.2 | 2026-08-27 | Step2 方案定稿：选择方案B（goccy 全量迁移），接受语义等价文本差异，注释用 CommentMap；方案A（yaml.v3 + restoreYAMLUnicodeEscapes）保留为回退记录；Step7/后续 YAML 解析同步改为 goccy MapSlice + UseOrderedMap；更新 Step2、Step7、Step10 与变更记录。未改动任何代码。 |
+| v1.3 | 2026-08-27 | 二次深入核验后修订（仅改本文件，未改代码）：Step1 纳入两个过期前端测试修复；Step3 响应头校验兼容 `{frontend_url}`、interval 允许 0、subscription-userinfo 非负整数；Step4 明确不做旧字段兼容并修正 socks5/sni；Step5 修复 `ValueRequired` 零值、SR 支持面（GEOIP/MATCH）与逻辑规则括号配平解析，selfcheck 纳入共享元数据；Step6 selfcheck 同步 use/include-all；Step7 定稿“覆盖层先于可达性收敛”并补齐完整 CVR Merge/控制面语义；Step8 注明排除 ssr；Step10 同步新管线；更新事实 20、版本锚点与文件清单。 |
 
