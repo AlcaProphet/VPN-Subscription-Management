@@ -35,7 +35,7 @@
 |------|------|------|
 | 0 | 创建 Build9 文档与事实基线 | ✅ 已完成（本文档） |
 | 1 | 前置修复：Issue7 R22-02/03/06/07/08（版本 id、装配 UI、SR-conf 直建规则） | ◧ 进行中：R22-02/06/07/08 已实施（a0cd819）；R22-03 仅剩“条件化目标选择区” |
-| 2 | Clash 产物静态自检 + YAML Emoji/UTF-8 输出修复 | ☐ 未开始（Emoji 实现方式待小实验定稿，见 §4.5） |
+| 2 | Clash 产物静态自检 + YAML 输出迁移到 goccy（方案B，方案A回退） | ☐ 未开始（已选定 goccy 全迁移方向，见 §4.5） |
 | 3 | 订阅响应头语义层与 RFC 5987 文件名（Clash Verge 导入兼容） | ☐ 未开始 |
 | 4 | 节点协议注册表/字段补全 + Clash 渲染与 URI 参数对齐 | ☐ 未开始 |
 | 5 | 规则类型与素材池解析扩展（mihomo 规则全集） | ☐ 未开始 |
@@ -55,7 +55,7 @@
 | Step | 涉及文件 | 要点 |
 |------|---------|------|
 | 1 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/{TypeTargetStep.vue,AssemblerShell.vue}`（其余 R22-02/06/07/08 已实施，见 §4.5） | 剩余仅：R22-03 条件化目标选择区；其余为核验与回归 |
-| 2 | `backend/internal/assembly/{selfcheck.go,yaml_text.go,render_clash.go,service.go,models.go}`、`backend/internal/assembly/*_test.go` | 静态自检、Emoji 还原、预览告警/生成阻断 |
+| 2 | `backend/internal/assembly/{goccy_yaml.go,selfcheck.go,render_clash.go,clash_plan.go,service.go,models.go}`、`backend/go.mod`、`backend/internal/assembly/*_test.go` | goccy 全量迁移：MapSlice 输出、CommentMap 注释、自检、静态校验、预览告警/生成阻断 |
 | 3 | `backend/internal/download/download.go`、`backend/internal/server/download.go`、`backend/internal/platform/platform.go`、`backend/internal/setup/setup.go`、`frontend/src/views/admin/PlatformEditView.vue` 及测试 | RFC 5987 Content-Disposition、profile 头语义校验、系统头优先级 |
 | 4 | `backend/internal/node/{registry.go,node.go}`、`backend/internal/assembly/links/links.go`、`backend/internal/assembly/render_clash.go`、`frontend/src/views/admin/NodesView.vue` 及测试 | 协议字段补全、嵌套敏感字段、数组字段归一化、传输参数链接 |
 | 5 | `backend/internal/rulespec/spec.go`（新增）、`backend/internal/pool/parser.go`、`backend/internal/assembly/{validate.go,render_clash.go,render_sr.go}`、`frontend/src/views/admin/AssemblyView.vue` 及测试 | mihomo 规则全集、no-resolve 元数据、逻辑规则解析 |
@@ -120,7 +120,7 @@ Step 0（本文档）
 15. **代理组类型与字段**：`IProxyGroupConfig.type` 支持 `select/url-test/fallback/load-balance/relay`；还含 `use/url/expected-status/interval/timeout/max-failed-times/lazy/disable-udp/interface-name/routing-mark/filter/exclude-filter/exclude-type/include-all*/hidden/icon`。
 16. **规则类型全集**：`rules-editor-viewer.tsx` 列出的 mihomo 规则类型 30+，并带 `noResolve`/validator 元数据；`MATCH` 无匹配值，输出 `MATCH,policy`。
 17. **URI 导入与去重**：`proxies-editor-viewer.tsx` 多行 URI 粘贴，先 `atob` 尝试 Base64 解码，逐行 `parseUri`，解析失败跳过不阻塞，按 name 去重保留第一条，空 name 节点从可视化列表过滤但保留原文；`uri-parser/` 支持 `ss/ssr/vmess/vless/trojan/anytls/hysteria2(h2)/hysteria(hy)/tuic/wireguard(wg)/http(s)/socks5(socks)`，并识别 VLESS 的 Shadowrocket base64 userinfo 形态。
-18. **Emoji 实测**：本项目 `gopkg.in/yaml.v3 v3.0.1` 会把 4 字节 emoji 输出为 `"\U0001F680..."`；Go yaml.v3 与 js-yaml 均能解析回原串；但为可读性与老解析器兼容，应还原真实 UTF-8。实测 `github.com/goccy/go-yaml v1.19.2`（当前 `go.mod` 中已有 indirect）原生输出真实 emoji，可作为替代方案。
+18. **Emoji 实测与方案选择**：本项目 `gopkg.in/yaml.v3 v3.0.1` 会把 4 字节 emoji 输出为 `"\U0001F680..."`；Go yaml.v3 与 js-yaml 均能解析回原串；但为可读性与老解析器兼容，需要真实 UTF-8。实测 `github.com/goccy/go-yaml v1.19.2`（当前 `go.mod` 中已有 indirect）原生输出真实 emoji，并支持 `MapSlice` 保序、`UseOrderedMap` 嵌套保序、`CommentMap` 注释、`AutoInt` 整数归一。**【用户已确认】Step2 选择方案B：全量迁移到 goccy；方案A（yaml.v3 + restoreYAMLUnicodeEscapes）保留为回退记录。**
 19. **当前项目已有对齐点**：下载端点已注入 `profile-update-interval/profile-web-page-url/subscription-userinfo` 与禁缓存头；`RenderClashPlan` 已有可达性收敛；节点已有 `display_name/有效渲染名` 全局唯一；规则素材池已有 URL 同步、30 分钟超时、取消端点。
 20. **当前项目主要差距（核验后更新）**：无输出静态自检；Emoji 被 yaml.v3 转义；Content-Disposition 只有单行 `filename*` 且系统头被平台手写头覆盖；协议字段明显少于 CVR；规则类型 8 类；组类型 3 类且无 `use/健康检查`；无 merge/seq 覆盖层；无 URI 导入；版本文件非原子写入。**已闭环的差距另行注明**：素材池同步长事务（R22-01）已由短事务 + 联合索引修复，仅缺启动补跑；版本列表缺 `id`（R22-02）已修复；R22-03 仅剩“条件化目标选择区”。
 
@@ -141,7 +141,7 @@ Step 0（本文档）
 - **A4 覆盖层首轮只服务 Clash YAML**：SR subs/generic-subs/sr-conf 暂不应用 Merge/Seq；共用层（规则元数据、响应头）仍顺带覆盖。
 - **A5 Issue7 纳入范围裁剪（核验后更新）**：R22-02/03/06/07/08 因与装配 UI/重新编辑强相关纳入 Step 1；其中 R22-02/06/07/08 已在 `a0cd819` 实施，R22-01 已在 `a0cd819` 完成主体修复；R22-03 仍开放，本次仅需按 Issue7 v1.11 后补修订实现“条件化目标选择区”；R22-04/R22-05 已在 `a0cd819` 闭环，不再纳入本 Build。
 - **A6 池同步补跑口径**：当前池是“每日固定时刻”模型，不引入 per-pool 相对间隔列；启动补跑仅补偿“今天应跑但停机错过”的任务，保持现有数据模型简单。
-- **A7 覆盖层输入为 YAML 文本**：与 CVR 一致，前端不做 JSON 表单化；后端统一 `yaml.v3` 解析并在预览时给出定位错误。
+- **A7 覆盖层输入为 YAML 文本（v1.2 更新为 goccy）**：与 CVR 一致，前端不做 JSON 表单化；后端统一使用 `goccy/go-yaml` 的 `MapSlice` + `UseOrderedMap` 解析，并在预览时给出定位错误。
 - **A8 Step 顺序可执行**：每步完成后均可编译测试，不跳步；执行者仍应遵守 AGENTS“每次仅执行一个 Step，验收后再下一步”。
 
 ### 4.5 核验后修订要点与用户确认（v1.1）
@@ -159,7 +159,9 @@ Step 0（本文档）
   3. SR-conf 不受该条件影响，仍保留“新建规则/选择已有规则”入口。
 - **用户已确认决策（2026-08-27 核验问答）：**
   - **Build9 先修订再继续**：已实施项不再重复实现，R22-03 按 Issue7 最新方案修订；
-  - **Emoji 实现先小实验再定稿**：已实测 `goccy/go-yaml` 原生输出真实 emoji；自定义 `restoreYAMLUnicodeEscapes` 作为备选，仍需补边界测试后二选一；
+  - **Step2 选择方案B（goccy 全量迁移）**：经小实验后确认，YAML 序列化与后续解析统一迁移到 `goccy/go-yaml`；方案A（yaml.v3 + `restoreYAMLUnicodeEscapes`）保留作为回退记录，若方案B出现不可接受问题可回滚；
+  - **接受方案B的文本差异**：goccy 会对 `on/yes/空字符串` 等自动加引号，使用 `AutoInt()` 保持整数输出；与现有 yaml.v3 输出为语义等价但文本可能不同，需同步调整少量测试断言；
+  - **注释用 CommentMap 管理**：`# {{xray_nodes}}` 和下载提示注释改用 `goccy.CommentMap` 在序列化时生成，不再依赖 `yaml.Node.HeadComment`；
   - **Step7 控制面保护完整采纳 CVR**：Merge 不能覆盖 `external-controller/secret/mixed-port/socks-port/port/tun/mode/allow-lan/log-level/ipv6/unified-delay` 等权威键；
   - **Step8 URI 导入遇同名节点**：跳过并回执，不覆盖已有节点。
 - **写入 Step 计划的技术提醒：**
@@ -236,16 +238,75 @@ Step 0（本文档）
   - 已实施的 R22-02/06/07/08 回归通过。
 
 
-### Step 2：Clash 产物静态自检 + YAML Emoji/UTF-8 输出修复
+### Step 2：Clash YAML 输出迁移到 goccy + 静态自检（方案B；方案A为回退记录）
 
-- **目标：** 对齐 CVR 两层校验中可静态表达的部分：顶层结构、节点必填字段、组/规则引用、空 select 组；并修复 yaml.v3 把 emoji 转义为 `\U...` 的可读性/兼容性问题。
-- **前置条件：** Step 1。
+- **目标：** 将 Clash YAML 渲染与后续 YAML 解析统一迁移到 `goccy/go-yaml`：输出真实 UTF-8 emoji，同时补齐 CVR 可静态表达的顶层结构、必填字段、组/规则引用、空 select 组自检。
+- **前置条件：** Step 1；用户已确认采用方案B（goccy 全量迁移），接受与现有 yaml.v3 文本差异。
+- **关键结论（2026-08-27 研究）：**
+  - `goccy/go-yaml` 原生输出 emoji，不需要后处理还原；
+  - `goccy.MapSlice` 可保持顶层/嵌套映射顺序；
+  - `gyaml.UseOrderedMap()` 可让嵌套映射解析为 `MapSlice`，适合覆盖层与自检；
+  - `gyaml.AutoInt()` 可避免浮点数被输出为 `7890.0`；
+  - `gyaml.CommentMap` 可生成 `# {{xray_nodes}}` 与用户提示注释；
+  - goccy 不能直接序列化 `*gopkg.in/yaml.v3.Node`，因此需要迁移到 `MapSlice` / `[]any`，不能保留 Node 树直接输出。
+  - **方案A（yaml.v3 + restoreYAMLUnicodeEscapes）保留在本文档下方作为回退记录；当前方向为方案B。**
+- **产出文件与操作（当前方案B）：**
 
-> **Emoji 输出方案（v1.1 核验后待定）：** 已实测 `goccy/go-yaml v1.19.2` 原生输出真实 emoji；自定义 `restoreYAMLUnicodeEscapes` 仍需补充边界测试。实施本步前应先完成小实验并二选一；下文先保留自定义还原方案作为参考实现，若选择 goccy 则相应替换 `yaml.Marshal`/序列化路径。
+> 下面先写方案B整合步骤；从“【方案A回退记录】”开始的是回退备选，不参与本次构建。
 
-- **产出文件与操作：**
+  **B.1 依赖与统一封装**
+  - `backend/go.mod`：将 `github.com/goccy/go-yaml v1.19.2` 从 indirect 提升为直接依赖；移除 `gopkg.in/yaml.v3` 的直接引用（代码全量迁移后）。
+  - 新增 `backend/internal/assembly/goccy_yaml.go`，统一提供：
+    ```go
+    // orderedMapToMapSlice 将现有 OrderedMap 转为 goccy MapSlice（保序）。
+    func orderedMapToMapSlice(m *OrderedMap) gyaml.MapSlice
 
-  1. 【参考实现，待定】新增 `backend/internal/assembly/yaml_text.go`：安全还原 YAML 双引号标量里的 Unicode 转义，只还原 `\Uxxxxxxxx` / `\uxxxx`，不触碰 `\\U...` 字面文本、单引号标量与裸标量。
+    // toGoccyValue 将当前 toYAMLNode 支持的值转为 goccy 可序列化值。
+    // 支持 nil/string/bool/int/int64/float64/[]string/[]any/map[string]any/*OrderedMap。
+    func toGoccyValue(v any) any
+
+    // marshalClashYAML 统一 goccy 序列化：AutoInt + 可选 CommentMap。
+    func marshalClashYAML(doc gyaml.MapSlice, comments gyaml.CommentMap) ([]byte, error)
+    ```
+
+  **B.2 改造 `render_clash.go` 与 `clash_plan.go`**
+  - 不再创建 `*yaml.Node` 树；顶层、`proxies`、`proxy-groups`、`rules` 全部用 `gyaml.MapSlice` + `[]any` 构建。
+  - `clashProxy` / `dynamicClashProxy` 仍返回 `*OrderedMap`，在序列化时通过 `orderedMapToMapSlice` 转成 goccy 映射。
+  - 注释不再写入 `yaml.Node.HeadComment`，而是构造 `gyaml.CommentMap`：
+    ```go
+    // 首个 proxy 前注释：$.proxies[0]；无 proxy 时：$.proxies
+    func proxyCommentMap(comment string, hasProxies bool) gyaml.CommentMap {
+        text := goccyHeadComment(comment) // 去掉已有 '#', 统一加一个前导空格
+        path := "$.proxies"
+        if hasProxies { path = "$.proxies[0]" }
+        return gyaml.CommentMap{path: {gyaml.HeadComment(text)}}
+    }
+    ```
+  - 使用 `gyaml.MarshalWithOptions(doc, gyaml.AutoInt(), gyaml.WithComment(comments))` 输出。
+  - 注意：goccy 的 `HeadComment` 若文本已含 `#` 会输出 `##`，因此统一用 `goccyHeadComment` 规范化。
+
+  **B.3 静态自检 `selfcheck.go`**
+  - 用 goccy 解析，而不是 yaml.v3：
+    ```go
+    var root gyaml.MapSlice
+    if err := gyaml.UnmarshalWithOptions(content, &root, gyaml.UseOrderedMap()); err != nil {
+        return []OutputIssue{{Severity: "error", Path: "$", Message: "YAML 解析失败: " + err.Error()}}
+    }
+    ```
+  - 后续通过 `mapGet(root, "proxies")` / `seqOf(...)` / `scalarString(...)` 等 helper 完成：
+    - 顶层 `proxies` 或 `proxy-providers` 必须存在；
+    - proxies 必填项、协议注册表必填字段；
+    - 组类型/引用、空 select 组；
+    - rules 目标引用；
+    - warning 级：兜底规则缺失。
+
+  **B.4 覆盖层/后续 YAML 解析全量统一**
+  - Step7 的 `OverlayInput` 解析也改为 `gyaml.UnmarshalWithOptions(..., gyaml.UseOrderedMap())`；
+  - `applySeq` / `deepMerge` / `cleanupProxyGroups` / `sortTopLevel` 全部基于 `gyaml.MapSlice` 和 `[]any` 实现；
+  - 不再使用 `gopkg.in/yaml.v3` 的 `yaml.Node`。
+
+
+  **【方案A回退记录】** 1. 若方案B出现不可接受问题，可回退为：新增 `backend/internal/assembly/yaml_text.go`，保留 `gopkg.in/yaml.v3`，通过 `restoreYAMLUnicodeEscapes` 还原 YAML 双引号标量中的 Unicode 转义。以下为方案A完整参考实现，仅作回退，不用于当前构建。
 
   ```go
   // 【源码事实】yaml.v3 v3.0.1 把 🚀 输出为 "\U0001F680"；Go yaml.v3 与 js-yaml
@@ -317,7 +378,7 @@ Step 0（本文档）
 
   > 说明：还原后的原始 emoji 出现在双引号标量内仍是合法 YAML UTF-8；若后续实测某客户端不兼容，`goccy/go-yaml v1.19.2`（当前已是 indirect 依赖，实测原生输出 emoji）是备选方案。【推断】
 
-  2. 新增 `backend/internal/assembly/selfcheck.go`：纯函数静态自检。
+  2. 【方案A回退中的自检参考】新增 `backend/internal/assembly/selfcheck.go`：以下自检校验逻辑可复用；当前方案B中解析部分必须改为 goccy，见上文 B.3。
 
   ```go
   type OutputIssue struct {
@@ -405,12 +466,11 @@ Step 0（本文档）
   > 说明：`node.GetProtocol` 的 Required 字段清单即 Step 4 扩展后的同一注册表；Step 4 完成后自检能力自动增强。
 
   3. `backend/internal/assembly/models.go`：`RenderResult` 增加 `Issues []OutputIssue`。
-  4. `backend/internal/assembly/render_clash.go`：`renderClash` 在 `yaml.Marshal` 后调用还原与自检；`clash_plan.go::RenderClashPlan` 只还原（下载侧不因自检阻断，仅日志观察）。
+  4. `backend/internal/assembly/render_clash.go` / `clash_plan.go`：序列化改为 `marshalClashYAML(doc, comments)`，不再调用 `yaml.Marshal`，也不再调用 `restoreYAMLUnicodeEscapes`：
 
   ```go
-  content, err := yaml.Marshal(root)
+  content, err := marshalClashYAML(doc, comments)
   if err != nil { return nil, fmt.Errorf("序列化 Clash YAML 失败: %w", err) }
-  content = restoreYAMLUnicodeEscapes(content)
   res := &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw}
   res.Issues = CheckClashContent(content)
   ```
@@ -432,10 +492,12 @@ Step 0（本文档）
   ```
 
 - **验收标准：**
-  - `TestClashEmojiRaw`：生成含 🚀/🌎/🛟/😀节点 的 Clash YAML，输出包含真实 emoji 原文；`yaml.Unmarshal` 回读名称一致；字面 `\\U0001F680` 不被误还原；
+  - `TestClashEmojiRaw`：生成含 🚀/🌎/🛟/😀 节点的 Clash YAML，输出包含真实 emoji 原文，不出现 `\U0001F680`；用 `gyaml.UnmarshalWithOptions(content, &doc, gyaml.UseOrderedMap())` 回读名称一致；
+  - `TestGoccyAutoInt`：`float64(7890)` 输出为 `port: 7890`，不是 `7890.0`；
+  - `TestGoccyCommentMap`：有 proxies 时 `# {{xray_nodes}}` 出现在首个 proxy 前；无 proxies 时出现在 `proxies` 键前，且注释不会变成 `##`；
   - `TestSelfCheckRejectsDangling`：组引用不存在节点/规则目标不存在/空 select 组返回 error 级 issue；Preview 返回 warnings；Generate 返回 400；
   - `TestSelfCheckPassesGenerated`：合法最小 Clash 产物 0 个 error；
-  - 既有 `TestClashHeaderOrder` 继续通过（Step 7 引入 use_sort 后按新预期更新）。
+  - 既有 `TestClashHeaderOrder` 等按 goccy 输出语义等价文本更新后继续通过。
 
 ---
 
@@ -851,7 +913,7 @@ Step 0（本文档）
 - **目标：** 引入 CVR 的扩展覆盖模型。生成时与下载动态渲染时都按同一管线应用覆盖层；覆盖层随蓝图快照保存，重新编辑可完整恢复。
 - **前置条件：** Step 4/5/6（字段与元数据齐备）。
 - **关键设计决策（已在 §4.4 标注假设 A1/A4/A7）：**
-  - 覆盖层输入为**YAML 文本**（与 CVR 编辑形态一致），后端用 `yaml.v3` 解析；
+  - 覆盖层输入为**YAML 文本**（与 CVR 编辑形态一致），后端用 `goccy/go-yaml` 的 `MapSlice` + `UseOrderedMap` 解析；
   - 本轮只服务 `clash-yaml`；覆盖层保存在 `selection_json.overlay` 与 `render_plan_json.overlay` 两个位置，避免新增数据库列（旧蓝图缺省即空覆盖层）；
   - 应用顺序：【假设】基础蓝图 + 动态 Xray 注入 → Rules seq → Proxies seq → Groups seq → Merge 深合并 → 控制面恢复 → 悬空清理 → 顶层排序。
 
@@ -884,17 +946,17 @@ Step 0（本文档）
       raw = strings.TrimSpace(raw)
       if raw == "" { return &SeqMap{}, nil }
       var m SeqMap
-      if err := yaml.Unmarshal([]byte(raw), &m); err != nil {
+      if err := gyaml.UnmarshalWithOptions([]byte(raw), &m, gyaml.UseOrderedMap()); err != nil {
           return nil, fmt.Errorf("覆盖层 YAML 解析失败: %w", err)
       }
       return &m, nil
   }
 
   // applySeq 实现 CVR use_seq 语义：prepend + (original - delete) + append。
-  func applySeq(root *yaml.Node, field string, seq *SeqMap) error { /* 见下 */ }
+  func applySeq(root *gyaml.MapSlice, field string, seq *SeqMap) error { /* 见下 */ }
 
-  // deepMergeNode 实现 CVR use_merge 语义：Mapping 递归合并，其余以 patch 覆盖。
-  func deepMergeNode(base, patch *yaml.Node) { /* 见下 */ }
+  // deepMerge 实现 CVR use_merge 语义：MapSlice 递归合并，其余以 patch 覆盖。
+  func deepMerge(base, patch *gyaml.MapSlice) { /* 见下 */ }
 
   // snapshotControlPlane / enforceControlPlane 对应 CVR AuthoritativeFields：
   // 保存 CONTROL_PLANE_KEYS 的现值，merge 后恢复，缺失键删除。
@@ -912,14 +974,14 @@ Step 0（本文档）
   // 【核验提醒】需保留 CVR 的 has_valid_provider 语义：组存在合法 use provider 时，
   // 其 proxies 中未命中合法名的字符串成员仍应保留（可能来自 provider）。
   // 本项目额外保留 COMPATIBLE 作为合法内置策略。
-  func cleanupProxyGroups(root *yaml.Node) { /* 见下 */ }
+  func cleanupProxyGroups(root *gyaml.MapSlice) { /* 见下 */ }
 
   // sortTopLevel：对齐 CVR use_sort——控制面键 → 其他键 → proxies/proxy-providers/
   // proxy-groups/rule-providers/rules 固定收尾。
-  func sortTopLevel(root *yaml.Node) { /* 见下 */ }
+  func sortTopLevel(root *gyaml.MapSlice) { /* 见下 */ }
 
   // applyClashOverlay 单入口：
-  func applyClashOverlay(root *yaml.Node, ov OverlayInput) error {
+  func applyClashOverlay(root *gyaml.MapSlice, ov OverlayInput) error {
       rules, err := parseSeq(ov.RulesYAML); if err != nil { return err }
       proxies, err := parseSeq(ov.ProxiesYAML); if err != nil { return err }
       groups, err := parseSeq(ov.GroupsYAML); if err != nil { return err }
@@ -929,12 +991,11 @@ Step 0（本文档）
 
       control := snapshotControlPlane(root)
       if strings.TrimSpace(ov.MergeYAML) != "" {
-          var mergeRoot yaml.Node
-          if err := yaml.Unmarshal([]byte(ov.MergeYAML), &mergeRoot); err != nil {
+          var mergeRoot gyaml.MapSlice
+          if err := gyaml.UnmarshalWithOptions([]byte(ov.MergeYAML), &mergeRoot, gyaml.UseOrderedMap()); err != nil {
               return fmt.Errorf("Merge YAML 解析失败: %w", err)
           }
-          if mergeRoot.Kind != yaml.MappingNode { return errors.New("Merge 必须是 YAML 映射") }
-          deepMergeNode(root, &mergeRoot)
+          deepMerge(root, &mergeRoot)
       }
       enforceControlPlane(root, control)
       cleanupProxyGroups(root)
@@ -946,27 +1007,24 @@ Step 0（本文档）
   `applySeq` 的参考实现要点：
 
   ```go
-  func applySeq(root *yaml.Node, field string, seq *SeqMap) error {
+  func applySeq(root *gyaml.MapSlice, field string, seq *SeqMap) error {
       if seq == nil { return nil }
-      seqNode := mappingValue(root, field)
-      if seqNode == nil || seqNode.Kind != yaml.SequenceNode {
-          seqNode = &yaml.Node{Kind: yaml.SequenceNode}
-          mappingSet(root, field, seqNode)
-      }
+      seqItems := mapSeqList(root, field) // 不存在时返回空 []any
+
       deleteSet := map[string]bool{}
       for _, d := range seq.Delete { deleteSet[d] = true }
 
-      kept := &yaml.Node{Kind: yaml.SequenceNode}
-      for _, item := range seqNode.Content {
-          name := yamlNameOf(item)
+      kept := make([]any, 0, len(seqItems))
+      for _, item := range seqItems {
+          name := goccyNameOf(item)
           if name != "" && deleteSet[name] { continue }
-          kept.Content = append(kept.Content, cloneNode(item))
+          kept = append(kept, item)
       }
-      out := &yaml.Node{Kind: yaml.SequenceNode}
-      for _, item := range seq.Prepend { n, err := toYAMLNode(item); if err != nil { return err }; out.Content = append(out.Content, n) }
-      out.Content = append(out.Content, kept.Content...)
-      for _, item := range seq.Append { n, err := toYAMLNode(item); if err != nil { return err }; out.Content = append(out.Content, n) }
-      mappingSet(root, field, out)
+      out := make([]any, 0, len(seq.Prepend)+len(kept)+len(seq.Append))
+      out = append(out, seq.Prepend...)
+      out = append(out, kept...)
+      out = append(out, seq.Append...)
+      mapSetList(root, field, out)
 
       // 【源码事实】CVR use_seq：proxies 场景收集新增节点名，插入第一个 selector/select 组最前，
       // 且源码不要求该组 proxies 非空；同时从所有组删除 delete 命中的节点。
@@ -978,8 +1036,8 @@ Step 0（本文档）
   }
   ```
 
-  3. `backend/internal/assembly/render_clash.go`：基础 `root` 构建完成后调用 `applyClashOverlay(root, in.Overlay)` 再 marshal；`plan.Overlay = in.Overlay` 写入 render_plan_json。
-  4. `backend/internal/assembly/clash_plan.go`：`RenderClashPlan` 解出 `plan.Overlay`，在动态节点注入与基础组收敛后调用 `applyClashOverlay(root, plan.Overlay)`，随后执行现有规则目标降级/fallback 改写与输出。历史蓝图无 `overlay` 时是零值，行为不变。
+  3. `backend/internal/assembly/render_clash.go`：基础 `gyaml.MapSlice` 构建完成后调用 `applyClashOverlay(doc, in.Overlay)`，再通过 `marshalClashYAML` 输出；`plan.Overlay = in.Overlay` 写入 render_plan_json。
+  4. `backend/internal/assembly/clash_plan.go`：`RenderClashPlan` 解出 `plan.Overlay`，在动态节点注入与基础组收敛后调用 `applyClashOverlay(doc, plan.Overlay)`，随后执行现有规则目标降级/fallback 改写与输出。历史蓝图无 `overlay` 时是零值，行为不变。
   5. `backend/internal/assembly/service.go` / `blueprint.go`：`SaveBlueprintTx` 把 `in.Overlay` 写入 selection_json 的 `"overlay"` 键；`GetBlueprint` 解析并返回 `overlay`；`loadEditIfAny` 前端恢复四个 YAML 文本。
   6. 新增 `frontend/src/views/admin/assembly/OverlayStep.vue`：仅 Clash YAML 装配器显示；四个 `Input.TextArea`（Merge/Rules/Proxies/Groups），提供 CVR 同款空模板填充按钮与字段说明。按项目简单轻量化原则先不引入 Monaco，文本域 + 预览 diff 即可覆盖首轮需求；预览前把四个文本并入 `buildInput().overlay`。
   7. `frontend/src/api/assembly.ts`：`GenerateInput.overlay`、`BlueprintResponse.selection.overlay` 类型同步。
@@ -1183,7 +1241,7 @@ Step 0（本文档）
   SELECT b.target_syntax, COALESCE(b.render_plan_json, '{}')
   ```
 
-  改为在 Clash 分支解出 `plan.Overlay` 即可（Step 7 已把 overlay 写进 render_plan_json）。同时把 `RenderClashPlan` 的输出统一 `restoreYAMLUnicodeEscapes`；输出后若 `CheckClashContent` 出现 error，只 `slog.Warn` 不阻断下载（系统生成版本已在 Step 2 阻断过，这里仅防历史脏蓝图）。
+  改为在 Clash 分支解出 `plan.Overlay` 即可（Step 7 已把 overlay 写进 render_plan_json）。`RenderClashPlan` 本身已通过 `marshalClashYAML` 输出真实 UTF-8，不再需要 `restoreYAMLUnicodeEscapes`；输出后若 `CheckClashContent` 出现 error，只 `slog.Warn` 不阻断下载（系统生成版本已在 Step 2 阻断过，这里仅防历史脏蓝图）。
   3. `backend/internal/download/download.go`：确认直接上传内容（无 blueprint）仍原样返回，不经过覆盖层/自检。
 - **测试与验收命令：**
 
@@ -1244,4 +1302,5 @@ Step 0（本文档）
 |------|------|------|
 | v1.0 | 2026-08-27 | 基于 clash-verge-rev 本地源码 `3503a2d`、三份 Reference 文档与 Issue7 开放项研究生成 Build9；含事实基线、假设清单、候选构建项与 Step 1~11 分步计划；未改动任何代码与既有文档。 |
 | v1.1 | 2026-08-27 | 深入核验后修订：以当前 HEAD `c681742` 对齐代码；标记 R22-02/06/07/08 与 R22-01 主体已实施；Step 1 收窄为 R22-03 条件化目标区；Step 9 收窄为启动补跑；新增 §4.5 核验结论与用户确认（Emoji 小实验、完整控制面保护、URI 导入同名跳过并回执）；同步候选与文档收口口径。未改动任何代码。 |
+| v1.2 | 2026-08-27 | Step2 方案定稿：选择方案B（goccy 全量迁移），接受语义等价文本差异，注释用 CommentMap；方案A（yaml.v3 + restoreYAMLUnicodeEscapes）保留为回退记录；Step7/后续 YAML 解析同步改为 goccy MapSlice + UseOrderedMap；更新 Step2、Step7、Step10 与变更记录。未改动任何代码。 |
 
