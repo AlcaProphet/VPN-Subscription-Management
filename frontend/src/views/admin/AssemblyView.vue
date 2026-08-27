@@ -11,6 +11,7 @@ import TypeTargetStep from './assembly/TypeTargetStep.vue'
 import HeaderStep from './assembly/HeaderStep.vue'
 import NodesGroupsStep from './assembly/NodesGroupsStep.vue'
 import RulesStep from './assembly/RulesStep.vue'
+import OverlayStep from './assembly/OverlayStep.vue'
 import PreviewStep from './assembly/PreviewStep.vue'
 import {
   getAssemblyContext, previewAssembly, generateAssembly, getBlueprint,
@@ -103,6 +104,12 @@ const form = reactive({
   pools: [] as PoolSelection[],
   custom_rules: [] as RuleLine[],
   final_direction: 'PROXY',
+  overlay: {
+    merge_yaml: '',
+    rules_yaml: '',
+    proxies_yaml: '',
+    groups_yaml: '',
+  },
 })
 
 const targetSyntax = computed<TargetSyntax>(() => subTab.value)
@@ -177,6 +184,7 @@ const stepDefs = computed<Array<{ key: string; title: string }>>(() => {
       { key: 'header', title: '头部表单' },
       { key: 'nodes', title: '节点与代理组' },
       { key: 'rules', title: '规则素材' },
+      { key: 'overlay', title: '覆盖层' },
       { key: 'preview', title: '预览' },
     ]
   } else if (targetSyntax.value === 'sr-subs' || targetSyntax.value === 'generic-subs') {
@@ -205,6 +213,7 @@ watch([currentStepKey, layoutMode], ([key, mode]) => {
 const hasHeaderStep = computed(() => stepDefs.value.some((s) => s.key === 'header'))
 const hasNodesStep = computed(() => stepDefs.value.some((s) => s.key === 'nodes'))
 const hasRulesStep = computed(() => stepDefs.value.some((s) => s.key === 'rules'))
+const hasOverlayStep = computed(() => stepDefs.value.some((s) => s.key === 'overlay'))
 const manualNodes = computed(() => (context.value?.nodes ?? []).filter((n) => n.source === 'manual' && !n.missing))
 const xrayNodes = computed(() => (context.value?.nodes ?? []).filter((n) => n.source === 'xray' && !n.missing))
 const presetGroups = computed(() => context.value?.proxy_groups.filter((g) => g.type === 'preset') ?? [])
@@ -272,6 +281,12 @@ async function loadEditIfAny() {
     form.final_direction = bp.selection?.final_direction ?? 'PROXY'
     form.fixed_params_text = JSON.stringify(bp.fixed_params ?? {}, null, 2)
     form.custom_rules = bp.custom_rules ?? []
+    form.overlay = {
+      merge_yaml: bp.selection?.overlay?.merge_yaml ?? '',
+      rules_yaml: bp.selection?.overlay?.rules_yaml ?? '',
+      proxies_yaml: bp.selection?.overlay?.proxies_yaml ?? '',
+      groups_yaml: bp.selection?.overlay?.groups_yaml ?? '',
+    }
     invalidRefs.value = data.invalid_refs ?? []
     nameChanged.value = data.name_changed ?? {}
     Notify.info(editVersionNo.value ? `正在重新编辑版本 v${editVersionNo.value}，请检查失效引用` : `正在重新编辑版本 #${editVersionId.value}，请检查失效引用`)
@@ -310,6 +325,12 @@ function buildInput(): GenerateInput {
     pools: form.pools,
     custom_rules: parseCustomRules(),
     final_direction: form.final_direction,
+    overlay: {
+      merge_yaml: form.overlay.merge_yaml,
+      rules_yaml: form.overlay.rules_yaml,
+      proxies_yaml: form.overlay.proxies_yaml,
+      groups_yaml: form.overlay.groups_yaml,
+    },
   }
 }
 
@@ -572,6 +593,7 @@ const outputGroups = computed(() => {
                 :has-header-step="hasHeaderStep"
                 :has-nodes-step="hasNodesStep"
                 :has-rules-step="hasRulesStep"
+                :has-overlay-step="hasOverlayStep"
                 :generating="generating"
                 @update:layout-mode="(v: string) => layoutMode = (v === 'page' ? 'page' : 'step')"
                 @update:current-step="(v: number) => currentStep = v"
@@ -592,6 +614,9 @@ const outputGroups = computed(() => {
                   <RulesStep :form="form" :context="context" :target-syntax="targetSyntax" :output-groups="outputGroups" :rule-type-options="ruleTypeOptions"
                              @add-pool="addPool" @move-pool="movePool" @remove-pool="(i: number) => form.pools.splice(i, 1)"
                              @add-rule="addRule" @remove-rule="removeRule" />
+                </template>
+                <template #overlay>
+                  <OverlayStep :form="form" />
                 </template>
                 <template #preview>
                   <PreviewStep :previewing="previewing" :preview-warnings="previewWarnings" :preview-skipped="previewSkipped"

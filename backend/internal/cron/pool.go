@@ -1,4 +1,4 @@
-// pool.go：规则素材池可选每日定时同步（UTC，停机错过不补跑，Design2 §2.4）
+// pool.go：规则素材池可选每日定时同步（UTC，启动时补跑今日错过的池）
 package cron
 
 import (
@@ -21,8 +21,9 @@ type poolAutoSyncState struct {
 
 // poolAutoSyncDeps 抽象定时同步依赖，便于单元测试。
 type poolAutoSyncDeps struct {
-	queryDue func(ctx context.Context, hhmm string) ([]int64, error)
-	submit   func(ctx context.Context, id int64) error
+	queryDue    func(ctx context.Context, hhmm string) ([]int64, error)
+	queryMissed func(ctx context.Context, now time.Time) ([]int64, error)
+	submit      func(ctx context.Context, id int64) error
 }
 
 // runPoolAutoSync 执行一次定时同步检查：按当前分钟查到期池，同一分钟内每池最多提交一次。
@@ -36,25 +37,38 @@ func runPoolAutoSync(ctx context.Context, deps poolAutoSyncDeps, now time.Time, 
 	}
 	state.mu.Unlock()
 
+	process := func(ids []int64) {
+		for _, id := range ids {
+			state.mu.Lock()
+			if state.fired[id] {
+				state.mu.Unlock()
+				continue
+			}
+			state.fired[id] = true
+			state.mu.Unlock()
+			if err := deps.submit(ctx, id); err != nil {
+				if errors.Is(err, pool.ErrSyncRunning) {
+					continue // 手动/定时同步不并发，下一周期再试
+				}
+				lg.Error("定时同步提交失败", "pool_id", id, "err", err)
+			}
+		}
+	}
+
 	ids, err := deps.queryDue(ctx, hhmm)
 	if err != nil {
 		lg.Error("查询定时同步素材池失败", "err", err)
 		return
 	}
-	for _, id := range ids {
-		state.mu.Lock()
-		if state.fired[id] {
-			state.mu.Unlock()
-			continue
+	process(ids)
+
+	if deps.queryMissed != nil {
+		missed, err := deps.queryMissed(ctx, now)
+		if err != nil {
+			lg.Error("查询启动补跑素材池失败", "err", err)
+			return
 		}
-		state.fired[id] = true
-		state.mu.Unlock()
-		if err := deps.submit(ctx, id); err != nil {
-			if errors.Is(err, pool.ErrSyncRunning) {
-				continue // 手动/定时同步不并发，下一周期再试
-			}
-			lg.Error("定时同步提交失败", "pool_id", id, "err", err)
-		}
+		process(missed)
 	}
 }
 
@@ -68,6 +82,31 @@ func StartPoolAutoSync(st *store.Store, poolSvc *pool.Service, lg *slog.Logger) 
 		queryDue: func(ctx context.Context, hhmm string) ([]int64, error) {
 			rows, err := st.DB().QueryContext(ctx,
 				`SELECT id FROM rule_pools WHERE auto_sync = 1 AND sync_time = ?`, hhmm)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			var ids []int64
+			for rows.Next() {
+				var id int64
+				if err := rows.Scan(&id); err != nil {
+					return nil, err
+				}
+				ids = append(ids, id)
+			}
+			return ids, rows.Err()
+		},
+		queryMissed: func(ctx context.Context, now time.Time) ([]int64, error) {
+			hhmm := now.UTC().Format("15:04")
+			rows, err := st.DB().QueryContext(ctx, `
+				SELECT p.id FROM rule_pools p
+				WHERE p.auto_sync = 1
+				  AND p.sync_time <= ?
+				  AND COALESCE(date(p.last_synced_at), '') < date('now')
+				  AND NOT EXISTS (
+					SELECT 1 FROM pool_sync_tasks t
+					WHERE t.pool_id = p.id AND t.status = 'running'
+				  )`, hhmm)
 			if err != nil {
 				return nil, err
 			}

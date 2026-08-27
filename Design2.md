@@ -135,6 +135,12 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 | Clash | 固定：`GEOIP,CN,DIRECT` + `MATCH,🛟无法归属的流量`（与模板逐字一致；管理员无需操作） |
 | Shadowrocket | `GEOIP,CN,DIRECT` 固定；**`FINAL` 方向由管理员手选**（分流规则装配器表单，DIRECT / PROXY 二选一，**默认 PROXY**——与既有行为和作者样例一致，兜底走代理防漏直连）；选择结果随装配快照保存 |
 
+### 3.7 覆盖层（Clash YAML，Build10）
+
+- 覆盖层输入为 **Merge / Rules / Proxies / Groups 四个 YAML 文本**，仅作用于 Clash YAML 装配与下载重渲染。
+- 应用顺序：完整基础文档 → Rules Seq → Proxies Seq → Groups Seq → Merge → 控制面恢复 → 悬空清理 → 顶层排序 → 组可达性收敛与规则降级。
+- 覆盖层随装配快照保存在 `selection_json.overlay` 与 `render_plan_json.overlay`，重新编辑可完整恢复；历史蓝图无覆盖层时行为不变。
+
 ---
 
 ## 四、配置生成与分发（基础模式）

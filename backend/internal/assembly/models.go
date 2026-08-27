@@ -142,6 +142,21 @@ type RuleLine struct {
 	Target     string `json:"target"`
 }
 
+// OverlayInput 覆盖层输入（YAML 文本，与 CVR 编辑形态一致）。
+type OverlayInput struct {
+	MergeYAML   string `json:"merge_yaml,omitempty"`
+	RulesYAML   string `json:"rules_yaml,omitempty"`
+	ProxiesYAML string `json:"proxies_yaml,omitempty"`
+	GroupsYAML  string `json:"groups_yaml,omitempty"`
+}
+
+// SeqMap 对应 CVR use_seq 的序列覆盖结构。
+type SeqMap struct {
+	Prepend []any    `yaml:"prepend" json:"prepend"`
+	Append  []any    `yaml:"append" json:"append"`
+	Delete  []string `yaml:"delete" json:"delete"`
+}
+
 // GenerateInput 装配生成入参（对应 Design2 §5.9 selection/fixed/custom 映射）。
 type GenerateInput struct {
 	TargetSyntax    TargetSyntax        `json:"target_syntax"`
@@ -156,6 +171,7 @@ type GenerateInput struct {
 	Pools           []PoolSelection     `json:"pools"`
 	CustomRules     []RuleLine          `json:"custom_rules"`
 	FinalDirection  string              `json:"final_direction"`
+	Overlay         OverlayInput        `json:"overlay,omitempty"`
 }
 
 // SkipItem 跳过项（不可转链接等）。

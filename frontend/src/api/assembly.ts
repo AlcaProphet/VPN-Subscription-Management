@@ -18,6 +18,12 @@ export interface RuleLine {
   match_value: string
   target: string
 }
+export interface OverlayInput {
+  merge_yaml?: string
+  rules_yaml?: string
+  proxies_yaml?: string
+  groups_yaml?: string
+}
 export interface GenerateInput {
   target_syntax: TargetSyntax
   platform_id?: number
@@ -31,6 +37,7 @@ export interface GenerateInput {
   pools: PoolSelection[]
   custom_rules: RuleLine[]
   final_direction?: string
+  overlay?: OverlayInput
 }
 export interface SkipItem {
   kind: string
@@ -58,6 +65,7 @@ export interface BlueprintResponse {
     platform_id?: number | null
     rule_id?: number | null
     fixed_params: Record<string, unknown>
+    overlay?: OverlayInput
     selection: {
       node_names: string[]
       group_names: string[]
@@ -65,6 +73,7 @@ export interface BlueprintResponse {
       overseas_members: string[]
       pools: PoolSelection[]
       final_direction?: string
+      overlay?: OverlayInput
     }
     custom_rules: RuleLine[]
     render_plan: Record<string, unknown>

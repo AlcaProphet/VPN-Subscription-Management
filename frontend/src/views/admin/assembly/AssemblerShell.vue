@@ -10,6 +10,7 @@ defineProps<{
   hasHeaderStep: boolean
   hasNodesStep: boolean
   hasRulesStep: boolean
+  hasOverlayStep: boolean
   generating: boolean
 }>()
 
@@ -25,7 +26,8 @@ const stepTitles: Record<string, string> = {
   header: '① 头部表单',
   nodes: '② 节点与代理组',
   rules: '③ 规则素材',
-  preview: '④ 预览',
+  overlay: '④ 覆盖层',
+  preview: '⑤ 预览',
 }
 </script>
 
@@ -63,6 +65,13 @@ const stepTitles: Record<string, string> = {
         <slot name="rules" />
       </Card>
       <div v-else><slot name="rules" /></div>
+    </div>
+
+    <div v-if="hasOverlayStep" v-show="layoutMode === 'page' || currentStepKey === 'overlay'">
+      <Card v-if="layoutMode === 'page'" :title="stepTitles.overlay" size="small" class="mb-3">
+        <slot name="overlay" />
+      </Card>
+      <div v-else><slot name="overlay" /></div>
     </div>
 
     <div v-show="layoutMode === 'page' || currentStepKey === 'preview'">

@@ -94,6 +94,19 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	appendRule("GEOIP", "CN", "DIRECT")
 	appendRule("MATCH", "", node.ForceFallback)
 	root = append(root, gyaml.MapItem{Key: "rules", Value: rules})
+	if hasXrayNode(ld) {
+		xrayNames := make([]any, 0)
+		for _, name := range in.NodeNames {
+			if nd := ld.nodes[name]; nd != nil && nd.Source == "xray" {
+				xrayNames = append(xrayNames, nd.RenderName)
+			}
+		}
+		root = append(root, gyaml.MapItem{Key: overlayXrayNamesKey, Value: xrayNames})
+	}
+	if err := applyClashOverlay(&root, in.Overlay); err != nil {
+		return nil, fmt.Errorf("应用覆盖层失败: %w", err)
+	}
+	mapDelete(&root, overlayXrayNamesKey)
 	content, err := marshalClashYAML(root, comments)
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash YAML 失败: %w", err)
@@ -156,6 +169,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			return out
 		}(),
 		Fallback: []string{"GEOIP,CN,DIRECT", "MATCH," + node.ForceFallback},
+		Overlay:  in.Overlay,
 	}
 	planRaw, err := json.Marshal(plan)
 	if err != nil {

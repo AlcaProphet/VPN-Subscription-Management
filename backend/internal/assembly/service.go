@@ -95,6 +95,7 @@ func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int
 		"pools":             in.Pools,
 		"final_direction":   in.FinalDirection,
 		"xray_candidates":   xrayCandidates,
+		"overlay":           in.Overlay,
 	}
 	sel, err := json.Marshal(selection)
 	if err != nil {

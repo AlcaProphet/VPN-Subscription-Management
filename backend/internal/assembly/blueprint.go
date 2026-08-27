@@ -24,6 +24,7 @@ type BlueprintData struct {
 	VersionNo    int64                 `json:"version_no"`
 	FixedParams  json.RawMessage       `json:"fixed_params"`
 	Selection    json.RawMessage       `json:"selection"`
+	Overlay      OverlayInput          `json:"overlay,omitempty"`
 	CustomRules  json.RawMessage       `json:"custom_rules"`
 	RenderPlan   json.RawMessage       `json:"render_plan"`
 	PlatformID   *int64                `json:"platform_id,omitempty"`
@@ -77,6 +78,7 @@ func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*Blueprint
 		GroupNodeOrders map[string][]string `json:"group_node_orders"`
 		Pools           []PoolSelection     `json:"pools"`
 		OverseasMembers []string            `json:"overseas_members"`
+		Overlay         OverlayInput        `json:"overlay"`
 	}
 	if err := json.Unmarshal([]byte(row.SelectionJSON), &sel); err != nil {
 		return nil, fmt.Errorf("蓝图 selection_json 解析失败: %w", err)
@@ -86,6 +88,7 @@ func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*Blueprint
 		VersionNo:    row.VersionNo,
 		FixedParams:  json.RawMessage(row.FixedParamsJSON),
 		Selection:    json.RawMessage(row.SelectionJSON),
+		Overlay:      sel.Overlay,
 		CustomRules:  json.RawMessage(row.CustomRulesJSON),
 		RenderPlan:   json.RawMessage(row.RenderPlanJSON),
 		PlatformID:   row.PlatformID,

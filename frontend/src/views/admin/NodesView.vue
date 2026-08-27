@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
-import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, type NodeItem, type ProtocolInfo, type NodeForm } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type ImportLineResult } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
@@ -24,6 +24,10 @@ const disabling = ref(false)
 const publicTarget = ref<NodeItem | null>(null)
 const publicChanging = ref(false)
 const saving = ref(false)
+const importOpen = ref(false)
+const importText = ref('')
+const importResults = ref<ImportLineResult[]>([])
+const importing = ref(false)
 
 const form = reactive<NodeForm>({
   name: '', protocol: 'vless', host: '', port: 443, protocol_json: {},
@@ -62,6 +66,29 @@ function openCreate() {
   form.port = 443
   form.protocol_json = {}
 }
+function openImport() {
+  importOpen.value = true
+  importText.value = ''
+  importResults.value = []
+}
+async function doImport() {
+  if (!importText.value.trim()) {
+    Notify.warning('请先粘贴节点 URI')
+    return
+  }
+  importing.value = true
+  try {
+    const res = await importNodes(importText.value)
+    importResults.value = res.list
+    await load()
+    Notify.success(`导入完成：${res.list.filter((r) => r.ok).length} 成功，${res.list.filter((r) => !r.ok).length} 跳过`)
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    importing.value = false
+  }
+}
+
 function openEdit(n: NodeItem) {
   if (n.source !== 'manual') return
   editing.value = n
@@ -209,6 +236,7 @@ function handleObjectFieldBlur(name: string, e: any) {
   <div>
     <PageHeader title="节点管理">
       <template #actions>
+        <Button @click="openImport">批量导入</Button>
         <Button type="primary" @click="openCreate">新建节点</Button>
       </template>
     </PageHeader>
@@ -327,5 +355,26 @@ function handleObjectFieldBlur(name: string, e: any) {
                   @confirm="confirmPublic" @update:open="publicTarget = null" />
 
     <ConfirmModal :open="toDelete !== null" title="删除节点" danger :loading="deleting" :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />
+
+    <Modal :open="importOpen" title="批量导入节点" :width="760" :confirm-loading="importing" @ok="doImport" @cancel="importOpen = false">
+      <p class="text-sm text-gray-500 mb-2">支持 ss / vmess / vless / trojan / hysteria2 / hysteria / tuic / wireguard / anytls / http(s) / socks5，也可粘贴 Base64 订阅文本。</p>
+      <Input.TextArea v-model:value="importText" :rows="8" placeholder="每行一条节点 URI" />
+      <div v-if="importResults.length" class="mt-3">
+        <div class="text-sm font-medium mb-2">导入回执（{{ importResults.filter((r) => r.ok).length }} 成功 / {{ importResults.filter((r) => !r.ok).length }} 跳过）</div>
+        <Table :data-source="importResults" row-key="(r: any) => r.line + r.raw" :pagination="false" size="small">
+          <Table.Column key="line" title="行" data-index="line" width="60" />
+          <Table.Column key="name" title="名称" data-index="name" width="160" />
+          <Table.Column key="result" title="结果" width="90">
+            <template #default="{ record }">
+              <Tag :color="record.ok ? 'success' : 'warning'">{{ record.ok ? '成功' : '跳过' }}</Tag>
+            </template>
+          </Table.Column>
+          <Table.Column key="reason" title="说明">
+            <template #default="{ record }">{{ record.reason || record.raw }}</template>
+          </Table.Column>
+        </Table>
+      </div>
+    </Modal>
+
   </div>
 </template>

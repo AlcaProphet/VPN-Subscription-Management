@@ -243,6 +243,7 @@ func (h *AssemblyHandler) blueprint(c *gin.Context) {
 		"version_no":    data.VersionNo,
 		"fixed_params":  data.FixedParams,
 		"selection":     data.Selection,
+		"overlay":       data.Overlay,
 		"custom_rules":  data.CustomRules,
 		"render_plan":   data.RenderPlan,
 		"platform_id":   data.PlatformID,

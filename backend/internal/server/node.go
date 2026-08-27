@@ -19,6 +19,7 @@ func RegisterNodeRoutes(engine *gin.Engine, h *NodeHandler, sessionMW, adminMW g
 	admin := engine.Group("/api/admin/nodes", sessionMW, adminMW)
 	admin.GET("", h.list)
 	admin.POST("", h.create)
+	admin.POST("/import", h.importNodes)
 	admin.PUT("/:id", h.update)
 	admin.DELETE("/:id", h.delete)
 	admin.PUT("/:id/toggle", h.toggle)
@@ -38,6 +39,22 @@ func (h *NodeHandler) list(c *gin.Context) {
 
 func (h *NodeHandler) protocols(c *gin.Context) {
 	OK(c, gin.H{"list": h.nodeSvc.GetProtocols()})
+}
+
+func (h *NodeHandler) importNodes(c *gin.Context) {
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	list, err := h.nodeSvc.ImportURIs(c.Request.Context(), req.Text)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, ListData{List: list, Total: int64(len(list))})
 }
 
 func (h *NodeHandler) create(c *gin.Context) {

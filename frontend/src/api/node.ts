@@ -52,12 +52,22 @@ export interface NodeForm {
   protocol_json: Record<string, unknown>
 }
 
+export interface ImportLineResult {
+  line: number
+  raw: string
+  ok: boolean
+  name?: string
+  reason?: string
+}
+
 export const listNodes = (source?: 'manual' | 'xray') =>
   http.get<any, { list: NodeItem[]; total: number }>('/admin/nodes', { params: source ? { source } : {} }).then((d) => d.list)
 export const getProtocols = () =>
   http.get<any, { list: ProtocolInfo[] }>('/admin/nodes/protocols').then((d) => d.list)
 export const createNode = (data: NodeForm) =>
   http.post<any, NodeItem>('/admin/nodes', data)
+export const importNodes = (text: string) =>
+  http.post<any, { list: ImportLineResult[]; total: number }>('/admin/nodes/import', { text })
 export const updateNode = (id: number, data: NodeForm) =>
   http.put<any, NodeItem>(`/admin/nodes/${id}`, data)
 export const deleteNode = (id: number) =>

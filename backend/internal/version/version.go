@@ -159,7 +159,7 @@ func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			return fmt.Errorf("创建版本目录失败: %w", err)
 		}
-		if err := os.WriteFile(full, content, 0o644); err != nil {
+		if err := writeFileAtomic(full, content, 0o644); err != nil {
 			return fmt.Errorf("写版本文件失败: %w", err)
 		}
 		// 文本模式/无原始文件名 → 按资源类型补默认名（下载文件名扩展名来源）
@@ -209,6 +209,38 @@ func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64
 		return nil
 	})
 	return created, activated, err
+}
+
+// writeFileAtomic 使用同目录唯一临时文件 + rename 原子替换，降低版本文件半写风险。
+func writeFileAtomic(full string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(full)
+	tmp := filepath.Join(dir, fmt.Sprintf(".tmp-%d-%s", time.Now().UnixNano(), strconv.Itoa(os.Getpid())))
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if _, err = f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tmp, full); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 // TextContent 文本内容来源（指定文件名；供订阅 product_type 默认文件名与后续装配复用）

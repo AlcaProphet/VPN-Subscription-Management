@@ -47,6 +47,9 @@
 - [ ] OIDC Mock 登录邮箱可通过；
 - [ ] 代理组管理在“订阅装配”Tab 内可用；
 - [ ] REALITY 新字段可保存并在链接中正确输出。
+- [ ] Clash 下载响应头含 `filename*`/RFC5987 与真实 emoji（无 `\U` 转义）；
+- [ ] 覆盖层装配（Merge + Rules/Proxies/Groups Seq）预览、生成、下载内容一致；
+- [ ] 节点 URI 批量导入回执正确：合法 2 条 / 非法 1 条，刷新后节点列表可见。
 
 ---
 

@@ -412,3 +412,24 @@ func TestConcurrentFirstVersion(t *testing.T) {
 		t.Error("双首版并发后应存在当前版本")
 	}
 }
+
+func TestWriteFileAtomicNoTempLeft(t *testing.T) {
+	dir := t.TempDir()
+	full := filepath.Join(dir, "v1")
+	if err := writeFileAtomic(full, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("writeFileAtomic 失败: %v", err)
+	}
+	data, err := os.ReadFile(full)
+	if err != nil || string(data) != "hello" {
+		t.Fatalf("文件内容异常: %q %v", data, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".tmp-") {
+			t.Fatalf("不应残留临时文件: %s", e.Name())
+		}
+	}
+}

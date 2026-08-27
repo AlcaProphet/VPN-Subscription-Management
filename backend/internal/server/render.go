@@ -86,7 +86,14 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 				ProtocolJSON: withCreds(params, protocol, uuid, secret),
 			})
 		}
-		return assembly.RenderClashPlan([]byte(planRaw), dynamic, manualNames, comment)
+		content, err := assembly.RenderClashPlan([]byte(planRaw), dynamic, manualNames, comment)
+		if err != nil {
+			return nil, err
+		}
+		if issues := assembly.CheckClashContent(content); assembly.HasError(issues) {
+			slog.Warn("Clash 下载重渲染自检存在错误", "err", firstOutputError(issues))
+		}
+		return content, nil
 	}
 
 	// SR / generic 订阅：占位替换或整行移除后整体 base64。

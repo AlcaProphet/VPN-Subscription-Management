@@ -19,6 +19,7 @@ type ClashPlan struct {
 	ProxyGroups   []ClashPlanGroup `json:"proxy_groups"`
 	Rules         []ClashPlanRule  `json:"rules"`
 	Fallback      []string         `json:"fallback"`
+	Overlay       OverlayInput     `json:"overlay,omitempty"`
 }
 
 // ClashPlanGroup 是渲染计划中的代理组结构。
@@ -85,10 +86,11 @@ func RenderClashPlan(planRaw []byte, dynamic []DynamicNode, manualNames map[stri
 	for _, d := range dynamic {
 		renderNames[d.Name] = d.RenderName
 	}
-	providerNames := clashPlanProviderNames(plan.Head)
 
-	// proxies：manual 完整条目 + 动态节点
-	proxies := make([]*OrderedMap, 0, len(plan.ManualProxies)+len(dynamic))
+	// 先组装完整基础文档：头部 + manual 节点 + 动态 Xray 节点 + 全量代理组 + 全量规则。
+	root := orderedMapToMapSlice(plan.Head)
+
+	proxyValues := make([]any, 0, len(plan.ManualProxies)+len(dynamic))
 	for _, mp := range plan.ManualProxies {
 		if mp == nil {
 			continue
@@ -100,53 +102,90 @@ func RenderClashPlan(planRaw []byte, dynamic []DynamicNode, manualNames map[stri
 				}
 			}
 		}
-		proxies = append(proxies, mp)
+		proxyValues = append(proxyValues, orderedMapToMapSlice(mp))
 	}
 	for _, d := range dynamic {
-		proxies = append(proxies, dynamicClashProxy(d))
+		proxyValues = append(proxyValues, orderedMapToMapSlice(dynamicClashProxy(d)))
+	}
+	root = append(root, gyaml.MapItem{Key: "proxies", Value: proxyValues})
+
+	groupValues := make([]any, 0, len(plan.ProxyGroups))
+	for i := range plan.ProxyGroups {
+		g := plan.ProxyGroups[i]
+		g.Proxies = translateGroupMembers(g.Proxies, renderNames)
+		groupValues = append(groupValues, orderedMapToMapSlice(orderedGroupFields(&g)))
+	}
+	root = append(root, gyaml.MapItem{Key: "proxy-groups", Value: groupValues})
+
+	ruleValues := make([]any, 0, len(plan.Rules)+len(plan.Fallback))
+	for _, r := range plan.Rules {
+		line := r.Type + ","
+		if r.Type != "MATCH" {
+			line += r.Value + ","
+		}
+		line += r.Target
+		if rulespec.Definitions[r.Type].NoResolve {
+			line += ",no-resolve"
+		}
+		ruleValues = append(ruleValues, line)
+	}
+	for _, fb := range plan.Fallback {
+		ruleValues = append(ruleValues, fb)
+	}
+	root = append(root, gyaml.MapItem{Key: "rules", Value: ruleValues})
+
+	// 应用覆盖层：seq → merge → 控制面恢复 → 清理 → 排序，发生在可达性收敛之前。
+	if err := applyClashOverlay(&root, plan.Overlay); err != nil {
+		return nil, fmt.Errorf("应用覆盖层失败: %w", err)
 	}
 
-	// 可达集合：DIRECT + 所有最终 proxies 的渲染名
+	// 基于覆盖层之后的最终文档做可达性收敛。
+	allGroups := parseClashPlanGroups(&root)
+	groupNames := map[string]bool{}
+	for _, g := range allGroups {
+		groupNames[g.Name] = true
+	}
+	forceNames := map[string]bool{}
+	for _, g := range plan.ProxyGroups {
+		if g.Force {
+			forceNames[g.Name] = true
+		}
+	}
 	reachable := map[string]bool{"DIRECT": true}
-	for _, p := range proxies {
-		if v, ok := p.Get("name"); ok {
-			if s, ok := v.(string); ok && s != "" {
-				reachable[s] = true
+	if proxiesRaw, ok := mapGet(root, "proxies"); ok {
+		if items, ok := seqOf(proxiesRaw); ok {
+			for _, item := range items {
+				if name := goccyNameOf(item); name != "" {
+					reachable[name] = true
+				}
 			}
 		}
 	}
+	providerNames := collectProviderNames(&root)
 
-	// 组名称集合
-	groupNames := map[string]bool{}
-	for _, g := range plan.ProxyGroups {
-		groupNames[g.Name] = true
-	}
-
-	// 强制组始终保留；普通组按可达性迭代收敛
 	kept := map[string]bool{}
-	for _, g := range plan.ProxyGroups {
-		if g.Force {
+	for _, g := range allGroups {
+		if forceNames[g.Name] {
 			kept[g.Name] = true
 		}
 	}
 	changed := true
 	for changed {
 		changed = false
-		for _, g := range plan.ProxyGroups {
+		for _, g := range allGroups {
 			if kept[g.Name] {
 				continue
 			}
-			if clashGroupReachable(g, renderNames, reachable, groupNames, kept, providerNames) {
+			if clashGroupReachable(g, nil, reachable, groupNames, kept, providerNames) {
 				kept[g.Name] = true
 				changed = true
 			}
 		}
 	}
 
-	// 生成最终组列表（保持计划顺序）
-	finalGroups := make([]ClashPlanGroup, 0, len(plan.ProxyGroups))
+	finalGroups := make([]ClashPlanGroup, 0, len(allGroups))
 	finalGroupSet := map[string]bool{}
-	for _, g := range plan.ProxyGroups {
+	for _, g := range allGroups {
 		if !kept[g.Name] {
 			continue
 		}
@@ -162,82 +201,196 @@ func RenderClashPlan(planRaw []byte, dynamic []DynamicNode, manualNames map[stri
 				}
 				continue
 			}
-			if r, ok := renderNames[m]; ok {
-				if reachable[r] {
-					members = append(members, r)
-				}
-				continue
-			}
-			// 计划内 manual 节点即使当前 DB 已删除，仍按计划名称保留可达
 			if reachable[m] {
 				members = append(members, m)
 			}
 		}
-		if g.Force && len(members) == 0 {
+		if forceNames[g.Name] && len(members) == 0 {
 			members = []string{"DIRECT"}
 		}
-		if !g.Force && len(members) == 0 && !groupHasProviderOrInclude(g, providerNames) {
-			continue // 普通组完全不可达则删除
+		if !forceNames[g.Name] && len(members) == 0 && !groupHasProviderOrInclude(g, providerNames) {
+			continue
 		}
 		g.Proxies = members
 		finalGroups = append(finalGroups, g)
 		finalGroupSet[g.Name] = true
 	}
 
-	// rules：被删除组目标降级 DIRECT
-	ruleLines := make([]string, 0, len(plan.Rules)+len(plan.Fallback))
-	for _, r := range plan.Rules {
-		target := r.Target
-		if target != "" && target != "DIRECT" && !finalGroupSet[target] {
-			target = "DIRECT"
-		}
-		line := r.Type + ","
-		if r.Type != "MATCH" {
-			line += r.Value + ","
-		}
-		line += target
-		if rulespec.Definitions[r.Type].NoResolve {
-			line += ",no-resolve"
-		}
-		ruleLines = append(ruleLines, line)
+	// 基于最终保留组重写规则目标；覆盖层引入的规则保持原样，仅对被删除组降级 DIRECT。
+	ruleLines := downgradeRuleLines(rootRuleStrings(&root), finalGroupSet)
+	finalGroupValues := make([]any, 0, len(finalGroups))
+	for i := range finalGroups {
+		finalGroupValues = append(finalGroupValues, orderedMapToMapSlice(orderedGroupFields(&finalGroups[i])))
 	}
-	for _, fb := range plan.Fallback {
-		line := fb
-		for gName := range groupNames {
-			if !finalGroupSet[gName] && strings.Contains(line, gName) {
-				line = strings.Replace(line, gName, "DIRECT", 1)
-			}
-		}
-		ruleLines = append(ruleLines, line)
-	}
+	mapSet(&root, "proxy-groups", finalGroupValues)
+	mapSet(&root, "rules", ruleLines)
 
-	// 组装 YAML
-	root := orderedMapToMapSlice(plan.Head)
-
-	proxyValues := make([]any, 0, len(proxies))
-	for _, p := range proxies {
-		proxyValues = append(proxyValues, orderedMapToMapSlice(p))
-	}
-	root = append(root, gyaml.MapItem{Key: "proxies", Value: proxyValues})
 	comments := proxyCommentMap(comment, len(proxyValues) > 0)
-
-	groupValues := make([]any, 0, len(finalGroups))
-	for _, g := range finalGroups {
-		groupValues = append(groupValues, orderedMapToMapSlice(orderedGroupFields(&g)))
-	}
-	root = append(root, gyaml.MapItem{Key: "proxy-groups", Value: groupValues})
-
-	ruleValues := make([]any, len(ruleLines))
-	for i, line := range ruleLines {
-		ruleValues[i] = line
-	}
-	root = append(root, gyaml.MapItem{Key: "rules", Value: ruleValues})
-
 	content, err := marshalClashYAML(root, comments)
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash YAML 失败: %w", err)
 	}
 	return content, nil
+}
+
+// parseClashPlanGroups 从覆盖层后的 MapSlice 解析代理组，保留高级字段。
+func parseClashPlanGroups(root *gyaml.MapSlice) []ClashPlanGroup {
+	raw, ok := mapGet(*root, "proxy-groups")
+	if !ok {
+		return nil
+	}
+	items, ok := seqOf(raw)
+	if !ok {
+		return nil
+	}
+	out := make([]ClashPlanGroup, 0, len(items))
+	for _, item := range items {
+		m, ok := yamlMap(item)
+		if !ok {
+			continue
+		}
+		out = append(out, clashGroupFromYAML(m))
+	}
+	return out
+}
+
+func clashGroupFromYAML(m gyaml.MapSlice) ClashPlanGroup {
+	g := ClashPlanGroup{
+		Name:                mapString(m, "name"),
+		Type:                mapString(m, "type"),
+		URL:                 mapString(m, "url"),
+		ExpectedStatus:      mapString(m, "expected-status"),
+		InterfaceName:       mapString(m, "interface-name"),
+		Filter:              mapString(m, "filter"),
+		ExcludeFilter:       mapString(m, "exclude-filter"),
+		ExcludeType:         mapString(m, "exclude-type"),
+		Icon:                mapString(m, "icon"),
+		Interval:            mapIntValue(m, "interval"),
+		Timeout:             mapIntValue(m, "timeout"),
+		MaxFailedTimes:      mapIntValue(m, "max-failed-times"),
+		RoutingMark:         mapIntValue(m, "routing-mark"),
+		Lazy:                mapBoolValue(m, "lazy"),
+		DisableUDP:          mapBoolValue(m, "disable-udp"),
+		IncludeAll:          mapBoolValue(m, "include-all"),
+		IncludeAllProxies:   mapBoolValue(m, "include-all-proxies"),
+		IncludeAllProviders: mapBoolValue(m, "include-all-providers"),
+		Hidden:              mapBoolValue(m, "hidden"),
+	}
+	if value, ok := mapGet(m, "proxies"); ok {
+		if items, ok := seqOf(value); ok {
+			for _, item := range items {
+				if s, ok := item.(string); ok {
+					g.Proxies = append(g.Proxies, s)
+				}
+			}
+		}
+	}
+	if value, ok := mapGet(m, "use"); ok {
+		if items, ok := seqOf(value); ok {
+			for _, item := range items {
+				if s, ok := item.(string); ok {
+					g.Use = append(g.Use, s)
+				}
+			}
+		}
+	}
+	return g
+}
+
+func mapIntValue(m gyaml.MapSlice, key string) int {
+	value, ok := mapGet(m, key)
+	if !ok {
+		return 0
+	}
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case uint64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		var n int
+		_, _ = fmt.Sscanf(v, "%d", &n)
+		return n
+	default:
+		return 0
+	}
+}
+
+func mapBoolValue(m gyaml.MapSlice, key string) bool {
+	value, ok := mapGet(m, key)
+	if !ok {
+		return false
+	}
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	default:
+		return false
+	}
+}
+
+// rootRuleStrings 返回覆盖层后规则列表中的字符串。
+func rootRuleStrings(root *gyaml.MapSlice) []string {
+	raw, ok := mapGet(*root, "rules")
+	if !ok {
+		return nil
+	}
+	items, ok := seqOf(raw)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// downgradeRuleLines 把目标组已被删除的规则降级为 DIRECT。
+func downgradeRuleLines(lines []string, finalGroupSet map[string]bool) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		typ, value, target, noResolve, err := rulespec.ParseRendered(line)
+		if err != nil {
+			out = append(out, line)
+			continue
+		}
+		if target == "" || target == "DIRECT" || finalGroupSet[target] {
+			out = append(out, line)
+			continue
+		}
+		rebuilt := typ + ","
+		if typ != "MATCH" {
+			rebuilt += value + ","
+		}
+		rebuilt += "DIRECT"
+		if noResolve || rulespec.Definitions[typ].NoResolve {
+			rebuilt += ",no-resolve"
+		}
+		out = append(out, rebuilt)
+	}
+	return out
+}
+
+// translateGroupMembers 将计划内稳定节点名转为当前渲染名；组名等无映射项原样保留。
+func translateGroupMembers(members []string, renderNames map[string]string) []string {
+	out := make([]string, 0, len(members))
+	for _, m := range members {
+		if r, ok := renderNames[m]; ok && r != "" {
+			out = append(out, r)
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 func clashGroupReachable(g ClashPlanGroup, renderNames map[string]string, reachable, groupNames, kept, providers map[string]bool) bool {

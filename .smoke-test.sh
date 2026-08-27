@@ -114,6 +114,24 @@ GENR=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-
 GENRID=$(echo "$GENR" | J "['data']['version_id']")
 echo "13d) sr-conf 装配 version_id=$GENRID"
 
+# 13e) Build10 URI 批量导入：2 合法 + 1 非法应回执 2 ok / 1 skip
+IMPORT_TEXT=$(python3 - <<'PY'
+import base64, json
+one = "ss://" + base64.b64encode(b"aes-256-gcm:pw").decode() + "@1.2.3.4:8388#smoke-import"
+two = "ss://" + base64.b64encode(b"aes-256-gcm:pw2").decode() + "@5.6.7.8:8388#smoke-import2"
+print(json.dumps({"text": one + "\n" + two + "\nnot-a-uri"}))
+PY
+)
+IMPORTRESP=$(curl -s -X POST "$BASE/api/admin/nodes/import" -H "$AUTH" -H 'Content-Type: application/json' -d "$IMPORT_TEXT")
+IMPORT_OK=$(echo "$IMPORTRESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(1 for x in d['data']['list'] if x['ok']))")
+IMPORT_SKIP=$(echo "$IMPORTRESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(1 for x in d['data']['list'] if not x['ok']))")
+echo "13e) URI导入 ok=$IMPORT_OK skip=$IMPORT_SKIP"
+
+# 13f) Build10 覆盖层装配生成
+GENOV=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT","overlay":{"rules_yaml":"prepend:\n  - DOMAIN,overlay.test,smoke-group\n","proxies_yaml":"prepend:\n  - name: overlay-node\n    type: ss\n    server: o.example.com\n    port: 8388\n"}}')
+echo "13f) overlay 装配 version_id=$(echo "$GENOV" | J "['data']['version_id']")"
+
 # 14) Xray 高级模式：开启 + 实例（可选；无 Xray 时跳过检测只验证接口不 5xx）
 curl -s -X PUT $BASE/api/admin/settings/advanced -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"advanced_mode":true,"collect_interval_minutes":10,"traffic_card_enabled":true}' > /dev/null
