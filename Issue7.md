@@ -8,7 +8,119 @@
 ## 〇、本轮说明
 
 - **核查方式：** 仅做快速静态检测，不执行构建、测试、脚本运行；先分析改进/修复方案，必要时先与用户确认方向。
-- **当前状态：** 已记录 8 条进行中问题（R22-01、R22-02、R22-03、R22-04、R22-05、R22-06、R22-07、R22-08），仅整理方案未改代码。
+- **当前状态：** 已记录 8 条进行中问题（R22-01、R22-02、R22-03、R22-04、R22-05、R22-06、R22-07、R22-08），修复方案已整合确认（见 §〇.1），**尚未开始修复代码**。
+
+---
+
+## 〇.1、修复方案整合（2026-08-26 用户确认，未开始实施）
+
+> 本节汇总 R22-01 ~ R22-08 的最终修复方案、用户决策与主要文件落点；状态仍为“待实施”。
+
+### 已确认决策
+
+- **修复范围：** 8 条问题全部一起修复。
+- **R22-03：** 目标选择区采用“副 Tab 下方、步骤条上方常驻卡片”，不再保留“类型与目标”步骤。
+- **R22-04：** 默认平台（`is_default=1`）的 `product_type` 在后端被修改时**返回 400 拒绝**，前端编辑页禁用产物格式选择。
+- **R22-05：** 除查询侧返回显示名称外，**同时补齐成功下载日志中的平台标识写入**，保证平台列可显示名称。
+- **R22-06：** 高级模式关闭时不仅隐藏 Xray 节点板块，还**从本次装配表单中剔除 Xray 节点及相关组排序引用**。
+- **R22-08：** SR-conf 允许不预建规则实体，装配器输入规则名称，生成时自动创建规则并继续版本装配。
+
+### R22-01 大数据同步锁库修复
+
+- `backend/migrations/1014_pool_sync_optimize.sql`
+  - 新增 `pool_entries(pool_id, source, rule_type, match_value)` 联合索引。
+- `backend/internal/pool/sync.go`
+  - 将 `runSyncTask` 的单一大事务拆成短事务：
+    - 批量插入每批约 500 行独立提交；
+    - 全部 URL 成功后再建 `_pool_sync_keep_*` 临时表并建索引；
+    - 删除前统计、差量删除均分批提交；
+    - 任务终态与池快照单独短事务回写。
+  - 保留“全部 URL 成功才删除”的业务语义。
+  - `SubmitSync` 可选增加只读预检 running。
+
+### R22-02 版本列表缺少 id
+
+- `backend/internal/version/version.go`
+  - `ListVersions` SELECT 增加 `v.id`，Scan 到 `Version.ID`。
+- `backend/internal/version/version_test.go`
+  - 断言版本列表返回真实 `ID > 0`。
+- `frontend/src/views/admin/VersionManageView.vue`
+  - `reEdit()` 增加 `v.id` 非正整数保护。
+
+### R22-03 去除“类型与目标”步骤
+
+- `frontend/src/views/admin/AssemblyView.vue`
+  - 所有 `stepDefs` 移除 `target`，删除 `skipTargetStep`；
+  - 副 Tab 下方、`AssemblerShell` 上方常驻目标选择卡片；
+  - 路由参数仅预填目标。
+- `frontend/src/views/admin/assembly/AssemblerShell.vue`
+  - 移除 target 步骤标题和 `#target` 插槽。
+- `frontend/src/views/admin/assembly/TypeTargetStep.vue`
+  - 改造为顶部紧凑目标选择组件，支持 SR-conf 规则名称输入（配合 R22-08）。
+
+### R22-04 默认平台产物格式锁定
+
+- `backend/migrations/1015_platform_builtin_default.sql`
+  - `platforms` 增加 `is_default INTEGER NOT NULL DEFAULT 0`；
+  - 按名称回填三个默认平台。
+- `backend/internal/setup/setup.go`
+  - 预置平台写入 `is_default=1`。
+- `backend/internal/platform/platform.go`
+  - `Platform` 增加 `IsDefault`，`Get`/`List` 返回；
+  - `Update` 对默认平台修改 `product_type` 返回 400。
+- `frontend/src/api/platform.ts`、`frontend/src/views/admin/PlatformEditView.vue`
+  - 类型增加 `is_default`；
+  - 编辑默认平台时禁用产物格式。
+
+### R22-05 日志显示名称与切换
+
+- `backend/internal/log/access.go`
+  - `AccessLog` 增加 `platform_name`、`resource_name`、`user_email`；
+  - 查询按资源/平台联表派生显示名称。
+- `backend/internal/download/download.go`
+  - 成功下载写日志时补写平台标识，保证平台列可用。
+- `frontend/src/api/log.ts`、`frontend/src/views/admin/LogsView.vue`
+  - 增加字段；
+  - 新增“显示名称 ↔ 唯一值”切换；
+  - 桌面表格和移动端卡片同步。
+- `backend/internal/log/log_test.go`
+  - 扩展平台名/资源名/用户邮箱断言。
+
+### R22-06 节点与代理组步骤优化
+
+- `frontend/src/views/admin/AssemblyView.vue`
+  - 引入 `useSystemStore`，计算 `advancedMode`；
+  - 向 `NodesGroupsStep` 传 `showXray`；
+  - 高级模式关闭时剔除表单中的 Xray 节点及组排序引用。
+- `frontend/src/views/admin/assembly/NodesGroupsStep.vue`
+  - 删除未勾选 preset 组的常显 `preset` 标签；
+  - `v-if="showXray"` 包裹 Xray 节点板块；
+  - 高级模式关闭时 `availableNodes`、国外流量成员仅含 manual 节点。
+
+### R22-07 节点选择与排序弹窗
+
+- `frontend/src/views/admin/assembly/NodesGroupsStep.vue`
+  - 弹窗改为“可选节点勾选区在上、已选节点排序区在下”；
+  - 删除已选节点行“移除”按钮及 `removeDraft`；
+  - 保留上移/下移、拖拽排序和空态提示。
+
+### R22-08 SR-conf 直接创建新规则
+
+- `backend/internal/assembly/models.go`
+  - `GenerateInput` 增加 `rule_name`。
+- `backend/internal/assembly/validate.go`
+  - SR-conf 允许 `RuleID == 0`，无已有规则时要求 `rule_name` 非空。
+- `backend/internal/server/assembly.go`
+  - 生成时若 SR-conf 且无 `RuleID`，自动调用规则服务创建新规则；
+  - 使用新规则 ID 作为版本 owner，写入 `assembly_blueprints.rule_id`；
+  - 版本创建失败时清理新规则；
+  - generate 响应返回 `rule_id`。
+- `frontend/src/api/assembly.ts`、`frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/TypeTargetStep.vue`
+  - 增加 `rule_name`；
+  - 目标区改为规则名称输入；
+  - `targetReady`/`buildInput`/`buildPreflightMissing`/`goActivation` 适配；
+  - 生成后使用返回的 `rule_id` 跳转规则版本管理。
+- 测试：后端补充无预建规则 SR-conf Preview/Generate 成功并自动创建规则的用例。
 
 ---
 
@@ -48,7 +160,7 @@
   4. **保持“全部 URL 成功才删除”的业务语义**：可先完成所有插入并汇总状态，再在删除阶段使用 keep 集计算；失败/取消时跳过删除，保留旧数据。
   5. **可选**：`SubmitSync` 先以只读查询检查 `running`，避免在已有大同步持锁时进入 `TxImmediate` 后才触发 `SQLITE_BUSY`，而是更早返回明确的 409。
 
-- **状态：** 待修复/待用户确认实施（2026-08-26 仅记录，未改代码）
+- **状态：** 修复方案已确认（见 §〇.1），待开始实施（2026-08-26 仅记录，未改代码）
 
 ### R22-02 版本管理“重新编辑”按钮因版本列表缺少 `id` 导致请求 `/versions/0/blueprint`
 
@@ -86,7 +198,7 @@
   3. **前端可选强化**：`reEdit()` 若 `v.id` 非正整数时给出明确错误提示，避免再次请求 `/versions/0/blueprint`。
   4. **回归验证**：对装配生成的订阅版本点击「重新编辑」，应请求真实版本 ID 的 `/blueprint` 并成功跳转装配器编辑态。
 
-- **状态：** 待修复/待用户确认实施（2026-08-26 仅记录，未改代码）
+- **状态：** 修复方案已确认（见 §〇.1），待开始实施（2026-08-26 仅记录，未改代码）
 
 ### R22-03 订阅装配面板第一步“类型与目标”与副 Tab 四类装配器重复，应去除该步骤
 
@@ -112,7 +224,7 @@
 
 - **修复方案（推荐，用户已确认方向）：**
   1. **移除步骤条中的 `target` 步骤**：四类 `stepDefs` 都不再包含 `{ key: 'target', title: '类型与目标' }`。
-  2. **将目标选择移到步骤条上方独立选择区**：在“构建订阅/规则”Tab 内、`AssemblerShell` 上方放置紧凑的目标选择卡片/区域，包含：
+  2. **将目标选择移到步骤条上方常驻独立选择区（已确认）**：在“构建订阅/规则”Tab 内、`AssemblerShell` 上方放置常驻紧凑目标选择卡片/区域，包含：
      - 非 SR 分流：目标平台 `Select`；
      - SR 分流：规则实体 `Select` + FINAL 方向；
      - 类型仍由副 Tab 决定，不在该区域重复展示。
@@ -122,7 +234,7 @@
   6. **保留生成前校验**：`targetReady()` 仍应在生成前校验平台/规则实体已选；可选择禁用“确认生成”直到目标就绪。
   7. **同步文档**：更新 `Design2-UI.md` §5.3.0/§5.3.4 中“步骤① 类型与目标”的描述，改为“副 Tab 选择类型 + 顶部目标选择区”。
 
-- **状态：** 待修复/待用户确认实施（2026-08-26 仅记录，未改代码）
+- **状态：** 修复方案已确认（见 §〇.1），待开始实施（2026-08-26 仅记录，未改代码）
 
 ### R22-04 默认三个平台的“产物格式”不应在编辑页可选，应固定随平台；仅新建自定义平台时可选择
 
@@ -149,19 +261,19 @@
   - 若后续默认平台名称被修改，按名称识别会失效。
 
 - **修复方案（推荐，用户已确认方向）：**
-  1. **新增平台内置标记**：迁移 `1014_platform_builtin_default.sql`，为 `platforms` 增加 `is_default INTEGER NOT NULL DEFAULT 0`。
+  1. **新增平台内置标记**：迁移 `1015_platform_builtin_default.sql`，为 `platforms` 增加 `is_default INTEGER NOT NULL DEFAULT 0`。
   2. **Seed 默认平台写入 `is_default=1`**：`backend/internal/setup/setup.go` 的 `seedPresets` 插入三个默认平台时标记为 `1`。
   3. **已有库回填**：迁移中对名称仍为 `Clash Verge` / `v2rayNG` / `Shadowrocket` 的三行回填 `is_default=1`；无法通过名称识别的旧库可由管理员在后续确认或手动标记（当前以名称回填为推荐方案）。
   4. **后端返回并约束**：
      - `Platform` 结构体 / `Get` / `List` 增加 `is_default` 字段；
-     - `platform.Update` 对 `is_default=1` 的平台忽略或拒绝修改 `product_type`；
+     - `platform.Update` 对 `is_default=1` 的平台拒绝修改 `product_type`（已确认，接入层返回 400）；
      - `platform.Create` 新建自定义平台 `is_default=0`，继续允许选择。
   5. **前端编辑页锁定**：
      - 编辑时若 `p.is_default === true`，将“产物格式”改为只读文本/禁用 `Radio.Group`；
      - 新建平台时保持可选择。
   6. **同步文档**：更新 `Design2-UI.md` / `Design1.md` 平台编辑描述，注明默认平台产物格式固定、仅自定义平台可配置。
 
-- **状态：** 待修复/待用户确认实施（2026-08-26 仅记录，未改代码）
+- **状态：** 修复方案已确认（见 §〇.1），待开始实施（2026-08-26 仅记录，未改代码）
 
 ### R22-05 日志页应展示显示名称/昵称，并支持切换唯一值与显示名称
 
@@ -203,16 +315,17 @@
        - `custom` → 无名称，可回退为平台名称或唯一值；
        - 未解析成功（`unassigned`）时 `resource_slug` 可能记录的是平台标识，此时资源名回退到平台名。
      - 用户邮箱：`LEFT JOIN users u` 同时返回 `COALESCE(u.email,'')`。
-  3. **后端补充测试**：扩展 `TestAccessQuery`，断言 `platform_name` / `resource_name` / `user_email` 正确回填。
-  4. **前端日志页增加切换按钮**：
+  3. **同步补齐成功下载日志平台标识（已确认）**：`backend/internal/download/download.go` 在成功下载写 `access_logs` 时写入平台标识，避免平台列长期为空。
+  4. **后端补充测试**：扩展 `TestAccessQuery`，断言 `platform_name` / `resource_name` / `user_email` 正确回填。
+  5. **前端日志页增加切换按钮**：
      - 新增本地状态，如 `displayMode: 'name' | 'unique'`，默认 `'name'`；
      - 平台列：`record.platform_name` ↔ `record.platform`；
      - 资源列标题改为“资源”，内容显示 `record.resource_name` ↔ `record.resource_slug`；
      - 用户列：`record.username`（昵称）↔ `record.user_email`；
      - 移动端卡片同样跟随切换。
-  5. **同步文档**：更新 `Design1-UI.md` §5.9 日志页展示口径，补充“可切换显示名称/唯一值”。
+  6. **同步文档**：更新 `Design1-UI.md` §5.9 日志页展示口径，补充“可切换显示名称/唯一值”。
 
-- **状态：** 待修复/待用户确认实施（2026-08-26 仅记录，未改代码）
+- **状态：** 修复方案已确认（见 §〇.1），待开始实施（2026-08-26 仅记录，未改代码）
 
 ### R22-06 装配“节点与代理组”步骤：去除未勾选预设组常显的 preset 标签，且高级模式关闭时隐藏 Xray 节点板块
 
@@ -255,10 +368,11 @@
      - 在 `NodesGroupsStep.vue` 中：
        - `v-if="showXray"` 包裹“xray 节点”板块；
        - `availableNodes` 在高级模式关闭时仅包含 `manualNodes`，避免排序弹窗出现 Xray 节点；
+       - 高级模式关闭时从本次装配表单中剔除 Xray 节点及相关组排序引用（已确认）；
        - “🌎国外流量成员”在高级模式关闭时同样只列出 manual 节点。
   3. **同步文档**：更新 `Design2-UI.md` 节点与代理组步骤描述，注明高级模式关闭时隐藏 Xray 节点；代理组列表不再常显 preset 标签。
 
-- **状态：** 待修复/待用户确认实施（2026-08-26 仅记录，未改代码）
+- **状态：** 修复方案已确认（见 §〇.1），待开始实施（2026-08-26 仅记录，未改代码）
 
 ### R22-07 节点“选择与排序”弹窗：移除单个节点“移除”按钮，并把勾选节点区放到排序区上方
 
@@ -304,7 +418,7 @@
   4. **可选清理**：`removeDraft` 如不再被引用可删除，减少死代码。
   5. **同步文档**：更新 `Design2-UI.md` 节点选择与排序弹窗描述。
 
-- **状态：** 待修复/待用户确认实施（2026-08-26 仅记录，未改代码）
+- **状态：** 修复方案已确认（见 §〇.1），待开始实施（2026-08-26 仅记录，未改代码）
 
 ### R22-08 SR-conf 装配不应前置要求已有规则实体，应可直接创建新的规则
 
@@ -355,7 +469,7 @@
      - 后端：无预建规则情况下 `Preview`/`Generate` SR-conf 成功，并自动创建规则；
      - 前端：SR-conf 不再因 `rules` 为空而阻塞；规则名称必填校验生效。
 
-- **状态：** 待修复/待用户确认实施（2026-08-26 仅记录，未改代码）
+- **状态：** 修复方案已确认（见 §〇.1），待开始实施（2026-08-26 仅记录，未改代码）
 
 ---
 
@@ -372,3 +486,4 @@
 | v1.6 | 2026-08-26 | 新增 R22-06：装配“节点与代理组”步骤应移除未勾选预设组常显的 `preset` 标签，并在高级模式关闭时隐藏 Xray 节点板块；本次仅记录，未改代码 |
 | v1.7 | 2026-08-26 | 新增 R22-07：节点“选择与排序”弹窗应移除单个节点“移除”按钮，并将“可选节点”勾选区放到排序区上方；本次仅记录，未改代码 |
 | v1.8 | 2026-08-26 | 新增 R22-08：SR-conf 装配不应前置要求已有规则实体，应允许直接创建新规则；用户确认采用“装配器输入规则名称，生成时自动创建规则”；本次仅记录，未改代码 |
+| v1.9 | 2026-08-26 | 整合 R22-01 ~ R22-08 最终修复方案到 §〇.1，并确认关键决策：全部修复、默认平台 product_type 后端拒绝修改、日志成功下载补平台标识、高级模式关闭剔除 Xray、目标选择区常驻卡片；仍仅记录方案，未开始改代码 |
