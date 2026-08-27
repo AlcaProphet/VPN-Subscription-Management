@@ -24,7 +24,7 @@ cleanup
 echo "==> 构建镜像 $IMAGE"
 docker build -t "$IMAGE" .
 
-echo "==> 启动临时 Production 容器（端口 $PORT）"
+echo "==> 启动临时 Production 容器（端口 ${PORT}）"
 docker run -d --name "$NAME" \
   -p "127.0.0.1:${PORT}:8080" \
   -e APP_MODE=prod \

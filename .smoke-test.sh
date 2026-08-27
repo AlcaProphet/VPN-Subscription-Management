@@ -8,6 +8,14 @@ fi
 
 BASE="${BASE:-http://127.0.0.1:18080}"
 J() { python3 -c "import sys,json; d=json.load(sys.stdin); print(d$1)"; }
+# require_success 校验业务响应 code==0，失败立即退出，避免 smoke 假绿。
+require_success() {
+  local name="$1" resp="$2"
+  if ! python3 -c 'import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get("code") == 0 else 1)' <<<"$resp"; then
+    echo "FAIL: $name -> $resp" >&2
+    exit 1
+  fi
+}
 
 # 1) Setup 快速开始
 curl -s -X POST $BASE/api/setup/quickstart > /dev/null
@@ -82,13 +90,15 @@ echo "11) 素材池 id=$POOLID entries=$(curl -s "$BASE/api/admin/pools/$POOLID/
 NODE=$(curl -s -X POST $BASE/api/admin/nodes -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"name":"smoke-node","protocol":"vless","host":"1.2.3.4","port":443,"protocol_json":{"uuid":"11111111-2222-3333-4444-555555555555"}}')
 NODEID=$(echo "$NODE" | J "['data']['id']")
-curl -s -X POST $BASE/api/admin/proxy-groups -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"name":"smoke-group","group_type":"select","definition":{"type":"select","nodes":["smoke-node"],"groups":[]}}' > /dev/null
+GROUP=$(curl -s -X POST $BASE/api/admin/proxy-groups -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-group","group_type":"select","definition":{"type":"select","nodes":["smoke-node"],"groups":["🚀直接连接"]}}')
+require_success "创建代理组" "$GROUP"
 echo "12) manual 节点 id=$NODEID 代理组已建"
 
 # 13) 装配生成（Clash YAML，自动激活首版）
 GEN=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT"}')
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT"}')
+require_success "Clash 装配生成" "$GEN"
 GENID=$(echo "$GEN" | J "['data']['version_id']")
 echo "13) 装配生成 version_id=$GENID auto=$(echo "$GEN" | J "['data']['auto_activated']")"
 
@@ -98,6 +108,7 @@ SUB2=$(curl -s -X POST $BASE/api/admin/subscriptions -H "$AUTH" -H 'Content-Type
 SUB2ID=$(echo "$SUB2" | J "['data']['id']")
 GEN2=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"target_syntax":"generic-subs","platform_id":2,"node_names":["smoke-node"],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"DIRECT"}')
+require_success "generic-subs 装配生成" "$GEN2"
 GEN2ID=$(echo "$GEN2" | J "['data']['version_id']")
 echo "13b) generic-subs 装配 version_id=$GEN2ID"
 
@@ -106,11 +117,13 @@ SUB3=$(curl -s -X POST $BASE/api/admin/subscriptions -H "$AUTH" -H 'Content-Type
 SUB3ID=$(echo "$SUB3" | J "['data']['id']")
 GEN3=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"target_syntax":"sr-subs","platform_id":3,"node_names":["smoke-node"],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"DIRECT"}')
+require_success "sr-subs 装配生成" "$GEN3"
 GEN3ID=$(echo "$GEN3" | J "['data']['version_id']")
 echo "13c) sr-subs 装配 version_id=$GEN3ID"
 
 GENR=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"target_syntax":"sr-conf","rule_id":'$RULEID',"node_names":[],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"PROXY"}')
+require_success "sr-conf 装配生成" "$GENR"
 GENRID=$(echo "$GENR" | J "['data']['version_id']")
 echo "13d) sr-conf 装配 version_id=$GENRID"
 
@@ -123,14 +136,21 @@ print(json.dumps({"text": one + "\n" + two + "\nnot-a-uri"}))
 PY
 )
 IMPORTRESP=$(curl -s -X POST "$BASE/api/admin/nodes/import" -H "$AUTH" -H 'Content-Type: application/json' -d "$IMPORT_TEXT")
+require_success "URI 批量导入" "$IMPORTRESP"
 IMPORT_OK=$(echo "$IMPORTRESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(1 for x in d['data']['list'] if x['ok']))")
 IMPORT_SKIP=$(echo "$IMPORTRESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(1 for x in d['data']['list'] if not x['ok']))")
 echo "13e) URI导入 ok=$IMPORT_OK skip=$IMPORT_SKIP"
+if [ "$IMPORT_OK" != "2" ] || [ "$IMPORT_SKIP" != "1" ]; then
+  echo "FAIL: URI 导入回执不符合预期 ok=$IMPORT_OK skip=$IMPORT_SKIP" >&2
+  exit 1
+fi
 
 # 13f) Build10 覆盖层装配生成
 GENOV=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT","overlay":{"rules_yaml":"prepend:\n  - DOMAIN,overlay.test,smoke-group\n","proxies_yaml":"prepend:\n  - name: overlay-node\n    type: ss\n    server: o.example.com\n    port: 8388\n"}}')
-echo "13f) overlay 装配 version_id=$(echo "$GENOV" | J "['data']['version_id']")"
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT","overlay":{"rules_yaml":"prepend:\n  - DOMAIN,overlay.test,smoke-group\n","proxies_yaml":"prepend:\n  - name: overlay-node\n    type: ss\n    server: o.example.com\n    port: 8388\n    cipher: aes-256-gcm\n    password: test\n"}}')
+require_success "overlay 装配生成" "$GENOV"
+GENOVID=$(echo "$GENOV" | J "['data']['version_id']")
+echo "13f) overlay 装配 version_id=$GENOVID"
 
 # 14) Xray 高级模式：开启 + 实例（可选；无 Xray 时跳过检测只验证接口不 5xx）
 curl -s -X PUT $BASE/api/admin/settings/advanced -H "$AUTH" -H 'Content-Type: application/json' \
