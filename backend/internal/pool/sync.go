@@ -228,8 +228,10 @@ func parsePerURL(raw string) []PerURLResult {
 	return out
 }
 
-// runSyncTask 后台执行：串行拉取提交时 URL 快照 → 成功项 upsert → 全部成功才差量删除；
+// runSyncTask 后台执行：串行拉取提交时 URL 快照 → 成功项分批短事务 upsert → 全部成功才差量删除；
 // 池已删除时仅记日志不崩溃；编辑 URL 只影响下一次同步。
+// R22-01：不再把整批插入/删除/回写放在单个长事务中，每批约 500 行独立提交，
+// 降低 SQLite 写锁持有时间；失败时保留已插入的新条目，但跳过差量删除并标记任务失败。
 func (s *Service) runSyncTask(ctx context.Context, poolID, taskID int64, urls []string) {
 	if len(urls) == 0 {
 		s.failTask(context.WithoutCancel(ctx), poolID, taskID, nil, "未配置 URL")
@@ -259,133 +261,211 @@ func (s *Service) runSyncTask(ctx context.Context, poolID, taskID int64, urls []
 		return
 	}
 	defer bgStore.Close()
-	err = bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
+
+	// 先确认池仍存在；已删除时不回写（任务行已随外键级联删除）。
+	var exists int
+	if err := bgStore.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
+		s.log.Error("素材池同步检查池存在失败", "pool_id", poolID, "task_id", taskID, "err", err)
+		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "检查素材池失败: "+err.Error())
+		return
+	}
+	if exists == 0 {
+		return
+	}
+
+	// ---- 插入阶段：独立短事务分批提交 ----
+	removedByURL := map[string]int{}
+	var nextOrder int64
+	if err := bgStore.DB().QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(sort_order), ?) FROM pool_entries WHERE pool_id = ? AND sort_order >= ?`,
+		URLBase-1, poolID, URLBase).Scan(&nextOrder); err != nil {
+		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "读取排序值失败: "+err.Error())
+		return
+	}
+	nextOrder++
+	const batchSize = 500
+	for i := range results {
+		r := &results[i]
+		if !r.OK {
+			continue
+		}
+		for start := 0; start < len(r.entries); start += batchSize {
+			end := start + batchSize
+			if end > len(r.entries) {
+				end = len(r.entries)
+			}
+			var sb strings.Builder
+			sb.WriteString(`INSERT OR IGNORE INTO pool_entries (pool_id, rule_type, match_value, source, sort_order, source_url) VALUES `)
+			args := make([]any, 0, (end-start)*5)
+			for j := start; j < end; j++ {
+				if j > start {
+					sb.WriteString(",")
+				}
+				sb.WriteString(`(?,?,?,'url',?,?)`)
+				args = append(args, poolID, r.entries[j].RuleType, r.entries[j].MatchValue, nextOrder, r.URL)
+				nextOrder++
+			}
+			var added int64
+			err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
+				res, err := tx.ExecContext(ctx, sb.String(), args...)
+				if err != nil {
+					return err
+				}
+				added, _ = res.RowsAffected()
+				return nil
+			})
+			if err != nil {
+				s.log.Error("素材池同步插入批次失败", "pool_id", poolID, "task_id", taskID, "err", err)
+				// 用户已确认：失败时允许已插入新条目留存，不再整体回滚；跳过删除并标记失败。
+				s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "插入素材池条目失败: "+err.Error())
+				return
+			}
+			if added > 0 {
+				r.Added += int(added)
+			}
+		}
+	}
+
+	if !partial {
+		keepTable := fmt.Sprintf("_pool_sync_keep_%d", taskID)
+		allEntries := make([]parsedEntry, 0)
+		for _, r := range results {
+			if !r.OK {
+				continue
+			}
+			allEntries = append(allEntries, r.entries...)
+		}
+
+		// ---- 临时 keep 表：单独短事务创建 + 建索引 ----
+		if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx,
+				`CREATE TEMP TABLE `+keepTable+` (rule_type TEXT NOT NULL, match_value TEXT NOT NULL)`); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx,
+				`CREATE INDEX IF NOT EXISTS `+keepTable+`_idx ON `+keepTable+`(rule_type, match_value)`); err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
+			s.log.Error("素材池同步创建临时表失败", "pool_id", poolID, "task_id", taskID, "err", err)
+			s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "创建临时表失败: "+err.Error())
+			return
+		}
+
+		// ---- 临时 keep 表批量填充 ----
+		for start := 0; start < len(allEntries); start += batchSize {
+			end := start + batchSize
+			if end > len(allEntries) {
+				end = len(allEntries)
+			}
+			var sb strings.Builder
+			sb.WriteString(`INSERT OR IGNORE INTO ` + keepTable + ` (rule_type, match_value) VALUES `)
+			args := make([]any, 0, (end-start)*2)
+			for j := start; j < end; j++ {
+				if j > start {
+					sb.WriteString(",")
+				}
+				sb.WriteString(`(?,?)`)
+				args = append(args, allEntries[j].RuleType, allEntries[j].MatchValue)
+			}
+			if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, sb.String(), args...)
+				return err
+			}); err != nil {
+				s.log.Error("素材池同步填充临时表失败", "pool_id", poolID, "task_id", taskID, "err", err)
+				s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "填充临时表失败: "+err.Error())
+				return
+			}
+		}
+
+		// ---- 删除前统计：按 source_url 统计待删除行数 ----
+		delRows, err := bgStore.DB().QueryContext(ctx,
+			`SELECT source_url, COUNT(*) FROM pool_entries
+			 WHERE pool_id = ? AND source = 'url'
+			   AND NOT EXISTS (
+			     SELECT 1 FROM `+keepTable+` k
+			     WHERE k.rule_type = pool_entries.rule_type AND k.match_value = pool_entries.match_value
+			   )
+			 GROUP BY source_url`, poolID)
+		if err != nil {
+			s.log.Error("素材池同步删除前统计失败", "pool_id", poolID, "task_id", taskID, "err", err)
+			s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "删除前统计失败: "+err.Error())
+			return
+		}
+		for delRows.Next() {
+			var u string
+			var c int
+			if err := delRows.Scan(&u, &c); err != nil {
+				_ = delRows.Close()
+				s.log.Error("素材池同步解析删除统计失败", "pool_id", poolID, "task_id", taskID, "err", err)
+				s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "解析删除统计失败: "+err.Error())
+				return
+			}
+			removedByURL[u] = c
+		}
+		if err := delRows.Close(); err != nil {
+			s.log.Error("素材池同步关闭删除统计失败", "pool_id", poolID, "task_id", taskID, "err", err)
+			s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "关闭删除统计失败: "+err.Error())
+			return
+		}
+
+		// ---- 差量删除：分批短事务，每批最多 batchSize 行 ----
+		for {
+			var deleted int64
+			err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
+				res, err := tx.ExecContext(ctx,
+					`DELETE FROM pool_entries WHERE id IN (
+					   SELECT id FROM pool_entries
+					   WHERE pool_id = ? AND source = 'url'
+					     AND NOT EXISTS (
+					       SELECT 1 FROM `+keepTable+` k
+					       WHERE k.rule_type = pool_entries.rule_type AND k.match_value = pool_entries.match_value
+					     )
+					   LIMIT ?)`,
+					poolID, batchSize)
+				if err != nil {
+					return err
+				}
+				deleted, _ = res.RowsAffected()
+				return nil
+			})
+			if err != nil {
+				s.log.Error("素材池同步删除批次失败", "pool_id", poolID, "task_id", taskID, "err", err)
+				s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "删除素材池条目失败: "+err.Error())
+				return
+			}
+			if deleted == 0 {
+				break
+			}
+		}
+
+		// ---- 清理临时表 ----
+		if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS `+keepTable)
+			return err
+		}); err != nil {
+			s.log.Warn("素材池同步清理临时表失败", "pool_id", poolID, "task_id", taskID, "err", err)
+		}
+	}
+
+	// 回写 removed（历史空 source_url 无法归属，不写入任何 URL）
+	for i := range results {
+		if n, ok := removedByURL[results[i].URL]; ok {
+			results[i].Removed = n
+		}
+	}
+
+	// ---- 终态与池快照：单独短事务回写 ----
+	if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
 		var exists int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
 			return err
 		}
 		if exists == 0 {
-			return nil // 池已删除：任务行已随外键级联，终态写回自然跳过
+			return nil
 		}
-		removedByURL := map[string]int{}
-		// 成功 URL 条目照常插入（manual 冲突行自动忽略，manual 段永不受同步改写；
-		// 使用 INSERT OR IGNORE 使 RowsAffected 仅反映真正新增行，用于 added 统计）
-		// 一次性取得 URL 段当前最大排序值，后续在内存中递增，避免逐条 SELECT MAX。
-		var nextOrder int64
-		if err := tx.QueryRowContext(ctx,
-			`SELECT COALESCE(MAX(sort_order), ?) FROM pool_entries WHERE pool_id = ? AND sort_order >= ?`,
-			URLBase-1, poolID, URLBase).Scan(&nextOrder); err != nil {
-			return err
-		}
-		nextOrder++
-		const batchSize = 500
-		for i := range results {
-			r := &results[i]
-			if !r.OK {
-				continue
-			}
-			for start := 0; start < len(r.entries); start += batchSize {
-				end := start + batchSize
-				if end > len(r.entries) {
-					end = len(r.entries)
-				}
-				var sb strings.Builder
-				sb.WriteString(`INSERT OR IGNORE INTO pool_entries (pool_id, rule_type, match_value, source, sort_order, source_url) VALUES `)
-				args := make([]any, 0, (end-start)*5)
-				for j := start; j < end; j++ {
-					if j > start {
-						sb.WriteString(",")
-					}
-					sb.WriteString(`(?,?,?,'url',?,?)`)
-					args = append(args, poolID, r.entries[j].RuleType, r.entries[j].MatchValue, nextOrder, r.URL)
-					nextOrder++
-				}
-				res, err := tx.ExecContext(ctx, sb.String(), args...)
-				if err != nil {
-					return err
-				}
-				if n, _ := res.RowsAffected(); n > 0 {
-					r.Added += int(n)
-				}
-			}
-		}
-		// 差量删除：仅全部 URL 成功时执行（部分失败不删，防不完整结果误删）
-		if !partial {
-			keepTable := fmt.Sprintf("_pool_sync_keep_%d", taskID)
-			if _, err := tx.ExecContext(ctx,
-				`CREATE TEMP TABLE `+keepTable+` (rule_type TEXT NOT NULL, match_value TEXT NOT NULL)`); err != nil {
-				return err
-			}
-			allEntries := make([]parsedEntry, 0)
-			for _, r := range results {
-				if !r.OK {
-					continue
-				}
-				allEntries = append(allEntries, r.entries...)
-			}
-			for start := 0; start < len(allEntries); start += batchSize {
-				end := start + batchSize
-				if end > len(allEntries) {
-					end = len(allEntries)
-				}
-				var sb strings.Builder
-				sb.WriteString(`INSERT OR IGNORE INTO ` + keepTable + ` (rule_type, match_value) VALUES `)
-				args := make([]any, 0, (end-start)*2)
-				for j := start; j < end; j++ {
-					if j > start {
-						sb.WriteString(",")
-					}
-					sb.WriteString(`(?,?)`)
-					args = append(args, allEntries[j].RuleType, allEntries[j].MatchValue)
-				}
-				if _, err := tx.ExecContext(ctx, sb.String(), args...); err != nil {
-					return err
-				}
-			}
-			// 删除前按 source_url 统计将被删除的行数，用于 per-URL removed 精确回执
-			delRows, err := tx.QueryContext(ctx,
-				`SELECT source_url, COUNT(*) FROM pool_entries
-				 WHERE pool_id = ? AND source = 'url'
-				   AND NOT EXISTS (
-				     SELECT 1 FROM `+keepTable+` k
-				     WHERE k.rule_type = pool_entries.rule_type AND k.match_value = pool_entries.match_value
-				   )
-				 GROUP BY source_url`, poolID)
-			if err != nil {
-				return err
-			}
-			for delRows.Next() {
-				var u string
-				var c int
-				if err := delRows.Scan(&u, &c); err != nil {
-					_ = delRows.Close()
-					return err
-				}
-				removedByURL[u] = c
-			}
-			if err := delRows.Close(); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx,
-				`DELETE FROM pool_entries
-				 WHERE pool_id = ? AND source = 'url'
-				   AND NOT EXISTS (
-				     SELECT 1 FROM `+keepTable+` k
-				     WHERE k.rule_type = pool_entries.rule_type AND k.match_value = pool_entries.match_value
-				   )`, poolID); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `DROP TABLE `+keepTable); err != nil {
-				return err
-			}
-		}
-		// 回写 removed（历史空 source_url 无法归属，不写入任何 URL）
-		for i := range results {
-			if n, ok := removedByURL[results[i].URL]; ok {
-				results[i].Removed = n
-			}
-		}
-		// 终态写回 + 池快照 + 顺手清理 7 天前历史任务
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE pool_sync_tasks SET status = ?, per_url_json = ?, error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`,
 			status, toJSON(stripEntries(results)), finalErr, taskID); err != nil {
@@ -402,16 +482,9 @@ func (s *Service) runSyncTask(ctx context.Context, poolID, taskID int64, urls []
 			return err
 		}
 		return nil
-	})
-	if err != nil {
-		s.log.Error("素材池同步任务失败", "pool_id", poolID, "task_id", taskID, "err", err)
-		msg := err.Error()
-		if errors.Is(context.Cause(ctx), errSyncTimeout) {
-			msg = errSyncTimeout.Error()
-		} else if errors.Is(context.Cause(ctx), errSyncCancelled) {
-			msg = errSyncCancelled.Error()
-		}
-		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, msg)
+	}); err != nil {
+		s.log.Error("素材池同步终态回写失败", "pool_id", poolID, "task_id", taskID, "err", err)
+		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "终态回写失败: "+err.Error())
 	}
 }
 

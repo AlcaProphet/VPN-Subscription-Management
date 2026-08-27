@@ -58,6 +58,10 @@ async function refreshAssemblyUrl() {
 
 // 重新编辑装配版本入口：先读取 blueprint 拿到真实 target_syntax，避免 sr-subs/generic-subs 被错误带到 clash-yaml
 async function reEdit(v: VersionItem) {
+  if (!v.id || !Number.isInteger(v.id) || v.id <= 0) {
+    Notify.error('版本 ID 异常，无法重新编辑')
+    return
+  }
   let tab = 'clash-yaml'
   try {
     const data = await getVersionBlueprint(v.id)

@@ -30,7 +30,17 @@ func newTestLogDB(t *testing.T) *sql.DB {
 		CREATE TABLE IF NOT EXISTS access_logs (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, ip TEXT NOT NULL,
 		download_type TEXT NOT NULL, platform TEXT, resource_slug TEXT NOT NULL,
-		status TEXT NOT NULL, fail_reason TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`); err != nil {
+		status TEXT NOT NULL, fail_reason TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+		CREATE TABLE IF NOT EXISTS platforms (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
+		CREATE TABLE IF NOT EXISTS subscriptions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
+		CREATE TABLE IF NOT EXISTS share_subscriptions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
+		CREATE TABLE IF NOT EXISTS rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
+		CREATE TABLE IF NOT EXISTS custom_subscriptions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE);`); err != nil {
 		t.Fatalf("建表失败: %v", err)
 	}
 	return db
@@ -42,12 +52,21 @@ func TestAccessQuery(t *testing.T) {
 	ctx := context.Background()
 	svc := NewAccessService(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	// 用户 + 两条日志（不同日期）
+	// 用户 + 平台 + 资源 + 两条日志（不同日期）
 	if _, err := db.Exec(`INSERT INTO users (username, email) VALUES ('alice','alice@example.com')`); err != nil {
 		t.Fatalf("插入用户失败: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO access_logs (user_id, ip, download_type, resource_slug, status, created_at)
-		VALUES (1, '1.1.1.1', 'subscription', 'sub-x', 'success', '2026-08-01 10:00:00')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO platforms (slug, name) VALUES ('platform-x', '测试平台')`); err != nil {
+		t.Fatalf("插入平台失败: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscriptions (slug, name) VALUES ('sub-x', '订阅X')`); err != nil {
+		t.Fatalf("插入订阅失败: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO share_subscriptions (slug, name) VALUES ('share-y', '分享Y')`); err != nil {
+		t.Fatalf("插入分享失败: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO access_logs (user_id, ip, download_type, platform, resource_slug, status, created_at)
+		VALUES (1, '1.1.1.1', 'subscription', 'platform-x', 'sub-x', 'success', '2026-08-01 10:00:00')`); err != nil {
 		t.Fatalf("插入日志失败: %v", err)
 	}
 	if _, err := db.Exec(`INSERT INTO access_logs (user_id, ip, download_type, resource_slug, status, fail_reason, created_at)
@@ -74,6 +93,22 @@ func TestAccessQuery(t *testing.T) {
 	// ORDER BY created_at DESC：最新（share，无用户）在前，较早（subscription，alice）在后
 	if list[0].Username != "" || list[1].Username != "alice" {
 		t.Errorf("用户名联查异常: %q %q", list[0].Username, list[1].Username)
+	}
+	// 显示名称/邮箱扩展字段（R22-05）
+	if list[0].UserEmail != "" {
+		t.Errorf("share 无用户邮箱应为空: %q", list[0].UserEmail)
+	}
+	if list[1].UserEmail != "alice@example.com" {
+		t.Errorf("用户邮箱应为 alice@example.com: %q", list[1].UserEmail)
+	}
+	if list[1].PlatformName != "测试平台" {
+		t.Errorf("平台显示名称应为 测试平台: %q", list[1].PlatformName)
+	}
+	if list[1].ResourceName != "订阅X" {
+		t.Errorf("资源显示名称应为 订阅X: %q", list[1].ResourceName)
+	}
+	if list[0].ResourceName != "分享Y" {
+		t.Errorf("分享资源显示名称应为 分享Y: %q", list[0].ResourceName)
 	}
 	// 分页
 	list, total, err = svc.Query(ctx, "", "", 1, 1)

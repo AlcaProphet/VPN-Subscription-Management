@@ -26,6 +26,7 @@ export interface PlatformItem {
   name: string
   description: string
   product_type: ProductType
+  is_default?: boolean
   schemes: string[]
   extra_headers: Record<string, string>
   installer_files: InstallerFileItem[]

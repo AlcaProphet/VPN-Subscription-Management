@@ -39,6 +39,7 @@ func newTestSetupService(t *testing.T) (*store.Store, *Service) {
 			slug TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL,
 			product_type TEXT NOT NULL DEFAULT 'yaml',
+			is_default INTEGER NOT NULL DEFAULT 0,
 			description TEXT NOT NULL DEFAULT '',
 			schemes TEXT NOT NULL DEFAULT '[]',
 			extra_headers TEXT NOT NULL DEFAULT '{}',
@@ -97,6 +98,13 @@ func TestCompleteQuickStart(t *testing.T) {
 		}
 		if got != want {
 			t.Errorf("%s product_type 应为 %s，got %s", name, want, got)
+		}
+		var isDefault int
+		if err := st.DB().QueryRow(`SELECT is_default FROM platforms WHERE name = ?`, name).Scan(&isDefault); err != nil {
+			t.Fatalf("查询 %s is_default 失败: %v", name, err)
+		}
+		if isDefault != 1 {
+			t.Errorf("%s 应标记为默认平台", name)
 		}
 	}
 	// configured 与 frontend_url

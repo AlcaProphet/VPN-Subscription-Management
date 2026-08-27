@@ -95,7 +95,7 @@ func (s *Service) seedPresets(ctx context.Context, tx *sql.Tx, frontendURL strin
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO platforms (slug, name, description, product_type, schemes, extra_headers) VALUES (?,?,?,?,?,?)`,
+			`INSERT INTO platforms (slug, name, description, product_type, schemes, extra_headers, is_default) VALUES (?,?,?,?,?,?,1)`,
 			value, p.Name, p.Description, p.ProductType, p.Schemes, p.ExtraHeaders); err != nil {
 			return fmt.Errorf("创建默认平台 %s 失败: %w", p.Name, err)
 		}

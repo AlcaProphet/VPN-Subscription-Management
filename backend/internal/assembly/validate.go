@@ -3,6 +3,7 @@ package assembly
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"vpn-sub/internal/node"
 )
@@ -45,8 +46,12 @@ func (s *Service) validate(ctx context.Context, in GenerateInput, ld *loadedData
 			return fmt.Errorf("%w: 请先在订阅管理为该平台创建订阅条目", ErrBadRequest)
 		}
 	case SrConf:
-		if ld.rule == nil {
-			return fmt.Errorf("%w: 请选择分流规则实体", ErrBadRequest)
+		if in.RuleID > 0 {
+			if ld.rule == nil {
+				return fmt.Errorf("%w: 请选择分流规则实体", ErrBadRequest)
+			}
+		} else if strings.TrimSpace(in.RuleName) == "" {
+			return fmt.Errorf("%w: 请填写规则名称或选择已有规则实体", ErrBadRequest)
 		}
 	}
 	// 节点可用性（xray 硬校验）

@@ -22,6 +22,7 @@ export interface GenerateInput {
   target_syntax: TargetSyntax
   platform_id?: number
   rule_id?: number
+  rule_name?: string
   fixed_params?: Record<string, unknown>
   node_names: string[]
   group_names: string[]
@@ -77,7 +78,7 @@ export const getAssemblyContext = () =>
 export const previewAssembly = (data: GenerateInput) =>
   http.post<any, PreviewResponse>('/admin/assembly/preview', data, { timeout: 120000 })
 export const generateAssembly = (data: GenerateInput) =>
-  http.post<any, { version_id: number; version_no: number; auto_activated: boolean; skipped: SkipItem[]; warnings: string[] }>(
+  http.post<any, { version_id: number; version_no: number; auto_activated: boolean; rule_id?: number; skipped: SkipItem[]; warnings: string[] }>(
     '/admin/assembly/generate', data, { timeout: 120000 },
   )
 export const getBlueprint = (versionId: number) =>

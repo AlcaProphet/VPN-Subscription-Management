@@ -16,6 +16,7 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(20)
 const range = ref<any>(null)
+const displayMode = ref<'name' | 'unique'>('name')
 
 // 本地日期 → 该时刻对应的 UTC 日期（后端 parseRange 按 UTC 解析，容器时区通常为 UTC，R07-03）
 // 原理：本地 08-09 00:00（+08:00）→ "2026-08-08"；本地 08-09 23:59 → "2026-08-09"，后端 UTC 解析后恰好覆盖本地全天
@@ -157,6 +158,9 @@ onUnmounted(disconnect)
           <Space>
             <DatePicker.RangePicker v-model:value="range" @change="page = 1; loadAccess()" />
             <Button @click="page = 1; loadAccess()">查询</Button>
+            <Button @click="displayMode = displayMode === 'name' ? 'unique' : 'name'">
+              {{ displayMode === 'name' ? '显示唯一值' : '显示名称' }}
+            </Button>
           </Space>
           <Button danger @click="clearOpen = true">清空日志</Button>
         </div>
@@ -167,15 +171,21 @@ onUnmounted(disconnect)
               <template #default="{ record }">{{ typeText[record.download_type] ?? record.download_type }}</template>
             </Table.Column>
             <Table.Column key="user" title="用户" width="110">
-              <template #default="{ record }">{{ record.username || '—' }}</template>
+              <template #default="{ record }">
+                {{ displayMode === 'name' ? (record.username || '—') : (record.user_email || record.username || '—') }}
+              </template>
             </Table.Column>
             <Table.Column key="platform" title="平台" width="120">
-              <template #default="{ record }">{{ record.platform || '—' }}</template>
+              <template #default="{ record }">
+                {{ displayMode === 'name' ? (record.platform_name || record.platform || '—') : (record.platform || '—') }}
+              </template>
             </Table.Column>
             <Table.Column key="ip" title="IP" width="130" data-index="ip" />
-            <Table.Column key="resource" title="资源标识" data-index="resource_slug">
+            <Table.Column key="resource" title="资源" data-index="resource_slug">
               <template #default="{ record }">
-                <span class="font-mono text-xs">{{ record.resource_slug }}</span>
+                <span :class="displayMode === 'unique' ? 'font-mono text-xs' : ''">
+                  {{ displayMode === 'name' ? (record.resource_name || record.resource_slug) : record.resource_slug }}
+                </span>
               </template>
             </Table.Column>
             <Table.Column key="status" title="状态" width="90">
@@ -201,8 +211,8 @@ onUnmounted(disconnect)
                        :text="log.status === 'success' ? '成功' : '失败'" />
               </div>
               <div class="text-xs text-gray-500 mt-1 space-y-0.5">
-                <div>用户：{{ log.username || '—' }} · 平台：{{ log.platform || '—' }} · IP：{{ log.ip }}</div>
-                <div class="font-mono">资源：{{ log.resource_slug }}</div>
+                <div>用户：{{ displayMode === 'name' ? (log.username || '—') : (log.user_email || log.username || '—') }} · 平台：{{ displayMode === 'name' ? (log.platform_name || log.platform || '—') : (log.platform || '—') }} · IP：{{ log.ip }}</div>
+                <div :class="displayMode === 'unique' ? 'font-mono' : ''">资源：{{ displayMode === 'name' ? (log.resource_name || log.resource_slug) : log.resource_slug }}</div>
                 <div v-if="log.fail_reason">原因：{{ log.fail_reason }}</div>
                 <div>{{ dayjs(log.created_at).format('YYYY-MM-DD HH:mm:ss') }}</div>
               </div>

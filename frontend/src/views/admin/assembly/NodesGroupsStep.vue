@@ -12,6 +12,7 @@ const props = defineProps<{
   context: AssemblyContext | null
   targetSyntax: TargetSyntax
   invalidRefs: Array<{ kind: string; name: string }>
+  showXray?: boolean
   manualNodes: NodeItem[]
   xrayNodes: NodeItem[]
   presetGroups: ProxyGroupItem[]
@@ -33,7 +34,8 @@ const draftSelected = ref<string[]>([])
 const dragIndex = ref<number | null>(null)
 
 const availableNodes = computed(() => {
-  return [...props.manualNodes, ...props.xrayNodes].filter((n) => n.source === 'manual' || (n.allocatable && n.enabled !== false))
+  const all = props.showXray === false ? props.manualNodes : [...props.manualNodes, ...props.xrayNodes]
+  return all.filter((n) => n.source === 'manual' || (n.allocatable && n.enabled !== false))
 })
 function nodeLabel(name: string) {
   return [...props.manualNodes, ...props.xrayNodes].find((n) => n.name === name)?.render_name ?? name
@@ -60,11 +62,6 @@ function moveDraft(index: number, delta: number) {
   const arr = [...draftSelected.value]
   const [item] = arr.splice(index, 1)
   arr.splice(target, 0, item)
-  draftSelected.value = arr
-}
-function removeDraft(index: number) {
-  const arr = [...draftSelected.value]
-  arr.splice(index, 1)
   draftSelected.value = arr
 }
 function saveSelector() {
@@ -95,7 +92,7 @@ function onDrop(idx: number) {
         <div v-if="manualNodes.length === 0" class="text-xs text-gray-400">暂无 manual 节点</div>
       </div>
     </div>
-    <div>
+    <div v-if="showXray !== false">
       <div class="text-sm font-medium mb-1">xray 节点</div>
       <div class="grid md:grid-cols-3 gap-2">
         <Checkbox v-for="n in xrayNodes" :key="n.name" :checked="form.node_names.includes(n.name)"
@@ -113,8 +110,7 @@ function onDrop(idx: number) {
         <Checkbox v-for="g in FORCE_GROUPS" :key="g" :checked="true" disabled>{{ g }}<Tag class="ml-1">强制</Tag></Checkbox>
         <Checkbox v-for="g in presetGroups" :key="g.name" :checked="form.group_names.includes(g.name)" :disabled="!g.enabled" @change="emit('toggle-group', g.name)">
           <span>{{ g.name }}</span>
-          <Tag v-if="!form.group_names.includes(g.name)" class="ml-1">preset</Tag>
-          <Button v-else size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
+          <Button v-if="form.group_names.includes(g.name)" size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
         </Checkbox>
         <Checkbox v-for="g in customGroups" :key="g.name" :checked="form.group_names.includes(g.name)" @change="emit('toggle-group', g.name)">
           <span>{{ g.name }}</span>
@@ -126,7 +122,7 @@ function onDrop(idx: number) {
     <div v-if="targetSyntax === 'clash-yaml'">
       <div class="text-sm font-medium mb-1">🌎国外流量成员（仅节点）</div>
       <div class="grid md:grid-cols-3 gap-2">
-        <Checkbox v-for="n in manualNodes.concat(xrayNodes)" :key="n.name" :checked="form.overseas_members.includes(n.name)"
+        <Checkbox v-for="n in manualNodes.concat(showXray !== false ? xrayNodes : [])" :key="n.name" :checked="form.overseas_members.includes(n.name)"
                   :disabled="n.source === 'xray' && (!n.allocatable || n.enabled === false)" @change="emit('toggle-overseas', n.name)">
           {{ n.render_name }}
         </Checkbox>
@@ -135,6 +131,15 @@ function onDrop(idx: number) {
 
     <Modal :open="!!selectingGroup" :title="`节点选择与排序 · ${selectingGroup ?? ''}`" :footer="null" :width="640" destroy-on-close @cancel="closeSelector">
       <div class="space-y-3">
+        <div>
+          <div class="text-sm font-medium mb-1">可选节点</div>
+          <div class="grid md:grid-cols-2 gap-2">
+            <Checkbox v-for="n in availableNodes" :key="n.name" :checked="draftSelected.includes(n.name)" @change="toggleDraftNode(n.name)">
+              <span>{{ n.render_name }}</span>
+              <Tag class="ml-1">{{ n.protocol }}</Tag>
+            </Checkbox>
+          </div>
+        </div>
         <div>
           <div class="text-sm font-medium mb-1">已选节点（有序）</div>
           <div v-if="draftSelected.length === 0" class="text-xs text-gray-400">尚未选择节点，将使用子组引用</div>
@@ -145,16 +150,6 @@ function onDrop(idx: number) {
             <span v-if="nodeSubLabel(name)" class="text-xs text-gray-400 font-mono">{{ name }}</span>
             <Button size="small" :disabled="idx === 0" @click="moveDraft(idx, -1)">上移</Button>
             <Button size="small" :disabled="idx === draftSelected.length - 1" @click="moveDraft(idx, 1)">下移</Button>
-            <Button size="small" danger @click="removeDraft(idx)">移除</Button>
-          </div>
-        </div>
-        <div>
-          <div class="text-sm font-medium mb-1">可选节点</div>
-          <div class="grid md:grid-cols-2 gap-2">
-            <Checkbox v-for="n in availableNodes" :key="n.name" :checked="draftSelected.includes(n.name)" @change="toggleDraftNode(n.name)">
-              <span>{{ n.render_name }}</span>
-              <Tag class="ml-1">{{ n.protocol }}</Tag>
-            </Checkbox>
           </div>
         </div>
         <div class="flex justify-end gap-2">

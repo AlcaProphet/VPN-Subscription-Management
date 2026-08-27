@@ -374,3 +374,22 @@ func TestWriteAccessLog(t *testing.T) {
 		t.Errorf("resource_slug 应记订阅标识: %s", slugVal)
 	}
 }
+
+// TestResolveUserDownloadWritesPlatformSlug 成功下载日志应补写平台标识（R22-05）
+func TestResolveUserDownloadWritesPlatformSlug(t *testing.T) {
+	e := newTestDownload(t)
+	ctx := context.Background()
+	tk := e.mkToken(t, 0, 0)
+	_, entry, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x")
+	if err != nil {
+		t.Fatalf("解析下载失败: %v", err)
+	}
+	e.svc.WriteAccessLog(ctx, "1.2.3.4", entry, true)
+	var platform string
+	if err := e.st.DB().QueryRow(`SELECT platform FROM access_logs WHERE status = 'success'`).Scan(&platform); err != nil {
+		t.Fatalf("查询成功日志平台列失败: %v", err)
+	}
+	if platform != "platform-x" {
+		t.Fatalf("成功日志平台列应写入 platform-x，实际 %q", platform)
+	}
+}

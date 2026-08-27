@@ -22,11 +22,10 @@ const emit = defineEmits<{
 }>()
 
 const stepTitles: Record<string, string> = {
-  target: '① 类型与目标',
-  header: '② 头部表单',
-  nodes: '③ 节点与代理组',
-  rules: '④ 规则素材',
-  preview: '⑤ 预览',
+  header: '① 头部表单',
+  nodes: '② 节点与代理组',
+  rules: '③ 规则素材',
+  preview: '④ 预览',
 }
 </script>
 
@@ -44,13 +43,6 @@ const stepTitles: Record<string, string> = {
     <Steps v-if="layoutMode === 'step'" :current="currentStep" size="small" class="mb-4">
       <Steps.Step v-for="s in stepDefs" :key="s.key" :title="s.title" />
     </Steps>
-
-    <div v-show="layoutMode === 'page' || currentStepKey === 'target'">
-      <Card v-if="layoutMode === 'page'" :title="stepTitles.target" size="small" class="mb-3">
-        <slot name="target" />
-      </Card>
-      <div v-else><slot name="target" /></div>
-    </div>
 
     <div v-if="hasHeaderStep" v-show="layoutMode === 'page' || currentStepKey === 'header'">
       <Card v-if="layoutMode === 'page'" :title="stepTitles.header" size="small" class="mb-3">

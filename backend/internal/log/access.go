@@ -29,10 +29,13 @@ type AccessLog struct {
 	ID           int64     `json:"id"`
 	UserID       int64     `json:"user_id"` // 0 = 空（分享/规则下载）
 	Username     string    `json:"username"`
+	UserEmail    string    `json:"user_email"`
 	IP           string    `json:"ip"`
 	DownloadType string    `json:"download_type"`
 	Platform     string    `json:"platform"`
+	PlatformName string    `json:"platform_name"`
 	ResourceSlug string    `json:"resource_slug"`
+	ResourceName string    `json:"resource_name"`
 	Status       string    `json:"status"` // success/fail
 	FailReason   string    `json:"fail_reason"`
 	CreatedAt    time.Time `json:"created_at"` // UTC
@@ -71,9 +74,21 @@ func (s *AccessService) Query(ctx context.Context, from, to string, page, size i
 	}
 	args = append(args, size, (page-1)*size)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT a.id, COALESCE(a.user_id,0), COALESCE(u.username,''), a.ip, a.download_type,
-		        COALESCE(a.platform,''), a.resource_slug, a.status, COALESCE(a.fail_reason,''), a.created_at
-		 FROM access_logs a LEFT JOIN users u ON u.id = a.user_id
+		`SELECT a.id, COALESCE(a.user_id,0), COALESCE(u.username,''), COALESCE(u.email,''), a.ip, a.download_type,
+		        COALESCE(a.platform,''), COALESCE(p.name,''),
+		        a.resource_slug,
+		        CASE a.download_type
+		          WHEN 'subscription' THEN COALESCE((SELECT s.name FROM subscriptions s WHERE s.slug = a.resource_slug), '')
+		          WHEN 'explicit' THEN COALESCE((SELECT s.name FROM subscriptions s WHERE s.slug = a.resource_slug), '')
+		          WHEN 'share' THEN COALESCE((SELECT ss.name FROM share_subscriptions ss WHERE ss.slug = a.resource_slug), '')
+		          WHEN 'rule' THEN COALESCE((SELECT r.name FROM rules r WHERE r.slug = a.resource_slug), '')
+		          WHEN 'custom' THEN COALESCE((SELECT c.slug FROM custom_subscriptions c WHERE c.slug = a.resource_slug), '')
+		          ELSE ''
+		        END,
+		        a.status, COALESCE(a.fail_reason,''), a.created_at
+		 FROM access_logs a
+		 LEFT JOIN users u ON u.id = a.user_id
+		 LEFT JOIN platforms p ON p.slug = a.platform
 		 WHERE 1=1`+where+` ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询访问日志失败: %w", err)
@@ -82,8 +97,8 @@ func (s *AccessService) Query(ctx context.Context, from, to string, page, size i
 	out := make([]AccessLog, 0) // 空列表返回 [] 而非 null
 	for rows.Next() {
 		var l AccessLog
-		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.IP, &l.DownloadType,
-			&l.Platform, &l.ResourceSlug, &l.Status, &l.FailReason, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.UserEmail, &l.IP, &l.DownloadType,
+			&l.Platform, &l.PlatformName, &l.ResourceSlug, &l.ResourceName, &l.Status, &l.FailReason, &l.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("解析访问日志行失败: %w", err)
 		}
 		out = append(out, l)

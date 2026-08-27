@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -128,8 +129,25 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		}
 		return
 	}
+	var autoCreatedRuleID int64
+	if in.TargetSyntax == assembly.SrConf && in.RuleID <= 0 {
+		ruleItem, err := h.ruleSvc.Create(ctx, strings.TrimSpace(in.RuleName), "", "shadowrocket", []string{}, nil)
+		if err != nil {
+			if errors.Is(err, rule.ErrBadRequest) {
+				Fail(c, http.StatusBadRequest, err.Error())
+			} else {
+				Fail(c, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		in.RuleID = ruleItem.ID
+		autoCreatedRuleID = ruleItem.ID
+	}
 	ownerType, ownerID, fileName, err := h.resolveOwner(ctx, in)
 	if err != nil {
+		if autoCreatedRuleID > 0 {
+			_ = h.ruleSvc.Delete(ctx, autoCreatedRuleID)
+		}
 		if errors.Is(err, assembly.ErrBadRequest) {
 			Fail(c, http.StatusBadRequest, err.Error())
 		} else {
@@ -146,6 +164,9 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 			},
 		})
 	if err != nil {
+		if autoCreatedRuleID > 0 {
+			_ = h.ruleSvc.Delete(ctx, autoCreatedRuleID)
+		}
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -156,6 +177,7 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		"version_id":     created.ID,
 		"version_no":     created.No,
 		"auto_activated": activated,
+		"rule_id":        in.RuleID,
 		"skipped":        res.Skipped,
 		"warnings":       h.assemblySvc.Warnings(in, res),
 	})

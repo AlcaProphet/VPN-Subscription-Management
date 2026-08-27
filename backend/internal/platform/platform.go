@@ -102,6 +102,7 @@ type Platform struct {
 	Name           string              `json:"name"`
 	Description    string              `json:"description"`
 	ProductType    string              `json:"product_type"`    // yaml / subs / generic-subs
+	IsDefault      bool                `json:"is_default"`      // 内置默认平台，产物格式锁定
 	Schemes        []string            `json:"schemes"`         // 有序数组；一键导入取首项；含 {url} 占位符
 	ExtraHeaders   map[string]string   `json:"extra_headers"`   // 附加响应头；值支持 {frontend_url} 占位符
 	InstallerFiles []InstallerFileItem `json:"installer_files"` // 多个本地安装包
@@ -187,6 +188,15 @@ func (s *Service) Update(ctx context.Context, id int64, name, description, produ
 		if exists == 0 {
 			return ErrNotFound
 		}
+		var isDefault int
+		var currentProductType string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT is_default, product_type FROM platforms WHERE id = ?`, id).Scan(&isDefault, &currentProductType); err != nil {
+			return err
+		}
+		if isDefault == 1 && productType != currentProductType {
+			return fmt.Errorf("%w: 默认平台产物格式不可修改", ErrBadRequest)
+		}
 		var existing string
 		err := tx.QueryRowContext(ctx,
 			`SELECT s.product_type FROM subscriptions s WHERE s.platform_id = ? AND s.product_type != ? LIMIT 1`,
@@ -210,15 +220,17 @@ func (s *Service) Update(ctx context.Context, id int64, name, description, produ
 func (s *Service) Get(ctx context.Context, id int64) (*Platform, error) {
 	var p Platform
 	var schemesJSON, headersJSON, filesJSON, urlsJSON sql.NullString
+	var isDefault int
 	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT id, slug, name, description, product_type, schemes, extra_headers, installer_files, installer_urls FROM platforms WHERE id = ?`, id).
-		Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.ProductType, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON)
+		`SELECT id, slug, name, description, product_type, is_default, schemes, extra_headers, installer_files, installer_urls FROM platforms WHERE id = ?`, id).
+		Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.ProductType, &isDefault, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("读取平台失败: %w", err)
 	}
+	p.IsDefault = isDefault == 1
 	p.Schemes = parseJSONSlice(schemesJSON.String)
 	p.ExtraHeaders = parseJSONMap(headersJSON.String)
 	p.InstallerFiles = parseInstallerFiles(filesJSON.String)
@@ -229,7 +241,7 @@ func (s *Service) Get(ctx context.Context, id int64) (*Platform, error) {
 // List 平台列表（附删除预览影响统计；订阅/Token/自定义表未建立时跳过统计）
 func (s *Service) List(ctx context.Context) ([]Platform, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT id, slug, name, description, product_type, schemes, extra_headers, installer_files, installer_urls FROM platforms ORDER BY id`)
+		`SELECT id, slug, name, description, product_type, is_default, schemes, extra_headers, installer_files, installer_urls FROM platforms ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("读取平台列表失败: %w", err)
 	}
@@ -237,10 +249,12 @@ func (s *Service) List(ctx context.Context) ([]Platform, error) {
 	out := make([]Platform, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var p Platform
+		var isDefault int
 		var schemesJSON, headersJSON, filesJSON, urlsJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.ProductType, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.ProductType, &isDefault, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON); err != nil {
 			return nil, fmt.Errorf("解析平台行失败: %w", err)
 		}
+		p.IsDefault = isDefault == 1
 		p.Schemes = parseJSONSlice(schemesJSON.String)
 		p.ExtraHeaders = parseJSONMap(headersJSON.String)
 		p.InstallerFiles = parseInstallerFiles(filesJSON.String)

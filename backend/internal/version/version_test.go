@@ -285,6 +285,9 @@ func TestListVersionsFileName(t *testing.T) {
 	if len(list) != 2 {
 		t.Fatalf("版本数应为 2，got %d", len(list))
 	}
+	if list[0].ID <= 0 || list[1].ID <= 0 || list[0].ID == list[1].ID {
+		t.Fatalf("版本列表应返回真实且不同的 id，got %d/%d", list[0].ID, list[1].ID)
+	}
 	if list[0].FileName != "my-sub.yaml" {
 		t.Errorf("文件模式 file_name 应为 my-sub.yaml，got %q", list[0].FileName)
 	}

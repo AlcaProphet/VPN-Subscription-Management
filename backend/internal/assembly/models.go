@@ -144,17 +144,18 @@ type RuleLine struct {
 
 // GenerateInput 装配生成入参（对应 Design2 §5.9 selection/fixed/custom 映射）。
 type GenerateInput struct {
-	TargetSyntax    TargetSyntax    `json:"target_syntax"`
-	PlatformID      int64           `json:"platform_id"`
-	RuleID          int64           `json:"rule_id"`
-	FixedParams     *OrderedMap     `json:"fixed_params"`
-	NodeNames       []string        `json:"node_names"`
-	GroupNames      []string        `json:"group_names"`
+	TargetSyntax    TargetSyntax        `json:"target_syntax"`
+	PlatformID      int64               `json:"platform_id"`
+	RuleID          int64               `json:"rule_id"`
+	RuleName        string              `json:"rule_name"`
+	FixedParams     *OrderedMap         `json:"fixed_params"`
+	NodeNames       []string            `json:"node_names"`
+	GroupNames      []string            `json:"group_names"`
 	GroupNodeOrders map[string][]string `json:"group_node_orders,omitempty"`
-	OverseasMembers []string        `json:"overseas_members"`
-	Pools           []PoolSelection `json:"pools"`
-	CustomRules     []RuleLine      `json:"custom_rules"`
-	FinalDirection  string          `json:"final_direction"`
+	OverseasMembers []string            `json:"overseas_members"`
+	Pools           []PoolSelection     `json:"pools"`
+	CustomRules     []RuleLine          `json:"custom_rules"`
+	FinalDirection  string              `json:"final_direction"`
 }
 
 // SkipItem 跳过项（不可转链接等）。

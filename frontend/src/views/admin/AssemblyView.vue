@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Alert, Button, Modal, Result, Space, Tabs, message } from 'ant-design-vue'
+import { Alert, Button, Card, Modal, Result, Space, Tabs, message } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PoolTab from './assembly/PoolTab.vue'
 import ProxyGroupsView from './ProxyGroupsView.vue'
@@ -19,9 +19,13 @@ import {
 import { Notify } from '@/components/Notify'
 import { listSubscriptions, type SubscriptionItem } from '@/api/subscription'
 import { versionApi } from '@/api/version'
+import { useSystemStore } from '@/stores/system'
 
 const route = useRoute()
 const router = useRouter()
+const system = useSystemStore()
+const advancedMode = computed(() => system.status?.advanced_mode === true)
+const editBlocked = ref(false)
 const SUB_TABS = ['clash-yaml', 'sr-subs', 'generic-subs', 'sr-conf'] as const
 function normalizeTab(v: unknown): { main: string; sub?: string } {
   const s = String(v ?? 'pool')
@@ -75,14 +79,15 @@ const invalidRefs = ref<Array<{ kind: string; name: string }>>([])
 const nameChanged = ref<Record<string, string>>({})
 const layoutMode = ref<'step' | 'page'>(localStorage.getItem('assembly_layout_mode') === 'page' ? 'page' : 'step')
 const currentStep = ref(0)
-const skipTargetStep = ref(false)
 const headerConfirmOpen = ref(false)
 const diffLoading = ref(false)
-const generateResult = ref<{ version_id: number; version_no: number; auto_activated: boolean; skipped: any[]; warnings: string[] } | null>(null)
+const generateResult = ref<{ version_id: number; version_no: number; auto_activated: boolean; skipped: any[]; warnings: string[]; rule_id?: number } | null>(null)
 
 const form = reactive({
   platform_id: undefined as number | undefined,
   rule_id: undefined as number | undefined,
+  rule_name: '',
+  sr_rule_mode: 'new' as 'existing' | 'new',
   fixed_params_text: DEFAULT_HEADERS['clash-yaml'],
   node_names: [] as string[],
   group_names: [] as string[],
@@ -114,7 +119,7 @@ const buildPreflightMissing = computed<PreflightIssue[]>(() => {
   const hasNode = (context.value.nodes ?? []).some((n) => !n.missing && n.enabled && (n.source === 'manual' || n.allocatable))
   if (!hasNode) missing.push({ id: 'nodes', text: '至少一个可用节点', actionText: '前往节点管理', to: '/admin/nodes' })
   if (targetSyntax.value === 'sr-conf') {
-    if ((context.value.rules ?? []).length === 0) missing.push({ id: 'rules', text: '至少一个规则实体', actionText: '前往规则管理', to: '/admin/rules' })
+    // R22-08：SR-conf 不要求预建规则实体；目标就绪由 targetReady/后端校验
   } else {
     if (filteredPlatforms.value.length === 0) {
       missing.push({ id: 'platforms', text: '匹配的目标平台', actionText: '前往平台管理', to: '/admin/platforms' })
@@ -127,12 +132,27 @@ const buildPreflightMissing = computed<PreflightIssue[]>(() => {
 
 watch(layoutMode, (v) => localStorage.setItem('assembly_layout_mode', v))
 watch(targetSyntax, () => { currentStep.value = 0 })
+// 高级模式关闭时从当前装配表单中剔除 Xray 节点及相关排序引用
+watch(advancedMode, (on) => {
+  if (on) {
+    editBlocked.value = false
+    return
+  }
+  if (!context.value) return
+  const xrayNames = new Set((context.value.nodes ?? []).filter((n) => n.source === 'xray').map((n) => n.name))
+  form.node_names = form.node_names.filter((n) => !xrayNames.has(n))
+  form.overseas_members = form.overseas_members.filter((n) => !xrayNames.has(n))
+  const nextOrders: Record<string, string[]> = {}
+  for (const [g, list] of Object.entries(form.group_node_orders)) {
+    nextOrders[g] = list.filter((n) => !xrayNames.has(n))
+  }
+  form.group_node_orders = nextOrders
+})
 
 const stepDefs = computed<Array<{ key: string; title: string }>>(() => {
   let defs: Array<{ key: string; title: string }>
   if (targetSyntax.value === 'clash-yaml') {
     defs = [
-      { key: 'target', title: '类型与目标' },
       { key: 'header', title: '头部表单' },
       { key: 'nodes', title: '节点与代理组' },
       { key: 'rules', title: '规则素材' },
@@ -140,23 +160,20 @@ const stepDefs = computed<Array<{ key: string; title: string }>>(() => {
     ]
   } else if (targetSyntax.value === 'sr-subs' || targetSyntax.value === 'generic-subs') {
     defs = [
-      { key: 'target', title: '类型与目标' },
       { key: 'header', title: '头部表单' },
       { key: 'nodes', title: '节点勾选' },
       { key: 'preview', title: '预览' },
     ]
   } else {
     defs = [
-      { key: 'target', title: '类型与目标' },
       { key: 'header', title: '头部表单' },
       { key: 'rules', title: '规则素材' },
       { key: 'preview', title: '预览' },
     ]
   }
-  if (skipTargetStep.value) defs = defs.filter((s) => s.key !== 'target')
   return defs
 })
-const currentStepKey = computed(() => stepDefs.value[currentStep.value]?.key ?? 'target')
+const currentStepKey = computed(() => stepDefs.value[currentStep.value]?.key ?? 'header')
 
 watch([currentStepKey, layoutMode], ([key, mode]) => {
   if (generateResult.value) return
@@ -179,35 +196,52 @@ async function loadContext() {
     const ctxData = await getAssemblyContext()
     context.value = ctxData
     subscriptions.value = ctxData.subscriptions ?? []
-    // 支持从订阅/规则页带目标参数进入装配；已带目标时跳过“类型与目标”步骤
+    // 支持从订阅/规则页带目标参数进入装配，直接预填顶部目标选择区
     const platformId = Number(route.query.platform_id ?? 0)
     if (platformId > 0) form.platform_id = platformId
     const ruleId = Number(route.query.rule_id ?? 0)
-    if (ruleId > 0) form.rule_id = ruleId
-    skipTargetStep.value = platformId > 0 || ruleId > 0
+    if (ruleId > 0) {
+      form.rule_id = ruleId
+      form.sr_rule_mode = 'existing'
+    }
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
     loadingContext.value = false
   }
 }
-onMounted(() => {
-  void loadContext()
-  void loadEditIfAny()
+onMounted(async () => {
+  await loadContext()
+  await loadEditIfAny()
 })
 
 async function loadEditIfAny() {
+  editBlocked.value = false
   const id = Number(route.query.edit_version_id ?? 0)
   if (!id) return
   editVersionId.value = id
   try {
     const data = await getBlueprint(id)
     const bp = data.blueprint
+    // 高级模式关闭时拒绝编辑含 Xray 节点的旧蓝图，避免隐藏引用被悄然剔除
+    if (!advancedMode.value && bp.selection) {
+      const xrayNames = new Set((context.value?.nodes ?? []).filter((n) => n.source === 'xray').map((n) => n.name))
+      const hasXray = (bp.selection.node_names ?? []).some((n: string) => xrayNames.has(n))
+        || (bp.selection.overseas_members ?? []).some((n: string) => xrayNames.has(n))
+        || Object.values(bp.selection.group_node_orders ?? {}).some((arr: string[]) => arr.some((n) => xrayNames.has(n)))
+      if (hasXray) {
+        editBlocked.value = true
+        Notify.error('该蓝图包含 Xray 节点；请先开启高级模式后再重新编辑')
+        return
+      }
+    }
     mainTab.value = 'build'
     subTab.value = bp.target_syntax
     editVersionNo.value = bp.version_no ?? null
     form.platform_id = bp.platform_id ?? undefined
     form.rule_id = bp.rule_id ?? undefined
+    form.rule_name = ''
+    form.sr_rule_mode = bp.rule_id ? 'existing' : 'new'
     form.node_names = bp.selection?.node_names ?? []
     form.group_names = bp.selection?.group_names ?? []
     form.group_node_orders = bp.selection?.group_node_orders ?? {}
@@ -218,7 +252,6 @@ async function loadEditIfAny() {
     form.custom_rules = bp.custom_rules ?? []
     invalidRefs.value = data.invalid_refs ?? []
     nameChanged.value = data.name_changed ?? {}
-    skipTargetStep.value = true
     Notify.info(editVersionNo.value ? `正在重新编辑版本 v${editVersionNo.value}，请检查失效引用` : `正在重新编辑版本 #${editVersionId.value}，请检查失效引用`)
   } catch (err) {
     Notify.error((err as Error).message)
@@ -245,7 +278,8 @@ function buildInput(): GenerateInput {
   return {
     target_syntax: targetSyntax.value,
     platform_id: isSrConf.value ? undefined : form.platform_id,
-    rule_id: isSrConf.value ? form.rule_id : undefined,
+    rule_id: isSrConf.value && form.sr_rule_mode === 'existing' ? form.rule_id : undefined,
+    rule_name: isSrConf.value && form.sr_rule_mode === 'new' ? form.rule_name : undefined,
     fixed_params: parseFixedParams(),
     node_names: form.node_names,
     group_names: form.group_names,
@@ -319,16 +353,13 @@ function applyDefaultHeader() {
 }
 
 function targetReady(): boolean {
-  return isSrConf.value ? !!form.rule_id : !!form.platform_id
+  if (!isSrConf.value) return !!form.platform_id
+  return form.sr_rule_mode === 'new' ? !!form.rule_name.trim() : !!form.rule_id
 }
 function prevStep() {
   if (currentStep.value > 0) currentStep.value -= 1
 }
 function nextStep() {
-  if (currentStepKey.value === 'target' && !targetReady()) {
-    Notify.warning('请先选择目标')
-    return
-  }
   if (currentStepKey.value === 'nodes' && targetSyntax.value === 'clash-yaml' && form.overseas_members.length === 0) {
     Notify.warning('「🌎国外流量」组未包含任何节点')
     return
@@ -338,7 +369,10 @@ function nextStep() {
 
 async function fetchCurrentActive(): Promise<{ text: string; missing: boolean } | null> {
   if (isSrConf.value) {
-    if (!form.rule_id) { Notify.warning('请先选择规则实体'); return null }
+    if (!form.rule_id) {
+      // 新建规则尚无既有版本，diff 显示“无旧版本”即可
+      return { text: '', missing: true }
+    }
     const versions = await versionApi('/admin/rules').list(form.rule_id)
     const current = versions.find((v) => v.current)
     if (!current) return { text: '', missing: true }
@@ -431,7 +465,8 @@ function continueAssembly() {
 
 async function goActivation() {
   if (isSrConf.value) {
-    if (form.rule_id) void router.push(`/admin/rules/${form.rule_id}/versions`)
+    const ruleId = generateResult.value?.rule_id ?? form.rule_id
+    if (ruleId) void router.push(`/admin/rules/${ruleId}/versions`)
     else void router.push('/admin/rules')
     return
   }
@@ -462,7 +497,7 @@ const outputGroups = computed(() => {
 
 <template>
   <div>
-    <PageHeader title="订阅装配" subtitle="四类装配器：选择目标 → 填头部 → 勾选节点/组 → 规则 → 预览 → 生成" />
+    <PageHeader title="订阅装配" subtitle="四类装配器：副 Tab 选类型 → 顶部选目标 → 填头部 → 勾选节点/组 → 规则 → 预览 → 生成" />
     <Alert v-if="editVersionId" type="info" show-icon class="mb-4"
            :message="editVersionNo ? `正在重新编辑版本 v${editVersionNo}，请检查失效引用后生成新版本` : `正在重新编辑版本 #${editVersionId}，请检查失效引用后生成新版本`" />
     <Alert v-if="invalidRefs.length" type="error" show-icon class="mb-2"
@@ -497,7 +532,16 @@ const outputGroups = computed(() => {
                   </ol>
                 </template>
               </Alert>
-              <template v-else>
+              <Alert v-if="editBlocked" type="error" show-icon class="mb-4"
+                     message="该蓝图包含 Xray 节点，高级模式关闭时无法重新编辑">
+                <template #action>
+                  <Button size="small" @click="router.push('/admin/settings')">前往面板配置开启高级模式</Button>
+                </template>
+              </Alert>
+              <Card v-if="!editBlocked" size="small" class="mb-4" title="目标选择">
+                <TypeTargetStep :form="form" :context="context" :is-sr-conf="isSrConf" :filtered-platforms="filteredPlatforms" />
+              </Card>
+              <template v-if="!editBlocked && buildPreflightMissing.length === 0">
               <AssemblerShell v-if="!generateResult"
                 :layout-mode="layoutMode"
                 :step-defs="stepDefs"
@@ -513,15 +557,12 @@ const outputGroups = computed(() => {
                 @prev="prevStep"
                 @generate="doGenerate"
               >
-                <template #target>
-                  <TypeTargetStep :form="form" :context="context" :is-sr-conf="isSrConf" :filtered-platforms="filteredPlatforms" />
-                </template>
                 <template #header>
                   <HeaderStep :form="form" :target-syntax="targetSyntax" @apply-default="headerConfirmOpen = true" />
                 </template>
                 <template #nodes>
                   <NodesGroupsStep :form="form" :group-node-orders="form.group_node_orders" :context="context" :target-syntax="targetSyntax" :invalid-refs="invalidRefs"
-                                   :manual-nodes="manualNodes" :xray-nodes="xrayNodes" :preset-groups="presetGroups" :custom-groups="customGroups"
+                                   :show-xray="advancedMode" :manual-nodes="manualNodes" :xray-nodes="xrayNodes" :preset-groups="presetGroups" :custom-groups="customGroups"
                                    @toggle-node="toggleNode" @toggle-group="toggleGroup" @toggle-overseas="toggleOverseas"
                                    @update-group-node-order="(g: string, nodes: string[]) => form.group_node_orders = { ...form.group_node_orders, [g]: nodes }" />
                 </template>

@@ -21,6 +21,7 @@ const formError = ref('')
 const uploading = ref(false)
 const uploadPct = ref(0)
 const deletingFile = ref<string>('') // 正在删除的磁盘文件名
+const isDefault = ref(false)
 const form = reactive({
   name: '',
   description: '',
@@ -39,6 +40,7 @@ onMounted(async () => {
     form.name = p.name
     form.description = p.description
     form.product_type = p.product_type
+    isDefault.value = p.is_default === true
     form.slug = p.slug
     form.schemes = p.schemes?.length ? [...p.schemes] : ['']
     form.headers = Object.entries(p.extra_headers ?? {}).map(([key, value]) => ({ key, value }))
@@ -160,12 +162,13 @@ async function save() {
           <Input.TextArea v-model:value="form.description" :maxlength="500" :rows="2" placeholder="平台描述" />
         </Form.Item>
         <Form.Item label="产物格式">
-          <Radio.Group v-model:value="form.product_type">
+          <Radio.Group v-model:value="form.product_type" :disabled="isDefault && isEdit">
             <Radio.Button value="yaml">Clash YAML 订阅</Radio.Button>
             <Radio.Button value="subs">Shadowrocket 节点订阅</Radio.Button>
             <Radio.Button value="generic-subs">通用节点订阅（v2rayNG/v2rayN 等）</Radio.Button>
           </Radio.Group>
-          <div class="text-xs text-gray-400 mt-1">已有订阅条目时，与条目格式不一致的变更将被后端拒绝</div>
+          <div v-if="isDefault && isEdit" class="text-xs text-gray-400 mt-1">默认平台产物格式固定，不可修改</div>
+          <div v-else class="text-xs text-gray-400 mt-1">已有订阅条目时，与条目格式不一致的变更将被后端拒绝</div>
         </Form.Item>
         <Form.Item label="标识">
           <TypographyText v-if="isEdit" code>{{ form.slug }}</TypographyText>

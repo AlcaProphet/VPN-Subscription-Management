@@ -169,8 +169,9 @@ func (s *Service) maybeEncodeSubscriptionContent(ctx context.Context, subID int6
 func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileName string, platformID int64, dlType string, resID, userID int64) (*Result, *AccessEntry, error) {
 	headers := map[string]string{}
 	var raw string
+	var platformSlug string
 	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT extra_headers FROM platforms WHERE id = ?`, platformID).Scan(&raw); err != nil {
+		`SELECT slug, extra_headers FROM platforms WHERE id = ?`, platformID).Scan(&platformSlug, &raw); err != nil {
 		return nil, nil, err
 	}
 	parsed := map[string]string{}
@@ -219,7 +220,7 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 		}
 	}
 	return &Result{Content: content, Filename: joinDownloadName(resName, fileName, ext), ExtraHeaders: headers},
-		&AccessEntry{UserID: userID, Type: dlType, Platform: "", ResourceID: resID}, nil
+		&AccessEntry{UserID: userID, Type: dlType, Platform: platformSlug, ResourceID: resID}, nil
 }
 
 // userUsage 返回用户当月用量与有效配额（字节）；配额 NULL/0 时 total=0。

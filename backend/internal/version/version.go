@@ -391,7 +391,7 @@ func (s *Service) CurrentNo(ctx context.Context, ot OwnerType, ownerID int64) (i
 // ListVersions 资源版本列表（当前激活标记由调用方传入 current 版本号填充）
 func (s *Service) ListVersions(ctx context.Context, ot OwnerType, ownerID, currentNo int64) ([]Version, error) {
 	hasBlueprint := hasTable(ctx, s.store.DB(), "assembly_blueprints")
-	query := `SELECT v.version_no, v.file_path, v.file_name, v.created_at, v.updated_at`
+	query := `SELECT v.id, v.version_no, v.file_path, v.file_name, v.created_at, v.updated_at`
 	if hasBlueprint {
 		query += `, EXISTS(SELECT 1 FROM assembly_blueprints b WHERE b.version_id = v.id)`
 	}
@@ -406,11 +406,11 @@ func (s *Service) ListVersions(ctx context.Context, ot OwnerType, ownerID, curre
 		var v Version
 		var blueprint int
 		if hasBlueprint {
-			if err := rows.Scan(&v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt, &blueprint); err != nil {
+			if err := rows.Scan(&v.ID, &v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt, &blueprint); err != nil {
 				return nil, fmt.Errorf("解析版本行失败: %w", err)
 			}
 		} else {
-			if err := rows.Scan(&v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt); err != nil {
+			if err := rows.Scan(&v.ID, &v.No, &v.FilePath, &v.FileName, &v.CreatedAt, &v.UpdatedAt); err != nil {
 				return nil, fmt.Errorf("解析版本行失败: %w", err)
 			}
 		}

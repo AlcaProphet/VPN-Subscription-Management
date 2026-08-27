@@ -54,6 +54,7 @@ func newTestService(t *testing.T) (*store.Store, *Service) {
 			slug TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL,
 			product_type TEXT NOT NULL DEFAULT 'yaml',
+			is_default INTEGER NOT NULL DEFAULT 0,
 			description TEXT NOT NULL DEFAULT '',
 			schemes TEXT NOT NULL DEFAULT '[]',
 			extra_headers TEXT NOT NULL DEFAULT '{}',
@@ -463,5 +464,26 @@ func TestUpdateProductTypeConflict(t *testing.T) {
 	// 与既有条目一致时成功
 	if err := svc.Update(ctx, p.ID, "测试平台", "", "yaml", nil, nil, nil); err != nil {
 		t.Errorf("一致格式应允许保存: %v", err)
+	}
+}
+
+// TestUpdateDefaultPlatformProductTypeLocked 默认平台（is_default=1）产物格式不可修改（R22-04）
+func TestUpdateDefaultPlatformProductTypeLocked(t *testing.T) {
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "默认平台", "", "yaml", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("创建平台失败: %v", err)
+	}
+	if _, err := st.DB().Exec(`UPDATE platforms SET is_default = 1 WHERE id = ?`, p.ID); err != nil {
+		t.Fatalf("标记默认平台失败: %v", err)
+	}
+	err = svc.Update(ctx, p.ID, "默认平台", "", "subs", nil, nil, nil)
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("默认平台修改产物格式应返回 ErrBadRequest: %v", err)
+	}
+	// 保持同格式仍可保存（仅锁定格式，不锁定其他编辑）
+	if err := svc.Update(ctx, p.ID, "默认平台改名", "", "yaml", nil, nil, nil); err != nil {
+		t.Errorf("默认平台同格式/改名应允许: %v", err)
 	}
 }

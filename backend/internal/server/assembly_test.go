@@ -221,3 +221,59 @@ func TestAssemblyGenerateSrConf(t *testing.T) {
 		t.Fatalf("sr-conf 版本应属于 rule，实际 %s", owner)
 	}
 }
+
+func TestAssemblyGenerateSrConfAutoCreateRule(t *testing.T) {
+	engine, st, _ := newAssemblyTestEnv(t)
+	ctx := context.Background()
+	body := map[string]any{
+		"target_syntax":   "sr-conf",
+		"rule_name":       "自动新建规则",
+		"fixed_params":    map[string]any{"loglevel": "warning"},
+		"pools":           []any{},
+		"final_direction": "DIRECT",
+	}
+	// 无预建规则时 Preview 也应成功
+	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/preview", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sr-conf 无预建规则 preview 状态码异常: %d body=%s", w.Code, w.Body.String())
+	}
+	// Generate 自动创建规则
+	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sr-conf 自动建规则 generate 状态码异常: %d body=%s", w.Code, w.Body.String())
+	}
+	var genResp struct {
+		Data struct {
+			VersionID int64 `json:"version_id"`
+			RuleID    int64 `json:"rule_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &genResp); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if genResp.Data.RuleID <= 0 {
+		t.Fatalf("应返回自动创建的新规则 id: %+v", genResp.Data)
+	}
+	var ruleCount int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM rules WHERE id = ?`, genResp.Data.RuleID).Scan(&ruleCount); err != nil {
+		t.Fatalf("查询自动创建规则失败: %v", err)
+	}
+	if ruleCount != 1 {
+		t.Fatalf("自动创建的规则应存在: %d", ruleCount)
+	}
+	var owner string
+	if err := st.DB().QueryRowContext(ctx, `SELECT owner_type FROM versions WHERE id = ?`, genResp.Data.VersionID).Scan(&owner); err != nil {
+		t.Fatalf("查询版本失败: %v", err)
+	}
+	if owner != "rule" {
+		t.Fatalf("自动创建的 sr-conf 版本应属于 rule，实际 %s", owner)
+	}
+	var bpRuleID int64
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT COALESCE(rule_id,0) FROM assembly_blueprints WHERE version_id = ?`, genResp.Data.VersionID).Scan(&bpRuleID); err != nil {
+		t.Fatalf("查询蓝图 rule_id 失败: %v", err)
+	}
+	if bpRuleID != genResp.Data.RuleID {
+		t.Fatalf("蓝图 rule_id 应为自动创建规则 %d，实际 %d", genResp.Data.RuleID, bpRuleID)
+	}
+}
