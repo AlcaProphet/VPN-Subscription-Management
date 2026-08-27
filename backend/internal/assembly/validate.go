@@ -1,7 +1,6 @@
 package assembly
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -16,7 +15,7 @@ var validRuleTypes = map[string]bool{
 }
 
 // validate 装配输入校验（渲染前闭环）。
-func (s *Service) validate(ctx context.Context, in GenerateInput, ld *loadedData) error {
+func (s *Service) validate(in GenerateInput, ld *loadedData) error {
 	switch in.TargetSyntax {
 	case ClashYAML, SrSubs, GenericSubs, SrConf:
 	default:

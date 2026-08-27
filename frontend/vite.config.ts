@@ -17,6 +17,8 @@ export default defineConfig({
     // 不配置 manualChunks：ant-design-vue 4.x 内部存在模块循环依赖，
     // 手动拆出 antd/vendor chunk 会产生跨 chunk 循环引用，浏览器报
     // `Cannot access 'X' before initialization` 导致白屏；交由 rollup 自动分割（已验证）
+    // 主入口含 vue + antd 公共依赖约 540kB，属已知接受项，调高阈值消除构建噪音
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {},
     },

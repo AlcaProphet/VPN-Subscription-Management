@@ -1,7 +1,6 @@
 package assembly
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -21,8 +20,8 @@ func BenchmarkRenderClash10kRules(b *testing.B) {
 	ld := &loadedData{}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := svc.render(context.Background(), in, ld); err != nil {
+	for b.Loop() {
+		if _, err := svc.render(in, ld); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -34,8 +33,8 @@ func BenchmarkRenderSrConf10kRules(b *testing.B) {
 	ld := &loadedData{}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := svc.render(context.Background(), in, ld); err != nil {
+	for b.Loop() {
+		if _, err := svc.render(in, ld); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -46,7 +45,7 @@ func TestRenderClash10kRulesThreshold(t *testing.T) {
 	in := benchmarkInput(ClashYAML)
 	ld := &loadedData{}
 	start := time.Now()
-	if _, err := svc.render(context.Background(), in, ld); err != nil {
+	if _, err := svc.render(in, ld); err != nil {
 		t.Fatal(err)
 	}
 	if d := time.Since(start); d > 500*time.Millisecond {
@@ -59,7 +58,7 @@ func TestRenderSrConf10kRulesThreshold(t *testing.T) {
 	in := benchmarkInput(SrConf)
 	ld := &loadedData{}
 	start := time.Now()
-	if _, err := svc.render(context.Background(), in, ld); err != nil {
+	if _, err := svc.render(in, ld); err != nil {
 		t.Fatal(err)
 	}
 	if d := time.Since(start); d > 500*time.Millisecond {

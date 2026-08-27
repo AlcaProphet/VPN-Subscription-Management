@@ -37,10 +37,10 @@ func (s *Service) Preview(ctx context.Context, in GenerateInput) (*PreviewResult
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validate(ctx, in, ld); err != nil {
+	if err := s.validate(in, ld); err != nil {
 		return nil, err
 	}
-	res, err := s.render(ctx, in, ld)
+	res, err := s.render(in, ld)
 	if err != nil {
 		return nil, err
 	}
@@ -53,10 +53,10 @@ func (s *Service) Render(ctx context.Context, in GenerateInput) (*RenderResult, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validate(ctx, in, ld); err != nil {
+	if err := s.validate(in, ld); err != nil {
 		return nil, err
 	}
-	return s.render(ctx, in, ld)
+	return s.render(in, ld)
 }
 
 // SaveBlueprintTx 在版本事务内写入 assembly_blueprints（version_id 1:1）。

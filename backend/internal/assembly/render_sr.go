@@ -24,8 +24,12 @@ func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*Rend
 		if remarks == "" {
 			remarks = "VPN Subscription"
 		}
-		b.WriteString("STATUS=" + status + "\n")
-		b.WriteString("REMARKS=" + remarks + "\n")
+		b.WriteString("STATUS=")
+		b.WriteString(status)
+		b.WriteString("\n")
+		b.WriteString("REMARKS=")
+		b.WriteString(remarks)
+		b.WriteString("\n")
 	}
 	skipped := []SkipItem{}
 	for _, name := range in.NodeNames {
@@ -41,7 +45,8 @@ func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*Rend
 			skipped = append(skipped, SkipItem{Kind: "node", Name: nd.Name, Reason: err.Error()})
 			continue
 		}
-		b.WriteString(link + "\n")
+		b.WriteString(link)
+		b.WriteString("\n")
 	}
 	if hasXrayNode(ld) {
 		b.WriteString("# {{xray_nodes}}\n")
@@ -60,16 +65,21 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 	b.WriteString("[General]\n")
 	for _, k := range in.FixedParams.Keys() {
 		v, _ := in.FixedParams.Get(k)
-		b.WriteString(k + " = " + fmt.Sprint(v) + "\n")
+		b.WriteString(k)
+		b.WriteString(" = ")
+		b.WriteString(fmt.Sprint(v))
+		b.WriteString("\n")
 	}
 	b.WriteString("\n[Rule]\n")
 	for _, psel := range in.Pools {
 		for _, e := range ld.pools[psel.PoolID] {
-			b.WriteString(formatRuleLine(e.RuleType, e.MatchValue, psel.Target) + "\n")
+			b.WriteString(formatRuleLine(e.RuleType, e.MatchValue, psel.Target))
+			b.WriteString("\n")
 		}
 	}
 	for _, r := range in.CustomRules {
-		b.WriteString(formatRuleLine(r.RuleType, r.MatchValue, r.Target) + "\n")
+		b.WriteString(formatRuleLine(r.RuleType, r.MatchValue, r.Target))
+		b.WriteString("\n")
 	}
 	b.WriteString("GEOIP,CN,DIRECT\n")
 	final := in.FinalDirection
@@ -79,7 +89,9 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 	if final != "PROXY" && final != "DIRECT" {
 		final = "PROXY"
 	}
-	b.WriteString("FINAL," + final + "\n")
+	b.WriteString("FINAL,")
+	b.WriteString(final)
+	b.WriteString("\n")
 	content := []byte(b.String())
 	plan, err := json.Marshal(map[string]any{"final_direction": final})
 	if err != nil {
