@@ -1,7 +1,7 @@
 <!-- ProxyGroupsView.vue：代理组管理页（Design2-UI §7）——预设/自建双态列表 + DAG 校验 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Table, Tag } from 'ant-design-vue'
+import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag } from 'ant-design-vue'
 import { listProxyGroups, createProxyGroup, updateProxyGroup, deleteProxyGroup, togglePresetGroup, type ProxyGroupItem, type ProxyGroupDefinition } from '@/api/proxyGroup'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -18,9 +18,34 @@ const saving = ref(false)
 
 const form = reactive({
   name: '',
-  group_type: 'select' as 'select' | 'url-test' | 'fallback',
+  group_type: 'select' as ProxyGroupDefinition['type'],
   group_names: [] as string[],
+  use: '', url: '', expected_status: '', interval: 0, timeout: 0, max_failed_times: 0,
+  lazy: false, disable_udp: false, interface_name: '', routing_mark: 0,
+  filter: '', exclude_filter: '', exclude_type: '', include_all: false,
+  include_all_proxies: false, include_all_providers: false, hidden: false, icon: '',
 })
+
+function resetAdvanced(def?: ProxyGroupDefinition) {
+  form.use = (def?.use ?? []).join(', ')
+  form.url = def?.url ?? ''
+  form.expected_status = def?.['expected-status'] ?? ''
+  form.interval = def?.interval ?? 0
+  form.timeout = def?.timeout ?? 0
+  form.max_failed_times = def?.['max-failed-times'] ?? 0
+  form.lazy = def?.lazy ?? false
+  form.disable_udp = def?.['disable-udp'] ?? false
+  form.interface_name = def?.['interface-name'] ?? ''
+  form.routing_mark = def?.['routing-mark'] ?? 0
+  form.filter = def?.filter ?? ''
+  form.exclude_filter = def?.['exclude-filter'] ?? ''
+  form.exclude_type = def?.['exclude-type'] ?? ''
+  form.include_all = def?.['include-all'] ?? false
+  form.include_all_proxies = def?.['include-all-proxies'] ?? false
+  form.include_all_providers = def?.['include-all-providers'] ?? false
+  form.hidden = def?.hidden ?? false
+  form.icon = def?.icon ?? ''
+}
 
 const FORCE_SUBGROUPS = ['🚀直接连接', '🌎国外流量']
 const availableGroupNames = computed(() => new Set(groups.value.filter((g) => g.id !== editing.value?.id).map((g) => g.name)))
@@ -95,6 +120,7 @@ function openCreate() {
   form.name = ''
   form.group_type = 'select'
   form.group_names = []
+  resetAdvanced()
 }
 function openEdit(g: ProxyGroupItem) {
   editing.value = g
@@ -102,6 +128,7 @@ function openEdit(g: ProxyGroupItem) {
   form.name = g.name
   form.group_type = g.definition.type
   form.group_names = [...(g.definition.groups ?? [])]
+  resetAdvanced(g.definition)
 }
 async function save() {
   if (staleRefCount.value > 0) {
@@ -118,6 +145,24 @@ async function save() {
     const definition: ProxyGroupDefinition = {
       type: form.group_type,
       groups: form.group_names,
+      use: form.use.split(',').map((v) => v.trim()).filter(Boolean),
+      url: form.url.trim(),
+      'expected-status': form.expected_status.trim(),
+      interval: form.interval,
+      timeout: form.timeout,
+      'max-failed-times': form.max_failed_times,
+      lazy: form.lazy,
+      'disable-udp': form.disable_udp,
+      'interface-name': form.interface_name.trim(),
+      'routing-mark': form.routing_mark,
+      filter: form.filter.trim(),
+      'exclude-filter': form.exclude_filter.trim(),
+      'exclude-type': form.exclude_type.trim(),
+      'include-all': form.include_all,
+      'include-all-proxies': form.include_all_proxies,
+      'include-all-providers': form.include_all_providers,
+      hidden: form.hidden,
+      icon: form.icon.trim(),
     }
     if (editing.value) {
       await updateProxyGroup(editing.value.id, { group_type: form.group_type, definition })
@@ -244,6 +289,8 @@ function memberSummary(g: ProxyGroupItem): string {
             <Select.Option value="select">select</Select.Option>
             <Select.Option value="url-test">url-test</Select.Option>
             <Select.Option value="fallback">fallback</Select.Option>
+            <Select.Option value="load-balance">load-balance</Select.Option>
+            <Select.Option value="relay">relay</Select.Option>
           </Select>
         </Form.Item>
 
@@ -265,6 +312,32 @@ function memberSummary(g: ProxyGroupItem): string {
             <Button v-if="staleGroupNames.includes(name)" size="small" danger @click="removeGroupRef(name)">剔除</Button>
           </div>
         </Form.Item>
+
+        <details class="border rounded-lg p-3">
+          <summary class="cursor-pointer font-medium">高级字段</summary>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-3 mt-3">
+            <Form.Item label="Provider 引用（逗号分隔）"><Input v-model:value="form.use" /></Form.Item>
+            <Form.Item label="健康检查 URL"><Input v-model:value="form.url" placeholder="https://www.gstatic.com/generate_204" /></Form.Item>
+            <Form.Item label="期望状态码"><Input v-model:value="form.expected_status" placeholder="204" /></Form.Item>
+            <Form.Item label="检查间隔（秒）"><InputNumber v-model:value="form.interval" :min="0" class="w-full" /></Form.Item>
+            <Form.Item label="超时（毫秒）"><InputNumber v-model:value="form.timeout" :min="0" class="w-full" /></Form.Item>
+            <Form.Item label="最大失败次数"><InputNumber v-model:value="form.max_failed_times" :min="0" class="w-full" /></Form.Item>
+            <Form.Item label="出站网卡"><Input v-model:value="form.interface_name" /></Form.Item>
+            <Form.Item label="路由标记"><InputNumber v-model:value="form.routing_mark" :min="0" class="w-full" /></Form.Item>
+            <Form.Item label="过滤表达式"><Input v-model:value="form.filter" /></Form.Item>
+            <Form.Item label="排除表达式"><Input v-model:value="form.exclude_filter" /></Form.Item>
+            <Form.Item label="排除类型（| 分隔）"><Input v-model:value="form.exclude_type" placeholder="Direct|Reject" /></Form.Item>
+            <Form.Item label="图标"><Input v-model:value="form.icon" /></Form.Item>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <label><Switch v-model:checked="form.lazy" /> 懒检查</label>
+            <label><Switch v-model:checked="form.disable_udp" /> 禁用 UDP</label>
+            <label><Switch v-model:checked="form.include_all" /> 引入全部</label>
+            <label><Switch v-model:checked="form.include_all_proxies" /> 引入全部代理</label>
+            <label><Switch v-model:checked="form.include_all_providers" /> 引入全部 Provider</label>
+            <label><Switch v-model:checked="form.hidden" /> 隐藏</label>
+          </div>
+        </details>
       </Form>
     </Modal>
 

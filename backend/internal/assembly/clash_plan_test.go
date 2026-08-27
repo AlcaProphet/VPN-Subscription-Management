@@ -94,3 +94,30 @@ func TestRenderClashPlanComment(t *testing.T) {
 		t.Errorf("不应残留占位符:\n%s", content)
 	}
 }
+
+func TestRenderClashPlanKeepsProviderGroupAndFields(t *testing.T) {
+	plan := ClashPlan{
+		Head: NewOrderedMap().Set("proxy-providers", map[string]any{"provider-a": map[string]any{"type": "http", "url": "https://example.com/sub"}}),
+		ProxyGroups: []ClashPlanGroup{{
+			Name: "Provider组", Type: "load-balance", Use: []string{"provider-a"},
+			URL: "https://www.gstatic.com/generate_204", ExpectedStatus: "204", Interval: 300,
+			Timeout: 5000, MaxFailedTimes: 5, Lazy: true, DisableUDP: true,
+			Filter: "HK|JP", ExcludeType: "Direct|Reject", IncludeAllProviders: true, Hidden: true, Icon: "https://example.com/icon.png",
+		}},
+		Rules: []ClashPlanRule{{Type: "RULE-SET", Value: "provider-a", Target: "Provider组"}},
+	}
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := RenderClashPlan(raw, nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, want := range []string{"name: Provider组", "type: load-balance", "use:", "provider-a", "expected-status: \"204\"", "interval: 300", "timeout: 5000", "max-failed-times: 5", "disable-udp: true", "include-all-providers: true", "RULE-SET,provider-a,Provider组,no-resolve"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("Provider 组输出缺少 %q:\n%s", want, text)
+		}
+	}
+}

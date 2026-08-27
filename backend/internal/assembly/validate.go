@@ -5,14 +5,8 @@ import (
 	"strings"
 
 	"vpn-sub/internal/node"
+	"vpn-sub/internal/rulespec"
 )
-
-// 规则类型白名单（Design2 §3.5）。
-var validRuleTypes = map[string]bool{
-	"DOMAIN": true, "DOMAIN-SUFFIX": true, "DOMAIN-KEYWORD": true,
-	"IP-CIDR": true, "IP-CIDR6": true, "PROCESS-NAME": true,
-	"PROCESS-NAME-REGEX": true, "USER-AGENT": true,
-}
 
 // validate 装配输入校验（渲染前闭环）。
 func (s *Service) validate(in GenerateInput, ld *loadedData) error {
@@ -133,8 +127,8 @@ func (s *Service) validate(in GenerateInput, ld *loadedData) error {
 		if err := checkTarget(r.Target); err != nil {
 			return err
 		}
-		if !validRuleTypes[r.RuleType] {
-			return fmt.Errorf("%w: 非法规则类型: %s", ErrBadRequest, r.RuleType)
+		if _, _, err := rulespec.ValidateValue(r.RuleType, r.MatchValue); err != nil {
+			return fmt.Errorf("%w: %v", ErrBadRequest, err)
 		}
 	}
 	// 空产物硬校验

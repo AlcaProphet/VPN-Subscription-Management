@@ -88,13 +88,14 @@ func insertAssemblyBase(t *testing.T, st *store.Store) int64 {
 
 func assemblyBody(pid int64) map[string]any {
 	return map[string]any{
-		"target_syntax":    "clash-yaml",
-		"platform_id":      pid,
-		"node_names":       []string{"节点A"},
-		"group_names":      []string{"组A"},
-		"overseas_members": []string{"节点A"},
-		"fixed_params":     map[string]any{"port": 7890},
-		"pools":            []any{},
+		"target_syntax":     "clash-yaml",
+		"platform_id":       pid,
+		"node_names":        []string{"节点A"},
+		"group_names":       []string{"组A"},
+		"group_node_orders": map[string][]string{"组A": {"节点A"}},
+		"overseas_members":  []string{"节点A"},
+		"fixed_params":      map[string]any{"port": 7890},
+		"pools":             []any{},
 	}
 }
 
@@ -175,6 +176,22 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 	}
 	if bpResp.Data.Blueprint["target_syntax"] != "clash-yaml" {
 		t.Fatalf("blueprint 内容异常: %+v", bpResp.Data.Blueprint)
+	}
+}
+
+func TestAssemblySelfCheckPreviewWarnsAndGenerateRejects(t *testing.T) {
+	engine, st, _ := newAssemblyTestEnv(t)
+	pid := insertAssemblyBase(t, st)
+	if _, err := st.DB().Exec(`UPDATE nodes SET protocol_json = '{}' WHERE name = '节点A'`); err != nil {
+		t.Fatalf("破坏节点测试数据失败: %v", err)
+	}
+	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/preview", assemblyBody(pid))
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("产物自检[error]")) {
+		t.Fatalf("preview 应返回自检告警: code=%d body=%s", w.Code, w.Body.String())
+	}
+	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", assemblyBody(pid))
+	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("产物自检未通过")) {
+		t.Fatalf("generate 应被自检阻断: code=%d body=%s", w.Code, w.Body.String())
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/download"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
@@ -72,7 +73,8 @@ func downloadTestFS() fstest.MapFS {
 			CREATE TABLE IF NOT EXISTS assembly_blueprints (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				version_id INTEGER NOT NULL UNIQUE,
-				target_syntax TEXT NOT NULL);`)},
+				target_syntax TEXT NOT NULL,
+				render_plan_json TEXT NOT NULL DEFAULT '{}');`)},
 		"1004_tokens.sql": &fstest.MapFile{Data: []byte(`
 			CREATE TABLE IF NOT EXISTS download_tokens (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,6 +119,11 @@ func downloadTestFS() fstest.MapFS {
 
 // newDownloadTestServer 构造含下载路由的测试 server
 func newDownloadTestServer(t *testing.T) *Server {
+	srv, _ := newDownloadTestServerWithDir(t)
+	return srv
+}
+
+func newDownloadTestServerWithDir(t *testing.T) (*Server, string) {
 	t.Helper()
 	dataDir := t.TempDir()
 	st, err := store.Open(dataDir, "test.db")
@@ -134,7 +141,7 @@ func newDownloadTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}
-	return srv
+	return srv, dataDir
 }
 
 // TestDownloadRateLimit 下载限流：默认 20/min，第 21 次请求 429 + Retry-After
@@ -168,6 +175,50 @@ func TestDownloadRateLimit(t *testing.T) {
 	srv.Engine().ServeHTTP(w2, req2)
 	if w2.Code != http.StatusNotFound {
 		t.Errorf("不同 IP 应不受限流影响: %d", w2.Code)
+	}
+}
+
+func TestDownloadContentDispositionUsesRFC5987AndOverridesPlatform(t *testing.T) {
+	srv, dataDir := newDownloadTestServerWithDir(t)
+	st := srv.store
+	ctx := context.Background()
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO groups (slug, name, is_default) VALUES ('g','默认组',1)`); err != nil {
+		t.Fatalf("创建组失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO platforms (slug, name, extra_headers) VALUES ('platform-x','平台X',?)`,
+		`{"Content-Disposition":"attachment; filename=old.yaml"}`); err != nil {
+		t.Fatalf("创建平台失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO users (username, email, role, group_id, user_source, status) VALUES ('u','u@example.com','user',1,'local','active')`); err != nil {
+		t.Fatalf("创建用户失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO subscriptions (slug, name, platform_id, current_version) VALUES ('sub','中文😀订阅',1,1)`); err != nil {
+		t.Fatalf("创建订阅失败: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dataDir, "contents", "subscription", "1"), 0o755); err != nil {
+		t.Fatalf("创建版本目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "contents", "subscription", "1", "v1"), []byte("proxies: []\n"), 0o644); err != nil {
+		t.Fatalf("写入版本失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO versions (owner_type, owner_id, version_no, file_path, file_name) VALUES ('subscription',1,1,'subscription/1/v1','sub.yaml')`); err != nil {
+		t.Fatalf("创建版本失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO download_tokens (token, user_id, platform_id) VALUES ('token-x',1,1)`); err != nil {
+		t.Fatalf("创建下载 Token 失败: %v", err)
+	}
+	w := doReq(t, srv, http.MethodGet, "/subscriptions/platform-x/download?token=token-x")
+	if w.Code != http.StatusOK {
+		t.Fatalf("下载失败: %d %s", w.Code, w.Body.String())
+	}
+	want := download.BuildContentDisposition("中文😀订阅.yaml", "subscription.yaml")
+	if got := w.Header().Get("Content-Disposition"); got != want {
+		t.Fatalf("系统文件名未覆盖平台旧值:\nwant %s\n got %s", want, got)
 	}
 }
 

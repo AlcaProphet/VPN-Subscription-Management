@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"vpn-sub/internal/rulespec"
 )
 
 // renderSrSubs 渲染 SR 节点订阅（带 STATUS/REMARKS 头）或通用节点订阅（无头）。
@@ -71,15 +73,27 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 		b.WriteString("\n")
 	}
 	b.WriteString("\n[Rule]\n")
+	skipped := []SkipItem{}
+	appendRule := func(ruleType, value, target string) {
+		typ, normalized, err := rulespec.ValidateValue(ruleType, value)
+		if err != nil {
+			skipped = append(skipped, SkipItem{Kind: "rule", Name: ruleType + "," + value, Reason: err.Error()})
+			return
+		}
+		if !rulespec.Definitions[typ].SR {
+			skipped = append(skipped, SkipItem{Kind: "rule", Name: typ + "," + normalized, Reason: "Shadowrocket 不支持该规则类型"})
+			return
+		}
+		b.WriteString(formatRuleLine(typ, normalized, target))
+		b.WriteString("\n")
+	}
 	for _, psel := range in.Pools {
 		for _, e := range ld.pools[psel.PoolID] {
-			b.WriteString(formatRuleLine(e.RuleType, e.MatchValue, psel.Target))
-			b.WriteString("\n")
+			appendRule(e.RuleType, e.MatchValue, psel.Target)
 		}
 	}
 	for _, r := range in.CustomRules {
-		b.WriteString(formatRuleLine(r.RuleType, r.MatchValue, r.Target))
-		b.WriteString("\n")
+		appendRule(r.RuleType, r.MatchValue, r.Target)
 	}
 	b.WriteString("GEOIP,CN,DIRECT\n")
 	final := in.FinalDirection
@@ -97,7 +111,7 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 	if err != nil {
 		return nil, fmt.Errorf("序列化 SR 分流渲染计划失败: %w", err)
 	}
-	return &RenderResult{Content: content, Skipped: nil, RenderPlan: plan}, nil
+	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: plan}, nil
 }
 
 // formatRuleLine 生成规则行；IP-CIDR/IP-CIDR6 追加 no-resolve。

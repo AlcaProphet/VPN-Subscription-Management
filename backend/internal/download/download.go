@@ -446,5 +446,32 @@ func sanitizeFilename(name string) string {
 	return name
 }
 
-// SanitizeFilename 导出给接入层使用（Content-Disposition 文件名）
-func SanitizeFilename(name string) string { return sanitizeFilename(name) }
+// RFC5987Value 对 UTF-8 字节做 RFC 5987 百分号编码。
+func RFC5987Value(value string) string {
+	const hex = "0123456789ABCDEF"
+	var out strings.Builder
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			strings.ContainsRune("!#$&+-.^_`|~", rune(c)) {
+			out.WriteByte(c)
+			continue
+		}
+		out.WriteByte('%')
+		out.WriteByte(hex[c>>4])
+		out.WriteByte(hex[c&0x0f])
+	}
+	return out.String()
+}
+
+// BuildContentDisposition 同时提供 ASCII fallback 与 CVR 优先读取的 UTF-8 filename*。
+func BuildContentDisposition(displayName, fallback string) string {
+	if fallback == "" {
+		fallback = "subscription.yaml"
+	}
+	if displayName == "" {
+		displayName = fallback
+	}
+	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`,
+		sanitizeFilename(fallback), RFC5987Value(sanitizeFilename(displayName)))
+}

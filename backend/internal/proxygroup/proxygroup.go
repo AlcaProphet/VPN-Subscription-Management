@@ -8,13 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strings"
 
 	"vpn-sub/internal/node"
 	"vpn-sub/internal/store"
 )
 
-// 代理组类型（三枚举）。
-var validGroupTypes = map[string]bool{"select": true, "url-test": true, "fallback": true}
+// ValidGroupTypes 是 mihomo 支持的代理组类型共享元数据。
+var ValidGroupTypes = map[string]bool{"select": true, "url-test": true, "fallback": true, "load-balance": true, "relay": true}
 
 // 业务错误。
 var (
@@ -26,9 +28,27 @@ var (
 
 // Definition 代理组定义（仅子组引用；节点引用已改为装配时按组选择/排序）。
 type Definition struct {
-	GroupType string   `json:"type"`
-	Nodes     []string `json:"-"` // 兼容旧代码/测试结构体，不再序列化，不再参与校验与渲染
-	Groups    []string `json:"groups"`
+	GroupType           string   `json:"type"`
+	Nodes               []string `json:"-"` // 兼容旧代码/测试结构体，不再序列化，不再参与校验与渲染
+	Groups              []string `json:"groups"`
+	Use                 []string `json:"use,omitempty"`
+	URL                 string   `json:"url,omitempty"`
+	ExpectedStatus      string   `json:"expected-status,omitempty"`
+	Interval            int      `json:"interval,omitempty"`
+	Timeout             int      `json:"timeout,omitempty"`
+	MaxFailedTimes      int      `json:"max-failed-times,omitempty"`
+	Lazy                bool     `json:"lazy,omitempty"`
+	DisableUDP          bool     `json:"disable-udp,omitempty"`
+	InterfaceName       string   `json:"interface-name,omitempty"`
+	RoutingMark         int      `json:"routing-mark,omitempty"`
+	Filter              string   `json:"filter,omitempty"`
+	ExcludeFilter       string   `json:"exclude-filter,omitempty"`
+	ExcludeType         string   `json:"exclude-type,omitempty"`
+	IncludeAll          bool     `json:"include-all,omitempty"`
+	IncludeAllProxies   bool     `json:"include-all-proxies,omitempty"`
+	IncludeAllProviders bool     `json:"include-all-providers,omitempty"`
+	Hidden              bool     `json:"hidden,omitempty"`
+	Icon                string   `json:"icon,omitempty"`
 }
 
 // Group 代理组行。
@@ -85,8 +105,8 @@ func (s *Service) CreateCustom(ctx context.Context, name, groupType string, def 
 	if err := node.ValidateProxyGroupName(name); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	if !validGroupTypes[groupType] {
-		return nil, fmt.Errorf("%w: 组类型仅支持 select/url-test/fallback", ErrBadRequest)
+	if !ValidGroupTypes[groupType] {
+		return nil, fmt.Errorf("%w: 非法代理组类型", ErrBadRequest)
 	}
 	def.GroupType = groupType
 	if err := s.validateDefinition(ctx, def); err != nil {
@@ -130,8 +150,8 @@ func (s *Service) Update(ctx context.Context, id int64, groupType string, def De
 	if err != nil {
 		return nil, err
 	}
-	if !validGroupTypes[groupType] {
-		return nil, fmt.Errorf("%w: 组类型仅支持 select/url-test/fallback", ErrBadRequest)
+	if !ValidGroupTypes[groupType] {
+		return nil, fmt.Errorf("%w: 非法代理组类型", ErrBadRequest)
 	}
 	def.GroupType = groupType
 	if err := s.validateDefinitionWithDAG(ctx, existing, def); err != nil {
@@ -200,8 +220,8 @@ func (s *Service) validateDefinition(ctx context.Context, def Definition) error 
 
 // validateDefinitionWithDAG 校验引用存在、内容约束与全量 DAG。
 func (s *Service) validateDefinitionWithDAG(ctx context.Context, existing Group, def Definition) error {
-	if !validGroupTypes[def.GroupType] {
-		return fmt.Errorf("%w: 组类型仅支持 select/url-test/fallback", ErrBadRequest)
+	if !ValidGroupTypes[def.GroupType] {
+		return fmt.Errorf("%w: 非法代理组类型", ErrBadRequest)
 	}
 	// 子组引用：允许 🚀直接连接 / 🌎国外流量 或已存在代理组；🛟无法归属的流量不允许作为子组。
 	for _, name := range def.Groups {
@@ -220,12 +240,48 @@ func (s *Service) validateDefinitionWithDAG(ctx context.Context, existing Group,
 			return fmt.Errorf("%w: 代理组不能引用自身", ErrBadRequest)
 		}
 	}
-	// 内容约束：至少包含一个子组（节点引用已移至装配时按组选择/排序）
-	if len(def.Groups) == 0 {
-		return fmt.Errorf("%w: 代理组至少需包含一个子组", ErrBadRequest)
+	if def.GroupType == "select" && len(def.Groups) == 0 && len(def.Use) == 0 &&
+		!def.IncludeAll && !def.IncludeAllProxies && !def.IncludeAllProviders {
+		return fmt.Errorf("%w: select 组至少需要 groups/use/include-all 之一", ErrBadRequest)
+	}
+	if def.URL != "" {
+		if def.GroupType != "url-test" && def.GroupType != "fallback" && def.GroupType != "load-balance" {
+			return fmt.Errorf("%w: 当前组类型不支持健康检查 URL", ErrBadRequest)
+		}
+		parsed, err := url.Parse(def.URL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return fmt.Errorf("%w: 健康检查 URL 仅支持 http/https", ErrBadRequest)
+		}
+	}
+	if def.Interval < 0 || def.Timeout < 0 || def.MaxFailedTimes < 0 || def.RoutingMark < 0 {
+		return fmt.Errorf("%w: 数值字段不能为负数", ErrBadRequest)
+	}
+	if err := validateExcludeTypes(def.ExcludeType); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	// 全量 DAG 校验（含本次变更后的组）
 	return s.validateDAG(ctx, existing, def)
+}
+
+var excludeTypes = map[string]bool{
+	"direct": true, "reject": true, "rejectdrop": true, "compatible": true, "pass": true, "dns": true,
+	"shadowsocks": true, "shadowsocksr": true, "snell": true, "socks5": true, "http": true,
+	"vmess": true, "vless": true, "trojan": true, "hysteria": true, "hysteria2": true, "wireguard": true,
+	"tuic": true, "mieru": true, "masque": true, "anytls": true, "sudoku": true, "relay": true,
+	"selector": true, "fallback": true, "urltest": true, "loadbalance": true, "ssh": true,
+}
+
+func validateExcludeTypes(value string) error {
+	for _, item := range strings.Split(value, "|") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if !excludeTypes[strings.ToLower(item)] {
+			return fmt.Errorf("未知 exclude-type: %s", item)
+		}
+	}
+	return nil
 }
 
 // validateDAG 加载全部代理组，替换当前编辑组后做三色 DFS。

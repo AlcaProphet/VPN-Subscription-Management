@@ -581,6 +581,9 @@ func parseURLBody(body []byte) ([]parsedEntry, int, []string, error) {
 			}
 			continue
 		}
+		if reason != "" {
+			reasons = append(reasons, reason)
+		}
 		normType, norm, err := ValidateEntry(typ, val)
 		if err != nil {
 			skipped++ // 非法条目跳过并计数，不阻断同步

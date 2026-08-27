@@ -170,6 +170,7 @@ type RenderResult struct {
 	Content    []byte          `json:"content"`
 	Skipped    []SkipItem      `json:"skipped"`
 	RenderPlan json.RawMessage `json:"render_plan,omitempty"`
+	Issues     []OutputIssue   `json:"issues,omitempty"`
 }
 
 // PreviewResult 预览/生成前置结果（含提示与名称变更对照）。

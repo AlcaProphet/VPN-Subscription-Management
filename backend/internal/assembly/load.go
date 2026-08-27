@@ -10,31 +10,31 @@ import (
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/node"
+	"vpn-sub/internal/proxygroup"
 )
 
 // nodeData 渲染用节点数据（凭据已解密）。
 type nodeData struct {
-	Name           string
-	Source         string
-	Protocol       string
-	Host           string
-	Port           int
-	DisplayName    *string
-	ProtocolJSON   map[string]any
-	Enabled        bool
-	Allocatable    bool
-	Missing        bool
+	Name            string
+	Source          string
+	Protocol        string
+	Host            string
+	Port            int
+	DisplayName     *string
+	ProtocolJSON    map[string]any
+	Enabled         bool
+	Allocatable     bool
+	Missing         bool
 	InstanceEnabled bool
-	RenderName     string
+	RenderName      string
 }
 
 // groupData 渲染用代理组数据（节点引用仅来自本次装配 GroupNodeOrders）。
 type groupData struct {
-	Name      string
-	Type      string // preset / custom
-	GroupType string
-	Enabled   bool
-	Groups    []string
+	Name    string
+	Type    string // preset / custom
+	Enabled bool
+	proxygroup.Definition
 }
 
 // poolEntry 素材池条目。
@@ -45,8 +45,8 @@ type poolEntry struct {
 
 // platformInfo 平台目标信息。
 type platformInfo struct {
-	ID             int64
-	ProductType    string
+	ID              int64
+	ProductType     string
 	HasSubscription bool
 }
 
@@ -167,15 +167,11 @@ func (s *Service) loadGroups(ctx context.Context, ld *loadedData, names []string
 		}
 		g.Type = gtype
 		g.Enabled = enabled == 1
-		var def struct {
-			GroupType string   `json:"type"`
-			Groups    []string `json:"groups"`
-		}
+		var def proxygroup.Definition
 		if err := json.Unmarshal([]byte(raw), &def); err != nil {
 			return fmt.Errorf("解析代理组定义失败: %s", g.Name)
 		}
-		g.GroupType = def.GroupType
-		g.Groups = def.Groups
+		g.Definition = def
 		ld.allGroups[g.Name] = &g
 		if want[g.Name] {
 			copyG := g
@@ -239,8 +235,8 @@ func (s *Service) loadRule(ctx context.Context, id int64) (*ruleInfo, error) {
 
 // decryptNode 将节点 protocol_json 中的敏感字段解密为明文。
 func (s *Service) decryptNode(nd *nodeData) error {
-	for _, field := range node.SensitiveFieldsOf(nd.Protocol) {
-		v, ok := nd.ProtocolJSON[field]
+	for _, path := range node.SensitiveFieldsOf(nd.Protocol) {
+		v, ok := node.GetPath(nd.ProtocolJSON, path)
 		if !ok {
 			continue
 		}
@@ -256,7 +252,7 @@ func (s *Service) decryptNode(nd *nodeData) error {
 		if err != nil {
 			return fmt.Errorf("解密节点凭据失败: %s", nd.Name)
 		}
-		nd.ProtocolJSON[field] = string(plain)
+		node.SetPath(nd.ProtocolJSON, path, string(plain))
 	}
 	return nil
 }

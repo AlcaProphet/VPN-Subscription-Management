@@ -51,9 +51,9 @@ const context = {
   nodes: [],
   proxy_groups: [],
   pools: [{ id: 1, name: '池A', urls: [], entry_count: 0, last_synced_at: '', sync_status: '', sync_error: '', auto_sync: false, sync_time: '04:00' }],
-  platforms: [{ id: 1, name: '平台A', product_type: 'yaml' }],
+  platforms: [{ id: 1, name: '平台A', product_type: 'yaml', is_default: true }],
   rules: [{ id: 2, name: '规则A', current_version: 0 }],
-  subscriptions: [],
+  subscriptions: [{ id: 11, platform_id: 1, name: '订阅A' }],
 }
 
 function makeRouter(query = 'tab=bad'): Router {
@@ -97,13 +97,30 @@ describe('AssemblyView 装配页核心交互', () => {
     expect(vm.stepDefs.some((s) => s.key === 'rules')).toBe(true)
   })
 
-  it('未选择目标时下一步被拦截', async () => {
-    const wrapper = await mountWith()
-    const vm = wrapper.vm as unknown as { currentStep: number; nextStep: () => void }
+  it('仅有默认平台时自动选择目标并隐藏目标卡片', async () => {
+    const wrapper = await mountWith('tab=clash-yaml')
+    const vm = wrapper.vm as unknown as { currentStep: number; form: { platform_id?: number }; nextStep: () => void }
+    expect(vm.form.platform_id).toBe(1)
+    expect(wrapper.text()).not.toContain('目标选择')
     vm.currentStep = 0
     vm.nextStep()
-    expect(vm.currentStep).toBe(0)
-    expect(mockNotifyWarning).toHaveBeenCalled()
+    expect(vm.currentStep).toBe(1)
+    expect(mockNotifyWarning).not.toHaveBeenCalled()
+  })
+
+  it('存在自定义平台时显示目标卡片并默认选择已有订阅的平台', async () => {
+    mockContext.mockResolvedValue({
+      ...context,
+      platforms: [
+        ...context.platforms,
+        { id: 2, name: '自定义平台', product_type: 'yaml', is_default: false },
+      ],
+      subscriptions: [{ id: 12, platform_id: 2, name: '订阅B' }],
+    })
+    const wrapper = await mountWith('tab=clash-yaml')
+    const vm = wrapper.vm as unknown as { form: { platform_id?: number } }
+    expect(vm.form.platform_id).toBe(2)
+    expect(wrapper.text()).toContain('目标选择')
   })
 
   it('preview 调用后端预览接口', async () => {

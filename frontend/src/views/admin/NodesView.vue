@@ -302,8 +302,11 @@ function handleObjectFieldBlur(name: string, e: any) {
             <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)" @change="(v: any) => setField(f.name, v)" />
             <Input.TextArea v-else-if="f.type === 'object'" :value="JSON.stringify(fieldValue(f.name) ?? f.default ?? {}, null, 2)" :rows="3"
               @blur="(e: any) => handleObjectFieldBlur(f.name, e)" />
+            <Input v-else-if="f.type === 'text-list' || f.type === 'int-list'" :value="Array.isArray(fieldValue(f.name)) ? (fieldValue(f.name) as unknown[]).join(', ') : String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
             <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
             <div v-if="objectError && objectErrorField === f.name" class="text-xs text-red-500 mt-1">{{ objectError }}</div>
+            <div v-else-if="f.type === 'text-list' || f.type === 'int-list'" class="text-xs text-gray-400 mt-1">逗号分隔</div>
+            <div v-else-if="f.help" class="text-xs text-gray-400 mt-1">{{ f.help }}</div>
           </div>
         </div>
       </Form>

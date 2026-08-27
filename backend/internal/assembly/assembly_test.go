@@ -276,6 +276,63 @@ func TestClashSkipUserAgent(t *testing.T) {
 	}
 }
 
+func TestClashExtendedRulesAndSrSkip(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	rid := insertRule(t, st)
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
+	rules := []RuleLine{
+		{RuleType: "GEOSITE", MatchValue: "cn", Target: "组A"},
+		{RuleType: "IP-ASN", MatchValue: "45102", Target: "组A"},
+		{RuleType: "AND", MatchValue: "((DOMAIN,a.com),(NETWORK,tcp))", Target: "组A"},
+	}
+	res, err := svc.Preview(context.Background(), GenerateInput{TargetSyntax: ClashYAML, PlatformID: pid, NodeNames: []string{"节点A"}, GroupNames: []string{"组A"}, GroupNodeOrders: map[string][]string{"组A": {"节点A"}}, OverseasMembers: []string{"节点A"}, CustomRules: rules})
+	if err != nil {
+		t.Fatalf("Clash 扩展规则失败: %v", err)
+	}
+	content := string(res.Content)
+	for _, want := range []string{"GEOSITE,cn,组A", "IP-ASN,45102,组A,no-resolve", "AND,((DOMAIN,a.com),(NETWORK,tcp)),组A", "MATCH,🛟无法归属的流量"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("Clash 缺少 %q:\n%s", want, content)
+		}
+	}
+	srRules := append([]RuleLine(nil), rules...)
+	for i := range srRules {
+		srRules[i].Target = "PROXY"
+	}
+	res, err = svc.Preview(context.Background(), GenerateInput{TargetSyntax: SrConf, RuleID: rid, CustomRules: srRules, FinalDirection: "PROXY"})
+	if err != nil {
+		t.Fatalf("SR 扩展规则预览失败: %v", err)
+	}
+	if strings.Contains(string(res.Content), "GEOSITE") || len(res.Skipped) != len(rules) {
+		t.Fatalf("SR 应跳过不支持规则: content=%s skipped=%+v", res.Content, res.Skipped)
+	}
+}
+
+func TestPreviewExtendedProxyGroupFields(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	definition := `{"type":"load-balance","groups":[],"use":["provider-a"],"url":"https://www.gstatic.com/generate_204","expected-status":"204","interval":300,"timeout":5000,"max-failed-times":5,"lazy":true,"disable-udp":true,"include-all-providers":true,"icon":"https://example.com/icon.png"}`
+	if _, err := st.DB().ExecContext(context.Background(), `INSERT INTO proxy_groups (name,type,preset_key,enabled,definition_json) VALUES ('Provider组','custom','',1,?)`, definition); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid, NodeNames: []string{"节点A"}, GroupNames: []string{"Provider组"}, OverseasMembers: []string{"节点A"},
+		FixedParams: NewOrderedMap().Set("proxy-providers", map[string]any{"provider-a": map[string]any{"type": "http", "url": "https://example.com/sub"}}),
+	})
+	if err != nil {
+		t.Fatalf("扩展代理组预览失败: %v", err)
+	}
+	content := string(res.Content)
+	for _, want := range []string{"name: Provider组", "type: load-balance", "use:", "provider-a", "interval: 300", "timeout: 5000", "include-all-providers: true"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("扩展代理组缺少 %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestXrayPlaceholderAndDisplayName(t *testing.T) {
 	svc, st, _ := newTestService(t)
 	pid := insertPlatform(t, st, "yaml")
@@ -391,9 +448,9 @@ func TestClashHeaderOrder(t *testing.T) {
 	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		FixedParams:    NewOrderedMap().Set("mode", "rule").Set("port", 7890),
-		NodeNames:      []string{"节点A"},
-		GroupNames:     []string{"组A"},
+		FixedParams:     NewOrderedMap().Set("mode", "rule").Set("port", 7890),
+		NodeNames:       []string{"节点A"},
+		GroupNames:      []string{"组A"},
 		OverseasMembers: []string{"节点A"},
 	})
 	if err != nil {
@@ -414,7 +471,7 @@ func TestOverseasMemberMustBeSelected(t *testing.T) {
 	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
 	_, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames:      []string{"节点A"},
+		NodeNames:       []string{"节点A"},
 		OverseasMembers: []string{"未勾选节点"},
 	})
 	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "必须是已勾选节点") {
@@ -430,13 +487,12 @@ func TestNonexistentPoolRejected(t *testing.T) {
 	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
 	_, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames:      []string{"节点A"},
-		GroupNames:     []string{"组A"},
+		NodeNames:       []string{"节点A"},
+		GroupNames:      []string{"组A"},
 		OverseasMembers: []string{"节点A"},
-		Pools:          []PoolSelection{{PoolID: 99999, Target: "组A"}},
+		Pools:           []PoolSelection{{PoolID: 99999, Target: "组A"}},
 	})
 	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "素材池不存在") {
 		t.Fatalf("不存在池应拒绝，实际 %v", err)
 	}
 }
-

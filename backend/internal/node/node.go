@@ -610,21 +610,69 @@ func scanNode(row rowScanner) (Node, error) {
 
 // redactSensitive 列表/详情返回时敏感字段置空，避免泄露凭据明文。
 func (s *Service) redactSensitive(n *Node) {
-	for _, field := range SensitiveFieldsOf(n.Protocol) {
-		if _, ok := n.ProtocolJSON[field]; ok {
-			n.ProtocolJSON[field] = ""
+	for _, path := range SensitiveFieldsOf(n.Protocol) {
+		if _, ok := GetPath(n.ProtocolJSON, path); ok {
+			SetPath(n.ProtocolJSON, path, "")
 		}
+	}
+}
+
+// GetPath 从嵌套 JSON 映射读取点路径。
+func GetPath(m map[string]any, path string) (any, bool) {
+	var current any = m
+	parts := strings.Split(path, ".")
+	for _, part := range parts {
+		next, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = next[part]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
+}
+
+// SetPath 向嵌套 JSON 映射写入点路径，不存在的中间映射会自动创建。
+func SetPath(m map[string]any, path string, value any) {
+	parts := strings.Split(path, ".")
+	current := m
+	for _, part := range parts[:len(parts)-1] {
+		next, ok := current[part].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			current[part] = next
+		}
+		current = next
+	}
+	current[parts[len(parts)-1]] = value
+}
+
+func cloneJSONValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = cloneJSONValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = cloneJSONValue(item)
+		}
+		return out
+	default:
+		return value
 	}
 }
 
 // encryptProtocolJSON 将敏感字段明文加密后写入副本。
 func (s *Service) encryptProtocolJSON(ctx context.Context, in map[string]any, sensitive []string) (map[string]any, error) {
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	for _, field := range sensitive {
-		v, ok := out[field]
+	out, _ := cloneJSONValue(in).(map[string]any)
+	for _, path := range sensitive {
+		v, ok := GetPath(out, path)
 		if !ok {
 			continue
 		}
@@ -632,11 +680,14 @@ func (s *Service) encryptProtocolJSON(ctx context.Context, in map[string]any, se
 		if !ok || str == "" {
 			continue
 		}
+		if strings.HasPrefix(str, encPrefix) {
+			continue
+		}
 		enc, err := s.encryptSecret(ctx, str)
 		if err != nil {
 			return nil, err
 		}
-		out[field] = enc
+		SetPath(out, path, enc)
 	}
 	return out, nil
 }
@@ -648,24 +699,25 @@ func (s *Service) mergeSensitive(ctx context.Context, existing Node, proto Proto
 	out := make(map[string]any, len(proto.FormSchema))
 	for _, f := range proto.FormSchema {
 		if v, ok := in[f.Name]; ok {
-			out[f.Name] = v
+			out[f.Name] = cloneJSONValue(v)
 		}
 	}
 	newSensitive := map[string]bool{}
-	for _, f := range proto.SensitiveFields {
-		newSensitive[f] = true
+	for _, path := range proto.SensitiveFields {
+		newSensitive[path] = true
 	}
 	// 旧协议中与新协议同名的敏感字段，在输入缺失或为空时沿用旧密文。
 	existingSensitive := SensitiveFieldsOf(existing.Protocol)
-	for _, field := range existingSensitive {
-		if !newSensitive[field] {
+	for _, path := range existingSensitive {
+		if !newSensitive[path] {
 			continue
 		}
-		if v, ok := existing.ProtocolJSON[field]; ok {
-			if _, exists := out[field]; !exists {
-				out[field] = v
-			} else if s, ok := out[field].(string); ok && s == "" {
-				out[field] = v
+		if v, ok := GetPath(existing.ProtocolJSON, path); ok {
+			incoming, exists := GetPath(out, path)
+			if !exists {
+				SetPath(out, path, v)
+			} else if text, ok := incoming.(string); ok && text == "" {
+				SetPath(out, path, v)
 			}
 		}
 	}
@@ -721,18 +773,82 @@ func validateProtocolFields(proto Protocol, m map[string]any, allowEmptySensitiv
 		sensitive[f] = true
 	}
 	for _, f := range proto.FormSchema {
-		if !f.Required {
+		v, ok := m[f.Name]
+		if f.Required && (!ok || v == nil || v == "") {
+			if !(allowEmptySensitive && sensitive[f.Name]) {
+				return fmt.Errorf("字段 %s 必填", f.Name)
+			}
 			continue
 		}
-		v, ok := m[f.Name]
 		if !ok || v == nil || v == "" {
-			if allowEmptySensitive && sensitive[f.Name] {
-				continue
-			}
-			return fmt.Errorf("字段 %s 必填", f.Name)
+			continue
+		}
+		if err := validateFieldType(f, v); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func validateFieldType(field FieldSchema, value any) error {
+	valid := false
+	switch field.Type {
+	case "text", "password", "select", "text-list", "int-list":
+		_, valid = value.(string)
+		if field.Type == "text-list" {
+			valid = valid || stringList(value)
+		} else if field.Type == "int-list" {
+			valid = valid || numberList(value)
+		}
+	case "number":
+		switch value.(type) {
+		case int, int32, int64, float32, float64, json.Number:
+			valid = true
+		}
+	case "bool":
+		_, valid = value.(bool)
+	case "object":
+		switch value.(type) {
+		case map[string]any, []any:
+			valid = true
+		}
+	default:
+		return fmt.Errorf("字段 %s 使用未知类型 %s", field.Name, field.Type)
+	}
+	if !valid {
+		return fmt.Errorf("字段 %s 类型应为 %s", field.Name, field.Type)
+	}
+	return nil
+}
+
+func stringList(value any) bool {
+	items, ok := value.([]any)
+	if !ok {
+		_, ok = value.([]string)
+		return ok
+	}
+	for _, item := range items {
+		if _, ok := item.(string); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func numberList(value any) bool {
+	items, ok := value.([]any)
+	if !ok {
+		_, ok = value.([]int)
+		return ok
+	}
+	for _, item := range items {
+		switch item.(type) {
+		case int, int32, int64, float32, float64, json.Number:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func boolInt(b bool) int {

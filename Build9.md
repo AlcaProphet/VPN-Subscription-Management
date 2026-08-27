@@ -1,6 +1,6 @@
 # Build9.md — VPN 订阅管理系统 当前构建方案（第一阶段：基础扩展与前置修复）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**第一阶段当前构建方案（v1.4）**，承接已验收的 [Build8.md](Build8.md)、已归档的 [docs/reports/Build/Build4~7](docs/reports/Build)，并基于：
+> **文档定位：** 本文档是 VPN 订阅管理系统的**第一阶段当前构建方案（v1.5，已验收）**，承接已验收的 [Build8.md](Build8.md)、已归档的 [docs/reports/Build/Build4~7](docs/reports/Build)，并基于：
 > - 第二阶段见 [Build10.md](Build10.md)（承接本卷 Step 1~6 验收后的核心装配与收口）。
 > - 项目内研究资料：[docs/Reference/Clash-Subscription-Validation-Emoji-API.md](docs/Reference/Clash-Subscription-Validation-Emoji-API.md)、[docs/Reference/Clash-Verge-Rev-Node-Parameters.md](docs/Reference/Clash-Verge-Rev-Node-Parameters.md)、[docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md](docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md)；
 > - 第三方代码仓库：`~/Desktop/Repo/clash-verge-rev`（本地 git 提交 `3503a2da29d68a4398c0b8e9234cffb711e65783`，2026-08-26）；
@@ -13,7 +13,7 @@
 > - 【源码事实】= 直接从本地仓库源码或可复现实测得到；
 > - 【推断】= 由源码逻辑或生态约定合理推出；
 > - 【假设】= 本轮用户离开后，按授权做出的未确认决策，实施前应复核；
-> - 本文档“参考代码”均为 Build 期实施代码/伪代码，**本 Build 只写文档，不构建、不改任何代码与既有文档**。
+> - 本文档“参考代码”是本轮实施依据；Step 1~6 已完成构建与验收，第二阶段 Build10 尚未实施。
 
 ---
 
@@ -35,12 +35,12 @@
 | Step | 内容 | 状态 |
 |------|------|------|
 | 0 | 创建 Build9 文档与事实基线 | ✅ 已完成（本文档） |
-| 1 | 前置修复：Issue7 R22-02/03/06/07/08（版本 id、装配 UI、SR-conf 直建规则） | ◧ 进行中：R22-02/06/07/08 已实施（a0cd819）；R22-03 仅剩“条件化目标选择区” |
-| 2 | Clash 产物静态自检 + YAML 输出迁移到 goccy（方案B，方案A回退） | ☐ 未开始（已选定 goccy 全迁移方向，见 §4.5） |
-| 3 | 订阅响应头语义层与 RFC 5987 文件名（Clash Verge 导入兼容） | ☐ 未开始 |
-| 4 | 节点协议注册表/字段补全 + Clash 渲染与 URI 参数对齐 | ☐ 未开始 |
-| 5 | 规则类型与素材池解析扩展（mihomo 规则全集） | ☐ 未开始 |
-| 6 | 代理组类型与字段扩展（load-balance/relay/use/健康检查等） | ☐ 未开始 |
+| 1 | 前置修复：Issue7 R22-02/03/06/07/08（版本 id、装配 UI、SR-conf 直建规则） | ✅ 验收通过 |
+| 2 | Clash 产物静态自检 + YAML 输出迁移到 goccy（方案B，方案A回退） | ✅ 验收通过 |
+| 3 | 订阅响应头语义层与 RFC 5987 文件名（Clash Verge 导入兼容） | ✅ 验收通过 |
+| 4 | 节点协议注册表/字段补全 + Clash 渲染与 URI 参数对齐 | ✅ 验收通过 |
+| 5 | 规则类型与素材池解析扩展（mihomo 规则全集） | ✅ 验收通过 |
+| 6 | 代理组类型与字段扩展（load-balance/relay/use/健康检查等） | ✅ 验收通过 |
 | 7~11 | 分层装配、URI 导入、池补跑、原子写、收口 | 已拆至 [Build10.md](Build10.md) Step 1~5 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过
@@ -948,4 +948,4 @@ Step 0（本文档）
 | v1.2 | 2026-08-27 | Step2 方案定稿：选择方案B（goccy 全量迁移），接受语义等价文本差异，注释用 CommentMap；方案A（yaml.v3 + restoreYAMLUnicodeEscapes）保留为回退记录；Step7/后续 YAML 解析同步改为 goccy MapSlice + UseOrderedMap；更新 Step2、Step7、Step10 与变更记录。未改动任何代码。 |
 | v1.3 | 2026-08-27 | 二次深入核验后修订（仅改本文件，未改代码）：Step1 纳入两个过期前端测试修复；Step3 响应头校验兼容 `{frontend_url}`、interval 允许 0、subscription-userinfo 非负整数；Step4 明确不做旧字段兼容并修正 socks5/sni；Step5 修复 `ValueRequired` 零值、SR 支持面（GEOIP/MATCH）与逻辑规则括号配平解析，selfcheck 纳入共享元数据；Step6 selfcheck 同步 use/include-all；Step7 定稿“覆盖层先于可达性收敛”并补齐完整 CVR Merge/控制面语义；Step8 注明排除 ssr；Step10 同步新管线；更新事实 20、版本锚点与文件清单。 |
 | v1.4 | 2026-08-27 | 按用户确认拆分：Build9 保留 Step 0~6，原 Step 7~11 拆至 [Build10.md](Build10.md) 并重编号为 Build10 Step 1~5；更新本卷进度表、文件清单、依赖图与交叉引用。仅改文档，未改任何代码。 |
-
+| v1.5 | 2026-08-27 | 完成并验收 Step 1~6：条件化目标选择、goccy YAML 与产物自检、RFC 5987/Header 语义层、节点协议注册表与链接参数、34 类规则共享元数据、五类代理组及高级字段；Build10 保持未实施。 |

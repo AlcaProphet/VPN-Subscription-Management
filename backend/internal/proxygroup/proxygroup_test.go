@@ -3,6 +3,7 @@ package proxygroup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"vpn-sub/internal/log"
@@ -187,6 +188,33 @@ func TestGroupTypeUpdateAndPreset(t *testing.T) {
 	}
 }
 
+func TestExtendedGroupTypesAndValidation(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+	for i, typ := range []string{"select", "url-test", "fallback", "load-balance", "relay"} {
+		def := Definition{Groups: []string{"🚀直接连接"}}
+		if typ == "url-test" || typ == "fallback" || typ == "load-balance" {
+			def.URL = "https://www.gstatic.com/generate_204"
+			def.Interval = 300
+		}
+		if _, err := svc.CreateCustom(ctx, fmt.Sprintf("扩展组%d", i), typ, def); err != nil {
+			t.Errorf("%s 应可创建: %v", typ, err)
+		}
+	}
+	if _, err := svc.CreateCustom(ctx, "Provider组", "select", Definition{Use: []string{"provider-a"}}); err != nil {
+		t.Fatalf("select 仅 use 应合法: %v", err)
+	}
+	if _, err := svc.CreateCustom(ctx, "全量组", "select", Definition{IncludeAllProviders: true}); err != nil {
+		t.Fatalf("select include-all 应合法: %v", err)
+	}
+	if _, err := svc.CreateCustom(ctx, "坏URL", "url-test", Definition{URL: "ftp://example.com"}); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("非法 URL 应拒绝: %v", err)
+	}
+	if _, err := svc.CreateCustom(ctx, "坏类型", "select", Definition{Use: []string{"provider-a"}, ExcludeType: "Direct|Unknown"}); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("未知 exclude-type 应拒绝: %v", err)
+	}
+}
+
 // TestRejectForceFallbackSubgroup 代理组不允许引用「🛟无法归属的流量」作为子组
 func TestRejectForceFallbackSubgroup(t *testing.T) {
 	svc, st := newTestService(t)
@@ -198,4 +226,3 @@ func TestRejectForceFallbackSubgroup(t *testing.T) {
 		t.Fatalf("引用兜底组应 ErrBadRequest，实际 %v", err)
 	}
 }
-

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -333,6 +334,38 @@ func ValidateExtraHeaders(h map[string]string) error {
 		}
 		if containsControl(k) || containsControl(v) {
 			return fmt.Errorf("附加头 %q 含控制字符", k)
+		}
+		if err := validateKnownHeader(k, v); err != nil {
+			return fmt.Errorf("附加头 %q: %w", k, err)
+		}
+	}
+	return nil
+}
+
+func validateKnownHeader(key, value string) error {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "profile-update-interval":
+		if _, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64); err != nil {
+			return errors.New("profile-update-interval 必须是非负整数小时（u64）")
+		}
+	case "profile-web-page-url":
+		value = strings.TrimSpace(value)
+		if value == "{frontend_url}" {
+			return nil
+		}
+		u, err := url.Parse(value)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return errors.New("profile-web-page-url 必须是带 host 的 http/https 地址或 {frontend_url}")
+		}
+	case "subscription-userinfo":
+		for _, part := range strings.Split(value, ";") {
+			pair := strings.SplitN(strings.TrimSpace(part), "=", 2)
+			if len(pair) != 2 || strings.TrimSpace(pair[0]) == "" {
+				return errors.New("subscription-userinfo 格式须为 key=value; ...")
+			}
+			if _, err := strconv.ParseUint(strings.TrimSpace(pair[1]), 10, 64); err != nil {
+				return fmt.Errorf("subscription-userinfo 的 %s 必须是非负整数", strings.TrimSpace(pair[0]))
+			}
 		}
 	}
 	return nil

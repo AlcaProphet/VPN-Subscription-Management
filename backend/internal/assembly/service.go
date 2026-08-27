@@ -137,9 +137,15 @@ func (s *Service) Warnings(in GenerateInput, res *RenderResult) []string {
 		warnings = append(warnings, "未选择任何规则素材池或手动规则，将生成空规则")
 	}
 	for _, sk := range res.Skipped {
-		if sk.Kind == "node" {
+		switch sk.Kind {
+		case "node":
 			warnings = append(warnings, "节点已跳过："+sk.Name+"（"+sk.Reason+"）")
+		case "rule":
+			warnings = append(warnings, "规则已跳过："+sk.Name+"（"+sk.Reason+"）")
 		}
+	}
+	for _, issue := range res.Issues {
+		warnings = append(warnings, fmt.Sprintf("产物自检[%s] %s: %s", issue.Severity, issue.Path, issue.Message))
 	}
 	return warnings
 }

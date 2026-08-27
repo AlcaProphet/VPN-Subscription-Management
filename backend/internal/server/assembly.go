@@ -129,6 +129,10 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		}
 		return
 	}
+	if assembly.HasError(res.Issues) {
+		Fail(c, http.StatusBadRequest, "产物自检未通过："+firstOutputError(res.Issues))
+		return
+	}
 	var autoCreatedRuleID int64
 	if in.TargetSyntax == assembly.SrConf && in.RuleID <= 0 {
 		ruleItem, err := h.ruleSvc.Create(ctx, strings.TrimSpace(in.RuleName), "", "shadowrocket", []string{}, nil)
@@ -181,6 +185,15 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		"skipped":        res.Skipped,
 		"warnings":       h.assemblySvc.Warnings(in, res),
 	})
+}
+
+func firstOutputError(issues []assembly.OutputIssue) string {
+	for _, issue := range issues {
+		if issue.Severity == "error" {
+			return issue.Message
+		}
+	}
+	return "未知错误"
 }
 
 // resolveOwner 按装配类型定位版本 owner（sr-conf→rule；其余→platform 唯一订阅）。

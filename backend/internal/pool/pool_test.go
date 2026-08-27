@@ -122,6 +122,24 @@ func TestParser(t *testing.T) {
 	}
 }
 
+func TestParserLogicalRuleAndMatch(t *testing.T) {
+	typ, value, reason, ok := ParseLine("AND,((DOMAIN,a.com),(NETWORK,tcp)),PROXY")
+	if !ok || typ != "AND" || value != "((DOMAIN,a.com),(NETWORK,tcp))" || !strings.Contains(reason, "policy 已忽略") {
+		t.Fatalf("逻辑规则解析异常: %q %q %q %v", typ, value, reason, ok)
+	}
+	if _, _, _, ok := ParseLine("OR,((DOMAIN,a.com),PROXY"); ok {
+		t.Fatal("括号不配对的逻辑规则应被拒绝")
+	}
+	typ, value, _, ok = ParseLine("MATCH,DIRECT")
+	if !ok || typ != "MATCH" || value != "" {
+		t.Fatalf("MATCH 解析异常: %q %q %v", typ, value, ok)
+	}
+	entries, skipped, reasons, err := parseURLBody([]byte("AND,((DOMAIN,a.com),(NETWORK,tcp)),PROXY\nMATCH,DIRECT\n"))
+	if err != nil || len(entries) != 2 || skipped != 0 || len(reasons) != 2 {
+		t.Fatalf("URL 规则解析回执异常: entries=%+v skipped=%d reasons=%v err=%v", entries, skipped, reasons, err)
+	}
+}
+
 // TestCRUDAndSort 池 CRUD + manual/URL 两段排序（manual 段恒在 url 段之前）
 func TestCRUDAndSort(t *testing.T) {
 	st, svc := newTestService(t)
@@ -474,4 +492,3 @@ func TestParseURLBodyScannerError(t *testing.T) {
 		t.Fatal("超长行应返回 Scanner 错误")
 	}
 }
-

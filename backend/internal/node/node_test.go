@@ -95,6 +95,34 @@ func TestRegistryCompleteness(t *testing.T) {
 	}
 }
 
+func TestRegistryUsesMihomoNativeFields(t *testing.T) {
+	for _, protocol := range []string{"vmess", "vless", "hysteria", "hysteria2", "tuic", "wireguard", "anytls"} {
+		p, err := GetProtocol(protocol)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forbidden := map[string]bool{"path": true, "host": true, "mport": true, "insecure": true, "allow_insecure": true, "allowInsecure": true, "address": true}
+		for _, schema := range p.FormSchema {
+			if forbidden[schema.Name] {
+				t.Errorf("%s 不应声明旧字段 %s", protocol, schema.Name)
+			}
+		}
+	}
+	ss, _ := GetProtocol("ss")
+	if !contains(ss.SensitiveFields, "plugin-opts.password") {
+		t.Fatal("SS 应声明嵌套插件密码")
+	}
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func TestCreateManualConflictAndNamespace(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	createManual(t, svc, "节点A")
@@ -184,6 +212,66 @@ func TestUpdateManualPreserveSensitive(t *testing.T) {
 	})
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("改名应 ErrBadRequest，实际 %v", err)
+	}
+}
+
+func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "插件节点", Protocol: "ss", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "main-secret",
+			"plugin": "shadow-tls", "plugin-opts": map[string]any{"host": "cdn.example.com", "password": "nested-secret"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("创建插件节点失败: %v", err)
+	}
+	raw, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested, ok := GetPath(raw.ProtocolJSON, "plugin-opts.password")
+	if !ok || !strings.HasPrefix(nested.(string), encPrefix) {
+		t.Fatalf("嵌套密码未加密: %#v", nested)
+	}
+	visible, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value, _ := GetPath(visible.ProtocolJSON, "plugin-opts.password"); value != "" {
+		t.Fatalf("嵌套密码未脱敏: %#v", value)
+	}
+	_, err = svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "ss", Host: "new.example.com", Port: 8443,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "",
+			"plugin": "shadow-tls", "plugin-opts": map[string]any{"host": "next.example.com", "password": ""},
+		},
+	})
+	if err != nil {
+		t.Fatalf("更新插件节点失败: %v", err)
+	}
+	updated, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preserved, _ := GetPath(updated.ProtocolJSON, "plugin-opts.password")
+	if preserved != nested {
+		t.Fatalf("留空未保留嵌套密文: old=%v new=%v", nested, preserved)
+	}
+}
+
+func TestValidateProtocolFieldTypes(t *testing.T) {
+	wg, _ := GetProtocol("wireguard")
+	valid := map[string]any{"private-key": "secret", "public-key": "pub", "allowed-ips": "0.0.0.0/0,::/0", "reserved": "1,2,3", "peers": []any{map[string]any{"server": "peer"}}}
+	if err := validateProtocolFields(wg, valid, false); err != nil {
+		t.Fatalf("合法列表/对象字段被拒绝: %v", err)
+	}
+	valid["reserved"] = true
+	if err := validateProtocolFields(wg, valid, false); err == nil {
+		t.Fatal("错误 int-list 类型应被拒绝")
 	}
 }
 
@@ -343,4 +431,3 @@ func TestProtocolChangeDropsOldSensitiveAndRedactsWrite(t *testing.T) {
 		t.Fatalf("写响应应脱敏敏感字段，实际 %v", updated.ProtocolJSON["password"])
 	}
 }
-

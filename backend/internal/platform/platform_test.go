@@ -122,6 +122,26 @@ func TestValidateExtraHeaders(t *testing.T) {
 	if err := ValidateExtraHeaders(map[string]string{"profile-web-page-url": "{frontend_url}"}); err != nil {
 		t.Errorf("合法头应通过: %v", err)
 	}
+	for _, headers := range []map[string]string{
+		{"profile-update-interval": "-1"},
+		{"profile-update-interval": "abc"},
+		{"profile-web-page-url": "ftp://example.com"},
+		{"subscription-userinfo": "upload=-1; download=0"},
+		{"subscription-userinfo": "upload=x"},
+	} {
+		if err := ValidateExtraHeaders(headers); err == nil {
+			t.Errorf("非法生态头应拒绝: %v", headers)
+		}
+	}
+	for _, headers := range []map[string]string{
+		{"profile-update-interval": "0"},
+		{"profile-web-page-url": "https://vpn.example.com/profile"},
+		{"subscription-userinfo": "upload=0; download=1; total=2; expire=3"},
+	} {
+		if err := ValidateExtraHeaders(headers); err != nil {
+			t.Errorf("合法生态头应通过: %v: %v", headers, err)
+		}
+	}
 }
 
 // TestUploadInstallerTooLarge 超限流被拒且无残留文件

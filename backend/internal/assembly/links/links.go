@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -33,22 +34,34 @@ func srLink(nd *nodeData) (string, error) {
 		cipher := str(nd.ProtocolJSON, "cipher", "auto")
 		password := str(nd.ProtocolJSON, "password", "")
 		userinfo := base64.StdEncoding.EncodeToString([]byte(cipher + ":" + password))
-		return fmt.Sprintf("ss://%s@%s:%d#%s", userinfo, host, nd.Port, name), nil
+		q := url.Values{}
+		if plugin := str(nd.ProtocolJSON, "plugin", ""); plugin != "" {
+			q.Set("plugin", pluginString(plugin, object(nd.ProtocolJSON, "plugin-opts")))
+		}
+		return fmt.Sprintf("ss://%s@%s:%d%s#%s", userinfo, host, nd.Port, querySuffix(q), name), nil
 	case "vmess":
 		cipher := str(nd.ProtocolJSON, "cipher", "auto")
 		uuid := str(nd.ProtocolJSON, "uuid", "")
 		userinfo := base64.StdEncoding.EncodeToString([]byte(cipher + ":" + uuid + "@" + host + ":" + strconv.Itoa(nd.Port)))
 		q := url.Values{}
 		q.Set("remarks", nd.RenderName)
-		q.Set("udp", "1")
-		q.Set("alterId", "0")
+		if boolVal(nd.ProtocolJSON, "udp", true) {
+			q.Set("udp", "1")
+		}
+		q.Set("alterId", str(nd.ProtocolJSON, "alterId", "0"))
+		addCommonSRQuery(nd.ProtocolJSON, q)
+		transportQuery(nd.ProtocolJSON, q)
 		return "vmess://" + userinfo + querySuffix(q), nil
 	case "vless":
 		uuid := str(nd.ProtocolJSON, "uuid", "")
 		userinfo := base64.StdEncoding.EncodeToString([]byte(":" + uuid + "@" + host + ":" + strconv.Itoa(nd.Port)))
 		q := url.Values{}
 		q.Set("remarks", nd.RenderName)
-		q.Set("udp", "1")
+		if boolVal(nd.ProtocolJSON, "udp", true) {
+			q.Set("udp", "1")
+		}
+		addCommonSRQuery(nd.ProtocolJSON, q)
+		transportQuery(nd.ProtocolJSON, q)
 		reality := realityOpts(nd.ProtocolJSON)
 		if reality != nil {
 			q.Set("tls", "1")
@@ -75,7 +88,7 @@ func srLink(nd *nodeData) (string, error) {
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
 		}
-		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+		if alpn := listString(nd.ProtocolJSON, "alpn"); alpn != "" {
 			q.Set("alpn", alpn)
 		}
 		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
@@ -88,13 +101,13 @@ func srLink(nd *nodeData) (string, error) {
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
 		}
-		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+		if alpn := listString(nd.ProtocolJSON, "alpn"); alpn != "" {
 			q.Set("alpn", alpn)
 		}
 		if fp := str(nd.ProtocolJSON, "client-fingerprint", ""); fp != "" {
 			q.Set("client-fingerprint", fp)
 		}
-		if boolVal(nd.ProtocolJSON, "allowInsecure", false) || boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
+		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("allowInsecure", "1")
 		}
 		if boolVal(nd.ProtocolJSON, "udp", true) {
@@ -107,7 +120,7 @@ func srLink(nd *nodeData) (string, error) {
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
 		}
-		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+		if alpn := listString(nd.ProtocolJSON, "alpn"); alpn != "" {
 			q.Set("alpn", alpn)
 		}
 		if obfs := str(nd.ProtocolJSON, "obfs", ""); obfs != "" {
@@ -116,7 +129,7 @@ func srLink(nd *nodeData) (string, error) {
 		if obfsPwd := str(nd.ProtocolJSON, "obfs-password", ""); obfsPwd != "" {
 			q.Set("obfs-password", obfsPwd)
 		}
-		if boolVal(nd.ProtocolJSON, "insecure", false) {
+		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("insecure", "1")
 		}
 		return "hysteria2://" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
@@ -137,13 +150,13 @@ func srLink(nd *nodeData) (string, error) {
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
 		}
-		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+		if alpn := listString(nd.ProtocolJSON, "alpn"); alpn != "" {
 			q.Set("alpn", alpn)
 		}
-		if mport := str(nd.ProtocolJSON, "mport", ""); mport != "" {
-			q.Set("mport", mport)
+		if ports := str(nd.ProtocolJSON, "ports", ""); ports != "" {
+			q.Set("mport", ports)
 		}
-		if boolVal(nd.ProtocolJSON, "insecure", false) {
+		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("insecure", "1")
 		}
 		if obfs := str(nd.ProtocolJSON, "obfs", ""); obfs != "" {
@@ -157,18 +170,18 @@ func srLink(nd *nodeData) (string, error) {
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
 			q.Set("sni", sni)
 		}
-		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+		if alpn := listString(nd.ProtocolJSON, "alpn"); alpn != "" {
 			q.Set("alpn", alpn)
 		}
-		if boolVal(nd.ProtocolJSON, "allow_insecure", false) || boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
+		if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
 			q.Set("allow_insecure", "1")
 		}
 		return "tuic://" + uuid + ":" + password + "@" + host + ":" + strconv.Itoa(nd.Port) + querySuffix(q) + "#" + name, nil
 	case "wireguard":
 		privateKey := url.QueryEscape(str(nd.ProtocolJSON, "private-key", ""))
 		q := url.Values{}
-		for _, k := range []string{"public-key", "address", "allowed-ips", "pre-shared-key", "mtu", "dns", "reserved"} {
-			if v := str(nd.ProtocolJSON, k, ""); v != "" {
+		for _, k := range []string{"public-key", "ip", "ipv6", "allowed-ips", "pre-shared-key", "mtu", "dns", "reserved"} {
+			if v := listString(nd.ProtocolJSON, k); v != "" {
 				q.Set(k, v)
 			}
 		}
@@ -218,17 +231,19 @@ func genericLink(nd *nodeData) (string, error) {
 		if boolVal(nd.ProtocolJSON, "tls", false) {
 			tls = "tls"
 		}
+		network := str(nd.ProtocolJSON, "network", "tcp")
+		path, transportHost, mode := transportValues(nd.ProtocolJSON, network)
 		obj := map[string]any{
 			"v": "2", "ps": nd.RenderName, "add": host, "port": strconv.Itoa(nd.Port),
 			"id": str(nd.ProtocolJSON, "uuid", ""), "aid": str(nd.ProtocolJSON, "alterId", "0"),
-			"scy": str(nd.ProtocolJSON, "cipher", "auto"), "net": str(nd.ProtocolJSON, "network", "tcp"),
-			"type": "none", "host": str(nd.ProtocolJSON, "host", ""), "path": str(nd.ProtocolJSON, "path", ""),
+			"scy": str(nd.ProtocolJSON, "cipher", "auto"), "net": network,
+			"type": mode, "host": transportHost, "path": path, "udp": boolVal(nd.ProtocolJSON, "udp", true),
 			"tls": tls,
 		}
 		if sni := firstNonEmpty(nd.ProtocolJSON, "servername", "sni"); sni != "" {
 			obj["sni"] = sni
 		}
-		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+		if alpn := listString(nd.ProtocolJSON, "alpn"); alpn != "" {
 			obj["alpn"] = alpn
 		}
 		if fp := str(nd.ProtocolJSON, "client-fingerprint", ""); fp != "" {
@@ -244,7 +259,8 @@ func genericLink(nd *nodeData) (string, error) {
 		q := url.Values{}
 		q.Set("encryption", "none")
 		q.Set("type", str(nd.ProtocolJSON, "network", "tcp"))
-		if alpn := str(nd.ProtocolJSON, "alpn", ""); alpn != "" {
+		transportQuery(nd.ProtocolJSON, q)
+		if alpn := listString(nd.ProtocolJSON, "alpn"); alpn != "" {
 			q.Set("alpn", alpn)
 		}
 		reality := realityOpts(nd.ProtocolJSON)
@@ -345,6 +361,100 @@ func firstNonEmpty(m map[string]any, keys ...string) string {
 	return ""
 }
 
+func object(m map[string]any, key string) map[string]any {
+	value, _ := m[key].(map[string]any)
+	return value
+}
+
+func listString(m map[string]any, key string) string {
+	value, ok := m[key]
+	if !ok {
+		return ""
+	}
+	switch items := value.(type) {
+	case []string:
+		return strings.Join(items, ",")
+	case []any:
+		parts := make([]string, 0, len(items))
+		for _, item := range items {
+			parts = append(parts, fmt.Sprint(item))
+		}
+		return strings.Join(parts, ",")
+	default:
+		return str(m, key, "")
+	}
+}
+
+func addCommonSRQuery(params map[string]any, q url.Values) {
+	if boolVal(params, "tfo", false) {
+		q.Set("tfo", "1")
+	}
+}
+
+func transportQuery(params map[string]any, q url.Values) {
+	network := str(params, "network", "tcp")
+	q.Set("type", network)
+	path, host, mode := transportValues(params, network)
+	if path != "" {
+		if network == "grpc" {
+			q.Set("serviceName", path)
+		} else {
+			q.Set("path", path)
+		}
+	}
+	if host != "" {
+		q.Set("host", host)
+	}
+	if mode != "" && mode != "none" {
+		q.Set("mode", mode)
+	}
+}
+
+func transportValues(params map[string]any, network string) (path, host, mode string) {
+	mode = "none"
+	switch network {
+	case "ws":
+		ws := object(params, "ws-opts")
+		path = str(ws, "path", "")
+		headers := object(ws, "headers")
+		host = firstNonEmpty(headers, "Host", "host")
+	case "grpc":
+		grpc := object(params, "grpc-opts")
+		path = str(grpc, "grpc-service-name", "")
+	case "h2":
+		h2 := object(params, "h2-opts")
+		path = str(h2, "path", "")
+		host = listString(h2, "host")
+	case "http":
+		httpOpts := object(params, "http-opts")
+		path = listString(httpOpts, "path")
+		headers := object(httpOpts, "headers")
+		host = firstNonEmpty(headers, "Host", "host")
+	case "xhttp":
+		xhttp := object(params, "xhttp-opts")
+		path = str(xhttp, "path", "")
+		host = str(xhttp, "host", "")
+		mode = str(xhttp, "mode", "none")
+	}
+	return path, host, mode
+}
+
+func pluginString(name string, opts map[string]any) string {
+	if len(opts) == 0 {
+		return name
+	}
+	keys := make([]string, 0, len(opts))
+	for key := range opts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := []string{name}
+	for _, key := range keys {
+		parts = append(parts, key+"="+fmt.Sprint(opts[key]))
+	}
+	return strings.Join(parts, ";")
+}
+
 // encodeQuery 编码查询参数，并按 Build5 要求把 `+` 替换为 `%20`，避免空格不对称。
 func encodeQuery(q url.Values) string {
 	return strings.ReplaceAll(q.Encode(), "+", "%20")
@@ -382,33 +492,8 @@ func Render(protocol, renderName, host string, port int, params map[string]any, 
 }
 
 func realityOpts(m map[string]any) map[string]any {
-	// 新结构：顶层独立字段（R19-07）
-	out := map[string]any{}
-	if v, ok := m["public-key"]; ok {
-		out["public-key"] = v
-	}
-	if v, ok := m["private-key"]; ok {
-		out["private-key"] = v
-	}
-	if v, ok := m["short-id"]; ok {
-		out["short-id"] = v
-	}
-	if len(out) > 0 {
-		return out
-	}
-	// 兼容旧结构：reality-opts / reality 嵌套对象
+	// v1.3 起只接受 mihomo 原生 reality-opts 对象。
 	if v, ok := m["reality-opts"]; ok {
-		if mm, ok := v.(map[string]any); ok {
-			return mm
-		}
-		if s, ok := v.(string); ok && s != "" {
-			var mm map[string]any
-			if err := json.Unmarshal([]byte(s), &mm); err == nil {
-				return mm
-			}
-		}
-	}
-	if v, ok := m["reality"]; ok {
 		if mm, ok := v.(map[string]any); ok {
 			return mm
 		}

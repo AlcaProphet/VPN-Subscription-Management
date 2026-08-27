@@ -2,8 +2,26 @@
 import { http } from './request'
 
 export interface ProxyGroupDefinition {
-  type: 'select' | 'url-test' | 'fallback'
+  type: 'select' | 'url-test' | 'fallback' | 'load-balance' | 'relay'
   groups: string[]
+  use?: string[]
+  url?: string
+  'expected-status'?: string
+  interval?: number
+  timeout?: number
+  'max-failed-times'?: number
+  lazy?: boolean
+  'disable-udp'?: boolean
+  'interface-name'?: string
+  'routing-mark'?: number
+  filter?: string
+  'exclude-filter'?: string
+  'exclude-type'?: string
+  'include-all'?: boolean
+  'include-all-proxies'?: boolean
+  'include-all-providers'?: boolean
+  hidden?: boolean
+  icon?: string
 }
 
 export interface ProxyGroupItem {
@@ -17,7 +35,7 @@ export interface ProxyGroupItem {
 
 export interface ProxyGroupForm {
   name: string
-  group_type: 'select' | 'url-test' | 'fallback'
+  group_type: ProxyGroupDefinition['type']
   definition: ProxyGroupDefinition
 }
 

@@ -57,12 +57,12 @@ func (h *DownloadHandler) userDownload(c *gin.Context) {
 	default:
 		h.dlSvc.WriteAccessLog(ctx, ip, entry, true)
 		setNoCache(c)
-		// 下载文件名（资源名 + 原始扩展名）；平台附加头优先（如 clash-verge 预置的 Content-Disposition）
-		if res.Filename != "" {
-			c.Header("Content-Disposition", `attachment; filename="`+download.SanitizeFilename(res.Filename)+`"`)
-		}
+		// 平台附加头先写入，系统生成的动态文件名最后覆盖旧模板值。
 		for k, v := range res.ExtraHeaders {
 			c.Header(k, v)
+		}
+		if res.Filename != "" {
+			c.Header("Content-Disposition", download.BuildContentDisposition(res.Filename, "subscription.yaml"))
 		}
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", res.Content)
 	}
@@ -92,7 +92,7 @@ func (h *DownloadHandler) shareDownload(c *gin.Context) {
 		if filename == "" {
 			filename = slug
 		}
-		c.Header("Content-Disposition", `attachment; filename="`+download.SanitizeFilename(filename)+`"`)
+		c.Header("Content-Disposition", download.BuildContentDisposition(filename, "share.yaml"))
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", res.Content)
 	}
 }
@@ -121,7 +121,7 @@ func (h *DownloadHandler) ruleDownload(c *gin.Context) {
 		if filename == "" {
 			filename = slug
 		}
-		c.Header("Content-Disposition", `attachment; filename="`+download.SanitizeFilename(filename)+`"`)
+		c.Header("Content-Disposition", download.BuildContentDisposition(filename, "rule.conf"))
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", res.Content)
 	}
 }

@@ -5,62 +5,41 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
-	"gopkg.in/yaml.v3"
+	gyaml "github.com/goccy/go-yaml"
 
 	"vpn-sub/internal/node"
+	"vpn-sub/internal/rulespec"
 )
 
 // renderClash 渲染 Clash YAML 产物。
 func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, error) {
-	root := &yaml.Node{Kind: yaml.MappingNode}
-	// 头部表单值（按管理员填写顺序输出）
-	for _, k := range in.FixedParams.Keys() {
-		v, _ := in.FixedParams.Get(k)
-		valNode, err := toYAMLNode(v)
-		if err != nil {
-			return nil, err
-		}
-		root.Content = append(root.Content, scalarNode(k), valNode)
-	}
+	root := orderedMapToMapSlice(in.FixedParams)
 	// proxies：manual 节点按勾选顺序输出
-	proxiesNode := &yaml.Node{Kind: yaml.SequenceNode}
-	first := true
+	proxies := make([]any, 0, len(in.NodeNames))
 	for _, name := range in.NodeNames {
 		nd := ld.nodes[name]
 		if nd.Source != "manual" {
 			continue
 		}
-		p := s.clashProxy(nd)
-		pNode, err := toYAMLNode(p)
-		if err != nil {
-			return nil, err
-		}
-		if hasXrayNode(ld) && first {
-			pNode.HeadComment = "# {{xray_nodes}}"
-			first = false
-		}
-		proxiesNode.Content = append(proxiesNode.Content, pNode)
+		proxies = append(proxies, orderedMapToMapSlice(s.clashProxy(nd)))
 	}
-	if hasXrayNode(ld) && len(proxiesNode.Content) == 0 {
-		// 无 manual 节点时仍保留占位注释（作为 proxies 区的引导行）
-		proxiesNode.HeadComment = "# {{xray_nodes}}"
+	root = append(root, gyaml.MapItem{Key: "proxies", Value: proxies})
+	comments := gyaml.CommentMap(nil)
+	if hasXrayNode(ld) {
+		comments = proxyCommentMap("# {{xray_nodes}}", len(proxies) > 0)
 	}
-	root.Content = append(root.Content, scalarNode("proxies"), proxiesNode)
 	// proxy-groups
-	groupsNode := &yaml.Node{Kind: yaml.SequenceNode}
+	groups := make([]any, 0, len(in.GroupNames)+3)
 	// 三个强制组（固定键序 name/type/proxies，R14-02）
 	forceGroups := []*OrderedMap{
-		NewOrderedMap().Set("name", node.ForceDirect).Set("type", "select").Set("proxies", []string{"DIRECT"}),
-		NewOrderedMap().Set("name", node.ForceOverseas).Set("type", "select").Set("proxies", s.overseasRenderNames(in, ld)),
-		NewOrderedMap().Set("name", node.ForceFallback).Set("type", "select").Set("proxies", []string{node.ForceDirect, node.ForceOverseas}),
+		orderedGroupFields(&ClashPlanGroup{Name: node.ForceDirect, Type: "select", Proxies: []string{"DIRECT"}}),
+		orderedGroupFields(&ClashPlanGroup{Name: node.ForceOverseas, Type: "select", Proxies: s.overseasRenderNames(in, ld)}),
+		orderedGroupFields(&ClashPlanGroup{Name: node.ForceFallback, Type: "select", Proxies: []string{node.ForceDirect, node.ForceOverseas}}),
 	}
 	for _, g := range forceGroups {
-		gn, err := toYAMLNode(g)
-		if err != nil {
-			return nil, err
-		}
-		groupsNode.Content = append(groupsNode.Content, gn)
+		groups = append(groups, orderedMapToMapSlice(g))
 	}
 	// 勾选代理组（固定键序 name/type/proxies）
 	for _, name := range in.GroupNames {
@@ -73,25 +52,27 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			}
 		}
 		proxies = append(proxies, g.Groups...)
-		gn, err := toYAMLNode(NewOrderedMap().Set("name", g.Name).Set("type", g.GroupType).Set("proxies", proxies))
-		if err != nil {
-			return nil, err
-		}
-		groupsNode.Content = append(groupsNode.Content, gn)
+		planGroup := clashPlanGroupFromData(g, proxies)
+		groups = append(groups, orderedMapToMapSlice(orderedGroupFields(&planGroup)))
 	}
-	root.Content = append(root.Content, scalarNode("proxy-groups"), groupsNode)
+	root = append(root, gyaml.MapItem{Key: "proxy-groups", Value: groups})
 	// rules
-	rulesNode := &yaml.Node{Kind: yaml.SequenceNode}
+	rules := make([]any, 0)
 	skipped := []SkipItem{}
 	appendRule := func(ruleType, value, target string) {
-		line := ruleType + "," + value
-		if target != "" {
-			line += "," + target
+		typ, normalized, err := rulespec.ValidateValue(ruleType, value)
+		if err != nil {
+			return
 		}
-		if ruleType == "IP-CIDR" || ruleType == "IP-CIDR6" {
+		line := typ + ","
+		if typ != "MATCH" {
+			line += normalized + ","
+		}
+		line += target
+		if rulespec.Definitions[typ].NoResolve {
 			line += ",no-resolve"
 		}
-		rulesNode.Content = append(rulesNode.Content, scalarNode(line))
+		rules = append(rules, line)
 	}
 	for _, psel := range in.Pools {
 		entries := ld.pools[psel.PoolID]
@@ -111,9 +92,9 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 		appendRule(r.RuleType, r.MatchValue, r.Target)
 	}
 	appendRule("GEOIP", "CN", "DIRECT")
-	appendRule("MATCH", node.ForceFallback, "")
-	root.Content = append(root.Content, scalarNode("rules"), rulesNode)
-	content, err := yaml.Marshal(root)
+	appendRule("MATCH", "", node.ForceFallback)
+	root = append(root, gyaml.MapItem{Key: "rules", Value: rules})
+	content, err := marshalClashYAML(root, comments)
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash YAML 失败: %w", err)
 	}
@@ -146,7 +127,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 				proxies := make([]string, 0, len(nodes)+len(g.Groups))
 				proxies = append(proxies, nodes...)
 				proxies = append(proxies, g.Groups...)
-				out = append(out, ClashPlanGroup{Name: g.Name, Type: g.GroupType, Proxies: proxies, Force: false})
+				out = append(out, clashPlanGroupFromData(g, proxies))
 			}
 			return out
 		}(),
@@ -157,14 +138,20 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 					if e.RuleType == "USER-AGENT" {
 						continue
 					}
-					out = append(out, ClashPlanRule{Type: e.RuleType, Value: e.MatchValue, Target: psel.Target})
+					typ, value, err := rulespec.ValidateValue(e.RuleType, e.MatchValue)
+					if err == nil {
+						out = append(out, ClashPlanRule{Type: typ, Value: value, Target: psel.Target})
+					}
 				}
 			}
 			for _, r := range in.CustomRules {
 				if r.RuleType == "USER-AGENT" {
 					continue
 				}
-				out = append(out, ClashPlanRule{Type: r.RuleType, Value: r.MatchValue, Target: r.Target})
+				typ, value, err := rulespec.ValidateValue(r.RuleType, r.MatchValue)
+				if err == nil {
+					out = append(out, ClashPlanRule{Type: typ, Value: value, Target: r.Target})
+				}
 			}
 			return out
 		}(),
@@ -174,7 +161,19 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash 渲染计划失败: %w", err)
 	}
-	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw}, nil
+	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw, Issues: CheckClashContent(content)}, nil
+}
+
+func clashPlanGroupFromData(g *groupData, proxies []string) ClashPlanGroup {
+	return ClashPlanGroup{
+		Name: g.Name, Type: g.GroupType, Proxies: proxies, Use: append([]string(nil), g.Use...),
+		URL: g.URL, ExpectedStatus: g.ExpectedStatus, Interval: g.Interval, Timeout: g.Timeout,
+		MaxFailedTimes: g.MaxFailedTimes, Lazy: g.Lazy, DisableUDP: g.DisableUDP,
+		InterfaceName: g.InterfaceName, RoutingMark: g.RoutingMark, Filter: g.Filter,
+		ExcludeFilter: g.ExcludeFilter, ExcludeType: g.ExcludeType, IncludeAll: g.IncludeAll,
+		IncludeAllProxies: g.IncludeAllProxies, IncludeAllProviders: g.IncludeAllProviders,
+		Hidden: g.Hidden, Icon: g.Icon,
+	}
 }
 
 // clashProxy 构造 Clash proxies 条目（固定 name/type/server/port 在前，其余协议字段按键名排序，保证产物键序稳定）。
@@ -184,8 +183,9 @@ func (s *Service) clashProxy(nd *nodeData) *OrderedMap {
 	p.Set("type", nd.Protocol)
 	p.Set("server", nd.Host)
 	p.Set("port", nd.Port)
-	keys := make([]string, 0, len(nd.ProtocolJSON))
-	for k := range nd.ProtocolJSON {
+	params := normalizeClashFields(nd.Protocol, nd.ProtocolJSON)
+	keys := make([]string, 0, len(params))
+	for k := range params {
 		if k == "name" || k == "type" || k == "server" || k == "port" {
 			continue
 		}
@@ -193,9 +193,58 @@ func (s *Service) clashProxy(nd *nodeData) *OrderedMap {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		p.Set(k, nd.ProtocolJSON[k])
+		p.Set(k, params[k])
 	}
 	return p
+}
+
+// normalizeClashFields 把表单中的逗号列表转换为 mihomo 原生数组。
+func normalizeClashFields(protocol string, params map[string]any) map[string]any {
+	out := make(map[string]any, len(params))
+	for key, value := range params {
+		out[key] = value
+	}
+	proto, err := node.GetProtocol(clashProtocolName(protocol))
+	if err != nil {
+		return out
+	}
+	for _, schema := range proto.FormSchema {
+		text, ok := out[schema.Name].(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			continue
+		}
+		parts := splitList(text)
+		switch schema.Type {
+		case "text-list":
+			out[schema.Name] = parts
+		case "int-list":
+			values := make([]int, 0, len(parts))
+			valid := true
+			for _, part := range parts {
+				value, err := strconv.Atoi(part)
+				if err != nil {
+					valid = false
+					break
+				}
+				values = append(values, value)
+			}
+			if valid {
+				out[schema.Name] = values
+			}
+		}
+	}
+	return out
+}
+
+func splitList(value string) []string {
+	raw := strings.Split(value, ",")
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // overseasRenderNames 将 🌎国外流量 成员（nodes.name 稳定键）转为渲染名。
@@ -207,68 +256,4 @@ func (s *Service) overseasRenderNames(in GenerateInput, ld *loadedData) []string
 		}
 	}
 	return out
-}
-
-func scalarNode(v string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Value: v}
-}
-
-func toYAMLNode(v any) (*yaml.Node, error) {
-	switch val := v.(type) {
-	case nil:
-		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}, nil
-	case string:
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: val}, nil
-	case bool:
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.FormatBool(val)}, nil
-	case int:
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.Itoa(val)}, nil
-	case int64:
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.FormatInt(val, 10)}, nil
-	case float64:
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.FormatFloat(val, 'g', -1, 64)}, nil
-	case []string:
-		n := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, s := range val {
-			n.Content = append(n.Content, scalarNode(s))
-		}
-		return n, nil
-	case []any:
-		n := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, item := range val {
-			child, err := toYAMLNode(item)
-			if err != nil {
-				return nil, err
-			}
-			n.Content = append(n.Content, child)
-		}
-		return n, nil
-	case *OrderedMap:
-		n := &yaml.Node{Kind: yaml.MappingNode}
-		for _, k := range val.Keys() {
-			item, _ := val.Get(k)
-			child, err := toYAMLNode(item)
-			if err != nil {
-				return nil, err
-			}
-			n.Content = append(n.Content, scalarNode(k), child)
-		}
-		return n, nil
-	case map[string]any:
-		n := &yaml.Node{Kind: yaml.MappingNode}
-		for k, item := range val {
-			child, err := toYAMLNode(item)
-			if err != nil {
-				return nil, err
-			}
-			n.Content = append(n.Content, scalarNode(k), child)
-		}
-		return n, nil
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return nil, err
-		}
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: string(b)}, nil
-	}
 }

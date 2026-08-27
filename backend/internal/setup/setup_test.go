@@ -81,12 +81,12 @@ func TestCompleteQuickStart(t *testing.T) {
 	if platforms != 3 {
 		t.Errorf("默认平台数量异常: %d", platforms)
 	}
-	// clash-verge 三条附加头
+	// clash-verge 两条 profile 附加头；文件名由下载端点动态生成
 	var headers string
 	if err := st.DB().QueryRow(`SELECT extra_headers FROM platforms WHERE name = 'Clash Verge'`).Scan(&headers); err != nil {
 		t.Fatalf("查询附加头失败: %v", err)
 	}
-	if headers != `{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"6","profile-web-page-url":"{frontend_url}"}` {
+	if headers != `{"profile-update-interval":"6","profile-web-page-url":"{frontend_url}"}` {
 		t.Errorf("Clash Verge 附加头异常: %s", headers)
 	}
 	// 三个默认平台 product_type：Clash Verge→yaml、v2rayNG→generic-subs、Shadowrocket→subs

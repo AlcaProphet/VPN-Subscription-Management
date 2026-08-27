@@ -53,8 +53,15 @@ function onSubTabChange(key: string | number) {
   void router.replace({ query: { ...route.query, tab: String(key) } })
 }
 
-const RULE_TYPES = ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'IP-CIDR6', 'PROCESS-NAME', 'PROCESS-NAME-REGEX', 'USER-AGENT']
+const RULE_TYPES = [
+  'DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'DOMAIN-REGEX', 'GEOSITE', 'GEOIP', 'SRC-GEOIP',
+  'IP-ASN', 'SRC-IP-ASN', 'IP-CIDR', 'IP-CIDR6', 'SRC-IP-CIDR', 'IP-SUFFIX', 'SRC-IP-SUFFIX',
+  'SRC-PORT', 'DST-PORT', 'IN-PORT', 'DSCP', 'PROCESS-NAME', 'PROCESS-PATH', 'PROCESS-NAME-REGEX',
+  'PROCESS-PATH-REGEX', 'NETWORK', 'UID', 'IN-TYPE', 'IN-USER', 'IN-NAME', 'SUB-RULE', 'RULE-SET',
+  'AND', 'OR', 'NOT', 'MATCH', 'USER-AGENT',
+]
 const CLASH_RULE_TYPES = RULE_TYPES.filter((t) => t !== 'USER-AGENT')
+const SR_RULE_TYPES = ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'GEOIP', 'IP-CIDR', 'IP-CIDR6', 'PROCESS-NAME', 'PROCESS-NAME-REGEX', 'USER-AGENT']
 const DEFAULT_HEADERS: Record<TargetSyntax, string> = {
   'clash-yaml': JSON.stringify({ port: 7890, mode: 'rule', 'log-level': 'info', 'allow-lan': false, 'external-controller': '127.0.0.1:9090' }, null, 2),
   'sr-subs': JSON.stringify({ status: '2026/01/01 Version', remarks: 'VPN Subscription' }, null, 2),
@@ -100,6 +107,9 @@ const form = reactive({
 
 const targetSyntax = computed<TargetSyntax>(() => subTab.value)
 const isSrConf = computed(() => targetSyntax.value === 'sr-conf')
+const hasCustomPlatform = computed(() =>
+  (context.value?.platforms ?? []).some((p) => p.is_default === false),
+)
 const filteredPlatforms = computed(() => {
   if (!context.value) return []
   const map: Record<TargetSyntax, string> = { 'clash-yaml': 'yaml', 'sr-subs': 'subs', 'generic-subs': 'generic-subs', 'sr-conf': '' }
@@ -130,8 +140,19 @@ const buildPreflightMissing = computed<PreflightIssue[]>(() => {
   return missing
 })
 
+function selectPlatformForSyntax() {
+  if (isSrConf.value || !context.value) return
+  const subscriptionPlatformIDs = new Set((context.value.subscriptions ?? []).map((s) => s.platform_id))
+  const eligible = filteredPlatforms.value.filter((p) => subscriptionPlatformIDs.has(p.id))
+  if (eligible.some((p) => p.id === form.platform_id)) return
+  form.platform_id = eligible[0]?.id
+}
+
 watch(layoutMode, (v) => localStorage.setItem('assembly_layout_mode', v))
-watch(targetSyntax, () => { currentStep.value = 0 })
+watch(targetSyntax, () => {
+  currentStep.value = 0
+  selectPlatformForSyntax()
+})
 // 高级模式关闭时从当前装配表单中剔除 Xray 节点及相关排序引用
 watch(advancedMode, (on) => {
   if (on) {
@@ -188,7 +209,7 @@ const manualNodes = computed(() => (context.value?.nodes ?? []).filter((n) => n.
 const xrayNodes = computed(() => (context.value?.nodes ?? []).filter((n) => n.source === 'xray' && !n.missing))
 const presetGroups = computed(() => context.value?.proxy_groups.filter((g) => g.type === 'preset') ?? [])
 const customGroups = computed(() => context.value?.proxy_groups.filter((g) => g.type === 'custom') ?? [])
-const ruleTypeOptions = computed(() => targetSyntax.value === 'clash-yaml' ? CLASH_RULE_TYPES : RULE_TYPES)
+const ruleTypeOptions = computed(() => targetSyntax.value === 'clash-yaml' ? CLASH_RULE_TYPES : targetSyntax.value === 'sr-conf' ? SR_RULE_TYPES : RULE_TYPES)
 
 async function loadContext() {
   loadingContext.value = true
@@ -199,6 +220,7 @@ async function loadContext() {
     // 支持从订阅/规则页带目标参数进入装配，直接预填顶部目标选择区
     const platformId = Number(route.query.platform_id ?? 0)
     if (platformId > 0) form.platform_id = platformId
+    selectPlatformForSyntax()
     const ruleId = Number(route.query.rule_id ?? 0)
     if (ruleId > 0) {
       form.rule_id = ruleId
@@ -497,7 +519,7 @@ const outputGroups = computed(() => {
 
 <template>
   <div>
-    <PageHeader title="订阅装配" subtitle="四类装配器：副 Tab 选类型 → 顶部选目标 → 填头部 → 勾选节点/组 → 规则 → 预览 → 生成" />
+    <PageHeader title="订阅装配" subtitle="四类装配器：副 Tab 选类型 → 填头部 → 勾选节点/组 → 规则 → 预览 → 生成" />
     <Alert v-if="editVersionId" type="info" show-icon class="mb-4"
            :message="editVersionNo ? `正在重新编辑版本 v${editVersionNo}，请检查失效引用后生成新版本` : `正在重新编辑版本 #${editVersionId}，请检查失效引用后生成新版本`" />
     <Alert v-if="invalidRefs.length" type="error" show-icon class="mb-2"
@@ -538,7 +560,7 @@ const outputGroups = computed(() => {
                   <Button size="small" @click="router.push('/admin/settings')">前往面板配置开启高级模式</Button>
                 </template>
               </Alert>
-              <Card v-if="!editBlocked" size="small" class="mb-4" title="目标选择">
+              <Card v-if="!editBlocked && (isSrConf || hasCustomPlatform)" size="small" class="mb-4" title="目标选择">
                 <TypeTargetStep :form="form" :context="context" :is-sr-conf="isSrConf" :filtered-platforms="filteredPlatforms" />
               </Card>
               <template v-if="!editBlocked && buildPreflightMissing.length === 0">
