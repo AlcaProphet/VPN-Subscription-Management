@@ -1,6 +1,6 @@
 <!-- AssemblyView.vue：订阅装配（Design2-UI §5）——四类装配器 + 预览 diff + 重新编辑 -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Alert, Button, Card, Modal, Result, Space, Tabs, message } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -21,6 +21,10 @@ import { Notify } from '@/components/Notify'
 import { listSubscriptions, type SubscriptionItem } from '@/api/subscription'
 import { versionApi } from '@/api/version'
 import { useSystemStore } from '@/stores/system'
+import {
+  clearAssemblyDraft, readAssemblyDraft, saveAssemblyDraft,
+  type AssemblyDraftForm,
+} from '@/utils/assemblyDraft'
 
 const route = useRoute()
 const router = useRouter()
@@ -78,6 +82,9 @@ const generating = ref(false)
 const previewText = ref('')
 const previewSkipped = ref<any[]>([])
 const previewWarnings = ref<string[]>([])
+const lastPreviewFingerprint = ref('')
+const previewedAt = ref<number | null>(null)
+const previewedTargetSyntax = ref<TargetSyntax | null>(null)
 const showDiff = ref(false)
 const diffOld = ref('')
 const diffMissing = ref(false)
@@ -114,6 +121,12 @@ const form = reactive({
 
 const targetSyntax = computed<TargetSyntax>(() => subTab.value)
 const isSrConf = computed(() => targetSyntax.value === 'sr-conf')
+const targetSyntaxLabels: Record<TargetSyntax, string> = {
+  'clash-yaml': 'Clash YAML',
+  'sr-subs': 'SR 节点订阅',
+  'generic-subs': '通用节点订阅',
+  'sr-conf': 'SR 分流规则',
+}
 const hasCustomPlatform = computed(() =>
   (context.value?.platforms ?? []).some((p) => p.is_default === false),
 )
@@ -204,6 +217,39 @@ const stepDefs = computed<Array<{ key: string; title: string }>>(() => {
 })
 const currentStepKey = computed(() => stepDefs.value[currentStep.value]?.key ?? 'header')
 
+// stableStringify 对象键排序，确保代理组排序等嵌套对象的等价状态不会产生伪过期。
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined'
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  const record = value as Record<string, unknown>
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`
+}
+
+// 预览指纹覆盖所有会影响生成结果的表单字段；固定参数保留原始文本，避免无效 JSON 修改被忽略。
+const previewFingerprint = computed(() => stableStringify({
+  targetSyntax: targetSyntax.value,
+  platformId: form.platform_id,
+  ruleId: form.rule_id,
+  ruleName: form.rule_name,
+  srRuleMode: form.sr_rule_mode,
+  fixedParamsText: form.fixed_params_text,
+  nodeNames: form.node_names,
+  groupNames: form.group_names,
+  groupNodeOrders: form.group_node_orders,
+  overseasMembers: form.overseas_members,
+  pools: form.pools,
+  customRules: form.custom_rules,
+  finalDirection: form.final_direction,
+  overlay: form.overlay,
+}))
+const previewStale = computed(() => !lastPreviewFingerprint.value || lastPreviewFingerprint.value !== previewFingerprint.value)
+const canGenerate = computed(() => !!previewText.value && !previewStale.value && !generating.value)
+const visiblePreviewWarnings = computed(() =>
+  targetSyntax.value === 'sr-subs' || targetSyntax.value === 'generic-subs'
+    ? previewWarnings.value.filter((warning) => warning !== '未选择任何规则素材池或手动规则，将生成空规则')
+    : previewWarnings.value,
+)
+
 watch([currentStepKey, layoutMode], ([key, mode]) => {
   if (generateResult.value) return
   if (key === 'preview' || mode === 'page') {
@@ -243,8 +289,65 @@ async function loadContext() {
 }
 onMounted(async () => {
   await loadContext()
+  await restoreAssemblyDraft()
   await loadEditIfAny()
 })
+
+function assemblyDraftForm(): AssemblyDraftForm {
+  return {
+    platform_id: form.platform_id,
+    rule_id: form.rule_id,
+    rule_name: form.rule_name,
+    sr_rule_mode: form.sr_rule_mode,
+    fixed_params_text: form.fixed_params_text,
+    node_names: [...form.node_names],
+    group_names: [...form.group_names],
+    group_node_orders: Object.fromEntries(Object.entries(form.group_node_orders).map(([key, values]) => [key, [...values]])),
+    overseas_members: [...form.overseas_members],
+    pools: form.pools.map((pool) => ({ ...pool })),
+    custom_rules: form.custom_rules.map((rule) => ({ ...rule })),
+    final_direction: form.final_direction,
+    overlay: { ...form.overlay },
+  }
+}
+
+function saveDraftForPreflight(issue: PreflightIssue) {
+  saveAssemblyDraft({
+    sourceLabel: `${targetSyntaxLabels[targetSyntax.value]} · ${issue.text}`,
+    returnPath: '/admin/assembly',
+    mainTab: mainTab.value,
+    subTab: subTab.value,
+    currentStep: currentStep.value,
+    layoutMode: layoutMode.value,
+    form: assemblyDraftForm(),
+  })
+  void router.push(issue.to)
+}
+
+async function restoreAssemblyDraft() {
+  const draft = readAssemblyDraft()
+  if (!draft || route.path !== draft.returnPath) return
+  mainTab.value = draft.mainTab
+  subTab.value = draft.subTab
+  layoutMode.value = draft.layoutMode
+  form.platform_id = draft.form.platform_id
+  form.rule_id = draft.form.rule_id
+  form.rule_name = draft.form.rule_name
+  form.sr_rule_mode = draft.form.sr_rule_mode
+  form.fixed_params_text = draft.form.fixed_params_text
+  form.node_names = [...draft.form.node_names]
+  form.group_names = [...draft.form.group_names]
+  form.group_node_orders = Object.fromEntries(Object.entries(draft.form.group_node_orders).map(([key, values]) => [key, [...values]]))
+  form.overseas_members = [...draft.form.overseas_members]
+  form.pools = draft.form.pools.map((pool) => ({ ...pool }))
+  form.custom_rules = draft.form.custom_rules.map((rule) => ({ ...rule }))
+  form.final_direction = draft.form.final_direction
+  form.overlay = { ...draft.form.overlay }
+  await nextTick()
+  currentStep.value = Math.min(Math.max(draft.currentStep, 0), stepDefs.value.length - 1)
+  clearAssemblyDraft()
+  Notify.info('已恢复订阅装配草稿')
+}
 
 async function loadEditIfAny() {
   editBlocked.value = false
@@ -335,12 +438,17 @@ function buildInput(): GenerateInput {
 }
 
 async function doPreview() {
+  const fingerprint = previewFingerprint.value
+  const previewTarget = targetSyntax.value
   previewing.value = true
   try {
     const res = await previewAssembly(buildInput())
     previewText.value = res.content
     previewSkipped.value = res.skipped
     previewWarnings.value = res.warnings
+    lastPreviewFingerprint.value = fingerprint
+    previewedAt.value = Date.now()
+    previewedTargetSyntax.value = previewTarget
     showDiff.value = false
   } catch (err) {
     Notify.error((err as Error).message)
@@ -466,6 +574,10 @@ function removeAllInvalidRefs() {
 }
 
 async function doGenerate() {
+  if (!previewText.value || previewStale.value) {
+    Notify.warning('配置已变化，请重新预览')
+    return
+  }
   if (invalidRefs.value.length > 0) {
     Notify.error('存在失效引用，请先剔除后生成')
     return
@@ -570,7 +682,7 @@ const outputGroups = computed(() => {
                   <ol class="list-decimal ml-4 space-y-1">
                     <li v-for="item in buildPreflightMissing" :key="item.id" class="flex items-center gap-2 flex-wrap">
                       <span>{{ item.text }}</span>
-                      <Button type="link" size="small" class="px-0" @click="router.push(item.to)">{{ item.actionText }}</Button>
+                      <Button type="link" size="small" class="px-0" @click="saveDraftForPreflight(item)">{{ item.actionText }}</Button>
                     </li>
                   </ol>
                 </template>
@@ -595,6 +707,7 @@ const outputGroups = computed(() => {
                 :has-rules-step="hasRulesStep"
                 :has-overlay-step="hasOverlayStep"
                 :generating="generating"
+                :can-generate="canGenerate"
                 @update:layout-mode="(v: string) => layoutMode = (v === 'page' ? 'page' : 'step')"
                 @update:current-step="(v: number) => currentStep = v"
                 @next="nextStep"
@@ -619,8 +732,9 @@ const outputGroups = computed(() => {
                   <OverlayStep :form="form" />
                 </template>
                 <template #preview>
-                  <PreviewStep :previewing="previewing" :preview-warnings="previewWarnings" :preview-skipped="previewSkipped"
-                               :preview-text="previewText" :show-diff="showDiff" :diff-old="diffOld" :diff-missing="diffMissing" :diff-loading="diffLoading"
+                  <PreviewStep :previewing="previewing" :preview-warnings="visiblePreviewWarnings" :preview-skipped="previewSkipped"
+                               :preview-text="previewText" :preview-stale="previewStale" :previewed-at="previewedAt" :previewed-target-syntax="previewedTargetSyntax"
+                               :show-diff="showDiff" :diff-old="diffOld" :diff-missing="diffMissing" :diff-loading="diffLoading"
                                @preview="doPreview" @toggle-diff="toggleDiff" />
                 </template>
               </AssemblerShell>

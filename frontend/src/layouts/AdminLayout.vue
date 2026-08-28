@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons-vue'
 import { useSystemStore } from '@/stores/system'
 import AppHeader from '@/components/AppHeader.vue'
+import ContextBar from '@/components/ContextBar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -132,6 +133,7 @@ function goHome() {
       <!-- 右侧内容区：白底卡片容器（24px 内边距） -->
       <Layout.Content class="p-6">
         <div class="bg-white dark:bg-gray-800 rounded-lg p-6 min-h-full">
+          <ContextBar />
           <RouterView />
         </div>
       </Layout.Content>

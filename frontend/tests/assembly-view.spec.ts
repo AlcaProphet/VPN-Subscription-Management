@@ -40,11 +40,13 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import AssemblyView from '@/views/admin/AssemblyView.vue'
-import { getAssemblyContext, previewAssembly } from '@/api/assembly'
+import { getAssemblyContext, previewAssembly, generateAssembly } from '@/api/assembly'
 import { Notify } from '@/components/Notify'
+import { ASSEMBLY_CONTEXT_KEY } from '@/utils/assemblyDraft'
 
 const mockContext = getAssemblyContext as unknown as ReturnType<typeof vi.fn>
 const mockPreview = previewAssembly as unknown as ReturnType<typeof vi.fn>
+const mockGenerate = generateAssembly as unknown as ReturnType<typeof vi.fn>
 const mockNotifyWarning = Notify.warning as unknown as ReturnType<typeof vi.fn>
 
 const context = {
@@ -77,11 +79,14 @@ describe('AssemblyView 装配页核心交互', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     localStorage.clear()
+    sessionStorage.clear()
     mockContext.mockReset()
     mockPreview.mockReset()
+    mockGenerate.mockReset()
     mockNotifyWarning.mockReset()
     mockContext.mockResolvedValue(context)
     mockPreview.mockResolvedValue({ content: 'proxies:', skipped: [], warnings: [] })
+    mockGenerate.mockResolvedValue({ version_id: 1, version_no: 1, auto_activated: true, skipped: [], warnings: [] })
   })
 
   it('无效 tab 回退到 pool', async () => {
@@ -129,6 +134,78 @@ describe('AssemblyView 装配页核心交互', () => {
     vm.form.platform_id = 1
     await vm.doPreview()
     expect(mockPreview).toHaveBeenCalled()
+  })
+
+  it('预览完成后可生成；任一产物字段变更后旧预览过期', async () => {
+    const wrapper = await mountWith('tab=sr-subs')
+    const vm = wrapper.vm as unknown as {
+      form: { platform_id?: number; fixed_params_text: string }
+      doPreview: () => Promise<void>
+      doGenerate: () => Promise<void>
+      previewStale: boolean
+      canGenerate: boolean
+    }
+    vm.form.platform_id = 1
+    await vm.doPreview()
+    expect(vm.previewStale).toBe(false)
+    expect(vm.canGenerate).toBe(true)
+    await vm.doGenerate()
+    expect(mockGenerate).toHaveBeenCalledTimes(1)
+
+    vm.form.fixed_params_text = '{"remarks":"已修改"}'
+    await wrapper.vm.$nextTick()
+    expect(vm.previewStale).toBe(true)
+    expect(vm.canGenerate).toBe(false)
+    await vm.doGenerate()
+    expect(mockGenerate).toHaveBeenCalledTimes(1)
+    expect(mockNotifyWarning).toHaveBeenCalledWith('配置已变化，请重新预览')
+  })
+
+  it('节点订阅本地过滤错误返回的空规则警告', async () => {
+    const wrapper = await mountWith('tab=sr-subs')
+    const vm = wrapper.vm as unknown as {
+      previewWarnings: string[]
+      visiblePreviewWarnings: string[]
+    }
+    vm.previewWarnings = ['未选择任何规则素材池或手动规则，将生成空规则', '节点名称已变化']
+    await wrapper.vm.$nextTick()
+    expect(vm.visiblePreviewWarnings).toEqual(['节点名称已变化'])
+  })
+
+  it('从前置条件页返回时恢复草稿并清理上下文', async () => {
+    sessionStorage.setItem(ASSEMBLY_CONTEXT_KEY, JSON.stringify({
+      version: 1,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 30 * 60 * 1000,
+      sourceLabel: 'SR 节点订阅 · 至少一个可用节点',
+      returnPath: '/admin/assembly',
+      mainTab: 'build',
+      subTab: 'sr-subs',
+      currentStep: 1,
+      layoutMode: 'step',
+      form: {
+        platform_id: 1,
+        rule_name: '',
+        sr_rule_mode: 'new',
+        fixed_params_text: '{"remarks":"草稿"}',
+        node_names: ['node-a'],
+        group_names: [],
+        group_node_orders: {},
+        overseas_members: [],
+        pools: [],
+        custom_rules: [],
+        final_direction: 'PROXY',
+        overlay: { merge_yaml: '', rules_yaml: '', proxies_yaml: '', groups_yaml: '' },
+      },
+    }))
+    const wrapper = await mountWith('tab=bad')
+    const vm = wrapper.vm as unknown as { mainTab: string; subTab: string; currentStep: number; form: { fixed_params_text: string; node_names: string[] } }
+    expect(vm.mainTab).toBe('build')
+    expect(vm.subTab).toBe('sr-subs')
+    expect(vm.currentStep).toBe(1)
+    expect(vm.form.fixed_params_text).toBe('{"remarks":"草稿"}')
+    expect(vm.form.node_names).toEqual(['node-a'])
+    expect(sessionStorage.getItem(ASSEMBLY_CONTEXT_KEY)).toBeNull()
   })
 
   it('一键剔除失效引用', async () => {

@@ -11,9 +11,7 @@
 | 页面 | Design1-UI 章节 | 核验结论 |
 |------|----------------|---------|
 | Setup 首次配置向导 | 2.1 | Design2 不涉及 Setup 流程；配置导入保护（signing_key 拒绝提示）落点在面板配置分区，见本文 4.7 |
-| 登录 / 注册 / 忘记密码 / 重置密码 | 2.2 | 无影响 |
 | 待审批页 /pending | 2.2 | 无影响 |
-| 应急恢复页 | 三 | 一键清空的表清单扩展为后端事项，页面交互不变 |
 | 404 页 | 2.3 | 无影响 |
 | 分享订阅管理 | 5.3 | 分享机制沿用 Design1；Design2 仅「分享下载原样返回」属后端口径，UI 不变 |
 | 审批中心 | 5.6 | 审批通过后的 Xray 推送钩子为后端事务提交后行为，页面交互不变 |
@@ -43,6 +41,7 @@
 | 拖拽排序交互 | 组节点分配排序、代理组节点引用排序、**装配第④步素材池整体排序**、平台 scheme 排序（沿用） | 桌面端（≥768）使用拖拽手柄（`HolderOutlined` 图标）拖拽排序；**<768 移动端降级为「上移 / 下移」按钮**（触屏拖拽不可靠，统一降级口径，见 10.1）；排序变更即时调更新端点，失败回滚本地顺序并 `Notify.error` |
 | `pollTask` 轮询任务封装 | 异步任务（素材池同步）状态轮询 | `api/request.ts` 新增封装，契约见 9.2：提交任务 → 按 1.5s 间隔轮询状态端点 → 终态返回结果；**组件卸载自动取消**（AbortController / 取消标志）；进行中 UI 统一 loading 态 + 防重复触发 |
 | 装配器双形态切换 | 四类装配器共用的「步骤条 ⇄ 单页多分区」形态切换 | **默认步骤条形态**；分区右上角 `a-segmented`（「分步 / 单页」）切换；选择持久化 `localStorage('assembly_layout_mode')`，四种装配器共用同一记忆键；切换时**表单数据不丢失**（同一份响应式状态，仅渲染形态变化） |
+| `ContextBar` 跨页任务提示 | 管理端补充前置条件后返回原任务 | 管理内容区 `RouterView` 上方统一挂载；装配器跳往节点 / 平台 / 订阅管理前，将 tab、步骤和完整表单草稿写入 `sessionStorage('assembly_ctx_v1')`，**有效期 30 分钟**；有效期内显示来源任务与「返回装配」，回到 `/admin/assembly` 后恢复草稿并立即清理，过期/损坏数据同样清理 |
 | 同步状态 Badge 色系 | 素材池同步任务、Xray 推送同步状态、采集状态统一口径 | `a-badge` / `a-tag`：**pending 橙（`#FAAD14`）/ running 蓝（processing）/ synced 与 succeeded 绿（`#52C41A`）/ failed 红（`#FF4D4F`）/ partial 橙（warning）/ missing 灰（AntD 默认灰）**；失败态附「原因」Tooltip（展示后端 last_error / sync_error 可展示信息） |
 
 ### 1.3 复用件沿用清单
@@ -313,6 +312,7 @@
 - **顶部目标选择（非步骤）**：装配类型由所在二级页签确定；目标选择作为顶部独立卡片，仅在 SR 分流规则或存在自定义平台时展示。Clash YAML / SR 节点订阅 / 通用节点订阅 → 目标平台 `a-select`（仅列出 product_type 匹配的 yaml / subs / generic-subs 平台；无自定义平台时自动选中匹配当前类型的原生默认平台并隐藏该卡片；存在自定义平台时默认选中一个匹配类型且已有订阅条目的平台）；SR 分流规则 → 目标规则选择（见 5.3.4）。
 - **生成严格校验（前端预检 + 后端兜底）**：悬空代理组引用、**勾选组引用的子组不在本次输出集合（强制组或已勾选组）**、规则目标指向未勾选代理组一律拒绝生成并定位提示（DesignReport9 Q7）；**勾选到已停用预设组（enabled=0）同样拒绝生成（400「预设组已停用，请先启用或移除勾选」），不纳入 5.4 失效项剔除容错（DesignReport10 决策）**；不可用 xray 节点（enabled=0 / allocatable=0 / missing=1 / 实例 enabled=0）前端置灰不可勾选，后端拒绝；**强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为 Clash 规则目标**
 - **防重复提交**：生成按钮提交期间 loading 禁用；成功后页内显著 `a-result success` 风格回执：「已入池未生效，请激活」+「去版本管理激活」/「继续装配」两按钮（Design2.md §4.4 引导口径）；首次入池自动激活时后端回执带激活标记，UI 改示「首个版本已自动激活」（订阅行/规则实体无激活版本的例外条款，Design2.md §4.4）
+- **预览强一致性**：每次预览成功记录由 `target_syntax`、目标、头部原始文本、节点/组及其顺序、规则素材、手动规则、FINAL 与覆盖层组成的稳定指纹、时间和目标类型；任一字段变化或切换类型即视为预览过期，旧正文收起为半透明详情，`确认生成` 禁用并显示 Tooltip「请先刷新预览」。刷新后清空 Diff 并显示「最近预览」信息。`sr-subs` / `generic-subs` 在前端额外过滤后端意外返回的「未选择任何规则素材池或手动规则，将生成空规则」警告。
 
 #### 5.3.1 Clash YAML 装配器
 
@@ -601,6 +601,7 @@
 | `api/settings.ts` | 增 `getAdvancedSettings` / `saveAdvancedSettings`（advanced_mode / 采集间隔 / 流量卡片开关三键；**ON→OFF 翻转**须确认词 DISABLE 且返回 task_id，已 OFF 重复保存幂等 no-op）；**导入与任务状态新增 `importConfig`（POST 现有导入端点；**响应含 `task_id` 为 v2 走 pollTask，不含为 v1 同步完成**，DesignReport9 Q5）与 `getAdminTask`（GET /api/admin/tasks/:id，全局任务端点，kind 含 off_clear/import/xray_init/reconcile_exec/instance_delete）** |
 | `api/version.ts` | 版本行增 blueprint 存在标记（驱动「装配」Tag 与重新编辑按钮）；装配生成创建走 assembly.generate |
 | `api/user.ts` | 用户列表行新增字段（高级模式）：本月用量字节数、Xray 同步状态聚合（含 last_error 摘要）、配额覆盖值与有效配额、quota_exceeded 标记；新增 `setUserQuota`（端点契约见 9.1 `api/user.ts` 扩展，对应 4.5 四个扩展点） |
+| `api/auth.ts` | 新增 `validateResetToken(token)` → `POST /api/auth/reset/validate`，响应 `{ status: missing / used / expired / valid }`；token 仅经请求体传输，不进入 URL |
 | `package.json` | 新增 `diff`（jsdiff）依赖（4.1 预览 diff，见 1.2 DiffView） |
 
 ### 9.4 错误码 → UI 映射增量（对齐 AGENTS.md §4.8，沿用 Design1-UI §7.3 基线）
@@ -631,6 +632,7 @@
 | 防重复提交 | 沿用 Design1-UI §7.4：异步提交按钮 loading 禁用；轮询中同步按钮、行内开关切换、重试/补推/清理等长操作一律 loading 防重复 |
 | 危险确认 | 沿用 ConfirmModal；本期新增危险清单：OFF 清空（确认词 DISABLE，仅 ON→OFF 翻转要求）、**配置导入「无实例/账号且高级关闭」分支（确认词 DISABLE）**、删池/删节点/删实例/删自建组/**删独立账号**、一键清理无头用户、is_public 切换、**节点 enabled 1→0 停用切换**、首页默认规则切换；凭据类复制（独立账号凭据）附警示 Toast |
 | 错误串展示 | `last_error` / `collect_error` 等 UI 可见错误字段后端截断至 200 字符、不做地址脱敏（仅管理员可见，Design2.md §5.4），Tooltip 直接展示 |
+| 跨页装配草稿 | 仅从装配构建前置条件跳转时保存；`sessionStorage('assembly_ctx_v1')` 有效期 **30 分钟**，回到装配页恢复一次后即删除，过期/损坏草稿不显示提示也不恢复 |
 
 ### 10.2 新增页面空状态文案表（Empty 统一口径，沿用 Design1-UI §7.5 风格）
 
@@ -656,6 +658,15 @@
 
 Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展示 / 401 拦截 / 复制敏感链接警示 / 暗色模式）与 §7.4 表单弹窗规范、§7.6 全局细节（顶部进度条 / zh_CN locale / AntD 图标 / 无障碍底线）全部沿用，本文不重复。
 
+### 10.4 可信状态页面（Build11 Step 2）
+
+| 页面 | 状态与恢复动作 |
+|------|----------------|
+| `/emergency` | 挂载时强制刷新 `/api/system/status`。`emergency=false` 显示 info Result「当前未处于应急恢复模式」和「返回登录 / 返回首页」，不得显示「正常服务已暂停」或操作码输入；状态请求失败显示重试；仅 `emergency=true` 渲染既有应急恢复操作。 |
+| `/reset#token=…` | 读取 fragment 后立即清除地址栏 hash，随后调用 `POST /api/auth/reset/validate`。`valid` 显示密码表单；`missing` / `used` / `expired` 分别显示 Result 与「重新申请 / 返回登录」；网络失败显示重试，非 valid 不渲染密码输入。 |
+| `/login/callback` | OIDC 换票成功路径不变；失败停留在回调页，以 `ApiError.message` 呈现可读原因并提供「重新使用 OIDC 登录 / 使用本地账号 / 联系管理员」。`api/request.ts` 对换票请求或回调路由的 401 不得清会话或抢先跳登录。 |
+| `/login?oidc_error=…` | `state_mismatch` / `state_expired` / `exchange_failed` / `resolve_failed` / `issue_failed` 必须映射为中文恢复文案；其他后端文本前置「OIDC 登录失败：」，不得直接展示上述内部枚举。 |
+
 ---
 
 ## 十一、变更记录
@@ -668,6 +679,7 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v1.3 | 2026-08-18 | 构建前决策落盘：新增 generic-subs 产物类型与「通用节点订阅」页签（A1/A2）、首页仅展示分流规则卡片（A5）、素材池整体排序（B7）、全新部署纯增量 1009 DDL、候选集并集重算、名称不可修改与字符集校验、节点 missing 恢复补推、对账凭据不一致分区、协议注册表端点、pool_sync_tasks 持久化、xray 节点仅 missing 可删等（详见本轮审阅修订） |
 | v1.4 | 2026-08-19 | Xray 节点显示名（display_name）：xray 节点「命名」入口与检测回执批量命名（6.1/6.3/8.2）、有效渲染名双行展示（4.3/5.3/7.2）、display-name API 与 detectNodes added_nodes（9.1）、显示名 409 冲突映射（9.4）、跨命名空间唯一校验说明（6.2/6.3，含代理组名/强制组名/Clash-mihomo 内建保留代理名） |
 | v1.5 | 2026-08-19 | DesignReport5 核验修订：组名双向命名空间校验与组类型可编辑（7.2）、OFF 确认词 DISABLE（4.7）、导入带实例自动开高级提示（4.7）、预览旧名 Tooltip 与命名客户端提示（5.3.5/6.3）、推送目标过滤补全（8.5）、API 契约补 group/settings/userQuota/sync/stats（9.1/9.3）、长请求统一 120s（9.2） |
+| v2.3 | 2026-08-28 | Build11 Step 2：补订阅装配预览指纹与过期态、节点订阅无关警告前端兜底、30 分钟跨页草稿 ContextBar、重置链接四态、应急状态分支、OIDC 回调恢复页与错误映射；同步 auth 校验契约与 401 例外。 |
 | v1.6 | 2026-08-19 | DesignReport6 复核补齐：§9.3 `api/system.ts` 增 `traffic_card_enabled` 字段；`api/home.ts` traffic 字段形状补齐 `{unlimited, used_bytes, quota_bytes|null, exceeded}`（与 Build6 Step5 实现对齐，Q3） |
 | v1.7 | 2026-08-19 | DesignReport7 修订：导入无实例/账号且高级关闭分支 DISABLE 确认词与异步任务轮询；池同步历史列表；diff 数据来源与 name_changed 契约；preview/generate skipped/warnings；per_url skipped；retryExtSync；ext 创建一次性凭据响应；group 详情 off 不 403；节点/显示名禁止空格；装配严格校验与目标平台无订阅行分支；长请求 120s 范围扩展；api/profile.ts 个人中心流量端点；危险确认清单补导入分支 |
 | v1.8 | 2026-08-19 | 构建前核验修订（用户确认）：§4.6 取消首页默认交互定稿为「默认行专设取消默认操作」（不再两案并列） |

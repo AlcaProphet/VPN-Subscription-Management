@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { AxiosError } from 'axios'
 import { http, ApiError } from '@/api/request'
+import { useAuthStore } from '@/stores/auth'
 
 // mock 路由跳转
 const pushMock = vi.fn()
@@ -14,10 +15,12 @@ vi.mock('@/router', () => ({
 }))
 
 describe('axios 拦截器', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     setActivePinia(createPinia())
     localStorage.clear()
     pushMock.mockReset()
+    const { default: routerMock } = await import('@/router')
+    ;(routerMock as { currentRoute: { value: { path: string } } }).currentRoute.value.path = '/home'
     delete http.defaults.adapter
   })
 
@@ -50,6 +53,26 @@ describe('axios 拦截器', () => {
     } as never)
     http.defaults.adapter = async () => { throw err }
     await expect(http.post('/auth/login', {})).rejects.toBeInstanceOf(ApiError)
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('OIDC 回调的交换 401 交给回调页处理，不清凭据也不跳转', async () => {
+    const { default: routerMock } = await import('@/router')
+    ;(routerMock as { currentRoute: { value: { path: string } } }).currentRoute.value.path = '/login/callback'
+    localStorage.setItem('token', 'existing-token')
+    const auth = useAuthStore()
+    auth.setSession('existing-token')
+    const err = new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', undefined, undefined, {
+      status: 401,
+      data: { code: 401, message: 'OIDC ticket 无效' },
+      headers: {},
+      config: { url: '/auth/oidc/exchange' },
+      statusText: 'Unauthorized',
+    } as never)
+    http.defaults.adapter = async () => { throw err }
+    await expect(http.post('/auth/oidc/exchange')).rejects.toBeInstanceOf(ApiError)
+    expect(localStorage.getItem('token')).toBe('existing-token')
+    expect(auth.token).toBe('existing-token')
     expect(pushMock).not.toHaveBeenCalled()
   })
 })

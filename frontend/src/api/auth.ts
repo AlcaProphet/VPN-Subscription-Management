@@ -25,3 +25,7 @@ export const forgot = (data: { email: string; captcha_token?: string }) =>
   http.post<any, { message: string }>('/auth/forgot', data)
 export const resetPassword = (data: { token: string; password: string }) =>
   http.post<any, { message: string }>('/auth/reset', data)
+
+export type ResetTokenStatus = 'missing' | 'used' | 'expired' | 'valid'
+export const validateResetToken = (token: string) =>
+  http.post<any, { status: ResetTokenStatus }>('/auth/reset/validate', { token })

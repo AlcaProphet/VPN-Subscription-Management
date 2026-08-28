@@ -20,9 +20,19 @@ const form = reactive({ email: '', password: '', remember: false, captcha_token:
 const submitting = ref(false)
 const errorMsg = ref('')
 
-// OIDC 区块：oidc_error 冲突文案从 route.query 读取展示
+// OIDC 回调错误统一映射为可恢复的中文说明，内部枚举不直接暴露给用户。
 const oidcError = ref('')
-watch(() => route.query.oidc_error, (v) => { if (v) oidcError.value = String(v) }, { immediate: true })
+const oidcErrorMessages: Record<string, string> = {
+  state_mismatch: 'OIDC 登录请求校验失败，请重新发起登录。',
+  state_expired: 'OIDC 登录请求已过期，请重新发起登录。',
+  exchange_failed: 'OIDC 身份验证交换失败，请稍后重试。',
+  resolve_failed: '无法解析 OIDC 用户信息，请联系管理员检查身份提供商配置。',
+  issue_failed: '无法创建登录会话，请稍后重试或联系管理员。',
+}
+watch(() => route.query.oidc_error, (v) => {
+  const value = typeof v === 'string' ? v : ''
+  oidcError.value = value ? (oidcErrorMessages[value] ?? `OIDC 登录失败：${value}`) : ''
+}, { immediate: true })
 
 // 模拟登录表单（UI §2.2：role/group 附加属性，勾选后输入，R07-07）
 const mockForm = reactive({ email: '', username: '', email_verified: true, with_role: false, role: '', with_group: false, group: '' })

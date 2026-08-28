@@ -32,11 +32,15 @@ http.interceptors.response.use(
     const msg = err.response?.data?.message
     if (st === 401) {
       if (import.meta.env.DEV) console.warn('[request] 401:', err.config?.url) // 诊断日志（R07-08）
-      const auth = useAuthStore()
-      auth.logout()
-      // 登录页自身的 401（密码错误）不跳转，由页面展示统一措辞
-      if (router.currentRoute.value.path !== '/login') {
-        void router.push('/login')
+      // OIDC ticket 交换失败由回调页保留错误并给出恢复操作，不能被全局拦截器抢先登出/跳转。
+      const isOidcCallback = err.config?.url?.includes('/auth/oidc/exchange') || router.currentRoute.value.path === '/login/callback'
+      if (!isOidcCallback) {
+        const auth = useAuthStore()
+        auth.logout()
+        // 登录页自身的 401（密码错误）不跳转，由页面展示统一措辞
+        if (router.currentRoute.value.path !== '/login') {
+          void router.push('/login')
+        }
       }
     }
       if (st === 403 && msg === '高级功能未开启') {

@@ -31,7 +31,11 @@ if (!window.matchMedia) {
   })
 }
 
-// getComputedStyle 完整实现（AntD 部分组件依赖）
-if (!window.getComputedStyle) {
-  Object.defineProperty(window, 'getComputedStyle', { value: () => ({}) })
-}
+// jsdom 对 getComputedStyle(element, pseudoElement) 会输出「Not implemented」；
+// AntD 仅以伪元素参数探测滚动条尺寸，忽略该参数即可获得等价的元素样式。
+const nativeGetComputedStyle = window.getComputedStyle.bind(window)
+Object.defineProperty(window, 'getComputedStyle', {
+  value: (element: Element) => nativeGetComputedStyle(element),
+  writable: true,
+  configurable: true,
+})
