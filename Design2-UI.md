@@ -114,7 +114,9 @@
 
 ### 3.1 用户首页 `/`（改造）
 
-**卡片堆叠顺序**（单列纵向排列，卡片间 16px）：**流量卡片 → 分流规则卡片 → 平台卡片网格 → 公告栏卡片**。栅格沿用大屏 3 列 / 中屏 2 列 / 小屏 1 列。
+**桌面端（≥768px）布局**：顶部为两列等宽、间距 16px 的响应式摘要区：**流量卡片｜分流规则卡片**；其下依次为平台卡片网格、公告栏卡片。两张摘要卡按内容自然收紧内边距，不以全宽纵向 Card 撑高首屏。平台卡片栅格沿用大屏 3 列 / 中屏 2 列。
+
+**移动端（<768px）布局**：摘要区回退为单列纵向顺序：**流量卡片 → 分流规则卡片 → 平台卡片网格 → 公告栏卡片**，卡片间距 16px，平台卡片为单列。
 
 #### 3.1.1 流量卡片（新增独立 Card，两模式布局完全一致）
 
@@ -294,8 +296,8 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 #### 5.2.2 池详情（点击池名/详情进入，页内钻取视图，面包屑「素材池 / {池名}」可返回）
 
 - **顶部信息条**：池名 + URL 数 + 条目总数 + 上次同步时间 + 状态 Badge + 「同步」「编辑」「返回」按钮
-- **条目列表**（双态列表 + **后端分页，默认 20 条/页**——数万行规模不整表加载，Design2.md §2.4）：规则类型 Tag（代码风格 `a-tag`）、匹配值（`code` 样式）、来源标签（**manual / url 分段展示**：列表默认混合按渲染顺序展示，段间以分隔标题行「手动条目（前段）/ URL 同步条目（后段）」区分，见下）
-- **两段拼接排序口径**（Design2.md §2.2）：条目按渲染顺序 = manual 段（前）+ url 段（后）展示；**条目顺序由系统维护**（manual 段按创建先后、url 段按同步首次出现顺序），**不提供条目级手动调序**（数万行分页场景不可操作；池间顺序在装配第④步调整，池内规则顺序需求由池级勾选目标与手动补充规则行承载）
+- **条目列表**（双态列表 + **后端分页，默认 20 条/页**——数万行规模不整表加载，Design2.md §2.4）：规则类型 Tag（代码风格 `a-tag`）、匹配值（`code` 样式）、来源标签。**手动条目（前段）**随详情打开加载；**URL 同步条目（后段）默认折叠**，首次展开时才请求 URL 来源条目，成功后缓存本次已加载结果；加载失败显示可重试状态。两区分别维护加载、错误、页码与总数，不共享混合来源分页。
+- **两段拼接排序口径**（Design2.md §2.2）：条目按渲染顺序 = manual 段（前）+ url 段（后）展示；**条目顺序由系统维护**（manual 段按创建先后、url 段按同步首次出现顺序），**不提供条目级手动调序**（数万行分页场景不可操作；池间顺序在装配第④步调整，池内规则顺序需求由池级勾选目标与手动补充规则行承载）。折叠 URL 区不查询 URL 条目；素材池基础信息和默认展示的手动条目仍照常读取。
 - **手动条目增删改**：「新增条目」按钮 → 弹窗（规则类型 `a-select` 全类型含 USER-AGENT + 匹配值输入，白名单格式实时校验）；**去重冲突**：后端 409 → `Notify.error`「同类型同匹配值条目已存在（含 URL 来源）」；行内编辑/删除（删除单条无需确认弹窗，非危险）
 - **同步历史列表**（页内分区或弹窗）：调 `listSyncTasks` 分页展示最近 N 条历史任务（状态 Badge / 开始与结束时间 / 逐 URL 明细摘要 / 错误 Tooltip），服务重启中断任务显示 failed「服务重启，任务中断」（Design2 §5.9「历史任务保留供 UI 展示」）
 
@@ -348,6 +350,8 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 - ② 规则素材：**已勾选池为有序列表**（桌面端拖拽排序，<768 上移/下移，顺序随装配快照保存并供重新编辑恢复）+ **每池 PROXY / DIRECT 双态切换**（`a-radio-group` 行内，默认 PROXY）+ 手动规则行（动态行：类型含 USER-AGENT + 匹配值 + PROXY/DIRECT）
 - **兜底 FINAL 方向**：表单区 `a-radio-group` 二选一（FINAL,PROXY 默认 / FINAL,DIRECT），副说明「GEOIP,CN,DIRECT 固定追加」（Design2.md §3.6）
 - ③ 预览/确认生成：顶部目标选择区选择目标规则（见 5.3.4）；规则为空允许生成（仅兜底）并提示
+
+**头部参数控件分区（所有目标统一）**：文本、数字和选择型头部参数保留在“头部参数”网格；所有 bool 型头部参数独立进入“开关参数”区域，采用统一的 Switch、标签、焦点与点击区域布局。该规则适用于 Clash YAML 的 `Allow LAN`、SR 分流规则的 `IPv6` 及后续新增的 bool 型头部参数；仅改变表单组织，不改变 `fixed_params_text` 的字段名、默认值或生成语义。
 
 #### 5.3.4 目标规则选择（SR 分流规则专属，位于顶部目标选择卡片）
 
@@ -513,7 +517,7 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 |------|-----------|------|------|------|
 | listPools | GET /api/admin/pools | — | `{ list: Pool[] }`（含 name/urls/entry_count/last_synced_at/sync_status/sync_error/auto_sync/sync_time） | 池列表（5.2.1） |
 | createPool / updatePool / deletePool | POST/PUT/DELETE /api/admin/pools(/:id) | 名称 + urls + auto_sync + sync_time | 统一成功结构 | 池 CRUD |
-| listEntries | GET /api/admin/pools/:id/entries?page=&page_size= | 分页参数 | `{ list: Entry[], total }`（rule_type/match_value/source/sort_order） | 条目分页（5.2.2） |
+| listEntries | GET /api/admin/pools/:id/entries?page=&page_size=&source= | 分页参数；`source` 可选为 `manual` 或 `url` | `{ list: Entry[], total }`（rule_type/match_value/source/sort_order；`total` 为筛选后的来源总数） | 条目分页；池详情初开读取 manual，URL 区首次展开后读取 url（5.2.2） |
 | createEntry / updateEntry / deleteEntry | POST/PUT/DELETE | 类型 + 匹配值 | 统一结构；重名 409 | 手动条目 |
 | submitSync | POST /api/admin/pools/:id/sync | — | `{ task_id }` | 提交同步任务 |
 | getSyncStatus | GET /api/admin/pools/:id/sync/status | — | `{ task_id, status: running/succeeded/failed/partial, per_url: [{url, ok, added, removed, skipped, error}], started_at, finished_at, error }` | 轮询最近任务终态（9.2；任务持久化，重启中断置 failed） |
