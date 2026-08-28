@@ -48,4 +48,5 @@ fi
 echo "==> 运行 .smoke-test.sh（SMOKE_IMPORT=1 触发 v2 导入往返）"
 BASE="$BASE" SMOKE_IMPORT=1 bash .smoke-test.sh
 
+echo "==> Build11 API 冒烟已覆盖：/admin/overview、重置链接 missing 校验、应急正常状态"
 echo "=== PROD SMOKE ALL DONE ==="

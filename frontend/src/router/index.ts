@@ -81,7 +81,7 @@ let barEl: HTMLElement | null = null
 function progressStart() {
   if (barEl) return
   barEl = document.createElement('div')
-  barEl.style.cssText = 'position:fixed;top:0;left:0;height:2px;background:#1677FF;z-index:9999;transition:width .2s ease;width:10%'
+  barEl.style.cssText = 'position:fixed;top:0;left:0;height:2px;background:var(--ui-primary);z-index:9999;transition:width .2s ease;width:10%'
   document.body.appendChild(barEl)
   requestAnimationFrame(() => {
     if (barEl) barEl.style.width = '70%'

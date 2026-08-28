@@ -1,8 +1,8 @@
-# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v1.7）
+# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v1.9）
 
 > **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](docs/reports/UI/UIReport1.md)、[UIReport2.md](docs/reports/UI/UIReport2.md)）后的**当前构建方案**。v1.2 已从头重新核验前后端源码与报告，修正可执行性、后端契约与测试落点；v1.3 同步用户构建前决策并落地 Step 1。目标是让 Build11 具备稳定、可逐步执行的能力。
 > - 研究依据：`docs/reports/UI/UIReport1.md`、`docs/reports/UI/UIReport2.md`
-> - 当前设计：`Design2.md`、`Design2-UI.md`（本卷已获用户确认，实施时需同步修订相关章节）
+> - 当前设计：`Design2.md`、`Design2-UI.md`（本卷已获用户确认，Build11 相关章节已同步）
 > - 编码指令：[AGENTS.md](AGENTS.md)（唯一强要求）
 > - 历史构建：`docs/reports/Build/`（Build1~Build10 均已存档，仅核查）
 >
@@ -11,7 +11,7 @@
 > - 排序原则：先修复后构建、先依赖后独立、先安全后优化。
 > - 本卷允许**最小后端调整**，但不改变产品功能、权限模型和既有业务语义。
 >
-> **本版状态：** v1.7 已完成 Step 5 代码与前端自动化验收（`npm run build` 与 `npm test -- --run` 共 92 tests 均通过）；Step 1~4 已验收通过；Step 6、7 尚未开始。
+> **本版状态：** v1.9 已完成 Step 1~7；前端 `npm run build` 与 `npm test -- --run`（97 tests）通过；后端 `go build ./...` / `go vet ./...` 通过（本卷后端无新增改动）。Build11 整体已收口，后续仅剩 Production 人工核查与归档。
 
 ---
 
@@ -138,8 +138,8 @@
 | 3 | 后端：`/admin/overview` + 版本归属接口 + 应急网关 `/admin` | Step 0 | ✅ 验收通过 |
 | 4 | 前端：手机任务可完成性（顶栏、触控、FormOverlay） | Step 2 | ✅ 验收通过 |
 | 5 | 前端：信息架构与结构统一（PageShell、菜单分组、设置分组、概览页、版本标题、高级模式页） | Step 3/4 | ✅ 验收通过 |
-| 6 | 前端：视觉 Token 与主题统一 | Step 5 | ☐ 未开始 |
-| 7 | 效率润色、测试补强与文档收口 | Step 1~6 | ☐ 未开始 |
+| 6 | 前端：视觉 Token 与主题统一 | Step 5 | ✅ 验收通过 |
+| 7 | 效率润色、测试补强与文档收口 | Step 1~6 | ✅ 验收通过 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
@@ -652,3 +652,5 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | v1.5 | 2026-08-28 | 完成 Step 3：新增管理员概览汇总与四类版本归属只读接口、最近待审批倒序查询、`/admin` 应急模式 SPA 白名单；补充空/有数据、可用节点过滤、高级模式、动态摘要、四类归属和白名单测试；`go build ./...`、`go vet ./...`、`go test ./...` 均通过。 |
 | v1.6 | 2026-08-28 | 完成 Step 4：新增 FormOverlay，桌面保持 Modal、<768 改为底部全屏 Drawer；迁移节点、Xray、用户组、代理组、素材池、订阅、分享、规则、用户、版本与装配表单；移动顶栏/管理导航、44px 命中区与窄视口溢出收口；`npm run build` 与 `npm test -- --run`（85 tests）均通过，320×844 本地入口走查无横向溢出。 |
 | v1.7 | 2026-08-28 | 完成 Step 5：新增 PageShell/StateContainer/EmptyState/ResponsiveCollection/FormSection/PreviewState 等通用组件，管理菜单按“概览+分发/装配/成员/系统”分组，设置页重组为六分组并支持未保存提示，落地 `/admin` 概览页与 `/api/admin/overview` 前端契约，版本页改为真实资源名与中文类型，高级模式页（Xray/用户组）做摘要、分段与危险操作收口；`npm run build` 与 `npm test -- --run`（92 tests）均通过。 |
+| v1.8 | 2026-08-28 | 完成 Step 6：新增 `uiTokens` 双主题唯一色值源，AntD 使用具体色值、Tailwind 映射 `--ui-*` CSS 变量；更新 `style.css` 初始回退变量、焦点 ring、reduced-motion、卡片/浮层阴影；进度条与 Markdown 主色改为变量；HomeView 流量色取当前主题具体色；补充 Token 与 CSS 变量单测。 |
+| v1.9 | 2026-08-28 | 完成 Step 7：PreviewStep 增加行号/搜索/复制/换行/Tabs 切换，DiffView 增加新增/删除计数与定位、错误行定位；Toast 2 秒去重；FormOverlay 焦点管理；关闭 AntD 中文按钮自动空格；smoke 覆盖概览/重置校验/应急正常态；新增 notify 去重单测；同步 Design2-UI、AGENTS、ProdTestList 与 Build11 文档。 |

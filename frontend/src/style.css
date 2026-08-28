@@ -2,22 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 初始回退变量：运行时由 theme.ts 覆盖为当前主题值 */
+:root {
+  --ui-page: #F1F5F9;
+  --ui-surface: #FFFFFF;
+  --ui-surface-subtle: #F8FAFC;
+  --ui-surface-raised: #FFFFFF;
+  --ui-border: #CBD5E1;
+  --ui-border-subtle: #E2E8F0;
+  --ui-text: #0F172A;
+  --ui-text-secondary: #475569;
+  --ui-text-tertiary: #64748B;
+  --ui-primary: #2563EB;
+  --ui-primary-hover: #1D4ED8;
+  --ui-primary-soft: #EFF6FF;
+  --ui-success: #15803D;
+  --ui-success-soft: #F0FDF4;
+  --ui-warning: #B45309;
+  --ui-warning-soft: #FFFBEB;
+  --ui-danger: #B91C1C;
+  --ui-danger-soft: #FEF2F2;
+  --ui-info: #0369A1;
+  --ui-info-soft: #F0F9FF;
+}
+
+.dark {
+  --ui-page: #0B1120;
+  --ui-surface: #111827;
+  --ui-surface-subtle: #172033;
+  --ui-surface-raised: #1E293B;
+  --ui-border: #334155;
+  --ui-border-subtle: #273449;
+  --ui-text: #F8FAFC;
+  --ui-text-secondary: #CBD5E1;
+  --ui-text-tertiary: #94A3B8;
+  --ui-primary: #60A5FA;
+  --ui-primary-hover: #93C5FD;
+  --ui-primary-soft: #172554;
+  --ui-success: #4ADE80;
+  --ui-success-soft: #052E16;
+  --ui-warning: #FBBF24;
+  --ui-warning-soft: #451A03;
+  --ui-danger: #F87171;
+  --ui-danger-soft: #450A0A;
+  --ui-info: #38BDF8;
+  --ui-info-soft: #082F49;
+}
+
 /* 全局基础样式 */
 html,
 body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  background: var(--ui-page);
+  color: var(--ui-text);
 }
 
 #app {
   min-height: 100vh;
 }
 
+/* 统一焦点可见性：2px 主色 ring */
+*:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
 /* 统一移动端触控命中区，页面操作可按需加上此类。 */
 .touch-target {
   min-width: 44px;
   min-height: 44px;
+}
+
+/* 卡片与浮层基础阴影（与 Token 规格一致） */
+.card-shadow {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+}
+.overlay-shadow {
+  box-shadow: 0 12px 32px rgb(15 23 42 / 12%);
 }
 
 @media (max-width: 767px) {
@@ -34,3 +97,42 @@ body {
     min-height: 44px;
   }
 }
+
+/* 尊重系统减少动态效果偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 既有 gray/white 类映射到 Token：避免历史类名继续使用固定色值。
+   新代码应优先使用 bg-surface/text-secondary/border-subtle 等 Token 类。 */
+.text-gray-400 { color: var(--ui-text-tertiary); }
+.text-gray-500 { color: var(--ui-text-secondary); }
+.text-gray-600 { color: var(--ui-text-secondary); }
+.text-gray-700 { color: var(--ui-text); }
+.text-gray-800 { color: var(--ui-text); }
+.text-gray-900 { color: var(--ui-text); }
+.bg-gray-50 { background-color: var(--ui-surface-subtle); }
+.bg-gray-100 { background-color: var(--ui-surface-subtle); }
+.bg-gray-200 { background-color: var(--ui-surface-subtle); }
+.bg-gray-800 { background-color: var(--ui-surface); }
+.bg-gray-900 { background-color: var(--ui-page); }
+.bg-white { background-color: var(--ui-surface); }
+.border-gray-200 { border-color: var(--ui-border-subtle); }
+.border-gray-300 { border-color: var(--ui-border); }
+.border-gray-600 { border-color: var(--ui-border); }
+.hover\:bg-gray-100:hover { background-color: var(--ui-surface-subtle); }
+.hover\:bg-gray-700:hover { background-color: var(--ui-surface-subtle); }
+.dark .dark\:bg-gray-800,
+.dark .dark\:bg-gray-900 { background-color: var(--ui-surface); }
+.dark .dark\:text-gray-100,
+.dark .dark\:text-gray-200,
+.dark .dark\:text-gray-300 { color: var(--ui-text); }
+.dark .dark\:text-gray-400 { color: var(--ui-text-tertiary); }
+.dark .dark\:border-gray-600 { border-color: var(--ui-border); }

@@ -18,8 +18,8 @@ withDefaults(defineProps<{
     <div>
       <Empty :description="false" />
       <div class="space-y-1">
-        <p class="m-0 font-medium text-gray-700 dark:text-gray-200">{{ title }}</p>
-        <p v-if="description" class="m-0 text-sm text-gray-500 dark:text-gray-400">{{ description }}</p>
+        <p class="m-0 font-medium text-text">{{ title }}</p>
+        <p v-if="description" class="m-0 text-sm text-text-secondary">{{ description }}</p>
       </div>
       <div v-if="$slots.actions" class="mt-4 flex flex-wrap justify-center gap-2">
         <slot name="actions" />

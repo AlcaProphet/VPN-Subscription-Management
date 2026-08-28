@@ -18,6 +18,7 @@ import { previewSubscriptionByPlatform } from '@/api/subscription'
 import { buildImportUrl } from '@/utils/importUrl'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
+import { useTheme } from '@/theme'
 import AppHeader from '@/components/AppHeader.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
 import { me } from '@/api/auth'
@@ -27,6 +28,7 @@ import { Notify } from '@/components/Notify'
 const router = useRouter()
 const auth = useAuthStore()
 const system = useSystemStore()
+const { tokens } = useTheme()
 
 const loading = ref(true)
 const cards = ref<PlatformCard[]>([])
@@ -78,9 +80,9 @@ const trafficPercent = computed(() => {
   return Math.min(100, Math.round(((traffic.value.used_bytes ?? 0) / traffic.value.quota_bytes) * 100))
 })
 const trafficColor = computed(() => {
-  if (traffic.value.exceeded || trafficPercent.value >= 100) return '#FF4D4F'
-  if (trafficPercent.value >= 80) return '#FAAD14'
-  return '#1677FF'
+  if (traffic.value.exceeded || trafficPercent.value >= 100) return tokens.value.danger
+  if (trafficPercent.value >= 80) return tokens.value.warning
+  return tokens.value.primary
 })
 
 // --- 分流规则卡 ---

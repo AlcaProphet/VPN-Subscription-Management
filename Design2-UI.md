@@ -26,9 +26,9 @@
 
 | 项 | 结论 |
 |----|------|
-| 主色 | AntD 默认科技蓝 `#1677FF`，零定制 |
-| 布局基调 | 全浅色布局（浅色侧边栏 + 浅色顶栏），用户端与管理端风格统一 |
-| 暗色模式 | 手动切换 + localStorage 持久化，`ConfigProvider theme.darkAlgorithm` 全局联动；新增页面不做逐组件手工适配（实时日志区固定深色底例外，本期不涉及） |
+| 主色 | `#2563EB`（浅色）/ `#60A5FA`（深色），由 `frontend/src/theme.ts` 的 `uiTokens` 统一输出 |
+| 布局基调 | 全浅色布局（浅色侧边栏 + 浅色顶栏），用户端与管理端风格统一；明暗均由同一 Token/CSS 变量驱动 |
+| 暗色模式 | 手动切换 + localStorage 持久化；AntD 使用 `uiTokens` 具体色值喂给 `ConfigProvider` 算法，Tailwind 使用 `--ui-*` CSS 变量自动适配；根节点写入 `dark` 类与主题变量 |
 | 移动端长表格 | <768px 统一卡片化，各页面内联 `isMobile`（matchMedia <768）条件渲染双态列表 |
 | 响应式三档断点 | 台式 ≥1200 / 平板 768~1199 / 手机 <768 |
 | 危险操作 | 统一 `danger` 属性红色 + `ConfirmModal` 二次确认 |
@@ -56,26 +56,28 @@
 
 沿用 Design1-UI §5.0：`a-layout` 浅色侧边栏（展开 220px / 收起 64px）+ 通用顶栏 + 白底卡片内容区；<768 顶栏 ☰ 汉堡唤出 Drawer（锁背景滚动沿用）；路由级代码分割沿用。
 
-**侧边栏菜单（13 项，图标 + 文字，平铺不分组——沿用 Design1 决策不分组）**：
+**侧边栏菜单（Build11 Step 5 起分组但不折叠；顶部「概览」+ 四个分组）**：
 
-| 序号 | 菜单项 | 路由 | 可见性 |
-|------|--------|------|--------|
-| 1 | 订阅 | `/admin/subscriptions` | 始终 |
-| 2 | 用户组 | `/admin/groups` | **仅高级模式（advanced_mode=on）** |
-| 3 | 分享 | `/admin/shares` | 始终 |
-| 4 | 平台 | `/admin/platforms` | 始终 |
-| 5 | 用户 | `/admin/users` | 始终 |
-| 6 | 审批中心 | `/admin/approvals` | 始终 |
-| 7 | 规则 | `/admin/rules` | 始终 |
-| 8 | 面板配置 | `/admin/settings` | 始终 |
-| 9 | 日志 | `/admin/logs` | 始终 |
-| 10 | 订阅装配 | `/admin/assembly` | 始终（占位页移除，见第五章） |
-| 11 | 节点 | `/admin/nodes` | 始终（manual 节点属基础模式能力） |
-| 12 | 代理组 | `/admin/assembly?tab=proxy-groups` | 始终（已并入订阅装配，不再独立菜单） |
-| 13 | Xray 实例 | `/admin/xray` | **仅高级模式（advanced_mode=on）** |
+| 分组 / 菜单项 | 路由 | 可见性 |
+|---------------|------|--------|
+| 概览 | `/admin` | 始终 |
+| 分发 → 订阅 | `/admin/subscriptions` | 始终 |
+| 分发 → 分享 | `/admin/shares` | 始终 |
+| 分发 → 平台 | `/admin/platforms` | 始终 |
+| 分发 → 规则 | `/admin/rules` | 始终 |
+| 装配 → 订阅装配 | `/admin/assembly` | 始终 |
+| 装配 → 节点 | `/admin/nodes` | 始终（manual 节点属基础模式能力） |
+| 装配 → Xray 实例 | `/admin/xray` | **仅高级模式（advanced_mode=on）** |
+| 成员 → 用户 | `/admin/users` | 始终 |
+| 成员 → 审批中心 | `/admin/approvals` | 始终 |
+| 成员 → 用户组 | `/admin/groups` | **仅高级模式（advanced_mode=on）** |
+| 系统 → 面板配置 | `/admin/settings` | 始终 |
+| 系统 → 日志 | `/admin/logs` | 始终 |
 
 - 显隐数据源：`useSystemStore` 的 `/api/system/status` 新增 `advanced_mode` 字段（见 9.3）；开关切换后下次拉取系统状态即联动，无需整页刷新机制
-- 「订阅装配」项沿用原菜单位置（第 10 位），占位页形态替换为实际功能页
+- 代理组已并入订阅装配页 Tab（`/admin/assembly?tab=proxy-groups`），不再作为侧边栏独立菜单
+- 收起侧栏保留分组分隔线，所有图标提供 Tooltip / aria-label；`selectedKeys` 对 `/admin` 精确匹配
+- 「管理面板」入口（AppHeader）目标改为 `/admin` 概览
 
 ### 2.2 AppHeader 增量
 
@@ -88,6 +90,7 @@
 
 | 路径 | 页面 | 布局 | 懒加载分组 |
 |------|------|------|-----------|
+| `/admin` | 管理员概览（Build11，见 §10.5） | 管理面板 | admin |
 | `/admin/assembly` | 订阅装配（Tabs 单入口，含代理组 Tab，见第五章） | 管理面板 | admin-assembly |
 | `/admin/nodes` | 节点管理（见第六章） | 管理面板 | admin-assembly |
 | `/admin/xray` | Xray 实例（见第八章） | 管理面板 | admin-assembly |
@@ -241,7 +244,9 @@
 
 ### 4.7 面板设置 SettingsView（扩展）
 
-沿用 Design1-UI §5.8 页面骨架（左侧锚点 + 右侧分区卡片）与全部分区，新增与修订：
+Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则、本地认证、验证码）、通知（SMTP）、外观与内容（站点信息、公告与页脚）、运行与安全（运行模式、高级模式、速率限制、日志级别、调试）、数据管理（配置导入导出、备份）、危险操作（红色独立区，默认折叠）。桌面左侧分组导航，手机顶部 Select 切换；每个分区独立保存并显示未保存数量。
+
+沿用各分区内容，新增与修订如下：
 
 #### 4.7.1 新增「高级模式」分区（锚点项，置于「运行模式信息」之后）
 
@@ -667,6 +672,15 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | `/login/callback` | OIDC 换票成功路径不变；失败停留在回调页，以 `ApiError.message` 呈现可读原因并提供「重新使用 OIDC 登录 / 使用本地账号 / 联系管理员」。`api/request.ts` 对换票请求或回调路由的 401 不得清会话或抢先跳登录。 |
 | `/login?oidc_error=…` | `state_mismatch` / `state_expired` / `exchange_failed` / `resolve_failed` / `issue_failed` 必须映射为中文恢复文案；其他后端文本前置「OIDC 登录失败：」，不得直接展示上述内部枚举。 |
 
+### 10.5 管理员概览与统一状态容器（Build11 Step 5/6）
+
+- `/admin` 管理员概览页：只调用 `GET /api/admin/overview` 一个汇总请求；展示服务状态、首次发布 Checklist、资源计数、快捷入口、最近 5 条待审批和最近 5 条访问日志。
+- 通用组件：`PageShell`、`StateContainer`、`EmptyState`、`ResponsiveCollection`、`FormSection`、`PreviewState`；`TriStateList` 兼容委托 `StateContainer`，空态/分页/批量操作在空数据时按页面条件渲染。
+- 设置页改为六大分组：身份与访问、通知、外观与内容、运行与安全、数据管理、危险操作；桌面左侧分组导航，手机顶部 Select；每个分区独立保存并显示未保存数量。
+- 版本管理页通过 `GET /api/admin/versions/:id/owner` 显示真实资源名与中文类型，不再把 ownerType 英文当标题。
+- 视觉 Token 由 `frontend/src/theme.ts` 的 `uiTokens` 统一驱动：AntD 使用具体色值，Tailwind 使用 `--ui-*` CSS 变量；主色浅色 `#2563EB`、深色 `#60A5FA`。
+- 表单载体统一为 `FormOverlay`：桌面 Modal、<768 全屏底部 Drawer；移动端主操作命中区 ≥44px。
+
 ---
 
 ## 十一、变更记录
@@ -687,3 +701,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v2.0 | 2026-08-19 | DesignReport9 修订：DiffView 恢复无目标「整体新增」分支（Q4，按用户决策改 UI）；导入双确认词 IMPORT→DISABLE 与 v1 同步/v2 异步响应口径（Q5）；装配校验补未勾选子组拒绝（Q7）；🌎国外流量成员仅节点（Q8）；对账单条同步端点 push-one/credentials-one 契约与行内交互（Q9）；实例删除轮询、检测/对账不可达错误态、api_addr 变更提示、push_targets 形状与移除确认（Q12） |
 | v2.1 | 2026-08-19 | DesignReport10 核验修订：目标规则实体选择固定步骤①（5.3.3/5.3.4）；v1.1 变更记录「三分区」勘误为「四分区」；首页 traffic 与分流规则卡片改独立端点 `GET /api/home/summary`、quota_bytes 不限时统一 `null`（9.3）；manual 节点编辑允许变更协议=整体重新填表（6.2）；停用预设组 400 拒绝生成（5.3.0）；用户预览 subs/generic-subs 装配模板返回明文原文（9.3） |
 | v2.2 | 2026-08-22 | 同步 Issue4 R19-02/R19-08 已落地决策：装配页改为「规则素材池 / 代理组 / 构建订阅·规则」三个一级 Tab，四个子平台并入构建 Tab；代理组不再独立路由/侧边栏菜单，改为 `/admin/assembly?tab=proxy-groups`。 |
+| v2.4 | 2026-08-28 | Build11 Step 2/4/5/6 收口：补可信状态页、FormOverlay、管理员概览与统一状态容器、菜单分组、设置六分组、版本真实名称、Token 统一（`#2563EB`/`#60A5FA` + CSS 变量）；同步 §1.1、§2.1、§2.3、§10.5。 |

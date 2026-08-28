@@ -6,8 +6,8 @@ defineProps<{ title: string; subtitle?: string }>()
 <template>
   <div class="flex items-start justify-between gap-3 mb-4 flex-wrap">
     <div class="min-w-0">
-      <h1 class="text-2xl leading-8 font-semibold m-0 text-gray-900 dark:text-gray-100">{{ title }}</h1>
-      <div v-if="subtitle" class="text-sm text-gray-400 mt-1">{{ subtitle }}</div>
+      <h1 class="text-2xl leading-8 font-semibold m-0 text-text">{{ title }}</h1>
+      <div v-if="subtitle" class="text-sm text-text-tertiary mt-1">{{ subtitle }}</div>
     </div>
     <div class="mobile-actions flex items-center gap-2 flex-shrink-0">
       <slot name="actions" />

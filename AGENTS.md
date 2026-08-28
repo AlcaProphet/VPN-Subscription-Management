@@ -1,7 +1,7 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前设计：[Design2.md](Design2.md) 与 [Design2-UI.md](Design2-UI.md) 为**当前最新的设计文档**（增量能力：订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。构建方案已全部归档：[Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（均已验收存档）；问题记录已全部归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue8.md](docs/reports/Issue/Issue8.md)（均已闭环存档）；历史文档（Design0/Design1/Design1-UI/DesignOnHold/Build1~7/Build6-2/Issue1~4 等）统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
+> 当前设计：[Design2.md](Design2.md) 与 [Design2-UI.md](Design2-UI.md) 为**当前最新的设计文档**（增量能力：订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。当前构建方案为 [Build11.md](Build11.md)（进行中，尚未归档）；已归档构建：[Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（均已验收存档）；问题记录已全部归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue8.md](docs/reports/Issue/Issue8.md)（均已闭环存档）；历史文档（Design0/Design1/Design1-UI/DesignOnHold/Build1~7/Build6-2/Issue1~4 等）统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
 
 ---
 
@@ -11,7 +11,7 @@
 - **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`（Go 版本升级见 Build4 Step 0；xray-core 依赖引入见 Build6 Step 0，均为 Design2 §5.3 决策的构建落点）
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前设计见 [Design2.md](Design2.md) 与 [Design2-UI.md](Design2-UI.md)（增量能力，非强制），第一期基线见存档的 [Design1.md](docs/reports/Design/Design1.md)；全部构建方案已存档（Build1~10、Build6-2 见 [docs/reports/Build/](docs/reports/Build)）；全部问题记录已闭环存档（Issue1~8 见 [docs/reports/Issue/](docs/reports/Issue)）
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前设计见 [Design2.md](Design2.md) 与 [Design2-UI.md](Design2-UI.md)（增量能力，非强制），第一期基线见存档的 [Design1.md](docs/reports/Design/Design1.md)；当前进行中的构建方案见 [Build11.md](Build11.md)，已归档构建见 [docs/reports/Build/](docs/reports/Build)；全部问题记录已闭环存档（Issue1~8 见 [docs/reports/Issue/](docs/reports/Issue)）
 
 ---
 

@@ -77,6 +77,28 @@ echo "   刷新后=$(curl -s "$BASE/share/$SHARESLUG/download?token=$NEWTOK" | h
 # 10) 无效 Token → 404
 echo "10) 无效Token HTTP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/subscriptions/platform-1/download?token=bad")"
 
+# 10b) Build11：管理员概览汇总接口
+OVERVIEW=$(curl -s $BASE/api/admin/overview -H "$AUTH")
+require_success "管理员概览" "$OVERVIEW"
+echo "10b) 概览 platforms=$(echo "$OVERVIEW" | J "['data']['counts']['platforms']") subscriptions=$(echo "$OVERVIEW" | J "['data']['counts']['subscriptions']")"
+
+# 10c) Build11：重置链接校验（缺失令牌应返回 missing）
+RESET_STATUS=$(curl -s -X POST $BASE/api/auth/reset/validate -H 'Content-Type: application/json' \
+  -d '{"token":"smoke-missing-token"}' | J "['data']['status']")
+echo "10c) 重置校验 status=$RESET_STATUS"
+if [ "$RESET_STATUS" != "missing" ]; then
+  echo "FAIL: 重置校验缺失令牌应返回 missing，实际 $RESET_STATUS" >&2
+  exit 1
+fi
+
+# 10d) Build11：应急模式正常状态
+EMERGENCY=$(curl -s $BASE/api/system/status | J "['data']['emergency']")
+echo "10d) 应急状态 emergency=$EMERGENCY"
+if [ "$EMERGENCY" != "false" ]; then
+  echo "FAIL: 常规 smoke 环境应急状态应为 false，实际 $EMERGENCY" >&2
+  exit 1
+fi
+
 # --- Build4~7 核心路径 ---
 # 11) 规则素材池 CRUD + 手动条目
 POOL=$(curl -s -X POST $BASE/api/admin/pools -H "$AUTH" -H 'Content-Type: application/json' \

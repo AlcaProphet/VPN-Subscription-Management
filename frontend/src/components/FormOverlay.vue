@@ -1,6 +1,6 @@
 <!-- FormOverlay.vue：表单统一载体，桌面使用弹窗，手机使用底部全屏抽屉。 -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Button, Drawer, Modal } from 'ant-design-vue'
 import { CloseOutlined } from '@ant-design/icons-vue'
 
@@ -23,7 +23,21 @@ const emit = defineEmits<{
 }>()
 
 const isMobile = ref(false)
+const lastFocused = ref<HTMLElement | null>(null)
 let mediaQuery: MediaQueryList | null = null
+
+watch(() => props.open, async (open) => {
+  if (open) {
+    lastFocused.value = document.activeElement as HTMLElement | null
+    await nextTick()
+    setTimeout(() => {
+      document.querySelector<HTMLElement>('.ant-modal-content input, .ant-modal-content textarea, .ant-modal-content select, .ant-drawer-content input, .ant-drawer-content textarea, .ant-drawer-content select')?.focus()
+    }, 0)
+  } else {
+    lastFocused.value?.focus?.()
+    lastFocused.value = null
+  }
+}, { immediate: true })
 
 function syncViewport() {
   isMobile.value = mediaQuery?.matches ?? false

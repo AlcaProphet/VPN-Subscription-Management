@@ -22,7 +22,7 @@ const rendered = computed(() => md.render(props.source ?? ''))
   margin: 0.25rem 0;
 }
 .markdown-body :deep(a) {
-  color: #1677ff;
+  color: var(--ui-primary);
   word-break: break-all;
 }
 .markdown-body :deep(h1),
