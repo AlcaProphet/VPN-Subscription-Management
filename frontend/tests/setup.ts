@@ -1,5 +1,9 @@
 // 测试全局 setup：为 jsdom 补齐 AntD 依赖的浏览器 API
 import { vi } from 'vitest'
+import { config } from '@vue/test-utils'
+import AppSelect from '@/components/AppSelect.vue'
+
+config.global.components = { AppSelect }
 
 // Node 26 + 当前 jsdom 组合下 localStorage 可能为 undefined：无条件补齐内存实现（仅测试环境）
 const store = new Map<string, string>()

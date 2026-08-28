@@ -71,7 +71,7 @@ function setField(name: string, val: unknown) {
 
 <template>
   <div class="space-y-2">
-    <div v-if="targetSyntax === 'generic-subs'" class="text-sm text-gray-400">
+    <div v-if="targetSyntax === 'generic-subs'" class="text-sm text-text-tertiary">
       通用节点订阅不输出 STATUS/REMARKS 头部，本步无需填写。
     </div>
     <div v-else>
@@ -87,7 +87,7 @@ function setField(name: string, val: unknown) {
 
       <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div v-for="f in headerFields" :key="f.name">
-          <label class="text-sm text-gray-600">{{ f.label }}</label>
+          <label class="text-sm text-text-secondary">{{ f.label }}</label>
           <InputNumber v-if="f.type === 'number'" :value="Number(fieldValue(f.name) ?? f.default ?? 0)" class="w-full"
                        @change="(v: any) => setField(f.name, v ?? 0)" />
           <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)"

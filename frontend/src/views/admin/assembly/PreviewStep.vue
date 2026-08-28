@@ -97,10 +97,10 @@ async function copyPreview() {
       <Tabs.TabPane key="preview" tab="预览">
         <Input.Search v-model:value="searchQuery" allow-clear placeholder="搜索预览内容"
                       class="mb-2 max-w-sm" enter-button="搜索" />
-        <div v-if="searchQuery.trim()" class="text-xs mb-1 text-gray-500">
+        <div v-if="searchQuery.trim()" class="text-xs mb-1 text-text-secondary">
           匹配 {{ matchingLines }} 行
         </div>
-        <details v-if="previewStale" class="rounded border border-dashed border-gray-300 p-3 opacity-70">
+        <details v-if="previewStale" class="rounded border border-dashed border p-3 opacity-70">
           <summary class="cursor-pointer text-sm">查看已过期的预览</summary>
           <div class="mt-3 bg-surface-subtle rounded p-3 text-xs overflow-auto max-h-[50vh] font-mono"
                :class="wrap ? 'whitespace-pre-wrap' : 'whitespace-pre'">
@@ -135,6 +135,6 @@ async function copyPreview() {
         <Alert v-else type="info" show-icon message="请点击“与当前激活版本对比”加载差异数据。" />
       </Tabs.TabPane>
     </Tabs>
-    <div v-else class="text-sm text-gray-500">尚未生成预览，请先点击“刷新预览”。</div>
+    <div v-else class="text-sm text-text-secondary">尚未生成预览，请先点击“刷新预览”。</div>
   </div>
 </template>

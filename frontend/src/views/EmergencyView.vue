@@ -115,8 +115,8 @@ async function doReinitialize() {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-    <div class="w-full max-w-lg bg-white rounded-xl shadow p-6 space-y-4">
+  <div class="min-h-screen flex items-center justify-center bg-surface-subtle p-4">
+    <div class="w-full max-w-lg bg-surface rounded-xl shadow p-6 space-y-4">
       <Result v-if="statusLoading" status="info" title="正在检查系统状态" sub-title="请稍候…" />
       <Result v-else-if="statusError" status="warning" title="暂时无法确认应急状态" :sub-title="statusError">
         <template #extra>
@@ -139,7 +139,7 @@ async function doReinitialize() {
         <span class="text-3xl">🚨</span>
         <div>
           <div class="text-lg font-semibold">应急恢复模式</div>
-          <div class="text-xs text-gray-500">正常服务已暂停，业务 API 与下载端点暂不可用</div>
+          <div class="text-xs text-text-secondary">正常服务已暂停，业务 API 与下载端点暂不可用</div>
         </div>
       </div>
 
@@ -153,7 +153,7 @@ async function doReinitialize() {
                  placeholder="••••••••" @press-enter="verify" />
           <Button type="primary" :loading="verifying" @click="verify">校验</Button>
         </div>
-        <div class="text-xs text-gray-400">操作码严格一次性：每次提交即消耗，失败后需重新从运行日志获取新码</div>
+        <div class="text-xs text-text-tertiary">操作码严格一次性：每次提交即消耗，失败后需重新从运行日志获取新码</div>
       </div>
 
       <!-- ② 校验通过后按能力分级渲染 -->
@@ -163,12 +163,12 @@ async function doReinitialize() {
           <div class="font-medium">重置管理员密码</div>
           <div>
             <div class="mb-1 text-sm">选择管理员账号</div>
-            <Select v-model:value="selectedAdmin" class="w-full" placeholder="选择账号（验码前名单不暴露）">
+            <AppSelect v-model:value="selectedAdmin" class="w-full" placeholder="选择账号（验码前名单不暴露）">
               <Select.Option v-for="a in admins" :key="a.id" :value="a.id">
                 {{ a.username }}（{{ a.email || '无邮箱' }}）<Tag v-if="!a.has_password" color="orange">纯 OIDC</Tag>
               </Select.Option>
-            </Select>
-            <div class="text-xs text-gray-400 mt-1">纯 OIDC 管理员（无本地密码）重置后仍无法本地登录</div>
+            </AppSelect>
+            <div class="text-xs text-text-tertiary mt-1">纯 OIDC 管理员（无本地密码）重置后仍无法本地登录</div>
           </div>
           <div>
             <div class="mb-1 text-sm">新密码（≥8 字符）</div>

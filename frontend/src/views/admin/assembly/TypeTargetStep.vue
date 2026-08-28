@@ -28,20 +28,20 @@ defineProps<{
           <Radio.Button value="existing">选择已有规则</Radio.Button>
         </Radio.Group>
         <Input v-if="form.sr_rule_mode === 'new'" v-model:value="form.rule_name" placeholder="请输入新规则名称" class="w-full" allow-clear />
-        <Select v-else :value="form.rule_id" placeholder="选择已有规则实体" class="w-full" @change="(v: any) => form.rule_id = Number(v)">
+        <AppSelect v-else :value="form.rule_id" placeholder="选择已有规则实体" class="w-full" @change="(v: any) => form.rule_id = Number(v)">
           <Select.Option v-for="r in context?.rules ?? []" :key="r.id" :value="r.id">
-            {{ r.name }}<span v-if="r.current_version <= 0" class="text-xs text-gray-400">（空实体）</span>
+            {{ r.name }}<span v-if="r.current_version <= 0" class="text-xs text-text-tertiary">（空实体）</span>
           </Select.Option>
-        </Select>
-        <div v-if="form.sr_rule_mode === 'existing' && (context?.rules ?? []).length === 0" class="text-xs text-gray-500 mt-2">
+        </AppSelect>
+        <div v-if="form.sr_rule_mode === 'existing' && (context?.rules ?? []).length === 0" class="text-xs text-text-secondary mt-2">
           暂无规则实体，可切换到“新建规则”直接创建
         </div>
       </template>
       <template v-else>
-        <Select :value="form.platform_id" placeholder="选择平台" class="w-full" @change="(v: any) => form.platform_id = Number(v)">
+        <AppSelect :value="form.platform_id" placeholder="选择平台" class="w-full" @change="(v: any) => form.platform_id = Number(v)">
           <Select.Option v-for="p in filteredPlatforms" :key="p.id" :value="p.id">{{ p.name }}（{{ p.product_type }}）</Select.Option>
-        </Select>
-        <div v-if="filteredPlatforms.length === 0" class="text-xs text-gray-500 mt-2">
+        </AppSelect>
+        <div v-if="filteredPlatforms.length === 0" class="text-xs text-text-secondary mt-2">
           暂无匹配格式的平台，请先创建对应格式平台：<a href="/admin/platforms">前往平台管理</a>
         </div>
       </template>

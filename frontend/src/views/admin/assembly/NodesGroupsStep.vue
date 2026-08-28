@@ -1,7 +1,8 @@
 <!-- NodesGroupsStep.vue：装配步骤③ 节点与代理组（Design2-UI §5.3.1） -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Button, Checkbox, Modal, Tag } from 'ant-design-vue'
+import { Button, Checkbox, Tag } from 'ant-design-vue'
+import AppModal from '@/components/AppModal.vue'
 import type { AssemblyContext, TargetSyntax } from '@/api/assembly'
 import type { NodeItem } from '@/api/node'
 import type { ProxyGroupItem } from '@/api/proxyGroup'
@@ -89,7 +90,7 @@ function onDrop(idx: number) {
           <span>{{ n.render_name }}</span><Tag class="ml-1">{{ n.protocol }}</Tag>
           <Tag v-if="invalidRefs.some((r) => r.kind === 'node' && r.name === n.name)" color="red">已失效</Tag>
         </Checkbox>
-        <div v-if="manualNodes.length === 0" class="text-xs text-gray-400">暂无 manual 节点</div>
+        <div v-if="manualNodes.length === 0" class="text-xs text-text-tertiary">暂无 manual 节点</div>
       </div>
     </div>
     <div v-if="showXray !== false">
@@ -98,10 +99,10 @@ function onDrop(idx: number) {
         <Checkbox v-for="n in xrayNodes" :key="n.name" :checked="form.node_names.includes(n.name)"
                   :disabled="!n.allocatable || n.enabled === false" @change="emit('toggle-node', n.name)">
           <span>{{ n.render_name }}</span>
-          <span v-if="n.display_name" class="block text-xs text-gray-400 font-mono">{{ n.name }}</span>
+          <span v-if="n.display_name" class="block text-xs text-text-tertiary font-mono">{{ n.name }}</span>
           <Tag v-if="!n.allocatable || n.enabled === false" class="ml-1">不可用</Tag>
         </Checkbox>
-        <div v-if="xrayNodes.length === 0" class="text-xs text-gray-400">未检测到 Xray 节点（高级模式录入实例后刷新节点发现）</div>
+        <div v-if="xrayNodes.length === 0" class="text-xs text-text-tertiary">未检测到 Xray 节点（高级模式录入实例后刷新节点发现）</div>
       </div>
     </div>
     <div v-if="targetSyntax === 'clash-yaml'">
@@ -129,7 +130,7 @@ function onDrop(idx: number) {
       </div>
     </div>
 
-    <Modal :open="!!selectingGroup" :title="`节点选择与排序 · ${selectingGroup ?? ''}`" :footer="null" :width="640" destroy-on-close @cancel="closeSelector">
+    <AppModal :open="!!selectingGroup" :title="`节点选择与排序 · ${selectingGroup ?? ''}`" :footer="null" :width="640" destroy-on-close @update:open="closeSelector">
       <div class="space-y-3">
         <div>
           <div class="text-sm font-medium mb-1">可选节点</div>
@@ -142,12 +143,12 @@ function onDrop(idx: number) {
         </div>
         <div>
           <div class="text-sm font-medium mb-1">已选节点（有序）</div>
-          <div v-if="draftSelected.length === 0" class="text-xs text-gray-400">尚未选择节点，将使用子组引用</div>
+          <div v-if="draftSelected.length === 0" class="text-xs text-text-tertiary">尚未选择节点，将使用子组引用</div>
           <div v-for="(name, idx) in draftSelected" :key="name" :draggable="true"
                class="flex items-center gap-2 border rounded p-2 mb-2 cursor-move"
                @dragstart="onDragStart(idx)" @dragover.prevent @drop="onDrop(idx)">
             <span class="flex-1">{{ nodeLabel(name) }}</span>
-            <span v-if="nodeSubLabel(name)" class="text-xs text-gray-400 font-mono">{{ name }}</span>
+            <span v-if="nodeSubLabel(name)" class="text-xs text-text-tertiary font-mono">{{ name }}</span>
             <Button size="small" :disabled="idx === 0" @click="moveDraft(idx, -1)">上移</Button>
             <Button size="small" :disabled="idx === draftSelected.length - 1" @click="moveDraft(idx, 1)">下移</Button>
           </div>
@@ -157,6 +158,6 @@ function onDrop(idx: number) {
           <Button type="primary" @click="saveSelector">保存</Button>
         </div>
       </div>
-    </Modal>
+    </AppModal>
   </div>
 </template>

@@ -1,7 +1,8 @@
 <!-- XrayInstancesView.vue：Xray 实例与独立账号管理（Build7 Step3） -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Alert, Button, Checkbox, Dropdown, Empty, Input, InputNumber, Menu, Result, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
+import { Alert, Button, Checkbox, Empty, Input, InputNumber, Menu, Result, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
+import AppDropdown from '@/components/AppDropdown.vue'
 import {
   listInstances, listExtAccounts, createInstance, updateInstance, deleteInstance, detectNodes, testConnection,
   runInit, reconcile, pushRepair, cleanOrphans, repairCredentials,
@@ -555,10 +556,10 @@ async function doExtCredentials(acc: ExtAccount) {
                 <Button size="small" class="mr-1" @click="openEdit(record)">编辑</Button>
                 <Button size="small" class="mr-1" @click="doDetect(record)">刷新节点</Button>
                 <Button size="small" class="mr-1" @click="doReconcile(record)">对账</Button>
-                <Dropdown>
+                <AppDropdown>
                   <Button size="small">更多 ▾</Button>
                   <template #overlay><Menu><Menu.Item danger @click="deleting = record">删除实例</Menu.Item></Menu></template>
-                </Dropdown>
+                </AppDropdown>
               </template>
             </Table.Column>
           </Table>
@@ -569,15 +570,15 @@ async function doExtCredentials(acc: ExtAccount) {
               <span class="font-medium">{{ inst.name }}</span>
               <Switch :checked="inst.enabled" size="small" @change="doToggleInstance(inst)" />
             </div>
-            <div class="text-sm text-gray-500 mt-1">{{ inst.slug }} · {{ inst.api_addr }}</div>
+            <div class="text-sm text-text-secondary mt-1">{{ inst.slug }} · {{ inst.api_addr }}</div>
             <div class="flex flex-wrap gap-2 mt-2">
               <Button size="small" @click="openEdit(inst)">编辑</Button>
               <Button size="small" @click="doDetect(inst)">刷新节点</Button>
               <Button size="small" @click="doReconcile(inst)">对账</Button>
-              <Dropdown>
+              <AppDropdown>
                 <Button size="small">更多 ▾</Button>
                 <template #overlay><Menu><Menu.Item danger @click="deleting = inst">删除实例</Menu.Item></Menu></template>
-              </Dropdown>
+              </AppDropdown>
             </div>
           </div>
         </div>
@@ -631,7 +632,7 @@ async function doExtCredentials(acc: ExtAccount) {
               <span class="font-medium">{{ acc.name }}</span>
               <Tag v-if="acc.quota_exceeded" color="red">已超限</Tag>
             </div>
-            <div class="text-sm text-gray-500 mt-1">{{ acc.email }} · {{ acc.quota == null ? '不限流量' : `${acc.quota} GB` }} · 本月 {{ formatBytes(acc.used_bytes) }}</div>
+            <div class="text-sm text-text-secondary mt-1">{{ acc.email }} · {{ acc.quota == null ? '不限流量' : `${acc.quota} GB` }} · 本月 {{ formatBytes(acc.used_bytes) }}</div>
             <div class="flex flex-wrap gap-2 mt-2">
               <Button size="small" @click="openExtEdit(acc)">编辑</Button>
               <Button size="small" @click="doExtCredentials(acc)">复制凭据</Button>
@@ -696,7 +697,7 @@ async function doExtCredentials(acc: ExtAccount) {
         <p v-if="!reconcileEmpty">待补推 {{ reconcileResult.to_push.length }} / 无头 {{ reconcileResult.orphans.length }} / 疑似残留 {{ reconcileResult.ext_orphans.length }} / 凭据不一致 {{ reconcileResult.credential_mismatches.length }} / 待移除 {{ reconcileResult.to_remove.length }}</p>
         <div>
           <div class="text-sm font-medium mb-2">待移除（移除失败，确认后可从 Xray 清理）</div>
-          <div v-if="reconcileResult.to_remove.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-if="reconcileResult.to_remove.length === 0" class="text-text-tertiary text-sm">无</div>
           <div v-for="item in reconcileResult.to_remove" :key="item.email" class="flex items-center justify-between py-1">
             <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
             <Button size="small" @click="doRetryExtRemove(item)">重试移除</Button>
@@ -704,7 +705,7 @@ async function doExtCredentials(acc: ExtAccount) {
         </div>
         <div>
           <div class="text-sm font-medium mb-2">待补推</div>
-          <div v-if="reconcileResult.to_push.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-if="reconcileResult.to_push.length === 0" class="text-text-tertiary text-sm">无</div>
           <div v-for="item in reconcileResult.to_push" :key="item.email" class="flex items-center justify-between py-1">
             <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
             <Button size="small" @click="doPushOne(item)">单条补推</Button>
@@ -712,7 +713,7 @@ async function doExtCredentials(acc: ExtAccount) {
         </div>
         <div>
           <div class="text-sm font-medium mb-2">无头用户（勾选后清理）</div>
-          <div v-if="reconcileResult.orphans.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-if="reconcileResult.orphans.length === 0" class="text-text-tertiary text-sm">无</div>
           <div v-for="item in reconcileResult.orphans" :key="item.email" class="flex items-center gap-2 py-1">
             <Checkbox :checked="cleanOrphanEmails.includes(item.email)" @change="cleanOrphanEmails = cleanOrphanEmails.includes(item.email) ? cleanOrphanEmails.filter((x) => x !== item.email) : [...cleanOrphanEmails, item.email]" />
             <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
@@ -720,7 +721,7 @@ async function doExtCredentials(acc: ExtAccount) {
         </div>
         <div>
           <div class="text-sm font-medium mb-2">疑似独立账号残留（勾选后清理）</div>
-          <div v-if="reconcileResult.ext_orphans.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-if="reconcileResult.ext_orphans.length === 0" class="text-text-tertiary text-sm">无</div>
           <div v-for="item in reconcileResult.ext_orphans" :key="item.email" class="flex items-center gap-2 py-1">
             <Checkbox :checked="cleanExtEmails.includes(item.email)" @change="cleanExtEmails = cleanExtEmails.includes(item.email) ? cleanExtEmails.filter((x) => x !== item.email) : [...cleanExtEmails, item.email]" />
             <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
@@ -728,7 +729,7 @@ async function doExtCredentials(acc: ExtAccount) {
         </div>
         <div>
           <div class="text-sm font-medium mb-2">凭据不一致</div>
-          <div v-if="reconcileResult.credential_mismatches.length === 0" class="text-gray-400 text-sm">无</div>
+          <div v-if="reconcileResult.credential_mismatches.length === 0" class="text-text-tertiary text-sm">无</div>
           <div v-for="item in reconcileResult.credential_mismatches" :key="item.email" class="flex items-center justify-between py-1">
             <span class="text-sm">{{ item.email }}（{{ item.inbound_tag }}）</span>
             <Button size="small" @click="doCredentialsOne(item)">修复凭据</Button>
@@ -748,16 +749,16 @@ async function doExtCredentials(acc: ExtAccount) {
     <FormOverlay v-model:open="extCreateOpen" title="创建独立账号" width="720" :loading="extCreating" destroy-on-close>
       <div class="space-y-3">
         <Input v-model:value="extForm.name" placeholder="名称" class="w-full" />
-        <Select v-model:value="extForm.credential_mode" class="w-full" :options="[{ value: 'generate', label: '自动生成' }, { value: 'manual', label: '手填接管' }]" />
+        <AppSelect v-model:value="extForm.credential_mode" class="w-full" :options="[{ value: 'generate', label: '自动生成' }, { value: 'manual', label: '手填接管' }]" />
         <template v-if="extForm.credential_mode === 'manual'">
           <Input.Password v-model:value="extForm.uuid" placeholder="UUID" class="w-full" />
           <Input.Password v-model:value="extForm.proxy_secret" placeholder="代理密码" class="w-full" />
         </template>
         <InputNumber v-model:value="extForm.quota" :min="0" class="w-48" placeholder="配额（GB，0/空=不限）" />
         <div>
-          <div class="text-sm text-gray-400 mb-1">推送目标（可多选）</div>
-          <Select v-model:value="extSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
-          <div v-if="targetOptions.length === 0" class="text-xs text-gray-400 mt-1">请先在实例页检测节点</div>
+          <div class="text-sm text-text-tertiary mb-1">推送目标（可多选）</div>
+          <AppSelect v-model:value="extSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
+          <div v-if="targetOptions.length === 0" class="text-xs text-text-tertiary mt-1">请先在实例页检测节点</div>
         </div>
       </div>
       <template #footer>
@@ -777,13 +778,13 @@ async function doExtCredentials(acc: ExtAccount) {
         <Input v-model:value="extEditForm.name" placeholder="名称" class="w-full" />
         <InputNumber v-model:value="extEditForm.quota" :min="0" class="w-48" placeholder="配额（GB，0/空=不限）" />
         <div>
-          <div class="text-sm text-gray-400 mb-1">凭据（留空=保留原凭据；修改后将对保留目标重推）</div>
+          <div class="text-sm text-text-tertiary mb-1">凭据（留空=保留原凭据；修改后将对保留目标重推）</div>
           <Input.Password v-model:value="extEditForm.uuid" placeholder="UUID（留空保留）" class="w-full" />
           <Input.Password v-model:value="extEditForm.proxy_secret" placeholder="代理密码（留空保留）" class="w-full" />
         </div>
         <div>
-          <div class="text-sm text-gray-400 mb-1">推送目标（可多选，移除已选目标会同步删除 Xray 账号）</div>
-          <Select v-model:value="extEditSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
+          <div class="text-sm text-text-tertiary mb-1">推送目标（可多选，移除已选目标会同步删除 Xray 账号）</div>
+          <AppSelect v-model:value="extEditSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
         </div>
       </div>
     </FormOverlay>
@@ -812,13 +813,13 @@ async function doExtCredentials(acc: ExtAccount) {
       <Alert type="warning" show-icon class="mb-3" message="凭据即该账号的唯一凭证，请妥善保管；关闭后将不再展示。" />
       <div class="space-y-2">
         <div class="flex items-center gap-2">
-          <span class="w-20 text-gray-500">UUID</span>
-          <code class="flex-1 break-all bg-gray-100 rounded px-2 py-1">{{ credentialsData?.uuid }}</code>
+          <span class="w-20 text-text-secondary">UUID</span>
+          <code class="flex-1 break-all bg-surface-subtle rounded px-2 py-1">{{ credentialsData?.uuid }}</code>
           <Button size="small" @click="copyText(credentialsData?.uuid ?? '')">复制</Button>
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-20 text-gray-500">代理密码</span>
-          <code class="flex-1 break-all bg-gray-100 rounded px-2 py-1">{{ credentialsData?.secret }}</code>
+          <span class="w-20 text-text-secondary">代理密码</span>
+          <code class="flex-1 break-all bg-surface-subtle rounded px-2 py-1">{{ credentialsData?.secret }}</code>
           <Button size="small" @click="copyText(credentialsData?.secret ?? '')">复制</Button>
         </div>
       </div>

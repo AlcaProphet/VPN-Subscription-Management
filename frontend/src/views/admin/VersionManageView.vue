@@ -2,8 +2,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button, Dropdown, Input, Menu, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
+import { Button, Input, Menu, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
+import AppDropdown from '@/components/AppDropdown.vue'
 import dayjs from 'dayjs'
 import { versionApi, getVersionBlueprint, getVersionOwner, type VersionItem, type VersionOwner } from '@/api/version'
 import { getSubscription } from '@/api/subscription'
@@ -340,15 +341,15 @@ function fmtTime(ts: string): string {
               <Space>
                 <Button size="small" @click="doPreview(v.version_no)">预览</Button>
                 <Button v-if="!v.current" size="small" @click="toSwitch = v.version_no">{{ switchLabel }}</Button>
-                <Dropdown>
+                <AppDropdown>
                   <Button size="small">更多 ▾</Button>
                   <template #overlay>
                     <Menu :items="cardMenuItems(v)" @click="(e: any) => onCardMenuClick(e.key, v)" />
                   </template>
-                </Dropdown>
+                </AppDropdown>
               </Space>
             </div>
-            <div class="text-sm text-gray-500 mt-1">
+            <div class="text-sm text-text-secondary mt-1">
               创建 {{ fmtTime(v.created_at) }} · 更新 {{ fmtTime(v.updated_at) }}
             </div>
           </div>
@@ -383,7 +384,7 @@ function fmtTime(ts: string): string {
                  :width="720" :loading="saving" @update:open="editOpen = false; editTarget = null">
       <div v-if="editLoading" class="py-12 text-center">
         <Spin size="large" />
-        <div class="mt-2 text-gray-500 dark:text-gray-400">加载版本内容中…</div>
+        <div class="mt-2 text-text-secondary">加载版本内容中…</div>
       </div>
       <template v-else>
         <Input.TextArea v-model:value="editText" :rows="14"
@@ -399,7 +400,7 @@ function fmtTime(ts: string): string {
     <FormOverlay :open="previewOpen" title="内容预览" width="80%" @update:open="previewOpen = false; previewContent = null">
       <div v-if="previewing" class="py-12 text-center">
         <Spin size="large" />
-        <div class="mt-2 text-gray-500 dark:text-gray-400">加载内容中…</div>
+        <div class="mt-2 text-text-secondary">加载内容中…</div>
       </div>
       <pre v-else class="text-xs overflow-auto max-h-[70vh] whitespace-pre-wrap break-all">{{ previewContent }}</pre>
       <template #footer>

@@ -161,7 +161,7 @@ async function completeOidc() {
 
 <template>
   <!-- 独立全屏路由：居中单列卡片 max-w-720px；顶部 ICON + 「首次配置」+ 模式徽标；右上角暗色切换 -->
-  <div class="w-full max-w-3xl dark:text-gray-100">
+  <div class="w-full max-w-3xl">
     <div class="flex justify-end mb-2">
       <Button size="small" @click="toggle">{{ dark ? '浅色模式' : '暗色模式' }}</Button>
     </div>
@@ -179,7 +179,7 @@ async function completeOidc() {
           <div class="flex items-center justify-between">
             <div>
               <div class="font-medium">快速开始 <Tag color="processing">推荐</Tag></div>
-              <div class="text-gray-500 text-sm mt-1">本地账号模式，零配置一键完成</div>
+              <div class="text-text-secondary text-sm mt-1">本地账号模式，零配置一键完成</div>
             </div>
             <Button type="primary" @click="current = 1">下一步</Button>
           </div>
@@ -189,7 +189,7 @@ async function completeOidc() {
           <div class="flex items-center justify-between">
             <div>
               <div class="font-medium">高级配置</div>
-              <div class="text-gray-500 text-sm mt-1">接入单点登录（OIDC）</div>
+              <div class="text-text-secondary text-sm mt-1">接入单点登录（OIDC）</div>
             </div>
             <Tag color="blue">{{ advancedOpen ? '展开' : '收起' }}</Tag>
           </div>
@@ -198,7 +198,7 @@ async function completeOidc() {
         <Card v-if="isProd" class="mb-4" hoverable>
           <div class="mb-3">
             <div class="font-medium">导入已有配置</div>
-            <div class="text-gray-500 text-sm mt-1">从其他实例导出的加密配置文件恢复全部配置（整体覆盖）</div>
+            <div class="text-text-secondary text-sm mt-1">从其他实例导出的加密配置文件恢复全部配置（整体覆盖）</div>
           </div>
           <Space class="w-full">
             <Upload :before-upload="onImportFile" :max-count="1">
@@ -207,7 +207,7 @@ async function completeOidc() {
             <Input.Password v-model:value="importPwd" placeholder="导出密码（≥8 字符）" style="max-width: 220px" />
             <Button danger @click="importOpen = true">导入</Button>
           </Space>
-          <div class="text-xs text-gray-400 mt-2">导入将整体覆盖全部配置并替换签名密钥，完成后需重启容器再重新登录</div>
+          <div class="text-xs text-text-tertiary mt-2">导入将整体覆盖全部配置并替换签名密钥，完成后需重启容器再重新登录</div>
         </Card>
         <Card v-else class="mb-4" hoverable>
           <div class="font-medium">导入已有配置</div>
@@ -237,8 +237,8 @@ async function completeOidc() {
             </Form>
             <Collapse class="mb-4">
               <Collapse.Panel key="1" header="高级（前端地址 / 回调地址）">
-                <p class="text-sm text-gray-500">前端地址：{{ origin }}</p>
-                <p class="text-sm text-gray-500">回调地址：{{ origin }}/api/auth/oidc/callback</p>
+                <p class="text-sm text-text-secondary">前端地址：{{ origin }}</p>
+                <p class="text-sm text-text-secondary">回调地址：{{ origin }}/api/auth/oidc/callback</p>
               </Collapse.Panel>
             </Collapse>
             <Space>
@@ -260,7 +260,7 @@ async function completeOidc() {
       <template v-else-if="!done && current === 1">
         <Card class="mb-4">
           <div class="font-medium mb-2">确认快速开始</div>
-          <p class="text-gray-500 text-sm mb-4">
+          <p class="text-text-secondary text-sm mb-4">
             将采用本地账号模式完成配置：注册本地账号即可登录，无需接入外部身份提供商（OIDC）。
             点击「确认完成」后系统立即进入已配置状态，此操作不可撤销。
           </p>

@@ -169,7 +169,7 @@ async function confirmDelete() {
           <Input v-model:value="editName" :maxlength="64" />
         </FormSection>
         <FormSection title="可用节点" help="仅候选集节点会注入到下载内容；公共节点对全部用户组自动可见。">
-          <div class="text-xs text-gray-400 mb-1">节点分配（候选集）</div>
+          <div class="text-xs text-text-tertiary mb-1">节点分配（候选集）</div>
           <Empty v-if="candidateNodes.length === 0 && selectedNodes.length === 0" description="请先装配并激活 Clash YAML / SR 节点订阅 / 通用节点订阅模板">
             <Button type="primary" @click="$router.push('/admin/assembly')">前往装配</Button>
           </Empty>
@@ -186,17 +186,17 @@ async function confirmDelete() {
                 else selectedNodeIDs = [...selectedNodeIDs, id]
               }">
                 <span>{{ c.render_name || c.name }}</span>
-                <span v-if="c.render_name && c.render_name !== c.name" class="ml-1 text-xs text-gray-400">{{ c.name }}</span>
+                <span v-if="c.render_name && c.render_name !== c.name" class="ml-1 text-xs text-text-tertiary">{{ c.name }}</span>
               </Checkbox>
               <Tag v-if="c.is_public" color="default">公共·免分配</Tag>
               <Tag v-if="c.in_partial_blueprint" color="orange">仅部分模板</Tag>
             </div>
           </div>
           <div v-if="selectedNodes.length > 0">
-            <div class="text-xs text-gray-400 mb-1">分配排序（顺序将写入 sort_order）</div>
+            <div class="text-xs text-text-tertiary mb-1">分配排序（顺序将写入 sort_order）</div>
             <div v-for="(n, i) in selectedNodes" :key="n.node_id" class="flex items-center gap-2 py-1">
-              <span class="w-6 text-gray-400">{{ i + 1 }}</span>
-              <span :class="n.is_public ? 'text-gray-400' : ''" class="flex-1 text-sm">{{ n.render_name || n.name }}</span>
+              <span class="w-6 text-text-tertiary">{{ i + 1 }}</span>
+              <span :class="n.is_public ? 'text-text-tertiary' : ''" class="flex-1 text-sm">{{ n.render_name || n.name }}</span>
               <Tag v-if="n.is_public" color="default">公共·免分配</Tag>
               <Tag v-if="!n.in_candidate" color="red">非候选</Tag>
               <Button size="small" :disabled="i === 0" @click="moveSelected(i, -1)">↑</Button>
@@ -206,7 +206,7 @@ async function confirmDelete() {
           </div>
         </FormSection>
         <FormSection title="流量" help="设置该组的默认配额，用户级覆盖优先于此配置。">
-          <div class="text-xs text-gray-400 mb-1">默认配额（GB，0/留空不限）</div>
+          <div class="text-xs text-text-tertiary mb-1">默认配额（GB，0/留空不限）</div>
           <InputNumber v-model:value="editQuota" :min="0" class="w-40" />
         </FormSection>
       </div>

@@ -21,7 +21,7 @@ const labels = {
     <Tag :color="props.state === 'fresh' ? 'green' : props.state === 'stale' ? 'orange' : 'default'">
       {{ labels[props.state] }}
     </Tag>
-    <span v-if="fingerprint" class="text-xs text-gray-400">{{ fingerprint }}</span>
+    <span v-if="fingerprint" class="text-xs text-text-tertiary">{{ fingerprint }}</span>
   </div>
   <Alert v-if="props.state === 'stale'" class="mt-2" type="warning" show-icon message="配置已变更，生成前请更新预览" />
 </template>

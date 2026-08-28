@@ -40,7 +40,7 @@ const stepTitles: Record<string, string> = {
         :options="[{ label: '分步', value: 'step' }, { label: '单页', value: 'page' }]"
         @change="(v: any) => emit('update:layoutMode', String(v))"
       />
-      <span class="text-xs text-gray-400">四类装配器共用同一表单状态，切换不丢失</span>
+      <span class="text-xs text-text-tertiary">四类装配器共用同一表单状态，切换不丢失</span>
     </div>
 
     <Steps v-if="layoutMode === 'step'" :current="currentStep" size="small" class="mb-4">

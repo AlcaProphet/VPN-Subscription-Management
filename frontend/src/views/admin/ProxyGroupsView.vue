@@ -264,7 +264,7 @@ function memberSummary(g: ProxyGroupItem): string {
             </Space>
             <Tag :color="g.type === 'preset' ? 'blue' : 'green'">{{ g.type }}</Tag>
           </div>
-          <div class="text-xs text-gray-500 mt-1">{{ memberSummary(g) }}</div>
+          <div class="text-xs text-text-secondary mt-1">{{ memberSummary(g) }}</div>
           <div class="mobile-actions mt-2 flex items-center gap-2 flex-wrap">
             <Checkbox v-if="g.type === 'preset'" :checked="g.enabled" @change="(e: any) => onTogglePreset(g, e.target.checked)" />
             <Button size="small" @click="openEdit(g)">编辑</Button>
@@ -287,17 +287,17 @@ function memberSummary(g: ProxyGroupItem): string {
           <Input v-model:value="form.name" :disabled="editing !== null" placeholder="允许空格，禁止逗号与首尾空白" />
         </Form.Item>
         <Form.Item label="组类型" required>
-          <Select v-model:value="form.group_type">
+          <AppSelect v-model:value="form.group_type">
             <Select.Option value="select">select</Select.Option>
             <Select.Option value="url-test">url-test</Select.Option>
             <Select.Option value="fallback">fallback</Select.Option>
             <Select.Option value="load-balance">load-balance</Select.Option>
             <Select.Option value="relay">relay</Select.Option>
-          </Select>
+          </AppSelect>
         </Form.Item>
 
         <Form.Item label="子组引用">
-          <Select
+          <AppSelect
             mode="multiple"
             :value="form.group_names"
             placeholder="可引用强制组或其它代理组"
@@ -307,7 +307,7 @@ function memberSummary(g: ProxyGroupItem): string {
             <Select.Option value="🚀直接连接">🚀直接连接</Select.Option>
             <Select.Option value="🌎国外流量">🌎国外流量</Select.Option>
             <Select.Option v-for="g in groups.filter((x) => x.id !== editing?.id)" :key="g.name" :value="g.name">{{ g.name }}</Select.Option>
-          </Select>
+          </AppSelect>
           <div v-for="name in form.group_names" :key="name" class="mt-1 flex items-center gap-2">
             <span class="text-sm">{{ name }}</span>
             <Tag v-if="staleGroupNames.includes(name)" color="red">已失效</Tag>

@@ -230,7 +230,7 @@ async function doCancelDefault() {
           <template #default="{ record }">
             <Tag v-if="record.current_version > 0" color="green">v{{ record.current_version }}</Tag>
             <Tooltip v-else title="可作为 SR 分流规则装配目标">
-              <span class="text-gray-400">无激活版本</span>
+              <span class="text-text-tertiary">无激活版本</span>
             </Tooltip>
           </template>
         </Table.Column>
@@ -254,7 +254,7 @@ async function doCancelDefault() {
 
       <!-- <768：卡片 -->
       <div class="grid grid-cols-1 gap-3 md:hidden">
-        <div v-for="r in rules" :key="r.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
+        <div v-for="r in rules" :key="r.id" class="border rounded-lg p-3 bg-surface">
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 min-w-0">
               <Radio :checked="r.is_home_default" @click="askSetDefault(r)" />
@@ -262,11 +262,11 @@ async function doCancelDefault() {
             </div>
             <Tag color="blue" class="shrink-0">{{ r.client_type }}</Tag>
           </div>
-          <div class="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-2">
+          <div class="text-xs text-text-secondary mt-1 flex flex-wrap items-center gap-2">
             <TypographyText code>{{ r.slug }}</TypographyText>
             <Tag v-if="r.current_version > 0" color="green">v{{ r.current_version }}</Tag>
             <Tooltip v-else title="可作为 SR 分流规则装配目标">
-              <span class="text-gray-400">无激活版本</span>
+              <span class="text-text-tertiary">无激活版本</span>
             </Tooltip>
             <span>刷新 {{ fmtTime(r.refreshed_at) }}</span>
           </div>
@@ -287,11 +287,11 @@ async function doCancelDefault() {
     <FormOverlay v-model:open="createOpen" title="创建规则" :width="560" :loading="creating" destroy-on-close>
       <div class="space-y-3">
         <Input v-model:value="form.name" :maxlength="100" placeholder="名称（不强制唯一）" />
-        <Select v-model:value="form.client_type" class="w-full" disabled>
+        <AppSelect v-model:value="form.client_type" class="w-full" disabled>
           <Select.Option value="shadowrocket">Shadowrocket（当前唯一支持）</Select.Option>
-        </Select>
+        </AppSelect>
         <div>
-          <div class="text-xs text-gray-400 mb-1">scheme（含 {url} 占位符，创建后不可修改）</div>
+          <div class="text-xs text-text-tertiary mb-1">scheme（含 {url} 占位符，创建后不可修改）</div>
           <div v-for="(_, i) in form.schemes" :key="i" class="flex gap-2 mb-1">
             <Input v-model:value="form.schemes[i]" placeholder="如 shadowrocket://add/{url}" />
             <Button size="small" danger :disabled="form.schemes.length <= 1" @click="form.schemes.splice(i, 1)">删除</Button>

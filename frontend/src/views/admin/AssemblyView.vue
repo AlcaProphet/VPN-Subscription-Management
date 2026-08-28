@@ -676,7 +676,7 @@ const outputGroups = computed(() => {
       <Tabs.TabPane key="build" tab="构建订阅/规则">
         <Tabs :active-key="subTab" @change="onSubTabChange" class="mb-4">
           <Tabs.TabPane v-for="tab in SUB_TABS" :key="tab" :tab="tab">
-            <div v-if="loadingContext" class="py-12 text-center text-gray-400">加载装配上下文中…</div>
+            <div v-if="loadingContext" class="py-12 text-center text-text-tertiary">加载装配上下文中…</div>
             <div v-else>
               <Alert v-if="buildPreflightMissing.length" type="warning" show-icon class="mb-4" message="构建前缺少以下前置条件：">
                 <template #description>

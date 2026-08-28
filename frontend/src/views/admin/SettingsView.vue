@@ -4,7 +4,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import {
-  Alert, Button, Card, Checkbox, Input, InputNumber, Modal, Radio, Select, Space, Switch, Tag, Upload,
+  Alert, Button, Card, Checkbox, Input, InputNumber, Modal, Radio, Space, Switch, Tag, Upload,
 } from 'ant-design-vue'
 import {
   getOidc, saveOidc, clearOidc, testOidc, getOidcRules, saveOidcRules, getLocalAuth, saveLocalAuth,
@@ -670,7 +670,7 @@ onMounted(async () => {
 
     <!-- 手机只保留一个分组选择器，避免长锚点列表挤占可视区域。 -->
     <div class="mb-4 md:hidden">
-      <Select v-model:value="activeGroup" :options="groupOptions" class="w-full" aria-label="选择设置分组" />
+      <AppSelect v-model:value="activeGroup" :options="groupOptions" class="w-full" aria-label="选择设置分组" />
     </div>
 
     <div class="flex gap-6">
@@ -691,7 +691,7 @@ onMounted(async () => {
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">提供商类型</span>
-              <Select class="flex-1" :value="oidc.provider_type || 'off'" :options="providerOptions" @change="onProviderChange" />
+              <AppSelect class="flex-1" :value="oidc.provider_type || 'off'" :options="providerOptions" @change="onProviderChange" />
             </div>
             <!-- 未配置（暂未启用）：折叠全部配置框（R10-08） -->
             <template v-if="oidc.provider_type">
@@ -741,29 +741,29 @@ onMounted(async () => {
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">审批开关</span>
               <Switch v-model:checked="oidcRules.approval_on" />
-              <span class="text-xs text-gray-400">开启后新 OIDC 用户按白名单判定，未命中进入审批中心</span>
+              <span class="text-xs text-text-tertiary">开启后新 OIDC 用户按白名单判定，未命中进入审批中心</span>
             </div>
             <Alert v-if="oidcRules.approval_on && !oidcRules.whitelist.role_values.length && !oidcRules.whitelist.group_values.length"
                    type="warning" show-icon message="白名单为空，新用户将全部直接激活" />
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">Role 声明路径</span>
-              <Select v-model:value="oidcRules.whitelist.role_claim_path" class="flex-1"
+              <AppSelect v-model:value="oidcRules.whitelist.role_claim_path" class="flex-1"
                       :options="[{ value: 'realm_access.roles', label: 'realm_access.roles' }, { value: 'roles', label: 'roles' }]"
                       allow-clear placeholder="点分路径" />
             </div>
             <div class="flex items-start gap-3">
               <span class="w-24 text-sm">Role 白名单</span>
-              <Select v-model:value="oidcRules.whitelist.role_values" mode="tags" class="flex-1" placeholder="输入值后回车（如 admin）" />
+              <AppSelect v-model:value="oidcRules.whitelist.role_values" mode="tags" class="flex-1" placeholder="输入值后回车（如 admin）" />
             </div>
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">Group 声明路径</span>
-              <Select v-model:value="oidcRules.whitelist.group_claim_path" class="flex-1"
+              <AppSelect v-model:value="oidcRules.whitelist.group_claim_path" class="flex-1"
                       :options="[{ value: 'groups', label: 'groups' }, { value: 'roles', label: 'roles' }]"
                       allow-clear placeholder="点分路径" />
             </div>
             <div class="flex items-start gap-3">
               <span class="w-24 text-sm">Group 白名单</span>
-              <Select v-model:value="oidcRules.whitelist.group_values" mode="tags" class="flex-1" placeholder="输入值后回车（如 vpn-users）" />
+              <AppSelect v-model:value="oidcRules.whitelist.group_values" mode="tags" class="flex-1" placeholder="输入值后回车（如 vpn-users）" />
             </div>
             <Button type="primary" :loading="rulesSaving" @click="doSaveOidcRules">保存</Button>
           </div>
@@ -783,7 +783,7 @@ onMounted(async () => {
             <div class="flex items-center gap-3">
               <span class="w-40 text-sm">自注册审批</span>
               <Switch v-model:checked="localAuth.selfreg_approval" />
-              <span class="text-xs text-gray-400">开启后自注册用户进入审批中心</span>
+              <span class="text-xs text-text-tertiary">开启后自注册用户进入审批中心</span>
             </div>
             <Alert v-if="!localAuth.allow_local_login" type="warning" show-icon
                    message="本地登录关闭且 OIDC 不可用时将被禁止保存（防认证死锁）" />
@@ -870,7 +870,7 @@ onMounted(async () => {
                 <Button>选择文件（≤2MB）</Button>
               </Upload>
               <!-- flex-1 + min-w-0 + truncate：完整 URL 超长时省略号截断不溢出（title 提示完整路径） -->
-              <span v-if="site.icon_url" class="text-xs text-gray-400 flex-1 min-w-0 truncate"
+              <span v-if="site.icon_url" class="text-xs text-text-tertiary flex-1 min-w-0 truncate"
                     :title="site.icon_url">当前：{{ site.icon_url }}</span>
             </div>
             <Space>
@@ -885,7 +885,7 @@ onMounted(async () => {
           <div class="flex items-center gap-3">
             <span class="text-sm">当前模式：</span>
             <Tag :color="isProd ? 'green' : 'orange'">{{ isProd ? 'Production' : 'Dev' }}</Tag>
-            <span class="text-xs text-gray-400">由启动环境变量决定，修改需重启容器</span>
+            <span class="text-xs text-text-tertiary">由启动环境变量决定，修改需重启容器</span>
           </div>
         </Card>
 
@@ -1004,7 +1004,7 @@ onMounted(async () => {
                 <Input.Password v-model:value="exportPwd" placeholder="设置导出密码（≥8 字符）" style="max-width: 260px" />
                 <Button type="primary" :loading="exporting" @click="doExport">导出并下载</Button>
               </div>
-              <div class="text-xs text-gray-400 mt-1">内容：全部系统配置（含签名密钥与敏感密文）+ 站点信息（ICON 内嵌）；v2 额外包含 Xray 实例清单（含节点显示名映射）与独立账号推送目标/超限标记；不含业务数据与日志</div>
+              <div class="text-xs text-text-tertiary mt-1">内容：全部系统配置（含签名密钥与敏感密文）+ 站点信息（ICON 内嵌）；v2 额外包含 Xray 实例清单（含节点显示名映射）与独立账号推送目标/超限标记；不含业务数据与日志</div>
             </div>
             <div>
               <div class="mb-1 text-sm font-medium">导入配置（整体覆盖）</div>
@@ -1016,7 +1016,7 @@ onMounted(async () => {
                 <Button danger @click="importOpen = true">导入</Button>
               </Space>
               <Alert v-if="importProtectError" type="error" show-icon class="mt-2" :message="importProtectError" />
-              <div class="text-xs text-gray-400 mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；完成后需重启容器并重新登录</div>
+              <div class="text-xs text-text-tertiary mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；完成后需重启容器并重新登录</div>
             </div>
           </div>
         </Card>
@@ -1025,7 +1025,7 @@ onMounted(async () => {
         <Card v-show="isGroupVisible('data')" id="backup" title="备份下载" size="small">
           <div class="space-y-2 max-w-xl">
             <Button :loading="backingUp" @click="backupOpen = true">下载备份（tar.gz）</Button>
-            <div class="text-xs text-gray-400">含数据库一致性快照 + 全部内容文件；恢复方式见部署文档（手动解包到数据卷）</div>
+            <div class="text-xs text-text-tertiary">含数据库一致性快照 + 全部内容文件；恢复方式见部署文档（手动解包到数据卷）</div>
           </div>
         </Card>
 

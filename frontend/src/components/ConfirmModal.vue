@@ -1,7 +1,8 @@
 <!-- ConfirmModal.vue：删除/危险操作统一确认对话框（禁止浏览器原生 confirm） -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { Modal, Input } from 'ant-design-vue'
+import { nextOverlayId, registerOverlay, focusFirstInContainer } from '@/utils/overlayManager'
 
 const props = defineProps<{
   open: boolean
@@ -16,6 +17,33 @@ const emit = defineEmits<{ confirm: []; cancel: []; 'update:open': [boolean] }>(
 const word = ref('')
 // 确认词不正确时确认按钮禁用
 const okDisabled = computed(() => !!props.confirmWord && word.value !== props.confirmWord)
+
+const overlayId = nextOverlayId('confirm-modal')
+let overlayUnregister: (() => void) | null = null
+const lastFocused = ref<HTMLElement | null>(null)
+
+watch(() => props.open, async (open) => {
+  if (open) {
+    lastFocused.value = document.activeElement as HTMLElement | null
+    overlayUnregister?.()
+    overlayUnregister = registerOverlay({
+      id: overlayId,
+      type: 'modal',
+      close: () => emit('update:open', false),
+      focusTrigger: () => lastFocused.value?.focus?.(),
+    })
+    await nextTick()
+    setTimeout(() => {
+      const container = document.querySelector<HTMLElement>('.ant-modal-content')
+      if (container) focusFirstInContainer(container)
+    }, 0)
+  } else {
+    lastFocused.value?.focus?.()
+    lastFocused.value = null
+    overlayUnregister?.()
+    overlayUnregister = null
+  }
+}, { immediate: true })
 </script>
 
 <template>

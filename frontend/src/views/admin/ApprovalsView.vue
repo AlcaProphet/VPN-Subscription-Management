@@ -193,7 +193,7 @@ const expandedClaims = ref<Record<number, boolean>>({})
                 <Button size="small" danger @click="rejectTarget = u">拒绝</Button>
               </Space>
             </div>
-            <div class="text-sm text-gray-500 mt-1">
+            <div class="text-sm text-text-secondary mt-1">
               {{ u.email || '无邮箱' }} · {{ fmtTime(u.created_at) }}
             </div>
           </div>

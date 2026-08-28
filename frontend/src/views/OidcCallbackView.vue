@@ -30,8 +30,8 @@ onMounted(async () => {
 </script>
 <template>
   <div class="w-full max-w-md py-20 mx-auto">
-    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-8">
-      <div v-if="loading" class="text-center text-gray-500">正在登录…</div>
+    <div class="bg-surface rounded-lg shadow p-8">
+      <div v-if="loading" class="text-center text-text-secondary">正在登录…</div>
       <Result v-else-if="errorMessage" status="error" title="无法完成 OIDC 登录" :sub-title="errorMessage">
         <template #extra>
           <Space wrap>

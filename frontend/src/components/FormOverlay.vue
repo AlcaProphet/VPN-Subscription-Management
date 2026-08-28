@@ -3,6 +3,7 @@
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Button, Drawer, Modal } from 'ant-design-vue'
 import { CloseOutlined } from '@ant-design/icons-vue'
+import { nextOverlayId, registerOverlay, focusFirstInContainer } from '@/utils/overlayManager'
 
 const props = withDefaults(defineProps<{
   open: boolean
@@ -24,18 +25,30 @@ const emit = defineEmits<{
 
 const isMobile = ref(false)
 const lastFocused = ref<HTMLElement | null>(null)
+const overlayId = nextOverlayId('form-overlay')
+let overlayUnregister: (() => void) | null = null
 let mediaQuery: MediaQueryList | null = null
 
 watch(() => props.open, async (open) => {
   if (open) {
     lastFocused.value = document.activeElement as HTMLElement | null
+    overlayUnregister?.()
+    overlayUnregister = registerOverlay({
+      id: overlayId,
+      type: isMobile.value ? 'drawer' : 'modal',
+      close: () => emit('update:open', false),
+      focusTrigger: () => lastFocused.value?.focus?.(),
+    })
     await nextTick()
     setTimeout(() => {
-      document.querySelector<HTMLElement>('.ant-modal-content input, .ant-modal-content textarea, .ant-modal-content select, .ant-drawer-content input, .ant-drawer-content textarea, .ant-drawer-content select')?.focus()
+      const container = document.querySelector<HTMLElement>('.ant-modal-content') || document.querySelector<HTMLElement>('.ant-drawer-content')
+      if (container) focusFirstInContainer(container)
     }, 0)
   } else {
     lastFocused.value?.focus?.()
     lastFocused.value = null
+    overlayUnregister?.()
+    overlayUnregister = null
   }
 }, { immediate: true })
 

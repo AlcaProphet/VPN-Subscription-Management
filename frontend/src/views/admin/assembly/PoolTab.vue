@@ -1,7 +1,9 @@
 <!-- PoolTab.vue：规则素材池列表（Design2-UI §5.2.1）+ 新建/编辑弹窗 -->
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
-import { Badge, Button, Modal, Input, Switch, Table, TimePicker, Tooltip } from 'ant-design-vue'
+import { Badge, Button, Input, Switch, Table, Tooltip } from 'ant-design-vue'
+import AppModal from '@/components/AppModal.vue'
+import AppTimePicker from '@/components/AppTimePicker.vue'
 import dayjs from 'dayjs'
 import { listPools, createPool, updatePool, deletePool, submitSync, cancelSync, getSyncStatus, type PoolItem, type SyncTaskItem } from '@/api/pool'
 import { pollTask, ApiError } from '@/api/request'
@@ -172,15 +174,14 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 <template>
   <div>
     <!-- 素材池详情弹窗 -->
-    <Modal :open="detailID !== 0" :footer="null" :width="760" :centered="true"
-           :title="currentDetail() ? `素材池详情 · ${currentDetail()!.name}` : ''"
-           :body-style="{ maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }"
-           @cancel="detailID = 0">
+    <AppModal :open="detailID !== 0" :footer="null" :width="760" :centered="true"
+              :title="currentDetail() ? `素材池详情 · ${currentDetail()!.name}` : ''"
+              @update:open="detailID = $event ? detailID : 0">
       <PoolDetail v-if="detailID" :pool="currentDetail()!" @changed="load" @edit="openEdit(currentDetail()!)" />
-    </Modal>
+    </AppModal>
 
     <div class="flex items-center justify-between mb-3">
-        <div class="text-sm text-gray-500">维护规则素材池，供订阅装配时勾选拼接</div>
+        <div class="text-sm text-text-secondary">维护规则素材池，供订阅装配时勾选拼接</div>
         <Button type="primary" class="touch-target" @click="openCreate">新建素材池</Button>
       </div>
 
@@ -213,7 +214,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
               <div class="flex items-center gap-2">
                 <Switch :checked="record.auto_sync" :loading="toggling === record.id"
                         size="small" @change="(v: boolean | string | number) => toggleAuto(record, Boolean(v))" />
-                <span class="text-xs text-gray-400">每日 {{ record.sync_time }} UTC</span>
+                <span class="text-xs text-text-tertiary">每日 {{ record.sync_time }} UTC</span>
               </div>
             </template>
           </Table.Column>
@@ -239,11 +240,11 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
                        :text="statusMeta[p.sync_status]?.text ?? '未同步'" />
               </Tooltip>
             </div>
-            <div class="text-xs text-gray-500 mt-1">URL {{ p.urls.length }} · 条目 {{ p.entry_count }} · 上次同步 {{ fmtTime(p.last_synced_at) }}</div>
+            <div class="text-xs text-text-secondary mt-1">URL {{ p.urls.length }} · 条目 {{ p.entry_count }} · 上次同步 {{ fmtTime(p.last_synced_at) }}</div>
             <div class="mt-2 flex items-center gap-2 flex-wrap">
               <Switch :checked="p.auto_sync" :loading="toggling === p.id" size="small"
                       @change="(v: boolean | string | number) => toggleAuto(p, Boolean(v))" />
-              <span class="text-xs text-gray-400">每日 {{ p.sync_time }} UTC</span>
+              <span class="text-xs text-text-tertiary">每日 {{ p.sync_time }} UTC</span>
               <Button size="small" @click="detailID = p.id">详情</Button>
               <Button size="small" :loading="syncingID === p.id" @click="doSync(p)">同步</Button>
               <Button v-if="syncingID === p.id" size="small" danger @click="doCancelSync(p)">取消</Button>
@@ -272,9 +273,9 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         <div class="flex items-center gap-3 flex-wrap">
           <span class="text-sm">定时同步</span>
           <Switch v-model:checked="form.auto_sync" size="small" />
-          <TimePicker :value="form.sync_time ? dayjs(form.sync_time, 'HH:mm') : undefined" format="HH:mm" :minute-step="1"
-                      @change="(t: any) => form.sync_time = t ? t.format('HH:mm') : '04:00'" />
-          <span class="text-xs text-gray-400">HH:MM，按 UTC 每日执行，停机错过不补跑</span>
+          <AppTimePicker :value="form.sync_time ? dayjs(form.sync_time, 'HH:mm') : undefined" format="HH:mm" :minute-step="1"
+                         @change="(t: any) => form.sync_time = t ? t.format('HH:mm') : '04:00'" />
+          <span class="text-xs text-text-tertiary">HH:MM，按 UTC 每日执行，停机错过不补跑</span>
         </div>
       </div>
     </FormOverlay>

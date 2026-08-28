@@ -117,7 +117,7 @@ function goHome() {
     <Layout.Sider v-if="!isMobile" v-model:collapsed="collapsed" theme="light"
                   :width="220" :collapsed-width="64" collapsible :trigger="null"
                   :style="{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }">
-      <div class="h-16 flex items-center justify-center font-semibold truncate text-gray-900">
+      <div class="h-16 flex items-center justify-center font-semibold truncate text-text">
         <span v-if="!collapsed">管理面板</span>
         <Tooltip v-else title="管理面板"><SettingOutlined class="text-lg" aria-label="管理面板" /></Tooltip>
       </div>
@@ -150,7 +150,7 @@ function goHome() {
       <div class="h-full flex flex-col min-h-0">
         <Menu class="flex-1 overflow-y-auto" mode="inline" :selected-keys="selectedKeys" :items="menuItems"
               @click="(e: any) => onMenuClick(e.key)" />
-        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+        <div class="mt-3 pt-3 border-t border-subtle border">
           <Button block type="text" class="touch-target" aria-label="返回主界面" @click="goHome">
             <template #icon><HomeOutlined /></template>
             返回主界面
@@ -165,7 +165,7 @@ function goHome() {
       <AppHeader :burger="isMobile" @open-drawer="drawerOpen = true" />
       <!-- 右侧内容区：白底卡片容器（24px 内边距） -->
       <Layout.Content class="min-w-0 p-3 sm:p-4 md:p-6">
-        <div class="min-w-0 bg-white dark:bg-gray-800 rounded-lg p-3 md:p-6 min-h-full">
+        <div class="min-w-0 bg-surface rounded-lg p-3 md:p-6 min-h-full">
           <ContextBar />
           <RouterView />
         </div>

@@ -115,10 +115,10 @@ onMounted(async () => {
   <div class="w-full max-w-md">
     <!-- 自定义登录页公告：登录 card 上方，MD 渲染；容器与登录 card 同款样式（R10-07 边框阴影统一） -->
     <div v-if="notice.login_announcement"
-         class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-4 mb-4">
+         class="bg-surface rounded-lg shadow p-4 mb-4">
       <MarkdownView :source="notice.login_announcement" />
     </div>
-    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-8">
+    <div class="bg-surface rounded-lg shadow p-8">
       <!-- 顶部：Logo 垂直布局（ICON 上、站点标题下，标题更大；R10-06） -->
       <div class="flex flex-col items-center gap-3 mb-6">
         <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="h-16 w-16 object-contain" />
@@ -151,7 +151,7 @@ onMounted(async () => {
         <Divider plain>或</Divider>
         <!-- mock 提供商（仅 Dev）：模拟登录表单，标题标注「Dev 模拟登录」 -->
         <Form v-if="system.status.oidc_provider_type === 'mock'" layout="vertical" :model="mockForm" @finish="onMockLogin">
-          <div class="text-sm text-gray-400 mb-2">Dev 模拟登录</div>
+          <div class="text-sm text-text-tertiary mb-2">Dev 模拟登录</div>
           <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email', trigger: 'blur' }]">
             <Input v-model:value="mockForm.email" />
           </Form.Item>
@@ -182,7 +182,7 @@ onMounted(async () => {
     </div>
     <!-- 自定义登录页页脚：登录 card 下方，MD 渲染；容器与登录 card 同款样式（R10-07 边框阴影统一） -->
     <div v-if="notice.login_footer"
-         class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-4 mt-4">
+         class="bg-surface rounded-lg shadow p-4 mt-4">
       <MarkdownView :source="notice.login_footer" />
     </div>
     <div class="text-right mt-3"><Switch :checked="dark" checked-children="🌙" un-checked-children="☀️" size="small" title="切换暗色/浅色模式" @change="toggle" /></div>

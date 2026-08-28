@@ -40,15 +40,15 @@ function onDrop(idx: number) {
   <div class="space-y-3">
     <div>
       <div class="text-sm font-medium mb-1">已勾选素材池（有序）</div>
-      <div v-if="form.pools.length === 0" class="text-xs text-gray-400">尚未添加素材池</div>
+      <div v-if="form.pools.length === 0" class="text-xs text-text-tertiary">尚未添加素材池</div>
       <div v-for="(p, idx) in form.pools" :key="idx" :draggable="true" class="flex items-center gap-2 mb-2 cursor-move"
            @dragstart="onDragStart(idx)" @dragover.prevent @drop="onDrop(idx)">
-        <Select :value="p.pool_id" class="w-48" @change="(v: any) => form.pools[idx] = { ...form.pools[idx], pool_id: Number(v) }">
+        <AppSelect :value="p.pool_id" class="w-48" @change="(v: any) => form.pools[idx] = { ...form.pools[idx], pool_id: Number(v) }">
           <Select.Option v-for="pool in context?.pools ?? []" :key="pool.id" :value="pool.id">{{ pool.name }}</Select.Option>
-        </Select>
-        <Select v-if="targetSyntax !== 'sr-conf'" :value="p.target" class="flex-1" @change="(v: any) => form.pools[idx] = { ...form.pools[idx], target: String(v) }">
+        </AppSelect>
+        <AppSelect v-if="targetSyntax !== 'sr-conf'" :value="p.target" class="flex-1" @change="(v: any) => form.pools[idx] = { ...form.pools[idx], target: String(v) }">
           <Select.Option v-for="g in outputGroups" :key="g" :value="g">{{ g }}</Select.Option>
-        </Select>
+        </AppSelect>
         <Radio.Group v-else :value="p.target" @change="(e: any) => form.pools[idx] = { ...form.pools[idx], target: String(e.target.value) }">
           <Radio value="PROXY">PROXY</Radio>
           <Radio value="DIRECT">DIRECT</Radio>
@@ -62,11 +62,11 @@ function onDrop(idx: number) {
     <div>
       <div class="text-sm font-medium mb-1">手动规则行</div>
       <div v-for="(r, idx) in form.custom_rules" :key="idx" class="flex items-center gap-2 mb-2">
-        <Select v-model:value="r.rule_type" class="w-48" :options="ruleTypeOptions.map((t) => ({ label: t, value: t }))" />
+        <AppSelect v-model:value="r.rule_type" class="w-48" :options="ruleTypeOptions.map((t) => ({ label: t, value: t }))" />
         <Input v-model:value="r.match_value" placeholder="匹配值" class="flex-1" />
-        <Select v-if="targetSyntax !== 'sr-conf'" v-model:value="r.target" class="w-40" placeholder="目标组">
+        <AppSelect v-if="targetSyntax !== 'sr-conf'" v-model:value="r.target" class="w-40" placeholder="目标组">
           <Select.Option v-for="g in outputGroups" :key="g" :value="g">{{ g }}</Select.Option>
-        </Select>
+        </AppSelect>
         <Radio.Group v-else v-model:value="r.target">
           <Radio value="PROXY">PROXY</Radio>
           <Radio value="DIRECT">DIRECT</Radio>
@@ -75,6 +75,6 @@ function onDrop(idx: number) {
       </div>
       <Button size="small" @click="emit('add-rule')">添加规则行</Button>
     </div>
-    <div v-if="targetSyntax === 'clash-yaml'" class="text-xs text-gray-400">USER-AGENT 规则在 Clash 中不支持，已从类型下拉排除。</div>
+    <div v-if="targetSyntax === 'clash-yaml'" class="text-xs text-text-tertiary">USER-AGENT 规则在 Clash 中不支持，已从类型下拉排除。</div>
   </div>
 </template>

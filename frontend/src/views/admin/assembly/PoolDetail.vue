@@ -1,7 +1,7 @@
 <!-- PoolDetail.vue：素材池详情（条目分页 + 手动条目 CRUD + 同步历史） -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { Alert, Badge, Button, Input, Pagination, Select, Space, Table, Tag, Tooltip } from 'ant-design-vue'
+import { Alert, Badge, Button, Input, Pagination, Space, Table, Tag, Tooltip } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import {
   listEntries, createEntry, updateEntry, deleteEntry,
@@ -151,8 +151,8 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 <template>
   <div>
     <div class="flex items-center gap-2 mb-3 flex-wrap">
-      <div class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ pool.name }}</div>
-      <span class="text-xs text-gray-400">URL {{ pool.urls.length }} · 条目 {{ pool.entry_count }} · 上次同步 {{ fmtTime(pool.last_synced_at) }}</span>
+      <div class="text-sm font-medium text-text">{{ pool.name }}</div>
+      <span class="text-xs text-text-tertiary">URL {{ pool.urls.length }} · 条目 {{ pool.entry_count }} · 上次同步 {{ fmtTime(pool.last_synced_at) }}</span>
       <Badge v-if="pool.sync_status" :status="(statusMeta[pool.sync_status]?.color ?? 'default') as any"
              :text="statusMeta[pool.sync_status]?.text ?? pool.sync_status" />
       <div class="flex-1" />
@@ -166,21 +166,21 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
       <div v-for="(u, i) in syncResult.per_url" :key="i" class="text-xs">
         <span :class="u.ok ? 'text-green-600' : 'text-red-500'">{{ u.url }}</span>
         ：{{ u.ok ? `新增 ${u.added} · 删除 ${u.removed} · 跳过 ${u.skipped}` : (u.error || '失败') }}
-        <span v-if="u.skip_reasons?.length" class="text-gray-400 ml-1">{{ u.skip_reasons.join('；') }}</span>
+        <span v-if="u.skip_reasons?.length" class="text-text-tertiary ml-1">{{ u.skip_reasons.join('；') }}</span>
       </div>
     </Alert>
 
     <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-      <div class="text-sm text-gray-500">
+      <div class="text-sm text-text-secondary">
         手动条目（前段）与 URL 同步条目（后段）按渲染顺序展示；顺序由系统维护
       </div>
       <Button size="small" @click="openCreateEntry">新增条目</Button>
     </div>
 
-    <div v-if="loading" class="py-8 text-center text-gray-400">加载中…</div>
-    <div v-else-if="entries.length === 0" class="py-8 text-center text-gray-400">池内暂无条目</div>
+    <div v-if="loading" class="py-8 text-center text-text-tertiary">加载中…</div>
+    <div v-else-if="entries.length === 0" class="py-8 text-center text-text-tertiary">池内暂无条目</div>
     <template v-else>
-      <div v-if="manualEntries.length" class="text-sm font-medium text-gray-600 mt-2 mb-1">手动条目（前段）</div>
+      <div v-if="manualEntries.length" class="text-sm font-medium text-text-secondary mt-2 mb-1">手动条目（前段）</div>
       <Table v-if="manualEntries.length" :data-source="manualEntries" :pagination="false" row-key="id" size="small" class="hidden md:block">
         <Table.Column title="规则类型" key="type" width="170">
           <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
@@ -198,7 +198,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           </template>
         </Table.Column>
       </Table>
-      <div v-if="urlEntries.length" class="text-sm font-medium text-gray-600 mt-4 mb-1">URL 同步条目（后段）</div>
+      <div v-if="urlEntries.length" class="text-sm font-medium text-text-secondary mt-4 mb-1">URL 同步条目（后段）</div>
       <Table v-if="urlEntries.length" :data-source="urlEntries" :pagination="false" row-key="id" size="small" class="hidden md:block">
         <Table.Column title="规则类型" key="type" width="170">
           <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
@@ -210,13 +210,13 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           <template #default><Tag color="blue">url</Tag></template>
         </Table.Column>
         <Table.Column title="操作" key="actions" width="140">
-          <template #default><span class="text-xs text-gray-400">系统维护</span></template>
+          <template #default><span class="text-xs text-text-tertiary">系统维护</span></template>
         </Table.Column>
       </Table>
       <!-- <768 卡片态：条目按 manual/url 分段 -->
       <div class="mobile-actions md:hidden space-y-2 mt-2">
         <template v-if="manualEntries.length">
-          <div class="text-sm font-medium text-gray-600">手动条目（前段）</div>
+          <div class="text-sm font-medium text-text-secondary">手动条目（前段）</div>
           <div v-for="e in manualEntries" :key="e.id" class="border rounded-lg p-2">
             <div class="flex items-center justify-between gap-2">
               <div>
@@ -231,14 +231,14 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           </div>
         </template>
         <template v-if="urlEntries.length">
-          <div class="text-sm font-medium text-gray-600">URL 同步条目（后段）</div>
+          <div class="text-sm font-medium text-text-secondary">URL 同步条目（后段）</div>
           <div v-for="e in urlEntries" :key="e.id" class="border rounded-lg p-2">
             <div class="flex items-center justify-between gap-2">
               <div>
                 <Tag>{{ e.rule_type }}</Tag>
                 <span class="font-mono text-xs">{{ e.match_value }}</span>
               </div>
-              <span class="text-xs text-gray-400">系统维护</span>
+              <span class="text-xs text-text-tertiary">系统维护</span>
             </div>
           </div>
         </template>
@@ -249,18 +249,18 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 
     <div class="mt-4">
       <h4 class="text-sm font-medium mb-2">同步历史</h4>
-      <div v-if="tasks.length === 0" class="text-xs text-gray-400">暂无同步任务</div>
+      <div v-if="tasks.length === 0" class="text-xs text-text-tertiary">暂无同步任务</div>
       <div v-for="t in tasks" :key="t.task_id" class="border rounded p-2 mb-2 text-sm">
         <Badge :status="(statusMeta[t.status]?.color ?? 'default') as any" :text="statusMeta[t.status]?.text ?? t.status" />
-        <span class="text-xs text-gray-400 ml-2">{{ fmtTime(t.started_at) }} → {{ fmtTime(t.finished_at) }}</span>
+        <span class="text-xs text-text-tertiary ml-2">{{ fmtTime(t.started_at) }} → {{ fmtTime(t.finished_at) }}</span>
         <Tooltip v-if="t.error" :title="t.error">
           <span class="text-xs text-red-500 ml-2">原因</span>
         </Tooltip>
         <div v-for="(u, i) in t.per_url" :key="i" class="text-xs mt-1 border-t pt-1">
           <span :class="u.ok ? 'text-green-600' : 'text-red-500'">{{ u.url }}</span>
-          <span v-if="u.ok" class="text-gray-500 ml-2">新增 {{ u.added }} · 删除 {{ u.removed }} · 跳过 {{ u.skipped }}</span>
+          <span v-if="u.ok" class="text-text-secondary ml-2">新增 {{ u.added }} · 删除 {{ u.removed }} · 跳过 {{ u.skipped }}</span>
           <span v-else class="text-red-500 ml-2">{{ u.error || '失败' }}</span>
-          <div v-if="u.skip_reasons?.length" class="text-gray-400 ml-2">{{ u.skip_reasons.join('；') }}</div>
+          <div v-if="u.skip_reasons?.length" class="text-text-tertiary ml-2">{{ u.skip_reasons.join('；') }}</div>
         </div>
       </div>
       <Pagination v-if="taskTotal > 20" class="mt-2" v-model:current="taskPage" :page-size="20" :total="taskTotal" />
@@ -269,7 +269,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
     <FormOverlay v-model:open="entryOpen" :title="editingEntry ? '编辑条目' : '新增条目'" :width="480"
                  :loading="entrySaving" destroy-on-close @submit="saveEntry">
       <div class="space-y-3">
-        <Select v-model:value="entryForm.rule_type" :options="RULE_TYPES.map((t) => ({ label: t, value: t }))" class="w-full" />
+        <AppSelect v-model:value="entryForm.rule_type" :options="RULE_TYPES.map((t) => ({ label: t, value: t }))" class="w-full" />
         <Input v-model:value="entryForm.match_value" placeholder="匹配值（按规则类型白名单校验）" @press-enter="saveEntry" />
       </div>
     </FormOverlay>

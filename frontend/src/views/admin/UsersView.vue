@@ -3,8 +3,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Alert, Badge, Button, Dropdown, Input, Menu, Modal, Pagination, Radio, Select, Space, Table, Tabs, Tag, Upload,
+  Alert, Badge, Button, Input, Menu, Modal, Pagination, Radio, Select, Space, Table, Tabs, Tag, Upload,
 } from 'ant-design-vue'
+import AppDropdown from '@/components/AppDropdown.vue'
 import {
   listUsers, createUser, updateUser, changeRole, revokeTokens, resetPassword, clearOidc, setStatus, deleteUser,
   sendPasswordLinks, setUserQuota, type AdminUser,
@@ -567,12 +568,12 @@ const roleConfirmContent = computed(() => {
           </Table.Column>
           <Table.Column key="actions" title="操作" width="100">
             <template #default="{ record }">
-              <Dropdown>
+              <AppDropdown>
                 <Button size="small">操作 <span class="ml-0.5">▾</span></Button>
                 <template #overlay>
                   <Menu :items="menuItems(record)" @click="(e: any) => onMenuClick(e.key, record)" />
                 </template>
-              </Dropdown>
+              </AppDropdown>
             </template>
           </Table.Column>
         </Table>
@@ -587,14 +588,14 @@ const roleConfirmContent = computed(() => {
                 <Tag v-if="!u.email" color="default">无邮箱</Tag>
                 <Tag :color="u.role === 'admin' ? 'red' : 'blue'">{{ u.role === 'admin' ? '管理员' : '用户' }}</Tag>
               </Space>
-              <Dropdown>
+              <AppDropdown>
                 <Button size="small">操作 ▾</Button>
                 <template #overlay>
                   <Menu :items="menuItems(u)" @click="(e: any) => onMenuClick(e.key, u)" />
                 </template>
-              </Dropdown>
+              </AppDropdown>
             </div>
-            <div class="text-sm text-gray-500 mt-1 truncate">{{ u.email || '无邮箱' }} · {{ u.group_name || '无组' }}</div>
+            <div class="text-sm text-text-secondary mt-1 truncate">{{ u.email || '无邮箱' }} · {{ u.group_name || '无组' }}</div>
           </div>
         </div>
       </template>
@@ -632,7 +633,7 @@ const roleConfirmContent = computed(() => {
       <div class="space-y-3">
         <div v-if="advancedMode">
           <div class="mb-1 text-sm">所属组（换组无需清 Token，下载实时解析跟随）</div>
-          <Select v-model:value="editForm.group_id" class="w-full" :options="groupOptions" />
+          <AppSelect v-model:value="editForm.group_id" class="w-full" :options="groupOptions" />
         </div>
         <div v-if="editing && !editing.email">
           <div class="mb-1 text-sm">补填邮箱（补填后获得设置密码/重置能力）</div>
@@ -649,9 +650,9 @@ const roleConfirmContent = computed(() => {
         </div>
         <div>
           <div class="mb-1 text-sm">适用平台</div>
-          <Select v-model:value="customForm.platform_id" class="w-full" placeholder="选择平台">
+          <AppSelect v-model:value="customForm.platform_id" class="w-full" placeholder="选择平台">
             <Select.Option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</Select.Option>
-          </Select>
+          </AppSelect>
         </div>
         <!-- 文件/文本双页签（与版本管理、分享订阅创建弹窗统一，避免按钮错位） -->
         <Tabs v-model:activeKey="customForm.mode">

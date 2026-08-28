@@ -2,7 +2,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Card, Dropdown, Empty, Modal, Progress, Tag, Tooltip } from 'ant-design-vue'
+import { Alert, Button, Card, Empty, Progress, Tag, Tooltip } from 'ant-design-vue'
+import AppDropdown from '@/components/AppDropdown.vue'
+import AppModal from '@/components/AppModal.vue'
 import dayjs from 'dayjs'
 import {
   homePlatforms,
@@ -174,18 +176,18 @@ const custom = (card: PlatformCard) => card.status === 'custom'
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-page">
     <AppHeader :updated-at="updatedText" manage-btn />
 
     <main class="max-w-6xl mx-auto p-4">
-      <div v-if="loading" class="text-center py-16 text-gray-400">加载中…</div>
+      <div v-if="loading" class="text-center py-16 text-text-tertiary">加载中…</div>
 
       <template v-else>
         <!-- 1) 流量卡片（基础模式仅「不限流量」） -->
-        <Card v-if="system.status?.traffic_card_enabled !== false" class="mb-4 shadow-sm dark:text-gray-100">
+        <Card v-if="system.status?.traffic_card_enabled !== false" class="mb-4 shadow-sm">
           <div class="text-sm font-medium mb-2">流量</div>
           <template v-if="traffic.unlimited">
-            <div class="text-gray-500">不限流量</div>
+            <div class="text-text-secondary">不限流量</div>
           </template>
           <template v-else>
             <div class="text-sm">
@@ -199,12 +201,12 @@ const custom = (card: PlatformCard) => card.status === 'custom'
         </Card>
 
         <!-- 2) 分流规则卡片（全体用户可见） -->
-        <Card class="mb-4 shadow-sm dark:text-gray-100" hoverable @click="router.push('/rules')">
+        <Card class="mb-4 shadow-sm" hoverable @click="router.push('/rules')">
           <template v-if="homeRule">
             <div class="flex items-center justify-between gap-2 flex-wrap">
               <div>
                 <div class="font-medium">分流规则</div>
-                <div class="text-sm text-gray-500">{{ homeRule.name }} · v{{ homeRule.current_version }}</div>
+                <div class="text-sm text-text-secondary">{{ homeRule.name }} · v{{ homeRule.current_version }}</div>
               </div>
               <div @click.stop>
                 <Button type="primary" @click="copyRuleLink">复制规则链接</Button>
@@ -213,7 +215,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
           </template>
           <div v-else class="text-center py-6">
             <div class="text-lg font-semibold">分流规则为 Shadowrocket 客户端专用</div>
-            <div class="text-sm text-gray-400 mt-2">使用指引：先添加订阅获取节点，再导入分流规则</div>
+            <div class="text-sm text-text-tertiary mt-2">使用指引：先添加订阅获取节点，再导入分流规则</div>
           </div>
         </Card>
 
@@ -223,7 +225,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
             <template #title>
               <div>
                 <span class="font-medium">{{ card.name }}</span>
-                <div v-if="card.description" class="text-xs text-gray-400 font-normal">{{ card.description }}</div>
+                <div v-if="card.description" class="text-xs text-text-tertiary font-normal">{{ card.description }}</div>
               </div>
             </template>
 
@@ -232,7 +234,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
               <template v-if="card.subscription">
                 <div class="text-sm space-y-2">
                   <div>
-                    <span class="text-gray-500">订阅：</span>{{ card.subscription.name }}
+                    <span class="text-text-secondary">订阅：</span>{{ card.subscription.name }}
                     <Tag class="ml-1" :color="productTypeMeta[card.subscription.product_type]?.color">
                       {{ productTypeLabel(card.subscription.product_type) }}
                     </Tag>
@@ -241,15 +243,15 @@ const custom = (card: PlatformCard) => card.status === 'custom'
                     </Tag>
                   </div>
                   <div v-if="card.subscription.current_version > 0">
-                    <span class="text-gray-500">当前版本：</span>v{{ card.subscription.current_version }}
-                    <span v-if="card.subscription.version_updated_at" class="text-xs text-gray-400 ml-2">
+                    <span class="text-text-secondary">当前版本：</span>v{{ card.subscription.current_version }}
+                    <span v-if="card.subscription.version_updated_at" class="text-xs text-text-tertiary ml-2">
                       {{ dayjs(card.subscription.version_updated_at).format('YYYY-MM-DD HH:mm') }}
                     </span>
                   </div>
-                  <div v-else class="text-gray-400">未激活</div>
+                  <div v-else class="text-text-tertiary">未激活</div>
                 </div>
               </template>
-              <div v-else class="text-gray-400 text-center py-6 border rounded bg-gray-50 dark:bg-gray-700">
+              <div v-else class="text-text-tertiary text-center py-6 border rounded bg-surface-subtle bg-surface-subtle">
                 暂无可用版本，请联系管理员
               </div>
               <div class="mt-3">
@@ -266,16 +268,16 @@ const custom = (card: PlatformCard) => card.status === 'custom'
               <Alert v-if="custom(card)" type="info" show-icon class="mb-2"
                      message="已被分配自定义订阅" description="由管理员单独配置，覆盖组内分发" />
               <div v-else-if="unassigned(card)"
-                   class="text-gray-400 text-center py-6 border rounded bg-gray-50 dark:bg-gray-700">
+                   class="text-text-tertiary text-center py-6 border rounded bg-surface-subtle bg-surface-subtle">
                 暂无可用版本，请联系管理员
               </div>
               <div v-else class="mb-3 text-sm">
-                <span class="text-gray-500">当前订阅：</span>{{ card.subscription_name || '—' }}
+                <span class="text-text-secondary">当前订阅：</span>{{ card.subscription_name || '—' }}
                 <Tag v-if="card.subscription_product_type" class="ml-1"
                      :color="productTypeMeta[card.subscription_product_type]?.color">
                   {{ productTypeLabel(card.subscription_product_type) }}
                 </Tag>
-                <div v-if="card.version_updated_at" class="text-xs text-gray-400 mt-1">
+                <div v-if="card.version_updated_at" class="text-xs text-text-tertiary mt-1">
                   更新于 {{ dayjs(card.version_updated_at).format('YYYY-MM-DD HH:mm') }}
                 </div>
               </div>
@@ -289,26 +291,26 @@ const custom = (card: PlatformCard) => card.status === 'custom'
 
             <!-- 底部：下载客户端 -->
             <div v-if="installerEntries(card).length" class="mt-3 pt-3 border-t">
-              <Dropdown :trigger="['click']">
+              <AppDropdown :trigger="['click']">
                 <Button size="small">下载客户端</Button>
                 <template #overlay>
-                  <div class="bg-white dark:bg-gray-800 p-1 shadow-lg rounded border border-gray-200 dark:border-gray-600 min-w-44 max-w-80 max-h-64 overflow-auto">
+                  <div class="bg-surface p-1 shadow-lg rounded border border-subtle border min-w-44 max-w-80 max-h-64 overflow-auto">
                     <div v-for="(it, i) in installerEntries(card)" :key="i"
-                         class="px-3 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                         class="px-3 py-1.5 rounded text-sm cursor-pointer hover:bg-surface-subtle hover:bg-surface-subtle flex items-center gap-2"
                          @click="openInstaller(it.url)">
                       <span class="flex-none">{{ it.kind === 'local' ? '📦' : '🔗' }}</span>
                       <span class="truncate" :title="it.url">{{ it.label }}</span>
                     </div>
                   </div>
                 </template>
-              </Dropdown>
+              </AppDropdown>
             </div>
           </Card>
         </div>
         <Empty v-else description="暂无订阅" />
 
         <!-- 4) 公告栏卡片 -->
-        <Card v-if="announcement" class="shadow-sm dark:text-gray-100">
+        <Card v-if="announcement" class="shadow-sm">
           <MarkdownView :source="announcement" />
         </Card>
       </template>
@@ -318,14 +320,14 @@ const custom = (card: PlatformCard) => card.status === 'custom'
                   content="刷新后旧链接立即失效，请更新客户端中的订阅地址" @confirm="doRefresh"
                   @update:open="closeRefresh" />
 
-    <Modal v-model:open="previewOpen" :title="`${previewTitle} · 按平台预览`" :footer="null" width="960px"
-           :destroy-on-close="true">
-      <div v-if="previewLoading" class="text-center py-8 text-gray-400">加载中…</div>
+    <AppModal :open="previewOpen" :title="`${previewTitle} · 按平台预览`" :footer="null" width="960px"
+              :destroy-on-close="true" @update:open="previewOpen = $event">
+      <div v-if="previewLoading" class="text-center py-8 text-text-tertiary">加载中…</div>
       <template v-else>
         <Alert v-if="previewContent.startsWith('# error:')" type="warning" show-icon class="mb-2"
                message="当前暂无可用版本" />
-        <pre class="bg-gray-50 dark:bg-gray-900 p-3 rounded text-xs overflow-auto max-h-[60vh] whitespace-pre-wrap">{{ previewContent }}</pre>
+        <pre class="bg-page p-3 rounded text-xs overflow-auto max-h-[60vh] whitespace-pre-wrap">{{ previewContent }}</pre>
       </template>
-    </Modal>
+    </AppModal>
   </div>
 </template>

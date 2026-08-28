@@ -43,7 +43,7 @@ function itemIcon(item: OverviewChecklistItem) {
 
 function itemColor(item: OverviewChecklistItem) {
   if (item.done) return 'text-green-600'
-  return item.manual ? 'text-amber-500' : 'text-gray-400'
+  return item.manual ? 'text-amber-500' : 'text-text-tertiary'
 }
 
 function fmtTime(value: string) {
@@ -91,7 +91,7 @@ onMounted(() => { void load() })
               <List.Item class="!px-0">
                 <div class="flex min-w-0 flex-1 items-center gap-2">
                   <component :is="itemIcon(item)" :class="itemColor(item)" />
-                  <span class="flex-1 text-sm" :class="item.done ? 'text-gray-500 line-through dark:text-gray-400' : ''">{{ item.label }}</span>
+                  <span class="flex-1 text-sm" :class="item.done ? 'text-text-secondary line-through ' : ''">{{ item.label }}</span>
                   <Tag v-if="item.manual" color="gold">人工</Tag>
                   <Button v-if="!item.done" type="link" size="small" @click="$router.push(item.action_path)">
                     {{ item.action_label }}
@@ -107,9 +107,9 @@ onMounted(() => { void load() })
         <h2 class="section-title">资源概况</h2>
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
           <button v-for="link in quickLinks" :key="link.path" type="button" class="overview-metric" @click="$router.push(link.path)">
-            <span class="text-sm text-gray-500 dark:text-gray-400">{{ link.label }}</span>
+            <span class="text-sm text-text-secondary">{{ link.label }}</span>
             <strong>{{ link.value }}</strong>
-            <RightOutlined class="text-xs text-gray-400" />
+            <RightOutlined class="text-xs text-text-tertiary" />
           </button>
         </div>
       </section>
@@ -120,8 +120,8 @@ onMounted(() => { void load() })
             <List size="small" :data-source="overview.recent.pending_users">
               <template #renderItem="{ item }">
                 <List.Item class="!px-0">
-                  <div class="min-w-0"><strong class="mr-2">{{ item.username }}</strong><span class="text-sm text-gray-500">{{ item.email || '未提供邮箱' }}</span></div>
-                  <span class="text-xs text-gray-400">{{ fmtTime(item.created_at) }}</span>
+                  <div class="min-w-0"><strong class="mr-2">{{ item.username }}</strong><span class="text-sm text-text-secondary">{{ item.email || '未提供邮箱' }}</span></div>
+                  <span class="text-xs text-text-tertiary">{{ fmtTime(item.created_at) }}</span>
                 </List.Item>
               </template>
             </List>
@@ -135,8 +135,8 @@ onMounted(() => { void load() })
             <List size="small" :data-source="overview.recent.access_logs">
               <template #renderItem="{ item }">
                 <List.Item class="!px-0">
-                  <div class="min-w-0 truncate"><strong class="mr-2">{{ item.username || '匿名' }}</strong><span class="text-sm text-gray-500">{{ item.resource_name || item.resource_slug || '资源访问' }}</span></div>
-                  <Space size="small"><Tag :color="item.status === 'success' ? 'green' : 'red'">{{ item.status === 'success' ? '成功' : '失败' }}</Tag><span class="text-xs text-gray-400">{{ fmtTime(item.created_at) }}</span></Space>
+                  <div class="min-w-0 truncate"><strong class="mr-2">{{ item.username || '匿名' }}</strong><span class="text-sm text-text-secondary">{{ item.resource_name || item.resource_slug || '资源访问' }}</span></div>
+                  <Space size="small"><Tag :color="item.status === 'success' ? 'green' : 'red'">{{ item.status === 'success' ? '成功' : '失败' }}</Tag><span class="text-xs text-text-tertiary">{{ fmtTime(item.created_at) }}</span></Space>
                 </List.Item>
               </template>
             </List>

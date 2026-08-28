@@ -681,6 +681,13 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 - 视觉 Token 由 `frontend/src/theme.ts` 的 `uiTokens` 统一驱动：AntD 使用具体色值，Tailwind 使用 `--ui-*` CSS 变量；主色浅色 `#2563EB`、深色 `#60A5FA`。
 - 表单载体统一为 `FormOverlay`：桌面 Modal、<768 全屏底部 Drawer；移动端主操作命中区 ≥44px。
 
+### 10.6 全局浮层与焦点管理（Build12 Step 2）
+
+- 新增 `frontend/src/utils/overlayManager.ts`：维护全局浮层栈，非模态浮层唯一；Esc 关闭栈顶并回焦；Modal/Drawer 允许合法层叠。
+- 新增 `AppDropdown.vue`、`AppModal.vue`、`AppSelect.vue`、`AppRangePicker.vue`、`AppTimePicker.vue`：项目自定义 Dropdown/Modal/Drawer/Select/RangePicker/TimePicker 统一接入浮层管理。
+- `FormOverlay.vue`、`ConfirmModal.vue` 与直接 Modal 页面统一焦点进入、陷阱与关闭回焦。
+- 顶部进度条、按钮中文自动空格等全局细节沿用 Build11 行为。
+
 ---
 
 ## 十一、变更记录
@@ -702,3 +709,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v2.1 | 2026-08-19 | DesignReport10 核验修订：目标规则实体选择固定步骤①（5.3.3/5.3.4）；v1.1 变更记录「三分区」勘误为「四分区」；首页 traffic 与分流规则卡片改独立端点 `GET /api/home/summary`、quota_bytes 不限时统一 `null`（9.3）；manual 节点编辑允许变更协议=整体重新填表（6.2）；停用预设组 400 拒绝生成（5.3.0）；用户预览 subs/generic-subs 装配模板返回明文原文（9.3） |
 | v2.2 | 2026-08-22 | 同步 Issue4 R19-02/R19-08 已落地决策：装配页改为「规则素材池 / 代理组 / 构建订阅·规则」三个一级 Tab，四个子平台并入构建 Tab；代理组不再独立路由/侧边栏菜单，改为 `/admin/assembly?tab=proxy-groups`。 |
 | v2.4 | 2026-08-28 | Build11 Step 2/4/5/6 收口：补可信状态页、FormOverlay、管理员概览与统一状态容器、菜单分组、设置六分组、版本真实名称、Token 统一（`#2563EB`/`#60A5FA` + CSS 变量）；同步 §1.1、§2.1、§2.3、§10.5。 |
+| v2.5 | 2026-08-28 | Build12：全量 gray/white 类迁移到 Token；新增全局浮层管理器、AppDropdown/AppModal、统一 Modal/Drawer 焦点管理；同步 §10.6。 |

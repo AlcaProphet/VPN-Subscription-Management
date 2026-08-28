@@ -112,7 +112,7 @@ async function startBind() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-page">
     <main class="max-w-2xl mx-auto p-4">
       <div class="flex items-center gap-2 mb-4">
         <Button type="text" @click="router.push('/')">

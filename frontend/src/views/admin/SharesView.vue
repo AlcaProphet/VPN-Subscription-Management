@@ -225,12 +225,12 @@ async function doDelete() {
 
       <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致） -->
       <div class="grid grid-cols-1 gap-3 md:hidden">
-        <div v-for="s in shares" :key="s.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
+        <div v-for="s in shares" :key="s.id" class="border rounded-lg p-3 bg-surface">
           <div class="flex items-center justify-between gap-2">
             <span class="font-medium truncate">{{ s.name }}</span>
             <Badge :status="revoked(s) ? 'error' : 'success'" :text="revoked(s) ? '已吊销' : '有效'" />
           </div>
-          <div class="text-xs text-gray-500 mt-1">创建 {{ fmtTime(s.created_at) }}</div>
+          <div class="text-xs text-text-secondary mt-1">创建 {{ fmtTime(s.created_at) }}</div>
           <div class="mt-1">
             <Tag v-if="s.current_version > 0" color="green">v{{ s.current_version }}</Tag>
             <Tag v-else color="default">无版本</Tag>

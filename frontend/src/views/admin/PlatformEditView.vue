@@ -225,8 +225,8 @@ async function save() {
             <Radio.Button value="subs">Shadowrocket 节点订阅</Radio.Button>
             <Radio.Button value="generic-subs">通用节点订阅（v2rayNG/v2rayN 等）</Radio.Button>
           </Radio.Group>
-          <div v-if="isDefault && isEdit" class="text-xs text-gray-400 mt-1">默认平台产物格式固定，不可修改</div>
-          <div v-else class="text-xs text-gray-400 mt-1">已有订阅条目时，与条目格式不一致的变更将被后端拒绝</div>
+          <div v-if="isDefault && isEdit" class="text-xs text-text-tertiary mt-1">默认平台产物格式固定，不可修改</div>
+          <div v-else class="text-xs text-text-tertiary mt-1">已有订阅条目时，与条目格式不一致的变更将被后端拒绝</div>
         </Form.Item>
         <Form.Item label="标识">
           <TypographyText v-if="isEdit" code>{{ form.slug }}</TypographyText>
@@ -239,7 +239,7 @@ async function save() {
                  message="支持 {url} 占位符，下载地址将替换其中；拖拽排序，列表首项为「一键导入」默认唤起方式" />
           <div v-for="(_, i) in form.schemes" :key="i" class="flex gap-2 mb-2 items-center"
                draggable="true" @dragstart="onDragStart(i)" @drop="onDrop(i)" @dragover.prevent>
-            <span class="cursor-move text-gray-400" title="拖拽排序">⠿</span>
+            <span class="cursor-move text-text-tertiary" title="拖拽排序">⠿</span>
             <Input v-model:value="form.schemes[i]" placeholder="如 clash://install-config?url={url}" />
             <Button size="small" danger :disabled="form.schemes.length <= 1" @click="form.schemes.splice(i, 1)">删除</Button>
           </div>
@@ -250,7 +250,7 @@ async function save() {
         <Form.Item label="附加响应头">
           <Alert type="info" show-icon class="mb-2"
                  message="键与值均禁止控制字符，键须符合 HTTP 头名规范；值支持 {frontend_url} 占位符" />
-          <div class="border rounded p-3 mb-3 space-y-2 dark:border-gray-700">
+          <div class="border rounded p-3 mb-3 space-y-2 border">
             <div class="text-sm font-medium">Clash 生态预设</div>
             <div class="grid gap-2">
               <div class="flex items-center gap-2">
@@ -296,16 +296,16 @@ async function save() {
               <Upload :show-upload-list="false" :before-upload="beforeUpload">
                 <Button :loading="uploading">追加安装包（≤300MB）</Button>
               </Upload>
-              <div v-if="uploading" class="text-xs text-gray-500">上传中 {{ uploadPct }}%</div>
-              <div v-if="installerFiles.length" class="border rounded divide-y dark:divide-gray-700 w-full">
+              <div v-if="uploading" class="text-xs text-text-secondary">上传中 {{ uploadPct }}%</div>
+              <div v-if="installerFiles.length" class="border rounded divide-y divide-border-subtle w-full">
                 <div v-for="item in installerFiles" :key="item.file" class="flex items-center gap-2 px-2 py-1">
-                  <span class="text-xs text-gray-500 flex-none">📦</span>
+                  <span class="text-xs text-text-secondary flex-none">📦</span>
                   <TypographyText code class="flex-1 min-w-0 truncate">{{ item.name || item.file }}</TypographyText>
                   <Button size="small" danger :loading="deletingFile === item.file"
                           @click="removeInstallerFile(item)">删除</Button>
                 </div>
               </div>
-              <div v-else class="text-xs text-gray-400">暂无本地安装包</div>
+              <div v-else class="text-xs text-text-tertiary">暂无本地安装包</div>
             </template>
           </Space>
         </Form.Item>

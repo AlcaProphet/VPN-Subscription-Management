@@ -120,13 +120,13 @@ async function confirmDelete() {
 
       <!-- <768：卡片 -->
       <div class="grid grid-cols-1 gap-3 md:hidden">
-        <div v-for="p in platforms" :key="p.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
+        <div v-for="p in platforms" :key="p.id" class="border rounded-lg p-3 bg-surface">
           <div class="flex items-center justify-between">
             <span class="font-medium">{{ p.name }}</span>
             <Tag :color="installerStatus(p).color">{{ installerStatus(p).text }}</Tag>
           </div>
           <!-- 标识只读展示 -->
-          <div class="text-xs text-gray-500 mt-1">
+          <div class="text-xs text-text-secondary mt-1">
             <TypographyText code>{{ p.slug }}</TypographyText>
               <Tag class="ml-1" :color="productTypeMeta[p.product_type]?.color">{{ p.product_type }}</Tag>
           </div>

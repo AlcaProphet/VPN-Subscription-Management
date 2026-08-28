@@ -28,7 +28,7 @@ function fillTemplate() {
 <template>
   <div class="space-y-3">
     <div class="flex items-center justify-between flex-wrap gap-2">
-      <div class="text-xs text-gray-500">
+      <div class="text-xs text-text-secondary">
         覆盖层仅作用于 Clash YAML：Merge 深合并，Rules/Proxies/Groups 按 prepend / delete / append 顺序覆盖。
       </div>
       <Button size="small" @click="fillTemplate">填入空模板</Button>

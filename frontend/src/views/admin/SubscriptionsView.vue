@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Input, Select, Table, Tag, TypographyText } from 'ant-design-vue'
+import { Alert, Button, Input, Table, Tag, TypographyText } from 'ant-design-vue'
 import {
   listSubscriptions,
   createSubscription,
@@ -161,13 +161,13 @@ async function confirmDelete() {
           <template #default="{ record }">
             <Tag v-if="record.content_kind === 'blueprint'" color="purple">装配模板</Tag>
             <Tag v-else-if="record.content_kind === 'upload'" color="default">直接上传</Tag>
-            <span v-else class="text-gray-400">—</span>
+            <span v-else class="text-text-tertiary">—</span>
           </template>
         </Table.Column>
         <Table.Column title="当前版本" key="current">
           <template #default="{ record }">
             <Tag v-if="record.current_version > 0" color="green">v{{ record.current_version }}</Tag>
-            <span v-else class="text-gray-400">未激活</span>
+            <span v-else class="text-text-tertiary">未激活</span>
           </template>
         </Table.Column>
         <Table.Column title="状态" key="status">
@@ -191,11 +191,11 @@ async function confirmDelete() {
       <!-- <768 卡片 -->
       <div v-else class="space-y-2">
         <div v-for="sub in subs" :key="sub.id"
-             :class="pooled(sub.id) ? 'border rounded-lg p-3 bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'border rounded-lg p-3 bg-white dark:bg-gray-800'">
+             :class="pooled(sub.id) ? 'border rounded-lg p-3 bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'border rounded-lg p-3 bg-surface'">
           <div class="flex items-center justify-between gap-2 flex-wrap">
             <div>
               <div class="font-medium">{{ sub.name }}</div>
-              <div class="text-xs text-gray-400">{{ sub.platform_name }} · {{ sub.product_type }}</div>
+              <div class="text-xs text-text-tertiary">{{ sub.platform_name }} · {{ sub.product_type }}</div>
             </div>
             <div class="mobile-actions flex flex-wrap gap-1">
               <Button size="small" @click="goVersions(sub)">版本管理</Button>
@@ -219,9 +219,9 @@ async function confirmDelete() {
       <div class="space-y-4">
         <div>
           <div class="mb-1 text-sm">平台</div>
-          <Select v-model:value="form.platform_id" class="w-full" :disabled="!!editing" :options="platformOptions()"
+          <AppSelect v-model:value="form.platform_id" class="w-full" :disabled="!!editing" :options="platformOptions()"
                   placeholder="选择平台" />
-          <div v-if="editing" class="text-xs text-gray-400 mt-1">平台创建后不可修改</div>
+          <div v-if="editing" class="text-xs text-text-tertiary mt-1">平台创建后不可修改</div>
         </div>
         <div>
           <div class="mb-1 text-sm">名称</div>

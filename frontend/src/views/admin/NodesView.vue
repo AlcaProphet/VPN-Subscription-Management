@@ -247,7 +247,7 @@ function handleObjectFieldBlur(name: string, e: any) {
         <Table.Column key="render_name" title="节点">
           <template #default="{ record }">
             <div class="font-medium">{{ record.render_name }}</div>
-            <div v-if="record.source === 'xray' && record.display_name" class="text-xs text-gray-500">{{ record.name }}</div>
+            <div v-if="record.source === 'xray' && record.display_name" class="text-xs text-text-secondary">{{ record.name }}</div>
           </template>
         </Table.Column>
         <Table.Column key="source" title="来源" width="100">
@@ -288,8 +288,8 @@ function handleObjectFieldBlur(name: string, e: any) {
             <span class="font-medium">{{ n.render_name }}</span>
             <Tag :color="n.source === 'manual' ? 'default' : 'purple'">{{ n.source }}</Tag>
           </div>
-          <div v-if="n.source === 'xray' && n.display_name" class="text-xs text-gray-500">{{ n.name }}</div>
-          <div class="text-xs text-gray-500 mt-1">{{ n.protocol }} · {{ n.host }}:{{ n.port }}</div>
+          <div v-if="n.source === 'xray' && n.display_name" class="text-xs text-text-secondary">{{ n.name }}</div>
+          <div class="text-xs text-text-secondary mt-1">{{ n.protocol }} · {{ n.host }}:{{ n.port }}</div>
           <div class="mobile-actions mt-2 flex items-center gap-2 flex-wrap">
             <Switch :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
             <Button v-if="n.source === 'manual'" size="small" @click="openEdit(n)">编辑</Button>
@@ -306,9 +306,9 @@ function handleObjectFieldBlur(name: string, e: any) {
                  @submit="save" @update:open="creating = false">
       <Form layout="vertical">
         <Form.Item label="协议" required>
-          <Select v-model:value="form.protocol">
+          <AppSelect v-model:value="form.protocol">
             <Select.Option v-for="p in protocols" :key="p.protocol" :value="p.protocol">{{ p.label }}</Select.Option>
-          </Select>
+          </AppSelect>
         </Form.Item>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Form.Item label="名称" required :validate-status="nameSpaceError ? 'error' : undefined" :help="nameSpaceError || undefined">
@@ -323,20 +323,20 @@ function handleObjectFieldBlur(name: string, e: any) {
         </div>
         <div v-if="currentSchema()" class="grid grid-cols-1 md:grid-cols-2 gap-x-3">
           <div v-for="f in currentSchema()!.form_schema" :key="f.name" :class="f.type === 'object' ? 'col-span-2 mb-3' : 'mb-3'">
-            <label class="text-sm text-gray-600">{{ f.label }}<span v-if="f.required" class="text-red-500"> *</span></label>
+            <label class="text-sm text-text-secondary">{{ f.label }}<span v-if="f.required" class="text-red-500"> *</span></label>
             <Input.Password v-if="f.type === 'password'" :value="String(fieldValue(f.name) ?? '')" :placeholder="sensitiveFields().has(f.name) ? '留空 = 保留原凭据' : ''" @change="(e: any) => setField(f.name, e.target.value)" />
             <InputNumber v-else-if="f.type === 'number'" :value="Number(fieldValue(f.name) ?? f.default ?? 0)" class="w-full" @change="(v: any) => setField(f.name, v ?? 0)" />
-            <Select v-else-if="f.type === 'select'" :value="String(fieldValue(f.name) ?? f.default ?? '')" class="w-full" @change="(v: any) => setField(f.name, v)">
+            <AppSelect v-else-if="f.type === 'select'" :value="String(fieldValue(f.name) ?? f.default ?? '')" class="w-full" @change="(v: any) => setField(f.name, v)">
               <Select.Option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</Select.Option>
-            </Select>
+            </AppSelect>
             <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)" @change="(v: any) => setField(f.name, v)" />
             <Input.TextArea v-else-if="f.type === 'object'" :value="JSON.stringify(fieldValue(f.name) ?? f.default ?? {}, null, 2)" :rows="3"
               @blur="(e: any) => handleObjectFieldBlur(f.name, e)" />
             <Input v-else-if="f.type === 'text-list' || f.type === 'int-list'" :value="Array.isArray(fieldValue(f.name)) ? (fieldValue(f.name) as unknown[]).join(', ') : String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
             <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
             <div v-if="objectError && objectErrorField === f.name" class="text-xs text-red-500 mt-1">{{ objectError }}</div>
-            <div v-else-if="f.type === 'text-list' || f.type === 'int-list'" class="text-xs text-gray-400 mt-1">逗号分隔</div>
-            <div v-else-if="f.help" class="text-xs text-gray-400 mt-1">{{ f.help }}</div>
+            <div v-else-if="f.type === 'text-list' || f.type === 'int-list'" class="text-xs text-text-tertiary mt-1">逗号分隔</div>
+            <div v-else-if="f.help" class="text-xs text-text-tertiary mt-1">{{ f.help }}</div>
           </div>
         </div>
       </Form>
@@ -344,7 +344,7 @@ function handleObjectFieldBlur(name: string, e: any) {
 
     <FormOverlay :open="naming !== null" title="节点显示名" :loading="saving"
                  @submit="saveDisplayName" @update:open="naming = null">
-      <p class="text-sm text-gray-500">仅 Xray 节点可设置显示名；留空保存将清空并恢复系统名。</p>
+      <p class="text-sm text-text-secondary">仅 Xray 节点可设置显示名；留空保存将清空并恢复系统名。</p>
       <Alert v-if="namingError" type="error" show-icon class="mb-2" :message="namingError" />
       <Input v-model:value="displayNameInput" placeholder="系统名" />
     </FormOverlay>
@@ -361,7 +361,7 @@ function handleObjectFieldBlur(name: string, e: any) {
 
     <FormOverlay :open="importOpen" title="批量导入节点" :width="760" :loading="importing"
                  @submit="doImport" @update:open="importOpen = false">
-      <p class="text-sm text-gray-500 mb-2">支持 ss / vmess / vless / trojan / hysteria2 / hysteria / tuic / wireguard / anytls / http(s) / socks5，也可粘贴 Base64 订阅文本。</p>
+      <p class="text-sm text-text-secondary mb-2">支持 ss / vmess / vless / trojan / hysteria2 / hysteria / tuic / wireguard / anytls / http(s) / socks5，也可粘贴 Base64 订阅文本。</p>
       <Input.TextArea v-model:value="importText" :rows="8" placeholder="每行一条节点 URI" />
       <div v-if="importResults.length" class="mt-3">
         <div class="text-sm font-medium mb-2">导入回执（{{ importResults.filter((r) => r.ok).length }} 成功 / {{ importResults.filter((r) => !r.ok).length }} 跳过）</div>
