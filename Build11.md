@@ -1,344 +1,589 @@
-# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案
+# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v1.2）
 
-> **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](docs/reports/UI/UIReport1.md)、[UIReport2.md](docs/reports/UI/UIReport2.md)）后的**当前构建方案**，用于指导后续 UI/UX 改进的实施、测试与文档同步。
+> **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](docs/reports/UI/UIReport1.md)、[UIReport2.md](docs/reports/UI/UIReport2.md)）后的**当前构建方案**。v1.2 已从头重新核验前后端源码与报告，修正可执行性、后端契约与测试落点；目标是让 Build11 具备稳定、可逐步执行的能力。
 > - 研究依据：`docs/reports/UI/UIReport1.md`、`docs/reports/UI/UIReport2.md`
-> - 当前设计：`Design2.md`、`Design2-UI.md`（UI 改进涉及主色、导航等原设计结论，需按本文件同步修改）
+> - 当前设计：`Design2.md`、`Design2-UI.md`（本卷已获用户确认，实施时需同步修订相关章节）
 > - 编码指令：[AGENTS.md](AGENTS.md)（唯一强要求）
-> - 构建记录归档：`docs/reports/Build/`（历史 Build1~Build10 均已存档，仅核查）
+> - 历史构建：`docs/reports/Build/`（Build1~Build10 均已存档，仅核查）
 >
 > **执行原则：**
-> - 每一步完成后均可编译、可测试。不跳步、不并行多步。
-> - AI 执行指令：每次仅执行一个 Step，完成后运行验收命令，确认通过后再进入下一步。
-> - 排序原则：先修复后构建、先安全后优化、先依赖后独立。
-> - UI/UX 改进原则上不改变产品功能、权限模型或后端契约；本卷获用户确认允许**最小后端调整**。
+> - 每次仅执行一个 Step，完成后运行验收命令，确认通过后再进入下一步。
+> - 排序原则：先修复后构建、先依赖后独立、先安全后优化。
+> - 本卷允许**最小后端调整**，但不改变产品功能、权限模型和既有业务语义。
 >
-> **本版状态：** v1.0 仅创建本文档，未改动任何代码/文档。
+> **本版状态：** v1.2 仅完成核验与文档修正，未改动任何代码。
 
 ---
 
-## 〇、本卷已确认决策
+## 〇、已确认决策（用户拍板）
 
-| ID | 决策项 | 用户选择 | 与现有设计的关系 |
-|----|--------|----------|------------------|
-| D1 | 改进优先级 | 按 UIReport2 分阶段：先可信状态 → 手机可操作 → 结构统一 → 视觉系统 | 不冲突 |
-| D2 | 管理导航 | 分组但不折叠 | 与 `Design2-UI.md §2.1`“平铺不分组”冲突，实施时需同步修改 |
-| D3 | 视觉 Token | 采用 `#2563EB` 主色 + 完整 Token | 与 `Design2-UI.md §1.1`“默认科技蓝、零定制”冲突，实施时需同步修改 |
-| D4 | 设置页承载 | 同一路由 + 桌面分组导航 + 手机 Select | 与当前长页锚点不同，属信息架构调整 |
-| D5 | 手机复杂表单 | 手机全屏 Drawer + 桌面宽 Modal/独立页共用表单 | 与当前固定宽度 Modal 不同 |
-| D6 | 首次发布引导 | 新增 `/admin` 概览页 | 新增管理端概览路由 |
-| D7 | 页面覆盖 | 包含高级模式页面（Xray 实例、用户组） | 需补充高级模式页面的 UI 审计与实施 |
-| D8 | 后端边界 | 允许最小后端调整 | 仅限重置 token 状态、OIDC 错误映射等必要项 |
+| ID | 决策项 | 用户选择 | 说明 |
+|----|--------|----------|------|
+| D1 | 改进优先级 | 按 UIReport2：可信状态 → 手机可操作 → 结构统一 → 视觉系统 | — |
+| D2 | 管理导航 | 分组但不折叠 | 需修改 `Design2-UI.md §2.1` |
+| D3 | 视觉 Token | `#2563EB` + UIReport2 §6.2 双主题 Token | 需修改 `Design2-UI.md §1.1` |
+| D4 | 设置页 | 同一路由 + 桌面分组导航 + 手机 Select | — |
+| D5 | 手机复杂表单 | 全部 Modal 表单统一为手机全屏 Drawer；已是独立页的表单只做响应式优化 | — |
+| D6 | 首次发布引导 | 新增 `/admin` 概览页，内容含状态 + 发布清单 + 计数 + 快捷入口 + **动态摘要** | — |
+| D7 | 页面覆盖 | 包含高级模式页面（Xray、用户组） | — |
+| D8 | 后端边界 | 允许最小后端调整 | — |
+| D9 | 重置链接状态 | 新增后端校验接口，支持缺失/过期/已使用三态 | 需保留 `used` 标记 |
+| D10 | 概览页数据源 | 新增 `GET /api/admin/overview` 汇总接口 | — |
+| D11 | 版本页真实资源名 | 新增 `GET /api/admin/versions/:id/owner` 通用归属接口 | 以版本 ID 反查 owner |
+| D12 | 装配警告过滤 | 后端 `Warnings()` 为主，前端按 `targetSyntax` 兜底过滤 | — |
+| D13 | 概览页入口 | 管理菜单顶部加“概览”，AppHeader“管理面板”跳 `/admin` | — |
 
 ---
 
-## 一、构建进度追踪
+## 一、当前代码事实与后端影响总表
 
-| Step | 内容 | 状态 |
-|------|------|------|
-| 0 | 创建 Build11 文档，汇总 UI 报告与用户决策 | ✅ 已完成（本文档） |
-| 1 | Phase 0：可信状态修复 | ☐ 未开始 |
-| 2 | Phase 1：手机任务可完成性 | ☐ 未开始 |
-| 3 | Phase 2：信息架构与结构统一（含 `/admin` 概览、高级模式） | ☐ 未开始 |
-| 4 | Phase 3：视觉 Token 与主题统一 | ☐ 未开始 |
-| 5 | Phase 4：效率润色与全量收口 | ☐ 未开始 |
+> 以下事实经源码核对，是各 Step 的前置依据；路径均为项目内实际文件。
+
+### 1.1 可信状态问题（代码事实）
+
+| 问题 | 当前事实 | 修复层 |
+|------|----------|--------|
+| 装配旧预览 | `AssemblyView.vue` 的 `previewText` 在切换类型后不清空；`doGenerate()` 不校验预览新旧 | 纯前端（Step 2） |
+| 无关空规则警告 | `backend/internal/assembly/service.go` `Warnings()` 对四种 targetSyntax 无条件输出“未选择任何规则素材池或手动规则，将生成空规则” | 后端为主，前端兜底（Step 1/2） |
+| `/emergency` 非应急误显示 | `EmergencyView.vue` 无条件渲染应急 UI；`GET /api/system/status` 已返回 `emergency`/`emergency_reason`/`can_reset_password` | 纯前端（Step 2） |
+| `/reset` 无 token 仍可输入 | `ResetView.vue` 未在初始化阶段判断 token；后端只有 `POST /api/auth/reset` 提交即消费 | 后端新增校验 + 前端三态（Step 1/2） |
+| OIDC 回调错误 | 后端已生成 `state_mismatch`、`state_expired`、`exchange_failed` 等 query key；`OidcCallbackView.vue` 丢弃接口错误并统一跳 `exchange_failed`；`LoginView.vue` 直接展示内部 key；`request.ts` 的 401 拦截器会把 `/login/callback` 的交换失败抢先跳转登录页 | 前端映射 + 拦截器例外（Step 2） |
+| 装配跨页上下文丢失 | 装配前置条件跳 `/admin/nodes`、`/admin/subscriptions` 前不保存草稿；无 ContextBar | 纯前端（Step 2） |
+
+### 1.2 手机/结构与视觉问题（代码事实）
+
+| 问题 | 当前事实 |
+|------|----------|
+| 管理导航 | `AdminLayout.vue` 为 10~12 项单层 `Menu`，无分组 |
+| 页面标题 | `PageHeader.vue` 输出 `<h2 class="text-lg">`；管理页均无页面级 `h1` |
+| 设置页 | `SettingsView.vue` 15 个锚点分区连续堆叠，每区独立保存但无未保存聚合 |
+| 手机控件 | `AppHeader.vue` 同时放汉堡/站点名/管理入口/用户名/主题开关；大量 `size="small"` 与 `size="small"` Switch |
+| 复杂表单 | `NodesView.vue` 新建/编辑节点用 720px Modal；Xray、用户组、代理组、素材池、订阅、分享、规则、用户等同样存在 Modal 表单 |
+| 视觉 Token | `theme.ts` 仅配置 `colorPrimary`；Tailwind `theme.extend` 为空；暗色由 AntD 算法与 `gray-*` 各自决定 |
+| 版本标题 | `VersionManageView.vue` 显示 `resourceName`（路由传的是 ownerType 英文） |
+| `/admin` 路由 | 前端无 `/admin` 精确路由；后端 `emergency_gate.go` 的 `isSPAPath` 只覆盖 `/admin/` 前缀，不含精确 `/admin` |
+
+### 1.3 后端影响矩阵
+
+| 变更 | 后端文件 | 影响与约束 |
+|------|----------|------------|
+| 重置 token 校验 + used 保留 | `internal/auth/reset.go`、`internal/server/auth.go`、测试 | 改 `Complete` 从 DELETE 改为 `UPDATE used=1`；新增 `POST /api/auth/reset/validate`；不新增数据库列 |
+| 装配警告按目标过滤 | `internal/assembly/service.go`、测试 | 仅 `clash-yaml` 与 `sr-conf` 输出规则空警告；`sr-subs`/`generic-subs` 不输出 |
+| `/admin` 概览汇总 | 新增 `internal/server/overview.go` 及测试；`internal/approval/approval.go` 新增最近待审批只读方法 | 新增 `GET /api/admin/overview`；只读聚合，不改变任何业务数据 |
+| 版本归属反查 | `internal/version/version.go`、`internal/server/version_owner.go`、`internal/rule/rule.go`、`internal/custom/custom.go` 及测试 | 新增 `GET /api/admin/versions/:id/owner`；只读查询 |
+| 应急网关 `/admin` 精确路径 | `internal/server/emergency_gate.go` | `isSPAPath` 增加 `path == "/admin"` |
+| 其余 UI 步骤 | 无后端改动 | 仅前端组件、路由、样式、测试 |
+
+---
+
+## 二、构建进度追踪
+
+| Step | 内容 | 依赖 | 状态 |
+|------|------|------|------|
+| 0 | 创建并完善 Build11 文档 | — | ✅ 已完成（本文档 v1.2） |
+| 1 | 后端：重置 token 三态 + 装配警告语义修正 | Step 0 | ☐ 未开始 |
+| 2 | 前端：可信状态修复（预览指纹、应急/重置/OIDC、跨页上下文） | Step 1 | ☐ 未开始 |
+| 3 | 后端：`/admin/overview` + 版本归属接口 + 应急网关 `/admin` | Step 0 | ☐ 未开始 |
+| 4 | 前端：手机任务可完成性（顶栏、触控、FormOverlay） | Step 2 | ☐ 未开始 |
+| 5 | 前端：信息架构与结构统一（PageShell、菜单分组、设置分组、概览页、版本标题、高级模式页） | Step 3/4 | ☐ 未开始 |
+| 6 | 前端：视觉 Token 与主题统一 | Step 5 | ☐ 未开始 |
+| 7 | 效率润色、测试补强与文档收口 | Step 1~6 | ☐ 未开始 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
 ---
 
-## 二、构建概要（文件清单总览）
+## 三、构建概要（文件清单总览）
 
 | Step | 涉及文件 | 要点 |
 |------|---------|------|
-| 1 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/PreviewStep.vue`、`AssemblerShell.vue`、`frontend/src/api/assembly.ts`、`frontend/src/views/EmergencyView.vue`、`frontend/src/views/ResetView.vue`、`frontend/src/views/OidcCallbackView.vue`、`frontend/src/views/LoginView.vue`、`frontend/src/api/auth.ts`、`frontend/src/api/oidc.ts`、相关后端文件 | 预览指纹、按目标过滤警告、应急/重置/OIDC 状态可信、装配跨页上下文恢复 |
-| 2 | `frontend/src/components/AppHeader.vue`、`frontend/src/layouts/AdminLayout.vue`、`frontend/src/views/admin/NodesView.vue`、各管理列表页/手机卡片、装配步骤组件 | 手机触控目标、顶栏重构、全屏 Drawer、手机分段选择、危险操作隔离 |
-| 3 | 新增 `PageShell.vue`、`EmptyState.vue`、`FormSection.vue`、`ResponsiveCollection.vue`、`PreviewState.vue`、`ContextBar.vue`、`AdminOverviewView.vue`；改造 `PageHeader.vue`、`TriStateList.vue`、`AdminLayout.vue`、`SettingsView.vue`、`VersionManageView.vue`、`XrayInstancesView.vue`、`GroupsView.vue` | 页面骨架、空态、设置六分组、管理导航分组、`/admin` 概览、版本标题、高级模式重组 |
-| 4 | `frontend/src/theme.ts`、`frontend/src/style.css`、`frontend/tailwind.config.js`、`frontend/src/App.vue`、各组件类名 | CSS 变量、AntD/Tailwind 对齐、主色 `#2563EB`、暗色表面分层、排版/圆角/阴影 |
-| 5 | `frontend/src/views/admin/assembly/PreviewStep.vue`、`frontend/src/components/DiffView.vue`、各空态/加载态、`frontend/tests/`、`.smoke-test.sh`、`.smoke-test-prod.sh`、`Design2-UI.md`、`AGENTS.md` | 预览/差异增强、轻动效、测试补强、文档同步 |
+| 1 | `backend/internal/auth/reset.go`、`backend/internal/server/auth.go`、`backend/internal/assembly/service.go`、`backend/internal/auth/reset_test.go`、新增 `backend/internal/cron/cleanup_test.go`、`backend/internal/assembly/assembly_test.go` | 重置三态、used 保留与清理测试、按 target 过滤警告 |
+| 2 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/{PreviewStep,AssemblerShell}.vue`、`frontend/src/views/{EmergencyView,ResetView,OidcCallbackView,LoginView}.vue`、`frontend/src/api/auth.ts`、`frontend/src/api/request.ts`、`frontend/src/layouts/AdminLayout.vue`、新增 `frontend/src/components/ContextBar.vue` 及测试 | 预览指纹与过期态、状态页恢复、401 拦截例外、错误映射、跨页返回 |
+| 3 | 新增 `backend/internal/server/overview.go`、`backend/internal/server/version_owner.go`、`backend/internal/server/overview_test.go`；改造 `backend/internal/version/version.go`、`backend/internal/approval/approval.go`、`backend/internal/approval/approval_test.go`、`backend/internal/rule/rule.go`、`backend/internal/custom/custom.go`、`backend/internal/server/emergency_gate.go`、`backend/internal/server/server.go` 及测试 | 概览聚合接口、最近待审批只读方法、版本归属反查、应急网关 `/admin` |
+| 4 | 新增 `frontend/src/components/FormOverlay.vue`；`frontend/src/components/AppHeader.vue`、`frontend/src/layouts/AdminLayout.vue`、`frontend/src/views/admin/{NodesView,XrayInstancesView,GroupsView,ProxyGroupsView,assembly/PoolTab,assembly/PoolDetail,SubscriptionsView,SharesView,RulesView,UsersView,VersionManageView,AssemblyView}.vue`；全局样式 | 手机顶栏精简、44px 命中区、全部 Modal 表单迁移 Drawer |
+| 5 | 新增 `frontend/src/components/{PageShell,EmptyState,StateContainer,ResponsiveCollection,FormSection,PreviewState}.vue`、`frontend/src/views/admin/AdminOverviewView.vue`、`frontend/src/api/overview.ts`；改造 `PageHeader.vue`、`TriStateList.vue`、`AdminLayout.vue`、`SettingsView.vue`、`VersionManageView.vue`、`XrayInstancesView.vue`、`GroupsView.vue`、`router/index.ts`、`AppHeader.vue` | 页面骨架、菜单分组、设置六分组、概览页、真实版本标题、高级页重组 |
+| 6 | `frontend/src/theme.ts`、`frontend/src/style.css`、`frontend/tailwind.config.js`、`frontend/src/router/index.ts`、`frontend/src/components/MarkdownView.vue`、`frontend/src/views/HomeView.vue`、全部含 `gray-*`/`dark:` 硬编码类名的 40 个 Vue 文件 | 双主题 Token；AntD 用具体色值、Tailwind 用 CSS 变量；暗色表面分层 |
+| 7 | `frontend/src/views/admin/assembly/PreviewStep.vue`、`frontend/src/components/DiffView.vue`、`frontend/tests/`、`.smoke-test.sh`、`.smoke-test-prod.sh`、`Design2-UI.md`、`AGENTS.md` | 预览/差异增强、统一反馈、测试与文档收口 |
 
 ---
 
-## 三、构建顺序依赖图
+## 四、构建顺序依赖图
 
 ```
-UIReport1/UIReport2 已完成
-  → Build11 Step 1（可信状态修复，独立优先）
-  → Build11 Step 2（手机任务可完成性，可与 Step 1 并行观察，但建议 Step 1 先行）
-  → Build11 Step 3（信息架构/结构统一，依赖 Step 1/2 的交互和表单形态稳定）
-  → Build11 Step 4（视觉 Token 与主题统一，依赖 Step 3 组件骨架）
-  → Build11 Step 5（效率润色、测试与文档收口，依赖 Step 1~4）
+Step 1（后端：重置三态 + 警告语义）
+  → Step 2（前端：可信状态，依赖 reset/validate 契约）
+Step 2 → Step 4（手机任务，依赖状态可信稳定后改造表单）
+Step 3（后端：概览/版本归属，可与 Step 1/2 并行观察）
+  → Step 5（前端：结构统一与概览页，依赖 Step 3 契约与 Step 4 表单载体）
+Step 5 → Step 6（视觉 Token，依赖页面骨架稳定）
+Step 1~6 → Step 7（润色/测试/文档收口）
 ```
 
-> 若有后端最小调整，统一在对应 Step 中完成，并在本文件变更记录中注明。
+> 后端最小调整统一在 Step 1 与 Step 3 完成，并在本文件变更记录中注明。
 
 ---
 
-## 四、分步构建计划
+## 五、分步构建计划
 
-### Step 1：Phase 0 — 可信状态修复
+### Step 1：后端 — 重置 token 三态 + 装配警告语义修正
 
-- **目标：** 让用户相信屏幕上的状态，避免误判、误操作或暴露内部错误。
-- **前置条件：** 无；需要时可先补充后端最小接口。
-- **产出文件与操作：**
+- **目标：** 让前端能预先判定重置链接状态；让装配 API 不再对节点订阅返回无关规则警告。
+- **前置条件：** 无。
 
-  1. `frontend/src/views/admin/AssemblyView.vue`：
-     - 增加 `previewFingerprint`，覆盖目标类型、平台、规则、头部、节点、代理组、规则素材、覆盖层等影响产物的字段。
-     - 记录最近一次成功预览的 fingerprint；任一字段变化后标记预览过期，旧预览不能作为当前预览。
-     - “确认生成”仅在最新预览可用时允许。
-     - 仅对 `clash-yaml` 与 `sr-conf` 渲染规则素材类警告，节点订阅不再出现无关警告。
+#### 1.1 重置 token 三态
+
+1. `backend/internal/auth/reset.go`：
+   - 新增状态类型与只读校验方法（不消费、不删除 token）：
+
+  ```go
+  type ResetTokenStatus string
+
+  const (
+      ResetTokenMissing ResetTokenStatus = "missing"
+      ResetTokenUsed    ResetTokenStatus = "used"
+      ResetTokenExpired ResetTokenStatus = "expired"
+      ResetTokenValid   ResetTokenStatus = "valid"
+  )
+
+  // Validate 只读校验，不消费、不删除；供 /reset 页面初始化判定状态。
+  func (s *ResetService) Validate(ctx context.Context, token string) (ResetTokenStatus, error) {
+      var expiresAt time.Time
+      var used int
+      err := s.store.DB().QueryRowContext(ctx,
+          `SELECT expires_at, used FROM password_reset_tokens WHERE token = ?`, token).
+          Scan(&expiresAt, &used)
+      if errors.Is(err, sql.ErrNoRows) { return ResetTokenMissing, nil }
+      if err != nil { return "", err }
+      if used == 1 { return ResetTokenUsed, nil }
+      if time.Now().After(expiresAt) { return ResetTokenExpired, nil }
+      return ResetTokenValid, nil
+  }
+  ```
+
+   - `Complete` 中把“用后即删”改为**标记已使用**：
+     `UPDATE password_reset_tokens SET used = 1 WHERE token = ?`。
+   - 保留 `IMMEDIATE` 事务，二次使用因 `used=1` 失败；已用记录由既有 `cron.StartResetTokenCleanup` 每日清理。
+2. `backend/internal/server/auth.go`：
+   - 注册 `g.POST("/reset/validate", h.validateReset)`，token 走请求体，不进 URL/访问日志。
+   - handler 返回 `OK(c, gin.H{"status": status})`。
+   - 不新增限流配置键：token 为 256 位随机值，接口只返回四态、不泄露账号信息。
+3. 测试：
+   - 更新 `backend/internal/auth/reset_test.go`：
+     - “用后即删”断言改为“Complete 后 token 行 `used=1`，二次 Complete 失败”；
+     - 新增 `TestResetValidateStatuses` 覆盖 valid/expired/used/missing。
+   - 新增 `backend/internal/cron/cleanup_test.go`：`TestResetCleanup` 直接调用 `cleanupResetTokensOnce`，验证 used=1/过期行被删除、有效行保留。
+
+#### 1.2 装配警告语义修正
+
+1. `backend/internal/assembly/service.go` `Warnings()`：
+
+  ```go
+  if (in.TargetSyntax == ClashYAML || in.TargetSyntax == SrConf) &&
+      len(in.Pools) == 0 && len(in.CustomRules) == 0 {
+      warnings = append(warnings, "未选择任何规则素材池或手动规则，将生成空规则")
+  }
+  ```
+
+2. 测试：在 `backend/internal/assembly/assembly_test.go` 增加 `TestWarningsSkipRulesForNodeSubscriptions`（`SrSubs`/`GenericSubs` 不输出该警告）与 `TestWarningsKeepRulesForClashAndSrConf`。
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go build ./...
+  cd backend && go vet ./...
+  cd backend && go test ./...
+  ```
+- **验收标准：**
+  - `POST /api/auth/reset/validate` 对 valid/missing/used/expired 返回统一成功包裹 `{status}`。
+  - Complete 成功后 token 行保留且 `used=1`，二次 Complete 失败。
+  - `sr-subs`/`generic-subs` 预览与生成 warnings 不含“未选择任何规则素材池或手动规则”。
+
+---
+
+### Step 2：前端 — 可信状态修复
+
+- **目标：** 让装配预览与确认生成强一致；让应急/重置/OIDC 页面呈现正确、可恢复的状态；跨页补前置条件后能回到原任务。
+- **前置条件：** Step 1 完成。
+
+#### 2.1 装配预览指纹与过期态
+
+1. `frontend/src/views/admin/AssemblyView.vue`：
+   - 新增 `previewFingerprint`（覆盖 targetSyntax、platform/rule、fixed_params、nodes/groups/group orders、overseas、pools、custom_rules、final_direction、overlay；数组与嵌套对象用 stable stringify 规范化）。
+   - 新增 `previewedAt` 与 `previewedTargetSyntax` 状态；`doPreview()` 成功后记录 `lastPreviewFingerprint`、`previewedAt`、`previewedTargetSyntax`，并清空 Diff。
+   - `doGenerate()` 前置守卫：`previewStale.value || !previewText.value` 时禁止生成并提示“配置已变化，请重新预览”。
+   - 本地兜底过滤规则素材警告：`sr-subs`/`generic-subs` 不展示。
+2. `frontend/src/views/admin/assembly/PreviewStep.vue`：
+   - 新增 `previewStale`、`previewedAt`、`previewedTargetSyntax` props；过期时显示 Alert“配置已变化，请重新预览”，旧正文折叠/半透明展示；最新态显示生成时间与目标类型。
+3. `frontend/src/views/admin/assembly/AssemblerShell.vue`：
+   - 新增 `canGenerate` prop；“确认生成” `:disabled="!canGenerate"`，禁用时 Tooltip“请先刷新预览”。
+4. 测试：更新 `frontend/tests/assembly-view.spec.ts`：
+   - preview 成功后生成可用；修改字段/切换类型后 stale 且禁用；`sr-subs` 下后端仍返回规则警告时页面不渲染该条。
+
+#### 2.2 应急/重置/OIDC 状态页
+
+1. `frontend/src/views/EmergencyView.vue`：
+   - `onMounted` 调 `system.fetchStatus(true)`；非应急状态显示 `Result status="info"`“当前未处于应急恢复模式”，动作“返回登录/首页”，不渲染操作码表单。
+2. `frontend/src/api/auth.ts` 与 `frontend/src/views/ResetView.vue`：
+   - 新增 `validateResetToken(token)`；页面按 valid/missing/used/expired 渲染表单或 Result；非 valid 不渲染密码输入；网络失败显示重试。
+3. `frontend/src/api/request.ts` 与 `frontend/src/views/OidcCallbackView.vue`：
+   - 在 401 拦截器中对 `/auth/oidc/exchange` 或当前路由 `/login/callback` 增加例外：不要抢先 `auth.logout()`/跳转，由回调页自行展示错误；
+   - `OidcCallbackView.vue` 失败时在页面内显示 `Result`，读取 `ApiError.message`；动作“重新使用 OIDC 登录 / 使用本地账号 / 联系管理员”；成功路径不变。
+4. `frontend/src/views/LoginView.vue`：
+   - 建立 `oidc_error` 映射表：`state_mismatch`/`state_expired`/`exchange_failed`/`resolve_failed`/`issue_failed` → 中文；其他后端文本加“OIDC 登录失败：”前缀。
+5. 测试：
+   - 新增 `reset-view.spec.ts`、`oidc-callback-view.spec.ts`、`emergency-view.spec.ts`；
+   - 更新 `request.spec.ts`：`/login/callback` 的 OIDC 交换 401 不再被拦截器抢先跳转登录页。
+
+#### 2.3 装配跨页上下文（ContextBar）
+
+1. 新增 `frontend/src/components/ContextBar.vue`：从 `sessionStorage` 读取 `assembly_ctx_v1`，有值且未过期时在管理内容区顶部渲染来源任务与“返回装配”。
+2. `AssemblyView.vue`：preflight 跳转前 `saveAssemblyDraft()`；返回时恢复 tab/subTab/step 与表单草稿，并清除上下文。
+3. `AdminLayout.vue`：在 `<RouterView />` 上方统一挂载 `<ContextBar />`。
+4. 测试：新增 `frontend/tests/context-bar.spec.ts`。
+
+- **测试与验收命令：**
+  ```bash
+  cd frontend && npm run build
+  cd frontend && npm test -- --run
+  ```
+- **验收标准：**
+  - 切换装配类型或修改任一产物字段后，旧预览不可作为当前预览，确认生成禁用。
+  - 非应急状态 `/emergency` 不出现“正常服务已暂停”和操作码输入。
+  - `/reset` 四态正确，非 valid 不渲染密码表单。
+  - OIDC 回调失败页面不出现内部 key，恢复动作可用。
+  - 从装配跳转补节点/订阅后，一次操作返回原装配类型与步骤。
+
+---
+
+### Step 3：后端 — 概览汇总、版本归属与 `/admin` 应急网关
+
+- **目标：** 为 `/admin` 概览页与版本标题提供稳定的只读后端契约；保证应急模式对 `/admin` 精确路径的前端回退不误拦。
+- **前置条件：** Step 0；可与 Step 1/2 并行观察。
+
+#### 3.1 `GET /api/admin/overview`
+
+1. 新增 `backend/internal/server/overview.go`：
+   - `OverviewHandler` 依赖现有只读业务服务：`platformSvc`、`subSvc`、`nodeSvc`、`ruleSvc`、`shareSvc`、`poolSvc`、`proxyGroupSvc`、`approvalSvc`、`adminUserSvc`、`accessSvc`、`xraySvc`、`extSvc`，并接收 `mode`。
+   - 在 `server.go` 中 **`RegisterLogRoutes` 之后、`registerStatic` 之前** 注册 `GET /api/admin/overview`（会话 + 管理员双中间件）。
+2. 新增 `internal/approval/approval.go` 只读方法：
+
+  ```go
+  // RecentPending 返回最近 limit 条待审批（created_at 倒序），供概览页动态摘要使用；
+  // 不改变审批中心现有列表的正序语义。
+  func (s *Service) RecentPending(ctx context.Context, limit int) ([]PendingUser, error)
+  ```
+
+3. 响应契约：
+
+  ```json
+  {
+    "status": { "app_mode": "prod", "advanced_mode": false, "emergency": false },
+    "counts": {
+      "platforms": 3, "subscriptions": 1, "nodes": 2, "usable_nodes": 2,
+      "manual_nodes": 1, "xray_nodes": 0, "rules": 1, "shares": 0, "users": 2,
+      "pending_users": 1, "pools": 1, "proxy_groups": 1,
+      "xray_instances": 0, "ext_accounts": 0
+    },
+    "checklist": [
+      { "key": "platforms", "done": true, "label": "创建至少一个平台", "action_path": "/admin/platforms", "action_label": "创建平台" },
+      { "key": "subscriptions", "done": true, "label": "为平台创建订阅条目", "action_path": "/admin/subscriptions", "action_label": "新建订阅" },
+      { "key": "nodes", "done": true, "label": "添加至少一个可用节点", "action_path": "/admin/nodes", "action_label": "新建节点" },
+      { "key": "version_active", "done": true, "label": "生成并激活首个版本", "action_path": "/admin/assembly", "action_label": "前往装配" },
+      { "key": "member_check", "done": false, "manual": true, "label": "以普通用户身份检查", "action_path": "/", "action_label": "查看用户首页" }
+    ],
+    "recent": { "pending_users": [], "access_logs": [] }
+  }
+  ```
+
+4. 计数与摘要口径：
+   - 列表类使用现有服务 `List(ctx)` 的长度（小团队规模可接受）；
+   - `users`/`pending_users` 使用 `adminUserSvc.List(ctx, ListQuery{Page:1, Size:1})` 与 `approvalSvc.List(ctx, 1, 1)` 的 `total`；
+   - `usable_nodes`：`enabled && !missing && (source == "manual" || allocatable)` 的节点数，checklist `nodes.done` 以 `usable_nodes > 0` 为准，避免停用/缺失节点误判完成；
+   - `recent.pending_users` 调用新增 `RecentPending(ctx, 5)`；`recent.access_logs` 调用 `accessSvc.Query(ctx, "", "", 1, 5)`（该方法已按 `created_at DESC` 返回）；
+   - `version_active`：任一订阅 `current_version > 0` 即 done；`member_check` 恒为人工步骤；
+   - 高级模式关闭时 `xray_instances`/`ext_accounts` 返回 0，保持字段形状稳定。
+5. `frontend/src/api/overview.ts` 类型与接口封装放 Step 5；本步只写后端。
+6. 测试：
+   - `backend/internal/approval/approval_test.go` 新增 `TestRecentPendingDesc`；
+   - 新增 `backend/internal/server/overview_test.go`：空数据、有数据、`usable_nodes` 过滤、高级模式开关、`recent` 长度与倒序。
+
+#### 3.2 `GET /api/admin/versions/:id/owner`
+
+1. `backend/internal/version/version.go` 新增 `OwnerByVersionID(ctx, versionID)`：查 `versions` 表返回 `(OwnerType, ownerID)`；不存在返回 `ErrVersionNotFound`。
+2. 只读查询方法补齐（均不改变既有业务语义）：
+   - `backend/internal/rule/rule.go`：新增 `Get(ctx, id) (*Rule, error)`；
+   - `backend/internal/custom/custom.go`：新增 `Get(ctx, id) (*CustomOwnerInfo, error)`，join `users`/`platforms`，返回 `user_id`、`username`、`platform_id`、`platform_name`；
+   - subscription 使用既有 `subSvc.Get`；share 使用既有 `shareSvc.Get`。
+3. 新增 `backend/internal/server/version_owner.go`：
+   - **独立注册** `GET /api/admin/versions/:id/owner`（会话 + 管理员）；不要并入 `AssemblyHandler`，避免把 share/custom 依赖塞进装配 handler。
+   - 反查后解析真实名称：`type_label` 分别为“订阅/规则/分享/自定义订阅”；`back_path` 分别为 `/admin/subscriptions`、`/admin/rules`、`/admin/shares`、`/admin/users`；custom 的 `name` 用 `{username} / {platform_name}`。
+   - 响应：`{ owner_type, owner_id, name, type_label, back_path }`。
+4. 测试：
+   - `backend/internal/version/version_test.go` 覆盖 `OwnerByVersionID` 存在/不存在；
+   - server 级测试覆盖四类 owner 解析与 404。
+
+#### 3.3 应急网关补 `/admin` 精确路径
+
+1. `backend/internal/server/emergency_gate.go` `isSPAPath` 增加 `case path == "/admin": return true`。
+2. 测试：补 `GET /admin` 白名单断言。
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go build ./...
+  cd backend && go vet ./...
+  cd backend && go test ./...
+  ```
+- **验收标准：**
+  - `/api/admin/overview` 字段稳定，空数据与有数据均符合契约。
+  - `/api/admin/versions/:id/owner` 四类资源反查正确。
+  - 应急模式 `GET /admin` 不返回 503。
+
+---
+
+### Step 4：前端 — 手机任务可完成性
+
+- **目标：** 390px 下可靠完成主要操作，所有 Modal 表单统一为全屏 Drawer，可交互命中区 ≥44px。
+- **前置条件：** Step 2 完成。
+
+1. 新增 `frontend/src/components/FormOverlay.vue`：
+   - `matchMedia('(max-width: 767px)')` 判定；桌面渲染 AntD `Modal`，手机渲染全宽全高 `Drawer`（`placement="bottom"`，`height="100dvh"`）。
+   - 顶部固定标题 + 关闭按钮（accessible name“关闭{标题}”），底部固定“取消/保存”，padding-bottom 使用 `env(safe-area-inset-bottom)`。
+   - 保留 slots：`default`、`footer`；`open`、`title`、`width`、`loading`、`destroy-on-close`。
+2. 迁移全部 Modal 表单（ConfirmModal 维持小尺寸居中确认框，不迁移）：
+   - `NodesView.vue`：新建/编辑节点、节点显示名；
+   - `XrayInstancesView.vue`：实例新增/编辑、独立账号新增/编辑、检测回执如需编辑；
+   - `GroupsView.vue`：新建组、编辑组；
+   - `ProxyGroupsView.vue`：新建/编辑代理组；
+   - `assembly/PoolTab.vue`：新建/编辑素材池；
+   - `assembly/PoolDetail.vue`：新增/编辑条目；
+   - `SubscriptionsView.vue`：新建/编辑订阅；
+   - `SharesView.vue`：创建分享；
+   - `RulesView.vue`：创建/编辑规则；
+   - `UsersView.vue`：全部表单类 Modal（新建用户、编辑、自定义订阅、重置密码等）；
+   - `VersionManageView.vue`：创建版本、编辑版本（预览 Modal 保留宽屏，移动端可改为 Drawer）；
+   - `AssemblyView.vue`：头部默认确认、节点选择排序等编辑型 Modal。
+3. `frontend/src/components/AppHeader.vue`：
+   - 手机只保留汉堡、站点名、账户入口；主题切换进账户菜单；
+   - 账户按钮命中区 ≥44px；站点 ICON/站点名区域不挤压账户按钮。
+4. `frontend/src/layouts/AdminLayout.vue`：
+   - 手机 Drawer 顶部显示当前页面名与关闭按钮；底部固定“返回主界面”；全部纯图标项加 Tooltip 与 `aria-label`。
+5. 触控与溢出：
+   - 全局样式增加 `.touch-target`（`min-width:44px; min-height:44px`）并应用于手机端主操作与列表操作；
+   - 320/360/390/430 视口无页面级横向溢出；修复 `UsersView` 当前 400px 溢出问题。
+6. 测试：
+   - 新增 `frontend/tests/form-overlay.spec.ts`（`matchMedia` 切换桌面/手机渲染 Modal/Drawer）；
+   - 更新受影响页面的既有测试，确保 FormOverlay 下表单交互仍可触发。
+
+- **测试与验收命令：**
+  ```bash
+  cd frontend && npm run build
+  cd frontend && npm test -- --run
+  ```
+- **验收标准：**
+  - 390×844 下节点必填区、账户菜单、装配类型选择、版本查看可完成。
+  - 所有 Modal 表单在 <768 走全屏 Drawer，底部操作始终可见。
+  - 320–430px 无页面横向溢出；主操作命中区 ≥44px。
+
+---
+
+### Step 5：前端 — 信息架构与结构统一
+
+- **目标：** 统一页面骨架、状态容器、菜单与设置分组，落地 `/admin` 概览页、真实版本标题和高级模式页重组。
+- **前置条件：** Step 3 完成（后端契约），Step 4 完成（表单载体稳定）。
+
+1. 新增通用组件：
+   - `PageShell.vue`：唯一 `h1`、描述、ContextBar、StateContainer；
+   - `EmptyState.vue`：标题/描述/最多两个动作，限制最小高度；
+   - `StateContainer.vue`：加载/错误/空/内容四态；
+   - `ResponsiveCollection.vue`：桌面表格 + 手机卡片统一操作收口；
+   - `FormSection.vue`：字段分组与帮助文本；
+   - `PreviewState.vue`：未生成/生成中/最新/已过期四态。
+2. 改造 `PageHeader.vue`：标题改 `h1` 24px；每个页面只允许一个主操作；危险操作不进入主操作位。
+3. 改造 `TriStateList.vue` 与空态页面：
+   - `TriStateList.vue` 作为 `StateContainer` 的兼容实现，增加 `empty` 插槽；
+   - `ApprovalsView.vue` 与 `LogsView.vue` 在 `total === 0` 时不渲染分页；无数据时不渲染批量/清空等动作；
+   - 所有管理页逐步替换为 `PageShell` + `StateContainer`，避免只改组件而页面仍把分页/批量写在容器外。
+4. `AdminLayout.vue` 菜单分组：
+   - 顶部“概览” `/admin`；
+   - 分发：订阅、分享、平台、规则；
+   - 装配：订阅装配、节点、Xray 实例（高级）；
+   - 成员：用户、审批中心、用户组（高级）；
+   - 系统：面板配置、日志。
+   - 收起侧栏保留分组分隔线，所有图标 Tooltip；`selectedKeys` 兼容 `/admin`。
+5. 路由与入口：
+   - `frontend/src/router/index.ts` 增加 `{ path:'/admin', component: AdminOverviewView, meta:{layout:'admin', requiresAdmin:true} }`；
+   - `AppHeader.vue` 的“管理面板”按钮目标改为 `/admin`。
+6. 新增 `frontend/src/api/overview.ts` 与 `frontend/src/views/admin/AdminOverviewView.vue`：
+   - 状态摘要、首次发布清单、计数网格、快捷入口；
+   - 动态摘要：最近 5 条待审批与最近 5 条访问日志；
+   - 每张卡片提供失败重试；空态保留明确下一步。
+7. `SettingsView.vue` 重组为六分组：
+   - 身份与访问（OIDC/OIDC 规则/本地认证/验证码）；
+   - 通知（SMTP）；
+   - 外观与内容（站点信息、公告页脚）；
+   - 运行与安全（运行模式、高级模式、速率限制、日志级别、调试）；
+   - 数据管理（导入导出、备份）；
+   - 危险操作（红色独立区，默认折叠）。
+   - 每组独立保存，顶部显示“N 个分区有未保存更改”；离开页面仅在确有修改时提示；手机顶部 Select 切换分组。
+8. `VersionManageView.vue`：
+   - `load()` 后若有版本，调用 `GET /api/admin/versions/:id/owner`（使用第一个版本 ID）获取 `{name,type_label,back_path}`；
+   - 标题显示“{name} · 版本管理”与中文类型 Badge；无版本时按 ownerType 回退，如“订阅 #id · 版本管理”，不得把 ownerType 英文当真实名称。
+9. 高级模式页面：
+   - `XrayInstancesView.vue`：顶部实例状态摘要；实例 Tab 内按“实例列表/节点检测/对账”分层；危险操作进更多菜单。
+   - `GroupsView.vue`：页头增加用户组影响说明；编辑按“基础信息/流量/可用节点”分段，手机 Drawer。
+10. 测试：
+   - 新增 `frontend/tests/admin-overview-view.spec.ts`、`frontend/tests/page-shell.spec.ts`、`frontend/tests/empty-state.spec.ts`；
+   - 更新 `settings-view.spec.ts`、`version-manage` 相关测试（当前无独立 spec 则新增）、`xray-instances-view.spec.ts`、`groups-view.spec.ts`。
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./...
+  cd frontend && npm run build
+  cd frontend && npm test -- --run
+  ```
+- **验收标准：**
+  - 所有管理页唯一 `h1`；空态均有下一步。
+  - 管理菜单分组清晰，`/admin` 概览入口可访问。
+  - 概览页只用 `/api/admin/overview` 一个汇总请求；动态摘要渲染正确。
+  - 设置六分组可在 10 秒内定位；未保存提示正确。
+  - 版本页显示真实资源名和中文类型。
+
+---
+
+### Step 6：前端 — 视觉 Token 与主题统一
+
+- **目标：** AntD 与 Tailwind 由同一 `uiTokens` 驱动，Tailwind 走 CSS 变量、AntD 走具体色值；消除暗色多套表面断层。
+- **前置条件：** Step 5 完成。
+
+1. `frontend/src/theme.ts` 定义唯一 Token 源（采用 UIReport2 §6.2 候选值）：
 
   ```ts
-  // 参考实现（伪代码）
-  const previewFingerprint = computed(() => JSON.stringify({
-    targetSyntax: targetSyntax.value,
-    platformId: form.platform_id,
-    ruleId: form.rule_id,
-    ruleName: form.rule_name,
-    fixedParams: form.fixed_params_text,
-    nodes: form.node_names,
-    groups: form.group_names,
-    groupOrders: form.group_node_orders,
-    overseas: form.overseas_members,
-    pools: form.pools,
-    customRules: form.custom_rules,
-    final: form.final_direction,
-    overlay: form.overlay,
-  }))
-  const previewStale = computed(() =>
-    !!previewText.value && previewFingerprint.value !== lastPreviewFingerprint.value,
-  )
+  export const uiTokens = {
+    light: {
+      page: '#F1F5F9', surface: '#FFFFFF', surfaceSubtle: '#F8FAFC',
+      surfaceRaised: '#FFFFFF', border: '#CBD5E1', borderSubtle: '#E2E8F0',
+      text: '#0F172A', textSecondary: '#475569', textTertiary: '#64748B',
+      primary: '#2563EB', primaryHover: '#1D4ED8', primarySoft: '#EFF6FF',
+      success: '#15803D', successSoft: '#F0FDF4', warning: '#B45309',
+      warningSoft: '#FFFBEB', danger: '#B91C1C', dangerSoft: '#FEF2F2',
+      info: '#0369A1', infoSoft: '#F0F9FF',
+    },
+    dark: {
+      page: '#0B1120', surface: '#111827', surfaceSubtle: '#172033',
+      surfaceRaised: '#1E293B', border: '#334155', borderSubtle: '#273449',
+      text: '#F8FAFC', textSecondary: '#CBD5E1', textTertiary: '#94A3B8',
+      primary: '#60A5FA', primaryHover: '#93C5FD', primarySoft: '#172554',
+      success: '#4ADE80', successSoft: '#052E16', warning: '#FBBF24',
+      warningSoft: '#451A03', danger: '#F87171', dangerSoft: '#450A0A',
+      info: '#38BDF8', infoSoft: '#082F49',
+    },
+    radius: { control: 8, card: 12, modal: 14 },
+    spacing: { pageDesktop: 24, pageMobile: 16, section: 24, card: 20 },
+    type: {
+      pageTitle: { size: 24, lineHeight: 32, weight: 650 },
+      sectionTitle: { size: 18, lineHeight: 26, weight: 600 },
+      body: { size: 14, lineHeight: 22, weight: 400 },
+      helper: { size: 13, lineHeight: 20, weight: 400 },
+    },
+  } as const
   ```
 
-  2. `frontend/src/views/admin/assembly/PreviewStep.vue`、`AssemblerShell.vue`：
-     - 增加预览四态：未生成 / 生成中 / 最新 / 已过期。
-     - 已过期时显示“配置已变化，请重新预览”，旧正文可折叠查看但不可确认生成。
-  3. `frontend/src/views/EmergencyView.vue`：
-     - 先读取权威应急状态；非应急状态显示普通 Result，不展示“正常服务已暂停”和操作码表单。
-  4. `frontend/src/views/ResetView.vue` + `frontend/src/api/auth.ts` + 后端最小调整：
-     - 无 token 直接显示无效链接 Result；
-     - 如需区分缺失/过期/已使用，增加最小校验接口后再渲染表单。
-  5. `frontend/src/views/OidcCallbackView.vue`、`frontend/src/views/LoginView.vue` + 后端最小调整：
-     - 将 `exchange_failed` 等内部 key 映射为用户可读错误；
-     - 提供重新 OIDC、本地登录、联系管理员等恢复路径。
-  6. 装配跨页上下文：
-     - 从装配跳转节点/订阅时保存 `tab`、目标对象、步骤和必要草稿；
-     - 返回时通过 `ContextBar` 展示来源任务，并支持一次操作回到原装配类型和步骤。
+2. `frontend/src/theme.ts` 中 `useTheme()` 改为双通道输出：
+   - **AntD 通道：** `antdTheme` computed 使用当前主题的**具体颜色字符串**（`uiTokens[dark ? 'dark' : 'light']`），再喂给 `theme.darkAlgorithm/defaultAlgorithm`；禁止把 `var(--ui-*)` 作为 `colorPrimary` 传入 AntD 算法（TinyColor 会把 CSS 变量解析为黑色并生成错误调色板）。
+   - **CSS 变量通道：** watch `dark` 时给 `document.documentElement` 写入 `--ui-page`、`--ui-surface`、`--ui-primary` 等变量，并维持 `dark` class。
+   - `style.css` 只保留 `:root` 初始回退值；运行时由 `useTheme` 覆盖为当前主题值，避免 JS 与 CSS 两处维护同一份色值。
+3. `frontend/src/style.css` 与 `frontend/tailwind.config.js`：
+   - `style.css` 保留 `:root` 初始回退变量与 `.dark` 回退变量；
+   - `tailwind.config.js` 在 `theme.extend.colors` 中把 `page/surface/.../primary/danger` 等映射到 `var(--ui-*)`；保留 `darkMode:'class'`。
+4. 清理硬编码：
+   - `frontend/src/router/index.ts` 顶部进度条 `#1677FF` → `var(--ui-primary)`（inline style 使用 CSS 变量安全）；
+   - `frontend/src/components/MarkdownView.vue` `#1677ff` → `var(--ui-primary)`；
+   - `frontend/src/views/HomeView.vue` 流量色不要传 CSS 变量给 AntD Progress `strokeColor`，改为从 `uiTokens` 当前主题取具体色值；
+   - 全量 `gray-*`/`dark:bg-gray-*` 类名迁移到 token 类。当前实际命中 **40 个 Vue 文件**（以执行时 `grep -Rl "gray-[0-9]" frontend/src | sort` 为准，不手工枚举）。
+
+  | 文件（数量） | 迁移要点 |
+  |---|---|
+  | `HomeView.vue`（21）、`assembly/PoolDetail.vue`（16）、`XrayInstancesView.vue`（15）等 | 文本/边框/背景统一改为 `text-secondary`、`border-subtle`、`bg-surface` 等 token 类 |
+  | `SettingsView.vue`、`NodesView.vue`、`SetupView.vue` 等中低频文件 | 仅替换类名，不改变布局 |
+  | 所有 `dark:` 变体 | 由根节点 CSS 变量自动适配，删除重复的 `dark:bg-gray-*`/`dark:text-gray-*` |
+
+5. 排版/圆角/阴影：
+   - 页面标题 24/32/650、区块 18/26/600、正文 14/22、辅助 13/20；
+   - control 8px、card 12px、modal 14px；
+   - 卡片 `0 1px 2px rgb(15 23 42 / 6%)`，浮层 `0 12px 32px rgb(15 23 42 / 12%)`。
+6. 焦点与动效：
+   - 全局 2px 主色 focus-visible ring；
+   - `prefers-reduced-motion` 关闭非必要动画。
+7. 测试：
+   - 更新 `frontend/tests/theme.spec.ts`：断言 token 值与 dark 类名；
+   - 构建后浏览器快照核验 1440/1024/390 浅暗主题核心页面。
 
 - **测试与验收命令：**
   ```bash
   cd frontend && npm run build
   cd frontend && npm test -- --run
+  ```
+- **验收标准：**
+  - AntD 与 Tailwind 由同一 `uiTokens` 驱动：Tailwind 走 CSS 变量，AntD 走具体色值。
+  - 暗色无纯黑断层，至少两个稳定表面层级。
+  - 主色/正文/辅助文字达到 WCAG AA；状态不只靠颜色。
+  - 既有页面视觉回归无布局破坏。
+
+---
+
+### Step 7：效率润色、测试补强与文档收口
+
+- **目标：** 完成预览/Diff 增强、反馈统一，补齐自动化测试和文档同步。
+- **前置条件：** Step 1~6 完成。
+
+1. `frontend/src/views/admin/assembly/PreviewStep.vue`：
+   - 增加行号、搜索、复制、换行切换；
+   - 预览与 Diff 用 Tabs 或分栏，避免上下重复全文。
+2. `frontend/src/components/DiffView.vue`：
+   - 新增/删除计数与定位按钮；错误行定位。
+3. 状态反馈：
+   - 相同 Toast 2 秒去重；
+   - 同一时刻只允许一个 Dropdown/浮层，Esc 关闭并回焦触发器；
+   - Modal/Drawer 焦点进入与回焦；
+   - 中文按钮关闭 AntD auto-insert-space。
+4. 测试补强：
+   - 更新 `.smoke-test.sh` 与 `.smoke-test-prod.sh`：覆盖 `/admin` 概览、重置三态、应急正常态、装配 stale preview、设置分组、手机 Drawer；
+   - 补充/更新上述各 Step 列出的 spec。
+5. 文档同步：
+   - `Design2-UI.md §1.1`：主色改为 `#2563EB` + 双主题 Token；
+   - `Design2-UI.md §2.1`：菜单改为“概览 + 四分组，分组但不折叠”，并增加 `/admin` 路由；
+   - `Design2-UI.md §4.7`：设置页六分组规格；
+   - `AGENTS.md` 若涉及新的 UI 约束则同步；
+   - 更新 `ProdTestList.md`。
+
+- **测试与验收命令：**
+  ```bash
   cd backend && go build ./... && go vet ./... && go test ./...
+  cd frontend && npm run build && npm test -- --run
   ```
 - **验收标准：**
-  - 切换四种装配类型或修改任何影响产物字段后，旧预览不再作为当前预览。
-  - 通用节点/SR 节点装配不出现规则素材类警告。
-  - 非应急状态访问 `/emergency` 不展示应急操作。
-  - 无 Token 重置页不渲染密码表单；无效状态明确可恢复。
-  - OIDC 失败页面不出现内部 key，至少有可用的恢复动作。
-  - 从装配跳转补前置条件后，能回到原装配位置。
-
----
-
-### Step 2：Phase 1 — 手机任务可完成性
-
-- **目标：** 让 390px 下能可靠完成主要操作，消除小控件、拥挤顶栏和不可见底部操作。
-- **前置条件：** Step 1 完成（若并行，需先确认不互相影响）。
-- **产出文件与操作：**
-
-  1. `frontend/src/components/AppHeader.vue`：
-     - 手机顶栏只保留汉堡、站点名、账户入口；主题切换收进账户菜单或独立图标。
-     - 账户按钮、菜单项、主题切换均提供 ≥44px 命中区。
-  2. `frontend/src/layouts/AdminLayout.vue`：
-     - 手机 Drawer 顶部显示当前页面和关闭按钮，底部固定“返回主界面”。
-     - 收起侧栏时每个图标带 Tooltip。
-  3. 所有管理列表与用户页手机卡片：
-     - 每卡片只保留一个主操作，次要/危险操作进“更多”并按风险分组。
-     - 危险操作不与高频操作并排。
-  4. `frontend/src/views/admin/NodesView.vue`：
-     - 手机复杂表单改为全屏 Drawer；
-     - 固定顶部标题/关闭、底部“取消/保存”；
-     - 字段按“必填连接信息 / 协议扩展 / 传输与 TLS / 高级网络”渐进展开；
-     - UUID 等关键字段独占一行，避免挤压。
-  5. 装配器手机端：
-     - 手机 Tabs 改中文分段/Select；
-     - 步骤条紧凑，固定底部“上一步/下一步”。
-  6. 全项目触控基线：
-     - 320、360、390、430、768、1024、1440 无横向溢出；
-     - 所有可交互控件命中区 ≥44×44px。
-
-- **测试与验收命令：**
-  ```bash
-  cd frontend && npm run build
-  cd frontend && npm test -- --run
-  ```
-- **验收标准：**
-  - 390×844 下可完成节点必填区、账户菜单、装配类型选择和版本查看。
-  - 所有触控目标 ≥44px；危险操作无并排误触风险。
-  - 320–430px 无横向页面溢出。
-
----
-
-### Step 3：Phase 2 — 信息架构与结构统一
-
-- **目标：** 统一页面骨架、空态、表单、浮层和导航；完成设置页重组、管理导航分组、`/admin` 概览和高级模式页面改造。
-- **前置条件：** Step 1/2 完成。
-- **产出文件与操作：**
-
-  1. 新增通用组件：
-     - `PageShell.vue`：唯一 `h1`、描述、最多一个主操作、ContextBar、StateContainer。
-     - `EmptyState.vue`：标题/描述/最多两个动作，限制在合理高度内。
-     - `FormSection.vue`：每组 6–8 个字段，帮助文本不只放 placeholder。
-     - `ResponsiveCollection.vue`：桌面表格 + 手机卡片统一操作收口。
-     - `PreviewState.vue`：未生成/生成中/最新/已过期四态。
-     - `ContextBar.vue`：来源任务、未保存、后台任务、前置条件。
-  2. `frontend/src/components/PageHeader.vue`：
-     - 标题 24px，页面唯一 `h1`；危险操作不进入主操作位。
-  3. `frontend/src/components/TriStateList.vue`：
-     - 升级为 StateContainer；空态隐藏分页、批量、清空。
-  4. `frontend/src/layouts/AdminLayout.vue`：
-     - 管理导航改为分组但不折叠：
-       - 分发：订阅、分享、平台、规则；
-       - 装配：订阅装配、节点、Xray 实例（高级）；
-       - 成员：用户、审批中心、用户组（高级）；
-       - 系统：面板配置、日志。
-     - 收起态用分隔线保留分组关系，每个图标有 Tooltip。
-  5. `frontend/src/views/admin/SettingsView.vue`：
-     - 重组为 6 个任务分组：身份与访问、通知、外观与内容、运行与安全、数据管理、危险操作。
-     - 桌面左侧分组导航，手机 Select；
-     - 每组独立保存，顶部显示未保存分区数，离开时仅在确有修改时提示。
-  6. 新增 `frontend/src/views/admin/AdminOverviewView.vue` 与路由 `/admin`：
-     - 使用现有状态推导，不新增多余后端统计；
-     - 包含首次发布任务清单、平台/订阅/节点/规则概况、快捷入口。
-  7. `frontend/src/views/admin/VersionManageView.vue`：
-     - 标题使用真实资源名 + 中文类型 Badge；
-     - 当前版本突出，高频操作直显，其余进更多。
-  8. 高级模式页面：
-     - `XrayInstancesView.vue`：顶部实例状态摘要，详情内按“节点 / 账号 / 对账”分区，高风险动作进更多。
-     - `GroupsView.vue`：页头解释用户组影响，编辑按“基础信息 / 流量 / 可用节点”分段。
-
-- **测试与验收命令：**
-  ```bash
-  cd frontend && npm run build
-  cd frontend && npm test -- --run
-  ```
-- **验收标准：**
-  - 所有管理页面唯一 `h1`；空态均有可执行下一步。
-  - 设置分区可在 10 秒内找到，未保存状态明确。
-  - 管理导航分组清晰，收起态 Tooltip 完整。
-  - `/admin` 概览可进入且不依赖新增指标接口。
-  - 高级模式页面基础流程可读、可操作。
-
----
-
-### Step 4：Phase 3 — 视觉 Token 与主题统一
-
-- **目标：** 让 AntD 与 Tailwind 共用同一套 CSS 变量，消除暗色多套表面断层。
-- **前置条件：** Step 3 完成（PageShell/卡片/状态组件已落地）。
-- **产出文件与操作：**
-
-  1. `frontend/src/theme.ts`：
-     - 主色调整为 `#2563EB`；
-     - `ConfigProvider` token 映射 `colorPrimary`、`colorBgLayout`、`colorBgContainer`、`colorBorder`、`colorText*`。
-  2. `frontend/src/style.css`：
-     - 定义 `--ui-page`、`--ui-surface`、`--ui-surface-raised`、`--ui-border`、`--ui-text`、`--ui-text-secondary` 等 CSS 变量；
-     - `.dark` 下定义深色变量，禁止使用纯黑。
-  3. `frontend/tailwind.config.js`：
-     - 自定义颜色引用 CSS 变量，取代散落的 `gray-*`。
-  4. 全局组件样式：
-     - 统一圆角：control 8px、card 12px、modal 14px；
-     - 统一阴影：卡片轻阴影、浮层高阴影；
-     - 统一排版：页面标题 24/32、区块 18/26、正文 14/22、辅助 13/20。
-
-  ```css
-  /* 参考实现（伪代码） */
-  :root {
-    --ui-page: #f1f5f9;
-    --ui-surface: #ffffff;
-    --ui-surface-raised: #ffffff;
-    --ui-border: #cbd5e1;
-    --ui-text: #0f172a;
-    --ui-text-secondary: #475569;
-  }
-  .dark {
-    --ui-page: #0b1120;
-    --ui-surface: #111827;
-    --ui-surface-raised: #1e293b;
-    --ui-border: #334155;
-    --ui-text: #f8fafc;
-    --ui-text-secondary: #cbd5e1;
-  }
-  ```
-
-- **测试与验收命令：**
-  ```bash
-  cd frontend && npm run build
-  cd frontend && npm test -- --run
-  ```
-- **验收标准：**
-  - 浅/暗主题核心页面视觉快照通过；
-  - 暗色无纯黑断层，至少两个稳定的表面层级；
-  - 主色、语义色、辅助文字通过 WCAG AA 对比度检查；
-  - 页面背景/卡片/表格使用同一套 Token。
-
----
-
-### Step 5：Phase 4 — 效率润色、测试与文档收口
-
-- **目标：** 完成预览/差异增强、统一状态反馈，并补齐测试与文档同步。
-- **前置条件：** Step 1~4 完成。
-- **产出文件与操作：**
-
-  1. `frontend/src/views/admin/assembly/PreviewStep.vue`：
-     - 增加行号、搜索、复制、换行切换；
-     - 预览与 Diff 使用 Tabs 或分栏，避免长内容重复。
-  2. `frontend/src/components/DiffView.vue`：
-     - 显示新增/删除计数和定位按钮；
-     - 错误行可定位。
-  3. 空态与加载态：
-     - 统一 Skeleton、空状态插图和说明；
-     - 限制空状态展示高度，避免巨大空白容器。
-  4. 交互反馈：
-     - 相同 Toast 去重；
-     - 浮层互斥；
-     - Modal/Drawer 焦点管理；
-     - `prefers-reduced-motion` 支持。
-  5. 测试补强：
-     - `frontend/tests/` 增加装配 preview stale、移动端/响应式、重置/OIDC/应急、设置未保存等相关用例。
-  6. 文档同步：
-     - 更新 `Design2-UI.md §1.1`、`§2.1`；
-     - 新增/更新 `AGENTS.md` 如果涉及约束；
-     - 更新 `.smoke-test.sh`、`.smoke-test-prod.sh` 覆盖关键 UI 流程。
-
-- **测试与验收命令：**
-  ```bash
-  cd frontend && npm run build
-  cd frontend && npm test -- --run
-  cd backend && go build ./... && go vet ./... && go test ./...
-  ```
-- **验收标准：**
-  - 所有新增逻辑有对应测试；
-  - 关键 UI 流程无回归；
+  - 所有新增逻辑有测试；关键 UI 流程无回归。
+  - smoke 用例覆盖本卷 P0/P1 变更。
   - 文档与代码状态一致。
 
 ---
 
-## 五、候选/待细化项
+## 六、候选/待细化项
 
-以下项已有方向，但进入具体 Step 前需再确认实现细节：
-
-| # | 候选 | 说明 | 来源 |
-|---|------|------|------|
-| 1 | `/admin` 概览页具体卡片与指标范围 | 使用现有状态推导；需确认是否包含发布清单、平台/订阅/节点/规则概况、快捷入口 | 用户选择 D6 |
-| 2 | 高级模式页面详细 UI 审计 | UI 报告对高级模式实机验证有限；实施前需补充 Xray/用户组页面走查 | 用户选择 D7 |
-| 3 | 最小后端接口具体契约 | 重置 token 状态校验、OIDC 错误映射等；进入 Step 1 前细化请求/响应 | 用户选择 D8 |
-| 4 | 设置页“未保存”状态实现方式 | 按组保存，需要确认哪些字段纳入脏检查；推荐前端本地脏检查 | UIReport2 §5.4 |
-| 5 | 视觉 Token 最终数值 | 需以实际组件做 WCAG 对比度回归后定稿 | UIReport2 §6.2 |
+| # | 候选 | 说明 | 进入 Step 前需确认 |
+|---|------|------|--------------------|
+| 1 | 概览页 checklist 文案与判定 | 本卷给出 5 步基线；`member_check` 恒为人工步骤 | Step 5 实施前确认最终文案 |
+| 2 | 概览页动态摘要是否加实时日志 | 用户已选择动态摘要，但实时日志流不建议放首页；当前方案为最近 5 条访问日志 + 最近 5 条待审批 | Step 3/5 实施前确认 |
+| 3 | 重置校验接口是否叠加限流 | 本卷建议不新增限流配置键，依据是 256 位随机 token + 无账号信息泄露 | Step 1 实施前复核 |
+| 4 | 高级模式页面详细 UI 审计 | UIReport2 对高级模式实机验证有限；Xray/用户组改动前需再做一次 DOM/截图走查 | Step 5 前执行 |
+| 5 | Token 最终对比度 | UIReport2 候选值进入实施时需做 WCAG 对比度回归后定稿 | Step 6 实施时 |
+| 6 | 手机 Drawer 的动画方向 | 建议底部全屏 Drawer；如视觉验收要求右侧抽屉，仅改 `FormOverlay` 配置 | Step 4 实施前确认 |
 
 ---
 
-## 六、变更记录
+## 七、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| v1.0 | 2026-08-28 | 初始版本：汇总 UIReport1/UIReport2、当前源码审计与用户决策，作为后续 UI/UX 改进的 Build11 当前构建方案；本版未改动代码/文档 |
+| v1.0 | 2026-08-28 | 初始版本：汇总 UIReport1/UIReport2、源码审计与用户决策，作为 Build11 当前构建方案 |
+| v1.1 | 2026-08-28 | 深度复核前后端源码：补充代码事实、后端影响矩阵、Step 1~7 可执行计划；确认重置三态后端接口、`/admin/overview` 后端接口、版本归属接口、后端警告过滤、全部 Modal 表单 Drawer、UIReport2 Token 与概览页动态摘要 |
+| v1.2 | 2026-08-28 | 从头重新核验：修正 OIDC 401 拦截器例外、AntD Token 不得传入 CSS 变量、overview 最近待审批需新增倒序方法、`usable_nodes` 口径、版本归属只读方法补齐、清理测试归属 cron、灰度类实际 40 个文件、空态分页/批量需在页面层条件渲染 |
