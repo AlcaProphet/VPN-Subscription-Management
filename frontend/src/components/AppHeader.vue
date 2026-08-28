@@ -47,7 +47,7 @@ async function onLogout() {
       <span v-if="updatedAt" class="ml-3 text-xs text-gray-500 dark:text-gray-400 hidden md:inline">{{ updatedAt }}</span>
     </div>
     <div class="flex items-center gap-2 flex-shrink-0">
-      <Button v-if="manageBtn && isAdmin" type="primary" class="hidden md:inline-flex" @click="router.push('/admin/subscriptions')">管理面板</Button>
+      <Button v-if="manageBtn && isAdmin" type="primary" class="hidden md:inline-flex" @click="router.push('/admin')">管理面板</Button>
       <Tag v-if="groupName" color="cyan" class="m-0 max-w-[120px] truncate hidden md:inline-flex">{{ groupName }}</Tag>
       <Dropdown :trigger="['click']">
         <Button class="touch-target max-w-28 md:max-w-none" aria-label="账户菜单">{{ auth.user?.username }}</Button>

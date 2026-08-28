@@ -49,29 +49,39 @@ function menuIcon(icon: any, label: string) {
   })
 }
 
-// 侧边栏菜单：13 项平铺不分组；「用户组」与「Xray 实例」仅高级模式可见
+// 侧边栏菜单按业务分组；「用户组」与「Xray 实例」仅高级模式可见。
 const advanced = computed(() => system.status?.advanced_mode === true)
 const menuItems = computed(() => {
-  const items: MenuProps['items'] = [
+  const distribution = [
     { key: '/admin/subscriptions', icon: menuIcon(CloudUploadOutlined, '订阅'), label: '订阅' },
     { key: '/admin/shares', icon: menuIcon(ShareAltOutlined, '分享'), label: '分享' },
     { key: '/admin/platforms', icon: menuIcon(AppstoreOutlined, '平台'), label: '平台' },
-    { key: '/admin/users', icon: menuIcon(UserOutlined, '用户'), label: '用户' },
-    { key: '/admin/approvals', icon: menuIcon(AuditOutlined, '审批中心'), label: '审批中心' },
     { key: '/admin/rules', icon: menuIcon(BranchesOutlined, '规则'), label: '规则' },
-    { key: '/admin/settings', icon: menuIcon(SettingOutlined, '面板配置'), label: '面板配置' },
-    { key: '/admin/logs', icon: menuIcon(FileTextOutlined, '日志'), label: '日志' },
+  ]
+  const assembly = [
     { key: '/admin/assembly', icon: menuIcon(BlockOutlined, '订阅装配'), label: '订阅装配' },
     { key: '/admin/nodes', icon: menuIcon(ApartmentOutlined, '节点'), label: '节点' },
+    ...(advanced.value ? [{ key: '/admin/xray', icon: menuIcon(CloudServerOutlined, 'Xray 实例'), label: 'Xray 实例' }] : []),
   ]
-  if (advanced.value) {
-    items.splice(1, 0, { key: '/admin/groups', icon: menuIcon(TeamOutlined, '用户组'), label: '用户组' })
-    items.push({ key: '/admin/xray', icon: menuIcon(CloudServerOutlined, 'Xray 实例'), label: 'Xray 实例' })
-  }
-  return items
+  const members = [
+    { key: '/admin/users', icon: menuIcon(UserOutlined, '用户'), label: '用户' },
+    { key: '/admin/approvals', icon: menuIcon(AuditOutlined, '审批中心'), label: '审批中心' },
+    ...(advanced.value ? [{ key: '/admin/groups', icon: menuIcon(TeamOutlined, '用户组'), label: '用户组' }] : []),
+  ]
+  return [
+    { key: '/admin', icon: menuIcon(HomeOutlined, '概览'), label: '概览' },
+    { type: 'group', label: '分发', children: distribution },
+    { type: 'group', label: '装配', children: assembly },
+    { type: 'group', label: '成员', children: members },
+    { type: 'group', label: '系统', children: [
+      { key: '/admin/settings', icon: menuIcon(SettingOutlined, '面板配置'), label: '面板配置' },
+      { key: '/admin/logs', icon: menuIcon(FileTextOutlined, '日志'), label: '日志' },
+    ] },
+  ] as MenuProps['items']
 })
 
 const selectedKeys = computed(() => {
+  if (route.path === '/admin') return ['/admin']
   // 版本管理子路由高亮对应父菜单（/admin/subscriptions/:id/versions → 订阅）
   const seg = route.path.split('/')[2]
   return seg ? [`/admin/${seg}`] : []
@@ -79,6 +89,7 @@ const selectedKeys = computed(() => {
 
 const currentPageName = computed(() => {
   const names: Record<string, string> = {
+    admin: '概览',
     subscriptions: '订阅', shares: '分享', platforms: '平台', users: '用户', approvals: '审批中心',
     rules: '规则', settings: '面板配置', logs: '日志', assembly: '订阅装配', nodes: '节点',
     groups: '用户组', xray: 'Xray 实例',

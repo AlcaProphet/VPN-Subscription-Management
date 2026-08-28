@@ -27,6 +27,7 @@ const versionRoutes = [
 
 // 管理路由（懒加载；路由级代码分割）
 const adminRoutes = [
+  { path: '/admin', component: () => import('@/views/admin/AdminOverviewView.vue') },
   { path: '/admin/subscriptions', component: () => import('@/views/admin/SubscriptionsView.vue') },
   { path: '/admin/groups', component: () => import('@/views/admin/GroupsView.vue') },
   { path: '/admin/shares', component: () => import('@/views/admin/SharesView.vue') },

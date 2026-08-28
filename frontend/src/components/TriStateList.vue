@@ -1,6 +1,6 @@
-<!-- TriStateList.vue：加载中/空/列表三态封装（UI §7.5） -->
+<!-- TriStateList.vue：兼容旧页面的状态容器，统一委托给四态 StateContainer。 -->
 <script setup lang="ts">
-import { Skeleton, Result, Empty, Button } from 'ant-design-vue'
+import StateContainer from './StateContainer.vue'
 
 defineProps<{
   loading: boolean
@@ -12,10 +12,9 @@ const emit = defineEmits<{ retry: [] }>()
 </script>
 
 <template>
-  <Skeleton v-if="loading" active />
-  <Result v-else-if="error" status="error" :sub-title="error">
-    <template #extra><Button @click="emit('retry')">重试</Button></template>
-  </Result>
-  <Empty v-else-if="empty" :description="emptyText ?? '暂无数据'" />
-  <slot v-else />
+  <StateContainer :loading="loading" :empty="empty" :error="error ?? ''" :empty-text="emptyText ?? ''" @retry="emit('retry')">
+    <template v-if="$slots.empty" #empty><slot name="empty" /></template>
+    <template v-if="$slots['empty-actions']" #empty-actions><slot name="empty-actions" /></template>
+    <slot />
+  </StateContainer>
 </template>

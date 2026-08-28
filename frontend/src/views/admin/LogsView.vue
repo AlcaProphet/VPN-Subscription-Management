@@ -162,7 +162,7 @@ onUnmounted(disconnect)
               {{ displayMode === 'name' ? '显示唯一值' : '显示名称' }}
             </Button>
           </Space>
-          <Button danger @click="clearOpen = true">清空日志</Button>
+          <Button v-if="total > 0" danger @click="clearOpen = true">清空日志</Button>
         </div>
         <TriStateList :loading="loading" :empty="list.length === 0 && total === 0" empty-text="所选日期范围内无记录">
           <!-- ≥768：表格 -->
@@ -219,7 +219,7 @@ onUnmounted(disconnect)
             </div>
           </div>
         </TriStateList>
-        <div class="flex justify-end mt-3">
+        <div v-if="total > 0" class="flex justify-end mt-3">
           <Pagination v-model:current="page" :page-size="size" :total="total"
                       :show-total="(t: number) => `共 ${t} 条`" @change="loadAccess" />
         </div>

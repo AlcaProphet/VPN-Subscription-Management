@@ -12,6 +12,18 @@ export interface VersionItem {
   blueprint?: boolean // 装配蓝图版本标记（Build5 起回传；可缺省）
 }
 
+export interface VersionOwner {
+  owner_type: 'subscription' | 'rule' | 'share' | 'custom'
+  owner_id: number
+  name: string
+  type_label: string
+  back_path: string
+}
+
+// 用版本记录反查归属资源，避免在通用版本页把英文 ownerType 误当成标题。
+export const getVersionOwner = (versionID: number) =>
+  http.get<any, VersionOwner>(`/admin/versions/${versionID}/owner`)
+
 // 读取装配蓝图（重新编辑流）
 export const getVersionBlueprint = (versionId: number) =>
   http.get<any, any>(`/admin/versions/${versionId}/blueprint`)

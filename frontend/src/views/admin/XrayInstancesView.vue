@@ -1,7 +1,7 @@
 <!-- XrayInstancesView.vue：Xray 实例与独立账号管理（Build7 Step3） -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Alert, Button, Checkbox, Empty, Input, InputNumber, Result, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
+import { Alert, Button, Checkbox, Dropdown, Empty, Input, InputNumber, Menu, Result, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
 import {
   listInstances, listExtAccounts, createInstance, updateInstance, deleteInstance, detectNodes, testConnection,
   runInit, reconcile, pushRepair, cleanOrphans, repairCredentials,
@@ -35,6 +35,8 @@ const cleanOpen = ref(false)
 const cleanEmails = ref<string[]>([])
 const credentialsModal = ref(false)
 const credentialsData = ref<{ title: string; uuid: string; secret: string } | null>(null)
+const enabledCount = computed(() => instances.value.filter((item) => item.enabled).length)
+const collectErrorCount = computed(() => instances.value.filter((item) => item.collect_status === 'error').length)
 
 function formatBytes(v?: number) {
   if (v == null) return '—'
@@ -505,15 +507,23 @@ async function doExtCredentials(acc: ExtAccount) {
 
 <template>
   <div>
-    <PageHeader title="Xray 实例">
+    <PageHeader title="Xray 实例" subtitle="按实例完成检测、对账与初始化；危险删除操作收进更多菜单，避免误触。">
       <template #actions>
-        <Button :loading="initLoading" @click="initOpen = true">开始初始化</Button>
-        <Button type="primary" @click="createOpen = true">新增实例</Button>
+        <Button type="primary" :loading="initLoading" @click="initOpen = true">开始初始化</Button>
+        <Button @click="createOpen = true">新增实例</Button>
       </template>
     </PageHeader>
 
     <Tabs>
       <TabPane key="instances" tab="Xray 实例">
+        <div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="xray-summary"><span>实例总数</span><strong>{{ instances.length }}</strong></div>
+          <div class="xray-summary"><span>启用实例</span><strong>{{ enabledCount }}</strong></div>
+          <div class="xray-summary"><span>Xray 节点</span><strong>{{ xrayNodes.length }}</strong></div>
+          <div class="xray-summary"><span>采集异常</span><strong :class="collectErrorCount ? 'text-red-500' : ''">{{ collectErrorCount }}</strong></div>
+        </div>
+        <Alert v-if="instances.length" class="mb-3" type="info" show-icon
+               message="实例列表" description="先新增或编辑实例，再按行执行节点检测与账号对账；初始化只作用于面板用户。" />
         <div v-if="instances.length === 0 && !loading" class="py-16">
           <Alert type="info" show-icon class="mb-3" message="需先在 Xray 服务器开启 gRPC API 与流量统计（policy.stats）" />
           <Empty description="还没有 Xray 实例">
@@ -545,7 +555,10 @@ async function doExtCredentials(acc: ExtAccount) {
                 <Button size="small" class="mr-1" @click="openEdit(record)">编辑</Button>
                 <Button size="small" class="mr-1" @click="doDetect(record)">刷新节点</Button>
                 <Button size="small" class="mr-1" @click="doReconcile(record)">对账</Button>
-                <Button size="small" danger @click="deleting = record">删除</Button>
+                <Dropdown>
+                  <Button size="small">更多 ▾</Button>
+                  <template #overlay><Menu><Menu.Item danger @click="deleting = record">删除实例</Menu.Item></Menu></template>
+                </Dropdown>
               </template>
             </Table.Column>
           </Table>
@@ -561,7 +574,10 @@ async function doExtCredentials(acc: ExtAccount) {
               <Button size="small" @click="openEdit(inst)">编辑</Button>
               <Button size="small" @click="doDetect(inst)">刷新节点</Button>
               <Button size="small" @click="doReconcile(inst)">对账</Button>
-              <Button size="small" danger @click="deleting = inst">删除</Button>
+              <Dropdown>
+                <Button size="small">更多 ▾</Button>
+                <template #overlay><Menu><Menu.Item danger @click="deleting = inst">删除实例</Menu.Item></Menu></template>
+              </Dropdown>
             </div>
           </div>
         </div>
@@ -812,3 +828,9 @@ async function doExtCredentials(acc: ExtAccount) {
     </FormOverlay>
   </div>
 </template>
+
+<style scoped>
+.xray-summary { border: 1px solid rgb(229 231 235); border-radius: .5rem; padding: .65rem .75rem; display: flex; flex-direction: column; gap: .15rem; }
+.xray-summary span { font-size: .75rem; color: rgb(107 114 128); }
+.xray-summary strong { font-size: 1.25rem; line-height: 1.2; }
+</style>

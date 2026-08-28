@@ -1,10 +1,10 @@
 <!-- SettingsView.vue：面板配置（UI §5.8，Design1 §3.4.8）——左侧锚点 + 右侧分区卡片；<768 锚点转顶部 Select -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import {
-  Alert, Anchor, Button, Card, Checkbox, Input, InputNumber, Modal, Radio, Select, Space, Switch, Tag, Upload,
+  Alert, Button, Card, Checkbox, Input, InputNumber, Modal, Radio, Select, Space, Switch, Tag, Upload,
 } from 'ant-design-vue'
 import {
   getOidc, saveOidc, clearOidc, testOidc, getOidcRules, saveOidcRules, getLocalAuth, saveLocalAuth,
@@ -29,24 +29,43 @@ const auth = useAuthStore()
 const router = useRouter()
 const isProd = ref(system.status?.app_mode === 'prod')
 
-// --- 分区锚点 ---
-const sections = [
-  { key: 'oidc', title: 'OIDC 配置' },
-  { key: 'oidc-rules', title: 'OIDC 启用规则' },
-  { key: 'local-auth', title: '本地认证' },
-  { key: 'captcha', title: '验证码' },
-  { key: 'smtp', title: 'SMTP' },
-  { key: 'site', title: '站点信息' },
-  { key: 'mode', title: '运行模式信息' },
-  { key: 'advanced', title: '高级模式' },
-  { key: 'ratelimit', title: '速率限制' },
-  { key: 'log-level', title: '日志级别' },
-  { key: 'announcement', title: '公告与页脚' },
-  { key: 'debug', title: '调试模式' },
-  { key: 'import-export', title: '配置导入/导出' },
-  { key: 'backup', title: '备份下载' },
-  { key: 'danger', title: '危险操作区' },
-]
+// --- 六大设置分组：桌面左侧导航，手机顶部 Select。 ---
+const settingGroups = [
+  { key: 'identity', title: '身份与访问', description: 'OIDC、本地认证与验证码' },
+  { key: 'notifications', title: '通知', description: 'SMTP 邮件通知' },
+  { key: 'content', title: '外观与内容', description: '站点信息、公告与页脚' },
+  { key: 'runtime', title: '运行与安全', description: '运行模式、高级模式、限流与日志' },
+  { key: 'data', title: '数据管理', description: '导入导出与备份' },
+  { key: 'danger', title: '危险操作', description: '不可恢复的清空操作' },
+] as const
+type SettingGroupKey = (typeof settingGroups)[number]['key']
+const activeGroup = ref<SettingGroupKey>('identity')
+const groupOptions = settingGroups.map((item) => ({ value: item.key, label: item.title }))
+const dirtyParts = ref(new Set<string>())
+const settingsLoaded = ref(false)
+const suppressDirty = ref(false)
+const dangerExpanded = ref(false)
+const dirtyCount = computed(() => dirtyParts.value.size)
+function isGroupVisible(key: SettingGroupKey) { return activeGroup.value === key }
+function markDirty(key: string) {
+  if (!settingsLoaded.value || suppressDirty.value) return
+  dirtyParts.value = new Set(dirtyParts.value).add(key)
+}
+function markSaved(key: string) {
+  const next = new Set(dirtyParts.value)
+  next.delete(key)
+  dirtyParts.value = next
+}
+async function reloadClean(key: string, loader: () => Promise<void>) {
+  suppressDirty.value = true
+  try {
+    await loader()
+    await nextTick()
+  } finally {
+    suppressDirty.value = false
+    markSaved(key)
+  }
+}
 
 // --- OIDC 配置 ---
 const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', realm: '', client_id: '', client_secret: '', frontend_url: '', callback_url: '' })
@@ -102,7 +121,7 @@ async function doSaveOidc() {
     if (res.need_restart) {
       Modal.warning({ title: '需重启容器生效', content: '前端地址与回调地址修改后需重启容器生效，请同步核对两字段' })
     }
-    await loadOidc()
+    await reloadClean('oidc', loadOidc)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -123,7 +142,7 @@ async function confirmClearOidc() {
     await clearOidc()
     Notify.success('OIDC 配置已清空')
     clearOidcOpen.value = false
-    await loadOidc()
+    await reloadClean('oidc', loadOidc)
   } catch (err) {
     Notify.error((err as Error).message) // 本地登录已关时提示死锁
   }
@@ -151,6 +170,7 @@ async function doSaveOidcRules() {
   try {
     const res = await saveOidcRules({ approval_on: oidcRules.approval_on, whitelist: oidcRules.whitelist })
     Notify.success('OIDC 启用规则已保存')
+    markSaved('oidc-rules')
     if (res.warning) Modal.warning({ title: '注意', content: res.warning })
   } catch (err) {
     Notify.error((err as Error).message)
@@ -174,6 +194,7 @@ async function doSaveLocalAuth() {
   try {
     await saveLocalAuth({ ...localAuth })
     Notify.success('本地认证配置已保存')
+    markSaved('local-auth')
   } catch (err) {
     Notify.error((err as Error).message) // 死锁防护提示
   } finally {
@@ -206,7 +227,7 @@ async function doSaveCaptcha() {
   try {
     await saveCaptcha({ ...captcha })
     Notify.success('验证码配置已保存')
-    await loadCaptcha()
+    await reloadClean('captcha', loadCaptcha)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -235,7 +256,7 @@ async function doSaveSMTP() {
   try {
     await saveSMTP({ ...smtp })
     Notify.success('SMTP 配置已保存')
-    await loadSMTP()
+    await reloadClean('smtp', loadSMTP)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -282,6 +303,7 @@ async function doSaveSite() {
     Object.assign(site, await saveSite(fd))
     siteFile.value = null
     Notify.success('站点信息已保存')
+    markSaved('site')
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -294,6 +316,7 @@ async function confirmIconDelete() {
     await deleteSiteIcon()
     site.icon_url = ''
     Notify.success('已恢复默认 ICON')
+    markSaved('site')
     iconDeleteOpen.value = false
   } catch (err) {
     Notify.error((err as Error).message)
@@ -324,6 +347,7 @@ async function doSaveRateLimit() {
   try {
     await saveRateLimit({ ...rate })
     Notify.success('速率限制已保存；连接超时字段需重启容器后生效')
+    markSaved('ratelimit')
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -344,6 +368,7 @@ async function doSaveLogLevel() {
   try {
     await saveLogLevel(logLevel.value)
     Notify.success('日志级别已切换并立即生效')
+    markSaved('log-level')
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -364,6 +389,7 @@ async function doSaveAnnouncement() {
   try {
     await saveAnnouncement({ ...announcement })
     Notify.success('公告与页脚已保存')
+    markSaved('announcement')
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -386,6 +412,7 @@ async function doSaveDebug() {
   try {
     await saveDebug(debugOn.value)
     Notify.success('调试模式已更新')
+    markSaved('debug')
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -414,6 +441,7 @@ async function doSaveAdvanced() {
     }
     await saveAdvancedSettings(data)
     Notify.success('高级模式已开启')
+    markSaved('advanced')
     await system.fetchStatus(true)
   } catch (err) {
     Notify.error((err as Error).message)
@@ -434,6 +462,7 @@ async function confirmDisableAdvanced() {
     }
     advancedConfirmOpen.value = false
     Notify.success('高级模式已关闭，数据已清空')
+    markSaved('advanced')
     await system.fetchStatus(true)
   } catch (err) {
     Notify.error((err as Error).message)
@@ -605,30 +634,60 @@ async function doClearAll() {
   }
 }
 
-onMounted(() => {
-  void Promise.all([loadOidc(), loadOidcRules(), loadLocalAuth(), loadCaptcha(), loadSMTP(),
+// 初始加载完成前不记录脏状态；之后每个独立保存分区都准确参与离开确认。
+watch(oidc, () => markDirty('oidc'), { deep: true })
+watch(oidcRules, () => markDirty('oidc-rules'), { deep: true })
+watch(localAuth, () => markDirty('local-auth'), { deep: true })
+watch(captcha, () => markDirty('captcha'), { deep: true })
+watch(smtp, () => markDirty('smtp'), { deep: true })
+watch(site, () => markDirty('site'), { deep: true })
+watch(rate, () => markDirty('ratelimit'), { deep: true })
+watch(logLevel, () => markDirty('log-level'))
+watch(announcement, () => markDirty('announcement'), { deep: true })
+watch(debugOn, () => markDirty('debug'))
+watch(advanced, () => markDirty('advanced'), { deep: true })
+
+onBeforeRouteLeave(() => {
+  if (dirtyCount.value === 0) return true
+  return window.confirm(`当前有 ${dirtyCount.value} 个分区尚未保存，确定离开吗？`)
+})
+
+onMounted(async () => {
+  await Promise.all([loadOidc(), loadOidcRules(), loadLocalAuth(), loadCaptcha(), loadSMTP(),
     loadSite(), loadRateLimit(), loadLogLevel(), loadAnnouncement(), loadDebug(), loadAdvanced()])
+  settingsLoaded.value = true
   void system.fetchStatus()
 })
 </script>
 
 <template>
   <div>
-    <PageHeader title="面板配置" />
+    <PageHeader title="面板配置" subtitle="按场景分组管理配置；每个分区独立保存。">
+      <template #actions>
+        <Tag v-if="dirtyCount" color="orange">{{ dirtyCount }} 个分区有未保存更改</Tag>
+      </template>
+    </PageHeader>
+
+    <!-- 手机只保留一个分组选择器，避免长锚点列表挤占可视区域。 -->
+    <div class="mb-4 md:hidden">
+      <Select v-model:value="activeGroup" :options="groupOptions" class="w-full" aria-label="选择设置分组" />
+    </div>
 
     <div class="flex gap-6">
-      <!-- 左侧锚点导航（<768 隐藏，改用顶部 Select）；
-           sticky 吸顶（顶栏 64px 下） + 限高独立滚动条，不随页面滚动出屏 -->
-      <div class="hidden md:block w-40 shrink-0">
-        <div class="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto">
-          <!-- offset-top=80：点击锚点滚动目标时预留 sticky 顶栏（64px）+ 间距，避免目标被顶栏遮挡 -->
-          <Anchor :items="sections.map((s) => ({ key: s.key, href: `#${s.key}`, title: s.title }))" :offset-top="80" />
+      <!-- 桌面分组导航：组内卡片在右侧连续展示，定位比旧版 15 项锚点更快。 -->
+      <aside class="hidden md:block w-44 shrink-0">
+        <div class="sticky top-20 space-y-1">
+          <button v-for="group in settingGroups" :key="group.key" type="button" class="settings-group-nav"
+                  :class="{ active: activeGroup === group.key }" @click="activeGroup = group.key">
+            <span class="block font-medium">{{ group.title }}</span>
+            <span class="block mt-0.5 text-xs opacity-70">{{ group.description }}</span>
+          </button>
         </div>
-      </div>
+      </aside>
 
-      <div class="flex-1 space-y-4 min-w-0 settings-scroll">
+      <div class="flex-1 space-y-4 min-w-0">
         <!-- OIDC 配置 -->
-        <Card id="oidc" title="OIDC 配置" size="small">
+        <Card v-show="isGroupVisible('identity')" id="oidc" title="OIDC 配置" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">提供商类型</span>
@@ -677,7 +736,7 @@ onMounted(() => {
         </Card>
 
         <!-- OIDC 启用规则 -->
-        <Card id="oidc-rules" title="OIDC 启用规则" size="small">
+        <Card v-show="isGroupVisible('identity')" id="oidc-rules" title="OIDC 启用规则" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">审批开关</span>
@@ -711,7 +770,7 @@ onMounted(() => {
         </Card>
 
         <!-- 本地认证 -->
-        <Card id="local-auth" title="本地认证" size="small">
+        <Card v-show="isGroupVisible('identity')" id="local-auth" title="本地认证" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-40 text-sm">允许本地登录</span>
@@ -733,7 +792,7 @@ onMounted(() => {
         </Card>
 
         <!-- 验证码 -->
-        <Card id="captcha" title="验证码" size="small">
+        <Card v-show="isGroupVisible('identity')" id="captcha" title="验证码" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">提供商</span>
@@ -761,7 +820,7 @@ onMounted(() => {
         </Card>
 
         <!-- SMTP -->
-        <Card id="smtp" title="SMTP" size="small">
+        <Card v-show="isGroupVisible('notifications')" id="smtp" title="SMTP" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">服务器</span>
@@ -799,7 +858,7 @@ onMounted(() => {
         </Card>
 
         <!-- 站点信息 -->
-        <Card id="site" title="站点信息" size="small">
+        <Card v-show="isGroupVisible('content')" id="site" title="站点信息" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">站点名称</span>
@@ -822,7 +881,7 @@ onMounted(() => {
         </Card>
 
         <!-- 运行模式信息 -->
-        <Card id="mode" title="运行模式信息" size="small">
+        <Card v-show="isGroupVisible('runtime')" id="mode" title="运行模式信息" size="small">
           <div class="flex items-center gap-3">
             <span class="text-sm">当前模式：</span>
             <Tag :color="isProd ? 'green' : 'orange'">{{ isProd ? 'Production' : 'Dev' }}</Tag>
@@ -831,7 +890,7 @@ onMounted(() => {
         </Card>
 
           <!-- 高级模式 -->
-          <Card id="advanced" title="高级模式" size="small">
+          <Card v-show="isGroupVisible('runtime')" id="advanced" title="高级模式" size="small">
             <div class="space-y-3 max-w-xl">
               <div class="flex items-center gap-3">
                 <span class="w-28 text-sm">高级模式</span>
@@ -860,7 +919,7 @@ onMounted(() => {
 
 
         <!-- 速率限制 -->
-        <Card id="ratelimit" title="速率限制与连接防护" size="small">
+        <Card v-show="isGroupVisible('runtime')" id="ratelimit" title="速率限制与连接防护" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="grid grid-cols-2 gap-3">
               <div><span class="text-sm">登录（次/分钟）</span><InputNumber v-model:value="rate.login" class="w-full mt-1" :min="1" /></div>
@@ -886,7 +945,7 @@ onMounted(() => {
         </Card>
 
         <!-- 日志级别 -->
-        <Card id="log-level" title="日志级别" size="small">
+        <Card v-show="isGroupVisible('runtime')" id="log-level" title="日志级别" size="small">
           <div class="space-y-3 max-w-xl">
             <Radio.Group v-model:value="logLevel" button-style="solid">
               <Radio.Button value="debug">debug</Radio.Button>
@@ -901,7 +960,7 @@ onMounted(() => {
         </Card>
 
         <!-- 公告与页脚（R10-07：三份独立配置，支持 Markdown） -->
-        <Card id="announcement" title="公告与页脚" size="small">
+        <Card v-show="isGroupVisible('content')" id="announcement" title="公告与页脚" size="small">
           <div class="space-y-3 max-w-xl">
             <Alert type="warning" show-icon message="公告与页脚内容接口公开可见（未登录可获取），请勿写入内部信息" />
             <div>
@@ -924,7 +983,7 @@ onMounted(() => {
         </Card>
 
         <!-- 调试模式 -->
-        <Card id="debug" title="调试模式" size="small">
+        <Card v-show="isGroupVisible('runtime')" id="debug" title="调试模式" size="small">
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <Switch v-model:checked="debugOn" />
@@ -935,7 +994,7 @@ onMounted(() => {
         </Card>
 
         <!-- 配置导入/导出（仅 Production 渲染；Dev 显示说明文案） -->
-        <Card id="import-export" title="配置导入/导出" size="small">
+        <Card v-show="isGroupVisible('data')" id="import-export" title="配置导入/导出" size="small">
           <Alert v-if="!isProd" type="info" show-icon message="Dev 模式不提供配置导入导出"
                  description="避免模拟 OIDC 等调试配置外流，同时免除模拟配置流入生产的拦截需求" />
           <div v-else class="space-y-4 max-w-xl">
@@ -963,7 +1022,7 @@ onMounted(() => {
         </Card>
 
         <!-- 备份下载 -->
-        <Card id="backup" title="备份下载" size="small">
+        <Card v-show="isGroupVisible('data')" id="backup" title="备份下载" size="small">
           <div class="space-y-2 max-w-xl">
             <Button :loading="backingUp" @click="backupOpen = true">下载备份（tar.gz）</Button>
             <div class="text-xs text-gray-400">含数据库一致性快照 + 全部内容文件；恢复方式见部署文档（手动解包到数据卷）</div>
@@ -971,7 +1030,13 @@ onMounted(() => {
         </Card>
 
         <!-- 危险操作区（红色边框卡片） -->
-        <Card id="danger" title="危险操作区" size="small" class="border-red-300">
+        <div v-show="isGroupVisible('danger')" class="rounded-lg border border-red-200 bg-red-50/60 p-3 dark:border-red-900 dark:bg-red-950/20">
+          <div class="flex items-center justify-between gap-3">
+            <div><p class="m-0 font-medium text-red-700 dark:text-red-300">危险操作</p><p class="m-0 mt-1 text-xs text-red-600 dark:text-red-400">此区域默认收起，操作不可恢复。</p></div>
+            <Button danger @click="dangerExpanded = !dangerExpanded">{{ dangerExpanded ? '收起' : '展开' }}</Button>
+          </div>
+        </div>
+        <Card v-show="isGroupVisible('danger') && dangerExpanded" id="danger" title="危险操作区" size="small" class="border-red-300">
           <div class="space-y-2 max-w-xl">
             <Alert type="error" show-icon message="一键清空所有数据"
                    description="清空全部业务数据与系统配置（含签名密钥），删除全部内容文件，系统回到未配置状态（无需重启）；需输入确认词 RESET + 二次确认" />
@@ -1009,9 +1074,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* 锚点滚动目标预留 sticky 顶栏高度（64px + 16px 间距）：
-   覆盖浏览器原生 #hash 直链跳转场景（AntD Anchor offset-top 仅作用于点击路径） */
-.settings-scroll :deep([id]) {
-  scroll-margin-top: 80px;
-}
+.settings-group-nav { width: 100%; border: 0; border-radius: .5rem; padding: .65rem .75rem; text-align: left; color: rgb(75 85 99); background: transparent; cursor: pointer; }
+.settings-group-nav:hover { background: rgb(243 244 246); }
+.settings-group-nav.active { color: rgb(30 64 175); background: rgb(239 246 255); }
+:global(.dark) .settings-group-nav { color: rgb(203 213 225); }
+:global(.dark) .settings-group-nav:hover { background: rgb(31 41 55); }
+:global(.dark) .settings-group-nav.active { color: rgb(147 197 253); background: rgb(30 58 138 / .35); }
 </style>

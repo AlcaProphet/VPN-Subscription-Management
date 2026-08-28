@@ -124,7 +124,7 @@ const expandedClaims = ref<Record<number, boolean>>({})
     <PageHeader title="审批中心">
       <template #actions>
         <Space>
-          <Button type="primary" :disabled="selected.length === 0" @click="batchOpen = true">
+          <Button v-if="total > 0" type="primary" :disabled="selected.length === 0" @click="batchOpen = true">
             批量通过{{ selected.length ? `（${selected.length}）` : '' }}
           </Button>
         </Space>
@@ -201,7 +201,7 @@ const expandedClaims = ref<Record<number, boolean>>({})
       </template>
     </TriStateList>
 
-    <div class="flex justify-end mt-3">
+    <div v-if="total > 0" class="flex justify-end mt-3">
       <Pagination v-model:current="page" :page-size="size" :total="total" :show-total="(t: number) => `共 ${t} 条`" />
     </div>
 

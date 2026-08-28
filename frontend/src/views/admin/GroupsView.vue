@@ -8,6 +8,7 @@ import {
 } from '@/api/group'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
+import FormSection from '@/components/FormSection.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -125,7 +126,7 @@ async function confirmDelete() {
 
 <template>
   <div>
-    <PageHeader title="用户组管理">
+    <PageHeader title="用户组管理" subtitle="用户组决定成员可用的 Xray 节点与默认流量配额；节点变更会同步到受影响账号。">
       <template #actions>
         <Button type="primary" @click="createOpen = true">新建组</Button>
       </template>
@@ -164,11 +165,10 @@ async function confirmDelete() {
     <FormOverlay :open="editOpen" title="编辑组" :width="560" :loading="saving" destroy-on-close
                  @submit="doSaveEdit" @update:open="editOpen = false">
       <div class="space-y-4">
-        <div>
-          <div class="text-xs text-gray-400 mb-1">名称（全局唯一校验）</div>
+        <FormSection title="基础信息" help="名称在全局范围内唯一。">
           <Input v-model:value="editName" :maxlength="64" />
-        </div>
-        <div>
+        </FormSection>
+        <FormSection title="可用节点" help="仅候选集节点会注入到下载内容；公共节点对全部用户组自动可见。">
           <div class="text-xs text-gray-400 mb-1">节点分配（候选集）</div>
           <Empty v-if="candidateNodes.length === 0 && selectedNodes.length === 0" description="请先装配并激活 Clash YAML / SR 节点订阅 / 通用节点订阅模板">
             <Button type="primary" @click="$router.push('/admin/assembly')">前往装配</Button>
@@ -204,11 +204,11 @@ async function confirmDelete() {
               <Button size="small" danger @click="removeSelected(n.node_id)">移除</Button>
             </div>
           </div>
-        </div>
-        <div>
+        </FormSection>
+        <FormSection title="流量" help="设置该组的默认配额，用户级覆盖优先于此配置。">
           <div class="text-xs text-gray-400 mb-1">默认配额（GB，0/留空不限）</div>
           <InputNumber v-model:value="editQuota" :min="0" class="w-40" />
-        </div>
+        </FormSection>
       </div>
     </FormOverlay>
 

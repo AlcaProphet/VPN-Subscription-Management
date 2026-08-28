@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { Button, Dropdown, Input, Menu, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
-import { versionApi, getVersionBlueprint, type VersionItem } from '@/api/version'
+import { versionApi, getVersionBlueprint, getVersionOwner, type VersionItem, type VersionOwner } from '@/api/version'
 import { getSubscription } from '@/api/subscription'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
@@ -95,6 +95,7 @@ const editTarget = ref<number | null>(null) // 正在编辑的版本号（编辑
 const editLoading = ref(false) // 拉取编辑起点内容中
 const editText = ref('')
 const saving = ref(false)
+const owner = ref<VersionOwner | null>(null)
 const previewOpen = ref(false) // 预览弹窗独立开关：点击立即打开显示加载态
 const previewContent = ref<string | null>(null)
 const previewing = ref(false)
@@ -107,12 +108,21 @@ async function load() {
   loading.value = true
   try {
     versions.value = await api.list(props.ownerId)
+    // 有版本时优先以版本 ID 反查真实资源名；空列表不额外请求，避免无意义 404。
+    owner.value = versions.value.length > 0 ? await getVersionOwner(versions.value[0].id) : null
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
     loading.value = false
   }
 }
+
+const fallbackTitle = computed(() => {
+  const labels = { subscription: '订阅', rule: '规则', share: '分享', custom: '自定义订阅' } as const
+  return `${labels[props.ownerType]} #${props.ownerId} · 版本管理`
+})
+const pageTitle = computed(() => owner.value ? `${owner.value.name} · 版本管理` : fallbackTitle.value)
+const pageSubtitle = computed(() => owner.value ? `${owner.value.type_label}资源的版本、预览与激活管理。` : '正在读取资源名称；无版本资源将使用安全的类型与编号回退。')
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
@@ -268,9 +278,10 @@ function fmtTime(ts: string): string {
 
 <template>
   <div>
-    <PageHeader :title="`版本管理${resourceName ? `（${resourceName}）` : ''}`">
+    <PageHeader :title="pageTitle" :subtitle="pageSubtitle">
       <template #actions>
         <Space>
+          <Tag v-if="owner" color="blue">{{ owner.type_label }}</Tag>
           <Button v-if="backPath" type="text" class="-ml-2" @click="goBack">
             <template #icon><ArrowLeftOutlined /></template>
             返回
