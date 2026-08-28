@@ -48,7 +48,7 @@ func isSPAPath(path string) bool {
 		path == "/register" || path == "/forgot" || path == "/reset" || path == "/pending" ||
 		path == "/login/callback" || path == "/rules" || path == "/profile":
 		return true
-	case strings.HasPrefix(path, "/admin/"):
+	case path == "/admin" || strings.HasPrefix(path, "/admin/"):
 		return true
 	}
 	return false

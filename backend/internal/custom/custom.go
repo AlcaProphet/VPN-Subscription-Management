@@ -42,6 +42,15 @@ type Custom struct {
 	CurrentVersion int64  `json:"current_version"`
 }
 
+// CustomOwnerInfo 是版本归属页所需的自定义订阅归属信息。
+type CustomOwnerInfo struct {
+	ID           int64  `json:"id"`
+	UserID       int64  `json:"user_id"`
+	Username     string `json:"username"`
+	PlatformID   int64  `json:"platform_id"`
+	PlatformName string `json:"platform_name"`
+}
+
 // Upsert 上传/覆盖——每用户每平台最多一份，再次上传即覆盖：
 // 复用原记录与标识，仅创建新版本（Token 复用键 user+platform+custom_sub_id 保持稳定，Design1 §2.3）
 func (s *Service) Upsert(ctx context.Context, userID, platformID int64, src version.ContentProvider) (*Custom, error) {
@@ -145,4 +154,23 @@ func (s *Service) Delete(ctx context.Context, userID, platformID int64) error {
 		s.log.Warn("删除自定义订阅版本目录失败", "id", id, "err", err)
 	}
 	return nil
+}
+
+// Get 读取自定义订阅及其用户、平台名称，供版本归属解析使用。
+func (s *Service) Get(ctx context.Context, id int64) (*CustomOwnerInfo, error) {
+	var info CustomOwnerInfo
+	err := s.store.DB().QueryRowContext(ctx,
+		`SELECT c.id, c.user_id, u.username, c.platform_id, p.name
+		 FROM custom_subscriptions c
+		 JOIN users u ON u.id = c.user_id
+		 JOIN platforms p ON p.id = c.platform_id
+		 WHERE c.id = ?`, id).
+		Scan(&info.ID, &info.UserID, &info.Username, &info.PlatformID, &info.PlatformName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取自定义订阅失败: %w", err)
+	}
+	return &info, nil
 }

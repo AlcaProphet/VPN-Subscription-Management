@@ -98,6 +98,31 @@ func newOwner(t *testing.T, st *store.Store) int64 {
 	return id
 }
 
+func TestOwnerByVersionID(t *testing.T) {
+	st, svc := newTestVersionService(t, false)
+	ctx := context.Background()
+	res, err := st.DB().ExecContext(ctx,
+		`INSERT INTO versions (owner_type, owner_id, version_no, file_path, file_name) VALUES (?,?,?,?,?)`,
+		OwnerRule, 42, 1, "rule/42/v1", "rule.conf")
+	if err != nil {
+		t.Fatalf("插入版本失败: %v", err)
+	}
+	versionID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("读取版本 ID 失败: %v", err)
+	}
+	ownerType, ownerID, err := svc.OwnerByVersionID(ctx, versionID)
+	if err != nil {
+		t.Fatalf("读取版本归属失败: %v", err)
+	}
+	if ownerType != OwnerRule || ownerID != 42 {
+		t.Errorf("版本归属异常: type=%s id=%d", ownerType, ownerID)
+	}
+	if _, _, err := svc.OwnerByVersionID(ctx, versionID+1); !errors.Is(err, ErrVersionNotFound) {
+		t.Errorf("不存在版本应返回 ErrVersionNotFound: %v", err)
+	}
+}
+
 // TestVersionNumberNotReused 创建 3 版删 v2 后再建 → 新号为 4（最大编号 +1，不复用）
 func TestVersionNumberNotReused(t *testing.T) {
 	st, svc := newTestVersionService(t, true)

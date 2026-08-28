@@ -426,9 +426,14 @@ func TestEmergencyServer(t *testing.T) {
 	if code := req(http.MethodGet, "/emergency"); code != http.StatusOK {
 		t.Errorf("SPA 回退应 200: %d", code)
 	}
+	// SPA 回退（精确 /admin 路由）可加载，不能被应急网关误拦。
+	if code := req(http.MethodGet, "/admin"); code != http.StatusOK {
+		t.Errorf("/admin SPA 回退应 200: %d", code)
+	}
 	// 白名单判定（单元级）
 	if isEmergencyAllowed("GET", "/api/system/status") != true || isEmergencyAllowed("POST", "/api/emergency/verify") != true ||
-		isEmergencyAllowed("GET", "/assets/index.js") != true || isEmergencyAllowed("GET", "/api/auth/login") != false {
+		isEmergencyAllowed("GET", "/assets/index.js") != true || isEmergencyAllowed("GET", "/admin") != true ||
+		isEmergencyAllowed("GET", "/api/auth/login") != false {
 		t.Error("白名单判定异常")
 	}
 }

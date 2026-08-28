@@ -103,6 +103,33 @@ func (s *Service) List(ctx context.Context, page, size int) ([]PendingUser, int6
 	return out, total, rows.Err()
 }
 
+// RecentPending 返回最近 limit 条待审批用户，按创建时间倒序排列；
+// 供管理概览的动态摘要使用，不改变审批中心列表的既有正序语义。
+func (s *Service) RecentPending(ctx context.Context, limit int) ([]PendingUser, error) {
+	if limit <= 0 {
+		return []PendingUser{}, nil
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.store.DB().QueryContext(ctx,
+		`SELECT id, username, COALESCE(email,''), user_source, COALESCE(oidc_claims,''), created_at
+		 FROM users WHERE status = 'pending' ORDER BY created_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("读取最近待审批用户失败: %w", err)
+	}
+	defer rows.Close()
+	out := make([]PendingUser, 0)
+	for rows.Next() {
+		var u PendingUser
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Source, &u.OidcClaims, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("解析最近待审批用户失败: %w", err)
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // siteContext 站点名称与登录链接（邮件模板用）
 func (s *Service) siteContext(ctx context.Context) (siteName, loginURL string) {
 	siteName, _ = s.cfg.Get(ctx, "site_name")

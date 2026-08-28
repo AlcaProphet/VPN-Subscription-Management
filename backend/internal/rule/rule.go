@@ -230,6 +230,32 @@ func (s *Service) List(ctx context.Context) ([]Rule, error) {
 	return out, rows.Err()
 }
 
+// Get 读取单条规则，供跨资源版本归属解析等只读场景使用。
+func (s *Service) Get(ctx context.Context, id int64) (*Rule, error) {
+	var r Rule
+	var schemesRaw string
+	var isHomeDefault int
+	var refreshed sql.NullTime
+	err := s.store.DB().QueryRowContext(ctx,
+		`SELECT r.id, r.slug, r.name, r.client_type, r.schemes, COALESCE(r.current_version,0), r.is_home_default, r.created_at,
+		        COALESCE((SELECT rt.token FROM rule_tokens rt WHERE rt.rule_id = r.id LIMIT 1), ''),
+		        rt.refreshed_at
+		 FROM rules r LEFT JOIN rule_tokens rt ON rt.rule_id = r.id WHERE r.id = ?`, id).
+		Scan(&r.ID, &r.Slug, &r.Name, &r.ClientType, &schemesRaw, &r.CurrentVersion, &isHomeDefault, &r.CreatedAt, &r.Token, &refreshed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取规则失败: %w", err)
+	}
+	r.IsHomeDefault = isHomeDefault == 1
+	r.Schemes = parseSchemes(schemesRaw)
+	if refreshed.Valid {
+		r.RefreshedAt = &refreshed.Time
+	}
+	return &r, nil
+}
+
 func toJSON(v any) string {
 	b, err := json.Marshal(v)
 	if err != nil {

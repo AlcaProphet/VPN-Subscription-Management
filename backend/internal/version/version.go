@@ -420,6 +420,22 @@ func (s *Service) CurrentNo(ctx context.Context, ot OwnerType, ownerID int64) (i
 	return current, nil
 }
 
+// OwnerByVersionID 按版本 ID 返回归属资源类型与资源 ID，供管理端定位真实资源名称。
+func (s *Service) OwnerByVersionID(ctx context.Context, versionID int64) (OwnerType, int64, error) {
+	var ownerType OwnerType
+	var ownerID int64
+	err := s.store.DB().QueryRowContext(ctx,
+		`SELECT owner_type, owner_id FROM versions WHERE id = ?`, versionID).
+		Scan(&ownerType, &ownerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, ErrVersionNotFound
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("读取版本归属失败: %w", err)
+	}
+	return ownerType, ownerID, nil
+}
+
 // ListVersions 资源版本列表（当前激活标记由调用方传入 current 版本号填充）
 func (s *Service) ListVersions(ctx context.Context, ot OwnerType, ownerID, currentNo int64) ([]Version, error) {
 	hasBlueprint := hasTable(ctx, s.store.DB(), "assembly_blueprints")

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
@@ -91,6 +92,34 @@ func seedPending(t *testing.T, st *store.Store, username, email, source string, 
 	}
 	id, _ := res.LastInsertId()
 	return id
+}
+
+func TestRecentPendingDesc(t *testing.T) {
+	st, svc, _ := newTestApproval(t, false)
+	ctx := context.Background()
+	createdAt := []time.Time{
+		time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, time.January, 2, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, time.January, 3, 10, 0, 0, 0, time.UTC),
+	}
+	for i, username := range []string{"oldest", "middle", "newest"} {
+		if _, err := st.DB().ExecContext(ctx,
+			`INSERT INTO users (username, email, role, user_source, status, created_at) VALUES (?,?,?,?,?,?)`,
+			username, username+"@example.com", "user", "selfreg", "pending", createdAt[i]); err != nil {
+			t.Fatalf("插入待审批用户失败: %v", err)
+		}
+	}
+
+	list, err := svc.RecentPending(ctx, 2)
+	if err != nil {
+		t.Fatalf("读取最近待审批用户失败: %v", err)
+	}
+	if len(list) != 2 || list[0].Username != "newest" || list[1].Username != "middle" {
+		t.Errorf("最近待审批用户排序异常: %+v", list)
+	}
+	if empty, err := svc.RecentPending(ctx, 0); err != nil || len(empty) != 0 {
+		t.Errorf("limit=0 应返回空列表: list=%+v err=%v", empty, err)
+	}
 }
 
 // TestApproveActivatesAndClearsClaims 通过：激活 + 清 claims；欢迎邮件按来源区分文案

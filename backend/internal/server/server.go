@@ -434,6 +434,16 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	accessLogSvc := log.NewAccessService(st.DB(), lg)
 	RegisterLogRoutes(engine, &LogHandler{accessSvc: accessLogSvc, streamSvc: streamSvc},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	// 管理概览与版本归属：聚合只读数据，须在全部依赖服务完成装配后注册。
+	RegisterOverviewRoutes(engine, &OverviewHandler{
+		cfg: cfg, mode: mode, platformSvc: platformSvc, subSvc: subSvc, nodeSvc: nodeSvc,
+		ruleSvc: ruleSvc, shareSvc: shareSvc, poolSvc: poolSvc, proxyGroupSvc: proxyGroupSvc,
+		approvalSvc: approvalSvc, adminUserSvc: adminUserSvc, accessSvc: accessLogSvc,
+		xraySvc: xraySvc, extSvc: extSvc,
+	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	RegisterVersionOwnerRoutes(engine, &VersionOwnerHandler{
+		versionSvc: versionSvc, subSvc: subSvc, ruleSvc: ruleSvc, shareSvc: shareSvc, customSvc: customSvc,
+	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	if err := registerStatic(engine, dataDir); err != nil {
 		return nil, err
 	}
