@@ -1,4 +1,4 @@
-# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v1.5）
+# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v1.7）
 
 > **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](docs/reports/UI/UIReport1.md)、[UIReport2.md](docs/reports/UI/UIReport2.md)）后的**当前构建方案**。v1.2 已从头重新核验前后端源码与报告，修正可执行性、后端契约与测试落点；v1.3 同步用户构建前决策并落地 Step 1。目标是让 Build11 具备稳定、可逐步执行的能力。
 > - 研究依据：`docs/reports/UI/UIReport1.md`、`docs/reports/UI/UIReport2.md`
@@ -11,7 +11,7 @@
 > - 排序原则：先修复后构建、先依赖后独立、先安全后优化。
 > - 本卷允许**最小后端调整**，但不改变产品功能、权限模型和既有业务语义。
 >
-> **本版状态：** v1.5 已完成 Step 3 代码、后端构建、静态检查与全量自动化验收；Step 1 已由用户确认通过。
+> **本版状态：** v1.7 已完成 Step 5 代码与前端自动化验收（`npm run build` 与 `npm test -- --run` 共 92 tests 均通过）；Step 1~4 已验收通过；Step 6、7 尚未开始。
 
 ---
 
@@ -137,7 +137,7 @@
 | 2 | 前端：可信状态修复（预览指纹、应急/重置/OIDC、跨页上下文） | Step 1 | ✅ 验收通过 |
 | 3 | 后端：`/admin/overview` + 版本归属接口 + 应急网关 `/admin` | Step 0 | ✅ 验收通过 |
 | 4 | 前端：手机任务可完成性（顶栏、触控、FormOverlay） | Step 2 | ✅ 验收通过 |
-| 5 | 前端：信息架构与结构统一（PageShell、菜单分组、设置分组、概览页、版本标题、高级模式页） | Step 3/4 | ☐ 未开始 |
+| 5 | 前端：信息架构与结构统一（PageShell、菜单分组、设置分组、概览页、版本标题、高级模式页） | Step 3/4 | ✅ 验收通过 |
 | 6 | 前端：视觉 Token 与主题统一 | Step 5 | ☐ 未开始 |
 | 7 | 效率润色、测试补强与文档收口 | Step 1~6 | ☐ 未开始 |
 
@@ -651,3 +651,4 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | v1.4 | 2026-08-28 | 完成 Step 2：装配预览稳定指纹与过期态、节点订阅规则警告前端兜底、应急 / 重置 / OIDC 可恢复状态页、OIDC 401 例外、30 分钟跨页装配草稿与 ContextBar；`npm run build` 与 `npm test -- --run`（81 tests）均通过。 |
 | v1.5 | 2026-08-28 | 完成 Step 3：新增管理员概览汇总与四类版本归属只读接口、最近待审批倒序查询、`/admin` 应急模式 SPA 白名单；补充空/有数据、可用节点过滤、高级模式、动态摘要、四类归属和白名单测试；`go build ./...`、`go vet ./...`、`go test ./...` 均通过。 |
 | v1.6 | 2026-08-28 | 完成 Step 4：新增 FormOverlay，桌面保持 Modal、<768 改为底部全屏 Drawer；迁移节点、Xray、用户组、代理组、素材池、订阅、分享、规则、用户、版本与装配表单；移动顶栏/管理导航、44px 命中区与窄视口溢出收口；`npm run build` 与 `npm test -- --run`（85 tests）均通过，320×844 本地入口走查无横向溢出。 |
+| v1.7 | 2026-08-28 | 完成 Step 5：新增 PageShell/StateContainer/EmptyState/ResponsiveCollection/FormSection/PreviewState 等通用组件，管理菜单按“概览+分发/装配/成员/系统”分组，设置页重组为六分组并支持未保存提示，落地 `/admin` 概览页与 `/api/admin/overview` 前端契约，版本页改为真实资源名与中文类型，高级模式页（Xray/用户组）做摘要、分段与危险操作收口；`npm run build` 与 `npm test -- --run`（92 tests）均通过。 |
