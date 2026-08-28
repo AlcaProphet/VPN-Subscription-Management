@@ -3,6 +3,7 @@ package xray
 import (
 	"context"
 	"testing"
+	"time"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
@@ -51,6 +52,67 @@ func newExtTestEnv(t *testing.T) (*store.Store, *ExtService, *fakeAPI, int64, in
 	fake := newFakeAPI()
 	extSvc.SetAPIFactory(func(_ context.Context, _ int64) (API, error) { return fake, nil })
 	return st, extSvc, fake, instID, nodeID
+}
+
+// TestListExtNonEmptyData 验证非空列表会先释放基础游标，再读取推送目标与用量。
+func TestListExtNonEmptyData(t *testing.T) {
+	st, extSvc, _, instID, _ := newExtTestEnv(t)
+	ctx := context.Background()
+	quota := float64(5)
+	acc, _, err := extSvc.CreateExt(ctx, "ext-list", "manual", "uuid-list", "secret-list", &quota,
+		[]ExtPushTarget{{InstanceID: instID, InboundTag: "in-a"}})
+	if err != nil {
+		t.Fatalf("创建独立账号失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO xray_ext_traffic (ext_account_id, ym, uplink, downlink) VALUES (?,?,123,456)`, acc.ID, currentYM()); err != nil {
+		t.Fatal(err)
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	list, err := extSvc.ListExt(callCtx)
+	if err != nil {
+		t.Fatalf("ListExt 失败: %v", err)
+	}
+	if err := callCtx.Err(); err != nil {
+		t.Fatalf("ListExt 不应等待到上下文超时: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != acc.ID || list[0].UsedBytes != 579 || len(list[0].PushTargets) != 1 {
+		t.Fatalf("独立账号列表聚合异常: %+v", list)
+	}
+}
+
+// TestCheckAllExtQuotaNonEmptyData 验证非空账号游标关闭后才逐个执行配额读写。
+func TestCheckAllExtQuotaNonEmptyData(t *testing.T) {
+	st, extSvc, fake, instID, _ := newExtTestEnv(t)
+	ctx := context.Background()
+	quota := 0.000001
+	acc, _, err := extSvc.CreateExt(ctx, "ext-quota", "manual", "uuid-quota", "secret-quota", &quota,
+		[]ExtPushTarget{{InstanceID: instID, InboundTag: "in-a"}})
+	if err != nil {
+		t.Fatalf("创建独立账号失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO xray_ext_traffic (ext_account_id, ym, uplink, downlink) VALUES (?,?,1048576,0)`, acc.ID, currentYM()); err != nil {
+		t.Fatal(err)
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := extSvc.CheckAllExtQuota(callCtx); err != nil {
+		t.Fatalf("CheckAllExtQuota 失败: %v", err)
+	}
+	if err := callCtx.Err(); err != nil {
+		t.Fatalf("CheckAllExtQuota 不应等待到上下文超时: %v", err)
+	}
+	var exceeded int
+	if err := st.DB().QueryRowContext(ctx, `SELECT quota_exceeded FROM xray_ext_accounts WHERE id=?`, acc.ID).Scan(&exceeded); err != nil {
+		t.Fatal(err)
+	}
+	if exceeded != 1 || len(fake.removed) != 1 {
+		t.Fatalf("全部配额检查未完成超限处理: exceeded=%d removed=%+v", exceeded, fake.removed)
+	}
 }
 
 // TestExtQuotaExceedKeepsPushTarget 超限摘除不删除本地期望集，重置后可恢复推送。

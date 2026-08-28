@@ -1,4 +1,4 @@
-# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v1.9）
+# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v2.1）
 
 > **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](docs/reports/UI/UIReport1.md)、[UIReport2.md](docs/reports/UI/UIReport2.md)）后的**当前构建方案**。v1.2 已从头重新核验前后端源码与报告，修正可执行性、后端契约与测试落点；v1.3 同步用户构建前决策并落地 Step 1。目标是让 Build11 具备稳定、可逐步执行的能力。
 > - 研究依据：`docs/reports/UI/UIReport1.md`、`docs/reports/UI/UIReport2.md`
@@ -11,9 +11,9 @@
 > - 排序原则：先修复后构建、先依赖后独立、先安全后优化。
 > - 本卷允许**最小后端调整**，但不改变产品功能、权限模型和既有业务语义。
 >
-> **本版状态：** v1.9 已完成 Step 1~7；前端 `npm run build` 与 `npm test -- --run`（97 tests）通过；后端 `go build ./...` / `go vet ./...` 通过（本卷后端无新增改动）。Build11 整体已收口，后续仅剩 Production 人工核查与归档。
+> **本版状态：** v2.1 已完成 Step 1~7 及 Issue9 R24-01 后端死锁修复；前端 `npm run build` 与 `npm test -- --run`（97 tests）保持既有通过记录；后端 `go build ./...`、`go vet ./...`、`go test -timeout 180s ./...` 已于 2026-08-28 全部通过。Build11 整体已收口，后续仅剩 Production 人工核查与归档。
 >
-> ⚠️ 2026-08-28 全量核验补充：后端 `TestOverviewEndpointAggregatesStableData` 暴露 SQLite 单连接嵌套查询死锁（详见 [ProjectWideReport2.md](docs/reports/ProjectWideReport/ProjectWideReport2.md) §4.1），当前 `go test ./...` 尚不能全绿；前端与其余后端包均通过。该问题仅记录，未改动代码。
+> ✅ 2026-08-28 R24-01 验收补充：`ExtService.ListExt`、`ExtService.CheckAllExtQuota` 已改为先读完并关闭外层游标再执行补充数据库操作，`SyncService.writeQuotaExceededError` 已改为单条批量更新；三个非空数据定向回归与 `TestOverviewEndpointAggregatesStableData` 均通过，解除 [ProjectWideReport2.md](docs/reports/ProjectWideReport/ProjectWideReport2.md) §4.1 记录的后端阻塞。
 
 ---
 
@@ -657,3 +657,4 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | v1.8 | 2026-08-28 | 完成 Step 6：新增 `uiTokens` 双主题唯一色值源，AntD 使用具体色值、Tailwind 映射 `--ui-*` CSS 变量；更新 `style.css` 初始回退变量、焦点 ring、reduced-motion、卡片/浮层阴影；进度条与 Markdown 主色改为变量；HomeView 流量色取当前主题具体色；补充 Token 与 CSS 变量单测。 |
 | v1.9 | 2026-08-28 | 完成 Step 7：PreviewStep 增加行号/搜索/复制/换行/Tabs 切换，DiffView 增加新增/删除计数与定位、错误行定位；Toast 2 秒去重；FormOverlay 焦点管理；关闭 AntD 中文按钮自动空格；smoke 覆盖概览/重置校验/应急正常态；新增 notify 去重单测；同步 Design2-UI、AGENTS、ProdTestList 与 Build11 文档。 |
 | v2.0 | 2026-08-28 | 全量核验记录：发现 `/api/admin/overview` 在高级模式+独立账号场景下因 `ExtService.ListExt` 的 SQLite 单连接嵌套查询导致死锁；同步发现 `CheckAllExtQuota`、`writeQuotaExceededError` 同类风险。本次仅记录与研究，未修改任何代码。 |
+| v2.1 | 2026-08-28 | 完成 Issue9 R24-01：`ListExt`、`CheckAllExtQuota` 落地 rows-close-first，`writeQuotaExceededError` 改为单条批量更新；新增三个非空数据回归测试，既有管理员概览高级模式回归恢复通过；后端 `go build ./...`、`go vet ./...`、`go test -timeout 180s ./...` 全部通过。 |

@@ -499,17 +499,26 @@ func (s *ExtService) ListExt(ctx context.Context) ([]ExtAccount, error) {
 			acc.Quota = &quota.Float64
 		}
 		acc.QuotaExceeded = exceeded == 1
-		acc.PushTargets, err = s.pushTargetsFor(ctx, acc.ID)
+		out = append(out, acc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// SQLite 仅保留一个连接，补充查询前必须先释放基础列表游标。
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].PushTargets, err = s.pushTargetsFor(ctx, out[i].ID)
 		if err != nil {
 			return nil, err
 		}
 		if err := s.store.DB().QueryRowContext(ctx,
-			`SELECT COALESCE(SUM(uplink+downlink),0) FROM xray_ext_traffic WHERE ext_account_id = ? AND ym = ?`, acc.ID, currentYM()).Scan(&acc.UsedBytes); err != nil {
-			s.log.Warn("读取独立账号本月用量失败", "ext_id", acc.ID, "err", err)
+			`SELECT COALESCE(SUM(uplink+downlink),0) FROM xray_ext_traffic WHERE ext_account_id = ? AND ym = ?`, out[i].ID, currentYM()).Scan(&out[i].UsedBytes); err != nil {
+			s.log.Warn("读取独立账号本月用量失败", "ext_id", out[i].ID, "err", err)
 		}
-		out = append(out, acc)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ResetExtQuota 清当月流量并重新推送。
@@ -647,11 +656,22 @@ func (s *ExtService) CheckAllExtQuota(ctx context.Context) error {
 		return err
 	}
 	defer rows.Close()
+	ids := make([]int64, 0)
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
 			return err
 		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	// CheckExtQuota 会继续读写数据库，先关闭唯一连接上的账号游标。
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range ids {
 		if err := s.CheckExtQuota(ctx, id); err != nil {
 			s.log.Warn("独立账号配额检查失败", "ext_id", id, "err", err)
 		}

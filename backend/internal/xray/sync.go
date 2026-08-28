@@ -541,25 +541,11 @@ func (s *SyncService) deleteRecord(ctx context.Context, userID int64, t Target) 
 }
 
 func (s *SyncService) writeQuotaExceededError(ctx context.Context, userID int64) {
-	// 为已有目标记录写入超限原因；没有记录则跳过。
-	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT instance_id, inbound_tag, node_id FROM xray_users WHERE user_id = ?`, userID)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var instanceID int64
-		var tag string
-		var nodeID int64
-		if err := rows.Scan(&instanceID, &tag, &nodeID); err != nil {
-			continue
-		}
-		if _, err := s.store.DB().ExecContext(ctx,
-			`UPDATE xray_users SET sync_status='failed', last_error='已超限，请先重置配额', updated_at=CURRENT_TIMESTAMP
-			 WHERE user_id=? AND instance_id=? AND inbound_tag=?`, userID, instanceID, tag); err != nil {
-			s.log.Warn("写入用户超限原因失败", "user_id", userID, "tag", tag, "err", err)
-		}
+	// 单条批量更新避免在单连接 SQLite 上持有查询游标时再次写库；没有记录时自然跳过。
+	if _, err := s.store.DB().ExecContext(ctx,
+		`UPDATE xray_users SET sync_status='failed', last_error='已超限，请先重置配额', updated_at=CURRENT_TIMESTAMP
+		 WHERE user_id=?`, userID); err != nil {
+		s.log.Warn("写入用户超限原因失败", "user_id", userID, "err", err)
 	}
 }
 

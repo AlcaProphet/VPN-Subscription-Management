@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/xtls/xray-core/common/protocol"
 
@@ -144,6 +145,30 @@ func TestSyncPushUser(t *testing.T) {
 	synced, failed, err = syncSvc.PushUser(ctx, userID)
 	if err != nil || synced != 1 || failed != 0 {
 		t.Fatalf("重复推送异常: %v %d %d", err, synced, failed)
+	}
+}
+
+// TestWriteQuotaExceededErrorNonEmptyData 验证已有推送记录可由单条更新写入超限原因。
+func TestWriteQuotaExceededErrorNonEmptyData(t *testing.T) {
+	st, _, syncSvc, _, userID := newSyncTestEnv(t)
+	ctx := context.Background()
+	if _, _, err := syncSvc.PushUser(ctx, userID); err != nil {
+		t.Fatalf("准备用户推送记录失败: %v", err)
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	syncSvc.writeQuotaExceededError(callCtx, userID)
+	if err := callCtx.Err(); err != nil {
+		t.Fatalf("writeQuotaExceededError 不应等待到上下文超时: %v", err)
+	}
+	var status, lastError string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT sync_status, last_error FROM xray_users WHERE user_id=?`, userID).Scan(&status, &lastError); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || lastError != "已超限，请先重置配额" {
+		t.Fatalf("超限原因更新异常: status=%s last_error=%s", status, lastError)
 	}
 }
 

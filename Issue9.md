@@ -8,8 +8,8 @@
 ## 〇、本轮说明
 
 - **创建时间：** 2026-08-28
-- **创建背景：** 在 Build1～Build12 全量核验中发现 Build11 新增管理员概览相关后端存在可复现死锁；已完成源码研究，尚未修改任何业务代码。
-- **当前状态：** R24-01、R24-18、R24-19、R24-20 标记为需要更多分析，本轮不进入实现；R24-02、R24-12、R24-15 已按用户确认方案实施并完成对应验证；其余问题按各条记录的范围继续待后续实施。
+- **创建背景：** 在 Build1～Build12 全量核验中发现 Build11 新增管理员概览相关后端存在可复现死锁；R24-01 已完成修复与后端全量验证。
+- **当前状态：** R24-01、R24-02、R24-12、R24-15 已按用户确认方案实施并完成对应验证；R24-18、R24-19、R24-20 标记为需要更多分析；其余问题按各条记录的范围继续待后续实施。
 
 ---
 
@@ -38,19 +38,19 @@
        - 外层查询独立账号 ID 后，在循环内调用 `CheckExtQuota`，而 `CheckExtQuota` 内部继续执行多个数据库查询/写入。
     3. `backend/internal/xray/sync.go` 的 `SyncService.writeQuotaExceededError`：
        - 外层查询 `xray_users` 后，在循环内逐行执行 `ExecContext` 更新。
-- **影响范围：**
+- **修复前影响范围：**
   - `/api/admin/overview`：高级模式 + 独立账号场景下管理员首页概览可能挂起。
   - `/api/admin/xray/ext`：存在独立账号时列表接口可能挂起。
   - 定时任务：`CheckAllExtQuota` 可能让采集任务卡死。
   - 用户超限路径：`writeQuotaExceededError` 可能导致推送/配额处理卡死。
-  - 当前后端 `go test ./...` 不能全绿，阻塞 Build11 的完整后端验收结论。
-- **修复方案（推荐，尚未实施）：**
+  - 后端 `go test ./...` 不能全绿，阻塞 Build11 的完整后端验收结论。
+- **修复方案（已实施）：**
   - 总体原则：**先读完外层 `Rows` 并关闭游标，再进行任何补充数据库操作**。仓库内 `subscription.Service.List`、`user.AdminService.List`、`home.Service.ListPlatforms`、`config.ExportService.exportInstances` / `exportAccounts` 已采用该正确范式，可作为参照。
   - **`ExtService.ListExt`：**
     1. 先读取全部独立账号基础行到内层 slice；
     2. 调用 `rows.Close()`；
     3. 再遍历 slice，分别调用 `pushTargetsFor` 与流量汇总查询。
-    4. 可选优化：将推送目标和流量改为批量 `IN` 查询或 JOIN 聚合，减少 N+1 查询。
+    4. 保留现有补充查询与错误语义，不在本问题中扩大为 JOIN/聚合重构。
   - **`ExtService.CheckAllExtQuota`：**
     1. 先读取全部独立账号 ID 到 slice；
     2. 关闭游标；
@@ -64,21 +64,25 @@
            updated_at = CURRENT_TIMESTAMP
        WHERE user_id = ?
        ```
-    2. 如保留逐条处理，也必须先读取目标到内存、关闭游标后再执行。
-  - **测试建议：**
-    - 为 `ListExt`、`CheckAllExtQuota`、`writeQuotaExceededError` 增加“非空数据”单测；
-    - 增加覆盖“高级模式开启 + 存在独立账号 + 调用 `/api/admin/overview`”的回归测试；
-    - 修复后执行：
+  - **回归覆盖与验证：**
+    - 新增 `TestListExtNonEmptyData`、`TestCheckAllExtQuotaNonEmptyData`、`TestWriteQuotaExceededErrorNonEmptyData`，分别覆盖三个方法的非空数据路径与最终数据结果；
+    - 复用既有 `TestOverviewEndpointAggregatesStableData`，验证“高级模式开启 + 存在独立账号 + 调用 `/api/admin/overview`”不再挂起且聚合正确；
+    - 2026-08-28 实际执行并通过：
       ```bash
-      cd backend && go build ./... && go vet ./... && go test ./...
+      cd backend
+      go test -timeout 30s ./internal/xray -run 'Test(ListExtNonEmptyData|CheckAllExtQuotaNonEmptyData|WriteQuotaExceededErrorNonEmptyData)$' -count=1
+      go test -timeout 30s ./internal/server -run '^TestOverviewEndpointAggregatesStableData$' -count=1
+      go build ./...
+      go vet ./...
+      go test -timeout 180s ./...
       ```
 - **涉及文件：**
   - `backend/internal/xray/ext.go`
+  - `backend/internal/xray/ext_test.go`
   - `backend/internal/xray/sync.go`
-  - `backend/internal/server/overview.go`
-  - `backend/internal/server/overview_test.go`
-  - `backend/internal/store/store.go`（理解约束，不必然修改）
-- **状态：** ◧ 需要更多分析：已确认单连接嵌套查询死锁及初步修复方向，但用户要求本轮不处理，待补充事务边界、错误传播与回归覆盖分析后再决定实施范围（未修改任何代码）
+  - `backend/internal/xray/sync_test.go`
+  - `backend/internal/server/overview_test.go`（既有回归覆盖，本次未修改）
+- **状态：** ✅ 已修复并验收：三个风险点均按“先关闭外层游标 / 单条批量更新”处理，定向回归、后端编译、静态检查与全量测试全部通过
 
 ---
 
@@ -595,3 +599,4 @@
 | v2.2 | 2026-08-28 | 新增 R24-19～R24-20 节点弹窗整体排版/开关分区、协议对象参数结构化编辑诉求；完成前后端字段渲染与数据契约静态核对，保留实施范围确认点，未修改业务代码。 |
 | v2.3 | 2026-08-28 | 用户确认 R24-02 桌面摘要区、R24-12 来源筛选懒加载、R24-15 全目标 bool 开关分区，并同步至 Design2-UI；R24-01、R24-18～R24-20 标记为需要更多分析，本轮不进入实现。 |
 | v2.4 | 2026-08-28 | 实施并验收 R24-02、R24-12、R24-15：前端全量测试 31 个文件、107 项通过且构建通过；后端素材池定向测试、编译和静态检查通过。R24-01 未处理，管理员概览定向测试仍因已记录的 SQLite 单连接嵌套查询死锁在 20 秒超时。 |
+| v2.5 | 2026-08-28 | 实施并验收 R24-01：`ListExt` 与 `CheckAllExtQuota` 改为先读完并关闭外层游标，`writeQuotaExceededError` 改为单条批量更新；新增三个非空数据回归测试，管理员概览定向测试恢复通过，后端 `go build ./...`、`go vet ./...`、`go test -timeout 180s ./...` 全部通过。 |
