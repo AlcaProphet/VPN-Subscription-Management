@@ -11,7 +11,7 @@
 > - 排序原则：先修复后构建、先依赖后独立、先安全后优化。
 > - 本卷允许**最小后端调整**，但不改变产品功能、权限模型和既有业务语义。
 >
-> **本版状态：** v1.3 已同步用户构建前决策，并完成 Step 1 代码与自动化验收（待用户复核）；尚未进入 Step 2。
+> **本版状态：** v1.3 已同步用户构建前决策，并完成 Step 1 代码与自动化验收（用户已确认通过）；尚未进入 Step 2。
 
 ---
 
@@ -39,6 +39,51 @@
 | D18 | 概览 checklist | 现在定稿：5 步基线 + `member_check` 恒为人工步骤 | Step 5 按此实现 |
 | D19 | Token 对比度 | 现在预校验并定稿：当前候选值均达 WCAG AA | Step 6 按定稿 Token 实施 |
 | D20 | 构建节奏 | 逐个完成全部 Step，每完成一个 Step 后执行对应验收 | — |
+
+### 0.1 构建前补充定稿与审计记录
+
+#### 0.1.1 概览页 Checklist 定稿
+
+| key | done 条件 | label | action_path | action_label |
+|-----|-----------|-------|-------------|-------------|
+| `platforms` | 平台数 > 0 | 创建至少一个平台 | `/admin/platforms` | 创建平台 |
+| `subscriptions` | 订阅数 > 0 | 为平台创建订阅条目 | `/admin/subscriptions` | 新建订阅 |
+| `nodes` | `usable_nodes > 0` | 添加至少一个可用节点 | `/admin/nodes` | 新建节点 |
+| `version_active` | 任一订阅 `current_version > 0` | 生成并激活首个版本 | `/admin/assembly` | 前往装配 |
+| `member_check` | 恒为人工步骤，初始 `done=false`、`manual=true` | 以普通用户身份检查 | `/` | 查看用户首页 |
+
+> `nodes.done` 必须基于 `usable_nodes`，不以原始节点总数判断，避免停用/缺失节点误判完成。
+
+#### 0.1.2 Token 对比度预校验结果
+
+| 组合 | 对比度 | 结论 |
+|------|--------|------|
+| 浅色正文 `#0F172A` / 表面 `#FFFFFF` | 17.85:1 | AA |
+| 浅色辅助文字 `#64748B` / 表面 `#FFFFFF` | 4.76:1 | AA |
+| 浅色主色 `#2563EB` / 表面 `#FFFFFF` | 5.17:1 | AA |
+| 深色正文 `#F8FAFC` / 表面 `#111827` | 16.96:1 | AA |
+| 深色辅助文字 `#94A3B8` / 表面 `#111827` | 6.92:1 | AA |
+| 深色主色 `#60A5FA` / 表面 `#111827` | 6.98:1 | AA |
+| 浅色 primarySoft `#EFF6FF` / primary `#2563EB` | 4.75:1 | AA |
+| 深色 primarySoft `#172554` / primary `#60A5FA` | 5.78:1 | AA |
+
+> Step 6 实施时按此结论使用 UIReport2 §6.2 / Build11 Step 6 中的 Token 值，无需再调整主色。
+
+#### 0.1.3 高级模式页面静态审计结论（Step 5 输入）
+
+- **XrayInstancesView**
+  - 页头同时存在“开始初始化”和“新增实例”两个主操作，不符合“每页一个主操作”约束。
+  - 实例 Tab 内“实例列表 / 刷新节点 / 对账”仍平铺，未按三层结构重组。
+  - 新增/编辑实例、独立账号、检测回执、对账均使用普通 Modal，未迁移 FormOverlay。
+  - 桌面/手机操作均为 `size="small"`，危险项与普通项并排；手机卡片缺少“更多”收口。
+  - 列表直接暴露内部 `slug`，手机端信息密度偏高。
+- **GroupsView**
+  - 编辑组为单一大 Modal，未按“基础信息 / 流量 / 可用节点”分段。
+  - 页头缺少“用户组影响说明”。
+  - 删除/编辑操作均为 `size="small"`，手机触控与误触风险较高。
+  - 未使用 FormOverlay / 手机 Drawer。
+- **处理建议**：上述问题在 Step 4 表单载体迁移与 Step 5 高级页重组中统一处理，无需新增后端能力。
+
 
 ---
 
@@ -88,7 +133,7 @@
 | Step | 内容 | 依赖 | 状态 |
 |------|------|------|------|
 | 0 | 创建并完善 Build11 文档 | — | ✅ 已完成（本文档 v1.3） |
-| 1 | 后端：重置 token 三态 + 装配警告语义修正 + 设置页重置校验限流 | Step 0 | ✅ 代码与测试已通过（待用户复核） |
+| 1 | 后端：重置 token 三态 + 装配警告语义修正 + 设置页重置校验限流 | Step 0 | ✅ 验收通过（用户已确认） |
 | 2 | 前端：可信状态修复（预览指纹、应急/重置/OIDC、跨页上下文） | Step 1 | ☐ 未开始 |
 | 3 | 后端：`/admin/overview` + 版本归属接口 + 应急网关 `/admin` | Step 0 | ☐ 未开始 |
 | 4 | 前端：手机任务可完成性（顶栏、触控、FormOverlay） | Step 2 | ☐ 未开始 |
@@ -199,6 +244,8 @@ Step 1~6 → Step 7（润色/测试/文档收口）
   cd backend && go build ./...
   cd backend && go vet ./...
   cd backend && go test ./...
+  cd frontend && npm run build
+  cd frontend && npm test -- --run
   ```
 - **验收标准：**
   - `POST /api/auth/reset/validate` 对 valid/missing/used/expired 返回统一成功包裹 `{status}`；默认限流 10/min，第 11 次 429。
@@ -303,6 +350,9 @@ Step 1~6 → Step 7（润色/测试/文档收口）
   }
   ```
 
+   > Checklist 的 key、label、action_path、done 判定以 §0.1.1 定稿为准；后端仅返回结构化数据，最终文案由前端按定稿渲染。
+
+
 4. 计数与摘要口径：
    - 列表类使用现有服务 `List(ctx)` 的长度（小团队规模可接受）；
    - `users`/`pending_users` 使用 `adminUserSvc.List(ctx, ListQuery{Page:1, Size:1})` 与 `approvalSvc.List(ctx, 1, 1)` 的 `total`；
@@ -368,7 +418,7 @@ Step 1~6 → Step 7（润色/测试/文档收口）
    - `SharesView.vue`：创建分享；
    - `RulesView.vue`：创建/编辑规则；
    - `UsersView.vue`：全部表单类 Modal（新建用户、编辑、自定义订阅、重置密码等）；
-   - `VersionManageView.vue`：创建版本、编辑版本（预览 Modal 保留宽屏，移动端可改为 Drawer）；
+   - `VersionManageView.vue`：创建版本、编辑版本、预览 Modal 均按 `FormOverlay` 迁移：桌面宽 Modal，手机全屏 Drawer（只读预览也走手机 Drawer）。
    - `AssemblyView.vue`：头部默认确认、节点选择排序等编辑型 Modal。
 3. `frontend/src/components/AppHeader.vue`：
    - 手机只保留汉堡、站点名、账户入口；主题切换进账户菜单；
@@ -397,7 +447,7 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 ### Step 5：前端 — 信息架构与结构统一
 
 - **目标：** 统一页面骨架、状态容器、菜单与设置分组，落地 `/admin` 概览页、真实版本标题和高级模式页重组。
-- **前置条件：** Step 3 完成（后端契约），Step 4 完成（表单载体稳定）。
+- **前置条件：** Step 3 完成（后端契约），Step 4 完成（表单载体稳定）；高级模式静态审计已按 §0.1.3 完成，Step 5 前如有浏览器环境再补 DOM/截图走查作为非阻断增强。
 
 1. 新增通用组件：
    - `PageShell.vue`：唯一 `h1`、描述、ContextBar、StateContainer；
@@ -425,6 +475,7 @@ Step 1~6 → Step 7（润色/测试/文档收口）
    - 状态摘要、首次发布清单、计数网格、快捷入口；
    - 动态摘要：最近 5 条待审批与最近 5 条访问日志；
    - 每张卡片提供失败重试；空态保留明确下一步。
+   - **Checklist 文案与判定按 §0.1.1 定稿执行。**
 7. `SettingsView.vue` 重组为六分组：
    - 身份与访问（OIDC/OIDC 规则/本地认证/验证码）；
    - 通知（SMTP）；
@@ -436,7 +487,7 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 8. `VersionManageView.vue`：
    - `load()` 后若有版本，调用 `GET /api/admin/versions/:id/owner`（使用第一个版本 ID）获取 `{name,type_label,back_path}`；
    - 标题显示“{name} · 版本管理”与中文类型 Badge；无版本时按 ownerType 回退，如“订阅 #id · 版本管理”，不得把 ownerType 英文当真实名称。
-9. 高级模式页面：
+9. 高级模式页面（改造依据 §0.1.3 审计结论）：
    - `XrayInstancesView.vue`：顶部实例状态摘要；实例 Tab 内按“实例列表/节点检测/对账”分层；危险操作进更多菜单。
    - `GroupsView.vue`：页头增加用户组影响说明；编辑按“基础信息/流量/可用节点”分段，手机 Drawer。
 10. 测试：
@@ -463,7 +514,7 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 - **目标：** AntD 与 Tailwind 由同一 `uiTokens` 驱动，Tailwind 走 CSS 变量、AntD 走具体色值；消除暗色多套表面断层。
 - **前置条件：** Step 5 完成。
 
-1. `frontend/src/theme.ts` 定义唯一 Token 源（采用 UIReport2 §6.2 候选值）：
+1. `frontend/src/theme.ts` 定义唯一 Token 源（采用 UIReport2 §6.2 候选值，对比度已按 §0.1.2 预校验通过）：
 
   ```ts
   export const uiTokens = {
@@ -546,7 +597,7 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 
 1. `frontend/src/views/admin/assembly/PreviewStep.vue`：
    - 增加行号、搜索、复制、换行切换；
-   - 预览与 Diff 用 Tabs 或分栏，避免上下重复全文。
+   - 预览与 Diff 采用 Tabs 切换，避免上下重复全文。
 2. `frontend/src/components/DiffView.vue`：
    - 新增/删除计数与定位按钮；错误行定位。
 3. 状态反馈：
@@ -583,7 +634,7 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | 1 | 概览页 checklist 文案与判定 | 定稿为 5 步：平台 → 订阅 → 可用节点 → 生成并激活首个版本 → 人工成员检查；`member_check` 恒为人工步骤 | ✅ 已确认（2026-08-28） |
 | 2 | 概览页动态摘要是否加实时日志 | 不加实时日志流，采用静态最近 5 条待审批 + 最近 5 条访问日志 | ✅ 已确认（2026-08-28） |
 | 3 | 重置校验接口是否叠加限流 | 新增设置页可配置限流，默认 10/min，旧前端缺省按 10 保存 | ✅ 已确认并实现（2026-08-28，Step 1） |
-| 4 | 高级模式页面详细 UI 审计 | 现在先做完整审计；已完成源码/设计静态走查，Step 5 前可补充 DOM/截图核验 | ✅ 已确认（2026-08-28） |
+| 4 | 高级模式页面详细 UI 审计 | 现在先做完整审计；已完成源码/设计静态走查，Step 5 前如有浏览器环境再补 DOM/截图核验 | ✅ 已确认（2026-08-28） |
 | 5 | Token 最终对比度 | 候选值已预校验，关键文本/背景组合均达 WCAG AA；按 UIReport2 §6.2 定稿 | ✅ 已确认（2026-08-28） |
 | 6 | 手机 Drawer 的动画方向 | 采用底部全屏 Drawer（`placement="bottom"`, `height=100dvh`） | ✅ 已确认（2026-08-28） |
 
@@ -596,4 +647,4 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | v1.0 | 2026-08-28 | 初始版本：汇总 UIReport1/UIReport2、源码审计与用户决策，作为 Build11 当前构建方案 |
 | v1.1 | 2026-08-28 | 深度复核前后端源码：补充代码事实、后端影响矩阵、Step 1~7 可执行计划；确认重置三态后端接口、`/admin/overview` 后端接口、版本归属接口、后端警告过滤、全部 Modal 表单 Drawer、UIReport2 Token 与概览页动态摘要 |
 | v1.2 | 2026-08-28 | 从头重新核验：修正 OIDC 401 拦截器例外、AntD Token 不得传入 CSS 变量、overview 最近待审批需新增倒序方法、`usable_nodes` 口径、版本归属只读方法补齐、清理测试归属 cron、灰度类实际 40 个文件、空态分页/批量需在页面层条件渲染 |
-| v1.3 | 2026-08-28 | 同步用户构建前决策：重置校验限流进入设置页（默认 10/min）、概览动态摘要静态化、Drawer 底部全屏、高级模式审计先做、概览 checklist 与 Token 对比度定稿；完成 Step 1 代码与测试（重置三态、used 保留、装配警告过滤、重置校验限流），待用户复核后进入 Step 2 |
+| v1.3 | 2026-08-28 | 同步用户构建前决策：重置校验限流进入设置页（默认 10/min）、概览动态摘要静态化、Drawer 底部全屏、高级模式审计先做、概览 checklist 与 Token 对比度定稿；完成 Step 1 代码与测试（重置三态、used 保留、装配警告过滤、重置校验限流），用户已确认 Step 1 通过 |
