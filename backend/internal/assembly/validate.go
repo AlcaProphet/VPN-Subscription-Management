@@ -134,20 +134,57 @@ func (s *Service) validate(in GenerateInput, ld *loadedData) error {
 	// 空产物硬校验
 	switch in.TargetSyntax {
 	case ClashYAML:
-		if len(in.OverseasMembers) == 0 {
-			return fmt.Errorf("%w: 『🌎国外流量』组未包含任何节点", ErrBadRequest)
+		if err := validateForceMembers(
+			node.ForceOverseas,
+			in.OverseasMembers,
+			map[string]bool{node.ForceDirect: true},
+			selectedNodeSet,
+			ld,
+		); err != nil {
+			return err
 		}
-		for _, name := range in.OverseasMembers {
-			if !containsString(in.NodeNames, name) {
-				return fmt.Errorf("%w: 🌎国外流量成员必须是已勾选节点: %s", ErrBadRequest, name)
-			}
-			if _, ok := ld.nodes[name]; !ok {
-				return fmt.Errorf("%w: 🌎国外流量成员节点不存在: %s", ErrBadRequest, name)
-			}
+		if err := validateForceMembers(
+			node.ForceFallback,
+			in.FallbackGroupMembers,
+			map[string]bool{node.ForceDirect: true, node.ForceOverseas: true},
+			selectedNodeSet,
+			ld,
+		); err != nil {
+			return err
 		}
 	case SrSubs, GenericSubs:
 		if len(in.NodeNames) == 0 || !s.hasLinkableNode(in, ld) {
 			return fmt.Errorf("%w: 节点订阅至少需要 1 个可转换链接的节点", ErrBadRequest)
+		}
+	}
+	return nil
+}
+
+// validateForceMembers 校验可配置强制组的有序成员。
+func validateForceMembers(groupName string, members []string, allowedGroups map[string]bool, selectedNodes map[string]bool, ld *loadedData) error {
+	if len(members) == 0 {
+		return fmt.Errorf("%w: 『%s』组未包含任何成员", ErrBadRequest, groupName)
+	}
+	seen := map[string]bool{}
+	for _, name := range members {
+		if seen[name] {
+			return fmt.Errorf("%w: 『%s』组成员重复: %s", ErrBadRequest, groupName, name)
+		}
+		seen[name] = true
+		if name == node.ReservedDirect {
+			return fmt.Errorf("%w: 『%s』组不能直接引用 DIRECT，请选择『%s』", ErrBadRequest, groupName, node.ForceDirect)
+		}
+		if allowedGroups[name] {
+			continue
+		}
+		if name == node.ForceDirect || name == node.ForceOverseas || name == node.ForceFallback {
+			return fmt.Errorf("%w: 『%s』组不允许引用系统组: %s", ErrBadRequest, groupName, name)
+		}
+		if !selectedNodes[name] {
+			return fmt.Errorf("%w: 『%s』组成员必须是已勾选节点: %s", ErrBadRequest, groupName, name)
+		}
+		if _, ok := ld.nodes[name]; !ok {
+			return fmt.Errorf("%w: 『%s』组成员节点不存在: %s", ErrBadRequest, groupName, name)
 		}
 	}
 	return nil

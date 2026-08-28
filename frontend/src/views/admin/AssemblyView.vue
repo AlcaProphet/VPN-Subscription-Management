@@ -74,6 +74,9 @@ const DEFAULT_HEADERS: Record<TargetSyntax, string> = {
   'generic-subs': '{}',
   'sr-conf': JSON.stringify({ loglevel: 'warning' }, null, 2),
 }
+const FORCE_DIRECT = '🚀直接连接'
+const FORCE_OVERSEAS = '🌎国外流量'
+const FORCE_FALLBACK = '🛟无法归属的流量'
 
 const context = ref<AssemblyContext | null>(null)
 const subscriptions = ref<SubscriptionItem[]>([])
@@ -109,6 +112,7 @@ const form = reactive({
   group_names: [] as string[],
   group_node_orders: {} as Record<string, string[]>,
   overseas_members: [] as string[],
+  fallback_group_members: [FORCE_DIRECT, FORCE_OVERSEAS] as string[],
   pools: [] as PoolSelection[],
   custom_rules: [] as RuleLine[],
   final_direction: 'PROXY',
@@ -184,6 +188,7 @@ watch(advancedMode, (on) => {
   const xrayNames = new Set((context.value.nodes ?? []).filter((n) => n.source === 'xray').map((n) => n.name))
   form.node_names = form.node_names.filter((n) => !xrayNames.has(n))
   form.overseas_members = form.overseas_members.filter((n) => !xrayNames.has(n))
+  form.fallback_group_members = form.fallback_group_members.filter((n) => !xrayNames.has(n))
   const nextOrders: Record<string, string[]> = {}
   for (const [g, list] of Object.entries(form.group_node_orders)) {
     nextOrders[g] = list.filter((n) => !xrayNames.has(n))
@@ -238,6 +243,7 @@ const previewFingerprint = computed(() => stableStringify({
   groupNames: form.group_names,
   groupNodeOrders: form.group_node_orders,
   overseasMembers: form.overseas_members,
+  fallbackGroupMembers: form.fallback_group_members,
   pools: form.pools,
   customRules: form.custom_rules,
   finalDirection: form.final_direction,
@@ -305,6 +311,7 @@ function assemblyDraftForm(): AssemblyDraftForm {
     group_names: [...form.group_names],
     group_node_orders: Object.fromEntries(Object.entries(form.group_node_orders).map(([key, values]) => [key, [...values]])),
     overseas_members: [...form.overseas_members],
+    fallback_group_members: [...form.fallback_group_members],
     pools: form.pools.map((pool) => ({ ...pool })),
     custom_rules: form.custom_rules.map((rule) => ({ ...rule })),
     final_direction: form.final_direction,
@@ -340,6 +347,7 @@ async function restoreAssemblyDraft() {
   form.group_names = [...draft.form.group_names]
   form.group_node_orders = Object.fromEntries(Object.entries(draft.form.group_node_orders).map(([key, values]) => [key, [...values]]))
   form.overseas_members = [...draft.form.overseas_members]
+  form.fallback_group_members = [...draft.form.fallback_group_members]
   form.pools = draft.form.pools.map((pool) => ({ ...pool }))
   form.custom_rules = draft.form.custom_rules.map((rule) => ({ ...rule }))
   form.final_direction = draft.form.final_direction
@@ -363,6 +371,7 @@ async function loadEditIfAny() {
       const xrayNames = new Set((context.value?.nodes ?? []).filter((n) => n.source === 'xray').map((n) => n.name))
       const hasXray = (bp.selection.node_names ?? []).some((n: string) => xrayNames.has(n))
         || (bp.selection.overseas_members ?? []).some((n: string) => xrayNames.has(n))
+        || (bp.selection.fallback_group_members ?? []).some((n: string) => xrayNames.has(n))
         || Object.values(bp.selection.group_node_orders ?? {}).some((arr: string[]) => arr.some((n) => xrayNames.has(n)))
       if (hasXray) {
         editBlocked.value = true
@@ -381,6 +390,7 @@ async function loadEditIfAny() {
     form.group_names = bp.selection?.group_names ?? []
     form.group_node_orders = bp.selection?.group_node_orders ?? {}
     form.overseas_members = bp.selection?.overseas_members ?? []
+    form.fallback_group_members = bp.selection?.fallback_group_members ?? []
     form.pools = bp.selection?.pools ?? []
     form.final_direction = bp.selection?.final_direction ?? 'PROXY'
     form.fixed_params_text = JSON.stringify(bp.fixed_params ?? {}, null, 2)
@@ -426,6 +436,7 @@ function buildInput(): GenerateInput {
     group_names: form.group_names,
     group_node_orders: form.group_node_orders,
     overseas_members: form.overseas_members,
+    fallback_group_members: form.fallback_group_members,
     pools: form.pools,
     custom_rules: parseCustomRules(),
     final_direction: form.final_direction,
@@ -458,9 +469,16 @@ async function doPreview() {
   }
 }
 function toggleNode(name: string) {
-  form.node_names = form.node_names.includes(name)
-    ? form.node_names.filter((n) => n !== name)
-    : [...form.node_names, name]
+  if (!form.node_names.includes(name)) {
+    form.node_names = [...form.node_names, name]
+    return
+  }
+  form.node_names = form.node_names.filter((n) => n !== name)
+  form.overseas_members = form.overseas_members.filter((n) => n !== name)
+  form.fallback_group_members = form.fallback_group_members.filter((n) => n !== name)
+  form.group_node_orders = Object.fromEntries(
+    Object.entries(form.group_node_orders).map(([group, members]) => [group, members.filter((n) => n !== name)]),
+  )
 }
 function toggleGroup(name: string) {
   if (form.group_names.includes(name)) {
@@ -476,10 +494,9 @@ function toggleGroup(name: string) {
     [name]: [],
   }
 }
-function toggleOverseas(name: string) {
-  form.overseas_members = form.overseas_members.includes(name)
-    ? form.overseas_members.filter((n) => n !== name)
-    : [...form.overseas_members, name]
+function updateForceMembers(group: string, members: string[]) {
+  if (group === FORCE_OVERSEAS) form.overseas_members = [...members]
+  if (group === FORCE_FALLBACK) form.fallback_group_members = [...members]
 }
 function addPool() {
   form.pools.push({ pool_id: context.value?.pools?.[0]?.id ?? 0, target: outputGroups.value[0] ?? '' })
@@ -513,7 +530,11 @@ function prevStep() {
 }
 function nextStep() {
   if (currentStepKey.value === 'nodes' && targetSyntax.value === 'clash-yaml' && form.overseas_members.length === 0) {
-    Notify.warning('「🌎国外流量」组未包含任何节点')
+    Notify.warning(`「${FORCE_OVERSEAS}」组未包含任何成员`)
+    return
+  }
+  if (currentStepKey.value === 'nodes' && targetSyntax.value === 'clash-yaml' && form.fallback_group_members.length === 0) {
+    Notify.warning(`「${FORCE_FALLBACK}」组未包含任何成员`)
     return
   }
   if (currentStep.value < stepDefs.value.length - 1) currentStep.value += 1
@@ -565,7 +586,14 @@ function invalidLabel(kind: string) {
   return kind === 'node' ? '节点' : kind === 'group' ? '代理组' : '素材池'
 }
 function removeInvalidRef(ref: { kind: string; name: string }) {
-  if (ref.kind === 'node') form.node_names = form.node_names.filter((n) => n !== ref.name)
+  if (ref.kind === 'node') {
+    form.node_names = form.node_names.filter((n) => n !== ref.name)
+    form.overseas_members = form.overseas_members.filter((n) => n !== ref.name)
+    form.fallback_group_members = form.fallback_group_members.filter((n) => n !== ref.name)
+    form.group_node_orders = Object.fromEntries(
+      Object.entries(form.group_node_orders).map(([group, members]) => [group, members.filter((n) => n !== ref.name)]),
+    )
+  }
   if (ref.kind === 'group') form.group_names = form.group_names.filter((n) => n !== ref.name)
   if (ref.kind === 'pool') form.pools = form.pools.filter((p) => String(p.pool_id) !== ref.name)
 }
@@ -588,7 +616,11 @@ async function doGenerate() {
     return
   }
   if (targetSyntax.value === 'clash-yaml' && form.overseas_members.length === 0) {
-    Notify.error('「🌎国外流量」组未包含任何节点，空组将导致 Clash 加载失败')
+    Notify.error(`「${FORCE_OVERSEAS}」组未包含任何成员，空组将导致 Clash 加载失败`)
+    return
+  }
+  if (targetSyntax.value === 'clash-yaml' && form.fallback_group_members.length === 0) {
+    Notify.error(`「${FORCE_FALLBACK}」组未包含任何成员，空组将导致 Clash 加载失败`)
     return
   }
   generating.value = true
@@ -645,7 +677,7 @@ async function goActivation() {
 }
 
 const outputGroups = computed(() => {
-  const set = new Set<string>(['🚀直接连接', '🌎国外流量', '🛟无法归属的流量'])
+  const set = new Set<string>([FORCE_DIRECT, FORCE_OVERSEAS, FORCE_FALLBACK])
   form.group_names.forEach((g) => set.add(g))
   return Array.from(set)
 })
@@ -721,7 +753,7 @@ const outputGroups = computed(() => {
                 <template #nodes>
                   <NodesGroupsStep :form="form" :group-node-orders="form.group_node_orders" :context="context" :target-syntax="targetSyntax" :invalid-refs="invalidRefs"
                                    :show-xray="advancedMode" :manual-nodes="manualNodes" :xray-nodes="xrayNodes" :preset-groups="presetGroups" :custom-groups="customGroups"
-                                   @toggle-node="toggleNode" @toggle-group="toggleGroup" @toggle-overseas="toggleOverseas"
+                                   @toggle-node="toggleNode" @toggle-group="toggleGroup" @update-force-members="updateForceMembers"
                                    @update-group-node-order="(g: string, nodes: string[]) => form.group_node_orders = { ...form.group_node_orders, [g]: nodes }" />
                 </template>
                 <template #rules>

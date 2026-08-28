@@ -35,8 +35,8 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	// 三个强制组（固定键序 name/type/proxies，R14-02）
 	forceGroups := []*OrderedMap{
 		orderedGroupFields(&ClashPlanGroup{Name: node.ForceDirect, Type: "select", Proxies: []string{"DIRECT"}}),
-		orderedGroupFields(&ClashPlanGroup{Name: node.ForceOverseas, Type: "select", Proxies: s.overseasRenderNames(in, ld)}),
-		orderedGroupFields(&ClashPlanGroup{Name: node.ForceFallback, Type: "select", Proxies: []string{node.ForceDirect, node.ForceOverseas}}),
+		orderedGroupFields(&ClashPlanGroup{Name: node.ForceOverseas, Type: "select", Proxies: s.forceMemberRenderNames(in.OverseasMembers, ld)}),
+		orderedGroupFields(&ClashPlanGroup{Name: node.ForceFallback, Type: "select", Proxies: s.forceMemberRenderNames(in.FallbackGroupMembers, ld)}),
 	}
 	for _, g := range forceGroups {
 		groups = append(groups, orderedMapToMapSlice(g))
@@ -106,6 +106,13 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	if err := applyClashOverlay(&root, in.Overlay); err != nil {
 		return nil, fmt.Errorf("应用覆盖层失败: %w", err)
 	}
+	if issues := checkForceGroupInvariants(root); HasError(issues) {
+		for _, issue := range issues {
+			if issue.Severity == "error" {
+				return nil, fmt.Errorf("%w: %s", ErrBadRequest, issue.Message)
+			}
+		}
+	}
 	mapDelete(&root, overlayXrayNamesKey)
 	content, err := marshalClashYAML(root, comments)
 	if err != nil {
@@ -132,7 +139,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			out = append(out,
 				ClashPlanGroup{Name: node.ForceDirect, Type: "select", Proxies: []string{"DIRECT"}, Force: true},
 				ClashPlanGroup{Name: node.ForceOverseas, Type: "select", Proxies: append([]string{}, in.OverseasMembers...), Force: true},
-				ClashPlanGroup{Name: node.ForceFallback, Type: "select", Proxies: []string{node.ForceDirect, node.ForceOverseas}, Force: true},
+				ClashPlanGroup{Name: node.ForceFallback, Type: "select", Proxies: append([]string{}, in.FallbackGroupMembers...), Force: true},
 			)
 			for _, name := range in.GroupNames {
 				g := ld.groups[name]
@@ -261,10 +268,14 @@ func splitList(value string) []string {
 	return out
 }
 
-// overseasRenderNames 将 🌎国外流量 成员（nodes.name 稳定键）转为渲染名。
-func (s *Service) overseasRenderNames(in GenerateInput, ld *loadedData) []string {
-	out := make([]string, 0, len(in.OverseasMembers))
-	for _, name := range in.OverseasMembers {
+// forceMemberRenderNames 将强制组成员中的节点稳定键转为渲染名，系统组名原样保留。
+func (s *Service) forceMemberRenderNames(members []string, ld *loadedData) []string {
+	out := make([]string, 0, len(members))
+	for _, name := range members {
+		if name == node.ForceDirect || name == node.ForceOverseas {
+			out = append(out, name)
+			continue
+		}
 		if nd, ok := ld.nodes[name]; ok {
 			out = append(out, nd.RenderName)
 		}

@@ -11,7 +11,12 @@ func benchmarkInput(syntax TargetSyntax) GenerateInput {
 	for i := range rules {
 		rules[i] = RuleLine{RuleType: "DOMAIN-SUFFIX", MatchValue: fmt.Sprintf("example%d.com", i), Target: "PROXY"}
 	}
-	return GenerateInput{TargetSyntax: syntax, CustomRules: rules}
+	in := GenerateInput{TargetSyntax: syntax, CustomRules: rules}
+	if syntax == ClashYAML {
+		in.OverseasMembers = []string{"🚀直接连接"}
+		in.FallbackGroupMembers = []string{"🚀直接连接", "🌎国外流量"}
+	}
+	return in
 }
 
 func BenchmarkRenderClash10kRules(b *testing.B) {

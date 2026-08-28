@@ -226,6 +226,107 @@ func CheckClashContent(content []byte) []OutputIssue {
 	return issues
 }
 
+// checkForceGroupInvariants 检查装配产物的三类系统强制组与 DIRECT 层级约束。
+func checkForceGroupInvariants(root gyaml.MapSlice) []OutputIssue {
+	groupsRaw, ok := mapGet(root, "proxy-groups")
+	if !ok {
+		return []OutputIssue{outputError("$.proxy-groups", "缺少系统强制组")}
+	}
+	groups, ok := seqOf(groupsRaw)
+	if !ok {
+		return nil // 列表形态由通用自检报告。
+	}
+	groupMaps := map[string]gyaml.MapSlice{}
+	groupIndexes := map[string]int{}
+	for i, raw := range groups {
+		group, ok := yamlMap(raw)
+		if !ok {
+			continue
+		}
+		name := mapString(group, "name")
+		if name == "" {
+			continue
+		}
+		groupMaps[name] = group
+		groupIndexes[name] = i
+	}
+
+	var issues []OutputIssue
+	forceNames := []string{node.ForceDirect, node.ForceOverseas, node.ForceFallback}
+	for _, name := range forceNames {
+		group, exists := groupMaps[name]
+		if !exists {
+			issues = append(issues, outputError("$.proxy-groups", "缺少系统强制组: "+name))
+			continue
+		}
+		path := fmt.Sprintf("$.proxy-groups[%d]", groupIndexes[name])
+		if mapString(group, "type") != "select" {
+			issues = append(issues, outputError(path, "系统强制组必须使用 select 类型: "+name))
+		}
+	}
+
+	for name, group := range groupMaps {
+		members, membersOK := seqOfValue(group, "proxies")
+		if !membersOK {
+			continue
+		}
+		if name != node.ForceDirect {
+			for _, raw := range members {
+				member, ok := scalarString(raw)
+				if ok && member == node.ReservedDirect {
+					path := fmt.Sprintf("$.proxy-groups[%d]", groupIndexes[name])
+					issues = append(issues, outputError(path, "DIRECT 只能作为『"+node.ForceDirect+"』组的固定成员"))
+				}
+			}
+		}
+	}
+
+	if group, exists := groupMaps[node.ForceDirect]; exists {
+		members, ok := seqOfValue(group, "proxies")
+		if !ok || len(members) != 1 {
+			path := fmt.Sprintf("$.proxy-groups[%d]", groupIndexes[node.ForceDirect])
+			issues = append(issues, outputError(path, "『"+node.ForceDirect+"』组成员必须严格为 [DIRECT]"))
+		} else if member, ok := scalarString(members[0]); !ok || member != node.ReservedDirect {
+			path := fmt.Sprintf("$.proxy-groups[%d]", groupIndexes[node.ForceDirect])
+			issues = append(issues, outputError(path, "『"+node.ForceDirect+"』组成员必须严格为 [DIRECT]"))
+		}
+	}
+
+	validateConfigurable := func(name string, allowedGroups map[string]bool) {
+		group, exists := groupMaps[name]
+		if !exists {
+			return
+		}
+		path := fmt.Sprintf("$.proxy-groups[%d]", groupIndexes[name])
+		members, ok := seqOfValue(group, "proxies")
+		if !ok || len(members) == 0 {
+			issues = append(issues, outputError(path, "『"+name+"』组未包含任何成员"))
+			return
+		}
+		seen := map[string]bool{}
+		for _, raw := range members {
+			member, ok := scalarString(raw)
+			if !ok {
+				continue
+			}
+			if seen[member] {
+				issues = append(issues, outputError(path, "『"+name+"』组成员重复: "+member))
+				continue
+			}
+			seen[member] = true
+			if member == node.ReservedDirect || allowedGroups[member] {
+				continue
+			}
+			if _, isGroup := groupMaps[member]; isGroup {
+				issues = append(issues, outputError(path, "『"+name+"』组不允许引用代理组: "+member))
+			}
+		}
+	}
+	validateConfigurable(node.ForceOverseas, map[string]bool{node.ForceDirect: true})
+	validateConfigurable(node.ForceFallback, map[string]bool{node.ForceDirect: true, node.ForceOverseas: true})
+	return issues
+}
+
 // HasError 判断自检结果是否包含阻断级问题。
 func HasError(issues []OutputIssue) bool {
 	for _, issue := range issues {

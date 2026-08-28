@@ -25,7 +25,7 @@ function draft() {
     layoutMode: 'step' as const,
     form: {
       rule_name: '', sr_rule_mode: 'new' as const, fixed_params_text: '{}', node_names: [], group_names: [],
-      group_node_orders: {}, overseas_members: [], pools: [], custom_rules: [], final_direction: 'PROXY',
+      group_node_orders: {}, overseas_members: [], fallback_group_members: ['🚀直接连接', '🌎国外流量'], pools: [], custom_rules: [], final_direction: 'PROXY',
       overlay: { merge_yaml: '', rules_yaml: '', proxies_yaml: '', groups_yaml: '' },
     },
   }

@@ -180,9 +180,9 @@ func applyProxyGroupSideEffects(root *gyaml.MapSlice, added []string, deleteSet 
 			proxies = filtered
 		}
 
-		// 新增节点插入第一个 selector/select 组最前。
+		// 新增节点插入第一个普通 selector/select 组最前；系统强制组成员由装配字段独立控制，覆盖层不得隐式改写。
 		inserted := false
-		if !appendedToSelector && len(added) > 0 && isSelectorGroup(group) {
+		if !appendedToSelector && len(added) > 0 && isSelectorGroup(group) && !isForceGroupName(mapString(group, "name")) {
 			merged := make([]any, 0, len(added)+len(proxies))
 			seen := map[string]bool{}
 			for _, name := range added {
@@ -216,6 +216,10 @@ func applyProxyGroupSideEffects(root *gyaml.MapSlice, added []string, deleteSet 
 func isSelectorGroup(group gyaml.MapSlice) bool {
 	t := strings.ToLower(mapString(group, "type"))
 	return t == "select" || t == "selector"
+}
+
+func isForceGroupName(name string) bool {
+	return name == node.ForceDirect || name == node.ForceOverseas || name == node.ForceFallback
 }
 
 // deepMerge 实现 CVR use_merge 语义：MapSlice 递归合并，其余以 patch 覆盖。

@@ -93,6 +93,15 @@ func TestRenderClashPlanComment(t *testing.T) {
 	if strings.Contains(string(content), "# {{xray_nodes}}") {
 		t.Errorf("不应残留占位符:\n%s", content)
 	}
+	if got, want := clashGroupMembers(t, content, "🚀直接连接"), []string{"DIRECT"}; !equalStrings(got, want) {
+		t.Errorf("直接连接空节点兜底异常: got=%v want=%v", got, want)
+	}
+	if got, want := clashGroupMembers(t, content, "🌎国外流量"), []string{"🚀直接连接"}; !equalStrings(got, want) {
+		t.Errorf("国外流量空节点兜底异常: got=%v want=%v", got, want)
+	}
+	if got, want := clashGroupMembers(t, content, "🛟无法归属的流量"), []string{"🚀直接连接", "🌎国外流量"}; !equalStrings(got, want) {
+		t.Errorf("无法归属组仍有可达组时不应替换成员: got=%v want=%v", got, want)
+	}
 }
 
 func TestRenderClashPlanKeepsProviderGroupAndFields(t *testing.T) {

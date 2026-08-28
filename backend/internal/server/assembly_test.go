@@ -94,8 +94,12 @@ func assemblyBody(pid int64) map[string]any {
 		"group_names":       []string{"组A"},
 		"group_node_orders": map[string][]string{"组A": {"节点A"}},
 		"overseas_members":  []string{"节点A"},
-		"fixed_params":      map[string]any{"port": 7890},
-		"pools":             []any{},
+		"fallback_group_members": []string{
+			"🚀直接连接",
+			"🌎国外流量",
+		},
+		"fixed_params": map[string]any{"port": 7890},
+		"pools":        []any{},
 	}
 }
 

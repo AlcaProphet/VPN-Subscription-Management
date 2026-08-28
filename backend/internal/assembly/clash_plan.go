@@ -8,6 +8,7 @@ import (
 
 	gyaml "github.com/goccy/go-yaml"
 
+	"vpn-sub/internal/node"
 	"vpn-sub/internal/rulespec"
 )
 
@@ -206,7 +207,11 @@ func RenderClashPlan(planRaw []byte, dynamic []DynamicNode, manualNames map[stri
 			}
 		}
 		if forceNames[g.Name] && len(members) == 0 {
-			members = []string{"DIRECT"}
+			if g.Name == node.ForceDirect {
+				members = []string{node.ReservedDirect}
+			} else {
+				members = []string{node.ForceDirect}
+			}
 		}
 		if !forceNames[g.Name] && len(members) == 0 && !groupHasProviderOrInclude(g, providerNames) {
 			continue

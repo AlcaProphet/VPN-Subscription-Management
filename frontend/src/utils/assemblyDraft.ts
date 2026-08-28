@@ -15,6 +15,7 @@ export interface AssemblyDraftForm {
   group_names: string[]
   group_node_orders: Record<string, string[]>
   overseas_members: string[]
+  fallback_group_members: string[]
   pools: PoolSelection[]
   custom_rules: RuleLine[]
   final_direction: string
@@ -54,6 +55,7 @@ function isValidDraft(value: unknown): value is AssemblyDraft {
     && Array.isArray(form.group_names)
     && !!form.group_node_orders
     && Array.isArray(form.overseas_members)
+    && Array.isArray(form.fallback_group_members)
     && Array.isArray(form.pools)
     && Array.isArray(form.custom_rules)
     && typeof form.final_direction === 'string'

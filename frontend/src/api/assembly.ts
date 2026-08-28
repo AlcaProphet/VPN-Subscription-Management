@@ -34,6 +34,7 @@ export interface GenerateInput {
   group_names: string[]
   group_node_orders?: Record<string, string[]>
   overseas_members: string[]
+  fallback_group_members: string[]
   pools: PoolSelection[]
   custom_rules: RuleLine[]
   final_direction?: string
@@ -71,6 +72,7 @@ export interface BlueprintResponse {
       group_names: string[]
       group_node_orders?: Record<string, string[]>
       overseas_members: string[]
+      fallback_group_members: string[]
       pools: PoolSelection[]
       final_direction?: string
       overlay?: OverlayInput

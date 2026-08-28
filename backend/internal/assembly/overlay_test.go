@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -146,6 +147,76 @@ func TestRenderClashPlanOverlay(t *testing.T) {
 	}
 }
 
+func TestClashOverlayCannotBreakForcedGroupInvariants(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+
+	tests := []struct {
+		name       string
+		groupsYAML string
+		want       string
+	}{
+		{
+			name:       "不能删除强制组",
+			groupsYAML: "delete:\n  - 🚀直接连接\n",
+			want:       "缺少系统强制组",
+		},
+		{
+			name:       "普通组不能直接引用 DIRECT",
+			groupsYAML: "append:\n  - name: 违规组\n    type: select\n    proxies:\n      - DIRECT\n",
+			want:       "DIRECT 只能作为",
+		},
+		{
+			name:       "不能改写直接连接组",
+			groupsYAML: "delete:\n  - 🚀直接连接\nappend:\n  - name: 🚀直接连接\n    type: select\n    proxies:\n      - 节点A\n",
+			want:       "成员必须严格为 [DIRECT]",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.Preview(context.Background(), GenerateInput{
+				TargetSyntax:         ClashYAML,
+				PlatformID:           pid,
+				NodeNames:            []string{"节点A"},
+				OverseasMembers:      []string{"🚀直接连接"},
+				FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
+				Overlay:              OverlayInput{GroupsYAML: tc.groupsYAML},
+			})
+			if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("覆盖层应被阻断并包含 %q，实际 %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestClashProxyOverlayDoesNotRewriteForcedGroups(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+
+	res, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax:         ClashYAML,
+		PlatformID:           pid,
+		NodeNames:            []string{"节点A"},
+		OverseasMembers:      []string{"节点A", "🚀直接连接"},
+		FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
+		Overlay:              OverlayInput{ProxiesYAML: "prepend:\n  - name: overlay-node\n    type: ss\n    server: overlay.example.com\n    port: 8388\n    cipher: aes-128-gcm\n    password: secret\n"},
+	})
+	if err != nil {
+		t.Fatalf("新增代理覆盖层不应隐式改写强制组: %v", err)
+	}
+	if !strings.Contains(string(res.Content), "name: overlay-node") {
+		t.Fatalf("新增代理覆盖层未保留节点:\n%s", res.Content)
+	}
+	if got, want := clashGroupMembers(t, res.Content, "🚀直接连接"), []string{"DIRECT"}; !equalStrings(got, want) {
+		t.Fatalf("新增代理覆盖层改写了直接连接组: got=%v want=%v", got, want)
+	}
+	if got, want := clashGroupMembers(t, res.Content, "🌎国外流量"), []string{"节点A", "🚀直接连接"}; !equalStrings(got, want) {
+		t.Fatalf("新增代理覆盖层改写了国外流量组: got=%v want=%v", got, want)
+	}
+}
+
 func TestBlueprintOverlayRoundtrip(t *testing.T) {
 	svc, st, _ := newTestService(t)
 	ctx := context.Background()
@@ -164,6 +235,8 @@ func TestBlueprintOverlayRoundtrip(t *testing.T) {
 	err = st.TxImmediate(ctx, func(tx *sql.Tx) error {
 		return svc.SaveBlueprintTx(ctx, tx, versionID, GenerateInput{
 			TargetSyntax: ClashYAML, PlatformID: 1, Overlay: ov,
+			OverseasMembers:      []string{"🚀直接连接"},
+			FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 		}, json.RawMessage(`{}`))
 	})
 	if err != nil {
@@ -183,6 +256,9 @@ func TestBlueprintOverlayRoundtrip(t *testing.T) {
 	}
 	if _, ok := sel["overlay"]; !ok {
 		t.Fatalf("selection_json 缺少 overlay 键: %s", data.Selection)
+	}
+	if got, ok := sel["fallback_group_members"].([]any); !ok || len(got) != 2 || got[0] != "🚀直接连接" || got[1] != "🌎国外流量" {
+		t.Fatalf("selection_json 未保留无法归属组有序成员: %s", data.Selection)
 	}
 }
 

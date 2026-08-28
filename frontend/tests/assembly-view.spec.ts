@@ -133,7 +133,10 @@ describe('AssemblyView 装配页核心交互', () => {
     const vm = wrapper.vm as unknown as { form: { platform_id?: number }; doPreview: () => Promise<void> }
     vm.form.platform_id = 1
     await vm.doPreview()
-    expect(mockPreview).toHaveBeenCalled()
+    expect(mockPreview).toHaveBeenCalledWith(expect.objectContaining({
+      overseas_members: [],
+      fallback_group_members: ['🚀直接连接', '🌎国外流量'],
+    }))
   })
 
   it('预览完成后可生成；任一产物字段变更后旧预览过期', async () => {
@@ -192,6 +195,7 @@ describe('AssemblyView 装配页核心交互', () => {
         group_names: [],
         group_node_orders: {},
         overseas_members: [],
+        fallback_group_members: ['🚀直接连接', '🌎国外流量'],
         pools: [],
         custom_rules: [],
         final_direction: 'PROXY',

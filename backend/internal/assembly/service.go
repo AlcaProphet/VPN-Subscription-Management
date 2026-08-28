@@ -88,14 +88,15 @@ func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int
 		return err
 	}
 	selection := map[string]any{
-		"node_names":        in.NodeNames,
-		"group_names":       in.GroupNames,
-		"group_node_orders": in.GroupNodeOrders,
-		"overseas_members":  in.OverseasMembers,
-		"pools":             in.Pools,
-		"final_direction":   in.FinalDirection,
-		"xray_candidates":   xrayCandidates,
-		"overlay":           in.Overlay,
+		"node_names":             in.NodeNames,
+		"group_names":            in.GroupNames,
+		"group_node_orders":      in.GroupNodeOrders,
+		"overseas_members":       in.OverseasMembers,
+		"fallback_group_members": in.FallbackGroupMembers,
+		"pools":                  in.Pools,
+		"final_direction":        in.FinalDirection,
+		"xray_candidates":        xrayCandidates,
+		"overlay":                in.Overlay,
 	}
 	sel, err := json.Marshal(selection)
 	if err != nil {

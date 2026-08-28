@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	gyaml "github.com/goccy/go-yaml"
+
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/node"
 	"vpn-sub/internal/store"
 	"vpn-sub/migrations"
 )
@@ -138,11 +141,12 @@ func TestPreviewClash(t *testing.T) {
 	)
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		FixedParams:     NewOrderedMap().Set("port", 7890).Set("mode", "rule"),
-		NodeNames:       []string{"节点A"},
-		GroupNames:      []string{"组A"},
-		OverseasMembers: []string{"节点A"},
-		Pools:           []PoolSelection{{PoolID: poolID, Target: "组A"}},
+		FixedParams:          NewOrderedMap().Set("port", 7890).Set("mode", "rule"),
+		NodeNames:            []string{"节点A"},
+		GroupNames:           []string{"组A"},
+		OverseasMembers:      []string{"节点A"},
+		FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
+		Pools:                []PoolSelection{{PoolID: poolID, Target: "组A"}},
 	})
 	if err != nil {
 		t.Fatalf("Clash 预览失败: %v", err)
@@ -166,10 +170,11 @@ func TestPreviewClashGroupNodeOrder(t *testing.T) {
 	insertGroup(t, st, "组A", "select", []string{"节点A", "节点B"}, nil, true, false)
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames:       []string{"节点A", "节点B"},
-		GroupNames:      []string{"组A"},
-		GroupNodeOrders: map[string][]string{"组A": {"节点B", "节点A"}},
-		OverseasMembers: []string{"节点A", "节点B"},
+		NodeNames:            []string{"节点A", "节点B"},
+		GroupNames:           []string{"组A"},
+		GroupNodeOrders:      map[string][]string{"组A": {"节点B", "节点A"}},
+		OverseasMembers:      []string{"节点A", "节点B"},
+		FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 	})
 	if err != nil {
 		t.Fatalf("Clash 预览失败: %v", err)
@@ -180,6 +185,76 @@ func TestPreviewClashGroupNodeOrder(t *testing.T) {
 	idxA := strings.Index(groupSeg, "- 节点A")
 	if idxB < 0 || idxA < 0 || idxB > idxA {
 		t.Errorf("group_node_orders 应让节点B排在节点A之前:\n%s", content)
+	}
+}
+
+func TestPreviewClashForcedGroupMembers(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertManualNode(t, st, "节点B", "vless", map[string]any{"uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+
+	res, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax:         ClashYAML,
+		PlatformID:           pid,
+		NodeNames:            []string{"节点A", "节点B"},
+		OverseasMembers:      []string{"节点B", node.ForceDirect, "节点A"},
+		FallbackGroupMembers: []string{node.ForceOverseas, "节点A", node.ForceDirect},
+	})
+	if err != nil {
+		t.Fatalf("Clash 强制组预览失败: %v", err)
+	}
+	if got, want := clashGroupMembers(t, res.Content, node.ForceDirect), []string{node.ReservedDirect}; !equalStrings(got, want) {
+		t.Errorf("直接连接成员异常: got=%v want=%v", got, want)
+	}
+	if got, want := clashGroupMembers(t, res.Content, node.ForceOverseas), []string{"节点B", node.ForceDirect, "节点A"}; !equalStrings(got, want) {
+		t.Errorf("国外流量成员或顺序异常: got=%v want=%v", got, want)
+	}
+	if got, want := clashGroupMembers(t, res.Content, node.ForceFallback), []string{node.ForceOverseas, "节点A", node.ForceDirect}; !equalStrings(got, want) {
+		t.Errorf("无法归属成员或顺序异常: got=%v want=%v", got, want)
+	}
+}
+
+func TestForcedGroupMemberValidation(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertGroup(t, st, "普通组", "select", []string{"节点A"}, nil, true, false)
+
+	tests := []struct {
+		name     string
+		overseas []string
+		fallback []string
+		want     string
+	}{
+		{name: "国外流量拒绝底层 DIRECT", overseas: []string{node.ReservedDirect}, fallback: []string{node.ForceDirect}, want: "不能直接引用 DIRECT"},
+		{name: "无法归属拒绝底层 DIRECT", overseas: []string{node.ForceDirect}, fallback: []string{node.ReservedDirect}, want: "不能直接引用 DIRECT"},
+		{name: "国外流量允许直接连接组", overseas: []string{node.ForceDirect}, fallback: []string{node.ForceDirect}},
+		{name: "无法归属允许国外流量组", overseas: []string{node.ForceDirect}, fallback: []string{node.ForceOverseas}},
+		{name: "无法归属拒绝普通组", overseas: []string{node.ForceDirect}, fallback: []string{"普通组"}, want: "成员必须是已勾选节点"},
+		{name: "无法归属拒绝自身", overseas: []string{node.ForceDirect}, fallback: []string{node.ForceFallback}, want: "不允许引用系统组"},
+		{name: "无法归属不能为空", overseas: []string{node.ForceDirect}, fallback: nil, want: "未包含任何成员"},
+		{name: "国外流量成员不能重复", overseas: []string{node.ForceDirect, node.ForceDirect}, fallback: []string{node.ForceDirect}, want: "成员重复"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.Preview(context.Background(), GenerateInput{
+				TargetSyntax:         ClashYAML,
+				PlatformID:           pid,
+				NodeNames:            []string{"节点A"},
+				OverseasMembers:      tc.overseas,
+				FallbackGroupMembers: tc.fallback,
+			})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("合法强制组成员被拒绝: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("应拒绝并包含 %q，实际 %v", tc.want, err)
+			}
+		})
 	}
 }
 
@@ -262,7 +337,7 @@ func TestClashSkipUserAgent(t *testing.T) {
 	poolID := insertPool(t, st, struct{ Type, Value string }{"USER-AGENT", "Telegram"})
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames: []string{"节点A"}, GroupNames: []string{"组A"}, OverseasMembers: []string{"节点A"},
+		NodeNames: []string{"节点A"}, GroupNames: []string{"组A"}, OverseasMembers: []string{"节点A"}, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 		Pools: []PoolSelection{{PoolID: poolID, Target: "组A"}},
 	})
 	if err != nil {
@@ -287,7 +362,7 @@ func TestClashExtendedRulesAndSrSkip(t *testing.T) {
 		{RuleType: "IP-ASN", MatchValue: "45102", Target: "组A"},
 		{RuleType: "AND", MatchValue: "((DOMAIN,a.com),(NETWORK,tcp))", Target: "组A"},
 	}
-	res, err := svc.Preview(context.Background(), GenerateInput{TargetSyntax: ClashYAML, PlatformID: pid, NodeNames: []string{"节点A"}, GroupNames: []string{"组A"}, GroupNodeOrders: map[string][]string{"组A": {"节点A"}}, OverseasMembers: []string{"节点A"}, CustomRules: rules})
+	res, err := svc.Preview(context.Background(), GenerateInput{TargetSyntax: ClashYAML, PlatformID: pid, NodeNames: []string{"节点A"}, GroupNames: []string{"组A"}, GroupNodeOrders: map[string][]string{"组A": {"节点A"}}, OverseasMembers: []string{"节点A"}, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"}, CustomRules: rules})
 	if err != nil {
 		t.Fatalf("Clash 扩展规则失败: %v", err)
 	}
@@ -319,7 +394,7 @@ func TestPreviewExtendedProxyGroupFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := svc.Preview(context.Background(), GenerateInput{
-		TargetSyntax: ClashYAML, PlatformID: pid, NodeNames: []string{"节点A"}, GroupNames: []string{"Provider组"}, OverseasMembers: []string{"节点A"},
+		TargetSyntax: ClashYAML, PlatformID: pid, NodeNames: []string{"节点A"}, GroupNames: []string{"Provider组"}, OverseasMembers: []string{"节点A"}, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 		FixedParams: NewOrderedMap().Set("proxy-providers", map[string]any{"provider-a": map[string]any{"type": "http", "url": "https://example.com/sub"}}),
 	})
 	if err != nil {
@@ -340,7 +415,7 @@ func TestXrayPlaceholderAndDisplayName(t *testing.T) {
 	insertGroup(t, st, "组A", "select", []string{"instance-x-vless"}, nil, true, false)
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames: []string{"instance-x-vless"}, GroupNames: []string{"组A"}, OverseasMembers: []string{"instance-x-vless"},
+		NodeNames: []string{"instance-x-vless"}, GroupNames: []string{"组A"}, OverseasMembers: []string{"instance-x-vless"}, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 	})
 	if err != nil {
 		t.Fatalf("Clash 含 xray 预览失败: %v", err)
@@ -361,7 +436,7 @@ func TestValidationErrors(t *testing.T) {
 	// 空 🌎国外流量
 	_, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames: []string{"节点A"}, OverseasMembers: nil,
+		NodeNames: []string{"节点A"}, OverseasMembers: nil, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 	})
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("空国外流量应 ErrBadRequest，实际 %v", err)
@@ -370,7 +445,7 @@ func TestValidationErrors(t *testing.T) {
 	insertGroup(t, st, "停用组", "select", []string{"节点A"}, nil, false, true)
 	_, err = svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames: []string{"节点A"}, GroupNames: []string{"停用组"}, OverseasMembers: []string{"节点A"},
+		NodeNames: []string{"节点A"}, GroupNames: []string{"停用组"}, OverseasMembers: []string{"节点A"}, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 	})
 	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "预设组已停用") {
 		t.Fatalf("停用预设组应拒绝，实际 %v", err)
@@ -380,7 +455,7 @@ func TestValidationErrors(t *testing.T) {
 	insertGroup(t, st, "父组", "select", []string{"节点A"}, []string{"子组"}, true, false)
 	_, err = svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames: []string{"节点A"}, GroupNames: []string{"父组"}, OverseasMembers: []string{"节点A"},
+		NodeNames: []string{"节点A"}, GroupNames: []string{"父组"}, OverseasMembers: []string{"节点A"}, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 	})
 	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "未勾选的组") {
 		t.Fatalf("未勾选子组应拒绝，实际 %v", err)
@@ -448,10 +523,11 @@ func TestClashHeaderOrder(t *testing.T) {
 	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
 	res, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		FixedParams:     NewOrderedMap().Set("mode", "rule").Set("port", 7890),
-		NodeNames:       []string{"节点A"},
-		GroupNames:      []string{"组A"},
-		OverseasMembers: []string{"节点A"},
+		FixedParams:          NewOrderedMap().Set("mode", "rule").Set("port", 7890),
+		NodeNames:            []string{"节点A"},
+		GroupNames:           []string{"组A"},
+		OverseasMembers:      []string{"节点A"},
+		FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 	})
 	if err != nil {
 		t.Fatalf("Clash 预览失败: %v", err)
@@ -471,8 +547,9 @@ func TestOverseasMemberMustBeSelected(t *testing.T) {
 	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
 	_, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames:       []string{"节点A"},
-		OverseasMembers: []string{"未勾选节点"},
+		NodeNames:            []string{"节点A"},
+		OverseasMembers:      []string{"未勾选节点"},
+		FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 	})
 	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "必须是已勾选节点") {
 		t.Fatalf("未勾选国外流量成员应拒绝，实际 %v", err)
@@ -487,10 +564,11 @@ func TestNonexistentPoolRejected(t *testing.T) {
 	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
 	_, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames:       []string{"节点A"},
-		GroupNames:      []string{"组A"},
-		OverseasMembers: []string{"节点A"},
-		Pools:           []PoolSelection{{PoolID: 99999, Target: "组A"}},
+		NodeNames:            []string{"节点A"},
+		GroupNames:           []string{"组A"},
+		OverseasMembers:      []string{"节点A"},
+		FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
+		Pools:                []PoolSelection{{PoolID: 99999, Target: "组A"}},
 	})
 	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "素材池不存在") {
 		t.Fatalf("不存在池应拒绝，实际 %v", err)
@@ -535,7 +613,7 @@ func TestWarningsKeepRulesForClashAndSrConf(t *testing.T) {
 	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
 	clash, err := svc.Preview(context.Background(), GenerateInput{
 		TargetSyntax: ClashYAML, PlatformID: pid,
-		NodeNames: []string{"节点A"}, GroupNames: []string{"组A"}, OverseasMembers: []string{"节点A"},
+		NodeNames: []string{"节点A"}, GroupNames: []string{"组A"}, OverseasMembers: []string{"节点A"}, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
 	})
 	if err != nil {
 		t.Fatalf("Clash 预览失败: %v", err)
@@ -562,4 +640,57 @@ func containsWarning(warnings []string, text string) bool {
 		}
 	}
 	return false
+}
+
+func clashGroupMembers(t *testing.T, content []byte, groupName string) []string {
+	t.Helper()
+	var decoded any
+	if err := gyaml.UnmarshalWithOptions(content, &decoded, gyaml.UseOrderedMap()); err != nil {
+		t.Fatalf("解析 Clash YAML 失败: %v", err)
+	}
+	root, ok := yamlMap(decoded)
+	if !ok {
+		t.Fatal("Clash YAML 顶层不是映射")
+	}
+	raw, ok := mapGet(root, "proxy-groups")
+	if !ok {
+		t.Fatal("Clash YAML 缺少 proxy-groups")
+	}
+	groups, ok := seqOf(raw)
+	if !ok {
+		t.Fatal("proxy-groups 不是列表")
+	}
+	for _, rawGroup := range groups {
+		group, ok := yamlMap(rawGroup)
+		if !ok || mapString(group, "name") != groupName {
+			continue
+		}
+		members, ok := seqOfValue(group, "proxies")
+		if !ok {
+			t.Fatalf("组 %s 的 proxies 不是列表", groupName)
+		}
+		out := make([]string, 0, len(members))
+		for _, rawMember := range members {
+			member, ok := scalarString(rawMember)
+			if !ok {
+				t.Fatalf("组 %s 存在非字符串成员", groupName)
+			}
+			out = append(out, member)
+		}
+		return out
+	}
+	t.Fatalf("Clash YAML 缺少代理组 %s", groupName)
+	return nil
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

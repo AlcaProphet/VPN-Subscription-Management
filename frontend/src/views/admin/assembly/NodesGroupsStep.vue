@@ -8,7 +8,7 @@ import type { NodeItem } from '@/api/node'
 import type { ProxyGroupItem } from '@/api/proxyGroup'
 
 const props = defineProps<{
-  form: { node_names: string[]; group_names: string[]; overseas_members: string[] }
+  form: { node_names: string[]; group_names: string[]; overseas_members: string[]; fallback_group_members: string[] }
   groupNodeOrders: Record<string, string[]>
   context: AssemblyContext | null
   targetSyntax: TargetSyntax
@@ -23,11 +23,13 @@ const props = defineProps<{
 const emit = defineEmits<{
   'toggle-node': [name: string]
   'toggle-group': [name: string]
-  'toggle-overseas': [name: string]
   'update-group-node-order': [group: string, nodes: string[]]
+  'update-force-members': [group: string, members: string[]]
 }>()
 
-const FORCE_GROUPS = ['🚀直接连接', '🌎国外流量', '🛟无法归属的流量']
+const FORCE_DIRECT = '🚀直接连接'
+const FORCE_OVERSEAS = '🌎国外流量'
+const FORCE_FALLBACK = '🛟无法归属的流量'
 
 // “选择与排序”弹窗状态
 const selectingGroup = ref<string | null>(null)
@@ -36,7 +38,13 @@ const dragIndex = ref<number | null>(null)
 
 const availableNodes = computed(() => {
   const all = props.showXray === false ? props.manualNodes : [...props.manualNodes, ...props.xrayNodes]
-  return all.filter((n) => n.source === 'manual' || (n.allocatable && n.enabled !== false))
+  return all.filter((n) => props.form.node_names.includes(n.name) && (n.source === 'manual' || (n.allocatable && n.enabled !== false)))
+})
+const selectingForceGroup = computed(() => selectingGroup.value === FORCE_OVERSEAS || selectingGroup.value === FORCE_FALLBACK)
+const availableForceGroups = computed(() => {
+  if (selectingGroup.value === FORCE_OVERSEAS) return [FORCE_DIRECT]
+  if (selectingGroup.value === FORCE_FALLBACK) return [FORCE_DIRECT, FORCE_OVERSEAS]
+  return []
 })
 function nodeLabel(name: string) {
   return [...props.manualNodes, ...props.xrayNodes].find((n) => n.name === name)?.render_name ?? name
@@ -46,7 +54,13 @@ function nodeSubLabel(name: string) {
 }
 function openSelector(group: string) {
   selectingGroup.value = group
-  draftSelected.value = [...(props.groupNodeOrders[group] ?? [])]
+  if (group === FORCE_OVERSEAS) {
+    draftSelected.value = [...props.form.overseas_members]
+  } else if (group === FORCE_FALLBACK) {
+    draftSelected.value = [...props.form.fallback_group_members]
+  } else {
+    draftSelected.value = [...(props.groupNodeOrders[group] ?? [])]
+  }
 }
 function closeSelector() {
   selectingGroup.value = null
@@ -66,7 +80,10 @@ function moveDraft(index: number, delta: number) {
   draftSelected.value = arr
 }
 function saveSelector() {
-  if (selectingGroup.value) emit('update-group-node-order', selectingGroup.value, draftSelected.value)
+  if (selectingGroup.value) {
+    if (selectingForceGroup.value) emit('update-force-members', selectingGroup.value, draftSelected.value)
+    else emit('update-group-node-order', selectingGroup.value, draftSelected.value)
+  }
   closeSelector()
 }
 function onDragStart(idx: number) { dragIndex.value = idx }
@@ -108,7 +125,27 @@ function onDrop(idx: number) {
     <div v-if="targetSyntax === 'clash-yaml'">
       <div class="text-sm font-medium mb-1">代理组</div>
       <div class="grid md:grid-cols-3 gap-2">
-        <Checkbox v-for="g in FORCE_GROUPS" :key="g" :checked="true" disabled>{{ g }}<Tag class="ml-1">强制</Tag></Checkbox>
+        <div class="rounded border border-border-subtle p-2">
+          <Checkbox :checked="true" disabled>{{ FORCE_DIRECT }}</Checkbox>
+          <Tag class="ml-1">强制</Tag>
+          <div class="mt-1 text-xs text-text-tertiary">系统固定的直连出口，不提供成员选择</div>
+        </div>
+        <div data-testid="force-overseas-group" class="rounded border border-border-subtle p-2">
+          <div class="flex items-center gap-1 flex-wrap">
+            <Checkbox :checked="true" disabled>{{ FORCE_OVERSEAS }}</Checkbox>
+            <Tag>强制</Tag>
+            <Button data-testid="select-overseas-members" size="small" @click="openSelector(FORCE_OVERSEAS)">选择与排序</Button>
+          </div>
+          <div class="mt-1 text-xs text-text-tertiary">可选成员：本次已勾选节点、{{ FORCE_DIRECT }}</div>
+        </div>
+        <div data-testid="force-fallback-group" class="rounded border border-border-subtle p-2">
+          <div class="flex items-center gap-1 flex-wrap">
+            <Checkbox :checked="true" disabled>{{ FORCE_FALLBACK }}</Checkbox>
+            <Tag>强制</Tag>
+            <Button data-testid="select-fallback-members" size="small" @click="openSelector(FORCE_FALLBACK)">选择与排序</Button>
+          </div>
+          <div class="mt-1 text-xs text-text-tertiary">可选成员：本次已勾选节点、{{ FORCE_DIRECT }}、{{ FORCE_OVERSEAS }}</div>
+        </div>
         <Checkbox v-for="g in presetGroups" :key="g.name" :checked="form.group_names.includes(g.name)" :disabled="!g.enabled" @change="emit('toggle-group', g.name)">
           <span>{{ g.name }}</span>
           <Button v-if="form.group_names.includes(g.name)" size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
@@ -120,34 +157,35 @@ function onDrop(idx: number) {
         </Checkbox>
       </div>
     </div>
-    <div v-if="targetSyntax === 'clash-yaml'">
-      <div class="text-sm font-medium mb-1">🌎国外流量成员（仅节点）</div>
-      <div class="grid md:grid-cols-3 gap-2">
-        <Checkbox v-for="n in manualNodes.concat(showXray !== false ? xrayNodes : [])" :key="n.name" :checked="form.overseas_members.includes(n.name)"
-                  :disabled="n.source === 'xray' && (!n.allocatable || n.enabled === false)" @change="emit('toggle-overseas', n.name)">
-          {{ n.render_name }}
-        </Checkbox>
-      </div>
-    </div>
 
-    <AppModal :open="!!selectingGroup" :title="`节点选择与排序 · ${selectingGroup ?? ''}`" :footer="null" :width="640" destroy-on-close @update:open="closeSelector">
+    <AppModal :open="!!selectingGroup" :title="`成员选择与排序 · ${selectingGroup ?? ''}`" :footer="null" :width="640" destroy-on-close @update:open="closeSelector">
       <div class="space-y-3">
+        <div v-if="selectingForceGroup && availableForceGroups.length">
+          <div class="text-sm font-medium mb-1">可引用组</div>
+          <div class="grid md:grid-cols-2 gap-2">
+            <Checkbox v-for="group in availableForceGroups" :key="group" :checked="draftSelected.includes(group)" @change="toggleDraftNode(group)">
+              {{ group }}
+            </Checkbox>
+          </div>
+          <div class="mt-1 text-xs text-text-tertiary">底层直连不会作为候选显示；需要直连时请选择「{{ FORCE_DIRECT }}」。</div>
+        </div>
         <div>
-          <div class="text-sm font-medium mb-1">可选节点</div>
+          <div class="text-sm font-medium mb-1">本次已勾选节点</div>
           <div class="grid md:grid-cols-2 gap-2">
             <Checkbox v-for="n in availableNodes" :key="n.name" :checked="draftSelected.includes(n.name)" @change="toggleDraftNode(n.name)">
               <span>{{ n.render_name }}</span>
               <Tag class="ml-1">{{ n.protocol }}</Tag>
             </Checkbox>
+            <div v-if="availableNodes.length === 0" class="text-xs text-text-tertiary">暂无已勾选且可用的节点</div>
           </div>
         </div>
         <div>
-          <div class="text-sm font-medium mb-1">已选节点（有序）</div>
-          <div v-if="draftSelected.length === 0" class="text-xs text-text-tertiary">尚未选择节点，将使用子组引用</div>
+          <div class="text-sm font-medium mb-1">已选成员（有序）</div>
+          <div v-if="draftSelected.length === 0" class="text-xs text-danger">至少选择一个成员</div>
           <div v-for="(name, idx) in draftSelected" :key="name" :draggable="true"
                class="flex items-center gap-2 border rounded p-2 mb-2 cursor-move"
                @dragstart="onDragStart(idx)" @dragover.prevent @drop="onDrop(idx)">
-            <span class="flex-1">{{ nodeLabel(name) }}</span>
+            <span class="flex-1">{{ availableForceGroups.includes(name) ? name : nodeLabel(name) }}</span>
             <span v-if="nodeSubLabel(name)" class="text-xs text-text-tertiary font-mono">{{ name }}</span>
             <Button size="small" :disabled="idx === 0" @click="moveDraft(idx, -1)">上移</Button>
             <Button size="small" :disabled="idx === draftSelected.length - 1" @click="moveDraft(idx, 1)">下移</Button>
@@ -155,7 +193,7 @@ function onDrop(idx: number) {
         </div>
         <div class="flex justify-end gap-2">
           <Button @click="closeSelector">取消</Button>
-          <Button type="primary" @click="saveSelector">保存</Button>
+          <Button data-testid="save-member-selector" type="primary" :disabled="selectingForceGroup && draftSelected.length === 0" @click="saveSelector">保存</Button>
         </div>
       </div>
     </AppModal>
