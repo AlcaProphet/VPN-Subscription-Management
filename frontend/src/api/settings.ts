@@ -47,6 +47,7 @@ export interface RateLimitSettings {
   register: number
   forgot: number
   download: number
+  reset_validate: number
   http_read_header_timeout_sec: number
   http_read_timeout_sec: number
   http_write_timeout_sec: number

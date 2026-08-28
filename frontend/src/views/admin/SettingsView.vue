@@ -302,7 +302,7 @@ async function confirmIconDelete() {
 
 // --- 速率限制 ---
 const rate = reactive<RateLimitSettings>({
-  login: 10, register: 5, forgot: 5, download: 20,
+  login: 10, register: 5, forgot: 5, download: 20, reset_validate: 10,
   http_read_header_timeout_sec: 5, http_read_timeout_sec: 60,
   http_write_timeout_sec: 300, http_idle_timeout_sec: 120, http_max_body_mb: 4,
 })
@@ -867,6 +867,7 @@ onMounted(() => {
               <div><span class="text-sm">注册（次/分钟）</span><InputNumber v-model:value="rate.register" class="w-full mt-1" :min="1" /></div>
               <div><span class="text-sm">找回密码（次/分钟）</span><InputNumber v-model:value="rate.forgot" class="w-full mt-1" :min="1" /></div>
               <div><span class="text-sm">下载（次/分钟）</span><InputNumber v-model:value="rate.download" class="w-full mt-1" :min="1" /></div>
+              <div><span class="text-sm">重置校验（次/分钟）</span><InputNumber v-model:value="rate.reset_validate" class="w-full mt-1" :min="1" /></div>
             </div>
             <div class="grid grid-cols-2 gap-3 border-t pt-3">
               <div><span class="text-sm">读头超时（秒）</span><InputNumber v-model:value="rate.http_read_header_timeout_sec" class="w-full mt-1" :min="1" :max="60" /></div>

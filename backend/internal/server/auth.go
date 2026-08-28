@@ -28,6 +28,7 @@ func RegisterAuthRoutes(engine *gin.Engine, h *AuthHandler, limiter *ratelimit.L
 	g.POST("/register", limiter.Middleware("register", ratelimit.KeyRegister, 5), captchaSvc.Middleware("register"), h.register)
 	g.POST("/login", limiter.Middleware("login", ratelimit.KeyLogin, 10), captchaSvc.Middleware("login"), h.login)
 	g.POST("/forgot", limiter.Middleware("forgot", ratelimit.KeyForgot, 5), captchaSvc.Middleware("forgot"), h.forgot)
+	g.POST("/reset/validate", limiter.Middleware("reset_validate", ratelimit.KeyResetValidate, 10), h.validateReset)
 	g.POST("/reset", h.reset) // 重置凭令牌保护，不额外限流
 	g.GET("/me", h.authSvc.SessionMiddleware(), h.me)
 	g.POST("/logout", h.authSvc.SessionMiddleware(), h.logout)
@@ -186,6 +187,23 @@ func (h *AuthHandler) forgot(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{"message": "若该邮箱已注册，重置链接已发送"}) // 统一防枚举响应
+}
+
+// reset/validate 只读校验重置链接状态（missing/used/expired/valid），不消费 token。
+func (h *AuthHandler) validateReset(c *gin.Context) {
+	var req struct {
+		Token string `json:"token" binding:"required,max=256"`
+	}
+	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	status, err := h.resetSvc.Validate(c.Request.Context(), req.Token)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, gin.H{"status": status})
 }
 
 // reset 密码重置：校验令牌设置新密码

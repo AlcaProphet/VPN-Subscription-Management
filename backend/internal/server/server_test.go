@@ -29,7 +29,6 @@ func mustPolicy(t *testing.T, mode string) *proxytrust.Policy {
 	return p
 }
 
-
 // newTestServer 构造测试用 server（临时库）
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
@@ -57,6 +56,12 @@ func newTestServer(t *testing.T) *Server {
 			oidc_claims TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		"0005_reset.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+			token TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			expires_at TIMESTAMP NOT NULL,
+			used INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)

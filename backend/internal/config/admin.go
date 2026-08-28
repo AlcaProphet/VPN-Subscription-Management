@@ -38,14 +38,15 @@ const (
 
 // 验证码/限流配置键（与 captcha/ratelimit 包常量同值）
 const (
-	captchaKeyProvider  = "captcha_provider"
-	captchaKeySiteKey   = "captcha_site_key"
-	captchaKeySecretKey = "captcha_secret_key"
-	captchaKeyPages     = "captcha_pages"
-	ratelimitKeyLogin   = "ratelimit_login"
-	ratelimitKeyReg     = "ratelimit_register"
-	ratelimitKeyForgot  = "ratelimit_forgot"
-	ratelimitKeyDown    = "ratelimit_download"
+	captchaKeyProvider        = "captcha_provider"
+	captchaKeySiteKey         = "captcha_site_key"
+	captchaKeySecretKey       = "captcha_secret_key"
+	captchaKeyPages           = "captcha_pages"
+	ratelimitKeyLogin         = "ratelimit_login"
+	ratelimitKeyReg           = "ratelimit_register"
+	ratelimitKeyForgot        = "ratelimit_forgot"
+	ratelimitKeyDown          = "ratelimit_download"
+	ratelimitKeyResetValidate = "ratelimit_reset_validate"
 
 	httpReadHeaderTimeoutSecKey = "http_read_header_timeout_sec"
 	httpReadTimeoutSecKey       = "http_read_timeout_sec"
@@ -488,10 +489,11 @@ func (s *AdminService) DeleteSiteIcon(ctx context.Context) error {
 // --- 速率限制分区 ---
 
 type RateLimitSettings struct {
-	Login    int `json:"login"`
-	Register int `json:"register"`
-	Forgot   int `json:"forgot"`
-	Download int `json:"download"`
+	Login         int `json:"login"`
+	Register      int `json:"register"`
+	Forgot        int `json:"forgot"`
+	Download      int `json:"download"`
+	ResetValidate int `json:"reset_validate"`
 
 	// HTTP 连接防护（0 = 旧前端未提交，保存时取默认值）
 	HTTPReadHeaderTimeoutSec int `json:"http_read_header_timeout_sec"`
@@ -507,6 +509,7 @@ func (s *AdminService) GetRateLimit(ctx context.Context) RateLimitSettings {
 		Register:                 s.cfg.GetInt(ctx, ratelimitKeyReg, 5),
 		Forgot:                   s.cfg.GetInt(ctx, ratelimitKeyForgot, 5),
 		Download:                 s.cfg.GetInt(ctx, ratelimitKeyDown, 20),
+		ResetValidate:            s.cfg.GetInt(ctx, ratelimitKeyResetValidate, 10),
 		HTTPReadHeaderTimeoutSec: s.cfg.GetInt(ctx, httpReadHeaderTimeoutSecKey, 5),
 		HTTPReadTimeoutSec:       s.cfg.GetInt(ctx, httpReadTimeoutSecKey, 60),
 		HTTPWriteTimeoutSec:      s.cfg.GetInt(ctx, httpWriteTimeoutSecKey, 300),
@@ -515,7 +518,7 @@ func (s *AdminService) GetRateLimit(ctx context.Context) RateLimitSettings {
 	}
 }
 
-// SaveRateLimit 保存四个限流值与 HTTP 连接防护值。旧前端未提交新字段时，0 视为采用默认值。
+// SaveRateLimit 保存限流值与 HTTP 连接防护值。旧前端未提交新字段时，0 视为采用默认值。
 func (s *AdminService) SaveRateLimit(ctx context.Context, in RateLimitSettings) error {
 	for k, v := range map[string]int{
 		ratelimitKeyLogin:  in.Login,
@@ -529,6 +532,17 @@ func (s *AdminService) SaveRateLimit(ctx context.Context, in RateLimitSettings) 
 		if err := s.cfg.Set(ctx, k, strconv.Itoa(v)); err != nil {
 			return err
 		}
+	}
+	// 兼容旧前端未提交 reset_validate：0 采用默认 10。
+	resetValidate := in.ResetValidate
+	if resetValidate == 0 {
+		resetValidate = 10
+	}
+	if resetValidate < 1 {
+		return fmt.Errorf("%w: 限流值必须为正整数", ErrBadRequest)
+	}
+	if err := s.cfg.Set(ctx, ratelimitKeyResetValidate, strconv.Itoa(resetValidate)); err != nil {
+		return err
 	}
 	type hardening struct {
 		key string

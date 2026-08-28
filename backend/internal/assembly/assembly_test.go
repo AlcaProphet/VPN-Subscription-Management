@@ -496,3 +496,70 @@ func TestNonexistentPoolRejected(t *testing.T) {
 		t.Fatalf("不存在池应拒绝，实际 %v", err)
 	}
 }
+
+// TestWarningsSkipRulesForNodeSubscriptions 节点订阅不输出无关的“空规则”警告。
+func TestWarningsSkipRulesForNodeSubscriptions(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	sp := insertPlatform(t, st, "subs")
+	gp := insertPlatform(t, st, "generic-subs")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	for _, tc := range []struct {
+		target TargetSyntax
+		pid    int64
+	}{
+		{SrSubs, sp},
+		{GenericSubs, gp},
+	} {
+		res, err := svc.Preview(context.Background(), GenerateInput{
+			TargetSyntax: tc.target,
+			PlatformID:   tc.pid,
+			NodeNames:    []string{"节点A"},
+		})
+		if err != nil {
+			t.Fatalf("节点订阅预览失败: %v", err)
+		}
+		for _, w := range res.Warnings {
+			if strings.Contains(w, "未选择任何规则素材池或手动规则") {
+				t.Errorf("%s 不应输出规则空警告: %v", tc.target, res.Warnings)
+			}
+		}
+	}
+}
+
+// TestWarningsKeepRulesForClashAndSrConf 规则类产物仍保留空规则警告。
+func TestWarningsKeepRulesForClashAndSrConf(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	rid := insertRule(t, st)
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
+	clash, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid,
+		NodeNames: []string{"节点A"}, GroupNames: []string{"组A"}, OverseasMembers: []string{"节点A"},
+	})
+	if err != nil {
+		t.Fatalf("Clash 预览失败: %v", err)
+	}
+	if !containsWarning(clash.Warnings, "未选择任何规则素材池或手动规则") {
+		t.Errorf("Clash 无规则素材时应输出空规则警告: %v", clash.Warnings)
+	}
+	sr, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: SrConf, RuleID: rid,
+		CustomRules: []RuleLine{},
+	})
+	if err != nil {
+		t.Fatalf("SR 分流预览失败: %v", err)
+	}
+	if !containsWarning(sr.Warnings, "未选择任何规则素材池或手动规则") {
+		t.Errorf("SR 分流无规则素材时应输出空规则警告: %v", sr.Warnings)
+	}
+}
+
+func containsWarning(warnings []string, text string) bool {
+	for _, w := range warnings {
+		if strings.Contains(w, text) {
+			return true
+		}
+	}
+	return false
+}

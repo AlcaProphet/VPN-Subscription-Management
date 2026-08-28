@@ -134,7 +134,10 @@ func (s *Service) xrayCandidateNamesTx(ctx context.Context, tx *sql.Tx, names []
 // Warnings 从渲染跳过项等生成用户提示。
 func (s *Service) Warnings(in GenerateInput, res *RenderResult) []string {
 	var warnings []string
-	if len(in.Pools) == 0 && len(in.CustomRules) == 0 {
+	// 规则类警告仅对会产出规则正文的 Clash YAML 与 Shadowrocket 分流规则输出；
+	// sr-subs / generic-subs 是纯节点订阅，不渲染规则内容，避免无关警告。
+	if (in.TargetSyntax == ClashYAML || in.TargetSyntax == SrConf) &&
+		len(in.Pools) == 0 && len(in.CustomRules) == 0 {
 		warnings = append(warnings, "未选择任何规则素材池或手动规则，将生成空规则")
 	}
 	for _, sk := range res.Skipped {

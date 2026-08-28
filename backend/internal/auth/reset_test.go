@@ -104,9 +104,50 @@ func TestResetRequestAndComplete(t *testing.T) {
 	if cv != 1 {
 		t.Errorf("凭据版本号应递增: %d", cv)
 	}
-	// 用后即删：二次 Complete 失败
+	// 行保留且 used=1（供状态校验；清理由 cron 每日执行）
+	var used int
+	if err := st.DB().QueryRow(`SELECT used FROM password_reset_tokens WHERE token = ?`, token).Scan(&used); err != nil {
+		t.Fatalf("查询令牌失败: %v", err)
+	}
+	if used != 1 {
+		t.Errorf("Complete 后 token 行应标记 used=1，实际 %d", used)
+	}
+	// 二次 Complete 失败
 	if err := resetSvc.Complete(ctx, token, "another123"); err == nil {
-		t.Error("二次使用同令牌应失败（用后即删）")
+		t.Error("二次使用同令牌应失败（已使用）")
+	}
+}
+
+// TestResetValidateStatuses 覆盖 valid/missing/used/expired 四种只读状态。
+func TestResetValidateStatuses(t *testing.T) {
+	st, resetSvc, users := newResetEnv(t)
+	ctx := context.Background()
+	u, err := users.Register(ctx, "kyle", "kyle@example.com", "password123")
+	if err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	// valid
+	helperInsertToken(t, st.DB(), "valid-token", u.ID, time.Now().Add(time.Hour), 0)
+	status, err := resetSvc.Validate(ctx, "valid-token")
+	if err != nil || status != auth.ResetTokenValid {
+		t.Fatalf("valid 状态错误: %s %v", status, err)
+	}
+	// used
+	helperInsertToken(t, st.DB(), "used-token", u.ID, time.Now().Add(time.Hour), 1)
+	status, err = resetSvc.Validate(ctx, "used-token")
+	if err != nil || status != auth.ResetTokenUsed {
+		t.Fatalf("used 状态错误: %s %v", status, err)
+	}
+	// expired
+	helperInsertToken(t, st.DB(), "expired-token", u.ID, time.Now().Add(-time.Minute), 0)
+	status, err = resetSvc.Validate(ctx, "expired-token")
+	if err != nil || status != auth.ResetTokenExpired {
+		t.Fatalf("expired 状态错误: %s %v", status, err)
+	}
+	// missing
+	status, err = resetSvc.Validate(ctx, "missing-token")
+	if err != nil || status != auth.ResetTokenMissing {
+		t.Fatalf("missing 状态错误: %s %v", status, err)
 	}
 }
 

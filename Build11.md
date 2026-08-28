@@ -1,6 +1,6 @@
-# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v1.2）
+# Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v1.3）
 
-> **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](docs/reports/UI/UIReport1.md)、[UIReport2.md](docs/reports/UI/UIReport2.md)）后的**当前构建方案**。v1.2 已从头重新核验前后端源码与报告，修正可执行性、后端契约与测试落点；目标是让 Build11 具备稳定、可逐步执行的能力。
+> **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](docs/reports/UI/UIReport1.md)、[UIReport2.md](docs/reports/UI/UIReport2.md)）后的**当前构建方案**。v1.2 已从头重新核验前后端源码与报告，修正可执行性、后端契约与测试落点；v1.3 同步用户构建前决策并落地 Step 1。目标是让 Build11 具备稳定、可逐步执行的能力。
 > - 研究依据：`docs/reports/UI/UIReport1.md`、`docs/reports/UI/UIReport2.md`
 > - 当前设计：`Design2.md`、`Design2-UI.md`（本卷已获用户确认，实施时需同步修订相关章节）
 > - 编码指令：[AGENTS.md](AGENTS.md)（唯一强要求）
@@ -11,7 +11,7 @@
 > - 排序原则：先修复后构建、先依赖后独立、先安全后优化。
 > - 本卷允许**最小后端调整**，但不改变产品功能、权限模型和既有业务语义。
 >
-> **本版状态：** v1.2 仅完成核验与文档修正，未改动任何代码。
+> **本版状态：** v1.3 已同步用户构建前决策，并完成 Step 1 代码与自动化验收（待用户复核）；尚未进入 Step 2。
 
 ---
 
@@ -32,6 +32,13 @@
 | D11 | 版本页真实资源名 | 新增 `GET /api/admin/versions/:id/owner` 通用归属接口 | 以版本 ID 反查 owner |
 | D12 | 装配警告过滤 | 后端 `Warnings()` 为主，前端按 `targetSyntax` 兜底过滤 | — |
 | D13 | 概览页入口 | 管理菜单顶部加“概览”，AppHeader“管理面板”跳 `/admin` | — |
+| D14 | 重置校验限流 | 新增设置页可配置的“重置校验”限流，默认 10 次/分钟 | 偏离 v1.2“不新增限流配置键”，用户拍板 |
+| D15 | 概览动态摘要 | 静态最近 5 条待审批 + 最近 5 条访问日志 | 不做实时日志流 |
+| D16 | 手机 Drawer 方向 | 底部全屏 Drawer（`placement="bottom"`, `100dvh`） | 仅改 `FormOverlay` 配置可调整 |
+| D17 | 高级模式 UI 审计 | 现在先做完整审计（Xray/用户组），Step 5 前完成 | 已按源码/设计做静态走查 |
+| D18 | 概览 checklist | 现在定稿：5 步基线 + `member_check` 恒为人工步骤 | Step 5 按此实现 |
+| D19 | Token 对比度 | 现在预校验并定稿：当前候选值均达 WCAG AA | Step 6 按定稿 Token 实施 |
+| D20 | 构建节奏 | 逐个完成全部 Step，每完成一个 Step 后执行对应验收 | — |
 
 ---
 
@@ -67,7 +74,7 @@
 
 | 变更 | 后端文件 | 影响与约束 |
 |------|----------|------------|
-| 重置 token 校验 + used 保留 | `internal/auth/reset.go`、`internal/server/auth.go`、测试 | 改 `Complete` 从 DELETE 改为 `UPDATE used=1`；新增 `POST /api/auth/reset/validate`；不新增数据库列 |
+| 重置 token 校验 + used 保留 + 限流 | `internal/auth/reset.go`、`internal/server/auth.go`、`internal/ratelimit/ratelimit.go`、`internal/config/admin.go`、`frontend/src/api/settings.ts`、`frontend/src/views/admin/SettingsView.vue`、测试 | 改 `Complete` 从 DELETE 改为 `UPDATE used=1`；新增 `POST /api/auth/reset/validate`；新增设置页可配置限流（默认 10/min）；不新增数据库列 |
 | 装配警告按目标过滤 | `internal/assembly/service.go`、测试 | 仅 `clash-yaml` 与 `sr-conf` 输出规则空警告；`sr-subs`/`generic-subs` 不输出 |
 | `/admin` 概览汇总 | 新增 `internal/server/overview.go` 及测试；`internal/approval/approval.go` 新增最近待审批只读方法 | 新增 `GET /api/admin/overview`；只读聚合，不改变任何业务数据 |
 | 版本归属反查 | `internal/version/version.go`、`internal/server/version_owner.go`、`internal/rule/rule.go`、`internal/custom/custom.go` 及测试 | 新增 `GET /api/admin/versions/:id/owner`；只读查询 |
@@ -80,8 +87,8 @@
 
 | Step | 内容 | 依赖 | 状态 |
 |------|------|------|------|
-| 0 | 创建并完善 Build11 文档 | — | ✅ 已完成（本文档 v1.2） |
-| 1 | 后端：重置 token 三态 + 装配警告语义修正 | Step 0 | ☐ 未开始 |
+| 0 | 创建并完善 Build11 文档 | — | ✅ 已完成（本文档 v1.3） |
+| 1 | 后端：重置 token 三态 + 装配警告语义修正 + 设置页重置校验限流 | Step 0 | ✅ 代码与测试已通过（待用户复核） |
 | 2 | 前端：可信状态修复（预览指纹、应急/重置/OIDC、跨页上下文） | Step 1 | ☐ 未开始 |
 | 3 | 后端：`/admin/overview` + 版本归属接口 + 应急网关 `/admin` | Step 0 | ☐ 未开始 |
 | 4 | 前端：手机任务可完成性（顶栏、触控、FormOverlay） | Step 2 | ☐ 未开始 |
@@ -97,7 +104,7 @@
 
 | Step | 涉及文件 | 要点 |
 |------|---------|------|
-| 1 | `backend/internal/auth/reset.go`、`backend/internal/server/auth.go`、`backend/internal/assembly/service.go`、`backend/internal/auth/reset_test.go`、新增 `backend/internal/cron/cleanup_test.go`、`backend/internal/assembly/assembly_test.go` | 重置三态、used 保留与清理测试、按 target 过滤警告 |
+| 1 | `backend/internal/auth/reset.go`、`backend/internal/server/auth.go`、`backend/internal/assembly/service.go`、`backend/internal/auth/reset_test.go`、新增 `backend/internal/cron/cleanup_test.go`、`backend/internal/assembly/assembly_test.go`、`backend/internal/ratelimit/ratelimit.go`、`backend/internal/config/admin.go`、新增 `backend/internal/server/reset_validate_test.go`、`frontend/src/api/settings.ts`、`frontend/src/views/admin/SettingsView.vue` | 重置三态、used 保留与清理测试、按 target 过滤警告、重置校验限流（设置页可配置，默认 10/min） |
 | 2 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/{PreviewStep,AssemblerShell}.vue`、`frontend/src/views/{EmergencyView,ResetView,OidcCallbackView,LoginView}.vue`、`frontend/src/api/auth.ts`、`frontend/src/api/request.ts`、`frontend/src/layouts/AdminLayout.vue`、新增 `frontend/src/components/ContextBar.vue` 及测试 | 预览指纹与过期态、状态页恢复、401 拦截例外、错误映射、跨页返回 |
 | 3 | 新增 `backend/internal/server/overview.go`、`backend/internal/server/version_owner.go`、`backend/internal/server/overview_test.go`；改造 `backend/internal/version/version.go`、`backend/internal/approval/approval.go`、`backend/internal/approval/approval_test.go`、`backend/internal/rule/rule.go`、`backend/internal/custom/custom.go`、`backend/internal/server/emergency_gate.go`、`backend/internal/server/server.go` 及测试 | 概览聚合接口、最近待审批只读方法、版本归属反查、应急网关 `/admin` |
 | 4 | 新增 `frontend/src/components/FormOverlay.vue`；`frontend/src/components/AppHeader.vue`、`frontend/src/layouts/AdminLayout.vue`、`frontend/src/views/admin/{NodesView,XrayInstancesView,GroupsView,ProxyGroupsView,assembly/PoolTab,assembly/PoolDetail,SubscriptionsView,SharesView,RulesView,UsersView,VersionManageView,AssemblyView}.vue`；全局样式 | 手机顶栏精简、44px 命中区、全部 Modal 表单迁移 Drawer |
@@ -164,14 +171,15 @@ Step 1~6 → Step 7（润色/测试/文档收口）
      `UPDATE password_reset_tokens SET used = 1 WHERE token = ?`。
    - 保留 `IMMEDIATE` 事务，二次使用因 `used=1` 失败；已用记录由既有 `cron.StartResetTokenCleanup` 每日清理。
 2. `backend/internal/server/auth.go`：
-   - 注册 `g.POST("/reset/validate", h.validateReset)`，token 走请求体，不进 URL/访问日志。
+   - 注册 `g.POST("/reset/validate", limiter.Middleware("reset_validate", ratelimit.KeyResetValidate, 10), h.validateReset)`，token 走请求体，不进 URL/访问日志。
    - handler 返回 `OK(c, gin.H{"status": status})`。
-   - 不新增限流配置键：token 为 256 位随机值，接口只返回四态、不泄露账号信息。
+   - **用户已确认：新增限流，且进入设置页可配置。** 新增 `ratelimit.KeyResetValidate`（默认 10/min）、`config.RateLimitSettings.ResetValidate`，并在面板“速率限制与连接防护”增加“重置校验（次/分钟）”输入框；旧前端未提交时按默认 10 保存。
 3. 测试：
    - 更新 `backend/internal/auth/reset_test.go`：
      - “用后即删”断言改为“Complete 后 token 行 `used=1`，二次 Complete 失败”；
      - 新增 `TestResetValidateStatuses` 覆盖 valid/expired/used/missing。
    - 新增 `backend/internal/cron/cleanup_test.go`：`TestResetCleanup` 直接调用 `cleanupResetTokensOnce`，验证 used=1/过期行被删除、有效行保留。
+   - 新增 `backend/internal/server/reset_validate_test.go`：覆盖 `/api/auth/reset/validate` 四态与默认 10/min 限流（第 11 次 429）。
 
 #### 1.2 装配警告语义修正
 
@@ -193,9 +201,10 @@ Step 1~6 → Step 7（润色/测试/文档收口）
   cd backend && go test ./...
   ```
 - **验收标准：**
-  - `POST /api/auth/reset/validate` 对 valid/missing/used/expired 返回统一成功包裹 `{status}`。
+  - `POST /api/auth/reset/validate` 对 valid/missing/used/expired 返回统一成功包裹 `{status}`；默认限流 10/min，第 11 次 429。
   - Complete 成功后 token 行保留且 `used=1`，二次 Complete 失败。
   - `sr-subs`/`generic-subs` 预览与生成 warnings 不含“未选择任何规则素材池或手动规则”。
+  - 面板“速率限制与连接防护”可配置“重置校验（次/分钟）”，默认 10；旧前端未提交该字段时保存不报错。
 
 ---
 
@@ -569,14 +578,14 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 
 ## 六、候选/待细化项
 
-| # | 候选 | 说明 | 进入 Step 前需确认 |
-|---|------|------|--------------------|
-| 1 | 概览页 checklist 文案与判定 | 本卷给出 5 步基线；`member_check` 恒为人工步骤 | Step 5 实施前确认最终文案 |
-| 2 | 概览页动态摘要是否加实时日志 | 用户已选择动态摘要，但实时日志流不建议放首页；当前方案为最近 5 条访问日志 + 最近 5 条待审批 | Step 3/5 实施前确认 |
-| 3 | 重置校验接口是否叠加限流 | 本卷建议不新增限流配置键，依据是 256 位随机 token + 无账号信息泄露 | Step 1 实施前复核 |
-| 4 | 高级模式页面详细 UI 审计 | UIReport2 对高级模式实机验证有限；Xray/用户组改动前需再做一次 DOM/截图走查 | Step 5 前执行 |
-| 5 | Token 最终对比度 | UIReport2 候选值进入实施时需做 WCAG 对比度回归后定稿 | Step 6 实施时 |
-| 6 | 手机 Drawer 的动画方向 | 建议底部全屏 Drawer；如视觉验收要求右侧抽屉，仅改 `FormOverlay` 配置 | Step 4 实施前确认 |
+| # | 候选 | 结论 | 状态 |
+|---|------|------|------|
+| 1 | 概览页 checklist 文案与判定 | 定稿为 5 步：平台 → 订阅 → 可用节点 → 生成并激活首个版本 → 人工成员检查；`member_check` 恒为人工步骤 | ✅ 已确认（2026-08-28） |
+| 2 | 概览页动态摘要是否加实时日志 | 不加实时日志流，采用静态最近 5 条待审批 + 最近 5 条访问日志 | ✅ 已确认（2026-08-28） |
+| 3 | 重置校验接口是否叠加限流 | 新增设置页可配置限流，默认 10/min，旧前端缺省按 10 保存 | ✅ 已确认并实现（2026-08-28，Step 1） |
+| 4 | 高级模式页面详细 UI 审计 | 现在先做完整审计；已完成源码/设计静态走查，Step 5 前可补充 DOM/截图核验 | ✅ 已确认（2026-08-28） |
+| 5 | Token 最终对比度 | 候选值已预校验，关键文本/背景组合均达 WCAG AA；按 UIReport2 §6.2 定稿 | ✅ 已确认（2026-08-28） |
+| 6 | 手机 Drawer 的动画方向 | 采用底部全屏 Drawer（`placement="bottom"`, `height=100dvh`） | ✅ 已确认（2026-08-28） |
 
 ---
 
@@ -587,3 +596,4 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | v1.0 | 2026-08-28 | 初始版本：汇总 UIReport1/UIReport2、源码审计与用户决策，作为 Build11 当前构建方案 |
 | v1.1 | 2026-08-28 | 深度复核前后端源码：补充代码事实、后端影响矩阵、Step 1~7 可执行计划；确认重置三态后端接口、`/admin/overview` 后端接口、版本归属接口、后端警告过滤、全部 Modal 表单 Drawer、UIReport2 Token 与概览页动态摘要 |
 | v1.2 | 2026-08-28 | 从头重新核验：修正 OIDC 401 拦截器例外、AntD Token 不得传入 CSS 变量、overview 最近待审批需新增倒序方法、`usable_nodes` 口径、版本归属只读方法补齐、清理测试归属 cron、灰度类实际 40 个文件、空态分页/批量需在页面层条件渲染 |
+| v1.3 | 2026-08-28 | 同步用户构建前决策：重置校验限流进入设置页（默认 10/min）、概览动态摘要静态化、Drawer 底部全屏、高级模式审计先做、概览 checklist 与 Token 对比度定稿；完成 Step 1 代码与测试（重置三态、used 保留、装配警告过滤、重置校验限流），待用户复核后进入 Step 2 |

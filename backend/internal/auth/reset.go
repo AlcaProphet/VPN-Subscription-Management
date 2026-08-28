@@ -1,4 +1,4 @@
-// auth/reset.go：密码重置服务（一次性令牌、1 小时 TTL、用后即删、递增凭据版本号）。
+// auth/reset.go：密码重置服务（一次性令牌、1 小时 TTL、用后标记已使用、递增凭据版本号）。
 package auth
 
 import (
@@ -21,6 +21,16 @@ var (
 )
 
 const resetTokenTTL = time.Hour // 一次性、1 小时 TTL（关键设计参数，Design1 §4.6）
+
+// ResetTokenStatus 重置链接状态（供 /reset 页面初始化判定，不消费 token）。
+type ResetTokenStatus string
+
+const (
+	ResetTokenMissing ResetTokenStatus = "missing"
+	ResetTokenUsed    ResetTokenStatus = "used"
+	ResetTokenExpired ResetTokenStatus = "expired"
+	ResetTokenValid   ResetTokenStatus = "valid"
+)
 
 // ResetTarget 密码重置所需的用户最小信息（由 user 包实现来源接口注入，避免循环依赖）
 type ResetTarget struct {
@@ -113,7 +123,29 @@ func resetLink(token string) string {
 	return "/reset#token=" + url.QueryEscape(token)
 }
 
-// Complete 校验令牌（存在 + 未过期 + 未使用）→ 设新密码 → 用后即删 → 递增 credential_version
+// Validate 只读校验重置链接状态，不消费、不删除 token；供 /reset 页面初始化判定。
+func (s *ResetService) Validate(ctx context.Context, token string) (ResetTokenStatus, error) {
+	var expiresAt time.Time
+	var used int
+	err := s.store.DB().QueryRowContext(ctx,
+		`SELECT expires_at, used FROM password_reset_tokens WHERE token = ?`, token).
+		Scan(&expiresAt, &used)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ResetTokenMissing, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if used == 1 {
+		return ResetTokenUsed, nil
+	}
+	if time.Now().After(expiresAt) {
+		return ResetTokenExpired, nil
+	}
+	return ResetTokenValid, nil
+}
+
+// Complete 校验令牌（存在 + 未过期 + 未使用）→ 设新密码 → 标记已使用 → 递增 credential_version
 func (s *ResetService) Complete(ctx context.Context, token, newPassword string) error {
 	if err := ValidatePassword(newPassword); err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
@@ -135,7 +167,8 @@ func (s *ResetService) Complete(ctx context.Context, token, newPassword string) 
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE token = ?`, token); err != nil { // 用后即删
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE password_reset_tokens SET used = 1 WHERE token = ?`, token); err != nil { // 用后标记已使用，保留记录供状态判定与清理
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
