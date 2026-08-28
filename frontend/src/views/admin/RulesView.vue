@@ -3,11 +3,12 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Alert, Button, Input, Modal, Radio, Select, Space, Table, Tabs, Tag, Tooltip, TypographyText, Upload } from 'ant-design-vue'
+import { Alert, Button, Input, Radio, Select, Space, Table, Tabs, Tag, Tooltip, TypographyText, Upload } from 'ant-design-vue'
 import {
   listAdminRules, createRule, renameRule, deleteRule, refreshRuleToken, setHomeDefault, type RuleItem,
 } from '@/api/rule'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -269,7 +270,7 @@ async function doCancelDefault() {
             </Tooltip>
             <span>刷新 {{ fmtTime(r.refreshed_at) }}</span>
           </div>
-          <div class="mt-2 flex flex-wrap gap-2">
+          <div class="mobile-actions mt-2 flex flex-wrap gap-2">
             <Button size="small" @click="renameTarget = r; renameValue = r.name">改名</Button>
             <Button size="small" @click="router.push(`/admin/rules/${r.id}/versions`)">版本管理</Button>
             <Button size="small" @click="goAssembly(r)">装配生成</Button>
@@ -283,7 +284,7 @@ async function doCancelDefault() {
     </TriStateList>
 
     <!-- 创建弹窗（首版本可选） -->
-    <Modal v-model:open="createOpen" title="创建规则" :footer="null" :width="560" destroy-on-close>
+    <FormOverlay v-model:open="createOpen" title="创建规则" :width="560" :loading="creating" destroy-on-close>
       <div class="space-y-3">
         <Input v-model:value="form.name" :maxlength="100" placeholder="名称（不强制唯一）" />
         <Select v-model:value="form.client_type" class="w-full" disabled>
@@ -306,19 +307,19 @@ async function doCancelDefault() {
           </Tabs.TabPane>
           <Tabs.TabPane key="text" tab="在线编辑">
             <Input.TextArea v-model:value="form.text" :rows="6" placeholder="粘贴规则内容；留空=创建空规则实体" />
-            <Button type="primary" class="mt-2" :loading="creating" @click="doCreate()">创建</Button>
           </Tabs.TabPane>
         </Tabs>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="createOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="creating" @click="doCreate()">创建</Button>
+      </template>
+    </FormOverlay>
 
-    <Modal :open="renameTarget !== null" title="改名" :footer="null" :width="420" destroy-on-close
-           @cancel="renameTarget = null">
+    <FormOverlay :open="renameTarget !== null" title="改名" :width="420" :loading="renaming" destroy-on-close
+                 @submit="doRename" @update:open="renameTarget = null">
       <Input v-model:value="renameValue" :maxlength="100" @press-enter="doRename" />
-      <div class="flex justify-end mt-3">
-        <Button type="primary" :loading="renaming" @click="doRename">保存</Button>
-      </div>
-    </Modal>
+    </FormOverlay>
 
     <ConfirmModal :open="toSetDefault !== null" title="设为首页默认" :loading="settingDefault"
                   :content="`设为首页默认后，原默认规则「${oldDefault() || '无'}」将自动取消默认`"

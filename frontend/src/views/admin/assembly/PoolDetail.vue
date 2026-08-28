@@ -1,7 +1,7 @@
 <!-- PoolDetail.vue：素材池详情（条目分页 + 手动条目 CRUD + 同步历史） -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { Alert, Badge, Button, Input, Modal, Pagination, Select, Space, Table, Tag, Tooltip } from 'ant-design-vue'
+import { Alert, Badge, Button, Input, Pagination, Select, Space, Table, Tag, Tooltip } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import {
   listEntries, createEntry, updateEntry, deleteEntry,
@@ -10,6 +10,7 @@ import {
 } from '@/api/pool'
 import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
+import FormOverlay from '@/components/FormOverlay.vue'
 
 const props = defineProps<{ pool: PoolItem }>()
 const emit = defineEmits<{ back: []; changed: []; edit: [] }>()
@@ -213,7 +214,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         </Table.Column>
       </Table>
       <!-- <768 卡片态：条目按 manual/url 分段 -->
-      <div class="md:hidden space-y-2 mt-2">
+      <div class="mobile-actions md:hidden space-y-2 mt-2">
         <template v-if="manualEntries.length">
           <div class="text-sm font-medium text-gray-600">手动条目（前段）</div>
           <div v-for="e in manualEntries" :key="e.id" class="border rounded-lg p-2">
@@ -265,16 +266,12 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
       <Pagination v-if="taskTotal > 20" class="mt-2" v-model:current="taskPage" :page-size="20" :total="taskTotal" />
     </div>
 
-    <Modal v-model:open="entryOpen" :title="editingEntry ? '编辑条目' : '新增条目'" :footer="null" :width="480"
-           destroy-on-close>
+    <FormOverlay v-model:open="entryOpen" :title="editingEntry ? '编辑条目' : '新增条目'" :width="480"
+                 :loading="entrySaving" destroy-on-close @submit="saveEntry">
       <div class="space-y-3">
         <Select v-model:value="entryForm.rule_type" :options="RULE_TYPES.map((t) => ({ label: t, value: t }))" class="w-full" />
         <Input v-model:value="entryForm.match_value" placeholder="匹配值（按规则类型白名单校验）" @press-enter="saveEntry" />
-        <div class="flex justify-end gap-2">
-          <Button @click="entryOpen = false">取消</Button>
-          <Button type="primary" :loading="entrySaving" @click="saveEntry">保存</Button>
-        </div>
       </div>
-    </Modal>
+    </FormOverlay>
   </div>
 </template>

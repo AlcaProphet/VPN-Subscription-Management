@@ -1,12 +1,13 @@
 <!-- GroupsView.vue：用户组管理（Build7 高级：节点分配 + 默认配额 + 候选集引导） -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Button, Checkbox, Empty, Input, InputNumber, Modal, Table, Tag } from 'ant-design-vue'
+import { Button, Checkbox, Empty, Input, InputNumber, Table, Tag } from 'ant-design-vue'
 import {
   listGroups, getGroup, createGroup, updateGroup, deleteGroup, updateGroupNodes, updateGroupQuota,
   type GroupItem, type CandidateNode, type GroupDetail,
 } from '@/api/group'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -152,14 +153,16 @@ async function confirmDelete() {
       </Table>
     </TriStateList>
 
-    <Modal v-model:open="createOpen" title="新建组" :footer="null" :width="420" destroy-on-close>
+    <FormOverlay v-model:open="createOpen" title="新建组" :width="420" :loading="creating" destroy-on-close @submit="doCreate">
       <Input v-model:value="newName" :maxlength="64" placeholder="组名（全局唯一）" @press-enter="doCreate" />
-      <div class="flex justify-end mt-3">
-        <Button type="primary" :loading="creating" @click="doCreate">创建</Button>
-      </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="createOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="creating" @click="doCreate">创建</Button>
+      </template>
+    </FormOverlay>
 
-    <Modal :open="editOpen" title="编辑组" :footer="null" :width="560" destroy-on-close @cancel="editOpen = false">
+    <FormOverlay :open="editOpen" title="编辑组" :width="560" :loading="saving" destroy-on-close
+                 @submit="doSaveEdit" @update:open="editOpen = false">
       <div class="space-y-4">
         <div>
           <div class="text-xs text-gray-400 mb-1">名称（全局唯一校验）</div>
@@ -206,11 +209,8 @@ async function confirmDelete() {
           <div class="text-xs text-gray-400 mb-1">默认配额（GB，0/留空不限）</div>
           <InputNumber v-model:value="editQuota" :min="0" class="w-40" />
         </div>
-        <div class="flex justify-end">
-          <Button type="primary" :loading="saving" @click="doSaveEdit">保存</Button>
-        </div>
       </div>
-    </Modal>
+    </FormOverlay>
 
     <ConfirmModal :open="toDelete !== null" title="删除用户组" danger :loading="deleting"
                   :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />

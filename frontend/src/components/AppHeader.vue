@@ -1,4 +1,4 @@
-<!-- AppHeader.vue：用户端/管理端通用顶栏（UI §4.1/§5.0）——站点名 + 更新时间（可选）+ 管理面板按钮（可选）+ 组名标签 + 用户名按钮 Dropdown（点击展开）+ 暗色 emoji+开关 -->
+<!-- AppHeader.vue：用户端/管理端通用顶栏，手机仅保留导航、站点名和账户入口。 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -35,23 +35,22 @@ async function onLogout() {
 
 <template>
   <!-- 自定义 header 元素（非 AntD Layout.Header——避免其默认深色背景覆盖 Tailwind 底色，R08-UI07） -->
-  <header class="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm h-16 flex items-center px-4 gap-3">
-    <!-- 汉堡按钮（手机端管理面板）：图标 text-xl + 40px 触控区（移动端触控目标规范，R11 略调小） -->
-    <Button v-if="burger" type="text" class="!w-10 !h-10 flex items-center justify-center flex-shrink-0"
-            @click="$emit('open-drawer')">
+  <header class="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm h-16 flex items-center px-3 md:px-4 gap-2 md:gap-3">
+    <Button v-if="burger" type="text" class="touch-target flex items-center justify-center flex-shrink-0"
+            aria-label="打开管理导航" @click="$emit('open-drawer')">
       <template #icon><MenuOutlined class="text-xl" /></template>
     </Button>
     <div class="flex-1 min-w-0 flex items-center gap-2">
-      <!-- 站点 ICON（R10-06）：顶栏站点名左侧，尺寸调大；未设置不显示 -->
-      <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="h-8 w-8 object-contain" />
+      <!-- 窄视口隐藏图标，优先给账户入口保留不可压缩的操作空间。 -->
+      <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="hidden sm:block h-8 w-8 object-contain" />
       <span class="font-semibold text-lg dark:text-gray-100 truncate">{{ system.siteName }}</span>
       <span v-if="updatedAt" class="ml-3 text-xs text-gray-500 dark:text-gray-400 hidden md:inline">{{ updatedAt }}</span>
     </div>
     <div class="flex items-center gap-2 flex-shrink-0">
-      <Button v-if="manageBtn && isAdmin" type="primary" size="small" @click="router.push('/admin/subscriptions')">管理面板</Button>
-      <Tag v-if="groupName" color="cyan" class="m-0 max-w-[120px] truncate hidden sm:inline-flex">{{ groupName }}</Tag>
+      <Button v-if="manageBtn && isAdmin" type="primary" class="hidden md:inline-flex" @click="router.push('/admin/subscriptions')">管理面板</Button>
+      <Tag v-if="groupName" color="cyan" class="m-0 max-w-[120px] truncate hidden md:inline-flex">{{ groupName }}</Tag>
       <Dropdown :trigger="['click']">
-        <Button size="small">{{ auth.user?.username }}</Button>
+        <Button class="touch-target max-w-28 md:max-w-none" aria-label="账户菜单">{{ auth.user?.username }}</Button>
         <template #overlay>
           <!-- 边框 + 增强阴影：暗色模式 gray-800 背景与顶栏同色，靠边框/阴影增强区分（R09-13） -->
           <div class="bg-white dark:bg-gray-800 p-3 shadow-lg rounded border border-gray-200 dark:border-gray-600 w-auto min-w-32">
@@ -60,13 +59,18 @@ async function onLogout() {
               <Tag color="blue" class="m-0">管理员</Tag>
             </div>
             <div class="mt-2 flex flex-col gap-1">
-              <Button size="small" type="text" @click="router.push('/profile')">个人中心</Button>
-              <Button size="small" type="text" danger @click="onLogout">退出登录</Button>
+              <Button type="text" class="touch-target" @click="router.push('/profile')">个人中心</Button>
+              <Button type="text" danger class="touch-target" @click="onLogout">退出登录</Button>
+              <div class="md:hidden mt-1 pt-2 border-t border-gray-200 dark:border-gray-600 flex items-center justify-between gap-3">
+                <span class="text-sm text-gray-600 dark:text-gray-300">深色模式</span>
+                <Switch :checked="dark" checked-children="🌙" un-checked-children="☀️"
+                        title="切换暗色/浅色模式" @change="toggle" />
+              </div>
             </div>
           </div>
         </template>
       </Dropdown>
-      <Switch :checked="dark" checked-children="🌙" un-checked-children="☀️" size="small"
+      <Switch :checked="dark" checked-children="🌙" un-checked-children="☀️" class="hidden md:inline-flex"
               title="切换暗色/浅色模式" @change="toggle" />
     </div>
   </header>

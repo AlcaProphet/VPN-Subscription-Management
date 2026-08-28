@@ -87,4 +87,31 @@ describe('NodesView 节点管理页', () => {
     expect(document.body.querySelector('input[placeholder="留空 = 保留原凭据"]')).not.toBeNull()
     wrapper.unmount()
   })
+
+  it('手机端新建节点表单使用全屏 Drawer，字段仍可渲染', async () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        matches: true,
+        media: '(max-width: 767px)',
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    })
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { openCreate: () => void }
+    vm.openCreate()
+    await nextTick()
+
+    expect(document.body.querySelector('.ant-modal')).toBeNull()
+    expect(document.body.querySelector('.ant-drawer')).not.toBeNull()
+    expect(document.body.querySelector('input[placeholder="域名或 IP"]')).not.toBeNull()
+    wrapper.unmount()
+  })
 })

@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Input, Modal, Select, Table, Tag, TypographyText } from 'ant-design-vue'
+import { Alert, Button, Input, Select, Table, Tag, TypographyText } from 'ant-design-vue'
 import {
   listSubscriptions,
   createSubscription,
@@ -13,6 +13,7 @@ import {
 import { listPlatforms, type PlatformItem } from '@/api/platform'
 import PageHeader from '@/components/PageHeader.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -196,7 +197,7 @@ async function confirmDelete() {
               <div class="font-medium">{{ sub.name }}</div>
               <div class="text-xs text-gray-400">{{ sub.platform_name }} · {{ sub.product_type }}</div>
             </div>
-            <div class="flex gap-1">
+            <div class="mobile-actions flex flex-wrap gap-1">
               <Button size="small" @click="goVersions(sub)">版本管理</Button>
               <Button size="small" @click="goAssembly(sub)">装配生成</Button>
               <Button size="small" @click="openEdit(sub)">编辑</Button>
@@ -213,8 +214,8 @@ async function confirmDelete() {
       </div>
     </TriStateList>
 
-    <Modal v-model:open="modalOpen" :title="editing ? '编辑订阅' : '新建订阅'" :footer="null" :width="480"
-           destroy-on-close>
+    <FormOverlay v-model:open="modalOpen" :title="editing ? '编辑订阅' : '新建订阅'" :width="480"
+                 :loading="saving" destroy-on-close @submit="save">
       <div class="space-y-4">
         <div>
           <div class="mb-1 text-sm">平台</div>
@@ -230,12 +231,12 @@ async function confirmDelete() {
           <div class="mb-1 text-sm">标识（系统自动生成，创建后不可修改）</div>
           <TypographyText code>{{ editing.slug }}</TypographyText>
         </div>
-        <div class="flex justify-end gap-2">
-          <Button @click="modalOpen = false">取消</Button>
-          <Button type="primary" :loading="saving" @click="save">{{ editing ? '保存' : '创建' }}</Button>
-        </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="modalOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="saving" @click="save">{{ editing ? '保存' : '创建' }}</Button>
+      </template>
+    </FormOverlay>
 
     <ConfirmModal :open="toDelete !== null" title="删除订阅" danger :loading="deleting"
                   content="将删除该订阅的全部版本文件与指向它的下载 Token；装配蓝图级联删除将触发候选集重算（高级模式下可能摘除受影响的组节点分配并移除对应 Xray 账号）；不级联自定义订阅。删除后不可恢复。"

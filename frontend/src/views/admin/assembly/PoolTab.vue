@@ -7,6 +7,7 @@ import { listPools, createPool, updatePool, deletePool, submitSync, cancelSync, 
 import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import PoolDetail from './PoolDetail.vue'
 
@@ -180,7 +181,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 
     <div class="flex items-center justify-between mb-3">
         <div class="text-sm text-gray-500">维护规则素材池，供订阅装配时勾选拼接</div>
-        <Button type="primary" @click="openCreate">新建素材池</Button>
+        <Button type="primary" class="touch-target" @click="openCreate">新建素材池</Button>
       </div>
 
       <TriStateList :loading="loading" :empty="pools.length === 0" empty-text="还没有规则素材池">
@@ -230,7 +231,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         </Table>
 
         <div class="grid grid-cols-1 gap-3 md:hidden">
-          <div v-for="p in pools" :key="p.id" class="border rounded-lg p-3">
+          <div v-for="p in pools" :key="p.id" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between gap-2 flex-wrap">
               <a class="text-blue-500 font-medium" @click="detailID = p.id">{{ p.name }}</a>
               <Tooltip :title="p.sync_error || ''">
@@ -253,8 +254,8 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         </div>
       </TriStateList>
     <!-- 新建/编辑弹窗 -->
-    <Modal v-model:open="formOpen" :title="editing ? '编辑素材池' : '新建素材池'" :footer="null" :width="480"
-           destroy-on-close>
+    <FormOverlay v-model:open="formOpen" :title="editing ? '编辑素材池' : '新建素材池'" :width="480"
+                 :loading="saving" destroy-on-close @submit="save">
       <div class="space-y-3">
         <div>
           <div class="text-sm mb-1">名称（全局唯一）</div>
@@ -275,12 +276,8 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
                       @change="(t: any) => form.sync_time = t ? t.format('HH:mm') : '04:00'" />
           <span class="text-xs text-gray-400">HH:MM，按 UTC 每日执行，停机错过不补跑</span>
         </div>
-        <div class="flex justify-end gap-2">
-          <Button @click="formOpen = false">取消</Button>
-          <Button type="primary" :loading="saving" @click="save">保存</Button>
-        </div>
       </div>
-    </Modal>
+    </FormOverlay>
 
     <ConfirmModal :open="toDelete !== null" title="删除素材池" danger :loading="deleting"
                   :content="`池内 ${toDelete?.entry_count ?? 0} 条条目将级联删除；已装配版本为快照不受影响`"

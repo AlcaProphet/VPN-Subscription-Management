@@ -2,12 +2,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button, Dropdown, Input, Menu, Modal, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
+import { Button, Dropdown, Input, Menu, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import { versionApi, getVersionBlueprint, type VersionItem } from '@/api/version'
 import { getSubscription } from '@/api/subscription'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -318,7 +319,7 @@ function fmtTime(ts: string): string {
       <!-- <768 卡片态：预览/设为当前直显，编辑/删除进「更多 ▾」 -->
       <template v-else>
         <div class="space-y-3">
-          <div v-for="v in versions" :key="v.version_no" class="border rounded-lg p-3">
+          <div v-for="v in versions" :key="v.version_no" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between gap-2">
               <Space>
                 <TypographyText code>v{{ v.version_no }}</TypographyText>
@@ -345,7 +346,7 @@ function fmtTime(ts: string): string {
     </TriStateList>
 
     <!-- 创建新版本弹窗：文件上传 / 在线文本编辑双页签（在线编辑从空白起点开始） -->
-    <Modal v-model:open="createOpen" title="创建新版本" :footer="null" :width="560">
+    <FormOverlay v-model:open="createOpen" title="创建新版本" :width="560" :loading="saving">
       <Tabs v-model:activeKey="createMode">
         <template #tabBarExtraContent>
           <Button v-if="assemblyUrl" size="small" @click="router.push(assemblyUrl)">装配生成</Button>
@@ -357,15 +358,18 @@ function fmtTime(ts: string): string {
         </Tabs.TabPane>
         <Tabs.TabPane key="text" tab="在线编辑">
           <Input.TextArea v-model:value="editText" :rows="14" placeholder="粘贴订阅/规则内容，保存后将创建为新版本" />
-          <Button type="primary" class="mt-2" :loading="saving" @click="saveText">保存为新版本</Button>
         </Tabs.TabPane>
       </Tabs>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="createOpen = false">取消</Button>
+        <Button v-if="createMode === 'text'" type="primary" class="touch-target" :loading="saving" @click="saveText">保存为新版本</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 按版本在线编辑弹窗：预填所选版本内容，修改后保存为新版本（原版本保留不覆盖）；
          加载中 Spin 占位，完成后一次性渲染编辑区（避免空白可输入框闪烁） -->
-    <Modal :open="editOpen" :title="editTarget !== null ? `编辑版本 v${editTarget}` : '在线编辑'"
-           :footer="null" :width="720" @cancel="editOpen = false; editTarget = null">
+    <FormOverlay :open="editOpen" :title="editTarget !== null ? `编辑版本 v${editTarget}` : '在线编辑'"
+                 :width="720" :loading="saving" @update:open="editOpen = false; editTarget = null">
       <div v-if="editLoading" class="py-12 text-center">
         <Spin size="large" />
         <div class="mt-2 text-gray-500 dark:text-gray-400">加载版本内容中…</div>
@@ -373,19 +377,24 @@ function fmtTime(ts: string): string {
       <template v-else>
         <Input.TextArea v-model:value="editText" :rows="14"
                         placeholder="基于所选版本内容修改，保存后将创建为新版本" />
-        <Button type="primary" class="mt-2" :loading="saving" @click="saveText">保存为新版本</Button>
       </template>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="editOpen = false; editTarget = null">取消</Button>
+        <Button v-if="!editLoading" type="primary" class="touch-target" :loading="saving" @click="saveText">保存为新版本</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 预览弹窗：宽屏纯文本（禁 HTML）；加载中 Spin 占位，完成后一次性渲染内容 -->
-    <Modal :open="previewOpen" title="内容预览"
-           width="80%" :footer="null" @cancel="previewOpen = false; previewContent = null">
+    <FormOverlay :open="previewOpen" title="内容预览" width="80%" @update:open="previewOpen = false; previewContent = null">
       <div v-if="previewing" class="py-12 text-center">
         <Spin size="large" />
         <div class="mt-2 text-gray-500 dark:text-gray-400">加载内容中…</div>
       </div>
       <pre v-else class="text-xs overflow-auto max-h-[70vh] whitespace-pre-wrap break-all">{{ previewContent }}</pre>
-    </Modal>
+      <template #footer>
+        <Button type="primary" class="touch-target" @click="previewOpen = false; previewContent = null">关闭</Button>
+      </template>
+    </FormOverlay>
 
     <ConfirmModal :open="toDelete !== null" title="删除版本" danger :loading="deleting"
                   content="删除后不可恢复" @confirm="doDelete" @update:open="toDelete = null" />

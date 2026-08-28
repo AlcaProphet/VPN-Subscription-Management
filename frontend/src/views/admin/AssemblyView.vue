@@ -2,8 +2,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Alert, Button, Card, Modal, Result, Space, Tabs, message } from 'ant-design-vue'
+import { Alert, Button, Card, Result, Space, Tabs, message } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import PoolTab from './assembly/PoolTab.vue'
 import ProxyGroupsView from './ProxyGroupsView.vue'
 import AssemblerShell from './assembly/AssemblerShell.vue'
@@ -756,12 +757,12 @@ const outputGroups = computed(() => {
       </Tabs.TabPane>
     </Tabs>
 
-    <Modal :open="headerConfirmOpen" title="采用默认头部" :footer="null" :width="420" @cancel="headerConfirmOpen = false">
+    <FormOverlay :open="headerConfirmOpen" title="采用默认头部" :width="420" @update:open="headerConfirmOpen = false">
       <p>将覆盖当前已填头部字段，确定采用默认值吗？</p>
-      <div class="flex justify-end gap-2">
-        <Button @click="headerConfirmOpen = false">取消</Button>
-        <Button type="primary" @click="applyDefaultHeader">确认采用</Button>
-      </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="headerConfirmOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" @click="applyDefaultHeader">确认采用</Button>
+      </template>
+    </FormOverlay>
   </div>
 </template>

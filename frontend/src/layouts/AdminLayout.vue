@@ -2,11 +2,11 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Layout, Menu, Drawer, Button, type MenuProps } from 'ant-design-vue'
+import { Layout, Menu, Drawer, Button, Tooltip, type MenuProps } from 'ant-design-vue'
 import {
   CloudUploadOutlined, TeamOutlined, ShareAltOutlined, AppstoreOutlined,
   BranchesOutlined, BlockOutlined, HomeOutlined, MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, AuditOutlined, SettingOutlined, FileTextOutlined,
-  ApartmentOutlined, CloudServerOutlined,
+  ApartmentOutlined, CloudServerOutlined, CloseOutlined,
 } from '@ant-design/icons-vue'
 import { useSystemStore } from '@/stores/system'
 import AppHeader from '@/components/AppHeader.vue'
@@ -43,24 +43,30 @@ watch(drawerOpen, (open) => {
   document.body.style.overflow = open ? 'hidden' : ''
 })
 
+function menuIcon(icon: any, label: string) {
+  return () => h(Tooltip, { title: label, placement: 'right' }, {
+    default: () => h(icon, { 'aria-label': label }),
+  })
+}
+
 // 侧边栏菜单：13 项平铺不分组；「用户组」与「Xray 实例」仅高级模式可见
 const advanced = computed(() => system.status?.advanced_mode === true)
 const menuItems = computed(() => {
   const items: MenuProps['items'] = [
-    { key: '/admin/subscriptions', icon: () => h(CloudUploadOutlined), label: '订阅' },
-    { key: '/admin/shares', icon: () => h(ShareAltOutlined), label: '分享' },
-    { key: '/admin/platforms', icon: () => h(AppstoreOutlined), label: '平台' },
-    { key: '/admin/users', icon: () => h(UserOutlined), label: '用户' },
-    { key: '/admin/approvals', icon: () => h(AuditOutlined), label: '审批中心' },
-    { key: '/admin/rules', icon: () => h(BranchesOutlined), label: '规则' },
-    { key: '/admin/settings', icon: () => h(SettingOutlined), label: '面板配置' },
-    { key: '/admin/logs', icon: () => h(FileTextOutlined), label: '日志' },
-    { key: '/admin/assembly', icon: () => h(BlockOutlined), label: '订阅装配' },
-    { key: '/admin/nodes', icon: () => h(ApartmentOutlined), label: '节点' },
+    { key: '/admin/subscriptions', icon: menuIcon(CloudUploadOutlined, '订阅'), label: '订阅' },
+    { key: '/admin/shares', icon: menuIcon(ShareAltOutlined, '分享'), label: '分享' },
+    { key: '/admin/platforms', icon: menuIcon(AppstoreOutlined, '平台'), label: '平台' },
+    { key: '/admin/users', icon: menuIcon(UserOutlined, '用户'), label: '用户' },
+    { key: '/admin/approvals', icon: menuIcon(AuditOutlined, '审批中心'), label: '审批中心' },
+    { key: '/admin/rules', icon: menuIcon(BranchesOutlined, '规则'), label: '规则' },
+    { key: '/admin/settings', icon: menuIcon(SettingOutlined, '面板配置'), label: '面板配置' },
+    { key: '/admin/logs', icon: menuIcon(FileTextOutlined, '日志'), label: '日志' },
+    { key: '/admin/assembly', icon: menuIcon(BlockOutlined, '订阅装配'), label: '订阅装配' },
+    { key: '/admin/nodes', icon: menuIcon(ApartmentOutlined, '节点'), label: '节点' },
   ]
   if (advanced.value) {
-    items.splice(1, 0, { key: '/admin/groups', icon: () => h(TeamOutlined), label: '用户组' })
-    items.push({ key: '/admin/xray', icon: () => h(CloudServerOutlined), label: 'Xray 实例' })
+    items.splice(1, 0, { key: '/admin/groups', icon: menuIcon(TeamOutlined, '用户组'), label: '用户组' })
+    items.push({ key: '/admin/xray', icon: menuIcon(CloudServerOutlined, 'Xray 实例'), label: 'Xray 实例' })
   }
   return items
 })
@@ -69,6 +75,15 @@ const selectedKeys = computed(() => {
   // 版本管理子路由高亮对应父菜单（/admin/subscriptions/:id/versions → 订阅）
   const seg = route.path.split('/')[2]
   return seg ? [`/admin/${seg}`] : []
+})
+
+const currentPageName = computed(() => {
+  const names: Record<string, string> = {
+    subscriptions: '订阅', shares: '分享', platforms: '平台', users: '用户', approvals: '审批中心',
+    rules: '规则', settings: '面板配置', logs: '日志', assembly: '订阅装配', nodes: '节点',
+    groups: '用户组', xray: 'Xray 实例',
+  }
+  return names[route.path.split('/')[2] ?? ''] ?? '管理面板'
 })
 
 function onMenuClick(key: string) {
@@ -93,18 +108,18 @@ function goHome() {
                   :style="{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }">
       <div class="h-16 flex items-center justify-center font-semibold truncate text-gray-900">
         <span v-if="!collapsed">管理面板</span>
-        <SettingOutlined v-else class="text-lg" />
+        <Tooltip v-else title="管理面板"><SettingOutlined class="text-lg" aria-label="管理面板" /></Tooltip>
       </div>
       <div class="flex flex-col h-[calc(100vh-4rem)]">
         <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"
               @click="(e: any) => onMenuClick(e.key)" />
         <!-- 底部固定操作区：返回主界面 + 收起菜单（自定义折叠按钮，替代默认 trigger） -->
         <div class="mt-auto p-2 space-y-1">
-          <Button block type="text" @click="goHome">
+          <Button block type="text" aria-label="返回主界面" @click="goHome">
             <template #icon><HomeOutlined /></template>
             <span v-if="!collapsed">返回主界面</span>
           </Button>
-          <Button block type="text" @click="collapsed = !collapsed">
+          <Button block type="text" aria-label="收起或展开菜单" @click="collapsed = !collapsed">
             <template #icon><MenuFoldOutlined v-if="!collapsed" /><MenuUnfoldOutlined v-else /></template>
             <span v-if="!collapsed">收起菜单</span>
           </Button>
@@ -112,27 +127,34 @@ function goHome() {
       </div>
     </Layout.Sider>
     <!-- <768：汉堡按钮唤出 Drawer 抽屉式菜单 -->
-    <Drawer v-else :open="drawerOpen" placement="left" :width="220" @close="drawerOpen = false">
-      <!-- 纯 HTML 标题：暗色模式需手动加 dark:text 类（Drawer 背景跟随暗色算法） -->
-      <div class="h-8 font-semibold mb-2 dark:text-gray-100">管理面板</div>
-      <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"
-            @click="(e: any) => onMenuClick(e.key)" />
-      <!-- 返回主界面：Drawer 底部固定入口 -->
-      <div class="absolute bottom-4 left-0 right-0 px-2">
-        <Button block type="text" @click="goHome">
-          <template #icon><HomeOutlined /></template>
-          返回主界面
-        </Button>
+    <Drawer v-else :open="drawerOpen" placement="left" :width="280" :closable="false" @close="drawerOpen = false">
+      <template #title>
+        <div class="flex items-center justify-between gap-3">
+          <span>{{ currentPageName }}</span>
+          <Button type="text" class="touch-target" aria-label="关闭管理导航" @click="drawerOpen = false">
+            <template #icon><CloseOutlined /></template>
+          </Button>
+        </div>
+      </template>
+      <div class="h-full flex flex-col min-h-0">
+        <Menu class="flex-1 overflow-y-auto" mode="inline" :selected-keys="selectedKeys" :items="menuItems"
+              @click="(e: any) => onMenuClick(e.key)" />
+        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+          <Button block type="text" class="touch-target" aria-label="返回主界面" @click="goHome">
+            <template #icon><HomeOutlined /></template>
+            返回主界面
+          </Button>
+        </div>
       </div>
     </Drawer>
 
-    <Layout>
+    <Layout class="min-w-0">
       <!-- 通用顶栏（问题 R08-UI05：管理面板显示主界面式 header；
            R08-UI07：自定义 header 元素替代 AntD Layout.Header，避免其默认深色背景覆盖 Tailwind 底色） -->
       <AppHeader :burger="isMobile" @open-drawer="drawerOpen = true" />
       <!-- 右侧内容区：白底卡片容器（24px 内边距） -->
-      <Layout.Content class="p-6">
-        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 min-h-full">
+      <Layout.Content class="min-w-0 p-3 sm:p-4 md:p-6">
+        <div class="min-w-0 bg-white dark:bg-gray-800 rounded-lg p-3 md:p-6 min-h-full">
           <ContextBar />
           <RouterView />
         </div>

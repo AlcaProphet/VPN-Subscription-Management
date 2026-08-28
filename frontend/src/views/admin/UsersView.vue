@@ -17,6 +17,7 @@ import { retryUserSync, resetQuota } from '@/api/xray'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -579,7 +580,7 @@ const roleConfirmContent = computed(() => {
       <!-- <768 卡片态（前 4 字段：用户名/邮箱/角色/所属组） -->
       <template v-else>
         <div class="space-y-3">
-          <div v-for="u in users" :key="u.id" class="border rounded-lg p-3">
+          <div v-for="u in users" :key="u.id" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between">
               <Space>
                 <span class="font-medium">{{ u.username }}</span>
@@ -599,13 +600,13 @@ const roleConfirmContent = computed(() => {
       </template>
     </TriStateList>
 
-    <div class="flex justify-end mt-3">
+    <div class="flex justify-end overflow-x-auto mt-3">
       <Pagination v-model:current="page" :page-size="size" :total="total"
                   :show-total="(t: number) => `共 ${t} 条`" />
     </div>
 
     <!-- 新建用户弹窗 -->
-    <Modal v-model:open="createOpen" title="新建用户" :footer="null" :width="480" destroy-on-close>
+    <FormOverlay v-model:open="createOpen" title="新建用户" :width="480" :loading="creating" destroy-on-close @submit="doCreate">
       <div class="space-y-3">
         <div>
           <div class="mb-1 text-sm">用户名</div>
@@ -619,14 +620,15 @@ const roleConfirmContent = computed(() => {
           <div class="mb-1 text-sm">密码（≥8 字符）</div>
           <Input.Password v-model:value="createForm.password" :maxlength="128" placeholder="初始密码" />
         </div>
-        <div class="flex justify-end">
-          <Button type="primary" :loading="creating" @click="doCreate">创建</Button>
-        </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="createOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="creating" @click="doCreate">创建</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 编辑弹窗：分组换组 + 无邮箱补填 -->
-    <Modal v-model:open="editOpen" :title="`编辑用户：${editing?.username ?? ''}`" :footer="null" :width="480" destroy-on-close>
+    <FormOverlay v-model:open="editOpen" :title="`编辑用户：${editing?.username ?? ''}`" :width="480" :loading="saving" destroy-on-close @submit="doEdit">
       <div class="space-y-3">
         <div v-if="advancedMode">
           <div class="mb-1 text-sm">所属组（换组无需清 Token，下载实时解析跟随）</div>
@@ -636,14 +638,11 @@ const roleConfirmContent = computed(() => {
           <div class="mb-1 text-sm">补填邮箱（补填后获得设置密码/重置能力）</div>
           <Input v-model:value="editForm.email" :maxlength="254" placeholder="邮箱（唯一）" />
         </div>
-        <div class="flex justify-end">
-          <Button type="primary" :loading="saving" @click="doEdit">保存</Button>
-        </div>
       </div>
-    </Modal>
+    </FormOverlay>
 
     <!-- 上传自定义订阅弹窗 -->
-    <Modal v-model:open="customOpen" :title="`上传自定义订阅：${customTarget?.username ?? ''}`" :footer="null" :width="560" destroy-on-close>
+    <FormOverlay v-model:open="customOpen" :title="`上传自定义订阅：${customTarget?.username ?? ''}`" :width="560" :loading="uploading" destroy-on-close @submit="doCustom">
       <div class="space-y-3">
         <div v-if="customResult" class="mb-2">
           <Alert type="success" show-icon :message="`自定义订阅已上传`" :description="`标识：${customResult}`" />
@@ -665,14 +664,15 @@ const roleConfirmContent = computed(() => {
             <Input.TextArea v-model:value="customForm.text" :rows="6" placeholder="粘贴订阅配置内容（覆盖该用户该平台的组分配）" />
           </Tabs.TabPane>
         </Tabs>
-        <div class="flex justify-end">
-          <Button type="primary" :loading="uploading" @click="doCustom">上传</Button>
-        </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="customOpen = false">{{ customResult ? '关闭' : '取消' }}</Button>
+        <Button v-if="!customResult" type="primary" class="touch-target" :loading="uploading" @click="doCustom">上传</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 设置/重置密码弹窗（二选一） -->
-    <Modal v-model:open="resetOpen" :title="`设置/重置密码：${resetTarget?.username ?? ''}`" :footer="null" :width="480" destroy-on-close>
+    <FormOverlay v-model:open="resetOpen" :title="`设置/重置密码：${resetTarget?.username ?? ''}`" :width="480" :loading="resetting" destroy-on-close @submit="doReset">
       <div class="space-y-3">
         <Radio.Group v-model:value="resetMode">
           <Radio value="direct">直接重置（系统生成 8 位密码）</Radio>
@@ -682,22 +682,21 @@ const roleConfirmContent = computed(() => {
                :message="`新密码：${directResult}`"
                description="请复制并妥善保管，仅展示一次；该用户全部现有会话已失效" />
         <Alert v-if="resetMode === 'send_email'" type="info" show-icon message="将发送一次性重置链接（1 小时有效），SMTP 未配置时不可用" />
-        <div class="flex justify-end">
-          <Button type="primary" :loading="resetting" @click="doReset">{{ resetMode === 'direct' ? '确认重置' : '发送邮件' }}</Button>
-        </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="resetOpen = false">{{ directResult ? '完成' : '取消' }}</Button>
+        <Button v-if="!directResult" type="primary" class="touch-target" :loading="resetting" @click="doReset">{{ resetMode === 'direct' ? '确认重置' : '发送邮件' }}</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 高级模式：配额覆盖弹窗 -->
-    <Modal :open="!!quotaTarget" :title="`设置配额覆盖：${quotaTarget?.username ?? ''}`" :footer="null" :width="420" destroy-on-close @update:open="quotaTarget = null">
+    <FormOverlay :open="!!quotaTarget" :title="`设置配额覆盖：${quotaTarget?.username ?? ''}`" :width="420" :loading="quotaSaving" destroy-on-close
+                 @submit="confirmQuota" @update:open="quotaTarget = null">
       <div class="space-y-3">
         <div class="mb-1 text-sm">配额覆盖（GB，0/空=不限；不填则恢复组默认配额）</div>
         <InputNumber v-model:value="quotaValue" :min="0" class="w-full" placeholder="留空=不限/恢复默认" />
-        <div class="flex justify-end">
-          <Button type="primary" :loading="quotaSaving" @click="confirmQuota">保存</Button>
-        </div>
       </div>
-    </Modal>
+    </FormOverlay>
 
     <!-- 各 ConfirmModal -->
     <ConfirmModal :open="!!roleTarget" title="角色变更" :content="roleConfirmContent" :loading="changingRole"

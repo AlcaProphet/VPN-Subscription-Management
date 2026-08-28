@@ -13,3 +13,24 @@ body {
 #app {
   min-height: 100vh;
 }
+
+/* 统一移动端触控命中区，页面操作可按需加上此类。 */
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+@media (max-width: 767px) {
+  html,
+  body,
+  #app {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  .mobile-actions .ant-btn,
+  .mobile-actions .ant-switch {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

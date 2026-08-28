@@ -1,9 +1,10 @@
 <!-- ProxyGroupsView.vue：代理组管理页（Design2-UI §7）——预设/自建双态列表 + DAG 校验 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag } from 'ant-design-vue'
+import { Alert, Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Table, Tag } from 'ant-design-vue'
 import { listProxyGroups, createProxyGroup, updateProxyGroup, deleteProxyGroup, togglePresetGroup, type ProxyGroupItem, type ProxyGroupDefinition } from '@/api/proxyGroup'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -264,7 +265,7 @@ function memberSummary(g: ProxyGroupItem): string {
             <Tag :color="g.type === 'preset' ? 'blue' : 'green'">{{ g.type }}</Tag>
           </div>
           <div class="text-xs text-gray-500 mt-1">{{ memberSummary(g) }}</div>
-          <div class="mt-2 flex items-center gap-2">
+          <div class="mobile-actions mt-2 flex items-center gap-2 flex-wrap">
             <Checkbox v-if="g.type === 'preset'" :checked="g.enabled" @change="(e: any) => onTogglePreset(g, e.target.checked)" />
             <Button size="small" @click="openEdit(g)">编辑</Button>
             <Button size="small" danger :disabled="g.type === 'preset'" @click="toDelete = g">删除</Button>
@@ -273,7 +274,8 @@ function memberSummary(g: ProxyGroupItem): string {
       </div>
     </TriStateList>
 
-    <Modal :open="creating" :title="editing ? '编辑代理组' : '新建代理组'" :width="720" :confirm-loading="saving" @ok="save" @cancel="creating = false">
+    <FormOverlay :open="creating" :title="editing ? '编辑代理组' : '新建代理组'" :width="720" :loading="saving"
+                 @submit="save" @update:open="creating = false">
       <Form layout="vertical">
         <Alert v-if="staleRefCount > 0" type="error" show-icon class="mb-3"
                :message="`${staleRefCount} 项引用已失效，请剔除或替换后保存`">
@@ -339,7 +341,7 @@ function memberSummary(g: ProxyGroupItem): string {
           </div>
         </details>
       </Form>
-    </Modal>
+    </FormOverlay>
 
     <ConfirmModal :open="toDelete !== null" title="删除代理组" danger :loading="deleting" :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />
   </div>

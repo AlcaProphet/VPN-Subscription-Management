@@ -1,7 +1,7 @@
 <!-- XrayInstancesView.vue：Xray 实例与独立账号管理（Build7 Step3） -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Alert, Button, Checkbox, Empty, Input, InputNumber, Modal, Result, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
+import { Alert, Button, Checkbox, Empty, Input, InputNumber, Result, Select, Switch, Table, Tabs, TabPane, Tag } from 'ant-design-vue'
 import {
   listInstances, listExtAccounts, createInstance, updateInstance, deleteInstance, detectNodes, testConnection,
   runInit, reconcile, pushRepair, cleanOrphans, repairCredentials,
@@ -13,6 +13,7 @@ import { listNodes, setNodeDisplayName, type NodeItem } from '@/api/node'
 import PageHeader from '@/components/PageHeader.vue'
 import { Notify } from '@/components/Notify'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import { pollTask } from '@/api/request'
 import { getAdminTask } from '@/api/settings'
 
@@ -550,7 +551,7 @@ async function doExtCredentials(acc: ExtAccount) {
           </Table>
         </template>
         <div v-else class="space-y-3 py-2">
-          <div v-for="inst in instances" :key="inst.id" class="border rounded-lg p-3">
+          <div v-for="inst in instances" :key="inst.id" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between">
               <span class="font-medium">{{ inst.name }}</span>
               <Switch :checked="inst.enabled" size="small" @change="doToggleInstance(inst)" />
@@ -609,7 +610,7 @@ async function doExtCredentials(acc: ExtAccount) {
           </Table>
         </template>
         <div v-else class="space-y-3 py-2">
-          <div v-for="acc in extAccounts" :key="acc.id" class="border rounded-lg p-3">
+          <div v-for="acc in extAccounts" :key="acc.id" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between">
               <span class="font-medium">{{ acc.name }}</span>
               <Tag v-if="acc.quota_exceeded" color="red">已超限</Tag>
@@ -627,18 +628,22 @@ async function doExtCredentials(acc: ExtAccount) {
       </TabPane>
     </Tabs>
 
-    <Modal v-model:open="createOpen" title="新增实例" :footer="null" width="480" destroy-on-close>
+    <FormOverlay v-model:open="createOpen" title="新增实例" width="480" :loading="creating" destroy-on-close>
       <div class="space-y-3">
         <input v-model="createForm.name" placeholder="名称" class="w-full border rounded px-3 py-2" />
         <input v-model="createForm.api_addr" placeholder="api_addr (host:port)" class="w-full border rounded px-3 py-2" />
         <input v-model="createForm.api_tag" placeholder="api_tag（可空）" class="w-full border rounded px-3 py-2" />
         <Button :loading="testing" @click="doTestConnection">测试连接</Button>
         <Alert v-if="testResult" :type="testResult.startsWith('连接成功') ? 'success' : 'error'" show-icon :message="testResult" />
-        <Button type="primary" :loading="creating" @click="doCreate">创建</Button>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="createOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="creating" @click="doCreate">创建</Button>
+      </template>
+    </FormOverlay>
 
-    <Modal :open="editOpen" title="编辑实例" :footer="null" width="480" destroy-on-close @cancel="editOpen = false">
+    <FormOverlay :open="editOpen" title="编辑实例" width="480" :loading="saving" destroy-on-close
+                 @submit="doSaveEdit" @update:open="editOpen = false">
       <div class="space-y-3">
         <input v-model="editForm.name" placeholder="名称" class="w-full border rounded px-3 py-2" />
         <input v-model="editForm.api_addr" placeholder="api_addr (host:port)" class="w-full border rounded px-3 py-2" />
@@ -647,11 +652,10 @@ async function doExtCredentials(acc: ExtAccount) {
           <Button :loading="editTesting" @click="doEditTestConnection">测试连接</Button>
           <Alert v-if="editTestResult" :type="editTestResult.startsWith('连接成功') ? 'success' : 'error'" show-icon :message="editTestResult" class="flex-1" />
         </div>
-        <Button type="primary" :loading="saving" @click="doSaveEdit">保存</Button>
       </div>
-    </Modal>
+    </FormOverlay>
 
-    <Modal :open="detectTarget !== null" title="刷新节点结果" :footer="null" width="560" @update:open="detectTarget = null">
+    <FormOverlay :open="detectTarget !== null" title="刷新节点结果" width="560" @update:open="detectTarget = null">
       <Alert v-if="detectError" type="error" show-icon class="mb-3" :message="detectError" description="请检查 api_addr / 实例状态后重试" />
       <div v-if="detectResult" class="space-y-3">
         <p>新增 {{ detectResult.added }} / 更新 {{ detectResult.updated }} / 缺失 {{ detectResult.missing }}</p>
@@ -665,9 +669,12 @@ async function doExtCredentials(acc: ExtAccount) {
           </div>
         </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button type="primary" class="touch-target" @click="detectTarget = null">关闭</Button>
+      </template>
+    </FormOverlay>
 
-    <Modal :open="reconcileTarget !== null" title="实例对账" :footer="null" width="820" @update:open="reconcileTarget = null">
+    <FormOverlay :open="reconcileTarget !== null" title="实例对账" width="820" @update:open="reconcileTarget = null">
       <div v-if="reconcileResult" class="space-y-4">
         <Result v-if="reconcileEmpty" status="success" title="账号已一致，无需处理" />
         <p v-if="!reconcileEmpty">待补推 {{ reconcileResult.to_push.length }} / 无头 {{ reconcileResult.orphans.length }} / 疑似残留 {{ reconcileResult.ext_orphans.length }} / 凭据不一致 {{ reconcileResult.credential_mismatches.length }} / 待移除 {{ reconcileResult.to_remove.length }}</p>
@@ -717,9 +724,12 @@ async function doExtCredentials(acc: ExtAccount) {
           <Button :loading="reconcileBusy" @click="doRepairCredentials">修复全部凭据</Button>
         </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button type="primary" class="touch-target" @click="reconcileTarget = null">关闭</Button>
+      </template>
+    </FormOverlay>
 
-    <Modal v-model:open="extCreateOpen" title="创建独立账号" :footer="null" width="720" destroy-on-close>
+    <FormOverlay v-model:open="extCreateOpen" title="创建独立账号" width="720" :loading="extCreating" destroy-on-close>
       <div class="space-y-3">
         <Input v-model:value="extForm.name" placeholder="名称" class="w-full" />
         <Select v-model:value="extForm.credential_mode" class="w-full" :options="[{ value: 'generate', label: '自动生成' }, { value: 'manual', label: '手填接管' }]" />
@@ -733,15 +743,20 @@ async function doExtCredentials(acc: ExtAccount) {
           <Select v-model:value="extSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
           <div v-if="targetOptions.length === 0" class="text-xs text-gray-400 mt-1">请先在实例页检测节点</div>
         </div>
-        <Button type="primary" :loading="extCreating" @click="extForm.credential_mode === 'generate' ? extCreateConfirmOpen = true : doExtCreate()">创建</Button>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="extCreateOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="extCreating"
+                @click="extForm.credential_mode === 'generate' ? extCreateConfirmOpen = true : doExtCreate()">创建</Button>
+      </template>
+    </FormOverlay>
 
     <ConfirmModal :open="extCreateConfirmOpen" title="创建独立账号（自动生成）" danger :loading="extCreating"
                   content="若 Xray 侧已存在同 email 账号，将先移除旧账号并以新生成凭据重新推送（覆盖接管，Xray 侧旧账号被踢除）。"
                   @confirm="extCreateConfirmOpen = false; doExtCreate()" @update:open="extCreateConfirmOpen = false" />
 
-    <Modal :open="extEditOpen" title="编辑独立账号" :footer="null" width="720" destroy-on-close @cancel="extEditOpen = false">
+    <FormOverlay :open="extEditOpen" title="编辑独立账号" width="720" :loading="extSaving" destroy-on-close
+                 @submit="doExtUpdate" @update:open="extEditOpen = false">
       <div class="space-y-3">
         <Input v-model:value="extEditForm.name" placeholder="名称" class="w-full" />
         <InputNumber v-model:value="extEditForm.quota" :min="0" class="w-48" placeholder="配额（GB，0/空=不限）" />
@@ -754,9 +769,8 @@ async function doExtCredentials(acc: ExtAccount) {
           <div class="text-sm text-gray-400 mb-1">推送目标（可多选，移除已选目标会同步删除 Xray 账号）</div>
           <Select v-model:value="extEditSelectedTargets" mode="multiple" class="w-full" :options="targetOptions" placeholder="选择 Xray 节点" />
         </div>
-        <Button type="primary" :loading="extSaving" @click="doExtUpdate">保存</Button>
       </div>
-    </Modal>
+    </FormOverlay>
 
     <ConfirmModal :open="initOpen" title="开始初始化" danger :loading="initLoading"
                   content="初始化将：1）为所有 active 用户生成/补齐 UUID 与代理密码；2）按当前候选集向全部 Xray 实例推送账号；3）写入 xray_users 同步状态。请确认已配置实例并完成节点检测。"
@@ -778,7 +792,7 @@ async function doExtCredentials(acc: ExtAccount) {
                   :content="`将从 Xray 删除 ${cleanEmails.length} 个无主账号，不可恢复。`"
                   @confirm="confirmClean" @update:open="cleanOpen = false" />
 
-    <Modal :open="credentialsModal" :title="credentialsData?.title" :footer="null" width="520" @update:open="credentialsModal = false">
+    <FormOverlay :open="credentialsModal" :title="credentialsData?.title ?? '独立账号凭据'" width="520" @update:open="credentialsModal = false">
       <Alert type="warning" show-icon class="mb-3" message="凭据即该账号的唯一凭证，请妥善保管；关闭后将不再展示。" />
       <div class="space-y-2">
         <div class="flex items-center gap-2">
@@ -792,6 +806,9 @@ async function doExtCredentials(acc: ExtAccount) {
           <Button size="small" @click="copyText(credentialsData?.secret ?? '')">复制</Button>
         </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button type="primary" class="touch-target" @click="credentialsModal = false">关闭</Button>
+      </template>
+    </FormOverlay>
   </div>
 </template>

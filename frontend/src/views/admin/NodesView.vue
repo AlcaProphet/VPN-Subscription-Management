@@ -1,9 +1,10 @@
 <!-- NodesView.vue：节点管理页（Design2-UI §6）——manual/xray 双态列表 + 动态表单 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
+import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
 import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type ImportLineResult } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
@@ -289,7 +290,7 @@ function handleObjectFieldBlur(name: string, e: any) {
           </div>
           <div v-if="n.source === 'xray' && n.display_name" class="text-xs text-gray-500">{{ n.name }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ n.protocol }} · {{ n.host }}:{{ n.port }}</div>
-          <div class="mt-2 flex items-center gap-2">
+          <div class="mobile-actions mt-2 flex items-center gap-2 flex-wrap">
             <Switch :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
             <Button v-if="n.source === 'manual'" size="small" @click="openEdit(n)">编辑</Button>
             <Button v-if="n.source === 'xray'" size="small" @click="openNaming(n)">命名</Button>
@@ -301,7 +302,8 @@ function handleObjectFieldBlur(name: string, e: any) {
       </div>
     </TriStateList>
 
-    <Modal :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="720" :confirm-loading="saving" @ok="save" @cancel="creating = false">
+    <FormOverlay :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="720" :loading="saving"
+                 @submit="save" @update:open="creating = false">
       <Form layout="vertical">
         <Form.Item label="协议" required>
           <Select v-model:value="form.protocol">
@@ -338,13 +340,14 @@ function handleObjectFieldBlur(name: string, e: any) {
           </div>
         </div>
       </Form>
-    </Modal>
+    </FormOverlay>
 
-    <Modal :open="naming !== null" title="节点显示名" :confirm-loading="saving" @ok="saveDisplayName" @cancel="naming = null">
+    <FormOverlay :open="naming !== null" title="节点显示名" :loading="saving"
+                 @submit="saveDisplayName" @update:open="naming = null">
       <p class="text-sm text-gray-500">仅 Xray 节点可设置显示名；留空保存将清空并恢复系统名。</p>
       <Alert v-if="namingError" type="error" show-icon class="mb-2" :message="namingError" />
       <Input v-model:value="displayNameInput" placeholder="系统名" />
-    </Modal>
+    </FormOverlay>
 
     <ConfirmModal :open="disableTarget !== null" title="停用节点" danger :loading="disabling"
                   content="停用该节点将移除受影响用户的 Xray 账号（重新启用后需重新分配）。确定停用吗？"
@@ -356,7 +359,8 @@ function handleObjectFieldBlur(name: string, e: any) {
 
     <ConfirmModal :open="toDelete !== null" title="删除节点" danger :loading="deleting" :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />
 
-    <Modal :open="importOpen" title="批量导入节点" :width="760" :confirm-loading="importing" @ok="doImport" @cancel="importOpen = false">
+    <FormOverlay :open="importOpen" title="批量导入节点" :width="760" :loading="importing"
+                 @submit="doImport" @update:open="importOpen = false">
       <p class="text-sm text-gray-500 mb-2">支持 ss / vmess / vless / trojan / hysteria2 / hysteria / tuic / wireguard / anytls / http(s) / socks5，也可粘贴 Base64 订阅文本。</p>
       <Input.TextArea v-model:value="importText" :rows="8" placeholder="每行一条节点 URI" />
       <div v-if="importResults.length" class="mt-3">
@@ -374,7 +378,11 @@ function handleObjectFieldBlur(name: string, e: any) {
           </Table.Column>
         </Table>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="importOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="importing" @click="doImport">开始导入</Button>
+      </template>
+    </FormOverlay>
 
   </div>
 </template>
