@@ -132,9 +132,13 @@ func (h *PoolHandler) listEntries(c *gin.Context) {
 		return
 	}
 	page, size := pagination(c)
-	list, total, err := h.poolSvc.ListEntries(c.Request.Context(), id, page, size)
+	list, total, err := h.poolSvc.ListEntries(c.Request.Context(), id, page, size, c.Query("source"))
 	if errors.Is(err, pool.ErrNotFound) {
 		Fail(c, http.StatusNotFound, "素材池不存在")
+		return
+	}
+	if errors.Is(err, pool.ErrBadRequest) {
+		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err != nil {

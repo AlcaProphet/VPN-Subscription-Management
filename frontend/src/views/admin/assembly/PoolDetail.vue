@@ -1,6 +1,6 @@
 <!-- PoolDetail.vue：素材池详情（条目分页 + 手动条目 CRUD + 同步历史） -->
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { Alert, Badge, Button, Input, Pagination, Space, Table, Tag, Tooltip } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import {
@@ -17,28 +17,62 @@ const emit = defineEmits<{ back: []; changed: []; edit: [] }>()
 
 const RULE_TYPES = ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'IP-CIDR6', 'PROCESS-NAME', 'PROCESS-NAME-REGEX', 'USER-AGENT']
 
-const loading = ref(false)
-const entries = ref<PoolEntryItem[]>([])
-const total = ref(0)
-const page = ref(1)
+const manualLoading = ref(false)
+const manualEntries = ref<PoolEntryItem[]>([])
+const manualTotal = ref(0)
+const manualPage = ref(1)
+const urlExpanded = ref(false)
+const urlLoading = ref(false)
+const urlLoaded = ref(false)
+const urlError = ref('')
+const urlEntries = ref<PoolEntryItem[]>([])
+const urlTotal = ref(0)
+const urlPage = ref(1)
 const pageSize = 20
-const manualEntries = computed(() => entries.value.filter((e) => e.source === 'manual'))
-const urlEntries = computed(() => entries.value.filter((e) => e.source === 'url'))
 
-async function loadEntries() {
-  loading.value = true
+async function loadManualEntries() {
+  manualLoading.value = true
   try {
-    const res = await listEntries(props.pool.id, page.value, pageSize)
-    entries.value = res.list
-    total.value = res.total
+    const res = await listEntries(props.pool.id, manualPage.value, pageSize, 'manual')
+    manualEntries.value = res.list
+    manualTotal.value = res.total
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
-    loading.value = false
+    manualLoading.value = false
   }
 }
-onMounted(loadEntries)
-watch(page, loadEntries)
+
+async function loadURLEntries() {
+  urlLoading.value = true
+  urlError.value = ''
+  try {
+    const res = await listEntries(props.pool.id, urlPage.value, pageSize, 'url')
+    urlEntries.value = res.list
+    urlTotal.value = res.total
+    urlLoaded.value = true
+  } catch (err) {
+    urlError.value = (err as Error).message
+  } finally {
+    urlLoading.value = false
+  }
+}
+
+function toggleURLEntries() {
+  urlExpanded.value = !urlExpanded.value
+  if (urlExpanded.value && !urlLoaded.value && !urlLoading.value) void loadURLEntries()
+}
+
+async function refreshEntries() {
+  await loadManualEntries()
+  if (urlExpanded.value && urlLoaded.value) await loadURLEntries()
+}
+
+onMounted(loadManualEntries)
+watch(manualPage, () => { void loadManualEntries() })
+watch(urlPage, () => {
+  if (urlExpanded.value && urlLoaded.value) void loadURLEntries()
+})
 
 // 手动条目编辑弹窗
 const entryOpen = ref(false)
@@ -73,7 +107,7 @@ async function saveEntry() {
       Notify.success('条目已添加')
     }
     entryOpen.value = false
-    await loadEntries()
+    await loadManualEntries()
   } catch (err) {
     Notify.error((err as Error).message) // 409 去重冲突文案
   } finally {
@@ -84,7 +118,7 @@ async function removeEntry(e: PoolEntryItem) {
   try {
     await deleteEntry(props.pool.id, e.id)
     Notify.success('条目已删除')
-    await loadEntries()
+    await loadManualEntries()
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -108,7 +142,7 @@ async function doSync() {
     if (syncResult.value.status === 'succeeded') Notify.success('同步完成')
     else Notify.warning('同步完成（存在失败项，详情见回执）')
     emit('changed')
-    await loadEntries()
+    await refreshEntries()
   } catch (err) {
     if (err instanceof Error && err.message === '轮询已取消') return
     if (err instanceof ApiError && err.status === 409) {
@@ -177,11 +211,11 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
       <Button size="small" @click="openCreateEntry">新增条目</Button>
     </div>
 
-    <div v-if="loading" class="py-8 text-center text-text-tertiary">加载中…</div>
-    <div v-else-if="entries.length === 0" class="py-8 text-center text-text-tertiary">池内暂无条目</div>
+    <div class="text-sm font-medium text-text-secondary mt-2 mb-1">手动条目（前段）</div>
+    <div v-if="manualLoading" class="py-8 text-center text-text-tertiary">加载中…</div>
     <template v-else>
-      <div v-if="manualEntries.length" class="text-sm font-medium text-text-secondary mt-2 mb-1">手动条目（前段）</div>
-      <Table v-if="manualEntries.length" :data-source="manualEntries" :pagination="false" row-key="id" size="small" class="hidden md:block">
+      <div v-if="manualEntries.length">
+      <Table :data-source="manualEntries" :pagination="false" row-key="id" size="small" class="hidden md:block">
         <Table.Column title="规则类型" key="type" width="170">
           <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
         </Table.Column>
@@ -198,54 +232,75 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           </template>
         </Table.Column>
       </Table>
-      <div v-if="urlEntries.length" class="text-sm font-medium text-text-secondary mt-4 mb-1">URL 同步条目（后段）</div>
-      <Table v-if="urlEntries.length" :data-source="urlEntries" :pagination="false" row-key="id" size="small" class="hidden md:block">
-        <Table.Column title="规则类型" key="type" width="170">
-          <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
-        </Table.Column>
-        <Table.Column title="匹配值" key="value">
-          <template #default="{ record }"><span class="font-mono text-xs">{{ record.match_value }}</span></template>
-        </Table.Column>
-        <Table.Column title="来源" key="source" width="90">
-          <template #default><Tag color="blue">url</Tag></template>
-        </Table.Column>
-        <Table.Column title="操作" key="actions" width="140">
-          <template #default><span class="text-xs text-text-tertiary">系统维护</span></template>
-        </Table.Column>
-      </Table>
-      <!-- <768 卡片态：条目按 manual/url 分段 -->
+      <!-- <768 卡片态：手动条目 -->
       <div class="mobile-actions md:hidden space-y-2 mt-2">
-        <template v-if="manualEntries.length">
-          <div class="text-sm font-medium text-text-secondary">手动条目（前段）</div>
-          <div v-for="e in manualEntries" :key="e.id" class="border rounded-lg p-2">
-            <div class="flex items-center justify-between gap-2">
-              <div>
-                <Tag>{{ e.rule_type }}</Tag>
-                <span class="font-mono text-xs">{{ e.match_value }}</span>
-              </div>
-              <Space :size="4">
-                <Button size="small" @click="openEditEntry(e)">编辑</Button>
-                <Button size="small" danger @click="removeEntry(e)">删除</Button>
-              </Space>
+        <div v-for="e in manualEntries" :key="e.id" class="border rounded-lg p-2">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <Tag>{{ e.rule_type }}</Tag>
+              <span class="font-mono text-xs">{{ e.match_value }}</span>
             </div>
+            <Space :size="4">
+              <Button size="small" @click="openEditEntry(e)">编辑</Button>
+              <Button size="small" danger @click="removeEntry(e)">删除</Button>
+            </Space>
           </div>
-        </template>
-        <template v-if="urlEntries.length">
-          <div class="text-sm font-medium text-text-secondary">URL 同步条目（后段）</div>
-          <div v-for="e in urlEntries" :key="e.id" class="border rounded-lg p-2">
-            <div class="flex items-center justify-between gap-2">
-              <div>
-                <Tag>{{ e.rule_type }}</Tag>
-                <span class="font-mono text-xs">{{ e.match_value }}</span>
-              </div>
-              <span class="text-xs text-text-tertiary">系统维护</span>
-            </div>
-          </div>
-        </template>
+        </div>
       </div>
+      </div>
+      <div v-else class="py-8 text-center text-text-tertiary">暂无手动条目</div>
     </template>
-    <Pagination v-if="total > pageSize" class="mt-3" v-model:current="page" :page-size="pageSize"
-                :total="total" show-size-changer :page-size-options="['20', '50', '100']" />
+    <Pagination v-if="manualTotal > pageSize" class="mt-3" v-model:current="manualPage" :page-size="pageSize"
+                :total="manualTotal" show-size-changer :page-size-options="['20', '50', '100']" />
+
+    <section class="mt-4 border rounded-lg p-3">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="text-sm font-medium">URL 同步条目（后段）</div>
+          <div class="text-xs text-text-tertiary">展开后才查询，条目由系统维护</div>
+        </div>
+        <Button size="small" data-testid="toggle-url-entries" :aria-expanded="urlExpanded" @click="toggleURLEntries">
+          {{ urlExpanded ? '收起' : '展开' }}
+        </Button>
+      </div>
+
+      <div v-if="urlExpanded" class="mt-3">
+        <div v-if="urlLoading" class="py-8 text-center text-text-tertiary">加载中…</div>
+        <Alert v-else-if="urlError" type="error" show-icon :message="urlError">
+          <template #action><Button size="small" @click="loadURLEntries">重试</Button></template>
+        </Alert>
+        <template v-else-if="urlEntries.length">
+          <Table :data-source="urlEntries" :pagination="false" row-key="id" size="small" class="hidden md:block">
+            <Table.Column title="规则类型" key="type" width="170">
+              <template #default="{ record }"><Tag>{{ record.rule_type }}</Tag></template>
+            </Table.Column>
+            <Table.Column title="匹配值" key="value">
+              <template #default="{ record }"><span class="font-mono text-xs">{{ record.match_value }}</span></template>
+            </Table.Column>
+            <Table.Column title="来源" key="source" width="90">
+              <template #default><Tag color="blue">url</Tag></template>
+            </Table.Column>
+            <Table.Column title="操作" key="actions" width="140">
+              <template #default><span class="text-xs text-text-tertiary">系统维护</span></template>
+            </Table.Column>
+          </Table>
+          <div class="mobile-actions md:hidden space-y-2 mt-2">
+            <div v-for="e in urlEntries" :key="e.id" class="border rounded-lg p-2">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <Tag>{{ e.rule_type }}</Tag>
+                  <span class="font-mono text-xs">{{ e.match_value }}</span>
+                </div>
+                <span class="text-xs text-text-tertiary">系统维护</span>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div v-else class="py-8 text-center text-text-tertiary">暂无 URL 同步条目</div>
+        <Pagination v-if="urlTotal > pageSize" class="mt-3" v-model:current="urlPage" :page-size="pageSize"
+                    :total="urlTotal" show-size-changer :page-size-options="['20', '50', '100']" />
+      </div>
+    </section>
 
     <div class="mt-4">
       <h4 class="text-sm font-medium mb-2">同步历史</h4>

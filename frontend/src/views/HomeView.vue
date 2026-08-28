@@ -183,41 +183,44 @@ const custom = (card: PlatformCard) => card.status === 'custom'
       <div v-if="loading" class="text-center py-16 text-text-tertiary">加载中…</div>
 
       <template v-else>
-        <!-- 1) 流量卡片（基础模式仅「不限流量」） -->
-        <Card v-if="system.status?.traffic_card_enabled !== false" class="mb-4 shadow-sm">
-          <div class="text-sm font-medium mb-2">流量</div>
-          <template v-if="traffic.unlimited">
-            <div class="text-text-secondary">不限流量</div>
-          </template>
-          <template v-else>
-            <div class="text-sm">
-              本月已用 <span class="font-medium">{{ trafficUsedGB }}</span> GB
-              <template v-if="trafficQuotaGB"> / 配额 {{ trafficQuotaGB }} GB</template>
-            </div>
-            <Progress v-if="traffic.quota_bytes" :percent="trafficPercent" :stroke-color="trafficColor" />
-            <Alert v-if="traffic.exceeded" type="error" show-icon class="mt-2"
-                   message="本月流量已超限，代理账号已暂停，请联系管理员重置" />
-          </template>
-        </Card>
+        <!-- 顶部摘要区：桌面两列，移动端纵向堆叠。 -->
+        <div class="home-summary-grid grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <!-- 1) 流量卡片（基础模式仅「不限流量」） -->
+          <Card v-if="system.status?.traffic_card_enabled !== false" class="h-full shadow-sm">
+            <div class="text-sm font-medium mb-2">流量</div>
+            <template v-if="traffic.unlimited">
+              <div class="text-text-secondary">不限流量</div>
+            </template>
+            <template v-else>
+              <div class="text-sm">
+                本月已用 <span class="font-medium">{{ trafficUsedGB }}</span> GB
+                <template v-if="trafficQuotaGB"> / 配额 {{ trafficQuotaGB }} GB</template>
+              </div>
+              <Progress v-if="traffic.quota_bytes" :percent="trafficPercent" :stroke-color="trafficColor" />
+              <Alert v-if="traffic.exceeded" type="error" show-icon class="mt-2"
+                     message="本月流量已超限，代理账号已暂停，请联系管理员重置" />
+            </template>
+          </Card>
 
-        <!-- 2) 分流规则卡片（全体用户可见） -->
-        <Card class="mb-4 shadow-sm" hoverable @click="router.push('/rules')">
-          <template v-if="homeRule">
-            <div class="flex items-center justify-between gap-2 flex-wrap">
-              <div>
-                <div class="font-medium">分流规则</div>
-                <div class="text-sm text-text-secondary">{{ homeRule.name }} · v{{ homeRule.current_version }}</div>
+          <!-- 2) 分流规则卡片（全体用户可见） -->
+          <Card class="h-full shadow-sm" hoverable @click="router.push('/rules')">
+            <template v-if="homeRule">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <div class="font-medium">分流规则</div>
+                  <div class="text-sm text-text-secondary">{{ homeRule.name }} · v{{ homeRule.current_version }}</div>
+                </div>
+                <div @click.stop>
+                  <Button type="primary" @click="copyRuleLink">复制规则链接</Button>
+                </div>
               </div>
-              <div @click.stop>
-                <Button type="primary" @click="copyRuleLink">复制规则链接</Button>
-              </div>
+            </template>
+            <div v-else class="text-center py-6">
+              <div class="text-lg font-semibold">分流规则为 Shadowrocket 客户端专用</div>
+              <div class="text-sm text-text-tertiary mt-2">使用指引：先添加订阅获取节点，再导入分流规则</div>
             </div>
-          </template>
-          <div v-else class="text-center py-6">
-            <div class="text-lg font-semibold">分流规则为 Shadowrocket 客户端专用</div>
-            <div class="text-sm text-text-tertiary mt-2">使用指引：先添加订阅获取节点，再导入分流规则</div>
-          </div>
-        </Card>
+          </Card>
+        </div>
 
         <!-- 3) 平台卡片网格 -->
         <div v-if="cards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">

@@ -43,6 +43,9 @@ const pool = {
 const entry = {
   id: 1, pool_id: 1, rule_type: 'DOMAIN-SUFFIX', match_value: 'example.com', source: 'manual' as const, sort_order: 1,
 }
+const urlEntry = {
+  id: 2, pool_id: 1, rule_type: 'DOMAIN-SUFFIX', match_value: 'url.example.com', source: 'url' as const, sort_order: 100000,
+}
 
 function deferred<T>() {
   let resolve!: (v: T) => void
@@ -83,6 +86,23 @@ describe('PoolDetail', () => {
     expect(mockListTasks).toHaveBeenCalledWith(1, 2, 20)
     expect(wrapper.text()).toContain('失败')
     expect(wrapper.text()).toContain('原因')
+  })
+
+  it('URL 同步条目默认不查询，展开后按来源单独加载', async () => {
+    mockListEntries
+      .mockResolvedValueOnce({ list: [entry], total: 1 })
+      .mockResolvedValueOnce({ list: [urlEntry], total: 1 })
+    mockListTasks.mockResolvedValue({ list: [], total: 0 })
+    const wrapper = mount(PoolDetail, { props: { pool } })
+    await flushPromises()
+    expect(mockListEntries).toHaveBeenCalledTimes(1)
+    expect(mockListEntries).toHaveBeenLastCalledWith(1, 1, 20, 'manual')
+    expect(wrapper.text()).not.toContain('url.example.com')
+
+    await wrapper.get('[data-testid="toggle-url-entries"]').trigger('click')
+    await flushPromises()
+    expect(mockListEntries).toHaveBeenLastCalledWith(1, 1, 20, 'url')
+    expect(wrapper.text()).toContain('url.example.com')
   })
 
   it('组件卸载时取消正在进行的同步轮询', async () => {

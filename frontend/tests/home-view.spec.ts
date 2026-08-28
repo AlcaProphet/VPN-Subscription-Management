@@ -80,6 +80,10 @@ describe('首页平台卡片三态渲染', () => {
     expect(wrapper.text()).toContain('不限流量')
     expect(wrapper.text()).toContain('分流规则为 Shadowrocket 客户端专用')
     expect(wrapper.text()).toContain('使用指引：先添加订阅获取节点，再导入分流规则')
+    const summary = wrapper.find('.home-summary-grid')
+    expect(summary.exists()).toBe(true)
+    expect(summary.classes()).toContain('grid-cols-1')
+    expect(summary.classes()).toContain('md:grid-cols-2')
   })
 
   it('未分配卡片显示灰色占位且三按钮隐藏', async () => {

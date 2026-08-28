@@ -50,9 +50,9 @@ export const updatePool = (id: number, data: { name: string; urls: string[]; aut
   http.put(`/admin/pools/${id}`, data)
 export const deletePool = (id: number) => http.delete(`/admin/pools/${id}`)
 
-export const listEntries = (poolId: number, page = 1, pageSize = 20) =>
+export const listEntries = (poolId: number, page = 1, pageSize = 20, source?: 'manual' | 'url') =>
   http.get<any, { list: PoolEntryItem[]; total: number }>(`/admin/pools/${poolId}/entries`, {
-    params: { page, page_size: pageSize },
+    params: { page, page_size: pageSize, ...(source ? { source } : {}) },
   })
 export const createEntry = (poolId: number, data: { rule_type: string; match_value: string }) =>
   http.post<any, PoolEntryItem>(`/admin/pools/${poolId}/entries`, data)

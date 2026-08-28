@@ -39,7 +39,7 @@ var (
 )
 
 var (
-	errSyncTimeout  = errors.New("同步任务超时（30 分钟）")
+	errSyncTimeout   = errors.New("同步任务超时（30 分钟）")
 	errSyncCancelled = errors.New("同步任务已取消")
 )
 
@@ -250,8 +250,12 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 
 // --- 条目 CRUD（仅 manual 来源） ---
 
-// ListEntries 分页读取条目（渲染顺序 = sort_order,id；数万行不整表加载）；池不存在返回 ErrNotFound
-func (s *Service) ListEntries(ctx context.Context, poolID, page, pageSize int64) ([]Entry, int64, error) {
+// ListEntries 按来源分页读取条目（渲染顺序 = sort_order,id；数万行不整表加载）；池不存在返回 ErrNotFound。
+// source 为空时兼容读取全部来源，manual/url 时仅返回对应分段。
+func (s *Service) ListEntries(ctx context.Context, poolID, page, pageSize int64, source string) ([]Entry, int64, error) {
+	if source != "" && source != "manual" && source != "url" {
+		return nil, 0, fmt.Errorf("%w: 条目来源仅支持 manual 或 url", ErrBadRequest)
+	}
 	if page < 1 {
 		page = 1
 	}
@@ -269,15 +273,21 @@ func (s *Service) ListEntries(ctx context.Context, poolID, page, pageSize int64)
 	if exists == 0 {
 		return nil, 0, ErrNotFound
 	}
+	where := `WHERE pool_id = ?`
+	args := []any{poolID}
+	if source != "" {
+		where += ` AND source = ?`
+		args = append(args, source)
+	}
 	var total int64
 	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM pool_entries WHERE pool_id = ?`, poolID).Scan(&total); err != nil {
+		`SELECT COUNT(*) FROM pool_entries `+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
+	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err := s.store.DB().QueryContext(ctx,
 		`SELECT id, pool_id, rule_type, match_value, source, sort_order
-		 FROM pool_entries WHERE pool_id = ? ORDER BY sort_order, id LIMIT ? OFFSET ?`,
-		poolID, pageSize, (page-1)*pageSize)
+		 FROM pool_entries `+where+` ORDER BY sort_order, id LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, 0, err
 	}

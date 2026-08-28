@@ -44,6 +44,8 @@ const headerFields = computed<HeaderField[]>(() => {
       return []
   }
 })
+const inputFields = computed(() => headerFields.value.filter((field) => field.type !== 'bool'))
+const switchFields = computed(() => headerFields.value.filter((field) => field.type === 'bool'))
 
 const advanced = ref(false)
 
@@ -85,15 +87,24 @@ function setField(name: string, val: unknown) {
 
       <Input.TextArea v-if="advanced" v-model:value="form.fixed_params_text" :rows="4" placeholder='{"port":7890,"mode":"rule"}' />
 
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div v-for="f in headerFields" :key="f.name">
-          <label class="text-sm text-text-secondary">{{ f.label }}</label>
-          <InputNumber v-if="f.type === 'number'" :value="Number(fieldValue(f.name) ?? f.default ?? 0)" class="w-full"
-                       @change="(v: any) => setField(f.name, v ?? 0)" />
-          <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)"
-                  @change="(v: any) => setField(f.name, v)" />
-          <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
+      <div v-else class="space-y-4">
+        <div v-if="inputFields.length" class="header-input-fields grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div v-for="f in inputFields" :key="f.name">
+            <label class="text-sm text-text-secondary">{{ f.label }}</label>
+            <InputNumber v-if="f.type === 'number'" :value="Number(fieldValue(f.name) ?? f.default ?? 0)" class="w-full"
+                         @change="(v: any) => setField(f.name, v ?? 0)" />
+            <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
+          </div>
         </div>
+        <section v-if="switchFields.length" class="header-switch-fields border rounded-lg p-3">
+          <div class="text-sm font-medium mb-2">开关参数</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label v-for="f in switchFields" :key="f.name" class="flex items-center justify-between gap-3 text-sm text-text-secondary">
+              <span>{{ f.label }}</span>
+              <Switch :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)" @change="(v: any) => setField(f.name, v)" />
+            </label>
+          </div>
+        </section>
       </div>
     </div>
   </div>

@@ -174,7 +174,7 @@ func TestCRUDAndSort(t *testing.T) {
 		VALUES (?, 'DOMAIN-SUFFIX', 'url.com', 'url', ?)`, p.ID, URLBase); err != nil {
 		t.Fatalf("插入 url 条目失败: %v", err)
 	}
-	list, total, err := svc.ListEntries(ctx, p.ID, 1, 20)
+	list, total, err := svc.ListEntries(ctx, p.ID, 1, 20, "")
 	if err != nil {
 		t.Fatalf("列表失败: %v", err)
 	}
@@ -183,6 +183,17 @@ func TestCRUDAndSort(t *testing.T) {
 	}
 	if list[0].Source != "manual" || list[1].Source != "manual" || list[2].Source != "url" {
 		t.Errorf("渲染顺序应 manual 段在前、url 段在后: %+v", list)
+	}
+	manual, manualTotal, err := svc.ListEntries(ctx, p.ID, 1, 20, "manual")
+	if err != nil || manualTotal != 2 || len(manual) != 2 || manual[0].Source != "manual" || manual[1].Source != "manual" {
+		t.Fatalf("manual 来源筛选异常: list=%+v total=%d err=%v", manual, manualTotal, err)
+	}
+	url, urlTotal, err := svc.ListEntries(ctx, p.ID, 1, 20, "url")
+	if err != nil || urlTotal != 1 || len(url) != 1 || url[0].Source != "url" {
+		t.Fatalf("url 来源筛选异常: list=%+v total=%d err=%v", url, urlTotal, err)
+	}
+	if _, _, err := svc.ListEntries(ctx, p.ID, 1, 20, "invalid"); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("非法来源应返回 ErrBadRequest，实际 %v", err)
 	}
 }
 
@@ -374,7 +385,7 @@ func TestGetStatusEmptyAndListEntriesNotFound(t *testing.T) {
 	if err != nil || task != nil {
 		t.Fatalf("无任务应返回 nil,nil，实际 task=%+v err=%v", task, err)
 	}
-	if _, _, err := svc.ListEntries(ctx, 99999, 1, 20); !errors.Is(err, ErrNotFound) {
+	if _, _, err := svc.ListEntries(ctx, 99999, 1, 20, ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("不存在池列表应 ErrNotFound，实际 %v", err)
 	}
 	if _, _, err := svc.ListTasks(ctx, 99999, 1, 20); !errors.Is(err, ErrNotFound) {
