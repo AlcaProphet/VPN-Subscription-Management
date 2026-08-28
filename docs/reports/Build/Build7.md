@@ -49,7 +49,7 @@
 - ✅ Step 3：Xray 实例页前端（实例/检测/初始化/对账/独立账号）
 - ✅ Step 4：用户组/用户管理/面板设置高级前端
 - ✅ Step 5：首页/个人中心/AppHeader 高级展示收口
-- ◧ Step 6：全量端到端验收、文档核对与归档（部分收口/待 ProdTestList 人工验收）
+- ✅ Step 6：全量端到端验收、文档核对与归档（按用户决策暂标记完成；Production 人工验收转 [ProdTestList.md](../../../ProdTestList.md) 由用户后续执行）
 
 ---
 
@@ -62,7 +62,7 @@
 | 3 | Xray 实例页前端 | Design2-UI §8 | ✅ 验收通过 |
 | 4 | 组/用户/设置高级前端 | Design2-UI §4.3/§4.5/§4.7 | ✅ 验收通过 |
 | 5 | 首页/个人中心/AppHeader 收口 | Design2-UI §2.2/§3 | ✅ 验收通过 |
-| 6 | 全量验收与归档 | Design2 全量 + AGENTS §8.2 | ◧ 部分收口/待 ProdTestList 人工验收 |
+| 6 | 全量验收与归档 | Design2 全量 + AGENTS §8.2 | ✅ 已完成（用户确认暂按完成；Production 人工验收转 ProdTestList） |
 
 ---
 
@@ -449,4 +449,5 @@ Step 4 ──▶ Step 5（用户端收口）──▶ Step 6（验收/归档）
 | v1.18 | 2026-08-21 | 执行 Issue3 优先级 1 R16-03/04：导入重绑失配置 failed、importV2 返回 hints 并写入任务终态、SettingsView 展示 hints；新增 `internal/config/export_v2_test.go`；Step2 仍待 R16-05 确认后恢复。 |
 | v1.19 | 2026-08-21 | 执行 Issue3 优先级 1 R16-05（用户已确认轻量方案）：新增 `assembly.CheckXrayReferences` 同名重绑/失配悬空提示，server 导入后改为 best-effort Reconcile+PushOne 对账；新增 `internal/assembly/rebind_test.go`；Step2 勾选恢复 ✅。 |
 | v1.20 | 2026-08-21 | 执行 Issue3 优先级 2/3：前端 Step3/4 补齐（R15-07/R16-06）、测试补齐（R15-08/R16-07）、error/死代码清理（R15-14/R16-08）、smoke 重写（R16-09）；Step3/4 勾选恢复 ✅。 |
+| v1.21 | 2026-08-28 | 按用户决策将 Step 6 暂标记为完成：Build7 全量验收/归档视为完成，剩余 Production 人工验收项由用户依据 `ProdTestList.md` 后续执行。未改动任何代码。 |
 

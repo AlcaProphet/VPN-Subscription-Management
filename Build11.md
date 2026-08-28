@@ -12,6 +12,8 @@
 > - 本卷允许**最小后端调整**，但不改变产品功能、权限模型和既有业务语义。
 >
 > **本版状态：** v1.9 已完成 Step 1~7；前端 `npm run build` 与 `npm test -- --run`（97 tests）通过；后端 `go build ./...` / `go vet ./...` 通过（本卷后端无新增改动）。Build11 整体已收口，后续仅剩 Production 人工核查与归档。
+>
+> ⚠️ 2026-08-28 全量核验补充：后端 `TestOverviewEndpointAggregatesStableData` 暴露 SQLite 单连接嵌套查询死锁（详见 [ProjectWideReport2.md](docs/reports/ProjectWideReport/ProjectWideReport2.md) §4.1），当前 `go test ./...` 尚不能全绿；前端与其余后端包均通过。该问题仅记录，未改动代码。
 
 ---
 
@@ -654,3 +656,4 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | v1.7 | 2026-08-28 | 完成 Step 5：新增 PageShell/StateContainer/EmptyState/ResponsiveCollection/FormSection/PreviewState 等通用组件，管理菜单按“概览+分发/装配/成员/系统”分组，设置页重组为六分组并支持未保存提示，落地 `/admin` 概览页与 `/api/admin/overview` 前端契约，版本页改为真实资源名与中文类型，高级模式页（Xray/用户组）做摘要、分段与危险操作收口；`npm run build` 与 `npm test -- --run`（92 tests）均通过。 |
 | v1.8 | 2026-08-28 | 完成 Step 6：新增 `uiTokens` 双主题唯一色值源，AntD 使用具体色值、Tailwind 映射 `--ui-*` CSS 变量；更新 `style.css` 初始回退变量、焦点 ring、reduced-motion、卡片/浮层阴影；进度条与 Markdown 主色改为变量；HomeView 流量色取当前主题具体色；补充 Token 与 CSS 变量单测。 |
 | v1.9 | 2026-08-28 | 完成 Step 7：PreviewStep 增加行号/搜索/复制/换行/Tabs 切换，DiffView 增加新增/删除计数与定位、错误行定位；Toast 2 秒去重；FormOverlay 焦点管理；关闭 AntD 中文按钮自动空格；smoke 覆盖概览/重置校验/应急正常态；新增 notify 去重单测；同步 Design2-UI、AGENTS、ProdTestList 与 Build11 文档。 |
+| v2.0 | 2026-08-28 | 全量核验记录：发现 `/api/admin/overview` 在高级模式+独立账号场景下因 `ExtService.ListExt` 的 SQLite 单连接嵌套查询导致死锁；同步发现 `CheckAllExtQuota`、`writeQuotaExceededError` 同类风险。本次仅记录与研究，未修改任何代码。 |
