@@ -255,7 +255,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
                 </div>
               </template>
               <div v-else class="text-text-tertiary text-center py-6 border rounded bg-surface-subtle bg-surface-subtle">
-                暂无可用版本，请联系管理员
+                暂无版本，等待添加
               </div>
               <div class="mt-3">
                 <Tooltip :title="card.preview_available ? '' : '暂无激活版本'">

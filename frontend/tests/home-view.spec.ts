@@ -132,7 +132,7 @@ describe('首页平台卡片三态渲染', () => {
     expect(wrapper.text()).not.toContain('刷新链接')
   })
 
-  it('管理员：无订阅条目时显示空态且预览按钮禁用', async () => {
+  it('管理员：无订阅条目时显示待添加空态且预览按钮禁用', async () => {
     const emptyCard = {
       platform_id: 5, slug: 'platform-b', name: 'Shadowrocket', description: 'iOS', schemes: ['shadowrocket://{url}'],
       installer_files: [], installer_urls: [], status: 'admin_preview', preview_available: false, subscription: null,
@@ -142,7 +142,8 @@ describe('首页平台卡片三态渲染', () => {
     auth.setSession('tok', { id: 1, username: 'u1', email: 'u1@x.com', role: 'admin', group_id: 1, status: 'active', user_source: 'local' })
     const wrapper = mount(HomeView, { global: { plugins: [makeRouter()] } })
     await flushPromises()
-    expect(wrapper.text()).toContain('暂无可用版本，请联系管理员')
+    expect(wrapper.text()).toContain('暂无版本，等待添加')
+    expect(wrapper.text()).not.toContain('暂无可用版本，请联系管理员')
     expect(wrapper.text()).toContain('按平台预览当前版本')
     expect(wrapper.text()).not.toContain('一键导入')
   })
