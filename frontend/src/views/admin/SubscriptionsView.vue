@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Alert, Button, Input, Table, Tag, TypographyText } from 'ant-design-vue'
+import { Button, Input, Table, Tag, TypographyText } from 'ant-design-vue'
 import {
   listSubscriptions,
   createSubscription,
@@ -14,6 +14,7 @@ import { listPlatforms, type PlatformItem } from '@/api/platform'
 import PageHeader from '@/components/PageHeader.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
+import AppPopover from '@/components/AppPopover.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -170,17 +171,22 @@ async function confirmDelete() {
             <span v-else class="text-text-tertiary">未激活</span>
           </template>
         </Table.Column>
-        <Table.Column title="状态" key="status">
-          <template #default="{ record }">
-            <Alert v-if="pooled(record.id)" type="info" show-icon message="已入池未生效，请激活" />
-          </template>
-        </Table.Column>
         <Table.Column title="操作" key="actions">
           <template #default="{ record }">
             <div class="flex items-center gap-1">
               <Button size="small" @click="goVersions(record)">版本管理</Button>
               <Button size="small" @click="goAssembly(record)">装配生成</Button>
-              <Button v-if="pooled(record.id)" size="small" type="primary" ghost @click="goVersions(record)">去激活</Button>
+              <AppPopover v-if="pooled(record.id)" :trigger="['hover', 'focus', 'click']" placement="top">
+                <Button class="subscription-pooled-trigger" size="small" type="text" aria-label="查看入池状态并前往激活">
+                  <Tag color="gold" class="m-0">待激活</Tag>
+                </Button>
+                <template #content>
+                  <div class="flex min-w-44 flex-col gap-1">
+                    <span class="text-sm">已入池未生效，请激活</span>
+                    <Button class="subscription-pooled-activate self-start" type="link" size="small" @click="goVersions(record)">去激活</Button>
+                  </div>
+                </template>
+              </AppPopover>
               <Button size="small" @click="openEdit(record)">编辑</Button>
               <Button size="small" danger @click="toDelete = record">删除</Button>
             </div>
@@ -200,16 +206,21 @@ async function confirmDelete() {
             <div class="mobile-actions flex flex-wrap gap-1">
               <Button size="small" @click="goVersions(sub)">版本管理</Button>
               <Button size="small" @click="goAssembly(sub)">装配生成</Button>
+              <AppPopover v-if="pooled(sub.id)" :trigger="['hover', 'focus', 'click']" placement="top">
+                <Button class="subscription-pooled-trigger" size="small" type="text" aria-label="查看入池状态并前往激活">
+                  <Tag color="gold" class="m-0">待激活</Tag>
+                </Button>
+                <template #content>
+                  <div class="flex min-w-44 flex-col gap-1">
+                    <span class="text-sm">已入池未生效，请激活</span>
+                    <Button class="subscription-pooled-activate self-start" type="link" size="small" @click="goVersions(sub)">去激活</Button>
+                  </div>
+                </template>
+              </AppPopover>
               <Button size="small" @click="openEdit(sub)">编辑</Button>
               <Button size="small" danger @click="toDelete = sub">删除</Button>
             </div>
           </div>
-          <Alert v-if="pooled(sub.id)" type="info" show-icon class="mt-2"
-                 message="已入池未生效，请激活">
-            <template #action>
-              <Button size="small" @click="goVersions(sub)">去激活</Button>
-            </template>
-          </Alert>
         </div>
       </div>
     </TriStateList>

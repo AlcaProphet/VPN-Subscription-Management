@@ -182,7 +182,7 @@
 - **列表页**：`PageHeader`（标题 + 「新建订阅」按钮）；**主体为平铺双态列表（不再按平台分组折叠**——每平台至多一份条目，分组结构退化为平台列）；列：平台名称、订阅名称、product_type 标签（`a-tag`：yaml 蓝 / subs 青 / generic-subs 紫）、内容形态标签（装配模板紫 / 直接上传灰）、当前版本（版本号 + 激活 `a-tag`；无激活版本灰字「未激活」）、操作（版本管理 / 编辑 / 删除）
 - **新建订阅弹窗**：`a-modal` 表单（平台 `a-select` + 名称；标识后端自动生成）；**平台下拉中被占用的平台（已存在订阅条目）选项禁用 + 后缀「（已有订阅）」**；提交后后端 409 兜底 → `Notify.error` 展示冲突描述（UNIQUE(platform_id) 语义 UI 化，Design2.md §4.4）；**创建成功后不再弹「加入组可用范围 / 设置平台默认」引导**（组选定机制已删除），改为轻提示「可上传内容或前往订阅装配生成模板」
 - **编辑弹窗**：仅名称修改（平台只读展示；product_type 只读展示）；**组关联多选移除**
-- **「已入池未生效」引导口径**：上传 / 装配生成完成后，列表对应行临时高亮 + 行内 `a-alert info` 风格标签「已入池未生效，请激活」+「去激活」快捷链接（直达该订阅版本管理页，Design2.md §4.4 分发机制）
+- **「已入池未生效」引导口径**：上传 / 装配生成完成后，列表对应行临时高亮 + 轻量「待激活」标签；标签以 `AppPopover` 提供「已入池未生效，请激活」说明和「去激活」快捷链接（直达该订阅版本管理页，Design2.md §4.4 分发机制）。触发器支持 hover、键盘 focus 与 click，移动端点击打开；不设独立状态列或常驻 Alert。
 - **装配入口**：`PageHeader` 右侧「新建订阅」旁新增「前往装配」按钮（跳转 `/admin/assembly`）；版本管理页另有装配生成创建方式，见 4.2
 - 删除订阅：ConfirmModal **逐项影响清单**（版本文件 / 指向该订阅的 Token；**装配蓝图级联删除将触发候选集重算，可能摘除受影响的组节点分配并移除对应 Xray 账号（高级模式下）**；**不级联自定义订阅**——自定义订阅随平台删除才级联；现状为单句文案，按本规格新写）
 
@@ -690,7 +690,7 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 ### 10.6 全局浮层与焦点管理（Build12 Step 2）
 
 - 新增 `frontend/src/utils/overlayManager.ts`：维护全局浮层栈，非模态浮层唯一；Esc 关闭栈顶并回焦；Modal/Drawer 允许合法层叠。
-- 新增 `AppDropdown.vue`、`AppModal.vue`、`AppSelect.vue`、`AppRangePicker.vue`、`AppTimePicker.vue`：项目自定义 Dropdown/Modal/Drawer/Select/RangePicker/TimePicker 统一接入浮层管理。
+- 新增 `AppDropdown.vue`、`AppModal.vue`、`AppPopover.vue`、`AppSelect.vue`、`AppRangePicker.vue`、`AppTimePicker.vue`：项目自定义 Dropdown/Modal/Drawer/Popover/Select/RangePicker/TimePicker 统一接入浮层管理。
 - `FormOverlay.vue`、`ConfirmModal.vue` 与直接 Modal 页面统一焦点进入、陷阱与关闭回焦。
 - 顶部进度条、按钮中文自动空格等全局细节沿用 Build11 行为。
 

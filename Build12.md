@@ -27,7 +27,7 @@
 | Step | 涉及文件 | 要点 |
 |------|---------|------|
 | 1 | `frontend/tailwind.config.js`、`frontend/src/style.css`、约 43 个 `frontend/src/**/*.vue`、`frontend/src/**/*.ts` | 将 `gray-*`/`dark:bg-gray-*`/`bg-white` 替换为 `text-text`、`text-text-secondary`、`text-text-tertiary`、`bg-surface`、`bg-page`、`bg-surface-subtle`、`border-subtle`、`border` 等 Token 类，删除临时 CSS 旧类映射 |
-| 2 | 新增 `frontend/src/utils/overlayManager.ts`、`frontend/src/components/AppDropdown.vue`、`frontend/src/components/AppModal.vue`、`frontend/src/components/AppSelect.vue`、`frontend/src/components/AppRangePicker.vue`、`frontend/src/components/AppTimePicker.vue`；改造 `FormOverlay.vue`、`ConfirmModal.vue`、`AppHeader.vue`、`HomeView.vue`、`UsersView.vue`、`VersionManageView.vue`、`XrayInstancesView.vue`、`RulesView.vue`、`assembly/PoolTab.vue`、`assembly/NodesGroupsStep.vue` 及全部 Select/RangePicker/TimePicker 使用点 | 全局浮层注册表、唯一浮层、Esc 关闭、焦点进入/陷阱/回焦 |
+| 2 | 新增 `frontend/src/utils/overlayManager.ts`、`frontend/src/components/AppDropdown.vue`、`frontend/src/components/AppModal.vue`、`frontend/src/components/AppPopover.vue`、`frontend/src/components/AppSelect.vue`、`frontend/src/components/AppRangePicker.vue`、`frontend/src/components/AppTimePicker.vue`；改造 `FormOverlay.vue`、`ConfirmModal.vue`、`AppHeader.vue`、`HomeView.vue`、`UsersView.vue`、`VersionManageView.vue`、`XrayInstancesView.vue`、`RulesView.vue`、`assembly/PoolTab.vue`、`assembly/NodesGroupsStep.vue` 及全部 Select/RangePicker/TimePicker 使用点 | 全局浮层注册表、唯一浮层、Esc 关闭、焦点进入/陷阱/回焦 |
 | 3 | `frontend/tests/`、`Build12.md`、`Design2-UI.md`、`AGENTS.md`、`ProdTestList.md` | 新增 overlay 单测、更新受影响组件测试、文档同步 |
 
 ---
@@ -174,7 +174,7 @@ export function restoreFocus(id: string): void
   - `AppSelect.vue`（全局注册，覆盖全部 Select 使用点）
   - `AppRangePicker.vue`
   - `AppTimePicker.vue`
-- 若后续出现 `Popover` 等浮层，按同一模式新增 `AppPopover.vue`；
+- `AppPopover.vue` 已按同一模式接入；
 - 通过 `openChange` / `dropdownVisibleChange` 事件注册到 `overlayManager`；
 - 由于 AntD 内部 API 可能会随版本变化，先以当前 `ant-design-vue@4.2.6` 可用事件为准。
 
@@ -224,3 +224,4 @@ export function restoreFocus(id: string): void
 | v1.0 | 2026-08-28 | 初始版本：承接 Build11 核验出的 2 个非阻断项，制定全量 Token 化与全局浮层/焦点管理修复方案。 |
 | v1.1 | 2026-08-28 | 完成 Step 1：全量清理 `gray-*`/`dark:bg-gray-*`/`bg-white`，替换为 Token 类并删除旧 CSS 映射；完成 Step 2：新增 overlayManager、AppDropdown、AppModal、AppSelect、AppRangePicker、AppTimePicker，FormOverlay/ConfirmModal/直接 Modal 接入统一焦点与浮层管理，新增 overlay-manager 单测。 |
 | v1.2 | 2026-08-28 | 完成 Step 3：补充 overlay-manager 单测，同步 Design2-UI §10.6、AGENTS 与 Build12 收口；前端 `npm run build` 与 `npm test -- --run`（104 tests）通过。 |
+| v1.3 | 2026-08-30 | 完成 Issue9 R24-07：新增 AppPopover 并接入全局非模态浮层管理；订阅列表移除状态列与常驻 Alert，入池行改为可悬停、聚焦和点击的「待激活」浮层入口。 |
