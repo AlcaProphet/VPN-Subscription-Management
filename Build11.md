@@ -659,3 +659,4 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | v2.0 | 2026-08-28 | 全量核验记录：发现 `/api/admin/overview` 在高级模式+独立账号场景下因 `ExtService.ListExt` 的 SQLite 单连接嵌套查询导致死锁；同步发现 `CheckAllExtQuota`、`writeQuotaExceededError` 同类风险。本次仅记录与研究，未修改任何代码。 |
 | v2.1 | 2026-08-28 | 完成 Issue9 R24-01：`ListExt`、`CheckAllExtQuota` 落地 rows-close-first，`writeQuotaExceededError` 改为单条批量更新；新增三个非空数据回归测试，既有管理员概览高级模式回归恢复通过；后端 `go build ./...`、`go vet ./...`、`go test -timeout 180s ./...` 全部通过。 |
 | v2.2 | 2026-08-30 | 完成 Issue9 R24-05 第一阶段：管理员概览移除「服务状态」与「首次发布清单」面板，保留 `/api/admin/overview` 的 `status`/`checklist` 契约及后端聚合；概览聚焦资源计数与近期管理活动。 |
+| v2.3 | 2026-08-30 | 完成 Issue9 R24-06：管理员概览刷新按钮采用局部 flex 垂直居中，修正 Reload 图标与文字的基线偏移；不改变其他页面的 AntD 按钮布局。 |

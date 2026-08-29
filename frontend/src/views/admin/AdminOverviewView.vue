@@ -48,7 +48,7 @@ onMounted(() => { void load() })
   <PageShell title="概览" description="查看资源概况与近期管理活动。" :loading="loading" :error="error"
              @retry="load">
     <template #actions>
-      <Button :loading="loading" @click="load"><template #icon><ReloadOutlined /></template>刷新</Button>
+      <Button class="overview-refresh-button" :loading="loading" @click="load"><template #icon><ReloadOutlined /></template>刷新</Button>
     </template>
 
     <template v-if="overview">
@@ -99,6 +99,7 @@ onMounted(() => { void load() })
 </template>
 
 <style scoped>
+.overview-refresh-button { display: inline-flex; align-items: center; }
 .section-title { margin: 0 0 .75rem; font-size: 1rem; font-weight: 600; }
 .overview-metric { min-height: 5.5rem; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .25rem; text-align: left; border: 1px solid rgb(229 231 235); border-radius: .5rem; padding: .75rem; background: transparent; cursor: pointer; }
 .overview-metric:hover { border-color: rgb(96 165 250); background: rgb(239 246 255); }

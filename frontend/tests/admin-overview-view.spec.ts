@@ -42,6 +42,7 @@ describe('AdminOverviewView', () => {
     expect(wrapper.text()).not.toContain('以普通用户身份检查')
     expect(wrapper.text()).toContain('pending-user')
     expect(wrapper.text()).toContain('主订阅')
+    expect(wrapper.find('button.overview-refresh-button').exists()).toBe(true)
   })
 
   it('请求失败时显示重试入口', async () => {
