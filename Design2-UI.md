@@ -680,7 +680,7 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 
 ### 10.5 管理员概览与统一状态容器（Build11 Step 5/6）
 
-- `/admin` 管理员概览页：只调用 `GET /api/admin/overview` 一个汇总请求；展示服务状态、首次发布 Checklist、资源计数、快捷入口、最近 5 条待审批和最近 5 条访问日志。
+- `/admin` 管理员概览页：只调用 `GET /api/admin/overview` 一个汇总请求；展示资源计数、快捷入口、最近 5 条待审批和最近 5 条访问日志。`status` 与 `checklist` 保持接口兼容但不在概览页展示；运行/高级模式由设置与导航上下文承载，应急状态由应急网关和 `/emergency` 页面承载。
 - 通用组件：`PageShell`、`StateContainer`、`EmptyState`、`ResponsiveCollection`、`FormSection`、`PreviewState`；`TriStateList` 兼容委托 `StateContainer`，空态/分页/批量操作在空数据时按页面条件渲染。
 - 设置页改为六大分组：身份与访问、通知、外观与内容、运行与安全、数据管理、危险操作；桌面左侧分组导航，手机顶部 Select；每个分区独立保存并显示未保存数量。
 - 版本管理页通过 `GET /api/admin/versions/:id/owner` 显示真实资源名与中文类型，不再把 ownerType 英文当标题。

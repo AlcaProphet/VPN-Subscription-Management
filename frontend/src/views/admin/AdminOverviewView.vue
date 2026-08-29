@@ -2,9 +2,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { Button, Card, List, Result, Space, Tag } from 'ant-design-vue'
-import { CheckCircleOutlined, ClockCircleOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons-vue'
+import { ReloadOutlined, RightOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
-import { getAdminOverview, type AdminOverview, type OverviewChecklistItem } from '@/api/overview'
+import { getAdminOverview, type AdminOverview } from '@/api/overview'
 import PageShell from '@/components/PageShell.vue'
 
 const overview = ref<AdminOverview | null>(null)
@@ -37,15 +37,6 @@ async function load() {
   }
 }
 
-function itemIcon(item: OverviewChecklistItem) {
-  return item.done ? CheckCircleOutlined : ClockCircleOutlined
-}
-
-function itemColor(item: OverviewChecklistItem) {
-  if (item.done) return 'text-green-600'
-  return item.manual ? 'text-amber-500' : 'text-text-tertiary'
-}
-
 function fmtTime(value: string) {
   return dayjs(value).format('MM-DD HH:mm')
 }
@@ -54,56 +45,14 @@ onMounted(() => { void load() })
 </script>
 
 <template>
-  <PageShell title="概览" description="查看服务状态、首次发布进度与近期管理活动。" :loading="loading" :error="error"
+  <PageShell title="概览" description="查看资源概况与近期管理活动。" :loading="loading" :error="error"
              @retry="load">
     <template #actions>
       <Button :loading="loading" @click="load"><template #icon><ReloadOutlined /></template>刷新</Button>
     </template>
 
     <template v-if="overview">
-      <div class="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card title="服务状态" size="small">
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div>
-              <p class="metric-label">运行模式</p>
-              <Tag :color="overview.status.app_mode === 'prod' ? 'green' : 'orange'">
-                {{ overview.status.app_mode === 'prod' ? 'Production' : 'Dev' }}
-              </Tag>
-            </div>
-            <div>
-              <p class="metric-label">高级模式</p>
-              <Tag :color="overview.status.advanced_mode ? 'green' : 'default'">
-                {{ overview.status.advanced_mode ? '已开启' : '未开启' }}
-              </Tag>
-            </div>
-            <div>
-              <p class="metric-label">应急状态</p>
-              <Tag :color="overview.status.emergency ? 'red' : 'green'">
-                {{ overview.status.emergency ? '应急中' : '正常' }}
-              </Tag>
-            </div>
-          </div>
-        </Card>
-
-        <Card title="首次发布清单" size="small">
-          <List size="small" :data-source="overview.checklist">
-            <template #renderItem="{ item }">
-              <List.Item class="!px-0">
-                <div class="flex min-w-0 flex-1 items-center gap-2">
-                  <component :is="itemIcon(item)" :class="itemColor(item)" />
-                  <span class="flex-1 text-sm" :class="item.done ? 'text-text-secondary line-through ' : ''">{{ item.label }}</span>
-                  <Tag v-if="item.manual" color="gold">人工</Tag>
-                  <Button v-if="!item.done" type="link" size="small" @click="$router.push(item.action_path)">
-                    {{ item.action_label }}
-                  </Button>
-                </div>
-              </List.Item>
-            </template>
-          </List>
-        </Card>
-      </div>
-
-      <section class="mt-4">
+      <section>
         <h2 class="section-title">资源概况</h2>
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
           <button v-for="link in quickLinks" :key="link.path" type="button" class="overview-metric" @click="$router.push(link.path)">
@@ -150,7 +99,6 @@ onMounted(() => { void load() })
 </template>
 
 <style scoped>
-.metric-label { margin: 0 0 .35rem; color: rgb(107 114 128); font-size: .75rem; }
 .section-title { margin: 0 0 .75rem; font-size: 1rem; font-weight: 600; }
 .overview-metric { min-height: 5.5rem; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .25rem; text-align: left; border: 1px solid rgb(229 231 235); border-radius: .5rem; padding: .75rem; background: transparent; cursor: pointer; }
 .overview-metric:hover { border-color: rgb(96 165 250); background: rgb(239 246 255); }

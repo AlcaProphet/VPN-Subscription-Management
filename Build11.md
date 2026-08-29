@@ -474,7 +474,7 @@ Step 1~6 → Step 7（润色/测试/文档收口）
    - `frontend/src/router/index.ts` 增加 `{ path:'/admin', component: AdminOverviewView, meta:{layout:'admin', requiresAdmin:true} }`；
    - `AppHeader.vue` 的“管理面板”按钮目标改为 `/admin`。
 6. 新增 `frontend/src/api/overview.ts` 与 `frontend/src/views/admin/AdminOverviewView.vue`：
-   - 状态摘要、首次发布清单、计数网格、快捷入口；
+   - 计数网格、快捷入口；`status` 与 `checklist` 保持接口兼容但不在概览页展示；
    - 动态摘要：最近 5 条待审批与最近 5 条访问日志；
    - 每张卡片提供失败重试；空态保留明确下一步。
    - **Checklist 文案与判定按 §0.1.1 定稿执行。**
@@ -658,3 +658,4 @@ Step 1~6 → Step 7（润色/测试/文档收口）
 | v1.9 | 2026-08-28 | 完成 Step 7：PreviewStep 增加行号/搜索/复制/换行/Tabs 切换，DiffView 增加新增/删除计数与定位、错误行定位；Toast 2 秒去重；FormOverlay 焦点管理；关闭 AntD 中文按钮自动空格；smoke 覆盖概览/重置校验/应急正常态；新增 notify 去重单测；同步 Design2-UI、AGENTS、ProdTestList 与 Build11 文档。 |
 | v2.0 | 2026-08-28 | 全量核验记录：发现 `/api/admin/overview` 在高级模式+独立账号场景下因 `ExtService.ListExt` 的 SQLite 单连接嵌套查询导致死锁；同步发现 `CheckAllExtQuota`、`writeQuotaExceededError` 同类风险。本次仅记录与研究，未修改任何代码。 |
 | v2.1 | 2026-08-28 | 完成 Issue9 R24-01：`ListExt`、`CheckAllExtQuota` 落地 rows-close-first，`writeQuotaExceededError` 改为单条批量更新；新增三个非空数据回归测试，既有管理员概览高级模式回归恢复通过；后端 `go build ./...`、`go vet ./...`、`go test -timeout 180s ./...` 全部通过。 |
+| v2.2 | 2026-08-30 | 完成 Issue9 R24-05 第一阶段：管理员概览移除「服务状态」与「首次发布清单」面板，保留 `/api/admin/overview` 的 `status`/`checklist` 契约及后端聚合；概览聚焦资源计数与近期管理活动。 |

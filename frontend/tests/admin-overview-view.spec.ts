@@ -31,12 +31,15 @@ describe('AdminOverviewView', () => {
     ;(getAdminOverview as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(overview)
   })
 
-  it('仅拉取概览汇总，并渲染状态、清单和两类动态摘要', async () => {
+  it('仅拉取概览汇总，隐藏静态状态和清单并渲染资源与动态摘要', async () => {
     const wrapper = mount(AdminOverviewView, { global: { plugins: [router()] } })
     await flushPromises()
     expect(getAdminOverview).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('Production')
-    expect(wrapper.text()).toContain('以普通用户身份检查')
+    expect(wrapper.text()).toContain('Xray 实例')
+    expect(wrapper.text()).not.toContain('服务状态')
+    expect(wrapper.text()).not.toContain('Production')
+    expect(wrapper.text()).not.toContain('首次发布清单')
+    expect(wrapper.text()).not.toContain('以普通用户身份检查')
     expect(wrapper.text()).toContain('pending-user')
     expect(wrapper.text()).toContain('主订阅')
   })
