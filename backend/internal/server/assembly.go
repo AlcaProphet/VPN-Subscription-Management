@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -106,6 +107,7 @@ func (h *AssemblyHandler) preview(c *gin.Context) {
 	}
 	OK(c, gin.H{
 		"content":      string(res.Content),
+		"preview_hash": assemblyPreviewHash(res.Content),
 		"skipped":      res.Skipped,
 		"warnings":     res.Warnings,
 		"name_changed": res.NameChanged,
@@ -127,6 +129,11 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		} else {
 			Fail(c, http.StatusInternalServerError, err.Error())
 		}
+		return
+	}
+	// 预览摘要由前端随生成请求回传；渲染结果发生变化时拒绝落库，避免素材池同步等外部变更造成预览与生成不一致。
+	if in.PreviewHash != "" && in.PreviewHash != assemblyPreviewHash(res.Content) {
+		Fail(c, http.StatusConflict, "装配依赖已变化，请重新预览")
 		return
 	}
 	if assembly.HasError(res.Issues) {
@@ -185,6 +192,11 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		"skipped":        res.Skipped,
 		"warnings":       h.assemblySvc.Warnings(in, res),
 	})
+}
+
+// assemblyPreviewHash 绑定管理员预览正文与最终生成正文。
+func assemblyPreviewHash(content []byte) string {
+	return fmt.Sprintf("%x", sha256.Sum256(content))
 }
 
 func firstOutputError(issues []assembly.OutputIssue) string {

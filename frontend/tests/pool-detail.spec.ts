@@ -28,12 +28,13 @@ vi.mock('@/components/Notify', () => ({
   Notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), detail: vi.fn() },
 }))
 
-import { listEntries, listSyncTasks } from '@/api/pool'
+import { createEntry, listEntries, listSyncTasks } from '@/api/pool'
 import { pollTask } from '@/api/request'
 
 const mockListEntries = listEntries as unknown as ReturnType<typeof vi.fn>
 const mockListTasks = listSyncTasks as unknown as ReturnType<typeof vi.fn>
 const mockPollTask = pollTask as unknown as ReturnType<typeof vi.fn>
+const mockCreateEntry = createEntry as unknown as ReturnType<typeof vi.fn>
 
 const pool = {
   id: 1, name: '苹果域名', urls: ['https://example.com/rules.txt'], entry_count: 2,
@@ -58,6 +59,7 @@ describe('PoolDetail', () => {
     mockListEntries.mockReset()
     mockListTasks.mockReset()
     mockPollTask.mockReset()
+    mockCreateEntry.mockReset()
   })
 
   it('同步历史支持分页加载', async () => {
@@ -121,5 +123,20 @@ describe('PoolDetail', () => {
     expect(cancel).toHaveBeenCalled()
     d.resolve({ status: 'succeeded' })
     await first
+  })
+
+  it('手动条目新增后向上通知素材池内容变化', async () => {
+    mockListEntries.mockResolvedValue({ list: [entry], total: 1 })
+    mockListTasks.mockResolvedValue({ list: [], total: 0 })
+    mockCreateEntry.mockResolvedValue(entry)
+    const wrapper = mount(PoolDetail, { props: { pool } })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      entryForm: { rule_type: string; match_value: string }
+      saveEntry: () => Promise<void>
+    }
+    vm.entryForm.match_value = 'new.example.com'
+    await vm.saveEntry()
+    expect(wrapper.emitted('changed')).toEqual([[pool.id]])
   })
 })

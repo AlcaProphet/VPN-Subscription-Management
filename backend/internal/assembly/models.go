@@ -160,6 +160,7 @@ type SeqMap struct {
 // GenerateInput 装配生成入参（对应 Design2 §5.9 selection/fixed/custom 映射）。
 type GenerateInput struct {
 	TargetSyntax         TargetSyntax        `json:"target_syntax"`
+	PreviewHash          string              `json:"preview_hash,omitempty"`
 	PlatformID           int64               `json:"platform_id"`
 	RuleID               int64               `json:"rule_id"`
 	RuleName             string              `json:"rule_name"`

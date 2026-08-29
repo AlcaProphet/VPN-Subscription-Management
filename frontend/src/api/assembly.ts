@@ -26,6 +26,7 @@ export interface OverlayInput {
 }
 export interface GenerateInput {
   target_syntax: TargetSyntax
+  preview_hash?: string
   platform_id?: number
   rule_id?: number
   rule_name?: string
@@ -47,6 +48,7 @@ export interface SkipItem {
 }
 export interface PreviewResponse {
   content: string
+  preview_hash: string
   skipped: SkipItem[]
   warnings: string[]
   name_changed?: Record<string, string>

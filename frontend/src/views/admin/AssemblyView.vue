@@ -21,6 +21,8 @@ import {
 import { Notify } from '@/components/Notify'
 import { listSubscriptions, type SubscriptionItem } from '@/api/subscription'
 import { versionApi } from '@/api/version'
+import { listPools, type PoolItem } from '@/api/pool'
+import { ApiError } from '@/api/request'
 import { useSystemStore } from '@/stores/system'
 import {
   clearAssemblyDraft, readAssemblyDraft, saveAssemblyDraft,
@@ -58,6 +60,9 @@ function onSubTabChange(key: string | number) {
   subTab.value = key as TargetSyntax
   void router.replace({ query: { ...route.query, tab: String(key) } })
 }
+watch(mainTab, (next, previous) => {
+  if (next === 'build' && previous !== 'build') void refreshPools()
+})
 
 const RULE_TYPES = [
   'DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'DOMAIN-REGEX', 'GEOSITE', 'GEOIP', 'SRC-GEOIP',
@@ -87,6 +92,8 @@ const previewText = ref('')
 const previewSkipped = ref<any[]>([])
 const previewWarnings = ref<string[]>([])
 const lastPreviewFingerprint = ref('')
+const lastPreviewHash = ref('')
+const selectedPoolContentRevision = ref(0)
 const previewedAt = ref<number | null>(null)
 const previewedTargetSyntax = ref<TargetSyntax | null>(null)
 const showDiff = ref(false)
@@ -245,12 +252,13 @@ const previewFingerprint = computed(() => stableStringify({
   overseasMembers: form.overseas_members,
   fallbackGroupMembers: form.fallback_group_members,
   pools: form.pools,
+  selectedPoolContentRevision: selectedPoolContentRevision.value,
   customRules: form.custom_rules,
   finalDirection: form.final_direction,
   overlay: form.overlay,
 }))
 const previewStale = computed(() => !lastPreviewFingerprint.value || lastPreviewFingerprint.value !== previewFingerprint.value)
-const canGenerate = computed(() => !!previewText.value && !previewStale.value && !generating.value)
+const canGenerate = computed(() => !!previewText.value && !!lastPreviewHash.value && !previewStale.value && !generating.value)
 const visiblePreviewWarnings = computed(() =>
   targetSyntax.value === 'sr-subs' || targetSyntax.value === 'generic-subs'
     ? previewWarnings.value.filter((warning) => warning !== '未选择任何规则素材池或手动规则，将生成空规则')
@@ -294,6 +302,35 @@ async function loadContext() {
     loadingContext.value = false
   }
 }
+
+function onPoolsChanged(pools: PoolItem[]) {
+  if (!context.value) return
+  const previousIDs = new Set(context.value.pools.map((pool) => pool.id))
+  const validIDs = new Set(pools.map((pool) => pool.id))
+  const selectedMissing = form.pools.some((pool) => previousIDs.has(pool.pool_id) && !validIDs.has(pool.pool_id))
+  context.value = { ...context.value, pools: [...pools] }
+  if (selectedMissing) {
+    selectedPoolContentRevision.value += 1
+    showDiff.value = false
+    Notify.warning('已选素材池已不存在，请移除后重新预览')
+  }
+}
+
+function onPoolContentChanged(poolID: number) {
+  if (!form.pools.some((pool) => pool.pool_id === poolID)) return
+  // 本地修订号进入预览指纹，可覆盖同步与预览请求并发完成的时序。
+  selectedPoolContentRevision.value += 1
+  showDiff.value = false
+}
+
+async function refreshPools() {
+  try {
+    onPoolsChanged(await listPools())
+  } catch (err) {
+    Notify.error((err as Error).message)
+  }
+}
+
 onMounted(async () => {
   await loadContext()
   await restoreAssemblyDraft()
@@ -425,9 +462,10 @@ function parseCustomRules(): RuleLine[] {
     target: r.target.trim(),
   }))
 }
-function buildInput(): GenerateInput {
+function buildInput(previewHash?: string): GenerateInput {
   return {
     target_syntax: targetSyntax.value,
+    preview_hash: previewHash,
     platform_id: isSrConf.value ? undefined : form.platform_id,
     rule_id: isSrConf.value && form.sr_rule_mode === 'existing' ? form.rule_id : undefined,
     rule_name: isSrConf.value && form.sr_rule_mode === 'new' ? form.rule_name : undefined,
@@ -456,6 +494,7 @@ async function doPreview() {
   try {
     const res = await previewAssembly(buildInput())
     previewText.value = res.content
+    lastPreviewHash.value = res.preview_hash
     previewSkipped.value = res.skipped
     previewWarnings.value = res.warnings
     lastPreviewFingerprint.value = fingerprint
@@ -625,7 +664,7 @@ async function doGenerate() {
   }
   generating.value = true
   try {
-    const res = await generateAssembly(buildInput())
+    const res = await generateAssembly(buildInput(lastPreviewHash.value))
     generateResult.value = res
     Notify.success(res.auto_activated ? '首个版本已自动激活' : '已入池未生效，请激活')
     if (!res.auto_activated && !isSrConf.value && form.platform_id) {
@@ -641,6 +680,11 @@ async function doGenerate() {
     editVersionId.value = null
     editVersionNo.value = null
   } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      lastPreviewFingerprint.value = ''
+      lastPreviewHash.value = ''
+      showDiff.value = false
+    }
     Notify.error((err as Error).message)
   } finally {
     generating.value = false
@@ -700,7 +744,7 @@ const outputGroups = computed(() => {
            message="以下节点显示名已变化，生成时将按当前显示名渲染" :description="Object.entries(nameChanged).map(([k,v]) => `${k} → ${v}`).join('；')" />
     <Tabs :active-key="mainTab" @change="onMainTabChange">
       <Tabs.TabPane key="pool" tab="规则素材池">
-        <PoolTab />
+        <PoolTab @pools-changed="onPoolsChanged" @pool-content-changed="onPoolContentChanged" />
       </Tabs.TabPane>
       <Tabs.TabPane key="proxy-groups" tab="代理组">
         <ProxyGroupsView />

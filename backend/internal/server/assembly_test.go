@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -118,7 +119,8 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 	pid := insertAssemblyBase(t, st)
 	ctx := context.Background()
 	// preview 不落库
-	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/preview", assemblyBody(pid))
+	body := assemblyBody(pid)
+	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/preview", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("preview 状态码异常: %d body=%s", w.Code, w.Body.String())
 	}
@@ -129,8 +131,17 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 	if before != 0 {
 		t.Fatalf("preview 不应产生版本: %d", before)
 	}
+	var previewResp struct {
+		Data struct {
+			PreviewHash string `json:"preview_hash"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &previewResp); err != nil || previewResp.Data.PreviewHash == "" {
+		t.Fatalf("preview 应返回内容摘要: err=%v body=%s", err, w.Body.String())
+	}
+	body["preview_hash"] = previewResp.Data.PreviewHash
 	// 首次 generate 自动激活
-	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", assemblyBody(pid))
+	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("generate 状态码异常: %d body=%s", w.Code, w.Body.String())
 	}
@@ -154,7 +165,7 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 		t.Fatalf("蓝图应 1:1，实际 %d", blueprintCount)
 	}
 	// 第二次 generate 不自动激活
-	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", assemblyBody(pid))
+	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("第二次 generate 状态码异常: %d body=%s", w.Code, w.Body.String())
 	}
@@ -180,6 +191,54 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 	}
 	if bpResp.Data.Blueprint["target_syntax"] != "clash-yaml" {
 		t.Fatalf("blueprint 内容异常: %+v", bpResp.Data.Blueprint)
+	}
+}
+
+func TestAssemblyGenerateRejectsChangedPreviewContent(t *testing.T) {
+	engine, st, _ := newAssemblyTestEnv(t)
+	pid := insertAssemblyBase(t, st)
+	ctx := context.Background()
+	res, err := st.DB().ExecContext(ctx, `INSERT INTO rule_pools (name, urls_json) VALUES ('摘要校验池','[]')`)
+	if err != nil {
+		t.Fatalf("插入素材池失败: %v", err)
+	}
+	poolID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("读取素材池 ID 失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO pool_entries (pool_id, rule_type, match_value, source, sort_order) VALUES (?, 'DOMAIN-SUFFIX', 'before.example', 'manual', 1)`, poolID); err != nil {
+		t.Fatalf("插入素材池条目失败: %v", err)
+	}
+	body := assemblyBody(pid)
+	body["pools"] = []map[string]any{{"pool_id": poolID, "target": "组A"}}
+	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/preview", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("preview 状态码异常: %d body=%s", w.Code, w.Body.String())
+	}
+	var previewResp struct {
+		Data struct {
+			PreviewHash string `json:"preview_hash"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &previewResp); err != nil || previewResp.Data.PreviewHash == "" {
+		t.Fatalf("解析 preview 摘要失败: err=%v body=%s", err, w.Body.String())
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE pool_entries SET match_value = 'after.example' WHERE pool_id = ?`, poolID); err != nil {
+		t.Fatalf("更新素材池条目失败: %v", err)
+	}
+	body["preview_hash"] = previewResp.Data.PreviewHash
+	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", body)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "装配依赖已变化，请重新预览") {
+		t.Fatalf("素材池内容变化后应拒绝生成: code=%d body=%s", w.Code, w.Body.String())
+	}
+	var versions int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM versions`).Scan(&versions); err != nil {
+		t.Fatalf("查询版本数失败: %v", err)
+	}
+	if versions != 0 {
+		t.Fatalf("摘要冲突不应创建版本: %d", versions)
 	}
 }
 

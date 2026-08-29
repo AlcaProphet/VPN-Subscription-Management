@@ -13,7 +13,7 @@ import { Notify } from '@/components/Notify'
 import FormOverlay from '@/components/FormOverlay.vue'
 
 const props = defineProps<{ pool: PoolItem }>()
-const emit = defineEmits<{ back: []; changed: []; edit: [] }>()
+const emit = defineEmits<{ back: []; changed: [poolID: number]; edit: [] }>()
 
 const RULE_TYPES = ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'IP-CIDR6', 'PROCESS-NAME', 'PROCESS-NAME-REGEX', 'USER-AGENT']
 
@@ -108,6 +108,7 @@ async function saveEntry() {
     }
     entryOpen.value = false
     await loadManualEntries()
+    emit('changed', props.pool.id)
   } catch (err) {
     Notify.error((err as Error).message) // 409 去重冲突文案
   } finally {
@@ -119,6 +120,7 @@ async function removeEntry(e: PoolEntryItem) {
     await deleteEntry(props.pool.id, e.id)
     Notify.success('条目已删除')
     await loadManualEntries()
+    emit('changed', props.pool.id)
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -141,7 +143,7 @@ async function doSync() {
     syncResult.value = await pollHandle.run()
     if (syncResult.value.status === 'succeeded') Notify.success('同步完成')
     else Notify.warning('同步完成（存在失败项，详情见回执）')
-    emit('changed')
+    emit('changed', props.pool.id)
     await refreshEntries()
   } catch (err) {
     if (err instanceof Error && err.message === '轮询已取消') return

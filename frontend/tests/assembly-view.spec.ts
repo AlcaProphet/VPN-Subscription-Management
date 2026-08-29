@@ -40,13 +40,17 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import AssemblyView from '@/views/admin/AssemblyView.vue'
+import PoolTab from '@/views/admin/assembly/PoolTab.vue'
 import { getAssemblyContext, previewAssembly, generateAssembly } from '@/api/assembly'
+import { listPools } from '@/api/pool'
 import { Notify } from '@/components/Notify'
 import { ASSEMBLY_CONTEXT_KEY } from '@/utils/assemblyDraft'
+import { ApiError } from '@/api/request'
 
 const mockContext = getAssemblyContext as unknown as ReturnType<typeof vi.fn>
 const mockPreview = previewAssembly as unknown as ReturnType<typeof vi.fn>
 const mockGenerate = generateAssembly as unknown as ReturnType<typeof vi.fn>
+const mockListPools = listPools as unknown as ReturnType<typeof vi.fn>
 const mockNotifyWarning = Notify.warning as unknown as ReturnType<typeof vi.fn>
 
 const context = {
@@ -83,10 +87,12 @@ describe('AssemblyView 装配页核心交互', () => {
     mockContext.mockReset()
     mockPreview.mockReset()
     mockGenerate.mockReset()
+    mockListPools.mockReset()
     mockNotifyWarning.mockReset()
     mockContext.mockResolvedValue(context)
-    mockPreview.mockResolvedValue({ content: 'proxies:', skipped: [], warnings: [] })
+    mockPreview.mockResolvedValue({ content: 'proxies:', preview_hash: 'preview-hash', skipped: [], warnings: [] })
     mockGenerate.mockResolvedValue({ version_id: 1, version_no: 1, auto_activated: true, skipped: [], warnings: [] })
+    mockListPools.mockResolvedValue(context.pools)
   })
 
   it('无效 tab 回退到 pool', async () => {
@@ -137,6 +143,59 @@ describe('AssemblyView 装配页核心交互', () => {
       overseas_members: [],
       fallback_group_members: ['🚀直接连接', '🌎国外流量'],
     }))
+  })
+
+  it('素材池页刷新列表后构建候选立即更新，无需重新加载页面', async () => {
+    const wrapper = await mountWith('tab=pool')
+    const newPool = { ...context.pools[0], id: 2, name: '新同步素材池', entry_count: 12 }
+    wrapper.findComponent(PoolTab).vm.$emit('pools-changed', [newPool])
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as unknown as {
+      context: typeof context
+      form: { pools: Array<{ pool_id: number; target: string }> }
+      addPool: () => void
+    }
+    expect(vm.context.pools).toEqual([newPool])
+    vm.addPool()
+    expect(vm.form.pools[0].pool_id).toBe(2)
+  })
+
+  it('已选素材池内容变化后旧预览立即过期', async () => {
+    const wrapper = await mountWith('tab=pool')
+    const vm = wrapper.vm as unknown as {
+      form: { platform_id?: number; pools: Array<{ pool_id: number; target: string }> }
+      doPreview: () => Promise<void>
+      previewStale: boolean
+      canGenerate: boolean
+    }
+    vm.form.platform_id = 1
+    vm.form.pools = [{ pool_id: 1, target: '🚀直接连接' }]
+    await vm.doPreview()
+    expect(vm.previewStale).toBe(false)
+    expect(vm.canGenerate).toBe(true)
+
+    wrapper.findComponent(PoolTab).vm.$emit('pool-content-changed', 1)
+    await wrapper.vm.$nextTick()
+    expect(vm.previewStale).toBe(true)
+    expect(vm.canGenerate).toBe(false)
+  })
+
+  it('生成端发现预览摘要冲突后将旧预览转为过期态', async () => {
+    const wrapper = await mountWith('tab=sr-subs')
+    const vm = wrapper.vm as unknown as {
+      form: { platform_id?: number }
+      doPreview: () => Promise<void>
+      doGenerate: () => Promise<void>
+      previewStale: boolean
+      canGenerate: boolean
+    }
+    vm.form.platform_id = 1
+    await vm.doPreview()
+    mockGenerate.mockRejectedValueOnce(new ApiError(409, '装配依赖已变化，请重新预览'))
+    await vm.doGenerate()
+    expect(vm.previewStale).toBe(true)
+    expect(vm.canGenerate).toBe(false)
   })
 
   it('预览完成后可生成；任一产物字段变更后旧预览过期', async () => {

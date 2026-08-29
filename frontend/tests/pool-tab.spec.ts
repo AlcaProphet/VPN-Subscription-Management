@@ -70,6 +70,7 @@ describe('PoolTab', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('苹果域名')
     expect(wrapper.text()).toContain('每日 04:00 UTC')
+    expect(wrapper.emitted('pools-changed')?.[0]).toEqual([[pool]])
   })
 
   it('同步进行中再次点击提示 warning', async () => {
@@ -87,6 +88,7 @@ describe('PoolTab', () => {
     expect(Notify.warning).toHaveBeenCalledWith('同步进行中，请等待完成')
     d.resolve({ status: 'succeeded' })
     await first
+    expect(wrapper.emitted('pool-content-changed')).toEqual([[pool.id]])
   })
 
   it('组件卸载时取消正在进行的轮询', async () => {

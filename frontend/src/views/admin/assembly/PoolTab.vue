@@ -13,6 +13,11 @@ import FormOverlay from '@/components/FormOverlay.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import PoolDetail from './PoolDetail.vue'
 
+const emit = defineEmits<{
+  'pools-changed': [pools: PoolItem[]]
+  'pool-content-changed': [poolID: number]
+}>()
+
 const loading = ref(false)
 const pools = ref<PoolItem[]>([])
 const detailID = ref(0)
@@ -20,7 +25,9 @@ const detailID = ref(0)
 async function load() {
   loading.value = true
   try {
-    pools.value = await listPools()
+    const next = await listPools()
+    pools.value = next
+    emit('pools-changed', next)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -124,6 +131,7 @@ async function doSync(p: PoolItem) {
     if (result.status === 'succeeded') Notify.success('同步完成')
     else if (result.status === 'partial') Notify.warning('同步完成（存在失败项，请进入详情查看回执）')
     else Notify.error(result.error || '同步失败')
+    emit('pool-content-changed', p.id)
     await load()
   } catch (err) {
     if (err instanceof Error && err.message === '轮询已取消') return
@@ -143,6 +151,11 @@ async function doCancelSync(p: PoolItem) {
   } catch (err) {
     Notify.error((err as Error).message)
   }
+}
+
+async function onDetailChanged(poolID: number) {
+  emit('pool-content-changed', poolID)
+  await load()
 }
 
 const toDelete = ref<PoolItem | null>(null)
@@ -177,7 +190,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
     <AppModal :open="detailID !== 0" :footer="null" :width="760" :centered="true"
               :title="currentDetail() ? `素材池详情 · ${currentDetail()!.name}` : ''"
               @update:open="detailID = $event ? detailID : 0">
-      <PoolDetail v-if="detailID" :pool="currentDetail()!" @changed="load" @edit="openEdit(currentDetail()!)" />
+      <PoolDetail v-if="detailID" :pool="currentDetail()!" @changed="onDetailChanged" @edit="openEdit(currentDetail()!)" />
     </AppModal>
 
     <div class="flex items-center justify-between mb-3">

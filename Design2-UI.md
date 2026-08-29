@@ -279,7 +279,7 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 
 ### 5.1 页面骨架：单菜单入口页内 Tabs
 
-- `PageHeader`（标题「订阅装配」）+ `a-tabs` **三个一级页签**：**规则素材池 / 代理组 / 构建订阅·规则**（页签 key：`pool` / `proxy-groups` / `build`）；其中「构建订阅·规则」内部再以二级 Tab 提供四个子平台：**Clash YAML / SR 节点订阅 / 通用节点订阅 / SR 分流规则**（key：`clash-yaml` / `sr-subs` / `generic-subs` / `sr-conf`）；页签切换不重新拉取无关数据（各页签独立挂载，`keep-alive` 或惰性渲染二选一由实现决定，对外行为一致）
+- `PageHeader`（标题「订阅装配」）+ `a-tabs` **三个一级页签**：**规则素材池 / 代理组 / 构建订阅·规则**（页签 key：`pool` / `proxy-groups` / `build`）；其中「构建订阅·规则」内部再以二级 Tab 提供四个子平台：**Clash YAML / SR 节点订阅 / 通用节点订阅 / SR 分流规则**（key：`clash-yaml` / `sr-subs` / `generic-subs` / `sr-conf`）；页签切换不重新拉取无关数据（各页签独立挂载，`keep-alive` 或惰性渲染二选一由实现决定，对外行为一致）。**素材池页签的新建/编辑/删除/同步与手动条目变更须即时上推最新池摘要到装配上下文；进入构建页签时仅定向刷新素材池列表作为兜底，不重新拉取节点、代理组、平台等无关上下文。**
 - URL query 驱动页签：`?tab=` 无效值回退首页签；`?tab=clash-yaml` 等会定位到「构建订阅·规则」对应子平台；四个子平台接受 `platform_id` / `rule_id` / `edit_version_id` 带参进入（见 2.3/4.2）
 - `<768`：页签转横向滚动（AntD 默认行为），页内分区纵向堆叠
 
@@ -306,6 +306,7 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 1. 点击「同步」→ 提交同步任务 → 按钮转 loading + 池行/详情顶部展示「同步中…」内联 Spinner
 2. 轮询状态端点（1.5s）；**页面切走/组件卸载自动取消轮询**（后端任务继续执行，再次进入重新拉状态即可）；**任务持久化于 pool_sync_tasks，服务重启时 running 任务置 failed，UI 展示「服务重启，任务中断」**
 3. 终态后展示**逐 URL 结果回执**（`a-alert` 列表，一 URL 一行）：成功（绿 success，含条目变化摘要 added/removed/skipped）/ 失败（红 error，展示失败原因：拉取失败 / 空响应 / 零条目保护「响应无有效规则条目，已保留旧数据」/ 解析跳过行数）/ 部分失败（橙 warning 总提示 + 逐行明细，**部分失败时不执行差量删除**属后端行为，UI 仅展示原因）
+   - 任意终态均向装配父页面发送“池内容可能变化”事件并刷新池摘要；当前装配已选择该池时，旧预览立即标记过期。手动条目新增、编辑、删除使用同一事件口径。
 4. **进行中再触发**：同步未完成时再点「同步」→ `message.warning`「同步进行中，请等待完成」（后端同池不并发，Design2.md §2.4）
 5. 轮询超时兜底文案见 10.1
 
@@ -319,7 +320,7 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 - **顶部目标选择（非步骤）**：装配类型由所在二级页签确定；目标选择作为顶部独立卡片，仅在 SR 分流规则或存在自定义平台时展示。Clash YAML / SR 节点订阅 / 通用节点订阅 → 目标平台 `a-select`（仅列出 product_type 匹配的 yaml / subs / generic-subs 平台；无自定义平台时自动选中匹配当前类型的原生默认平台并隐藏该卡片；存在自定义平台时默认选中一个匹配类型且已有订阅条目的平台）；SR 分流规则 → 目标规则选择（见 5.3.4）。
 - **生成严格校验（前端预检 + 后端兜底）**：悬空代理组引用、**勾选组引用的子组不在本次输出集合（强制组或已勾选组）**、规则目标指向未勾选代理组一律拒绝生成并定位提示（DesignReport9 Q7）；**勾选到已停用预设组（enabled=0）同样拒绝生成（400「预设组已停用，请先启用或移除勾选」），不纳入 5.4 失效项剔除容错（DesignReport10 决策）**；不可用 xray 节点（enabled=0 / allocatable=0 / missing=1 / 实例 enabled=0）前端置灰不可勾选，后端拒绝；**强制组「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」允许作为 Clash 规则目标**；「🌎国外流量」「🛟无法归属的流量」成员不能为空、重复或超出各自封闭候选范围，底层 `DIRECT` 不得作为任何成员选择器候选（规则目标中的 DIRECT 不受影响）
 - **防重复提交**：生成按钮提交期间 loading 禁用；成功后页内显著 `a-result success` 风格回执：「已入池未生效，请激活」+「去版本管理激活」/「继续装配」两按钮（Design2.md §4.4 引导口径）；首次入池自动激活时后端回执带激活标记，UI 改示「首个版本已自动激活」（订阅行/规则实体无激活版本的例外条款，Design2.md §4.4）
-- **预览强一致性**：每次预览成功记录由 `target_syntax`、目标、头部原始文本、节点/组及其顺序、规则素材、手动规则、FINAL 与覆盖层组成的稳定指纹、时间和目标类型；任一字段变化或切换类型即视为预览过期，旧正文收起为半透明详情，`确认生成` 禁用并显示 Tooltip「请先刷新预览」。刷新后清空 Diff 并显示「最近预览」信息。`sr-subs` / `generic-subs` 在前端额外过滤后端意外返回的「未选择任何规则素材池或手动规则，将生成空规则」警告。
+- **预览强一致性**：每次预览成功记录由 `target_syntax`、目标、头部原始文本、节点/组及其顺序、规则素材、手动规则、FINAL 与覆盖层组成的稳定指纹、时间和目标类型；任一字段变化或切换类型即视为预览过期，**当前已选素材池发生同步或手动条目变更时通过本地内容修订号使旧预览过期**，旧正文收起为半透明详情，`确认生成` 禁用并显示 Tooltip「请先刷新预览」。预览响应同时返回正文 SHA-256 `preview_hash`，确认生成时回传；后端按当前依赖重新渲染并比较摘要，不一致返回 409「装配依赖已变化，请重新预览」且不创建版本，从而覆盖定时同步或其他管理员并发修改。刷新后清空 Diff 并显示「最近预览」信息。`sr-subs` / `generic-subs` 在前端额外过滤后端意外返回的「未选择任何规则素材池或手动规则，将生成空规则」警告。
 
 #### 5.3.1 Clash YAML 装配器
 
@@ -581,8 +582,8 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 |------|-----------|------|
 | getAssemblyContext | GET /api/admin/assembly/context | 一次性拉取装配器候选数据：节点列表 / 代理组 / 素材池摘要 / 平台（含 product_type 过滤）/ 规则实体（减少多端点并发） |
 | getBlueprint | GET /api/admin/versions/:id/blueprint | 重新编辑载入快照（含失效引用标记 `invalid_refs` 与 `name_changed` 对照信息，见 5.4/5.3.5） |
-| generate | POST /api/admin/assembly/generate | 请求：target_syntax（clash-yaml / sr-subs / generic-subs / sr-conf）+ 目标实体 + 头部 + 勾选（**规则素材池为有序数组**；Clash 强制组有序成员为 `overseas_members` / `fallback_group_members`）+ 手动规则；响应：`{ version_id, auto_activated, skipped, warnings }` |
-| preview | POST /api/admin/assembly/preview | 同请求体，返回 `{ content, skipped, warnings, name_changed? }`（不落库，预览步使用）；SR subs / generic-subs 返回明文原文 |
+| generate | POST /api/admin/assembly/generate | 请求：target_syntax（clash-yaml / sr-subs / generic-subs / sr-conf）+ 目标实体 + 头部 + 勾选（**规则素材池为有序数组**；Clash 强制组有序成员为 `overseas_members` / `fallback_group_members`）+ 手动规则 + 最近预览返回的 `preview_hash`；后端当前渲染摘要不一致时 409 且不落库；响应：`{ version_id, auto_activated, skipped, warnings }` |
+| preview | POST /api/admin/assembly/preview | 同请求体，返回 `{ content, preview_hash, skipped, warnings, name_changed? }`（不落库，预览步使用；`preview_hash` 为正文 SHA-256）；SR subs / generic-subs 返回明文原文 |
 
 ### 9.2 `api/request.ts` 增量：pollTask 轮询封装与 timeout 覆盖
 
@@ -620,6 +621,7 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 | 403 高级未开启 | 高级端点返回 403 且系统状态 advanced_mode=off → `message.warning`「高级功能未开启」（区别于普通「权限不足」）；同时刷新系统状态联动菜单隐藏 |
 | 409 池名 / 节点名 / 节点显示名 / 平台订阅占用 / 实例名 / 代理组名 / 独立账号名 | `Notify.error` 展示后端冲突描述（对应 5.2.1 / 6.2/6.3/8.2 / 4.1 / 8.1 / 7.2 / 8.5） |
 | 409 素材池条目去重 | 手动添加条目冲突提示（见 5.2.2） |
+| 409 装配预览摘要冲突 | 素材池、节点、代理组等装配依赖在预览后发生变化 → 旧预览转过期态，提示「装配依赖已变化，请重新预览」，不创建版本（见 5.3.0） |
 | 400 候选集/约束类校验 | 组分配越候选集、代理组 DAG/内容约束、平台格式校正不一致、**装配悬空引用/未勾选目标组/不可用节点/平台无订阅行** → 表单级/页面级错误定位（见 4.3/4.4/7.2/5.3.0） |
 | 200 业务错误注释块 | 沿用 Design1-UI §7.3：预览内容以 `# error:` 开头时弹窗顶部 alert 转人话（覆盖新增「无激活版本」注释块场景） |
 
@@ -715,3 +717,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v2.4 | 2026-08-28 | Build11 Step 2/4/5/6 收口：补可信状态页、FormOverlay、管理员概览与统一状态容器、菜单分组、设置六分组、版本真实名称、Token 统一（`#2563EB`/`#60A5FA` + CSS 变量）；同步 §1.1、§2.1、§2.3、§10.5。 |
 | v2.5 | 2026-08-28 | Build12：全量 gray/white 类迁移到 Token；新增全局浮层管理器、AppDropdown/AppModal、统一 Modal/Drawer 焦点管理；同步 §10.6。 |
 | v2.6 | 2026-08-28 | 同步 Issue9 R24-18：区分强制存在与成员可配置；国外流量/无法归属组在组旁提供封闭候选范围的有序成员选择，新增 `fallback_group_members` 契约，底层 DIRECT 仅由直接连接组封装，并补空组/覆盖层校验与草稿快照口径。 |
+| v2.7 | 2026-08-30 | 同步 Issue9 R24-21/R24-22：素材池列表变更即时同步装配上下文，进入构建页签定向刷新素材池；已选池内容变化使本地预览过期，预览/生成新增正文 SHA-256 摘要校验，外部依赖变化时 409 拒绝落库。 |
