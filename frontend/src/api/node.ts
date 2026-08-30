@@ -28,6 +28,10 @@ export interface FieldSchema {
   label: string
   help?: string
   options?: string[]
+  section?: 'auth' | 'transport' | 'security' | 'switches' | 'advanced'
+  object_kind?: 'fields' | 'map' | 'list'
+  properties?: FieldSchema[]
+  allow_unknown?: boolean
 }
 
 export interface LinkMapping {

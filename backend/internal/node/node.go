@@ -791,6 +791,10 @@ func validateProtocolFields(proto Protocol, m map[string]any, allowEmptySensitiv
 }
 
 func validateFieldType(field FieldSchema, value any) error {
+	return validateFieldValue(field, value, field.Name)
+}
+
+func validateFieldValue(field FieldSchema, value any, path string) error {
 	valid := false
 	switch field.Type {
 	case "text", "password", "select", "text-list", "int-list":
@@ -808,15 +812,70 @@ func validateFieldType(field FieldSchema, value any) error {
 	case "bool":
 		_, valid = value.(bool)
 	case "object":
-		switch value.(type) {
-		case map[string]any, []any:
+		switch field.ObjectKind {
+		case "fields", "map":
+			object, ok := value.(map[string]any)
+			if !ok {
+				return fmt.Errorf("字段 %s 类型应为 object", path)
+			}
+			if field.ObjectKind == "fields" {
+				if err := validateObjectProperties(field, object, path); err != nil {
+					return err
+				}
+			}
 			valid = true
+		case "list":
+			items, ok := value.([]any)
+			if !ok {
+				return fmt.Errorf("字段 %s 类型应为 object list", path)
+			}
+			for i, item := range items {
+				object, ok := item.(map[string]any)
+				if !ok {
+					return fmt.Errorf("字段 %s[%d] 类型应为 object", path, i)
+				}
+				if err := validateObjectProperties(field, object, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+					return err
+				}
+			}
+			valid = true
+		default:
+			switch value.(type) {
+			case map[string]any, []any:
+				valid = true
+			}
 		}
 	default:
 		return fmt.Errorf("字段 %s 使用未知类型 %s", field.Name, field.Type)
 	}
 	if !valid {
-		return fmt.Errorf("字段 %s 类型应为 %s", field.Name, field.Type)
+		return fmt.Errorf("字段 %s 类型应为 %s", path, field.Type)
+	}
+	return nil
+}
+
+func validateObjectProperties(field FieldSchema, object map[string]any, path string) error {
+	known := make(map[string]FieldSchema, len(field.Properties))
+	for _, property := range field.Properties {
+		known[property.Name] = property
+		value, ok := object[property.Name]
+		if property.Required && (!ok || value == nil || value == "") {
+			return fmt.Errorf("字段 %s.%s 必填", path, property.Name)
+		}
+		if !ok || value == nil || value == "" {
+			continue
+		}
+		if err := validateFieldValue(property, value, path+"."+property.Name); err != nil {
+			return err
+		}
+	}
+	if field.AllowUnknown {
+		return nil
+	}
+	for key := range object {
+		if _, ok := known[key]; !ok {
+			return fmt.Errorf("字段 %s.%s 未在协议注册表中声明", path, key)
+		}
 	}
 	return nil
 }

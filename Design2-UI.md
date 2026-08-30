@@ -397,12 +397,16 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 - 空态：「还没有节点」+ 引导文案「手动添加节点，或在高级模式录入 Xray 实例后自动检测」（见 10.2）
 - 筛选工具栏（可选）：来源筛选 `a-segmented`（全部 / manual / xray）——节点量增长后的易用性补充，不强制
 
-### 6.2 manual 节点新增/编辑弹窗（720px）
+### 6.2 manual 节点新增/编辑弹窗（桌面 920px / 移动端全屏 Drawer）
 
-- **协议选择**：`a-select` 协议注册表清单（由 `GET /api/admin/nodes/protocols` 下发：ClashOfficial 全量代理协议，**ssr 除外**，Design2.md §4.5）；选择后表单字段按协议注册表 schema **动态渲染**（基础字段：名称 / host / port；协议特有字段按注册表展开，敏感字段按注册表标记渲染为 `a-input-password`）；**编辑时允许变更协议：变更等价整体重新填表、不保留不兼容旧字段**（凭据字段仍按「留空=保留原凭据」口径，DesignReport10 决策）
-- **凭据字段**（uuid / password / private-key 等注册表敏感清单）：统一 `a-input-password` 脱敏输入；**编辑回显时凭据字段留空，placeholder 提示「留空 = 保留原凭据」**（Design2.md §3.2 编辑回显口径）
+- **信息架构**：表单固定按「基本信息 / 认证与密钥 / 协议与传输 / 安全与证书 / 开关参数 / 高级参数」顺序分区；桌面字段双列、对象字段跨两列，移动端全部单列；高级参数默认折叠。开关参数使用独立卡片，所有协议顶层 `bool` 字段统一为左文案、右 `a-switch` 的单行布局。
+- **协议选择**：`a-select` 协议注册表清单（由 `GET /api/admin/nodes/protocols` 下发：ClashOfficial 全量代理协议，**ssr 除外**，Design2.md §4.5）；选择后表单字段按协议注册表 schema **动态渲染**。`FieldSchema.section` 明确字段归属（`auth / transport / security / switches / advanced`），不在前端重复维护协议字段名单；选择不同协议时清空当前 `protocol_json`，等价整体重新填表、不保留不兼容旧字段。
+- **复杂对象 schema**：`FieldSchema` 以 `object_kind=fields/map/list` 区分固定属性对象、任意键值映射和对象数组，以递归 `properties` 描述子字段，并用 `allow_unknown` 标记兼容扩展键。REALITY、HTTP/H2/gRPC/WebSocket/XHTTP、插件、内层 SS、ECH、Sing-Mux 与 WireGuard Peer 均按对应结构渲染；`smux` 采用嵌套对象口径，不是单一 boolean。
+- **对象编辑器**：默认显示结构化控件；固定对象按子字段表单、headers 等映射按可增删键值行、WireGuard peers 按可增删条目卡片编辑。每个对象保留独立「高级 JSON」Switch 供未知/复杂扩展参数回退；未知键原样保留并提示数量，不静默覆盖。高级 JSON 或映射复杂值解析失败时显示完整字段路径并阻止保存，不再提交旧对象值。
+- **凭据字段**（uuid / password / private-key 及 `plugin-opts.password`、`ss-opts.password` 等注册表敏感路径）：统一 `a-input-password` 脱敏输入；**编辑回显时凭据字段留空，placeholder 提示「留空 = 保留原凭据」**（Design2.md §3.2 编辑回显口径）。结构化对象重建不得覆盖未填写的旧密文。
+- **服务端校验**：继续按注册表进行最终校验；对象按形态及已知子字段递归校验，错误包含完整路径；`allow_unknown=true` 的扩展键保留。`protocol_json` 字段名、JSON 存储结构和数据库 schema 不变，无迁移。
 - **名称规则**：**创建后不可修改**（编辑弹窗名称只读；后端拒绝改名）；创建时实时校验——禁止控制字符、逗号、空格与首尾空白，允许中文/emoji；重名冲突（与其他节点有效渲染名、proxy_groups.name、强制组名「🚀直接连接 / 🌎国外流量 / 🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT / REJECT / REJECT-DROP / PASS / COMPATIBLE」重复）后端 409 → `Notify.error`「节点名称已存在或与代理组/保留名冲突」
-- 表单校验：host/port 格式实时校验；提交失败字段级回显
+- **表单校验**：host/port 格式实时校验；结构化对象格式错误禁止提交；服务端失败按字段路径回显。
 
 ### 6.2a manual 节点批量导入弹窗（760px，Build10）
 
@@ -722,3 +726,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v2.6 | 2026-08-28 | 同步 Issue9 R24-18：区分强制存在与成员可配置；国外流量/无法归属组在组旁提供封闭候选范围的有序成员选择，新增 `fallback_group_members` 契约，底层 DIRECT 仅由直接连接组封装，并补空组/覆盖层校验与草稿快照口径。 |
 | v2.7 | 2026-08-30 | 同步 Issue9 R24-21/R24-22：素材池列表变更即时同步装配上下文，进入构建页签定向刷新素材池；已选池内容变化使本地预览过期，预览/生成新增正文 SHA-256 摘要校验，外部依赖变化时 409 拒绝落库。 |
 | v2.8 | 2026-08-30 | 同步 Issue9 R24-09/R24-10/R24-11/R24-13/R24-14/R24-16/R24-17：规则列表移除客户端类型列与首页默认单选列并收口操作区；订阅版本页隐藏类型 Tag；代理组高级开关统一单行；装配目标 Tab 使用面向用户文案；头部高级 JSON 改 Switch 且默认值改警示按钮；节点/代理组选区改为分区卡片与中文术语。 |
+| v2.9 | 2026-08-30 | 同步 Issue9 R24-19/R24-20：manual 节点弹窗改为 920px 六分区布局与独立开关区；`FieldSchema` 增加分区及递归对象 schema；固定对象/映射/对象数组默认结构化编辑，保留对象级高级 JSON、未知键与嵌套敏感字段兼容，并增加服务端递归路径校验。 |

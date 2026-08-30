@@ -236,7 +236,7 @@
 | `fingerprint` | string | TLS 指纹 |
 | `servername` | string | SNI |
 | `client-fingerprint` | ClientFingerprint | 客户端指纹 |
-| `smux` | boolean | Smux |
+| `smux` | IProxySmuxConfig | Sing-Mux 嵌套对象（见 3.19） |
 | `encryption` | string | 加密 |
 
 ### 3.10 VMess（`vmess`）
@@ -263,7 +263,7 @@
 | `global-padding` | boolean | 全局填充 |
 | `authenticated-length` | boolean | 认证长度 |
 | `client-fingerprint` | ClientFingerprint | 客户端指纹 |
-| `smux` | boolean | Smux |
+| `smux` | IProxySmuxConfig | Sing-Mux 嵌套对象（见 3.19） |
 
 ### 3.11 WireGuard（`wireguard`）
 
@@ -346,7 +346,7 @@
 | `udp-over-tcp` | boolean | UDP over TCP |
 | `udp-over-tcp-version` | number | UDP over TCP 版本 |
 | `client-fingerprint` | ClientFingerprint | 客户端指纹 |
-| `smux` | boolean | Smux |
+| `smux` | IProxySmuxConfig | Sing-Mux 嵌套对象（见 3.19） |
 
 ### 3.15 加密方式（`CipherType`）参考
 

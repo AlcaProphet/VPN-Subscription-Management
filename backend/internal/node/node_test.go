@@ -89,6 +89,17 @@ func TestRegistryCompleteness(t *testing.T) {
 		if !HasProtocol(p.Protocol) {
 			t.Errorf("HasProtocol(%s) 应为 true", p.Protocol)
 		}
+		for _, field := range p.FormSchema {
+			if field.Section == "" {
+				t.Errorf("协议 %s 字段 %s 缺少表单分区", p.Protocol, field.Name)
+			}
+			if field.Type == "bool" && field.Section != "switches" {
+				t.Errorf("协议 %s 布尔字段 %s 应归入 switches", p.Protocol, field.Name)
+			}
+			if field.Type == "object" && field.ObjectKind == "" {
+				t.Errorf("协议 %s 对象字段 %s 缺少对象形态", p.Protocol, field.Name)
+			}
+		}
 	}
 	if HasProtocol("ssr") {
 		t.Error("HasProtocol(ssr) 应为 false")
@@ -272,6 +283,35 @@ func TestValidateProtocolFieldTypes(t *testing.T) {
 	valid["reserved"] = true
 	if err := validateProtocolFields(wg, valid, false); err == nil {
 		t.Fatal("错误 int-list 类型应被拒绝")
+	}
+	valid["reserved"] = "1,2,3"
+	valid["peers"] = []any{map[string]any{"server": "peer", "port": true}}
+	if err := validateProtocolFields(wg, valid, false); err == nil || !strings.Contains(err.Error(), "peers[0].port") {
+		t.Fatalf("嵌套字段类型错误应定位完整路径，实际 %v", err)
+	}
+}
+
+func TestObjectSchemaKeepsExtensionsAndSmuxShape(t *testing.T) {
+	vless, _ := GetProtocol("vless")
+	params := map[string]any{
+		"uuid": "secret",
+		"ws-opts": map[string]any{
+			"path":          "/ws",
+			"headers":       map[string]any{"Host": []any{"cdn.example.com"}},
+			"future-option": map[string]any{"enabled": true},
+		},
+		"smux": map[string]any{
+			"enabled":     true,
+			"protocol":    "smux",
+			"brutal-opts": map[string]any{"enabled": true, "up": "100 Mbps"},
+		},
+	}
+	if err := validateProtocolFields(vless, params, false); err != nil {
+		t.Fatalf("已知嵌套字段与未知扩展键应兼容: %v", err)
+	}
+	params["smux"] = true
+	if err := validateProtocolFields(vless, params, false); err == nil {
+		t.Fatal("smux 应按嵌套对象校验")
 	}
 }
 

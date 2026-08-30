@@ -11,6 +11,7 @@ vi.mock('@/api/node', () => ({
   deleteNode: vi.fn(),
   toggleNode: vi.fn(),
   setNodeDisplayName: vi.fn(),
+  importNodes: vi.fn(),
 }))
 
 vi.mock('@/api/request', () => {
@@ -29,10 +30,11 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import NodesView from '@/views/admin/NodesView.vue'
-import { listNodes, getProtocols } from '@/api/node'
+import { listNodes, getProtocols, createNode } from '@/api/node'
 
 const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
 const mockGetProtocols = getProtocols as unknown as ReturnType<typeof vi.fn>
+const mockCreateNode = createNode as unknown as ReturnType<typeof vi.fn>
 
 const node = {
   id: 1,
@@ -55,9 +57,15 @@ const protocols = [
     protocol: 'ss',
     label: 'Shadowsocks',
     form_schema: [
-      { name: 'cipher', type: 'text', required: true, label: '加密方式' },
-      { name: 'password', type: 'password', required: true, label: '密码' },
-      { name: 'udp', type: 'bool', default: true, label: 'UDP' },
+      { name: 'cipher', type: 'text', required: true, label: '加密方式', section: 'transport' },
+      { name: 'password', type: 'password', required: true, label: '密码', section: 'auth' },
+      { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+      { name: 'routing-mark', type: 'number', required: false, label: '路由标记', section: 'advanced' },
+      {
+        name: 'plugin-opts', type: 'object', required: false, label: '插件参数', section: 'transport',
+        object_kind: 'fields', allow_unknown: true,
+        properties: [{ name: 'host', type: 'text', required: false, label: 'Host' }],
+      },
     ],
     sensitive_fields: ['password'],
     link_mappings: { sr: true, generic: true },
@@ -68,6 +76,7 @@ describe('NodesView 节点管理页', () => {
   beforeEach(() => {
     mockListNodes.mockReset()
     mockGetProtocols.mockReset()
+    mockCreateNode.mockReset()
     mockListNodes.mockResolvedValue([node])
     mockGetProtocols.mockResolvedValue(protocols)
   })
@@ -85,6 +94,12 @@ describe('NodesView 节点管理页', () => {
     expect(document.body.textContent).toContain('加密方式')
     expect(document.body.textContent).toContain('密码')
     expect(document.body.querySelector('input[placeholder="留空 = 保留原凭据"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('认证与密钥')
+    expect(document.body.textContent).toContain('协议与传输')
+    expect(document.body.textContent).toContain('开关参数')
+    expect(document.body.querySelector('.node-switch-fields')?.textContent).toContain('UDP')
+    expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('结构化编辑')
+    expect(document.body.querySelector('.node-advanced-fields')?.textContent).toContain('路由标记')
     wrapper.unmount()
   })
 
@@ -112,6 +127,22 @@ describe('NodesView 节点管理页', () => {
     expect(document.body.querySelector('.ant-modal')).toBeNull()
     expect(document.body.querySelector('.ant-drawer')).not.toBeNull()
     expect(document.body.querySelector('input[placeholder="域名或 IP"]')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('结构化对象存在格式错误时阻止保存', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      handleFieldValidity: (payload: { path: string; valid: boolean }) => void
+      save: () => Promise<void>
+    }
+    vm.openCreate()
+    vm.handleFieldValidity({ path: 'plugin-opts', valid: false })
+    await vm.save()
+
+    expect(mockCreateNode).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

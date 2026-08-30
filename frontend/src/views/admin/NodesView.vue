@@ -5,7 +5,9 @@ import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, 
 import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type ImportLineResult } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
+import FormSection from '@/components/FormSection.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
@@ -38,6 +40,7 @@ const nameSpaceError = computed(() => {
   if (!creating.value || nameReadonly.value) return ''
   return form.name.includes(' ') ? '名称禁止空格' : ''
 })
+const invalidProtocolPaths = reactive(new Set<string>())
 
 async function load() {
   loading.value = true
@@ -55,8 +58,14 @@ onMounted(() => void load())
 function currentSchema() {
   return protocols.value.find((p) => p.protocol === form.protocol) ?? null
 }
-function sensitiveFields() {
-  return new Set(currentSchema()?.sensitive_fields ?? [])
+function sectionFields(section: string) {
+  return currentSchema()?.form_schema.filter((field) => field.section === section) ?? []
+}
+function updateProtocol(protocol: string) {
+  if (form.protocol === protocol) return
+  form.protocol = protocol
+  form.protocol_json = {}
+  invalidProtocolPaths.clear()
 }
 function openCreate() {
   creating.value = true
@@ -66,6 +75,7 @@ function openCreate() {
   form.host = ''
   form.port = 443
   form.protocol_json = {}
+  invalidProtocolPaths.clear()
 }
 function openImport() {
   importOpen.value = true
@@ -99,8 +109,13 @@ function openEdit(n: NodeItem) {
   form.host = n.host
   form.port = n.port
   form.protocol_json = { ...(n.protocol_json ?? {}) }
+  invalidProtocolPaths.clear()
 }
 async function save() {
+  if (invalidProtocolPaths.size > 0) {
+    Notify.warning('请先修正协议对象参数中的格式错误')
+    return
+  }
   saving.value = true
   try {
     if (editing.value) {
@@ -217,19 +232,9 @@ function fieldValue(key: string): unknown {
 function setField(key: string, val: unknown) {
   form.protocol_json = { ...form.protocol_json, [key]: val }
 }
-
-// 对象字段（如旧版 REALITY JSON）改为失焦时解析，避免逐字符报错
-const objectError = ref('')
-const objectErrorField = ref('')
-function handleObjectFieldBlur(name: string, e: any) {
-  try {
-    setField(name, JSON.parse(e.target.value || '{}'))
-    objectError.value = ''
-    objectErrorField.value = ''
-  } catch {
-    objectError.value = '对象字段 JSON 格式错误'
-    objectErrorField.value = name
-  }
+function handleFieldValidity(payload: { path: string; valid: boolean }) {
+  if (payload.valid) invalidProtocolPaths.delete(payload.path)
+  else invalidProtocolPaths.add(payload.path)
 }
 </script>
 
@@ -302,43 +307,73 @@ function handleObjectFieldBlur(name: string, e: any) {
       </div>
     </TriStateList>
 
-    <FormOverlay :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="720" :loading="saving"
+    <FormOverlay :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="920" :loading="saving" destroy-on-close
                  @submit="save" @update:open="creating = false">
-      <Form layout="vertical">
-        <Form.Item label="协议" required>
-          <AppSelect v-model:value="form.protocol">
-            <Select.Option v-for="p in protocols" :key="p.protocol" :value="p.protocol">{{ p.label }}</Select.Option>
-          </AppSelect>
-        </Form.Item>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Form.Item label="名称" required :validate-status="nameSpaceError ? 'error' : undefined" :help="nameSpaceError || undefined">
-            <Input v-model:value="form.name" :disabled="nameReadonly" placeholder="禁止空格/逗号，支持中文与 emoji" />
-          </Form.Item>
-          <Form.Item label="服务器" required>
-            <Input v-model:value="form.host" placeholder="域名或 IP" />
-          </Form.Item>
-          <Form.Item label="端口" required>
-            <InputNumber v-model:value="form.port" :min="1" :max="65535" class="w-full" />
-          </Form.Item>
-        </div>
-        <div v-if="currentSchema()" class="grid grid-cols-1 md:grid-cols-2 gap-x-3">
-          <div v-for="f in currentSchema()!.form_schema" :key="f.name" :class="f.type === 'object' ? 'col-span-2 mb-3' : 'mb-3'">
-            <label class="text-sm text-text-secondary">{{ f.label }}<span v-if="f.required" class="text-red-500"> *</span></label>
-            <Input.Password v-if="f.type === 'password'" :value="String(fieldValue(f.name) ?? '')" :placeholder="sensitiveFields().has(f.name) ? '留空 = 保留原凭据' : ''" @change="(e: any) => setField(f.name, e.target.value)" />
-            <InputNumber v-else-if="f.type === 'number'" :value="Number(fieldValue(f.name) ?? f.default ?? 0)" class="w-full" @change="(v: any) => setField(f.name, v ?? 0)" />
-            <AppSelect v-else-if="f.type === 'select'" :value="String(fieldValue(f.name) ?? f.default ?? '')" class="w-full" @change="(v: any) => setField(f.name, v)">
-              <Select.Option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</Select.Option>
-            </AppSelect>
-            <Switch v-else-if="f.type === 'bool'" :checked="Boolean(fieldValue(f.name) ?? f.default ?? false)" @change="(v: any) => setField(f.name, v)" />
-            <Input.TextArea v-else-if="f.type === 'object'" :value="JSON.stringify(fieldValue(f.name) ?? f.default ?? {}, null, 2)" :rows="3"
-              @blur="(e: any) => handleObjectFieldBlur(f.name, e)" />
-            <Input v-else-if="f.type === 'text-list' || f.type === 'int-list'" :value="Array.isArray(fieldValue(f.name)) ? (fieldValue(f.name) as unknown[]).join(', ') : String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
-            <Input v-else :value="String(fieldValue(f.name) ?? '')" @change="(e: any) => setField(f.name, e.target.value)" />
-            <div v-if="objectError && objectErrorField === f.name" class="text-xs text-red-500 mt-1">{{ objectError }}</div>
-            <div v-else-if="f.type === 'text-list' || f.type === 'int-list'" class="text-xs text-text-tertiary mt-1">逗号分隔</div>
-            <div v-else-if="f.help" class="text-xs text-text-tertiary mt-1">{{ f.help }}</div>
+      <Form layout="vertical" class="node-protocol-form space-y-5">
+        <FormSection title="基本信息" help="选择协议并填写节点的稳定名称与连接地址。">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-3">
+            <Form.Item label="协议" required>
+              <AppSelect :value="form.protocol" @change="(value: any) => updateProtocol(String(value))">
+                <Select.Option v-for="p in protocols" :key="p.protocol" :value="p.protocol">{{ p.label }}</Select.Option>
+              </AppSelect>
+            </Form.Item>
+            <Form.Item label="名称" required :validate-status="nameSpaceError ? 'error' : undefined" :help="nameSpaceError || undefined">
+              <Input v-model:value="form.name" :disabled="nameReadonly" placeholder="禁止空格/逗号，支持中文与 emoji" />
+            </Form.Item>
+            <Form.Item label="服务器" required>
+              <Input v-model:value="form.host" placeholder="域名或 IP" />
+            </Form.Item>
+            <Form.Item label="端口" required>
+              <InputNumber v-model:value="form.port" :min="1" :max="65535" class="w-full" />
+            </Form.Item>
           </div>
-        </div>
+        </FormSection>
+
+        <FormSection v-if="sectionFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值。">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <ProtocolFieldEditor v-for="field in sectionFields('auth')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+              :class="field.type === 'object' ? 'md:col-span-2' : ''"
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+          </div>
+        </FormSection>
+
+        <FormSection v-if="sectionFields('transport').length" title="协议与传输" help="传输对象默认使用结构化编辑，未知参数会原样保留。">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <ProtocolFieldEditor v-for="field in sectionFields('transport')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+              :class="field.type === 'object' ? 'md:col-span-2' : ''"
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+          </div>
+        </FormSection>
+
+        <FormSection v-if="sectionFields('security').length" title="安全与证书">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <ProtocolFieldEditor v-for="field in sectionFields('security')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+              :class="field.type === 'object' ? 'md:col-span-2' : ''"
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+          </div>
+        </FormSection>
+
+        <FormSection v-if="sectionFields('switches').length" title="开关参数" help="所有布尔参数集中在此区域。">
+          <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
+            <ProtocolFieldEditor v-for="field in sectionFields('switches')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+          </div>
+        </FormSection>
+
+        <details v-if="sectionFields('advanced').length" class="node-advanced-fields rounded-lg border p-3">
+          <summary class="cursor-pointer font-medium">高级参数</summary>
+          <p class="text-xs text-text-secondary mt-2">性能、路由与协议扩展参数；按需填写。</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            <ProtocolFieldEditor v-for="field in sectionFields('advanced')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+              :class="field.type === 'object' ? 'md:col-span-2' : ''"
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+          </div>
+        </details>
       </Form>
     </FormOverlay>
 
