@@ -40,6 +40,9 @@ const availableNodes = computed(() => {
   const all = props.showXray === false ? props.manualNodes : [...props.manualNodes, ...props.xrayNodes]
   return all.filter((n) => props.form.node_names.includes(n.name) && (n.source === 'manual' || (n.allocatable && n.enabled !== false)))
 })
+const selectedManualCount = computed(() => props.manualNodes.filter((n) => props.form.node_names.includes(n.name)).length)
+const selectedXrayCount = computed(() => props.xrayNodes.filter((n) => props.form.node_names.includes(n.name)).length)
+const selectedGroupCount = computed(() => props.form.group_names.length)
 const selectingForceGroup = computed(() => selectingGroup.value === FORCE_OVERSEAS || selectingGroup.value === FORCE_FALLBACK)
 const availableForceGroups = computed(() => {
   if (selectingGroup.value === FORCE_OVERSEAS) return [FORCE_DIRECT]
@@ -100,31 +103,50 @@ function onDrop(idx: number) {
 
 <template>
   <div class="space-y-3">
-    <div>
-      <div class="text-sm font-medium mb-1">manual 节点</div>
-      <div class="grid md:grid-cols-3 gap-2">
-        <Checkbox v-for="n in manualNodes" :key="n.name" :checked="form.node_names.includes(n.name)" @change="emit('toggle-node', n.name)">
-          <span>{{ n.render_name }}</span><Tag class="ml-1">{{ n.protocol }}</Tag>
-          <Tag v-if="invalidRefs.some((r) => r.kind === 'node' && r.name === n.name)" color="red">已失效</Tag>
-        </Checkbox>
-        <div v-if="manualNodes.length === 0" class="text-xs text-text-tertiary">暂无 manual 节点</div>
+    <section class="rounded-lg border border-border-subtle p-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-medium">手动添加的节点</div>
+        <span class="text-xs text-text-tertiary">已选 {{ selectedManualCount }} / {{ manualNodes.length }}</span>
       </div>
-    </div>
-    <div v-if="showXray !== false">
-      <div class="text-sm font-medium mb-1">xray 节点</div>
-      <div class="grid md:grid-cols-3 gap-2">
-        <Checkbox v-for="n in xrayNodes" :key="n.name" :checked="form.node_names.includes(n.name)"
-                  :disabled="!n.allocatable || n.enabled === false" @change="emit('toggle-node', n.name)">
-          <span>{{ n.render_name }}</span>
-          <span v-if="n.display_name" class="block text-xs text-text-tertiary font-mono">{{ n.name }}</span>
-          <Tag v-if="!n.allocatable || n.enabled === false" class="ml-1">不可用</Tag>
-        </Checkbox>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+        <div v-for="n in manualNodes" :key="n.name"
+             class="flex items-center gap-2 rounded border px-2 py-1.5"
+             :class="form.node_names.includes(n.name) ? 'border-primary bg-primary-soft' : 'border-border-subtle'">
+          <Checkbox :checked="form.node_names.includes(n.name)" @change="emit('toggle-node', n.name)">
+            <span>{{ n.render_name }}</span><Tag class="ml-1">{{ n.protocol }}</Tag>
+            <Tag v-if="invalidRefs.some((r) => r.kind === 'node' && r.name === n.name)" color="red">已失效</Tag>
+          </Checkbox>
+        </div>
+        <div v-if="manualNodes.length === 0" class="text-xs text-text-tertiary">暂无手动添加的节点</div>
+      </div>
+    </section>
+
+    <section v-if="showXray !== false" class="rounded-lg border border-border-subtle p-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-medium">Xray 节点</div>
+        <span class="text-xs text-text-tertiary">已选 {{ selectedXrayCount }} / {{ xrayNodes.length }}</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+        <div v-for="n in xrayNodes" :key="n.name"
+             class="flex items-center gap-2 rounded border px-2 py-1.5"
+             :class="form.node_names.includes(n.name) ? 'border-primary bg-primary-soft' : 'border-border-subtle'">
+          <Checkbox :checked="form.node_names.includes(n.name)"
+                    :disabled="!n.allocatable || n.enabled === false" @change="emit('toggle-node', n.name)">
+            <span>{{ n.render_name }}</span>
+            <span v-if="n.display_name" class="block text-xs text-text-tertiary font-mono">{{ n.name }}</span>
+            <Tag v-if="!n.allocatable || n.enabled === false" class="ml-1">不可用</Tag>
+          </Checkbox>
+        </div>
         <div v-if="xrayNodes.length === 0" class="text-xs text-text-tertiary">未检测到 Xray 节点（高级模式录入实例后刷新节点发现）</div>
       </div>
-    </div>
-    <div v-if="targetSyntax === 'clash-yaml'">
-      <div class="text-sm font-medium mb-1">代理组</div>
-      <div class="grid md:grid-cols-3 gap-2">
+    </section>
+
+    <section v-if="targetSyntax === 'clash-yaml'" class="rounded-lg border border-border-subtle p-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-medium">代理组</div>
+        <span class="text-xs text-text-tertiary">已选 {{ selectedGroupCount }} / {{ presetGroups.length + customGroups.length }}（另有 3 个强制组）</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
         <div class="rounded border border-border-subtle p-2">
           <Checkbox :checked="true" disabled>{{ FORCE_DIRECT }}</Checkbox>
           <Tag class="ml-1">强制</Tag>
@@ -146,17 +168,25 @@ function onDrop(idx: number) {
           </div>
           <div class="mt-1 text-xs text-text-tertiary">可选成员：本次已勾选节点、{{ FORCE_DIRECT }}、{{ FORCE_OVERSEAS }}</div>
         </div>
-        <Checkbox v-for="g in presetGroups" :key="g.name" :checked="form.group_names.includes(g.name)" :disabled="!g.enabled" @change="emit('toggle-group', g.name)">
-          <span>{{ g.name }}</span>
-          <Button v-if="form.group_names.includes(g.name)" size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
-        </Checkbox>
-        <Checkbox v-for="g in customGroups" :key="g.name" :checked="form.group_names.includes(g.name)" @change="emit('toggle-group', g.name)">
-          <span>{{ g.name }}</span>
-          <Tag v-if="!form.group_names.includes(g.name)" class="ml-1">自建</Tag>
-          <Button v-else size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
-        </Checkbox>
+        <div v-for="g in presetGroups" :key="g.name"
+             class="flex items-center gap-2 rounded border px-2 py-1.5"
+             :class="form.group_names.includes(g.name) ? 'border-primary bg-primary-soft' : 'border-border-subtle'">
+          <Checkbox :checked="form.group_names.includes(g.name)" :disabled="!g.enabled" @change="emit('toggle-group', g.name)">
+            <span>{{ g.name }}</span>
+            <Button v-if="form.group_names.includes(g.name)" size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
+          </Checkbox>
+        </div>
+        <div v-for="g in customGroups" :key="g.name"
+             class="flex items-center gap-2 rounded border px-2 py-1.5"
+             :class="form.group_names.includes(g.name) ? 'border-primary bg-primary-soft' : 'border-border-subtle'">
+          <Checkbox :checked="form.group_names.includes(g.name)" @change="emit('toggle-group', g.name)">
+            <span>{{ g.name }}</span>
+            <Tag v-if="!form.group_names.includes(g.name)" class="ml-1">自建</Tag>
+            <Button v-else size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
+          </Checkbox>
+        </div>
       </div>
-    </div>
+    </section>
 
     <AppModal :open="!!selectingGroup" :title="`成员选择与排序 · ${selectingGroup ?? ''}`" :footer="null" :width="640" destroy-on-close @update:open="closeSelector">
       <div class="space-y-3">

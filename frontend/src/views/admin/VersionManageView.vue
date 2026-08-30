@@ -282,7 +282,7 @@ function fmtTime(ts: string): string {
     <PageHeader :title="pageTitle" :subtitle="pageSubtitle">
       <template #actions>
         <Space>
-          <Tag v-if="owner" color="blue">{{ owner.type_label }}</Tag>
+          <Tag v-if="owner && ownerType !== 'subscription'" color="blue">{{ owner.type_label }}</Tag>
           <Button v-if="backPath" type="text" class="-ml-2" @click="goBack">
             <template #icon><ArrowLeftOutlined /></template>
             返回

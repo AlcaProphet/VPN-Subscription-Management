@@ -35,6 +35,12 @@ const system = useSystemStore()
 const advancedMode = computed(() => system.status?.advanced_mode === true)
 const editBlocked = ref(false)
 const SUB_TABS = ['clash-yaml', 'sr-subs', 'generic-subs', 'sr-conf'] as const
+const SUB_TAB_LABELS: Record<TargetSyntax, string> = {
+  'clash-yaml': 'Clash - V2Ray/Mihomo（新版）',
+  'sr-subs': 'Shadowrocket 订阅组',
+  'generic-subs': '通用V2Ray格式',
+  'sr-conf': 'Shadowrocket规则组',
+}
 function normalizeTab(v: unknown): { main: string; sub?: string } {
   const s = String(v ?? 'pool')
   if (s === 'pool') return { main: 'pool' }
@@ -751,7 +757,7 @@ const outputGroups = computed(() => {
       </Tabs.TabPane>
       <Tabs.TabPane key="build" tab="构建订阅/规则">
         <Tabs :active-key="subTab" @change="onSubTabChange" class="mb-4">
-          <Tabs.TabPane v-for="tab in SUB_TABS" :key="tab" :tab="tab">
+          <Tabs.TabPane v-for="tab in SUB_TABS" :key="tab" :tab="SUB_TAB_LABELS[tab]">
             <div v-if="loadingContext" class="py-12 text-center text-text-tertiary">加载装配上下文中…</div>
             <div v-else>
               <Alert v-if="buildPreflightMissing.length" type="warning" show-icon class="mb-4" message="构建前缺少以下前置条件：">
@@ -833,11 +839,11 @@ const outputGroups = computed(() => {
       </Tabs.TabPane>
     </Tabs>
 
-    <FormOverlay :open="headerConfirmOpen" title="采用默认头部" :width="420" @update:open="headerConfirmOpen = false">
-      <p>将覆盖当前已填头部字段，确定采用默认值吗？</p>
+    <FormOverlay :open="headerConfirmOpen" title="使用默认头部" :width="420" @update:open="headerConfirmOpen = false">
+      <p>将覆盖当前已填头部字段，确定使用默认头部吗？</p>
       <template #footer>
         <Button class="touch-target" @click="headerConfirmOpen = false">取消</Button>
-        <Button type="primary" class="touch-target" @click="applyDefaultHeader">确认采用</Button>
+        <Button type="primary" danger class="touch-target" @click="applyDefaultHeader">确认使用</Button>
       </template>
     </FormOverlay>
   </div>

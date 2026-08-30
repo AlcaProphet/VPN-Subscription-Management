@@ -33,6 +33,7 @@ describe('VersionManageView', () => {
     expect(getVersionOwner).toHaveBeenCalledWith(20)
     expect(wrapper.find('h1').text()).toBe('主力订阅 · 版本管理')
     expect(wrapper.text()).toContain('订阅')
+    expect(wrapper.findAll('.ant-tag').map((tag) => tag.text())).not.toContain('订阅')
   })
 
   it('无版本时不请求归属接口并显示中文回退', async () => {

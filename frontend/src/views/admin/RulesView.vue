@@ -3,7 +3,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Alert, Button, Input, Radio, Select, Space, Table, Tabs, Tag, Tooltip, TypographyText, Upload } from 'ant-design-vue'
+import { Alert, Button, Input, Select, Space, Table, Tabs, Tag, Tooltip, TypographyText, Upload } from 'ant-design-vue'
 import {
   listAdminRules, createRule, renameRule, deleteRule, refreshRuleToken, setHomeDefault, type RuleItem,
 } from '@/api/rule'
@@ -158,7 +158,7 @@ async function doDelete() {
   }
 }
 
-// --- 首页默认展示：单选切换（ConfirmModal）+ 默认行专设「取消默认」 ---
+// --- 首页默认：操作区按钮（ConfirmModal）+ 默认行取消入口 ---
 const toSetDefault = ref<RuleItem | null>(null)
 const settingDefault = ref(false)
 const oldDefault = () => rules.value.find((r) => r.is_home_default)?.name ?? ''
@@ -214,17 +214,9 @@ async function doCancelDefault() {
     <TriStateList :loading="loading" :empty="rules.length === 0" empty-text="还没有规则">
       <!-- ≥768：表格 -->
       <Table :data-source="rules" row-key="id" :pagination="false" class="hidden md:block">
-        <Table.Column key="default" title="首页默认" width="90">
-          <template #default="{ record }">
-            <Radio :checked="record.is_home_default" @click="askSetDefault(record)" />
-          </template>
-        </Table.Column>
         <Table.Column key="name" title="名称" data-index="name" />
         <Table.Column key="slug" title="标识" width="180">
           <template #default="{ record }"><TypographyText code>{{ record.slug }}</TypographyText></template>
-        </Table.Column>
-        <Table.Column key="type" title="客户端类型" width="130">
-          <template #default="{ record }"><Tag color="blue">{{ record.client_type }}</Tag></template>
         </Table.Column>
         <Table.Column key="version" title="当前版本" width="110">
           <template #default="{ record }">
@@ -245,6 +237,7 @@ async function doCancelDefault() {
               <Button size="small" @click="goAssembly(record)">装配生成</Button>
               <Button size="small" :disabled="!record.token" @click="copyLink(record)">复制链接</Button>
               <Button size="small" type="primary" ghost @click="refreshTarget = record">刷新 Token</Button>
+              <Button v-if="!record.is_home_default" size="small" :loading="settingDefault" @click="askSetDefault(record)">设为首页默认</Button>
               <Button v-if="record.is_home_default" size="small" :loading="settingDefault" @click="cancelDefault(record)">取消默认</Button>
               <Button size="small" danger @click="deleteTarget = record">删除</Button>
             </Space>
@@ -257,10 +250,8 @@ async function doCancelDefault() {
         <div v-for="r in rules" :key="r.id" class="border rounded-lg p-3 bg-surface">
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 min-w-0">
-              <Radio :checked="r.is_home_default" @click="askSetDefault(r)" />
               <span class="font-medium truncate">{{ r.name }}</span>
             </div>
-            <Tag color="blue" class="shrink-0">{{ r.client_type }}</Tag>
           </div>
           <div class="text-xs text-text-secondary mt-1 flex flex-wrap items-center gap-2">
             <TypographyText code>{{ r.slug }}</TypographyText>
@@ -276,6 +267,7 @@ async function doCancelDefault() {
             <Button size="small" @click="goAssembly(r)">装配生成</Button>
             <Button size="small" :disabled="!r.token" @click="copyLink(r)">复制链接</Button>
             <Button size="small" type="primary" ghost @click="refreshTarget = r">刷新 Token</Button>
+            <Button v-if="!r.is_home_default" size="small" :loading="settingDefault" @click="askSetDefault(r)">设为首页默认</Button>
             <Button v-if="r.is_home_default" size="small" :loading="settingDefault" @click="cancelDefault(r)">取消默认</Button>
             <Button size="small" danger @click="deleteTarget = r">删除</Button>
           </div>

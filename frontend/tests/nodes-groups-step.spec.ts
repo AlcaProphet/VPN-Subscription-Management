@@ -87,4 +87,12 @@ describe('NodesGroupsStep Clash 强制组', () => {
       ['🛟无法归属的流量', ['🚀直接连接', '🌎国外流量']],
     ])
   })
+
+  it('使用中文分区标题并保留强制组成员能力说明', () => {
+    const wrapper = mountStep()
+    expect(wrapper.text()).toContain('手动添加的节点')
+    expect(wrapper.text()).not.toContain('manual 节点')
+    expect(wrapper.text()).toContain('Xray 节点')
+    expect(wrapper.text()).toContain('代理组')
+  })
 })

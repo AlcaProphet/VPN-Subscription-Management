@@ -331,13 +331,13 @@ function memberSummary(g: ProxyGroupItem): string {
             <Form.Item label="排除类型（| 分隔）"><Input v-model:value="form.exclude_type" placeholder="Direct|Reject" /></Form.Item>
             <Form.Item label="图标"><Input v-model:value="form.icon" /></Form.Item>
           </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <label><Switch v-model:checked="form.lazy" /> 懒检查</label>
-            <label><Switch v-model:checked="form.disable_udp" /> 禁用 UDP</label>
-            <label><Switch v-model:checked="form.include_all" /> 引入全部</label>
-            <label><Switch v-model:checked="form.include_all_proxies" /> 引入全部代理</label>
-            <label><Switch v-model:checked="form.include_all_providers" /> 引入全部 Provider</label>
-            <label><Switch v-model:checked="form.hidden" /> 隐藏</label>
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            <label class="flex items-center gap-2 whitespace-nowrap text-sm"><Switch v-model:checked="form.lazy" /><span>懒检查</span></label>
+            <label class="flex items-center gap-2 whitespace-nowrap text-sm"><Switch v-model:checked="form.disable_udp" /><span>禁用 UDP</span></label>
+            <label class="flex items-center gap-2 whitespace-nowrap text-sm"><Switch v-model:checked="form.include_all" /><span>引入全部</span></label>
+            <label class="flex items-center gap-2 whitespace-nowrap text-sm"><Switch v-model:checked="form.include_all_proxies" /><span>引入全部代理</span></label>
+            <label class="flex items-center gap-2 whitespace-nowrap text-sm"><Switch v-model:checked="form.include_all_providers" /><span>引入全部 Provider</span></label>
+            <label class="flex items-center gap-2 whitespace-nowrap text-sm"><Switch v-model:checked="form.hidden" /><span>隐藏</span></label>
           </div>
         </details>
       </Form>

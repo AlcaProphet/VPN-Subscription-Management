@@ -80,8 +80,11 @@ function setField(name: string, val: unknown) {
       <div class="flex items-center justify-between mb-1">
         <span class="text-sm">{{ advanced ? '头部参数（JSON）' : '头部参数' }}</span>
         <Space>
-          <Button size="small" @click="emit('apply-default')">一键采用默认值</Button>
-          <Button size="small" @click="advanced = !advanced">{{ advanced ? '结构化表单' : '高级 JSON' }}</Button>
+          <Button size="small" danger @click="emit('apply-default')">使用默认值</Button>
+          <label class="flex items-center gap-2 text-sm text-text-secondary whitespace-nowrap">
+            <Switch v-model:checked="advanced" size="small" />
+            <span>{{ advanced ? '高级 JSON' : '结构化表单' }}</span>
+          </label>
         </Space>
       </div>
 

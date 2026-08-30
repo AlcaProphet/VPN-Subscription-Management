@@ -289,4 +289,12 @@ describe('AssemblyView 装配页核心交互', () => {
     expect(vm.form.pools).toEqual([{ pool_id: 1, target: 'PROXY' }])
     expect(vm.invalidRefs).toEqual([])
   })
+
+  it('目标类型 Tab 使用面向用户展示文案', async () => {
+    const wrapper = await mountWith('tab=clash-yaml')
+    expect(wrapper.text()).toContain('Clash - V2Ray/Mihomo（新版）')
+    expect(wrapper.text()).toContain('Shadowrocket 订阅组')
+    expect(wrapper.text()).toContain('通用V2Ray格式')
+    expect(wrapper.text()).toContain('Shadowrocket规则组')
+  })
 })
