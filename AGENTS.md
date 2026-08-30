@@ -190,6 +190,14 @@
 
 - 每次代码改动后至少执行对应端的编译验证；涉及逻辑变更的必须补充相关测试执行
 
+### 6.1 本地测试数据库与账号
+
+- 用户已确认：当前项目的本地构建环境不存在任何真实用户或真实数据；仓库根目录下的 `./backend/data` 仅承载本地测试产生的临时数据库与数据。
+- 进行各类本地测试活动时，可以清空当前仓库的 `./backend/data`，再按照 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 创建新的测试用户；如果清单中的测试用户已经存在，也可以直接使用文档记录的邮箱和密码登录。
+- 清空前必须停止正在使用该数据库的本地进程，确认当前仓库根目录，并核对规范化绝对路径确实对应当前仓库的 `./backend/data`；只能操作这一精确目标，不得使用未解析变量、宽泛 glob 或把递归删除目标指向工作区根目录。
+- 本授权不适用于外部 `DATA_DIR`、Compose/Docker 数据卷、生产/预发布环境或任何含有真实用户、真实凭据、真实业务数据的位置；这些目标仍按破坏性操作规则处理。
+- 重建账号后应核对其实际角色、状态与组分配，不得只凭用户名推断测试前置状态；OIDC-only 身份和外部服务仍使用本地 mock，不得复用真实账号。
+
 ---
 
 ## 七、部署约束（容器化）
@@ -261,8 +269,9 @@
 | [Issue9.md](Issue9.md) | AI 编码助手 / 开发者 | 问题记录：R24 系列（Build11/12 全量核验与 UI/后端修复） | 进行中，R24-19/20 已修复 |
 
 | [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | Production 模式待人工验证清单（含 .smoke-test.sh 实机执行） | 活跃 |
+| [docs/Reference/TestPasswordList.md](docs/Reference/TestPasswordList.md) | 测试者 / AI 编码助手 | 仅供本地隔离环境使用的合成测试账号与统一密码清单；严禁用于生产或真实数据环境 | 活跃 |
 | [docs/DocTemplates/](docs/DocTemplates) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue）与 Clash/Shadowrocket 配置参考样例 | 活跃 |
-| [docs/Reference/](docs/Reference) | 开发者 | 研究参考资料：Xray-core API 研究、SSpanel 订阅输出逻辑 | 活跃 |
+| [docs/Reference/](docs/Reference) | 开发者 / 测试者 | 研究参考资料与本地测试资料：Xray-core API、SSpanel 订阅输出逻辑、合成测试账号清单 | 活跃 |
 | [docs/reports/Design/Design1.md](docs/reports/Design/Design1.md) | 人类（开发者/用户） | 第一期设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维（已构建完成） | 已存档 |
 | [docs/reports/Design/Design1-UI.md](docs/reports/Design/Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已建界面 GUI 样式规格：13 个页面/部件；增量界面规格已由 Design2-UI.md 取代 | 已存档 |
 | [docs/reports/Design/DesignOnHold.md](docs/reports/Design/DesignOnHold.md) | 开发者 | 增量设计源稿（含修订过程记录），内容已全量转入 Design2.md | 已存档 |
