@@ -56,14 +56,14 @@ function goVersions(sub: SubscriptionItem) {
   void router.push(`/admin/subscriptions/${sub.id}/versions`)
 }
 
-function goAssembly(sub: SubscriptionItem) {
+function goAssemblyForDefaultSubscription(sub: SubscriptionItem) {
   const tab = sub.product_type === 'yaml' ? 'clash-yaml' : sub.product_type === 'subs' ? 'sr-subs' : 'generic-subs'
   void router.push(`/admin/assembly?tab=${tab}&platform_id=${sub.platform_id}`)
 }
 
 function goAssemblyHeader() {
   if (subs.value.length > 0) {
-    goAssembly(subs.value[0])
+    goAssemblyForDefaultSubscription(subs.value[0])
   } else {
     void router.push('/admin/assembly')
   }
@@ -175,7 +175,6 @@ async function confirmDelete() {
           <template #default="{ record }">
             <div class="flex items-center gap-1">
               <Button size="small" @click="goVersions(record)">版本管理</Button>
-              <Button size="small" @click="goAssembly(record)">装配生成</Button>
               <AppPopover v-if="pooled(record.id)" :trigger="['hover', 'focus', 'click']" placement="top">
                 <Button class="subscription-pooled-trigger" size="small" type="text" aria-label="查看入池状态并前往激活">
                   <Tag color="gold" class="m-0">待激活</Tag>
@@ -205,7 +204,6 @@ async function confirmDelete() {
             </div>
             <div class="mobile-actions flex flex-wrap gap-1">
               <Button size="small" @click="goVersions(sub)">版本管理</Button>
-              <Button size="small" @click="goAssembly(sub)">装配生成</Button>
               <AppPopover v-if="pooled(sub.id)" :trigger="['hover', 'focus', 'click']" placement="top">
                 <Button class="subscription-pooled-trigger" size="small" type="text" aria-label="查看入池状态并前往激活">
                   <Tag color="gold" class="m-0">待激活</Tag>

@@ -1,4 +1,4 @@
-// subscriptions-view.spec.ts：订阅列表的入池提示保持轻量、可访问且可恢复。
+// subscriptions-view.spec.ts：订阅列表入口与入池提示保持轻量、可访问且可恢复。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -97,5 +97,21 @@ describe('SubscriptionsView 入池提示', () => {
     expect(wrapper.find('table').exists()).toBe(false)
     expect(wrapper.find('button.subscription-pooled-trigger').exists()).toBe(true)
     expect(wrapper.find('.ant-alert').exists()).toBe(false)
+  })
+
+  it.each([false, true])('仅保留页头通用装配入口，不在%s端行内重复渲染', async (mobile) => {
+    setMobile(mobile)
+    const appRouter = router()
+    await appRouter.push('/')
+    await appRouter.isReady()
+    const wrapper = mount(SubscriptionsView, { global: { plugins: [appRouter], stubs: { AppPopover: popoverStub() } } })
+    await flushPromises()
+
+    expect(wrapper.findAll('button').filter((button) => button.text() === '装配生成')).toHaveLength(0)
+    const headerAssembly = wrapper.findAll('button').find((button) => button.text() === '前往装配')
+    expect(headerAssembly).toBeDefined()
+    await headerAssembly!.trigger('click')
+    await flushPromises()
+    expect(appRouter.currentRoute.value.fullPath).toBe('/admin/assembly?tab=clash-yaml&platform_id=2')
   })
 })
