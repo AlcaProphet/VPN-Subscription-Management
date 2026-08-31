@@ -40,9 +40,9 @@
 | 2 | `backend/internal/pool/parser.go`、新增 detector/adapters/normalize/testdata | 唯一适配器、三模式准入、PSL/IDNA、Mihomo/sing-box/typed/CIDR 语料 |
 | 3 | `backend/migrations/1016_rule_pool_snapshots.sql`、`backend/internal/pool/pool.go`、`backend/internal/store/store_test.go`、`backend/internal/server/pool.go` | 新 schema、旧数据清除、ID 防复用、来源对象和手工条目 CRUD |
 | 4 | `backend/internal/pool/sync.go`、新增 snapshot 文件、`backend/internal/cron/pool.go` 及测试 | staging、active/pending、阈值、原子指针、诊断和任务状态 |
-| 5 | `backend/internal/assembly/load.go`、`models.go`、`render*.go`、`service.go`、`blueprint.go`、服务端装配测试 | 动态目标过滤、回执、零输出门槛、历史 plan 稳定和旧池引用失效 |
-| 6 | `backend/internal/server/pool.go`、`assembly.go`、`frontend/src/api/pool.ts`、`assembly.ts`、`PoolTab.vue`、`PoolDetail.vue`、`RulesStep.vue`、`PreviewStep.vue` 及测试 | 三模式选择、格式/平台状态、徽标、pending 操作和预览回执 |
-| 7 | `backend/internal/cron/pool.go`、`dataclear/dataclear.go`、`server/overview.go`、相关测试和测试迁移夹具 | 生命周期、清理顺序、概览、备份恢复后的迁移与旧表引用清除 |
+| 5 | `backend/internal/assembly/load.go`、`models.go`、`render*.go`、`service.go`、`blueprint.go`、`clash_plan.go`、`selfcheck.go`、`validate.go`、服务端装配测试 | 全量后端装配渲染统一迁移到 Canonical 注册表、动态目标过滤、回执、零输出口径、历史 plan 稳定和旧池引用失效 |
+| 6 | `backend/internal/server/pool.go`、`assembly.go`、新增只读能力元数据端点、`frontend/src/api/rulespec.ts`、`pool.ts`、`assembly.ts`、`PoolTab.vue`、`PoolDetail.vue`、`RulesStep.vue`、`PreviewStep.vue`、`AssemblyView.vue` 及测试 | 三模式选择、格式/平台状态、徽标、pending 操作、能力元数据消费和预览回执 |
+| 7 | `backend/internal/cron/pool.go`、`dataclear/dataclear.go`、`server/overview.go`、相关测试和测试迁移夹具 | 生命周期、清理顺序、概览、备份恢复后的迁移与旧表/旧能力真值表引用清除 |
 | 8 | `Design3.md`、`Build16.md`、`AGENTS.md` 及必要的当前文档 | 全量门禁、实际结果、设计状态和文档登记 |
 
 新增文件名可在保持职责不变的前提下按 Go 包结构微调；不得把探测、适配、快照和目标渲染重新集中到一个巨型文件。
@@ -102,6 +102,7 @@ Step 1 中央语义/能力
   - `DOMAIN`/suffix/keyword、CIDR、`IP-ASN` 为双方可用的基础映射。
   - `USER-AGENT` 为 `sr_only`。
   - 双方均不支持或依赖外部对象的规则不能进入素材池可选集合。
+  - 注册表必须区分**素材池可选能力**与**高级装配 custom/overlay 能力**：`RULE-SET`、`AND/OR/NOT`、`MATCH` 等高级能力继续可用，但不能被素材池误选。
   - `SupportsNoResolve=true` 本身不会自动让规则 options 变成 `no_resolve=true`。
   - 后端元数据顺序稳定，前端无需复制静态规则表。
 - **测试与验收命令：**
@@ -181,7 +182,7 @@ Step 1 中央语义/能力
   - migration 在单事务内执行；失败不留下半套 schema。
   - active/pending 指针必须只能引用同一 source 的快照，由事务服务和测试共同保证。
   - 活动条目查询只读 manual origin 或 source active snapshot origin。
-- **阶段兼容：** 允许保留仅供编译的旧同步方法签名，但不得让其向新活动表分批写数据；Step 4 必须删除该桥接。
+- **阶段兼容：** Step 3 允许保留仅供编译的旧同步方法签名，但必须将其做成明确 no-op/返回“暂未支持”的桥接，且不得查询或写入已删除的旧 `pool_entries`/`urls_json`；Step 4 必须删除该桥接并接入新快照同步。
 - **测试与验收命令：**
   ```bash
   cd backend && gofmt -w internal/pool/*.go internal/server/*.go
@@ -230,15 +231,17 @@ Step 1 中央语义/能力
 
 ### Step 5：装配目标过滤、转换回执与蓝图失效引用
 
-- **目标：** 装配器改读活动 Canonical Rule，通过中央注册表为 Clash/SR 输出并返回可核对回执，同时确保旧池 ID 不会静默重绑。
-- **前置条件：** Step 4 活动视图和排序稳定；保留现有预览指纹、`previewStale`、强制代理组和自包含 render plan 行为。
+- **目标：** 装配器改读活动 Canonical Rule，通过中央注册表为 Clash/SR 输出并返回可核对回执；同时把全部装配渲染路径统一迁移到 Canonical 注册表，不再保留 `Definitions`/`SR bool` 双轨，并确保旧池 ID 不会静默重绑。
+- **前置条件：** Step 4 活动视图和排序稳定；保留现有预览指纹、`previewStale`、强制代理组和自包含 render plan 行为；确认 `clash_plan.go`、`selfcheck.go`、`validate.go` 等所有调用方均已纳入迁移范围。
 - **产出文件与操作：**
   - `backend/internal/assembly/load.go`：查询活动 origins 去重视图，读取 Canonical Rule 和稳定顺序。
   - `backend/internal/assembly/models.go`、`service.go`：增加 `ConversionReceipt` 并纳入预览/生成结果及预览指纹需要的快照标识。
   - `backend/internal/assembly/render_clash.go`、`render_sr.go`：调用 `SupportsAndMap`，删除 `USER-AGENT` 等散落特判。
-  - `backend/internal/rulespec/spec.go`：确认所有调用方迁移完成后删除 Step 1 的临时 `Definitions`/`SR bool` 兼容投影，只保留仍由高级装配独立需要的渲染解析能力。
+  - `backend/internal/assembly/clash_plan.go`：render plan 重建、降级、`no-resolve` 追加全部改为读取 Canonical 注册表能力，删除对 `Definitions` 的依赖。
+  - `backend/internal/assembly/selfcheck.go`、`validate.go`：规则类型校验、高级自定义规则校验改为走 Canonical/advanced 能力标记，不再直接查 `Definitions` 或 `SR bool`。
+  - `backend/internal/rulespec/spec.go`：确认所有调用方迁移完成后删除 Step 1 的临时 `Definitions`/`SR bool` 兼容投影；高级装配需要的 `RULE-SET`/`AND`/`OR`/`NOT`/`MATCH` 等能力由中央注册表以“advanced-only”标记承载，不再维护独立静态真值表。
   - `backend/internal/assembly/blueprint.go`：旧池引用返回明确 invalid reference；历史 `render_plan_json` 仍自包含可下载。
-  - 相关 assembly/server/download 测试：双目标、回执、零输出、旧蓝图和历史下载。
+  - 相关 assembly/server/download 测试：双目标、回执、零输出、旧蓝图、历史下载，以及 `clash_plan`/`selfcheck`/`validate` 的 Canonical 迁移回归。
 - **参考回执：**
   ```json
   {
@@ -250,8 +253,8 @@ Step 1 中央语义/能力
     "final_output": 104
   }
   ```
-- **生成门槛：** final=0 阻止生成；final>0 即使存在 skip 也允许，但必须在预览明确警告，不增加二次确认框。
-- **回归边界：** 素材池不接受依赖规则不能影响高级装配现有 `RULE-SET`/overlay/custom rule；强制代理组、节点命名和版本生成逻辑不变。
+- **生成门槛：** `final_output` 只统计**素材池规则 + 自定义规则**，不包含内置 `GEOIP,CN,DIRECT`、`MATCH`、`FINAL` 等系统兜底；`final=0` 阻止生成；`final>0` 即使存在 skip 也允许，但必须在预览明确警告，不增加二次确认框。
+- **回归边界：** 素材池不接受依赖规则不能影响高级装配现有 `RULE-SET`/overlay/custom rule；高级能力与素材池能力在中央注册表中通过能力标记隔离；强制代理组、节点命名和版本生成逻辑不变。
 - **测试与验收命令：**
   ```bash
   cd backend && gofmt -w internal/assembly/*.go internal/server/*.go internal/rulespec/*.go
@@ -261,20 +264,23 @@ Step 1 中央语义/能力
   cd backend && go vet ./internal/assembly ./internal/server
   git diff --check
   ```
-- **验收标准：** `IP-ASN` 双目标、`USER-AGENT` SR-only、目标跳过和等价转换统计正确；零输出被阻止；非零跳过可生成；旧蓝图明确失效，历史生成内容不漂移。
+- **验收标准：** `IP-ASN` 双目标、`USER-AGENT` SR-only、目标跳过和等价转换统计正确；`final_output` 按“排除内置兜底”口径统计，零输出被阻止，非零跳过可生成；`clash_plan.go`/`selfcheck.go`/`validate.go` 等全部调用方已迁移，后端不存在 `Definitions`/`SR bool` 运行时依赖；高级 `RULE-SET`/overlay/custom rule 回归通过；旧蓝图明确失效，历史生成内容不漂移。
 
 ### Step 6：素材池 API 与前端三模式交互
 
-- **目标：** 完成新 API 的前端接入，提供每 URL 三模式选择、检测结果、范围徽标、pending 操作和装配转换回执。
-- **前置条件：** Step 5 后端响应稳定；不得在前端复制中央能力矩阵。
+- **目标：** 完成新 API 的前端接入，提供每 URL 三模式选择、检测结果、范围徽标、pending 操作和装配转换回执；同时提供中央能力注册表只读元数据端点，移除前端静态规则类型真值表。
+- **前置条件：** Step 5 后端响应稳定；Step 1 的 Canonical/advanced 能力数据已就绪；不得在前端复制中央能力矩阵。
 - **产出文件与操作：**
+  - `backend/internal/server/rulespec.go`（新增或并入 `pool.go`）：只读能力元数据端点，返回素材池可选能力、高级装配能力、范围徽标、目标支持与稳定顺序元数据。
+  - `frontend/src/api/rulespec.ts`（新增）：能力元数据 API 类型与请求。
   - `frontend/src/api/pool.ts`：`PoolSource`、`SourceMode`、snapshot/result/diagnostic、范围统计和 pending API。
   - `frontend/src/api/assembly.ts`：转换回执类型。
   - `frontend/src/views/admin/assembly/PoolTab.vue`：每 URL 的 URL 输入 + 三模式选择、帮助、保存后待同步状态。
-  - `PoolDetail.vue`：检测格式/平台、active/pending、统计、诊断、范围徽标、origins 和激活/丢弃。
-  - `RulesStep.vue`：池对当前目标的可输出数、零输出禁用；手工类型从后端元数据生成。
+  - `PoolDetail.vue`：检测格式/平台、active/pending、统计、诊断、范围徽标、origins、激活/丢弃；手工类型下拉从能力元数据端点生成。
+  - `RulesStep.vue`：池对当前目标的可输出数、零输出禁用；手工与自定义规则类型均从后端元数据生成。
+  - `AssemblyView.vue`：删除 `RULE_TYPES`/`CLASH_RULE_TYPES`/`SR_RULE_TYPES` 静态真值表，统一使用能力元数据。
   - `PreviewStep.vue`/`AssemblyView.vue`：回执、跳过警告和 stale 状态。
-  - `frontend/tests/pool-tab.spec.ts`、`pool-detail.spec.ts`、`rules-step.spec.ts`、`assembly-view.spec.ts`：交互和状态回归。
+  - `frontend/tests/pool-tab.spec.ts`、`pool-detail.spec.ts`、`rules-step.spec.ts`、`assembly-view.spec.ts`、后端元数据端点测试：交互、状态和能力口径回归。
 - **参考状态映射：**
   ```text
   source_mode（用户输入）
@@ -297,12 +303,12 @@ Step 1 中央语义/能力
   cd frontend && npm run build
   git diff --check
   ```
-- **验收标准：** 新建/编辑来源、三模式提示、同步状态、范围统计、pending 操作和装配回执完整；前端不含独立平台类型真值表；窄屏无横向不可达操作。
+- **验收标准：** 后端提供只读能力元数据端点；新建/编辑来源、三模式提示、同步状态、范围统计、pending 操作和装配回执完整；前端所有规则类型下拉（手工素材、自定义规则）均来自能力元数据；源码中无 `RULE_TYPES`/`CLASH_RULE_TYPES`/`SR_RULE_TYPES` 静态真值表；窄屏无横向不可达操作。
 
 ### Step 7：cron、数据清理、概览、备份与跨模块回归
 
 - **目标：** 清理所有旧表/字段假设，保证定时任务、清空数据、管理员概览、备份恢复和测试夹具适配新 schema。
-- **前置条件：** Step 6 主链路可用；先用 `rg` 建立所有 `rule_pools/pool_entries/pool_sync_tasks/urls_json` 引用清单，逐项判定而非盲目替换。
+- **前置条件：** Step 6 主链路可用；先用 `rg` 建立所有 `rule_pools/pool_entries/pool_sync_tasks/urls_json` 以及 `rulespec.Definitions`/`NoResolve`/`SR bool`/前端 `RULE_TYPES` 的引用清单，逐项判定而非盲目替换。
 - **产出文件与操作：**
   - `backend/internal/cron/pool.go`、`pool_test.go`：新来源调度、防重、无活动来源和 pending 场景。
   - `backend/internal/dataclear/dataclear.go`、测试：按外键顺序清理 origins/rules/snapshots/sources/tasks/pools，并验证精确表集合。
@@ -310,6 +316,7 @@ Step 1 中央语义/能力
   - `backend/internal/backup/backup_test.go` 或 store 恢复测试：SQLite 全库备份仍包含新表，恢复启动可迁移/读取。
   - emergency/download/version/xray 等自建旧迁移 fixture：更新最低必要 schema，避免测试继续伪造旧表。
   - 若配置导入导出实际包含素材池，则升级格式并明确不兼容；若不包含，以测试固定“不新增隐式导出”的现状。
+  - 能力元数据/装配相关测试：确认 Step 5 全量迁移后不再存在 `Definitions`/`SR bool` 等旧能力真值表的运行时依赖。
 - **参考核查流程：**
   ```text
   rg 建立旧引用清单
@@ -320,9 +327,9 @@ Step 1 中央语义/能力
   ```
 - **核查命令：**
   ```bash
-  rg -n 'pool_entries|urls_json|RuleDef.*SR|CLASH_RULE_TYPES|SR_RULE_TYPES' backend frontend
+  rg -n 'pool_entries|urls_json|RuleDef.*SR|CLASH_RULE_TYPES|SR_RULE_TYPES|RULE_TYPES|rulespec\.Definitions|rulespec\.NoResolve|\.SR\b' backend frontend
   ```
-  命中项必须是迁移历史、明确兼容投影或测试旧 schema 语料；运行时代码不得继续依赖旧事实。
+  命中项必须是迁移历史、明确兼容投影、旧版本升级语料或已由中央能力注册表替代的临时命名；运行时代码不得继续依赖旧表/旧能力真值表。
 - **测试与验收命令：**
   ```bash
   cd backend && gofmt -w internal/cron/*.go internal/dataclear/*.go internal/server/*.go
@@ -331,7 +338,7 @@ Step 1 中央语义/能力
   cd backend && go vet ./...
   git diff --check
   ```
-- **验收标准：** cron、清理、概览和备份正常；运行时代码不再查询旧表/字段；测试夹具与真实迁移一致；旧蓝图和历史下载回归仍通过。
+- **验收标准：** cron、清理、概览和备份正常；运行时代码不再查询旧表/字段，且不存在 `Definitions`/`SR bool`/静态 `RULE_TYPES` 等旧能力真值表的运行时依赖；测试夹具与真实迁移一致；旧蓝图和历史下载回归仍通过。
 
 ### Step 8：全量验证、文档同步与构建收口
 
@@ -386,9 +393,11 @@ Step 1 中央语义/能力
 | 6 | sing-box 仅 auto 检测简单单 family 子集；AND/invert/logical 整项拒绝。 |
 | 7 | 少于 10条需 100% 识别，其他至少 90%；旧值 ≥20且新值 <70% 或格式/平台变化进入 pending。 |
 | 8 | 诊断最多 20条×200字符，不保存完整响应，任务保留 7天。 |
-| 9 | 目标最终输出为 0阻止生成；非零但有跳过时允许并警告，不增加第二确认框。 |
+| 9 | 目标最终输出为 0 阻止生成；`final_output` 只统计素材池规则与自定义规则，不包含内置 `GEOIP`/`MATCH`/`FINAL` 等系统兜底；非零但有跳过时允许并警告，不增加第二确认框。 |
 | 10 | 不兼容旧素材池业务数据；旧 ID 不复用；历史版本和自包含 render plan 保留。 |
 | 11 | 不锁定 Shadowrocket 版本，能力以项目注册表和回归语料维护。 |
+| 12 | 所有装配渲染（含 `clash_plan.go`/`selfcheck.go`/`validate.go` 与前端规则类型下拉）统一迁移到 Canonical 中央注册表；高级 `RULE-SET`/`AND`/`OR`/`NOT`/`MATCH` 能力以 advanced-only 标记隔离，不进入素材池可选集合。 |
+| 13 | Step 6 提供中央能力注册表只读元数据端点；前端不再维护 `RULE_TYPES`/`CLASH_RULE_TYPES`/`SR_RULE_TYPES` 静态真值表。 |
 
 明确不在 Build16 范围：
 
@@ -405,3 +414,4 @@ Step 1 中央语义/能力
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-08-31 | 初始构建计划：依据 Design3 已确认设计拆分中央能力、单来源解析、新 schema、快照同步、装配回执、API/UI、生命周期回归和全量收口八个 Step；全部尚未开始。 |
+| v1.1 | 2026-08-31 | 按用户确认补充执行口径：Step 5 全量迁移所有装配渲染到 Canonical 注册表并隔离 advanced-only 能力；Step 6 新增只读能力元数据端点并彻底移除前端静态规则类型真值表；`final_output` 只统计素材池+自定义规则、排除内置兜底；Step 7 扩展旧能力真值表清理核查。 |
