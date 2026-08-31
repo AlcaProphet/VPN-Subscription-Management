@@ -37,7 +37,7 @@
 | Step | 主要涉及文件 | 要点 |
 |------|--------------|------|
 | 1 | `backend/internal/rulespec/spec.go`、新增 canonical/capability 文件及测试 | 统一语义、目标映射、范围计算、`no_resolve` 能力/实例分离 |
-| 2 | `backend/internal/pool/parser.go`、新增 detector/adapters/normalize/testdata | 唯一适配器、三模式准入、PSL/IDNA、Mihomo/sing-box/typed/CIDR 语料 |
+| 2 | `backend/internal/pool/parser.go`、新增 detector/adapters/normalize/testdata | 唯一适配器、三模式准入、PSL/IDNA、Mihomo domain/ipcidr/classical、sing-box、typed/CIDR 语料 |
 | 3 | `backend/migrations/1016_rule_pool_snapshots.sql`、`backend/internal/pool/pool.go`、`backend/internal/store/store_test.go`、`backend/internal/server/pool.go` | 新 schema、旧数据清除、ID 防复用、来源对象和手工条目 CRUD |
 | 4 | `backend/internal/pool/sync.go`、新增 snapshot 文件、`backend/internal/cron/pool.go` 及测试 | staging、active/pending、阈值、原子指针、诊断和任务状态 |
 | 5 | `backend/internal/assembly/load.go`、`models.go`、`render*.go`、`service.go`、`blueprint.go`、`clash_plan.go`、`selfcheck.go`、`validate.go`、服务端装配测试 | 全量后端装配渲染统一迁移到 Canonical 注册表、动态目标过滤、回执、零输出口径、历史 plan 稳定和旧池引用失效 |
@@ -120,10 +120,10 @@ Step 1 中央语义/能力
 - **前置条件：** Step 1 验收通过；保持现有同步入口可编译，使用新解析器的接入延后到 Step 4。
 - **产出文件与操作：**
   - `backend/internal/pool/detector.go`：结构探测、候选评分、唯一适配器选择和硬错误码。
-  - `backend/internal/pool/adapter_legacy.go`、`adapter_mihomo.go`、`adapter_typed.go`、`adapter_ip.go`、`adapter_singbox.go`：独立适配器。
+  - `backend/internal/pool/adapter_legacy.go`、`adapter_mihomo.go`、`adapter_typed.go`、`adapter_ip.go`、`adapter_singbox.go`：独立适配器；Mihomo YAML 的 domain/ipcidr/classical behavior 按整份 `payload` 唯一分类。
   - `backend/internal/pool/normalize.go`：IDNA、PSL、CIDR、ASN、通配 matcher 和来源准入。
   - `backend/internal/pool/parser.go`：缩减为管线编排或兼容入口，不保留“无逗号即 suffix”的旧事实。
-  - `backend/internal/pool/testdata/`：DailyData、Mihomo domain/classical、typed、CIDR、sing-box、HTML、冲突和混合私有语料。
+  - `backend/internal/pool/testdata/` 或项目内文档夹具：四份 DailyData、Mihomo domain/ipcidr/classical、typed、CIDR、sing-box、HTML、冲突和混合私有语料。
   - `backend/internal/pool/parser_test.go`：表驱动正例、反例和误识别回归。
 - **参考伪代码：**
   ```go
@@ -143,6 +143,7 @@ Step 1 中央语义/能力
   - 依赖型规则递归抓取。
 - **测试矩阵：**
   - 三来源模式的通用/Clash 私有/SR 私有准入矩阵。
+  - template3 在三模式下唯一识别为 `mihomo-ipcidr-yaml`，只接受 IPv4/IPv6 CIDR；template4 在三模式下识别为双方通用 `typed-rule-text`，保留 `IP-ASN` 与 `IP-CIDR`。
   - 双方私有同时出现、YAML+文本拼接、多个适配器不同语义均硬失败。
   - 小于 10条时 100%，10条以上 90%；模式剔除计入 recognized 但不计 accepted。
   - PSL 含 `co.uk`、PRIVATE `github.io`，以及 IDNA、单标签拒绝。
@@ -370,6 +371,7 @@ Step 1 中央语义/能力
   ```
 - **人工/集成核验：**
   - 以 Clash、SR、自动三模式导入正常来源。
+  - 以三模式导入 template3/template4，确认来源模式只调整识别优先级/范围，不把 Canonical 内容绑定到输出平台；验证 IPv6 CIDR 分别输出正确目标类型。
   - 验证通用 + `USER-AGENT` 在 auto 识别为 SR、选择 Clash 时仅通用素材进入。
   - 验证双方私有混合、HTML、结构拼接和 sing-box 复杂条件直接失败。
   - 验证异常缩量/格式变化进入 pending，旧 active 继续参与装配。
@@ -398,6 +400,7 @@ Step 1 中央语义/能力
 | 11 | 不锁定 Shadowrocket 版本，能力以项目注册表和回归语料维护。 |
 | 12 | 所有装配渲染（含 `clash_plan.go`/`selfcheck.go`/`validate.go` 与前端规则类型下拉）统一迁移到 Canonical 中央注册表；高级 `RULE-SET`/`AND`/`OR`/`NOT`/`MATCH` 能力以 advanced-only 标记隔离，不进入素材池可选集合。 |
 | 13 | Step 6 提供中央能力注册表只读元数据端点；前端不再维护 `RULE_TYPES`/`CLASH_RULE_TYPES`/`SR_RULE_TYPES` 静态真值表。 |
+| 14 | 来源模式只调整识别器优先级/范围与既有准入，不绑定 Canonical 内容或最终输出平台；Mihomo ipcidr YAML 只接受 IPv4/IPv6 CIDR，SR 显式 IP 文本继续复用双方通用 typed 适配器。 |
 
 明确不在 Build16 范围：
 
@@ -413,6 +416,7 @@ Step 1 中央语义/能力
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| v1.0 | 2026-08-31 | 初始构建计划：依据 Design3 已确认设计拆分中央能力、单来源解析、新 schema、快照同步、装配回执、API/UI、生命周期回归和全量收口八个 Step；全部尚未开始。 |
-| v1.1 | 2026-08-31 | 按用户确认补充执行口径：Step 5 全量迁移所有装配渲染到 Canonical 注册表并隔离 advanced-only 能力；Step 6 新增只读能力元数据端点并彻底移除前端静态规则类型真值表；`final_output` 只统计素材池+自定义规则、排除内置兜底；Step 7 扩展旧能力真值表清理核查。 |
+| v1.3 | 2026-08-31 | 补充 template3/template4 来源识别：新增严格的 `mihomo-ipcidr-yaml`、整份 payload behavior 冲突检查、IPv4/IPv6 CIDR 规范化与动态目标类型；SR 显式 IP 文本继续作为双方通用 `typed-rule-text`。后端 build/vet/全量 test、前端 35 个文件 126 项测试与生产构建、Docker Compose 镜像构建及 `git diff --check` 均通过。 |
 | v1.2 | 2026-08-31 | 完成八个 Step 实施：新增 1016 迁移、Canonical/能力注册表、单来源解析、快照同步、装配回执、能力元数据端点与前端三模式入口；后端 build/vet/test、前端 test/build 均通过。 |
+| v1.1 | 2026-08-31 | 按用户确认补充执行口径：Step 5 全量迁移所有装配渲染到 Canonical 注册表并隔离 advanced-only 能力；Step 6 新增只读能力元数据端点并彻底移除前端静态规则类型真值表；`final_output` 只统计素材池+自定义规则、排除内置兜底；Step 7 扩展旧能力真值表清理核查。 |
+| v1.0 | 2026-08-31 | 初始构建计划：依据 Design3 已确认设计拆分中央能力、单来源解析、新 schema、快照同步、装配回执、API/UI、生命周期回归和全量收口八个 Step；全部尚未开始。 |

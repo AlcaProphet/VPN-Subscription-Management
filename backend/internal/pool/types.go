@@ -23,6 +23,7 @@ const (
 	FormatLegacyDomainText    DetectedFormat = "legacy-domain-text"
 	FormatPlainDomainText     DetectedFormat = "plain-domain-text"
 	FormatMihomoDomainYAML    DetectedFormat = "mihomo-domain-yaml"
+	FormatMihomoIPCIDRYAML    DetectedFormat = "mihomo-ipcidr-yaml"
 	FormatMihomoClassicalYAML DetectedFormat = "mihomo-classical-yaml"
 	FormatTypedRuleText       DetectedFormat = "typed-rule-text"
 	FormatPlainIPCIDRText     DetectedFormat = "plain-ipcidr-text"

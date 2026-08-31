@@ -2,9 +2,20 @@ package pool
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func readDailyDataTemplate(t *testing.T, name string) []byte {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "DocTemplates", name))
+	if err != nil {
+		t.Fatalf("读取测试模板 %s 失败: %v", name, err)
+	}
+	return body
+}
 
 func TestParseSourcePlainDomains(t *testing.T) {
 	body := []byte("mzstatic.com\na1.mzstatic.com\nfoo.github.io\nwww.foo.github.io\n")
@@ -89,6 +100,70 @@ func TestParseSourceMihomoYAML(t *testing.T) {
 	}
 	if res.Format != FormatMihomoClassicalYAML || len(res.Rules) != 2 {
 		t.Fatalf("classical YAML 结果异常: format=%s rules=%d", res.Format, len(res.Rules))
+	}
+}
+
+func TestParseSourceMihomoIPCIDRYAMLTemplate(t *testing.T) {
+	body := readDailyDataTemplate(t, "DailyData.txt.template3.md")
+	for _, mode := range []SourceMode{SourceModeClash, SourceModeShadowrocket, SourceModeAuto} {
+		res, err := ParseSource(body, mode)
+		if err != nil {
+			t.Fatalf("%s 模式解析 Mihomo ipcidr YAML 失败: %v", mode, err)
+		}
+		if res.Format != FormatMihomoIPCIDRYAML || res.Profile != "common" {
+			t.Fatalf("%s 模式格式或 profile 异常: format=%s profile=%s", mode, res.Format, res.Profile)
+		}
+		if res.Input != 6 || res.Recognized != 6 || res.Accepted != 6 || len(res.Rules) != 6 {
+			t.Fatalf("%s 模式统计异常: %+v", mode, res)
+		}
+		if got := res.Rules[0]; got.Family != "ip" || got.Matcher != "cidr" || got.Value != "1.0.1.0/24" {
+			t.Fatalf("首条 CIDR 规范化异常: %+v", got)
+		}
+	}
+}
+
+func TestParseSourceMihomoIPCIDRYAMLIPv6(t *testing.T) {
+	body := []byte("payload:\n  - '2001:db8:1::1/48'\n")
+	res, err := ParseSource(body, SourceModeClash)
+	if err != nil {
+		t.Fatalf("解析 IPv6 ipcidr YAML 失败: %v", err)
+	}
+	if res.Format != FormatMihomoIPCIDRYAML || len(res.Rules) != 1 || res.Rules[0].Value != "2001:db8:1::/48" {
+		t.Fatalf("IPv6 ipcidr YAML 结果异常: %+v", res)
+	}
+}
+
+func TestParseSourceMihomoPayloadConflicts(t *testing.T) {
+	cases := map[string][]byte{
+		"domain-and-cidr":    []byte("payload:\n  - 'example.com'\n  - '1.0.1.0/24'\n"),
+		"classical-and-cidr": []byte("payload:\n  - 'IP-CIDR,1.0.1.0/24'\n  - '1.0.2.0/23'\n"),
+		"non-string":         []byte("payload:\n  - 123\n"),
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseSource(body, SourceModeClash); !errors.Is(err, ErrConflictingDocumentFormat) {
+				t.Fatalf("冲突 payload 应硬失败: %v", err)
+			}
+		})
+	}
+}
+
+func TestParseSourceShadowrocketTypedTemplate(t *testing.T) {
+	body := readDailyDataTemplate(t, "DailyData.txt.template4.md")
+	for _, mode := range []SourceMode{SourceModeClash, SourceModeShadowrocket, SourceModeAuto} {
+		res, err := ParseSource(body, mode)
+		if err != nil {
+			t.Fatalf("%s 模式解析显式 IP 规则文本失败: %v", mode, err)
+		}
+		if res.Format != FormatTypedRuleText || res.Profile != "common" {
+			t.Fatalf("%s 模式格式或 profile 异常: format=%s profile=%s", mode, res.Format, res.Profile)
+		}
+		if res.Input != 12 || res.Recognized != 12 || res.Accepted != 12 || len(res.Rules) != 12 {
+			t.Fatalf("%s 模式统计异常: %+v", mode, res)
+		}
+		if got := res.Rules[0]; got.Family != "ip" || got.Matcher != "asn" || got.Value != "132203" {
+			t.Fatalf("IP-ASN 规范化异常: %+v", got)
+		}
 	}
 }
 

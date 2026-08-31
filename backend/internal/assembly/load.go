@@ -235,6 +235,9 @@ func legacyPoolType(rule rulespec.CanonicalRule) string {
 	case rulespec.FamilyIP:
 		switch rule.Matcher {
 		case rulespec.MatcherCIDR:
+			if strings.Contains(rule.Value, ":") {
+				return "IP-CIDR6"
+			}
 			return "IP-CIDR"
 		case rulespec.MatcherASN:
 			return "IP-ASN"

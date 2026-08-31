@@ -1,7 +1,10 @@
 // capability.go：中央能力注册表、目标映射与只读前端元数据。
 package rulespec
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // Target 表示装配目标平台。
 type Target string
@@ -97,15 +100,23 @@ func SupportsAndMap(rule CanonicalRule, target Target) MappingResult {
 		if cap.ClashRenderType == "" {
 			return MappingResult{Supported: false, RenderType: "", TargetScope: cap.Scope, SupportsNoResolve: cap.SupportsNoResolve}
 		}
-		return MappingResult{Supported: true, RenderType: cap.ClashRenderType, ConversionKind: "direct", SupportsNoResolve: cap.SupportsNoResolve, TargetScope: cap.Scope}
+		return MappingResult{Supported: true, RenderType: canonicalRenderType(rule, cap.ClashRenderType), ConversionKind: "direct", SupportsNoResolve: cap.SupportsNoResolve, TargetScope: cap.Scope}
 	case TargetSR:
 		if cap.SRRenderType == "" {
 			return MappingResult{Supported: false, RenderType: "", TargetScope: cap.Scope, SupportsNoResolve: cap.SupportsNoResolve}
 		}
-		return MappingResult{Supported: true, RenderType: cap.SRRenderType, ConversionKind: "direct", SupportsNoResolve: cap.SupportsNoResolve, TargetScope: cap.Scope}
+		return MappingResult{Supported: true, RenderType: canonicalRenderType(rule, cap.SRRenderType), ConversionKind: "direct", SupportsNoResolve: cap.SupportsNoResolve, TargetScope: cap.Scope}
 	default:
 		return MappingResult{Supported: false, TargetScope: ScopeUnsupported}
 	}
+}
+
+// canonicalRenderType 根据 Canonical CIDR 的地址族选择目标类型名。
+func canonicalRenderType(rule CanonicalRule, defaultType string) string {
+	if rule.Family == FamilyIP && rule.Matcher == MatcherCIDR && strings.Contains(rule.Value, ":") {
+		return "IP-CIDR6"
+	}
+	return defaultType
 }
 
 // Capabilities 返回能力注册表副本。

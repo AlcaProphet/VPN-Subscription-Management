@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/rulespec"
 	"vpn-sub/internal/store"
 	"vpn-sub/migrations"
 )
@@ -21,6 +22,17 @@ func newTestService(t *testing.T) (*store.Store, *Service) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	return st, NewService(st, log.New("error", "console"))
+}
+
+func TestLegacyTypeForCanonicalSelectsCIDRAddressFamily(t *testing.T) {
+	ipv4 := rulespec.CanonicalRule{Family: rulespec.FamilyIP, Matcher: rulespec.MatcherCIDR, Value: "1.0.1.0/24"}
+	if got := legacyTypeForCanonical(ipv4); got != "IP-CIDR" {
+		t.Fatalf("IPv4 CIDR 类型异常: %s", got)
+	}
+	ipv6 := rulespec.CanonicalRule{Family: rulespec.FamilyIP, Matcher: rulespec.MatcherCIDR, Value: "2001:db8::/32"}
+	if got := legacyTypeForCanonical(ipv6); got != "IP-CIDR6" {
+		t.Fatalf("IPv6 CIDR 类型异常: %s", got)
+	}
 }
 
 func TestCRUDAndSort(t *testing.T) {

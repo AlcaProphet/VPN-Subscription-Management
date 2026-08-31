@@ -35,6 +35,17 @@ func newTestService(t testing.TB) (*Service, *store.Store, *config.Service) {
 	return svc, st, cfg
 }
 
+func TestLegacyPoolTypeSelectsCIDRAddressFamily(t *testing.T) {
+	ipv4 := rulespec.CanonicalRule{Family: rulespec.FamilyIP, Matcher: rulespec.MatcherCIDR, Value: "1.0.1.0/24"}
+	if got := legacyPoolType(ipv4); got != "IP-CIDR" {
+		t.Fatalf("IPv4 CIDR 类型异常: %s", got)
+	}
+	ipv6 := rulespec.CanonicalRule{Family: rulespec.FamilyIP, Matcher: rulespec.MatcherCIDR, Value: "2001:db8::/32"}
+	if got := legacyPoolType(ipv6); got != "IP-CIDR6" {
+		t.Fatalf("IPv6 CIDR 类型异常: %s", got)
+	}
+}
+
 func insertPlatform(t *testing.T, st *store.Store, productType string) int64 {
 	t.Helper()
 	res, err := st.DB().ExecContext(context.Background(),

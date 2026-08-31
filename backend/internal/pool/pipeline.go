@@ -21,6 +21,8 @@ func ParseSource(body []byte, mode SourceMode) (*ParseResult, error) {
 		rules, diagnostics, err = parseDomainText(body)
 	case FormatMihomoDomainYAML:
 		rules, diagnostics, err = parseMihomoDomainYAML(body)
+	case FormatMihomoIPCIDRYAML:
+		rules, diagnostics, err = parseMihomoIPCIDRYAML(body)
 	case FormatMihomoClassicalYAML:
 		rules, diagnostics, err = parseMihomoClassicalYAML(body)
 	case FormatTypedRuleText:

@@ -37,12 +37,9 @@ func DetectOne(body []byte, mode SourceMode) (DetectedFormat, error) {
 		return "", ErrUnrecognizedSource
 	}
 
-	// YAML：识别 Mihomo provider 形态。按 payload 内容区分 domain/classical。
-	if looksLikeYAMLPayload(trimmed) {
-		if yamlHasClassicalPayload(trimmed) {
-			return FormatMihomoClassicalYAML, nil
-		}
-		return FormatMihomoDomainYAML, nil
+	// YAML：完整读取 Mihomo payload，并按整份内容区分 domain/ipcidr/classical。
+	if hasTopLevelPayloadKey(trimmed) {
+		return detectMihomoPayloadFormat(trimmed)
 	}
 
 	// 显式类型文本。
@@ -66,22 +63,45 @@ func DetectOne(body []byte, mode SourceMode) (DetectedFormat, error) {
 	return "", ErrUnrecognizedSource
 }
 
-func looksLikeYAMLPayload(body []byte) bool {
-	lower := strings.ToLower(string(body))
-	return strings.Contains(lower, "payload:") || strings.Contains(lower, "\npayload")
-}
-
-func yamlHasClassicalPayload(body []byte) bool {
-	for _, line := range strings.Split(string(body), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "payload") || strings.HasPrefix(line, "name") || line == ":" {
+func hasTopLevelPayloadKey(body []byte) bool {
+	for _, raw := range strings.Split(string(body), "\n") {
+		raw = strings.TrimSuffix(raw, "\r")
+		if strings.TrimSpace(raw) == "" || strings.HasPrefix(strings.TrimSpace(raw), "#") {
 			continue
 		}
-		if strings.Contains(line, ",") {
+		if len(raw) != len(strings.TrimLeft(raw, " \t")) {
+			continue
+		}
+		colon := strings.IndexByte(raw, ':')
+		if colon >= 0 && strings.EqualFold(strings.TrimSpace(raw[:colon]), "payload") {
 			return true
 		}
 	}
 	return false
+}
+
+func detectMihomoPayloadFormat(body []byte) (DetectedFormat, error) {
+	items, err := decodeMihomoPayload(body)
+	if err != nil {
+		return "", err
+	}
+	var detected DetectedFormat
+	for _, item := range items {
+		format := FormatMihomoDomainYAML
+		if strings.Contains(item, ",") {
+			format = FormatMihomoClassicalYAML
+		} else if _, err := NormalizeCIDRValue(item); err == nil {
+			format = FormatMihomoIPCIDRYAML
+		}
+		if detected != "" && detected != format {
+			return "", ErrConflictingDocumentFormat
+		}
+		detected = format
+	}
+	if detected == "" {
+		return "", ErrUnrecognizedSource
+	}
+	return detected, nil
 }
 
 func hasTypedRuleLine(body []byte) bool {

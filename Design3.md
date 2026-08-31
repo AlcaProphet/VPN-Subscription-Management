@@ -1,7 +1,7 @@
 # Design3.md — VPN 订阅管理系统增量设计（规则来源识别、结构化素材与跨平台装配）
 
 > **文档定位：** 本文定义规则素材池下一阶段设计：管理员为每个 URL 选择 Clash 规则源、Shadowrocket（下文简称 SR）规则源或“我不确定”，系统以单 URL 单主方言为边界识别格式、提取平台无关规则、形成可追踪快照，再由 Clash/SR 目标适配器过滤和渲染。本文承接 [Design2.md](Design2.md) 第二～四章；第一期基线见 [Design1.md](docs/reports/Design/Design1.md)。编码约束遵循 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
-> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，作为 [Build16.md](Build16.md) 的设计依据；Build16 完成前，当前运行事实仍以 Design2 与现有代码为准。
+> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。
 > **范围边界：** 本期只重构“规则素材 URL/手工素材 → Canonical Rule → Clash/SR 渲染”链路，不重定义节点、代理组、装配版本、订阅分发、Xray 或权限体系。
 
 ---
@@ -12,7 +12,7 @@
 
 当前 URL 内容仍以逐行解析为主：`full:` 被识别为完整域名，不含逗号的文本一律当作域名后缀，含逗号的规则直接保存为 `rule_type + match_value`。多 URL 同步还会分批写入活动 `pool_entries`，后续来源失败时可能留下部分新数据；后端和前端分别维护目标平台类型列表，能力口径也会漂移。
 
-该方式不能可靠区分 Mihomo domain/classical YAML、sing-box source JSON、显式类型文本和纯 CIDR 列表，也可能把 YAML 键、HTML 错误页或完整子域名误识别。以 [DailyData.txt.template2.md](docs/DocTemplates/DailyData.txt.template2.md) 为例：
+该方式不能可靠区分 Mihomo domain/ipcidr/classical YAML、sing-box source JSON、显式类型文本和纯 CIDR 列表，也可能把 YAML 键、HTML 错误页或完整子域名误识别。以 [DailyData.txt.template2.md](docs/DocTemplates/DailyData.txt.template2.md) 为例：
 
 ```yaml
 payload:
@@ -21,6 +21,8 @@ payload:
 ```
 
 在 Mihomo domain provider 中，前者是完整域名，后者是覆盖主域及子域的后缀。素材必须先按整份文档格式解释，不能只看单行外观。
+
+[DailyData.txt.template3.md](docs/DocTemplates/DailyData.txt.template3.md) 使用相同 `payload` 容器承载纯 CIDR，属于 Mihomo ipcidr provider；[DailyData.txt.template4.md](docs/DocTemplates/DailyData.txt.template4.md) 则是 `IP-ASN`/`IP-CIDR` 显式类型文本。来源模式只调整识别器优先级或适用范围，不能把识别后的 Canonical Rule 绑定到单一输出平台。
 
 ### 1.2 设计目标
 
@@ -186,7 +188,7 @@ func SupportsAndMap(rule CanonicalRule, target Target) MappingResult
 | 双方私有同时出现 | 硬失败 | 硬失败 | 硬失败 |
 | 冲突结构或无法可靠识别 | 硬失败 | 硬失败 | 硬失败 |
 
-`source_mode` 既影响候选适配器优先级，也在 Canonical Rule 形成后执行准入；它不是输出目标，也不能绕过结构校验。剔除后 accepted 为 0 时同步失败。
+`source_mode` 既影响候选适配器优先级/识别范围，也在 Canonical Rule 形成后执行准入；它不是 `detected_profile` 或输出目标，不能把已识别内容限定为单一平台，也不能绕过结构校验。双方通用的 typed/IP 内容在三种模式下保持通用，剔除后 accepted 为 0 时同步失败。
 
 ### 4.2 探测与识别率
 
@@ -207,6 +209,7 @@ func SupportsAndMap(rule CanonicalRule, target Target) MappingResult
 | `legacy-domain-text` | `full:` 为 exact；裸域名按 §5.2 PSL 推断 |
 | `plain-domain-text` | 按 §5.2 推断 exact/suffix |
 | `mihomo-domain-yaml` | 严格按 provider domain 语义 |
+| `mihomo-ipcidr-yaml` | `payload` 只接受 IPv4/IPv6 CIDR 并归一网络地址 |
 | `mihomo-classical-yaml` | `payload` 中按显式类型解释 |
 | `typed-rule-text` | 按显式类型解释，policy 不进入素材 |
 | `plain-ipcidr-text` | IP 转单主机 CIDR，CIDR 归一网络地址 |
@@ -218,9 +221,9 @@ func SupportsAndMap(rule CanonicalRule, target Target) MappingResult
 
 **Legacy/纯域名：** 只有整份文档已判定为域名文本时，裸域名才使用 PSL。显式 `full:`、`+.`、`DOMAIN` 和 `DOMAIN-SUFFIX` 优先。
 
-**Mihomo provider：** 一个文档只允许一种 behavior；YAML 完整解析并只读取 `payload`。domain provider 裸域名为 exact，`+.` 为 suffix，`.` 保留仅子域语义。provider 标签通配与 route `DOMAIN-WILDCARD` 不可混同。冲突 behavior、异常嵌套和非字符串条目使文档失败。
+**Mihomo provider：** 一个文档只允许一种 behavior；YAML 完整解析并只读取顶层非空字符串数组 `payload`。domain provider 裸域名为 exact，`+.` 为 suffix，`.` 保留仅子域语义；ipcidr provider 只接受合法 IPv4/IPv6 CIDR，不把裸 IP、ASN、域名或显式类型行隐式转入该 behavior。provider 标签通配与 route `DOMAIN-WILDCARD` 不可混同。domain/ipcidr/classical 混合、异常嵌套、空条目和非字符串条目使文档失败。
 
-**显式类型文本：** `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR/6`、`IP-ASN`、`USER-AGENT` 等先映射 Canonical Rule，再由注册表分类。源 policy 忽略但计入诊断；只有源实际声明时才保存 `no_resolve`。未知或依赖型类型拒绝。
+**显式类型文本：** `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR/6`、`IP-ASN`、`USER-AGENT` 等先映射 Canonical Rule，再由注册表分类。template4 的 `IP-ASN`/`IP-CIDR` 在 SR 模式下由本适配器识别，但二者仍是双方通用能力，不因此标为 SR 私有。源 policy 忽略但计入诊断；只有源实际声明时才保存 `no_resolve`。未知或依赖型类型拒绝。
 
 **sing-box：** 仅读取 source JSON，校验 `version` 和 `rules`。只接受单个条件 family 的简单 default rule；同一字段多值按 OR 展开。多个不同条件字段、`invert=true`、logical rule 或无法证明等价时整项拒绝，不能把 AND 扁平化。action/route target 不进入素材池。
 
@@ -417,7 +420,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 - 不因素材池限制删除高级装配现有能力。
 - 语法变化优先更新语料和注册表，不增加无证据 fallback。
 
-验收至少覆盖三模式矩阵、单适配器、混合/冲突硬失败、DailyData/Mihomo/typed/CIDR/sing-box 语料、PSL/IDNA/通配/IP-ASN、识别率和 pending、staging 不可见与原子切换、多来源去重排序、中央注册表、Clash/SR 回执、零输出门槛、不兼容迁移、旧 ID/蓝图/历史下载，以及后端 build/vet/test、前端 test/build、`git diff --check`。
+验收至少覆盖三模式矩阵、单适配器、混合/冲突硬失败、四份 DailyData/Mihomo domain/ipcidr/classical/typed/CIDR/sing-box 语料、PSL/IDNA/通配/IP-ASN、IPv4/IPv6 目标类型、识别率和 pending、staging 不可见与原子切换、多来源去重排序、中央注册表、Clash/SR 回执、零输出门槛、不兼容迁移、旧 ID/蓝图/历史下载，以及后端 build/vet/test、前端 test/build、`git diff --check`。
 
 ---
 
@@ -429,7 +432,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 - [sing-box Source Format](https://sing-box.sagernet.org/configuration/rule-set/source-format/) 与 [Headless Rule](https://sing-box.sagernet.org/configuration/rule-set/headless-rule/)
 - [Shadowrocket Wiki 规则类型](https://github.com/LOWERTOP/Shadowrocket/wiki/#%E8%A7%84%E5%88%99%E7%B1%BB%E5%9E%8B)
 - [Public Suffix List](https://publicsuffix.org/)
-- 项目内两份 DailyData 模板、Design2 和当前 pool/rulespec/assembly 实现
+- 项目内四份 DailyData 模板、Design2 和当前 pool/rulespec/assembly 实现
 
 外部格式可能变化。实现不锁定 SR 版本，但必须把项目实际能力固化为可执行测试，上游语法或依赖升级时运行回归。
 
@@ -439,6 +442,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| v1.0 | 2026-08-31 | 设计定稿：确认三种来源模式、单 URL 单主方言、异常混合直接失败、Canonical Rule/origin 分离、中央能力注册表、per-source 快照、不兼容迁移、sing-box 简单子集、固定保护阈值和装配门槛，作为 Build16 依据。 |
+| v1.2 | 2026-08-31 | 补充来源识别：新增严格的 `mihomo-ipcidr-yaml`，Mihomo `payload` 按整份内容唯一归类且 ipcidr 仅接受 IPv4/IPv6 CIDR；template4 继续作为双方通用的 `typed-rule-text`；明确来源模式只调整识别优先级/范围与既有准入，不绑定识别内容或最终输出平台。 |
 | v1.1 | 2026-08-31 | 补充实现口径：中央注册表区分素材池能力与 advanced-only 高级装配能力；`final_output` 只统计素材池+自定义规则，排除内置 `GEOIP`/`MATCH`/`FINAL` 兜底；能力元数据端点明确由前端消费并移除静态规则表。 |
+| v1.0 | 2026-08-31 | 设计定稿：确认三种来源模式、单 URL 单主方言、异常混合直接失败、Canonical Rule/origin 分离、中央能力注册表、per-source 快照、不兼容迁移、sing-box 简单子集、固定保护阈值和装配门槛，作为 Build16 依据。 |
 | v0.1 | 2026-08-31 | 初始预想稿：提出多格式识别、PSL 推断和 Clash/SR 双目标渲染方向。 |

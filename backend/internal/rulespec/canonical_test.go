@@ -42,6 +42,18 @@ func TestSupportsAndMapBasics(t *testing.T) {
 	if r := SupportsAndMap(asn, TargetSR); !r.Supported || r.RenderType != "IP-ASN" {
 		t.Fatalf("IP-ASN/SR 映射异常: %+v", r)
 	}
+
+	ipv4 := CanonicalRule{Family: FamilyIP, Matcher: MatcherCIDR, Value: "1.0.1.0/24"}
+	if r := SupportsAndMap(ipv4, TargetClash); !r.Supported || r.RenderType != "IP-CIDR" {
+		t.Fatalf("IPv4 CIDR/Clash 映射异常: %+v", r)
+	}
+	ipv6 := CanonicalRule{Family: FamilyIP, Matcher: MatcherCIDR, Value: "2001:db8::/32"}
+	if r := SupportsAndMap(ipv6, TargetClash); !r.Supported || r.RenderType != "IP-CIDR6" {
+		t.Fatalf("IPv6 CIDR/Clash 映射异常: %+v", r)
+	}
+	if r := SupportsAndMap(ipv6, TargetSR); !r.Supported || r.RenderType != "IP-CIDR6" {
+		t.Fatalf("IPv6 CIDR/SR 映射异常: %+v", r)
+	}
 }
 
 func TestAdvancedOnlyNotMaterial(t *testing.T) {
