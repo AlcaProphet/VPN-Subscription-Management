@@ -44,7 +44,7 @@ func (s *Service) Preview(ctx context.Context, in GenerateInput) (*PreviewResult
 	if err != nil {
 		return nil, err
 	}
-	return &PreviewResult{Content: res.Content, Skipped: res.Skipped, Warnings: s.Warnings(in, res)}, nil
+	return &PreviewResult{Content: res.Content, Skipped: res.Skipped, Warnings: s.Warnings(in, res), Receipt: res.Receipt}, nil
 }
 
 // Render 渲染并返回结构化计划（供 generate 使用）。

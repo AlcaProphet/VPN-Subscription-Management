@@ -33,13 +33,29 @@ func RegisterPoolRoutes(engine *gin.Engine, h *PoolHandler, sessionMW, adminMW g
 	admin.GET("/:id/sync/status", h.syncStatus)
 	admin.GET("/:id/sync/tasks", h.listSyncTasks)
 	admin.POST("/:id/sync/tasks/:taskId/cancel", h.cancelSync)
+
+	admin.POST("/:id/sources/:sourceId/pending/:snapshotId/activate", h.activatePending)
+	admin.DELETE("/:id/sources/:sourceId/pending/:snapshotId", h.discardPending)
 }
 
 type poolReq struct {
-	Name     string   `json:"name" binding:"required,min=1,max=100"`
-	URLs     []string `json:"urls"`
-	AutoSync bool     `json:"auto_sync"`
-	SyncTime string   `json:"sync_time"`
+	Name     string             `json:"name" binding:"required,min=1,max=100"`
+	Sources  []pool.SourceInput `json:"sources"`
+	URLs     []string           `json:"urls,omitempty"`
+	AutoSync bool               `json:"auto_sync"`
+	SyncTime string             `json:"sync_time"`
+}
+
+func toSources(req poolReq) []pool.SourceInput {
+	if len(req.Sources) > 0 {
+		return req.Sources
+	}
+	// 兼容旧 urls 字段
+	out := make([]pool.SourceInput, 0, len(req.URLs))
+	for _, u := range req.URLs {
+		out = append(out, pool.SourceInput{URL: u, SourceMode: pool.SourceModeAuto})
+	}
+	return out
 }
 
 func (h *PoolHandler) list(c *gin.Context) {
@@ -57,7 +73,7 @@ func (h *PoolHandler) create(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	p, err := h.poolSvc.Create(c.Request.Context(), req.Name, req.URLs, req.AutoSync, req.SyncTime)
+	p, err := h.poolSvc.Create(c.Request.Context(), req.Name, toSources(req), req.AutoSync, req.SyncTime)
 	if errors.Is(err, pool.ErrNameConflict) {
 		Fail(c, http.StatusConflict, err.Error())
 		return
@@ -83,7 +99,7 @@ func (h *PoolHandler) update(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	err := h.poolSvc.Update(c.Request.Context(), id, req.Name, req.URLs, req.AutoSync, req.SyncTime)
+	err := h.poolSvc.Update(c.Request.Context(), id, req.Name, toSources(req), req.AutoSync, req.SyncTime)
 	if errors.Is(err, pool.ErrNotFound) {
 		Fail(c, http.StatusNotFound, "素材池不存在")
 		return
@@ -318,4 +334,62 @@ func (h *PoolHandler) listSyncTasks(c *gin.Context) {
 		return
 	}
 	OK(c, ListData{List: list, Total: total})
+}
+
+func (h *PoolHandler) activatePending(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	sourceID, ok := parseID(c, "sourceId")
+	if !ok {
+		return
+	}
+	snapshotID, ok := parseID(c, "snapshotId")
+	if !ok {
+		return
+	}
+	err := h.poolSvc.ActivatePending(c.Request.Context(), id, sourceID, snapshotID)
+	if errors.Is(err, pool.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "pending 快照不存在")
+		return
+	}
+	if errors.Is(err, pool.ErrBadRequest) {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, nil)
+}
+
+func (h *PoolHandler) discardPending(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	sourceID, ok := parseID(c, "sourceId")
+	if !ok {
+		return
+	}
+	snapshotID, ok := parseID(c, "snapshotId")
+	if !ok {
+		return
+	}
+	err := h.poolSvc.DiscardPending(c.Request.Context(), id, sourceID, snapshotID)
+	if errors.Is(err, pool.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "pending 快照不存在")
+		return
+	}
+	if errors.Is(err, pool.ErrBadRequest) {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, nil)
 }

@@ -139,6 +139,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	// 规则素材池（Build4 Step 5：CRUD / 条目 / 异步同步与历史任务）
 	poolSvc := pool.NewService(st, lg)
 	RegisterPoolRoutes(engine, &PoolHandler{poolSvc: poolSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	RegisterRulespecRoutes(engine, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 节点服务（Build5 Step 1：manual 节点 CRUD + 协议注册表 + xray 显示名/启停占位）
 	nodeSvc := node.NewService(st, cfg, lg)
 	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())

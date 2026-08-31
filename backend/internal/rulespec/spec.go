@@ -9,12 +9,13 @@ import (
 	"strings"
 )
 
-// RuleDef 描述规则在各目标中的支持与取值语义。
+// RuleDef 是旧规则类型的兼容投影；新代码应优先使用 CanonicalRule/Capability。
 type RuleDef struct {
-	SR            bool
-	NoResolve     bool
-	ValueRequired bool
-	ValueLabel    string
+	SR                bool
+	NoResolve         bool // 兼容投影：旧渲染默认追加 no-resolve
+	SupportsNoResolve bool // 能力：该类型是否允许实例级 no_resolve
+	ValueRequired     bool
+	ValueLabel        string
 }
 
 // Definitions 是 CVR 规则编辑器全集，并保留本项目的 USER-AGENT。

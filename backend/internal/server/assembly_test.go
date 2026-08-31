@@ -198,7 +198,7 @@ func TestAssemblyGenerateRejectsChangedPreviewContent(t *testing.T) {
 	engine, st, _ := newAssemblyTestEnv(t)
 	pid := insertAssemblyBase(t, st)
 	ctx := context.Background()
-	res, err := st.DB().ExecContext(ctx, `INSERT INTO rule_pools (name, urls_json) VALUES ('摘要校验池','[]')`)
+	res, err := st.DB().ExecContext(ctx, `INSERT INTO rule_pools (name) VALUES ('摘要校验池')`)
 	if err != nil {
 		t.Fatalf("插入素材池失败: %v", err)
 	}
@@ -206,9 +206,23 @@ func TestAssemblyGenerateRejectsChangedPreviewContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取素材池 ID 失败: %v", err)
 	}
+	srcRes, err := st.DB().ExecContext(ctx,
+		`INSERT INTO rule_pool_sources (pool_id, kind, source_mode, sort_order) VALUES (?,'manual','auto',-1)`, poolID)
+	if err != nil {
+		t.Fatalf("插入 manual 来源失败: %v", err)
+	}
+	sourceID, _ := srcRes.LastInsertId()
+	crRes, err := st.DB().ExecContext(ctx,
+		`INSERT INTO pool_canonical_rules (pool_id, semantic_key, family, matcher, value, options_json)
+		 VALUES (?, 'domain\x00suffix\x00before.example\x00false', 'domain', 'suffix', 'before.example', '{}')`, poolID)
+	if err != nil {
+		t.Fatalf("插入 canonical 失败: %v", err)
+	}
+	canonicalID, _ := crRes.LastInsertId()
 	if _, err := st.DB().ExecContext(ctx,
-		`INSERT INTO pool_entries (pool_id, rule_type, match_value, source, sort_order) VALUES (?, 'DOMAIN-SUFFIX', 'before.example', 'manual', 1)`, poolID); err != nil {
-		t.Fatalf("插入素材池条目失败: %v", err)
+		`INSERT INTO pool_rule_origins (pool_id, canonical_rule_id, source_id, snapshot_id, sort_order, raw_line, line_no)
+		 VALUES (?,?,?,NULL,1,'DOMAIN-SUFFIX,before.example',0)`, poolID, canonicalID, sourceID); err != nil {
+		t.Fatalf("插入 origin 失败: %v", err)
 	}
 	body := assemblyBody(pid)
 	body["pools"] = []map[string]any{{"pool_id": poolID, "target": "组A"}}
@@ -225,7 +239,7 @@ func TestAssemblyGenerateRejectsChangedPreviewContent(t *testing.T) {
 		t.Fatalf("解析 preview 摘要失败: err=%v body=%s", err, w.Body.String())
 	}
 	if _, err := st.DB().ExecContext(ctx,
-		`UPDATE pool_entries SET match_value = 'after.example' WHERE pool_id = ?`, poolID); err != nil {
+		`UPDATE pool_canonical_rules SET value='after.example', semantic_key='domain\x00suffix\x00after.example\x00false' WHERE id = ?`, canonicalID); err != nil {
 		t.Fatalf("更新素材池条目失败: %v", err)
 	}
 	body["preview_hash"] = previewResp.Data.PreviewHash

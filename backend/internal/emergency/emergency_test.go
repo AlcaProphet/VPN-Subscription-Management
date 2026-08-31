@@ -37,8 +37,19 @@ var emergencyTestFS = fstest.MapFS{
 		version_no INTEGER NOT NULL, file_path TEXT NOT NULL);`)},
 	"1009_xray.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS rule_pools (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
-		CREATE TABLE IF NOT EXISTS pool_entries (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL);
+		CREATE TABLE IF NOT EXISTS rule_pool_sources (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, kind TEXT NOT NULL,
+		url TEXT, source_mode TEXT NOT NULL DEFAULT 'auto', sort_order INTEGER NOT NULL,
+		active_snapshot_id INTEGER, pending_snapshot_id INTEGER);
+		CREATE TABLE IF NOT EXISTS pool_source_snapshots (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, source_id INTEGER NOT NULL, format TEXT NOT NULL DEFAULT '',
+		profile TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'staging');
+		CREATE TABLE IF NOT EXISTS pool_canonical_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, semantic_key TEXT NOT NULL,
+		family TEXT NOT NULL, matcher TEXT NOT NULL, value TEXT NOT NULL, options_json TEXT NOT NULL DEFAULT '{}');
+		CREATE TABLE IF NOT EXISTS pool_rule_origins (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, canonical_rule_id INTEGER NOT NULL,
+		source_id INTEGER NOT NULL, snapshot_id INTEGER, sort_order INTEGER NOT NULL, raw_line TEXT NOT NULL DEFAULT '', line_no INTEGER NOT NULL DEFAULT 0);
 		CREATE TABLE IF NOT EXISTS pool_sync_tasks (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL);
 		CREATE TABLE IF NOT EXISTS xray_instances (

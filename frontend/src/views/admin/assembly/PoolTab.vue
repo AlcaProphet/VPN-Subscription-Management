@@ -5,7 +5,7 @@ import { Badge, Button, Input, Switch, Table, Tooltip } from 'ant-design-vue'
 import AppModal from '@/components/AppModal.vue'
 import AppTimePicker from '@/components/AppTimePicker.vue'
 import dayjs from 'dayjs'
-import { listPools, createPool, updatePool, deletePool, submitSync, cancelSync, getSyncStatus, type PoolItem, type SyncTaskItem } from '@/api/pool'
+import { listPools, createPool, updatePool, deletePool, submitSync, cancelSync, getSyncStatus, type PoolItem, type SyncTaskItem, type SourceMode } from '@/api/pool'
 import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -47,12 +47,12 @@ function currentDetail() {
 // 新建/编辑
 const formOpen = ref(false)
 const editing = ref<PoolItem | null>(null)
-const form = reactive({ name: '', urls: [''] as string[], auto_sync: false, sync_time: '04:00' })
+const form = reactive({ name: '', sources: [{ url: '', source_mode: 'auto' as SourceMode }] as { url: string; source_mode: SourceMode }[], auto_sync: false, sync_time: '04:00' })
 const saving = ref(false)
 function openCreate() {
   editing.value = null
   form.name = ''
-  form.urls = ['']
+  form.sources = [{ url: '', source_mode: 'auto' }]
   form.auto_sync = false
   form.sync_time = '04:00'
   formOpen.value = true
@@ -60,15 +60,16 @@ function openCreate() {
 function openEdit(p: PoolItem) {
   editing.value = p
   form.name = p.name
-  form.urls = p.urls.length ? [...p.urls] : ['']
+  form.sources = (p.sources || []).filter((s) => s.kind === 'url').map((s) => ({ url: s.url || '', source_mode: s.source_mode }))
+  if (!form.sources.length) form.sources = [{ url: '', source_mode: 'auto' }]
   form.auto_sync = p.auto_sync
   form.sync_time = p.sync_time
   formOpen.value = true
 }
 async function save() {
   if (!form.name.trim()) { Notify.error('请填写名称'); return }
-  const urls = form.urls.map((u) => u.trim()).filter(Boolean)
-  for (const u of urls) {
+  const sources = form.sources.map((s) => ({ url: s.url.trim(), source_mode: s.source_mode })).filter((s) => s.url)
+  for (const u of sources.map((s) => s.url)) {
     if (!/^https?:\/\//i.test(u)) {
       Notify.error(`URL 仅支持 http/https 地址：${u}`)
       return
@@ -76,7 +77,7 @@ async function save() {
   }
   saving.value = true
   try {
-    const data = { name: form.name.trim(), urls, auto_sync: form.auto_sync, sync_time: form.sync_time }
+    const data = { name: form.name.trim(), sources, auto_sync: form.auto_sync, sync_time: form.sync_time }
     if (editing.value) {
       await updatePool(editing.value.id, data)
       Notify.success('素材池已更新')
@@ -98,7 +99,8 @@ const toggling = ref(0)
 async function toggleAuto(p: PoolItem, value: boolean) {
   toggling.value = p.id
   try {
-    await updatePool(p.id, { name: p.name, urls: p.urls, auto_sync: value, sync_time: p.sync_time })
+    const sources = (p.sources || []).filter((s) => s.kind === 'url').map((s) => ({ url: s.url || '', source_mode: s.source_mode }))
+    await updatePool(p.id, { name: p.name, sources, auto_sync: value, sync_time: p.sync_time })
     p.auto_sync = value
     Notify.success(value ? '已开启定时同步' : '已关闭定时同步')
   } catch (err) {
@@ -277,11 +279,16 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         </div>
         <div>
           <div class="text-sm mb-1">订阅 URL（http/https）</div>
-          <div v-for="(_, i) in form.urls" :key="i" class="flex gap-2 mb-1">
-            <Input v-model:value="form.urls[i]" placeholder="https://example.com/rules.txt" />
-            <Button size="small" danger :disabled="form.urls.length <= 1" @click="form.urls.splice(i, 1)">删除</Button>
+          <div v-for="(_, i) in form.sources" :key="i" class="flex gap-2 mb-1">
+            <Input v-model:value="form.sources[i].url" placeholder="https://example.com/rules.txt" class="flex-1" />
+            <select v-model="form.sources[i].source_mode" class="px-2 py-1 rounded border text-sm">
+              <option value="auto">我不确定</option>
+              <option value="clash">Clash 规则源</option>
+              <option value="shadowrocket">SR 规则源</option>
+            </select>
+            <Button size="small" danger :disabled="form.sources.length <= 1" @click="form.sources.splice(i, 1)">删除</Button>
           </div>
-          <Button size="small" @click="form.urls.push('')">添加 URL</Button>
+          <Button size="small" @click="form.sources.push({ url: '', source_mode: 'auto' })">添加 URL</Button>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
           <span class="text-sm">定时同步</span>

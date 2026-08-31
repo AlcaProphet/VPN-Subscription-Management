@@ -1,10 +1,24 @@
 // api/pool.ts：规则素材池域接口（Design2-UI §9.1）
 import { http } from './request'
 
+export type SourceMode = 'clash' | 'shadowrocket' | 'auto'
+
+export interface PoolSourceItem {
+  id: number
+  pool_id: number
+  kind: 'manual' | 'url'
+  url?: string
+  source_mode: SourceMode
+  sort_order: number
+  active_snapshot_id?: number
+  pending_snapshot_id?: number
+}
+
 export interface PoolItem {
   id: number
   name: string
   urls: string[]
+  sources?: PoolSourceItem[]
   entry_count: number
   last_synced_at?: string | null
   sync_status: string // '' / running / succeeded / failed / partial
@@ -24,10 +38,18 @@ export interface PoolEntryItem {
 
 export interface PerURLResult {
   url: string
+  source_id?: number
   ok: boolean
-  added: number
-  removed: number
-  skipped: number
+  format?: string
+  profile?: string
+  accepted?: number
+  excluded?: number
+  rejected?: number
+  duplicates?: number
+  pending?: boolean
+  added?: number
+  removed?: number
+  skipped?: number
   skip_reasons?: string[]
   error: string
 }
@@ -42,11 +64,16 @@ export interface SyncTaskItem {
   finished_at?: string | null
 }
 
+export interface SourceInput {
+  url: string
+  source_mode: SourceMode
+}
+
 export const listPools = () =>
   http.get<any, { list: PoolItem[]; total: number }>('/admin/pools').then((d) => d.list)
-export const createPool = (data: { name: string; urls: string[]; auto_sync: boolean; sync_time: string }) =>
+export const createPool = (data: { name: string; sources: SourceInput[]; auto_sync: boolean; sync_time: string }) =>
   http.post<any, PoolItem>('/admin/pools', data)
-export const updatePool = (id: number, data: { name: string; urls: string[]; auto_sync: boolean; sync_time: string }) =>
+export const updatePool = (id: number, data: { name: string; sources: SourceInput[]; auto_sync: boolean; sync_time: string }) =>
   http.put(`/admin/pools/${id}`, data)
 export const deletePool = (id: number) => http.delete(`/admin/pools/${id}`)
 
@@ -54,6 +81,11 @@ export const listEntries = (poolId: number, page = 1, pageSize = 20, source?: 'm
   http.get<any, { list: PoolEntryItem[]; total: number }>(`/admin/pools/${poolId}/entries`, {
     params: { page, page_size: pageSize, ...(source ? { source } : {}) },
   })
+export const activatePending = (poolId: number, sourceId: number, snapshotId: number) =>
+  http.post(`/admin/pools/${poolId}/sources/${sourceId}/pending/${snapshotId}/activate`)
+export const discardPending = (poolId: number, sourceId: number, snapshotId: number) =>
+  http.delete(`/admin/pools/${poolId}/sources/${sourceId}/pending/${snapshotId}`)
+
 export const createEntry = (poolId: number, data: { rule_type: string; match_value: string }) =>
   http.post<any, PoolEntryItem>(`/admin/pools/${poolId}/entries`, data)
 export const updateEntry = (poolId: number, entryId: number, data: { rule_type: string; match_value: string }) =>

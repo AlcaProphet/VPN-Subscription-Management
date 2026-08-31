@@ -12,10 +12,10 @@ import (
 // 不修改历史快照；仅返回失配提示供导入任务完成信息展示。
 func (s *Service) CheckXrayReferences(ctx context.Context) ([]string, error) {
 	type blueprintRow struct {
-		id          int64
-		versionID   int64
-		selection   string
-		plan        string
+		id           int64
+		versionID    int64
+		selection    string
+		plan         string
 		targetSyntax string
 	}
 	rows, err := s.store.DB().QueryContext(ctx,

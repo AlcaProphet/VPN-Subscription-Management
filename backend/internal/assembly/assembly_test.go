@@ -12,6 +12,7 @@ import (
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/node"
+	"vpn-sub/internal/rulespec"
 	"vpn-sub/internal/store"
 	"vpn-sub/migrations"
 )
@@ -115,16 +116,34 @@ func insertGroup(t *testing.T, st *store.Store, name, groupType string, nodes, g
 
 func insertPool(t *testing.T, st *store.Store, entries ...struct{ Type, Value string }) int64 {
 	t.Helper()
-	res, err := st.DB().ExecContext(context.Background(), `INSERT INTO rule_pools (name, urls_json) VALUES ('测试池','[]')`)
+	res, err := st.DB().ExecContext(context.Background(), `INSERT INTO rule_pools (name) VALUES ('测试池')`)
 	if err != nil {
 		t.Fatalf("插入素材池失败: %v", err)
 	}
 	poolID, _ := res.LastInsertId()
+	srcRes, err := st.DB().ExecContext(context.Background(),
+		`INSERT INTO rule_pool_sources (pool_id, kind, source_mode, sort_order) VALUES (?,'manual','auto',-1)`, poolID)
+	if err != nil {
+		t.Fatalf("插入 manual 来源失败: %v", err)
+	}
+	sourceID, _ := srcRes.LastInsertId()
 	for i, e := range entries {
+		family, matcher, ok := rulespec.CanonicalizeLegacyType(e.Type)
+		if !ok {
+			t.Fatalf("未知规则类型: %s", e.Type)
+		}
+		rule := rulespec.CanonicalRule{Family: family, Matcher: matcher, Value: e.Value}
+		crRes, err := st.DB().ExecContext(context.Background(),
+			`INSERT INTO pool_canonical_rules (pool_id, semantic_key, family, matcher, value, options_json) VALUES (?,?,?,?,?,?)`,
+			poolID, rule.SemanticKey(), string(rule.Family), string(rule.Matcher), rule.Value, `{}`)
+		if err != nil {
+			t.Fatalf("插入 canonical 失败: %v", err)
+		}
+		crID, _ := crRes.LastInsertId()
 		if _, err := st.DB().ExecContext(context.Background(),
-			`INSERT INTO pool_entries (pool_id, rule_type, match_value, source, sort_order) VALUES (?,?,?,'manual',?)`,
-			poolID, e.Type, e.Value, i); err != nil {
-			t.Fatalf("插入素材池条目失败: %v", err)
+			`INSERT INTO pool_rule_origins (pool_id, canonical_rule_id, source_id, snapshot_id, sort_order, raw_line, line_no) VALUES (?,?,?,NULL,?,?,0)`,
+			poolID, crID, sourceID, i, e.Type+","+e.Value); err != nil {
+			t.Fatalf("插入 origin 失败: %v", err)
 		}
 	}
 	return poolID

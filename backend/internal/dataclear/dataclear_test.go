@@ -44,8 +44,19 @@ func newTestClear(t *testing.T) (*store.Store, *Service, string) {
 			version_no INTEGER NOT NULL, file_path TEXT NOT NULL, file_name TEXT NOT NULL DEFAULT '');`)},
 		"1009_xray.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS rule_pools (
 			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
-			CREATE TABLE IF NOT EXISTS pool_entries (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL REFERENCES rule_pools(id) ON DELETE CASCADE);
+			CREATE TABLE IF NOT EXISTS rule_pool_sources (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, kind TEXT NOT NULL,
+			url TEXT, source_mode TEXT NOT NULL DEFAULT 'auto', sort_order INTEGER NOT NULL,
+			active_snapshot_id INTEGER, pending_snapshot_id INTEGER);
+			CREATE TABLE IF NOT EXISTS pool_source_snapshots (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, source_id INTEGER NOT NULL, format TEXT NOT NULL DEFAULT '',
+			profile TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'staging');
+			CREATE TABLE IF NOT EXISTS pool_canonical_rules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, semantic_key TEXT NOT NULL,
+			family TEXT NOT NULL, matcher TEXT NOT NULL, value TEXT NOT NULL, options_json TEXT NOT NULL DEFAULT '{}');
+			CREATE TABLE IF NOT EXISTS pool_rule_origins (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, canonical_rule_id INTEGER NOT NULL,
+			source_id INTEGER NOT NULL, snapshot_id INTEGER, sort_order INTEGER NOT NULL, raw_line TEXT NOT NULL DEFAULT '', line_no INTEGER NOT NULL DEFAULT 0);
 			CREATE TABLE IF NOT EXISTS pool_sync_tasks (
 			id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL REFERENCES rule_pools(id) ON DELETE CASCADE);
 			CREATE TABLE IF NOT EXISTS xray_instances (
@@ -190,7 +201,10 @@ func TestClearTablesTxClearsBuild4Tables(t *testing.T) {
 
 	inserts := []string{
 		`INSERT INTO rule_pools (id, name) VALUES (1, 'p1')`,
-		`INSERT INTO pool_entries (id, pool_id) VALUES (1, 1)`,
+		`INSERT INTO rule_pool_sources (id, pool_id, kind, source_mode, sort_order) VALUES (1, 1, 'manual', 'auto', -1)`,
+		`INSERT INTO pool_source_snapshots (id, source_id, status) VALUES (1, 1, 'active')`,
+		`INSERT INTO pool_canonical_rules (id, pool_id, semantic_key, family, matcher, value) VALUES (1, 1, 'k', 'domain', 'exact', 'a.com')`,
+		`INSERT INTO pool_rule_origins (id, pool_id, canonical_rule_id, source_id, sort_order) VALUES (1, 1, 1, 1, 0)`,
 		`INSERT INTO pool_sync_tasks (id, pool_id) VALUES (1, 1)`,
 		`INSERT INTO xray_instances (id, name) VALUES (1, 'i1')`,
 		`INSERT INTO nodes (id, source, name, instance_id) VALUES (1, 'xray', 'n1', 1)`,
@@ -219,7 +233,7 @@ func TestClearTablesTxClearsBuild4Tables(t *testing.T) {
 	}
 
 	tables := []string{
-		"rule_pools", "pool_entries", "pool_sync_tasks",
+		"rule_pools", "rule_pool_sources", "pool_source_snapshots", "pool_canonical_rules", "pool_rule_origins", "pool_sync_tasks",
 		"xray_instances", "nodes", "proxy_groups", "group_nodes",
 		"xray_users", "traffic_records", "assembly_blueprints",
 		"xray_ext_accounts", "xray_ext_users", "xray_ext_traffic",

@@ -1,87 +1,74 @@
-// sync.go：URL 同步任务（异步执行 + 持久化 + 差量更新 + 来源隔离，Design2 §2.4）
+// sync.go：per-source 快照同步、异常保护与 pending 操作。
 package pool
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"vpn-sub/internal/rulespec"
 	"vpn-sub/internal/store"
 )
 
-// 关键参数（Design2 §2.4）
 const (
-	urlTimeout        = 60 * time.Second // 单 URL 拉取超时 60s
-	maxURLContentSize = 50 << 20         // 单 URL 内容上限 50MB
+	urlTimeout        = 60 * time.Second
+	maxURLContentSize = 50 << 20
 	taskRetentionDays = 7
 )
 
-// PerURLResult 单 URL 同步结果（UI §5.2.3 回执）
+// PerURLResult 单 URL 同步结果。
 type PerURLResult struct {
-	URL         string   `json:"url"`
-	OK          bool     `json:"ok"`
-	Added       int      `json:"added"`
-	Removed     int      `json:"removed"`
-	Skipped     int      `json:"skipped"`
-	SkipReasons []string `json:"skip_reasons,omitempty"`
-	Error       string   `json:"error"`
-
-	entries []parsedEntry // 内存态解析结果，不序列化
+	URL        string `json:"url"`
+	SourceID   int64  `json:"source_id"`
+	OK         bool   `json:"ok"`
+	Format     string `json:"format,omitempty"`
+	Profile    string `json:"profile,omitempty"`
+	Accepted   int    `json:"accepted"`
+	Excluded   int    `json:"excluded"`
+	Rejected   int    `json:"rejected"`
+	Duplicates int    `json:"duplicates"`
+	Pending    bool   `json:"pending,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
-// SyncTask 同步任务（状态端点/历史列表共用形状）
+// SyncTask 同步任务。
 type SyncTask struct {
 	ID         int64          `json:"task_id"`
 	PoolID     int64          `json:"pool_id"`
-	Status     string         `json:"status"` // running / succeeded / failed / partial
+	Status     string         `json:"status"`
 	PerURL     []PerURLResult `json:"per_url"`
 	Error      string         `json:"error"`
 	StartedAt  *time.Time     `json:"started_at"`
 	FinishedAt *time.Time     `json:"finished_at"`
 }
 
-type parsedEntry struct {
-	RuleType   string
-	MatchValue string
-}
-
-// SubmitSync 提交同步任务：池存在性 + 无 running 检查 + 读取 URL 快照 + 插入任务在同一 BEGIN IMMEDIATE 事务内完成；
-// 事务提交后启动 goroutine 执行，返回任务 ID。URL 快照在提交时固化，编辑池 URL 不影响已启动任务。
+// SubmitSync 提交同步任务。
 func (s *Service) SubmitSync(ctx context.Context, poolID int64) (int64, error) {
 	var taskID int64
-	var urls []string
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if err := s.checkPoolTx(ctx, tx, poolID); err != nil {
 			return err
 		}
 		var running int
 		if err := tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM pool_sync_tasks WHERE pool_id = ? AND status = 'running'`, poolID).Scan(&running); err != nil {
+			`SELECT COUNT(*) FROM pool_sync_tasks WHERE pool_id=? AND status='running'`, poolID).Scan(&running); err != nil {
 			return err
 		}
 		if running > 0 {
 			return ErrSyncRunning
 		}
-		var urlsRaw string
-		if err := tx.QueryRowContext(ctx,
-			`SELECT urls_json FROM rule_pools WHERE id = ?`, poolID).Scan(&urlsRaw); err != nil {
-			return err
-		}
-		urls = parseStringSlice(urlsRaw)
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO pool_sync_tasks (pool_id, status, per_url_json, started_at) VALUES (?, 'running', '[]', CURRENT_TIMESTAMP)`,
-			poolID)
+			`INSERT INTO pool_sync_tasks (pool_id, status, per_url_json, started_at) VALUES (?,'running','[]',CURRENT_TIMESTAMP)`, poolID)
 		if err != nil {
-			return fmt.Errorf("创建同步任务失败: %w", err)
+			return err
 		}
 		taskID, err = res.LastInsertId()
 		return err
@@ -89,7 +76,6 @@ func (s *Service) SubmitSync(ctx context.Context, poolID int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// 后台任务使用可取消 context + 整体超时，避免无限挂起；终态回写使用脱离该 context 的连接，确保取消后仍能落 failed。
 	ctx, cancel := context.WithCancelCause(context.Background())
 	timer := time.AfterFunc(SyncTaskTimeout, func() { cancel(errSyncTimeout) })
 	s.mu.Lock()
@@ -102,16 +88,16 @@ func (s *Service) SubmitSync(ctx context.Context, poolID int64) (int64, error) {
 			delete(s.cancels, taskID)
 			s.mu.Unlock()
 		}()
-		s.runSyncTask(ctx, poolID, taskID, urls) // 后台执行，不阻塞请求；只使用提交时快照
+		s.runSyncTask(ctx, poolID, taskID)
 	}()
 	return taskID, nil
 }
 
-// CancelSync 取消指定素材池的运行中同步任务。取消后任务终态复用 failed，error 写“同步任务已取消”。
+// CancelSync 取消运行中任务。
 func (s *Service) CancelSync(ctx context.Context, poolID, taskID int64) error {
 	var status string
 	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT status FROM pool_sync_tasks WHERE id = ? AND pool_id = ?`, taskID, poolID).Scan(&status)
+		`SELECT status FROM pool_sync_tasks WHERE id=? AND pool_id=?`, taskID, poolID).Scan(&status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -131,20 +117,14 @@ func (s *Service) CancelSync(ctx context.Context, poolID, taskID int64) error {
 	return nil
 }
 
-// GetStatus 读取最近一次任务状态（任务持久化于 pool_sync_tasks）。
-// 池不存在返回 ErrNotFound；池存在但无任务返回 (nil,nil)，供接入层输出空状态。
+// GetStatus 读取最近一次任务。
 func (s *Service) GetStatus(ctx context.Context, poolID int64) (*SyncTask, error) {
-	var exists int
-	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
+	if err := s.ensureExists(ctx, poolID); err != nil {
 		return nil, err
-	}
-	if exists == 0 {
-		return nil, ErrNotFound
 	}
 	row := s.store.DB().QueryRowContext(ctx,
 		`SELECT id, pool_id, status, per_url_json, error, started_at, finished_at
-		 FROM pool_sync_tasks WHERE pool_id = ? ORDER BY id DESC LIMIT 1`, poolID)
+		 FROM pool_sync_tasks WHERE pool_id=? ORDER BY id DESC LIMIT 1`, poolID)
 	t, err := scanSyncTask(row)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
@@ -152,7 +132,7 @@ func (s *Service) GetStatus(ctx context.Context, poolID int64) (*SyncTask, error
 	return t, err
 }
 
-// ListTasks 历史任务分页（id DESC，保留 7 天）；池不存在返回 ErrNotFound
+// ListTasks 历史任务分页。
 func (s *Service) ListTasks(ctx context.Context, poolID int64, page, pageSize int64) ([]SyncTask, int64, error) {
 	if page < 1 {
 		page = 1
@@ -163,22 +143,17 @@ func (s *Service) ListTasks(ctx context.Context, poolID int64, page, pageSize in
 	if pageSize > MaxPageSize {
 		pageSize = MaxPageSize
 	}
-	var exists int
-	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
+	if err := s.ensureExists(ctx, poolID); err != nil {
 		return nil, 0, err
-	}
-	if exists == 0 {
-		return nil, 0, ErrNotFound
 	}
 	var total int64
 	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM pool_sync_tasks WHERE pool_id = ?`, poolID).Scan(&total); err != nil {
+		`SELECT COUNT(*) FROM pool_sync_tasks WHERE pool_id=?`, poolID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.store.DB().QueryContext(ctx,
 		`SELECT id, pool_id, status, per_url_json, error, started_at, finished_at
-		 FROM pool_sync_tasks WHERE pool_id = ? ORDER BY id DESC LIMIT ? OFFSET ?`,
+		 FROM pool_sync_tasks WHERE pool_id=? ORDER BY id DESC LIMIT ? OFFSET ?`,
 		poolID, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, err
@@ -228,410 +203,302 @@ func parsePerURL(raw string) []PerURLResult {
 	return out
 }
 
-// runSyncTask 后台执行：串行拉取提交时 URL 快照 → 成功项分批短事务 upsert → 全部成功才差量删除；
-// 池已删除时仅记日志不崩溃；编辑 URL 只影响下一次同步。
-// R22-01：不再把整批插入/删除/回写放在单个长事务中，每批约 500 行独立提交，
-// 降低 SQLite 写锁持有时间；失败时保留已插入的新条目，但跳过差量删除并标记任务失败。
-func (s *Service) runSyncTask(ctx context.Context, poolID, taskID int64, urls []string) {
-	if len(urls) == 0 {
-		s.failTask(context.WithoutCancel(ctx), poolID, taskID, nil, "未配置 URL")
-		return
-	}
-	client := &http.Client{Timeout: urlTimeout}
-	results := make([]PerURLResult, 0, len(urls))
-	partial := false
-	for _, target := range urls {
-		r := s.syncURL(ctx, client, target)
-		if !r.OK {
-			partial = true
-		}
-		results = append(results, r)
-	}
-
-	status := "succeeded"
-	if partial {
-		status = "partial"
-	}
-	finalErr := summarizePartial(results)
-	// 后台同步使用独立数据库连接，避免长事务占用 API 共用连接。
+func (s *Service) runSyncTask(ctx context.Context, poolID, taskID int64) {
+	results := make([]PerURLResult, 0)
+	allOK := true
+	anyOK := false
 	bgStore, err := store.Open(filepath.Dir(s.store.DBPath()), filepath.Base(s.store.DBPath()))
 	if err != nil {
-		s.log.Error("素材池同步打开后台数据库连接失败", "pool_id", poolID, "task_id", taskID, "err", err)
-		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "打开后台数据库连接失败: "+err.Error())
+		s.failTask(ctx, poolID, taskID, results, "打开后台数据库连接失败: "+err.Error())
 		return
 	}
 	defer bgStore.Close()
 
-	// 先确认池仍存在；已删除时不回写（任务行已随外键级联删除）。
 	var exists int
 	if err := bgStore.DB().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
-		s.log.Error("素材池同步检查池存在失败", "pool_id", poolID, "task_id", taskID, "err", err)
-		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "检查素材池失败: "+err.Error())
+		`SELECT COUNT(*) FROM rule_pools WHERE id=?`, poolID).Scan(&exists); err != nil {
+		s.failTask(ctx, poolID, taskID, results, "检查素材池失败: "+err.Error())
 		return
 	}
 	if exists == 0 {
 		return
 	}
 
-	// ---- 插入阶段：独立短事务分批提交 ----
-	removedByURL := map[string]int{}
-	var nextOrder int64
-	if err := bgStore.DB().QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(sort_order), ?) FROM pool_entries WHERE pool_id = ? AND sort_order >= ?`,
-		URLBase-1, poolID, URLBase).Scan(&nextOrder); err != nil {
-		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "读取排序值失败: "+err.Error())
+	client := &http.Client{Timeout: urlTimeout}
+	type urlSource struct {
+		id   int64
+		url  string
+		mode string
+	}
+	var sources []urlSource
+	rows, err := bgStore.DB().QueryContext(ctx,
+		`SELECT id, COALESCE(url,''), source_mode FROM rule_pool_sources WHERE pool_id=? AND kind='url' ORDER BY sort_order,id`, poolID)
+	if err != nil {
+		s.failTask(ctx, poolID, taskID, results, "读取 URL 来源失败: "+err.Error())
 		return
 	}
-	nextOrder++
-	const batchSize = 500
-	for i := range results {
-		r := &results[i]
-		if !r.OK {
-			continue
-		}
-		for start := 0; start < len(r.entries); start += batchSize {
-			end := start + batchSize
-			if end > len(r.entries) {
-				end = len(r.entries)
-			}
-			var sb strings.Builder
-			sb.WriteString(`INSERT OR IGNORE INTO pool_entries (pool_id, rule_type, match_value, source, sort_order, source_url) VALUES `)
-			args := make([]any, 0, (end-start)*5)
-			for j := start; j < end; j++ {
-				if j > start {
-					sb.WriteString(",")
-				}
-				sb.WriteString(`(?,?,?,'url',?,?)`)
-				args = append(args, poolID, r.entries[j].RuleType, r.entries[j].MatchValue, nextOrder, r.URL)
-				nextOrder++
-			}
-			var added int64
-			err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-				res, err := tx.ExecContext(ctx, sb.String(), args...)
-				if err != nil {
-					return err
-				}
-				added, _ = res.RowsAffected()
-				return nil
-			})
-			if err != nil {
-				s.log.Error("素材池同步插入批次失败", "pool_id", poolID, "task_id", taskID, "err", err)
-				// 用户已确认：失败时允许已插入新条目留存，不再整体回滚；跳过删除并标记失败。
-				s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "插入素材池条目失败: "+err.Error())
-				return
-			}
-			if added > 0 {
-				r.Added += int(added)
-			}
-		}
-	}
-
-	if !partial {
-		keepTable := fmt.Sprintf("_pool_sync_keep_%d", taskID)
-		allEntries := make([]parsedEntry, 0)
-		for _, r := range results {
-			if !r.OK {
-				continue
-			}
-			allEntries = append(allEntries, r.entries...)
-		}
-
-		// ---- 临时 keep 表：单独短事务创建 + 建索引 ----
-		if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-			if _, err := tx.ExecContext(ctx,
-				`CREATE TEMP TABLE `+keepTable+` (rule_type TEXT NOT NULL, match_value TEXT NOT NULL)`); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx,
-				`CREATE INDEX IF NOT EXISTS `+keepTable+`_idx ON `+keepTable+`(rule_type, match_value)`); err != nil {
-				return err
-			}
-			return nil
-		}); err != nil {
-			s.log.Error("素材池同步创建临时表失败", "pool_id", poolID, "task_id", taskID, "err", err)
-			s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "创建临时表失败: "+err.Error())
+	for rows.Next() {
+		var src urlSource
+		if err := rows.Scan(&src.id, &src.url, &src.mode); err != nil {
+			_ = rows.Close()
+			s.failTask(ctx, poolID, taskID, results, "读取 URL 来源失败: "+err.Error())
 			return
 		}
-
-		// ---- 临时 keep 表批量填充 ----
-		for start := 0; start < len(allEntries); start += batchSize {
-			end := start + batchSize
-			if end > len(allEntries) {
-				end = len(allEntries)
-			}
-			var sb strings.Builder
-			sb.WriteString(`INSERT OR IGNORE INTO ` + keepTable + ` (rule_type, match_value) VALUES `)
-			args := make([]any, 0, (end-start)*2)
-			for j := start; j < end; j++ {
-				if j > start {
-					sb.WriteString(",")
-				}
-				sb.WriteString(`(?,?)`)
-				args = append(args, allEntries[j].RuleType, allEntries[j].MatchValue)
-			}
-			if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-				_, err := tx.ExecContext(ctx, sb.String(), args...)
-				return err
-			}); err != nil {
-				s.log.Error("素材池同步填充临时表失败", "pool_id", poolID, "task_id", taskID, "err", err)
-				s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "填充临时表失败: "+err.Error())
-				return
-			}
-		}
-
-		// ---- 删除前统计：按 source_url 统计待删除行数 ----
-		delRows, err := bgStore.DB().QueryContext(ctx,
-			`SELECT source_url, COUNT(*) FROM pool_entries
-			 WHERE pool_id = ? AND source = 'url'
-			   AND NOT EXISTS (
-			     SELECT 1 FROM `+keepTable+` k
-			     WHERE k.rule_type = pool_entries.rule_type AND k.match_value = pool_entries.match_value
-			   )
-			 GROUP BY source_url`, poolID)
-		if err != nil {
-			s.log.Error("素材池同步删除前统计失败", "pool_id", poolID, "task_id", taskID, "err", err)
-			s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "删除前统计失败: "+err.Error())
-			return
-		}
-		for delRows.Next() {
-			var u string
-			var c int
-			if err := delRows.Scan(&u, &c); err != nil {
-				_ = delRows.Close()
-				s.log.Error("素材池同步解析删除统计失败", "pool_id", poolID, "task_id", taskID, "err", err)
-				s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "解析删除统计失败: "+err.Error())
-				return
-			}
-			removedByURL[u] = c
-		}
-		if err := delRows.Close(); err != nil {
-			s.log.Error("素材池同步关闭删除统计失败", "pool_id", poolID, "task_id", taskID, "err", err)
-			s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "关闭删除统计失败: "+err.Error())
-			return
-		}
-
-		// ---- 差量删除：分批短事务，每批最多 batchSize 行 ----
-		for {
-			var deleted int64
-			err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-				res, err := tx.ExecContext(ctx,
-					`DELETE FROM pool_entries WHERE id IN (
-					   SELECT id FROM pool_entries
-					   WHERE pool_id = ? AND source = 'url'
-					     AND NOT EXISTS (
-					       SELECT 1 FROM `+keepTable+` k
-					       WHERE k.rule_type = pool_entries.rule_type AND k.match_value = pool_entries.match_value
-					     )
-					   LIMIT ?)`,
-					poolID, batchSize)
-				if err != nil {
-					return err
-				}
-				deleted, _ = res.RowsAffected()
-				return nil
-			})
-			if err != nil {
-				s.log.Error("素材池同步删除批次失败", "pool_id", poolID, "task_id", taskID, "err", err)
-				s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "删除素材池条目失败: "+err.Error())
-				return
-			}
-			if deleted == 0 {
-				break
-			}
-		}
-
-		// ---- 清理临时表 ----
-		if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS `+keepTable)
-			return err
-		}); err != nil {
-			s.log.Warn("素材池同步清理临时表失败", "pool_id", poolID, "task_id", taskID, "err", err)
+		sources = append(sources, src)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		s.failTask(ctx, poolID, taskID, results, "读取 URL 来源失败: "+err.Error())
+		return
+	}
+	for _, src := range sources {
+		r := s.syncOne(ctx, bgStore, client, poolID, src.id, src.url, SourceMode(src.mode))
+		results = append(results, r)
+		if r.OK {
+			anyOK = true
+		} else {
+			allOK = false
 		}
 	}
 
-	// 回写 removed（历史空 source_url 无法归属，不写入任何 URL）
-	for i := range results {
-		if n, ok := removedByURL[results[i].URL]; ok {
-			results[i].Removed = n
-		}
+	status := "failed"
+	if anyOK {
+		status = "partial"
 	}
-
-	// ---- 终态与池快照：单独短事务回写 ----
-	if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); err != nil {
-			return err
-		}
-		if exists == 0 {
-			return nil
-		}
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE pool_sync_tasks SET status = ?, per_url_json = ?, error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			status, toJSON(stripEntries(results)), finalErr, taskID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE rule_pools SET last_synced_at = CURRENT_TIMESTAMP, sync_status = ?, sync_error = ? WHERE id = ?`,
-			status, finalErr, poolID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM pool_sync_tasks WHERE pool_id = ? AND finished_at IS NOT NULL AND finished_at < datetime('now', '-7 days')`,
-			poolID); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		s.log.Error("素材池同步终态回写失败", "pool_id", poolID, "task_id", taskID, "err", err)
-		s.failTask(context.WithoutCancel(ctx), poolID, taskID, results, "终态回写失败: "+err.Error())
+	if allOK && len(results) > 0 {
+		status = "succeeded"
 	}
+	s.finishTask(ctx, bgStore, poolID, taskID, status, summarizeResults(results), results)
 }
 
-// failTask 将任务与池快照置为 failed；池已删除时静默跳过。
-func (s *Service) failTask(ctx context.Context, poolID, taskID int64, results []PerURLResult, msg string) {
-	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		var exists int
-		if e := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rule_pools WHERE id = ?`, poolID).Scan(&exists); e != nil {
-			return e
-		}
-		if exists == 0 {
-			return nil
-		}
-		if _, e := tx.ExecContext(ctx,
-			`UPDATE pool_sync_tasks SET status = 'failed', per_url_json = ?, error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			toJSON(stripEntries(results)), truncateError(msg, 200), taskID); e != nil {
-			return e
-		}
-		_, e := tx.ExecContext(ctx,
-			`UPDATE rule_pools SET last_synced_at = CURRENT_TIMESTAMP, sync_status = 'failed', sync_error = ? WHERE id = ?`,
-			truncateError(msg, 200), poolID)
-		return e
-	}); err != nil {
-		s.log.Error("素材池任务终态写回失败", "pool_id", poolID, "task_id", taskID, "err", err)
-	}
-}
-
-// syncURL 拉取并解析单个 URL；空响应/零有效条目视为失败（保留旧数据）
-func (s *Service) syncURL(ctx context.Context, client *http.Client, target string) (r PerURLResult) {
-	r.URL = target
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *http.Client, poolID, sourceID int64, u string, mode SourceMode) PerURLResult {
+	r := PerURLResult{URL: u, SourceID: sourceID}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		r.Error = err.Error()
 		return r
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		r.Error = "拉取失败: " + err.Error()
+		r.Error = err.Error()
 		return r
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		r.Error = fmt.Sprintf("HTTP 状态码 %d", resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		r.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
 		return r
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxURLContentSize+1))
 	if err != nil {
-		r.Error = "读取响应失败: " + err.Error()
+		r.Error = err.Error()
 		return r
 	}
-	if int64(len(body)) > maxURLContentSize {
-		r.Error = "内容超过 50MB 限制"
+	if len(body) > maxURLContentSize {
+		r.Error = "内容超过 50MB"
 		return r
 	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		r.Error = "空响应，已保留旧数据"
-		return r
-	}
-	entries, skipped, reasons, err := parseURLBody(body)
+	parsed, err := ParseSource(body, mode)
 	if err != nil {
-		r.Error = "解析响应失败: " + err.Error()
-		r.Skipped = skipped
-		r.SkipReasons = reasons
+		r.Error = err.Error()
 		return r
 	}
-	if len(entries) == 0 {
-		r.Error = "响应无有效规则条目，已保留旧数据"
-		r.Skipped = skipped
-		r.SkipReasons = reasons
-		return r
-	}
-	r.entries = entries
-	r.Skipped = skipped
-	r.SkipReasons = reasons
+	r.Format = string(parsed.Format)
+	r.Profile = parsed.Profile
+	r.Accepted = parsed.Accepted
+	r.Excluded = parsed.Excluded
+	r.Rejected = parsed.Rejected
+	r.Duplicates = parsed.Duplicates
 	r.OK = true
+
+	err = bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
+		id, pending, err := applyParseResultTx(ctx, tx, poolID, sourceID, parsed)
+		if err != nil {
+			return err
+		}
+		r.Pending = pending
+		_ = id
+		return nil
+	})
+	if err != nil {
+		r.OK = false
+		r.Error = err.Error()
+	}
 	return r
 }
 
-// parseURLBody 逐行解析并按（类型,值）去重合并；返回有效条目、跳过计数、跳过原因与 Scanner 错误。
-// Scanner 错误（如超长行）必须显式返回，调用方将 URL 记为失败并保留旧数据，避免差量删除误删。
-func parseURLBody(body []byte) ([]parsedEntry, int, []string, error) {
-	sc := bufio.NewScanner(bytes.NewReader(body))
-	sc.Buffer(make([]byte, 64*1024), 1024*1024) // 支持长行
-	seen := map[string]bool{}
-	out := make([]parsedEntry, 0)
-	skipped := 0
-	var reasons []string
-	for sc.Scan() {
-		typ, val, reason, ok := ParseLine(sc.Text())
-		if !ok {
-			skipped++
-			if reason != "" {
-				reasons = append(reasons, reason)
-			}
-			continue
+func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, parsed *ParseResult) (int64, bool, error) {
+	// 读取旧 active 信息，用于异常保护。
+	var oldFormat, oldProfile sql.NullString
+	var oldAccepted sql.NullInt64
+	var oldActiveID sql.NullInt64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT s.id, s.format, s.profile, s.accepted_count
+		 FROM rule_pool_sources src LEFT JOIN pool_source_snapshots s ON s.id = src.active_snapshot_id
+		 WHERE src.id=?`, sourceID).Scan(&oldActiveID, &oldFormat, &oldProfile, &oldAccepted); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, false, err
 		}
-		if reason != "" {
-			reasons = append(reasons, reason)
-		}
-		normType, norm, err := ValidateEntry(typ, val)
+	}
+
+	diagJSON, _ := json.Marshal(parsed.Diagnostics)
+	statsJSON, _ := json.Marshal(map[string]any{
+		"input": parsed.Input, "recognized": parsed.Recognized,
+		"accepted": parsed.Accepted, "excluded": parsed.Excluded,
+		"rejected": parsed.Rejected, "duplicates": parsed.Duplicates,
+	})
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO pool_source_snapshots
+		   (source_id, format, profile, status, input_count, recognized_count, accepted_count, excluded_count, rejected_count, duplicate_count, diagnostic_json, stats_json)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		sourceID, string(parsed.Format), parsed.Profile, "staging", parsed.Input, parsed.Recognized,
+		parsed.Accepted, parsed.Excluded, parsed.Rejected, parsed.Duplicates, string(diagJSON), string(statsJSON))
+	if err != nil {
+		return 0, false, err
+	}
+	snapshotID, err := res.LastInsertId()
+	if err != nil {
+		return 0, false, err
+	}
+
+	for _, rule := range parsed.Rules {
+		canonicalID, err := ensureCanonicalTx(ctx, tx, poolID, rule)
 		if err != nil {
-			skipped++ // 非法条目跳过并计数，不阻断同步
-			reasons = append(reasons, err.Error())
-			continue
+			return 0, false, err
 		}
-		key := normType + "\x00" + norm
-		if seen[key] {
-			skipped++
-			reasons = append(reasons, "重复条目已忽略: "+normType+","+norm)
-			continue
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO pool_rule_origins (pool_id, canonical_rule_id, source_id, snapshot_id, sort_order, raw_line, line_no)
+			 VALUES (?,?,?,?,?,?,0)`,
+			poolID, canonicalID, sourceID, snapshotID, int64(len(parsed.Rules)), rule.SemanticKey()); err != nil {
+			return 0, false, err
 		}
-		seen[key] = true
-		out = append(out, parsedEntry{RuleType: normType, MatchValue: norm})
 	}
-	if err := sc.Err(); err != nil {
-		return out, skipped, reasons, err
+
+	pending := false
+	if oldActiveID.Valid {
+		if oldFormat.String != string(parsed.Format) || oldProfile.String != parsed.Profile {
+			pending = true
+		}
+		if oldAccepted.Int64 >= 20 && int64(parsed.Accepted)*10 < oldAccepted.Int64*7 {
+			pending = true
+		}
 	}
-	return out, skipped, reasons, nil
+	status := "active"
+	if pending {
+		status = "pending"
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE pool_source_snapshots SET status=? WHERE id=?`, status, snapshotID); err != nil {
+		return 0, false, err
+	}
+	if pending {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE rule_pool_sources SET pending_snapshot_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, snapshotID, sourceID); err != nil {
+			return 0, false, err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE rule_pool_sources SET active_snapshot_id=?, pending_snapshot_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?`, snapshotID, sourceID); err != nil {
+			return 0, false, err
+		}
+	}
+	return snapshotID, pending, nil
 }
 
-// summarizePartial 汇总部分失败原因（pool 快照 sync_error）
-func summarizePartial(results []PerURLResult) string {
-	if len(results) == 0 {
-		return ""
+func (s *Service) finishTask(ctx context.Context, bgStore *store.Store, poolID, taskID int64, status, errMsg string, results []PerURLResult) {
+	perJSON, _ := json.Marshal(results)
+	if status == "succeeded" {
+		if _, err := bgStore.DB().ExecContext(ctx,
+			`UPDATE pool_sync_tasks SET status=?, per_url_json=?, error='', finished_at=CURRENT_TIMESTAMP WHERE id=?`,
+			status, string(perJSON), taskID); err != nil {
+			s.log.Error("回写同步任务失败", "task_id", taskID, "err", err)
+			return
+		}
+		if _, err := bgStore.DB().ExecContext(ctx,
+			`UPDATE rule_pools SET last_synced_at=CURRENT_TIMESTAMP, sync_status='succeeded', sync_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?`, poolID); err != nil {
+			s.log.Error("回写池同步状态失败", "pool_id", poolID, "err", err)
+		}
+	} else {
+		if _, err := bgStore.DB().ExecContext(ctx,
+			`UPDATE pool_sync_tasks SET status=?, per_url_json=?, error=?, finished_at=CURRENT_TIMESTAMP WHERE id=?`,
+			status, string(perJSON), errMsg, taskID); err != nil {
+			s.log.Error("回写同步任务失败", "task_id", taskID, "err", err)
+		}
+		if _, err := bgStore.DB().ExecContext(ctx,
+			`UPDATE rule_pools SET sync_status=?, sync_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, errMsg, poolID); err != nil {
+			s.log.Error("回写池同步状态失败", "pool_id", poolID, "err", err)
+		}
 	}
-	var parts []string
+	// 清理 7 天前的终态任务，不删除 active/pending 快照。
+	_, _ = bgStore.DB().ExecContext(ctx,
+		`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at IS NOT NULL AND finished_at < datetime('now', ?)`, poolID, fmt.Sprintf("-%d days", taskRetentionDays))
+}
+
+func (s *Service) failTask(ctx context.Context, poolID, taskID int64, results []PerURLResult, msg string) {
+	perJSON, _ := json.Marshal(results)
+	if _, err := s.store.DB().ExecContext(ctx,
+		`UPDATE pool_sync_tasks SET status='failed', per_url_json=?, error=?, finished_at=CURRENT_TIMESTAMP WHERE id=?`,
+		string(perJSON), msg, taskID); err != nil {
+		s.log.Error("回写失败任务", "task_id", taskID, "err", err)
+	}
+	_, _ = s.store.DB().ExecContext(ctx,
+		`UPDATE rule_pools SET sync_status='failed', sync_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, msg, poolID)
+}
+
+func summarizeResults(results []PerURLResult) string {
+	var msgs []string
 	for _, r := range results {
-		if !r.OK {
-			parts = append(parts, r.URL+": "+r.Error)
+		if r.Error != "" {
+			msgs = append(msgs, r.URL+": "+r.Error)
 		}
 	}
-	return strings.Join(parts, "；")
+	return strings.Join(msgs, "；")
 }
 
-// stripEntries 移除 PerURLResult 中的内存 entries 字段（避免 JSON 输出额外字段）
-func stripEntries(in []PerURLResult) []PerURLResult {
-	out := make([]PerURLResult, len(in))
-	copy(out, in)
-	for i := range out {
-		out[i].entries = nil
-	}
-	return out
+// ActivatePending 人工激活 pending 快照（Step 6 API 使用）。
+func (s *Service) ActivatePending(ctx context.Context, poolID, sourceID, snapshotID int64) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var current int64
+		if err := tx.QueryRowContext(ctx,
+			`SELECT pending_snapshot_id FROM rule_pool_sources WHERE id=? AND pool_id=?`, sourceID, poolID).Scan(&current); err != nil {
+			return ErrNotFound
+		}
+		if current != snapshotID {
+			return fmt.Errorf("%w: pending 快照已过期", ErrBadRequest)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE rule_pool_sources SET active_snapshot_id=?, pending_snapshot_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?`, snapshotID, sourceID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE pool_source_snapshots SET status='active' WHERE id=?`, snapshotID); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
-func truncateError(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
+// DiscardPending 丢弃 pending 快照。
+func (s *Service) DiscardPending(ctx context.Context, poolID, sourceID, snapshotID int64) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var current int64
+		if err := tx.QueryRowContext(ctx,
+			`SELECT pending_snapshot_id FROM rule_pool_sources WHERE id=? AND pool_id=?`, sourceID, poolID).Scan(&current); err != nil {
+			return ErrNotFound
+		}
+		if current != snapshotID {
+			return fmt.Errorf("%w: pending 快照已过期", ErrBadRequest)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE rule_pool_sources SET pending_snapshot_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?`, sourceID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM pool_source_snapshots WHERE id=? AND status='pending'`, snapshotID); err != nil {
+			return err
+		}
+		return s.cleanupOrphanCanonicalTx(ctx, tx, poolID)
+	})
 }
+
+var _ = rulespec.CanonicalRule{}
+var _ = slog.Logger{}

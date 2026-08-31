@@ -269,9 +269,9 @@ func (h *SettingsHandler) siteInfo(c *gin.Context) {
 func (h *SettingsHandler) getRateLimit(c *gin.Context) {
 	// 返回当前 TRUST_PROXY 生效值与 CIDR 摘要供前端展示（Design1 §3.4.8）
 	OK(c, gin.H{
-		"settings":           h.adminCfg.GetRateLimit(c.Request.Context()),
-		"trust_proxy":        string(h.trustProxy.Mode()),
-		"trust_proxy_cidrs":  h.trustProxy.RawCIDRs(),
+		"settings":          h.adminCfg.GetRateLimit(c.Request.Context()),
+		"trust_proxy":       string(h.trustProxy.Mode()),
+		"trust_proxy_cidrs": h.trustProxy.RawCIDRs(),
 	})
 }
 
@@ -364,7 +364,6 @@ func (h *SettingsHandler) saveDebug(c *gin.Context) {
 	}
 	OK(c, nil)
 }
-
 
 // --- 高级模式分区 ---
 

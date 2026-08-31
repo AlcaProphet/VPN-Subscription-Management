@@ -263,7 +263,6 @@ func (h *XrayHandler) resetQuota(c *gin.Context) {
 	OK(c, nil)
 }
 
-
 // --- 独立账号端点 ---
 
 func (h *XrayHandler) listExt(c *gin.Context) {

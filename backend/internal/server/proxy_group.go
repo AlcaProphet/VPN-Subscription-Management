@@ -35,9 +35,9 @@ func (h *ProxyGroupHandler) list(c *gin.Context) {
 
 func (h *ProxyGroupHandler) create(c *gin.Context) {
 	var req struct {
-		Name      string                   `json:"name" binding:"required"`
-		GroupType string                   `json:"group_type" binding:"required"`
-		Definition proxygroup.Definition   `json:"definition"`
+		Name       string                `json:"name" binding:"required"`
+		GroupType  string                `json:"group_type" binding:"required"`
+		Definition proxygroup.Definition `json:"definition"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
@@ -65,8 +65,8 @@ func (h *ProxyGroupHandler) update(c *gin.Context) {
 		return
 	}
 	var req struct {
-		GroupType  string                 `json:"group_type" binding:"required"`
-		Definition proxygroup.Definition  `json:"definition"`
+		GroupType  string                `json:"group_type" binding:"required"`
+		Definition proxygroup.Definition `json:"definition"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")

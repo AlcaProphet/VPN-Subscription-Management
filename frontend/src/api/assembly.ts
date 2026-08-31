@@ -46,12 +46,22 @@ export interface SkipItem {
   name: string
   reason: string
 }
+export interface ConversionReceipt {
+  input: number
+  direct_output: number
+  equivalent_conversions: number
+  skipped_unsupported: number
+  target_validation_failed: number
+  final_output: number
+}
+
 export interface PreviewResponse {
   content: string
   preview_hash: string
   skipped: SkipItem[]
   warnings: string[]
   name_changed?: Record<string, string>
+  receipt?: ConversionReceipt
 }
 export interface AssemblyContext {
   nodes: NodeItem[]

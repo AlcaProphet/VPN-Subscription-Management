@@ -11,6 +11,7 @@ import (
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/node"
 	"vpn-sub/internal/proxygroup"
+	"vpn-sub/internal/rulespec"
 )
 
 // nodeData 渲染用节点数据（凭据已解密）。
@@ -191,20 +192,62 @@ func (s *Service) loadPoolEntries(ctx context.Context, poolID int64) ([]poolEntr
 		return nil, fmt.Errorf("%w: 素材池不存在: %d", ErrBadRequest, poolID)
 	}
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT rule_type, match_value FROM pool_entries WHERE pool_id = ? ORDER BY sort_order, id`, poolID)
+		`SELECT cr.family, cr.matcher, cr.value, cr.options_json, src.kind
+		 FROM pool_canonical_rules cr
+		 JOIN pool_rule_origins o ON o.canonical_rule_id = cr.id
+		 JOIN rule_pool_sources src ON src.id = o.source_id
+		 WHERE cr.pool_id = ?
+		   AND ((src.kind='manual' AND o.snapshot_id IS NULL)
+		     OR (src.kind='url' AND o.snapshot_id = src.active_snapshot_id))
+		 ORDER BY CASE WHEN src.kind='manual' THEN 0 ELSE 1 END, src.sort_order, cr.id`, poolID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := make([]poolEntry, 0)
 	for rows.Next() {
-		var e poolEntry
-		if err := rows.Scan(&e.RuleType, &e.MatchValue); err != nil {
+		var family, matcher, value, optionsRaw, kind string
+		if err := rows.Scan(&family, &matcher, &value, &optionsRaw, &kind); err != nil {
 			return nil, err
 		}
-		out = append(out, e)
+		var opts rulespec.RuleOptions
+		_ = json.Unmarshal([]byte(optionsRaw), &opts)
+		rule := rulespec.CanonicalRule{Family: rulespec.Family(family), Matcher: rulespec.Matcher(matcher), Value: value, Options: opts}
+		// 临时兼容：Step 5 会改为直接消费 Canonical Rule。
+		out = append(out, poolEntry{RuleType: legacyPoolType(rule), MatchValue: value})
 	}
 	return out, rows.Err()
+}
+
+func legacyPoolType(rule rulespec.CanonicalRule) string {
+	switch rule.Family {
+	case rulespec.FamilyDomain:
+		switch rule.Matcher {
+		case rulespec.MatcherExact:
+			return "DOMAIN"
+		case rulespec.MatcherSuffix:
+			return "DOMAIN-SUFFIX"
+		case rulespec.MatcherKeyword:
+			return "DOMAIN-KEYWORD"
+		case rulespec.MatcherRegex:
+			return "DOMAIN-REGEX"
+		}
+	case rulespec.FamilyIP:
+		switch rule.Matcher {
+		case rulespec.MatcherCIDR:
+			return "IP-CIDR"
+		case rulespec.MatcherASN:
+			return "IP-ASN"
+		}
+	case rulespec.FamilyUserAgent:
+		return "USER-AGENT"
+	case rulespec.FamilyProcess:
+		if rule.Matcher == rulespec.MatcherRegex {
+			return "PROCESS-NAME-REGEX"
+		}
+		return "PROCESS-NAME"
+	}
+	return ""
 }
 
 func (s *Service) loadPlatform(ctx context.Context, id int64) (*platformInfo, error) {

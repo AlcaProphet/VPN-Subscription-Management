@@ -183,18 +183,30 @@ type SkipItem struct {
 	Reason string `json:"reason"`
 }
 
+// ConversionReceipt 转换回执。
+type ConversionReceipt struct {
+	Input                  int `json:"input"`
+	DirectOutput           int `json:"direct_output"`
+	EquivalentConversions  int `json:"equivalent_conversions"`
+	SkippedUnsupported     int `json:"skipped_unsupported"`
+	TargetValidationFailed int `json:"target_validation_failed"`
+	FinalOutput            int `json:"final_output"`
+}
+
 // RenderResult 渲染结果。
 type RenderResult struct {
-	Content    []byte          `json:"content"`
-	Skipped    []SkipItem      `json:"skipped"`
-	RenderPlan json.RawMessage `json:"render_plan,omitempty"`
-	Issues     []OutputIssue   `json:"issues,omitempty"`
+	Content    []byte             `json:"content"`
+	Skipped    []SkipItem         `json:"skipped"`
+	RenderPlan json.RawMessage    `json:"render_plan,omitempty"`
+	Issues     []OutputIssue      `json:"issues,omitempty"`
+	Receipt    *ConversionReceipt `json:"receipt,omitempty"`
 }
 
 // PreviewResult 预览/生成前置结果（含提示与名称变更对照）。
 type PreviewResult struct {
-	Content     []byte            `json:"content"`
-	Skipped     []SkipItem        `json:"skipped"`
-	Warnings    []string          `json:"warnings"`
-	NameChanged map[string]string `json:"name_changed,omitempty"`
+	Content     []byte             `json:"content"`
+	Skipped     []SkipItem         `json:"skipped"`
+	Warnings    []string           `json:"warnings"`
+	NameChanged map[string]string  `json:"name_changed,omitempty"`
+	Receipt     *ConversionReceipt `json:"receipt,omitempty"`
 }
