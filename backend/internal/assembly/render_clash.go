@@ -64,12 +64,17 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 		if err != nil {
 			return
 		}
-		line := typ + ","
-		if typ != "MATCH" {
+		mapped := rulespec.SupportsAndMapLegacy(typ, rulespec.TargetClash)
+		if !mapped.Supported {
+			skipped = append(skipped, SkipItem{Kind: "rule", Name: ruleType + "," + value, Reason: "Clash 不支持该规则类型"})
+			return
+		}
+		line := mapped.RenderType + ","
+		if mapped.RenderType != "MATCH" {
 			line += normalized + ","
 		}
 		line += target
-		if rulespec.Definitions[typ].NoResolve {
+		if mapped.SupportsNoResolve {
 			line += ",no-resolve"
 		}
 		rules = append(rules, line)
@@ -77,18 +82,10 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	for _, psel := range in.Pools {
 		entries := ld.pools[psel.PoolID]
 		for _, e := range entries {
-			if e.RuleType == "USER-AGENT" {
-				skipped = append(skipped, SkipItem{Kind: "rule", Name: e.MatchValue, Reason: "Clash 不支持 USER-AGENT 规则"})
-				continue
-			}
 			appendRule(e.RuleType, e.MatchValue, psel.Target)
 		}
 	}
 	for _, r := range in.CustomRules {
-		if r.RuleType == "USER-AGENT" {
-			skipped = append(skipped, SkipItem{Kind: "rule", Name: r.MatchValue, Reason: "Clash 不支持 USER-AGENT 规则"})
-			continue
-		}
 		appendRule(r.RuleType, r.MatchValue, r.Target)
 	}
 	appendRule("GEOIP", "CN", "DIRECT")

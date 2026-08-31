@@ -8,6 +8,7 @@ import {
   submitSync, getSyncStatus, listSyncTasks,
   type PoolItem, type PoolEntryItem, type SyncTaskItem,
 } from '@/api/pool'
+import { listCapabilityMeta } from '@/api/rulespec'
 import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import FormOverlay from '@/components/FormOverlay.vue'
@@ -15,7 +16,7 @@ import FormOverlay from '@/components/FormOverlay.vue'
 const props = defineProps<{ pool: PoolItem }>()
 const emit = defineEmits<{ back: []; changed: [poolID: number]; edit: [] }>()
 
-const RULE_TYPES = ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'IP-CIDR6', 'PROCESS-NAME', 'PROCESS-NAME-REGEX', 'USER-AGENT']
+const manualRuleTypes = ref<string[]>([])
 
 const manualLoading = ref(false)
 const manualEntries = ref<PoolEntryItem[]>([])
@@ -68,7 +69,19 @@ async function refreshEntries() {
   if (urlExpanded.value && urlLoaded.value) await loadURLEntries()
 }
 
-onMounted(loadManualEntries)
+async function loadRuleTypes() {
+  try {
+    const meta = await listCapabilityMeta()
+    manualRuleTypes.value = meta.legacy.filter((m) => m.material_pool).map((m) => m.rule_type)
+  } catch (err) {
+    Notify.error((err as Error).message)
+  }
+}
+
+onMounted(() => {
+  void loadRuleTypes()
+  void loadManualEntries()
+})
 watch(manualPage, () => { void loadManualEntries() })
 watch(urlPage, () => {
   if (urlExpanded.value && urlLoaded.value) void loadURLEntries()
@@ -326,7 +339,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
     <FormOverlay v-model:open="entryOpen" :title="editingEntry ? '编辑条目' : '新增条目'" :width="480"
                  :loading="entrySaving" destroy-on-close @submit="saveEntry">
       <div class="space-y-3">
-        <AppSelect v-model:value="entryForm.rule_type" :options="RULE_TYPES.map((t) => ({ label: t, value: t }))" class="w-full" />
+        <AppSelect v-model:value="entryForm.rule_type" :options="manualRuleTypes.map((t) => ({ label: t, value: t }))" class="w-full" />
         <Input v-model:value="entryForm.match_value" placeholder="匹配值（按规则类型白名单校验）" @press-enter="saveEntry" />
       </div>
     </FormOverlay>

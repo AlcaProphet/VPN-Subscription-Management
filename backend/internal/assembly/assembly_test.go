@@ -399,8 +399,11 @@ func TestClashExtendedRulesAndSrSkip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SR 扩展规则预览失败: %v", err)
 	}
-	if strings.Contains(string(res.Content), "GEOSITE") || len(res.Skipped) != len(rules) {
-		t.Fatalf("SR 应跳过不支持规则: content=%s skipped=%+v", res.Content, res.Skipped)
+	if strings.Contains(string(res.Content), "GEOSITE") || strings.Contains(string(res.Content), "AND") || len(res.Skipped) != 2 {
+		t.Fatalf("SR 应跳过 GEOSITE/AND 并保留 IP-ASN: content=%s skipped=%+v", res.Content, res.Skipped)
+	}
+	if !strings.Contains(string(res.Content), "IP-ASN,45102,PROXY") {
+		t.Fatalf("SR 应输出 IP-ASN: content=%s", res.Content)
 	}
 }
 

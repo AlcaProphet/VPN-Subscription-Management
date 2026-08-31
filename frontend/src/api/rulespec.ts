@@ -12,5 +12,20 @@ export interface CapabilityMetadata {
   advanced: boolean
 }
 
+export interface LegacyCapabilityMetadata {
+  rule_type: string
+  scope: 'common' | 'clash_only' | 'sr_only' | 'unsupported'
+  clash_render_type?: string
+  sr_render_type?: string
+  supports_no_resolve: boolean
+  material_pool: boolean
+  advanced: boolean
+}
+
+export interface RulespecMetaResponse {
+  legacy: LegacyCapabilityMetadata[]
+  capabilities: CapabilityMetadata[]
+}
+
 export const listCapabilityMeta = () =>
-  http.get<any, CapabilityMetadata[]>('/admin/rulespec/meta')
+  http.get<any, RulespecMetaResponse>('/admin/rulespec/meta')

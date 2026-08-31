@@ -80,11 +80,12 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 			skipped = append(skipped, SkipItem{Kind: "rule", Name: ruleType + "," + value, Reason: err.Error()})
 			return
 		}
-		if !rulespec.Definitions[typ].SR {
+		mapped := rulespec.SupportsAndMapLegacy(typ, rulespec.TargetSR)
+		if !mapped.Supported {
 			skipped = append(skipped, SkipItem{Kind: "rule", Name: typ + "," + normalized, Reason: "Shadowrocket 不支持该规则类型"})
 			return
 		}
-		b.WriteString(formatRuleLine(typ, normalized, target))
+		b.WriteString(formatRuleLine(mapped.RenderType, normalized, target))
 		b.WriteString("\n")
 	}
 	for _, psel := range in.Pools {

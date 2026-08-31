@@ -12,7 +12,10 @@ import (
 // RegisterRulespecRoutes 注册能力元数据端点（管理端）。
 func RegisterRulespecRoutes(engine *gin.Engine, sessionMW, adminMW gin.HandlerFunc) {
 	engine.GET("/api/admin/rulespec/meta", sessionMW, adminMW, func(c *gin.Context) {
-		OK(c, rulespec.Metadata())
+		OK(c, gin.H{
+			"legacy":       rulespec.LegacyMetadata(),
+			"capabilities": rulespec.Metadata(),
+		})
 	})
 }
 

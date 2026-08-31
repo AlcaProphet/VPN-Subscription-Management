@@ -22,6 +22,10 @@ vi.mock('@/api/pool', () => ({
   listSyncTasks: vi.fn().mockResolvedValue({ list: [], total: 0 }),
 }))
 
+vi.mock('@/api/rulespec', () => ({
+  listCapabilityMeta: vi.fn().mockResolvedValue({ legacy: [], capabilities: [] }),
+}))
+
 vi.mock('@/api/subscription', () => ({
   listSubscriptions: vi.fn().mockResolvedValue([]),
   getSubscription: vi.fn(),

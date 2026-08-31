@@ -13,6 +13,10 @@ vi.mock('@/api/pool', () => ({
   listSyncTasks: vi.fn(),
 }))
 
+vi.mock('@/api/rulespec', () => ({
+  listCapabilityMeta: vi.fn().mockResolvedValue({ legacy: [], capabilities: [] }),
+}))
+
 vi.mock('@/api/request', () => {
   class ApiError extends Error {
     status: number

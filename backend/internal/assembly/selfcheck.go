@@ -196,8 +196,8 @@ func CheckClashContent(content []byte) []OutputIssue {
 			issues = append(issues, outputError(path, "非法规则行: "+line+"（"+err.Error()+"）"))
 			continue
 		}
-		def, exists := rulespec.Definitions[typ]
-		if !exists || typ == "USER-AGENT" {
+		mapped := rulespec.SupportsAndMapLegacy(typ, rulespec.TargetClash)
+		if !mapped.Supported || typ == "USER-AGENT" {
 			issues = append(issues, outputError(path, "不支持的 Clash 规则类型: "+typ))
 			continue
 		}
@@ -205,7 +205,7 @@ func CheckClashContent(content []byte) []OutputIssue {
 			issues = append(issues, outputError(path, err.Error()))
 			continue
 		}
-		if noResolve && !def.NoResolve {
+		if noResolve && !mapped.SupportsNoResolve {
 			issues = append(issues, outputError(path, typ+" 不允许 no-resolve"))
 		}
 		if typ == "MATCH" {

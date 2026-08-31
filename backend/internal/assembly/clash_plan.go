@@ -125,7 +125,7 @@ func RenderClashPlan(planRaw []byte, dynamic []DynamicNode, manualNames map[stri
 			line += r.Value + ","
 		}
 		line += r.Target
-		if rulespec.Definitions[r.Type].NoResolve {
+		if rulespec.SupportsAndMapLegacy(r.Type, rulespec.TargetClash).SupportsNoResolve {
 			line += ",no-resolve"
 		}
 		ruleValues = append(ruleValues, line)
@@ -377,7 +377,7 @@ func downgradeRuleLines(lines []string, finalGroupSet map[string]bool) []string 
 			rebuilt += value + ","
 		}
 		rebuilt += "DIRECT"
-		if noResolve || rulespec.Definitions[typ].NoResolve {
+		if noResolve || rulespec.SupportsAndMapLegacy(typ, rulespec.TargetClash).SupportsNoResolve {
 			rebuilt += ",no-resolve"
 		}
 		out = append(out, rebuilt)

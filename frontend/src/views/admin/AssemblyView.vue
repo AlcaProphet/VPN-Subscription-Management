@@ -19,6 +19,7 @@ import {
   type AssemblyContext, type GenerateInput, type TargetSyntax, type PoolSelection, type RuleLine,
 } from '@/api/assembly'
 import { Notify } from '@/components/Notify'
+import { listCapabilityMeta, type LegacyCapabilityMetadata } from '@/api/rulespec'
 import { listSubscriptions, type SubscriptionItem } from '@/api/subscription'
 import { versionApi } from '@/api/version'
 import { listPools, type PoolItem } from '@/api/pool'
@@ -70,15 +71,10 @@ watch(mainTab, (next, previous) => {
   if (next === 'build' && previous !== 'build') void refreshPools()
 })
 
-const RULE_TYPES = [
-  'DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'DOMAIN-REGEX', 'GEOSITE', 'GEOIP', 'SRC-GEOIP',
-  'IP-ASN', 'SRC-IP-ASN', 'IP-CIDR', 'IP-CIDR6', 'SRC-IP-CIDR', 'IP-SUFFIX', 'SRC-IP-SUFFIX',
-  'SRC-PORT', 'DST-PORT', 'IN-PORT', 'DSCP', 'PROCESS-NAME', 'PROCESS-PATH', 'PROCESS-NAME-REGEX',
-  'PROCESS-PATH-REGEX', 'NETWORK', 'UID', 'IN-TYPE', 'IN-USER', 'IN-NAME', 'SUB-RULE', 'RULE-SET',
-  'AND', 'OR', 'NOT', 'MATCH', 'USER-AGENT',
-]
-const CLASH_RULE_TYPES = RULE_TYPES.filter((t) => t !== 'USER-AGENT')
-const SR_RULE_TYPES = ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'GEOIP', 'IP-CIDR', 'IP-CIDR6', 'PROCESS-NAME', 'PROCESS-NAME-REGEX', 'USER-AGENT']
+const legacyRuleMeta = ref<LegacyCapabilityMetadata[]>([])
+const RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.advanced).map((m) => m.rule_type))
+const CLASH_RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.clash_render_type).map((m) => m.rule_type))
+const SR_RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.sr_render_type).map((m) => m.rule_type))
 const DEFAULT_HEADERS: Record<TargetSyntax, string> = {
   'clash-yaml': JSON.stringify({ port: 7890, mode: 'rule', 'log-level': 'info', 'allow-lan': false, 'external-controller': '127.0.0.1:9090' }, null, 2),
   'sr-subs': JSON.stringify({ status: '2026/01/01 Version', remarks: 'VPN Subscription' }, null, 2),
@@ -285,11 +281,21 @@ const manualNodes = computed(() => (context.value?.nodes ?? []).filter((n) => n.
 const xrayNodes = computed(() => (context.value?.nodes ?? []).filter((n) => n.source === 'xray' && !n.missing))
 const presetGroups = computed(() => context.value?.proxy_groups.filter((g) => g.type === 'preset') ?? [])
 const customGroups = computed(() => context.value?.proxy_groups.filter((g) => g.type === 'custom') ?? [])
-const ruleTypeOptions = computed(() => targetSyntax.value === 'clash-yaml' ? CLASH_RULE_TYPES : targetSyntax.value === 'sr-conf' ? SR_RULE_TYPES : RULE_TYPES)
+const ruleTypeOptions = computed(() => targetSyntax.value === 'clash-yaml' ? CLASH_RULE_TYPES.value : targetSyntax.value === 'sr-conf' ? SR_RULE_TYPES.value : RULE_TYPES.value)
+
+async function loadRuleMeta() {
+  try {
+    const meta = await listCapabilityMeta()
+    legacyRuleMeta.value = meta.legacy
+  } catch (err) {
+    Notify.error((err as Error).message)
+  }
+}
 
 async function loadContext() {
   loadingContext.value = true
   try {
+    await loadRuleMeta()
     const ctxData = await getAssemblyContext()
     context.value = ctxData
     subscriptions.value = ctxData.subscriptions ?? []
