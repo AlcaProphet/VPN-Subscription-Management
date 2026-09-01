@@ -9,6 +9,7 @@ vi.mock('@/api/pool', () => ({
   updatePool: vi.fn(),
   deletePool: vi.fn(),
   submitSync: vi.fn(),
+  cancelSync: vi.fn(),
   getSyncStatus: vi.fn(),
   listSyncTasks: vi.fn(),
 }))
@@ -28,12 +29,14 @@ vi.mock('@/components/Notify', () => ({
   Notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), detail: vi.fn() },
 }))
 
-import { listPools } from '@/api/pool'
+import { cancelSync, listPools, submitSync } from '@/api/pool'
 import { pollTask } from '@/api/request'
 import { Notify } from '@/components/Notify'
 
 const mockList = listPools as unknown as ReturnType<typeof vi.fn>
 const mockPollTask = pollTask as unknown as ReturnType<typeof vi.fn>
+const mockSubmitSync = submitSync as unknown as ReturnType<typeof vi.fn>
+const mockCancelSync = cancelSync as unknown as ReturnType<typeof vi.fn>
 
 const pool = {
   id: 1, name: '苹果域名', urls: ['https://example.com/rules.txt'], entry_count: 3,
@@ -52,6 +55,8 @@ describe('PoolTab', () => {
   beforeEach(() => {
     mockList.mockReset()
     mockPollTask.mockReset()
+    mockSubmitSync.mockReset()
+    mockCancelSync.mockReset()
     vi.mocked(Notify.warning).mockClear()
     vi.mocked(Notify.success).mockClear()
     vi.mocked(Notify.error).mockClear()
@@ -89,6 +94,47 @@ describe('PoolTab', () => {
     d.resolve({ status: 'succeeded' })
     await first
     expect(wrapper.emitted('pool-content-changed')).toEqual([[pool.id]])
+  })
+
+  it('同步前后保持固定操作槽且不渲染 loading 按钮', async () => {
+    mockList.mockResolvedValue([pool])
+    mockSubmitSync.mockResolvedValue({ task_id: 9 })
+    mockCancelSync.mockResolvedValue(undefined)
+    const d = deferred<{ status: string }>()
+    const cancel = vi.fn()
+    mockPollTask.mockImplementation((options: { submit: () => Promise<void> }) => ({
+      cancel,
+      run: async () => {
+        await options.submit()
+        return d.promise
+      },
+    }))
+    const wrapper = mount(PoolTab)
+    await flushPromises()
+    const syncActions = () => wrapper.findAll('button.pool-sync-action')
+    const moreActions = () => wrapper.findAll('button.pool-more-action')
+    const actionCount = syncActions().length + moreActions().length
+
+    expect(syncActions()).toHaveLength(2)
+    expect(syncActions().every((button) => button.text().replace(/\s/g, '') === '同步')).toBe(true)
+    expect(syncActions().every((button) => button.classes().includes('w-11'))).toBe(true)
+    expect(wrapper.findAll('.ant-btn-loading')).toHaveLength(0)
+
+    const vm = wrapper.vm as unknown as { doSync: (p: typeof pool) => Promise<void> }
+    const running = vm.doSync(pool)
+    await flushPromises()
+
+    expect(syncActions()).toHaveLength(2)
+    expect(syncActions().every((button) => button.text().replace(/\s/g, '') === '取消')).toBe(true)
+    expect(syncActions().length + moreActions().length).toBe(actionCount)
+    expect(wrapper.findAll('.ant-btn-loading')).toHaveLength(0)
+    expect(wrapper.text()).toContain('同步中')
+
+    await syncActions()[0].trigger('click')
+    expect(mockCancelSync).toHaveBeenCalledWith(pool.id, 9)
+
+    d.resolve({ status: 'succeeded' })
+    await running
   })
 
   it('组件卸载时取消正在进行的轮询', async () => {

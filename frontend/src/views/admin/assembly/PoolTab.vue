@@ -195,6 +195,11 @@ const statusMeta: Record<string, { color: string; text: string }> = {
   failed: { color: 'error', text: '失败' },
   partial: { color: 'warning', text: '部分失败' },
 }
+const defaultStatusMeta = { color: 'default', text: '未同步' }
+function displaySyncStatus(p: PoolItem) {
+  if (syncingID.value === p.id) return statusMeta.running
+  return statusMeta[p.sync_status] ?? defaultStatusMeta
+}
 const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '—')
 </script>
 
@@ -230,9 +235,11 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           </Table.Column>
           <Table.Column title="同步状态" key="status" width="120">
             <template #default="{ record }">
-              <Tooltip :title="record.sync_error || ''">
-                <Badge :status="(statusMeta[record.sync_status]?.color ?? 'default') as any"
-                       :text="statusMeta[record.sync_status]?.text ?? '未同步'" />
+              <Tooltip :title="syncingID === record.id ? '' : (record.sync_error || '')">
+                <span class="inline-flex min-w-16">
+                  <Badge :status="displaySyncStatus(record).color as any"
+                         :text="displaySyncStatus(record).text" />
+                </span>
               </Tooltip>
             </template>
           </Table.Column>
@@ -248,12 +255,14 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           <Table.Column title="操作" key="actions" width="200">
             <template #default="{ record }">
               <div class="flex items-center justify-between gap-1">
-                <div class="flex items-center gap-1">
-                  <Button size="small" :loading="syncingID === record.id" @click="doSync(record)">同步</Button>
-                  <Button v-if="syncingID === record.id" size="small" danger @click="doCancelSync(record)">取消</Button>
-                </div>
+                <Button class="pool-sync-action w-11 shrink-0" size="small"
+                        :danger="syncingID === record.id"
+                        :disabled="syncingID === record.id && syncTaskID === 0"
+                        @click="syncingID === record.id ? doCancelSync(record) : doSync(record)">
+                  {{ syncingID === record.id ? '取消' : '同步' }}
+                </Button>
                 <AppDropdown>
-                  <Button size="small">更多 ▾</Button>
+                  <Button class="pool-more-action w-14 shrink-0" size="small">更多 ▾</Button>
                   <template #overlay>
                     <Menu :items="rowMenuItems()" @click="(e: any) => onRowMenuClick(e.key, record)" />
                   </template>
@@ -267,22 +276,30 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           <div v-for="p in pools" :key="p.id" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between gap-2 flex-wrap">
               <a class="text-blue-500 font-medium" @click="detailID = p.id">{{ p.name }}</a>
-              <Tooltip :title="p.sync_error || ''">
-                <Badge :status="(statusMeta[p.sync_status]?.color ?? 'default') as any"
-                       :text="statusMeta[p.sync_status]?.text ?? '未同步'" />
+              <Tooltip :title="syncingID === p.id ? '' : (p.sync_error || '')">
+                <span class="inline-flex min-w-16 justify-end">
+                  <Badge :status="displaySyncStatus(p).color as any"
+                         :text="displaySyncStatus(p).text" />
+                </span>
               </Tooltip>
             </div>
             <div class="text-xs text-text-secondary mt-1">URL {{ p.urls.length }} · 条目 {{ p.entry_count }} · 上次同步 {{ fmtTime(p.last_synced_at) }}</div>
-            <div class="mt-2 flex items-center gap-2 flex-wrap">
+            <div class="mt-2 flex items-center gap-2">
               <label class="switch-hit">
                 <Switch :checked="p.auto_sync" :loading="toggling === p.id" size="small"
                         @change="(v: boolean | string | number) => toggleAuto(p, Boolean(v))" />
               </label>
               <span class="text-xs text-text-tertiary">每日 {{ p.sync_time }} UTC</span>
-              <Button size="small" :loading="syncingID === p.id" @click="doSync(p)">同步</Button>
-              <Button v-if="syncingID === p.id" size="small" danger @click="doCancelSync(p)">取消</Button>
+            </div>
+            <div class="mt-2 flex items-center gap-2">
+              <Button class="pool-sync-action w-11 shrink-0" size="small"
+                      :danger="syncingID === p.id"
+                      :disabled="syncingID === p.id && syncTaskID === 0"
+                      @click="syncingID === p.id ? doCancelSync(p) : doSync(p)">
+                {{ syncingID === p.id ? '取消' : '同步' }}
+              </Button>
               <AppDropdown>
-                <Button size="small">更多 ▾</Button>
+                <Button class="pool-more-action w-14 shrink-0" size="small">更多 ▾</Button>
                 <template #overlay>
                   <Menu :items="rowMenuItems()" @click="(e: any) => onRowMenuClick(e.key, p)" />
                 </template>
