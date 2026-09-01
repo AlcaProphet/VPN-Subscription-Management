@@ -568,7 +568,9 @@ async function doExtCredentials(acc: ExtAccount) {
           <div v-for="inst in instances" :key="inst.id" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between">
               <span class="font-medium">{{ inst.name }}</span>
-              <Switch :checked="inst.enabled" size="small" @change="doToggleInstance(inst)" />
+              <label class="switch-hit">
+                <Switch :checked="inst.enabled" size="small" @change="doToggleInstance(inst)" />
+              </label>
             </div>
             <div class="text-sm text-text-secondary mt-1">{{ inst.slug }} · {{ inst.api_addr }}</div>
             <div class="flex flex-wrap gap-2 mt-2">

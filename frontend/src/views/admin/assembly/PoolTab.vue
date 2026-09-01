@@ -1,7 +1,8 @@
 <!-- PoolTab.vue：规则素材池列表（Design2-UI §5.2.1）+ 新建/编辑弹窗 -->
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
-import { Badge, Button, Input, Switch, Table, Tooltip } from 'ant-design-vue'
+import { Badge, Button, Input, Menu, Switch, Table, Tooltip, type MenuProps } from 'ant-design-vue'
+import AppDropdown from '@/components/AppDropdown.vue'
 import AppModal from '@/components/AppModal.vue'
 import AppTimePicker from '@/components/AppTimePicker.vue'
 import dayjs from 'dayjs'
@@ -22,8 +23,8 @@ const loading = ref(false)
 const pools = ref<PoolItem[]>([])
 const detailID = ref(0)
 
-async function load() {
-  loading.value = true
+async function load(silent = false) {
+  if (!silent) loading.value = true
   try {
     const next = await listPools()
     pools.value = next
@@ -31,7 +32,7 @@ async function load() {
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 onMounted(load)
@@ -134,7 +135,7 @@ async function doSync(p: PoolItem) {
     else if (result.status === 'partial') Notify.warning('同步完成（存在失败项，请进入详情查看回执）')
     else Notify.error(result.error || '同步失败')
     emit('pool-content-changed', p.id)
-    await load()
+    await load(true)
   } catch (err) {
     if (err instanceof Error && err.message === '轮询已取消') return
     if (err instanceof ApiError && err.status === 409) Notify.warning('同步进行中，请等待完成')
@@ -153,6 +154,17 @@ async function doCancelSync(p: PoolItem) {
   } catch (err) {
     Notify.error((err as Error).message)
   }
+}
+
+function rowMenuItems(): MenuProps['items'] {
+  return [
+    { key: 'edit', label: '编辑' },
+    { key: 'delete', label: '删除', danger: true },
+  ]
+}
+function onRowMenuClick(key: string, p: PoolItem) {
+  if (key === 'edit') openEdit(p)
+  if (key === 'delete') toDelete.value = p
 }
 
 async function onDetailChanged(poolID: number) {
@@ -233,14 +245,19 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
               </div>
             </template>
           </Table.Column>
-          <Table.Column title="操作" key="actions" width="230">
+          <Table.Column title="操作" key="actions" width="200">
             <template #default="{ record }">
-              <div class="flex items-center gap-1">
-                <Button size="small" @click="detailID = record.id">详情</Button>
-                <Button size="small" :loading="syncingID === record.id" @click="doSync(record)">同步</Button>
-                <Button v-if="syncingID === record.id" size="small" danger @click="doCancelSync(record)">取消</Button>
-                <Button size="small" @click="openEdit(record)">编辑</Button>
-                <Button size="small" danger @click="toDelete = record">删除</Button>
+              <div class="flex items-center justify-between gap-1">
+                <div class="flex items-center gap-1">
+                  <Button size="small" :loading="syncingID === record.id" @click="doSync(record)">同步</Button>
+                  <Button v-if="syncingID === record.id" size="small" danger @click="doCancelSync(record)">取消</Button>
+                </div>
+                <AppDropdown>
+                  <Button size="small">更多 ▾</Button>
+                  <template #overlay>
+                    <Menu :items="rowMenuItems()" @click="(e: any) => onRowMenuClick(e.key, record)" />
+                  </template>
+                </AppDropdown>
               </div>
             </template>
           </Table.Column>
@@ -257,14 +274,19 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
             </div>
             <div class="text-xs text-text-secondary mt-1">URL {{ p.urls.length }} · 条目 {{ p.entry_count }} · 上次同步 {{ fmtTime(p.last_synced_at) }}</div>
             <div class="mt-2 flex items-center gap-2 flex-wrap">
-              <Switch :checked="p.auto_sync" :loading="toggling === p.id" size="small"
-                      @change="(v: boolean | string | number) => toggleAuto(p, Boolean(v))" />
+              <label class="switch-hit">
+                <Switch :checked="p.auto_sync" :loading="toggling === p.id" size="small"
+                        @change="(v: boolean | string | number) => toggleAuto(p, Boolean(v))" />
+              </label>
               <span class="text-xs text-text-tertiary">每日 {{ p.sync_time }} UTC</span>
-              <Button size="small" @click="detailID = p.id">详情</Button>
               <Button size="small" :loading="syncingID === p.id" @click="doSync(p)">同步</Button>
               <Button v-if="syncingID === p.id" size="small" danger @click="doCancelSync(p)">取消</Button>
-              <Button size="small" @click="openEdit(p)">编辑</Button>
-              <Button size="small" danger @click="toDelete = p">删除</Button>
+              <AppDropdown>
+                <Button size="small">更多 ▾</Button>
+                <template #overlay>
+                  <Menu :items="rowMenuItems()" @click="(e: any) => onRowMenuClick(e.key, p)" />
+                </template>
+              </AppDropdown>
             </div>
           </div>
         </div>

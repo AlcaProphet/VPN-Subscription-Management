@@ -3,17 +3,21 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/platform"
 )
 
 // PlatformHandler 平台处理器（结构体 Handler + 依赖注入）
 type PlatformHandler struct {
 	platformSvc *platform.Service
+	cfg         *config.Service
 }
 
 // RegisterPlatformRoutes 注册平台管理端点；全部叠加会话 + 管理员双中间件
@@ -37,6 +41,16 @@ func parsePlatformID(c *gin.Context) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// headerValueCI 按 HTTP 头名大小写不敏感方式读取。
+func headerValueCI(headers map[string]string, key string) (string, bool) {
+	for k, v := range headers {
+		if strings.EqualFold(k, key) {
+			return v, true
+		}
+	}
+	return "", false
 }
 
 // platformReq 创建/编辑入参；slug 一律不接收（创建后不可修改）；外部下载链接列表随平台保存
@@ -82,7 +96,16 @@ func (h *PlatformHandler) create(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	p, err := h.platformSvc.Create(c.Request.Context(), req.Name, req.Description, req.ProductType, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
+	ctx := c.Request.Context()
+	if h.cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
+		for k := range req.ExtraHeaders {
+			if platform.IsSystemManagedHeader(k) {
+				Fail(c, http.StatusBadRequest, fmt.Sprintf("高级模式下系统接管字段 %q 不可写入", k))
+				return
+			}
+		}
+	}
+	p, err := h.platformSvc.Create(ctx, req.Name, req.Description, req.ProductType, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
 	if errors.Is(err, platform.ErrBadRequest) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
@@ -104,7 +127,40 @@ func (h *PlatformHandler) update(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	err := h.platformSvc.Update(c.Request.Context(), id, req.Name, req.Description, req.ProductType, req.Schemes, req.ExtraHeaders, req.InstallerURLs)
+	ctx := c.Request.Context()
+	headers := req.ExtraHeaders
+	if h.cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
+		existing, err := h.platformSvc.Get(ctx, id)
+		if err != nil {
+			if errors.Is(err, platform.ErrNotFound) {
+				Fail(c, http.StatusNotFound, "平台不存在")
+			} else {
+				Fail(c, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		merged := map[string]string{}
+		// 高级模式下三个系统接管字段由系统维护：先保留原值，再校验请求中出现的同名字段是否与现有一致。
+		for k, v := range existing.ExtraHeaders {
+			if platform.IsSystemManagedHeader(k) {
+				merged[k] = v
+			}
+		}
+		for k, v := range req.ExtraHeaders {
+			if platform.IsSystemManagedHeader(k) {
+				cur, found := headerValueCI(existing.ExtraHeaders, k)
+				if !found || cur != v {
+					Fail(c, http.StatusBadRequest, fmt.Sprintf("高级模式下系统接管字段 %q 不可修改", k))
+					return
+				}
+				// 相同值仅确认，不覆盖原键，避免大小写变体造成重复语义头。
+				continue
+			}
+			merged[k] = v
+		}
+		headers = merged
+	}
+	err := h.platformSvc.Update(ctx, id, req.Name, req.Description, req.ProductType, req.Schemes, headers, req.InstallerURLs)
 	if errors.Is(err, platform.ErrBadRequest) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return

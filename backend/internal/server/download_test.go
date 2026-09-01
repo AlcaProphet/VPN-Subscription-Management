@@ -178,7 +178,7 @@ func TestDownloadRateLimit(t *testing.T) {
 	}
 }
 
-func TestDownloadContentDispositionUsesRFC5987AndOverridesPlatform(t *testing.T) {
+func TestDownloadContentDispositionUsesManualPlatformFilename(t *testing.T) {
 	srv, dataDir := newDownloadTestServerWithDir(t)
 	st := srv.store
 	ctx := context.Background()
@@ -187,7 +187,7 @@ func TestDownloadContentDispositionUsesRFC5987AndOverridesPlatform(t *testing.T)
 	}
 	if _, err := st.DB().ExecContext(ctx,
 		`INSERT INTO platforms (slug, name, extra_headers) VALUES ('platform-x','平台X',?)`,
-		`{"Content-Disposition":"attachment; filename=old.yaml"}`); err != nil {
+		`{"Content-Disposition":"attachment; filename*=UTF-8''old.yaml"}`); err != nil {
 		t.Fatalf("创建平台失败: %v", err)
 	}
 	if _, err := st.DB().ExecContext(ctx,
@@ -216,9 +216,9 @@ func TestDownloadContentDispositionUsesRFC5987AndOverridesPlatform(t *testing.T)
 	if w.Code != http.StatusOK {
 		t.Fatalf("下载失败: %d %s", w.Code, w.Body.String())
 	}
-	want := download.BuildContentDisposition("中文😀订阅.yaml", "subscription.yaml")
+	want := download.BuildContentDisposition("old.yaml", "subscription.yaml")
 	if got := w.Header().Get("Content-Disposition"); got != want {
-		t.Fatalf("系统文件名未覆盖平台旧值:\nwant %s\n got %s", want, got)
+		t.Fatalf("平台手动文件名未被采用:\nwant %s\n got %s", want, got)
 	}
 }
 

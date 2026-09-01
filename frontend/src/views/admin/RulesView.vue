@@ -215,9 +215,6 @@ async function doCancelDefault() {
       <!-- ≥768：表格 -->
       <Table :data-source="rules" row-key="id" :pagination="false" class="hidden md:block">
         <Table.Column key="name" title="名称" data-index="name" />
-        <Table.Column key="slug" title="标识" width="180">
-          <template #default="{ record }"><TypographyText code>{{ record.slug }}</TypographyText></template>
-        </Table.Column>
         <Table.Column key="version" title="当前版本" width="110">
           <template #default="{ record }">
             <Tag v-if="record.current_version > 0" color="green">v{{ record.current_version }}</Tag>
@@ -254,7 +251,6 @@ async function doCancelDefault() {
             </div>
           </div>
           <div class="text-xs text-text-secondary mt-1 flex flex-wrap items-center gap-2">
-            <TypographyText code>{{ r.slug }}</TypographyText>
             <Tag v-if="r.current_version > 0" color="green">v{{ r.current_version }}</Tag>
             <Tooltip v-else title="可作为 SR 分流规则装配目标">
               <span class="text-text-tertiary">无激活版本</span>
@@ -310,6 +306,9 @@ async function doCancelDefault() {
 
     <FormOverlay :open="renameTarget !== null" title="改名" :width="420" :loading="renaming" destroy-on-close
                  @submit="doRename" @update:open="renameTarget = null">
+      <div class="mb-2 text-xs text-text-secondary">
+        标识：<TypographyText code>{{ renameTarget?.slug ?? '' }}</TypographyText>
+      </div>
       <Input v-model:value="renameValue" :maxlength="100" @press-enter="doRename" />
     </FormOverlay>
 

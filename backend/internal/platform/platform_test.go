@@ -137,10 +137,36 @@ func TestValidateExtraHeaders(t *testing.T) {
 		{"profile-update-interval": "0"},
 		{"profile-web-page-url": "https://vpn.example.com/profile"},
 		{"subscription-userinfo": "upload=0; download=1; total=2; expire=3"},
+		{"Content-Disposition": "attachment; filename*=UTF-8''Luneflare"},
+		{"Content-Disposition": "attachment; filename=\"my file.yaml\""},
 	} {
 		if err := ValidateExtraHeaders(headers); err != nil {
 			t.Errorf("合法生态头应通过: %v: %v", headers, err)
 		}
+	}
+}
+
+// TestValidateExtraHeadersSpecial 校验 Content-Disposition 与大小写重复头。
+func TestValidateExtraHeadersSpecial(t *testing.T) {
+	// 大小写不同但语义重复的头名拒绝
+	if err := ValidateExtraHeaders(map[string]string{"X-A": "1", "x-a": "2"}); err == nil {
+		t.Error("大小写重复头应拒绝")
+	}
+	// Content-Disposition 必须为 attachment 且含有效文件名
+	for _, headers := range []map[string]string{
+		{"Content-Disposition": "inline; filename=foo.yaml"},
+		{"Content-Disposition": "attachment"},
+		{"Content-Disposition": "attachment; filename="},
+		{"Content-Disposition": "attachment; filename=\"../evil.yaml\""},
+		{"Content-Disposition": "attachment; filename=\"a/b.yaml\""},
+	} {
+		if err := ValidateExtraHeaders(headers); err == nil {
+			t.Errorf("非法 Content-Disposition 应拒绝: %v", headers)
+		}
+	}
+	// 中文/Emoji 完整文件名允许
+	if err := ValidateExtraHeaders(map[string]string{"Content-Disposition": "attachment; filename*=UTF-8''%E4%B8%AD%E6%96%87%E5%90%8D.yaml"}); err != nil {
+		t.Errorf("合法中文文件名应通过: %v", err)
 	}
 }
 

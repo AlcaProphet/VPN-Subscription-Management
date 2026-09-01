@@ -281,6 +281,9 @@ async function doDelete() {
     <!-- 改名弹窗 -->
     <FormOverlay :open="renameTarget !== null" title="改名" :width="420" :loading="renaming" destroy-on-close
                  @submit="doRename" @update:open="renameTarget = null">
+      <div class="mb-2 text-xs text-text-secondary">
+        标识：<TypographyText code>{{ renameTarget?.slug ?? '' }}</TypographyText>
+      </div>
       <Input v-model:value="renameValue" :maxlength="100" @press-enter="doRename" />
     </FormOverlay>
 

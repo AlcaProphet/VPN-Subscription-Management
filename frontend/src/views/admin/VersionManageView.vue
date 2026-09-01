@@ -6,7 +6,7 @@ import { Button, Input, Menu, Space, Spin, Table, Tabs, Tag, Tooltip, Typography
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import AppDropdown from '@/components/AppDropdown.vue'
 import dayjs from 'dayjs'
-import { versionApi, getVersionBlueprint, getVersionOwner, type VersionItem, type VersionOwner } from '@/api/version'
+import { versionApi, getVersionOwner, type VersionItem, type VersionOwner } from '@/api/version'
 import { getSubscription } from '@/api/subscription'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
@@ -56,23 +56,6 @@ async function refreshAssemblyUrl() {
     Notify.error((err as Error).message)
     assemblyUrl.value = '/admin/assembly'
   }
-}
-
-// 重新编辑装配版本入口：先读取 blueprint 拿到真实 target_syntax，避免 sr-subs/generic-subs 被错误带到 clash-yaml
-async function reEdit(v: VersionItem) {
-  if (!v.id || !Number.isInteger(v.id) || v.id <= 0) {
-    Notify.error('版本 ID 异常，无法重新编辑')
-    return
-  }
-  let tab = 'clash-yaml'
-  try {
-    const data = await getVersionBlueprint(v.id)
-    tab = data.blueprint?.target_syntax ?? tab
-  } catch (err) {
-    Notify.error((err as Error).message)
-    return
-  }
-  void router.push(`/admin/assembly?tab=${tab}&edit_version_id=${v.id}`)
 }
 
 // 响应式：≥768 表格 / <768 卡片（与其他管理页一致）
@@ -132,10 +115,9 @@ onMounted(() => {
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
-// 移动端卡片「更多 ▾」菜单：重新编辑（装配）/ 编辑 / 删除（当前激活版本禁删）
+// 移动端卡片「更多 ▾」菜单：编辑 / 删除（当前激活版本禁删）
 function cardMenuItems(v: VersionItem) {
   return [
-    ...(v.blueprint ? [{ key: 'reedit', label: '重新编辑' }] : []),
     { key: 'edit', label: '编辑' },
     {
       key: 'delete', label: '删除', danger: true, disabled: !!v.current,
@@ -144,7 +126,6 @@ function cardMenuItems(v: VersionItem) {
   ] as MenuProps['items']
 }
 function onCardMenuClick(key: string, v: VersionItem) {
-  if (key === 'reedit') void reEdit(v)
   if (key === 'edit') void openEdit(v.version_no)
   if (key === 'delete') toDelete.value = v.version_no
 }
@@ -317,7 +298,6 @@ function fmtTime(ts: string): string {
               <Space>
                 <Button size="small" @click="doPreview(record.version_no)">预览</Button>
                 <Button size="small" @click="openEdit(record.version_no)">编辑</Button>
-                <Button v-if="record.blueprint" size="small" @click="reEdit(record)">重新编辑</Button>
                 <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">{{ switchLabel }}</Button>
                 <Tooltip v-else title="当前激活版本不可删除，请先切换">
                   <Button size="small" danger disabled>删除</Button>

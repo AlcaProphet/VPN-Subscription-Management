@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/platform"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/version"
 )
@@ -166,6 +167,7 @@ func (s *Service) maybeEncodeSubscriptionContent(ctx context.Context, subID int6
 }
 
 // withPlatformHeaders 附加响应头注入（{frontend_url} 占位符替换为当前前端地址）+ 下载文件名（资源名 + 原始扩展名）
+// Content-Disposition 不再作为普通附加头透传：解析其中的完整文件名作为手动覆盖候选，由接入层统一重新生成安全响应头。
 func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileName string, platformID int64, dlType string, resID, userID int64) (*Result, *AccessEntry, error) {
 	headers := map[string]string{}
 	var raw string
@@ -175,11 +177,22 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 		return nil, nil, err
 	}
 	parsed := map[string]string{}
+	manualFilename := ""
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 		s.log.Warn("解析平台附加头失败", "platform_id", platformID, "err", err)
 	} else {
 		frontendURL, _ := s.cfg.Get(ctx, config.KeyFrontendURL)
 		for k, v := range parsed {
+			if platform.IsContentDispositionHeader(k) {
+				if manualFilename == "" {
+					if name, err := platform.ParseContentDispositionFilename(v); err == nil {
+						manualFilename = name
+					} else {
+						s.log.Warn("平台 Content-Disposition 无效，使用系统文件名", "platform_id", platformID, "err", err)
+					}
+				}
+				continue
+			}
 			headers[k] = strings.ReplaceAll(v, "{frontend_url}", frontendURL)
 		}
 	}
@@ -200,6 +213,7 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 		headers["subscription-userinfo"] = strings.Join(parts, "; ")
 	}
 	// 下载文件名：资源名 + 原始文件扩展名（保留上传格式，Issue1 R03）；装配模板按 target_syntax 映射
+	// 存在平台手动文件名时直接使用完整文件名，不自动补扩展名。
 	var resName string
 	switch dlType {
 	case "custom": // 自定义订阅无名称，用标识
@@ -219,7 +233,11 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 			ext = map[string]string{"clash-yaml": ".yaml", "sr-subs": ".txt", "generic-subs": ".txt", "sr-conf": ".conf"}[t]
 		}
 	}
-	return &Result{Content: content, Filename: joinDownloadName(resName, fileName, ext), ExtraHeaders: headers},
+	filename := joinDownloadName(resName, fileName, ext)
+	if manualFilename != "" {
+		filename = manualFilename
+	}
+	return &Result{Content: content, Filename: filename, ExtraHeaders: headers},
 		&AccessEntry{UserID: userID, Type: dlType, Platform: platformSlug, ResourceID: resID}, nil
 }
 

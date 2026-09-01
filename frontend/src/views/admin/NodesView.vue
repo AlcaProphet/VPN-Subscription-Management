@@ -41,6 +41,7 @@ const nameSpaceError = computed(() => {
   return form.name.includes(' ') ? '名称禁止空格' : ''
 })
 const invalidProtocolPaths = reactive(new Set<string>())
+const sourceLabel: Record<string, string> = { manual: '手动添加', xray: 'Xray' }
 
 async function load() {
   loading.value = true
@@ -257,7 +258,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         </Table.Column>
         <Table.Column key="source" title="来源" width="100">
           <template #default="{ record }">
-            <Tag :color="record.source === 'manual' ? 'default' : 'purple'">{{ record.source }}</Tag>
+            <Tag :color="record.source === 'manual' ? 'default' : 'purple'">{{ sourceLabel[record.source] ?? record.source }}</Tag>
           </template>
         </Table.Column>
         <Table.Column key="protocol" title="协议" data-index="protocol" width="110" />
@@ -291,12 +292,14 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <div v-for="n in nodes" :key="n.id" class="border rounded-lg p-3">
           <div class="flex items-center justify-between">
             <span class="font-medium">{{ n.render_name }}</span>
-            <Tag :color="n.source === 'manual' ? 'default' : 'purple'">{{ n.source }}</Tag>
+            <Tag :color="n.source === 'manual' ? 'default' : 'purple'">{{ sourceLabel[n.source] ?? n.source }}</Tag>
           </div>
           <div v-if="n.source === 'xray' && n.display_name" class="text-xs text-text-secondary">{{ n.name }}</div>
           <div class="text-xs text-text-secondary mt-1">{{ n.protocol }} · {{ n.host }}:{{ n.port }}</div>
           <div class="mobile-actions mt-2 flex items-center gap-2 flex-wrap">
-            <Switch :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
+            <label class="switch-hit">
+              <Switch :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
+            </label>
             <Button v-if="n.source === 'manual'" size="small" @click="openEdit(n)">编辑</Button>
             <Button v-if="n.source === 'xray'" size="small" @click="openNaming(n)">命名</Button>
             <Tooltip :title="n.source === 'xray' && !n.missing ? '该入站仍存在于 Xray 实例，请先删除 Xray 入站并刷新节点检测' : ''">

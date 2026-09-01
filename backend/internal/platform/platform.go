@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -32,7 +33,30 @@ const (
 	ProductYAML        = "yaml"
 	ProductSubs        = "subs"
 	ProductGenericSubs = "generic-subs"
+
+	// 附加响应头中的系统/结构化字段
+	HeaderContentDisposition    = "Content-Disposition"
+	HeaderProfileUpdateInterval = "profile-update-interval"
+	HeaderProfileWebPageURL     = "profile-web-page-url"
+	HeaderSubscriptionUserInfo  = "subscription-userinfo"
 )
+
+// systemManagedHeaders 高级模式下由系统接管的三个字段。
+var systemManagedHeaders = map[string]bool{
+	"profile-update-interval": true,
+	"profile-web-page-url":    true,
+	"subscription-userinfo":   true,
+}
+
+// IsSystemManagedHeader 判断是否为高级模式下系统接管、禁止用户修改的响应头。
+func IsSystemManagedHeader(key string) bool {
+	return systemManagedHeaders[strings.ToLower(strings.TrimSpace(key))]
+}
+
+// IsContentDispositionHeader 判断是否为下载文件名专用响应头（大小写不敏感）。
+func IsContentDispositionHeader(key string) bool {
+	return strings.EqualFold(strings.TrimSpace(key), HeaderContentDisposition)
+}
 
 // 业务错误（接入层映射 HTTP 状态码）
 var (
@@ -328,16 +352,68 @@ func ValidateSchemes(schemes []string) error {
 var headerNameRe = regexp.MustCompile(`^[!#$%&'*+\-.^_` + "`" + `|~0-9A-Za-z]+$`) // RFC 7230 token
 
 func ValidateExtraHeaders(h map[string]string) error {
+	seen := map[string]string{}
 	for k, v := range h {
 		if !headerNameRe.MatchString(k) {
 			return fmt.Errorf("附加头键 %q 不符合 HTTP 头名规范", k)
 		}
+		lower := strings.ToLower(k)
+		if prev, ok := seen[lower]; ok {
+			return fmt.Errorf("附加头 %q 与 %q 大小写语义重复", prev, k)
+		}
+		seen[lower] = k
 		if containsControl(k) || containsControl(v) {
 			return fmt.Errorf("附加头 %q 含控制字符", k)
+		}
+		if IsContentDispositionHeader(k) {
+			if _, err := ParseContentDispositionFilename(v); err != nil {
+				return fmt.Errorf("附加头 %q: %w", k, err)
+			}
+			continue
 		}
 		if err := validateKnownHeader(k, v); err != nil {
 			return fmt.Errorf("附加头 %q: %w", k, err)
 		}
+	}
+	return nil
+}
+
+// ParseContentDispositionFilename 解析平台附加头中的 Content-Disposition，提取并校验完整下载文件名。
+// 兼容 `attachment; filename*=UTF-8''Luneflare` 与标准 `attachment; filename="foo.yaml"`。
+func ParseContentDispositionFilename(value string) (string, error) {
+	mt, params, err := mime.ParseMediaType(value)
+	if err != nil {
+		return "", fmt.Errorf("Content-Disposition 格式无效: %w", err)
+	}
+	if !strings.EqualFold(mt, "attachment") {
+		return "", errors.New("Content-Disposition 必须为 attachment")
+	}
+	name := strings.TrimSpace(params["filename"])
+	if name == "" {
+		return "", errors.New("Content-Disposition 缺少非空 filename")
+	}
+	if err := validateDownloadFilename(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// validateDownloadFilename 下载文件名安全校验：拒绝控制字符、路径形式和会被静默改名的危险字符。
+func validateDownloadFilename(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("下载文件名不能为空")
+	}
+	if containsControl(name) {
+		return errors.New("下载文件名含控制字符")
+	}
+	if strings.ContainsAny(name, `/\`) || filepath.Base(name) != name {
+		return errors.New("下载文件名不能包含路径分隔符")
+	}
+	if strings.Contains(name, "..") {
+		return errors.New("下载文件名不能包含路径穿越片段")
+	}
+	if strings.ContainsAny(name, `"`) {
+		return errors.New("下载文件名不能包含双引号")
 	}
 	return nil
 }

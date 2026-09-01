@@ -122,7 +122,7 @@ function goHome() {
         <Tooltip v-else title="管理面板"><SettingOutlined class="text-lg" aria-label="管理面板" /></Tooltip>
       </div>
       <div class="flex flex-col h-[calc(100vh-4rem)]">
-        <Menu mode="inline" :selected-keys="selectedKeys" :items="menuItems"
+        <Menu mode="inline" :class="{ 'admin-menu-collapsed': collapsed }" :selected-keys="selectedKeys" :items="menuItems"
               @click="(e: any) => onMenuClick(e.key)" />
         <!-- 底部固定操作区：返回主界面 + 收起菜单（自定义折叠按钮，替代默认 trigger） -->
         <div class="mt-auto p-2 space-y-1">

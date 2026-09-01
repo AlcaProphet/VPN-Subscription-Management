@@ -104,7 +104,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	versionSvc := version.NewService(st, dataDir, lg)
 	// 平台路由（Build2 Step 1；会话 + 管理员双中间件；Step 5 起持有版本组件用于完整级联）
 	platformSvc := platform.NewService(st, dataDir, versionSvc, lg)
-	RegisterPlatformRoutes(engine, &PlatformHandler{platformSvc: platformSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
+	RegisterPlatformRoutes(engine, &PlatformHandler{platformSvc: platformSvc, cfg: cfg}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	subSvc := subscription.NewService(st, versionSvc, lg)
 	subHandler := &SubscriptionHandler{subSvc: subSvc, verSvc: versionSvc}
 	RegisterSubscriptionRoutes(engine, subHandler, authSvc.SessionMiddleware(), auth.AdminMiddleware())

@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Button, Space, Table, Tag, TypographyText } from 'ant-design-vue'
+import { Button, Space, Table, Tag } from 'ant-design-vue'
 import { listPlatforms, deletePlatform, type PlatformItem } from '@/api/platform'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -98,11 +98,6 @@ async function confirmDelete() {
             <Tag :color="productTypeMeta[record.product_type]?.color">{{ record.product_type }}</Tag>
           </template>
         </Table.Column>
-        <Table.Column key="slug" title="标识" data-index="slug">
-          <template #default="{ record }">
-            <TypographyText code>{{ record.slug }}</TypographyText>
-          </template>
-        </Table.Column>
         <Table.Column key="installer" title="安装包" data-index="installer_file">
           <template #default="{ record }">
             <Tag :color="installerStatus(record).color">{{ installerStatus(record).text }}</Tag>
@@ -125,10 +120,8 @@ async function confirmDelete() {
             <span class="font-medium">{{ p.name }}</span>
             <Tag :color="installerStatus(p).color">{{ installerStatus(p).text }}</Tag>
           </div>
-          <!-- 标识只读展示 -->
           <div class="text-xs text-text-secondary mt-1">
-            <TypographyText code>{{ p.slug }}</TypographyText>
-              <Tag class="ml-1" :color="productTypeMeta[p.product_type]?.color">{{ p.product_type }}</Tag>
+            <Tag :color="productTypeMeta[p.product_type]?.color">{{ p.product_type }}</Tag>
           </div>
           <div class="mt-2 flex gap-2">
             <Button size="small" @click="router.push(`/admin/platforms/${p.id}/edit`)">编辑</Button>
