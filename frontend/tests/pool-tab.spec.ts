@@ -112,10 +112,14 @@ describe('PoolTab', () => {
     const wrapper = mount(PoolTab)
     await flushPromises()
     const syncActions = () => wrapper.findAll('button.pool-sync-action')
-    const moreActions = () => wrapper.findAll('button.pool-more-action')
-    const actionCount = syncActions().length + moreActions().length
+    const editActions = () => wrapper.findAll('button.pool-edit-action')
+    const deleteActions = () => wrapper.findAll('button.pool-delete-action')
+    const actionCount = syncActions().length + editActions().length + deleteActions().length
 
     expect(syncActions()).toHaveLength(2)
+    expect(editActions()).toHaveLength(2)
+    expect(deleteActions()).toHaveLength(2)
+    expect(wrapper.findAll('button.pool-more-action')).toHaveLength(0)
     expect(syncActions().every((button) => button.text().replace(/\s/g, '') === '同步')).toBe(true)
     expect(syncActions().every((button) => button.classes().includes('w-11'))).toBe(true)
     expect(wrapper.findAll('.ant-btn-loading')).toHaveLength(0)
@@ -126,7 +130,7 @@ describe('PoolTab', () => {
 
     expect(syncActions()).toHaveLength(2)
     expect(syncActions().every((button) => button.text().replace(/\s/g, '') === '取消')).toBe(true)
-    expect(syncActions().length + moreActions().length).toBe(actionCount)
+    expect(syncActions().length + editActions().length + deleteActions().length).toBe(actionCount)
     expect(wrapper.findAll('.ant-btn-loading')).toHaveLength(0)
     expect(wrapper.text()).toContain('同步中')
 

@@ -1,8 +1,7 @@
 <!-- PoolTab.vue：规则素材池列表（Design2-UI §5.2.1）+ 新建/编辑弹窗 -->
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
-import { Badge, Button, Input, Menu, Switch, Table, Tooltip, type MenuProps } from 'ant-design-vue'
-import AppDropdown from '@/components/AppDropdown.vue'
+import { Badge, Button, Input, Switch, Table, Tooltip } from 'ant-design-vue'
 import AppModal from '@/components/AppModal.vue'
 import AppTimePicker from '@/components/AppTimePicker.vue'
 import dayjs from 'dayjs'
@@ -156,17 +155,6 @@ async function doCancelSync(p: PoolItem) {
   }
 }
 
-function rowMenuItems(): MenuProps['items'] {
-  return [
-    { key: 'edit', label: '编辑' },
-    { key: 'delete', label: '删除', danger: true },
-  ]
-}
-function onRowMenuClick(key: string, p: PoolItem) {
-  if (key === 'edit') openEdit(p)
-  if (key === 'delete') toDelete.value = p
-}
-
 async function onDetailChanged(poolID: number) {
   emit('pool-content-changed', poolID)
   await load()
@@ -254,19 +242,15 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           </Table.Column>
           <Table.Column title="操作" key="actions" width="200">
             <template #default="{ record }">
-              <div class="flex items-center justify-between gap-1">
+              <div class="flex items-center gap-2">
                 <Button class="pool-sync-action w-11 shrink-0" size="small"
                         :danger="syncingID === record.id"
                         :disabled="syncingID === record.id && syncTaskID === 0"
                         @click="syncingID === record.id ? doCancelSync(record) : doSync(record)">
                   {{ syncingID === record.id ? '取消' : '同步' }}
                 </Button>
-                <AppDropdown>
-                  <Button class="pool-more-action w-14 shrink-0" size="small">更多 ▾</Button>
-                  <template #overlay>
-                    <Menu :items="rowMenuItems()" @click="(e: any) => onRowMenuClick(e.key, record)" />
-                  </template>
-                </AppDropdown>
+                <Button class="pool-edit-action w-11 shrink-0" size="small" @click="openEdit(record)">编辑</Button>
+                <Button class="pool-delete-action w-11 shrink-0" size="small" danger @click="toDelete = record">删除</Button>
               </div>
             </template>
           </Table.Column>
@@ -298,12 +282,8 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
                       @click="syncingID === p.id ? doCancelSync(p) : doSync(p)">
                 {{ syncingID === p.id ? '取消' : '同步' }}
               </Button>
-              <AppDropdown>
-                <Button class="pool-more-action w-14 shrink-0" size="small">更多 ▾</Button>
-                <template #overlay>
-                  <Menu :items="rowMenuItems()" @click="(e: any) => onRowMenuClick(e.key, p)" />
-                </template>
-              </AppDropdown>
+              <Button class="pool-edit-action w-11 shrink-0" size="small" @click="openEdit(p)">编辑</Button>
+              <Button class="pool-delete-action w-11 shrink-0" size="small" danger @click="toDelete = p">删除</Button>
             </div>
           </div>
         </div>
