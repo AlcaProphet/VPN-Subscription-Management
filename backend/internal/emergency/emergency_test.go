@@ -35,11 +35,46 @@ var emergencyTestFS = fstest.MapFS{
 		platform_id INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS versions (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, owner_type TEXT NOT NULL, owner_id INTEGER NOT NULL,
 		version_no INTEGER NOT NULL, file_path TEXT NOT NULL);`)},
-	"1003_groups.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS subscription_group_rel (
-		subscription_id INTEGER NOT NULL, group_id INTEGER NOT NULL, PRIMARY KEY (subscription_id, group_id));
-		CREATE TABLE IF NOT EXISTS group_selections (
-		group_id INTEGER NOT NULL, platform_id INTEGER NOT NULL, subscription_id INTEGER,
-		PRIMARY KEY (group_id, platform_id));`)},
+	"1009_xray.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS rule_pools (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+		CREATE TABLE IF NOT EXISTS rule_pool_sources (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, kind TEXT NOT NULL,
+		url TEXT, source_mode TEXT NOT NULL DEFAULT 'auto', sort_order INTEGER NOT NULL,
+		active_snapshot_id INTEGER, pending_snapshot_id INTEGER);
+		CREATE TABLE IF NOT EXISTS pool_source_snapshots (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, source_id INTEGER NOT NULL, format TEXT NOT NULL DEFAULT '',
+		profile TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'staging');
+		CREATE TABLE IF NOT EXISTS pool_canonical_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, semantic_key TEXT NOT NULL,
+		family TEXT NOT NULL, matcher TEXT NOT NULL, value TEXT NOT NULL, options_json TEXT NOT NULL DEFAULT '{}');
+		CREATE TABLE IF NOT EXISTS pool_rule_origins (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL, canonical_rule_id INTEGER NOT NULL,
+		source_id INTEGER NOT NULL, snapshot_id INTEGER, sort_order INTEGER NOT NULL, raw_line TEXT NOT NULL DEFAULT '', line_no INTEGER NOT NULL DEFAULT 0);
+		CREATE TABLE IF NOT EXISTS pool_sync_tasks (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, pool_id INTEGER NOT NULL);
+		CREATE TABLE IF NOT EXISTS xray_instances (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+		CREATE TABLE IF NOT EXISTS nodes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
+		instance_id INTEGER);
+		CREATE TABLE IF NOT EXISTS proxy_groups (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+		CREATE TABLE IF NOT EXISTS group_nodes (
+		group_id INTEGER NOT NULL, node_id INTEGER NOT NULL, PRIMARY KEY (group_id, node_id));
+		CREATE TABLE IF NOT EXISTS xray_users (
+		user_id INTEGER NOT NULL, instance_id INTEGER NOT NULL, inbound_tag TEXT NOT NULL,
+		node_id INTEGER NOT NULL, PRIMARY KEY (user_id, instance_id, inbound_tag));
+		CREATE TABLE IF NOT EXISTS traffic_records (
+		user_id INTEGER NOT NULL, ym TEXT NOT NULL, PRIMARY KEY (user_id, ym));
+		CREATE TABLE IF NOT EXISTS assembly_blueprints (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, version_id INTEGER NOT NULL UNIQUE);
+		CREATE TABLE IF NOT EXISTS xray_ext_accounts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+		CREATE TABLE IF NOT EXISTS xray_ext_users (
+		ext_account_id INTEGER NOT NULL, instance_id INTEGER NOT NULL, inbound_tag TEXT NOT NULL,
+		node_id INTEGER, PRIMARY KEY (ext_account_id, instance_id, inbound_tag));
+		CREATE TABLE IF NOT EXISTS xray_ext_traffic (
+		ext_account_id INTEGER NOT NULL, ym TEXT NOT NULL, PRIMARY KEY (ext_account_id, ym));`)},
 	"1004_tokens.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS download_tokens (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL UNIQUE, user_id INTEGER NOT NULL,
 		platform_id INTEGER NOT NULL, custom_sub_id INTEGER, subscription_id INTEGER);
@@ -61,6 +96,8 @@ var emergencyTestFS = fstest.MapFS{
 	"0004_oidc.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_states (
 		state TEXT PRIMARY KEY, code_verifier TEXT NOT NULL, intent TEXT NOT NULL DEFAULT '',
 		bind_user_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+	"1013_oidc_login_tickets.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_login_tickets (
+		ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL);`)},
 }
 
 // newTestEmergency 创建临时库 + 应急服务（reason/dbReadable 可指定）
@@ -275,4 +312,3 @@ func TestReinitializeFilePath(t *testing.T) {
 		t.Errorf("public 目录应删除: %v", err)
 	}
 }
-

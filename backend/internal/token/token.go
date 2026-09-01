@@ -41,7 +41,7 @@ type UserToken struct {
 	Token          string `json:"token"`
 	UserID         int64  `json:"user_id"`
 	PlatformID     int64  `json:"platform_id"`
-	CustomSubID    int64  `json:"custom_sub_id"`    // 0 = NULL
+	CustomSubID    int64  `json:"custom_sub_id"`   // 0 = NULL
 	SubscriptionID int64  `json:"subscription_id"` // 0 = NULL
 }
 

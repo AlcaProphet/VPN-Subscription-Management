@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: backend/user_auth
+title: 用户认证与会话凭据管理
+scope:
+    - backend/internal/user/
+    - backend/internal/auth/
+    - backend/internal/token/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/server_routes

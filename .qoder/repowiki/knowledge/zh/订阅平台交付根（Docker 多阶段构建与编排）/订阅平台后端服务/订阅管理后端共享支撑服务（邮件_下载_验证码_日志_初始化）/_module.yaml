@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: backend/support_services
+title: 订阅管理后端共享支撑服务（邮件/下载/验证码/日志/初始化）
+scope:
+    - backend/internal/mail/
+    - backend/internal/download/
+    - backend/internal/captcha/
+    - backend/internal/log/
+    - backend/internal/setup/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/server_routes
+    - path: frontend/user_views

@@ -34,7 +34,7 @@ watch(() => system.siteIconUrl, (v) => {
 </script>
 
 <template>
-  <ConfigProvider :locale="antdLocale" :theme="antdTheme">
+  <ConfigProvider :locale="antdLocale" :theme="antdTheme" :auto-insert-space-in-button="false">
     <component :is="layouts[(route.meta.layout as string) ?? 'home']">
       <RouterView />
     </component>

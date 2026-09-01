@@ -12,13 +12,14 @@ import (
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/oidc"
+	"vpn-sub/internal/proxytrust"
 )
 
 // SettingsHandler 面板配置处理器（结构体 Handler + 依赖注入）
 type SettingsHandler struct {
 	adminCfg   *config.AdminService
 	oidcSvc    *oidc.Service
-	trustProxy string // TRUST_PROXY 策略（速率限制分区展示生效值）
+	trustProxy *proxytrust.Policy // TRUST_PROXY 策略（速率限制分区展示生效值）
 }
 
 // oidcOpsAdapter 将 oidc.Service 适配为 config.OidcOps 接口（config 包避免循环依赖）
@@ -73,6 +74,8 @@ func RegisterSettingsRoutes(engine *gin.Engine, h *SettingsHandler, sessionMW, a
 	g.PUT("/announcement", h.saveAnnouncement)
 	g.GET("/debug", h.getDebug)
 	g.PUT("/debug", h.saveDebug)
+	g.GET("/advanced", h.getAdvanced)
+	g.PUT("/advanced", h.saveAdvanced)
 	// OIDC 测试连接（管理员专用，复用 Build1 Step 6 TestConnection）
 	g.POST("/oidc/test", h.testOidc)
 
@@ -149,8 +152,8 @@ func (h *SettingsHandler) getOidcRules(c *gin.Context) {
 
 func (h *SettingsHandler) saveOidcRules(c *gin.Context) {
 	var req struct {
-		ApprovalOn bool                    `json:"approval_on"`
-		Whitelist  config.WhitelistConfig  `json:"whitelist"`
+		ApprovalOn bool                   `json:"approval_on"`
+		Whitelist  config.WhitelistConfig `json:"whitelist"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
@@ -264,8 +267,12 @@ func (h *SettingsHandler) siteInfo(c *gin.Context) {
 // --- 速率限制分区 ---
 
 func (h *SettingsHandler) getRateLimit(c *gin.Context) {
-	// 返回当前 TRUST_PROXY 生效值供前端展示（auto 模式附伪造风险警示，Design1 §3.4.8）
-	OK(c, gin.H{"settings": h.adminCfg.GetRateLimit(c.Request.Context()), "trust_proxy": h.trustProxy})
+	// 返回当前 TRUST_PROXY 生效值与 CIDR 摘要供前端展示（Design1 §3.4.8）
+	OK(c, gin.H{
+		"settings":          h.adminCfg.GetRateLimit(c.Request.Context()),
+		"trust_proxy":       string(h.trustProxy.Mode()),
+		"trust_proxy_cidrs": h.trustProxy.RawCIDRs(),
+	})
 }
 
 func (h *SettingsHandler) saveRateLimit(c *gin.Context) {
@@ -306,7 +313,7 @@ func (h *SettingsHandler) saveLogLevel(c *gin.Context) {
 
 func (h *SettingsHandler) getAnnouncement(c *gin.Context) {
 	OK(c, gin.H{
-		"home_announcement": h.adminCfg.GetAnnouncement(c.Request.Context()),
+		"home_announcement":  h.adminCfg.GetAnnouncement(c.Request.Context()),
 		"login_announcement": h.adminCfg.GetLoginAnnouncement(c.Request.Context()),
 		"login_footer":       h.adminCfg.GetLoginFooter(c.Request.Context()),
 	})
@@ -356,6 +363,33 @@ func (h *SettingsHandler) saveDebug(c *gin.Context) {
 		return
 	}
 	OK(c, nil)
+}
+
+// --- 高级模式分区 ---
+
+func (h *SettingsHandler) getAdvanced(c *gin.Context) {
+	OK(c, h.adminCfg.GetAdvancedSettings(c.Request.Context()))
+}
+
+func (h *SettingsHandler) saveAdvanced(c *gin.Context) {
+	var req struct {
+		config.AdvancedSettings
+		ConfirmWord string `json:"confirm_word"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	taskID, err := h.adminCfg.SaveAdvancedSettings(c.Request.Context(), req.AdvancedSettings, req.ConfirmWord)
+	if err != nil {
+		mapSettingsErr(c, err)
+		return
+	}
+	if taskID != "" {
+		OK(c, gin.H{"task_id": taskID})
+		return
+	}
+	OK(c, gin.H{"message": "高级模式设置已保存"})
 }
 
 // mapSettingsErr 面板配置错误映射：参数类 → 400（含死锁/验证码密钥缺失提示）

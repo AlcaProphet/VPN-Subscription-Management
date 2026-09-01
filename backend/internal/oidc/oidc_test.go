@@ -44,6 +44,7 @@ func newTestOidcService(t *testing.T) (*store.Store, *Service, *user.Service) {
 		"0004_oidc.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_states (
 			state TEXT PRIMARY KEY,
 			code_verifier TEXT NOT NULL,
+			nonce TEXT NOT NULL DEFAULT '',
 			intent TEXT NOT NULL CHECK (intent IN ('login','bind')),
 			bind_user_id INTEGER,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},

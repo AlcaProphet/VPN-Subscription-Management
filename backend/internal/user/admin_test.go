@@ -17,6 +17,7 @@ import (
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/version"
+	"vpn-sub/internal/xray"
 )
 
 // newTestAdminService 创建临时库 + 管理服务（含用户管理所需的全部表）
@@ -44,12 +45,15 @@ func newTestAdminService(t *testing.T) (*store.Store, *AdminService, *token.Serv
 			status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
 			credential_version INTEGER NOT NULL DEFAULT 0,
 			oidc_claims TEXT,
+			quota_override REAL,
+			quota_exceeded INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 		"0003_groups_platforms.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS groups (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE,
 			is_default INTEGER NOT NULL DEFAULT 0, needs_reselect INTEGER NOT NULL DEFAULT 0,
+			default_quota REAL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 			CREATE TABLE IF NOT EXISTS platforms (
 			id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
@@ -77,6 +81,18 @@ func newTestAdminService(t *testing.T) (*store.Store, *AdminService, *token.Serv
 			token TEXT PRIMARY KEY, user_id INTEGER NOT NULL,
 			expires_at TIMESTAMP NOT NULL, used INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		"1009_xray.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS xray_users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			sync_status TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+			CREATE TABLE IF NOT EXISTS traffic_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			ym TEXT NOT NULL,
+			uplink INTEGER NOT NULL DEFAULT 0,
+			downlink INTEGER NOT NULL DEFAULT 0);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
@@ -335,7 +351,7 @@ func TestAdminDeleteUserCascade(t *testing.T) {
 		t.Fatalf("创建 Token 失败: %v", err)
 	}
 	customID := seedCustom(t, st, userID)
-	if _, err := verSvc.CreateVersion(ctx, "custom", customID, version.BytesContent([]byte("proxies: []"))); err != nil {
+	if _, _, err := verSvc.CreateVersion(ctx, "custom", customID, version.BytesContent([]byte("proxies: []")), version.CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建版本失败: %v", err)
 	}
 	// 版本文件已落盘
@@ -371,6 +387,31 @@ func TestAdminDeleteUserCascade(t *testing.T) {
 	// 版本文件级联删除
 	if _, err := os.Stat(verFile); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("版本文件应级联删除: %v", err)
+	}
+}
+
+// TestAdminDeleteCallsXrayCleanupHooks 删除用户前收集期望目标，删除后执行清理回调。
+func TestAdminDeleteCallsXrayCleanupHooks(t *testing.T) {
+	st, adminSvc, _, _, _ := newTestAdminService(t)
+	ctx := context.Background()
+	adminID, userID := seedAdminPair(t, st.DB())
+	want := []xray.Target{{NodeID: 1, InstanceID: 2, Tag: "in-a", APIAddr: "127.0.0.1:10086"}}
+	var gotCollect []xray.Target
+	var gotDeletedUser int64
+	var gotDeletedTargets []xray.Target
+	adminSvc.SetOnUserDeleting(func(_ context.Context, uid int64) ([]xray.Target, error) {
+		gotCollect = append(gotCollect, want...)
+		return want, nil
+	})
+	adminSvc.SetOnUserDeleted(func(_ context.Context, uid int64, targets []xray.Target) {
+		gotDeletedUser = uid
+		gotDeletedTargets = append(gotDeletedTargets, targets...)
+	})
+	if err := adminSvc.Delete(ctx, adminID, userID); err != nil {
+		t.Fatalf("删除用户失败: %v", err)
+	}
+	if len(gotCollect) != 1 || len(gotDeletedTargets) != 1 || gotDeletedUser != userID {
+		t.Fatalf("清理回调未按期望执行 collect=%+v deletedUser=%d targets=%+v", gotCollect, gotDeletedUser, gotDeletedTargets)
 	}
 }
 
@@ -466,5 +507,23 @@ func TestAdminList(t *testing.T) {
 		if u.CustomSubs == nil {
 			t.Errorf("用户 %s 的 custom_subs 应为空切片而非 nil（序列化后为 null）", u.Username)
 		}
+	}
+}
+
+// TestAdminListNoSyncError 高级模式下用户没有任何同步错误记录时，不应因 sql.ErrNoRows 返回 500。
+func TestAdminListNoSyncError(t *testing.T) {
+	st, adminSvc, _, _, _ := newTestAdminService(t)
+	ctx := context.Background()
+	seedUser(t, st.DB(), "kyle", "kyle@example.com", "admin", "active", "x")
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO system_config (key, value) VALUES ('advanced_mode', 'true')
+		ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("开启高级模式失败: %v", err)
+	}
+	list, _, err := adminSvc.List(ctx, ListQuery{Page: 1, Size: 20})
+	if err != nil {
+		t.Fatalf("高级模式无同步错误列表应成功: %v", err)
+	}
+	if len(list) != 1 || list[0].SyncError != "" {
+		t.Errorf("SyncError 应为空串: %+v", list)
 	}
 }

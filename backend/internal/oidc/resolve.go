@@ -69,8 +69,12 @@ func (s *Service) ResolveLogin(ctx context.Context, id *Identity) (*ResolveResul
 	}
 	// 3) 均不存在 → 创建新用户（首管理员机制同样生效，复用 user 包原子事务）
 	//    OIDC 审批开关默认关闭 → 直接激活；开启且未命中白名单 → pending + 存 claims + 不签发会话
-	approvalOn := s.cfg.GetBool(ctx, KeyOidcApproval, false) // 读取路径预留（Build3 接通）
-	hitWhitelist := s.matchWhitelist(ctx, id)                       // 白名单为空时跳过校验直接激活
+	// R14-25：OIDC 新用户创建是鉴权入口，审批开关读取失败必须显式返回，不能静默按“不审批”放行。
+	approvalOn, err := s.cfg.GetBoolStrict(ctx, KeyOidcApproval, false)
+	if err != nil {
+		return nil, err
+	}
+	hitWhitelist := s.matchWhitelist(ctx, id) // 白名单为空时跳过校验直接激活
 	pending := approvalOn && !hitWhitelist
 	u, err = s.users.CreateFromOidc(ctx, id.Username, id.Email, id.Subject, id.RawClaims, pending)
 	if err != nil {

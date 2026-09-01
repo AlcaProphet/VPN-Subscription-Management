@@ -1,26 +1,25 @@
-<!-- GroupsView.vue：用户组与订阅分发管理（UI §5.2）——双态列表 + 编辑弹窗（改名/可用范围/平台默认订阅） -->
+<!-- GroupsView.vue：用户组管理（Build7 高级：节点分配 + 默认配额 + 候选集引导） -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { Alert, Button, Input, Modal, Select, Space, Table, Tag } from 'ant-design-vue'
-import { listGroups, getGroup, createGroup, updateGroup, deleteGroup, type GroupDetail, type GroupItem, type SelectionItem } from '@/api/group'
-import { listPlatforms, type PlatformItem } from '@/api/platform'
-import { listSubscriptions, type PlatformSubs, type SubscriptionItem } from '@/api/subscription'
+import { computed, onMounted, ref } from 'vue'
+import { Button, Checkbox, Empty, Input, InputNumber, Table, Tag } from 'ant-design-vue'
+import {
+  listGroups, getGroup, createGroup, updateGroup, deleteGroup, updateGroupNodes, updateGroupQuota,
+  type GroupItem, type CandidateNode, type GroupDetail,
+} from '@/api/group'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
+import FormSection from '@/components/FormSection.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
 const loading = ref(false)
 const groups = ref<GroupItem[]>([])
-const platforms = ref<PlatformItem[]>([])
-const subsByPlatform = ref<PlatformSubs[]>([])
 
 async function load() {
   loading.value = true
   try {
-    const [g, p, s] = await Promise.all([listGroups(), listPlatforms(), listSubscriptions()])
-    groups.value = g
-    platforms.value = p
-    subsByPlatform.value = s
+    groups.value = await listGroups()
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -29,106 +28,15 @@ async function load() {
 }
 onMounted(load)
 
-// 首管理员首次登录一次性引导条（localStorage 键记录关闭）
-const showGuide = computed(() => localStorage.getItem('first_admin_guide_dismissed') !== '1')
-function dismissGuide() {
-  localStorage.setItem('first_admin_guide_dismissed', '1')
-}
-
-// 该平台订阅选项（供选定区 Select）
-function subOptions(platformId: number) {
-  const pg = subsByPlatform.value.find((x) => x.platform_id === platformId)
-  return (pg?.subscriptions ?? []).map((s: SubscriptionItem) => ({ label: s.name, value: s.id }))
-}
-
-// --- 编辑弹窗（改名 + 可用范围多选 + 平台默认订阅区） ---
-const editOpen = ref(false)
-const editing = ref<GroupDetail | null>(null)
-const saving = ref(false)
-const form = reactive({ name: '', sub_ids: [] as number[], selections: [] as SelectionItem[] })
-// 初始选定快照：变更时提示影响用户数
-const initialSelections = ref<SelectionItem[]>([])
-const selectionChanged = computed(() => {
-  const a = JSON.stringify(form.selections)
-  const b = JSON.stringify(initialSelections.value)
-  return a !== b
-})
-
-async function openEdit(g: GroupItem) {
-  try {
-    const detail = await getGroup(g.id)
-    editing.value = detail
-    form.name = detail.name
-    form.sub_ids = []
-    form.selections = []
-    initialSelections.value = JSON.parse(JSON.stringify(detail.selections ?? []))
-    form.selections = JSON.parse(JSON.stringify(detail.selections ?? []))
-    await loadRel(detail.id)
-    editOpen.value = true
-  } catch (err) {
-    Notify.error((err as Error).message)
-  }
-}
-
-// 可用范围回显：订阅列表已带 groups 字段，反查该组关联的订阅
-async function loadRel(groupId: number) {
-  const all = subsByPlatform.value.flatMap((pg) => pg.subscriptions)
-  const rel = all.filter((s) => s.groups?.some((g) => g.id === groupId))
-  form.sub_ids = rel.map((s) => s.id)
-}
-
-// 平台默认订阅更新（subscription_id=0 表示取消选定）
-function setSelection(platformId: number, subscriptionId: number) {
-  const idx = form.selections.findIndex((s) => s.platform_id === platformId)
-  if (idx >= 0) {
-    if (subscriptionId === 0) {
-      form.selections.splice(idx, 1)
-    } else {
-      form.selections[idx].subscription_id = subscriptionId
-    }
-  } else if (subscriptionId !== 0) {
-    form.selections.push({ platform_id: platformId, subscription_id: subscriptionId })
-  }
-}
-function onSelectionChange(platformId: number, value: unknown) {
-  setSelection(platformId, Number(value))
-}
-
-// 选定变更影响提示：影响 N 名用户
-const affectedUsers = computed(() => editing.value?.user_count ?? 0)
-
-async function saveEdit() {
-  if (!editing.value) return
-  if (!form.name.trim()) {
-    Notify.error('组名不能为空')
-    return
-  }
-  saving.value = true
-  try {
-    await updateGroup(editing.value.id, {
-      name: form.name.trim(),
-      sub_ids: form.sub_ids,
-      selections: form.selections,
-    })
-    Notify.success('组已更新')
-    editOpen.value = false
-    await load()
-  } catch (err) {
-    Notify.error((err as Error).message) // 「该订阅正被设为组内某平台的默认订阅，请先改选默认订阅」等
-  } finally {
-    saving.value = false
-  }
-}
+const quotaText = (g: GroupItem) =>
+  g.default_quota == null ? '不限流量' : `${g.default_quota} GB`
 
 // --- 新建组 ---
 const createOpen = ref(false)
 const newName = ref('')
 const creating = ref(false)
 async function doCreate() {
-  if (!newName.value.trim()) {
-    Notify.error('组名不能为空')
-    return
-  }
+  if (!newName.value.trim()) { Notify.error('组名不能为空'); return }
   creating.value = true
   try {
     await createGroup(newName.value.trim())
@@ -136,18 +44,73 @@ async function doCreate() {
     createOpen.value = false
     newName.value = ''
     await load()
-  } catch (err) {
-    Notify.error((err as Error).message)
-  } finally {
-    creating.value = false
-  }
+  } catch (err) { Notify.error((err as Error).message) } finally { creating.value = false }
 }
 
-// --- 删除组（迁入默认组） ---
+// --- 编辑：名称 + 节点分配 + 默认配额 ---
+const editOpen = ref(false)
+const editing = ref<GroupDetail | null>(null)
+const editName = ref('')
+const selectedNodeIDs = ref<number[]>([])
+const candidateNodes = ref<CandidateNode[]>([])
+const editQuota = ref<number | undefined>(undefined)
+const saving = ref(false)
+const assignedNonCandidate = computed(() =>
+  (editing.value?.nodes ?? []).filter((n) => !(candidateNodes.value ?? []).some((c) => c.node_id === n.node_id)),
+)
+const selectedNodes = computed(() =>
+  selectedNodeIDs.value
+    .map((id) => {
+      const n = editing.value?.nodes?.find((x) => x.node_id === id)
+      const c = candidateNodes.value.find((x) => x.node_id === id)
+      return {
+        node_id: id,
+        name: n?.node_name || c?.name || String(id),
+        render_name: n?.render_name || c?.render_name || c?.name || '',
+        is_public: !!n?.is_public,
+        in_candidate: !!c,
+      }
+    })
+    .filter(Boolean),
+)
+function moveSelected(index: number, dir: -1 | 1) {
+  const target = index + dir
+  if (target < 0 || target >= selectedNodeIDs.value.length) return
+  const arr = [...selectedNodeIDs.value]
+  ;[arr[index], arr[target]] = [arr[target], arr[index]]
+  selectedNodeIDs.value = arr
+}
+function removeSelected(nodeId: number) {
+  selectedNodeIDs.value = selectedNodeIDs.value.filter((id) => id !== nodeId)
+}
+async function openEdit(g: GroupItem) {
+  try {
+    const detail = await getGroup(g.id)
+    editing.value = detail
+    editName.value = detail.name
+    selectedNodeIDs.value = (detail.nodes ?? []).map((n) => n.node_id)
+    candidateNodes.value = detail.candidate_nodes ?? []
+    editQuota.value = detail.default_quota ?? undefined
+    editOpen.value = true
+  } catch (err) { Notify.error((err as Error).message) }
+}
+async function doSaveEdit() {
+  if (!editing.value || !editName.value.trim()) return
+  saving.value = true
+  try {
+    await updateGroup(editing.value.id, { name: editName.value.trim() })
+    await updateGroupNodes(editing.value.id, { node_ids: selectedNodeIDs.value })
+    await updateGroupQuota(editing.value.id, { default_quota: editQuota.value })
+    Notify.success('已保存，节点变更将同步至 Xray')
+    editOpen.value = false
+    await load()
+  } catch (err) { Notify.error((err as Error).message) } finally { saving.value = false }
+}
+
 const toDelete = ref<GroupItem | null>(null)
 const deleting = ref(false)
 const deleteContent = computed(() =>
-  toDelete.value ? `组内 ${toDelete.value.user_count} 名用户将自动迁入默认组，关联与选定将被清理` : '',
+  toDelete.value ? `组内 ${toDelete.value.user_count} 名用户将自动迁入默认组` : '',
 )
 async function confirmDelete() {
   if (!toDelete.value) return
@@ -157,129 +120,98 @@ async function confirmDelete() {
     Notify.success('组已删除，成员已迁入默认组')
     toDelete.value = null
     await load()
-  } catch (err) {
-    Notify.error((err as Error).message)
-  } finally {
-    deleting.value = false
-  }
+  } catch (err) { Notify.error((err as Error).message) } finally { deleting.value = false }
 }
 </script>
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">用户组管理</h2>
-      <Button type="primary" @click="createOpen = true">新建组</Button>
-    </div>
-
-    <!-- 分发引导：一次性 a-alert「创建第一份订阅」 -->
-    <Alert v-if="showGuide" type="info" closable class="mb-4" message="还没有订阅内容？"
-           description="前往订阅管理创建第一份订阅，再为各用户组设置平台默认订阅" @close="dismissGuide" />
+    <PageHeader title="用户组管理" subtitle="用户组决定成员可用的 Xray 节点与默认流量配额；节点变更会同步到受影响账号。">
+      <template #actions>
+        <Button type="primary" @click="createOpen = true">新建组</Button>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="groups.length === 0" empty-text="暂无用户组">
-      <!-- ≥768：表格 -->
-      <Table :data-source="groups" row-key="id" :pagination="false" class="hidden md:block"
-             :row-class-name="(r: GroupItem) => (r.needs_reselect ? 'row-warn' : '')">
-        <Table.Column key="name" title="组名" data-index="name">
+      <Table :data-source="groups" row-key="id" :pagination="false">
+        <Table.Column key="name" title="组名">
           <template #default="{ record }">
-            <Space>
-              {{ record.name }}
-              <Tag v-if="record.is_default" color="gold">默认组</Tag>
-              <Tag v-if="record.needs_reselect" color="orange">需要重新设置</Tag>
-            </Space>
+            {{ record.name }}
+            <Tag v-if="record.is_default" color="blue">默认组</Tag>
           </template>
         </Table.Column>
-        <Table.Column key="subs" title="可用订阅数" width="110">
-          <template #default="{ record }">{{ record.sub_count }}</template>
+        <Table.Column key="quota" title="默认配额">
+          <template #default="{ record }">{{ quotaText(record) }}</template>
         </Table.Column>
-        <Table.Column key="users" title="组内用户数" width="110">
-          <template #default="{ record }">{{ record.user_count }}</template>
-        </Table.Column>
-        <Table.Column key="actions" title="操作" width="220">
+        <Table.Column key="nodes" title="分配节点数" data-index="node_count" width="120" />
+        <Table.Column key="users" title="用户数" data-index="user_count" width="100" />
+        <Table.Column key="actions" title="操作" width="160">
           <template #default="{ record }">
-            <Space>
-              <Button size="small" type="primary" ghost @click="openEdit(record)">编辑</Button>
-              <Button v-if="record.needs_reselect" size="small" @click="openEdit(record)">重新设置</Button>
-              <Button v-if="!record.is_default" size="small" danger @click="toDelete = record">删除</Button>
-            </Space>
+            <Button size="small" @click="openEdit(record)">编辑</Button>
+            <Button v-if="!record.is_default" size="small" danger class="ml-1" @click="toDelete = record">删除</Button>
           </template>
         </Table.Column>
       </Table>
-
-      <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致） -->
-      <div class="grid grid-cols-1 gap-3 md:hidden">
-        <div v-for="g in groups" :key="g.id"
-             class="border rounded-lg p-3 bg-white dark:bg-gray-800"
-             :class="g.needs_reselect ? 'border-orange-300' : ''">
-          <div class="flex items-center justify-between gap-2">
-            <span class="font-medium truncate">{{ g.name }}</span>
-            <div class="flex gap-1 shrink-0">
-              <Tag v-if="g.is_default" color="gold">默认组</Tag>
-              <Tag v-if="g.needs_reselect" color="orange">需重设</Tag>
-            </div>
-          </div>
-          <div class="text-xs text-gray-500 mt-1">可用订阅 {{ g.sub_count }} · 组内用户 {{ g.user_count }}</div>
-          <div class="mt-2 flex flex-wrap gap-2">
-            <Button size="small" type="primary" ghost @click="openEdit(g)">编辑</Button>
-            <Button v-if="g.needs_reselect" size="small" @click="openEdit(g)">重新设置</Button>
-            <Button v-if="!g.is_default" size="small" danger @click="toDelete = g">删除</Button>
-          </div>
-        </div>
-      </div>
     </TriStateList>
 
-    <!-- 新建组弹窗 -->
-    <Modal v-model:open="createOpen" title="新建用户组" :footer="null" :width="420" destroy-on-close>
+    <FormOverlay v-model:open="createOpen" title="新建组" :width="420" :loading="creating" destroy-on-close @submit="doCreate">
       <Input v-model:value="newName" :maxlength="64" placeholder="组名（全局唯一）" @press-enter="doCreate" />
-      <div class="flex justify-end mt-3">
-        <Button type="primary" :loading="creating" @click="doCreate">创建</Button>
-      </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="createOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="creating" @click="doCreate">创建</Button>
+      </template>
+    </FormOverlay>
 
-    <!-- 组编辑弹窗：改名 + 可用范围多选 + 平台默认订阅区 -->
-    <Modal v-model:open="editOpen" :title="`编辑组：${editing?.name ?? ''}`" :footer="null" :width="720"
-           destroy-on-close>
+    <FormOverlay :open="editOpen" title="编辑组" :width="560" :loading="saving" destroy-on-close
+                 @submit="doSaveEdit" @update:open="editOpen = false">
       <div class="space-y-4">
-        <div>
-          <div class="mb-1 text-sm">组名</div>
-          <Input v-model:value="form.name" :maxlength="64" />
-        </div>
-        <div>
-          <div class="mb-1 text-sm">组内订阅可用范围</div>
-          <div class="text-xs text-gray-400 mb-1">组可分发这些订阅；取消正被设为平台默认订阅的订阅会被拒绝，请先在下方默认订阅区改选</div>
-          <Select v-model:value="form.sub_ids" mode="multiple" class="w-full" placeholder="选择关联的订阅">
-            <Select.Option v-for="pg in subsByPlatform" :key="pg.platform_id" :label="pg.platform_name" disabled>
-              {{ pg.platform_name }}
-            </Select.Option>
-            <template v-for="pg in subsByPlatform" :key="'opt-' + pg.platform_id">
-              <Select.Option v-for="s in pg.subscriptions" :key="s.id" :value="s.id">
-                {{ pg.platform_name }} / {{ s.name }}
-              </Select.Option>
-            </template>
-          </Select>
-        </div>
-        <div>
-          <div class="mb-1 text-sm flex items-center gap-2">
-            组内平台默认订阅
-            <span v-if="selectionChanged" class="text-xs text-orange-500">变更将影响 {{ affectedUsers }} 名用户</span>
+        <FormSection title="基础信息" help="名称在全局范围内唯一。">
+          <Input v-model:value="editName" :maxlength="64" />
+        </FormSection>
+        <FormSection title="可用节点" help="仅候选集节点会注入到下载内容；公共节点对全部用户组自动可见。">
+          <div class="text-xs text-text-tertiary mb-1">节点分配（候选集）</div>
+          <Empty v-if="candidateNodes.length === 0 && selectedNodes.length === 0" description="请先装配并激活 Clash YAML / SR 节点订阅 / 通用节点订阅模板">
+            <Button type="primary" @click="$router.push('/admin/assembly')">前往装配</Button>
+          </Empty>
+          <div v-if="assignedNonCandidate.length > 0" class="mb-2">
+            <Tag color="red">存在非候选集已分配节点</Tag>
+            <div class="text-xs text-red-500">{{ assignedNonCandidate.map((n) => n.node_name).join('、') }} 不在当前候选集，保存后可能被候选集重算摘除。</div>
           </div>
-          <div v-for="p in platforms" :key="p.id" class="flex items-center gap-2 mb-2">
-            <span class="w-32 text-sm truncate">{{ p.name }}</span>
-            <Select class="flex-1" :value="form.selections.find((s) => s.platform_id === p.id)?.subscription_id ?? 0"
-                    @change="onSelectionChange(p.id, $event)">
-              <Select.Option :value="0">不选定</Select.Option>
-              <Select.Option v-for="opt in subOptions(p.id)" :key="opt.value" :value="opt.value">{{ opt.label }}</Select.Option>
-            </Select>
+          <div v-if="candidateNodes.length > 0" class="space-y-1 mb-3">
+            <div v-for="c in candidateNodes" :key="c.name" class="flex items-center gap-2">
+              <Checkbox :checked="selectedNodeIDs.includes(c.node_id)" :disabled="c.is_public" @change="() => {
+                if (c.is_public) return
+                const id = c.node_id
+                if (selectedNodeIDs.includes(id)) selectedNodeIDs = selectedNodeIDs.filter((x) => x !== id)
+                else selectedNodeIDs = [...selectedNodeIDs, id]
+              }">
+                <span>{{ c.render_name || c.name }}</span>
+                <span v-if="c.render_name && c.render_name !== c.name" class="ml-1 text-xs text-text-tertiary">{{ c.name }}</span>
+              </Checkbox>
+              <Tag v-if="c.is_public" color="default">公共·免分配</Tag>
+              <Tag v-if="c.in_partial_blueprint" color="orange">仅部分模板</Tag>
+            </div>
           </div>
-        </div>
-        <div class="flex justify-end gap-2">
-          <Button @click="editOpen = false">取消</Button>
-          <Button type="primary" :loading="saving" @click="saveEdit">保存</Button>
-        </div>
+          <div v-if="selectedNodes.length > 0">
+            <div class="text-xs text-text-tertiary mb-1">分配排序（顺序将写入 sort_order）</div>
+            <div v-for="(n, i) in selectedNodes" :key="n.node_id" class="flex items-center gap-2 py-1">
+              <span class="w-6 text-text-tertiary">{{ i + 1 }}</span>
+              <span :class="n.is_public ? 'text-text-tertiary' : ''" class="flex-1 text-sm">{{ n.render_name || n.name }}</span>
+              <Tag v-if="n.is_public" color="default">公共·免分配</Tag>
+              <Tag v-if="!n.in_candidate" color="red">非候选</Tag>
+              <Button size="small" :disabled="i === 0" @click="moveSelected(i, -1)">↑</Button>
+              <Button size="small" :disabled="i === selectedNodes.length - 1" @click="moveSelected(i, 1)">↓</Button>
+              <Button size="small" danger @click="removeSelected(n.node_id)">移除</Button>
+            </div>
+          </div>
+        </FormSection>
+        <FormSection title="流量" help="设置该组的默认配额，用户级覆盖优先于此配置。">
+          <div class="text-xs text-text-tertiary mb-1">默认配额（GB，0/留空不限）</div>
+          <InputNumber v-model:value="editQuota" :min="0" class="w-40" />
+        </FormSection>
       </div>
-    </Modal>
+    </FormOverlay>
 
-    <!-- 删除确认（迁入默认组） -->
     <ConfirmModal :open="toDelete !== null" title="删除用户组" danger :loading="deleting"
                   :content="deleteContent" @confirm="confirmDelete" @update:open="toDelete = null" />
   </div>

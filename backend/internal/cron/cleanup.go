@@ -35,3 +35,29 @@ func cleanupOnce(db *sql.DB, lg *slog.Logger) {
 		lg.Error("清理访问日志失败", "err", err)
 	}
 }
+
+// StartResetTokenCleanup 每日清理过期/已使用的密码重置令牌。
+func StartResetTokenCleanup(db *sql.DB, lg *slog.Logger) (stop func()) {
+	ticker := time.NewTicker(24 * time.Hour)
+	done := make(chan struct{})
+	go func() {
+		cleanupResetTokensOnce(db, lg)
+		for {
+			select {
+			case <-ticker.C:
+				cleanupResetTokensOnce(db, lg)
+			case <-done:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+	return func() { close(done) }
+}
+
+// cleanupResetTokensOnce 删除过期或已使用的密码重置令牌。
+func cleanupResetTokensOnce(db *sql.DB, lg *slog.Logger) {
+	if _, err := db.Exec(`DELETE FROM password_reset_tokens WHERE expires_at < ? OR used = 1`, time.Now().Format("2006-01-02 15:04:05")); err != nil {
+		lg.Error("清理密码重置令牌失败", "err", err)
+	}
+}

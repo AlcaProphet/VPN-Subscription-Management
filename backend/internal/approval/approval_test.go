@@ -6,10 +6,12 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
+	"vpn-sub/internal/xray"
 )
 
 // mockMail 记录调用并以可配置错误返回（SMTP 失败不阻断验证）；
@@ -92,6 +94,34 @@ func seedPending(t *testing.T, st *store.Store, username, email, source string, 
 	return id
 }
 
+func TestRecentPendingDesc(t *testing.T) {
+	st, svc, _ := newTestApproval(t, false)
+	ctx := context.Background()
+	createdAt := []time.Time{
+		time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, time.January, 2, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, time.January, 3, 10, 0, 0, 0, time.UTC),
+	}
+	for i, username := range []string{"oldest", "middle", "newest"} {
+		if _, err := st.DB().ExecContext(ctx,
+			`INSERT INTO users (username, email, role, user_source, status, created_at) VALUES (?,?,?,?,?,?)`,
+			username, username+"@example.com", "user", "selfreg", "pending", createdAt[i]); err != nil {
+			t.Fatalf("插入待审批用户失败: %v", err)
+		}
+	}
+
+	list, err := svc.RecentPending(ctx, 2)
+	if err != nil {
+		t.Fatalf("读取最近待审批用户失败: %v", err)
+	}
+	if len(list) != 2 || list[0].Username != "newest" || list[1].Username != "middle" {
+		t.Errorf("最近待审批用户排序异常: %+v", list)
+	}
+	if empty, err := svc.RecentPending(ctx, 0); err != nil || len(empty) != 0 {
+		t.Errorf("limit=0 应返回空列表: list=%+v err=%v", empty, err)
+	}
+}
+
 // TestApproveActivatesAndClearsClaims 通过：激活 + 清 claims；欢迎邮件按来源区分文案
 func TestApproveActivatesAndClearsClaims(t *testing.T) {
 	st, svc, mm := newTestApproval(t, false)
@@ -143,6 +173,29 @@ func TestRejectDeletesAndReleasesEmail(t *testing.T) {
 	if _, err := st.DB().Exec(`INSERT INTO users (username, email, role, user_source, status)
 		VALUES ('carol2', 'carol@example.com', 'user', 'selfreg', 'pending')`); err != nil {
 		t.Errorf("邮箱应释放可重新注册: %v", err)
+	}
+}
+
+// TestRejectCallsXrayCleanupHooks 拒绝删除前收集目标，删除后执行清理回调。
+func TestRejectCallsXrayCleanupHooks(t *testing.T) {
+	st, svc, _ := newTestApproval(t, false)
+	ctx := context.Background()
+	id := seedPending(t, st, "dave", "dave@example.com", "selfreg", "")
+	want := []xray.Target{{NodeID: 1, InstanceID: 2, Tag: "in-a", APIAddr: "127.0.0.1:10086"}}
+	var gotDeletedUser int64
+	var gotDeletedTargets []xray.Target
+	svc.SetOnUserDeleting(func(_ context.Context, uid int64) ([]xray.Target, error) {
+		return want, nil
+	})
+	svc.SetOnUserDeleted(func(_ context.Context, uid int64, targets []xray.Target) {
+		gotDeletedUser = uid
+		gotDeletedTargets = append(gotDeletedTargets, targets...)
+	})
+	if err := svc.Reject(ctx, id); err != nil {
+		t.Fatalf("拒绝失败: %v", err)
+	}
+	if gotDeletedUser != id || len(gotDeletedTargets) != 1 {
+		t.Fatalf("拒绝清理回调异常 user=%d targets=%+v", gotDeletedUser, gotDeletedTargets)
 	}
 }
 
@@ -228,4 +281,3 @@ func TestListPagination(t *testing.T) {
 		t.Errorf("激活后待审批数应为 2: %d", total)
 	}
 }
-

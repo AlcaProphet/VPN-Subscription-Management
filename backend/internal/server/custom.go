@@ -33,6 +33,7 @@ func RegisterCustomRoutes(engine *gin.Engine, h *CustomHandler, sessionMW, admin
 
 // upsert 上传/覆盖自定义订阅：mode=upload 取 multipart 文件流（platform_id 在表单字段）；mode=text 取 JSON 文本体
 func (h *CustomHandler) upsert(c *gin.Context) {
+	clearReadDeadline(c)
 	userID, ok := parseID(c, "id")
 	if !ok {
 		return
@@ -52,11 +53,12 @@ func (h *CustomHandler) upsert(c *gin.Context) {
 		platformID = req.PlatformID
 		src = version.BytesContent([]byte(req.Text))
 	} else {
-		platformID, _ = strconv.ParseInt(c.PostForm("platform_id"), 10, 64)
-		if platformID <= 0 {
+		parsedPlatformID, err := strconv.ParseInt(c.PostForm("platform_id"), 10, 64)
+		if err != nil || parsedPlatformID <= 0 {
 			Fail(c, http.StatusBadRequest, "platform_id 必填")
 			return
 		}
+		platformID = parsedPlatformID
 		file, fileHeader, err := c.Request.FormFile("file")
 		if err != nil {
 			Fail(c, http.StatusBadRequest, "未接收到文件")
@@ -113,7 +115,7 @@ func (h *CustomHandler) createVersion(c *gin.Context) {
 }
 
 func (h *CustomHandler) switchVersion(c *gin.Context) {
-	versionSwitch(c, h.verSvc, version.OwnerCustom)
+	versionSwitch(c, h.verSvc, version.OwnerCustom, nil)
 }
 
 func (h *CustomHandler) previewVersion(c *gin.Context) {

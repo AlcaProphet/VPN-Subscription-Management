@@ -15,9 +15,9 @@ import (
 
 // AuthHandler 认证端点处理器（接入层）
 type AuthHandler struct {
-	authSvc *auth.Service
-	userSvc *user.Service
-	cfg     *config.Service
+	authSvc  *auth.Service
+	userSvc  *user.Service
+	cfg      *config.Service
 	resetSvc *auth.ResetService
 }
 
@@ -28,6 +28,7 @@ func RegisterAuthRoutes(engine *gin.Engine, h *AuthHandler, limiter *ratelimit.L
 	g.POST("/register", limiter.Middleware("register", ratelimit.KeyRegister, 5), captchaSvc.Middleware("register"), h.register)
 	g.POST("/login", limiter.Middleware("login", ratelimit.KeyLogin, 10), captchaSvc.Middleware("login"), h.login)
 	g.POST("/forgot", limiter.Middleware("forgot", ratelimit.KeyForgot, 5), captchaSvc.Middleware("forgot"), h.forgot)
+	g.POST("/reset/validate", limiter.Middleware("reset_validate", ratelimit.KeyResetValidate, 10), h.validateReset)
 	g.POST("/reset", h.reset) // 重置凭令牌保护，不额外限流
 	g.GET("/me", h.authSvc.SessionMiddleware(), h.me)
 	g.POST("/logout", h.authSvc.SessionMiddleware(), h.logout)
@@ -49,12 +50,22 @@ func (h *AuthHandler) register(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	// 注册入口可见性：依赖本地登录开启（Design1 §3.2：本地登录关闭时注册产物无法本地登录，无意义）
-	if !h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true) {
+	// R14-25：鉴权入口配置读取显式报错，不静默回退默认值。
+	allowLocal, err := h.cfg.GetBoolStrict(ctx, config.KeyAllowLocalLogin, true)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !allowLocal {
 		Fail(c, http.StatusForbidden, "本地登录已关闭")
 		return
 	}
 	// 注册入口可见性：allow_selfreg 开启，或用户表为空（例外，Design1 §5.2）
-	allowSelf := h.cfg.GetBool(ctx, config.KeyAllowSelfreg, false)
+	allowSelf, err := h.cfg.GetBoolStrict(ctx, config.KeyAllowSelfreg, false)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 	empty, err := h.userSvc.IsTableEmpty(ctx)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
@@ -104,7 +115,13 @@ func (h *AuthHandler) login(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	// 本地登录开关（Design1 §3.2：本地登录为基底，可关闭；关闭后本端点不可用，注册入口同步隐藏）
-	if !h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true) {
+	// R14-25：鉴权入口配置读取显式报错，不静默回退默认值。
+	allowLocal, err := h.cfg.GetBoolStrict(ctx, config.KeyAllowLocalLogin, true)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !allowLocal {
 		Fail(c, http.StatusForbidden, "本地登录已关闭")
 		return
 	}
@@ -158,7 +175,9 @@ func (h *AuthHandler) logout(c *gin.Context) {
 
 // forgot 忘记密码：统一防枚举响应
 func (h *AuthHandler) forgot(c *gin.Context) {
-	var req struct{ Email string `json:"email" binding:"required,max=254"` }
+	var req struct {
+		Email string `json:"email" binding:"required,max=254"`
+	}
 	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
@@ -168,6 +187,23 @@ func (h *AuthHandler) forgot(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{"message": "若该邮箱已注册，重置链接已发送"}) // 统一防枚举响应
+}
+
+// reset/validate 只读校验重置链接状态（missing/used/expired/valid），不消费 token。
+func (h *AuthHandler) validateReset(c *gin.Context) {
+	var req struct {
+		Token string `json:"token" binding:"required,max=256"`
+	}
+	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	status, err := h.resetSvc.Validate(c.Request.Context(), req.Token)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, gin.H{"status": status})
 }
 
 // reset 密码重置：校验令牌设置新密码

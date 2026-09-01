@@ -44,11 +44,13 @@ type Rule struct {
 	Schemes        []string   `json:"schemes"`
 	Token          string     `json:"token"` // 全局共享 Token（每规则一份，不绑定用户）
 	CurrentVersion int64      `json:"current_version"`
+	IsHomeDefault  bool       `json:"is_home_default"` // 首页默认展示（至多一条 =1）
 	CreatedAt      string     `json:"created_at"`
 	RefreshedAt    *time.Time `json:"refreshed_at"` // UTC RFC3339；无 Token 时 null（R07-04）
 }
 
-// Create 名称 + 客户端类型 + scheme + 首版本上传；标识为空时自动生成（rule- 前缀，见 Design1 §2.2）；自动生成规则 Token
+// Create 名称 + 客户端类型 + scheme；标识为空时自动生成（rule- 前缀，见 Design1 §2.2）；自动生成规则 Token。
+// src 允许为 nil（创建空规则实体，供 SR 分流规则装配目标使用）；src 非 nil 时创建并激活首版。
 func (s *Service) Create(ctx context.Context, name, slugVal, clientType string, schemes []string, src version.ContentProvider) (*Rule, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: 名称必填", ErrBadRequest)
@@ -81,7 +83,10 @@ func (s *Service) Create(ctx context.Context, name, slugVal, clientType string, 
 		if err != nil {
 			return fmt.Errorf("创建规则失败: %w", err)
 		}
-		id, _ := res.LastInsertId()
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
 		tk, err := s.tokens.CreateRuleTokenTx(ctx, tx, id) // 创建时自动生成
 		if err != nil {
 			return err
@@ -92,19 +97,24 @@ func (s *Service) Create(ctx context.Context, name, slugVal, clientType string, 
 	if err != nil {
 		return nil, err
 	}
-	v, err := s.versions.CreateVersion(ctx, version.OwnerRule, r.ID, src)
-	if err != nil {
-		s.rollbackRecord(ctx, r.ID) // 失败清理：删 rule_tokens + rules 行
-		return nil, err
+	if src != nil {
+		v, activated, err := s.versions.CreateVersion(ctx, version.OwnerRule, r.ID, src, version.CreateOptions{Activate: true})
+		if err != nil {
+			s.rollbackRecord(ctx, r.ID) // 失败清理：删 rule_tokens + rules 行
+			return nil, err
+		}
+		_ = activated // 首版自动激活
+		r.CurrentVersion = v.No
 	}
-	r.CurrentVersion = v.No
 	return r, nil
 }
 
 // rollbackRecord 首版本创建失败时回滚规则与 Token
 func (s *Service) rollbackRecord(ctx context.Context, id int64) {
 	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		_, _ = tx.ExecContext(ctx, `DELETE FROM rule_tokens WHERE rule_id = ?`, id)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM rule_tokens WHERE rule_id = ?`, id); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM rules WHERE id = ?`, id)
 		return err
 	}); err != nil {
@@ -126,6 +136,33 @@ func (s *Service) Rename(ctx context.Context, id int64, name string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetHomeDefault 设置/取消首页默认规则（partial unique index 保证至多一条；切换时事务内清旧置新）
+func (s *Service) SetHomeDefault(ctx context.Context, id int64, on bool) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rules WHERE id = ?`, id).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return ErrNotFound
+		}
+		if on {
+			if _, err := tx.ExecContext(ctx, `UPDATE rules SET is_home_default = 0 WHERE is_home_default = 1`); err != nil {
+				return err
+			}
+		}
+		value := 0
+		if on {
+			value = 1
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE rules SET is_home_default = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, value, id); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // RefreshToken 物理轮替（规则 Token 全局共享，不随用户禁用/删除失效）
@@ -166,7 +203,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 // List 规则列表（含全局 Token 与刷新时间；LEFT JOIN 保证无 Token 时 refreshed_at 为原生 NULL，R07-04）
 func (s *Service) List(ctx context.Context) ([]Rule, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT r.id, r.slug, r.name, r.client_type, r.schemes, COALESCE(r.current_version,0), r.created_at,
+		`SELECT r.id, r.slug, r.name, r.client_type, r.schemes, COALESCE(r.current_version,0), r.is_home_default, r.created_at,
 		        COALESCE((SELECT rt.token FROM rule_tokens rt WHERE rt.rule_id = r.id LIMIT 1), ''),
 		        rt.refreshed_at
 		 FROM rules r LEFT JOIN rule_tokens rt ON rt.rule_id = r.id ORDER BY r.id`)
@@ -178,10 +215,12 @@ func (s *Service) List(ctx context.Context) ([]Rule, error) {
 	for rows.Next() {
 		var r Rule
 		var schemesRaw string
+		var isHomeDefault int
 		var refreshed sql.NullTime
-		if err := rows.Scan(&r.ID, &r.Slug, &r.Name, &r.ClientType, &schemesRaw, &r.CurrentVersion, &r.CreatedAt, &r.Token, &refreshed); err != nil {
+		if err := rows.Scan(&r.ID, &r.Slug, &r.Name, &r.ClientType, &schemesRaw, &r.CurrentVersion, &isHomeDefault, &r.CreatedAt, &r.Token, &refreshed); err != nil {
 			return nil, err
 		}
+		r.IsHomeDefault = isHomeDefault == 1
 		r.Schemes = parseSchemes(schemesRaw)
 		if refreshed.Valid {
 			r.RefreshedAt = &refreshed.Time
@@ -191,31 +230,30 @@ func (s *Service) List(ctx context.Context) ([]Rule, error) {
 	return out, rows.Err()
 }
 
-// Get 单个规则
+// Get 读取单条规则，供跨资源版本归属解析等只读场景使用。
 func (s *Service) Get(ctx context.Context, id int64) (*Rule, error) {
 	var r Rule
 	var schemesRaw string
+	var isHomeDefault int
+	var refreshed sql.NullTime
 	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT id, slug, name, client_type, schemes, COALESCE(current_version,0) FROM rules WHERE id = ?`, id).
-		Scan(&r.ID, &r.Slug, &r.Name, &r.ClientType, &schemesRaw, &r.CurrentVersion)
+		`SELECT r.id, r.slug, r.name, r.client_type, r.schemes, COALESCE(r.current_version,0), r.is_home_default, r.created_at,
+		        COALESCE((SELECT rt.token FROM rule_tokens rt WHERE rt.rule_id = r.id LIMIT 1), ''),
+		        rt.refreshed_at
+		 FROM rules r LEFT JOIN rule_tokens rt ON rt.rule_id = r.id WHERE r.id = ?`, id).
+		Scan(&r.ID, &r.Slug, &r.Name, &r.ClientType, &schemesRaw, &r.CurrentVersion, &isHomeDefault, &r.CreatedAt, &r.Token, &refreshed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("读取规则失败: %w", err)
 	}
+	r.IsHomeDefault = isHomeDefault == 1
 	r.Schemes = parseSchemes(schemesRaw)
-	return &r, nil
-}
-
-// Name 取规则名称（下载 Content-Disposition 用）
-func (s *Service) Name(ctx context.Context, id int64) (string, error) {
-	var name string
-	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT name FROM rules WHERE id = ?`, id).Scan(&name); err != nil {
-		return "", err
+	if refreshed.Valid {
+		r.RefreshedAt = &refreshed.Time
 	}
-	return name, nil
+	return &r, nil
 }
 
 func toJSON(v any) string {

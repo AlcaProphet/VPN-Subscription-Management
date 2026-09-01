@@ -40,7 +40,11 @@ func (h *StatusHandler) announcement(c *gin.Context) {
 func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
-		configured := h.cfg.GetBool(ctx, config.KeyConfigured, false)
+		configured, err := h.cfg.GetBoolStrict(ctx, config.KeyConfigured, false)
+		if err != nil {
+			Fail(c, 500, err.Error())
+			return
+		}
 		empty, err := h.users.IsTableEmpty(ctx)
 		if err != nil {
 			Fail(c, 500, err.Error())
@@ -58,17 +62,27 @@ func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 			emergencyReason = string(h.emSvc.Reason())
 			canResetPassword = h.emSvc.CanResetPassword(ctx)
 		}
+		advancedMode := false
+		if !emergencyOn { // 应急模式恒 false（高级能力不可用）
+			advancedMode, err = h.cfg.GetBoolStrict(ctx, config.KeyAdvancedMode, false)
+			if err != nil {
+				Fail(c, 500, err.Error())
+				return
+			}
+		}
 		OK(c, gin.H{
-			"configured":         configured,
-			"app_mode":           mode,
-			"emergency":          emergencyOn,
-			"emergency_reason":   emergencyReason,
-			"can_reset_password": canResetPassword,
-			"allow_local_login":  h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true),
-			"allow_selfreg":      h.cfg.GetBool(ctx, config.KeyAllowSelfreg, false),
-			"user_table_empty":   empty, // 注册入口可见性所需，有意公开（Design1 §5.2）
-			"oidc_configured":    h.oidcSvc.IsConfigured(ctx),
-			"oidc_provider_type": providerType, // 未配置时为空串
+			"configured":           configured,
+			"app_mode":             mode,
+			"advanced_mode":        advancedMode,
+			"traffic_card_enabled": h.cfg.GetBool(ctx, "traffic_card_enabled", true),
+			"emergency":            emergencyOn,
+			"emergency_reason":     emergencyReason,
+			"can_reset_password":   canResetPassword,
+			"allow_local_login":    h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true),
+			"allow_selfreg":        h.cfg.GetBool(ctx, config.KeyAllowSelfreg, false),
+			"user_table_empty":     empty, // 注册入口可见性所需，有意公开（Design1 §5.2）
+			"oidc_configured":      h.oidcSvc.IsConfigured(ctx),
+			"oidc_provider_type":   providerType, // 未配置时为空串
 			// 验证码字段（供前端渲染验证码组件；secret_key 禁止返回）
 			"captcha_provider": captchaProvider,
 			"captcha_site_key": siteKey,

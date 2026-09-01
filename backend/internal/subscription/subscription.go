@@ -1,4 +1,5 @@
-// Package subscription 提供订阅池业务层：CRUD、四类全局标识校验与级联删除。
+// Package subscription 提供订阅地址池业务层：每平台一份订阅条目（装配生成模板或直接上传静态内容）、
+// 四类全局标识校验与级联删除。
 package subscription
 
 import (
@@ -9,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"strings"
 
 	"vpn-sub/internal/slug"
 	"vpn-sub/internal/store"
@@ -20,29 +22,25 @@ var slugRe = regexp.MustCompile(`^[a-z0-9-]{3,64}$`)
 
 // 业务错误（接入层映射 HTTP 状态码）
 var (
-	ErrSlugConflict = errors.New("标识已被使用（四类资源全局唯一）")
-	ErrBadRequest   = errors.New("参数错误")
-	ErrNotFound     = errors.New("订阅不存在")
+	ErrSlugConflict     = errors.New("标识已被使用（四类资源全局唯一）")
+	ErrBadRequest       = errors.New("参数错误")
+	ErrNotFound         = errors.New("订阅不存在")
+	ErrPlatformOccupied = errors.New("该平台已有订阅条目")
 )
 
-// Service 订阅池服务
+// Service 订阅地址池服务
 type Service struct {
 	store    *store.Store
 	versions *version.Service
 	log      *slog.Logger
-	// onSubDeleted 删订阅级联回调（Build2 Step 3 由 group 服务注入；回调注入防包级循环依赖）
-	onSubDeleted func(ctx context.Context, tx *sql.Tx, subscriptionID int64) error
-	// onTokenDeleted 删订阅 Token 级联回调（Build2 Step 4 由 token 服务注入）
+	// onTokenDeleted 删订阅 Token 级联回调（由 token 服务注入）
 	onTokenDeleted func(ctx context.Context, tx *sql.Tx, subscriptionID int64) error
+	// onAfterDelete 删订阅后的候选集重算回调（Build6 Step2）
+	onAfterDelete func(ctx context.Context, subscriptionID int64)
 }
 
 func NewService(st *store.Store, versions *version.Service, lg *slog.Logger) *Service {
 	return &Service{store: st, versions: versions, log: lg}
-}
-
-// SetOnSubscriptionDeleted 注入删订阅级联回调（清组选定 + 置 needs_reselect，由 group 服务提供）
-func (s *Service) SetOnSubscriptionDeleted(fn func(ctx context.Context, tx *sql.Tx, subscriptionID int64) error) {
-	s.onSubDeleted = fn
 }
 
 // SetOnTokenDeleted 注入删订阅 Token 级联回调（由 token 服务提供）
@@ -50,37 +48,28 @@ func (s *Service) SetOnTokenDeleted(fn func(ctx context.Context, tx *sql.Tx, sub
 	s.onTokenDeleted = fn
 }
 
-// GroupBrief 关联组摘要
-type GroupBrief struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+// SetOnAfterDelete 注入删订阅后的候选集重算回调（Build6 Step2）。
+func (s *Service) SetOnAfterDelete(fn func(ctx context.Context, subscriptionID int64)) {
+	s.onAfterDelete = fn
 }
 
-// Subscription 订阅
+// Subscription 订阅地址池条目（每平台唯一）
 type Subscription struct {
-	ID             int64        `json:"id"`
-	Slug           string       `json:"slug"`
-	Name           string       `json:"name"`
-	PlatformID     int64        `json:"platform_id"`
-	CurrentVersion int64        `json:"current_version"`
-	Groups         []GroupBrief `json:"groups"`        // 关联用户组
-	SelectedBy     int64        `json:"selected_by"`   // 被多少组选定中（Step 3 接通）
+	ID             int64  `json:"id"`
+	Slug           string `json:"slug"`
+	Name           string `json:"name"`
+	PlatformID     int64  `json:"platform_id"`
+	ProductType    string `json:"product_type"` // yaml / subs / generic-subs（与平台一致）
+	CurrentVersion int64  `json:"current_version"`
+	ContentKind    string `json:"content_kind,omitempty"`  // blueprint / upload；无激活版本时省略（前端视为 null）
+	PlatformName   string `json:"platform_name,omitempty"` // 列表 JOIN 平台的展示名
 }
 
-// PlatformGroup 按平台分组的订阅列表
-type PlatformGroup struct {
-	PlatformID   int64          `json:"platform_id"`
-	PlatformName string         `json:"platform_name"`
-	Subscriptions []Subscription `json:"subscriptions"`
-}
-
-// CreateInput 创建订阅入参（首版本内容可选）
+// CreateInput 创建订阅入参（不再携带关联组与首版本；内容统一经版本管理上传或装配生成入池）
 type CreateInput struct {
-	PlatformID   int64
-	Name         string
-	Slug         string
-	GroupIDs     []int64
-	FirstContent version.ContentProvider // 可选：创建时同时建立首版本
+	PlatformID int64
+	Name       string
+	Slug       string
 }
 
 // CheckSlugAvailable 四类资源全局唯一命名空间交叉校验（跨四表查重，供四类资源共用）；
@@ -89,7 +78,7 @@ func (s *Service) CheckSlugAvailable(ctx context.Context, slugVal, excludeOwner 
 	if !slugRe.MatchString(slugVal) {
 		return false, nil // 格式不合法直接不可用
 	}
-	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions"} {
+	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions", "xray_instances"} {
 		ok, err := tableExists(ctx, s.store.DB(), table)
 		if err != nil {
 			return false, err
@@ -136,7 +125,7 @@ func tableExistsTx(ctx context.Context, tx *sql.Tx, name string) (bool, error) {
 
 // slugExistsTx 事务内检查标识是否已被四类资源占用（自动生成标识的 exists 回调）
 func slugExistsTx(ctx context.Context, tx *sql.Tx, slugVal string) (bool, error) {
-	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions"} {
+	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions", "xray_instances"} {
 		ok, err := tableExistsTx(ctx, tx, table)
 		if err != nil {
 			return false, err
@@ -162,7 +151,8 @@ func GenerateSlugTx(ctx context.Context, tx *sql.Tx, prefix string) (string, err
 	})
 }
 
-// Create 指定平台 + 名称 + 关联组多选（可空）+ 首版本内容（可选）；标识为空时自动生成（subscription- 前缀，见 Design1 §2.2）
+// Create 指定平台 + 名称；product_type 从平台读取；平台唯一占用（事务内查重 + UNIQUE 索引兜底）。
+// 不再创建首版本——内容统一经版本管理上传或装配生成入池。
 func (s *Service) Create(ctx context.Context, in CreateInput) (*Subscription, error) {
 	if in.Slug != "" && !slugRe.MatchString(in.Slug) {
 		return nil, fmt.Errorf("%w: 标识须为小写字母数字连字符，长度 3~64", ErrBadRequest)
@@ -181,12 +171,21 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Subscription, er
 	}
 	var created *Subscription
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		var plat int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM platforms WHERE id = ?`, in.PlatformID).Scan(&plat); err != nil {
+		var productType string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT product_type FROM platforms WHERE id = ?`, in.PlatformID).Scan(&productType); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrBadRequest // 平台不存在
+			}
 			return err
 		}
-		if plat == 0 {
-			return ErrBadRequest // 平台不存在
+		var occupied int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM subscriptions WHERE platform_id = ?`, in.PlatformID).Scan(&occupied); err != nil {
+			return err
+		}
+		if occupied > 0 {
+			return ErrPlatformOccupied // 事务内查重，防并发绕过 UNIQUE
 		}
 		if in.Slug == "" {
 			// 自动生成：事务内跨四类唯一性检查，冲突自动重试
@@ -197,53 +196,37 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Subscription, er
 			in.Slug = slugVal
 		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO subscriptions (slug, name, platform_id) VALUES (?,?,?)`, in.Slug, in.Name, in.PlatformID)
+			`INSERT INTO subscriptions (slug, name, platform_id, product_type) VALUES (?,?,?,?)`,
+			in.Slug, in.Name, in.PlatformID, productType)
 		if err != nil {
+			// UNIQUE(platform_id) 索引兜底：并发创建冲突同样映射 409
+			if isUniqueViolation(err) {
+				return ErrPlatformOccupied
+			}
 			return fmt.Errorf("创建订阅失败: %w", err)
 		}
 		id, err := res.LastInsertId()
 		if err != nil {
 			return err
 		}
-		for _, gid := range in.GroupIDs {
-			if _, err := tx.ExecContext(ctx,
-				`INSERT OR IGNORE INTO subscription_group_rel (subscription_id, group_id) VALUES (?,?)`, id, gid); err != nil {
-				return fmt.Errorf("写入订阅-组关联失败: %w", err)
-			}
-		}
-		created = &Subscription{ID: id, Slug: in.Slug, Name: in.Name, PlatformID: in.PlatformID}
+		created = &Subscription{ID: id, Slug: in.Slug, Name: in.Name, PlatformID: in.PlatformID, ProductType: productType}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	// 首版本内容（独立事务调用版本组件；失败回滚订阅创建，失败清理模式）
-	if in.FirstContent != nil {
-		v, err := s.versions.CreateVersion(ctx, version.OwnerSubscription, created.ID, in.FirstContent)
-		if err != nil {
-			s.rollbackCreate(ctx, created.ID)
-			return nil, err
-		}
-		created.CurrentVersion = v.No
-	}
 	s.log.Info("订阅已创建", "id", created.ID, "slug", created.Slug)
 	return created, nil
 }
 
-// rollbackCreate 首版本创建失败时回滚订阅创建（删关联 + 订阅行）
-func (s *Service) rollbackCreate(ctx context.Context, id int64) {
-	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		_, _ = tx.ExecContext(ctx, `DELETE FROM subscription_group_rel WHERE subscription_id = ?`, id)
-		_, err := tx.ExecContext(ctx, `DELETE FROM subscriptions WHERE id = ?`, id)
-		return err
-	}); err != nil {
-		s.log.Error("回滚订阅创建失败", "id", id, "err", err)
-	}
+// isUniqueViolation 识别 UNIQUE 约束冲突（platform 占用 / slug 冲突）
+func isUniqueViolation(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE constraint failed") || strings.Contains(msg, "constraint failed")
 }
 
-// Update 仅可改名称与关联组；平台只读（创建后不可修改）；
-// 取消关联受「该组正在选定此订阅则拒绝」约束（Step 3 接通 group_selections 校验，本 Step 预留）
-func (s *Service) Update(ctx context.Context, id int64, name string, groupIDs []int64) error {
+// Update 仅可改名称；平台与 product_type 只读
+func (s *Service) Update(ctx context.Context, id int64, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: 名称必填", ErrBadRequest)
 	}
@@ -259,22 +242,11 @@ func (s *Service) Update(ctx context.Context, id int64, name string, groupIDs []
 			`UPDATE subscriptions SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, name, id); err != nil {
 			return fmt.Errorf("更新订阅失败: %w", err)
 		}
-		// 重建关联（TODO(Build2 Step 3)：校验被移除的组是否在 group_selections 中选定此订阅，是则拒绝并提示先改选）
-		if _, err := tx.ExecContext(ctx, `DELETE FROM subscription_group_rel WHERE subscription_id = ?`, id); err != nil {
-			return err
-		}
-		for _, gid := range groupIDs {
-			if _, err := tx.ExecContext(ctx,
-				`INSERT OR IGNORE INTO subscription_group_rel (subscription_id, group_id) VALUES (?,?)`, id, gid); err != nil {
-				return fmt.Errorf("写入订阅-组关联失败: %w", err)
-			}
-		}
 		return nil
 	})
 }
 
-// Delete 级联删除（Design1 §4.4）：全部版本文件 + 指向它的下载 Token（Step 4 接入）
-// + 所有组的关联与选定（Step 3 接入）；受影响组置空不回退并置 needs_reselect
+// Delete 级联删除：全部版本文件 + 指向它的下载 Token（含老库残留显式 Token）+ 订阅行
 func (s *Service) Delete(ctx context.Context, id int64) error {
 	var files []string
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
@@ -300,17 +272,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 				return err
 			}
 		}
-		// 3) 删订阅-组关联（Step 3 起由 OnSubscriptionDeleted 统一清理：关联 + 选定 + needs_reselect）
-		if s.onSubDeleted != nil {
-			if err := s.onSubDeleted(ctx, tx, id); err != nil {
-				return err
-			}
-		} else {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM subscription_group_rel WHERE subscription_id = ?`, id); err != nil {
-				return err
-			}
-		}
-		// 4) 删订阅行
+		// 3) 删订阅行（装配蓝图随 versions 外键 ON DELETE CASCADE 级联）
 		if _, err := tx.ExecContext(ctx, `DELETE FROM subscriptions WHERE id = ?`, id); err != nil {
 			return fmt.Errorf("删除订阅失败: %w", err)
 		}
@@ -328,104 +290,87 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	if err := s.versions.RemoveOwnerDir(version.OwnerSubscription, id); err != nil {
 		s.log.Warn("删除订阅版本目录失败", "id", id, "err", err)
 	}
+	if s.onAfterDelete != nil {
+		s.onAfterDelete(ctx, id)
+	}
 	return nil
 }
 
-// Get 单个订阅（编辑回显：含关联组）
+// Get 单个订阅（编辑回显：名称 + 平台/格式只读信息 + 内容形态）
 func (s *Service) Get(ctx context.Context, id int64) (*Subscription, error) {
 	var sub Subscription
 	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT id, slug, name, platform_id, COALESCE(current_version,0) FROM subscriptions WHERE id = ?`, id).
-		Scan(&sub.ID, &sub.Slug, &sub.Name, &sub.PlatformID, &sub.CurrentVersion)
+		`SELECT id, slug, name, platform_id, COALESCE(current_version,0), product_type
+		 FROM subscriptions WHERE id = ?`, id).
+		Scan(&sub.ID, &sub.Slug, &sub.Name, &sub.PlatformID, &sub.CurrentVersion, &sub.ProductType)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("读取订阅失败: %w", err)
 	}
-	sub.Groups, err = s.groupRel(ctx, id)
+	sub.ContentKind, err = s.contentKind(ctx, sub.ID, sub.CurrentVersion)
 	if err != nil {
 		return nil, err
 	}
 	return &sub, nil
 }
 
-// List 按平台分组的订阅列表，含关联组与「被哪些组选定中」数量（Step 3 接通）
-func (s *Service) List(ctx context.Context) ([]PlatformGroup, error) {
+// List 平铺列表（每平台至多一份条目），含平台名与内容形态
+func (s *Service) List(ctx context.Context) ([]Subscription, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT s.id, s.slug, s.name, s.platform_id, COALESCE(s.current_version,0), p.name
+		`SELECT s.id, s.slug, s.name, s.platform_id, COALESCE(s.current_version,0), s.product_type, p.name
 		 FROM subscriptions s JOIN platforms p ON p.id = s.platform_id ORDER BY p.id, s.id`)
 	if err != nil {
 		return nil, fmt.Errorf("读取订阅列表失败: %w", err)
 	}
 	defer rows.Close()
-	type row struct{ sub Subscription; platformName string }
-	var items []row
+	out := make([]Subscription, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.sub.ID, &r.sub.Slug, &r.sub.Name, &r.sub.PlatformID, &r.sub.CurrentVersion, &r.platformName); err != nil {
+		var sub Subscription
+		if err := rows.Scan(&sub.ID, &sub.Slug, &sub.Name, &sub.PlatformID, &sub.CurrentVersion, &sub.ProductType, &sub.PlatformName); err != nil {
 			return nil, fmt.Errorf("解析订阅行失败: %w", err)
 		}
-		items = append(items, r)
+		out = append(out, sub)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	// 分组 + 关联组 + 选定数
-	out := make([]PlatformGroup, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
-	index := map[int64]int{}
-	for _, it := range items {
-		idx, ok := index[it.sub.PlatformID]
-		if !ok {
-			idx = len(out)
-			index[it.sub.PlatformID] = idx
-			out = append(out, PlatformGroup{PlatformID: it.sub.PlatformID, PlatformName: it.platformName})
-		}
-		sub := it.sub
-		if sub.Groups, err = s.groupRel(ctx, sub.ID); err != nil {
-			return nil, err
-		}
-		sub.SelectedBy, err = s.selectedByCount(ctx, sub.ID)
+	// 先关闭/释放外层 Rows，再逐行补充 contentKind，
+	// 避免 SetMaxOpenConns(1) 下嵌套查询导致唯一连接死锁。
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].ContentKind, err = s.contentKind(ctx, out[i].ID, out[i].CurrentVersion)
 		if err != nil {
 			return nil, err
 		}
-		out[idx].Subscriptions = append(out[idx].Subscriptions, sub)
 	}
 	return out, nil
 }
 
-// groupRel 订阅的关联组列表
-func (s *Service) groupRel(ctx context.Context, id int64) ([]GroupBrief, error) {
-	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT g.id, g.name FROM subscription_group_rel r JOIN groups g ON g.id = r.group_id
-		 WHERE r.subscription_id = ? ORDER BY g.id`, id)
-	if err != nil {
-		return nil, err
+// contentKind 当前激活版本的内容形态：assembly_blueprints 存在 → blueprint，否则 upload；无激活版本为空
+func (s *Service) contentKind(ctx context.Context, id, currentVersion int64) (string, error) {
+	if currentVersion <= 0 {
+		return "", nil
 	}
-	defer rows.Close()
-	out := make([]GroupBrief, 0) // 空列表返回 [] 而非 null
-	for rows.Next() {
-		var g GroupBrief
-		if err := rows.Scan(&g.ID, &g.Name); err != nil {
-			return nil, err
-		}
-		out = append(out, g)
-	}
-	return out, rows.Err()
-}
-
-// selectedByCount 被多少组选定中（group_selections 表 Step 3 建立，未建立时计 0）
-func (s *Service) selectedByCount(ctx context.Context, id int64) (int64, error) {
-	ok, err := tableExists(ctx, s.store.DB(), "group_selections")
+	ok, err := tableExists(ctx, s.store.DB(), "assembly_blueprints")
 	if err != nil || !ok {
-		return 0, err
+		return "", err
 	}
-	var n int64
+	var n int
 	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM group_selections WHERE subscription_id = ?`, id).Scan(&n); err != nil {
-		return 0, err
+		`SELECT COUNT(*) FROM assembly_blueprints b
+		 JOIN versions v ON v.id = b.version_id
+		 WHERE v.owner_type = 'subscription' AND v.owner_id = ? AND v.version_no = ?`,
+		id, currentVersion).Scan(&n); err != nil {
+		return "", err
 	}
-	return n, nil
+	if n > 0 {
+		return "blueprint", nil
+	}
+	return "upload", nil
 }
 
 // CheckSlug 便捷包装：标识格式 + 跨四类可用性（供 slug/check 端点）

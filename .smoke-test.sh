@@ -1,7 +1,21 @@
 #!/bin/bash
 set -e
-BASE=http://127.0.0.1:18080
-J() { python3 -c "import sys,json; print(json.load(sys.stdin)$1)"; }
+
+# L05 安全门禁：本地 smoke 时同步检查前端依赖不存在 high/critical 漏洞
+if [ -d frontend ] && command -v npm >/dev/null 2>&1; then
+  (cd frontend && npm audit --audit-level=high)
+fi
+
+BASE="${BASE:-http://127.0.0.1:18080}"
+J() { python3 -c "import sys,json; d=json.load(sys.stdin); print(d$1)"; }
+# require_success 校验业务响应 code==0，失败立即退出，避免 smoke 假绿。
+require_success() {
+  local name="$1" resp="$2"
+  if ! python3 -c 'import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get("code") == 0 else 1)' <<<"$resp"; then
+    echo "FAIL: $name -> $resp" >&2
+    exit 1
+  fi
+}
 
 # 1) Setup 快速开始
 curl -s -X POST $BASE/api/setup/quickstart > /dev/null
@@ -13,60 +27,191 @@ TOKEN=$(curl -s -X POST $BASE/api/auth/register -H 'Content-Type: application/js
 echo "2) 注册 token=${TOKEN:0:12}..."
 AUTH="Authorization: Bearer $TOKEN"
 
-# 3) 创建订阅
+# 3) 创建订阅（每平台一份，product_type 来自平台默认 yaml）
 SUB=$(curl -s -X POST $BASE/api/admin/subscriptions -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"platform_id":1,"name":"主订阅","slug":"main-sub"}')
 SUBID=$(echo "$SUB" | J "['data']['id']")
 echo "3) 订阅 id=$SUBID slug=$(echo "$SUB" | J "['data']['slug']")"
 
-# 4) 创建版本（文本）
+# 4) 创建版本（文本，订阅池首版自动激活）
 curl -s -X POST "$BASE/api/admin/subscriptions/$SUBID/versions?mode=text" -H "$AUTH" \
   -H 'Content-Type: application/json' \
   -d '{"text":"proxies:\n  - name: node1\n    server: 1.2.3.4\n    port: 443"}' > /dev/null
-echo "4) 版本=$(curl -s $BASE/api/admin/subscriptions/$SUBID/versions -H "$AUTH" | J "['data']['list']")"
+echo "4) 版本=$(curl -s $BASE/api/admin/subscriptions/$SUBID/versions -H "$AUTH" | J "['data']['list'][0]['version_no']")"
 
-# 5) 组关联 + 每平台选定（整体提交）
-GID=$(curl -s $BASE/api/admin/groups -H "$AUTH" | J "['data']['list'][0]['id']")
-curl -s -X PUT $BASE/api/admin/groups/$GID -H "$AUTH" -H 'Content-Type: application/json' \
-  -d "{\"name\":\"默认组\",\"sub_ids\":[$SUBID],\"selections\":[{\"platform_id\":1,\"subscription_id\":$SUBID}]}" > /dev/null
-echo "5) 组选定 group=$GID"
+# 5) 订阅单条 GET（R14-01 回归）
+echo "5) 单条订阅 GET=$(curl -s $BASE/api/admin/subscriptions/$SUBID -H "$AUTH" | J "['data']['name']")"
 
-# 6) 用户首页（管理员：池内订阅列表，取首份显式 Token；列表统一 ListData 包裹解包）
+# 6) 首页平台卡（管理员预览形态）
 CARD=$(curl -s $BASE/api/home/platforms -H "$AUTH")
-PLATFORM_SLUG=$(echo "$CARD" | J "['data']['list'][0]['subscriptions'][0]['download_url'].split('/')[2]")
 STATUS=$(echo "$CARD" | J "['data']['list'][0]['status']")
-TOK=$(echo "$CARD" | J "['data']['list'][0]['subscriptions'][0]['token']")
-echo "6) 首页 platform=$PLATFORM_SLUG status=$STATUS"
+PREVIEW=$(echo "$CARD" | J "['data']['list'][0]['preview_available']")
+echo "6) 首页 platform status=$STATUS preview=$PREVIEW"
 
-# 7) 下载（显式 Token → 订阅内容）
-echo "7) 下载: $(curl -s "$BASE/subscriptions/$PLATFORM_SLUG/download?token=$TOK" | head -1)"
+# 7) 按平台预览（管理员会话，文本/纯文本）
+PREVIEW_TEXT=$(curl -s "$BASE/api/subscriptions/preview?platform=$(echo "$CARD" | J "['data']['list'][0]['slug']")" -H "$AUTH")
+echo "7) 预览首行=${PREVIEW_TEXT%%$'\n'*}"
 
-# 8) 无效 Token → 404
-echo "8) 无效Token: HTTP $(curl -s -o /dev/null -w '%{http_code}' "$BASE/subscriptions/$PLATFORM_SLUG/download?token=bad")"
+# 8) 规则：创建文本规则并设置首页默认
+RULE=$(curl -s -X POST "$BASE/api/admin/rules?mode=text" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"默认规则","slug":"default-rules","client_type":"shadowrocket","schemes":["shadowrocket://add/{url}"],"text":"[Rule]\nGEOIP,CN,DIRECT"}')
+RULEID=$(echo "$RULE" | J "['data']['id']")
+curl -s -X PUT "$BASE/api/admin/rules/$RULEID/home-default" -H "$AUTH" -H 'Content-Type: application/json' -d '{"is_default":true}' > /dev/null
+RULES=$(curl -s $BASE/api/rules -H "$AUTH")
+RULE_TOKEN=$(echo "$RULES" | J "['data']['list'][0]['token']")
+RULE_SLUG=$(echo "$RULES" | J "['data']['list'][0]['slug']")
+echo "8) 规则下载=$(curl -s "$BASE/rules/$RULE_SLUG/download?token=$RULE_TOKEN" | head -1)"
 
-# 9) 切换版本后下载内容变化（版本管理生效）
-curl -s -X POST "$BASE/api/admin/subscriptions/$SUBID/versions?mode=text" -H "$AUTH" \
-  -H 'Content-Type: application/json' -d '{"text":"proxies:\n  - name: node2\n    server: 5.6.7.8\n    port: 8443"}' > /dev/null
-echo "9) 新版本下载: $(curl -s "$BASE/subscriptions/$PLATFORM_SLUG/download?token=$TOK" | grep -o 'node2')"
-
-# 10) 分享订阅：创建 → 公开下载 → 吊销 → 404 → 刷新恢复
+# 9) 分享订阅：创建 → 公开下载 → 吊销 → 404 → 刷新恢复
 SHARE=$(curl -s -X POST "$BASE/api/admin/shares?mode=text" -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"name":"测试分享","text":"rules: []"}')
 SHAREID=$(echo "$SHARE" | J "['data']['id']")
 SHARESLUG=$(echo "$SHARE" | J "['data']['slug']")
 SHARETOK=$(echo "$SHARE" | J "['data']['token']")
-echo "10) 分享 $SHARESLUG 下载: $(curl -s "$BASE/share/$SHARESLUG/download?token=$SHARETOK" | head -1)"
+echo "9) 分享 $SHARESLUG 下载=$(curl -s "$BASE/share/$SHARESLUG/download?token=$SHARETOK" | head -1)"
 curl -s -X POST $BASE/api/admin/shares/$SHAREID/token/revoke -H "$AUTH" > /dev/null
-echo "    吊销后: HTTP $(curl -s -o /dev/null -w '%{http_code}' "$BASE/share/$SHARESLUG/download?token=$SHARETOK")"
+echo "   吊销后 HTTP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/share/$SHARESLUG/download?token=$SHARETOK")"
 NEWTOK=$(curl -s -X POST $BASE/api/admin/shares/$SHAREID/token/refresh -H "$AUTH" | J "['data']['token']")
-echo "    刷新后: $(curl -s "$BASE/share/$SHARESLUG/download?token=$NEWTOK" | head -1)"
+echo "   刷新后=$(curl -s "$BASE/share/$SHARESLUG/download?token=$NEWTOK" | head -1)"
 
-# 11) 规则：创建 → 用户端列表 → 公开下载
-curl -s -X POST "$BASE/api/admin/rules?mode=text" -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"name":"默认规则","slug":"default-rules","client_type":"shadowrocket","schemes":["shadowrocket://add/{url}"],"text":"rules: []"}' > /dev/null
-RULE=$(curl -s $BASE/api/rules -H "$AUTH")
-RULESLUG=$(echo "$RULE" | J "['data']['list'][0]['slug']")
-RULETOK=$(echo "$RULE" | J "['data']['list'][0]['token']")
-echo "11) 规则下载: $(curl -s "$BASE/rules/$RULESLUG/download?token=$RULETOK" | head -1)"
+# 10) 无效 Token → 404
+echo "10) 无效Token HTTP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/subscriptions/platform-1/download?token=bad")"
+
+# 10b) Build11：管理员概览汇总接口
+OVERVIEW=$(curl -s $BASE/api/admin/overview -H "$AUTH")
+require_success "管理员概览" "$OVERVIEW"
+echo "10b) 概览 platforms=$(echo "$OVERVIEW" | J "['data']['counts']['platforms']") subscriptions=$(echo "$OVERVIEW" | J "['data']['counts']['subscriptions']")"
+
+# 10c) Build11：重置链接校验（缺失令牌应返回 missing）
+RESET_STATUS=$(curl -s -X POST $BASE/api/auth/reset/validate -H 'Content-Type: application/json' \
+  -d '{"token":"smoke-missing-token"}' | J "['data']['status']")
+echo "10c) 重置校验 status=$RESET_STATUS"
+if [ "$RESET_STATUS" != "missing" ]; then
+  echo "FAIL: 重置校验缺失令牌应返回 missing，实际 $RESET_STATUS" >&2
+  exit 1
+fi
+
+# 10d) Build11：应急模式正常状态
+EMERGENCY=$(curl -s $BASE/api/system/status | J "['data']['emergency']")
+echo "10d) 应急状态 emergency=$EMERGENCY"
+if [ "$EMERGENCY" != "false" ]; then
+  echo "FAIL: 常规 smoke 环境应急状态应为 false，实际 $EMERGENCY" >&2
+  exit 1
+fi
+
+# --- Build4~7 核心路径 ---
+# 11) 规则素材池 CRUD + 手动条目
+POOL=$(curl -s -X POST $BASE/api/admin/pools -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-pool","urls":[],"auto_sync":false,"sync_time":"04:00"}')
+POOLID=$(echo "$POOL" | J "['data']['id']")
+curl -s -X POST "$BASE/api/admin/pools/$POOLID/entries" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"rule_type":"DOMAIN-SUFFIX","match_value":"smoke.example"}' > /dev/null
+echo "11) 素材池 id=$POOLID entries=$(curl -s "$BASE/api/admin/pools/$POOLID/entries" -H "$AUTH" | J "['data']['total']")"
+
+# 12) manual 节点 + 代理组
+NODE=$(curl -s -X POST $BASE/api/admin/nodes -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-node","protocol":"vless","host":"1.2.3.4","port":443,"protocol_json":{"uuid":"11111111-2222-3333-4444-555555555555"}}')
+NODEID=$(echo "$NODE" | J "['data']['id']")
+GROUP=$(curl -s -X POST $BASE/api/admin/proxy-groups -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-group","group_type":"select","definition":{"type":"select","nodes":["smoke-node"],"groups":["🚀直接连接"]}}')
+require_success "创建代理组" "$GROUP"
+echo "12) manual 节点 id=$NODEID 代理组已建"
+
+# 13) 装配生成（Clash YAML，自动激活首版）
+GEN=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT"}')
+require_success "Clash 装配生成" "$GEN"
+GENID=$(echo "$GEN" | J "['data']['version_id']")
+echo "13) 装配生成 version_id=$GENID auto=$(echo "$GEN" | J "['data']['auto_activated']")"
+
+# 13b) 其他三类装配器（generic-subs / sr-subs / sr-conf）
+SUB2=$(curl -s -X POST $BASE/api/admin/subscriptions -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"platform_id":2,"name":"generic-smoke-sub","slug":"generic-smoke-sub"}')
+SUB2ID=$(echo "$SUB2" | J "['data']['id']")
+GEN2=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"generic-subs","platform_id":2,"node_names":["smoke-node"],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"DIRECT"}')
+require_success "generic-subs 装配生成" "$GEN2"
+GEN2ID=$(echo "$GEN2" | J "['data']['version_id']")
+echo "13b) generic-subs 装配 version_id=$GEN2ID"
+
+SUB3=$(curl -s -X POST $BASE/api/admin/subscriptions -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"platform_id":3,"name":"sr-smoke-sub","slug":"sr-smoke-sub"}')
+SUB3ID=$(echo "$SUB3" | J "['data']['id']")
+GEN3=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"sr-subs","platform_id":3,"node_names":["smoke-node"],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"DIRECT"}')
+require_success "sr-subs 装配生成" "$GEN3"
+GEN3ID=$(echo "$GEN3" | J "['data']['version_id']")
+echo "13c) sr-subs 装配 version_id=$GEN3ID"
+
+GENR=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"sr-conf","rule_id":'$RULEID',"node_names":[],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"PROXY"}')
+require_success "sr-conf 装配生成" "$GENR"
+GENRID=$(echo "$GENR" | J "['data']['version_id']")
+echo "13d) sr-conf 装配 version_id=$GENRID"
+
+# 13e) Build10 URI 批量导入：2 合法 + 1 非法应回执 2 ok / 1 skip
+IMPORT_TEXT=$(python3 - <<'PY'
+import base64, json
+one = "ss://" + base64.b64encode(b"aes-256-gcm:pw").decode() + "@1.2.3.4:8388#smoke-import"
+two = "ss://" + base64.b64encode(b"aes-256-gcm:pw2").decode() + "@5.6.7.8:8388#smoke-import2"
+print(json.dumps({"text": one + "\n" + two + "\nnot-a-uri"}))
+PY
+)
+IMPORTRESP=$(curl -s -X POST "$BASE/api/admin/nodes/import" -H "$AUTH" -H 'Content-Type: application/json' -d "$IMPORT_TEXT")
+require_success "URI 批量导入" "$IMPORTRESP"
+IMPORT_OK=$(echo "$IMPORTRESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(1 for x in d['data']['list'] if x['ok']))")
+IMPORT_SKIP=$(echo "$IMPORTRESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(1 for x in d['data']['list'] if not x['ok']))")
+echo "13e) URI导入 ok=$IMPORT_OK skip=$IMPORT_SKIP"
+if [ "$IMPORT_OK" != "2" ] || [ "$IMPORT_SKIP" != "1" ]; then
+  echo "FAIL: URI 导入回执不符合预期 ok=$IMPORT_OK skip=$IMPORT_SKIP" >&2
+  exit 1
+fi
+
+# 13f) Build10 覆盖层装配生成
+GENOV=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT","overlay":{"rules_yaml":"prepend:\n  - DOMAIN,overlay.test,smoke-group\n","proxies_yaml":"prepend:\n  - name: overlay-node\n    type: ss\n    server: o.example.com\n    port: 8388\n    cipher: aes-256-gcm\n    password: test\n"}}')
+require_success "overlay 装配生成" "$GENOV"
+GENOVID=$(echo "$GENOV" | J "['data']['version_id']")
+echo "13f) overlay 装配 version_id=$GENOVID"
+
+# 14) Xray 高级模式：开启 + 实例（可选；无 Xray 时跳过检测只验证接口不 5xx）
+curl -s -X PUT $BASE/api/admin/settings/advanced -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"advanced_mode":true,"collect_interval_minutes":10,"traffic_card_enabled":true}' > /dev/null
+echo "14) 高级模式=$(curl -s $BASE/api/system/status | J "['data']['advanced_mode']")"
+if [ -n "${XRAY_FAKE_ADDR:-}" ]; then
+  XR=$(curl -s -X POST $BASE/api/admin/xray/instances -H "$AUTH" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"smoke-xray\",\"slug\":\"instance-smoke\",\"api_addr\":\"$XRAY_FAKE_ADDR\",\"api_tag\":\"smoke\",\"enabled\":true}")
+  echo "15) Xray 实例=$(echo "$XR" | J "['data']['id']")"
+else
+  echo "15) Xray 实例跳过（未设置 XRAY_FAKE_ADDR）"
+fi
+
+# 15/16) v2 导出导入往返（必须 Production；Dev 会 403，禁止假绿）
+APP_MODE=$(curl -s $BASE/api/system/status | J "['data']['app_mode']")
+if [ "$APP_MODE" != "prod" ]; then
+  echo "16) v2 导出/导入要求 Production 模式，当前 app_mode=$APP_MODE；请使用 Production 临时实例运行" >&2
+  exit 1
+fi
+HTTP=$(curl -s -o /tmp/vpn-smoke-export.enc -w '%{http_code}' -X POST $BASE/api/admin/settings/export -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"password":"smoke-pass-123"}')
+if [ "$HTTP" != "200" ]; then
+  echo "16) v2 导出失败 HTTP=$HTTP body=$(cat /tmp/vpn-smoke-export.enc)" >&2
+  exit 1
+fi
+if head -c 1 /tmp/vpn-smoke-export.enc | grep -q '{'; then
+  echo "16) v2 导出返回 JSON 错误：$(cat /tmp/vpn-smoke-export.enc)" >&2
+  exit 1
+fi
+echo "16) v2 导出 HTTP=$HTTP 文件大小=$(wc -c < /tmp/vpn-smoke-export.enc) 字节"
+
+if [ "${SMOKE_IMPORT:-0}" = "1" ]; then
+  IMPORT_HTTP=$(curl -s -o /tmp/vpn-smoke-import.out -w '%{http_code}' -X POST $BASE/api/admin/settings/import -H "$AUTH" \
+    -F "file=@/tmp/vpn-smoke-export.enc" -F "password=smoke-pass-123" -F "confirm_word=IMPORT" -F "disable_confirm_word=DISABLE")
+  echo "17) v2 导入 HTTP=$IMPORT_HTTP body=$(cat /tmp/vpn-smoke-import.out)"
+  if [ "$IMPORT_HTTP" != "200" ]; then
+    echo "17) v2 导入失败" >&2
+    exit 1
+  fi
+fi
 
 echo "=== SMOKE ALL DONE ==="

@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
 	"vpn-sub/internal/config"
@@ -104,8 +104,8 @@ func (s *Service) Issue(ctx context.Context, userID int64, credVersion int, dur 
 	now := time.Now()
 	exp := now.Add(dur)
 	claims := Claims{
-		RegisteredClaims: jwt.RegisteredClaims{IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(exp)},
-		UserID:           userID,
+		RegisteredClaims:  jwt.RegisteredClaims{IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(exp)},
+		UserID:            userID,
 		CredentialVersion: credVersion,
 	}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(key)

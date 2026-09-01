@@ -20,11 +20,13 @@ services:
       APP_MODE: prod            # 生产模式；dev 仅本地调试（数据库文件独立：app-dev.db / app-prod.db）
       LOG_LEVEL: info           # 初始日志级别（面板可运行时切换并持久化）
       LOG_FORMAT: console       # console / json（接入日志采集系统时用 json）
-      # TRUST_PROXY 真实客户端 IP 解析策略（auto/on/off，默认 auto，Design1 §6.4）：
+      # TRUST_PROXY 真实客户端 IP 解析策略（auto/on/off/cidr，默认 auto，Design1 §6.4）：
       #   auto = 信任回环与私有网段来源的 X-Forwarded-*（容器化反代/内网反代适用，默认推荐）
       #   on   = 始终信任（前置反代多跳场景）
       #   off  = 从不信任（公网直连场景，防转发头伪造绕过限流）
+      #   cidr = 仅信任 TRUST_PROXY_CIDRS 指定段 + 回环地址（Cloudflare/EdgeOne 等公网回源段）
       TRUST_PROXY: auto
+      # TRUST_PROXY_CIDRS: "173.245.48.0/20,103.21.244.0/22"  # 以厂商最新回源段为准
       # 应急恢复（Design1 §3.8）：管理员密码救援时取消下行注释并重启容器；
       # 一次性操作码见 docker compose logs vpn-sub | grep 操作码；完成后移除变量并重启恢复正常服务
       # RESET_ADMIN_PASSWORD: "1"

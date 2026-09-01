@@ -24,8 +24,8 @@ type DownloadHandler struct {
 func RegisterDownloadRoutes(engine *gin.Engine, h *DownloadHandler) {
 	dl := engine.Group("", h.limiter.Middleware("download", ratelimit.KeyDownload, 20))
 	dl.GET("/subscriptions/:platform/download", h.userDownload)
-	dl.GET("/share/:slug/download", h.shareDownload) // Step 5 接通解析
-	dl.GET("/rules/:slug/download", h.ruleDownload)  // Step 6 接通解析
+	dl.GET("/share/:slug/download", h.shareDownload)                 // Step 5 接通解析
+	dl.GET("/rules/:slug/download", h.ruleDownload)                  // Step 6 接通解析
 	engine.GET("/api/subscriptions/preview", h.sessionMW, h.preview) // 会话凭据预览（独立鉴权）
 }
 
@@ -45,9 +45,9 @@ func (h *DownloadHandler) userDownload(c *gin.Context) {
 		setNoCache(c)
 		Fail(c, http.StatusNotFound, "资源不存在") // 统一 404，不泄露资源存在性
 	case errors.Is(err, version.ErrVersionNotFound):
-		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无版本：记 fail_reason=version_missing（R07-05）
+		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无激活版本：HTTP 200 纯文本注释块
 		setNoCache(c)
-		Fail(c, http.StatusNotFound, "资源不存在") // 与无效 Token 同 404
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("# error: no active version\n"))
 	case errors.Is(err, download.ErrUnassigned):
 		h.dlSvc.WriteAccessLog(ctx, ip, entry, false)
 		setNoCache(c)
@@ -57,12 +57,12 @@ func (h *DownloadHandler) userDownload(c *gin.Context) {
 	default:
 		h.dlSvc.WriteAccessLog(ctx, ip, entry, true)
 		setNoCache(c)
-		// 下载文件名（资源名 + 原始扩展名）；平台附加头优先（如 clash-verge 预置的 Content-Disposition）
-		if res.Filename != "" {
-			c.Header("Content-Disposition", `attachment; filename="`+download.SanitizeFilename(res.Filename)+`"`)
-		}
+		// 平台附加头先写入，系统生成的动态文件名最后覆盖旧模板值。
 		for k, v := range res.ExtraHeaders {
 			c.Header(k, v)
+		}
+		if res.Filename != "" {
+			c.Header("Content-Disposition", download.BuildContentDisposition(res.Filename, "subscription.yaml"))
 		}
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", res.Content)
 	}
@@ -80,9 +80,9 @@ func (h *DownloadHandler) shareDownload(c *gin.Context) {
 		setNoCache(c)
 		Fail(c, http.StatusNotFound, "资源不存在")
 	case errors.Is(err, version.ErrVersionNotFound):
-		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无版本：记 fail_reason=version_missing（R07-05）
+		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无激活版本：HTTP 200 纯文本注释块
 		setNoCache(c)
-		Fail(c, http.StatusNotFound, "资源不存在") // 与无效 Token 同 404
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("# error: no active version\n"))
 	case err != nil:
 		Fail(c, http.StatusInternalServerError, err.Error())
 	default:
@@ -92,7 +92,7 @@ func (h *DownloadHandler) shareDownload(c *gin.Context) {
 		if filename == "" {
 			filename = slug
 		}
-		c.Header("Content-Disposition", `attachment; filename="`+download.SanitizeFilename(filename)+`"`)
+		c.Header("Content-Disposition", download.BuildContentDisposition(filename, "share.yaml"))
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", res.Content)
 	}
 }
@@ -109,9 +109,9 @@ func (h *DownloadHandler) ruleDownload(c *gin.Context) {
 		setNoCache(c)
 		Fail(c, http.StatusNotFound, "资源不存在")
 	case errors.Is(err, version.ErrVersionNotFound):
-		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无版本：记 fail_reason=version_missing（R07-05）
+		h.dlSvc.WriteAccessLog(ctx, ip, entry, false) // 无激活版本：HTTP 200 纯文本注释块
 		setNoCache(c)
-		Fail(c, http.StatusNotFound, "资源不存在") // 与无效 Token 同 404
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("# error: no active version\n"))
 	case err != nil:
 		Fail(c, http.StatusInternalServerError, err.Error())
 	default:
@@ -121,18 +121,19 @@ func (h *DownloadHandler) ruleDownload(c *gin.Context) {
 		if filename == "" {
 			filename = slug
 		}
-		c.Header("Content-Disposition", `attachment; filename="`+download.SanitizeFilename(filename)+`"`)
+		c.Header("Content-Disposition", download.BuildContentDisposition(filename, "rule.conf"))
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", res.Content)
 	}
 }
 
-// preview 会话凭据预览（Design1 §4.3）：管理员可指定 subscription_id 预览池内任意订阅；
-// 非管理员传 subscription_id 一律忽略；普通用户跟随分发优先级（自定义 → 组选定 → unassigned）
+// preview 会话凭据预览（Design2 §4.4）：管理员与普通用户统一按「平台 → 唯一订阅 → 当前版本」解析；
+// 普通用户有自定义订阅时优先返回自定义内容；无激活版本返回 HTTP 200 注释块。
 func (h *DownloadHandler) preview(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID := c.GetInt64(auth.CtxUserID)
-	role := c.GetString(auth.CtxUserRole)
-	content, err := h.dlSvc.PreviewForUser(ctx, userID, role, c.Query("platform"), c.Query("subscription_id"))
+	isAdmin := c.GetString(auth.CtxUserRole) == "admin"
+	platformSlug := c.Query("platform")
+	content, err := h.dlSvc.PreviewForUser(ctx, isAdmin, userID, platformSlug)
 	switch {
 	case errors.Is(err, download.ErrTokenInvalid):
 		Fail(c, http.StatusNotFound, "资源不存在")
@@ -140,12 +141,11 @@ func (h *DownloadHandler) preview(c *gin.Context) {
 		setNoCache(c)
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("# error: unassigned\n"))
 	case errors.Is(err, version.ErrVersionNotFound):
-		// 无版本：与无效 Token 同 404；构造 entry 记 fail_reason=version_missing（R07-05）
 		h.dlSvc.WriteAccessLog(ctx, c.ClientIP(), &download.AccessEntry{
-			UserID: userID, Platform: c.Query("platform"), Type: "subscription", FailReason: "version_missing",
+			UserID: userID, Platform: platformSlug, Type: "subscription", FailReason: "no_active_version",
 		}, false)
 		setNoCache(c)
-		Fail(c, http.StatusNotFound, "资源不存在")
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("# error: no active version\n"))
 	case err != nil:
 		Fail(c, http.StatusInternalServerError, err.Error())
 	default:

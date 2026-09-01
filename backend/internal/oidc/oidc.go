@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -28,7 +29,7 @@ const (
 	// 各提供商参数以 JSON 存于独立键（敏感字段在 JSON 内单独加密）：
 	//   oidc_params_keycloak / oidc_params_auth0 / oidc_params_generic / oidc_params_mock
 	// 结构：{ base_url, realm, client_id, client_secret(密文) }
-	KeyOidcApproval = "oidc_approval" // OIDC 新用户审批开关（默认关闭，Build3 面板接通）
+	KeyOidcApproval = "oidc_approval"  // OIDC 新用户审批开关（默认关闭，Build3 面板接通）
 	KeyWhitelist    = "oidc_whitelist" // OIDC 白名单 JSON（Build3 面板接通）：{role_claim_path, role_values, group_claim_path, group_values}
 )
 
@@ -62,13 +63,54 @@ type Service struct {
 
 	mu        sync.Mutex
 	discCache map[string]*Discovery // 发现文档缓存（key = base_url）
+
+	jwksMu    sync.Mutex
+	jwksCache map[string]*jwkSet // JWKS 缓存（key = jwks_uri）
 }
 
 func NewService(st *store.Store, cfg *config.Service, authSvc *auth.Service, users *user.Service, mode string, lg *slog.Logger) *Service {
+	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			var dialIP string
+			for _, ip := range ips {
+				if isBlockedIP(ip.IP) {
+					return nil, fmt.Errorf("禁止访问非公网地址: %s", ip.IP)
+				}
+				if dialIP == "" {
+					dialIP = ip.IP.String()
+				}
+			}
+			if dialIP == "" {
+				return nil, errors.New("URL 主机无可用解析结果")
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(dialIP, port))
+		},
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
 	return &Service{
 		store: st, cfg: cfg, authSvc: authSvc, users: users, mode: mode, log: lg,
-		httpCli:   &http.Client{Timeout: 10 * time.Second},
-		discCache: map[string]*Discovery{},
+		httpCli: &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: transport,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return errors.New("重定向次数过多")
+				}
+				return validateOIDCURL(req.URL.String())
+			},
+		},
+		discCache:  map[string]*Discovery{},
+		jwksCache:  map[string]*jwkSet{},
 	}
 }
 
@@ -204,12 +246,58 @@ func (s *Service) fetchDiscovery(ctx context.Context, p *Params) (*Discovery, er
 	return &disc, nil
 }
 
-// ClearDiscCache 清空发现文档缓存（配置变更后调用）
+// ClearDiscCache 清空发现文档与 JWKS 缓存（配置变更后调用）
 func (s *Service) ClearDiscCache() {
 	s.mu.Lock()
 	s.discCache = map[string]*Discovery{}
 	s.mu.Unlock()
+	s.jwksMu.Lock()
+	s.jwksCache = map[string]*jwkSet{}
+	s.jwksMu.Unlock()
 }
+
+// getJWKS 获取并缓存 OIDC 提供商 JWKS；使用当前 httpCli 以沿用 SSRF/代理策略。
+func (s *Service) getJWKS(ctx context.Context, jwksURI string) (*jwkSet, error) {
+	s.jwksMu.Lock()
+	if set, ok := s.jwksCache[jwksURI]; ok {
+		s.jwksMu.Unlock()
+		return set, nil
+	}
+	s.jwksMu.Unlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
+	if err != nil {
+		return nil, fmt.Errorf("构造 JWKS 请求失败: %w", err)
+	}
+	resp, err := s.httpCli.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("获取 JWKS 失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("JWKS 返回 %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("读取 JWKS 失败: %w", err)
+	}
+	var set jwkSet
+	if err := json.Unmarshal(body, &set); err != nil {
+		return nil, fmt.Errorf("解析 JWKS 失败: %w", err)
+	}
+	s.jwksMu.Lock()
+	s.jwksCache[jwksURI] = &set
+	s.jwksMu.Unlock()
+	return &set, nil
+}
+
+// refreshJWKS 删除指定 JWKS 缓存，下次 getJWKS 会重新拉取（用于密钥轮换后的重试）。
+func (s *Service) refreshJWKS(jwksURI string) {
+	s.jwksMu.Lock()
+	delete(s.jwksCache, jwksURI)
+	s.jwksMu.Unlock()
+}
+
 
 // matchWhitelist 白名单匹配（Build3 Step 3 接通配置）：
 // 读取 oidc_whitelist（JSON：{role_claim_path, role_values, group_claim_path, group_values}）；

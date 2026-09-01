@@ -14,6 +14,8 @@ import (
 	"vpn-sub/internal/dataclear"
 	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/pool"
+	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/server"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
@@ -36,6 +38,12 @@ func main() {
 	log.SetDefault(logger)
 	streamSvc := log.NewStreamService(logBuf, logger)
 
+	trustPolicy, err := proxytrust.Parse(envOr("TRUST_PROXY", "auto"), envOr("TRUST_PROXY_CIDRS", ""))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	// 数据库文件按模式分离（Design1 §5.5）
 	dbFile := map[string]string{"dev": "app-dev.db", "prod": "app-prod.db"}[mode]
 	dataDir := envOr("DATA_DIR", "./data")
@@ -44,7 +52,7 @@ func main() {
 		// 数据库无法打开（如文件完全损坏）→ 自动进入应急模式（Design1 §3.8），不再直接退出；
 		// 传空配置 Service（store nil 时 Get 按未设置处理），保证 status/站点信息端点可用
 		log.Error("打开数据库失败，自动进入应急模式", "err", err)
-		runEmergencyMode(emergency.TriggerDBCorrupt, false, nil, config.NewService(nil, logger), dataDir, dbFile, mode, logger)
+		runEmergencyMode(emergency.TriggerDBCorrupt, false, nil, config.NewService(nil, logger), dataDir, dbFile, mode, trustPolicy, logger)
 		return
 	}
 	if err := st.Migrate(context.Background(), migrations.FS); err != nil {
@@ -55,7 +63,7 @@ func main() {
 		if reason == emergency.TriggerNone {
 			reason = emergency.TriggerDBCorrupt // 防御性兜底：调用方已知迁移失败即视为数据库损坏
 		}
-		runEmergencyMode(reason, dbReadable, st, cfg, dataDir, dbFile, mode, logger)
+		runEmergencyMode(reason, dbReadable, st, cfg, dataDir, dbFile, mode, trustPolicy, logger)
 		return
 	}
 
@@ -67,10 +75,27 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// 规则素材池：启动时把服务重启前残留的 running 任务置 failed，并同步刷新池快照
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE pool_sync_tasks SET status = 'failed', error = '服务重启，任务中断', finished_at = CURRENT_TIMESTAMP
+		 WHERE status = 'running'`); err != nil {
+		log.Error("重置素材池同步任务失败", "err", err)
+		os.Exit(1)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE rule_pools SET sync_status = 'failed', sync_error = '服务重启，任务中断'
+		 WHERE id IN (SELECT DISTINCT pool_id FROM pool_sync_tasks WHERE status = 'failed' AND error = '服务重启，任务中断')`); err != nil {
+		log.Error("刷新素材池同步快照失败", "err", err)
+		os.Exit(1)
+	}
+	poolSvc := pool.NewService(st, logger)
+	stopPoolSync := cron.StartPoolAutoSync(st, poolSvc, logger)
+	defer stopPoolSync()
+
 	// 应急模式触发判定（Build3 Step 6）：手动（RESET_ADMIN_PASSWORD）/自动（数据库损坏/关键配置损坏）
 	reason, dbReadable := emergency.Detect(ctx, st, cfg, logger)
 	if reason != emergency.TriggerNone {
-		runEmergencyMode(reason, dbReadable, st, cfg, dataDir, dbFile, mode, logger)
+		runEmergencyMode(reason, dbReadable, st, cfg, dataDir, dbFile, mode, trustPolicy, logger)
 		return
 	}
 
@@ -81,7 +106,7 @@ func main() {
 		log.Error("版本指针自检失败", "err", err)
 		os.Exit(1)
 	}
-	srv, err := server.New(st, cfg, users, logger, mode, envOr("TRUST_PROXY", "auto"), envOr("PORT", "8080"), dataDir, streamSvc)
+	srv, err := server.New(st, cfg, users, logger, mode, trustPolicy, envOr("PORT", "8080"), dataDir, streamSvc)
 	if err != nil {
 		log.Error("装配 HTTP 服务失败", "err", err)
 		os.Exit(1)
@@ -89,6 +114,9 @@ func main() {
 	// 访问日志 90 天自动清理（Build2 Step 4）
 	stopCleanup := cron.StartAccessLogCleanup(st.DB(), logger)
 	defer stopCleanup()
+	// 密码重置令牌每日清理（低风险硬化 L08）
+	stopResetCleanup := cron.StartResetTokenCleanup(st.DB(), logger)
+	defer stopResetCleanup()
 
 	// 信号驱动优雅退出
 	if err := srv.Run(ctx); err != nil {
@@ -108,10 +136,10 @@ func envOr(key, def string) string {
 // runEmergencyMode 应急模式装配（DB 损坏/迁移失败/手动/关键配置损坏共用）：
 // 仅注册 系统状态/站点信息/应急端点/静态资源；业务 API 与下载端点 503；
 // Open 失败分支 st/cfg 为 nil，config.Get/user.IsTableEmpty 等已做 nil 守卫降级（Design1 §3.8）
-func runEmergencyMode(reason emergency.TriggerReason, dbReadable bool, st *store.Store, cfg *config.Service, dataDir, dbFile, mode string, logger *slog.Logger) {
+func runEmergencyMode(reason emergency.TriggerReason, dbReadable bool, st *store.Store, cfg *config.Service, dataDir, dbFile, mode string, trust *proxytrust.Policy, logger *slog.Logger) {
 	clearSvc := dataclear.NewService(st, dataDir, logger)
 	emSvc := emergency.NewService(reason, dbReadable, st, cfg, clearSvc, dataDir, dbFile, logger)
-	srv, err := server.NewEmergency(st, cfg, emSvc, logger, mode, envOr("TRUST_PROXY", "auto"), envOr("PORT", "8080"), dataDir)
+	srv, err := server.NewEmergency(st, cfg, emSvc, logger, mode, trust, envOr("PORT", "8080"), dataDir)
 	if err != nil {
 		log.Error("装配应急服务失败", "err", err)
 		os.Exit(1)

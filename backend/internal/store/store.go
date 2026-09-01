@@ -4,7 +4,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -192,6 +191,3 @@ func parseVersion(name string) (int, error) {
 	}
 	return v, nil
 }
-
-// IsNoRows 判断是否为无记录错误（供业务层复用）
-func IsNoRows(err error) bool { return errors.Is(err, sql.ErrNoRows) }

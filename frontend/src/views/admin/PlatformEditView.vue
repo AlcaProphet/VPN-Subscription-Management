@@ -2,30 +2,40 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Alert, Button, Card, Form, Input, Space, TypographyText, Upload } from 'ant-design-vue'
+import { Alert, Button, Card, Form, Input, Radio, Space, TypographyText, Upload } from 'ant-design-vue'
 import {
   getPlatform, createPlatform, updatePlatform, uploadInstaller, deleteInstallerFile,
   type InstallerFileItem, type InstallerURLItem,
 } from '@/api/platform'
 import { Notify } from '@/components/Notify'
+import PageHeader from '@/components/PageHeader.vue'
+import PlatformHeadersEditor from '@/components/PlatformHeadersEditor.vue'
+import { ApiError } from '@/api/request'
+import { useSystemStore } from '@/stores/system'
 
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => (route.params.id ? Number(route.params.id) : 0))
 const isEdit = computed(() => id.value > 0)
 
+const system = useSystemStore()
+const advancedMode = computed(() => system.status?.advanced_mode === true)
 const saving = ref(false)
+const formError = ref('')
 const uploading = ref(false)
 const uploadPct = ref(0)
 const deletingFile = ref<string>('') // 正在删除的磁盘文件名
+const isDefault = ref(false)
 const form = reactive({
   name: '',
   description: '',
+  product_type: 'yaml' as 'yaml' | 'subs' | 'generic-subs',
   slug: '',
   schemes: [''] as string[],
-  headers: [{ key: '', value: '' }] as { key: string; value: string }[],
   installer_urls: [] as InstallerURLItem[],
 })
+const extraHeaders = ref<Record<string, string>>({})
+const headersEditorRef = ref<InstanceType<typeof PlatformHeadersEditor> | null>(null)
 const installerFiles = ref<InstallerFileItem[]>([])
 
 onMounted(async () => {
@@ -34,10 +44,11 @@ onMounted(async () => {
     const p = await getPlatform(id.value)
     form.name = p.name
     form.description = p.description
+    form.product_type = p.product_type
+    isDefault.value = p.is_default === true
     form.slug = p.slug
     form.schemes = p.schemes?.length ? [...p.schemes] : ['']
-    form.headers = Object.entries(p.extra_headers ?? {}).map(([key, value]) => ({ key, value }))
-    if (!form.headers.length) form.headers = [{ key: '', value: '' }]
+    extraHeaders.value = { ...(p.extra_headers ?? {}) }
     form.installer_urls = p.installer_urls?.length ? p.installer_urls.map((it) => ({ ...it })) : []
     installerFiles.value = p.installer_files ?? []
   } catch (err) {
@@ -53,15 +64,6 @@ function onDrop(i: number) {
   const [item] = form.schemes.splice(dragIndex.value, 1)
   form.schemes.splice(i, 0, item)
   dragIndex.value = -1
-}
-
-// --- 附加响应头：控制字符即时校验（键与值均禁止 \r\n 等控制字符） ---
-const ctrlRe = /[\x00-\x1f\x7f]/
-function headerError(row: { key: string; value: string }): string {
-  if (ctrlRe.test(row.key)) return '键含控制字符'
-  if (ctrlRe.test(row.value)) return '值含控制字符'
-  if (row.key && !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(row.key)) return '键不符合 HTTP 头名规范'
-  return ''
 }
 
 // --- 本地安装包：追加上传 ≤300MB（前端预校验 + 进度条），多包并存，逐个可删 ---
@@ -102,31 +104,30 @@ async function removeInstallerFile(item: InstallerFileItem) {
 // --- 保存 ---
 async function save() {
   const schemes = form.schemes.map((s) => s.trim()).filter(Boolean)
-  const headers: Record<string, string> = {}
-  for (const row of form.headers) {
-    if (!row.key.trim()) continue
-    const err = headerError(row)
-    if (err) {
-      Notify.error(`${err}：${row.key}`)
-      return
-    }
-    headers[row.key.trim()] = row.value
+  const headers = headersEditorRef.value?.getValue() ?? null
+  if (!headers) {
+    Notify.error('附加响应头格式不正确，请先修正')
+    return
   }
   // 外部下载链接：剔除全空行（地址为空的行直接忽略，其余整行提交由后端校验）
   const installer_urls = form.installer_urls.filter((it) => it.url.trim() !== '')
   saving.value = true
   try {
     if (isEdit.value) {
-      await updatePlatform(id.value, { name: form.name, description: form.description, schemes, extra_headers: headers, installer_urls })
+      await updatePlatform(id.value, { name: form.name, description: form.description, product_type: form.product_type, schemes, extra_headers: headers, installer_urls })
       Notify.success('平台已更新')
       router.push('/admin/platforms')
     } else {
-      await createPlatform({ name: form.name, description: form.description, schemes, extra_headers: headers, installer_urls })
+      await createPlatform({ name: form.name, description: form.description, product_type: form.product_type, schemes, extra_headers: headers, installer_urls })
       Notify.success('平台已创建')
-      router.push({ path: '/admin/platforms', query: { created: '1' } }) // 返回列表触发「为各用户组选定」引导
+      router.push({ path: '/admin/platforms', query: { created: '1' } }) // 返回列表触发「可前往订阅管理/订阅装配」引导（R14-22 新语义）
     }
   } catch (err) {
-    Notify.error((err as Error).message)
+    if (err instanceof ApiError && err.status === 400) {
+      formError.value = err.message // R14-13：400 冲突/校验改为表单级展示
+    } else {
+      Notify.error((err as Error).message)
+    }
   } finally {
     saving.value = false
   }
@@ -135,18 +136,29 @@ async function save() {
 
 <template>
   <div class="max-w-2xl">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">{{ isEdit ? '编辑平台' : '新建平台' }}</h2>
-      <Button @click="router.back()">返回</Button>
-    </div>
+    <PageHeader :title="isEdit ? '编辑平台' : '新建平台'">
+      <template #actions>
+        <Button @click="router.back()">返回</Button>
+      </template>
+    </PageHeader>
 
     <Card>
       <Form layout="vertical" @submit.prevent="save">
+        <Alert v-if="formError" type="error" show-icon class="mb-3" :message="formError" />
         <Form.Item label="名称" required>
           <Input v-model:value="form.name" :maxlength="100" placeholder="平台名称（不强制唯一）" />
         </Form.Item>
         <Form.Item label="描述">
           <Input.TextArea v-model:value="form.description" :maxlength="500" :rows="2" placeholder="平台描述" />
+        </Form.Item>
+        <Form.Item label="产物格式">
+          <Radio.Group v-model:value="form.product_type" :disabled="isDefault && isEdit">
+            <Radio.Button value="yaml">Clash YAML 订阅</Radio.Button>
+            <Radio.Button value="subs">Shadowrocket 节点订阅</Radio.Button>
+            <Radio.Button value="generic-subs">通用节点订阅（v2rayNG/v2rayN 等）</Radio.Button>
+          </Radio.Group>
+          <div v-if="isDefault && isEdit" class="text-xs text-text-tertiary mt-1">默认平台产物格式固定，不可修改</div>
+          <div v-else class="text-xs text-text-tertiary mt-1">已有订阅条目时，与条目格式不一致的变更将被后端拒绝</div>
         </Form.Item>
         <Form.Item label="标识">
           <TypographyText v-if="isEdit" code>{{ form.slug }}</TypographyText>
@@ -159,23 +171,16 @@ async function save() {
                  message="支持 {url} 占位符，下载地址将替换其中；拖拽排序，列表首项为「一键导入」默认唤起方式" />
           <div v-for="(_, i) in form.schemes" :key="i" class="flex gap-2 mb-2 items-center"
                draggable="true" @dragstart="onDragStart(i)" @drop="onDrop(i)" @dragover.prevent>
-            <span class="cursor-move text-gray-400" title="拖拽排序">⠿</span>
+            <span class="cursor-move text-text-tertiary" title="拖拽排序">⠿</span>
             <Input v-model:value="form.schemes[i]" placeholder="如 clash://install-config?url={url}" />
             <Button size="small" danger :disabled="form.schemes.length <= 1" @click="form.schemes.splice(i, 1)">删除</Button>
           </div>
           <Button size="small" @click="form.schemes.push('')">添加 scheme</Button>
         </Form.Item>
 
-        <!-- 附加响应头键值对编辑器 -->
+        <!-- 附加响应头：结构化编辑 / 高级 JSON 双模式（R25-02） -->
         <Form.Item label="附加响应头">
-          <Alert type="info" show-icon class="mb-2"
-                 message="键与值均禁止控制字符，键须符合 HTTP 头名规范；值支持 {frontend_url} 占位符" />
-          <div v-for="(row, i) in form.headers" :key="i" class="flex gap-2 mb-2 items-start">
-            <Input v-model:value="row.key" class="w-40" placeholder="头名，如 X-Custom" :status="headerError(row) ? 'error' : ''" />
-            <Input v-model:value="row.value" placeholder="头值，如 {frontend_url}" :status="headerError(row) ? 'error' : ''" />
-            <Button size="small" danger :disabled="form.headers.length <= 1" @click="form.headers.splice(i, 1)">删除</Button>
-          </div>
-          <Button size="small" @click="form.headers.push({ key: '', value: '' })">添加响应头</Button>
+          <PlatformHeadersEditor ref="headersEditorRef" :model-value="extraHeaders" :advanced-mode="advancedMode" />
         </Form.Item>
 
         <!-- 安装包区：本地上传（多包并存，追加上传 + 逐个删除）/ 外部下载链接（动态列表），两种来源并存 -->
@@ -187,16 +192,16 @@ async function save() {
               <Upload :show-upload-list="false" :before-upload="beforeUpload">
                 <Button :loading="uploading">追加安装包（≤300MB）</Button>
               </Upload>
-              <div v-if="uploading" class="text-xs text-gray-500">上传中 {{ uploadPct }}%</div>
-              <div v-if="installerFiles.length" class="border rounded divide-y dark:divide-gray-700 w-full">
+              <div v-if="uploading" class="text-xs text-text-secondary">上传中 {{ uploadPct }}%</div>
+              <div v-if="installerFiles.length" class="border rounded divide-y divide-border-subtle w-full">
                 <div v-for="item in installerFiles" :key="item.file" class="flex items-center gap-2 px-2 py-1">
-                  <span class="text-xs text-gray-500 flex-none">📦</span>
+                  <span class="text-xs text-text-secondary flex-none">📦</span>
                   <TypographyText code class="flex-1 min-w-0 truncate">{{ item.name || item.file }}</TypographyText>
                   <Button size="small" danger :loading="deletingFile === item.file"
                           @click="removeInstallerFile(item)">删除</Button>
                 </div>
               </div>
-              <div v-else class="text-xs text-gray-400">暂无本地安装包</div>
+              <div v-else class="text-xs text-text-tertiary">暂无本地安装包</div>
             </template>
           </Space>
         </Form.Item>

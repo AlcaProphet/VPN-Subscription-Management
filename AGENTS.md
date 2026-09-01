@@ -1,17 +1,17 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前设计基线见 [Design1.md](./Design1.md)（非强制，供参考）；GUI 样式规格见 [Design1-UI.md](./Design1-UI.md)；暂缓项详细设计见 [DesignOnHold.md](./DesignOnHold.md)；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)；历史文档（Design0.md、[AchievedDocuments/](./AchievedDocuments/)）已存档，仅用于核查，不再用于构建。
+> 当前最新设计：[Design3.md](Design3.md)（规则来源识别、结构化素材与跨平台装配，已定稿并经 Build16 构建）；已实现并归档的增量设计基线：[Design2.md](docs/reports/Design/Design2.md) 与 [Design2-UI.md](docs/reports/Design/Design2-UI.md)（订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。已归档构建：[Build11.md](docs/reports/Build/Build11.md)～[Build16.md](docs/reports/Build/Build16.md)（均已验收存档，Build11 原后端死锁已由 R24-01 修复）及 [Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（均已验收存档）；历史问题记录已归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue9.md](docs/reports/Issue/Issue9.md)（均已闭环存档）；其他历史文档统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
 
 ---
 
 ## 一、项目基本信息
 
 - **项目**：自托管 VPN 订阅管理系统（单容器 + SQLite，面向小团队）
-- **后端**：Go 1.25，module `vpn-sub`，目录 `backend/`
+- **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`（Go 版本升级见 Build4 Step 0；xray-core 依赖引入见 Build6 Step 0，均为 Design2 §5.3 决策的构建落点）
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。设计见 [Design1.md](./Design1.md)（非强制，供参考）；构建方案见 [BuildN.md](./BuildN.md)；问题记录见 [IssueN.md](./IssueN.md)
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前最新设计见 [Design3.md](Design3.md)（已定稿并经 Build16 构建）；已实现并归档的运行基线见 [Design2.md](docs/reports/Design/Design2.md) 与 [Design2-UI.md](docs/reports/Design/Design2-UI.md)，第一期基线见存档的 [Design1.md](docs/reports/Design/Design1.md)；历史构建（Build1～Build16、Build6-2）见 [docs/reports/Build/](docs/reports/Build)；历史问题记录（Issue1～Issue9）见 [docs/reports/Issue/](docs/reports/Issue)
 
 ---
 
@@ -46,7 +46,7 @@
 
 ### 不确定时主动提问
 
-- 遇到模糊需求、多种可行方案或技术取舍时，使用提问工具询问用户
+- 遇到模糊需求、多种可行方案或技术取舍时，优先使用 `ask_user_question` 内置工具询问用户
 - 提问时**必须附上推荐选项**并简要说明理由
 - 不要在假设下自行决定关键设计（详见「三、AI 行为准则」）
 
@@ -57,7 +57,7 @@
 ### 3.1 不确定时必须提问
 
 - 遇到模糊需求、多种可行方案、技术取舍或可能影响现有功能的情况时，**禁止自行决策**
-- 必须使用提问工具与用户确认，并附上详细说明、各方案对比及推荐方案（含推荐理由）
+- 必须优先使用 `ask_user_question` 内置工具与用户确认，并附上详细说明、各方案对比及推荐方案（含推荐理由）
 
 ### 3.2 无明确指令不得自行改动
 
@@ -84,6 +84,34 @@
 
 - 功能构建完成后，按文档体系分工同步更新对应文档（设计结论入 Design、构建记录入 Build、问题入 Issue）
 - 文档间出现冲突时**提示用户并让用户决策**，不擅自选择遵守哪一份
+
+### 3.7 内置工具使用优先级
+
+#### 3.7.1 文件编辑：优先使用 str_replace_editor
+
+- 在开始编码或修改任何文件/文档前，**先检查当前环境是否提供 `str_replace_editor` 工具**。
+- 如果该工具可用，**必须优先使用 `str_replace_editor` 进行文件查看与编辑**，包括：
+  - `view`：先查看目标文件内容与行号，确认精确上下文；
+  - `create`：新建文件；
+  - `str_replace`：用唯一、精确的 `old_str` 替换；
+  - `insert`：在指定行后插入内容。
+- **禁止优先使用 Python 脚本、sed/perl 等替代工具直接改文档或代码**，除非 `str_replace_editor` 不可用、无法处理该场景，或用户明确要求使用其他方式。
+- 使用 `str_replace` 前必须先用 `view` 读取目标文件，确保 `old_str` 与文件内容完全一致；替换失败时应重新查看并调整上下文，不要盲目批量替换。
+- 如果 `str_replace_editor` 不存在，再考虑其他可用工具，并尽量保持最小化改动。
+
+#### 3.7.2 需要用户决策：优先使用 ask_user_question
+
+- 遇到以下情况时，**先检查当前环境是否提供 `ask_user_question` 工具**：
+  - 需求模糊、存在多种可行方案或技术取舍；
+  - 偏离设计预期、与现有文档冲突，或涉及大方向决策；
+  - 任何需要用户拍板才能继续的情况。
+- 如果该工具可用，**必须使用 `ask_user_question` 与用户确认**，不要自行假设或擅自决定。
+- 提问时**必须附上推荐方案**，并给出详细说明：
+  - 说明背景、影响范围和可选方案；
+  - 明确列出每个方案的优缺点/风险；
+  - 将推荐选项放在首位并标注“(Recommended)/推荐”；
+  - 等待用户回答后再继续实施。
+- 如果 `ask_user_question` 不存在，再采用其他可用的提问/沟通方式，但不得在未确认关键决策前直接改动。
 
 ---
 
@@ -130,7 +158,7 @@
 
 ### 4.8 错误码
 
-- 400=校验错误，401=会话凭据缺失/无效/过期，403=权限不足，409=重复冲突，429=速率限制，500=服务器内部错误
+- 400=校验错误，401=会话凭据缺失/无效/过期，403=权限不足，409=重复冲突，413=请求体过大，429=速率限制，500=服务器内部错误
 - 成功操作用统一的成功响应结构；列表响应用统一包裹结构
 - 下载类端点的业务错误（如组未分配）返回 HTTP 200 + 纯文本注释块（如 `# error: unassigned`），不返回 JSON/HTML；无效/过期 Token 仍统一返回 404（见 Design1.md 4.3）
 
@@ -162,6 +190,14 @@
 
 - 每次代码改动后至少执行对应端的编译验证；涉及逻辑变更的必须补充相关测试执行
 
+### 6.1 本地测试数据库与账号
+
+- 用户已确认：当前项目的本地构建环境不存在任何真实用户或真实数据；仓库根目录下的 `./backend/data` 仅承载本地测试产生的临时数据库与数据。
+- 进行各类本地测试活动时，可以清空当前仓库的 `./backend/data`，再按照 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 创建新的测试用户；如果清单中的测试用户已经存在，也可以直接使用文档记录的邮箱和密码登录。
+- 清空前必须停止正在使用该数据库的本地进程，确认当前仓库根目录，并核对规范化绝对路径确实对应当前仓库的 `./backend/data`；只能操作这一精确目标，不得使用未解析变量、宽泛 glob 或把递归删除目标指向工作区根目录。
+- 本授权不适用于外部 `DATA_DIR`、Compose/Docker 数据卷、生产/预发布环境或任何含有真实用户、真实凭据、真实业务数据的位置；这些目标仍按破坏性操作规则处理。
+- 重建账号后应核对其实际角色、状态与组分配，不得只凭用户名推断测试前置状态；OIDC-only 身份和外部服务仍使用本地 mock，不得复用真实账号。
+
 ---
 
 ## 七、部署约束（容器化）
@@ -182,22 +218,21 @@
 | 文档类型 | 文件 | 定位 | 约束力 |
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
-| Design 文档 | [Design1.md](./Design1.md)（当前设计基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策 | 非强制，供参考 |
-| Design GUI 规格 | [Design1-UI.md](./Design1-UI.md) | Design1.md 全部界面部件的 GUI 样式规格（布局/组件映射/状态分支/响应式）；功能行为以 Design1.md 为准 | 非强制，供参考 |
-| Design 暂缓文档 | [DesignOnHold.md](./DesignOnHold.md) | 承载已确认但暂缓开发功能的详细设计与已确认决策；仅其中「第一次构建预留接口」部分参与当期构建 | 非强制，供参考 |
-| Build 文档 | [BuildN.md](./BuildN.md) | 将 Design 的设计转化为指导 AI 构建的构建手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
-| Issue 文档 | [IssueN.md](./IssueN.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
+| Design 文档 | [Design3.md](Design3.md)（当前最新设计，已定稿并经 Build16 构建）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
+| Design GUI 规格 | [Design2-UI.md](docs/reports/Design/Design2-UI.md)（已实现并归档的 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；Design3 新增界面行为由 Design3 §八补充 | 非强制，供参考 |
+| Build 文档 | [Build1.md](docs/reports/Build/Build1.md)～[Build16.md](docs/reports/Build/Build16.md)、[Build6-2.md](docs/reports/Build/Build6-2.md)（均已验收归档） | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
+| Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue9.md](docs/reports/Issue/Issue9.md)（全部已闭环归档） | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
 
 **优先级**：AGENTS.md > Design > Build > Issue。
 
 ### 8.2 文档分工规则
 
 - **AGENTS.md 不含具体设计内容**：产品定义、功能流程、数据模型、架构细节等设计信息全部留在 Design 文档中，本文件仅通过引用指向
-- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；新设计构想经用户确认后落入 Design
+- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；当前最新设计为 Design3.md（已定稿并经 Build16 构建），其明确覆盖的规则素材与装配链路构建时不得偏离；Design2.md + Design2-UI.md 是已实现并归档的运行基线，Design3 未覆盖的行为继续以其为准；Design1.md 为第一期已建成功能基线（存档参考）
 - **Build 文档**面向 AI 执行，每个 Step 必须含：目标、前置条件、产出文件与参考代码/伪代码、验收规范与验证命令；每次仅执行一个 Step，验收通过后再进入下一步
 - **Issue 文档**只记录 bug 与修复闭环；非问题的优化候选归 Design 文档记录
-- **DesignOnHold 文档**承载已确认但暂缓开发的功能：完整详细设计与已确认决策留存在此，恢复开发时以其中决策为准；当期构建仅落地其列明的预留接口，不得提前实现暂缓功能
-- 新建文档参照 [DocTemplates/](./DocTemplates/) 中对应模板的结构与样式
+- **归档规则**：构建验收完成或被后续文档取代的 Design/Build/Issue 文档移入 [docs/reports/](docs/reports)，仅作核查，不用于构建；研究参考资料存于 [docs/Reference/](docs/Reference)
+- 新建文档参照 [docs/DocTemplates/](docs/DocTemplates) 中对应模板的结构与样式
 
 ### 8.3 执行规则
 
@@ -210,10 +245,41 @@
 | 文档 | 目标读者 | 内容 | 状态 |
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
-| [Design1.md](./Design1.md) | 人类（开发者/用户） | 当前设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维 | 活跃 |
-| [Design1-UI.md](./Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | GUI 样式规格：13 个页面/部件的布局结构、AntD 组件映射、状态分支、响应式规则、全局风格基调 | 活跃 |
-| [DesignOnHold.md](./DesignOnHold.md) | 人类（开发者/用户）与 AI 编码助手 | 暂缓项详细设计：模块化订阅装配器（数据模型/双渲染器/外部数据源/已确认决策/第一次构建预留接口） | 活跃（暂缓） |
-| [Build1.md](./Build1.md)、[Build2.md](./Build2.md)（已归档）、[Build3.md](./Build3.md) | AI 编码助手 | 分步构建方案：TODO LIST + 参考代码 + 验收命令；Build3 为当前构建方案 | Build1/Build2 已验收归档，Build3 活跃（未开始） |
-| [Issue1.md](./Issue1.md) | 开发者 | 问题追踪：R01-01 生产构建白屏（manualChunks 循环依赖）已修复闭环 | 活跃 |
-| [DocTemplates/](./DocTemplates/) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue） | 活跃 |
-| Design0.md、[AchievedDocuments/](./AchievedDocuments/) | 开发者 | 历史文档（初始设计大纲与历史构建记录，已存档，仅核查，不用于构建） | 已存档 |
+| [Design3.md](Design3.md) | 人类（开发者/用户）与 AI 编码助手 | 当前最新增量设计：规则来源三模式、单 URL 单主方言、Canonical Rule、来源快照、能力注册表与跨平台装配 | 已定稿，已经 Build16 构建 |
+| [Design2.md](docs/reports/Design/Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现增量基线：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接 | 已存档，已构建 |
+| [Design2-UI.md](docs/reports/Design/Design2-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现 GUI 规格：Design2 受影响界面的布局/组件/状态分支/响应式；Design3 界面增量见 Design3 §八 | 已存档，已构建 |
+| [Build4.md](docs/reports/Build/Build4.md) | AI 编码助手 | 第四轮构建：Go 1.26 + 1009 迁移 + 旧分发模型拆除 + 规则素材池（含节点表 display_name 列与有效渲染名唯一索引） | 已存档 |
+| [Build5.md](docs/reports/Build/Build5.md) | AI 编码助手 | 第五轮构建：协议注册表/manual 节点与 display-name 服务（有效渲染名唯一：节点间 + 代理组/强制组/Clash-mihomo 内建保留代理名）、代理组、四类装配器渲染与分发 | 已存档 |
+| [Build6.md](docs/reports/Build/Build6.md) | AI 编码助手 | 第六轮构建：xray-core 客户端、实例与节点检测（保留/校验 display_name）、组分配与候选集、用户同步、下载动态渲染（按有效渲染名） | 已存档 |
+| [Build7.md](docs/reports/Build/Build7.md) | AI 编码助手 | 第七轮构建：对账/独立账号/导入导出 v2（含节点命名映射）/OFF 清空/高级 UI 收口 | 已存档 |
+| [Build8.md](docs/reports/Build/Build8.md) | AI 编码助手 | 第八轮构建：Issue5 R20 系列修复（数据安全/错误处理/同步超时/前端与文档收口） | 已存档 |
+| [Build9.md](docs/reports/Build/Build9.md) | AI 编码助手 | 第九轮构建（第一阶段）：R22 收口 / goccy YAML / 响应头语义 / 节点协议 / 规则全集 / 代理组扩展 | 已存档 |
+| [Build10.md](docs/reports/Build/Build10.md) | AI 编码助手 | 第十轮构建（第二阶段）：分层覆盖层 / URI 批量导入 / 池启动补跑 / 原子写入 / 收口 | 已存档 |
+| [Build11.md](docs/reports/Build/Build11.md) | AI 编码助手 | 第十一轮构建：UI/UX 改进（可信状态/手机可操作/结构统一/视觉 Token/管理员概览） | 已存档 |
+| [Build12.md](docs/reports/Build/Build12.md) | AI 编码助手 | 第十二轮构建：全量 gray/white Token 化、全局单浮层管理与统一焦点管理 | 已存档 |
+| [Build13.md](docs/reports/Build/Build13.md) | AI 编码助手 | 第十三轮构建：R24-02/12/15 已决策问题修复 | 已存档 |
+| [Build14.md](docs/reports/Build/Build14.md) | AI 编码助手 | 第十四轮构建：R24-09/10/11/13/14/16/17 已决策问题修复 | 已存档 |
+| [Build15.md](docs/reports/Build/Build15.md) | AI 编码助手 | 第十五轮构建：R24-19/20 节点表单分区、结构化对象编辑与递归校验 | 已存档 |
+| [Build16.md](docs/reports/Build/Build16.md) | AI 编码助手 | 第十六轮构建：中央能力注册表、单来源解析、快照 schema、原子同步、跨平台装配回执与三模式 UI | 已存档 |
+
+| [Issue1.md](docs/reports/Issue/Issue1.md) | AI 编码助手 / 开发者 | 问题记录：R1~R11 系列（首轮基础问题与修复） | 已存档 |
+
+| [Issue5.md](docs/reports/Issue/Issue5.md) | AI 编码助手 / 开发者 | 问题记录：R20/R21 系列（Build1~7 + Issue1~4 双重核验新增） | 已存档 |
+| [Issue6.md](docs/reports/Issue/Issue6.md) | AI 编码助手 / 开发者 | 问题记录：R21 UI/交互系列（素材池弹窗/节点表单/装配流程/死锁/Dev登录） | 已存档 |
+| [Issue7.md](docs/reports/Issue/Issue7.md) | AI 编码助手 / 开发者 | 问题记录：R22 系列（Build9/Build10 前置修复与状态追踪） | 已存档 |
+| [Issue8.md](docs/reports/Issue/Issue8.md) | AI 编码助手 / 开发者 | 问题记录：R23 系列（版本管理样式/首页分流规则卡片） | 已存档 |
+| [Issue9.md](docs/reports/Issue/Issue9.md) | AI 编码助手 / 开发者 | 问题记录：R24 系列（Build11/12 全量核验与 UI/后端修复） | 已存档 |
+
+| [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | Production 模式待人工验证清单（含 .smoke-test.sh 实机执行） | 活跃 |
+| [docs/Reference/TestPasswordList.md](docs/Reference/TestPasswordList.md) | 测试者 / AI 编码助手 | 仅供本地隔离环境使用的合成测试账号与统一密码清单；严禁用于生产或真实数据环境 | 活跃 |
+| [docs/DocTemplates/](docs/DocTemplates) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue）与 Clash/Shadowrocket 配置参考样例 | 活跃 |
+| [docs/Reference/](docs/Reference) | 开发者 / 测试者 | 研究参考资料与本地测试资料：Xray-core API、SSpanel 订阅输出逻辑、合成测试账号清单 | 活跃 |
+| [docs/reports/Design/Design1.md](docs/reports/Design/Design1.md) | 人类（开发者/用户） | 第一期设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维（已构建完成） | 已存档 |
+| [docs/reports/Design/Design1-UI.md](docs/reports/Design/Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已建界面 GUI 样式规格：13 个页面/部件；增量界面规格已由 Design2-UI.md 取代 | 已存档 |
+| [docs/reports/Design/DesignOnHold.md](docs/reports/Design/DesignOnHold.md) | 开发者 | 增量设计源稿（含修订过程记录），内容已全量转入 Design2.md | 已存档 |
+| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1~16、Build6-2（均已验收/归档） | 已存档 |
+| [docs/reports/Design/](docs/reports/Design) | 人类（开发者/用户）与 AI 编码助手 | 历史设计文档：Design0、Design1、Design1-UI、Design2、Design2-UI、DesignOnHold | 已存档 |
+| [docs/reports/Issue/](docs/reports/Issue) | AI 编码助手 / 开发者 | 历史问题追踪：Issue1~9（均已闭环归档） | 已存档 |
+| [docs/reports/DesignReport/](docs/reports/DesignReport) | 人类（开发者/用户）与 AI 编码助手 | Design2 核验/研究报告：DesignReport1~10（原 Design2Report1~11，缺 6 已重新连续编号） | 已存档 |
+| [docs/reports/BuildReport/](docs/reports/BuildReport) | AI 编码助手 / 开发者 | 构建验收/修复报告：BuildReport1 | 已存档 |
+| [docs/reports/SecurityReport/](docs/reports/SecurityReport) | AI 编码助手 / 开发者 | 安全审计/修复报告：SecurityReport1 | 已存档 |

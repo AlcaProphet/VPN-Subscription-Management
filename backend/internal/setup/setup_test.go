@@ -9,6 +9,7 @@ import (
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/store"
 )
 
@@ -37,6 +38,8 @@ func newTestSetupService(t *testing.T) (*store.Store, *Service) {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			slug TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL,
+			product_type TEXT NOT NULL DEFAULT 'yaml',
+			is_default INTEGER NOT NULL DEFAULT 0,
 			description TEXT NOT NULL DEFAULT '',
 			schemes TEXT NOT NULL DEFAULT '[]',
 			extra_headers TEXT NOT NULL DEFAULT '{}',
@@ -49,7 +52,8 @@ func newTestSetupService(t *testing.T) (*store.Store, *Service) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
-	svc := NewService(st, cfg, log.New("error", "console"), "auto")
+	policy, _ := proxytrust.Parse("auto", "")
+	svc := NewService(st, cfg, log.New("error", "console"), policy)
 	return st, svc
 }
 
@@ -77,13 +81,31 @@ func TestCompleteQuickStart(t *testing.T) {
 	if platforms != 3 {
 		t.Errorf("默认平台数量异常: %d", platforms)
 	}
-	// clash-verge 三条附加头
+	// clash-verge 两条 profile 附加头；文件名由下载端点动态生成
 	var headers string
 	if err := st.DB().QueryRow(`SELECT extra_headers FROM platforms WHERE name = 'Clash Verge'`).Scan(&headers); err != nil {
 		t.Fatalf("查询附加头失败: %v", err)
 	}
-	if headers != `{"Content-Disposition":"attachment; filename*=UTF-8''subscription.yaml","profile-update-interval":"300","profile-web-page-url":"{frontend_url}"}` {
+	if headers != `{"profile-update-interval":"6","profile-web-page-url":"{frontend_url}"}` {
 		t.Errorf("Clash Verge 附加头异常: %s", headers)
+	}
+	// 三个默认平台 product_type：Clash Verge→yaml、v2rayNG→generic-subs、Shadowrocket→subs
+	expectedTypes := map[string]string{"Clash Verge": "yaml", "v2rayNG": "generic-subs", "Shadowrocket": "subs"}
+	for name, want := range expectedTypes {
+		var got string
+		if err := st.DB().QueryRow(`SELECT product_type FROM platforms WHERE name = ?`, name).Scan(&got); err != nil {
+			t.Fatalf("查询 %s product_type 失败: %v", name, err)
+		}
+		if got != want {
+			t.Errorf("%s product_type 应为 %s，got %s", name, want, got)
+		}
+		var isDefault int
+		if err := st.DB().QueryRow(`SELECT is_default FROM platforms WHERE name = ?`, name).Scan(&isDefault); err != nil {
+			t.Fatalf("查询 %s is_default 失败: %v", name, err)
+		}
+		if isDefault != 1 {
+			t.Errorf("%s 应标记为默认平台", name)
+		}
 	}
 	// configured 与 frontend_url
 	cfgVal, _ := svc.cfg.Get(ctx, config.KeyConfigured)
@@ -123,7 +145,8 @@ func TestQuickStartRollback(t *testing.T) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
-	svc := NewService(st, cfg, log.New("error", "console"), "auto")
+	policyAuto, _ := proxytrust.Parse("auto", "")
+	svc := NewService(st, cfg, log.New("error", "console"), policyAuto)
 	req := httptest.NewRequest("POST", "http://vpn.example.com/api/setup/quickstart", nil)
 	if err := svc.CompleteQuickStart(context.Background(), req); err == nil {
 		t.Fatal("缺表场景应失败")
@@ -164,7 +187,8 @@ func TestDeriveFrontendURL(t *testing.T) {
 // TestTrustProxyTiers TRUST_PROXY 三档对 X-Forwarded-Host 信任的影响（Design1 §6.4）
 func TestTrustProxyTiers(t *testing.T) {
 	// on：公网来源也信任转发头
-	onSvc := NewService(nil, nil, log.New("error", "console"), "on")
+	onPolicy, _ := proxytrust.Parse("on", "")
+	onSvc := NewService(nil, nil, log.New("error", "console"), onPolicy)
 	req := httptest.NewRequest("POST", "http://inner/api", nil)
 	req.RemoteAddr = "203.0.113.5:12345" // 公网 IP
 	req.Header.Set("X-Forwarded-Host", "vpn.example.com")
@@ -173,7 +197,8 @@ func TestTrustProxyTiers(t *testing.T) {
 	}
 
 	// off：即使回环来源也不信任
-	offSvc := NewService(nil, nil, log.New("error", "console"), "off")
+	offPolicy, _ := proxytrust.Parse("off", "")
+	offSvc := NewService(nil, nil, log.New("error", "console"), offPolicy)
 	req2 := httptest.NewRequest("POST", "http://inner/api", nil)
 	req2.RemoteAddr = "127.0.0.1:12345" // 回环
 	req2.Header.Set("X-Forwarded-Host", "vpn.example.com")
@@ -182,7 +207,8 @@ func TestTrustProxyTiers(t *testing.T) {
 	}
 
 	// auto：回环来源信任
-	autoSvc := NewService(nil, nil, log.New("error", "console"), "auto")
+	autoPolicy, _ := proxytrust.Parse("auto", "")
+	autoSvc := NewService(nil, nil, log.New("error", "console"), autoPolicy)
 	req3 := httptest.NewRequest("POST", "http://inner/api", nil)
 	req3.RemoteAddr = "127.0.0.1:12345"
 	req3.Header.Set("X-Forwarded-Host", "vpn.example.com")

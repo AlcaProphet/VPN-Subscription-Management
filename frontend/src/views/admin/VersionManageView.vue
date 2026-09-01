@@ -1,12 +1,16 @@
 <!-- VersionManageView.vue：通用版本管理视图组件（四类资源复用，props 驱动，UI §5.1/7.1） -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button, Dropdown, Input, Menu, Modal, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
+import { Button, Input, Menu, Space, Spin, Table, Tabs, Tag, Tooltip, TypographyText, Upload, type MenuProps } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
+import AppDropdown from '@/components/AppDropdown.vue'
 import dayjs from 'dayjs'
-import { versionApi, type VersionItem } from '@/api/version'
+import { versionApi, getVersionOwner, type VersionItem, type VersionOwner } from '@/api/version'
+import { getSubscription } from '@/api/subscription'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -19,6 +23,40 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+
+// 订阅地址池与规则使用「入池 + 显式分发」语义；分享/自定义保持「设为当前」
+const activationOwner = computed(() => props.ownerType === 'subscription' || props.ownerType === 'rule')
+const switchLabel = computed(() => (activationOwner.value ? '激活/分发' : '设为当前'))
+const switchContent = computed(() =>
+  activationOwner.value ? '激活后对全体用户生效' : '切换后所有下载立即生效',
+)
+// UI §10.2：版本列表空态引导仅订阅/规则页显示「装配生成」，分享/自定义不显示
+const emptyText = computed(() =>
+  activationOwner.value
+    ? '暂无版本，可通过上传文件 / 在线编辑 / 装配生成创建'
+    : '暂无版本，可通过上传文件 / 在线编辑创建',
+)
+
+// 装配生成入口：订阅/规则页显示；订阅页额外带 platform_id 与对应装配器页签
+const assemblyUrl = ref('')
+async function refreshAssemblyUrl() {
+  if (props.ownerType === 'rule') {
+    assemblyUrl.value = `/admin/assembly?tab=sr-conf&rule_id=${props.ownerId}`
+    return
+  }
+  if (props.ownerType !== 'subscription') {
+    assemblyUrl.value = ''
+    return
+  }
+  try {
+    const sub = await getSubscription(props.ownerId)
+    const tab = sub.product_type === 'yaml' ? 'clash-yaml' : sub.product_type === 'subs' ? 'sr-subs' : 'generic-subs'
+    assemblyUrl.value = `/admin/assembly?tab=${tab}&platform_id=${sub.platform_id}`
+  } catch (err) {
+    Notify.error((err as Error).message)
+    assemblyUrl.value = '/admin/assembly'
+  }
+}
 
 // 响应式：≥768 表格 / <768 卡片（与其他管理页一致）
 const isMobile = ref(false)
@@ -41,6 +79,7 @@ const editTarget = ref<number | null>(null) // 正在编辑的版本号（编辑
 const editLoading = ref(false) // 拉取编辑起点内容中
 const editText = ref('')
 const saving = ref(false)
+const owner = ref<VersionOwner | null>(null)
 const previewOpen = ref(false) // 预览弹窗独立开关：点击立即打开显示加载态
 const previewContent = ref<string | null>(null)
 const previewing = ref(false)
@@ -53,16 +92,26 @@ async function load() {
   loading.value = true
   try {
     versions.value = await api.list(props.ownerId)
+    // 有版本时优先以版本 ID 反查真实资源名；空列表不额外请求，避免无意义 404。
+    owner.value = versions.value.length > 0 ? await getVersionOwner(versions.value[0].id) : null
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
     loading.value = false
   }
 }
+
+const fallbackTitle = computed(() => {
+  const labels = { subscription: '订阅', rule: '规则', share: '分享', custom: '自定义订阅' } as const
+  return `${labels[props.ownerType]} #${props.ownerId} · 版本管理`
+})
+const pageTitle = computed(() => owner.value ? `${owner.value.name} · 版本管理` : fallbackTitle.value)
+const pageSubtitle = computed(() => owner.value ? `${owner.value.type_label}资源的版本、预览与激活管理。` : '正在读取资源名称；无版本资源将使用安全的类型与编号回退。')
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
   void load()
+  void refreshAssemblyUrl()
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
@@ -91,8 +140,15 @@ async function onUpload(file: File) {
   form.append('file', file)
   saving.value = true
   try {
-    await api.create(props.ownerId, form)
-    Notify.success('新版本已创建并切换为当前')
+    const res = await api.create(props.ownerId, form)
+    if (res.auto_activated) {
+      Notify.success('首个版本已自动激活')
+    } else if (activationOwner.value) {
+      if (props.ownerType === 'subscription') sessionStorage.setItem(`pooled_sub_${props.ownerId}`, '1')
+      Notify.success('已入池未生效，请激活')
+    } else {
+      Notify.success('新版本已创建并切换为当前')
+    }
     createOpen.value = false
     await load()
   } catch (err) {
@@ -131,8 +187,15 @@ async function openEdit(ver: number) {
 async function saveText() {
   saving.value = true
   try {
-    await api.create(props.ownerId, { text: editText.value })
-    Notify.success('新版本已创建并切换为当前')
+    const res = await api.create(props.ownerId, { text: editText.value })
+    if (res.auto_activated) {
+      Notify.success('首个版本已自动激活')
+    } else if (activationOwner.value) {
+      if (props.ownerType === 'subscription') sessionStorage.setItem(`pooled_sub_${props.ownerId}`, '1')
+      Notify.success('已入池未生效，请激活')
+    } else {
+      Notify.success('新版本已创建并切换为当前')
+    }
     createOpen.value = false
     editOpen.value = false
     editTarget.value = null
@@ -197,18 +260,21 @@ function fmtTime(ts: string): string {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-1">
-        <Button v-if="backPath" type="text" class="-ml-2" @click="goBack">
-          <template #icon><ArrowLeftOutlined /></template>
-          返回
-        </Button>
-        <h2 class="text-lg font-semibold m-0">版本管理{{ resourceName ? `（${resourceName}）` : '' }}</h2>
-      </div>
-      <Button type="primary" @click="openCreate">创建新版本</Button>
-    </div>
+    <PageHeader :title="pageTitle" :subtitle="pageSubtitle">
+      <template #actions>
+        <Space>
+          <Tag v-if="owner && ownerType !== 'subscription'" color="blue">{{ owner.type_label }}</Tag>
+          <Button v-if="backPath" type="text" class="-ml-2" @click="goBack">
+            <template #icon><ArrowLeftOutlined /></template>
+            返回
+          </Button>
+          <Button type="primary" @click="openCreate">创建新版本</Button>
+        </Space>
+      </template>
+    </PageHeader>
 
-    <TriStateList :loading="loading" :empty="versions.length === 0" empty-text="暂无版本，请创建第一个版本">
+    <TriStateList :loading="loading" :empty="versions.length === 0"
+                  :empty-text="emptyText">
       <!-- ≥768 表格态 -->
       <template v-if="!isMobile">
         <Table :data-source="versions" :pagination="false" row-key="version_no" size="middle">
@@ -217,6 +283,7 @@ function fmtTime(ts: string): string {
               <Space>
                 <TypographyText code>v{{ record.version_no }}</TypographyText>
                 <Tag v-if="record.current" color="green">当前</Tag>
+                  <Tag v-if="record.blueprint" color="purple">装配</Tag>
               </Space>
             </template>
           </Table.Column>
@@ -231,7 +298,7 @@ function fmtTime(ts: string): string {
               <Space>
                 <Button size="small" @click="doPreview(record.version_no)">预览</Button>
                 <Button size="small" @click="openEdit(record.version_no)">编辑</Button>
-                <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">设为当前</Button>
+                <Button v-if="!record.current" size="small" @click="toSwitch = record.version_no">{{ switchLabel }}</Button>
                 <Tooltip v-else title="当前激活版本不可删除，请先切换">
                   <Button size="small" danger disabled>删除</Button>
                 </Tooltip>
@@ -244,24 +311,25 @@ function fmtTime(ts: string): string {
       <!-- <768 卡片态：预览/设为当前直显，编辑/删除进「更多 ▾」 -->
       <template v-else>
         <div class="space-y-3">
-          <div v-for="v in versions" :key="v.version_no" class="border rounded-lg p-3">
+          <div v-for="v in versions" :key="v.version_no" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between gap-2">
               <Space>
                 <TypographyText code>v{{ v.version_no }}</TypographyText>
                 <Tag v-if="v.current" color="green">当前</Tag>
+                <Tag v-if="v.blueprint" color="purple">装配</Tag>
               </Space>
               <Space>
                 <Button size="small" @click="doPreview(v.version_no)">预览</Button>
-                <Button v-if="!v.current" size="small" @click="toSwitch = v.version_no">设为当前</Button>
-                <Dropdown>
+                <Button v-if="!v.current" size="small" @click="toSwitch = v.version_no">{{ switchLabel }}</Button>
+                <AppDropdown>
                   <Button size="small">更多 ▾</Button>
                   <template #overlay>
                     <Menu :items="cardMenuItems(v)" @click="(e: any) => onCardMenuClick(e.key, v)" />
                   </template>
-                </Dropdown>
+                </AppDropdown>
               </Space>
             </div>
-            <div class="text-sm text-gray-500 mt-1">
+            <div class="text-sm text-text-secondary mt-1">
               创建 {{ fmtTime(v.created_at) }} · 更新 {{ fmtTime(v.updated_at) }}
             </div>
           </div>
@@ -270,8 +338,11 @@ function fmtTime(ts: string): string {
     </TriStateList>
 
     <!-- 创建新版本弹窗：文件上传 / 在线文本编辑双页签（在线编辑从空白起点开始） -->
-    <Modal v-model:open="createOpen" title="创建新版本" :footer="null" :width="560">
+    <FormOverlay v-model:open="createOpen" title="创建新版本" :width="560" :loading="saving">
       <Tabs v-model:activeKey="createMode">
+        <template #tabBarExtraContent>
+          <Button v-if="assemblyUrl" size="small" @click="router.push(assemblyUrl)">装配生成</Button>
+        </template>
         <Tabs.TabPane key="upload" tab="文件上传">
           <Upload :show-upload-list="false" :before-upload="onUpload" :disabled="saving">
             <Button :loading="saving">选择文件上传（≤50MB）</Button>
@@ -279,39 +350,47 @@ function fmtTime(ts: string): string {
         </Tabs.TabPane>
         <Tabs.TabPane key="text" tab="在线编辑">
           <Input.TextArea v-model:value="editText" :rows="14" placeholder="粘贴订阅/规则内容，保存后将创建为新版本" />
-          <Button type="primary" class="mt-2" :loading="saving" @click="saveText">保存为新版本</Button>
         </Tabs.TabPane>
       </Tabs>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="createOpen = false">取消</Button>
+        <Button v-if="createMode === 'text'" type="primary" class="touch-target" :loading="saving" @click="saveText">保存为新版本</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 按版本在线编辑弹窗：预填所选版本内容，修改后保存为新版本（原版本保留不覆盖）；
          加载中 Spin 占位，完成后一次性渲染编辑区（避免空白可输入框闪烁） -->
-    <Modal :open="editOpen" :title="editTarget !== null ? `编辑版本 v${editTarget}` : '在线编辑'"
-           :footer="null" :width="720" @cancel="editOpen = false; editTarget = null">
+    <FormOverlay :open="editOpen" :title="editTarget !== null ? `编辑版本 v${editTarget}` : '在线编辑'"
+                 :width="720" :loading="saving" @update:open="editOpen = false; editTarget = null">
       <div v-if="editLoading" class="py-12 text-center">
         <Spin size="large" />
-        <div class="mt-2 text-gray-500 dark:text-gray-400">加载版本内容中…</div>
+        <div class="mt-2 text-text-secondary">加载版本内容中…</div>
       </div>
       <template v-else>
         <Input.TextArea v-model:value="editText" :rows="14"
                         placeholder="基于所选版本内容修改，保存后将创建为新版本" />
-        <Button type="primary" class="mt-2" :loading="saving" @click="saveText">保存为新版本</Button>
       </template>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="editOpen = false; editTarget = null">取消</Button>
+        <Button v-if="!editLoading" type="primary" class="touch-target" :loading="saving" @click="saveText">保存为新版本</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 预览弹窗：宽屏纯文本（禁 HTML）；加载中 Spin 占位，完成后一次性渲染内容 -->
-    <Modal :open="previewOpen" title="内容预览"
-           width="80%" :footer="null" @cancel="previewOpen = false; previewContent = null">
+    <FormOverlay :open="previewOpen" title="内容预览" width="80%" @update:open="previewOpen = false; previewContent = null">
       <div v-if="previewing" class="py-12 text-center">
         <Spin size="large" />
-        <div class="mt-2 text-gray-500 dark:text-gray-400">加载内容中…</div>
+        <div class="mt-2 text-text-secondary">加载内容中…</div>
       </div>
       <pre v-else class="text-xs overflow-auto max-h-[70vh] whitespace-pre-wrap break-all">{{ previewContent }}</pre>
-    </Modal>
+      <template #footer>
+        <Button type="primary" class="touch-target" @click="previewOpen = false; previewContent = null">关闭</Button>
+      </template>
+    </FormOverlay>
 
     <ConfirmModal :open="toDelete !== null" title="删除版本" danger :loading="deleting"
                   content="删除后不可恢复" @confirm="doDelete" @update:open="toDelete = null" />
     <ConfirmModal :open="toSwitch !== null" title="切换当前版本" :loading="switching"
-                  content="切换后所有下载立即生效" @confirm="doSwitch" @update:open="toSwitch = null" />
+                  :content="switchContent" @confirm="doSwitch" @update:open="toSwitch = null" />
   </div>
 </template>

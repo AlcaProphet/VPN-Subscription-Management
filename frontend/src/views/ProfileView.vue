@@ -4,7 +4,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Alert, Button, Card, Descriptions, Form, Input, Tabs, Tag } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
-import { updateUsername, updateEmail, updatePassword } from '@/api/profile'
+import { updateUsername, updateEmail, updatePassword, getProfileTraffic } from '@/api/profile'
+import type { TrafficSummary } from '@/api/home'
 import { me } from '@/api/auth'
 import { http } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
@@ -17,10 +18,19 @@ const system = useSystemStore()
 
 const loading = ref(true)
 const oidcConfigured = computed(() => system.status?.oidc_configured === true)
+const advancedMode = computed(() => system.status?.advanced_mode === true)
+const traffic = ref<TrafficSummary>({ unlimited: true })
+const trafficText = computed(() => {
+  if (traffic.value.unlimited) return '不限流量'
+  const used = ((traffic.value.used_bytes ?? 0) / 1024 ** 3).toFixed(2)
+  const quota = traffic.value.quota_bytes ? ` / 配额 ${(traffic.value.quota_bytes / 1024 ** 3).toFixed(2)} GB` : ''
+  return `本月已用 ${used} GB${quota}${traffic.value.exceeded ? '（已超限）' : ''}`
+})
 
 onMounted(async () => {
   try {
     auth.user = await me()
+    traffic.value = await getProfileTraffic()
   } catch {
     // 401 已由拦截器处理
   } finally {
@@ -102,7 +112,7 @@ async function startBind() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-page">
     <main class="max-w-2xl mx-auto p-4">
       <div class="flex items-center gap-2 mb-4">
         <Button type="text" @click="router.push('/')">
@@ -142,9 +152,10 @@ async function startBind() {
                   {{ auth.user?.role === 'admin' ? '管理员' : '用户' }}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="所属组">
+              <Descriptions.Item v-if="advancedMode" label="所属组">
                 {{ auth.user?.group_name || (auth.user?.group_id ? `#${auth.user.group_id}` : '—') }}
               </Descriptions.Item>
+              <Descriptions.Item v-if="system.status?.traffic_card_enabled !== false" label="本月流量">{{ trafficText }}</Descriptions.Item>
             </Descriptions>
           </Tabs.TabPane>
 

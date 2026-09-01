@@ -1,5 +1,6 @@
 // 路由表与守卫：emergency → configured → 登录态 → 登录页跳过（UI §7.2）
 import { createRouter, createWebHistory } from 'vue-router'
+import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
 import { me } from '@/api/auth'
@@ -26,6 +27,7 @@ const versionRoutes = [
 
 // 管理路由（懒加载；路由级代码分割）
 const adminRoutes = [
+  { path: '/admin', component: () => import('@/views/admin/AdminOverviewView.vue') },
   { path: '/admin/subscriptions', component: () => import('@/views/admin/SubscriptionsView.vue') },
   { path: '/admin/groups', component: () => import('@/views/admin/GroupsView.vue') },
   { path: '/admin/shares', component: () => import('@/views/admin/SharesView.vue') },
@@ -34,6 +36,8 @@ const adminRoutes = [
   { path: '/admin/platforms/new', component: () => import('@/views/admin/PlatformEditView.vue') },
   { path: '/admin/rules', component: () => import('@/views/admin/RulesView.vue') },
   { path: '/admin/assembly', component: () => import('@/views/admin/AssemblyView.vue') },
+  { path: '/admin/nodes', component: () => import('@/views/admin/NodesView.vue') },
+  { path: '/admin/xray', component: () => import('@/views/admin/XrayInstancesView.vue') },
   // Build3 Step 1：用户管理
   { path: '/admin/users', component: () => import('@/views/admin/UsersView.vue') },
   // Build3 Step 2：审批中心
@@ -58,7 +62,7 @@ const routes = [
   { path: '/login', component: () => import('@/views/LoginView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/register', component: () => import('@/views/RegisterView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/forgot', component: () => import('@/views/ForgotView.vue'), meta: { layout: 'blank', public: true } },
-  { path: '/reset/:token', component: () => import('@/views/ResetView.vue'), meta: { layout: 'blank', public: true } },
+  { path: '/reset', component: () => import('@/views/ResetView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/pending', component: () => import('@/views/PendingView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/login/callback', component: () => import('@/views/OidcCallbackView.vue'), meta: { layout: 'blank', public: true } },
   { path: '/:pathMatch(.*)*', component: () => import('@/views/NotFoundView.vue'), meta: { layout: 'blank', public: true } },
@@ -77,7 +81,7 @@ let barEl: HTMLElement | null = null
 function progressStart() {
   if (barEl) return
   barEl = document.createElement('div')
-  barEl.style.cssText = 'position:fixed;top:0;left:0;height:2px;background:#1677FF;z-index:9999;transition:width .2s ease;width:10%'
+  barEl.style.cssText = 'position:fixed;top:0;left:0;height:2px;background:var(--ui-primary);z-index:9999;transition:width .2s ease;width:10%'
   document.body.appendChild(barEl)
   requestAnimationFrame(() => {
     if (barEl) barEl.style.width = '70%'
@@ -123,6 +127,11 @@ router.beforeEach(async (to) => {
       }
     }
     if (auth.user.role !== 'admin') return '/' // 非管理员访问管理路由 → 回首页
+  }
+  // 6) 高级模式路由守卫：advanced_mode 非 true 时（含状态未加载）视为 off 并重定向
+  if ((to.path === '/admin/groups' || to.path === '/admin/xray') && status?.advanced_mode !== true) {
+    message.warning('高级功能未开启，请在面板配置中开启高级模式')
+    return '/admin/subscriptions'
   }
   return true
 })

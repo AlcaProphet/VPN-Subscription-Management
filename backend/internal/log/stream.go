@@ -116,11 +116,11 @@ func formatAttrs(r slog.Record) string {
 
 // StreamService 实时日志流服务（短期 Token + SSE 连接管理）
 type StreamService struct {
-	buf     *RingBuffer
-	log     *slog.Logger
-	mu      sync.Mutex
-	tokens   map[string]time.Time // token → 过期时间（仅存内存）
-	connCount int                 // 当前活跃 SSE 连接数
+	buf       *RingBuffer
+	log       *slog.Logger
+	mu        sync.Mutex
+	tokens    map[string]time.Time // token → 过期时间（仅存内存）
+	connCount int                  // 当前活跃 SSE 连接数
 }
 
 func NewStreamService(buf *RingBuffer, lg *slog.Logger) *StreamService {

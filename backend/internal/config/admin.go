@@ -38,14 +38,21 @@ const (
 
 // 验证码/限流配置键（与 captcha/ratelimit 包常量同值）
 const (
-	captchaKeyProvider  = "captcha_provider"
-	captchaKeySiteKey   = "captcha_site_key"
-	captchaKeySecretKey = "captcha_secret_key"
-	captchaKeyPages     = "captcha_pages"
-	ratelimitKeyLogin   = "ratelimit_login"
-	ratelimitKeyReg     = "ratelimit_register"
-	ratelimitKeyForgot  = "ratelimit_forgot"
-	ratelimitKeyDown    = "ratelimit_download"
+	captchaKeyProvider        = "captcha_provider"
+	captchaKeySiteKey         = "captcha_site_key"
+	captchaKeySecretKey       = "captcha_secret_key"
+	captchaKeyPages           = "captcha_pages"
+	ratelimitKeyLogin         = "ratelimit_login"
+	ratelimitKeyReg           = "ratelimit_register"
+	ratelimitKeyForgot        = "ratelimit_forgot"
+	ratelimitKeyDown          = "ratelimit_download"
+	ratelimitKeyResetValidate = "ratelimit_reset_validate"
+
+	httpReadHeaderTimeoutSecKey = "http_read_header_timeout_sec"
+	httpReadTimeoutSecKey       = "http_read_timeout_sec"
+	httpWriteTimeoutSecKey      = "http_write_timeout_sec"
+	httpIdleTimeoutSecKey       = "http_idle_timeout_sec"
+	httpMaxBodyMbKey            = "http_max_body_mb"
 )
 
 // WhitelistConfig OIDC Role/Group 白名单配置（Design1 §3.4.8；oidc 包 matchWhitelist 同构读取）
@@ -73,17 +80,28 @@ type OidcOps interface {
 	ClearDiscCache()
 }
 
+// AdvancedModeSwitcher 高级模式开关能力接口（由 server 注入 xray.OffClear 实现，避免 config↔xray 循环依赖）。
+type AdvancedModeSwitcher interface {
+	SubmitAdvancedMode(ctx context.Context, on bool, confirmWord string) (string, error)
+}
+
 // AdminService 面板配置服务
 type AdminService struct {
-	cfg     *Service
-	store   *store.Store
-	oidcOps OidcOps
-	dataDir string // 数据卷根目录（站点 ICON 落盘用）
-	log     *slog.Logger
+	cfg              *Service
+	store            *store.Store
+	oidcOps          OidcOps
+	advancedSwitcher AdvancedModeSwitcher
+	dataDir          string // 数据卷根目录（站点 ICON 落盘用）
+	log              *slog.Logger
 }
 
 func NewAdminService(cfg *Service, st *store.Store, oidcOps OidcOps, dataDir string, lg *slog.Logger) *AdminService {
 	return &AdminService{cfg: cfg, store: st, oidcOps: oidcOps, dataDir: dataDir, log: lg}
+}
+
+// SetAdvancedModeSwitcher 注入高级模式开关实现（server 装配时调用）。
+func (s *AdminService) SetAdvancedModeSwitcher(fn AdvancedModeSwitcher) {
+	s.advancedSwitcher = fn
 }
 
 // --- 通用读写辅助 ---
@@ -471,26 +489,40 @@ func (s *AdminService) DeleteSiteIcon(ctx context.Context) error {
 // --- 速率限制分区 ---
 
 type RateLimitSettings struct {
-	Login    int `json:"login"`
-	Register int `json:"register"`
-	Forgot   int `json:"forgot"`
-	Download int `json:"download"`
+	Login         int `json:"login"`
+	Register      int `json:"register"`
+	Forgot        int `json:"forgot"`
+	Download      int `json:"download"`
+	ResetValidate int `json:"reset_validate"`
+
+	// HTTP 连接防护（0 = 旧前端未提交，保存时取默认值）
+	HTTPReadHeaderTimeoutSec int `json:"http_read_header_timeout_sec"`
+	HTTPReadTimeoutSec       int `json:"http_read_timeout_sec"`
+	HTTPWriteTimeoutSec      int `json:"http_write_timeout_sec"`
+	HTTPIdleTimeoutSec       int `json:"http_idle_timeout_sec"`
+	HTTPMaxBodyMb            int `json:"http_max_body_mb"`
 }
 
 func (s *AdminService) GetRateLimit(ctx context.Context) RateLimitSettings {
 	return RateLimitSettings{
-		Login:    s.cfg.GetInt(ctx, ratelimitKeyLogin, 10),
-		Register: s.cfg.GetInt(ctx, ratelimitKeyReg, 5),
-		Forgot:   s.cfg.GetInt(ctx, ratelimitKeyForgot, 5),
-		Download: s.cfg.GetInt(ctx, ratelimitKeyDown, 20),
+		Login:                    s.cfg.GetInt(ctx, ratelimitKeyLogin, 10),
+		Register:                 s.cfg.GetInt(ctx, ratelimitKeyReg, 5),
+		Forgot:                   s.cfg.GetInt(ctx, ratelimitKeyForgot, 5),
+		Download:                 s.cfg.GetInt(ctx, ratelimitKeyDown, 20),
+		ResetValidate:            s.cfg.GetInt(ctx, ratelimitKeyResetValidate, 10),
+		HTTPReadHeaderTimeoutSec: s.cfg.GetInt(ctx, httpReadHeaderTimeoutSecKey, 5),
+		HTTPReadTimeoutSec:       s.cfg.GetInt(ctx, httpReadTimeoutSecKey, 60),
+		HTTPWriteTimeoutSec:      s.cfg.GetInt(ctx, httpWriteTimeoutSecKey, 300),
+		HTTPIdleTimeoutSec:       s.cfg.GetInt(ctx, httpIdleTimeoutSecKey, 120),
+		HTTPMaxBodyMb:            s.cfg.GetInt(ctx, httpMaxBodyMbKey, 4),
 	}
 }
 
-// SaveRateLimit 四个数字输入；修改后立即生效（限流中间件每次请求读配置，Build1/2 已实现）
+// SaveRateLimit 保存限流值与 HTTP 连接防护值。旧前端未提交新字段时，0 视为采用默认值。
 func (s *AdminService) SaveRateLimit(ctx context.Context, in RateLimitSettings) error {
 	for k, v := range map[string]int{
-		ratelimitKeyLogin: in.Login,
-		ratelimitKeyReg:   in.Register,
+		ratelimitKeyLogin:  in.Login,
+		ratelimitKeyReg:    in.Register,
 		ratelimitKeyForgot: in.Forgot,
 		ratelimitKeyDown:   in.Download,
 	} {
@@ -498,6 +530,41 @@ func (s *AdminService) SaveRateLimit(ctx context.Context, in RateLimitSettings) 
 			return fmt.Errorf("%w: 限流值必须为正整数", ErrBadRequest)
 		}
 		if err := s.cfg.Set(ctx, k, strconv.Itoa(v)); err != nil {
+			return err
+		}
+	}
+	// 兼容旧前端未提交 reset_validate：0 采用默认 10。
+	resetValidate := in.ResetValidate
+	if resetValidate == 0 {
+		resetValidate = 10
+	}
+	if resetValidate < 1 {
+		return fmt.Errorf("%w: 限流值必须为正整数", ErrBadRequest)
+	}
+	if err := s.cfg.Set(ctx, ratelimitKeyResetValidate, strconv.Itoa(resetValidate)); err != nil {
+		return err
+	}
+	type hardening struct {
+		key string
+		val int
+		def int
+		max int
+	}
+	for _, h := range []hardening{
+		{httpReadHeaderTimeoutSecKey, in.HTTPReadHeaderTimeoutSec, 5, 60},
+		{httpReadTimeoutSecKey, in.HTTPReadTimeoutSec, 60, 3600},
+		{httpWriteTimeoutSecKey, in.HTTPWriteTimeoutSec, 300, 3600},
+		{httpIdleTimeoutSecKey, in.HTTPIdleTimeoutSec, 120, 3600},
+		{httpMaxBodyMbKey, in.HTTPMaxBodyMb, 4, 320},
+	} {
+		v := h.val
+		if v == 0 {
+			v = h.def
+		}
+		if v < 1 || v > h.max {
+			return fmt.Errorf("%w: HTTP 防护值超范围", ErrBadRequest)
+		}
+		if err := s.cfg.Set(ctx, h.key, strconv.Itoa(v)); err != nil {
 			return err
 		}
 	}
@@ -582,6 +649,52 @@ func (s *AdminService) GetDebug(ctx context.Context) bool {
 // server.Fail 的 5xx 脱敏分支读取 debug_mode（Build1 Step 1 的 Fail 在此接通）
 func (s *AdminService) SetDebug(ctx context.Context, on bool) error {
 	return s.cfg.Set(ctx, "debug_mode", strconv.FormatBool(on))
+}
+
+// --- 高级模式分区（Build7 Step2） ---
+
+// AdvancedSettings 高级模式相关设置。
+type AdvancedSettings struct {
+	AdvancedMode           bool `json:"advanced_mode"`
+	CollectIntervalMinutes int  `json:"collect_interval_minutes"`
+	TrafficCardEnabled     bool `json:"traffic_card_enabled"`
+}
+
+// GetAdvancedSettings 读取高级模式三键。
+func (s *AdminService) GetAdvancedSettings(ctx context.Context) AdvancedSettings {
+	return AdvancedSettings{
+		AdvancedMode:           s.cfg.GetBool(ctx, KeyAdvancedMode, false),
+		CollectIntervalMinutes: s.cfg.GetInt(ctx, "xray_collect_interval_minutes", 10),
+		TrafficCardEnabled:     s.cfg.GetBool(ctx, "traffic_card_enabled", true),
+	}
+}
+
+// SaveAdvancedSettings 保存高级模式设置。
+// advanced_mode 变更必须经注入的 AdvancedModeSwitcher 执行 OFF/ON 分支，禁止普通 Set 绕过。
+// confirmWord 仅关闭高级模式时需要（固定 DISABLE，由接入层校验）。
+func (s *AdminService) SaveAdvancedSettings(ctx context.Context, in AdvancedSettings, confirmWord string) (string, error) {
+	if in.CollectIntervalMinutes < 1 {
+		return "", fmt.Errorf("%w: 采集间隔必须 ≥1 分钟", ErrBadRequest)
+	}
+	current := s.cfg.GetBool(ctx, KeyAdvancedMode, false)
+	taskID := ""
+	if in.AdvancedMode != current {
+		if s.advancedSwitcher == nil {
+			return "", errors.New("高级模式开关实现未注入")
+		}
+		var err error
+		taskID, err = s.advancedSwitcher.SubmitAdvancedMode(ctx, in.AdvancedMode, confirmWord)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := s.cfg.Set(ctx, "xray_collect_interval_minutes", strconv.Itoa(in.CollectIntervalMinutes)); err != nil {
+		return "", err
+	}
+	if err := s.cfg.Set(ctx, "traffic_card_enabled", strconv.FormatBool(in.TrafficCardEnabled)); err != nil {
+		return "", err
+	}
+	return taskID, nil
 }
 
 // --- 辅助 ---

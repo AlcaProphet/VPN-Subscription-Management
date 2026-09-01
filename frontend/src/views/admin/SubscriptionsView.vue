@@ -1,68 +1,98 @@
-<!-- SubscriptionsView.vue：订阅池管理（UI §5.1）——按平台分组，双态行 -->
+<!-- SubscriptionsView.vue：订阅管理（Design2-UI §4.1）——平铺列表（每平台一份订阅条目） -->
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button, Collapse, Input, Modal, Select, Space, Tag, TypographyText } from 'ant-design-vue'
-import { listSubscriptions, createSubscription, updateSubscription, deleteSubscription, type PlatformSubs, type SubscriptionItem } from '@/api/subscription'
+import { Button, Input, Table, Tag, TypographyText } from 'ant-design-vue'
+import {
+  listSubscriptions,
+  createSubscription,
+  updateSubscription,
+  deleteSubscription,
+  type SubscriptionItem,
+} from '@/api/subscription'
 import { listPlatforms, type PlatformItem } from '@/api/platform'
-import { listGroups } from '@/api/group'
+import PageHeader from '@/components/PageHeader.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
+import AppPopover from '@/components/AppPopover.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
 const router = useRouter()
 const loading = ref(false)
-const groups = ref<PlatformSubs[]>([])
+const subs = ref<SubscriptionItem[]>([])
 const platforms = ref<PlatformItem[]>([])
+const isMobile = ref(false)
+
+const productTypeMeta: Record<string, { label: string; color: string }> = {
+  yaml: { label: 'yaml', color: 'blue' },
+  subs: { label: 'subs', color: 'cyan' },
+  'generic-subs': { label: 'generic-subs', color: 'purple' },
+}
+
+function checkMobile() { isMobile.value = window.matchMedia('(max-width: 767px)').matches }
+onMounted(() => { checkMobile(); window.addEventListener('resize', checkMobile) })
+
+function pooled(id: number) {
+  return sessionStorage.getItem(`pooled_sub_${id}`) === '1'
+}
 
 async function load() {
   loading.value = true
   try {
-    const [g, p, grps] = await Promise.all([listSubscriptions(), listPlatforms(), listGroups()])
-    groups.value = g
+    const [s, p] = await Promise.all([listSubscriptions(), listPlatforms()])
+    subs.value = s
     platforms.value = p
-    groupOptions.value = grps.map((x) => ({ label: x.name, value: x.id })) // 关联组多选数据源（Step 3 接通）
-    openPlatforms.value = g.map((pg) => pg.platform_id) // 默认全展开
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
     loading.value = false
   }
 }
-
-// 平台分组展开控制（默认全展开）
-const openPlatforms = ref<number[]>([])
-function onCollapseChange(keys: (string | number) | (string | number)[]) {
-  openPlatforms.value = Array.isArray(keys) ? keys.map(Number) : [Number(keys)]
-}
 onMounted(load)
 
-// 版本跳转辅助（版本管理页复用 VersionManageView）
 function goVersions(sub: SubscriptionItem) {
+  sessionStorage.removeItem(`pooled_sub_${sub.id}`)
   void router.push(`/admin/subscriptions/${sub.id}/versions`)
 }
 
-// --- 新建/编辑弹窗 ---
-const modalOpen = ref(false)
-const editing = ref<SubscriptionItem | null>(null) // null = 新建
-const saving = ref(false)
-const form = reactive({ platform_id: 0, name: '', group_ids: [] as number[] })
+function goAssemblyForDefaultSubscription(sub: SubscriptionItem) {
+  const tab = sub.product_type === 'yaml' ? 'clash-yaml' : sub.product_type === 'subs' ? 'sr-subs' : 'generic-subs'
+  void router.push(`/admin/assembly?tab=${tab}&platform_id=${sub.platform_id}`)
+}
 
-// 关联组多选数据源（组列表接口 Build2 Step 3 已建立）
-const groupOptions = ref<{ label: string; value: number }[]>([])
+function goAssemblyHeader() {
+  if (subs.value.length > 0) {
+    goAssemblyForDefaultSubscription(subs.value[0])
+  } else {
+    void router.push('/admin/assembly')
+  }
+}
+
+// 平台选项：已被订阅条目占用的平台禁用 + 后缀
+const platformOptions = () =>
+  platforms.value.map((p) => ({
+    label: subs.value.some((s) => s.platform_id === p.id) ? `${p.name}（已有订阅）` : p.name,
+    value: p.id,
+    disabled: subs.value.some((s) => s.platform_id === p.id),
+  }))
+
+// --- 新建/编辑 ---
+const modalOpen = ref(false)
+const editing = ref<SubscriptionItem | null>(null)
+const saving = ref(false)
+const form = reactive({ platform_id: 0, name: '' })
 
 function openCreate() {
   editing.value = null
-  form.platform_id = platforms.value[0]?.id ?? 0
+  form.platform_id = platformOptions().find((o) => !o.disabled)?.value ?? 0
   form.name = ''
-  form.group_ids = []
   modalOpen.value = true
 }
 function openEdit(sub: SubscriptionItem) {
   editing.value = sub
   form.platform_id = sub.platform_id
   form.name = sub.name
-  form.group_ids = sub.groups.map((g) => g.id)
   modalOpen.value = true
 }
 
@@ -74,13 +104,11 @@ async function save() {
   saving.value = true
   try {
     if (editing.value) {
-      await updateSubscription(editing.value.id, { name: form.name.trim(), group_ids: form.group_ids })
+      await updateSubscription(editing.value.id, { name: form.name.trim() })
       Notify.success('订阅已更新')
     } else {
-      // 标识由后端自动生成（subscription- 前缀 + 8 位随机短码），创建后列表展示供复制
-      await createSubscription({ platform_id: form.platform_id, name: form.name.trim(), group_ids: form.group_ids })
-      Notify.success('订阅已创建')
-      guideOpen.value = true // 创建成功引导（Step 3 接通「设置平台默认订阅」直达）
+      await createSubscription({ platform_id: form.platform_id, name: form.name.trim() })
+      Notify.success('订阅已创建，可上传内容或前往订阅装配生成模板')
     }
     modalOpen.value = false
     await load()
@@ -108,51 +136,101 @@ async function confirmDelete() {
     deleting.value = false
   }
 }
-
-// 创建成功引导：加入组可用范围 → 设置平台默认订阅（组管理页在 Step 3 建立，本 Step 仅提示）
-const guideOpen = ref(false)
 </script>
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">订阅管理</h2>
-      <Button type="primary" @click="openCreate">新建订阅</Button>
-    </div>
+    <PageHeader title="订阅管理">
+      <template #actions>
+        <Button @click="goAssemblyHeader">前往装配</Button>
+        <Button type="primary" @click="openCreate">新建订阅</Button>
+      </template>
+    </PageHeader>
 
-    <TriStateList :loading="loading" :empty="groups.length === 0" empty-text="还没有订阅">
-      <Collapse v-model:active-key="openPlatforms" class="bg-transparent" @change="onCollapseChange">
-        <Collapse.Panel v-for="g in groups" :key="g.platform_id" :header="`${g.platform_name}（${g.subscriptions.length}）`">
-          <div class="space-y-2">
-            <div v-for="sub in g.subscriptions" :key="sub.id"
-                 class="flex flex-wrap items-center gap-2 border rounded-lg p-3 bg-white dark:bg-gray-800">
-              <span class="font-medium">{{ sub.name }}</span>
-              <TypographyText code class="text-xs">{{ sub.slug }}</TypographyText>
-              <Tag v-if="sub.current_version > 0" color="green">v{{ sub.current_version }}</Tag>
-              <Tag v-else color="default">无版本</Tag>
-              <Tag v-for="grp in sub.groups" :key="grp.id" color="blue">{{ grp.name }}</Tag>
-              <Tag v-if="sub.selected_by > 0" color="cyan">作为 {{ sub.selected_by }} 个组的默认订阅</Tag>
-              <Space class="ml-auto">
-                <Button size="small" @click="goVersions(sub)">版本管理</Button>
-                <Button size="small" @click="openEdit(sub)">编辑</Button>
-                <Button size="small" danger @click="toDelete = sub">删除</Button>
-              </Space>
+    <TriStateList :loading="loading" :empty="subs.length === 0" empty-text="还没有订阅">
+      <!-- ≥768 表格 -->
+      <Table v-if="!isMobile" :data-source="subs" :pagination="false" row-key="id" size="middle"
+             :row-class-name="(r: SubscriptionItem) => pooled(r.id) ? 'bg-amber-50 dark:bg-amber-900/20' : ''">
+        <Table.Column title="平台" data-index="platform_name" />
+        <Table.Column title="订阅名称" data-index="name" />
+        <Table.Column title="产物格式" key="product_type">
+          <template #default="{ record }">
+            <Tag :color="productTypeMeta[record.product_type]?.color">{{ record.product_type }}</Tag>
+          </template>
+        </Table.Column>
+        <Table.Column title="内容形态" key="content_kind">
+          <template #default="{ record }">
+            <Tag v-if="record.content_kind === 'blueprint'" color="purple">装配模板</Tag>
+            <Tag v-else-if="record.content_kind === 'upload'" color="default">直接上传</Tag>
+            <span v-else class="text-text-tertiary">—</span>
+          </template>
+        </Table.Column>
+        <Table.Column title="当前版本" key="current">
+          <template #default="{ record }">
+            <Tag v-if="record.current_version > 0" color="green">v{{ record.current_version }}</Tag>
+            <span v-else class="text-text-tertiary">未激活</span>
+          </template>
+        </Table.Column>
+        <Table.Column title="操作" key="actions">
+          <template #default="{ record }">
+            <div class="flex items-center gap-1">
+              <Button size="small" @click="goVersions(record)">版本管理</Button>
+              <AppPopover v-if="pooled(record.id)" :trigger="['hover', 'focus', 'click']" placement="top">
+                <Button class="subscription-pooled-trigger" size="small" type="text" aria-label="查看入池状态并前往激活">
+                  <Tag color="gold" class="m-0">待激活</Tag>
+                </Button>
+                <template #content>
+                  <div class="flex min-w-44 flex-col gap-1">
+                    <span class="text-sm">已入池未生效，请激活</span>
+                    <Button class="subscription-pooled-activate self-start" type="link" size="small" @click="goVersions(record)">去激活</Button>
+                  </div>
+                </template>
+              </AppPopover>
+              <Button size="small" @click="openEdit(record)">编辑</Button>
+              <Button size="small" danger @click="toDelete = record">删除</Button>
+            </div>
+          </template>
+        </Table.Column>
+      </Table>
+
+      <!-- <768 卡片 -->
+      <div v-else class="space-y-2">
+        <div v-for="sub in subs" :key="sub.id"
+             :class="pooled(sub.id) ? 'border rounded-lg p-3 bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'border rounded-lg p-3 bg-surface'">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <div class="font-medium">{{ sub.name }}</div>
+              <div class="text-xs text-text-tertiary">{{ sub.platform_name }} · {{ sub.product_type }}</div>
+            </div>
+            <div class="mobile-actions flex flex-wrap gap-1">
+              <Button size="small" @click="goVersions(sub)">版本管理</Button>
+              <AppPopover v-if="pooled(sub.id)" :trigger="['hover', 'focus', 'click']" placement="top">
+                <Button class="subscription-pooled-trigger" size="small" type="text" aria-label="查看入池状态并前往激活">
+                  <Tag color="gold" class="m-0">待激活</Tag>
+                </Button>
+                <template #content>
+                  <div class="flex min-w-44 flex-col gap-1">
+                    <span class="text-sm">已入池未生效，请激活</span>
+                    <Button class="subscription-pooled-activate self-start" type="link" size="small" @click="goVersions(sub)">去激活</Button>
+                  </div>
+                </template>
+              </AppPopover>
+              <Button size="small" @click="openEdit(sub)">编辑</Button>
+              <Button size="small" danger @click="toDelete = sub">删除</Button>
             </div>
           </div>
-        </Collapse.Panel>
-      </Collapse>
+        </div>
+      </div>
     </TriStateList>
 
-    <!-- 新建/编辑弹窗 -->
-    <Modal v-model:open="modalOpen" :title="editing ? '编辑订阅' : '新建订阅'" :footer="null" :width="520"
-           destroy-on-close>
+    <FormOverlay v-model:open="modalOpen" :title="editing ? '编辑订阅' : '新建订阅'" :width="480"
+                 :loading="saving" destroy-on-close @submit="save">
       <div class="space-y-4">
         <div>
           <div class="mb-1 text-sm">平台</div>
-          <Select v-model:value="form.platform_id" class="w-full" :disabled="!!editing" placeholder="选择平台">
-            <Select.Option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</Select.Option>
-          </Select>
-          <div v-if="editing" class="text-xs text-gray-400 mt-1">平台创建后不可修改</div>
+          <AppSelect v-model:value="form.platform_id" class="w-full" :disabled="!!editing" :options="platformOptions()"
+                  placeholder="选择平台" />
+          <div v-if="editing" class="text-xs text-text-tertiary mt-1">平台创建后不可修改</div>
         </div>
         <div>
           <div class="mb-1 text-sm">名称</div>
@@ -162,26 +240,15 @@ const guideOpen = ref(false)
           <div class="mb-1 text-sm">标识（系统自动生成，创建后不可修改）</div>
           <TypographyText code>{{ editing.slug }}</TypographyText>
         </div>
-        <div>
-          <div class="mb-1 text-sm">可用用户组</div>
-          <!-- 组数据源在 Build2 Step 3 接通（/api/admin/groups），本 Step 先渲染占位 -->
-          <Select v-model:value="form.group_ids" class="w-full" mode="multiple" :options="groupOptions"
-                  placeholder="选择关联的用户组（可空）" />
-        </div>
-        <div class="flex justify-end gap-2">
-          <Button @click="modalOpen = false">取消</Button>
-          <Button type="primary" :loading="saving" @click="save">{{ editing ? '保存' : '创建' }}</Button>
-        </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="modalOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="saving" @click="save">{{ editing ? '保存' : '创建' }}</Button>
+      </template>
+    </FormOverlay>
 
-    <!-- 创建成功引导：加入组可用范围 → 设置平台默认订阅（Step 3 接通组管理直达按钮） -->
-    <ConfirmModal v-model:open="guideOpen" title="订阅已创建"
-                  content="请前往用户组管理：① 将该订阅加入组的可用范围；② 设为组内平台的默认订阅，组内用户即可通过无标识链接获取内容。"
-                  :ok-button-props="{ danger: false }" @confirm="guideOpen = false" />
-
-    <!-- 删除确认 -->
     <ConfirmModal :open="toDelete !== null" title="删除订阅" danger :loading="deleting"
-                  content="将删除全部版本文件及相关关联，删除后不可恢复" @confirm="confirmDelete" @update:open="toDelete = null" />
+                  content="将删除该订阅的全部版本文件与指向它的下载 Token；装配蓝图级联删除将触发候选集重算（高级模式下可能摘除受影响的组节点分配并移除对应 Xray 账号）；不级联自定义订阅。删除后不可恢复。"
+                  @confirm="confirmDelete" @update:open="toDelete = null" />
   </div>
 </template>

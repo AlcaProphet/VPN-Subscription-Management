@@ -1,13 +1,32 @@
-// api/version.ts：通用版本接口封装（四类资源复用，前缀参数化，UI §5.1/7.1）
+// api/version.ts：通用版本接口封装（四类资源复用，前缀参数化）
 import { http } from './request'
 
 export interface VersionItem {
+  id: number
   version_no: number
   file_path: string
+  file_name?: string
   current: boolean
   created_at: string
   updated_at: string
+  blueprint?: boolean // 装配蓝图版本标记（Build5 起回传；可缺省）
 }
+
+export interface VersionOwner {
+  owner_type: 'subscription' | 'rule' | 'share' | 'custom'
+  owner_id: number
+  name: string
+  type_label: string
+  back_path: string
+}
+
+// 用版本记录反查归属资源，避免在通用版本页把英文 ownerType 误当成标题。
+export const getVersionOwner = (versionID: number) =>
+  http.get<any, VersionOwner>(`/admin/versions/${versionID}/owner`)
+
+// 读取装配蓝图（重新编辑流）
+export const getVersionBlueprint = (versionId: number) =>
+  http.get<any, any>(`/admin/versions/${versionId}/blueprint`)
 
 export function versionApi(prefix: string) {
   return {
@@ -16,7 +35,7 @@ export function versionApi(prefix: string) {
     create: (ownerId: number, payload: FormData | { text: string }) => {
       // 文本模式必须带 ?mode=text（后端按查询参数区分文件/文本双模式）；FormData 为文件上传
       const isText = !(payload instanceof FormData)
-      return http.post<any, { version_no: number }>(
+      return http.post<any, { version_no: number; auto_activated: boolean }>(
         `${prefix}/${ownerId}/versions${isText ? '?mode=text' : ''}`,
         payload,
       )

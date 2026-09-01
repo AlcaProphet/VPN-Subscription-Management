@@ -48,7 +48,7 @@ func randomCode(n int) (string, error) {
 // 表名仅允许白名单内的固定值（防动态 SQL 注入）
 func TableHasSlug(ctx context.Context, tx *sql.Tx, table, value string) (bool, error) {
 	switch table {
-	case "groups", "platforms", "subscriptions", "rules", "custom_subscriptions", "share_subscriptions":
+	case "groups", "platforms", "subscriptions", "rules", "custom_subscriptions", "share_subscriptions", "xray_instances":
 	default:
 		return false, fmt.Errorf("非法表名: %s", table)
 	}
@@ -59,10 +59,10 @@ func TableHasSlug(ctx context.Context, tx *sql.Tx, table, value string) (bool, e
 	return n > 0, nil
 }
 
-// ExistsInFourTables 四类资源全局唯一命名空间交叉校验（subscriptions/rules/custom_subscriptions/share_subscriptions）；
-// 表尚未建立时跳过（sqlite_master 预检），供四类资源创建/查重共用
+// ExistsInFourTables 资源全局唯一命名空间交叉校验（subscriptions/rules/custom_subscriptions/share_subscriptions/xray_instances）；
+// 表尚未建立时跳过（sqlite_master 预检），供资源创建/查重共用
 func ExistsInFourTables(ctx context.Context, tx *sql.Tx, value string) (bool, error) {
-	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions"} {
+	for _, table := range []string{"subscriptions", "rules", "custom_subscriptions", "share_subscriptions", "xray_instances"} {
 		ok, err := tableExists(ctx, tx, table)
 		if err != nil {
 			return false, err

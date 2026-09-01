@@ -11,12 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/version"
+	"vpn-sub/internal/xray"
 )
 
 // 业务错误（接入层映射 HTTP 状态码）
@@ -38,10 +40,41 @@ type AdminService struct {
 	cfg      *config.Service
 	versions *version.Service
 	log      *slog.Logger
+
+	onUserActive       func(ctx context.Context, userID int64)
+	onUserDisabled     func(ctx context.Context, userID int64)
+	onUserGroupChanged func(ctx context.Context, userID int64)
+	onUserDeleting     func(ctx context.Context, userID int64) ([]xray.Target, error)
+	onUserDeleted      func(ctx context.Context, userID int64, targets []xray.Target)
 }
 
 func NewAdminService(st *store.Store, users *Service, tokens *token.Service, resetSvc *auth.ResetService, cfg *config.Service, versions *version.Service, lg *slog.Logger) *AdminService {
 	return &AdminService{store: st, users: users, tokens: tokens, resetSvc: resetSvc, cfg: cfg, versions: versions, log: lg}
+}
+
+// SetOnUserActive 注入用户激活同步回调（Build6 Step3）。
+func (s *AdminService) SetOnUserActive(fn func(ctx context.Context, userID int64)) {
+	s.onUserActive = fn
+}
+
+// SetOnUserDisabled 注入用户禁用同步回调（Build6 Step3）。
+func (s *AdminService) SetOnUserDisabled(fn func(ctx context.Context, userID int64)) {
+	s.onUserDisabled = fn
+}
+
+// SetOnUserGroupChanged 注入换组同步回调（Build6 Step3）。
+func (s *AdminService) SetOnUserGroupChanged(fn func(ctx context.Context, userID int64)) {
+	s.onUserGroupChanged = fn
+}
+
+// SetOnUserDeleting 注入删除前收集 Xray 清理目标回调（Build6-2 补强）。
+func (s *AdminService) SetOnUserDeleting(fn func(ctx context.Context, userID int64) ([]xray.Target, error)) {
+	s.onUserDeleting = fn
+}
+
+// SetOnUserDeleted 注入删除后 Xray 清理回调（Build6-2 补强）。
+func (s *AdminService) SetOnUserDeleted(fn func(ctx context.Context, userID int64, targets []xray.Target)) {
+	s.onUserDeleted = fn
 }
 
 // --- 五重保护校验辅助（均在事务内实时查库，不缓存）---
@@ -86,17 +119,24 @@ type CustomSubItem struct {
 }
 
 type AdminUser struct {
-	ID          int64          `json:"id"`
-	Username    string         `json:"username"`
-	Email       string         `json:"email"`     // 空串 = 无邮箱（前端灰 tag）
-	Role        string         `json:"role"`
-	GroupID     int64          `json:"group_id"`  // 0 = 无组
-	GroupName   string         `json:"group_name"` // 空串 = 无组
-	Source      string         `json:"source"`    // oidc/local/selfreg
-	Status      string          `json:"status"`        // pending/active/disabled
-	HasPassword bool            `json:"has_password"` // 清 OIDC 绑定警告用
+	ID          int64           `json:"id"`
+	Username    string          `json:"username"`
+	Email       string          `json:"email"` // 空串 = 无邮箱（前端灰 tag）
+	Role        string          `json:"role"`
+	GroupID     int64           `json:"group_id"`         // 0 = 无组
+	GroupName   string          `json:"group_name"`       // 空串 = 无组
+	Source      string          `json:"source"`           // oidc/local/selfreg
+	Status      string          `json:"status"`           // pending/active/disabled
+	HasPassword bool            `json:"has_password"`     // 清 OIDC 绑定警告用
 	HasOidcBind bool            `json:"has_oidc_binding"` // 是否已绑定 OIDC 身份（清绑定入口可见性）
-	CustomSubs  []CustomSubItem `json:"custom_subs"`  // 自定义订阅列表（空 = 无）
+	CustomSubs  []CustomSubItem `json:"custom_subs"`      // 自定义订阅列表（空 = 无）
+	// 高级模式字段（advanced_mode=on 时填充）
+	UsedBytes      int64    `json:"used_bytes,omitempty"`
+	EffectiveQuota *float64 `json:"effective_quota,omitempty"`
+	QuotaOverride  *float64 `json:"quota_override,omitempty"`
+	QuotaExceeded  bool     `json:"quota_exceeded,omitempty"`
+	SyncStatus     string   `json:"sync_status,omitempty"`
+	SyncError      string   `json:"sync_error,omitempty"`
 }
 
 func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int64, error) {
@@ -181,6 +221,47 @@ func (s *AdminService) List(ctx context.Context, q ListQuery) ([]AdminUser, int6
 			return nil, 0, err
 		}
 	}
+	// 高级模式：填充用量/配额/同步状态（仅 advanced_mode=on 时查询）
+	if s.cfg.GetBool(ctx, config.KeyAdvancedMode, false) {
+		ym := time.Now().UTC().Format("2006-01")
+		for i := range out {
+			u := &out[i]
+			if err := s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(SUM(uplink+downlink),0) FROM traffic_records WHERE user_id = ? AND ym = ?`, u.ID, ym).Scan(&u.UsedBytes); err != nil {
+				return nil, 0, fmt.Errorf("查询用户用量失败: %w", err)
+			}
+			var quota sql.NullFloat64
+			var override sql.NullFloat64
+			var exceeded int
+			if err := s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(u.quota_override, g.default_quota), u.quota_override, u.quota_exceeded
+				 FROM users u LEFT JOIN groups g ON g.id = u.group_id WHERE u.id = ?`, u.ID).
+				Scan(&quota, &override, &exceeded); err != nil {
+				return nil, 0, fmt.Errorf("查询用户配额失败: %w", err)
+			}
+			if quota.Valid {
+				u.EffectiveQuota = &quota.Float64
+			}
+			if override.Valid {
+				u.QuotaOverride = &override.Float64
+			}
+			u.QuotaExceeded = exceeded == 1
+			var status string
+			if err := s.store.DB().QueryRowContext(ctx,
+				`SELECT CASE WHEN COUNT(*)=0 THEN '' WHEN SUM(sync_status='failed')>0 THEN 'failed' WHEN SUM(sync_status='pending')>0 THEN 'pending' ELSE 'synced' END
+				 FROM xray_users WHERE user_id = ?`, u.ID).Scan(&status); err != nil {
+				return nil, 0, fmt.Errorf("查询用户同步状态失败: %w", err)
+			}
+			u.SyncStatus = status
+			err := s.store.DB().QueryRowContext(ctx,
+				`SELECT COALESCE(last_error,'') FROM xray_users WHERE user_id = ? AND last_error != '' ORDER BY updated_at DESC LIMIT 1`, u.ID).Scan(&u.SyncError)
+			if errors.Is(err, sql.ErrNoRows) {
+				u.SyncError = "" // 无同步错误记录属于正常空值
+			} else if err != nil {
+				return nil, 0, fmt.Errorf("查询用户同步错误失败: %w", err)
+			}
+		}
+	}
 	return out, total, nil
 }
 
@@ -230,6 +311,9 @@ func (s *AdminService) Create(ctx context.Context, username, emailRaw, password 
 	}
 	// 欢迎邮件：管理员创建的本地用户默认直接激活（Design1 §3.4.6，Step 2 注入回调后发送）
 	s.users.sendWelcomeIf(ctx, created.Email, created.Source)
+	if s.onUserActive != nil {
+		s.onUserActive(ctx, created.ID)
+	}
 	s.log.Info("管理员创建用户", "user_id", created.ID, "operator", "admin")
 	return created, nil
 }
@@ -251,6 +335,9 @@ func (s *AdminService) UpdateGroup(ctx context.Context, targetID, groupID int64)
 	}
 	if affected, _ := res.RowsAffected(); affected == 0 {
 		return ErrUserNotFound
+	}
+	if s.onUserGroupChanged != nil {
+		s.onUserGroupChanged(ctx, targetID)
 	}
 	return nil
 }
@@ -412,7 +499,7 @@ func (s *AdminService) SetStatus(ctx context.Context, operatorID, targetID int64
 	if err := s.checkNotSelf(operatorID, targetID); err != nil { // 禁止禁用自己
 		return err
 	}
-	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if disable {
 			var role string
 			if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, targetID).Scan(&role); err != nil {
@@ -451,6 +538,16 @@ func (s *AdminService) SetStatus(ctx context.Context, operatorID, targetID int64
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if disable && s.onUserDisabled != nil {
+		s.onUserDisabled(ctx, targetID)
+	}
+	if !disable && s.onUserActive != nil {
+		s.onUserActive(ctx, targetID)
+	}
+	return nil
 }
 
 // --- 吊销所有下载 Token（物理删除，无标记态；用户下次访问首页重新生成，Design1 §3.4.5）---
@@ -489,6 +586,14 @@ func (s *AdminService) ClearOidcBinding(ctx context.Context, targetID int64) (ha
 func (s *AdminService) Delete(ctx context.Context, operatorID, targetID int64) error {
 	if err := s.checkNotSelf(operatorID, targetID); err != nil { // 禁止删自己
 		return err
+	}
+	var cleanupTargets []xray.Target
+	if s.onUserDeleting != nil {
+		var err error
+		cleanupTargets, err = s.onUserDeleting(ctx, targetID)
+		if err != nil {
+			return err
+		}
 	}
 	var files []string
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
@@ -564,7 +669,30 @@ func (s *AdminService) Delete(ctx context.Context, operatorID, targetID int64) e
 			s.log.Warn("删除自定义订阅版本文件失败", "file", clean, "err", err)
 		}
 	}
+	if s.onUserDeleted != nil && len(cleanupTargets) > 0 {
+		s.onUserDeleted(ctx, targetID, cleanupTargets)
+	}
 	s.log.Info("用户已删除", "user_id", targetID, "operator_id", operatorID)
+	return nil
+}
+
+// SetQuotaOverride 设置用户配额覆盖值；NULL=继承组默认，0=不限流量，负数拒绝。
+func (s *AdminService) SetQuotaOverride(ctx context.Context, userID int64, quota *float64) error {
+	if quota != nil && *quota < 0 {
+		return fmt.Errorf("%w: 配额不能为负数", ErrBadRequest)
+	}
+	var q any
+	if quota != nil {
+		q = *quota
+	}
+	res, err := s.store.DB().ExecContext(ctx,
+		`UPDATE users SET quota_override = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, q, userID)
+	if err != nil {
+		return fmt.Errorf("更新用户配额覆盖失败: %w", err)
+	}
+	if affected, _ := res.RowsAffected(); affected == 0 {
+		return ErrUserNotFound
+	}
 	return nil
 }
 

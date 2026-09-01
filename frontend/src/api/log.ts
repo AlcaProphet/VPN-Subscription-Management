@@ -5,10 +5,13 @@ export interface AccessLog {
   id: number
   user_id: number
   username: string
+  user_email: string
   ip: string
   download_type: string
   platform: string
+  platform_name: string
   resource_slug: string
+  resource_name: string
   status: 'success' | 'fail'
   fail_reason: string
   created_at: string

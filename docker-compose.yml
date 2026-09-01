@@ -1,3 +1,5 @@
+# ⚠️ 本文件为 Dev 模式 + 全接口暴露，仅限个人本机/可信内网测试。
+# 公网或真实数据必须使用 docker-compose.yml.example 的 Production 配置（APP_MODE: prod + 回环/反代接入）。
 services:
   vpn-sub:
     build: .

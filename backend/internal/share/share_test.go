@@ -196,4 +196,3 @@ func TestCreateEmptyName(t *testing.T) {
 		t.Errorf("空名称应报参数错误: %v", err)
 	}
 }
-

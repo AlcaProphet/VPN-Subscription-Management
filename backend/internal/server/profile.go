@@ -2,21 +2,24 @@
 package server
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
+	"vpn-sub/internal/xray"
 )
 
 // ProfileHandler 个人中心处理器（结构体 Handler + 依赖注入）
 type ProfileHandler struct {
-	store *store.Store
-	users *user.Service
+	userSvc *user.Service
+	st      *store.Store
+	cfg     *config.Service
+	syncSvc *xray.SyncService
 }
 
 // RegisterProfileRoutes 注册个人中心端点；全部需会话
@@ -25,6 +28,7 @@ func RegisterProfileRoutes(engine *gin.Engine, h *ProfileHandler, sessionMW gin.
 	g.PUT("/username", h.updateUsername)
 	g.PUT("/email", h.updateEmail)
 	g.PUT("/password", h.updatePassword)
+	g.GET("/traffic", h.traffic)
 }
 
 // updateUsername 改用户名：即时生效（OIDC 用户下次 OIDC 登录会被提供商最新值覆盖，Design1 §4.6）
@@ -37,8 +41,7 @@ func (h *ProfileHandler) updateUsername(c *gin.Context) {
 		return
 	}
 	userID := c.GetInt64(auth.CtxUserID)
-	if _, err := h.store.DB().ExecContext(c.Request.Context(),
-		`UPDATE users SET username = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Username, userID); err != nil {
+	if err := h.userSvc.UpdateUsername(c.Request.Context(), userID, req.Username); err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -59,22 +62,8 @@ func (h *ProfileHandler) updateEmail(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "邮箱格式无效")
 		return
 	}
-	ctx := c.Request.Context()
 	userID := c.GetInt64(auth.CtxUserID)
-	if err := h.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		var dup int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE email = ? AND id != ?`, email, userID).Scan(&dup); err != nil {
-			return err
-		}
-		if dup > 0 {
-			return user.ErrEmailConflict
-		}
-		// 同事务：改邮箱 + 递增凭据版本号（旧会话全部失效）
-		_, err := tx.ExecContext(ctx,
-			`UPDATE users SET email = ?, credential_version = credential_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			email, userID)
-		return err
-	}); err != nil {
+	if err := h.userSvc.UpdateEmail(c.Request.Context(), userID, email); err != nil {
 		if errors.Is(err, user.ErrEmailConflict) {
 			Fail(c, http.StatusConflict, "该邮箱已被使用")
 			return
@@ -101,26 +90,7 @@ func (h *ProfileHandler) updatePassword(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	userID := c.GetInt64(auth.CtxUserID)
-	err := h.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		// 查当前 password_hash：非空 → 必须验证 CurrentPassword；空（OIDC 首设）→ 免旧密码
-		var hash string
-		if err := tx.QueryRowContext(ctx,
-			`SELECT COALESCE(password_hash,'') FROM users WHERE id = ?`, userID).Scan(&hash); err != nil {
-			return err
-		}
-		if hash != "" && !auth.CheckPassword(hash, req.CurrentPassword) {
-			return user.ErrAuthFailed // 「当前密码不正确」
-		}
-		newHash, err := auth.HashPassword(req.NewPassword)
-		if err != nil {
-			return err
-		}
-		// 同事务：写新哈希 + credential_version + 1
-		_, err = tx.ExecContext(ctx,
-			`UPDATE users SET password_hash = ?, credential_version = credential_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			newHash, userID)
-		return err
-	})
+	err := h.userSvc.UpdatePassword(ctx, userID, req.CurrentPassword, req.NewPassword)
 	if errors.Is(err, user.ErrAuthFailed) {
 		Fail(c, http.StatusBadRequest, "当前密码不正确")
 		return
@@ -130,4 +100,14 @@ func (h *ProfileHandler) updatePassword(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{"message": "密码已更新，请重新登录"})
+}
+
+func (h *ProfileHandler) traffic(c *gin.Context) {
+	userID := c.GetInt64(auth.CtxUserID)
+	payload, err := trafficPayload(c.Request.Context(), h.st, h.cfg, h.syncSvc, userID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, payload)
 }

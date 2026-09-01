@@ -1,4 +1,4 @@
-// api/group.ts：用户组接口封装
+// api/group.ts：用户组接口封装（Build4：旧订阅选定移除；高级节点字段 Build6/7 追加）
 import { http } from './request'
 
 export interface GroupItem {
@@ -6,30 +6,44 @@ export interface GroupItem {
   slug: string
   name: string
   is_default: boolean
-  needs_reselect: boolean
-  sub_count: number // 可用订阅数（R10-06 文案统一）
-  user_count: number // 组内用户数
+  default_quota?: number | null // advanced_mode=off 时后端省略
+  node_count: number
+  user_count: number
 }
 
-export interface SelectionItem {
-  platform_id: number
-  subscription_id: number // 0 = 取消选定
+export interface GroupNode {
+  node_id: number
+  node_name: string
+  display_name?: string | null
+  render_name: string
+  sort_order: number
+  is_public: boolean
+  source: string
+}
+
+export interface CandidateNode {
+  node_id: number
+  name: string
+  render_name: string
+  is_public: boolean
+  in_partial_blueprint: boolean
 }
 
 export interface GroupDetail extends GroupItem {
-  selections: SelectionItem[]
+  nodes?: GroupNode[]
+  candidate_nodes?: CandidateNode[]
 }
 
 export const listGroups = () =>
   http.get<any, { list: GroupItem[]; total: number }>('/admin/groups').then((d) => d.list)
-// 后端 GET /admin/groups/:id 返回嵌套结构 { group, selections }（server/group.go get），解包为扁平 GroupDetail
-// （R10-01：此前直接取 body.data 导致 detail.name/id 为 undefined，编辑弹窗组名空白且保存请求 /groups/undefined 报 400）
 export const getGroup = (id: number) =>
-  http.get<any, { group: GroupItem; selections: SelectionItem[] }>(`/admin/groups/${id}`)
-    .then((d) => ({ ...d.group, selections: d.selections }))
+  http.get<any, { group: GroupItem; nodes?: GroupNode[]; candidate_nodes?: CandidateNode[] }>(`/admin/groups/${id}`)
+    .then((d) => ({ ...d.group, nodes: d.nodes ?? [], candidate_nodes: d.candidate_nodes ?? [] }) as GroupDetail)
 export const createGroup = (name: string) => http.post<any, GroupItem>('/admin/groups', { name })
-export const updateGroup = (id: number, data: { name: string; sub_ids: number[]; selections: SelectionItem[] }) =>
+export const updateGroup = (id: number, data: { name: string }) =>
   http.put(`/admin/groups/${id}`, data)
 export const deleteGroup = (id: number) => http.delete(`/admin/groups/${id}`)
-export const setSelections = (id: number, selections: SelectionItem[]) =>
-  http.put(`/admin/groups/${id}/selections`, { selections })
+export const updateGroupNodes = (id: number, data: { node_ids: number[] }) =>
+  http.put(`/admin/groups/${id}/nodes`, data)
+export const updateGroupQuota = (id: number, data: { default_quota?: number | null }) =>
+  http.put(`/admin/groups/${id}/quota`, data)

@@ -1,0 +1,248 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: beta
+nodes_managed: true
+exported_at: "2026-08-19T01:51:20Z"
+modules:
+    "":
+        dir_name: 订阅平台交付根（Docker 多阶段构建与编排）
+        title: 订阅平台交付根（Docker 多阶段构建与编排）
+        scope:
+            - README.md
+            - Build1.md
+            - Build2.md
+            - Build3.md
+            - Design0.md
+            - Design1.md
+            - Design1-UI.md
+            - Issue1.md
+            - AGENTS.md
+            - Dockerfile
+            - docker-compose.yml
+            - docker-compose.yml.example
+            - .github/workflows/
+            - .smoke-test.sh
+            - .dockerignore
+            - .gitignore
+            - DesignOnHold.md
+        source_files: []
+        children:
+            - backend
+            - docs_and_templates
+            - frontend
+        depends_on: []
+        related_to: []
+    backend:
+        dir_name: 订阅平台后端服务
+        title: 订阅平台后端服务
+        scope:
+            - backend/
+        source_files: []
+        children:
+            - backend/admin_operations
+            - backend/entry_and_data
+            - backend/infrastructure
+            - backend/server_routes
+            - backend/subscription_platform
+            - backend/support_services
+            - backend/user_auth
+        depends_on: []
+        related_to: []
+    backend/admin_operations:
+        dir_name: 后台运维管理模块（审批_应急_数据清理_备份_定时任务）
+        title: 后台运维管理模块（审批/应急/数据清理/备份/定时任务）
+        scope:
+            - backend/internal/approval/
+            - backend/internal/emergency/
+            - backend/internal/dataclear/
+            - backend/internal/backup/
+            - backend/internal/cron/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: backend/server_routes
+            - path: frontend/admin_views
+    backend/entry_and_data:
+        dir_name: 服务入口、数据库迁移与静态资源嵌入
+        title: 服务入口、数据库迁移与静态资源嵌入
+        scope:
+            - backend/cmd/server/
+            - backend/migrations/
+            - backend/web/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: frontend
+    backend/infrastructure:
+        dir_name: 基础设施层（配置_存储_响应_短码_限流_OIDC）
+        title: 基础设施层（配置/存储/响应/短码/限流/OIDC）
+        scope:
+            - backend/internal/config/
+            - backend/internal/store/
+            - backend/internal/response/
+            - backend/internal/slug/
+            - backend/internal/ratelimit/
+            - backend/internal/oidc/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: backend/server_routes
+    backend/server_routes:
+        dir_name: HTTP 服务装配与路由接入层
+        title: HTTP 服务装配与路由接入层
+        scope:
+            - backend/internal/server/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: backend/admin_operations
+            - path: backend/infrastructure
+            - path: backend/subscription_platform
+            - path: backend/support_services
+            - path: backend/user_auth
+            - path: frontend/admin_views
+            - path: frontend/user_views
+    backend/subscription_platform:
+        dir_name: 订阅平台核心业务服务层
+        title: 订阅平台核心业务服务层
+        scope:
+            - backend/internal/subscription/
+            - backend/internal/platform/
+            - backend/internal/group/
+            - backend/internal/rule/
+            - backend/internal/custom/
+            - backend/internal/share/
+            - backend/internal/version/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: backend/server_routes
+    backend/support_services:
+        dir_name: 订阅管理后端共享支撑服务（邮件_下载_验证码_日志_初始化）
+        title: 订阅管理后端共享支撑服务（邮件/下载/验证码/日志/初始化）
+        scope:
+            - backend/internal/mail/
+            - backend/internal/download/
+            - backend/internal/captcha/
+            - backend/internal/log/
+            - backend/internal/setup/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: backend/server_routes
+            - path: frontend/user_views
+    backend/user_auth:
+        dir_name: 用户认证与会话凭据管理
+        title: 用户认证与会话凭据管理
+        scope:
+            - backend/internal/user/
+            - backend/internal/auth/
+            - backend/internal/token/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: backend/server_routes
+    docs_and_templates:
+        dir_name: 文档模板与参考资料库（DocTemplates & Reference）
+        title: 文档模板与参考资料库（DocTemplates & Reference）
+        scope:
+            - DocTemplates/
+            - Reference/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend:
+        dir_name: 前端控制台（Vue 3 + Pinia + Vue Router）
+        title: 前端控制台（Vue 3 + Pinia + Vue Router）
+        scope:
+            - frontend/
+        source_files: []
+        children:
+            - frontend/admin_views
+            - frontend/app_shell
+            - frontend/shared_ui
+            - frontend/tests
+            - frontend/user_views
+        depends_on: []
+        related_to:
+            - path: backend/entry_and_data
+    frontend/admin_views:
+        dir_name: 后台管理视图与 API 封装
+        title: 后台管理视图与 API 封装
+        scope:
+            - frontend/src/views/admin/
+            - frontend/src/api/approval.ts
+            - frontend/src/api/group.ts
+            - frontend/src/api/platform.ts
+            - frontend/src/api/rule.ts
+            - frontend/src/api/share.ts
+            - frontend/src/api/subscription.ts
+            - frontend/src/api/system.ts
+            - frontend/src/api/version.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: backend/admin_operations
+            - path: backend/server_routes
+    frontend/app_shell:
+        dir_name: Vue 应用外壳与路由守卫
+        title: Vue 应用外壳与路由守卫
+        scope:
+            - frontend/src/main.ts
+            - frontend/src/App.vue
+            - frontend/src/router/index.ts
+            - frontend/src/stores/
+            - frontend/src/vite-env.d.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend/shared_ui:
+        dir_name: 共享 UI 组件与布局（Ant Design + Tailwind）
+        title: 共享 UI 组件与布局（Ant Design + Tailwind）
+        scope:
+            - frontend/src/components/
+            - frontend/src/layouts/
+            - frontend/src/utils/
+            - frontend/src/theme.ts
+            - frontend/src/style.css
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend/tests:
+        dir_name: 前端单元测试套件（Vitest + Vue Test Utils）
+        title: 前端单元测试套件（Vitest + Vue Test Utils）
+        scope:
+            - frontend/tests/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend/user_views:
+        dir_name: 用户视图与认证 API 层
+        title: 用户视图与认证 API 层
+        scope:
+            - frontend/src/views/
+            - frontend/src/api/auth.ts
+            - frontend/src/api/profile.ts
+            - frontend/src/api/home.ts
+            - frontend/src/api/emergency.ts
+            - frontend/src/api/settings.ts
+            - frontend/src/api/log.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: backend/server_routes
+            - path: backend/support_services

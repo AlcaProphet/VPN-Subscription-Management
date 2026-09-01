@@ -2,14 +2,128 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 初始回退变量：运行时由 theme.ts 覆盖为当前主题值 */
+:root {
+  --ui-page: #F1F5F9;
+  --ui-surface: #FFFFFF;
+  --ui-surface-subtle: #F8FAFC;
+  --ui-surface-raised: #FFFFFF;
+  --ui-border: #CBD5E1;
+  --ui-border-subtle: #E2E8F0;
+  --ui-text: #0F172A;
+  --ui-text-secondary: #475569;
+  --ui-text-tertiary: #64748B;
+  --ui-primary: #2563EB;
+  --ui-primary-hover: #1D4ED8;
+  --ui-primary-soft: #EFF6FF;
+  --ui-success: #15803D;
+  --ui-success-soft: #F0FDF4;
+  --ui-warning: #B45309;
+  --ui-warning-soft: #FFFBEB;
+  --ui-danger: #B91C1C;
+  --ui-danger-soft: #FEF2F2;
+  --ui-info: #0369A1;
+  --ui-info-soft: #F0F9FF;
+}
+
+.dark {
+  --ui-page: #0B1120;
+  --ui-surface: #111827;
+  --ui-surface-subtle: #172033;
+  --ui-surface-raised: #1E293B;
+  --ui-border: #334155;
+  --ui-border-subtle: #273449;
+  --ui-text: #F8FAFC;
+  --ui-text-secondary: #CBD5E1;
+  --ui-text-tertiary: #94A3B8;
+  --ui-primary: #60A5FA;
+  --ui-primary-hover: #93C5FD;
+  --ui-primary-soft: #172554;
+  --ui-success: #4ADE80;
+  --ui-success-soft: #052E16;
+  --ui-warning: #FBBF24;
+  --ui-warning-soft: #451A03;
+  --ui-danger: #F87171;
+  --ui-danger-soft: #450A0A;
+  --ui-info: #38BDF8;
+  --ui-info-soft: #082F49;
+}
+
 /* 全局基础样式 */
 html,
 body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  background: var(--ui-page);
+  color: var(--ui-text);
 }
 
 #app {
   min-height: 100vh;
+}
+
+/* 统一焦点可见性：2px 主色 ring */
+*:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+/* 统一移动端触控命中区，页面操作可按需加上此类。 */
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* 卡片与浮层基础阴影（与 Token 规格一致） */
+.card-shadow {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+}
+.overlay-shadow {
+  box-shadow: 0 12px 32px rgb(15 23 42 / 12%);
+}
+
+@media (max-width: 767px) {
+  html,
+  body,
+  #app {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  .mobile-actions .ant-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Switch 保持标准视觉尺寸，触控命中区由外层开关容器负责，避免 small switch 被拉成圆形。 */
+  .mobile-actions .ant-switch {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .mobile-actions .switch-hit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* 桌面侧边栏折叠后隐藏分组标题，保留菜单项图标与 Tooltip（R25-05） */
+.admin-menu-collapsed .ant-menu-item-group-title {
+  display: none;
+}
+
+/* 尊重系统减少动态效果偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

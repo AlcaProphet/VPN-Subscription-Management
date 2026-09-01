@@ -3,7 +3,8 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
-import { Alert, Button, Card, Modal, Tag, TypographyText } from 'ant-design-vue'
+import { Alert, Button, Card, Tag, TypographyText } from 'ant-design-vue'
+import AppModal from '@/components/AppModal.vue'
 import { userRules, previewRule, type RuleItem } from '@/api/rule'
 import { Notify } from '@/components/Notify'
 
@@ -51,7 +52,7 @@ async function openPreview(r: RuleItem) {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-page">
     <main class="max-w-6xl mx-auto p-4">
       <div class="flex items-center gap-2 mb-4">
         <Button type="text" @click="router.push('/')">
@@ -64,8 +65,8 @@ async function openPreview(r: RuleItem) {
       <Alert type="warning" show-icon class="mb-4"
              message="规则内容公开，链接请谨慎分发，请勿外发" />
 
-      <div v-if="loading" class="text-center py-16 text-gray-400">加载中…</div>
-      <div v-else-if="rules.length === 0" class="text-center py-16 text-gray-400">还没有规则</div>
+      <div v-if="loading" class="text-center py-16 text-text-tertiary">加载中…</div>
+      <div v-else-if="rules.length === 0" class="text-center py-16 text-text-tertiary">还没有规则</div>
 
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         <Card v-for="r in rules" :key="r.id" class="shadow-sm">
@@ -73,8 +74,8 @@ async function openPreview(r: RuleItem) {
             <span class="font-medium">{{ r.name }}</span>
             <Tag color="blue">{{ r.client_type }}</Tag>
           </div>
-          <TypographyText code class="text-xs text-gray-400">{{ r.slug }}</TypographyText>
-          <div class="text-xs text-gray-500 mt-1">当前版本 v{{ r.current_version || '—' }}</div>
+          <TypographyText code class="text-xs text-text-tertiary">{{ r.slug }}</TypographyText>
+          <div class="text-xs text-text-secondary mt-1">当前版本 v{{ r.current_version || '—' }}</div>
           <div class="mt-3 flex gap-2">
             <Button size="small" @click="openPreview(r)">下载</Button>
             <Button size="small" type="primary" :disabled="!r.token" @click="copyLink(r)">复制链接</Button>
@@ -84,8 +85,8 @@ async function openPreview(r: RuleItem) {
     </main>
 
     <!-- 预览弹窗（会话凭据，纯文本） -->
-    <Modal :open="previewOpen" :title="`${previewName} 内容`" width="80%" :footer="null" @cancel="previewOpen = false">
+    <AppModal :open="previewOpen" :title="`${previewName} 内容`" width="80%" :footer="null" @update:open="previewOpen = $event">
       <pre class="text-xs overflow-auto max-h-[70vh] whitespace-pre-wrap break-all">{{ previewContent }}</pre>
-    </Modal>
+    </AppModal>
   </div>
 </template>

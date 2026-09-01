@@ -1,13 +1,18 @@
 <!-- EmergencyView.vue：应急恢复页（UI §三，Design1 §3.8）——独立全屏路由；操作码校验 → 能力分级 →
      重置管理员密码 / 重新初始化（本页不依赖业务 API） -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Alert, Button, Input, Modal, Select, Space, Tag } from 'ant-design-vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { Alert, Button, Input, Modal, Result, Select, Space, Tag } from 'ant-design-vue'
 import { emergencyVerify, emergencyResetPassword, emergencyReinitialize, type AdminOption } from '@/api/emergency'
 import { useSystemStore } from '@/stores/system'
 import { Notify } from '@/components/Notify'
 
 const system = useSystemStore()
+const router = useRouter()
+const statusLoading = ref(true)
+const statusError = ref('')
+const emergency = computed(() => system.status?.emergency === true)
 const reason = computed(() => system.status?.emergency_reason ?? '')
 const reasonText = computed(() => {
   const map: Record<string, string> = {
@@ -17,6 +22,20 @@ const reasonText = computed(() => {
   }
   return map[reason.value] ?? '未知原因'
 })
+
+async function loadStatus() {
+  statusLoading.value = true
+  statusError.value = ''
+  try {
+    await system.fetchStatus(true)
+  } catch (err) {
+    statusError.value = (err as Error).message || '无法获取系统状态'
+  } finally {
+    statusLoading.value = false
+  }
+}
+
+onMounted(() => { void loadStatus() })
 
 // ① 操作码输入（8 位大字号等宽输入框 + 校验按钮）
 const opCode = ref('')
@@ -96,13 +115,31 @@ async function doReinitialize() {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-    <div class="w-full max-w-lg bg-white rounded-xl shadow p-6 space-y-4">
+  <div class="min-h-screen flex items-center justify-center bg-surface-subtle p-4">
+    <div class="w-full max-w-lg bg-surface rounded-xl shadow p-6 space-y-4">
+      <Result v-if="statusLoading" status="info" title="正在检查系统状态" sub-title="请稍候…" />
+      <Result v-else-if="statusError" status="warning" title="暂时无法确认应急状态" :sub-title="statusError">
+        <template #extra>
+          <Space>
+            <Button type="primary" @click="loadStatus">重试</Button>
+            <Button @click="router.push('/login')">返回登录</Button>
+          </Space>
+        </template>
+      </Result>
+      <Result v-else-if="!emergency" status="info" title="当前未处于应急恢复模式" sub-title="系统服务正常，无需使用应急操作码。">
+        <template #extra>
+          <Space>
+            <Button type="primary" @click="router.push('/login')">返回登录</Button>
+            <Button @click="router.push('/')">返回首页</Button>
+          </Space>
+        </template>
+      </Result>
+      <template v-else>
       <div class="flex items-center gap-3">
         <span class="text-3xl">🚨</span>
         <div>
           <div class="text-lg font-semibold">应急恢复模式</div>
-          <div class="text-xs text-gray-500">正常服务已暂停，业务 API 与下载端点暂不可用</div>
+          <div class="text-xs text-text-secondary">正常服务已暂停，业务 API 与下载端点暂不可用</div>
         </div>
       </div>
 
@@ -116,7 +153,7 @@ async function doReinitialize() {
                  placeholder="••••••••" @press-enter="verify" />
           <Button type="primary" :loading="verifying" @click="verify">校验</Button>
         </div>
-        <div class="text-xs text-gray-400">操作码严格一次性：每次提交即消耗，失败后需重新从运行日志获取新码</div>
+        <div class="text-xs text-text-tertiary">操作码严格一次性：每次提交即消耗，失败后需重新从运行日志获取新码</div>
       </div>
 
       <!-- ② 校验通过后按能力分级渲染 -->
@@ -126,12 +163,12 @@ async function doReinitialize() {
           <div class="font-medium">重置管理员密码</div>
           <div>
             <div class="mb-1 text-sm">选择管理员账号</div>
-            <Select v-model:value="selectedAdmin" class="w-full" placeholder="选择账号（验码前名单不暴露）">
+            <AppSelect v-model:value="selectedAdmin" class="w-full" placeholder="选择账号（验码前名单不暴露）">
               <Select.Option v-for="a in admins" :key="a.id" :value="a.id">
                 {{ a.username }}（{{ a.email || '无邮箱' }}）<Tag v-if="!a.has_password" color="orange">纯 OIDC</Tag>
               </Select.Option>
-            </Select>
-            <div class="text-xs text-gray-400 mt-1">纯 OIDC 管理员（无本地密码）重置后仍无法本地登录</div>
+            </AppSelect>
+            <div class="text-xs text-text-tertiary mt-1">纯 OIDC 管理员（无本地密码）重置后仍无法本地登录</div>
           </div>
           <div>
             <div class="mb-1 text-sm">新密码（≥8 字符）</div>
@@ -158,6 +195,7 @@ async function doReinitialize() {
           </template>
         </div>
       </div>
+      </template>
     </div>
   </div>
 </template>

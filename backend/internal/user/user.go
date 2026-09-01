@@ -29,6 +29,8 @@ type Service struct {
 	log   *slog.Logger
 	// sendWelcome 预留：新用户首次激活时发送欢迎邮件（Build3 Step 2 注入 mail 包；nil 时跳过）
 	sendWelcome func(ctx context.Context, to, source string) error
+	// onUserActive 用户激活后的 Xray 同步回调（Build6 Step3 注入）
+	onUserActive func(ctx context.Context, userID int64)
 }
 
 func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service {
@@ -38,6 +40,11 @@ func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service 
 // SetWelcomeSender 注入欢迎邮件发送函数（Build3 Step 2 SMTP 接通时调用）
 func (s *Service) SetWelcomeSender(fn func(ctx context.Context, to, source string) error) {
 	s.sendWelcome = fn
+}
+
+// SetOnUserActive 注入用户激活后的 Xray 同步回调（Build6 Step3）。
+func (s *Service) SetOnUserActive(fn func(ctx context.Context, userID int64)) {
+	s.onUserActive = fn
 }
 
 // defaultGroupIDTx 查询预置默认组 ID（Setup 事务内创建，理论恒存在）；
@@ -148,6 +155,9 @@ func (s *Service) Register(ctx context.Context, username, emailRaw, password str
 	// 欢迎邮件：直接激活（含首管理员）时发送；待审批不发（审批通过时由审批中心发送）
 	if created.Status == "active" {
 		s.sendWelcomeIf(ctx, created.Email, created.Source)
+		if s.onUserActive != nil {
+			s.onUserActive(ctx, created.ID)
+		}
 	}
 	s.log.Info("用户注册成功", "user_id", created.ID, "role", created.Role, "first_admin", created.Role == "admin")
 	return created, nil
@@ -218,6 +228,55 @@ func (s *Service) GetByID(ctx context.Context, id int64) (*User, error) {
 	return s.scanUser(ctx, `SELECT id, COALESCE(oidc_subject,''), username, COALESCE(email,''), role,
 		COALESCE(group_id,0), COALESCE(password_hash,''), user_source, status, credential_version
 		FROM users WHERE id = ?`, id)
+}
+
+// UpdateUsername 个人中心改名（R14-16 分层下沉）
+func (s *Service) UpdateUsername(ctx context.Context, id int64, username string) error {
+	_, err := s.store.DB().ExecContext(ctx,
+		`UPDATE users SET username = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, username, id)
+	if err != nil {
+		return fmt.Errorf("更新用户名失败: %w", err)
+	}
+	return nil
+}
+
+// UpdateEmail 个人中心改邮箱：邮箱占用返回 ErrEmailConflict；成功递增 credential_version（旧会话失效）
+func (s *Service) UpdateEmail(ctx context.Context, id int64, email string) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var dup int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE email = ? AND id != ?`, email, id).Scan(&dup); err != nil {
+			return err
+		}
+		if dup > 0 {
+			return ErrEmailConflict
+		}
+		_, err := tx.ExecContext(ctx,
+			`UPDATE users SET email = ?, credential_version = credential_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			email, id)
+		return err
+	})
+}
+
+// UpdatePassword 个人中心改密：已设密码需验证旧密码；成功递增 credential_version
+func (s *Service) UpdatePassword(ctx context.Context, id int64, currentPassword, newPassword string) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var hash string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COALESCE(password_hash,'') FROM users WHERE id = ?`, id).Scan(&hash); err != nil {
+			return err
+		}
+		if hash != "" && !auth.CheckPassword(hash, currentPassword) {
+			return ErrAuthFailed
+		}
+		newHash, err := auth.HashPassword(newPassword)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
+			`UPDATE users SET password_hash = ?, credential_version = credential_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			newHash, id)
+		return err
+	})
 }
 
 // GroupNameByID 组名查询（首页顶栏所属组标签用；组不存在返回空串）

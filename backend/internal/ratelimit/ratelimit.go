@@ -16,10 +16,11 @@ import (
 
 // 阈值配置键（存 system_config，每次请求读当前配置 → 修改立即生效）
 const (
-	KeyLogin    = "ratelimit_login"    // 默认 10/min
-	KeyRegister = "ratelimit_register" // 默认 5/min
-	KeyForgot   = "ratelimit_forgot"   // 默认 5/min
-	KeyDownload = "ratelimit_download" // Build2 追加，默认 20/min
+	KeyLogin         = "ratelimit_login"          // 默认 10/min
+	KeyRegister      = "ratelimit_register"       // 默认 5/min
+	KeyForgot        = "ratelimit_forgot"         // 默认 5/min
+	KeyDownload      = "ratelimit_download"       // Build2 追加，默认 20/min
+	KeyResetValidate = "ratelimit_reset_validate" // Build11 追加，默认 10/min
 )
 
 type bucket struct{ count int }

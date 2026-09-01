@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	KeyProvider  = "captcha_provider"  // recaptcha/turnstile/off，默认 off
+	KeyProvider  = "captcha_provider" // recaptcha/turnstile/off，默认 off
 	KeySiteKey   = "captcha_site_key"
 	KeySecretKey = "captcha_secret_key" // 明文存储（面板回显真实值，切换提供商/停用后可复用）
 	KeyPages     = "captcha_pages"      // JSON 数组：register/login/forgot

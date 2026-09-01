@@ -1,5 +1,6 @@
 // api/platform.ts：平台管理接口封装
 import { http } from './request'
+import type { ProductType } from './subscription'
 
 export interface CascadeCounts {
   subscriptions: number
@@ -24,6 +25,8 @@ export interface PlatformItem {
   slug: string
   name: string
   description: string
+  product_type: ProductType
+  is_default?: boolean
   schemes: string[]
   extra_headers: Record<string, string>
   installer_files: InstallerFileItem[]

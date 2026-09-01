@@ -11,20 +11,19 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"vpn-sub/internal/log"
 )
 
 // StateRecord oidc_states 记录
 type StateRecord struct {
 	State        string
 	CodeVerifier string
+	Nonce        string
 	Intent       string
 	BindUserID   int64
 	CreatedAt    time.Time
 }
 
-// StartFlow 生成 state（≥128 位）与 code_verifier（PKCE S256）→ 持久化 → 返回授权页 URL
+// StartFlow 生成 state（≥128 位）、nonce 与 code_verifier（PKCE S256）→ 持久化 → 返回授权页 URL
 func (s *Service) StartFlow(ctx context.Context, intent string, bindUserID int64) (authURL, state string, err error) {
 	stateBytes := make([]byte, 32) // 256 位 ≥ 128 位要求
 	if _, err := randRead(stateBytes); err != nil {
@@ -36,8 +35,13 @@ func (s *Service) StartFlow(ctx context.Context, intent string, bindUserID int64
 		return "", "", fmt.Errorf("生成 code_verifier 失败: %w", err)
 	}
 	verifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
+	nonceBytes := make([]byte, 32)
+	if _, err := randRead(nonceBytes); err != nil {
+		return "", "", fmt.Errorf("生成 nonce 失败: %w", err)
+	}
+	nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
 	// TTL 10 分钟：写入前顺带清理过期记录（代替独立定时器，简单可靠）
-	if err := s.saveState(ctx, state, verifier, intent, bindUserID); err != nil {
+	if err := s.saveState(ctx, state, verifier, nonce, intent, bindUserID); err != nil {
 		return "", "", err
 	}
 	p, err := s.currentParams(ctx)
@@ -55,6 +59,7 @@ func (s *Service) StartFlow(ctx context.Context, intent string, bindUserID int64
 		"redirect_uri":          {s.CallbackURL(ctx)},
 		"scope":                 {"openid email profile"},
 		"state":                 {state},
+		"nonce":                 {nonce},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
 	}
@@ -67,8 +72,8 @@ func pkceChallenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// saveState 持久化 state（写入前清理过期记录；BEGIN IMMEDIATE 先读后写防并发）
-func (s *Service) saveState(ctx context.Context, state, verifier, intent string, bindUserID int64) error {
+// saveState 持久化 state 与 nonce（写入前清理过期记录；BEGIN IMMEDIATE 先读后写防并发）
+func (s *Service) saveState(ctx context.Context, state, verifier, nonce, intent string, bindUserID int64) error {
 	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		// 顺带清理过期记录（代替独立定时器，简单可靠）
 		if _, err := tx.ExecContext(ctx, `DELETE FROM oidc_states WHERE created_at < ?`,
@@ -76,8 +81,8 @@ func (s *Service) saveState(ctx context.Context, state, verifier, intent string,
 			return fmt.Errorf("清理过期 state 失败: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO oidc_states (state, code_verifier, intent, bind_user_id) VALUES (?,?,?,?)`,
-			state, verifier, intent, nullIf0(bindUserID)); err != nil {
+			`INSERT INTO oidc_states (state, code_verifier, nonce, intent, bind_user_id) VALUES (?,?,?,?,?)`,
+			state, verifier, nonce, intent, nullIf0(bindUserID)); err != nil {
 			return fmt.Errorf("写入 state 失败: %w", err)
 		}
 		return nil
@@ -98,8 +103,8 @@ func (s *Service) ConsumeState(ctx context.Context, state string) (*StateRecord,
 	var rec StateRecord
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx,
-			`SELECT state, code_verifier, intent, COALESCE(bind_user_id,0), created_at FROM oidc_states WHERE state = ?`, state).
-			Scan(&rec.State, &rec.CodeVerifier, &rec.Intent, &rec.BindUserID, &rec.CreatedAt)
+			`SELECT state, code_verifier, nonce, intent, COALESCE(bind_user_id,0), created_at FROM oidc_states WHERE state = ?`, state).
+			Scan(&rec.State, &rec.CodeVerifier, &rec.Nonce, &rec.Intent, &rec.BindUserID, &rec.CreatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -181,23 +186,24 @@ func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (
 	if tok.IDToken == "" {
 		return nil, errors.New("token 响应缺少 id_token")
 	}
-	// 解析 id_token payload（本 Build 简化：不验签，Build3 面板提供 jwks 验签增强；生产请配置可信提供商）
-	payload, err := decodeJWTPayload(tok.IDToken)
+	// 验签 id_token：JWKS 验签 + iss/aud/exp/nonce/azp 校验。
+	_, rawClaims, err := s.verifyIDToken(ctx, p, disc, tok.IDToken, rec.Nonce)
 	if err != nil {
 		return nil, err
 	}
 	var claims struct {
-		Sub           string   `json:"sub"`
-		Email         string   `json:"email"`
-		EmailVerified *bool    `json:"email_verified"`
-		PreferredName string   `json:"preferred_username"`
-		Name          string   `json:"name"`
+		Sub           string `json:"sub"`
+		Email         string `json:"email"`
+		EmailVerified *bool  `json:"email_verified"`
+		PreferredName string `json:"preferred_username"`
+		Name          string `json:"name"`
+		Azp           string `json:"azp"`
 		RealmAccess   struct {
 			Roles []string `json:"roles"`
 		} `json:"realm_access"`
 		Groups []string `json:"groups"`
 	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
+	if err := json.Unmarshal([]byte(rawClaims), &claims); err != nil {
 		return nil, fmt.Errorf("解析 id_token payload 失败: %w", err)
 	}
 	if claims.Sub == "" {
@@ -221,7 +227,7 @@ func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (
 		Username:      username,
 		RoleClaims:    claims.RealmAccess.Roles,
 		GroupClaims:   claims.Groups,
-		RawClaims:     string(payload),
+		RawClaims:     rawClaims,
 	}
 	return id, nil
 }
@@ -253,6 +259,3 @@ func (s *Service) mockExchange(rec *StateRecord, code string) (*Identity, error)
 		RawClaims:     string(raw),
 	}, nil
 }
-
-// 日志引用（避免未使用告警）
-var _ = log.Info

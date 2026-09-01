@@ -2,6 +2,7 @@ package version
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -97,20 +98,45 @@ func newOwner(t *testing.T, st *store.Store) int64 {
 	return id
 }
 
+func TestOwnerByVersionID(t *testing.T) {
+	st, svc := newTestVersionService(t, false)
+	ctx := context.Background()
+	res, err := st.DB().ExecContext(ctx,
+		`INSERT INTO versions (owner_type, owner_id, version_no, file_path, file_name) VALUES (?,?,?,?,?)`,
+		OwnerRule, 42, 1, "rule/42/v1", "rule.conf")
+	if err != nil {
+		t.Fatalf("插入版本失败: %v", err)
+	}
+	versionID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("读取版本 ID 失败: %v", err)
+	}
+	ownerType, ownerID, err := svc.OwnerByVersionID(ctx, versionID)
+	if err != nil {
+		t.Fatalf("读取版本归属失败: %v", err)
+	}
+	if ownerType != OwnerRule || ownerID != 42 {
+		t.Errorf("版本归属异常: type=%s id=%d", ownerType, ownerID)
+	}
+	if _, _, err := svc.OwnerByVersionID(ctx, versionID+1); !errors.Is(err, ErrVersionNotFound) {
+		t.Errorf("不存在版本应返回 ErrVersionNotFound: %v", err)
+	}
+}
+
 // TestVersionNumberNotReused 创建 3 版删 v2 后再建 → 新号为 4（最大编号 +1，不复用）
 func TestVersionNumberNotReused(t *testing.T) {
 	st, svc := newTestVersionService(t, true)
 	ctx := context.Background()
 	owner := newOwner(t, st)
 	for i := 0; i < 3; i++ {
-		if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v"))); err != nil {
+		if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v")), CreateOptions{Activate: true}); err != nil {
 			t.Fatalf("创建版本 %d 失败: %v", i+1, err)
 		}
 	}
 	if err := svc.DeleteVersion(ctx, OwnerSubscription, owner, 2); err != nil {
 		t.Fatalf("删除 v2 失败: %v", err)
 	}
-	v, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v4")))
+	v, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v4")), CreateOptions{Activate: true})
 	if err != nil {
 		t.Fatalf("创建 v4 失败: %v", err)
 	}
@@ -125,7 +151,7 @@ func TestMaxVersionsEvictOldest(t *testing.T) {
 	ctx := context.Background()
 	owner := newOwner(t, st)
 	for i := 1; i <= 6; i++ {
-		if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v"))); err != nil {
+		if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v")), CreateOptions{Activate: true}); err != nil {
 			t.Fatalf("创建版本 %d 失败: %v", i, err)
 		}
 	}
@@ -151,13 +177,13 @@ func TestDeleteConstraints(t *testing.T) {
 	st, svc := newTestVersionService(t, true)
 	ctx := context.Background()
 	owner := newOwner(t, st)
-	if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v1"))); err != nil {
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v1")), CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建 v1 失败: %v", err)
 	}
 	if err := svc.DeleteVersion(ctx, OwnerSubscription, owner, 1); !errors.Is(err, ErrLastVersion) {
 		t.Errorf("删最后一个应拒绝 ErrLastVersion: %v", err)
 	}
-	if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2"))); err != nil {
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2")), CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建 v2 失败: %v", err)
 	}
 	if err := svc.DeleteVersion(ctx, OwnerSubscription, owner, 2); !errors.Is(err, ErrCurrentVersion) {
@@ -177,7 +203,7 @@ func TestConcurrentCreate(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v")))
+			_, _, errs[i] = svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v")), CreateOptions{Activate: true})
 		}(i)
 	}
 	wg.Wait()
@@ -213,10 +239,10 @@ func TestStartupCheckRebuildSymlink(t *testing.T) {
 	st, svc := newTestVersionService(t, true)
 	ctx := context.Background()
 	owner := newOwner(t, st)
-	if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v1"))); err != nil {
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v1")), CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建 v1 失败: %v", err)
 	}
-	if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2"))); err != nil {
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2")), CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建 v2 失败: %v", err)
 	}
 	dir := filepath.Join(svc.dataDir, "contents", "subscription", strconv.FormatInt(owner, 10))
@@ -245,7 +271,7 @@ func TestCreateRollbackCleanup(t *testing.T) {
 	// 仅建 versions 表，无 subscriptions 表 → INSERT versions 成功但 setCurrentLocked 失败 → 整体回滚
 	_, svc := newTestVersionService(t, false)
 	ctx := context.Background()
-	_, err := svc.CreateVersion(ctx, OwnerSubscription, 1, BytesContent([]byte("v")))
+	_, _, err := svc.CreateVersion(ctx, OwnerSubscription, 1, BytesContent([]byte("v")), CreateOptions{Activate: true})
 	if err == nil {
 		t.Fatal("owner 表缺失场景应失败")
 	}
@@ -270,11 +296,11 @@ func TestListVersionsFileName(t *testing.T) {
 	ctx := context.Background()
 	owner := newOwner(t, st)
 	// 文件模式：ReaderContent 携带原始文件名
-	if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, ReaderContent{R: strings.NewReader("v1"), Max: 1024, Name: "my-sub.yaml"}); err != nil {
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, ReaderContent{R: strings.NewReader("v1"), Max: 1024, Name: "my-sub.yaml"}, CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建文件版本失败: %v", err)
 	}
 	// 文本模式：无原始文件名 → 补类型默认名 subscription.yaml
-	if _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2"))); err != nil {
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2")), CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建文本版本失败: %v", err)
 	}
 	list, err := svc.ListVersions(ctx, OwnerSubscription, owner, 2)
@@ -283,6 +309,9 @@ func TestListVersionsFileName(t *testing.T) {
 	}
 	if len(list) != 2 {
 		t.Fatalf("版本数应为 2，got %d", len(list))
+	}
+	if list[0].ID <= 0 || list[1].ID <= 0 || list[0].ID == list[1].ID {
+		t.Fatalf("版本列表应返回真实且不同的 id，got %d/%d", list[0].ID, list[1].ID)
 	}
 	if list[0].FileName != "my-sub.yaml" {
 		t.Errorf("文件模式 file_name 应为 my-sub.yaml，got %q", list[0].FileName)
@@ -295,3 +324,137 @@ func TestListVersionsFileName(t *testing.T) {
 	}
 }
 
+// TestCreateVersionActivateSemantics activate=false 仅入池不切当前；首版无论取值均自动激活；
+// activate=true 保持创建即激活
+func TestCreateVersionActivateSemantics(t *testing.T) {
+	st, svc := newTestVersionService(t, true)
+	ctx := context.Background()
+	owner := newOwner(t, st)
+
+	v1, activated, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v1")), CreateOptions{Activate: false})
+	if err != nil || !activated {
+		t.Fatalf("首版应自动激活: v=%+v activated=%v err=%v", v1, activated, err)
+	}
+	if cur, _ := svc.CurrentNo(ctx, OwnerSubscription, owner); cur != 1 {
+		t.Fatalf("首版应为当前版本: %d", cur)
+	}
+
+	v2, activated, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2")), CreateOptions{Activate: false})
+	if err != nil || activated {
+		t.Fatalf("非首版 activate=false 不应激活: activated=%v err=%v", activated, err)
+	}
+	if v2.Current {
+		t.Error("v2 返回的 Current 应为 false")
+	}
+	if cur, _ := svc.CurrentNo(ctx, OwnerSubscription, owner); cur != 1 {
+		t.Fatalf("activate=false 不应切换当前: %d", cur)
+	}
+
+	_, activated, err = svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v3")), CreateOptions{Activate: true})
+	if err != nil || !activated {
+		t.Fatalf("activate=true 应激活: activated=%v err=%v", activated, err)
+	}
+	if cur, _ := svc.CurrentNo(ctx, OwnerSubscription, owner); cur != 3 {
+		t.Fatalf("activate=true 应切换当前到 v3: %d", cur)
+	}
+}
+
+// TestCreateVersionAfterCreate AfterCreate 先于 setCurrent 执行并收到新 versions.id（Design2Report10 Q11）
+func TestCreateVersionAfterCreate(t *testing.T) {
+	st, svc := newTestVersionService(t, true)
+	ctx := context.Background()
+	owner := newOwner(t, st)
+	if _, err := st.DB().Exec(`CREATE TABLE scratch (version_id INTEGER, content TEXT)`); err != nil {
+		t.Fatalf("创建 scratch 表失败: %v", err)
+	}
+	var gotID int64
+	v1, activated, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v1")), CreateOptions{
+		Activate: true,
+		AfterCreate: func(tx *sql.Tx, versionID int64, content []byte) error {
+			gotID = versionID
+			if string(content) != "v1" {
+				t.Fatalf("AfterCreate 内容异常: %s", content)
+			}
+			_, err := tx.Exec(`INSERT INTO scratch (version_id, content) VALUES (?, ?)`, versionID, string(content))
+			return err
+		},
+	})
+	if err != nil || !activated {
+		t.Fatalf("创建版本失败: activated=%v err=%v", activated, err)
+	}
+	if gotID <= 0 {
+		t.Fatalf("AfterCreate 应收到 versions.id: %d", gotID)
+	}
+	var dbVersionID, dbNo int64
+	if err := st.DB().QueryRow(`SELECT id, version_no FROM versions WHERE owner_type='subscription' AND owner_id=?`, owner).
+		Scan(&dbVersionID, &dbNo); err != nil {
+		t.Fatalf("查询版本失败: %v", err)
+	}
+	if gotID != dbVersionID {
+		t.Errorf("AfterCreate versionID 应为 versions.id: got=%d want=%d", gotID, dbVersionID)
+	}
+	if dbNo != v1.No {
+		t.Errorf("版本号不一致: %d %d", dbNo, v1.No)
+	}
+}
+
+// TestConcurrentFirstVersion 双首版并发：BEGIN IMMEDIATE 事务保证仅一个版本自动激活
+func TestConcurrentFirstVersion(t *testing.T) {
+	st, svc := newTestVersionService(t, true)
+	ctx := context.Background()
+	owner := newOwner(t, st)
+	const n = 2
+	activated := make([]bool, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, activated[i], errs[i] = svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v")), CreateOptions{Activate: false})
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("并发首版创建失败 %d: %v", i, err)
+		}
+	}
+	var activatedCount int
+	for _, ok := range activated {
+		if ok {
+			activatedCount++
+		}
+	}
+	if activatedCount != 1 {
+		t.Errorf("双首版并发应仅一个自动激活: %d", activatedCount)
+	}
+	var current int64
+	if err := st.DB().QueryRow(`SELECT COALESCE(current_version,0) FROM subscriptions WHERE id=?`, owner).Scan(&current); err != nil {
+		t.Fatalf("查询当前版本失败: %v", err)
+	}
+	if current == 0 {
+		t.Error("双首版并发后应存在当前版本")
+	}
+}
+
+func TestWriteFileAtomicNoTempLeft(t *testing.T) {
+	dir := t.TempDir()
+	full := filepath.Join(dir, "v1")
+	if err := writeFileAtomic(full, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("writeFileAtomic 失败: %v", err)
+	}
+	data, err := os.ReadFile(full)
+	if err != nil || string(data) != "hello" {
+		t.Fatalf("文件内容异常: %q %v", data, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".tmp-") {
+			t.Fatalf("不应残留临时文件: %s", e.Name())
+		}
+	}
+}

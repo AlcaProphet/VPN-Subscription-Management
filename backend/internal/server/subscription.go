@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -16,20 +17,23 @@ import (
 type SubscriptionHandler struct {
 	subSvc *subscription.Service
 	verSvc *version.Service
+	// onVersionSwitched 订阅版本激活切换后的候选集重算回调（Build6 Step2）
+	onVersionSwitched func(ctx context.Context, ot version.OwnerType, ownerID int64)
 }
 
 // RegisterSubscriptionRoutes 注册订阅与版本端点；全部叠加会话 + 管理员双中间件
 func RegisterSubscriptionRoutes(engine *gin.Engine, h *SubscriptionHandler, sessionMW, adminMW gin.HandlerFunc) {
 	admin := engine.Group("/api/admin/subscriptions", sessionMW, adminMW)
-	admin.GET("", h.list) // 按平台分组列表，含关联组、「被哪些组选定中」标记（Step 3 接通）
+	admin.GET("", h.list) // 平铺列表（每平台一份订阅条目）
 	admin.POST("", h.create)
+	admin.GET("/:id", h.get) // 单条订阅（版本管理页装配入口预填等场景）
 	admin.PUT("/:id", h.update)
 	admin.DELETE("/:id", h.delete)
 
-	// 版本端点（四类资源通用模式，本 Step 先落地订阅）
+	// 版本端点（四类资源通用模式）
 	admin.GET("/:id/versions", h.listVersions)
-	admin.POST("/:id/versions", h.createVersion)          // 文件上传/文本编辑双模式（multipart 字段 mode=upload|text）
-	admin.PUT("/:id/versions/current", h.switchVersion)   // body: { version_no }
+	admin.POST("/:id/versions", h.createVersion)              // 文件上传/文本编辑双模式（multipart 字段 mode=upload|text）
+	admin.PUT("/:id/versions/current", h.switchVersion)       // body: { version_no }
 	admin.GET("/:id/versions/:ver/preview", h.previewVersion) // text/plain + no-store，仅管理员
 	admin.DELETE("/:id/versions/:ver", h.deleteVersion)
 
@@ -47,10 +51,9 @@ func parseID(c *gin.Context, key string) (int64, bool) {
 }
 
 type subCreateReq struct {
-	PlatformID int64   `json:"platform_id" binding:"required"`
-	Name       string  `json:"name" binding:"required,min=1,max=100"`
-	Slug       string  `json:"slug"` // 可选：为空时后端自动生成（subscription- 前缀）
-	GroupIDs   []int64 `json:"group_ids"`
+	PlatformID int64  `json:"platform_id" binding:"required"`
+	Name       string `json:"name" binding:"required,min=1,max=100"`
+	Slug       string `json:"slug"` // 可选：为空时后端自动生成（subscription- 前缀）
 }
 
 func (h *SubscriptionHandler) list(c *gin.Context) {
@@ -60,6 +63,23 @@ func (h *SubscriptionHandler) list(c *gin.Context) {
 		return
 	}
 	OK(c, ListData{List: list, Total: int64(len(list))}) // 列表统一包裹结构（AGENTS §4.8）
+}
+
+func (h *SubscriptionHandler) get(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	sub, err := h.subSvc.Get(c.Request.Context(), id)
+	if errors.Is(err, subscription.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "订阅不存在")
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, sub)
 }
 
 func (h *SubscriptionHandler) create(c *gin.Context) {
@@ -72,8 +92,11 @@ func (h *SubscriptionHandler) create(c *gin.Context) {
 		PlatformID: req.PlatformID,
 		Name:       req.Name,
 		Slug:       req.Slug,
-		GroupIDs:   req.GroupIDs,
 	})
+	if errors.Is(err, subscription.ErrPlatformOccupied) {
+		Fail(c, http.StatusConflict, err.Error())
+		return
+	}
 	if errors.Is(err, subscription.ErrSlugConflict) {
 		Fail(c, http.StatusConflict, err.Error())
 		return
@@ -95,14 +118,13 @@ func (h *SubscriptionHandler) update(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name     string  `json:"name" binding:"required,min=1,max=100"`
-		GroupIDs []int64 `json:"group_ids"`
+		Name string `json:"name" binding:"required,min=1,max=100"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	err := h.subSvc.Update(c.Request.Context(), id, req.Name, req.GroupIDs)
+	err := h.subSvc.Update(c.Request.Context(), id, req.Name)
 	if errors.Is(err, subscription.ErrNotFound) {
 		Fail(c, http.StatusNotFound, "订阅不存在")
 		return
@@ -137,7 +159,12 @@ func (h *SubscriptionHandler) checkSlug(c *gin.Context) {
 	ownerType := c.Query("type")
 	var ownerID int64
 	if v := c.Query("id"); v != "" {
-		ownerID, _ = strconv.ParseInt(v, 10, 64)
+		parsed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			Fail(c, http.StatusBadRequest, "id 参数必须是数字")
+			return
+		}
+		ownerID = parsed
 	}
 	available, err := h.subSvc.CheckSlug(c.Request.Context(), slugVal, ownerType, ownerID)
 	if err != nil {
@@ -147,18 +174,25 @@ func (h *SubscriptionHandler) checkSlug(c *gin.Context) {
 	OK(c, gin.H{"available": available})
 }
 
-// --- 版本端点（四类资源通用模式，本 Step 先落地订阅） ---
+// --- 版本端点（四类资源通用模式） ---
 
 func (h *SubscriptionHandler) listVersions(c *gin.Context) {
 	versionList(c, h.verSvc, version.OwnerSubscription)
 }
 
 func (h *SubscriptionHandler) createVersion(c *gin.Context) {
-	versionCreate(c, h.verSvc, version.OwnerSubscription)
+	// 订阅地址池版本：activate=false（仅入池）；文本模式按 product_type 补默认文件名
+	versionCreateWith(c, h.verSvc, version.OwnerSubscription, false, func(ctx context.Context, id int64) (string, error) {
+		sub, err := h.subSvc.Get(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		return subscriptionTextFileName(sub.ProductType), nil
+	})
 }
 
 func (h *SubscriptionHandler) switchVersion(c *gin.Context) {
-	versionSwitch(c, h.verSvc, version.OwnerSubscription)
+	versionSwitch(c, h.verSvc, version.OwnerSubscription, h.onVersionSwitched)
 }
 
 func (h *SubscriptionHandler) previewVersion(c *gin.Context) {
@@ -192,8 +226,14 @@ func versionList(c *gin.Context, verSvc *version.Service, ot version.OwnerType) 
 }
 
 // versionCreate 双模式——mode=upload 取 multipart 文件流（ReaderContent，≤50MB，Design1 §6.3）；
-// mode=text 取文本体（BytesContent）
+// mode=text 取文本体（BytesContent）。rule/share/custom 手动上传/文本编辑保持创建即激活。
 func versionCreate(c *gin.Context, verSvc *version.Service, ot version.OwnerType) {
+	versionCreateWith(c, verSvc, ot, ot != version.OwnerSubscription, nil)
+}
+
+// versionCreateWith 通用版本创建：activate 显式传参；textName 用于订阅文本模式按 product_type 补默认文件名
+func versionCreateWith(c *gin.Context, verSvc *version.Service, ot version.OwnerType, activate bool, textName func(ctx context.Context, id int64) (string, error)) {
+	clearReadDeadline(c)
 	id, ok := parseID(c, "id")
 	if !ok {
 		return
@@ -208,7 +248,16 @@ func versionCreate(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 			Fail(c, http.StatusBadRequest, "参数校验失败")
 			return
 		}
-		src = version.BytesContent([]byte(req.Text))
+		var name string
+		if textName != nil {
+			n, err := textName(ctx, id)
+			if err != nil {
+				Fail(c, http.StatusInternalServerError, err.Error())
+				return
+			}
+			name = n
+		}
+		src = version.TextContent{Text: []byte(req.Text), Name: name}
 	} else {
 		file, fileHeader, err := c.Request.FormFile("file")
 		if err != nil {
@@ -218,7 +267,7 @@ func versionCreate(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 		defer file.Close()
 		src = version.ReaderContent{R: file, Max: version.MaxContentSize, Name: fileHeader.Filename}
 	}
-	v, err := verSvc.CreateVersion(ctx, ot, id, src)
+	v, activated, err := verSvc.CreateVersion(ctx, ot, id, src, version.CreateOptions{Activate: activate})
 	if errors.Is(err, version.ErrContentTooLarge) {
 		Fail(c, http.StatusBadRequest, "内容超过 50MB 限制")
 		return
@@ -227,11 +276,21 @@ func versionCreate(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, gin.H{"version_no": v.No})
+	OK(c, gin.H{"version_no": v.No, "auto_activated": activated})
+}
+
+// subscriptionTextFileName 订阅文本模式默认文件名（按 product_type 区分下发扩展名，Design2 §5.7）
+func subscriptionTextFileName(productType string) string {
+	switch productType {
+	case "subs", "generic-subs":
+		return "subscription.txt"
+	default:
+		return "subscription.yaml"
+	}
 }
 
 // versionSwitch 切换当前版本（原子切换）
-func versionSwitch(c *gin.Context, verSvc *version.Service, ot version.OwnerType) {
+func versionSwitch(c *gin.Context, verSvc *version.Service, ot version.OwnerType, onSwitched func(ctx context.Context, ot version.OwnerType, ownerID int64)) {
 	id, ok := parseID(c, "id")
 	if !ok {
 		return
@@ -243,7 +302,8 @@ func versionSwitch(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 		Fail(c, http.StatusBadRequest, "参数校验失败")
 		return
 	}
-	err := verSvc.SwitchVersion(c.Request.Context(), ot, id, req.VersionNo)
+	ctx := c.Request.Context()
+	err := verSvc.SwitchVersion(ctx, ot, id, req.VersionNo)
 	if errors.Is(err, version.ErrVersionNotFound) {
 		Fail(c, http.StatusNotFound, "版本不存在")
 		return
@@ -251,6 +311,9 @@ func versionSwitch(c *gin.Context, verSvc *version.Service, ot version.OwnerType
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if onSwitched != nil {
+		onSwitched(ctx, ot, id)
 	}
 	OK(c, nil)
 }

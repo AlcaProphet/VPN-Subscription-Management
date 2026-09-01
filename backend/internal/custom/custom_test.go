@@ -182,4 +182,3 @@ func TestUpsertMissingPlatform(t *testing.T) {
 		t.Errorf("平台不存在应报参数错误: %v", err)
 	}
 }
-

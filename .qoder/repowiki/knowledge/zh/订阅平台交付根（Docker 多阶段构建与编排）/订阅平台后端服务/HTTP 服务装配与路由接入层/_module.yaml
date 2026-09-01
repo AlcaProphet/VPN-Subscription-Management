@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: backend/server_routes
+title: HTTP 服务装配与路由接入层
+scope:
+    - backend/internal/server/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/admin_operations
+    - path: backend/infrastructure
+    - path: backend/subscription_platform
+    - path: backend/support_services
+    - path: backend/user_auth
+    - path: frontend/admin_views
+    - path: frontend/user_views

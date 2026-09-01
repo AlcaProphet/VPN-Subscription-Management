@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"testing"
@@ -21,7 +22,7 @@ func randStr() string {
 	return hex.EncodeToString(b)
 }
 
-// testMigrateFS 构造下载解析所需的完整表集
+// testMigrateFS 构造下载解析所需的完整表集（新模型：每平台一份订阅）
 func testMigrateFS() fstest.MapFS {
 	return fstest.MapFS{
 		"0001_init.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -41,11 +42,13 @@ func testMigrateFS() fstest.MapFS {
 			CREATE TABLE IF NOT EXISTS groups (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE,
-				is_default INTEGER NOT NULL DEFAULT 0, needs_reselect INTEGER NOT NULL DEFAULT 0,
+				is_default INTEGER NOT NULL DEFAULT 0,
+				default_quota REAL,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 			CREATE TABLE IF NOT EXISTS platforms (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+				product_type TEXT NOT NULL DEFAULT 'yaml',
 				description TEXT NOT NULL DEFAULT '', schemes TEXT NOT NULL DEFAULT '[]',
 				extra_headers TEXT NOT NULL DEFAULT '{}', installer_files TEXT NOT NULL DEFAULT '[]', installer_urls TEXT NOT NULL DEFAULT '[]',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
@@ -54,21 +57,16 @@ func testMigrateFS() fstest.MapFS {
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
 				platform_id INTEGER NOT NULL, current_version INTEGER NOT NULL DEFAULT 0,
+				product_type TEXT NOT NULL DEFAULT 'yaml',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_platform_uniq ON subscriptions(platform_id);
 			CREATE TABLE IF NOT EXISTS versions (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				owner_type TEXT NOT NULL CHECK (owner_type IN ('subscription','rule','custom','share')),
 				owner_id INTEGER NOT NULL, version_no INTEGER NOT NULL, file_path TEXT NOT NULL,
-								file_name TEXT NOT NULL DEFAULT '',
+				file_name TEXT NOT NULL DEFAULT '',
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				UNIQUE (owner_type, owner_id, version_no));`)},
-		"1003_groups.sql": &fstest.MapFile{Data: []byte(`
-			CREATE TABLE IF NOT EXISTS group_selections (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				group_id INTEGER NOT NULL,
-				platform_id INTEGER NOT NULL,
-				subscription_id INTEGER,
-				UNIQUE (group_id, platform_id));`)},
 		"1004_tokens.sql": &fstest.MapFile{Data: []byte(`
 			CREATE TABLE IF NOT EXISTS download_tokens (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,6 +93,17 @@ func testMigrateFS() fstest.MapFS {
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				UNIQUE (user_id, platform_id));`)},
+		"1009_assembly_blueprints.sql": &fstest.MapFile{Data: []byte(`
+			CREATE TABLE IF NOT EXISTS assembly_blueprints (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				version_id INTEGER NOT NULL UNIQUE REFERENCES versions(id) ON DELETE CASCADE,
+				target_syntax TEXT NOT NULL,
+				fixed_params_json TEXT NOT NULL DEFAULT '{}',
+				selection_json TEXT NOT NULL DEFAULT '{}',
+				custom_rules_json TEXT NOT NULL DEFAULT '[]',
+				render_plan_json TEXT NOT NULL DEFAULT '{}',
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 	}
 }
 
@@ -109,7 +118,7 @@ type env struct {
 	sub  int64
 }
 
-// newTestDownload 构造完整测试环境：默认组+用户+平台+订阅（2 版内容）+ 组选定
+// newTestDownload 构造完整测试环境：用户+平台+平台唯一订阅（1 个激活版本）
 func newTestDownload(t *testing.T) *env {
 	t.Helper()
 	st, err := store.Open(t.TempDir(), "test.db")
@@ -125,7 +134,6 @@ func newTestDownload(t *testing.T) *env {
 	cfg := config.NewService(st, log.New("error", "console"))
 	svc := NewService(st, ver, cfg, log.New("error", "console"))
 	ctx := context.Background()
-	// 默认组 + 平台
 	if _, err := st.DB().Exec(`INSERT INTO groups (slug, name, is_default) VALUES ('group-1', '默认组', 1)`); err != nil {
 		t.Fatalf("创建组失败: %v", err)
 	}
@@ -134,24 +142,18 @@ func newTestDownload(t *testing.T) *env {
 		t.Fatalf("创建平台失败: %v", err)
 	}
 	plat, _ := res.LastInsertId()
-	// 用户（普通）
 	res, err = st.DB().Exec(`INSERT INTO users (username, email, role, group_id, user_source, status) VALUES ('u1','u1@x.com','user',1,'local','active')`)
 	if err != nil {
 		t.Fatalf("创建用户失败: %v", err)
 	}
 	user, _ := res.LastInsertId()
-	// 订阅 + 版本
 	res, err = st.DB().Exec(`INSERT INTO subscriptions (slug, name, platform_id) VALUES ('sub-x', '订阅X', ?)`, plat)
 	if err != nil {
 		t.Fatalf("创建订阅失败: %v", err)
 	}
 	sub, _ := res.LastInsertId()
-	if _, err := ver.CreateVersion(ctx, version.OwnerSubscription, sub, version.BytesContent([]byte("proxies: [x]"))); err != nil {
+	if _, _, err := ver.CreateVersion(ctx, version.OwnerSubscription, sub, version.BytesContent([]byte("proxies: [x]")), version.CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建版本失败: %v", err)
-	}
-	// 组选定
-	if _, err := st.DB().Exec(`INSERT INTO group_selections (group_id, platform_id, subscription_id) VALUES (1, ?, ?)`, plat, sub); err != nil {
-		t.Fatalf("组选定失败: %v", err)
 	}
 	_ = cfg.Set(ctx, config.KeyFrontendURL, "https://vpn.example.com")
 	return &env{st: st, ver: ver, svc: svc, cfg: cfg, user: user, plat: plat, sub: sub}
@@ -176,8 +178,8 @@ func nullID(v int64) any {
 	return v
 }
 
-// TestResolveGroupToken 无标识 Token：组选定内容实时解析
-func TestResolveGroupToken(t *testing.T) {
+// TestResolvePlatformToken 无标识 Token：按平台唯一订阅条目解析
+func TestResolvePlatformToken(t *testing.T) {
 	e := newTestDownload(t)
 	ctx := context.Background()
 	tk := e.mkToken(t, 0, 0)
@@ -197,7 +199,7 @@ func TestResolveGroupToken(t *testing.T) {
 	}
 }
 
-// TestResolveCustomToken 自定义 Token：直接返回自定义内容（覆盖组分配）
+// TestResolveCustomToken 自定义 Token：直接返回自定义内容（覆盖平台订阅）
 func TestResolveCustomToken(t *testing.T) {
 	e := newTestDownload(t)
 	ctx := context.Background()
@@ -206,7 +208,7 @@ func TestResolveCustomToken(t *testing.T) {
 		t.Fatalf("创建自定义失败: %v", err)
 	}
 	customID, _ := res.LastInsertId()
-	if _, err := e.ver.CreateVersion(ctx, version.OwnerCustom, customID, version.BytesContent([]byte("custom-content"))); err != nil {
+	if _, _, err := e.ver.CreateVersion(ctx, version.OwnerCustom, customID, version.BytesContent([]byte("custom-content")), version.CreateOptions{Activate: true}); err != nil {
 		t.Fatalf("创建自定义版本失败: %v", err)
 	}
 	tk := e.mkToken(t, customID, 0)
@@ -222,23 +224,20 @@ func TestResolveCustomToken(t *testing.T) {
 	}
 }
 
-// TestResolveExplicitToken 显式 Token：实时校验管理员，降级后 404（ErrTokenInvalid）
+// TestResolveExplicitToken 显式 Token：仅作老库残留只读兼容，实时校验管理员
 func TestResolveExplicitToken(t *testing.T) {
 	e := newTestDownload(t)
 	ctx := context.Background()
 	tk := e.mkToken(t, 0, e.sub)
-	// 用户非管理员 → 拒绝
 	if _, _, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x"); !errors.Is(err, ErrTokenInvalid) {
 		t.Errorf("非管理员显式 Token 应拒绝: %v", err)
 	}
-	// 提升为管理员 → 成功
 	if _, err := e.st.DB().Exec(`UPDATE users SET role = 'admin' WHERE id = ?`, e.user); err != nil {
 		t.Fatalf("提升管理员失败: %v", err)
 	}
 	if _, _, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x"); err != nil {
 		t.Errorf("管理员显式 Token 应成功: %v", err)
 	}
-	// 降级 → 立即失效
 	if _, err := e.st.DB().Exec(`UPDATE users SET role = 'user' WHERE id = ?`, e.user); err != nil {
 		t.Fatalf("降级失败: %v", err)
 	}
@@ -260,21 +259,94 @@ func TestURLSlugMismatch(t *testing.T) {
 	}
 }
 
-// TestUnassigned 组未选定（或用户无组）→ ErrUnassigned
+// TestUnassigned 平台无订阅行 → ErrUnassigned
 func TestUnassigned(t *testing.T) {
 	e := newTestDownload(t)
 	ctx := context.Background()
-	// 移除组选定
-	if _, err := e.st.DB().Exec(`DELETE FROM group_selections`); err != nil {
-		t.Fatalf("清理选定失败: %v", err)
+	if _, err := e.st.DB().Exec(`DELETE FROM subscriptions WHERE id = ?`, e.sub); err != nil {
+		t.Fatalf("清理订阅失败: %v", err)
 	}
 	tk := e.mkToken(t, 0, 0)
 	_, entry, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x")
 	if !errors.Is(err, ErrUnassigned) {
-		t.Fatalf("未分配应返回 ErrUnassigned: %v", err)
+		t.Fatalf("平台无订阅行应返回 ErrUnassigned: %v", err)
 	}
 	if entry.FailReason != "unassigned" {
 		t.Errorf("失败原因异常: %s", entry.FailReason)
+	}
+}
+
+// TestNoActiveVersion 平台有订阅行但无激活版本 → version.ErrVersionNotFound（接入层映射 200 注释块）
+func TestNoActiveVersion(t *testing.T) {
+	e := newTestDownload(t)
+	ctx := context.Background()
+	if _, err := e.st.DB().Exec(`UPDATE subscriptions SET current_version = 0 WHERE id = ?`, e.sub); err != nil {
+		t.Fatalf("清空激活版本失败: %v", err)
+	}
+	tk := e.mkToken(t, 0, 0)
+	_, entry, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x")
+	if !errors.Is(err, version.ErrVersionNotFound) {
+		t.Fatalf("无激活版本应返回 ErrVersionNotFound: %v", err)
+	}
+	if entry.FailReason != "no_active_version" {
+		t.Errorf("失败原因异常: %s", entry.FailReason)
+	}
+}
+
+// TestAssemblySubscriptionDownloadBase64 装配生成的 subs 模板下载整体 base64，预览保持明文
+func TestAssemblySubscriptionDownloadBase64(t *testing.T) {
+	e := newTestDownload(t)
+	ctx := context.Background()
+	if _, err := e.st.DB().Exec(`UPDATE platforms SET product_type='subs' WHERE id=?`, e.plat); err != nil {
+		t.Fatalf("更新平台类型失败: %v", err)
+	}
+	if _, err := e.st.DB().Exec(`UPDATE subscriptions SET product_type='subs' WHERE id=?`, e.sub); err != nil {
+		t.Fatalf("更新订阅类型失败: %v", err)
+	}
+	var versionID int64
+	if err := e.st.DB().QueryRow(`SELECT id FROM versions WHERE owner_type='subscription' AND owner_id=?`, e.sub).Scan(&versionID); err != nil {
+		t.Fatalf("查询版本失败: %v", err)
+	}
+	if _, err := e.st.DB().Exec(
+		`INSERT INTO assembly_blueprints (version_id, target_syntax) VALUES (?, 'sr-subs')`, versionID); err != nil {
+		t.Fatalf("插入蓝图失败: %v", err)
+	}
+	tk := e.mkToken(t, 0, 0)
+	res, _, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x")
+	if err != nil {
+		t.Fatalf("解析下载失败: %v", err)
+	}
+	want := base64.StdEncoding.EncodeToString([]byte("proxies: [x]"))
+	if string(res.Content) != want {
+		t.Fatalf("装配模板下载应整体 base64: got=%q want=%q", res.Content, want)
+	}
+	// 预览保持明文（测试环境未注入 renderUser，普通用户也走原文）
+	preview, err := e.svc.PreviewForUser(ctx, false, e.user, "platform-x")
+	if err != nil {
+		t.Fatalf("预览失败: %v", err)
+	}
+	if string(preview) != "proxies: [x]" {
+		t.Fatalf("预览应返回明文: %q", preview)
+	}
+}
+
+// TestDirectUploadSubsDownloadRaw 直接上传的 subs 模板下载不 base64
+func TestDirectUploadSubsDownloadRaw(t *testing.T) {
+	e := newTestDownload(t)
+	ctx := context.Background()
+	if _, err := e.st.DB().Exec(`UPDATE platforms SET product_type='subs' WHERE id=?`, e.plat); err != nil {
+		t.Fatalf("更新平台类型失败: %v", err)
+	}
+	if _, err := e.st.DB().Exec(`UPDATE subscriptions SET product_type='subs' WHERE id=?`, e.sub); err != nil {
+		t.Fatalf("更新订阅类型失败: %v", err)
+	}
+	tk := e.mkToken(t, 0, 0)
+	res, _, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x")
+	if err != nil {
+		t.Fatalf("解析下载失败: %v", err)
+	}
+	if string(res.Content) != "proxies: [x]" {
+		t.Fatalf("直接上传内容应原样返回: %q", res.Content)
 	}
 }
 
@@ -294,12 +366,30 @@ func TestWriteAccessLog(t *testing.T) {
 	if success != 1 || failed != 1 {
 		t.Errorf("访问日志写入异常: success=%d failed=%d", success, failed)
 	}
-	// resource_slug 转换（订阅标识）
 	var slugVal string
 	if err := e.st.DB().QueryRow(`SELECT resource_slug FROM access_logs WHERE status = 'success'`).Scan(&slugVal); err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}
 	if slugVal != "sub-x" {
 		t.Errorf("resource_slug 应记订阅标识: %s", slugVal)
+	}
+}
+
+// TestResolveUserDownloadWritesPlatformSlug 成功下载日志应补写平台标识（R22-05）
+func TestResolveUserDownloadWritesPlatformSlug(t *testing.T) {
+	e := newTestDownload(t)
+	ctx := context.Background()
+	tk := e.mkToken(t, 0, 0)
+	_, entry, err := e.svc.ResolveUserDownload(ctx, tk, "platform-x")
+	if err != nil {
+		t.Fatalf("解析下载失败: %v", err)
+	}
+	e.svc.WriteAccessLog(ctx, "1.2.3.4", entry, true)
+	var platform string
+	if err := e.st.DB().QueryRow(`SELECT platform FROM access_logs WHERE status = 'success'`).Scan(&platform); err != nil {
+		t.Fatalf("查询成功日志平台列失败: %v", err)
+	}
+	if platform != "platform-x" {
+		t.Fatalf("成功日志平台列应写入 platform-x，实际 %q", platform)
 	}
 }

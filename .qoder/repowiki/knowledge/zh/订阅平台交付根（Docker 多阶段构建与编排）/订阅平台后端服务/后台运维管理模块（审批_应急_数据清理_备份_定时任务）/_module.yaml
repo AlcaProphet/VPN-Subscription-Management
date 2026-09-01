@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: backend/admin_operations
+title: 后台运维管理模块（审批/应急/数据清理/备份/定时任务）
+scope:
+    - backend/internal/approval/
+    - backend/internal/emergency/
+    - backend/internal/dataclear/
+    - backend/internal/backup/
+    - backend/internal/cron/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend/server_routes
+    - path: frontend/admin_views

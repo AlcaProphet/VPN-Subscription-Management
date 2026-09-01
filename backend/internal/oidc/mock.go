@@ -113,6 +113,9 @@ func (s *Service) fetchDiscoveryWithParams(ctx context.Context, providerType str
 	if p.Realm != "" {
 		wellKnown = base + "/realms/" + p.Realm + "/.well-known/openid-configuration"
 	}
+	if err := validateOIDCURL(wellKnown); err != nil {
+		return nil, fmt.Errorf("发现文档地址校验失败: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnown, nil)
 	if err != nil {
 		return nil, fmt.Errorf("构造发现文档请求失败: %w", err)
@@ -146,6 +149,9 @@ func (s *Service) verifyClientCredentials(ctx context.Context, tokenEndpoint str
 		"client_id":     {p.ClientID},
 		"client_secret": {p.ClientSecret},
 	}
+	if err := validateOIDCURL(tokenEndpoint); err != nil {
+		return fmt.Errorf("Token 端点地址校验失败: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, stringsNewReader(form.Encode()))
 	if err != nil {
 		return err
@@ -156,11 +162,10 @@ func (s *Service) verifyClientCredentials(ctx context.Context, tokenEndpoint str
 		return err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusOK {
 		return nil
 	}
-	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	return fmt.Errorf("HTTP %d", resp.StatusCode)
 }
 
 // isGrantUnsupported 判定错误是否为「不支持该授权类型」

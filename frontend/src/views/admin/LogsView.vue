@@ -2,9 +2,11 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import dayjs from 'dayjs'
-import { Badge, Button, DatePicker, Pagination, Select, Space, Table, Tabs } from 'ant-design-vue'
+import { Badge, Button, Pagination, Select, Space, Table, Tabs } from 'ant-design-vue'
+import AppRangePicker from '@/components/AppRangePicker.vue'
 import { queryAccessLogs, clearAccessLogs, issueStreamToken, type AccessLog, type LogEntry } from '@/api/log'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -15,6 +17,7 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(20)
 const range = ref<any>(null)
+const displayMode = ref<'name' | 'unique'>('name')
 
 // 本地日期 → 该时刻对应的 UTC 日期（后端 parseRange 按 UTC 解析，容器时区通常为 UTC，R07-03）
 // 原理：本地 08-09 00:00（+08:00）→ "2026-08-08"；本地 08-09 23:59 → "2026-08-09"，后端 UTC 解析后恰好覆盖本地全天
@@ -148,16 +151,19 @@ onUnmounted(disconnect)
 
 <template>
   <div>
-    <h2 class="text-lg font-semibold mb-4">日志查看</h2>
+    <PageHeader title="日志查看" />
     <Tabs :active-key="activeTab" @change="onTabChange">
       <!-- 访问日志页签 -->
       <Tabs.TabPane key="access" tab="访问日志">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
           <Space>
-            <DatePicker.RangePicker v-model:value="range" @change="page = 1; loadAccess()" />
+            <AppRangePicker v-model:value="range" @change="page = 1; loadAccess()" />
             <Button @click="page = 1; loadAccess()">查询</Button>
+            <Button @click="displayMode = displayMode === 'name' ? 'unique' : 'name'">
+              {{ displayMode === 'name' ? '显示唯一值' : '显示名称' }}
+            </Button>
           </Space>
-          <Button danger @click="clearOpen = true">清空日志</Button>
+          <Button v-if="total > 0" danger @click="clearOpen = true">清空日志</Button>
         </div>
         <TriStateList :loading="loading" :empty="list.length === 0 && total === 0" empty-text="所选日期范围内无记录">
           <!-- ≥768：表格 -->
@@ -166,15 +172,21 @@ onUnmounted(disconnect)
               <template #default="{ record }">{{ typeText[record.download_type] ?? record.download_type }}</template>
             </Table.Column>
             <Table.Column key="user" title="用户" width="110">
-              <template #default="{ record }">{{ record.username || '—' }}</template>
+              <template #default="{ record }">
+                {{ displayMode === 'name' ? (record.username || '—') : (record.user_email || record.username || '—') }}
+              </template>
             </Table.Column>
             <Table.Column key="platform" title="平台" width="120">
-              <template #default="{ record }">{{ record.platform || '—' }}</template>
+              <template #default="{ record }">
+                {{ displayMode === 'name' ? (record.platform_name || record.platform || '—') : (record.platform || '—') }}
+              </template>
             </Table.Column>
             <Table.Column key="ip" title="IP" width="130" data-index="ip" />
-            <Table.Column key="resource" title="资源标识" data-index="resource_slug">
+            <Table.Column key="resource" title="资源" data-index="resource_slug">
               <template #default="{ record }">
-                <span class="font-mono text-xs">{{ record.resource_slug }}</span>
+                <span :class="displayMode === 'unique' ? 'font-mono text-xs' : ''">
+                  {{ displayMode === 'name' ? (record.resource_name || record.resource_slug) : record.resource_slug }}
+                </span>
               </template>
             </Table.Column>
             <Table.Column key="status" title="状态" width="90">
@@ -193,22 +205,22 @@ onUnmounted(disconnect)
 
           <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致；8 列精简展示） -->
           <div class="grid grid-cols-1 gap-2 md:hidden">
-            <div v-for="log in list" :key="log.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
+            <div v-for="log in list" :key="log.id" class="border rounded-lg p-3 bg-surface">
               <div class="flex items-center justify-between gap-2">
                 <span class="text-sm font-medium truncate">{{ typeText[log.download_type] ?? log.download_type }}</span>
                 <Badge :color="log.status === 'success' ? 'green' : 'red'"
                        :text="log.status === 'success' ? '成功' : '失败'" />
               </div>
-              <div class="text-xs text-gray-500 mt-1 space-y-0.5">
-                <div>用户：{{ log.username || '—' }} · 平台：{{ log.platform || '—' }} · IP：{{ log.ip }}</div>
-                <div class="font-mono">资源：{{ log.resource_slug }}</div>
+              <div class="text-xs text-text-secondary mt-1 space-y-0.5">
+                <div>用户：{{ displayMode === 'name' ? (log.username || '—') : (log.user_email || log.username || '—') }} · 平台：{{ displayMode === 'name' ? (log.platform_name || log.platform || '—') : (log.platform || '—') }} · IP：{{ log.ip }}</div>
+                <div :class="displayMode === 'unique' ? 'font-mono' : ''">资源：{{ displayMode === 'name' ? (log.resource_name || log.resource_slug) : log.resource_slug }}</div>
                 <div v-if="log.fail_reason">原因：{{ log.fail_reason }}</div>
                 <div>{{ dayjs(log.created_at).format('YYYY-MM-DD HH:mm:ss') }}</div>
               </div>
             </div>
           </div>
         </TriStateList>
-        <div class="flex justify-end mt-3">
+        <div v-if="total > 0" class="flex justify-end mt-3">
           <Pagination v-model:current="page" :page-size="size" :total="total"
                       :show-total="(t: number) => `共 ${t} 条`" @change="loadAccess" />
         </div>
@@ -217,24 +229,24 @@ onUnmounted(disconnect)
       <!-- 实时日志流页签 -->
       <Tabs.TabPane key="stream" tab="实时日志流">
         <div class="flex flex-wrap items-center gap-2 mb-3">
-          <Select v-model:value="levelFilter" style="width: 130px" allow-clear placeholder="级别过滤">
+          <AppSelect v-model:value="levelFilter" style="width: 130px" allow-clear placeholder="级别过滤">
             <Select.Option value="info">info</Select.Option>
             <Select.Option value="warn">warn</Select.Option>
             <Select.Option value="error">error</Select.Option>
             <Select.Option value="debug">debug</Select.Option>
-          </Select>
+          </AppSelect>
           <Button @click="paused = !paused">{{ paused ? '继续' : '暂停' }}</Button>
           <Button @click="clearScreen">清屏</Button>
-          <span class="text-xs" :class="connected ? 'text-green-500' : 'text-gray-400'">
+          <span class="text-xs" :class="connected ? 'text-green-500' : 'text-text-tertiary'">
             {{ connected ? '已连接' : '未连接' }}
           </span>
         </div>
         <!-- 终端风深色底，不随主题变化；等宽字体；级别色块 -->
         <div ref="containerRef" class="log-terminal font-mono text-xs p-4 rounded h-[60vh] overflow-auto">
-          <div v-if="lines.length === 0" class="text-gray-500">等待日志输出…</div>
+          <div v-if="lines.length === 0" class="text-text-secondary">等待日志输出…</div>
           <div v-for="(line, i) in lines" :key="i" :class="levelColor[line.level] ?? 'level-info'">
             [{{ dayjs(line.time).format('MM-DD HH:mm:ss') }}] [{{ line.level.toUpperCase() }}] {{ line.message }}
-            <span v-if="line.attrs" class="text-gray-400">{{ line.attrs }}</span>
+            <span v-if="line.attrs" class="text-text-tertiary">{{ line.attrs }}</span>
           </div>
         </div>
       </Tabs.TabPane>

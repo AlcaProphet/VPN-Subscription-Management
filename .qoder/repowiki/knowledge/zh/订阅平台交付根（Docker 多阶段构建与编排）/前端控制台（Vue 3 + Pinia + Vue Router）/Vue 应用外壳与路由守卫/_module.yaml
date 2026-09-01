@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: frontend/app_shell
+title: Vue 应用外壳与路由守卫
+scope:
+    - frontend/src/main.ts
+    - frontend/src/App.vue
+    - frontend/src/router/index.ts
+    - frontend/src/stores/
+    - frontend/src/vite-env.d.ts
+source_files: []
+depends_on: []
+related_to: []

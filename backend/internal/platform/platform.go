@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,27 +26,86 @@ import (
 // 关键参数（Design1 §6.3/3.4.4，禁止修改）
 const (
 	MaxInstallerSize = 300 << 20 // 安装包 ≤300MB
-	MaxInstallerName = 200        // 展示名长度上限（安装包原始文件名/外链展示名）
+	MaxInstallerName = 200       // 展示名长度上限（安装包原始文件名/外链展示名）
 	installerDir     = "public/installers"
+
+	// 平台/订阅产物格式（Design2 §4.4/§5.9）
+	ProductYAML        = "yaml"
+	ProductSubs        = "subs"
+	ProductGenericSubs = "generic-subs"
+
+	// 附加响应头中的系统/结构化字段
+	HeaderContentDisposition    = "Content-Disposition"
+	HeaderProfileUpdateInterval = "profile-update-interval"
+	HeaderProfileWebPageURL     = "profile-web-page-url"
+	HeaderSubscriptionUserInfo  = "subscription-userinfo"
 )
+
+// systemManagedHeaders 高级模式下由系统接管的三个字段。
+var systemManagedHeaders = map[string]bool{
+	"profile-update-interval": true,
+	"profile-web-page-url":    true,
+	"subscription-userinfo":   true,
+}
+
+// IsSystemManagedHeader 判断是否为高级模式下系统接管、禁止用户修改的响应头。
+func IsSystemManagedHeader(key string) bool {
+	return systemManagedHeaders[strings.ToLower(strings.TrimSpace(key))]
+}
+
+// IsContentDispositionHeader 判断是否为下载文件名专用响应头（大小写不敏感）。
+func IsContentDispositionHeader(key string) bool {
+	return strings.EqualFold(strings.TrimSpace(key), HeaderContentDisposition)
+}
 
 // 业务错误（接入层映射 HTTP 状态码）
 var (
-	ErrBadRequest        = errors.New("参数错误")
-	ErrNotFound          = errors.New("平台不存在")
-	ErrInstallerTooLarge = errors.New("安装包超过 300MB 限制")
+	ErrBadRequest         = errors.New("参数错误")
+	ErrNotFound           = errors.New("平台不存在")
+	ErrInstallerTooLarge  = errors.New("安装包超过 300MB 限制")
+	ErrUnsafeInstallerExt = errors.New("安装包扩展名不安全，仅允许可下载安装包格式")
+	ErrProductTypeInUse   = errors.New("该平台已有订阅条目，请先处理后再变更产物格式")
 )
+
+// dangerousInstallerExts 上传安装包时拒绝的危险/可执行/可被浏览器同源解析的扩展名。
+// 该黑名单为安全收紧项，附件下载与 nosniff 仍作为纵深防御保留。
+var dangerousInstallerExts = map[string]bool{
+	".html": true, ".htm": true, ".xhtml": true,
+	".svg": true, ".svgz": true,
+	".js": true, ".mjs": true, ".xml": true,
+}
+
+// productTypeInUseError 平台产物格式变更冲突（携带既有订阅条目的 product_type 插值文案）
+type productTypeInUseError struct {
+	existing string
+}
+
+func (e *productTypeInUseError) Error() string {
+	return "该平台已有 " + e.existing + " 订阅条目，请先处理后再变更产物格式"
+}
+
+func (e *productTypeInUseError) Unwrap() error { return ErrProductTypeInUse }
+
+func validProductType(v string) bool {
+	return v == ProductYAML || v == ProductSubs || v == ProductGenericSubs
+}
 
 // Service 平台服务
 type Service struct {
-	store    *store.Store
-	dataDir  string // 安装包落盘根目录（/data）
-	versions *version.Service // 版本组件（Step 5 起用于平台删除完整级联）
-	log      *slog.Logger
+	store         *store.Store
+	dataDir       string           // 安装包落盘根目录（/data）
+	versions      *version.Service // 版本组件（Step 5 起用于平台删除完整级联）
+	log           *slog.Logger
+	onAfterDelete func(ctx context.Context)
 }
 
 func NewService(st *store.Store, dataDir string, versions *version.Service, lg *slog.Logger) *Service {
 	return &Service{store: st, dataDir: dataDir, versions: versions, log: lg}
+}
+
+// SetOnAfterDelete 注入平台删除后的候选集重算回调（Build6 Step2）。
+func (s *Service) SetOnAfterDelete(fn func(ctx context.Context)) {
+	s.onAfterDelete = fn
 }
 
 // InstallerFileItem 本地上传安装包条目：name=原始文件名（展示用），file=磁盘文件名（时间戳）
@@ -65,11 +126,13 @@ type Platform struct {
 	Slug           string              `json:"slug"`
 	Name           string              `json:"name"`
 	Description    string              `json:"description"`
-	Schemes        []string            `json:"schemes"`          // 有序数组；一键导入取首项；含 {url} 占位符
-	ExtraHeaders   map[string]string   `json:"extra_headers"`    // 附加响应头；值支持 {frontend_url} 占位符
-	InstallerFiles []InstallerFileItem `json:"installer_files"`  // 多个本地安装包
-	InstallerURLs  []InstallerURLItem  `json:"installer_urls"`   // 多个外部下载链接
-	Cascade        CascadeCounts      `json:"cascade"`          // 删除预览用影响统计
+	ProductType    string              `json:"product_type"`    // yaml / subs / generic-subs
+	IsDefault      bool                `json:"is_default"`      // 内置默认平台，产物格式锁定
+	Schemes        []string            `json:"schemes"`         // 有序数组；一键导入取首项；含 {url} 占位符
+	ExtraHeaders   map[string]string   `json:"extra_headers"`   // 附加响应头；值支持 {frontend_url} 占位符
+	InstallerFiles []InstallerFileItem `json:"installer_files"` // 多个本地安装包
+	InstallerURLs  []InstallerURLItem  `json:"installer_urls"`  // 多个外部下载链接
+	Cascade        CascadeCounts       `json:"cascade"`         // 删除预览用影响统计
 }
 
 // CascadeCounts 删除平台的影响统计（订阅/Token/自定义数量；表未建立时计 0）
@@ -79,8 +142,15 @@ type CascadeCounts struct {
 	Customs       int64 `json:"customs"`
 }
 
-// Create 创建平台：slug 由生成器自动生成（platform- 前缀）；名称不强制唯一；可携带外部下载链接列表
-func (s *Service) Create(ctx context.Context, name, description string, schemes []string, headers map[string]string, installerURLs []InstallerURLItem) (*Platform, error) {
+// Create 创建平台：slug 由生成器自动生成（platform- 前缀）；名称不强制唯一；product_type 默认 yaml；
+// 可携带外部下载链接列表
+func (s *Service) Create(ctx context.Context, name, description, productType string, schemes []string, headers map[string]string, installerURLs []InstallerURLItem) (*Platform, error) {
+	if productType == "" {
+		productType = ProductYAML
+	}
+	if !validProductType(productType) {
+		return nil, fmt.Errorf("%w: product_type 仅支持 yaml/subs/generic-subs", ErrBadRequest)
+	}
 	if err := ValidateSchemes(schemes); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -100,8 +170,8 @@ func (s *Service) Create(ctx context.Context, name, description string, schemes 
 			return err
 		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO platforms (slug, name, description, schemes, extra_headers, installer_urls) VALUES (?,?,?,?,?,?)`,
-			value, name, description, toJSON(schemes), toJSON(headers), toJSON(installerURLs))
+			`INSERT INTO platforms (slug, name, description, product_type, schemes, extra_headers, installer_urls) VALUES (?,?,?,?,?,?,?)`,
+			value, name, description, productType, toJSON(schemes), toJSON(headers), toJSON(installerURLs))
 		if err != nil {
 			return fmt.Errorf("创建平台失败: %w", err)
 		}
@@ -110,14 +180,21 @@ func (s *Service) Create(ctx context.Context, name, description string, schemes 
 			return err
 		}
 		created = &Platform{ID: id, Slug: value, Name: name, Description: description,
-			Schemes: schemes, ExtraHeaders: headers, InstallerURLs: installerURLs}
+			ProductType: productType, Schemes: schemes, ExtraHeaders: headers, InstallerURLs: installerURLs}
 		return nil
 	})
 	return created, err
 }
 
-// Update 编辑平台：创建后 slug 不可修改（接入层不接收 slug 字段）；可改名称/描述/scheme/附加头/外部下载链接列表
-func (s *Service) Update(ctx context.Context, id int64, name, description string, schemes []string, headers map[string]string, installerURLs []InstallerURLItem) error {
+// Update 编辑平台：创建后 slug 不可修改（接入层不接收 slug 字段）；可改名称/描述/product_type/scheme/附加头/外部下载链接列表。
+// product_type 变更时校验与既有订阅条目一致（有冲突返回 ErrProductTypeInUse，接入层 400）。
+func (s *Service) Update(ctx context.Context, id int64, name, description, productType string, schemes []string, headers map[string]string, installerURLs []InstallerURLItem) error {
+	if productType == "" {
+		productType = ProductYAML
+	}
+	if !validProductType(productType) {
+		return fmt.Errorf("%w: product_type 仅支持 yaml/subs/generic-subs", ErrBadRequest)
+	}
 	if err := ValidateSchemes(schemes); err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -128,31 +205,57 @@ func (s *Service) Update(ctx context.Context, id int64, name, description string
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	res, err := s.store.DB().ExecContext(ctx,
-		`UPDATE platforms SET name = ?, description = ?, schemes = ?, extra_headers = ?, installer_urls = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		name, description, toJSON(schemes), toJSON(headers), toJSON(installerURLs), id)
-	if err != nil {
-		return fmt.Errorf("更新平台失败: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM platforms WHERE id = ?`, id).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return ErrNotFound
+		}
+		var isDefault int
+		var currentProductType string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT is_default, product_type FROM platforms WHERE id = ?`, id).Scan(&isDefault, &currentProductType); err != nil {
+			return err
+		}
+		if isDefault == 1 && productType != currentProductType {
+			return fmt.Errorf("%w: 默认平台产物格式不可修改", ErrBadRequest)
+		}
+		var existing string
+		err := tx.QueryRowContext(ctx,
+			`SELECT s.product_type FROM subscriptions s WHERE s.platform_id = ? AND s.product_type != ? LIMIT 1`,
+			id, productType).Scan(&existing)
+		if err == nil {
+			return &productTypeInUseError{existing: existing}
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE platforms SET name = ?, description = ?, product_type = ?, schemes = ?, extra_headers = ?, installer_urls = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			name, description, productType, toJSON(schemes), toJSON(headers), toJSON(installerURLs), id); err != nil {
+			return fmt.Errorf("更新平台失败: %w", err)
+		}
+		return nil
+	})
 }
 
 // Get 读取单个平台（编辑回显）
 func (s *Service) Get(ctx context.Context, id int64) (*Platform, error) {
 	var p Platform
 	var schemesJSON, headersJSON, filesJSON, urlsJSON sql.NullString
+	var isDefault int
 	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT id, slug, name, description, schemes, extra_headers, installer_files, installer_urls FROM platforms WHERE id = ?`, id).
-		Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON)
+		`SELECT id, slug, name, description, product_type, is_default, schemes, extra_headers, installer_files, installer_urls FROM platforms WHERE id = ?`, id).
+		Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.ProductType, &isDefault, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("读取平台失败: %w", err)
 	}
+	p.IsDefault = isDefault == 1
 	p.Schemes = parseJSONSlice(schemesJSON.String)
 	p.ExtraHeaders = parseJSONMap(headersJSON.String)
 	p.InstallerFiles = parseInstallerFiles(filesJSON.String)
@@ -163,7 +266,7 @@ func (s *Service) Get(ctx context.Context, id int64) (*Platform, error) {
 // List 平台列表（附删除预览影响统计；订阅/Token/自定义表未建立时跳过统计）
 func (s *Service) List(ctx context.Context) ([]Platform, error) {
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT id, slug, name, description, schemes, extra_headers, installer_files, installer_urls FROM platforms ORDER BY id`)
+		`SELECT id, slug, name, description, product_type, is_default, schemes, extra_headers, installer_files, installer_urls FROM platforms ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("读取平台列表失败: %w", err)
 	}
@@ -171,10 +274,12 @@ func (s *Service) List(ctx context.Context) ([]Platform, error) {
 	out := make([]Platform, 0) // 空列表返回 [] 而非 null（前端 .map 安全）
 	for rows.Next() {
 		var p Platform
+		var isDefault int
 		var schemesJSON, headersJSON, filesJSON, urlsJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.ProductType, &isDefault, &schemesJSON, &headersJSON, &filesJSON, &urlsJSON); err != nil {
 			return nil, fmt.Errorf("解析平台行失败: %w", err)
 		}
+		p.IsDefault = isDefault == 1
 		p.Schemes = parseJSONSlice(schemesJSON.String)
 		p.ExtraHeaders = parseJSONMap(headersJSON.String)
 		p.InstallerFiles = parseInstallerFiles(filesJSON.String)
@@ -247,12 +352,96 @@ func ValidateSchemes(schemes []string) error {
 var headerNameRe = regexp.MustCompile(`^[!#$%&'*+\-.^_` + "`" + `|~0-9A-Za-z]+$`) // RFC 7230 token
 
 func ValidateExtraHeaders(h map[string]string) error {
+	seen := map[string]string{}
 	for k, v := range h {
 		if !headerNameRe.MatchString(k) {
 			return fmt.Errorf("附加头键 %q 不符合 HTTP 头名规范", k)
 		}
+		lower := strings.ToLower(k)
+		if prev, ok := seen[lower]; ok {
+			return fmt.Errorf("附加头 %q 与 %q 大小写语义重复", prev, k)
+		}
+		seen[lower] = k
 		if containsControl(k) || containsControl(v) {
 			return fmt.Errorf("附加头 %q 含控制字符", k)
+		}
+		if IsContentDispositionHeader(k) {
+			if _, err := ParseContentDispositionFilename(v); err != nil {
+				return fmt.Errorf("附加头 %q: %w", k, err)
+			}
+			continue
+		}
+		if err := validateKnownHeader(k, v); err != nil {
+			return fmt.Errorf("附加头 %q: %w", k, err)
+		}
+	}
+	return nil
+}
+
+// ParseContentDispositionFilename 解析平台附加头中的 Content-Disposition，提取并校验完整下载文件名。
+// 兼容 `attachment; filename*=UTF-8''Luneflare` 与标准 `attachment; filename="foo.yaml"`。
+func ParseContentDispositionFilename(value string) (string, error) {
+	mt, params, err := mime.ParseMediaType(value)
+	if err != nil {
+		return "", fmt.Errorf("Content-Disposition 格式无效: %w", err)
+	}
+	if !strings.EqualFold(mt, "attachment") {
+		return "", errors.New("Content-Disposition 必须为 attachment")
+	}
+	name := strings.TrimSpace(params["filename"])
+	if name == "" {
+		return "", errors.New("Content-Disposition 缺少非空 filename")
+	}
+	if err := validateDownloadFilename(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// validateDownloadFilename 下载文件名安全校验：拒绝控制字符、路径形式和会被静默改名的危险字符。
+func validateDownloadFilename(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("下载文件名不能为空")
+	}
+	if containsControl(name) {
+		return errors.New("下载文件名含控制字符")
+	}
+	if strings.ContainsAny(name, `/\`) || filepath.Base(name) != name {
+		return errors.New("下载文件名不能包含路径分隔符")
+	}
+	if strings.Contains(name, "..") {
+		return errors.New("下载文件名不能包含路径穿越片段")
+	}
+	if strings.ContainsAny(name, `"`) {
+		return errors.New("下载文件名不能包含双引号")
+	}
+	return nil
+}
+
+func validateKnownHeader(key, value string) error {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "profile-update-interval":
+		if _, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64); err != nil {
+			return errors.New("profile-update-interval 必须是非负整数小时（u64）")
+		}
+	case "profile-web-page-url":
+		value = strings.TrimSpace(value)
+		if value == "{frontend_url}" {
+			return nil
+		}
+		u, err := url.Parse(value)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return errors.New("profile-web-page-url 必须是带 host 的 http/https 地址或 {frontend_url}")
+		}
+	case "subscription-userinfo":
+		for _, part := range strings.Split(value, ";") {
+			pair := strings.SplitN(strings.TrimSpace(part), "=", 2)
+			if len(pair) != 2 || strings.TrimSpace(pair[0]) == "" {
+				return errors.New("subscription-userinfo 格式须为 key=value; ...")
+			}
+			if _, err := strconv.ParseUint(strings.TrimSpace(pair[1]), 10, 64); err != nil {
+				return fmt.Errorf("subscription-userinfo 的 %s 必须是非负整数", strings.TrimSpace(pair[0]))
+			}
 		}
 	}
 	return nil
@@ -306,6 +495,9 @@ func (s *Service) installerAbs(name string) (string, error) {
 func (s *Service) UploadInstaller(ctx context.Context, id int64, body io.Reader, filename string) ([]InstallerFileItem, error) {
 	ext := filepath.Ext(filepath.Base(filename)) // 路径穿越防护：仅取基名扩展名，丢弃任何目录部分
 	ext = sanitizeExt(ext)
+	if dangerousInstallerExts[ext] {
+		return nil, ErrUnsafeInstallerExt
+	}
 	name := sanitizeInstallerName(filepath.Base(filename)) // 展示名：原始文件名（控制字符剥离 + 长度上限）
 	if err := os.MkdirAll(filepath.Join(s.dataDir, installerDir), 0o755); err != nil {
 		return nil, fmt.Errorf("创建安装包目录失败: %w", err)
@@ -440,8 +632,7 @@ func sanitizeExt(ext string) string {
 }
 
 // Delete 级联删除（Design1 §4.4，关键约束）：全部安装包文件 + 全部订阅（含版本文件）+ 指向它们的下载 Token
-// + 全部自定义订阅（含版本文件与 Token）+ 组在该平台的关联与选定（外键 CASCADE）
-// 平台删除后组在该平台已无订阅可重选，不置 needs_reselect 标记
+// + 全部自定义订阅（含版本文件与 Token）；订阅/自定义订阅按平台唯一条目模型级联清理（R14-22 新语义）
 func (s *Service) Delete(ctx context.Context, id int64) error {
 	var installers []InstallerFileItem
 	var files []string
@@ -499,7 +690,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM custom_subscriptions WHERE platform_id = ?`, id); err != nil {
 			return err
 		}
-		// 6) 删平台（组在该平台的选定由外键 ON DELETE CASCADE 清理；不置 needs_reselect）
+		// 6) 删平台（订阅/自定义订阅已先级联清理；无旧“组选定”模型，R14-22）
 		if _, err := tx.ExecContext(ctx, `DELETE FROM platforms WHERE id = ?`, id); err != nil {
 			return fmt.Errorf("删除平台失败: %w", err)
 		}
@@ -531,6 +722,9 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		if err := s.versions.RemoveOwnerDir(version.OwnerCustom, cid); err != nil {
 			s.log.Warn("删除自定义版本目录失败", "id", cid, "err", err)
 		}
+	}
+	if s.onAfterDelete != nil {
+		s.onAfterDelete(ctx)
 	}
 	return nil
 }

@@ -45,10 +45,10 @@ func isEmergencyAllowed(method, path string) bool {
 func isSPAPath(path string) bool {
 	switch {
 	case path == "/" || path == "/emergency" || path == "/setup" || path == "/login" ||
-		path == "/register" || path == "/forgot" || path == "/pending" ||
+		path == "/register" || path == "/forgot" || path == "/reset" || path == "/pending" ||
 		path == "/login/callback" || path == "/rules" || path == "/profile":
 		return true
-	case strings.HasPrefix(path, "/reset/") || strings.HasPrefix(path, "/admin/"):
+	case path == "/admin" || strings.HasPrefix(path, "/admin/"):
 		return true
 	}
 	return false

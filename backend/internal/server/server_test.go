@@ -15,9 +15,19 @@ import (
 	"vpn-sub/internal/dataclear"
 	"vpn-sub/internal/emergency"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
 )
+
+func mustPolicy(t *testing.T, mode string) *proxytrust.Policy {
+	t.Helper()
+	p, err := proxytrust.Parse(mode, "")
+	if err != nil {
+		t.Fatalf("proxytrust.Parse(%q) 失败: %v", mode, err)
+	}
+	return p
+}
 
 // newTestServer 构造测试用 server（临时库）
 func newTestServer(t *testing.T) *Server {
@@ -46,6 +56,12 @@ func newTestServer(t *testing.T) *Server {
 			oidc_claims TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		"0005_reset.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+			token TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			expires_at TIMESTAMP NOT NULL,
+			used INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
@@ -54,7 +70,7 @@ func newTestServer(t *testing.T) *Server {
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	buf := log.NewRingBuffer()
 	streamSvc := log.NewStreamService(buf, log.New("error", "console"))
-	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", "off", "0", t.TempDir(), streamSvc)
+	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", mustPolicy(t, "off"), "0", t.TempDir(), streamSvc)
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}
@@ -155,9 +171,10 @@ func TestSystemStatus(t *testing.T) {
 	var resp struct {
 		Code int `json:"code"`
 		Data struct {
-			Configured bool   `json:"configured"`
-			AppMode    string `json:"app_mode"`
-			Emergency  bool   `json:"emergency"`
+			Configured   bool   `json:"configured"`
+			AppMode      string `json:"app_mode"`
+			AdvancedMode bool   `json:"advanced_mode"`
+			Emergency    bool   `json:"emergency"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -168,6 +185,9 @@ func TestSystemStatus(t *testing.T) {
 	}
 	if resp.Data.Configured || resp.Data.Emergency {
 		t.Error("全新库 configured/emergency 应为 false")
+	}
+	if resp.Data.AdvancedMode {
+		t.Error("全新库 advanced_mode 应为 false")
 	}
 	if resp.Data.AppMode != "dev" {
 		t.Errorf("app_mode 异常: %s", resp.Data.AppMode)
@@ -182,7 +202,7 @@ func TestNewEmergencyNilStore(t *testing.T) {
 	clearSvc := dataclear.NewService(nil, dataDir, lg)
 	cfg := config.NewService(nil, lg) // store 不可读的空配置源（Get 按未设置处理）
 	emSvc := emergency.NewService(emergency.TriggerDBCorrupt, false, nil, cfg, clearSvc, dataDir, "test.db", lg)
-	srv, err := NewEmergency(nil, cfg, emSvc, lg, "prod", "off", "0", dataDir)
+	srv, err := NewEmergency(nil, cfg, emSvc, lg, "prod", mustPolicy(t, "off"), "0", dataDir)
 	if err != nil {
 		t.Fatalf("装配应急服务失败: %v", err)
 	}
@@ -256,7 +276,11 @@ func TestTrustProxyClientIPTiers(t *testing.T) {
 	// 构造带回显 ClientIP 的引擎
 	newEcho := func(trustProxy string) *gin.Engine {
 		e := gin.New()
-		if err := applyTrustProxy(e, trustProxy); err != nil {
+		policy, err := proxytrust.Parse(trustProxy, "")
+		if err != nil {
+			t.Fatalf("proxytrust.Parse 失败: %v", err)
+		}
+		if err := applyTrustProxy(e, policy); err != nil {
 			t.Fatalf("applyTrustProxy 失败: %v", err)
 		}
 		e.GET("/ip", func(c *gin.Context) { c.String(http.StatusOK, c.ClientIP()) })
@@ -356,7 +380,7 @@ func TestEmergencyServer(t *testing.T) {
 	cfg := config.NewService(st, log.New("error", "console"))
 	clearSvc := dataclear.NewService(st, t.TempDir(), log.New("error", "console"))
 	emSvc := emergency.NewService(emergency.TriggerManual, true, st, cfg, clearSvc, t.TempDir(), "test.db", log.New("error", "console"))
-	srv, err := NewEmergency(st, cfg, emSvc, log.New("error", "console"), "dev", "off", "0", t.TempDir())
+	srv, err := NewEmergency(st, cfg, emSvc, log.New("error", "console"), "dev", mustPolicy(t, "off"), "0", t.TempDir())
 	if err != nil {
 		t.Fatalf("装配应急 server 失败: %v", err)
 	}
@@ -384,7 +408,7 @@ func TestEmergencyServer(t *testing.T) {
 	var status struct {
 		Code int `json:"code"`
 		Data struct {
-			Emergency      bool   `json:"emergency"`
+			Emergency       bool   `json:"emergency"`
 			EmergencyReason string `json:"emergency_reason"`
 		} `json:"data"`
 	}
@@ -402,9 +426,14 @@ func TestEmergencyServer(t *testing.T) {
 	if code := req(http.MethodGet, "/emergency"); code != http.StatusOK {
 		t.Errorf("SPA 回退应 200: %d", code)
 	}
+	// SPA 回退（精确 /admin 路由）可加载，不能被应急网关误拦。
+	if code := req(http.MethodGet, "/admin"); code != http.StatusOK {
+		t.Errorf("/admin SPA 回退应 200: %d", code)
+	}
 	// 白名单判定（单元级）
 	if isEmergencyAllowed("GET", "/api/system/status") != true || isEmergencyAllowed("POST", "/api/emergency/verify") != true ||
-		isEmergencyAllowed("GET", "/assets/index.js") != true || isEmergencyAllowed("GET", "/api/auth/login") != false {
+		isEmergencyAllowed("GET", "/assets/index.js") != true || isEmergencyAllowed("GET", "/admin") != true ||
+		isEmergencyAllowed("GET", "/api/auth/login") != false {
 		t.Error("白名单判定异常")
 	}
 }

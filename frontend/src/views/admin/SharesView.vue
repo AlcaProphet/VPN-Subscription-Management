@@ -3,9 +3,11 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Badge, Button, Input, Modal, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
+import { Badge, Button, Input, Space, Table, Tabs, Tag, TypographyText, Upload } from 'ant-design-vue'
 import { listShares, createShare, renameShare, deleteShare, refreshShareToken, revokeShareToken, type ShareItem } from '@/api/share'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
@@ -183,10 +185,11 @@ async function doDelete() {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold m-0">分享订阅</h2>
-      <Button type="primary" @click="createOpen = true">创建分享</Button>
-    </div>
+    <PageHeader title="分享订阅">
+      <template #actions>
+        <Button type="primary" @click="createOpen = true">创建分享</Button>
+      </template>
+    </PageHeader>
 
     <TriStateList :loading="loading" :empty="shares.length === 0" empty-text="还没有分享订阅">
       <!-- ≥768：表格 -->
@@ -222,17 +225,17 @@ async function doDelete() {
 
       <!-- <768：卡片（移动端易用性，与平台/订阅卡片风格一致） -->
       <div class="grid grid-cols-1 gap-3 md:hidden">
-        <div v-for="s in shares" :key="s.id" class="border rounded-lg p-3 bg-white dark:bg-gray-800">
+        <div v-for="s in shares" :key="s.id" class="border rounded-lg p-3 bg-surface">
           <div class="flex items-center justify-between gap-2">
             <span class="font-medium truncate">{{ s.name }}</span>
             <Badge :status="revoked(s) ? 'error' : 'success'" :text="revoked(s) ? '已吊销' : '有效'" />
           </div>
-          <div class="text-xs text-gray-500 mt-1">创建 {{ fmtTime(s.created_at) }}</div>
+          <div class="text-xs text-text-secondary mt-1">创建 {{ fmtTime(s.created_at) }}</div>
           <div class="mt-1">
             <Tag v-if="s.current_version > 0" color="green">v{{ s.current_version }}</Tag>
             <Tag v-else color="default">无版本</Tag>
           </div>
-          <div class="mt-2 flex flex-wrap gap-2">
+          <div class="mobile-actions mt-2 flex flex-wrap gap-2">
             <Button size="small" @click="openRename(s)">改名</Button>
             <Button size="small" @click="router.push(`/admin/shares/${s.id}/versions`)">版本管理</Button>
             <Button size="small" :disabled="revoked(s)" @click="copyLink(s)">复制链接</Button>
@@ -245,12 +248,10 @@ async function doDelete() {
     </TriStateList>
 
     <!-- 创建对话框：名称 + 首版本（文件/文本页签） -->
-    <Modal v-model:open="createOpen" title="创建分享订阅" :footer="null" :width="560" destroy-on-close
-           @cancel="closeCreate">
+    <FormOverlay v-model:open="createOpen" title="创建分享订阅" :width="560" :loading="creating" destroy-on-close
+                 @cancel="closeCreate">
       <div v-if="createdShare" class="mb-4 p-3 rounded border border-green-300 bg-green-50 dark:bg-green-900/20">
         <div class="text-sm mb-1">分享已创建，标识：<TypographyText code>{{ createdShare.slug }}</TypographyText></div>
-        <Button size="small" @click="copyLink(createdShare)">复制分享链接</Button>
-        <Button size="small" class="ml-2" @click="closeCreate">完成</Button>
       </div>
       <template v-else>
         <Input v-model:value="createName" :maxlength="100" placeholder="名称（创建后仅可改名）" class="mb-3" />
@@ -262,20 +263,29 @@ async function doDelete() {
           </Tabs.TabPane>
           <Tabs.TabPane key="text" tab="在线编辑">
             <Input.TextArea v-model:value="createText" :rows="8" placeholder="粘贴分享内容" />
-            <Button type="primary" class="mt-2" :loading="creating" @click="doCreate">创建</Button>
           </Tabs.TabPane>
         </Tabs>
       </template>
-    </Modal>
+      <template #footer>
+        <template v-if="createdShare">
+          <Button class="touch-target" @click="copyLink(createdShare)">复制分享链接</Button>
+          <Button type="primary" class="touch-target" @click="closeCreate">完成</Button>
+        </template>
+        <template v-else>
+          <Button class="touch-target" @click="closeCreate">取消</Button>
+          <Button v-if="createMode === 'text'" type="primary" class="touch-target" :loading="creating" @click="doCreate">创建</Button>
+        </template>
+      </template>
+    </FormOverlay>
 
     <!-- 改名弹窗 -->
-    <Modal :open="renameTarget !== null" title="改名" :footer="null" :width="420" destroy-on-close
-           @cancel="renameTarget = null">
-      <Input v-model:value="renameValue" :maxlength="100" @press-enter="doRename" />
-      <div class="flex justify-end mt-3">
-        <Button type="primary" :loading="renaming" @click="doRename">保存</Button>
+    <FormOverlay :open="renameTarget !== null" title="改名" :width="420" :loading="renaming" destroy-on-close
+                 @submit="doRename" @update:open="renameTarget = null">
+      <div class="mb-2 text-xs text-text-secondary">
+        标识：<TypographyText code>{{ renameTarget?.slug ?? '' }}</TypographyText>
       </div>
-    </Modal>
+      <Input v-model:value="renameValue" :maxlength="100" @press-enter="doRename" />
+    </FormOverlay>
 
     <!-- 刷新（含吊销恢复）/ 吊销 / 删除 确认 -->
     <ConfirmModal :open="refreshTarget !== null" title="刷新 Token" :loading="refreshing"

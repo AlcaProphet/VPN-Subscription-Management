@@ -35,12 +35,12 @@ func NewService(st *store.Store, versions *version.Service, tokens *token.Servic
 
 // Share 分享订阅
 type Share struct {
-	ID             int64     `json:"id"`
-	Slug           string    `json:"slug"`
-	Name           string    `json:"name"`
-	TokenStatus    string    `json:"token_status"` // active/revoked
-	Token          string    `json:"token"`        // 有效时返回（吊销后为空）
-	CurrentVersion int64     `json:"current_version"`
+	ID             int64      `json:"id"`
+	Slug           string     `json:"slug"`
+	Name           string     `json:"name"`
+	TokenStatus    string     `json:"token_status"` // active/revoked
+	Token          string     `json:"token"`        // 有效时返回（吊销后为空）
+	CurrentVersion int64      `json:"current_version"`
 	CreatedAt      *time.Time `json:"created_at"` // UTC RFC3339；空值 null（R07-04）
 }
 
@@ -73,7 +73,7 @@ func (s *Service) Create(ctx context.Context, name string, src version.ContentPr
 		return nil, err
 	}
 	// 首版本创建（版本组件事务）；失败回滚分享记录与 Token（失败清理模式）
-	v, err := s.versions.CreateVersion(ctx, version.OwnerShare, sh.ID, src)
+	v, _, err := s.versions.CreateVersion(ctx, version.OwnerShare, sh.ID, src, version.CreateOptions{Activate: true})
 	if err != nil {
 		s.rollbackRecord(ctx, sh.ID) // DELETE share_tokens + share_subscriptions
 		return nil, err
@@ -85,7 +85,9 @@ func (s *Service) Create(ctx context.Context, name string, src version.ContentPr
 // rollbackRecord 首版本创建失败时回滚分享记录与 Token
 func (s *Service) rollbackRecord(ctx context.Context, id int64) {
 	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		_, _ = tx.ExecContext(ctx, `DELETE FROM share_tokens WHERE share_id = ?`, id)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM share_tokens WHERE share_id = ?`, id); err != nil {
+			s.log.Warn("回滚分享 Token 清理失败", "share_id", id, "err", err)
+		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM share_subscriptions WHERE id = ?`, id)
 		return err
 	}); err != nil {
@@ -219,14 +221,4 @@ func (s *Service) Get(ctx context.Context, id int64) (*Share, error) {
 		sh.CreatedAt = &created.Time
 	}
 	return &sh, nil
-}
-
-// Name 取分享名称（下载 Content-Disposition 用）
-func (s *Service) Name(ctx context.Context, id int64) (string, error) {
-	var name string
-	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT name FROM share_subscriptions WHERE id = ?`, id).Scan(&name); err != nil {
-		return "", err
-	}
-	return name, nil
 }

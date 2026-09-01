@@ -20,9 +20,19 @@ const form = reactive({ email: '', password: '', remember: false, captcha_token:
 const submitting = ref(false)
 const errorMsg = ref('')
 
-// OIDC 区块：oidc_error 冲突文案从 route.query 读取展示
+// OIDC 回调错误统一映射为可恢复的中文说明，内部枚举不直接暴露给用户。
 const oidcError = ref('')
-watch(() => route.query.oidc_error, (v) => { if (v) oidcError.value = String(v) }, { immediate: true })
+const oidcErrorMessages: Record<string, string> = {
+  state_mismatch: 'OIDC 登录请求校验失败，请重新发起登录。',
+  state_expired: 'OIDC 登录请求已过期，请重新发起登录。',
+  exchange_failed: 'OIDC 身份验证交换失败，请稍后重试。',
+  resolve_failed: '无法解析 OIDC 用户信息，请联系管理员检查身份提供商配置。',
+  issue_failed: '无法创建登录会话，请稍后重试或联系管理员。',
+}
+watch(() => route.query.oidc_error, (v) => {
+  const value = typeof v === 'string' ? v : ''
+  oidcError.value = value ? (oidcErrorMessages[value] ?? `OIDC 登录失败：${value}`) : ''
+}, { immediate: true })
 
 // 模拟登录表单（UI §2.2：role/group 附加属性，勾选后输入，R07-07）
 const mockForm = reactive({ email: '', username: '', email_verified: true, with_role: false, role: '', with_group: false, group: '' })
@@ -32,7 +42,7 @@ async function onMockLogin() {
   mockSubmitting.value = true
   errorMsg.value = ''
   try {
-    await mockLogin({
+    const res = await mockLogin({
       email: mockForm.email,
       username: mockForm.username || undefined,
       email_verified: mockForm.email_verified,
@@ -40,6 +50,15 @@ async function onMockLogin() {
       roles: mockForm.with_role && mockForm.role ? [mockForm.role] : undefined,
       groups: mockForm.with_group && mockForm.group ? [mockForm.group] : undefined,
     })
+    if (res.status === 'pending') {
+      errorMsg.value = res.message ?? '账号待审批，请等待管理员审核'
+      return
+    }
+    if (!res.token) {
+      errorMsg.value = '模拟登录未返回会话令牌'
+      return
+    }
+    auth.setSession(res.token)
     await router.push('/')
   } catch (err) {
     errorMsg.value = (err as Error).message
@@ -96,10 +115,10 @@ onMounted(async () => {
   <div class="w-full max-w-md">
     <!-- 自定义登录页公告：登录 card 上方，MD 渲染；容器与登录 card 同款样式（R10-07 边框阴影统一） -->
     <div v-if="notice.login_announcement"
-         class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-4 mb-4">
+         class="bg-surface rounded-lg shadow p-4 mb-4">
       <MarkdownView :source="notice.login_announcement" />
     </div>
-    <div class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-8">
+    <div class="bg-surface rounded-lg shadow p-8">
       <!-- 顶部：Logo 垂直布局（ICON 上、站点标题下，标题更大；R10-06） -->
       <div class="flex flex-col items-center gap-3 mb-6">
         <img v-if="system.siteIconUrl" :src="system.siteIconUrl" alt="站点 ICON" class="h-16 w-16 object-contain" />
@@ -132,8 +151,8 @@ onMounted(async () => {
         <Divider plain>或</Divider>
         <!-- mock 提供商（仅 Dev）：模拟登录表单，标题标注「Dev 模拟登录」 -->
         <Form v-if="system.status.oidc_provider_type === 'mock'" layout="vertical" :model="mockForm" @finish="onMockLogin">
-          <div class="text-sm text-gray-400 mb-2">Dev 模拟登录</div>
-          <Form.Item label="邮箱" name="mock_email" :rules="[{ required: true, type: 'email' }]">
+          <div class="text-sm text-text-tertiary mb-2">Dev 模拟登录</div>
+          <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email', trigger: 'blur' }]">
             <Input v-model:value="mockForm.email" />
           </Form.Item>
           <Form.Item label="用户名（可留空，默认取邮箱前缀）"><Input v-model:value="mockForm.username" /></Form.Item>
@@ -163,7 +182,7 @@ onMounted(async () => {
     </div>
     <!-- 自定义登录页页脚：登录 card 下方，MD 渲染；容器与登录 card 同款样式（R10-07 边框阴影统一） -->
     <div v-if="notice.login_footer"
-         class="bg-white dark:bg-gray-800 dark:text-gray-100 rounded-lg shadow p-4 mt-4">
+         class="bg-surface rounded-lg shadow p-4 mt-4">
       <MarkdownView :source="notice.login_footer" />
     </div>
     <div class="text-right mt-3"><Switch :checked="dark" checked-children="🌙" un-checked-children="☀️" size="small" title="切换暗色/浅色模式" @change="toggle" /></div>

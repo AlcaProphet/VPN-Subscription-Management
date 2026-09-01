@@ -47,12 +47,29 @@ export interface RateLimitSettings {
   register: number
   forgot: number
   download: number
+  reset_validate: number
+  http_read_header_timeout_sec: number
+  http_read_timeout_sec: number
+  http_write_timeout_sec: number
+  http_idle_timeout_sec: number
+  http_max_body_mb: number
 }
 
 export interface SiteInfo {
   site_name: string
   icon_url: string
 }
+
+export interface AdvancedSettings {
+  advanced_mode: boolean
+  collect_interval_minutes: number
+  traffic_card_enabled: boolean
+}
+
+export const getAdvancedSettings = () => http.get<any, AdvancedSettings>('/admin/settings/advanced')
+export const saveAdvancedSettings = (data: AdvancedSettings & { confirm_word?: string }) =>
+  http.put<any, { task_id?: string; message?: string }>('/admin/settings/advanced', data)
+export const getAdminTask = (id: string) => http.get<any, { id: string; kind: string; status: string; result?: unknown; error?: string }>(`/admin/tasks/${id}`)
 
 export const getOidc = () => http.get<any, OidcSettings>('/admin/settings/oidc')
 export const saveOidc = (data: OidcSettings) => http.put<any, { need_restart?: boolean }>('/admin/settings/oidc', data)
@@ -74,7 +91,7 @@ export const getSite = () => http.get<any, SiteInfo>('/admin/settings/site')
 export const saveSite = (form: FormData) => http.put<any, SiteInfo>('/admin/settings/site', form)
 export const deleteSiteIcon = () => http.delete('/admin/settings/site/icon')
 export const getRateLimit = () =>
-  http.get<any, { settings: RateLimitSettings; trust_proxy: string }>('/admin/settings/ratelimit')
+  http.get<any, { settings: RateLimitSettings; trust_proxy: string; trust_proxy_cidrs: string }>('/admin/settings/ratelimit')
 export const saveRateLimit = (data: RateLimitSettings) => http.put('/admin/settings/ratelimit', data)
 export const getLogLevel = () => http.get<any, { level: string }>('/admin/settings/log-level')
 export const saveLogLevel = (level: string) => http.put('/admin/settings/log-level', { level })
@@ -97,7 +114,8 @@ export const getPublicAnnouncement = () =>
 // --- 运维端点（Build3 Step 4：配置导入导出/备份下载/一键清空） ---
 export const exportConfig = (password: string) =>
   http.post<any, Blob>('/admin/settings/export', { password }, { responseType: 'blob' })
-export const importConfig = (form: FormData) => http.post('/admin/settings/import', form)
+export const importConfig = (form: FormData) =>
+  http.post<any, { task_id?: string; message?: string }>('/admin/settings/import', form)
 // Setup 导入（未配置状态暴露，无会话保护；依赖导出密码 + 按 IP 限流 5/min）
 export const setupImportConfig = (form: FormData) => http.post('/setup/import', form)
 export const clearAll = (confirmWord: string) => http.post('/admin/settings/clear_all', { confirm_word: confirmWord })

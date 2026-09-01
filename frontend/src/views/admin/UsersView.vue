@@ -3,23 +3,30 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Alert, Badge, Button, Dropdown, Input, Menu, Modal, Pagination, Radio, Select, Space, Table, Tabs, Tag, Upload,
+  Alert, Badge, Button, Input, Menu, Modal, Pagination, Radio, Select, Space, Table, Tabs, Tag, Upload,
 } from 'ant-design-vue'
+import AppDropdown from '@/components/AppDropdown.vue'
 import {
   listUsers, createUser, updateUser, changeRole, revokeTokens, resetPassword, clearOidc, setStatus, deleteUser,
-  sendPasswordLinks, type AdminUser,
+  sendPasswordLinks, setUserQuota, type AdminUser,
 } from '@/api/user'
 import { listGroups, type GroupItem } from '@/api/group'
 import { listPlatforms, type PlatformItem } from '@/api/platform'
 import { upsertCustom, upsertCustomText, deleteCustom } from '@/api/custom'
 import { getSMTP } from '@/api/settings'
+import { retryUserSync, resetQuota } from '@/api/xray'
 import { useAuthStore } from '@/stores/auth'
+import { useSystemStore } from '@/stores/system'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FormOverlay from '@/components/FormOverlay.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 
 const router = useRouter()
 const auth = useAuthStore()
+const system = useSystemStore()
+const advancedMode = computed(() => !!system.status?.advanced_mode)
 
 // 响应式：≥768 表格 / <768 卡片（展示前 4 字段）
 const isMobile = ref(false)
@@ -67,6 +74,7 @@ async function loadMeta() {
   } catch (err) {
     Notify.error((err as Error).message)
   }
+  void system.fetchStatus()
 }
 onMounted(loadMeta)
 
@@ -142,6 +150,47 @@ async function doEdit() {
     Notify.error((err as Error).message)
   } finally {
     saving.value = false
+  }
+}
+
+// --- 高级模式：配额覆盖 / 重置 / 重试同步 ---
+const quotaTarget = ref<AdminUser | null>(null)
+const quotaValue = ref<number | null>(null)
+const quotaSaving = ref(false)
+function openQuota(u: AdminUser) {
+  quotaTarget.value = u
+  quotaValue.value = u.quota_override ?? u.effective_quota ?? null
+}
+async function confirmQuota() {
+  if (!quotaTarget.value) return
+  quotaSaving.value = true
+  try {
+    await setUserQuota(quotaTarget.value.id, { quota_override: quotaValue.value })
+    Notify.success('配额已更新')
+    quotaTarget.value = null
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    quotaSaving.value = false
+  }
+}
+async function doResetQuota(u: AdminUser) {
+  try {
+    await resetQuota(u.id)
+    Notify.success('配额已重置并重新推送')
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  }
+}
+async function doRetrySync(u: AdminUser) {
+  try {
+    const res = await retryUserSync(u.id)
+    Notify.success(`重试完成：成功 ${res.synced ?? 0}，失败 ${res.failed ?? 0}`)
+    await load()
+  } catch (err) {
+    Notify.error((err as Error).message)
   }
 }
 
@@ -367,6 +416,15 @@ async function confirmCustomDelete() {
 const statusColor: Record<string, string> = { pending: 'orange', active: 'green', disabled: 'default' }
 const statusText: Record<string, string> = { pending: '待审批', active: '已激活', disabled: '已禁用' }
 const sourceText: Record<string, string> = { oidc: 'OIDC', local: '本地创建', selfreg: '自注册' }
+function formatBytes(v: number) {
+  if (v < 1024) return `${v} B`
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`
+  if (v < 1024 * 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
+  return `${(v / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+const syncColor: Record<string, string> = { synced: 'green', pending: 'blue', failed: 'red', '': 'default' }
+const syncText: Record<string, string> = { synced: '已同步', pending: '同步中', failed: '失败', '': '未推送' }
+
 
 // 操作菜单项（Dropdown）
 interface MenuItemDef {
@@ -384,6 +442,13 @@ function menuItems(u: AdminUser): MenuItemDef[] {
     { key: 'revoke', label: '吊销所有 Token' },
     { key: 'reset', label: '设置/重置密码' },
   ]
+  if (advancedMode.value) {
+    items.push(
+      { key: 'quota', label: '设置配额覆盖' },
+      { key: 'resetquota', label: '重置配额并重推' },
+      { key: 'retrysync', label: '重试 Xray 同步' },
+    )
+  }
   if (u.has_oidc_binding) items.push({ key: 'oidc', label: '清除 OIDC 绑定' })
   items.push(
     u.status === 'disabled'
@@ -406,6 +471,9 @@ function onMenuClick(key: string, u: AdminUser) {
     if (c) customDeleteTarget.value = { user: u, customId: c.id, platformId: c.platform_id }
   } else if (key === 'revoke') revokeTarget.value = u
   else if (key === 'reset') openReset(u)
+  else if (key === 'quota') openQuota(u)
+  else if (key === 'resetquota') void doResetQuota(u)
+  else if (key === 'retrysync') void doRetrySync(u)
   else if (key === 'oidc') oidcTarget.value = u
   else if (key === 'disable' || key === 'enable') statusTarget.value = u
   else if (key === 'delete') deleteTarget.value = u
@@ -423,16 +491,17 @@ const roleConfirmContent = computed(() => {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-      <h2 class="text-lg font-semibold m-0">用户管理</h2>
-      <!-- Space wrap：长文案按钮 + 新建按钮在窄屏自动换行，防止溢出页面框架 -->
-      <Space :wrap="true">
-        <Button :loading="sendingLinks" :disabled="!smtpConfigured"
-                :title="smtpConfigured ? '' : 'SMTP 未配置，请先在面板配置'"
-                @click="batchSendLinks">为所有无密码用户发送密码设置链接</Button>
-        <Button type="primary" @click="openCreate">新建用户</Button>
-      </Space>
-    </div>
+    <PageHeader title="用户管理">
+      <template #actions>
+        <!-- Space wrap：长文案按钮 + 新建按钮在窄屏自动换行，防止溢出页面框架 -->
+        <Space :wrap="true">
+          <Button :loading="sendingLinks" :disabled="!smtpConfigured"
+                  :title="smtpConfigured ? '' : 'SMTP 未配置，请先在面板配置'"
+                  @click="batchSendLinks">为所有无密码用户发送密码设置链接</Button>
+          <Button type="primary" @click="openCreate">新建用户</Button>
+        </Space>
+      </template>
+    </PageHeader>
 
     <div class="mb-3">
       <Input v-model:value="keyword" allow-clear placeholder="搜索用户名 / 邮箱" style="max-width: 320px" />
@@ -441,7 +510,8 @@ const roleConfirmContent = computed(() => {
     <TriStateList :loading="loading" :empty="users.length === 0 && total === 0" empty-text="暂无用户">
       <!-- ≥768 表格态 -->
       <template v-if="!isMobile">
-        <Table :data-source="users" row-key="id" :pagination="false">
+        <Table :data-source="users" row-key="id" :pagination="false"
+               :row-class-name="(record: AdminUser) => advancedMode && record.quota_exceeded ? 'quota-exceeded-row' : ''">
           <Table.Column key="username" title="用户名" data-index="username">
             <template #default="{ record }">
               <Space>
@@ -458,7 +528,7 @@ const roleConfirmContent = computed(() => {
               <Tag :color="record.role === 'admin' ? 'red' : 'blue'">{{ record.role === 'admin' ? '管理员' : '用户' }}</Tag>
             </template>
           </Table.Column>
-          <Table.Column key="group" title="所属组" width="120">
+          <Table.Column v-if="advancedMode" key="group" title="所属组" width="120">
             <template #default="{ record }">
               <Tag v-if="record.group_name">{{ record.group_name }}</Tag>
               <span v-else>—</span>
@@ -472,6 +542,24 @@ const roleConfirmContent = computed(() => {
               <Badge :color="statusColor[record.status]" :text="statusText[record.status]" />
             </template>
           </Table.Column>
+          <Table.Column v-if="advancedMode" key="usage" title="本月用量" width="120">
+            <template #default="{ record }">
+              {{ record.used_bytes != null ? formatBytes(record.used_bytes) : '—' }}
+            </template>
+          </Table.Column>
+          <Table.Column v-if="advancedMode" key="quota" title="有效配额" width="120">
+            <template #default="{ record }">
+              <span v-if="record.effective_quota == null">不限</span>
+              <span v-else>{{ record.effective_quota }} GB</span>
+              <Tag v-if="record.quota_override != null" color="blue" class="ml-1">覆盖</Tag>
+            </template>
+          </Table.Column>
+          <Table.Column v-if="advancedMode" key="sync" title="同步状态" width="120">
+            <template #default="{ record }">
+              <Badge :color="syncColor[record.sync_status ?? ''] ?? 'default'" :text="syncText[record.sync_status ?? ''] ?? '未推送'" />
+              <div v-if="record.sync_error" class="text-xs text-red-500 truncate" :title="record.sync_error">{{ record.sync_error }}</div>
+            </template>
+          </Table.Column>
           <Table.Column key="custom" title="自定义订阅" width="130">
             <template #default="{ record }">
               <Tag v-for="c in record.custom_subs" :key="c.id" color="purple">{{ c.platform_name }}</Tag>
@@ -480,12 +568,12 @@ const roleConfirmContent = computed(() => {
           </Table.Column>
           <Table.Column key="actions" title="操作" width="100">
             <template #default="{ record }">
-              <Dropdown>
+              <AppDropdown>
                 <Button size="small">操作 <span class="ml-0.5">▾</span></Button>
                 <template #overlay>
                   <Menu :items="menuItems(record)" @click="(e: any) => onMenuClick(e.key, record)" />
                 </template>
-              </Dropdown>
+              </AppDropdown>
             </template>
           </Table.Column>
         </Table>
@@ -493,33 +581,33 @@ const roleConfirmContent = computed(() => {
       <!-- <768 卡片态（前 4 字段：用户名/邮箱/角色/所属组） -->
       <template v-else>
         <div class="space-y-3">
-          <div v-for="u in users" :key="u.id" class="border rounded-lg p-3">
+          <div v-for="u in users" :key="u.id" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between">
               <Space>
                 <span class="font-medium">{{ u.username }}</span>
                 <Tag v-if="!u.email" color="default">无邮箱</Tag>
                 <Tag :color="u.role === 'admin' ? 'red' : 'blue'">{{ u.role === 'admin' ? '管理员' : '用户' }}</Tag>
               </Space>
-              <Dropdown>
+              <AppDropdown>
                 <Button size="small">操作 ▾</Button>
                 <template #overlay>
                   <Menu :items="menuItems(u)" @click="(e: any) => onMenuClick(e.key, u)" />
                 </template>
-              </Dropdown>
+              </AppDropdown>
             </div>
-            <div class="text-sm text-gray-500 mt-1 truncate">{{ u.email || '无邮箱' }} · {{ u.group_name || '无组' }}</div>
+            <div class="text-sm text-text-secondary mt-1 truncate">{{ u.email || '无邮箱' }} · {{ u.group_name || '无组' }}</div>
           </div>
         </div>
       </template>
     </TriStateList>
 
-    <div class="flex justify-end mt-3">
+    <div class="flex justify-end overflow-x-auto mt-3">
       <Pagination v-model:current="page" :page-size="size" :total="total"
                   :show-total="(t: number) => `共 ${t} 条`" />
     </div>
 
     <!-- 新建用户弹窗 -->
-    <Modal v-model:open="createOpen" title="新建用户" :footer="null" :width="480" destroy-on-close>
+    <FormOverlay v-model:open="createOpen" title="新建用户" :width="480" :loading="creating" destroy-on-close @submit="doCreate">
       <div class="space-y-3">
         <div>
           <div class="mb-1 text-sm">用户名</div>
@@ -533,40 +621,38 @@ const roleConfirmContent = computed(() => {
           <div class="mb-1 text-sm">密码（≥8 字符）</div>
           <Input.Password v-model:value="createForm.password" :maxlength="128" placeholder="初始密码" />
         </div>
-        <div class="flex justify-end">
-          <Button type="primary" :loading="creating" @click="doCreate">创建</Button>
-        </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="createOpen = false">取消</Button>
+        <Button type="primary" class="touch-target" :loading="creating" @click="doCreate">创建</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 编辑弹窗：分组换组 + 无邮箱补填 -->
-    <Modal v-model:open="editOpen" :title="`编辑用户：${editing?.username ?? ''}`" :footer="null" :width="480" destroy-on-close>
+    <FormOverlay v-model:open="editOpen" :title="`编辑用户：${editing?.username ?? ''}`" :width="480" :loading="saving" destroy-on-close @submit="doEdit">
       <div class="space-y-3">
-        <div>
+        <div v-if="advancedMode">
           <div class="mb-1 text-sm">所属组（换组无需清 Token，下载实时解析跟随）</div>
-          <Select v-model:value="editForm.group_id" class="w-full" :options="groupOptions" />
+          <AppSelect v-model:value="editForm.group_id" class="w-full" :options="groupOptions" />
         </div>
         <div v-if="editing && !editing.email">
           <div class="mb-1 text-sm">补填邮箱（补填后获得设置密码/重置能力）</div>
           <Input v-model:value="editForm.email" :maxlength="254" placeholder="邮箱（唯一）" />
         </div>
-        <div class="flex justify-end">
-          <Button type="primary" :loading="saving" @click="doEdit">保存</Button>
-        </div>
       </div>
-    </Modal>
+    </FormOverlay>
 
     <!-- 上传自定义订阅弹窗 -->
-    <Modal v-model:open="customOpen" :title="`上传自定义订阅：${customTarget?.username ?? ''}`" :footer="null" :width="560" destroy-on-close>
+    <FormOverlay v-model:open="customOpen" :title="`上传自定义订阅：${customTarget?.username ?? ''}`" :width="560" :loading="uploading" destroy-on-close @submit="doCustom">
       <div class="space-y-3">
         <div v-if="customResult" class="mb-2">
           <Alert type="success" show-icon :message="`自定义订阅已上传`" :description="`标识：${customResult}`" />
         </div>
         <div>
           <div class="mb-1 text-sm">适用平台</div>
-          <Select v-model:value="customForm.platform_id" class="w-full" placeholder="选择平台">
+          <AppSelect v-model:value="customForm.platform_id" class="w-full" placeholder="选择平台">
             <Select.Option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</Select.Option>
-          </Select>
+          </AppSelect>
         </div>
         <!-- 文件/文本双页签（与版本管理、分享订阅创建弹窗统一，避免按钮错位） -->
         <Tabs v-model:activeKey="customForm.mode">
@@ -579,14 +665,15 @@ const roleConfirmContent = computed(() => {
             <Input.TextArea v-model:value="customForm.text" :rows="6" placeholder="粘贴订阅配置内容（覆盖该用户该平台的组分配）" />
           </Tabs.TabPane>
         </Tabs>
-        <div class="flex justify-end">
-          <Button type="primary" :loading="uploading" @click="doCustom">上传</Button>
-        </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="customOpen = false">{{ customResult ? '关闭' : '取消' }}</Button>
+        <Button v-if="!customResult" type="primary" class="touch-target" :loading="uploading" @click="doCustom">上传</Button>
+      </template>
+    </FormOverlay>
 
     <!-- 设置/重置密码弹窗（二选一） -->
-    <Modal v-model:open="resetOpen" :title="`设置/重置密码：${resetTarget?.username ?? ''}`" :footer="null" :width="480" destroy-on-close>
+    <FormOverlay v-model:open="resetOpen" :title="`设置/重置密码：${resetTarget?.username ?? ''}`" :width="480" :loading="resetting" destroy-on-close @submit="doReset">
       <div class="space-y-3">
         <Radio.Group v-model:value="resetMode">
           <Radio value="direct">直接重置（系统生成 8 位密码）</Radio>
@@ -596,11 +683,21 @@ const roleConfirmContent = computed(() => {
                :message="`新密码：${directResult}`"
                description="请复制并妥善保管，仅展示一次；该用户全部现有会话已失效" />
         <Alert v-if="resetMode === 'send_email'" type="info" show-icon message="将发送一次性重置链接（1 小时有效），SMTP 未配置时不可用" />
-        <div class="flex justify-end">
-          <Button type="primary" :loading="resetting" @click="doReset">{{ resetMode === 'direct' ? '确认重置' : '发送邮件' }}</Button>
-        </div>
       </div>
-    </Modal>
+      <template #footer>
+        <Button class="touch-target" @click="resetOpen = false">{{ directResult ? '完成' : '取消' }}</Button>
+        <Button v-if="!directResult" type="primary" class="touch-target" :loading="resetting" @click="doReset">{{ resetMode === 'direct' ? '确认重置' : '发送邮件' }}</Button>
+      </template>
+    </FormOverlay>
+
+    <!-- 高级模式：配额覆盖弹窗 -->
+    <FormOverlay :open="!!quotaTarget" :title="`设置配额覆盖：${quotaTarget?.username ?? ''}`" :width="420" :loading="quotaSaving" destroy-on-close
+                 @submit="confirmQuota" @update:open="quotaTarget = null">
+      <div class="space-y-3">
+        <div class="mb-1 text-sm">配额覆盖（GB，0/空=不限；不填则恢复组默认配额）</div>
+        <InputNumber v-model:value="quotaValue" :min="0" class="w-full" placeholder="留空=不限/恢复默认" />
+      </div>
+    </FormOverlay>
 
     <!-- 各 ConfirmModal -->
     <ConfirmModal :open="!!roleTarget" title="角色变更" :content="roleConfirmContent" :loading="changingRole"
@@ -625,3 +722,9 @@ const roleConfirmContent = computed(() => {
                   :loading="customDeleting" @confirm="confirmCustomDelete" @update:open="customDeleteTarget = null" />
   </div>
 </template>
+
+<style scoped>
+:deep(.quota-exceeded-row) > td {
+  background: #fff1f0 !important;
+}
+</style>

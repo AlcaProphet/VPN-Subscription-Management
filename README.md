@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" alt="Go"/>
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go"/>
   <img src="https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white" alt="Vue 3"/>
   <img src="https://img.shields.io/badge/SQLite-嵌入式-003B57" alt="SQLite"/>
   <img src="https://img.shields.io/badge/Docker-单容器-2496ED?logo=docker&logoColor=white" alt="Docker"/>
@@ -65,6 +65,8 @@
 ## 快速开始（一键部署）
 
 > ⏱️ 全程大约 5 分钟。前提：已安装 Docker（含 Docker Compose）。
+
+> ⚠️ **首次 Setup 完成并注册管理员之前，不要把服务暴露到公网。** 公网部署请先仅绑定 `127.0.0.1`，完成 Setup 后再开放反代接入。
 
 ### 第 1 步：一键启动（ghcr.io 预构建镜像）
 
@@ -199,8 +201,21 @@ server {
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `LOG_FORMAT` | `console` | `console` / `json` |
 | `PORT` | `8080` | 监听端口 |
-| `TRUST_PROXY` | `auto` | `auto` / `on` / `off`，真实客户端 IP 解析策略 |
+| `TRUST_PROXY` | `auto` | `auto` / `on` / `off` / `cidr`，真实客户端 IP 解析策略 |
+| `TRUST_PROXY_CIDRS` | 空 | 仅在 `TRUST_PROXY=cidr` 时生效，逗号分隔可信反代 CIDR（自动包含回环） |
 | `RESET_ADMIN_PASSWORD` | — | 应急恢复：管理员密码救援 |
+
+### 高级模式（Xray 对接）
+
+高级模式用于把面板用户/独立账号实时推送到自建 Xray 实例，并在订阅下载时动态渲染节点凭据。启用前请确认 Xray 服务器满足：
+
+- 已开放 **Xray gRPC API**（`api` 配置项，通常监听 `127.0.0.1:10085` 或独立端口）；
+- 已开启 **流量统计**（`policy.stats` 中的 `userUplink` / `userDownlink`）；
+- 管理端到 Xray 的 TCP 端口在防火墙上放行，并按部署环境配置 **IP 白名单**（不要直接暴露公网 gRPC）；
+- 建议规模为 **1~5 台 Xray 实例**，更多实例请评估 SQLite/同步模型；
+- 关闭高级模式（OFF）会触发清空并尝试从 Xray 侧移除账号；不可达实例的残留账号需人工通过实例对账清理。
+
+启用路径：`管理面板 → Xray 实例 → 开始初始化`。关闭路径：`面板设置 → 高级模式`，需输入确认词 `DISABLE`。
 
 ### 应急恢复（管理员密码救援）
 
@@ -220,7 +235,7 @@ docker compose logs vpn-sub | grep 操作码
 
 ## 技术栈
 
-- **后端**：Go 1.25 + Gin + SQLite（纯 Go 零 CGO 驱动，嵌入式存储，无需外部数据库）
+- **后端**：Go 1.26 + Gin + SQLite（纯 Go 零 CGO 驱动，嵌入式存储，无需外部数据库）
 - **前端**：Vue 3 + Vite + Ant Design Vue + Tailwind CSS
 - **部署**：单容器（API + 前端页面 + 静态资源一体），多阶段构建，非 root 运行，数据卷持久化
 - **CI/CD**：GitHub Actions 自动构建并推送 Docker 镜像（打 `v*` 标签触发）
@@ -244,6 +259,13 @@ docker compose up -d --build
 适合家庭 / 公司内网：compose 中 `ports` 保持 `"8080:8080"` 直接暴露即可，浏览器访问 `http://服务器IP:8080`。
 
 > ⚠️ 直连模式凭据为明文传输，**仅限可信内网**；公网请使用预构建镜像 + 反向代理（见高级运维）。
+
+> 🔒 **安全边界提示**
+> - OIDC 授权回调承载登录凭据，公网部署必须由 HTTPS 反代接入，不得公网 HTTP 直连启用 OIDC。
+> - 根目录 `docker-compose.yml` 为 Dev/全接口暴露示例，仅限个人本机或可信内网测试；公网或真实数据必须使用 `docker-compose.yml.example` 的 Production 配置。
+> - 平台 scheme 会唤起本机客户端，只应配置可信客户端 scheme，不要配置来源不明的 scheme。
+> - 规则素材池 URL 同步为管理员配置的服务端拉取；在共享/云环境部署时应自行限制出网目标，系统当前不默认拦截私网地址。
+> - 运行日志包含客户端 IP，请按当地合规要求管理日志留存。
 
 ### 本地开发
 
