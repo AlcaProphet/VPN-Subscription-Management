@@ -2,8 +2,8 @@
 
 > **文档定位：** 本文档是承接 Build11 验收后的**后续修复构建方案**，针对核验发现的 2 个非阻断项：旧灰度类全量 Token 化、全局单浮层与统一焦点管理。本文档按 `docs/DocTemplates/Build.template.md` 样式编写。
 > - 当前设计：`Design2.md`、`Design2-UI.md`
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 历史构建：`docs/reports/Build/`（Build1~Build10 已存档）、`Build11.md`（已收口，待归档）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 历史构建：`docs/reports/Build/`（Build1~Build10 已存档）、`Build11.md`（已收口，已归档）
 > - 执行原则：每次仅执行一个 Step，完成后运行验收命令，确认通过后再进入下一步。
 > - 用户已确认方向：①全量类名迁移；②全局所有浮层统一管理；③直接 Modal 纳入焦点管理。
 

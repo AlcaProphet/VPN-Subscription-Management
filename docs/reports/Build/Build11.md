@@ -1,9 +1,9 @@
 # Build11.md — VPN 订阅管理系统 UI/UX 改进当前构建方案（v2.1）
 
-> **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](docs/reports/UI/UIReport1.md)、[UIReport2.md](docs/reports/UI/UIReport2.md)）后的**当前构建方案**。v1.2 已从头重新核验前后端源码与报告，修正可执行性、后端契约与测试落点；v1.3 同步用户构建前决策并落地 Step 1。目标是让 Build11 具备稳定、可逐步执行的能力。
+> **文档定位：** 本文档是承接 UI/UX 研究报告（[UIReport1.md](../UI/UIReport1.md)、[UIReport2.md](../UI/UIReport2.md)）后的**当前构建方案**。v1.2 已从头重新核验前后端源码与报告，修正可执行性、后端契约与测试落点；v1.3 同步用户构建前决策并落地 Step 1。目标是让 Build11 具备稳定、可逐步执行的能力。
 > - 研究依据：`docs/reports/UI/UIReport1.md`、`docs/reports/UI/UIReport2.md`
 > - 当前设计：`Design2.md`、`Design2-UI.md`（本卷已获用户确认，Build11 相关章节已同步）
-> - 编码指令：[AGENTS.md](AGENTS.md)（唯一强要求）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（唯一强要求）
 > - 历史构建：`docs/reports/Build/`（Build1~Build10 均已存档，仅核查）
 >
 > **执行原则：**
@@ -13,7 +13,7 @@
 >
 > **本版状态：** v2.1 已完成 Step 1~7 及 Issue9 R24-01 后端死锁修复；前端 `npm run build` 与 `npm test -- --run`（97 tests）保持既有通过记录；后端 `go build ./...`、`go vet ./...`、`go test -timeout 180s ./...` 已于 2026-08-28 全部通过。Build11 整体已收口，后续仅剩 Production 人工核查与归档。
 >
-> ✅ 2026-08-28 R24-01 验收补充：`ExtService.ListExt`、`ExtService.CheckAllExtQuota` 已改为先读完并关闭外层游标再执行补充数据库操作，`SyncService.writeQuotaExceededError` 已改为单条批量更新；三个非空数据定向回归与 `TestOverviewEndpointAggregatesStableData` 均通过，解除 [ProjectWideReport2.md](docs/reports/ProjectWideReport/ProjectWideReport2.md) §4.1 记录的后端阻塞。
+> ✅ 2026-08-28 R24-01 验收补充：`ExtService.ListExt`、`ExtService.CheckAllExtQuota` 已改为先读完并关闭外层游标再执行补充数据库操作，`SyncService.writeQuotaExceededError` 已改为单条批量更新；三个非空数据定向回归与 `TestOverviewEndpointAggregatesStableData` 均通过，解除 [ProjectWideReport2.md](../ProjectWideReport/ProjectWideReport2.md) §4.1 记录的后端阻塞。
 
 ---
 

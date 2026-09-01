@@ -1,6 +1,6 @@
 # BuildReport2.md — Build8/Build9/Build10 事后验收报告
 
-> 核验日期：2026-08-27。核验对象：当前工作区代码（HEAD `cb2d355`，分支 `beta`）、[Build8.md](../../../Build8.md)、[Build9.md](../../../Build9.md)、[Build10.md](../../../Build10.md)、相关测试与 Production 容器 smoke。
+> 核验日期：2026-08-27。核验对象：当前工作区代码（HEAD `cb2d355`，分支 `beta`）、[Build8.md](../Build/Build8.md)、[Build9.md](../Build/Build9.md)、[Build10.md](../Build/Build10.md)、相关测试与 Production 容器 smoke。
 > 结论前置：**Build8、Build9、Build10 的功能代码已在当前工作区真实落地，后端编译/静态检查/单测、前端类型检查/构建/单测全部通过；Production 镜像可成功构建；仓库内 `.smoke-test-prod.sh` 与 `.smoke-test.sh` 已修复并复测通过，现在可以直接一键跑通完整 Production smoke。**  
 > 本次修复内容包括：smoke-prod 的 Bash 3.2 变量解析兼容、smoke 样本代理组改到当前模型、overlay 样本补齐协议必填字段，并为关键 API 响应增加成功校验，避免 smoke 假绿。
 

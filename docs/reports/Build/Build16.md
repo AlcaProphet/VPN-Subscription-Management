@@ -1,9 +1,9 @@
 # Build16.md — 规则来源识别、结构化素材与跨平台装配构建计划
 
-> **文档定位：** 本文是 VPN 订阅管理系统第十六轮当前构建方案，将 [Design3.md](Design3.md) 的已确认设计转化为可逐步执行和验收的实现手册。本文已完成八个 Step 实施并通过全量验证。
-> - 设计依据：[Design3.md](Design3.md)（本轮规则来源、Canonical Rule、快照和跨平台装配设计）
-> - 现行基线：[Design2.md](Design2.md)、[Design2-UI.md](Design2-UI.md)
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
+> **文档定位：** 本文是 VPN 订阅管理系统第十六轮当前构建方案，将 [Design3.md](../../../Design3.md) 的已确认设计转化为可逐步执行和验收的实现手册。本文已完成八个 Step 实施并通过全量验证。
+> - 设计依据：[Design3.md](../../../Design3.md)（本轮规则来源、Canonical Rule、快照和跨平台装配设计）
+> - 现行基线：[Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md)
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 前一轮构建：[Build15.md](Build15.md)（已完成）
 > - 编制日期：2026-08-31
 >

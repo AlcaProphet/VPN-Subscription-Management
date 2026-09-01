@@ -1,8 +1,8 @@
 # Build6.md — 高级模式核心：Xray 对接后端（当前构建方案·第六轮）
 
 > **文档定位：** 本文档是 VPN 订阅管理系统的**第六轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则），承接 [Build4.md](Build4.md)、[Build5.md](Build5.md)（基础模式全部验收通过后本轮方可启动）。
-> - 设计基线：[Design2.md](../../../Design2.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - GUI 规格：[Design2-UI.md](../../../Design2-UI.md)（活跃；本 Build 主要实现其 §9.1 后端契约，前端落点在 Build7）
+> - 设计基线：[Design2.md](../Design/Design2.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - GUI 规格：[Design2-UI.md](../Design/Design2-UI.md)（已归档；本 Build 主要实现其 §9.1 后端契约，前端落点在 Build7）
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 研究资料：[Xray-Core-API.md](../../Reference/Xray-Core-API.md)（**必读，尤其 §11**）、[Node-Link-Standards.md](../../Reference/Node-Link-Standards.md)
 > - 前置轮次：[Build4.md](Build4.md)、[Build5.md](Build5.md)；后续轮次：[Build7.md](Build7.md)（高级模式管理面与交付收口）

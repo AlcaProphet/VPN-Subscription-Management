@@ -23,7 +23,7 @@
 - 前端 `npm test -- --run` 通过：30 个测试文件、104 个用例全部通过。
 - Build1～Build10、Build12 的主要功能代码均有真实落点，未发现“只有文档没有代码”的 Step；Build7 已按用户决策暂标记完成，人工验收转 ProdTestList。
 - Build11 的 UI/交互/文档/前端测试基本落地，但受上述后端死锁影响，不能视为完整验收通过。
-- AGENTS.md 的文档索引已补充 Build11/Build12 的“已完成、尚未归档”状态。
+- AGENTS.md 的文档索引已记录 Build11/Build12 状态；后续 Build11～Build16 已全部归档至 `docs/reports/Build/`。
 
 ---
 
@@ -221,8 +221,8 @@ docker compose build                   # PASS（已生成 vpn-subscription-manag
 
 ### 4.3 【已处理】AGENTS.md 已补充 Build11/Build12 状态
 
-- 已按本次核验发现同步 `AGENTS.md`：顶部、§8.1 Build 文档行、§8.4 文档清单均补充 Build11/Build12“已完成、尚未归档”的状态。
-- 当前仓库中 `Build11.md`、`Build12.md` 仍位于根目录，后续归档动作可由用户另行决定。
+- 已按本次核验发现同步 `AGENTS.md`：顶部、§8.1 Build 文档行、§8.4 文档清单均记录 Build11/Build12 状态；后续 Build11～Build16 已完成归档。
+- 当前仓库中 `Build11.md`、`Build12.md` 已连同 Build13～Build16 移入 `docs/reports/Build/` 归档，并同步更新全库文档链接。
 
 ### 4.4 其他非阻断观察
 
@@ -247,6 +247,6 @@ docker compose build                   # PASS（已生成 vpn-subscription-manag
 
 1. 修复 `ExtService.ListExt` 的 SQLite 单连接嵌套查询死锁，并同步检查同类的 `CheckAllExtQuota`、`writeQuotaExceededError`；补充覆盖“高级模式 + 独立账号 + `/admin/overview`”及非空数据场景的后端测试；
 2. 由用户后续按 `ProdTestList.md` 完成 Build7/Build11 等 Production 人工验收，当前不再作为 Build7 文档层面的阻塞；
-3. AGENTS.md 索引已补充 Build11、Build12 状态；后续是否归档由用户决定。
+3. AGENTS.md 索引已同步 Build11～Build16 的归档状态，当前所有 Build 记录均已移入 `docs/reports/Build/`。
 
 本次核验与后续文档修订未修改任何业务代码；仅按用户决策更新了 Build7 状态与本报告结论。

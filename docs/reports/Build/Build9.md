@@ -1,13 +1,13 @@
 # Build9.md — VPN 订阅管理系统 当前构建方案（第一阶段：基础扩展与前置修复）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**第一阶段当前构建方案（v1.5，已验收）**，承接已验收的 [Build8.md](Build8.md)、已归档的 [docs/reports/Build/Build4~7](docs/reports/Build)，并基于：
+> **文档定位：** 本文档是 VPN 订阅管理系统的**第一阶段当前构建方案（v1.5，已验收）**，承接已验收的 [Build8.md](Build8.md)、已归档的 [docs/reports/Build/Build4~7](./)，并基于：
 > - 第二阶段见 [Build10.md](Build10.md)（承接本卷 Step 1~6 验收后的核心装配与收口）。
-> - 项目内研究资料：[docs/Reference/Clash-Subscription-Validation-Emoji-API.md](docs/Reference/Clash-Subscription-Validation-Emoji-API.md)、[docs/Reference/Clash-Verge-Rev-Node-Parameters.md](docs/Reference/Clash-Verge-Rev-Node-Parameters.md)、[docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md](docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md)；
+> - 项目内研究资料：[docs/Reference/Clash-Subscription-Validation-Emoji-API.md](../../Reference/Clash-Subscription-Validation-Emoji-API.md)、[docs/Reference/Clash-Verge-Rev-Node-Parameters.md](../../Reference/Clash-Verge-Rev-Node-Parameters.md)、[docs/Reference/Clash-Verge-Rev-Subscription-Assembly.md](../../Reference/Clash-Verge-Rev-Subscription-Assembly.md)；
 > - 第三方代码仓库：`~/Desktop/Repo/clash-verge-rev`（本地 git 提交 `3503a2da29d68a4398c0b8e9234cffb711e65783`，2026-08-26）；
 > - 当前项目代码与文档（本地 git 提交 `1745eae`，2026-08-27；`c681742` 为最近一次业务代码提交，其后提交仅修改 Build9.md，代码与 `c681742` 一致）。
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 当前设计：[Design2.md](Design2.md) / [Design2-UI.md](Design2-UI.md)
-> - 当前问题：[Issue7.md](Issue7.md)（R22 系列，部分开放项纳入本 Build 前置修复）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 当前设计：[Design2.md](../Design/Design2.md) / [Design2-UI.md](../Design/Design2-UI.md)
+> - 当前问题：[Issue7.md](../Issue/Issue7.md)（R22 系列，部分开放项纳入本 Build 前置修复）
 >
 > **标注约定：**
 > - 【源码事实】= 直接从本地仓库源码或可复现实测得到；
@@ -190,7 +190,7 @@ Step 0（本文档）
 
 ## 六、分步构建计划
 
-> 每步格式遵循 [docs/DocTemplates/Build.template.md](docs/DocTemplates/Build.template.md)：目标 → 前置条件 → 产出文件与操作（含参考代码）→ 测试与验收命令 → 验收标准。执行者每次仅执行一个 Step。
+> 每步格式遵循 [docs/DocTemplates/Build.template.md](../../DocTemplates/Build.template.md)：目标 → 前置条件 → 产出文件与操作（含参考代码）→ 测试与验收命令 → 验收标准。执行者每次仅执行一个 Step。
 
 ### Step 1：R22-03 收口（其余 R22 项已实施，核验后修订）
 

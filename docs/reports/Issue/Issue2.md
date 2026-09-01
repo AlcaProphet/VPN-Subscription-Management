@@ -3,7 +3,7 @@
 > **文档定位：** 本文档是 VPN 订阅管理系统的**已归档问题记录**（记录错误与修复方案，非强制，经验参考），承接已存档的 [Issue1.md](Issue1.md)。
 >
 > **归档说明（2026-08-24）：** R12~R15 系列问题均已修复或迁移至后续 Issue（R15-07/08/13/14 已迁移至 Issue3），不再作为当前问题追踪。
-> 设计记录见 [Design2.md](../../../Design2.md) 与 [Design2-UI.md](../../../Design2-UI.md)；构建方案见 [Build4.md](../Build/Build4.md)（已归档）；编码指令见 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
+> 设计记录见 [Design2.md](../Design/Design2.md) 与 [Design2-UI.md](../Design/Design2-UI.md)；构建方案见 [Build4.md](../Build/Build4.md)（已归档）；编码指令见 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
 
 ---
 

@@ -15,8 +15,8 @@
 - [backend/internal/server/settings.go](file://backend/internal/server/settings.go)
 - [backend/internal/server/settings_ops.go](file://backend/internal/server/settings_ops.go)
 - [backend/internal/config/export.go](file://backend/internal/config/export.go)
-- [Design2.md](../../../../../Design2.md)
-- [Design2-UI.md](../../../../../Design2-UI.md)
+- [Design2.md](../../../../../docs/reports/Design/Design2.md)
+- [Design2-UI.md](../../../../../docs/reports/Design/Design2-UI.md)
 </cite>
 
 ## 更新摘要
@@ -82,11 +82,11 @@ K --> N["账号对账<br/>/instances/:id/reconcile"]
 
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 章节来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 ## 核心组件
 - 统一响应封装：OK/Fail/ListData
@@ -106,8 +106,8 @@ K --> N["账号对账<br/>/instances/:id/reconcile"]
 
 章节来源
 - [backend/internal/server/server.go:40-157](file://backend/internal/server/server.go#L40-L157)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
-- [Design2.md:401-411](../../../../../Design2.md#L401-L411)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
+- [Design2.md:401-411](../../../../../docs/reports/Design/Design2.md#L401-L411)
 
 ## 架构总览
 ```mermaid
@@ -139,7 +139,7 @@ Handler-->>Client : 统一响应
 
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 ## 详细端点说明
 
@@ -159,7 +159,7 @@ Handler-->>Client : 统一响应
 
 章节来源
 - [backend/internal/server/server.go:40-50](file://backend/internal/server/server.go#L40-L50)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 ### 认证接口
 - POST /api/auth/register
@@ -258,8 +258,8 @@ Handler-->>Client : 统一响应
   - 状态码：200/403/500
 
 章节来源
-- [Design2-UI.md:514-517](../../../../../Design2-UI.md#L514-L517)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2-UI.md:514-517](../../../../../docs/reports/Design/Design2-UI.md#L514-L517)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 ### **新增**：账号对账（高级模式）
 - GET /api/admin/xray/instances/:id/reconcile
@@ -278,8 +278,8 @@ Handler-->>Client : 统一响应
   - 状态码：200/404/403/500
 
 章节来源
-- [Design2-UI.md:518](../../../../../Design2-UI.md#L518)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2-UI.md:518](../../../../../docs/reports/Design/Design2-UI.md#L518)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 ### **新增**：独立账号管理（高级模式）
 - GET /api/admin/xray/ext
@@ -310,8 +310,8 @@ Handler-->>Client : 统一响应
   - 状态码：200/404/403/500
 
 章节来源
-- [Design2-UI.md:522-524](../../../../../Design2-UI.md#L522-L524)
-- [Design2.md:401-411](../../../../../Design2.md#L401-L411)
+- [Design2-UI.md:522-524](../../../../../docs/reports/Design/Design2-UI.md#L522-L524)
+- [Design2.md:401-411](../../../../../docs/reports/Design/Design2.md#L401-L411)
 
 ### 管理员-用户管理
 - GET /api/admin/users
@@ -755,7 +755,7 @@ Handler-->>Client : 统一响应
 - [backend/internal/server/settings_ops.go:101-139](file://backend/internal/server/settings_ops.go#L101-L139)
 - [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
 - [backend/internal/config/export.go:135-187](file://backend/internal/config/export.go#L135-L187)
-- [Design2.md:259](../../../../../Design2.md#L259)
+- [Design2.md:259](../../../../../docs/reports/Design/Design2.md#L259)
 
 ## 依赖关系分析
 - 路由注册集中在server.New中，按顺序注入各域服务与中间件
@@ -793,7 +793,7 @@ AM --> XRH["Xray处理器"]
 图表来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
 - [backend/internal/server/settings_ops.go:28-38](file://backend/internal/server/settings_ops.go#L28-L38)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 章节来源
 - [backend/internal/server/server.go:63-157](file://backend/internal/server/server.go#L63-L157)
@@ -816,7 +816,7 @@ AM --> XRH["Xray处理器"]
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
 - [backend/internal/server/server.go:239-258](file://backend/internal/server/server.go#L239-L258)
 - [backend/internal/server/settings_ops.go:35-37](file://backend/internal/server/settings_ops.go#L35-L37)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 ## 故障排查指南
 - 常见状态码：
@@ -850,7 +850,7 @@ AM --> XRH["Xray处理器"]
 - [backend/internal/server/log.go:63-113](file://backend/internal/server/log.go#L63-L113)
 - [backend/internal/server/settings_ops.go:67-76](file://backend/internal/server/settings_ops.go#L67-76)
 - [backend/internal/config/export.go:68-74](file://backend/internal/config/export.go#L68-L74)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
 
 ## 结论
 本API文档覆盖了系统的全部对外接口，明确了认证、鉴权、限流、版本管理与SSE实时日志等关键机制。**重大更新**：系统现已全面支持Xray实例管理和独立账号功能，通过高级模式中间件保护高级端点，提供完整的实例CRUD、节点检测、账号对账、独立账号管理等高级特性。新增的配置导入导出接口提供了安全的配置备份与迁移能力，支持高级模式配置同步和严格的整体覆盖语义。建议在集成时严格遵循统一响应格式、错误码约定与缓存控制策略，并结合限流与调试模式进行稳定性保障。
@@ -936,8 +936,8 @@ API-->>Admin : 创建成功
 ```
 
 图表来源
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
-- [Design2-UI.md:514-517](../../../../../Design2-UI.md#L514-L517)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
+- [Design2-UI.md:514-517](../../../../../docs/reports/Design/Design2-UI.md#L514-L517)
 
 ### 独立账号管理流程
 ```mermaid
@@ -965,8 +965,8 @@ API-->>Admin : 创建成功
 ```
 
 图表来源
-- [Design2.md:401-411](../../../../../Design2.md#L401-L411)
-- [Design2-UI.md:522-524](../../../../../Design2-UI.md#L522-L524)
+- [Design2.md:401-411](../../../../../docs/reports/Design/Design2.md#L401-L411)
+- [Design2-UI.md:522-524](../../../../../docs/reports/Design/Design2-UI.md#L522-L524)
 
 ### 配置导入导出特性对比
 | 特性 | 基础版 | 增强版(v2) |
@@ -983,7 +983,7 @@ API-->>Admin : 创建成功
 **Section sources**
 - [backend/internal/server/settings_ops.go:56-80](file://backend/internal/server/settings_ops.go#L56-L80)
 - [backend/internal/config/export.go:66-133](file://backend/internal/config/export.go#L66-L133)
-- [Design2.md:259](../../../../../Design2.md#L259)
-- [Design2.md:375-376](../../../../../Design2.md#L375-L376)
-- [Design2.md:401-411](../../../../../Design2.md#L401-L411)
-- [Design2-UI.md:514-524](../../../../../Design2-UI.md#L514-L524)
+- [Design2.md:259](../../../../../docs/reports/Design/Design2.md#L259)
+- [Design2.md:375-376](../../../../../docs/reports/Design/Design2.md#L375-L376)
+- [Design2.md:401-411](../../../../../docs/reports/Design/Design2.md#L401-L411)
+- [Design2-UI.md:514-524](../../../../../docs/reports/Design/Design2-UI.md#L514-L524)

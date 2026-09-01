@@ -1,6 +1,6 @@
 # DesignReport10.md — Design2 / Design2-UI / Build4~7 第十一轮只读设计核验报告
 
-> **报告定位：** 本文档是对 [Design2.md](../../../Design2.md)、[Design2-UI.md](../../../Design2-UI.md) 与 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md) 的**第十一轮完整只读设计核验报告**（构建前最后一轮系统核验）。
+> **报告定位：** 本文档是对 [Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md) 与 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md) 的**第十一轮完整只读设计核验报告**（构建前最后一轮系统核验）。
 > **审核对象：** 当前工作区版本的六份活跃文档（Design2.md、Design2-UI.md、Build4.md、Build5.md、Build6.md、Build7.md）。
 > **审核约束：** 核验阶段全程只读，未开始构建，未修改任何设计/构建文档、代码或配置；发现问题后先整理清单经提问工具与用户逐项确认，再按用户确认结果创建本报告并执行修复（修复记录见第七章）。
 > **审核时间：** 2026-08-19

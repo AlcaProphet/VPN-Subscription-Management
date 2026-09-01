@@ -1,7 +1,7 @@
 # Issue6.md — VPN 订阅管理系统 问题追踪（当前）
 
 > **文档定位：** 本文档是 VPN 订阅管理系统的**当前问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档的 [Issue5.md](Issue5.md)（R20 系列，保留备查）。
-> 设计记录见 [Design2.md](Design2.md) 与 [Design2-UI.md](Design2-UI.md)；构建方案见 [Build8.md](Build8.md)（当前构建轮次）；编码指令见 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
+> 设计记录见 [Design2.md](../Design/Design2.md) 与 [Design2-UI.md](../Design/Design2-UI.md)；构建方案见 [Build8.md](../Build/Build8.md)（当前构建轮次）；编码指令见 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
 
 ---
 

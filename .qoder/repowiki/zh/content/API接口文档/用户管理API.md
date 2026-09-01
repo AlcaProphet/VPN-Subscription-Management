@@ -13,8 +13,8 @@
 - [frontend/src/api/user.ts](file://frontend/src/api/user.ts)
 - [frontend/src/api/group.ts](file://frontend/src/api/group.ts)
 - [frontend/src/views/admin/UsersView.vue](file://frontend/src/views/admin/UsersView.vue)
-- [Design2.md](../../../../../Design2.md)
-- [Design2-UI.md](../../../../../Design2-UI.md)
+- [Design2.md](../../../../../docs/reports/Design/Design2.md)
+- [Design2-UI.md](../../../../../docs/reports/Design/Design2-UI.md)
 </cite>
 
 ## 更新摘要
@@ -258,13 +258,13 @@ end
 ```
 
 **图表来源**
-- [Design2.md:318-337](../../../../../Design2.md#L318-L337)
-- [Design2.md:329-333](../../../../../Design2.md#L329-L333)
+- [Design2.md:318-337](../../../../../docs/reports/Design/Design2.md#L318-L337)
+- [Design2.md:329-333](../../../../../docs/reports/Design/Design2.md#L329-L333)
 
 **章节来源**
-- [Design2.md:318-337](../../../../../Design2.md#L318-L337)
-- [Design2.md:329-333](../../../../../Design2.md#L329-L333)
-- [Design2-UI.md:232](../../../../../Design2-UI.md#L232)
+- [Design2.md:318-337](../../../../../docs/reports/Design/Design2.md#L318-L337)
+- [Design2.md:329-333](../../../../../docs/reports/Design/Design2.md#L329-L333)
+- [Design2-UI.md:232](../../../../../docs/reports/Design/Design2-UI.md#L232)
 
 ### Xray同步状态聚合（新增）
 **更新**：系统增强了Xray同步状态的聚合显示功能，提供更完整的用户同步状态监控。
@@ -280,8 +280,8 @@ end
 - **实例状态**：对每个Xray实例记录最近成功/失败状态与原因，连续失败展示告警标记
 
 **章节来源**
-- [Design2.md:264-269](../../../../../Design2.md#L264-L269)
-- [Design2.md:330-332](../../../../../Design2.md#L330-L332)
+- [Design2.md:264-269](../../../../../docs/reports/Design/Design2.md#L264-L269)
+- [Design2.md:330-332](../../../../../docs/reports/Design/Design2.md#L330-L332)
 
 ## 依赖关系分析
 - 接入层依赖业务层：UserAdminHandler依赖AdminService；GroupHandler依赖group.Service。

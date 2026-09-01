@@ -2,8 +2,8 @@
 
 > **文档定位：** 本文记录 `Issue9.md` 中已由用户确认的 R24-02、R24-12、R24-15 修复及验收结果；不扩大到其他待决策项。
 > - 当前设计：`Design2.md`、`Design2-UI.md`
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 问题追踪：[Issue9.md](Issue9.md)
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 问题追踪：[Issue9.md](../../../Issue9.md)
 > - 前一轮构建：[Build12.md](Build12.md)
 > - 实施日期：2026-08-28
 

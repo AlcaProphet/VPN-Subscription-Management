@@ -3,7 +3,7 @@
 > **文档定位：** 本文档是当前项目第三期网络安全审查的**执行计划与进度入口**，用于把完整审查拆分成可在单次约 200K 上下文内独立完成、独立验收和独立交接的 Steps。本文档只规定如何审查，不记录最终漏洞结论，也不授权修改业务代码。
 >
 > - 唯一强要求：[AGENTS.md](AGENTS.md)
-> - 当前设计：[Design2.md](Design2.md)、[Design2-UI.md](Design2-UI.md)
+> - 已实现并归档基线：[Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)；最新设计见 [Design3.md](Design3.md)
 > - 历史审查：[SecurityReport1.md](docs/reports/SecurityReport/SecurityReport1.md)、[SecurityReport2.md](docs/reports/SecurityReport/SecurityReport2.md)
 > - 文档结构参考：[Build.template.md](docs/DocTemplates/Build.template.md)
 > - 本地测试账号：[TestPasswordList.md](docs/Reference/TestPasswordList.md)

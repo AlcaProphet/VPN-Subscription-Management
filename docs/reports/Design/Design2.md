@@ -1,7 +1,8 @@
 # Design2.md — VPN 订阅管理系统增量能力设计（订阅装配与 Xray 对接）
 
-> **文档定位：** 本文档定义基础模式增量能力（规则素材池、装配拼接、配置生成与分发）与高级模式 Xray 对接。基础模式不依赖 Xray；高级模式由面板开关解锁。Xray API 与生态研究见 [Xray-Core-API.md](docs/Reference/Xray-Core-API.md)、[Node-Link-Standards.md](docs/Reference/Node-Link-Standards.md)、[SSpanel-Subscribe.md](docs/Reference/SSpanel-Subscribe.md)、[SSpanel.md](docs/Reference/SSpanel.md)。设计基线为 [Design1.md](docs/reports/Design/Design1.md)，编码遵循 [AGENTS.md](AGENTS.md)；与 Design1.md 冲突时以本文档为准，与 AGENTS.md 冲突时按 AGENTS.md §8.3 提示用户决策。
+> **文档定位：** 本文档定义基础模式增量能力（规则素材池、装配拼接、配置生成与分发）与高级模式 Xray 对接。基础模式不依赖 Xray；高级模式由面板开关解锁。Xray API 与生态研究见 [Xray-Core-API.md](../../Reference/Xray-Core-API.md)、[Node-Link-Standards.md](../../Reference/Node-Link-Standards.md)、[SSpanel-Subscribe.md](../../Reference/SSpanel-Subscribe.md)、[SSpanel.md](../../Reference/SSpanel.md)。设计基线为 [Design1.md](Design1.md)，编码遵循 [AGENTS.md](../../../AGENTS.md)；与 Design1.md 冲突时以本文档为准，与 AGENTS.md 冲突时按 AGENTS.md §8.3 提示用户决策。
 > **术语：**「规则素材池」（第二章）= 规则条目素材池；「订阅地址池」（第四章）= 每平台一份订阅条目（装配生成模板或直接上传静态内容）+ 版本历史；「分流规则」= Shadowrocket 装配产出的 .conf，归入规则实体分发。配置样例见 `docs/DocTemplates/`。
+> **归档说明**：本文档为已实现并验收的增量设计基线，于 2026-08-31 移入 `docs/reports/Design/` 存档；后续增量设计以 [Design3.md](../../../Design3.md) 为准。
 
 ---
 
@@ -78,7 +79,7 @@ Clash YAML 与 Shadowrocket .conf 订阅语法与产物形态均不同：Clash �
 
 | 来源 | 录入方式 | 输出行为 |
 |------|---------|---------|
-| `manual` | 未配置 Xray 服务（或需补充节点）时，管理员按页面模板表单手动添加；**协议支持 19 项代理协议封闭清单**（ss / vmess / vless / trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 / snell / anytls / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale；**ssr 除外**，见 4.5；模板中的 gost-relay / hysteria2-realm / socks / sudoku **同因不纳入**——无可靠链接转换参照，见 [DesignReport6.md](docs/reports/DesignReport/DesignReport6.md) Q1）；节点参数按所选协议以 JSON 存储该协议的 Clash 原生字段集（含凭据字段：uuid / password / private-key 等） | 静态节点：Clash YAML 按存储字段**原样内联渲染**（proxies 条目，零转换）；SR 节点订阅按 4.5 链接映射转为节点链接，**无法转为链接的协议跳过并在生成结果中提示**；**凭据以 AES-256-GCM 加密存储（复用签名密钥派生机制，与 UUID 加密存储同口径）** |
+| `manual` | 未配置 Xray 服务（或需补充节点）时，管理员按页面模板表单手动添加；**协议支持 19 项代理协议封闭清单**（ss / vmess / vless / trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 / snell / anytls / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale；**ssr 除外**，见 4.5；模板中的 gost-relay / hysteria2-realm / socks / sudoku **同因不纳入**——无可靠链接转换参照，见 [DesignReport6.md](../DesignReport/DesignReport6.md) Q1）；节点参数按所选协议以 JSON 存储该协议的 Clash 原生字段集（含凭据字段：uuid / password / private-key 等） | 静态节点：Clash YAML 按存储字段**原样内联渲染**（proxies 条目，零转换）；SR 节点订阅按 4.5 链接映射转为节点链接，**无法转为链接的协议跳过并在生成结果中提示**；**凭据以 AES-256-GCM 加密存储（复用签名密钥派生机制，与 UUID 加密存储同口径）** |
 | `xray` | 已配置 Xray（高级模式）时，由**实例检测入库**：管理员在实例保存后于 XrayInstancesView 手动点击「刷新节点」触发 `ListInbounds` 检测（手动为主，不做定时轮询，避免 Xray API 并发受限压力）；以 instance_id+tag 为 upsert 键（nodes UNIQUE(instance_id, tag)，见 5.9）：新 inbound 入库（默认 enabled）、字段变更更新、**已入库节点的 enabled / 装配勾选状态与 display_name 自定义显示名不被检测覆盖（allocatable 为系统派生标记，检测时按协议变化更新）**；Xray 侧已删除的 inbound 标记提示由管理员处置（重新检测到该 tag 时 missing 复位为 0）；装配页侧边自动提示检测到的 Xray 节点供选用；手动添加仍并行可用 | 动态节点，下载时按用户凭据注入节点行（UUID / 代理密码，见 5.5/5.7）；**装配器勾选的 Xray 节点构成装配时点候选集**（模板可注入的节点上限；组管理候选集以已激活蓝图并集为准，见 5.6），组在候选集内为每组分配子集，下载按组分配注入（见 5.6） |
 
 - **节点稳定标识**（Xray 节点）：`nodes.name` 由系统生成 `{实例slug}-{入站tag}`（如 `instance-tokyo-a-vless`；实例 slug 为 xray_instances.slug 列，`instance-` 前缀短码，见 5.9；DesignReport9 Q12-10 修正示例），**创建后不可修改**，作为代理组定义、装配快照、候选集与导入重绑的内部稳定引用键；manual 节点的 name 仍为管理员录入名，创建后不可修改
@@ -87,7 +88,7 @@ Clash YAML 与 Shadowrocket .conf 订阅语法与产物形态均不同：Clash �
 - **名称字符集与唯一性**：nodes.name 与 display_name 均禁止控制字符、逗号、空格与首尾空白，允许中文/emoji；**有效渲染名全局唯一**（跨全部节点：manual 的 name、xray 的 name 与 display_name），由 nodes 表表达式唯一索引兜底（见 5.9）；display_name 冲突时 409 拒绝；Xray 检测生成的 nodes.name 若含非法字符或与任一节点有效渲染名撞名，记错误日志并跳过该 inbound，不中断其余检测、不崩溃退出
 - **跨命名空间校验**：有效渲染名不得与任何 `proxy_groups.name`、强制组名「🚀直接连接」「🌎国外流量」「🛟无法归属的流量」或 Clash/mihomo 内建保留代理名「DIRECT」「REJECT」「REJECT-DROP」「PASS」「COMPATIBLE」重复（Clash 的 proxies 与 proxy-groups/内建代理共享名称空间）；manual 节点创建、xray display_name 编辑与检测入库统一按此校验
 - **协议可扩展注册**：协议类型不硬编码——应用层维护协议注册表（表单 schema + SR/标准链接映射规则 + **每协议敏感字段清单**：uuid / password / private-key 等凭据字段，仅清单内字段加密存储与解密渲染；**编辑回显时密文字段空值 = 保留原凭据**，见 5.9），节点 protocol 存字符串（无硬编码枚举 CHECK，由应用层按注册表校验）；Clash YAML 按存储字段原样渲染天然支持新协议（零转换）；SR/标准节点链接按注册表映射转换，无映射的协议跳过并提示（同 4.5 口径）；新增协议仅需扩展注册表，无 schema 迁移；**manual 节点编辑允许变更协议：协议变更等价整体重新填表、不保留不兼容旧字段**（凭据字段仍按「编辑回显留空=保留原凭据」口径，DesignReport10 决策）
-- 协议范围：manual 来源支持 19 项代理协议封闭清单（见上表；ssr 与模板中的 gost-relay / hysteria2-realm / socks / sudoku 除外，见 4.5 与 [DesignReport6.md](docs/reports/DesignReport/DesignReport6.md) Q1）；**xray 来源支持 vless / vmess / trojan / shadowsocks 四协议**（Xray UserManager 用户增删 API 的源码能力边界）；检测到的其他协议 inbound（无 per-user 能力）以 **nodes.allocatable=0** 标记不可分配并在 UI 提示；**allocatable=0 节点禁止组分配、禁止 is_public、排除在推送与下载注入之外**（见 5.9）
+- 协议范围：manual 来源支持 19 项代理协议封闭清单（见上表；ssr 与模板中的 gost-relay / hysteria2-realm / socks / sudoku 除外，见 4.5 与 [DesignReport6.md](../DesignReport/DesignReport6.md) Q1）；**xray 来源支持 vless / vmess / trojan / shadowsocks 四协议**（Xray UserManager 用户增删 API 的源码能力边界）；检测到的其他协议 inbound（无 per-user 能力）以 **nodes.allocatable=0** 标记不可分配并在 UI 提示；**allocatable=0 节点禁止组分配、禁止 is_public、排除在推送与下载注入之外**（见 5.9）
 - **manual 节点 URI 批量导入**：节点管理页支持粘贴多行 URI 或整块 Base64 订阅文本批量创建 manual 节点，覆盖 ss / vmess（V2rayN JSON 与 Shadowrocket 形态）/ vless（标准与 SR base64 userinfo）/ trojan / anytls / hysteria2 / hysteria / tuic / wireguard / http(s) / socks5；解析失败逐行跳过并回执，按节点名去重（与已有节点同名跳过且不覆盖）；ssr 等无 URI 映射协议不纳入导入。
 
 ### 3.3 代理组（Clash）
@@ -193,13 +194,13 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 
 节点订阅产物按 product_type 区分编码形态：
 
-- **SR 节点订阅（subs，装配生成）**：明文内容为头部行（STATUS/REMARKS）+ 逐行节点链接，**装配生成的模板文件存储明文、下载注入完成后整体 base64 编码下发**（直接上传内容按上传字节原样返回；存储与下发区分，见 5.7；样例见 `Shadowrocket.subs.template.md`）；节点链接按 **SR 原生参数风格**渲染，映射规则与生态验证结论见 [Reference/Node-Link-Standards.md](docs/Reference/Node-Link-Standards.md)（参照 urlclash-converter 转换逻辑取证）：
+- **SR 节点订阅（subs，装配生成）**：明文内容为头部行（STATUS/REMARKS）+ 逐行节点链接，**装配生成的模板文件存储明文、下载注入完成后整体 base64 编码下发**（直接上传内容按上传字节原样返回；存储与下发区分，见 5.7；样例见 `Shadowrocket.subs.template.md`）；节点链接按 **SR 原生参数风格**渲染，映射规则与生态验证结论见 [Reference/Node-Link-Standards.md](../../Reference/Node-Link-Standards.md)（参照 urlclash-converter 转换逻辑取证）：
   - **manual 节点**：按协议转为对应链接——ss：`ss://base64(cipher:password)@server:port#name`（SIP002）；**vless：base64 userinfo 形态（与样例一致）**：`vless://base64(cipher:uuid@server:port)?remarks={节点名}`，security=tls 附加 `tls=1&peer={SNI}`，REALITY 附加 `tls=1&xtls=2&peer={SNI}&pbk=公钥&sid=short-id`，security=none 不附加 tls/xtls/pbk/sid（SR 原生 REALITY 参数；**cipher 用空占位（`:uuid@...`，对齐样例实测形态）**）；**vmess 采用样例同款 Shadowrocket 形态**：`vmess://base64("{cipher或auto}:{uuid}@{host}:{port}")?remarks={节点名}&udp=1&alterId=0`（不再使用 V2rayN JSON + query 混合形态）；trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 等同理映射（细则见 Node-Link-Standards.md 第二章）；**无法转为链接的协议（snell / mieru / masque / openvpn / ssh / shadowquic / trusttunnel / tailscale 等）跳过，在生成结果中列出跳过节点与原因**
   - **xray 节点**：注入时按上述 SR 形态渲染（vless REALITY：base64 userinfo + tls=1/xtls=2/peer/pbk/sid；vmess：`base64("auto:{用户UUID}@{host}:{port}")` + remarks/udp/alterId=0；**trojan/ss：凭据字段替换，其余 transport/TLS/network 参数取自 protocol_json**（trojan 有 TLS 时附加 peer/allowInsecure 等，ss 采用 `ss://base64(cipher:{用户代理密码})@host:port#...` 形态），凭据模型见 5.5），与 Clash YAML 端的渲染（见 5.7）为同一节点数据的两种客户端表达
   - 节点名（有效渲染名；remarks / #fragment）经 URL 编码，支持中文与 emoji；域名非 ASCII 字符转 Punycode；**参数值避免空格**（URLSearchParams 的 `+` 编码与部分解析器不对称，见 Node-Link-Standards.md 第四章）
 - **通用节点订阅（generic-subs，装配生成）**：**不输出 STATUS/REMARKS 头部**；明文内容为逐行节点链接，**模板文件存储明文、下载注入完成后整体 base64 编码下发**；节点链接按**标准 URI**渲染（映射规则见 Node-Link-Standards.md 第二章）：**vmess 用纯 V2rayN JSON**（`vmess://base64(JSON)`，名称放 `ps`，不追加 query/fragment）；**vless 用标准形态**（`vless://uuid@host:port?encryption=none&type=tcp&security=...&flow/sni/fp/pbk/sid...`，按 protocol_json.security 分支）；trojan / hysteria / hysteria2 / tuic / wireguard / http / socks5 等同理按标准映射；不可转协议跳过并提示；**xray 节点注入同样走标准形态**（vless 标准 security 参数、vmess 纯 V2rayN JSON、trojan/ss 凭据替换）
 - **分流规则（conf）**：.conf 正文以纯文本下发（无特殊编码）
-- **ssr 协议不纳入**：manual 节点协议范围不含 ssr——生态无可靠的 SSR 链接生成参照（urlclash-converter 对 SSR 只收不生成、静默丢弃），自研编码无验证基准，故移除；gost-relay / hysteria2-realm / socks / sudoku 同因不纳入（19 协议封闭清单，见 3.2 与 [DesignReport6.md](docs/reports/DesignReport/DesignReport6.md) Q1）
+- **ssr 协议不纳入**：manual 节点协议范围不含 ssr——生态无可靠的 SSR 链接生成参照（urlclash-converter 对 SSR 只收不生成、静默丢弃），自研编码无验证基准，故移除；gost-relay / hysteria2-realm / socks / sudoku 同因不纳入（19 协议封闭清单，见 3.2 与 [DesignReport6.md](../DesignReport/DesignReport6.md) Q1）
 - **空产物校验**：SR subs 与 generic-subs 在跳过不可转协议后有效链接数为 0 时，按空产物拒绝生成（见 4.1）
 - **下载响应头**：三类下载端点均返回禁缓存头（`no-store` 等，AGENTS §4.5）；下载文件名使用 `Content-Disposition` 同时输出 ASCII `filename` 与 RFC 5987 `filename*=UTF-8''...`（Clash Verge 等客户端优先读取后者）；平台附加头与系统注入头（`profile-update-interval` / `profile-web-page-url` / 高级模式 `subscription-userinfo`）按既有语义合并，系统动态文件名覆盖旧模板值。
 
@@ -207,7 +208,7 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 
 ## 五、Xray-core 对接（高级模式）
 
-> 本章全部能力归属**高级模式**（见第一章）。API 能力、硬约束与生态研究结论见 [Reference/Xray-Core-API.md](docs/Reference/Xray-Core-API.md)。
+> 本章全部能力归属**高级模式**（见第一章）。API 能力、硬约束与生态研究结论见 [Reference/Xray-Core-API.md](../../Reference/Xray-Core-API.md)。
 
 ### 5.1 背景与目标
 
@@ -222,7 +223,7 @@ Shadowrocket 的节点与分流规则是两份独立内容（见 3.1），故提
 
 ### 5.2 Xray-core API 能力与硬约束（设计相关要点）
 
-> 完整研究结论（API 服务机制、全量 API 能力表、传输字段、幂等性核验、生态验证）见 [Reference/Xray-Core-API.md](docs/Reference/Xray-Core-API.md)。影响本设计的关键要点：
+> 完整研究结论（API 服务机制、全量 API 能力表、传输字段、幂等性核验、生态验证）见 [Reference/Xray-Core-API.md](../../Reference/Xray-Core-API.md)。影响本设计的关键要点：
 
 - API **无认证无 TLS**（裸 gRPC），安全边界由部署者 IP 白名单控制；**并发保守串行化**（官方文档提示约 10 并发后丢弃请求；v26.7.28 源码未见显式限制实现，见 Xray-Core-API.md §11.4，保守起见客户端串行化）
 - 流量统计需 Xray 配置显式开启（`policy.statsUserUplink/Downlink`），未开则查询恒为空
@@ -432,7 +433,7 @@ groups（+ default_quota 默认月度配额 GB）
 - `views/HomeView.vue`（扩展）：首页流量卡片 + **全体用户可见的「分流规则」卡片**（展示首页默认规则版本信息 + 规则 Token 复制链接）与双内容导入引导（点击卡片跳转现有 /rules 列表页查看全部规则，见 4.4）+ **超限提示** + **管理员首页平台卡片预览形态**；`views/ProfileView.vue`（扩展）：仅新增「本月流量」descriptions 行（数据源 `GET /api/profile/traffic`，基础模式「不限流量」），不新增分流规则卡片
 - `api/xray.ts`（含 ext retry）、`api/pool.ts`、`api/node.ts`（含 `GET /api/admin/nodes/protocols` 协议注册表）（新增），`api/home|subscription|group|settings|rule|profile` 类型适配（group_selections 移除/高级字段/is_home_default/product_type/profile traffic），`layouts/AdminLayout.vue` 菜单（**高级模式开关驱动「Xray 实例」「用户组」入口显隐**）与 `AppHeader` 组名标签基础模式隐藏、`router/index.ts` 路由、`package.json` 增 `diff`（jsdiff）依赖（4.1）、`api/request.ts` 长任务轮询适配（**新增轮询/任务状态查询封装与按请求 timeout 覆盖，含配置导入与 OFF 清空异步任务轮询**；现状无轮询能力且全局 timeout 15s，属新实现而非既有工具适配）
 
-> **UI 规格**：本章新增/重构页面的 GUI 规格见 [Design2-UI.md](Design2-UI.md)（活跃，全量自包含）；Design1-UI.md 已存档冻结不回写。
+> **UI 规格**：本章新增/重构页面的 GUI 规格见 [Design2-UI.md](Design2-UI.md)（已归档，全量自包含）；Design1-UI.md 已存档冻结不回写。
 
 ### 5.11 独立 Xray 账号（高级模式）
 

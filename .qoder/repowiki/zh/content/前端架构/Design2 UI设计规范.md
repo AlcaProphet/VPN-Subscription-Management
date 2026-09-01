@@ -2,8 +2,8 @@
 
 <cite>
 **本文引用的文件**
-- [Design2-UI.md](../../../../../Design2-UI.md)
-- [Design2.md](../../../../../Design2.md)
+- [Design2-UI.md](../../../../../docs/reports/Design/Design2-UI.md)
+- [Design2.md](../../../../../docs/reports/Design/Design2.md)
 - [Xray-Core-API.md](../../../../../docs/Reference/Xray-Core-API.md)
 - [Design1-UI.md](../../../../../docs/reports/Design/Design1-UI.md)
 - [theme.ts](file://frontend/src/theme.ts)
@@ -98,7 +98,7 @@ B --> K["XrayInstancesView.vue<br/>Xray实例admin-assembly分组"]
 **更新** 新增了独立账号管理相关的组件，包括双轨凭据输入、配额设置、推送目标选择等功能模块。
 
 **章节来源**
-- [Design2-UI.md:25-51](../../../../../Design2-UI.md#L25-L51)
+- [Design2-UI.md:25-51](../../../../../docs/reports/Design/Design2-UI.md#L25-L51)
 - [Design1-UI.md:45-55](../../../../../docs/reports/Design/Design1-UI.md#L45-L55)
 
 ## 架构总览
@@ -127,8 +127,8 @@ V-->>U : 渲染平台卡片网格/公告/分流规则入口
 - [App.vue:1-43](file://frontend/src/App.vue#L1-L43)
 
 **章节来源**
-- [Design2-UI.md:54-108](../../../../../Design2-UI.md#L54-L108)
-- [Design2-UI.md:467-552](../../../../../Design2-UI.md#L467-L552)
+- [Design2-UI.md:54-108](../../../../../docs/reports/Design/Design2-UI.md#L54-L108)
+- [Design2-UI.md:467-552](../../../../../docs/reports/Design/Design2-UI.md#L467-L552)
 
 ## 详细组件分析
 
@@ -150,10 +150,10 @@ AdminMode --> End
 
 **图表来源**
 - [HomeView.vue:1-231](file://frontend/src/views/HomeView.vue#L1-L231)
-- [Design2-UI.md:114-170](../../../../../Design2-UI.md#L114-L170)
+- [Design2-UI.md:114-170](../../../../../docs/reports/Design/Design2-UI.md#L114-L170)
 
 **章节来源**
-- [Design2-UI.md:114-170](../../../../../Design2-UI.md#L114-L170)
+- [Design2-UI.md:114-170](../../../../../docs/reports/Design/Design2-UI.md#L114-L170)
 
 ### 管理面板布局与路由骨架（增量）
 - 侧边栏菜单新增：订阅装配、节点、代理组、Xray 实例（高级模式）。
@@ -170,10 +170,10 @@ R --> G["路由守卫<br/>高级模式检查"]
 **图表来源**
 - [AdminLayout.vue:1-130](file://frontend/src/layouts/AdminLayout.vue#L1-L130)
 - [router/index.ts:27-45](file://frontend/src/router/index.ts#L27-L45)
-- [Design2-UI.md:54-108](../../../../../Design2-UI.md#L54-L108)
+- [Design2-UI.md:54-108](../../../../../docs/reports/Design/Design2-UI.md#L54-L108)
 
 **章节来源**
-- [Design2-UI.md:54-108](../../../../../Design2-UI.md#L54-L108)
+- [Design2-UI.md:54-108](../../../../../docs/reports/Design/Design2-UI.md#L54-L108)
 
 ### 订阅管理（改造）
 - **列表页改为平铺双态列表**（不再按平台分组折叠）；列含平台名称、product_type、内容形态、当前版本、操作。
@@ -197,10 +197,10 @@ U->>SV : 编辑/删除/版本管理
 
 **图表来源**
 - [SubscriptionsView.vue:1-188](file://frontend/src/views/admin/SubscriptionsView.vue#L1-L188)
-- [Design2-UI.md:177-184](../../../../../Design2-UI.md#L177-L184)
+- [Design2-UI.md:177-184](../../../../../docs/reports/Design/Design2-UI.md#L177-L184)
 
 **章节来源**
-- [Design2-UI.md:177-184](../../../../../Design2-UI.md#L177-L184)
+- [Design2-UI.md:177-184](../../../../../docs/reports/Design/Design2-UI.md#L177-L184)
 - [SubscriptionsView.vue:1-188](file://frontend/src/views/admin/SubscriptionsView.vue#L1-L188)
 
 ### 平台管理（改造）
@@ -210,7 +210,7 @@ U->>SV : 编辑/删除/版本管理
 - 删除 ConfirmModal 影响清单沿用。
 
 **章节来源**
-- [Design2-UI.md:214-219](../../../../../Design2-UI.md#L214-L219)
+- [Design2-UI.md:214-219](../../../../../docs/reports/Design/Design2-UI.md#L214-L219)
 - [PlatformsView.vue:1-150](file://frontend/src/views/admin/PlatformsView.vue#L1-L150)
 
 ### 订阅装配页（占位页 → 实现）
@@ -232,10 +232,10 @@ F --> G["生成：入池未生效，去激活"]
 ```
 
 **图表来源**
-- [Design2-UI.md:273-366](../../../../../Design2-UI.md#L273-L366)
+- [Design2-UI.md:273-366](../../../../../docs/reports/Design/Design2-UI.md#L273-L366)
 
 **章节来源**
-- [Design2-UI.md:273-366](../../../../../Design2-UI.md#L273-L366)
+- [Design2-UI.md:273-366](../../../../../docs/reports/Design/Design2-UI.md#L273-L366)
 
 ### 节点管理页（新独立菜单）
 - 列表：节点名称、来源标签、协议、地址:端口、公共节点标记、启用开关、allocatable/missing 标注、操作。
@@ -243,14 +243,14 @@ F --> G["生成：入池未生效，去激活"]
 - xray 节点只读为主：enabled/is_public 两开关 + 删除；缺失节点提供删除处置。
 
 **章节来源**
-- [Design2-UI.md:369-397](../../../../../Design2-UI.md#L369-L397)
+- [Design2-UI.md:369-397](../../../../../docs/reports/Design/Design2-UI.md#L369-L397)
 
 ### 代理组管理页（新独立菜单）
 - 列表：组名称、类型 Tag、组类型、成员摘要、启用勾选（预设组）、操作。
 - 自建组创建/编辑：基本信息、节点引用（有序列表支持拖拽）、子组引用（DAG 环形校验）、保存约束。
 
 **章节来源**
-- [Design2-UI.md:400-426](../../../../../Design2-UI.md#L400-L426)
+- [Design2-UI.md:400-426](../../../../../docs/reports/Design/Design2-UI.md#L400-L426)
 
 ### Xray 实例页（新独立菜单，仅高级模式）
 - 实例列表：名称、slug、api_addr、enabled 开关、采集状态、操作。
@@ -261,7 +261,7 @@ F --> G["生成：入池未生效，去激活"]
 **更新** 增强了Xray实例管理功能，新增了独立的账户管理系统和三区域对账界面。
 
 **章节来源**
-- [Design2-UI.md:429-464](../../../../../Design2-UI.md#L429-L464)
+- [Design2-UI.md:429-464](../../../../../docs/reports/Design/Design2-UI.md#L429-L464)
 
 ### 账号对账区（实例级）
 - 实例行「对账」按钮 → 展开对账面板（`a-drawer` 或页内分区，按实例维度）：调对账端点获取期望集比对结果。
@@ -272,7 +272,7 @@ F --> G["生成：入池未生效，去激活"]
 **更新** 实现了三区域对账界面，特别增强了对独立账号的保护机制，防止误删手动维护的账号。
 
 **章节来源**
-- [Design2-UI.md:454-459](../../../../../Design2-UI.md#L454-L459)
+- [Design2-UI.md:454-459](../../../../../docs/reports/Design/Design2-UI.md#L454-L459)
 
 ### 独立账号 Tab（Design2.md §5.11）
 **列表**（双态列表）：列：名称（备注名）、email（`code` 风格）、配额（GB 或「不限」）、本月用量（字节→GB 换算见 10.1）、推送摘要（聚合 Badge 同 4.5 口径：N 个 inbound 已同步绿 / 失败红 + 行内重试 / 同步中橙）、超限标记（红色 `a-tag`「已超限」+ 行警示底色）、操作（**复制凭据** / 编辑 / **重置配额** / 删除）。
@@ -290,7 +290,7 @@ F --> G["生成：入池未生效，去激活"]
 **更新** 新增了完整的独立账号管理功能，包括双轨凭据管理、配额控制和推送目标选择。
 
 **章节来源**
-- [Design2-UI.md:461-473](../../../../../Design2-UI.md#L461-L473)
+- [Design2-UI.md:461-473](../../../../../docs/reports/Design/Design2-UI.md#L461-L473)
 
 ## 依赖分析
 - 前端依赖：ant-design-vue、@ant-design/icons-vue、axios、dayjs、markdown-it、pinia、vue、vue-router。
@@ -315,7 +315,7 @@ P --> I["diff<br/>jsdiff"]
 
 **章节来源**
 - [package.json:1-37](file://frontend/package.json#L1-L37)
-- [Design2-UI.md:540-541](../../../../../Design2-UI.md#L540-L541)
+- [Design2-UI.md:540-541](../../../../../docs/reports/Design/Design2-UI.md#L540-L541)
 
 ## 性能考虑
 - 列表分页：素材池详情条目分页（默认 20 条/页），避免整表加载。
@@ -337,8 +337,8 @@ P --> I["diff<br/>jsdiff"]
 **更新** 新增了独立账号相关的故障排查指南，包括凭据冲突、配额超限等情况的处理方法。
 
 **章节来源**
-- [Design2-UI.md:542-552](../../../../../Design2-UI.md#L542-L552)
-- [Design2-UI.md:554-591](../../../../../Design2-UI.md#L554-L591)
+- [Design2-UI.md:542-552](../../../../../docs/reports/Design/Design2-UI.md#L542-L552)
+- [Design2-UI.md:554-591](../../../../../docs/reports/Design/Design2-UI.md#L554-L591)
 
 ## 结论
 本规范完整覆盖了 Design2 受影响界面的 GUI 样式规格，包括用户首页改造、管理面板增强、订阅装配实现、节点/代理组/Xray 管理等。**更新** 本次更新特别增强了Xray实例管理功能，包括独立的账户管理系统、三区域对账界面和全面的功能改进。通过统一的组件约定、响应式策略与前后端契约，确保实施一致性与可维护性。建议构建前核对空态、加载态、错误态与移动端兼容性，遵循 AGENTS.md 编码约束。
@@ -361,6 +361,6 @@ P --> I["diff<br/>jsdiff"]
 **更新** 新增了独立账号相关的空状态文案和错误处理规范。
 
 **章节来源**
-- [Design2-UI.md:25-51](../../../../../Design2-UI.md#L25-L51)
-- [Design2-UI.md:554-591](../../../../../Design2-UI.md#L554-L591)
+- [Design2-UI.md:25-51](../../../../../docs/reports/Design/Design2-UI.md#L25-L51)
+- [Design2-UI.md:554-591](../../../../../docs/reports/Design/Design2-UI.md#L554-L591)
 - [Design1-UI.md:8-36](../../../../../docs/reports/Design/Design1-UI.md#L8-L36)

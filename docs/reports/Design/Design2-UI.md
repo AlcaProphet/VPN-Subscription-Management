@@ -1,8 +1,9 @@
 # Design2-UI.md — GUI 样式规格（承载 Design2.md 全部界面部件）
 
-> **文档定位：** 本文档是 [Design2.md](Design2.md) 增量能力（订阅装配与 Xray 对接）落地后**全部受影响界面**的 GUI 样式规格：布局结构、Ant Design Vue 组件映射、状态分支、关键交互与响应式规则。采用**全量重写式、自包含**写法——受影响页面的规格在本文档内完整描述，不与存档的 [Design1-UI.md](docs/reports/Design/Design1-UI.md) 做增量拼接；Design1-UI.md 冻结不回写。
-> **范围红线：** 本文档仅覆盖 UI 层、前端实现与前后端连接契约（端点形状/字段/轮询协议）；**不写数据库 schema 与后端运行逻辑**——功能行为一律以 [Design2.md](Design2.md) 为准（本文不重复定义，引用其章节），编码约束遵循 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
+> **文档定位：** 本文档是 [Design2.md](Design2.md) 增量能力（订阅装配与 Xray 对接）落地后**全部受影响界面**的 GUI 样式规格：布局结构、Ant Design Vue 组件映射、状态分支、关键交互与响应式规则。采用**全量重写式、自包含**写法——受影响页面的规格在本文档内完整描述，不与存档的 [Design1-UI.md](Design1-UI.md) 做增量拼接；Design1-UI.md 冻结不回写。
+> **范围红线：** 本文档仅覆盖 UI 层、前端实现与前后端连接契约（端点形状/字段/轮询协议）；**不写数据库 schema 与后端运行逻辑**——功能行为一律以 [Design2.md](Design2.md) 为准（本文不重复定义，引用其章节），编码约束遵循 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
 > 本规格面向构建可直接实施；与 Design2.md 冲突时以 Design2.md 为准并提示用户。
+> **归档说明**：本文档为已实现并验收的 GUI 规格，随 Design2.md 于 2026-08-31 移入 `docs/reports/Design/` 存档；Design3 新增界面行为以 [Design3.md](../../../Design3.md) §八为准。
 
 ## 未受影响页面核验结论（不编写规格）
 

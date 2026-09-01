@@ -1,8 +1,8 @@
 # Build5.md — 基础模式装配与分发：manual 节点、代理组、四类装配器（当前构建方案·第五轮）
 
 > **文档定位：** 本文档是 VPN 订阅管理系统的**第五轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则），承接 [Build4.md](Build4.md)（第四轮：基础模式地基与规则素材池，须全部验收通过后本轮方可启动）。
-> - 设计基线：[Design2.md](../../../Design2.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - GUI 规格：[Design2-UI.md](../../../Design2-UI.md)（活跃，承载 Design2 全部界面部件）
+> - 设计基线：[Design2.md](../Design/Design2.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - GUI 规格：[Design2-UI.md](../Design/Design2-UI.md)（已归档，承载 Design2 全部界面部件）
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 前置轮次：[Build4.md](Build4.md)；后续轮次：[Build6.md](Build6.md)（高级模式 Xray 后端）、[Build7.md](Build7.md)（高级模式管理面与交付收口）
 >

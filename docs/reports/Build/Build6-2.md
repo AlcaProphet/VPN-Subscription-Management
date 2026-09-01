@@ -1,7 +1,7 @@
 # Build6-2.md — Build6 未完成/简化项补充构建记录
 
 > **文档定位：** 本文档记录 Build6 主流程已验收但未完全达到 Build6.md 原始深度要求的内容，作为后续补强与 Build7 衔接的追踪清单。
-> - 关联文档：[Build6.md](Build6.md)、[Design2.md](../../../Design2.md)、[Design2-UI.md](../../../Design2-UI.md)
+> - 关联文档：[Build6.md](Build6.md)、[Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md)
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 
 ---

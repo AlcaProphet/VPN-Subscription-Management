@@ -3,7 +3,7 @@
 <cite>
 **本文引用的文件**
 - [README.md](../../../../../README.md)
-- [Design2.md](../../../../../Design2.md)
+- [Design2.md](../../../../../docs/reports/Design/Design2.md)
 - [DesignReport5.md](../../../../../docs/reports/DesignReport/DesignReport5.md)
 - [main.go](file://backend/cmd/server/main.go)
 - [server.go](file://backend/internal/server/server.go)
@@ -98,11 +98,11 @@ end
 **图表来源**
 - [server.go:86-112](file://backend/internal/server/server.go#L86-L112)
 - [config.go:57-168](file://backend/internal/config/config.go#L57-L168)
-- [Design2.md:304-333](../../../../../Design2.md#L304-L333)
+- [Design2.md:304-333](../../../../../docs/reports/Design/Design2.md#L304-L333)
 
 **章节来源**
-- [Design2.md:8-22](../../../../../Design2.md#L8-L22)
-- [Design2.md:304-333](../../../../../Design2.md#L304-L333)
+- [Design2.md:8-22](../../../../../docs/reports/Design/Design2.md#L8-L22)
+- [Design2.md:304-333](../../../../../docs/reports/Design/Design2.md#L304-L333)
 
 ## 详细组件分析
 

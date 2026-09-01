@@ -3,7 +3,7 @@
 > **文档定位：** 本文档是 VPN 订阅管理系统的**已归档问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档的 [Issue3.md](Issue3.md)（R16~R18 系列，保留备查）。
 >
 > **归档说明（2026-08-24）：** R19-01~R19-12 经复核均已修复闭环，不再作为当前问题追踪。
-> 设计记录见 [Design2.md](../../../Design2.md) 与 [Design2-UI.md](../../../Design2-UI.md)；构建方案见 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md)（已归档）；编码指令见 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
+> 设计记录见 [Design2.md](../Design/Design2.md) 与 [Design2-UI.md](../Design/Design2-UI.md)；构建方案见 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md)（已归档）；编码指令见 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
 
 ---
 
@@ -204,7 +204,7 @@
 2. 存在方案取舍时，使用提问工具附推荐选项与用户确认；
 3. 修复方案确定后，由 [BuildN.md](../BuildN.md) 承接为构建 Step；
 4. 修复完成并验收通过后，更新状态为 ✅ 并记录验收命令与实际结果；
-5. 非问题的优化候选 / 已知遗留事项归 [Design2.md](../../../Design2.md) §三「后续设计候选」记录，不记录在本文件。
+5. 非问题的优化候选 / 已知遗留事项归 [Design2.md](../Design/Design2.md) §三「后续设计候选」记录，不记录在本文件。
 
 ---
 

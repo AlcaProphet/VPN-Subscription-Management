@@ -1,8 +1,8 @@
 # Build7.md — 高级模式管理面与交付收口：对账/独立账号/导入导出 v2/OFF 清空/高级 UI（当前构建方案·第七轮）
 
 > **文档定位：** 本文档是 VPN 订阅管理系统的**第七轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则），承接 [Build4.md](Build4.md)、[Build5.md](Build5.md)、[Build6.md](Build6.md)（前三轮须全部验收通过后本轮方可启动）。
-> - 设计基线：[Design2.md](../../../Design2.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - GUI 规格：[Design2-UI.md](../../../Design2-UI.md)（本 Build 重点落地其 §3/§4/§8 高级模式 UI 与 §9 契约）
+> - 设计基线：[Design2.md](../Design/Design2.md)（与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - GUI 规格：[Design2-UI.md](../Design/Design2-UI.md)（本 Build 重点落地其 §3/§4/§8 高级模式 UI 与 §9 契约）
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 前置轮次：[Build4.md](Build4.md)、[Build5.md](Build5.md)、[Build6.md](Build6.md)
 >

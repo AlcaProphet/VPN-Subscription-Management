@@ -1,8 +1,8 @@
 # Build4.md — 基础模式地基：Go 1.26 + 1009 迁移 + 旧分发模型拆除 + 规则素材池（当前构建方案·第四轮）
 
 > **文档定位：** 本文档是 VPN 订阅管理系统的**第四轮构建方案**（依据 AGENTS.md §8.1：Build 文档为详细构建方案，非强规则），承接已归档的 [Build1.md](Build1.md)、[Build2.md](Build2.md)、[Build3.md](Build3.md)（前三轮均已验收归档）。
-> - 设计基线：[Design2.md](../../../Design2.md)（增量能力：订阅装配与 Xray 对接；与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - GUI 规格：[Design2-UI.md](../../../Design2-UI.md)（活跃，承载 Design2 全部界面部件）
+> - 设计基线：[Design2.md](../Design/Design2.md)（增量能力：订阅装配与 Xray 对接；与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - GUI 规格：[Design2-UI.md](../Design/Design2-UI.md)（已归档，承载 Design2 全部界面部件）
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 后续轮次：[Build5.md](Build5.md)（节点/代理组/四类装配器与分发）、[Build6.md](Build6.md)（高级模式 Xray 对接后端）、[Build7.md](Build7.md)（高级模式管理面与交付收口），本轮验收后按序启动
 >

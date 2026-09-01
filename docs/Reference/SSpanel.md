@@ -1,6 +1,6 @@
 # SSpanel.md — SSPanel-UIM 设计研究参考资料
 
-> **文档定位：** 本文档是对成熟面板 SSPanel-UIM（PHP）的早期源码速览，作为 vpn-sub 项目 Xray 对接（高级模式）设计的参照资料。**深度取证版（含订阅链路/管理链路全景、行号引用与 Design2 对照评估）见 [SSpanel-Subscribe.md](SSpanel-Subscribe.md)，冲突时以其为准。**设计决策与方案见 [Design2.md](../../Design2.md) 第五章；Xray-core API 研究见 [Xray-Core-API.md](Xray-Core-API.md)。
+> **文档定位：** 本文档是对成熟面板 SSPanel-UIM（PHP）的早期源码速览，作为 vpn-sub 项目 Xray 对接（高级模式）设计的参照资料。**深度取证版（含订阅链路/管理链路全景、行号引用与 Design2 对照评估）见 [SSpanel-Subscribe.md](SSpanel-Subscribe.md)，冲突时以其为准。**设计决策与方案见 [Design2.md](../reports/Design/Design2.md) 第五章；Xray-core API 研究见 [Xray-Core-API.md](Xray-Core-API.md)。
 > **核验来源：** 本地仓库 `/Users/kyle/Desktop/Repo/SSPanel-UIM` 源码（核心文件：`src/Services/Subscribe/*`、`src/Controllers/SubController.php`、`src/Models/Node.php`、`src/Models/User.php`、`src/Models/Link.php`）。
 
 ---

@@ -1,6 +1,6 @@
 # DesignReport3.md — Design2.md 增量能力设计深度研究验证完成报告（第二轮独立复审）
 
-> **报告定位：** 本文档是对 [Design2.md](../../../Design2.md)（增量能力：规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接）的多轮、多角度深度研究验证的完成报告，由完成报告画布（`design2-research-completion-report.canvas.tsx`）转档归档。
+> **报告定位：** 本文档是对 [Design2.md](../Design/Design2.md)（增量能力：规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接）的多轮、多角度深度研究验证的完成报告，由完成报告画布（`design2-research-completion-report.canvas.tsx`）转档归档。
 > **研究依据**：Design2.md（411 行）× [Design1.md](../Design/Design1.md) 基线（926 行）× `backend/` 与 `frontend/` 现有实现 × `docs/` 全量资料（Reference 研究文档、DocTemplates 配置样例、reports 历史文档）。
 > **约束遵守**：全程只读取证，未修改任何代码文件、配置文件与 Design 文档（`git status` 验证工作区零改动）。
 

@@ -1,6 +1,6 @@
 # DesignReport7.md — Design2 / Design2-UI / Build4~7 第八轮只读设计核验报告
 
-> **报告定位：** 本文档是对 [Design2.md](../../../Design2.md)、[Design2-UI.md](../../../Design2-UI.md) 与 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md) 的**第八轮完整只读设计核验报告**。承接 [DesignReport6.md](DesignReport6.md) 已闭环的修订（Q1/Q2/Q3 与 P2-1~P2-6、R1~R5），本轮聚焦修订后六份文档的残余冲突、遗漏交互分支、Build 边界归置与可实施性风险。
+> **报告定位：** 本文档是对 [Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md) 与 [Build4.md](../Build/Build4.md)～[Build7.md](../Build/Build7.md) 的**第八轮完整只读设计核验报告**。承接 [DesignReport6.md](DesignReport6.md) 已闭环的修订（Q1/Q2/Q3 与 P2-1~P2-6、R1~R5），本轮聚焦修订后六份文档的残余冲突、遗漏交互分支、Build 边界归置与可实施性风险。
 > **审核对象：** 当前工作区版本的 Design2.md、Design2-UI.md、Build4.md、Build5.md、Build6.md、Build7.md。
 > **审核约束：** 本轮全程只读，未修改任何现有设计/构建文档，未修改代码/配置，未开始构建，未运行会改变仓库状态的命令。终端操作均为短时只读检索。
 > **审核时间：** 2026-08-19

@@ -1,8 +1,8 @@
 # Build8.md — VPN 订阅管理系统 当前构建方案（Issue5 R20 修复）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**，承接已存档 Build4~7，针对 [Issue5.md](Issue5.md) 中 R20-01~R20-27 的修复执行。
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 问题追踪：[Issue5.md](Issue5.md)（历史 Issue1~4 已归档至 [docs/reports/](docs/reports)）
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**，承接已存档 Build4~7，针对 [Issue5.md](../Issue/Issue5.md) 中 R20-01~R20-27 的修复执行。
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 问题追踪：[Issue5.md](../Issue/Issue5.md)（历史 Issue1~4 已归档至 [docs/reports/](../)）
 > - 用户决策（2026-08-22）：
 >   1. R20-08：增加 30 分钟整体超时 + 取消端点 + 前端取消按钮；
 >   2. R20-11：环境已不可用，按“未能复现”闭环并转 ProdTestList 人工验证；
