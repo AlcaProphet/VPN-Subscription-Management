@@ -10,6 +10,7 @@ import type { ProxyGroupItem } from '@/api/proxyGroup'
 const props = defineProps<{
   form: { node_names: string[]; group_names: string[]; overseas_members: string[]; fallback_group_members: string[] }
   groupNodeOrders: Record<string, string[]>
+  groupMemberOrders: Record<string, string[]>
   context: AssemblyContext | null
   targetSyntax: TargetSyntax
   invalidRefs: Array<{ kind: string; name: string }>
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   'toggle-node': [name: string]
   'toggle-group': [name: string]
   'update-group-node-order': [group: string, nodes: string[]]
+  'update-group-member-order': [group: string, members: string[]]
   'update-force-members': [group: string, members: string[]]
 }>()
 
@@ -49,6 +51,14 @@ const availableForceGroups = computed(() => {
   if (selectingGroup.value === FORCE_FALLBACK) return [FORCE_DIRECT, FORCE_OVERSEAS]
   return []
 })
+function groupDefaultMembers(group: string): string[] {
+  const g = [...props.presetGroups, ...props.customGroups].find((x) => x.name === group)
+  return g?.definition.groups ?? []
+}
+const normalGroupMembers = computed(() => {
+  if (!selectingGroup.value || selectingForceGroup.value) return []
+  return groupDefaultMembers(selectingGroup.value)
+})
 function nodeLabel(name: string) {
   return [...props.manualNodes, ...props.xrayNodes].find((n) => n.name === name)?.render_name ?? name
 }
@@ -62,7 +72,17 @@ function openSelector(group: string) {
   } else if (group === FORCE_FALLBACK) {
     draftSelected.value = [...props.form.fallback_group_members]
   } else {
-    draftSelected.value = [...(props.groupNodeOrders[group] ?? [])]
+    const existing = props.groupMemberOrders[group]
+    if (existing) {
+      draftSelected.value = [...existing]
+    } else {
+      const defaults = groupDefaultMembers(group)
+      const initial = [...(props.groupNodeOrders[group] ?? [])]
+      for (const ref of defaults) {
+        if (!initial.includes(ref)) initial.push(ref)
+      }
+      draftSelected.value = initial
+    }
   }
 }
 function closeSelector() {
@@ -84,8 +104,13 @@ function moveDraft(index: number, delta: number) {
 }
 function saveSelector() {
   if (selectingGroup.value) {
-    if (selectingForceGroup.value) emit('update-force-members', selectingGroup.value, draftSelected.value)
-    else emit('update-group-node-order', selectingGroup.value, draftSelected.value)
+    if (selectingForceGroup.value) {
+      emit('update-force-members', selectingGroup.value, draftSelected.value)
+    } else {
+      const nodeNames = draftSelected.value.filter((name) => props.form.node_names.includes(name))
+      emit('update-group-node-order', selectingGroup.value, nodeNames)
+      emit('update-group-member-order', selectingGroup.value, [...draftSelected.value])
+    }
   }
   closeSelector()
 }
@@ -169,21 +194,27 @@ function onDrop(idx: number) {
           <div class="mt-1 text-xs text-text-tertiary">可选成员：本次已勾选节点、{{ FORCE_DIRECT }}、{{ FORCE_OVERSEAS }}</div>
         </div>
         <div v-for="g in presetGroups" :key="g.name"
-             class="flex items-center gap-2 rounded border px-2 py-1.5"
+             class="rounded border px-2 py-1.5"
              :class="form.group_names.includes(g.name) ? 'border-primary bg-primary-soft' : 'border-border-subtle'">
-          <Checkbox :checked="form.group_names.includes(g.name)" :disabled="!g.enabled" @change="emit('toggle-group', g.name)">
-            <span>{{ g.name }}</span>
-            <Button v-if="form.group_names.includes(g.name)" size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
-          </Checkbox>
+          <div class="flex items-center gap-2">
+            <Checkbox :checked="form.group_names.includes(g.name)" :disabled="!g.enabled" @change="emit('toggle-group', g.name)">
+              <span>{{ g.name }}</span>
+              <Button v-if="form.group_names.includes(g.name)" size="small" class="ml-1" :data-testid="`select-group-${g.name}`" @click.stop="openSelector(g.name)">选择与排序</Button>
+            </Checkbox>
+          </div>
+          <div v-if="form.group_names.includes(g.name)" class="mt-1 text-xs text-text-tertiary">默认携带：{{ (g.definition.groups ?? []).join('、') || '无' }}</div>
         </div>
         <div v-for="g in customGroups" :key="g.name"
-             class="flex items-center gap-2 rounded border px-2 py-1.5"
+             class="rounded border px-2 py-1.5"
              :class="form.group_names.includes(g.name) ? 'border-primary bg-primary-soft' : 'border-border-subtle'">
-          <Checkbox :checked="form.group_names.includes(g.name)" @change="emit('toggle-group', g.name)">
-            <span>{{ g.name }}</span>
-            <Tag v-if="!form.group_names.includes(g.name)" class="ml-1">自建</Tag>
-            <Button v-else size="small" class="ml-1" @click.stop="openSelector(g.name)">选择与排序</Button>
-          </Checkbox>
+          <div class="flex items-center gap-2">
+            <Checkbox :checked="form.group_names.includes(g.name)" @change="emit('toggle-group', g.name)">
+              <span>{{ g.name }}</span>
+              <Tag v-if="!form.group_names.includes(g.name)" class="ml-1">自建</Tag>
+              <Button v-else size="small" class="ml-1" :data-testid="`select-group-${g.name}`" @click.stop="openSelector(g.name)">选择与排序</Button>
+            </Checkbox>
+          </div>
+          <div v-if="form.group_names.includes(g.name)" class="mt-1 text-xs text-text-tertiary">默认携带：{{ (g.definition.groups ?? []).join('、') || '无' }}</div>
         </div>
       </div>
     </section>
@@ -198,6 +229,14 @@ function onDrop(idx: number) {
             </Checkbox>
           </div>
           <div class="mt-1 text-xs text-text-tertiary">底层直连不会作为候选显示；需要直连时请选择「{{ FORCE_DIRECT }}」。</div>
+        </div>
+        <div v-if="normalGroupMembers.length">
+          <div class="text-sm font-medium mb-1">默认携带的代理组</div>
+          <div class="grid md:grid-cols-2 gap-2">
+            <Checkbox v-for="group in normalGroupMembers" :key="group" :checked="draftSelected.includes(group)" @change="toggleDraftNode(group)">
+              {{ group }}
+            </Checkbox>
+          </div>
         </div>
         <div>
           <div class="text-sm font-medium mb-1">本次已勾选节点</div>

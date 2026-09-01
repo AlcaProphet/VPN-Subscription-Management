@@ -76,8 +76,8 @@ func (s *Service) validate(in GenerateInput, ld *loadedData) error {
 			}
 		}
 	}
-	// 本次装配的代理组节点引用顺序校验：key 必须是已勾选组，
-	// value 只能是本次已勾选的节点且不能重复（代理组全局不再维护节点引用）。
+	// 本次装配的代理组成员顺序校验：key 必须是已勾选组，
+	// value 可以是本次已勾选节点或该组默认携带的子组，且不能重复。
 	selectedGroupSet := map[string]bool{}
 	for _, name := range in.GroupNames {
 		selectedGroupSet[name] = true
@@ -86,22 +86,50 @@ func (s *Service) validate(in GenerateInput, ld *loadedData) error {
 	for _, name := range in.NodeNames {
 		selectedNodeSet[name] = true
 	}
-	for gName, order := range in.GroupNodeOrders {
-		if !selectedGroupSet[gName] {
-			return fmt.Errorf("%w: 代理组节点顺序引用了未勾选的组: %s", ErrBadRequest, gName)
+	checkedOrder := map[string]bool{}
+	checkGroupOrder := func(gName string, order []string) error {
+		if checkedOrder[gName] {
+			return nil
 		}
-		if _, ok := ld.groups[gName]; !ok {
-			return fmt.Errorf("%w: 代理组节点顺序引用了不存在的组: %s", ErrBadRequest, gName)
+		checkedOrder[gName] = true
+		if !selectedGroupSet[gName] {
+			return fmt.Errorf("%w: 代理组成员顺序引用了未勾选的组: %s", ErrBadRequest, gName)
+		}
+		g, ok := ld.groups[gName]
+		if !ok {
+			return fmt.Errorf("%w: 代理组成员顺序引用了不存在的组: %s", ErrBadRequest, gName)
+		}
+		allowedGroupRefs := map[string]bool{}
+		for _, ref := range g.Groups {
+			allowedGroupRefs[ref] = true
 		}
 		seen := map[string]bool{}
 		for _, ref := range order {
-			if !selectedNodeSet[ref] {
-				return fmt.Errorf("%w: 组 %s 节点顺序引用了未勾选节点: %s", ErrBadRequest, gName, ref)
-			}
 			if seen[ref] {
-				return fmt.Errorf("%w: 组 %s 节点顺序存在重复节点: %s", ErrBadRequest, gName, ref)
+				return fmt.Errorf("%w: 组 %s 成员顺序存在重复成员: %s", ErrBadRequest, gName, ref)
 			}
 			seen[ref] = true
+			if selectedNodeSet[ref] {
+				continue
+			}
+			if allowedGroupRefs[ref] {
+				continue
+			}
+			return fmt.Errorf("%w: 组 %s 成员顺序引用了不允许的成员: %s", ErrBadRequest, gName, ref)
+		}
+		return nil
+	}
+	for gName, order := range in.GroupMemberOrders {
+		if err := checkGroupOrder(gName, order); err != nil {
+			return err
+		}
+	}
+	for gName, order := range in.GroupNodeOrders {
+		if _, ok := in.GroupMemberOrders[gName]; ok {
+			continue
+		}
+		if err := checkGroupOrder(gName, order); err != nil {
+			return err
 		}
 	}
 	// 规则目标组必须属于本次输出集合（强制组或已勾选组；sr-conf 允许 PROXY/DIRECT）

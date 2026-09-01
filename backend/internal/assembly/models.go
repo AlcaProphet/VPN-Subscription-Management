@@ -168,6 +168,7 @@ type GenerateInput struct {
 	NodeNames            []string            `json:"node_names"`
 	GroupNames           []string            `json:"group_names"`
 	GroupNodeOrders      map[string][]string `json:"group_node_orders,omitempty"`
+	GroupMemberOrders    map[string][]string `json:"group_member_orders,omitempty"`
 	OverseasMembers      []string            `json:"overseas_members"`
 	FallbackGroupMembers []string            `json:"fallback_group_members"`
 	Pools                []PoolSelection     `json:"pools"`

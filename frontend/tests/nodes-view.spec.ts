@@ -98,7 +98,7 @@ describe('NodesView 节点管理页', () => {
     expect(document.body.textContent).toContain('协议与传输')
     expect(document.body.textContent).toContain('开关参数')
     expect(document.body.querySelector('.node-switch-fields')?.textContent).toContain('UDP')
-    expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('结构化编辑')
+    expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('高级 JSON')
     expect(document.body.querySelector('.node-advanced-fields')?.textContent).toContain('路由标记')
     wrapper.unmount()
   })

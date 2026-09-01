@@ -47,10 +47,6 @@ export interface PerURLResult {
   rejected?: number
   duplicates?: number
   pending?: boolean
-  added?: number
-  removed?: number
-  skipped?: number
-  skip_reasons?: string[]
   error: string
 }
 
@@ -103,3 +99,5 @@ export const listSyncTasks = (poolId: number, page = 1, pageSize = 20) =>
   http.get<any, { list: SyncTaskItem[]; total: number }>(`/admin/pools/${poolId}/sync/tasks`, {
     params: { page, page_size: pageSize },
   })
+export const clearSyncTasks = (poolId: number) =>
+  http.delete<any, { cleared: number }>(`/admin/pools/${poolId}/sync/tasks/completed`)

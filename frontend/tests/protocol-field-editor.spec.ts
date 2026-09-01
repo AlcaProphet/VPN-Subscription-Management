@@ -27,7 +27,7 @@ describe('ProtocolFieldEditor', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('结构化编辑')
+    expect(wrapper.text()).toContain('高级 JSON')
     expect(wrapper.text()).toContain('路径')
     expect(wrapper.text()).toContain('已保留 1 个未识别参数')
     expect(wrapper.find('textarea').exists()).toBe(false)
@@ -44,6 +44,7 @@ describe('ProtocolFieldEditor', () => {
     await textarea.setValue('{')
 
     expect(wrapper.text()).toContain('请输入 JSON 对象')
+    expect(wrapper.text()).toContain('结构化编辑')
     const validityEvents = wrapper.emitted('validity-change') ?? []
     expect(validityEvents[validityEvents.length - 1]).toEqual([{ path: 'ws-opts', valid: false }])
   })

@@ -87,3 +87,64 @@ func TestSyncHardFailureNoActive(t *testing.T) {
 		t.Fatal("失败同步不应产生 active")
 	}
 }
+
+func TestClearFinishedTasksKeepsActiveSnapshot(t *testing.T) {
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("a.com\nb.com\n"))
+	}))
+	defer srv.Close()
+	p, err := svc.Create(ctx, "清理池", []SourceInput{{URL: srv.URL, SourceMode: SourceModeAuto}}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p.ID); err != nil {
+		t.Fatalf("提交同步失败: %v", err)
+	}
+	waitSync(t, svc, p.ID, "succeeded")
+	n, err := svc.ClearFinishedTasks(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("清理历史失败: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("应清理至少一条终态任务")
+	}
+	_, total, err := svc.ListTasks(ctx, p.ID, 1, 20)
+	if err != nil || total != 0 {
+		t.Fatalf("清理后历史应为空: total=%d err=%v", total, err)
+	}
+	if activeSnapshotID(t, st, p.ID) <= 0 {
+		t.Fatal("手动清理历史不应删除 active 快照")
+	}
+}
+
+func TestCleanupOldTasksOnlyRemovesExpiredTerminal(t *testing.T) {
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "过期池", nil, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO pool_sync_tasks (pool_id,status,per_url_json,error,started_at,finished_at)
+		 VALUES (?, 'succeeded', '[]', '', datetime('now','-8 days'), datetime('now','-8 days'))`, p.ID); err != nil {
+		t.Fatalf("插入过期任务失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO pool_sync_tasks (pool_id,status,per_url_json,error,started_at,finished_at)
+		 VALUES (?, 'succeeded', '[]', '', datetime('now'), datetime('now'))`, p.ID); err != nil {
+		t.Fatalf("插入近期任务失败: %v", err)
+	}
+	n, err := svc.CleanupOldTasks(ctx)
+	if err != nil {
+		t.Fatalf("全局清理失败: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("应只清理 1 条过期任务，实际 %d", n)
+	}
+	_, total, err := svc.ListTasks(ctx, p.ID, 1, 20)
+	if err != nil || total != 1 {
+		t.Fatalf("清理后应保留近期任务: total=%d err=%v", total, err)
+	}
+}

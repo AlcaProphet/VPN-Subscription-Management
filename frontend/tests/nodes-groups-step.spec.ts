@@ -18,33 +18,35 @@ const AppModalStub = {
   template: '<section v-if="open" data-testid="member-modal"><h2>{{ title }}</h2><slot /></section>',
 }
 
-function mountStep() {
+function mountStep(overrides: any = {}) {
   const node = (id: number, name: string, renderName: string) => ({
     id, name, render_name: renderName, source: 'manual' as const, protocol: 'vless',
     host: 'example.com', port: 443, protocol_json: {}, is_public: false,
     enabled: true, allocatable: true, missing: false,
   })
-  return mount(NodesGroupsStep, {
-    props: {
-      form: {
-        node_names: ['node-a'],
-        group_names: [],
-        overseas_members: [],
-        fallback_group_members: ['🚀直接连接', '🌎国外流量'],
-      },
-      groupNodeOrders: {},
-      context: null,
-      targetSyntax: 'clash-yaml',
-      invalidRefs: [],
-      showXray: true,
-      manualNodes: [
-        node(1, 'node-a', '节点A'),
-        node(2, 'node-b', '节点B'),
-      ],
-      xrayNodes: [],
-      presetGroups: [],
-      customGroups: [],
+  const baseProps = {
+    form: {
+      node_names: ['node-a'],
+      group_names: [],
+      overseas_members: [],
+      fallback_group_members: ['🚀直接连接', '🌎国外流量'],
     },
+    groupNodeOrders: {},
+    groupMemberOrders: {},
+    context: null,
+    targetSyntax: 'clash-yaml',
+    invalidRefs: [],
+    showXray: true,
+    manualNodes: [
+      node(1, 'node-a', '节点A'),
+      node(2, 'node-b', '节点B'),
+    ],
+    xrayNodes: [],
+    presetGroups: [],
+    customGroups: [],
+  }
+  return mount(NodesGroupsStep, {
+    props: { ...baseProps, ...overrides },
     global: {
       stubs: {
         Button: ButtonStub,
@@ -95,4 +97,46 @@ describe('NodesGroupsStep Clash 强制组', () => {
     expect(wrapper.text()).toContain('Xray 节点')
     expect(wrapper.text()).toContain('代理组')
   })
+
+  it('已选普通代理组展示默认携带的子组', () => {
+    const group = {
+      id: 1, name: '影音', type: 'custom' as const, enabled: true,
+      definition: { type: 'select' as const, nodes: [], groups: ['🌎国外流量'] },
+    }
+    const wrapper = mountStep({
+      customGroups: [group],
+      form: {
+        node_names: ['node-a'],
+        group_names: ['影音'],
+        overseas_members: [],
+        fallback_group_members: ['🚀直接连接', '🌎国外流量'],
+      },
+    })
+    expect(wrapper.text()).toContain('默认携带：🌎国外流量')
+  })
+
+  it('普通代理组选择排序包含默认子组并提交合并成员顺序', async () => {
+    const group = {
+      id: 1, name: '影音', type: 'custom' as const, enabled: true,
+      definition: { type: 'select' as const, nodes: [], groups: ['🌎国外流量'] },
+    }
+    const wrapper = mountStep({
+      customGroups: [group],
+      form: {
+        node_names: ['node-a'],
+        group_names: ['影音'],
+        overseas_members: [],
+        fallback_group_members: ['🚀直接连接', '🌎国外流量'],
+      },
+      groupNodeOrders: { '影音': ['node-a'] },
+    })
+    await wrapper.get('[data-testid="select-group-影音"]').trigger('click')
+    const modal = wrapper.get('[data-testid="member-modal"]')
+    expect(modal.text()).toContain('默认携带的代理组')
+    expect(modal.text()).toContain('🌎国外流量')
+    await wrapper.get('[data-testid="save-member-selector"]').trigger('click')
+    expect(wrapper.emitted('update-group-node-order')).toEqual([['影音', ['node-a']]])
+    expect(wrapper.emitted('update-group-member-order')).toEqual([['影音', ['node-a', '🌎国外流量']]])
+  })
+
 })

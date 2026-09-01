@@ -91,6 +91,7 @@ func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int
 		"node_names":             in.NodeNames,
 		"group_names":            in.GroupNames,
 		"group_node_orders":      in.GroupNodeOrders,
+		"group_member_orders":    in.GroupMemberOrders,
 		"overseas_members":       in.OverseasMembers,
 		"fallback_group_members": in.FallbackGroupMembers,
 		"pools":                  in.Pools,

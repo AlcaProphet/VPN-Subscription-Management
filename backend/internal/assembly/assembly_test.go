@@ -218,6 +218,51 @@ func TestPreviewClashGroupNodeOrder(t *testing.T) {
 	}
 }
 
+func TestPreviewClashGroupMemberOrderWithDefaultSubgroups(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertManualNode(t, st, "节点B", "vless", map[string]any{"uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+	insertGroup(t, st, "组A", "select", []string{}, []string{"🚀直接连接", "🌎国外流量"}, true, false)
+	res, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid,
+		NodeNames:            []string{"节点A", "节点B"},
+		GroupNames:           []string{"组A"},
+		GroupMemberOrders:    map[string][]string{"组A": {"节点B", "🚀直接连接", "节点A"}},
+		OverseasMembers:      []string{"节点A", "节点B"},
+		FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
+	})
+	if err != nil {
+		t.Fatalf("Clash 预览失败: %v", err)
+	}
+	content := string(res.Content)
+	groupSeg := content[strings.Index(content, "name: 组A"):]
+	idxB := strings.Index(groupSeg, "- 节点B")
+	idxDirect := strings.Index(groupSeg, "- 🚀直接连接")
+	idxA := strings.Index(groupSeg, "- 节点A")
+	if idxB < 0 || idxDirect < 0 || idxA < 0 || !(idxB < idxDirect && idxDirect < idxA) {
+		t.Errorf("group_member_orders 应按成员顺序输出节点与默认子组:\n%s", content)
+	}
+}
+
+func TestPreviewRejectsInvalidGroupMemberOrder(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vless", map[string]any{"uuid": "11111111-2222-3333-4444-555555555555"})
+	insertGroup(t, st, "组A", "select", []string{}, []string{"🚀直接连接"}, true, false)
+	_, err := svc.Preview(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid,
+		NodeNames:            []string{"节点A"},
+		GroupNames:           []string{"组A"},
+		GroupMemberOrders:    map[string][]string{"组A": {"🌎国外流量"}},
+		OverseasMembers:      []string{"节点A"},
+		FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
+	})
+	if err == nil {
+		t.Fatal("不应允许普通组引用非默认携带子组作为成员")
+	}
+}
+
 func TestPreviewClashForcedGroupMembers(t *testing.T) {
 	svc, st, _ := newTestService(t)
 	pid := insertPlatform(t, st, "yaml")

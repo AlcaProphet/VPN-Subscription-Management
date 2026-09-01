@@ -83,7 +83,7 @@ function setField(name: string, val: unknown) {
           <Button size="small" danger @click="emit('apply-default')">使用默认值</Button>
           <label class="flex items-center gap-2 text-sm text-text-secondary whitespace-nowrap">
             <Switch v-model:checked="advanced" size="small" />
-            <span>{{ advanced ? '高级 JSON' : '结构化表单' }}</span>
+            <span>{{ advanced ? '结构化编辑' : '高级 JSON' }}</span>
           </label>
         </Space>
       </div>

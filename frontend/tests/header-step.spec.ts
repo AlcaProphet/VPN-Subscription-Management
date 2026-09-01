@@ -23,7 +23,7 @@ describe('HeaderStep', () => {
 
     expect(wrapper.text()).toContain('使用默认值')
     expect(wrapper.text()).not.toContain('一键采用默认值')
-    expect(wrapper.text()).toContain('结构化表单')
+    expect(wrapper.text()).toContain('高级 JSON')
     expect(wrapper.find('.ant-switch').exists()).toBe(true)
   })
 })

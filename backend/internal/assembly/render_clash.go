@@ -44,14 +44,15 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	// 勾选代理组（固定键序 name/type/proxies）
 	for _, name := range in.GroupNames {
 		g := ld.groups[name]
-		nodes := in.GroupNodeOrders[g.Name]
-		proxies := make([]string, 0, len(nodes)+len(g.Groups))
-		for _, ref := range nodes {
+		rawMembers := clashGroupMemberOrder(in, g)
+		proxies := make([]string, 0, len(rawMembers))
+		for _, ref := range rawMembers {
 			if nd, ok := ld.nodes[ref]; ok {
 				proxies = append(proxies, nd.RenderName)
+			} else {
+				proxies = append(proxies, ref)
 			}
 		}
-		proxies = append(proxies, g.Groups...)
 		planGroup := clashPlanGroupFromData(g, proxies)
 		groups = append(groups, orderedMapToMapSlice(orderedGroupFields(&planGroup)))
 	}
@@ -140,10 +141,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			)
 			for _, name := range in.GroupNames {
 				g := ld.groups[name]
-				nodes := in.GroupNodeOrders[g.Name]
-				proxies := make([]string, 0, len(nodes)+len(g.Groups))
-				proxies = append(proxies, nodes...)
-				proxies = append(proxies, g.Groups...)
+				proxies := clashGroupMemberOrder(in, g)
 				out = append(out, clashPlanGroupFromData(g, proxies))
 			}
 			return out
@@ -277,5 +275,18 @@ func (s *Service) forceMemberRenderNames(members []string, ld *loadedData) []str
 			out = append(out, nd.RenderName)
 		}
 	}
+	return out
+}
+
+// clashGroupMemberOrder 返回普通代理组的原始成员顺序（节点稳定键 + 默认携带子组名）。
+// 优先使用显式 group_member_orders，否则兼容旧数据按节点顺序 + 默认子组。
+func clashGroupMemberOrder(in GenerateInput, g *groupData) []string {
+	if orders, ok := in.GroupMemberOrders[g.Name]; ok {
+		return orders
+	}
+	nodes := in.GroupNodeOrders[g.Name]
+	out := make([]string, 0, len(nodes)+len(g.Groups))
+	out = append(out, nodes...)
+	out = append(out, g.Groups...)
 	return out
 }

@@ -165,7 +165,7 @@ function isComplex(value: unknown): boolean {
       </div>
       <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
         <Switch :checked="advanced" size="small" @change="(value: any) => setAdvanced(Boolean(value))" />
-        <span>{{ advanced ? '高级 JSON' : '结构化编辑' }}</span>
+        <span>{{ advanced ? '结构化编辑' : '高级 JSON' }}</span>
       </label>
     </div>
 

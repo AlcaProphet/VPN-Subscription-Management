@@ -11,6 +11,7 @@ vi.mock('@/api/pool', () => ({
   submitSync: vi.fn(),
   getSyncStatus: vi.fn(),
   listSyncTasks: vi.fn(),
+  clearSyncTasks: vi.fn(),
 }))
 
 vi.mock('@/api/rulespec', () => ({
@@ -32,13 +33,16 @@ vi.mock('@/components/Notify', () => ({
   Notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), detail: vi.fn() },
 }))
 
-import { createEntry, listEntries, listSyncTasks } from '@/api/pool'
+import { createEntry, listEntries, listSyncTasks, clearSyncTasks } from '@/api/pool'
+import { listCapabilityMeta } from '@/api/rulespec'
 import { pollTask } from '@/api/request'
 
 const mockListEntries = listEntries as unknown as ReturnType<typeof vi.fn>
 const mockListTasks = listSyncTasks as unknown as ReturnType<typeof vi.fn>
 const mockPollTask = pollTask as unknown as ReturnType<typeof vi.fn>
 const mockCreateEntry = createEntry as unknown as ReturnType<typeof vi.fn>
+const mockListCapabilityMeta = listCapabilityMeta as unknown as ReturnType<typeof vi.fn>
+const mockClearSyncTasks = clearSyncTasks as unknown as ReturnType<typeof vi.fn>
 
 const pool = {
   id: 1, name: '苹果域名', urls: ['https://example.com/rules.txt'], entry_count: 2,
@@ -143,4 +147,60 @@ describe('PoolDetail', () => {
     await vm.saveEntry()
     expect(wrapper.emitted('changed')).toEqual([[pool.id]])
   })
+
+  it('素材池规则类型下拉从后端 snake_case 元数据生成', async () => {
+    mockListEntries.mockResolvedValue({ list: [entry], total: 1 })
+    mockListTasks.mockResolvedValue({ list: [], total: 0 })
+    mockListCapabilityMeta.mockResolvedValue({
+      legacy: [
+        { rule_type: 'DOMAIN', scope: 'common', material_pool: true, advanced: true, supports_no_resolve: false },
+        { rule_type: 'DOMAIN-SUFFIX', scope: 'common', material_pool: true, advanced: true, supports_no_resolve: false },
+        { rule_type: 'IP-CIDR', scope: 'common', material_pool: true, advanced: true, supports_no_resolve: true },
+        { rule_type: 'GEOSITE', scope: 'clash_only', material_pool: false, advanced: true, supports_no_resolve: false },
+      ],
+      capabilities: [],
+    })
+    const wrapper = mount(PoolDetail, { props: { pool } })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { manualRuleTypes: string[] }
+    expect(vm.manualRuleTypes).toContain('DOMAIN')
+    expect(vm.manualRuleTypes).toContain('DOMAIN-SUFFIX')
+    expect(vm.manualRuleTypes).toContain('IP-CIDR')
+    expect(vm.manualRuleTypes).not.toContain('GEOSITE')
+  })
+
+  it('清理已完成历史调用当前池接口并刷新历史', async () => {
+    mockListEntries.mockResolvedValue({ list: [entry], total: 1 })
+    mockListTasks
+      .mockResolvedValueOnce({ list: [{ task_id: 1, pool_id: 1, status: 'succeeded', per_url: [], error: '', started_at: '', finished_at: '' }], total: 1 })
+      .mockResolvedValueOnce({ list: [], total: 0 })
+    mockClearSyncTasks.mockResolvedValue({ cleared: 1 })
+    const wrapper = mount(PoolDetail, { props: { pool } })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { clearOpen: boolean; confirmClearTasks: () => Promise<void> }
+    vm.clearOpen = true
+    await vm.confirmClearTasks()
+    expect(mockClearSyncTasks).toHaveBeenCalledWith(1)
+    expect(wrapper.text()).toContain('暂无同步任务')
+  })
+
+  it('同步历史展示后端实际返回的解析统计而非空计数', async () => {
+    mockListEntries.mockResolvedValue({ list: [entry], total: 1 })
+    mockListTasks.mockResolvedValue({
+      list: [{
+        task_id: 1, pool_id: 1, status: 'succeeded',
+        per_url: [{ url: 'https://example.com/rules.txt', ok: true, accepted: 112, excluded: 0, rejected: 2, duplicates: 3, pending: false, error: '' }],
+        error: '', started_at: '', finished_at: '',
+      }],
+      total: 1,
+    })
+    const wrapper = mount(PoolDetail, { props: { pool } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('接受 112')
+    expect(wrapper.text()).toContain('拒绝 2')
+    expect(wrapper.text()).toContain('重复 3')
+    expect(wrapper.text()).not.toContain('新增 undefined')
+  })
+
+
 })
