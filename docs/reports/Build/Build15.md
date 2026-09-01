@@ -3,7 +3,7 @@
 > **文档定位：** 本文记录 `Issue9.md` R24-19、R24-20 经用户确认后的实施与验收结果。
 > - 当前设计：[Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md)
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
-> - 问题追踪：[Issue9.md](../../../Issue9.md)
+> - 问题追踪：[Issue9.md](../Issue/Issue9.md)
 > - 前一轮构建：[Build14.md](Build14.md)
 > - 实施日期：2026-08-30
 

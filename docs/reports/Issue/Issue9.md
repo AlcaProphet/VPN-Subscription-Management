@@ -1,7 +1,8 @@
 # Issue9.md — VPN 订阅管理系统 问题追踪（当前）
 
 > **文档定位：** 本文档是 VPN 订阅管理系统的**当前问题记录**（记录错误与修复方案，非强制，经验参考），承接已归档/历史问题记录（Issue1～Issue8，见 `docs/reports/Issue/`）。
-> 设计记录见 [Design2.md](docs/reports/Design/Design2.md) 与 [Design2-UI.md](docs/reports/Design/Design2-UI.md)；构建/修复记录见 [Build11.md](docs/reports/Build/Build11.md)、[Build12.md](docs/reports/Build/Build12.md)、[Build13.md](docs/reports/Build/Build13.md)、[Build14.md](docs/reports/Build/Build14.md)、[Build15.md](docs/reports/Build/Build15.md)、[Build16.md](docs/reports/Build/Build16.md)；编码指令见 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
+> 设计记录见 [Design2.md](../Design/Design2.md) 与 [Design2-UI.md](../Design/Design2-UI.md)；构建/修复记录见 [Build11.md](../Build/Build11.md)、[Build12.md](../Build/Build12.md)、[Build13.md](../Build/Build13.md)、[Build14.md](../Build/Build14.md)、[Build15.md](../Build/Build15.md)、[Build16.md](../Build/Build16.md)；编码指令见 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
+> **归档说明**：本文档 R24 系列已全部闭环（含用户确认保持现状项），于 2026-08-31 移入 `docs/reports/Issue/` 存档。
 
 ---
 

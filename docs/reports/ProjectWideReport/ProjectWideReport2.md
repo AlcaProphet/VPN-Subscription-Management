@@ -183,7 +183,7 @@ docker compose build                   # PASS（已生成 vpn-subscription-manag
 ### 4.1 【阻塞】Build11 后端 SQLite 单连接嵌套查询死锁研究
 
 - **直接现象**：`cd backend && go test -timeout 120s ./internal/server/...` 中 `TestOverviewEndpointAggregatesStableData` 超时，`panic: test timed out after 2m0s`。
-- **问题记录**：已按 Issue 模板创建根目录 [Issue9.md](../../../Issue9.md)，状态为“研究完成，待实施修复”。
+- **问题记录**：已按 Issue 模板创建 [Issue9.md](../Issue/Issue9.md)，后续 R24 系列已全部闭环并归档至 `docs/reports/Issue/Issue9.md`。
 - **调用链**（从 panic 栈提取）：
   - `OverviewHandler.get`（`overview.go`）
   - → `ExtService.ListExt`（`ext.go:502`）
