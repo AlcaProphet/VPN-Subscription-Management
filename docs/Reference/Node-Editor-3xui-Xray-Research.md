@@ -3,6 +3,7 @@
 > **文档定位：** 本文是节点编辑器改进研究的新增资料，承接 [Node-Editor-Design-Research.md](Node-Editor-Design-Research.md)、[Node-Editor-Improvement-Directions.md](Node-Editor-Improvement-Directions.md)、[Design4.md](../../Design4.md) 以及 [xray-client-side.md](xray-client-side.md)、[Node-Link-Standards.md](Node-Link-Standards.md) 等既有证据。本文只做研究记录，不定义实现，不改动项目业务代码，也不代表对 3x-ui 或 Xray-examples 的修改或产品背书。
 > **研究状态：** 2026-09-02。基于本机仓库 `~/Desktop/Repo/3x-ui`、`~/Desktop/Repo/Xray-examples`、`~/Desktop/Repo/clash-verge-rev` 和本项目当前代码静态分析；同时参考公开资料中的 3x-ui 页面与 Xray 配置说明。未构建、未联机调试、未改动外部分享项目。
 > **标注约定：** 【3x-ui 事实】= 本地 3x-ui 源码观察；【样例事实】= Xray-examples 文件内容；【项目事实】= 当前项目代码或既有文档；【外部事实】= 公开文档或 Issue；【结论】= 由证据推导、供后续研究采纳；【候选】= 需要后续决策，不视为已定稿。
+> **v1.2 同步说明（2026-09-02）：** Design4 v1.2 已确认取消分支保留与恢复，采用 `nodes` 行内最小当前状态 + 活动 `protocol_json`，不保存非激活分支。本文中提及“保留非激活分支 / 独立编辑状态 / Design4 路线 B”的早期表述已按 v1.2 口径改写。
 
 ---
 
@@ -28,10 +29,10 @@
 
 - 【结论】3x-ui 的条件表单、集中化能力判断、按协议/传输/安全拆分子表单、表单到 wire JSON 的适配层，均可以作为“当前组合驱动”编辑器的可参考实现。
 - 【结论】3x-ui 的 Inbound 和 Outbound 在表单结构上高度同构：`protocol → settings → streamSettings.network → per-network settings → security → tls/realitySettings → sockopt/mux/advanced`。
-- 【结论】3x-ui 保存的是「当前唯一活动配置」，不保存非激活传输/安全分支；切换 network 会清理旧 network 子对象并写入 schema 默认值，切换 security 会删除旧 security 子对象。这与 Design4 已确认的路线 B（活动配置 + 独立版本化编辑状态、保留非激活分支）不同。
+- 【结论】3x-ui 保存的是「当前唯一活动配置」，不保存非激活传输/安全分支；切换 network 会清理旧 network 子对象并写入 schema 默认值，切换 security 会删除旧 security 子对象。Design4 v1.2 同样采用切换即清空、不保存非激活分支，与 3x-ui 的这一行为方向一致；差异在于项目需要显式保存当前选择元数据供多目标输出解释。
 - 【结论】Xray 客户端样例把“远端连接”稳定表达为：协议、地址/端口、协议认证（settings）、传输（network + 对应子对象）、外层安全（security + tls/realitySettings）。项目当前 `protocol_json` 是 Mihomo/Clash 风格扁平字段，不是该嵌套结构。
 - 【结论】3x-ui 的 OutboundFormModal 同时提供“表单 + 完整 JSON 编辑 + Link 导入”，是一个与项目未来 Xray outbound 输出/编辑非常接近的交互先例。已确认：本轮将其记录为后续候选，不改变 Design4 当前的“局部 JSON 草稿 + 完整目标 JSON 只读检查”边界。
-- 【结论】项目当前节点表已经具备可复用的递归编辑器、后端 schema、凭据加密和多个输出器；主要差距是缺少“当前组合条件元数据”、活动/非激活状态区分和按目标投影的能力检查。
+- 【结论】项目当前节点表已经具备可复用的递归编辑器、后端 schema、凭据加密和多个输出器；主要差距是缺少“当前组合条件元数据”、显式当前选择状态和按目标投影的能力检查。
 
 ---
 
@@ -108,7 +109,7 @@ cleaned[`${next}Settings`] = newStreamSlice(next);
 
 即切换到新 network 时，删除其它 network 子对象，并写入新 network 的 schema 默认值；不保留旧 network 参数。`InboundFormModal.tsx:825-868`。安全切换由 `useSecurityActions` 处理，通常也会删除另一个安全子对象并写入目标分支的对象。Outbound 的 `onSecurityChange` 同样删除 `tlsSettings`/`realitySettings` 再写入新分支默认值，`OutboundFormModal.tsx:207-233`；`applyNetworkChange` 会尽量保留当前 security 及 security 子对象，但不会保留被替换的 network 子对象，`outbound-form-helpers.ts`。
 
-【结论】3x-ui 的“切换即清空旧分支”与 Design4 已确认的“保留非激活分支、只输出当前激活配置”是两种不同取舍。3x-ui 因为保存的是最终 Xray wire 配置，不需要在面板内恢复被替换分支；本项目面向多目标输出且用户可能往返切换，保留非激活分支与 Design4 已确认方向一致。本研究只记录该差异，不改变 Design4 方向。
+【结论】3x-ui 的“切换即清空旧分支”与 Design4 v1.2 的“清空分支且不保留恢复副本”一致。3x-ui 保存最终 Xray wire 配置，不需要恢复被替换分支；本项目也采用相同的清空取舍，并另存最小当前选择元数据以便多目标输出正确解释当前激活组合。本研究保留该观察，不改变 Design4 方向。
 
 ### 2.5 表单、存储与 wire payload 的适配层
 
@@ -131,7 +132,7 @@ cleaned[`${next}Settings`] = newStreamSlice(next);
 - 校验错误会自动切换到出错 Tab 并提示首个错误，`InboundFormModal.tsx:650-665` 附近（submit 处理）。
 - `rawOutboundToFormValues` 会把 JSON 解析回表单值，因此 JSON 与表单共享同一套 schema/适配器。
 
-【结论】这是本项目“结构化编辑 + JSON”的重要对照。3x-ui 的完整 JSON 编辑是可写且可回灌的；Design4 当前计划是“局部 JSON 草稿 + 完整目标 JSON 只读检查”。经本轮确认：3x-ui 的完整 JSON 可编辑模式先记录为后续候选，不立即改写 Design4。后续若采用，需要明确：完整 JSON 的对象归属、与表单之间谁是权威、非激活分支如何表达、敏感字段如何避免明文回显。
+【结论】这是本项目“结构化编辑 + JSON”的重要对照。3x-ui 的完整 JSON 编辑是可写且可回灌的；Design4 当前计划是“局部 JSON 草稿 + 完整目标 JSON 只读检查”。经本轮确认：3x-ui 的完整 JSON 可编辑模式先记录为后续候选，不立即改写 Design4。后续若采用，需要明确：完整 JSON 的对象归属、与表单之间谁是权威、被切离分支已清空后的草稿边界、敏感字段如何避免明文回显。
 
 ### 2.7 OutboundFormModal：与未来 Xray outbound 最接近的先例
 
@@ -280,9 +281,9 @@ outbounds[]
 | 维度 | 3x-ui | 当前项目 | Design4 方向 |
 |---|---|---|---|
 | 编辑对象 | Xray inbound/outbound JSON | manual 节点（多目标中间表示） | 多目标节点语义模型 |
-| 主存储 | settings/streamSettings 等 wire JSON 字符串 | Mihomo 风格 `protocol_json` | 活动 `protocol_json` + 独立编辑状态 |
-| 当前选择表达 | `streamSettings.network/security` 显式字段 | 依赖 `network`、`tls`、`reality-opts` 存在性 | 显式活动状态 |
-| 非激活分支 | 切换时清除旧分支 | 旧字段可能在输出里残留 | 保留但隔离，不输出 |
+| 主存储 | settings/streamSettings 等 wire JSON 字符串 | Mihomo 风格 `protocol_json` | 活动 `protocol_json` + `nodes` 行内当前状态/扩展/修订 |
+| 当前选择表达 | `streamSettings.network/security` 显式字段 | 依赖 `network`、`tls`、`reality-opts` 存在性 | 显式当前状态 |
+| 非激活分支 | 切换时清除旧分支 | 旧字段可能在输出里残留 | v1.2：清空且不保存非激活分支 |
 | 条件规则 | TypeScript 纯函数 + 组件条件渲染 | 后端静态 section | 服务端下发声明式规则 |
 | 校验 | Zod schema + RHF + 字段路径 | 后端静态必填/类型 | 前后端共享条件校验 |
 | JSON | 可编辑完整 JSON、可回灌 | 对象级 JSON、未知键保留 | 局部 JSON 草稿 + 完整目标只读 |
@@ -305,11 +306,11 @@ outbounds[]
 
 ### 5.2 不应照搬或需要保留边界的内容
 
-1. **3x-ui 切换即清空旧分支**：与 Design4 保留非激活分支冲突；不采纳为项目行为。
+1. **3x-ui 切换即清空旧分支**：Design4 v1.2 采用相同取舍；本项目同时显式保存当前选择元数据，但不保存非激活分支恢复副本。
 2. **Inbound 服务端字段**：证书、私钥、Reality 私钥/target、fallback、sniffing 等不能进入普通节点编辑器。
 3. **单一 Xray wire 作为节点真值**：项目仍需要多目标输出；不能把 Xray outbound 当作唯一持久化模型。
 4. **Tabs 布局**：3x-ui 用 Tabs 分隔 Basic/Protocol/Stream/Security/Advanced。Design4 已确认沿用现有浮层 + 分区展开/折叠；Tabs 仅作参考，不强制改变。
-5. **完整 JSON 可编辑**：已按用户确认记录为“后续候选”，当前不改变 Design4 的局部草稿/只读全文边界。后续若采纳，需补充分区权威、敏感字段和非激活分支表达。
+5. **完整 JSON 可编辑**：已按用户确认记录为“后续候选”，当前不改变 Design4 的局部草稿/只读全文边界。后续若采纳，需补充分区权威、敏感字段和被切离分支清空后的边界。
 6. **3x-ui 的“面板节点”概念**：其 NodeFormModal 是管理远端 3x-ui 面板连接，不是代理节点字段编辑；不与项目 manual 节点混淆。
 
 ### 5.3 本轮确认的候选事项
@@ -319,7 +320,7 @@ outbounds[]
 | 完整 Xray outbound JSON 可编辑 Tab | 已记录为后续候选 | 若未来 Xray outbound 输出升级为可编辑，再决定与局部 JSON/表单的权威关系 |
 | 能力规则采用纯函数还是声明式数据 | 均为候选 | 可继续以后端下发 schema 为主线，也可以借鉴 3x-ui 纯函数分层；需在 Design 阶段定契约 |
 | 是否在编辑器内直接编辑 Xray outbound 产物 | Design4 当前为只读检查 | 3x-ui 提供可编辑先例，但会影响“项目节点与目标产物”边界，需后续决策 |
-| SS 插件/mode 的逐目标映射 | 仍为待细化 | 3x-ui Outbound 不覆盖 SIP003 插件，因此不能以它为 SS 插件映射证据 |
+| SS 插件/mode 的逐目标映射 | Design4 v1.3 已列出普通组合和已知风险 | 3x-ui Outbound 不覆盖 SIP003 插件，因此不能以它为 SS 插件映射证据；Build 仍需实现映射与诊断样例 |
 
 ---
 
@@ -327,11 +328,11 @@ outbounds[]
 
 以下问题在本轮研究中出现，但不属于本次 Reference 的定稿内容；后续进入 Design/Build 前需按 AGENTS.md 与用户确认。
 
-1. **Xray outbound 的“编辑”边界**：是只做固定 profile 的只读/差异检查，还是提供类似 3x-ui OutboundFormModal 的可编辑表单 + JSON？
-2. **完整 JSON 的可写程度**：如果后续采用 3x-ui 的 JSON 回灌模式，如何与局部 JSON 草稿、活动/非激活状态、敏感字段保护共存？
-3. **能力规则载体**：继续扩展 Go `FieldSchema` 下发声明式条件，还是引入类似 3x-ui 的集中式能力函数并由后端同步/共享？这影响前后端是否保持单一规则来源。
-4. **Xray 客户端固定验证版本**：需要确定用于 Xray outbound 检查的 core/客户端版本，以及用 Xray-examples 中哪些样例作为正反例。
-5. **多目标输出的状态投影**：活动 `protocol_json` + 独立编辑状态保存后，Clash、SR/generic、Xray outbound 各自需要哪些字段，仍按 Design4 §10.2 继续细化。
+1. **Xray outbound 的“编辑”边界**：后续专项；当前仅记录为只读/差异检查，是否提供可编辑表单 + JSON 仍需用户决策。
+2. **完整 JSON 的可写程度**：如果后续采用 3x-ui 的 JSON 回灌模式，如何与局部 JSON 草稿、当前状态/清空边界、敏感字段保护共存。
+3. **能力规则载体**：Design4 v1.3 已定为后端 `FieldSchema` 下发声明式条件；集中式能力函数仅作参考，不改变单一规则来源方向。
+4. **Xray 客户端固定验证版本**：后续独立 Xray outbound 专项确定。
+5. **多目标输出的状态投影**：Design4 v1.3 已按普通组合与已知风险列出首批矩阵；Build 仍需实现字段级映射与诊断样例。
 
 ---
 
@@ -397,3 +398,4 @@ outbounds[]
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-02 | 新建独立 Reference 文档：分析 3x-ui Inbound/Outbound 表单架构、能力判断、wire 适配和 JSON 模式；对照 Xray-examples 客户端样例字段；梳理当前项目节点处理与差异；将 3x-ui 完整 JSON 可编辑模式记录为后续候选。仅文档，未改动项目代码或外部项目。 |
+| v1.1 | 2026-09-02 | 按 Design4 v1.2 同步早期“保留非激活分支 / 独立编辑状态”表述，改为“切换即清空、不保存恢复副本、行内当前状态”。仅文档同步，未改动项目代码或外部项目。 |

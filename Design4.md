@@ -2,7 +2,7 @@
 
 > **文档定位：** VPN 订阅管理系统的节点编辑器增量设计记录，承接 [Node-Editor-Design-Research.md](docs/Reference/Node-Editor-Design-Research.md)、[Node-Editor-Improvement-Directions.md](docs/Reference/Node-Editor-Improvement-Directions.md) 和 2026-09-02 补充研究。本文记录已确认的产品方向、设计纲要、研究证据及后续范围，不是分步 Build 文档。
 > **编码约束：** 遵循 [AGENTS.md](AGENTS.md)（唯一强要求）。[Design3.md](Design3.md) 的规则素材与装配设计继续有效；节点已实现基线见 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md) §6.2 和 [Build15.md](docs/reports/Build/Build15.md)。
-> **设计状态：** v1.2，2026-09-02。用户已确认并授权写入：切换分支清空所属参数与凭据、切回不恢复、取消独立 `node_edit_states` 表，在 `nodes` 内保存最小当前状态；同时确认协议过渡、目标生成门槛、未知扩展保护和并发修订方案。当前有效决策见第二章，设计准备度见第十一章。**关键行为已确认，四协议组合矩阵及具体接口结构仍待补齐；尚未构建，未完成客户端连接验收。**
+> **设计状态：** v1.3，2026-09-02。用户已确认并授权写入：切换分支清空所属参数与凭据、切回不恢复、取消独立 `node_edit_states` 表，在 `nodes` 内保存最小当前状态；同时确认协议过渡、目标生成门槛、未知扩展保护、并发修订方案、当前状态落盘形式与 Reference 同步口径。当前有效决策见第二章，设计准备度见第十一章，首批契约细化见第十二章。**关键行为与首批普通组合/风险组合矩阵已补齐，待用户确认后作为 Build 依据；尚未构建，未完成客户端连接验收。**
 > **数据前提：** 按用户确认，当前项目无业务数据，因此旧节点/旧调用方的数据兼容、迁移、历史数据读改写不作为本次设计约束；但仍保留 schema 版本化、新节点初始化与“无数据环境下直接建库”的设计。历史版本快照语义继续适用。
 > **证据基线：** 项目提交 `d76ee99`；补充研究使用 Clash Verge Rev **2.5.2** 的官方 URI 解析源码及本机携带的 Mihomo **1.19.29**，执行了 **41 个离线配置检查和 9 个 URI 样例检查**。结果含接受、拒绝、字段改写与静默回退，不是“50 项全部通过”；Shadowrocket 只有官方发布资料证据，没有本轮真机导入或连接结果。
 > **状态用语：** “设计结论”表示本次采用的方案；“研究结果”表示指定版本、指定路径的观察；“待细化”表示构建前仍需补齐的契约或证据。文中的目标行为不表示当前代码已经实现。
@@ -42,7 +42,7 @@
 | 过渡期 | 全部 19 个 manual 协议接入统一保存契约；首批四协议完成条件表单，其余 15 个保留原有 schema 和编辑能力，使用最小当前状态，不建立分支恢复数据，不隐藏或删除入口 |
 | Xray 来源 | 继续由实例检测维护，通过来源适配进入共享输出层，不套用 manual 编辑器的分支清空操作 |
 | 独立 Xray 输出 | 后续单独设计固定验证 profile 的客户端 outbound 导出；首批记录边界 |
-| 本次文档工作 | 仅维护 Design4 文档，不创建 Build、不改业务代码、不更新数据库或运行配置 |
+| 本次文档工作 | 维护 Design4 并按用户确认同步 Reference 与 AGENTS 文档口径；不创建 Build、不改业务代码、不更新数据库或运行配置 |
 
 “已兼容协议”指项目注册表现有入口，不表示每个协议都能导出到所有客户端。首批也不等于某协议所有历史传输、所有上游新功能均已获得完整兼容承诺。
 
@@ -346,7 +346,7 @@ manual 表单和 URI 导入统一归一化到规范路径，例如 `ws-opts`，�
 
 Xray 节点不建立可人工编辑的分支状态。当前实例检测仍可能产生 `ws-path`、`ws-host` 等字段，必须在进入共享输出层前做来源适配；这属于现有生产入口，不属于可省略的旧数据兼容。不得把 manual 规范路径的收敛直接当作删除 Xray 来源转换的依据。
 
-API 需覆盖编辑详情读取、创建、更新及新建／编辑草稿检查；读取应包含必要当前状态、修订号和脱敏凭据／扩展摘要。具体 DTO、条件元数据结构、诊断字段路径及接口路径见 §10.2 待补齐项。取消独立表后仍需覆盖 `nodes` 新字段的迁移、备份恢复和密钥保护；配置导出不等于完整节点备份。
+API 需覆盖编辑详情读取、创建、更新及新建／编辑草稿检查；读取应包含必要当前状态、修订号和脱敏凭据／扩展摘要。具体 DTO、条件元数据结构、诊断字段路径及接口路径见 §10.2 与 §12。取消独立表后仍需覆盖 `nodes` 新字段的迁移、备份恢复和密钥保护；配置导出不等于完整节点备份。
 
 ---
 
@@ -521,23 +521,23 @@ Trojan 的源码只对 WS／gRPC 作专门处理，其他值走 TCP。XHTTP 的 
 | 装配蓝图、版本、下载 | 新旧解释边界与最终检查 | 历史 manual 快照保持原语义；核对动态 Xray 路径 |
 | Design／Build／Issue | 新设计、后续构建及问题闭环 | 本次只写 Design4；Build 待另行授权，问题未修复不闭环 |
 
-### 10.2 构建前需要细化的内容
+### 10.2 构建前契约与细化状态
 
-本节集中记录首批仍需补齐的设计契约，避免与第十一章重复维护待办。已确认行为不再作为待选方案；具体字段结构、组合矩阵和契约样例补齐后，才能作为可执行 Build 的完整依据。DDL、代码和测试夹具实现由 Build 承担，不要求先写代码再编写 Build。若细化中发现新的产品行为或兼容取舍，仍须按 AGENTS.md 与用户确认。
+本节记录首批契约的已确定内容与当前细化状态。具体结构、请求/响应样例、组合矩阵与诊断格式已在第十二章成文；本表作为索引，Build 仍需实现的是 DDL、Go struct、前端组件和测试夹具等代码落点，不是另行决策产品行为。
 
-| 项目 | 已确定 | 尚待明确 |
+| 项目 | 已确定 | 已细化位置 / Build 落点 |
 |---|---|---|
-| 当前状态与修订 | 取消独立表，在 `nodes` 同行保存最小当前状态；格式版本与修订号分开，旧修订返回 409（D4／D13／D22） | 元数据与活动字段的具体结构、配置写入入口的修订覆盖范围及一致读写契约 |
-| 创建／更新／读取 API | 全部 manual 使用统一契约，其余 15 协议保留原表单；Xray 不建立人工编辑分支状态 | DTO、脱敏详情结构、凭据／扩展摘要、字段错误及冲突响应样例 |
-| 条件元数据 | 后端 `FieldSchema` 承载活动条件、必填、分区、推荐值及重置依赖 | 具体 JSON 结构；四协议字段的归属和跨维度清空清单，条件正反样例 |
-| 清空与凭据操作 | 按分区清空；A → B → A 不恢复旧值；重置合并基底后允许新输入，检查与保存共用流程 | 重置范围、保留／替换／清除的请求形状及新建／更新／重置后再填写样例 |
-| 目标生成与诊断 | §7.4 已确定拒绝／跳过／警告和零有效链接行为 | 字段级诊断结构、预览／生成／覆盖层最终检查的接入与回执；动态 Xray 路径的对应契约 |
-| 客户端 profile | Mihomo 1.19.29 与 CVR 2.5.2 为首批基线；Shadowrocket 待真机验证（D16） | 首批各协议普通候选组合清单、Clash YAML／SR URI／generic URI 字段级矩阵，标明完整／转换／可选损失／不支持及独立证据级别 |
-| SS URI 与插件 | 普通 AEAD、插件条件表单与诊断为首批，SS 2022 完整支持后置（D18） | 普通插件逐字段映射、SIP003 规则和样例；明确哪些首批修复输出、哪些按 §7.4 诊断 |
-| 未知扩展 | 来源／分区／目标明确；无法识别敏感路径时整体加密，保留／替换／清除，读取摘要；随分支清空（D10） | 扩展块结构、范围标识、脱敏摘要和向目标投影的契约样例 |
-| 节点检查 | 同时接受新建及编辑草稿，复用实际适配器，使用有效凭据操作，不落库；旧响应不能覆盖新结果（D17） | 路径、请求／响应结构、草稿版本关联、字段诊断格式及凭据引用 |
-| 初始化与来源适配 | manual 表单和 URI 导入统一入口；Xray 检测数据在共享输出前适配；无旧数据不免除新入口处理 | 各来源当前状态初始化及规范路径映射、逐行导入回执样例 |
-| 前端具体交互 | 独立开关区、可编辑下拉、局部 JSON、分支清空与错误展开定位已确认 | 控件提交时机、未应用 JSON 的处理及桌面／移动交互验收样例 |
+| 当前状态与修订 | 取消独立表，在 `nodes` 同行保存最小当前状态；格式版本与修订号分开，旧修订返回 409（D4／D13／D22） | 第十二章 §12.1、§12.3；Build 实现列/迁移、事务与冲突响应 |
+| 创建／更新／读取 API | 全部 manual 使用统一契约，其余 15 协议保留原表单；Xray 不建立人工编辑分支状态 | 第十二章 §12.3；Build 实现 DTO、脱敏详情、凭据/扩展操作与检查端点 |
+| 条件元数据 | 后端 `FieldSchema` 承载活动条件、必填、分区、推荐值及重置依赖 | 第十二章 §12.2；Build 实现 Go 结构、下发 JSON 与前端渲染 |
+| 清空与凭据操作 | 按分区清空；A → B → A 不恢复旧值；重置合并基底后允许新输入，检查与保存共用流程 | 第十二章 §12.3；Build 实现 `reset_scopes`、`credential_ops` 与合并基底 |
+| 目标生成与诊断 | §7.4 已确定拒绝／跳过／警告和零有效链接行为 | 第十二章 §12.3、§12.6；Build 实现诊断结构与覆盖层最终检查接入 |
+| 客户端 profile | Mihomo 1.19.29 与 CVR 2.5.2 为首批基线；Shadowrocket 待真机验证（D16） | 第十二章 §12.4；Build 实现固定版本正反例与字段级矩阵 |
+| SS URI 与插件 | 普通 AEAD、插件条件表单与诊断为首批，SS 2022 完整支持后置（D18） | 第十二章 §12.4、§12.5；Build 实现插件映射与诊断 |
+| 未知扩展 | 来源／分区／目标明确；无法识别敏感路径时整体加密，保留／替换／清除，读取摘要；随分支清空（D10） | 第十二章 §12.1、§12.3；Build 实现扩展块加密与摘要 |
+| 节点检查 | 同时接受新建及编辑草稿，复用实际适配器，使用有效凭据操作，不落库；旧响应不能覆盖新结果（D17） | 第十二章 §12.3；Build 实现 `/check`、草稿版本关联与脱敏产物 |
+| 初始化与来源适配 | manual 表单和 URI 导入统一入口；Xray 检测数据在共享输出前适配；无旧数据不免除新入口处理 | 第十二章 §12.5；Build 实现归一化与来源适配 |
+| 前端具体交互 | 独立开关区、可编辑下拉、局部 JSON、分支清空与错误展开定位已确认 | 第十二章 §12.2；Build 实现控件提交时机、未应用 JSON 与响应式验收样例 |
 
 ### 10.3 后续验收标准
 
@@ -567,7 +567,7 @@ Trojan 的源码只对 WS／gRPC 作专门处理，其他值走 TCP。XHTTP 的 
 
 ### 10.4 设计推进流程
 
-v1.2 已写入用户确认的清空规则、单节点行保存、协议过渡、生成门槛、扩展保护和并发方案。下一步补齐 §10.2 的首批契约与组合矩阵，按 §11.3 判断准备度，再由获授权的 Build 文档承接文件拆分、DDL、参考代码及测试实现。后续协议、SS 2022 和独立 Xray outbound 单独推进，不作为首批整体阻塞项。完成构建和验收后，才更新功能实现状态与相应 Issue 闭环。
+v1.3 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、四个协议普通与风险组合矩阵、来源适配和诊断分级写入第十二章。下一步按 §11.3 判断准备度，由获授权的 Build 文档承接文件拆分、DDL、参考代码及测试实现；如 Build 细化中再发现新的产品行为或兼容取舍，仍按 AGENTS.md 与用户确认。后续协议、SS 2022 和独立 Xray outbound 单独推进，不作为首批整体阻塞项。完成构建和验收后，才更新功能实现状态与相应 Issue 闭环。
 
 ---
 
@@ -577,7 +577,7 @@ v1.2 已写入用户确认的清空规则、单节点行保存、协议过渡、
 
 当前有效决策统一记录在第二章。取消分支保留可减少非激活数据存储、分支恢复和凭据跨分支合并；代价是切回需要重新填写。用户已确认该取舍，并确认取消独立状态表。必要的当前状态、条件校验、服务端投影、凭据保护与并发冲突检测仍保留，不能以简化为由省略。
 
-原先“同协议分支参数共享还是分别恢复”的问题已由清空规则取代。首批与后续范围、目标生成门槛、未知扩展保护和并发处理已收口；尚未完成的具体契约统一见 §10.2。本次写入不等于这些契约、业务代码或客户端验收已经完成。
+原先“同协议分支参数共享还是分别恢复”的问题已由清空规则取代。首批与后续范围、目标生成门槛、未知扩展保护、并发处理、当前状态落盘、API 契约和四协议组合矩阵已收口，具体契约见第十二章；尚未完成的是 Build 实现与客户端连接验收。
 
 ### 11.2 代码与证据检查结论
 
@@ -603,20 +603,366 @@ v1.2 已写入用户确认的清空规则、单节点行保存、协议过渡、
 
 | 阶段 | 必须完成的内容 | 与首批 Build 的关系 |
 |---|---|---|
-| 首批设计前置 | §10.2 的四协议组合与字段矩阵、重置归属、当前状态及 API 结构、凭据／扩展操作样例、来源适配和诊断契约；明确验收预期与证据等级 | 这些内容补齐后才能称为可执行 Build 的完整设计依据；不要求穷举所有参数笛卡尔积，但须覆盖普通候选和已知风险组合 |
+| 首批设计前置 | §10.2 的四协议组合与字段矩阵、重置归属、当前状态及 API 结构、凭据／扩展操作样例、来源适配和诊断契约；明确验收预期与证据等级 | 这些内容已在第十二章成文；Build 无需重新决策产品行为，只按契约实现，不要求穷举所有参数笛卡尔积 |
 | Build 实现与验证 | 具体 DDL／迁移编号、文件拆分、代码／伪代码、共享投影与校验实现、前端组件实现、测试夹具和验证命令 | 由后续获授权的 Build 分步承接；不要求先实现这些内容才能编写 Build |
 | 后续专项 | SS 2022 完整密钥／URI／客户端兼容、其余 15 协议完整条件表单、独立 Xray outbound 的 profile 与导出 | 不作为首批整体阻塞项，分别设计与验收；TUIC／WireGuard 在首批仅作模型扩展验例，不能扩成完整 UI 交付 |
 
-首批工程验收须覆盖 §10.3 的确定行为；编写 Build 前应明确可复现的输入和预期，不必先完成新适配器的连接实验。实际导入／连接证据在执行相应验收后记录，未执行时保持待验证，不能由单元测试或配置解析成功替代。当前状态为关键行为已确认、具体契约待补齐，不标记为全部设计定稿。
+首批工程验收须覆盖 §10.3 的确定行为；编写 Build 前应明确可复现的输入和预期，不必先完成新适配器的连接实验。实际导入／连接证据在执行相应验收后记录，未执行时保持待验证，不能由单元测试或配置解析成功替代。当前状态为关键行为与首批契约已确认，Build 实现和客户端连接验收尚待完成，不标记为全部设计定稿。
 
 ---
+## 十二、构建前契约细化（v1.3）
 
-## 十二、变更记录
+> 本章将 §10.2 的“待细化”收敛为首批可执行 Build 的契约骨架。以下命名与形状属于设计契约；若 Build 实现时发现无法满足的语义，按 AGENTS.md 重新与用户确认，不自行变更。
+
+### 12.1 `nodes` 新列与当前状态
+
+沿用“取消独立 `node_edit_states` 表”的确认，新增字段全部位于 `nodes` 同一行。`protocol_json` 继续作为活动参数唯一真值；下列新列只保存解释当前连接所需的元数据，不保存可恢复的分支草稿。
+
+| 列 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `edit_revision` | INTEGER | 0 | 编辑修订号；每次成功保存 manual 节点配置后 +1；旧修订更新返回 409 |
+| `state_format_version` | INTEGER | 1 | 当前状态数据结构解释版本；后续结构变化时递增，与数据库迁移版本、编辑修订号区分 |
+| `current_state_json` | TEXT | `'{}'` | 当前选择元数据；仅保存当前激活组合，不保存非激活分支、恢复副本、折叠状态或搜索文本 |
+| `extensions_json` | TEXT | `'{}'` | 未知扩展的元数据与加密负载；非敏感元数据明文，敏感负载整体加密 |
+
+`current_state_json` 约定结构：
+
+```json
+{
+  "network": "ws",
+  "security": "tls",
+  "plugin": null,
+  "features": ["smux"]
+}
+```
+
+- `network`：当前传输方式；协议没有传输分层时省略或为 `null`。
+- `security`：`none` / `tls` / `reality` 或协议自身安全模型；不得仅凭 `reality-opts` 是否存在猜测。
+- `plugin`：当前 SS 插件名；没有插件为 `null`。
+- `features`：当前启用的功能域，例如 `smux`、`udp-over-tcp`；关闭功能的子参数已清空。
+
+`extensions_json` 约定结构（每个扩展块独立加密，读取时只返回摘要）：
+
+```json
+{
+  "entries": [
+    {
+      "id": "ext-1",
+      "scope": "transport.ws",
+      "targets": ["clash-yaml"],
+      "label": "WebSocket 未知扩展",
+      "status": "encrypted",
+      "payload_encrypted": "enc:ext:v1:..."
+    }
+  ]
+}
+```
+
+- `scope` 必须是 `node` / `transport.<network>` / `security.<security>` / `plugin.<plugin>` / `feature.<feature>` 之一。
+- 返回给前端时不回传 `payload_encrypted`，仅返回 `id/scope/targets/label/configured` 等摘要。
+- 替换或新增时前端提交明文，由服务端加密后落库；清空时提交明确 `clear` 操作。
+
+### 12.2 `FieldSchema` 条件与选项扩展
+
+继续扩展后端 `FieldSchema` 并由服务端下发，不在前端另存协议字段全集。新增字段概念如下（最终 JSON key 以 Build 的 Go struct 为准）：
+
+```json
+{
+  "name": "ws-opts.path",
+  "type": "text",
+  "label": "路径",
+  "group": "connection",
+  "when": { "network": ["ws"] },
+  "required_when": { "network": ["ws"] },
+  "reset_on": ["network"],
+  "option_items": [
+    { "value": "/", "label": "/（默认）", "group": "common", "verified": "mihomo-1.19.29" }
+  ],
+  "allow_custom": true,
+  "canonical_path": "ws-opts.path",
+  "aliases": ["ws-path"],
+  "target_evidence": [
+    { "target": "clash-yaml", "client": "mihomo", "version": "1.19.29", "status": "complete", "entry": "yaml" }
+  ]
+}
+```
+
+| 概念 | 用途 |
+|---|---|
+| `group` | 展示分组：`basic` / `auth` / `connection` / `switches` / `advanced`；只影响 UI，不参与运行语义 |
+| `when` | 显示条件；所有列出的维度都匹配时显示，每个数组内部为“或”；可含 `targets` 限定目标 |
+| `required_when` | 保存校验条件；与 `when` 分离，避免“显示”代替“校验”；可含 `targets` 限定目标 |
+| `reset_on` | 当列出的作用域变化时清空本字段；作用域：`protocol` / `network` / `security` / `plugin` / `feature.<name>` |
+| `option_items` | 推荐选项：规范值、显示名、分组、验证来源/级别 |
+| `allow_custom` | 是否允许输入清单外自定义值；自定义仍需走同一校验链 |
+| `canonical_path` / `aliases` | 规范存储路径与兼容输入别名 |
+| `target_evidence` | 目标、客户端、版本、入口、能力状态与证据级别 |
+
+条件示例语义：
+
+- `when: {"network":["ws"]}` 表示当前 `network=ws` 时才显示。
+- `reset_on: ["network"]` 表示从 ws 切到非 ws 时清空该字段及其子对象；切回 ws 不恢复。
+- `required_when: {"network":["ws"],"targets":["clash-yaml"]}` 表示在 Clash YAML 目标下为条件必填；SR/generic 若无法表达则按 §7.4 诊断，不在 UI 伪装成完整支持。
+
+### 12.3 创建、更新、读取与检查 API 契约
+
+#### 创建
+
+`POST /api/admin/nodes`
+
+```json
+{
+  "name": "东京-01",
+  "protocol": "vless",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "uuid": "11111111-2222-3333-4444-555555555555",
+    "network": "ws",
+    "tls": true,
+    "servername": "example.com",
+    "ws-opts": { "path": "/ws" }
+  },
+  "current_state": {
+    "network": "ws",
+    "security": "tls",
+    "plugin": null,
+    "features": []
+  },
+  "extensions": []
+}
+```
+
+服务端负责：归一化 → 校验当前状态与活动参数一致 → 加密敏感字段和扩展 → 写入同一行 → 返回脱敏详情。
+
+#### 更新
+
+`PUT /api/admin/nodes/:id`
+
+```json
+{
+  "name": "东京-01",
+  "protocol": "vless",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "uuid": "11111111-2222-3333-4444-555555555555",
+    "network": "grpc",
+    "tls": true,
+    "servername": "example.com",
+    "grpc-opts": { "grpc-service-name": "svc" }
+  },
+  "current_state": {
+    "network": "grpc",
+    "security": "tls",
+    "plugin": null,
+    "features": []
+  },
+  "base_revision": 7,
+  "reset_scopes": ["network", "security", "plugin", "feature.smux"],
+  "credential_ops": [
+    { "path": "uuid", "op": "keep" },
+    { "path": "reality-opts.public-key", "op": "clear" }
+  ],
+  "extension_ops": [
+    { "op": "keep", "id": "ext-1" },
+    { "op": "clear", "id": "ext-2" },
+    { "op": "add", "scope": "transport.ws", "targets": ["clash-yaml"], "payload": "{\"unknown\":true}" }
+  ]
+}
+```
+
+语义约定：
+
+- `base_revision` 必须等于当前 `edit_revision`；否则返回 409，不写入任何字段。
+- `reset_scopes` 是本次编辑中发生切换/关闭的作用域；服务端先从合并基底清除这些范围的参数、凭据、扩展和局部 JSON 草稿，再应用本次新值。
+- `credential_ops` 只用于显式 `keep` / `clear`；`replace` 通过 `protocol_json` 中的非空新值表达，服务端加密后覆盖。
+- `extension_ops` 支持 `keep` / `replace` / `clear` / `add`；被重置作用域中的旧扩展不得被 `keep`。
+
+响应（脱敏）：
+
+```json
+{
+  "id": 1,
+  "protocol": "vless",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "uuid": "",
+    "network": "grpc",
+    "tls": true,
+    "servername": "example.com",
+    "grpc-opts": { "grpc-service-name": "svc" }
+  },
+  "current_state": { "network": "grpc", "security": "tls", "plugin": null, "features": [] },
+  "edit_revision": 8,
+  "state_format_version": 1,
+  "extensions": [
+    { "id": "ext-1", "scope": "transport.ws", "targets": ["clash-yaml"], "configured": true }
+  ]
+}
+```
+
+#### 读取
+
+`GET /api/admin/nodes/:id` 返回与响应一致的详情，包含 `edit_revision`、`state_format_version`、脱敏 `protocol_json` 和扩展摘要。列表接口可继续只返回列表字段，但应额外返回 `edit_revision` 供“编辑前校验”。
+
+#### 冲突
+
+`409 Conflict`
+
+```json
+{
+  "error": "节点已被其他编辑更新，请重新加载后重试",
+  "code": "revision_conflict",
+  "current_revision": 9
+}
+```
+
+#### 节点检查
+
+`POST /api/admin/nodes/check`，同时接受新建草稿与编辑草稿。编辑草稿必须携带 `node_id`、`base_revision`、当前草稿、`reset_scopes` 和 `credential_ops`；检查不落库、不读取被清空分区作为兜底。
+
+```json
+{
+  "node_id": 1,
+  "base_revision": 7,
+  "protocol": "vless",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": { "uuid": "", "network": "ws", "tls": true, "ws-opts": { "path": "/ws" } },
+  "current_state": { "network": "ws", "security": "tls", "plugin": null, "features": [] },
+  "reset_scopes": ["network"],
+  "credential_ops": [ { "path": "uuid", "op": "keep" } ],
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}
+```
+
+响应：
+
+```json
+{
+  "check_id": "chk-20260902-001",
+  "check_version": 1,
+  "targets": {
+    "clash-yaml": {
+      "status": "ok",
+      "preview": "脱敏后的 YAML 片段",
+      "diagnostics": []
+    },
+    "sr-subs": {
+      "status": "skip",
+      "preview": null,
+      "diagnostics": [
+        {
+          "severity": "error",
+          "code": "core_semantic_unexpressible",
+          "target": "sr-subs",
+          "field_path": "grpc-opts.grpc-service-name",
+          "message": "SR URI 当前无法承载该传输参数",
+          "evidence": "cvr-2.5.2-uri"
+        }
+      ]
+    }
+  }
+}
+```
+
+诊断 `severity` 固定为 `info` / `warn` / `error`；`status` 为 `ok` / `warn` / `skip` / `error`。迟到响应通过 `check_id` 或请求中的草稿版本关联，不得覆盖更新的检查结果。
+
+### 12.4 首批四协议组合矩阵（普通组合 + 已知风险）
+
+以下矩阵只覆盖普通组合与已知风险，不穷举全部笛卡尔积；能力状态：`C`=可完整表达，`E`=等价转换，`P`=部分表达，`U`=不支持，`V`=未验证。
+
+#### VLESS
+
+| 组合 | 表单字段 | Clash YAML | SR/generic URI | 说明 |
+|---|---|---|---|---|
+| TCP + none | UUID、UDP | C | C | 基础连接 |
+| TCP + TLS | UUID、SNI、ALPN、client-fingerprint、skip-cert-verify | C | C | 普通 TLS |
+| TCP + REALITY | UUID、SNI、公钥、Short ID、client-fingerprint、Flow | C | C | Reality 常规组合 |
+| WS + TLS | UUID、ws-opts、SNI、ALPN、client-fingerprint | C | C | path/host 可经 transportQuery 表达 |
+| WS + REALITY | UUID、ws-opts、Reality 身份参数 | C | V | REALITY 与 WS 组合按目标分别验证，不默认全开 |
+| gRPC + TLS | UUID、grpc-opts、SNI、ALPN | C | C | serviceName 进入 URI |
+| H2 / HTTP / XHTTP + TLS | 对应 opts、SNI、ALPN | C | V/P | XHTTP mode、H2/HTTP 细节需按目标版本验证 |
+
+已知风险：
+
+- XHTTP `mode` 不能用 `none` 当作“未指定”；候选为 `auto` / `stream-one` / `stream-up` / `packet-up`，未选择时不写入 `none`。
+- VLESS `encryption` 当前 generic 固定输出 `none`；允许在高级区查看，但若填写其它值，URI 目标必须报“部分表达/不支持”，不能标为完整支持。
+- `flow` 仅在适用组合展示；未确认组合不自动启用 Vision。
+
+#### VMess
+
+| 组合 | 表单字段 | Clash YAML | SR/generic URI | 说明 |
+|---|---|---|---|---|
+| TCP + none | UUID、Cipher、AlterId、UDP | C | C | 基础兼容 |
+| TCP + TLS | UUID、Cipher、SNI、ALPN、client-fingerprint | C | C | 内部 Cipher 与外层 TLS 分开标签 |
+| WS / gRPC / H2 / HTTP + TLS | 对应 opts、UUID、Cipher | C | C/V | 各传输按现有 transportQuery 输出；H2/HTTP 细节待版本验证 |
+| REALITY（候选） | Reality 身份参数 | V | V | 不照抄 VLESS 菜单，需逐组合验证后开放 |
+
+已知风险：
+
+- VMess `chacha20-poly1305` 在 CVR 2.5.2 URI 路径会被改写为 `chacha20-ietf-poly1305`，而该值又被 Mihomo 1.19.29 VMess 拒绝；URI 生成/导入必须诊断此差异。
+- VMess `zero` 在部分 URI 路径会被改写为 `auto`；不能把改写当等价修复。
+- `alterId` 是兼容参数，保留但标注为旧版/兼容。
+
+#### Trojan
+
+| 组合 | 表单字段 | Clash YAML | SR/generic URI | 说明 |
+|---|---|---|---|---|
+| TCP + TLS | Password、SNI、ALPN、skip-cert-verify、UDP | C | C | 基础 TLS |
+| WS + TLS | Password、ws-opts、SNI、ALPN | C | U/P | 当前 SR/generic Trojan 分支未输出 WS 传输参数；按 §7.4 诊断，不能标为完整 |
+| gRPC + TLS | Password、grpc-opts、SNI、ALPN | C | U/P | 同上，serviceName 不能进入当前 URI |
+| 内层 SS | Password、ss-opts（enabled/method/password 语义） | V | V | 当前对象使用 `cipher` 且未声明 `enabled`，构建前需按目标字段重新明确 |
+
+已知风险：
+
+- Mihomo 1.19.29 对 Trojan `h2`/`xhttp` 等值可能按 TCP 处理；不应把这些值作为已支持普通组合，除非有字段级验证。
+- Trojan-Go 内层 SS 的目标字段与当前存储不一致，必须显式映射或诊断，不能仅加算法下拉框。
+
+#### Shadowsocks
+
+| 组合 | 表单字段 | Clash YAML | SR/generic URI | 说明 |
+|---|---|---|---|---|
+| 普通 AEAD，无插件 | Cipher、Password、UDP | C | C | SIP002 Base64 形态 |
+| 普通 AEAD + obfs | Cipher、Password、Plugin=obfs、Plugin-opts | C | U/P | 当前 `pluginString` 输出 `obfs;…`，CVR 2.5.2 偏好 `obfs-local;obfs=…`；需按映射修正或诊断 |
+| 普通 AEAD + v2ray-plugin | Cipher、Password、Plugin-opts | C | V | 插件参数映射未全部验证 |
+| SS 2022 | 算法/密钥/插件 | V | V | 明确为后续阶段，不在首批宣称完整支持 |
+
+已知风险：
+
+- SS 插件名不能只做展示候选，必须与 URI 插件映射（SIP003/目标客户端）一致。
+- 插件切换清空插件参数、凭据与扩展；SS 主密码不因插件切换清空。
+- 普通 AEAD 算法与 VMess 算法不共用清单/别名。
+
+### 12.5 来源适配与初始化
+
+- manual 表单创建与 URI 导入统一走同一归一化/当前状态初始化入口。
+- URI 导入结果必须保留逐行回执；按规范路径写入 `ws-opts`、`grpc-opts`、`reality-opts` 等，不再生成互相冲突的旧顶层别名。
+- SS URI 中的 `obfs-local` / `simple-obfs` 归一化为项目内部 `obfs`，输出到对应目标时再按目标名转换；不得把内部名直接当成客户端名。
+- Xray 检测产生的 `ws-path`、`ws-host` 等字段在进入共享输出层前完成来源适配；Xray 来源不建立人工编辑分支状态，不套用 manual 清空逻辑。
+
+### 12.6 校验与输出诊断分级
+
+| 级别 | 行为 |
+|---|---|
+| 保存错误 | 类型错误、必要凭据缺失、明确非法组合；阻止保存并返回字段路径 |
+| 目标错误 | 核心认证/传输/安全语义无法表达或会被错误改写；SR/generic 跳过并说明，Clash 阻止生成且不自动改组成员 |
+| 目标警告 | 可选调优丢失、算法改写、插件丢失、传输静默回退；允许生成但明确提示 |
+| 未验证 | 仅有版本/文档证据或缺少真机验证；允许生成但标注未验证，不冒充完整支持 |
+
+Build 编写时上述契约如与 AGENTS.md、现有 Design2/Design3 或用户决策冲突，必须停下提问，不擅自取舍。
+
+
+
+## 十三、变更记录
 
 以下保留历史修订事实；v1.0／v1.1 关于分支保留和独立状态表的结论已由 v1.2 覆盖，不作为当前构建依据。
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-02 | 新建节点编辑器增量设计：记录协议驱动条件表单、常用优先与高级折叠、独立开关区、可搜索推荐选项与手动输入、活动配置及非激活状态、凭据与目标检查；确定首批 VLESS／VMess／Trojan／SS 和后续全部 19 协议目标；收录 41 个内核检查与 9 个 URI 样例结果，明确 Shadowrocket 证据限制、待细化契约和后续验收。仅文档，未构建。 |
-| v1.1 | 2026-09-02 | 补充构建前决策确认与前期检查：通过 `ask_user_question` 确认独立 `node_edit_states` 表、跨协议整体清空、同协议保留非激活分支、Mihomo/CVR 目标基线、新增节点检查接口、SS 2022 后置；明确当前无业务数据、不做旧数据兼容；新增第十二章代码前期检查与单独待办清单。仅文档，未构建。 |
+| v1.1 | 2026-09-02 | 补充构建前决策确认与前期检查：通过 `ask_user_question` 确认独立 `node_edit_states` 表、跨协议整体清空、同协议保留非激活分支、Mihomo/CVR 目标基线、新增节点检查接口、SS 2022 后置；明确当前无业务数据、不做旧数据兼容；新增第十一章代码前期检查与单独待办清单。仅文档，未构建。 |
 | v1.2 | 2026-09-02 | 按用户确认取消分支保留与恢复，明确协议／传输／安全／插件／功能关闭的清空范围、保存前草稿边界及凭据不复活；取消独立 `node_edit_states` 表，采用 `nodes` 最小当前状态与编辑修订号；确认其余协议过渡、目标生成门槛、未知扩展整体加密和 Xray 来源适配；同步界面、保存、检查、验收与影响评估，分离设计前置／Build 实现／后续专项并修正章节顺序。四协议矩阵及具体契约仍待补齐；仅更新 Design4，未构建，未重跑客户端实验。 |
+| v1.3 | 2026-09-02 | 按用户确认补齐构建前契约：确认 `nodes` 独立列 + 当前状态/扩展 JSON 列，编写 FieldSchema 扩展、创建/更新/读取/检查 API、四协议普通与风险组合矩阵、来源适配和诊断分级；同步改写 Reference 旧路线为 v1.2 口径，并更新 AGENTS 文档清单将 Design4 列为当前设计。仍仅文档，未构建。 |

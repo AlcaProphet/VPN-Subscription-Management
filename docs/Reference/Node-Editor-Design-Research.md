@@ -3,6 +3,7 @@
 > **文档定位：** 本文汇总节点管理模块的节点编辑器改进研究，承接 [xray-server-side.md](xray-server-side.md)、[xray-client-side.md](xray-client-side.md)、[Xray-Core-API.md](Xray-Core-API.md)、[Node-Link-Standards.md](Node-Link-Standards.md) 和 [Issue12.md](../../Issue12.md) 的相关证据。本文用于后续进一步研究，不是 Design/Build 文档，不直接定义代码实现，也不代表最终产品决策。
 > **研究状态：** 2026-09-02；用户已确认研究方向，但协议范围、数据契约、输出器兼容矩阵和具体校验强度仍需后续分析与定稿。
 > **标注约定：** 【项目事实】= 当前仓库代码或既有参考资料；【样本事实】= Xray-examples 中的实际配置；【外部事实】= 官方文档或公开项目/Issue；【候选方案】= 供后续讨论的设计方向；【待确认】= 尚未形成最终决策。
+> **v1.2 同步说明（2026-09-02）：** Design4 v1.2 已确认采用“切换即清空、不保存非激活分支、nodes 行内当前状态”的模型；本文早期“保留隐藏值/只输出当前激活值”的候选方向已被取代，相关段落按当前确认口径同步。
 
 ---
 
@@ -13,7 +14,7 @@
 | 方向 | 已确认内容 | 对后续研究的约束 |
 |---|---|---|
 | Xray 输出 | 可以增加独立的 Xray target adapter | 不把 Xray 客户端 JSON 直接混入当前 Mihomo `protocol_json` 编辑模型 |
-| 隐藏值 | 保留隐藏值，只输出当前激活值 | 编辑器需要区分“保存的数据”和“当前目标输出的数据” |
+| 当前状态与分支 | v1.2 最终确认为切换即清空，不保存非激活分支；nodes 行内保存最小当前状态 | 编辑器需要显式记录当前连接组合，但不需要恢复副本 |
 | 协议范围 | 需要拓展到更多协议 | 不能只为 VLESS/VMess 设计一次性表单；应提取可复用的条件字段模型 |
 | 复杂扩展 | 先进入高级区或兼容区 | XHTTP 扩展、KCP、SplitHTTP、SMux、TCP 伪装等不占用首屏空间 |
 | 文档用途 | 整合后存入 `docs/Reference/`，待进一步分析 | 本文不改代码，不把候选方案标记为已实现或最终设计 |
@@ -85,7 +86,7 @@ Xray 服务端 `inbounds` 中的监听、证书文件、Reality 私钥、`target
 - `security=reality` 才要求公钥和 Short ID；
 - 只在 TLS 下显示 SNI、ALPN 和证书校验设置；
 - 某参数只适用于某个输出目标；
-- 隐藏值保留后不参与当前目标输出。
+- 被切离分支的参数需要清空，且不应参与当前目标输出。
 
 参考：[node.ts](../../frontend/src/api/node.ts)、[node.go](../../backend/internal/node/node.go)、[NodesView.vue](../../frontend/src/views/admin/NodesView.vue)。
 
@@ -393,42 +394,43 @@ security = none | tls | reality
 
 ---
 
-## 九、隐藏值保留与激活输出
+## 九、分支清空与当前状态输出（Design4 v1.2 口径）
 
-用户已确认采用：
+Design4 v1.2 最终确认采用：
 
 ```text
-保留隐藏值
-  → 当前编辑恢复时可重新显示
-  → 当前校验只检查激活字段
-  → 当前 target adapter 只输出激活字段
+切换分支 → 清空所属参数/凭据/扩展/局部 JSON 草稿
+  → 当前状态只保存当前选择元数据
+  → 当前校验只检查当前分支
+  → 当前 target adapter 只输出当前活动参数
+  → 切回原分支不恢复
 ```
 
-这与“切换即清空”的简单方案相比，更适合多次尝试 TLS、Reality、WS 和 gRPC 参数，也更有利于未来扩展字段兼容。但它需要所有输出器都支持 active-field filter：
+不再采用“保留隐藏值并恢复”的早期候选；因此也不需要所有输出器支持非激活字段过滤，只需要服务端按当前状态投影活动参数。
 
-| 场景 | 数据保存 | 当前输出 |
-|---|---|---|
-| VLESS 从 Reality 切换到 TLS | 保留 Reality 对象 | 只输出 TLS 字段 |
-| WS 切换到 gRPC | 保留 WS Path/Host | 只输出 gRPC ServiceName |
-| 切回原传输 | 恢复原来的隐藏参数 | 再次输出当前激活字段 |
-| 未知高级键 | 保留 | 只有目标能力允许且当前区激活时输出 |
+| 场景 | v1.2 行为 |
+|---|---|
+| VLESS 从 Reality 切换到 TLS | 清空 Reality 分区；只保留 TLS 参数 |
+| WS 切换到 gRPC | 清空 WS 参数；只保存 gRPC 参数 |
+| 切回原传输 | 不恢复原参数，需重新填写 |
+| 未知高级键 | 作为扩展块随所属分支保存；被切离时清空 |
 
 需要特别区分两种切换：
 
-1. 同一协议内切换传输/安全：候选采用保留隐藏值；
-2. 切换协议：当前实现倾向于重置不兼容字段，但是否保留一个可回退的编辑草稿、是否提示用户确认，仍待确认。
+1. 同一协议内切换传输/安全/插件/功能：清空对应分支，不提供会话内恢复；
+2. 切换协议：清空全部协议参数与凭据，保留名称/服务器/端口等基础信息。
 
 ### 9.1 存储规范和旧字段迁移
 
 应为每类常用对象确定一个规范路径：
 
-- WebSocket：优先 `ws-opts`；旧 `ws-path/ws-headers` 只兼容读取；
+- WebSocket：优先 `ws-opts`；旧 `ws-path/ws-headers` 只作为兼容输入；
 - gRPC：优先 `grpc-opts.grpc-service-name`；
 - H2/HTTP：保留项目当前 `h2-opts` 与 `http-opts` 的区别；
 - Reality：保留 Mihomo `reality-opts`，由 Xray adapter 转换为 `realitySettings`；
 - XHTTP：扩展字段进入对象高级区，不复制为多个顶层字段。
 
-旧字段是否在保存时自动归一化，或只在读取时兼容，属于后续迁移设计，不在本文中决定。
+当前项目已确认无旧业务数据，因此旧字段仅在 URI 导入/来源适配时做显式归一化，不要求旧节点 legacy 解码与历史数据迁移。
 
 ---
 
@@ -502,9 +504,9 @@ security = none | tls | reality
 
 1. Xray target adapter 是只负责 Xray client JSON 导出，还是还要承担 Xray 节点导入、反向解析和回填编辑器。
 2. target adapter 的版本 profile 如何选择：项目固定版本、手动选择版本，还是按能力探测。
-3. 隐藏值保留时，未知顶层键是否全部保留，还是只保留带有 target/协议来源证据的键。
-4. 协议切换时是否提供草稿恢复；同协议传输/安全切换与协议切换不能使用同一清理策略。
-5. WS Path、gRPC ServiceName、H2/HTTP Path、Reality 公钥/Short ID 的校验，哪些目标采用硬错误，哪些只显示警告。
+3. 未知扩展随所属分支保存，但哪些目标投影仍需按 Design4 §12 继续在 Build 中落实样例。
+4. v1.2 已确认不提供草稿恢复；同协议传输/安全切换与协议切换均按“切换即清空”处理。
+5. WS Path、gRPC ServiceName、H2/HTTP Path、Reality 公钥/Short ID 的校验分级已按 Design4 §7.4、§12.6 成形，Build 按矩阵实现。
 6. VLESS/VMess/Trojan 的共享传输编辑器与 Shadowsocks 插件编辑器的边界。
 7. Hysteria/Hysteria2、TUIC、WireGuard、SSH、OpenVPN 等协议的条件认证规则和 target 输出能力。
 8. SplitHTTP、mKCP、HTTPUpgrade 是否进入正式传输选择，还是长期作为兼容区字段。
@@ -563,3 +565,4 @@ security = none | tls | reality
 | 日期 | 说明 |
 |---|---|
 | 2026-09-02 | 新建研究汇总：记录独立 Xray target adapter、隐藏值保留与激活输出、多协议条件表单、高级/兼容区以及结构化表格和高级 JSON 方向；保留未决问题，待进一步分析。 |
+| 2026-09-02 | 按 Design4 v1.2 同步：隐藏值保留/激活输出改为“切换即清空、当前状态保存、不保留恢复副本”。仅文档同步。 |
