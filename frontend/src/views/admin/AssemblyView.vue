@@ -14,6 +14,7 @@ import NodesGroupsStep from './assembly/NodesGroupsStep.vue'
 import RulesStep from './assembly/RulesStep.vue'
 import OverlayStep from './assembly/OverlayStep.vue'
 import PreviewStep from './assembly/PreviewStep.vue'
+import { defaultClashHeaderText } from './assembly/clashHeaderDefaults'
 import {
   getAssemblyContext, previewAssembly, generateAssembly, getBlueprint,
   type AssemblyContext, type GenerateInput, type TargetSyntax, type PoolSelection, type RuleLine,
@@ -76,7 +77,7 @@ const RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.advanced)
 const CLASH_RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.clash_render_type).map((m) => m.rule_type))
 const SR_RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.sr_render_type).map((m) => m.rule_type))
 const DEFAULT_HEADERS: Record<TargetSyntax, string> = {
-  'clash-yaml': JSON.stringify({ port: 7890, mode: 'rule', 'log-level': 'info', 'allow-lan': false, 'external-controller': '127.0.0.1:9090' }, null, 2),
+  'clash-yaml': defaultClashHeaderText(),
   'sr-subs': JSON.stringify({ status: '2026/01/01 Version', remarks: 'VPN Subscription' }, null, 2),
   'generic-subs': '{}',
   'sr-conf': JSON.stringify({ loglevel: 'warning' }, null, 2),

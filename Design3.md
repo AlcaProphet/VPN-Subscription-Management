@@ -392,6 +392,19 @@ fetching → parsing → staging
 - URL/模式/顺序使用完整来源列表提交并事务校验。
 - pending 激活/丢弃携带 source/snapshot ID，防止操作过期结果。
 
+### 8.4 Clash YAML 头部参数分区编辑（2026-09-02）
+
+本节是 Clash YAML 装配器头部表单的 UI 增量，限定于 `fixed_params` 的编辑和默认值；不改变节点、代理组、规则、覆盖层、生成 API、蓝图快照或 YAML 渲染语义。后端继续将 `fixed_params` 作为有序顶层对象写入最终 Clash YAML。
+
+1. 结构化表单分为“端口配置”“Geo 数据”“DNS 配置”“更多参数”四个可折叠分区，首次进入和使用默认值后四个分区均保持折叠，避免 DNS 等长配置压缩后续装配步骤。
+2. “端口配置”预填 `port`、`socks-port`、`redir-port`、`tproxy-port` 的个人模板值 `7890/7891/7892/7893`；`mixed-port` 可按需填写，但不写入默认头部，避免默认同时开启混合与独立监听。
+3. “Geo 数据”预填个人模板的 `geox-url.geoip/geosite/mmdb` 地址、`geo-auto-update=true` 和 `geo-update-interval=168`；其 bool 控件位于本分区“开关参数”区。
+4. “DNS 配置”结构化编辑 `dns.enable/ipv6/listen/enhanced-mode/fake-ip-range`、默认 DNS、fallback、fake-ip-filter 和 fallback-filter；列表项用可增删的行表格表示，`dns.enable`、`dns.ipv6` 与 `fallback-filter.geoip` 集中在本分区开关区。
+5. “更多参数”预填个人模板其余头部值：`allow-lan`、`find-process-mode`、`mode`、`log-level`、全局 `ipv6` 和 `ntp`；本分区同样默认折叠，且集中 `allow-lan`、`ipv6`、NTP 启用/写入系统时间等开关。未被前三个分区识别的既有顶层参数也保留在该分区，供高级用户处理。
+6. 四个分区各自提供“结构化编辑 / 高级 JSON”切换。高级 JSON 的作用域仅为当前分区：端口和 Geo 为相应顶层键、DNS 为 `dns` 对象、更多参数为其余顶层键。切换或保存时必须验证 JSON 对象形状；无效 JSON 不得静默丢弃。结构化操作保留其他分区和“更多参数”内未知键，从而兼容旧蓝图和未来 Mihomo 扩展。
+
+默认值来自 [Clash.yaml.template.md](docs/DocTemplates/Clash.yaml.template.md) 的头部（不包含由装配后续步骤拥有的 `proxies`、`proxy-groups`、`rules`）。[ClashOfficial.yaml.template.md](docs/DocTemplates/ClashOfficial.yaml.template.md) 仅用于字段含义与可选能力参考，不能以其样例值覆盖个人默认配置。
+
 ---
 
 ## 九、影响范围、覆盖关系与验收
@@ -442,6 +455,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.3 | 2026-09-02 | 新增 Clash YAML 头部参数 UI 增量：以个人模板预填端口、Geo、DNS、更多参数四个默认折叠分区；每区提供结构化编辑与作用域明确的高级 JSON，组内 bool 集中，保留未知顶层键；`mixed-port` 为可选项而非默认监听。 |
 | v1.2 | 2026-08-31 | 补充来源识别：新增严格的 `mihomo-ipcidr-yaml`，Mihomo `payload` 按整份内容唯一归类且 ipcidr 仅接受 IPv4/IPv6 CIDR；template4 继续作为双方通用的 `typed-rule-text`；明确来源模式只调整识别优先级/范围与既有准入，不绑定识别内容或最终输出平台。 |
 | v1.1 | 2026-08-31 | 补充实现口径：中央注册表区分素材池能力与 advanced-only 高级装配能力；`final_output` 只统计素材池+自定义规则，排除内置 `GEOIP`/`MATCH`/`FINAL` 兜底；能力元数据端点明确由前端消费并移除静态规则表。 |
 | v1.0 | 2026-08-31 | 设计定稿：确认三种来源模式、单 URL 单主方言、异常混合直接失败、Canonical Rule/origin 分离、中央能力注册表、per-source 快照、不兼容迁移、sing-box 简单子集、固定保护阈值和装配门槛，作为 Build16 依据。 |
