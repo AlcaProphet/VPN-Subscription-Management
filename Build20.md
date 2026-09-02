@@ -284,3 +284,4 @@ Step 1 统一入口/初始化
 | v1.3 | 2026-09-02 | 完成 Step 3：Xray 检测字段在输出前归一化 `ws-path/ws-host/serviceName` 到规范对象；SS obfs 输出映射为 `obfs-local;obfs=...;obfs-host=...`；未知插件诊断、SS obfs 诊断代码更新；新增 Xray/链接/未知插件测试，`go test ./internal/xray ./internal/assembly/links ./internal/assembly` 与 `go build` 通过。 |
 | v1.4 | 2026-09-02 | 完成 Step 4：新增 `diagnose.go`，SR/generic 在生成前按目标诊断跳过核心不可表达节点且全跳过时拒绝；Clash 对节点级 error 诊断阻止生成且不自动改组成员；warn/info 诊断进入回执警告；新增跳过/全部跳过/Clash 阻止测试，`go test ./internal/assembly`、`go build`、`go vet` 通过。 |
 | v1.5 | 2026-09-02 | 完成 Step 5：全量回归通过（后端 `go test -timeout 180s ./...`、`go vet ./...`；前端 39 文件 / 158 用例、`npm run build`）；同步更新 AGENTS/Design4/Build19/Build20 文档状态；客户端真机连接仍保留为人工验收待办，不视为自动验收。 |
+| v1.6 | 2026-09-02 | 根据核验补记前端 Build19 收口内容：未知扩展摘要与 `extension_ops`/`extensions` 接入、分支切换提示、未应用 JSON 草稿保存拦截；后端无改动，客户端真机验收仍保留为人工待办。 |

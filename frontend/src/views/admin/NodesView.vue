@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
-import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type ImportLineResult, type FieldSchema, type CurrentState, type ConditionRule } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type ImportLineResult, type FieldSchema, type CurrentState, type ConditionRule, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
 import FormSection from '@/components/FormSection.vue'
@@ -45,6 +45,17 @@ const nameSpaceError = computed(() => {
 const invalidProtocolPaths = reactive(new Set<string>())
 const resetScopes = new Set<string>()
 const clearedSensitivePaths = new Set<string>()
+const unappliedJsonPaths = reactive(new Set<string>())
+const extensionOps = ref<ExtensionOp[]>([])
+const extensionDraft = reactive({
+  open: false,
+  mode: 'add' as 'add' | 'replace',
+  editingId: '',
+  scope: 'node',
+  targets: '',
+  label: '',
+  payload: '',
+})
 const sourceLabel: Record<string, string> = { manual: '手动添加', xray: 'Xray' }
 
 async function load() {
@@ -150,9 +161,34 @@ const currentCombo = computed(() => {
     : ''
   return [protocolLabel, networkLabel, securityLabel].filter(Boolean).join(' · ')
 })
+const extensionRows = computed<Array<{ key: string; id?: string; scope: string; targets: string[]; label: string; op?: ExtensionOp; isNew: boolean }>>(() => {
+  const rows: Array<{ key: string; id?: string; scope: string; targets: string[]; label: string; op?: ExtensionOp; isNew: boolean }> = (editing.value?.extensions ?? []).map((ext) => ({
+    key: ext.id,
+    id: ext.id,
+    scope: ext.scope,
+    targets: ext.targets ?? [],
+    label: ext.label ?? '',
+    op: extensionOpFor(ext.id),
+    isNew: false,
+  }))
+  const addCount = extensionOps.value.filter((op) => op.op === 'add').length
+  let newIndex = 0
+  for (const op of extensionOps.value) {
+    if (op.op !== 'add') continue
+    rows.push({
+      key: `new-${newIndex++}-${addCount}`,
+      scope: op.scope ?? '',
+      targets: op.targets ?? [],
+      label: op.label ?? '',
+      op,
+      isNew: true,
+    })
+  }
+  return rows
+})
 const checkRequest = computed<NodeCheckRequest>(() => {
   const credentialOps = Array.from(clearedSensitivePaths).map((path) => ({ path, op: 'clear' as const }))
-  return {
+  const request: NodeCheckRequest = {
     node_id: editing.value?.id,
     base_revision: editing.value?.edit_revision,
     protocol: form.protocol,
@@ -164,14 +200,139 @@ const checkRequest = computed<NodeCheckRequest>(() => {
     credential_ops: credentialOps.length > 0 ? credentialOps : undefined,
     targets: ['clash-yaml', 'sr-subs', 'generic-subs'],
   }
+  if (editing.value) {
+    if (extensionOps.value.length > 0) request.extension_ops = [...extensionOps.value]
+  } else if (extensionOps.value.length > 0) {
+    request.extensions = extensionInputsForCreate()
+  }
+  return request
 })
 function resetScopesArray(): string[] {
   return [...resetScopes]
+}
+function extensionInputsForCreate(): ExtensionInput[] {
+  return extensionOps.value
+    .filter((op) => op.op === 'add')
+    .map((op) => ({
+      scope: op.scope ?? '',
+      targets: op.targets ?? [],
+      label: op.label ?? '',
+      payload: op.payload ?? '',
+    }))
 }
 function credentialStateForPath(path: string): 'unset' | 'saved' | 'replacing' | 'cleared' {
   if (!editing.value) return 'unset'
   if (clearedSensitivePaths.has(path)) return 'cleared'
   return 'saved'
+}
+function handleJsonDirty(payload: { path: string; dirty: boolean }) {
+  if (payload.dirty) unappliedJsonPaths.add(payload.path)
+  else unappliedJsonPaths.delete(payload.path)
+}
+function warnResetScope(scope: string) {
+  const messages: Record<string, string> = {
+    protocol: '切换协议将清空当前协议参数与凭据，切回需重新填写',
+    network: '切换传输将清空该分区参数，切回需重新填写',
+    security: '切换安全方式将清空该分区参数，切回需重新填写',
+    plugin: '切换或取消插件将清空插件参数与扩展，切回需重新填写',
+  }
+  if (scope.startsWith('feature.')) {
+    Notify.warning('关闭该功能将清空其子参数与扩展，重新开启不会恢复')
+    return
+  }
+  const message = messages[scope] ?? `切换将清空该分区参数，切回需重新填写`
+  Notify.warning(message)
+}
+function resetExtensionDraft() {
+  extensionDraft.open = false
+  extensionDraft.mode = 'add'
+  extensionDraft.editingId = ''
+  extensionDraft.scope = 'node'
+  extensionDraft.targets = ''
+  extensionDraft.label = ''
+  extensionDraft.payload = ''
+}
+function scopeOptions() {
+  const state = currentState.value
+  const options = [{ value: 'node', label: 'node（节点公共）' }]
+  if (state.network) options.push({ value: `transport.${state.network}`, label: `transport.${state.network}` })
+  if (state.security && state.security !== 'none') options.push({ value: `security.${state.security}`, label: `security.${state.security}` })
+  if (state.plugin) options.push({ value: `plugin.${state.plugin}`, label: `plugin.${state.plugin}` })
+  for (const feature of state.features ?? []) options.push({ value: `feature.${feature}`, label: `feature.${feature}` })
+  return options
+}
+function openExtensionAdd() {
+  resetExtensionDraft()
+  extensionDraft.open = true
+}
+function openExtensionReplace(ext: Pick<ExtensionSummary, 'id' | 'scope' | 'targets' | 'label'>) {
+  resetExtensionDraft()
+  extensionDraft.mode = 'replace'
+  extensionDraft.editingId = ext.id
+  extensionDraft.scope = ext.scope
+  extensionDraft.targets = (ext.targets ?? []).join(', ')
+  extensionDraft.label = ext.label ?? ''
+  extensionDraft.open = true
+}
+function removeExtension(ext: Pick<ExtensionSummary, 'id' | 'scope' | 'targets' | 'label'>) {
+  extensionOps.value = extensionOps.value.filter((op) => !(op.id === ext.id && op.op !== 'add'))
+  extensionOps.value.push({ op: 'clear', id: ext.id })
+}
+function removePendingAdd(op: ExtensionOp) {
+  extensionOps.value = extensionOps.value.filter((item) => item !== op)
+}
+function commitExtensionDraft() {
+  const targets = extensionDraft.targets.split(',').map((item) => item.trim()).filter(Boolean)
+  if (!extensionDraft.scope.trim()) {
+    Notify.warning('请填写扩展所属范围')
+    return
+  }
+  if (!extensionDraft.payload.trim()) {
+    Notify.warning('请填写扩展负载内容')
+    return
+  }
+  if (extensionDraft.mode === 'replace') {
+    if (!extensionDraft.editingId) {
+      Notify.warning('替换扩展缺少原扩展 ID')
+      return
+    }
+    const op: ExtensionOp = {
+      op: 'replace',
+      id: extensionDraft.editingId,
+      scope: extensionDraft.scope.trim(),
+      targets,
+      label: extensionDraft.label,
+      payload: extensionDraft.payload,
+    }
+    extensionOps.value = extensionOps.value.filter((item) => !(item.id === op.id && item.op !== 'add'))
+    extensionOps.value.push(op)
+  } else {
+    extensionOps.value.push({
+      op: 'add',
+      scope: extensionDraft.scope.trim(),
+      targets,
+      label: extensionDraft.label,
+      payload: extensionDraft.payload,
+    })
+  }
+  resetExtensionDraft()
+}
+function extensionOpFor(id: string): ExtensionOp | undefined {
+  return extensionOps.value.find((op) => op.id === id && op.op !== 'add')
+}
+function scopeResetsExtension(extensionScope: string, resetScope: string): boolean {
+  if (resetScope === 'protocol') return true
+  if (resetScope === 'network') return extensionScope.startsWith('transport.')
+  if (resetScope === 'security') return extensionScope.startsWith('security.')
+  if (resetScope === 'plugin') return extensionScope.startsWith('plugin.')
+  if (resetScope.startsWith('feature.')) return extensionScope === resetScope
+  return false
+}
+function clearUnappliedJsonForTopNames(topNames: Set<string>) {
+  for (const path of Array.from(unappliedJsonPaths)) {
+    const top = path.split('.')[0]
+    if (topNames.has(top)) unappliedJsonPaths.delete(path)
+  }
 }
 function clearScopedFields(scope: string) {
   const schema = currentSchema()
@@ -196,22 +357,32 @@ function clearScopedFields(scope: string) {
     const top = sensitivePath.split('.')[0]
     if (topNames.has(top)) clearedSensitivePaths.add(sensitivePath)
   }
+  clearUnappliedJsonForTopNames(topNames)
+  extensionOps.value = extensionOps.value.filter((op) => !scopeResetsExtension(op.scope ?? '', scope))
   if (changed) form.protocol_json = next
 }
 function applyResetScope(scope: string, changed: boolean) {
   if (!changed) return
   resetScopes.add(scope)
   clearScopedFields(scope)
+  warnResetScope(scope)
 }
 function resetAllEditScopes() {
   resetScopes.clear()
   clearedSensitivePaths.clear()
+  unappliedJsonPaths.clear()
+  extensionOps.value = []
+  resetExtensionDraft()
 }
 function updateProtocol(protocol: string) {
   if (form.protocol === protocol) return
+  warnResetScope('protocol')
   form.protocol = protocol
   form.protocol_json = {}
   invalidProtocolPaths.clear()
+  unappliedJsonPaths.clear()
+  extensionOps.value = []
+  resetExtensionDraft()
   resetScopes.add('protocol')
   clearedSensitivePaths.clear()
   for (const path of currentSchema()?.sensitive_fields ?? []) clearedSensitivePaths.add(path)
@@ -269,6 +440,10 @@ async function save() {
     Notify.warning('请先修正协议对象参数中的格式错误')
     return
   }
+  if (unappliedJsonPaths.size > 0) {
+    Notify.warning('存在未应用的 JSON 草稿，请先应用或放弃后再保存')
+    return
+  }
   saving.value = true
   try {
     const credentialOps = Array.from(clearedSensitivePaths).map((path) => ({ path, op: 'clear' as const }))
@@ -278,6 +453,11 @@ async function save() {
       reset_scopes: resetScopesArray(),
       credential_ops: credentialOps.length > 0 ? credentialOps : undefined,
       base_revision: editing.value?.edit_revision,
+    }
+    if (editing.value) {
+      if (extensionOps.value.length > 0) payload.extension_ops = [...extensionOps.value]
+    } else if (extensionOps.value.length > 0) {
+      payload.extensions = extensionInputsForCreate()
     }
     if (editing.value) {
       await updateNode(editing.value.id, payload)
@@ -537,7 +717,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <ProtocolFieldEditor v-for="field in groupFields('auth')" :key="field.name" :field="field"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
         </FormSection>
 
@@ -546,7 +726,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <ProtocolFieldEditor v-for="field in groupFields('connection')" :key="field.name" :field="field"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
         </FormSection>
 
@@ -554,7 +734,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('switches')" :key="field.name" :field="field"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
         </FormSection>
 
@@ -565,7 +745,57 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <ProtocolFieldEditor v-for="field in groupFields('advanced')" :key="field.name" :field="field"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
+          </div>
+
+          <div class="mt-4 border-t pt-3">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-medium">未知扩展</div>
+                <div class="text-xs text-text-tertiary">扩展负载加密保存；仅在明确指定的目标中参与输出。</div>
+              </div>
+              <Button size="small" @click="openExtensionAdd">新增扩展</Button>
+            </div>
+            <div v-if="extensionRows.length" class="mt-2 space-y-2">
+              <div v-for="row in extensionRows" :key="row.key" class="rounded-md border p-2">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="text-sm font-medium">{{ row.label || row.scope }}</div>
+                    <div class="text-xs font-mono text-text-tertiary">{{ row.scope }}<span v-if="row.targets.length"> · {{ row.targets.join(', ') }}</span></div>
+                    <div class="text-xs text-text-tertiary">{{ row.isNew ? '待新增' : row.op?.op === 'replace' ? '待替换' : row.op?.op === 'clear' ? '待清除' : '已配置' }}</div>
+                  </div>
+                  <Space>
+                    <Button v-if="!row.isNew" size="small" @click="openExtensionReplace({ id: row.id!, scope: row.scope, targets: row.targets, label: row.label })">替换</Button>
+                    <Button size="small" danger @click="row.isNew && row.op ? removePendingAdd(row.op) : removeExtension({ id: row.id!, scope: row.scope, targets: row.targets, label: row.label })">删除</Button>
+                  </Space>
+                </div>
+                <div v-if="row.op?.op === 'clear'" class="mt-1 text-xs text-red-500">保存后将从节点中移除该扩展。</div>
+                <div v-else-if="row.op?.op === 'replace'" class="mt-1 text-xs text-orange-500">保存后将使用新负载替换该扩展。</div>
+              </div>
+            </div>
+            <div v-else class="text-xs text-text-tertiary mt-2">暂无未知扩展</div>
+
+            <div v-if="extensionDraft.open" class="mt-3 space-y-2 rounded-md border p-3">
+              <div class="text-sm font-medium">{{ extensionDraft.mode === 'replace' ? '替换未知扩展' : '新增未知扩展' }}</div>
+              <Form.Item label="所属范围" required>
+                <AppSelect :value="extensionDraft.scope" @change="(value: any) => extensionDraft.scope = String(value)">
+                  <Select.Option v-for="opt in scopeOptions()" :key="opt.value" :value="opt.value">{{ opt.label }}</Select.Option>
+                </AppSelect>
+              </Form.Item>
+              <Form.Item label="目标">
+                <Input v-model:value="extensionDraft.targets" placeholder="clash-yaml, sr-subs, generic-subs" />
+              </Form.Item>
+              <Form.Item label="标签">
+                <Input v-model:value="extensionDraft.label" placeholder="可选，例如 WebSocket 未知扩展" />
+              </Form.Item>
+              <Form.Item label="负载内容" required>
+                <Input.TextArea v-model:value="extensionDraft.payload" :rows="4" placeholder="扩展负载将整体加密保存；检查/输出仅返回摘要和诊断。" />
+              </Form.Item>
+              <div class="flex gap-2">
+                <Button type="primary" size="small" @click="commitExtensionDraft">应用扩展</Button>
+                <Button size="small" @click="resetExtensionDraft">取消</Button>
+              </div>
+            </div>
           </div>
         </details>
 

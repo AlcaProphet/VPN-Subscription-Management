@@ -21,6 +21,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: unknown]
   'validity-change': [payload: { path: string; valid: boolean }]
+  'json-dirty-change': [payload: { path: string; dirty: boolean }]
 }>()
 
 const fieldPath = computed(() => props.path || props.field.name)
@@ -49,6 +50,7 @@ const shownCredentialState = computed(() => {
 
 watch(() => props.modelValue, (value) => {
   jsonDirty.value = false
+  emitJsonDirty(false)
   if (!advanced.value) jsonText.value = JSON.stringify(value ?? emptyObjectValue(), null, 2)
 }, { immediate: true, deep: true })
 
@@ -64,16 +66,26 @@ function forwardValidity(payload: { path: string; valid: boolean }) {
   emit('validity-change', payload)
 }
 
+function forwardJsonDirty(payload: { path: string; dirty: boolean }) {
+  emit('json-dirty-change', payload)
+}
+
+function emitJsonDirty(dirty: boolean) {
+  emit('json-dirty-change', { path: fieldPath.value, dirty })
+}
+
 function setAdvanced(next: boolean) {
   if (!next && jsonError.value) return
   if (next) {
     jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
     jsonDirty.value = false
+    emitJsonDirty(false)
     advanced.value = true
     return
   }
   // 离开高级 JSON 时放弃未应用草稿，恢复结构化编辑当前有效值。
   jsonDirty.value = false
+  emitJsonDirty(false)
   jsonError.value = ''
   jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
   forwardValidity({ path: fieldPath.value, valid: true })
@@ -96,6 +108,7 @@ function parseJSONText(): { parsed: unknown; error: string } {
 function updateJSON(value: string) {
   jsonText.value = value
   jsonDirty.value = true
+  emitJsonDirty(true)
   const result = parseJSONText()
   jsonError.value = result.error
   forwardValidity({ path: fieldPath.value, valid: result.error === '' })
@@ -109,6 +122,7 @@ function applyJSON() {
     return
   }
   jsonDirty.value = false
+  emitJsonDirty(false)
   forwardValidity({ path: fieldPath.value, valid: true })
   update(result.parsed)
 }
@@ -116,6 +130,7 @@ function applyJSON() {
 function discardJSON() {
   jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
   jsonDirty.value = false
+  emitJsonDirty(false)
   jsonError.value = ''
   forwardValidity({ path: fieldPath.value, valid: true })
 }
@@ -207,7 +222,7 @@ function isComplex(value: unknown): boolean {
       </div>
       <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
         <Switch :checked="advanced" size="small" @change="(value: any) => setAdvanced(Boolean(value))" />
-        <span>{{ advanced ? '结构化编辑' : '高级 JSON' }}</span>
+        <span>{{ advanced ? '高级 JSON' : '结构化编辑' }}</span>
       </label>
     </div>
 
@@ -254,6 +269,7 @@ function isComplex(value: unknown): boolean {
               :path="`${fieldPath}[${index}].${property.name}`"
               @update:model-value="(value: unknown) => setListChild(index, property.name, value)"
               @validity-change="forwardValidity"
+              @json-dirty-change="forwardJsonDirty"
             />
           </div>
         </div>
@@ -274,6 +290,7 @@ function isComplex(value: unknown): boolean {
           :class="property.type === 'object' ? 'md:col-span-2' : ''"
           @update:model-value="(value: unknown) => setChild(property.name, value)"
           @validity-change="forwardValidity"
+          @json-dirty-change="forwardJsonDirty"
         />
       </div>
       <div v-if="unknownCount" class="text-xs text-text-tertiary mt-3">

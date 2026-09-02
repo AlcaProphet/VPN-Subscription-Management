@@ -27,7 +27,7 @@ describe('ProtocolFieldEditor', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('高级 JSON')
+    expect(wrapper.text()).toContain('结构化编辑')
     expect(wrapper.text()).toContain('路径')
     expect(wrapper.text()).toContain('已保留 1 个未识别参数')
     expect(wrapper.find('textarea').exists()).toBe(false)
@@ -44,7 +44,7 @@ describe('ProtocolFieldEditor', () => {
     await textarea.setValue('{')
 
     expect(wrapper.text()).toContain('请输入 JSON 对象')
-    expect(wrapper.text()).toContain('结构化编辑')
+    expect(wrapper.text()).toContain('高级 JSON')
     const validityEvents = wrapper.emitted('validity-change') ?? []
     expect(validityEvents[validityEvents.length - 1]).toEqual([{ path: 'ws-opts', valid: false }])
   })
@@ -85,6 +85,25 @@ describe('ProtocolFieldEditor', () => {
 
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     expect((textarea.element as HTMLTextAreaElement).value).toContain('/keep')
+  })
+
+  it('高级 JSON 草稿变化发出 json-dirty-change，应用后恢复未脏', async () => {
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field: objectField, modelValue: { path: '/old' } },
+    })
+    await wrapper.find('.ant-switch').trigger('click')
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('{"path":"/new"}')
+
+    const dirtyEvents = wrapper.emitted('json-dirty-change') ?? []
+    expect(dirtyEvents[dirtyEvents.length - 1]).toEqual([{ path: 'ws-opts', dirty: true }])
+
+    const buttons = wrapper.findAll('button')
+    const applyButton = buttons.find((button) => button.text().replace(/\s/g, '').includes('应用'))
+    await applyButton!.trigger('click')
+
+    const appliedEvents = wrapper.emitted('json-dirty-change') ?? []
+    expect(appliedEvents[appliedEvents.length - 1]).toEqual([{ path: 'ws-opts', dirty: false }])
   })
 
   it('敏感字段按凭据状态显示已保存或未配置', async () => {

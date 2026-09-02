@@ -32,6 +32,7 @@ vi.mock('@/components/Notify', () => ({
 import NodesView from '@/views/admin/NodesView.vue'
 import { listNodes, getProtocols, createNode, updateNode } from '@/api/node'
 import { ApiError } from '@/api/request'
+import { Notify } from '@/components/Notify'
 
 const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
 const mockGetProtocols = getProtocols as unknown as ReturnType<typeof vi.fn>
@@ -84,6 +85,7 @@ describe('NodesView 节点管理页', () => {
     mockGetProtocols.mockReset()
     mockCreateNode.mockReset()
     mockUpdateNode.mockReset()
+    ;(Notify.warning as unknown as ReturnType<typeof vi.fn>).mockClear()
     mockListNodes.mockResolvedValue([node])
     mockGetProtocols.mockResolvedValue(protocols)
   })
@@ -105,7 +107,7 @@ describe('NodesView 节点管理页', () => {
     expect(document.body.textContent).toContain('连接方式与当前参数')
     expect(document.body.textContent).toContain('独立开关')
     expect(document.body.querySelector('.node-switch-fields')?.textContent).toContain('UDP')
-    expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('高级 JSON')
+    expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('结构化编辑')
     expect(document.body.querySelector('.node-advanced-fields')?.textContent).toContain('路由标记')
     expect(document.body.textContent).toContain('当前组合')
     wrapper.unmount()
@@ -186,6 +188,7 @@ describe('NodesView 节点管理页', () => {
     expect(vm.form.protocol_json.network).toBe('tcp')
     expect(vm.form.protocol_json['ws-opts']).toBeUndefined()
     expect(vm.resetScopesArray()).toContain('network')
+    expect(Notify.warning).toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -260,6 +263,80 @@ describe('NodesView 节点管理页', () => {
     expect(payload.base_revision).toBe(3)
     expect(vm.conflictError).toContain('重新加载')
     expect(vm.form.protocol_json.cipher).toBe('changed')
+    wrapper.unmount()
+  })
+
+  it('存在未应用 JSON 草稿时阻止保存', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      handleJsonDirty: (payload: { path: string; dirty: boolean }) => void
+      save: () => Promise<void>
+      form: { name: string; host: string; port: number }
+    }
+    vm.openCreate()
+    vm.form.name = 'new-node'
+    vm.form.host = 'example.com'
+    vm.form.port = 443
+    vm.handleJsonDirty({ path: 'plugin-opts', dirty: true })
+    await vm.save()
+
+    expect(mockCreateNode).not.toHaveBeenCalled()
+    expect(Notify.warning).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('新增未知扩展随保存提交 extensions', async () => {
+    mockCreateNode.mockResolvedValue(node)
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      commitExtensionDraft: () => void
+      save: () => Promise<void>
+      form: { name: string; host: string; port: number }
+      extensionDraft: { scope: string; targets: string; label: string; payload: string }
+    }
+    vm.openCreate()
+    vm.form.name = 'new-node'
+    vm.form.host = 'example.com'
+    vm.form.port = 443
+    vm.extensionDraft.scope = 'node'
+    vm.extensionDraft.targets = 'clash-yaml, sr-subs'
+    vm.extensionDraft.label = '测试扩展'
+    vm.extensionDraft.payload = '{"unknown":true}'
+    vm.commitExtensionDraft()
+    await vm.save()
+
+    const payload = mockCreateNode.mock.calls[0][0] as Record<string, any>
+    expect(payload.extensions).toEqual([
+      { scope: 'node', targets: ['clash-yaml', 'sr-subs'], label: '测试扩展', payload: '{"unknown":true}' },
+    ])
+    wrapper.unmount()
+  })
+
+  it('编辑节点清除未知扩展时提交 clear extension_ops', async () => {
+    const editNode = {
+      ...node,
+      extensions: [{ id: 'ext-1', scope: 'node', targets: ['clash-yaml'], label: '旧扩展', configured: true }],
+    }
+    mockUpdateNode.mockResolvedValue(editNode)
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openEdit: (target: any) => void
+      removeExtension: (ext: { id: string; scope: string; targets: string[]; label: string }) => void
+      save: () => Promise<void>
+      form: { protocol_json: Record<string, unknown> }
+    }
+    vm.openEdit(editNode)
+    vm.removeExtension({ id: 'ext-1', scope: 'node', targets: ['clash-yaml'], label: '旧扩展' })
+    await vm.save()
+
+    expect(mockUpdateNode).toHaveBeenCalled()
+    const payload = mockUpdateNode.mock.calls[0][1] as Record<string, any>
+    expect(payload.extension_ops).toEqual([{ op: 'clear', id: 'ext-1' }])
     wrapper.unmount()
   })
 })

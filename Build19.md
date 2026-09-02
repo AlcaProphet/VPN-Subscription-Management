@@ -362,3 +362,4 @@ checkSeq + checkResult    → 检查请求序号和当前有效结果
 | v1.4 | 2026-09-02 | 完成 Step 4：节点编辑维护 `resetScopes`/`clearedSensitivePaths`，分支切换清空所属字段并随保存生成 `reset_scopes`/`credential_ops`；`ProtocolFieldEditor` 支持凭据“已保存/未配置”状态与高级 JSON“应用/放弃”草稿；新增分支清空、草稿、凭据状态测试，构建与定向测试通过。 |
 | v1.5 | 2026-09-02 | 完成 Step 5：新增 `NodeCheckPanel.vue`，接入当前草稿目标检查、状态/诊断/脱敏预览展示，草稿变化即失效、迟到响应丢弃；新增 `node-check-panel.spec.ts` 3 项测试，构建与定向测试通过。 |
 | v1.6 | 2026-09-02 | 完成 Step 6：保存 payload 接入 `current_state`/`reset_scopes`/`credential_ops`/`base_revision`，409 保留草稿并支持重新加载；补充保存与 409 测试；前端全量 `npm test -- --run` 39 文件 / 158 用例通过，`npm run build` 通过。 |
+| v1.7 | 2026-09-02 | 完成核验后的前端收口：新增未知扩展摘要与新增/替换/清除操作，保存/检查携带 `extension_ops`/`extensions`；分支切换增加 Toast 清空提示；未应用 JSON 草稿保存前拦截并要求应用/放弃；校正结构化/高级 JSON 模式文案；前端全量 `npm test -- --run` 39 文件 / 162 用例通过，`npm run build` 通过。 |
