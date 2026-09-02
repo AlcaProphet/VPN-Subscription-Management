@@ -56,6 +56,7 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 		host     string
 		port     int
 		params   map[string]any
+		state    CurrentState
 		skip     bool
 		reason   string
 	}
@@ -96,6 +97,13 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 			preparedList = append(preparedList, item)
 			continue
 		}
+		state, err := resolveCurrentState(proto, nil, r.Params)
+		if err != nil {
+			item.skip = true
+			item.reason = err.Error()
+			preparedList = append(preparedList, item)
+			continue
+		}
 		encrypted, err := s.encryptProtocolJSON(ctx, r.Params, proto.SensitiveFields)
 		if err != nil {
 			item.skip = true
@@ -104,6 +112,7 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 			continue
 		}
 		item.params = encrypted
+		item.state = state
 		preparedList = append(preparedList, item)
 	}
 
@@ -127,10 +136,17 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 				out = append(out, ImportLineResult{Line: p.line, Raw: p.raw, OK: false, Name: p.name, Reason: "序列化节点参数失败"})
 				continue
 			}
+			stateRaw, err := json.Marshal(p.state)
+			if err != nil {
+				out = append(out, ImportLineResult{Line: p.line, Raw: p.raw, OK: false, Name: p.name, Reason: "序列化节点当前状态失败"})
+				continue
+			}
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO nodes (source, name, display_name, instance_id, tag, protocol, host, port, protocol_json, is_public, enabled, allocatable, missing)
-				 VALUES ('manual', ?, NULL, NULL, '', ?, ?, ?, ?, 0, 1, 1, 0)`,
-				p.name, p.protocol, p.host, p.port, string(rawJSON)); err != nil {
+				`INSERT INTO nodes (source, name, display_name, instance_id, tag, protocol, host, port,
+				 protocol_json, current_state_json, extensions_json, edit_revision, state_format_version,
+				 is_public, enabled, allocatable, missing)
+				 VALUES ('manual', ?, NULL, NULL, '', ?, ?, ?, ?, ?, '{}', 1, 1, 0, 1, 1, 0)`,
+				p.name, p.protocol, p.host, p.port, string(rawJSON), string(stateRaw)); err != nil {
 				if isUniqueViolation(err) {
 					out = append(out, ImportLineResult{Line: p.line, Raw: p.raw, OK: false, Name: p.name, Reason: "名称重复，已跳过"})
 					continue

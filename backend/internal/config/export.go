@@ -44,12 +44,12 @@ type ExportedNodeName struct {
 
 // ExportedInstance 导出实例。
 type ExportedInstance struct {
-	Name     string             `json:"name"`
-	Slug     string             `json:"slug"`
-	APIAddr  string             `json:"api_addr"`
-	APITag   string             `json:"api_tag"`
-	Enabled  bool               `json:"enabled"`
-	Nodes    []ExportedNodeName `json:"nodes,omitempty"`
+	Name    string             `json:"name"`
+	Slug    string             `json:"slug"`
+	APIAddr string             `json:"api_addr"`
+	APITag  string             `json:"api_tag"`
+	Enabled bool               `json:"enabled"`
+	Nodes   []ExportedNodeName `json:"nodes,omitempty"`
 }
 
 // ExportedExtPushTarget 导出独立账号推送目标。
@@ -93,8 +93,8 @@ type ExportService struct {
 	seedPresets func(ctx context.Context, tx *sql.Tx, frontendURL string) error
 
 	// v2 导入后处理钩子（均由 server.New 注入，避免 config 包反向依赖 xray/assembly/server）
-	cleanupXrayTargets      func(ctx context.Context, targets []ImportCleanupTarget)
-	detectImportedInstances func(ctx context.Context, payload *ExportPayload) []string
+	cleanupXrayTargets        func(ctx context.Context, targets []ImportCleanupTarget)
+	detectImportedInstances   func(ctx context.Context, payload *ExportPayload) []string
 	postImportRebindReconcile func(ctx context.Context, payload *ExportPayload) []string
 }
 
@@ -584,7 +584,8 @@ func (s *ExportService) checkImportProtection(ctx context.Context, payload *Expo
 	if s.hasTable(ctx, "nodes") {
 		var nodeCount int
 		if err := s.store.DB().QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM nodes WHERE protocol_json LIKE '%enc:v1:%'`).Scan(&nodeCount); err != nil {
+			`SELECT COUNT(*) FROM nodes
+				 WHERE protocol_json LIKE '%enc:v1:%' OR extensions_json LIKE '%enc:ext:v1:%'`).Scan(&nodeCount); err != nil {
 			return err
 		}
 		count += nodeCount
@@ -641,7 +642,6 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	}
 	return nil
 }
-
 
 // decrypt 解密导入文件（Argon2id + AES-GCM 逆过程）；失败返回「密码错误或文件损坏」
 func (s *ExportService) decrypt(data []byte, password string) (*ExportPayload, error) {

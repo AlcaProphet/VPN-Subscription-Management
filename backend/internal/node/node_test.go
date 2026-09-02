@@ -200,7 +200,7 @@ func TestUpdateManualPreserveSensitive(t *testing.T) {
 	}
 	_, err := svc.UpdateManual(context.Background(), id, UpdateManualInput{
 		Protocol: "vless", Host: "new.example.com", Port: 8443,
-		ProtocolJSON: map[string]any{"uuid": "", "network": "ws"},
+		ProtocolJSON: map[string]any{"uuid": "", "network": "ws"}, BaseRevision: 1,
 	})
 	if err != nil {
 		t.Fatalf("更新节点失败: %v", err)
@@ -219,7 +219,7 @@ func TestUpdateManualPreserveSensitive(t *testing.T) {
 	// 编辑时名称只读
 	_, err = svc.UpdateManual(context.Background(), id, UpdateManualInput{
 		Name: "改名", Protocol: "vless", Host: "new.example.com", Port: 8443,
-		ProtocolJSON: map[string]any{"uuid": "new-uuid"},
+		ProtocolJSON: map[string]any{"uuid": "new-uuid"}, BaseRevision: 2,
 	})
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("改名应 ErrBadRequest，实际 %v", err)
@@ -256,6 +256,7 @@ func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
 	}
 	_, err = svc.UpdateManual(ctx, created.ID, UpdateManualInput{
 		Protocol: "ss", Host: "new.example.com", Port: 8443,
+		BaseRevision: 1,
 		ProtocolJSON: map[string]any{
 			"cipher": "aes-256-gcm", "password": "",
 			"plugin": "shadow-tls", "plugin-opts": map[string]any{"host": "next.example.com", "password": ""},
@@ -455,6 +456,7 @@ func TestProtocolChangeDropsOldSensitiveAndRedactsWrite(t *testing.T) {
 	n := createManual(t, svc, "协议变更节点")
 	updated, err := svc.UpdateManual(ctx, n.ID, UpdateManualInput{
 		Protocol: "ss", Host: "1.2.3.4", Port: 8388,
+		BaseRevision: n.EditRevision,
 		ProtocolJSON: map[string]any{"cipher": "aes-256-gcm", "password": "new-pw"},
 	})
 	if err != nil {
@@ -469,5 +471,353 @@ func TestProtocolChangeDropsOldSensitiveAndRedactsWrite(t *testing.T) {
 	}
 	if updated.ProtocolJSON["password"] != "" {
 		t.Fatalf("写响应应脱敏敏感字段，实际 %v", updated.ProtocolJSON["password"])
+	}
+}
+
+func TestNodeEditorMigrationColumns(t *testing.T) {
+	_, st, _ := newTestService(t)
+	ctx := context.Background()
+	rows, err := st.DB().QueryContext(ctx, `PRAGMA table_info(nodes)`)
+	if err != nil {
+		t.Fatalf("读取 nodes schema 失败: %v", err)
+	}
+	defer rows.Close()
+	want := map[string]bool{
+		"edit_revision":        false,
+		"state_format_version": false,
+		"current_state_json":   false,
+		"extensions_json":      false,
+	}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatalf("解析 nodes schema 失败: %v", err)
+		}
+		if _, ok := want[name]; ok {
+			want[name] = true
+			if notNull != 1 {
+				t.Errorf("%s 应为 NOT NULL", name)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("遍历 nodes schema 失败: %v", err)
+	}
+	for name, found := range want {
+		if !found {
+			t.Errorf("缺少迁移列 %s", name)
+		}
+	}
+	var count int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='node_edit_states'`).Scan(&count); err != nil {
+		t.Fatalf("检查独立状态表失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatal("Build17 不应创建独立 node_edit_states 表")
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO nodes (source, name, protocol, host, port) VALUES ('manual', '迁移默认值节点', 'vless', 'example.com', 443)`); err != nil {
+		t.Fatalf("写入迁移默认值节点失败: %v", err)
+	}
+	var revision, stateVersion int
+	var stateRaw, extensionsRaw string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT edit_revision, state_format_version, current_state_json, extensions_json FROM nodes WHERE name='迁移默认值节点'`).Scan(&revision, &stateVersion, &stateRaw, &extensionsRaw); err != nil {
+		t.Fatalf("读取迁移默认值失败: %v", err)
+	}
+	if revision != 0 || stateVersion != 1 || stateRaw != "{}" || extensionsRaw != "{}" {
+		t.Fatalf("迁移默认值异常: revision=%d state_version=%d state=%q extensions=%q", revision, stateVersion, stateRaw, extensionsRaw)
+	}
+}
+
+func TestDeriveCurrentStateDoesNotInferRealityFromStaleParams(t *testing.T) {
+	proto, err := GetProtocol("vless")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := DeriveCurrentState(proto, map[string]any{
+		"network":      "tcp",
+		"reality-opts": map[string]any{"public-key": "stale"},
+	})
+	if state.Security != "none" {
+		t.Fatalf("tls 未启用时不应仅凭 reality-opts 推导 REALITY: %+v", state)
+	}
+	state = DeriveCurrentState(proto, map[string]any{
+		"network":      "tcp",
+		"tls":          true,
+		"reality-opts": map[string]any{"public-key": "active"},
+	})
+	if state.Security != "reality" {
+		t.Fatalf("tls + reality-opts 应推导 REALITY: %+v", state)
+	}
+}
+
+func TestCreateWithCurrentStateAndExtensions(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	ctx := context.Background()
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "状态扩展节点", Protocol: "vless", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"uuid": "create-secret", "network": "ws", "tls": true,
+			"ws-opts": map[string]any{"path": "/ws"},
+		},
+		CurrentState: &CurrentState{Network: "ws", Security: "tls", Features: []string{}},
+		Extensions: []ExtensionInput{{
+			ID: "ext-1", Scope: "transport.ws", Targets: []string{"clash-yaml"},
+			Label: "WebSocket 扩展", Payload: `{"unknown":true}`,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("创建状态扩展节点失败: %v", err)
+	}
+	if created.EditRevision != 1 || created.StateFormatVersion != 1 {
+		t.Fatalf("创建修订/格式版本异常: %+v", created)
+	}
+	if created.CurrentState.Network != "ws" || created.CurrentState.Security != "tls" || len(created.Extensions) != 1 {
+		t.Fatalf("创建后状态/扩展摘要异常: %+v", created)
+	}
+	if created.Extensions[0].ID != "ext-1" || !created.Extensions[0].Configured {
+		t.Fatalf("扩展摘要异常: %+v", created.Extensions[0])
+	}
+	encoded, err := json.Marshal(created)
+	if err != nil {
+		t.Fatalf("节点响应序列化失败: %v", err)
+	}
+	if strings.Contains(string(encoded), "payload_encrypted") || strings.Contains(string(encoded), `{"unknown":true}`) {
+		t.Fatalf("节点响应泄漏扩展负载: %s", encoded)
+	}
+	var protocolRaw, extensionsRaw string
+	if err := st.DB().QueryRowContext(ctx, `SELECT protocol_json, extensions_json FROM nodes WHERE id=?`, created.ID).Scan(&protocolRaw, &extensionsRaw); err != nil {
+		t.Fatalf("读取节点密文失败: %v", err)
+	}
+	if strings.Contains(protocolRaw, "create-secret") || strings.Contains(extensionsRaw, `{"unknown":true}`) || !strings.Contains(extensionsRaw, extEncPrefix) {
+		t.Fatalf("节点密文存储不符合预期: protocol=%s extensions=%s", protocolRaw, extensionsRaw)
+	}
+}
+
+func TestUpdateResetScopeDoesNotRestore(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "分支清空节点", Protocol: "vless", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"uuid": "branch-secret", "network": "ws", "tls": true,
+			"ws-opts": map[string]any{"path": "/old"},
+		},
+		Extensions: []ExtensionInput{{ID: "ext-ws", Scope: "transport.ws", Payload: "old-extension"}},
+	})
+	if err != nil {
+		t.Fatalf("创建分支清空节点失败: %v", err)
+	}
+	updated, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "example.com", Port: 443, BaseRevision: created.EditRevision,
+		CurrentState: &CurrentState{Network: "grpc", Security: "tls", Features: []string{}},
+		ResetScopes:  []string{"network"},
+		ProtocolJSON: map[string]any{
+			"uuid": "", "network": "grpc", "tls": true,
+			"grpc-opts": map[string]any{"grpc-service-name": "svc"},
+		},
+		ExtensionOps: []ExtensionOp{{Op: "keep", ID: "ext-ws"}},
+	})
+	if err != nil {
+		t.Fatalf("切换到 gRPC 失败: %v", err)
+	}
+	if updated.EditRevision != 2 || updated.CurrentState.Network != "grpc" {
+		t.Fatalf("切换后修订/状态异常: %+v", updated)
+	}
+	raw, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("读取切换后节点失败: %v", err)
+	}
+	if _, ok := GetPath(raw.ProtocolJSON, "ws-opts"); ok {
+		t.Fatal("切换网络后旧 ws-opts 不应残留")
+	}
+	if _, ok := GetPath(raw.ProtocolJSON, "uuid"); !ok {
+		t.Fatal("网络切换不应清空无关的协议主凭据")
+	}
+	if len(raw.extensionRecords) != 0 {
+		t.Fatalf("被重置传输扩展不应被 keep 复活: %+v", raw.extensionRecords)
+	}
+
+	back, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "example.com", Port: 443, BaseRevision: updated.EditRevision,
+		CurrentState: &CurrentState{Network: "ws", Security: "tls", Features: []string{}},
+		ResetScopes:  []string{"network"},
+		ProtocolJSON: map[string]any{"uuid": "", "network": "ws", "tls": true},
+	})
+	if err != nil {
+		t.Fatalf("切回 WebSocket 失败: %v", err)
+	}
+	backRaw, err := svc.getRaw(ctx, back.ID)
+	if err != nil {
+		t.Fatalf("读取切回后节点失败: %v", err)
+	}
+	if _, ok := GetPath(backRaw.ProtocolJSON, "ws-opts"); ok {
+		t.Fatal("A→B→A 不应恢复旧 ws-opts")
+	}
+	if len(backRaw.extensionRecords) != 0 {
+		t.Fatal("A→B→A 不应恢复旧传输扩展")
+	}
+}
+
+func TestUpdateCredentialKeepAndClear(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	created := createManual(t, svc, "凭据操作节点")
+	rawBefore, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCiphertext := rawBefore.ProtocolJSON["uuid"]
+	kept, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "new.example.com", Port: 8443, BaseRevision: created.EditRevision,
+		ProtocolJSON:  map[string]any{"uuid": "", "network": "tcp"},
+		CredentialOps: []CredentialOp{{Path: "uuid", Op: "keep"}},
+	})
+	if err != nil {
+		t.Fatalf("默认保留凭据更新失败: %v", err)
+	}
+	rawKept, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rawKept.ProtocolJSON["uuid"] != oldCiphertext || kept.EditRevision != 2 {
+		t.Fatalf("默认保留凭据异常: old=%v new=%v response=%+v", oldCiphertext, rawKept.ProtocolJSON["uuid"], kept)
+	}
+	_, err = svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "should-not-write.example.com", Port: 9443, BaseRevision: kept.EditRevision,
+		ProtocolJSON:  map[string]any{"uuid": ""},
+		CredentialOps: []CredentialOp{{Path: "uuid", Op: "clear"}},
+	})
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("清空必填凭据后应拒绝保存: %v", err)
+	}
+	rawAfter, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rawAfter.EditRevision != kept.EditRevision || rawAfter.Host != "new.example.com" {
+		t.Fatalf("清空必填凭据失败后不应部分写入: %+v", rawAfter)
+	}
+}
+
+func TestUpdateRevisionConflict(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	created := createManual(t, svc, "修订冲突节点")
+	updated, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "first.example.com", Port: 443, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{"uuid": "", "network": "tcp"},
+	})
+	if err != nil {
+		t.Fatalf("首次更新失败: %v", err)
+	}
+	_, err = svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "stale.example.com", Port: 443, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{"uuid": "", "network": "tcp"},
+	})
+	if !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("旧修订应返回 ErrRevisionConflict: %v", err)
+	}
+	current, ok := CurrentRevisionFromError(err)
+	if !ok || current != updated.EditRevision {
+		t.Fatalf("冲突错误未携带当前修订号: current=%d ok=%v err=%v", current, ok, err)
+	}
+	raw, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.Host != "first.example.com" || raw.EditRevision != updated.EditRevision {
+		t.Fatalf("旧修订请求不应改变节点: %+v", raw)
+	}
+}
+
+func TestExtensionOpsAddReplaceClear(t *testing.T) {
+	svc, _, cfg := newTestService(t)
+	ctx := context.Background()
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "扩展操作节点", Protocol: "vless", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{"uuid": "extension-secret", "network": "tcp"},
+		Extensions:   []ExtensionInput{{ID: "ext-old", Scope: "node", Targets: []string{"clash-yaml"}, Payload: "old-payload"}},
+	})
+	if err != nil {
+		t.Fatalf("创建扩展操作节点失败: %v", err)
+	}
+	updated, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "example.com", Port: 443, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{"uuid": "", "network": "tcp"},
+		ExtensionOps: []ExtensionOp{
+			{Op: "clear", ID: "ext-old"},
+			{Op: "add", ID: "ext-new", Scope: "node", Targets: []string{"generic-subs"}, Payload: "new-payload"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("扩展 add/clear 更新失败: %v", err)
+	}
+	if len(updated.Extensions) != 1 || updated.Extensions[0].ID != "ext-new" {
+		t.Fatalf("扩展 add/clear 摘要异常: %+v", updated.Extensions)
+	}
+	newRaw, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRecord := newRaw.extensionRecords[0]
+	key, err := cfg.Get(ctx, config.KeySigningKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := config.Decrypt(strings.TrimPrefix(newRecord.PayloadEnc, extEncPrefix), []byte(key))
+	if err != nil || string(plain) != "new-payload" {
+		t.Fatalf("扩展 add 负载解密异常: plain=%q err=%v", plain, err)
+	}
+
+	replaced, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "example.com", Port: 443, BaseRevision: updated.EditRevision,
+		ProtocolJSON: map[string]any{"uuid": "", "network": "tcp"},
+		ExtensionOps: []ExtensionOp{{Op: "replace", ID: "ext-new", Payload: "replaced-payload"}},
+	})
+	if err != nil {
+		t.Fatalf("扩展 replace 更新失败: %v", err)
+	}
+	if len(replaced.Extensions) != 1 || replaced.Extensions[0].ID != "ext-new" {
+		t.Fatalf("扩展 replace 摘要异常: %+v", replaced.Extensions)
+	}
+	rawReplaced, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rawReplaced.extensionRecords[0].PayloadEnc == newRecord.PayloadEnc {
+		t.Fatal("replace 应生成新的扩展密文")
+	}
+}
+
+func TestExtensionResetScopeCannotKeep(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "扩展重置节点", Protocol: "vless", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{"uuid": "reset-secret", "network": "ws"},
+		Extensions:   []ExtensionInput{{ID: "ext-reset", Scope: "transport.ws", Payload: "must-clear"}},
+	})
+	if err != nil {
+		t.Fatalf("创建扩展重置节点失败: %v", err)
+	}
+	if _, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "example.com", Port: 443, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{"uuid": "", "network": "tcp"},
+		ResetScopes:  []string{"network"},
+		ExtensionOps: []ExtensionOp{{Op: "keep", ID: "ext-reset"}},
+	}); err != nil {
+		t.Fatalf("执行扩展作用域重置失败: %v", err)
+	}
+	raw, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw.extensionRecords) != 0 {
+		t.Fatalf("被重置作用域的扩展不应被 keep 保留: %+v", raw.extensionRecords)
 	}
 }

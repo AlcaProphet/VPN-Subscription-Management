@@ -1,10 +1,10 @@
-# Build17.md — 节点编辑统一保存契约与 nodes 行内当前状态构建计划
+# Build17.md — 节点编辑统一保存契约与 nodes 行内当前状态构建记录
 
-> **文档定位：** 本文是 VPN 订阅管理系统第十七轮当前构建方案（Build 文档，非强规则），将 [Design4.md](Design4.md) 第十二章已确认的契约转化为可逐步执行和验收的实现手册。本文**只编写构建方案，不构建代码**。
+> **文档定位：** 本文是 VPN 订阅管理系统第十七轮构建方案及实施记录（Build 文档，非强规则），将 [Design4.md](Design4.md) 第十二章已确认的契约转化为可逐步执行和验收的实现手册。本轮已完成文档所列 Step 1～4 的后端构建与自动化验收。
 > - 设计依据：[Design4.md](Design4.md) §二、§六、§10、§12（当前最新设计，已确认作为 Build 依据）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序基线：已存档 [Build16.md](docs/reports/Build/Build16.md)（已完成）；节点编辑现状见 [Build15.md](docs/reports/Build/Build15.md)
-> - 存放说明：按用户确认，Build17～Build20 存放在仓库根目录，承接 Design4 的构建拆分。
+> - 存放说明：按用户确认，Build17～Build20 存放在仓库根目录，承接 Design4 的构建拆分；本记录只覆盖 Build17。
 >
 > **执行原则：**
 > - 每次仅执行一个 Step；完成编译、测试和差异检查并确认后再进入下一步。
@@ -18,10 +18,10 @@
 
 | Step | 内容 | 设计依据 | 状态 |
 |------|------|----------|------|
-| 1 | 1017 迁移：`nodes` 新增当前状态/扩展/修订列 | Design4 §12.1 | ☐ 未开始 |
-| 2 | 节点领域类型与存取层扩展 | Design4 §12.1、§12.3 | ☐ 未开始 |
-| 3 | 创建/更新/读取 API 契约与修订冲突 | Design4 §12.3 | ☐ 未开始 |
-| 4 | 凭据操作、扩展加密与保存流程测试 | Design4 §6.3、§6.4、§12.1 | ☐ 未开始 |
+| 1 | 1017 迁移：`nodes` 新增当前状态/扩展/修订列 | Design4 §12.1 | ✅ 验收通过 |
+| 2 | 节点领域类型与存取层扩展 | Design4 §12.1、§12.3 | ✅ 验收通过 |
+| 3 | 创建/更新/读取 API 契约与修订冲突 | Design4 §12.3 | ✅ 验收通过 |
+| 4 | 凭据操作、扩展加密与保存流程测试 | Design4 §6.3、§6.4、§12.1 | ✅ 验收通过 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
@@ -32,8 +32,8 @@
 | Step | 涉及文件 | 要点 |
 |------|---------|------|
 | 1 | `backend/migrations/1017_node_editor_state.sql` | `edit_revision`、`state_format_version`、`current_state_json`、`extensions_json` |
-| 2 | `backend/internal/node/node.go`、`backend/internal/server/node.go` | `Node`/输入 DTO/扫描/脱敏/错误扩展 |
-| 3 | `backend/internal/node/node.go`、`backend/internal/server/node.go` | create/update/read、409 修订冲突、列表附带修订号 |
+| 2 | `backend/internal/node/node.go`、`backend/internal/server/node.go`、`backend/internal/node/uri_import.go` | `Node`/输入 DTO/扫描/脱敏/错误扩展；URI 导入初始化当前状态 |
+| 3 | `backend/internal/node/node.go`、`backend/internal/server/node.go`、`backend/internal/server/node_test.go` | create/update/read、409 修订冲突、列表附带修订号 |
 | 4 | `backend/internal/node/node.go`、`backend/internal/node/node_test.go`、`backend/internal/config/export.go`、`backend/internal/config/export_test.go` | reset/credential/extensions 加密、配置导入密钥保护与事务测试 |
 
 ---
@@ -362,8 +362,40 @@ Step 1 数据列落库
 
 ---
 
-## 六、变更记录
+## 六、实施与验收记录
+
+### 6.1 已完成实现
+
+- 新增 1017 迁移，在 `nodes` 行内增加 `edit_revision`、`state_format_version`、`current_state_json`、`extensions_json`，未创建 `node_edit_states`。
+- 节点领域层已支持当前状态、凭据操作和扩展操作；`List`、`Get`、`GET /api/admin/nodes/:id` 均返回修订号、状态格式版本和扩展摘要，内部读取保留密文供合并使用。
+- `CreateManual` 以修订号 1 初始化当前状态和扩展；`UpdateManual` 使用 `WHERE id AND source='manual' AND edit_revision=?` 原子更新，旧修订返回 `ErrRevisionConflict`，HTTP 层返回 409 及 `current_revision`。
+- `reset_scopes` 先清除活动参数、凭据和扩展，再应用本次输入；跨协议切换强制清除协议作用域，已覆盖 A → B → A 不恢复语义。
+- 节点凭据继续使用 `enc:v1:`，未知扩展使用 `enc:ext:v1:` 独立加密；读取接口只返回扩展摘要。URI 批量导入也初始化统一的当前状态与修订字段。
+- 配置导入密钥变更保护同时检查 `protocol_json` 与 `extensions_json` 密文；未改动前端、节点检查接口、目标输出和客户端连接验收。
+
+### 6.2 自动化验收
+
+本轮新增或补充以下覆盖：迁移列与无独立状态表、创建时当前状态与扩展脱敏、作用域清空及切回不恢复、凭据 `keep/clear`、修订冲突、扩展 `add/replace/clear`、重置作用域禁止 `keep`、导入扩展密钥保护，以及节点详情 API 的 409 响应。
+
+最终验证命令及结果：
+
+```text
+cd backend && go test ./internal/store -run 'TestMigrate' -count=1   PASS
+cd backend && go test ./internal/node -count=1                      PASS
+cd backend && go test ./internal/server -run 'TestNodeUpdateRevisionConflictResponse' -count=1  PASS
+cd backend && go test ./...                                         PASS
+cd backend && go build ./...                                        PASS
+cd backend && go vet ./...                                          PASS
+git diff --check                                                     PASS
+```
+
+由于本轮没有前端文件变更，未执行 `frontend/npm run build`；Build18～Build20 的前端、检查、输出和客户端连接验收仍保持未完成状态。
+
+---
+
+## 七、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-09-02 | 初始构建方案：按 Design4 §12 落地 nodes 新列、统一保存契约、修订冲突、凭据与扩展操作。仅创建 Build 文档，未构建代码。 |
+| v1.1 | 2026-09-02 | 完成 Step 1～4：实现 1017 迁移、节点当前状态/修订/API、作用域清空、凭据与扩展加密、URI 初始化和导入保护；补充自动化验收并记录后端构建、静态检查与差异检查均通过。 |
