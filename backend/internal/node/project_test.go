@@ -111,9 +111,6 @@ func TestValidateCurrentStateRejectsKnownInvalidCombinations(t *testing.T) {
 		{"SS auto", "ss", CurrentState{Security: "none"}, map[string]any{
 			"cipher": "auto", "password": "p",
 		}, "cipher"},
-		{"Trojan h2", "trojan", CurrentState{Network: "h2", Security: "tls"}, map[string]any{
-			"password": "p", "network": "h2",
-		}, "network"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,6 +121,56 @@ func TestValidateCurrentStateRejectsKnownInvalidCombinations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateCurrentStateAllowsTrojanCustomTransport(t *testing.T) {
+	proto, _ := GetProtocol("trojan")
+	for _, network := range []string{"h2", "http", "xhttp", "custom-transport"} {
+		t.Run(network, func(t *testing.T) {
+			state := CurrentState{Network: network, Security: "tls"}
+			params := map[string]any{"password": "p", "network": network}
+			if err := ValidateCurrentState(proto, state, params); err != nil {
+				t.Fatalf("Trojan %s 自定义传输不应在保存层被拒绝: %v", network, err)
+			}
+		})
+	}
+}
+
+func TestProtocolParamsForStorageSecurityOverridesLegacyTLS(t *testing.T) {
+	proto, _ := GetProtocol("vless")
+
+	t.Run("security tls overrides stale false", func(t *testing.T) {
+		stored := protocolParamsForStorage(proto, map[string]any{
+			"network": "tcp", "security": "tls", "tls": false,
+		})
+		if stored["tls"] != true {
+			t.Fatalf("security=tls 应覆盖旧 tls=false: %+v", stored)
+		}
+		if _, ok := stored["security"]; ok {
+			t.Fatalf("表单层 security 不应落库: %+v", stored)
+		}
+	})
+
+	t.Run("security none overrides stale true", func(t *testing.T) {
+		stored := protocolParamsForStorage(proto, map[string]any{
+			"network": "tcp", "security": "none", "tls": true,
+		})
+		if stored["tls"] != false {
+			t.Fatalf("security=none 应覆盖旧 tls=true: %+v", stored)
+		}
+		if _, ok := stored["security"]; ok {
+			t.Fatalf("表单层 security 不应落库: %+v", stored)
+		}
+	})
+
+	t.Run("security tls without legacy tls writes true", func(t *testing.T) {
+		stored := protocolParamsForStorage(proto, map[string]any{
+			"network": "tcp", "security": "tls",
+		})
+		if stored["tls"] != true {
+			t.Fatalf("security=tls 应写入 tls=true: %+v", stored)
+		}
+	})
 }
 
 func hasOption(field FieldSchema, value string) bool {

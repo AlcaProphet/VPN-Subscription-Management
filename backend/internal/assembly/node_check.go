@@ -61,6 +61,22 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 			Evidence:  "mihomo-1.19.29-yaml",
 		})
 	}
+	if protocol == "trojan" {
+		network, _ := params["network"].(string)
+		if network == "" {
+			network = "tcp"
+		}
+		if network != "tcp" && network != "ws" && network != "grpc" {
+			diagnostics = append(diagnostics, node.TargetDiagnostic{
+				Severity:  "warn",
+				Code:      "trojan_transport_fallback",
+				Target:    "clash-yaml",
+				FieldPath: "network",
+				Message:   "Trojan 自定义传输不作为普通组合；目标内核可能按 TCP 处理或静默回退",
+				Evidence:  "mihomo-1.19.29-yaml",
+			})
+		}
+	}
 	preview := string(content)
 	return node.CheckRenderResult{Preview: preview, Diagnostics: diagnostics}, nil
 }

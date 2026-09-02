@@ -157,8 +157,12 @@ func (h *NodeHandler) update(c *gin.Context) {
 		})
 		return
 	}
-	if errors.Is(err, node.ErrBadRequest) || errors.Is(err, node.ErrForbidden) {
+	if errors.Is(err, node.ErrBadRequest) {
 		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if errors.Is(err, node.ErrForbidden) {
+		Fail(c, http.StatusForbidden, err.Error())
 		return
 	}
 	if err != nil {

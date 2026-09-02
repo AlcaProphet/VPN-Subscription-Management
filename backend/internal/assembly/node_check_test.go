@@ -105,3 +105,30 @@ func assertFixtureDiagnostic(t *testing.T, result node.TargetCheckResult, severi
 	}
 	t.Fatalf("固定夹具缺少诊断: want severity=%s code=%s got=%+v", severity, code, result.Diagnostics)
 }
+
+func TestNodeCheckTrojanCustomTransportDiagnosedByTarget(t *testing.T) {
+	svc, st, cfg := newTestService(t)
+	nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+	nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+	resp, err := nodeSvc.Check(context.Background(), node.CheckRequest{
+		Protocol: "trojan", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"password": "trojan-secret", "network": "h2",
+		},
+		CurrentState: &node.CurrentState{Network: "h2", Security: "tls", Features: []string{}},
+		Targets:      []string{"clash-yaml", "sr-subs"},
+	})
+	if err != nil {
+		t.Fatalf("Trojan h2 自定义传输检查失败: %v", err)
+	}
+	clash := resp.Targets["clash-yaml"]
+	if clash.Status != "warn" {
+		t.Fatalf("Clash 目标应对 Trojan 自定义传输给出降级警告: %+v", clash)
+	}
+	assertFixtureDiagnostic(t, clash, "warn", "trojan_transport_fallback")
+	sr := resp.Targets["sr-subs"]
+	if sr.Status != "skip" {
+		t.Fatalf("SR 目标应跳过无法表达的 Trojan 自定义传输: %+v", sr)
+	}
+	assertFixtureDiagnostic(t, sr, "error", "core_semantic_unexpressible")
+}

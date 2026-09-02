@@ -339,6 +339,9 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	params := normalizeProtocolParameters(proto, in.ProtocolJSON)
+	if err := validateKnownTopLevel(proto, params); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
 	if err := validateProtocolFields(proto, params, false); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -432,8 +435,16 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	incoming := normalizeProtocolParameters(proto, in.ProtocolJSON)
+	if err := validateKnownTopLevel(proto, incoming); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
 	if err := validateProtocolFields(proto, incoming, true); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	if existingProto, existingErr := GetProtocol(existing.Protocol); existingErr == nil {
+		if err := validateKnownTopLevel(existingProto, existing.ProtocolJSON); err != nil {
+			return nil, fmt.Errorf("%w: 已有节点含未归入扩展的顶层字段: %v", ErrBadRequest, err)
+		}
 	}
 	resetScopes, err := normalizeResetScopes(in.ResetScopes)
 	if err != nil {
@@ -445,6 +456,9 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	}
 	merged := mergeProtocolJSON(existing.ProtocolJSON, incoming, proto, resetScopes)
 	merged = normalizeProtocolParameters(proto, merged)
+	if err := validateKnownTopLevel(proto, merged); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
 	state, err := resolveCurrentState(proto, in.CurrentState, merged)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)

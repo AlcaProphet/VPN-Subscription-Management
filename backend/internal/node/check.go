@@ -78,6 +78,9 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 	}
 
 	params := normalizeProtocolParameters(proto, in.ProtocolJSON)
+	if err := validateKnownTopLevel(proto, params); err != nil {
+		return s.checkValidationResponse(in, targets, err, params), nil
+	}
 	var existing *Node
 	var extensionRecords []ExtensionRecord
 	if in.NodeID > 0 {
@@ -90,6 +93,11 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		}
 		if in.BaseRevision != n.EditRevision {
 			return nil, &revisionConflictError{current: n.EditRevision}
+		}
+		if existingProto, existingErr := GetProtocol(n.Protocol); existingErr == nil {
+			if err := validateKnownTopLevel(existingProto, n.ProtocolJSON); err != nil {
+				return s.checkValidationResponse(in, targets, err, params), nil
+			}
 		}
 		existing = &n
 		normalizedReset, err := normalizeResetScopes(in.ResetScopes)
@@ -107,6 +115,12 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		}
 		params, err = s.mergeSensitiveWithOps(ctx, n, proto, params, normalizedReset, in.CredentialOps)
 		if err != nil {
+			return s.checkValidationResponse(in, targets, err, params), nil
+		}
+		if err := validateKnownTopLevel(proto, params); err != nil {
+			return s.checkValidationResponse(in, targets, err, params), nil
+		}
+		if err := validateProtocolFields(proto, params, false); err != nil {
 			return s.checkValidationResponse(in, targets, err, params), nil
 		}
 		if err := ValidateCurrentState(proto, state, params); err != nil {

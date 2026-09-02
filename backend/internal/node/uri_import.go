@@ -91,20 +91,34 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 			preparedList = append(preparedList, item)
 			continue
 		}
-		if err := validateProtocolFields(proto, r.Params, false); err != nil {
+		params := normalizeProtocolParameters(proto, r.Params)
+		if err := validateKnownTopLevel(proto, params); err != nil {
 			item.skip = true
 			item.reason = err.Error()
 			preparedList = append(preparedList, item)
 			continue
 		}
-		state, err := resolveCurrentState(proto, nil, r.Params)
+		if err := validateProtocolFields(proto, params, false); err != nil {
+			item.skip = true
+			item.reason = err.Error()
+			preparedList = append(preparedList, item)
+			continue
+		}
+		state, err := resolveCurrentState(proto, nil, params)
 		if err != nil {
 			item.skip = true
 			item.reason = err.Error()
 			preparedList = append(preparedList, item)
 			continue
 		}
-		encrypted, err := s.encryptProtocolJSON(ctx, r.Params, proto.SensitiveFields)
+		if err := ValidateCurrentState(proto, state, params); err != nil {
+			item.skip = true
+			item.reason = err.Error()
+			preparedList = append(preparedList, item)
+			continue
+		}
+		storedParams := protocolParamsForStorage(proto, params)
+		encrypted, err := s.encryptProtocolJSON(ctx, storedParams, proto.SensitiveFields)
 		if err != nil {
 			item.skip = true
 			item.reason = err.Error()

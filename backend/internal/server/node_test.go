@@ -132,3 +132,41 @@ func TestNodeCheckRouteUsesAdapterAndDoesNotWrite(t *testing.T) {
 		t.Fatalf("节点检查不应写入数据库: count=%d", count)
 	}
 }
+
+func TestNodeUpdateForbiddenReturns403(t *testing.T) {
+	engine, st, cfg := newAssemblyTestEnv(t)
+	lg := log.New("error", "console")
+	nodeSvc := node.NewService(st, cfg, lg)
+	noop := func(c *gin.Context) { c.Next() }
+	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, noop, noop)
+
+	ctx := context.Background()
+	res, err := st.DB().ExecContext(ctx,
+		`INSERT INTO xray_instances (name, slug, api_addr) VALUES ('API实例','api-xray','https://example.com')`)
+	if err != nil {
+		t.Fatalf("插入 Xray 实例失败: %v", err)
+	}
+	instID, _ := res.LastInsertId()
+	res, err = st.DB().ExecContext(ctx,
+		`INSERT INTO nodes (source,name,instance_id,tag,protocol,host,port,protocol_json,allocatable,missing)
+		 VALUES ('xray','api-xray-vless',?,'inbound','vless','example.com',443,'{}',1,0)`, instID)
+	if err != nil {
+		t.Fatalf("插入 Xray 节点失败: %v", err)
+	}
+	nodeID, _ := res.LastInsertId()
+
+	body, err := json.Marshal(node.UpdateManualInput{
+		Protocol: "vless", Host: "new.example.com", Port: 443, BaseRevision: 0,
+		ProtocolJSON: map[string]any{"uuid": "", "network": "tcp"},
+	})
+	if err != nil {
+		t.Fatalf("序列化更新请求失败: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/admin/nodes/%d", nodeID), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("禁止编辑 Xray 节点应返回 403，实际 %d, body=%s", w.Code, w.Body.String())
+	}
+}

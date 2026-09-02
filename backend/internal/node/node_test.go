@@ -821,3 +821,76 @@ func TestExtensionResetScopeCannotKeep(t *testing.T) {
 		t.Fatalf("被重置作用域的扩展不应被 keep 保留: %+v", raw.extensionRecords)
 	}
 }
+
+func TestCreateRejectsUnknownTopLevelField(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	_, err := svc.CreateManual(context.Background(), CreateManualInput{
+		Name: "未知顶层创建", Protocol: "vless", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "future-top": "x",
+		},
+	})
+	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "future-top") {
+		t.Fatalf("创建应拒绝未登记顶层字段: %v", err)
+	}
+}
+
+func TestUpdateRejectsUnknownTopLevelFieldAndKeepsDatabase(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	created := createManual(t, svc, "未知顶层更新")
+	before, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: "example.com", Port: 443, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{
+			"uuid": "", "network": "tcp", "future-top": "x",
+		},
+	})
+	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "future-top") {
+		t.Fatalf("更新应拒绝未登记顶层字段: %v", err)
+	}
+	after, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeJSON, _ := json.Marshal(before.ProtocolJSON)
+	afterJSON, _ := json.Marshal(after.ProtocolJSON)
+	if string(beforeJSON) != string(afterJSON) || before.EditRevision != after.EditRevision {
+		t.Fatalf("拒绝未知顶层字段后不应发生任何写入: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestCreateManualSecurityTLSOverridesLegacyTLS(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	created, err := svc.CreateManual(context.Background(), CreateManualInput{
+		Name: "安全归一化节点", Protocol: "vless", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp",
+			"security": "tls", "tls": false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("创建带 security/tls 冲突节点失败: %v", err)
+	}
+	raw, err := svc.getRaw(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.ProtocolJSON["tls"] != true {
+		t.Fatalf("security=tls 应覆盖旧 tls=false 落库: %+v", raw.ProtocolJSON)
+	}
+	if _, ok := raw.ProtocolJSON["security"]; ok {
+		t.Fatalf("表单层 security 不应落库: %+v", raw.ProtocolJSON)
+	}
+	var rawJSON string
+	if err := st.DB().QueryRowContext(context.Background(),
+		`SELECT protocol_json FROM nodes WHERE id=?`, created.ID).Scan(&rawJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rawJSON, `"tls":true`) {
+		t.Fatalf("库内应保存 tls=true: %s", rawJSON)
+	}
+}

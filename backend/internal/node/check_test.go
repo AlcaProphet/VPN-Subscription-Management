@@ -175,3 +175,38 @@ func TestCheckRevisionConflict(t *testing.T) {
 		t.Fatalf("检查旧修订应返回 ErrRevisionConflict: %v", err)
 	}
 }
+
+func TestCheckEditUsesSameFieldValidationAsSave(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	created := createManual(t, svc, "检查保存一致性节点")
+
+	req := CheckRequest{
+		NodeID: created.ID, BaseRevision: created.EditRevision,
+		Protocol: "vless", Host: created.Host, Port: created.Port,
+		ProtocolJSON: map[string]any{
+			"uuid": "", "network": "tcp", "ws-opts": "not-an-object",
+		},
+		CurrentState: &CurrentState{Network: "tcp", Security: "none", Features: []string{}},
+		Targets:      []string{"generic-subs"},
+	}
+	resp, err := svc.Check(ctx, req)
+	if err != nil {
+		t.Fatalf("非法草稿检查不应以服务错误结束: %v", err)
+	}
+	result := resp.Targets["generic-subs"]
+	if result.Status != "error" || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "invalid_node_draft" {
+		t.Fatalf("检查应发现与保存相同的字段类型错误: %+v", result)
+	}
+
+	_, err = svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "vless", Host: created.Host, Port: created.Port, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{
+			"uuid": "", "network": "tcp", "ws-opts": "not-an-object",
+		},
+		CurrentState: &CurrentState{Network: "tcp", Security: "none", Features: []string{}},
+	})
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("正式保存应拒绝同一草稿: %v", err)
+	}
+}

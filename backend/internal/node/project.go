@@ -347,10 +347,7 @@ func validateProtocolCombination(proto Protocol, state CurrentState, params map[
 			return errorsForField("cipher", "Shadowsocks 不支持 auto 算法")
 		}
 	case "trojan":
-		switch state.Network {
-		case "h2", "http", "xhttp":
-			return errorsForField("network", "Trojan 该传输方式首批不能作为普通组合")
-		}
+		// h2/http/xhttp 等自定义传输由目标检查/装配阶段诊断，不在此阻止保存。
 		if opts := objectValue(params, "ss-opts"); boolValue(opts["enabled"]) {
 			if strings.TrimSpace(stringValue(opts["method"])) == "" {
 				return errorsForField("ss-opts.method", "启用内层 SS 时必须填写 method")
@@ -394,7 +391,155 @@ func normalizeProtocolParameters(proto Protocol, params map[string]any) map[stri
 			delete(opts, "cipher")
 		}
 	}
+	canonicalizeTransportAliases(proto, out)
 	return out
+}
+
+// canonicalizeTransportAliases 将 URI 导入或历史请求中的顶层传输别名
+// 收敛到协议注册表的规范对象路径，避免同一参数以两套表达落库。
+func canonicalizeTransportAliases(proto Protocol, params map[string]any) {
+	network, _ := params["network"].(string)
+	if network == "" {
+		if transport, ok := params["transport"].(string); ok {
+			network = transport
+		}
+	}
+	switch proto.Protocol {
+	case "vless", "vmess":
+		switch network {
+		case "ws":
+			if hasTransportAlias(params, "path", "host") {
+				opts := ensureObjectParam(params, "ws-opts")
+				if _, ok := opts["path"]; !ok {
+					if path, exists := params["path"]; exists {
+						opts["path"] = cloneJSONValue(path)
+					}
+				}
+				if _, ok := opts["headers"]; !ok {
+					if host, exists := params["host"]; exists {
+						opts["headers"] = map[string]any{"Host": cloneJSONValue(host)}
+					}
+				}
+			}
+			delete(params, "path")
+			delete(params, "host")
+		case "grpc":
+			if hasTransportAlias(params, "path", "serviceName") {
+				opts := ensureObjectParam(params, "grpc-opts")
+				if _, ok := opts["grpc-service-name"]; !ok {
+					if path, exists := params["path"]; exists {
+						opts["grpc-service-name"] = cloneJSONValue(path)
+					} else if serviceName, exists := params["serviceName"]; exists {
+						opts["grpc-service-name"] = cloneJSONValue(serviceName)
+					}
+				}
+			}
+			delete(params, "path")
+			delete(params, "serviceName")
+		case "h2":
+			if hasTransportAlias(params, "path", "host") {
+				opts := ensureObjectParam(params, "h2-opts")
+				if _, ok := opts["path"]; !ok {
+					if path, exists := params["path"]; exists {
+						opts["path"] = cloneJSONValue(path)
+					}
+				}
+				if _, ok := opts["host"]; !ok {
+					if host, exists := params["host"]; exists {
+						opts["host"] = cloneJSONValue(host)
+					}
+				}
+			}
+			delete(params, "path")
+			delete(params, "host")
+		case "http":
+			if hasTransportAlias(params, "path", "host") {
+				opts := ensureObjectParam(params, "http-opts")
+				if _, ok := opts["path"]; !ok {
+					if path, exists := params["path"]; exists {
+						opts["path"] = []any{cloneJSONValue(path)}
+					}
+				}
+				if _, ok := opts["headers"]; !ok {
+					if host, exists := params["host"]; exists {
+						opts["headers"] = map[string]any{"Host": []any{cloneJSONValue(host)}}
+					}
+				}
+			}
+			delete(params, "path")
+			delete(params, "host")
+		case "xhttp":
+			if hasTransportAlias(params, "path", "host", "mode") {
+				opts := ensureObjectParam(params, "xhttp-opts")
+				if _, ok := opts["path"]; !ok {
+					if path, exists := params["path"]; exists {
+						opts["path"] = cloneJSONValue(path)
+					}
+				}
+				if _, ok := opts["host"]; !ok {
+					if host, exists := params["host"]; exists {
+						opts["host"] = cloneJSONValue(host)
+					}
+				}
+				if _, ok := opts["mode"]; !ok {
+					if mode, exists := params["mode"]; exists {
+						opts["mode"] = cloneJSONValue(mode)
+					}
+				}
+			}
+			delete(params, "path")
+			delete(params, "host")
+			delete(params, "mode")
+		}
+	case "trojan":
+		switch network {
+		case "ws":
+			if hasTransportAlias(params, "path", "host") {
+				opts := ensureObjectParam(params, "ws-opts")
+				if _, ok := opts["path"]; !ok {
+					if path, exists := params["path"]; exists {
+						opts["path"] = cloneJSONValue(path)
+					}
+				}
+				if _, ok := opts["headers"]; !ok {
+					if host, exists := params["host"]; exists {
+						opts["headers"] = map[string]any{"Host": cloneJSONValue(host)}
+					}
+				}
+			}
+			delete(params, "path")
+			delete(params, "host")
+		case "grpc":
+			if hasTransportAlias(params, "path", "serviceName") {
+				opts := ensureObjectParam(params, "grpc-opts")
+				if _, ok := opts["grpc-service-name"]; !ok {
+					if path, exists := params["path"]; exists {
+						opts["grpc-service-name"] = cloneJSONValue(path)
+					}
+				}
+			}
+			delete(params, "path")
+			delete(params, "serviceName")
+		}
+	}
+}
+
+func hasTransportAlias(params map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := params[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureObjectParam(m map[string]any, key string) map[string]any {
+	if existing, ok := m[key].(map[string]any); ok {
+		return existing
+	}
+	created := map[string]any{}
+	m[key] = created
+	return created
 }
 
 func protocolParamsForStorage(proto Protocol, params map[string]any) map[string]any {
@@ -406,11 +551,31 @@ func protocolParamsForStorage(proto Protocol, params map[string]any) map[string]
 	if !ok || security == "" {
 		return out
 	}
-	if _, hasTLS := out["tls"]; !hasTLS {
-		out["tls"] = security == "tls" || security == "reality"
+	switch security {
+	case "tls", "reality":
+		out["tls"] = true
+	case "none":
+		if _, exists := out["tls"]; exists {
+			out["tls"] = false
+		}
 	}
 	delete(out, "security")
 	return out
+}
+
+// validateKnownTopLevel 拒绝协议注册表未声明的顶层字段，避免更新/导入时静默丢弃。
+// 未知内容应作为扩展显式声明 scope/targets 后保存。
+func validateKnownTopLevel(proto Protocol, params map[string]any) error {
+	allowed := make(map[string]bool, len(proto.FormSchema))
+	for _, field := range proto.FormSchema {
+		allowed[field.Name] = true
+	}
+	for key := range params {
+		if !allowed[key] {
+			return fmt.Errorf("字段 %s 未在协议注册表中声明，请将其归入 extensions", key)
+		}
+	}
+	return nil
 }
 
 func cloneProjectValue(value any) any {
