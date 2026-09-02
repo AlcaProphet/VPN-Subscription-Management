@@ -30,11 +30,13 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import NodesView from '@/views/admin/NodesView.vue'
-import { listNodes, getProtocols, createNode } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode } from '@/api/node'
+import { ApiError } from '@/api/request'
 
 const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
 const mockGetProtocols = getProtocols as unknown as ReturnType<typeof vi.fn>
 const mockCreateNode = createNode as unknown as ReturnType<typeof vi.fn>
+const mockUpdateNode = updateNode as unknown as ReturnType<typeof vi.fn>
 
 const node = {
   id: 1,
@@ -50,6 +52,10 @@ const node = {
   enabled: true,
   allocatable: true,
   missing: false,
+  edit_revision: 3,
+  state_format_version: 1,
+  current_state: { security: 'none' },
+  extensions: [],
 }
 
 const protocols = [
@@ -77,6 +83,7 @@ describe('NodesView 节点管理页', () => {
     mockListNodes.mockReset()
     mockGetProtocols.mockReset()
     mockCreateNode.mockReset()
+    mockUpdateNode.mockReset()
     mockListNodes.mockResolvedValue([node])
     mockGetProtocols.mockResolvedValue(protocols)
   })
@@ -93,13 +100,14 @@ describe('NodesView 节点管理页', () => {
     await nextTick()
     expect(document.body.textContent).toContain('加密方式')
     expect(document.body.textContent).toContain('密码')
-    expect(document.body.querySelector('input[placeholder="留空 = 保留原凭据"]')).not.toBeNull()
+    expect(document.body.querySelector('input[placeholder="未配置"]')).not.toBeNull()
     expect(document.body.textContent).toContain('认证与密钥')
-    expect(document.body.textContent).toContain('协议与传输')
-    expect(document.body.textContent).toContain('开关参数')
+    expect(document.body.textContent).toContain('连接方式与当前参数')
+    expect(document.body.textContent).toContain('独立开关')
     expect(document.body.querySelector('.node-switch-fields')?.textContent).toContain('UDP')
     expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('高级 JSON')
     expect(document.body.querySelector('.node-advanced-fields')?.textContent).toContain('路由标记')
+    expect(document.body.textContent).toContain('当前组合')
     wrapper.unmount()
   })
 
@@ -143,6 +151,115 @@ describe('NodesView 节点管理页', () => {
     await vm.save()
 
     expect(mockCreateNode).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('切换网络分支会清空旧传输参数并记录 network reset', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless',
+      label: 'VLESS',
+      form_schema: [
+        { name: 'uuid', type: 'password', required: true, label: 'UUID', group: 'auth' },
+        { name: 'network', type: 'select', required: true, label: '传输', group: 'connection', options: ['tcp', 'ws'] },
+        {
+          name: 'ws-opts', type: 'object', required: false, label: 'WebSocket 参数', group: 'connection',
+          object_kind: 'fields', allow_unknown: true, reset_on: ['network'],
+          properties: [{ name: 'path', type: 'text', required: false, label: '路径' }],
+        },
+      ],
+      sensitive_fields: ['uuid'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      form: { protocol_json: Record<string, unknown> }
+      setField: (key: string, value: unknown) => void
+      resetScopesArray: () => string[]
+    }
+    vm.openCreate()
+    vm.form.protocol_json = { network: 'ws', 'ws-opts': { path: '/ws' } }
+    vm.setField('network', 'tcp')
+    await nextTick()
+
+    expect(vm.form.protocol_json.network).toBe('tcp')
+    expect(vm.form.protocol_json['ws-opts']).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('network')
+    wrapper.unmount()
+  })
+
+  it('切换协议清空协议参数并记录 protocol reset', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'ss',
+      label: 'Shadowsocks',
+      form_schema: [
+        { name: 'cipher', type: 'text', required: true, label: '加密方式', group: 'connection' },
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+      ],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      form: { protocol_json: Record<string, unknown>; protocol: string }
+      updateProtocol: (protocol: string) => void
+      resetScopesArray: () => string[]
+    }
+    vm.openCreate()
+    vm.form.protocol = 'ss'
+    vm.form.protocol_json = { cipher: 'aes-128-gcm', password: 'secret' }
+    vm.updateProtocol('vless')
+    await nextTick()
+
+    expect(vm.form.protocol_json).toEqual({})
+    expect(vm.resetScopesArray()).toContain('protocol')
+    wrapper.unmount()
+  })
+
+  it('保存 payload 包含 current_state、reset_scopes 与 base_revision', async () => {
+    mockCreateNode.mockResolvedValue(node)
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      form: { name: string; host: string; port: number; protocol_json: Record<string, unknown> }
+      save: () => Promise<void>
+    }
+    vm.openCreate()
+    vm.form.name = 'new-node'
+    vm.form.host = 'example.com'
+    vm.form.port = 443
+    vm.form.protocol_json = { cipher: 'aes-128-gcm' }
+    await vm.save()
+
+    const payload = mockCreateNode.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.current_state).toBeDefined()
+    expect(Array.isArray(payload.reset_scopes)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('409 时保留当前草稿并提示重新加载', async () => {
+    mockUpdateNode.mockRejectedValue(new ApiError(409, '节点已被其他编辑更新，请重新加载后重试'))
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openEdit: (target: any) => void
+      form: { protocol_json: Record<string, unknown> }
+      save: () => Promise<void>
+      conflictError: string
+    }
+    vm.openEdit(node)
+    vm.form.protocol_json = { cipher: 'changed' }
+    await vm.save()
+
+    expect(mockUpdateNode).toHaveBeenCalled()
+    const payload = mockUpdateNode.mock.calls[0][1] as Record<string, unknown>
+    expect(payload.base_revision).toBe(3)
+    expect(vm.conflictError).toContain('重新加载')
+    expect(vm.form.protocol_json.cipher).toBe('changed')
     wrapper.unmount()
   })
 })

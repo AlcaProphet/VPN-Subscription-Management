@@ -2,10 +2,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
-import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type ImportLineResult } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type ImportLineResult, type FieldSchema, type CurrentState, type ConditionRule } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
 import FormSection from '@/components/FormSection.vue'
+import NodeCheckPanel from '@/components/NodeCheckPanel.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import TriStateList from '@/components/TriStateList.vue'
@@ -27,6 +28,7 @@ const disabling = ref(false)
 const publicTarget = ref<NodeItem | null>(null)
 const publicChanging = ref(false)
 const saving = ref(false)
+const conflictError = ref('')
 const importOpen = ref(false)
 const importText = ref('')
 const importResults = ref<ImportLineResult[]>([])
@@ -41,6 +43,8 @@ const nameSpaceError = computed(() => {
   return form.name.includes(' ') ? '名称禁止空格' : ''
 })
 const invalidProtocolPaths = reactive(new Set<string>())
+const resetScopes = new Set<string>()
+const clearedSensitivePaths = new Set<string>()
 const sourceLabel: Record<string, string> = { manual: '手动添加', xray: 'Xray' }
 
 async function load() {
@@ -56,21 +60,167 @@ async function load() {
 }
 onMounted(() => void load())
 
-function currentSchema() {
+function currentSchema(): ProtocolInfo | null {
   return protocols.value.find((p) => p.protocol === form.protocol) ?? null
 }
-function sectionFields(section: string) {
-  return currentSchema()?.form_schema.filter((field) => field.section === section) ?? []
+function hasSchemaField(name: string): boolean {
+  return currentSchema()?.form_schema.some((field) => field.name === name) ?? false
+}
+function matchesCondition(rule: ConditionRule | undefined, state: CurrentState, target?: string): boolean {
+  if (!rule) return true
+  if (rule.network && rule.network.length > 0 && !rule.network.includes(state.network ?? '')) return false
+  if (rule.security && rule.security.length > 0 && !rule.security.includes(state.security ?? '')) return false
+  const plugin = state.plugin ?? ''
+  if (rule.plugin && rule.plugin.length > 0 && !rule.plugin.includes(plugin)) return false
+  if (rule.features && rule.features.length > 0 && !rule.features.some((item) => (state.features ?? []).includes(item))) return false
+  if (target && rule.targets && rule.targets.length > 0 && !rule.targets.includes(target)) return false
+  return true
+}
+const currentState = computed<CurrentState>(() => {
+  const params = form.protocol_json as Record<string, any>
+  const state: CurrentState = {}
+  const network = typeof params.network === 'string' ? params.network
+    : typeof params.transport === 'string' ? params.transport
+      : hasSchemaField('network') ? 'tcp' : undefined
+  if (network) state.network = network
+  if (typeof params.security === 'string' && params.security) {
+    state.security = params.security
+  } else if (params['reality-opts'] && typeof params['reality-opts'] === 'object' && Object.keys(params['reality-opts']).length > 0) {
+    state.security = 'reality'
+  } else if (params.tls === true) {
+    state.security = 'tls'
+  } else if (form.protocol === 'trojan') {
+    state.security = 'tls'
+  } else {
+    state.security = 'none'
+  }
+  const plugin = typeof params.plugin === 'string' && params.plugin ? params.plugin : null
+  state.plugin = plugin
+  const features: string[] = []
+  if (params['udp-over-tcp'] === true) features.push('udp-over-tcp')
+  if (params['udp-over-stream'] === true) features.push('udp-over-stream')
+  if (params.xudp === true) features.push('xudp')
+  if (params.smux && typeof params.smux === 'object' && (params.smux as Record<string, any>).enabled === true) features.push('smux')
+  if (typeof params.multiplexing === 'string' && params.multiplexing && params.multiplexing !== 'MULTIPLEXING_OFF') features.push('multiplexing')
+  state.features = features
+  return state
+})
+function fieldVisible(field: FieldSchema): boolean {
+  return matchesCondition(field.when, currentState.value)
+}
+function fieldGroup(field: FieldSchema): string {
+  if (field.group) return field.group
+  switch (field.section) {
+    case 'auth': return 'auth'
+    case 'transport': return 'connection'
+    case 'security': return 'connection'
+    case 'switches': return 'switches'
+    default: return 'advanced'
+  }
+}
+function groupFields(group: string): FieldSchema[] {
+  return currentSchema()?.form_schema.filter((field) => fieldGroup(field) === group && fieldVisible(field)) ?? []
+}
+function fieldByName(name: string): FieldSchema | undefined {
+  return currentSchema()?.form_schema.find((field) => field.name === name)
+}
+function optionLabel(fieldName: string, value: string): string {
+  if (!value) return ''
+  const field = fieldByName(fieldName)
+  const item = field?.option_items?.find((option) => option.value === value)
+  return item?.label ?? value
+}
+function hasEffectiveValue(value: unknown): boolean {
+  if (value === undefined || value === null) return false
+  if (typeof value === 'string') return value.trim() !== ''
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length > 0
+  return true
+}
+function configuredAdvancedCount(): number {
+  return groupFields('advanced').filter((field) => hasEffectiveValue(fieldValue(field.name))).length
+}
+const currentCombo = computed(() => {
+  const protocolLabel = currentSchema()?.label ?? form.protocol
+  const networkLabel = currentState.value.network && (hasSchemaField('network') || hasSchemaField('transport'))
+    ? optionLabel('network', currentState.value.network)
+    : ''
+  const securityLabel = currentState.value.security && (hasSchemaField('security') || form.protocol === 'trojan')
+    ? optionLabel('security', currentState.value.security)
+    : ''
+  return [protocolLabel, networkLabel, securityLabel].filter(Boolean).join(' · ')
+})
+const checkRequest = computed<NodeCheckRequest>(() => {
+  const credentialOps = Array.from(clearedSensitivePaths).map((path) => ({ path, op: 'clear' as const }))
+  return {
+    node_id: editing.value?.id,
+    base_revision: editing.value?.edit_revision,
+    protocol: form.protocol,
+    host: form.host,
+    port: form.port,
+    protocol_json: { ...form.protocol_json },
+    current_state: { ...currentState.value },
+    reset_scopes: resetScopesArray(),
+    credential_ops: credentialOps.length > 0 ? credentialOps : undefined,
+    targets: ['clash-yaml', 'sr-subs', 'generic-subs'],
+  }
+})
+function resetScopesArray(): string[] {
+  return [...resetScopes]
+}
+function credentialStateForPath(path: string): 'unset' | 'saved' | 'replacing' | 'cleared' {
+  if (!editing.value) return 'unset'
+  if (clearedSensitivePaths.has(path)) return 'cleared'
+  return 'saved'
+}
+function clearScopedFields(scope: string) {
+  const schema = currentSchema()
+  if (!schema) return
+  const next = { ...form.protocol_json }
+  let changed = false
+  const topNames = new Set<string>()
+  for (const field of schema.form_schema) {
+    if (!field.reset_on?.includes(scope)) continue
+    topNames.add(field.name)
+    if (field.name in next) {
+      delete next[field.name]
+      changed = true
+    }
+    for (const path of Array.from(invalidProtocolPaths)) {
+      if (path === field.name || path.startsWith(`${field.name}.`) || path.startsWith(`${field.name}[`)) {
+        invalidProtocolPaths.delete(path)
+      }
+    }
+  }
+  for (const sensitivePath of schema.sensitive_fields ?? []) {
+    const top = sensitivePath.split('.')[0]
+    if (topNames.has(top)) clearedSensitivePaths.add(sensitivePath)
+  }
+  if (changed) form.protocol_json = next
+}
+function applyResetScope(scope: string, changed: boolean) {
+  if (!changed) return
+  resetScopes.add(scope)
+  clearScopedFields(scope)
+}
+function resetAllEditScopes() {
+  resetScopes.clear()
+  clearedSensitivePaths.clear()
 }
 function updateProtocol(protocol: string) {
   if (form.protocol === protocol) return
   form.protocol = protocol
   form.protocol_json = {}
   invalidProtocolPaths.clear()
+  resetScopes.add('protocol')
+  clearedSensitivePaths.clear()
+  for (const path of currentSchema()?.sensitive_fields ?? []) clearedSensitivePaths.add(path)
 }
 function openCreate() {
   creating.value = true
   editing.value = null
+  resetAllEditScopes()
+  conflictError.value = ''
   form.name = ''
   form.protocol = 'vless'
   form.host = ''
@@ -105,6 +255,8 @@ function openEdit(n: NodeItem) {
   if (n.source !== 'manual') return
   editing.value = n
   creating.value = true
+  resetAllEditScopes()
+  conflictError.value = ''
   form.name = n.name
   form.protocol = n.protocol
   form.host = n.host
@@ -119,19 +271,42 @@ async function save() {
   }
   saving.value = true
   try {
+    const credentialOps = Array.from(clearedSensitivePaths).map((path) => ({ path, op: 'clear' as const }))
+    const payload: NodeForm = {
+      ...form,
+      current_state: { ...currentState.value },
+      reset_scopes: resetScopesArray(),
+      credential_ops: credentialOps.length > 0 ? credentialOps : undefined,
+      base_revision: editing.value?.edit_revision,
+    }
     if (editing.value) {
-      await updateNode(editing.value.id, { ...form })
+      await updateNode(editing.value.id, payload)
     } else {
-      await createNode({ ...form })
+      await createNode(payload)
     }
     Notify.success(editing.value ? '节点已更新' : '节点已创建')
     creating.value = false
+    conflictError.value = ''
+    resetAllEditScopes()
     await load()
   } catch (err) {
-    Notify.error((err as Error).message)
+    if (err instanceof ApiError && err.status === 409) {
+      conflictError.value = '节点已被其他编辑更新，请重新加载后重试'
+      Notify.warning(conflictError.value)
+    } else {
+      Notify.error((err as Error).message)
+    }
   } finally {
     saving.value = false
   }
+}
+
+async function reloadAfterConflict() {
+  const id = editing.value?.id
+  await load()
+  const fresh = id ? nodes.value.find((n) => n.id === id) : undefined
+  if (fresh) openEdit(fresh)
+  conflictError.value = ''
 }
 
 async function onToggleEnabled(n: NodeItem, enabled: boolean) {
@@ -231,7 +406,23 @@ function fieldValue(key: string): unknown {
   return form.protocol_json[key]
 }
 function setField(key: string, val: unknown) {
+  const oldValue = form.protocol_json[key]
+  const oldNetwork = currentState.value.network
+  const oldSecurity = currentState.value.security
+  const oldPlugin = currentState.value.plugin
+  if (key === 'network' || key === 'transport') {
+    applyResetScope('network', val !== oldNetwork)
+  } else if (key === 'security') {
+    applyResetScope('security', val !== oldSecurity)
+  } else if (key === 'plugin') {
+    applyResetScope('plugin', val !== oldPlugin)
+  } else if ((key === 'udp-over-tcp' || key === 'udp-over-stream' || key === 'xudp') && oldValue === true && val === false) {
+    applyResetScope(`feature.${key}`, true)
+  }
   form.protocol_json = { ...form.protocol_json, [key]: val }
+  if (hasEffectiveValue(val) && (currentSchema()?.sensitive_fields ?? []).includes(key)) {
+    clearedSensitivePaths.delete(key)
+  }
 }
 function handleFieldValidity(payload: { path: string; valid: boolean }) {
   if (payload.valid) invalidProtocolPaths.delete(payload.path)
@@ -313,6 +504,11 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
     <FormOverlay :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="920" :loading="saving" destroy-on-close
                  @submit="save" @update:open="creating = false">
       <Form layout="vertical" class="node-protocol-form space-y-5">
+        <Alert v-if="conflictError" type="warning" show-icon class="mb-2" :message="conflictError">
+          <template #action>
+            <Button size="small" @click="reloadAfterConflict">重新加载</Button>
+          </template>
+        </Alert>
         <FormSection title="基本信息" help="选择协议并填写节点的稳定名称与连接地址。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-x-3">
             <Form.Item label="协议" required>
@@ -332,51 +528,48 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           </div>
         </FormSection>
 
-        <FormSection v-if="sectionFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值。">
+        <div v-if="currentCombo" class="rounded-lg border px-3 py-2 text-sm text-text-secondary">
+          当前组合：{{ currentCombo }}
+        </div>
+
+        <FormSection v-if="groupFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ProtocolFieldEditor v-for="field in sectionFields('auth')" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+            <ProtocolFieldEditor v-for="field in groupFields('auth')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
           </div>
         </FormSection>
 
-        <FormSection v-if="sectionFields('transport').length" title="协议与传输" help="传输对象默认使用结构化编辑，未知参数会原样保留。">
+        <FormSection v-if="groupFields('connection').length" title="连接方式与当前参数" help="按当前协议与传输组合动态展示；切换分支时清空旧分支参数。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ProtocolFieldEditor v-for="field in sectionFields('transport')" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+            <ProtocolFieldEditor v-for="field in groupFields('connection')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
           </div>
         </FormSection>
 
-        <FormSection v-if="sectionFields('security').length" title="安全与证书">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ProtocolFieldEditor v-for="field in sectionFields('security')" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
-              :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
-          </div>
-        </FormSection>
-
-        <FormSection v-if="sectionFields('switches').length" title="开关参数" help="所有布尔参数集中在此区域。">
+        <FormSection v-if="groupFields('switches').length" title="独立开关" help="只展示当前协议与组合适用的布尔开关。">
           <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ProtocolFieldEditor v-for="field in sectionFields('switches')" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+            <ProtocolFieldEditor v-for="field in groupFields('switches')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
           </div>
         </FormSection>
 
-        <details v-if="sectionFields('advanced').length" class="node-advanced-fields rounded-lg border p-3">
-          <summary class="cursor-pointer font-medium">高级参数</summary>
-          <p class="text-xs text-text-secondary mt-2">性能、路由与协议扩展参数；按需填写。</p>
+        <details v-if="groupFields('advanced').length" class="node-advanced-fields rounded-lg border p-3">
+          <summary class="cursor-pointer font-medium">更多功能 / 高级参数（已配置 {{ configuredAdvancedCount() }} 项）</summary>
+          <p class="text-xs text-text-secondary mt-2">性能、路由、插件与协议扩展参数；默认折叠。</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-            <ProtocolFieldEditor v-for="field in sectionFields('advanced')" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+            <ProtocolFieldEditor v-for="field in groupFields('advanced')" :key="field.name" :field="field"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" />
           </div>
         </details>
+
+        <NodeCheckPanel :request="checkRequest" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
       </Form>
     </FormOverlay>
 

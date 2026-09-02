@@ -34,8 +34,20 @@ func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*Rend
 		b.WriteString("\n")
 	}
 	skipped := []SkipItem{}
+	diagnostics := []NodeDiagnostic{}
+	outputCount := 0
+	target := "generic-subs"
+	if sr {
+		target = "sr-subs"
+	}
 	for _, name := range in.NodeNames {
 		nd := ld.nodes[name]
+		nodeDiags := s.diagnoseNodeForTarget(target, nd)
+		if hasBlockingNodeDiagnostic(nodeDiags) {
+			skipped = append(skipped, SkipItem{Kind: "node", Name: nd.Name, Reason: firstNodeDiagnosticMessage(nodeDiags)})
+			continue
+		}
+		diagnostics = append(diagnostics, nodeDiags...)
 		var link string
 		var err error
 		if sr {
@@ -49,6 +61,10 @@ func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*Rend
 		}
 		b.WriteString(link)
 		b.WriteString("\n")
+		outputCount++
+	}
+	if outputCount == 0 {
+		return nil, fmt.Errorf("%w: 节点订阅至少需要 1 个可转换链接的节点", ErrBadRequest)
 	}
 	if hasXrayNode(ld) {
 		b.WriteString("# {{xray_nodes}}\n")
@@ -58,7 +74,7 @@ func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*Rend
 	if err != nil {
 		return nil, fmt.Errorf("序列化 SR 订阅渲染计划失败: %w", err)
 	}
-	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: plan}, nil
+	return &RenderResult{Content: content, Skipped: skipped, Diagnostics: diagnostics, RenderPlan: plan}, nil
 }
 
 // renderSrConf 渲染 SR 分流规则。

@@ -128,8 +128,8 @@ func TestBuild18FixedURIExamples(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(link, "plugin=obfs%3B") {
-			t.Fatalf("固定 SS obfs URI 未保留当前内部插件名: %s", link)
+		if !strings.Contains(link, "plugin=obfs-local%3B") || !strings.Contains(link, "obfs%3Dhttp") || !strings.Contains(link, "obfs-host") {
+			t.Fatalf("SS obfs 未按目标映射为 obfs-local: %s", link)
 		}
 	})
 }

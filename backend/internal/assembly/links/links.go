@@ -36,7 +36,7 @@ func srLink(nd *nodeData) (string, error) {
 		userinfo := base64.StdEncoding.EncodeToString([]byte(cipher + ":" + password))
 		q := url.Values{}
 		if plugin := str(nd.ProtocolJSON, "plugin", ""); plugin != "" {
-			q.Set("plugin", pluginString(plugin, object(nd.ProtocolJSON, "plugin-opts")))
+			q.Set("plugin", renderPluginString(plugin, object(nd.ProtocolJSON, "plugin-opts")))
 		}
 		return fmt.Sprintf("ss://%s@%s:%d%s#%s", userinfo, host, nd.Port, querySuffix(q), name), nil
 	case "vmess":
@@ -453,6 +453,21 @@ func pluginString(name string, opts map[string]any) string {
 		parts = append(parts, key+"="+fmt.Sprint(opts[key]))
 	}
 	return strings.Join(parts, ";")
+}
+
+// renderPluginString 按目标客户端偏好渲染 SS 插件参数。
+// 内部 obfs 映射为 SIP003/CVR 偏好形态；v2ray-plugin/shadow-tls/restls 暂保留原格式。
+func renderPluginString(name string, opts map[string]any) string {
+	switch name {
+	case "obfs":
+		parts := []string{"obfs-local", "obfs=" + str(opts, "mode", "http")}
+		if host := str(opts, "host", ""); host != "" {
+			parts = append(parts, "obfs-host="+host)
+		}
+		return strings.Join(parts, ";")
+	default:
+		return pluginString(name, opts)
+	}
 }
 
 // encodeQuery 编码查询参数，并按 Build5 要求把 `+` 替换为 `%20`，避免空格不对称。

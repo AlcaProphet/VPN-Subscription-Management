@@ -1,6 +1,6 @@
 # Build19.md — 节点编辑器前端动态表单、可编辑选项与目标检查 UI 构建计划
 
-> **文档定位：** 本文是 VPN 订阅管理系统第十九轮当前构建方案，将 [Design4.md](Design4.md) §三～§七的界面与交互结论转化为可执行的前端实现手册。本文**只编写构建方案，不构建代码**。
+> **文档定位：** 本文是 VPN 订阅管理系统第十九轮当前构建方案及实施记录，将 [Design4.md](Design4.md) §三～§七的界面与交互结论转化为可执行的前端实现手册。本 Build 已按 Step 顺序开始实施并同步记录验收结果。
 > - 设计依据：[Design4.md](Design4.md)（当前最新设计，已确认作为 Build 依据）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)（保存契约）、[Build18.md](Build18.md)（FieldSchema/检查接口）；本 Build 假设后端接口已按前两份文档提供。
@@ -18,12 +18,12 @@
 
 | Step | 内容 | 设计依据 | 状态 |
 |------|------|----------|------|
-| 1 | 前端类型与 API 客户端扩展 | Design4 §12.2、§12.3 | ☐ 未开始 |
-| 2 | 可编辑下拉/推荐选项组件 | Design4 §4.1 | ☐ 未开始 |
-| 3 | 动态表单分区、条件显示与当前组合摘要 | Design4 §3.1、§3.2 | ☐ 未开始 |
-| 4 | 分支切换清空、凭据状态、局部 JSON 草稿 | Design4 §3.4、§6.3、§6.4 | ☐ 未开始 |
-| 5 | 目标检查 UI 与迟到响应保护 | Design4 §7.2 | ☐ 未开始 |
-| 6 | 保存集成、409 处理与前端测试 | Design4 §12.3 | ☐ 未开始 |
+| 1 | 前端类型与 API 客户端扩展 | Design4 §12.2、§12.3 | ✅ 验收通过 |
+| 2 | 可编辑下拉/推荐选项组件 | Design4 §4.1 | ✅ 验收通过 |
+| 3 | 动态表单分区、条件显示与当前组合摘要 | Design4 §3.1、§3.2 | ✅ 验收通过 |
+| 4 | 分支切换清空、凭据状态、局部 JSON 草稿 | Design4 §3.4、§6.3、§6.4 | ✅ 验收通过 |
+| 5 | 目标检查 UI 与迟到响应保护 | Design4 §7.2 | ✅ 验收通过 |
+| 6 | 保存集成、409 处理与前端测试 | Design4 §12.3 | ✅ 验收通过 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
@@ -356,3 +356,9 @@ checkSeq + checkResult    → 检查请求序号和当前有效结果
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-09-02 | 初始构建方案：前端类型、可编辑下拉、动态分区、分支清空/凭据/JSON、目标检查 UI 与保存/409 集成。仅创建 Build 文档，未构建代码。 |
+| v1.1 | 2026-09-02 | 完成 Step 1：前端 `FieldSchema`/`NodeItem`/`NodeForm`/检查类型与 `checkNode` API 扩展；`npm run build` 通过。 |
+| v1.2 | 2026-09-02 | 完成 Step 2：新增 `EditableCombobox.vue`，支持候选/自定义/过滤/失焦不改写/浮层管理，并在 `ProtocolFieldEditor.vue` 的 `select+option_items` 场景接入；新增 `editable-combobox.spec.ts`，5 项单测与构建通过。 |
+| v1.3 | 2026-09-02 | 完成 Step 3：`NodesView.vue` 改为按 group/when 动态分区，新增当前组合摘要、连接方式区、独立开关区与默认折叠的高级区；条件显示与 section 回退兼容；现有 nodes 测试更新并通过，前后端构建通过。 |
+| v1.4 | 2026-09-02 | 完成 Step 4：节点编辑维护 `resetScopes`/`clearedSensitivePaths`，分支切换清空所属字段并随保存生成 `reset_scopes`/`credential_ops`；`ProtocolFieldEditor` 支持凭据“已保存/未配置”状态与高级 JSON“应用/放弃”草稿；新增分支清空、草稿、凭据状态测试，构建与定向测试通过。 |
+| v1.5 | 2026-09-02 | 完成 Step 5：新增 `NodeCheckPanel.vue`，接入当前草稿目标检查、状态/诊断/脱敏预览展示，草稿变化即失效、迟到响应丢弃；新增 `node-check-panel.spec.ts` 3 项测试，构建与定向测试通过。 |
+| v1.6 | 2026-09-02 | 完成 Step 6：保存 payload 接入 `current_state`/`reset_scopes`/`credential_ops`/`base_revision`，409 保留草稿并支持重新加载；补充保存与 409 测试；前端全量 `npm test -- --run` 39 文件 / 158 用例通过，`npm run build` 通过。 |

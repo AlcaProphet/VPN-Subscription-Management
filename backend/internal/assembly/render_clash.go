@@ -18,11 +18,17 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	root := orderedMapToMapSlice(in.FixedParams)
 	// proxies：manual 节点按勾选顺序输出
 	proxies := make([]any, 0, len(in.NodeNames))
+	diagnostics := []NodeDiagnostic{}
 	for _, name := range in.NodeNames {
 		nd := ld.nodes[name]
 		if nd.Source != "manual" {
 			continue
 		}
+		nodeDiags := s.diagnoseNodeForTarget("clash-yaml", nd)
+		if hasCoreBlockingNodeDiagnostic(nodeDiags) {
+			return nil, fmt.Errorf("%w: 节点 %s 目标检查未通过: %s", ErrBadRequest, nd.Name, firstNodeDiagnosticMessage(nodeDiags))
+		}
+		diagnostics = append(diagnostics, nodeDiags...)
 		proxies = append(proxies, orderedMapToMapSlice(s.clashProxy(nd)))
 	}
 	root = append(root, gyaml.MapItem{Key: "proxies", Value: proxies})
@@ -177,7 +183,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash 渲染计划失败: %w", err)
 	}
-	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw, Issues: CheckClashContent(content)}, nil
+	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw, Issues: CheckClashContent(content), Diagnostics: diagnostics}, nil
 }
 
 func clashPlanGroupFromData(g *groupData, proxies []string) ClashPlanGroup {

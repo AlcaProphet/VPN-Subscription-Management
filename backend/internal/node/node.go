@@ -338,7 +338,10 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	params := normalizeProtocolParameters(proto, in.ProtocolJSON)
+	params, err := NormalizeProtocolJSON(proto, in.ProtocolJSON)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
 	if err := validateKnownTopLevel(proto, params); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -348,9 +351,14 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if params == nil {
 		params = map[string]any{}
 	}
-	state, err := resolveCurrentState(proto, in.CurrentState, params)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	var state CurrentState
+	if in.CurrentState == nil {
+		state = InitCurrentState(proto, params)
+	} else {
+		state, err = resolveCurrentState(proto, in.CurrentState, params)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+		}
 	}
 	if err := ValidateCurrentState(proto, state, params); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
@@ -434,7 +442,10 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	incoming := normalizeProtocolParameters(proto, in.ProtocolJSON)
+	incoming, err := NormalizeProtocolJSON(proto, in.ProtocolJSON)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
 	if err := validateKnownTopLevel(proto, incoming); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -455,13 +466,21 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 		resetScopes = append(resetScopes, "protocol")
 	}
 	merged := mergeProtocolJSON(existing.ProtocolJSON, incoming, proto, resetScopes)
-	merged = normalizeProtocolParameters(proto, merged)
+	merged, err = NormalizeProtocolJSON(proto, merged)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
 	if err := validateKnownTopLevel(proto, merged); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	state, err := resolveCurrentState(proto, in.CurrentState, merged)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	var state CurrentState
+	if in.CurrentState == nil {
+		state = InitCurrentState(proto, merged)
+	} else {
+		state, err = resolveCurrentState(proto, in.CurrentState, merged)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+		}
 	}
 	merged, err = s.mergeSensitiveWithOps(ctx, existing, proto, merged, resetScopes, in.CredentialOps)
 	if err != nil {

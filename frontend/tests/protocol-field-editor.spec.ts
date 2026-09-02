@@ -49,6 +49,59 @@ describe('ProtocolFieldEditor', () => {
     expect(validityEvents[validityEvents.length - 1]).toEqual([{ path: 'ws-opts', valid: false }])
   })
 
+  it('高级 JSON 草稿未应用前不修改模型值，点击应用后才回写', async () => {
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field: objectField, modelValue: { path: '/old' } },
+    })
+    await wrapper.find('.ant-switch').trigger('click')
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('{"path":"/new"}')
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.text()).toContain('JSON 草稿未应用')
+
+    const buttons = wrapper.findAll('button')
+    const applyButton = buttons.find((button) => button.text().replace(/\s/g, '').includes('应用'))
+    expect(applyButton).toBeTruthy()
+    await applyButton!.trigger('click')
+
+    const updateEvents = wrapper.emitted('update:modelValue') ?? []
+    expect(updateEvents[updateEvents.length - 1]).toEqual([{ path: '/new' }])
+    expect(wrapper.text()).not.toContain('JSON 草稿未应用')
+  })
+
+  it('高级 JSON 放弃按钮恢复原结构化值', async () => {
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field: objectField, modelValue: { path: '/keep' } },
+    })
+    await wrapper.find('.ant-switch').trigger('click')
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('{"path":"/draft"}')
+
+    const buttons = wrapper.findAll('button')
+    const discardButton = buttons.find((button) => button.text().replace(/\s/g, '').includes('放弃'))
+    expect(discardButton).toBeTruthy()
+    await discardButton!.trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect((textarea.element as HTMLTextAreaElement).value).toContain('/keep')
+  })
+
+  it('敏感字段按凭据状态显示已保存或未配置', async () => {
+    const passwordField: FieldSchema = {
+      name: 'password', type: 'password', required: true, label: '密码',
+    }
+    const saved = mount(ProtocolFieldEditor, {
+      props: { field: passwordField, modelValue: '', sensitivePaths: ['password'], credentialState: 'saved' },
+    })
+    expect(saved.find('input').attributes('placeholder')).toBe('已保存（留空保留）')
+
+    const cleared = mount(ProtocolFieldEditor, {
+      props: { field: passwordField, modelValue: '', sensitivePaths: ['password'], credentialState: 'cleared' },
+    })
+    expect(cleared.find('input').attributes('placeholder')).toBe('未配置')
+  })
+
   it('对象数组可新增条目并按子 schema 编辑', async () => {
     const peers: FieldSchema = {
       name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', allow_unknown: true,

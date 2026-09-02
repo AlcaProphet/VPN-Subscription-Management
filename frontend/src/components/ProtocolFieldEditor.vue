@@ -2,16 +2,19 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
+import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { FieldSchema } from '@/api/node'
 
 const props = withDefaults(defineProps<{
   field: FieldSchema
   modelValue?: unknown
   sensitivePaths?: string[]
+  credentialState?: 'unset' | 'saved' | 'replacing' | 'cleared'
   path?: string
 }>(), {
   modelValue: undefined,
   sensitivePaths: () => [],
+  credentialState: undefined,
   path: '',
 })
 
@@ -24,6 +27,7 @@ const fieldPath = computed(() => props.path || props.field.name)
 const advanced = ref(false)
 const jsonText = ref('')
 const jsonError = ref('')
+const jsonDirty = ref(false)
 const mapErrors = reactive<Record<string, string>>({})
 
 const objectValue = computed<Record<string, unknown>>(() => {
@@ -38,8 +42,13 @@ const knownNames = computed(() => new Set((props.field.properties ?? []).map((it
 const unknownCount = computed(() => Object.keys(objectValue.value).filter((key) => !knownNames.value.has(key)).length)
 const mapEntries = computed(() => Object.entries(objectValue.value))
 const sensitive = computed(() => props.field.type === 'password' || props.sensitivePaths.includes(fieldPath.value))
+const shownCredentialState = computed(() => {
+  if (props.credentialState) return props.credentialState
+  return props.sensitivePaths.includes(fieldPath.value) ? 'saved' : 'unset'
+})
 
 watch(() => props.modelValue, (value) => {
+  jsonDirty.value = false
   if (!advanced.value) jsonText.value = JSON.stringify(value ?? emptyObjectValue(), null, 2)
 }, { immediate: true, deep: true })
 
@@ -57,25 +66,58 @@ function forwardValidity(payload: { path: string; valid: boolean }) {
 
 function setAdvanced(next: boolean) {
   if (!next && jsonError.value) return
-  advanced.value = next
-  if (next) jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
+  if (next) {
+    jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
+    jsonDirty.value = false
+    advanced.value = true
+    return
+  }
+  // 离开高级 JSON 时放弃未应用草稿，恢复结构化编辑当前有效值。
+  jsonDirty.value = false
+  jsonError.value = ''
+  jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
+  forwardValidity({ path: fieldPath.value, valid: true })
+  advanced.value = false
 }
 
-function updateJSON(value: string) {
-  jsonText.value = value
+function parseJSONText(): { parsed: unknown; error: string } {
   try {
-    const parsed = JSON.parse(value || (props.field.object_kind === 'list' ? '[]' : '{}'))
+    const parsed = JSON.parse(jsonText.value || (props.field.object_kind === 'list' ? '[]' : '{}'))
     const validShape = props.field.object_kind === 'list'
       ? Array.isArray(parsed)
       : parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
     if (!validShape) throw new Error('shape')
-    jsonError.value = ''
-    forwardValidity({ path: fieldPath.value, valid: true })
-    update(parsed)
+    return { parsed, error: '' }
   } catch {
-    jsonError.value = props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象'
-    forwardValidity({ path: fieldPath.value, valid: false })
+    return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象' }
   }
+}
+
+function updateJSON(value: string) {
+  jsonText.value = value
+  jsonDirty.value = true
+  const result = parseJSONText()
+  jsonError.value = result.error
+  forwardValidity({ path: fieldPath.value, valid: result.error === '' })
+}
+
+function applyJSON() {
+  const result = parseJSONText()
+  jsonError.value = result.error
+  if (result.error) {
+    forwardValidity({ path: fieldPath.value, valid: false })
+    return
+  }
+  jsonDirty.value = false
+  forwardValidity({ path: fieldPath.value, valid: true })
+  update(result.parsed)
+}
+
+function discardJSON() {
+  jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
+  jsonDirty.value = false
+  jsonError.value = ''
+  forwardValidity({ path: fieldPath.value, valid: true })
 }
 
 function childValue(name: string): unknown {
@@ -172,6 +214,11 @@ function isComplex(value: unknown): boolean {
     <div v-if="advanced">
       <Input.TextArea :value="jsonText" :rows="6" class="font-mono" @input="(event: any) => updateJSON(event.target.value)" />
       <div v-if="jsonError" class="text-xs text-red-500 mt-1">{{ jsonError }}</div>
+      <div class="mt-2 flex items-center gap-2">
+        <Button size="small" type="primary" :disabled="!!jsonError" @click="applyJSON">应用</Button>
+        <Button size="small" @click="discardJSON">放弃</Button>
+        <span v-if="jsonDirty" class="text-xs text-text-tertiary">JSON 草稿未应用</span>
+      </div>
     </div>
 
     <template v-else-if="field.object_kind === 'map'">
@@ -242,8 +289,10 @@ function isComplex(value: unknown): boolean {
 
   <div v-else class="protocol-scalar-field">
     <label class="text-sm text-text-secondary">{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></label>
-    <Input.Password v-if="sensitive" :value="String(modelValue ?? '')" placeholder="留空 = 保留原凭据" @change="(event: any) => update(event.target.value)" />
+    <Input.Password v-if="sensitive" :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => update(event.target.value)" />
+    <div v-if="sensitive && shownCredentialState === 'saved'" class="text-xs text-text-tertiary mt-1">已保存（留空保留）</div>
     <InputNumber v-else-if="field.type === 'number'" :value="Number(modelValue ?? field.default ?? 0)" class="w-full" @change="(value: any) => update(value ?? 0)" />
+    <EditableCombobox v-else-if="field.type === 'select' && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom !== false" class="w-full" @update:model-value="(value: string) => update(value)" />
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
       <Select.Option v-for="option in field.options" :key="option" :value="option">{{ option }}</Select.Option>
     </AppSelect>

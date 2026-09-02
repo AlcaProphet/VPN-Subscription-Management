@@ -1,6 +1,6 @@
 # Build20.md — 全量手动协议过渡、URI/来源适配、输出门槛与回归收口构建计划
 
-> **文档定位：** 本文是 VPN 订阅管理系统第二十轮当前构建方案，将 [Design4.md](Design4.md) §6.5、§7.4、§9、§10.3、§12.5 中的过渡期、来源适配、目标生成门槛和全量验收转化为实现手册。本文**只编写构建方案，不构建代码**。
+> **文档定位：** 本文是 VPN 订阅管理系统第二十轮当前构建方案及实施记录，将 [Design4.md](Design4.md) §6.5、§7.4、§9、§10.3、§12.5 中的过渡期、来源适配、目标生成门槛和全量验收转化为实现手册。本 Build 已按 Step 顺序开始实施并同步记录验收结果。
 > - 设计依据：[Design4.md](Design4.md)（当前最新设计，已确认作为 Build 依据）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)（保存契约）、[Build18.md](Build18.md)（FieldSchema/检查）、[Build19.md](Build19.md)（前端动态表单）
@@ -18,11 +18,11 @@
 
 | Step | 内容 | 设计依据 | 状态 |
 |------|------|----------|------|
-| 1 | 手动表单与 URI 导入统一归一化/当前状态初始化 | Design4 §6.5、§12.5 | ☐ 未开始 |
-| 2 | 其余 15 个 manual 协议接入统一保存契约 | Design4 §D21、§9.1 | ☐ 未开始 |
-| 3 | Xray 来源适配与 SS/插件 URI 映射收敛 | Design4 §12.5、§8.4 | ☐ 未开始 |
-| 4 | 输出生成门槛与装配诊断接入 | Design4 §7.4、§12.6 | ☐ 未开始 |
-| 5 | 全量回归、历史版本边界与文档收口 | Design4 §10.3、AGENTS §3.4～§3.6 | ☐ 未开始 |
+| 1 | 手动表单与 URI 导入统一归一化/当前状态初始化 | Design4 §6.5、§12.5 | ✅ 验收通过 |
+| 2 | 其余 15 个 manual 协议接入统一保存契约 | Design4 §D21、§9.1 | ✅ 验收通过 |
+| 3 | Xray 来源适配与 SS/插件 URI 映射收敛 | Design4 §12.5、§8.4 | ✅ 验收通过 |
+| 4 | 输出生成门槛与装配诊断接入 | Design4 §7.4、§12.6 | ✅ 验收通过 |
+| 5 | 全量回归、历史版本边界与文档收口 | Design4 §10.3、AGENTS §3.4～§3.6 | ✅ 验收通过 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
@@ -279,3 +279,8 @@ Step 1 统一入口/初始化
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-09-02 | 初始构建方案：全 19 协议过渡、URI/Xray 来源适配、输出生成门槛、全量回归与文档收口。仅创建 Build 文档，未构建代码。 |
+| v1.1 | 2026-09-02 | 完成 Step 1：新增 `normalize.go` 的 `NormalizeProtocolJSON`/`InitCurrentState`，在手动创建与 URI 导入接入统一归一化；补充 `ws-path/ws-host/ws-headers/grpc-service-name/reality 旧别名/Trojan 内层 SS cipher` 映射；非首批当前状态校验允许省略不存在维度；新增归一化测试，`go test ./internal/node` 与 `go build ./...` 通过。 |
+| v1.2 | 2026-09-02 | 完成 Step 2：所有 manual 协议创建/更新/读取统一走 `current_state_json`/`edit_revision`/`state_format_version`；非首批无 nil 请求时使用最小当前状态初始化；新增 19 协议枚举 create/update/read 测试；修复 ws 归一化不应凭空生成 `ws-opts` 的问题；`go test ./internal/node`、`go build`、`go vet ./internal/node` 通过。 |
+| v1.3 | 2026-09-02 | 完成 Step 3：Xray 检测字段在输出前归一化 `ws-path/ws-host/serviceName` 到规范对象；SS obfs 输出映射为 `obfs-local;obfs=...;obfs-host=...`；未知插件诊断、SS obfs 诊断代码更新；新增 Xray/链接/未知插件测试，`go test ./internal/xray ./internal/assembly/links ./internal/assembly` 与 `go build` 通过。 |
+| v1.4 | 2026-09-02 | 完成 Step 4：新增 `diagnose.go`，SR/generic 在生成前按目标诊断跳过核心不可表达节点且全跳过时拒绝；Clash 对节点级 error 诊断阻止生成且不自动改组成员；warn/info 诊断进入回执警告；新增跳过/全部跳过/Clash 阻止测试，`go test ./internal/assembly`、`go build`、`go vet` 通过。 |
+| v1.5 | 2026-09-02 | 完成 Step 5：全量回归通过（后端 `go test -timeout 180s ./...`、`go vet ./...`；前端 39 文件 / 158 用例、`npm run build`）；同步更新 AGENTS/Design4/Build19/Build20 文档状态；客户端真机连接仍保留为人工验收待办，不视为自动验收。 |

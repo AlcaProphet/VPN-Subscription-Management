@@ -136,10 +136,12 @@ func ValidateCurrentStateForTarget(proto Protocol, state CurrentState, params ma
 	if stateEmpty(state) {
 		state = derived
 	}
-	if state.Network != derived.Network {
+	hasNetwork := hasSchemaField(proto.FormSchema, "network") || hasSchemaField(proto.FormSchema, "transport")
+	if hasNetwork && state.Network != derived.Network {
 		return fmt.Errorf("current_state.network 与 protocol_json.network 不一致")
 	}
-	if state.Security != derived.Security {
+	hasSecurity := hasSchemaField(proto.FormSchema, "security") || hasSchemaField(proto.FormSchema, "tls") || proto.Protocol == "trojan"
+	if hasSecurity && state.Security != derived.Security {
 		return fmt.Errorf("current_state.security 与 protocol_json 安全参数不一致")
 	}
 	if !samePlugin(state.Plugin, derived.Plugin) {

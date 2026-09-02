@@ -42,3 +42,31 @@ func TestProtocolFromTypeUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeDetectedFields(t *testing.T) {
+	m := map[string]any{
+		"ws-path":     "/legacy",
+		"ws-host":     "cdn.example.com",
+		"serviceName": "svc",
+		"path":        "/legacy",
+		"host":        "cdn.example.com",
+	}
+	normalizeDetectedFields(m)
+	ws := m["ws-opts"].(map[string]any)
+	if ws["path"] != "/legacy" {
+		t.Fatalf("ws-path 未映射: %#v", ws)
+	}
+	headers := ws["headers"].(map[string]any)
+	if headers["Host"] != "cdn.example.com" {
+		t.Fatalf("ws-host 未映射: %#v", headers)
+	}
+	grpc := m["grpc-opts"].(map[string]any)
+	if grpc["grpc-service-name"] != "svc" {
+		t.Fatalf("serviceName 未映射: %#v", grpc)
+	}
+	for _, key := range []string{"ws-path", "ws-host", "serviceName", "path", "host"} {
+		if _, exists := m[key]; exists {
+			t.Fatalf("旧字段未清理: %s", key)
+		}
+	}
+}

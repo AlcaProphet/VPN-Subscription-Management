@@ -293,7 +293,84 @@ func buildProtocolJSON(proxyTM, receiverTM *serial.TypedMessage) map[string]any 
 	delete(out, "decryption")
 	delete(out, "default")
 	delete(out, "detour")
+	normalizeDetectedFields(out)
 	return out
+}
+
+// normalizeDetectedFields 将 Xray 检测产生的旧顶层传输别名收敛到共享输出层使用的规范对象路径。
+func normalizeDetectedFields(m map[string]any) {
+	if path, ok := m["ws-path"]; ok {
+		opts := ensureDetectedObject(m, "ws-opts")
+		if _, exists := opts["path"]; !exists {
+			opts["path"] = cloneDetectedValue(path)
+		}
+		delete(m, "ws-path")
+		delete(m, "path")
+	}
+	if host, ok := m["ws-host"]; ok {
+		opts := ensureDetectedObject(m, "ws-opts")
+		headers := ensureDetectedHeaders(opts)
+		if _, exists := headers["Host"]; !exists {
+			headers["Host"] = cloneDetectedValue(host)
+		}
+		delete(m, "ws-host")
+		delete(m, "host")
+	}
+	if serviceName, ok := firstDetectedString(m, "grpc-service-name", "serviceName", "service_name"); ok {
+		opts := ensureDetectedObject(m, "grpc-opts")
+		if _, exists := opts["grpc-service-name"]; !exists {
+			opts["grpc-service-name"] = serviceName
+		}
+		delete(m, "grpc-service-name")
+		delete(m, "serviceName")
+		delete(m, "service_name")
+	}
+}
+
+func ensureDetectedObject(m map[string]any, key string) map[string]any {
+	if existing, ok := m[key].(map[string]any); ok {
+		return existing
+	}
+	created := map[string]any{}
+	m[key] = created
+	return created
+}
+
+func ensureDetectedHeaders(opts map[string]any) map[string]any {
+	if existing, ok := opts["headers"].(map[string]any); ok {
+		return existing
+	}
+	headers := map[string]any{}
+	opts["headers"] = headers
+	return headers
+}
+
+func firstDetectedString(m map[string]any, keys ...string) (string, bool) {
+	for _, key := range keys {
+		if value, ok := m[key].(string); ok && value != "" {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+func cloneDetectedValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = cloneDetectedValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = cloneDetectedValue(item)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // extractInboundProtocolParams 在删除 users/clients 前提取渲染/推送必需的入站协议参数。

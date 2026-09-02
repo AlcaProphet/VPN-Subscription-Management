@@ -51,6 +51,9 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 		code := "clash_output_warning"
 		if severity == "error" {
 			code = "clash_output_invalid"
+			if strings.Contains(issue.Message, "不支持的节点类型") {
+				code = "core_semantic_unexpressible"
+			}
 		}
 		diagnostics = append(diagnostics, node.TargetDiagnostic{
 			Severity:  severity,
@@ -133,8 +136,11 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 	case "ss":
 		plugin, _ := params["plugin"].(string)
 		if plugin == "obfs" {
-			add(&diagnostics, "warn", "plugin_name_compatibility", "plugin",
-				"当前链接使用 obfs 内部名；CVR 2.5.2 更偏好 obfs-local，导入后需复核", "cvr-2.5.2-uri")
+			add(&diagnostics, "warn", "plugin_name_mapping", "plugin",
+				"内部 obfs 已映射为 obfs-local/obfs-host；CVR 2.5.2 真机导入仍需复核", "cvr-2.5.2-uri")
+		} else if plugin != "" && plugin != "v2ray-plugin" && plugin != "shadow-tls" && plugin != "restls" {
+			add(&diagnostics, "warn", "plugin_no_verified_mapping", "plugin",
+				fmt.Sprintf("插件 %s 暂无已验证的目标映射，当前按原格式透传", plugin), "project-unknown")
 		}
 		cipher, _ := params["cipher"].(string)
 		if strings.HasPrefix(cipher, "2022-") {

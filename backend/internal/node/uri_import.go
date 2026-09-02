@@ -91,7 +91,13 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 			preparedList = append(preparedList, item)
 			continue
 		}
-		params := normalizeProtocolParameters(proto, r.Params)
+		params, err := NormalizeProtocolJSON(proto, r.Params)
+		if err != nil {
+			item.skip = true
+			item.reason = err.Error()
+			preparedList = append(preparedList, item)
+			continue
+		}
 		if err := validateKnownTopLevel(proto, params); err != nil {
 			item.skip = true
 			item.reason = err.Error()
@@ -104,13 +110,7 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 			preparedList = append(preparedList, item)
 			continue
 		}
-		state, err := resolveCurrentState(proto, nil, params)
-		if err != nil {
-			item.skip = true
-			item.reason = err.Error()
-			preparedList = append(preparedList, item)
-			continue
-		}
+		state := InitCurrentState(proto, params)
 		if err := ValidateCurrentState(proto, state, params); err != nil {
 			item.skip = true
 			item.reason = err.Error()

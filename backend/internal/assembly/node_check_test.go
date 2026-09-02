@@ -32,7 +32,7 @@ func TestNodeCheckFixtures(t *testing.T) {
 		{name: "trojan-grpc-tls.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 		{name: "trojan-inner-ss.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 		{name: "ss-aes-gcm.json"},
-		{name: "ss-obfs.json", warnURI: true, expectCode: "plugin_name_compatibility"},
+		{name: "ss-obfs.json", warnURI: true, expectCode: "plugin_name_mapping"},
 		{name: "ss-v2ray-plugin.json"},
 		{name: "ss-2022-pending.json", warnURI: true, expectCode: "unverified_compatibility"},
 	}
@@ -131,4 +131,23 @@ func TestNodeCheckTrojanCustomTransportDiagnosedByTarget(t *testing.T) {
 		t.Fatalf("SR 目标应跳过无法表达的 Trojan 自定义传输: %+v", sr)
 	}
 	assertFixtureDiagnostic(t, sr, "error", "core_semantic_unexpressible")
+}
+
+func TestNodeCheckUnknownPluginDiagnosed(t *testing.T) {
+	svc, st, cfg := newTestService(t)
+	nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+	nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+	plugin := "unknown-plugin"
+	resp, err := nodeSvc.Check(context.Background(), node.CheckRequest{
+		Protocol: "ss", Host: "example.com", Port: 8388,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "p", "plugin": plugin,
+		},
+		CurrentState: &node.CurrentState{Security: "none", Plugin: &plugin, Features: []string{}},
+		Targets:      []string{"sr-subs"},
+	})
+	if err != nil {
+		t.Fatalf("未知插件检查失败: %v", err)
+	}
+	assertFixtureDiagnostic(t, resp.Targets["sr-subs"], "warn", "plugin_no_verified_mapping")
 }
