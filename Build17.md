@@ -34,7 +34,7 @@
 | 1 | `backend/migrations/1017_node_editor_state.sql` | `edit_revision`、`state_format_version`、`current_state_json`、`extensions_json` |
 | 2 | `backend/internal/node/node.go`、`backend/internal/server/node.go` | `Node`/输入 DTO/扫描/脱敏/错误扩展 |
 | 3 | `backend/internal/node/node.go`、`backend/internal/server/node.go` | create/update/read、409 修订冲突、列表附带修订号 |
-| 4 | `backend/internal/node/node.go`、`backend/internal/node/node_test.go` | reset/credential/extensions 加密与事务测试 |
+| 4 | `backend/internal/node/node.go`、`backend/internal/node/node_test.go`、`backend/internal/config/export.go`、`backend/internal/config/export_test.go` | reset/credential/extensions 加密、配置导入密钥保护与事务测试 |
 
 ---
 
@@ -320,7 +320,11 @@ Step 1 数据列落库
     - 扩展块处理：
       - 读取 `extensions_json` 到 `[]ExtensionRecord`；
       - 每次保存后，以 `id` 为稳定标识写入新列表，删除被 reset/clear 的条目；
-      - 只有 `add`/`replace` 的明文负载被加密；`keep` 保留原密文。
+      - 只有 `add`/`replace` 的明文负载被加密；`keep` 保留原密文；
+      - 校验 `scope` 只能是 `node` / `transport.<network>` / `security.<security>` / `plugin.<plugin>` / `feature.<feature>`，不属于当前分支的扩展不得保存到公共区。
+  - `backend/internal/config/export.go` 与 `backend/internal/config/export_test.go`：
+    - `checkImportProtection` 当前仅扫描 `protocol_json LIKE '%enc:v1:%'`；本步必须扩展为同时检查 `extensions_json LIKE '%enc:ext:v1:%'`，否则更换签名密钥导入会破坏扩展密文且不被拦截。
+    - 增加测试：新建节点带加密扩展后，导入不同签名密钥的配置应被拒绝；同密钥往返不受影响。
   - `backend/internal/node/node_test.go` 新增测试用例：
     - `TestCreateWithCurrentStateAndExtensions`：创建后库内无扩展明文，读取仅摘要。
     - `TestUpdateResetScopeDoesNotRestore`：同一次编辑内在 `reset_scopes` 中声明 network，更新后旧 WS 参数与扩展不残留；A→B→A 不恢复。
@@ -328,6 +332,7 @@ Step 1 数据列落库
     - `TestUpdateRevisionConflict`：旧修订返回 `ErrRevisionConflict`。
     - `TestExtensionOpsAddReplaceClear`：add/replace/clear 各自落库正确，摘要不泄漏 payload。
     - `TestExtensionResetScopeCannotKeep`：被重置作用域中的扩展 `keep` 无效，必须被删除。
+    - `TestImportProtectionCoversExtensions`：节点扩展密文存在时，不同签名密钥配置导入被拒绝；同密钥导入通过。
 - **测试与验收命令：**
   ```bash
   cd backend && gofmt -w internal/node/*.go
@@ -339,6 +344,7 @@ Step 1 数据列落库
 - **验收标准：**
   - 所有保存/检查路径共用同一套 reset/credential/extension 处理。
   - 敏感字段及扩展负载均不以明文写入 `nodes`。
+  - `extensions_json` 中的密文被签名密钥保护；配置导入的密钥变更保护覆盖新密文位置。
   - 被重置分区不复活旧参数、旧凭据、旧扩展。
   - 旧修订冲突时不产生部分写入。
 

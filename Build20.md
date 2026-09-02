@@ -231,7 +231,9 @@ Step 1 统一入口/初始化
       - 项目/URI 导入；
       - Xray 来源适配；
       - Clash/SR/generic 输出门槛；
-      - 历史快照边界。
+      - 历史快照边界；
+      - 备份恢复：确认 `nodes` 新列（`current_state_json`、`extensions_json`、`edit_revision`、`state_format_version`）随备份完整恢复；
+      - 配置导入保护：不同签名密钥导入在存在扩展密文时被拒绝，同密钥往返通过。
   - 前端测试：
     - `npm test -- --run`；
     - 重点验证动态表单、清空、检查、409、移动端。
@@ -263,6 +265,7 @@ Step 1 统一入口/初始化
 
 - 不实现 SS 2022 完整密钥/URI/客户端兼容；只保留后续/待验证。
 - 不把 VMess REALITY 做成首批可编辑表单。
+- 不把 TUIC 认证互斥、WireGuard 多 Peer 扩展模型当作首批完成的 UI；仅作为后续扩展验例保留。
 - 不创建 `node_edit_states` 表，不保存非激活分支/恢复副本。
 - 不开放 Xray 来源节点的人工分支编辑。
 - 不在读取时旧值静默迁移/改写；只做明确归一化并保留诊断。
