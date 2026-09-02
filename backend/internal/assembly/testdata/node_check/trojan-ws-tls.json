@@ -1,0 +1,14 @@
+{
+  "protocol": "trojan",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "password": "trojan-password",
+    "network": "ws",
+    "sni": "example.com",
+    "ws-opts": {
+      "path": "/trojan",
+      "headers": {"Host": "cdn.example.com"}
+    }
+  }
+}

@@ -10,7 +10,7 @@
 > - 每次仅执行一个 Step；完成编译、测试和差异检查并确认后再进入下一步。
 > - 不并行实施多步，不顺手重构节点、代理组、Xray、权限等非本轮范围。
 > - 每一步必须可编译、可测试；临时兼容投影必须在后续收口 Step 删除。
-> - 本 Build 不实现前端；前端动态表单在 [Build19.md](Build19.md) 承接，节点检查与目标诊断在 [Build18.md](Build18.md) 承接。
+> - 本 Build 不实现前端；前端动态表单在 [Build19.md](Build19.md) 承接，节点检查与目标诊断已由 [Build18.md](Build18.md) 完成。
 
 ---
 
@@ -371,7 +371,7 @@ Step 1 数据列落库
 - `CreateManual` 以修订号 1 初始化当前状态和扩展；`UpdateManual` 使用 `WHERE id AND source='manual' AND edit_revision=?` 原子更新，旧修订返回 `ErrRevisionConflict`，HTTP 层返回 409 及 `current_revision`。
 - `reset_scopes` 先清除活动参数、凭据和扩展，再应用本次输入；跨协议切换强制清除协议作用域，已覆盖 A → B → A 不恢复语义。
 - 节点凭据继续使用 `enc:v1:`，未知扩展使用 `enc:ext:v1:` 独立加密；读取接口只返回扩展摘要。URI 批量导入也初始化统一的当前状态与修订字段。
-- 配置导入密钥变更保护同时检查 `protocol_json` 与 `extensions_json` 密文；未改动前端、节点检查接口、目标输出和客户端连接验收。
+- 配置导入密钥变更保护同时检查 `protocol_json` 与 `extensions_json` 密文；本轮未改动前端、目标输出和客户端连接验收，节点检查接口已在 Build18 完成。
 
 ### 6.2 自动化验收
 
@@ -389,7 +389,7 @@ cd backend && go vet ./...                                          PASS
 git diff --check                                                     PASS
 ```
 
-由于本轮没有前端文件变更，未执行 `frontend/npm run build`；Build18～Build20 的前端、检查、输出和客户端连接验收仍保持未完成状态。
+由于本轮没有前端文件变更，未执行 `frontend/npm run build`；Build18 的检查已在后续构建中完成，Build19～Build20 的前端、输出和客户端连接验收仍保持未完成状态。
 
 ---
 

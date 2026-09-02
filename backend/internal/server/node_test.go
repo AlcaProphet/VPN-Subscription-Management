@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 
+	"vpn-sub/internal/assembly"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/node"
 )
@@ -72,5 +74,61 @@ func TestNodeUpdateRevisionConflictResponse(t *testing.T) {
 	}
 	if detail.Code != 0 || detail.Data.EditRevision != 1 || detail.Data.ID != created.ID {
 		t.Fatalf("节点详情响应未返回当前修订: %+v", detail)
+	}
+}
+
+func TestNodeCheckRouteUsesAdapterAndDoesNotWrite(t *testing.T) {
+	engine, st, cfg := newAssemblyTestEnv(t)
+	lg := log.New("error", "console")
+	nodeSvc := node.NewService(st, cfg, lg)
+	assemblySvc := assembly.NewService(st, cfg, lg)
+	nodeSvc.SetCheckRenderer(assemblySvc.CheckNodeTarget)
+	noop := func(c *gin.Context) { c.Next() }
+	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, noop, noop)
+
+	request := node.CheckRequest{
+		Protocol: "vless", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"uuid": "route-check-secret", "network": "ws", "tls": true,
+			"ws-opts": map[string]any{"path": "/check"},
+		},
+		Targets: []string{"clash-yaml", "generic-subs"},
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("序列化节点检查请求失败: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/nodes/check", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("节点检查路由状态码异常: %d, body=%s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Code int                `json:"code"`
+		Data node.CheckResponse `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("解析节点检查响应失败: %v", err)
+	}
+	if response.Code != 0 || response.Data.CheckID == "" || response.Data.CheckVersion != 1 {
+		t.Fatalf("节点检查响应基本结构异常: %+v", response)
+	}
+	for _, target := range []string{"clash-yaml", "generic-subs"} {
+		result, ok := response.Data.Targets[target]
+		if !ok || result.Status != "ok" || result.Preview == nil {
+			t.Fatalf("节点检查目标结果异常: target=%s result=%+v", target, result)
+		}
+	}
+	if strings.Contains(w.Body.String(), "route-check-secret") {
+		t.Fatalf("节点检查 HTTP 响应泄漏凭据: %s", w.Body.String())
+	}
+	var count int
+	if err := st.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM nodes`).Scan(&count); err != nil {
+		t.Fatalf("读取检查后节点数量失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("节点检查不应写入数据库: count=%d", count)
 	}
 }

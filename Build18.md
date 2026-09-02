@@ -1,9 +1,9 @@
 # Build18.md — FieldSchema 条件/选项扩展、当前状态投影与节点检查构建计划
 
-> **文档定位：** 本文是 VPN 订阅管理系统第十八轮当前构建方案，将 [Design4.md](Design4.md) §三～§七、§12.2～§12.4、§12.6 已确认条件表单与目标检查契约转化为逐步实现手册。本文**只编写构建方案，不构建代码**。
+> **文档定位：** 本文是 VPN 订阅管理系统第十八轮构建方案及实施记录，将 [Design4.md](Design4.md) §三～§七、§12.2～§12.4、§12.6 已确认条件表单与目标检查契约转化为逐步实现手册。本轮文档所列 Step 1～5 已完成并通过自动化验收。
 > - 设计依据：[Design4.md](Design4.md)（当前最新设计，已确认作为 Build 依据）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 前序构建：[Build17.md](Build17.md)（保存契约与 nodes 当前状态，未实装前本 Build 应保持可编译的兼容占位）
+> - 前序构建：[Build17.md](Build17.md)（保存契约与 nodes 当前状态，已完成并由本 Build 复用）
 > - 用户已确认：Trojan 内层 SS 采用 `ss-opts.enabled + method + password` 目标对齐规范；VMess REALITY 首批不开放表单；客户端验证只写固定版本正反例/夹具与手工验收待办，不宣称真机连接结论。
 >
 > **执行原则：**
@@ -18,11 +18,11 @@
 
 | Step | 内容 | 设计依据 | 状态 |
 |------|------|----------|------|
-| 1 | `FieldSchema` 条件/选项/目标证据扩展 | Design4 §12.2 | ☐ 未开始 |
-| 2 | 首批四协议注册表条件与推荐选项 | Design4 §四、§五、§12.4 | ☐ 未开始 |
-| 3 | 当前状态派生、投影与保存校验 | Design4 §6.1、§6.5、§12.6 | ☐ 未开始 |
-| 4 | `/api/admin/nodes/check` 节点检查接口 | Design4 §7.2、§12.3 | ☐ 未开始 |
-| 5 | 固定版本正反例、诊断样例与服务端测试 | Design4 §八、§10.3、§12.4 | ☐ 未开始 |
+| 1 | `FieldSchema` 条件/选项/目标证据扩展 | Design4 §12.2 | ✅ 验收通过 |
+| 2 | 首批四协议注册表条件与推荐选项 | Design4 §四、§五、§12.4 | ✅ 验收通过 |
+| 3 | 当前状态派生、投影与保存校验 | Design4 §6.1、§6.5、§12.6 | ✅ 验收通过 |
+| 4 | `/api/admin/nodes/check` 节点检查接口 | Design4 §7.2、§12.3 | ✅ 验收通过 |
+| 5 | 固定版本正反例、诊断样例与服务端测试 | Design4 §八、§10.3、§12.4 | ✅ 验收通过 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 
@@ -35,8 +35,8 @@
 | 1 | `backend/internal/node/registry.go`、新增 `backend/internal/node/schema.go` | `When/RequiredWhen/ResetOn/OptionItems/AllowCustom/CanonicalPath/Aliases/TargetEvidence` |
 | 2 | `backend/internal/node/registry.go` | 首批四协议条件矩阵、SS/VMess 算法目录、Trojan 内层 SS、XHTTP mode 修正 |
 | 3 | `backend/internal/node/node.go`、新增 `backend/internal/node/project.go` | 当前状态派生、活动参数投影、保存前条件校验 |
-| 4 | `backend/internal/node/check.go`（新增）、`backend/internal/server/node.go` | `/check`、草稿/已保存编辑分支、诊断响应、不落库 |
-| 5 | `backend/internal/node/check_test.go`、`backend/internal/assembly/links/links_test.go`、新增夹具 | Mihomo 1.19.29 / CVR 2.5.2 离线正反例与诊断 |
+| 4 | `backend/internal/node/check.go`（新增）、`backend/internal/assembly/node_check.go`（新增）、`backend/internal/server/node.go` | `/check`、草稿/已保存编辑分支、实际适配器、诊断响应、不落库 |
+| 5 | `backend/internal/node/check_test.go`、`backend/internal/assembly/node_check_test.go`、`backend/internal/assembly/links/links_test.go`、`backend/internal/assembly/testdata/node_check/` | Mihomo 1.19.29 / CVR 2.5.2 离线正反例与诊断 |
 
 ---
 
@@ -204,7 +204,7 @@ Step 1 字段元数据扩展
       - 对明确非法组合（如 XHTTP `none`、SS `auto`、Trojan h2 普通组合）返回字段路径错误。
   - `backend/internal/node/node.go`：
     - `CreateManual`/`UpdateManual` 保存前调用 `ValidateCurrentState`；若 `CurrentState` 为空则 `DeriveCurrentState` 后回写请求 DTO。
-    - `ProjectActive` 用于检查/输出，不改变 `protocol_json` 保存值（保存仍只存活动参数 + 当前状态）。
+    - `ProjectActive` 用于检查/输出；保存仍通过同一归一化/校验流程写入 `protocol_json` 与当前状态，不另建分支恢复副本。
   - 输出层（`render_clash.go`/`links.go`）在 Build20 接入投影；本步先在 node 包提供函数与测试。
 - **测试与验收命令：**
   ```bash
@@ -306,7 +306,7 @@ Step 1 字段元数据扩展
 - **目标：** 将 Design4 第八章的 Mihomo 1.19.29 与 CVR 2.5.2 离线结论转成仓库内可复现夹具/测试；不把配置解析成功等同于连接成功，不添加真机结论。
 - **前置条件：** Step 4 检查接口可用。
 - **产出文件与操作：**
-  - 新增 fixtures 目录（可放 `backend/internal/node/testdata/` 或 `backend/internal/assembly/testdata/`）：
+  - 新增节点检查 fixtures 目录 `backend/internal/assembly/testdata/node_check/`：
     - `vless-tcp-tls.json`、`vless-ws-tls.json`、`vless-reality.json`、`vless-xhttp-risk.json`
     - `vmess-tcp.json`、`vmess-ws-tls.json`、`vmess-cipher-risk.json`
     - `trojan-tcp-tls.json`、`trojan-ws-tls.json`、`trojan-grpc-tls.json`、`trojan-inner-ss.json`
@@ -353,8 +353,34 @@ Step 1 字段元数据扩展
 
 ---
 
-## 六、变更记录
+## 六、实施与验收记录
+
+### 6.1 已完成实现
+
+- `FieldSchema` 新增 `group`、`when`、`required_when`、`reset_on`、`option_items`、`allow_custom`、`canonical_path`、`aliases`、`target_evidence`；保留旧 `options` 兼容投影，并提供条件匹配、条件必填和重置判断方法。
+- 首批 VLESS、VMess、Trojan、SS 注册表已补齐传输/安全/插件条件、推荐选项和规范路径。VLESS/VMess 使用表单层 `security` 并在保存时兼容回既有 `tls`；VMess REALITY 只保留未验证证据，不进入首批选项；Trojan 内层 SS 使用 `enabled/method/password`，旧 `cipher` 仅作输入别名；XHTTP mode 不含 `none`。
+- 节点服务新增活动状态派生、`ProjectActive` 投影及保存/目标共用校验；切换分支后不投影非活动字段，对象中的未知键仍保留，创建和更新保存前执行明确非法组合校验。
+- 新增 `POST /api/admin/nodes/check`。新建草稿和带 `node_id/base_revision` 的编辑草稿均在内存中应用 reset、credential、extension 操作；节点服务通过注入调用实际装配器，返回 Clash 最小 YAML 片段或 SR/generic URI、脱敏凭据、`check_id/check_version` 和字段级诊断，不写入 `nodes`、扩展或其他业务表。
+- 检查目标覆盖 `clash-yaml`、`sr-subs`、`generic-subs`。Clash 目标复用 `clashProxy` 与 `CheckClashContent`；URI 目标复用 `RenderLink`，对 VLESS encryption、VMess 算法改写、Trojan WS/gRPC/内层 SS、SS obfs/SS 2022 等已知损失或待验证项显式返回 `warn/skip` 诊断；目标限定的 REALITY 条件必填按目标分别校验。
+- 新增 15 个节点检查 JSON 夹具、检查响应/不落库测试及固定 URI 观察测试，覆盖四协议普通组合与风险组合。夹具是 Mihomo 1.19.29 / CVR 2.5.2 的离线输入，不代表真实导入或连接成功。
+
+### 6.2 自动化验收结果
+
+以下命令均在本轮实现后执行并通过：
+
+```text
+cd backend && go test ./...       PASS
+cd backend && go build ./...      PASS
+cd backend && go vet ./...        PASS
+cd frontend && npm run build      PASS（Vite 提示存在大于 600 kB 的 chunk）
+git diff --check                  PASS
+```
+
+自动化测试已覆盖：FieldSchema/四协议矩阵、当前状态与活动投影、条件必填、草稿和编辑检查、修订冲突、数据库不变、凭据/扩展脱敏、目标诊断、固定 URI 形态。尚未执行指定版本 Clash Verge Rev / Mihomo 的实际导入和真实连接实验；相关 `unverified` 证据状态保持不变，后续由 Build20/人工验收继续。
+
+## 七、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-09-02 | 初始构建方案：FieldSchema 条件/选项扩展、首批四协议矩阵、当前状态投影、节点检查接口与固定版本正反例。仅创建 Build 文档，未构建代码。 |
+| v1.1 | 2026-09-02 | 完成 Step 1～5：实现条件/选项元数据、四协议注册表矩阵、活动投影与保存校验、`/api/admin/nodes/check` 实际适配器接入、脱敏/不落库验证、15 个离线夹具和固定 URI 测试；后端全量测试/构建/静态检查、前端生产构建与差异检查均通过。客户端实际导入/连接仍待人工验收。 |

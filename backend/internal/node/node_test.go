@@ -533,7 +533,7 @@ func TestNodeEditorMigrationColumns(t *testing.T) {
 	}
 }
 
-func TestDeriveCurrentStateDoesNotInferRealityFromStaleParams(t *testing.T) {
+func TestDeriveCurrentStateUsesRealityParamsAsActiveSecurity(t *testing.T) {
 	proto, err := GetProtocol("vless")
 	if err != nil {
 		t.Fatal(err)
@@ -542,8 +542,8 @@ func TestDeriveCurrentStateDoesNotInferRealityFromStaleParams(t *testing.T) {
 		"network":      "tcp",
 		"reality-opts": map[string]any{"public-key": "stale"},
 	})
-	if state.Security != "none" {
-		t.Fatalf("tls 未启用时不应仅凭 reality-opts 推导 REALITY: %+v", state)
+	if state.Security != "reality" {
+		t.Fatalf("存在非空 reality-opts 时应推导 REALITY: %+v", state)
 	}
 	state = DeriveCurrentState(proto, map[string]any{
 		"network":      "tcp",

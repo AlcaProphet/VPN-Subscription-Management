@@ -1,0 +1,14 @@
+{
+  "protocol": "ss",
+  "host": "example.com",
+  "port": 8388,
+  "protocol_json": {
+    "cipher": "aes-256-gcm",
+    "password": "shadowsocks-password",
+    "plugin": "obfs",
+    "plugin-opts": {
+      "mode": "http",
+      "host": "cdn.example.com"
+    }
+  }
+}

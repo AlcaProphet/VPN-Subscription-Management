@@ -1,0 +1,16 @@
+{
+  "protocol": "vless",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "uuid": "11111111-2222-3333-4444-555555555555",
+    "network": "tcp",
+    "tls": true,
+    "servername": "www.example.com",
+    "client-fingerprint": "chrome",
+    "reality-opts": {
+      "public-key": "example-public-key",
+      "short-id": "01234567"
+    }
+  }
+}

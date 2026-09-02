@@ -20,6 +20,7 @@ func RegisterNodeRoutes(engine *gin.Engine, h *NodeHandler, sessionMW, adminMW g
 	admin.GET("", h.list)
 	admin.POST("", h.create)
 	admin.POST("/import", h.importNodes)
+	admin.POST("/check", h.check)
 	admin.PUT("/:id", h.update)
 	admin.DELETE("/:id", h.delete)
 	admin.PUT("/:id/toggle", h.toggle)
@@ -95,6 +96,41 @@ func (h *NodeHandler) create(c *gin.Context) {
 		return
 	}
 	OK(c, n)
+}
+
+func (h *NodeHandler) check(c *gin.Context) {
+	var req node.CheckRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	resp, err := h.nodeSvc.Check(c.Request.Context(), req)
+	if errors.Is(err, node.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "节点不存在")
+		return
+	}
+	if errors.Is(err, node.ErrRevisionConflict) {
+		current, _ := node.CurrentRevisionFromError(err)
+		c.JSON(http.StatusConflict, gin.H{
+			"error":            node.ErrRevisionConflict.Error(),
+			"code":             "revision_conflict",
+			"current_revision": current,
+		})
+		return
+	}
+	if errors.Is(err, node.ErrBadRequest) {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if errors.Is(err, node.ErrForbidden) {
+		Fail(c, http.StatusForbidden, err.Error())
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, resp)
 }
 
 func (h *NodeHandler) update(c *gin.Context) {

@@ -194,6 +194,7 @@ type Service struct {
 	log               *slog.Logger
 	onXrayChanged     XrayChangedFunc
 	onXrayNodeDeleted XrayNodeDeletedFunc
+	checkRenderer     CheckRenderer
 }
 
 // NewService 构造节点服务。
@@ -209,6 +210,11 @@ func (s *Service) SetOnXrayChanged(fn XrayChangedFunc) {
 // SetOnXrayNodeDeleted 注入节点删除后的 Xray 清理回调（Build6 Step1 由装配侧注入）。
 func (s *Service) SetOnXrayNodeDeleted(fn XrayNodeDeletedFunc) {
 	s.onXrayNodeDeleted = fn
+}
+
+// SetCheckRenderer 注入目标适配器检查器，避免节点领域层反向依赖装配层。
+func (s *Service) SetCheckRenderer(fn CheckRenderer) {
+	s.checkRenderer = fn
 }
 
 // ValidateNodeName 节点名（manual 录入名与 xray 系统名），禁止空格。
@@ -332,10 +338,10 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	if err := validateProtocolFields(proto, in.ProtocolJSON, false); err != nil {
+	params := normalizeProtocolParameters(proto, in.ProtocolJSON)
+	if err := validateProtocolFields(proto, params, false); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	params := in.ProtocolJSON
 	if params == nil {
 		params = map[string]any{}
 	}
@@ -343,7 +349,11 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	encrypted, err := s.encryptProtocolJSON(ctx, params, proto.SensitiveFields)
+	if err := ValidateCurrentState(proto, state, params); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	storedParams := protocolParamsForStorage(proto, params)
+	encrypted, err := s.encryptProtocolJSON(ctx, storedParams, proto.SensitiveFields)
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +431,8 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	if err := validateProtocolFields(proto, in.ProtocolJSON, true); err != nil {
+	incoming := normalizeProtocolParameters(proto, in.ProtocolJSON)
+	if err := validateProtocolFields(proto, incoming, true); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	resetScopes, err := normalizeResetScopes(in.ResetScopes)
@@ -432,7 +443,8 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if existing.Protocol != in.Protocol && !containsString(resetScopes, "protocol") {
 		resetScopes = append(resetScopes, "protocol")
 	}
-	merged := mergeProtocolJSON(existing.ProtocolJSON, in.ProtocolJSON, proto, resetScopes)
+	merged := mergeProtocolJSON(existing.ProtocolJSON, incoming, proto, resetScopes)
+	merged = normalizeProtocolParameters(proto, merged)
 	state, err := resolveCurrentState(proto, in.CurrentState, merged)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
@@ -444,7 +456,11 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err := validateProtocolFields(proto, merged, false); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	encrypted, err := s.encryptProtocolJSON(ctx, merged, proto.SensitiveFields)
+	if err := ValidateCurrentState(proto, state, merged); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	storedParams := protocolParamsForStorage(proto, merged)
+	encrypted, err := s.encryptProtocolJSON(ctx, storedParams, proto.SensitiveFields)
 	if err != nil {
 		return nil, err
 	}
@@ -955,7 +971,7 @@ func clearScope(m map[string]any, scope string, schema []FieldSchema) map[string
 		return map[string]any{}
 	}
 	for _, field := range schema {
-		if scopeResetsField(scope, field.Name) {
+		if field.ShouldReset(scope) || scopeResetsField(scope, field.Name) {
 			delete(out, field.Name)
 		}
 	}
@@ -1061,12 +1077,10 @@ func DeriveCurrentState(proto Protocol, params map[string]any) CurrentState {
 
 	if value, ok := params["security"].(string); ok && value != "" {
 		state.Security = value
+	} else if configuredObject(params["reality-opts"]) {
+		state.Security = "reality"
 	} else if tls, ok := params["tls"].(bool); ok && tls {
-		if configuredObject(params["reality-opts"]) {
-			state.Security = "reality"
-		} else {
-			state.Security = "tls"
-		}
+		state.Security = "tls"
 	} else if proto.Protocol == "trojan" {
 		state.Security = "tls"
 	} else {
