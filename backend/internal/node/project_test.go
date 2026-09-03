@@ -34,17 +34,62 @@ func TestSchemaConditionAndOptionMetadata(t *testing.T) {
 	}
 }
 
+func TestFieldSchemaAllowCustomTriState(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   *bool
+		present bool
+		want    bool
+	}{
+		{name: "允许", value: boolPtr(true), present: true, want: true},
+		{name: "禁止", value: boolPtr(false), present: true, want: false},
+		{name: "未声明", value: nil, present: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(FieldSchema{Name: "mode", Type: "select", Label: "模式", AllowCustom: tc.value})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			got, present := decoded["allow_custom"]
+			if present != tc.present {
+				t.Fatalf("allow_custom 字段存在性异常: %s", raw)
+			}
+			if present && got != tc.want {
+				t.Fatalf("allow_custom 值异常: got=%v want=%v, raw=%s", got, tc.want, raw)
+			}
+		})
+	}
+
+	field := FieldSchema{OptionItems: []OptionItem{{Value: "known"}}}
+	if err := validateOption(field, "custom", "mode"); err == nil {
+		t.Fatal("未声明 allow_custom 的枚举字段不应接受清单外值")
+	}
+	field.AllowCustom = boolPtr(false)
+	if err := validateOption(field, "custom", "mode"); err == nil {
+		t.Fatal("allow_custom=false 的枚举字段不应接受清单外值")
+	}
+	field.AllowCustom = boolPtr(true)
+	if err := validateOption(field, "custom", "mode"); err != nil {
+		t.Fatalf("allow_custom=true 应接受清单外值: %v", err)
+	}
+}
+
 func TestFirstBatchProtocolMetadata(t *testing.T) {
 	ss, _ := GetProtocol("ss")
 	vmess, _ := GetProtocol("vmess")
 	trojan, _ := GetProtocol("trojan")
 
 	cipher, _ := findSchemaField(ss.FormSchema, "cipher")
-	if !cipher.AllowCustom || len(cipher.OptionItems) < 6 || !hasOption(cipher, "2022-blake3-aes-128-gcm") {
+	if !allowsCustom(cipher) || len(cipher.OptionItems) < 6 || !hasOption(cipher, "2022-blake3-aes-128-gcm") {
 		t.Fatalf("SS 算法目录异常: %+v", cipher)
 	}
 	vmessCipher, _ := findSchemaField(vmess.FormSchema, "cipher")
-	if !vmessCipher.AllowCustom || !hasOption(vmessCipher, "chacha20-poly1305") || !hasOption(vmessCipher, "zero") {
+	if !allowsCustom(vmessCipher) || !hasOption(vmessCipher, "chacha20-poly1305") || !hasOption(vmessCipher, "zero") {
 		t.Fatalf("VMess 算法目录异常: %+v", vmessCipher)
 	}
 	vlessForXHTTP, _ := GetProtocol("vless")
@@ -205,6 +250,34 @@ func TestValidateCurrentStateAllowsTrojanCustomTransport(t *testing.T) {
 				t.Fatalf("Trojan %s 自定义传输不应在保存层被拒绝: %v", network, err)
 			}
 		})
+	}
+}
+
+func TestFirstBatchAllowCustomValidation(t *testing.T) {
+	for _, protocolName := range []string{"vless", "vmess"} {
+		t.Run(protocolName+" rejects custom security", func(t *testing.T) {
+			proto, _ := GetProtocol(protocolName)
+			params := map[string]any{"uuid": "u", "network": "tcp", "security": "custom-security"}
+			err := ValidateCurrentState(proto, CurrentState{Network: "tcp", Security: "custom-security"}, params)
+			if err == nil || !strings.Contains(err.Error(), "security") {
+				t.Fatalf("自定义安全值应被拒绝并定位 security，实际 %v", err)
+			}
+		})
+
+		t.Run(protocolName+" allows custom transport", func(t *testing.T) {
+			proto, _ := GetProtocol(protocolName)
+			params := map[string]any{"uuid": "u", "network": "custom-transport", "security": "none"}
+			if err := ValidateCurrentState(proto, CurrentState{Network: "custom-transport", Security: "none"}, params); err != nil {
+				t.Fatalf("明确允许的自定义传输不应被拒绝: %v", err)
+			}
+		})
+	}
+
+	ss, _ := GetProtocol("ss")
+	plugin := "custom-plugin"
+	params := map[string]any{"cipher": "custom-cipher", "password": "p", "plugin": plugin}
+	if err := ValidateCurrentState(ss, CurrentState{Security: "none", Plugin: &plugin}, params); err != nil {
+		t.Fatalf("SS 明确允许的自定义算法和插件不应被拒绝: %v", err)
 	}
 }
 

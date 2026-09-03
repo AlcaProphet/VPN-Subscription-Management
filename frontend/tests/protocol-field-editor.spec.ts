@@ -19,6 +19,28 @@ const objectField: FieldSchema = {
 }
 
 describe('ProtocolFieldEditor', () => {
+  async function customEntryVisible(allowCustom?: boolean | null): Promise<boolean> {
+    const field: FieldSchema = {
+      name: 'security', type: 'select', required: true, label: '安全',
+      option_items: [{ value: 'none', label: '无' }, { value: 'tls', label: 'TLS' }],
+      ...(allowCustom === undefined ? {} : { allow_custom: allowCustom }),
+    }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: 'none' } })
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+    await input.setValue('unsafe')
+    const visible = wrapper.text().includes('使用自定义值')
+    wrapper.unmount()
+    return visible
+  }
+
+  it('只有 allow_custom=true 才开放自定义值', async () => {
+    expect(await customEntryVisible(true)).toBe(true)
+    expect(await customEntryVisible(false)).toBe(false)
+    expect(await customEntryVisible(undefined)).toBe(false)
+    expect(await customEntryVisible(null)).toBe(false)
+  })
+
   it('嵌套高级区默认折叠且有摘要，折叠不丢失参数或 JSON 草稿', async () => {
     const field: FieldSchema = { ...objectField, properties: [...objectField.properties!,
       { name: 'early', type: 'object', object_kind: 'fields', label: 'Early Data', required: false, advanced: true,

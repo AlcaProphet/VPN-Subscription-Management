@@ -66,7 +66,7 @@ export interface FieldSchema {
   reset_on?: string[]
   feature?: { name: string; toggle?: string; disabled_value?: string }
   option_items?: OptionItem[]
-  allow_custom?: boolean
+  allow_custom?: boolean | null
   canonical_path?: string
   aliases?: string[]
   target_evidence?: TargetEvidence[]

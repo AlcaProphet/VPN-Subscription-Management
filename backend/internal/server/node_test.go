@@ -45,6 +45,10 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 		}
 		switch proto.Protocol {
 		case "vless", "vmess", "trojan":
+			network := fields["network"]
+			if network.AllowCustom == nil || !*network.AllowCustom {
+				t.Errorf("%s 传输字段应明确允许自定义: %+v", proto.Protocol, network)
+			}
 			for _, name := range []string{"ws-path", "ws-headers", "tls"} {
 				if _, exists := fields[name]; exists {
 					t.Errorf("%s 表单不应包含旧入口 %s", proto.Protocol, name)
@@ -55,14 +59,26 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 					t.Errorf("%s 规范传输字段条件/清空归属丢失: %s", proto.Protocol, name)
 				}
 			}
-			if proto.Protocol != "trojan" && fields["security"].Type != "select" {
-				t.Errorf("%s 缺少统一安全选择", proto.Protocol)
+			if proto.Protocol != "trojan" {
+				security := fields["security"]
+				if security.Type != "select" {
+					t.Errorf("%s 缺少统一安全选择", proto.Protocol)
+				}
+				if security.AllowCustom == nil || *security.AllowCustom {
+					t.Errorf("%s 安全字段应在真实接口中明确禁止自定义: %+v", proto.Protocol, security)
+				}
 			}
 		case "http", "socks5":
 			if fields["tls"].Type != "bool" {
 				t.Errorf("%s 有效 TLS 开关被删除", proto.Protocol)
 			}
 		case "ss":
+			for _, name := range []string{"cipher", "plugin"} {
+				field := fields[name]
+				if field.AllowCustom == nil || !*field.AllowCustom {
+					t.Errorf("SS %s 应明确允许自定义: %+v", name, field)
+				}
+			}
 			found := false
 			for _, field := range fields["v2ray-plugin-opts"].Properties {
 				found = found || field.Name == "tls" && field.Type == "bool"

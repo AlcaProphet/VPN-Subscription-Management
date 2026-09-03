@@ -317,10 +317,14 @@ func validateOption(field FieldSchema, value any, path string) error {
 			}
 		}
 	}
-	if !allowed && !field.AllowCustom {
+	if !allowed && !allowsCustom(field) {
 		return fmt.Errorf("字段 %s 不允许值 %q", path, text)
 	}
 	return nil
+}
+
+func allowsCustom(field FieldSchema) bool {
+	return field.AllowCustom != nil && *field.AllowCustom
 }
 
 func validateProtocolCombination(proto Protocol, state CurrentState, params map[string]any) error {

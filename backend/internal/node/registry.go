@@ -23,7 +23,7 @@ type FieldSchema struct {
 	ResetOn        []string         `json:"reset_on,omitempty"`
 	Feature        *FeatureSchema   `json:"feature,omitempty"`
 	OptionItems    []OptionItem     `json:"option_items,omitempty"`
-	AllowCustom    bool             `json:"allow_custom,omitempty"`
+	AllowCustom    *bool            `json:"allow_custom,omitempty"`
 	CanonicalPath  string           `json:"canonical_path,omitempty"`
 	Aliases        []string         `json:"aliases,omitempty"`
 	TargetEvidence []TargetEvidence `json:"target_evidence,omitempty"`
@@ -45,6 +45,9 @@ type Protocol struct {
 func f(name, typ, label string) FieldSchema {
 	return FieldSchema{Name: name, Type: typ, Label: label, Section: fieldSection(name, typ)}
 }
+
+func boolPtr(value bool) *bool { return &value }
+
 func req(name, typ, label string) FieldSchema { v := f(name, typ, label); v.Required = true; return v }
 func def(name, typ, label string, value any) FieldSchema {
 	v := f(name, typ, label)
@@ -126,7 +129,7 @@ func smuxOpts() FieldSchema {
 func obfsOpts() FieldSchema {
 	mode := f("mode", "select", "模式")
 	mode.Default = "http"
-	mode.AllowCustom = true
+	mode.AllowCustom = boolPtr(true)
 	setOptionItems(&mode, option("http", "HTTP", "common", "mihomo-1.19.29"), option("tls", "TLS", "common", "mihomo-1.19.29"))
 	return obj("obfs-opts", "obfs 参数", "fields", mode, f("host", "text", "Host"))
 }
@@ -134,10 +137,10 @@ func obfsOpts() FieldSchema {
 func v2rayPluginOpts() FieldSchema {
 	mode := f("mode", "select", "模式")
 	mode.Default = "websocket"
-	mode.AllowCustom = true
+	mode.AllowCustom = boolPtr(true)
 	setOptionItems(&mode, option("websocket", "WebSocket", "common", "mihomo-1.19.29"))
 	version := f("version", "select", "版本")
-	version.AllowCustom = true
+	version.AllowCustom = boolPtr(true)
 	setOptionItems(&version, option("1", "v1", "common", "mihomo-1.19.29"), option("2", "v2", "common", "mihomo-1.19.29"))
 	return obj("v2ray-plugin-opts", "v2ray-plugin 参数", "fields",
 		mode, f("host", "text", "Host"), def("tls", "bool", "TLS", false), f("path", "text", "路径"), obj("headers", "请求头", "map"),
@@ -449,7 +452,7 @@ func enrichVLESS(p *Protocol) {
 			option("h2", "HTTP/2", "extended", "mihomo-1.19.29"),
 			option("http", "HTTP", "extended", "mihomo-1.19.29"),
 			option("xhttp", "XHTTP", "extended", "mihomo-1.19.29"))
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		field.CanonicalPath = "network"
 		field.Group = "connection"
 	})
@@ -462,7 +465,7 @@ func enrichVLESS(p *Protocol) {
 		field.Aliases = []string{"tls"}
 	})
 	security := sel("security", "安全", "none", "none", "tls", "reality")
-	security.AllowCustom = false
+	security.AllowCustom = boolPtr(false)
 	security.Group = "connection"
 	security.CanonicalPath = "security"
 	security.Aliases = []string{"tls"}
@@ -494,7 +497,7 @@ func enrichVLESS(p *Protocol) {
 		field.When = &ConditionRule{Network: []string{"tcp"}, Security: []string{"tls", "reality"}}
 		field.ResetOn = []string{"network", "security"}
 		field.Group = "connection"
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field, option("xtls-rprx-vision", "Vision", "common", "mihomo-1.19.29"))
 	})
 	for _, name := range []string{"servername", "alpn", "client-fingerprint"} {
@@ -504,13 +507,13 @@ func enrichVLESS(p *Protocol) {
 		setField(name, func(field *FieldSchema) { setSecurityCondition(field, "tls") })
 	}
 	setField("alpn", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("h2", "h2", "common", "mihomo-1.19.29"),
 			option("http/1.1", "http/1.1", "common", "mihomo-1.19.29"))
 	})
 	setField("client-fingerprint", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("chrome", "Chrome", "common", "mihomo-1.19.29"),
 			option("firefox", "Firefox", "common", "mihomo-1.19.29"),
@@ -523,7 +526,7 @@ func enrichVLESS(p *Protocol) {
 	setField("xhttp-opts", func(field *FieldSchema) {
 		updateField(field.Properties, "mode", func(mode *FieldSchema) {
 			mode.Default = nil
-			mode.AllowCustom = true
+			mode.AllowCustom = boolPtr(true)
 			setOptionItems(mode,
 				option("auto", "Auto", "common", "mihomo-1.19.29"),
 				option("stream-one", "Stream One", "common", "mihomo-1.19.29"),
@@ -532,7 +535,7 @@ func enrichVLESS(p *Protocol) {
 		})
 	})
 	setField("encryption", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field, option("none", "none", "common", "mihomo-1.19.29"))
 		setTargetEvidence(field,
 			TargetEvidence{Target: "generic-subs", Client: "project adapter", Version: "current", Entry: "vless-uri", Status: "complete"},
@@ -549,7 +552,7 @@ func enrichVLESS(p *Protocol) {
 func enrichVMess(p *Protocol) {
 	setField := func(name string, fn func(*FieldSchema)) { updateField(p.FormSchema, name, fn) }
 	setField("cipher", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("auto", "Auto", "common", "mihomo-1.19.29"),
 			option("aes-128-gcm", "AES-128-GCM", "common", "mihomo-1.19.29"),
@@ -565,10 +568,11 @@ func enrichVMess(p *Protocol) {
 			option("tcp", "TCP", "common", "mihomo-1.19.29"), option("ws", "WebSocket", "common", "mihomo-1.19.29"),
 			option("grpc", "gRPC", "common", "mihomo-1.19.29"), option("h2", "HTTP/2", "extended", "mihomo-1.19.29"),
 			option("http", "HTTP", "extended", "mihomo-1.19.29"))
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		field.Group = "connection"
 	})
 	security := sel("security", "安全", "none", "none", "tls")
+	security.AllowCustom = boolPtr(false)
 	security.Group = "connection"
 	setOptionItems(&security, option("none", "无", "common", "mihomo-1.19.29"), option("tls", "TLS", "common", "mihomo-1.19.29"))
 	p.FormSchema = insertField(p.FormSchema, security, "servername")
@@ -603,13 +607,13 @@ func enrichVMess(p *Protocol) {
 		})
 	}
 	setField("alpn", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("h2", "h2", "common", "mihomo-1.19.29"),
 			option("http/1.1", "http/1.1", "common", "mihomo-1.19.29"))
 	})
 	setField("client-fingerprint", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("chrome", "Chrome", "common", "mihomo-1.19.29"),
 			option("firefox", "Firefox", "common", "mihomo-1.19.29"),
@@ -637,7 +641,7 @@ func enrichTrojan(p *Protocol) {
 		setOptionItems(field,
 			option("tcp", "TCP", "common", "mihomo-1.19.29"), option("ws", "WebSocket", "common", "mihomo-1.19.29"),
 			option("grpc", "gRPC", "common", "mihomo-1.19.29"))
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		field.Group = "connection"
 		field.Help = "h2/http/xhttp 可手填，但首批不作为普通组合。"
 		setTargetEvidence(field,
@@ -662,13 +666,13 @@ func enrichTrojan(p *Protocol) {
 		setField(name, func(field *FieldSchema) { setSecurityCondition(field, "tls") })
 	}
 	setField("alpn", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("h2", "h2", "common", "mihomo-1.19.29"),
 			option("http/1.1", "http/1.1", "common", "mihomo-1.19.29"))
 	})
 	setField("client-fingerprint", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("chrome", "Chrome", "common", "mihomo-1.19.29"),
 			option("firefox", "Firefox", "common", "mihomo-1.19.29"),
@@ -682,7 +686,7 @@ func enrichTrojan(p *Protocol) {
 		field.Group = "advanced"
 		field.ResetOn = []string{"protocol"}
 		updateNestedField(p.FormSchema, "ss-opts", "method", func(method *FieldSchema) {
-			method.AllowCustom = true
+			method.AllowCustom = boolPtr(true)
 			method.Aliases = []string{"cipher"}
 			setOptionItems(method,
 				option("aes-128-gcm", "AES-128-GCM", "common", "mihomo-1.19.29"),
@@ -698,7 +702,7 @@ func enrichTrojan(p *Protocol) {
 func enrichSS(p *Protocol) {
 	setField := func(name string, fn func(*FieldSchema)) { updateField(p.FormSchema, name, fn) }
 	setField("cipher", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("aes-128-gcm", "AES-128-GCM", "common", "mihomo-1.19.29"),
 			option("aes-256-gcm", "AES-256-GCM", "common", "mihomo-1.19.29"),
@@ -713,7 +717,7 @@ func enrichSS(p *Protocol) {
 			TargetEvidence{Target: "sr-subs", Client: "Clash Verge Rev", Version: "2.5.2", Entry: "ss-uri", Status: "partial"})
 	})
 	setField("plugin", func(field *FieldSchema) {
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		field.ResetOn = []string{"plugin"}
 		field.Group = "connection"
 		setOptionItems(field,
@@ -739,7 +743,7 @@ func enrichSS(p *Protocol) {
 	})
 	setField("client-fingerprint", func(field *FieldSchema) {
 		field.Group = "connection"
-		field.AllowCustom = true
+		field.AllowCustom = boolPtr(true)
 		setOptionItems(field,
 			option("chrome", "Chrome", "common", "mihomo-1.19.29"),
 			option("firefox", "Firefox", "common", "mihomo-1.19.29"),

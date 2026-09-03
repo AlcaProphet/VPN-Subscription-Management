@@ -97,7 +97,7 @@ Step 1 字段元数据扩展
         RequiredWhen   *ConditionRule  `json:"required_when,omitempty"`
         ResetOn        []string        `json:"reset_on,omitempty"`
         OptionItems    []OptionItem    `json:"option_items,omitempty"`
-        AllowCustom    bool            `json:"allow_custom,omitempty"`
+        AllowCustom    *bool           `json:"allow_custom,omitempty"`
         CanonicalPath  string          `json:"canonical_path,omitempty"`
         Aliases        []string        `json:"aliases,omitempty"`
         TargetEvidence []TargetEvidence `json:"target_evidence,omitempty"`
@@ -381,6 +381,8 @@ git diff --check                  PASS
 
 自动化测试已覆盖：FieldSchema/四协议矩阵、当前状态与活动投影、条件必填、草稿和编辑检查、修订冲突、数据库不变、凭据/扩展脱敏、目标诊断、固定 URI 形态。尚未执行指定版本 Clash Verge Rev / Mihomo 的实际导入和真实连接实验；相关 `unverified` 证据状态保持不变，后续由 Build20/人工验收继续。
 
+R27-06（2026-09-04）对 `allow_custom` 契约进行对齐修复：后端改用 `*bool` 保留允许、禁止、未声明三态，枚举字段仅在显式 `true` 时允许清单外值；VLESS/VMess `security` 在协议接口中明确下发 `false`，前端对 `false`、`null` 和缺失统一按禁止处理。修复不改变节点存储、数据库结构或输出格式。
+
 ## 七、变更记录
 
 | 版本 | 日期 | 说明 |
@@ -388,3 +390,4 @@ git diff --check                  PASS
 | v1.0 | 2026-09-02 | 初始构建方案：FieldSchema 条件/选项扩展、首批四协议矩阵、当前状态投影、节点检查接口与固定版本正反例。仅创建 Build 文档，未构建代码。 |
 | v1.1 | 2026-09-02 | 完成 Step 1～5：实现条件/选项元数据、四协议注册表矩阵、活动投影与保存校验、`/api/admin/nodes/check` 实际适配器接入、脱敏/不落库验证、15 个离线夹具和固定 URI 测试；后端全量测试/构建/静态检查、前端生产构建与差异检查均通过。客户端实际导入/连接仍待人工验收。 |
 | v1.2 | 2026-09-03 | R27-03 对齐修复：补齐功能控制元数据、SMux/Brutal 递归清空和保存/检查/投影一致性，详见 §6.1 与 Issue13。浏览器及客户端实机证据仍保留人工验收边界。 |
+| v1.3 | 2026-09-04 | R27-06 对齐修复：`AllowCustom` 改为三态指针，受限枚举明确序列化 `false`，未声明默认禁止，自定义入口与后端校验统一为仅显式 `true` 放行；新增真实协议接口及前后端三态回归。 |
