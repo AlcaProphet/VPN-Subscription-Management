@@ -92,6 +92,67 @@ describe('NodesView 节点管理页', () => {
     mockGetProtocols.mockResolvedValue(protocols)
   })
 
+  it('SMux 开关只出现一次并集中于更多开关，参数仍位于高级结构化区', async () => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { uuid: 'keep', smux: smuxValue() }
+    await nextTick()
+    const enabled = wrapper.findAllComponents(ProtocolFieldEditor).filter((field) => field.props('path') === 'smux.enabled')
+    expect(enabled).toHaveLength(1)
+    expect(enabled[0].element.closest('.node-more-switches')).not.toBeNull()
+    const maximum = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === 'smux.max-connections')!
+    const advancedRegion = maximum.element.closest('.node-advanced-fields')!
+    expect(advancedRegion).not.toBeNull()
+    expect(advancedRegion.querySelector('.ant-switch')).toBeNull()
+    expect((enabled[0].element.closest('.node-more-switches') as HTMLDetailsElement).open).toBe(false)
+    await enabled[0].find('.ant-switch').trigger('click')
+    expect(vm.form.protocol_json).toEqual({ uuid: 'keep', smux: { enabled: false } })
+    expect(vm.checkRequest.protocol_json).toEqual(vm.form.protocol_json)
+    expect(vm.resetScopesArray()).toContain('feature.smux')
+    wrapper.unmount()
+  })
+
+  it('保存时展开包含未应用 JSON 的折叠区域并定位编辑器', async () => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { smux: smuxValue() }
+    await nextTick()
+    const smux = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'smux')!
+    await smux.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await smux.find('textarea').setValue('{')
+    await vm.save()
+    expect((smux.element.closest('.node-advanced-fields') as HTMLDetailsElement).open).toBe(true)
+    expect(document.activeElement).toBe(smux.find('textarea').element)
+    expect(mockCreateNode).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('集中开关修改使重叠 JSON 草稿失效，不能重新应用旧值', async () => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { smux: smuxValue() }
+    await nextTick()
+    const smux = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'smux')!
+    await smux.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await smux.find('textarea').setValue('{"enabled":true,"padding":true,"max-connections":99}')
+    const padding = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === 'smux.padding')!
+    await padding.find('.ant-switch').trigger('click')
+    const json = JSON.parse(smux.find('textarea').element.value)
+    expect(json.padding).toBe(false)
+    expect(json['max-connections']).toBe(7)
+    expect(vm.unappliedJsonPaths.size).toBe(0)
+    wrapper.unmount()
+  })
+
   it.each(['ss', 'vless', 'vmess'])('%s 嵌套开关关闭并重开不恢复旧参数，检查和保存提交相同草稿', async (protocol) => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol, form_schema: [smuxSchema] }])
     const wrapper = mount(NodesView, { attachTo: document.body })
@@ -128,7 +189,7 @@ describe('NodesView 节点管理页', () => {
     vm.openEdit(original)
     await nextTick()
     const brutal = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === 'smux.brutal-opts')!
-    await brutal.find('.ant-switch').trigger('click')
+    await brutal.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     await brutal.find('textarea').setValue('{"enabled":true,"up":"stale-draft"}')
     vm.openExtensionReplace(original.extensions[1])
     vm.extensionDraft.payload = 'stale-extension'
@@ -156,7 +217,7 @@ describe('NodesView 节点管理页', () => {
     vm.form.protocol_json = { smux: enabled ? smuxValue() : { enabled: false } }
     await nextTick()
     const smux = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'smux')!
-    await smux.find('.ant-switch').trigger('click')
+    await smux.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     await smux.find('textarea').setValue(JSON.stringify({ ...smuxValue(), enabled: false }))
     const apply = () => smux.findAll('button').find((button) => button.text().replace(/\s/g, '') === '应用')!
     await apply().trigger('click')

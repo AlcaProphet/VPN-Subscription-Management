@@ -19,9 +19,45 @@ const objectField: FieldSchema = {
 }
 
 describe('ProtocolFieldEditor', () => {
+  it('嵌套高级区默认折叠且有摘要，折叠不丢失参数或 JSON 草稿', async () => {
+    const field: FieldSchema = { ...objectField, properties: [...objectField.properties!,
+      { name: 'early', type: 'object', object_kind: 'fields', label: 'Early Data', required: false, advanced: true,
+        properties: [{ name: 'limit', type: 'number', label: '上限', required: false }] },
+      { name: 'upgrade', type: 'bool', label: 'Upgrade', required: false, advanced: true },
+    ] }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, centralizedSwitches: true, modelValue: { path: '/keep', early: { limit: 7 } } } })
+    expect(wrapper.find('.ant-switch').exists()).toBe(false)
+    const details = wrapper.find('.protocol-object-advanced')
+    expect((details.element as HTMLDetailsElement).open).toBe(false)
+    expect(details.text()).toContain('已配置 1 项')
+    ;(details.element as HTMLDetailsElement).open = true
+    const nested = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('path') === 'ws-opts.early')!
+    await nested.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await nested.find('textarea').setValue('{"limit":9}')
+    ;(details.element as HTMLDetailsElement).open = false
+    await wrapper.vm.$nextTick()
+    ;(details.element as HTMLDetailsElement).open = true
+    expect(nested.find('textarea').element.value).toBe('{"limit":9}')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('编辑模式使用按钮且切回结构化不清空已应用数据', async () => {
+    const value = { path: '/keep', future: 7 }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: objectField, modelValue: value } })
+    expect(wrapper.find('.protocol-editor-mode').attributes('role')).toBe('group')
+    expect(wrapper.find('.protocol-editor-mode .ant-switch').exists()).toBe(false)
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await wrapper.find('textarea').setValue('{"path":"/draft"}')
+    await wrapper.findAll('button').find((button) => button.text() === '结构化编辑')!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(value).toEqual({ path: '/keep', future: 7 })
+    wrapper.unmount()
+  })
+
   it('无关功能重置不丢弃本对象 JSON 草稿，重叠范围重置才丢弃', async () => {
     const wrapper = mount(ProtocolFieldEditor, { props: { field: objectField, modelValue: { path: '/keep' } } })
-    await wrapper.find('.ant-switch').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     await wrapper.find('textarea').setValue('{"path":"/draft"}')
     await wrapper.setProps({ jsonResetVersions: { smux: 1 } })
     expect(wrapper.text()).toContain('JSON 草稿未应用')
@@ -50,7 +86,7 @@ describe('ProtocolFieldEditor', () => {
       props: { field: objectField, modelValue: { path: '/ws' } },
     })
 
-    await wrapper.find('.ant-switch').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     const textarea = wrapper.find('textarea')
     expect(textarea.exists()).toBe(true)
     await textarea.setValue('{')
@@ -65,7 +101,7 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field: objectField, modelValue: { path: '/old' } },
     })
-    await wrapper.find('.ant-switch').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue('{"path":"/new"}')
 
@@ -86,7 +122,7 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field: objectField, modelValue: { path: '/keep' } },
     })
-    await wrapper.find('.ant-switch').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue('{"path":"/draft"}')
 
@@ -103,7 +139,7 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field: objectField, modelValue: { path: '/old' } },
     })
-    await wrapper.find('.ant-switch').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue('{"path":"/new"}')
 

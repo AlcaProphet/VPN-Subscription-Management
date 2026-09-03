@@ -271,9 +271,67 @@ func enrichFirstBatchProtocols(protocols []Protocol) {
 		case "ss":
 			enrichSS(&protocols[i])
 		}
+		organizeFirstBatchForm(&protocols[i])
 		setCanonicalPaths(protocols[i].FormSchema, "")
 		setScalarFeatures(protocols[i].FormSchema)
 	}
+}
+
+// organizeFirstBatchForm 只调整首批协议的展示顺序与层次，不改变规范路径和存储结构。
+func organizeFirstBatchForm(p *Protocol) {
+	var order []string
+	switch p.Protocol {
+	case "vless":
+		order = []string{"uuid", "network", "security", "flow", "ws-opts", "grpc-opts", "h2-opts", "http-opts", "xhttp-opts", "servername", "client-fingerprint", "reality-opts", "alpn", "fingerprint"}
+	case "vmess":
+		order = []string{"uuid", "network", "security", "cipher", "ws-opts", "grpc-opts", "h2-opts", "http-opts", "servername", "client-fingerprint", "alpn", "fingerprint"}
+	case "trojan":
+		order = []string{"password", "network", "ws-opts", "grpc-opts", "sni", "client-fingerprint", "alpn", "fingerprint"}
+	case "ss":
+		order = []string{"password", "cipher", "plugin", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts", "client-fingerprint"}
+		updateField(p.FormSchema, "client-fingerprint", func(field *FieldSchema) {
+			setPluginCondition(field, "shadow-tls", "restls")
+		})
+	default:
+		return
+	}
+	for _, parent := range []string{"ws-opts", "v2ray-plugin-opts"} {
+		for _, name := range []string{"max-early-data", "early-data-header-name", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "mux", "version"} {
+			updateNestedField(p.FormSchema, parent, name, func(field *FieldSchema) { field.Advanced = true })
+		}
+	}
+	updateNestedField(p.FormSchema, "restls-opts", "restls-script", func(field *FieldSchema) { field.Advanced = true })
+	// 兼容/性能开关集中进“更多开关”，其余参数仍留在原结构化区域。
+	var classify func([]FieldSchema, bool)
+	classify = func(fields []FieldSchema, inheritedAdvanced bool) {
+		for i := range fields {
+			field := &fields[i]
+			advanced := inheritedAdvanced || field.Advanced || field.Group == "advanced"
+			if field.Type == "bool" {
+				field.Group = "switches"
+				field.Advanced = advanced
+			}
+			classify(field.Properties, advanced)
+		}
+	}
+	classify(p.FormSchema, false)
+	ordered := make([]FieldSchema, 0, len(p.FormSchema))
+	seen := make(map[string]bool, len(order))
+	for _, name := range order {
+		for _, field := range p.FormSchema {
+			if field.Name == name {
+				ordered = append(ordered, field)
+				seen[name] = true
+				break
+			}
+		}
+	}
+	for _, field := range p.FormSchema {
+		if !seen[field.Name] {
+			ordered = append(ordered, field)
+		}
+	}
+	p.FormSchema = ordered
 }
 
 func setDefaultFieldGroup(field *FieldSchema) {

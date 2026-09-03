@@ -3,8 +3,9 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
-import type { ConditionRule, CurrentState, FieldSchema } from '@/api/node'
+import type { CurrentState, FieldSchema } from '@/api/node'
 import { pathContains } from '@/utils/nodeFeatures'
+import { hasConfiguredValue, matchesCondition } from '@/utils/nodeFormLayout'
 
 const props = withDefaults(defineProps<{
   field: FieldSchema
@@ -14,6 +15,7 @@ const props = withDefaults(defineProps<{
   path?: string
   currentState?: CurrentState
   jsonResetVersions?: Record<string, number>
+  centralizedSwitches?: boolean
 }>(), {
   modelValue: undefined,
   sensitivePaths: () => [],
@@ -21,6 +23,7 @@ const props = withDefaults(defineProps<{
   path: '',
   currentState: undefined,
   jsonResetVersions: () => ({}),
+  centralizedSwitches: false,
 })
 
 const emit = defineEmits<{
@@ -49,21 +52,12 @@ const unknownCount = computed(() => Object.keys(objectValue.value).filter((key) 
 const mapEntries = computed(() => Object.entries(objectValue.value))
 const sensitive = computed(() => props.field.type === 'password' || props.sensitivePaths.includes(fieldPath.value))
 
-function matchesCondition(rule?: ConditionRule): boolean {
-  if (!rule) return true
-  if (!props.currentState) return true
-  const state = props.currentState
-  if (rule.network && rule.network.length > 0 && !rule.network.includes(state.network ?? '')) return false
-  if (rule.security && rule.security.length > 0 && !rule.security.includes(state.security ?? '')) return false
-  const plugin = state.plugin ?? ''
-  if (rule.plugin && rule.plugin.length > 0 && !rule.plugin.includes(plugin)) return false
-  if (rule.features && rule.features.length > 0 && !rule.features.some((item) => (state.features ?? []).includes(item))) return false
-  return true
-}
-
 function visibleProperties(properties?: FieldSchema[]): FieldSchema[] {
-  return (properties ?? []).filter((property) => matchesCondition(property.when))
+  return (properties ?? []).filter((property) => matchesCondition(property.when, props.currentState))
 }
+const structuredProperties = computed(() => visibleProperties(props.field.properties)
+  .filter((field) => !props.centralizedSwitches || field.type !== 'bool'))
+const advancedCount = computed(() => structuredProperties.value.filter((field) => field.advanced && hasConfiguredValue(childValue(field.name))).length)
 const shownCredentialState = computed(() => {
   if (props.credentialState) return props.credentialState
   return props.sensitivePaths.includes(fieldPath.value) ? 'saved' : 'unset'
@@ -101,6 +95,7 @@ function emitJsonDirty(dirty: boolean) {
 }
 
 function setAdvanced(next: boolean) {
+  if (next === advanced.value) return
   if (!next && jsonError.value) return
   if (next) {
     jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
@@ -278,16 +273,16 @@ function isComplex(value: unknown): boolean {
 </script>
 
 <template>
-  <div v-if="field.type === 'object'" class="protocol-object-field rounded-lg border p-3">
-    <div class="flex items-center justify-between gap-3 mb-3">
+  <div v-if="field.type === 'object'" :data-field-path="fieldPath" class="protocol-object-field rounded-lg border p-3">
+    <div class="protocol-object-toolbar flex items-center justify-between gap-3 mb-3">
       <div>
         <div class="text-sm font-medium text-text">{{ field.label }}</div>
         <div v-if="field.help" class="text-xs text-text-tertiary mt-1">{{ field.help }}</div>
       </div>
-      <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
-        <Switch :checked="advanced" size="small" @change="(value: any) => setAdvanced(Boolean(value))" />
-        <span>{{ advanced ? '高级 JSON' : '结构化编辑' }}</span>
-      </label>
+      <div class="protocol-editor-mode flex shrink-0" role="group" :aria-label="`${field.label}编辑模式`">
+        <Button :type="!advanced ? 'primary' : 'default'" :aria-pressed="!advanced" :disabled="!!jsonError" @click="setAdvanced(false)">结构化编辑</Button>
+        <Button :type="advanced ? 'primary' : 'default'" :aria-pressed="advanced" @click="setAdvanced(true)">高级 JSON</Button>
+      </div>
     </div>
 
     <div v-if="advanced">
@@ -345,9 +340,13 @@ function isComplex(value: unknown): boolean {
     </template>
 
     <template v-else>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <component :is="tier ? 'details' : 'div'" v-for="tier in [false, true]" :key="String(tier)"
+        v-show="structuredProperties.some((property) => !!property.advanced === tier)"
+        :class="tier ? 'protocol-object-advanced rounded-md border p-3 mt-3' : ''">
+        <summary v-if="tier" class="cursor-pointer text-sm font-medium">高级参数（已配置 {{ advancedCount }} 项）</summary>
+        <div class="protocol-fields-grid grid grid-cols-1 md:grid-cols-2 gap-3 items-start" :class="tier ? 'mt-3' : ''">
         <ProtocolFieldEditor
-          v-for="property in visibleProperties(field.properties)"
+          v-for="property in structuredProperties.filter((property) => !!property.advanced === tier)"
           :key="property.name"
           :field="property"
           :model-value="childValue(property.name)"
@@ -355,24 +354,27 @@ function isComplex(value: unknown): boolean {
           :path="`${fieldPath}.${property.name}`"
           :current-state="currentState"
           :json-reset-versions="jsonResetVersions"
+          :centralized-switches="centralizedSwitches"
           :class="property.type === 'object' ? 'md:col-span-2' : ''"
           @update:model-value="(value: unknown) => setChild(property.name, value)"
           @validity-change="forwardValidity"
           @json-dirty-change="forwardJsonDirty"
         />
-      </div>
+        </div>
+      </component>
+      <div v-if="centralizedSwitches && visibleProperties(field.properties).some((property) => property.type === 'bool')" class="text-xs text-text-tertiary mt-2">运行开关位于“独立开关”区域。</div>
       <div v-if="unknownCount" class="text-xs text-text-tertiary mt-3">
         已保留 {{ unknownCount }} 个未识别参数，可在高级 JSON 中查看和编辑。
       </div>
     </template>
   </div>
 
-  <label v-else-if="field.type === 'bool'" class="protocol-switch-field flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm text-text-secondary">
-    <span>{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></span>
-    <Switch :checked="Boolean(modelValue ?? field.default ?? false)" @change="(value: any) => update(Boolean(value))" />
+  <label v-else-if="field.type === 'bool'" :data-field-path="fieldPath" class="protocol-switch-field flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm text-text-secondary">
+    <span>{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span><span v-if="field.help" class="block text-xs text-text-tertiary">{{ field.help }}</span></span>
+    <Switch :aria-label="field.label" :checked="Boolean(modelValue ?? field.default ?? false)" @change="(value: any) => update(Boolean(value))" />
   </label>
 
-  <div v-else class="protocol-scalar-field">
+  <div v-else :data-field-path="fieldPath" class="protocol-scalar-field">
     <label class="text-sm text-text-secondary">{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></label>
     <Input.Password v-if="sensitive" :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => update(event.target.value)" />
     <InputNumber v-else-if="field.type === 'number'" :value="Number(modelValue ?? field.default ?? 0)" class="w-full" @change="(value: any) => update(value ?? 0)" />
@@ -383,7 +385,7 @@ function isComplex(value: unknown): boolean {
     <div v-else-if="field.type === 'text-list' || field.type === 'int-list'" class="protocol-list-editor space-y-2">
       <div v-for="(item, index) in scalarListItems" :key="index" class="flex items-center gap-2">
         <Input :value="item" :placeholder="field.type === 'int-list' ? '数字' : '条目'" @change="(event: any) => setScalarListItem(index, event.target.value)" />
-        <Button size="small" danger @click="removeScalarListItem(index)">删除</Button>
+        <Button danger @click="removeScalarListItem(index)">删除</Button>
       </div>
       <div v-if="scalarListItems.length === 0" class="text-xs text-text-tertiary">暂无条目</div>
       <Button size="small" @click="addScalarListItem">新增条目</Button>
@@ -397,3 +399,18 @@ function isComplex(value: unknown): boolean {
     <div v-if="field.help" class="text-xs text-text-tertiary mt-1">{{ field.help }}</div>
   </div>
 </template>
+
+<style scoped>
+.protocol-fields-grid { align-items: start; }
+.protocol-switch-field { min-height: 44px; align-self: start; }
+.protocol-switch-field :deep(.ant-switch) { flex-shrink: 0; min-height: 22px; height: 22px; }
+.protocol-scalar-field { min-width: 0; }
+.protocol-scalar-field > label { display: block; margin-bottom: 6px; }
+.protocol-editor-mode .ant-btn { border-radius: 0; }
+.protocol-editor-mode .ant-btn:first-child { border-radius: 6px 0 0 6px; }
+.protocol-editor-mode .ant-btn:last-child { border-radius: 0 6px 6px 0; }
+@media (max-width: 767px) {
+  .protocol-object-toolbar { align-items: flex-start; flex-direction: column; }
+  .protocol-object-field :deep(.ant-btn), .protocol-list-editor :deep(.ant-btn) { min-height: 44px; }
+}
+</style>

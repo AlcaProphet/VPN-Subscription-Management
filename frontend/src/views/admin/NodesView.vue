@@ -1,8 +1,8 @@
 <!-- NodesView.vue：节点管理页（Design2-UI §6）——manual/xray 双态列表 + 动态表单 -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
-import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type ImportLineResult, type FieldSchema, type CurrentState, type ConditionRule, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type ImportLineResult, type FieldSchema, type CurrentState, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
 import FormSection from '@/components/FormSection.vue'
@@ -13,6 +13,7 @@ import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
 import { activeFeatures, cleanDisabledFeatures, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
+import { collectSwitchFields, fieldGroup, hasConfiguredValue, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 
 const loading = ref(false)
 const nodes = ref<NodeItem[]>([])
@@ -79,16 +80,6 @@ function currentSchema(): ProtocolInfo | null {
 function hasSchemaField(name: string): boolean {
   return currentSchema()?.form_schema.some((field) => field.name === name) ?? false
 }
-function matchesCondition(rule: ConditionRule | undefined, state: CurrentState, target?: string): boolean {
-  if (!rule) return true
-  if (rule.network && rule.network.length > 0 && !rule.network.includes(state.network ?? '')) return false
-  if (rule.security && rule.security.length > 0 && !rule.security.includes(state.security ?? '')) return false
-  const plugin = state.plugin ?? ''
-  if (rule.plugin && rule.plugin.length > 0 && !rule.plugin.includes(plugin)) return false
-  if (rule.features && rule.features.length > 0 && !rule.features.some((item) => (state.features ?? []).includes(item))) return false
-  if (target && rule.targets && rule.targets.length > 0 && !rule.targets.includes(target)) return false
-  return true
-}
 const currentState = computed<CurrentState>(() => {
   const params = form.protocol_json as Record<string, any>
   const state: CurrentState = {}
@@ -115,18 +106,33 @@ const currentState = computed<CurrentState>(() => {
 function fieldVisible(field: FieldSchema): boolean {
   return matchesCondition(field.when, currentState.value)
 }
-function fieldGroup(field: FieldSchema): string {
-  if (field.group) return field.group
-  switch (field.section) {
-    case 'auth': return 'auth'
-    case 'transport': return 'connection'
-    case 'security': return 'connection'
-    case 'switches': return 'switches'
-    default: return 'advanced'
-  }
-}
 function groupFields(group: string): FieldSchema[] {
-  return currentSchema()?.form_schema.filter((field) => fieldGroup(field) === group && fieldVisible(field)) ?? []
+  return currentSchema()?.form_schema.filter((field) => field.type !== 'bool' && fieldGroup(field) === group && fieldVisible(field)) ?? []
+}
+const switchFields = computed(() => collectSwitchFields(currentSchema()?.form_schema ?? [], currentState.value))
+const configuredSwitchCount = computed(() => switchFields.value.filter((item) => item.advanced && hasConfiguredValue(valueAtPath(form.protocol_json, item.path))).length)
+
+function setSwitchField(path: string, value: unknown) {
+  const [root, ...segments] = path.split('.')
+  setField(root, replaceNestedValue(form.protocol_json[root], segments, value))
+  // 集中开关与局部 JSON 共用同一对象；直接修改后旧 JSON 草稿不得覆盖新值。
+  jsonResetVersions[path] = (jsonResetVersions[path] ?? 0) + 1
+}
+
+async function revealField(path: string) {
+  await nextTick()
+  const fields = Array.from(document.querySelectorAll<HTMLElement>('.node-protocol-form [data-field-path]'))
+  const target = fields.find((field) => field.dataset.fieldPath === path)
+    ?? fields.filter((field) => pathContains(field.dataset.fieldPath ?? '', path)).sort((a, b) => (b.dataset.fieldPath?.length ?? 0) - (a.dataset.fieldPath?.length ?? 0))[0]
+  if (!target) return
+  for (let parent = target.parentElement; parent; parent = parent.parentElement) {
+    if (parent instanceof HTMLDetailsElement) parent.open = true
+  }
+  await nextTick()
+  target.scrollIntoView?.({ block: 'center', behavior: 'auto' })
+  const control = target.querySelector<HTMLElement>('textarea:not(:disabled), input:not(:disabled)')
+    ?? target.querySelector<HTMLElement>('button:not(:disabled), [tabindex]')
+  control?.focus()
 }
 function fieldByName(name: string): FieldSchema | undefined {
   return currentSchema()?.form_schema.find((field) => field.name === name)
@@ -441,10 +447,12 @@ function openEdit(n: NodeItem) {
 async function save() {
   if (invalidProtocolPaths.size > 0) {
     Notify.warning('请先修正协议对象参数中的格式错误')
+    await revealField([...invalidProtocolPaths][0])
     return
   }
   if (unappliedJsonPaths.size > 0) {
     Notify.warning('存在未应用的 JSON 草稿，请先应用或放弃后再保存')
+    await revealField([...unappliedJsonPaths][0])
     return
   }
   saving.value = true
@@ -478,6 +486,12 @@ async function save() {
       Notify.warning(conflictError.value)
     } else {
       Notify.error((err as Error).message)
+      // 服务端校验消息使用规范路径；只匹配当前实际字段，不猜测其它区域。
+      const message = (err as Error).message
+      const paths = Array.from(document.querySelectorAll<HTMLElement>('.node-protocol-form [data-field-path]'))
+        .map((field) => field.dataset.fieldPath!).sort((a, b) => b.length - a.length)
+      const path = paths.find((item) => message.includes(item))
+      if (path) await revealField(path)
     }
   } finally {
     saving.value = false
@@ -725,6 +739,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <FormSection v-if="groupFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值；新建时必须填写。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('auth')" :key="field.name" :field="field"
+              centralized-switches
               :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
@@ -733,29 +748,33 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         </FormSection>
 
         <FormSection v-if="groupFields('connection').length" title="连接方式与当前参数" help="按当前协议、传输、安全与插件组合动态展示；切换分支时清空旧分支参数。">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ProtocolFieldEditor v-for="field in groupFields('connection')" :key="field.name" :field="field"
+          <component :is="tier ? 'details' : 'div'" v-for="tier in [false, true]" :key="String(tier)"
+            v-show="groupFields('connection').some((field) => !!field.advanced === tier)"
+            :class="tier ? 'rounded-md border p-3 mt-3' : ''">
+            <summary v-if="tier" class="cursor-pointer font-medium">更多连接参数（已配置 {{ groupFields('connection').filter((field) => field.advanced && hasConfiguredValue(fieldValue(field.name))).length }} 项）</summary>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-start" :class="tier ? 'mt-3' : ''">
+            <ProtocolFieldEditor v-for="field in groupFields('connection').filter((field) => !!field.advanced === tier)" :key="field.name" :field="field"
+              centralized-switches
               :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
-          </div>
+            </div>
+          </component>
         </FormSection>
 
-        <FormSection v-if="groupFields('switches').length" title="独立开关" help="当前组合适用的布尔开关；常用开关直接展示，更多开关默认折叠。">
+        <FormSection v-if="switchFields.length" title="独立开关" help="当前组合适用的运行开关；嵌套开关标明所属功能，参数仍在对应结构化区域编辑。">
           <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ProtocolFieldEditor v-for="field in groupFields('switches').filter((item) => !item.advanced)" :key="field.name" :field="field"
-              :json-reset-versions="jsonResetVersions"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
+            <ProtocolFieldEditor v-for="item in switchFields.filter((item) => !item.advanced)" :key="item.path" :field="item.field" :path="item.path"
+              :model-value="valueAtPath(form.protocol_json, item.path)" :current-state="currentState"
+              @update:model-value="(value: unknown) => setSwitchField(item.path, value)" />
           </div>
-          <details v-if="groupFields('switches').some((item) => item.advanced)" class="mt-3 rounded-lg border p-3">
-            <summary class="cursor-pointer text-sm font-medium">更多开关</summary>
+          <details v-if="switchFields.some((item) => item.advanced)" class="node-more-switches mt-3 rounded-lg border p-3">
+            <summary class="cursor-pointer text-sm font-medium">更多开关（已配置 {{ configuredSwitchCount }} 项）</summary>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-              <ProtocolFieldEditor v-for="field in groupFields('switches').filter((item) => item.advanced)" :key="field.name" :field="field"
-                :json-reset-versions="jsonResetVersions"
-                :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
-                @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
+              <ProtocolFieldEditor v-for="item in switchFields.filter((item) => item.advanced)" :key="item.path" :field="item.field" :path="item.path"
+                :model-value="valueAtPath(form.protocol_json, item.path)" :current-state="currentState"
+                @update:model-value="(value: unknown) => setSwitchField(item.path, value)" />
             </div>
           </details>
         </FormSection>
@@ -765,6 +784,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           <p class="text-xs text-text-secondary mt-2">性能、路由、调优与兼容参数；默认折叠。</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
             <ProtocolFieldEditor v-for="field in groupFields('advanced')" :key="field.name" :field="field"
+              centralized-switches
               :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
@@ -877,3 +897,28 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
 
   </div>
 </template>
+
+<style scoped>
+.node-protocol-form :deep(.protocol-scalar-field > .ant-input),
+.node-protocol-form :deep(.ant-input-affix-wrapper),
+.node-protocol-form :deep(.ant-input-number),
+.node-protocol-form :deep(.ant-select-single .ant-select-selector),
+.node-protocol-form :deep(.editable-combobox > input),
+.node-protocol-form :deep(.protocol-list-editor .ant-input),
+.node-protocol-form :deep(.protocol-list-editor .ant-btn) { min-height: 32px; }
+.node-protocol-form :deep(.editable-combobox > input) {
+  height: 32px; padding: 4px 11px; border-color: var(--ui-border); background: var(--ui-surface); color: var(--ui-text);
+}
+.node-protocol-form :deep(.editable-combobox > div) { background: var(--ui-surface-raised); }
+.node-protocol-form :deep(.editable-combobox button:hover) { background: var(--ui-surface-subtle); }
+@media (max-width: 767px) {
+  .node-protocol-form :deep(.ant-input:not(textarea)),
+  .node-protocol-form :deep(.ant-input-affix-wrapper),
+  .node-protocol-form :deep(.ant-input-number),
+  .node-protocol-form :deep(.ant-input-number-input),
+  .node-protocol-form :deep(.ant-select-single .ant-select-selector),
+  .node-protocol-form :deep(.editable-combobox > input) { min-height: 44px; }
+  .node-protocol-form :deep(.ant-input-affix-wrapper > .ant-input) { min-height: 0; }
+  .node-protocol-form :deep(.ant-select-single .ant-select-selection-item) { line-height: 42px; }
+}
+</style>
