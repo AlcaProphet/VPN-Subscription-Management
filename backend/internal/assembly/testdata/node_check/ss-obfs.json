@@ -6,7 +6,7 @@
     "cipher": "aes-256-gcm",
     "password": "shadowsocks-password",
     "plugin": "obfs",
-    "plugin-opts": {
+    "obfs-opts": {
       "mode": "http",
       "host": "cdn.example.com"
     }

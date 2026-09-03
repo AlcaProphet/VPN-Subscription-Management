@@ -55,7 +55,7 @@ func TestRealityDoesNotReadLegacyTopLevelKeys(t *testing.T) {
 		t.Fatalf("不应读取旧顶层 REALITY 字段: %#v", got)
 	}
 	link, err := Render("ss", "节点", "example.com", 443, map[string]any{
-		"cipher": "aes-256-gcm", "password": "p", "plugin": "shadow-tls", "plugin-opts": map[string]any{"host": "cdn.example.com"},
+		"cipher": "aes-256-gcm", "password": "p", "plugin": "shadow-tls", "shadow-tls-opts": map[string]any{"host": "cdn.example.com"},
 	}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestBuild18FixedURIExamples(t *testing.T) {
 	t.Run("SS obfs", func(t *testing.T) {
 		link, err := Render("ss", "节点", "example.com", 8388, map[string]any{
 			"cipher": "aes-256-gcm", "password": "password", "plugin": "obfs",
-			"plugin-opts": map[string]any{"mode": "http", "host": "cdn.example.com"},
+			"obfs-opts": map[string]any{"mode": "http", "host": "cdn.example.com"},
 		}, false)
 		if err != nil {
 			t.Fatal(err)

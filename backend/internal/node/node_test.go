@@ -120,8 +120,8 @@ func TestRegistryUsesMihomoNativeFields(t *testing.T) {
 		}
 	}
 	ss, _ := GetProtocol("ss")
-	if !contains(ss.SensitiveFields, "plugin-opts.password") {
-		t.Fatal("SS 应声明嵌套插件密码")
+	if !contains(ss.SensitiveFields, "shadow-tls-opts.password") || !contains(ss.SensitiveFields, "restls-opts.password") {
+		t.Fatal("SS 应声明各插件独立的嵌套插件密码")
 	}
 }
 
@@ -233,7 +233,7 @@ func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
 		Name: "插件节点", Protocol: "ss", Host: "example.com", Port: 443,
 		ProtocolJSON: map[string]any{
 			"cipher": "aes-256-gcm", "password": "main-secret",
-			"plugin": "shadow-tls", "plugin-opts": map[string]any{"host": "cdn.example.com", "password": "nested-secret"},
+			"plugin": "shadow-tls", "shadow-tls-opts": map[string]any{"host": "cdn.example.com", "password": "nested-secret"},
 		},
 	})
 	if err != nil {
@@ -243,7 +243,7 @@ func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nested, ok := GetPath(raw.ProtocolJSON, "plugin-opts.password")
+	nested, ok := GetPath(raw.ProtocolJSON, "shadow-tls-opts.password")
 	if !ok || !strings.HasPrefix(nested.(string), encPrefix) {
 		t.Fatalf("嵌套密码未加密: %#v", nested)
 	}
@@ -251,7 +251,7 @@ func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, _ := GetPath(visible.ProtocolJSON, "plugin-opts.password"); value != "" {
+	if value, _ := GetPath(visible.ProtocolJSON, "shadow-tls-opts.password"); value != "" {
 		t.Fatalf("嵌套密码未脱敏: %#v", value)
 	}
 	_, err = svc.UpdateManual(ctx, created.ID, UpdateManualInput{
@@ -259,7 +259,7 @@ func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
 		BaseRevision: 1,
 		ProtocolJSON: map[string]any{
 			"cipher": "aes-256-gcm", "password": "",
-			"plugin": "shadow-tls", "plugin-opts": map[string]any{"host": "next.example.com", "password": ""},
+			"plugin": "shadow-tls", "shadow-tls-opts": map[string]any{"host": "next.example.com", "password": ""},
 		},
 	})
 	if err != nil {
@@ -269,7 +269,7 @@ func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preserved, _ := GetPath(updated.ProtocolJSON, "plugin-opts.password")
+	preserved, _ := GetPath(updated.ProtocolJSON, "shadow-tls-opts.password")
 	if preserved != nested {
 		t.Fatalf("留空未保留嵌套密文: old=%v new=%v", nested, preserved)
 	}

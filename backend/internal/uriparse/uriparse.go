@@ -123,15 +123,15 @@ func parseSS(s string) (*Result, error) {
 	params := map[string]any{"cipher": cipher, "password": password}
 	q := query
 	if plugin := q.Get("plugin"); plugin != "" {
-		params["plugin"], params["plugin-opts"] = parseSSPlugin(plugin)
+		name, opts := parseSSPlugin(plugin)
+		params["plugin"] = name
+		setSSPluginOpts(params, name, opts)
 	}
 	if v := q.Get("v2ray-plugin"); v != "" && params["plugin"] == nil {
 		params["plugin"] = "v2ray-plugin"
 		var opts map[string]any
 		_ = json.Unmarshal([]byte(decodeBase64OrOriginal(v)), &opts)
-		if opts != nil {
-			params["plugin-opts"] = opts
-		}
+		setSSPluginOpts(params, "v2ray-plugin", opts)
 	}
 	if _, ok := q["uot"]; ok && parseBoolPresence(q.Get("uot")) {
 		params["udp-over-tcp"] = true
@@ -169,6 +169,22 @@ func parseSSPlugin(raw string) (string, map[string]any) {
 		return plugin, nil
 	}
 	return plugin, opts
+}
+
+func setSSPluginOpts(params map[string]any, plugin string, opts map[string]any) {
+	if len(opts) == 0 {
+		return
+	}
+	switch plugin {
+	case "obfs":
+		params["obfs-opts"] = opts
+	case "v2ray-plugin":
+		params["v2ray-plugin-opts"] = opts
+	case "shadow-tls":
+		params["shadow-tls-opts"] = opts
+	case "restls":
+		params["restls-opts"] = opts
+	}
 }
 
 func parseVMess(s string) (*Result, error) {

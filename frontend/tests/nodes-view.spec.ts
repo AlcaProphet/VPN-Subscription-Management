@@ -373,4 +373,49 @@ describe('NodesView 节点管理页', () => {
     expect(payload.extension_ops).toEqual([{ op: 'clear', id: 'ext-1' }])
     wrapper.unmount()
   })
+
+  it('SS 按插件显示独立对象，递归字段不混排', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'ss',
+      label: 'Shadowsocks',
+      form_schema: [
+        { name: 'cipher', type: 'text', required: true, label: '加密方式', group: 'connection' },
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        {
+          name: 'plugin', type: 'select', required: false, label: '插件', group: 'connection', default: '',
+          option_items: [{ value: '', label: '不使用插件' }, { value: 'obfs', label: 'obfs' }, { value: 'v2ray-plugin', label: 'v2ray-plugin' }],
+        },
+        {
+          name: 'obfs-opts', type: 'object', required: false, label: 'obfs 参数', group: 'connection',
+          object_kind: 'fields', allow_unknown: true, when: { plugin: ['obfs'] },
+          properties: [
+            { name: 'mode', type: 'select', required: false, label: '模式', option_items: [{ value: 'http', label: 'HTTP' }, { value: 'tls', label: 'TLS' }] },
+          ],
+        },
+        {
+          name: 'v2ray-plugin-opts', type: 'object', required: false, label: 'v2ray-plugin 参数', group: 'connection',
+          object_kind: 'fields', allow_unknown: true, when: { plugin: ['v2ray-plugin'] },
+          properties: [{ name: 'tls', type: 'bool', required: false, label: 'TLS' }],
+        },
+      ],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      form: { protocol: string; protocol_json: Record<string, unknown> }
+    }
+    vm.openCreate()
+    vm.form.protocol = 'ss'
+    vm.form.protocol_json = { plugin: 'obfs' }
+    await nextTick()
+
+    expect(document.body.textContent).toContain('obfs 参数')
+    expect(document.body.textContent).toContain('模式')
+    expect(document.body.textContent).not.toContain('v2ray-plugin 参数')
+    expect(document.body.textContent).not.toContain('TLS')
+    wrapper.unmount()
+  })
 })

@@ -394,6 +394,9 @@ func normalizeProtocolParameters(proto Protocol, params map[string]any) map[stri
 		}
 	}
 	canonicalizeTransportAliases(proto, out)
+	if proto.Protocol == "ss" {
+		canonicalizeSSPluginOpts(out)
+	}
 	return out
 }
 

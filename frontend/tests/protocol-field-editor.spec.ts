@@ -133,4 +133,32 @@ describe('ProtocolFieldEditor', () => {
     const updateEvents = wrapper.emitted('update:modelValue') ?? []
     expect(updateEvents[updateEvents.length - 1]).toEqual([[{}]])
   })
+
+  it('对象子字段按当前插件状态递归执行 when', async () => {
+    const pluginField: FieldSchema = {
+      name: 'plugin-opts',
+      type: 'object',
+      required: false,
+      label: '插件参数',
+      object_kind: 'fields',
+      allow_unknown: true,
+      properties: [
+        { name: 'mode', type: 'select', required: false, label: '模式', when: { plugin: ['obfs'] } },
+        { name: 'host', type: 'text', required: false, label: 'Host', when: { plugin: ['obfs', 'v2ray-plugin'] } },
+        { name: 'tls', type: 'bool', required: false, label: 'TLS', when: { plugin: ['v2ray-plugin'] } },
+      ],
+    }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: {
+        field: pluginField,
+        modelValue: { mode: 'http', host: 'cdn.example.com' },
+        currentState: { plugin: 'obfs' },
+      },
+    })
+
+    expect(wrapper.text()).toContain('模式')
+    expect(wrapper.text()).toContain('Host')
+    expect(wrapper.text()).not.toContain('TLS')
+    wrapper.unmount()
+  })
 })

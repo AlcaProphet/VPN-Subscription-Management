@@ -3,7 +3,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
-import type { FieldSchema } from '@/api/node'
+import type { ConditionRule, CurrentState, FieldSchema } from '@/api/node'
 
 const props = withDefaults(defineProps<{
   field: FieldSchema
@@ -11,11 +11,13 @@ const props = withDefaults(defineProps<{
   sensitivePaths?: string[]
   credentialState?: 'unset' | 'saved' | 'replacing' | 'cleared'
   path?: string
+  currentState?: CurrentState
 }>(), {
   modelValue: undefined,
   sensitivePaths: () => [],
   credentialState: undefined,
   path: '',
+  currentState: undefined,
 })
 
 const emit = defineEmits<{
@@ -43,6 +45,22 @@ const knownNames = computed(() => new Set((props.field.properties ?? []).map((it
 const unknownCount = computed(() => Object.keys(objectValue.value).filter((key) => !knownNames.value.has(key)).length)
 const mapEntries = computed(() => Object.entries(objectValue.value))
 const sensitive = computed(() => props.field.type === 'password' || props.sensitivePaths.includes(fieldPath.value))
+
+function matchesCondition(rule?: ConditionRule): boolean {
+  if (!rule) return true
+  if (!props.currentState) return true
+  const state = props.currentState
+  if (rule.network && rule.network.length > 0 && !rule.network.includes(state.network ?? '')) return false
+  if (rule.security && rule.security.length > 0 && !rule.security.includes(state.security ?? '')) return false
+  const plugin = state.plugin ?? ''
+  if (rule.plugin && rule.plugin.length > 0 && !rule.plugin.includes(plugin)) return false
+  if (rule.features && rule.features.length > 0 && !rule.features.some((item) => (state.features ?? []).includes(item))) return false
+  return true
+}
+
+function visibleProperties(properties?: FieldSchema[]): FieldSchema[] {
+  return (properties ?? []).filter((property) => matchesCondition(property.when))
+}
 const shownCredentialState = computed(() => {
   if (props.credentialState) return props.credentialState
   return props.sensitivePaths.includes(fieldPath.value) ? 'saved' : 'unset'
@@ -299,12 +317,13 @@ function isComplex(value: unknown): boolean {
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor
-              v-for="property in field.properties ?? []"
+              v-for="property in visibleProperties(field.properties)"
               :key="property.name"
               :field="property"
               :model-value="item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>)[property.name] : undefined"
               :sensitive-paths="sensitivePaths"
               :path="`${fieldPath}[${index}].${property.name}`"
+              :current-state="currentState"
               @update:model-value="(value: unknown) => setListChild(index, property.name, value)"
               @validity-change="forwardValidity"
               @json-dirty-change="forwardJsonDirty"
@@ -319,12 +338,13 @@ function isComplex(value: unknown): boolean {
     <template v-else>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <ProtocolFieldEditor
-          v-for="property in field.properties ?? []"
+          v-for="property in visibleProperties(field.properties)"
           :key="property.name"
           :field="property"
           :model-value="childValue(property.name)"
           :sensitive-paths="sensitivePaths"
           :path="`${fieldPath}.${property.name}`"
+          :current-state="currentState"
           :class="property.type === 'object' ? 'md:col-span-2' : ''"
           @update:model-value="(value: unknown) => setChild(property.name, value)"
           @validity-change="forwardValidity"

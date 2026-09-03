@@ -727,7 +727,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <FormSection v-if="groupFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值；新建时必须填写。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('auth')" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
@@ -736,7 +736,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <FormSection v-if="groupFields('connection').length" title="连接方式与当前参数" help="按当前协议、传输、安全与插件组合动态展示；切换分支时清空旧分支参数。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('connection')" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
@@ -745,14 +745,14 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <FormSection v-if="groupFields('switches').length" title="独立开关" help="当前组合适用的布尔开关；常用开关直接展示，更多开关默认折叠。">
           <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('switches').filter((item) => !item.advanced)" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
           <details v-if="groupFields('switches').some((item) => item.advanced)" class="mt-3 rounded-lg border p-3">
             <summary class="cursor-pointer text-sm font-medium">更多开关</summary>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
               <ProtocolFieldEditor v-for="field in groupFields('switches').filter((item) => item.advanced)" :key="field.name" :field="field"
-                :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
+                :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
                 @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
             </div>
           </details>
@@ -763,7 +763,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           <p class="text-xs text-text-secondary mt-2">性能、路由、调优与兼容参数；默认折叠。</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
             <ProtocolFieldEditor v-for="field in groupFields('advanced')" :key="field.name" :field="field"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>

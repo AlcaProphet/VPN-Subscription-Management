@@ -34,6 +34,24 @@ func TestParseSSAndVLESS(t *testing.T) {
 	}
 }
 
+func TestParseSSPluginToSplitOpts(t *testing.T) {
+	uri := "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dcdn.example.com#SS"
+	r, err := Parse(uri)
+	if err != nil {
+		t.Fatalf("ss 插件解析失败: %v", err)
+	}
+	if r.Params["plugin"] != "obfs" {
+		t.Fatalf("ss 插件名未归一化: %#v", r.Params)
+	}
+	obfs, ok := r.Params["obfs-opts"].(map[string]any)
+	if !ok || obfs["mode"] != "http" || obfs["host"] != "cdn.example.com" {
+		t.Fatalf("ss 插件参数未拆到 obfs-opts: %#v", r.Params)
+	}
+	if _, exists := r.Params["plugin-opts"]; exists {
+		t.Fatalf("旧 plugin-opts 不应再直接生成")
+	}
+}
+
 func TestParseVMessBothForms(t *testing.T) {
 	v2json := `{"v":"2","ps":"VMess","add":"example.com","port":"443","id":"11111111-2222-3333-4444-555555555555","aid":"0","scy":"auto","net":"ws","host":"cdn.example.com","path":"/ws","tls":"tls"}`
 	raw := base64.StdEncoding.EncodeToString([]byte(v2json))

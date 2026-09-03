@@ -36,7 +36,7 @@ func srLink(nd *nodeData) (string, error) {
 		userinfo := base64.StdEncoding.EncodeToString([]byte(cipher + ":" + password))
 		q := url.Values{}
 		if plugin := str(nd.ProtocolJSON, "plugin", ""); plugin != "" {
-			q.Set("plugin", RenderPluginForTarget(plugin, object(nd.ProtocolJSON, "plugin-opts"), "sr-subs"))
+			q.Set("plugin", RenderPluginForTarget(plugin, PluginOpts(nd.ProtocolJSON, plugin), "sr-subs"))
 		}
 		return fmt.Sprintf("ss://%s@%s:%d%s#%s", userinfo, host, nd.Port, querySuffix(q), name), nil
 	case "vmess":
@@ -437,6 +437,22 @@ func transportValues(params map[string]any, network string) (path, host, mode st
 		mode = str(xhttp, "mode", "none")
 	}
 	return path, host, mode
+}
+
+// PluginOpts 从拆分后的协议参数中读取当前插件对应的独立对象。
+func PluginOpts(params map[string]any, plugin string) map[string]any {
+	switch plugin {
+	case "obfs":
+		return object(params, "obfs-opts")
+	case "v2ray-plugin":
+		return object(params, "v2ray-plugin-opts")
+	case "shadow-tls":
+		return object(params, "shadow-tls-opts")
+	case "restls":
+		return object(params, "restls-opts")
+	default:
+		return nil
+	}
 }
 
 func pluginString(name string, opts map[string]any) string {

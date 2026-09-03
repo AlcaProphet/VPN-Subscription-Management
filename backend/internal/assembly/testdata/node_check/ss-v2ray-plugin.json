@@ -6,7 +6,7 @@
     "cipher": "chacha20-ietf-poly1305",
     "password": "shadowsocks-password",
     "plugin": "v2ray-plugin",
-    "plugin-opts": {
+    "v2ray-plugin-opts": {
       "mode": "websocket",
       "host": "cdn.example.com",
       "tls": true,

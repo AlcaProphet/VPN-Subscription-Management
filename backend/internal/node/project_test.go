@@ -92,9 +92,22 @@ func TestFirstBatchGroupingAndSecurityOrdering(t *testing.T) {
 		}
 	}
 	ss, _ := GetProtocol("ss")
-	pluginOpts := findSchemaFieldMust(t, ss.FormSchema, "plugin-opts")
-	if pluginOpts.Group != "connection" {
-		t.Fatalf("SS plugin-opts 应跟随插件选择位于连接方式区: %+v", pluginOpts)
+	for _, name := range []string{"obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts"} {
+		pluginOpts := findSchemaFieldMust(t, ss.FormSchema, name)
+		if pluginOpts.Group != "connection" || !pluginOpts.ShouldReset("plugin") {
+			t.Fatalf("SS %s 应跟随插件选择位于连接方式区并随插件清空: %+v", name, pluginOpts)
+		}
+		if pluginOpts.When == nil || len(pluginOpts.When.Plugin) != 1 {
+			t.Fatalf("SS %s 应只属于单一插件: %+v", name, pluginOpts)
+		}
+	}
+	obfsMode := findNestedFieldMust(t, findSchemaFieldMust(t, ss.FormSchema, "obfs-opts"), "mode")
+	if !hasOption(obfsMode, "http") || !hasOption(obfsMode, "tls") || hasOption(obfsMode, "websocket") {
+		t.Fatalf("obfs mode 候选应仅包含 http/tls: %+v", obfsMode)
+	}
+	v2rayMode := findNestedFieldMust(t, findSchemaFieldMust(t, ss.FormSchema, "v2ray-plugin-opts"), "mode")
+	if !hasOption(v2rayMode, "websocket") || hasOption(v2rayMode, "http") || hasOption(v2rayMode, "tls") {
+		t.Fatalf("v2ray-plugin mode 候选应仅包含 websocket: %+v", v2rayMode)
 	}
 }
 
@@ -126,6 +139,33 @@ func TestProjectActiveDropsInactiveBranchesAndPreservesUnknown(t *testing.T) {
 	}
 	if projected["tls"] != true {
 		t.Fatalf("TLS 活动参数未转换为既有 tls 字段: %+v", projected)
+	}
+}
+
+func TestProjectActiveSSOnlyProjectsActivePluginOpts(t *testing.T) {
+	proto, _ := GetProtocol("ss")
+	plugin := "obfs"
+	state := CurrentState{Security: "none", Plugin: &plugin}
+	params := map[string]any{
+		"cipher": "aes-256-gcm", "password": "p", "plugin": "obfs",
+		"obfs-opts":         map[string]any{"mode": "http", "host": "cdn.example.com"},
+		"v2ray-plugin-opts": map[string]any{"mode": "websocket", "path": "/ws"},
+		"shadow-tls-opts":   map[string]any{"password": "secret"},
+		"restls-opts":       map[string]any{"path": "/restls"},
+	}
+	projected := ProjectActive(proto, state, params)
+	if _, ok := projected["v2ray-plugin-opts"]; ok {
+		t.Fatalf("不应投影非活动插件对象: %+v", projected)
+	}
+	if _, ok := projected["shadow-tls-opts"]; ok {
+		t.Fatalf("不应投影非活动插件对象: %+v", projected)
+	}
+	if _, ok := projected["restls-opts"]; ok {
+		t.Fatalf("不应投影非活动插件对象: %+v", projected)
+	}
+	obfs, ok := projected["obfs-opts"].(map[string]any)
+	if !ok || obfs["mode"] != "http" || obfs["host"] != "cdn.example.com" {
+		t.Fatalf("应投影当前插件对象: %+v", projected)
 	}
 }
 

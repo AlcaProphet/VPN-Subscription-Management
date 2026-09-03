@@ -1029,7 +1029,10 @@ func scopeResetsField(scope, field string) bool {
 		}
 	}
 	if scope == "plugin" {
-		return field == "plugin" || field == "plugin-opts"
+		switch field {
+		case "plugin", "plugin-opts", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts":
+			return true
+		}
 	}
 	if strings.HasPrefix(scope, "feature.") {
 		feature := strings.TrimPrefix(scope, "feature.")
@@ -1056,7 +1059,7 @@ func scopeResetFields(scope string) []string {
 	case "security":
 		return []string{"tls", "security", "sni", "servername", "alpn", "fingerprint", "client-fingerprint", "skip-cert-verify", "certificate", "ca", "ca-str", "reality-opts", "ech-opts"}
 	case "plugin":
-		return []string{"plugin", "plugin-opts"}
+		return []string{"plugin", "plugin-opts", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts"}
 	case "feature.smux":
 		return []string{"smux"}
 	case "feature.udp-over-tcp":

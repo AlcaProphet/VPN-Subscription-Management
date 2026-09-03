@@ -67,6 +67,27 @@ func TestNormalizeProtocolJSONTrojanInnerSS(t *testing.T) {
 	}
 }
 
+func TestNormalizeProtocolJSONSSPluginOpts(t *testing.T) {
+	proto, err := GetProtocol("ss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := NormalizeProtocolJSON(proto, map[string]any{
+		"cipher": "aes-256-gcm", "password": "pw", "plugin": "obfs",
+		"plugin-opts": map[string]any{"mode": "http", "host": "cdn.example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obfs, ok := out["obfs-opts"].(map[string]any)
+	if !ok || obfs["mode"] != "http" || obfs["host"] != "cdn.example.com" {
+		t.Fatalf("SS plugin-opts 未映射到 obfs-opts: %#v", out)
+	}
+	if _, exists := out["plugin-opts"]; exists {
+		t.Fatalf("旧 plugin-opts 未清理")
+	}
+}
+
 func TestInitCurrentStateMinimalForProtocolWithoutSecurity(t *testing.T) {
 	proto, err := GetProtocol("ss")
 	if err != nil {

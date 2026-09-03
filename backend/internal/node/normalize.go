@@ -21,10 +21,32 @@ func canonicalizeLegacyAliases(proto Protocol, params map[string]any) {
 		canonicalizeWsAliases(params)
 		canonicalizeGrpcServiceName(params)
 		canonicalizeTrojanInnerSS(params)
+	case "ss":
+		canonicalizeSSPluginOpts(params)
 	}
 	if proto.Protocol == "vless" {
 		canonicalizeRealityAliases(params)
 	}
+}
+
+// canonicalizeSSPluginOpts 把旧版/URI 导入的 plugin-opts 按插件收敛到独立对象。
+func canonicalizeSSPluginOpts(params map[string]any) {
+	plugin, _ := params["plugin"].(string)
+	opts, ok := params["plugin-opts"].(map[string]any)
+	if !ok {
+		return
+	}
+	switch plugin {
+	case "obfs":
+		params["obfs-opts"] = cloneJSONValue(opts)
+	case "v2ray-plugin":
+		params["v2ray-plugin-opts"] = cloneJSONValue(opts)
+	case "shadow-tls":
+		params["shadow-tls-opts"] = cloneJSONValue(opts)
+	case "restls":
+		params["restls-opts"] = cloneJSONValue(opts)
+	}
+	delete(params, "plugin-opts")
 }
 
 func canonicalizeWsAliases(params map[string]any) {
