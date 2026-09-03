@@ -266,6 +266,40 @@ describe('NodesView 节点管理页', () => {
     wrapper.unmount()
   })
 
+  it('编辑 TLS 节点时从 current_state 回填 security', async () => {
+    const editNode = {
+      ...node,
+      protocol: 'vless',
+      protocol_json: { uuid: 'u', tls: true },
+      current_state: { network: 'tcp', security: 'tls' },
+    }
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless',
+      label: 'VLESS',
+      form_schema: [
+        { name: 'uuid', type: 'password', required: true, label: 'UUID', group: 'auth' },
+        {
+          name: 'security', type: 'select', default: 'none', label: '安全', group: 'connection',
+          options: ['none', 'tls'],
+          option_items: [{ value: 'none', label: '无' }, { value: 'tls', label: 'TLS' }],
+        },
+        { name: 'servername', type: 'text', label: 'SNI', group: 'connection' },
+      ],
+      sensitive_fields: ['uuid'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openEdit: (target: any) => void
+      form: { protocol_json: Record<string, unknown> }
+    }
+    vm.openEdit(editNode)
+    expect(vm.form.protocol_json.security).toBe('tls')
+    expect(vm.form.protocol_json.tls).toBe(true)
+    wrapper.unmount()
+  })
+
   it('存在未应用 JSON 草稿时阻止保存', async () => {
     const wrapper = mount(NodesView, { attachTo: document.body })
     await flushPromises()

@@ -57,6 +57,7 @@ export interface FieldSchema {
   options?: string[]
   section?: 'auth' | 'transport' | 'security' | 'switches' | 'advanced'
   group?: 'basic' | 'auth' | 'connection' | 'switches' | 'advanced'
+  advanced?: boolean
   object_kind?: 'fields' | 'map' | 'list'
   properties?: FieldSchema[]
   allow_unknown?: boolean

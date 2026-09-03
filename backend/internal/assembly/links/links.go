@@ -36,7 +36,7 @@ func srLink(nd *nodeData) (string, error) {
 		userinfo := base64.StdEncoding.EncodeToString([]byte(cipher + ":" + password))
 		q := url.Values{}
 		if plugin := str(nd.ProtocolJSON, "plugin", ""); plugin != "" {
-			q.Set("plugin", renderPluginString(plugin, object(nd.ProtocolJSON, "plugin-opts")))
+			q.Set("plugin", RenderPluginForTarget(plugin, object(nd.ProtocolJSON, "plugin-opts"), "sr-subs"))
 		}
 		return fmt.Sprintf("ss://%s@%s:%d%s#%s", userinfo, host, nd.Port, querySuffix(q), name), nil
 	case "vmess":
@@ -455,9 +455,10 @@ func pluginString(name string, opts map[string]any) string {
 	return strings.Join(parts, ";")
 }
 
-// renderPluginString 按目标客户端偏好渲染 SS 插件参数。
-// 内部 obfs 映射为 SIP003/CVR 偏好形态；v2ray-plugin/shadow-tls/restls 暂保留原格式。
-func renderPluginString(name string, opts map[string]any) string {
+// RenderPluginForTarget 按目标客户端偏好渲染 SS 插件参数。
+// 内部 obfs 映射为 SIP003/CVR 偏好形态；v2ray-plugin 输出显式参数名；
+// shadow-tls/restls 暂无完整目标映射，仍保留原格式并交由诊断层提示。
+func RenderPluginForTarget(name string, opts map[string]any, _ string) string {
 	switch name {
 	case "obfs":
 		parts := []string{"obfs-local", "obfs=" + str(opts, "mode", "http")}
@@ -465,9 +466,29 @@ func renderPluginString(name string, opts map[string]any) string {
 			parts = append(parts, "obfs-host="+host)
 		}
 		return strings.Join(parts, ";")
+	case "v2ray-plugin":
+		parts := []string{"v2ray-plugin"}
+		if mode := str(opts, "mode", ""); mode != "" {
+			parts = append(parts, "mode="+mode)
+		}
+		if host := str(opts, "host", ""); host != "" {
+			parts = append(parts, "host="+host)
+		}
+		if path := str(opts, "path", ""); path != "" {
+			parts = append(parts, "path="+path)
+		}
+		if boolVal(opts, "tls", false) {
+			parts = append(parts, "tls=true")
+		}
+		return strings.Join(parts, ";")
 	default:
 		return pluginString(name, opts)
 	}
+}
+
+// renderPluginString 保留旧名称供其他目标/测试使用，默认按 SR 目标处理。
+func renderPluginString(name string, opts map[string]any) string {
+	return RenderPluginForTarget(name, opts, "sr-subs")
 }
 
 // encodeQuery 编码查询参数，并按 Build5 要求把 `+` 替换为 `%20`，避免空格不对称。

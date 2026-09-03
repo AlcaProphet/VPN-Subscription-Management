@@ -23,6 +23,7 @@ type nodeData struct {
 	Port            int
 	DisplayName     *string
 	ProtocolJSON    map[string]any
+	CurrentState    node.CurrentState
 	Enabled         bool
 	Allocatable     bool
 	Missing         bool
@@ -113,14 +114,14 @@ func (s *Service) loadNodes(ctx context.Context, ld *loadedData, names []string)
 		var display sql.NullString
 		var instanceEnabled sql.NullInt64
 		var enabled, allocatable, missing int
-		var protocolRaw string
+		var protocolRaw, currentStateRaw string
 		err := s.store.DB().QueryRowContext(ctx,
 			`SELECT n.source, n.name, n.display_name, n.protocol, n.host, n.port, n.protocol_json,
-			        n.enabled, n.allocatable, n.missing, COALESCE(i.enabled, 1)
+			        n.current_state_json, n.enabled, n.allocatable, n.missing, COALESCE(i.enabled, 1)
 			 FROM nodes n LEFT JOIN xray_instances i ON i.id = n.instance_id
 			 WHERE n.name = ?`, name).
 			Scan(&nd.Source, &nd.Name, &display, &nd.Protocol, &nd.Host, &nd.Port, &protocolRaw,
-				&enabled, &allocatable, &missing, &instanceEnabled)
+				&currentStateRaw, &enabled, &allocatable, &missing, &instanceEnabled)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: 节点不存在: %s", ErrBadRequest, name)
 		}
@@ -136,6 +137,11 @@ func (s *Service) loadNodes(ctx context.Context, ld *loadedData, names []string)
 		nd.InstanceEnabled = instanceEnabled.Int64 != 0
 		if err := json.Unmarshal([]byte(protocolRaw), &nd.ProtocolJSON); err != nil {
 			return fmt.Errorf("解析节点参数失败: %s", name)
+		}
+		if currentStateRaw != "" {
+			if err := json.Unmarshal([]byte(currentStateRaw), &nd.CurrentState); err != nil {
+				return fmt.Errorf("解析节点当前状态失败: %s", name)
+			}
 		}
 		if err := s.decryptNode(&nd); err != nil {
 			return err

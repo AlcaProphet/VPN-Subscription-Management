@@ -432,7 +432,19 @@ function openEdit(n: NodeItem) {
   form.protocol = n.protocol
   form.host = n.host
   form.port = n.port
-  form.protocol_json = { ...(n.protocol_json ?? {}) }
+  const protocolJson = { ...(n.protocol_json ?? {}) }
+  // security 是表单层虚拟字段，数据库只保留 tls/reality-opts/current_state；
+  // 编辑时必须从 current_state 回填，避免安全下拉错显示为默认 none。
+  if (hasSchemaField('security') && n.current_state?.security) {
+    protocolJson.security = n.current_state.security
+  }
+  if (hasSchemaField('network') && n.current_state?.network) {
+    protocolJson.network = n.current_state.network
+  }
+  if (hasSchemaField('plugin') && n.current_state?.plugin) {
+    protocolJson.plugin = n.current_state.plugin
+  }
+  form.protocol_json = protocolJson
   invalidProtocolPaths.clear()
 }
 async function save() {
@@ -712,7 +724,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           当前组合：{{ currentCombo }}
         </div>
 
-        <FormSection v-if="groupFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值。">
+        <FormSection v-if="groupFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值；新建时必须填写。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('auth')" :key="field.name" :field="field"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
@@ -721,7 +733,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           </div>
         </FormSection>
 
-        <FormSection v-if="groupFields('connection').length" title="连接方式与当前参数" help="按当前协议与传输组合动态展示；切换分支时清空旧分支参数。">
+        <FormSection v-if="groupFields('connection').length" title="连接方式与当前参数" help="按当前协议、传输、安全与插件组合动态展示；切换分支时清空旧分支参数。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('connection')" :key="field.name" :field="field"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
@@ -730,29 +742,42 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           </div>
         </FormSection>
 
-        <FormSection v-if="groupFields('switches').length" title="独立开关" help="只展示当前协议与组合适用的布尔开关。">
+        <FormSection v-if="groupFields('switches').length" title="独立开关" help="当前组合适用的布尔开关；常用开关直接展示，更多开关默认折叠。">
           <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ProtocolFieldEditor v-for="field in groupFields('switches')" :key="field.name" :field="field"
+            <ProtocolFieldEditor v-for="field in groupFields('switches').filter((item) => !item.advanced)" :key="field.name" :field="field"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
+          <details v-if="groupFields('switches').some((item) => item.advanced)" class="mt-3 rounded-lg border p-3">
+            <summary class="cursor-pointer text-sm font-medium">更多开关</summary>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+              <ProtocolFieldEditor v-for="field in groupFields('switches').filter((item) => item.advanced)" :key="field.name" :field="field"
+                :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
+                @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
+            </div>
+          </details>
         </FormSection>
 
         <details v-if="groupFields('advanced').length" class="node-advanced-fields rounded-lg border p-3">
           <summary class="cursor-pointer font-medium">更多功能 / 高级参数（已配置 {{ configuredAdvancedCount() }} 项）</summary>
-          <p class="text-xs text-text-secondary mt-2">性能、路由、插件与协议扩展参数；默认折叠。</p>
+          <p class="text-xs text-text-secondary mt-2">性能、路由、调优与兼容参数；默认折叠。</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
             <ProtocolFieldEditor v-for="field in groupFields('advanced')" :key="field.name" :field="field"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
+        </details>
+
+        <details class="node-advanced-data rounded-lg border p-3">
+          <summary class="cursor-pointer font-medium">高级数据与目标检查</summary>
+          <p class="text-xs text-text-secondary mt-2">未知扩展摘要、局部 JSON 草稿与脱敏目标检查；默认折叠。</p>
 
           <div class="mt-4 border-t pt-3">
             <div class="flex items-center justify-between gap-3">
               <div>
                 <div class="text-sm font-medium">未知扩展</div>
-                <div class="text-xs text-text-tertiary">扩展负载加密保存；仅在明确指定的目标中参与输出。</div>
+                <div class="text-xs text-text-tertiary">扩展负载加密保存；当前仅保存并用于诊断，不会自动进入任何输出产物。</div>
               </div>
               <Button size="small" @click="openExtensionAdd">新增扩展</Button>
             </div>
@@ -797,9 +822,11 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               </div>
             </div>
           </div>
-        </details>
 
-        <NodeCheckPanel :request="checkRequest" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
+          <div class="mt-4 border-t pt-3">
+            <NodeCheckPanel :request="checkRequest" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
+          </div>
+        </details>
       </Form>
     </FormOverlay>
 

@@ -1,7 +1,7 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前最新设计：[Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.5 已细化并确认；Build17～Build20 已完成）；当前构建方案（存仓库根目录，未归档）：[Build17.md](Build17.md)～[Build20.md](Build20.md)；已构建并归档的增量设计基线：[Design3.md](Design3.md)（规则来源识别、结构化素材与跨平台装配，已定稿并经 Build16 构建）与 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)（订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。已归档构建：[Build11.md](docs/reports/Build/Build11.md)～[Build16.md](docs/reports/Build/Build16.md)（均已验收存档，Build11 原后端死锁已由 R24-01 修复）及 [Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（均已验收存档）；历史问题记录已归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue9.md](docs/reports/Issue/Issue9.md)（均已闭环存档）；其他历史文档统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
+> 当前最新设计：[Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.5 已细化并确认；Build17～Build21 已完成（Build21 为 BuildReport3 对齐修复））；当前构建方案（存仓库根目录，未归档）：[Build17.md](Build17.md)～[Build21.md](Build21.md)；已构建并归档的增量设计基线：[Design3.md](Design3.md)（规则来源识别、结构化素材与跨平台装配，已定稿并经 Build16 构建）与 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)（订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。已归档构建：[Build11.md](docs/reports/Build/Build11.md)～[Build16.md](docs/reports/Build/Build16.md)（均已验收存档，Build11 原后端死锁已由 R24-01 修复）及 [Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（均已验收存档）；历史问题记录已归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue9.md](docs/reports/Issue/Issue9.md)（均已闭环存档）；其他历史文档统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
 
 ---
 
@@ -11,7 +11,7 @@
 - **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`（Go 版本升级见 Build4 Step 0；xray-core 依赖引入见 Build6 Step 0，均为 Design2 §5.3 决策的构建落点）
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前最新设计见 [Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.5 已细化并确认；Build17～Build20 已完成）；当前构建方案见仓库根目录 [Build17.md](Build17.md)～[Build20.md](Build20.md)（未归档）；已构建的增量基线见 [Design3.md](Design3.md)（已定稿并经 Build16 构建）与已归档运行基线 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)，第一期基线见存档的 [Design1.md](docs/reports/Design/Design1.md)；历史构建（Build1～Build16、Build6-2）见 [docs/reports/Build/](docs/reports/Build)；历史问题记录（Issue1～Issue9）见 [docs/reports/Issue/](docs/reports/Issue)
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前最新设计见 [Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.5 已细化并确认；Build17～Build21 已完成（Build21 为 BuildReport3 对齐修复））；当前构建方案见仓库根目录 [Build17.md](Build17.md)～[Build21.md](Build21.md)（未归档）；已构建的增量基线见 [Design3.md](Design3.md)（已定稿并经 Build16 构建）与已归档运行基线 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)，第一期基线见存档的 [Design1.md](docs/reports/Design/Design1.md)；历史构建（Build1～Build16、Build6-2）见 [docs/reports/Build/](docs/reports/Build)；历史问题记录（Issue1～Issue9）见 [docs/reports/Issue/](docs/reports/Issue)
 
 ---
 
@@ -220,7 +220,7 @@
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
 | Design 文档 | [Design4.md](Design4.md)（当前最新设计，v1.5 已确认；Build17/Build18 后端保存与检查契约已完成，Build19 与 Build20 已完成）；[Design3.md](Design3.md)（已构建基线，已定稿并经 Build16 构建）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
 | Design GUI 规格 | [Design2-UI.md](docs/reports/Design/Design2-UI.md)（已实现并归档的 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；Design3 新增界面行为由 Design3 §八补充；Design4 节点表单界面行为由 Design4 §三/§十二补充 | 非强制，供参考 |
-| Build 文档 | 当前构建方案（未归档）：[Build17.md](Build17.md)～[Build20.md](Build20.md)；历史已验收归档：[Build1.md](docs/reports/Build/Build1.md)～[Build16.md](docs/reports/Build/Build16.md)、[Build6-2.md](docs/reports/Build/Build6-2.md) | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
+| Build 文档 | 当前构建方案（未归档）：[Build17.md](Build17.md)～[Build21.md](Build21.md)；历史已验收归档：[Build1.md](docs/reports/Build/Build1.md)～[Build16.md](docs/reports/Build/Build16.md)、[Build6-2.md](docs/reports/Build/Build6-2.md) | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
 | Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue9.md](docs/reports/Issue/Issue9.md)（全部已闭环归档） | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
 
 **优先级**：AGENTS.md > Design > Build > Issue。
@@ -266,6 +266,7 @@
 | [Build18.md](Build18.md) | AI 编码助手 | 第十八轮构建：FieldSchema 条件/选项扩展、当前状态投影、节点检查与固定版本正反例 | 已完成（实现与自动化验收）；文档仍在根目录待归档 |
 | [Build19.md](Build19.md) | AI 编码助手 | 第十九轮构建：前端动态表单、可编辑下拉、分支清空、局部 JSON 与目标检查 UI | 已完成（实现与自动化验收，含未知扩展/JSON/切换提示收口）；文档仍在根目录待归档 |
 | [Build20.md](Build20.md) | AI 编码助手 | 第二十轮构建：全量手动协议过渡、URI/Xray 来源适配、输出门槛与回归收口 | 已完成（实现与自动化验收）；文档仍在根目录待归档 |
+| [Build21.md](Build21.md) | AI 编码助手 | 第二十一轮构建：BuildReport3 对齐修复——字段分组/回显/开关折叠/列表控件/SS 插件映射与输出投影 | 已完成（实现与自动化验收）；文档仍在根目录待归档 |
 
 | [Issue1.md](docs/reports/Issue/Issue1.md) | AI 编码助手 / 开发者 | 问题记录：R1~R11 系列（首轮基础问题与修复） | 已存档 |
 
@@ -282,7 +283,7 @@
 | [docs/reports/Design/Design1.md](docs/reports/Design/Design1.md) | 人类（开发者/用户） | 第一期设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维（已构建完成） | 已存档 |
 | [docs/reports/Design/Design1-UI.md](docs/reports/Design/Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已建界面 GUI 样式规格：13 个页面/部件；增量界面规格已由 Design2-UI.md 取代 | 已存档 |
 | [docs/reports/Design/DesignOnHold.md](docs/reports/Design/DesignOnHold.md) | 开发者 | 增量设计源稿（含修订过程记录），内容已全量转入 Design2.md | 已存档 |
-| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1~16、Build6-2（均已验收/归档）；Build17～Build20 已完成但一起暂存仓库根目录，待后续归档 | 已存档 |
+| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1~16、Build6-2（均已验收/归档）；Build17～Build21 已完成但一起暂存仓库根目录，待后续归档 | 已存档 |
 | [docs/reports/Design/](docs/reports/Design) | 人类（开发者/用户）与 AI 编码助手 | 历史设计文档：Design0、Design1、Design1-UI、Design2、Design2-UI、DesignOnHold | 已存档 |
 | [docs/reports/Issue/](docs/reports/Issue) | AI 编码助手 / 开发者 | 历史问题追踪：Issue1~9（均已闭环归档） | 已存档 |
 | [docs/reports/DesignReport/](docs/reports/DesignReport) | 人类（开发者/用户）与 AI 编码助手 | Design2 核验/研究报告：DesignReport1~10（原 Design2Report1~11，缺 6 已重新连续编号） | 已存档 |

@@ -9,6 +9,7 @@ import (
 
 	gyaml "github.com/goccy/go-yaml"
 
+	assemblylinks "vpn-sub/internal/assembly/links"
 	"vpn-sub/internal/node"
 	"vpn-sub/internal/rulespec"
 )
@@ -205,7 +206,7 @@ func (s *Service) clashProxy(nd *nodeData) *OrderedMap {
 	p.Set("type", nd.Protocol)
 	p.Set("server", nd.Host)
 	p.Set("port", nd.Port)
-	params := normalizeClashFields(nd.Protocol, nd.ProtocolJSON)
+	params := normalizeClashFields(nd.Protocol, activeProtocolJSON(nd))
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		if k == "name" || k == "type" || k == "server" || k == "port" {
@@ -253,6 +254,13 @@ func normalizeClashFields(protocol string, params map[string]any) map[string]any
 			if valid {
 				out[schema.Name] = values
 			}
+		}
+	}
+	if protocol == "ss" {
+		if plugin, ok := out["plugin"].(string); ok && plugin != "" {
+			opts, _ := out["plugin-opts"].(map[string]any)
+			out["plugin"] = assemblylinks.RenderPluginForTarget(plugin, opts, "clash-yaml")
+			delete(out, "plugin-opts")
 		}
 	}
 	return out

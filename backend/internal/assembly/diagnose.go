@@ -19,7 +19,7 @@ type NodeDiagnostic struct {
 
 // diagnoseNodeForTarget 使用实际目标检查器获取节点诊断，不保存任何状态。
 func (s *Service) diagnoseNodeForTarget(target string, nd *nodeData) []NodeDiagnostic {
-	res, err := s.CheckNodeTarget(context.Background(), target, nd.Protocol, nd.RenderName, nd.Host, nd.Port, nd.ProtocolJSON)
+	res, err := s.CheckNodeTarget(context.Background(), target, nd.Protocol, nd.RenderName, nd.Host, nd.Port, activeProtocolJSON(nd))
 	if err != nil {
 		return []NodeDiagnostic{{
 			Severity: "error",

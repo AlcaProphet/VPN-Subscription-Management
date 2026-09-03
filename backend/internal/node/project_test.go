@@ -61,8 +61,40 @@ func TestFirstBatchProtocolMetadata(t *testing.T) {
 		t.Fatalf("Trojan 内层 SS method 别名/选项异常: %+v", method)
 	}
 	reality := findSchemaFieldMust(t, vmess.FormSchema, "reality-opts")
-	if reality.When != nil || len(reality.OptionItems) != 0 || len(reality.TargetEvidence) == 0 {
-		t.Fatalf("VMess REALITY 不应出现首批条件入口: %+v", reality)
+	if reality.When == nil || !reality.ShouldReset("security") || len(reality.TargetEvidence) == 0 {
+		t.Fatalf("VMess REALITY 应作为后续候选并仅在 REALITY 条件入口出现: %+v", reality)
+	}
+}
+
+func TestFirstBatchGroupingAndSecurityOrdering(t *testing.T) {
+	for _, protocolName := range []string{"vless", "vmess"} {
+		proto, _ := GetProtocol(protocolName)
+		security := findSchemaFieldMust(t, proto.FormSchema, "security")
+		if security.Group != "connection" {
+			t.Fatalf("%s security 应属于连接方式区: %+v", protocolName, security)
+		}
+		servername := findSchemaFieldMust(t, proto.FormSchema, "servername")
+		if servername.Group != "connection" {
+			t.Fatalf("%s servername 应属于连接方式区: %+v", protocolName, servername)
+		}
+		securityIndex := -1
+		servernameIndex := -1
+		for i, field := range proto.FormSchema {
+			if field.Name == "security" {
+				securityIndex = i
+			}
+			if field.Name == "servername" {
+				servernameIndex = i
+			}
+		}
+		if securityIndex < 0 || servernameIndex < 0 || securityIndex > servernameIndex {
+			t.Fatalf("%s 安全选择应位于依赖参数之前: security=%d servername=%d", protocolName, securityIndex, servernameIndex)
+		}
+	}
+	ss, _ := GetProtocol("ss")
+	pluginOpts := findSchemaFieldMust(t, ss.FormSchema, "plugin-opts")
+	if pluginOpts.Group != "connection" {
+		t.Fatalf("SS plugin-opts 应跟随插件选择位于连接方式区: %+v", pluginOpts)
 	}
 }
 

@@ -7,7 +7,7 @@
   - 接入全局单浮层管理，Escape 关闭并回到触发元素。
 -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { nextOverlayId, registerOverlay } from '@/utils/overlayManager'
 import type { OptionItem } from '@/api/node'
 
@@ -30,11 +30,32 @@ const emit = defineEmits<{
 }>()
 
 const open = ref(false)
-const text = ref(props.value)
+const text = ref(labelFor(props.value))
 const activeIndex = ref(-1)
 const overlayId = nextOverlayId('editable-combobox')
 let unregister: (() => void) | null = null
 const inputEl = ref<HTMLInputElement | null>(null)
+
+const groupLabelMap: Record<string, string> = {
+  common: '常用',
+  extended: '扩展',
+  legacy: '旧版兼容',
+  pending: '待验证',
+  unverified: '待验证',
+}
+
+function labelFor(value: string): string {
+  const item = props.items.find((item) => item.value === value)
+  return item?.label || value
+}
+
+function groupLabel(group?: string): string {
+  return (group && groupLabelMap[group]) || group || ''
+}
+
+watch(() => props.value, (value) => {
+  if (!open.value) text.value = labelFor(value)
+}, { immediate: true })
 
 interface DisplayItem {
   kind: 'option' | 'custom'
@@ -64,13 +85,27 @@ const showCustom = computed(() => {
 })
 
 const displayItems = computed<DisplayItem[]>(() => {
-  const items: DisplayItem[] = filteredItems.value.map((item) => ({
-    kind: 'option',
+  const items: DisplayItem[] = []
+  const emptyOption = props.items.find((item) => item.value === '')
+  if (emptyOption && text.value.trim() !== '') {
+    items.push({
+      kind: 'option',
+      value: '',
+      label: emptyOption.label || '无',
+      group: emptyOption.group,
+      verified: emptyOption.verified,
+    })
+  }
+  const shownFiltered = emptyOption && text.value.trim() !== ''
+    ? filteredItems.value.filter((item) => item.value !== '')
+    : filteredItems.value
+  items.push(...shownFiltered.map((item) => ({
+    kind: 'option' as const,
     value: item.value,
     label: item.label || item.value,
     group: item.group,
     verified: item.verified,
-  }))
+  })))
   if (showCustom.value) {
     items.push({ kind: 'custom', value: text.value, label: `使用自定义值：${text.value}` })
   }
@@ -79,7 +114,7 @@ const displayItems = computed<DisplayItem[]>(() => {
 
 function openDropdown() {
   if (props.disabled || open.value) return
-  text.value = props.value
+  text.value = labelFor(props.value)
   activeIndex.value = -1
   open.value = true
   unregister = registerOverlay({
@@ -93,7 +128,7 @@ function openDropdown() {
 function closeDropdown() {
   if (!open.value) return
   open.value = false
-  text.value = props.value
+  text.value = labelFor(props.value)
   activeIndex.value = -1
   unregister?.()
   unregister = null
@@ -194,7 +229,7 @@ onBeforeUnmount(() => {
       >
         <span class="text-text">{{ item.label }}</span>
         <span v-if="item.verified" class="ml-2 text-xs text-text-tertiary">{{ item.verified }}</span>
-        <span v-if="item.group && item.kind === 'option'" class="ml-2 text-xs text-text-tertiary">{{ item.group }}</span>
+        <span v-if="item.group && item.kind === 'option'" class="ml-2 text-xs text-text-tertiary">{{ groupLabel(item.group) }}</span>
       </button>
     </div>
     <div v-else-if="open && !filteredItems.length && !showCustom" class="absolute z-30 mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-text-tertiary shadow-lg">

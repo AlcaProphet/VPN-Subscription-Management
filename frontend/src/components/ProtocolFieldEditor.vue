@@ -204,8 +204,46 @@ function removeListItem(index: number) {
   update(next)
 }
 
-function textListValue(value: unknown): string {
-  return Array.isArray(value) ? value.join(', ') : String(value ?? '')
+const scalarListItems = computed<string[]>(() => {
+  const value = props.modelValue
+  if (Array.isArray(value)) return value.map((item) => String(item))
+  if (typeof value === 'string' && value.trim() !== '') {
+    return value.split(',').map((item) => item.trim()).filter((item) => item !== '')
+  }
+  return []
+})
+
+function emitScalarList(items: string[]) {
+  if (props.field.type === 'int-list') {
+    const numbers: number[] = []
+    for (const item of items) {
+      const num = Number(item)
+      if (!Number.isNaN(num)) numbers.push(num)
+    }
+    update(numbers)
+    return
+  }
+  update(items)
+}
+
+function addScalarListItem() {
+  emitScalarList([...scalarListItems.value, ''])
+}
+
+function removeScalarListItem(index: number) {
+  const next = [...scalarListItems.value]
+  next.splice(index, 1)
+  emitScalarList(next)
+}
+
+function setScalarListItem(index: number, value: string) {
+  const next = [...scalarListItems.value]
+  next[index] = value
+  emitScalarList(next)
+}
+
+function isLongText(field: FieldSchema): boolean {
+  return field.type === 'text' && ['client-config', 'certificate', 'ca', 'ca-str', 'host-key', 'restls-script'].includes(field.name)
 }
 
 function isComplex(value: unknown): boolean {
@@ -307,15 +345,25 @@ function isComplex(value: unknown): boolean {
   <div v-else class="protocol-scalar-field">
     <label class="text-sm text-text-secondary">{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></label>
     <Input.Password v-if="sensitive" :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => update(event.target.value)" />
-    <div v-if="sensitive && shownCredentialState === 'saved'" class="text-xs text-text-tertiary mt-1">已保存（留空保留）</div>
     <InputNumber v-else-if="field.type === 'number'" :value="Number(modelValue ?? field.default ?? 0)" class="w-full" @change="(value: any) => update(value ?? 0)" />
-    <EditableCombobox v-else-if="field.type === 'select' && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom !== false" class="w-full" @update:model-value="(value: string) => update(value)" />
+    <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom !== false" class="w-full" @update:model-value="(value: string) => update(value)" />
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
       <Select.Option v-for="option in field.options" :key="option" :value="option">{{ option }}</Select.Option>
     </AppSelect>
-    <Input v-else-if="field.type === 'text-list' || field.type === 'int-list'" :value="textListValue(modelValue)" @change="(event: any) => update(event.target.value)" />
+    <div v-else-if="field.type === 'text-list' || field.type === 'int-list'" class="protocol-list-editor space-y-2">
+      <div v-for="(item, index) in scalarListItems" :key="index" class="flex items-center gap-2">
+        <Input :value="item" :placeholder="field.type === 'int-list' ? '数字' : '条目'" @change="(event: any) => setScalarListItem(index, event.target.value)" />
+        <Button size="small" danger @click="removeScalarListItem(index)">删除</Button>
+      </div>
+      <div v-if="scalarListItems.length === 0" class="text-xs text-text-tertiary">暂无条目</div>
+      <Button size="small" @click="addScalarListItem">新增条目</Button>
+      <div v-if="field.option_items?.length" class="text-xs text-text-tertiary">
+        推荐：{{ field.option_items.map((item) => item.label || item.value).join('、') }}
+      </div>
+    </div>
+    <Input.TextArea v-else-if="isLongText(field)" :value="String(modelValue ?? '')" :rows="4" @change="(event: any) => update(event.target.value)" />
     <Input v-else :value="String(modelValue ?? '')" @change="(event: any) => update(event.target.value)" />
-    <div v-if="field.type === 'text-list' || field.type === 'int-list'" class="text-xs text-text-tertiary mt-1">逗号分隔</div>
-    <div v-else-if="field.help" class="text-xs text-text-tertiary mt-1">{{ field.help }}</div>
+    <div v-if="sensitive && shownCredentialState === 'saved'" class="text-xs text-text-tertiary mt-1">已保存（留空保留）</div>
+    <div v-if="field.help" class="text-xs text-text-tertiary mt-1">{{ field.help }}</div>
   </div>
 </template>
