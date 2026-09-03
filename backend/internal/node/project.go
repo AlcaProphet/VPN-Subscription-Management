@@ -397,6 +397,11 @@ func normalizeProtocolParameters(proto Protocol, params map[string]any) map[stri
 		}
 	}
 	canonicalizeTransportAliases(proto, out)
+	// 保存、读取、检查和输出共用 WS 别名归一化，规范值优先，旧值只补缺失项。
+	switch proto.Protocol {
+	case "vless", "vmess", "trojan":
+		canonicalizeWsAliases(out)
+	}
 	if proto.Protocol == "ss" {
 		canonicalizeSSPluginOpts(out)
 	}

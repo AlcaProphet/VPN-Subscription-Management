@@ -321,9 +321,13 @@ func checkRenderNameTx(ctx context.Context, tx *sql.Tx, name string, excludeID i
 	return nil
 }
 
-// GetProtocols 返回协议注册表列表（接入层直接透传）。
+// GetProtocols 返回可编辑表单目录；内部兼容字段仍由 GetProtocol 提供给保存和输出。
 func (s *Service) GetProtocols() []Protocol {
-	return ManualProtocols()
+	protocols := ManualProtocols()
+	for i := range protocols {
+		protocols[i].FormSchema = editorFormSchema(protocols[i])
+	}
+	return protocols
 }
 
 // CreateManual 创建手工节点：名称/协议/当前状态/凭据与扩展均在同一保存契约内处理。
@@ -848,7 +852,8 @@ func scanNode(row rowScanner) (Node, error) {
 // redactSensitive 列表/详情返回时敏感字段置空，避免泄露凭据明文。
 func (s *Service) redactSensitive(n *Node) {
 	if proto, err := GetProtocol(n.Protocol); err == nil && n.Source == "manual" {
-		n.ProtocolJSON = cleanDisabledFeatures(proto.FormSchema, n.ProtocolJSON)
+		// 仅归一化响应副本，让兼容 WS 值进入当前表单；读取不回写节点。
+		n.ProtocolJSON = cleanDisabledFeatures(proto.FormSchema, normalizeProtocolParameters(proto, n.ProtocolJSON))
 		n.CurrentState.Features = activeFeatures(proto.FormSchema, n.ProtocolJSON)
 	}
 	for _, path := range SensitiveFieldsOf(n.Protocol) {

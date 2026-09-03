@@ -2,7 +2,9 @@ package assembly
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +16,118 @@ import (
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/node"
 )
+
+func TestCanonicalEditorSecurityCheckSaveAndOutput(t *testing.T) {
+	for _, protocol := range []string{"vless", "vmess"} {
+		t.Run(protocol, func(t *testing.T) {
+			svc, st, cfg := newTestService(t)
+			nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+			nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+			ctx := context.Background()
+			created, err := nodeSvc.CreateManual(ctx, node.CreateManualInput{
+				Name: "安全切换", Protocol: protocol, Host: "example.com", Port: 443,
+				ProtocolJSON: map[string]any{"uuid": "editor-secret", "network": "tcp", "security": "tls"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			securities := []string{"tls", "none", "tls"}
+			if protocol == "vless" {
+				securities = append(securities, "reality", "none")
+			}
+			for i, security := range securities {
+				// VMess SR 映射目前未显式输出 TLS 参数，作为独立核验项，不在 R27-04 改写。
+				targets := []string{"clash-yaml", "generic-subs"}
+				if protocol == "vless" {
+					targets = append(targets, "sr-subs")
+				}
+				state := node.CurrentState{Network: "tcp", Security: security}
+				params := map[string]any{"uuid": "", "network": "tcp", "security": security}
+				if security == "reality" {
+					params["reality-opts"] = map[string]any{"public-key": "public-key", "short-id": "abcd"}
+				}
+				var resets []string
+				if i > 0 {
+					resets = []string{"security"}
+				}
+				checked, err := nodeSvc.Check(ctx, node.CheckRequest{
+					NodeID: created.ID, BaseRevision: created.EditRevision, Protocol: protocol, Host: "example.com", Port: 443,
+					ProtocolJSON: params, CurrentState: &state, ResetScopes: resets,
+					Targets: targets,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for target, result := range checked.Targets {
+					if (result.Status != "ok" && result.Status != "warn") || result.Preview == nil {
+						t.Fatalf("%s/%s 检查失败: %+v", security, target, result)
+					}
+					preview := *result.Preview
+					switch {
+					case target == "clash-yaml":
+						var decoded struct {
+							Proxies []map[string]any `yaml:"proxies"`
+						}
+						if err := gyaml.Unmarshal([]byte(preview), &decoded); err != nil {
+							t.Fatal(err)
+						}
+						if len(decoded.Proxies) != 1 {
+							t.Fatalf("节点数量错误: %s", preview)
+						}
+						proxy := decoded.Proxies[0]
+						_, hasReality := proxy["reality-opts"]
+						if (proxy["tls"] == true) != (security != "none") || hasReality != (security == "reality") {
+							t.Fatalf("%s YAML 安全语义错误: %s", security, preview)
+						}
+						if _, exists := proxy["security"]; exists {
+							t.Fatal("表单 security 泄漏到 YAML")
+						}
+					case target == "generic-subs" && protocol == "vmess":
+						raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(preview, "vmess://"))
+						if err != nil {
+							t.Fatal(err)
+						}
+						var payload map[string]any
+						if err := json.Unmarshal(raw, &payload); err != nil {
+							t.Fatal(err)
+						}
+						if (payload["tls"] == "tls") != (security != "none") {
+							t.Fatalf("VMess URI TLS 语义错误: %s", raw)
+						}
+					default:
+						link, err := url.Parse(preview)
+						if err != nil {
+							t.Fatal(err)
+						}
+						q := link.Query()
+						if target == "generic-subs" {
+							want := security
+							if want == "none" {
+								want = ""
+							}
+							if q.Get("security") != want {
+								t.Fatalf("标准 URI 安全语义错误: %s", preview)
+							}
+						} else if (q.Get("tls") == "1") != (security != "none") || (q.Get("xtls") == "2") != (security == "reality") {
+							t.Fatalf("SR URI 安全语义错误: %s", preview)
+						}
+					}
+				}
+				updated, err := nodeSvc.UpdateManual(ctx, created.ID, node.UpdateManualInput{
+					BaseRevision: created.EditRevision, Protocol: protocol, Host: "example.com", Port: 443,
+					ProtocolJSON: params, CurrentState: &state, ResetScopes: resets,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if updated.CurrentState.Security != security || (updated.ProtocolJSON["tls"] == true) != (security != "none") {
+					t.Fatalf("保存后的安全状态与检查不同: %+v", updated)
+				}
+				created = updated
+			}
+		})
+	}
+}
 
 func TestClashOutputDropsDisabledFeatureParameters(t *testing.T) {
 	for _, protocol := range []string{"ss", "vless", "vmess"} {

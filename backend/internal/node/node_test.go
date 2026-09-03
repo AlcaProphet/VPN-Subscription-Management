@@ -43,6 +43,113 @@ func createManual(t *testing.T, svc *Service, name string) *Node {
 	return n
 }
 
+func TestLegacyWSReadCheckAndSaveUseCanonicalFields(t *testing.T) {
+	for _, canonical := range []bool{false, true} {
+		name := "alias-only"
+		if canonical {
+			name = "canonical-wins"
+		}
+		t.Run(name, func(t *testing.T) {
+			svc, st, _ := newTestService(t)
+			ctx := context.Background()
+			created, err := svc.CreateManual(ctx, CreateManualInput{
+				Name: "旧WS节点", Protocol: "vless", Host: "example.com", Port: 443,
+				ProtocolJSON: map[string]any{"uuid": "ws-secret", "network": "ws", "security": "tls"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := svc.getRaw(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw.ProtocolJSON["ws-path"] = "/legacy"
+			raw.ProtocolJSON["ws-headers"] = map[string]any{"Host": "old.example.com", "X-Keep": "yes"}
+			wantPath, wantHost := "/legacy", "old.example.com"
+			if canonical {
+				wantPath, wantHost = "/current", "current.example.com"
+				raw.ProtocolJSON["ws-opts"] = map[string]any{"path": wantPath, "headers": map[string]any{"Host": wantHost}}
+			}
+			before, err := json.Marshal(raw.ProtocolJSON)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.DB().ExecContext(ctx, `UPDATE nodes SET protocol_json=? WHERE id=?`, string(before), created.ID); err != nil {
+				t.Fatal(err)
+			}
+			assertCanonical := func(params map[string]any) {
+				t.Helper()
+				for _, key := range []string{"ws-path", "ws-headers"} {
+					if _, exists := params[key]; exists {
+						t.Errorf("仍含旧字段 %s", key)
+					}
+				}
+				for path, want := range map[string]string{"ws-opts.path": wantPath, "ws-opts.headers.Host": wantHost, "ws-opts.headers.X-Keep": "yes"} {
+					if value, ok := GetPath(params, path); !ok || value != want {
+						t.Errorf("%s = %v，期望 %s", path, value, want)
+					}
+				}
+			}
+			detail, err := svc.Get(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertCanonical(detail.ProtocolJSON)
+			list, err := svc.List(ctx, "manual")
+			if err != nil || len(list) != 1 {
+				t.Fatalf("列表读取失败: %v", err)
+			}
+			assertCanonical(list[0].ProtocolJSON)
+			if detail.ProtocolJSON["uuid"] != "" || list[0].ProtocolJSON["uuid"] != "" || detail.CurrentState.Security != "tls" {
+				t.Fatal("读取破坏了凭据脱敏或当前状态")
+			}
+			svc.SetCheckRenderer(func(_ context.Context, _, _, _, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
+				assertCanonical(params)
+				if params["tls"] != true || params["uuid"] != "REDACTED" {
+					t.Error("检查破坏了 TLS 或凭据脱敏")
+				}
+				return CheckRenderResult{}, nil
+			})
+			draft := cloneJSONMap(detail.ProtocolJSON)
+			draft["security"] = "tls"
+			delete(draft, "tls")
+			checked, err := svc.Check(ctx, CheckRequest{
+				NodeID: created.ID, BaseRevision: created.EditRevision, Protocol: "vless", Host: "example.com", Port: 443,
+				ProtocolJSON: draft, CurrentState: &detail.CurrentState, Targets: []string{"clash-yaml"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if checked.Targets["clash-yaml"].Status != "ok" {
+				t.Fatalf("旧节点规范草稿检查失败: %+v", checked)
+			}
+			var after string
+			if err := st.DB().QueryRowContext(ctx, `SELECT protocol_json FROM nodes WHERE id=?`, created.ID).Scan(&after); err != nil {
+				t.Fatal(err)
+			}
+			if after != string(before) {
+				t.Fatal("读取或检查回写了数据库")
+			}
+			updated, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+				BaseRevision: created.EditRevision, Protocol: "vless", Host: "example.com", Port: 443,
+				ProtocolJSON: draft, CurrentState: &detail.CurrentState,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertCanonical(updated.ProtocolJSON)
+			stored, err := svc.getRaw(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertCanonical(stored.ProtocolJSON)
+			if stored.ProtocolJSON["uuid"] != raw.ProtocolJSON["uuid"] || stored.EditRevision != 2 {
+				t.Fatal("更新改变了已保存凭据或未递增修订")
+			}
+		})
+	}
+}
+
 func TestValidateNodeName(t *testing.T) {
 	cases := []struct {
 		name string

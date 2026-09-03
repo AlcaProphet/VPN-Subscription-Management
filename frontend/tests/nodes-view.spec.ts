@@ -343,15 +343,15 @@ describe('NodesView 节点管理页', () => {
     wrapper.unmount()
   })
 
-  it('编辑 TLS 节点时从 current_state 回填 security', async () => {
+  it.each(['vless', 'vmess'])('编辑 %s TLS 节点时只用 security，切换后检查与保存均不带旧 tls', async (protocol) => {
     const editNode = {
       ...node,
-      protocol: 'vless',
+      protocol,
       protocol_json: { uuid: 'u', tls: true },
       current_state: { network: 'tcp', security: 'tls' },
     }
     mockGetProtocols.mockResolvedValue([{
-      protocol: 'vless',
+      protocol,
       label: 'VLESS',
       form_schema: [
         { name: 'uuid', type: 'password', required: true, label: 'UUID', group: 'auth' },
@@ -367,13 +367,31 @@ describe('NodesView 节点管理页', () => {
     }])
     const wrapper = mount(NodesView, { attachTo: document.body })
     await flushPromises()
-    const vm = wrapper.vm as unknown as {
-      openEdit: (target: any) => void
-      form: { protocol_json: Record<string, unknown> }
-    }
+    const vm = wrapper.vm as any
     vm.openEdit(editNode)
     expect(vm.form.protocol_json.security).toBe('tls')
-    expect(vm.form.protocol_json.tls).toBe(true)
+    expect(vm.form.protocol_json).not.toHaveProperty('tls')
+    expect(editNode.protocol_json.tls).toBe(true)
+    vm.setField('security', 'none')
+    expect(vm.checkRequest.protocol_json.security).toBe('none')
+    expect(vm.checkRequest.protocol_json).not.toHaveProperty('tls')
+    expect(vm.checkRequest.reset_scopes).toContain('security')
+    mockUpdateNode.mockResolvedValue({ ...editNode, edit_revision: 4 })
+    await vm.save()
+    const payload = mockUpdateNode.mock.calls[0]![1]
+    expect(payload.protocol_json.security).toBe('none')
+    expect(payload.protocol_json).not.toHaveProperty('tls')
+    wrapper.unmount()
+  })
+
+  it.each(['http', 'socks5', 'ss'])('编辑 %s 保留其自身有效 TLS 参数', async (protocol) => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const params = protocol === 'ss' ? { plugin: 'v2ray-plugin', 'v2ray-plugin-opts': { tls: true } } : { tls: true }
+    vm.openEdit({ ...node, protocol, protocol_json: params })
+    expect(vm.form.protocol_json).toEqual(params)
     wrapper.unmount()
   })
 

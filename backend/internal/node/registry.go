@@ -241,6 +241,21 @@ func ManualProtocols() []Protocol {
 	return protocols
 }
 
+// editorFormSchema 排除新连接模型已取代的顶层入口，不影响内部字段校验与嵌套插件参数。
+func editorFormSchema(proto Protocol) []FieldSchema {
+	if proto.Protocol != "vless" && proto.Protocol != "vmess" {
+		return proto.FormSchema
+	}
+	fields := make([]FieldSchema, 0, len(proto.FormSchema))
+	for _, field := range proto.FormSchema {
+		if field.Name == "tls" || proto.Protocol == "vless" && (field.Name == "ws-path" || field.Name == "ws-headers") {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
 func enrichFirstBatchProtocols(protocols []Protocol) {
 	for i := range protocols {
 		for j := range protocols[i].FormSchema {

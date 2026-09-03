@@ -15,10 +15,8 @@ func NormalizeProtocolJSON(proto Protocol, params map[string]any) (map[string]an
 func canonicalizeLegacyAliases(proto Protocol, params map[string]any) {
 	switch proto.Protocol {
 	case "vless", "vmess":
-		canonicalizeWsAliases(params)
 		canonicalizeGrpcServiceName(params)
 	case "trojan":
-		canonicalizeWsAliases(params)
 		canonicalizeGrpcServiceName(params)
 		canonicalizeTrojanInnerSS(params)
 	case "ss":

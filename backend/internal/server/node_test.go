@@ -17,6 +17,77 @@ import (
 	"vpn-sub/internal/node"
 )
 
+func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
+	engine, st, cfg := newAssemblyTestEnv(t)
+	nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+	noop := func(c *gin.Context) { c.Next() }
+	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, noop, noop)
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/admin/nodes/protocols", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("协议接口失败: %d", w.Code)
+	}
+	var response struct {
+		Data struct {
+			List []node.Protocol `json:"list"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Data.List) != 19 {
+		t.Fatalf("手动协议入口数量改变: %d", len(response.Data.List))
+	}
+	for _, proto := range response.Data.List {
+		fields := make(map[string]node.FieldSchema)
+		for _, field := range proto.FormSchema {
+			fields[field.Name] = field
+		}
+		switch proto.Protocol {
+		case "vless", "vmess", "trojan":
+			for _, name := range []string{"ws-path", "ws-headers", "tls"} {
+				if _, exists := fields[name]; exists {
+					t.Errorf("%s 表单不应包含旧入口 %s", proto.Protocol, name)
+				}
+			}
+			for _, name := range []string{"ws-opts", "grpc-opts"} {
+				if fields[name].When == nil || len(fields[name].ResetOn) == 0 {
+					t.Errorf("%s 规范传输字段条件/清空归属丢失: %s", proto.Protocol, name)
+				}
+			}
+			if proto.Protocol != "trojan" && fields["security"].Type != "select" {
+				t.Errorf("%s 缺少统一安全选择", proto.Protocol)
+			}
+		case "http", "socks5":
+			if fields["tls"].Type != "bool" {
+				t.Errorf("%s 有效 TLS 开关被删除", proto.Protocol)
+			}
+		case "ss":
+			found := false
+			for _, field := range fields["v2ray-plugin-opts"].Properties {
+				found = found || field.Name == "tls" && field.Type == "bool"
+			}
+			if !found {
+				t.Error("SS 插件自身的 TLS 开关被删除")
+			}
+		}
+	}
+	// 接口投影不得改变保存、校验和输出使用的内部注册表。
+	for _, protocol := range []string{"vless", "vmess"} {
+		proto, err := node.GetProtocol(protocol)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, field := range proto.FormSchema {
+			found = found || field.Name == "tls"
+		}
+		if !found {
+			t.Errorf("%s 内部 TLS 字段被表单投影删除", protocol)
+		}
+	}
+}
+
 func TestNodeUpdateRevisionConflictResponse(t *testing.T) {
 	engine, st, cfg := newAssemblyTestEnv(t)
 	lg := log.New("error", "console")

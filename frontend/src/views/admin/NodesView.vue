@@ -427,6 +427,8 @@ function openEdit(n: NodeItem) {
   if (hasSchemaField('security') && n.current_state?.security) {
     protocolJson.security = n.current_state.security
   }
+  // 首批统一安全模型只用 security 编辑，避免旧 tls 在 schema 清空之外残留。
+  if (n.protocol === 'vless' || n.protocol === 'vmess') delete protocolJson.tls
   if (hasSchemaField('network') && n.current_state?.network) {
     protocolJson.network = n.current_state.network
   }
