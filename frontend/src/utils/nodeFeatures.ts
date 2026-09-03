@@ -17,6 +17,42 @@ export function pathContains(parent: string, path: string): boolean {
   return path === parent || path.startsWith(`${parent}.`) || path.startsWith(`${parent}[`)
 }
 
+function pathPattern(path: string): string {
+  return path.replace(/\[[^\]]*\]/g, '[]')
+}
+
+export function matchesSensitivePath(pattern: string, path: string): boolean {
+  return pathPattern(path) === pattern
+}
+
+export function concreteSensitivePaths(params: Params, patterns: string[]): string[] {
+  const paths: string[] = []
+  function expand(value: unknown, segments: string[], prefix: string) {
+    if (segments.length === 0) {
+      paths.push(prefix)
+      return
+    }
+    if (!isObject(value)) return
+    const [segment, ...rest] = segments
+    const list = segment.endsWith('[]')
+    const name = list ? segment.slice(0, -2) : segment
+    const child = value[name]
+    const nextPrefix = prefix ? `${prefix}.${name}` : name
+    if (!list) {
+      if (name in value) expand(child, rest, nextPrefix)
+      return
+    }
+    if (!Array.isArray(child)) return
+    for (const item of child) {
+      if (!isObject(item)) continue
+      const id = typeof item._credential_id === 'string' ? item._credential_id : ''
+      if (id) expand(item, rest, `${nextPrefix}[${id}]`)
+    }
+  }
+  for (const pattern of patterns) expand(params, pattern.split('.'), '')
+  return [...new Set(paths)].sort()
+}
+
 export function featureEnabled(field: FieldSchema, value: unknown): boolean {
   const feature = field.feature
   if (!feature) return false
@@ -95,6 +131,16 @@ export function resetProtocolScope(schema: FieldSchema[], params: Params, scope:
 
 export function valueAtPath(params: Params, path: string): unknown {
   let value: unknown = params
-  for (const part of path.split('.')) value = isObject(value) ? value[part] : undefined
+  for (const part of path.split('.')) {
+    const match = part.match(/^([^[]+)\[([^\]]+)\]$/)
+    if (!match) {
+      value = isObject(value) ? value[part] : undefined
+      continue
+    }
+    if (!isObject(value)) return undefined
+    const list = value[match[1]]
+    if (!Array.isArray(list)) return undefined
+    value = list.find((item) => isObject(item) && item._credential_id === match[2])
+  }
   return value
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -85,6 +86,10 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			}
 			if !found {
 				t.Error("SS 插件自身的 TLS 开关被删除")
+			}
+		case "wireguard":
+			if fields["peers"].ItemIDField != "_credential_id" || !slices.Contains(proto.SensitiveFields, "peers[].pre-shared-key") {
+				t.Errorf("WireGuard Peer 稳定身份/敏感路径契约缺失: %+v", fields["peers"])
 			}
 		}
 	}

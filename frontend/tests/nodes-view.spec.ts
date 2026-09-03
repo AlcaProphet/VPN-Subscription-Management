@@ -59,6 +59,7 @@ const node = {
   state_format_version: 1,
   current_state: { security: 'none' },
   extensions: [],
+  saved_sensitive_paths: [],
 }
 
 const protocols = [
@@ -248,6 +249,49 @@ describe('NodesView 节点管理页', () => {
     expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('结构化编辑')
     expect(document.body.querySelector('.node-advanced-fields')?.textContent).toContain('路由标记')
     expect(document.body.textContent).toContain('当前组合')
+    wrapper.unmount()
+  })
+
+  it('嵌套凭据仅按 saved_sensitive_paths 回显，分支往返后不恢复旧凭据', async () => {
+    const shadowPath = 'shadow-tls-opts.password'
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'ss', label: 'Shadowsocks', sensitive_fields: [shadowPath, 'restls-opts.password'], link_mappings: { sr: true, generic: true },
+      form_schema: [
+        { name: 'password', type: 'password', required: true, label: '主密码', group: 'auth' },
+        { name: 'plugin', type: 'select', required: false, label: '插件', group: 'connection', options: ['shadow-tls', 'restls'] },
+        {
+          name: 'shadow-tls-opts', type: 'object', required: false, label: 'shadow-tls 参数', group: 'connection', object_kind: 'fields', reset_on: ['plugin'], when: { plugin: ['shadow-tls'] },
+          properties: [{ name: 'password', type: 'password', required: false, label: '密码' }],
+        },
+        {
+          name: 'restls-opts', type: 'object', required: false, label: 'restls 参数', group: 'connection', object_kind: 'fields', reset_on: ['plugin'], when: { plugin: ['restls'] },
+          properties: [{ name: 'password', type: 'password', required: false, label: '密码' }],
+        },
+      ],
+    }])
+    const editNode = {
+      ...node,
+      protocol_json: { password: '', plugin: 'shadow-tls', 'shadow-tls-opts': { password: '' } },
+      current_state: { security: 'none', plugin: 'shadow-tls' },
+      saved_sensitive_paths: ['password', shadowPath],
+    }
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit(editNode)
+    await nextTick()
+    const nestedInput = () => wrapper.findAllComponents(ProtocolFieldEditor)
+      .find((field) => field.props('path') === shadowPath)!.find('input')
+    expect(nestedInput().attributes('placeholder')).toBe('已保存（留空保留）')
+
+    vm.setField('plugin', 'restls')
+    vm.setField('plugin', 'shadow-tls')
+    await nextTick()
+    expect(nestedInput().attributes('placeholder')).toBe('未配置')
+    await nestedInput().setValue('replacement')
+    expect(document.body.textContent).toContain('待替换')
+    await nestedInput().setValue('')
+    expect(vm.checkRequest.credential_ops).toContainEqual({ path: shadowPath, op: 'clear' })
     wrapper.unmount()
   })
 

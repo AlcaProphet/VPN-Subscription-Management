@@ -14,6 +14,7 @@ type FieldSchema struct {
 	Options        []string         `json:"options,omitempty"`
 	Section        string           `json:"section,omitempty"`       // auth/transport/security/switches/advanced
 	ObjectKind     string           `json:"object_kind,omitempty"`   // fields/map/list
+	ItemIDField    string           `json:"item_id_field,omitempty"` // 含敏感子字段的 list 条目稳定身份
 	Properties     []FieldSchema    `json:"properties,omitempty"`    // fields 属性或 list 元素字段
 	AllowUnknown   bool             `json:"allow_unknown,omitempty"` // 保留客户端扩展键
 	Group          string           `json:"group,omitempty"`         // basic/auth/connection/switches/advanced
@@ -166,9 +167,11 @@ func ssOpts() FieldSchema {
 }
 
 func wireGuardPeers() FieldSchema {
-	return obj("peers", "Peer 列表", "list",
+	peers := obj("peers", "Peer 列表", "list",
 		f("server", "text", "服务器"), f("port", "number", "端口"), f("public-key", "text", "公钥"),
 		f("pre-shared-key", "password", "预共享密钥"), f("reserved", "int-list", "保留字节"), f("allowed-ips", "text-list", "Allowed IPs"))
+	peers.ItemIDField = sensitiveItemIDField
+	return peers
 }
 func commonFieldSchema() []FieldSchema {
 	tfo := def("tfo", "bool", "TCP Fast Open", false)
@@ -227,7 +230,7 @@ func ManualProtocols() []Protocol {
 			req("private-key", "password", "私钥"), req("public-key", "text", "公钥"), f("pre-shared-key", "password", "预共享密钥"), f("reserved", "int-list", "保留字节"), f("allowed-ips", "text-list", "Allowed IPs"),
 			f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("workers", "number", "Worker 数"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), f("persistent-keepalive", "number", "持久 Keepalive"),
 			wireGuardPeers(), def("remote-dns-resolve", "bool", "远端 DNS 解析", false), f("dns", "text-list", "DNS"), f("refresh-server-ip-interval", "number", "刷新服务器 IP 间隔")),
-			SensitiveFields: []string{"private-key", "pre-shared-key"}, LinkMappings: links("private-key", "public-key", "ip", "ipv6", "allowed-ips", "pre-shared-key", "mtu", "dns")},
+			SensitiveFields: []string{"private-key", "pre-shared-key", "peers[].pre-shared-key"}, LinkMappings: links("private-key", "public-key", "ip", "ipv6", "allowed-ips", "pre-shared-key", "mtu", "dns")},
 		{Protocol: "http", Label: "HTTP", FormSchema: common(f("username", "text", "用户名"), f("password", "password", "密码"), def("tls", "bool", "TLS", false), f("sni", "text", "SNI"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), obj("headers", "请求头", "map")), SensitiveFields: []string{"password"}, LinkMappings: links("username", "password", "tls", "sni")},
 		{Protocol: "socks5", Label: "SOCKS5", FormSchema: common(f("username", "text", "用户名"), f("password", "password", "密码"), def("tls", "bool", "TLS", false), def("udp", "bool", "UDP", true), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹")), SensitiveFields: []string{"password"}, LinkMappings: links("username", "password", "tls", "udp")},
 		{Protocol: "snell", Label: "Snell", FormSchema: common(req("psk", "password", "PSK"), def("udp", "bool", "UDP", true), def("version", "number", "版本", 2)), SensitiveFields: []string{"psk"}},

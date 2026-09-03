@@ -9,6 +9,9 @@ func NormalizeProtocolJSON(proto Protocol, params map[string]any) (map[string]an
 	}
 	out := normalizeProtocolParameters(proto, params)
 	canonicalizeLegacyAliases(proto, out)
+	if err := ensureSensitiveItemIDs(out, proto.SensitiveFields); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

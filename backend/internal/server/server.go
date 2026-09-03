@@ -142,6 +142,9 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	RegisterRulespecRoutes(engine, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 节点服务（Build5 Step 1：manual 节点 CRUD + 协议注册表 + xray 显示名/启停占位）
 	nodeSvc := node.NewService(st, cfg, lg)
+	if err := nodeSvc.MigrateSensitiveArrayCredentials(context.Background()); err != nil {
+		return nil, fmt.Errorf("升级节点数组凭据失败: %w", err)
+	}
 	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 全局长任务 registry + Xray 实例/检测路由（Build6 Step1）
 	taskReg := tasks.NewRegistry()

@@ -64,6 +64,41 @@ func TestCheckNewDraftUsesActiveProjectionAndDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestCheckWireGuardArrayCredentialIsRedactedAndInternalIDIsStripped(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	var seen map[string]any
+	svc.SetCheckRenderer(func(_ context.Context, _, _ string, _ string, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
+		seen = cloneJSONMap(params)
+		return CheckRenderResult{Preview: "safe-preview"}, nil
+	})
+	resp, err := svc.Check(context.Background(), CheckRequest{
+		Protocol: "wireguard", Host: "example.com", Port: 51820,
+		ProtocolJSON: map[string]any{
+			"private-key": "private-secret", "public-key": "server-public",
+			"peers": []any{map[string]any{"server": "peer", "pre-shared-key": "peer-secret"}},
+		},
+		Targets: []string{"clash-yaml"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Targets["clash-yaml"].Status != "ok" {
+		t.Fatalf("WireGuard 草稿检查失败: %+v", resp)
+	}
+	peers := seen["peers"].([]any)
+	peer := peers[0].(map[string]any)
+	if peer["pre-shared-key"] != "REDACTED" {
+		t.Fatalf("Peer 凭据未脱敏: %+v", peer)
+	}
+	if _, ok := peer[sensitiveItemIDField]; ok {
+		t.Fatalf("内部 Peer ID 进入检查适配器: %+v", peer)
+	}
+	encoded, _ := json.Marshal(resp)
+	if strings.Contains(string(encoded), "peer-secret") || strings.Contains(string(encoded), sensitiveItemIDField) {
+		t.Fatalf("检查响应泄漏 Peer 凭据或内部 ID: %s", encoded)
+	}
+}
+
 func TestCheckEditAppliesResetInMemoryAndPreservesDatabase(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	created, err := svc.CreateManual(context.Background(), CreateManualInput{

@@ -811,6 +811,187 @@ func TestUpdateCredentialKeepAndClear(t *testing.T) {
 	}
 }
 
+func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "WireGuard多Peer", Protocol: "wireguard", Host: "example.com", Port: 51820,
+		ProtocolJSON: map[string]any{
+			"private-key": "private-secret", "public-key": "server-public",
+			"peers": []any{
+				map[string]any{"server": "peer-a", "pre-shared-key": "peer-a-secret"},
+				map[string]any{"server": "peer-b", "pre-shared-key": "peer-b-secret"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	visiblePeers := created.ProtocolJSON["peers"].([]any)
+	ids := make([]string, len(visiblePeers))
+	for i, value := range visiblePeers {
+		peer := value.(map[string]any)
+		ids[i], _ = peer[sensitiveItemIDField].(string)
+		path := "peers[" + ids[i] + "].pre-shared-key"
+		if ids[i] == "" || peer["pre-shared-key"] != "" || !contains(created.SavedSensitivePaths, path) {
+			t.Fatalf("Peer 响应身份/脱敏摘要异常: peer=%+v saved=%v", peer, created.SavedSensitivePaths)
+		}
+	}
+	if contains(created.SavedSensitivePaths, "pre-shared-key") {
+		t.Fatal("从未配置的可选顶层凭据不应标记为已保存")
+	}
+	detail, err := svc.Get(ctx, created.ID)
+	if err != nil || len(detail.SavedSensitivePaths) != len(created.SavedSensitivePaths) {
+		t.Fatalf("详情响应凭据摘要不一致: detail=%+v err=%v", detail, err)
+	}
+	listed, err := svc.List(ctx, "manual")
+	if err != nil || len(listed) != 1 || len(listed[0].SavedSensitivePaths) != len(created.SavedSensitivePaths) {
+		t.Fatalf("列表响应凭据摘要不一致: list=%+v err=%v", listed, err)
+	}
+	rawBefore, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipherA, _ := GetPath(rawBefore.ProtocolJSON, "peers["+ids[0]+"].pre-shared-key")
+	cipherB, _ := GetPath(rawBefore.ProtocolJSON, "peers["+ids[1]+"].pre-shared-key")
+	for _, cipher := range []any{cipherA, cipherB} {
+		text, ok := cipher.(string)
+		if !ok || !strings.HasPrefix(text, encPrefix) {
+			t.Fatalf("Peer 凭据未加密: %v", cipher)
+		}
+	}
+
+	updated, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "wireguard", Host: "example.com", Port: 51820, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{
+			"private-key": "", "public-key": "server-public",
+			"peers": []any{
+				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "pre-shared-key": ""},
+				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "pre-shared-key": ""},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Peer 重排更新失败: %v", err)
+	}
+	rawAfter, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotA, _ := GetPath(rawAfter.ProtocolJSON, "peers["+ids[0]+"].pre-shared-key")
+	gotB, _ := GetPath(rawAfter.ProtocolJSON, "peers["+ids[1]+"].pre-shared-key")
+	if gotA != cipherA || gotB != cipherB {
+		t.Fatalf("Peer 重排串用了凭据: before=(%v,%v) after=(%v,%v)", cipherA, cipherB, gotA, gotB)
+	}
+
+	finalResponse, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "wireguard", Host: "example.com", Port: 51820, BaseRevision: updated.EditRevision,
+		ProtocolJSON: map[string]any{
+			"private-key": "", "public-key": "server-public",
+			"peers": []any{
+				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "pre-shared-key": ""},
+				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "pre-shared-key": "replacement"},
+			},
+		},
+		CredentialOps: []CredentialOp{{Path: "peers[" + ids[1] + "].pre-shared-key", Op: "clear"}},
+	})
+	if err != nil {
+		t.Fatalf("Peer 替换/清除失败: %v", err)
+	}
+	if contains(finalResponse.SavedSensitivePaths, "peers["+ids[1]+"].pre-shared-key") || !contains(finalResponse.SavedSensitivePaths, "peers["+ids[0]+"].pre-shared-key") {
+		t.Fatalf("更新响应凭据摘要未反映替换/清除: %v", finalResponse.SavedSensitivePaths)
+	}
+	rawFinal, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := GetPath(rawFinal.ProtocolJSON, "peers["+ids[1]+"].pre-shared-key"); ok {
+		t.Fatal("显式清除的 Peer 凭据仍存在")
+	}
+	replaced, _ := GetPath(rawFinal.ProtocolJSON, "peers["+ids[0]+"].pre-shared-key")
+	if replaced == cipherA || !strings.HasPrefix(replaced.(string), encPrefix) {
+		t.Fatalf("Peer 新凭据未独立替换: %v", replaced)
+	}
+	_, err = svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "wireguard", Host: "example.com", Port: 51820, BaseRevision: finalResponse.EditRevision,
+		ProtocolJSON:  rawFinal.ProtocolJSON,
+		CredentialOps: []CredentialOp{{Path: "peers[0].pre-shared-key", Op: "clear"}},
+	})
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("数组凭据操作不得接受可变索引路径: %v", err)
+	}
+}
+
+func TestSavedSensitivePathsAlwaysSerializeAsArray(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	created, err := svc.CreateManual(context.Background(), CreateManualInput{
+		Name: "无凭据协议", Protocol: "openvpn", Host: "example.com", Port: 1194,
+		ProtocolJSON: map[string]any{"client-config": "client\nremote example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"saved_sensitive_paths":[]`) {
+		t.Fatalf("空凭据摘要必须返回 []: %s", encoded)
+	}
+}
+
+func TestMigrateLegacyWireGuardArrayCredentials(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	ctx := context.Background()
+	legacy := `{"private-key":"enc:v1:already-encrypted","public-key":"pub","peers":[{"server":"peer","pre-shared-key":"legacy-plain"}]}`
+	result, err := st.DB().ExecContext(ctx,
+		`INSERT INTO nodes (source,name,protocol,host,port,protocol_json) VALUES ('manual','legacy-wg','wireguard','example.com',51820,?)`, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := result.LastInsertId()
+	if err := svc.MigrateSensitiveArrayCredentials(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := svc.getRaw(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peers := raw.ProtocolJSON["peers"].([]any)
+	peer := peers[0].(map[string]any)
+	peerID, _ := peer[sensitiveItemIDField].(string)
+	secret, _ := peer["pre-shared-key"].(string)
+	if peerID == "" || !strings.HasPrefix(secret, encPrefix) || strings.Contains(secret, "legacy-plain") {
+		t.Fatalf("历史 Peer 未完成身份/加密升级: %+v", peer)
+	}
+	if err := svc.MigrateSensitiveArrayCredentials(ctx); err != nil {
+		t.Fatalf("重复迁移应幂等: %v", err)
+	}
+	again, _ := svc.getRaw(ctx, id)
+	if value, _ := GetPath(again.ProtocolJSON, "peers["+peerID+"].pre-shared-key"); value != secret {
+		t.Fatal("重复迁移改变了既有密文")
+	}
+}
+
+func TestStripInternalProtocolMetadata(t *testing.T) {
+	proto, _ := GetProtocol("wireguard")
+	original := map[string]any{
+		"peers":   []any{map[string]any{sensitiveItemIDField: "peer-id", "server": "example.com"}},
+		"headers": map[string]any{sensitiveItemIDField: "user-value"},
+	}
+	stripped := StripInternalProtocolMetadata(proto, original)
+	peer := stripped["peers"].([]any)[0].(map[string]any)
+	if _, ok := peer[sensitiveItemIDField]; ok {
+		t.Fatal("内部条目 ID 进入了目标输出")
+	}
+	if original["peers"].([]any)[0].(map[string]any)[sensitiveItemIDField] != "peer-id" {
+		t.Fatal("剥离内部元数据修改了原对象")
+	}
+	if stripped["headers"].(map[string]any)[sensitiveItemIDField] != "user-value" {
+		t.Fatal("未声明为条目 ID 的同名扩展字段不应被删除")
+	}
+}
+
 func TestUpdateRevisionConflict(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()

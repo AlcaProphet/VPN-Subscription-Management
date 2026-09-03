@@ -191,6 +191,59 @@ describe('ProtocolFieldEditor', () => {
     expect(cleared.find('input').attributes('placeholder')).toBe('未配置')
   })
 
+  it('递归敏感字段只按服务端已保存路径显示状态并上报替换/清空', async () => {
+    const field: FieldSchema = {
+      name: 'shadow-tls-opts', type: 'object', required: false, label: 'shadow-tls', object_kind: 'fields',
+      properties: [{ name: 'password', type: 'password', required: false, label: '密码' }],
+    }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: {
+        field,
+        modelValue: { password: '' },
+        sensitivePaths: ['shadow-tls-opts.password'],
+        savedSensitivePaths: [],
+      },
+    })
+    expect(wrapper.find('input').attributes('placeholder')).toBe('未配置')
+    expect(wrapper.text()).toContain('未配置')
+    await wrapper.find('input').setValue('new-secret')
+    await wrapper.setProps({ modelValue: { password: 'new-secret' } })
+    expect(wrapper.text()).toContain('待替换')
+    await wrapper.find('input').setValue('')
+    const events = wrapper.emitted('credential-change') ?? []
+    expect(events[events.length - 1]).toEqual([{ path: 'shadow-tls-opts.password', value: '' }])
+
+    await wrapper.setProps({ modelValue: { password: '' }, savedSensitivePaths: ['shadow-tls-opts.password'] })
+    expect(wrapper.find('input').attributes('placeholder')).toBe('已保存（留空保留）')
+  })
+
+  it('对象数组使用稳定条目 ID 传递完整凭据路径，重排后状态不串项', async () => {
+    const firstID = '11111111-1111-4111-8111-111111111111'
+    const secondID = '22222222-2222-4222-8222-222222222222'
+    const peers: FieldSchema = {
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', item_id_field: '_credential_id',
+      properties: [{ name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' }],
+    }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: {
+        field: peers,
+        modelValue: [
+          { _credential_id: secondID, 'pre-shared-key': '' },
+          { _credential_id: firstID, 'pre-shared-key': '' },
+        ],
+        sensitivePaths: ['peers[].pre-shared-key'],
+        savedSensitivePaths: [`peers[${firstID}].pre-shared-key`],
+      },
+    })
+    const editors = wrapper.findAllComponents(ProtocolFieldEditor).filter((item) => item.props('field').name === 'pre-shared-key')
+    expect(editors.map((item) => item.props('path'))).toEqual([
+      `peers[${secondID}].pre-shared-key`,
+      `peers[${firstID}].pre-shared-key`,
+    ])
+    expect(editors[0].find('input').attributes('placeholder')).toBe('未配置')
+    expect(editors[1].find('input').attributes('placeholder')).toBe('已保存（留空保留）')
+  })
+
   it('对象数组可新增条目并按子 schema 编辑', async () => {
     const peers: FieldSchema = {
       name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', allow_unknown: true,

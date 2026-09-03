@@ -68,26 +68,27 @@ func CurrentRevisionFromError(err error) (int64, bool) {
 
 // Node 统一节点行。
 type Node struct {
-	ID                 int64              `json:"id"`
-	Source             string             `json:"source"`
-	Name               string             `json:"name"`
-	DisplayName        *string            `json:"display_name,omitempty"`
-	InstanceID         *int64             `json:"instance_id,omitempty"`
-	Tag                string             `json:"tag,omitempty"`
-	Protocol           string             `json:"protocol"`
-	Host               string             `json:"host"`
-	Port               int                `json:"port"`
-	ProtocolJSON       map[string]any     `json:"protocol_json"`
-	IsPublic           bool               `json:"is_public"`
-	Enabled            bool               `json:"enabled"`
-	Allocatable        bool               `json:"allocatable"`
-	Missing            bool               `json:"missing"`
-	RenderName         string             `json:"render_name"`
-	InstanceSlug       string             `json:"instance_slug,omitempty"`
-	EditRevision       int64              `json:"edit_revision"`
-	StateFormatVersion int                `json:"state_format_version"`
-	CurrentState       CurrentState       `json:"current_state"`
-	Extensions         []ExtensionSummary `json:"extensions"`
+	ID                  int64              `json:"id"`
+	Source              string             `json:"source"`
+	Name                string             `json:"name"`
+	DisplayName         *string            `json:"display_name,omitempty"`
+	InstanceID          *int64             `json:"instance_id,omitempty"`
+	Tag                 string             `json:"tag,omitempty"`
+	Protocol            string             `json:"protocol"`
+	Host                string             `json:"host"`
+	Port                int                `json:"port"`
+	ProtocolJSON        map[string]any     `json:"protocol_json"`
+	IsPublic            bool               `json:"is_public"`
+	Enabled             bool               `json:"enabled"`
+	Allocatable         bool               `json:"allocatable"`
+	Missing             bool               `json:"missing"`
+	RenderName          string             `json:"render_name"`
+	InstanceSlug        string             `json:"instance_slug,omitempty"`
+	EditRevision        int64              `json:"edit_revision"`
+	StateFormatVersion  int                `json:"state_format_version"`
+	CurrentState        CurrentState       `json:"current_state"`
+	Extensions          []ExtensionSummary `json:"extensions"`
+	SavedSensitivePaths []string           `json:"saved_sensitive_paths"`
 
 	// extensionRecords 仅供节点服务在更新时保留已有密文，禁止序列化到响应。
 	extensionRecords []ExtensionRecord `json:"-"`
@@ -851,16 +852,22 @@ func scanNode(row rowScanner) (Node, error) {
 
 // redactSensitive 列表/详情返回时敏感字段置空，避免泄露凭据明文。
 func (s *Service) redactSensitive(n *Node) {
+	n.SavedSensitivePaths = []string{}
 	if proto, err := GetProtocol(n.Protocol); err == nil && n.Source == "manual" {
 		// 仅归一化响应副本，让兼容 WS 值进入当前表单；读取不回写节点。
 		n.ProtocolJSON = cleanDisabledFeatures(proto.FormSchema, normalizeProtocolParameters(proto, n.ProtocolJSON))
 		n.CurrentState.Features = activeFeatures(proto.FormSchema, n.ProtocolJSON)
 	}
-	for _, path := range SensitiveFieldsOf(n.Protocol) {
-		if _, ok := GetPath(n.ProtocolJSON, path); ok {
+	patterns := SensitiveFieldsOf(n.Protocol)
+	for _, path := range ConcreteSensitivePaths(n.ProtocolJSON, patterns) {
+		if value, ok := GetPath(n.ProtocolJSON, path); ok {
+			if encrypted, ok := value.(string); ok && strings.HasPrefix(encrypted, encPrefix) {
+				n.SavedSensitivePaths = append(n.SavedSensitivePaths, path)
+			}
 			SetPath(n.ProtocolJSON, path, "")
 		}
 	}
+	n.SavedSensitivePaths = uniqueSortedStrings(n.SavedSensitivePaths)
 	redactExtensions(n)
 }
 
@@ -871,34 +878,12 @@ func redactExtensions(n *Node) {
 
 // GetPath 从嵌套 JSON 映射读取点路径。
 func GetPath(m map[string]any, path string) (any, bool) {
-	var current any = m
-	parts := strings.Split(path, ".")
-	for _, part := range parts {
-		next, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		current, ok = next[part]
-		if !ok {
-			return nil, false
-		}
-	}
-	return current, true
+	return getPathValue(m, path)
 }
 
 // SetPath 向嵌套 JSON 映射写入点路径，不存在的中间映射会自动创建。
 func SetPath(m map[string]any, path string, value any) {
-	parts := strings.Split(path, ".")
-	current := m
-	for _, part := range parts[:len(parts)-1] {
-		next, ok := current[part].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			current[part] = next
-		}
-		current = next
-	}
-	current[parts[len(parts)-1]] = value
+	setPathValue(m, path, value)
 }
 
 func cloneJSONValue(value any) any {
@@ -1230,12 +1215,8 @@ func (s *Service) mergeSensitive(ctx context.Context, existing Node, proto Proto
 // mergeSensitiveWithOps 在重置基底上应用 keep/clear，并对未声明操作的空值保留旧密文。
 func (s *Service) mergeSensitiveWithOps(_ context.Context, existing Node, proto Protocol, base map[string]any, resetScopes []string, ops []CredentialOp) (map[string]any, error) {
 	opByPath := make(map[string]string, len(ops))
-	sensitive := make(map[string]bool, len(proto.SensitiveFields))
-	for _, path := range proto.SensitiveFields {
-		sensitive[path] = true
-	}
 	for _, op := range ops {
-		if !sensitive[op.Path] {
+		if !isSensitivePath(proto.SensitiveFields, op.Path) {
 			return nil, fmt.Errorf("凭据路径 %s 不属于当前协议", op.Path)
 		}
 		if op.Op != "keep" && op.Op != "clear" {
@@ -1249,7 +1230,7 @@ func (s *Service) mergeSensitiveWithOps(_ context.Context, existing Node, proto 
 
 	out := cloneJSONMap(base)
 	resetScopes = append(append([]string(nil), resetScopes...), disabledFeatureScopes(proto.FormSchema, base)...)
-	for _, path := range proto.SensitiveFields {
+	for _, path := range concreteSensitivePathUnion(proto.SensitiveFields, existing.ProtocolJSON, out) {
 		oldValue, oldExists := GetPath(existing.ProtocolJSON, path)
 		reset := false
 		for _, scope := range resetScopes {
@@ -1285,11 +1266,14 @@ func emptyJSONString(value any) bool {
 }
 
 func deletePath(m map[string]any, path string) {
-	parts := strings.Split(path, ".")
-	if len(parts) == 0 {
+	if !strings.Contains(path, "[") {
+		parts := strings.Split(path, ".")
+		if len(parts) > 0 {
+			deletePathParts(m, parts)
+		}
 		return
 	}
-	deletePathParts(m, parts)
+	deletePathValue(m, path)
 }
 
 func deletePathParts(m map[string]any, parts []string) bool {
@@ -1310,7 +1294,10 @@ func deletePathParts(m map[string]any, parts []string) bool {
 // encryptProtocolJSON 将敏感字段明文加密后写入副本。
 func (s *Service) encryptProtocolJSON(ctx context.Context, in map[string]any, sensitive []string) (map[string]any, error) {
 	out := cloneJSONMap(in)
-	for _, path := range sensitive {
+	if err := ensureSensitiveItemIDs(out, sensitive); err != nil {
+		return nil, err
+	}
+	for _, path := range ConcreteSensitivePaths(out, sensitive) {
 		v, ok := GetPath(out, path)
 		if !ok {
 			continue

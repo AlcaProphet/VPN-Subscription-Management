@@ -287,7 +287,8 @@ func (s *Service) loadRule(ctx context.Context, id int64) (*ruleInfo, error) {
 
 // decryptNode 将节点 protocol_json 中的敏感字段解密为明文。
 func (s *Service) decryptNode(nd *nodeData) error {
-	for _, path := range node.SensitiveFieldsOf(nd.Protocol) {
+	patterns := node.SensitiveFieldsOf(nd.Protocol)
+	for _, path := range node.ConcreteSensitivePaths(nd.ProtocolJSON, patterns) {
 		v, ok := node.GetPath(nd.ProtocolJSON, path)
 		if !ok {
 			continue
@@ -305,6 +306,9 @@ func (s *Service) decryptNode(nd *nodeData) error {
 			return fmt.Errorf("解密节点凭据失败: %s", nd.Name)
 		}
 		node.SetPath(nd.ProtocolJSON, path, string(plain))
+	}
+	if proto, err := node.GetProtocol(nd.Protocol); err == nil {
+		nd.ProtocolJSON = node.StripInternalProtocolMetadata(proto, nd.ProtocolJSON)
 	}
 	return nil
 }

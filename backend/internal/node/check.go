@@ -77,7 +77,10 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 
-	params := normalizeProtocolParameters(proto, in.ProtocolJSON)
+	params, err := NormalizeProtocolJSON(proto, in.ProtocolJSON)
+	if err != nil {
+		return s.checkValidationResponse(in, targets, err, in.ProtocolJSON), nil
+	}
 	if err := validateKnownTopLevel(proto, params); err != nil {
 		return s.checkValidationResponse(in, targets, err, params), nil
 	}
@@ -152,6 +155,7 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 	state := DeriveCurrentState(proto, params)
 	active := ProjectActive(proto, state, params)
 	redacted := redactCheckParams(proto, active)
+	redacted = StripInternalProtocolMetadata(proto, redacted)
 	response := &CheckResponse{CheckID: makeCheckID(in, redacted), CheckVersion: 1, Targets: make(map[string]TargetCheckResult, len(targets))}
 	for _, target := range targets {
 		result := TargetCheckResult{Diagnostics: nil}
@@ -227,7 +231,7 @@ func checkRenderName(in CheckRequest, existing *Node) string {
 
 func redactCheckParams(proto Protocol, params map[string]any) map[string]any {
 	out := cloneJSONMap(params)
-	for _, path := range proto.SensitiveFields {
+	for _, path := range ConcreteSensitivePaths(out, proto.SensitiveFields) {
 		if value, ok := GetPath(out, path); ok && hasEffectiveValue(value) {
 			SetPath(out, path, "REDACTED")
 		}

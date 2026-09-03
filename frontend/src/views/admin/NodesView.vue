@@ -12,7 +12,7 @@ import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
-import { activeFeatures, cleanDisabledFeatures, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
+import { activeFeatures, cleanDisabledFeatures, concreteSensitivePaths, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
 import { collectSwitchFields, fieldGroup, hasConfiguredValue, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 
 const loading = ref(false)
@@ -47,6 +47,7 @@ const nameSpaceError = computed(() => {
 const invalidProtocolPaths = reactive(new Set<string>())
 const resetScopes = reactive(new Set<string>())
 const clearedSensitivePaths = reactive(new Set<string>())
+const invalidatedSensitivePaths = reactive(new Set<string>())
 const jsonResetVersions = reactive<Record<string, number>>({})
 const unappliedJsonPaths = reactive(new Set<string>())
 const extensionOps = ref<ExtensionOp[]>([])
@@ -222,10 +223,16 @@ function extensionInputsForCreate(): ExtensionInput[] {
       payload: op.payload ?? '',
     }))
 }
-function credentialStateForPath(path: string): 'unset' | 'saved' | 'replacing' | 'cleared' {
-  if (!editing.value) return 'unset'
-  if (clearedSensitivePaths.has(path)) return 'cleared'
-  return 'saved'
+const savedSensitivePaths = computed(() => editing.value?.saved_sensitive_paths ?? [])
+function handleCredentialChange(payload: { path: string; value: string }) {
+  if (payload.value !== '') {
+    clearedSensitivePaths.delete(payload.path)
+    return
+  }
+  if (savedSensitivePaths.value.includes(payload.path) || invalidatedSensitivePaths.has(payload.path)) {
+    invalidatedSensitivePaths.add(payload.path)
+    clearedSensitivePaths.add(payload.path)
+  }
 }
 function handleJsonDirty(payload: { path: string; dirty: boolean }) {
   if (payload.dirty) unappliedJsonPaths.add(payload.path)
@@ -343,8 +350,15 @@ function clearScopedFields(scope: string) {
       if (pathContains(clearedPath, path) || pathContains(path, clearedPath)) unappliedJsonPaths.delete(path)
     }
   }
-  for (const sensitivePath of schema.sensitive_fields ?? []) {
-    if (reset.paths.some((path) => pathContains(path, sensitivePath))) clearedSensitivePaths.add(sensitivePath)
+  const concretePaths = new Set([
+    ...savedSensitivePaths.value,
+    ...concreteSensitivePaths(form.protocol_json, schema.sensitive_fields ?? []),
+  ])
+  for (const sensitivePath of concretePaths) {
+    if (reset.paths.some((path) => pathContains(path, sensitivePath))) {
+      invalidatedSensitivePaths.add(sensitivePath)
+      clearedSensitivePaths.add(sensitivePath)
+    }
   }
   extensionOps.value = extensionOps.value.filter((op) => !scopeResetsExtension(op.scope ?? '', scope))
   for (const ext of editing.value?.extensions ?? []) {
@@ -364,6 +378,7 @@ function applyResetScope(scope: string, changed: boolean) {
 function resetAllEditScopes() {
   resetScopes.clear()
   clearedSensitivePaths.clear()
+  invalidatedSensitivePaths.clear()
   unappliedJsonPaths.clear()
   extensionOps.value = []
   resetExtensionDraft()
@@ -379,8 +394,8 @@ function updateProtocol(protocol: string) {
   extensionOps.value = []
   resetExtensionDraft()
   resetScopes.add('protocol')
+  for (const path of savedSensitivePaths.value) invalidatedSensitivePaths.add(path)
   clearedSensitivePaths.clear()
-  for (const path of currentSchema()?.sensitive_fields ?? []) clearedSensitivePaths.add(path)
 }
 function openCreate() {
   creating.value = true
@@ -624,7 +639,7 @@ function setField(key: string, val: unknown) {
   }
   // 使用本次候选对象的清理结果，避免递归组件的旧对象把已删除子树写回来。
   form.protocol_json = cleaned
-  for (const path of currentSchema()?.sensitive_fields ?? []) {
+  for (const path of concreteSensitivePaths(form.protocol_json, currentSchema()?.sensitive_fields ?? [])) {
     if (hasEffectiveValue(valueAtPath(form.protocol_json, path))) clearedSensitivePaths.delete(path)
   }
 }
@@ -736,14 +751,14 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           当前组合：{{ currentCombo }}
         </div>
 
-        <FormSection v-if="groupFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值；新建时必须填写。">
+        <FormSection v-if="groupFields('auth').length" title="认证与密钥" help="已保存凭据留空将保留；未配置或已重置的必填凭据需重新填写。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('auth')" :key="field.name" :field="field"
               centralized-switches
               :json-reset-versions="jsonResetVersions"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
           </div>
         </FormSection>
 
@@ -756,9 +771,9 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <ProtocolFieldEditor v-for="field in groupFields('connection').filter((field) => !!field.advanced === tier)" :key="field.name" :field="field"
               centralized-switches
               :json-reset-versions="jsonResetVersions"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
             </div>
           </component>
         </FormSection>
@@ -786,9 +801,9 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <ProtocolFieldEditor v-for="field in groupFields('advanced')" :key="field.name" :field="field"
               centralized-switches
               :json-reset-versions="jsonResetVersions"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
+              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
           </div>
         </details>
 

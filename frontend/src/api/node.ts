@@ -22,6 +22,7 @@ export interface NodeItem {
   state_format_version: number
   current_state: CurrentState
   extensions: ExtensionSummary[]
+  saved_sensitive_paths: string[]
 }
 
 export interface ConditionRule {
@@ -59,6 +60,7 @@ export interface FieldSchema {
   group?: 'basic' | 'auth' | 'connection' | 'switches' | 'advanced'
   advanced?: boolean
   object_kind?: 'fields' | 'map' | 'list'
+  item_id_field?: string
   properties?: FieldSchema[]
   allow_unknown?: boolean
   when?: ConditionRule

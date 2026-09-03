@@ -4,13 +4,15 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { CurrentState, FieldSchema } from '@/api/node'
-import { pathContains } from '@/utils/nodeFeatures'
+import { matchesSensitivePath, pathContains } from '@/utils/nodeFeatures'
 import { hasConfiguredValue, matchesCondition } from '@/utils/nodeFormLayout'
 
 const props = withDefaults(defineProps<{
   field: FieldSchema
   modelValue?: unknown
   sensitivePaths?: string[]
+  savedSensitivePaths?: string[]
+  invalidatedSensitivePaths?: string[]
   credentialState?: 'unset' | 'saved' | 'replacing' | 'cleared'
   path?: string
   currentState?: CurrentState
@@ -19,6 +21,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   modelValue: undefined,
   sensitivePaths: () => [],
+  savedSensitivePaths: () => [],
+  invalidatedSensitivePaths: () => [],
   credentialState: undefined,
   path: '',
   currentState: undefined,
@@ -30,6 +34,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: unknown]
   'validity-change': [payload: { path: string; valid: boolean }]
   'json-dirty-change': [payload: { path: string; dirty: boolean }]
+  'credential-change': [payload: { path: string; value: string }]
 }>()
 
 const fieldPath = computed(() => props.path || props.field.name)
@@ -50,7 +55,7 @@ const listValue = computed<unknown[]>(() => Array.isArray(props.modelValue) ? pr
 const knownNames = computed(() => new Set((props.field.properties ?? []).map((item) => item.name)))
 const unknownCount = computed(() => Object.keys(objectValue.value).filter((key) => !knownNames.value.has(key)).length)
 const mapEntries = computed(() => Object.entries(objectValue.value))
-const sensitive = computed(() => props.field.type === 'password' || props.sensitivePaths.includes(fieldPath.value))
+const sensitive = computed(() => props.field.type === 'password' || props.sensitivePaths.some((path) => matchesSensitivePath(path, fieldPath.value)))
 
 function visibleProperties(properties?: FieldSchema[]): FieldSchema[] {
   return (properties ?? []).filter((property) => matchesCondition(property.when, props.currentState))
@@ -60,7 +65,9 @@ const structuredProperties = computed(() => visibleProperties(props.field.proper
 const advancedCount = computed(() => structuredProperties.value.filter((field) => field.advanced && hasConfiguredValue(childValue(field.name))).length)
 const shownCredentialState = computed(() => {
   if (props.credentialState) return props.credentialState
-  return props.sensitivePaths.includes(fieldPath.value) ? 'saved' : 'unset'
+  if (typeof props.modelValue === 'string' && props.modelValue !== '') return 'replacing'
+  if (props.invalidatedSensitivePaths.includes(fieldPath.value)) return 'cleared'
+  return props.savedSensitivePaths.includes(fieldPath.value) ? 'saved' : 'unset'
 })
 
 watch(() => props.modelValue, (value) => {
@@ -88,6 +95,15 @@ function forwardValidity(payload: { path: string; valid: boolean }) {
 
 function forwardJsonDirty(payload: { path: string; dirty: boolean }) {
   emit('json-dirty-change', payload)
+}
+
+function forwardCredentialChange(payload: { path: string; value: string }) {
+  emit('credential-change', payload)
+}
+
+function updateCredential(value: string) {
+  update(value)
+  emit('credential-change', { path: fieldPath.value, value })
 }
 
 function emitJsonDirty(dirty: boolean) {
@@ -206,7 +222,17 @@ function removeMapEntry(key: string) {
 }
 
 function addListItem() {
-  update([...listValue.value, {}])
+  const item: Record<string, unknown> = {}
+  if (props.field.item_id_field) item[props.field.item_id_field] = crypto.randomUUID()
+  update([...listValue.value, item])
+}
+
+function listItemID(item: unknown, index: number): string {
+  if (item && typeof item === 'object' && !Array.isArray(item) && props.field.item_id_field) {
+    const id = (item as Record<string, unknown>)[props.field.item_id_field]
+    if (typeof id === 'string' && id) return id
+  }
+  return String(index)
 }
 
 function setListChild(index: number, name: string, value: unknown) {
@@ -313,7 +339,7 @@ function isComplex(value: unknown): boolean {
 
     <template v-else-if="field.object_kind === 'list'">
       <div v-if="listValue.length" class="space-y-3">
-        <div v-for="(item, index) in listValue" :key="index" class="rounded-lg border p-3">
+        <div v-for="(item, index) in listValue" :key="listItemID(item, index)" class="rounded-lg border p-3">
           <div class="flex items-center justify-between mb-3">
             <span class="text-sm font-medium">第 {{ index + 1 }} 项</span>
             <Button size="small" danger @click="removeListItem(index)">删除</Button>
@@ -325,12 +351,15 @@ function isComplex(value: unknown): boolean {
               :field="property"
               :model-value="item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>)[property.name] : undefined"
               :sensitive-paths="sensitivePaths"
-              :path="`${fieldPath}[${index}].${property.name}`"
+              :saved-sensitive-paths="savedSensitivePaths"
+              :invalidated-sensitive-paths="invalidatedSensitivePaths"
+              :path="`${fieldPath}[${listItemID(item, index)}].${property.name}`"
               :current-state="currentState"
               :json-reset-versions="jsonResetVersions"
               @update:model-value="(value: unknown) => setListChild(index, property.name, value)"
               @validity-change="forwardValidity"
               @json-dirty-change="forwardJsonDirty"
+              @credential-change="forwardCredentialChange"
             />
           </div>
         </div>
@@ -351,6 +380,8 @@ function isComplex(value: unknown): boolean {
           :field="property"
           :model-value="childValue(property.name)"
           :sensitive-paths="sensitivePaths"
+          :saved-sensitive-paths="savedSensitivePaths"
+          :invalidated-sensitive-paths="invalidatedSensitivePaths"
           :path="`${fieldPath}.${property.name}`"
           :current-state="currentState"
           :json-reset-versions="jsonResetVersions"
@@ -359,6 +390,7 @@ function isComplex(value: unknown): boolean {
           @update:model-value="(value: unknown) => setChild(property.name, value)"
           @validity-change="forwardValidity"
           @json-dirty-change="forwardJsonDirty"
+          @credential-change="forwardCredentialChange"
         />
         </div>
       </component>
@@ -376,7 +408,7 @@ function isComplex(value: unknown): boolean {
 
   <div v-else :data-field-path="fieldPath" class="protocol-scalar-field">
     <label class="text-sm text-text-secondary">{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></label>
-    <Input.Password v-if="sensitive" :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => update(event.target.value)" />
+    <Input.Password v-if="sensitive" :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
     <InputNumber v-else-if="field.type === 'number'" :value="Number(modelValue ?? field.default ?? 0)" class="w-full" @change="(value: any) => update(value ?? 0)" />
     <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" class="w-full" @update:model-value="(value: string) => update(value)" />
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
@@ -393,9 +425,11 @@ function isComplex(value: unknown): boolean {
         推荐：{{ field.option_items.map((item) => item.label || item.value).join('、') }}
       </div>
     </div>
+    <div v-if="sensitive" class="text-xs text-text-tertiary mt-1">
+      {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
+    </div>
     <Input.TextArea v-else-if="isLongText(field)" :value="String(modelValue ?? '')" :rows="4" @change="(event: any) => update(event.target.value)" />
     <Input v-else :value="String(modelValue ?? '')" @change="(event: any) => update(event.target.value)" />
-    <div v-if="sensitive && shownCredentialState === 'saved'" class="text-xs text-text-tertiary mt-1">已保存（留空保留）</div>
     <div v-if="field.help" class="text-xs text-text-tertiary mt-1">{{ field.help }}</div>
   </div>
 </template>
