@@ -229,10 +229,12 @@ Step 1 类型/API
     - 切换 security：清空安全分区；添加 `security`。
     - 切换/取消 SS plugin：清空插件参数与插件扩展；添加 `plugin`；SS 主密码不清空。
     - 关闭有子配置功能：清空该 feature 子参数；添加 `feature.<name>`。
+      - R27-03 已改为 `nodeFeatures.ts` 消费 schema 的 `feature`/`reset_on`，不再硬编码顶层开关；SMux 关闭包含 Brutal 子树，Brutal 独立关闭不影响父配置。结构化与 JSON 应用共用清理入口，保留显式关闭状态。
     - 每次清空同时：
       - 移除对应路径的 `invalidProtocolPaths`；
       - 使目标检查结果失效；
       - 放弃对应范围的未应用 JSON 草稿。
+      - R27-03 以按路径的 `jsonResetVersions` 使递归组件内重叠 JSON 草稿真正失效，不能只清除页面 dirty 集合；同步清除受影响的扩展新增/替换草稿并为已有扩展记录 `clear`。无关对象草稿保持不变。
     - 提示确认：切换前显示 Toast/Confirm，例如“切换将清空该分区参数，切回需重新填写”。
   - `ProtocolFieldEditor.vue`：
     - 支持 `credentialState`（`'unset' | 'saved' | 'replacing'`）或 emit 凭据状态：
@@ -363,3 +365,4 @@ checkSeq + checkResult    → 检查请求序号和当前有效结果
 | v1.5 | 2026-09-02 | 完成 Step 5：新增 `NodeCheckPanel.vue`，接入当前草稿目标检查、状态/诊断/脱敏预览展示，草稿变化即失效、迟到响应丢弃；新增 `node-check-panel.spec.ts` 3 项测试，构建与定向测试通过。 |
 | v1.6 | 2026-09-02 | 完成 Step 6：保存 payload 接入 `current_state`/`reset_scopes`/`credential_ops`/`base_revision`，409 保留草稿并支持重新加载；补充保存与 409 测试；前端全量 `npm test -- --run` 39 文件 / 158 用例通过，`npm run build` 通过。 |
 | v1.7 | 2026-09-02 | 完成核验后的前端收口：新增未知扩展摘要与新增/替换/清除操作，保存/检查携带 `extension_ops`/`extensions`；分支切换增加 Toast 清空提示；未应用 JSON 草稿保存前拦截并要求应用/放弃；校正结构化/高级 JSON 模式文案；前端全量 `npm test -- --run` 39 文件 / 162 用例通过，`npm run build` 通过。 |
+| v1.8 | 2026-09-03 | R27-03 对齐修复：统一功能元数据草稿更新、递归 SMux/Brutal 关闭清空、扩展作用域处理与局部 JSON 失效；增加辅助函数、真实递归组件交互和关闭状态 JSON 应用回归。前端全量测试 40 文件 / 179 用例与生产构建通过（保留大于 600 kB 的 chunk 警告）。实现范围不包含 R27-04～R27-09；浏览器实机复核见 ProdTestList。 |

@@ -4,6 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { ConditionRule, CurrentState, FieldSchema } from '@/api/node'
+import { pathContains } from '@/utils/nodeFeatures'
 
 const props = withDefaults(defineProps<{
   field: FieldSchema
@@ -12,12 +13,14 @@ const props = withDefaults(defineProps<{
   credentialState?: 'unset' | 'saved' | 'replacing' | 'cleared'
   path?: string
   currentState?: CurrentState
+  jsonResetVersions?: Record<string, number>
 }>(), {
   modelValue: undefined,
   sensitivePaths: () => [],
   credentialState: undefined,
   path: '',
   currentState: undefined,
+  jsonResetVersions: () => ({}),
 })
 
 const emit = defineEmits<{
@@ -71,6 +74,11 @@ watch(() => props.modelValue, (value) => {
   emitJsonDirty(false)
   if (!advanced.value) jsonText.value = JSON.stringify(value ?? emptyObjectValue(), null, 2)
 }, { immediate: true, deep: true })
+
+// 只丢弃与重置范围重叠的局部草稿，关闭子功能也会使覆盖它的父 JSON 草稿失效。
+watch(() => Object.entries(props.jsonResetVersions)
+  .filter(([path]) => pathContains(path, fieldPath.value) || pathContains(fieldPath.value, path))
+  .reduce((version, [, count]) => version + count, 0), () => discardJSON(), { flush: 'post' })
 
 function emptyObjectValue(): Record<string, unknown> | unknown[] {
   return props.field.object_kind === 'list' ? [] : {}
@@ -324,6 +332,7 @@ function isComplex(value: unknown): boolean {
               :sensitive-paths="sensitivePaths"
               :path="`${fieldPath}[${index}].${property.name}`"
               :current-state="currentState"
+              :json-reset-versions="jsonResetVersions"
               @update:model-value="(value: unknown) => setListChild(index, property.name, value)"
               @validity-change="forwardValidity"
               @json-dirty-change="forwardJsonDirty"
@@ -345,6 +354,7 @@ function isComplex(value: unknown): boolean {
           :sensitive-paths="sensitivePaths"
           :path="`${fieldPath}.${property.name}`"
           :current-state="currentState"
+          :json-reset-versions="jsonResetVersions"
           :class="property.type === 'object' ? 'md:col-span-2' : ''"
           @update:model-value="(value: unknown) => setChild(property.name, value)"
           @validity-change="forwardValidity"

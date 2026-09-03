@@ -19,6 +19,18 @@ const objectField: FieldSchema = {
 }
 
 describe('ProtocolFieldEditor', () => {
+  it('无关功能重置不丢弃本对象 JSON 草稿，重叠范围重置才丢弃', async () => {
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: objectField, modelValue: { path: '/keep' } } })
+    await wrapper.find('.ant-switch').trigger('click')
+    await wrapper.find('textarea').setValue('{"path":"/draft"}')
+    await wrapper.setProps({ jsonResetVersions: { smux: 1 } })
+    expect(wrapper.text()).toContain('JSON 草稿未应用')
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toContain('/draft')
+    await wrapper.setProps({ jsonResetVersions: { smux: 1, 'ws-opts.path': 1 }, modelValue: {} })
+    expect(wrapper.text()).not.toContain('JSON 草稿未应用')
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('{}')
+    wrapper.unmount()
+  })
   it('固定对象默认结构化并保留未知参数提示', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: {

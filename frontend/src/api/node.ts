@@ -64,6 +64,7 @@ export interface FieldSchema {
   when?: ConditionRule
   required_when?: ConditionRule
   reset_on?: string[]
+  feature?: { name: string; toggle?: string; disabled_value?: string }
   option_items?: OptionItem[]
   allow_custom?: boolean
   canonical_path?: string

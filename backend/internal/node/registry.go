@@ -21,6 +21,7 @@ type FieldSchema struct {
 	When           *ConditionRule   `json:"when,omitempty"`
 	RequiredWhen   *ConditionRule   `json:"required_when,omitempty"`
 	ResetOn        []string         `json:"reset_on,omitempty"`
+	Feature        *FeatureSchema   `json:"feature,omitempty"`
 	OptionItems    []OptionItem     `json:"option_items,omitempty"`
 	AllowCustom    bool             `json:"allow_custom,omitempty"`
 	CanonicalPath  string           `json:"canonical_path,omitempty"`
@@ -113,11 +114,13 @@ func xhttpOpts() FieldSchema {
 }
 
 func smuxOpts() FieldSchema {
-	return obj("smux", "多路复用", "fields",
+	brutal := featureObject("smux.brutal", obj("brutal-opts", "Brutal 参数", "fields",
+		def("enabled", "bool", "启用", false), f("up", "text", "上行"), f("down", "text", "下行")))
+	return featureObject("smux", obj("smux", "多路复用", "fields",
 		def("enabled", "bool", "启用", false), sel("protocol", "协议", "smux", "smux", "yamux", "h2mux"),
 		f("max-connections", "number", "最大连接数"), f("min-streams", "number", "最小流数"), f("max-streams", "number", "最大流数"),
 		def("padding", "bool", "填充", false), def("statistic", "bool", "统计", false), def("only-tcp", "bool", "仅 TCP", false),
-		obj("brutal-opts", "Brutal 参数", "fields", def("enabled", "bool", "启用", false), f("up", "text", "上行"), f("down", "text", "下行")))
+		brutal))
 }
 
 func obfsOpts() FieldSchema {
@@ -254,6 +257,7 @@ func enrichFirstBatchProtocols(protocols []Protocol) {
 			enrichSS(&protocols[i])
 		}
 		setCanonicalPaths(protocols[i].FormSchema, "")
+		setScalarFeatures(protocols[i].FormSchema)
 	}
 }
 

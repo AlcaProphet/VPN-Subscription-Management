@@ -10,6 +10,9 @@ import (
 // 未激活的已知分支不会进入结果，未知对象键在其所属活动对象内保留。
 func ProjectActive(proto Protocol, state CurrentState, params map[string]any) map[string]any {
 	params = normalizeProtocolParameters(proto, params)
+	params = cleanDisabledFeatures(proto.FormSchema, params)
+	// 旧状态没有嵌套功能标识时，从实际控制值派生；关闭父功能不会复活子功能。
+	state.Features = activeFeatures(proto.FormSchema, params)
 	out := make(map[string]any, len(params))
 	for _, field := range proto.FormSchema {
 		if !field.Matches(state, "") {
@@ -549,6 +552,7 @@ func ensureObjectParam(m map[string]any, key string) map[string]any {
 
 func protocolParamsForStorage(proto Protocol, params map[string]any) map[string]any {
 	out := normalizeProtocolParameters(proto, params)
+	out = cleanDisabledFeatures(proto.FormSchema, out)
 	if proto.Protocol != "vless" && proto.Protocol != "vmess" {
 		return out
 	}

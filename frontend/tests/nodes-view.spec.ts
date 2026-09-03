@@ -33,6 +33,8 @@ import NodesView from '@/views/admin/NodesView.vue'
 import { listNodes, getProtocols, createNode, updateNode } from '@/api/node'
 import { ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
+import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
+import { smuxSchema, smuxValue } from './fixtures/smux'
 
 const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
 const mockGetProtocols = getProtocols as unknown as ReturnType<typeof vi.fn>
@@ -88,6 +90,81 @@ describe('NodesView 节点管理页', () => {
     ;(Notify.warning as unknown as ReturnType<typeof vi.fn>).mockClear()
     mockListNodes.mockResolvedValue([node])
     mockGetProtocols.mockResolvedValue(protocols)
+  })
+
+  it.each(['ss', 'vless', 'vmess'])('%s 嵌套开关关闭并重开不恢复旧参数，检查和保存提交相同草稿', async (protocol) => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol, form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = protocol
+    vm.form.protocol_json = { password: 'keep', smux: smuxValue() }
+    await nextTick()
+    const enabled = () => wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === 'smux.enabled')!
+    await enabled().find('.ant-switch').trigger('click')
+    expect(vm.form.protocol_json).toEqual({ password: 'keep', smux: { enabled: false } })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((field) => field.props('path') === 'smux.max-connections')).toBe(false)
+    expect(vm.resetScopesArray()).toContain('feature.smux')
+    await enabled().find('.ant-switch').trigger('click')
+    expect(vm.form.protocol_json.smux).toEqual({ enabled: true })
+    expect(vm.checkRequest.protocol_json.smux).toEqual({ enabled: true })
+    await vm.save()
+    expect(mockCreateNode.mock.calls[0][0].protocol_json.smux).toEqual({ enabled: true })
+    expect(mockCreateNode.mock.calls[0][0].reset_scopes).toContain('feature.smux')
+    wrapper.unmount()
+  })
+
+  it('关闭 Brutal 清除所属扩展和未应用 JSON，重开不恢复；SMux 参数和公共扩展保留', async () => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const original = { ...node, protocol: 'vless', protocol_json: { uuid: 'keep', smux: smuxValue() }, extensions: [
+      { id: 'parent', scope: 'feature.smux', configured: true },
+      { id: 'child', scope: 'feature.smux.brutal', configured: true },
+      { id: 'common', scope: 'node', configured: true },
+    ] }
+    vm.openEdit(original)
+    await nextTick()
+    const brutal = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === 'smux.brutal-opts')!
+    await brutal.find('.ant-switch').trigger('click')
+    await brutal.find('textarea').setValue('{"enabled":true,"up":"stale-draft"}')
+    vm.openExtensionReplace(original.extensions[1])
+    vm.extensionDraft.payload = 'stale-extension'
+    vm.setField('smux', { ...smuxValue(), 'brutal-opts': { ...smuxValue()['brutal-opts'], enabled: false } })
+    await nextTick()
+    expect(vm.form.protocol_json.smux['brutal-opts']).toEqual({ enabled: false })
+    expect(vm.form.protocol_json.smux['max-connections']).toBe(7)
+    expect(vm.extensionDraft.open).toBe(false)
+    expect(vm.checkRequest.extension_ops).toEqual([{ op: 'clear', id: 'child' }])
+    expect(brutal.find('textarea').element.value).not.toContain('stale-draft')
+    expect(JSON.parse(brutal.find('textarea').element.value)).toEqual({ enabled: false })
+    vm.setField('smux', { ...vm.form.protocol_json.smux, 'brutal-opts': { enabled: true, up: '50 Mbps' } })
+    await vm.save()
+    expect(mockUpdateNode.mock.calls[0][1].protocol_json.smux['brutal-opts']).toEqual({ enabled: true, up: '50 Mbps' })
+    expect(original.protocol_json.smux).toEqual(smuxValue())
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('高级 JSON 清除残留参数并丢弃旧文本（原启用状态 %s）', async (enabled) => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { smux: enabled ? smuxValue() : { enabled: false } }
+    await nextTick()
+    const smux = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'smux')!
+    await smux.find('.ant-switch').trigger('click')
+    await smux.find('textarea').setValue(JSON.stringify({ ...smuxValue(), enabled: false }))
+    const apply = () => smux.findAll('button').find((button) => button.text().replace(/\s/g, '') === '应用')!
+    await apply().trigger('click')
+    expect(vm.form.protocol_json.smux).toEqual({ enabled: false })
+    expect(JSON.parse(smux.find('textarea').element.value)).toEqual({ enabled: false })
+    await apply().trigger('click')
+    expect(vm.form.protocol_json.smux).toEqual({ enabled: false })
+    wrapper.unmount()
   })
 
   it('动态表单按协议渲染，敏感字段显示“留空 = 保留原凭据”', async () => {

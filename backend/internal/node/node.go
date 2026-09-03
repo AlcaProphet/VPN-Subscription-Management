@@ -342,6 +342,7 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
+	params = cleanDisabledFeatures(proto.FormSchema, params)
 	if err := validateKnownTopLevel(proto, params); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -449,9 +450,6 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err := validateKnownTopLevel(proto, incoming); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	if err := validateProtocolFields(proto, incoming, true); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
-	}
 	if existingProto, existingErr := GetProtocol(existing.Protocol); existingErr == nil {
 		if err := validateKnownTopLevel(existingProto, existing.ProtocolJSON); err != nil {
 			return nil, fmt.Errorf("%w: 已有节点含未归入扩展的顶层字段: %v", ErrBadRequest, err)
@@ -470,6 +468,7 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
+	merged = cleanDisabledFeatures(proto.FormSchema, merged)
 	if err := validateKnownTopLevel(proto, merged); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -848,6 +847,10 @@ func scanNode(row rowScanner) (Node, error) {
 
 // redactSensitive 列表/详情返回时敏感字段置空，避免泄露凭据明文。
 func (s *Service) redactSensitive(n *Node) {
+	if proto, err := GetProtocol(n.Protocol); err == nil && n.Source == "manual" {
+		n.ProtocolJSON = cleanDisabledFeatures(proto.FormSchema, n.ProtocolJSON)
+		n.CurrentState.Features = activeFeatures(proto.FormSchema, n.ProtocolJSON)
+	}
 	for _, path := range SensitiveFieldsOf(n.Protocol) {
 		if _, ok := GetPath(n.ProtocolJSON, path); ok {
 			SetPath(n.ProtocolJSON, path, "")
@@ -946,7 +949,7 @@ func mergeJSONValues(oldValue, newValue any) any {
 
 // mergeProtocolJSON 从旧节点构造更新基底，先清除 reset_scopes，再合并新协议声明的字段。
 func mergeProtocolJSON(existing, incoming map[string]any, proto Protocol, resetScopes []string) map[string]any {
-	base := cloneJSONMap(existing)
+	base := cleanDisabledFeatures(proto.FormSchema, existing)
 	for _, scope := range resetScopes {
 		base = clearScope(base, scope, proto.FormSchema)
 	}
@@ -996,13 +999,13 @@ func normalizeResetScopes(scopes []string) ([]string, error) {
 	return out, nil
 }
 
-// clearScope 清除指定作用域的协议参数。Build18 增加 ResetOn 元数据后，
-// 可在本函数的字段判断中直接替换启发式映射；当前实现保持现有注册表兼容。
+// clearScope 递归执行元数据重置，同时保留旧传输/安全字段的兼容清空。
 func clearScope(m map[string]any, scope string, schema []FieldSchema) map[string]any {
 	out := cloneJSONMap(m)
 	if scope == "protocol" {
 		return map[string]any{}
 	}
+	resetSchemaFields(out, schema, scope)
 	for _, field := range schema {
 		if field.ShouldReset(scope) || scopeResetsField(scope, field.Name) {
 			delete(out, field.Name)
@@ -1076,8 +1079,11 @@ func scopeResetFields(scope string) []string {
 	}
 }
 
-func pathInResetScope(path, scope string) bool {
+func pathInResetScope(path, scope string, schema []FieldSchema) bool {
 	if scope == "protocol" {
+		return true
+	}
+	if schemaPathResets(path, scope, schema) {
 		return true
 	}
 	top := strings.SplitN(path, ".", 2)[0]
@@ -1127,24 +1133,7 @@ func DeriveCurrentState(proto Protocol, params map[string]any) CurrentState {
 		plugin := value
 		state.Plugin = &plugin
 	}
-	if value, ok := params["udp-over-tcp"].(bool); ok && value {
-		state.Features = append(state.Features, "udp-over-tcp")
-	}
-	if value, ok := params["udp-over-stream"].(bool); ok && value {
-		state.Features = append(state.Features, "udp-over-stream")
-	}
-	if value, ok := params["xudp"].(bool); ok && value {
-		state.Features = append(state.Features, "xudp")
-	}
-	if value, ok := params["smux"].(map[string]any); ok {
-		if enabled, _ := value["enabled"].(bool); enabled {
-			state.Features = append(state.Features, "smux")
-		}
-	}
-	if value, ok := params["multiplexing"].(string); ok && value != "" && value != "MULTIPLEXING_OFF" {
-		state.Features = append(state.Features, "multiplexing")
-	}
-	state.Features = uniqueSortedStrings(state.Features)
+	state.Features = activeFeatures(proto.FormSchema, params)
 	return state
 }
 
@@ -1254,11 +1243,12 @@ func (s *Service) mergeSensitiveWithOps(_ context.Context, existing Node, proto 
 	}
 
 	out := cloneJSONMap(base)
+	resetScopes = append(append([]string(nil), resetScopes...), disabledFeatureScopes(proto.FormSchema, base)...)
 	for _, path := range proto.SensitiveFields {
 		oldValue, oldExists := GetPath(existing.ProtocolJSON, path)
 		reset := false
 		for _, scope := range resetScopes {
-			if pathInResetScope(path, scope) {
+			if pathInResetScope(path, scope, proto.FormSchema) {
 				reset = true
 				break
 			}
@@ -1478,7 +1468,7 @@ func extensionScopeReset(scope string, resetScopes []string) bool {
 				return true
 			}
 		default:
-			if strings.HasPrefix(reset, "feature.") && scope == reset {
+			if strings.HasPrefix(reset, "feature.") && (scope == reset || strings.HasPrefix(scope, reset+".")) {
 				return true
 			}
 		}

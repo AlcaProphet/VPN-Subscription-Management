@@ -5,12 +5,42 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	gyaml "github.com/goccy/go-yaml"
 
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/node"
 )
+
+func TestClashOutputDropsDisabledFeatureParameters(t *testing.T) {
+	for _, protocol := range []string{"ss", "vless", "vmess"} {
+		t.Run(protocol, func(t *testing.T) {
+			params := map[string]any{"uuid": "uuid", "network": "tcp"}
+			if protocol == "ss" {
+				params = map[string]any{"cipher": "aes-128-gcm", "password": "secret"}
+			}
+			params["smux"] = map[string]any{"enabled": false, "max-connections": 7, "future": "old",
+				"brutal-opts": map[string]any{"enabled": true, "up": "100 Mbps"}}
+			svc := &Service{}
+			result, err := svc.CheckNodeTarget(context.Background(), "clash-yaml", protocol, "feature-node", "example.com", 443, params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded struct {
+				Proxies []map[string]any `yaml:"proxies"`
+			}
+			if err := gyaml.Unmarshal([]byte(result.Preview), &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if len(decoded.Proxies) != 1 || !reflect.DeepEqual(decoded.Proxies[0]["smux"], map[string]any{"enabled": false}) {
+				t.Fatalf("输出残留已关闭参数: %s", result.Preview)
+			}
+		})
+	}
+}
 
 func TestNodeCheckFixtures(t *testing.T) {
 	fixtures := []struct {

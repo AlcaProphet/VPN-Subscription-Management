@@ -12,6 +12,7 @@ import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
+import { activeFeatures, cleanDisabledFeatures, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
 
 const loading = ref(false)
 const nodes = ref<NodeItem[]>([])
@@ -43,8 +44,9 @@ const nameSpaceError = computed(() => {
   return form.name.includes(' ') ? '名称禁止空格' : ''
 })
 const invalidProtocolPaths = reactive(new Set<string>())
-const resetScopes = new Set<string>()
-const clearedSensitivePaths = new Set<string>()
+const resetScopes = reactive(new Set<string>())
+const clearedSensitivePaths = reactive(new Set<string>())
+const jsonResetVersions = reactive<Record<string, number>>({})
 const unappliedJsonPaths = reactive(new Set<string>())
 const extensionOps = ref<ExtensionOp[]>([])
 const extensionDraft = reactive({
@@ -107,13 +109,7 @@ const currentState = computed<CurrentState>(() => {
   }
   const plugin = typeof params.plugin === 'string' && params.plugin ? params.plugin : null
   state.plugin = plugin
-  const features: string[] = []
-  if (params['udp-over-tcp'] === true) features.push('udp-over-tcp')
-  if (params['udp-over-stream'] === true) features.push('udp-over-stream')
-  if (params.xudp === true) features.push('xudp')
-  if (params.smux && typeof params.smux === 'object' && (params.smux as Record<string, any>).enabled === true) features.push('smux')
-  if (typeof params.multiplexing === 'string' && params.multiplexing && params.multiplexing !== 'MULTIPLEXING_OFF') features.push('multiplexing')
-  state.features = features
+  state.features = activeFeatures(currentSchema()?.form_schema ?? [], params)
   return state
 })
 function fieldVisible(field: FieldSchema): boolean {
@@ -325,41 +321,33 @@ function scopeResetsExtension(extensionScope: string, resetScope: string): boole
   if (resetScope === 'network') return extensionScope.startsWith('transport.')
   if (resetScope === 'security') return extensionScope.startsWith('security.')
   if (resetScope === 'plugin') return extensionScope.startsWith('plugin.')
-  if (resetScope.startsWith('feature.')) return extensionScope === resetScope
+  if (resetScope.startsWith('feature.')) return pathContains(resetScope, extensionScope)
   return false
-}
-function clearUnappliedJsonForTopNames(topNames: Set<string>) {
-  for (const path of Array.from(unappliedJsonPaths)) {
-    const top = path.split('.')[0]
-    if (topNames.has(top)) unappliedJsonPaths.delete(path)
-  }
 }
 function clearScopedFields(scope: string) {
   const schema = currentSchema()
   if (!schema) return
-  const next = { ...form.protocol_json }
-  let changed = false
-  const topNames = new Set<string>()
-  for (const field of schema.form_schema) {
-    if (!field.reset_on?.includes(scope)) continue
-    topNames.add(field.name)
-    if (field.name in next) {
-      delete next[field.name]
-      changed = true
-    }
+  const reset = resetProtocolScope(schema.form_schema, form.protocol_json, scope)
+  for (const clearedPath of reset.paths) {
+    jsonResetVersions[clearedPath] = (jsonResetVersions[clearedPath] ?? 0) + 1
     for (const path of Array.from(invalidProtocolPaths)) {
-      if (path === field.name || path.startsWith(`${field.name}.`) || path.startsWith(`${field.name}[`)) {
-        invalidProtocolPaths.delete(path)
-      }
+      if (pathContains(clearedPath, path) || pathContains(path, clearedPath)) invalidProtocolPaths.delete(path)
+    }
+    for (const path of Array.from(unappliedJsonPaths)) {
+      if (pathContains(clearedPath, path) || pathContains(path, clearedPath)) unappliedJsonPaths.delete(path)
     }
   }
   for (const sensitivePath of schema.sensitive_fields ?? []) {
-    const top = sensitivePath.split('.')[0]
-    if (topNames.has(top)) clearedSensitivePaths.add(sensitivePath)
+    if (reset.paths.some((path) => pathContains(path, sensitivePath))) clearedSensitivePaths.add(sensitivePath)
   }
-  clearUnappliedJsonForTopNames(topNames)
   extensionOps.value = extensionOps.value.filter((op) => !scopeResetsExtension(op.scope ?? '', scope))
-  if (changed) form.protocol_json = next
+  for (const ext of editing.value?.extensions ?? []) {
+    if (!scopeResetsExtension(ext.scope, scope)) continue
+    extensionOps.value = extensionOps.value.filter((op) => op.id !== ext.id)
+    extensionOps.value.push({ op: 'clear', id: ext.id })
+  }
+  if (extensionDraft.open && scopeResetsExtension(extensionDraft.scope, scope)) resetExtensionDraft()
+  form.protocol_json = reset.params
 }
 function applyResetScope(scope: string, changed: boolean) {
   if (!changed) return
@@ -373,6 +361,7 @@ function resetAllEditScopes() {
   unappliedJsonPaths.clear()
   extensionOps.value = []
   resetExtensionDraft()
+  for (const path of Object.keys(jsonResetVersions)) delete jsonResetVersions[path]
 }
 function updateProtocol(protocol: string) {
   if (form.protocol === protocol) return
@@ -444,7 +433,7 @@ function openEdit(n: NodeItem) {
   if (hasSchemaField('plugin') && n.current_state?.plugin) {
     protocolJson.plugin = n.current_state.plugin
   }
-  form.protocol_json = protocolJson
+  form.protocol_json = cleanDisabledFeatures(currentSchema()?.form_schema ?? [], protocolJson)
   invalidProtocolPaths.clear()
 }
 async function save() {
@@ -598,7 +587,8 @@ function fieldValue(key: string): unknown {
   return form.protocol_json[key]
 }
 function setField(key: string, val: unknown) {
-  const oldValue = form.protocol_json[key]
+  const schema = currentSchema()?.form_schema ?? []
+  const oldFeatures = activeFeatures(schema, form.protocol_json)
   const oldNetwork = currentState.value.network
   const oldSecurity = currentState.value.security
   const oldPlugin = currentState.value.plugin
@@ -608,12 +598,18 @@ function setField(key: string, val: unknown) {
     applyResetScope('security', val !== oldSecurity)
   } else if (key === 'plugin') {
     applyResetScope('plugin', val !== oldPlugin)
-  } else if ((key === 'udp-over-tcp' || key === 'udp-over-stream' || key === 'xudp') && oldValue === true && val === false) {
-    applyResetScope(`feature.${key}`, true)
   }
-  form.protocol_json = { ...form.protocol_json, [key]: val }
-  if (hasEffectiveValue(val) && (currentSchema()?.sensitive_fields ?? []).includes(key)) {
-    clearedSensitivePaths.delete(key)
+  const candidate = { ...form.protocol_json, [key]: val }
+  const newFeatures = activeFeatures(schema, candidate)
+  const closed = new Set(oldFeatures.filter((feature) => !newFeatures.includes(feature)))
+  const cleaned = cleanDisabledFeatures(schema, candidate, (scope) => closed.add(scope.slice(8)))
+  for (const feature of closed) {
+    if (![...closed].some((parent) => parent !== feature && feature.startsWith(`${parent}.`))) applyResetScope(`feature.${feature}`, true)
+  }
+  // 使用本次候选对象的清理结果，避免递归组件的旧对象把已删除子树写回来。
+  form.protocol_json = cleaned
+  for (const path of currentSchema()?.sensitive_fields ?? []) {
+    if (hasEffectiveValue(valueAtPath(form.protocol_json, path))) clearedSensitivePaths.delete(path)
   }
 }
 function handleFieldValidity(payload: { path: string; valid: boolean }) {
@@ -727,6 +723,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <FormSection v-if="groupFields('auth').length" title="认证与密钥" help="凭据编辑时留空将保留原值；新建时必须填写。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('auth')" :key="field.name" :field="field"
+              :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
@@ -736,6 +733,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <FormSection v-if="groupFields('connection').length" title="连接方式与当前参数" help="按当前协议、传输、安全与插件组合动态展示；切换分支时清空旧分支参数。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('connection')" :key="field.name" :field="field"
+              :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
@@ -745,6 +743,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <FormSection v-if="groupFields('switches').length" title="独立开关" help="当前组合适用的布尔开关；常用开关直接展示，更多开关默认折叠。">
           <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('switches').filter((item) => !item.advanced)" :key="field.name" :field="field"
+              :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
           </div>
@@ -752,6 +751,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <summary class="cursor-pointer text-sm font-medium">更多开关</summary>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
               <ProtocolFieldEditor v-for="field in groupFields('switches').filter((item) => item.advanced)" :key="field.name" :field="field"
+                :json-reset-versions="jsonResetVersions"
                 :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
                 @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />
             </div>
@@ -763,6 +763,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           <p class="text-xs text-text-secondary mt-2">性能、路由、调优与兼容参数；默认折叠。</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
             <ProtocolFieldEditor v-for="field in groupFields('advanced')" :key="field.name" :field="field"
+              :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :credential-state="credentialStateForPath(field.name)" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" />

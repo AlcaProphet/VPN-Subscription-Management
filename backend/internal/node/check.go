@@ -109,6 +109,7 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		}
 		params = mergeProtocolJSON(n.ProtocolJSON, params, proto, normalizedReset)
 		params = normalizeProtocolParameters(proto, params)
+		params = cleanDisabledFeatures(proto.FormSchema, params)
 		state, stateErr := resolveCurrentState(proto, in.CurrentState, params)
 		if stateErr != nil {
 			return s.checkValidationResponse(in, targets, stateErr, params), nil
@@ -131,6 +132,7 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 			return s.checkValidationResponse(in, targets, err, params), nil
 		}
 	} else {
+		params = cleanDisabledFeatures(proto.FormSchema, params)
 		if err := validateProtocolFields(proto, params, false); err != nil {
 			return s.checkValidationResponse(in, targets, err, params), nil
 		}

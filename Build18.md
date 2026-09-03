@@ -363,8 +363,11 @@ Step 1 字段元数据扩展
 - 新增 `POST /api/admin/nodes/check`。新建草稿和带 `node_id/base_revision` 的编辑草稿均在内存中应用 reset、credential、extension 操作；节点服务通过注入调用实际装配器，返回 Clash 最小 YAML 片段或 SR/generic URI、脱敏凭据、`check_id/check_version` 和字段级诊断，不写入 `nodes`、扩展或其他业务表。
 - 检查目标覆盖 `clash-yaml`、`sr-subs`、`generic-subs`。Clash 目标复用 `clashProxy` 与 `CheckClashContent`；URI 目标复用 `RenderLink`，对 VLESS encryption、VMess 算法改写、Trojan WS/gRPC/内层 SS、SS obfs/SS 2022 等已知损失或待验证项显式返回 `warn/skip` 诊断；目标限定的 REALITY 条件必填按目标分别校验。
 - 新增 15 个节点检查 JSON 夹具、检查响应/不落库测试及固定 URI 观察测试，覆盖四协议普通组合与风险组合。夹具是 Mihomo 1.19.29 / CVR 2.5.2 的离线输入，不代表真实导入或连接成功。
+- R27-03 后续修复：`features.go` 为 SS/VLESS/VMess 的 SMux/Brutal 提供统一功能控制声明、功能派生和关闭子树清理；`clearScope` 与凭据归属按嵌套路径执行，扩展父 scope 覆盖子 scope。创建、更新、检查、存储及活动投影共用关闭清理，既有顶层功能也由元数据派生；不新增数据库迁移。新增 `features_test.go` 和实际 Clash YAML 输出回归，覆盖关闭重开、Brutal 独立重置、旧状态、无默认值写入、未知键、凭据/扩展不复活和检查不落库。
 
 ### 6.2 自动化验收结果
+
+R27-03（2026-09-03）补充验证通过：`go test ./... -count=1`、`go build ./...`、`go vet ./...`，以及 `go test -race ./internal/node ./internal/assembly ./internal/server -count=1`。上述测试使用隔离临时数据库；未操作本地业务数据库或执行客户端连接实验。
 
 以下命令均在本轮实现后执行并通过：
 
@@ -384,3 +387,4 @@ git diff --check                  PASS
 |------|------|------|
 | v1.0 | 2026-09-02 | 初始构建方案：FieldSchema 条件/选项扩展、首批四协议矩阵、当前状态投影、节点检查接口与固定版本正反例。仅创建 Build 文档，未构建代码。 |
 | v1.1 | 2026-09-02 | 完成 Step 1～5：实现条件/选项元数据、四协议注册表矩阵、活动投影与保存校验、`/api/admin/nodes/check` 实际适配器接入、脱敏/不落库验证、15 个离线夹具和固定 URI 测试；后端全量测试/构建/静态检查、前端生产构建与差异检查均通过。客户端实际导入/连接仍待人工验收。 |
+| v1.2 | 2026-09-03 | R27-03 对齐修复：补齐功能控制元数据、SMux/Brutal 递归清空和保存/检查/投影一致性，详见 §6.1 与 Issue13。浏览器及客户端实机证据仍保留人工验收边界。 |
