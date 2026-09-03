@@ -87,7 +87,8 @@ const showCustom = computed(() => {
 const displayItems = computed<DisplayItem[]>(() => {
   const items: DisplayItem[] = []
   const emptyOption = props.items.find((item) => item.value === '')
-  if (emptyOption && text.value.trim() !== '') {
+  // 空值候选（如“无/不使用插件”）始终可点击，不依赖用户清空搜索词。
+  if (emptyOption) {
     items.push({
       kind: 'option',
       value: '',
@@ -96,7 +97,7 @@ const displayItems = computed<DisplayItem[]>(() => {
       verified: emptyOption.verified,
     })
   }
-  const shownFiltered = emptyOption && text.value.trim() !== ''
+  const shownFiltered = emptyOption
     ? filteredItems.value.filter((item) => item.value !== '')
     : filteredItems.value
   items.push(...shownFiltered.map((item) => ({
@@ -114,7 +115,8 @@ const displayItems = computed<DisplayItem[]>(() => {
 
 function openDropdown() {
   if (props.disabled || open.value) return
-  text.value = labelFor(props.value)
+  // 打开时清空搜索态：当前选中值仅用于关闭后的回显，不作为打开时的过滤词。
+  text.value = ''
   activeIndex.value = -1
   open.value = true
   unregister = registerOverlay({

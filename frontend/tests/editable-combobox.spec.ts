@@ -39,6 +39,41 @@ describe('EditableCombobox', () => {
     wrapper.unmount()
   })
 
+  it('打开时不被当前显示值过滤，展示全部合法选项', async () => {
+    const wrapper = mount(EditableCombobox, {
+      props: { value: 'tcp', items, allowCustom: true },
+      attachTo: document.body,
+    })
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+    const text = wrapper.text()
+    expect(text).toContain('TCP')
+    expect(text).toContain('WebSocket')
+    expect(text).toContain('gRPC')
+    expect((input.element as HTMLInputElement).value).toBe('')
+    wrapper.unmount()
+  })
+
+  it('空值候选在搜索时仍可点击并回写空值', async () => {
+    const itemsWithEmpty: OptionItem[] = [
+      { value: '', label: '无' },
+      ...items,
+    ]
+    const wrapper = mount(EditableCombobox, {
+      props: { value: 'tcp', items: itemsWithEmpty, allowCustom: true },
+      attachTo: document.body,
+    })
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+    await input.setValue('socket')
+    const empty = wrapper.findAll('button').find((btn) => btn.text().includes('无'))
+    expect(empty).toBeTruthy()
+    await empty!.trigger('click')
+    const events = wrapper.emitted('update:modelValue') ?? []
+    expect(events[events.length - 1]).toEqual([''])
+    wrapper.unmount()
+  })
+
   it('输入无匹配时可明确使用自定义值', async () => {
     const wrapper = mount(EditableCombobox, {
       props: { value: '', items, allowCustom: true },
