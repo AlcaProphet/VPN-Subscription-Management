@@ -1,6 +1,6 @@
 # Node-Editor-Design-Research.md — 节点编辑器分层与多目标适配研究汇总
 
-> **文档定位：** 本文汇总节点管理模块的节点编辑器改进研究，承接 [xray-server-side.md](xray-server-side.md)、[xray-client-side.md](xray-client-side.md)、[Xray-Core-API.md](Xray-Core-API.md)、[Node-Link-Standards.md](Node-Link-Standards.md) 和 [Issue12.md](../../Issue12.md) 的相关证据。本文用于后续进一步研究，不是 Design/Build 文档，不直接定义代码实现，也不代表最终产品决策。
+> **文档定位：** 本文汇总节点管理模块的节点编辑器改进研究，承接 [xray-server-side.md](xray-server-side.md)、[xray-client-side.md](xray-client-side.md)、[Xray-Core-API.md](Xray-Core-API.md)、[Node-Link-Standards.md](Node-Link-Standards.md) 和 [Issue12.md](../reports/Issue/Issue12.md) 的相关证据。本文用于后续进一步研究，不是 Design/Build 文档，不直接定义代码实现，也不代表最终产品决策。
 > **研究状态：** 2026-09-02；用户已确认研究方向，但协议范围、数据契约、输出器兼容矩阵和具体校验强度仍需后续分析与定稿。
 > **标注约定：** 【项目事实】= 当前仓库代码或既有参考资料；【样本事实】= Xray-examples 中的实际配置；【外部事实】= 官方文档或公开项目/Issue；【候选方案】= 供后续讨论的设计方向；【待确认】= 尚未形成最终决策。
 > **v1.2 同步说明（2026-09-02）：** Design4 v1.2 已确认采用“切换即清空、不保存非激活分支、nodes 行内当前状态”的模型；本文早期“保留隐藏值/只输出当前激活值”的候选方向已被取代，相关段落按当前确认口径同步。
@@ -184,7 +184,7 @@ Mihomo issue #2533 还记录了 VLESS + gRPC 在缺少 `grpc-service-name` 时�
     └─ 完整 protocol_json / target JSON
 ```
 
-“基础信息”与“连接方式”默认展开，是因为用户需要先看到节点身份和当前连接组合；高级区遵循 Issue12 的默认折叠方向。参考：[Issue12.md](../../Issue12.md)。
+“基础信息”与“连接方式”默认展开，是因为用户需要先看到节点身份和当前连接组合；高级区遵循 Issue12 的默认折叠方向。参考：[Issue12.md](../reports/Issue/Issue12.md)。
 
 ### 5.2 开关的位置
 
@@ -538,7 +538,7 @@ Design4 v1.2 最终确认采用：
 - [Node-Link-Standards.md](Node-Link-Standards.md)
 - [Clash-Verge-Rev-Node-Parameters.md](Clash-Verge-Rev-Node-Parameters.md)
 - [Clash.yaml.template.md](../DocTemplates/Clash.yaml.template.md)
-- [Issue12.md](../../Issue12.md)
+- [Issue12.md](../reports/Issue/Issue12.md)
 - [Design3.md](../../Design3.md)（当前明确不重定义节点，本研究不改变该范围）
 - [NodesView.vue](../../frontend/src/views/admin/NodesView.vue)
 - [ProtocolFieldEditor.vue](../../frontend/src/components/ProtocolFieldEditor.vue)

@@ -1,7 +1,8 @@
-# Issue11.md — VPN 订阅管理系统问题追踪（当前）
+# Issue11.md — VPN 订阅管理系统问题追踪（已归档）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的当前问题记录，承接已归档的 [Issue1～Issue10](docs/reports/Issue/)。本轮已完成 R25-10～R25-19 的实施修复与验证，各条目状态已同步为已修复。
-> 设计记录见 [Design3.md](Design3.md) 及已归档的 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)；编码指令见 [AGENTS.md](AGENTS.md)（唯一强要求）。
+> **文档定位：** 本文档记录 VPN 订阅管理系统 R25-10～R25-19 问题及修复闭环，现已与当前问题记录分离并移入 `docs/reports/Issue/` 存档。
+> 设计记录见 [Design3.md](../../../Design3.md) 及已归档的 [Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md)；编码指令见 [AGENTS.md](../../../AGENTS.md)（唯一强要求）。
+> **归档说明：** R25-10～R25-19 均已完成代码修复、自动化回归和既定产品决策闭环；本文件于 2026-09-03 移入 `docs/reports/Issue/` 存档。后续人工/Production 测试统一维护于 [ProdTestList.md](../../../ProdTestList.md)。
 
 ## 〇、本轮说明
 
@@ -9,7 +10,7 @@
 - **调查方式：** 应用内浏览器可见状态、必要的快速交互验证、前后端静态代码定位；按问题记录现象、快速验证、可能根因、影响范围和修复方向。
 - **环境：** 本地 Dev 模式；Docker Compose 服务已停止，使用本地 Go 后端和 Vite 前端。
 - **调试地址：** 前端 `http://127.0.0.1:5173/`，后端 `http://127.0.0.1:8080/`。
-- **本地数据：** 使用仓库 `./backend/data` 的隔离 Dev 数据目录；已完成 Setup，并按 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 注册合成管理员 `Admin / admin@test.com`，当前仅有该管理员和 Setup 预置平台。
+- **本地数据：** 使用仓库 `./backend/data` 的隔离 Dev 数据目录；已完成 Setup，并按 [TestPasswordList.md](../../Reference/TestPasswordList.md) 注册合成管理员 `Admin / admin@test.com`，当前仅有该管理员和 Setup 预置平台。
 - **最终验证：** 后端 `go test ./...`、`go build ./...`、`go vet ./...` 全部通过；前端 37 个测试文件/141 个用例通过，`npm run build` 通过（保留既有 chunk size warning）。
 - **范围约束：** 本轮完成 R25-10～R25-19 的逐项修复、验证与文档状态同步；问题编号沿用当前 R25 系列。
 

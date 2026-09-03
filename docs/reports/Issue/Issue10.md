@@ -1,7 +1,8 @@
-# Issue10.md — VPN 订阅管理系统问题追踪（当前）
+# Issue10.md — VPN 订阅管理系统问题追踪（已归档）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的当前问题记录，承接已归档的 [Issue1～Issue9](docs/reports/Issue/)。当前已完成 R25-01～R25-09 的实施修复与验证，各条目的状态已同步为已修复。
-> 设计记录见 [Design3.md](Design3.md) 及已归档的 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)；编码指令见 [AGENTS.md](AGENTS.md)（唯一强要求）。
+> **文档定位：** 本文档记录 VPN 订阅管理系统 R25-01～R25-09 问题及修复闭环，现已与当前问题记录分离并移入 `docs/reports/Issue/` 存档。
+> 设计记录见 [Design3.md](../../../Design3.md) 及已归档的 [Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md)；编码指令见 [AGENTS.md](../../../AGENTS.md)（唯一强要求）。
+> **归档说明：** R25-01～R25-09 均已完成代码修复、自动化回归和既定产品决策闭环；本文件于 2026-09-03 移入 `docs/reports/Issue/` 存档。后续人工/Production 测试统一维护于 [ProdTestList.md](../../../ProdTestList.md)。
 
 ## 〇、本轮说明
 

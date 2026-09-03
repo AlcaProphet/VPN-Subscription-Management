@@ -498,7 +498,7 @@ generic URI：复用相同分支，存在相同限制
 | C10 | [FormOverlay.vue](../../frontend/src/components/FormOverlay.vue)、[FormSection.vue](../../frontend/src/components/FormSection.vue) | 复用载体、焦点基础与静态分区能力 |
 | C11 | [node_test.go](../../backend/internal/node/node_test.go)、[nodes-view.spec.ts](../../frontend/tests/nodes-view.spec.ts)、[protocol-field-editor.spec.ts](../../frontend/tests/protocol-field-editor.spec.ts)、[links_test.go](../../backend/internal/assembly/links/links_test.go) | 已有测试入口；本轮仅阅读，没有重新运行 |
 | C12 | [go.mod](../../backend/go.mod) | 项目当前 Xray 库依赖版本 |
-| D-Base | [Design2-UI §6](../reports/Design/Design2-UI.md)、[Build15](../reports/Build/Build15.md)、[Design3](../../Design3.md)、[Issue12](../../Issue12.md) | 节点既有基线、已完成分区改造及头部改造的范围边界 |
+| D-Base | [Design2-UI §6](../reports/Design/Design2-UI.md)、[Build15](../reports/Build/Build15.md)、[Design3](../../Design3.md)、[Issue12](../reports/Issue/Issue12.md) | 节点既有基线、已完成分区改造及头部改造的范围边界 |
 | R-Base | [Node-Editor-Design-Research.md](Node-Editor-Design-Research.md)、[Node-Link-Standards.md](Node-Link-Standards.md) | 已确认研究方向、原候选方案与历史 URI 证据；不代替当前实现 |
 
 ### 12.2 外部资料使用原则

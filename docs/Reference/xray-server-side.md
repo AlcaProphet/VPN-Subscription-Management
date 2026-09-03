@@ -377,7 +377,7 @@ REALITY  → SNI、公钥、Short ID、客户端指纹、适用时的 Flow
 - [Xray-Core-API.md](Xray-Core-API.md)：Xray Account、传输和客户端节点字段研究。
 - [Clash-Verge-Rev-Node-Parameters.md](Clash-Verge-Rev-Node-Parameters.md)：客户端侧 19 类协议字段参考。
 - [Node-Link-Standards.md](Node-Link-Standards.md)：SR / generic 节点链接生成、解析和兼容性边界。
-- [Issue12.md](../../Issue12.md)：订阅装配头部表单的分区、默认折叠、结构化编辑和未知键保留方向。
+- [Issue12.md](../reports/Issue/Issue12.md)：订阅装配头部表单的分区、默认折叠、结构化编辑和未知键保留方向。
 
 ---
 
