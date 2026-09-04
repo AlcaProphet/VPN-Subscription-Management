@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { collectSwitchFields, replaceNestedValue } from '@/utils/nodeFormLayout'
+import { collectSwitchFields, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 import type { FieldSchema } from '@/api/node'
 import { smuxSchema, smuxValue } from './fixtures/smux'
 
 describe('节点开关展示投影', () => {
+  it('插件补集条件与其它维度保持且关系', () => {
+    const rule = { plugin_not: ['', 'obfs', 'v2ray-plugin'], network: ['tcp'] }
+    expect(matchesCondition(rule, { plugin: 'custom', network: 'tcp' })).toBe(true)
+    expect(matchesCondition(rule, { plugin: 'obfs', network: 'tcp' })).toBe(false)
+    expect(matchesCondition(rule, { plugin: 'custom', network: 'ws' })).toBe(false)
+    expect(matchesCondition(rule, { plugin: null, network: 'tcp' })).toBe(false)
+  })
+
   it('继承祖先条件和高级分类，关闭父功能后子开关消失', () => {
     const schema: FieldSchema[] = [{ ...smuxSchema, when: { network: ['tcp'] } }]
     expect(collectSwitchFields(schema, { network: 'ws' })).toEqual([])

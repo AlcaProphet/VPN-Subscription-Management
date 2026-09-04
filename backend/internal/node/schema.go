@@ -3,11 +3,12 @@ package node
 // ConditionRule 是协议字段的声明式活动条件。
 // 不引入脚本求值；同一维度的多个值表示“或”，不同维度之间表示“且”。
 type ConditionRule struct {
-	Network  []string `json:"network,omitempty"`
-	Security []string `json:"security,omitempty"`
-	Plugin   []string `json:"plugin,omitempty"`
-	Features []string `json:"features,omitempty"`
-	Targets  []string `json:"targets,omitempty"`
+	Network   []string `json:"network,omitempty"`
+	Security  []string `json:"security,omitempty"`
+	Plugin    []string `json:"plugin,omitempty"`
+	PluginNot []string `json:"plugin_not,omitempty"`
+	Features  []string `json:"features,omitempty"`
+	Targets   []string `json:"targets,omitempty"`
 }
 
 // OptionItem 是下拉/可搜索输入使用的推荐项。
@@ -73,6 +74,9 @@ func (r ConditionRule) Matches(state CurrentState, target string) bool {
 		plugin = *state.Plugin
 	}
 	if len(r.Plugin) > 0 && !containsAny(r.Plugin, []string{plugin}) {
+		return false
+	}
+	if len(r.PluginNot) > 0 && containsAny(r.PluginNot, []string{plugin}) {
 		return false
 	}
 	if len(r.Features) > 0 && !containsAny(r.Features, state.Features) {

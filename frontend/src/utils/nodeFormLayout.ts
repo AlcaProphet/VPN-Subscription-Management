@@ -6,6 +6,7 @@ export function matchesCondition(rule: ConditionRule | undefined, state?: Curren
   if (rule.network?.length && !rule.network.includes(state.network ?? '')) return false
   if (rule.security?.length && !rule.security.includes(state.security ?? '')) return false
   if (rule.plugin?.length && !rule.plugin.includes(state.plugin ?? '')) return false
+  if (rule.plugin_not?.length && rule.plugin_not.includes(state.plugin ?? '')) return false
   if (rule.features?.length && !rule.features.some((item) => state.features?.includes(item))) return false
   return !(target && rule.targets?.length && !rule.targets.includes(target))
 }

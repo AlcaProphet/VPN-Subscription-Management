@@ -34,6 +34,78 @@ func TestSchemaConditionAndOptionMetadata(t *testing.T) {
 	}
 }
 
+func TestSSUnknownPluginSchemaUsesComplementCondition(t *testing.T) {
+	ss, err := GetProtocol("ss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := findSchemaFieldMust(t, ss.FormSchema, "plugin-opts")
+	wantExcluded := []string{"", "obfs", "v2ray-plugin", "shadow-tls", "restls"}
+	if field.ObjectKind != "map" || field.MapValueType != "string" || field.When == nil || !sameStringSet(field.When.PluginNot, wantExcluded) || !field.ShouldReset("plugin") {
+		t.Fatalf("未知插件字符串映射 schema 异常: %+v", field)
+	}
+	for _, plugin := range wantExcluded {
+		plugin := plugin
+		if field.Matches(CurrentState{Plugin: &plugin}, "") {
+			t.Errorf("排除插件 %q 不应激活未知参数字段", plugin)
+		}
+	}
+	custom := "custom-plugin"
+	if !field.Matches(CurrentState{Plugin: &custom}, "") {
+		t.Fatal("未知插件应激活 plugin-opts")
+	}
+	raw, err := json.Marshal(field)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{`"plugin_not"`, `"map_value_type":"string"`} {
+		if !strings.Contains(string(raw), fragment) {
+			t.Fatalf("schema 序列化缺少 %s: %s", fragment, raw)
+		}
+	}
+}
+
+func TestPluginNotParticipatesInProjection(t *testing.T) {
+	field := FieldSchema{
+		Name: "plugin-opts", Type: "object", Label: "插件参数", ObjectKind: "map", MapValueType: "string",
+		When: &ConditionRule{PluginNot: []string{"", "known"}},
+	}
+	proto := Protocol{Protocol: "test", FormSchema: []FieldSchema{field}}
+	params := map[string]any{"plugin-opts": map[string]any{"mode": "custom"}}
+	known := "known"
+	if projected := ProjectActive(proto, CurrentState{Plugin: &known}, params); projected["plugin-opts"] != nil {
+		t.Fatalf("已知插件不应投影补集字段: %+v", projected)
+	}
+	custom := "custom"
+	projected := ProjectActive(proto, CurrentState{Plugin: &custom}, params)
+	if got, ok := projected["plugin-opts"].(map[string]any); !ok || got["mode"] != "custom" {
+		t.Fatalf("未知插件未投影字符串映射: %+v", projected)
+	}
+}
+
+func TestStringMapRejectsNonStringLeaves(t *testing.T) {
+	plugin := "custom"
+	field := FieldSchema{
+		Name: "plugin-opts", Type: "object", Label: "插件参数", ObjectKind: "map", MapValueType: "string",
+		When: &ConditionRule{PluginNot: []string{"", "known"}},
+	}
+	proto := Protocol{Protocol: "test", FormSchema: []FieldSchema{field}}
+	valid := map[string]any{"plugin": "custom", "plugin-opts": map[string]any{"mode": "", "host": "cdn.example.com"}}
+	if err := ValidateCurrentState(proto, CurrentState{Plugin: &plugin}, valid); err != nil {
+		t.Fatalf("字符串映射被拒绝: %v", err)
+	}
+	for _, value := range []any{true, float64(1), []any{"x"}, map[string]any{"nested": "x"}} {
+		params := map[string]any{"plugin": "custom", "plugin-opts": map[string]any{"bad": value}}
+		err := ValidateCurrentState(proto, CurrentState{Plugin: &plugin}, params)
+		if err == nil || !strings.Contains(err.Error(), "plugin-opts.bad") || !strings.Contains(err.Error(), "string") {
+			t.Errorf("非字符串叶子未精确拒绝: value=%#v err=%v", value, err)
+		}
+		if err := validateFieldType(field, params["plugin-opts"]); err == nil || !strings.Contains(err.Error(), "plugin-opts.bad") {
+			t.Errorf("基础字段校验未拒绝非字符串叶子: value=%#v err=%v", value, err)
+		}
+	}
+}
+
 func TestFieldSchemaAllowCustomTriState(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -240,10 +240,7 @@ func validateActiveFieldValue(field FieldSchema, value any, state CurrentState, 
 		}
 		return validateActiveObjectFields(field, object, state, path, target)
 	case "map":
-		if _, ok := value.(map[string]any); !ok {
-			return fmt.Errorf("字段 %s 类型应为 object", path)
-		}
-		return nil
+		return validateFieldValue(field, value, path)
 	case "list":
 		items, ok := value.([]any)
 		if !ok {

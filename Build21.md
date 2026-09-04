@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认并写入 Step 7～14，尚未实施。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7 已实施并通过验收，Step 8～14 尚未实施。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -19,7 +19,7 @@
 | 4 | NodesView 分区重构：开关折叠、高级数据与目标检查折叠 | ✅ 验收通过 |
 | 5 | SS 插件目标映射与输出层活动投影 | ✅ 验收通过 |
 | 6 | 前后端测试与构建验证 | ✅ 验收通过 |
-| 7 | R27-09 SS 插件统一契约、补集条件与字符串映射 schema | ☐ 未开始 |
+| 7 | R27-09 SS 插件统一契约、补集条件与字符串映射 schema | ✅ 验收通过 |
 | 8 | R27-09 新旧参数幂等归一化、未知参数保存与回显 | ☐ 未开始 |
 | 9 | R27-09 四个已知插件字段与固定敏感路径修正 | ☐ 未开始 |
 | 10 | R27-09 SIP002 转义/解析与 SR/generic 目标分流 | ☐ 未开始 |
@@ -40,7 +40,7 @@
 | 4 | `frontend/src/views/admin/NodesView.vue` | 独立开关“常用/更多”折叠；高级数据与目标检查合并为默认折叠区；文案修正 |
 | 5 | `backend/internal/assembly/load.go`、`links.go`、`diagnose.go`、`render_clash.go`、`assembly/links/links.go` | 输出前按 current_state 投影；SS 插件按目标映射；Clash 侧插件字符串收口 |
 | 6 | `backend/internal/node/project_test.go`、`frontend/tests/nodes-view.spec.ts` | 分组/排序/回填回归测试 |
-| 7 | `backend/internal/ssplugin/`、`backend/internal/node/schema.go`、`registry.go`、`project.go`；`frontend/src/api/node.ts`、`utils/nodeFormLayout.ts` | 建立无循环依赖的 SS 插件契约；增加 `plugin_not` 与 `map_value_type=string`，只在未知插件分支激活 `plugin-opts` |
+| 7 | `backend/internal/ssplugin/`、`backend/internal/node/schema.go`、`registry.go`、`project.go`、`node.go`、`server/node_test.go`；`frontend/src/api/node.ts`、`utils/nodeFormLayout.ts`、`components/ProtocolFieldEditor.vue` 及测试 | 建立无循环依赖的 SS 插件契约；增加 `plugin_not` 与 `map_value_type=string`，只在未知插件分支激活 `plugin-opts`；前后端拒绝非字符串叶子 |
 | 8 | `backend/internal/node/normalize.go`、`project.go`、`node.go`、`check.go`、`uri_import.go` 及测试 | 已知旧对象只补缺、新对象优先；未知 `plugin-opts` 原样保存/回显；不做数据库迁移或启动重写 |
 | 9 | `backend/internal/node/registry.go`、敏感字段/投影相关测试 | 对齐 Mihomo 1.19.29 的四插件字段、默认值、目标必需项；新增私钥固定敏感路径，未知参数仍为普通明文参数 |
 | 10 | `backend/internal/ssplugin/`、`backend/internal/uriparse/uriparse.go`、`backend/internal/assembly/links/links.go` 及测试 | SIP002 插件字符串无损转义与反向解析；SR 与 generic 不再共用同一成功结论 |
@@ -222,6 +222,7 @@ plugin: obfs-local;obfs=http
   - `backend/internal/node/registry.go`：在 `FieldSchema` 增加 ``MapValueType string `json:"map_value_type,omitempty"` ``；SS schema 增加 `plugin-opts`、`object_kind=map`、`map_value_type=string`、`reset_on=["plugin"]`，仅当插件不属于 `""` 和四个已知插件时活动。
   - `backend/internal/node/project.go`、`node.go`：保存校验与活动投影共同消费 `PluginNot`；`map_value_type=string` 时逐键拒绝 bool、number、array、object，错误路径精确到 `plugin-opts.<key>`。
   - `frontend/src/api/node.ts`、`frontend/src/utils/nodeFormLayout.ts`：同步 `plugin_not`、`map_value_type` 类型与条件匹配；前端不得另写四插件名单决定可见性。
+  - `frontend/src/components/ProtocolFieldEditor.vue`：字符串 map 的结构化入口只生成字符串；高级 JSON 出现 bool、number、array 或 object 叶子时立即标记无效并阻止应用。
 - **参考伪代码：**
 
   ```go
@@ -238,9 +239,9 @@ plugin: obfs-local;obfs=http
   ```
 
 - **TODO：**
-  - [ ] 先加入 `PluginNot`、字符串 map 类型与未知插件可见性的失败测试。
-  - [ ] 落地叶子合同包、后端 schema/校验/投影与前端条件类型。
-  - [ ] 核对真实协议 API 响应并完成本 Step 定向测试。
+  - [x] 先加入 `PluginNot`、字符串 map 类型与未知插件可见性的失败测试。
+  - [x] 落地叶子合同包、后端 schema/校验/投影与前端条件类型。
+  - [x] 核对真实协议 API 响应并完成本 Step 定向测试。
 
 - **测试与验收命令：**
 
@@ -250,6 +251,18 @@ plugin: obfs-local;obfs=http
   ```
 
 - **验收标准：** 真实 `/api/admin/nodes/protocols` 响应包含上述元数据；已知/空插件不投影 `plugin-opts`，未知插件才投影；后端与前端对相同 CurrentState 得到一致结果；未知 map 的非字符串叶子被前后端拒绝。
+- **实施结果（2026-09-04）：**
+  - 新增不依赖 `node` / `assembly` 的 `ssplugin` 叶子包，集中定义四个插件的内部存储键、Clash 默认值/必需字段、三目标支持等级与可表达字段；对外查询返回防御性副本。
+  - `ConditionRule.PluginNot` 与 `FieldSchema.MapValueType` 已贯通 Go JSON、真实协议接口、活动条件和前端类型；`plugin-opts` 的已知插件排除集合直接由 `ssplugin.KnownNames()` 生成。
+  - 基础字段校验、当前状态校验与创建/更新的归一化前输入校验共同拒绝非字符串叶子，错误路径精确到 `plugin-opts.<key>`，失败创建不写库；现有普通 map 行为不变。
+  - 前端补集条件与后端保持 AND 语义；字符串 map 的高级 JSON 会拒绝非字符串叶子，结构化模式不会为该字段生成 bool/number/复杂值控件。
+  - 失败先行证据已确认：实现前 Go 因合同/schema 缺失编译失败，前端分别复现补集条件未生效和非字符串 JSON 被接受；实现后全部转绿。
+- **验证记录（2026-09-04）：**
+  - `cd backend && go test ./internal/ssplugin ./internal/node ./internal/server -count=1`：通过；真实 `/api/admin/nodes/protocols` HTTP 测试断言 `plugin_not`、`map_value_type=string` 与 `reset_on=plugin`。
+  - `cd frontend && npm test -- --run tests/node-form-layout.spec.ts tests/protocol-field-editor.spec.ts`：2 文件 / 19 用例通过。
+  - `cd backend && go test ./... -count=1 && go build ./... && go vet ./...`：全部通过。
+  - `cd frontend && npm test -- --run && npm run build`：41 文件 / 197 用例与生产构建通过；仅有既有 chunk 大小提示。
+- **本 Step 边界：** 未知插件字符串参数的真实保存、详情/列表回显与 SS 归一化后全链路投影仍由 Step 8 处理；本 Step 不修改 `normalize.go`，不将该未完成链路宣称为已修复。数据库、状态版本、敏感路径、URI、Clash 输出和目标诊断均未改变。
 
 ### 7.5 Step 8：新旧参数幂等归一化、未知参数保存与回显
 
@@ -486,3 +499,4 @@ Step 7～13 全部通过 ─────────→ Step 14 全量收口
 | v1.1 | 2026-09-03 | 补充 R27-04 修复 Step：表单 schema 投影、编辑草稿 TLS 清理与共用 WS 归一化；接口/服务/输出/前端回归及最新构建浏览器验证通过，记录客户端与 VMess SR 的验证边界。 |
 | v1.2 | 2026-09-03 | 完成 R27-05 补充修复 Step，记录字段排序/层次、集中开关、编辑模式按钮、尺寸与错误定位、SS 指纹条件；全量自动化与隔离本地浏览器核心流程通过。 |
 | v1.3 | 2026-09-04 | 综合四项 R27-09 研究/规划/敏感性决策/前置核验，追加 C—全量扩展 Step 7～14：四已知插件与未知字符串参数、幂等兼容、固定敏感路径、SIP002、Clash 结构、目标诊断、前端与全量验收；当前仅完成方案写入，尚未实施。 |
+| v1.4 | 2026-09-04 | 完成 R27-09 Step 7：新增 SS 插件集中合同、`plugin_not` 补集条件和 `map_value_type=string`，贯通后端投影/保存前校验、真实协议接口及前端条件/JSON 校验；定向与全量测试、编译、vet、生产构建通过，Step 8～14 保持未实施。 |

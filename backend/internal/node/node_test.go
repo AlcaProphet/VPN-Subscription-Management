@@ -399,6 +399,27 @@ func TestValidateProtocolFieldTypes(t *testing.T) {
 	}
 }
 
+func TestCreateManualRejectsNonStringCustomPluginOptsBeforeNormalization(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	_, err := svc.CreateManual(context.Background(), CreateManualInput{
+		Name: "未知插件类型校验", Protocol: "ss", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "synthetic", "plugin": "custom-plugin",
+			"plugin-opts": map[string]any{"mode": true},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "plugin-opts.mode") || !strings.Contains(err.Error(), "string") {
+		t.Fatalf("未知插件非字符串参数未被精确拒绝: %v", err)
+	}
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM nodes`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("校验失败不应写入节点: count=%d", count)
+	}
+}
+
 func TestObjectSchemaKeepsExtensionsAndSmuxShape(t *testing.T) {
 	vless, _ := GetProtocol("vless")
 	params := map[string]any{

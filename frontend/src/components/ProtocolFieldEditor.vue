@@ -135,7 +135,13 @@ function parseJSONText(): { parsed: unknown; error: string } {
     const validShape = props.field.object_kind === 'list'
       ? Array.isArray(parsed)
       : parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
-    if (!validShape) throw new Error('shape')
+    if (!validShape) {
+      return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象' }
+    }
+    if (props.field.object_kind === 'map' && props.field.map_value_type === 'string'
+      && Object.values(parsed as Record<string, unknown>).some((value) => typeof value !== 'string')) {
+      return { parsed: null, error: '映射值必须为字符串' }
+    }
     return { parsed, error: '' }
   } catch {
     return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象' }
@@ -325,9 +331,9 @@ function isComplex(value: unknown): boolean {
       <div v-if="mapEntries.length" class="space-y-2">
         <div v-for="([key, value]) in mapEntries" :key="key" class="grid grid-cols-1 md:grid-cols-[minmax(140px,0.7fr)_minmax(180px,1fr)_auto] gap-2 items-start">
           <Input :value="key" aria-label="参数名" @change="(event: any) => renameMapKey(key, event.target.value)" />
-          <Switch v-if="typeof value === 'boolean'" :checked="value" @change="(next: any) => setMapValue(key, Boolean(next))" />
-          <InputNumber v-else-if="typeof value === 'number'" :value="value" class="w-full" @change="(next: any) => setMapValue(key, next ?? 0)" />
-          <Input.TextArea v-else-if="isComplex(value)" :value="JSON.stringify(value)" :rows="2" @blur="(event: any) => setComplexMapValue(key, event.target.value)" />
+          <Switch v-if="field.map_value_type !== 'string' && typeof value === 'boolean'" :checked="value" @change="(next: any) => setMapValue(key, Boolean(next))" />
+          <InputNumber v-else-if="field.map_value_type !== 'string' && typeof value === 'number'" :value="value" class="w-full" @change="(next: any) => setMapValue(key, next ?? 0)" />
+          <Input.TextArea v-else-if="field.map_value_type !== 'string' && isComplex(value)" :value="JSON.stringify(value)" :rows="2" @blur="(event: any) => setComplexMapValue(key, event.target.value)" />
           <Input v-else :value="String(value ?? '')" @change="(event: any) => setMapValue(key, event.target.value)" />
           <Button danger @click="removeMapEntry(key)">删除</Button>
           <div v-if="mapErrors[key]" class="md:col-start-2 text-xs text-red-500">{{ mapErrors[key] }}</div>

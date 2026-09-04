@@ -284,4 +284,21 @@ describe('ProtocolFieldEditor', () => {
     expect(wrapper.text()).not.toContain('TLS')
     wrapper.unmount()
   })
+
+  it('字符串映射在高级 JSON 中拒绝非字符串叶子', async () => {
+    const field: FieldSchema = {
+      name: 'plugin-opts', type: 'object', required: false, label: '自定义插件参数',
+      object_kind: 'map', map_value_type: 'string', allow_unknown: true,
+    }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: { mode: 'custom' } } })
+    const modeButtons = wrapper.findAll('button')
+    await modeButtons[1].trigger('click')
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('{"mode":true}')
+    expect(wrapper.text()).toContain('映射值必须为字符串')
+    const apply = wrapper.find('button.ant-btn-sm.ant-btn-primary')
+    expect((apply.element as HTMLButtonElement).disabled).toBe(true)
+    const validityEvents = wrapper.emitted('validity-change') ?? []
+    expect(validityEvents[validityEvents.length - 1]).toEqual([{ path: 'plugin-opts', valid: false }])
+  })
 })

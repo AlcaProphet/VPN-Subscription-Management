@@ -87,6 +87,10 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			if !found {
 				t.Error("SS 插件自身的 TLS 开关被删除")
 			}
+			custom := fields["plugin-opts"]
+			if custom.ObjectKind != "map" || custom.MapValueType != "string" || custom.When == nil || len(custom.When.PluginNot) != 5 || !slices.Contains(custom.ResetOn, "plugin") {
+				t.Errorf("SS 未知插件参数元数据缺失: %+v", custom)
+			}
 		case "wireguard":
 			if fields["peers"].ItemIDField != "_credential_id" || !slices.Contains(proto.SensitiveFields, "peers[].pre-shared-key") {
 				t.Errorf("WireGuard Peer 稳定身份/敏感路径契约缺失: %+v", fields["peers"])

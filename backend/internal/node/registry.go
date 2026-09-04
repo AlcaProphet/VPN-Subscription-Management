@@ -1,7 +1,11 @@
 // Package node 提供统一节点表的协议注册表与业务能力。
 package node
 
-import "fmt"
+import (
+	"fmt"
+
+	"vpn-sub/internal/ssplugin"
+)
 
 // FieldSchema 描述协议表单字段（供前端动态渲染）。
 type FieldSchema struct {
@@ -12,13 +16,14 @@ type FieldSchema struct {
 	Label          string           `json:"label"`
 	Help           string           `json:"help,omitempty"`
 	Options        []string         `json:"options,omitempty"`
-	Section        string           `json:"section,omitempty"`       // auth/transport/security/switches/advanced
-	ObjectKind     string           `json:"object_kind,omitempty"`   // fields/map/list
-	ItemIDField    string           `json:"item_id_field,omitempty"` // 含敏感子字段的 list 条目稳定身份
-	Properties     []FieldSchema    `json:"properties,omitempty"`    // fields 属性或 list 元素字段
-	AllowUnknown   bool             `json:"allow_unknown,omitempty"` // 保留客户端扩展键
-	Group          string           `json:"group,omitempty"`         // basic/auth/connection/switches/advanced
-	Advanced       bool             `json:"advanced,omitempty"`      // 开关/高级区内的“更多/高级”分层标记
+	Section        string           `json:"section,omitempty"`        // auth/transport/security/switches/advanced
+	ObjectKind     string           `json:"object_kind,omitempty"`    // fields/map/list
+	MapValueType   string           `json:"map_value_type,omitempty"` // map 叶子值类型；当前支持 string
+	ItemIDField    string           `json:"item_id_field,omitempty"`  // 含敏感子字段的 list 条目稳定身份
+	Properties     []FieldSchema    `json:"properties,omitempty"`     // fields 属性或 list 元素字段
+	AllowUnknown   bool             `json:"allow_unknown,omitempty"`  // 保留客户端扩展键
+	Group          string           `json:"group,omitempty"`          // basic/auth/connection/switches/advanced
+	Advanced       bool             `json:"advanced,omitempty"`       // 开关/高级区内的“更多/高级”分层标记
 	When           *ConditionRule   `json:"when,omitempty"`
 	RequiredWhen   *ConditionRule   `json:"required_when,omitempty"`
 	ResetOn        []string         `json:"reset_on,omitempty"`
@@ -67,6 +72,13 @@ func obj(name, label, kind string, properties ...FieldSchema) FieldSchema {
 	v.Properties = properties
 	v.AllowUnknown = true
 	return v
+}
+
+func customPluginOpts() FieldSchema {
+	field := obj("plugin-opts", "自定义插件参数", "map")
+	field.MapValueType = "string"
+	field.Help = "仅用于未知自定义插件；所有键值均为普通字符串参数。"
+	return field
 }
 
 func fieldSection(name, typ string) string {
@@ -190,7 +202,7 @@ func ManualProtocols() []Protocol {
 	protocols := []Protocol{
 		{Protocol: "ss", Label: "Shadowsocks", FormSchema: common(
 			req("cipher", "text", "加密方式"), req("password", "password", "密码"), def("udp", "bool", "UDP", true), sel("plugin", "插件", "", "", "obfs", "v2ray-plugin", "shadow-tls", "restls"),
-			obfsOpts(), v2rayPluginOpts(), shadowTlsOpts(), restlsOpts(),
+			customPluginOpts(), obfsOpts(), v2rayPluginOpts(), shadowTlsOpts(), restlsOpts(),
 			def("udp-over-tcp", "bool", "UDP over TCP", false), f("udp-over-tcp-version", "number", "UDP over TCP 版本"), f("client-fingerprint", "text", "客户端指纹"), smuxOpts()),
 			SensitiveFields: []string{"password", "shadow-tls-opts.password", "restls-opts.password"}, LinkMappings: links("cipher", "password", "plugin", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts")},
 		{Protocol: "vmess", Label: "VMess", FormSchema: common(
@@ -294,7 +306,7 @@ func organizeFirstBatchForm(p *Protocol) {
 	case "trojan":
 		order = []string{"password", "network", "ws-opts", "grpc-opts", "sni", "client-fingerprint", "alpn", "fingerprint"}
 	case "ss":
-		order = []string{"password", "cipher", "plugin", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts", "client-fingerprint"}
+		order = []string{"password", "cipher", "plugin", "plugin-opts", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts", "client-fingerprint"}
 		updateField(p.FormSchema, "client-fingerprint", func(field *FieldSchema) {
 			setPluginCondition(field, "shadow-tls", "restls")
 		})
@@ -727,6 +739,12 @@ func enrichSS(p *Protocol) {
 			option("", "不使用插件", "common", "mihomo-1.19.29"), option("obfs", "obfs", "common", "mihomo-1.19.29"),
 			option("v2ray-plugin", "v2ray-plugin", "common", "mihomo-1.19.29"), option("shadow-tls", "shadow-tls", "extended", "mihomo-1.19.29"),
 			option("restls", "restls", "extended", "mihomo-1.19.29"))
+	})
+	setField("plugin-opts", func(field *FieldSchema) {
+		excluded := append([]string{""}, ssplugin.KnownNames()...)
+		field.When = &ConditionRule{PluginNot: excluded}
+		field.ResetOn = []string{"plugin"}
+		field.Group = "connection"
 	})
 	setField("obfs-opts", func(field *FieldSchema) {
 		setPluginCondition(field, "obfs")

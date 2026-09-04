@@ -29,6 +29,7 @@ export interface ConditionRule {
   network?: string[]
   security?: string[]
   plugin?: string[]
+  plugin_not?: string[]
   features?: string[]
   targets?: string[]
 }
@@ -60,6 +61,7 @@ export interface FieldSchema {
   group?: 'basic' | 'auth' | 'connection' | 'switches' | 'advanced'
   advanced?: boolean
   object_kind?: 'fields' | 'map' | 'list'
+  map_value_type?: 'string'
   item_id_field?: string
   properties?: FieldSchema[]
   allow_unknown?: boolean

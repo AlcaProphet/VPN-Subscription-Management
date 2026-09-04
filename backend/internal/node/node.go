@@ -343,6 +343,9 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
+	if err := validateInputMapValueTypes(proto, in.ProtocolJSON); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
 	params, err := NormalizeProtocolJSON(proto, in.ProtocolJSON)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
@@ -446,6 +449,9 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	}
 	proto, err := GetProtocol(in.Protocol)
 	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	if err := validateInputMapValueTypes(proto, in.ProtocolJSON); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	incoming, err := NormalizeProtocolJSON(proto, in.ProtocolJSON)
@@ -1712,6 +1718,11 @@ func validateFieldValue(field FieldSchema, value any, path string) error {
 					return err
 				}
 			}
+			if field.ObjectKind == "map" {
+				if err := validateMapValues(field, object, path); err != nil {
+					return err
+				}
+			}
 			valid = true
 		case "list":
 			items, ok := value.([]any)
@@ -1739,6 +1750,75 @@ func validateFieldValue(field FieldSchema, value any, path string) error {
 	}
 	if !valid {
 		return fmt.Errorf("字段 %s 类型应为 %s", path, field.Type)
+	}
+	return nil
+}
+
+func validateMapValues(field FieldSchema, object map[string]any, path string) error {
+	switch field.MapValueType {
+	case "":
+		return nil
+	case "string":
+		for key, value := range object {
+			if _, ok := value.(string); !ok {
+				return fmt.Errorf("字段 %s.%s 类型应为 string", path, key)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("字段 %s 使用未知 map_value_type %s", path, field.MapValueType)
+	}
+}
+
+// validateInputMapValueTypes 在兼容归一化前校验当前活动的强类型映射，
+// 避免旧别名清理先删除非法输入而使保存请求绕过类型约束。
+func validateInputMapValueTypes(proto Protocol, params map[string]any) error {
+	state := DeriveCurrentState(proto, params)
+	return validateActiveInputMaps(proto.FormSchema, state, params, "")
+}
+
+func validateActiveInputMaps(fields []FieldSchema, state CurrentState, params map[string]any, prefix string) error {
+	for _, field := range fields {
+		if !field.Matches(state, "") || field.Type != "object" {
+			continue
+		}
+		value, exists := params[field.Name]
+		if !exists || value == nil {
+			continue
+		}
+		path := field.Name
+		if prefix != "" {
+			path = prefix + "." + field.Name
+		}
+		switch field.ObjectKind {
+		case "map":
+			if field.MapValueType == "" {
+				continue
+			}
+			object, ok := value.(map[string]any)
+			if !ok {
+				return fmt.Errorf("字段 %s 类型应为 object", path)
+			}
+			if err := validateMapValues(field, object, path); err != nil {
+				return err
+			}
+		case "fields":
+			if object, ok := value.(map[string]any); ok {
+				if err := validateActiveInputMaps(field.Properties, state, object, path); err != nil {
+					return err
+				}
+			}
+		case "list":
+			if items, ok := value.([]any); ok {
+				for i, item := range items {
+					if object, ok := item.(map[string]any); ok {
+						if err := validateActiveInputMaps(field.Properties, state, object, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
 	}
 	return nil
 }
