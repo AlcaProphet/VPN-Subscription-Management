@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～9 已实施并通过验收，Step 10～14 尚未实施。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～10 已实施并通过验收，Step 11～14 尚未实施。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -22,7 +22,7 @@
 | 7 | R27-09 SS 插件统一契约、补集条件与字符串映射 schema | ✅ 验收通过 |
 | 8 | R27-09 新旧参数幂等归一化、未知参数保存与回显 | ✅ 验收通过 |
 | 9 | R27-09 四个已知插件字段与固定敏感路径修正 | ✅ 验收通过 |
-| 10 | R27-09 SIP002 转义/解析与 SR/generic 目标分流 | ☐ 未开始 |
+| 10 | R27-09 SIP002 转义/解析与 SR/generic 目标分流 | ✅ 验收通过 |
 | 11 | R27-09 Clash/Mihomo 结构化插件投影与产物自检 | ☐ 未开始 |
 | 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ☐ 未开始 |
 | 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ☐ 未开始 |
@@ -359,9 +359,9 @@ plugin: obfs-local;obfs=http
   - 重复键、坏转义、空键、非字符串未知参数反例。
   - 四个已知插件、未知插件在 SR/generic 的成功、warning、阻断分别断言；两种目标不得再共用同一条 `ok` 期望。
 - **TODO：**
-  - [ ] 先加入特殊字符、flag、重复键和目标分流失败 fixture。
-  - [ ] 实现共用 SIP002 编解码器并改造导入、SR、generic 调用链。
-  - [ ] 完成语义往返、目标白名单与渲染器第二道防线测试。
+  - [x] 先加入特殊字符、flag、重复键和目标分流失败 fixture。
+  - [x] 实现共用 SIP002 编解码器并改造导入、SR、generic 调用链。
+  - [x] 完成语义往返、目标白名单与渲染器第二道防线测试。
 - **测试与验收命令：**
 
   ```bash
@@ -370,6 +370,18 @@ plugin: obfs-local;obfs=http
   ```
 
 - **验收标准：** URI 导入未知参数不丢失；SIP002 特殊字符和 flag 可稳定往返；目标不支持或无法无损表达时返回可诊断错误，不输出看似成功但丢参数的 URI。
+- **实施结果（2026-09-05）：**
+  - 新增无状态 `ssplugin.ParsePluginString` / `SerializePluginString`：逐字符处理 `:`、`;`、`=`、`\\` 的反斜杠转义，稳定排序参数键，并将 bare flag 规范为内部空字符串；空插件名/空键、重复键、孤立或未知转义均返回错误。
+  - SS URI 导入在 URL query 解码后统一调用 SIP002 解析器；`obfs-local/simple-obfs` 归一化为 `obfs`，四个已知插件写入各自独立对象并恢复 bool/number/list 类型，未知插件名称和字符串参数原样写入 `plugin-opts`；坏转义与无法恢复的已知类型不再被静默接受。
+  - SR 与 generic SS 链接已拆分目标路径并消费 `ssplugin` 合同：`obfs`/`v2ray-plugin` 只输出固定可回读子集，SR 允许可无损序列化的 `shadow-tls`、`restls` 与未知字符串插件，generic 对后三类直接返回错误；额外字段、未知非字符串值及无法无损表示的列表均由渲染器第二道防线拒绝。
+  - `PluginOpts` 已能读取未知插件的 `plugin-opts`。`render_clash.go` 仅将原调用改名为明确的 Step 11 前 legacy helper，Clash 旧字符串形态和删除结构化对象的行为保持不变，未提前实施 Step 11。
+- **验证记录（2026-09-05）：**
+  - 失败先行测试先复现共用编解码器缺失；实现后特殊字符、Unicode、百分号、bare flag、稳定排序、重复键/坏转义/空键、四插件导入类型、未知参数、SR/generic 成功与阻断均转绿。
+  - `cd backend && go test ./internal/ssplugin ./internal/uriparse ./internal/assembly/links -count=1`：通过。
+  - `cd backend && go test -race ./internal/uriparse ./internal/assembly/links -count=1`：通过。
+  - `cd backend && go test ./... -count=1 && go build ./... && go vet ./...`：全部通过。
+  - `cd frontend && npm run build`：通过，仅保留既有大 chunk 提示。
+- **本 Step 边界：** `SupportUnverified/Partial` 到目标 warning/错误码的统一诊断、节点检查与正式装配一致性仍由 Step 12 落地；Clash/Mihomo 结构化 `plugin` + `plugin-opts`、默认值投影和产物自检仍由 Step 11 落地。未修改数据库、保存格式、前端、非 SS 协议或真机兼容结论。
 
 ### 7.8 Step 11：Clash/Mihomo 结构化插件投影与产物自检
 
@@ -526,3 +538,4 @@ Step 7～13 全部通过 ─────────→ Step 14 全量收口
 | v1.4 | 2026-09-04 | 完成 R27-09 Step 7：新增 SS 插件集中合同、`plugin_not` 补集条件和 `map_value_type=string`，贯通后端投影/保存前校验、真实协议接口及前端条件/JSON 校验；定向与全量测试、编译、vet、生产构建通过，Step 8～14 保持未实施。 |
 | v1.5 | 2026-09-04 | 完成 R27-09 Step 8：已知插件旧对象递归补缺且规范新对象优先，未知字符串 `plugin-opts` 贯通保存/回显/重载/检查并保留空 flag；插件重置、敏感路径隔离、只读零写入及后端全量/竞态/编译/vet 验收通过，Step 9～14 保持未实施。 |
 | v1.6 | 2026-09-04 | 完成 R27-09 Step 9：四个已知插件字段、Mihomo 1.19.29 证据、Clash 限定必需项与两条私钥敏感路径对齐；默认值零批量写入、未知旧键保留、私钥全生命周期及后端定向/全量/竞态/编译/vet 验收通过，Step 10～14 保持未实施。 |
+| v1.7 | 2026-09-05 | 完成 R27-09 Step 10：新增可稳定往返的 SIP002 转义/解析器，导入保留未知字符串参数并恢复已知字段类型；SR/generic 分别消费目标合同，generic 对不支持插件及不可回读字段、渲染器对非字符串/复杂值均显式报错；后端定向、竞态、全量、编译与 vet 通过，Step 11～14 保持未实施。 |

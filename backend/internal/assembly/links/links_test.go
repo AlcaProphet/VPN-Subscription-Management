@@ -4,8 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
+
+	"vpn-sub/internal/ssplugin"
 )
 
 func TestVlessTransportAndRealityQuery(t *testing.T) {
@@ -56,7 +59,7 @@ func TestRealityDoesNotReadLegacyTopLevelKeys(t *testing.T) {
 	}
 	link, err := Render("ss", "节点", "example.com", 443, map[string]any{
 		"cipher": "aes-256-gcm", "password": "p", "plugin": "shadow-tls", "shadow-tls-opts": map[string]any{"host": "cdn.example.com"},
-	}, true)
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,4 +135,91 @@ func TestBuild18FixedURIExamples(t *testing.T) {
 			t.Fatalf("SS obfs 未按目标映射为 obfs-local: %s", link)
 		}
 	})
+}
+
+func TestSSPluginTargetSplitAndSemanticRoundTrip(t *testing.T) {
+	base := map[string]any{"cipher": "aes-256-gcm", "password": "password"}
+	cases := []struct {
+		name      string
+		plugin    string
+		storage   string
+		opts      map[string]any
+		generic   bool
+		wantError bool
+	}{
+		{name: "sr obfs", plugin: "obfs", storage: "obfs-opts", opts: map[string]any{"mode": "http", "host": `cdn:443;edge=1\x`}},
+		{name: "generic obfs", plugin: "obfs", storage: "obfs-opts", opts: map[string]any{"mode": "tls", "host": "cdn.example.com"}, generic: true},
+		{name: "sr v2ray", plugin: "v2ray-plugin", storage: "v2ray-plugin-opts", opts: map[string]any{"mode": "websocket", "host": "cdn.example.com", "path": "/ws;a=b", "tls": true}},
+		{name: "generic v2ray", plugin: "v2ray-plugin", storage: "v2ray-plugin-opts", opts: map[string]any{"mode": "websocket", "path": "/ws", "tls": true}, generic: true},
+		{name: "sr shadow tls", plugin: "shadow-tls", storage: "shadow-tls-opts", opts: map[string]any{"host": "cdn.example.com", "version": float64(3), "alpn": []any{"h2", "http/1.1"}}},
+		{name: "generic shadow tls blocked", plugin: "shadow-tls", storage: "shadow-tls-opts", opts: map[string]any{"host": "cdn.example.com"}, generic: true, wantError: true},
+		{name: "sr restls", plugin: "restls", storage: "restls-opts", opts: map[string]any{"host": "cdn.example.com", "password": "secret", "skip-cert-verify": true}},
+		{name: "generic restls blocked", plugin: "restls", storage: "restls-opts", opts: map[string]any{"host": "cdn.example.com"}, generic: true, wantError: true},
+		{name: "sr unknown", plugin: "custom-plugin", storage: "plugin-opts", opts: map[string]any{"flag": "", "token": `a:;=\`}},
+		{name: "generic unknown blocked", plugin: "custom-plugin", storage: "plugin-opts", opts: map[string]any{"flag": ""}, generic: true, wantError: true},
+		{name: "v2ray extra field blocked", plugin: "v2ray-plugin", storage: "v2ray-plugin-opts", opts: map[string]any{"headers": map[string]any{"Host": "cdn.example.com"}}, wantError: true},
+		{name: "unknown non string blocked", plugin: "custom-plugin", storage: "plugin-opts", opts: map[string]any{"enabled": true}, wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := make(map[string]any, len(base)+2)
+			for key, value := range base {
+				params[key] = value
+			}
+			params["plugin"] = tc.plugin
+			params[tc.storage] = tc.opts
+			link, err := Render("ss", "节点", "example.com", 8388, params, tc.generic)
+			if tc.wantError {
+				if err == nil {
+					t.Fatalf("目标应拒绝无法无损表达的插件参数: %s", link)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("目标插件 URI 生成失败: %v", err)
+			}
+			parsed, err := url.Parse(link)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pluginName, pluginOpts, err := ssplugin.ParsePluginString(parsed.Query().Get("plugin"))
+			if err != nil {
+				t.Fatalf("生成的插件串无法回读: %v", err)
+			}
+			if pluginName == "" || pluginOpts == nil {
+				t.Fatalf("生成的插件语义为空: name=%q opts=%#v", pluginName, pluginOpts)
+			}
+		})
+	}
+}
+
+func TestPluginOptsReadsUnknownStringMap(t *testing.T) {
+	want := map[string]any{"flag": "", "key": "value"}
+	if got := PluginOpts(map[string]any{"plugin-opts": want}, "custom-plugin"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("未知插件参数读取异常: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestSSPluginURLAndSIP002EscapingCompose(t *testing.T) {
+	wantName := `custom:plugin;=\`
+	wantOpts := map[string]string{"flag": "", `key;=\`: `值:;=\ %2F`}
+	params := map[string]any{
+		"cipher": "aes-256-gcm", "password": "password", "plugin": wantName,
+		"plugin-opts": map[string]any{"flag": "", `key;=\`: `值:;=\ %2F`},
+	}
+	link, err := Render("ss", "节点", "example.com", 8388, params, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, opts, err := ssplugin.ParsePluginString(parsed.Query().Get("plugin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != wantName || !reflect.DeepEqual(opts, wantOpts) {
+		t.Fatalf("URL query 与 SIP002 组合往返异常: name=%q opts=%#v link=%s", name, opts, link)
+	}
 }

@@ -259,7 +259,7 @@ func normalizeClashFields(protocol string, params map[string]any) map[string]any
 	if protocol == "ss" {
 		if plugin, ok := out["plugin"].(string); ok && plugin != "" {
 			opts := assemblylinks.PluginOpts(out, plugin)
-			out["plugin"] = assemblylinks.RenderPluginForTarget(plugin, opts, "clash-yaml")
+			out["plugin"] = assemblylinks.RenderPluginForClashLegacy(plugin, opts)
 			for _, key := range []string{"plugin-opts", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts"} {
 				delete(out, key)
 			}

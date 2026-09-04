@@ -2,7 +2,11 @@ package uriparse
 
 import (
 	"encoding/base64"
+	"net/url"
+	"reflect"
 	"testing"
+
+	"vpn-sub/internal/ssplugin"
 )
 
 func TestParseSSAndVLESS(t *testing.T) {
@@ -49,6 +53,81 @@ func TestParseSSPluginToSplitOpts(t *testing.T) {
 	}
 	if _, exists := r.Params["plugin-opts"]; exists {
 		t.Fatalf("旧 plugin-opts 不应再直接生成")
+	}
+}
+
+func TestParseSSPluginPreservesEscapedUnknownOptions(t *testing.T) {
+	rawPlugin, err := ssplugin.SerializePluginString(`custom:plugin`, map[string]string{
+		"flag":   "",
+		`key;=\`: `值:;=\`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uri := "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388?plugin=" + url.QueryEscape(rawPlugin) + "#SS"
+	r, err := Parse(uri)
+	if err != nil {
+		t.Fatalf("未知 SS 插件解析失败: %v", err)
+	}
+	if r.Params["plugin"] != `custom:plugin` {
+		t.Fatalf("未知插件名未保留: %#v", r.Params)
+	}
+	want := map[string]any{"flag": "", `key;=\`: `值:;=\`}
+	if !reflect.DeepEqual(r.Params["plugin-opts"], want) {
+		t.Fatalf("未知插件参数未无损保留: got=%#v want=%#v", r.Params["plugin-opts"], want)
+	}
+}
+
+func TestParseSSPluginRejectsMalformedOptions(t *testing.T) {
+	for _, rawPlugin := range []string{`plugin;key=one;key=two`, `plugin;key=value\`, `plugin;=value`} {
+		t.Run(rawPlugin, func(t *testing.T) {
+			uri := "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388?plugin=" + url.QueryEscape(rawPlugin)
+			if _, err := Parse(uri); err == nil {
+				t.Fatalf("应拒绝坏 SIP002 插件参数 %q", rawPlugin)
+			}
+		})
+	}
+}
+
+func TestParseSSKnownPluginOptionTypes(t *testing.T) {
+	cases := []struct {
+		name       string
+		rawPlugin  string
+		plugin     string
+		storageKey string
+		want       map[string]any
+	}{
+		{name: "obfs alias", rawPlugin: `simple-obfs;obfs=http;obfs-host=cdn.example.com`, plugin: "obfs", storageKey: "obfs-opts", want: map[string]any{"mode": "http", "host": "cdn.example.com"}},
+		{name: "v2ray bool", rawPlugin: `v2ray-plugin;mode=websocket;path=/ws;tls`, plugin: "v2ray-plugin", storageKey: "v2ray-plugin-opts", want: map[string]any{"mode": "websocket", "path": "/ws", "tls": true}},
+		{name: "shadow tls typed", rawPlugin: `shadow-tls;host=cdn.example.com;version=3;alpn=h2,http/1.1;skip-cert-verify=false`, plugin: "shadow-tls", storageKey: "shadow-tls-opts", want: map[string]any{"host": "cdn.example.com", "version": float64(3), "alpn": []string{"h2", "http/1.1"}, "skip-cert-verify": false}},
+		{name: "restls bool", rawPlugin: `restls;host=cdn.example.com;skip-cert-verify=true`, plugin: "restls", storageKey: "restls-opts", want: map[string]any{"host": "cdn.example.com", "skip-cert-verify": true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uri := "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388?plugin=" + url.QueryEscape(tc.rawPlugin)
+			r, err := Parse(uri)
+			if err != nil {
+				t.Fatalf("已知插件导入失败: %v", err)
+			}
+			if r.Params["plugin"] != tc.plugin || !reflect.DeepEqual(r.Params[tc.storageKey], tc.want) {
+				t.Fatalf("已知插件导入类型异常: %#v", r.Params)
+			}
+		})
+	}
+}
+
+func TestParseSSKnownPluginRejectsInvalidTypedValue(t *testing.T) {
+	for _, rawPlugin := range []string{
+		`v2ray-plugin;tls=maybe`,
+		`shadow-tls;version=three`,
+		`restls;skip-cert-verify=maybe`,
+	} {
+		t.Run(rawPlugin, func(t *testing.T) {
+			uri := "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388?plugin=" + url.QueryEscape(rawPlugin)
+			if _, err := Parse(uri); err == nil {
+				t.Fatalf("应拒绝无法恢复类型的已知插件参数 %q", rawPlugin)
+			}
+		})
 	}
 }
 
