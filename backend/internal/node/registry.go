@@ -152,24 +152,25 @@ func v2rayPluginOpts() FieldSchema {
 	mode.Default = "websocket"
 	mode.AllowCustom = boolPtr(true)
 	setOptionItems(&mode, option("websocket", "WebSocket", "common", "mihomo-1.19.29"))
-	version := f("version", "select", "版本")
-	version.AllowCustom = boolPtr(true)
-	setOptionItems(&version, option("1", "v1", "common", "mihomo-1.19.29"), option("2", "v2", "common", "mihomo-1.19.29"))
 	return obj("v2ray-plugin-opts", "v2ray-plugin 参数", "fields",
 		mode, f("host", "text", "Host"), def("tls", "bool", "TLS", false), f("path", "text", "路径"), obj("headers", "请求头", "map"),
-		version, def("mux", "bool", "Mux", false), def("v2ray-http-upgrade", "bool", "HTTP Upgrade", false),
-		def("v2ray-http-upgrade-fast-open", "bool", "HTTP Upgrade Fast Open", false))
+		def("mux", "bool", "Mux", false), def("v2ray-http-upgrade", "bool", "HTTP Upgrade", false),
+		def("v2ray-http-upgrade-fast-open", "bool", "HTTP Upgrade Fast Open", false), f("fingerprint", "text", "证书指纹"),
+		f("certificate", "text", "客户端证书"), f("private-key", "password", "客户端私钥"), f("name-cert-verify", "text", "证书名称校验"))
 }
 
 func shadowTlsOpts() FieldSchema {
 	return obj("shadow-tls-opts", "shadow-tls 参数", "fields",
-		f("password", "password", "密码"), f("fingerprint", "text", "指纹"), def("skip-cert-verify", "bool", "跳过证书校验", false))
+		f("password", "password", "密码"), f("host", "text", "Host"), f("version", "number", "版本"), f("alpn", "text-list", "ALPN"),
+		f("fingerprint", "text", "证书指纹"), f("certificate", "text", "客户端证书"), f("private-key", "password", "客户端私钥"),
+		def("skip-cert-verify", "bool", "跳过证书校验", false), f("name-cert-verify", "text", "证书名称校验"))
 }
 
 func restlsOpts() FieldSchema {
 	return obj("restls-opts", "restls 参数", "fields",
-		f("password", "password", "密码"), f("path", "text", "路径"), f("fingerprint", "text", "指纹"),
-		def("skip-cert-verify", "bool", "跳过证书校验", false), f("version-hint", "text", "版本提示"), f("restls-script", "text", "Restls Script"))
+		f("password", "password", "密码"), f("host", "text", "Host"), f("version-hint", "text", "版本提示"),
+		f("restls-script", "text", "Restls Script"), f("fingerprint", "text", "证书指纹"),
+		def("skip-cert-verify", "bool", "跳过证书校验", false), f("name-cert-verify", "text", "证书名称校验"))
 }
 
 func ssOpts() FieldSchema {
@@ -204,7 +205,7 @@ func ManualProtocols() []Protocol {
 			req("cipher", "text", "加密方式"), req("password", "password", "密码"), def("udp", "bool", "UDP", true), sel("plugin", "插件", "", "", "obfs", "v2ray-plugin", "shadow-tls", "restls"),
 			customPluginOpts(), obfsOpts(), v2rayPluginOpts(), shadowTlsOpts(), restlsOpts(),
 			def("udp-over-tcp", "bool", "UDP over TCP", false), f("udp-over-tcp-version", "number", "UDP over TCP 版本"), f("client-fingerprint", "text", "客户端指纹"), smuxOpts()),
-			SensitiveFields: []string{"password", "shadow-tls-opts.password", "restls-opts.password"}, LinkMappings: links("cipher", "password", "plugin", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts")},
+			SensitiveFields: []string{"password", "v2ray-plugin-opts.private-key", "shadow-tls-opts.password", "shadow-tls-opts.private-key", "restls-opts.password"}, LinkMappings: links("cipher", "password", "plugin", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts")},
 		{Protocol: "vmess", Label: "VMess", FormSchema: common(
 			req("uuid", "password", "UUID"), def("alterId", "number", "AlterId", 0), def("cipher", "text", "加密方式", "auto"), def("udp", "bool", "UDP", true), sel("network", "传输", "tcp", "tcp", "ws", "grpc", "h2", "http"),
 			def("tls", "bool", "TLS", false), f("servername", "text", "SNI"), f("alpn", "text-list", "ALPN"), def("packet-addr", "bool", "Packet Address", false), def("xudp", "bool", "XUDP", false), f("packet-encoding", "text", "包编码"),
@@ -314,7 +315,7 @@ func organizeFirstBatchForm(p *Protocol) {
 		return
 	}
 	for _, parent := range []string{"ws-opts", "v2ray-plugin-opts"} {
-		for _, name := range []string{"max-early-data", "early-data-header-name", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "mux", "version"} {
+		for _, name := range []string{"max-early-data", "early-data-header-name", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "mux"} {
 			updateNestedField(p.FormSchema, parent, name, func(field *FieldSchema) { field.Advanced = true })
 		}
 	}
@@ -455,6 +456,52 @@ func setPluginCondition(field *FieldSchema, plugins ...string) {
 
 func setTargetEvidence(field *FieldSchema, evidence ...TargetEvidence) {
 	field.TargetEvidence = append([]TargetEvidence(nil), evidence...)
+}
+
+func applySSPluginContract(field *FieldSchema, plugin string) {
+	definition, ok := ssplugin.Lookup(plugin)
+	if !ok {
+		return
+	}
+	targets := []struct {
+		name    string
+		client  string
+		version string
+		entry   string
+	}{
+		{ssplugin.TargetClash, "Mihomo", "1.19.29", "ss.plugin-opts"},
+		{ssplugin.TargetShadowrocket, "Shadowrocket", "unverified", "ss-plugin-uri"},
+		{ssplugin.TargetGeneric, "Clash Verge Rev", "2.5.2", "ss-plugin-uri"},
+	}
+	evidence := make([]TargetEvidence, 0, len(targets))
+	for _, target := range targets {
+		contract, exists := definition.Target(target.name)
+		if !exists {
+			continue
+		}
+		evidence = append(evidence, TargetEvidence{
+			Target: target.name, Client: target.client, Version: target.version,
+			Entry: target.entry, Status: string(contract.Support),
+		})
+	}
+	setTargetEvidence(field, evidence...)
+	clash, ok := definition.Target(ssplugin.TargetClash)
+	if !ok {
+		return
+	}
+	requiresObject := false
+	for _, name := range clash.RequiredFields {
+		if _, hasOutputDefault := clash.Defaults[name]; hasOutputDefault {
+			continue
+		}
+		requiresObject = true
+		updateField(field.Properties, name, func(property *FieldSchema) {
+			property.RequiredWhen = &ConditionRule{Targets: []string{ssplugin.TargetClash}}
+		})
+	}
+	if requiresObject {
+		field.RequiredWhen = &ConditionRule{Plugin: []string{plugin}, Targets: []string{ssplugin.TargetClash}}
+	}
 }
 
 func enrichVLESS(p *Protocol) {
@@ -748,19 +795,19 @@ func enrichSS(p *Protocol) {
 	})
 	setField("obfs-opts", func(field *FieldSchema) {
 		setPluginCondition(field, "obfs")
-		setTargetEvidence(field, TargetEvidence{Target: "sr-subs", Client: "Clash Verge Rev", Version: "2.5.2", Entry: "ss-plugin-uri", Status: "partial"})
+		applySSPluginContract(field, "obfs")
 	})
 	setField("v2ray-plugin-opts", func(field *FieldSchema) {
 		setPluginCondition(field, "v2ray-plugin")
-		setTargetEvidence(field, TargetEvidence{Target: "sr-subs", Client: "Clash Verge Rev", Version: "2.5.2", Entry: "ss-plugin-uri", Status: "partial"})
+		applySSPluginContract(field, "v2ray-plugin")
 	})
 	setField("shadow-tls-opts", func(field *FieldSchema) {
 		setPluginCondition(field, "shadow-tls")
-		setTargetEvidence(field, TargetEvidence{Target: "sr-subs", Client: "Clash Verge Rev", Version: "2.5.2", Entry: "ss-plugin-uri", Status: "partial"})
+		applySSPluginContract(field, "shadow-tls")
 	})
 	setField("restls-opts", func(field *FieldSchema) {
 		setPluginCondition(field, "restls")
-		setTargetEvidence(field, TargetEvidence{Target: "sr-subs", Client: "Clash Verge Rev", Version: "2.5.2", Entry: "ss-plugin-uri", Status: "partial"})
+		applySSPluginContract(field, "restls")
 	})
 	setField("client-fingerprint", func(field *FieldSchema) {
 		field.Group = "connection"

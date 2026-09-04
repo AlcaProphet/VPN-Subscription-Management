@@ -87,6 +87,32 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			if !found {
 				t.Error("SS 插件自身的 TLS 开关被删除")
 			}
+			v2rayFields := make(map[string]node.FieldSchema)
+			for _, field := range fields["v2ray-plugin-opts"].Properties {
+				v2rayFields[field.Name] = field
+			}
+			shadowFields := make(map[string]node.FieldSchema)
+			for _, field := range fields["shadow-tls-opts"].Properties {
+				shadowFields[field.Name] = field
+			}
+			restlsFields := make(map[string]node.FieldSchema)
+			for _, field := range fields["restls-opts"].Properties {
+				restlsFields[field.Name] = field
+			}
+			if v2rayFields["private-key"].Type != "password" || shadowFields["private-key"].Type != "password" || shadowFields["host"].Required || restlsFields["host"].Required {
+				t.Errorf("SS 固定插件字段或目标限定必填被错误投影: v2ray=%+v shadow=%+v restls=%+v", v2rayFields, shadowFields, restlsFields)
+			}
+			if _, exists := v2rayFields["version"]; exists {
+				t.Error("v2ray-plugin version 不应继续标记为固定版本字段")
+			}
+			if _, exists := restlsFields["path"]; exists {
+				t.Error("restls path 不应继续标记为固定版本字段")
+			}
+			for _, path := range []string{"v2ray-plugin-opts.private-key", "shadow-tls-opts.private-key"} {
+				if !slices.Contains(proto.SensitiveFields, path) {
+					t.Errorf("协议接口缺少 SS 固定敏感路径 %s: %v", path, proto.SensitiveFields)
+				}
+			}
 			custom := fields["plugin-opts"]
 			if custom.ObjectKind != "map" || custom.MapValueType != "string" || custom.When == nil || len(custom.When.PluginNot) != 5 || !slices.Contains(custom.ResetOn, "plugin") {
 				t.Errorf("SS 未知插件参数元数据缺失: %+v", custom)

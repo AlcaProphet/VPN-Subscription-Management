@@ -1098,6 +1098,193 @@ func TestUpdateCredentialKeepAndClear(t *testing.T) {
 	}
 }
 
+func TestSSPluginPrivateKeyCredentialLifecycle(t *testing.T) {
+	cases := []struct {
+		name       string
+		plugin     string
+		storageKey string
+	}{
+		{name: "v2ray-plugin", plugin: "v2ray-plugin", storageKey: "v2ray-plugin-opts"},
+		{name: "shadow-tls", plugin: "shadow-tls", storageKey: "shadow-tls-opts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, _ := newTestService(t)
+			ctx := context.Background()
+			path := tc.storageKey + ".private-key"
+			created, err := svc.CreateManual(ctx, CreateManualInput{
+				Name: "ss-" + tc.name, Protocol: "ss", Host: "example.com", Port: 8388,
+				ProtocolJSON: map[string]any{
+					"cipher": "aes-256-gcm", "password": "main-secret", "plugin": tc.plugin,
+					tc.storageKey: map[string]any{"private-key": "plugin-private-key", "legacy-field": "keep-me"},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if value, ok := GetPath(created.ProtocolJSON, path); !ok || value != "" || !contains(created.SavedSensitivePaths, path) {
+				t.Fatalf("创建响应未脱敏或缺少摘要: value=%v saved=%v", value, created.SavedSensitivePaths)
+			}
+			rawCreated, err := svc.getRaw(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ciphertext, ok := GetPath(rawCreated.ProtocolJSON, path)
+			if !ok || !strings.HasPrefix(ciphertext.(string), encPrefix) {
+				t.Fatalf("插件私钥未加密落库: %v", ciphertext)
+			}
+			if legacy, _ := GetPath(rawCreated.ProtocolJSON, tc.storageKey+".legacy-field"); legacy != "keep-me" {
+				t.Fatalf("所属已知对象的未知旧字段被删除: %v", legacy)
+			}
+
+			kept, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+				Protocol: "ss", Host: created.Host, Port: created.Port, BaseRevision: created.EditRevision,
+				ProtocolJSON: map[string]any{
+					"cipher": "aes-256-gcm", "password": "", "plugin": tc.plugin,
+					tc.storageKey: map[string]any{"private-key": "", "legacy-field": "keep-me"},
+				},
+			})
+			if err != nil {
+				t.Fatalf("留空保留插件私钥失败: %v", err)
+			}
+			rawKept, err := svc.getRaw(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			keptCiphertext, _ := GetPath(rawKept.ProtocolJSON, path)
+			if keptCiphertext != ciphertext || !contains(kept.SavedSensitivePaths, path) {
+				t.Fatalf("插件私钥留空保留异常: before=%v after=%v saved=%v", ciphertext, keptCiphertext, kept.SavedSensitivePaths)
+			}
+
+			cleared, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+				Protocol: "ss", Host: created.Host, Port: created.Port, BaseRevision: kept.EditRevision,
+				ProtocolJSON: map[string]any{
+					"cipher": "aes-256-gcm", "password": "", "plugin": tc.plugin,
+					tc.storageKey: map[string]any{"private-key": "", "legacy-field": "keep-me"},
+				},
+				CredentialOps: []CredentialOp{{Path: path, Op: "clear"}},
+			})
+			if err != nil {
+				t.Fatalf("显式清除插件私钥失败: %v", err)
+			}
+			if contains(cleared.SavedSensitivePaths, path) {
+				t.Fatalf("清除后仍报告已保存: %v", cleared.SavedSensitivePaths)
+			}
+			rawCleared, err := svc.getRaw(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := GetPath(rawCleared.ProtocolJSON, path); ok {
+				t.Fatal("显式清除后插件私钥仍存在")
+			}
+
+			replaced, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+				Protocol: "ss", Host: created.Host, Port: created.Port, BaseRevision: cleared.EditRevision,
+				ProtocolJSON: map[string]any{
+					"cipher": "aes-256-gcm", "password": "", "plugin": tc.plugin,
+					tc.storageKey: map[string]any{"private-key": "replacement-private-key"},
+				},
+			})
+			if err != nil || !contains(replaced.SavedSensitivePaths, path) {
+				t.Fatalf("替换插件私钥失败: node=%+v err=%v", replaced, err)
+			}
+
+			reset, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+				Protocol: "ss", Host: created.Host, Port: created.Port, BaseRevision: replaced.EditRevision,
+				ProtocolJSON: map[string]any{"cipher": "aes-256-gcm", "password": "", "plugin": "obfs", "obfs-opts": map[string]any{"host": "cdn.example.com"}},
+				ResetScopes:  []string{"plugin"},
+			})
+			if err != nil {
+				t.Fatalf("插件重置失败: %v", err)
+			}
+			if _, ok := reset.ProtocolJSON[tc.storageKey]; ok || contains(reset.SavedSensitivePaths, path) {
+				t.Fatalf("插件重置后仍保留旧对象或凭据摘要: %+v", reset)
+			}
+		})
+	}
+}
+
+func TestSSPluginDefaultsStayOutOfStoredProtocolJSON(t *testing.T) {
+	cases := []struct {
+		name       string
+		plugin     string
+		storageKey string
+		params     map[string]any
+	}{
+		{name: "ss-obfs-default", plugin: "obfs", storageKey: "obfs-opts", params: map[string]any{"host": "cdn.example.com"}},
+		{name: "ss-v2ray-default", plugin: "v2ray-plugin", storageKey: "v2ray-plugin-opts", params: map[string]any{"path": "/ws"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.plugin, func(t *testing.T) {
+			svc, _, _ := newTestService(t)
+			created, err := svc.CreateManual(context.Background(), CreateManualInput{
+				Name: tc.name, Protocol: "ss", Host: "example.com", Port: 8388,
+				ProtocolJSON: map[string]any{
+					"cipher": "aes-256-gcm", "password": "main-secret", "plugin": tc.plugin,
+					tc.storageKey: tc.params,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := svc.getRaw(context.Background(), created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := GetPath(raw.ProtocolJSON, tc.storageKey+".mode"); ok {
+				t.Fatalf("展示/输出默认 mode 不应批量写入数据库: %+v", raw.ProtocolJSON)
+			}
+		})
+	}
+}
+
+func TestSSPluginClashRequirementsDoNotBlockDraftSave(t *testing.T) {
+	cases := []struct {
+		name       string
+		plugin     string
+		storageKey string
+		params     map[string]any
+		missing    string
+	}{
+		{name: "ss-shadow-draft", plugin: "shadow-tls", storageKey: "shadow-tls-opts", missing: "shadow-tls-opts"},
+		{name: "ss-restls-draft", plugin: "restls", storageKey: "restls-opts", params: map[string]any{"password": "restls-secret", "version-hint": "tls13"}, missing: "restls-opts.host"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.plugin, func(t *testing.T) {
+			svc, _, _ := newTestService(t)
+			svc.SetCheckRenderer(func(_ context.Context, _, _, _, _ string, _ int, _ map[string]any) (CheckRenderResult, error) {
+				return CheckRenderResult{Status: "ok"}, nil
+			})
+			protocolJSON := map[string]any{
+				"cipher": "aes-256-gcm", "password": "main-secret", "plugin": tc.plugin,
+			}
+			if tc.params != nil {
+				protocolJSON[tc.storageKey] = tc.params
+			}
+			created, err := svc.CreateManual(context.Background(), CreateManualInput{
+				Name: tc.name, Protocol: "ss", Host: "example.com", Port: 8388,
+				ProtocolJSON: protocolJSON,
+			})
+			if err != nil {
+				t.Fatalf("不完整插件草稿应允许保存: %v", err)
+			}
+			response, err := svc.Check(context.Background(), CheckRequest{
+				NodeID: created.ID, BaseRevision: created.EditRevision,
+				Protocol: "ss", Host: created.Host, Port: created.Port,
+				ProtocolJSON: created.ProtocolJSON, CurrentState: &created.CurrentState,
+				Targets: []string{"clash-yaml"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := response.Targets["clash-yaml"]
+			if result.Status != "error" || len(result.Diagnostics) != 1 || result.Diagnostics[0].FieldPath != tc.missing {
+				t.Fatalf("Clash 目标未按固定合同阻断缺失字段: %+v", result)
+			}
+		})
+	}
+}
+
 func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()

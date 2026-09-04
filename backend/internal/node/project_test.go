@@ -2,6 +2,8 @@ package node
 
 import (
 	"encoding/json"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -226,6 +228,110 @@ func TestFirstBatchGroupingAndSecurityOrdering(t *testing.T) {
 	if !hasOption(v2rayMode, "websocket") || hasOption(v2rayMode, "http") || hasOption(v2rayMode, "tls") {
 		t.Fatalf("v2ray-plugin mode 候选应仅包含 websocket: %+v", v2rayMode)
 	}
+}
+
+func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
+	ss, err := GetProtocol("ss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name       string
+		fields     []string
+		forbidden  string
+		required   []string
+		defaults   map[string]any
+		fieldTypes map[string]string
+	}{
+		{
+			name: "obfs-opts", fields: []string{"host", "mode"}, required: []string{"mode"},
+			defaults: map[string]any{"mode": "http"}, fieldTypes: map[string]string{"mode": "select"},
+		},
+		{
+			name:      "v2ray-plugin-opts",
+			fields:    []string{"certificate", "fingerprint", "headers", "host", "mode", "mux", "name-cert-verify", "path", "private-key", "tls", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open"},
+			forbidden: "version", required: []string{"mode"}, defaults: map[string]any{"mode": "websocket"},
+			fieldTypes: map[string]string{"headers": "object", "private-key": "password", "tls": "bool"},
+		},
+		{
+			name:     "shadow-tls-opts",
+			fields:   []string{"alpn", "certificate", "fingerprint", "host", "name-cert-verify", "password", "private-key", "skip-cert-verify", "version"},
+			required: []string{"host"}, fieldTypes: map[string]string{"alpn": "text-list", "private-key": "password", "version": "number"},
+		},
+		{
+			name:      "restls-opts",
+			fields:    []string{"fingerprint", "host", "name-cert-verify", "password", "restls-script", "skip-cert-verify", "version-hint"},
+			forbidden: "path", required: []string{"host", "password", "version-hint"},
+			fieldTypes: map[string]string{"password": "password", "version-hint": "text"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			object := findSchemaFieldMust(t, ss.FormSchema, tc.name)
+			gotFields := make([]string, 0, len(object.Properties))
+			for _, property := range object.Properties {
+				gotFields = append(gotFields, property.Name)
+			}
+			sort.Strings(gotFields)
+			if !reflect.DeepEqual(gotFields, tc.fields) {
+				t.Fatalf("%s 字段与固定合同不一致: got=%v want=%v", tc.name, gotFields, tc.fields)
+			}
+			if tc.forbidden != "" && hasNestedField(object, tc.forbidden) {
+				t.Fatalf("%s 不应继续把 %s 声明为固定版本字段", tc.name, tc.forbidden)
+			}
+			for name, typ := range tc.fieldTypes {
+				if field := findNestedFieldMust(t, object, name); field.Type != typ {
+					t.Fatalf("%s.%s 类型异常: %+v", tc.name, name, field)
+				}
+			}
+			for _, name := range tc.required {
+				field := findNestedFieldMust(t, object, name)
+				if _, hasDefault := tc.defaults[name]; hasDefault {
+					if field.Default != tc.defaults[name] || field.RequiredWhen != nil {
+						t.Fatalf("%s.%s 应由目标输出补默认值且不作为草稿必填: %+v", tc.name, name, field)
+					}
+					continue
+				}
+				if field.Required || field.RequiredWhen == nil || !field.RequiredWhen.Matches(CurrentState{}, "clash-yaml") || field.RequiredWhen.Matches(CurrentState{}, "generic-subs") {
+					t.Fatalf("%s.%s 应仅在 Clash 目标必填: %+v", tc.name, name, field)
+				}
+			}
+			if !hasTargetEvidence(object.TargetEvidence, "clash-yaml", "complete") {
+				t.Fatalf("%s 缺少 Mihomo 1.19.29 完整证据: %+v", tc.name, object.TargetEvidence)
+			}
+			requiresObject := len(tc.required) > len(tc.defaults)
+			plugin := object.When.Plugin[0]
+			if requiresObject != (object.RequiredWhen != nil && object.RequiredWhen.Matches(CurrentState{Plugin: &plugin}, "clash-yaml")) {
+				t.Fatalf("%s 对象级 Clash 必填条件异常: %+v", tc.name, object.RequiredWhen)
+			}
+		})
+	}
+
+	obfsMode := findNestedFieldMust(t, findSchemaFieldMust(t, ss.FormSchema, "obfs-opts"), "mode")
+	if !hasOption(obfsMode, "http") || !hasOption(obfsMode, "tls") || len(obfsMode.OptionItems) != 2 {
+		t.Fatalf("obfs mode 候选应严格为 http/tls: %+v", obfsMode)
+	}
+	v2rayMode := findNestedFieldMust(t, findSchemaFieldMust(t, ss.FormSchema, "v2ray-plugin-opts"), "mode")
+	if !hasOption(v2rayMode, "websocket") || len(v2rayMode.OptionItems) != 1 {
+		t.Fatalf("v2ray-plugin mode 应固定为 websocket: %+v", v2rayMode)
+	}
+	for _, path := range []string{"v2ray-plugin-opts.private-key", "shadow-tls-opts.private-key"} {
+		if !contains(ss.SensitiveFields, path) {
+			t.Fatalf("SS 缺少固定私钥敏感路径 %s: %v", path, ss.SensitiveFields)
+		}
+	}
+	if contains(ss.SensitiveFields, "plugin-opts.private-key") {
+		t.Fatal("未知插件 private-key 仍应按普通字符串参数处理")
+	}
+}
+
+func hasTargetEvidence(evidence []TargetEvidence, target, status string) bool {
+	for _, item := range evidence {
+		if item.Target == target && item.Status == status && item.Client == "Mihomo" && item.Version == "1.19.29" {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProjectActiveDropsInactiveBranchesAndPreservesUnknown(t *testing.T) {

@@ -64,9 +64,9 @@ var definitions = []Definition{
 		Name: "shadow-tls", StorageKey: "shadow-tls-opts",
 		Targets: map[string]TargetContract{
 			TargetClash: target(SupportComplete, []string{"host"}, nil,
-				"host", "password", "version", "alpn", "fingerprint", "certificate", "private-key", "skip-cert-verify"),
+				"host", "password", "version", "alpn", "fingerprint", "certificate", "private-key", "skip-cert-verify", "name-cert-verify"),
 			TargetShadowrocket: target(SupportUnverified, nil, nil,
-				"host", "password", "version", "alpn", "fingerprint", "certificate", "private-key", "skip-cert-verify"),
+				"host", "password", "version", "alpn", "fingerprint", "certificate", "private-key", "skip-cert-verify", "name-cert-verify"),
 			TargetGeneric: target(SupportUnsupported, nil, nil),
 		},
 	},
@@ -74,9 +74,9 @@ var definitions = []Definition{
 		Name: "restls", StorageKey: "restls-opts",
 		Targets: map[string]TargetContract{
 			TargetClash: target(SupportComplete, []string{"password", "host", "version-hint"}, nil,
-				"password", "host", "version-hint", "restls-script", "fingerprint", "skip-cert-verify"),
+				"password", "host", "version-hint", "restls-script", "fingerprint", "skip-cert-verify", "name-cert-verify"),
 			TargetShadowrocket: target(SupportUnverified, nil, nil,
-				"password", "host", "version-hint", "restls-script", "fingerprint", "skip-cert-verify"),
+				"password", "host", "version-hint", "restls-script", "fingerprint", "skip-cert-verify", "name-cert-verify"),
 			TargetGeneric: target(SupportUnsupported, nil, nil),
 		},
 	},

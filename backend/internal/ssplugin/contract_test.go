@@ -63,6 +63,22 @@ func TestFixedTargetSupportAndRequirements(t *testing.T) {
 	}
 }
 
+func TestClashExpressibleFieldsMatchMihomo11929(t *testing.T) {
+	want := map[string][]string{
+		"obfs":         {"mode", "host"},
+		"v2ray-plugin": {"mode", "host", "path", "headers", "tls", "mux", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "fingerprint", "certificate", "private-key", "name-cert-verify"},
+		"shadow-tls":   {"host", "password", "version", "alpn", "fingerprint", "certificate", "private-key", "skip-cert-verify", "name-cert-verify"},
+		"restls":       {"password", "host", "version-hint", "restls-script", "fingerprint", "skip-cert-verify", "name-cert-verify"},
+	}
+	for plugin, fields := range want {
+		definition, _ := Lookup(plugin)
+		clash, _ := definition.Target(TargetClash)
+		if !reflect.DeepEqual(clash.ExpressibleFields, fields) {
+			t.Fatalf("%s Clash 字段合同异常: got=%v want=%v", plugin, clash.ExpressibleFields, fields)
+		}
+	}
+}
+
 func TestContractResultsAreDefensiveCopies(t *testing.T) {
 	definition, _ := Lookup("obfs")
 	definition.StorageKey = "changed"
