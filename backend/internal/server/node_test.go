@@ -212,6 +212,12 @@ func TestNodeCheckRouteUsesAdapterAndDoesNotWrite(t *testing.T) {
 		if !ok || result.Status != "ok" || result.Preview == nil {
 			t.Fatalf("节点检查目标结果异常: target=%s result=%+v", target, result)
 		}
+		if result.Diagnostics == nil {
+			t.Fatalf("节点检查 HTTP 响应的空诊断应为数组: target=%s body=%s", target, w.Body.String())
+		}
+	}
+	if strings.Contains(w.Body.String(), `"diagnostics":null`) {
+		t.Fatalf("节点检查 HTTP 响应不应包含 null 诊断: %s", w.Body.String())
 	}
 	if strings.Contains(w.Body.String(), "route-check-secret") {
 		t.Fatalf("节点检查 HTTP 响应泄漏凭据: %s", w.Body.String())

@@ -59,7 +59,11 @@ function statusColor(status: string): string {
 
 function sortedDiagnostics(target: TargetCheckResult): TargetCheckResult['diagnostics'] {
   const order: Record<string, number> = { error: 0, warn: 1, info: 2 }
-  return [...target.diagnostics].sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3))
+  return [...diagnosticsFor(target)].sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3))
+}
+
+function diagnosticsFor(target: TargetCheckResult): TargetCheckResult['diagnostics'] {
+  return target.diagnostics ?? []
 }
 
 const targetKeys = computed(() => result.value ? Object.keys(result.value.targets) : [])
@@ -85,7 +89,7 @@ const targetKeys = computed(() => result.value ? Object.keys(result.value.target
           <span class="text-sm font-medium text-text">{{ key }}</span>
           <Tag :color="statusColor(result.targets[key].status)">{{ result.targets[key].status }}</Tag>
         </div>
-        <div v-if="result.targets[key].diagnostics.length" class="mt-2 space-y-1">
+        <div v-if="diagnosticsFor(result.targets[key]).length" class="mt-2 space-y-1">
           <div v-for="(diag, index) in sortedDiagnostics(result.targets[key])" :key="index" class="text-xs">
             <span class="font-mono text-text-tertiary">{{ diag.code }}</span>
             <span class="mx-1">·</span>

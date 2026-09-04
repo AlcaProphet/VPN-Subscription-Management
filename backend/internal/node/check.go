@@ -158,7 +158,7 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 	redacted = StripInternalProtocolMetadata(proto, redacted)
 	response := &CheckResponse{CheckID: makeCheckID(in, redacted), CheckVersion: 1, Targets: make(map[string]TargetCheckResult, len(targets))}
 	for _, target := range targets {
-		result := TargetCheckResult{Diagnostics: nil}
+		result := TargetCheckResult{Diagnostics: make([]TargetDiagnostic, 0)}
 		if validationErr := ValidateCurrentStateForTarget(proto, state, params, target); validationErr != nil {
 			result.Status = "error"
 			result.Diagnostics = []TargetDiagnostic{{

@@ -38,6 +38,9 @@ func TestCheckNewDraftUsesActiveProjectionAndDoesNotWrite(t *testing.T) {
 		if result.Status != "ok" || result.Preview == nil || *result.Preview != "redacted-preview" {
 			t.Fatalf("目标 %s 检查结果异常: %+v", target, result)
 		}
+		if result.Diagnostics == nil {
+			t.Fatalf("目标 %s 无诊断时应返回非 nil 空数组", target)
+		}
 	}
 	if seen["uuid"] != "REDACTED" {
 		t.Fatalf("检查适配器应只收到脱敏 UUID: %#v", seen["uuid"])
@@ -54,6 +57,9 @@ func TestCheckNewDraftUsesActiveProjectionAndDoesNotWrite(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "check-secret") {
 		t.Fatalf("检查响应泄漏凭据: %s", encoded)
+	}
+	if strings.Contains(string(encoded), `"diagnostics":null`) {
+		t.Fatalf("检查响应的空诊断应序列化为数组: %s", encoded)
 	}
 	var after int
 	if err := st.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM nodes`).Scan(&after); err != nil {
@@ -193,8 +199,8 @@ func TestCheckAppliesTargetSpecificRequiredFields(t *testing.T) {
 	if clash.Status != "error" || len(clash.Diagnostics) != 1 || clash.Diagnostics[0].FieldPath != "reality-opts.short-id" {
 		t.Fatalf("Clash 目标条件必填诊断异常: %+v", clash)
 	}
-	if sr := resp.Targets["sr-subs"]; sr.Status != "ok" || sr.Preview == nil {
-		t.Fatalf("SR 目标不应套用 Clash 专属必填: %+v", sr)
+	if sr := resp.Targets["sr-subs"]; sr.Status != "ok" || sr.Preview == nil || sr.Diagnostics == nil || len(sr.Diagnostics) != 0 {
+		t.Fatalf("SR 目标不应套用 Clash 专属必填，且无诊断时应返回空数组: %+v", sr)
 	}
 }
 

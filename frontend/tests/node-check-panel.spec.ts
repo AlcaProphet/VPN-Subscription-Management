@@ -39,7 +39,7 @@ const response = {
     'clash-yaml': {
       status: 'ok',
       preview: 'proxies:\n  - name: demo',
-      diagnostics: [],
+      diagnostics: null,
     },
     'sr-subs': {
       status: 'skip',
@@ -66,6 +66,7 @@ describe('NodeCheckPanel', () => {
 
     expect(mockCheckNode).toHaveBeenCalledWith(request)
     expect(wrapper.text()).toContain('clash-yaml')
+    expect(wrapper.text()).toContain('未发现诊断')
     expect(wrapper.text()).toContain('core_semantic_unexpressible')
     wrapper.unmount()
   })
