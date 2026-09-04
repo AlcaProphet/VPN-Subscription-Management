@@ -58,6 +58,12 @@ func projectFieldValue(field FieldSchema, value any, state CurrentState) (any, b
 		}
 		out := make(map[string]any, len(object))
 		for key, item := range object {
+			if field.MapValueType == "string" {
+				if _, ok := item.(string); ok {
+					out[key] = cloneProjectValue(item)
+				}
+				continue
+			}
 			if hasEffectiveValue(item) {
 				out[key] = cloneProjectValue(item)
 			}

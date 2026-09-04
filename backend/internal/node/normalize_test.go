@@ -88,6 +88,77 @@ func TestNormalizeProtocolJSONSSPluginOpts(t *testing.T) {
 	}
 }
 
+func TestNormalizeProtocolJSONSSPluginOptsNewObjectWinsAndIsIdempotent(t *testing.T) {
+	proto, err := GetProtocol("ss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := map[string]any{
+		"cipher": "aes-256-gcm", "password": "pw", "plugin": "v2ray-plugin",
+		"plugin-opts": map[string]any{
+			"mode": "quic", "host": "legacy.example.com", "path": "/legacy",
+			"headers": map[string]any{"X-Legacy": "yes", "X-Shared": "legacy"},
+		},
+		"v2ray-plugin-opts": map[string]any{
+			"mode": "websocket", "host": "current.example.com",
+			"headers": map[string]any{"X-Shared": "current", "X-New": "yes"},
+		},
+	}
+	out, err := NormalizeProtocolJSON(proto, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, ok := out["v2ray-plugin-opts"].(map[string]any)
+	if !ok {
+		t.Fatalf("v2ray-plugin 规范对象缺失: %#v", out)
+	}
+	if opts["mode"] != "websocket" || opts["host"] != "current.example.com" || opts["path"] != "/legacy" {
+		t.Fatalf("新对象应优先且旧对象只补缺: %#v", opts)
+	}
+	headers, ok := opts["headers"].(map[string]any)
+	if !ok || headers["X-Legacy"] != "yes" || headers["X-Shared"] != "current" || headers["X-New"] != "yes" {
+		t.Fatalf("嵌套对象未按新值优先递归补缺: %#v", headers)
+	}
+	if _, exists := out["plugin-opts"]; exists {
+		t.Fatal("已知插件的旧 plugin-opts 应在补缺后清理")
+	}
+	twice, err := NormalizeProtocolJSON(proto, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out, twice) {
+		t.Fatalf("SS 规范化应幂等:\n一次=%#v\n两次=%#v", out, twice)
+	}
+}
+
+func TestNormalizeProtocolJSONSSUnknownPluginOptsPreservedAndIsIdempotent(t *testing.T) {
+	proto, err := GetProtocol("ss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := map[string]any{
+		"cipher": "aes-256-gcm", "password": "pw", "plugin": "custom-plugin",
+		"plugin-opts": map[string]any{
+			"mode": "custom", "host": "cdn.example.com", "flag": "",
+			"password": "ordinary-password", "token": "ordinary-token", "secret": "ordinary-secret",
+		},
+	}
+	out, err := NormalizeProtocolJSON(proto, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out["plugin-opts"], in["plugin-opts"]) {
+		t.Fatalf("未知插件参数不应被删除或改写: %#v", out)
+	}
+	twice, err := NormalizeProtocolJSON(proto, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out, twice) {
+		t.Fatalf("未知插件规范化应幂等:\n一次=%#v\n两次=%#v", out, twice)
+	}
+}
+
 func TestInitCurrentStateMinimalForProtocolWithoutSecurity(t *testing.T) {
 	proto, err := GetProtocol("ss")
 	if err != nil {

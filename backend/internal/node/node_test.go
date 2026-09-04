@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -417,6 +418,271 @@ func TestCreateManualRejectsNonStringCustomPluginOptsBeforeNormalization(t *test
 	}
 	if count != 0 {
 		t.Fatalf("校验失败不应写入节点: count=%d", count)
+	}
+}
+
+func TestSSUnknownPluginOptsLifecycleAndReadOnlyCheck(t *testing.T) {
+	svc, st, cfg := newTestService(t)
+	ctx := context.Background()
+	wantOpts := map[string]any{
+		"mode": "custom", "host": "cdn.example.com", "flag": "",
+		"password": "ordinary-password", "token": "ordinary-token", "secret": "ordinary-secret",
+	}
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "未知插件节点", Protocol: "ss", Host: "example.com", Port: 8388,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "main-secret", "plugin": "custom-plugin",
+			"plugin-opts": cloneJSONMap(wantOpts),
+		},
+	})
+	if err != nil {
+		t.Fatalf("创建未知插件节点失败: %v", err)
+	}
+	assertVisible := func(label string, n Node) {
+		t.Helper()
+		if !reflect.DeepEqual(n.ProtocolJSON["plugin-opts"], wantOpts) {
+			t.Fatalf("%s 未完整回显未知插件参数: %#v", label, n.ProtocolJSON)
+		}
+		for _, path := range n.SavedSensitivePaths {
+			if strings.HasPrefix(path, "plugin-opts.") {
+				t.Fatalf("%s 把未知插件普通参数误报为凭据: %v", label, n.SavedSensitivePaths)
+			}
+		}
+	}
+	assertVisible("创建响应", *created)
+
+	rawBefore, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(rawBefore.ProtocolJSON["plugin-opts"], wantOpts) {
+		t.Fatalf("数据库未保存未知插件参数: %#v", rawBefore.ProtocolJSON)
+	}
+	detail, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertVisible("详情响应", *detail)
+	list, err := svc.List(ctx, "manual")
+	if err != nil || len(list) != 1 {
+		t.Fatalf("列表读取失败: list=%+v err=%v", list, err)
+	}
+	assertVisible("列表响应", list[0])
+
+	reloaded := NewService(st, cfg, log.New("error", "console"))
+	reloadedDetail, err := reloaded.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertVisible("服务重载详情", *reloadedDetail)
+
+	var checked map[string]any
+	reloaded.SetCheckRenderer(func(_ context.Context, _, _, _, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
+		checked = cloneJSONMap(params)
+		return CheckRenderResult{}, nil
+	})
+	checkResponse, err := reloaded.Check(ctx, CheckRequest{
+		NodeID: created.ID, BaseRevision: created.EditRevision,
+		Protocol: "ss", Host: created.Host, Port: created.Port,
+		ProtocolJSON: cloneJSONMap(detail.ProtocolJSON), CurrentState: &detail.CurrentState,
+		Targets: []string{"clash-yaml"},
+	})
+	if err != nil {
+		t.Fatalf("检查未知插件节点失败: %v", err)
+	}
+	if checkResponse.Targets["clash-yaml"].Status != "ok" {
+		t.Fatalf("未知插件草稿检查异常: %+v", checkResponse)
+	}
+	if !reflect.DeepEqual(checked["plugin-opts"], wantOpts) {
+		t.Fatalf("检查链未完整保留未知插件参数: %#v", checked)
+	}
+	rawAfterCheck, err := reloaded.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(rawAfterCheck.ProtocolJSON, rawBefore.ProtocolJSON) || rawAfterCheck.EditRevision != rawBefore.EditRevision {
+		t.Fatalf("只读检查不应写回数据库: before=%+v after=%+v", rawBefore, rawAfterCheck)
+	}
+
+	wantOpts["mode"] = "updated"
+	wantOpts["new-option"] = "new-value"
+	updated, err := reloaded.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "ss", Host: "new.example.com", Port: 9443, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "", "plugin": "custom-plugin",
+			"plugin-opts": cloneJSONMap(wantOpts),
+		},
+		CurrentState: &detail.CurrentState,
+	})
+	if err != nil {
+		t.Fatalf("更新未知插件节点失败: %v", err)
+	}
+	assertVisible("更新响应", *updated)
+	storedUpdated, err := reloaded.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(storedUpdated.ProtocolJSON["plugin-opts"], wantOpts) || storedUpdated.EditRevision != created.EditRevision+1 {
+		t.Fatalf("未知插件更新未正确落库: %+v", storedUpdated)
+	}
+
+	invalid := cloneJSONMap(updated.ProtocolJSON)
+	invalid["password"] = ""
+	invalid["plugin-opts"].(map[string]any)["bad"] = true
+	_, err = reloaded.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "ss", Host: "invalid.example.com", Port: 9443, BaseRevision: updated.EditRevision,
+		ProtocolJSON: invalid, CurrentState: &updated.CurrentState,
+	})
+	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "plugin-opts.bad") {
+		t.Fatalf("非字符串未知参数应精确拒绝: %v", err)
+	}
+	rawAfterFailure, err := reloaded.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rawAfterFailure.EditRevision != storedUpdated.EditRevision || rawAfterFailure.Host != storedUpdated.Host || !reflect.DeepEqual(rawAfterFailure.ProtocolJSON, storedUpdated.ProtocolJSON) {
+		t.Fatalf("保存失败不应部分写入: before=%+v after=%+v", storedUpdated, rawAfterFailure)
+	}
+}
+
+func TestSSPluginResetClearsAllParameterObjectsWithoutRestoringUnknownOpts(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	ctx := context.Background()
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "插件重置节点", Protocol: "ss", Host: "example.com", Port: 8388,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "main-secret", "plugin": "custom-plugin",
+			"plugin-opts": map[string]any{"mode": "old"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.ProtocolJSON["obfs-opts"] = map[string]any{"mode": "http"}
+	raw.ProtocolJSON["v2ray-plugin-opts"] = map[string]any{"mode": "websocket"}
+	raw.ProtocolJSON["shadow-tls-opts"] = map[string]any{"host": "shadow.example.com"}
+	raw.ProtocolJSON["restls-opts"] = map[string]any{"host": "restls.example.com"}
+	encoded, err := json.Marshal(raw.ProtocolJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE nodes SET protocol_json=? WHERE id=?`, string(encoded), created.ID); err != nil {
+		t.Fatal(err)
+	}
+	plugin := "custom-plugin"
+	updated, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "ss", Host: created.Host, Port: created.Port, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{"cipher": "aes-256-gcm", "password": "", "plugin": plugin},
+		CurrentState: &CurrentState{Plugin: &plugin}, ResetScopes: []string{"plugin"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"plugin-opts", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts"} {
+		if _, exists := updated.ProtocolJSON[key]; exists {
+			t.Fatalf("插件 A→B→A 重置后不应恢复 %s: %#v", key, updated.ProtocolJSON)
+		}
+	}
+	withoutPlugin, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "ss", Host: created.Host, Port: created.Port, BaseRevision: updated.EditRevision,
+		ProtocolJSON: map[string]any{"cipher": "aes-256-gcm", "password": ""},
+		ResetScopes:  []string{"plugin"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutPlugin.CurrentState.Plugin != nil {
+		t.Fatalf("清空插件后当前状态仍有插件: %+v", withoutPlugin.CurrentState)
+	}
+	for _, key := range []string{"plugin-opts", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts"} {
+		if _, exists := withoutPlugin.ProtocolJSON[key]; exists {
+			t.Fatalf("无插件状态不应保留 %s: %#v", key, withoutPlugin.ProtocolJSON)
+		}
+	}
+}
+
+func TestLegacySSPluginOptsReadAndCheckUseCanonicalCopy(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	ctx := context.Background()
+	created, err := svc.CreateManual(ctx, CreateManualInput{
+		Name: "旧插件参数节点", Protocol: "ss", Host: "example.com", Port: 8388,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "main-secret", "plugin": "v2ray-plugin",
+			"v2ray-plugin-opts": map[string]any{
+				"mode": "websocket", "host": "current.example.com",
+				"headers": map[string]any{"X-Shared": "current"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := svc.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.ProtocolJSON["plugin-opts"] = map[string]any{
+		"mode": "quic", "host": "legacy.example.com", "path": "/legacy",
+		"headers": map[string]any{"X-Legacy": "yes", "X-Shared": "legacy"},
+	}
+	before, err := json.Marshal(raw.ProtocolJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE nodes SET protocol_json=? WHERE id=?`, string(before), created.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertCanonical := func(label string, params map[string]any) {
+		t.Helper()
+		if _, exists := params["plugin-opts"]; exists {
+			t.Fatalf("%s 仍含已知插件旧对象: %#v", label, params)
+		}
+		opts, ok := params["v2ray-plugin-opts"].(map[string]any)
+		if !ok || opts["mode"] != "websocket" || opts["host"] != "current.example.com" || opts["path"] != "/legacy" {
+			t.Fatalf("%s 未按新对象优先补缺: %#v", label, opts)
+		}
+		headers, ok := opts["headers"].(map[string]any)
+		if !ok || headers["X-Legacy"] != "yes" || headers["X-Shared"] != "current" {
+			t.Fatalf("%s 嵌套补缺错误: %#v", label, headers)
+		}
+	}
+	detail, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCanonical("详情", detail.ProtocolJSON)
+	list, err := svc.List(ctx, "manual")
+	if err != nil || len(list) != 1 {
+		t.Fatalf("列表读取失败: list=%+v err=%v", list, err)
+	}
+	assertCanonical("列表", list[0].ProtocolJSON)
+
+	var checked map[string]any
+	svc.SetCheckRenderer(func(_ context.Context, _, _, _, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
+		checked = cloneJSONMap(params)
+		return CheckRenderResult{}, nil
+	})
+	response, err := svc.Check(ctx, CheckRequest{
+		NodeID: created.ID, BaseRevision: created.EditRevision,
+		Protocol: "ss", Host: created.Host, Port: created.Port,
+		ProtocolJSON: cloneJSONMap(detail.ProtocolJSON), CurrentState: &detail.CurrentState,
+		Targets: []string{"clash-yaml"},
+	})
+	if err != nil || response.Targets["clash-yaml"].Status != "ok" {
+		t.Fatalf("旧插件参数检查失败: response=%+v err=%v", response, err)
+	}
+	assertCanonical("检查", checked)
+	var after string
+	var revision int64
+	if err := st.DB().QueryRowContext(ctx, `SELECT protocol_json, edit_revision FROM nodes WHERE id=?`, created.ID).Scan(&after, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if after != string(before) || revision != created.EditRevision {
+		t.Fatalf("读取或检查不应改写历史数据库: revision=%d json=%s", revision, after)
 	}
 }
 
