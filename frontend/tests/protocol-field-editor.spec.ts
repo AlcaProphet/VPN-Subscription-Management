@@ -1,6 +1,7 @@
 // protocol-field-editor.spec.ts：协议对象结构化编辑与高级 JSON 兼容入口。
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { defineComponent, nextTick, ref } from 'vue'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import type { FieldSchema } from '@/api/node'
 
@@ -311,6 +312,31 @@ describe('ProtocolFieldEditor', () => {
     await wrapper.findAll('.protocol-map-entry')[3].find('button').trigger('click')
     updates = wrapper.emitted('update:modelValue') ?? []
     expect(updates[updates.length - 1][0]).toEqual({ renamed: 'custom', flag: '', special: ':;=\\' })
+  })
+
+  it('父级即时回写时逐字符改名保持同一输入框与焦点', async () => {
+    const Host = defineComponent({
+      components: { ProtocolFieldEditor },
+      setup() {
+        return { field: stringMapField, value: ref<Record<string, string>>({ mode: 'custom' }) }
+      },
+      template: '<ProtocolFieldEditor :field="field" v-model="value" />',
+    })
+    const wrapper = mount(Host, { attachTo: document.body })
+    const editor = wrapper.findComponent(ProtocolFieldEditor)
+    const originalInput = editor.find('input[aria-label="参数名"]').element
+    ;(originalInput as HTMLInputElement).focus()
+
+    for (const name of ['m', 'mo', 'mod', 'mode-next']) {
+      await editor.find('input[aria-label="参数名"]').setValue(name)
+      await nextTick()
+      const currentInput = editor.find('input[aria-label="参数名"]').element
+      expect(currentInput).toBe(originalInput)
+      expect(document.activeElement).toBe(originalInput)
+    }
+
+    expect((wrapper.vm as unknown as { value: Record<string, string> }).value).toEqual({ 'mode-next': 'custom' })
+    wrapper.unmount()
   })
 
   it('结构化参数名为空或重复时显示行内错误并阻止保存，修正后清除错误', async () => {

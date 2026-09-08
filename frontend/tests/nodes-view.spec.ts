@@ -713,6 +713,18 @@ describe('NodesView 节点管理页', () => {
       expect(row.text()).not.toContain('待替换')
       expect(row.text()).not.toContain('已清除')
     }
+
+    const originalNameInput = mapEditor.findAll('input[aria-label="参数名"]')[0].element
+    ;(originalNameInput as HTMLInputElement).focus()
+    for (const name of ['f', 'fl', 'flag-next']) {
+      await mapEditor.findAll('input[aria-label="参数名"]')[0].setValue(name)
+      await nextTick()
+      expect(mapEditor.findAll('input[aria-label="参数名"]')[0].element).toBe(originalNameInput)
+      expect(document.activeElement).toBe(originalNameInput)
+    }
+    expect(vm.form.protocol_json['plugin-opts']).toEqual({
+      'flag-next': '', special: ':;=\\', password: 'ordinary', token: 'plain', secret: 'visible',
+    })
     wrapper.unmount()
   })
 

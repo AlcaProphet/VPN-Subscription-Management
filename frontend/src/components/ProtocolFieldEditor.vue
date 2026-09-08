@@ -45,6 +45,8 @@ const jsonDirty = ref(false)
 const jsonInvalidPath = ref('')
 const mapErrors = reactive<Record<string, string>>({})
 const mapKeyErrors = reactive<Record<string, string>>({})
+const mapRowIDs = reactive(new Map<string, string>())
+let nextMapRowID = 0
 
 const objectValue = computed<Record<string, unknown>>(() => {
   if (props.modelValue && typeof props.modelValue === 'object' && !Array.isArray(props.modelValue)) {
@@ -56,7 +58,11 @@ const objectValue = computed<Record<string, unknown>>(() => {
 const listValue = computed<unknown[]>(() => Array.isArray(props.modelValue) ? props.modelValue : [])
 const knownNames = computed(() => new Set((props.field.properties ?? []).map((item) => item.name)))
 const unknownCount = computed(() => Object.keys(objectValue.value).filter((key) => !knownNames.value.has(key)).length)
-const mapEntries = computed(() => Object.entries(objectValue.value))
+const mapEntries = computed(() => Object.entries(objectValue.value).map(([key, value]) => ({
+  id: mapRowIDs.get(key) ?? `map-key:${key}`,
+  key,
+  value,
+})))
 const sensitive = computed(() => props.field.type === 'password' || props.sensitivePaths.some((path) => matchesSensitivePath(path, fieldPath.value)))
 
 function visibleProperties(properties?: FieldSchema[]): FieldSchema[] {
@@ -73,6 +79,7 @@ const shownCredentialState = computed(() => {
 })
 
 watch(() => props.modelValue, (value) => {
+  syncMapRowIDs(value)
   jsonDirty.value = false
   emitJsonDirty(false)
   if (!advanced.value) jsonText.value = JSON.stringify(value ?? emptyObjectValue(), null, 2)
@@ -85,6 +92,24 @@ watch(() => Object.entries(props.jsonResetVersions)
 
 function emptyObjectValue(): Record<string, unknown> | unknown[] {
   return props.field.object_kind === 'list' ? [] : {}
+}
+
+function createMapRowID(): string {
+  nextMapRowID += 1
+  return `map-row-${nextMapRowID}`
+}
+
+// 参数名属于业务数据，不能同时充当 Vue 行身份；改名时需保留输入框实例、焦点与输入法状态。
+function syncMapRowIDs(value: unknown) {
+  if (props.field.object_kind !== 'map') return
+  const keys = value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : []
+  const currentKeys = new Set(keys)
+  for (const key of mapRowIDs.keys()) {
+    if (!currentKeys.has(key)) mapRowIDs.delete(key)
+  }
+  for (const key of keys) {
+    if (!mapRowIDs.has(key)) mapRowIDs.set(key, createMapRowID())
+  }
 }
 
 function update(value: unknown) {
@@ -224,6 +249,7 @@ function addMapEntry() {
     index += 1
     key = `参数${index}`
   }
+  mapRowIDs.set(key, createMapRowID())
   update({ ...objectValue.value, [key]: '' })
 }
 
@@ -241,8 +267,13 @@ function renameMapKey(oldKey: string, newKey: string) {
     forwardValidity({ path: errorPath, valid: true })
   }
   if (newKey === oldKey) return
+  const rowID = mapRowIDs.get(oldKey) ?? createMapRowID()
+  // 在父级同步回写前同时保留旧/新键映射，避免当前 render 周期提前卸载输入框。
+  mapRowIDs.set(oldKey, rowID)
+  mapRowIDs.set(newKey, rowID)
+  if (mapErrors[oldKey]) mapErrors[newKey] = mapErrors[oldKey]
   const next: Record<string, unknown> = {}
-  for (const [key, value] of mapEntries.value) next[key === oldKey ? newKey : key] = value
+  for (const { key, value } of mapEntries.value) next[key === oldKey ? newKey : key] = value
   update(next)
 }
 
@@ -374,19 +405,19 @@ function isComplex(value: unknown): boolean {
 
     <template v-else-if="field.object_kind === 'map'">
       <div v-if="mapEntries.length" class="space-y-2">
-        <div v-for="([key, value]) in mapEntries" :key="key" class="protocol-map-entry grid grid-cols-1 md:grid-cols-[minmax(140px,0.7fr)_minmax(180px,1fr)_auto] gap-2 items-start">
+        <div v-for="entry in mapEntries" :key="entry.id" class="protocol-map-entry grid grid-cols-1 md:grid-cols-[minmax(140px,0.7fr)_minmax(180px,1fr)_auto] gap-2 items-start">
           <div class="min-w-0">
-            <Input :value="key" aria-label="参数名" :aria-invalid="!!mapKeyErrors[key]" @change="(event: any) => renameMapKey(key, event.target.value)" />
-            <div v-if="mapKeyErrors[key]" class="map-key-error text-xs text-red-500 mt-1">{{ mapKeyErrors[key] }}</div>
+            <Input :value="entry.key" aria-label="参数名" :aria-invalid="!!mapKeyErrors[entry.key]" @change="(event: any) => renameMapKey(entry.key, event.target.value)" />
+            <div v-if="mapKeyErrors[entry.key]" class="map-key-error text-xs text-red-500 mt-1">{{ mapKeyErrors[entry.key] }}</div>
           </div>
           <div class="min-w-0">
-            <Switch v-if="field.map_value_type !== 'string' && typeof value === 'boolean'" :checked="value" @change="(next: any) => setMapValue(key, Boolean(next))" />
-            <InputNumber v-else-if="field.map_value_type !== 'string' && typeof value === 'number'" :value="value" class="w-full" @change="(next: any) => setMapValue(key, next ?? 0)" />
-            <Input.TextArea v-else-if="field.map_value_type !== 'string' && isComplex(value)" :value="JSON.stringify(value)" :rows="2" @blur="(event: any) => setComplexMapValue(key, event.target.value)" />
-            <Input v-else :value="String(value ?? '')" @change="(event: any) => setMapValue(key, event.target.value)" />
-            <div v-if="mapErrors[key]" class="text-xs text-red-500 mt-1">{{ mapErrors[key] }}</div>
+            <Switch v-if="field.map_value_type !== 'string' && typeof entry.value === 'boolean'" :checked="entry.value" @change="(next: any) => setMapValue(entry.key, Boolean(next))" />
+            <InputNumber v-else-if="field.map_value_type !== 'string' && typeof entry.value === 'number'" :value="entry.value" class="w-full" @change="(next: any) => setMapValue(entry.key, next ?? 0)" />
+            <Input.TextArea v-else-if="field.map_value_type !== 'string' && isComplex(entry.value)" :value="JSON.stringify(entry.value)" :rows="2" @blur="(event: any) => setComplexMapValue(entry.key, event.target.value)" />
+            <Input v-else :value="String(entry.value ?? '')" @change="(event: any) => setMapValue(entry.key, event.target.value)" />
+            <div v-if="mapErrors[entry.key]" class="text-xs text-red-500 mt-1">{{ mapErrors[entry.key] }}</div>
           </div>
-          <Button danger @click="removeMapEntry(key)">删除</Button>
+          <Button danger @click="removeMapEntry(entry.key)">删除</Button>
         </div>
       </div>
       <div v-else class="text-xs text-text-tertiary mb-2">暂无参数</div>
