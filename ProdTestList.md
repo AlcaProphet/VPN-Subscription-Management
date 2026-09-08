@@ -8,7 +8,7 @@
 ## 一、.smoke-test.sh Production 模式验证
 
 - **背景：** `.smoke-test.sh` 中的 v2 导出/导入必须运行在 Production 模式（`app_mode=prod`），否则会因 Dev 模式 403 导致假绿或直接失败。
-- **当前状态：** 已新增 [.smoke-test-prod.sh](.smoke-test-prod.sh) 可自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；仍需要用户在有 Docker 的环境中执行。
+- **当前状态：** 已新增 [.smoke-test-prod.sh](.smoke-test-prod.sh) 可自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；Issue14 R28-02 的应急状态严格 JSON 布尔断言已修复并通过定向验证，完整正式脚本仍待 R28-03 夹具修复后由用户在有 Docker 的环境中执行。
 - **本轮本地执行（2026-09-08）：** Docker 已恢复后用当前生产镜像在仅绑定 `127.0.0.1:18081` 的隔离临时容器完成四类装配器、URI 导入 2 ok/1 skip、覆盖层及 v2 导出/导入往返，结果通过；原脚本有两个夹具问题（应急状态 JSON 布尔值大小写比较、Clash 请求缺少当前必需的 `fallback_group_members`），本轮未改脚本，仅在临时执行流修正后验证。临时容器/volume 已清理。
 - **执行方式：**
   ```bash
@@ -22,7 +22,7 @@
 
 | 编号 | 人工项目 | 当前状态 | 结果/证据 |
 |---|---|---|---|
-| PT-28-01 | 使用修订后的正式 Production smoke 夹具完整执行 `.smoke-test-prod.sh`，确认四类装配、URI 导入、覆盖层及 v2 导出/导入均通过 | ☐ 待执行（依赖 Issue14 R28-02/R28-03） | 待填写 |
+| PT-28-01 | 使用修订后的正式 Production smoke 夹具完整执行 `.smoke-test-prod.sh`，确认四类装配、URI 导入、覆盖层及 v2 导出/导入均通过 | ☐ 待执行（R28-02 已修复；仍依赖 Issue14 R28-03） | 待填写 |
 | PT-28-02 | 在 Mihomo 1.19.29 / Clash Verge Rev 2.5.2 中导入代表组合：VLESS WS/TLS/REALITY、VMess、Trojan WS/gRPC、SS obfs/v2ray-plugin/shadow-tls/restls；记录实际连接结果 | ☐ 待执行 | 待填写 |
 | PT-28-03 | 在 Shadowrocket 真机导入并连接 SS 订阅/配置，核对四类 SS 插件及未知插件可表达字段的实际生效情况 | ☐ 待执行 | 待填写 |
 | PT-28-04 | 在 Shadowrocket 真机核对 VMess/VLESS SR URI 的 TLS、ALPN、指纹、Flow、`allowInsecure`/Skip 语义及连接结果 | ☐ 待执行 | 待填写 |

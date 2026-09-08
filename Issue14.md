@@ -12,7 +12,7 @@
 - **已通过：** Build21 Step 7～13、Step 15 的现有自动化回归未发现新的编译或测试失败；后端全量测试、指定竞态测试、编译、`go vet`，前端 41 个测试文件 / 209 个用例和生产构建均有通过记录。
 - **当前状态：** Build21 Step 14 仍未完成；BuildReport4 中仍未闭环的工程问题（D3-1～D3-10、N-core-1～6、N-node-6、安全 N01～N07 等）已按来源归入本文件。需要用户亲自执行的真机/人工项目见 [ProdTestList.md](ProdTestList.md)，不在本文件重复登记为缺陷。
 - **当前执行步骤：** 步骤一；步骤二至步骤八等待前置条件完成。
-- **本轮边界：** 未修改业务代码、前端组件或测试脚本；只做问题迁移、文档同步和验收口径收口。
+- **本轮边界：** 步骤一按 R28-01～R28-04 顺序处理工程问题；当前已完成 R28-01 与 R28-02，未改动后端业务接口或应急状态合同，R28-03～R28-04 仍待处理。
 
 ---
 
@@ -123,16 +123,18 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 - **人工验证边界：** 用户手动浏览器走查、控制台结果和响应式结果仍记录在 [ProdTestList.md](ProdTestList.md) 的 Build21 Step 14 人工验收区；自动化修复证据不替代该人工项目。
 - **状态：** ☑ 已复现定位 / ☑ 已修复 / ☑ 自动化验收通过；人工复核待 ProdTestList PT-28-05
 
-### 问题 R28-02：Production smoke 应急状态断言大小写不匹配
+### 问题 R28-02：Production smoke 应急状态断言丢失 JSON 布尔类型
 
 - **关联步骤：** 步骤一、步骤二。
 
 - **来源：** 实际运行 `bash .smoke-test-prod.sh` 的 Step 14 核验。
-- **现象：** `.smoke-test.sh` 使用 Python 读取 JSON 布尔值后得到 `False`，脚本却将其与小写字符串 `false` 比较，正常返回会被判定失败。
-- **证据：** [.smoke-test.sh](.smoke-test.sh:94)～[.smoke-test.sh](.smoke-test.sh:100)。
-- **影响范围：** 原始 Production smoke 无法作为直接全绿的验收脚本；当前服务端应急状态并未因此被证明异常。
-- **修复方向：** 统一脚本 JSON 值解析与比较方式，保留对 `true`/`false` 的严格布尔断言；修复后重新运行原始 Production smoke。
-- **状态：** ☐ 待修复 / ☐ 待重新执行
+- **现象：** `.smoke-test.sh` 的通用 `J()` 使用 Python `print()` 输出解析结果，JSON 布尔值 `false` 会变成 `False`，再与小写字符串 `false` 比较，导致正常响应失败；相反，错误类型的 JSON 字符串 `"false"` 会输出为 `false` 并被旧断言接受，存在假绿。
+- **证据：** 修复前失败优先矩阵确认 JSON 布尔 `false` 被拒绝，而字符串 `"false"` 被接受；当前严格断言见 [.smoke-test.sh](.smoke-test.sh:94)～[.smoke-test.sh](.smoke-test.sh:106)。服务端 [status.go](backend/internal/server/status.go:56)～[status.go](backend/internal/server/status.go:79) 始终以 Go `bool` 返回该字段，定向普通态/应急态测试通过，未发现后端合同异常。
+- **影响范围：** 原始 Production smoke 在正常实例上被误阻断，并且旧字符串比较没有严格验证接口类型；不影响服务端应急状态计算、API 结构或前端行为。
+- **修复结果：** 仅收紧 `.smoke-test.sh` 的 10d 断言，不修改通用 `J()`。Python 直接读取 `data.emergency`，用 `value is False` 同时校验 JSON 布尔类型和值，并用 `json.dumps()` 输出规范诊断值；`true`、字符串 `"false"`、`0`、`null`、缺失字段和非法 JSON 均不能通过。
+- **自动化验证：** `bash -n .smoke-test.sh .smoke-test-prod.sh` 通过；独立输入矩阵确认仅 JSON 布尔 `false` 通过，`true`、字符串 `"false"`、`0` 与 `null` 均失败；服务端普通/应急状态定向测试、后端 `go test ./... -count=1`、`go build ./...`、`go vet ./...` 及前端 `npm run build` 均通过。
+- **重新执行边界：** R28-02 已不再阻断正式脚本的 10d；完整 `bash .smoke-test-prod.sh` 仍会受紧随其后的 R28-03 夹具缺口阻断，须在 R28-03 修复后以未做临时转换的仓库正式脚本完成全链路复验。
+- **状态：** ☑ 已修复 / ☑ 定向自动化验证通过 / ☐ 正式 Production smoke 全链路复验待 R28-03
 
 ### 问题 R28-03：Production smoke Clash 请求缺少 `fallback_group_members`
 
@@ -140,7 +142,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 - **来源：** R28-02 修正后的临时执行流继续运行时发现。
 - **现象：** `.smoke-test.sh` 的 Clash 装配请求没有传当前接口要求的 `fallback_group_members`，服务端返回无法归属流量组缺少成员的 400 错误。
-- **证据：** [.smoke-test.sh](.smoke-test.sh:120)～[.smoke-test.sh](.smoke-test.sh:123)；请求模型字段见 [models.go](backend/internal/assembly/models.go:168)～[models.go](backend/internal/assembly/models.go:176)。
+- **证据：** [.smoke-test.sh](.smoke-test.sh:126)～[.smoke-test.sh](.smoke-test.sh:129)；请求模型字段见 [models.go](backend/internal/assembly/models.go:168)～[models.go](backend/internal/assembly/models.go:176)。
 - **影响范围：** 原始 smoke 无法完成 Clash 及后续装配/v2 往返步骤。
 - **修复方向：** 按当前装配契约补齐固定组成员请求夹具，修复后重新执行未做临时转换的正式脚本；不修改业务接口契约。
 - **状态：** ☐ 待修复 / ☐ 待重新执行
@@ -249,3 +251,4 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 | v1.2 | 2026-09-08 | 按当前核验结论重排唯一处理顺序：先收口 Build21 Step 14 的 R28-01～R28-04 与 ProdTestList 人工门槛，再执行 Build22 R28-05，最后依次处理 R28-06～R28-09；明确 Build23 不作为新的构建阶段。 |
 | v1.3 | 2026-09-08 | 按操作步骤重新规范标题和跟踪结构：使用“步骤一～步骤八”表示执行顺序，将 R28、D3、N-core 和安全编号统一作为关联问题标号；移除重复的 Build22 跟踪表和旧的顺序编号表达。 |
 | v1.4 | 2026-09-09 | 完成 R28-01：以父子即时回写失败回归确认可编辑参数名充当 Vue 行 key 导致 Input 卸载时序异常；改用本地稳定行身份并补组件/NodesView 逐字符输入、DOM、焦点与最终模型回归，全量前后端验证通过；人工浏览器复核仍归 ProdTestList PT-28-05。 |
+| v1.5 | 2026-09-09 | 完成 R28-02：将 Production smoke 应急正常态从 Python 显示字符串比较改为严格 JSON 布尔类型和值断言；失败优先矩阵、脚本语法、后端全量测试/编译/vet及前端生产构建通过，完整正式 smoke 复验仍待 R28-03。 |

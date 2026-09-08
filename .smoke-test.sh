@@ -92,12 +92,18 @@ if [ "$RESET_STATUS" != "missing" ]; then
 fi
 
 # 10d) Build11：应急模式正常状态
-EMERGENCY=$(curl -s $BASE/api/system/status | J "['data']['emergency']")
-echo "10d) 应急状态 emergency=$EMERGENCY"
-if [ "$EMERGENCY" != "false" ]; then
-  echo "FAIL: 常规 smoke 环境应急状态应为 false，实际 $EMERGENCY" >&2
+if ! EMERGENCY=$(curl -s "$BASE/api/system/status" | python3 -c '
+import json
+import sys
+
+value = json.load(sys.stdin)["data"]["emergency"]
+print(json.dumps(value))
+sys.exit(0 if value is False else 1)
+'); then
+  echo "FAIL: 常规 smoke 环境应急状态应为 JSON 布尔值 false，实际 $EMERGENCY" >&2
   exit 1
 fi
+echo "10d) 应急状态 emergency=$EMERGENCY"
 
 # --- Build4~7 核心路径 ---
 # 11) 规则素材池 CRUD + 手动条目
