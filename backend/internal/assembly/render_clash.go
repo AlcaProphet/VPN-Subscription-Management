@@ -26,7 +26,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			continue
 		}
 		nodeDiags := s.diagnoseNodeForTarget("clash-yaml", nd)
-		if hasCoreBlockingNodeDiagnostic(nodeDiags) {
+		if hasCoreBlockingNodeDiagnostic(nodeDiags) || hasSSPluginBlockingNodeDiagnostic(nodeDiags) {
 			return nil, fmt.Errorf("%w: 节点 %s 目标检查未通过: %s", ErrBadRequest, nd.Name, firstNodeDiagnosticMessage(nodeDiags))
 		}
 		diagnostics = append(diagnostics, nodeDiags...)

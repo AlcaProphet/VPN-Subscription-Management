@@ -15,7 +15,7 @@
 > 5. SR VMess 输出包含 `alpn`/`fp`，但这些字段没有固定版本解析器证据，必须标注 Shadowrocket 真机待验证。
 > 6. generic VMess 本次不补充 `skip-cert-verify`，保持现状并在文档/测试中记录该边界。
 >
-> **执行入口：** 后续实施 R27-09 时，以 [Build21.md](Build21.md) §7 的 Step 11～15 为唯一分步计划；Build23 不再独立维护 Step 1～5。
+> **执行入口：** 后续实施 R27-09 时，以 [Build21.md](Build21.md) §7 的 Step 13～15 为唯一分步计划；Build23 不再独立维护 Step 1～5。
 >
 > **研究结论摘要：**
 > - N-node-1：未知插件存储/URI 导入已由 Build21 修复，但 Clash 输出仍拍平并删除结构化 `plugin-opts`，自检也不识别旧 URI 字符串格式。

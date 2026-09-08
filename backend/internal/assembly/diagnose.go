@@ -63,6 +63,20 @@ func hasCoreBlockingNodeDiagnostic(diags []NodeDiagnostic) bool {
 	return false
 }
 
+// hasSSPluginBlockingNodeDiagnostic 只识别 Step 12 明确纳入 Clash 门槛的插件错误码。
+func hasSSPluginBlockingNodeDiagnostic(diags []NodeDiagnostic) bool {
+	for _, d := range diags {
+		if d.Severity != "error" {
+			continue
+		}
+		switch d.Code {
+		case "ss_plugin_shape_invalid", "ss_plugin_required_field_missing", "plugin_option_unexpressible":
+			return true
+		}
+	}
+	return false
+}
+
 func firstNodeDiagnosticMessage(diags []NodeDiagnostic) string {
 	for _, d := range diags {
 		if d.Severity == "error" {

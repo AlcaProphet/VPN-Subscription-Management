@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～11 已实施并通过验收，Step 12～14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，Step 15 为新增的 N-node-3/N-node-4 SR TLS 增量，尚未实施。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～12 已实施并通过验收，Step 13～14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，Step 15 为新增的 N-node-3/N-node-4 SR TLS 增量，尚未实施。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -24,7 +24,7 @@
 | 9 | R27-09 四个已知插件字段与固定敏感路径修正 | ✅ 验收通过 |
 | 10 | R27-09 SIP002 转义/解析与 SR/generic 目标分流 | ✅ 验收通过 |
 | 11 | R27-09 Clash/Mihomo 结构化插件投影与产物自检 | ✅ 验收通过 |
-| 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ☐ 未开始 |
+| 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ✅ 验收通过 |
 | 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ☐ 未开始 |
 | 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ☐ 未开始 |
 | 15 | N-node-3/4：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步 | ☐ 未开始 |
@@ -443,9 +443,9 @@ plugin: obfs-local;obfs=http
   - SR：可无损 SIP002 输出但缺真机证据时 warning；不可表达活动字段时跳过节点。
   - generic：`shadow-tls/restls/unknown` 以及 v2ray-plugin 不可回读参数均跳过；零可输出节点继续触发现有零输出门槛。
 - **TODO：**
-  - [ ] 先加入“检查误报 ok”及检查/正式装配不一致的失败回归。
-  - [ ] 建立单一 SS 目标诊断器并接入三种正式输出门槛。
-  - [ ] 核对诊断码、字段路径、warning 回执、零输出和 `diagnostics: []`。
+  - [x] 先加入“检查误报 ok”及检查/正式装配不一致的失败回归。
+  - [x] 建立单一 SS 目标诊断器并接入三种正式输出门槛。
+  - [x] 核对诊断码、字段路径、warning 回执、零输出和 `diagnostics: []`。
 - **测试与验收命令：**
 
   ```bash
@@ -454,6 +454,18 @@ plugin: obfs-local;obfs=http
   ```
 
 - **验收标准：** 同一草稿在检查和正式装配中得到相同 severity/code/field_path；所有警告进入回执，所有核心语义错误阻断或跳过；普通无插件 SS 与非 SS 协议状态不因本 Step 改变。
+- **实施结果（2026-09-08）：**
+  - `internal/ssplugin` 新增只依赖固定合同的 `AssessTarget`：仅读取当前活动插件对象，统一派生 complete/partial/unverified/unsupported、形状、目标必需字段、枚举、未消费字段与 URI 无损表达诊断；诊断消息只包含插件名和字段路径，不包含凭据或参数值。
+  - `assembly.diagnoseSSPluginForTarget` 将叶子诊断投影为公共 `TargetDiagnostic`。Clash 在生成预览前阻断 `ss_plugin_shape_invalid`、`ss_plugin_required_field_missing`、`plugin_option_unexpressible`；unknown 的结构化可表达参数继续输出并给 `plugin_no_verified_mapping` warning。
+  - SR/generic 在调用链接渲染器前消费相同诊断：partial/unverified 保留链接并进入 warning 回执，不可无损表达或明确不支持的节点以原 code/path 跳过；被跳过节点的诊断先写入 `RenderResult.Diagnostics`，混合节点保留可输出项，全跳过继续命中既有零输出门槛。
+  - `node.Check` 在目标限定必填或活动对象类型校验先触发时复用同一合同错误，避免降级为 `invalid_node_draft`；SS 专属 URI error 归类为 `skip`，Clash 同码保持 `error`，无诊断结果继续序列化为 `diagnostics: []`。普通无插件 SS、SS 2022 cipher 警告与非 SS 诊断逻辑保持原行为。
+- **验证记录（2026-09-08）：**
+  - 失败先行回归稳定复现 obfs/v2ray-plugin URI 误报、shadow-tls/restls/unknown 目标状态、Clash 缺必需项未阻断、warning 回执缺失及通用错误码覆盖精确路径；实现后全部转绿。
+  - `cd backend && go test ./internal/assembly ./internal/node ./internal/server -count=1 -run 'NodeCheck|SSPlugin|Diagnostics|Render|ZeroOutput|CheckAppliesTargetSpecificRequiredFields'`：通过。
+  - `cd backend && go test -race ./internal/node ./internal/assembly ./internal/server -count=1`：通过。
+  - `cd backend && go test ./... -count=1 && go build ./... && go vet ./...`：全部通过。
+  - `cd frontend && npm run build`：通过，仅保留既有大 chunk 提示。
+- **本 Step 边界：** 未修改数据库、迁移、保存格式、URI 编解码器、前端表单、非 SS 协议或全局 `target_evidence`；Step 13 的未知插件前端专项、Step 14 的全链路/浏览器/固定客户端收口及 Step 15 的 VMess/VLESS SR TLS 增量仍未实施，Shadowrocket 真机连接仍为人工待办。
 
 ### 7.10 Step 13：未知插件参数前端编辑、校验与分支清空
 
@@ -599,3 +611,4 @@ Step 7～13 + Step 15 全部通过 ─→ Step 14 全量收口
 | v1.7 | 2026-09-05 | 完成 R27-09 Step 10：新增可稳定往返的 SIP002 转义/解析器，导入保留未知字符串参数并恢复已知字段类型；SR/generic 分别消费目标合同，generic 对不支持插件及不可回读字段、渲染器对非字符串/复杂值均显式报错；后端定向、竞态、全量、编译与 vet 通过，Step 11～14 保持未实施。 |
 | v1.8 | 2026-09-05 | 文档归属整理：将原 Build23 的 R27-09 主体步骤并入本文件作为唯一详细记录，新增 Step 15（N-node-3/4 SR TLS/ALPN/指纹/Flow/Skip 输出与解析同步），统一 Build21/Build23 诊断码，并同步 Step 14 全量收口范围；Build23 改为仅保留交接说明与增量差异。 |
 | v1.9 | 2026-09-08 | 完成 R27-09 Step 11：先补固定 Mihomo 1.19.29 合同遗漏的 v2ray-plugin `skip-cert-verify`/`ech-opts`，再实现 Clash 结构化插件投影、目标 mode 枚举和最终 YAML 自检；四已知/未知插件、输入不可变、动态重渲染、竞态、全量构建及固定二进制正例均通过，Step 12～15 保持未实施。 |
+| v1.10 | 2026-09-08 | 完成 R27-09 Step 12：以 `ssplugin.AssessTarget` 统一活动插件目标诊断，接入节点检查及 Clash/SR/generic 正式装配门槛；精确 code/path、warning 回执、URI 跳过、混合/零输出与空诊断回归通过，后端定向/竞态/全量/编译/vet及前端生产构建通过，Step 13～15 保持未实施。 |

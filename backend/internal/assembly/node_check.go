@@ -8,6 +8,7 @@ import (
 	gyaml "github.com/goccy/go-yaml"
 
 	"vpn-sub/internal/node"
+	"vpn-sub/internal/ssplugin"
 )
 
 // CheckNodeTarget 使用实际输出适配器检查单个节点目标；该方法只构造内存产物。
@@ -26,6 +27,10 @@ func (s *Service) CheckNodeTarget(ctx context.Context, target, protocol, renderN
 }
 
 func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port int, params map[string]any) (node.CheckRenderResult, error) {
+	diagnostics := diagnoseSSPluginForTarget("clash-yaml", protocol, params)
+	if hasBlockingTargetDiagnostic(diagnostics) {
+		return node.CheckRenderResult{Diagnostics: diagnostics}, nil
+	}
 	nd := &nodeData{
 		Protocol:     protocol,
 		RenderName:   renderName,
@@ -42,7 +47,6 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 		return node.CheckRenderResult{}, fmt.Errorf("序列化 Clash 节点检查片段失败: %w", err)
 	}
 	issues := CheckClashContent(content)
-	diagnostics := make([]node.TargetDiagnostic, 0, len(issues))
 	for _, issue := range issues {
 		severity := issue.Severity
 		if severity != "info" && severity != "warn" && severity != "error" {
@@ -86,10 +90,9 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 
 func checkLinkNodeTarget(target, protocol, renderName, host string, port int, params map[string]any) (node.CheckRenderResult, error) {
 	diagnostics := linkTargetDiagnostics(target, protocol, params)
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Severity == "error" && diagnostic.Code == "core_semantic_unexpressible" {
-			return node.CheckRenderResult{Diagnostics: diagnostics}, nil
-		}
+	diagnostics = append(diagnostics, diagnoseSSPluginForTarget(target, protocol, params)...)
+	if hasBlockingTargetDiagnostic(diagnostics) {
+		return node.CheckRenderResult{Diagnostics: diagnostics}, nil
 	}
 	link, err := RenderLink(protocol, renderName, host, port, params, target == "generic-subs")
 	if err != nil {
@@ -134,14 +137,6 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 				"当前 URI 适配器不能表达 Trojan 内层 SS 参数", "cvr-2.5.2-uri")
 		}
 	case "ss":
-		plugin, _ := params["plugin"].(string)
-		if plugin == "obfs" {
-			add(&diagnostics, "warn", "plugin_name_mapping", "plugin",
-				"内部 obfs 已映射为 obfs-local/obfs-host；CVR 2.5.2 真机导入仍需复核", "cvr-2.5.2-uri")
-		} else if plugin != "" && plugin != "v2ray-plugin" && plugin != "shadow-tls" && plugin != "restls" {
-			add(&diagnostics, "warn", "plugin_no_verified_mapping", "plugin",
-				fmt.Sprintf("插件 %s 暂无已验证的目标映射，当前按原格式透传", plugin), "project-unknown")
-		}
 		cipher, _ := params["cipher"].(string)
 		if strings.HasPrefix(cipher, "2022-") {
 			add(&diagnostics, "warn", "unverified_compatibility", "cipher",
@@ -149,6 +144,38 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 		}
 	}
 	return diagnostics
+}
+
+// diagnoseSSPluginForTarget 把叶子合同诊断投影为节点检查的公共响应类型。
+func diagnoseSSPluginForTarget(target, protocol string, params map[string]any) []node.TargetDiagnostic {
+	if protocol != "ss" {
+		return nil
+	}
+	plugin, _ := params["plugin"].(string)
+	issues := ssplugin.AssessTarget(plugin, params, target)
+	diagnostics := make([]node.TargetDiagnostic, 0, len(issues))
+	for _, issue := range issues {
+		evidence := "cvr-2.5.2-uri"
+		if target == ssplugin.TargetClash {
+			evidence = "mihomo-1.19.29-yaml"
+		} else if issue.Code == "plugin_no_verified_mapping" {
+			evidence = "project-unknown"
+		}
+		diagnostics = append(diagnostics, node.TargetDiagnostic{
+			Severity: issue.Severity, Code: issue.Code, Target: target,
+			FieldPath: issue.FieldPath, Message: issue.Message, Evidence: evidence,
+		})
+	}
+	return diagnostics
+}
+
+func hasBlockingTargetDiagnostic(diagnostics []node.TargetDiagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "error" {
+			return true
+		}
+	}
+	return false
 }
 
 func boolValue(value any) bool {

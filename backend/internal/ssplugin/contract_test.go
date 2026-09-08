@@ -110,3 +110,64 @@ func TestContractResultsAreDefensiveCopies(t *testing.T) {
 		t.Fatalf("调用方修改污染了固定枚举: %+v", v2rayClash.AllowedValues)
 	}
 }
+
+func TestAssessTargetUsesActivePluginContract(t *testing.T) {
+	params := map[string]any{
+		"plugin":            "v2ray-plugin",
+		"v2ray-plugin-opts": map[string]any{"mode": "websocket", "host": "cdn.example.com", "tls": true},
+		"restls-opts":       "inactive-invalid-shape",
+	}
+	clash := AssessTarget("v2ray-plugin", params, TargetClash)
+	if len(clash) != 0 {
+		t.Fatalf("Clash 完整合同不应因非活动对象降级: %+v", clash)
+	}
+	for _, target := range []string{TargetShadowrocket, TargetGeneric} {
+		issues := AssessTarget("v2ray-plugin", params, target)
+		if !hasTargetIssue(issues, "warn", "plugin_partial_mapping", "plugin") || hasErrorIssue(issues) {
+			t.Fatalf("%s 应仅报告部分映射 warning: %+v", target, issues)
+		}
+	}
+}
+
+func TestAssessTargetReportsPreciseBlockingIssues(t *testing.T) {
+	tests := []struct {
+		name     string
+		plugin   string
+		target   string
+		params   map[string]any
+		wantCode string
+		wantPath string
+	}{
+		{name: "shape", plugin: "v2ray-plugin", target: TargetClash, params: map[string]any{"v2ray-plugin-opts": "bad"}, wantCode: "ss_plugin_shape_invalid", wantPath: "v2ray-plugin-opts"},
+		{name: "required", plugin: "restls", target: TargetClash, params: map[string]any{"restls-opts": map[string]any{"password": "secret", "version-hint": "tls13"}}, wantCode: "ss_plugin_required_field_missing", wantPath: "restls-opts.host"},
+		{name: "enum", plugin: "obfs", target: TargetClash, params: map[string]any{"obfs-opts": map[string]any{"mode": "quic"}}, wantCode: "plugin_option_unexpressible", wantPath: "obfs-opts.mode"},
+		{name: "uri-field", plugin: "v2ray-plugin", target: TargetShadowrocket, params: map[string]any{"v2ray-plugin-opts": map[string]any{"headers": map[string]any{"X-Test": "value"}}}, wantCode: "plugin_option_unexpressible", wantPath: "v2ray-plugin-opts.headers"},
+		{name: "generic-unsupported", plugin: "shadow-tls", target: TargetGeneric, params: map[string]any{"shadow-tls-opts": map[string]any{"host": "cdn.example.com"}}, wantCode: "core_semantic_unexpressible", wantPath: "plugin"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			issues := AssessTarget(tc.plugin, tc.params, tc.target)
+			if !hasTargetIssue(issues, "error", tc.wantCode, tc.wantPath) {
+				t.Fatalf("缺少精确目标错误 %s/%s: %+v", tc.wantCode, tc.wantPath, issues)
+			}
+		})
+	}
+}
+
+func hasTargetIssue(issues []TargetIssue, severity, code, path string) bool {
+	for _, issue := range issues {
+		if issue.Severity == severity && issue.Code == code && issue.FieldPath == path {
+			return true
+		}
+	}
+	return false
+}
+
+func hasErrorIssue(issues []TargetIssue) bool {
+	for _, issue := range issues {
+		if issue.Severity == "error" {
+			return true
+		}
+	}
+	return false
+}

@@ -43,11 +43,11 @@ func (s *Service) renderSrSubs(in GenerateInput, ld *loadedData, sr bool) (*Rend
 	for _, name := range in.NodeNames {
 		nd := ld.nodes[name]
 		nodeDiags := s.diagnoseNodeForTarget(target, nd)
+		diagnostics = append(diagnostics, nodeDiags...)
 		if hasBlockingNodeDiagnostic(nodeDiags) {
 			skipped = append(skipped, SkipItem{Kind: "node", Name: nd.Name, Reason: firstNodeDiagnosticMessage(nodeDiags)})
 			continue
 		}
-		diagnostics = append(diagnostics, nodeDiags...)
 		var link string
 		var err error
 		if sr {

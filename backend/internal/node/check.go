@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"vpn-sub/internal/ssplugin"
 )
 
 var defaultCheckTargets = []string{"clash-yaml", "sr-subs", "generic-subs"}
@@ -160,11 +162,14 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 	for _, target := range targets {
 		result := TargetCheckResult{Diagnostics: make([]TargetDiagnostic, 0)}
 		if validationErr := ValidateCurrentStateForTarget(proto, state, params, target); validationErr != nil {
-			result.Status = "error"
-			result.Diagnostics = []TargetDiagnostic{{
-				Severity: "error", Code: "invalid_node_draft", Target: target,
-				FieldPath: checkFieldPath(validationErr), Message: validationErr.Error(), Evidence: "build18-check-v1",
-			}}
+			result.Diagnostics = ssPluginTargetDiagnostics(proto.Protocol, target, params)
+			if !hasMatchingErrorPath(result.Diagnostics, checkFieldPath(validationErr)) {
+				result.Diagnostics = []TargetDiagnostic{{
+					Severity: "error", Code: "invalid_node_draft", Target: target,
+					FieldPath: checkFieldPath(validationErr), Message: validationErr.Error(), Evidence: "build18-check-v1",
+				}}
+			}
+			result.Status = statusForDiagnostics(result.Diagnostics)
 			response.Targets[target] = result
 			continue
 		}
@@ -265,7 +270,7 @@ func statusForDiagnostics(diagnostics []TargetDiagnostic) string {
 			continue
 		}
 		hasError = true
-		if diagnostic.Code != "core_semantic_unexpressible" && diagnostic.Code != "target_unsupported" {
+		if !isSkippableDiagnostic(diagnostic) {
 			allSkippable = false
 		}
 	}
@@ -286,10 +291,61 @@ func (s *Service) checkValidationResponse(in CheckRequest, targets []string, err
 	redacted := redactCheckParamsForProtocol(in.Protocol, params)
 	response := &CheckResponse{CheckID: makeCheckID(in, redacted), CheckVersion: 1, Targets: make(map[string]TargetCheckResult, len(targets))}
 	for _, target := range targets {
+		if diagnostics := ssPluginTargetDiagnostics(in.Protocol, target, params); hasMatchingErrorPath(diagnostics, diagnostic.FieldPath) {
+			response.Targets[target] = TargetCheckResult{Status: statusForDiagnostics(diagnostics), Diagnostics: diagnostics}
+			continue
+		}
 		diagnostic.Target = target
 		response.Targets[target] = TargetCheckResult{Status: "error", Diagnostics: []TargetDiagnostic{diagnostic}}
 	}
 	return response
+}
+
+func ssPluginTargetDiagnostics(protocol, target string, params map[string]any) []TargetDiagnostic {
+	if protocol != "ss" {
+		return nil
+	}
+	plugin, _ := params["plugin"].(string)
+	issues := ssplugin.AssessTarget(plugin, params, target)
+	diagnostics := make([]TargetDiagnostic, 0, len(issues))
+	for _, issue := range issues {
+		evidence := targetEvidenceFor(target)
+		if issue.Code == "plugin_no_verified_mapping" {
+			evidence = "project-unknown"
+		}
+		diagnostics = append(diagnostics, TargetDiagnostic{
+			Severity: issue.Severity, Code: issue.Code, Target: target,
+			FieldPath: issue.FieldPath, Message: issue.Message, Evidence: evidence,
+		})
+	}
+	return diagnostics
+}
+
+func hasMatchingErrorPath(diagnostics []TargetDiagnostic, fieldPath string) bool {
+	if fieldPath == "" {
+		return false
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "error" && (diagnostic.FieldPath == fieldPath || strings.HasPrefix(diagnostic.FieldPath, fieldPath+".")) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSkippableDiagnostic(diagnostic TargetDiagnostic) bool {
+	if diagnostic.Code == "core_semantic_unexpressible" || diagnostic.Code == "target_unsupported" {
+		return true
+	}
+	if diagnostic.Target != ssplugin.TargetShadowrocket && diagnostic.Target != ssplugin.TargetGeneric {
+		return false
+	}
+	switch diagnostic.Code {
+	case "ss_plugin_shape_invalid", "ss_plugin_required_field_missing", "plugin_option_unexpressible":
+		return true
+	default:
+		return false
+	}
 }
 
 func redactCheckParamsForProtocol(protocol string, params map[string]any) map[string]any {

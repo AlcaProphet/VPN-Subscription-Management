@@ -176,8 +176,8 @@ func TestNodeCheckFixtures(t *testing.T) {
 		{name: "trojan-grpc-tls.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 		{name: "trojan-inner-ss.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 		{name: "ss-aes-gcm.json"},
-		{name: "ss-obfs.json", warnURI: true, expectCode: "plugin_name_mapping"},
-		{name: "ss-v2ray-plugin.json"},
+		{name: "ss-obfs.json", warnURI: true, expectCode: "plugin_partial_mapping"},
+		{name: "ss-v2ray-plugin.json", warnURI: true, expectCode: "plugin_partial_mapping"},
 		{name: "ss-2022-pending.json", warnURI: true, expectCode: "unverified_compatibility"},
 	}
 	for _, fixture := range fixtures {
@@ -288,10 +288,132 @@ func TestNodeCheckUnknownPluginDiagnosed(t *testing.T) {
 			"cipher": "aes-256-gcm", "password": "p", "plugin": plugin,
 		},
 		CurrentState: &node.CurrentState{Security: "none", Plugin: &plugin, Features: []string{}},
-		Targets:      []string{"sr-subs"},
+		Targets:      []string{"clash-yaml", "sr-subs", "generic-subs"},
 	})
 	if err != nil {
 		t.Fatalf("未知插件检查失败: %v", err)
 	}
-	assertFixtureDiagnostic(t, resp.Targets["sr-subs"], "warn", "plugin_no_verified_mapping")
+	for _, target := range []string{"clash-yaml", "sr-subs"} {
+		assertFixtureStatus(t, resp.Targets[target], "warn")
+		assertFixtureDiagnostic(t, resp.Targets[target], "warn", "plugin_no_verified_mapping")
+	}
+	assertFixtureStatus(t, resp.Targets["generic-subs"], "skip")
+	assertFixtureDiagnostic(t, resp.Targets["generic-subs"], "error", "core_semantic_unexpressible")
+	if resp.Targets["generic-subs"].Preview != nil {
+		t.Fatal("generic 目标不得为未知插件返回预览")
+	}
+}
+
+func TestSSPluginTargetDiagnosticsMatrix(t *testing.T) {
+	tests := []struct {
+		name       string
+		plugin     string
+		storageKey string
+		opts       map[string]any
+		srCode     string
+	}{
+		{name: "shadow-tls", plugin: "shadow-tls", storageKey: "shadow-tls-opts", opts: map[string]any{"host": "cdn.example.com", "password": "shadow-secret", "version": float64(3)}, srCode: "unverified_compatibility"},
+		{name: "restls", plugin: "restls", storageKey: "restls-opts", opts: map[string]any{"host": "cdn.example.com", "password": "restls-secret", "version-hint": "tls13"}, srCode: "unverified_compatibility"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, st, cfg := newTestService(t)
+			nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+			nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+			resp, err := nodeSvc.Check(context.Background(), node.CheckRequest{
+				Protocol: "ss", Host: "example.com", Port: 8388,
+				ProtocolJSON: map[string]any{
+					"cipher": "aes-256-gcm", "password": "main-secret", "plugin": tc.plugin,
+					tc.storageKey: tc.opts,
+				},
+				Targets: []string{"clash-yaml", "sr-subs", "generic-subs"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertFixtureStatus(t, resp.Targets["clash-yaml"], "ok")
+			assertFixtureStatus(t, resp.Targets["sr-subs"], "warn")
+			assertFixtureDiagnostic(t, resp.Targets["sr-subs"], "warn", tc.srCode)
+			assertFixtureStatus(t, resp.Targets["generic-subs"], "skip")
+			assertFixtureDiagnostic(t, resp.Targets["generic-subs"], "error", "core_semantic_unexpressible")
+			if resp.Targets["generic-subs"].Preview != nil {
+				t.Fatal("generic 目标不得为不支持的插件返回预览")
+			}
+		})
+	}
+}
+
+func TestSSPluginTargetErrorsUsePreciseCodesAndPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		params   map[string]any
+		target   string
+		status   string
+		wantCode string
+		wantPath string
+	}{
+		{
+			name: "shape", target: "clash-yaml", status: "error", wantCode: "ss_plugin_shape_invalid", wantPath: "v2ray-plugin-opts",
+			params: map[string]any{"cipher": "aes-256-gcm", "password": "secret", "plugin": "v2ray-plugin", "v2ray-plugin-opts": "bad"},
+		},
+		{
+			name: "missing", target: "clash-yaml", status: "error", wantCode: "ss_plugin_required_field_missing", wantPath: "restls-opts.host",
+			params: map[string]any{"cipher": "aes-256-gcm", "password": "secret", "plugin": "restls", "restls-opts": map[string]any{"password": "restls-secret", "version-hint": "tls13"}},
+		},
+		{
+			name: "invalid-mode", target: "clash-yaml", status: "error", wantCode: "plugin_option_unexpressible", wantPath: "obfs-opts.mode",
+			params: map[string]any{"cipher": "aes-256-gcm", "password": "secret", "plugin": "obfs", "obfs-opts": map[string]any{"mode": "quic"}},
+		},
+		{
+			name: "uri-field", target: "sr-subs", status: "skip", wantCode: "plugin_option_unexpressible", wantPath: "v2ray-plugin-opts.headers",
+			params: map[string]any{"cipher": "aes-256-gcm", "password": "secret", "plugin": "v2ray-plugin", "v2ray-plugin-opts": map[string]any{"mode": "websocket", "headers": map[string]any{"X-Test": "value"}}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, st, cfg := newTestService(t)
+			nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+			nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+			resp, err := nodeSvc.Check(context.Background(), node.CheckRequest{
+				Protocol: "ss", Host: "example.com", Port: 8388, ProtocolJSON: tc.params, Targets: []string{tc.target},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := resp.Targets[tc.target]
+			if result.Status != tc.status || len(result.Diagnostics) == 0 || !hasDiagnosticAt(result.Diagnostics, "error", tc.wantCode, tc.wantPath) || result.Preview != nil {
+				t.Fatalf("SS 插件目标错误不精确: want=%s/%s got=%+v", tc.wantCode, tc.wantPath, result)
+			}
+		})
+	}
+}
+
+func TestSSPluginDiagnosticsDoNotMaskUnrelatedDraftValidation(t *testing.T) {
+	svc, st, cfg := newTestService(t)
+	nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+	nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+	resp, err := nodeSvc.Check(context.Background(), node.CheckRequest{
+		Protocol: "ss", Host: "example.com", Port: 8388,
+		ProtocolJSON: map[string]any{
+			"password": "secret", "plugin": "shadow-tls",
+			"shadow-tls-opts": map[string]any{"host": "cdn.example.com", "password": "shadow-secret"},
+		},
+		Targets: []string{"generic-subs"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := resp.Targets["generic-subs"]
+	if result.Status != "error" || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "invalid_node_draft" || result.Diagnostics[0].FieldPath != "cipher" {
+		t.Fatalf("插件目标不支持不得掩盖无关草稿错误: %+v", result)
+	}
+}
+
+func hasDiagnosticAt(diagnostics []node.TargetDiagnostic, severity, code, path string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == severity && diagnostic.Code == code && diagnostic.FieldPath == path {
+			return true
+		}
+	}
+	return false
 }

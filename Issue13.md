@@ -116,17 +116,17 @@
   ```
 
   同时没有 `plugin-opts`。检查结果仍标记为 `status: "ok"`，没有提示插件语义丢失或目标输出不完整。
-- **快速验证：** Step 11 已移除 legacy Clash 字符串 helper，统一输出纯插件名与结构化 `plugin-opts`；最终 YAML 自检会拒绝旧 URI 字符串、错误 shape、缺失必需项和非法 mode。固定 Mihomo 1.19.29 二进制已接受四个已知插件的当前生成结构；专属诊断码与正式装配共享门槛仍待 Step 12。
+- **快速验证：** Step 11 已移除 legacy Clash 字符串 helper，统一输出纯插件名与结构化 `plugin-opts`；最终 YAML 自检会拒绝旧 URI 字符串、错误 shape、缺失必需项和非法 mode。Step 12 已以活动插件合同统一节点检查与正式 Clash/SR/generic 装配：精确诊断码/字段路径、warning 回执、URI 跳过、混合/零输出门槛及 `diagnostics: []` 回归均通过；固定 Mihomo 1.19.29 二进制已接受四个已知插件的当前生成结构。
 - **可能根因：** Build21 新增的目标插件转换复用了 URI/Shadowrocket 风格的字符串映射，却将其直接用于 Clash/Mihomo YAML，并在转换后删除了 Clash 仍需要的结构化参数；目标检查只验证生成成功，没有验证固定版本内核的语义形态。
 - **影响范围：** 影响普通 SS + `obfs` 节点的 Clash/Mihomo 订阅与不落库目标检查；可能造成配置可解析但插件不生效。该条是输出与固定版本源码契约的核对结论，本轮未做真实连接实验。
 - **修复方向：** 按目标分别实现插件映射：Clash/Mihomo 保留独立 `plugin` 与 `plugin-opts` 结构，SR/generic URI 再按目标客户端要求转换为 `obfs-local` 等名称；目标检查增加结构化输出断言和插件语义诊断，不能仅以 YAML 生成成功标记 `ok`。
 - **待确认事项：** 已确认先按官方模板/离线契约修复 Clash 结构化输出与 URI 映射；固定版本真机导入/连接验证保留为人工待办，不宣称完整兼容。
-- **状态：** ◐ 修复中（Build21 Step 7～11 的合同/schema、幂等归一化、未知参数保存回显、固定字段、SIP002/URI 分流与 Clash 结构化输出/自检已验收；Step 12～14 尚待实施）
+- **状态：** ◐ 修复中（Build21 Step 7～12 的合同/schema、幂等归一化、未知参数保存回显、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；Step 13～14 尚待实施）
 
 
 ## 二·补充、研究解决方案与已确认决策（2026-09-03）
 
-> 本节在 R27-01～R27-09 的原始记录基础上，补充逐项深研后的解决方案与用户决策确认。R27-01～R27-08 已完成代码与回归测试；R27-09 已完成 Build21 Step 7～11 的合同/schema、幂等归一化、未知参数保存回显、固定字段、SIP002/URI 分流与 Clash 结构化输出/自检，Step 12～14 仍待实施；具体实机验证边界以各项记录为准。
+> 本节在 R27-01～R27-09 的原始记录基础上，补充逐项深研后的解决方案与用户决策确认。R27-01～R27-08 已完成代码与回归测试；R27-09 已完成 Build21 Step 7～12 的合同/schema、幂等归一化、未知参数保存回显、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛，Step 13～14 仍待实施；具体实机验证边界以各项记录为准。
 
 ### 解决方案总览
 
@@ -140,7 +140,7 @@
 | R27-06 | `allow_custom=false` 序列化丢失 | 后端改为 `*bool`，区分未声明/禁止/允许；前端仅在 `allow_custom === true` 时开放自定义 | 已修复（前后端契约与回归测试） |
 | R27-07 | 嵌套敏感字段误显示已保存 | 后端返回 `saved_sensitive_paths`；前端按完整路径呈现凭据状态；WireGuard Peer 以稳定 UUID 接入数组凭据全链路 | 已修复（前后端、历史升级与回归测试） |
 | R27-08 | `diagnostics: null` 导致前端崩溃 | 后端统一返回 `[]`，前端对 null 做安全归一化 | 已修复（前后端与回归测试） |
-| R27-09 | SS 插件 Clash 输出格式回归 | Clash/Mihomo 保留结构化 `plugin` + `plugin-opts`；SR/generic URI 使用目标字符串映射；真机验证保留人工待办 | 修复中（Build21 Step 7～11 已验收） |
+| R27-09 | SS 插件 Clash 输出格式回归 | Clash/Mihomo 保留结构化 `plugin` + `plugin-opts`；SR/generic URI 使用目标字符串映射；真机验证保留人工待办 | 修复中（Build21 Step 7～12 已验收） |
 
 ### R27-01 研究解决方案
 
@@ -240,7 +240,8 @@
 - Build21 Step 8 已验收：已知旧 `plugin-opts` 只递归补缺且规范新对象优先，未知插件字符串 map 贯通创建、数据库、详情、列表、更新、服务重载与检查；空字符串 flag 保留，普通 `password/token/secret` 不进入敏感路径，读取/检查不写库或递增修订。固定插件字段、URI/Clash 投影和目标诊断仍按 Step 9～14 串行处理。
 - Build21 Step 9 已验收，并在 Step 11 前完成固定源码补缺：四个已知插件 schema 与 Mihomo 1.19.29 集中合同对齐，v2ray-plugin 补 `skip-cert-verify` 与结构化 `ech-opts.enable/config/query-server-name`，移除 `version` 与 Restls `path` 的正式支持暗示；Clash 必需项只在目标检查生效，不阻止不完整草稿保存；新增两条插件私钥固定敏感路径并通过完整回归，新补字段不新增敏感路径。
 - Build21 Step 10 已验收：SIP002 编解码器可稳定往返特殊字符、Unicode、百分号和 bare flag，并拒绝重复键、空键与坏转义；URI 导入保留未知字符串参数并恢复四插件已知字段类型，SR/generic 分别消费合同，目标不支持或无法无损回读时由渲染器显式报错。
-- Build21 Step 11 已验收：四个已知插件与未知插件均输出纯 `plugin` + 结构化 `plugin-opts`；默认 mode 只写输出副本，动态重渲染复用同一投影，旧字符串/错误 shape/必需项/枚举/未知非字符串参数由最终 YAML 自检精确拒绝。固定 Mihomo 1.19.29 二进制正例、竞态及全量构建通过；正式装配共享诊断和未知插件前端编辑仍按 Step 12～14 串行处理。
+- Build21 Step 11 已验收：四个已知插件与未知插件均输出纯 `plugin` + 结构化 `plugin-opts`；默认 mode 只写输出副本，动态重渲染复用同一投影，旧字符串/错误 shape/必需项/枚举/未知非字符串参数由最终 YAML 自检精确拒绝。固定 Mihomo 1.19.29 二进制正例、竞态及全量构建通过；正式装配共享诊断已由 Step 12 接续完成，未知插件前端编辑仍按 Step 13～14 串行处理。
+- Build21 Step 12 已验收：新增活动 SS 插件纯合同评估器，节点检查与正式 Clash/SR/generic 装配共享 shape/required/partial/unverified/unknown/unexpressible 诊断；Clash 精确阻断，URI 目标保留 warning 或按原 code/path 跳过，warning 回执、混合/零输出与空诊断回归通过。未修改非 SS 协议、全局 `target_evidence`、前端表单或 URI 编解码器；Step 13～14 仍待实施。
 - Clash/Mihomo YAML：
   - 保留 `plugin: obfs` / `v2ray-plugin` / `shadow-tls` / `restls`。
   - 保留结构化 `plugin-opts` 对象，不再拼接成 `obfs-local;obfs=http` 字符串。
@@ -295,3 +296,4 @@
 | v1.12 | 2026-09-04 | 完成 R27-09 Build21 Step 9：对齐四个已知插件固定字段、Mihomo 目标证据、Clash 限定必需项与 v2ray/shadow-tls 私钥敏感路径；默认 mode 不批量入库、旧未知键保留、私钥全生命周期及后端定向/全量/竞态/编译/vet 验收通过，Step 10～14 尚未实施。 |
 | v1.13 | 2026-09-05 | 完成 R27-09 Build21 Step 10：新增 SIP002 特殊字符转义、稳定序列化及严格反向解析；未知参数导入/URI 输出不丢失，四插件类型恢复与 SR/generic 可表达性分流由合同约束，不支持或复杂值由渲染器报错；后端定向、竞态、全量、编译/vet 与前端生产构建通过，Step 11～14 尚未实施。 |
 | v1.14 | 2026-09-08 | 完成 R27-09 Build21 Step 11：先补固定源码发现的 v2ray-plugin `skip-cert-verify`/`ech-opts` 合同缺口，再实现 Clash 结构化插件投影、mode 枚举和最终 YAML 自检；四已知/未知插件、输入不可变、动态重渲染、固定 Mihomo 1.19.29、竞态与全量构建通过，Step 12～14 尚未实施。 |
+| v1.15 | 2026-09-08 | 完成 R27-09 Build21 Step 12：统一活动 SS 插件目标诊断并接入节点检查与 Clash/SR/generic 正式装配门槛；精确 code/path、warning 回执、URI 跳过、混合/零输出和空诊断回归通过，后端定向/竞态/全量/编译/vet及前端生产构建通过，Step 13～14 尚未实施。 |
