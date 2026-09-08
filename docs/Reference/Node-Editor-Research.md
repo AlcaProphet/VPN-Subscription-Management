@@ -1,10 +1,10 @@
-# Node-Editor-Improvement-Directions.md — 当前节点编辑设计改进方向
+# Node-Editor-Research.md — 节点编辑器分层、多目标适配与改进方向研究
 
-> **文档定位：** 面向后续产品与技术决策的分析文档，承接 [Node-Editor-Design-Research.md](Node-Editor-Design-Research.md)，参照 Design 模板组织现状、候选方案、决策与验证边界；存放于 Reference，不替代现行 Design，不授权代码构建。
-> **核验基线：** 2026-09-02，仓库提交 `9d27bc8`，分析开始时工作区干净。项目事实以本轮静态代码检查为准；外部资料为当日查阅的官方文档及指定版本源码。本轮未启动服务、未做客户端连接实验，也未执行构建或单元测试。
-> **状态约定：** 【已确认方向】来自原研究记录；【代码事实】来自当前仓库；【外部事实】附在线来源；【分析判断】是由证据推导的结论；【建议／待决策】均未成为实施要求。
+> **文档定位：** 本文整合节点编辑器研究中的项目内通用研究内容：原 `Node-Editor-Design-Research.md`（研究汇总）与原 `Node-Editor-Improvement-Directions.md`（改进方向）已合并；面向后续产品与技术决策，参照 Design 模板组织现状、候选方案、决策与验证边界；存放于 Reference，不替代现行 Design，不授权代码构建。
+> **核验基线：** 2026-09-02 起研究，2026-09-08 文档交叉审核后同步 Design4 v1.14 / Build21 口径。项目事实以静态代码检查为准；外部资料为查阅的官方文档及指定版本源码。本轮未启动服务、未做客户端连接实验，也未执行构建或单元测试。
+> **状态约定：** 【已确认方向】来自 Design4/原研究记录；【代码事实】来自当前仓库；【外部事实】附在线来源；【分析判断】是由证据推导的结论；【建议／待决策】均未成为实施要求。
 > **范围：** 手工节点编辑体验及其保存、导入、装配和输出的一致性。Xray 来源节点仍由实例检测维护；独立 Xray 客户端输出是后续候选能力。
-> **v1.2 同步说明（2026-09-02）：** Design4 v1.2 已确认取消分支保留和恢复、取消独立 `node_edit_states` 表，采用 `nodes` 行内最小当前状态 + 活动 `protocol_json`，切换分支即清空所属参数/凭据，不保存非激活分支。本文早期关于“独立编辑状态/保留非激活分支/隐藏值可恢复”的候选方向已被取代；与 v1.2 冲突的段落按当前确认口径改写，历史候选仅保留研究背景。
+> **v1.2+ 同步说明：** Design4 v1.2 起已确认取消分支保留和恢复、取消独立 `node_edit_states` 表，采用 `nodes` 行内最小当前状态 + 活动 `protocol_json`，切换分支即清空所属参数/凭据，不保存非激活分支。本文早期关于“独立编辑状态/保留非激活分支/隐藏值可恢复”的候选方向已被取代；与 Design4 v1.14 冲突的段落以当前设计为准，历史候选仅保留研究背景。
 
 ---
 
@@ -499,13 +499,48 @@ generic URI：复用相同分支，存在相同限制
 | C11 | [node_test.go](../../backend/internal/node/node_test.go)、[nodes-view.spec.ts](../../frontend/tests/nodes-view.spec.ts)、[protocol-field-editor.spec.ts](../../frontend/tests/protocol-field-editor.spec.ts)、[links_test.go](../../backend/internal/assembly/links/links_test.go) | 已有测试入口；本轮仅阅读，没有重新运行 |
 | C12 | [go.mod](../../backend/go.mod) | 项目当前 Xray 库依赖版本 |
 | D-Base | [Design2-UI §6](../reports/Design/Design2-UI.md)、[Build15](../reports/Build/Build15.md)、[Design3](../../Design3.md)、[Issue12](../reports/Issue/Issue12.md) | 节点既有基线、已完成分区改造及头部改造的范围边界 |
-| R-Base | [Node-Editor-Design-Research.md](Node-Editor-Design-Research.md)、[Node-Link-Standards.md](Node-Link-Standards.md) | 已确认研究方向、原候选方案与历史 URI 证据；不代替当前实现 |
+| R-Base | [Node-Editor-Research.md](Node-Editor-Research.md)（原 Design-Research 与 Improvement-Directions 合并）、[Node-Link-Standards.md](Node-Link-Standards.md) | 已确认研究方向、原候选方案与历史 URI 证据；不代替当前实现 |
 
 ### 12.2 外部资料使用原则
 
 本文在相关结论旁直接列出官方链接，查阅日期为 2026-09-02。Mihomo／Xray 在线文档用于发现语义与版本差异，W3C 用于交互可访问性，JSON Schema 用于条件声明思路；它们都不直接决定项目必须采用某个库或最新字段。
 
 固定 Xray 版本源码只用于核对该版本字段；当前依赖不代表部署端版本。Shadowrocket 私有映射和未研究协议不提供无证据的“全部支持”承诺。原研究中的开源 UI 案例、单个连接 Issue 和样例数量不作为硬校验规范。
+
+## 附：原 Node-Editor-Design-Research.md 研究依据（合并保留）
+
+以下为早期研究汇总中的研究依据，供追溯外部证据使用；相关设计结论已由 Design4 与本文件正文承接。
+
+### 项目内资料
+
+- [Xray-Server-Config-Research.md](Xray-Server-Config-Research.md)
+- [Xray-Client-Config-Research.md](Xray-Client-Config-Research.md)
+- [Xray-Core-API.md](Xray-Core-API.md)
+- [Node-Link-Standards.md](Node-Link-Standards.md)
+- [Clash-Verge-Rev-Node-Parameters.md](Clash-Verge-Rev-Node-Parameters.md)
+- [Clash.yaml.template.md](../DocTemplates/Clash.yaml.template.md)
+- [Issue12.md](../reports/Issue/Issue12.md)
+- [Design3.md](../../Design3.md)（当前明确不重定义节点，本研究不改变该范围）
+- [NodesView.vue](../../frontend/src/views/admin/NodesView.vue)
+- [ProtocolFieldEditor.vue](../../frontend/src/components/ProtocolFieldEditor.vue)
+- [registry.go](../../backend/internal/node/registry.go)
+- [render_clash.go](../../backend/internal/assembly/render_clash.go)
+- [links.go](../../backend/internal/assembly/links/links.go)
+
+### 外部资料
+
+- [Xray Transport Configuration](https://xtls.github.io/en/config/transport.html)
+- [Xray VLESS outbound](https://xtls.github.io/en/config/outbounds/vless.html)
+- [Xray VMess outbound](https://xtls.github.io/en/config/outbounds/vmess.html)
+- [Xray REALITY](https://xtls.github.io/en/config/transports/reality.html)
+- [Xray TLS](https://xtls.github.io/en/config/transports/tls.html)
+- [Xray WebSocket](https://xtls.github.io/en/config/transports/websocket.html)
+- [Xray gRPC](https://xtls.github.io/en/config/transports/grpc.html)
+- [Mihomo TLS 配置](https://github.com/MetaCubeX/Meta-Docs/blob/main/docs/config/proxies/tls.en.md)
+- [Mihomo Transport 文档](https://github.com/MetaCubeX/Meta-Docs/blob/main/docs/config/proxies/transport.en.md)
+- [3x-ui InboundFormModal.tsx](https://github.com/MHSanaei/3x-ui/blob/main/frontend/src/pages/inbounds/form/InboundFormModal.tsx)
+- [Mihomo issue #2533](https://github.com/MetaCubeX/mihomo/issues/2533)
+
 
 ---
 
@@ -515,3 +550,4 @@ generic URI：复用相同分支，存在相同限制
 |---|---|---|
 | v1.0 | 2026-09-02 | 基于当前代码、既有研究与官方资料，新增状态／输出一致性、条件表单、凭据与 JSON、多协议能力、版本兼容方向；列出九项待决策内容与后续验收标准。仅分析，无代码改动。 |
 | v1.1 | 2026-09-02 | 按 Design4 v1.2 同步：取消“独立编辑状态/保留非激活分支/隐藏值恢复”候选，改为 nodes 行内当前状态 + 活动 protocol_json + 切换即清空。仅文档同步。 |
+| v2.0 | 2026-09-08 | Reference 规范化：将原 `Node-Editor-Design-Research.md` 与 `Node-Editor-Improvement-Directions.md` 合并为本文件 `Node-Editor-Research.md`，更新文档历史与链接；后续研究/设计口径以 Design4 v1.14 为准。 |

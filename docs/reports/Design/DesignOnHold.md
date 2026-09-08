@@ -2,7 +2,7 @@
 
 > **归档说明**：本文档为增量能力设计的源稿（含修订过程记录），内容已全量规范化转入 [Design2.md](Design2.md)，于 2026-08-15 移入 docs/reports/ 存档；后续构建以 Design2.md 为准。
 
-> **文档定位：** 本文档承载 vpn-sub 增量能力的定稿设计（无暂缓项，经多轮用户确认，构建时不得偏离）：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](../../Reference/Xray-Core-API.md) 与 [Reference/SSpanel.md](../../Reference/SSpanel.md)。
+> **文档定位：** 本文档承载 vpn-sub 增量能力的定稿设计（无暂缓项，经多轮用户确认，构建时不得偏离）：第二章**规则素材池**、第三章**装配拼接**、第四章**配置生成与分发**归属**基础模式**（不依赖 Xray）；第五章 **Xray-core 对接**归属**高级模式**。研究与核验结论见 [Reference/Xray-Core-API.md](../../Reference/Xray-Core-API.md) 与 [Reference/SSPanel-Research.md](../../Reference/SSPanel-Research.md)。
 > **术语约定**：「**规则素材池**」（第二章）= 规则条目素材池（域名/IP/进程名等，供规则拼接）；「**订阅地址池**」（第四章）= 每平台存放订阅文件的池（单模板 + 版本历史，即既有「订阅池」）。两池职责分离，不混用。
 > 设计基线见 [Design1.md](Design1.md)；编码约束遵循 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。本文档与 Design1.md 冲突时以本文档为准，定稿内容后续应同步落入 Design 基线。
 >
@@ -161,7 +161,7 @@ Shadowrocket 无代理组概念，装配采用简化双态交互：规则素材�
 
 ### 4.5 Shadowrocket 输出编码
 
-Shadowrocket 配置生成规则与 Clash 类似（头部 → 节点 → 规则的对应关系，见 3.5），但输出编码不一样：节点链接与订阅内容的编码处理参考 [Reference/SSpanel.md](../../Reference/SSpanel.md) 的订阅输出逻辑；.conf 正文以纯文本下发，下载端点返回禁缓存头（`no-store` 等，AGENTS §4.5）。
+Shadowrocket 配置生成规则与 Clash 类似（头部 → 节点 → 规则的对应关系，见 3.5），但输出编码不一样：节点链接与订阅内容的编码处理参考 [Reference/SSPanel-Research.md](../../Reference/SSPanel-Research.md) 的订阅输出逻辑；.conf 正文以纯文本下发，下载端点返回禁缓存头（`no-store` 等，AGENTS §4.5）。
 
 ---
 

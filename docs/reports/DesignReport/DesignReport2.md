@@ -70,7 +70,7 @@
 | Xray-Core-API §11.1~11.4 引用有效且结论一致 | docs/Reference/Xray-Core-API.md L107-153 | 已核实 |
 | SR subs 样例实测空 cipher vless（base64 首字符 :） | docs/DocTemplates/Shadowrocket.subs.template.md L7 | 已核实 |
 | 预置组库 🛟无法归属 / 🍻哔哩哔哩 / 🧩Steam下载 等全部存在 | docs/DocTemplates/Clash.yaml.template.md L142/168/230 | 已核实 |
-| SSPanel「空节点 clash YAML 客户端导入会失败」佐证 G-1 | docs/Reference/SSpanel-Subscribe.md L58 | 已核实 |
+| SSPanel「空节点 clash YAML 客户端导入会失败」佐证 G-1 | docs/Reference/SSPanel-Research.md L58 | 已核实 |
 | mihomo 对空 proxy-group 直接 fatal（use or proxies missing） | 外部实机日志（right.com.cn）+ MetaCubeX Issue #2443 | 已核实 |
 
 约束遵守：全程零文件写操作（仅 Read/Grep/Bash 取证），未修改任何代码文件与 Design1/Design2 文档；推断均以【推断】标注。

@@ -1,6 +1,6 @@
-# Xray-Node-Config-Requirements.md — Xray 节点配置需求与新建表单改进研究
+# Xray-Server-Config-Research.md — Xray 服务端配置与节点表单改进研究
 
-> **文档定位：** 本文是节点管理模块新建节点表单的只读研究资料，提取 Xray-examples 服务端配置中对客户端节点真正有用的配置项，并与当前项目的节点协议注册表、节点链接输出和 Clash 客户端字段进行对照。本文只记录研究结论、证据边界和 UI 改进方向，不直接定义构建步骤，也不替代 Design 文档中的最终设计决策。
+> **文档定位：** 本文是节点管理模块新建节点表单的只读研究资料，提取 Xray-examples 服务端配置中对客户端节点真正有用的配置项，并与当前项目的节点协议注册表、节点链接输出和 Clash 客户端字段进行对照。本文只记录研究结论、证据边界和 UI 改进方向，不直接定义构建步骤，也不替代 Design 文档中的最终设计决策。原文件名为 `xray-server-side.md`，内容标题曾为 `Xray-Node-Config-Requirements.md`；Reference 规范化时统一为当前文件名。
 > **研究范围：** 当前项目 `ManualProtocols()` 的全部 19 种手工节点协议；`hysteria` 与 `hysteria2` 分开处理。Xray-examples 中没有对应服务端样本的协议，会明确标注为“样本未覆盖”，不把其他协议的配置推断为 Xray 服务端事实。
 > **标注约定：** 【样本事实】= 直接来自 Xray-examples 的 `server.jsonc` / `config_server.jsonc`；【项目事实】= 当前项目代码或 Reference 文档已有字段/输出约定；【UI 建议】= 面向后续表单改进的建议；【待确认】= 需要用户在实施前确认的产品或兼容性选择。
 

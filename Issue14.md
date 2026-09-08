@@ -1,6 +1,6 @@
 # Issue14.md — VPN 订阅管理系统问题追踪（当前）
 
-> **文档定位：** 本文承接 [Issue13.md](Issue13.md) 的 R27-09 / Build21 收口核验，并汇总 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 全量核验中仍未闭环的工程问题；只记录除用户真机人工验收之外，当前仍未完成、待处理或新发现的工程问题与验收证据缺口。用户需要亲自执行的 Production、浏览器和客户端人工测试统一迁移至 [ProdTestList.md](ProdTestList.md)，结果以该清单为准。
+> **文档定位：** 本文承接 [Issue13.md](Issue13.md) 的 R27-09 / Build21 收口核验，并汇总 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 全量核验中仍未闭环的工程问题；只记录除用户真机人工验收之外，当前仍未完成、待处理或新发现的工程问题与验收证据缺口。用户需要亲自执行的 Production、浏览器和客户端人工测试仍由 [ProdTestList.md](ProdTestList.md) 记录，但其在本文件的总处理顺序中作为明确的 Build21 Step 14 收口门槛跟踪。
 > 关联构建：[Build21.md](Build21.md) §7.11 Step 14、[Build22.md](Build22.md)（D3 实施计划）；交接说明：[Build23.md](Build23.md)；设计基线：[Design3.md](Design3.md)、[Design4.md](Design4.md)；编码约束：[AGENTS.md](AGENTS.md)。
 
 ---
@@ -15,7 +15,33 @@
 
 ---
 
-## 二、进行中问题
+## 二、唯一处理顺序（当前执行入口）
+
+本表是本文件的执行总入口。按顺序推进；当前阶段未达到完成标志前，不进入下一阶段。除用户在 [ProdTestList.md](ProdTestList.md) 执行的人工项目外，不将 Build21、Build22、Build23 的步骤交叉实施。
+
+| 顺序 | 阶段/进入条件 | 本阶段跟踪项 | 完成标志 | 完成后进入 |
+|---|---|---|---|---|
+| 1 | Build21 Step 14 工程收口 | R28-01 | 动态输入问题完成最小复现、修复，浏览器控制台和输入保存/重开回归通过 | 顺序 2 |
+| 2 | 正式 Production smoke 夹具修复 | R28-02 → R28-03 | 修订仓库正式脚本；不做临时转换，完整 smoke 通过 | 顺序 3 |
+| 3 | 固定版本验收证据补强 | R28-04 | 显式校验 Mihomo Meta v1.19.29；正反例实际执行；缺少二进制时不能静默跳过 | 顺序 4 |
+| 4 | Build21 Step 14 用户人工验收 | [ProdTestList.md](ProdTestList.md) 中的 Mihomo/CVR、Shadowrocket、Production 浏览器和正式 smoke 人工项目 | 实际环境、日期、结果和证据已填写；不以离线或自动化结果替代真机结论 | 顺序 5 |
+| 5 | Build21 Step 14 最终收口 | R28-01～R28-04 与顺序 4 全部完成 | Build21 Step 14 按实际证据标记完成，相关文档状态同步 | 顺序 6 |
+| 6 | Build22 D3 构建 | R28-05，执行 [Build22.md](Build22.md) Step 1～11 | D3-1～D3-10 逐 Step 验收通过，Build16/Design3 状态收口 | 顺序 7 |
+| 7 | 未知扩展/局部 JSON 边界专项 | R28-06 | 完成独立澄清、处理或明确排除范围，并记录结论 | 顺序 8 |
+| 8 | 核心工程约束与一致性整改 | R28-07，N-core-1～6 等 | 按 AGENTS.md 约束逐项整改并补回归 | 顺序 9 |
+| 9 | 安全专项 | R28-08，N01～N07 | 按 SecurityReport2/3 的实际范围逐项完成并验证 | 顺序 10 |
+| 10 | 项目级工程/文档收尾 | R28-09 | 各项关闭，或明确迁移到对应专项并保留可追踪链接 | 本轮 Issue14 路线完成 |
+
+补充规则：
+
+- 顺序 1～5 是进入 Build22 的前置收口链；在顺序 5 完成前，不开始 Build22 的任何 Step。
+- R28-05 是 Build22 的实施范围，不要求在开始 Build22 前先解决 Issue14 的全部条目；但必须完成顺序 1～5。
+- `Build23.md` 不作为新的构建阶段启动。其 R27-09/N-node-3/4 内容已归入 Build21；当前只保留交接和边界说明。N-node-6 已纳入顺序 7 的 R28-06。
+- 顺序 6 之后仍按本表串行跟踪；若某专项发现新的依赖或需要独立 Build/Security 计划，应在对应 R28 条目下登记，不从本表删除原问题。
+
+---
+
+## 三、问题明细（按上述顺序）
 
 ### R28-01 动态插件输入操作产生 Ant Design 控制台异常
 
@@ -59,6 +85,21 @@
 - **修复方向：** 在正式验收入口显式提供并校验 Mihomo Meta v1.19.29 二进制；必要时为验收命令增加强制模式，使缺少二进制时失败而不是跳过。此前带显式环境变量的定向通过记录可保留，但需与本次全量测试区分。
 - **状态：** ☐ 待补强验收门禁 / ☐ 待重新执行
 
+## 四、顺序 4：Build21 Step 14 用户人工验收门槛
+
+以下项目仍由用户在 [ProdTestList.md](ProdTestList.md) 执行并记录，不在本文件重复登记为工程缺陷；但它们是本文件顺序 5“Build21 Step 14 最终收口”的必需输入，不能遗漏或用自动化结果替代：
+
+- Mihomo 1.19.29 / Clash Verge Rev 2.5.2 的代表配置实际导入与连接；
+- Shadowrocket 真机导入、连接及 SS 插件和 VMess/VLESS SR TLS 字段生效情况；
+- 最新 Production 构建的浏览器人工走查、动态插件输入、控制台无异常、保存重开和移动端交互；
+- 修订正式 smoke 夹具后的用户侧 Production 执行结果。
+
+人工结果必须填写实际环境、日期、结果和证据。填写完成后，由 [Build21.md](Build21.md) 和本文件依据清单结果更新状态；URI 生成、单元测试、固定版本离线证据或离线 YAML 解析均不能单独替代真机结论。
+
+---
+
+## 五、顺序 6：Build22 与后续专项问题明细
+
 ### R28-05 Build16/Design3 未闭环（D3-1～D3-10）
 
 - **来源：** [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §4.2 未闭环项 1；实施计划见 [Build22.md](Build22.md)。
@@ -74,8 +115,25 @@
   - D3-9 装配回执未展示；
   - D3-10 1015→1016 迁移缺少 store 级测试。
 - **当前证据：** [Build22.md](Build22.md) 进度表 Step 1～11 全部为“☐ 未开始”；代码中 `render_clash.go`/`render_sr.go` 仍按类型支持度无条件追加 `no-resolve`，`load.go` 仍丢弃 `Options.NoResolve`，`pipeline.go` 仍存在重复累加，`sync.go` 仍写入占位 `sort_order/raw_line/line_no`，后端素材池白名单/快照 API/前端 pending UI/回执展示均未实现。
+- **前置条件：** 本文件顺序 1～5 已完成，Build21 Step 14 已按证据收口；不得在此前开始 Build22 的任何 Step。
 - **修复方向：** 按 [Build22.md](Build22.md) 的 Step 1～11 串行实施并验收；完成前不得将 Build16/Design3 标记为“全部闭环”。
 - **状态：** ☐ 待实施（Build22 未开始）
+
+Build22 的逐 Step 跟踪入口如下；每次只推进一行，完成后将对应状态更新为 `✅`，并保留 [Build22.md](Build22.md) 中的详细实施记录：
+
+| Build22 Step | 对应范围 | 状态 |
+|---|---|---|
+| Step 1 | D3-2 来源统计计数 | ☐ 未开始 |
+| Step 2 | D3-5 来源原始证据、排序与装配去重 | ☐ 未开始 |
+| Step 3 | D3-1 `no_resolve` 实例语义贯通 | ☐ 未开始 |
+| Step 4 | D3-4 后端素材池能力白名单 | ☐ 未开始 |
+| Step 5 | D3-3 手工编辑不污染共享 Canonical | ☐ 未开始 |
+| Step 6 | D3-6 零输出门槛补全 | ☐ 未开始 |
+| Step 7 | D3-7 failed 快照持久化与 per-URL 状态/诊断 API | ☐ 未开始 |
+| Step 8 | D3-8 前端来源状态、诊断与 pending 操作 | ☐ 未开始 |
+| Step 9 | D3-9 装配回执前端展示 | ☐ 未开始 |
+| Step 10 | D3-10 1016 迁移 store 级回归测试 | ☐ 未开始 |
+| Step 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | ☐ 未开始 |
 
 ### R28-06 未知扩展/局部 JSON 边界（N-node-6）
 
@@ -112,7 +170,7 @@
   - 运行镜像未显式安装 `ca-certificates`，基础镜像/GHCR 未固定 digest；
   - AGENTS 文档清单原先缺 BuildReport2/3/4、SecurityReport2/3 等报告（已在本轮同步修正）；
   - README 提及 LICENSE 但仓库未发现 LICENSE；
-  - `docs/Reference/xray-server-side.md` 存在指向仓库外 `Xray-examples` 的失效链接；
+  - `docs/Reference/Xray-Server-Config-Research.md` 存在指向仓库外 `Xray-examples` 的失效链接；
   - 前端存在未引用文件清理候选（`GenerateStep.vue`、`PreviewState.vue`、`ResponsiveCollection.vue`、`CopyField.vue`）；
   - `PoolTab.vue` 的“停机错过不补跑”文案与当前启动补跑实现不一致。
 - **修复方向：** 文档类问题在本轮文档交叉审核中同步修正或登记；代码清理/镜像加固作为后续工程项处理。
@@ -120,37 +178,26 @@
 
 ---
 
-## 三、已迁移至 ProdTestList 的人工验收范围
-
-以下内容不是本文件的工程缺陷条目，统一由用户在 [ProdTestList.md](ProdTestList.md) 执行并记录结果：
-
-- Mihomo 1.19.29 / Clash Verge Rev 2.5.2 的代表配置实际导入与连接；
-- Shadowrocket 真机导入、连接及 SS 插件和 VMess/VLESS SR TLS 字段生效情况；
-- 最新 Production 构建的浏览器人工走查、动态插件输入、控制台无异常、保存重开和移动端交互；
-- 修订正式 smoke 夹具后的用户侧 Production 执行结果。
-
-人工结果填写完成后，由 [Build21.md](Build21.md) 和本文件引用 [ProdTestList.md](ProdTestList.md) 的结果更新状态，不以 URI 生成、单元测试或离线 YAML 解析替代真机结论。
-
----
-
-## 四、验收与关闭条件
+## 六、验收与关闭条件
 
 1. R28-01 完成最小复现、修复和浏览器控制台清洁回归。
 2. R28-02、R28-03 修订正式 smoke 夹具，并在不做临时转换的情况下完整运行通过。
 3. R28-04 在显式 Mihomo Meta v1.19.29 环境执行正反例，缺少二进制时不得把跳过当作通过。
-4. R28-05 按 [Build22.md](Build22.md) 完成 D3-1～D3-10，并将 Build16/Design3 状态收口。
-5. R28-06 对未知扩展/局部 JSON 边界完成独立澄清或处理。
-6. R28-07 按 AGENTS 完成核心工程约束整改。
-7. R28-08 按安全报告完成 N01～N07。
-8. R28-09 的文档/工程收尾项逐项关闭或移入对应专项。
-9. [ProdTestList.md](ProdTestList.md) 中用户人工项目填写实际环境、日期、结果和证据；Build21 Step 14 再按清单结果完成最终收口。
-10. 完成后至少重新执行后端全量测试、竞态测试、`go build ./...`、`go vet ./...`、前端全量测试、`npm run build`、正式 Production smoke 和 `git diff --check`。
+4. [ProdTestList.md](ProdTestList.md) 中的人工项目填写实际环境、日期、结果和证据；包括 Mihomo/CVR、Shadowrocket、Production 浏览器和修订后正式 smoke 的用户侧结果。
+5. R28-01～R28-04 与人工门槛均完成后，Build21 Step 14 按实际证据最终收口。
+6. R28-05 按 [Build22.md](Build22.md) Step 1～11 完成 D3-1～D3-10，并将 Build16/Design3 状态收口。
+7. R28-06 对未知扩展/局部 JSON 边界完成独立澄清或处理。
+8. R28-07 按 AGENTS 完成核心工程约束整改。
+9. R28-08 按安全报告完成 N01～N07。
+10. R28-09 的文档/工程收尾项逐项关闭或移入对应专项。
+11. 每个阶段完成后，按实际变更范围重新执行后端全量测试、竞态测试、`go build ./...`、`go vet ./...`、前端全量测试、`npm run build`、正式 Production smoke 和 `git diff --check`；不得以一次旧的全量通过记录替代后续改动后的验证。
 
 ---
 
-## 五、变更记录
+## 七、变更记录
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-08 | 从 Build21 Step 14 与 Issue13 的当前核验结论建立 Issue14；迁移除真机人工验收外的未完成项、新发现错误和固定版本证据缺口；人工项目统一转由 ProdTestList 管理。 |
 | v1.1 | 2026-09-08 | 文档交叉审核扩展 Issue14 范围：按用户确认将 BuildReport4 中仍未闭环的工程问题归入本文件（R28-05～R28-09），覆盖 D3-1～D3-10、N-node-6、N-core-1～6、安全 N01～N07 及项目级收尾项；未修改 BuildReport4 归档文件。 |
+| v1.2 | 2026-09-08 | 按当前核验结论重排唯一处理顺序：先收口 Build21 Step 14 的 R28-01～R28-04 与 ProdTestList 人工门槛，再执行 Build22 R28-05，最后依次处理 R28-06～R28-09；明确 Build23 不作为新的构建阶段。 |

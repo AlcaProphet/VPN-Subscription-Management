@@ -1,7 +1,7 @@
 # BuildReport3.md — Build17~Build20 节点编辑器表单结构与 Design4 对齐审查报告
 
 > 核验日期：2026-09-03（以当前工作区代码为准）。
-> 核验对象：当前工作区中 Build17~Build20 的落地产物、[Design4.md](../../../Design4.md)、`docs/Reference/Clash-Verge-Rev-Node-Parameters.md`、`Clash-Verge-Rev-Subscription-Assembly.md`、`Node-Editor-3xui-Xray-Research.md`、`Node-Editor-Design-Research.md`、`Node-Editor-Improvement-Directions.md`，以及 `~/Desktop/Repo` 下 clash-verge-rev / 3x-ui / Xray-examples 等对应源码。
+> 核验对象：当前工作区中 Build17~Build20 的落地产物、[Design4.md](../../../Design4.md)、`docs/Reference/Clash-Verge-Rev-Node-Parameters.md`、`Clash-Verge-Rev-Subscription-Assembly.md`、`Node-Editor-3xui-Xray-Research.md`、`Node-Editor-Research.md`，以及 `~/Desktop/Repo` 下 clash-verge-rev / 3x-ui / Xray-examples 等对应源码。
 > 结论前置：**Build17~Build20 的“可编译、可运行、自动化通过”是成立的；但“达到 Design4 预期效果”不成立。** 主要缺口集中在 Build19 的 UI 信息架构与状态回显：安全/TLS/REALITY 字段被归入“认证与密钥”，且安全选择在编辑已保存 TLS/REALITY 节点时回显为默认 `none`；开关区、高级区/目标检查区、列表类控件也没有按 Design4 和 Reference 的交互预期落地。
 > v2.0 补充：已针对用户提出的“连接参数不符 / 文案混乱 / UI 排版结构混乱 / 未知拓展意义不明 / 选项框错误内容”五类问题逐项深挖，结论见第六章。
 
@@ -25,7 +25,7 @@
 
 ### 2.1 安全/TLS/REALITY 字段被归入“认证与密钥”，不是“连接方式与当前参数”
 
-Design4 §3.1/§5 以及 Reference `Node-Editor-Design-Research.md` §5.1、`Node-Editor-Improvement-Directions.md` §3.1 均把“安全选择、TLS/REALITY 身份参数”放在“连接方式”/当前连接区，而不是凭据区。
+Design4 §3.1/§5 以及 Reference `Node-Editor-Research.md` §3.1 均把“安全选择、TLS/REALITY 身份参数”放在“连接方式”/当前连接区，而不是凭据区。
 
 当前代码事实：
 
@@ -64,7 +64,7 @@ Design4 §3.1/§5 以及 Reference `Node-Editor-Design-Research.md` §5.1、`Nod
 ### 2.4 列表类字段仍是“逗号分隔单行输入”，未达到 Reference 的增删列表预期
 
 - `frontend/src/components/ProtocolFieldEditor.vue` 第 316~318 行：`text-list` / `int-list` 直接渲染单行 `Input`，用逗号分隔字符串承载。
-- 这与 `Node-Editor-Design-Research.md` §5.3、`Node-Editor-Improvement-Directions.md` §3.3 的“ALPN、Allowed IPs 等使用可增删列表；Headers 使用键值行；顺序和类型有意义时必须保留”不一致。
+- 这与 `Node-Editor-Research.md` §3.3 的“ALPN、Allowed IPs 等使用可增删列表；Headers 使用键值行；顺序和类型有意义时必须保留”不一致。
 - 对 ALPN、Allowed IPs、reserved、DNS 等多值字段，用户无法直观增删，顺序与空值也难管理。
 
 ---
@@ -123,7 +123,7 @@ Build17 后端基本达标。
 - `clash-verge-rev/src/types/global.d.ts` 对 VLESS/VMess/SS 的字段分层非常清晰：基础字段、`tls`/`reality-opts`/传输对象并列，并不把 SNI/ALPN 当“凭据”。当前项目 registry 的 `Group:"auth"` 与之相悖。
 - `3x-ui/frontend/src/pages/inbounds/form/InboundFormModal.tsx` 使用独立 Tabs/分区把协议、传输、安全、高级分开，并在切换协议/传输/安全时只渲染当前组合。当前项目虽然是单浮层而非 Tabs，但至少应在分区上把“传输/安全/当前参数”放在同一连接区。
 - `Node-Editor-3xui-Xray-Research.md` §2.4/§2.5 强调切换 network/security 时的数据行为与 UI 条件渲染一致；当前后端清空/投影逻辑已做，但前端 `security` 回显没有与 `current_state` 接上，导致切换模型在 UI 上不可信。
-- `Node-Editor-Design-Research.md` §5.1 建议“基础信息/连接方式/兼容与性能/高级 JSON”四层；当前多了“认证与密钥”却把安全字段放进去，本质是层次标签错位。
+- `Node-Editor-Research.md` §3.1 建议“基础信息/连接方式/兼容与性能/高级 JSON”四层；当前多了“认证与密钥”却把安全字段放进去，本质是层次标签错位。
 
 ---
 

@@ -1,6 +1,6 @@
-# Xray 客户端配置需求与字段取证
+# Xray-Client-Config-Research.md — Xray 客户端配置需求与字段取证
 
-> **文档定位：** 本文是 Xray 客户端 `client.jsonc` 配置的只读研究资料，提取 `/Users/kyle/Desktop/Repo/Xray-examples` 中客户端出站配置的实际字段、组合方式和样本边界。本文只记录 Xray client JSONC 的知识与信息，不定义 vpn-sub 的代码实现、数据模型、表单方案或产品决策。
+> **文档定位：** 本文是 Xray 客户端 `client.jsonc` 配置的只读研究资料，提取 `/Users/kyle/Desktop/Repo/Xray-examples` 中客户端出站配置的实际字段、组合方式和样本边界。本文只记录 Xray client JSONC 的知识与信息，不定义 vpn-sub 的代码实现、数据模型、表单方案或产品决策。原文件名为 `xray-client-side.md`，Reference 规范化时改为当前文件名。
 > **研究范围：** 遍历该目录下文件名或路径包含 `client` 的 JSONC 文件，包括 `client.jsonc`、`config_client.jsonc`、`client_tcp.jsonc`、`client_ws.jsonc`、`client-bypass-cn.jsonc` 以及 `All-in-One-fallbacks-Nginx/client.configs/` 下的客户端变体；不读取 `server.jsonc` / `config_server.jsonc` 作为客户端字段证据。
 > **统计口径：** 样本中一个客户端文件可能含有多个 `outbounds`；统计时只计入远端代理出站，排除客户端本地入站以及 `freedom`、`blackhole`、`dns` 等非节点出站。JSONC 注释和示例模板占位符仅为结构统计做预处理，不改变原文件。
 > **标注约定：** 【样本事实】= 直接来自 Xray-examples 客户端文件；【结构观察】= 对多个样本的字段结构归纳；【版本提示】= 可能随 Xray-core 版本或传输实现变化；【证据边界】= 当前样本不能证明的内容。

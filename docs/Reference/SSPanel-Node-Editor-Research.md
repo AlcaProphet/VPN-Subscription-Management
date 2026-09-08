@@ -1,9 +1,9 @@
-# SSpanel-Node-Editor-Research-2.md — SSPanel-UIM 深度研究：Build17-21 后节点编辑可借鉴与对照方向
+# SSPanel-Node-Editor-Research.md — SSPanel-UIM 节点编辑可借鉴与对照研究
 
-> **文档定位：** 本文是 [SSpanel.md](SSpanel.md) 与 [SSpanel-Subscribe.md](SSpanel-Subscribe.md) 的后续深度研究资料，承接 Design1～Design4 的设计链路（当前最新为 [Design4.md](../../Design4.md)）、[Build17.md](../reports/Build/Build17.md)～[Build20.md](../reports/Build/Build20.md)、[Build21.md](../../Build21.md)、[Issue13.md](../../Issue13.md)，以及与 3x-ui 二轮研究平行的 [Node-Editor-3xui-Xray-Research-2.md](Node-Editor-3xui-Xray-Research-2.md)。本文只做研究记录，不定义实现，不改动任何业务代码或既有文档，不代表对 SSPanel-UIM 的修改或产品背书。
-> **研究状态：** 2026-09-05。基于本机仓库 `~/Desktop/Repo/SSPanel-UIM`（HEAD `d55a6071`，VERSION='25.1.0' "The Restoration"，app/predefine.php:9-10）与当前项目 `~/Desktop/Repo/VPN-Subscription-Management` 的当前源码、Build17～Build21 落地情况、Issue13 未闭环项进行静态分析；并用公开 SSPanel Docs 链接辅助核对。未构建、未改动外部项目与当前项目代码。
+> **文档定位：** 本文是对 SSPanel-UIM 后台节点管理、`custom_config` 多格式字段字典与操作便利层的深度研究，承接 Design1～Design4 的设计链路（当前最新为 [Design4.md](../../Design4.md)）、[Build17.md](../reports/Build/Build17.md)～[Build20.md](../reports/Build/Build20.md)、[Build21.md](../../Build21.md)、[Issue13.md](../../Issue13.md)，以及与 3x-ui 研究平行的 [Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md)。本文只做研究记录，不定义实现，不改动任何业务代码或既有文档，不代表对 SSPanel-UIM 的修改或产品背书。
+> **研究状态：** 2026-09-05 创建，2026-09-08 文档交叉审核后同步至 Build21/Design4 v1.14 口径。基于本机仓库 `~/Desktop/Repo/SSPanel-UIM`（HEAD `d55a6071`，VERSION='25.1.0' "The Restoration"，app/predefine.php:9-10）与当前项目源码、Build17～Build21 落地情况、Issue13 未闭环项进行静态分析；并用公开 SSPanel Docs 链接辅助核对。未构建、未改动外部项目与当前项目代码。
 > **标注约定：** 【SSPanel 事实】= 本地 SSPanel 源码观察；【项目事实】= 当前项目源码或既有文档观察；【经推理】= 由证据推导、需后续设计验证的方向；【可能】= 对收益/风险的推测，不视为已定稿。
-> **本次决策（由执行代理自行作出并标注）：** 仅新建本文件到 `docs/Reference/`，不修改任何其他文档或代码；文件名采用与 3x-ui 二轮研究平行的 `SSpanel-Node-Editor-Research-2.md`。若后续用户认为应合并进既有 `SSpanel.md`/`SSpanel-Subscribe.md`，可再决定。
+> **文档历史：** 原文件名为 `SSpanel-Node-Editor-Research-2.md`，在 Reference 规范化时改为 `SSPanel-Node-Editor-Research.md`；早期 `SSpanel.md`/`SSpanel-Subscribe.md` 已合并为 [SSPanel-Research.md](SSPanel-Research.md)。
 
 ---
 
@@ -17,7 +17,7 @@
 - `FieldSchema` 条件/选项/重置元数据、活动投影、保存校验与 `/check`（Build18）；
 - 前端动态分区、可编辑下拉、局部 JSON、目标检查 UI（Build19）；
 - 19 个 manual 协议统一保存契约、URI 导入归一化、Xray 来源适配、输出门槛（Build20）；
-- R27-01～R27-08 与 R27-09 Step7～10（SS 插件统一合同、幂等归一化、固定敏感路径、SIP002 与 URI 目标分流）已闭环，但 **R27-09 Step11～14 尚未实施**（Clash/Mihomo 结构化插件投影、SS 插件专属目标诊断、未知插件前端编辑、全链路收口），且后续还有“其余 15 个协议完整条件表单、SS2022、独立 Xray outbound”等专项。
+- R27-01～R27-08 与 R27-09 Step7～13（SS 插件统一合同、幂等归一化、固定敏感路径、SIP002 与 URI 目标分流、Clash/Mihomo 结构化插件投影、SS 插件专属目标诊断、未知插件前端编辑）已闭环，N-node-3/4 Step15 也已验收；**Step14 全链路回归与文档收口仍在进行**（见 [Issue14.md](../../Issue14.md)），后续还有“其余 15 个协议完整条件表单、SS2022、独立 Xray outbound”等专项。
 
 因此，本文不是“是否要条件表单/当前状态”的研究，而是：
 
@@ -45,7 +45,7 @@
 | 前端动态表单 | [NodesView.vue](../../frontend/src/views/admin/NodesView.vue)、[ProtocolFieldEditor.vue](../../frontend/src/components/ProtocolFieldEditor.vue) | 分区/条件/递归/JSON/凭据状态 |
 | URI 导入统一归一化 | [normalize.go](../../backend/internal/node/normalize.go)、[uri_import.go](../../backend/internal/node/uri_import.go)、[uriparse.go](../../backend/internal/uriparse/uriparse.go) | 统一当前状态，逐行回执 |
 | SS 插件固定合同 | [ssplugin/contract.go](../../backend/internal/ssplugin/contract.go) | Clash/SR/generic 三目标合同、支持等级 |
-| 尚未完成 | [Build21.md](../../Build21.md) §7.8～§7.11、[Issue13.md](../../Issue13.md) R27-09 | Step11 Clash 结构化插件投影、Step12 正式诊断、Step13 未知插件前端、Step14 全链路收口；其余 15 协议与独立 Xray outbound 仍后续 |
+| 收口状态 | [Build21.md](../../Build21.md) §7、[Issue13.md](../../Issue13.md) R27-09 | R27-09 Step11～13、N-node-3/4 Step15 已验收；Step14 全链路回归与文档收口仍在 Issue14/ProdTestList 跟踪。其余 15 协议与独立 Xray outbound 仍后续 |
 
 ---
 
@@ -142,12 +142,12 @@ SSPanel 的订阅渲染器都从 `custom_config` 读取协议参数，再生成�
 
 ## 四、对照 Build17-21 后：可借鉴方向（经推理 / 可能）
 
-### 4.1 R27-09 剩余步骤（Step11～Step14）中 SSPanel 能提供的价值
+### 4.1 R27-09 已收口步骤（Step11～Step13、Step15）中 SSPanel 的对照价值
 
-- 【项目事实】当前 `render_clash.go` 仍调用 `RenderPluginForClashLegacy`，把 SS 插件转成 `obfs-local;obfs=http` 字符串并删除结构化对象；这正对应 Build21 Step11 尚未实施。
+- 【项目事实】Build21 Step11～13 已完成并通过验收：Clash/Mihomo 结构化 SS 插件投影、SS 插件专属目标诊断与未知插件前端编辑均已落地；Step14 全链路回归/文档收口仍在 [Issue14.md](../../Issue14.md) 跟踪。
 - 【SSPanel 事实】SSPanel 的 Clash 渲染器只把 `plugin` + `plugin_option` 当作字符串透传（Clash.php:29-43），没有为 `obfs/v2ray-plugin/shadow-tls/restls` 提供结构化字段映射；SIP002 也是把 `plugin`/`plugin_option` 直接拼进 query（SIP002.php:25-33）。
-- 【经推理】因此 SSPanel **不能作为 Step11 的正面证据源**。它只说明“旧生态长期使用字符串插件形式”，而当前项目 R27-09 已经决定用结构化 `obfs-opts`/`v2ray-plugin-opts`/`shadow-tls-opts`/`restls-opts` + Mihomo 固定版本证据；SSPanel 可当作“旧字符串形态无法表达结构化参数/易产生静默差异”的反例。
-- 【可能】若 Step13 需要给未知插件参数做自由 JSON/键值编辑，可参考 SSPanel 的 JSONEditor tree/code 双模式，但当前项目 `ProtocolFieldEditor` 的 `map_value_type=string` 已更贴近未知字符串参数；是否需要全屏 JSON tree 编辑器取决于 UX，不是功能缺口。
+- 【经推理】SSPanel **不能作为 SS 插件结构化输出的正面证据源**。它说明“旧生态长期使用字符串插件形式”，而当前项目已采用结构化 `obfs-opts`/`v2ray-plugin-opts`/`shadow-tls-opts`/`restls-opts` + Mihomo 固定版本证据；SSPanel 可当作“旧字符串形态无法表达结构化参数/易产生静默差异”的反例。
+- 【可能】未知插件参数的自由 JSON/键值编辑可参考 SSPanel 的 JSONEditor tree/code 双模式；当前项目 `ProtocolFieldEditor` 的 `map_value_type=string` 已更贴近未知字符串参数，是否需要全屏 JSON tree 编辑器取决于 UX，不是功能缺口。
 
 ### 4.2 其余 15 个 manual 协议完整条件表单：SSPanel 可补“最小生态字段字典”
 
@@ -245,15 +245,15 @@ SSPanel 的订阅渲染器都从 `custom_config` 读取协议参数，再生成�
 | 前端动态表单/JSON | `frontend/src/views/admin/NodesView.vue`、`frontend/src/components/ProtocolFieldEditor.vue`、`frontend/src/components/NodeCheckPanel.vue` |
 | URI 导入 | `backend/internal/uriparse/uriparse.go`、`backend/internal/node/uri_import.go`、`normalize.go` |
 | SS 插件合同 | `backend/internal/ssplugin/contract.go`、`sip002.go`、`backend/internal/assembly/links/links.go` |
-| Clash 旧投影遗留 | `backend/internal/assembly/render_clash.go`（`RenderPluginForClashLegacy` 调用点） |
-| 未闭环计划 | `Build21.md` §7.8～§7.11、`Issue13.md` R27-09 |
+| Clash SS 插件输出 | `backend/internal/assembly/render_clash.go`、`ssplugin/contract.go`（Build21 Step11 后为结构化投影，不再作为旧 URI 字符串透传） |
+| 收口跟踪 | `Build21.md` §7、`Issue13.md` R27-09、`Issue14.md`（Step14/后续专项） |
 
 ### 7.3 外部资料
 
 - [节点配置 | SSPanel-Docs](https://docs.sspanel.io/docs/configuration/nodes/)
 - [SSPanel/XrayR custom_config 对照](https://anonymous-6.gitbook.io/xrayr/dui-jie-sspanel/sspanel/sspanel_custom_config.md)
 - [Mihomo / Clash.Meta docs](https://wiki.metacubex.one/en/config/proxies/)
-- 既有研究： [SSpanel.md](SSpanel.md)、[SSpanel-Subscribe.md](SSpanel-Subscribe.md)、[Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md)、[Node-Editor-3xui-Xray-Research-2.md](Node-Editor-3xui-Xray-Research-2.md)
+- 既有研究： [SSPanel-Research.md](SSPanel-Research.md)、[Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md)、[Node-Editor-Ecosystem-Research.md](Node-Editor-Ecosystem-Research.md)
 
 > 外部资料仅用于补充语义；本地源码取证优先。引用外部链接不表示对对方项目进行改动或背书。
 
@@ -264,3 +264,4 @@ SSPanel 的订阅渲染器都从 `custom_config` 读取协议参数，再生成�
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-05 | 新建独立 Reference 文档：在 SSPanel.md / SSPanel-Subscribe.md 与 Build17～Build21 落地基础上，对 SSPanel-UIM v25.1.0 后台节点管理、custom_config 多格式字段字典、节点操作壳、运维状态与动态倍率做二轮深度研究；区分可直接借鉴项（复制节点、旧别名参考、多格式投影反证）与明确排除项（服务端字段搬进 manual 编辑器）。仅文档，未改动代码或既有文档。 |
+| v1.1 | 2026-09-08 | Reference 规范化：文件名由 `SSpanel-Node-Editor-Research-2.md` 改为 `SSPanel-Node-Editor-Research.md`；同步 Design4 v1.14 / Build21 收口状态（Step11～13、Step15 已验收，Step14 跟踪中）。 |

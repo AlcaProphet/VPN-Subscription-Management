@@ -1,4 +1,4 @@
-# Clash Verge Rev 订阅装配参考 — 订阅编辑/规则/代理组/扩展机制
+# Clash-Verge-Rev-Subscription-Assembly.md — Clash Verge Rev 订阅装配参考（订阅编辑/规则/代理组/扩展机制）
 
 > **文档定位：** 本文是 `clash-verge-rev` 客户端中“订阅（Profile）”大模块的源码级研究资料，供本项目的装配模块（Design2.md 第三~四章）借鉴。  
 > **研究来源：** 本地仓库 `~/Desktop/Repo/clash-verge-rev` 的前端 TypeScript 与 Rust 源码，核心文件：

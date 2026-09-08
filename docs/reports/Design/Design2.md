@@ -1,6 +1,6 @@
 # Design2.md — VPN 订阅管理系统增量能力设计（订阅装配与 Xray 对接）
 
-> **文档定位：** 本文档定义基础模式增量能力（规则素材池、装配拼接、配置生成与分发）与高级模式 Xray 对接。基础模式不依赖 Xray；高级模式由面板开关解锁。Xray API 与生态研究见 [Xray-Core-API.md](../../Reference/Xray-Core-API.md)、[Node-Link-Standards.md](../../Reference/Node-Link-Standards.md)、[SSpanel-Subscribe.md](../../Reference/SSpanel-Subscribe.md)、[SSpanel.md](../../Reference/SSpanel.md)。设计基线为 [Design1.md](Design1.md)，编码遵循 [AGENTS.md](../../../AGENTS.md)；与 Design1.md 冲突时以本文档为准，与 AGENTS.md 冲突时按 AGENTS.md §8.3 提示用户决策。
+> **文档定位：** 本文档定义基础模式增量能力（规则素材池、装配拼接、配置生成与分发）与高级模式 Xray 对接。基础模式不依赖 Xray；高级模式由面板开关解锁。Xray API 与生态研究见 [Xray-Core-API.md](../../Reference/Xray-Core-API.md)、[Node-Link-Standards.md](../../Reference/Node-Link-Standards.md)、[SSPanel-Research.md](../../Reference/SSPanel-Research.md)。设计基线为 [Design1.md](Design1.md)，编码遵循 [AGENTS.md](../../../AGENTS.md)；与 Design1.md 冲突时以本文档为准，与 AGENTS.md 冲突时按 AGENTS.md §8.3 提示用户决策。
 > **术语：**「规则素材池」（第二章）= 规则条目素材池；「订阅地址池」（第四章）= 每平台一份订阅条目（装配生成模板或直接上传静态内容）+ 版本历史；「分流规则」= Shadowrocket 装配产出的 .conf，归入规则实体分发。配置样例见 `docs/DocTemplates/`。
 > **归档说明**：本文档为已实现并验收的增量设计基线，于 2026-08-31 移入 `docs/reports/Design/` 存档；后续增量设计以 [Design3.md](../../../Design3.md) 为准。
 

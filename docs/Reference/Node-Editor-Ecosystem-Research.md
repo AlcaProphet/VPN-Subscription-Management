@@ -1,9 +1,9 @@
-# Node-Editor-ThirdParty-Supplement-Research.md — 节点编辑器第三方生态补充研究（Build17-21 / Build23 基础上）
+# Node-Editor-Ecosystem-Research.md — 节点编辑器第三方生态补充研究
 
-> **文档定位：** 本文是 [Node-Editor-3xui-Xray-Research-2.md](Node-Editor-3xui-Xray-Research-2.md) 与 [SSpanel-Node-Editor-Research-2.md](SSpanel-Node-Editor-Research-2.md) 的后续补充研究资料。前两轮已分别深挖 3x-ui 与 SSPanel；本文把视野扩展到当前项目“还需要跟随/可借鉴”的其它生态：Mihomo / Clash Verge Rev、sing-box、v2rayN、NekoBox、Sub-Store、Hiddify、Marzban，并回到当前仓库自身代码与 `Build17`～`Build21`、当前 `Build23` 计划做第二轮交叉盘点。
-> **研究状态：** 2026-09-05。基于当前仓库 `~/Desktop/Repo/VPN-Subscription-Management`（HEAD `bde43de`）、`Build17.md`～`Build23.md`、`Design4.md`、`docs/reports/BuildReport/BuildReport4.md`，以及本机 `~/Desktop/Repo/3x-ui`、`SSPanel-UIM`、`clash-verge-rev`、`Xray-core` 等仓库静态分析；同时使用 web 搜索补充外部资料。只做研究记录，不修改业务代码或既有文档，不把推测写成已定稿。
+> **文档定位：** 本文是 [Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md) 与 [SSPanel-Node-Editor-Research.md](SSPanel-Node-Editor-Research.md) 的后续补充研究资料。前两轮已分别深挖 3x-ui 与 SSPanel；本文把视野扩展到当前项目“还需要跟随/可借鉴”的其它生态：Mihomo / Clash Verge Rev、sing-box、v2rayN、NekoBox、Sub-Store、Hiddify、Marzban，并回到当前仓库自身代码与 `Build17`～`Build21`、当前 `Build23` 交接说明做交叉盘点。
+> **研究状态：** 2026-09-05 创建，2026-09-08 文档交叉审核后同步至 Build21/Design4 v1.14 口径。基于当前仓库源码、`Build17.md`～`Build23.md`、`Design4.md`、`docs/reports/BuildReport/BuildReport4.md`，以及本机 `~/Desktop/Repo/3x-ui`、`SSPanel-UIM`、`clash-verge-rev`、`Xray-core` 等仓库静态分析；同时使用 web 搜索补充外部资料。只做研究记录，不修改业务代码或既有文档，不把推测写成已定稿。
 > **标注约定：** 【项目事实】= 当前项目源码/文档观察；【生态事实】= 第三方源码/文档观察；【经推理】= 由证据推导、需后续设计验证；【可能】= 收益/风险推测。
-> **本次决策（由执行代理自行作出并标注）：** 仅新建本文件到 `docs/Reference/`，不改动其它文档/代码。文件名采用与既有两轮平行的补充命名 `Node-Editor-ThirdParty-Supplement-Research.md`；若用户希望合并进既有某份 Reference，可再调整。
+> **文档历史：** 原文件名为 `Node-Editor-ThirdParty-Supplement-Research.md`，在 Reference 规范化时改为 `Node-Editor-Ecosystem-Research.md`。
 
 ---
 
@@ -11,12 +11,12 @@
 
 ### 1.1 为什么还要做第三轮
 
-- 【项目事实】Build17～Build21 已完成：`nodes` 行内当前状态/扩展/修订、`FieldSchema` 条件/选项/目标证据、活动投影、`/check`、前端动态表单、19 协议统一保存契约、URI/Xray 来源归一化、SS 插件统一合同等。
-- 【项目事实】`Build23.md` 是当前尚未开始执行的构建方案，覆盖 Build21 遗留的 **Step 1～5**：Clash/Mihomo 结构化 SS 插件投影与自检、SS 插件统一目标诊断、未知插件前端编辑、VMess/VLESS SR URI TLS 参数补全、全链路回归。
-- 【项目事实】`BuildReport4.md` 列出 N-node-1～N-node-6 等节点输出/诊断缺口，也提示“其余 15 个 manual 协议完整条件表单、SS2022、独立 Xray outbound”仍是后续专项。
-- 【项目事实】既有 Reference-2 两篇主要回答“3x-ui / SSPanel 还能提供什么”，尚未系统回答：**如果进一步看向 v2rayN、NekoBox、Sub-Store、Hiddify、Marzban、sing-box 等更广生态，哪些能力值得参考？** 以及 **当前协议注册表相对本仓库自己的 Clash/Mihomo 模板还有多少字段级缺口？**
+- 【项目事实】Build17～Build21 主体已完成：`nodes` 行内当前状态/扩展/修订、`FieldSchema` 条件/选项/目标证据、活动投影、`/check`、前端动态表单、19 协议统一保存契约、URI/Xray 来源归一化、SS 插件统一合同、R27-09 Step11～13 与 N-node-3/4 Step15 等已验收；Step14 仍在 Issue14/ProdTestList 跟踪。
+- 【项目事实】原 `Build23.md` 的 R27-09 Step 1～5 已并入 [Build21.md](../../Build21.md) §7 并收口；`Build23.md` 现仅作为交接/边界说明，不再包含可执行 Step。
+- 【项目事实】`BuildReport4.md` 列出 N-node-1～N-node-6 等节点输出/诊断缺口；其中 N-node-1/2/3/4/5 已由 Build21 处理，N-node-6 及 Build16/Design3 D3 等遗留登记在 [Issue14.md](../../Issue14.md)。
+- 【项目事实】既有 3x-ui / SSPanel 研究主要回答“这些生态还能提供什么”，尚未系统回答：**如果进一步看向 v2rayN、NekoBox、Sub-Store、Hiddify、Marzban、sing-box 等更广生态，哪些能力值得参考？** 以及 **当前协议注册表相对本仓库自己的 Clash/Mihomo 模板还有多少字段级缺口？**
 
-因此本文的定位不是替代 Build23，也不是重复 3x-ui/SSPanel 二轮，而是给 **Build23 完成之后的“协议全量表单、编辑效率、导入/导出、模板/复制、远程资源”** 等方向提供候选素材。
+因此本文的定位不是替代 Build23，也不是重复 3x-ui/SSPanel 研究，而是给 **后续“协议全量表单、编辑效率、导入/导出、模板/复制、远程资源”** 等方向提供候选素材。
 
 ### 1.2 研究边界
 
@@ -37,10 +37,10 @@
 | 条件规则 | [schema.go](../../backend/internal/node/schema.go) 的 `ConditionRule` 仅支持 `network/security/plugin/plugin_not/features/targets` | 前端 [nodeFormLayout.ts](../../frontend/src/utils/nodeFormLayout.ts) 与后端使用同一组维度；无法表达“当 `auth_mode=v5` 时显示 uuid+password、隐藏 token”这类互斥分支 |
 | 清空作用域 | [node.go](../../backend/internal/node/node.go) `normalizeResetScopes` 只允许 `protocol/network/security/plugin/feature.*` | 后续协议若要按 `auth_mode/version/obfs-mode` 清空，需要扩展合法 scope 或建立通用 `variant` 维度 |
 | 协议注册表 | [registry.go](../../backend/internal/node/registry.go) 只对 VLESS/VMess/Trojan/SS 执行 `enrich*` 与 `organizeFirstBatchForm` | 其余 15 个协议仍是早期平铺 schema，没有条件显隐/推荐项/目标证据 |
-| Clash 输出 | [render_clash.go](../../backend/internal/assembly/render_clash.go) 的 `normalizeClashFields` 仍调用 `RenderPluginForClashLegacy` | Build23 Step 1 的直接对象；`plugin-opts` 被拍平成 URI 字符串 |
-| 检查链路 | [node_check.go](../../backend/internal/assembly/node_check.go) 的 `linkTargetDiagnostics` 对 SS 插件是硬编码 | Build23 Step 2 的直接对象；`target_evidence` 仍未被通用运行时消费 |
-| 未知插件前端 | [ProtocolFieldEditor.vue](../../frontend/src/components/ProtocolFieldEditor.vue) 已支持 `map_value_type=string` 的字符串 map 编辑 | Build23 Step 3 的基底已存在，但完整回归未验收 |
-| URI 往返 | [links.go](../../backend/internal/assembly/links/links.go)、[uriparse.go](../../backend/internal/uriparse/uriparse.go) | Build23 Step 4 将补 SR VMess/VLESS TLS 参数 |
+| Clash 输出 | [render_clash.go](../../backend/internal/assembly/render_clash.go) 当前以 `projectSSPluginForClash` 输出结构化 `plugin` + `plugin-opts` | 原 Build23 Step1（现 Build21 Step11）已收口；不再把 SS 插件拍平成 URI 字符串 |
+| 检查链路 | [node_check.go](../../backend/internal/assembly/node_check.go) 的 `linkTargetDiagnostics` 已按 SS 插件合同消费 | 原 Build23 Step2（现 Build21 Step12）已收口；非 SS 字段级 `target_evidence` 仍按用户确认不全局启用 |
+| 未知插件前端 | [ProtocolFieldEditor.vue](../../frontend/src/components/ProtocolFieldEditor.vue) 已支持 `map_value_type=string` 的字符串 map 编辑 | 原 Build23 Step3（现 Build21 Step13）已收口 |
+| URI 往返 | [links.go](../../backend/internal/assembly/links/links.go)、[uriparse.go](../../backend/internal/uriparse/uriparse.go) | 原 Build23 Step4/N-node-3/4（现 Build21 Step15）已补 SR VMess/VLESS TLS 参数 |
 
 ### 2.2 一个容易忽略的事实：本仓库自带 Mihomo/Clash 官方模板，已经能作为“剩余 15 协议字段缺口”的第一手字典
 
@@ -67,7 +67,7 @@
 
 ### 2.3 因此真正的“下一阶段主线”可能是
 
-1. 先把 Build23 的 SS 插件/SR TLS 问题收口；
+1. 原 Build23 的 SS 插件/SR TLS 问题已并入 Build21 收口（Step11～13、Step15 验收，Step14 跟踪）；
 2. 再把 `FieldSchema/CurrentState/ResetScope` 从“首批四协议专用”扩展成可表达 **协议内互斥模式（variant/auth mode/version/transport type）** 的通用模型；
 3. 然后以本仓库 `ClashOfficial.yaml.template.md` + 固定版本客户端/内核证据为字典，逐协议补齐 15 个 manual 协议的 schema；
 4. 再根据编辑效率需要评估复制节点、导入 YAML/JSON、模板预设、远程刷新等“非协议字段”能力。
@@ -85,7 +85,7 @@
 - 本仓库 `docs/DocTemplates/ClashOfficial.yaml.template.md` 是当前项目自身携带的 Mihomo 生态字段字典，尤其 SS 插件 `plugin/plugin-opts` 正确形态为结构化对象，而不是 URI 字符串。
 
 【经推理】
-- Build23 Step 1 的 Clash SS 插件输出，应直接采用本仓库模板中的 `plugin: obfs` + `plugin-opts: {mode: http}` 形态；这也是 CVR 类型定义接受的结构。
+- 原 Build23 Step1（现 Build21 Step11）的 Clash SS 插件输出已采用本仓库模板中的 `plugin: obfs` + `plugin-opts: {mode: http}` 形态；这也是 CVR 类型定义接受的结构。
 - 当前项目的 URI 批量导入已有“逐行回执/跳过”，但没有“从 Clash YAML `proxies:` 片段粘贴并转换为节点候选”的入口。CVR 的异步解析 + 去重逻辑可作为该功能的交互参考。
 - CVR 的“可视化 + 高级 YAML 可切换”可启发节点高级区：现有对象级 JSON 已存在，未来若做“完整目标 YAML/JSON 只读预览”，可复用 CVR Monaco 经验，但业务校验仍必须走服务端。
 - CVR 的 `prepend/append/delete` 模式适合“订阅扩展层”，当前项目装配已有覆盖层概念，因此不是 manual 节点编辑器需要照搬的模型。
@@ -135,7 +135,7 @@
 
 ---
 
-## 四、候选改进方向（供 Build23 之后决策；非实施承诺）
+## 四、候选改进方向（供 Build21/SS 插件收口之后决策；非实施承诺）
 
 以下编号继续使用 `C10+` / `S8+` 之外的“T”前缀，避免与前两轮 Reference 混淆。所有“经推理/可能”均需用户确认后再进入 Design/Build。
 
@@ -147,11 +147,11 @@
 | T4 | 在 URI 导入之外，增加“粘贴 Clash YAML `proxies:` / v2rayN JSON”的候选导入入口；可借鉴 CVR 异步批量解析与按名去重 | CVR `proxies-editor-viewer.tsx`；当前 [uri_import.go](../../backend/internal/node/uri_import.go) 只解析 URI | 可能 | 先做“解析为草稿/预览”，不直接大批落库；敏感/未知字段需显式提示 |
 | T5 | 提供“节点模板/预设库”，用户可保存常用协议参数模板并一键预填；比默认对象工厂更贴近 Hiddify/Marzban/SSPanel 的运营习惯 | 3x-ui 默认对象工厂、Hiddify/Marzban 模板、SSPanel 复制 | 可能 | 模板只显式预填，不把展示默认值静默写入数据库 |
 | T6 | 对 OpenVPN 等“全文型”协议增加结构化导入/解析，或至少提供 .ovpn 粘贴后的关键字段摘要；避免用户在超大 textarea 里手工排错 | Mihomo 模板 OpenVPN 结构；当前 registry 只有 `client-config` | 可能 | 是产品路线决策：保留全文 or 结构化字段 or 两者并存 |
-| T7 | 将 Build23 收口后的 SS 插件合同继续扩展为“可注册插件目录”，把 Mihomo 模板中 gost-plugin/jls/kcptun 等作为未来 known plugin 候选 | [ClashOfficial.yaml.template.md](../DocTemplates/ClashOfficial.yaml.template.md) 中的 `ss5`、`ss-jls`、`ss-kcptun` | 可能 | 在未知字符串 map 已成立后，新增 known plugin 只是合同+表单问题，不需要重新设计存储 |
-| T8 | 把“目标证据”从前端元数据升级为检查/装配消费证据，并做成用户可见能力标签；Build23 只限定 SS 插件，未来可扩展但不默认全局 | BuildReport4 N-node-2；[registry.go](../../backend/internal/node/registry.go) `TargetEvidence` | 后续独立项 | 先完成 Build23 Step 2，再评估非 SS 字段是否需要 UI 展示 |
+| T7 | 将 Build21 已收口的 SS 插件合同继续扩展为“可注册插件目录”，把 Mihomo 模板中 gost-plugin/jls/kcptun 等作为未来 known plugin 候选 | [ClashOfficial.yaml.template.md](../DocTemplates/ClashOfficial.yaml.template.md) 中的 `ss5`、`ss-jls`、`ss-kcptun` | 可能 | 在未知字符串 map 已成立后，新增 known plugin 只是合同+表单问题，不需要重新设计存储 |
+| T8 | 把“目标证据”从前端元数据升级为检查/装配消费证据，并做成用户可见能力标签；当前仅 SS 插件合同消费，未来可扩展但不默认全局 | BuildReport4 N-node-2；[registry.go](../../backend/internal/node/registry.go) `TargetEvidence` | 后续独立项 | Build21 Step12 已完成 SS 插件范围；再评估非 SS 字段是否需要 UI 展示 |
 | T9 | 提供“从远程节点源/订阅源同步节点”的能力，借鉴 3x-ui 稳定 identity + Sub-Store 资源操作；身份摘要必须加密/哈希 | 3x-ui-2 C3、Sub-Store | 后续可能 | 需要用户确认是否引入“节点源”概念，不是 manual 编辑器自身范围 |
 | T10 | 引入固定版本内核/客户端校验作为开发期/CI 夹具（`mihomo -t`、`sing-box check`、Xray core Build），不作为运行时强制依赖 | Build21/Build23 固定版本思路；sing-box check | 已部分在测试夹具 | 继续保留为自动化验收；不要增加运行时子进程 |
-| T11 | 在节点编辑高级区增加“完整目标 YAML/JSON 只读预览 + 文本 Diff”，复用 CVR Monaco/现有 DiffView 经验；不开放第二份可写真值 | CVR proxies-editor-viewer、[DiffView.vue](../../frontend/src/components/DiffView.vue) | 可能 | 低风险 UX；需先解决 Build23 输出正确性再开放预览 |
+| T11 | 在节点编辑高级区增加“完整目标 YAML/JSON 只读预览 + 文本 Diff”，复用 CVR Monaco/现有 DiffView 经验；不开放第二份可写真值 | CVR proxies-editor-viewer、[DiffView.vue](../../frontend/src/components/DiffView.vue) | 可能 | 低风险 UX；需在 Build21 已收口的输出正确性之上再开放预览 |
 | T12 | WireGuard `reserved` 同时接受 int 数组与 Base64 字符串，MASQUE/Tailscale/ShadowQUIC 等协议补充网络模式/高级参数 | Mihomo 模板 | 可能 | 属于 T2 的细节，不单独推进 |
 
 ---
@@ -187,8 +187,8 @@
 
 | 证据 | 位置 |
 |---|---|
-| 3x-ui 详细研究 | [Node-Editor-3xui-Xray-Research-2.md](Node-Editor-3xui-Xray-Research-2.md) |
-| SSPanel 详细研究 | [SSpanel-Node-Editor-Research-2.md](SSpanel-Node-Editor-Research-2.md) |
+| 3x-ui 详细研究 | [Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md) |
+| SSPanel 详细研究 | [SSPanel-Node-Editor-Research.md](SSPanel-Node-Editor-Research.md) |
 | Clash Verge Rev 代理字段/类型 | `~/Desktop/Repo/clash-verge-rev/src/types/global.d.ts` |
 | Clash Verge Rev proxies 编辑器 | `~/Desktop/Repo/clash-verge-rev/src/components/profile/proxies-editor-viewer.tsx` |
 
@@ -212,3 +212,4 @@
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-05 | 新建第三方生态补充研究：在 3x-ui/SSPanel 二轮之外，补充 Mihomo/CVR、sing-box、v2rayN/NekoBox、Sub-Store、Hiddify/Marzban 等生态的可借鉴方向；对照当前代码与 `ClashOfficial.yaml.template.md` 找出剩余 15 协议 schema 缺口；列出 Build23 之后候选方向。仅文档，未改动代码或其它文档。 |
+| v1.1 | 2026-09-08 | Reference 规范化：文件名由 `Node-Editor-ThirdParty-Supplement-Research.md` 改为 `Node-Editor-Ecosystem-Research.md`；同步 Build21/Design4 v1.14 收口状态，去除“Build23 未开始/Step1～5 待实施”的过期表述。 |

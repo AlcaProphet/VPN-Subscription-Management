@@ -203,7 +203,7 @@ Docker / smoke：
 - `AGENTS.md` 文档清单未列 `BuildReport2/3`、`SecurityReport2` 等已存在报告。
 - `Build21.md` 标记 SS 插件目标映射完成，但 Issue13 R27-09 和当前代码仍显示未完成，存在文档矛盾。
 - README 提到“LICENSE 文件”，仓库未发现 LICENSE。
-- `docs/Reference/xray-server-side.md` 存在指向仓库外 `Xray-examples` 的失效链接。
+- `docs/Reference/Xray-Server-Config-Research.md` 存在指向仓库外 `Xray-examples` 的失效链接。
 - Build17～Build21 按归档规则仍未归档（AGENTS 已注明待归档，但状态已在“已完成”）。
 
 ### 6.5 安全历史未落地项（SecurityReport2 / SecurityReport3）

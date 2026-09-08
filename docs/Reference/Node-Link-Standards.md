@@ -114,16 +114,16 @@
 
 | Design2 设计点 | 验证结论 | 证据链 |
 |---------------|---------|--------|
-| **SR 双产物拆分**（3.4：subs 入订阅池、conf 入规则实体） | ✅ 可行且符合生态：SR 的节点与分流规则本就独立导入；SSPanel 亦将节点信息与规则骨架分开处理（无 SR conf 输出，clash 格式才含 rules） | 样例 Shadowrocket.subs.template.md（纯节点无规则）+ Shadowrocket.conf.template.md（纯规则无节点）+ SSpanel-Subscribe.md 第二章 |
+| **SR 双产物拆分**（3.4：subs 入订阅池、conf 入规则实体） | ✅ 可行且符合生态：SR 的节点与分流规则本就独立导入；SSPanel 亦将节点信息与规则骨架分开处理（无 SR conf 输出，clash 格式才含 rules） | 样例 Shadowrocket.subs.template.md（纯节点无规则）+ Shadowrocket.conf.template.md（纯规则无节点）+ SSPanel-Research.md 第二章 |
 | **subs 整体 base64 输出**（4.5） | ✅ 可行：生态主流形态（样例 + fscarmen 公开脚本双源）；base64 探测判定链兼容性已验证（本文第四章）；注意 SSPanel 采用「不整体 base64」形态，两种均被 SR 接受 | Node-Link-Standards.md 四/六章 |
-| **Clash YAML 零转换渲染**（4.3：manual 节点按 protocol_json 原样输出） | ✅ 可行且优于参照系：urlclash-converter 的字段全量拷贝+空对象深度清理可参照（converter.ts:1333-1380）；SSPanel 的 array_merge+yaml_emit 同思路 | Node-Link-Standards.md 第五章 + SSpanel-Subscribe.md 第二章 |
-| **占位标记 `# {{xray_nodes}}` 注入**（4.3/5.7） | ✅ 可行：注释行在 YAML 与 subs 明文（链接行列表）中均语法无害；SR 容忍非 URI 行（样例中 STATUS=/REMARKS= 头部行先例）；注入后全文重新 base64 仍满足探测判定链；SSPanel 不用占位而用「骨架+运行时插入」，两种均可行，占位方案与模板预览/上传兼容更好 | 样例头部行 + 本文第四章判定链 + SSpanel-Subscribe.md 第二章 |
+| **Clash YAML 零转换渲染**（4.3：manual 节点按 protocol_json 原样输出） | ✅ 可行且优于参照系：urlclash-converter 的字段全量拷贝+空对象深度清理可参照（converter.ts:1333-1380）；SSPanel 的 array_merge+yaml_emit 同思路 | Node-Link-Standards.md 第五章 + SSPanel-Research.md 第二章 |
+| **占位标记 `# {{xray_nodes}}` 注入**（4.3/5.7） | ✅ 可行：注释行在 YAML 与 subs 明文（链接行列表）中均语法无害；SR 容忍非 URI 行（样例中 STATUS=/REMARKS= 头部行先例）；注入后全文重新 base64 仍满足探测判定链；SSPanel 不用占位而用「骨架+运行时插入」，两种均可行，占位方案与模板预览/上传兼容更好 | 样例头部行 + 本文第四章判定链 + SSPanel-Research.md 第二章 |
 | **SR 原生参数风格渲染**（4.5） | ✅ 对 SR 客户端有效（双源背书）；⚠️ 限制：不可被标准风格解析器完整回读（第三章），但本系统不回读自产链接，风险不成立；建议主输出用形态 A（base64 userinfo）与样例一致 | Node-Link-Standards.md 三/六章 |
 | **不可转协议跳过+提示**（4.5） | ✅ 必要：snell/mieru/masque 等无 URI 标准；urlclash-converter 对 SSR 的处理（静默丢弃）是反面教材，本设计的「提示」更优 | 本文第二章重大事实 + 第七章 |
 | **Xray 节点注入渲染**（5.7：vless/vmess 两种客户端表达） | ✅ 可行：Clash 端 XTLS 标准参数与 SR 端原生参数映射均已取证（本文二/六章 + Xray-Core-API.md §五传输字段）；vless Account 只需 id/flow/encryption（Xray-Core-API.md §11.3） | 交叉三源 |
-| **用量响应头**（决策 #23） | ✅ 与生态完全对齐：SSPanel 四字段实现逐字段核验一致（total=总配额、expire=Unix 秒）；可低成本增配 Profile-Update-Interval 等头 | SSpanel-Subscribe.md 一/五章 + Xray-Core-API.md §八 |
+| **用量响应头**（决策 #23） | ✅ 与生态完全对齐：SSPanel 四字段实现逐字段核验一致（total=总配额、expire=Unix 秒）；可低成本增配 Profile-Update-Interval 等头 | SSPanel-Research.md 一/五章 + Xray-Core-API.md §八 |
 
-**总体结论**【推断】：Design2 装配器设计（SR 双产物 / Clash YAML 渲染 / 占位注入）经三源交叉验证（源码取证 + 真实样例 + 生态面板对照）技术可行，无需设计层变更；实现层需遵守的细则（编码规则、陷阱规避、API 调用形态）已分载于本文档与 SSpanel-Subscribe.md、Xray-Core-API.md。
+**总体结论**【推断】：Design2 装配器设计（SR 双产物 / Clash YAML 渲染 / 占位注入）经三源交叉验证（源码取证 + 真实样例 + 生态面板对照）技术可行，无需设计层变更；实现层需遵守的细则（编码规则、陷阱规避、API 调用形态）已分载于本文档与 SSPanel-Research.md、Xray-Core-API.md。
 
 ## 八、陷阱总结（装配器实现必避）
 
