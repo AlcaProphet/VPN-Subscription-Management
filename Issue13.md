@@ -11,8 +11,8 @@
 - **核验范围：** Build17～Build20 的落地产物；当前提交 `db14912` 已包含 Build21 的后续修复，因此 Build21 引入的输出回归也纳入现状记录。
 - **运行时核对：** 节点管理页实际返回的 JS/CSS 与本次源码构建结果一致，已排除浏览器使用旧静态资源造成的假象；本次调查没有保存新节点，也未修改业务代码。
 - **自动化结果：** 后端 `node`、`server`、`assembly`、`assembly/links`、`xray` 五个包测试通过，`go build ./...`、`go vet ./...` 通过；前端相关 4 个测试文件、26 个用例通过，`npm run build` 通过；调查时 `git status --short` 干净，`git diff --check` 通过。
-- **验收结论：** R27-01～R27-09 的实施结果已分别并入 Build21 Step 7～13，N-node-3/4 已并入 Step 15；当前仅 Build21 Step 14 仍在收口。自动化通过不能替代 [ProdTestList.md](ProdTestList.md) 中的浏览器、Production 和真实客户端人工结果；工程问题与证据门禁见 [Issue14.md](Issue14.md)。
-- **范围边界：** 本文保留 R27-01～R27-09 的历史调查、决策和已实施结果；当前工程问题见 [Issue14.md](Issue14.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)。Issue12 的 R26-02～R26-07 也不重复登记。
+- **验收结论：** R27-01～R27-09 的实施结果已分别并入 Build21 Step 7～13，N-node-3/4 已并入 Step 15；在 R27 范围内仅 Build21 Step 14 仍在收口。自动化通过不能替代 [ProdTestList.md](ProdTestList.md) 中的浏览器、Production 和真实客户端人工结果；工程问题与证据门禁见 [Issue14.md](Issue14.md)。
+- **范围边界：** 本文保留 R27-01～R27-09 的历史调查、决策和已实施结果；当前工程问题见 [Issue14.md](Issue14.md)（除 Step 14/R28-01～04 外，还包含 BuildReport4 遗留的 D3/N-core/N-node-6/安全等 R28-05～R28-09），用户人工验收见 [ProdTestList.md](ProdTestList.md)。Issue12 的 R26-02～R26-07 也不重复登记。
 
 ---
 
@@ -310,3 +310,4 @@
 | v1.18 | 2026-09-08 | 开始执行 Build21 Step 14：记录自动化/固定 Mihomo/隔离 Production smoke/浏览器真实 API 通过证据；同时记录动态插件输入控制台异常和两个 smoke 夹具契约问题，Step 14 保持未闭环，未修改业务代码。 |
 | v1.19 | 2026-09-08 | 将 Build21 Step 14 未闭环项拆分记录：浏览器动态插件输入控制台异常、smoke 布尔值断言不匹配、Clash 请求缺少 `fallback_group_members`，以及 Shadowrocket 真机验证未完成；明确本轮仅记录证据，未修改业务代码或测试脚本。 |
 | v1.20 | 2026-09-08 | 将 Step 14 的工程性问题和证据缺口迁移至 [Issue14.md](Issue14.md)，将用户人工项目迁移至 [ProdTestList.md](ProdTestList.md)；Issue13 保留 R27 历史调查、决策和迁移指针。 |
+| v1.21 | 2026-09-08 | 文档交叉审核：补充 Issue14 已扩展承接 BuildReport4 遗留工程项，Issue13 的 R27 范围边界更精确；未修改业务代码。 |

@@ -1,8 +1,9 @@
 # VPN 订阅管理系统 功能构建计划（Build22：当前构建方案）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接已完成的 [Build17.md](Build17.md)～[Build20.md](Build20.md) 以及 [Build21.md](Build21.md) 已验收部分（R27-09 Step 7～13、N-node-3/4 Step 15）；Build21 Step 14 正在收口，工程问题见 [Issue14.md](Issue14.md)，用户人工结果见 [ProdTestList.md](ProdTestList.md)。本轮针对 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 的**未闭环项 1** 进行深入研究并制定修复计划。
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接已完成的 [Build17.md](Build17.md)～[Build20.md](Build20.md) 以及 [Build21.md](Build21.md) 已验收部分（R27-09 Step 7～13、N-node-3/4 Step 15）；Build21 Step 14 正在收口，工程问题见 [Issue14.md](Issue14.md)，用户人工结果见 [ProdTestList.md](ProdTestList.md)。本轮针对 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 的**未闭环项 1** 进行深入研究并制定修复计划。**该未闭环项当前已登记于 [Issue14.md](Issue14.md) R28-05；本文件仍为后续实施 D3-1～D3-10 的唯一分步计划。**
 > - 设计记录：[Design3.md](Design3.md)（Build16 的目标设计，当前仍有效）、[Build16.md](docs/reports/Build/Build16.md)（原构建计划）
 > - 问题来源：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md)（全量核验报告，未闭环项 1）
+> - 问题追踪：[Issue14.md](Issue14.md)（R28-05）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 历史构建与问题记录：见 [docs/reports/](docs/reports/)（均已存档，仅核查）
 >
@@ -41,6 +42,7 @@
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 > 当前没有进行中的构建 Step；所有 Step 均待按本文档逐步执行。
+> 工程状态追踪：上述 D3-1～D3-10 未闭环项已登记至 [Issue14.md](Issue14.md) R28-05；本文档作为实施计划，不替代问题追踪。
 
 ---
 
@@ -616,7 +618,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 ## 五、候选构建项（待用户决策，逐项转 Step）
 
-> 以下候选均来自 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §4.2，并已经用户确认纳入 Build22。后续实施时按上述 Step 顺序逐项执行。
+> 以下候选均来自 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §4.2，并已经用户确认纳入 Build22。工程跟踪见 [Issue14.md](Issue14.md) R28-05；后续实施时按上述 Step 顺序逐项执行。
 
 | # | 候选 | 说明 | 来源 | 对应 Step |
 |---|------|------|------|-----------|
@@ -642,6 +644,7 @@ Step 11（全量回归/文档收口） ←────────────�
 | v1.0 | 2026-09-05 | 根据 BuildReport4 未闭环项 1 完成 D3-1～D3-10 根因研究、修复方向与候选清单。 |
 | v1.1 | 2026-09-05 | 进一步深入研究并按照 `docs/DocTemplates/Build.template.md` 重排：新增构建进度追踪、构建概要、顺序依赖图、分步构建计划、候选构建项与变更记录；补充 failed 快照持久化、来源证据实现细节、迁移测试方法与清理策略。未修改任何业务代码。 |
 | v1.2 | 2026-09-05 | 按审阅建议补强：generate 回执改为必做；per-URL SourceStatus/SourceSnapshot 补全 input/recognized、诊断摘要与有限样例；failed 快照增加脱敏与诊断限额；依赖说明改为串行；补充与 Build21 同文件区域的串行执行提醒。 |
+| v1.3 | 2026-09-08 | 文档交叉审核：将 D3-1～D3-10 未闭环项登记至 Issue14 R28-05；本文档保留为实施计划并在进度追踪中补充 Issue14 链接。未修改业务代码。 |
 
 ---
 

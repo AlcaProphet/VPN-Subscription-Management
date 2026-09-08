@@ -267,7 +267,7 @@
 | [Build19.md](Build19.md) | AI 编码助手 | 第十九轮构建：前端动态表单、可编辑下拉、分支清空、局部 JSON 与目标检查 UI | 已完成（实现与自动化验收，含未知扩展/JSON/切换提示收口）；文档仍在根目录待归档 |
 | [Build20.md](Build20.md) | AI 编码助手 | 第二十轮构建：全量手动协议过渡、URI/Xray 来源适配、输出门槛与回归收口 | 已完成（实现与自动化验收）；文档仍在根目录待归档 |
 | [Build21.md](Build21.md) | AI 编码助手 | 第二十一轮构建：BuildReport3 对齐修复与 R27-09 全量扩展计划；R27-09 主体 Step 14 与 N-node-3/4 Step 15 的唯一分步记录 | Step 1～13、15 已完成；Step 14 正在收口，工程问题见 Issue14，人工结果见 ProdTestList；文档仍在根目录待归档 |
-| [Build22.md](Build22.md) | AI 编码助手 | 第二十二轮构建方案：BuildReport4 未闭环项 1（Design3/Build16 D3-1～D3-10） | 未开始，文档在根目录待实施 |
+| [Build22.md](Build22.md) | AI 编码助手 | 第二十二轮构建方案：BuildReport4 未闭环项 1（Design3/Build16 D3-1～D3-10） | 未开始，文档在根目录待实施；工程跟踪见 Issue14 R28-05 |
 | [Build23.md](Build23.md) | AI 编码助手 | Build23 交接说明：R27-09 与 N-node-3/4 已并入 Build21，不再重复分步 | 交接文档，执行以 Build21 为准 |
 
 | [Issue1.md](docs/reports/Issue/Issue1.md) | AI 编码助手 / 开发者 | 问题记录：R1~R11 系列（首轮基础问题与修复） | 已存档 |
@@ -282,7 +282,7 @@
 | [Issue12.md](docs/reports/Issue/Issue12.md) | AI 编码助手 / 开发者 | 问题记录：R26-01～R26-07（Build17/18 契约修复；人工回归见 ProdTestList） | 已存档 |
 
 | [Issue13.md](Issue13.md) | AI 编码助手 / 开发者 | R27-01～R27-09 历史调查、决策与已实施结果；未完成项已迁移至 Issue14，人工项目见 ProdTestList | 过渡记录 |
-| [Issue14.md](Issue14.md) | AI 编码助手 / 开发者 | Build21 Step 14 工程问题、新错误与验收证据缺口 | 活跃 |
+| [Issue14.md](Issue14.md) | AI 编码助手 / 开发者 | Build21 Step 14 与 BuildReport4 遗留工程问题（R28 系列：D3/N-core/N-node-6/安全等） | 活跃 |
 
 | [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | Production 模式待人工验证清单（含 .smoke-test.sh 实机执行） | 活跃 |
 | [docs/Reference/TestPasswordList.md](docs/Reference/TestPasswordList.md) | 测试者 / AI 编码助手 | 仅供本地隔离环境使用的合成测试账号与统一密码清单；严禁用于生产或真实数据环境 | 活跃 |
@@ -295,5 +295,5 @@
 | [docs/reports/Design/](docs/reports/Design) | 人类（开发者/用户）与 AI 编码助手 | 历史设计文档：Design0、Design1、Design1-UI、Design2、Design2-UI、DesignOnHold | 已存档 |
 | [docs/reports/Issue/](docs/reports/Issue) | AI 编码助手 / 开发者 | 历史问题追踪：Issue1~12（均已闭环归档） | 已存档 |
 | [docs/reports/DesignReport/](docs/reports/DesignReport) | 人类（开发者/用户）与 AI 编码助手 | Design2 核验/研究报告：DesignReport1~10（原 Design2Report1~11，缺 6 已重新连续编号） | 已存档 |
-| [docs/reports/BuildReport/](docs/reports/BuildReport) | AI 编码助手 / 开发者 | 构建验收/修复报告：BuildReport1 | 已存档 |
-| [docs/reports/SecurityReport/](docs/reports/SecurityReport) | AI 编码助手 / 开发者 | 安全审计/修复报告：SecurityReport1 | 已存档 |
+| [docs/reports/BuildReport/](docs/reports/BuildReport) | AI 编码助手 / 开发者 | 构建验收/修复报告：BuildReport1～4 | 已存档 |
+| [docs/reports/SecurityReport/](docs/reports/SecurityReport) | AI 编码助手 / 开发者 | 安全审计/修复报告：SecurityReport1～2；根目录另存 SecurityReport3 | 已存档 |

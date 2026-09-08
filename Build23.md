@@ -4,7 +4,7 @@
 > - 设计记录：[Design4.md](Design4.md)（当前设计记录；与 AGENTS.md 或用户决策冲突时以用户确认为准）
 > - 问题来源：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md)（全量核验报告，未闭环项 3）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 问题追踪：[Issue14.md](Issue14.md)（Build21 Step 14 工程问题与证据缺口）；R27 历史记录见 [Issue13.md](Issue13.md)
+> - 问题追踪：[Issue14.md](Issue14.md)（Build21 Step 14 工程问题、D3/N-core/N-node-6/安全等遗留工程问题）；R27 历史记录见 [Issue13.md](Issue13.md)
 > - 用户人工验收：[ProdTestList.md](ProdTestList.md)（Production、浏览器和真实客户端结果以此为准）
 > - 历史构建与问题记录：见 [docs/reports/](docs/reports/)（均已存档，仅核查）
 >
@@ -18,11 +18,12 @@
 >
 > **执行入口：** 后续实施 R27-09 时，以 [Build21.md](Build21.md) §7 的 Step 13～15 为唯一分步计划；Build23 不再独立维护 Step 1～5。
 >
-> **研究结论摘要：**
-> - N-node-1：未知插件存储/URI 导入已由 Build21 修复，但 Clash 输出仍拍平并删除结构化 `plugin-opts`，自检也不识别旧 URI 字符串格式。
-> - N-node-2/N-node-5：`target_evidence` 仅是元数据且未被检查链路消费；SS 诊断硬编码，导致 v2ray-plugin/shadow-tls/restls 的 URI 检查可能误报 `ok`。
-> - N-node-3/N-node-4：SR VMess/VLESS 缺少 TLS/ALPN/指纹/Flow/Skip 参数，`uriparse` 的 SR VMess 回读也不完整。
-> - 修复方向：Clash 结构化投影 + 产物自检、SS 插件统一目标诊断、未知插件前端编辑、SR URI TLS 参数补全、全链路回归与文档收口。
+> **研究结论摘要（当前状态）：**
+> - N-node-1：未知插件存储/URI 导入与 Clash 结构化 `plugin`/`plugin-opts` 输出已由 [Build21.md](Build21.md) Step 8/10/11/13 修复；项目自检已能识别并拒绝旧 URI 字符串格式。
+> - N-node-2/N-node-5：SS 插件范围内的目标诊断已由 [Build21.md](Build21.md) Step 12 接入节点检查与正式装配，v2ray-plugin/shadow-tls/restls 不再无条件误报 `ok`；非 SS 字段级 `target_evidence` 仍按用户确认不全局启用。
+> - N-node-3/N-node-4：SR VMess/VLESS 的 TLS/ALPN/指纹/Flow/Skip 输出与解析已由 [Build21.md](Build21.md) Step 15 补全。
+> - N-node-6：未知扩展/局部 JSON 边界仍未单独闭环，已登记至 [Issue14.md](Issue14.md) R28-06。
+> - 遗留：Build21 Step 14 的工程问题与安全/D3 等其他 BuildReport4 遗留工程问题统一见 [Issue14.md](Issue14.md)。
 
 ---
 
@@ -48,7 +49,7 @@
 4. **非 SS 字段级 `target_evidence`**不全局消费，仅按 SS 插件合同派生诊断，避免无关降级。
 5. **固定版本证据**主要指 Mihomo 1.19.29 与 CVR 2.5.2 的离线/源码证据；Shadowrocket 仅有版本与公告证据。
 6. **R27-08**（`diagnostics: []` 契约）已在当前代码中修复，后续回归需继续保持非空数组语义。
-7. **N-node-6**（未知扩展/局部 JSON 边界）未在本轮单独闭环，后续应作为独立 Issue/Design 项明确处理或排除。
+7. **N-node-6**（未知扩展/局部 JSON 边界）未在本轮单独闭环，后续应作为独立 Issue/Design 项明确处理或排除；已登记至 [Issue14.md](Issue14.md) R28-06。
 
 ---
 
@@ -58,7 +59,7 @@
 |---|------|------|------|
 | 1 | Shadowrocket 真机导入/连接验收 | 已迁移至 [ProdTestList.md](ProdTestList.md)，结果以该清单为准；不属于自动化可闭环项 | Design4 §8.5；ProdTestList |
 | 2 | 非 SS 字段级 `target_evidence` 全局诊断或前端逐字段证据展示 | 当前已确认仅按 SS 插件合同消费；全局启用会扩大影响面，建议作为后续独立优化 | Build21 §7.2 排除说明 |
-| 3 | BuildReport4 未闭环项 1、2、4～6 | Build16/Design3、smoke、安全报告、人工验收等，均不属于本 Build 范围 | BuildReport4 结论摘要 |
+| 3 | BuildReport4 未闭环项 1、2、4～6 | Build16/Design3、smoke、安全报告、人工验收等，均不属于本 Build 范围；工程项已统一登记至 [Issue14.md](Issue14.md) R28-05/R28-08/R28-09，人工项见 [ProdTestList.md](ProdTestList.md) | BuildReport4 结论摘要 |
 
 > 候选转 Step 流程：用户确认后，直接在 Build21 或后续对应 Build 文档中追加 Step，不在本文件重复展开。
 
@@ -72,3 +73,4 @@
 | v2.0 | 2026-09-05 | 按 `docs/DocTemplates/Build.template.md` 重新排版：补充分步构建的模板结构（进度追踪、文件总览、依赖图、分步计划、候选项、变更记录）；补充 Build21 已落地步骤、CVR/Mihomo 源码证据、fixed-version 正例与真机边界。 |
 | v2.1 | 2026-09-05 | 根据进一步源码研究与用户确认，明确 SR VMess 输出包含 `alpn`/`fp` 但保留 Shadowrocket 真机待验证；明确 generic VMess 不补充 `skip-cert-verify` 并加入负向回归。 |
 | v3.0 | 2026-09-05 | 文档归属整理：按用户确认将 R27-09 主体步骤全部并入 Build21 §7，Build23 不再重复 Step 1～5；本文档改为交接说明与边界记录。 |
+| v3.1 | 2026-09-08 | 文档交叉审核：更新研究结论为当前已落地状态（N-node-1/2/3/4/5 已由 Build21 处理），并将 N-node-6 及 BuildReport4 其余遗留工程项登记至 Issue14。 |

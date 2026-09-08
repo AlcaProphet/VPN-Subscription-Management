@@ -75,6 +75,7 @@ cd frontend && npm test -- --run
 - `shadow-tls`/`restls` 插件仍保留原格式，由目标检查诊断提示未验证，未宣称完整支持。
 - 非首批 15 协议的详细分区/字段分组仍有进一步按语义收敛的空间。
 - 客户端真机导入/连接验证仍按 Design4 保留为人工验收。
+- BuildReport4 中不属于 Build21 R27-09 主体的遗留工程项（Build16/Design3 D3-1～D3-10、N-core、N-node-6、安全 N01～N07 等）已统一登记至 [Issue14.md](Issue14.md) R28-05～R28-09；Build22 为 D3 实施计划。
 
 ---
 
@@ -632,3 +633,4 @@ Step 7～13 + Step 15 全部通过 ─→ Step 14 全量收口
 | v1.12 | 2026-09-08 | 完成 N-node-3/4 Step 15：补齐 SR VMess/VLESS TLS 身份、ALPN、指纹、Flow 与 TLS skip 输出，补齐 VMess 回读及自产 SR VLESS TLS/REALITY 方言推导；生成→解析、关闭残留、generic 边界与检查链回归通过，后端定向/竞态/全量测试、编译、vet 与前端生产构建通过。Step 14 保持未实施，Shadowrocket 真机连接仍待人工验证。 |
 | v1.13 | 2026-09-08 | 开始执行 Step 14：后端/前端全量与竞态矩阵、固定 Mihomo 1.19.29 正反例、隔离 Production smoke 与浏览器真实 API 功能路径均取得通过证据；发现 smoke 夹具的布尔值/装配字段契约落后，以及动态插件输入操作捕获两条 Ant Design 输入组件控制台异常。Step 14 保持执行中，未宣称闭环。 |
 | v1.14 | 2026-09-08 | 将 Step 14 的工程性未完成项、新错误和固定版本证据缺口迁移至 Issue14；将用户人工项目集中迁移至 ProdTestList，Build21/Issue14/Design4 的人工结果统一引用该清单。 |
+| v1.15 | 2026-09-08 | 文档交叉审核：在“遗留与后续”中补充 BuildReport4 遗留工程项已统一登记至 Issue14 R28-05～R28-09；未修改业务代码。 |
