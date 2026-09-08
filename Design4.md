@@ -2,7 +2,7 @@
 
 > **文档定位：** VPN 订阅管理系统的节点编辑器增量设计记录，承接 [Node-Editor-Design-Research.md](docs/Reference/Node-Editor-Design-Research.md)、[Node-Editor-Improvement-Directions.md](docs/Reference/Node-Editor-Improvement-Directions.md) 和 2026-09-02 补充研究。本文记录已确认的产品方向、设计纲要、研究证据及后续范围，不是分步 Build 文档。
 > **编码约束：** 遵循 [AGENTS.md](AGENTS.md)（唯一强要求）。[Design3.md](Design3.md) 的规则素材与装配设计继续有效；节点已实现基线见 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md) §6.2 和 [Build15.md](docs/reports/Build/Build15.md)。
-> **设计状态：** v1.12，2026-09-04。用户已确认并授权写入：切换分支清空所属参数与凭据、切回不恢复、取消独立 `node_edit_states` 表，在 `nodes` 内保存最小当前状态；同时确认协议过渡、目标生成门槛、未知扩展保护、并发修订方案、当前状态落盘形式与 Reference 同步口径。当前有效决策见第二章，设计准备度见第十一章，首批契约细化见第十二章。**关键行为与首批普通组合/风险组合矩阵已补齐；Build17 已完成后端保存契约、当前状态落盘、修订冲突、凭据/扩展保护及 URI 初始化，Build18 已完成条件元数据、活动投影、节点检查和离线夹具，Build19 与 Build20 已完成，前端未知扩展摘要/JSON 草稿拦截/分支切换提示已收口；R27-03 补齐功能关闭清空的元数据契约，R27-04/05 补齐单一连接入口及表单排序/层次/集中开关，R27-06 补齐 `allow_custom` 三态与默认禁止契约，R27-07 补齐实际密文摘要、递归凭据状态及以稳定条目身份处理 WireGuard 数组凭据的完整链路，客户端连接验收仍待完成。**
+> **设计状态：** v1.14，2026-09-08。用户已确认并授权写入：切换分支清空所属参数与凭据、切回不恢复、取消独立 `node_edit_states` 表，在 `nodes` 内保存最小当前状态；同时确认协议过渡、目标生成门槛、未知扩展保护、并发修订方案、当前状态落盘形式与 Reference 同步口径。当前有效决策见第二章，设计准备度见第十一章，首批契约细化见第十二章。**关键行为与首批普通组合/风险组合矩阵已补齐；Build17 已完成后端保存契约、当前状态落盘、修订冲突、凭据/扩展保护及 URI 初始化，Build18 已完成条件元数据、活动投影、节点检查和离线夹具，Build19 与 Build20 已完成，前端未知扩展摘要/JSON 草稿拦截/分支切换提示已收口；R27-03 补齐功能关闭清空的元数据契约，R27-04/05 补齐单一连接入口及表单排序/层次/集中开关，R27-06 补齐 `allow_custom` 三态与默认禁止契约，R27-07 补齐实际密文摘要、递归凭据状态及以稳定条目身份处理 WireGuard 数组凭据的完整链路；R27-09 Step 7～13 与 N-node-3/4 Step 15 已完成，Step 14 正在收口。工程问题见 [Issue14.md](Issue14.md)，用户人工验收结果见 [ProdTestList.md](ProdTestList.md)。**
 > **数据前提：** 按用户确认，当前项目无业务数据，因此旧节点/旧调用方的数据兼容、迁移、历史数据读改写原本不作为本次设计约束；R27-07 扩大范围后，仍为可能存在的本地或备份 WireGuard Peer 数据加入幂等启动升级，避免明文数组凭据遗留。schema 版本化、新节点初始化、“无数据环境下直接建库”和历史版本快照语义继续适用。
 > **证据基线：** 项目提交 `d76ee99`；补充研究使用 Clash Verge Rev **2.5.2** 的官方 URI 解析源码及本机携带的 Mihomo **1.19.29**，执行了 **41 个离线配置检查和 9 个 URI 样例检查**。结果含接受、拒绝、字段改写与静默回退，不是“50 项全部通过”；Shadowrocket 只有官方发布资料证据，没有本轮真机导入或连接结果。
 > **状态用语：** “设计结论”表示本次采用的方案；“研究结果”表示指定版本、指定路径的观察；“待细化”表示构建前仍需补齐的契约或证据。文中的目标行为除明确标注的 Build17～Build20 实施结果外，不表示当前代码已经实现。
@@ -546,7 +546,7 @@ Trojan 的源码只对 WS／gRPC 作专门处理，其他值走 TCP。XHTTP 的 
 | 条件元数据 | 后端 `FieldSchema` 承载活动条件、必填、分区、推荐值及重置依赖 | 第十二章 §12.2；Build18 已实现 Go 结构、下发 JSON 与服务端匹配/校验，Build19 已完成前端渲染 |
 | 清空与凭据操作 | 按分区清空；A → B → A 不恢复旧值；重置合并基底后允许新输入，检查与保存共用流程 | 第十二章 §12.3；Build17 已实现 `reset_scopes`、`credential_ops` 与合并基底 |
 | 目标生成与诊断 | §7.4 已确定拒绝／跳过／警告和零有效链接行为 | 第十二章 §12.3、§12.6；Build18 已实现节点级诊断结构与实际适配器检查，Build20 已完成正式装配门槛 |
-| 客户端 profile | Mihomo 1.19.29 与 CVR 2.5.2 为首批基线；Shadowrocket 待真机验证（D16） | 第十二章 §12.4；Build18 已实现固定版本离线正反例，客户端导入/连接仍待人工验收 |
+| 客户端 profile | Mihomo 1.19.29 与 CVR 2.5.2 为首批基线；Shadowrocket 待真机验证（D16） | 第十二章 §12.4；Build18 已实现固定版本离线正反例，客户端导入/连接结果见 ProdTestList |
 | SS URI 与插件 | 普通 AEAD、插件条件表单与诊断为首批，SS 2022 完整支持后置（D18） | 第十二章 §12.4、§12.5；Build18 已实现插件条件与风险诊断，SS 2022 完整支持仍后置 |
 | 未知扩展 | 来源／分区／目标明确；无法识别敏感路径时整体加密，保留／替换／清除，读取摘要；随分支清空（D10） | 第十二章 §12.1、§12.3；Build17 已实现扩展块加密与摘要 |
 | 节点检查 | 同时接受新建及编辑草稿，复用实际适配器，使用有效凭据操作，不落库；旧响应不能覆盖新结果（D17） | 第十二章 §12.3；Build18 已实现 `/check`、草稿修订关联、reset/credential/extension 内存合并与脱敏产物 |
@@ -611,7 +611,7 @@ v1.5 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、�
 | 历史版本 | [clash_plan.go](backend/internal/assembly/clash_plan.go) 的 `ManualProxies` 冻结 manual 配置 | 编辑与清空不改写已生成快照，重新装配才形成新产物 |
 | 迁移与备份 | 现有版本化迁移与 SQLite 一致性备份可承载 `nodes` 新字段 | Build17 已验证初始化并扩展 [export.go](backend/internal/config/export.go) 的密钥变更保护；删除、恢复和完整备份语义仍需回归，配置导出仍不等于节点备份 |
 
-第八章记录的 41 个 Mihomo 配置检查与 9 个 CVR URI 样例仍是先前研究摘要；Build18 已新增 15 个四协议离线 JSON 夹具、目标诊断测试和固定 URI 形态测试，但它们不替代固定版本客户端导入。Shadowrocket 仍只有版本／公告证据，无本轮真机结果。[3x-ui／Xray 对照研究](docs/Reference/Node-Editor-3xui-Xray-Research.md) 提供参考，不替代本项目各输出入口的验收。
+第八章记录的 41 个 Mihomo 配置检查与 9 个 CVR URI 样例仍是先前研究摘要；Build18 已新增 15 个四协议离线 JSON 夹具、目标诊断测试和固定 URI 形态测试，但它们不替代固定版本客户端导入。Shadowrocket 仍只有版本／公告证据，无本轮真机结果，人工执行见 [ProdTestList.md](ProdTestList.md)。[3x-ui／Xray 对照研究](docs/Reference/Node-Editor-3xui-Xray-Research.md) 提供参考，不替代本项目各输出入口的验收。
 
 ### 11.3 设计前置、Build 任务与后续范围
 

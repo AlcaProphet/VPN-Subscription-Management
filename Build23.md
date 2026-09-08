@@ -4,7 +4,8 @@
 > - 设计记录：[Design4.md](Design4.md)（当前设计记录；与 AGENTS.md 或用户决策冲突时以用户确认为准）
 > - 问题来源：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md)（全量核验报告，未闭环项 3）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 问题追踪：[Issue13.md](Issue13.md)（当前问题记录，含 R27-09）
+> - 问题追踪：[Issue14.md](Issue14.md)（Build21 Step 14 工程问题与证据缺口）；R27 历史记录见 [Issue13.md](Issue13.md)
+> - 用户人工验收：[ProdTestList.md](ProdTestList.md)（Production、浏览器和真实客户端结果以此为准）
 > - 历史构建与问题记录：见 [docs/reports/](docs/reports/)（均已存档，仅核查）
 >
 > **用户已确认的决策：**
@@ -41,7 +42,7 @@
 
 ## 二、保留的研究边界
 
-1. **Shadowrocket 真机导入/连接**仍是人工待办，不能因 URI 可生成或内部往返通过就标记为完整兼容。
+1. **Shadowrocket 真机导入/连接**仍是人工项目，统一记录在 [ProdTestList.md](ProdTestList.md)；不能因 URI 可生成或内部往返通过就标记为完整兼容。
 2. **未知 SS 插件参数**按用户确认作为普通字符串参数处理，不进入敏感字段/凭据模型；即使键名为 `password`、`token`、`secret` 也不按凭据处理。
 3. **generic VMess**本轮明确不补充 `skip-cert-verify`，保持现状并在测试中作为负向边界。
 4. **非 SS 字段级 `target_evidence`**不全局消费，仅按 SS 插件合同派生诊断，避免无关降级。
@@ -55,7 +56,7 @@
 
 | # | 候选 | 说明 | 来源 |
 |---|------|------|------|
-| 1 | Shadowrocket 真机导入/连接验收 | 当前只有生态规范与版本公告证据，无真机连接结果；不属于自动化可闭环项 | Design4 §8.5；ProdTestList |
+| 1 | Shadowrocket 真机导入/连接验收 | 已迁移至 [ProdTestList.md](ProdTestList.md)，结果以该清单为准；不属于自动化可闭环项 | Design4 §8.5；ProdTestList |
 | 2 | 非 SS 字段级 `target_evidence` 全局诊断或前端逐字段证据展示 | 当前已确认仅按 SS 插件合同消费；全局启用会扩大影响面，建议作为后续独立优化 | Build21 §7.2 排除说明 |
 | 3 | BuildReport4 未闭环项 1、2、4～6 | Build16/Design3、smoke、安全报告、人工验收等，均不属于本 Build 范围 | BuildReport4 结论摘要 |
 

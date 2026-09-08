@@ -1,6 +1,6 @@
 # Issue13.md — VPN 订阅管理系统问题追踪（当前）
 
-> **文档定位：** 本文记录对 Build17～Build20 进行严格对齐核验后发现的节点编辑器、目标检查与输出问题，承接已归档的 [Issue1～Issue12](docs/reports/Issue/)，以及当前的 Issue13。当前核验以 [Design4.md](Design4.md) 为设计基线，并参考 [BuildReport3.md](docs/reports/BuildReport/BuildReport3.md)；编码约束以 [AGENTS.md](AGENTS.md) 为准。
+> **文档定位：** 本文记录对 Build17～Build20 进行严格对齐核验后发现的节点编辑器、目标检查与输出问题，承接已归档的 [Issue1～Issue12](docs/reports/Issue/)。R27-09 的工程性未完成项、新错误和证据缺口已迁移至 [Issue14.md](Issue14.md)；需要用户亲自执行的 Production、浏览器和真实客户端人工项目已迁移至 [ProdTestList.md](ProdTestList.md)。当前核验以 [Design4.md](Design4.md) 为设计基线，并参考 [BuildReport3.md](docs/reports/BuildReport/BuildReport3.md)；编码约束以 [AGENTS.md](AGENTS.md) 为准。
 
 ---
 
@@ -11,8 +11,8 @@
 - **核验范围：** Build17～Build20 的落地产物；当前提交 `db14912` 已包含 Build21 的后续修复，因此 Build21 引入的输出回归也纳入现状记录。
 - **运行时核对：** 节点管理页实际返回的 JS/CSS 与本次源码构建结果一致，已排除浏览器使用旧静态资源造成的假象；本次调查没有保存新节点，也未修改业务代码。
 - **自动化结果：** 后端 `node`、`server`、`assembly`、`assembly/links`、`xray` 五个包测试通过，`go build ./...`、`go vet ./...` 通过；前端相关 4 个测试文件、26 个用例通过，`npm run build` 通过；调查时 `git status --short` 干净，`git diff --check` 通过。
-- **验收结论：** Build17 的保存基础基本完成；Build18 的元数据、活动投影和检查接口已实现但仍有契约缺口；Build19 未达到 Design4 的完整表单与交互验收要求；Build20 的统一入口和输出门槛已有实现，但完整输出验收尚未闭环。自动化通过不能替代真实元数据到浏览器交互链路和固定版本客户端的完整验收。
-- **范围边界：** 固定版本客户端的实际导入/连接验证仍是 Design4/Build 文档中的人工待办，不在本 Issue 中重复登记为缺陷；Issue12 的 R26-02～R26-07 也不重复登记。
+- **验收结论：** R27-01～R27-09 的实施结果已分别并入 Build21 Step 7～13，N-node-3/4 已并入 Step 15；当前仅 Build21 Step 14 仍在收口。自动化通过不能替代 [ProdTestList.md](ProdTestList.md) 中的浏览器、Production 和真实客户端人工结果；工程问题与证据门禁见 [Issue14.md](Issue14.md)。
+- **范围边界：** 本文保留 R27-01～R27-09 的历史调查、决策和已实施结果；当前工程问题见 [Issue14.md](Issue14.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)。Issue12 的 R26-02～R26-07 也不重复登记。
 
 ---
 
@@ -121,7 +121,7 @@
 - **影响范围：** 影响普通 SS + `obfs` 节点的 Clash/Mihomo 订阅与不落库目标检查；可能造成配置可解析但插件不生效。该条是输出与固定版本源码契约的核对结论，本轮未做真实连接实验。
 - **修复方向：** 按目标分别实现插件映射：Clash/Mihomo 保留独立 `plugin` 与 `plugin-opts` 结构，SR/generic URI 再按目标客户端要求转换为 `obfs-local` 等名称；目标检查增加结构化输出断言和插件语义诊断，不能仅以 YAML 生成成功标记 `ok`。
 - **待确认事项：** 已确认先按官方模板/离线契约修复 Clash 结构化输出与 URI 映射；固定版本真机导入/连接验证保留为人工待办，不宣称完整兼容。
-- **状态：** ◐ 修复中（Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；独立的 N-node-3/4 Step 15 增量也已验收；Step 14 已开始执行但仍有浏览器控制台异常、smoke 夹具契约问题和 Shadowrocket 人工验证待闭环）
+- **状态：** ◐ 过渡记录（Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；独立的 N-node-3/4 Step 15 增量也已验收；Step 14 工程问题已迁移至 Issue14，人工项目已迁移至 ProdTestList）
 
 
 ## 二·补充、研究解决方案与已确认决策（2026-09-03）
@@ -140,7 +140,7 @@
 | R27-06 | `allow_custom=false` 序列化丢失 | 后端改为 `*bool`，区分未声明/禁止/允许；前端仅在 `allow_custom === true` 时开放自定义 | 已修复（前后端契约与回归测试） |
 | R27-07 | 嵌套敏感字段误显示已保存 | 后端返回 `saved_sensitive_paths`；前端按完整路径呈现凭据状态；WireGuard Peer 以稳定 UUID 接入数组凭据全链路 | 已修复（前后端、历史升级与回归测试） |
 | R27-08 | `diagnostics: null` 导致前端崩溃 | 后端统一返回 `[]`，前端对 null 做安全归一化 | 已修复（前后端与回归测试） |
-| R27-09 | SS 插件 Clash 输出格式回归 | Clash/Mihomo 保留结构化 `plugin` + `plugin-opts`；SR/generic URI 使用目标字符串映射；真机验证保留人工待办 | 修复中（Build21 Step 7～13 已验收） |
+| R27-09 | SS 插件 Clash 输出格式回归 | Clash/Mihomo 保留结构化 `plugin` + `plugin-opts`；SR/generic URI 使用目标字符串映射；工程问题见 Issue14，真机验证见 ProdTestList | 过渡记录（Build21 Step 7～13、Step 15 已验收） |
 
 ### R27-01 研究解决方案
 
@@ -241,16 +241,15 @@
 - Build21 Step 9 已验收，并在 Step 11 前完成固定源码补缺：四个已知插件 schema 与 Mihomo 1.19.29 集中合同对齐，v2ray-plugin 补 `skip-cert-verify` 与结构化 `ech-opts.enable/config/query-server-name`，移除 `version` 与 Restls `path` 的正式支持暗示；Clash 必需项只在目标检查生效，不阻止不完整草稿保存；新增两条插件私钥固定敏感路径并通过完整回归，新补字段不新增敏感路径。
 - Build21 Step 10 已验收：SIP002 编解码器可稳定往返特殊字符、Unicode、百分号和 bare flag，并拒绝重复键、空键与坏转义；URI 导入保留未知字符串参数并恢复四插件已知字段类型，SR/generic 分别消费合同，目标不支持或无法无损回读时由渲染器显式报错。
 - Build21 Step 11 已验收：四个已知插件与未知插件均输出纯 `plugin` + 结构化 `plugin-opts`；默认 mode 只写输出副本，动态重渲染复用同一投影，旧字符串/错误 shape/必需项/枚举/未知非字符串参数由最终 YAML 自检精确拒绝。固定 Mihomo 1.19.29 二进制正例、竞态及全量构建通过；正式装配共享诊断已由 Step 12 接续完成，未知插件前端编辑仍按 Step 13～14 串行处理。
-- Build21 Step 12 已验收：新增活动 SS 插件纯合同评估器，节点检查与正式 Clash/SR/generic 装配共享 shape/required/partial/unverified/unknown/unexpressible 诊断；Clash 精确阻断，URI 目标保留 warning 或按原 code/path 跳过，warning 回执、混合/零输出与空诊断回归通过。未修改非 SS 协议、全局 `target_evidence`、前端表单或 URI 编解码器；Step 13～14 仍待实施。
+- Build21 Step 12 已验收：新增活动 SS 插件纯合同评估器，节点检查与正式 Clash/SR/generic 装配共享 shape/required/partial/unverified/unknown/unexpressible 诊断；Clash 精确阻断，URI 目标保留 warning 或按原 code/path 跳过，warning 回执、混合/零输出与空诊断回归通过。未修改非 SS 协议、全局 `target_evidence`、前端表单或 URI 编解码器；Step 13 已由后续记录完成，Step 14 收口问题见 Issue14。
 - Build21 Step 13 已验收，并按用户确认纳入高级 JSON 空参数名合同缺口：未知插件字符串 Map 的结构化编辑提供空名/重复名行内错误，高级 JSON 对空键与非字符串值给出精确路径并阻止应用/保存；后端创建、更新与检查共同拒绝空参数名，避免“可保存但 SIP002 无法输出”。插件切换清理五类对象、错误和 JSON 草稿且 A→B→A 不恢复，保存重开与普通 `password/token/secret` 凭据隔离回归通过。
-- 独立的 N-node-3/4 Build21 Step 15 已验收：SR VMess/VLESS 补齐 TLS 身份、ALPN、指纹、Flow 与 TLS skip 参数；解析端补齐 VMess 参数回读，并以显式 `security` 优先、缺省时 `xtls=2`→REALITY／活动 `tls=1`→TLS 的规则恢复本项目自产 SR VLESS 方言。生成→解析、TLS 关闭残留、generic VLESS 正例、generic VMess 负例与检查链回归通过；未执行 Step 14，Shadowrocket 真机连接仍为人工待办。
-- Build21 Step 14 本轮已开始但未完成验收（2026-09-08）：后端全量/竞态/编译/vet、前端 41 文件/209 用例与生产构建、固定 Mihomo Meta v1.19.29 四插件正例及项目自检反例、隔离 Production 四类装配/v2 导出导入，以及真实 API 浏览器流程均取得通过证据。浏览器覆盖 Setup/管理员、四已知插件与未知插件切换、未知 `password`/`token` 普通参数、目标检查、保存重开、敏感凭据保留状态及桌面/375px 无溢出；动态插件输入操作捕获两条 Ant Design 输入组件 `Cannot read properties of null (reading 'input')` 控制台错误，故不宣称浏览器无错误通过。另发现 `.smoke-test.sh` 的 `false` 大小写断言和 Clash 请求缺少 `fallback_group_members` 两个夹具问题，本轮未改动代码或脚本，仅在临时执行流修正后完成 smoke。
-- **Step 14 未闭环问题：**
-  1. **浏览器动态插件输入控制台异常：** 在真实 API 浏览器流程中切换未知插件并编辑动态参数时，捕获两条相同的 `TypeError: Cannot read properties of null (reading 'input')`。错误来自当前前端打包文件中的输入组件事件处理路径；当前未确认是否会影响用户最终保存结果，需在后续复现并核对组件销毁/重建时序。Step 14 在该问题复核前不能宣称浏览器控制台清洁通过。
-  2. **Production smoke 布尔值断言不匹配：** `.smoke-test.sh` 将 Python 输出的 JSON 布尔值 `False` 与小写字符串 `false` 比较，导致正常的应急状态 `false` 被误判为失败。该问题属于测试脚本断言，不是业务运行时错误；本轮未修改脚本，仅在临时执行流中做大小写归一化后继续验证。
-  3. **Production smoke Clash 请求缺少必需字段：** 当前 Clash 生成接口要求 `fallback_group_members`，但 smoke 请求未提供该字段，导致正常请求返回“无法归属的流量组未包含任何成员”。本轮仅在临时请求中补充 `fallback_group_members` 后完成 smoke，未修改脚本或接口契约；需补齐正式测试夹具后重新执行原始脚本。
-  4. **Shadowrocket 真机验证仍未完成：** 本轮仅完成 SR 订阅/配置生成、结构化输出和离线/固定版本证据，尚未完成真实 Shadowrocket 设备导入、连接及兼容性验证。不得将当前输出证据表述为真机兼容性验收。
-- **本轮处理边界：** 未修改业务代码、前端组件、smoke 测试脚本或 Design4 决策；仅记录验证证据和上述未闭环问题。临时 Docker 容器、数据卷及端口已清理，工作区无运行环境残留。
+- 独立的 N-node-3/4 Build21 Step 15 已验收：SR VMess/VLESS 补齐 TLS 身份、ALPN、指纹、Flow 与 TLS skip 参数；解析端补齐 VMess 参数回读，并以显式 `security` 优先、缺省时 `xtls=2`→REALITY／活动 `tls=1`→TLS 的规则恢复本项目自产 SR VLESS 方言。生成→解析、TLS 关闭残留、generic VLESS 正例、generic VMess 负例与检查链回归通过；Step 14 的工程问题见 Issue14，真实客户端结果见 ProdTestList。
+- Build21 Step 14 已开始但尚未完成；当前工程性问题、新错误和固定版本证据门禁已迁移至 [Issue14.md](Issue14.md) R28-01～R28-04。
+- **Step 14 未闭环问题（已迁移）：** 详细工程问题、新错误和证据门禁见 [Issue14.md](Issue14.md) R28-01～R28-04；用户人工验收见 [ProdTestList.md](ProdTestList.md) PT-28-01～PT-28-05。
+  1. 详细记录已迁移至 [Issue14.md](Issue14.md) R28-01。
+  2. smoke 布尔值断言和 Clash 请求夹具已迁移至 [Issue14.md](Issue14.md) R28-02/R28-03。
+  3. 用户人工验收已迁移至 [ProdTestList.md](ProdTestList.md) PT-28-01～PT-28-05。
+- 本轮未修改业务代码、前端组件或 smoke 测试脚本；Issue14 仅承接问题与验收条件，临时 Docker 容器、数据卷及端口已清理。
 - Clash/Mihomo YAML：
   - 保留 `plugin: obfs` / `v2ray-plugin` / `shadow-tls` / `restls`。
   - 保留结构化 `plugin-opts` 对象，不再拼接成 `obfs-local;obfs=http` 字符串。
@@ -310,3 +309,4 @@
 | v1.17 | 2026-09-08 | 完成独立的 N-node-3/4 Build21 Step 15：SR VMess/VLESS TLS/ALPN/指纹/Flow/Skip 输出与自产 SR VLESS 安全方言回读已补齐，生成→解析、关闭残留、generic 边界及检查链回归通过；Step 14 与 Shadowrocket 真机验证仍待后续执行。 |
 | v1.18 | 2026-09-08 | 开始执行 Build21 Step 14：记录自动化/固定 Mihomo/隔离 Production smoke/浏览器真实 API 通过证据；同时记录动态插件输入控制台异常和两个 smoke 夹具契约问题，Step 14 保持未闭环，未修改业务代码。 |
 | v1.19 | 2026-09-08 | 将 Build21 Step 14 未闭环项拆分记录：浏览器动态插件输入控制台异常、smoke 布尔值断言不匹配、Clash 请求缺少 `fallback_group_members`，以及 Shadowrocket 真机验证未完成；明确本轮仅记录证据，未修改业务代码或测试脚本。 |
+| v1.20 | 2026-09-08 | 将 Step 14 的工程性问题和证据缺口迁移至 [Issue14.md](Issue14.md)，将用户人工项目迁移至 [ProdTestList.md](ProdTestList.md)；Issue13 保留 R27 历史调查、决策和迁移指针。 |

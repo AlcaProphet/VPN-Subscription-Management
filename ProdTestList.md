@@ -1,7 +1,7 @@
 # ProdTestList.md — 待用户自行执行的 Production 测试清单
 
-> **定位：** 记录当前无法在本环境自动完成的 Production 模式测试项，由用户后续自行在真实/临时 Production 实例中执行。
-> 关联：[R16-09](docs/reports/Issue/Issue3.md)、[R17-07](docs/reports/Issue/Issue3.md)、[R19-05](docs/reports/Issue/Issue4.md)、[Issue12.md](docs/reports/Issue/Issue12.md)（R26 系列人工回归）。
+> **定位：** 记录当前需要用户亲自执行的 Production、浏览器和真实客户端人工测试项。工程性缺陷、自动化测试夹具和证据门禁由 [Issue14.md](Issue14.md) 跟踪；人工结果填写后，Build/Issue/Design 文档均以本清单为准。
+> 关联：[Issue14.md](Issue14.md)、[R16-09](docs/reports/Issue/Issue3.md)、[R17-07](docs/reports/Issue/Issue3.md)、[R19-05](docs/reports/Issue/Issue4.md)、[Issue12.md](docs/reports/Issue/Issue12.md)（R26 系列人工回归）。
 
 ---
 
@@ -15,6 +15,24 @@
   bash .smoke-test-prod.sh
   ```
 - 也可以继续使用手动方式（见下）。
+
+## 二、Build21 Step 14 / Issue14 当前人工验收
+
+> 本节只收录需要用户亲自执行的项目。当前没有收到人工测试结果，因此均保持待执行；执行日期、环境、结果和证据填写到下表后，Build21 Step 14 和 Issue14 按本清单更新。R28-01～R28-04 的工程处理不因本节勾选而自动完成。
+
+| 编号 | 人工项目 | 当前状态 | 结果/证据 |
+|---|---|---|---|
+| PT-28-01 | 使用修订后的正式 Production smoke 夹具完整执行 `.smoke-test-prod.sh`，确认四类装配、URI 导入、覆盖层及 v2 导出/导入均通过 | ☐ 待执行（依赖 Issue14 R28-02/R28-03） | 待填写 |
+| PT-28-02 | 在 Mihomo 1.19.29 / Clash Verge Rev 2.5.2 中导入代表组合：VLESS WS/TLS/REALITY、VMess、Trojan WS/gRPC、SS obfs/v2ray-plugin/shadow-tls/restls；记录实际连接结果 | ☐ 待执行 | 待填写 |
+| PT-28-03 | 在 Shadowrocket 真机导入并连接 SS 订阅/配置，核对四类 SS 插件及未知插件可表达字段的实际生效情况 | ☐ 待执行 | 待填写 |
+| PT-28-04 | 在 Shadowrocket 真机核对 VMess/VLESS SR URI 的 TLS、ALPN、指纹、Flow、`allowInsecure`/Skip 语义及连接结果 | ☐ 待执行 | 待填写 |
+| PT-28-05 | 在最新 Production 构建浏览器中人工走查未知插件参数新增/编辑/删除、切换 A→B→A、保存重开、高级 JSON 错误、控制台无异常及 375px 响应式布局 | ☐ 待执行（工程异常另见 Issue14 R28-01） | 待填写 |
+
+### 当前人工执行记录
+
+| 项目 | 执行日期 | 环境/版本 | 结果 | 证据或备注 |
+|---|---|---|---|---|
+| PT-28-01～PT-28-05 | 待填写 | 待填写 | 待人工测试 | 待填写 |
 
 ### 待用户手动执行
 
@@ -38,7 +56,7 @@
 
 ---
 
-## 二、Production 专项人工核查
+## 三、Production 专项人工核查
 
 - [ ] v2 导出文件可在新库上正常导入；
 - [ ] 导入后实例/节点/独立账号/装配蓝图引用正确；
@@ -54,7 +72,7 @@
 
 ---
 
-## 三、Build11 专项人工核查
+## 四、Build11 专项人工核查
 
 - [ ] Production 实例中 `/admin` 概览可访问，服务状态/Checklist/计数/最近待审批/最近访问日志正常；
 - [ ] 重置链接四态（valid / missing / used / expired）页面表现正确，已使用/过期链接不渲染密码表单；
@@ -66,15 +84,15 @@
 
 ---
 
-## 四、Build19/Build20 节点编辑器与客户端人工验收
+## 五、Build19/Build20 节点编辑器与客户端人工验收
 
 - [ ] 在 Mihomo 1.19.29 / Clash Verge Rev 2.5.2 上导入代表组合（VLESS WS/TLS/REALITY、VMess、Trojan WS/gRPC、SS obfs/v2ray-plugin）；SS 同时核对结构化 `plugin-opts`、v2ray-plugin `skip-cert-verify` 与 `ech-opts` 的实际导入/连接行为；
 - [ ] 真实连接后另行记录连接级结论；未完成前相关状态保持 `unverified`；
-- [ ] Shadowrocket 保持“待真机验证”；
+- Shadowrocket 真机导入/连接见本节 PT-28-03、PT-28-04，结果以本清单为准；
 - [ ] 前端动态表单、分支清空、局部 JSON 应用/放弃、目标检查与 409 重新加载在浏览器中人工走查。
 - [ ] 使用真实协议接口选择未知 SS 插件，核对字符串参数新增/改名/删除、空 flag、特殊字符、保存重开与 A→B→A 清空；高级 JSON 空参数名/非字符串值应阻止保存，375px 下参数名、值和删除按钮无横向溢出。
 - 已自动化覆盖：未知扩展摘要/新增/替换/清除、分支切换 Toast 提示、未应用 JSON 草稿保存拦截，以及未知插件字符串 Map 的前后端校验、保存重开、分支清空和凭据隔离；仍建议在最新生产构建浏览器中人工复核交互与响应式布局。
-- 本轮浏览器真实 API 复核（2026-09-08）：最新生产构建 + 隔离临时 Dev 数据库完成 Setup/管理员注册、四个已知 SS 插件与未知插件切换、未知 `password`/`token` 普通参数、目标检查、保存重开、敏感凭据保留状态及桌面/375px 无横向溢出；检查结果显示 Clash/SR warning 与 generic skip。动态插件输入操作捕获两条 Ant Design 输入组件控制台 `Cannot read properties of null (reading 'input')`，因此本项仍保留未勾选，待复核后再宣称浏览器无错误通过。
+- 本轮浏览器真实 API 复核（2026-09-08）：最新生产构建 + 隔离临时 Dev 数据库完成 Setup/管理员注册、四个已知 SS 插件与未知插件切换、未知 `password`/`token` 普通参数、目标检查、保存重开、敏感凭据保留状态及桌面/375px 无横向溢出；检查结果显示 Clash/SR warning 与 generic skip。动态插件输入操作捕获两条 Ant Design 输入组件控制台 `Cannot read properties of null (reading 'input')`，因此 PT-28-05 仍待人工复核，工程问题转由 [Issue14.md](Issue14.md) R28-01 跟踪。
 
 ### Issue13 R27-03 功能关闭清空（代码与自动化已修复，待实机复核）
 
@@ -105,7 +123,7 @@
 
 ---
 
-## 五、Issue12 R26 系列人工回归核查
+## 六、Issue12 R26 系列人工回归核查
 
 > **状态说明：** 以下 7 项已从 [Issue12.md](docs/reports/Issue/Issue12.md) 的人工验收范围迁移至本清单，统一标记为“暂时完成”。“暂时完成”仅表示清单迁移和人工测试准备完成，不代表人工测试已经通过；后续由用户在隔离的 Production/临时实例中逐项手动执行，并在本节补充执行日期、环境、证据和最终结果。
 
@@ -166,7 +184,7 @@
 
 ---
 
-## 六、变更记录
+## 七、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
@@ -180,3 +198,4 @@
 | v1.7 | 2026-09-03 | 记录 R27-04 最新构建本地浏览器核心流程通过，保留 Production/客户端与往返切换补充验收；新增 VMess SR URI 缺少显式 TLS 参数的独立核验项。 |
 | v1.8 | 2026-09-03 | 记录 R27-05 本地四协议核心布局、集中开关、保存回显、SS 指纹清空与手机/主题核验；保留 Production、更多设备/协议及 R27-06～09 联动人工验收。 |
 | v1.9 | 2026-09-08 | 同步 Build21 Step 15：VMess/VLESS SR TLS 字段输出与自产 URI 回读已有自动化证据；保留 Shadowrocket 真机导入/连接为人工待办，不将生成成功写成客户端兼容已验证。 |
+| v2.0 | 2026-09-08 | 从 Build21 Step 14 和 Issue13 迁移用户需要亲自执行的 Production、浏览器及真实客户端项目，新增 PT-28-01～PT-28-05；工程问题转由 Issue14 跟踪，人工结果以本清单为准。 |

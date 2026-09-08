@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～13 已实施并通过验收，Step 14 已开始执行但尚未完成验收；原 Build23 中的 R27-09 主体步骤已并入本节，新增的 N-node-3/N-node-4 SR TLS 增量 Step 15 已实施并通过验收。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～13 已实施并通过验收，Step 14 已开始执行但尚未完成验收。Step 14 的工程性未完成项、新错误和证据门禁见 [Issue14.md](Issue14.md)；用户需要亲自执行的 Production、浏览器和真实客户端项目见 [ProdTestList.md](ProdTestList.md)，结果以该清单为准。原 Build23 中的 R27-09 主体步骤已并入本节，新增的 N-node-3/N-node-4 SR TLS 增量 Step 15 已实施并通过验收。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -26,7 +26,7 @@
 | 11 | R27-09 Clash/Mihomo 结构化插件投影与产物自检 | ✅ 验收通过 |
 | 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ✅ 验收通过 |
 | 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ✅ 验收通过 |
-| 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ◐ 执行中：自动化/固定 Mihomo/Production smoke 通过；浏览器有两条动态输入组件控制台异常待复核 |
+| 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ◐ 执行中：工程问题见 Issue14；人工项目及结果见 ProdTestList |
 | 15 | N-node-3/4：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步 | ✅ 验收通过 |
 
 ---
@@ -48,7 +48,7 @@
 | 11 | `backend/internal/assembly/render_clash.go`、`selfcheck.go` 及测试 | Clash 输出独立 `plugin` 与 `plugin-opts`；删除内部对象前先投影；拒绝 URI 字符串伪装成 Clash 插件名 |
 | 12 | `backend/internal/assembly/node_check.go`、`diagnose.go`、正式渲染路径及测试 | 同一 SS 插件判定服务节点检查和正式装配；只消费 SS 插件证据，不全局启用字段级 `target_evidence` |
 | 13 | `frontend/src/components/ProtocolFieldEditor.vue`、`backend/internal/node/node.go`、相关工具与测试 | 未知插件字符串 map 的结构化/JSON 编辑、空键/非字符串前后端拒绝、A→B→A 清空与凭据状态隔离 |
-| 14 | 前后端相关测试、`Design4.md`、`Issue13.md`、`ProdTestList.md`、`AGENTS.md`、本文件 | 全量验证与固定版本正反例；同步状态和人工边界，不宣称 Shadowrocket 真机兼容已完成 |
+| 14 | 前后端相关测试、`Design4.md`、`Issue14.md`、`ProdTestList.md`、`AGENTS.md`、本文件 | 全量验证与固定版本正反例；工程问题归 Issue14，人工边界归 ProdTestList，不宣称 Shadowrocket 真机兼容已完成 |
 | 15 | `backend/internal/assembly/links/links.go`、`backend/internal/uriparse/uriparse.go` 及对应测试 | SR VMess/VLESS 补 `tls/peer/alpn/fp/flow/allowInsecure`；`uriparse` 同步回读；generic VMess 负向边界 |
 
 ---
@@ -522,13 +522,13 @@ plugin: obfs-local;obfs=http
 - **本地浏览器：** 使用最新生产前端构建与隔离临时 Dev 数据库，走真实 API 验证已知/未知插件切换、参数保存重开、目标检查面板、桌面与 375px 手机视口；不得连接真实 OIDC/SMTP/Xray 或复用真实凭据。
 - **参考流程：** `定向失败回归全绿 → 后端全量/竞态/编译/vet → 前端全量/构建 → 固定版本正反例 → 隔离浏览器真实 API → 精确 diff 与文档状态同步`。
 - **文档同步：**
-  - `Issue13.md`：扩充 R27-09 为最终 C 方案并在真实验收后更新状态；记录 N-node-1、SS 范围 N-node-2/N-node-5 已处理，N-node-3/N-node-4 由 Step 15 处理并保留真机验证边界。
+  - `Issue14.md`：承接 Step 14 的工程性未完成项、新错误和证据缺口；Issue13 仅保留 R27 历史结论与迁移指针。
   - `Design4.md`：写入最终内部存储、未知普通字符串参数、三目标矩阵和人工验证边界。
-  - `ProdTestList.md`：保留 Shadowrocket 真机导入/连接，增加四插件与未知插件清单；未执行项不得勾选。
+  - `ProdTestList.md`：集中记录用户需要亲自执行的 Production、浏览器和客户端人工项目；未执行项不得勾选，Build/Issue/Design 结果以本清单为准。
   - `AGENTS.md` 与本文件：更新 Build21 补充 Step 状态、实际文件/命令/结果和版本记录；保留原 Step 1～6 的历史验收数据。
 - **TODO：**
-  - [ ] 完成全量自动化、竞态、固定版本离线与浏览器真实 API 验证。
-  - [ ] 核对工作树、精确 diff、日志/预览凭据与所有人工边界。
+  - [ ] 按 Issue14 完成工程性问题、正式 smoke 夹具和固定版本验收门禁收口。
+  - [ ] 按 ProdTestList 完成用户人工项目并记录环境、日期、结果和证据。
   - [ ] 仅按实际证据更新 Design/Issue/ProdTestList/AGENTS/Build 状态。
 - **最终验证命令：**
 
@@ -542,10 +542,9 @@ plugin: obfs-local;obfs=http
   git diff --check
   ```
 
-- **验收标准：** 全部命令通过；固定版本正反例、真实 API 与浏览器核心流程有可复查记录；工作树只包含本轮精确范围内变更；Shadowrocket 真机未执行时明确标记待办，不宣称交付闭环。
+- **验收标准：** 全部命令通过；固定版本正反例、真实 API 与浏览器核心流程有可复查记录；工作树只包含本轮精确范围内变更；用户人工项目及其结果以 [ProdTestList.md](ProdTestList.md) 为准，未执行时明确标记待办，不宣称交付闭环。
 
-- **本轮执行记录（2026-09-08，尚未验收）：** 后端全量测试、指定竞态测试、`go build ./...`、`go vet ./...`、前端 41 文件/209 用例与生产构建均通过；固定 Mihomo Meta v1.19.29 四个已知插件 `-t` 正例及项目自检反例通过。使用当前生产镜像在隔离 Docker Production 容器执行四类装配器、URI 导入（2 ok/1 skip）、覆盖层及 v2 导出/导入均通过。真实 API 浏览器流程覆盖 Setup、管理员注册、四个已知 SS 插件/未知插件切换、未知 `password`/`token` 普通参数、目标检查、保存重开、敏感凭据“已保存（留空保留）”和桌面/375px 无横向溢出；但动态插件输入操作期间捕获两条 Ant Design 输入组件 `Cannot read properties of null (reading 'input')` 控制台错误，不能将浏览器项标为无错误通过。Shadowrocket 真机导入/连接仍为人工待办。
-- **本轮测试夹具问题：** `.smoke-test.sh` 的应急状态断言把 JSON 布尔值与小写字符串 `false` 比较；Clash 装配请求未传当前必需的 `fallback_group_members`。本轮仅在临时执行流中规范化断言并补齐既定请求字段，未修改脚本或业务代码；应先修订夹具后再重复正式 smoke 收口。
+- **本轮执行记录（2026-09-08，尚未验收）：** 后端全量测试、指定竞态测试、`go build ./...`、`go vet ./...`、前端 41 文件/209 用例与生产构建均通过；四类装配器、URI 导入（2 ok/1 skip）、覆盖层及 v2 导出/导入在临时修正执行流中通过。固定 Mihomo 的此前定向执行记录曾在显式 `MIHOMO_11929_BIN` 环境通过，但本次全量核验发现未设置该变量时测试会 `SKIP`，该证据门禁缺口转 [Issue14.md](Issue14.md) R28-04。真实 API 浏览器流程覆盖 Setup、管理员注册、四个已知 SS 插件/未知插件切换、未知 `password`/`token` 普通参数、目标检查、保存重开、敏感凭据“已保存（留空保留）”和桌面/375px 无横向溢出；动态插件输入操作捕获两条 Ant Design 输入组件异常，工程问题转 Issue14 R28-01。正式 smoke 夹具问题转 Issue14 R28-02/R28-03；用户人工项目转 [ProdTestList.md](ProdTestList.md)。
 
 ### 7.12 Step 15：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步（N-node-3/4）
 
@@ -587,8 +586,8 @@ plugin: obfs-local;obfs=http
   cd backend && go test ./... -count=1
   cd backend && go build ./... && go vet ./...
   ```
-- **验收标准：** SR/generic 输出覆盖 Design4 §12.4 中已声明为 C 的 TLS 字段；生成→解析可往返；Shadowrocket 真机仍按人工待办处理，不写入“已验证”。
-- **实施结果（2026-09-08）：** 已新增仅在 TLS 活动时投影 `tls/peer/alpn/fp` 的 SR 共用 helper；VMess 与 VLESS TLS 分支分别补齐 `allowInsecure`，VLESS TLS/REALITY 补齐 Flow，REALITY 保持不输出未激活的 skip 参数。`parseVMessSR` 已回读 ALPN 与两种 skip 参数名；`parseVLESS` 已按“显式 `security` 优先，缺省时 `xtls=2`→REALITY、否则活动 `tls=1`→TLS”恢复自产 SR 方言。SR TLS 关闭残留隔离、三类生成→解析往返、generic VLESS 正例、generic VMess 负例及检查/保存/输出链均有回归覆盖；定向测试、links/uriparse 竞态、后端全量测试、编译、vet、前端生产构建与 `git diff --check` 通过。未执行 Step 14，Shadowrocket 真机导入/连接仍为人工待办。
+- **验收标准：** SR/generic 输出覆盖 Design4 §12.4 中已声明为 C 的 TLS 字段；生成→解析可往返；真实客户端导入/连接不写入“已验证”，由 [ProdTestList.md](ProdTestList.md) 记录。
+- **实施结果（2026-09-08）：** 已新增仅在 TLS 活动时投影 `tls/peer/alpn/fp` 的 SR 共用 helper；VMess 与 VLESS TLS 分支分别补齐 `allowInsecure`，VLESS TLS/REALITY 补齐 Flow，REALITY 保持不输出未激活的 skip 参数。`parseVMessSR` 已回读 ALPN 与两种 skip 参数名；`parseVLESS` 已按“显式 `security` 优先，缺省时 `xtls=2`→REALITY、否则活动 `tls=1`→TLS”恢复自产 SR 方言。SR TLS 关闭残留隔离、三类生成→解析往返、generic VLESS 正例、generic VMess 负例及检查/保存/输出链均有回归覆盖；定向测试、links/uriparse 竞态、后端全量测试、编译、vet、前端生产构建与 `git diff --check` 通过。Step 14 的用户人工项目见 [ProdTestList.md](ProdTestList.md)，未有人工结果前不宣称真实客户端兼容。
 
 ### 7.13 依赖关系与停止条件
 
@@ -632,3 +631,4 @@ Step 7～13 + Step 15 全部通过 ─→ Step 14 全量收口
 | v1.11 | 2026-09-08 | 完成 R27-09 Step 13，并按用户确认纳入高级 JSON 空参数名合同缺口：字符串 map 结构化/JSON 校验、精确错误路径、插件分支清空、保存重开与凭据隔离回归落地，后端同步拒绝空键且失败零写入；定向/全量前后端测试、编译、vet 与生产构建通过，Step 14～15 保持未实施。 |
 | v1.12 | 2026-09-08 | 完成 N-node-3/4 Step 15：补齐 SR VMess/VLESS TLS 身份、ALPN、指纹、Flow 与 TLS skip 输出，补齐 VMess 回读及自产 SR VLESS TLS/REALITY 方言推导；生成→解析、关闭残留、generic 边界与检查链回归通过，后端定向/竞态/全量测试、编译、vet 与前端生产构建通过。Step 14 保持未实施，Shadowrocket 真机连接仍待人工验证。 |
 | v1.13 | 2026-09-08 | 开始执行 Step 14：后端/前端全量与竞态矩阵、固定 Mihomo 1.19.29 正反例、隔离 Production smoke 与浏览器真实 API 功能路径均取得通过证据；发现 smoke 夹具的布尔值/装配字段契约落后，以及动态插件输入操作捕获两条 Ant Design 输入组件控制台异常。Step 14 保持执行中，未宣称闭环。 |
+| v1.14 | 2026-09-08 | 将 Step 14 的工程性未完成项、新错误和固定版本证据缺口迁移至 Issue14；将用户人工项目集中迁移至 ProdTestList，Build21/Issue14/Design4 的人工结果统一引用该清单。 |
