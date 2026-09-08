@@ -1,6 +1,6 @@
 # SSpanel-Node-Editor-Research-2.md — SSPanel-UIM 深度研究：Build17-21 后节点编辑可借鉴与对照方向
 
-> **文档定位：** 本文是 [SSpanel.md](SSpanel.md) 与 [SSpanel-Subscribe.md](SSpanel-Subscribe.md) 的后续深度研究资料，承接 Design1～Design4 的设计链路（当前最新为 [Design4.md](../../Design4.md)）、[Build17.md](../../Build17.md)～[Build21.md](../../Build21.md)、[Issue13.md](../../Issue13.md)，以及与 3x-ui 二轮研究平行的 [Node-Editor-3xui-Xray-Research-2.md](Node-Editor-3xui-Xray-Research-2.md)。本文只做研究记录，不定义实现，不改动任何业务代码或既有文档，不代表对 SSPanel-UIM 的修改或产品背书。
+> **文档定位：** 本文是 [SSpanel.md](SSpanel.md) 与 [SSpanel-Subscribe.md](SSpanel-Subscribe.md) 的后续深度研究资料，承接 Design1～Design4 的设计链路（当前最新为 [Design4.md](../../Design4.md)）、[Build17.md](../reports/Build/Build17.md)～[Build20.md](../reports/Build/Build20.md)、[Build21.md](../../Build21.md)、[Issue13.md](../../Issue13.md)，以及与 3x-ui 二轮研究平行的 [Node-Editor-3xui-Xray-Research-2.md](Node-Editor-3xui-Xray-Research-2.md)。本文只做研究记录，不定义实现，不改动任何业务代码或既有文档，不代表对 SSPanel-UIM 的修改或产品背书。
 > **研究状态：** 2026-09-05。基于本机仓库 `~/Desktop/Repo/SSPanel-UIM`（HEAD `d55a6071`，VERSION='25.1.0' "The Restoration"，app/predefine.php:9-10）与当前项目 `~/Desktop/Repo/VPN-Subscription-Management` 的当前源码、Build17～Build21 落地情况、Issue13 未闭环项进行静态分析；并用公开 SSPanel Docs 链接辅助核对。未构建、未改动外部项目与当前项目代码。
 > **标注约定：** 【SSPanel 事实】= 本地 SSPanel 源码观察；【项目事实】= 当前项目源码或既有文档观察；【经推理】= 由证据推导、需后续设计验证的方向；【可能】= 对收益/风险的推测，不视为已定稿。
 > **本次决策（由执行代理自行作出并标注）：** 仅新建本文件到 `docs/Reference/`，不修改任何其他文档或代码；文件名采用与 3x-ui 二轮研究平行的 `SSpanel-Node-Editor-Research-2.md`。若后续用户认为应合并进既有 `SSpanel.md`/`SSpanel-Subscribe.md`，可再决定。

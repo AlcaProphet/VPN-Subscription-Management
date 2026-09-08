@@ -1,8 +1,8 @@
 # Build19.md — 节点编辑器前端动态表单、可编辑选项与目标检查 UI 构建计划
 
-> **文档定位：** 本文是 VPN 订阅管理系统第十九轮当前构建方案及实施记录，将 [Design4.md](Design4.md) §三～§七的界面与交互结论转化为可执行的前端实现手册。本 Build 已按 Step 顺序开始实施并同步记录验收结果。
-> - 设计依据：[Design4.md](Design4.md)（当前最新设计，已确认作为 Build 依据）
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
+> **文档定位：** 本文是 VPN 订阅管理系统第十九轮当前构建方案及实施记录，将 [Design4.md](../../../Design4.md) §三～§七的界面与交互结论转化为可执行的前端实现手册。本 Build 已按 Step 顺序开始实施并同步记录验收结果。
+> - 设计依据：[Design4.md](../../../Design4.md)（当前最新设计，已确认作为 Build 依据）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)（保存契约）、[Build18.md](Build18.md)（FieldSchema/检查接口）；本 Build 假设后端接口已按前两份文档提供。
 > - 用户已确认：Trojan 内层 SS 使用 `enabled/method/password`；VMess REALITY 首批不开放；客户端验证只含离线夹具与手工验收待办。
 >

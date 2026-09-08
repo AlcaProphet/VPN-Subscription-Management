@@ -174,7 +174,7 @@
 
 | 证据 | 位置 |
 |---|---|
-| Build17～Build21 已落地/遗留 | [Build17.md](../../Build17.md)～[Build21.md](../../Build21.md)、[Build23.md](../../Build23.md) |
+| Build17～Build21 已落地/遗留 | [Build17.md](../reports/Build/Build17.md)～[Build20.md](../reports/Build/Build20.md)、[Build21.md](../../Build21.md)、[Build23.md](../../Build23.md) |
 | 全量核验与新增缺口 | [BuildReport4.md](../reports/BuildReport/BuildReport4.md) §5.3 |
 | 当前状态/作用域限制 | [backend/internal/node/node.go](../../backend/internal/node/node.go)、[backend/internal/node/schema.go](../../backend/internal/node/schema.go) |
 | 协议注册表 | [backend/internal/node/registry.go](../../backend/internal/node/registry.go) |

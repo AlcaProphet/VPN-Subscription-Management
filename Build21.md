@@ -3,7 +3,7 @@
 > **文档定位：** 本文档是依据 [BuildReport3.md](docs/reports/BuildReport/BuildReport3.md) 开展的第二十一轮构建记录，将“Build17~Build20 表单结构与 Design4 对齐”发现的问题按用户确认的推荐方案落地。
 > - 设计依据：[Design4.md](Design4.md)（当前最新节点编辑器设计）、[BuildReport3.md](docs/reports/BuildReport/BuildReport3.md)
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
+> - 前序构建：[Build17.md](docs/reports/Build/Build17.md)～[Build20.md](docs/reports/Build/Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
 > **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～13 已实施并通过验收，Step 14 已开始执行但尚未完成验收。Step 14 的工程性未完成项、新错误和证据门禁见 [Issue14.md](Issue14.md)；用户需要亲自执行的 Production、浏览器和真实客户端项目见 [ProdTestList.md](ProdTestList.md)，结果以该清单为准。原 Build23 中的 R27-09 主体步骤已并入本节，新增的 N-node-3/N-node-4 SR TLS 增量 Step 15 已实施并通过验收。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 

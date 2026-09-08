@@ -1,7 +1,7 @@
 # Issue12.md — VPN 订阅管理系统问题追踪（已归档）
 
 > **文档定位：** 本文记录 VPN 订阅管理系统 R26-01～R26-07 问题及修复闭环，现已与当前问题记录分离并移入 `docs/reports/Issue/` 存档。相关历史问题见当前目录下的 [Issue1～Issue11](.)。
-> 当前核验范围涉及 [Design4.md](../../../Design4.md)、[Build17.md](../../../Build17.md)、[Build18.md](../../../Build18.md)；R26 系列需要人工执行的回归项已迁移至 [ProdTestList.md](../../../ProdTestList.md)；编码约束以 [AGENTS.md](../../../AGENTS.md) 为准。
+> 当前核验范围涉及 [Design4.md](../../../Design4.md)、[Build17.md](../Build/Build17.md)、[Build18.md](../Build/Build18.md)；R26 系列需要人工执行的回归项已迁移至 [ProdTestList.md](../../../ProdTestList.md)；编码约束以 [AGENTS.md](../../../AGENTS.md) 为准。
 > **归档说明：** R26-01～R26-07 的代码修复与自动化回归已完成，人工浏览器/API/Production 回归已转入 [ProdTestList.md](../../../ProdTestList.md) §五；本文件于 2026-09-03 移入 `docs/reports/Issue/` 存档。“暂时完成”不代表人工测试已通过。
 
 ---

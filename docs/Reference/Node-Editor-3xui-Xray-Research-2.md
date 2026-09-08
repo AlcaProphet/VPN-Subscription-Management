@@ -1,6 +1,6 @@
 # Node-Editor-3xui-Xray-Research-2.md — 3x-ui 深度研究：Build17-21 之后仍可借鉴的节点编辑器增强方向
 
-> **文档定位：** 本文是 [Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md) 的后续深度研究资料，承接 Design1～Design4 的设计链路（当前最新为 [Design4.md](../../Design4.md)）、[Build17.md](../../Build17.md)～[Build21.md](../../Build21.md)、[Issue13.md](../../Issue13.md) 以及 [Node-Editor-Design-Research.md](Node-Editor-Design-Research.md)、[Node-Editor-Improvement-Directions.md](Node-Editor-Improvement-Directions.md)。本文只做研究记录，不定义实现，不改动任何业务代码或既有文档，不代表对 3x-ui 的修改或产品背书。
+> **文档定位：** 本文是 [Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md) 的后续深度研究资料，承接 Design1～Design4 的设计链路（当前最新为 [Design4.md](../../Design4.md)）、[Build17.md](../reports/Build/Build17.md)～[Build20.md](../reports/Build/Build20.md)、[Build21.md](../../Build21.md)、[Issue13.md](../../Issue13.md) 以及 [Node-Editor-Design-Research.md](Node-Editor-Design-Research.md)、[Node-Editor-Improvement-Directions.md](Node-Editor-Improvement-Directions.md)。本文只做研究记录，不定义实现，不改动任何业务代码或既有文档，不代表对 3x-ui 的修改或产品背书。
 > **研究状态：** 2026-09-05。基于本机仓库 `~/Desktop/Repo/3x-ui`（HEAD `f727d04f`，v3.7.0）与当前项目 `~/Desktop/Repo/VPN-Subscription-Management` 的当前源码、Build17～Build21 落地情况、Issue13 未闭环项进行静态分析；同时使用多个子代理并行取证。未构建、未改动外部项目与当前项目代码。
 > **标注约定：** 【3x-ui 事实】= 本地 3x-ui 源码观察；【项目事实】= 当前项目源码或既有文档观察；【经推理】= 由证据推导、需后续设计验证的方向；【可能】= 对收益/风险的推测，不视为已定稿。
 > **与前文关系：** 前文已经覆盖 3x-ui Inbound/Outbound 表单结构、能力纯函数、wire 适配、Link 导入、JSON 模式、条件表单方向等结论。本文不再重复这些基础结论，重点回答：在 Build17～Build21 已经把“条件元数据、当前状态、活动投影、目标检查、SS 插件基础合同”落到项目后，3x-ui v3.7.0 的真实代码里还有哪些**后续可借鉴机制**，以及哪些机制应仅作对照。

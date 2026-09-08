@@ -1,6 +1,6 @@
 # VPN 订阅管理系统 功能构建计划（Build22：当前构建方案）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接已完成的 [Build17.md](Build17.md)～[Build20.md](Build20.md) 以及 [Build21.md](Build21.md) 已验收部分（R27-09 Step 7～13、N-node-3/4 Step 15）；Build21 Step 14 正在收口，工程问题见 [Issue14.md](Issue14.md)，用户人工结果见 [ProdTestList.md](ProdTestList.md)。本轮针对 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 的**未闭环项 1** 进行深入研究并制定修复计划。**该未闭环项当前已登记于 [Issue14.md](Issue14.md) R28-05；本文件仍为后续实施 D3-1～D3-10 的唯一分步计划。**
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接已完成的 [Build17.md](docs/reports/Build/Build17.md)～[Build20.md](docs/reports/Build/Build20.md) 以及 [Build21.md](Build21.md) 已验收部分（R27-09 Step 7～13、N-node-3/4 Step 15）；Build21 Step 14 正在收口，工程问题见 [Issue14.md](Issue14.md)，用户人工结果见 [ProdTestList.md](ProdTestList.md)。本轮针对 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 的**未闭环项 1** 进行深入研究并制定修复计划。**该未闭环项当前已登记于 [Issue14.md](Issue14.md) R28-05；本文件仍为后续实施 D3-1～D3-10 的唯一分步计划。**
 > - 设计记录：[Design3.md](Design3.md)（Build16 的目标设计，当前仍有效）、[Build16.md](docs/reports/Build/Build16.md)（原构建计划）
 > - 问题来源：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md)（全量核验报告，未闭环项 1）
 > - 问题追踪：[Issue14.md](Issue14.md)（R28-05）

@@ -1,10 +1,10 @@
 # Build17.md — 节点编辑统一保存契约与 nodes 行内当前状态构建记录
 
-> **文档定位：** 本文是 VPN 订阅管理系统第十七轮构建方案及实施记录（Build 文档，非强规则），将 [Design4.md](Design4.md) 第十二章已确认的契约转化为可逐步执行和验收的实现手册。本轮已完成文档所列 Step 1～4 的后端构建与自动化验收。
-> - 设计依据：[Design4.md](Design4.md) §二、§六、§10、§12（当前最新设计，已确认作为 Build 依据）
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 前序基线：已存档 [Build16.md](docs/reports/Build/Build16.md)（已完成）；节点编辑现状见 [Build15.md](docs/reports/Build/Build15.md)
-> - 存放说明：按用户确认，Build17～Build20 存放在仓库根目录，承接 Design4 的构建拆分；本记录只覆盖 Build17。
+> **文档定位：** 本文是 VPN 订阅管理系统第十七轮构建方案及实施记录（Build 文档，非强规则），将 [Design4.md](../../../Design4.md) 第十二章已确认的契约转化为可逐步执行和验收的实现手册。本轮已完成文档所列 Step 1～4 的后端构建与自动化验收。
+> - 设计依据：[Design4.md](../../../Design4.md) §二、§六、§10、§12（当前最新设计，已确认作为 Build 依据）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 前序基线：已存档 [Build16.md](Build16.md)（已完成）；节点编辑现状见 [Build15.md](Build15.md)
+> - 存放说明：按用户确认，Build17～Build20 原存放在仓库根目录，现归档至 `docs/reports/Build/`，承接 Design4 的构建拆分；本记录只覆盖 Build17。
 >
 > **执行原则：**
 > - 每次仅执行一个 Step；完成编译、测试和差异检查并确认后再进入下一步。
