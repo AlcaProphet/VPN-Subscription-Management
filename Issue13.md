@@ -121,12 +121,12 @@
 - **影响范围：** 影响普通 SS + `obfs` 节点的 Clash/Mihomo 订阅与不落库目标检查；可能造成配置可解析但插件不生效。该条是输出与固定版本源码契约的核对结论，本轮未做真实连接实验。
 - **修复方向：** 按目标分别实现插件映射：Clash/Mihomo 保留独立 `plugin` 与 `plugin-opts` 结构，SR/generic URI 再按目标客户端要求转换为 `obfs-local` 等名称；目标检查增加结构化输出断言和插件语义诊断，不能仅以 YAML 生成成功标记 `ok`。
 - **待确认事项：** 已确认先按官方模板/离线契约修复 Clash 结构化输出与 URI 映射；固定版本真机导入/连接验证保留为人工待办，不宣称完整兼容。
-- **状态：** ◐ 修复中（Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；Step 14 尚待实施，Step 15 增量尚待实施）
+- **状态：** ◐ 修复中（Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；独立的 N-node-3/4 Step 15 增量也已验收，Step 14 尚待实施）
 
 
 ## 二·补充、研究解决方案与已确认决策（2026-09-03）
 
-> 本节在 R27-01～R27-09 的原始记录基础上，补充逐项深研后的解决方案与用户决策确认。R27-01～R27-08 已完成代码与回归测试；R27-09 已完成 Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛，Step 14 仍待实施，Step 15 增量尚待实施；具体实机验证边界以各项记录为准。
+> 本节在 R27-01～R27-09 的原始记录基础上，补充逐项深研后的解决方案与用户决策确认。R27-01～R27-08 已完成代码与回归测试；R27-09 已完成 Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛，独立的 N-node-3/4 Step 15 增量也已验收，Step 14 仍待实施；具体实机验证边界以各项记录为准。
 
 ### 解决方案总览
 
@@ -242,7 +242,8 @@
 - Build21 Step 10 已验收：SIP002 编解码器可稳定往返特殊字符、Unicode、百分号和 bare flag，并拒绝重复键、空键与坏转义；URI 导入保留未知字符串参数并恢复四插件已知字段类型，SR/generic 分别消费合同，目标不支持或无法无损回读时由渲染器显式报错。
 - Build21 Step 11 已验收：四个已知插件与未知插件均输出纯 `plugin` + 结构化 `plugin-opts`；默认 mode 只写输出副本，动态重渲染复用同一投影，旧字符串/错误 shape/必需项/枚举/未知非字符串参数由最终 YAML 自检精确拒绝。固定 Mihomo 1.19.29 二进制正例、竞态及全量构建通过；正式装配共享诊断已由 Step 12 接续完成，未知插件前端编辑仍按 Step 13～14 串行处理。
 - Build21 Step 12 已验收：新增活动 SS 插件纯合同评估器，节点检查与正式 Clash/SR/generic 装配共享 shape/required/partial/unverified/unknown/unexpressible 诊断；Clash 精确阻断，URI 目标保留 warning 或按原 code/path 跳过，warning 回执、混合/零输出与空诊断回归通过。未修改非 SS 协议、全局 `target_evidence`、前端表单或 URI 编解码器；Step 13～14 仍待实施。
-- Build21 Step 13 已验收，并按用户确认纳入高级 JSON 空参数名合同缺口：未知插件字符串 Map 的结构化编辑提供空名/重复名行内错误，高级 JSON 对空键与非字符串值给出精确路径并阻止应用/保存；后端创建、更新与检查共同拒绝空参数名，避免“可保存但 SIP002 无法输出”。插件切换清理五类对象、错误和 JSON 草稿且 A→B→A 不恢复，保存重开与普通 `password/token/secret` 凭据隔离回归通过；Step 14 浏览器/固定版本总收口及 Step 15 增量仍待实施。
+- Build21 Step 13 已验收，并按用户确认纳入高级 JSON 空参数名合同缺口：未知插件字符串 Map 的结构化编辑提供空名/重复名行内错误，高级 JSON 对空键与非字符串值给出精确路径并阻止应用/保存；后端创建、更新与检查共同拒绝空参数名，避免“可保存但 SIP002 无法输出”。插件切换清理五类对象、错误和 JSON 草稿且 A→B→A 不恢复，保存重开与普通 `password/token/secret` 凭据隔离回归通过。
+- 独立的 N-node-3/4 Build21 Step 15 已验收：SR VMess/VLESS 补齐 TLS 身份、ALPN、指纹、Flow 与 TLS skip 参数；解析端补齐 VMess 参数回读，并以显式 `security` 优先、缺省时 `xtls=2`→REALITY／活动 `tls=1`→TLS 的规则恢复本项目自产 SR VLESS 方言。生成→解析、TLS 关闭残留、generic VLESS 正例、generic VMess 负例与检查链回归通过；未执行 Step 14，Shadowrocket 真机连接仍为人工待办。
 - Clash/Mihomo YAML：
   - 保留 `plugin: obfs` / `v2ray-plugin` / `shadow-tls` / `restls`。
   - 保留结构化 `plugin-opts` 对象，不再拼接成 `obfs-local;obfs=http` 字符串。
@@ -299,3 +300,4 @@
 | v1.14 | 2026-09-08 | 完成 R27-09 Build21 Step 11：先补固定源码发现的 v2ray-plugin `skip-cert-verify`/`ech-opts` 合同缺口，再实现 Clash 结构化插件投影、mode 枚举和最终 YAML 自检；四已知/未知插件、输入不可变、动态重渲染、固定 Mihomo 1.19.29、竞态与全量构建通过，Step 12～14 尚未实施。 |
 | v1.15 | 2026-09-08 | 完成 R27-09 Build21 Step 12：统一活动 SS 插件目标诊断并接入节点检查与 Clash/SR/generic 正式装配门槛；精确 code/path、warning 回执、URI 跳过、混合/零输出和空诊断回归通过，后端定向/竞态/全量/编译/vet及前端生产构建通过，Step 13～14 尚未实施。 |
 | v1.16 | 2026-09-08 | 完成 R27-09 Build21 Step 13，并纳入高级 JSON 空参数名合同缺口：前端字符串 Map 结构化/JSON 精确校验、插件切换清空、保存重开与凭据隔离落地，后端同步拒绝空参数名且失败不写库；前后端定向/全量/竞态测试、编译、vet 与生产构建通过，Step 14 总收口与 Step 15 增量仍待实施。 |
+| v1.17 | 2026-09-08 | 完成独立的 N-node-3/4 Build21 Step 15：SR VMess/VLESS TLS/ALPN/指纹/Flow/Skip 输出与自产 SR VLESS 安全方言回读已补齐，生成→解析、关闭残留、generic 边界及检查链回归通过；Step 14 与 Shadowrocket 真机验证仍待后续执行。 |

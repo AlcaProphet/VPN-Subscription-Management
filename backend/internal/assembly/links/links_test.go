@@ -9,7 +9,180 @@ import (
 	"testing"
 
 	"vpn-sub/internal/ssplugin"
+	"vpn-sub/internal/uriparse"
 )
+
+func TestShadowrocketTLSMappingsAndRoundTrip(t *testing.T) {
+	cases := []struct {
+		name       string
+		protocol   string
+		params     map[string]any
+		wantQuery  map[string]string
+		absentKeys []string
+		wantParams map[string]any
+	}{
+		{
+			name: "vmess tls", protocol: "vmess",
+			params: map[string]any{
+				"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true,
+				"servername": "sni.example.com", "alpn": []string{"h2", "http/1.1"},
+				"client-fingerprint": "chrome", "skip-cert-verify": true,
+			},
+			wantQuery: map[string]string{
+				"tls": "1", "peer": "sni.example.com", "alpn": "h2,http/1.1", "fp": "chrome", "allowInsecure": "1",
+			},
+			wantParams: map[string]any{
+				"tls": true, "servername": "sni.example.com", "alpn": []string{"h2", "http/1.1"},
+				"client-fingerprint": "chrome", "skip-cert-verify": true,
+			},
+		},
+		{
+			name: "vless tls", protocol: "vless",
+			params: map[string]any{
+				"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true,
+				"servername": "sni.example.com", "alpn": []any{"h2", "http/1.1"},
+				"client-fingerprint": "chrome", "flow": "xtls-rprx-vision", "skip-cert-verify": true,
+			},
+			wantQuery: map[string]string{
+				"tls": "1", "peer": "sni.example.com", "alpn": "h2,http/1.1", "fp": "chrome",
+				"flow": "xtls-rprx-vision", "allowInsecure": "1",
+			},
+			absentKeys: []string{"xtls", "pbk", "sid"},
+			wantParams: map[string]any{
+				"tls": true, "servername": "sni.example.com", "alpn": []string{"h2", "http/1.1"},
+				"client-fingerprint": "chrome", "flow": "xtls-rprx-vision", "skip-cert-verify": true,
+			},
+		},
+		{
+			name: "vless reality", protocol: "vless",
+			params: map[string]any{
+				"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true,
+				"servername": "sni.example.com", "alpn": []string{"h2"}, "client-fingerprint": "chrome",
+				"flow": "xtls-rprx-vision", "skip-cert-verify": true,
+				"reality-opts": map[string]any{"public-key": "public", "short-id": "abcd"},
+			},
+			wantQuery: map[string]string{
+				"tls": "1", "xtls": "2", "peer": "sni.example.com", "alpn": "h2", "fp": "chrome",
+				"flow": "xtls-rprx-vision", "pbk": "public", "sid": "abcd",
+			},
+			absentKeys: []string{"allowInsecure"},
+			wantParams: map[string]any{
+				"tls": true, "servername": "sni.example.com", "alpn": []string{"h2"},
+				"client-fingerprint": "chrome", "flow": "xtls-rprx-vision",
+				"reality-opts": map[string]any{"public-key": "public", "short-id": "abcd"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before, err := json.Marshal(tc.params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			link, err := Render(tc.protocol, "节点", "example.com", 443, tc.params, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := json.Marshal(tc.params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("渲染器修改了输入参数: before=%s after=%s", before, after)
+			}
+			parsedURL, err := url.Parse(link)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for key, want := range tc.wantQuery {
+				if got := parsedURL.Query().Get(key); got != want {
+					t.Errorf("%s: want %q got %q; link=%s", key, want, got, link)
+				}
+			}
+			for _, key := range tc.absentKeys {
+				if parsedURL.Query().Has(key) {
+					t.Errorf("不应输出 %s: %s", key, link)
+				}
+			}
+			parsed, err := uriparse.Parse(link)
+			if err != nil {
+				t.Fatalf("生成链接无法回读: %v", err)
+			}
+			for key, want := range tc.wantParams {
+				if got := parsed.Params[key]; !reflect.DeepEqual(got, want) {
+					t.Errorf("回读 %s: want %#v got %#v", key, want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestShadowrocketTLSFieldsRequireActiveTLS(t *testing.T) {
+	for _, protocol := range []string{"vmess", "vless"} {
+		t.Run(protocol, func(t *testing.T) {
+			link, err := Render(protocol, "节点", "example.com", 443, map[string]any{
+				"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": false,
+				"servername": "stale.example.com", "alpn": []string{"h2"}, "client-fingerprint": "chrome",
+				"flow": "xtls-rprx-vision", "skip-cert-verify": true,
+				"reality-opts": map[string]any{"public-key": "stale", "short-id": "stale"},
+			}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := url.Parse(link)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range []string{"tls", "peer", "alpn", "fp", "flow", "allowInsecure", "xtls", "pbk", "sid"} {
+				if parsed.Query().Has(key) {
+					t.Errorf("TLS 关闭时不应输出残留参数 %s: %s", key, link)
+				}
+			}
+		})
+	}
+}
+
+func TestGenericTLSOutputBoundaries(t *testing.T) {
+	vless, err := Render("vless", "节点", "example.com", 443, map[string]any{
+		"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true,
+		"servername": "sni.example.com", "alpn": []string{"h2"}, "client-fingerprint": "chrome",
+		"flow": "xtls-rprx-vision", "skip-cert-verify": true,
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedVLESS, err := url.Parse(vless)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"security": "tls", "sni": "sni.example.com", "alpn": "h2", "fp": "chrome",
+		"flow": "xtls-rprx-vision", "allowInsecure": "1",
+	} {
+		if got := parsedVLESS.Query().Get(key); got != want {
+			t.Errorf("generic VLESS %s: want %q got %q", key, want, got)
+		}
+	}
+
+	vmess, err := Render("vmess", "节点", "example.com", 443, map[string]any{
+		"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true,
+		"skip-cert-verify": true,
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(vmess, "vmess://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := payload["skip-cert-verify"]; exists {
+		t.Fatalf("generic VMess 不应输出 skip-cert-verify: %#v", payload)
+	}
+}
 
 func TestVlessTransportAndRealityQuery(t *testing.T) {
 	params := map[string]any{

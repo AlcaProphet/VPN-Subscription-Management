@@ -155,6 +155,61 @@ func TestParseVMessBothForms(t *testing.T) {
 	}
 }
 
+func TestParseVMessShadowrocketTLSParameters(t *testing.T) {
+	base := "vmess://" + base64.StdEncoding.EncodeToString([]byte("auto:11111111-2222-3333-4444-555555555555@example.com:443"))
+	for _, skipKey := range []string{"allowInsecure", "skip-cert-verify"} {
+		t.Run(skipKey, func(t *testing.T) {
+			r, err := Parse(base + "?tls=1&peer=sni.example.com&alpn=h2%2Chttp%2F1.1&fp=chrome&" + skipKey + "=1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{
+				"tls": true, "servername": "sni.example.com", "alpn": []string{"h2", "http/1.1"},
+				"client-fingerprint": "chrome", "skip-cert-verify": true,
+			}
+			for key, expected := range want {
+				if got := r.Params[key]; !reflect.DeepEqual(got, expected) {
+					t.Errorf("%s: want %#v got %#v", key, expected, got)
+				}
+			}
+		})
+	}
+}
+
+func TestParseVLESSSecurityDialects(t *testing.T) {
+	base := "vless://11111111-2222-3333-4444-555555555555@example.com:443?"
+	cases := []struct {
+		name        string
+		query       string
+		wantTLS     bool
+		wantReality bool
+	}{
+		{name: "standard tls", query: "security=tls&allowInsecure=1", wantTLS: true},
+		{name: "standard reality", query: "security=reality&pbk=public&sid=abcd", wantTLS: true, wantReality: true},
+		{name: "sr tls", query: "tls=1&skip-cert-verify=1", wantTLS: true},
+		{name: "sr reality", query: "tls=1&xtls=2&pbk=public&sid=abcd", wantTLS: true, wantReality: true},
+		{name: "explicit none wins", query: "security=none&tls=1&xtls=2&pbk=ignored&sid=ignored"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := Parse(base + tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := r.Params["tls"]; got != tc.wantTLS {
+				t.Fatalf("TLS 推导错误: want %v got %#v; params=%#v", tc.wantTLS, got, r.Params)
+			}
+			reality, hasReality := r.Params["reality-opts"].(map[string]any)
+			if hasReality != tc.wantReality {
+				t.Fatalf("REALITY 推导错误: want %v got %#v", tc.wantReality, r.Params)
+			}
+			if tc.wantReality && !reflect.DeepEqual(reality, map[string]any{"public-key": "public", "short-id": "abcd"}) {
+				t.Fatalf("REALITY 参数回读错误: %#v", reality)
+			}
+		})
+	}
+}
+
 func TestParseMoreSchemes(t *testing.T) {
 	cases := []struct {
 		uri      string

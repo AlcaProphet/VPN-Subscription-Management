@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～13 已实施并通过验收，Step 14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，Step 15 为新增的 N-node-3/N-node-4 SR TLS 增量，尚未实施。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～13 已实施并通过验收，Step 14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，新增的 N-node-3/N-node-4 SR TLS 增量 Step 15 已实施并通过验收。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -27,7 +27,7 @@
 | 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ✅ 验收通过 |
 | 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ✅ 验收通过 |
 | 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ☐ 未开始 |
-| 15 | N-node-3/4：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步 | ☐ 未开始 |
+| 15 | N-node-3/4：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步 | ✅ 验收通过 |
 
 ---
 
@@ -554,7 +554,7 @@ plugin: obfs-local;obfs=http
   - `links/links.go:60-72`：VMess SR 只输出 `remarks/udp/alterId/tfo/type/path/host/mode`，没有 `tls/peer/alpn/fp/allowInsecure`。
   - `links/links.go:73-102`：VLESS SR 只在 REALITY 时输出 `tls/xtls/peer/pbk/sid`，在 TLS 时输出 `tls/peer`；没有 `alpn/fp/flow/allowInsecure`。
   - `links/links.go:247-311`：generic VLESS 已输出 `alpn/fp/flow`，但未输出 `allowInsecure`；generic VMess JSON 已输出 `sni/alpn/fp`，但不含 `skip-cert-verify`。
-  - `uriparse/uriparse.go:334-391`：`parseVMessSR` 只读取 `tls/peer/type/path/host/mode/fp`，不读取 `alpn` 与 `allowInsecure/skip-cert-verify`；`parseVLESS` 已读取这些字段。
+  - `uriparse/uriparse.go:334-391`：`parseVMessSR` 只读取 `tls/peer/type/path/host/mode/fp`，不读取 `alpn` 与 `allowInsecure/skip-cert-verify`；`parseVLESS` 虽读取 `alpn/fp/flow/allowInsecure`，但只识别标准 `security=tls|reality`，无法识别本项目生成的 SR `tls=1` / `xtls=2` 安全方言，导致 TLS/REALITY 与 `pbk/sid` 无法完整回读。
   - 外部源码证据（`urlclash-converter`/CVR 2.5.2）：
     - vless 标准 URI 生成应包含 `flow`、`security`、`sni`、`fp`、`allowInsecure=1`、`alpn`；
     - vmess V2rayN JSON 生成包含 `tls/sni/alpn/fp`；
@@ -568,22 +568,24 @@ plugin: obfs-local;obfs=http
     - generic VMess 按用户确认**不补充** `skip-cert-verify`：保持现状，并在测试/文档中明确记录“该字段未被 generic VMess 输出”，避免后续误加或误宣称完整映射。
   - `backend/internal/uriparse/uriparse.go`：
     - `parseVMessSR` 补读 `alpn`、`allowInsecure`/`skip-cert-verify`；
-    - 核对 `parseVLESS` 与生成端字段名一致（当前已读 `alpn/fp/flow/allowInsecure`）。
+    - `parseVLESS` 保持显式 `security` 优先；缺少该参数时以 `xtls=2` 推导 REALITY，否则以活动的 `tls=1` 推导 TLS，并仅在 REALITY 语义成立后回读 `pbk/sid`。
   - 更新 `TestCanonicalEditorSecurityCheckSaveAndOutput`：VMess 检查目标加入 `sr-subs` 并断言 TLS 语义。
 - **必须新增回归：**
   - SR VMess TLS：`tls=1`、`peer`、`alpn`、`fp`、`allowInsecure` 均输出；无 TLS 时不输出；
-  - SR VLESS TLS/REALITY：`alpn/fp/flow` 均输出；`skip-cert-verify=true` 时输出 `allowInsecure=1`；
+  - SR VLESS TLS/REALITY：`alpn/fp/flow` 均输出；仅普通 TLS 分支在 `skip-cert-verify=true` 时输出 `allowInsecure=1`，REALITY 不输出未激活字段；
   - generic VLESS：`allowInsecure=1` 输出，既有 `alpn/fp/flow` 不回归；
   - generic VMess 负向断言：当前输出 JSON 不含 `skip-cert-verify`，保持用户确认边界；
   - `uriparse.Parse` 对上述 SR URI 可回读关键字段（至少 alpn/allowInsecure/flow）；
   - 检查状态不与输出字段冲突：添加字段后，已有 fixture 不应把“能生成”误认为“SR 真机已验证”，保留 `ProdTestList` 人工边界。
 - **测试与验收命令：**
   ```bash
-  cd backend && go test ./internal/assembly/links ./internal/uriparse ./internal/assembly -count=1 -run 'SR|Vless|Vmess|Link|Uri'
+  cd backend && go test ./internal/assembly/links ./internal/uriparse ./internal/assembly -count=1 -run 'SR|VLESS|VMess|Vless|Vmess|URI|Link|CanonicalEditorSecurity'
   cd backend && go test -race ./internal/assembly/links ./internal/uriparse -count=1
+  cd backend && go test ./... -count=1
   cd backend && go build ./... && go vet ./...
   ```
 - **验收标准：** SR/generic 输出覆盖 Design4 §12.4 中已声明为 C 的 TLS 字段；生成→解析可往返；Shadowrocket 真机仍按人工待办处理，不写入“已验证”。
+- **实施结果（2026-09-08）：** 已新增仅在 TLS 活动时投影 `tls/peer/alpn/fp` 的 SR 共用 helper；VMess 与 VLESS TLS 分支分别补齐 `allowInsecure`，VLESS TLS/REALITY 补齐 Flow，REALITY 保持不输出未激活的 skip 参数。`parseVMessSR` 已回读 ALPN 与两种 skip 参数名；`parseVLESS` 已按“显式 `security` 优先，缺省时 `xtls=2`→REALITY、否则活动 `tls=1`→TLS”恢复自产 SR 方言。SR TLS 关闭残留隔离、三类生成→解析往返、generic VLESS 正例、generic VMess 负例及检查/保存/输出链均有回归覆盖；定向测试、links/uriparse 竞态、后端全量测试、编译、vet、前端生产构建与 `git diff --check` 通过。未执行 Step 14，Shadowrocket 真机导入/连接仍为人工待办。
 
 ### 7.13 依赖关系与停止条件
 
@@ -625,3 +627,4 @@ Step 7～13 + Step 15 全部通过 ─→ Step 14 全量收口
 | v1.9 | 2026-09-08 | 完成 R27-09 Step 11：先补固定 Mihomo 1.19.29 合同遗漏的 v2ray-plugin `skip-cert-verify`/`ech-opts`，再实现 Clash 结构化插件投影、目标 mode 枚举和最终 YAML 自检；四已知/未知插件、输入不可变、动态重渲染、竞态、全量构建及固定二进制正例均通过，Step 12～15 保持未实施。 |
 | v1.10 | 2026-09-08 | 完成 R27-09 Step 12：以 `ssplugin.AssessTarget` 统一活动插件目标诊断，接入节点检查及 Clash/SR/generic 正式装配门槛；精确 code/path、warning 回执、URI 跳过、混合/零输出与空诊断回归通过，后端定向/竞态/全量/编译/vet及前端生产构建通过，Step 13～15 保持未实施。 |
 | v1.11 | 2026-09-08 | 完成 R27-09 Step 13，并按用户确认纳入高级 JSON 空参数名合同缺口：字符串 map 结构化/JSON 校验、精确错误路径、插件分支清空、保存重开与凭据隔离回归落地，后端同步拒绝空键且失败零写入；定向/全量前后端测试、编译、vet 与生产构建通过，Step 14～15 保持未实施。 |
+| v1.12 | 2026-09-08 | 完成 N-node-3/4 Step 15：补齐 SR VMess/VLESS TLS 身份、ALPN、指纹、Flow 与 TLS skip 输出，补齐 VMess 回读及自产 SR VLESS TLS/REALITY 方言推导；生成→解析、关闭残留、generic 边界与检查链回归通过，后端定向/竞态/全量测试、编译、vet 与前端生产构建通过。Step 14 保持未实施，Shadowrocket 真机连接仍待人工验证。 |

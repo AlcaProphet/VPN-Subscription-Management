@@ -68,6 +68,9 @@ func srLink(nd *nodeData) (string, error) {
 		q.Set("alterId", str(nd.ProtocolJSON, "alterId", "0"))
 		addCommonSRQuery(nd.ProtocolJSON, q)
 		transportQuery(nd.ProtocolJSON, q)
+		if addSRTLSQuery(nd.ProtocolJSON, q) && boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
+			q.Set("allowInsecure", "1")
+		}
 		return "vmess://" + userinfo + querySuffix(q), nil
 	case "vless":
 		uuid := str(nd.ProtocolJSON, "uuid", "")
@@ -79,23 +82,21 @@ func srLink(nd *nodeData) (string, error) {
 		}
 		addCommonSRQuery(nd.ProtocolJSON, q)
 		transportQuery(nd.ProtocolJSON, q)
-		reality := realityOpts(nd.ProtocolJSON)
-		if reality != nil {
-			q.Set("tls", "1")
-			q.Set("xtls", "2")
-			if sni := firstNonEmpty(nd.ProtocolJSON, "servername", "sni"); sni != "" {
-				q.Set("peer", sni)
+		if tlsActive := addSRTLSQuery(nd.ProtocolJSON, q); tlsActive {
+			reality := realityOpts(nd.ProtocolJSON)
+			if reality != nil {
+				q.Set("xtls", "2")
+				if pk, ok := reality["public-key"].(string); ok && pk != "" {
+					q.Set("pbk", pk)
+				}
+				if sid, ok := reality["short-id"].(string); ok && sid != "" {
+					q.Set("sid", sid)
+				}
+			} else if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
+				q.Set("allowInsecure", "1")
 			}
-			if pk, ok := reality["public-key"].(string); ok && pk != "" {
-				q.Set("pbk", pk)
-			}
-			if sid, ok := reality["short-id"].(string); ok && sid != "" {
-				q.Set("sid", sid)
-			}
-		} else if boolVal(nd.ProtocolJSON, "tls", false) {
-			q.Set("tls", "1")
-			if sni := firstNonEmpty(nd.ProtocolJSON, "servername", "sni"); sni != "" {
-				q.Set("peer", sni)
+			if flow := str(nd.ProtocolJSON, "flow", ""); flow != "" {
+				q.Set("flow", flow)
 			}
 		}
 		return "vless://" + userinfo + querySuffix(q), nil
@@ -303,6 +304,9 @@ func genericLink(nd *nodeData) (string, error) {
 			if fp := str(nd.ProtocolJSON, "client-fingerprint", ""); fp != "" {
 				q.Set("fp", fp)
 			}
+			if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
+				q.Set("allowInsecure", "1")
+			}
 		}
 		if flow := str(nd.ProtocolJSON, "flow", ""); flow != "" {
 			q.Set("flow", flow)
@@ -406,6 +410,24 @@ func addCommonSRQuery(params map[string]any, q url.Values) {
 	if boolVal(params, "tfo", false) {
 		q.Set("tfo", "1")
 	}
+}
+
+// addSRTLSQuery 仅在 TLS 活动时投影 SR 共用的 TLS 身份参数。
+func addSRTLSQuery(params map[string]any, q url.Values) bool {
+	if !boolVal(params, "tls", false) {
+		return false
+	}
+	q.Set("tls", "1")
+	if sni := firstNonEmpty(params, "servername", "sni"); sni != "" {
+		q.Set("peer", sni)
+	}
+	if alpn := listString(params, "alpn"); alpn != "" {
+		q.Set("alpn", alpn)
+	}
+	if fp := str(params, "client-fingerprint", ""); fp != "" {
+		q.Set("fp", fp)
+	}
+	return true
 }
 
 func transportQuery(params map[string]any, q url.Values) {

@@ -89,7 +89,7 @@
 - [ ] 在 Production 模式复核 VLESS TCP/WS/REALITY、VMess TLS 下无旧 `WebSocket Path`、`WebSocket Headers` 和顶层 TLS 开关；HTTP/SOCKS5 与 SS v2ray-plugin 的有效 TLS 开关仍可操作。
 - [ ] 覆盖 WS→TCP→WS、REALITY→none→TLS 的往返切换、局部 JSON、保存后重开，确认旧参数不恢复；同时复核无诊断与有诊断目标可在检查面板混合显示。
 - [ ] 在固定 Mihomo/Clash Verge Rev 与 Shadowrocket 客户端核对导入及真实连接结果，不能以表单或 YAML/URI 自动化断言替代。
-- [ ] 独立核验既有 VMess SR URI 的 TLS 语义：本轮实际适配器输出未显式包含 `tls` 查询参数；尚未确认客户端解释，也未修改该映射。R27-04 自动化安全输出断言只覆盖 VLESS Clash/generic/SR 与 VMess Clash/generic。
+- [ ] 在 Shadowrocket 真机独立核验 VMess/VLESS SR URI 的 TLS 语义：Build21 Step 15 已自动化确认输出 `tls/peer/alpn/fp`，VMess 与 VLESS TLS 输出 `allowInsecure`，VLESS TLS/REALITY 输出 Flow，且自产 URI 可回读；这些结果不替代客户端实际导入与连接验证。
 
 ---
 
@@ -177,3 +177,4 @@
 | v1.6 | 2026-09-03 | 新增 Issue13 R27-03 修复后的真实 schema 浏览器交互、SMux/Brutal 关闭再开启、JSON/扩展及客户端输出人工复核；不将自动化通过标为实机通过。 |
 | v1.7 | 2026-09-03 | 记录 R27-04 最新构建本地浏览器核心流程通过，保留 Production/客户端与往返切换补充验收；新增 VMess SR URI 缺少显式 TLS 参数的独立核验项。 |
 | v1.8 | 2026-09-03 | 记录 R27-05 本地四协议核心布局、集中开关、保存回显、SS 指纹清空与手机/主题核验；保留 Production、更多设备/协议及 R27-06～09 联动人工验收。 |
+| v1.9 | 2026-09-08 | 同步 Build21 Step 15：VMess/VLESS SR TLS 字段输出与自产 URI 回读已有自动化证据；保留 Shadowrocket 真机导入/连接为人工待办，不将生成成功写成客户端兼容已验证。 |

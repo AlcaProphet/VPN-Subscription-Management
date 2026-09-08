@@ -36,13 +36,20 @@ func TestCanonicalEditorSecurityCheckSaveAndOutput(t *testing.T) {
 				securities = append(securities, "reality", "none")
 			}
 			for i, security := range securities {
-				// VMess SR 映射目前未显式输出 TLS 参数，作为独立核验项，不在 R27-04 改写。
-				targets := []string{"clash-yaml", "generic-subs"}
-				if protocol == "vless" {
-					targets = append(targets, "sr-subs")
-				}
+				targets := []string{"clash-yaml", "generic-subs", "sr-subs"}
 				state := node.CurrentState{Network: "tcp", Security: security}
 				params := map[string]any{"uuid": "", "network": "tcp", "security": security}
+				if security != "none" {
+					params["servername"] = "sni.example.com"
+					params["alpn"] = []string{"h2", "http/1.1"}
+					params["client-fingerprint"] = "chrome"
+				}
+				if security == "tls" {
+					params["skip-cert-verify"] = true
+				}
+				if protocol == "vless" && security != "none" {
+					params["flow"] = "xtls-rprx-vision"
+				}
 				if security == "reality" {
 					params["reality-opts"] = map[string]any{"public-key": "public-key", "short-id": "abcd"}
 				}
@@ -94,6 +101,9 @@ func TestCanonicalEditorSecurityCheckSaveAndOutput(t *testing.T) {
 						if (payload["tls"] == "tls") != (security != "none") {
 							t.Fatalf("VMess URI TLS 语义错误: %s", raw)
 						}
+						if _, exists := payload["skip-cert-verify"]; exists {
+							t.Fatalf("generic VMess 不应输出 skip-cert-verify: %s", raw)
+						}
 					default:
 						link, err := url.Parse(preview)
 						if err != nil {
@@ -108,8 +118,19 @@ func TestCanonicalEditorSecurityCheckSaveAndOutput(t *testing.T) {
 							if q.Get("security") != want {
 								t.Fatalf("标准 URI 安全语义错误: %s", preview)
 							}
-						} else if (q.Get("tls") == "1") != (security != "none") || (q.Get("xtls") == "2") != (security == "reality") {
-							t.Fatalf("SR URI 安全语义错误: %s", preview)
+						} else {
+							if (q.Get("tls") == "1") != (security != "none") || (q.Get("xtls") == "2") != (security == "reality") {
+								t.Fatalf("SR URI 安全语义错误: %s", preview)
+							}
+							if security != "none" && (q.Get("peer") != "sni.example.com" || q.Get("alpn") != "h2,http/1.1" || q.Get("fp") != "chrome") {
+								t.Fatalf("SR URI TLS 身份参数错误: %s", preview)
+							}
+							if (q.Get("allowInsecure") == "1") != (security == "tls") {
+								t.Fatalf("SR URI skip-cert-verify 语义错误: %s", preview)
+							}
+							if protocol == "vless" && security != "none" && q.Get("flow") != "xtls-rprx-vision" {
+								t.Fatalf("SR VLESS Flow 缺失: %s", preview)
+							}
 						}
 					}
 				}

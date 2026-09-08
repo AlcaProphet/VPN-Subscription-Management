@@ -385,6 +385,15 @@ func parseVMessSR(decoded string, query url.Values) (*Result, error) {
 	if v := query.Get("fp"); v != "" {
 		params["client-fingerprint"] = v
 	}
+	if v := query.Get("alpn"); v != "" {
+		params["alpn"] = splitCSV(v)
+	}
+	if _, ok := query["allowInsecure"]; ok {
+		params["skip-cert-verify"] = parseBoolPresence(query.Get("allowInsecure"))
+	}
+	if _, ok := query["skip-cert-verify"]; ok {
+		params["skip-cert-verify"] = parseBoolPresence(query.Get("skip-cert-verify"))
+	}
 	applyVMessTransport(params)
 	name := firstNonEmpty(query.Get("remarks"), query.Get("remark"))
 	return &Result{Protocol: "vmess", Name: defaultName(name, "VMess", host, port), Host: host, Port: port, Params: params}, nil
@@ -470,7 +479,15 @@ func parseVLESS(s string) (*Result, error) {
 	} else if v := q.Get("headerType"); v != "" {
 		params["network"] = normalizeNetwork(v)
 	}
-	security := q.Get("security")
+	security := strings.ToLower(q.Get("security"))
+	if _, explicit := q["security"]; !explicit {
+		switch {
+		case q.Get("xtls") == "2":
+			security = "reality"
+		case q.Has("tls") && parseBoolPresence(q.Get("tls")):
+			security = "tls"
+		}
+	}
 	if security != "" && security != "none" {
 		params["tls"] = true
 	}
