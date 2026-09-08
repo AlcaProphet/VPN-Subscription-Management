@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -473,22 +472,6 @@ func PluginOpts(params map[string]any, plugin string) map[string]any {
 	}
 }
 
-func pluginString(name string, opts map[string]any) string {
-	if len(opts) == 0 {
-		return name
-	}
-	keys := make([]string, 0, len(opts))
-	for key := range opts {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	parts := []string{name}
-	for _, key := range keys {
-		parts = append(parts, key+"="+fmt.Sprint(opts[key]))
-	}
-	return strings.Join(parts, ";")
-}
-
 func renderPluginForTarget(name string, opts map[string]any, target string) (string, error) {
 	definition, known := ssplugin.Lookup(name)
 	if !known {
@@ -598,31 +581,6 @@ func joinPluginList(plugin, key string, values []string) (string, error) {
 		}
 	}
 	return strings.Join(values, ","), nil
-}
-
-// RenderPluginForClashLegacy 保留 Step 11 前的 Clash 旧投影行为。
-func RenderPluginForClashLegacy(name string, opts map[string]any) string {
-	switch name {
-	case "obfs":
-		parts := []string{"obfs-local", "obfs=" + str(opts, "mode", "http")}
-		if host := str(opts, "host", ""); host != "" {
-			parts = append(parts, "obfs-host="+host)
-		}
-		return strings.Join(parts, ";")
-	case "v2ray-plugin":
-		parts := []string{"v2ray-plugin"}
-		for _, key := range []string{"mode", "host", "path"} {
-			if value := str(opts, key, ""); value != "" {
-				parts = append(parts, key+"="+value)
-			}
-		}
-		if boolVal(opts, "tls", false) {
-			parts = append(parts, "tls=true")
-		}
-		return strings.Join(parts, ";")
-	default:
-		return pluginString(name, opts)
-	}
 }
 
 // encodeQuery 编码查询参数，并按 Build5 要求把 `+` 替换为 `%20`，避免空格不对称。

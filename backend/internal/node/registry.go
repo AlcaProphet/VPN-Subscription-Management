@@ -154,9 +154,11 @@ func v2rayPluginOpts() FieldSchema {
 	setOptionItems(&mode, option("websocket", "WebSocket", "common", "mihomo-1.19.29"))
 	return obj("v2ray-plugin-opts", "v2ray-plugin 参数", "fields",
 		mode, f("host", "text", "Host"), def("tls", "bool", "TLS", false), f("path", "text", "路径"), obj("headers", "请求头", "map"),
+		obj("ech-opts", "ECH 参数", "fields", def("enable", "bool", "启用", false), f("config", "text", "配置"), f("query-server-name", "text", "查询服务器名称")),
 		def("mux", "bool", "Mux", false), def("v2ray-http-upgrade", "bool", "HTTP Upgrade", false),
 		def("v2ray-http-upgrade-fast-open", "bool", "HTTP Upgrade Fast Open", false), f("fingerprint", "text", "证书指纹"),
-		f("certificate", "text", "客户端证书"), f("private-key", "password", "客户端私钥"), f("name-cert-verify", "text", "证书名称校验"))
+		f("certificate", "text", "客户端证书"), f("private-key", "password", "客户端私钥"),
+		def("skip-cert-verify", "bool", "跳过证书校验", false), f("name-cert-verify", "text", "证书名称校验"))
 }
 
 func shadowTlsOpts() FieldSchema {

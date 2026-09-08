@@ -9,9 +9,9 @@ import (
 
 	gyaml "github.com/goccy/go-yaml"
 
-	assemblylinks "vpn-sub/internal/assembly/links"
 	"vpn-sub/internal/node"
 	"vpn-sub/internal/rulespec"
+	"vpn-sub/internal/ssplugin"
 )
 
 // renderClash 渲染 Clash YAML 产物。
@@ -257,15 +257,113 @@ func normalizeClashFields(protocol string, params map[string]any) map[string]any
 		}
 	}
 	if protocol == "ss" {
-		if plugin, ok := out["plugin"].(string); ok && plugin != "" {
-			opts := assemblylinks.PluginOpts(out, plugin)
-			out["plugin"] = assemblylinks.RenderPluginForClashLegacy(plugin, opts)
-			for _, key := range []string{"plugin-opts", "obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts"} {
-				delete(out, key)
-			}
-		}
+		projectSSPluginForClash(out)
 	}
 	return out
+}
+
+// projectSSPluginForClash 把内部插件分支投影为 Mihomo 的独立 plugin + plugin-opts，且只修改输出副本。
+func projectSSPluginForClash(out map[string]any) {
+	pluginValue, exists := out["plugin"]
+	plugin, isString := pluginValue.(string)
+	if !exists || isString && plugin == "" {
+		delete(out, "plugin")
+		delete(out, "plugin-opts")
+		deleteSSPluginStorageFields(out)
+		return
+	}
+	if !isString {
+		deleteSSPluginStorageFields(out)
+		return
+	}
+
+	var rawOpts any
+	if definition, known := ssplugin.Lookup(plugin); known {
+		rawOpts = out[definition.StorageKey]
+		cloned, ok := cloneClashStringMap(rawOpts)
+		if !ok && rawOpts == nil {
+			cloned = map[string]any{}
+			ok = true
+		}
+		if ok {
+			if clash, hasTarget := definition.Target(ssplugin.TargetClash); hasTarget {
+				for key, value := range clash.Defaults {
+					if _, hasValue := cloned[key]; !hasValue {
+						cloned[key] = value
+					}
+				}
+			}
+			rawOpts = cloned
+		}
+	} else {
+		rawOpts = out["plugin-opts"]
+		if cloned, ok := cloneClashStringMap(rawOpts); ok {
+			rawOpts = cloned
+		}
+	}
+
+	out["plugin"] = plugin
+	opts, optsAreMap := rawOpts.(map[string]any)
+	if rawOpts == nil || (optsAreMap && len(opts) == 0) {
+		delete(out, "plugin-opts")
+	} else {
+		out["plugin-opts"] = cloneClashValue(rawOpts)
+	}
+	deleteSSPluginStorageFields(out)
+}
+
+func deleteSSPluginStorageFields(out map[string]any) {
+	for _, name := range ssplugin.KnownNames() {
+		if definition, ok := ssplugin.Lookup(name); ok {
+			delete(out, definition.StorageKey)
+		}
+	}
+}
+
+func cloneClashStringMap(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = cloneClashValue(item)
+		}
+		return out, true
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = item
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func cloneClashValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = cloneClashValue(item)
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = item
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i := range typed {
+			out[i] = cloneClashValue(typed[i])
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	default:
+		return typed
+	}
 }
 
 func splitList(value string) []string {

@@ -950,13 +950,14 @@ v1.5 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、�
 | 组合 | 表单字段 | Clash YAML | SR/generic URI | 说明 |
 |---|---|---|---|---|
 | 普通 AEAD，无插件 | Cipher、Password、UDP | C | C | SIP002 Base64 形态 |
-| 普通 AEAD + obfs | Cipher、Password、Plugin=obfs、Plugin-opts | C | U/P | 当前 `pluginString` 输出 `obfs;…`，CVR 2.5.2 偏好 `obfs-local;obfs=…`；需按映射修正或诊断 |
-| 普通 AEAD + v2ray-plugin | Cipher、Password、Plugin-opts | C | V | 插件参数映射未全部验证 |
+| 普通 AEAD + obfs | Cipher、Password、Plugin=obfs、Plugin-opts | C | U/P | Clash 输出纯 `plugin: obfs` + 结构化参数；SR/generic 按各自 URI 合同映射 |
+| 普通 AEAD + v2ray-plugin | Cipher、Password、Plugin-opts（含 TLS、ECH 与证书校验） | C | U/P | Mihomo 1.19.29 消费 `skip-cert-verify` 及 `ech-opts.enable/config/query-server-name`；URI 目标仅允许可无损回读子集 |
 | SS 2022 | 算法/密钥/插件 | V | V | 明确为后续阶段，不在首批宣称完整支持 |
 
 已知风险：
 
 - SS 插件名不能只做展示候选，必须与 URI 插件映射（SIP003/目标客户端）一致。
+- Clash/Mihomo 输出使用纯插件名与结构化 `plugin-opts`；obfs/v2ray-plugin 缺省 mode 只在输出副本补齐，最终 YAML 自检拒绝 URI 参数串、错误 shape、缺失必需项与非法目标枚举。
 - 插件切换清空插件参数、凭据与扩展；SS 主密码不因插件切换清空。
 - 普通 AEAD 算法与 VMess 算法不共用清单/别名。
 
@@ -999,3 +1000,4 @@ Build 编写时上述契约如与 AGENTS.md、现有 Design2/Design3 或用户�
 | v1.10 | 2026-09-03 | 按用户确认落实 R27-05：选择控件先行、递归常用/高级分层、运行开关集中且保留原路径、编辑模式按钮、控件尺寸与错误定位；明确 SS 指纹插件归属及集中开关与 JSON 草稿协调。数据库结构、凭据契约和客户端证据等级不变。 |
 | v1.11 | 2026-09-04 | 按 R27-06 修复同步 `allow_custom` 三态契约：受限枚举明确下发 `false`，未声明与 `null` 默认禁止，前后端仅在显式 `true` 时允许清单外值；节点存储、数据库结构和客户端证据等级不变。 |
 | v1.12 | 2026-09-04 | 按扩大的 R27-07 同步凭据状态与数组凭据契约：节点响应以 `saved_sensitive_paths` 区分实际密文和敏感 schema，递归 UI 使用完整路径与持续失效状态；WireGuard Peer 通过 `item_id_field` 稳定 UUID 接入归一化、历史升级、加密、合并、脱敏、检查、解密和输出清理。客户端连接证据等级不变。 |
+| v1.13 | 2026-09-08 | 同步 R27-09 Step 11：补齐 Mihomo 1.19.29 的 v2ray-plugin `skip-cert-verify` 与结构化 `ech-opts` 字段，明确 Clash 纯插件名 + 结构化参数、仅输出默认值和最终 YAML 自检；SR/generic 仍按可无损 URI 子集处理，真机连接证据等级不变。 |

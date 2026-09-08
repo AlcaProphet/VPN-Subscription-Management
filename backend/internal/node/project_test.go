@@ -249,9 +249,9 @@ func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
 		},
 		{
 			name:      "v2ray-plugin-opts",
-			fields:    []string{"certificate", "fingerprint", "headers", "host", "mode", "mux", "name-cert-verify", "path", "private-key", "tls", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open"},
+			fields:    []string{"certificate", "ech-opts", "fingerprint", "headers", "host", "mode", "mux", "name-cert-verify", "path", "private-key", "skip-cert-verify", "tls", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open"},
 			forbidden: "version", required: []string{"mode"}, defaults: map[string]any{"mode": "websocket"},
-			fieldTypes: map[string]string{"headers": "object", "private-key": "password", "tls": "bool"},
+			fieldTypes: map[string]string{"ech-opts": "object", "headers": "object", "private-key": "password", "skip-cert-verify": "bool", "tls": "bool"},
 		},
 		{
 			name:     "shadow-tls-opts",
@@ -314,6 +314,18 @@ func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
 	v2rayMode := findNestedFieldMust(t, findSchemaFieldMust(t, ss.FormSchema, "v2ray-plugin-opts"), "mode")
 	if !hasOption(v2rayMode, "websocket") || len(v2rayMode.OptionItems) != 1 {
 		t.Fatalf("v2ray-plugin mode 应固定为 websocket: %+v", v2rayMode)
+	}
+	v2rayECH := findNestedFieldMust(t, findSchemaFieldMust(t, ss.FormSchema, "v2ray-plugin-opts"), "ech-opts")
+	if v2rayECH.ObjectKind != "fields" {
+		t.Fatalf("v2ray-plugin ech-opts 应为结构化对象: %+v", v2rayECH)
+	}
+	gotECHFields := make([]string, 0, len(v2rayECH.Properties))
+	for _, property := range v2rayECH.Properties {
+		gotECHFields = append(gotECHFields, property.Name)
+	}
+	sort.Strings(gotECHFields)
+	if want := []string{"config", "enable", "query-server-name"}; !reflect.DeepEqual(gotECHFields, want) {
+		t.Fatalf("v2ray-plugin ech-opts 字段异常: got=%v want=%v", gotECHFields, want)
 	}
 	for _, path := range []string{"v2ray-plugin-opts.private-key", "shadow-tls-opts.private-key"} {
 		if !contains(ss.SensitiveFields, path) {

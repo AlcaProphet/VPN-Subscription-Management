@@ -66,7 +66,7 @@ func TestFixedTargetSupportAndRequirements(t *testing.T) {
 func TestClashExpressibleFieldsMatchMihomo11929(t *testing.T) {
 	want := map[string][]string{
 		"obfs":         {"mode", "host"},
-		"v2ray-plugin": {"mode", "host", "path", "headers", "tls", "mux", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "fingerprint", "certificate", "private-key", "name-cert-verify"},
+		"v2ray-plugin": {"mode", "host", "path", "headers", "tls", "ech-opts", "mux", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "fingerprint", "certificate", "private-key", "skip-cert-verify", "name-cert-verify"},
 		"shadow-tls":   {"host", "password", "version", "alpn", "fingerprint", "certificate", "private-key", "skip-cert-verify", "name-cert-verify"},
 		"restls":       {"password", "host", "version-hint", "restls-script", "fingerprint", "skip-cert-verify", "name-cert-verify"},
 	}
@@ -79,13 +79,34 @@ func TestClashExpressibleFieldsMatchMihomo11929(t *testing.T) {
 	}
 }
 
+func TestClashPluginModeEnumsMatchMihomo11929(t *testing.T) {
+	want := map[string][]string{
+		"obfs":         {"http", "tls"},
+		"v2ray-plugin": {"websocket"},
+	}
+	for plugin, values := range want {
+		definition, _ := Lookup(plugin)
+		clash, _ := definition.Target(TargetClash)
+		if !reflect.DeepEqual(clash.AllowedValues["mode"], values) {
+			t.Fatalf("%s Clash mode 枚举异常: got=%v want=%v", plugin, clash.AllowedValues["mode"], values)
+		}
+	}
+}
+
 func TestContractResultsAreDefensiveCopies(t *testing.T) {
 	definition, _ := Lookup("obfs")
 	definition.StorageKey = "changed"
 	definition.Targets[TargetClash] = TargetContract{Support: SupportUnsupported}
+	definition, _ = Lookup("v2ray-plugin")
+	definition.Targets[TargetClash].AllowedValues["mode"][0] = "changed"
 	definition, _ = Lookup("obfs")
 	clash, _ := definition.Target(TargetClash)
 	if definition.StorageKey != "obfs-opts" || clash.Support != SupportComplete {
 		t.Fatalf("调用方修改污染了固定合同: %+v", definition)
+	}
+	v2ray, _ := Lookup("v2ray-plugin")
+	v2rayClash, _ := v2ray.Target(TargetClash)
+	if !reflect.DeepEqual(v2rayClash.AllowedValues["mode"], []string{"websocket"}) {
+		t.Fatalf("调用方修改污染了固定枚举: %+v", v2rayClash.AllowedValues)
 	}
 }

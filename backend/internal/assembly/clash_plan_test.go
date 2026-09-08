@@ -2,8 +2,11 @@ package assembly
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
+
+	gyaml "github.com/goccy/go-yaml"
 )
 
 func TestRenderClashPlanFullReRender(t *testing.T) {
@@ -34,6 +37,62 @@ func TestRenderClashPlanFullReRender(t *testing.T) {
 	}
 	if strings.Contains(text, "# {{xray_nodes}}") {
 		t.Errorf("重渲染不应残留占位符:\n%s", text)
+	}
+}
+
+func TestRenderClashPlanProjectsDynamicSSPlugin(t *testing.T) {
+	plan := ClashPlan{Head: NewOrderedMap()}
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := map[string]any{
+		"cipher": "aes-128-gcm", "password": "secret", "plugin": "v2ray-plugin",
+		"v2ray-plugin-opts": map[string]any{
+			"host": "cdn.example.com", "skip-cert-verify": true,
+			"ech-opts": map[string]any{"enable": true, "query-server-name": "ech.example.com"},
+		},
+	}
+	before := deepCopyMapForTest(t, params)
+	content, err := RenderClashPlan(raw, []DynamicNode{{
+		Name: "dynamic-ss", RenderName: "动态 SS", Protocol: "ss", Host: "example.com", Port: 443, ProtocolJSON: params,
+	}}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(params, before) {
+		t.Fatalf("动态重渲染修改了输入: got=%#v want=%#v", params, before)
+	}
+	var decoded any
+	if err := gyaml.UnmarshalWithOptions(content, &decoded, gyaml.UseOrderedMap()); err != nil {
+		t.Fatal(err)
+	}
+	root, ok := yamlMap(decoded)
+	if !ok {
+		t.Fatalf("Clash 产物顶层不是映射: %#v", decoded)
+	}
+	proxiesRaw, _ := mapGet(root, "proxies")
+	proxies, ok := seqOf(proxiesRaw)
+	if !ok || len(proxies) != 1 {
+		t.Fatalf("动态 SS 节点数量异常: %#v", proxiesRaw)
+	}
+	plain, ok := plainYAMLValue(proxies[0]).(map[string]any)
+	if !ok {
+		t.Fatalf("动态 SS 节点不是映射: %#v", proxies[0])
+	}
+	want := map[string]any{
+		"name": "动态 SS", "type": "ss", "server": "example.com", "port": 443,
+		"cipher": "aes-128-gcm", "password": "secret", "plugin": "v2ray-plugin",
+		"plugin-opts": map[string]any{
+			"mode": "websocket", "host": "cdn.example.com", "skip-cert-verify": true,
+			"ech-opts": map[string]any{"enable": true, "query-server-name": "ech.example.com"},
+		},
+	}
+	if !reflect.DeepEqual(plain, want) {
+		t.Fatalf("动态 SS 结构化投影异常:\n got=%#v\nwant=%#v\nYAML:\n%s", plain, want, content)
+	}
+	if issues := CheckClashContent(content); HasError(issues) {
+		t.Fatalf("动态 SS 正确结构未通过项目自检: %+v\nYAML:\n%s", issues, content)
 	}
 }
 

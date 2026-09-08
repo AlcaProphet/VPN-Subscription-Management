@@ -24,6 +24,7 @@ type TargetContract struct {
 	Defaults          map[string]string
 	RequiredFields    []string
 	ExpressibleFields []string
+	AllowedValues     map[string][]string
 }
 
 // Definition 描述一个已知插件的内部存储键与目标合同。
@@ -46,7 +47,7 @@ var definitions = []Definition{
 	{
 		Name: "obfs", StorageKey: "obfs-opts",
 		Targets: map[string]TargetContract{
-			TargetClash:        target(SupportComplete, []string{"mode"}, map[string]string{"mode": "http"}, "mode", "host"),
+			TargetClash:        targetWithAllowedValues(SupportComplete, []string{"mode"}, map[string]string{"mode": "http"}, map[string][]string{"mode": {"http", "tls"}}, "mode", "host"),
 			TargetShadowrocket: target(SupportPartial, nil, nil, "mode", "host"),
 			TargetGeneric:      target(SupportPartial, nil, nil, "mode", "host"),
 		},
@@ -54,8 +55,8 @@ var definitions = []Definition{
 	{
 		Name: "v2ray-plugin", StorageKey: "v2ray-plugin-opts",
 		Targets: map[string]TargetContract{
-			TargetClash: target(SupportComplete, []string{"mode"}, map[string]string{"mode": "websocket"},
-				"mode", "host", "path", "headers", "tls", "mux", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "fingerprint", "certificate", "private-key", "name-cert-verify"),
+			TargetClash: targetWithAllowedValues(SupportComplete, []string{"mode"}, map[string]string{"mode": "websocket"}, map[string][]string{"mode": {"websocket"}},
+				"mode", "host", "path", "headers", "tls", "ech-opts", "mux", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "fingerprint", "certificate", "private-key", "skip-cert-verify", "name-cert-verify"),
 			TargetShadowrocket: target(SupportPartial, nil, nil, "mode", "host", "path", "tls"),
 			TargetGeneric:      target(SupportPartial, nil, nil, "mode", "host", "path", "tls"),
 		},
@@ -86,6 +87,12 @@ func target(support SupportLevel, required []string, defaults map[string]string,
 	return TargetContract{
 		Support: support, RequiredFields: required, Defaults: defaults, ExpressibleFields: expressible,
 	}
+}
+
+func targetWithAllowedValues(support SupportLevel, required []string, defaults map[string]string, allowed map[string][]string, expressible ...string) TargetContract {
+	contract := target(support, required, defaults, expressible...)
+	contract.AllowedValues = allowed
+	return contract
 }
 
 // KnownNames 按稳定的表单顺序返回四个已知插件名。
@@ -125,6 +132,12 @@ func cloneTarget(contract TargetContract) TargetContract {
 		out.Defaults = make(map[string]string, len(contract.Defaults))
 		for key, value := range contract.Defaults {
 			out.Defaults[key] = value
+		}
+	}
+	if contract.AllowedValues != nil {
+		out.AllowedValues = make(map[string][]string, len(contract.AllowedValues))
+		for key, values := range contract.AllowedValues {
+			out.AllowedValues[key] = append([]string(nil), values...)
 		}
 	}
 	return out

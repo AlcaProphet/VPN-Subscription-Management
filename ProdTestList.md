@@ -67,7 +67,7 @@
 
 ## 四、Build19/Build20 节点编辑器与客户端人工验收
 
-- [ ] 在 Mihomo 1.19.29 / Clash Verge Rev 2.5.2 上导入代表组合（VLESS WS/TLS/REALITY、VMess、Trojan WS/gRPC、SS obfs/v2ray-plugin）；
+- [ ] 在 Mihomo 1.19.29 / Clash Verge Rev 2.5.2 上导入代表组合（VLESS WS/TLS/REALITY、VMess、Trojan WS/gRPC、SS obfs/v2ray-plugin）；SS 同时核对结构化 `plugin-opts`、v2ray-plugin `skip-cert-verify` 与 `ech-opts` 的实际导入/连接行为；
 - [ ] 真实连接后另行记录连接级结论；未完成前相关状态保持 `unverified`；
 - [ ] Shadowrocket 保持“待真机验证”；
 - [ ] 前端动态表单、分支清空、局部 JSON 应用/放弃、目标检查与 409 重新加载在浏览器中人工走查。

@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～10 已实施并通过验收，Step 11～14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，Step 15 为新增的 N-node-3/N-node-4 SR TLS 增量，尚未实施。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～11 已实施并通过验收，Step 12～14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，Step 15 为新增的 N-node-3/N-node-4 SR TLS 增量，尚未实施。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -23,7 +23,7 @@
 | 8 | R27-09 新旧参数幂等归一化、未知参数保存与回显 | ✅ 验收通过 |
 | 9 | R27-09 四个已知插件字段与固定敏感路径修正 | ✅ 验收通过 |
 | 10 | R27-09 SIP002 转义/解析与 SR/generic 目标分流 | ✅ 验收通过 |
-| 11 | R27-09 Clash/Mihomo 结构化插件投影与产物自检 | ☐ 未开始 |
+| 11 | R27-09 Clash/Mihomo 结构化插件投影与产物自检 | ✅ 验收通过 |
 | 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ☐ 未开始 |
 | 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ☐ 未开始 |
 | 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ☐ 未开始 |
@@ -313,7 +313,7 @@ plugin: obfs-local;obfs=http
 - **前置条件：** Step 7～8 已通过；字段增删必须先区分“固定版本明确消费”“目标不消费但历史可能已有”“仅建议候选”。
 - **产出文件与操作：**
   - `obfs-opts`：`mode` 候选只明确支持 `http/tls`，输出缺省补 `http`；`host` 可选。
-  - `v2ray-plugin-opts`：固定 `mode=websocket` 语义，补齐固定版本消费的 `host/path/headers/tls/mux/v2ray-http-upgrade/v2ray-http-upgrade-fast-open/fingerprint/certificate/private-key/name-cert-verify`；移除对当前错误 `version` 字段的“已验证”暗示。
+  - `v2ray-plugin-opts`：固定 `mode=websocket` 语义，补齐固定版本消费的 `host/path/headers/tls/ech-opts/mux/v2ray-http-upgrade/v2ray-http-upgrade-fast-open/fingerprint/certificate/private-key/skip-cert-verify/name-cert-verify`；`ech-opts` 固定为 `enable/config/query-server-name` 结构；移除对当前错误 `version` 字段的“已验证”暗示。
   - `shadow-tls-opts`：补 `host`、`version`、`alpn`、`certificate`、`private-key` 等固定版本字段；`host` 是 Clash 目标必需项，`password` 可选。
   - `restls-opts`：补 `host`；`password/host/version-hint` 是固定 Clash 目标必需项，保留 `restls-script/fingerprint` 等固定版本消费字段；`path` 不再宣称为固定版本已支持。
   - 对旧数据中不再正式声明但已经存在的键，仍按所属已知对象的未知键保留；目标检查给出“固定版本未消费/未验证”诊断，不静默删除。
@@ -334,6 +334,7 @@ plugin: obfs-local;obfs=http
 - **验收标准：** schema 字段、候选、目标证据和敏感路径与固定版本契约一致；默认 mode 只出现在活动输出投影，不回写节点；新私钥保存后加密、API 留空、摘要路径正确、留空更新保留、显式重置清除。
 - **实施结果（2026-09-04）：**
   - 四个已知插件对象已与集中合同对齐：`obfs` 保持 `http/tls`；`v2ray-plugin` 补齐证书、私钥、名称校验与既有传输字段并移除正式 `version` 声明；`shadow-tls` 补齐 host/version/ALPN/证书/私钥等字段；`restls` 补 host 与名称校验并移除正式 `path` 声明。对象继续 `allow_unknown`，旧数据中的未声明键不会因活动投影而被静默删除。
+  - Step 11 实施前按固定 Mihomo 1.19.29 源码复核并经用户确认，补充 Step 9 遗漏的 `v2ray-plugin-opts.skip-cert-verify` 与结构化 `ech-opts.enable/config/query-server-name`，同时将两字段加入 Clash 可表达合同；二者不新增敏感路径，SR/generic 可表达子集保持不变。
   - `ssplugin` 合同与四个对象的 `target_evidence` 统一下发 Clash/Mihomo 1.19.29、Shadowrocket 未验证和 generic/CVR 2.5.2 证据；无输出默认值兜底的 Clash 必需字段使用 `required_when.targets`，因此保存草稿不受阻，节点目标检查会精确定位缺失字段。
   - 新增 `v2ray-plugin-opts.private-key`、`shadow-tls-opts.private-key` 固定敏感路径；未知 `plugin-opts.*` 仍不进入凭据模型。两类私钥均通过加密落库、API 留空、`saved_sensitive_paths`、留空保留、显式清除、替换及插件 reset 回归。
   - `mode=http/websocket` 仍只作为 schema/目标合同默认值，不在创建节点时批量写入 `protocol_json`；实际 Clash 输出补默认值仍由 Step 11 的克隆投影处理。
@@ -401,9 +402,9 @@ plugin: obfs-local;obfs=http
   - 断言错误旧格式即使可被 YAML 与 Mihomo `-t` 接受，也被 `CheckClashContent` 报错。
   - 输入 map 深比较保持不变；重复渲染产物稳定。
 - **TODO：**
-  - [ ] 先加入旧错误字符串与四已知/未知结构精确断言。
-  - [ ] 实现 Clash 专属结构投影与 SS 插件产物自检。
-  - [ ] 验证输入不可变、内部元数据不泄漏和确定性输出。
+  - [x] 先加入旧错误字符串与四已知/未知结构精确断言。
+  - [x] 实现 Clash 专属结构投影与 SS 插件产物自检。
+  - [x] 验证输入不可变、内部元数据不泄漏和确定性输出。
 - **测试与验收命令：**
 
   ```bash
@@ -412,6 +413,18 @@ plugin: obfs-local;obfs=http
   ```
 
 - **验收标准：** 不再出现 `plugin: obfs-local;obfs=http`；正确 `plugin/plugin-opts` 能通过项目结构自检与固定 Mihomo 1.19.29 正例；缺失必需字段和错误 mode 有精确字段路径诊断。
+- **实施结果（2026-09-08）：**
+  - 实施前先补齐固定源码已消费但原 Step 9 合同遗漏的 v2ray-plugin `skip-cert-verify` 与 `ech-opts`，并在集中合同增加 Clash 目标 mode 合法枚举；默认值、必需项与枚举继续由同一叶子合同提供。
+  - `projectSSPluginForClash` 对当前活动参数做递归克隆：已知插件只读取合同声明的独立对象，未知插件只读取通用字符串 map；无插件删除全部插件字段；obfs/v2ray-plugin 的默认 mode 只写入输出副本。新装配 manual proxy 与动态节点重渲染都走同一投影。
+  - 删除仅供旧 Clash 字符串输出使用的 `RenderPluginForClashLegacy`/`pluginString`；最终 YAML 保留纯插件名和结构化 `plugin-opts`，四个内部对象不会泄漏。
+  - `CheckClashContent` 新增 SS 插件结构自检：拒绝空/非字符串插件名、未转义 URI 参数串、孤立或非映射 `plugin-opts`、内部对象泄漏、已知插件缺失必需项/非法 mode，以及未知插件非字符串参数；错误路径精确到最终 YAML 字段。
+- **验证记录（2026-09-08）：**
+  - 失败先行回归先稳定复现合同字段遗漏、旧字符串投影及自检空白；实现后四已知插件、未知插件、无插件的 YAML 解码精确 map、输入深比较、重复投影与动态重渲染均转绿。
+  - `MIHOMO_11929_BIN=/tmp/codex-mihomo-v1.19.29 go test ./internal/assembly -count=1 -run 'Mihomo11929AcceptsGeneratedSSPluginStructures|ClashProxy|SSPlugin|CheckClashContent|NodeCheckFixtures|RenderClashPlanProjectsDynamic'`：通过；二进制版本确认为 Mihomo Meta v1.19.29 darwin arm64，四个已知插件的生成结构均通过 `-t`。
+  - `cd backend && go test -race ./internal/assembly -count=1`：通过。
+  - `cd backend && go test ./... -count=1 && go build ./... && go vet ./...`：全部通过。
+  - `cd frontend && npm test -- --run tests/node-form-layout.spec.ts tests/protocol-field-editor.spec.ts tests/nodes-view.spec.ts && npm run build`：3 文件 / 45 用例及生产构建通过；仅保留既有 chunk 大小提示。
+- **本 Step 边界：** 本 Step 只完成 Clash 结构化投影与最终产物结构自检；Step 12 的 SS 专属诊断码、检查/正式装配共享门槛及 warning，Step 13 的未知插件前端专项，Step 14/15 的总收口与 SR TLS 增量均未实施。历史 `render_plan_json` 不做后台重写，旧版本需重新装配才能获得新 manual proxy 快照；Shadowrocket 真机连接仍为人工待办。
 
 ### 7.9 Step 12：SS 插件专属目标诊断与正式装配门槛
 
@@ -585,3 +598,4 @@ Step 7～13 + Step 15 全部通过 ─→ Step 14 全量收口
 | v1.6 | 2026-09-04 | 完成 R27-09 Step 9：四个已知插件字段、Mihomo 1.19.29 证据、Clash 限定必需项与两条私钥敏感路径对齐；默认值零批量写入、未知旧键保留、私钥全生命周期及后端定向/全量/竞态/编译/vet 验收通过，Step 10～14 保持未实施。 |
 | v1.7 | 2026-09-05 | 完成 R27-09 Step 10：新增可稳定往返的 SIP002 转义/解析器，导入保留未知字符串参数并恢复已知字段类型；SR/generic 分别消费目标合同，generic 对不支持插件及不可回读字段、渲染器对非字符串/复杂值均显式报错；后端定向、竞态、全量、编译与 vet 通过，Step 11～14 保持未实施。 |
 | v1.8 | 2026-09-05 | 文档归属整理：将原 Build23 的 R27-09 主体步骤并入本文件作为唯一详细记录，新增 Step 15（N-node-3/4 SR TLS/ALPN/指纹/Flow/Skip 输出与解析同步），统一 Build21/Build23 诊断码，并同步 Step 14 全量收口范围；Build23 改为仅保留交接说明与增量差异。 |
+| v1.9 | 2026-09-08 | 完成 R27-09 Step 11：先补固定 Mihomo 1.19.29 合同遗漏的 v2ray-plugin `skip-cert-verify`/`ech-opts`，再实现 Clash 结构化插件投影、目标 mode 枚举和最终 YAML 自检；四已知/未知插件、输入不可变、动态重渲染、竞态、全量构建及固定二进制正例均通过，Step 12～15 保持未实施。 |
