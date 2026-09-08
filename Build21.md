@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～10 已实施并通过验收，Step 11～14 尚未实施。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～10 已实施并通过验收，Step 11～14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，Step 15 为新增的 N-node-3/N-node-4 SR TLS 增量，尚未实施。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -27,6 +27,7 @@
 | 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ☐ 未开始 |
 | 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ☐ 未开始 |
 | 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ☐ 未开始 |
+| 15 | N-node-3/4：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步 | ☐ 未开始 |
 
 ---
 
@@ -48,6 +49,7 @@
 | 12 | `backend/internal/assembly/node_check.go`、`diagnose.go`、正式渲染路径及测试 | 同一 SS 插件判定服务节点检查和正式装配；只消费 SS 插件证据，不全局启用字段级 `target_evidence` |
 | 13 | `frontend/src/components/ProtocolFieldEditor.vue`、`NodesView.vue`、相关工具与测试 | 未知插件字符串 map 的结构化/JSON 编辑、非字符串拒绝、A→B→A 清空与凭据状态隔离 |
 | 14 | 前后端相关测试、`Design4.md`、`Issue13.md`、`ProdTestList.md`、`AGENTS.md`、本文件 | 全量验证与固定版本正反例；同步状态和人工边界，不宣称 Shadowrocket 真机兼容已完成 |
+| 15 | `backend/internal/assembly/links/links.go`、`backend/internal/uriparse/uriparse.go` 及对应测试 | SR VMess/VLESS 补 `tls/peer/alpn/fp/flow/allowInsecure`；`uriparse` 同步回读；generic VMess 负向边界 |
 
 ---
 
@@ -121,7 +123,7 @@ cd frontend && npm test -- --run
 
 执行时必须遵守：
 
-1. Step 7～14 严格串行；每次只执行一个 Step，完成该 Step 的测试与验收后再进入下一步。
+1. Step 7～15 严格串行；每次只执行一个 Step，完成该 Step 的测试与验收后再进入下一步。
 2. 先为缺口补失败回归，再修改实现；不得通过降低期望、删除 fixture 或把 `error` 改成 `warn` 使测试变绿。
 3. 保持创建、更新、详情、列表、URI 导入、不落库检查、正式装配使用同一规范化与目标语义；不得只修目标检查预览或只修正式下载。
 4. 所有输出投影操作克隆数据，不修改 `protocol_json`、历史版本快照或调用方传入的 map。
@@ -141,7 +143,7 @@ cd frontend && npm test -- --run
 
 - 不新增 SQL migration，不启动重写历史节点，不升级 `state_format_version`，不新增 `plugin_sensitive_paths`。
 - 未知插件参数不加入 `SensitiveFields` 或 `saved_sensitive_paths`，不借用 `extensions_json`，不根据键名猜测敏感性。即使键名为 `password`、`token`、`secret`，也按用户确认的普通字符串参数明文保存、API 回显并进入检查预览。
-- 不处理 BuildReport4 N-node-3/N-node-4（VMess/VLESS 的 Shadowrocket TLS/ALPN/指纹映射），不顺带修改非 SS 协议的 `target_evidence`。
+- R27-09 原始 Step 7～14 不处理 BuildReport4 N-node-3/N-node-4（VMess/VLESS 的 Shadowrocket TLS/ALPN/指纹映射），不顺带修改非 SS 协议的 `target_evidence`；这两项已由本文件 §7.12 Step 15 单独纳入，不属于 R27-09 主体 Step 的排除。
 - 不处理 Build16、smoke 脚本、安全报告或其他 Issue；发现独立问题只记录，不扩张本 Step。
 - 旧版本已经删除的未知 `plugin-opts` 无法恢复；本轮只保证修复后不再丢失，并在文档中明确不可逆历史边界。
 
@@ -388,7 +390,7 @@ plugin: obfs-local;obfs=http
 - **目标：** 修复 R27-09 直接回归，保证所有 SS 插件在 Clash YAML 中使用独立插件名和结构化参数对象。
 - **前置条件：** Step 7～10 已通过；插件合同、已知对象和默认值已稳定。
 - **产出文件与操作：**
-  - `backend/internal/assembly/render_clash.go`：以 `projectSSPluginForClash`（或等价助手）克隆当前活动插件参数；设置 `out["plugin"]` 为原始插件名、`out["plugin-opts"]` 为结构化 map，再删除 `obfs-opts/v2ray-plugin-opts/shadow-tls-opts/restls-opts` 等内部键。
+  - `backend/internal/assembly/render_clash.go`：以 `projectSSPluginForClash`（或等价助手）克隆当前活动插件参数；设置 `out["plugin"]` 为原始插件名、`out["plugin-opts"]` 为结构化 map，再删除 `obfs-opts/v2ray-plugin-opts/shadow-tls-opts/restls-opts` 等内部键。**注意：删除列表不得包含 `plugin-opts`，否则会把刚写入的结构化参数再次删除。**
   - 已知插件只读取当前插件的独立对象；未知插件只读取通用 `plugin-opts`；无插件不输出两字段。
   - `obfs.mode=http`、`v2ray-plugin.mode=websocket` 仅在克隆后的 Clash 输出对象补齐，不改变输入 map、数据库或渲染计划中的节点源数据。
   - `backend/internal/assembly/selfcheck.go`：对 SS 节点增加结构检查：`plugin` 必须是纯插件名且不得含未转义 URI 参数串；有参数时 `plugin-opts` 必须是 mapping；已知插件的必要字段/枚举由统一合同检查。
@@ -418,7 +420,7 @@ plugin: obfs-local;obfs=http
 - **产出文件与操作：**
   - `backend/internal/assembly/node_check.go`：抽出 `diagnoseSSPluginForTarget`，按当前活动插件、当前活动参数和目标返回诊断；未活动对象不产生告警。
   - `backend/internal/assembly/diagnose.go`、`render_clash.go`、`render_sr.go`：复用同一诊断。确定丢失核心连接语义的 error 必须阻断或跳过节点；warning 保留输出并进入装配回执。
-  - 推荐诊断码：`ss_plugin_shape_invalid`、`ss_plugin_required_field_missing`、`plugin_option_unexpressible`、`plugin_no_verified_mapping`、`unverified_compatibility`；generic 明确不支持时继续使用 `core_semantic_unexpressible` 以复用现有跳过门槛。
+  - 推荐诊断码（统一 Build21/Build23 口径）：`ss_plugin_shape_invalid`、`ss_plugin_required_field_missing`、`plugin_partial_mapping`、`plugin_no_verified_mapping`、`plugin_option_unexpressible`、`unverified_compatibility`；generic 明确不支持时继续使用 `core_semantic_unexpressible` 以复用现有跳过门槛。
   - Clash 的 SS 插件 error 必须加入正式 Clash 阻断判定，不能因现有 `hasCoreBlockingNodeDiagnostic` 只识别少数 code 而漏过；变更只覆盖 SS 插件错误，不借机改变其他协议等级。
   - `target_evidence` 只消费 SS 插件合同派生的组合证据；不要遍历所有协议/字段直接告警，避免普通 SS cipher、VLESS、VMess、Trojan 被无关降级。
   - 诊断 status 规则保持：存在 error→目标失败；仅 warn/unverified→warning；无诊断→`ok` 且 `diagnostics: []`，不得回归 R27-08 的 null。
@@ -472,17 +474,18 @@ plugin: obfs-local;obfs=http
 ### 7.11 Step 14：全链路回归、固定版本证据、浏览器与文档收口
 
 - **目标：** 以自动化、固定版本离线证据和本地隔离浏览器验证收口 R27-09，并同步文档中的实际状态与人工边界。
-- **前置条件：** Step 7～13 全部通过；若任一目标仍出现无诊断参数丢失，不得进入文档“已修复”。
+- **前置条件：** Step 7～13 与 Step 15 全部通过；若任一目标仍出现无诊断参数丢失，不得进入文档“已修复”。
 - **自动化矩阵：**
   - 四已知插件 + 未知插件：创建/更新/数据库/详情/列表/重载、当前状态、插件切换、敏感字段、URI 导入。
   - Clash：精确结构、默认值、不泄漏内部元数据、缺失字段/非法 mode/旧错误字符串反例。
   - SR/generic：SIP002 特殊字符往返、目标支持矩阵、不可表达参数跳过、零输出门槛。
+  - VMess/VLESS SR：TLS/ALPN/指纹/Flow/Skip 输出与导入往返（Step 15）；
   - 节点检查与正式装配：相同诊断、`diagnostics: []`、预览脱敏。未知参数属于普通参数，测试应明确其不受凭据脱敏保护，避免未来误改回动态敏感模型。
   - 固定 Mihomo 1.19.29：正确四插件正例、缺少必需字段反例；必须保留“旧拼接字符串可能通过内核 `-t`，但项目自检仍拒绝”的回归证据。
 - **本地浏览器：** 使用最新生产前端构建与隔离临时 Dev 数据库，走真实 API 验证已知/未知插件切换、参数保存重开、目标检查面板、桌面与 375px 手机视口；不得连接真实 OIDC/SMTP/Xray 或复用真实凭据。
 - **参考流程：** `定向失败回归全绿 → 后端全量/竞态/编译/vet → 前端全量/构建 → 固定版本正反例 → 隔离浏览器真实 API → 精确 diff 与文档状态同步`。
 - **文档同步：**
-  - `Issue13.md`：扩充 R27-09 为最终 C 方案并在真实验收后更新状态；记录 N-node-1、SS 范围 N-node-2/N-node-5 已处理，N-node-3/N-node-4 仍排除。
+  - `Issue13.md`：扩充 R27-09 为最终 C 方案并在真实验收后更新状态；记录 N-node-1、SS 范围 N-node-2/N-node-5 已处理，N-node-3/N-node-4 由 Step 15 处理并保留真机验证边界。
   - `Design4.md`：写入最终内部存储、未知普通字符串参数、三目标矩阵和人工验证边界。
   - `ProdTestList.md`：保留 Shadowrocket 真机导入/连接，增加四插件与未知插件清单；未执行项不得勾选。
   - `AGENTS.md` 与本文件：更新 Build21 补充 Step 状态、实际文件/命令/结果和版本记录；保留原 Step 1～6 的历史验收数据。
@@ -504,7 +507,48 @@ plugin: obfs-local;obfs=http
 
 - **验收标准：** 全部命令通过；固定版本正反例、真实 API 与浏览器核心流程有可复查记录；工作树只包含本轮精确范围内变更；Shadowrocket 真机未执行时明确标记待办，不宣称交付闭环。
 
-### 7.12 依赖关系与停止条件
+### 7.12 Step 15：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步（N-node-3/4）
+
+> 本步骤由原 Build23 Step 4 并入 Build21，作为 R27-09 之后的独立增量；Step 14 的全量回归需将本步骤纳入最终收口。
+
+- **目标：** 补齐 SR VMess/VLESS 的外层 TLS 身份、ALPN、客户端指纹、Flow、skip-cert-verify 映射；同步 URI 导入解析，使生成/导入可互相往返。
+- **前置条件：** Step 7～10 已通过；建议在 Clash 结构输出和 SS 插件诊断稳定后实施，避免输出层同时存在插件和 TLS 两套改动。
+- **研究证据与根因：**
+  - `links/links.go:60-72`：VMess SR 只输出 `remarks/udp/alterId/tfo/type/path/host/mode`，没有 `tls/peer/alpn/fp/allowInsecure`。
+  - `links/links.go:73-102`：VLESS SR 只在 REALITY 时输出 `tls/xtls/peer/pbk/sid`，在 TLS 时输出 `tls/peer`；没有 `alpn/fp/flow/allowInsecure`。
+  - `links/links.go:247-311`：generic VLESS 已输出 `alpn/fp/flow`，但未输出 `allowInsecure`；generic VMess JSON 已输出 `sni/alpn/fp`，但不含 `skip-cert-verify`。
+  - `uriparse/uriparse.go:334-391`：`parseVMessSR` 只读取 `tls/peer/type/path/host/mode/fp`，不读取 `alpn` 与 `allowInsecure/skip-cert-verify`；`parseVLESS` 已读取这些字段。
+  - 外部源码证据（`urlclash-converter`/CVR 2.5.2）：
+    - vless 标准 URI 生成应包含 `flow`、`security`、`sni`、`fp`、`allowInsecure=1`、`alpn`；
+    - vmess V2rayN JSON 生成包含 `tls/sni/alpn/fp`；
+    - CVR 2.5.2 的 Shadowrocket VMess 解析器只读取 `tls/sni/verify_cert` 等，未读取 `alpn/fp`；用户已确认本次仍输出 `alpn/fp`，但必须作为“生态常见形态 + 真机待验”处理，不能仅凭生成成功宣称完整兼容。
+- **产出文件与操作：**
+  - `backend/internal/assembly/links/links.go`：
+    - 新增 `addSRTLSQuery(params, q)` 或等价 helper，供 VMess/VLESS 分支复用；
+    - VMess SR：`tls=1`、`peer=<servername/sni>`、`alpn=<csv>`、`fp=<client-fingerprint>`、`allowInsecure=1`（当 `skip-cert-verify=true`）；
+    - VLESS SR：在 TLS/REALITY 分支补 `alpn`、`fp`、`flow`；TLS 分支补 `allowInsecure=1`；REALITY 分支按允许矩阵补 `fp`/`alpn`/`flow`；
+    - generic VLESS：补 `allowInsecure=1`；保持现有 `alpn/fp/flow`；
+    - generic VMess 按用户确认**不补充** `skip-cert-verify`：保持现状，并在测试/文档中明确记录“该字段未被 generic VMess 输出”，避免后续误加或误宣称完整映射。
+  - `backend/internal/uriparse/uriparse.go`：
+    - `parseVMessSR` 补读 `alpn`、`allowInsecure`/`skip-cert-verify`；
+    - 核对 `parseVLESS` 与生成端字段名一致（当前已读 `alpn/fp/flow/allowInsecure`）。
+  - 更新 `TestCanonicalEditorSecurityCheckSaveAndOutput`：VMess 检查目标加入 `sr-subs` 并断言 TLS 语义。
+- **必须新增回归：**
+  - SR VMess TLS：`tls=1`、`peer`、`alpn`、`fp`、`allowInsecure` 均输出；无 TLS 时不输出；
+  - SR VLESS TLS/REALITY：`alpn/fp/flow` 均输出；`skip-cert-verify=true` 时输出 `allowInsecure=1`；
+  - generic VLESS：`allowInsecure=1` 输出，既有 `alpn/fp/flow` 不回归；
+  - generic VMess 负向断言：当前输出 JSON 不含 `skip-cert-verify`，保持用户确认边界；
+  - `uriparse.Parse` 对上述 SR URI 可回读关键字段（至少 alpn/allowInsecure/flow）；
+  - 检查状态不与输出字段冲突：添加字段后，已有 fixture 不应把“能生成”误认为“SR 真机已验证”，保留 `ProdTestList` 人工边界。
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/assembly/links ./internal/uriparse ./internal/assembly -count=1 -run 'SR|Vless|Vmess|Link|Uri'
+  cd backend && go test -race ./internal/assembly/links ./internal/uriparse -count=1
+  cd backend && go build ./... && go vet ./...
+  ```
+- **验收标准：** SR/generic 输出覆盖 Design4 §12.4 中已声明为 C 的 TLS 字段；生成→解析可往返；Shadowrocket 真机仍按人工待办处理，不写入“已验证”。
+
+### 7.13 依赖关系与停止条件
 
 ```text
 Step 7 统一合同/schema
@@ -514,7 +558,8 @@ Step 7 统一合同/schema
 Step 10 SIP002 与 URI 分流 ──→ Step 12 共享目标诊断
 Step 11 Clash 结构化投影 ────→ Step 12 共享目标诊断
 Step 8/9 ────────────────────→ Step 13 前端与真实 API
-Step 7～13 全部通过 ─────────→ Step 14 全量收口
+Step 15 SR TLS 输出与解析 ────→ Step 14 统一全量回归
+Step 7～13 + Step 15 全部通过 ─→ Step 14 全量收口
 ```
 
 遇到以下任一情况必须停止当前 Step，记录证据并交由用户决策，不得自行扩大范围：
@@ -539,3 +584,4 @@ Step 7～13 全部通过 ─────────→ Step 14 全量收口
 | v1.5 | 2026-09-04 | 完成 R27-09 Step 8：已知插件旧对象递归补缺且规范新对象优先，未知字符串 `plugin-opts` 贯通保存/回显/重载/检查并保留空 flag；插件重置、敏感路径隔离、只读零写入及后端全量/竞态/编译/vet 验收通过，Step 9～14 保持未实施。 |
 | v1.6 | 2026-09-04 | 完成 R27-09 Step 9：四个已知插件字段、Mihomo 1.19.29 证据、Clash 限定必需项与两条私钥敏感路径对齐；默认值零批量写入、未知旧键保留、私钥全生命周期及后端定向/全量/竞态/编译/vet 验收通过，Step 10～14 保持未实施。 |
 | v1.7 | 2026-09-05 | 完成 R27-09 Step 10：新增可稳定往返的 SIP002 转义/解析器，导入保留未知字符串参数并恢复已知字段类型；SR/generic 分别消费目标合同，generic 对不支持插件及不可回读字段、渲染器对非字符串/复杂值均显式报错；后端定向、竞态、全量、编译与 vet 通过，Step 11～14 保持未实施。 |
+| v1.8 | 2026-09-05 | 文档归属整理：将原 Build23 的 R27-09 主体步骤并入本文件作为唯一详细记录，新增 Step 15（N-node-3/4 SR TLS/ALPN/指纹/Flow/Skip 输出与解析同步），统一 Build21/Build23 诊断码，并同步 Step 14 全量收口范围；Build23 改为仅保留交接说明与增量差异。 |

@@ -1,6 +1,6 @@
 # VPN 订阅管理系统 功能构建计划（Build22：当前构建方案）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接已完成的 [Build17.md](Build17.md)～[Build21.md](Build21.md)；本轮针对 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 的**未闭环项 1** 进行深入研究并制定修复计划。
+> **文档定位：** 本文档是 VPN 订阅管理系统的**当前构建方案**（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接已完成的 [Build17.md](Build17.md)～[Build20.md](Build20.md) 以及 [Build21.md](Build21.md) 已验收部分（R27-09 Step 7～10）；本轮针对 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 的**未闭环项 1** 进行深入研究并制定修复计划。
 > - 设计记录：[Design3.md](Design3.md)（Build16 的目标设计，当前仍有效）、[Build16.md](docs/reports/Build/Build16.md)（原构建计划）
 > - 问题来源：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md)（全量核验报告，未闭环项 1）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
@@ -19,6 +19,7 @@
 > - **排序原则：先修复后构建、先安全后优化、先依赖后独立**。
 > - 每步的新增逻辑必须配套单元测试；测试应先复现缺口，再修改实现。
 > - 本文档当前仅完成研究、方案与排版，**未修改任何业务代码**。
+> - **执行顺序注意：** Build22 与 Build21 §7 的 R27-09 剩余步骤都会涉及 `assembly/render_clash.go`、`render_sr.go`、`load.go` 等文件，应串行执行，先完成一条链路并验收后再操作另一条，避免同文件冲突。
 
 ---
 
@@ -93,7 +94,7 @@ Step 11（全量回归/文档收口） ←────────────�
 - Step 1 先修正统计，避免后续 origin/receipt 相关测试被错误计数干扰。
 - Step 2 产出真实 origin 数据，是 Step 3 与最终排序/去重的基础。
 - Step 3 依赖 Step 2 的 Canonical 携带能力。
-- Step 4 与 Step 5 可并行，但 Step 5 复用 Step 4 的白名单校验更稳妥。
+- Step 4 是 Step 5 的前置校验来源；按“不并行多步”的执行原则，建议按 Step 4 → Step 5 串行实施。
 - Step 6 依赖 Step 2/3 后的 receipt 可正确区分真实规则与内置兜底。
 - Step 7 是 Step 8 的前置。
 - Step 10 独立，可先做，但建议在 Step 11 前完成。
@@ -172,7 +173,7 @@ Step 11（全量回归/文档收口） ←────────────�
     - 每个 accepted rule 记录 Line/Raw/Order。
     - 对纯文本适配器，Line 为真实 1-based 行号，Raw 为原始行。
     - 对 Mihomo YAML，Line 可为 0，Order 为 `payload` 内索引，Raw 保存原始条目；如后续需要可在适配器内使用 YAML 节点行号增强。
-    - 对 sing-box JSON，Line 可为 0，Order 使用 `ruleIndex*1000+valueIndex` 之类稳定序号，Raw 保存 JSON 路径如 `rules[0].domain[1]`。
+    - 对 sing-box JSON，Line 可为 0，Order 使用全局递增序号（避免 `ruleIndex*1000+valueIndex` 在大量规则下碰撞），Raw 保存 JSON 路径如 `rules[0].domain[1]`。
   - `pool/pipeline.go finalizeParseResult()`：
     - 去重时保留首个 accepted origin；重复项只计数，不新增 origin。
   - `pool/sync.go applyParseResultTx()`：
@@ -383,12 +384,13 @@ Step 11（全量回归/文档收口） ←────────────�
   - `backend/internal/pool/sync.go`：
     - 新增 `recordFailedSnapshotTx(ctx, tx, poolID, sourceID, errMsg)`；
     - 写入 `pool_source_snapshots(status='failed', format='', profile='', counts=0, diagnostic_json=[{kind:"error", message:...}], stats_json={error:...})`；
+    - 错误信息必须先脱敏（URL 查询凭据、Token、疑似凭据不得写入），诊断遵守 Design3 §6.4 的“最多 20 条、每条 200 字符”限制；
     - 不修改 active/pending 指针。
   - `syncOne()`：
     - HTTP 状态码错误、超时、读取超限、解析错误等失败路径均调用上述方法。
   - 新增 `backend/internal/pool/snapshot.go`（或同类文件）：
-    - `SourceSnapshot` 模型：ID、source_id、format、profile、status、各类计数、`Diagnostics`、`Stats`、`Error`、CreatedAt；
-    - `SourceStatus` 模型：source_id、url、source_mode、active、pending、latest_failed、never_synced 标记；
+    - `SourceSnapshot` 模型：ID、source_id、format、profile、status、`input/recognized/accepted/excluded/rejected/duplicates` 等完整计数、`Diagnostics`、`Stats`、`Error`、CreatedAt；
+    - `SourceStatus` 模型：source_id、url、source_mode、active、pending、latest_failed、never_synced 标记，并要求 active/pending/latest_failed 对象都携带完整快照统计与诊断摘要；
     - `ListSourceStatuses(ctx, poolID)`；
     - `ListSourceSnapshots(ctx, poolID, sourceID, page, pageSize)`。
   - `backend/internal/server/pool.go`：
@@ -408,6 +410,7 @@ Step 11（全量回归/文档收口） ←────────────�
     - active/pending 不变；
     - 状态 API 返回 active/pending/latest_failed；
     - 快照历史分页正确；
+    - failed 快照中的错误信息不包含 URL 查询凭据/Token；
     - 7 天清理不删 active/pending。
 
 - **参考 API 响应：**
@@ -420,20 +423,38 @@ Step 11（全量回归/文档收口） ←────────────�
       "id": 10,
       "format": "typed-rule-text",
       "profile": "common",
+      "input": 4,
+      "recognized": 4,
       "accepted": 3,
       "excluded": 1,
       "rejected": 0,
-      "duplicates": 0
+      "duplicates": 0,
+      "diagnostics": []
     },
     "pending": {
       "id": 11,
       "format": "mihomo-domain-yaml",
       "profile": "common",
-      "accepted": 50
+      "input": 52,
+      "recognized": 52,
+      "accepted": 50,
+      "excluded": 1,
+      "rejected": 0,
+      "duplicates": 1,
+      "diagnostics": []
     },
     "latest_failed": {
       "id": 12,
-      "error": "HTTP 500"
+      "error": "HTTP 500",
+      "input": 0,
+      "recognized": 0,
+      "accepted": 0,
+      "excluded": 0,
+      "rejected": 0,
+      "duplicates": 0,
+      "diagnostics": [
+        {"severity": "error", "kind": "error", "message": "HTTP 500"}
+      ]
     }
   }
   ```
@@ -462,9 +483,9 @@ Step 11（全量回归/文档收口） ←────────────�
 - **产出文件与操作：**
   - `frontend/src/views/admin/assembly/PoolDetail.vue`：
     - onMounted 与同步完成后调用 `listSourceStatuses`；
-    - 每个 URL 展示：URL、来源模式、检测格式/平台、active/pending/failed/待同步徽标、接受/排除/拒绝/重复统计、诊断摘要；
+    - 每个 URL 展示：URL、来源模式、检测格式/平台、active/pending/failed/待同步徽标、input/recognized/接受/排除/拒绝/重复统计、诊断摘要与有限样例；
     - `pending_snapshot_id` 存在时显示“激活/丢弃”按钮；
-    - 激活前 ConfirmModal 展示旧 active 与新 pending 的数量、格式、平台差异；
+    - 激活前 ConfirmModal 展示旧 active 与新 pending 的 input/accepted、格式、平台、诊断差异；
     - 调用 `activatePending/discardPending` 后刷新来源状态与条目。
   - `frontend/src/api/pool.ts`：
     - 复用 Step 7 新增类型。
@@ -488,7 +509,7 @@ Step 11（全量回归/文档收口） ←────────────�
 - **背景/根因：**
   后端 preview 已返回 `receipt`，`frontend/src/api/assembly.ts` 也已有 `ConversionReceipt` 类型；但 `AssemblyView.vue` 未保存 `res.receipt`，`PreviewStep.vue` 也未接收该 prop，因此用户看不到回执。
 
-- **目标：** 在预览步骤展示输入数、直接输出、等价转换、目标不支持跳过、目标校验失败、最终输出。
+- **目标：** 在预览步骤与生成成功页展示输入数、直接输出、等价转换、目标不支持跳过、目标校验失败、最终输出。
 
 - **前置条件：** Step 6 通过（回执统计口径已正确）。
 
@@ -500,8 +521,8 @@ Step 11（全量回归/文档收口） ←────────────�
   - `frontend/src/views/admin/assembly/PreviewStep.vue`：
     - 新增 `receipt?: ConversionReceipt | null` prop；
     - 在警告/跳过区域附近渲染回执摘要卡或列表。
-  - 可选：
-    - generate 响应也返回 `receipt`，生成成功结果页同步展示。
+  - 必做（Design3 §7.2 要求 preview/generate 都返回回执）：
+    - `generate` 响应同样返回 `receipt`，生成成功结果页同步展示。
   - `frontend/tests/assembly-view.spec.ts`、`frontend/tests/preview-step.spec.ts`：
     - 验证保存、传递与渲染数字。
 
@@ -517,7 +538,7 @@ Step 11（全量回归/文档收口） ←────────────�
   ```
 
 - **验收标准：**
-  用户能看到完整转换回执；数字与后端 `receipt` 一致；已有预览/差异功能无回归。
+  用户能在预览和生成结果中看到完整转换回执；数字与后端 `receipt` 一致；已有预览/差异功能无回归。
 
 ---
 
@@ -584,6 +605,7 @@ Step 11（全量回归/文档收口） ←────────────�
   - 文档同步：
     - `Build16.md`：修正 Step 3～6 的实际状态，不再把缺失项标记为已验收。
     - `Design3.md`：记录实现与设计的实际落点，尤其是 failed 快照持久化、来源证据存储方式和 per-URL API 形态。
+    - 顺带修正 `PoolTab.vue` 中“停机错过不补跑”的陈旧文案，与当前启动补跑实现保持一致。
     - `AGENTS.md`：仅在全部实际完成后登记 Build22。
     - 本文件：更新进度表与验收结果。
 
@@ -619,6 +641,7 @@ Step 11（全量回归/文档收口） ←────────────�
 |------|------|------|
 | v1.0 | 2026-09-05 | 根据 BuildReport4 未闭环项 1 完成 D3-1～D3-10 根因研究、修复方向与候选清单。 |
 | v1.1 | 2026-09-05 | 进一步深入研究并按照 `docs/DocTemplates/Build.template.md` 重排：新增构建进度追踪、构建概要、顺序依赖图、分步构建计划、候选构建项与变更记录；补充 failed 快照持久化、来源证据实现细节、迁移测试方法与清理策略。未修改任何业务代码。 |
+| v1.2 | 2026-09-05 | 按审阅建议补强：generate 回执改为必做；per-URL SourceStatus/SourceSnapshot 补全 input/recognized、诊断摘要与有限样例；failed 快照增加脱敏与诊断限额；依赖说明改为串行；补充与 Build21 同文件区域的串行执行提醒。 |
 
 ---
 
