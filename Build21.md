@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～13 已实施并通过验收，Step 14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，新增的 N-node-3/N-node-4 SR TLS 增量 Step 15 已实施并通过验收。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～13 已实施并通过验收，Step 14 已开始执行但尚未完成验收；原 Build23 中的 R27-09 主体步骤已并入本节，新增的 N-node-3/N-node-4 SR TLS 增量 Step 15 已实施并通过验收。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -26,7 +26,7 @@
 | 11 | R27-09 Clash/Mihomo 结构化插件投影与产物自检 | ✅ 验收通过 |
 | 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ✅ 验收通过 |
 | 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ✅ 验收通过 |
-| 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ☐ 未开始 |
+| 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ◐ 执行中：自动化/固定 Mihomo/Production smoke 通过；浏览器有两条动态输入组件控制台异常待复核 |
 | 15 | N-node-3/4：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步 | ✅ 验收通过 |
 
 ---
@@ -544,6 +544,9 @@ plugin: obfs-local;obfs=http
 
 - **验收标准：** 全部命令通过；固定版本正反例、真实 API 与浏览器核心流程有可复查记录；工作树只包含本轮精确范围内变更；Shadowrocket 真机未执行时明确标记待办，不宣称交付闭环。
 
+- **本轮执行记录（2026-09-08，尚未验收）：** 后端全量测试、指定竞态测试、`go build ./...`、`go vet ./...`、前端 41 文件/209 用例与生产构建均通过；固定 Mihomo Meta v1.19.29 四个已知插件 `-t` 正例及项目自检反例通过。使用当前生产镜像在隔离 Docker Production 容器执行四类装配器、URI 导入（2 ok/1 skip）、覆盖层及 v2 导出/导入均通过。真实 API 浏览器流程覆盖 Setup、管理员注册、四个已知 SS 插件/未知插件切换、未知 `password`/`token` 普通参数、目标检查、保存重开、敏感凭据“已保存（留空保留）”和桌面/375px 无横向溢出；但动态插件输入操作期间捕获两条 Ant Design 输入组件 `Cannot read properties of null (reading 'input')` 控制台错误，不能将浏览器项标为无错误通过。Shadowrocket 真机导入/连接仍为人工待办。
+- **本轮测试夹具问题：** `.smoke-test.sh` 的应急状态断言把 JSON 布尔值与小写字符串 `false` 比较；Clash 装配请求未传当前必需的 `fallback_group_members`。本轮仅在临时执行流中规范化断言并补齐既定请求字段，未修改脚本或业务代码；应先修订夹具后再重复正式 smoke 收口。
+
 ### 7.12 Step 15：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步（N-node-3/4）
 
 > 本步骤由原 Build23 Step 4 并入 Build21，作为 R27-09 之后的独立增量；Step 14 的全量回归需将本步骤纳入最终收口。
@@ -628,3 +631,4 @@ Step 7～13 + Step 15 全部通过 ─→ Step 14 全量收口
 | v1.10 | 2026-09-08 | 完成 R27-09 Step 12：以 `ssplugin.AssessTarget` 统一活动插件目标诊断，接入节点检查及 Clash/SR/generic 正式装配门槛；精确 code/path、warning 回执、URI 跳过、混合/零输出与空诊断回归通过，后端定向/竞态/全量/编译/vet及前端生产构建通过，Step 13～15 保持未实施。 |
 | v1.11 | 2026-09-08 | 完成 R27-09 Step 13，并按用户确认纳入高级 JSON 空参数名合同缺口：字符串 map 结构化/JSON 校验、精确错误路径、插件分支清空、保存重开与凭据隔离回归落地，后端同步拒绝空键且失败零写入；定向/全量前后端测试、编译、vet 与生产构建通过，Step 14～15 保持未实施。 |
 | v1.12 | 2026-09-08 | 完成 N-node-3/4 Step 15：补齐 SR VMess/VLESS TLS 身份、ALPN、指纹、Flow 与 TLS skip 输出，补齐 VMess 回读及自产 SR VLESS TLS/REALITY 方言推导；生成→解析、关闭残留、generic 边界与检查链回归通过，后端定向/竞态/全量测试、编译、vet 与前端生产构建通过。Step 14 保持未实施，Shadowrocket 真机连接仍待人工验证。 |
+| v1.13 | 2026-09-08 | 开始执行 Step 14：后端/前端全量与竞态矩阵、固定 Mihomo 1.19.29 正反例、隔离 Production smoke 与浏览器真实 API 功能路径均取得通过证据；发现 smoke 夹具的布尔值/装配字段契约落后，以及动态插件输入操作捕获两条 Ant Design 输入组件控制台异常。Step 14 保持执行中，未宣称闭环。 |

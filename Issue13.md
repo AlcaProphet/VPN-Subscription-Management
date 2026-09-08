@@ -121,12 +121,12 @@
 - **影响范围：** 影响普通 SS + `obfs` 节点的 Clash/Mihomo 订阅与不落库目标检查；可能造成配置可解析但插件不生效。该条是输出与固定版本源码契约的核对结论，本轮未做真实连接实验。
 - **修复方向：** 按目标分别实现插件映射：Clash/Mihomo 保留独立 `plugin` 与 `plugin-opts` 结构，SR/generic URI 再按目标客户端要求转换为 `obfs-local` 等名称；目标检查增加结构化输出断言和插件语义诊断，不能仅以 YAML 生成成功标记 `ok`。
 - **待确认事项：** 已确认先按官方模板/离线契约修复 Clash 结构化输出与 URI 映射；固定版本真机导入/连接验证保留为人工待办，不宣称完整兼容。
-- **状态：** ◐ 修复中（Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；独立的 N-node-3/4 Step 15 增量也已验收，Step 14 尚待实施）
+- **状态：** ◐ 修复中（Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；独立的 N-node-3/4 Step 15 增量也已验收；Step 14 已开始执行但仍有浏览器控制台异常、smoke 夹具契约问题和 Shadowrocket 人工验证待闭环）
 
 
 ## 二·补充、研究解决方案与已确认决策（2026-09-03）
 
-> 本节在 R27-01～R27-09 的原始记录基础上，补充逐项深研后的解决方案与用户决策确认。R27-01～R27-08 已完成代码与回归测试；R27-09 已完成 Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛，独立的 N-node-3/4 Step 15 增量也已验收，Step 14 仍待实施；具体实机验证边界以各项记录为准。
+> 本节在 R27-01～R27-09 的原始记录基础上，补充逐项深研后的解决方案与用户决策确认。R27-01～R27-08 已完成代码与回归测试；R27-09 已完成 Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛，独立的 N-node-3/4 Step 15 增量也已验收。Step 14 已开始执行但尚未完成验收，具体实机验证边界以各项记录为准。
 
 ### 解决方案总览
 
@@ -244,6 +244,13 @@
 - Build21 Step 12 已验收：新增活动 SS 插件纯合同评估器，节点检查与正式 Clash/SR/generic 装配共享 shape/required/partial/unverified/unknown/unexpressible 诊断；Clash 精确阻断，URI 目标保留 warning 或按原 code/path 跳过，warning 回执、混合/零输出与空诊断回归通过。未修改非 SS 协议、全局 `target_evidence`、前端表单或 URI 编解码器；Step 13～14 仍待实施。
 - Build21 Step 13 已验收，并按用户确认纳入高级 JSON 空参数名合同缺口：未知插件字符串 Map 的结构化编辑提供空名/重复名行内错误，高级 JSON 对空键与非字符串值给出精确路径并阻止应用/保存；后端创建、更新与检查共同拒绝空参数名，避免“可保存但 SIP002 无法输出”。插件切换清理五类对象、错误和 JSON 草稿且 A→B→A 不恢复，保存重开与普通 `password/token/secret` 凭据隔离回归通过。
 - 独立的 N-node-3/4 Build21 Step 15 已验收：SR VMess/VLESS 补齐 TLS 身份、ALPN、指纹、Flow 与 TLS skip 参数；解析端补齐 VMess 参数回读，并以显式 `security` 优先、缺省时 `xtls=2`→REALITY／活动 `tls=1`→TLS 的规则恢复本项目自产 SR VLESS 方言。生成→解析、TLS 关闭残留、generic VLESS 正例、generic VMess 负例与检查链回归通过；未执行 Step 14，Shadowrocket 真机连接仍为人工待办。
+- Build21 Step 14 本轮已开始但未完成验收（2026-09-08）：后端全量/竞态/编译/vet、前端 41 文件/209 用例与生产构建、固定 Mihomo Meta v1.19.29 四插件正例及项目自检反例、隔离 Production 四类装配/v2 导出导入，以及真实 API 浏览器流程均取得通过证据。浏览器覆盖 Setup/管理员、四已知插件与未知插件切换、未知 `password`/`token` 普通参数、目标检查、保存重开、敏感凭据保留状态及桌面/375px 无溢出；动态插件输入操作捕获两条 Ant Design 输入组件 `Cannot read properties of null (reading 'input')` 控制台错误，故不宣称浏览器无错误通过。另发现 `.smoke-test.sh` 的 `false` 大小写断言和 Clash 请求缺少 `fallback_group_members` 两个夹具问题，本轮未改动代码或脚本，仅在临时执行流修正后完成 smoke。
+- **Step 14 未闭环问题：**
+  1. **浏览器动态插件输入控制台异常：** 在真实 API 浏览器流程中切换未知插件并编辑动态参数时，捕获两条相同的 `TypeError: Cannot read properties of null (reading 'input')`。错误来自当前前端打包文件中的输入组件事件处理路径；当前未确认是否会影响用户最终保存结果，需在后续复现并核对组件销毁/重建时序。Step 14 在该问题复核前不能宣称浏览器控制台清洁通过。
+  2. **Production smoke 布尔值断言不匹配：** `.smoke-test.sh` 将 Python 输出的 JSON 布尔值 `False` 与小写字符串 `false` 比较，导致正常的应急状态 `false` 被误判为失败。该问题属于测试脚本断言，不是业务运行时错误；本轮未修改脚本，仅在临时执行流中做大小写归一化后继续验证。
+  3. **Production smoke Clash 请求缺少必需字段：** 当前 Clash 生成接口要求 `fallback_group_members`，但 smoke 请求未提供该字段，导致正常请求返回“无法归属的流量组未包含任何成员”。本轮仅在临时请求中补充 `fallback_group_members` 后完成 smoke，未修改脚本或接口契约；需补齐正式测试夹具后重新执行原始脚本。
+  4. **Shadowrocket 真机验证仍未完成：** 本轮仅完成 SR 订阅/配置生成、结构化输出和离线/固定版本证据，尚未完成真实 Shadowrocket 设备导入、连接及兼容性验证。不得将当前输出证据表述为真机兼容性验收。
+- **本轮处理边界：** 未修改业务代码、前端组件、smoke 测试脚本或 Design4 决策；仅记录验证证据和上述未闭环问题。临时 Docker 容器、数据卷及端口已清理，工作区无运行环境残留。
 - Clash/Mihomo YAML：
   - 保留 `plugin: obfs` / `v2ray-plugin` / `shadow-tls` / `restls`。
   - 保留结构化 `plugin-opts` 对象，不再拼接成 `obfs-local;obfs=http` 字符串。
@@ -301,3 +308,5 @@
 | v1.15 | 2026-09-08 | 完成 R27-09 Build21 Step 12：统一活动 SS 插件目标诊断并接入节点检查与 Clash/SR/generic 正式装配门槛；精确 code/path、warning 回执、URI 跳过、混合/零输出和空诊断回归通过，后端定向/竞态/全量/编译/vet及前端生产构建通过，Step 13～14 尚未实施。 |
 | v1.16 | 2026-09-08 | 完成 R27-09 Build21 Step 13，并纳入高级 JSON 空参数名合同缺口：前端字符串 Map 结构化/JSON 精确校验、插件切换清空、保存重开与凭据隔离落地，后端同步拒绝空参数名且失败不写库；前后端定向/全量/竞态测试、编译、vet 与生产构建通过，Step 14 总收口与 Step 15 增量仍待实施。 |
 | v1.17 | 2026-09-08 | 完成独立的 N-node-3/4 Build21 Step 15：SR VMess/VLESS TLS/ALPN/指纹/Flow/Skip 输出与自产 SR VLESS 安全方言回读已补齐，生成→解析、关闭残留、generic 边界及检查链回归通过；Step 14 与 Shadowrocket 真机验证仍待后续执行。 |
+| v1.18 | 2026-09-08 | 开始执行 Build21 Step 14：记录自动化/固定 Mihomo/隔离 Production smoke/浏览器真实 API 通过证据；同时记录动态插件输入控制台异常和两个 smoke 夹具契约问题，Step 14 保持未闭环，未修改业务代码。 |
+| v1.19 | 2026-09-08 | 将 Build21 Step 14 未闭环项拆分记录：浏览器动态插件输入控制台异常、smoke 布尔值断言不匹配、Clash 请求缺少 `fallback_group_members`，以及 Shadowrocket 真机验证未完成；明确本轮仅记录证据，未修改业务代码或测试脚本。 |
