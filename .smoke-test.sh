@@ -125,7 +125,7 @@ echo "12) manual 节点 id=$NODEID 代理组已建"
 
 # 13) 装配生成（Clash YAML，自动激活首版）
 GEN=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT"}')
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"fallback_group_members":["🚀直接连接","🌎国外流量"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT"}')
 require_success "Clash 装配生成" "$GEN"
 GENID=$(echo "$GEN" | J "['data']['version_id']")
 echo "13) 装配生成 version_id=$GENID auto=$(echo "$GEN" | J "['data']['auto_activated']")"
@@ -175,7 +175,7 @@ fi
 
 # 13f) Build10 覆盖层装配生成
 GENOV=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT","overlay":{"rules_yaml":"prepend:\n  - DOMAIN,overlay.test,smoke-group\n","proxies_yaml":"prepend:\n  - name: overlay-node\n    type: ss\n    server: o.example.com\n    port: 8388\n    cipher: aes-256-gcm\n    password: test\n"}}')
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"fallback_group_members":["🚀直接连接","🌎国外流量"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT","overlay":{"rules_yaml":"prepend:\n  - DOMAIN,overlay.test,smoke-group\n","proxies_yaml":"prepend:\n  - name: overlay-node\n    type: ss\n    server: o.example.com\n    port: 8388\n    cipher: aes-256-gcm\n    password: test\n"}}')
 require_success "overlay 装配生成" "$GENOV"
 GENOVID=$(echo "$GENOV" | J "['data']['version_id']")
 echo "13f) overlay 装配 version_id=$GENOVID"

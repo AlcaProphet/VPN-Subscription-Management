@@ -12,7 +12,7 @@
 - **已通过：** Build21 Step 7～13、Step 15 的现有自动化回归未发现新的编译或测试失败；后端全量测试、指定竞态测试、编译、`go vet`，前端 41 个测试文件 / 209 个用例和生产构建均有通过记录。
 - **当前状态：** Build21 Step 14 仍未完成；BuildReport4 中仍未闭环的工程问题（D3-1～D3-10、N-core-1～6、N-node-6、安全 N01～N07 等）已按来源归入本文件。需要用户亲自执行的真机/人工项目见 [ProdTestList.md](ProdTestList.md)，不在本文件重复登记为缺陷。
 - **当前执行步骤：** 步骤一；步骤二至步骤八等待前置条件完成。
-- **本轮边界：** 步骤一按 R28-01～R28-04 顺序处理工程问题；当前已完成 R28-01 与 R28-02，未改动后端业务接口或应急状态合同，R28-03～R28-04 仍待处理。
+- **本轮边界：** 步骤一按 R28-01～R28-04 顺序处理工程问题；当前已完成 R28-01～R28-03，未改动后端业务接口、应急状态合同或装配合同，R28-04 仍待处理。
 
 ---
 
@@ -133,19 +133,20 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 - **影响范围：** 原始 Production smoke 在正常实例上被误阻断，并且旧字符串比较没有严格验证接口类型；不影响服务端应急状态计算、API 结构或前端行为。
 - **修复结果：** 仅收紧 `.smoke-test.sh` 的 10d 断言，不修改通用 `J()`。Python 直接读取 `data.emergency`，用 `value is False` 同时校验 JSON 布尔类型和值，并用 `json.dumps()` 输出规范诊断值；`true`、字符串 `"false"`、`0`、`null`、缺失字段和非法 JSON 均不能通过。
 - **自动化验证：** `bash -n .smoke-test.sh .smoke-test-prod.sh` 通过；独立输入矩阵确认仅 JSON 布尔 `false` 通过，`true`、字符串 `"false"`、`0` 与 `null` 均失败；服务端普通/应急状态定向测试、后端 `go test ./... -count=1`、`go build ./...`、`go vet ./...` 及前端 `npm run build` 均通过。
-- **重新执行边界：** R28-02 已不再阻断正式脚本的 10d；完整 `bash .smoke-test-prod.sh` 仍会受紧随其后的 R28-03 夹具缺口阻断，须在 R28-03 修复后以未做临时转换的仓库正式脚本完成全链路复验。
-- **状态：** ☑ 已修复 / ☑ 定向自动化验证通过 / ☐ 正式 Production smoke 全链路复验待 R28-03
+- **重新执行结果：** R28-03 修复后，未做临时转换的仓库正式脚本 `bash .smoke-test-prod.sh` 已完整通过，10d 严格布尔断言在 Production 全链路中实际通过。
+- **状态：** ☑ 已修复 / ☑ 定向自动化验证通过 / ☑ 正式 Production smoke 全链路复验通过
 
 ### 问题 R28-03：Production smoke Clash 请求缺少 `fallback_group_members`
 
 - **关联步骤：** 步骤一、步骤二。
 
 - **来源：** R28-02 修正后的临时执行流继续运行时发现。
-- **现象：** `.smoke-test.sh` 的 Clash 装配请求没有传当前接口要求的 `fallback_group_members`，服务端返回无法归属流量组缺少成员的 400 错误。
-- **证据：** [.smoke-test.sh](.smoke-test.sh:126)～[.smoke-test.sh](.smoke-test.sh:129)；请求模型字段见 [models.go](backend/internal/assembly/models.go:168)～[models.go](backend/internal/assembly/models.go:176)。
-- **影响范围：** 原始 smoke 无法完成 Clash 及后续装配/v2 往返步骤。
-- **修复方向：** 按当前装配契约补齐固定组成员请求夹具，修复后重新执行未做临时转换的正式脚本；不修改业务接口契约。
-- **状态：** ☐ 待修复 / ☐ 待重新执行
+- **现象：** `.smoke-test.sh` 的步骤 13 基础 Clash 装配和步骤 13f 覆盖层 Clash 装配均没有传当前接口要求的 `fallback_group_members`；第一处会先触发无法归属流量组缺少成员的 400 错误，若只修第一处，脚本会在第二处以同一原因再次失败。
+- **证据：** 两处已修正请求见 [.smoke-test.sh](.smoke-test.sh:126)～[.smoke-test.sh](.smoke-test.sh:129) 与 [.smoke-test.sh](.smoke-test.sh:176)～[.smoke-test.sh](.smoke-test.sh:179)；请求模型字段见 [models.go](backend/internal/assembly/models.go:168)～[models.go](backend/internal/assembly/models.go:176)。仓库其余活跃 Clash API 测试夹具未发现同类遗漏。
+- **影响范围：** 原始 smoke 无法完成基础 Clash，并会连带阻断其他三类装配器、URI 导入、覆盖层 Clash 与 v2 往返；问题仅在 smoke 请求夹具，不影响服务端装配实现、接口合同或前端行为。
+- **修复结果：** 两处请求均显式补齐 `fallback_group_members:["🚀直接连接","🌎国外流量"]`，顺序与当前前端初始值及既有强制组合同一致；未修改 `GenerateInput`、后端非空校验、渲染逻辑、前端默认值、数据库或非 Clash 请求。
+- **自动化验证：** `bash -n .smoke-test.sh .smoke-test-prod.sh` 与强制组合同定向测试通过；未做临时转换的 `bash .smoke-test-prod.sh` 完整通过步骤 13、generic-subs、sr-subs、sr-conf、URI 导入 2 ok / 1 skip、步骤 13f 覆盖层、v2 导出/导入，并输出 `SMOKE ALL DONE` 与 `PROD SMOKE ALL DONE`。后端 `go test ./... -count=1`、`go build ./...`、`go vet ./...` 及前端 `npm run build` 均通过。
+- **状态：** ☑ 已修复 / ☑ 定向自动化验证通过 / ☑ 正式 Production smoke 全链路复验通过
 
 ### 问题 R28-04：固定 Mihomo 验收测试允许未设置二进制时静默跳过
 
@@ -252,3 +253,4 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 | v1.3 | 2026-09-08 | 按操作步骤重新规范标题和跟踪结构：使用“步骤一～步骤八”表示执行顺序，将 R28、D3、N-core 和安全编号统一作为关联问题标号；移除重复的 Build22 跟踪表和旧的顺序编号表达。 |
 | v1.4 | 2026-09-09 | 完成 R28-01：以父子即时回写失败回归确认可编辑参数名充当 Vue 行 key 导致 Input 卸载时序异常；改用本地稳定行身份并补组件/NodesView 逐字符输入、DOM、焦点与最终模型回归，全量前后端验证通过；人工浏览器复核仍归 ProdTestList PT-28-05。 |
 | v1.5 | 2026-09-09 | 完成 R28-02：将 Production smoke 应急正常态从 Python 显示字符串比较改为严格 JSON 布尔类型和值断言；失败优先矩阵、脚本语法、后端全量测试/编译/vet及前端生产构建通过，完整正式 smoke 复验仍待 R28-03。 |
+| v1.6 | 2026-09-09 | 完成 R28-03：补齐步骤 13 与 13f 两处 Clash 请求的 `fallback_group_members`，不改变装配合同；正式 Production smoke 原样全链路、定向合同测试及全量构建验证通过。 |

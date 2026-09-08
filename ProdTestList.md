@@ -8,8 +8,9 @@
 ## 一、.smoke-test.sh Production 模式验证
 
 - **背景：** `.smoke-test.sh` 中的 v2 导出/导入必须运行在 Production 模式（`app_mode=prod`），否则会因 Dev 模式 403 导致假绿或直接失败。
-- **当前状态：** 已新增 [.smoke-test-prod.sh](.smoke-test-prod.sh) 可自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；Issue14 R28-02 的应急状态严格 JSON 布尔断言已修复并通过定向验证，完整正式脚本仍待 R28-03 夹具修复后由用户在有 Docker 的环境中执行。
+- **当前状态：** 已新增 [.smoke-test-prod.sh](.smoke-test-prod.sh) 可自动拉起临时 Production 容器并执行四类装配器 + v2 导出/导入往返；Issue14 R28-02/R28-03 的应急状态断言与 Clash 请求夹具均已修复，工程侧未做临时转换的正式脚本已完整通过。PT-28-01 仍保留为用户独立执行与证据记录，不以工程侧结果代替人工结果。
 - **本轮本地执行（2026-09-08）：** Docker 已恢复后用当前生产镜像在仅绑定 `127.0.0.1:18081` 的隔离临时容器完成四类装配器、URI 导入 2 ok/1 skip、覆盖层及 v2 导出/导入往返，结果通过；原脚本有两个夹具问题（应急状态 JSON 布尔值大小写比较、Clash 请求缺少当前必需的 `fallback_group_members`），本轮未改脚本，仅在临时执行流修正后验证。临时容器/volume 已清理。
+- **R28-03 工程复验（2026-09-09）：** 两处 Clash 请求补齐固定组成员后，直接执行仓库正式 `bash .smoke-test-prod.sh`，基础 Clash、generic-subs、sr-subs、sr-conf、URI 导入 2 ok / 1 skip、覆盖层 Clash 与 v2 导出/导入均通过，输出 `SMOKE ALL DONE` 与 `PROD SMOKE ALL DONE`；临时容器/volume 由脚本清理。
 - **执行方式：**
   ```bash
   bash .smoke-test-prod.sh
@@ -22,7 +23,7 @@
 
 | 编号 | 人工项目 | 当前状态 | 结果/证据 |
 |---|---|---|---|
-| PT-28-01 | 使用修订后的正式 Production smoke 夹具完整执行 `.smoke-test-prod.sh`，确认四类装配、URI 导入、覆盖层及 v2 导出/导入均通过 | ☐ 待执行（R28-02 已修复；仍依赖 Issue14 R28-03） | 待填写 |
+| PT-28-01 | 使用修订后的正式 Production smoke 夹具完整执行 `.smoke-test-prod.sh`，确认四类装配、URI 导入、覆盖层及 v2 导出/导入均通过 | ☐ 待用户独立执行（R28-02/R28-03 已修复，工程侧正式脚本已通过） | 待填写 |
 | PT-28-02 | 在 Mihomo 1.19.29 / Clash Verge Rev 2.5.2 中导入代表组合：VLESS WS/TLS/REALITY、VMess、Trojan WS/gRPC、SS obfs/v2ray-plugin/shadow-tls/restls；记录实际连接结果 | ☐ 待执行 | 待填写 |
 | PT-28-03 | 在 Shadowrocket 真机导入并连接 SS 订阅/配置，核对四类 SS 插件及未知插件可表达字段的实际生效情况 | ☐ 待执行 | 待填写 |
 | PT-28-04 | 在 Shadowrocket 真机核对 VMess/VLESS SR URI 的 TLS、ALPN、指纹、Flow、`allowInsecure`/Skip 语义及连接结果 | ☐ 待执行 | 待填写 |
@@ -201,3 +202,4 @@
 | v1.9 | 2026-09-08 | 同步 Build21 Step 15：VMess/VLESS SR TLS 字段输出与自产 URI 回读已有自动化证据；保留 Shadowrocket 真机导入/连接为人工待办，不将生成成功写成客户端兼容已验证。 |
 | v2.0 | 2026-09-08 | 从 Build21 Step 14 和 Issue13 迁移用户需要亲自执行的 Production、浏览器及真实客户端项目，新增 PT-28-01～PT-28-05；工程问题转由 Issue14 跟踪，人工结果以本清单为准。 |
 | v2.1 | 2026-09-09 | 同步 R28-01 工程修复的自动化结果；PT-28-05 仍保留为最新 Production 构建的人工控制台、交互与响应式复核，不因自动化通过而勾选。 |
+| v2.2 | 2026-09-09 | 同步 R28-03 工程修复与正式 Production smoke 原样全链路通过结果；PT-28-01 仍保留为用户独立执行，不将工程侧证据冒充人工结果。 |
