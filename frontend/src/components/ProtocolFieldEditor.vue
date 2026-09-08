@@ -42,7 +42,9 @@ const advanced = ref(false)
 const jsonText = ref('')
 const jsonError = ref('')
 const jsonDirty = ref(false)
+const jsonInvalidPath = ref('')
 const mapErrors = reactive<Record<string, string>>({})
+const mapKeyErrors = reactive<Record<string, string>>({})
 
 const objectValue = computed<Record<string, unknown>>(() => {
   if (props.modelValue && typeof props.modelValue === 'object' && !Array.isArray(props.modelValue)) {
@@ -110,10 +112,39 @@ function emitJsonDirty(dirty: boolean) {
   emit('json-dirty-change', { path: fieldPath.value, dirty })
 }
 
+function setJSONValidity(path: string) {
+  if (jsonInvalidPath.value && jsonInvalidPath.value !== path) {
+    forwardValidity({ path: jsonInvalidPath.value, valid: true })
+  }
+  if (path) forwardValidity({ path, valid: false })
+  else if (jsonInvalidPath.value) forwardValidity({ path: jsonInvalidPath.value, valid: true })
+  jsonInvalidPath.value = path
+}
+
+function validateStringMap(value: Record<string, unknown>): { error: string; path: string } {
+  for (const [key, item] of Object.entries(value)) {
+    if (key === '') return { error: `${fieldPath.value} 参数名不能为空`, path: fieldPath.value }
+    if (typeof item !== 'string') {
+      const path = `${fieldPath.value}.${key}`
+      return { error: `${path} 的值必须为字符串`, path }
+    }
+  }
+  return { error: '', path: '' }
+}
+
+function discardMapKeyDrafts() {
+  for (const key of Object.keys(mapKeyErrors)) {
+    delete mapKeyErrors[key]
+    forwardValidity({ path: key ? `${fieldPath.value}.${key}` : fieldPath.value, valid: true })
+  }
+}
+
 function setAdvanced(next: boolean) {
   if (next === advanced.value) return
   if (!next && jsonError.value) return
   if (next) {
+    // 非法改名从未进入模型；切到 JSON 时丢弃其输入草稿并恢复当前有效键。
+    discardMapKeyDrafts()
     jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
     jsonDirty.value = false
     emitJsonDirty(false)
@@ -125,26 +156,26 @@ function setAdvanced(next: boolean) {
   emitJsonDirty(false)
   jsonError.value = ''
   jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
-  forwardValidity({ path: fieldPath.value, valid: true })
+  setJSONValidity('')
   advanced.value = false
 }
 
-function parseJSONText(): { parsed: unknown; error: string } {
+function parseJSONText(): { parsed: unknown; error: string; path: string } {
   try {
     const parsed = JSON.parse(jsonText.value || (props.field.object_kind === 'list' ? '[]' : '{}'))
     const validShape = props.field.object_kind === 'list'
       ? Array.isArray(parsed)
       : parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
     if (!validShape) {
-      return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象' }
+      return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象', path: fieldPath.value }
     }
-    if (props.field.object_kind === 'map' && props.field.map_value_type === 'string'
-      && Object.values(parsed as Record<string, unknown>).some((value) => typeof value !== 'string')) {
-      return { parsed: null, error: '映射值必须为字符串' }
+    if (props.field.object_kind === 'map' && props.field.map_value_type === 'string') {
+      const validation = validateStringMap(parsed as Record<string, unknown>)
+      if (validation.error) return { parsed: null, ...validation }
     }
-    return { parsed, error: '' }
+    return { parsed, error: '', path: '' }
   } catch {
-    return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象' }
+    return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象', path: fieldPath.value }
   }
 }
 
@@ -154,19 +185,19 @@ function updateJSON(value: string) {
   emitJsonDirty(true)
   const result = parseJSONText()
   jsonError.value = result.error
-  forwardValidity({ path: fieldPath.value, valid: result.error === '' })
+  setJSONValidity(result.path)
 }
 
 function applyJSON() {
   const result = parseJSONText()
   jsonError.value = result.error
   if (result.error) {
-    forwardValidity({ path: fieldPath.value, valid: false })
+    setJSONValidity(result.path)
     return
   }
   jsonDirty.value = false
   emitJsonDirty(false)
-  forwardValidity({ path: fieldPath.value, valid: true })
+  setJSONValidity('')
   update(result.parsed)
 }
 
@@ -175,7 +206,7 @@ function discardJSON() {
   jsonDirty.value = false
   emitJsonDirty(false)
   jsonError.value = ''
-  forwardValidity({ path: fieldPath.value, valid: true })
+  setJSONValidity('')
 }
 
 function childValue(name: string): unknown {
@@ -197,7 +228,19 @@ function addMapEntry() {
 }
 
 function renameMapKey(oldKey: string, newKey: string) {
-  if (!newKey || (newKey !== oldKey && newKey in objectValue.value)) return
+  const error = newKey === '' ? '参数名不能为空'
+    : newKey !== oldKey && newKey in objectValue.value ? '参数名重复' : ''
+  const errorPath = oldKey ? `${fieldPath.value}.${oldKey}` : fieldPath.value
+  if (error) {
+    mapKeyErrors[oldKey] = error
+    forwardValidity({ path: errorPath, valid: false })
+    return
+  }
+  if (mapKeyErrors[oldKey]) {
+    delete mapKeyErrors[oldKey]
+    forwardValidity({ path: errorPath, valid: true })
+  }
+  if (newKey === oldKey) return
   const next: Record<string, unknown> = {}
   for (const [key, value] of mapEntries.value) next[key === oldKey ? newKey : key] = value
   update(next)
@@ -223,7 +266,9 @@ function removeMapEntry(key: string) {
   const next = { ...objectValue.value }
   delete next[key]
   delete mapErrors[key]
+  delete mapKeyErrors[key]
   forwardValidity({ path: `${fieldPath.value}.${key}`, valid: true })
+  if (key === '') forwardValidity({ path: fieldPath.value, valid: true })
   update(next)
 }
 
@@ -329,14 +374,19 @@ function isComplex(value: unknown): boolean {
 
     <template v-else-if="field.object_kind === 'map'">
       <div v-if="mapEntries.length" class="space-y-2">
-        <div v-for="([key, value]) in mapEntries" :key="key" class="grid grid-cols-1 md:grid-cols-[minmax(140px,0.7fr)_minmax(180px,1fr)_auto] gap-2 items-start">
-          <Input :value="key" aria-label="参数名" @change="(event: any) => renameMapKey(key, event.target.value)" />
-          <Switch v-if="field.map_value_type !== 'string' && typeof value === 'boolean'" :checked="value" @change="(next: any) => setMapValue(key, Boolean(next))" />
-          <InputNumber v-else-if="field.map_value_type !== 'string' && typeof value === 'number'" :value="value" class="w-full" @change="(next: any) => setMapValue(key, next ?? 0)" />
-          <Input.TextArea v-else-if="field.map_value_type !== 'string' && isComplex(value)" :value="JSON.stringify(value)" :rows="2" @blur="(event: any) => setComplexMapValue(key, event.target.value)" />
-          <Input v-else :value="String(value ?? '')" @change="(event: any) => setMapValue(key, event.target.value)" />
+        <div v-for="([key, value]) in mapEntries" :key="key" class="protocol-map-entry grid grid-cols-1 md:grid-cols-[minmax(140px,0.7fr)_minmax(180px,1fr)_auto] gap-2 items-start">
+          <div class="min-w-0">
+            <Input :value="key" aria-label="参数名" :aria-invalid="!!mapKeyErrors[key]" @change="(event: any) => renameMapKey(key, event.target.value)" />
+            <div v-if="mapKeyErrors[key]" class="map-key-error text-xs text-red-500 mt-1">{{ mapKeyErrors[key] }}</div>
+          </div>
+          <div class="min-w-0">
+            <Switch v-if="field.map_value_type !== 'string' && typeof value === 'boolean'" :checked="value" @change="(next: any) => setMapValue(key, Boolean(next))" />
+            <InputNumber v-else-if="field.map_value_type !== 'string' && typeof value === 'number'" :value="value" class="w-full" @change="(next: any) => setMapValue(key, next ?? 0)" />
+            <Input.TextArea v-else-if="field.map_value_type !== 'string' && isComplex(value)" :value="JSON.stringify(value)" :rows="2" @blur="(event: any) => setComplexMapValue(key, event.target.value)" />
+            <Input v-else :value="String(value ?? '')" @change="(event: any) => setMapValue(key, event.target.value)" />
+            <div v-if="mapErrors[key]" class="text-xs text-red-500 mt-1">{{ mapErrors[key] }}</div>
+          </div>
           <Button danger @click="removeMapEntry(key)">删除</Button>
-          <div v-if="mapErrors[key]" class="md:col-start-2 text-xs text-red-500">{{ mapErrors[key] }}</div>
         </div>
       </div>
       <div v-else class="text-xs text-text-tertiary mb-2">暂无参数</div>

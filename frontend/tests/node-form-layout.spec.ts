@@ -5,9 +5,12 @@ import { smuxSchema, smuxValue } from './fixtures/smux'
 
 describe('节点开关展示投影', () => {
   it('插件补集条件与其它维度保持且关系', () => {
-    const rule = { plugin_not: ['', 'obfs', 'v2ray-plugin'], network: ['tcp'] }
+    const rule = { plugin_not: ['', 'obfs', 'v2ray-plugin', 'shadow-tls', 'restls'], network: ['tcp'] }
     expect(matchesCondition(rule, { plugin: 'custom', network: 'tcp' })).toBe(true)
     expect(matchesCondition(rule, { plugin: 'obfs', network: 'tcp' })).toBe(false)
+    expect(matchesCondition(rule, { plugin: 'v2ray-plugin', network: 'tcp' })).toBe(false)
+    expect(matchesCondition(rule, { plugin: 'shadow-tls', network: 'tcp' })).toBe(false)
+    expect(matchesCondition(rule, { plugin: 'restls', network: 'tcp' })).toBe(false)
     expect(matchesCondition(rule, { plugin: 'custom', network: 'ws' })).toBe(false)
     expect(matchesCondition(rule, { plugin: null, network: 'tcp' })).toBe(false)
   })

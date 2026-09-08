@@ -1760,6 +1760,9 @@ func validateMapValues(field FieldSchema, object map[string]any, path string) er
 		return nil
 	case "string":
 		for key, value := range object {
+			if key == "" {
+				return fmt.Errorf("字段 %s 参数名不能为空", path)
+			}
 			if _, ok := value.(string); !ok {
 				return fmt.Errorf("字段 %s.%s 类型应为 string", path, key)
 			}

@@ -421,6 +421,27 @@ func TestCreateManualRejectsNonStringCustomPluginOptsBeforeNormalization(t *test
 	}
 }
 
+func TestCreateManualRejectsEmptyCustomPluginOptionNameBeforeNormalization(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	_, err := svc.CreateManual(context.Background(), CreateManualInput{
+		Name: "未知插件空参数名校验", Protocol: "ss", Host: "example.com", Port: 443,
+		ProtocolJSON: map[string]any{
+			"cipher": "aes-256-gcm", "password": "synthetic", "plugin": "custom-plugin",
+			"plugin-opts": map[string]any{"": "value"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "plugin-opts") || !strings.Contains(err.Error(), "参数名不能为空") {
+		t.Fatalf("未知插件空参数名未被精确拒绝: %v", err)
+	}
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM nodes`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("空参数名校验失败不应写入节点: count=%d", count)
+	}
+}
+
 func TestSSUnknownPluginOptsLifecycleAndReadOnlyCheck(t *testing.T) {
 	svc, st, cfg := newTestService(t)
 	ctx := context.Background()
@@ -542,6 +563,24 @@ func TestSSUnknownPluginOptsLifecycleAndReadOnlyCheck(t *testing.T) {
 	}
 	if rawAfterFailure.EditRevision != storedUpdated.EditRevision || rawAfterFailure.Host != storedUpdated.Host || !reflect.DeepEqual(rawAfterFailure.ProtocolJSON, storedUpdated.ProtocolJSON) {
 		t.Fatalf("保存失败不应部分写入: before=%+v after=%+v", storedUpdated, rawAfterFailure)
+	}
+
+	invalidEmptyKey := cloneJSONMap(updated.ProtocolJSON)
+	invalidEmptyKey["password"] = ""
+	invalidEmptyKey["plugin-opts"].(map[string]any)[""] = "value"
+	_, err = reloaded.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "ss", Host: "empty-key.example.com", Port: 9443, BaseRevision: updated.EditRevision,
+		ProtocolJSON: invalidEmptyKey, CurrentState: &updated.CurrentState,
+	})
+	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "plugin-opts") || !strings.Contains(err.Error(), "参数名不能为空") {
+		t.Fatalf("空参数名未知参数应精确拒绝: %v", err)
+	}
+	rawAfterEmptyKey, err := reloaded.getRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rawAfterEmptyKey.EditRevision != storedUpdated.EditRevision || rawAfterEmptyKey.Host != storedUpdated.Host || !reflect.DeepEqual(rawAfterEmptyKey.ProtocolJSON, storedUpdated.ProtocolJSON) {
+		t.Fatalf("空参数名保存失败不应部分写入: before=%+v after=%+v", storedUpdated, rawAfterEmptyKey)
 	}
 }
 

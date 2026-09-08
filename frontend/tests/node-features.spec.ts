@@ -33,4 +33,21 @@ describe('功能元数据驱动的草稿清理', () => {
     expect(result.paths).toEqual(['smux.brutal-opts'])
     expect(result.params.smux).toEqual({ enabled: true, 'max-connections': 7, padding: true, future: { value: 'old' } })
   })
+  it('插件切换一次清空通用和四个已知参数对象，不清空 SS 主字段且切回不恢复', () => {
+    const resettable = ['plugin-opts', 'obfs-opts', 'v2ray-plugin-opts', 'shadow-tls-opts', 'restls-opts']
+    const schema: FieldSchema[] = [
+      { name: 'cipher', type: 'text', label: '加密方式', required: true },
+      { name: 'password', type: 'password', label: '密码', required: true },
+      { name: 'plugin', type: 'select', label: '插件', required: false },
+      ...resettable.map((name) => ({ name, type: 'object' as const, label: name, required: false, object_kind: 'map' as const, reset_on: ['plugin'] })),
+    ]
+    const params = Object.fromEntries(resettable.map((name) => [name, { old: name }]))
+    Object.assign(params, { cipher: 'aes-256-gcm', password: 'keep', host: 'keep.example.com', plugin: 'unknown-a' })
+    const first = resetProtocolScope(schema, params, 'plugin')
+    expect(first.paths).toEqual(resettable)
+    expect(first.params).toEqual({ cipher: 'aes-256-gcm', password: 'keep', host: 'keep.example.com', plugin: 'unknown-a' })
+    const second = resetProtocolScope(schema, { ...first.params, plugin: 'unknown-b' }, 'plugin')
+    expect(second.params).not.toHaveProperty('plugin-opts')
+    expect(params['plugin-opts']).toEqual({ old: 'plugin-opts' })
+  })
 })

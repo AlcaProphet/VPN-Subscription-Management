@@ -5,7 +5,7 @@
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](docs/reports/Build)
 >
-> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～12 已实施并通过验收，Step 13～14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，Step 15 为新增的 N-node-3/N-node-4 SR TLS 增量，尚未实施。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
+> **本文件状态：** 原 Step 1～6 已完成并通过验收；R27-09 全量扩展补充方案已确认，Step 7～13 已实施并通过验收，Step 14 尚未实施；原 Build23 中的 R27-09 主体步骤已并入本节，Step 15 为新增的 N-node-3/N-node-4 SR TLS 增量，尚未实施。Build23 不再重复这些主体步骤，仅保留交接与差异说明。原 Build21 验收事实继续保留，不以补充计划倒写为“未完成”。
 
 ---
 
@@ -25,7 +25,7 @@
 | 10 | R27-09 SIP002 转义/解析与 SR/generic 目标分流 | ✅ 验收通过 |
 | 11 | R27-09 Clash/Mihomo 结构化插件投影与产物自检 | ✅ 验收通过 |
 | 12 | R27-09 SS 插件专属目标诊断与正式装配门槛 | ✅ 验收通过 |
-| 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ☐ 未开始 |
+| 13 | R27-09 未知插件参数前端编辑、校验与分支清空 | ✅ 验收通过 |
 | 14 | R27-09 全链路回归、固定版本证据、浏览器与文档收口 | ☐ 未开始 |
 | 15 | N-node-3/4：VMess/VLESS SR URI TLS/ALPN/指纹/Flow/Skip 输出补全与解析同步 | ☐ 未开始 |
 
@@ -47,7 +47,7 @@
 | 10 | `backend/internal/ssplugin/`、`backend/internal/uriparse/uriparse.go`、`backend/internal/assembly/links/links.go` 及测试 | SIP002 插件字符串无损转义与反向解析；SR 与 generic 不再共用同一成功结论 |
 | 11 | `backend/internal/assembly/render_clash.go`、`selfcheck.go` 及测试 | Clash 输出独立 `plugin` 与 `plugin-opts`；删除内部对象前先投影；拒绝 URI 字符串伪装成 Clash 插件名 |
 | 12 | `backend/internal/assembly/node_check.go`、`diagnose.go`、正式渲染路径及测试 | 同一 SS 插件判定服务节点检查和正式装配；只消费 SS 插件证据，不全局启用字段级 `target_evidence` |
-| 13 | `frontend/src/components/ProtocolFieldEditor.vue`、`NodesView.vue`、相关工具与测试 | 未知插件字符串 map 的结构化/JSON 编辑、非字符串拒绝、A→B→A 清空与凭据状态隔离 |
+| 13 | `frontend/src/components/ProtocolFieldEditor.vue`、`backend/internal/node/node.go`、相关工具与测试 | 未知插件字符串 map 的结构化/JSON 编辑、空键/非字符串前后端拒绝、A→B→A 清空与凭据状态隔离 |
 | 14 | 前后端相关测试、`Design4.md`、`Issue13.md`、`ProdTestList.md`、`AGENTS.md`、本文件 | 全量验证与固定版本正反例；同步状态和人工边界，不宣称 Shadowrocket 真机兼容已完成 |
 | 15 | `backend/internal/assembly/links/links.go`、`backend/internal/uriparse/uriparse.go` 及对应测试 | SR VMess/VLESS 补 `tls/peer/alpn/fp/flow/allowInsecure`；`uriparse` 同步回读；generic VMess 负向边界 |
 
@@ -473,7 +473,8 @@ plugin: obfs-local;obfs=http
 - **前置条件：** Step 7～12 已通过；真实协议 API 已下发 `plugin_not` 与 `map_value_type=string`。
 - **产出文件与操作：**
   - `frontend/src/components/ProtocolFieldEditor.vue`：当 map 声明 `map_value_type=string` 时只渲染字符串 Input；不再根据运行时值切换 Boolean/Number/复杂 JSON 控件。
-  - 高级 JSON 只接受普通 object 且所有直接值均为 string；非字符串错误精确到参数键，阻止“应用”和保存。结构化重命名继续拒绝空键与重复键。
+  - 高级 JSON 只接受普通 object、非空参数名且所有直接值均为 string；空参数名与非字符串错误精确到所属路径，阻止“应用”和保存。结构化重命名对空键与重复键显示行内错误并阻止保存。
+  - `backend/internal/node/node.go`：字符串 map 保存/检查校验与 SIP002 输出边界一致，拒绝空参数名；空字符串参数值仍合法，作为 bare flag 的内部表示。
   - `frontend/src/utils/nodeFormLayout.ts`：`plugin_not` 与后端同语义；未知插件条件由 schema 决定，不硬编码插件名单。
   - `frontend/src/views/admin/NodesView.vue` 与既有 `nodeFeatures.ts`：`reset_on=["plugin"]` 清除通用和四个已知对象、错误状态、未应用 JSON 草稿；A→B→A 不恢复旧值，无关字段不受影响。
   - 未知 `plugin-opts` 不显示“已保存/待替换/已清除”等凭据状态；键名碰巧为 password/token/secret 也保持普通字段行为。
@@ -484,9 +485,9 @@ plugin: obfs-local;obfs=http
   - 高级 JSON 非字符串、数组、对象、数字、布尔反例；错误自动展开所属区域并禁止保存。
   - 真实 `saved_sensitive_paths` 只影响已知固定敏感字段，不影响未知参数。
 - **TODO：**
-  - [ ] 先加入未知插件入口、非字符串 JSON 和 A→B→A 失败回归。
-  - [ ] 改造字符串 map 控件、条件消费、错误状态与重置链。
-  - [ ] 完成保存重开、特殊字符、凭据隔离和响应式布局测试。
+  - [x] 先加入未知插件入口、空键/非字符串 JSON 和 A→B→A 失败回归。
+  - [x] 改造字符串 map 控件、条件消费、错误状态与重置链，并让后端保存同步拒绝空参数名。
+  - [x] 完成保存重开、特殊字符、凭据隔离和响应式布局测试。
 - **测试与验收命令：**
 
   ```bash
@@ -495,6 +496,17 @@ plugin: obfs-local;obfs=http
   ```
 
 - **验收标准：** 用户能够完整创建、编辑、保存和重开未知插件字符串参数；前后端对非法类型、条件和清空结果一致；现有四协议布局、开关、JSON 草稿与凭据 UI 无回归。
+- **实施结果（2026-09-08）：**
+  - 字符串 map 的结构化模式固定使用普通 Input，支持新增、原子改名、删除、空字符串 flag 与特殊字符；空名称和重复名称显示行内错误，模型在非法改名期间保持不变，修正或删除后清除保存阻断。
+  - 高级 JSON 统一拒绝数组根、空参数名及 bool/number/array/object 直接值，错误路径精确到 `plugin-opts` 或 `plugin-opts.<key>`；错误时禁用“应用”，修正/放弃及插件 reset 会清理旧错误路径和未应用草稿。
+  - 后端 `validateMapValues` 同步拒绝字符串 map 空参数名，使创建、更新与检查入口无法再保存“可落库但 SIP002 无法输出”的状态；空字符串值仍合法，数据库结构与敏感字段合同未改变。
+  - `plugin_not` 继续完全消费服务端 schema；插件切换复用 `reset_on=["plugin"]`，一次清除通用和四个已知参数对象、错误及 JSON 草稿，A→B→A 不恢复，SS cipher/主密码/地址等无关字段保留。
+  - NodesView 测试 fixture 改为与真实协议接口同形的 `plugin_not + map_value_type=string + reset_on`；创建响应回填/重开、`password/token/secret` 普通输入与移动端单列布局均纳入回归。
+- **验证记录（2026-09-08）：**
+  - `cd frontend && npm test -- --run tests/protocol-field-editor.spec.ts tests/node-form-layout.spec.ts tests/node-features.spec.ts tests/nodes-view.spec.ts`：4 文件 / 62 用例通过。
+  - `cd frontend && npm test -- --run`：41 文件 / 209 用例通过；`npm run build` 通过，仅保留既有大 chunk 提示。
+  - `cd backend && go test ./internal/node -count=1 -run 'StringMap|CustomPlugin'`、`go test -race ./internal/node -count=1`：通过；`go test ./... -count=1`、`go build ./...`、`go vet ./...` 全部通过。
+- **本 Step 边界：** 未修改数据库、插件输出、URI 映射、目标诊断、固定客户端证据或非 SS 协议；最新生产构建的真实 API 浏览器走查与 375px 实际视觉验收仍归 Step 14，VMess/VLESS SR TLS 增量仍归 Step 15，不能据此宣称 R27-09 已全部闭环。
 
 ### 7.11 Step 14：全链路回归、固定版本证据、浏览器与文档收口
 
@@ -612,3 +624,4 @@ Step 7～13 + Step 15 全部通过 ─→ Step 14 全量收口
 | v1.8 | 2026-09-05 | 文档归属整理：将原 Build23 的 R27-09 主体步骤并入本文件作为唯一详细记录，新增 Step 15（N-node-3/4 SR TLS/ALPN/指纹/Flow/Skip 输出与解析同步），统一 Build21/Build23 诊断码，并同步 Step 14 全量收口范围；Build23 改为仅保留交接说明与增量差异。 |
 | v1.9 | 2026-09-08 | 完成 R27-09 Step 11：先补固定 Mihomo 1.19.29 合同遗漏的 v2ray-plugin `skip-cert-verify`/`ech-opts`，再实现 Clash 结构化插件投影、目标 mode 枚举和最终 YAML 自检；四已知/未知插件、输入不可变、动态重渲染、竞态、全量构建及固定二进制正例均通过，Step 12～15 保持未实施。 |
 | v1.10 | 2026-09-08 | 完成 R27-09 Step 12：以 `ssplugin.AssessTarget` 统一活动插件目标诊断，接入节点检查及 Clash/SR/generic 正式装配门槛；精确 code/path、warning 回执、URI 跳过、混合/零输出与空诊断回归通过，后端定向/竞态/全量/编译/vet及前端生产构建通过，Step 13～15 保持未实施。 |
+| v1.11 | 2026-09-08 | 完成 R27-09 Step 13，并按用户确认纳入高级 JSON 空参数名合同缺口：字符串 map 结构化/JSON 校验、精确错误路径、插件分支清空、保存重开与凭据隔离回归落地，后端同步拒绝空键且失败零写入；定向/全量前后端测试、编译、vet 与生产构建通过，Step 14～15 保持未实施。 |

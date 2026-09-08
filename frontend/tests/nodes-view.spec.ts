@@ -69,13 +69,28 @@ const protocols = [
     form_schema: [
       { name: 'cipher', type: 'text', required: true, label: '加密方式', section: 'transport' },
       { name: 'password', type: 'password', required: true, label: '密码', section: 'auth' },
+      {
+        name: 'plugin', type: 'select', required: false, label: '插件', group: 'connection', default: '', allow_custom: true,
+        reset_on: ['plugin'],
+        option_items: [
+          { value: '', label: '不使用插件' },
+          { value: 'obfs', label: 'obfs' },
+          { value: 'v2ray-plugin', label: 'v2ray-plugin' },
+          { value: 'shadow-tls', label: 'shadow-tls' },
+          { value: 'restls', label: 'restls' },
+        ],
+      },
+      {
+        name: 'plugin-opts', type: 'object', required: false, label: '自定义插件参数', group: 'connection',
+        object_kind: 'map', map_value_type: 'string', allow_unknown: true, reset_on: ['plugin'],
+        when: { plugin_not: ['', 'obfs', 'v2ray-plugin', 'shadow-tls', 'restls'] },
+      },
+      ...['obfs', 'v2ray-plugin', 'shadow-tls', 'restls'].map((plugin) => ({
+        name: `${plugin}-opts`, type: 'object', required: false, label: `${plugin} 参数`, group: 'connection',
+        object_kind: 'fields', allow_unknown: true, reset_on: ['plugin'], when: { plugin: [plugin] }, properties: [],
+      })),
       { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
       { name: 'routing-mark', type: 'number', required: false, label: '路由标记', section: 'advanced' },
-      {
-        name: 'plugin-opts', type: 'object', required: false, label: '插件参数', section: 'transport',
-        object_kind: 'fields', allow_unknown: true,
-        properties: [{ name: 'host', type: 'text', required: false, label: 'Host' }],
-      },
     ],
     sensitive_fields: ['password'],
     link_mappings: { sr: true, generic: true },
@@ -238,6 +253,7 @@ describe('NodesView 节点管理页', () => {
     }
     vm.openCreate()
     vm.form.protocol = 'ss'
+    vm.form.protocol_json = { plugin: 'custom-plugin' }
     await nextTick()
     expect(document.body.textContent).toContain('加密方式')
     expect(document.body.textContent).toContain('密码')
@@ -616,6 +632,109 @@ describe('NodesView 节点管理页', () => {
     expect(document.body.textContent).toContain('模式')
     expect(document.body.textContent).not.toContain('v2ray-plugin 参数')
     expect(document.body.textContent).not.toContain('TLS')
+    wrapper.unmount()
+  })
+
+  it('未知插件入口完全由真实 schema 补集驱动，所有插件切换均清空且不恢复参数', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'ss'
+    vm.form.protocol_json = {
+      cipher: 'aes-256-gcm', password: 'keep', plugin: 'obfs',
+      'plugin-opts': { stale: 'unknown' }, 'obfs-opts': { mode: 'http' },
+      'v2ray-plugin-opts': { mode: 'websocket' }, 'shadow-tls-opts': { version: '3' }, 'restls-opts': { version_hint: 'keep' },
+    }
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((field) => field.props('field').name === 'plugin-opts')).toBe(false)
+
+    vm.setField('plugin', 'unknown-a')
+    await nextTick()
+    expect(vm.form.protocol_json).toEqual({ cipher: 'aes-256-gcm', password: 'keep', plugin: 'unknown-a' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((field) => field.props('field').name === 'plugin-opts')).toBe(true)
+    vm.setField('plugin-opts', { flag: '', host: 'cdn.example.com' })
+    vm.handleFieldValidity({ path: 'plugin-opts.host', valid: false })
+    vm.handleJsonDirty({ path: 'plugin-opts', dirty: true })
+
+    vm.setField('plugin', 'unknown-b')
+    expect(vm.form.protocol_json).toEqual({ cipher: 'aes-256-gcm', password: 'keep', plugin: 'unknown-b' })
+    expect(vm.invalidProtocolPaths.size).toBe(0)
+    expect(vm.unappliedJsonPaths.size).toBe(0)
+    vm.setField('plugin', 'unknown-a')
+    expect(vm.form.protocol_json).toEqual({ cipher: 'aes-256-gcm', password: 'keep', plugin: 'unknown-a' })
+    vm.setField('plugin-opts', { mode: 'again' })
+    vm.setField('plugin', 'v2ray-plugin')
+    expect(vm.form.protocol_json).toEqual({ cipher: 'aes-256-gcm', password: 'keep', plugin: 'v2ray-plugin' })
+    vm.setField('plugin', '')
+    expect(vm.form.protocol_json).toEqual({ cipher: 'aes-256-gcm', password: 'keep', plugin: '' })
+    expect(vm.resetScopesArray()).toContain('plugin')
+    wrapper.unmount()
+  })
+
+  it('未知插件普通字符串参数可创建、按响应重开，且敏感命名不进入凭据 UI', async () => {
+    const saved = {
+      ...node,
+      name: 'custom-node',
+      protocol_json: {
+        cipher: 'aes-256-gcm', password: '', plugin: 'custom-plugin',
+        'plugin-opts': { flag: '', special: ':;=\\', password: 'ordinary', token: 'plain', secret: 'visible' },
+      },
+      current_state: { security: 'none', plugin: 'custom-plugin' },
+      saved_sensitive_paths: ['password'],
+    }
+    mockCreateNode.mockResolvedValue(saved)
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.name = saved.name
+    vm.form.host = saved.host
+    vm.form.port = saved.port
+    vm.form.protocol = 'ss'
+    vm.form.protocol_json = { ...saved.protocol_json, password: 'main-secret' }
+    await vm.save()
+    expect(mockCreateNode.mock.calls[0][0].protocol_json['plugin-opts']).toEqual(saved.protocol_json['plugin-opts'])
+
+    vm.openEdit(saved)
+    await nextTick()
+    expect(vm.form.protocol_json['plugin-opts']).toEqual(saved.protocol_json['plugin-opts'])
+    const mapEditor = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'plugin-opts')!
+    expect(mapEditor.exists()).toBe(true)
+    const rows = mapEditor.findAll('.protocol-map-entry')
+    expect(rows).toHaveLength(5)
+    for (const row of rows) {
+      expect(row.classes()).toContain('grid-cols-1')
+      expect(row.classes()).toContain('md:grid-cols-[minmax(140px,0.7fr)_minmax(180px,1fr)_auto]')
+      expect(row.findAll('.min-w-0')).toHaveLength(2)
+      expect(row.find('button').text().replace(/\s/g, '')).toContain('删除')
+      expect(row.find('input[type="password"]').exists()).toBe(false)
+      expect(row.text()).not.toContain('已保存')
+      expect(row.text()).not.toContain('待替换')
+      expect(row.text()).not.toContain('已清除')
+    }
+    wrapper.unmount()
+  })
+
+  it('未知插件参数名错误阻止保存并定位字段，删除错误行后恢复', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.name = 'invalid-map-name'
+    vm.form.host = 'example.com'
+    vm.form.port = 8388
+    vm.form.protocol = 'ss'
+    vm.form.protocol_json = { cipher: 'aes-256-gcm', password: 'secret', plugin: 'custom-plugin', 'plugin-opts': { mode: 'custom' } }
+    await nextTick()
+    const mapEditor = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'plugin-opts')!
+    await mapEditor.find('input[aria-label="参数名"]').setValue('')
+    await vm.save()
+    expect(mockCreateNode).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(mapEditor.find('input[aria-label="参数名"]').element)
+    await mapEditor.find('.protocol-map-entry button').trigger('click')
+    await vm.save()
+    expect(mockCreateNode).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 })

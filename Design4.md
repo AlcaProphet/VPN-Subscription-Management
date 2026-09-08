@@ -213,7 +213,7 @@ SS 顶层 `client-fingerprint` 在当前已知插件中仅随 `shadow-tls`／`re
 | `client-fingerprint` | 按目标提供浏览器指纹候选，如 `chrome`、`firefox`、`safari`、`iOS`、`android`、`edge`、`360`、`qq`、`random`；可手填 | 目标版本和规范写法独立记录，不能据此认定 SR 接受同一全集 |
 | `fingerprint` | 证书指纹实际值输入 | 与客户端 TLS 指纹不同，不提供浏览器名称选项 |
 | `alpn` | 推荐条目＋自定义条目，有序列表 | 按传输建议 `h2`／`http/1.1` 等；不把 `h3` 全局预填 |
-| SS `plugin` | 未使用插件、现有 `obfs`／`v2ray-plugin`／`shadow-tls`／`restls`；允许自定义并显式提示能力状态 | 新上游插件不因可手填而标为项目已支持；未知插件使用高级参数入口 |
+| SS `plugin` | 未使用插件、现有 `obfs`／`v2ray-plugin`／`shadow-tls`／`restls`；允许自定义并显式提示能力状态 | 新上游插件不因可手填而标为项目已支持；未知插件使用字符串 Map 参数入口，参数名非空、值为字符串，空字符串值表示 bare flag |
 | 插件 `mode`／`version` | 按插件显示候选，例如 obfs 的 `http`／`tls`、v2ray-plugin 的 `websocket` | 不让不同插件共用一个无条件模式表 |
 | VLESS XHTTP `mode` | 未指定、`auto`、`stream-one`、`stream-up`、`packet-up`；可手填 | `none` 不作为“未指定”的存储替身 |
 | 包编码与多路复用 | 已有 schema 中的候选按目标列出；允许手填 | 包编码、Mux 方言分别建模，不把 Mihomo SMux 直接映射为 Xray Mux |
@@ -959,6 +959,7 @@ v1.5 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、�
 - SS 插件名不能只做展示候选，必须与 URI 插件映射（SIP003/目标客户端）一致。
 - Clash/Mihomo 输出使用纯插件名与结构化 `plugin-opts`；obfs/v2ray-plugin 缺省 mode 只在输出副本补齐，最终 YAML 自检拒绝 URI 参数串、错误 shape、缺失必需项与非法目标枚举。
 - 插件切换清空插件参数、凭据与扩展；SS 主密码不因插件切换清空。
+- 未知插件 `plugin-opts` 的结构化与高级 JSON 模式执行同一字符串 Map 合同：拒绝空参数名及非字符串直接值，错误定位到所属键；前端阻止应用/保存，后端保存与检查再次校验。键名为 `password`／`token`／`secret` 仍是普通参数，不进入凭据模型。
 - 普通 AEAD 算法与 VMess 算法不共用清单/别名。
 
 ### 12.5 来源适配与初始化
@@ -1001,3 +1002,4 @@ Build 编写时上述契约如与 AGENTS.md、现有 Design2/Design3 或用户�
 | v1.11 | 2026-09-04 | 按 R27-06 修复同步 `allow_custom` 三态契约：受限枚举明确下发 `false`，未声明与 `null` 默认禁止，前后端仅在显式 `true` 时允许清单外值；节点存储、数据库结构和客户端证据等级不变。 |
 | v1.12 | 2026-09-04 | 按扩大的 R27-07 同步凭据状态与数组凭据契约：节点响应以 `saved_sensitive_paths` 区分实际密文和敏感 schema，递归 UI 使用完整路径与持续失效状态；WireGuard Peer 通过 `item_id_field` 稳定 UUID 接入归一化、历史升级、加密、合并、脱敏、检查、解密和输出清理。客户端连接证据等级不变。 |
 | v1.13 | 2026-09-08 | 同步 R27-09 Step 11：补齐 Mihomo 1.19.29 的 v2ray-plugin `skip-cert-verify` 与结构化 `ech-opts` 字段，明确 Clash 纯插件名 + 结构化参数、仅输出默认值和最终 YAML 自检；SR/generic 仍按可无损 URI 子集处理，真机连接证据等级不变。 |
+| v1.14 | 2026-09-08 | 同步 R27-09 Step 13：未知插件参数采用服务端 schema 驱动的字符串 Map，结构化/高级 JSON 与后端共同拒绝空参数名和非字符串值，保留空字符串 bare flag、分支清空及普通参数敏感性边界；客户端兼容证据等级不变。 |

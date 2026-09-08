@@ -18,6 +18,11 @@ const objectField: FieldSchema = {
   ],
 }
 
+const stringMapField: FieldSchema = {
+  name: 'plugin-opts', type: 'object', required: false, label: '自定义插件参数',
+  object_kind: 'map', map_value_type: 'string', allow_unknown: true,
+}
+
 describe('ProtocolFieldEditor', () => {
   async function customEntryVisible(allowCustom?: boolean | null): Promise<boolean> {
     const field: FieldSchema = {
@@ -285,20 +290,96 @@ describe('ProtocolFieldEditor', () => {
     wrapper.unmount()
   })
 
-  it('字符串映射在高级 JSON 中拒绝非字符串叶子', async () => {
-    const field: FieldSchema = {
-      name: 'plugin-opts', type: 'object', required: false, label: '自定义插件参数',
-      object_kind: 'map', map_value_type: 'string', allow_unknown: true,
-    }
-    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: { mode: 'custom' } } })
+  it('字符串映射结构化编辑支持新增、改名、删除、空 flag 与特殊字符', async () => {
+    const original = { mode: 'custom', flag: '', special: ':;=\\' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: original } })
+    expect(wrapper.findAll('.protocol-map-entry')).toHaveLength(3)
+    expect(wrapper.findAll('.protocol-map-entry .ant-switch')).toHaveLength(0)
+    expect(wrapper.findAll('.protocol-map-entry .ant-input-number')).toHaveLength(0)
+    expect(wrapper.findAll('.protocol-map-entry textarea')).toHaveLength(0)
+
+    await wrapper.findAll('button').find((button) => button.text() === '新增参数')!.trigger('click')
+    let updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1]).toEqual([{ ...original, '参数4': '' }])
+    await wrapper.setProps({ modelValue: updates[updates.length - 1][0] })
+
+    const firstName = wrapper.findAll('input[aria-label="参数名"]')[0]
+    await firstName.setValue('renamed')
+    updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1][0]).toEqual({ renamed: 'custom', flag: '', special: ':;=\\', '参数4': '' })
+    await wrapper.setProps({ modelValue: updates[updates.length - 1][0] })
+    await wrapper.findAll('.protocol-map-entry')[3].find('button').trigger('click')
+    updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1][0]).toEqual({ renamed: 'custom', flag: '', special: ':;=\\' })
+  })
+
+  it('结构化参数名为空或重复时显示行内错误并阻止保存，修正后清除错误', async () => {
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { mode: 'custom', host: 'cdn.example.com' } } })
+    const nameInputs = () => wrapper.findAll('input[aria-label="参数名"]')
+    await nameInputs()[0].setValue('')
+    expect(wrapper.text()).toContain('参数名不能为空')
+    expect(nameInputs()[0].attributes('aria-invalid')).toBe('true')
+    let validity = wrapper.emitted('validity-change') ?? []
+    expect(validity[validity.length - 1]).toEqual([{ path: 'plugin-opts.mode', valid: false }])
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+
+    await nameInputs()[0].setValue('host')
+    expect(wrapper.text()).toContain('参数名重复')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+
+    await nameInputs()[0].setValue('transport-mode')
+    expect(wrapper.text()).not.toContain('参数名重复')
+    validity = wrapper.emitted('validity-change') ?? []
+    expect(validity).toContainEqual([{ path: 'plugin-opts.mode', valid: true }])
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1][0]).toEqual({ 'transport-mode': 'custom', host: 'cdn.example.com' })
+  })
+
+  it('切到高级 JSON 会放弃未提交的非法改名草稿并清除旧错误路径', async () => {
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { mode: 'custom' } } })
+    await wrapper.find('input[aria-label="参数名"]').setValue('')
+    expect(wrapper.text()).toContain('参数名不能为空')
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    expect(wrapper.text()).not.toContain('参数名不能为空')
+    expect(wrapper.find('textarea').element.value).toContain('"mode"')
+    expect(wrapper.emitted('validity-change')).toContainEqual([{ path: 'plugin-opts.mode', valid: true }])
+  })
+
+  it.each([
+    ['数组', '[]', '请输入 JSON 对象', 'plugin-opts'],
+    ['对象值', '{"mode":{"nested":"x"}}', 'plugin-opts.mode 的值必须为字符串', 'plugin-opts.mode'],
+    ['数组值', '{"mode":["x"]}', 'plugin-opts.mode 的值必须为字符串', 'plugin-opts.mode'],
+    ['数字值', '{"mode":1}', 'plugin-opts.mode 的值必须为字符串', 'plugin-opts.mode'],
+    ['布尔值', '{"mode":true}', 'plugin-opts.mode 的值必须为字符串', 'plugin-opts.mode'],
+  ])('字符串映射高级 JSON 拒绝%s并精确上报路径', async (_label, draft, message, path) => {
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { mode: 'custom' } } })
     const modeButtons = wrapper.findAll('button')
     await modeButtons[1].trigger('click')
     const textarea = wrapper.find('textarea')
-    await textarea.setValue('{"mode":true}')
-    expect(wrapper.text()).toContain('映射值必须为字符串')
+    await textarea.setValue(draft)
+    expect(wrapper.text()).toContain(message)
     const apply = wrapper.find('button.ant-btn-sm.ant-btn-primary')
     expect((apply.element as HTMLButtonElement).disabled).toBe(true)
     const validityEvents = wrapper.emitted('validity-change') ?? []
-    expect(validityEvents[validityEvents.length - 1]).toEqual([{ path: 'plugin-opts', valid: false }])
+    expect(validityEvents[validityEvents.length - 1]).toEqual([{ path, valid: false }])
+  })
+
+  it('字符串映射高级 JSON 拒绝空参数名，保留空字符串值与特殊字符', async () => {
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: {} } })
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('{"":"value"}')
+    expect(wrapper.text()).toContain('plugin-opts 参数名不能为空')
+    expect((wrapper.find('button.ant-btn-sm.ant-btn-primary').element as HTMLButtonElement).disabled).toBe(true)
+    let validity = wrapper.emitted('validity-change') ?? []
+    expect(validity[validity.length - 1]).toEqual([{ path: 'plugin-opts', valid: false }])
+
+    await textarea.setValue(JSON.stringify({ flag: '', special: ':;=\\' }))
+    expect(wrapper.text()).not.toContain('参数名不能为空')
+    await wrapper.find('button.ant-btn-sm.ant-btn-primary').trigger('click')
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1]).toEqual([{ flag: '', special: ':;=\\' }])
+    validity = wrapper.emitted('validity-change') ?? []
+    expect(validity).toContainEqual([{ path: 'plugin-opts', valid: true }])
   })
 })

@@ -85,7 +85,7 @@ func TestPluginNotParticipatesInProjection(t *testing.T) {
 	}
 }
 
-func TestStringMapRejectsNonStringLeaves(t *testing.T) {
+func TestStringMapRejectsEmptyKeysAndNonStringLeaves(t *testing.T) {
 	plugin := "custom"
 	field := FieldSchema{
 		Name: "plugin-opts", Type: "object", Label: "插件参数", ObjectKind: "map", MapValueType: "string",
@@ -95,6 +95,15 @@ func TestStringMapRejectsNonStringLeaves(t *testing.T) {
 	valid := map[string]any{"plugin": "custom", "plugin-opts": map[string]any{"mode": "", "host": "cdn.example.com"}}
 	if err := ValidateCurrentState(proto, CurrentState{Plugin: &plugin}, valid); err != nil {
 		t.Fatalf("字符串映射被拒绝: %v", err)
+	}
+	emptyKey := map[string]any{"plugin": "custom", "plugin-opts": map[string]any{"": "value"}}
+	for label, validate := range map[string]func() error{
+		"当前状态校验": func() error { return ValidateCurrentState(proto, CurrentState{Plugin: &plugin}, emptyKey) },
+		"基础字段校验": func() error { return validateFieldType(field, emptyKey["plugin-opts"]) },
+	} {
+		if err := validate(); err == nil || !strings.Contains(err.Error(), "plugin-opts") || !strings.Contains(err.Error(), "参数名不能为空") {
+			t.Errorf("%s 未拒绝空参数名: %v", label, err)
+		}
 	}
 	for _, value := range []any{true, float64(1), []any{"x"}, map[string]any{"nested": "x"}} {
 		params := map[string]any{"plugin": "custom", "plugin-opts": map[string]any{"bad": value}}
