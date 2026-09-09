@@ -1,7 +1,7 @@
 # Design3.md — VPN 订阅管理系统增量设计（规则来源识别、结构化素材与跨平台装配）
 
 > **文档定位：** 本文定义规则素材池下一阶段设计：管理员为每个 URL 选择 Clash 规则源、Shadowrocket（下文简称 SR）规则源或“我不确定”，系统以单 URL 单主方言为边界识别格式、提取平台无关规则、形成可追踪快照，再由 Clash/SR 目标适配器过滤和渲染。本文承接 [Design2.md](docs/reports/Design/Design2.md) 第二～四章；第一期基线见 [Design1.md](docs/reports/Design/Design1.md)。编码约束遵循 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
-> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态和历史 Clash 渲染计划兼容口径，但不代表对应代码已经完成。
+> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径，但不代表对应代码已经完成。
 > **范围边界：** 本期只重构“规则素材 URL/手工素材 → Canonical Rule → Clash/SR 渲染”链路，不重定义节点、代理组、装配版本、订阅分发、Xray 或权限体系。
 
 ---
@@ -294,7 +294,7 @@ IPv4/IPv6 单地址转 `/32`/`/128`，CIDR 归一网络地址；两者统一保�
 |---------|------|
 | `rule_pools` | 池名称、定时设置和聚合状态，不再保存 `urls_json` |
 | `rule_pool_sources` | manual/url 来源、URL、模式、顺序、配置修订和 active/pending 指针 |
-| `pool_source_snapshots` | 格式、平台、统计、状态和时间 |
+| `pool_source_snapshots` | 格式、平台、统计、状态、创建时间和 pending 人工激活时间 |
 | `pool_canonical_rules` | 池级规则实体和唯一 `semantic_key` |
 | `pool_rule_origins` | 规则与手工来源/URL 快照的多对多证据 |
 | `pool_sync_tasks` | 池级异步任务和限量逐 URL 回执 |
@@ -320,11 +320,57 @@ fetching → parsing → staging
 - `detected_format` 或 `detected_profile` 改变 → pending；
 - 空响应、HTML/登录页、零 accepted、截断响应、结构冲突和解析器错误 → failed；
 - 首次同步达到识别率且 accepted 大于 0即可 active；
-- pending 激活记录管理员操作时间，不修改解析结果。
+- pending 激活记录管理员操作时间，不修改解析结果；该时间使用快照表 nullable `activated_at` 字段保存，不通过重写 `stats_json` 混入解析统计。
 
 ### 6.4 回执、诊断与保留
 
 逐 URL 回执包含来源模式、详细格式、平台、置信依据、input/recognized/accepted/excluded/rejected/duplicates、family/matcher/范围统计、前后数量和格式变化、最终状态与原因。
+
+`stats_json` 使用带 `schema_version` 的强类型对象，不再重复保存已经位于快照表顶层列中的格式、平台、状态和六项计数，也不接受任意 `map[string]any` 作为稳定 API 合同。v1 结构固定包含：
+
+```json
+{
+  "schema_version": 1,
+  "source_mode": "auto",
+  "detection": {
+    "evidence_codes": ["top_level_payload", "payload_domain_only"],
+    "recognition_required_percent": 90
+  },
+  "rule_counts": [{
+    "family": "domain",
+    "matcher": "suffix",
+    "scope": "common",
+    "accepted": 48,
+    "excluded": 0,
+    "rejected": 0,
+    "duplicates": 2
+  }],
+  "unclassified_rejected": 1,
+  "comparison": {
+    "previous_active": {
+      "snapshot_id": 10,
+      "format": "typed-rule-text",
+      "profile": "common",
+      "accepted": 100
+    },
+    "format_changed": false,
+    "profile_changed": false,
+    "accepted_drop_threshold_percent": 70,
+    "accepted_drop_triggered": true
+  },
+  "decision": {
+    "initial_status": "pending",
+    "reason_codes": ["accepted_below_threshold"]
+  }
+}
+```
+
+- `detection.evidence_codes` 是 detector 在实际命中分支时产生的稳定枚举依据，例如 `sing_box_version_and_rules`、`top_level_payload`、`payload_domain_only`、`payload_ipcidr_only`、`payload_classical_only`、`typed_rule_marker`、`all_items_ip_cidr_or_asn`、`legacy_domain_prefix`、`plain_domain_candidates`；不得只根据最终格式反向猜测。当前探测器是确定性规则而非概率模型，因此不增加未经校准的数值 `confidence_score`。
+- `rule_counts` 按 `family`、`matcher`、`scope` 稳定排序，记录已经形成 Canonical 能力归属的 accepted/excluded/rejected/duplicates；不能形成 family/matcher 的结构、类型或值错误计入 `unclassified_rejected`。六项顶层计数是唯一事实来源，并要求 `rule_counts` 汇总与顶层 accepted/excluded/duplicates 一致，`sum(rule_counts.rejected) + unclassified_rejected = rejected`。
+- `comparison.previous_active` 在首次同步时为 `null`；比较保存作出 pending 决策时实际使用的旧 active 摘要和 70% 阈值，不保存浮点比例。`decision.initial_status` 是快照创建时的同步决策，`reason_codes` 允许同时记录 `format_changed`、`profile_changed`、`accepted_below_threshold` 等多个原因；快照顶层 `status` 才是 pending 被人工激活后可变化的当前生命周期状态。
+- `decision.reason_codes` 的首期稳定枚举为：成功/保护类 `first_success`、`normal`、`format_changed`、`profile_changed`、`accepted_below_threshold`；失败类 `request_invalid`、`network_error`、`http_status_error`、`body_read_error`、`body_too_large`、`html_source`、`unrecognized_source`、`ambiguous_format`、`conflicting_format`、`mixed_platform`、`no_accepted_rules`、`recognition_threshold_not_met`、`parse_error`。同一次 pending 可包含多个保护原因；未知新码由前端回退显示通用说明。
+- active、pending、failed 使用同一个 v1 类型。无法进入解析阶段的 failed 快照使用空 `evidence_codes`/`rule_counts`、nullable `recognition_required_percent: null` 和稳定失败原因码，具体脱敏错误摘要只保存于快照顶层 `error`，不在 `stats_json` 再复制一份。历史 `{}` 或旧无版本计数 JSON 统一规范化为 `{schema_version:0, source_mode:"", detection:null, rule_counts:[], unclassified_rejected:0, comparison:null, decision:null}`；缺失字段表示不可用，不反向编造检测依据、比较数据或原因，也不使同一 API 中的新 v1 快照读取失败。
+- `detected_profile` 必须依据全部已识别、规范化候选计算，再执行 `source_mode` 排除；显式模式不得先丢弃另一平台私有规则后把真实平台误写为 `common`。adapter 产生的每条 `reject` 诊断也必须进入 `rejected`，保证 `input/recognized/rejected` 与上述分项统计可核对。
 
 最多保留 20 条代表性诊断，每条 200 字符；限制和脱敏在持久化边界统一执行，不依赖各 adapter 自行遵守。不保存完整响应；URL 查询凭据、Token、`code`/`state` 及疑似凭据必须在进入 `diagnostic_json`、`stats_json`、任务 JSON 或 API 前脱敏。完成任务和未被指针引用的 failed 诊断快照保留 7 天；active/pending 及其诊断不受任务清理影响。现有 URL 数量 50、单 URL 60 秒/50 MB、任务整体 30 分钟继续有效。
 
@@ -379,7 +425,7 @@ fetching → parsing → staging
 
 `no_resolve` 必须按结构化尾部 token 解析，仅独立且目标能力允许的 `no-resolve` token 才设置 Canonical option；不得通过对整行或匹配值做子串搜索推断，否则 `no-resolve.example.com` 等合法值会被误判。源 policy 仍忽略并记录诊断，未知尾部选项不得静默变成 `no_resolve`。
 
-Clash `render_plan_json` 必须冻结每条新规则的显式 `no_resolve=true/false`，下载重渲染与生成时保持一致。为避免既有自包含历史计划漂移，计划字段需能区分“旧计划字段缺失”和“新计划显式 false”：旧计划缺失时沿用创建该计划时的按类型推断行为；新计划存在字段时严格按实例值渲染。覆盖层或目标组删除导致规则重写时，只保留已渲染行/显式计划中的 `no-resolve`，不得再次根据类型补加。
+Clash `render_plan_json` 必须冻结每条新规则的显式 `no_resolve=true/false`，下载重渲染与生成时保持一致。兼容编码固定采用逐规则 nullable boolean（Go 字段为 `NoResolve *bool`，JSON tag 为 `json:"no_resolve,omitempty"`），不为这一单字段引入整份 Clash plan 的顶层 schema version：字段缺失或 JSON `null` 表示既有历史计划，沿用创建该计划时的按类型推断行为；字段存在时严格按实例 true/false 与目标能力的交集渲染。新计划的每条规则都必须写出 boolean，包括 false，不得借 `omitempty` 省略；生产端应使用单一构造入口避免漏设后误入历史分支。覆盖层或目标组删除导致规则重写时，只保留已渲染行/显式计划中的 `no-resolve`，不得再次根据类型补加。未来只有在整份 plan 出现新的结构演进需求时，才另行设计顶层版本号。
 
 ---
 
@@ -474,6 +520,8 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.7 | 2026-09-09 | Clash render plan 兼容编码经专项研究确认：采用逐规则 nullable boolean/Go `*bool` 三态，缺失或 null 维持历史按类型推断，新计划对每条规则显式冻结 true/false；不为单字段引入整份 plan schema version，并保留未来整体结构演进时再版本化的空间。仅更新设计文档，代码仍待 Build22 Step 3 实施。 |
+| v1.6 | 2026-09-09 | R28-05 `stats_json` 专项研究并经用户确认：冻结 version 1 强类型统计、确定性检测依据码、family/matcher/scope 分项、旧 active 比较与初始决策原因；顶层列保持计数/格式/profile/当前状态的唯一事实来源，旧 `{}`/无版本 JSON 兼容但不补造证据；明确 profile 在来源排除前计算、adapter reject 完整计数，并使用 1018 nullable `activated_at` 记录 pending 人工激活时间。仅更新设计文档，代码仍待 Build22 实施。 |
 | v1.5 | 2026-09-09 | 构建前文档核验同步：§9.3 的当前串行执行入口由已归档 Build16 更新为 Build22；不改变 D3-1～D3-10 的既有设计结论，也不表示代码已经开始实施。 |
 | v1.4 | 2026-09-09 | R28-05 研究补充并经用户确认：相同语义保留全部 origin、accepted 统计唯一 Canonical；手工编辑通过 origin 换绑且 manual→manual 重复返回 409；来源主状态以最近尝试为准并可同时保留旧 active；`no_resolve` 使用结构化 token，新的 Clash render plan 显式冻结实例值，旧计划缺失字段时保持历史兼容；明确诊断统一限额/脱敏和迁移回归边界。本文只修订设计，D3-1～D3-10 代码仍待 Build22 实施。 |
 | v1.3 | 2026-09-02 | 新增 Clash YAML 头部参数 UI 增量：以个人模板预填端口、Geo、DNS、更多参数四个默认折叠分区；每区提供结构化编辑与作用域明确的高级 JSON，组内 bool 集中，保留未知顶层键；`mixed-port` 为可选项而非默认监听。 |

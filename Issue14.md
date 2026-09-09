@@ -56,7 +56,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 | Step 4 | 后端素材池能力白名单 | D3-4 | ☐ 未开始 |
 | Step 5 | 手工 origin 换绑、共享 Canonical 保护与重复 409 | D3-3 | ☐ 未开始 |
 | Step 6 | 零输出门槛补全 | D3-6 | ☐ 未开始 |
-| Step 7 | failed 快照、统一诊断限额/脱敏与 latest-attempt 状态 API | D3-7 | ☐ 未开始 |
+| Step 7 | failed 快照、v1 强类型统计、1018 激活时间、统一诊断限额/脱敏与 latest-attempt 状态 API | D3-7 | ☐ 未开始 |
 | Step 8 | 前端来源状态、诊断与 pending 操作 | D3-8 | ☐ 未开始 |
 | Step 9 | 装配回执前端展示 | D3-9 | ☐ 未开始 |
 | Step 10 | 真实 1015→1016 store 级迁移、幂等与回滚测试 | D3-10 | ☐ 未开始 |
@@ -180,9 +180,11 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 - **当前证据：** [Build22.md](Build22.md) 进度表 Step 1～11 全部为“☐ 未开始”；代码中 `render_clash.go`/`render_sr.go` 仍按类型支持度无条件追加 `no-resolve`，`load.go` 仍丢弃 `Options.NoResolve`，`pipeline.go` 仍存在重复累加，`sync.go` 仍写入占位 `sort_order/raw_line/line_no`，后端素材池白名单/快照 API/前端 pending UI/回执展示均未实现。
 - **深入研究新增结论：**
   - Design3 要求语义去重时保留 origin；已确认同一 URL 内重复位置和跨来源重复均保留 origin，`accepted` 统计唯一 Canonical，`duplicates` 统计额外 origin，列表/装配必须在 SQL 分页前按最早有效 origin 去重排序。
-  - `no_resolve` 不仅在装配加载中丢失，来源解析还使用整行子串判断，Clash `render_plan_json` 和下载重渲染也按类型补加；已确认改为结构化 token、新计划显式 true/false、旧计划字段缺失维持历史行为。
+  - `no_resolve` 不仅在装配加载中丢失，来源解析还使用整行子串判断，Clash `render_plan_json` 和下载重渲染也按类型补加；已确认改为结构化 token，并固定采用逐规则 `NoResolve *bool` 三态编码：字段缺失或 JSON `null` 维持历史按类型推断，新计划每条规则显式写入 boolean true/false，不为这一单字段引入顶层 plan schema version；覆盖层降级只保留原行选项。
   - 手工修改必须换绑 origin；目标仅有 URL origin 时允许共享，目标已有另一 manual origin 时返回 409，不静默合并或覆盖。
   - per-URL 主状态由最近一次同步尝试决定；最近失败可以与继续生效的旧 active 同时展示，后续成功后旧 failed 只进入历史。诊断统一在持久化边界执行 20 条×200 字符限额和敏感信息脱敏。
+  - `stats_json` 已确认采用 version 1 强类型合同：以稳定 evidence/reason codes 表达确定性检测依据和初始同步决策，不引入数值置信分数；按 family/matcher/scope 记录 accepted/excluded/rejected/duplicates 分项，顶层列继续作为六项计数、format/profile/当前 status 的唯一事实来源；旧 `{}`/无版本 JSON 兼容但不补造证据。
+  - `detected_profile` 必须在 `source_mode` 排除前基于全部已识别、规范化候选计算；adapter reject 必须完整进入 rejected。pending 人工激活时间使用下一号 1018 迁移新增的 nullable `activated_at` 保存，激活不得改写初始决策和解析统计。
   - 1016 回归必须使用真实 0001～1015→1016 迁移链，覆盖旧业务数据清除、ID 防复用、无关历史保留、重复迁移幂等和失败整体回滚，不能以简化旧 schema 代替。
 - **前置条件：** 步骤一、步骤二已完成，Build21 Step 14 已按证据收口；不得在此前开始 Build22 的任何子步骤。
 - **修复方向：** 按已详细修订的 [Build22.md](Build22.md) Step 1～11 串行实施并验收；每次仅执行一个 Step，完成前不得将 Build16/Design3 标记为“全部闭环”。
@@ -275,6 +277,8 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.14 | 2026-09-09 | 完成 R28-05 Step 3 Clash render plan 兼容编码专项研究并按用户确认同步 Design3/Build22/Issue14：固定采用逐规则 `NoResolve *bool` 三态，缺失或 null 保持历史推断，新计划逐条显式冻结 boolean，不为单字段引入顶层 plan schema version；补齐原始 JSON、历史夹具、目标能力和覆盖层降级验收边界。仅更新文档，Build22 Step 3 代码仍未开始。 |
+| v1.13 | 2026-09-09 | 完成 R28-05 `stats_json` 专项研究并按用户确认同步 Design3/Build22/Issue14：冻结 v1 强类型统计、确定性检测依据码、能力分项、旧 active 比较、初始决策原因与旧 JSON 兼容；补记 profile 计算和 adapter reject 统计缺口，pending 激活时间采用 1018 nullable `activated_at`。仅更新文档，Build22 Step 1～11 代码仍未开始。 |
 | v1.12 | 2026-09-09 | 完成 R28-07 只读研究并按用户决策写入分项修复方案：R28-07A～E、G～I 待后续实施，导入文件硬上限确认为 20 MiB，R28-07F 保留为设计取向；R28-08 N01～N07 整体确认为设计取向并从工程实施范围关闭。本次仅更新 Issue14，未修改业务代码。 |
 | v1.11 | 2026-09-09 | 完成 R28-06 只读研究并按用户确认细化修复方案：未知扩展定位为加密存档/诊断且不进入产物，局部 JSON 未知键改为显式白名单，父子草稿冲突采用阻止父级切换并定位子草稿；记录 Design4 冲突、实施前置条件与完整验收证据，本次仅更新 Issue14，未改业务代码。 |
 | v1.10 | 2026-09-09 | 完成 R28-05 只读研究并按用户确认修订 Design3/Build22/Issue14：固化全部 origin 保留、manual 重复 409、latest-attempt 来源状态、新旧 Clash render plan 兼容、统一诊断限额/脱敏及真实 1015→1016 迁移测试口径；仅完成文档，Build22 Step 1～11 代码均未开始。 |
