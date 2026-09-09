@@ -30,7 +30,7 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import NodesView from '@/views/admin/NodesView.vue'
-import { listNodes, getProtocols, createNode, updateNode } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, importNodes } from '@/api/node'
 import { ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
@@ -41,6 +41,7 @@ const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
 const mockGetProtocols = getProtocols as unknown as ReturnType<typeof vi.fn>
 const mockCreateNode = createNode as unknown as ReturnType<typeof vi.fn>
 const mockUpdateNode = updateNode as unknown as ReturnType<typeof vi.fn>
+const mockImportNodes = importNodes as unknown as ReturnType<typeof vi.fn>
 
 const node = {
   id: 1,
@@ -104,9 +105,48 @@ describe('NodesView 节点管理页', () => {
     mockGetProtocols.mockReset()
     mockCreateNode.mockReset()
     mockUpdateNode.mockReset()
+    mockImportNodes.mockReset()
     ;(Notify.warning as unknown as ReturnType<typeof vi.fn>).mockClear()
     mockListNodes.mockResolvedValue([node])
     mockGetProtocols.mockResolvedValue(protocols)
+  })
+
+  it('批量导入回执为长 URI 提供局部桌面表格和手机卡片布局', async () => {
+    const raw = 'vless://uuid@example.com:443?' + 'transport-parameter='.repeat(20)
+    const reason = 'URI 参数无法识别：' + 'unknown-parameter='.repeat(20)
+    mockImportNodes.mockResolvedValue({
+      list: [
+        { line: 1, raw, ok: true, name: 'US-2' },
+        { line: 2, raw: 'invalid://node', ok: false, name: 'failed-node', reason },
+      ],
+      total: 2,
+    })
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openImport()
+    vm.importText = raw
+    await vm.doImport()
+    await flushPromises()
+
+    expect(mockImportNodes).toHaveBeenCalledWith(raw)
+    const receipt = document.body.querySelector('.import-receipt')!
+    const table = receipt.querySelector('.import-receipt-table')!
+    const mobile = receipt.querySelector('.import-receipt-mobile')!
+    expect(receipt.classList).toContain('overflow-y-auto')
+    expect(table.classList).toContain('hidden')
+    expect(table.classList).toContain('md:block')
+    expect(mobile.classList).toContain('md:hidden')
+    const details = [...receipt.querySelectorAll('.import-receipt-detail')]
+    expect(details).toHaveLength(4)
+    expect(details.filter((detail) => detail.textContent === raw)).toHaveLength(2)
+    expect(details.filter((detail) => detail.textContent === reason)).toHaveLength(2)
+    expect(mobile.textContent).toContain('第 1 行')
+    expect(mobile.textContent).toContain('第 2 行')
+    expect(mobile.textContent).toContain('US-2')
+    expect(mobile.textContent).toContain('成功')
+    expect(mobile.textContent).toContain('跳过')
+    wrapper.unmount()
   })
 
   it('SMux 开关只出现一次并集中于更多开关，参数仍位于高级结构化区', async () => {
