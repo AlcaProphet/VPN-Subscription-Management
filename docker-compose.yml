@@ -12,7 +12,7 @@ services:
     volumes:
       - vpn-data:/data          # 单一数据卷：数据库 + 内容文件 + /public 资源
     environment:
-      APP_MODE: dev
+      APP_MODE: prod
       LOG_LEVEL: debug
       TRUST_PROXY: auto
       # 应急恢复：管理员密码救援时取消下行注释并重启容器（Design1 §3.8，逻辑在 Build3 实现）
