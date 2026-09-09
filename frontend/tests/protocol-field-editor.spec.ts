@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
+import { Select } from 'ant-design-vue'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import type { FieldSchema } from '@/api/node'
 
@@ -31,11 +32,9 @@ describe('ProtocolFieldEditor', () => {
       option_items: [{ value: 'none', label: '无' }, { value: 'tls', label: 'TLS' }],
       ...(allowCustom === undefined ? {} : { allow_custom: allowCustom }),
     }
-    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: 'none' } })
-    const input = wrapper.find('input')
-    await input.trigger('focus')
-    await input.setValue('unsafe')
-    const visible = wrapper.text().includes('使用自定义值')
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: 'none' }, attachTo: document.body })
+    await wrapper.find('.ant-select-selector').trigger('mousedown')
+    const visible = document.body.textContent?.includes('其他（自定义）') ?? false
     wrapper.unmount()
     return visible
   }
@@ -76,6 +75,45 @@ describe('ProtocolFieldEditor', () => {
       props: { field: { name: 'alpn', type: 'text-list', required: false, label: 'ALPN' }, modelValue: [] },
     })
     expect(emptyList.findAll('input')).toHaveLength(0)
+  })
+
+  it('可选数字保持未设置为空，显式 0 仍显示为 0，清空不写入 0', async () => {
+    const field: FieldSchema = { name: 'mtu', type: 'number', required: false, label: 'MTU' }
+    const unset = mount(ProtocolFieldEditor, { props: { field, modelValue: undefined } })
+    expect((unset.find('input').element as HTMLInputElement).value).toBe('')
+    await unset.findComponent({ name: 'AInputNumber' }).vm.$emit('change', null)
+    expect(unset.emitted('update:modelValue')).toEqual([[undefined]])
+
+    const zero = mount(ProtocolFieldEditor, { props: { field, modelValue: 0 } })
+    expect((zero.find('input').element as HTMLInputElement).value).toBe('0')
+  })
+
+  it('整数列表新增先进入草稿，合法整数应用后才写入且不会自动生成 0', async () => {
+    const field: FieldSchema = { name: 'reserved', type: 'int-list', required: false, label: '保留字节' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: [] } })
+    await wrapper.findAll('button').find((button) => button.text() === '新增条目')!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.text()).toContain('列表项草稿未应用')
+    await wrapper.findComponent({ name: 'AInputNumber' }).vm.$emit('change', 7)
+    await wrapper.findAll('button').find((button) => button.text() === '应用条目')!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[[7]]])
+  })
+
+  it('列表推荐项可直接追加，其他条目仍需显式应用', async () => {
+    const field: FieldSchema = {
+      name: 'alpn', type: 'text-list', required: false, label: 'ALPN', allow_custom: true,
+      option_items: [{ value: 'h2', label: 'h2' }, { value: 'http/1.1', label: 'http/1.1' }],
+    }
+    const recommended = mount(ProtocolFieldEditor, { props: { field, modelValue: [] } })
+    await recommended.findComponent(Select).vm.$emit('change', 'h2')
+    expect(recommended.emitted('update:modelValue')).toEqual([[['h2']]])
+
+    const custom = mount(ProtocolFieldEditor, { props: { field, modelValue: [] } })
+    await custom.findComponent(Select).vm.$emit('change', '__vpn_sub_list_custom_value__')
+    expect(custom.emitted('update:modelValue')).toBeUndefined()
+    await custom.find('.scalar-list-draft input').setValue('custom-alpn')
+    await custom.findAll('button').find((button) => button.text() === '应用条目')!.trigger('click')
+    expect(custom.emitted('update:modelValue')).toEqual([[['custom-alpn']]])
   })
 
   it('嵌套高级区默认折叠且有摘要，折叠不丢失参数或 JSON 草稿', async () => {

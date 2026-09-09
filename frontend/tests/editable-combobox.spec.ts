@@ -1,6 +1,7 @@
-// editable-combobox.spec.ts：Build19 Step 2 可编辑下拉交互测试。
+// editable-combobox.spec.ts：标准单选下拉与显式自定义草稿交互测试。
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { Select } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { OptionItem } from '@/api/node'
 
@@ -10,121 +11,79 @@ const items: OptionItem[] = [
   { value: 'grpc', label: 'gRPC', group: 'common', verified: 'mihomo-1.19.29' },
 ]
 
+async function selectValue(wrapper: ReturnType<typeof mount>, value: string) {
+  await wrapper.findComponent(Select).vm.$emit('change', value)
+}
+
 describe('EditableCombobox', () => {
-  it('旧值回显且失焦不自动改写', async () => {
-    const wrapper = mount(EditableCombobox, {
-      props: { value: 'custom-old', items, allowCustom: true },
-      attachTo: document.body,
-    })
-    const input = wrapper.find('input')
-    expect((input.element as HTMLInputElement).value).toBe('custom-old')
-    await input.trigger('focus')
-    await input.trigger('blur')
+  it('使用标准单值 Select，整框有箭头且打开后显示全部候选', async () => {
+    const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: true }, attachTo: document.body })
+    expect(wrapper.find('.ant-select').exists()).toBe(true)
+    expect(wrapper.find('.ant-select-show-search').exists()).toBe(true)
+    expect(wrapper.find('.ant-select-arrow').exists()).toBe(true)
+    await wrapper.find('.ant-select-selector').trigger('mousedown')
+    expect(document.body.textContent).toContain('WebSocket')
+    expect(document.body.textContent).toContain('gRPC')
+    wrapper.unmount()
+  })
+
+  it('选择正式候选时直接回写规范值', async () => {
+    const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: true } })
+    await selectValue(wrapper, 'ws')
+    expect(wrapper.emitted('update:modelValue')).toEqual([['ws']])
+  })
+
+  it('选择其他后仅创建草稿，应用时才回写一次', async () => {
+    const wrapper = mount(EditableCombobox, { props: { value: '', items, allowCustom: true } })
+    await selectValue(wrapper, '__vpn_sub_custom_value__')
+    expect(wrapper.text()).toContain('自定义值草稿未应用')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    const customInput = wrapper.find('.custom-value-editor input')
+    await customInput.setValue('custom-v2')
+    await customInput.trigger('keydown', { key: 'Enter', isComposing: true })
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.findAll('.custom-value-editor button').find((button) => button.text() === '应用自定义值')!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([['custom-v2']])
+    expect(wrapper.emitted('draft-dirty-change')).toEqual([[true], [false]])
+  })
+
+  it('取消自定义草稿恢复实际已应用值', async () => {
+    const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: true } })
+    await selectValue(wrapper, '__vpn_sub_custom_value__')
+    await wrapper.find('.custom-value-editor input').setValue('discard-me')
+    await wrapper.find('.custom-value-editor .ant-btn-default').trigger('click')
+    expect(wrapper.find('.custom-value-editor').exists()).toBe(false)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('旧自定义值自动回填且不编辑时不产生未应用草稿', () => {
+    const wrapper = mount(EditableCombobox, { props: { value: 'custom-old', items, allowCustom: true } })
+    expect((wrapper.find('.custom-value-editor input').element as HTMLInputElement).value).toBe('custom-old')
+    expect(wrapper.text()).not.toContain('草稿未应用')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('draft-dirty-change')).toBeUndefined()
+  })
+
+  it('allowCustom=false 时不展示其他入口', async () => {
+    const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: false }, attachTo: document.body })
+    await wrapper.find('.ant-select-selector').trigger('mousedown')
+    expect(document.body.textContent).not.toContain('其他（自定义）')
     wrapper.unmount()
   })
 
-  it('选择候选时回写规范值', async () => {
+  it('空值候选与其他使用不同内部值并正确回写空字符串', async () => {
     const wrapper = mount(EditableCombobox, {
-      props: { value: '', items, allowCustom: true },
-      attachTo: document.body,
+      props: { value: 'tcp', items: [{ value: '', label: '无' }, ...items], allowCustom: true },
     })
-    const input = wrapper.find('input')
-    await input.trigger('focus')
-    const buttons = wrapper.findAll('button')
-    expect(buttons.length).toBeGreaterThanOrEqual(3)
-    await buttons[1].trigger('click')
-    const events = wrapper.emitted('update:modelValue') ?? []
-    expect(events[events.length - 1]).toEqual(['ws'])
-    wrapper.unmount()
+    await selectValue(wrapper, '__vpn_sub_empty_value__')
+    expect(wrapper.emitted('update:modelValue')).toEqual([['']])
   })
 
-  it('打开时不被当前显示值过滤，展示全部合法选项', async () => {
-    const wrapper = mount(EditableCombobox, {
-      props: { value: 'tcp', items, allowCustom: true },
-      attachTo: document.body,
-    })
-    const input = wrapper.find('input')
-    await input.trigger('focus')
-    const text = wrapper.text()
-    expect(text).toContain('TCP')
-    expect(text).toContain('WebSocket')
-    expect(text).toContain('gRPC')
-    expect((input.element as HTMLInputElement).value).toBe('')
-    wrapper.unmount()
-  })
-
-  it('选项元数据使用可读名称和明确分隔', async () => {
-    const wrapper = mount(EditableCombobox, {
-      props: { value: '', items, allowCustom: true },
-      attachTo: document.body,
-    })
-    await wrapper.find('input').trigger('focus')
-    const tcp = wrapper.findAll('button').find((button) => button.text().includes('TCP'))
-    expect(tcp?.text()).toContain('Mihomo 1.19.29 · 常用')
-    expect(tcp?.text()).not.toContain('mihomo-1.19.29常用')
-    wrapper.unmount()
-  })
-
-  it('空值候选在搜索时仍可点击并回写空值', async () => {
-    const itemsWithEmpty: OptionItem[] = [
-      { value: '', label: '无' },
-      ...items,
-    ]
-    const wrapper = mount(EditableCombobox, {
-      props: { value: 'tcp', items: itemsWithEmpty, allowCustom: true },
-      attachTo: document.body,
-    })
-    const input = wrapper.find('input')
-    await input.trigger('focus')
-    await input.setValue('socket')
-    const empty = wrapper.findAll('button').find((btn) => btn.text().includes('无'))
-    expect(empty).toBeTruthy()
-    await empty!.trigger('click')
-    const events = wrapper.emitted('update:modelValue') ?? []
-    expect(events[events.length - 1]).toEqual([''])
-    wrapper.unmount()
-  })
-
-  it('输入无匹配时可明确使用自定义值', async () => {
-    const wrapper = mount(EditableCombobox, {
-      props: { value: '', items, allowCustom: true },
-      attachTo: document.body,
-    })
-    const input = wrapper.find('input')
-    await input.trigger('focus')
-    await input.setValue('custom-v2')
-    expect(wrapper.text()).toContain('使用自定义值：custom-v2')
-    const custom = wrapper.findAll('button').find((btn) => btn.text().includes('使用自定义值'))
-    expect(custom).toBeTruthy()
-    await custom!.trigger('click')
-    const events = wrapper.emitted('update:modelValue') ?? []
-    expect(events[events.length - 1]).toEqual(['custom-v2'])
-    wrapper.unmount()
-  })
-
-  it('allowCustom=false 时不展示自定义入口', async () => {
-    const wrapper = mount(EditableCombobox, {
-      props: { value: '', items, allowCustom: false },
-      attachTo: document.body,
-    })
-    const input = wrapper.find('input')
-    await input.trigger('focus')
-    await input.setValue('no-match')
-    expect(wrapper.text()).not.toContain('使用自定义值')
-    wrapper.unmount()
-  })
-
-  it('可按显示名过滤', async () => {
-    const wrapper = mount(EditableCombobox, {
-      props: { value: '', items, allowCustom: true },
-      attachTo: document.body,
-    })
-    const input = wrapper.find('input')
-    await input.trigger('focus')
-    await input.setValue('socket')
-    expect(wrapper.text()).toContain('WebSocket')
-    expect(wrapper.text()).not.toContain('gRPC')
+  it('选项元数据保持可读名称和明确分隔', async () => {
+    const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: true }, attachTo: document.body })
+    await wrapper.find('.ant-select-selector').trigger('mousedown')
+    expect(document.body.textContent).toContain('Mihomo 1.19.29 · 常用')
+    expect(document.body.textContent).not.toContain('mihomo-1.19.29常用')
     wrapper.unmount()
   })
 })

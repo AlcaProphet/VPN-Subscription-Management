@@ -99,4 +99,14 @@ describe('NodeCheckPanel', () => {
     expect(wrapper.text()).not.toContain('clash-yaml')
     wrapper.unmount()
   })
+
+  it('存在未应用控件草稿时禁用检查并显示原因', async () => {
+    const blockedReason = '存在未应用的自定义值或列表项草稿，请先应用或取消后再检查'
+    const wrapper = mount(NodeCheckPanel, { props: { request, blockedReason } })
+    const button = wrapper.findAll('button').find((b) => b.text().replace(/\s/g, '').includes('检查当前节点'))!
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain(blockedReason)
+    await button.trigger('click')
+    expect(mockCheckNode).not.toHaveBeenCalled()
+  })
 })

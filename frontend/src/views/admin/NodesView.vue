@@ -50,6 +50,7 @@ const clearedSensitivePaths = reactive(new Set<string>())
 const invalidatedSensitivePaths = reactive(new Set<string>())
 const jsonResetVersions = reactive<Record<string, number>>({})
 const unappliedJsonPaths = reactive(new Set<string>())
+const unappliedControlPaths = reactive(new Set<string>())
 const extensionOps = ref<ExtensionOp[]>([])
 const extensionDraft = reactive({
   open: false,
@@ -238,6 +239,11 @@ function handleJsonDirty(payload: { path: string; dirty: boolean }) {
   if (payload.dirty) unappliedJsonPaths.add(payload.path)
   else unappliedJsonPaths.delete(payload.path)
 }
+function handleControlDraftDirty(payload: { path: string; dirty: boolean }) {
+  if (payload.dirty) unappliedControlPaths.add(payload.path)
+  else unappliedControlPaths.delete(payload.path)
+}
+const checkBlockedReason = computed(() => unappliedControlPaths.size > 0 ? '存在未应用的自定义值或列表项草稿，请先应用或取消后再检查' : '')
 function warnResetScope(scope: string) {
   const messages: Record<string, string> = {
     protocol: '切换协议将清空当前协议参数与凭据，切回需重新填写',
@@ -349,6 +355,9 @@ function clearScopedFields(scope: string) {
     for (const path of Array.from(unappliedJsonPaths)) {
       if (pathContains(clearedPath, path) || pathContains(path, clearedPath)) unappliedJsonPaths.delete(path)
     }
+    for (const path of Array.from(unappliedControlPaths)) {
+      if (pathContains(clearedPath, path) || pathContains(path, clearedPath)) unappliedControlPaths.delete(path)
+    }
   }
   const concretePaths = new Set([
     ...savedSensitivePaths.value,
@@ -380,6 +389,7 @@ function resetAllEditScopes() {
   clearedSensitivePaths.clear()
   invalidatedSensitivePaths.clear()
   unappliedJsonPaths.clear()
+  unappliedControlPaths.clear()
   extensionOps.value = []
   resetExtensionDraft()
   for (const path of Object.keys(jsonResetVersions)) delete jsonResetVersions[path]
@@ -391,6 +401,7 @@ function updateProtocol(protocol: string) {
   form.protocol_json = {}
   invalidProtocolPaths.clear()
   unappliedJsonPaths.clear()
+  unappliedControlPaths.clear()
   extensionOps.value = []
   resetExtensionDraft()
   resetScopes.add('protocol')
@@ -468,6 +479,11 @@ async function save() {
   if (unappliedJsonPaths.size > 0) {
     Notify.warning('存在未应用的 JSON 草稿，请先应用或放弃后再保存')
     await revealField([...unappliedJsonPaths][0])
+    return
+  }
+  if (unappliedControlPaths.size > 0) {
+    Notify.warning('存在未应用的自定义值或列表项草稿，请先应用或取消后再保存')
+    await revealField([...unappliedControlPaths][0])
     return
   }
   saving.value = true
@@ -758,7 +774,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" />
           </div>
         </FormSection>
 
@@ -773,7 +789,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" />
             </div>
           </component>
         </FormSection>
@@ -782,14 +798,14 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="item in switchFields.filter((item) => !item.advanced)" :key="item.path" :field="item.field" :path="item.path"
               :model-value="valueAtPath(form.protocol_json, item.path)" :current-state="currentState"
-              @update:model-value="(value: unknown) => setSwitchField(item.path, value)" />
+              @update:model-value="(value: unknown) => setSwitchField(item.path, value)" @draft-dirty-change="handleControlDraftDirty" />
           </div>
           <details v-if="switchFields.some((item) => item.advanced)" class="node-more-switches mt-3 rounded-lg border p-3">
             <summary class="cursor-pointer text-sm font-medium">更多开关（已配置 {{ configuredSwitchCount }} 项）</summary>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
               <ProtocolFieldEditor v-for="item in switchFields.filter((item) => item.advanced)" :key="item.path" :field="item.field" :path="item.path"
                 :model-value="valueAtPath(form.protocol_json, item.path)" :current-state="currentState"
-                @update:model-value="(value: unknown) => setSwitchField(item.path, value)" />
+                @update:model-value="(value: unknown) => setSwitchField(item.path, value)" @draft-dirty-change="handleControlDraftDirty" />
             </div>
           </details>
         </FormSection>
@@ -803,7 +819,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               :json-reset-versions="jsonResetVersions"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" />
           </div>
         </details>
 
@@ -862,7 +878,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           </div>
 
           <div class="mt-4 border-t pt-3">
-            <NodeCheckPanel :request="checkRequest" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
+            <NodeCheckPanel :request="checkRequest" :blocked-reason="checkBlockedReason" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
           </div>
         </details>
       </Form>
@@ -918,21 +934,14 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
 .node-protocol-form :deep(.ant-input-affix-wrapper),
 .node-protocol-form :deep(.ant-input-number),
 .node-protocol-form :deep(.ant-select-single .ant-select-selector),
-.node-protocol-form :deep(.editable-combobox > input),
 .node-protocol-form :deep(.protocol-list-editor .ant-input),
 .node-protocol-form :deep(.protocol-list-editor .ant-btn) { min-height: 32px; }
-.node-protocol-form :deep(.editable-combobox > input) {
-  height: 32px; padding: 4px 11px; border-color: var(--ui-border); background: var(--ui-surface); color: var(--ui-text);
-}
-.node-protocol-form :deep(.editable-combobox > div) { background: var(--ui-surface-raised); }
-.node-protocol-form :deep(.editable-combobox button:hover) { background: var(--ui-surface-subtle); }
 @media (max-width: 767px) {
   .node-protocol-form :deep(.ant-input:not(textarea)),
   .node-protocol-form :deep(.ant-input-affix-wrapper),
   .node-protocol-form :deep(.ant-input-number),
   .node-protocol-form :deep(.ant-input-number-input),
-  .node-protocol-form :deep(.ant-select-single .ant-select-selector),
-  .node-protocol-form :deep(.editable-combobox > input) { min-height: 44px; }
+  .node-protocol-form :deep(.ant-select-single .ant-select-selector) { min-height: 44px; }
   .node-protocol-form :deep(.ant-input-affix-wrapper > .ant-input) { min-height: 0; }
   .node-protocol-form :deep(.ant-select-single .ant-select-selection-item) { line-height: 42px; }
 }

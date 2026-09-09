@@ -10,6 +10,7 @@ import { ApiError } from '@/api/request'
 
 const props = defineProps<{
   request: NodeCheckRequest
+  blockedReason?: string
 }>()
 
 const emit = defineEmits<{
@@ -28,6 +29,7 @@ watch(() => props.request, () => {
 }, { deep: true, immediate: true })
 
 async function run() {
+  if (props.blockedReason) return
   checking.value = true
   error.value = ''
   const currentSeq = ++seq.value
@@ -76,10 +78,11 @@ const targetKeys = computed(() => result.value ? Object.keys(result.value.target
         <div class="text-sm font-medium text-text">目标检查</div>
         <div class="text-xs text-text-tertiary">按当前草稿检查去敏输出与诊断；检查不写库，也不保存节点。</div>
       </div>
-      <Button type="primary" size="small" :loading="checking" @click="run">检查当前节点</Button>
+      <Button type="primary" size="small" :loading="checking" :disabled="!!blockedReason" @click="run">检查当前节点</Button>
     </div>
 
-    <Alert v-if="error" type="error" show-icon class="mb-2" :message="error" />
+    <Alert v-if="blockedReason" type="warning" show-icon class="mb-2" :message="blockedReason" />
+    <Alert v-else-if="error" type="error" show-icon class="mb-2" :message="error" />
 
     <div v-if="checking && !result" class="text-xs text-text-tertiary">正在检查…</div>
 

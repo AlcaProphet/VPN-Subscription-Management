@@ -34,6 +34,7 @@ import { listNodes, getProtocols, createNode, updateNode } from '@/api/node'
 import { ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
+import NodeCheckPanel from '@/components/NodeCheckPanel.vue'
 import { smuxSchema, smuxValue } from './fixtures/smux'
 
 const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
@@ -534,6 +535,23 @@ describe('NodesView 节点管理页', () => {
 
     expect(mockCreateNode).not.toHaveBeenCalled()
     expect(Notify.warning).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('存在未应用自定义值或列表项草稿时阻止保存和目标检查', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.name = 'new-node'
+    vm.form.host = 'example.com'
+    vm.form.port = 443
+    vm.handleControlDraftDirty({ path: 'network', dirty: true })
+    await vm.save()
+
+    expect(mockCreateNode).not.toHaveBeenCalled()
+    expect(Notify.warning).toHaveBeenCalledWith('存在未应用的自定义值或列表项草稿，请先应用或取消后再保存')
+    expect(wrapper.findComponent(NodeCheckPanel).props('blockedReason')).toContain('未应用')
     wrapper.unmount()
   })
 
