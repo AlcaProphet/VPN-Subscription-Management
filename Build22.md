@@ -17,6 +17,7 @@
 > 7. 手工条目修改到另一个已存在的手工语义时返回 409；若目标 Canonical 仅有 URL origin，则允许换绑并共享。
 > 8. 每 URL 主状态以**最近一次同步尝试**为准；最近失败但旧 active 仍有效时同时显示“同步失败”和“继续使用旧活动快照”，之后成功则旧 failed 只保留在历史中。
 > 9. 新 Clash render plan 显式冻结实例级 `no_resolve`；旧计划缺失该字段时维持历史按类型推断，禁止历史下载漂移。
+> 10. 素材池能力白名单以后端入口的**原始 legacy 类型**为准，拒绝 `SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR` 等 `material_pool=false` 类型；不能只按 Canonical `family/matcher` 判定，避免与 `GEOIP`/`IP-ASN`/`IP-CIDR` 同语义碰撞后被放行。
 >
 > **执行原则（与 Build17～Build21 一致）：**
 > - 每一步完成后均可编译、可测试。不跳步、不并行多步。
@@ -35,7 +36,7 @@
 | 1 | 修复来源统计计数（D3-2） | Design3 §5.3、§6.4 | ☐ 未开始 |
 | 2 | 来源原始证据采集、排序与装配去重（D3-5） | Design3 §3.2、§5.4、§6.1 | ☐ 未开始 |
 | 3 | `no_resolve` 实例语义贯通（D3-1） | Design3 §7.2 | ☐ 未开始 |
-| 4 | 后端素材池能力白名单（D3-4） | Design3 §3.3、§3.4、§8.3 | ☐ 未开始 |
+| 4 | 后端素材池能力白名单（D3-4，按原始 legacy 类型拒绝 `SRC-*`） | Design3 §3.3、§3.4、§8.3 | ☐ 未开始 |
 | 5 | 手工编辑不污染共享 Canonical（D3-3） | Design3 §3.2、§6.1 | ☐ 未开始 |
 | 6 | 零输出门槛补全（D3-6） | Design3 §7.2 | ☐ 未开始 |
 | 7 | failed 快照持久化 + per-URL 状态/诊断 API（D3-7） | Design3 §6.4、§8.2、§8.3 | ☐ 未开始 |
@@ -57,7 +58,7 @@
 | 1 | `backend/internal/pool/pipeline.go`、`backend/internal/pool/parser_test.go` | 修正 `Excluded` 重复累加与清洗阶段诊断回写；补充统计/诊断回归测试 |
 | 2 | `backend/internal/pool/types.go`、`adapter_*.go`、`pipeline.go`、`sync.go`、`pool.go`、`backend/internal/assembly/load.go` 及相关测试 | 使用 `ParsedRule{Rule, Origin}`；真实证据落库；保留全部 origin；查询在分页前按 Canonical 去重并稳定排序 |
 | 3 | `backend/internal/pool/parser.go`、`adapter_typed.go`、`adapter_mihomo.go`、`backend/internal/assembly/load.go`、`render_clash.go`、`render_sr.go`、`clash_plan.go` 及相关测试 | 结构化解析并贯通 `no_resolve`；新计划显式冻结，旧计划兼容；生成与下载语义一致 |
-| 4 | `backend/internal/rulespec/capability.go` 或新增 helper、`backend/internal/pool/pool.go`、`pool_test.go` | 后端强制 `MaterialPool` 白名单，禁止 advanced-only 类型进入素材池 |
+| 4 | `backend/internal/rulespec/legacy.go`（或新增 helper）、`backend/internal/pool/pool.go`、`adapter_typed.go`、`adapter_mihomo.go`、`pool_test.go` | 后端按**原始 legacy 类型**强制 `MaterialPool` 白名单；手工 CRUD 与来源解析均拒绝 advanced-only/`SRC-*` 等非素材池类型 |
 | 5 | `backend/internal/pool/pool.go`、`pool_test.go`、必要的 server CRUD 测试 | 手工编辑改为换绑 canonical origin；manual 重复返回 409；不直接修改共享 canonical 行 |
 | 6 | `backend/internal/server/assembly.go`、`server/assembly_test.go` | 规则型目标无条件执行 `FinalOutput==0` 禁止生成 |
 | 7 | `backend/internal/pool/sync.go`、新增 `snapshot.go`（或同类文件）、`backend/internal/server/pool.go`、`frontend/src/api/pool.ts`、后端/前端测试 | 失败时写入 failed snapshot；统一限额/脱敏；增加 latest-attempt 来源状态与快照历史 API |
@@ -297,23 +298,55 @@ Step 11（全量回归/文档收口） ←────────────�
 ### Step 4：后端素材池能力白名单（D3-4）
 
 - **背景/根因：**
-  `pool.CanonicalFromLegacyInput()` 只做 `ValidateValue` 和 `CanonicalizeLegacyType`，未检查 `MaterialPool`。前端下拉虽已过滤，但直接调用后端 API 可以创建 `RULE-SET`、`AND`、`OR`、`NOT`、`MATCH` 等 advanced-only 素材。
+  - `pool.go` 的 `canonicalFromLegacyInput()` 只做 `ValidateValue` 和 `CanonicalizeLegacyType`，未检查 `MaterialPool`。前端下拉虽已过滤，但直接调用后端 API 可以创建 `RULE-SET`、`AND`、`OR`、`NOT`、`MATCH`、`GEOSITE` 等 advanced-only 素材。
+  - 进一步核对发现：`CanonicalizeLegacyType()` 会把 `SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR` 分别映射成与 `GEOIP`、`IP-ASN`、`IP-CIDR` 相同的 `family/matcher`；因此若只按 Canonical Rule 查 `capabilityRegistry.MaterialPool`，这 3 个 `material_pool=false` 类型仍会被后端放行。**白名单必须以后端入口的原始 legacy 类型为准。**
 
-- **目标：** 后端成为素材池可选能力的最终约束。
+- **目标：** 后端成为素材池可选能力的最终约束；手工 CRUD、来源解析准入、前端下拉共用同一份“原始 legacy 类型 `MaterialPool`”事实来源。
 
 - **前置条件：** 无。
 
 - **产出文件与操作：**
-  - `backend/internal/rulespec/`：
+  - `backend/internal/rulespec/legacy.go`（或新增 helper）：
     - 新增可复用 helper：
       ```go
-      func IsMaterialPool(rule CanonicalRule) bool
+      // IsMaterialPoolType 按原始 legacy 规则类型判断是否可进入素材池。
+      // 事实来源与前端下拉一致：legacyCapabilityMap / LegacyMetadata() 的 MaterialPool。
+      func IsMaterialPoolType(ruleType string) bool
       ```
-    - 实现在 `capability.go` 中，基于 `capabilityRegistry` 或 `findCapability` 判定 `MaterialPool`。
+    - 不得只用 `capabilityRegistry`/`findCapability` 按 Canonical `family/matcher` 判定，避免 `SRC-GEOIP`/`SRC-IP-ASN`/`SRC-IP-CIDR` 与素材池通用类型碰撞。
+    - `legacy_test.go` 补充 helper 正反例，尤其是 `SRC-*` 反例。
   - `backend/internal/pool/pool.go`：
-    - `canonicalFromLegacyInput()` 或 `CreateEntry/UpdateEntry` 公共入口调用 `rulespec.IsMaterialPool(rule)`；
-    - 非素材池能力返回 `ErrBadRequest`，错误信息明确“不是素材池可选能力”。
-  - `pool_test.go`：新增反例：`RULE-SET`、`AND`、`OR`、`NOT`、`MATCH`、`GEOSITE` 等创建/更新均拒绝；正例：`DOMAIN`、`DOMAIN-SUFFIX`、`IP-CIDR`、`USER-AGENT` 等允许。
+    - `canonicalFromLegacyInput()` 在 `ValidateValue`/`CanonicalizeLegacyType` 前先取得规范化的原始类型，并调用 `rulespec.IsMaterialPoolType(typ)`；
+    - 非素材池类型返回 `ErrBadRequest`，错误信息明确“不是素材池可选能力”，且不得写入任何 canonical/origin。
+  - `backend/internal/pool/adapter_typed.go`、`adapter_mihomo.go`：
+    - 解析到显式类型 `typ` 后、映射 Canonical 前先调用 `rulespec.IsMaterialPoolType(typ)`；
+    - 非素材池类型按当前解析器惯例追加 `reject` 诊断（`Kind:"reject", Message:"不是素材池可选能力", Raw:line`），不再进入后续 Canonical/统计流程。
+  - `backend/internal/pool/pipeline.go`：
+    - 保留现有“不是素材池可选能力”的 capability 检查作为第二道防线，但 Step 4 不把它作为唯一判定来源；待 Step 2 引入 `ParsedRule{Rule, Origin}` 后如需保留类型证据可再增强，不在本步扩大 Canonical 模型。
+  - `pool_test.go` 及相关解析测试：
+    - 新增反例：`RULE-SET`、`AND`、`OR`、`NOT`、`MATCH`、`GEOSITE`、`SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR`、`IP-SUFFIX`、`DST-PORT` 等创建/更新/来源解析均拒绝；
+    - 正例：`DOMAIN`、`DOMAIN-SUFFIX`、`IP-CIDR`、`USER-AGENT` 等允许。
+
+- **参考伪代码：**
+  ```go
+  // pool 手工 CRUD 入口
+  typ, normalized, err := rulespec.ValidateValue(ruleType, matchValue)
+  if err != nil {
+      return ..., err
+  }
+  if !rulespec.IsMaterialPoolType(typ) {
+      return ..., fmt.Errorf("不是素材池可选能力: %s", typ)
+  }
+  family, matcher, ok := rulespec.CanonicalizeLegacyType(typ)
+
+  // adapter_typed.go / adapter_mihomo.go 显式类型解析
+  if !rulespec.IsMaterialPoolType(typ) {
+      diagnostics = append(diagnostics, ParseDiagnostic{
+          Line: i + 1, Kind: "reject", Message: "不是素材池可选能力", Raw: line,
+      })
+      continue
+  }
+  ```
 
 - **测试与验收命令：**
   ```bash
@@ -322,7 +355,10 @@ Step 11（全量回归/文档收口） ←────────────�
   ```
 
 - **验收标准：**
-  后端能力、解析器准入、前端下拉与手工 CRUD 共用同一 `MaterialPool` 事实来源；任何 advanced-only 规则不能进入素材池。
+  - 后端手工 CRUD 与 URL 来源解析均拒绝所有 `LegacyMetadata().MaterialPool == false` 的类型，包括 `SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR`；
+  - `RULE-SET`、`AND/OR/NOT`、`MATCH`、`GEOSITE` 等 advanced-only 类型不能进入素材池；
+  - `DOMAIN`、`DOMAIN-SUFFIX`、`IP-CIDR`、`USER-AGENT` 等素材池类型可正常创建/解析；
+  - 前端下拉、手工 CRUD、来源解析共用同一原始 legacy 类型白名单，不再出现“前端不可选但后端可创建”的偏差。
 
 ---
 
@@ -686,7 +722,7 @@ Step 11（全量回归/文档收口） ←────────────�
 | 1 | `no_resolve` 语义丢失 | 装配层丢失 Options，渲染按类型支持度无条件追加 | Design3 §7.2 | Step 3 |
 | 2 | `excluded` 重复计算 | 统计循环与后置累加导致排除数错误，且混入重复 | Design3 §5.3、§6.4 | Step 1 |
 | 3 | 手工更新污染 URL Canonical | UpdateEntry 直接改共享 canonical 行 | Design3 §3.2、§6.1 | Step 5 |
-| 4 | 后端素材池白名单未强制 | 只做值校验，未校验 `MaterialPool` | Design3 §3.3、§3.4 | Step 4 |
+| 4 | 后端素材池白名单未强制 | 只做值校验，未按原始 legacy 类型校验 `MaterialPool`；且不能仅按 Canonical `family/matcher` 判定，需拒绝 `SRC-*` 碰撞类型 | Design3 §3.3、§3.4 | Step 4 |
 | 5 | 来源原始证据/排序未落库 | 行号/原始行/来源内顺序均为占位；查询未按 origin 排序且未去重 | Design3 §3.2、§5.4 | Step 2 |
 | 6 | 零输出门槛漏网 | 无池/自定义时绕过 `FinalOutput==0` 检查 | Design3 §7.2 | Step 6 |
 | 7 | per-URL 快照状态/诊断 API 缺失 | 无快照读取服务与路由；failed 未持久化 | Design3 §6.4、§8.2、§8.3 | Step 7 |
@@ -694,7 +730,7 @@ Step 11（全量回归/文档收口） ←────────────�
 | 9 | 装配回执未展示 | 后端返回 receipt，前端未保存/渲染 | Design3 §7.2、§8.2 | Step 9 |
 | 10 | 1016 迁移测试缺失 | 只验新库无旧表，未验旧数据/ID/历史保留 | Design3 §6.5、§9.3 | Step 10 |
 
-> D3-1～D3-10 及本轮补充的重复 origin、manual 409、latest-attempt 状态和旧 render plan 兼容口径均已由用户确认并写入对应 Step。后续若发现改变产品语义或兼容边界的新候选，仍须先研究并由用户决策，不能直接并入构建。
+> D3-1～D3-10 及本轮补充的重复 origin、manual 409、latest-attempt 状态、旧 render plan 兼容口径和“原始 legacy 类型素材池白名单（拒绝 `SRC-*`）”均已由用户确认并写入对应 Step。后续若发现改变产品语义或兼容边界的新候选，仍须先研究并由用户决策，不能直接并入构建。
 
 ---
 
@@ -702,6 +738,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.5 | 2026-09-09 | 按用户确认微调 Step 4：素材池白名单改为在手工 CRUD 与来源解析入口按**原始 legacy 类型**判定，拒绝 `SRC-GEOIP`/`SRC-IP-ASN`/`SRC-IP-CIDR` 等与 `GEOIP`/`IP-ASN`/`IP-CIDR` Canonical 碰撞的非素材池类型；同步修订构建概要、决策清单、候选映射与附录 A.4。仅完善文档，未修改业务代码、未执行构建。 |
 | v1.4 | 2026-09-09 | R28-05 第二次只读研究后按用户确认详细修订：补充相同语义保留全部 origin 与分页前去重；`no_resolve` 扩展至结构化来源解析、实例渲染、新旧 Clash render plan 和覆盖层重写；manual→manual 重复返回 409；来源主状态以 latest attempt 为准并可同时保留旧 active；统一诊断限额/脱敏；迁移测试改用真实 0001～1016 两阶段链路并覆盖幂等/回滚。Build21 Step 14 前置已完成，Build22 Step 1～11 仍全部未开始，本次未修改业务代码。 |
 | v1.0 | 2026-09-05 | 根据 BuildReport4 未闭环项 1 完成 D3-1～D3-10 根因研究、修复方向与候选清单。 |
 | v1.1 | 2026-09-05 | 进一步深入研究并按照 `docs/DocTemplates/Build.template.md` 重排：新增构建进度追踪、构建概要、顺序依赖图、分步构建计划、候选构建项与变更记录；补充 failed 快照持久化、来源证据实现细节、迁移测试方法与清理策略。未修改任何业务代码。 |
@@ -764,7 +801,17 @@ typ, normalized, err := rulespec.ValidateValue(ruleType, matchValue)
 family, matcher, ok := rulespec.CanonicalizeLegacyType(typ)
 ```
 
-未检查 `rulespec.Capabilities()` 或 `LegacyMetadata()` 的 `MaterialPool` 标志。前端 `PoolDetail.vue` 虽已按 `material_pool` 过滤，但后端无强制。
+未检查 `rulespec.LegacyMetadata()` 的 `MaterialPool` 标志。前端 `PoolDetail.vue` 虽已按 `material_pool` 过滤，但后端无强制。
+
+**本轮补充确认的 Canonical 碰撞：** 当前 `CanonicalizeLegacyType()` 存在有损映射：
+
+```text
+SRC-GEOIP   → geo/equals      （与 GEOIP 相同）
+SRC-IP-ASN  → ip/asn          （与 IP-ASN 相同）
+SRC-IP-CIDR → ip/cidr         （与 IP-CIDR 相同）
+```
+
+因此不能以“Canonical Rule 的 family/matcher 查 capabilityRegistry.MaterialPool”作为唯一白名单依据，否则上述 `SRC-*` 会被误判为可进入素材池。已确认改为：在手工 CRUD 和显式类型来源解析入口，先按**原始 legacy 类型**的 `MaterialPool` 做白名单，再 Canonical 化；`capabilityRegistry` 检查仅作为第二道防线。`RULE-SET`、`AND/OR/NOT`、`MATCH`、`GEOSITE` 及 `SRC-*` 等 `material_pool=false` 类型统一拒绝进入素材池。
 
 ### A.5 D3-5：来源证据
 
