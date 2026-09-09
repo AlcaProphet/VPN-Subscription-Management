@@ -1,4 +1,4 @@
-<!-- AppHeader.vue：用户端/管理端通用顶栏，手机仅保留导航、站点名和账户入口。 -->
+<!-- AppHeader.vue：用户端/管理端通用顶栏，手机保留必要导航、站点名和账户入口。 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -48,7 +48,9 @@ async function onLogout() {
       <span v-if="updatedAt" class="ml-3 text-xs text-text-secondary hidden md:inline">{{ updatedAt }}</span>
     </div>
     <div class="flex items-center gap-2 flex-shrink-0">
-      <Button v-if="manageBtn && isAdmin" type="primary" class="hidden md:inline-flex" @click="router.push('/admin')">管理面板</Button>
+      <Button v-if="manageBtn && isAdmin" type="primary"
+              class="inline-flex min-h-11 items-center justify-center md:min-h-0"
+              @click="router.push('/admin')">管理面板</Button>
       <Tag v-if="groupName" color="cyan" class="m-0 max-w-[120px] truncate hidden md:inline-flex">{{ groupName }}</Tag>
       <AppDropdown :trigger="['click']">
         <Button class="touch-target max-w-28 md:max-w-none" aria-label="账户菜单">{{ auth.user?.username }}</Button>

@@ -1,5 +1,5 @@
 # ============ 阶段一：前端构建 ============
-FROM node:22-alpine AS frontend
+FROM node:24-alpine AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
