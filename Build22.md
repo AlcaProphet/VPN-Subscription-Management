@@ -59,13 +59,13 @@
 | 2 | `backend/internal/pool/types.go`、`adapter_*.go`、`pipeline.go`、`sync.go`、`pool.go`、`backend/internal/assembly/load.go` 及相关测试 | 使用 `ParsedRule{Rule, Origin}`；真实证据落库；保留全部 origin；查询在分页前按 Canonical 去重并稳定排序 |
 | 3 | `backend/internal/pool/parser.go`、`adapter_typed.go`、`adapter_mihomo.go`、`backend/internal/assembly/load.go`、`render_clash.go`、`render_sr.go`、`clash_plan.go` 及相关测试 | 结构化解析并贯通 `no_resolve`；新计划显式冻结，旧计划兼容；生成与下载语义一致 |
 | 4 | `backend/internal/rulespec/legacy.go`（或新增 helper）、`backend/internal/pool/pool.go`、`adapter_typed.go`、`adapter_mihomo.go`、`pool_test.go` | 后端按**原始 legacy 类型**强制 `MaterialPool` 白名单；手工 CRUD 与来源解析均拒绝 advanced-only/`SRC-*` 等非素材池类型 |
-| 5 | `backend/internal/pool/pool.go`、`pool_test.go`、必要的 server CRUD 测试 | 手工编辑改为换绑 canonical origin；manual 重复返回 409；不直接修改共享 canonical 行 |
+| 5 | `backend/internal/pool/pool.go`、`backend/internal/pool/pool_test.go`、`backend/internal/server/pool_test.go` | 手工编辑改为换绑 canonical origin；manual 重复返回 409；后端服务与 HTTP 409 合同均有回归，不直接修改共享 canonical 行 |
 | 6 | `backend/internal/server/assembly.go`、`server/assembly_test.go` | 规则型目标无条件执行 `FinalOutput==0` 禁止生成 |
 | 7 | `backend/internal/pool/sync.go`、新增 `snapshot.go`（或同类文件）、`backend/internal/server/pool.go`、`frontend/src/api/pool.ts`、后端/前端测试 | 失败时写入 failed snapshot；统一限额/脱敏；增加 latest-attempt 来源状态与快照历史 API |
 | 8 | `frontend/src/views/admin/assembly/PoolDetail.vue`、`frontend/tests/pool-detail.spec.ts` | 每 URL 展示状态/统计/诊断；pending 激活与丢弃 |
-| 9 | `frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/PreviewStep.vue`、`frontend/tests/assembly-view.spec.ts`、`preview-step.spec.ts` | 保存并渲染装配转换回执 |
+| 9 | `backend/internal/server/assembly.go`、`backend/internal/server/assembly_test.go`、`frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/PreviewStep.vue`、`frontend/tests/assembly-view.spec.ts`、`preview-step.spec.ts` | generate 返回本次回执；前端保存并渲染 preview/generate 装配转换回执 |
 | 10 | 新增 `backend/internal/store/migration_1016_test.go` | 使用真实 0001～1016 两阶段迁移，验证旧数据清除、ID 防复用、无关历史保留及失败回滚 |
-| 11 | `Build16.md`、`Design3.md`、`AGENTS.md`、本文件 | 全量验证与文档状态收口 |
+| 11 | `docs/reports/Build/Build16.md`（仅追加勘误/后续闭环说明）、`Design3.md`、`Issue14.md`、`AGENTS.md`、本文件 | 全量验证与 R28-05/Design3 文档状态收口，不倒改归档 Build16 的历史进度 |
 
 ---
 
@@ -316,7 +316,7 @@ Step 11（全量回归/文档收口） ←────────────�
     - 不得只用 `capabilityRegistry`/`findCapability` 按 Canonical `family/matcher` 判定，避免 `SRC-GEOIP`/`SRC-IP-ASN`/`SRC-IP-CIDR` 与素材池通用类型碰撞。
     - `legacy_test.go` 补充 helper 正反例，尤其是 `SRC-*` 反例。
   - `backend/internal/pool/pool.go`：
-    - `canonicalFromLegacyInput()` 在 `ValidateValue`/`CanonicalizeLegacyType` 前先取得规范化的原始类型，并调用 `rulespec.IsMaterialPoolType(typ)`；
+    - `canonicalFromLegacyInput()` 先由 `ValidateValue()` 校验类型和值并取得规范化的原始 legacy 类型 `typ`，再调用 `rulespec.IsMaterialPoolType(typ)`，最后才执行 `CanonicalizeLegacyType()`；这样既保留未知类型/非法值的既有错误语义，又确保 `SRC-*` 在有损 Canonical 映射前被拒绝；
     - 非素材池类型返回 `ErrBadRequest`，错误信息明确“不是素材池可选能力”，且不得写入任何 canonical/origin。
   - `backend/internal/pool/adapter_typed.go`、`adapter_mihomo.go`：
     - 解析到显式类型 `typ` 后、映射 Canonical 前先调用 `rulespec.IsMaterialPoolType(typ)`；
@@ -380,7 +380,7 @@ Step 11（全量回归/文档收口） ←────────────�
     5. 更新当前 origin 的 `canonical_rule_id`、`raw_line`，保留原 `sort_order`，避免编辑导致手工顺序变化；
     6. 调用 `cleanupOrphanCanonicalTx()` 清理旧 canonical 孤儿。
   - 不修改 shared canonical 行的 `family/matcher/value/options_json/semantic_key`。
-  - `pool_test.go` 及必要的 server CRUD 测试：新增“手工与 URL 同语义，手工修改后 URL 仍保持旧值；目标仅有 URL origin 时允许共享；目标已有另一 manual origin 时返回 409 且两条原记录不变；换绑保留排序；旧 canonical 无有效 origin 时被清理”的回归。
+  - `backend/internal/pool/pool_test.go` 与 `backend/internal/server/pool_test.go`：新增“手工与 URL 同语义，手工修改后 URL 仍保持旧值；目标仅有 URL origin 时允许共享；目标已有另一 manual origin 时服务层返回 `ErrEntryConflict`、HTTP 层返回 409 且两条原记录不变；换绑保留排序；旧 canonical 无有效 origin 时被清理”的回归。
 
 - **参考伪代码：**
   ```go
@@ -396,7 +396,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 - **测试与验收命令：**
   ```bash
-  cd backend && go test ./internal/pool ./internal/assembly
+  cd backend && go test ./internal/pool ./internal/assembly ./internal/server
   cd backend && go build ./...
   ```
 
@@ -466,8 +466,8 @@ Step 11（全量回归/文档收口） ←────────────�
     - failed snapshot 写入本身失败时不能伪称已持久化，单 URL 结果应返回原始业务错误的脱敏摘要并附带“失败快照写入失败”，详细数据库错误只进脱敏日志；不得修改旧 active/pending；
     - `applyParseResultTx()` 等数据库基础设施失败无法可靠再在同一失败事务中落 failed 行，归为任务/日志基础设施错误，并由测试固定边界。
   - 新增 `backend/internal/pool/snapshot.go`（或同类文件）：
-    - `SourceSnapshot` 模型：ID、source_id、format、profile、status、`input/recognized/accepted/excluded/rejected/duplicates` 等完整计数、`Diagnostics`、`Stats`、`Error`、CreatedAt；
-    - `SourceStatus` 模型：source_id、url、source_mode、`latest_attempt`、active、pending、latest_failed、never_synced 标记，并要求 active/pending/latest_attempt/latest_failed 对象都携带对应快照统计与有限诊断摘要；
+    - `SourceSnapshot` 模型：ID、source_id、format、profile、status、`input/recognized/accepted/excluded/rejected/duplicates` 等完整计数、`Diagnostics`、`Stats`、`Error`、CreatedAt；`Diagnostics` 固定复用 `ParseDiagnostic{line,kind,message,raw}`，不另增未定义的 `severity` 字段，空诊断序列化为 `[]` 而不是 `null`；
+    - `SourceStatus` 模型：source_id、脱敏后的展示 URL、source_mode、`latest_attempt`、active、pending、latest_failed、never_synced 标记，并要求 active/pending/latest_attempt/latest_failed 对象都使用同一个 `SourceSnapshot` 摘要形状，携带对应快照计数与有限诊断；原始 URL 只用于数据库配置和实际拉取，不得由状态/历史 API 回传或被脱敏值覆盖；
     - `latest_attempt` 取该 source 按 `created_at DESC, id DESC` 的最近快照，用它决定主状态；`latest_failed` 仅作为历史快捷信息，不单独决定主状态；
     - 最近失败但 active 仍存在时同时返回 failed latest_attempt 与 active；失败后又有更新的 active/pending 时，主状态按新尝试恢复，旧 failed 只在历史/latest_failed 中可查；
     - `ListSourceStatuses(ctx, poolID)`；
@@ -479,6 +479,9 @@ Step 11（全量回归/文档收口） ←────────────�
       GET /api/admin/pools/:id/sources/:sourceId/snapshots
       ```
     - 路由继续叠加 session + admin 双中间件。
+    - `sources/status` 是当前池全部 URL 来源的非分页列表，统一返回 `{ "list": SourceStatus[], "total": number }`，无 URL 来源时必须返回 `list: []`；
+    - `snapshots` 接受 `page`、`page_size`，使用列表默认值 1/20 和 `MaxPageSize` 上限，按 `created_at DESC, id DESC` 返回 `{ "list": SourceSnapshot[], "total": number }`；pool/source 不匹配返回 404，非法 ID 或非数字分页参数返回 400；
+    - server 原始 JSON 测试必须固定列表包裹、snake_case 字段、`[]` 非 `null`、分页总数以及 URL/诊断脱敏，避免只依赖 Go 类型或前端 mock。
   - `frontend/src/api/pool.ts`：
     - 新增 `SourceSnapshot`、`SourceStatus` 类型与 `listSourceStatuses`、`listSourceSnapshots` 请求函数。
   - 清理策略：
@@ -488,63 +491,76 @@ Step 11（全量回归/文档收口） ←────────────�
     - HTTP 失败生成 failed snapshot；
     - 解析失败生成 failed snapshot；
     - active/pending 不变；
-    - 状态 API 返回 active/pending/latest_failed；
+    - 状态 API 返回统一包裹的 latest_attempt/active/pending/latest_failed/never_synced，四类快照摘要形状一致；
     - 最近失败+旧 active 时主状态为 failed 且 active 同时返回；随后成功时主状态恢复 active，旧 failed 不再控制徽标；
     - 同时间戳时使用 ID 稳定选择 latest_attempt；
-    - 快照历史分页正确；
-    - failed/成功诊断和任务 JSON 均不包含 URL 查询凭据/Token，且严格满足 20×200 限额；
+    - 快照历史分页、稳定倒序、总数以及 pool/source 归属校验正确；
+    - failed/成功诊断、展示 URL、任务 JSON 和两个 API 的原始 JSON 均不包含 URL 查询凭据/Token，且诊断严格满足 20×200 限额；
     - failed 写库失败不会改变 active/pending，也不会报告虚假的 snapshot ID；
     - 7 天清理不删 active/pending/被引用快照，不误删有效 origin。
 
-- **参考 API 响应：**
+- **参考状态列表 API 响应：**
   ```json
   {
-    "source_id": 1,
-    "url": "https://example.com/rules.txt",
-    "source_mode": "auto",
-    "latest_attempt": {
-      "id": 12,
-      "status": "failed",
-      "error": "HTTP 500",
-      "created_at": "2026-09-09T12:00:00+08:00"
-    },
-    "active": {
-      "id": 10,
-      "format": "typed-rule-text",
-      "profile": "common",
-      "input": 4,
-      "recognized": 4,
-      "accepted": 3,
-      "excluded": 1,
-      "rejected": 0,
-      "duplicates": 0,
-      "diagnostics": []
-    },
-    "pending": {
-      "id": 11,
-      "format": "mihomo-domain-yaml",
-      "profile": "common",
-      "input": 52,
-      "recognized": 52,
-      "accepted": 50,
-      "excluded": 1,
-      "rejected": 0,
-      "duplicates": 1,
-      "diagnostics": []
-    },
-    "latest_failed": {
-      "id": 12,
-      "error": "HTTP 500",
-      "input": 0,
-      "recognized": 0,
-      "accepted": 0,
-      "excluded": 0,
-      "rejected": 0,
-      "duplicates": 0,
-      "diagnostics": [
-        {"severity": "error", "kind": "error", "message": "HTTP 500"}
-      ]
-    }
+    "list": [{
+      "source_id": 1,
+      "url": "https://example.com/rules.txt?token=***",
+      "source_mode": "auto",
+      "never_synced": false,
+      "latest_attempt": {
+        "id": 12,
+        "source_id": 1,
+        "format": "",
+        "profile": "",
+        "status": "failed",
+        "input": 0,
+        "recognized": 0,
+        "accepted": 0,
+        "excluded": 0,
+        "rejected": 0,
+        "duplicates": 0,
+        "diagnostics": [{"line": 0, "kind": "error", "message": "HTTP 500", "raw": ""}],
+        "stats": {"error": "HTTP 500"},
+        "error": "HTTP 500",
+        "created_at": "2026-09-09T12:00:00+08:00"
+      },
+      "active": {
+        "id": 10,
+        "source_id": 1,
+        "format": "typed-rule-text",
+        "profile": "common",
+        "status": "active",
+        "input": 4,
+        "recognized": 4,
+        "accepted": 3,
+        "excluded": 1,
+        "rejected": 0,
+        "duplicates": 0,
+        "diagnostics": [],
+        "stats": {},
+        "error": "",
+        "created_at": "2026-09-09T11:00:00+08:00"
+      },
+      "pending": null,
+      "latest_failed": {
+        "id": 12,
+        "source_id": 1,
+        "format": "",
+        "profile": "",
+        "status": "failed",
+        "input": 0,
+        "recognized": 0,
+        "accepted": 0,
+        "excluded": 0,
+        "rejected": 0,
+        "duplicates": 0,
+        "diagnostics": [{"line": 0, "kind": "error", "message": "HTTP 500", "raw": ""}],
+        "stats": {"error": "HTTP 500"},
+        "error": "HTTP 500",
+        "created_at": "2026-09-09T12:00:00+08:00"
+      }
+    }],
+    "total": 1
   }
   ```
 
@@ -590,6 +606,10 @@ Step 11（全量回归/文档收口） ←────────────�
   cd frontend && npm run build
   ```
 
+- **浏览器验收证据：**
+  - 自动化组件测试只证明状态分支、按钮和刷新逻辑；另以实际浏览器至少核对 1440px 桌面与 390px 窄屏，覆盖 failed+active、pending 确认、诊断长文本和激活/丢弃后的刷新；
+  - 记录可复查的视口、操作结果与控制台状态；该证据只证明浏览器交互，不外推为真实客户端导入/连接兼容。
+
 - **验收标准：**
   每个 URL 的最近尝试状态及实际生效 active 均可辨认；失败后恢复不会永久标红；pending 可人工激活/丢弃，激活前能看到旧/新差异；所有诊断只展示后端已脱敏的有限数据；桌面与 <768px 窄屏均可操作。
 
@@ -614,6 +634,7 @@ Step 11（全量回归/文档收口） ←────────────�
     - 在警告/跳过区域附近渲染回执摘要卡或列表。
   - 必做（Design3 §7.2 要求 preview/generate 都返回回执）：
     - 后端 `generate` 响应同样返回本次 `res.Receipt`；
+    - `backend/internal/server/assembly_test.go` 增加 generate 成功响应的原始 JSON 合同断言，固定 `receipt` 六项 snake_case 数值来自本次 `Render` 结果，不用前端 mock 代替后端 wire shape；
     - `frontend/src/api/assembly.ts` 的 generate 响应类型增加 `receipt?: ConversionReceipt`；
     - `generateResult` 保存该字段，生成成功结果页同步展示，不复用可能已经 stale 的 previewReceipt。
   - `frontend/tests/assembly-view.spec.ts`、`frontend/tests/preview-step.spec.ts`：
@@ -628,6 +649,8 @@ Step 11（全量回归/文档收口） ←────────────�
 
 - **测试与验收命令：**
   ```bash
+  cd backend && go test ./internal/server
+  cd backend && go build ./...
   cd frontend && npm test -- --run tests/assembly-view.spec.ts tests/preview-step.spec.ts
   cd frontend && npm run build
   ```
@@ -660,7 +683,7 @@ Step 11（全量回归/文档收口） ←────────────�
        - 新 `rule_pools.id` 从旧最大 ID 之后开始（旧 ID 不复用）；
        - `versions`、`assembly_blueprints` 及其他明确无关历史数据的内容和关联保持不变；
        - `schema_migrations` 只新增 1016，重复调用 `Migrate` 幂等。
-    6. 失败回滚子用例：在真实 1016 SQL 后附加一个必然失败语句形成测试专用迁移，确认该迁移的 DDL/DML 与 schema 版本记录整体回滚；不得修改生产迁移文件。
+    6. 失败回滚子用例必须使用独立的新临时数据库：先应用真实 0001～1015 并插入可识别夹具，再在真实 1016 SQL 后附加一个必然失败语句形成测试专用迁移；确认 1016 的删表、建表、序列更新、数据变化与 schema 版本记录全部回滚，且 1015 夹具仍可读取。不得复用已成功应用 1016 的数据库，也不得修改生产迁移文件。
   - 测试 helper 必须直接读取嵌入的真实迁移内容并按版本过滤，避免测试 SQL 与生产迁移漂移。
 
 - **参考流程：**
@@ -683,7 +706,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 ---
 
-### Step 11：全量回归、文档同步与 Build16/Design3 状态收口
+### Step 11：全量回归、文档同步与 R28-05/Design3 状态收口
 
 - **目标：** 完成全量自动验证，并按实际结果同步文档状态；本 Step 不新增功能。
 
@@ -702,14 +725,15 @@ Step 11（全量回归/文档收口） ←────────────�
     git diff --check
     ```
   - 文档同步：
-    - `Build16.md`：修正 Step 3～6 的实际状态，不再把缺失项标记为已验收。
-    - `Design3.md`：记录实现与设计的实际落点，尤其是 failed 快照持久化、来源证据存储方式和 per-URL API 形态。
+    - `docs/reports/Build/Build16.md`：保留归档构建的历史 Step 状态；如需消除“当时已全部闭环”的歧义，只追加后续勘误/关联说明，记录 D3-1～D3-10 经 BuildReport4 发现并最终由 Build22 闭环，不倒改历史进度或把 Build16 重新作为当前构建入口。
+    - `Design3.md`：记录实现与设计的实际落点，尤其是 failed 快照持久化、来源证据存储方式和 per-URL API 形态；将 §9.3 的当前串行执行入口从 Build16 更新为 Build22。
+    - `Issue14.md`：仅在 Steps 1～10 均有验收证据后，同步步骤三表格、R28-05 状态和关闭条件；不得提前标记 D3-1～D3-10 完成。
     - 顺带修正 `PoolTab.vue` 中“停机错过不补跑”的陈旧文案，与当前启动补跑实现保持一致。
     - `AGENTS.md`：仅在全部实际完成后登记 Build22。
     - 本文件：更新进度表与验收结果。
 
 - **验收标准：**
-  所有自动命令和正式 Production smoke 通过；D3-1 的新计划实例语义与旧计划兼容均有下载证据，D3-5 的排序/分页有数据库级证据，D3-7 的状态恢复和脱敏有限诊断有 API/UI 证据，D3-10 的真实迁移有 store 级证据；文档只记录实际结果，Build16/Design3 未闭环项不虚标已闭环。
+  所有自动命令和正式 Production smoke 通过；D3-1 的新计划实例语义与旧计划兼容均有下载证据，D3-5 的排序/分页有数据库级证据，D3-7 的状态恢复和脱敏有限诊断有 API/UI 证据，D3-10 的真实迁移有 store 级证据；Build22、Design3、Issue14 与 AGENTS 状态一致，归档 Build16 只保留历史记录和后续勘误，不倒改或虚标验收状态。
 
 ---
 
@@ -738,6 +762,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.6 | 2026-09-09 | 构建前文档核验补强：冻结 Step 7 列表包裹、分页、统一快照摘要、诊断字段与展示 URL 脱敏合同；补齐 Step 5/9 后端测试和编译门禁、Step 8 双视口浏览器证据、Step 10 独立数据库失败回滚；Step 11 改为同步 Issue14/Design3/AGENTS，并仅向归档 Build16 追加后续勘误而不倒改历史状态。仅完善文档，未修改业务代码、未执行构建。 |
 | v1.5 | 2026-09-09 | 按用户确认微调 Step 4：素材池白名单改为在手工 CRUD 与来源解析入口按**原始 legacy 类型**判定，拒绝 `SRC-GEOIP`/`SRC-IP-ASN`/`SRC-IP-CIDR` 等与 `GEOIP`/`IP-ASN`/`IP-CIDR` Canonical 碰撞的非素材池类型；同步修订构建概要、决策清单、候选映射与附录 A.4。仅完善文档，未修改业务代码、未执行构建。 |
 | v1.4 | 2026-09-09 | R28-05 第二次只读研究后按用户确认详细修订：补充相同语义保留全部 origin 与分页前去重；`no_resolve` 扩展至结构化来源解析、实例渲染、新旧 Clash render plan 和覆盖层重写；manual→manual 重复返回 409；来源主状态以 latest attempt 为准并可同时保留旧 active；统一诊断限额/脱敏；迁移测试改用真实 0001～1016 两阶段链路并覆盖幂等/回滚。Build21 Step 14 前置已完成，Build22 Step 1～11 仍全部未开始，本次未修改业务代码。 |
 | v1.0 | 2026-09-05 | 根据 BuildReport4 未闭环项 1 完成 D3-1～D3-10 根因研究、修复方向与候选清单。 |
