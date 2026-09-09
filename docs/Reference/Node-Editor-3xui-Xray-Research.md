@@ -399,13 +399,13 @@ outbounds[]
 
 #### 1.1 为什么在 Build17-21 之后继续研究 3x-ui
 
-当前项目已完成（见 [Issue13.md](../../Issue13.md)、Build21）：
+当前项目已完成（见 [Issue13.md](../reports/Issue/Issue13.md)、Build21）：
 
 - `nodes` 行内当前状态/扩展/修订列（Build17）；
 - `FieldSchema` 条件/选项/重置元数据、活动投影、保存校验与 `/check`（Build18）；
 - 前端动态分区、可编辑下拉、局部 JSON、目标检查 UI（Build19）；
 - 19 个 manual 协议统一保存契约、URI 导入归一化、Xray 来源适配、输出门槛（Build20）；
-- R27-01～R27-08 与 R27-09 Step7～13（SS 插件统一合同、幂等归一化、固定敏感路径、SIP002 与 URI 目标分流、Clash/Mihomo 结构化插件投影、SS 插件专属目标诊断、未知插件前端编辑）已闭环，N-node-3/4 Step15 也已验收；**Step14 全链路回归与文档收口仍在进行**（见 [Issue14.md](../../Issue14.md)），后续还有“其余 15 个协议完整条件表单、SS2022、独立 Xray outbound”等专项。
+- R27-01～R27-08 与 R27-09 Step7～13（SS 插件统一合同、幂等归一化、固定敏感路径、SIP002 与 URI 目标分流、Clash/Mihomo 结构化插件投影、SS 插件专属目标诊断、未知插件前端编辑）已闭环，N-node-3/4 Step15 也已验收；**Step14 全链路回归与文档收口已完成**（见 [Build21.md](../../Build21.md) 与 [Issue14.md](../../Issue14.md)），后续还有“其余 15 个协议完整条件表单、SS2022、独立 Xray outbound”等专项。
 
 因此，本文不是“是否需要条件表单/当前状态”的研究，而是：
 
@@ -432,7 +432,7 @@ outbounds[]
 | 前端动态表单 | [NodesView.vue](../../frontend/src/views/admin/NodesView.vue)、[ProtocolFieldEditor.vue](../../frontend/src/components/ProtocolFieldEditor.vue) | 分区/条件/递归/JSON/凭据状态 |
 | URI 导入统一归一化 | [normalize.go](../../backend/internal/node/normalize.go)、[uri_import.go](../../backend/internal/node/uri_import.go)、[uriparse.go](../../backend/internal/uriparse/uriparse.go) | 统一当前状态，逐行回执 |
 | SS 插件固定合同 | [ssplugin/contract.go](../../backend/internal/ssplugin/contract.go) | Clash/SR/generic 三目标合同、支持等级 |
-| 收口状态 | [Build21.md](../../Build21.md) §7、[Issue13.md](../../Issue13.md) R27-09 | R27-09 Step11～13、N-node-3/4 Step15 已验收；Step14 全链路回归与文档收口仍在 Issue14/ProdTestList 跟踪。其余 15 协议与独立 Xray outbound 仍后续 |
+| 收口状态 | [Build21.md](../../Build21.md) §7、[Issue13.md](../reports/Issue/Issue13.md) R27-09 | R27-09 Step7～15 与 Step14 收口均已验收；其余 15 协议与独立 Xray outbound 仍后续 |
 
 ---
 
@@ -674,7 +674,7 @@ outbounds[]
 | URI 导入 | `backend/internal/uriparse/uriparse.go`、`backend/internal/node/uri_import.go`、`normalize.go` |
 | SS 插件合同 | `backend/internal/ssplugin/contract.go`、`sip002.go`、`backend/internal/assembly/links/links.go` |
 | Clash SS 插件输出 | `backend/internal/assembly/render_clash.go`、`ssplugin/contract.go`（Build21 Step11 后为结构化投影） |
-| 收口跟踪 | `Build21.md` §7、`Issue13.md` R27-09、`Issue14.md`（Step14/后续专项） |
+| 收口跟踪 | `Build21.md` §7、`docs/reports/Issue/Issue13.md` R27-09、`Issue14.md`（后续专项） |
 
 #### 7.3 外部资料
 

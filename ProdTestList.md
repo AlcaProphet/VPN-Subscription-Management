@@ -1,7 +1,7 @@
 # ProdTestList.md — 待用户自行执行的 Production 测试清单
 
 > **定位：** 本文件只记录当前仍需要用户亲自执行或修复后重新执行的 Production、浏览器和真实客户端人工核验。已完成且未发现问题的人工项目不再列入当前清单；工程性问题、自动化证据门禁和人工测试中发现的问题分别由 [Issue14.md](Issue14.md) 与 [Issue15.md](Issue15.md) 跟踪。
-> 关联：[Build21.md](Build21.md)、[Issue13.md](Issue13.md)、[Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Issue12.md](docs/reports/Issue/Issue12.md)（R26 历史人工回归来源）。
+> 关联：[Build21.md](Build21.md)、[Issue13.md](docs/reports/Issue/Issue13.md)、[Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Issue12.md](docs/reports/Issue/Issue12.md)（R26 历史人工回归来源）。
 
 ---
 

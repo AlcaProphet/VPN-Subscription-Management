@@ -4,7 +4,7 @@
 > - 设计记录：[Design4.md](Design4.md)（当前设计记录；与 AGENTS.md 或用户决策冲突时以用户确认为准）
 > - 问题来源：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md)（全量核验报告，未闭环项 3）
 > - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 问题追踪：[Issue14.md](Issue14.md)（Build21 Step 14 工程问题、D3/N-core/N-node-6/安全等遗留工程问题）；R27 历史记录见 [Issue13.md](Issue13.md)
+> - 问题追踪：[Issue14.md](Issue14.md)（Build21 Step 14 工程问题、D3/N-core/N-node-6/安全等遗留工程问题）；R27 历史记录见 [Issue13.md](docs/reports/Issue/Issue13.md)
 > - 用户人工验收：[ProdTestList.md](ProdTestList.md)（Production、浏览器和真实客户端结果以此为准）
 > - 历史构建与问题记录：见 [docs/reports/](docs/reports/)（均已存档，仅核查）
 >
@@ -13,10 +13,10 @@
 > 2. 研究/构建范围覆盖 BuildReport4 未闭环项 3，并纳入 Build21 曾排除的 N-node-3/N-node-4。
 > 3. `target_evidence` 仅按 SS 插件合同派生诊断，不全局启用所有字段级证据。
 > 4. 未知 SS 插件在 Clash 输出中保留结构化 `plugin` + `plugin-opts`，并给出未验证 warning，不阻断。
-> 5. SR VMess 输出包含 `alpn`/`fp`，但这些字段没有固定版本解析器证据，必须标注 Shadowrocket 真机待验证。
+> 5. SR VMess 输出包含 `alpn`/`fp`，这些字段没有固定版本解析器证据；在得到真机证据前必须标注待验证，本轮 PT-28-01～PT-28-05 已由用户完成相关人工核验。
 > 6. generic VMess 本次不补充 `skip-cert-verify`，保持现状并在文档/测试中记录该边界。
 >
-> **执行入口：** 后续实施 R27-09 时，以 [Build21.md](Build21.md) §7 的 Step 13～15 为唯一分步计划；Build23 不再独立维护 Step 1～5。
+> **执行入口：** R27-09 与 N-node-3/N-node-4 已实施完成，历史执行记录以 [Build21.md](Build21.md) §7 的 Step 7～15 为准；Build23 不再独立维护 Step 1～5。
 >
 > **研究结论摘要（当前状态）：**
 > - N-node-1：未知插件存储/URI 导入与 Clash 结构化 `plugin`/`plugin-opts` 输出已由 [Build21.md](Build21.md) Step 8/10/11/13 修复；项目自检已能识别并拒绝旧 URI 字符串格式。
@@ -43,11 +43,11 @@
 
 ## 二、保留的研究边界
 
-1. **Shadowrocket 真机导入/连接**仍是人工项目，统一记录在 [ProdTestList.md](ProdTestList.md)；不能因 URI 可生成或内部往返通过就标记为完整兼容。
+1. 本轮 **Shadowrocket 真机导入/连接**人工项目已由用户确认完成；后续新增客户端矩阵仍统一记录在 [ProdTestList.md](ProdTestList.md)，不能因 URI 可生成或内部往返通过就替代相应人工结论。
 2. **未知 SS 插件参数**按用户确认作为普通字符串参数处理，不进入敏感字段/凭据模型；即使键名为 `password`、`token`、`secret` 也不按凭据处理。
 3. **generic VMess**本轮明确不补充 `skip-cert-verify`，保持现状并在测试中作为负向边界。
 4. **非 SS 字段级 `target_evidence`**不全局消费，仅按 SS 插件合同派生诊断，避免无关降级。
-5. **固定版本证据**主要指 Mihomo 1.19.29 与 CVR 2.5.2 的离线/源码证据；Shadowrocket 仅有版本与公告证据。
+5. **固定版本证据**主要指 Mihomo 1.19.29 与 CVR 2.5.2 的离线/源码证据；Shadowrocket 兼容性仍以人工导入/连接证据为准，本轮 PT-28-01～PT-28-05 已完成相关核验。
 6. **R27-08**（`diagnostics: []` 契约）已在当前代码中修复，后续回归需继续保持非空数组语义。
 7. **N-node-6**（未知扩展/局部 JSON 边界）未在本轮单独闭环，后续应作为独立 Issue/Design 项明确处理或排除；已登记至 [Issue14.md](Issue14.md) R28-06。
 
@@ -57,9 +57,9 @@
 
 | # | 候选 | 说明 | 来源 |
 |---|------|------|------|
-| 1 | Shadowrocket 真机导入/连接验收 | 已迁移至 [ProdTestList.md](ProdTestList.md)，结果以该清单为准；不属于自动化可闭环项 | Design4 §8.5；ProdTestList |
+| 1 | 后续 Shadowrocket/客户端矩阵验收 | 本轮 PT-28 人工项目已完成；后续新增矩阵仍迁移至 [ProdTestList.md](ProdTestList.md)，不属于自动化可闭环项 | Design4 §8.5；ProdTestList |
 | 2 | 非 SS 字段级 `target_evidence` 全局诊断或前端逐字段证据展示 | 当前已确认仅按 SS 插件合同消费；全局启用会扩大影响面，建议作为后续独立优化 | Build21 §7.2 排除说明 |
-| 3 | BuildReport4 未闭环项 1、2、4～6 | Build16/Design3、smoke、安全报告、人工验收等，均不属于本 Build 范围；工程项已统一登记至 [Issue14.md](Issue14.md) R28-05/R28-08/R28-09，人工项见 [ProdTestList.md](ProdTestList.md) | BuildReport4 结论摘要 |
+| 3 | BuildReport4 未闭环项 1、2、4～6 | Build16/Design3、smoke、安全报告、人工验收等，均不属于本 Build 范围；工程项已登记至 [Issue14.md](Issue14.md) R28-05/R28-09，R28-08 已记录为设计取向关闭，人工项见 [ProdTestList.md](ProdTestList.md) | BuildReport4 结论摘要 |
 
 > 候选转 Step 流程：用户确认后，直接在 Build21 或后续对应 Build 文档中追加 Step，不在本文件重复展开。
 

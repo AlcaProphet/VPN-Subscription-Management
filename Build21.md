@@ -74,7 +74,7 @@ cd frontend && npm test -- --run
 - VMess REALITY、Trojan REALITY 仍按“后续候选”处理，不在首批开放表单入口。
 - `shadow-tls`/`restls` 插件仍保留原格式，由目标检查诊断提示未验证，未宣称完整支持。
 - 非首批 15 协议的详细分区/字段分组仍有进一步按语义收敛的空间。
-- 客户端真机导入/连接验证仍按 Design4 保留为人工验收。
+- 本轮 PT-28-01～PT-28-05 的客户端导入/连接及浏览器人工项目已由用户确认完成；Design4 后续新增的客户端矩阵仍按人工验收，结果以 [ProdTestList.md](ProdTestList.md) 为准。
 - BuildReport4 中不属于 Build21 R27-09 主体的遗留工程项（Build16/Design3 D3-1～D3-10、N-core、N-node-6、安全 N01～N07 等）已统一登记至 [Issue14.md](Issue14.md) R28-05～R28-09；Build22 为 D3 实施计划。
 
 ---
@@ -128,7 +128,7 @@ cd frontend && npm test -- --run
 2. 先为缺口补失败回归，再修改实现；不得通过降低期望、删除 fixture 或把 `error` 改成 `warn` 使测试变绿。
 3. 保持创建、更新、详情、列表、URI 导入、不落库检查、正式装配使用同一规范化与目标语义；不得只修目标检查预览或只修正式下载。
 4. 所有输出投影操作克隆数据，不修改 `protocol_json`、历史版本快照或调用方传入的 map。
-5. 固定版本离线证据与项目自检是自动化验收；Shadowrocket 真机导入/连接仍是人工待办，不能因 URI 可生成就标记为“完整兼容”。
+5. 固定版本离线证据与项目自检是自动化验收；Shadowrocket 真机导入/连接必须以人工证据为准，不能因 URI 可生成就标记为“完整兼容”。本轮 PT-28-01～PT-28-05 已由用户完成，后续新增范围仍按 [ProdTestList.md](ProdTestList.md) 跟踪。
 
 ### 7.2 已锁定范围与明确排除项
 

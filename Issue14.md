@@ -1,6 +1,6 @@
 # Issue14.md — VPN 订阅管理系统问题追踪（当前）
 
-> **文档定位：** 本文承接 [Issue13.md](Issue13.md) 的 R27-09 / Build21 收口核验，并汇总 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 全量核验中仍未闭环的工程问题；只记录除用户真机人工验收之外，当前仍未完成、待处理或新发现的工程问题与验收证据缺口。用户需要亲自执行的 Production、浏览器和客户端人工测试在执行期间由 [ProdTestList.md](ProdTestList.md) 记录；已完成项目从当前清单移除，结论保留在本文件和 Build21 中，当前仍待人工复验的项目继续由 ProdTestList 跟踪。
+> **文档定位：** 本文承接已归档的 [Issue13.md](docs/reports/Issue/Issue13.md) 的 R27-09 / Build21 收口核验，并汇总 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 全量核验中仍未闭环的工程问题；只记录除用户真机人工验收之外，当前仍未完成、待处理或新发现的工程问题与验收证据缺口。用户需要亲自执行的 Production、浏览器和客户端人工测试在执行期间由 [ProdTestList.md](ProdTestList.md) 记录，人工测试中发现的问题由 [Issue15.md](Issue15.md) 记录；已完成项目从当前清单移除，结论保留在本文件和 Build21 中，当前仍待人工复验的项目继续由 ProdTestList 跟踪。
 > 关联构建：[Build21.md](Build21.md) §7.11 Step 14、[Build22.md](Build22.md)（D3 实施计划）；交接说明：[Build23.md](Build23.md)；设计基线：[Design3.md](Design3.md)、[Design4.md](Design4.md)；编码约束：[AGENTS.md](AGENTS.md)。
 
 ---
