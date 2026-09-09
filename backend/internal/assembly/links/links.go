@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
 	"golang.org/x/net/idna"
+
+	"vpn-sub/internal/ssplugin"
 )
 
 // nodeData 是链接渲染所需的最小节点视图。
@@ -22,23 +23,39 @@ type nodeData struct {
 	ProtocolJSON map[string]any
 }
 
+func ssLink(nd *nodeData, target string) (string, error) {
+	host, err := punycode(nd.Host)
+	if err != nil {
+		return "", err
+	}
+	pluginValue := ""
+	if plugin := str(nd.ProtocolJSON, "plugin", ""); plugin != "" {
+		pluginValue, err = renderPluginForTarget(plugin, PluginOpts(nd.ProtocolJSON, plugin), target)
+		if err != nil {
+			return "", err
+		}
+	}
+	cipher := str(nd.ProtocolJSON, "cipher", "auto")
+	password := str(nd.ProtocolJSON, "password", "")
+	userinfo := base64.StdEncoding.EncodeToString([]byte(cipher + ":" + password))
+	q := url.Values{}
+	if pluginValue != "" {
+		q.Set("plugin", pluginValue)
+	}
+	return fmt.Sprintf("ss://%s@%s:%d%s#%s", userinfo, host, nd.Port, querySuffix(q), url.QueryEscape(nd.RenderName)), nil
+}
+
 // srLink 生成 Shadowrocket 原生参数风格节点链接。
 func srLink(nd *nodeData) (string, error) {
+	if nd.Protocol == "ss" {
+		return ssLink(nd, ssplugin.TargetShadowrocket)
+	}
 	host, err := punycode(nd.Host)
 	if err != nil {
 		return "", err
 	}
 	name := url.QueryEscape(nd.RenderName)
 	switch nd.Protocol {
-	case "ss":
-		cipher := str(nd.ProtocolJSON, "cipher", "auto")
-		password := str(nd.ProtocolJSON, "password", "")
-		userinfo := base64.StdEncoding.EncodeToString([]byte(cipher + ":" + password))
-		q := url.Values{}
-		if plugin := str(nd.ProtocolJSON, "plugin", ""); plugin != "" {
-			q.Set("plugin", pluginString(plugin, object(nd.ProtocolJSON, "plugin-opts")))
-		}
-		return fmt.Sprintf("ss://%s@%s:%d%s#%s", userinfo, host, nd.Port, querySuffix(q), name), nil
 	case "vmess":
 		cipher := str(nd.ProtocolJSON, "cipher", "auto")
 		uuid := str(nd.ProtocolJSON, "uuid", "")
@@ -51,6 +68,9 @@ func srLink(nd *nodeData) (string, error) {
 		q.Set("alterId", str(nd.ProtocolJSON, "alterId", "0"))
 		addCommonSRQuery(nd.ProtocolJSON, q)
 		transportQuery(nd.ProtocolJSON, q)
+		if addSRTLSQuery(nd.ProtocolJSON, q) && boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
+			q.Set("allowInsecure", "1")
+		}
 		return "vmess://" + userinfo + querySuffix(q), nil
 	case "vless":
 		uuid := str(nd.ProtocolJSON, "uuid", "")
@@ -62,23 +82,21 @@ func srLink(nd *nodeData) (string, error) {
 		}
 		addCommonSRQuery(nd.ProtocolJSON, q)
 		transportQuery(nd.ProtocolJSON, q)
-		reality := realityOpts(nd.ProtocolJSON)
-		if reality != nil {
-			q.Set("tls", "1")
-			q.Set("xtls", "2")
-			if sni := firstNonEmpty(nd.ProtocolJSON, "servername", "sni"); sni != "" {
-				q.Set("peer", sni)
+		if tlsActive := addSRTLSQuery(nd.ProtocolJSON, q); tlsActive {
+			reality := realityOpts(nd.ProtocolJSON)
+			if reality != nil {
+				q.Set("xtls", "2")
+				if pk, ok := reality["public-key"].(string); ok && pk != "" {
+					q.Set("pbk", pk)
+				}
+				if sid, ok := reality["short-id"].(string); ok && sid != "" {
+					q.Set("sid", sid)
+				}
+			} else if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
+				q.Set("allowInsecure", "1")
 			}
-			if pk, ok := reality["public-key"].(string); ok && pk != "" {
-				q.Set("pbk", pk)
-			}
-			if sid, ok := reality["short-id"].(string); ok && sid != "" {
-				q.Set("sid", sid)
-			}
-		} else if boolVal(nd.ProtocolJSON, "tls", false) {
-			q.Set("tls", "1")
-			if sni := firstNonEmpty(nd.ProtocolJSON, "servername", "sni"); sni != "" {
-				q.Set("peer", sni)
+			if flow := str(nd.ProtocolJSON, "flow", ""); flow != "" {
+				q.Set("flow", flow)
 			}
 		}
 		return "vless://" + userinfo + querySuffix(q), nil
@@ -225,7 +243,7 @@ func genericLink(nd *nodeData) (string, error) {
 	name := url.QueryEscape(nd.RenderName)
 	switch nd.Protocol {
 	case "ss":
-		return srLink(nd)
+		return ssLink(nd, ssplugin.TargetGeneric)
 	case "vmess":
 		tls := ""
 		if boolVal(nd.ProtocolJSON, "tls", false) {
@@ -285,6 +303,9 @@ func genericLink(nd *nodeData) (string, error) {
 			}
 			if fp := str(nd.ProtocolJSON, "client-fingerprint", ""); fp != "" {
 				q.Set("fp", fp)
+			}
+			if boolVal(nd.ProtocolJSON, "skip-cert-verify", false) {
+				q.Set("allowInsecure", "1")
 			}
 		}
 		if flow := str(nd.ProtocolJSON, "flow", ""); flow != "" {
@@ -391,6 +412,24 @@ func addCommonSRQuery(params map[string]any, q url.Values) {
 	}
 }
 
+// addSRTLSQuery 仅在 TLS 活动时投影 SR 共用的 TLS 身份参数。
+func addSRTLSQuery(params map[string]any, q url.Values) bool {
+	if !boolVal(params, "tls", false) {
+		return false
+	}
+	q.Set("tls", "1")
+	if sni := firstNonEmpty(params, "servername", "sni"); sni != "" {
+		q.Set("peer", sni)
+	}
+	if alpn := listString(params, "alpn"); alpn != "" {
+		q.Set("alpn", alpn)
+	}
+	if fp := str(params, "client-fingerprint", ""); fp != "" {
+		q.Set("fp", fp)
+	}
+	return true
+}
+
 func transportQuery(params map[string]any, q url.Values) {
 	network := str(params, "network", "tcp")
 	q.Set("type", network)
@@ -439,20 +478,131 @@ func transportValues(params map[string]any, network string) (path, host, mode st
 	return path, host, mode
 }
 
-func pluginString(name string, opts map[string]any) string {
-	if len(opts) == 0 {
-		return name
+// PluginOpts 从拆分后的协议参数中读取当前插件对应的独立对象。
+func PluginOpts(params map[string]any, plugin string) map[string]any {
+	switch plugin {
+	case "obfs":
+		return object(params, "obfs-opts")
+	case "v2ray-plugin":
+		return object(params, "v2ray-plugin-opts")
+	case "shadow-tls":
+		return object(params, "shadow-tls-opts")
+	case "restls":
+		return object(params, "restls-opts")
+	default:
+		return object(params, "plugin-opts")
 	}
-	keys := make([]string, 0, len(opts))
-	for key := range opts {
-		keys = append(keys, key)
+}
+
+func renderPluginForTarget(name string, opts map[string]any, target string) (string, error) {
+	definition, known := ssplugin.Lookup(name)
+	if !known {
+		if target != ssplugin.TargetShadowrocket {
+			return "", fmt.Errorf("%s 不支持未知 SS 插件 %s", target, name)
+		}
+		stringOpts, err := stringPluginOpts(name, opts, nil)
+		if err != nil {
+			return "", err
+		}
+		return ssplugin.SerializePluginString(name, stringOpts)
 	}
-	sort.Strings(keys)
-	parts := []string{name}
-	for _, key := range keys {
-		parts = append(parts, key+"="+fmt.Sprint(opts[key]))
+	contract, ok := definition.Target(target)
+	if !ok || contract.Support == ssplugin.SupportUnsupported {
+		return "", fmt.Errorf("%s 不支持 SS 插件 %s", target, name)
 	}
-	return strings.Join(parts, ";")
+	allowed := make(map[string]struct{}, len(contract.ExpressibleFields))
+	for _, field := range contract.ExpressibleFields {
+		allowed[field] = struct{}{}
+	}
+	stringOpts, err := stringPluginOpts(name, opts, allowed)
+	if err != nil {
+		return "", err
+	}
+	pluginName := name
+	if name == "obfs" {
+		pluginName = "obfs-local"
+		mode := stringOpts["mode"]
+		if mode == "" {
+			mode = "http"
+		}
+		delete(stringOpts, "mode")
+		stringOpts["obfs"] = mode
+		if host, ok := stringOpts["host"]; ok {
+			delete(stringOpts, "host")
+			stringOpts["obfs-host"] = host
+		}
+	}
+	return ssplugin.SerializePluginString(pluginName, stringOpts)
+}
+
+func stringPluginOpts(plugin string, opts map[string]any, allowed map[string]struct{}) (map[string]string, error) {
+	out := make(map[string]string, len(opts))
+	for key, value := range opts {
+		if allowed != nil {
+			if _, ok := allowed[key]; !ok {
+				return nil, fmt.Errorf("SS 插件 %s 参数 %s 无法在 URI 中无损表达", plugin, key)
+			}
+		}
+		switch typed := value.(type) {
+		case string:
+			out[key] = typed
+		case bool:
+			if !isPluginBoolField(plugin, key) {
+				return nil, fmt.Errorf("SS 插件 %s 参数 %s 的 bool 类型没有 URI 映射", plugin, key)
+			}
+			out[key] = strconv.FormatBool(typed)
+		case float64:
+			if plugin != "shadow-tls" || key != "version" {
+				return nil, fmt.Errorf("SS 插件 %s 参数 %s 的 number 类型没有 URI 映射", plugin, key)
+			}
+			out[key] = strconv.FormatFloat(typed, 'f', -1, 64)
+		case int:
+			if plugin != "shadow-tls" || key != "version" {
+				return nil, fmt.Errorf("SS 插件 %s 参数 %s 的 number 类型没有 URI 映射", plugin, key)
+			}
+			out[key] = strconv.Itoa(typed)
+		case []string:
+			joined, err := joinPluginList(plugin, key, typed)
+			if err != nil {
+				return nil, err
+			}
+			out[key] = joined
+		case []any:
+			values := make([]string, 0, len(typed))
+			for _, item := range typed {
+				text, ok := item.(string)
+				if !ok {
+					return nil, fmt.Errorf("SS 插件 %s 参数 %s 的列表包含非字符串值", plugin, key)
+				}
+				values = append(values, text)
+			}
+			joined, err := joinPluginList(plugin, key, values)
+			if err != nil {
+				return nil, err
+			}
+			out[key] = joined
+		default:
+			return nil, fmt.Errorf("SS 插件 %s 参数 %s 的 %T 类型无法在 URI 中无损表达", plugin, key, value)
+		}
+	}
+	return out, nil
+}
+
+func isPluginBoolField(plugin, key string) bool {
+	return plugin == "v2ray-plugin" && key == "tls" ||
+		(plugin == "shadow-tls" || plugin == "restls") && key == "skip-cert-verify"
+}
+
+func joinPluginList(plugin, key string, values []string) (string, error) {
+	if plugin != "shadow-tls" || key != "alpn" {
+		return "", fmt.Errorf("SS 插件 %s 参数 %s 的 list 类型没有 URI 映射", plugin, key)
+	}
+	for _, value := range values {
+		if strings.Contains(value, ",") {
+			return "", fmt.Errorf("SS 插件 %s 参数 %s 的列表项包含无法无损转义的逗号", plugin, key)
+		}
+	}
+	return strings.Join(values, ","), nil
 }
 
 // encodeQuery 编码查询参数，并按 Build5 要求把 `+` 替换为 `%20`，避免空格不对称。

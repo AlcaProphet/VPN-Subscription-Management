@@ -92,6 +92,10 @@ func main() {
 	stopPoolSync := cron.StartPoolAutoSync(st, poolSvc, logger)
 	defer stopPoolSync()
 
+	// 同步历史 7 天全局自动清理（独立于单池同步完成副作用）
+	stopSyncCleanup := cron.StartSyncHistoryCleanup(poolSvc, logger)
+	defer stopSyncCleanup()
+
 	// 应急模式触发判定（Build3 Step 6）：手动（RESET_ADMIN_PASSWORD）/自动（数据库损坏/关键配置损坏）
 	reason, dbReadable := emergency.Detect(ctx, st, cfg, logger)
 	if reason != emergency.TriggerNone {

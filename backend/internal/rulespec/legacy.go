@@ -3,13 +3,13 @@ package rulespec
 
 // LegacyCapability 描述旧规则类型在 Clash/SR 目标上的渲染能力。
 type LegacyCapability struct {
-	RuleType          string
-	Scope             TargetScope
-	ClashRenderType   string
-	SRRenderType      string
-	SupportsNoResolve bool
-	MaterialPool      bool
-	Advanced          bool
+	RuleType          string      `json:"rule_type"`
+	Scope             TargetScope `json:"scope"`
+	ClashRenderType   string      `json:"clash_render_type,omitempty"`
+	SRRenderType      string      `json:"sr_render_type,omitempty"`
+	SupportsNoResolve bool        `json:"supports_no_resolve"`
+	MaterialPool      bool        `json:"material_pool"`
+	Advanced          bool        `json:"advanced"`
 }
 
 var legacyCapabilityMap = map[string]LegacyCapability{

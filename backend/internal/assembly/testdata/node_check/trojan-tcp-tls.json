@@ -1,0 +1,11 @@
+{
+  "protocol": "trojan",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "password": "trojan-password",
+    "network": "tcp",
+    "sni": "example.com",
+    "skip-cert-verify": false
+  }
+}

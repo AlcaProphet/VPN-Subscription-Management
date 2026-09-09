@@ -1,10 +1,9 @@
 <!-- PreviewStep.vue：装配步骤⑤ 预览与 Diff（Design2-UI §5.3.5）
-     支持行号、搜索高亮、复制、换行切换，预览与 Diff 通过 Tabs 切换。 -->
+     支持行号、搜索高亮、自动换行开关，预览与 Diff 通过 Segmented 切换。 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Alert, Button, Input, Space, Tabs } from 'ant-design-vue'
+import { Alert, Button, Input, Segmented, Space, Switch } from 'ant-design-vue'
 import DiffView from '@/components/DiffView.vue'
-import { Notify } from '@/components/Notify'
 import type { TargetSyntax } from '@/api/assembly'
 
 const props = defineProps<{
@@ -34,7 +33,7 @@ const previewMeta = computed(() => {
   return `最近预览：${new Date(props.previewedAt).toLocaleString('zh-CN')} · ${targetLabels[props.previewedTargetSyntax]}`
 })
 
-// 预览视图工具：行号 / 搜索高亮 / 换行 / 复制
+// 预览视图工具：行号 / 搜索高亮 / 自动换行
 const activeView = ref<'preview' | 'diff'>('preview')
 const wrap = ref(true)
 const searchQuery = ref('')
@@ -68,23 +67,16 @@ function splitLine(line: string): Array<{ text: string; hit: boolean }> {
   return parts.length ? parts : [{ text: line, hit: false }]
 }
 
-async function copyPreview() {
-  try {
-    await navigator.clipboard.writeText(props.previewText || '')
-    Notify.success('预览已复制')
-  } catch {
-    Notify.error('复制失败，请手动复制')
-  }
-}
 </script>
 
 <template>
   <div class="space-y-3">
     <Space wrap>
       <Button type="primary" :loading="previewing" @click="emit('preview')">刷新预览</Button>
-      <Button :loading="diffLoading" @click="emit('toggle-diff')">与当前激活版本对比</Button>
-      <Button v-if="previewText" @click="copyPreview">复制</Button>
-      <Button @click="wrap = !wrap">{{ wrap ? '取消换行' : '自动换行' }}</Button>
+      <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
+        <Switch :checked="wrap" size="small" @change="(v: any) => wrap = Boolean(v)" />
+        <span>自动换行</span>
+      </label>
     </Space>
     <Alert v-if="previewText && previewStale" type="warning" show-icon message="配置已变化，请重新预览" />
     <Alert v-else-if="previewText && previewMeta" type="success" show-icon :message="previewMeta" />
@@ -93,8 +85,9 @@ async function copyPreview() {
     <Alert v-if="previewText.includes('# {{xray_nodes}}')" type="info" show-icon
            message="# {{xray_nodes}} 占位将在下载时按用户分配节点动态注入" />
 
-    <Tabs v-if="previewText" :active-key="activeView" @change="(k: any) => activeView = k">
-      <Tabs.TabPane key="preview" tab="预览">
+    <div v-if="previewText" class="space-y-3">
+      <Segmented :value="activeView" :options="[{ label: '预览', value: 'preview' }, { label: '差异对比', value: 'diff' }]" @change="(v: any) => activeView = v" />
+      <template v-if="activeView === 'preview'">
         <Input.Search v-model:value="searchQuery" allow-clear placeholder="搜索预览内容"
                       class="mb-2 max-w-sm" enter-button="搜索" />
         <div v-if="searchQuery.trim()" class="text-xs mb-1 text-text-secondary">
@@ -129,12 +122,21 @@ async function copyPreview() {
             </span>
           </div>
         </div>
-      </Tabs.TabPane>
-      <Tabs.TabPane key="diff" tab="差异对比" :disabled="!showDiff">
-        <DiffView v-if="showDiff && previewText && !previewStale" :old-text="diffOld" :new-text="previewText" :target-missing="diffMissing" />
-        <Alert v-else type="info" show-icon message="请点击“与当前激活版本对比”加载差异数据。" />
-      </Tabs.TabPane>
-    </Tabs>
+      </template>
+      <template v-else>
+        <div v-if="showDiff && !previewStale" class="space-y-2">
+          <div class="text-xs text-text-secondary">对比基准：当前激活版本</div>
+          <DiffView :old-text="diffOld" :new-text="previewText" :target-missing="diffMissing" />
+        </div>
+        <Alert v-else type="info" show-icon>
+          <template #message>尚未加载当前激活版本差异</template>
+          <template #description v-if="previewStale">配置已变化，请先刷新预览后再对比。</template>
+          <template #action>
+            <Button size="small" :loading="diffLoading" :disabled="previewStale" @click="emit('toggle-diff')">加载当前激活版本差异</Button>
+          </template>
+        </Alert>
+      </template>
+    </div>
     <div v-else class="text-sm text-text-secondary">尚未生成预览，请先点击“刷新预览”。</div>
   </div>
 </template>

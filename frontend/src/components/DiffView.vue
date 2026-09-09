@@ -12,6 +12,14 @@ const SAFE_LINE_LIMIT = 5000
 // jsdiff 超时（毫秒）：超时后返回已算出的粗粒度结果，不阻塞页面
 const DIFF_TIMEOUT_MS = 2000
 
+// Diff 行：带旧/新行号与变更类型的平面化行。
+interface DiffRow {
+  kind: 'added' | 'removed' | 'context'
+  oldNo: number | null
+  newNo: number | null
+  text: string
+}
+
 const props = withDefaults(defineProps<{
   oldText?: string
   newText: string
@@ -75,6 +83,25 @@ function renderLines(value: string): string[] {
   return lines
 }
 
+// 把 diffLines 的分组结果展开为逐行数据，同时维护旧/新行号。
+const rows = computed<DiffRow[]>(() => {
+  const out: DiffRow[] = []
+  let oldNo = 1
+  let newNo = 1
+  for (const c of changes.value ?? []) {
+    for (const line of renderLines(c.value)) {
+      if (c.added) {
+        out.push({ kind: 'added', oldNo: null, newNo: newNo++, text: line })
+      } else if (c.removed) {
+        out.push({ kind: 'removed', oldNo: oldNo++, newNo: null, text: line })
+      } else {
+        out.push({ kind: 'context', oldNo: oldNo++, newNo: newNo++, text: line })
+      }
+    }
+  }
+  return out
+})
+
 function jumpTo(kind: 'added' | 'removed' | 'error') {
   if (kind === 'error') {
     const el = Array.from(document.querySelectorAll<HTMLElement>('.diff-view .diff-line'))
@@ -105,15 +132,19 @@ function jumpTo(kind: 'added' | 'removed' | 'error') {
     </div>
 
     <template v-if="changes">
-      <div v-for="(c, i) in changes" :key="i" :class="{
-        'bg-green-100 dark:bg-green-900/40 bg-success-soft': c.added,
-        'bg-red-100 dark:bg-red-900/40 bg-danger-soft': c.removed,
-        'text-text': !c.added && !c.removed,
-      }">
-        <div v-for="(line, idx) in renderLines(c.value)" :key="idx" class="diff-line"
-             :data-diff-kind="c.added ? 'added' : c.removed ? 'removed' : 'context'">
-          <span class="select-none mr-2 inline-block w-4 text-right">{{ c.added ? '+' : c.removed ? '-' : ' ' }}</span>{{ line }}
-        </div>
+      <div v-for="(row, idx) in rows" :key="idx" class="diff-line flex items-stretch"
+           :data-diff-kind="row.kind" :class="{
+             'bg-green-100 dark:bg-green-900/40 bg-success-soft': row.kind === 'added',
+             'bg-red-100 dark:bg-red-900/40 bg-danger-soft': row.kind === 'removed',
+             'text-text': row.kind === 'context',
+           }">
+        <span class="select-none w-12 flex-none pr-2 text-right text-text-tertiary border-r border-border-subtle whitespace-nowrap" :data-old-line="row.oldNo ?? ''">{{ row.oldNo ?? '' }}</span>
+        <span class="select-none w-12 flex-none pr-2 text-right text-text-tertiary border-r border-border-subtle whitespace-nowrap" :data-new-line="row.newNo ?? ''">{{ row.newNo ?? '' }}</span>
+        <span class="select-none w-8 flex-none text-center border-r border-border-subtle"
+              :class="row.kind === 'added' ? 'text-success font-semibold' : row.kind === 'removed' ? 'text-danger font-semibold' : 'text-text-tertiary'">
+          {{ row.kind === 'added' ? '+' : row.kind === 'removed' ? '-' : ' ' }}
+        </span>
+        <span class="flex-1 min-w-0 pl-2">{{ row.text }}</span>
       </div>
     </template>
   </div>

@@ -30,7 +30,7 @@
 | 1 | 文档内部一致性 | Design2 全文编号精读；按关键词复核 Report1~3 疑似未闭环项 | 确认多条旧发现仍开放 |
 | 2 | 代码事实核验 | 精读 version / subscription / group / token / download / user / approval / config / export / cron / dataclear / server / 前端 views 与 api | 建立代码扩展点映射 |
 | 3 | 行为实验 | Python SQLite 实验验证 DROP TABLE 的级联与孤儿行为（两轮） | 迁移连锁事实 |
-| 4 | 外部资料一致性 | 交叉核对 Reference/Xray-Core-API、Node-Link-Standards、SSpanel-Subscribe | 发现 Reference 与决策 #20 的过时表述 |
+| 4 | 外部资料一致性 | 交叉核对 Reference/Xray-Core-API、Node-Link-Standards、SSPanel-Research | 发现 Reference 与决策 #20 的过时表述 |
 | 5 | 场景模拟 | 基础模式全链、高级模式全链、空节点/无凭据、公共节点、OFF 清空、导入迁移、规则 conf 流程等 10 条路径 | 提炼 A 级发现 |
 | 6 | 工程与安全 | AGENTS 约束逐条对照、前端超时/依赖、路由与构建面、迁移框架能力 | B/C 级清单 |
 

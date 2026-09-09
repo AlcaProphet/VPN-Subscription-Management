@@ -185,3 +185,50 @@ func TestExportPasswordTooShort(t *testing.T) {
 		t.Errorf("短密码应拒绝: %v", err)
 	}
 }
+
+// TestImportProtectionCoversExtensions 导入保护同时覆盖节点扩展密文。
+func TestImportProtectionCoversExtensions(t *testing.T) {
+	ctx := context.Background()
+	source, sourceSvc := newTestExport(t, "prod")
+	seedExportConfig(t, source, nil)
+	data, err := sourceSvc.Export(ctx, "export-pass-123")
+	if err != nil {
+		t.Fatalf("导出失败: %v", err)
+	}
+
+	target, targetSvc := newTestExport(t, "prod")
+	seedExportConfig(t, target, nil)
+	if _, err := target.DB().ExecContext(ctx, `CREATE TABLE nodes (
+		protocol_json TEXT NOT NULL,
+		extensions_json TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("创建节点测试表失败: %v", err)
+	}
+	if _, err := target.DB().ExecContext(ctx,
+		`INSERT INTO nodes (protocol_json, extensions_json) VALUES ('{}', '{"entries":[{"id":"ext-1","scope":"node","status":"encrypted","payload_encrypted":"enc:ext:v1:encrypted"}]}')`); err != nil {
+		t.Fatalf("写入扩展密文失败: %v", err)
+	}
+	targetCfg := NewService(target, log.New("error", "console"))
+	if err := targetCfg.Set(ctx, KeySigningKey, "different-signing-key-0123456789"); err != nil {
+		t.Fatalf("修改目标签名密钥失败: %v", err)
+	}
+	if err := targetSvc.Import(ctx, data, "export-pass-123", ConfirmWordImport, false); err == nil {
+		t.Fatal("目标存在扩展密文且签名密钥变化时应拒绝导入")
+	}
+
+	sameKeyTarget, sameKeySvc := newTestExport(t, "prod")
+	seedExportConfig(t, sameKeyTarget, nil)
+	if _, err := sameKeyTarget.DB().ExecContext(ctx, `CREATE TABLE nodes (
+		protocol_json TEXT NOT NULL,
+		extensions_json TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("创建同密钥节点测试表失败: %v", err)
+	}
+	if _, err := sameKeyTarget.DB().ExecContext(ctx,
+		`INSERT INTO nodes (protocol_json, extensions_json) VALUES ('{}', '{"entries":[{"id":"ext-1","scope":"node","status":"encrypted","payload_encrypted":"enc:ext:v1:encrypted"}]}')`); err != nil {
+		t.Fatalf("写入同密钥扩展密文失败: %v", err)
+	}
+	if err := sameKeySvc.Import(ctx, data, "export-pass-123", ConfirmWordImport, false); err != nil {
+		t.Fatalf("同签名密钥导入不应被扩展保护拦截: %v", err)
+	}
+}

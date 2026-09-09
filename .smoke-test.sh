@@ -92,12 +92,18 @@ if [ "$RESET_STATUS" != "missing" ]; then
 fi
 
 # 10d) Build11：应急模式正常状态
-EMERGENCY=$(curl -s $BASE/api/system/status | J "['data']['emergency']")
-echo "10d) 应急状态 emergency=$EMERGENCY"
-if [ "$EMERGENCY" != "false" ]; then
-  echo "FAIL: 常规 smoke 环境应急状态应为 false，实际 $EMERGENCY" >&2
+if ! EMERGENCY=$(curl -s "$BASE/api/system/status" | python3 -c '
+import json
+import sys
+
+value = json.load(sys.stdin)["data"]["emergency"]
+print(json.dumps(value))
+sys.exit(0 if value is False else 1)
+'); then
+  echo "FAIL: 常规 smoke 环境应急状态应为 JSON 布尔值 false，实际 $EMERGENCY" >&2
   exit 1
 fi
+echo "10d) 应急状态 emergency=$EMERGENCY"
 
 # --- Build4~7 核心路径 ---
 # 11) 规则素材池 CRUD + 手动条目
@@ -119,7 +125,7 @@ echo "12) manual 节点 id=$NODEID 代理组已建"
 
 # 13) 装配生成（Clash YAML，自动激活首版）
 GEN=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT"}')
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"fallback_group_members":["🚀直接连接","🌎国外流量"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT"}')
 require_success "Clash 装配生成" "$GEN"
 GENID=$(echo "$GEN" | J "['data']['version_id']")
 echo "13) 装配生成 version_id=$GENID auto=$(echo "$GEN" | J "['data']['auto_activated']")"
@@ -169,7 +175,7 @@ fi
 
 # 13f) Build10 覆盖层装配生成
 GENOV=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT","overlay":{"rules_yaml":"prepend:\n  - DOMAIN,overlay.test,smoke-group\n","proxies_yaml":"prepend:\n  - name: overlay-node\n    type: ss\n    server: o.example.com\n    port: 8388\n    cipher: aes-256-gcm\n    password: test\n"}}')
+  -d '{"target_syntax":"clash-yaml","platform_id":1,"node_names":["smoke-node"],"group_names":["smoke-group"],"group_node_orders":{"smoke-group":["smoke-node"]},"overseas_members":["smoke-node"],"fallback_group_members":["🚀直接连接","🌎国外流量"],"pools":[{"pool_id":'$POOLID',"target":"smoke-group"}],"custom_rules":[],"final_direction":"DIRECT","overlay":{"rules_yaml":"prepend:\n  - DOMAIN,overlay.test,smoke-group\n","proxies_yaml":"prepend:\n  - name: overlay-node\n    type: ss\n    server: o.example.com\n    port: 8388\n    cipher: aes-256-gcm\n    password: test\n"}}')
 require_success "overlay 装配生成" "$GENOV"
 GENOVID=$(echo "$GENOV" | J "['data']['version_id']")
 echo "13f) overlay 装配 version_id=$GENOVID"

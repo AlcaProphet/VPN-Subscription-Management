@@ -91,6 +91,7 @@ func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int
 		"node_names":             in.NodeNames,
 		"group_names":            in.GroupNames,
 		"group_node_orders":      in.GroupNodeOrders,
+		"group_member_orders":    in.GroupMemberOrders,
 		"overseas_members":       in.OverseasMembers,
 		"fallback_group_members": in.FallbackGroupMembers,
 		"pools":                  in.Pools,
@@ -151,6 +152,11 @@ func (s *Service) Warnings(in GenerateInput, res *RenderResult) []string {
 	}
 	for _, issue := range res.Issues {
 		warnings = append(warnings, fmt.Sprintf("产物自检[%s] %s: %s", issue.Severity, issue.Path, issue.Message))
+	}
+	for _, diag := range res.Diagnostics {
+		if diag.Severity == "warn" || diag.Severity == "info" || diag.Severity == "unverified" {
+			warnings = append(warnings, fmt.Sprintf("节点诊断[%s] %s: %s", diag.Target, diag.Code, diag.Message))
+		}
 	}
 	return warnings
 }

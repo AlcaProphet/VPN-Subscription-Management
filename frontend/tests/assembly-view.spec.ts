@@ -20,6 +20,7 @@ vi.mock('@/api/pool', () => ({
   getSyncStatus: vi.fn(),
   listEntries: vi.fn().mockResolvedValue({ list: [], total: 0 }),
   listSyncTasks: vi.fn().mockResolvedValue({ list: [], total: 0 }),
+  clearSyncTasks: vi.fn(),
 }))
 
 vi.mock('@/api/rulespec', () => ({
@@ -112,6 +113,19 @@ describe('AssemblyView 装配页核心交互', () => {
     expect(vm.stepDefs.some((s) => s.key === 'rules')).toBe(true)
   })
 
+  it('sr-conf 在无节点时不显示节点前置条件', async () => {
+    const wrapper = await mountWith('tab=sr-conf')
+    const vm = wrapper.vm as unknown as { buildPreflightMissing: Array<{ id: string }> }
+    expect(vm.buildPreflightMissing.some((i) => i.id === 'nodes')).toBe(false)
+  })
+
+  it('节点类装配目标在无节点时仍显示节点前置条件', async () => {
+    const wrapper = await mountWith('tab=sr-subs')
+    const vm = wrapper.vm as unknown as { buildPreflightMissing: Array<{ id: string }> }
+    expect(vm.buildPreflightMissing.some((i) => i.id === 'nodes')).toBe(true)
+  })
+
+
   it('仅有默认平台时自动选择目标并隐藏目标卡片', async () => {
     const wrapper = await mountWith('tab=clash-yaml')
     const vm = wrapper.vm as unknown as { currentStep: number; form: { platform_id?: number }; nextStep: () => void }
@@ -146,6 +160,22 @@ describe('AssemblyView 装配页核心交互', () => {
     expect(mockPreview).toHaveBeenCalledWith(expect.objectContaining({
       overseas_members: [],
       fallback_group_members: ['🚀直接连接', '🌎国外流量'],
+    }))
+  })
+
+  it('构建请求携带代理组成员顺序 group_member_orders', async () => {
+    const wrapper = await mountWith('tab=clash-yaml')
+    const vm = wrapper.vm as unknown as {
+      form: { platform_id?: number; group_names: string[]; group_node_orders: Record<string, string[]>; group_member_orders: Record<string, string[]> }
+      doPreview: () => Promise<void>
+    }
+    vm.form.platform_id = 1
+    vm.form.group_names = ['组A']
+    vm.form.group_node_orders = { '组A': ['节点A'] }
+    vm.form.group_member_orders = { '组A': ['节点A', '🚀直接连接'] }
+    await vm.doPreview()
+    expect(mockPreview).toHaveBeenCalledWith(expect.objectContaining({
+      group_member_orders: { '组A': ['节点A', '🚀直接连接'] },
     }))
   })
 

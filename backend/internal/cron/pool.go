@@ -145,3 +145,27 @@ func StartPoolAutoSync(st *store.Store, poolSvc *pool.Service, lg *slog.Logger) 
 	}()
 	return func() { close(done) }
 }
+
+// StartSyncHistoryCleanup 每日全局清理超过 7 天的终态同步历史；返回 stop 函数。
+func StartSyncHistoryCleanup(poolSvc *pool.Service, lg *slog.Logger) (stop func()) {
+	ticker := time.NewTicker(24 * time.Hour)
+	done := make(chan struct{})
+	run := func() {
+		if _, err := poolSvc.CleanupOldTasks(context.Background()); err != nil {
+			lg.Error("清理同步历史失败", "err", err)
+		}
+	}
+	go func() {
+		run() // 启动即先清理一次历史遗留
+		for {
+			select {
+			case <-ticker.C:
+				run()
+			case <-done:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+	return func() { close(done) }
+}

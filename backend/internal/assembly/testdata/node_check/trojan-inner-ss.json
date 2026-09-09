@@ -1,0 +1,15 @@
+{
+  "protocol": "trojan",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "password": "trojan-password",
+    "network": "tcp",
+    "sni": "example.com",
+    "ss-opts": {
+      "enabled": true,
+      "method": "aes-128-gcm",
+      "password": "inner-password"
+    }
+  }
+}

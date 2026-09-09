@@ -5,12 +5,13 @@ import { Alert, Badge, Button, Input, Pagination, Space, Table, Tag, Tooltip } f
 import dayjs from 'dayjs'
 import {
   listEntries, createEntry, updateEntry, deleteEntry,
-  submitSync, getSyncStatus, listSyncTasks,
+  submitSync, getSyncStatus, listSyncTasks, clearSyncTasks,
   type PoolItem, type PoolEntryItem, type SyncTaskItem,
 } from '@/api/pool'
 import { listCapabilityMeta } from '@/api/rulespec'
 import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
 
 const props = defineProps<{ pool: PoolItem }>()
@@ -188,6 +189,25 @@ async function loadTasks() {
 onMounted(loadTasks)
 watch(taskPage, loadTasks)
 
+// 手动清理当前池已完成同步历史
+const clearOpen = ref(false)
+const clearing = ref(false)
+async function confirmClearTasks() {
+  clearing.value = true
+  try {
+    const res = await clearSyncTasks(props.pool.id)
+    Notify.success(`已清理 ${res.cleared} 条已完成历史`)
+    taskPage.value = 1
+    await loadTasks()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    clearing.value = false
+    clearOpen.value = false
+  }
+}
+
+
 const statusMeta: Record<string, { color: string; text: string }> = {
   running: { color: 'processing', text: '同步中' },
   succeeded: { color: 'success', text: '成功' },
@@ -214,8 +234,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
       <template #message>同步{{ syncResult.status === 'succeeded' ? '成功' : '存在失败项' }}</template>
       <div v-for="(u, i) in syncResult.per_url" :key="i" class="text-xs">
         <span :class="u.ok ? 'text-green-600' : 'text-red-500'">{{ u.url }}</span>
-        ：{{ u.ok ? `新增 ${u.added} · 删除 ${u.removed} · 跳过 ${u.skipped}` : (u.error || '失败') }}
-        <span v-if="u.skip_reasons?.length" class="text-text-tertiary ml-1">{{ u.skip_reasons.join('；') }}</span>
+        ：{{ u.ok ? `接受 ${u.accepted ?? 0} · 排除 ${u.excluded ?? 0} · 拒绝 ${u.rejected ?? 0} · 重复 ${u.duplicates ?? 0}${u.pending ? ' · 待激活' : ''}` : (u.error || '失败') }}
       </div>
     </Alert>
 
@@ -318,7 +337,10 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
     </section>
 
     <div class="mt-4">
-      <h4 class="text-sm font-medium mb-2">同步历史</h4>
+      <div class="flex items-center justify-between mb-2">
+        <h4 class="text-sm font-medium">同步历史</h4>
+        <Button size="small" :disabled="taskTotal === 0 || clearing" @click="clearOpen = true">清理已完成历史</Button>
+      </div>
       <div v-if="tasks.length === 0" class="text-xs text-text-tertiary">暂无同步任务</div>
       <div v-for="t in tasks" :key="t.task_id" class="border rounded p-2 mb-2 text-sm">
         <Badge :status="(statusMeta[t.status]?.color ?? 'default') as any" :text="statusMeta[t.status]?.text ?? t.status" />
@@ -328,13 +350,16 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
         </Tooltip>
         <div v-for="(u, i) in t.per_url" :key="i" class="text-xs mt-1 border-t pt-1">
           <span :class="u.ok ? 'text-green-600' : 'text-red-500'">{{ u.url }}</span>
-          <span v-if="u.ok" class="text-text-secondary ml-2">新增 {{ u.added }} · 删除 {{ u.removed }} · 跳过 {{ u.skipped }}</span>
+          <span v-if="u.ok" class="text-text-secondary ml-2">接受 {{ u.accepted ?? 0 }} · 排除 {{ u.excluded ?? 0 }} · 拒绝 {{ u.rejected ?? 0 }} · 重复 {{ u.duplicates ?? 0 }}<template v-if="u.pending"> · 待激活</template></span>
           <span v-else class="text-red-500 ml-2">{{ u.error || '失败' }}</span>
-          <div v-if="u.skip_reasons?.length" class="text-text-tertiary ml-2">{{ u.skip_reasons.join('；') }}</div>
         </div>
       </div>
       <Pagination v-if="taskTotal > 20" class="mt-2" v-model:current="taskPage" :page-size="20" :total="taskTotal" />
     </div>
+
+    <ConfirmModal :open="clearOpen" title="清理已完成历史" danger :loading="clearing"
+                  content="将删除当前素材池中所有已完成的同步历史（含成功、部分成功、失败），不影响 active/pending 快照和运行中任务。"
+                  @confirm="confirmClearTasks" @update:open="clearOpen = false" />
 
     <FormOverlay v-model:open="entryOpen" :title="editingEntry ? '编辑条目' : '新增条目'" :width="480"
                  :loading="entrySaving" destroy-on-close @submit="saveEntry">

@@ -117,6 +117,31 @@ func (s *Service) CancelSync(ctx context.Context, poolID, taskID int64) error {
 	return nil
 }
 
+// ClearFinishedTasks 手动清理当前素材池的全部终态同步历史（含成功/失败/部分成功）。
+func (s *Service) ClearFinishedTasks(ctx context.Context, poolID int64) (int64, error) {
+	if err := s.ensureExists(ctx, poolID); err != nil {
+		return 0, err
+	}
+	res, err := s.store.DB().ExecContext(ctx,
+		`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at IS NOT NULL
+		 AND status IN ('succeeded','failed','partial')`, poolID)
+	if err != nil {
+		return 0, fmt.Errorf("清理同步历史失败: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// CleanupOldTasks 全局清理超过保留期的终态同步历史，不删除运行中任务和 active/pending 快照。
+func (s *Service) CleanupOldTasks(ctx context.Context) (int64, error) {
+	res, err := s.store.DB().ExecContext(ctx,
+		`DELETE FROM pool_sync_tasks WHERE finished_at IS NOT NULL
+		 AND finished_at < datetime('now', ?)`, fmt.Sprintf("-%d days", taskRetentionDays))
+	if err != nil {
+		return 0, fmt.Errorf("清理过期同步历史失败: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 // GetStatus 读取最近一次任务。
 func (s *Service) GetStatus(ctx context.Context, poolID int64) (*SyncTask, error) {
 	if err := s.ensureExists(ctx, poolID); err != nil {

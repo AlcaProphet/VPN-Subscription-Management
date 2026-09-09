@@ -76,6 +76,7 @@ func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*Blueprint
 		NodeNames            []string            `json:"node_names"`
 		GroupNames           []string            `json:"group_names"`
 		GroupNodeOrders      map[string][]string `json:"group_node_orders"`
+		GroupMemberOrders    map[string][]string `json:"group_member_orders"`
 		Pools                []PoolSelection     `json:"pools"`
 		OverseasMembers      []string            `json:"overseas_members"`
 		FallbackGroupMembers []string            `json:"fallback_group_members"`

@@ -1,4 +1,4 @@
-# Clash 订阅校验、格式要求、Emoji 处理与对外 API 参考
+# Clash-Subscription-Validation-Emoji-API.md — Clash 订阅校验、格式要求、Emoji 处理与对外 API 参考
 
 > **文档定位：** 本文继续从 `clash-verge-rev` 源码中提取“订阅是否正常”的检测逻辑、Clash 订阅格式要求，以及 Emoji/非 ASCII 内容在 YAML、HTTP 头、URI 中的处理方式；同时结合当前项目已有的订阅下载 API，整理“如何让 Clash Verge Rev 正确接收本系统下发的订阅与自定义响应头”。
 > **主要来源：**

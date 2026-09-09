@@ -1,4 +1,4 @@
-# Clash Verge Rev 节点/代理参数参考（Clash 客户端侧字段定义）
+# Clash-Verge-Rev-Node-Parameters.md — Clash Verge Rev 节点/代理参数参考（Clash 客户端侧字段定义）
 
 > **文档定位：** 本文提取 `clash-verge-rev` 前端类型定义中“节点（Proxy）”的完整参数结构，作为本项目装配模块中 manual 节点表单、协议注册表、Clash YAML 渲染的参考资料。
 > **主要来源：** `src/types/global.d.ts`（`IProxyBaseConfig` 及各协议 interface）、`src/components/profile/proxies-editor-viewer.tsx`、`src/utils/uri-parser.ts`（如可另查 Node-Link-Standards.md）。

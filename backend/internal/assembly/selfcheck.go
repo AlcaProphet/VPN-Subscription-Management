@@ -9,6 +9,7 @@ import (
 	"vpn-sub/internal/node"
 	"vpn-sub/internal/proxygroup"
 	"vpn-sub/internal/rulespec"
+	"vpn-sub/internal/ssplugin"
 )
 
 // OutputIssue 是 Clash 产物静态自检问题。
@@ -85,6 +86,9 @@ func CheckClashContent(content []byte) []OutputIssue {
 					if !exists || isEmptyYAMLValue(value) {
 						issues = append(issues, outputError(path, typ+" 缺少必填字段 "+field.Name))
 					}
+				}
+				if typ == "ss" {
+					issues = append(issues, checkSSPluginStructure(proxy, path)...)
 				}
 			}
 		}
@@ -224,6 +228,105 @@ func CheckClashContent(content []byte) []OutputIssue {
 		issues = append(issues, OutputIssue{Severity: "warning", Path: "$.rules", Message: "缺少 MATCH 兜底规则"})
 	}
 	return issues
+}
+
+func checkSSPluginStructure(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	for _, name := range ssplugin.KnownNames() {
+		definition, _ := ssplugin.Lookup(name)
+		if _, exists := mapGet(proxy, definition.StorageKey); exists {
+			issues = append(issues, outputError(path+"."+definition.StorageKey, "SS 插件内部参数对象不得进入 Clash 产物"))
+		}
+	}
+
+	pluginRaw, hasPlugin := mapGet(proxy, "plugin")
+	optsRaw, hasOpts := mapGet(proxy, "plugin-opts")
+	if !hasPlugin {
+		if hasOpts {
+			issues = append(issues, outputError(path+".plugin-opts", "缺少 plugin 时不得输出 plugin-opts"))
+		}
+		return issues
+	}
+	plugin, ok := pluginRaw.(string)
+	if !ok || strings.TrimSpace(plugin) == "" {
+		issues = append(issues, outputError(path+".plugin", "plugin 必须是非空字符串"))
+		return issues
+	}
+	if containsUnescapedPluginParameter(plugin) {
+		issues = append(issues, outputError(path+".plugin", "plugin 必须是纯插件名，不得包含 URI 参数串"))
+	}
+
+	var opts gyaml.MapSlice
+	if hasOpts {
+		var mapOK bool
+		opts, mapOK = yamlMap(optsRaw)
+		if !mapOK {
+			issues = append(issues, outputError(path+".plugin-opts", "plugin-opts 必须是映射"))
+			return issues
+		}
+	}
+
+	definition, known := ssplugin.Lookup(plugin)
+	if !known {
+		for _, item := range opts {
+			key, keyOK := item.Key.(string)
+			if !keyOK {
+				continue
+			}
+			if _, valueOK := item.Value.(string); !valueOK {
+				issues = append(issues, outputError(path+".plugin-opts."+key, "未知 SS 插件参数必须是字符串"))
+			}
+		}
+		return issues
+	}
+	clash, exists := definition.Target(ssplugin.TargetClash)
+	if !exists {
+		return issues
+	}
+	for _, field := range clash.RequiredFields {
+		value, exists := mapGet(opts, field)
+		if !exists || isEmptyYAMLValue(value) {
+			issues = append(issues, outputError(path+".plugin-opts."+field, "SS 插件 "+plugin+" 缺少必需参数 "+field))
+		}
+	}
+	for field, allowed := range clash.AllowedValues {
+		value, exists := mapGet(opts, field)
+		if !exists {
+			continue
+		}
+		text, valueOK := value.(string)
+		if !valueOK || !containsAllowedValue(allowed, text) {
+			issues = append(issues, outputError(path+".plugin-opts."+field, "SS 插件 "+plugin+" 参数 "+field+" 不受 Clash 目标支持"))
+		}
+	}
+	return issues
+}
+
+func containsUnescapedPluginParameter(value string) bool {
+	escaped := false
+	for _, char := range value {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if char == '\\' {
+			escaped = true
+			continue
+		}
+		if char == ';' || char == '=' {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAllowedValue(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // checkForceGroupInvariants 检查装配产物的三类系统强制组与 DIRECT 层级约束。

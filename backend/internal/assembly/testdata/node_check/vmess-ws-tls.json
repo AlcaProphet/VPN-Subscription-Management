@@ -1,0 +1,16 @@
+{
+  "protocol": "vmess",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "uuid": "11111111-2222-3333-4444-555555555555",
+    "network": "ws",
+    "cipher": "auto",
+    "tls": true,
+    "servername": "example.com",
+    "ws-opts": {
+      "path": "/vmess",
+      "headers": {"Host": "cdn.example.com"}
+    }
+  }
+}

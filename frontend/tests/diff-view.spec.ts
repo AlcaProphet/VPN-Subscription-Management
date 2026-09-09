@@ -4,18 +4,26 @@ import { mount } from '@vue/test-utils'
 import DiffView from '@/components/DiffView.vue'
 
 describe('DiffView', () => {
-  it('常规文本按 jsdiff 行级对比渲染新增/删除/上下文', () => {
+  it('常规文本按 jsdiff 行级对比渲染旧/新行号与变更列', () => {
     const wrapper = mount(DiffView, {
       props: { oldText: 'a\nb\nc', newText: 'a\nx\nc' },
     })
-    const rows = wrapper.findAll('.diff-view > div')
-    const removed = rows.find((r) => r.classes().some((c) => c.startsWith('bg-red')))
-    const added = rows.find((r) => r.classes().some((c) => c.startsWith('bg-green')))
-    // 上下文行：无红/绿底色
-    const contexts = rows.filter((r) => !r.classes().some((c) => c.startsWith('bg-')))
-    expect(removed?.text()).toContain('-b')
-    expect(added?.text()).toContain('+x')
-    expect(contexts.map((r) => r.text().replace(/\s+/g, ' ').trim())).toEqual(expect.arrayContaining(['a', 'c']))
+    const removed = wrapper.find('[data-diff-kind="removed"]')
+    const added = wrapper.find('[data-diff-kind="added"]')
+    const contexts = wrapper.findAll('[data-diff-kind="context"]')
+    expect(removed.exists()).toBe(true)
+    expect(added.exists()).toBe(true)
+    // 删除行只显示旧行号；新增行只显示新行号；上下文行同时显示旧/新行号
+    expect(removed.find('[data-old-line]').attributes('data-old-line')).toBe('2')
+    expect(removed.find('[data-new-line]').attributes('data-new-line')).toBe('')
+    expect(added.find('[data-old-line]').attributes('data-old-line')).toBe('')
+    expect(added.find('[data-new-line]').attributes('data-new-line')).toBe('2')
+    expect(contexts[0].find('[data-old-line]').attributes('data-old-line')).toBe('1')
+    expect(contexts[0].find('[data-new-line]').attributes('data-new-line')).toBe('1')
+    expect(removed.text()).toContain('-')
+    expect(removed.text()).toContain('b')
+    expect(added.text()).toContain('+')
+    expect(added.text()).toContain('x')
     // 不应出现超大文本警告
     expect(wrapper.text()).not.toContain('仍要启动行级对比')
   })

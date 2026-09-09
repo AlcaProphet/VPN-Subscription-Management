@@ -34,6 +34,7 @@ export interface GenerateInput {
   node_names: string[]
   group_names: string[]
   group_node_orders?: Record<string, string[]>
+  group_member_orders?: Record<string, string[]>
   overseas_members: string[]
   fallback_group_members: string[]
   pools: PoolSelection[]
@@ -83,6 +84,7 @@ export interface BlueprintResponse {
       node_names: string[]
       group_names: string[]
       group_node_orders?: Record<string, string[]>
+      group_member_orders?: Record<string, string[]>
       overseas_members: string[]
       fallback_group_members: string[]
       pools: PoolSelection[]

@@ -14,6 +14,7 @@ import NodesGroupsStep from './assembly/NodesGroupsStep.vue'
 import RulesStep from './assembly/RulesStep.vue'
 import OverlayStep from './assembly/OverlayStep.vue'
 import PreviewStep from './assembly/PreviewStep.vue'
+import { defaultClashHeaderText } from './assembly/clashHeaderDefaults'
 import {
   getAssemblyContext, previewAssembly, generateAssembly, getBlueprint,
   type AssemblyContext, type GenerateInput, type TargetSyntax, type PoolSelection, type RuleLine,
@@ -76,7 +77,7 @@ const RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.advanced)
 const CLASH_RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.clash_render_type).map((m) => m.rule_type))
 const SR_RULE_TYPES = computed(() => legacyRuleMeta.value.filter((m) => m.sr_render_type).map((m) => m.rule_type))
 const DEFAULT_HEADERS: Record<TargetSyntax, string> = {
-  'clash-yaml': JSON.stringify({ port: 7890, mode: 'rule', 'log-level': 'info', 'allow-lan': false, 'external-controller': '127.0.0.1:9090' }, null, 2),
+  'clash-yaml': defaultClashHeaderText(),
   'sr-subs': JSON.stringify({ status: '2026/01/01 Version', remarks: 'VPN Subscription' }, null, 2),
   'generic-subs': '{}',
   'sr-conf': JSON.stringify({ loglevel: 'warning' }, null, 2),
@@ -120,6 +121,7 @@ const form = reactive({
   node_names: [] as string[],
   group_names: [] as string[],
   group_node_orders: {} as Record<string, string[]>,
+  group_member_orders: {} as Record<string, string[]>,
   overseas_members: [] as string[],
   fallback_group_members: [FORCE_DIRECT, FORCE_OVERSEAS] as string[],
   pools: [] as PoolSelection[],
@@ -160,8 +162,10 @@ interface PreflightIssue {
 const buildPreflightMissing = computed<PreflightIssue[]>(() => {
   if (!context.value) return []
   const missing: PreflightIssue[] = []
-  const hasNode = (context.value.nodes ?? []).some((n) => !n.missing && n.enabled && (n.source === 'manual' || n.allocatable))
-  if (!hasNode) missing.push({ id: 'nodes', text: '至少一个可用节点', actionText: '前往节点管理', to: '/admin/nodes' })
+  if (targetSyntax.value !== 'sr-conf') {
+    const hasNode = (context.value.nodes ?? []).some((n) => !n.missing && n.enabled && (n.source === 'manual' || n.allocatable))
+    if (!hasNode) missing.push({ id: 'nodes', text: '至少一个可用节点', actionText: '前往节点管理', to: '/admin/nodes' })
+  }
   if (targetSyntax.value === 'sr-conf') {
     // R22-08：SR-conf 不要求预建规则实体；目标就绪由 targetReady/后端校验
   } else {
@@ -203,6 +207,11 @@ watch(advancedMode, (on) => {
     nextOrders[g] = list.filter((n) => !xrayNames.has(n))
   }
   form.group_node_orders = nextOrders
+  const nextMemberOrders: Record<string, string[]> = {}
+  for (const [g, list] of Object.entries(form.group_member_orders)) {
+    nextMemberOrders[g] = list.filter((n) => !xrayNames.has(n))
+  }
+  form.group_member_orders = nextMemberOrders
 })
 
 const stepDefs = computed<Array<{ key: string; title: string }>>(() => {
@@ -251,6 +260,7 @@ const previewFingerprint = computed(() => stableStringify({
   nodeNames: form.node_names,
   groupNames: form.group_names,
   groupNodeOrders: form.group_node_orders,
+  groupMemberOrders: form.group_member_orders,
   overseasMembers: form.overseas_members,
   fallbackGroupMembers: form.fallback_group_members,
   pools: form.pools,
@@ -359,6 +369,7 @@ function assemblyDraftForm(): AssemblyDraftForm {
     node_names: [...form.node_names],
     group_names: [...form.group_names],
     group_node_orders: Object.fromEntries(Object.entries(form.group_node_orders).map(([key, values]) => [key, [...values]])),
+    group_member_orders: Object.fromEntries(Object.entries(form.group_member_orders).map(([key, values]) => [key, [...values]])),
     overseas_members: [...form.overseas_members],
     fallback_group_members: [...form.fallback_group_members],
     pools: form.pools.map((pool) => ({ ...pool })),
@@ -395,6 +406,7 @@ async function restoreAssemblyDraft() {
   form.node_names = [...draft.form.node_names]
   form.group_names = [...draft.form.group_names]
   form.group_node_orders = Object.fromEntries(Object.entries(draft.form.group_node_orders).map(([key, values]) => [key, [...values]]))
+  form.group_member_orders = Object.fromEntries(Object.entries(draft.form.group_member_orders ?? {}).map(([key, values]) => [key, [...values]]))
   form.overseas_members = [...draft.form.overseas_members]
   form.fallback_group_members = [...draft.form.fallback_group_members]
   form.pools = draft.form.pools.map((pool) => ({ ...pool }))
@@ -422,6 +434,7 @@ async function loadEditIfAny() {
         || (bp.selection.overseas_members ?? []).some((n: string) => xrayNames.has(n))
         || (bp.selection.fallback_group_members ?? []).some((n: string) => xrayNames.has(n))
         || Object.values(bp.selection.group_node_orders ?? {}).some((arr: string[]) => arr.some((n) => xrayNames.has(n)))
+        || Object.values(bp.selection.group_member_orders ?? {}).some((arr: string[]) => arr.some((n) => xrayNames.has(n)))
       if (hasXray) {
         editBlocked.value = true
         Notify.error('该蓝图包含 Xray 节点；请先开启高级模式后再重新编辑')
@@ -438,6 +451,7 @@ async function loadEditIfAny() {
     form.node_names = bp.selection?.node_names ?? []
     form.group_names = bp.selection?.group_names ?? []
     form.group_node_orders = bp.selection?.group_node_orders ?? {}
+    form.group_member_orders = bp.selection?.group_member_orders ?? {}
     form.overseas_members = bp.selection?.overseas_members ?? []
     form.fallback_group_members = bp.selection?.fallback_group_members ?? []
     form.pools = bp.selection?.pools ?? []
@@ -485,6 +499,7 @@ function buildInput(previewHash?: string): GenerateInput {
     node_names: form.node_names,
     group_names: form.group_names,
     group_node_orders: form.group_node_orders,
+    group_member_orders: form.group_member_orders,
     overseas_members: form.overseas_members,
     fallback_group_members: form.fallback_group_members,
     pools: form.pools,
@@ -530,13 +545,19 @@ function toggleNode(name: string) {
   form.group_node_orders = Object.fromEntries(
     Object.entries(form.group_node_orders).map(([group, members]) => [group, members.filter((n) => n !== name)]),
   )
+  form.group_member_orders = Object.fromEntries(
+    Object.entries(form.group_member_orders).map(([group, members]) => [group, members.filter((n) => n !== name)]),
+  )
 }
 function toggleGroup(name: string) {
   if (form.group_names.includes(name)) {
     form.group_names = form.group_names.filter((n) => n !== name)
-    const next = { ...form.group_node_orders }
-    delete next[name]
-    form.group_node_orders = next
+    const nodeNext = { ...form.group_node_orders }
+    delete nodeNext[name]
+    form.group_node_orders = nodeNext
+    const memberNext = { ...form.group_member_orders }
+    delete memberNext[name]
+    form.group_member_orders = memberNext
     return
   }
   form.group_names = [...form.group_names, name]
@@ -544,6 +565,8 @@ function toggleGroup(name: string) {
     ...form.group_node_orders,
     [name]: [],
   }
+  // group_member_orders 不预置空数组，保持旧数据/新选中组默认由后端自动附带默认子组；
+  // 用户第一次保存选择排序后会写入显式成员顺序。
 }
 function updateForceMembers(group: string, members: string[]) {
   if (group === FORCE_OVERSEAS) form.overseas_members = [...members]
@@ -644,8 +667,19 @@ function removeInvalidRef(ref: { kind: string; name: string }) {
     form.group_node_orders = Object.fromEntries(
       Object.entries(form.group_node_orders).map(([group, members]) => [group, members.filter((n) => n !== ref.name)]),
     )
+    form.group_member_orders = Object.fromEntries(
+      Object.entries(form.group_member_orders).map(([group, members]) => [group, members.filter((n) => n !== ref.name)]),
+    )
   }
-  if (ref.kind === 'group') form.group_names = form.group_names.filter((n) => n !== ref.name)
+  if (ref.kind === 'group') {
+    form.group_names = form.group_names.filter((n) => n !== ref.name)
+    const nodeNext = { ...form.group_node_orders }
+    delete nodeNext[ref.name]
+    form.group_node_orders = nodeNext
+    const memberNext = { ...form.group_member_orders }
+    delete memberNext[ref.name]
+    form.group_member_orders = memberNext
+  }
   if (ref.kind === 'pool') form.pools = form.pools.filter((p) => String(p.pool_id) !== ref.name)
 }
 function removeAllInvalidRefs() {
@@ -807,10 +841,11 @@ const outputGroups = computed(() => {
                   <HeaderStep :form="form" :target-syntax="targetSyntax" @apply-default="headerConfirmOpen = true" />
                 </template>
                 <template #nodes>
-                  <NodesGroupsStep :form="form" :group-node-orders="form.group_node_orders" :context="context" :target-syntax="targetSyntax" :invalid-refs="invalidRefs"
+                  <NodesGroupsStep :form="form" :group-node-orders="form.group_node_orders" :group-member-orders="form.group_member_orders" :context="context" :target-syntax="targetSyntax" :invalid-refs="invalidRefs"
                                    :show-xray="advancedMode" :manual-nodes="manualNodes" :xray-nodes="xrayNodes" :preset-groups="presetGroups" :custom-groups="customGroups"
                                    @toggle-node="toggleNode" @toggle-group="toggleGroup" @update-force-members="updateForceMembers"
-                                   @update-group-node-order="(g: string, nodes: string[]) => form.group_node_orders = { ...form.group_node_orders, [g]: nodes }" />
+                                   @update-group-node-order="(g: string, nodes: string[]) => form.group_node_orders = { ...form.group_node_orders, [g]: nodes }"
+                                   @update-group-member-order="(g: string, members: string[]) => form.group_member_orders = { ...form.group_member_orders, [g]: members }" />
                 </template>
                 <template #rules>
                   <RulesStep :form="form" :context="context" :target-syntax="targetSyntax" :output-groups="outputGroups" :rule-type-options="ruleTypeOptions"

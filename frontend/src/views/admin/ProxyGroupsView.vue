@@ -220,6 +220,9 @@ function memberSummary(g: ProxyGroupItem): string {
         <Button type="primary" @click="openCreate">新建代理组</Button>
       </template>
     </PageHeader>
+    <div class="text-xs text-text-secondary mb-3">
+      这里配置的是该代理组在“构建订阅/规则”被携带时默认一同携带的子代理组；构建页可将默认子组与本次节点一起选择、排序。
+    </div>
 
     <TriStateList :loading="loading" :empty="groups.length === 0" empty-text="暂无代理组">
       <Table :data-source="groups" row-key="id" :pagination="false" class="hidden md:block">
@@ -237,7 +240,7 @@ function memberSummary(g: ProxyGroupItem): string {
             <Tag>{{ record.definition.type }}</Tag>
           </template>
         </Table.Column>
-        <Table.Column key="members" title="成员">
+        <Table.Column key="members" title="默认携带的代理组">
           <template #default="{ record }">{{ memberSummary(record) }}</template>
         </Table.Column>
         <Table.Column key="enabled" title="启用" width="90">

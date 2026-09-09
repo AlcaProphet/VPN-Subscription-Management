@@ -33,6 +33,7 @@ func RegisterPoolRoutes(engine *gin.Engine, h *PoolHandler, sessionMW, adminMW g
 	admin.GET("/:id/sync/status", h.syncStatus)
 	admin.GET("/:id/sync/tasks", h.listSyncTasks)
 	admin.POST("/:id/sync/tasks/:taskId/cancel", h.cancelSync)
+	admin.DELETE("/:id/sync/tasks/completed", h.clearSyncTasks)
 
 	admin.POST("/:id/sources/:sourceId/pending/:snapshotId/activate", h.activatePending)
 	admin.DELETE("/:id/sources/:sourceId/pending/:snapshotId", h.discardPending)
@@ -295,6 +296,23 @@ func (h *PoolHandler) cancelSync(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{"task_id": taskID, "status": "cancel_requested"})
+}
+
+func (h *PoolHandler) clearSyncTasks(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	n, err := h.poolSvc.ClearFinishedTasks(c.Request.Context(), id)
+	if errors.Is(err, pool.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "素材池不存在")
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, gin.H{"cleared": n})
 }
 
 func (h *PoolHandler) syncStatus(c *gin.Context) {

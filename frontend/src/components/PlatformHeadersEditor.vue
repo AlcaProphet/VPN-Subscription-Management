@@ -321,7 +321,7 @@ const customRows = computed(() => customHeaders.value)
       <div class="text-sm font-medium">附加响应头</div>
       <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
         <Switch :checked="mode === 'json'" size="small" @change="(v: any) => setAdvanced(Boolean(v))" />
-        <span>{{ mode === 'json' ? '高级 JSON' : '结构化编辑' }}</span>
+        <span>{{ mode === 'json' ? '结构化编辑' : '高级 JSON' }}</span>
       </label>
     </div>
 

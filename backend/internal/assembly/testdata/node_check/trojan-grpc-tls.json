@@ -1,0 +1,11 @@
+{
+  "protocol": "trojan",
+  "host": "example.com",
+  "port": 443,
+  "protocol_json": {
+    "password": "trojan-password",
+    "network": "grpc",
+    "sni": "example.com",
+    "grpc-opts": {"grpc-service-name": "trojan"}
+  }
+}

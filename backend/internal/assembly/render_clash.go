@@ -11,6 +11,7 @@ import (
 
 	"vpn-sub/internal/node"
 	"vpn-sub/internal/rulespec"
+	"vpn-sub/internal/ssplugin"
 )
 
 // renderClash 渲染 Clash YAML 产物。
@@ -18,11 +19,17 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	root := orderedMapToMapSlice(in.FixedParams)
 	// proxies：manual 节点按勾选顺序输出
 	proxies := make([]any, 0, len(in.NodeNames))
+	diagnostics := []NodeDiagnostic{}
 	for _, name := range in.NodeNames {
 		nd := ld.nodes[name]
 		if nd.Source != "manual" {
 			continue
 		}
+		nodeDiags := s.diagnoseNodeForTarget("clash-yaml", nd)
+		if hasCoreBlockingNodeDiagnostic(nodeDiags) || hasSSPluginBlockingNodeDiagnostic(nodeDiags) {
+			return nil, fmt.Errorf("%w: 节点 %s 目标检查未通过: %s", ErrBadRequest, nd.Name, firstNodeDiagnosticMessage(nodeDiags))
+		}
+		diagnostics = append(diagnostics, nodeDiags...)
 		proxies = append(proxies, orderedMapToMapSlice(s.clashProxy(nd)))
 	}
 	root = append(root, gyaml.MapItem{Key: "proxies", Value: proxies})
@@ -44,14 +51,15 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	// 勾选代理组（固定键序 name/type/proxies）
 	for _, name := range in.GroupNames {
 		g := ld.groups[name]
-		nodes := in.GroupNodeOrders[g.Name]
-		proxies := make([]string, 0, len(nodes)+len(g.Groups))
-		for _, ref := range nodes {
+		rawMembers := clashGroupMemberOrder(in, g)
+		proxies := make([]string, 0, len(rawMembers))
+		for _, ref := range rawMembers {
 			if nd, ok := ld.nodes[ref]; ok {
 				proxies = append(proxies, nd.RenderName)
+			} else {
+				proxies = append(proxies, ref)
 			}
 		}
-		proxies = append(proxies, g.Groups...)
 		planGroup := clashPlanGroupFromData(g, proxies)
 		groups = append(groups, orderedMapToMapSlice(orderedGroupFields(&planGroup)))
 	}
@@ -140,10 +148,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			)
 			for _, name := range in.GroupNames {
 				g := ld.groups[name]
-				nodes := in.GroupNodeOrders[g.Name]
-				proxies := make([]string, 0, len(nodes)+len(g.Groups))
-				proxies = append(proxies, nodes...)
-				proxies = append(proxies, g.Groups...)
+				proxies := clashGroupMemberOrder(in, g)
 				out = append(out, clashPlanGroupFromData(g, proxies))
 			}
 			return out
@@ -179,7 +184,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash 渲染计划失败: %w", err)
 	}
-	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw, Issues: CheckClashContent(content)}, nil
+	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw, Issues: CheckClashContent(content), Diagnostics: diagnostics}, nil
 }
 
 func clashPlanGroupFromData(g *groupData, proxies []string) ClashPlanGroup {
@@ -201,7 +206,7 @@ func (s *Service) clashProxy(nd *nodeData) *OrderedMap {
 	p.Set("type", nd.Protocol)
 	p.Set("server", nd.Host)
 	p.Set("port", nd.Port)
-	params := normalizeClashFields(nd.Protocol, nd.ProtocolJSON)
+	params := normalizeClashFields(nd.Protocol, activeProtocolJSON(nd))
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		if k == "name" || k == "type" || k == "server" || k == "port" {
@@ -251,7 +256,114 @@ func normalizeClashFields(protocol string, params map[string]any) map[string]any
 			}
 		}
 	}
+	if protocol == "ss" {
+		projectSSPluginForClash(out)
+	}
 	return out
+}
+
+// projectSSPluginForClash 把内部插件分支投影为 Mihomo 的独立 plugin + plugin-opts，且只修改输出副本。
+func projectSSPluginForClash(out map[string]any) {
+	pluginValue, exists := out["plugin"]
+	plugin, isString := pluginValue.(string)
+	if !exists || isString && plugin == "" {
+		delete(out, "plugin")
+		delete(out, "plugin-opts")
+		deleteSSPluginStorageFields(out)
+		return
+	}
+	if !isString {
+		deleteSSPluginStorageFields(out)
+		return
+	}
+
+	var rawOpts any
+	if definition, known := ssplugin.Lookup(plugin); known {
+		rawOpts = out[definition.StorageKey]
+		cloned, ok := cloneClashStringMap(rawOpts)
+		if !ok && rawOpts == nil {
+			cloned = map[string]any{}
+			ok = true
+		}
+		if ok {
+			if clash, hasTarget := definition.Target(ssplugin.TargetClash); hasTarget {
+				for key, value := range clash.Defaults {
+					if _, hasValue := cloned[key]; !hasValue {
+						cloned[key] = value
+					}
+				}
+			}
+			rawOpts = cloned
+		}
+	} else {
+		rawOpts = out["plugin-opts"]
+		if cloned, ok := cloneClashStringMap(rawOpts); ok {
+			rawOpts = cloned
+		}
+	}
+
+	out["plugin"] = plugin
+	opts, optsAreMap := rawOpts.(map[string]any)
+	if rawOpts == nil || (optsAreMap && len(opts) == 0) {
+		delete(out, "plugin-opts")
+	} else {
+		out["plugin-opts"] = cloneClashValue(rawOpts)
+	}
+	deleteSSPluginStorageFields(out)
+}
+
+func deleteSSPluginStorageFields(out map[string]any) {
+	for _, name := range ssplugin.KnownNames() {
+		if definition, ok := ssplugin.Lookup(name); ok {
+			delete(out, definition.StorageKey)
+		}
+	}
+}
+
+func cloneClashStringMap(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = cloneClashValue(item)
+		}
+		return out, true
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = item
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func cloneClashValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = cloneClashValue(item)
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = item
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i := range typed {
+			out[i] = cloneClashValue(typed[i])
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	default:
+		return typed
+	}
 }
 
 func splitList(value string) []string {
@@ -277,5 +389,18 @@ func (s *Service) forceMemberRenderNames(members []string, ld *loadedData) []str
 			out = append(out, nd.RenderName)
 		}
 	}
+	return out
+}
+
+// clashGroupMemberOrder 返回普通代理组的原始成员顺序（节点稳定键 + 默认携带子组名）。
+// 优先使用显式 group_member_orders，否则兼容旧数据按节点顺序 + 默认子组。
+func clashGroupMemberOrder(in GenerateInput, g *groupData) []string {
+	if orders, ok := in.GroupMemberOrders[g.Name]; ok {
+		return orders
+	}
+	nodes := in.GroupNodeOrders[g.Name]
+	out := make([]string, 0, len(nodes)+len(g.Groups))
+	out = append(out, nodes...)
+	out = append(out, g.Groups...)
 	return out
 }

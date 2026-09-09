@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"vpn-sub/internal/ssplugin"
 )
 
 // Result 是单条 URI 解析结果；Params 直接对应节点 protocol_json。
@@ -123,15 +125,18 @@ func parseSS(s string) (*Result, error) {
 	params := map[string]any{"cipher": cipher, "password": password}
 	q := query
 	if plugin := q.Get("plugin"); plugin != "" {
-		params["plugin"], params["plugin-opts"] = parseSSPlugin(plugin)
+		name, opts, err := parseSSPlugin(plugin)
+		if err != nil {
+			return nil, fmt.Errorf("ss plugin 参数无效: %w", err)
+		}
+		params["plugin"] = name
+		setSSPluginOpts(params, name, opts)
 	}
 	if v := q.Get("v2ray-plugin"); v != "" && params["plugin"] == nil {
 		params["plugin"] = "v2ray-plugin"
 		var opts map[string]any
 		_ = json.Unmarshal([]byte(decodeBase64OrOriginal(v)), &opts)
-		if opts != nil {
-			params["plugin-opts"] = opts
-		}
+		setSSPluginOpts(params, "v2ray-plugin", opts)
 	}
 	if _, ok := q["uot"]; ok && parseBoolPresence(q.Get("uot")) {
 		params["udp-over-tcp"] = true
@@ -142,33 +147,113 @@ func parseSS(s string) (*Result, error) {
 	return &Result{Protocol: "ss", Name: defaultName(name, "SS", host, port), Host: host, Port: port, Params: params}, nil
 }
 
-func parseSSPlugin(raw string) (string, map[string]any) {
-	parts := strings.Split(raw, ";")
-	if len(parts) == 0 {
-		return "", nil
-	}
-	plugin := parts[0]
-	opts := map[string]any{}
-	for _, p := range parts[1:] {
-		if p == "" {
-			continue
-		}
-		kv := strings.SplitN(p, "=", 2)
-		if len(kv) == 2 {
-			opts[kv[0]] = kv[1]
-		}
+func parseSSPlugin(raw string) (string, map[string]any, error) {
+	plugin, rawOpts, err := ssplugin.ParsePluginString(raw)
+	if err != nil {
+		return "", nil, err
 	}
 	switch plugin {
 	case "obfs-local", "simple-obfs":
 		plugin = "obfs"
-		opts = map[string]any{"mode": opts["obfs"], "host": opts["obfs-host"]}
+	}
+	opts := stringAnyMap(rawOpts)
+	switch plugin {
+	case "obfs":
+		if value, ok := opts["obfs"]; ok {
+			opts["mode"] = value
+			delete(opts, "obfs")
+		}
+		if value, ok := opts["obfs-host"]; ok {
+			opts["host"] = value
+			delete(opts, "obfs-host")
+		}
 	case "v2ray-plugin":
-		opts = map[string]any{"mode": "websocket", "host": firstNonEmpty(opts["obfs-host"], opts["host"]), "path": opts["path"], "tls": opts["tls"]}
+		if _, ok := opts["mode"]; !ok {
+			opts["mode"] = "websocket"
+		}
+		if _, ok := opts["host"]; !ok {
+			if value, exists := opts["obfs-host"]; exists {
+				opts["host"] = value
+			}
+		}
+		delete(opts, "obfs-host")
+		if value, ok := opts["tls"].(string); ok {
+			parsed, err := parsePluginBool(value)
+			if err != nil {
+				return "", nil, fmt.Errorf("v2ray-plugin tls 参数无效: %w", err)
+			}
+			opts["tls"] = parsed
+		}
+	case "shadow-tls":
+		if value, ok := opts["version"].(string); ok {
+			parsed, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return "", nil, fmt.Errorf("shadow-tls version 参数无效: %w", err)
+			}
+			opts["version"] = parsed
+		}
+		if value, ok := opts["alpn"].(string); ok {
+			opts["alpn"] = splitCSV(value)
+		}
+		if err := parsePluginBoolField(opts, "skip-cert-verify"); err != nil {
+			return "", nil, fmt.Errorf("shadow-tls skip-cert-verify 参数无效: %w", err)
+		}
+	case "restls":
+		if err := parsePluginBoolField(opts, "skip-cert-verify"); err != nil {
+			return "", nil, fmt.Errorf("restls skip-cert-verify 参数无效: %w", err)
+		}
 	}
-	if plugin == "obfs" && opts["mode"] == nil {
-		return plugin, nil
+	return plugin, opts, nil
+}
+
+func parsePluginBoolField(opts map[string]any, key string) error {
+	value, ok := opts[key].(string)
+	if !ok {
+		return nil
 	}
-	return plugin, opts
+	parsed, err := parsePluginBool(value)
+	if err != nil {
+		return err
+	}
+	opts[key] = parsed
+	return nil
+}
+
+func parsePluginBool(value string) (bool, error) {
+	switch strings.ToLower(value) {
+	case "", "1", "true":
+		return true, nil
+	case "0", "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("应为 bare flag、true、false、1 或 0")
+	}
+}
+
+func stringAnyMap(values map[string]string) map[string]any {
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func setSSPluginOpts(params map[string]any, plugin string, opts map[string]any) {
+	if len(opts) == 0 {
+		return
+	}
+	switch plugin {
+	case "obfs":
+		params["obfs-opts"] = opts
+	case "v2ray-plugin":
+		params["v2ray-plugin-opts"] = opts
+	case "shadow-tls":
+		params["shadow-tls-opts"] = opts
+	case "restls":
+		params["restls-opts"] = opts
+	default:
+		params["plugin-opts"] = opts
+	}
 }
 
 func parseVMess(s string) (*Result, error) {
@@ -300,6 +385,15 @@ func parseVMessSR(decoded string, query url.Values) (*Result, error) {
 	if v := query.Get("fp"); v != "" {
 		params["client-fingerprint"] = v
 	}
+	if v := query.Get("alpn"); v != "" {
+		params["alpn"] = splitCSV(v)
+	}
+	if _, ok := query["allowInsecure"]; ok {
+		params["skip-cert-verify"] = parseBoolPresence(query.Get("allowInsecure"))
+	}
+	if _, ok := query["skip-cert-verify"]; ok {
+		params["skip-cert-verify"] = parseBoolPresence(query.Get("skip-cert-verify"))
+	}
 	applyVMessTransport(params)
 	name := firstNonEmpty(query.Get("remarks"), query.Get("remark"))
 	return &Result{Protocol: "vmess", Name: defaultName(name, "VMess", host, port), Host: host, Port: port, Params: params}, nil
@@ -385,7 +479,15 @@ func parseVLESS(s string) (*Result, error) {
 	} else if v := q.Get("headerType"); v != "" {
 		params["network"] = normalizeNetwork(v)
 	}
-	security := q.Get("security")
+	security := strings.ToLower(q.Get("security"))
+	if _, explicit := q["security"]; !explicit {
+		switch {
+		case q.Get("xtls") == "2":
+			security = "reality"
+		case q.Has("tls") && parseBoolPresence(q.Get("tls")):
+			security = "tls"
+		}
+	}
 	if security != "" && security != "none" {
 		params["tls"] = true
 	}
