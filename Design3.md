@@ -1,7 +1,7 @@
 # Design3.md — VPN 订阅管理系统增量设计（规则来源识别、结构化素材与跨平台装配）
 
 > **文档定位：** 本文定义规则素材池下一阶段设计：管理员为每个 URL 选择 Clash 规则源、Shadowrocket（下文简称 SR）规则源或“我不确定”，系统以单 URL 单主方言为边界识别格式、提取平台无关规则、形成可追踪快照，再由 Clash/SR 目标适配器过滤和渲染。本文承接 [Design2.md](docs/reports/Design/Design2.md) 第二～四章；第一期基线见 [Design1.md](docs/reports/Design/Design1.md)。编码约束遵循 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
-> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。
+> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态和历史 Clash 渲染计划兼容口径，但不代表对应代码已经完成。
 > **范围边界：** 本期只重构“规则素材 URL/手工素材 → Canonical Rule → Clash/SR 渲染”链路，不重定义节点、代理组、装配版本、订阅分发、Xray 或权限体系。
 
 ---
@@ -144,7 +144,9 @@ URL 配置（url + source_mode + order）
 
 ### 3.2 Rule Origin
 
-Rule Origin 独立保存 `source_id`、可空 `snapshot_id`、原始行号/JSON 路径、URL 顺序、来源内顺序和原始条目摘要。多个来源产生相同 `semantic_key` 时只渲染一个规则，但保留全部 active origins；删除一个来源后，其他来源仍存在则规则继续有效。
+Rule Origin 独立保存 `source_id`、可空 `snapshot_id`、原始行号/JSON 路径、URL 顺序、来源内顺序和原始条目摘要。多个来源产生相同 `semantic_key` 时只渲染一个规则，但保留全部 active origins；同一来源内相同语义在不同原始位置重复出现时，也必须为每个位置保留 origin，并用 `duplicates` 统计首个之外的重复项。`accepted`/`accepted_count` 统计去重后的 Canonical Rule 数，不把额外 origin 重复计入；删除一个来源或其中一个重复位置后，其他有效 origin 仍存在则规则继续有效。
+
+解析层必须让 Canonical Rule 与 Rule Origin 保持不可错位的组合关系，例如使用 `ParsedRule{Rule, Origin}`，而不是由调用方自行维护两条可能长度不同的平行切片。活动查询在 SQL 分页前按 Canonical Rule 压制重复，并为每个 Canonical 选取排序最早的有效 origin；不能先 `LIMIT/OFFSET` 再在 Go 中去重，否则页面可能少条且总数与列表长度不一致。
 
 ### 3.3 中央能力注册表
 
@@ -173,6 +175,8 @@ func SupportsAndMap(rule CanonicalRule, target Target) MappingResult
 - 手工条目也转换为 Canonical Rule，不执行 PSL 推断。
 - 依赖型、终结型和双方都不能作为独立素材表达的规则不可选。
 - 手工来源不需要 URL 快照，但参与相同去重、排序和目标过滤。
+- 编辑手工条目时不得原地修改共享 Canonical Rule；应让该手工 origin 换绑到新建或已存在的目标 Canonical，再清理没有任何有效 origin 的旧 Canonical。
+- 若目标语义只由 URL origin 提供，允许手工 origin 换绑并与 URL 共享 Canonical；若目标语义已经有另一个手工 origin，返回 HTTP 409，不静默合并、删除或覆盖另一条手工记录。
 
 ---
 
@@ -269,10 +273,12 @@ IPv4/IPv6 单地址转 `/32`/`/128`，CIDR 归一网络地址；两者统一保�
 | `accepted` | 合法且通过来源模式 | 是 |
 | `excluded_by_source_mode` | 合法但被用户选择剔除 | 否，仅回执 |
 | `rejected_at_source` | 结构、类型、值或依赖不合法 | 否 |
-| `deduplicated` | 语义重复 | 不新增规则，保留 origin |
+| `deduplicated` | 语义重复 | 不新增 Canonical Rule，但保留每个原始位置的 origin |
 | `unsupported_for_target` | 素材合法但当前目标不能表达 | 素材保留，渲染时跳过 |
 
 清洗顺序固定为“提取 → 类型和值校验 → 规范化 → 能力分类 → 来源准入 → 语义去重”。不同 matcher 不能合并。
+
+统计口径固定如下：`excluded` 只计合法但被 `source_mode` 剔除的候选，`rejected` 只计结构、能力或值不合法的候选，`duplicates` 只计首个相同 `semantic_key` 之外的重复 origin；三者不得通过后置差值公式互相推算。清洗/能力分类阶段追加的诊断必须写回最终结果，不能因切片复制或截断时机而丢失。
 
 ### 5.4 排序
 
@@ -320,7 +326,16 @@ fetching → parsing → staging
 
 逐 URL 回执包含来源模式、详细格式、平台、置信依据、input/recognized/accepted/excluded/rejected/duplicates、family/matcher/范围统计、前后数量和格式变化、最终状态与原因。
 
-最多保留 20 条代表性诊断，每条 200 字符；不保存完整响应；URL 查询凭据、Token 和疑似凭据必须脱敏。完成任务和诊断保留 7 天，active/pending 不受任务清理影响。现有 URL 数量 50、单 URL 60 秒/50 MB、任务整体 30 分钟继续有效。
+最多保留 20 条代表性诊断，每条 200 字符；限制和脱敏在持久化边界统一执行，不依赖各 adapter 自行遵守。不保存完整响应；URL 查询凭据、Token、`code`/`state` 及疑似凭据必须在进入 `diagnostic_json`、`stats_json`、任务 JSON 或 API 前脱敏。完成任务和未被指针引用的 failed 诊断快照保留 7 天；active/pending 及其诊断不受任务清理影响。现有 URL 数量 50、单 URL 60 秒/50 MB、任务整体 30 分钟继续有效。
+
+每个 URL 的“当前状态”由最近一次同步尝试决定，而不是只看是否存在历史 failed 行：
+
+- 最近尝试失败且旧 active 仍存在：显示“同步失败，继续使用旧活动快照”，active 指针和装配内容不变；
+- 最近尝试产生 pending：显示 pending，并同时展示仍生效的旧 active；
+- failed 之后再次成功：当前状态恢复为 active，旧 failed 只保留在有限历史中，不再让来源永久标红；
+- 从未同步且无 active/pending/failed：显示“待同步/从未同步”。
+
+状态 API 应同时返回 `latest_attempt`、`active`、`pending` 和有限的 `latest_failed` 摘要；前端以 `latest_attempt.status` 决定主徽标，不能仅凭 `latest_failed != null` 推断当前失败。数据库写入本身失败时无法可靠持久化 failed snapshot，此类基础设施错误仍由同步任务错误和日志报告；网络、HTTP、读取上限、内容检查及解析失败则必须尽力写入 failed snapshot。
 
 ### 6.5 不兼容迁移（已确认）
 
@@ -362,6 +377,10 @@ fetching → parsing → staging
 
 预览/生成返回输入数、直接输出数、等价转换数、目标不支持跳过数、目标校验失败数和最终输出数。最终输出只统计**素材池规则 + 自定义规则**，不包含内置 `GEOIP`/`MATCH`/`FINAL` 等系统兜底；最终输出为 0时禁止生成；大于 0但存在跳过时允许生成并明确警告，不增加第二个确认框。素材快照或其他输出字段变化继续触发 `previewStale`，必须重新预览；`render_plan_json` 固化实际规则，历史版本不漂移。
 
+`no_resolve` 必须按结构化尾部 token 解析，仅独立且目标能力允许的 `no-resolve` token 才设置 Canonical option；不得通过对整行或匹配值做子串搜索推断，否则 `no-resolve.example.com` 等合法值会被误判。源 policy 仍忽略并记录诊断，未知尾部选项不得静默变成 `no_resolve`。
+
+Clash `render_plan_json` 必须冻结每条新规则的显式 `no_resolve=true/false`，下载重渲染与生成时保持一致。为避免既有自包含历史计划漂移，计划字段需能区分“旧计划字段缺失”和“新计划显式 false”：旧计划缺失时沿用创建该计划时的按类型推断行为；新计划存在字段时严格按实例值渲染。覆盖层或目标组删除导致规则重写时，只保留已渲染行/显式计划中的 `no-resolve`，不得再次根据类型补加。
+
 ---
 
 ## 八、管理页面与 API
@@ -380,7 +399,7 @@ fetching → parsing → staging
 
 ### 8.2 状态、回执与详情
 
-每个 URL 显示用户模式、检测格式/平台、active/pending/failed/待同步、accepted/模式剔除/rejected/duplicates、前后差异和有限样例。pending 提供“激活/丢弃”。池级任务为 `running/succeeded/partial/failed`，逐 URL 独立展示。
+每个 URL 显示用户模式、检测格式/平台、由最近一次尝试决定的 active/pending/failed/待同步主状态、当前仍生效的 active、accepted/模式剔除/rejected/duplicates、前后差异和有限样例。最近失败但仍有旧 active 时必须同时表达“失败”和“继续使用旧活动快照”；之后成功时旧 failed 仅进入历史。pending 提供“激活/丢弃”。池级任务为 `running/succeeded/partial/failed`，逐 URL 独立展示。
 
 池列表和详情增加 common/clash_only/sr_only 数量、family/matcher/规范化值、动态范围徽标、active origin 数和来源入口，并保持后端分页与懒加载。对当前目标输出为 0的池显示不可用；非零时可选择并在预览显示跳过数。
 
@@ -455,6 +474,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.4 | 2026-09-09 | R28-05 研究补充并经用户确认：相同语义保留全部 origin、accepted 统计唯一 Canonical；手工编辑通过 origin 换绑且 manual→manual 重复返回 409；来源主状态以最近尝试为准并可同时保留旧 active；`no_resolve` 使用结构化 token，新的 Clash render plan 显式冻结实例值，旧计划缺失字段时保持历史兼容；明确诊断统一限额/脱敏和迁移回归边界。本文只修订设计，D3-1～D3-10 代码仍待 Build22 实施。 |
 | v1.3 | 2026-09-02 | 新增 Clash YAML 头部参数 UI 增量：以个人模板预填端口、Geo、DNS、更多参数四个默认折叠分区；每区提供结构化编辑与作用域明确的高级 JSON，组内 bool 集中，保留未知顶层键；`mixed-port` 为可选项而非默认监听。 |
 | v1.2 | 2026-08-31 | 补充来源识别：新增严格的 `mihomo-ipcidr-yaml`，Mihomo `payload` 按整份内容唯一归类且 ipcidr 仅接受 IPv4/IPv6 CIDR；template4 继续作为双方通用的 `typed-rule-text`；明确来源模式只调整识别优先级/范围与既有准入，不绑定识别内容或最终输出平台。 |
 | v1.1 | 2026-08-31 | 补充实现口径：中央注册表区分素材池能力与 advanced-only 高级装配能力；`final_output` 只统计素材池+自定义规则，排除内置 `GEOIP`/`MATCH`/`FINAL` 兜底；能力元数据端点明确由前端消费并移除静态规则表。 |
