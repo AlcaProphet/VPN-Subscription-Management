@@ -101,6 +101,9 @@ func assemblyBody(pid int64) map[string]any {
 		},
 		"fixed_params": map[string]any{"port": 7890},
 		"pools":        []any{},
+		"custom_rules": []map[string]any{
+			{"rule_type": "DOMAIN-SUFFIX", "match_value": "example.com", "target": "组A"},
+		},
 	}
 }
 
@@ -289,10 +292,13 @@ func TestAssemblyGenerateSrConf(t *testing.T) {
 		t.Fatalf("查询规则失败: %v", err)
 	}
 	body := map[string]any{
-		"target_syntax":   "sr-conf",
-		"rule_id":         ruleID,
-		"fixed_params":    map[string]any{"loglevel": "warning"},
-		"pools":           []any{},
+		"target_syntax": "sr-conf",
+		"rule_id":       ruleID,
+		"fixed_params":  map[string]any{"loglevel": "warning"},
+		"pools":         []any{},
+		"custom_rules": []map[string]any{
+			{"rule_type": "DOMAIN-SUFFIX", "match_value": "example.com", "target": "PROXY"},
+		},
 		"final_direction": "DIRECT",
 	}
 	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", body)
@@ -320,10 +326,13 @@ func TestAssemblyGenerateSrConfAutoCreateRule(t *testing.T) {
 	engine, st, _ := newAssemblyTestEnv(t)
 	ctx := context.Background()
 	body := map[string]any{
-		"target_syntax":   "sr-conf",
-		"rule_name":       "自动新建规则",
-		"fixed_params":    map[string]any{"loglevel": "warning"},
-		"pools":           []any{},
+		"target_syntax": "sr-conf",
+		"rule_name":     "自动新建规则",
+		"fixed_params":  map[string]any{"loglevel": "warning"},
+		"pools":         []any{},
+		"custom_rules": []map[string]any{
+			{"rule_type": "DOMAIN-SUFFIX", "match_value": "example.com", "target": "PROXY"},
+		},
 		"final_direction": "DIRECT",
 	}
 	// 无预建规则时 Preview 也应成功
@@ -369,5 +378,84 @@ func TestAssemblyGenerateSrConfAutoCreateRule(t *testing.T) {
 	}
 	if bpRuleID != genResp.Data.RuleID {
 		t.Fatalf("蓝图 rule_id 应为自动创建规则 %d，实际 %d", genResp.Data.RuleID, bpRuleID)
+	}
+}
+
+func TestAssemblyGenerateZeroOutputGate(t *testing.T) {
+	engine, st, _ := newAssemblyTestEnv(t)
+	pid := insertAssemblyBase(t, st)
+	ctx := context.Background()
+	// 空素材/空自定义：Clash YAML 应拒绝。
+	emptyClash := map[string]any{
+		"target_syntax":          "clash-yaml",
+		"platform_id":            pid,
+		"node_names":             []string{"节点A"},
+		"group_names":            []string{"组A"},
+		"overseas_members":       []string{"节点A"},
+		"fallback_group_members": []string{"🚀直接连接", "🌎国外流量"},
+		"fixed_params":           map[string]any{"port": 7890},
+		"pools":                  []any{},
+		"custom_rules":           []any{},
+	}
+	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", emptyClash)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "没有可输出的非系统规则") {
+		t.Fatalf("空规则 Clash generate 应被零输出门槛拒绝: code=%d body=%s", w.Code, w.Body.String())
+	}
+	// 只有不支持的自定义规则也应拒绝。
+	unsupportedOnly := map[string]any{
+		"target_syntax":          "clash-yaml",
+		"platform_id":            pid,
+		"node_names":             []string{"节点A"},
+		"group_names":            []string{"组A"},
+		"overseas_members":       []string{"节点A"},
+		"fallback_group_members": []string{"🚀直接连接", "🌎国外流量"},
+		"fixed_params":           map[string]any{"port": 7890},
+		"pools":                  []any{},
+		"custom_rules": []map[string]any{
+			{"rule_type": "USER-AGENT", "match_value": "Telegram", "target": "组A"},
+		},
+	}
+	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", unsupportedOnly)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "没有可输出的非系统规则") {
+		t.Fatalf("仅不支持规则 Clash generate 应被零输出门槛拒绝: code=%d body=%s", w.Code, w.Body.String())
+	}
+	// 至少一条有效自定义规则应通过。
+	valid := map[string]any{
+		"target_syntax":          "clash-yaml",
+		"platform_id":            pid,
+		"node_names":             []string{"节点A"},
+		"group_names":            []string{"组A"},
+		"group_node_orders":      map[string][]string{"组A": {"节点A"}},
+		"overseas_members":       []string{"节点A"},
+		"fallback_group_members": []string{"🚀直接连接", "🌎国外流量"},
+		"fixed_params":           map[string]any{"port": 7890},
+		"pools":                  []any{},
+		"custom_rules": []map[string]any{
+			{"rule_type": "DOMAIN-SUFFIX", "match_value": "example.com", "target": "组A"},
+		},
+	}
+	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", valid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("有效单条规则应可通过 generate: code=%d body=%s", w.Code, w.Body.String())
+	}
+	// sr-subs 不适用规则零输出门槛（纯节点订阅）。
+	subsPlatformRes, err := st.DB().ExecContext(ctx,
+		`INSERT INTO platforms (slug, name, product_type) VALUES ('platform-subs-zero','订阅平台','subs')`)
+	if err != nil {
+		t.Fatalf("插入 subs 平台失败: %v", err)
+	}
+	subsPlatformID, _ := subsPlatformRes.LastInsertId()
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO subscriptions (slug, name, platform_id, product_type) VALUES ('sub-subs-zero','订阅',?,'subs')`, subsPlatformID); err != nil {
+		t.Fatalf("插入 subs 订阅失败: %v", err)
+	}
+	subs := map[string]any{
+		"target_syntax": "sr-subs",
+		"platform_id":   subsPlatformID,
+		"node_names":    []string{"节点A"},
+	}
+	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", subs)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sr-subs 不应套用规则零输出门槛: code=%d body=%s", w.Code, w.Body.String())
 	}
 }

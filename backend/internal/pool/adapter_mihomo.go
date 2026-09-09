@@ -39,12 +39,12 @@ func decodeMihomoPayload(body []byte) ([]string, error) {
 }
 
 // parseMihomoDomainYAML 解析 Mihomo domain provider。
-func parseMihomoDomainYAML(body []byte) ([]rulespec.CanonicalRule, []ParseDiagnostic, error) {
+func parseMihomoDomainYAML(body []byte) ([]ParsedRule, []ParseDiagnostic, error) {
 	items, err := decodeMihomoPayload(body)
 	if err != nil {
 		return nil, nil, err
 	}
-	var rules []rulespec.CanonicalRule
+	var rules []ParsedRule
 	var diagnostics []ParseDiagnostic
 	for i, item := range items {
 		matcher := rulespec.MatcherExact
@@ -64,44 +64,51 @@ func parseMihomoDomainYAML(body []byte) ([]rulespec.CanonicalRule, []ParseDiagno
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: err.Error(), Raw: item})
 			continue
 		}
-		rules = append(rules, rule)
+		rules = append(rules, ParsedRule{Rule: rule, Origin: RuleOriginMeta{Line: 0, Raw: item, Order: i}})
 	}
 	return rules, diagnostics, nil
 }
 
 // parseMihomoIPCIDRYAML 解析 Mihomo ipcidr provider；payload 只允许 IPv4/IPv6 CIDR。
-func parseMihomoIPCIDRYAML(body []byte) ([]rulespec.CanonicalRule, []ParseDiagnostic, error) {
+func parseMihomoIPCIDRYAML(body []byte) ([]ParsedRule, []ParseDiagnostic, error) {
 	items, err := decodeMihomoPayload(body)
 	if err != nil {
 		return nil, nil, err
 	}
-	rules := make([]rulespec.CanonicalRule, 0, len(items))
-	for _, item := range items {
+	rules := make([]ParsedRule, 0, len(items))
+	for i, item := range items {
 		value, err := NormalizeCIDRValue(item)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: ipcidr payload 包含非法 CIDR %q", ErrConflictingDocumentFormat, item)
 		}
-		rules = append(rules, rulespec.CanonicalRule{
-			Family:  rulespec.FamilyIP,
-			Matcher: rulespec.MatcherCIDR,
-			Value:   value,
+		rules = append(rules, ParsedRule{
+			Rule: rulespec.CanonicalRule{
+				Family:  rulespec.FamilyIP,
+				Matcher: rulespec.MatcherCIDR,
+				Value:   value,
+			},
+			Origin: RuleOriginMeta{Line: 0, Raw: item, Order: i},
 		})
 	}
 	return rules, nil, nil
 }
 
 // parseMihomoClassicalYAML 解析 Mihomo classical rules YAML。
-func parseMihomoClassicalYAML(body []byte) ([]rulespec.CanonicalRule, []ParseDiagnostic, error) {
+func parseMihomoClassicalYAML(body []byte) ([]ParsedRule, []ParseDiagnostic, error) {
 	items, err := decodeMihomoPayload(body)
 	if err != nil {
 		return nil, nil, err
 	}
-	var rules []rulespec.CanonicalRule
+	var rules []ParsedRule
 	var diagnostics []ParseDiagnostic
 	for i, item := range items {
-		typ, value, _, ok := ParseLine(item)
+		typ, value, noResolve, _, ok := parseRuleLine(item)
 		if !ok {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "classical 条目无法解析", Raw: item})
+			continue
+		}
+		if !rulespec.IsMaterialPoolType(typ) {
+			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "不是素材池可选能力: " + typ, Raw: item})
 			continue
 		}
 		family, matcher, ok := rulespec.CanonicalizeLegacyType(typ)
@@ -109,16 +116,13 @@ func parseMihomoClassicalYAML(body []byte) ([]rulespec.CanonicalRule, []ParseDia
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "不支持的规则类型: " + typ, Raw: item})
 			continue
 		}
-		rule := rulespec.CanonicalRule{Family: family, Matcher: matcher, Value: value}
-		if strings.Contains(strings.ToLower(item), "no-resolve") {
-			rule.Options.NoResolve = true
-		}
+		rule := rulespec.CanonicalRule{Family: family, Matcher: matcher, Value: value, Options: rulespec.RuleOptions{NoResolve: noResolve}}
 		normalized, err := NormalizeCanonical(rule)
 		if err != nil {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: err.Error(), Raw: item})
 			continue
 		}
-		rules = append(rules, normalized)
+		rules = append(rules, ParsedRule{Rule: normalized, Origin: RuleOriginMeta{Line: 0, Raw: item, Order: i}})
 	}
 	return rules, diagnostics, nil
 }

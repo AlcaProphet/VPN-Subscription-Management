@@ -370,6 +370,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 }
 
 // ListEntries 读取活跃 Canonical Rule（兼容旧条目形状）。
+// 去重必须在分页前按 Canonical 完成：每个 Canonical 只取排序最早的有效 origin。
 func (s *Service) ListEntries(ctx context.Context, poolID, page, pageSize int64, source string) ([]Entry, int64, error) {
 	if source != "" && source != "manual" && source != "url" {
 		return nil, 0, fmt.Errorf("%w: 条目来源仅支持 manual 或 url", ErrBadRequest)
@@ -386,35 +387,46 @@ func (s *Service) ListEntries(ctx context.Context, poolID, page, pageSize int64,
 	if err := s.ensureExists(ctx, poolID); err != nil {
 		return nil, 0, err
 	}
-	where := `cr.pool_id = ? AND ((src.kind='manual' AND o.snapshot_id IS NULL) OR (src.kind='url' AND o.snapshot_id = src.active_snapshot_id))`
-	args := []any{poolID}
+	eligibleWhere := `cr.pool_id = ? AND ((src.kind='manual' AND o.snapshot_id IS NULL) OR (src.kind='url' AND o.snapshot_id = src.active_snapshot_id))`
+	baseArgs := []any{poolID}
 	if source != "" {
-		where += ` AND src.kind = ?`
-		args = append(args, source)
+		eligibleWhere += ` AND src.kind = ?`
+		baseArgs = append(baseArgs, source)
 	}
+	baseQuery := fmt.Sprintf(`WITH eligible AS (
+  SELECT o.id AS origin_id, cr.id AS canonical_id, cr.pool_id,
+         src.kind AS kind, src.sort_order AS source_order, o.sort_order AS origin_order,
+         o.line_no AS line_no, o.raw_line AS raw_line,
+         cr.family, cr.matcher, cr.value, cr.options_json
+  FROM pool_canonical_rules cr
+  JOIN pool_rule_origins o ON o.canonical_rule_id = cr.id
+  JOIN rule_pool_sources src ON src.id = o.source_id
+  WHERE %s
+),
+ranked AS (
+  SELECT *, ROW_NUMBER() OVER (
+    PARTITION BY canonical_id
+    ORDER BY CASE WHEN kind='manual' THEN 0 ELSE 1 END, source_order, origin_order, line_no, origin_id
+  ) AS rn
+  FROM eligible
+)
+`, eligibleWhere)
 	var total int64
 	if err := s.store.DB().QueryRowContext(ctx,
-		`SELECT COUNT(DISTINCT cr.id) FROM pool_canonical_rules cr
-		 JOIN pool_rule_origins o ON o.canonical_rule_id = cr.id
-		 JOIN rule_pool_sources src ON src.id = o.source_id
-		 WHERE `+where, args...).Scan(&total); err != nil {
+		baseQuery+`SELECT COUNT(*) FROM ranked WHERE rn = 1`, baseArgs...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	args = append(args, pageSize, (page-1)*pageSize)
+	listArgs := append(append([]any{}, baseArgs...), pageSize, (page-1)*pageSize)
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT cr.id, cr.pool_id, cr.family, cr.matcher, cr.value, cr.options_json, src.kind, src.sort_order
-		 FROM pool_canonical_rules cr
-		 JOIN pool_rule_origins o ON o.canonical_rule_id = cr.id
-		 JOIN rule_pool_sources src ON src.id = o.source_id
-		 WHERE `+where+`
-		 ORDER BY CASE WHEN src.kind='manual' THEN 0 ELSE 1 END, src.sort_order, cr.id
-		 LIMIT ? OFFSET ?`, args...)
+		baseQuery+`SELECT canonical_id, pool_id, family, matcher, value, options_json, kind, source_order
+		 FROM ranked WHERE rn = 1
+		 ORDER BY CASE WHEN kind='manual' THEN 0 ELSE 1 END, source_order, origin_order, line_no, origin_id
+		 LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
 	out := make([]Entry, 0, pageSize)
-	seen := map[int64]bool{}
 	for rows.Next() {
 		var id, poolID2 int64
 		var family, matcher, value, optionsRaw, kind string
@@ -422,10 +434,6 @@ func (s *Service) ListEntries(ctx context.Context, poolID, page, pageSize int64,
 		if err := rows.Scan(&id, &poolID2, &family, &matcher, &value, &optionsRaw, &kind, &sortOrder); err != nil {
 			return nil, 0, err
 		}
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
 		var opts rulespec.RuleOptions
 		_ = json.Unmarshal([]byte(optionsRaw), &opts)
 		rule := rulespec.CanonicalRule{Family: rulespec.Family(family), Matcher: rulespec.Matcher(matcher), Value: value, Options: opts}
@@ -483,43 +491,53 @@ func (s *Service) CreateEntry(ctx context.Context, poolID int64, ruleType, match
 	return created, err
 }
 
-// UpdateEntry 修改手工 Canonical Rule（简单实现：更新共用 canonical；后续 Step 5 再收口 origin）。
+// UpdateEntry 修改手工 Canonical Rule：只换绑 manual origin，不直接修改共享 canonical 行。
 func (s *Service) UpdateEntry(ctx context.Context, entryID int64, ruleType, matchValue string) error {
-	canonical, legacyType, value, err := canonicalFromLegacyInput(ruleType, matchValue)
+	canonical, _, _, err := canonicalFromLegacyInput(ruleType, matchValue)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	_ = legacyType
 	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		var poolID int64
-		var source string
-		if err := tx.QueryRowContext(ctx,
-			`SELECT cr.pool_id, src.kind
+		var poolID, oldCanonicalID, originID, sourceID int64
+		var oldSemantic string
+		err := tx.QueryRowContext(ctx,
+			`SELECT cr.pool_id, cr.id, o.id, o.source_id, cr.semantic_key
 			 FROM pool_canonical_rules cr
 			 JOIN pool_rule_origins o ON o.canonical_rule_id = cr.id
 			 JOIN rule_pool_sources src ON src.id = o.source_id
 			 WHERE cr.id = ? AND o.snapshot_id IS NULL AND src.kind='manual'
-			 LIMIT 1`, entryID).Scan(&poolID, &source); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrNotFound
-			}
-			return err
+			 LIMIT 1`, entryID).Scan(&poolID, &oldCanonicalID, &originID, &sourceID, &oldSemantic)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
 		}
-		if source != "manual" {
-			return fmt.Errorf("%w: 仅 manual 条目可编辑", ErrBadRequest)
-		}
-		optsJSON, _ := json.Marshal(canonical.Options)
-		res, err := tx.ExecContext(ctx,
-			`UPDATE pool_canonical_rules SET family=?, matcher=?, value=?, options_json=?, semantic_key=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-			string(canonical.Family), string(canonical.Matcher), canonical.Value, string(optsJSON), canonical.SemanticKey(), entryID)
 		if err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrNotFound
+		if oldSemantic == canonical.SemanticKey() {
+			return nil
 		}
-		_ = value
-		return nil
+		newCanonicalID, err := ensureCanonicalTx(ctx, tx, poolID, canonical)
+		if err != nil {
+			return err
+		}
+		// 目标 Canonical 已有另一个 manual origin 时不允许静默合并。
+		var manualOther int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM pool_rule_origins o
+			 JOIN rule_pool_sources src ON src.id = o.source_id
+			 WHERE o.canonical_rule_id = ? AND o.snapshot_id IS NULL AND src.kind='manual' AND o.id != ?`,
+			newCanonicalID, originID).Scan(&manualOther); err != nil {
+			return err
+		}
+		if manualOther > 0 {
+			return ErrEntryConflict
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE pool_rule_origins SET canonical_rule_id=?, raw_line=? WHERE id=?`,
+			newCanonicalID, ruleType+","+matchValue, originID); err != nil {
+			return err
+		}
+		return s.cleanupOrphanCanonicalTx(ctx, tx, poolID)
 	})
 }
 
@@ -559,14 +577,14 @@ func canonicalFromLegacyInput(ruleType, matchValue string) (rulespec.CanonicalRu
 	if err != nil {
 		return rulespec.CanonicalRule{}, "", "", err
 	}
+	if !rulespec.IsMaterialPoolType(typ) {
+		return rulespec.CanonicalRule{}, "", "", fmt.Errorf("不是素材池可选能力: %s", typ)
+	}
 	family, matcher, ok := rulespec.CanonicalizeLegacyType(typ)
 	if !ok {
 		return rulespec.CanonicalRule{}, "", "", fmt.Errorf("不支持的类型: %s", typ)
 	}
 	rule := rulespec.CanonicalRule{Family: family, Matcher: matcher, Value: normalized}
-	if strings.Contains(strings.ToLower(matchValue), "no-resolve") {
-		rule.Options.NoResolve = true
-	}
 	return rule, typ, normalized, nil
 }
 

@@ -372,7 +372,17 @@ fetching → parsing → staging
 - active、pending、failed 使用同一个 v1 类型。无法进入解析阶段的 failed 快照使用空 `evidence_codes`/`rule_counts`、nullable `recognition_required_percent: null` 和稳定失败原因码，具体脱敏错误摘要只保存于快照顶层 `error`，不在 `stats_json` 再复制一份。历史 `{}` 或旧无版本计数 JSON 统一规范化为 `{schema_version:0, source_mode:"", detection:null, rule_counts:[], unclassified_rejected:0, comparison:null, decision:null}`；缺失字段表示不可用，不反向编造检测依据、比较数据或原因，也不使同一 API 中的新 v1 快照读取失败。
 - `detected_profile` 必须依据全部已识别、规范化候选计算，再执行 `source_mode` 排除；显式模式不得先丢弃另一平台私有规则后把真实平台误写为 `common`。adapter 产生的每条 `reject` 诊断也必须进入 `rejected`，保证 `input/recognized/rejected` 与上述分项统计可核对。
 
-最多保留 20 条代表性诊断，每条 200 字符；限制和脱敏在持久化边界统一执行，不依赖各 adapter 自行遵守。不保存完整响应；URL 查询凭据、Token、`code`/`state` 及疑似凭据必须在进入 `diagnostic_json`、`stats_json`、任务 JSON 或 API 前脱敏。完成任务和未被指针引用的 failed 诊断快照保留 7 天；active/pending 及其诊断不受任务清理影响。现有 URL 数量 50、单 URL 60 秒/50 MB、任务整体 30 分钟继续有效。
+限制和脱敏在持久化边界统一执行，不依赖各 adapter 自行遵守，并由日志与 pool 共用同一套脱敏实现：
+
+- 最多保留 20 条代表性诊断；若原始超过 20 条，保留前 19 条真实诊断，第 20 条固定为截断摘要（例如 `kind:"truncated"`、`message:"另有 N 条诊断未展示"`），总条数不得超过 20。
+- 每条字符串字段按 rune 截断到 200 字符；空诊断必须序列化为 `[]`，不得输出 `null`。
+- 脱敏与限额适用于所有进入持久化或展示 API 的字符串字段：`ParseDiagnostic.Message`、`ParseDiagnostic.Raw`、`PerURLResult.URL`、`PerURLResult.Error`、`SyncTask.Error`、`Pool.SyncError`、`SourceStatus.display_url`。
+- 疑似凭据按参数名/字段路径判断，不按值特征猜测。至少覆盖：`token`、`code`、`state`、`password`、`passwd`、`secret`、`client_secret`、`private-key`/`private_key`、`pre-shared-key`/`pre_shared_key`、`psk`、`auth`、`auth-key`/`auth_key`、`access_token`、`refresh_token`、`api_key`、`apikey`；参数名比较前先做 URL 解码并忽略大小写。
+- `RedactDisplayURL` 只用于展示/任务输出，不得写回 `rule_pool_sources.url`，也不得用于编辑表单回填；管理员编辑仍使用原始 `url` 配置。
+- 现有 `/sync/status`、`/sync/tasks` 与 `Pool.sync_error` 也执行同一读时清洗；存量 `pool_sync_tasks.per_url_json/error`、`rule_pools.sync_error` 做非破坏性清洗，不删除任务/池记录，不修改 `rule_pool_sources.url`。
+- 不保存完整响应；URL 查询凭据、Token、`code`/`state` 及疑似凭据必须在进入 `diagnostic_json`、`stats_json`、任务 JSON 或 API 前脱敏。
+
+完成任务和未被指针引用的 failed 诊断快照保留 7 天；active/pending 及其诊断不受任务清理影响。现有 URL 数量 50、单 URL 60 秒/50 MB、任务整体 30 分钟继续有效。
 
 每个 URL 的“当前状态”由最近一次同步尝试决定，而不是只看是否存在历史 failed 行：
 
@@ -381,7 +391,7 @@ fetching → parsing → staging
 - failed 之后再次成功：当前状态恢复为 active，旧 failed 只保留在有限历史中，不再让来源永久标红；
 - 从未同步且无 active/pending/failed：显示“待同步/从未同步”。
 
-状态 API 应同时返回 `latest_attempt`、`active`、`pending` 和有限的 `latest_failed` 摘要；前端以 `latest_attempt.status` 决定主徽标，不能仅凭 `latest_failed != null` 推断当前失败。数据库写入本身失败时无法可靠持久化 failed snapshot，此类基础设施错误仍由同步任务错误和日志报告；网络、HTTP、读取上限、内容检查及解析失败则必须尽力写入 failed snapshot。
+状态 API 应同时返回 `latest_attempt`、`active`、`pending` 和有限的 `latest_failed` 摘要；`SourceStatus` 使用 `display_url` 作为脱敏后的展示 URL，状态/历史 API 不得回传 `rule_pool_sources.url` 原始值。前端以 `latest_attempt.status` 决定主徽标，不能仅凭 `latest_failed != null` 推断当前失败。数据库写入本身失败时无法可靠持久化 failed snapshot，此类基础设施错误仍由同步任务错误和日志报告；网络、HTTP、读取上限、内容检查及解析失败则必须尽力写入 failed snapshot。
 
 ### 6.5 不兼容迁移（已确认）
 
@@ -480,6 +490,8 @@ Clash `render_plan_json` 必须冻结每条新规则的显式 `no_resolve=true/f
 |------|------|
 | `backend/internal/rulespec/` | Canonical Rule、中央能力注册表、目标映射和元数据 |
 | `backend/internal/pool/` | 来源、探测/适配、清洗、快照、诊断和活动查询 |
+| `backend/internal/redact/` | 日志与素材池共用的文本/URL 脱敏、Unicode 限长与敏感键规则 |
+| `backend/internal/log/` | 日志输出脱敏接入公共 redact 规则 |
 | `backend/internal/assembly/` | 活动规则加载、目标过滤、回执和蓝图失效引用 |
 | `backend/internal/server/` | 素材池/装配 API、pending 操作、概览 |
 | `backend/migrations/` | 不兼容 schema 和 ID 防复用 |
@@ -520,6 +532,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.8 | 2026-09-10 | 按 Build22 Step 7 脱敏研究结论与用户确认同步 §6.4：日志与 pool 共用统一脱敏规则；`SourceStatus` 使用 `display_url`；脱敏/限长扩展至所有持久化与展示 API 字符串字段；明确疑似凭据 key 清单、19+1 截断摘要、200 rune、空诊断 `[]`、历史同步输出非破坏性清洗及现有 sync API 读时清洗。仅更新设计文档，代码仍待 Build22 实施。 |
 | v1.7 | 2026-09-09 | Clash render plan 兼容编码经专项研究确认：采用逐规则 nullable boolean/Go `*bool` 三态，缺失或 null 维持历史按类型推断，新计划对每条规则显式冻结 true/false；不为单字段引入整份 plan schema version，并保留未来整体结构演进时再版本化的空间。仅更新设计文档，代码仍待 Build22 Step 3 实施。 |
 | v1.6 | 2026-09-09 | R28-05 `stats_json` 专项研究并经用户确认：冻结 version 1 强类型统计、确定性检测依据码、family/matcher/scope 分项、旧 active 比较与初始决策原因；顶层列保持计数/格式/profile/当前状态的唯一事实来源，旧 `{}`/无版本 JSON 兼容但不补造证据；明确 profile 在来源排除前计算、adapter reject 完整计数，并使用 1018 nullable `activated_at` 记录 pending 人工激活时间。仅更新设计文档，代码仍待 Build22 实施。 |
 | v1.5 | 2026-09-09 | 构建前文档核验同步：§9.3 的当前串行执行入口由已归档 Build16 更新为 Build22；不改变 D3-1～D3-10 的既有设计结论，也不表示代码已经开始实施。 |

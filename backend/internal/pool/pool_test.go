@@ -120,3 +120,58 @@ func TestCRUDAndSort(t *testing.T) {
 		}
 	}
 }
+
+func TestCRUDRejectsNonMaterialPoolByOriginalLegacyType(t *testing.T) {
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "白名单池", nil, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	for _, typ := range []string{"RULE-SET", "AND", "OR", "NOT", "MATCH", "GEOSITE", "SRC-GEOIP", "SRC-IP-ASN", "SRC-IP-CIDR", "IP-SUFFIX", "DST-PORT"} {
+		value := "example"
+		switch typ {
+		case "MATCH":
+			value = ""
+		case "RULE-SET", "GEOSITE", "SRC-GEOIP":
+			value = "cn"
+		case "SRC-IP-ASN":
+			value = "13335"
+		case "SRC-IP-CIDR", "IP-SUFFIX":
+			value = "10.0.0.0/8"
+		case "AND":
+			value = "((DOMAIN,a.com),(NETWORK,tcp))"
+		case "OR":
+			value = "((DOMAIN,a.com),(DOMAIN,b.com))"
+		case "NOT":
+			value = "((DOMAIN,a.com))"
+		case "DST-PORT":
+			value = "443"
+		}
+		if _, err := svc.CreateEntry(ctx, p.ID, typ, value); !errors.Is(err, ErrBadRequest) {
+			t.Errorf("%s 应被白名单拒绝为 ErrBadRequest，实际 %v", typ, err)
+		}
+	}
+	var canonicalCount, originCount int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM pool_canonical_rules WHERE pool_id=?`, p.ID).Scan(&canonicalCount); err != nil {
+		t.Fatalf("查询 canonical 失败: %v", err)
+	}
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM pool_rule_origins WHERE pool_id=?`, p.ID).Scan(&originCount); err != nil {
+		t.Fatalf("查询 origin 失败: %v", err)
+	}
+	if canonicalCount != 0 || originCount != 0 {
+		t.Fatalf("拒绝创建不得写入 canonical/origin: canonical=%d origin=%d", canonicalCount, originCount)
+	}
+
+	valid, err := svc.CreateEntry(ctx, p.ID, "DOMAIN", "ok.example")
+	if err != nil {
+		t.Fatalf("创建正例失败: %v", err)
+	}
+	if err := svc.UpdateEntry(ctx, valid.ID, "SRC-GEOIP", "CN"); !errors.Is(err, ErrBadRequest) {
+		t.Errorf("UpdateEntry 也应拒绝非素材池类型，实际 %v", err)
+	}
+	list, _, err := svc.ListEntries(ctx, p.ID, 1, 20, "manual")
+	if err != nil || len(list) != 1 || list[0].MatchValue != "ok.example" {
+		t.Fatalf("拒绝更新不得改变原记录: %+v err=%v", list, err)
+	}
+}

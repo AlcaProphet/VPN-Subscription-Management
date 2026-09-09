@@ -41,8 +41,13 @@ type groupData struct {
 
 // poolEntry 素材池条目。
 type poolEntry struct {
-	RuleType   string
-	MatchValue string
+	RuleType    string
+	MatchValue  string
+	Canonical   rulespec.CanonicalRule
+	NoResolve   bool
+	OriginOrder int
+	OriginLine  int
+	RawLine     string
 }
 
 // platformInfo 平台目标信息。
@@ -198,14 +203,28 @@ func (s *Service) loadPoolEntries(ctx context.Context, poolID int64) ([]poolEntr
 		return nil, fmt.Errorf("%w: 素材池不存在: %d", ErrBadRequest, poolID)
 	}
 	rows, err := s.store.DB().QueryContext(ctx,
-		`SELECT cr.family, cr.matcher, cr.value, cr.options_json, src.kind
-		 FROM pool_canonical_rules cr
-		 JOIN pool_rule_origins o ON o.canonical_rule_id = cr.id
-		 JOIN rule_pool_sources src ON src.id = o.source_id
-		 WHERE cr.pool_id = ?
-		   AND ((src.kind='manual' AND o.snapshot_id IS NULL)
-		     OR (src.kind='url' AND o.snapshot_id = src.active_snapshot_id))
-		 ORDER BY CASE WHEN src.kind='manual' THEN 0 ELSE 1 END, src.sort_order, cr.id`, poolID)
+		`WITH eligible AS (
+		   SELECT o.id AS origin_id, cr.id AS canonical_id,
+		          src.kind AS kind, src.sort_order AS source_order, o.sort_order AS origin_order,
+		          o.line_no AS line_no, o.raw_line AS raw_line,
+		          cr.family, cr.matcher, cr.value, cr.options_json
+		   FROM pool_canonical_rules cr
+		   JOIN pool_rule_origins o ON o.canonical_rule_id = cr.id
+		   JOIN rule_pool_sources src ON src.id = o.source_id
+		   WHERE cr.pool_id = ?
+		     AND ((src.kind='manual' AND o.snapshot_id IS NULL)
+		       OR (src.kind='url' AND o.snapshot_id = src.active_snapshot_id))
+		 ),
+		 ranked AS (
+		   SELECT *, ROW_NUMBER() OVER (
+		     PARTITION BY canonical_id
+		     ORDER BY CASE WHEN kind='manual' THEN 0 ELSE 1 END, source_order, origin_order, line_no, origin_id
+		   ) AS rn
+		   FROM eligible
+		 )
+		 SELECT family, matcher, value, options_json, kind, origin_order, line_no, raw_line
+		 FROM ranked WHERE rn = 1
+		 ORDER BY CASE WHEN kind='manual' THEN 0 ELSE 1 END, source_order, origin_order, line_no, origin_id`, poolID)
 	if err != nil {
 		return nil, err
 	}
@@ -213,14 +232,18 @@ func (s *Service) loadPoolEntries(ctx context.Context, poolID int64) ([]poolEntr
 	out := make([]poolEntry, 0)
 	for rows.Next() {
 		var family, matcher, value, optionsRaw, kind string
-		if err := rows.Scan(&family, &matcher, &value, &optionsRaw, &kind); err != nil {
+		var originOrder, lineNo int
+		var rawLine string
+		if err := rows.Scan(&family, &matcher, &value, &optionsRaw, &kind, &originOrder, &lineNo, &rawLine); err != nil {
 			return nil, err
 		}
 		var opts rulespec.RuleOptions
 		_ = json.Unmarshal([]byte(optionsRaw), &opts)
 		rule := rulespec.CanonicalRule{Family: rulespec.Family(family), Matcher: rulespec.Matcher(matcher), Value: value, Options: opts}
-		// 临时兼容：Step 5 会改为直接消费 Canonical Rule。
-		out = append(out, poolEntry{RuleType: legacyPoolType(rule), MatchValue: value})
+		out = append(out, poolEntry{
+			RuleType: legacyPoolType(rule), MatchValue: value, Canonical: rule, NoResolve: opts.NoResolve,
+			OriginOrder: originOrder, OriginLine: lineNo, RawLine: rawLine,
+		})
 	}
 	return out, rows.Err()
 }

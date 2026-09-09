@@ -268,14 +268,14 @@ func indexOf(s, sub string) int {
 	return -1
 }
 
-// TestRedact 覆盖验收项：路径内 token、多参数间 token、消息体内嵌 token 均脱敏（Build1 既有测试，保留）
+// TestRedact 覆盖验收项：路径内 token、多参数间 token、消息体内嵌 token 均脱敏（Build1 既有测试保留；无前缀 key=value 也按 Build22 公共 redact 规则脱敏）
 func TestRedact(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"/x?token=abc", "/x?token=***"},
 		{"a=1&token=abc&b=2", "a=1&token=***&b=2"},
 		{"/sub?token=xyz&platform=clash", "/sub?token=***&platform=clash"},
 		{"no token here", "no token here"},
-		{"token=without_prefix", "token=without_prefix"}, // 无 ? 或 & 前缀不匹配
+		{"token=without_prefix", "token=***"},
 	}
 	for _, c := range cases {
 		if got := Redact(c.in); got != c.want {

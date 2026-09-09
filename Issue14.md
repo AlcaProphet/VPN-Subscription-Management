@@ -56,7 +56,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 | Step 4 | 后端素材池能力白名单 | D3-4 | ☐ 未开始 |
 | Step 5 | 手工 origin 换绑、共享 Canonical 保护与重复 409 | D3-3 | ☐ 未开始 |
 | Step 6 | 零输出门槛补全 | D3-6 | ☐ 未开始 |
-| Step 7 | failed 快照、v1 强类型统计、1018 激活时间、统一诊断限额/脱敏与 latest-attempt 状态 API | D3-7 | ☐ 未开始 |
+| Step 7 | failed 快照、v1 强类型统计、1018 激活时间、log/pool 共用脱敏、存量输出清洗、`display_url` 状态 API | D3-7 | ☐ 未开始 |
 | Step 8 | 前端来源状态、诊断与 pending 操作 | D3-8 | ☐ 未开始 |
 | Step 9 | 装配回执前端展示 | D3-9 | ☐ 未开始 |
 | Step 10 | 真实 1015→1016 store 级迁移、幂等与回滚测试 | D3-10 | ☐ 未开始 |
@@ -186,6 +186,8 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
   - `stats_json` 已确认采用 version 1 强类型合同：以稳定 evidence/reason codes 表达确定性检测依据和初始同步决策，不引入数值置信分数；按 family/matcher/scope 记录 accepted/excluded/rejected/duplicates 分项，顶层列继续作为六项计数、format/profile/当前 status 的唯一事实来源；旧 `{}`/无版本 JSON 兼容但不补造证据。
   - `detected_profile` 必须在 `source_mode` 排除前基于全部已识别、规范化候选计算；adapter reject 必须完整进入 rejected。pending 人工激活时间使用下一号 1018 迁移新增的 nullable `activated_at` 保存，激活不得改写初始决策和解析统计。
   - 1016 回归必须使用真实 0001～1015→1016 迁移链，覆盖旧业务数据清除、ID 防复用、无关历史保留、重复迁移幂等和失败整体回滚，不能以简化旧 schema 代替。
+  - Build22 Step 10 已进一步完成“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认细化：`migrationsThrough` helper 按解析版本过滤且排除 1017；最小夹具为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints，不额外插入 owner 记录；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 文件末尾追加失败语句，并在回滚后用真实 1016 重试。同步记录见 Build22 Step 10 与 Build16 后续勘误。
+  - Build22 Step 7“脱敏机制复用范围”已按用户确认更新 Build22/Design3/AGENTS：新建 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 使用 `display_url`；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 纳入读时清洗；历史 `pool_sync_tasks`/`rule_pools.sync_error` 做非破坏性清洗；诊断超 20 条采用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长并统一脱敏。
 - **前置条件：** 步骤一、步骤二已完成，Build21 Step 14 已按证据收口；不得在此前开始 Build22 的任何子步骤。
 - **修复方向：** 按已详细修订的 [Build22.md](Build22.md) Step 1～11 串行实施并验收；每次仅执行一个 Step，完成前不得将 Build16/Design3 标记为“全部闭环”。
 - **状态：** ☑ 研究与文档修订完成 / ☐ 代码待实施（Build22 Step 1～11 均未开始）
@@ -277,6 +279,8 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.16 | 2026-09-10 | 完成 Build22 Step 10“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认同步 Build22/Issue14/Build16：细化 `migrationsThrough` 按版本过滤并排除 1017；最小夹具固定为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints，不额外插入 owner；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 末尾追加失败语句并在回滚后重试。仅更新文档，Build22 Step 1～11 代码仍未开始。 |
+| v1.15 | 2026-09-10 | 完成 Build22 Step 7“脱敏机制复用范围”只读研究并按用户确认同步 Build22/Design3/AGENTS/Issue14：新建 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 使用 `display_url`；现有 sync/status、sync/tasks、Pool.sync_error 纳入读时清洗；历史同步输出非破坏性清洗；诊断 19+1 截断摘要；字符串字段 200 rune 限长。仅更新文档，Build22 Step 1～11 代码仍未开始。 |
 | v1.14 | 2026-09-09 | 完成 R28-05 Step 3 Clash render plan 兼容编码专项研究并按用户确认同步 Design3/Build22/Issue14：固定采用逐规则 `NoResolve *bool` 三态，缺失或 null 保持历史推断，新计划逐条显式冻结 boolean，不为单字段引入顶层 plan schema version；补齐原始 JSON、历史夹具、目标能力和覆盖层降级验收边界。仅更新文档，Build22 Step 3 代码仍未开始。 |
 | v1.13 | 2026-09-09 | 完成 R28-05 `stats_json` 专项研究并按用户确认同步 Design3/Build22/Issue14：冻结 v1 强类型统计、确定性检测依据码、能力分项、旧 active 比较、初始决策原因与旧 JSON 兼容；补记 profile 计算和 adapter reject 统计缺口，pending 激活时间采用 1018 nullable `activated_at`。仅更新文档，Build22 Step 1～11 代码仍未开始。 |
 | v1.12 | 2026-09-09 | 完成 R28-07 只读研究并按用户决策写入分项修复方案：R28-07A～E、G～I 待后续实施，导入文件硬上限确认为 20 MiB，R28-07F 保留为设计取向；R28-08 N01～N07 整体确认为设计取向并从工程实施范围关闭。本次仅更新 Issue14，未修改业务代码。 |

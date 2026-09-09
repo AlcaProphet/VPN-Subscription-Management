@@ -43,3 +43,22 @@ func TestLegacyMetadataIncludesMaterialPoolOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestIsMaterialPoolTypeUsesOriginalLegacyType(t *testing.T) {
+	for _, typ := range []string{"DOMAIN", "DOMAIN-SUFFIX", "IP-CIDR", "IP-CIDR6", "USER-AGENT", "PROCESS-NAME"} {
+		if !IsMaterialPoolType(typ) {
+			t.Errorf("%s 应允许进入素材池", typ)
+		}
+	}
+	for _, typ := range []string{"RULE-SET", "AND", "OR", "NOT", "MATCH", "GEOSITE", "SRC-GEOIP", "SRC-IP-ASN", "SRC-IP-CIDR", "IP-SUFFIX", "DST-PORT"} {
+		if IsMaterialPoolType(typ) {
+			t.Errorf("%s 不应允许进入素材池", typ)
+		}
+	}
+	if IsMaterialPoolType("UNKNOWN-TYPE") {
+		t.Error("未知类型不应进入素材池")
+	}
+	if !IsMaterialPoolType("domain") || IsMaterialPoolType("src-geoip") {
+		t.Error("大小写规范化后仍应按原始 legacy 类型判定")
+	}
+}

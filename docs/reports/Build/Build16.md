@@ -194,6 +194,8 @@ Step 1 中央语义/能力
   ```
 - **验收标准：** 旧 schema 可原子升级；旧业务数据不存在；新池 ID 不复用；来源对象、手工规则、分页、范围统计和 origins 查询正确；不存在写旧 `pool_entries` 的可达路径。
 
+  > **后续勘误（2026-09-10，对应 Build22 R28-05/D3-10）：** 上述 Step 3 文字中的 `store_test.go` “从 1015 旧 schema/数据升级” 在当前代码中并未完整落地；归档进度保持原状，真实 1015→1016 store 级迁移回归测试由 Build22 Step 10 补齐。具体测试构造口径见 [Build22.md](../../../Build22.md) Step 10。
+
 ### Step 4：per-source 快照同步、异常保护与 pending 操作
 
 - **目标：** 把 Step 2 解析管线接入异步任务，实现每个 URL staging → active/pending/failed 状态机和原子活动指针切换。
@@ -416,6 +418,7 @@ Step 1 中央语义/能力
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.4 | 2026-09-10 | 追加后续勘误：Build22 R28-05/D3-10 确认当前 `store_test.go` 并未完整落地本文 Step 3 中“从 1015 旧 schema/数据升级”的测试；该真实 1015→1016 store 级迁移回归由 Build22 Step 10 补齐。不倒改本归档历史进度，仅追加说明。 |
 | v1.3 | 2026-08-31 | 补充 template3/template4 来源识别：新增严格的 `mihomo-ipcidr-yaml`、整份 payload behavior 冲突检查、IPv4/IPv6 CIDR 规范化与动态目标类型；SR 显式 IP 文本继续作为双方通用 `typed-rule-text`。后端 build/vet/全量 test、前端 35 个文件 126 项测试与生产构建、Docker Compose 镜像构建及 `git diff --check` 均通过。 |
 | v1.2 | 2026-08-31 | 完成八个 Step 实施：新增 1016 迁移、Canonical/能力注册表、单来源解析、快照同步、装配回执、能力元数据端点与前端三模式入口；后端 build/vet/test、前端 test/build 均通过。 |
 | v1.1 | 2026-08-31 | 按用户确认补充执行口径：Step 5 全量迁移所有装配渲染到 Canonical 注册表并隔离 advanced-only 能力；Step 6 新增只读能力元数据端点并彻底移除前端静态规则类型真值表；`final_output` 只统计素材池+自定义规则、排除内置兜底；Step 7 扩展旧能力真值表清理核查。 |

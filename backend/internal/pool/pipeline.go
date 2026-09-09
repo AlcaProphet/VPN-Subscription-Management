@@ -3,6 +3,7 @@ package pool
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"vpn-sub/internal/rulespec"
@@ -14,81 +15,131 @@ func ParseSource(body []byte, mode SourceMode) (*ParseResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	var rules []rulespec.CanonicalRule
+	var items []ParsedRule
 	var diagnostics []ParseDiagnostic
 	switch format {
 	case FormatPlainDomainText, FormatLegacyDomainText:
-		rules, diagnostics, err = parseDomainText(body)
+		items, diagnostics, err = parseDomainText(body)
 	case FormatMihomoDomainYAML:
-		rules, diagnostics, err = parseMihomoDomainYAML(body)
+		items, diagnostics, err = parseMihomoDomainYAML(body)
 	case FormatMihomoIPCIDRYAML:
-		rules, diagnostics, err = parseMihomoIPCIDRYAML(body)
+		items, diagnostics, err = parseMihomoIPCIDRYAML(body)
 	case FormatMihomoClassicalYAML:
-		rules, diagnostics, err = parseMihomoClassicalYAML(body)
+		items, diagnostics, err = parseMihomoClassicalYAML(body)
 	case FormatTypedRuleText:
-		rules, diagnostics, err = parseTypedText(body)
+		items, diagnostics, err = parseTypedText(body)
 	case FormatPlainIPCIDRText:
-		rules, diagnostics, err = parseIPList(body)
+		items, diagnostics, err = parseIPList(body)
 	case FormatSingBoxSourceJSON:
-		rules, diagnostics, err = parseSingBoxSourceJSON(body, mode)
+		items, diagnostics, err = parseSingBoxSourceJSON(body, mode)
 	default:
 		return nil, fmt.Errorf("%w: 未知格式 %s", ErrUnrecognizedSource, format)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return finalizeParseResult(format, rules, diagnostics, mode, body)
+	res, err := finalizeParseResult(format, items, diagnostics, mode, body)
+	if err != nil {
+		return nil, err
+	}
+	res.EvidenceCodes = evidenceCodesForFormat(format)
+	return res, nil
+}
+
+func evidenceCodesForFormat(format DetectedFormat) []string {
+	switch format {
+	case FormatSingBoxSourceJSON:
+		return []string{"sing_box_version_and_rules"}
+	case FormatMihomoDomainYAML:
+		return []string{"top_level_payload", "payload_domain_only"}
+	case FormatMihomoIPCIDRYAML:
+		return []string{"top_level_payload", "payload_ipcidr_only"}
+	case FormatMihomoClassicalYAML:
+		return []string{"top_level_payload", "payload_classical_only"}
+	case FormatTypedRuleText:
+		return []string{"typed_rule_marker"}
+	case FormatPlainIPCIDRText:
+		return []string{"all_items_ip_cidr_or_asn"}
+	case FormatLegacyDomainText:
+		return []string{"legacy_domain_prefix"}
+	case FormatPlainDomainText:
+		return []string{"plain_domain_candidates"}
+	default:
+		return nil
+	}
 }
 
 // finalizeParseResult 统计、去重、来源准入与阈值判断。
-func finalizeParseResult(format DetectedFormat, rules []rulespec.CanonicalRule, diagnostics []ParseDiagnostic, mode SourceMode, body []byte) (*ParseResult, error) {
+func finalizeParseResult(format DetectedFormat, items []ParsedRule, diagnostics []ParseDiagnostic, mode SourceMode, body []byte) (*ParseResult, error) {
 	res := &ParseResult{Format: format, Diagnostics: diagnostics}
-	res.Input = len(rules)
+	res.Input = len(items)
 	for _, d := range diagnostics {
 		if d.Kind == "reject" {
 			res.Input++
+			res.Rejected++
+			res.UnclassifiedRejected++
 		}
 	}
-	res.Recognized = len(rules)
+	res.Recognized = len(items)
 	res.Profile = "unknown"
 
-	accepted := make([]rulespec.CanonicalRule, 0, len(rules))
+	accepted := make([]rulespec.CanonicalRule, 0, len(items))
+	allItems := make([]ParsedRule, 0, len(items))
 	seen := map[string]bool{}
+	countMap := map[string]*RuleCountStat{}
 	hasClashPrivate := false
 	hasSRPrivate := false
 
-	for _, rule := range rules {
-		cap := capabilityForRule(rule)
-		if !cap.MaterialPool {
-			res.Rejected++
-			diagnostics = append(diagnostics, ParseDiagnostic{Kind: "reject", Message: "不是素材池可选能力", Raw: rule.Value})
-			continue
-		}
-		switch mode {
-		case SourceModeClash:
-			if !supportsTarget(rule, rulespec.TargetClash) {
-				res.Excluded++
-				continue
-			}
-		case SourceModeShadowrocket:
-			if !supportsTarget(rule, rulespec.TargetSR) {
-				res.Excluded++
-				continue
-			}
-		}
+	// detected_profile 必须基于来源模式排除前的全部已识别、规范化候选计算，
+	// 否则显式 Clash/SR 模式会先把另一平台私有项剔除后误报为 common。
+	for _, item := range items {
+		rule := item.Rule
 		if !supportsTarget(rule, rulespec.TargetClash) {
 			hasSRPrivate = true
 		}
 		if !supportsTarget(rule, rulespec.TargetSR) {
 			hasClashPrivate = true
 		}
+	}
+
+	for _, item := range items {
+		rule := item.Rule
+		cap := capabilityForRule(rule)
+		stat := ensureRuleCountStat(countMap, rule)
+		if !cap.MaterialPool {
+			res.Rejected++
+			stat.Rejected++
+			raw := item.Origin.Raw
+			if raw == "" {
+				raw = rule.Value
+			}
+			diagnostics = append(diagnostics, ParseDiagnostic{Kind: "reject", Message: "不是素材池可选能力", Raw: raw})
+			continue
+		}
+		switch mode {
+		case SourceModeClash:
+			if !supportsTarget(rule, rulespec.TargetClash) {
+				res.Excluded++
+				stat.Excluded++
+				continue
+			}
+		case SourceModeShadowrocket:
+			if !supportsTarget(rule, rulespec.TargetSR) {
+				res.Excluded++
+				stat.Excluded++
+				continue
+			}
+		}
+		allItems = append(allItems, item)
 		key := rule.SemanticKey()
 		if seen[key] {
 			res.Duplicates++
+			stat.Duplicates++
 			continue
 		}
 		seen[key] = true
 		accepted = append(accepted, rule)
+		stat.Accepted++
 	}
 
 	if mode == SourceModeAuto && hasClashPrivate && hasSRPrivate {
@@ -103,10 +154,10 @@ func finalizeParseResult(format DetectedFormat, rules []rulespec.CanonicalRule, 
 	}
 
 	res.Rules = accepted
+	res.Items = allItems
 	res.Accepted = len(accepted)
-	if mode == SourceModeClash || mode == SourceModeShadowrocket {
-		res.Excluded += len(rules) - res.Accepted - res.Rejected
-	}
+	res.Diagnostics = diagnostics
+	res.RuleCounts = sortedRuleCounts(countMap)
 	if res.Accepted == 0 {
 		return nil, ErrNoAcceptedRules
 	}
@@ -114,6 +165,38 @@ func finalizeParseResult(format DetectedFormat, rules []rulespec.CanonicalRule, 
 		return nil, ErrThresholdNotMet
 	}
 	return res, nil
+}
+
+func ensureRuleCountStat(counts map[string]*RuleCountStat, rule rulespec.CanonicalRule) *RuleCountStat {
+	cap := capabilityForRule(rule)
+	key := string(rule.Family) + "\x00" + string(rule.Matcher) + "\x00" + string(cap.Scope)
+	if s, ok := counts[key]; ok {
+		return s
+	}
+	s := &RuleCountStat{
+		Family:  string(rule.Family),
+		Matcher: string(rule.Matcher),
+		Scope:   string(cap.Scope),
+	}
+	counts[key] = s
+	return s
+}
+
+func sortedRuleCounts(counts map[string]*RuleCountStat) []RuleCountStat {
+	out := make([]RuleCountStat, 0, len(counts))
+	for _, s := range counts {
+		out = append(out, *s)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Family != out[j].Family {
+			return out[i].Family < out[j].Family
+		}
+		if out[i].Matcher != out[j].Matcher {
+			return out[i].Matcher < out[j].Matcher
+		}
+		return out[i].Scope < out[j].Scope
+	})
+	return out
 }
 
 func capabilityForRule(rule rulespec.CanonicalRule) rulespec.Capability {

@@ -131,15 +131,43 @@ func (s *Service) ClearFinishedTasks(ctx context.Context, poolID int64) (int64, 
 	return res.RowsAffected()
 }
 
-// CleanupOldTasks 全局清理超过保留期的终态同步历史，不删除运行中任务和 active/pending 快照。
+// CleanupOldTasks 全局清理超过保留期的终态同步历史、未被引用 failed 快照并回收孤儿 Canonical。
 func (s *Service) CleanupOldTasks(ctx context.Context) (int64, error) {
-	res, err := s.store.DB().ExecContext(ctx,
-		`DELETE FROM pool_sync_tasks WHERE finished_at IS NOT NULL
-		 AND finished_at < datetime('now', ?)`, fmt.Sprintf("-%d days", taskRetentionDays))
+	// 启动/清理入口同时执行存量同步输出清洗（幂等、非破坏性）。
+	if err := s.SanitizeStoredSyncOutputs(ctx); err != nil {
+		s.log.Error("清洗存量同步输出失败", "err", err)
+	}
+	var cleaned int64
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`DELETE FROM pool_sync_tasks WHERE finished_at IS NOT NULL
+			 AND finished_at < datetime('now', ?)`, fmt.Sprintf("-%d days", taskRetentionDays))
+		if err != nil {
+			return err
+		}
+		cleaned, err = res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM pool_source_snapshots WHERE status='failed'
+			 AND created_at < datetime('now', ?)
+			 AND id NOT IN (
+			   SELECT COALESCE(active_snapshot_id,0) FROM rule_pool_sources
+			   UNION
+			   SELECT COALESCE(pending_snapshot_id,0) FROM rule_pool_sources
+			 )`, fmt.Sprintf("-%d days", taskRetentionDays)); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
+			`DELETE FROM pool_canonical_rules WHERE id NOT IN (
+			   SELECT DISTINCT canonical_rule_id FROM pool_rule_origins)`)
+		return err
+	})
 	if err != nil {
 		return 0, fmt.Errorf("清理过期同步历史失败: %w", err)
 	}
-	return res.RowsAffected()
+	return cleaned, nil
 }
 
 // GetStatus 读取最近一次任务。
@@ -300,32 +328,26 @@ func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *htt
 	r := PerURLResult{URL: u, SourceID: sourceID}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		r.Error = err.Error()
-		return r
+		return s.failSource(ctx, bgStore, poolID, sourceID, r, err.Error())
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		r.Error = err.Error()
-		return r
+		return s.failSource(ctx, bgStore, poolID, sourceID, r, err.Error())
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		r.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
-		return r
+		return s.failSource(ctx, bgStore, poolID, sourceID, r, fmt.Sprintf("HTTP %d", resp.StatusCode))
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxURLContentSize+1))
 	if err != nil {
-		r.Error = err.Error()
-		return r
+		return s.failSource(ctx, bgStore, poolID, sourceID, r, err.Error())
 	}
 	if len(body) > maxURLContentSize {
-		r.Error = "内容超过 50MB"
-		return r
+		return s.failSource(ctx, bgStore, poolID, sourceID, r, "内容超过 50MB")
 	}
 	parsed, err := ParseSource(body, mode)
 	if err != nil {
-		r.Error = err.Error()
-		return r
+		return s.failSource(ctx, bgStore, poolID, sourceID, r, err.Error())
 	}
 	r.Format = string(parsed.Format)
 	r.Profile = parsed.Profile
@@ -346,7 +368,20 @@ func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *htt
 	})
 	if err != nil {
 		r.OK = false
-		r.Error = err.Error()
+		r.Error = SanitizeTaskError(err.Error())
+	}
+	return r
+}
+
+// failSource 将可归属到 URL 来源的失败写入 failed snapshot。
+// 写入失败时不得伪称成功，单 URL 错误附带“失败快照写入失败”。
+func (s *Service) failSource(ctx context.Context, bgStore *store.Store, poolID, sourceID int64, r PerURLResult, errMsg string) PerURLResult {
+	r.Error = SanitizeTaskError(errMsg)
+	if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
+		return recordFailedSnapshotTx(ctx, tx, poolID, sourceID, errMsg)
+	}); err != nil {
+		s.log.Error("写入失败快照失败", "pool_id", poolID, "source_id", sourceID, "err", err)
+		r.Error = SanitizeTaskError(errMsg + "；失败快照写入失败")
 	}
 	return r
 }
@@ -356,26 +391,96 @@ func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64,
 	var oldFormat, oldProfile sql.NullString
 	var oldAccepted sql.NullInt64
 	var oldActiveID sql.NullInt64
+	var sourceMode string
 	if err := tx.QueryRowContext(ctx,
-		`SELECT s.id, s.format, s.profile, s.accepted_count
+		`SELECT src.source_mode, s.id, s.format, s.profile, s.accepted_count
 		 FROM rule_pool_sources src LEFT JOIN pool_source_snapshots s ON s.id = src.active_snapshot_id
-		 WHERE src.id=?`, sourceID).Scan(&oldActiveID, &oldFormat, &oldProfile, &oldAccepted); err != nil {
+		 WHERE src.id=?`, sourceID).Scan(&sourceMode, &oldActiveID, &oldFormat, &oldProfile, &oldAccepted); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return 0, false, err
 		}
 	}
 
-	diagJSON, _ := json.Marshal(parsed.Diagnostics)
-	statsJSON, _ := json.Marshal(map[string]any{
-		"input": parsed.Input, "recognized": parsed.Recognized,
-		"accepted": parsed.Accepted, "excluded": parsed.Excluded,
-		"rejected": parsed.Rejected, "duplicates": parsed.Duplicates,
-	})
+	formatChanged := false
+	profileChanged := false
+	dropTriggered := false
+	pending := false
+	if oldActiveID.Valid {
+		formatChanged = oldFormat.String != string(parsed.Format)
+		profileChanged = oldProfile.String != parsed.Profile
+		if formatChanged || profileChanged {
+			pending = true
+		}
+		if oldAccepted.Int64 >= 20 && int64(parsed.Accepted)*10 < oldAccepted.Int64*7 {
+			dropTriggered = true
+			pending = true
+		}
+	}
+	status := "active"
+	if pending {
+		status = "pending"
+	}
+	reasons := make([]string, 0, 3)
+	if !oldActiveID.Valid {
+		reasons = append(reasons, "first_success")
+	} else if !pending {
+		reasons = append(reasons, "normal")
+	}
+	if formatChanged {
+		reasons = append(reasons, "format_changed")
+	}
+	if profileChanged {
+		reasons = append(reasons, "profile_changed")
+	}
+	if dropTriggered {
+		reasons = append(reasons, "accepted_below_threshold")
+	}
+
+	ruleCounts := parsed.RuleCounts
+	if ruleCounts == nil {
+		ruleCounts = []RuleCountStat{}
+	}
+	threshold := 90
+	if parsed.Input < 10 {
+		threshold = 100
+	}
+	detection := &DetectionStats{
+		EvidenceCodes:              parsed.EvidenceCodes,
+		RecognitionRequiredPercent: &threshold,
+	}
+	if detection.EvidenceCodes == nil {
+		detection.EvidenceCodes = []string{}
+	}
+	stats := SnapshotStats{
+		SchemaVersion:        1,
+		SourceMode:           sourceMode,
+		Detection:            detection,
+		RuleCounts:           ruleCounts,
+		UnclassifiedRejected: parsed.UnclassifiedRejected,
+		Decision:             &DecisionStats{InitialStatus: status, ReasonCodes: reasons},
+	}
+	if oldActiveID.Valid {
+		stats.Comparison = &ComparisonStats{
+			PreviousActive: &PreviousActiveSnapshot{
+				SnapshotID: oldActiveID.Int64,
+				Format:     oldFormat.String,
+				Profile:    oldProfile.String,
+				Accepted:   oldAccepted.Int64,
+			},
+			FormatChanged:                formatChanged,
+			ProfileChanged:               profileChanged,
+			AcceptedDropThresholdPercent: 70,
+			AcceptedDropTriggered:        dropTriggered,
+		}
+	}
+
+	diagJSON, _ := json.Marshal(NormalizeDiagnostics(parsed.Diagnostics))
+	statsJSON, _ := json.Marshal(stats)
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO pool_source_snapshots
 		   (source_id, format, profile, status, input_count, recognized_count, accepted_count, excluded_count, rejected_count, duplicate_count, diagnostic_json, stats_json)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		sourceID, string(parsed.Format), parsed.Profile, "staging", parsed.Input, parsed.Recognized,
+		sourceID, string(parsed.Format), parsed.Profile, status, parsed.Input, parsed.Recognized,
 		parsed.Accepted, parsed.Excluded, parsed.Rejected, parsed.Duplicates, string(diagJSON), string(statsJSON))
 	if err != nil {
 		return 0, false, err
@@ -385,36 +490,20 @@ func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64,
 		return 0, false, err
 	}
 
-	for _, rule := range parsed.Rules {
-		canonicalID, err := ensureCanonicalTx(ctx, tx, poolID, rule)
+	for _, parsedRule := range parsed.Items {
+		canonicalID, err := ensureCanonicalTx(ctx, tx, poolID, parsedRule.Rule)
 		if err != nil {
 			return 0, false, err
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO pool_rule_origins (pool_id, canonical_rule_id, source_id, snapshot_id, sort_order, raw_line, line_no)
-			 VALUES (?,?,?,?,?,?,0)`,
-			poolID, canonicalID, sourceID, snapshotID, int64(len(parsed.Rules)), rule.SemanticKey()); err != nil {
+			 VALUES (?,?,?,?,?,?,?)`,
+			poolID, canonicalID, sourceID, snapshotID,
+			int64(parsedRule.Origin.Order), parsedRule.Origin.Raw, parsedRule.Origin.Line); err != nil {
 			return 0, false, err
 		}
 	}
 
-	pending := false
-	if oldActiveID.Valid {
-		if oldFormat.String != string(parsed.Format) || oldProfile.String != parsed.Profile {
-			pending = true
-		}
-		if oldAccepted.Int64 >= 20 && int64(parsed.Accepted)*10 < oldAccepted.Int64*7 {
-			pending = true
-		}
-	}
-	status := "active"
-	if pending {
-		status = "pending"
-	}
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE pool_source_snapshots SET status=? WHERE id=?`, status, snapshotID); err != nil {
-		return 0, false, err
-	}
 	if pending {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE rule_pool_sources SET pending_snapshot_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, snapshotID, sourceID); err != nil {
@@ -429,8 +518,78 @@ func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64,
 	return snapshotID, pending, nil
 }
 
+// recordFailedSnapshotTx 写入 failed snapshot，不修改 active/pending 指针。
+func recordFailedSnapshotTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, errMsg string) error {
+	var mode string
+	var oldID sql.NullInt64
+	var oldFormat, oldProfile sql.NullString
+	var oldAccepted sql.NullInt64
+	_ = tx.QueryRowContext(ctx,
+		`SELECT src.source_mode, s.id, s.format, s.profile, s.accepted_count
+		 FROM rule_pool_sources src LEFT JOIN pool_source_snapshots s ON s.id = src.active_snapshot_id
+		 WHERE src.id=?`, sourceID).Scan(&mode, &oldID, &oldFormat, &oldProfile, &oldAccepted)
+	stats := SnapshotStats{
+		SchemaVersion: 1,
+		SourceMode:    mode,
+		RuleCounts:    []RuleCountStat{},
+		Decision: &DecisionStats{
+			InitialStatus: "failed",
+			ReasonCodes:   []string{failedReasonCode(errMsg)},
+		},
+	}
+	if oldID.Valid {
+		stats.Comparison = &ComparisonStats{
+			PreviousActive: &PreviousActiveSnapshot{
+				SnapshotID: oldID.Int64,
+				Format:     oldFormat.String,
+				Profile:    oldProfile.String,
+				Accepted:   oldAccepted.Int64,
+			},
+			AcceptedDropThresholdPercent: 70,
+		}
+	}
+	diag := []ParseDiagnostic{{Kind: "error", Message: SanitizeTaskError(errMsg)}}
+	diagJSON, _ := json.Marshal(NormalizeDiagnostics(diag))
+	statsJSON, _ := json.Marshal(stats)
+	_, err := tx.ExecContext(ctx,
+		`INSERT INTO pool_source_snapshots
+		   (source_id, format, profile, status, input_count, recognized_count, accepted_count, excluded_count, rejected_count, duplicate_count, diagnostic_json, stats_json)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		sourceID, "", "", "failed", 0, 0, 0, 0, 0, 0, string(diagJSON), string(statsJSON))
+	return err
+}
+
+func failedReasonCode(errMsg string) string {
+	msg := strings.ToLower(errMsg)
+	switch {
+	case strings.Contains(msg, "http "), strings.Contains(msg, "http_status"):
+		return "http_status_error"
+	case strings.Contains(msg, "timeout"), strings.Contains(msg, "网络"):
+		return "network_error"
+	case strings.Contains(msg, "50mb"), strings.Contains(msg, "内容超过"):
+		return "body_too_large"
+	case strings.Contains(msg, "html"):
+		return "html_source"
+	case strings.Contains(msg, "unrecognized"):
+		return "unrecognized_source"
+	case strings.Contains(msg, "no accepted"):
+		return "no_accepted_rules"
+	case strings.Contains(msg, "threshold"):
+		return "recognition_threshold_not_met"
+	case strings.Contains(msg, "parse"), strings.Contains(msg, "解析"):
+		return "parse_error"
+	default:
+		return "request_invalid"
+	}
+}
+
 func (s *Service) finishTask(ctx context.Context, bgStore *store.Store, poolID, taskID int64, status, errMsg string, results []PerURLResult) {
-	perJSON, _ := json.Marshal(results)
+	cleanResults := make([]PerURLResult, len(results))
+	for i, r := range results {
+		cleanResults[i] = SanitizePerURLResult(r)
+	}
+	perJSON, _ := json.Marshal(cleanResults)
+	errMsg = SanitizeTaskError(errMsg)
 	if status == "succeeded" {
 		if _, err := bgStore.DB().ExecContext(ctx,
 			`UPDATE pool_sync_tasks SET status=?, per_url_json=?, error='', finished_at=CURRENT_TIMESTAMP WHERE id=?`,
@@ -459,7 +618,12 @@ func (s *Service) finishTask(ctx context.Context, bgStore *store.Store, poolID, 
 }
 
 func (s *Service) failTask(ctx context.Context, poolID, taskID int64, results []PerURLResult, msg string) {
-	perJSON, _ := json.Marshal(results)
+	cleanResults := make([]PerURLResult, len(results))
+	for i, r := range results {
+		cleanResults[i] = SanitizePerURLResult(r)
+	}
+	perJSON, _ := json.Marshal(cleanResults)
+	msg = SanitizeTaskError(msg)
 	if _, err := s.store.DB().ExecContext(ctx,
 		`UPDATE pool_sync_tasks SET status='failed', per_url_json=?, error=?, finished_at=CURRENT_TIMESTAMP WHERE id=?`,
 		string(perJSON), msg, taskID); err != nil {
@@ -495,7 +659,7 @@ func (s *Service) ActivatePending(ctx context.Context, poolID, sourceID, snapsho
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE pool_source_snapshots SET status='active' WHERE id=?`, snapshotID); err != nil {
+			`UPDATE pool_source_snapshots SET status='active', activated_at=CURRENT_TIMESTAMP WHERE id=?`, snapshotID); err != nil {
 			return err
 		}
 		return nil

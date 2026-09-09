@@ -132,9 +132,9 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		}
 		return
 	}
-	// 零输出门槛：只统计素材池+自定义规则，不含内置兜底。
-	if res.Receipt != nil && res.Receipt.FinalOutput == 0 && (len(in.Pools) > 0 || len(in.CustomRules) > 0) {
-		Fail(c, http.StatusBadRequest, "当前目标没有可输出的规则")
+	// 零输出门槛：Clash YAML/SR conf 无条件要求最终非系统规则 >=1，预览不受此限制。
+	if res.Receipt != nil && res.Receipt.FinalOutput == 0 {
+		Fail(c, http.StatusBadRequest, "当前目标没有可输出的非系统规则")
 		return
 	}
 	// 预览摘要由前端随生成请求回传；渲染结果发生变化时拒绝落库，避免素材池同步等外部变更造成预览与生成不一致。

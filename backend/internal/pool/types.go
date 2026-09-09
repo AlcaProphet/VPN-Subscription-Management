@@ -38,18 +38,46 @@ type ParseDiagnostic struct {
 	Raw     string `json:"raw"`
 }
 
+// RuleOriginMeta 保存单个解析位置的原始证据。
+type RuleOriginMeta struct {
+	Line  int    `json:"line"`
+	Raw   string `json:"raw"`
+	Order int    `json:"order"`
+}
+
+// ParsedRule 保存已解析规则与其来源位置证据。
+type ParsedRule struct {
+	Rule   rulespec.CanonicalRule
+	Origin RuleOriginMeta
+}
+
+// RuleCountStat 是 v1 stats 的 family/matcher/scope 分项统计。
+type RuleCountStat struct {
+	Family     string `json:"family"`
+	Matcher    string `json:"matcher"`
+	Scope      string `json:"scope"`
+	Accepted   int    `json:"accepted"`
+	Excluded   int    `json:"excluded"`
+	Rejected   int    `json:"rejected"`
+	Duplicates int    `json:"duplicates"`
+}
+
 // ParseResult 是单份来源文档的解析与来源准入结果。
 type ParseResult struct {
-	Format      DetectedFormat           `json:"format"`
-	Profile     string                   `json:"profile"` // common / clash / shadowrocket / unknown
-	Rules       []rulespec.CanonicalRule `json:"-"`
-	Diagnostics []ParseDiagnostic        `json:"diagnostics"`
-	Input       int                      `json:"input"`
-	Recognized  int                      `json:"recognized"`
-	Accepted    int                      `json:"accepted"`
-	Excluded    int                      `json:"excluded"`
-	Rejected    int                      `json:"rejected"`
-	Duplicates  int                      `json:"duplicates"`
+	Format               DetectedFormat           `json:"format"`
+	Profile              string                   `json:"profile"` // common / clash / shadowrocket / unknown
+	Rules                []rulespec.CanonicalRule `json:"-"`       // 兼容投影：唯一 Canonical，由 Items 派生
+	Items                []ParsedRule             `json:"-"`       // 唯一与重复的全部有效 origin，按原始顺序
+	Diagnostics          []ParseDiagnostic        `json:"diagnostics"`
+	Input                int                      `json:"input"`
+	Recognized           int                      `json:"recognized"`
+	Accepted             int                      `json:"accepted"`
+	Excluded             int                      `json:"excluded"`
+	Rejected             int                      `json:"rejected"`
+	Duplicates           int                      `json:"duplicates"`
+	RuleCounts           []RuleCountStat          `json:"-"`
+	UnclassifiedRejected int                      `json:"-"`
+	EvidenceCodes        []string                 `json:"-"`
 }
 
 // 解析/探测硬错误。

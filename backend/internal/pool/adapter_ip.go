@@ -9,8 +9,8 @@ import (
 )
 
 // parseIPList 解析纯 IP/CIDR/ASN 列表。
-func parseIPList(body []byte) ([]rulespec.CanonicalRule, []ParseDiagnostic, error) {
-	var rules []rulespec.CanonicalRule
+func parseIPList(body []byte) ([]ParsedRule, []ParseDiagnostic, error) {
+	var rules []ParsedRule
 	var diagnostics []ParseDiagnostic
 	lines := strings.Split(string(body), "\n")
 	for i, raw := range lines {
@@ -46,7 +46,7 @@ func parseIPList(body []byte) ([]rulespec.CanonicalRule, []ParseDiagnostic, erro
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: err.Error(), Raw: line})
 			continue
 		}
-		rules = append(rules, rule)
+		rules = append(rules, ParsedRule{Rule: rule, Origin: RuleOriginMeta{Line: i + 1, Raw: line, Order: i}})
 	}
 	return rules, diagnostics, nil
 }

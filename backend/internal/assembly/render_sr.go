@@ -90,7 +90,7 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 	}
 	b.WriteString("\n[Rule]\n")
 	skipped := []SkipItem{}
-	appendRule := func(ruleType, value, target string) {
+	appendRule := func(ruleType, value, target string, noResolve bool) {
 		typ, normalized, err := rulespec.ValidateValue(ruleType, value)
 		if err != nil {
 			skipped = append(skipped, SkipItem{Kind: "rule", Name: ruleType + "," + value, Reason: err.Error()})
@@ -101,16 +101,16 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 			skipped = append(skipped, SkipItem{Kind: "rule", Name: typ + "," + normalized, Reason: "Shadowrocket 不支持该规则类型"})
 			return
 		}
-		b.WriteString(formatRuleLine(mapped.RenderType, normalized, target))
+		b.WriteString(formatRuleLine(mapped.RenderType, normalized, target, noResolve))
 		b.WriteString("\n")
 	}
 	for _, psel := range in.Pools {
 		for _, e := range ld.pools[psel.PoolID] {
-			appendRule(e.RuleType, e.MatchValue, psel.Target)
+			appendRule(e.RuleType, e.MatchValue, psel.Target, e.NoResolve)
 		}
 	}
 	for _, r := range in.CustomRules {
-		appendRule(r.RuleType, r.MatchValue, r.Target)
+		appendRule(r.RuleType, r.MatchValue, r.Target, false)
 	}
 	b.WriteString("GEOIP,CN,DIRECT\n")
 	final := in.FinalDirection
@@ -131,10 +131,10 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: plan}, nil
 }
 
-// formatRuleLine 生成规则行；IP-CIDR/IP-CIDR6 追加 no-resolve。
-func formatRuleLine(ruleType, value, target string) string {
+// formatRuleLine 生成规则行；仅当实例显式设置 no-resolve 且类型支持时追加。
+func formatRuleLine(ruleType, value, target string, noResolve bool) string {
 	line := ruleType + "," + value + "," + target
-	if ruleType == "IP-CIDR" || ruleType == "IP-CIDR6" {
+	if noResolve {
 		line += ",no-resolve"
 	}
 	return line

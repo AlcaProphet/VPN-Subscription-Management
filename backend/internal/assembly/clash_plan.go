@@ -49,12 +49,17 @@ type ClashPlanGroup struct {
 	Force               bool     `json:"force,omitempty"`
 }
 
-// ClashPlanRule 是冻结后的规则行（不含 no-resolve 后缀，渲染时按类型补）。
+// ClashPlanRule 是冻结后的规则行。
+// NoResolve 为三态：nil 表示历史计划字段缺失（渲染沿用旧版按类型推断），
+// 非 nil false/true 表示新计划显式冻结的实例级 no_resolve。
 type ClashPlanRule struct {
-	Type   string `json:"type"`
-	Value  string `json:"value"`
-	Target string `json:"target"`
+	Type      string `json:"type"`
+	Value     string `json:"value"`
+	Target    string `json:"target"`
+	NoResolve *bool  `json:"no_resolve,omitempty"`
 }
+
+func boolPtr(v bool) *bool { return &v }
 
 // DynamicNode 是下载重渲染时注入的动态 Xray 节点。
 type DynamicNode struct {
@@ -125,7 +130,11 @@ func RenderClashPlan(planRaw []byte, dynamic []DynamicNode, manualNames map[stri
 			line += r.Value + ","
 		}
 		line += r.Target
-		if rulespec.SupportsAndMapLegacy(r.Type, rulespec.TargetClash).SupportsNoResolve {
+		effective := rulespec.SupportsAndMapLegacy(r.Type, rulespec.TargetClash).SupportsNoResolve
+		if r.NoResolve != nil {
+			effective = *r.NoResolve && rulespec.SupportsAndMapLegacy(r.Type, rulespec.TargetClash).SupportsNoResolve
+		}
+		if effective {
 			line += ",no-resolve"
 		}
 		ruleValues = append(ruleValues, line)
@@ -377,7 +386,7 @@ func downgradeRuleLines(lines []string, finalGroupSet map[string]bool) []string 
 			rebuilt += value + ","
 		}
 		rebuilt += "DIRECT"
-		if noResolve || rulespec.SupportsAndMapLegacy(typ, rulespec.TargetClash).SupportsNoResolve {
+		if noResolve {
 			rebuilt += ",no-resolve"
 		}
 		out = append(out, rebuilt)

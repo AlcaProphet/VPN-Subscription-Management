@@ -25,7 +25,7 @@ type singBoxSource struct {
 }
 
 // parseSingBoxSourceJSON 解析 sing-box source 仅支持简单单 family 子集。
-func parseSingBoxSourceJSON(body []byte, mode SourceMode) ([]rulespec.CanonicalRule, []ParseDiagnostic, error) {
+func parseSingBoxSourceJSON(body []byte, mode SourceMode) ([]ParsedRule, []ParseDiagnostic, error) {
 	if mode != SourceModeAuto {
 		return nil, nil, fmt.Errorf("sing-box 来源仅在 auto 模式识别")
 	}
@@ -36,8 +36,9 @@ func parseSingBoxSourceJSON(body []byte, mode SourceMode) ([]rulespec.CanonicalR
 	if doc.Version <= 0 {
 		return nil, nil, fmt.Errorf("sing-box source 缺少有效 version")
 	}
-	var rules []rulespec.CanonicalRule
+	var rules []ParsedRule
 	var diagnostics []ParseDiagnostic
+	order := 0
 	for i, r := range doc.Rules {
 		if r.Invert || r.Type != "" {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "sing-box invert/logical 整项拒绝", Raw: fmt.Sprintf("%+v", r)})
@@ -57,28 +58,45 @@ func parseSingBoxSourceJSON(body []byte, mode SourceMode) ([]rulespec.CanonicalR
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "sing-box 多条件 AND 整项拒绝", Raw: fmt.Sprintf("%+v", r)})
 			continue
 		}
-		for _, v := range r.Domain {
+		for di, v := range r.Domain {
 			rule, err := NormalizeExplicitDomain(strings.TrimSpace(v), rulespec.MatcherExact)
 			if err == nil {
-				rules = append(rules, rule)
+				rules = append(rules, ParsedRule{Rule: rule, Origin: RuleOriginMeta{Line: 0, Raw: fmt.Sprintf("rules[%d].domain[%d]", i, di), Order: order}})
+				order++
 			}
 		}
-		for _, v := range r.DomainSuffix {
+		for si, v := range r.DomainSuffix {
 			rule, err := NormalizeExplicitDomain(strings.TrimSpace(v), rulespec.MatcherSuffix)
 			if err == nil {
-				rules = append(rules, rule)
+				rules = append(rules, ParsedRule{Rule: rule, Origin: RuleOriginMeta{Line: 0, Raw: fmt.Sprintf("rules[%d].domain_suffix[%d]", i, si), Order: order}})
+				order++
 			}
 		}
-		for _, v := range r.DomainKeyword {
+		for ki, v := range r.DomainKeyword {
 			normalized := strings.ToLower(strings.TrimSpace(v))
 			if normalized != "" {
-				rules = append(rules, rulespec.CanonicalRule{Family: rulespec.FamilyDomain, Matcher: rulespec.MatcherKeyword, Value: normalized})
+				rules = append(rules, ParsedRule{
+					Rule:   rulespec.CanonicalRule{Family: rulespec.FamilyDomain, Matcher: rulespec.MatcherKeyword, Value: normalized},
+					Origin: RuleOriginMeta{Line: 0, Raw: fmt.Sprintf("rules[%d].domain_keyword[%d]", i, ki), Order: order},
+				})
+				order++
 			}
 		}
-		for _, v := range append(append([]string{}, r.IPCIDR...), r.IPCIDR6...) {
+		combined := append(append([]string{}, r.IPCIDR...), r.IPCIDR6...)
+		for ci, v := range combined {
 			cidr, err := NormalizeCIDRValue(strings.TrimSpace(v))
 			if err == nil {
-				rules = append(rules, rulespec.CanonicalRule{Family: rulespec.FamilyIP, Matcher: rulespec.MatcherCIDR, Value: cidr})
+				field := "ip_cidr"
+				idx := ci
+				if ci >= len(r.IPCIDR) {
+					field = "ip_cidr6"
+					idx = ci - len(r.IPCIDR)
+				}
+				rules = append(rules, ParsedRule{
+					Rule:   rulespec.CanonicalRule{Family: rulespec.FamilyIP, Matcher: rulespec.MatcherCIDR, Value: cidr},
+					Origin: RuleOriginMeta{Line: 0, Raw: fmt.Sprintf("rules[%d].%s[%d]", i, field, idx), Order: order},
+				})
+				order++
 			}
 		}
 	}

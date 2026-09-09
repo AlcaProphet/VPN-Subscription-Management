@@ -18,6 +18,7 @@
 > 8. 每 URL 主状态以**最近一次同步尝试**为准；最近失败但旧 active 仍有效时同时显示“同步失败”和“继续使用旧活动快照”，之后成功则旧 failed 只保留在历史中。
 > 9. 新 Clash render plan 使用逐规则 `NoResolve *bool` 三态并显式冻结实例级 `no_resolve` true/false，不为这一单字段引入顶层 plan schema version；旧计划字段缺失或 JSON `null` 时维持历史按类型推断，禁止历史下载漂移。
 > 10. 素材池能力白名单以后端入口的**原始 legacy 类型**为准，拒绝 `SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR` 等 `material_pool=false` 类型；不能只按 Canonical `family/matcher` 判定，避免与 `GEOIP`/`IP-ASN`/`IP-CIDR` 同语义碰撞后被放行。
+> 11. Step 7 脱敏采用新建 `backend/internal/redact` 公共包并由日志/pool 共用；`SourceStatus` 使用 `display_url`；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 也纳入读时清洗；历史同步输出做非破坏性清洗；诊断超 20 条时使用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长。
 >
 > **执行原则（与 Build17～Build21 一致）：**
 > - 每一步完成后均可编译、可测试。不跳步、不并行多步。
@@ -33,14 +34,14 @@
 
 | Step | 内容 | 设计依据 | 状态 |
 |------|------|---------|------|
-| 1 | 修复来源统计计数（D3-2） | Design3 §5.3、§6.4 | ☐ 未开始 |
-| 2 | 来源原始证据采集、排序与装配去重（D3-5） | Design3 §3.2、§5.4、§6.1 | ☐ 未开始 |
-| 3 | `no_resolve` 实例语义贯通（D3-1） | Design3 §7.2 | ☐ 未开始 |
-| 4 | 后端素材池能力白名单（D3-4，按原始 legacy 类型拒绝 `SRC-*`） | Design3 §3.3、§3.4、§8.3 | ☐ 未开始 |
-| 5 | 手工编辑不污染共享 Canonical（D3-3） | Design3 §3.2、§6.1 | ☐ 未开始 |
-| 6 | 零输出门槛补全（D3-6） | Design3 §7.2 | ☐ 未开始 |
-| 7 | failed 快照、v1 统计/激活时间 + per-URL 状态/诊断 API（D3-7） | Design3 §6.4、§8.2、§8.3 | ☐ 未开始 |
-| 8 | 前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8） | Design3 §8.2 | ☐ 未开始 |
+| 1 | 修复来源统计计数（D3-2） | Design3 §5.3、§6.4 | ✅ 验收通过 |
+| 2 | 来源原始证据采集、排序与装配去重（D3-5） | Design3 §3.2、§5.4、§6.1 | ✅ 验收通过 |
+| 3 | `no_resolve` 实例语义贯通（D3-1） | Design3 §7.2 | ✅ 验收通过 |
+| 4 | 后端素材池能力白名单（D3-4，按原始 legacy 类型拒绝 `SRC-*`） | Design3 §3.3、§3.4、§8.3 | ✅ 验收通过 |
+| 5 | 手工编辑不污染共享 Canonical（D3-3） | Design3 §3.2、§6.1 | ✅ 验收通过 |
+| 6 | 零输出门槛补全（D3-6） | Design3 §7.2 | ✅ 验收通过 |
+| 7 | failed 快照、v1 统计/激活时间 + per-URL 状态/诊断 API（D3-7） | Design3 §6.4、§8.2、§8.3 | ✅ 验收通过 |
+| 8 | 前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8） | Design3 §8.2 | ◧ 进行中 |
 | 9 | 装配回执前端展示（D3-9） | Design3 §7.2、§8.2 | ☐ 未开始 |
 | 10 | 1016 迁移 store 级回归测试（D3-10） | Design3 §6.5、§9.3 | ☐ 未开始 |
 | 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | AGENTS.md §3.4～§3.6 | ☐ 未开始 |
@@ -61,7 +62,7 @@
 | 4 | `backend/internal/rulespec/legacy.go`（或新增 helper）、`backend/internal/pool/pool.go`、`adapter_typed.go`、`adapter_mihomo.go`、`pool_test.go` | 后端按**原始 legacy 类型**强制 `MaterialPool` 白名单；手工 CRUD 与来源解析均拒绝 advanced-only/`SRC-*` 等非素材池类型 |
 | 5 | `backend/internal/pool/pool.go`、`backend/internal/pool/pool_test.go`、`backend/internal/server/pool_test.go` | 手工编辑改为换绑 canonical origin；manual 重复返回 409；后端服务与 HTTP 409 合同均有回归，不直接修改共享 canonical 行 |
 | 6 | `backend/internal/server/assembly.go`、`server/assembly_test.go` | 规则型目标无条件执行 `FinalOutput==0` 禁止生成 |
-| 7 | `backend/migrations/1018_pool_snapshot_activated_at.sql`、`backend/internal/store/migration_1018_test.go`、`backend/internal/pool/detector.go`、`types.go`、`sync.go`、新增 `snapshot.go`（或同类文件）、`backend/internal/server/pool.go`、`frontend/src/api/pool.ts`、后端/前端测试 | 失败时写入 failed snapshot；冻结 v1 强类型统计和检测依据；记录 pending 激活时间；统一限额/脱敏；增加 latest-attempt 来源状态与快照历史 API |
+| 7 | 新增 `backend/internal/redact/redact.go`、`backend/internal/log/log.go`、`backend/internal/pool/sanitize.go`、`backend/migrations/1018_pool_snapshot_activated_at.sql`、`backend/internal/store/migration_1018_test.go`、`backend/internal/pool/detector.go`、`types.go`、`sync.go`、新增 `snapshot.go`（或同类文件）、`backend/internal/server/pool.go`、`frontend/src/api/pool.ts`、后端/前端测试 | 失败时写入 failed snapshot；冻结 v1 强类型统计和检测依据；记录 pending 激活时间；统一限额/脱敏；清洗历史同步输出；增加 latest-attempt 来源状态与快照历史 API |
 | 8 | `frontend/src/views/admin/assembly/PoolDetail.vue`、`frontend/tests/pool-detail.spec.ts` | 每 URL 展示状态/统计/诊断；pending 激活与丢弃 |
 | 9 | `backend/internal/server/assembly.go`、`backend/internal/server/assembly_test.go`、`frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/PreviewStep.vue`、`frontend/tests/assembly-view.spec.ts`、`preview-step.spec.ts` | generate 返回本次回执；前端保存并渲染 preview/generate 装配转换回执 |
 | 10 | 新增 `backend/internal/store/migration_1016_test.go` | 使用真实 0001～1016 两阶段迁移，验证旧数据清除、ID 防复用、无关历史保留及失败回滚 |
@@ -156,6 +157,10 @@ Step 11（全量回归/文档收口） ←────────────�
 - **验收标准：**
   Clash/SR 模式下 excluded 与 duplicates 互不污染；adapter reject 完整进入 rejected；auto 模式不出现来源模式排除；`detected_profile` 不受显式来源模式过滤污染；清洗阶段新增诊断不丢失；现有解析测试全部通过。
 
+- **Step 1 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/pool -run 'TestParseSource|TestFinalize' -count=1 -timeout 60s` 与 `cd backend && go build ./...`，均通过；另运行 `cd backend && go test ./internal/pool -count=1 -timeout 60s` 全 pool 回归通过。
+  - 新增 5 个回归用例：重复与排除分离、adapter reject 计入 rejected、显式模式前计算 profile、auto 无来源排除、能力阶段诊断回写。
+
 ---
 
 ### Step 2：来源原始证据采集、排序与装配去重（D3-5）
@@ -235,7 +240,9 @@ Step 11（全量回归/文档收口） ←────────────�
 - **验收标准：**
   `pool_rule_origins.sort_order/line_no/raw_line` 不再全部是占位值；同一 URL 内重复和跨来源重复均保留 origin，但相同 Canonical 只展示/渲染一次；`accepted` 为唯一 Canonical 数、`duplicates` 为额外 origin 数；手工在前、URL 按配置顺序、来源内按原始顺序；删除最早 origin 后按剩余最早 origin 稳定重排；ListEntries 任意分页和来源筛选均不因重复 origin 少条或出现总数不一致。
 
----
+- **Step 2 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 120s` 与 `cd backend && go build ./...`，均通过。
+  - 新增 `internal/pool/origin_test.go` 覆盖：解析项 origin 元数据、落库重复 origin 与 sort_order/line_no/raw_line 证据、分页前去重与 COUNT 一致、manual→URL→来源内稳定排序、删除最早 origin 后回退到下一 origin。
 
 ### Step 3：`no_resolve` 实例语义贯通（D3-1）
 
@@ -309,6 +316,11 @@ Step 11（全量回归/文档收口） ←────────────�
 - **验收标准：**
   Clash YAML 与 SR 分流规则中的 `no-resolve` 仅出现在源实际设置且目标支持的行；值内同名子串不触发选项；新版本预览、生成正文和用户下载重渲染一致，且原始 plan 中每条新规则都显式携带 boolean；既有历史 Clash plan 下载不漂移；覆盖层重写不重新引入后缀；既有默认“IP 类型必加 no-resolve”的新计划测试期望改为按实例断言。
 
+- **Step 3 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
+  - 实现：独立 option token 解析、Clash/SR 按实例渲染、`ClashPlanRule.NoResolve *bool` 三态、新 plan 每条规则显式 boolean、历史 nil/null 保持类型推断、downgrade 不按类型补后缀。
+  - 新增 `internal/assembly/no_resolve_test.go` 与 pool 解析用例覆盖 true/false、历史兼容、SR、降级等。
+
 ---
 
 ### Step 4：后端素材池能力白名单（D3-4）
@@ -376,6 +388,10 @@ Step 11（全量回归/文档收口） ←────────────�
   - `DOMAIN`、`DOMAIN-SUFFIX`、`IP-CIDR`、`USER-AGENT` 等素材池类型可正常创建/解析；
   - 前端下拉、手工 CRUD、来源解析共用同一原始 legacy 类型白名单，不再出现“前端不可选但后端可创建”的偏差。
 
+- **Step 4 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/rulespec ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
+  - 新增 `rulespec.IsMaterialPoolType` 及 CRUD/来源解析反例测试，覆盖 `SRC-GEOIP/SRC-IP-ASN/SRC-IP-CIDR` 等有损映射碰撞类型在 Canonical 化前被拒绝。
+
 ---
 
 ### Step 5：手工编辑不污染共享 Canonical（D3-3）
@@ -419,6 +435,10 @@ Step 11（全量回归/文档收口） ←────────────�
 - **验收标准：**
   手工规则更新只影响指定 manual origin；同语义 URL 规则保持原值；manual→manual 重复稳定返回 409 且事务无部分写入；manual→仅 URL Canonical 可共享；编辑前后手工顺序不变；无孤儿 canonical 残留。
 
+- **Step 5 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
+  - `UpdateEntry` 改为事务内换绑唯一 manual origin，不再 UPDATE 共享 canonical；新增 pool 层换绑/共享/409/排序/孤儿清理测试及 HTTP 409 路由测试。
+
 ---
 
 ### Step 6：零输出门槛补全（D3-6）
@@ -457,6 +477,10 @@ Step 11（全量回归/文档收口） ←────────────�
 - **验收标准：**
   空素材/空自定义不能生成 Clash YAML 或 SR conf；有效的单条规则可生成；预览仍可返回 receipt。
 
+- **Step 6 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/server ./internal/assembly -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
+  - `generate()` 已无条件执行 `FinalOutput==0` 拒绝；新增空规则、仅不支持规则、有效单条规则、sr-subs 不套用的 HTTP 回归测试。
+
 ---
 
 ### Step 7：failed 快照持久化 + per-URL 状态/诊断 API（D3-7）
@@ -473,10 +497,28 @@ Step 11（全量回归/文档收口） ←────────────�
 - **前置条件：** Steps 2～3 通过（统计与 origin 已修正）。
 
 - **产出文件与操作：**
+  - 新增 `backend/internal/redact/redact.go`、`backend/internal/redact/redact_test.go`：
+    - `RedactText(s string) string`：通用文本脱敏，供日志、任务错误、诊断 Message/Raw、池 sync_error 共用；按参数名/字段路径判断敏感键，覆盖 URL query、fragment、URL userinfo、password/secret/token 等疑似凭据的 `key=value` 文本。
+    - `RedactDisplayURL(raw string) string`：只用于展示 URL；保留非敏感参数、参数顺序、重复参数和原始编码；对敏感 query 参数值替换为 `***`；不得用于覆盖 `rule_pool_sources.url`。
+    - `TruncateText(s string, maxRunes int) string`：Unicode 安全截断，按 rune 而非 byte。
+    - `MaxDiagnostics` / `MaxFieldRunes` 常量，默认 20 条 / 200 字符。
+  - `backend/internal/log/log.go` 与 `backend/internal/log/log_test.go`：
+    - `log.Redact` 改为 `backend/internal/redact.RedactText` 的薄封装，或由 `RedactHandler` 直接调用公共包；
+    - 保留 AGENTS §4.3 对日志 token 脱敏的既有行为；
+    - 补充 code/state、大小写、重复参数、编码参数、fragment 等测试。
+  - `backend/internal/pool/sanitize.go`（或 `snapshot.go` 内同职责部分）：
+    - `NormalizeDiagnostics([]ParseDiagnostic) []ParseDiagnostic`：每条先对 Message/Raw 调用 `RedactText`，再 `TruncateText(200)`；超过 20 条时保留前 19 条，并在第 20 条写入截断摘要；空诊断必须输出 `[]`，不得输出 `null`。
+    - `SanitizePerURLResult(PerURLResult) PerURLResult`：URL 使用 `RedactDisplayURL`，Error 使用 `RedactText` + `TruncateText(200)`。
+    - `SanitizeTaskError(err string) string`：`RedactText` + `TruncateText(200)`。
   - `backend/internal/pool/sync.go`：
     - 新增 `recordFailedSnapshotTx(ctx, tx, poolID, sourceID, errMsg)`；
     - 写入 `pool_source_snapshots(status='failed', format='', profile='', counts=0, diagnostic_json=[{kind:"error", message:...}], stats_json=<v1 failed stats>)`；failed stats 使用稳定原因码，具体脱敏错误只进入顶层 `error`，不得在 stats 中复制第二份；
-    - 提取统一的 snapshot 持久化规范化 helper：所有成功/失败诊断在写 `diagnostic_json`、`stats_json`、任务 `per_url_json/error` 前执行脱敏和限额，最多 20 条、每条字段/消息最多 200 字符；URL 查询中的 `token`、`code`、`state` 和疑似凭据不得写入；
+    - 提取统一的 snapshot 持久化规范化 helper；所有成功/失败诊断在写 `diagnostic_json`、`stats_json`、任务 `per_url_json/error`、池 `sync_error` 前必须先执行脱敏和限额；
+    - 脱敏与限额适用于所有进入持久化或展示 API 的字符串字段：`ParseDiagnostic.Message`、`ParseDiagnostic.Raw`、`PerURLResult.URL`、`PerURLResult.Error`、`SyncTask.Error`、`Pool.SyncError`、`SourceStatus.display_url`；
+    - 疑似凭据按参数名/字段路径判断，不按值特征猜测。至少覆盖：`token`、`code`、`state`、`password`、`passwd`、`secret`、`client_secret`、`private-key`/`private_key`、`pre-shared-key`/`pre_shared_key`、`psk`、`auth`、`auth-key`/`auth_key`、`access_token`、`refresh_token`、`api_key`、`apikey`；参数名比较前先做 URL 解码并忽略大小写；
+    - `RedactDisplayURL` 只用于展示/任务输出，不得写回 `rule_pool_sources.url`，也不得用于编辑表单回填。管理员编辑仍使用 `GET /api/admin/pools` 返回的 `Pool.sources[].url` 与 `Pool.urls[]` 原始值；
+    - 诊断最多保留 20 条；若原始超过 20 条，保留前 19 条真实诊断，第 20 条固定为截断摘要，例如 `{ "line": 0, "kind": "truncated", "message": "另有 N 条诊断未展示", "raw": "" }`，总条数不得超过 20；
+    - 每条字符串字段按 rune 截断到 200 字符；空诊断必须序列化为 `[]`，不得输出 `null`；
     - 不保存响应正文、HTML 或整份 parser 输入；failed 仅保存有限错误分类与摘要；
     - 不修改 active/pending 指针；
     - pending 判定和 v1 stats 必须在同一事务内使用同一份旧 active 数据构造，避免先写 stats 后再得出状态而产生原因漂移；`ActivatePending()` 原子更新 active 指针、快照 `status='active'` 与 `activated_at=CURRENT_TIMESTAMP`，不改写解析统计或 `decision.initial_status`。
@@ -496,7 +538,7 @@ Step 11（全量回归/文档收口） ←────────────�
     - `decision.initial_status` 记录创建时的 active/pending/failed 决策，`reason_codes` 为可多选的稳定枚举；快照顶层 status 表达当前生命周期，pending 人工激活后允许变为 active，但初始决策和解析统计保持不变；
     - 首期 `reason_codes` 固定为：`first_success`、`normal`、`format_changed`、`profile_changed`、`accepted_below_threshold`、`request_invalid`、`network_error`、`http_status_error`、`body_read_error`、`body_too_large`、`html_source`、`unrecognized_source`、`ambiguous_format`、`conflicting_format`、`mixed_platform`、`no_accepted_rules`、`recognition_threshold_not_met`、`parse_error`；同一次 pending 可包含多个保护原因；
     - active/pending/failed 共用同一 v1 类型；无法进入解析的 failed 使用空 evidence/rule_counts、nullable `recognition_required_percent: null` 和稳定失败原因码。历史 `{}` 或旧无版本计数 JSON 统一规范化为 `schema_version:0`、空 source_mode/rule_counts、null detection/comparison/decision 和 `unclassified_rejected:0`，不能反向编造检测依据、比较数据或原因，也不能使整个状态列表失败；
-    - `SourceStatus` 模型：source_id、脱敏后的展示 URL、source_mode、`latest_attempt`、active、pending、latest_failed、never_synced 标记，并要求 active/pending/latest_attempt/latest_failed 对象都使用同一个 `SourceSnapshot` 摘要形状，携带对应快照计数与有限诊断；原始 URL 只用于数据库配置和实际拉取，不得由状态/历史 API 回传或被脱敏值覆盖；
+    - `SourceStatus` 模型：source_id、`display_url`（脱敏后的展示 URL）、source_mode、`latest_attempt`、active、pending、latest_failed、never_synced 标记，并要求 active/pending/latest_attempt/latest_failed 对象都使用同一个 `SourceSnapshot` 摘要形状，携带对应快照计数与有限诊断；原始 URL 只存在于 `rule_pool_sources.url`，用于管理员编辑与实际拉取，不得由状态/历史 API 回传，也不得被 `display_url` 覆盖；
     - `latest_attempt` 取该 source 按 `created_at DESC, id DESC` 的最近快照，用它决定主状态；`latest_failed` 仅作为历史快捷信息，不单独决定主状态；
     - 最近失败但 active 仍存在时同时返回 failed latest_attempt 与 active；失败后又有更新的 active/pending 时，主状态按新尝试恢复，旧 failed 只在历史/latest_failed 中可查；
     - `ListSourceStatuses(ctx, poolID)`；
@@ -511,27 +553,49 @@ Step 11（全量回归/文档收口） ←────────────�
       GET /api/admin/pools/:id/sources/:sourceId/snapshots
       ```
     - 路由继续叠加 session + admin 双中间件。
-    - `sources/status` 是当前池全部 URL 来源的非分页列表，统一返回 `{ "list": SourceStatus[], "total": number }`，无 URL 来源时必须返回 `list: []`；
+    - `sources/status` 是当前池全部 URL 来源的非分页列表，统一返回 `{ "list": SourceStatus[], "total": number }`，无 URL 来源时必须返回 `list: []`；`SourceStatus` 顶层字段使用 `display_url`，不使用 `url`；
     - `snapshots` 接受 `page`、`page_size`，使用列表默认值 1/20 和 `MaxPageSize` 上限，按 `created_at DESC, id DESC` 返回 `{ "list": SourceSnapshot[], "total": number }`；pool/source 不匹配返回 404，非法 ID 或非数字分页参数返回 400；
-    - server 原始 JSON 测试必须固定列表包裹、snake_case 字段、`[]` 非 `null`、分页总数以及 URL/诊断脱敏，避免只依赖 Go 类型或前端 mock。
+    - 状态/历史 API 不得回传 `rule_pool_sources.url` 原始值；
+    - 现有 `/sync/status`、`/sync/tasks` 和 `GET /api/admin/pools` 的 `sync_error` 同样纳入读时清洗：`sync/status`、`sync/tasks` 中的 `per_url[].url` 使用脱敏后的展示 URL，`per_url[].error`、`task.error` 使用脱敏+限长文本；`Pool.sync_error` 使用脱敏+限长文本；`Pool.sources[].url` 与 `Pool.urls[]` 保持原始值，以支持编辑；
+    - server 原始 JSON 测试必须固定列表包裹、snake_case 字段、`display_url`、`[]` 非 `null`、分页总数以及 URL/诊断脱敏，并覆盖现有 sync/status、sync/tasks、Pool.sync_error 的读时清洗，避免只依赖 Go 类型或前端 mock。
   - `frontend/src/api/pool.ts`：
     - 新增 `SourceSnapshot`、`SourceStatus` 类型与 `listSourceStatuses`、`listSourceSnapshots` 请求函数。
   - 清理策略：
     - 在 `CleanupOldTasks()` 或新增清理逻辑中，以单个事务同时清理超过 7 天、状态为 failed 且未被任何 active/pending 指针引用的快照；active/pending 快照和所有仍被指针引用的快照不得删除；
     - 删除 failed snapshot 后执行孤儿 Canonical 清理，但不得影响任何手工或 active/pending origin；手动“清理同步历史”保持现有语义，只清任务，不扩大为快照删除。
+    - 新增 `SanitizeStoredSyncOutputs(ctx)`（或等价命名）：
+      - 以幂等、非破坏性方式清洗存量数据：`pool_sync_tasks.per_url_json`、`pool_sync_tasks.error`、`rule_pools.sync_error`；
+      - 不清除任务或池记录；
+      - 不修改 `rule_pool_sources.url`；
+      - 不修改 active/pending/failed 快照的原始计数、`stats_json` 或诊断证据；
+      - 该函数在启动清理或 `CleanupOldTasks()` 入口执行一次；后续新增写入仍必须经过持久化脱敏边界；
+      - 所有受影响 API 仍应在读取时对返回对象执行 copy-sanitize，作为防御纵深，防止历史脏数据或未来遗漏写入再次泄漏。
   - 测试：
+    - `backend/internal/redact` 单元测试覆盖：token/code/state 大小写、重复参数、URL 编码参数名和值、空值、fragment、嵌套 URL、URL userinfo 中的密码、非敏感参数保留、无法解析为 URL 的任意错误文本不 panic 且不泄漏敏感 `key=value`、Unicode 200 字符截断；
     - HTTP 失败生成 failed snapshot；
     - 解析失败生成 failed snapshot；
     - active/pending 不变；
-    - 状态 API 返回统一包裹的 latest_attempt/active/pending/latest_failed/never_synced，四类快照摘要形状一致；
+    - 失败路径写入 failed snapshot 时，`diagnostic_json`、`stats_json`、顶层 `error` 不含敏感值；
+    - 成功、pending、failed 使用同一套脱敏与限额规则；
+    - 诊断超过 20 条时输出 19 条真实诊断 + 1 条截断摘要；
+    - 每条字符串字段不超过 200 rune；
+    - 空诊断输出 `[]`；
+    - `per_url_json`、`pool_sync_tasks.error`、`rule_pools.sync_error` 不含敏感值；
+    - 状态 API 返回统一包裹的 latest_attempt/active/pending/latest_failed/never_synced，四类快照摘要形状一致，顶层字段为 `display_url`；
     - v1 stats 原始 JSON 固定 snake_case 字段、稳定 reason/evidence codes、分项合计不变量和 previous-active 比较；不得出现重复的六项顶层计数或数值 confidence score；
     - `{}` 与旧无版本计数 stats 可读取为 version 0，不伪造新字段，也不阻断同一列表中的新 v1 快照；
     - 最近失败+旧 active 时主状态为 failed 且 active 同时返回；随后成功时主状态恢复 active，旧 failed 不再控制徽标；
     - pending 激活后顶层 status/active 指针和 `activated_at` 原子更新，`decision.initial_status` 与原解析统计保持 pending 时的不可变证据；历史 active/failed 不补造激活时间；
     - 同时间戳时使用 ID 稳定选择 latest_attempt；
     - 快照历史分页、稳定倒序、总数以及 pool/source 归属校验正确；
-    - failed/成功诊断、展示 URL、任务 JSON 和两个 API 的原始 JSON 均不包含 URL 查询凭据/Token，且诊断严格满足 20×200 限额；
-    - failed 写库失败不会改变 active/pending，也不会报告虚假的 snapshot ID；
+    - failed/成功诊断、展示 URL、任务 JSON、新增两个 API 的原始 JSON 均不包含 URL 查询凭据/Token，且诊断严格满足 20×200 限额；
+    - 现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 的 raw JSON 中不包含 token/code/state/password 等敏感参数值；
+    - `Pool.sources[].url` 与 `Pool.urls[]` 仍保留原始 URL；
+    - 脱敏不会覆盖 `rule_pool_sources.url`；
+    - 管理员仍能通过 `GET /api/admin/pools` 读取原始 URL，并通过现有编辑流程保存原始配置；
+    - 前端状态卡片/status API 的展示 URL 与编辑表单的原始 URL 来源不同，不会把脱敏 URL 提交回 update/create；
+    - failed 写库失败不会改变 active/pending，也不会报告虚假的 snapshot ID，详细 DB error 不进入任务/API/池 `sync_error`；
+    - `SanitizeStoredSyncOutputs` 对含原始 URL 的存量 `per_url_json`、`error`、`sync_error` 执行一次后变为脱敏值，幂等、不删除任务/池记录、不修改 `rule_pool_sources.url`；
     - 7 天清理不删 active/pending/被引用快照，不误删有效 origin。
 
 - **参考状态列表 API 响应：**
@@ -539,7 +603,7 @@ Step 11（全量回归/文档收口） ←────────────�
   {
     "list": [{
       "source_id": 1,
-      "url": "https://example.com/rules.txt?token=***",
+      "display_url": "https://example.com/rules.txt?token=***",
       "source_mode": "auto",
       "never_synced": false,
       "latest_attempt": {
@@ -649,13 +713,18 @@ Step 11（全量回归/文档收口） ←────────────�
 
 - **测试与验收命令：**
   ```bash
-  cd backend && go test ./internal/store ./internal/pool ./internal/server
+  cd backend && go test ./internal/redact ./internal/log ./internal/store ./internal/pool ./internal/server
   cd backend && go build ./...
   cd frontend && npm run build
   ```
 
 - **验收标准：**
-  可归属到来源的拉取/内容/解析失败可持久化并查询；v1 stats 能以真实检测依据、能力分项、旧 active 比较和初始决策原因解释每次尝试，旧 stats 兼容但不补造证据；pending 人工激活时间可查询且不改写解析结果；来源状态 API 以最近尝试区分 active/pending/failed/从未同步，并能表达“最近失败但旧 active 继续生效”；失败后成功不会永久标红；failed 快照不会进入 active 查询；诊断限额和脱敏在所有持久化出口一致；清理不会误删有效快照、origin 或 Canonical。
+  可归属到来源的拉取/内容/解析失败可持久化并查询；v1 stats 能以真实检测依据、能力分项、旧 active 比较和初始决策原因解释每次尝试，旧 stats 兼容但不补造证据；pending 人工激活时间可查询且不改写解析结果；来源状态 API 以最近尝试区分 active/pending/failed/从未同步，并能表达“最近失败但旧 active 继续生效”；失败后成功不会永久标红；failed 快照不会进入 active 查询；诊断限额和脱敏在所有持久化出口一致；`SourceStatus` 只返回 `display_url`，现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 也经读时清洗；存量同步输出经非破坏性清洗后不再含敏感 URL/凭据；清理不会误删有效快照、origin 或 Canonical。
+
+- **Step 7 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/redact ./internal/log ./internal/store ./internal/pool ./internal/server -count=1 -timeout 180s`、`cd backend && go build ./...`、`cd frontend && npm run build`，均通过。
+  - 新增 `internal/redact` 公共包、log 接入、pool sanitize、1018 activated_at 迁移及 store 测试、v1 SnapshotStats、failed snapshot 写入、来源状态/快照历史 API、server 读时清洗、前端类型与请求函数。
+  - 新增 HTTP failed snapshot、display_url 不泄漏、快照分页/总数、HTTP 409 路由等回归测试。
 
 ---
 
@@ -671,7 +740,7 @@ Step 11（全量回归/文档收口） ←────────────�
 - **产出文件与操作：**
   - `frontend/src/views/admin/assembly/PoolDetail.vue`：
     - onMounted 与同步完成后调用 `listSourceStatuses`；
-    - 每个 URL 展示：URL、来源模式、检测格式/平台、由 `latest_attempt.status` 决定的 active/pending/failed/待同步主徽标、input/recognized/接受/排除/拒绝/重复统计、诊断摘要与有限样例；
+    - 每个 URL 展示后端返回的 `display_url`（脱敏后的展示 URL），不得将 `display_url` 作为编辑表单的原始 URL 提交；来源模式、检测格式/平台、由 `latest_attempt.status` 决定的 active/pending/failed/待同步主徽标、input/recognized/接受/排除/拒绝/重复统计、诊断摘要与有限样例；
     - 展示 v1 stats 的检测依据、family/matcher/scope 分项、与旧 active 的数量/格式/profile 差异及稳定原因；version 0 只显示“历史统计不可用”，不得把空字段解释为零变化或成功依据；
     - 最近失败但 active 仍存在时显示“同步失败，继续使用旧活动快照”，并分别展示失败尝试与当前 active 摘要；成功发生在 failed 之后时不得仅因 `latest_failed` 非空继续显示失败主徽标；
     - `pending_snapshot_id` 存在时显示“激活/丢弃”按钮；
@@ -695,7 +764,7 @@ Step 11（全量回归/文档收口） ←────────────�
   - 记录可复查的视口、操作结果与控制台状态；该证据只证明浏览器交互，不外推为真实客户端导入/连接兼容。
 
 - **验收标准：**
-  每个 URL 的最近尝试状态及实际生效 active 均可辨认；失败后恢复不会永久标红；pending 可人工激活/丢弃，激活前能看到旧/新差异；所有诊断只展示后端已脱敏的有限数据；桌面与 <768px 窄屏均可操作。
+  每个 URL 的最近尝试状态及实际生效 active 均可辨认；状态卡片展示的是 `display_url`，不把脱敏 URL 回写为编辑配置；失败后恢复不会永久标红；pending 可人工激活/丢弃，激活前能看到旧/新差异；所有诊断只展示后端已脱敏的有限数据；桌面与 <768px 窄屏均可操作。
 
 ---
 
@@ -756,19 +825,39 @@ Step 11（全量回归/文档收口） ←────────────�
 - **产出文件与操作：**
   - 新增 `backend/internal/store/migration_1016_test.go`，由 store 层直接验证迁移框架与真实 SQL；pool 测试只保留迁移后的业务行为，不复制迁移脚本。
   - 测试流程：
-    1. 从 `migrations.FS` 读取真实迁移文件，构造包含真实 0001～1015 的 `fstest.MapFS`，不得复制或手写简化版 1009 素材池 schema；
-    2. `Store.Migrate` 到真实 1015 结构，并断言数据库 schema 版本确为 1015；
-    3. 插入多个旧 `rule_pools`（包含非连续/高 ID）、`pool_entries`、`pool_sync_tasks`，并在 `versions`、`assembly_blueprints` 等不应删除的表中插入可识别历史数据；
-    4. 再使用包含真实 0001～1016 的 FS 对同一 Store 继续 `Migrate`；
-    5. 断言：
-       - 旧表 `pool_entries`、旧 `pool_sync_tasks` 已删除；
-       - 新表 `rule_pool_sources`、`pool_source_snapshots`、`pool_canonical_rules`、`pool_rule_origins` 存在；
-       - 旧池数据不残留；
-       - 新 `rule_pools.id` 从旧最大 ID 之后开始（旧 ID 不复用）；
-       - `versions`、`assembly_blueprints` 及其他明确无关历史数据的内容和关联保持不变；
-       - `schema_migrations` 只新增 1016，重复调用 `Migrate` 幂等。
-    6. 失败回滚子用例必须使用独立的新临时数据库：先应用真实 0001～1015 并插入可识别夹具，再在真实 1016 SQL 后附加一个必然失败语句形成测试专用迁移；确认 1016 的删表、建表、序列更新、数据变化与 schema 版本记录全部回滚，且 1015 夹具仍可读取。不得复用已成功应用 1016 的数据库，也不得修改生产迁移文件。
-  - 测试 helper 必须直接读取嵌入的真实迁移内容并按版本过滤，避免测试 SQL 与生产迁移漂移。
+    1. 从 `migrations.FS` 读取真实迁移文件，构造包含真实 0001～1015 的 `fstest.MapFS`；不得复制或手写简化版 1009 素材池 schema。helper 必须按“解析后的迁移版本号 <= target”过滤，推荐命名为 `migrationsThrough(target)`；禁止用文件名 glob 后全量复制，禁止把 1016、1017 或未来迁移带入 1015 FS。
+    2. 对独立临时数据库执行 `Store.Migrate(ctx, migrationsThrough(1015))`；断言 `MAX(version)=1015`，并断言不存在 1016/1017/更高版本；当前迁移文件数量下可同时断言 `COUNT(*)=20`（0001～0005 + 1001～1015），防止未来新增 <=1015 文件被静默纳入。
+    3. 插入真实 1015 旧数据最小夹具：
+       - 两个旧 `rule_pools`：ID 10 与 100（非连续且最大 ID 为 100）；
+       - 同一旧池下的 manual 与 URL `pool_entries` 各一条；
+       - 至少一条旧 `pool_sync_tasks`；
+       - 一条可识别的 `versions` 历史记录；
+       - 一条 `assembly_blueprints`，其 `selection_json` 引用旧 `pool_id:100`，`render_plan_json` 使用唯一 sentinel。
+       最小夹具不额外插入 platform/subscription/rule 等 owner 记录；这些表与 `versions`、`assembly_blueprints` 之间没有数据库外键需求，插入它们不提供独立的 1016 迁移证据。
+    4. 对同一 Store 使用真实 0001～1016 的 FS 继续 `Migrate(ctx, migrationsThrough(1016))`。
+    5. 成功迁移后断言：
+       - `pool_entries` 表不存在；
+       - `pool_sync_tasks` 表存在但为空（1016 会先删旧表再重建同名新表，因此断言是“旧任务数据清零”，不是“表不存在”）；
+       - `rule_pools` 为重建后的新 schema，旧池行数为 0；
+       - `rule_pool_sources`、`pool_source_snapshots`、`pool_canonical_rules`、`pool_rule_origins` 均存在；
+       - `versions`、`assembly_blueprints` 的 sentinel 内容和关联保持逐字不变；
+       - `schema_migrations` 只新增 1016，且不存在大于 1016 的记录；
+       - 迁移后、插入新池前 `sqlite_sequence('rule_pools').seq == 100`；
+       - 插入新池后精确断言 `LastInsertId() == 101`，同时 `seq == 101`，且不存在 ID <= 100 的新池。
+    6. 幂等子用例：
+       - 同一 Store 再次 `Migrate(ctx, migrationsThrough(1016))`，断言无错误且数据不变；
+       - 关闭 Store 后使用同一临时目录重新 `Open`，再次 `Migrate(ctx, migrationsThrough(1016))`，断言仍幂等、`schema_migrations` 不变、历史数据与 `sqlite_sequence` 不变。
+    7. 失败回滚子用例必须使用独立的新临时数据库：
+       - 先应用真实 0001～1015 并插入可识别夹具；
+       - 构造 `brokenMigrationsThrough1016()`：复制真实 0001～1016，仅把真实 `1016_rule_pool_snapshots.sql` 替换为“真实 1016 SQL + 末尾必然失败语句”；
+       - 失败语句必须追加在真实 1016 文件末尾（即 `DROP TABLE _pool_1016_old_max;` 之后），以覆盖删表、建表、`sqlite_sequence` 更新与临时表删除后的整体回滚；
+       - 断言失败后旧表仍存在、旧数据仍可读、新表不存在、`rule_pools` 旧 schema 未变、`sqlite_sequence` 未变、`schema_migrations` 没有 1016、1015 历史记录仍在；
+       - 随后用真实 `migrationsThrough(1016)` 再次迁移，必须成功，证明失败后的数据库可恢复继续升级。
+  - 测试 helper 必须直接读取嵌入的真实迁移内容并按版本过滤，避免测试 SQL 与生产迁移漂移。建议新增：
+    - `migrationsThrough(target int) fstest.MapFS`：只包含真实 FS 中版本号 <= target 的文件；
+    - `brokenMigrationsThrough1016() fstest.MapFS`：在真实 1016 文件末尾追加必然失败语句；
+    - `insertOldPoolFixtures` / 断言 helper：集中维护上述最小 1015 夹具。
+  - helper 放在 `backend/internal/store/migration_1016_test.go`，测试文件使用 `package store`，以复用 `parseVersion()`/`sortedEntries()`；新池创建使用与 `pool.Service.Create` 等价的原始 SQL，不反向依赖 `pool` 包。
 
 - **参考流程：**
   ```go
@@ -777,6 +866,9 @@ Step 11（全量回归/文档收口） ←────────────�
   // 插入旧数据
   // 第二次 Migrate：真实 0001～1016
   _ = st.Migrate(ctx, migrationsThrough(1016))
+  // 幂等：同一 Store 再跑一次
+  _ = st.Migrate(ctx, migrationsThrough(1016))
+  // 可选：关闭后重新 Open，再跑一次
   ```
 
 - **测试与验收命令：**
@@ -786,9 +878,17 @@ Step 11（全量回归/文档收口） ←────────────�
   ```
 
 - **验收标准：**
-  真实 1015→1016 链路下，旧素材池业务数据清除、ID 防复用、无关历史保留、schema 版本、重复迁移幂等和失败事务回滚均有自动断言。
+  真实 1015→1016 链路下，旧素材池业务数据清除、ID 防复用、`sqlite_sequence` 防复用状态、无关历史保留、schema 版本、重复迁移幂等、close/reopen 后幂等和失败事务回滚均有自动断言。
+
+- **边界说明：**
+  - Step 10 为 store 级测试；`assembly_blueprints.selection_json` 中的旧 pool ID 应原样保留，不在此 Step 调用 assembly 服务断言 invalid reference。“旧蓝图重新编辑时显示旧池引用失效”由装配层测试覆盖。
+  - 1017 及未来更高迁移不属于本 Step 目标；helper 与断言都必须排除 1017。
 
 > Step 7 新增的 1018 `activated_at` 是独立、向前兼容的小迁移，其 1017→1018 与全新全量迁移证据在 Step 7 完成；本 Step 仍专门证明 1016 不兼容迁移，不得用 1018 测试替代或弱化上述真实 1015→1016 夹具。
+
+- **范围外备注（本 Step 不修复）：**
+  - `Build16.md` 历史文字曾称 `store_test.go` 已覆盖 1015 旧 schema/数据升级，但当前 `store_test.go` 并未包含该测试；此差异不在 Step 10 范围内处理。
+  - 当前 `pool_test.go` 只在全新迁移后检查 `pool_entries` 表不存在，未覆盖 1016 的旧数据、ID、`sqlite_sequence`、幂等与回滚；Step 10 的新增 store 测试负责补齐这些能力，不要求改写 pool 测试语义。
 
 ---
 
@@ -848,6 +948,9 @@ Step 11（全量回归/文档收口） ←────────────�
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.11 | 2026-09-10 | 完成 Build22 Step 10“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认细化：`migrationsThrough` helper 按解析版本过滤且排除 1017；最小夹具固定为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints；不额外插入 owner 记录；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 文件末尾追加失败语句并在回滚后用真实 1016 重试。同步在附录 A.10 和范围外备注中记录 Build16 历史表述差异与 pool_test 当前缺口。仅更新文档，未修改业务代码、未执行构建。 |
+| v1.10 | 2026-09-10 | 将 Step 7 脱敏结论同步至 AGENTS.md、Design3.md、Issue14.md，并补齐 Build22 附录 A.7 中的 `display_url`、公共 redact、历史清洗与 19+1 截断口径。仅更新文档，未修改业务代码、未执行构建。 |
+| v1.9 | 2026-09-10 | 完成 Build22 Step 7“脱敏机制复用范围”只读研究并按用户确认更新 Step 7/8 文档：新增 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 改用 `display_url`；脱敏范围扩展至现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error`；新增存量同步输出非破坏性清洗；诊断超 20 条时采用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长。仅更新 Build22 文档，未修改业务代码、未执行构建。 |
 | v1.8 | 2026-09-09 | Step 3 Clash render plan 兼容编码专项研究并经用户确认：固定采用逐规则 `NoResolve *bool` 三态，不为单字段引入顶层 plan schema version；字段缺失或 null 兼容历史按类型推断，新计划逐条显式写入 boolean true/false；补充单一构造 helper、原始 JSON 字段存在性、历史手写夹具、目标能力、内置规则和覆盖层降级测试合同。仅更新文档，Build22 代码仍未开始。 |
 | v1.7 | 2026-09-09 | R28-05 `stats_json` 专项研究并经用户确认：Step 1 补齐 adapter reject 与来源模式污染 profile 的统计缺口；Step 7 冻结 version 1 强类型统计、确定性检测依据码、family/matcher/scope 分项、旧 active 比较、初始决策原因和旧 JSON 兼容，并通过 1018 nullable `activated_at` 记录 pending 人工激活时间；Step 8/11 同步补齐展示与验收证据。仅更新文档，Build22 代码仍未开始。 |
 | v1.6 | 2026-09-09 | 构建前文档核验补强：冻结 Step 7 列表包裹、分页、统一快照摘要、诊断字段与展示 URL 脱敏合同；补齐 Step 5/9 后端测试和编译门禁、Step 8 双视口浏览器证据、Step 10 独立数据库失败回滚；Step 11 改为同步 Issue14/Design3/AGENTS，并仅向归档 Build16 追加后续勘误而不倒改历史状态。仅完善文档，未修改业务代码、未执行构建。 |
@@ -979,7 +1082,7 @@ if res.Receipt != nil && res.Receipt.FinalOutput == 0 && (len(in.Pools) > 0 || l
 - `PoolSource` 只返回 `active_snapshot_id`、`pending_snapshot_id`；
 - `frontend/src/api/pool.ts` 只有 `PerURLResult`、`SyncTaskItem`，没有当前来源状态与快照详情类型。
 
-只返回 `latest_failed` 会让历史失败长期控制 UI。本轮已确认以 `latest_attempt` 决定主状态，同时独立返回 active/pending/latest_failed：最近失败可以与旧 active 并存，后续成功后旧 failed 只作为历史。所有 snapshot/task 诊断必须在共同持久化边界执行 20 条×200 字符限制和敏感信息脱敏。
+只返回 `latest_failed` 会让历史失败长期控制 UI。本轮已确认以 `latest_attempt` 决定主状态，同时独立返回 active/pending/latest_failed：最近失败可以与旧 active 并存，后续成功后旧 failed 只作为历史。所有 snapshot/task 诊断必须在共同持久化边界执行脱敏与限额，采用 `backend/internal/redact` 公共规则，`SourceStatus` 返回 `display_url`；诊断超过 20 条时保留 19 条真实 + 1 条截断摘要，字符串字段按 200 rune 限长，并清洗存量 `per_url_json`/`error`/`sync_error`。
 
 ### A.8 D3-8：pending UI
 
@@ -1011,3 +1114,21 @@ receipt?: ConversionReceipt
 ### A.10 D3-10：迁移测试
 
 现有 `backend/internal/pool/pool_test.go` 仅在全新迁移后检查 `pool_entries` 表不存在，未覆盖旧数据、ID 防复用、历史版本保留。`Store.Migrate` 支持多次调用，但使用手写最小 1009 schema 会绕过真实历史迁移间的表、索引和外键关系；Step 10 必须从嵌入的 `migrations.FS` 过滤出真实 0001～1015，再对同一数据库应用真实 1016，并覆盖重复迁移幂等和单迁移失败整体回滚。
+
+经只读研究并按用户确认，Step 10 的构造口径细化为：
+
+- `migrationsThrough(target)` helper 按解析后的版本号过滤真实 `migrations.FS`，不得包含 1017/未来迁移。
+- 最小夹具使用两个旧 `rule_pools`：ID 10 与 100；同一池下 manual/URL `pool_entries` 各一条；一条旧 `pool_sync_tasks`；一条 `versions`；一条 `assembly_blueprints`，其 `selection_json` 引用旧 `pool_id:100`。
+- `versions`、`assembly_blueprints` 对 `platforms`、`subscriptions`、`rules` 等 owner 表没有数据库外键，因此最小夹具不额外插入 owner 记录。
+- 成功断言必须覆盖 `pool_sync_tasks` 被重建为空表、`sqlite_sequence('rule_pools')` 在迁移后等于旧 max、插入新池后 `LastInsertId()==101` 且 `seq==101`。
+- 幂等断言包含同一 Store 重复 Migrate，以及 close/reopen 后再次 Migrate。
+- 失败回滚使用独立临时库；把必然失败语句追加到真实 1016 SQL 末尾；失败后先用断言确认 1015 状态完整，再用真实 1016 重试并成功。
+- 该测试是 store 级测试，不调用 assembly 服务断言 invalid reference；旧蓝图 JSON 原样保留即可。
+
+---
+
+## 附录 B：Build22 执行自主决策与阻断记录
+
+| ID | 日期时间 | Step | 类型 | 发现与证据 | 处理决定或阻断点 | 影响范围 | 状态 |
+|----|----------|------|------|------------|------------------|----------|------|
+| B-1 | 2026-09-10 | Step 8 | 阻断问题 | Build22 Step 8 明确要求以实际浏览器取得 1440px 与 390px 两种视口证据；当前执行环境 `which chromium/chromium-browser/google-chrome/playwright` 均无结果，frontend 也未安装 Playwright，无法执行真实浏览器交互与截图证据。 | 停止在 Step 8 前，不实施/标记 Step 8 完成；Steps 1～7 已完成后保持当前部分实现；等待用户提供浏览器证据环境或明确调整证据边界。 | Step 8 UI、Step 11 全量收口 | 阻断 |
