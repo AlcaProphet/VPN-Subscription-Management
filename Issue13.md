@@ -11,7 +11,7 @@
 - **核验范围：** Build17～Build20 的落地产物；当前提交 `db14912` 已包含 Build21 的后续修复，因此 Build21 引入的输出回归也纳入现状记录。
 - **运行时核对：** 节点管理页实际返回的 JS/CSS 与本次源码构建结果一致，已排除浏览器使用旧静态资源造成的假象；本次调查没有保存新节点，也未修改业务代码。
 - **自动化结果：** 后端 `node`、`server`、`assembly`、`assembly/links`、`xray` 五个包测试通过，`go build ./...`、`go vet ./...` 通过；前端相关 4 个测试文件、26 个用例通过，`npm run build` 通过；调查时 `git status --short` 干净，`git diff --check` 通过。
-- **验收结论：** R27-01～R27-09 的实施结果已分别并入 Build21 Step 7～13，N-node-3/4 已并入 Step 15；Build21 Step 14 的 PT-28-01～PT-28-05 人工项目已由用户确认完成且未发现问题。Issue13 内没有仍待实施的 R27 工程修复；固定版本证据门禁及其余工程收口已移交 [Issue14.md](Issue14.md)。
+- **验收结论：** R27-01～R27-09 的实施结果已分别并入 Build21 Step 7～13，N-node-3/4 已并入 Step 15；Build21 Step 14 的 R28-01～R28-04、正式 Production smoke、固定 Mihomo 1.19.29 门禁和 PT-28-01～PT-28-05 人工项目均已完成，Step 14 已验收收口。Issue13 内没有仍待实施的 R27 工程修复；其余项目级工程问题继续由 [Issue14.md](Issue14.md) R28-05～R28-09 跟踪。
 - **范围边界：** 本文保留 R27-01～R27-09 的历史调查、决策和已实施结果；当前工程问题见 [Issue14.md](Issue14.md)（除 Step 14/R28-01～04 外，还包含 BuildReport4 遗留的 D3/N-core/N-node-6/安全等 R28-05～R28-09），剩余人工后续项目见 [ProdTestList.md](ProdTestList.md)。Issue12 的 R26-02～R26-06 不重复登记，R26-07 按用户要求继续在 ProdTestList 跟踪。
 
 ---
@@ -121,12 +121,12 @@
 - **影响范围：** 影响普通 SS + `obfs` 节点的 Clash/Mihomo 订阅与不落库目标检查；可能造成配置可解析但插件不生效。该条是输出与固定版本源码契约的核对结论，本轮未做真实连接实验。
 - **修复方向：** 按目标分别实现插件映射：Clash/Mihomo 保留独立 `plugin` 与 `plugin-opts` 结构，SR/generic URI 再按目标客户端要求转换为 `obfs-local` 等名称；目标检查增加结构化输出断言和插件语义诊断，不能仅以 YAML 生成成功标记 `ok`。
 - **待确认事项：** 已确认先按官方模板/离线契约修复 Clash 结构化输出与 URI 映射；固定版本真机导入/连接验证保留为人工待办，不宣称完整兼容。
-- **状态：** ☑ 工程实现已完成（Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；独立的 N-node-3/4 Step 15 增量也已验收；Step 14 的 R28-04 证据门禁由 Issue14 跟踪，剩余人工复验只保留在 ProdTestList）
+- **状态：** ☑ 工程实现与 Step 14 验收均已完成（Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛已验收；独立的 N-node-3/4 Step 15 增量也已验收；R28-04 固定版本严格门禁和用户人工项目已收口，剩余历史人工复验只保留在 ProdTestList）
 
 
 ## 二·补充、研究解决方案与已确认决策（2026-09-03）
 
-> 本节在 R27-01～R27-09 的原始记录基础上，补充逐项深研后的解决方案与用户决策确认。R27-01～R27-08 已完成代码与回归测试；R27-09 已完成 Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛，独立的 N-node-3/4 Step 15 增量也已验收。Step 14 的 PT-28-01～PT-28-05 人工项目已由用户确认完成；剩余固定版本证据门禁和工程收口见 Issue14，不在本 Issue 重复登记。
+> 本节在 R27-01～R27-09 的原始记录基础上，补充逐项深研后的解决方案与用户决策确认。R27-01～R27-08 已完成代码与回归测试；R27-09 已完成 Build21 Step 7～13 的合同/schema、幂等归一化、未知参数保存回显与前端编辑、固定字段、SIP002/URI 分流、Clash 结构化输出/自检及共享目标诊断/装配门槛，独立的 N-node-3/4 Step 15 增量也已验收。Step 14 的固定 Mihomo 严格门禁和 PT-28-01～PT-28-05 人工项目均已完成；Issue14 仅继续跟踪 R28-05～R28-09 后续项目级工程问题。
 
 ### 解决方案总览
 
@@ -140,7 +140,7 @@
 | R27-06 | `allow_custom=false` 序列化丢失 | 后端改为 `*bool`，区分未声明/禁止/允许；前端仅在 `allow_custom === true` 时开放自定义 | 已修复（前后端契约与回归测试） |
 | R27-07 | 嵌套敏感字段误显示已保存 | 后端返回 `saved_sensitive_paths`；前端按完整路径呈现凭据状态；WireGuard Peer 以稳定 UUID 接入数组凭据全链路 | 已修复（前后端、历史升级与回归测试） |
 | R27-08 | `diagnostics: null` 导致前端崩溃 | 后端统一返回 `[]`，前端对 null 做安全归一化 | 已修复（前后端与回归测试） |
-| R27-09 | SS 插件 Clash 输出格式回归 | Clash/Mihomo 保留结构化 `plugin` + `plugin-opts`；SR/generic URI 使用目标字符串映射；Build21 Step 7～13、Step 15 的工程实现已验收，Step 14 的固定版本证据门禁由 Issue14 跟踪 | 工程项已完成；剩余为证据/人工边界 |
+| R27-09 | SS 插件 Clash 输出格式回归 | Clash/Mihomo 保留结构化 `plugin` + `plugin-opts`；SR/generic URI 使用目标字符串映射；Build21 Step 7～15 的工程实现与 Step 14 固定版本/人工证据均已验收 | 已完成 |
 
 ### R27-01 研究解决方案
 
@@ -244,8 +244,8 @@
 - Build21 Step 12 已验收：新增活动 SS 插件纯合同评估器，节点检查与正式 Clash/SR/generic 装配共享 shape/required/partial/unverified/unknown/unexpressible 诊断；Clash 精确阻断，URI 目标保留 warning 或按原 code/path 跳过，warning 回执、混合/零输出与空诊断回归通过。未修改非 SS 协议、全局 `target_evidence`、前端表单或 URI 编解码器；Step 13 已由后续记录完成，Step 14 收口问题见 Issue14。
 - Build21 Step 13 已验收，并按用户确认纳入高级 JSON 空参数名合同缺口：未知插件字符串 Map 的结构化编辑提供空名/重复名行内错误，高级 JSON 对空键与非字符串值给出精确路径并阻止应用/保存；后端创建、更新与检查共同拒绝空参数名，避免“可保存但 SIP002 无法输出”。插件切换清理五类对象、错误和 JSON 草稿且 A→B→A 不恢复，保存重开与普通 `password/token/secret` 凭据隔离回归通过。
 - 独立的 N-node-3/4 Build21 Step 15 已验收：SR VMess/VLESS 补齐 TLS 身份、ALPN、指纹、Flow 与 TLS skip 参数；解析端补齐 VMess 参数回读，并以显式 `security` 优先、缺省时 `xtls=2`→REALITY／活动 `tls=1`→TLS 的规则恢复本项目自产 SR VLESS 方言。生成→解析、TLS 关闭残留、generic VLESS 正例、generic VMess 负例与检查链回归通过；相关真实客户端人工项目已由用户确认完成，剩余工程问题见 Issue14。
-- Build21 Step 14 的 PT-28-01～PT-28-05 人工项目已由用户确认完成且未发现问题；固定版本证据门禁和工程收口仍见 [Issue14.md](Issue14.md) R28-04 及后续问题。
-- **Step 14 当前未闭环问题：** 用户人工项目已完成并移出当前清单；R28-04 固定版本证据门禁及其余工程问题继续按 [Issue14.md](Issue14.md) 跟踪，历史后续人工项目见 [ProdTestList.md](ProdTestList.md)。
+- Build21 Step 14 的 PT-28-01～PT-28-05 人工项目已由用户确认完成且未发现问题；R28-04 已以严格固定 Mihomo 入口、四正例、四反例和旧格式双层自检证据收口，Step 14 已验收通过。
+- **Step 14 收口结论：** R28-01～R28-04、正式 Production smoke、固定版本证据和用户人工项目均已完成；[Issue14.md](Issue14.md) 继续跟踪的 R28-05～R28-09 不属于 Step 14，历史后续人工项目见 [ProdTestList.md](ProdTestList.md)。
   1. 详细记录已迁移至 [Issue14.md](Issue14.md) R28-01。
   2. smoke 布尔值断言和 Clash 请求夹具已迁移至 [Issue14.md](Issue14.md) R28-02/R28-03。
   3. PT-28-01～PT-28-05 已由用户确认完成且未发现问题，已从 [ProdTestList.md](ProdTestList.md) 当前待办中移除。
@@ -313,3 +313,4 @@
 | v1.21 | 2026-09-08 | 文档交叉审核：补充 Issue14 已扩展承接 BuildReport4 遗留工程项，Issue13 的 R27 范围边界更精确；未修改业务代码。 |
 | v1.22 | 2026-09-09 | 用户确认 PT-28-01～PT-28-05 已完成且未发现问题；更新 R27/Step 14 人工验收边界，已完成项目不再作为当前清单跟踪。 |
 | v1.23 | 2026-09-09 | 交叉核验当前工作区：确认 R27-01～R27-09 的非人工工程项已分别并入 Build21 Step 7～13/15；将 Step 14 剩余阻挡明确归入 Issue14 R28-04，并更新 R27 历史记录中的过时人工待办措辞。 |
+| v1.24 | 2026-09-09 | Issue14 R28-04 已完成严格固定 Mihomo 1.19.29 门禁、四正例/四反例及旧格式双层自检回归；同步确认 R28-01～R28-04、正式 smoke 和人工项目全部收口，Build21 Step 14 验收通过。 |
