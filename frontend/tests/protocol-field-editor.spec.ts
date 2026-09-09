@@ -47,6 +47,37 @@ describe('ProtocolFieldEditor', () => {
     expect(await customEntryVisible(null)).toBe(false)
   })
 
+  it('标量字段只渲染所属类型的编辑入口', () => {
+    const recommended = mount(ProtocolFieldEditor, {
+      props: {
+        field: {
+          name: 'security', type: 'select', required: true, label: '安全',
+          option_items: [{ value: 'none', label: '无' }, { value: 'tls', label: 'TLS' }],
+          allow_custom: false,
+        },
+        modelValue: 'none',
+      },
+    })
+    expect(recommended.findAll('input')).toHaveLength(1)
+
+    const number = mount(ProtocolFieldEditor, {
+      props: { field: { name: 'port', type: 'number', required: true, label: '端口' }, modelValue: 443 },
+    })
+    expect(number.findAll('.ant-input-number')).toHaveLength(1)
+    expect(number.findAll('input')).toHaveLength(1)
+
+    const list = mount(ProtocolFieldEditor, {
+      props: { field: { name: 'alpn', type: 'text-list', required: false, label: 'ALPN' }, modelValue: ['h2', 'http/1.1'] },
+    })
+    expect(list.findAll('.protocol-list-editor input')).toHaveLength(2)
+    expect(list.findAll('input')).toHaveLength(2)
+
+    const emptyList = mount(ProtocolFieldEditor, {
+      props: { field: { name: 'alpn', type: 'text-list', required: false, label: 'ALPN' }, modelValue: [] },
+    })
+    expect(emptyList.findAll('input')).toHaveLength(0)
+  })
+
   it('嵌套高级区默认折叠且有摘要，折叠不丢失参数或 JSON 草稿', async () => {
     const field: FieldSchema = { ...objectField, properties: [...objectField.properties!,
       { name: 'early', type: 'object', object_kind: 'fields', label: 'Early Data', required: false, advanced: true,

@@ -53,6 +53,11 @@ function groupLabel(group?: string): string {
   return (group && groupLabelMap[group]) || group || ''
 }
 
+function verifiedLabel(verified?: string): string {
+  if (!verified) return ''
+  return verified.replace(/^mihomo-/i, 'Mihomo ')
+}
+
 watch(() => props.value, (value) => {
   if (!open.value) text.value = labelFor(value)
 }, { immediate: true })
@@ -230,8 +235,9 @@ onBeforeUnmount(() => {
         @click="selectItem(item)"
       >
         <span class="text-text">{{ item.label }}</span>
-        <span v-if="item.verified" class="ml-2 text-xs text-text-tertiary">{{ item.verified }}</span>
-        <span v-if="item.group && item.kind === 'option'" class="ml-2 text-xs text-text-tertiary">{{ groupLabel(item.group) }}</span>
+        <span v-if="item.kind === 'option' && (item.verified || item.group)" class="ml-2 text-xs text-text-tertiary">
+          <span v-if="item.verified">{{ verifiedLabel(item.verified) }}</span><span v-if="item.verified && item.group"> · </span><span v-if="item.group">{{ groupLabel(item.group) }}</span>
+        </span>
       </button>
     </div>
     <div v-else-if="open && !filteredItems.length && !showCustom" class="absolute z-30 mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-text-tertiary shadow-lg">

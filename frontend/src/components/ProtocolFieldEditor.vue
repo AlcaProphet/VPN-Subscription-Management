@@ -495,7 +495,12 @@ function isComplex(value: unknown): boolean {
 
   <div v-else :data-field-path="fieldPath" class="protocol-scalar-field">
     <label class="text-sm text-text-secondary">{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></label>
-    <Input.Password v-if="sensitive" :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
+    <template v-if="sensitive">
+      <Input.Password :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
+      <div class="text-xs text-text-tertiary mt-1">
+        {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
+      </div>
+    </template>
     <InputNumber v-else-if="field.type === 'number'" :value="Number(modelValue ?? field.default ?? 0)" class="w-full" @change="(value: any) => update(value ?? 0)" />
     <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" class="w-full" @update:model-value="(value: string) => update(value)" />
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
@@ -511,9 +516,6 @@ function isComplex(value: unknown): boolean {
       <div v-if="field.option_items?.length" class="text-xs text-text-tertiary">
         推荐：{{ field.option_items.map((item) => item.label || item.value).join('、') }}
       </div>
-    </div>
-    <div v-if="sensitive" class="text-xs text-text-tertiary mt-1">
-      {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
     </div>
     <Input.TextArea v-else-if="isLongText(field)" :value="String(modelValue ?? '')" :rows="4" @change="(event: any) => update(event.target.value)" />
     <Input v-else :value="String(modelValue ?? '')" @change="(event: any) => update(event.target.value)" />

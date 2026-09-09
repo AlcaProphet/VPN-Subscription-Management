@@ -54,6 +54,18 @@ describe('EditableCombobox', () => {
     wrapper.unmount()
   })
 
+  it('选项元数据使用可读名称和明确分隔', async () => {
+    const wrapper = mount(EditableCombobox, {
+      props: { value: '', items, allowCustom: true },
+      attachTo: document.body,
+    })
+    await wrapper.find('input').trigger('focus')
+    const tcp = wrapper.findAll('button').find((button) => button.text().includes('TCP'))
+    expect(tcp?.text()).toContain('Mihomo 1.19.29 · 常用')
+    expect(tcp?.text()).not.toContain('mihomo-1.19.29常用')
+    wrapper.unmount()
+  })
+
   it('空值候选在搜索时仍可点击并回写空值', async () => {
     const itemsWithEmpty: OptionItem[] = [
       { value: '', label: '无' },
