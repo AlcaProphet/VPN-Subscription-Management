@@ -1,4 +1,4 @@
-// pool-tab.spec.ts：素材池列表加载/空态/同步防重与卸载取消轮询（Build4 Step6 / R12-05）
+// pool-tab.spec.ts：素材池列表加载/空态/按池同步防重与卸载取消轮询（Build4 Step6 / R12-05 / R29-02）
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import PoolTab from '@/views/admin/assembly/PoolTab.vue'
@@ -29,7 +29,7 @@ vi.mock('@/components/Notify', () => ({
   Notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), detail: vi.fn() },
 }))
 
-import { cancelSync, listPools, submitSync } from '@/api/pool'
+import { cancelSync, getSyncStatus, listPools, submitSync } from '@/api/pool'
 import { pollTask } from '@/api/request'
 import { Notify } from '@/components/Notify'
 
@@ -37,11 +37,19 @@ const mockList = listPools as unknown as ReturnType<typeof vi.fn>
 const mockPollTask = pollTask as unknown as ReturnType<typeof vi.fn>
 const mockSubmitSync = submitSync as unknown as ReturnType<typeof vi.fn>
 const mockCancelSync = cancelSync as unknown as ReturnType<typeof vi.fn>
+const mockGetSyncStatus = getSyncStatus as unknown as ReturnType<typeof vi.fn>
 
 const pool = {
   id: 1, name: '苹果域名', urls: ['https://example.com/rules.txt'], entry_count: 3,
   last_synced_at: '2026-08-19T10:00:00Z', sync_status: 'succeeded', sync_error: '',
   auto_sync: true, sync_time: '04:00',
+}
+const secondPool = {
+  ...pool,
+  id: 2,
+  name: '广告域名',
+  urls: ['https://example.com/ads.txt'],
+  auto_sync: false,
 }
 
 function deferred<T>() {
@@ -57,6 +65,7 @@ describe('PoolTab', () => {
     mockPollTask.mockReset()
     mockSubmitSync.mockReset()
     mockCancelSync.mockReset()
+    mockGetSyncStatus.mockReset()
     vi.mocked(Notify.warning).mockClear()
     vi.mocked(Notify.success).mockClear()
     vi.mocked(Notify.error).mockClear()
@@ -94,6 +103,73 @@ describe('PoolTab', () => {
     d.resolve({ status: 'succeeded' })
     await first
     expect(wrapper.emitted('pool-content-changed')).toEqual([[pool.id]])
+  })
+
+  it('不同素材池可同时同步并按各自任务取消', async () => {
+    mockList.mockResolvedValue([pool, secondPool])
+    mockSubmitSync.mockImplementation(async (poolID: number) => ({ task_id: poolID * 10 }))
+    mockCancelSync.mockResolvedValue(undefined)
+    const tasks = new Map([
+      [pool.id, deferred<{ status: string }>()],
+      [secondPool.id, deferred<{ status: string }>()],
+    ])
+    mockPollTask.mockImplementation((options: { submit: () => Promise<void>; query: () => Promise<unknown> }) => ({
+      cancel: vi.fn(),
+      run: async () => {
+        await options.submit()
+        const poolID = mockSubmitSync.mock.calls[mockSubmitSync.mock.calls.length - 1]?.[0] as number
+        return tasks.get(poolID)!.promise
+      },
+    }))
+    const wrapper = mount(PoolTab)
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { doSync: (p: typeof pool) => Promise<void> }
+
+    const first = vm.doSync(pool)
+    await flushPromises()
+    const second = vm.doSync(secondPool)
+    await flushPromises()
+
+    expect(mockSubmitSync).toHaveBeenCalledTimes(2)
+    expect(mockSubmitSync).toHaveBeenNthCalledWith(1, pool.id)
+    expect(mockSubmitSync).toHaveBeenNthCalledWith(2, secondPool.id)
+    const syncActions = wrapper.findAll('button.pool-sync-action')
+    expect(syncActions.every((button) => button.text().replace(/\s/g, '') === '取消')).toBe(true)
+
+    await syncActions[0].trigger('click')
+    await syncActions[1].trigger('click')
+    expect(mockCancelSync).toHaveBeenCalledWith(pool.id, 10)
+    expect(mockCancelSync).toHaveBeenCalledWith(secondPool.id, 20)
+
+    tasks.get(pool.id)!.resolve({ status: 'succeeded' })
+    tasks.get(secondPool.id)!.resolve({ status: 'succeeded' })
+    await Promise.all([first, second])
+  })
+
+  it('重新进入页面后恢复运行中素材池的轮询与取消任务号', async () => {
+    const runningPool = { ...pool, sync_status: 'running' }
+    mockList.mockResolvedValue([runningPool])
+    mockGetSyncStatus.mockResolvedValue({ task_id: 77, pool_id: pool.id, status: 'running', per_url: [], error: '' })
+    mockCancelSync.mockResolvedValue(undefined)
+    const task = deferred<{ status: string }>()
+    mockPollTask.mockImplementation((options: { submit: () => Promise<void> }) => ({
+      cancel: vi.fn(),
+      run: async () => {
+        await options.submit()
+        return task.promise
+      },
+    }))
+
+    const wrapper = mount(PoolTab)
+    await flushPromises()
+    const syncActions = wrapper.findAll('button.pool-sync-action')
+    expect(syncActions.every((button) => button.text().replace(/\s/g, '') === '取消')).toBe(true)
+
+    await syncActions[0].trigger('click')
+    expect(mockCancelSync).toHaveBeenCalledWith(pool.id, 77)
+
+    task.resolve({ status: 'succeeded' })
+    await flushPromises()
   })
 
   it('同步前后保持固定操作槽且不渲染 loading 按钮', async () => {

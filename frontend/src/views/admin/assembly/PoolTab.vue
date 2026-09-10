@@ -28,6 +28,9 @@ async function load(silent = false) {
     const next = await listPools()
     pools.value = next
     emit('pools-changed', next)
+    for (const pool of next) {
+      if (pool.sync_status === 'running' && !syncTaskIDs.has(pool.id)) void resumeSync(pool)
+    }
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -112,19 +115,31 @@ async function toggleAuto(p: PoolItem, value: boolean) {
 }
 
 // 行内同步（pollTask 轮询 + 可取消）
-const syncingID = ref(0)
-const syncTaskID = ref(0)
+const syncTaskIDs = reactive(new Map<number, number>())
 const pollHandles = new Map<number, { cancel: () => void }>()
-async function doSync(p: PoolItem) {
-  if (syncingID.value) { Notify.warning('同步进行中，请等待完成'); return }
-  syncingID.value = p.id
-  syncTaskID.value = 0
+function isSyncing(poolID: number) {
+  return syncTaskIDs.has(poolID)
+}
+async function runSync(p: PoolItem, resume: boolean) {
+  let initial: SyncTaskItem | null = null
   const handle = pollTask<SyncTaskItem>({
     submit: async () => {
-      const r = await submitSync(p.id)
-      syncTaskID.value = r.task_id
+      if (resume) {
+        initial = await getSyncStatus(p.id)
+        syncTaskIDs.set(p.id, initial.task_id)
+        return
+      }
+      const submitted = await submitSync(p.id)
+      syncTaskIDs.set(p.id, submitted.task_id)
     },
-    query: () => getSyncStatus(p.id),
+    query: async () => {
+      if (initial) {
+        const result = initial
+        initial = null
+        return result
+      }
+      return getSyncStatus(p.id)
+    },
     isDone: (r) => ['succeeded', 'failed', 'partial'].includes(r.status),
   })
   pollHandles.set(p.id, handle)
@@ -140,15 +155,25 @@ async function doSync(p: PoolItem) {
     if (err instanceof ApiError && err.status === 409) Notify.warning('同步进行中，请等待完成')
     else Notify.error((err as Error).message)
   } finally {
-    syncingID.value = 0
-    syncTaskID.value = 0
+    syncTaskIDs.delete(p.id)
     pollHandles.delete(p.id)
   }
 }
+async function doSync(p: PoolItem) {
+  if (isSyncing(p.id)) { Notify.warning('同步进行中，请等待完成'); return }
+  syncTaskIDs.set(p.id, 0)
+  await runSync(p, false)
+}
+async function resumeSync(p: PoolItem) {
+  if (isSyncing(p.id)) return
+  syncTaskIDs.set(p.id, 0)
+  await runSync(p, true)
+}
 async function doCancelSync(p: PoolItem) {
-  if (!syncTaskID.value) { Notify.warning('任务尚未开始，无法取消'); return }
+  const taskID = syncTaskIDs.get(p.id) ?? 0
+  if (!taskID) { Notify.warning('任务尚未开始，无法取消'); return }
   try {
-    await cancelSync(p.id, syncTaskID.value)
+    await cancelSync(p.id, taskID)
     Notify.success('已请求取消，任务将尽快结束')
   } catch (err) {
     Notify.error((err as Error).message)
@@ -185,7 +210,7 @@ const statusMeta: Record<string, { color: string; text: string }> = {
 }
 const defaultStatusMeta = { color: 'default', text: '未同步' }
 function displaySyncStatus(p: PoolItem) {
-  if (syncingID.value === p.id) return statusMeta.running
+  if (isSyncing(p.id)) return statusMeta.running
   return statusMeta[p.sync_status] ?? defaultStatusMeta
 }
 const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '—')
@@ -223,7 +248,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           </Table.Column>
           <Table.Column title="同步状态" key="status" width="120">
             <template #default="{ record }">
-              <Tooltip :title="syncingID === record.id ? '' : (record.sync_error || '')">
+              <Tooltip :title="isSyncing(record.id) ? '' : (record.sync_error || '')">
                 <span class="inline-flex min-w-16">
                   <Badge :status="displaySyncStatus(record).color as any"
                          :text="displaySyncStatus(record).text" />
@@ -244,10 +269,10 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
             <template #default="{ record }">
               <div class="flex items-center gap-2">
                 <Button class="pool-sync-action w-11 shrink-0" size="small"
-                        :danger="syncingID === record.id"
-                        :disabled="syncingID === record.id && syncTaskID === 0"
-                        @click="syncingID === record.id ? doCancelSync(record) : doSync(record)">
-                  {{ syncingID === record.id ? '取消' : '同步' }}
+                        :danger="isSyncing(record.id)"
+                        :disabled="isSyncing(record.id) && !syncTaskIDs.get(record.id)"
+                        @click="isSyncing(record.id) ? doCancelSync(record) : doSync(record)">
+                  {{ isSyncing(record.id) ? '取消' : '同步' }}
                 </Button>
                 <Button class="pool-edit-action w-11 shrink-0" size="small" @click="openEdit(record)">编辑</Button>
                 <Button class="pool-delete-action w-11 shrink-0" size="small" danger @click="toDelete = record">删除</Button>
@@ -260,7 +285,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           <div v-for="p in pools" :key="p.id" class="mobile-actions border rounded-lg p-3">
             <div class="flex items-center justify-between gap-2 flex-wrap">
               <a class="text-blue-500 font-medium" @click="detailID = p.id">{{ p.name }}</a>
-              <Tooltip :title="syncingID === p.id ? '' : (p.sync_error || '')">
+              <Tooltip :title="isSyncing(p.id) ? '' : (p.sync_error || '')">
                 <span class="inline-flex min-w-16 justify-end">
                   <Badge :status="displaySyncStatus(p).color as any"
                          :text="displaySyncStatus(p).text" />
@@ -277,10 +302,10 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
             </div>
             <div class="mt-2 flex items-center gap-2">
               <Button class="pool-sync-action w-11 shrink-0" size="small"
-                      :danger="syncingID === p.id"
-                      :disabled="syncingID === p.id && syncTaskID === 0"
-                      @click="syncingID === p.id ? doCancelSync(p) : doSync(p)">
-                {{ syncingID === p.id ? '取消' : '同步' }}
+                      :danger="isSyncing(p.id)"
+                      :disabled="isSyncing(p.id) && !syncTaskIDs.get(p.id)"
+                      @click="isSyncing(p.id) ? doCancelSync(p) : doSync(p)">
+                {{ isSyncing(p.id) ? '取消' : '同步' }}
               </Button>
               <Button class="pool-edit-action w-11 shrink-0" size="small" @click="openEdit(p)">编辑</Button>
               <Button class="pool-delete-action w-11 shrink-0" size="small" danger @click="toDelete = p">删除</Button>

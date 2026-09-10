@@ -2,18 +2,100 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
 	"vpn-sub/internal/store"
 )
 
+func TestR2902ProvidedURLsConcurrentIntegration(t *testing.T) {
+	url1 := os.Getenv("R29_02_URL_1")
+	url2 := os.Getenv("R29_02_URL_2")
+	if url1 == "" || url2 == "" {
+		t.Skip("未提供 R29_02_URL_1/R29_02_URL_2，跳过真实链接集成测试")
+	}
+	_, svc := newTestService(t)
+	ctx := context.Background()
+	p1, err := svc.Create(ctx, "真实链接池一", []SourceInput{{URL: url1, SourceMode: SourceModeAuto}}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建真实链接池一失败: %v", err)
+	}
+	p2, err := svc.Create(ctx, "真实链接池二", []SourceInput{{URL: url2, SourceMode: SourceModeAuto}}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建真实链接池二失败: %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p1.ID); err != nil {
+		t.Fatalf("提交真实链接池一失败: %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p2.ID); err != nil {
+		t.Fatalf("池一运行期间提交真实链接池二失败: %v", err)
+	}
+	for _, item := range []struct {
+		poolID int64
+		url    string
+	}{{p1.ID, url1}, {p2.ID, url2}} {
+		task := waitSyncWithin(t, svc, item.poolID, "succeeded", 30*time.Second)
+		if task.PoolID != item.poolID || len(task.PerURL) != 1 || task.PerURL[0].URL != item.url || !task.PerURL[0].OK || task.PerURL[0].Accepted == 0 {
+			t.Fatalf("真实链接池 %d 回执异常: %+v", item.poolID, task)
+		}
+		t.Logf("真实链接池 %d: status=%s format=%s profile=%s accepted=%d excluded=%d rejected=%d duplicates=%d",
+			item.poolID, task.Status, task.PerURL[0].Format, task.PerURL[0].Profile, task.PerURL[0].Accepted,
+			task.PerURL[0].Excluded, task.PerURL[0].Rejected, task.PerURL[0].Duplicates)
+	}
+}
+
+func TestDifferentPoolsSyncConcurrentlyAndSamePoolStillRejectsReentry(t *testing.T) {
+	_, svc := newTestService(t)
+	ctx := context.Background()
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-release
+		_, _ = w.Write([]byte("a.com\n"))
+	}))
+	defer srv.Close()
+	p1, err := svc.Create(ctx, "并发池一", []SourceInput{{URL: srv.URL, SourceMode: SourceModeAuto}}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建池一失败: %v", err)
+	}
+	p2, err := svc.Create(ctx, "并发池二", []SourceInput{{URL: srv.URL, SourceMode: SourceModeAuto}}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建池二失败: %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p1.ID); err != nil {
+		t.Fatalf("提交池一同步失败: %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p1.ID); !errors.Is(err, ErrSyncRunning) {
+		t.Fatalf("同池重复同步应返回 ErrSyncRunning，实际 %v", err)
+	}
+	if _, err := svc.SubmitSync(ctx, p2.ID); err != nil {
+		t.Fatalf("池一运行时提交池二同步失败: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("两个不同素材池未同时进入 HTTP 拉取阶段")
+		}
+	}
+	close(release)
+	waitSync(t, svc, p1.ID, "succeeded")
+	waitSync(t, svc, p2.ID, "succeeded")
+}
+
 func waitSync(t *testing.T, svc *Service, poolID int64, terminal string) *SyncTask {
+	return waitSyncWithin(t, svc, poolID, terminal, 5*time.Second)
+}
+
+func waitSyncWithin(t *testing.T, svc *Service, poolID int64, terminal string, timeout time.Duration) *SyncTask {
 	t.Helper()
 	ctx := context.Background()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		task, err := svc.GetStatus(ctx, poolID)
 		if err != nil {
