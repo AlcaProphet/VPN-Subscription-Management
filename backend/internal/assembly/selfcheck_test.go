@@ -150,7 +150,7 @@ rules:
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			issues := CheckClashContent([]byte(fmt.Sprintf(base, tc.plugin)))
+			issues := CheckClashContent(fmt.Appendf(nil, base, tc.plugin))
 			if tc.wantPath == "" {
 				if HasError(issues) {
 					t.Fatalf("合法 SS 插件结构不应报错: %+v", issues)

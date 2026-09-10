@@ -89,6 +89,9 @@ func TestApplyParseResultPersistsOriginEvidenceAndDuplicates(t *testing.T) {
 		}
 		got = append(got, e)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("遍历证据失败: %v", err)
+	}
 	if len(got) != 3 {
 		t.Fatalf("证据行数应为 3: %d", len(got))
 	}
