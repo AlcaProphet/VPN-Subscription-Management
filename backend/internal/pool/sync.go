@@ -24,6 +24,7 @@ const (
 	urlTimeout        = 60 * time.Second
 	maxURLContentSize = 50 << 20
 	taskRetentionDays = 7
+	terminalWriteTime = 5 * time.Second
 )
 
 // PerURLResult 单 URL 同步结果。
@@ -127,6 +128,11 @@ func (s *Service) SubmitSync(ctx context.Context, poolID int64) (int64, error) {
 			return err
 		}
 		taskID, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
+			`UPDATE rule_pools SET sync_status='running', sync_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?`, poolID)
 		return err
 	})
 	if err != nil {
@@ -151,25 +157,47 @@ func (s *Service) SubmitSync(ctx context.Context, poolID int64) (int64, error) {
 
 // CancelSync 取消运行中任务。
 func (s *Service) CancelSync(ctx context.Context, poolID, taskID int64) error {
-	var status string
-	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT status FROM pool_sync_tasks WHERE id=? AND pool_id=?`, taskID, poolID).Scan(&status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if status != "running" {
-		return fmt.Errorf("%w: 任务不在运行中", ErrBadRequest)
-	}
 	s.mu.Lock()
 	cancel, ok := s.cancels[taskID]
 	s.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("%w: 任务无法取消（可能已结束或服务重启）", ErrBadRequest)
 	}
+	const cancelMessage = "同步任务已取消"
+	// 先中断网络读取/解析后的写入，再争用 SQLite 写锁落终态；避免等待中的写事务继续提交。
 	cancel(errSyncCancelled)
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		var status, taskError string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT status, error FROM pool_sync_tasks WHERE id=? AND pool_id=?`, taskID, poolID).Scan(&status, &taskError); errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		} else if status == "failed" && taskError == cancelMessage {
+			return nil
+		} else if status != "running" {
+			return fmt.Errorf("%w: 任务不在运行中", ErrBadRequest)
+		}
+		res, err := tx.ExecContext(ctx,
+			`UPDATE pool_sync_tasks SET status='failed', error=?, finished_at=CURRENT_TIMESTAMP
+			 WHERE id=? AND pool_id=? AND status='running'`, cancelMessage, taskID, poolID)
+		if err != nil {
+			return err
+		}
+		changed, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if changed == 0 {
+			return fmt.Errorf("%w: 任务不在运行中", ErrBadRequest)
+		}
+		_, err = tx.ExecContext(ctx,
+			`UPDATE rule_pools SET sync_status='failed', sync_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, cancelMessage, poolID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -361,8 +389,14 @@ func (s *Service) runSyncTask(ctx context.Context, poolID, taskID int64) {
 		return
 	}
 	for _, src := range sources {
+		if s.finishInterrupted(ctx, bgStore, poolID, taskID, results) {
+			return
+		}
 		r := s.syncOne(ctx, bgStore, client, poolID, src.id, src.url, SourceMode(src.mode))
 		results = append(results, r)
+		if s.finishInterrupted(ctx, bgStore, poolID, taskID, results) {
+			return
+		}
 		if r.OK {
 			anyOK = true
 		} else {
@@ -388,6 +422,10 @@ func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *htt
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			r.Error = SanitizeTaskError(cause.Error())
+			return r
+		}
 		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, newSourceFailure("network_error", err.Error(), err))
 	}
 	defer resp.Body.Close()
@@ -397,6 +435,10 @@ func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *htt
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxURLContentSize+1))
 	if err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			r.Error = SanitizeTaskError(cause.Error())
+			return r
+		}
 		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, newSourceFailure("body_read_error", err.Error(), err))
 	}
 	if len(body) > maxURLContentSize {
@@ -404,7 +446,15 @@ func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *htt
 	}
 	parsed, err := ParseSource(body, mode)
 	if err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			r.Error = SanitizeTaskError(cause.Error())
+			return r
+		}
 		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, wrapParseFailure(err))
+	}
+	if cause := context.Cause(ctx); cause != nil {
+		r.Error = SanitizeTaskError(cause.Error())
+		return r
 	}
 	r.Format = string(parsed.Format)
 	r.Profile = parsed.Profile
@@ -441,6 +491,10 @@ func (s *Service) failSource(ctx context.Context, bgStore *store.Store, poolID, 
 // failSourceWithError 将可归属到 URL 来源的失败写入 failed snapshot。
 // 写入失败时不得伪称成功，单 URL 错误附带“失败快照写入失败”。
 func (s *Service) failSourceWithError(ctx context.Context, bgStore *store.Store, poolID, sourceID int64, r PerURLResult, failure error) PerURLResult {
+	if cause := context.Cause(ctx); cause != nil {
+		r.Error = SanitizeTaskError(cause.Error())
+		return r
+	}
 	errMsg := failure.Error()
 	r.Error = SanitizeTaskError(errMsg)
 	reason := failureReason(failure)
@@ -676,54 +730,86 @@ func failedReasonCode(errMsg string) string {
 	}
 }
 
-func (s *Service) finishTask(ctx context.Context, bgStore *store.Store, poolID, taskID int64, status, errMsg string, results []PerURLResult) {
+func (s *Service) finishInterrupted(ctx context.Context, bgStore *store.Store, poolID, taskID int64, results []PerURLResult) bool {
+	cause := context.Cause(ctx)
+	if cause == nil {
+		return false
+	}
+	s.finishTask(ctx, bgStore, poolID, taskID, "failed", cause.Error(), results)
+	return true
+}
+
+func (s *Service) finishTask(taskCtx context.Context, bgStore *store.Store, poolID, taskID int64, status, errMsg string, results []PerURLResult) {
 	cleanResults := make([]PerURLResult, len(results))
 	for i, r := range results {
 		cleanResults[i] = SanitizePerURLResult(r)
 	}
 	perJSON, _ := json.Marshal(cleanResults)
 	errMsg = SanitizeTaskError(errMsg)
-	if status == "succeeded" {
-		if _, err := bgStore.DB().ExecContext(ctx,
-			`UPDATE pool_sync_tasks SET status=?, per_url_json=?, error='', finished_at=CURRENT_TIMESTAMP WHERE id=?`,
-			status, string(perJSON), taskID); err != nil {
-			s.log.Error("回写同步任务失败", "task_id", taskID, "err", err)
-			return
+	writeCtx, cancel := context.WithTimeout(context.Background(), terminalWriteTime)
+	defer cancel()
+	err := bgStore.TxImmediate(writeCtx, func(tx *sql.Tx) error {
+		if cause := context.Cause(taskCtx); cause != nil {
+			status = "failed"
+			errMsg = SanitizeTaskError(cause.Error())
 		}
-		if _, err := bgStore.DB().ExecContext(ctx,
-			`UPDATE rule_pools SET last_synced_at=CURRENT_TIMESTAMP, sync_status='succeeded', sync_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?`, poolID); err != nil {
-			s.log.Error("回写池同步状态失败", "pool_id", poolID, "err", err)
+		res, err := tx.ExecContext(writeCtx,
+			`UPDATE pool_sync_tasks SET status=?, per_url_json=?, error=?, finished_at=CURRENT_TIMESTAMP
+			 WHERE id=? AND status='running'`, status, string(perJSON), errMsg, taskID)
+		if err != nil {
+			return err
 		}
-	} else {
-		if _, err := bgStore.DB().ExecContext(ctx,
-			`UPDATE pool_sync_tasks SET status=?, per_url_json=?, error=?, finished_at=CURRENT_TIMESTAMP WHERE id=?`,
-			status, string(perJSON), errMsg, taskID); err != nil {
-			s.log.Error("回写同步任务失败", "task_id", taskID, "err", err)
+		changed, err := res.RowsAffected()
+		if err != nil || changed == 0 {
+			return err
 		}
-		if _, err := bgStore.DB().ExecContext(ctx,
-			`UPDATE rule_pools SET sync_status=?, sync_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, errMsg, poolID); err != nil {
-			s.log.Error("回写池同步状态失败", "pool_id", poolID, "err", err)
+		if status == "succeeded" {
+			_, err = tx.ExecContext(writeCtx,
+				`UPDATE rule_pools SET last_synced_at=CURRENT_TIMESTAMP, sync_status='succeeded', sync_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?`, poolID)
+		} else {
+			_, err = tx.ExecContext(writeCtx,
+				`UPDATE rule_pools SET sync_status=?, sync_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, errMsg, poolID)
 		}
+		return err
+	})
+	if err != nil {
+		s.log.Error("回写同步终态失败", "task_id", taskID, "err", err)
+		return
 	}
 	// 清理 7 天前的终态任务，不删除 active/pending 快照。
-	_, _ = bgStore.DB().ExecContext(ctx,
+	_, _ = bgStore.DB().ExecContext(writeCtx,
 		`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at IS NOT NULL AND finished_at < datetime('now', ?)`, poolID, fmt.Sprintf("-%d days", taskRetentionDays))
 }
 
-func (s *Service) failTask(ctx context.Context, poolID, taskID int64, results []PerURLResult, msg string) {
+func (s *Service) failTask(taskCtx context.Context, poolID, taskID int64, results []PerURLResult, msg string) {
 	cleanResults := make([]PerURLResult, len(results))
 	for i, r := range results {
 		cleanResults[i] = SanitizePerURLResult(r)
 	}
 	perJSON, _ := json.Marshal(cleanResults)
 	msg = SanitizeTaskError(msg)
-	if _, err := s.store.DB().ExecContext(ctx,
-		`UPDATE pool_sync_tasks SET status='failed', per_url_json=?, error=?, finished_at=CURRENT_TIMESTAMP WHERE id=?`,
-		string(perJSON), msg, taskID); err != nil {
+	writeCtx, cancel := context.WithTimeout(context.Background(), terminalWriteTime)
+	defer cancel()
+	if err := s.store.TxImmediate(writeCtx, func(tx *sql.Tx) error {
+		if cause := context.Cause(taskCtx); cause != nil {
+			msg = SanitizeTaskError(cause.Error())
+		}
+		res, err := tx.ExecContext(writeCtx,
+			`UPDATE pool_sync_tasks SET status='failed', per_url_json=?, error=?, finished_at=CURRENT_TIMESTAMP
+			 WHERE id=? AND status='running'`, string(perJSON), msg, taskID)
+		if err != nil {
+			return err
+		}
+		changed, err := res.RowsAffected()
+		if err != nil || changed == 0 {
+			return err
+		}
+		_, err = tx.ExecContext(writeCtx,
+			`UPDATE rule_pools SET sync_status='failed', sync_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, msg, poolID)
+		return err
+	}); err != nil {
 		s.log.Error("回写失败任务", "task_id", taskID, "err", err)
 	}
-	_, _ = s.store.DB().ExecContext(ctx,
-		`UPDATE rule_pools SET sync_status='failed', sync_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, msg, poolID)
 }
 
 func summarizeResults(results []PerURLResult) string {

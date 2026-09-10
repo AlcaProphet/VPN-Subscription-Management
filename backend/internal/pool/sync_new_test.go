@@ -48,6 +48,35 @@ func TestR2902ProvidedURLsConcurrentIntegration(t *testing.T) {
 	}
 }
 
+func TestProvidedURLCancelIntegration(t *testing.T) {
+	u := os.Getenv("R29_CANCEL_URL")
+	if u == "" {
+		t.Skip("未提供 R29_CANCEL_URL，跳过真实链接取消测试")
+	}
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "真实链接取消池", []SourceInput{{URL: u, SourceMode: SourceModeAuto}}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建真实链接取消池失败: %v", err)
+	}
+	taskID, err := svc.SubmitSync(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("提交真实链接取消任务失败: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if err := svc.CancelSync(ctx, p.ID, taskID); err != nil {
+		t.Fatalf("取消真实链接任务失败: %v", err)
+	}
+	task := waitSync(t, svc, p.ID, "failed")
+	if task.Error != "同步任务已取消" || task.FinishedAt == nil {
+		t.Fatalf("真实链接取消终态异常: %+v", task)
+	}
+	waitSyncWorkerStopped(t, svc, taskID)
+	if activeSnapshotID(t, st, p.ID) != 0 {
+		t.Fatal("取消的首次同步不应激活快照")
+	}
+}
+
 func TestDifferentPoolsSyncConcurrentlyAndSamePoolStillRejectsReentry(t *testing.T) {
 	_, svc := newTestService(t)
 	ctx := context.Background()
@@ -86,6 +115,70 @@ func TestDifferentPoolsSyncConcurrentlyAndSamePoolStillRejectsReentry(t *testing
 	close(release)
 	waitSync(t, svc, p1.ID, "succeeded")
 	waitSync(t, svc, p2.ID, "succeeded")
+}
+
+func TestCancelSyncPersistsTerminalAndCannotBeOverwritten(t *testing.T) {
+	_, svc := newTestService(t)
+	ctx := context.Background()
+	started := make(chan struct{}, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	p, err := svc.Create(ctx, "取消池", []SourceInput{{URL: srv.URL, SourceMode: SourceModeAuto}}, false, "04:00")
+	if err != nil {
+		t.Fatalf("创建取消池失败: %v", err)
+	}
+	taskID, err := svc.SubmitSync(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("提交取消任务失败: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("同步请求未开始")
+	}
+	if err := svc.CancelSync(ctx, p.ID, taskID); err != nil {
+		t.Fatalf("取消任务失败: %v", err)
+	}
+	task := waitSync(t, svc, p.ID, "failed")
+	if task.Error != "同步任务已取消" || task.FinishedAt == nil {
+		t.Fatalf("取消终态异常: %+v", task)
+	}
+	waitSyncWorkerStopped(t, svc, taskID)
+	svc.finishTask(ctx, svc.store, p.ID, taskID, "succeeded", "", []PerURLResult{{OK: true, Accepted: 1}})
+	task, err = svc.GetStatus(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("读取取消终态失败: %v", err)
+	}
+	if task.Status != "failed" || task.Error != "同步任务已取消" {
+		t.Fatalf("取消终态不应被工作线程覆盖: %+v", task)
+	}
+
+	nextTaskID, err := svc.SubmitSync(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("取消后应允许重新同步: %v", err)
+	}
+	if err := svc.CancelSync(ctx, p.ID, nextTaskID); err != nil {
+		t.Fatalf("清理重新提交的任务失败: %v", err)
+	}
+	waitSyncWorkerStopped(t, svc, nextTaskID)
+}
+
+func waitSyncWorkerStopped(t *testing.T, svc *Service, taskID int64) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		svc.mu.Lock()
+		_, running := svc.cancels[taskID]
+		svc.mu.Unlock()
+		if !running {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("同步任务 %d 的后台工作线程未停止", taskID)
 }
 
 func waitSync(t *testing.T, svc *Service, poolID int64, terminal string) *SyncTask {
