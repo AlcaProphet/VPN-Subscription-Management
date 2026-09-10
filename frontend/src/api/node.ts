@@ -1,6 +1,15 @@
 // api/node.ts：节点管理接口（Design2-UI §9.1）
 import { http } from './request'
 
+// 与后端 ssplugin.TargetNames() 保持一致的节点检查权威目标集合；前端只用于受控选择与展示。
+export const NODE_CHECK_TARGETS = ['clash-yaml', 'sr-subs', 'generic-subs'] as const
+export type NodeCheckTarget = typeof NODE_CHECK_TARGETS[number]
+export const NODE_CHECK_TARGET_LABELS: Record<NodeCheckTarget, string> = {
+  'clash-yaml': 'clash-yaml（Clash YAML）',
+  'sr-subs': 'sr-subs（Shadowrocket 订阅）',
+  'generic-subs': 'generic-subs（通用订阅）',
+}
+
 export interface NodeItem {
   id: number
   source: 'manual' | 'xray'

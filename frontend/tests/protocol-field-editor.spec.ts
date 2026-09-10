@@ -13,7 +13,7 @@ const objectField: FieldSchema = {
   label: 'WebSocket 参数',
   section: 'transport',
   object_kind: 'fields',
-  allow_unknown: true,
+  allow_unknown: false,
   properties: [
     { name: 'path', type: 'text', required: false, label: '路径' },
     { name: 'headers', type: 'object', required: false, label: '请求头', object_kind: 'map', allow_unknown: true },
@@ -164,7 +164,7 @@ describe('ProtocolFieldEditor', () => {
     expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('{}')
     wrapper.unmount()
   })
-  it('固定对象默认结构化并保留未知参数提示', () => {
+  it('固定对象默认结构化并明确提示未声明参数需删除', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: {
         field: objectField,
@@ -174,8 +174,88 @@ describe('ProtocolFieldEditor', () => {
 
     expect(wrapper.text()).toContain('结构化编辑')
     expect(wrapper.text()).toContain('路径')
-    expect(wrapper.text()).toContain('已保留 1 个未识别参数')
+    expect(wrapper.text()).toContain('检测到 1 个未声明参数')
+    expect(wrapper.text()).toContain('请在高级 JSON 中显式删除')
     expect(wrapper.find('textarea').exists()).toBe(false)
+  })
+
+  it('固定对象高级 JSON 拒绝未知键并定位字段路径，删除后可应用', async () => {
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: objectField, modelValue: { path: '/old' } } })
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue(JSON.stringify({ path: '/ws', future: true }))
+    expect(wrapper.text()).toContain('ws-opts.future')
+    await wrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await textarea.setValue(JSON.stringify({ path: '/ws' }))
+    await wrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[{ path: '/ws' }]])
+  })
+
+  it('开放 Map 高级 JSON 允许新增普通键，字符串 Map 仍拒绝非法类型', async () => {
+    const headers: FieldSchema = {
+      name: 'headers', type: 'object', required: false, label: '请求头',
+      object_kind: 'map', allow_unknown: true,
+    }
+    const mapWrapper = mount(ProtocolFieldEditor, { props: { field: headers, modelValue: { Host: 'old.example.com' } } })
+    await mapWrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await mapWrapper.find('textarea').setValue(JSON.stringify({ Host: 'new.example.com', 'X-Custom': 7 }))
+    await mapWrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
+    expect(mapWrapper.emitted('update:modelValue')).toEqual([[{ Host: 'new.example.com', 'X-Custom': 7 }]])
+    mapWrapper.unmount()
+
+    const stringMapWrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { flag: '' } } })
+    await stringMapWrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await stringMapWrapper.find('textarea').setValue(JSON.stringify({ flag: '', bad: 1 }))
+    expect(stringMapWrapper.text()).toContain('plugin-opts.bad 的值必须为字符串')
+    await stringMapWrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
+    expect(stringMapWrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('后代 JSON 草稿存在时阻止父对象切换高级 JSON 并稳定定位首个后代', async () => {
+    const field: FieldSchema = {
+      ...objectField,
+      properties: [
+        ...objectField.properties!,
+        { name: 'early', type: 'object', required: false, label: 'Early Data', object_kind: 'fields', allow_unknown: false,
+          properties: [{ name: 'limit', type: 'number', required: false, label: '上限' }] },
+      ],
+    }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field, modelValue: { path: '/ws', early: { limit: 1 } }, jsonDirtyPaths: ['ws-opts.headers', 'ws-opts.early'] },
+    })
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(wrapper.emitted('advanced-json-blocked')).toEqual([[{ path: 'ws-opts', blockedBy: 'ws-opts.early' }]])
+    const childPaths = wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('path'))
+    expect(childPaths).toContain('ws-opts.early')
+    expect(childPaths).toContain('ws-opts.headers')
+  })
+
+  it('三层后代 JSON 草稿同样阻止顶层切换并定位最深层路径', async () => {
+    const field: FieldSchema = {
+      ...objectField,
+      properties: [
+        ...objectField.properties!,
+        { name: 'early', type: 'object', required: false, label: 'Early Data', object_kind: 'fields', allow_unknown: false,
+          properties: [{ name: 'deep', type: 'object', required: false, label: 'Deep', object_kind: 'fields', allow_unknown: false, properties: [] }] },
+      ],
+    }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field, modelValue: { path: '/ws', early: { deep: {} } }, jsonDirtyPaths: ['ws-opts.early.deep'] },
+    })
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(wrapper.emitted('advanced-json-blocked')).toEqual([[{ path: 'ws-opts', blockedBy: 'ws-opts.early.deep' }]])
+  })
+
+  it('父路径与 foo-bar 不构成后代匹配，不误阻断高级 JSON', async () => {
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field: objectField, modelValue: { path: '/ws' }, jsonDirtyPaths: ['ws-opts-extra'] },
+    })
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    expect(wrapper.find('textarea').exists()).toBe(true)
+    expect(wrapper.emitted('advanced-json-blocked')).toBeUndefined()
   })
 
   it('高级 JSON 解析失败时发出带路径的无效状态', async () => {
@@ -321,7 +401,7 @@ describe('ProtocolFieldEditor', () => {
 
   it('对象数组可新增条目并按子 schema 编辑', async () => {
     const peers: FieldSchema = {
-      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', allow_unknown: true,
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', allow_unknown: false,
       properties: [{ name: 'server', type: 'text', required: false, label: '服务器' }],
     }
     const wrapper = mount(ProtocolFieldEditor, { props: { field: peers, modelValue: [] } })
@@ -339,7 +419,7 @@ describe('ProtocolFieldEditor', () => {
       required: false,
       label: '插件参数',
       object_kind: 'fields',
-      allow_unknown: true,
+      allow_unknown: false,
       properties: [
         { name: 'mode', type: 'select', required: false, label: '模式', when: { plugin: ['obfs'] } },
         { name: 'host', type: 'text', required: false, label: 'Host', when: { plugin: ['obfs', 'v2ray-plugin'] } },

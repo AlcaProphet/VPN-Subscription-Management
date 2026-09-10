@@ -11,8 +11,7 @@ import (
 func smuxFixture() map[string]any {
 	return map[string]any{
 		"enabled": true, "max-connections": float64(7), "padding": true,
-		"future":      map[string]any{"value": "old"},
-		"brutal-opts": map[string]any{"enabled": true, "up": "100 Mbps", "down": "200 Mbps", "future": "old"},
+		"brutal-opts": map[string]any{"enabled": true, "up": "100 Mbps", "down": "200 Mbps"},
 	}
 }
 
@@ -48,6 +47,41 @@ func TestDisabledSMuxIsCleanedForStorageAndProjection(t *testing.T) {
 	}
 }
 
+func TestFeatureCloseClearsHistoricalUnknownKeys(t *testing.T) {
+	proto, err := GetProtocol("vless")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 父功能关闭：历史未知键随所属对象一起清除。
+	params := featureParams("vless")
+	smux := params["smux"].(map[string]any)
+	smux["enabled"] = false
+	smux["historical-parent"] = "must-clear"
+	smux["brutal-opts"].(map[string]any)["historical-child"] = "must-clear"
+	cleaned := cleanDisabledFeatures(proto.FormSchema, params)
+	if !reflect.DeepEqual(cleaned["smux"], map[string]any{"enabled": false}) {
+		t.Fatalf("关闭父功能后历史未知键未清理: %#v", cleaned["smux"])
+	}
+	if smux["historical-parent"] != "must-clear" || smux["brutal-opts"].(map[string]any)["historical-child"] != "must-clear" {
+		t.Fatal("清理不能修改输入中的历史未知键")
+	}
+
+	// 子功能关闭：只清空子对象历史未知键，父对象已知参数保留。
+	active := featureParams("vless")
+	brutal := active["smux"].(map[string]any)["brutal-opts"].(map[string]any)
+	brutal["enabled"] = false
+	brutal["historical-child"] = "must-clear"
+	cleaned = cleanDisabledFeatures(proto.FormSchema, active)
+	gotSmux := cleaned["smux"].(map[string]any)
+	if !reflect.DeepEqual(gotSmux["brutal-opts"], map[string]any{"enabled": false}) {
+		t.Fatalf("关闭子功能后历史未知键未清理: %#v", gotSmux["brutal-opts"])
+	}
+	if gotSmux["max-connections"] != float64(7) {
+		t.Fatalf("关闭子功能不应清空父对象已知参数: %#v", gotSmux)
+	}
+}
+
 func TestBrutalResetPreservesParentAndAcceptsNewValues(t *testing.T) {
 	proto, err := GetProtocol("vless")
 	if err != nil {
@@ -58,7 +92,7 @@ func TestBrutalResetPreservesParentAndAcceptsNewValues(t *testing.T) {
 		"brutal-opts": map[string]any{"enabled": true, "up": "50 Mbps"},
 	}}, proto, []string{"feature.smux.brutal"})
 	smux := merged["smux"].(map[string]any)
-	if smux["max-connections"] != float64(7) || smux["future"] == nil {
+	if smux["max-connections"] != float64(7) || smux["padding"] != true {
 		t.Fatalf("子功能重置影响父配置: %#v", smux)
 	}
 	if !reflect.DeepEqual(smux["brutal-opts"], map[string]any{"enabled": true, "up": "50 Mbps"}) {

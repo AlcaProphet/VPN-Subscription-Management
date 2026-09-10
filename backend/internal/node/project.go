@@ -102,7 +102,14 @@ func projectFieldValue(field FieldSchema, value any, state CurrentState) (any, b
 
 func projectObjectFields(field FieldSchema, object map[string]any, state CurrentState) (map[string]any, bool) {
 	out := make(map[string]any, len(object))
-	known := make(map[string]bool, len(field.Properties))
+	known := make(map[string]bool, len(field.Properties)+1)
+	// 稳定条目身份是内部编辑元数据，需要保留到脱敏步骤之后再剥离，不能作为未知业务键丢弃。
+	if field.ItemIDField != "" {
+		known[field.ItemIDField] = true
+		if value, exists := object[field.ItemIDField]; exists {
+			out[field.ItemIDField] = cloneJSONValue(value)
+		}
+	}
 	for _, property := range field.Properties {
 		known[property.Name] = true
 		if !property.Matches(state, "") {
@@ -268,7 +275,10 @@ func validateActiveFieldValue(field FieldSchema, value any, state CurrentState, 
 }
 
 func validateActiveObjectFields(field FieldSchema, object map[string]any, state CurrentState, path, target string) error {
-	known := make(map[string]bool, len(field.Properties))
+	known := make(map[string]bool, len(field.Properties)+1)
+	if field.ItemIDField != "" {
+		known[field.ItemIDField] = true
+	}
 	for _, property := range field.Properties {
 		known[property.Name] = true
 		if !property.Matches(state, target) {

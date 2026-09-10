@@ -15,6 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   conflict: []
+  locate: []
 }>()
 
 const checking = ref(false)
@@ -78,7 +79,10 @@ const targetKeys = computed(() => result.value ? Object.keys(result.value.target
         <div class="text-sm font-medium text-text">目标检查</div>
         <div class="text-xs text-text-tertiary">按当前草稿检查去敏输出与诊断；检查不写库，也不保存节点。</div>
       </div>
-      <Button type="primary" size="small" :loading="checking" :disabled="!!blockedReason" @click="run">检查当前节点</Button>
+      <div class="flex shrink-0 items-center gap-2">
+        <Button v-if="blockedReason" size="small" @click="emit('locate')">定位草稿</Button>
+        <Button type="primary" size="small" :loading="checking" :disabled="!!blockedReason" @click="run">检查当前节点</Button>
+      </div>
     </div>
 
     <Alert v-if="blockedReason" type="warning" show-icon class="mb-2" :message="blockedReason" />

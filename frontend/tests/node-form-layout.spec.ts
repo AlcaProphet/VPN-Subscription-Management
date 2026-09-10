@@ -33,8 +33,7 @@ describe('节点开关展示投影', () => {
     expect(next['brutal-opts'].enabled).toBe(false)
     expect(original['brutal-opts'].enabled).toBe(true)
     expect(next['max-connections']).toBe(7)
-    expect(next.future).toEqual(original.future)
-    expect(next['brutal-opts'].future).toBe('old')
+    expect(next['brutal-opts'].up).toBe('100 Mbps')
   })
 
   it('非首批协议的对象数组保留条目内控件，不产生失去索引的开关', () => {

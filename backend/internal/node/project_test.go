@@ -355,7 +355,7 @@ func hasTargetEvidence(evidence []TargetEvidence, target, status string) bool {
 	return false
 }
 
-func TestProjectActiveDropsInactiveBranchesAndPreservesUnknown(t *testing.T) {
+func TestProjectActiveDropsInactiveBranchesAndFixedUnknown(t *testing.T) {
 	proto, _ := GetProtocol("vless")
 	state := CurrentState{Network: "grpc", Security: "tls"}
 	params := map[string]any{
@@ -375,8 +375,11 @@ func TestProjectActiveDropsInactiveBranchesAndPreservesUnknown(t *testing.T) {
 		t.Fatalf("切到 gRPC 后不应投影 ws-opts: %+v", projected)
 	}
 	grpc := projected["grpc-opts"].(map[string]any)
-	if grpc["grpc-service-name"] != "svc" || grpc["future"] == nil {
-		t.Fatalf("活动 gRPC 参数/未知键丢失: %+v", grpc)
+	if grpc["grpc-service-name"] != "svc" {
+		t.Fatalf("活动 gRPC 已知参数丢失: %+v", grpc)
+	}
+	if _, exists := grpc["future"]; exists {
+		t.Fatalf("固定对象未知键不得进入输出投影: %+v", grpc)
 	}
 	if _, ok := projected["security"]; ok {
 		t.Fatalf("统一 security 元数据不应进入实际活动输出: %+v", projected)

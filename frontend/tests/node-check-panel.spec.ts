@@ -100,7 +100,7 @@ describe('NodeCheckPanel', () => {
     wrapper.unmount()
   })
 
-  it('存在未应用控件草稿时禁用检查并显示原因', async () => {
+  it('存在未应用控件草稿时禁用检查并可由用户定位草稿', async () => {
     const blockedReason = '存在未应用的自定义值或列表项草稿，请先应用或取消后再检查'
     const wrapper = mount(NodeCheckPanel, { props: { request, blockedReason } })
     const button = wrapper.findAll('button').find((b) => b.text().replace(/\s/g, '').includes('检查当前节点'))!
@@ -108,5 +108,8 @@ describe('NodeCheckPanel', () => {
     expect(wrapper.text()).toContain(blockedReason)
     await button.trigger('click')
     expect(mockCheckNode).not.toHaveBeenCalled()
+    const locate = wrapper.findAll('button').find((b) => b.text().replace(/\s/g, '').includes('定位草稿'))!
+    await locate.trigger('click')
+    expect(wrapper.emitted('locate')).toHaveLength(1)
   })
 })

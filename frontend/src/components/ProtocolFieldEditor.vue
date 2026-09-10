@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
   path?: string
   currentState?: CurrentState
   jsonResetVersions?: Record<string, number>
+  jsonDirtyPaths?: string[]
   centralizedSwitches?: boolean
 }>(), {
   modelValue: undefined,
@@ -27,6 +28,7 @@ const props = withDefaults(defineProps<{
   path: '',
   currentState: undefined,
   jsonResetVersions: () => ({}),
+  jsonDirtyPaths: () => [],
   centralizedSwitches: false,
 })
 
@@ -36,9 +38,13 @@ const emit = defineEmits<{
   'json-dirty-change': [payload: { path: string; dirty: boolean }]
   'draft-dirty-change': [payload: { path: string; dirty: boolean }]
   'credential-change': [payload: { path: string; value: string }]
+  'advanced-json-blocked': [payload: { path: string; blockedBy: string }]
 }>()
 
 const fieldPath = computed(() => props.path || props.field.name)
+const descendantJsonDirtyPaths = computed(() => Array.from(new Set(props.jsonDirtyPaths ?? []))
+  .filter((path) => isStrictDescendantPath(path, fieldPath.value))
+  .sort((left, right) => left.length - right.length || left.localeCompare(right)))
 const advanced = ref(false)
 const jsonText = ref('')
 const jsonError = ref('')
@@ -100,6 +106,12 @@ function emptyObjectValue(): Record<string, unknown> | unknown[] {
   return props.field.object_kind === 'list' ? [] : {}
 }
 
+// 严格按字段段落判断后代路径：foo.bar 是 foo 后代，foo-bar 不是。
+function isStrictDescendantPath(candidate: string, ancestor: string): boolean {
+  if (!candidate || !ancestor || candidate === ancestor) return false
+  return candidate.startsWith(`${ancestor}.`) || candidate.startsWith(`${ancestor}[`)
+}
+
 function createMapRowID(): string {
   nextMapRowID += 1
   return `map-row-${nextMapRowID}`
@@ -128,6 +140,10 @@ function forwardValidity(payload: { path: string; valid: boolean }) {
 
 function forwardJsonDirty(payload: { path: string; dirty: boolean }) {
   emit('json-dirty-change', payload)
+}
+
+function forwardAdvancedJSONBlocked(payload: { path: string; blockedBy: string }) {
+  emit('advanced-json-blocked', payload)
 }
 
 function forwardDraftDirty(payload: { path: string; dirty: boolean }) {
@@ -160,15 +176,61 @@ function setJSONValidity(path: string) {
   jsonInvalidPath.value = path
 }
 
-function validateStringMap(value: Record<string, unknown>): { error: string; path: string } {
+function validateStringMap(value: Record<string, unknown>, path: string): { error: string; path: string } {
   for (const [key, item] of Object.entries(value)) {
-    if (key === '') return { error: `${fieldPath.value} 参数名不能为空`, path: fieldPath.value }
+    if (key === '') return { error: `${path} 参数名不能为空`, path }
     if (typeof item !== 'string') {
-      const path = `${fieldPath.value}.${key}`
-      return { error: `${path} 的值必须为字符串`, path }
+      const itemPath = `${path}.${key}`
+      return { error: `${itemPath} 的值必须为字符串`, path: itemPath }
     }
   }
   return { error: '', path: '' }
+}
+
+function isPlainJSONObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function validateFixedObjectProperties(field: FieldSchema, object: Record<string, unknown>, path: string): { error: string; path: string } {
+  const known = new Set((field.properties ?? []).map((property) => property.name))
+  if (field.allow_unknown !== true) {
+    for (const key of Object.keys(object)) {
+      if (!known.has(key)) {
+        return { error: `字段 ${path}.${key} 未在协议注册表中声明`, path: `${path}.${key}` }
+      }
+    }
+  }
+  for (const property of field.properties ?? []) {
+    if (!(property.name in object)) continue
+    const result = validateNestedJSONShape(property, object[property.name], `${path}.${property.name}`)
+    if (result.error) return result
+  }
+  return { error: '', path: '' }
+}
+
+function validateNestedJSONShape(field: FieldSchema, value: unknown, path: string): { error: string; path: string } {
+  if (field.type !== 'object') return { error: '', path: '' }
+  switch (field.object_kind) {
+    case 'map': {
+      if (!isPlainJSONObject(value)) return { error: `请输入 JSON 对象：${path}`, path }
+      if (field.map_value_type === 'string') return validateStringMap(value, path)
+      return { error: '', path: '' }
+    }
+    case 'list': {
+      if (!Array.isArray(value)) return { error: `字段 ${path} 类型应为 object 数组`, path }
+      for (let index = 0; index < value.length; index += 1) {
+        const item = value[index]
+        if (!isPlainJSONObject(item)) return { error: `字段 ${path}[${index}] 类型应为 object`, path: `${path}[${index}]` }
+        const result = validateFixedObjectProperties(field, item, `${path}[${index}]`)
+        if (result.error) return result
+      }
+      return { error: '', path: '' }
+    }
+    default: {
+      if (!isPlainJSONObject(value)) return { error: `请输入 JSON 对象：${path}`, path }
+      return validateFixedObjectProperties(field, value, path)
+    }
+  }
 }
 
 function discardMapKeyDrafts() {
@@ -182,6 +244,11 @@ function setAdvanced(next: boolean) {
   if (next === advanced.value) return
   if (!next && jsonError.value) return
   if (next) {
+    const blockedBy = descendantJsonDirtyPaths.value[0]
+    if (blockedBy) {
+      emit('advanced-json-blocked', { path: fieldPath.value, blockedBy })
+      return
+    }
     // 非法改名从未进入模型；切到 JSON 时丢弃其输入草稿并恢复当前有效键。
     discardMapKeyDrafts()
     jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
@@ -208,10 +275,8 @@ function parseJSONText(): { parsed: unknown; error: string; path: string } {
     if (!validShape) {
       return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象', path: fieldPath.value }
     }
-    if (props.field.object_kind === 'map' && props.field.map_value_type === 'string') {
-      const validation = validateStringMap(parsed as Record<string, unknown>)
-      if (validation.error) return { parsed: null, ...validation }
-    }
+    const shape = validateNestedJSONShape(props.field, parsed, fieldPath.value)
+    if (shape.error) return { parsed: null, ...shape }
     return { parsed, error: '', path: '' }
   } catch {
     return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象', path: fieldPath.value }
@@ -527,11 +592,13 @@ function isComplex(value: unknown): boolean {
               :path="`${fieldPath}[${listItemID(item, index)}].${property.name}`"
               :current-state="currentState"
               :json-reset-versions="jsonResetVersions"
+              :json-dirty-paths="jsonDirtyPaths"
               @update:model-value="(value: unknown) => setListChild(index, property.name, value)"
               @validity-change="forwardValidity"
               @json-dirty-change="forwardJsonDirty"
               @draft-dirty-change="forwardDraftDirty"
               @credential-change="forwardCredentialChange"
+              @advanced-json-blocked="forwardAdvancedJSONBlocked"
             />
           </div>
         </div>
@@ -557,6 +624,7 @@ function isComplex(value: unknown): boolean {
           :path="`${fieldPath}.${property.name}`"
           :current-state="currentState"
           :json-reset-versions="jsonResetVersions"
+          :json-dirty-paths="jsonDirtyPaths"
           :centralized-switches="centralizedSwitches"
           :class="property.type === 'object' ? 'md:col-span-2' : ''"
           @update:model-value="(value: unknown) => setChild(property.name, value)"
@@ -564,12 +632,14 @@ function isComplex(value: unknown): boolean {
           @json-dirty-change="forwardJsonDirty"
           @draft-dirty-change="forwardDraftDirty"
           @credential-change="forwardCredentialChange"
+          @advanced-json-blocked="forwardAdvancedJSONBlocked"
         />
         </div>
       </component>
       <div v-if="centralizedSwitches && visibleProperties(field.properties).some((property) => property.type === 'bool')" class="text-xs text-text-tertiary mt-2">运行开关位于“独立开关”区域。</div>
-      <div v-if="unknownCount" class="text-xs text-text-tertiary mt-3">
-        已保留 {{ unknownCount }} 个未识别参数，可在高级 JSON 中查看和编辑。
+      <div v-if="unknownCount" class="text-xs mt-3" :class="field.allow_unknown === true ? 'text-text-tertiary' : 'text-red-500'">
+        <template v-if="field.allow_unknown === true">已保留 {{ unknownCount }} 个未识别参数，可在高级 JSON 中查看和编辑。</template>
+        <template v-else>检测到 {{ unknownCount }} 个未声明参数；当前固定对象不接受未知键，请在高级 JSON 中显式删除后才能保存或检查。</template>
       </div>
     </template>
   </div>

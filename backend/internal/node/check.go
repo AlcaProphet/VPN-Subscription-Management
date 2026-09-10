@@ -13,7 +13,22 @@ import (
 	"vpn-sub/internal/ssplugin"
 )
 
-var defaultCheckTargets = []string{"clash-yaml", "sr-subs", "generic-subs"}
+var defaultCheckTargets = ssplugin.TargetNames()
+
+const (
+	extensionDiagNotTargeted = "unknown_extension_not_targeted"
+	extensionDiagNotRendered = "unknown_extension_not_rendered"
+)
+
+// isSupportedCheckTarget 从 ssplugin 的权威目标集合派生，避免节点检查和扩展 targets 校验各维护一套列表。
+func isSupportedCheckTarget(target string) bool {
+	for _, supported := range ssplugin.TargetNames() {
+		if target == supported {
+			return true
+		}
+	}
+	return false
+}
 
 // CheckRenderer 是装配层注入的只读目标适配器检查函数。
 type CheckRenderer func(ctx context.Context, target, protocol, renderName, host string, port int, params map[string]any) (CheckRenderResult, error)
@@ -193,7 +208,8 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 			result.Status = rendered.Status
 		}
 		result.Diagnostics = append(result.Diagnostics, extensionDiagnostics(target, extensionRecords)...)
-		if result.Status == "" {
+		// 扩展诊断是本次目标的真实警告；适配器返回 ok 时不得因扩展存在而无视该警告。
+		if result.Status == "" || result.Status == "ok" {
 			result.Status = statusForDiagnostics(result.Diagnostics)
 		}
 		response.Targets[target] = result
@@ -212,7 +228,7 @@ func normalizeCheckTargets(targets []string) ([]string, error) {
 		if target == "" || seen[target] {
 			continue
 		}
-		if target != "clash-yaml" && target != "sr-subs" && target != "generic-subs" {
+		if !isSupportedCheckTarget(target) {
 			return nil, fmt.Errorf("节点检查不支持目标: %s", target)
 		}
 		seen[target] = true
@@ -245,14 +261,23 @@ func redactCheckParams(proto Protocol, params map[string]any) map[string]any {
 }
 
 func extensionDiagnostics(target string, records []ExtensionRecord) []TargetDiagnostic {
-	var out []TargetDiagnostic
+	out := make([]TargetDiagnostic, 0, len(records))
 	for _, record := range records {
+		fieldPath := "extensions." + record.ID
+		if len(record.Targets) == 0 {
+			out = append(out, TargetDiagnostic{
+				Severity: "warn", Code: extensionDiagNotTargeted, Target: target,
+				FieldPath: fieldPath, Message: "未知扩展未关联目标，因此未参与输出",
+				Evidence: "build18-check-v1",
+			})
+			continue
+		}
 		if !containsString(record.Targets, target) {
 			continue
 		}
 		out = append(out, TargetDiagnostic{
-			Severity: "warn", Code: "unknown_extension_not_rendered", Target: target,
-			FieldPath: "extensions." + record.ID, Message: "未知扩展已配置但当前节点检查适配器不会透传其负载",
+			Severity: "warn", Code: extensionDiagNotRendered, Target: target,
+			FieldPath: fieldPath, Message: "未知扩展已关联该目标，但当前适配器不会渲染其负载",
 			Evidence: "build18-check-v1",
 		})
 	}

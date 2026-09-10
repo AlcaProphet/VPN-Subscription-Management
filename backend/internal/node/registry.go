@@ -21,7 +21,7 @@ type FieldSchema struct {
 	MapValueType   string           `json:"map_value_type,omitempty"` // map 叶子值类型；当前支持 string
 	ItemIDField    string           `json:"item_id_field,omitempty"`  // 含敏感子字段的 list 条目稳定身份
 	Properties     []FieldSchema    `json:"properties,omitempty"`     // fields 属性或 list 元素字段
-	AllowUnknown   bool             `json:"allow_unknown,omitempty"`  // 保留客户端扩展键
+	AllowUnknown   bool             `json:"allow_unknown"` // 显式白名单；固定对象必须下发 false，开放 Map 才为 true
 	Group          string           `json:"group,omitempty"`          // basic/auth/connection/switches/advanced
 	Advanced       bool             `json:"advanced,omitempty"`       // 开关/高级区内的“更多/高级”分层标记
 	When           *ConditionRule   `json:"when,omitempty"`
@@ -70,12 +70,18 @@ func obj(name, label, kind string, properties ...FieldSchema) FieldSchema {
 	v := f(name, "object", label)
 	v.ObjectKind = kind
 	v.Properties = properties
+	return v
+}
+
+// openMap 声明显式允许未知普通键的开放 Map；其余 object 默认拒绝未知键。
+func openMap(name, label string) FieldSchema {
+	v := obj(name, label, "map")
 	v.AllowUnknown = true
 	return v
 }
 
 func customPluginOpts() FieldSchema {
-	field := obj("plugin-opts", "自定义插件参数", "map")
+	field := openMap("plugin-opts", "自定义插件参数")
 	field.MapValueType = "string"
 	field.Help = "仅用于未知自定义插件；所有键值均为普通字符串参数。"
 	return field
@@ -108,14 +114,14 @@ func grpcOpts() FieldSchema {
 
 func wsOpts() FieldSchema {
 	return obj("ws-opts", "WebSocket 参数", "fields",
-		f("path", "text", "路径"), obj("headers", "请求头", "map"), f("max-early-data", "number", "Early Data 上限"),
+		f("path", "text", "路径"), openMap("headers", "请求头"), f("max-early-data", "number", "Early Data 上限"),
 		f("early-data-header-name", "text", "Early Data Header"), def("v2ray-http-upgrade", "bool", "HTTP Upgrade", false),
 		def("v2ray-http-upgrade-fast-open", "bool", "HTTP Upgrade Fast Open", false))
 }
 
 func httpOpts() FieldSchema {
 	return obj("http-opts", "HTTP 参数", "fields",
-		f("method", "text", "方法"), f("path", "text-list", "路径"), obj("headers", "请求头", "map"))
+		f("method", "text", "方法"), f("path", "text-list", "路径"), openMap("headers", "请求头"))
 }
 
 func h2Opts() FieldSchema {
@@ -153,7 +159,7 @@ func v2rayPluginOpts() FieldSchema {
 	mode.AllowCustom = boolPtr(true)
 	setOptionItems(&mode, option("websocket", "WebSocket", "common", "mihomo-1.19.29"))
 	return obj("v2ray-plugin-opts", "v2ray-plugin 参数", "fields",
-		mode, f("host", "text", "Host"), def("tls", "bool", "TLS", false), f("path", "text", "路径"), obj("headers", "请求头", "map"),
+		mode, f("host", "text", "Host"), def("tls", "bool", "TLS", false), f("path", "text", "路径"), openMap("headers", "请求头"),
 		obj("ech-opts", "ECH 参数", "fields", def("enable", "bool", "启用", false), f("config", "text", "配置"), f("query-server-name", "text", "查询服务器名称")),
 		def("mux", "bool", "Mux", false), def("v2ray-http-upgrade", "bool", "HTTP Upgrade", false),
 		def("v2ray-http-upgrade-fast-open", "bool", "HTTP Upgrade Fast Open", false), f("fingerprint", "text", "证书指纹"),
@@ -218,7 +224,7 @@ func ManualProtocols() []Protocol {
 			req("uuid", "password", "UUID"), f("flow", "text", "Flow"), def("tls", "bool", "TLS", false), f("alpn", "text-list", "ALPN"), def("udp", "bool", "UDP", true), def("packet-addr", "bool", "Packet Address", false),
 			def("xudp", "bool", "XUDP", false), f("packet-encoding", "text", "包编码"), sel("network", "传输", "tcp", "tcp", "ws", "grpc", "h2", "http", "xhttp"), realityOpts(),
 			httpOpts(), h2Opts(), grpcOpts(), wsOpts(), xhttpOpts(),
-			f("ws-path", "text", "WebSocket Path"), obj("ws-headers", "WebSocket Headers", "map"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"),
+			f("ws-path", "text", "WebSocket Path"), openMap("ws-headers", "WebSocket Headers"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"),
 			f("servername", "text", "SNI"), f("client-fingerprint", "text", "客户端指纹"), smuxOpts(), def("encryption", "text", "加密", "none")),
 			SensitiveFields: []string{"uuid"}, LinkMappings: links("uuid", "flow", "network", "tls", "servername", "alpn", "reality-opts", "ws-opts", "grpc-opts", "h2-opts", "http-opts", "xhttp-opts")},
 		{Protocol: "trojan", Label: "Trojan", FormSchema: common(
@@ -246,7 +252,7 @@ func ManualProtocols() []Protocol {
 			f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("workers", "number", "Worker 数"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), f("persistent-keepalive", "number", "持久 Keepalive"),
 			wireGuardPeers(), def("remote-dns-resolve", "bool", "远端 DNS 解析", false), f("dns", "text-list", "DNS"), f("refresh-server-ip-interval", "number", "刷新服务器 IP 间隔")),
 			SensitiveFields: []string{"private-key", "pre-shared-key", "peers[].pre-shared-key"}, LinkMappings: links("private-key", "public-key", "ip", "ipv6", "allowed-ips", "pre-shared-key", "mtu", "dns")},
-		{Protocol: "http", Label: "HTTP", FormSchema: common(f("username", "text", "用户名"), f("password", "password", "密码"), def("tls", "bool", "TLS", false), f("sni", "text", "SNI"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), obj("headers", "请求头", "map")), SensitiveFields: []string{"password"}, LinkMappings: links("username", "password", "tls", "sni")},
+		{Protocol: "http", Label: "HTTP", FormSchema: common(f("username", "text", "用户名"), f("password", "password", "密码"), def("tls", "bool", "TLS", false), f("sni", "text", "SNI"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), openMap("headers", "请求头")), SensitiveFields: []string{"password"}, LinkMappings: links("username", "password", "tls", "sni")},
 		{Protocol: "socks5", Label: "SOCKS5", FormSchema: common(f("username", "text", "用户名"), f("password", "password", "密码"), def("tls", "bool", "TLS", false), def("udp", "bool", "UDP", true), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹")), SensitiveFields: []string{"password"}, LinkMappings: links("username", "password", "tls", "udp")},
 		{Protocol: "snell", Label: "Snell", FormSchema: common(req("psk", "password", "PSK"), def("udp", "bool", "UDP", true), def("version", "number", "版本", 2)), SensitiveFields: []string{"psk"}},
 		{Protocol: "anytls", Label: "AnyTLS", FormSchema: common(req("password", "password", "密码"), f("alpn", "text-list", "ALPN"), f("sni", "text", "SNI"), f("client-fingerprint", "text", "客户端指纹"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), f("certificate", "text", "证书"), f("private-key", "password", "私钥"), obj("ech-opts", "ECH 参数", "fields", def("enable", "bool", "启用", false), f("config", "text", "配置")), def("udp", "bool", "UDP", true), f("idle-session-check-interval", "number", "空闲检查间隔"), f("idle-session-timeout", "number", "空闲超时"), f("min-idle-session", "number", "最小空闲会话")), SensitiveFields: []string{"password", "private-key"}, LinkMappings: links("password", "sni", "alpn", "client-fingerprint")},
