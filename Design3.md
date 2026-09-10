@@ -1,7 +1,7 @@
 # Design3.md — VPN 订阅管理系统增量设计（规则来源识别、结构化素材与跨平台装配）
 
 > **文档定位：** 本文定义规则素材池下一阶段设计：管理员为每个 URL 选择 Clash 规则源、Shadowrocket（下文简称 SR）规则源或“我不确定”，系统以单 URL 单主方言为边界识别格式、提取平台无关规则、形成可追踪快照，再由 Clash/SR 目标适配器过滤和渲染。本文承接 [Design2.md](docs/reports/Design/Design2.md) 第二～四章；第一期基线见 [Design1.md](docs/reports/Design/Design1.md)。编码约束遵循 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
-> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径。2026-09-10 已按 Build22 Step 1～7 完成 D3-1～D3-7 的代码补修并通过自动化回归；D3-8～D3-10 仍按 Build22 Step 8～10 待实施。
+> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径。2026-09-10 交叉审核确认 Build22 Step 1～6、8～10 的代码与测试声明成立，但 Step 7 专属自动化证据仍有缺口，Step 11 不能声明 D3-1～D3-10 全部验收通过；因此本文件保持仓库根目录活跃，不归档，待 Build22 补齐 Step 7 证据并重新执行 Step 11 门禁后再归档。Build16 只保留历史记录与后续勘误；实际浏览器、真实设备和真实客户端项目见 [ProdTestList.md](ProdTestList.md)，均未标记为人工通过。剩余工程问题见 [Issue14.md](Issue14.md)。
 > **范围边界：** 本期只重构“规则素材 URL/手工素材 → Canonical Rule → Clash/SR 渲染”链路，不重定义节点、代理组、装配版本、订阅分发、Xray 或权限体系。
 
 ---
@@ -509,7 +509,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 ### 9.3 实施边界与验收
 
-- Build16 的原始构建已归档；其 D3-1～D3-10 后续缺口以 Build22 为唯一分步计划。Build22 已按用户连续执行授权完成 Step 1～11 的代码实现与自动化验收；实际浏览器、真实设备和真实客户端项目整体迁移至 [ProdTestList.md](ProdTestList.md)，不构成代码/自动化验收的未完成阻断，也不得表述为已人工通过。
+- Build16 的原始构建已归档；其 D3-1～D3-10 后续缺口以 Build22 为唯一分步计划。Build22 已完成 Step 1～11 的代码实现与运行门禁，但 Step 7 专属自动化证据仍有缺口，不能声明 D3-1～D3-10 全部验收通过；实际浏览器、真实设备和真实客户端项目整体迁移至 [ProdTestList.md](ProdTestList.md)，不构成代码/自动化验收的未完成阻断，也不得表述为已人工通过。
 - 不顺带修改节点、代理组、Xray 或权限体系，不新增后续适配器。
 - 不因素材池限制删除高级装配现有能力。
 - 语法变化优先更新语料和注册表，不增加无证据 fallback。
@@ -536,7 +536,8 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| v1.10 | 2026-09-10 | Build22 Step 8～11 按实际实现收口：补充来源状态卡片的 display_url 边界、latest_attempt 主状态、failed+旧 active 提示、ConfirmModal 新旧差异、服务端 activated_at、v1 stats/version 0 展示，以及 preview/generate 回执的生成与清除规则；§9.3 更新为 Build22 已完成代码与自动化验收，人工浏览器/真机项目迁移 ProdTestList。未写入未实现能力。 |
+| v1.11 | 2026-09-10 | 文档交叉审核修正：Build22 Step 7 专属自动化测试矩阵大面积未落地，Step 11 不能声明 D3-1～D3-10 全部验收通过；Design3 因此保持根目录活跃、不归档，待 Build22 补齐 Step 7 证据并重新执行 Step 11 门禁后再归档。 |
+| v1.10 | 2026-09-10 | Build22 Step 8～11 按实际实现收口：补充来源状态卡片的 display_url 边界、latest_attempt 主状态、failed+旧 active 提示、ConfirmModal 新旧差异、服务端 activated_at、v1 stats/version 0 展示，以及 preview/generate 回执的生成与清除规则；§9.3 更新为 Build22 已完成代码与运行门禁，人工浏览器/真机项目迁移 ProdTestList。未写入未实现能力；Step 7 自动化证据缺口由 v1.11 修正。 |
 | v1.9 | 2026-09-10 | 按用户确认的补修方案同步 Step3/Step7 设计口径并落地代码：source policy 按位置法静默忽略、未知尾部 option 生成 warn 而不改变统计；SR `no-resolve` 与 Clash 一致按实例和目标能力求交集；evidence codes 在实际 detector 分支产生；failed 使用 sentinel 稳定 reason_code 与严格 v1 stats 形状；snapshots 严格分页、URL 先脱敏后 200 rune 限长、wire null/空串固定。D3-1～D3-7 已完成并通过自动化回归，D3-8～D3-10 仍待实施。 |
 | v1.8 | 2026-09-10 | 按 Build22 Step 7 脱敏研究结论与用户确认同步 §6.4：日志与 pool 共用统一脱敏规则；`SourceStatus` 使用 `display_url`；脱敏/限长扩展至所有持久化与展示 API 字符串字段；明确疑似凭据 key 清单、19+1 截断摘要、200 rune、空诊断 `[]`、历史同步输出非破坏性清洗及现有 sync API 读时清洗。仅更新设计文档，代码仍待 Build22 实施。 |
 | v1.7 | 2026-09-09 | Clash render plan 兼容编码经专项研究确认：采用逐规则 nullable boolean/Go `*bool` 三态，缺失或 null 维持历史按类型推断，新计划对每条规则显式冻结 true/false；不为单字段引入整份 plan schema version，并保留未来整体结构演进时再版本化的空间。仅更新设计文档，代码仍待 Build22 Step 3 实施。 |

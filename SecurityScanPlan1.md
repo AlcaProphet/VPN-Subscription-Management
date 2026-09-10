@@ -3,12 +3,14 @@
 > **文档定位：** 本文档是当前项目第三期网络安全审查的**执行计划与进度入口**，用于把完整审查拆分成可在单次约 200K 上下文内独立完成、独立验收和独立交接的 Steps。本文档只规定如何审查，不记录最终漏洞结论，也不授权修改业务代码。
 >
 > - 唯一强要求：[AGENTS.md](AGENTS.md)
-> - 已实现并归档基线：[Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)；最新设计见 [Design3.md](Design3.md)
+> - 已实现并归档基线：[Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)；规则素材/装配基线：[Design3.md](Design3.md)（因 Build22 Step 7 证据缺口未补，保持活跃）；当前最新节点编辑器设计见 [Design4.md](Design4.md)
 > - 历史审查：[SecurityReport1.md](docs/reports/SecurityReport/SecurityReport1.md)、[SecurityReport2.md](docs/reports/SecurityReport/SecurityReport2.md)
 > - 文档结构参考：[Build.template.md](docs/DocTemplates/Build.template.md)
 > - 本地测试账号：[TestPasswordList.md](docs/Reference/TestPasswordList.md)
-> - 本期结果载体：计划在 Step 1 创建根目录 [SecurityReport3.md](SecurityReport3.md)，审查期间逐 Step 追加，完成并经用户确认后再决定是否归档
+> - 本期结果载体：已在根目录创建 [SecurityReport3.md](SecurityReport3.md)，审查期间逐 Step 追加，完成并经用户确认后再决定是否归档
 > - OWASP 主口径：[OWASP Top 10:2025](https://owasp.org/Top10/2025/0x00_2025-Introduction/)；为兼容前两期报告，同时保留 OWASP Top 10:2021 编号映射
+>
+> **当前进度（2026-09-10 文档交叉审核）：** Step 1～3 已完成并写入 SecurityReport3；Step 4～28 尚未开始，其中 Step 25～28 负责动态验证与最终交付，SecurityReport3 目前不是最终报告。本项目级安全审查独立于 Build21～Build24 与 Issue14/Issue15 的当前状态，不能被其完成度覆盖。
 >
 > **已确认执行方向（2026-08-30）：** 静态代码审查 + 自动化扫描 + 本地隔离动态验证；WAF 只作为背景条件，不替代应用安全控制；每步向同一份 `SecurityReport3.md` 写入独立检查点；审查与修复分离，发现问题先记录、分级并由用户确认，不在审查 Step 内直接修改业务代码。
 
