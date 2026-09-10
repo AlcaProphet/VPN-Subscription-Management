@@ -101,7 +101,8 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 			skipped = append(skipped, SkipItem{Kind: "rule", Name: typ + "," + normalized, Reason: "Shadowrocket 不支持该规则类型"})
 			return
 		}
-		b.WriteString(formatRuleLine(mapped.RenderType, normalized, target, noResolve))
+		// 仅实例显式设置且目标能力支持时才输出 no-resolve。
+		b.WriteString(formatRuleLine(mapped.RenderType, normalized, target, noResolve && mapped.SupportsNoResolve))
 		b.WriteString("\n")
 	}
 	for _, psel := range in.Pools {

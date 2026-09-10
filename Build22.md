@@ -47,7 +47,7 @@
 | 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | AGENTS.md §3.4～§3.6 | ☐ 未开始 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
-> 当前没有进行中的构建 Step；所有 Step 均待按本文档逐步执行。
+> 当前 Step 1～7 已完成并通过补修回归；Step 8 进行中；Step 9～11 未开始。
 > 工程状态追踪：上述 D3-1～D3-10 未闭环项已登记至 [Issue14.md](Issue14.md) R28-05；本文档作为实施计划，不替代问题追踪。
 
 ---
@@ -260,7 +260,7 @@ Step 11（全量回归/文档收口） ←────────────�
   - `backend/internal/pool/parser.go`、`adapter_typed.go`、`adapter_mihomo.go`：
     - 扩展解析结果，结构化区分 type、value、源 policy 和尾部 options；
     - 仅独立且大小写规范化后等于 `no-resolve` 的 option token 设置 `RuleOptions.NoResolve=true`；
-    - 不再对整行或 `matchValue` 做子串搜索；源 policy 继续忽略并记录诊断，未知 option 进入诊断或按既有严格策略拒绝，不静默转义为 `no_resolve`；
+    - 不再对整行或 `matchValue` 做子串搜索；尾部 token 按位置法解释：value 后第一个非 `no-resolve` token 为 source policy 静默忽略，其后非 `no-resolve` token 为未知 option 并生成 `kind:"warn"` 诊断，不改变 accepted/rejected 统计，也不静默转义为 `no_resolve`；
     - 手工 CRUD 当前没有独立 options 输入，默认 `NoResolve=false`，值中出现 `no-resolve` 文本不得改变选项。
   - `backend/internal/assembly/load.go`：
     - `poolEntry` 明确保存 `NoResolve bool` 或完整 `Canonical rulespec.CanonicalRule`。
@@ -320,6 +320,12 @@ Step 11（全量回归/文档收口） ←────────────�
   - 已运行 `cd backend && go test ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
   - 实现：独立 option token 解析、Clash/SR 按实例渲染、`ClashPlanRule.NoResolve *bool` 三态、新 plan 每条规则显式 boolean、历史 nil/null 保持类型推断、downgrade 不按类型补后缀。
   - 新增 `internal/assembly/no_resolve_test.go` 与 pool 解析用例覆盖 true/false、历史兼容、SR、降级等。
+
+- **Step 3 补修记录（2026-09-10，按用户确认的方案复修）：**
+  - 修复 `renderSrConf`：`no-resolve` 仅在实例设置且 `mapped.SupportsNoResolve` 为 true 时输出；新增 `DOMAIN`、`USER-AGENT` 反例测试，防止 SR 目标不支持仍补后缀。
+  - 新增 `parseRuleLineDetailed` 与位置法尾部解析：value 后第一个非 `no-resolve` token 视为 source policy 静默忽略；其后非 `no-resolve` token 生成 `kind:"warn"` 诊断；未知 option 不改变 accepted/rejected 统计，也不误设 `no_resolve`。
+  - 保留 `ParseLine`/`parseRuleLine` 旧签名与兼容 wrapper；新增 policy 静默、未知 option warn、位置法单 token 边界等回归测试。
+  - 验证命令：`go test ./internal/pool ./internal/assembly ./internal/server -count=1`、`go build ./...`、`go vet ./...` 均通过。
 
 ---
 
@@ -726,6 +732,16 @@ Step 11（全量回归/文档收口） ←────────────�
   - 新增 `internal/redact` 公共包、log 接入、pool sanitize、1018 activated_at 迁移及 store 测试、v1 SnapshotStats、failed snapshot 写入、来源状态/快照历史 API、server 读时清洗、前端类型与请求函数。
   - 新增 HTTP failed snapshot、display_url 不泄漏、快照分页/总数、HTTP 409 路由等回归测试。
 
+- **Step 7 补修记录（2026-09-10，按用户确认的深入检查方案复修）：**
+  - `evidence_codes` 改为 `detectOne` 在实际命中分支产生，`DetectOne` 保留旧签名兼容 wrapper；新增各格式分支 evidence codes 测试。
+  - 新增 `sourceFailure`/sentinel 分类：HTTP、读取、超限、网络、取消/超时、请求构造和 ParseSource sentinel 均映射稳定 `reason_code`；旧 `failSource`/`recordFailedSnapshotTx` 字符串分类保留为兼容 wrapper。
+  - v1 stats 严格形状：failed 的 `detection` 固定为非空空 evidence、`recognition_required_percent:null`；首次成功/首次 failed 的 `comparison` 固定为非空、`previous_active:null`、阈值 70；历史 version 0 兼容不变。
+  - wire shape 固定：`SourceSnapshot.error/activated_at/created_at` 与 `SourceStatus.latest_attempt/active/pending/latest_failed` 显式输出空串或 null，不再 `omitempty` 省略。
+  - snapshots API 使用严格分页：参数缺失默认 1/20，显式空值、非数字、`<1` 返回 400；entries/sync-tasks 保持旧容错。
+  - `PerURLResult.URL` 与 `SourceStatus.display_url` 统一“先脱敏后 200 rune 截断”；`rule_pool_sources.url` 仍保留原始值。
+  - failed 快照写入失败时预留后缀长度，保证 200 rune 内仍附带“失败快照写入失败”。
+  - 验证命令：`go test ./... -count=1 -timeout 300s`、`go build ./...`、`go vet ./...`、`cd frontend && npm run build` 均通过。
+
 ---
 
 ### Step 8：前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8）
@@ -948,6 +964,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.12 | 2026-09-10 | 按用户确认的补修方案完成 Build22 Step 1～7 的缺口复修：Step3 修复 SR `no-resolve` 目标能力判断、未知 option warn/位置法尾部解析；Step7 修复 detector evidence codes 来源、sentinel reason_code、严格 v1 stats 形状、显式 null/空串 wire shape、snapshots 严格分页、URL 200 rune 限长和 failed 写入失败后缀保留。后端全量测试/build/vet、前端 build 均通过；Step 8 进行中，Step 9～11 未开始。 |
 | v1.11 | 2026-09-10 | 完成 Build22 Step 10“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认细化：`migrationsThrough` helper 按解析版本过滤且排除 1017；最小夹具固定为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints；不额外插入 owner 记录；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 文件末尾追加失败语句并在回滚后用真实 1016 重试。同步在附录 A.10 和范围外备注中记录 Build16 历史表述差异与 pool_test 当前缺口。仅更新文档，未修改业务代码、未执行构建。 |
 | v1.10 | 2026-09-10 | 将 Step 7 脱敏结论同步至 AGENTS.md、Design3.md、Issue14.md，并补齐 Build22 附录 A.7 中的 `display_url`、公共 redact、历史清洗与 19+1 截断口径。仅更新文档，未修改业务代码、未执行构建。 |
 | v1.9 | 2026-09-10 | 完成 Build22 Step 7“脱敏机制复用范围”只读研究并按用户确认更新 Step 7/8 文档：新增 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 改用 `display_url`；脱敏范围扩展至现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error`；新增存量同步输出非破坏性清洗；诊断超 20 条时采用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长。仅更新 Build22 文档，未修改业务代码、未执行构建。 |

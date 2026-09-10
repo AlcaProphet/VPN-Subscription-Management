@@ -66,9 +66,9 @@ type SourceSnapshot struct {
 	Duplicates  int               `json:"duplicates"`
 	Diagnostics []ParseDiagnostic `json:"diagnostics"`
 	Stats       SnapshotStats     `json:"stats"`
-	Error       string            `json:"error,omitempty"`
-	ActivatedAt *time.Time        `json:"activated_at,omitempty"`
-	CreatedAt   *time.Time        `json:"created_at,omitempty"`
+	Error       string            `json:"error"`
+	ActivatedAt *time.Time        `json:"activated_at"`
+	CreatedAt   *time.Time        `json:"created_at"`
 }
 
 // SourceStatus 是每 URL 来源当前状态。
@@ -77,10 +77,10 @@ type SourceStatus struct {
 	DisplayURL    string          `json:"display_url"`
 	SourceMode    SourceMode      `json:"source_mode"`
 	NeverSynced   bool            `json:"never_synced"`
-	LatestAttempt *SourceSnapshot `json:"latest_attempt,omitempty"`
-	Active        *SourceSnapshot `json:"active,omitempty"`
-	Pending       *SourceSnapshot `json:"pending,omitempty"`
-	LatestFailed  *SourceSnapshot `json:"latest_failed,omitempty"`
+	LatestAttempt *SourceSnapshot `json:"latest_attempt"`
+	Active        *SourceSnapshot `json:"active"`
+	Pending       *SourceSnapshot `json:"pending"`
+	LatestFailed  *SourceSnapshot `json:"latest_failed"`
 }
 
 const snapshotSelect = `SELECT id, source_id, format, profile, status, input_count, recognized_count, accepted_count, excluded_count, rejected_count, duplicate_count, diagnostic_json, stats_json, created_at, activated_at FROM pool_source_snapshots`
@@ -189,7 +189,7 @@ func (s *Service) ListSourceStatuses(ctx context.Context, poolID int64) ([]Sourc
 	for _, r := range srcs {
 		st := SourceStatus{
 			SourceID:   r.id,
-			DisplayURL: redact.RedactDisplayURL(r.url),
+			DisplayURL: redact.TruncateText(redact.RedactDisplayURL(r.url), redact.MaxFieldRunes),
 			SourceMode: SourceMode(r.mode),
 		}
 		latest, err := s.latestAttemptSnapshot(ctx, r.id)

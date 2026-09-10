@@ -1,7 +1,7 @@
 # Design3.md — VPN 订阅管理系统增量设计（规则来源识别、结构化素材与跨平台装配）
 
 > **文档定位：** 本文定义规则素材池下一阶段设计：管理员为每个 URL 选择 Clash 规则源、Shadowrocket（下文简称 SR）规则源或“我不确定”，系统以单 URL 单主方言为边界识别格式、提取平台无关规则、形成可追踪快照，再由 Clash/SR 目标适配器过滤和渲染。本文承接 [Design2.md](docs/reports/Design/Design2.md) 第二～四章；第一期基线见 [Design1.md](docs/reports/Design/Design1.md)。编码约束遵循 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
-> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径，但不代表对应代码已经完成。
+> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径。2026-09-10 已按 Build22 Step 1～7 完成 D3-1～D3-7 的代码补修并通过自动化回归；D3-8～D3-10 仍按 Build22 Step 8～10 待实施。
 > **范围边界：** 本期只重构“规则素材 URL/手工素材 → Canonical Rule → Clash/SR 渲染”链路，不重定义节点、代理组、装配版本、订阅分发、Xray 或权限体系。
 
 ---
@@ -227,7 +227,7 @@ func SupportsAndMap(rule CanonicalRule, target Target) MappingResult
 
 **Mihomo provider：** 一个文档只允许一种 behavior；YAML 完整解析并只读取顶层非空字符串数组 `payload`。domain provider 裸域名为 exact，`+.` 为 suffix，`.` 保留仅子域语义；ipcidr provider 只接受合法 IPv4/IPv6 CIDR，不把裸 IP、ASN、域名或显式类型行隐式转入该 behavior。provider 标签通配与 route `DOMAIN-WILDCARD` 不可混同。domain/ipcidr/classical 混合、异常嵌套、空条目和非字符串条目使文档失败。
 
-**显式类型文本：** `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR/6`、`IP-ASN`、`USER-AGENT` 等先映射 Canonical Rule，再由注册表分类。template4 的 `IP-ASN`/`IP-CIDR` 在 SR 模式下由本适配器识别，但二者仍是双方通用能力，不因此标为 SR 私有。源 policy 忽略但计入诊断；只有源实际声明时才保存 `no_resolve`。未知或依赖型类型拒绝。
+**显式类型文本：** `DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR/6`、`IP-ASN`、`USER-AGENT` 等先映射 Canonical Rule，再由注册表分类。template4 的 `IP-ASN`/`IP-CIDR` 在 SR 模式下由本适配器识别，但二者仍是双方通用能力，不因此标为 SR 私有。尾部 token 按位置法解释：value 后第一个非 `no-resolve` token 为 source policy，静默忽略；其后再次出现的非 `no-resolve` token 为未知 option，生成 `kind:"warn"` 诊断但不改变 accepted/rejected 统计。只有源实际声明 `no-resolve` 独立 token 时才保存该 option；未知或依赖型类型拒绝。
 
 **sing-box：** 仅读取 source JSON，校验 `version` 和 `rules`。只接受单个条件 family 的简单 default rule；同一字段多值按 OR 展开。多个不同条件字段、`invert=true`、logical rule 或无法证明等价时整项拒绝，不能把 AND 扁平化。action/route target 不进入素材池。
 
@@ -433,7 +433,7 @@ fetching → parsing → staging
 
 预览/生成返回输入数、直接输出数、等价转换数、目标不支持跳过数、目标校验失败数和最终输出数。最终输出只统计**素材池规则 + 自定义规则**，不包含内置 `GEOIP`/`MATCH`/`FINAL` 等系统兜底；最终输出为 0时禁止生成；大于 0但存在跳过时允许生成并明确警告，不增加第二个确认框。素材快照或其他输出字段变化继续触发 `previewStale`，必须重新预览；`render_plan_json` 固化实际规则，历史版本不漂移。
 
-`no_resolve` 必须按结构化尾部 token 解析，仅独立且目标能力允许的 `no-resolve` token 才设置 Canonical option；不得通过对整行或匹配值做子串搜索推断，否则 `no-resolve.example.com` 等合法值会被误判。源 policy 仍忽略并记录诊断，未知尾部选项不得静默变成 `no_resolve`。
+`no_resolve` 必须按结构化尾部 token 解析，仅独立且目标能力允许的 `no-resolve` token 才设置 Canonical option；不得通过对整行或匹配值做子串搜索推断，否则 `no-resolve.example.com` 等合法值会被误判。source policy 静默忽略；未知尾部 option 生成 `kind:"warn"` 诊断，但不得静默变成 `no_resolve`。
 
 Clash `render_plan_json` 必须冻结每条新规则的显式 `no_resolve=true/false`，下载重渲染与生成时保持一致。兼容编码固定采用逐规则 nullable boolean（Go 字段为 `NoResolve *bool`，JSON tag 为 `json:"no_resolve,omitempty"`），不为这一单字段引入整份 Clash plan 的顶层 schema version：字段缺失或 JSON `null` 表示既有历史计划，沿用创建该计划时的按类型推断行为；字段存在时严格按实例 true/false 与目标能力的交集渲染。新计划的每条规则都必须写出 boolean，包括 false，不得借 `omitempty` 省略；生产端应使用单一构造入口避免漏设后误入历史分支。覆盖层或目标组删除导致规则重写时，只保留已渲染行/显式计划中的 `no-resolve`，不得再次根据类型补加。未来只有在整份 plan 出现新的结构演进需求时，才另行设计顶层版本号。
 
@@ -532,6 +532,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.9 | 2026-09-10 | 按用户确认的补修方案同步 Step3/Step7 设计口径并落地代码：source policy 按位置法静默忽略、未知尾部 option 生成 warn 而不改变统计；SR `no-resolve` 与 Clash 一致按实例和目标能力求交集；evidence codes 在实际 detector 分支产生；failed 使用 sentinel 稳定 reason_code 与严格 v1 stats 形状；snapshots 严格分页、URL 先脱敏后 200 rune 限长、wire null/空串固定。D3-1～D3-7 已完成并通过自动化回归，D3-8～D3-10 仍待实施。 |
 | v1.8 | 2026-09-10 | 按 Build22 Step 7 脱敏研究结论与用户确认同步 §6.4：日志与 pool 共用统一脱敏规则；`SourceStatus` 使用 `display_url`；脱敏/限长扩展至所有持久化与展示 API 字符串字段；明确疑似凭据 key 清单、19+1 截断摘要、200 rune、空诊断 `[]`、历史同步输出非破坏性清洗及现有 sync API 读时清洗。仅更新设计文档，代码仍待 Build22 实施。 |
 | v1.7 | 2026-09-09 | Clash render plan 兼容编码经专项研究确认：采用逐规则 nullable boolean/Go `*bool` 三态，缺失或 null 维持历史按类型推断，新计划对每条规则显式冻结 true/false；不为单字段引入整份 plan schema version，并保留未来整体结构演进时再版本化的空间。仅更新设计文档，代码仍待 Build22 Step 3 实施。 |
 | v1.6 | 2026-09-09 | R28-05 `stats_json` 专项研究并经用户确认：冻结 version 1 强类型统计、确定性检测依据码、family/matcher/scope 分项、旧 active 比较与初始决策原因；顶层列保持计数/格式/profile/当前状态的唯一事实来源，旧 `{}`/无版本 JSON 兼容但不补造证据；明确 profile 在来源排除前计算、adapter reject 完整计数，并使用 1018 nullable `activated_at` 记录 pending 人工激活时间。仅更新设计文档，代码仍待 Build22 实施。 |

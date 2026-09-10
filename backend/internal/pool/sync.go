@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"vpn-sub/internal/redact"
 	"vpn-sub/internal/rulespec"
 	"vpn-sub/internal/store"
 )
@@ -48,6 +50,60 @@ type SyncTask struct {
 	Error      string         `json:"error"`
 	StartedAt  *time.Time     `json:"started_at"`
 	FinishedAt *time.Time     `json:"finished_at"`
+}
+
+// sourceFailure 携带稳定 reason_code 的同时保留用户可见错误文本。
+// 具体 cause 可为 sentinel error，便于 errors.Is/As 继续分类。
+type sourceFailure struct {
+	reason  string
+	message string
+	cause   error
+}
+
+func (e *sourceFailure) Error() string { return e.message }
+func (e *sourceFailure) Unwrap() error { return e.cause }
+
+func newSourceFailure(reason, message string, cause error) error {
+	return &sourceFailure{reason: reason, message: message, cause: cause}
+}
+
+// parseFailureReason 将 ParseSource 的 sentinel error 映射为失败 reason_code。
+func parseFailureReason(err error) string {
+	switch {
+	case errors.Is(err, ErrUnrecognizedSource):
+		return "unrecognized_source"
+	case errors.Is(err, ErrAmbiguousSourceFormat):
+		return "ambiguous_format"
+	case errors.Is(err, ErrConflictingDocumentFormat):
+		return "conflicting_format"
+	case errors.Is(err, ErrMixedPlatformSource):
+		return "mixed_platform"
+	case errors.Is(err, ErrHTMLSource):
+		return "html_source"
+	case errors.Is(err, ErrNoAcceptedRules):
+		return "no_accepted_rules"
+	case errors.Is(err, ErrThresholdNotMet):
+		return "recognition_threshold_not_met"
+	default:
+		return "parse_error"
+	}
+}
+
+// wrapParseFailure 在保留原始错误文本的同时冻结 ParseSource 失败原因。
+func wrapParseFailure(err error) error {
+	return newSourceFailure(parseFailureReason(err), err.Error(), err)
+}
+
+// failureReason 优先读取 sourceFailure 的显式 reason，再按 sentinel 兜底。
+func failureReason(err error) string {
+	var sf *sourceFailure
+	if errors.As(err, &sf) {
+		return sf.reason
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "network_error"
+	}
+	return parseFailureReason(err)
 }
 
 // SubmitSync 提交同步任务。
@@ -328,26 +384,27 @@ func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *htt
 	r := PerURLResult{URL: u, SourceID: sourceID}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return s.failSource(ctx, bgStore, poolID, sourceID, r, err.Error())
+		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, newSourceFailure("request_invalid", err.Error(), err))
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return s.failSource(ctx, bgStore, poolID, sourceID, r, err.Error())
+		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, newSourceFailure("network_error", err.Error(), err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return s.failSource(ctx, bgStore, poolID, sourceID, r, fmt.Sprintf("HTTP %d", resp.StatusCode))
+		msg := fmt.Sprintf("HTTP %d", resp.StatusCode)
+		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, newSourceFailure("http_status_error", msg, nil))
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxURLContentSize+1))
 	if err != nil {
-		return s.failSource(ctx, bgStore, poolID, sourceID, r, err.Error())
+		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, newSourceFailure("body_read_error", err.Error(), err))
 	}
 	if len(body) > maxURLContentSize {
-		return s.failSource(ctx, bgStore, poolID, sourceID, r, "内容超过 50MB")
+		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, newSourceFailure("body_too_large", "内容超过 50MB", nil))
 	}
 	parsed, err := ParseSource(body, mode)
 	if err != nil {
-		return s.failSource(ctx, bgStore, poolID, sourceID, r, err.Error())
+		return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r, wrapParseFailure(err))
 	}
 	r.Format = string(parsed.Format)
 	r.Profile = parsed.Profile
@@ -375,15 +432,35 @@ func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *htt
 
 // failSource 将可归属到 URL 来源的失败写入 failed snapshot。
 // 写入失败时不得伪称成功，单 URL 错误附带“失败快照写入失败”。
+// failSource 保留旧签名，供包内兼容调用；主路径使用 failSourceWithError。
 func (s *Service) failSource(ctx context.Context, bgStore *store.Store, poolID, sourceID int64, r PerURLResult, errMsg string) PerURLResult {
+	return s.failSourceWithError(ctx, bgStore, poolID, sourceID, r,
+		newSourceFailure(failedReasonCode(errMsg), errMsg, nil))
+}
+
+// failSourceWithError 将可归属到 URL 来源的失败写入 failed snapshot。
+// 写入失败时不得伪称成功，单 URL 错误附带“失败快照写入失败”。
+func (s *Service) failSourceWithError(ctx context.Context, bgStore *store.Store, poolID, sourceID int64, r PerURLResult, failure error) PerURLResult {
+	errMsg := failure.Error()
 	r.Error = SanitizeTaskError(errMsg)
+	reason := failureReason(failure)
 	if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-		return recordFailedSnapshotTx(ctx, tx, poolID, sourceID, errMsg)
+		return recordFailedSnapshotTxWithReason(ctx, tx, poolID, sourceID, errMsg, reason)
 	}); err != nil {
 		s.log.Error("写入失败快照失败", "pool_id", poolID, "source_id", sourceID, "err", err)
-		r.Error = SanitizeTaskError(errMsg + "；失败快照写入失败")
+		r.Error = taskErrorWithFailureSnapshotSuffix(errMsg)
 	}
 	return r
+}
+
+// taskErrorWithFailureSnapshotSuffix 预留后缀长度，保证 200 rune 上限内仍保留失败快照写入提示。
+func taskErrorWithFailureSnapshotSuffix(base string) string {
+	const suffix = "；失败快照写入失败"
+	maxBase := redact.MaxFieldRunes - utf8.RuneCountInString(suffix)
+	if maxBase < 0 {
+		maxBase = 0
+	}
+	return redact.TruncateText(redact.RedactText(base), maxBase) + suffix
 }
 
 func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, parsed *ParseResult) (int64, bool, error) {
@@ -451,27 +528,26 @@ func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64,
 	if detection.EvidenceCodes == nil {
 		detection.EvidenceCodes = []string{}
 	}
+	comparison := &ComparisonStats{AcceptedDropThresholdPercent: 70}
+	if oldActiveID.Valid {
+		comparison.PreviousActive = &PreviousActiveSnapshot{
+			SnapshotID: oldActiveID.Int64,
+			Format:     oldFormat.String,
+			Profile:    oldProfile.String,
+			Accepted:   oldAccepted.Int64,
+		}
+		comparison.FormatChanged = formatChanged
+		comparison.ProfileChanged = profileChanged
+		comparison.AcceptedDropTriggered = dropTriggered
+	}
 	stats := SnapshotStats{
 		SchemaVersion:        1,
 		SourceMode:           sourceMode,
 		Detection:            detection,
 		RuleCounts:           ruleCounts,
 		UnclassifiedRejected: parsed.UnclassifiedRejected,
+		Comparison:           comparison,
 		Decision:             &DecisionStats{InitialStatus: status, ReasonCodes: reasons},
-	}
-	if oldActiveID.Valid {
-		stats.Comparison = &ComparisonStats{
-			PreviousActive: &PreviousActiveSnapshot{
-				SnapshotID: oldActiveID.Int64,
-				Format:     oldFormat.String,
-				Profile:    oldProfile.String,
-				Accepted:   oldAccepted.Int64,
-			},
-			FormatChanged:                formatChanged,
-			ProfileChanged:               profileChanged,
-			AcceptedDropThresholdPercent: 70,
-			AcceptedDropTriggered:        dropTriggered,
-		}
 	}
 
 	diagJSON, _ := json.Marshal(NormalizeDiagnostics(parsed.Diagnostics))
@@ -519,7 +595,13 @@ func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64,
 }
 
 // recordFailedSnapshotTx 写入 failed snapshot，不修改 active/pending 指针。
+// recordFailedSnapshotTx 保留旧签名，供包内兼容调用；主路径使用带 reason 的版本。
 func recordFailedSnapshotTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, errMsg string) error {
+	return recordFailedSnapshotTxWithReason(ctx, tx, poolID, sourceID, errMsg, failedReasonCode(errMsg))
+}
+
+// recordFailedSnapshotTxWithReason 写入 failed snapshot，不修改 active/pending 指针。
+func recordFailedSnapshotTxWithReason(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, errMsg, reasonCode string) error {
 	var mode string
 	var oldID sql.NullInt64
 	var oldFormat, oldProfile sql.NullString
@@ -528,25 +610,25 @@ func recordFailedSnapshotTx(ctx context.Context, tx *sql.Tx, poolID, sourceID in
 		`SELECT src.source_mode, s.id, s.format, s.profile, s.accepted_count
 		 FROM rule_pool_sources src LEFT JOIN pool_source_snapshots s ON s.id = src.active_snapshot_id
 		 WHERE src.id=?`, sourceID).Scan(&mode, &oldID, &oldFormat, &oldProfile, &oldAccepted)
+	comparison := &ComparisonStats{AcceptedDropThresholdPercent: 70}
+	if oldID.Valid {
+		comparison.PreviousActive = &PreviousActiveSnapshot{
+			SnapshotID: oldID.Int64,
+			Format:     oldFormat.String,
+			Profile:    oldProfile.String,
+			Accepted:   oldAccepted.Int64,
+		}
+	}
 	stats := SnapshotStats{
 		SchemaVersion: 1,
 		SourceMode:    mode,
+		Detection:     &DetectionStats{EvidenceCodes: []string{}},
 		RuleCounts:    []RuleCountStat{},
+		Comparison:    comparison,
 		Decision: &DecisionStats{
 			InitialStatus: "failed",
-			ReasonCodes:   []string{failedReasonCode(errMsg)},
+			ReasonCodes:   []string{reasonCode},
 		},
-	}
-	if oldID.Valid {
-		stats.Comparison = &ComparisonStats{
-			PreviousActive: &PreviousActiveSnapshot{
-				SnapshotID: oldID.Int64,
-				Format:     oldFormat.String,
-				Profile:    oldProfile.String,
-				Accepted:   oldAccepted.Int64,
-			},
-			AcceptedDropThresholdPercent: 70,
-		}
 	}
 	diag := []ParseDiagnostic{{Kind: "error", Message: SanitizeTaskError(errMsg)}}
 	diagJSON, _ := json.Marshal(NormalizeDiagnostics(diag))
@@ -559,15 +641,26 @@ func recordFailedSnapshotTx(ctx context.Context, tx *sql.Tx, poolID, sourceID in
 	return err
 }
 
+// failedReasonCode 是旧字符串分类的兼容实现；新主路径使用 sourceFailure + sentinel。
 func failedReasonCode(errMsg string) string {
 	msg := strings.ToLower(errMsg)
 	switch {
+	case strings.Contains(msg, "conflicting"):
+		return "conflicting_format"
+	case strings.Contains(msg, "mixed platform"):
+		return "mixed_platform"
+	case strings.Contains(msg, "ambiguous"):
+		return "ambiguous_format"
 	case strings.Contains(msg, "http "), strings.Contains(msg, "http_status"):
 		return "http_status_error"
-	case strings.Contains(msg, "timeout"), strings.Contains(msg, "网络"):
+	case strings.Contains(msg, "timeout"), strings.Contains(msg, "context canceled"),
+		strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "网络"):
 		return "network_error"
 	case strings.Contains(msg, "50mb"), strings.Contains(msg, "内容超过"):
 		return "body_too_large"
+	case strings.Contains(msg, "read"), strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "unexpected eof"), strings.Contains(msg, "读取"):
+		return "body_read_error"
 	case strings.Contains(msg, "html"):
 		return "html_source"
 	case strings.Contains(msg, "unrecognized"):

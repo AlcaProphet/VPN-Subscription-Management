@@ -32,9 +32,9 @@ func NormalizeDiagnostics(diags []ParseDiagnostic) []ParseDiagnostic {
 	return out
 }
 
-// SanitizePerURLResult 清洗单 URL 回执：URL 使用展示用脱敏 URL，Error 使用脱敏+限长文本。
+// SanitizePerURLResult 清洗单 URL 回执：URL 使用展示用脱敏 URL 并按 200 rune 限长，Error 使用脱敏+限长文本。
 func SanitizePerURLResult(r PerURLResult) PerURLResult {
-	r.URL = redact.RedactDisplayURL(r.URL)
+	r.URL = redact.TruncateText(redact.RedactDisplayURL(r.URL), redact.MaxFieldRunes)
 	r.Error = redact.TruncateText(redact.RedactText(r.Error), redact.MaxFieldRunes)
 	return r
 }

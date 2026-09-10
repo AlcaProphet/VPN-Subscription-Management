@@ -102,11 +102,12 @@ func parseMihomoClassicalYAML(body []byte) ([]ParsedRule, []ParseDiagnostic, err
 	var rules []ParsedRule
 	var diagnostics []ParseDiagnostic
 	for i, item := range items {
-		typ, value, noResolve, _, ok := parseRuleLine(item)
-		if !ok {
+		parsed := parseRuleLineDetailed(item)
+		if !parsed.OK {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "classical 条目无法解析", Raw: item})
 			continue
 		}
+		typ, value, noResolve := parsed.Type, parsed.Value, parsed.NoResolve
 		if !rulespec.IsMaterialPoolType(typ) {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "不是素材池可选能力: " + typ, Raw: item})
 			continue
@@ -121,6 +122,9 @@ func parseMihomoClassicalYAML(body []byte) ([]ParsedRule, []ParseDiagnostic, err
 		if err != nil {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: err.Error(), Raw: item})
 			continue
+		}
+		for _, tok := range parsed.UnknownTokens {
+			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "warn", Message: "未知尾部 option 已忽略: " + tok, Raw: item})
 		}
 		rules = append(rules, ParsedRule{Rule: normalized, Origin: RuleOriginMeta{Line: 0, Raw: item, Order: i}})
 	}

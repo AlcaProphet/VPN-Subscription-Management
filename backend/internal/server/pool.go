@@ -149,6 +149,33 @@ func pagination(c *gin.Context) (int64, int64) {
 	return page, size
 }
 
+// paginationStrict 仅用于 snapshots API：
+// 参数缺失使用默认值；显式空值、非数字或小于 1 一律 400。
+func paginationStrict(c *gin.Context) (int64, int64, bool) {
+	page, ok := positiveQuery(c, "page", 1)
+	if !ok {
+		return 0, 0, false
+	}
+	size, ok := positiveQuery(c, "page_size", pool.DefaultPageSize)
+	if !ok {
+		return 0, 0, false
+	}
+	return page, size, true
+}
+
+func positiveQuery(c *gin.Context, key string, def int64) (int64, bool) {
+	raw, exists := c.GetQuery(key)
+	if !exists {
+		return def, true
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v < 1 {
+		Fail(c, http.StatusBadRequest, "参数错误")
+		return 0, false
+	}
+	return v, true
+}
+
 func (h *PoolHandler) listEntries(c *gin.Context) {
 	id, ok := parseID(c, "id")
 	if !ok {
@@ -451,7 +478,10 @@ func (h *PoolHandler) sourceSnapshots(c *gin.Context) {
 	if !ok {
 		return
 	}
-	page, size := pagination(c)
+	page, size, ok := paginationStrict(c)
+	if !ok {
+		return
+	}
 	list, total, err := h.poolSvc.ListSourceSnapshots(c.Request.Context(), id, sourceID, page, size)
 	if errors.Is(err, pool.ErrNotFound) {
 		Fail(c, http.StatusNotFound, "来源或素材池不存在")

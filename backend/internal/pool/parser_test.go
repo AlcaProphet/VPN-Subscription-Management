@@ -204,6 +204,43 @@ func TestParseSourceSingBox(t *testing.T) {
 	}
 }
 
+func TestParseSourceEvidenceCodesFromDetectorBranches(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		format  DetectedFormat
+		reasons []string
+	}{
+		{"sing-box", `{"version":1,"rules":[{"domain":["a.com"]}]}`, FormatSingBoxSourceJSON, []string{"sing_box_version_and_rules"}},
+		{"mihomo-domain", "payload:\n  - 'a.com'\n", FormatMihomoDomainYAML, []string{"top_level_payload", "payload_domain_only"}},
+		{"mihomo-ipcidr", "payload:\n  - '1.2.3.0/24'\n", FormatMihomoIPCIDRYAML, []string{"top_level_payload", "payload_ipcidr_only"}},
+		{"mihomo-classical", "payload:\n  - 'DOMAIN,a.com'\n", FormatMihomoClassicalYAML, []string{"top_level_payload", "payload_classical_only"}},
+		{"typed", "DOMAIN,a.com\n", FormatTypedRuleText, []string{"typed_rule_marker"}},
+		{"ip-list", "1.2.3.4\n", FormatPlainIPCIDRText, []string{"all_items_ip_cidr_or_asn"}},
+		{"legacy", "full:a.com\n", FormatLegacyDomainText, []string{"legacy_domain_prefix"}},
+		{"plain", "a.com\n", FormatPlainDomainText, []string{"plain_domain_candidates"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := ParseSource([]byte(tc.body), SourceModeAuto)
+			if err != nil {
+				t.Fatalf("解析失败: %v", err)
+			}
+			if res.Format != tc.format {
+				t.Fatalf("format=%s want %s", res.Format, tc.format)
+			}
+			if len(res.EvidenceCodes) != len(tc.reasons) {
+				t.Fatalf("evidence codes=%v want %v", res.EvidenceCodes, tc.reasons)
+			}
+			for i := range tc.reasons {
+				if res.EvidenceCodes[i] != tc.reasons[i] {
+					t.Fatalf("evidence codes=%v want %v", res.EvidenceCodes, tc.reasons)
+				}
+			}
+		})
+	}
+}
+
 func TestFinalizeStatsStep1DuplicatesExcludedSeparate(t *testing.T) {
 	// SR 模式下：DOMAIN-REGEX 是合法但 Clash-only，应计入 Excluded；
 	// 两个相同 DOMAIN 应只算 1 Accepted + 1 Duplicates，不能借后置差值再进入 Excluded。
@@ -292,6 +329,56 @@ func TestParseSourceNoResolveUsesIndependentOptionToken(t *testing.T) {
 	}
 	if !res.Items[1].Rule.Options.NoResolve || !res.Items[2].Rule.Options.NoResolve {
 		t.Errorf("独立 no-resolve token 应设置选项: %+v", res.Items)
+	}
+}
+
+func TestParseSourcePolicySilentAndUnknownOptionWarn(t *testing.T) {
+	body := []byte("DOMAIN,a.com,PROXY\nIP-CIDR,1.2.3.0/24,no-resolve\nIP-CIDR,10.0.0.0/8,PROXY,no-resolve\nDOMAIN,b.com,PROXY,unknown-opt\n")
+	res, err := ParseSource(body, SourceModeAuto)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Accepted != 4 || res.Rejected != 0 || res.Excluded != 0 || res.Duplicates != 0 {
+		t.Fatalf("policy/未知 option 不应改变 accepted/rejected/excluded/duplicates: %+v", res)
+	}
+	if len(res.Items) != 4 {
+		t.Fatalf("应保留 4 条 items: %d", len(res.Items))
+	}
+	if res.Items[0].Rule.Options.NoResolve || res.Items[3].Rule.Options.NoResolve {
+		t.Fatalf("source policy 后的普通选项不应被误设为 no-resolve: %+v", res.Items)
+	}
+	if !res.Items[1].Rule.Options.NoResolve || !res.Items[2].Rule.Options.NoResolve {
+		t.Fatalf("独立 no-resolve token 应设置选项: %+v", res.Items)
+	}
+	if len(res.Diagnostics) != 1 || res.Diagnostics[0].Kind != "warn" || !strings.Contains(res.Diagnostics[0].Message, "unknown-opt") {
+		t.Fatalf("未知 option 应产生单条 warn 诊断: %+v", res.Diagnostics)
+	}
+}
+
+func TestParseSourcePositionRuleTreatsSingleTailAsPolicy(t *testing.T) {
+	// 只有一个非 no-resolve 尾部 token 时无法区分 policy 与未知 option，
+	// 按位置法视为 source policy 静默忽略。
+	res, err := ParseSource([]byte("DOMAIN,a.com,unknown-option\n"), SourceModeAuto)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Accepted != 1 || len(res.Diagnostics) != 0 {
+		t.Fatalf("单个非 no-resolve 尾部 token 应按 source policy 静默忽略: %+v", res)
+	}
+}
+
+func TestParseSourceWarnsEachUnknownTailToken(t *testing.T) {
+	res, err := ParseSource([]byte("DOMAIN,a.com,PROXY,foo,bar\n"), SourceModeAuto)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Accepted != 1 || len(res.Diagnostics) != 2 {
+		t.Fatalf("两个未知尾部 token 应产生两条 warn: %+v", res.Diagnostics)
+	}
+	for i, want := range []string{"foo", "bar"} {
+		if res.Diagnostics[i].Kind != "warn" || !strings.Contains(res.Diagnostics[i].Message, want) {
+			t.Fatalf("第 %d 条 warn 异常: %+v", i, res.Diagnostics[i])
+		}
 	}
 }
 

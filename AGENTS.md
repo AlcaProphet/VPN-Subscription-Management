@@ -1,7 +1,7 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前最新设计：[Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.15 已细化并确认；Build17～Build21 主体已完成，其中 Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，R29-06 控件语义收口见 Build24）；当前构建方案/交接说明（存仓库根目录，未归档）：[Build21.md](Build21.md)～[Build24.md](Build24.md)，其中 Build22 为当前 Design3/Build16 缺口执行方案，Build23 为 R27-09 交接说明，Build24 为 R29-06 已完成自动化验收、待用户真实运行核验的独立增量记录；已构建并归档的增量设计基线：[Design3.md](Design3.md)（规则来源识别、结构化素材与跨平台装配，已定稿并经 Build16 构建）与 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)（订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。已归档构建：[Build11.md](docs/reports/Build/Build11.md)～[Build20.md](docs/reports/Build/Build20.md)（均已验收存档，Build11 原后端死锁已由 R24-01 修复）及 [Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（均已验收存档）；历史问题记录已归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue13.md](docs/reports/Issue/Issue13.md)（均已闭环存档）；当前工程问题见 [Issue14.md](Issue14.md)，人工测试发现的问题见 [Issue15.md](Issue15.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)；其他历史文档统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
+> 当前最新设计：[Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.15 已细化并确认；Build17～Build21 主体已完成，其中 Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，R29-06 控件语义收口见 Build24）；当前构建方案/交接说明（存仓库根目录，未归档）：[Build21.md](Build21.md)～[Build24.md](Build24.md)，其中 Build22 为当前 Design3/Build16 缺口执行方案（Step 1～7 已完成补修验收，Step 8 进行中，Step 9～11 未开始），Build23 为 R27-09 交接说明，Build24 为 R29-06 已完成自动化验收、待用户真实运行核验的独立增量记录；已构建并归档的增量设计基线：[Design3.md](Design3.md)（规则来源识别、结构化素材与跨平台装配，已定稿并经 Build16 构建）与 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)（订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。已归档构建：[Build11.md](docs/reports/Build/Build11.md)～[Build20.md](docs/reports/Build/Build20.md)（均已验收存档，Build11 原后端死锁已由 R24-01 修复）及 [Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（均已验收存档）；历史问题记录已归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue13.md](docs/reports/Issue/Issue13.md)（均已闭环存档）；当前工程问题见 [Issue14.md](Issue14.md)，人工测试发现的问题见 [Issue15.md](Issue15.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)；其他历史文档统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
 
 ---
 
@@ -11,7 +11,7 @@
 - **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`（Go 版本升级见 Build4 Step 0；xray-core 依赖引入见 Build6 Step 0，均为 Design2 §5.3 决策的构建落点）
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前最新设计见 [Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.15 已细化并确认；Build17～Build21 主体已完成，Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，R29-06 见 Build24）；当前构建方案/交接说明见仓库根目录 [Build21.md](Build21.md)～[Build24.md](Build24.md)（未归档），Build22 为当前 Design3/Build16 缺口执行方案，R27-09 主体以 Build21 为准，Build24 为 R29-06 独立增量记录；已构建的增量基线见 [Design3.md](Design3.md)（已定稿并经 Build16 构建）与已归档运行基线 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)，第一期基线见存档的 [Design1.md](docs/reports/Design/Design1.md)；历史构建（Build1～Build20、Build6-2）见 [docs/reports/Build/](docs/reports/Build)；历史问题记录（Issue1～Issue12）见 [docs/reports/Issue/](docs/reports/Issue)，R27 历史记录见 [docs/reports/Issue/Issue13.md](docs/reports/Issue/Issue13.md)，当前工程问题见 [Issue14.md](Issue14.md)，人工测试发现的问题见 [Issue15.md](Issue15.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)
+- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前最新设计见 [Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.15 已细化并确认；Build17～Build21 主体已完成，Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，R29-06 见 Build24）；当前构建方案/交接说明见仓库根目录 [Build21.md](Build21.md)～[Build24.md](Build24.md)（未归档），Build22 为当前 Design3/Build16 缺口执行方案（Step 1～7 已完成补修验收，Step 8 进行中，Step 9～11 未开始），R27-09 主体以 Build21 为准，Build24 为 R29-06 独立增量记录；已构建的增量基线见 [Design3.md](Design3.md)（已定稿并经 Build16 构建）与已归档运行基线 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)，第一期基线见存档的 [Design1.md](docs/reports/Design/Design1.md)；历史构建（Build1～Build20、Build6-2）见 [docs/reports/Build/](docs/reports/Build)；历史问题记录（Issue1～Issue12）见 [docs/reports/Issue/](docs/reports/Issue)，R27 历史记录见 [docs/reports/Issue/Issue13.md](docs/reports/Issue/Issue13.md)，当前工程问题见 [Issue14.md](Issue14.md)，人工测试发现的问题见 [Issue15.md](Issue15.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)
 
 ---
 
@@ -269,7 +269,7 @@
 | [Build19.md](docs/reports/Build/Build19.md) | AI 编码助手 | 第十九轮构建：前端动态表单、可编辑下拉、分支清空、局部 JSON 与目标检查 UI | 已归档（已完成实现与自动化验收，含未知扩展/JSON/切换提示收口） |
 | [Build20.md](docs/reports/Build/Build20.md) | AI 编码助手 | 第二十轮构建：全量手动协议过渡、URI/Xray 来源适配、输出门槛与回归收口 | 已归档（已完成实现与自动化验收） |
 | [Build21.md](Build21.md) | AI 编码助手 | 第二十一轮构建：BuildReport3 对齐修复与 R27-09 全量扩展计划；R27-09 主体 Step 14 与 N-node-3/4 Step 15 的唯一分步记录 | Step 1～15 已完成并验收；后续工程问题见 Issue14，人工结果见 ProdTestList；文档仍在根目录待归档 |
-| [Build22.md](Build22.md) | AI 编码助手 | 第二十二轮构建方案：BuildReport4 未闭环项 1（Design3/Build16 D3-1～D3-10） | 未开始，文档在根目录待实施；工程跟踪见 Issue14 R28-05 |
+| [Build22.md](Build22.md) | AI 编码助手 | 第二十二轮构建方案：BuildReport4 未闭环项 1（Design3/Build16 D3-1～D3-10） | Step 1～7 已完成补修与自动化验收，Step 8 进行中，Step 9～11 未开始；工程跟踪见 Issue14 R28-05 |
 | [Build23.md](Build23.md) | AI 编码助手 | Build23 交接说明：R27-09 与 N-node-3/4 已并入 Build21，不再重复分步 | 交接文档，执行以 Build21 为准 |
 | [Build24.md](Build24.md) | AI 编码助手 | R29-06 节点动态表单控件语义收口：标准推荐下拉、自定义/列表草稿、数字未设置与页面级阻断 | 代码与自动化验收完成；真实运行核验见 ProdTestList |
 
@@ -295,7 +295,7 @@
 | [docs/reports/Design/Design1.md](docs/reports/Design/Design1.md) | 人类（开发者/用户） | 第一期设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维（已构建完成） | 已存档 |
 | [docs/reports/Design/Design1-UI.md](docs/reports/Design/Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已建界面 GUI 样式规格：13 个页面/部件；增量界面规格已由 Design2-UI.md 取代 | 已存档 |
 | [docs/reports/Design/DesignOnHold.md](docs/reports/Design/DesignOnHold.md) | 开发者 | 增量设计源稿（含修订过程记录），内容已全量转入 Design2.md | 已存档 |
-| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1~20、Build6-2（均已验收/归档）；Build21～Build23 仍在根目录，其中 Build21 已验收、Build22 待实施、Build23 为交接说明 | 已存档 |
+| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1~20、Build6-2（均已验收/归档）；Build21 已验收，Build22 Step1～7 已完成补修、Step8～11 仍待执行，Build23 为交接说明 | 已存档 |
 | [docs/reports/Design/](docs/reports/Design) | 人类（开发者/用户）与 AI 编码助手 | 历史设计文档：Design0、Design1、Design1-UI、Design2、Design2-UI、DesignOnHold | 已存档 |
 | [docs/reports/Issue/](docs/reports/Issue) | AI 编码助手 / 开发者 | 历史问题追踪：Issue1~12（均已闭环归档） | 已存档 |
 | [docs/reports/DesignReport/](docs/reports/DesignReport) | 人类（开发者/用户）与 AI 编码助手 | Design2 核验/研究报告：DesignReport1~10（原 Design2Report1~11，缺 6 已重新连续编号） | 已存档 |

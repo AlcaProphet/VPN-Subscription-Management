@@ -11,10 +11,11 @@ import (
 
 // ParseSource 执行完整解析管线：探测 → 唯一适配器 → 规范化 → 来源准入 → 阈值。
 func ParseSource(body []byte, mode SourceMode) (*ParseResult, error) {
-	format, err := DetectOne(body, mode)
+	detection, err := detectOne(body, mode)
 	if err != nil {
 		return nil, err
 	}
+	format := detection.Format
 	var items []ParsedRule
 	var diagnostics []ParseDiagnostic
 	switch format {
@@ -42,31 +43,11 @@ func ParseSource(body []byte, mode SourceMode) (*ParseResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	res.EvidenceCodes = evidenceCodesForFormat(format)
-	return res, nil
-}
-
-func evidenceCodesForFormat(format DetectedFormat) []string {
-	switch format {
-	case FormatSingBoxSourceJSON:
-		return []string{"sing_box_version_and_rules"}
-	case FormatMihomoDomainYAML:
-		return []string{"top_level_payload", "payload_domain_only"}
-	case FormatMihomoIPCIDRYAML:
-		return []string{"top_level_payload", "payload_ipcidr_only"}
-	case FormatMihomoClassicalYAML:
-		return []string{"top_level_payload", "payload_classical_only"}
-	case FormatTypedRuleText:
-		return []string{"typed_rule_marker"}
-	case FormatPlainIPCIDRText:
-		return []string{"all_items_ip_cidr_or_asn"}
-	case FormatLegacyDomainText:
-		return []string{"legacy_domain_prefix"}
-	case FormatPlainDomainText:
-		return []string{"plain_domain_candidates"}
-	default:
-		return nil
+	res.EvidenceCodes = detection.EvidenceCodes
+	if res.EvidenceCodes == nil {
+		res.EvidenceCodes = []string{}
 	}
+	return res, nil
 }
 
 // finalizeParseResult 统计、去重、来源准入与阈值判断。

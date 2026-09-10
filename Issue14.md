@@ -11,8 +11,8 @@
 - **来源：** [核验 Build21 构建问题](thread://01a080de-c26e-7540-9db2-6b7b808f5eaa)、[继续 Build21 Step 14 测试](thread://01a080ce-4c83-7830-b7c2-aca36ba501b9)、[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 及当前工作区文档核对。
 - **已通过：** Build21 Step 7～15 的自动化与验收证据已收口；后端全量测试、指定竞态测试、编译、`go vet`，前端 41 个测试文件 / 210 个用例和生产构建，以及固定 Mihomo 1.19.29 严格正反例门禁均有通过记录。
 - **当前状态：** Build21 Step 14 的 R28-01～R28-04 工程问题、正式 Production smoke、固定 Mihomo 1.19.29 证据门禁及 PT-28-01～PT-28-05 人工项目均已完成，Step 14 已验收收口；BuildReport4 中仍未闭环的工程问题继续按后续步骤处理。R28-07 已完成只读研究和方案确认，其中 R28-07F 经用户确认属于设计取向、不作为问题整改；R28-08 的 N01～N07 经用户确认整体属于设计取向，已从工程实施范围关闭。剩余历史人工项目见 [ProdTestList.md](ProdTestList.md)，不在本文件重复登记为缺陷。
-- **当前执行步骤：** 步骤一、步骤二已完成；步骤三的 R28-05 只读研究、决策和 Design3/Build22/Issue14 文档修订已完成，Build22 Step 1～11 的代码构建均未开始。R28-06、R28-07 已提前完成只读研究和方案确认，R28-08 已提前完成设计取向确认；这些结论不改变步骤顺序，步骤四、步骤五均未开始代码实施。
-- **本轮边界：** R28-05～R28-08 本轮只完成研究、决策和相应文档记录，不改业务代码、不执行构建；步骤三仍须按 Build22 从 Step 1 开始逐步获得授权、实施和验收，完成后才能进入后续实施步骤。
+- **当前执行步骤：** 步骤一、步骤二已完成；步骤三 R28-05 的 Build22 Step 1～7 已完成并通过补修回归，Step 8 进行中，Step 9～11 尚未开始。R28-06、R28-07 已提前完成只读研究和方案确认，R28-08 已提前完成设计取向确认；这些结论不改变步骤顺序，步骤四、步骤五仍未开始代码实施。
+- **本轮边界：** Build22 Step 1～7 已完成代码补修、自动化验证与对应文档状态同步；Step 8～11 仍待按 Build22 串行执行。R28-06～R28-08 的代码实施仍需在步骤三全部完成后按既定顺序推进。
 
 ---
 
@@ -43,21 +43,21 @@
 - **关联问题标号：** R28-05；具体缺口为 D3-1～D3-10。
 - **前置条件：** 步骤一、步骤二全部完成，Build21 Step 14 已按证据收口。
 - **操作内容：** 按 [Build22.md](Build22.md) 的构建计划，每次只执行一个 Build22 子步骤；不得在步骤二完成前开始 Build22。
-- **研究状态：** 已完成当前代码复核和修复方案细化，已确认重复 origin、手工冲突、latest-attempt 状态和新旧 Clash render plan 兼容口径；本次仅同步文档，未开始任何代码 Step。
+- **研究状态：** 已完成当前代码复核和修复方案细化；2026-09-10 按用户确认的方案完成 Build22 Step 1～7 代码补修与自动化回归，Step 8 进行中，Step 9～11 尚未开始。
 - **完成条件：** D3-1～D3-10 全部验收通过，Build16/Design3 状态完成同步收口。
 
 Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤命名：
 
 | Build22 子步骤 | 工作内容 | 关联问题标号 | 状态 |
 |---|---|---|---|
-| Step 1 | 来源统计计数 | D3-2 | ☐ 未开始 |
-| Step 2 | 来源原始证据、全部 origin 保留、分页前去重与稳定排序 | D3-5 | ☐ 未开始 |
-| Step 3 | `no_resolve` 结构化解析、实例语义、新旧 Clash plan 兼容 | D3-1 | ☐ 未开始 |
-| Step 4 | 后端素材池能力白名单 | D3-4 | ☐ 未开始 |
-| Step 5 | 手工 origin 换绑、共享 Canonical 保护与重复 409 | D3-3 | ☐ 未开始 |
-| Step 6 | 零输出门槛补全 | D3-6 | ☐ 未开始 |
-| Step 7 | failed 快照、v1 强类型统计、1018 激活时间、log/pool 共用脱敏、存量输出清洗、`display_url` 状态 API | D3-7 | ☐ 未开始 |
-| Step 8 | 前端来源状态、诊断与 pending 操作 | D3-8 | ☐ 未开始 |
+| Step 1 | 来源统计计数 | D3-2 | ✅ 验收通过 |
+| Step 2 | 来源原始证据、全部 origin 保留、分页前去重与稳定排序 | D3-5 | ✅ 验收通过 |
+| Step 3 | `no_resolve` 结构化解析、实例语义、新旧 Clash plan 兼容 | D3-1 | ✅ 补修通过 |
+| Step 4 | 后端素材池能力白名单 | D3-4 | ✅ 验收通过 |
+| Step 5 | 手工 origin 换绑、共享 Canonical 保护与重复 409 | D3-3 | ✅ 验收通过 |
+| Step 6 | 零输出门槛补全 | D3-6 | ✅ 验收通过 |
+| Step 7 | failed 快照、v1 强类型统计、1018 激活时间、log/pool 共用脱敏、存量输出清洗、`display_url` 状态 API | D3-7 | ✅ 补修通过 |
+| Step 8 | 前端来源状态、诊断与 pending 操作 | D3-8 | ◧ 进行中 |
 | Step 9 | 装配回执前端展示 | D3-9 | ☐ 未开始 |
 | Step 10 | 真实 1015→1016 store 级迁移、幂等与回滚测试 | D3-10 | ☐ 未开始 |
 | Step 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | D3-1～D3-10 | ☐ 未开始 |
@@ -177,7 +177,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
   - D3-8 pending 激活/丢弃无前端 UI；
   - D3-9 装配回执未展示；
   - D3-10 1015→1016 迁移缺少 store 级测试。
-- **当前证据：** [Build22.md](Build22.md) 进度表 Step 1～11 全部为“☐ 未开始”；代码中 `render_clash.go`/`render_sr.go` 仍按类型支持度无条件追加 `no-resolve`，`load.go` 仍丢弃 `Options.NoResolve`，`pipeline.go` 仍存在重复累加，`sync.go` 仍写入占位 `sort_order/raw_line/line_no`，后端素材池白名单/快照 API/前端 pending UI/回执展示均未实现。
+- **当前证据：** 2026-09-10 复核与补修后，[Build22.md](Build22.md) 进度表 Step 1～7 已完成补修，Step 8 进行中，Step 9～11 未开始；D3-1～D3-7 对应代码已修复并通过自动化回归，D3-8 pending UI、D3-9 回执展示、D3-10 1015→1016 store 级迁移测试尚未实施。
 - **深入研究新增结论：**
   - Design3 要求语义去重时保留 origin；已确认同一 URL 内重复位置和跨来源重复均保留 origin，`accepted` 统计唯一 Canonical，`duplicates` 统计额外 origin，列表/装配必须在 SQL 分页前按最早有效 origin 去重排序。
   - `no_resolve` 不仅在装配加载中丢失，来源解析还使用整行子串判断，Clash `render_plan_json` 和下载重渲染也按类型补加；已确认改为结构化 token，并固定采用逐规则 `NoResolve *bool` 三态编码：字段缺失或 JSON `null` 维持历史按类型推断，新计划每条规则显式写入 boolean true/false，不为这一单字段引入顶层 plan schema version；覆盖层降级只保留原行选项。
@@ -190,7 +190,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
   - Build22 Step 7“脱敏机制复用范围”已按用户确认更新 Build22/Design3/AGENTS：新建 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 使用 `display_url`；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 纳入读时清洗；历史 `pool_sync_tasks`/`rule_pools.sync_error` 做非破坏性清洗；诊断超 20 条采用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长并统一脱敏。
 - **前置条件：** 步骤一、步骤二已完成，Build21 Step 14 已按证据收口；不得在此前开始 Build22 的任何子步骤。
 - **修复方向：** 按已详细修订的 [Build22.md](Build22.md) Step 1～11 串行实施并验收；每次仅执行一个 Step，完成前不得将 Build16/Design3 标记为“全部闭环”。
-- **状态：** ☑ 研究与文档修订完成 / ☐ 代码待实施（Build22 Step 1～11 均未开始）
+- **状态：** ☑ Build22 Step 1～7 代码补修完成 / ☑ 自动化验证通过 / ◧ Step 8 进行中 / ☐ Step 9～11 未开始；D3-1～D3-7 已闭环，D3-8～D3-10 仍待实施。
 
 ### 问题 R28-06：未知扩展/局部 JSON 边界（N-node-6）
 
@@ -279,6 +279,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.17 | 2026-09-10 | 按用户确认的深入检查方案完成 Build22 Step 1～7 代码补修与验证：Step3 SR `no-resolve` 目标能力判断、未知 option warn/位置法尾部解析；Step7 detector evidence codes 来源、sentinel reason_code、严格 v1 stats 形状、显式 null/空串 wire shape、snapshots 严格分页、URL 200 rune 限长与 failed 写入失败后缀保留。后端全量测试/build/vet、前端 build 均通过；Step 8 进行中，Step 9～11 未开始。 |
 | v1.16 | 2026-09-10 | 完成 Build22 Step 10“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认同步 Build22/Issue14/Build16：细化 `migrationsThrough` 按版本过滤并排除 1017；最小夹具固定为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints，不额外插入 owner；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 末尾追加失败语句并在回滚后重试。仅更新文档，Build22 Step 1～11 代码仍未开始。 |
 | v1.15 | 2026-09-10 | 完成 Build22 Step 7“脱敏机制复用范围”只读研究并按用户确认同步 Build22/Design3/AGENTS/Issue14：新建 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 使用 `display_url`；现有 sync/status、sync/tasks、Pool.sync_error 纳入读时清洗；历史同步输出非破坏性清洗；诊断 19+1 截断摘要；字符串字段 200 rune 限长。仅更新文档，Build22 Step 1～11 代码仍未开始。 |
 | v1.14 | 2026-09-09 | 完成 R28-05 Step 3 Clash render plan 兼容编码专项研究并按用户确认同步 Design3/Build22/Issue14：固定采用逐规则 `NoResolve *bool` 三态，缺失或 null 保持历史推断，新计划逐条显式冻结 boolean，不为单字段引入顶层 plan schema version；补齐原始 JSON、历史夹具、目标能力和覆盖层降级验收边界。仅更新文档，Build22 Step 3 代码仍未开始。 |

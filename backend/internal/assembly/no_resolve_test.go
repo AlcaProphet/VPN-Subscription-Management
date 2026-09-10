@@ -124,6 +124,29 @@ func TestSrConfUsesInstanceNoResolve(t *testing.T) {
 	}
 }
 
+func TestSrConfDropsNoResolveWhenTargetUnsupported(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	rid := insertRule(t, st)
+	poolID := insertNoResolvePool(t, st,
+		noResolvePoolEntry{Type: "DOMAIN", Value: "example.com", NoResolve: true},
+		noResolvePoolEntry{Type: "USER-AGENT", Value: "curl", NoResolve: true},
+	)
+	res, err := svc.Render(context.Background(), GenerateInput{
+		TargetSyntax: SrConf, RuleID: rid,
+		Pools: []PoolSelection{{PoolID: poolID, Target: "PROXY"}}, FinalDirection: "DIRECT",
+	})
+	if err != nil {
+		t.Fatalf("SR conf Render 失败: %v", err)
+	}
+	content := string(res.Content)
+	if strings.Contains(content, "DOMAIN,example.com,PROXY,no-resolve") {
+		t.Errorf("DOMAIN 目标不支持 no-resolve，不应输出后缀:\n%s", content)
+	}
+	if strings.Contains(content, "USER-AGENT,curl,PROXY,no-resolve") {
+		t.Errorf("USER-AGENT 目标不支持 no-resolve，不应输出后缀:\n%s", content)
+	}
+}
+
 func TestRenderClashPlanHistoricalAndExplicitCompatibility(t *testing.T) {
 	// 历史字段缺失/null 时按类型补 no-resolve；显式 false 时不补，显式 true 且类型支持时补。
 	base := `{"head":{},"proxy_groups":[{"name":"组A","type":"select","proxies":["DIRECT"]}],"rules":%s}`

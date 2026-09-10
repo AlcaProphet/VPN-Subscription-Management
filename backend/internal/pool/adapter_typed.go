@@ -17,11 +17,12 @@ func parseTypedText(body []byte) ([]ParsedRule, []ParseDiagnostic, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		typ, value, noResolve, _, ok := parseRuleLine(line)
-		if !ok {
+		parsed := parseRuleLineDetailed(line)
+		if !parsed.OK {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "无法解析的显式规则行", Raw: line})
 			continue
 		}
+		typ, value, noResolve := parsed.Type, parsed.Value, parsed.NoResolve
 		if !rulespec.IsMaterialPoolType(typ) {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: "不是素材池可选能力: " + typ, Raw: line})
 			continue
@@ -36,6 +37,9 @@ func parseTypedText(body []byte) ([]ParsedRule, []ParseDiagnostic, error) {
 		if err != nil {
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: err.Error(), Raw: line})
 			continue
+		}
+		for _, tok := range parsed.UnknownTokens {
+			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "warn", Message: "未知尾部 option 已忽略: " + tok, Raw: line})
 		}
 		rules = append(rules, ParsedRule{Rule: normalized, Origin: RuleOriginMeta{Line: i + 1, Raw: line, Order: i}})
 	}
