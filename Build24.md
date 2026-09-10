@@ -24,7 +24,7 @@
 
 | 范围 | 文件 | 处理方式 |
 |---|---|---|
-| 标准推荐下拉 | `frontend/src/components/EditableCombobox.vue` | 复用 `AppSelect`；保留搜索、候选元数据、空值候选、`allow_custom` 三态与旧自定义值回显 |
+| 标准推荐下拉 | `frontend/src/components/EditableCombobox.vue` | 复用 `AppSelect`；有限候选不启用搜索，保留候选元数据、空值候选、`allow_custom` 三态与旧自定义值回显 |
 | 递归字段语义 | `frontend/src/components/ProtocolFieldEditor.vue` | 自定义值和新增列表项使用显式草稿；可选数字不再隐式回退到 0；推荐列表可直接追加 |
 | 页面级草稿门槛 | `frontend/src/views/admin/NodesView.vue`、`frontend/src/components/NodeCheckPanel.vue` | 未应用控件草稿阻止保存和目标检查；分支切换、作用域清空与取消编辑丢弃草稿 |
 | 自动化回归 | `frontend/tests/editable-combobox.spec.ts`、`protocol-field-editor.spec.ts`、`nodes-view.spec.ts`、`node-check-panel.spec.ts` | 覆盖选择、自定义、旧值、空值、数字、列表、保存/检查阻断和输入法合成态 |
@@ -47,7 +47,7 @@
   新增整数列表项 -> 合法整数确认后才追加
   ```
 - **验收标准：**
-  1. 标准单值 Select 具有箭头、整框展开和搜索能力；`allow_custom=false` 不出现“其他”。
+  1. 标准单值 Select 具有箭头和整框展开能力，不启用搜索输入；`allow_custom=false` 不出现“其他”。
   2. “其他”内部值不进入 API/数据库/当前状态/输出；旧自定义值原样回填；输入法合成态 Enter 不误应用。
   3. 空值候选与“其他”不混淆；未设置数字为空，显式 0 保留；整数列表新增不自动产生 0。
   4. ALPN 等列表可从推荐项追加，也可通过独立草稿追加自定义项并保持顺序。
@@ -72,3 +72,4 @@
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-10 | 补齐 R29-06 独立增量构建记录：记录用户决策、实施文件、自动化验收和真实运行待用户核验边界；不取代 Build22 当前执行入口。 |
+| v1.1 | 2026-09-10 | 根据用户真实运行反馈进一步统一推荐字段与协议入口：候选数量有限，不再启用搜索输入层，关闭及展开状态均保持按钮式 Select；候选、自定义草稿与数据合同不变。 |

@@ -124,13 +124,6 @@ function onCustomKeydown(event: KeyboardEvent) {
   applyCustom()
 }
 
-function filterOption(input: string, option: any): boolean {
-  if (option?.value === CUSTOM_VALUE) return true
-  const query = input.trim().toLowerCase()
-  if (!query) return true
-  return String(option?.label ?? '').toLowerCase().includes(query)
-}
-
 onBeforeUnmount(() => {
   if (customDirty.value) emit('draft-dirty-change', false)
 })
@@ -142,8 +135,6 @@ onBeforeUnmount(() => {
       :value="selectedValue"
       :disabled="disabled"
       :placeholder="placeholder"
-      :filter-option="filterOption"
-      show-search
       class="w-full"
       @change="selectValue"
     >

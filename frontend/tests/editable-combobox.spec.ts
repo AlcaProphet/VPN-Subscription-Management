@@ -16,12 +16,13 @@ async function selectValue(wrapper: ReturnType<typeof mount>, value: string) {
 }
 
 describe('EditableCombobox', () => {
-  it('使用标准单值 Select，整框有箭头且打开后显示全部候选', async () => {
+  it('使用与协议一致的按钮式 Select，整框有箭头且展开显示全部候选', async () => {
     const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: true }, attachTo: document.body })
     expect(wrapper.find('.ant-select').exists()).toBe(true)
-    expect(wrapper.find('.ant-select-show-search').exists()).toBe(true)
+    expect(wrapper.find('.ant-select-show-search').exists()).toBe(false)
     expect(wrapper.find('.ant-select-arrow').exists()).toBe(true)
     await wrapper.find('.ant-select-selector').trigger('mousedown')
+    expect(wrapper.find('.ant-select-show-search').exists()).toBe(false)
     expect(document.body.textContent).toContain('WebSocket')
     expect(document.body.textContent).toContain('gRPC')
     wrapper.unmount()
