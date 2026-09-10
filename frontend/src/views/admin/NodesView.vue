@@ -244,20 +244,6 @@ function handleControlDraftDirty(payload: { path: string; dirty: boolean }) {
   else unappliedControlPaths.delete(payload.path)
 }
 const checkBlockedReason = computed(() => unappliedControlPaths.size > 0 ? '存在未应用的自定义值或列表项草稿，请先应用或取消后再检查' : '')
-function warnResetScope(scope: string) {
-  const messages: Record<string, string> = {
-    protocol: '切换协议将清空当前协议参数与凭据，切回需重新填写',
-    network: '切换传输将清空该分区参数，切回需重新填写',
-    security: '切换安全方式将清空该分区参数，切回需重新填写',
-    plugin: '切换或取消插件将清空插件参数与扩展，切回需重新填写',
-  }
-  if (scope.startsWith('feature.')) {
-    Notify.warning('关闭该功能将清空其子参数与扩展，重新开启不会恢复')
-    return
-  }
-  const message = messages[scope] ?? `切换将清空该分区参数，切回需重新填写`
-  Notify.warning(message)
-}
 function resetExtensionDraft() {
   extensionDraft.open = false
   extensionDraft.mode = 'add'
@@ -382,7 +368,6 @@ function applyResetScope(scope: string, changed: boolean) {
   if (!changed) return
   resetScopes.add(scope)
   clearScopedFields(scope)
-  warnResetScope(scope)
 }
 function resetAllEditScopes() {
   resetScopes.clear()
@@ -396,7 +381,6 @@ function resetAllEditScopes() {
 }
 function updateProtocol(protocol: string) {
   if (form.protocol === protocol) return
-  warnResetScope('protocol')
   form.protocol = protocol
   form.protocol_json = {}
   invalidProtocolPaths.clear()
@@ -744,6 +728,12 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <Button size="small" @click="reloadAfterConflict">重新加载</Button>
           </template>
         </Alert>
+        <Alert
+          type="warning"
+          show-icon
+          class="node-reset-warning mb-2"
+          message="切换协议、传输、安全方式、插件，或关闭带子配置的功能，将清空所属参数、凭据、扩展及未应用草稿；切回或重新开启不会恢复。跨协议切换仍保留名称、服务器和端口，插件切换仍保留 Shadowsocks 主密码。"
+        />
         <FormSection title="基本信息" help="选择协议并填写节点的稳定名称与连接地址。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-x-3">
             <Form.Item label="协议" required>

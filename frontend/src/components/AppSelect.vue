@@ -11,8 +11,14 @@ const emit = defineEmits<{
 }>()
 
 const open = ref(false)
+const selectRef = ref<any>(null)
 const overlayId = nextOverlayId('select')
 let unregister: (() => void) | null = null
+
+function focusTrigger() {
+  const input = selectRef.value?.$el?.querySelector?.('input') as HTMLElement | undefined
+  input?.focus?.({ preventScroll: true })
+}
 
 function setOpen(value: boolean) {
   open.value = value
@@ -25,6 +31,7 @@ function setOpen(value: boolean) {
       id: overlayId,
       type: 'select',
       close: () => setOpen(false),
+      focusTrigger,
     })
   } else {
     unregister?.()
@@ -38,7 +45,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Select v-bind="$attrs" :open="open" @dropdown-visible-change="setOpen" @open-change="setOpen">
+  <Select ref="selectRef" v-bind="$attrs" :open="open" @dropdown-visible-change="setOpen">
     <slot />
   </Select>
 </template>

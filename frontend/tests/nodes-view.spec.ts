@@ -111,6 +111,21 @@ describe('NodesView 节点管理页', () => {
     mockGetProtocols.mockResolvedValue(protocols)
   })
 
+  it('新建节点内持久展示分支清空规则，不使用顶部动态消息', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { openCreate: () => void }
+    vm.openCreate()
+    await nextTick()
+
+    const warning = document.body.querySelector<HTMLElement>('.node-reset-warning')
+    expect(warning).not.toBeNull()
+    expect(warning?.textContent).toContain('切回或重新开启不会恢复')
+    expect(warning?.textContent).toContain('仍保留名称、服务器和端口')
+    expect(Notify.warning).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('批量导入回执为长 URI 提供局部桌面表格和手机卡片布局', async () => {
     const raw = 'vless://uuid@example.com:443?' + 'transport-parameter='.repeat(20)
     const reason = 'URI 参数无法识别：' + 'unknown-parameter='.repeat(20)
@@ -427,7 +442,7 @@ describe('NodesView 节点管理页', () => {
     expect(vm.form.protocol_json.network).toBe('tcp')
     expect(vm.form.protocol_json['ws-opts']).toBeUndefined()
     expect(vm.resetScopesArray()).toContain('network')
-    expect(Notify.warning).toHaveBeenCalled()
+    expect(Notify.warning).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -458,6 +473,7 @@ describe('NodesView 节点管理页', () => {
 
     expect(vm.form.protocol_json).toEqual({})
     expect(vm.resetScopesArray()).toContain('protocol')
+    expect(Notify.warning).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

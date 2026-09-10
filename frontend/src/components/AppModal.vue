@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { Modal } from 'ant-design-vue'
-import { nextOverlayId, registerOverlay, focusFirstInContainer } from '@/utils/overlayManager'
+import { nextOverlayId, registerOverlay, focusFirstInContainer, focusWithoutScroll } from '@/utils/overlayManager'
 
 const props = withDefaults(defineProps<{
   open: boolean
@@ -36,7 +36,7 @@ watch(() => props.open, async (open) => {
       id: overlayId,
       type: 'modal',
       close: () => emit('update:open', false),
-      focusTrigger: () => lastFocused.value?.focus?.(),
+      focusTrigger: () => focusWithoutScroll(lastFocused.value),
     })
     await nextTick()
     setTimeout(() => {
@@ -44,7 +44,7 @@ watch(() => props.open, async (open) => {
       if (el) focusFirstInContainer(el)
     }, 0)
   } else {
-    lastFocused.value?.focus?.()
+    focusWithoutScroll(lastFocused.value)
     lastFocused.value = null
     overlayUnregister?.()
     overlayUnregister = null

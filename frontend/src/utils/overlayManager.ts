@@ -51,11 +51,17 @@ export function registerOverlay(handle: OverlayHandle): () => void {
 export function unregisterOverlay(id: string): void {
   const idx = activeOverlays.findIndex((item) => item.id === id)
   if (idx >= 0) {
-    const [removed] = activeOverlays.splice(idx, 1)
-    if (removed.previousFocus) {
-      removed.previousFocus.focus?.()
-    }
+    activeOverlays.splice(idx, 1)
   }
+}
+
+export function focusWithoutScroll(element: HTMLElement | null | undefined): void {
+  element?.focus?.({ preventScroll: true })
+}
+
+function restoreOverlayFocus(item: OverlayRecord): void {
+  if (item.focusTrigger) item.focusTrigger()
+  else focusWithoutScroll(item.previousFocus)
 }
 
 export function getActiveOverlay(): OverlayHandle | null {
@@ -66,6 +72,7 @@ export function closeTopOverlay(): boolean {
   const top = activeOverlays[activeOverlays.length - 1]
   if (!top) return false
   top.close()
+  restoreOverlayFocus(top)
   unregisterOverlay(top.id)
   return true
 }
@@ -88,7 +95,6 @@ function ensureEscapeHandler(): void {
     const top = activeOverlays[activeOverlays.length - 1]
     if (!top) return
     event.preventDefault()
-    top.focusTrigger?.()
     closeTopOverlay()
   })
 }
@@ -100,11 +106,11 @@ export function saveFocus(id: string): void {
 
 export function restoreFocus(id: string): void {
   const item = activeOverlays.find((x) => x.id === id)
-  if (item) item.previousFocus?.focus?.()
+  if (item) restoreOverlayFocus(item)
 }
 
 export function focusFirstInContainer(container: HTMLElement): void {
   const selector = 'input, textarea, select, button, [tabindex]:not([tabindex="-1"])'
   const el = container.querySelector<HTMLElement>(selector)
-  el?.focus()
+  focusWithoutScroll(el)
 }
