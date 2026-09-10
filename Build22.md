@@ -41,13 +41,13 @@
 | 5 | 手工编辑不污染共享 Canonical（D3-3） | Design3 §3.2、§6.1 | ✅ 验收通过 |
 | 6 | 零输出门槛补全（D3-6） | Design3 §7.2 | ✅ 验收通过 |
 | 7 | failed 快照、v1 统计/激活时间 + per-URL 状态/诊断 API（D3-7） | Design3 §6.4、§8.2、§8.3 | ✅ 验收通过 |
-| 8 | 前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8） | Design3 §8.2 | ◧ 进行中 |
-| 9 | 装配回执前端展示（D3-9） | Design3 §7.2、§8.2 | ☐ 未开始 |
-| 10 | 1016 迁移 store 级回归测试（D3-10） | Design3 §6.5、§9.3 | ☐ 未开始 |
-| 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | AGENTS.md §3.4～§3.6 | ☐ 未开始 |
+| 8 | 前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8） | Design3 §8.2 | ✅ 自动化验收通过；人工浏览器项目待用户核验（见 ProdTestList） |
+| 9 | 装配回执前端展示（D3-9） | Design3 §7.2、§8.2 | ✅ 自动化验收通过；人工页面项目待用户核验（见 ProdTestList） |
+| 10 | 1016 迁移 store 级回归测试（D3-10） | Design3 §6.5、§9.3 | ✅ 验收通过 |
+| 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | AGENTS.md §3.4～§3.6 | ✅ 验收通过；人工浏览器/真机项目转 ProdTestList |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
-> 当前 Step 1～7 已完成并通过补修回归；Step 8 进行中；Step 9～11 未开始。
+> 当前 Step 1～11 均已完成代码实现与自动化验收；Step 8/9 实际浏览器与真实客户端项目已按用户授权迁移至 [ProdTestList.md](ProdTestList.md)，尚未形成用户人工通过结论。
 > 工程状态追踪：上述 D3-1～D3-10 未闭环项已登记至 [Issue14.md](Issue14.md) R28-05；本文档作为实施计划，不替代问题追踪。
 
 ---
@@ -782,6 +782,13 @@ Step 11（全量回归/文档收口） ←────────────�
 - **验收标准：**
   每个 URL 的最近尝试状态及实际生效 active 均可辨认；状态卡片展示的是 `display_url`，不把脱敏 URL 回写为编辑配置；失败后恢复不会永久标红；pending 可人工激活/丢弃，激活前能看到旧/新差异；所有诊断只展示后端已脱敏的有限数据；桌面与 <768px 窄屏均可操作。
 
+- **Step 8 执行记录（2026-09-10）：**
+  - 已实施 `PoolDetail.vue` 每 URL 状态卡片：`display_url`、`source_mode`、由 `latest_attempt.status` 决定的 active/pending/failed/待同步主徽标、六项计数、有限诊断、v1 stats（evidence/rule_counts/comparison/decision）与 version 0 历史统计不可用，以及 failed+旧 active 并存和失败后恢复。
+  - 已实现 pending 激活/丢弃：激活前使用现有 `ConfirmModal` 展示旧 active/新 pending 的输入、接受数、格式、平台与诊断差异；成功后刷新来源状态与素材条目；`activated_at` 仅展示服务端值；失败按现有 Notify 错误处理。
+  - `frontend/src/api/pool.ts` 复用 Step 7 已有类型与请求函数，未改动 wire shape；`display_url` 仅用于展示，测试固定其不进入条目编辑提交。
+  - 验证命令：`cd frontend && npm test -- --run tests/pool-detail.spec.ts`（22 项通过）、`cd frontend && npm run build`、`git diff --check` 均通过。
+  - 1440px/390px 实际浏览器、真实交互和控制台核验未执行，已按 B-2 授权迁移至 Step 11 的 ProdTestList 人工章节，不标记为通过。
+
 ---
 
 ### Step 9：装配回执前端展示（D3-9）
@@ -826,6 +833,13 @@ Step 11（全量回归/文档收口） ←────────────�
 
 - **验收标准：**
   用户能在预览和生成结果中看到完整转换回执；数字分别与对应 preview/generate 响应一致；过期回执不会冒充当前结果；已有预览、差异、previewStale 和生成成功流程无回归。
+
+- **Step 9 执行记录（2026-09-10）：**
+  - 后端 `generate()` 成功响应新增本次 `res.Receipt`；未改动零输出门槛、预览摘要校验、自检或版本落库语义。
+  - 新增 `TestAssemblyGenerateReceiptRawJSON`：用原始 JSON 断言 `data.receipt` 固定六项 snake_case 字段（`input`、`direct_output`、`equivalent_conversions`、`skipped_unsupported`、`target_validation_failed`、`final_output`）；先以 1 条规则 preview、再以 2 条规则 generate，证明生成回执来自本次 Render 而非旧 preview 数据。
+  - 前端 `AssemblyView.vue` 新增加 `previewReceipt`，`previewStale` 变化时清除旧回执；`PreviewStep.vue` 接收可选 `receipt` 并渲染六项中文标签；生成成功页只展示本次 `generateResult.receipt`，缺省时兼容不显示虚假零值；`api/assembly.ts` 的 generate 响应类型补齐可选 receipt。
+  - 验证命令：`cd backend && go test ./internal/server`、`cd backend && go build ./...`、`cd frontend && npm test -- --run tests/assembly-view.spec.ts tests/preview-step.spec.ts`（25 项通过）、`cd frontend && npm run build`、`git diff --check` 均通过。
+  - 真实运行页面 preview/generate 回执、目标/规则变更后旧回执消失、桌面与窄屏布局及控制台检查未执行，按 B-2 授权迁移至 Step 11 的 ProdTestList，不标记为通过。
 
 ---
 
@@ -906,6 +920,13 @@ Step 11（全量回归/文档收口） ←────────────�
   - `Build16.md` 历史文字曾称 `store_test.go` 已覆盖 1015 旧 schema/数据升级，但当前 `store_test.go` 并未包含该测试；此差异不在 Step 10 范围内处理。
   - 当前 `pool_test.go` 只在全新迁移后检查 `pool_entries` 表不存在，未覆盖 1016 的旧数据、ID、`sqlite_sequence`、幂等与回滚；Step 10 的新增 store 测试负责补齐这些能力，不要求改写 pool 测试语义。
 
+- **Step 10 执行记录（2026-09-10）：**
+  - 新增 `backend/internal/store/migration_1016_test.go`（`package store`），复用真实 `migrations.FS` 与既有 `migrationsThrough(target)`；未复制或手写任何简化 1009/1016 schema，未修改生产迁移 SQL。
+  - `TestMigration1015To1016StoreLevel`：对独立临时库应用真实 0001～1015，断言 `MAX(version)=1015`、无更高迁移、记录数 20；插入 ID 10/100 旧池、同一旧池 manual/URL 条目、旧任务、versions 与 assembly_blueprints sentinel（selection_json 引用旧 pool_id:100）；再应用真实 1016，断言旧表清除、旧任务清零、新表存在、sentinel 逐字保留、schema_migrations 只新增 1016、`sqlite_sequence==100`；插入新池精确得到 ID 101 且 sequence 同步 101；同一 Store 重复迁移与 close/reopen 后再次迁移均幂等。
+  - `TestMigration1016FailureRollsBack`：使用独立临时库迁移到真实 1015 并插入夹具；`brokenMigrationsThrough1016()` 只把必然失败语句追加到真实 1016 SQL 末尾，覆盖删表、建表、sequence 与临时表操作之后；断言失败后旧 schema/数据/sequence/sentinel 与 schema_migrations 全部回滚、新表与临时表不存在，随后使用真实 1016 重试成功。
+  - 验证命令：`cd backend && go test ./internal/store ./internal/pool -run 'Migration|1016'`、`cd backend && go build ./...`、`git diff --check` 均通过。
+  - 真实旧版本数据库升级演练不作为本 Step 完成条件；如用户后续需要，仅作为隔离副本上的可选人工项，不替代本 store 自动化测试。
+
 ---
 
 ### Step 11：全量回归、文档同步与 R28-05/Design3 状态收口
@@ -937,6 +958,14 @@ Step 11（全量回归/文档收口） ←────────────�
 - **验收标准：**
   所有自动命令和正式 Production smoke 通过；D3-1 的新计划实例语义与旧计划兼容均有下载证据，D3-5 的排序/分页有数据库级证据，D3-7 的状态恢复、v1 stats 不变量、旧 JSON 兼容、1018 激活时间和脱敏有限诊断有迁移/API/UI 证据，D3-10 的真实 1015→1016 迁移有 store 级证据；Build22、Design3、Issue14 与 AGENTS 状态一致，归档 Build16 只保留历史记录和后续勘误，不倒改或虚标验收状态。
 
+- **Step 11 执行记录（2026-09-10）：**
+  - 全量自动门禁均在本次任务实际运行并通过：`cd backend && go build ./...`、`go vet ./...`、`go test ./... -count=1 -timeout 180s`、`cd frontend && npm run build`、`cd frontend && npm test -- --run`、`docker compose build`、`bash .smoke-test-prod.sh`、`git diff --check`。
+  - 前端全量测试结果为 42 个测试文件 / 244 个用例全部通过；后端全包测试均为 `ok`，无失败包。
+  - 关键包 skip 检查：`TestR2902ProvidedURLsConcurrentIntegration`、`TestProvidedURLCancelIntegration` 需用户提供的真实 URL；`TestMihomo11929AcceptsGeneratedSSPluginStructures` 需外部 Mihomo 1.19.29 二进制。三者均不属于 Build22 Step 8～10 或本 Step 自动验收范围，不影响本次结论，未把其记为已执行。
+  - Smoke 首轮在 `sr-conf` 装配生成处失败：旧脚本仍发送空 `custom_rules`/`pools`，与 Build22 Step 6 已冻结的“SR conf 最终非系统规则为 0 时禁止生成”合同冲突。按“不隐藏失败”原则保留失败证据，仅将 smoke 夹具修正为一条有效 `DOMAIN-SUFFIX` 自定义规则后重跑，完整 build + Production smoke + v2 导入导出往返通过；决策见附录 B-3。
+  - 文档同步：已更新本文件进度/执行记录、`Issue14.md` R28-05 与步骤三、`Design3.md` 实现口径/变更记录、`docs/reports/Build/Build16.md` 后续勘误、`AGENTS.md` 状态、`ProdTestList.md` Build22 人工核验章节；`PoolTab.vue` 陈旧文案已修正为“服务启动时补跑今日错过”。
+  - 实际浏览器双视口、真实交互、真实手机和真实客户端仍只登记为待用户人工核验，不得由本次自动化结果外推为通过。
+
 ---
 
 ## 五、已确认构建项映射
@@ -964,6 +993,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.13 | 2026-09-10 | 完成 Build22 Step 8～11 代码与自动化验收：Step 8 每 URL 来源状态/诊断/pending UI 与组件测试、Step 9 preview/generate 六项回执展示与后端原始 JSON 合同、Step 10 真实 1015→1016 store 级迁移/幂等/回滚测试、Step 11 后端 build/vet/全量测试、前端 build/全量测试、Docker Compose build 与正式 Production smoke 全部通过。Smoke 旧夹具与 Step 6 零输出门槛冲突已按 B-3 修正并记录。实际浏览器/真机项目迁移至 ProdTestList，不标记为人工通过。 |
 | v1.12 | 2026-09-10 | 按用户确认的补修方案完成 Build22 Step 1～7 的缺口复修：Step3 修复 SR `no-resolve` 目标能力判断、未知 option warn/位置法尾部解析；Step7 修复 detector evidence codes 来源、sentinel reason_code、严格 v1 stats 形状、显式 null/空串 wire shape、snapshots 严格分页、URL 200 rune 限长和 failed 写入失败后缀保留。后端全量测试/build/vet、前端 build 均通过；Step 8 进行中，Step 9～11 未开始。 |
 | v1.11 | 2026-09-10 | 完成 Build22 Step 10“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认细化：`migrationsThrough` helper 按解析版本过滤且排除 1017；最小夹具固定为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints；不额外插入 owner 记录；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 文件末尾追加失败语句并在回滚后用真实 1016 重试。同步在附录 A.10 和范围外备注中记录 Build16 历史表述差异与 pool_test 当前缺口。仅更新文档，未修改业务代码、未执行构建。 |
 | v1.10 | 2026-09-10 | 将 Step 7 脱敏结论同步至 AGENTS.md、Design3.md、Issue14.md，并补齐 Build22 附录 A.7 中的 `display_url`、公共 redact、历史清洗与 19+1 截断口径。仅更新文档，未修改业务代码、未执行构建。 |
@@ -1148,4 +1178,6 @@ receipt?: ConversionReceipt
 
 | ID | 日期时间 | Step | 类型 | 发现与证据 | 处理决定或阻断点 | 影响范围 | 状态 |
 |----|----------|------|------|------------|------------------|----------|------|
-| B-1 | 2026-09-10 | Step 8 | 阻断问题 | Build22 Step 8 明确要求以实际浏览器取得 1440px 与 390px 两种视口证据；当前执行环境 `which chromium/chromium-browser/google-chrome/playwright` 均无结果，frontend 也未安装 Playwright，无法执行真实浏览器交互与截图证据。 | 停止在 Step 8 前，不实施/标记 Step 8 完成；Steps 1～7 已完成后保持当前部分实现；等待用户提供浏览器证据环境或明确调整证据边界。 | Step 8 UI、Step 11 全量收口 | 阻断 |
+| B-1 | 2026-09-10 | Step 8 | 阻断问题 | Build22 Step 8 明确要求以实际浏览器取得 1440px 与 390px 两种视口证据；当前执行环境 `which chromium/chromium-browser/google-chrome/playwright` 均无结果，frontend 也未安装 Playwright，无法执行真实浏览器交互与截图证据。 | 停止在 Step 8 前，不实施/标记 Step 8 完成；Steps 1～7 已完成后保持当前部分实现；等待用户提供浏览器证据环境或明确调整证据边界。 | Step 8 UI、Step 11 全量收口 | 已由 B-2 解阻（原始阻断事实保留） |
+| B-2 | 2026-09-10 20:04 | Step 8 | 用户决策/验收边界 | 用户已明确允许将实际浏览器、真实设备和真实客户端核验延期至 [ProdTestList.md](ProdTestList.md)；B-1 的“缺少实际浏览器环境”不再阻断 Step 8 的代码和自动化验收。Step 8 仍必须完成组件测试与生产构建，1440px、390px、真实交互和控制台检查不得标记通过。 | 按用户授权继续执行 Step 8～11 的代码与自动化验收；未执行的实际浏览器项目迁移为待用户人工核验，完成自动化后不得宣称真实浏览器已通过。 | Step 8、Step 11 文档收口 | 已确认 |
+| B-3 | 2026-09-10 20:13 | Step 11 | 自主决策/测试夹具修正 | Step 11 首次运行 `bash .smoke-test-prod.sh` 在步骤 13d“sr-conf 装配生成”失败：脚本发送 `pools:[]`、`custom_rules:[]`，服务端按 Build22 Step 6 已冻结的零输出门槛返回 400“当前目标没有可输出的非系统规则”。该行为与 `server/assembly_test.go` 的 `TestAssemblyGenerateZeroOutputGate` 一致，属于旧 smoke 夹具与设计合同漂移，不是产品回归。 | 保留失败证据，不修改零输出门槛、不修改生产代码或迁移 SQL；仅把 `.smoke-test.sh` 的 sr-conf 请求夹具改为一条有效 `DOMAIN-SUFFIX` 自定义规则，使 smoke 验证成功路径。空规则负例继续由后端自动化测试固定，不以脚本改动隐藏。修正后完整 smoke 与 v2 导入导出往返通过。 | `.smoke-test.sh` 夹具；Step 11 门禁记录 | 已确认并验证 |

@@ -11,8 +11,8 @@
 - **来源：** [核验 Build21 构建问题](thread://01a080de-c26e-7540-9db2-6b7b808f5eaa)、[继续 Build21 Step 14 测试](thread://01a080ce-4c83-7830-b7c2-aca36ba501b9)、[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 及当前工作区文档核对。
 - **已通过：** Build21 Step 7～15 的自动化与验收证据已收口；后端全量测试、指定竞态测试、编译、`go vet`，前端 41 个测试文件 / 210 个用例和生产构建，以及固定 Mihomo 1.19.29 严格正反例门禁均有通过记录。
 - **当前状态：** Build21 Step 14 的 R28-01～R28-04 工程问题、正式 Production smoke、固定 Mihomo 1.19.29 证据门禁及 PT-28-01～PT-28-05 人工项目均已完成，Step 14 已验收收口；BuildReport4 中仍未闭环的工程问题继续按后续步骤处理。R28-07 已完成只读研究和方案确认，其中 R28-07F 经用户确认属于设计取向、不作为问题整改；R28-08 的 N01～N07 经用户确认整体属于设计取向，已从工程实施范围关闭。剩余历史人工项目见 [ProdTestList.md](ProdTestList.md)，不在本文件重复登记为缺陷。
-- **当前执行步骤：** 步骤一、步骤二已完成；步骤三 R28-05 的 Build22 Step 1～7 已完成并通过补修回归，Step 8 进行中，Step 9～11 尚未开始。R28-06、R28-07 已提前完成只读研究和方案确认，R28-08 已提前完成设计取向确认；这些结论不改变步骤顺序，步骤四、步骤五仍未开始代码实施。
-- **本轮边界：** Build22 Step 1～7 已完成代码补修、自动化验证与对应文档状态同步；Step 8～11 仍待按 Build22 串行执行。R28-06～R28-08 的代码实施仍需在步骤三全部完成后按既定顺序推进。
+- **当前执行步骤：** 步骤一、步骤二、步骤三已完成；Build22 Step 1～11 代码与自动化验收已完成，D3-1～D3-10 已闭环。Step 8/9 的实际浏览器、真实设备和真实客户端核验已按用户授权迁移至 [ProdTestList.md](ProdTestList.md)，尚未形成人工通过结论。R28-06、R28-07 已提前完成只读研究和方案确认，R28-08 已提前完成设计取向确认；步骤四、步骤五仍未开始代码实施，本次任务不进入。
+- **本轮边界：** Build22 Step 1～11 已完成代码补修、自动化验证与对应文档状态同步；后端 build/vet/全量测试、前端 build/全量测试、Docker Compose build 和正式 Production smoke 均通过。R28-06～R28-08 的代码实施仍按既定顺序在后续获得授权后推进，本次未实施。
 
 ---
 
@@ -42,8 +42,8 @@
 
 - **关联问题标号：** R28-05；具体缺口为 D3-1～D3-10。
 - **前置条件：** 步骤一、步骤二全部完成，Build21 Step 14 已按证据收口。
-- **操作内容：** 按 [Build22.md](Build22.md) 的构建计划，每次只执行一个 Build22 子步骤；不得在步骤二完成前开始 Build22。
-- **研究状态：** 已完成当前代码复核和修复方案细化；2026-09-10 按用户确认的方案完成 Build22 Step 1～7 代码补修与自动化回归，Step 8 进行中，Step 9～11 尚未开始。
+- **操作内容：** 按 [Build22.md](Build22.md) 的构建计划，依次执行 Build22 子步骤；本次用户已授权 Step 8～11 连续串行实施，不并行。
+- **研究状态：** 已完成当前代码复核、修复方案细化和 Build22 Step 1～11 代码与自动化验收；D3-1～D3-10 全部达到工程闭环，实际浏览器/真机项目按用户授权迁移至 [ProdTestList.md](ProdTestList.md)。
 - **完成条件：** D3-1～D3-10 全部验收通过，Build16/Design3 状态完成同步收口。
 
 Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤命名：
@@ -57,10 +57,10 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 | Step 5 | 手工 origin 换绑、共享 Canonical 保护与重复 409 | D3-3 | ✅ 验收通过 |
 | Step 6 | 零输出门槛补全 | D3-6 | ✅ 验收通过 |
 | Step 7 | failed 快照、v1 强类型统计、1018 激活时间、log/pool 共用脱敏、存量输出清洗、`display_url` 状态 API | D3-7 | ✅ 补修通过 |
-| Step 8 | 前端来源状态、诊断与 pending 操作 | D3-8 | ◧ 进行中 |
-| Step 9 | 装配回执前端展示 | D3-9 | ☐ 未开始 |
-| Step 10 | 真实 1015→1016 store 级迁移、幂等与回滚测试 | D3-10 | ☐ 未开始 |
-| Step 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | D3-1～D3-10 | ☐ 未开始 |
+| Step 8 | 前端来源状态、诊断与 pending 操作 | D3-8 | ✅ 自动化验收通过；真实浏览器项目转 ProdTestList |
+| Step 9 | 装配回执前端展示 | D3-9 | ✅ 自动化验收通过；真实页面项目转 ProdTestList |
+| Step 10 | 真实 1015→1016 store 级迁移、幂等与回滚测试 | D3-10 | ✅ 验收通过 |
+| Step 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | D3-1～D3-10 | ✅ 验收通过 |
 
 ### 步骤四：处理未知扩展与局部 JSON 边界
 
@@ -166,7 +166,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 - **关联步骤：** 步骤三。
 
 - **来源：** [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §4.2 未闭环项 1；实施计划见 [Build22.md](Build22.md)。
-- **现象/范围：** Build16/Design3 仍不能视为全部闭环，当前代码仍存在以下实质缺口：
+- **原始现象/范围（修复前）：** Build16/Design3 当时存在以下实质缺口：
   - D3-1 `no_resolve` 实例语义丢失；
   - D3-2 被来源模式排除的数量重复计算；
   - D3-3 手工规则更新污染共享 URL Canonical；
@@ -177,7 +177,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
   - D3-8 pending 激活/丢弃无前端 UI；
   - D3-9 装配回执未展示；
   - D3-10 1015→1016 迁移缺少 store 级测试。
-- **当前证据：** 2026-09-10 复核与补修后，[Build22.md](Build22.md) 进度表 Step 1～7 已完成补修，Step 8 进行中，Step 9～11 未开始；D3-1～D3-7 对应代码已修复并通过自动化回归，D3-8 pending UI、D3-9 回执展示、D3-10 1015→1016 store 级迁移测试尚未实施。
+- **当前证据：** 2026-09-10 完成 [Build22.md](Build22.md) Step 1～11 代码与自动化验收：Step 8 组件测试 22 项与前端生产构建通过；Step 9 后端 server 定向测试、前端 25 项定向测试与前后端构建通过，generate 回执已用原始 JSON 固定；Step 10 真实 1015→1016 store 级迁移、幂等和失败回滚测试通过；Step 11 后端 build/vet/全量测试、前端 42 文件/244 用例全量测试、生产构建、Docker Compose build 与正式 Production smoke 均通过。实际浏览器、真实设备和真实客户端项目已迁移至 [ProdTestList.md](ProdTestList.md)，未标记为人工通过。
 - **深入研究新增结论：**
   - Design3 要求语义去重时保留 origin；已确认同一 URL 内重复位置和跨来源重复均保留 origin，`accepted` 统计唯一 Canonical，`duplicates` 统计额外 origin，列表/装配必须在 SQL 分页前按最早有效 origin 去重排序。
   - `no_resolve` 不仅在装配加载中丢失，来源解析还使用整行子串判断，Clash `render_plan_json` 和下载重渲染也按类型补加；已确认改为结构化 token，并固定采用逐规则 `NoResolve *bool` 三态编码：字段缺失或 JSON `null` 维持历史按类型推断，新计划每条规则显式写入 boolean true/false，不为这一单字段引入顶层 plan schema version；覆盖层降级只保留原行选项。
@@ -189,8 +189,8 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
   - Build22 Step 10 已进一步完成“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认细化：`migrationsThrough` helper 按解析版本过滤且排除 1017；最小夹具为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints，不额外插入 owner 记录；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 文件末尾追加失败语句，并在回滚后用真实 1016 重试。同步记录见 Build22 Step 10 与 Build16 后续勘误。
   - Build22 Step 7“脱敏机制复用范围”已按用户确认更新 Build22/Design3/AGENTS：新建 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 使用 `display_url`；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 纳入读时清洗；历史 `pool_sync_tasks`/`rule_pools.sync_error` 做非破坏性清洗；诊断超 20 条采用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长并统一脱敏。
 - **前置条件：** 步骤一、步骤二已完成，Build21 Step 14 已按证据收口；不得在此前开始 Build22 的任何子步骤。
-- **修复方向：** 按已详细修订的 [Build22.md](Build22.md) Step 1～11 串行实施并验收；每次仅执行一个 Step，完成前不得将 Build16/Design3 标记为“全部闭环”。
-- **状态：** ☑ Build22 Step 1～7 代码补修完成 / ☑ 自动化验证通过 / ◧ Step 8 进行中 / ☐ Step 9～11 未开始；D3-1～D3-7 已闭环，D3-8～D3-10 仍待实施。
+- **修复过程：** 按已详细修订的 [Build22.md](Build22.md) Step 1～11 串行实施并验收；实际浏览器/真机项目按用户授权迁移至 ProdTestList，未提前实施 R28-06 及后续步骤。
+- **状态：** ☑ Build22 Step 1～11 代码与自动化验收完成 / ☑ D3-1～D3-10 工程闭环 / ☑ Build16/Design3 状态已同步 / ◐ 实际浏览器与真机项目已迁移 ProdTestList，待用户人工核验。R28-05 达到工程实现闭环；人工浏览器项目不构成代码/自动化未完成，也不得声称已人工验证。
 
 ### 问题 R28-06：未知扩展/局部 JSON 边界（N-node-6）
 
@@ -256,7 +256,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
   - README 提及 LICENSE 但仓库未发现 LICENSE；
   - `docs/Reference/Xray-Server-Config-Research.md` 存在指向仓库外 `Xray-examples` 的失效链接；
   - 前端存在未引用文件清理候选（`GenerateStep.vue`、`PreviewState.vue`、`ResponsiveCollection.vue`、`CopyField.vue`）；
-  - `PoolTab.vue` 的“停机错过不补跑”文案与当前启动补跑实现不一致。
+  - `PoolTab.vue` 的“停机错过不补跑”文案与当前启动补跑实现不一致；该文案已由 Build22 Step 11 顺带修正为“服务启动时补跑今日错过”，不表示 R28-09 其余项已完成。
 - **修复方向：** 文档类问题在本轮文档交叉审核中同步修正或登记；代码清理/镜像加固作为后续工程项处理。
 - **状态：** ☐ 文档/工程收尾待办
 
@@ -279,6 +279,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.18 | 2026-09-10 | 完成 Build22 Step 8～11 代码与自动化验收：Step 8 每 URL 来源状态/诊断/pending UI 组件测试 22 项；Step 9 generate receipt 原始 JSON 合同、前后端回执展示测试 25 项；Step 10 真实 1015→1016 store 级迁移、幂等与失败回滚测试；Step 11 后端 build/vet/全量测试、前端 42 文件/244 用例、生产构建、Docker Compose build、正式 Production smoke 与 `git diff --check` 全部通过。Smoke 陈旧夹具与 Step 6 零输出门槛冲突按 B-3 修正并重跑通过。D3-1～D3-10 工程闭环，R28-05 工程实现关闭；实际浏览器/真机项目迁移至 ProdTestList，未标记为人工通过。 |
 | v1.17 | 2026-09-10 | 按用户确认的深入检查方案完成 Build22 Step 1～7 代码补修与验证：Step3 SR `no-resolve` 目标能力判断、未知 option warn/位置法尾部解析；Step7 detector evidence codes 来源、sentinel reason_code、严格 v1 stats 形状、显式 null/空串 wire shape、snapshots 严格分页、URL 200 rune 限长与 failed 写入失败后缀保留。后端全量测试/build/vet、前端 build 均通过；Step 8 进行中，Step 9～11 未开始。 |
 | v1.16 | 2026-09-10 | 完成 Build22 Step 10“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认同步 Build22/Issue14/Build16：细化 `migrationsThrough` 按版本过滤并排除 1017；最小夹具固定为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints，不额外插入 owner；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 末尾追加失败语句并在回滚后重试。仅更新文档，Build22 Step 1～11 代码仍未开始。 |
 | v1.15 | 2026-09-10 | 完成 Build22 Step 7“脱敏机制复用范围”只读研究并按用户确认同步 Build22/Design3/AGENTS/Issue14：新建 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 使用 `display_url`；现有 sync/status、sync/tasks、Pool.sync_error 纳入读时清洗；历史同步输出非破坏性清洗；诊断 19+1 截断摘要；字符串字段 200 rune 限长。仅更新文档，Build22 Step 1～11 代码仍未开始。 |

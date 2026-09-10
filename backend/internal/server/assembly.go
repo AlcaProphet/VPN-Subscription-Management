@@ -197,6 +197,7 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		"rule_id":        in.RuleID,
 		"skipped":        res.Skipped,
 		"warnings":       h.assemblySvc.Warnings(in, res),
+		"receipt":        res.Receipt,
 	})
 }
 

@@ -437,6 +437,8 @@ fetching → parsing → staging
 
 Clash `render_plan_json` 必须冻结每条新规则的显式 `no_resolve=true/false`，下载重渲染与生成时保持一致。兼容编码固定采用逐规则 nullable boolean（Go 字段为 `NoResolve *bool`，JSON tag 为 `json:"no_resolve,omitempty"`），不为这一单字段引入整份 Clash plan 的顶层 schema version：字段缺失或 JSON `null` 表示既有历史计划，沿用创建该计划时的按类型推断行为；字段存在时严格按实例 true/false 与目标能力的交集渲染。新计划的每条规则都必须写出 boolean，包括 false，不得借 `omitempty` 省略；生产端应使用单一构造入口避免漏设后误入历史分支。覆盖层或目标组删除导致规则重写时，只保留已渲染行/显式计划中的 `no-resolve`，不得再次根据类型补加。未来只有在整份 plan 出现新的结构演进需求时，才另行设计顶层版本号。
 
+Build22 实现收口（2026-09-10）：`preview` 响应与 `generate` 成功响应均返回本次 `receipt`，wire 字段为 `input`、`direct_output`、`equivalent_conversions`、`skipped_unsupported`、`target_validation_failed`、`final_output`。前端仅在当前预览指纹有效时显示 preview 回执；目标、输入、选中素材池、自定义规则等导致 `previewStale` 的变化会清除旧回执。`generate` 成功页只使用本次 generate 响应中的回执，不复用 preview 回执；缺省 receipt 时界面不显示虚假零值。
+
 ---
 
 ## 八、管理页面与 API
@@ -456,6 +458,8 @@ Clash `render_plan_json` 必须冻结每条新规则的显式 `no_resolve=true/f
 ### 8.2 状态、回执与详情
 
 每个 URL 显示用户模式、检测格式/平台、由最近一次尝试决定的 active/pending/failed/待同步主状态、当前仍生效的 active、accepted/模式剔除/rejected/duplicates、前后差异和有限样例。最近失败但仍有旧 active 时必须同时表达“失败”和“继续使用旧活动快照”；之后成功时旧 failed 仅进入历史。pending 提供“激活/丢弃”。池级任务为 `running/succeeded/partial/failed`，逐 URL 独立展示。
+
+Build22 实现收口（2026-09-10）：详情页卡片只展示后端返回的 `display_url`，编辑路径继续使用 `Pool.sources[].url`/`Pool.urls[]` 原始 URL，`display_url` 不进入 create/update 请求。主徽标严格读取 `latest_attempt.status`，`latest_failed` 只作为历史信息；failed 与旧 active 并存时显示“同步失败，继续使用旧活动快照”，后续成功恢复 active 主徽标。激活前使用项目 `ConfirmModal` 展示旧 active 与新 pending 的 input/accepted/format/profile 和诊断差异，`activated_at` 只展示服务端值；激活/丢弃成功后刷新来源状态与素材条目。v1 stats 展示 evidence codes、rule_counts、comparison 与 decision；`schema_version=0` 显示“历史统计不可用”，不把空字段解释为零变化或成功依据。验收时实际浏览器双视口与真实交互仍需用户执行，登记于 ProdTestList。
 
 池列表和详情增加 common/clash_only/sr_only 数量、family/matcher/规范化值、动态范围徽标、active origin 数和来源入口，并保持后端分页与懒加载。对当前目标输出为 0的池显示不可用；非零时可选择并在预览显示跳过数。
 
@@ -505,7 +509,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 ### 9.3 实施边界与验收
 
-- Build16 的原始构建已归档；其 D3-1～D3-10 后续缺口以 Build22 为当前唯一分步计划。Build22 每次只执行一个 Step，验收通过后等待下一步授权。
+- Build16 的原始构建已归档；其 D3-1～D3-10 后续缺口以 Build22 为唯一分步计划。Build22 已按用户连续执行授权完成 Step 1～11 的代码实现与自动化验收；实际浏览器、真实设备和真实客户端项目整体迁移至 [ProdTestList.md](ProdTestList.md)，不构成代码/自动化验收的未完成阻断，也不得表述为已人工通过。
 - 不顺带修改节点、代理组、Xray 或权限体系，不新增后续适配器。
 - 不因素材池限制删除高级装配现有能力。
 - 语法变化优先更新语料和注册表，不增加无证据 fallback。
@@ -532,6 +536,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.10 | 2026-09-10 | Build22 Step 8～11 按实际实现收口：补充来源状态卡片的 display_url 边界、latest_attempt 主状态、failed+旧 active 提示、ConfirmModal 新旧差异、服务端 activated_at、v1 stats/version 0 展示，以及 preview/generate 回执的生成与清除规则；§9.3 更新为 Build22 已完成代码与自动化验收，人工浏览器/真机项目迁移 ProdTestList。未写入未实现能力。 |
 | v1.9 | 2026-09-10 | 按用户确认的补修方案同步 Step3/Step7 设计口径并落地代码：source policy 按位置法静默忽略、未知尾部 option 生成 warn 而不改变统计；SR `no-resolve` 与 Clash 一致按实例和目标能力求交集；evidence codes 在实际 detector 分支产生；failed 使用 sentinel 稳定 reason_code 与严格 v1 stats 形状；snapshots 严格分页、URL 先脱敏后 200 rune 限长、wire null/空串固定。D3-1～D3-7 已完成并通过自动化回归，D3-8～D3-10 仍待实施。 |
 | v1.8 | 2026-09-10 | 按 Build22 Step 7 脱敏研究结论与用户确认同步 §6.4：日志与 pool 共用统一脱敏规则；`SourceStatus` 使用 `display_url`；脱敏/限长扩展至所有持久化与展示 API 字符串字段；明确疑似凭据 key 清单、19+1 截断摘要、200 rune、空诊断 `[]`、历史同步输出非破坏性清洗及现有 sync API 读时清洗。仅更新设计文档，代码仍待 Build22 实施。 |
 | v1.7 | 2026-09-09 | Clash render plan 兼容编码经专项研究确认：采用逐规则 nullable boolean/Go `*bool` 三态，缺失或 null 维持历史按类型推断，新计划对每条规则显式冻结 true/false；不为单字段引入整份 plan schema version，并保留未来整体结构演进时再版本化的空间。仅更新设计文档，代码仍待 Build22 Step 3 实施。 |

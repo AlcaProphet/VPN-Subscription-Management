@@ -197,6 +197,63 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 	}
 }
 
+// TestAssemblyGenerateReceiptRawJSON 固定 generate 响应的 receipt 原始 JSON 合同。
+func TestAssemblyGenerateReceiptRawJSON(t *testing.T) {
+	engine, st, _ := newAssemblyTestEnv(t)
+	pid := insertAssemblyBase(t, st)
+
+	// preview 与 generate 使用不同规则数，证明 generate 回执来自本次 Render 而不是旧 preview 数据。
+	previewBody := assemblyBody(pid)
+	previewBody["custom_rules"] = []map[string]any{
+		{"rule_type": "DOMAIN-SUFFIX", "match_value": "preview.example.com", "target": "组A"},
+	}
+	if w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/preview", previewBody); w.Code != http.StatusOK {
+		t.Fatalf("preview 状态码异常: %d body=%s", w.Code, w.Body.String())
+	}
+
+	genBody := assemblyBody(pid)
+	genBody["custom_rules"] = []map[string]any{
+		{"rule_type": "DOMAIN-SUFFIX", "match_value": "one.example.com", "target": "组A"},
+		{"rule_type": "USER-AGENT", "match_value": "Telegram", "target": "组A"},
+	}
+	w := doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", genBody)
+	if w.Code != http.StatusOK {
+		t.Fatalf("generate 状态码异常: %d body=%s", w.Code, w.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("解析 generate 原始响应失败: %v body=%s", err, w.Body.String())
+	}
+	data, ok := raw["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("generate data 形状异常: %s", w.Body.String())
+	}
+	receipt, ok := data["receipt"].(map[string]any)
+	if !ok {
+		t.Fatalf("generate 响应缺少 receipt 对象: %s", w.Body.String())
+	}
+	want := map[string]float64{
+		"input": 2, "direct_output": 1, "equivalent_conversions": 0,
+		"skipped_unsupported": 1, "target_validation_failed": 0, "final_output": 1,
+	}
+	if len(receipt) != len(want) {
+		t.Fatalf("receipt 应固定六项 snake_case 字段，实际 %d 项: %+v", len(receipt), receipt)
+	}
+	for key, value := range want {
+		got, ok := receipt[key]
+		if !ok {
+			t.Fatalf("receipt 缺少字段 %q: %+v", key, receipt)
+		}
+		num, ok := got.(float64)
+		if !ok {
+			t.Fatalf("receipt.%s 应为 JSON number，实际 %T: %+v", key, got, receipt)
+		}
+		if num != value {
+			t.Fatalf("receipt.%s = %v，期望 %v（必须来自本次 generate Render）", key, num, value)
+		}
+	}
+}
+
 func TestAssemblyGenerateRejectsChangedPreviewContent(t *testing.T) {
 	engine, st, _ := newAssemblyTestEnv(t)
 	pid := insertAssemblyBase(t, st)

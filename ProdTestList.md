@@ -79,10 +79,73 @@
 
 ---
 
-## 七、变更记录
+## 七、Build22 来源状态与装配回执人工核验
+
+> Build22 Step 8/9 的代码与自动化验收已完成；以下项目仍必须在用户真实运行环境执行。自动化结果不得外推为真实浏览器、真实手机或真实客户端结论；未执行项目不标记为通过。
+
+### A. Build22 Step 8 来源状态与 pending 操作
+
+- **状态：** ☐ 代码与自动化验收完成，待用户真实浏览器核验。
+- **准备条件：** 使用隔离的 Production 或等价真实运行环境，不使用真实凭据和真实业务数据；准备包含 never synced、active、pending、failed、failed+old active 且最终恢复 active 的来源样例（可用隔离环境构造 URL 来源、手工条目、同步历史与待激活快照）；记录应用版本、环境地址和视口。
+- **操作步骤：**
+  1. 在 1440px 桌面视口打开素材池详情，核对每个 URL 来源卡片：`display_url`、`source_mode`、active/pending/failed/待同步主徽标；
+  2. 核对 never synced、active、pending、failed 四类主状态；确认主徽标只由最近一次尝试决定；
+  3. 构造“最近失败但旧 active 仍生效”，确认同时显示“同步失败，继续使用旧活动快照”和旧 active 摘要；再让该来源同步成功后，确认主状态恢复 active、历史 failed 不再控制主徽标；
+  4. 核对 input、recognized、accepted、excluded、rejected、duplicates；核对 v1 stats 的 evidence codes、rule_counts、comparison、decision；对 `schema_version=0` 确认显示“历史统计不可用”且不解释为零变化；
+  5. 核对长诊断的换行/截断，确认页面无明显横向溢出；
+  6. 对 pending 来源点击“激活”，确认 ConfirmModal 展示旧 active 与新 pending 的 input、accepted、format、profile 和诊断差异；确认激活后来源状态与素材条目刷新，`activated_at` 只显示服务端值；
+  7. 对另一个 pending 来源点击“丢弃”，确认丢弃后来源状态与素材条目刷新且当前 active 不受影响；
+  8. 确认状态卡片只显示脱敏后的 `display_url`；进入编辑后仍为原始 URL，保存后原始 URL 不被脱敏展示值覆盖；
+  9. 打开浏览器控制台确认无新增异常；将视口切换到 390px 窄屏，重复 pending 操作、诊断卡片和长文本检查。
+- **预期结果：** 主状态由 latest_attempt 决定；old active 与最新失败可同时辨认；历史 failed 不会永久标红；诊断无明文敏感凭据；桌面和窄屏可操作且无明显横向溢出；`display_url` 不会提交回编辑 API。
+- **人工执行记录：**
+
+  | 项目 | 执行日期 | 环境/版本 | 视口 | 结果 | 证据或备注 |
+  |---|---|---|---|---|---|
+  | 四类主状态与 latest_attempt | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | failed + old active 与恢复 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | v1 stats / version 0 / 长诊断 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | pending 激活确认与 activated_at | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | pending 丢弃与刷新 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | display_url 与编辑原始 URL 边界 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | 控制台无新增错误 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | 窄屏可操作与无横向溢出 | 待填写 | 待填写 | 390px | 待人工核验 | 待填写 |
+
+- **自动化已证明：** `frontend/tests/pool-detail.spec.ts` 的 22 项组件测试覆盖状态卡片、pending 展示/确认/激活/丢弃、激活后状态与条目刷新、服务端 activated_at、v1 stats/version 0、failed+active、恢复 active、never_synced、display_url 不进入编辑提交、API/操作错误与长诊断样式；后端状态 API 与脱敏字段由 Go 测试固定。
+- **自动化不能证明：** 1440px/390px 实际浏览器渲染与真实布局溢出、真实交互和触控、真实控制台无异常、真实运行环境中 pending/失败状态的实际生成与迁移。
+
+### B. Build22 Step 9 装配回执
+
+- **状态：** ☐ 代码与自动化验收完成，待用户真实浏览器核验。
+- **准备条件：** 使用隔离的 Production 或等价真实运行环境；准备能产生 direct_output、equivalent_conversions、skipped_unsupported、target_validation_failed 和 final_output 差异的装配输入；记录应用版本、目标类型与环境。
+- **操作步骤：**
+  1. 在真实运行页面完成一次 preview，确认预览步骤在警告/跳过信息附近显示完整六项回执；
+  2. 与当前 preview 接口响应逐项核对数字一致；
+  3. 修改目标、素材池或自定义规则，确认旧回执消失且预览进入 stale 状态；
+  4. 重新预览后执行 generate，确认生成成功页显示本次 generate 返回的回执；构造 preview 与 generate 回执不同的场景，确认页面以 generate 为准、不混用旧 preview 回执；
+  5. 在回执缺省时确认页面保持兼容且不显示虚假零值；
+  6. 核对桌面和窄屏布局无横向溢出，控制台无新增错误。
+- **预期结果：** 过期回执不冒充当前结果；preview 与 generate 各自使用对应响应；缺省 receipt 保持兼容；页面显示与真实接口响应一致。
+- **人工执行记录：**
+
+  | 项目 | 执行日期 | 环境/版本 | 视口 | 结果 | 证据或备注 |
+  |---|---|---|---|---|---|
+  | preview 六项回执与接口一致 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | 目标/输入/素材池/规则变化后旧回执消失 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | generate 使用本次 receipt 不混用 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | 缺省 receipt 兼容 | 待填写 | 待填写 | 1440px | 待人工核验 | 待填写 |
+  | 窄屏布局与控制台 | 待填写 | 待填写 | 390px | 待人工核验 | 待填写 |
+
+- **自动化已证明：** 后端原始 JSON 合同测试固定 generate 响应中 receipt 六项 snake_case 字段及数值来自本次 Render；前端 25 项定向测试覆盖 preview 回执保存/传递/渲染、stale 清除、generate 以本次响应为准和缺省 receipt 兼容；前后端构建通过。
+- **自动化不能证明：** 真实运行页面完成 preview/generate 的操作结果、真实接口响应与页面展示一致性、桌面/窄屏实际布局和控制台状态。
+
+---
+
+## 八、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v2.11 | 2026-09-10 | 新增 Build22 Step 8 来源状态/pending 操作与 Step 9 装配回执的人工核验章节：记录代码与自动化已完成、实际浏览器/真实环境项目待用户核验、每项准备条件/操作/预期/记录表及自动化证据边界；未将自动化结果写成人工通过。保留 R29-04、R29-06、R27-05、R26-07 等既有待办。 |
 | v1.0 | 2026-08-21 | 初始版本：记录 Production 冒烟与人工核查清单，待用户后续自行执行。 |
 | v1.1 | 2026-08-22 | 新增 `.smoke-test-prod.sh` 自动拉起临时 Production 容器；R20-11 标记为“原环境不可用，未能复现，转人工验证”。 |
 | v1.2 | 2026-08-28 | 新增 Build11 专项人工核查。 |

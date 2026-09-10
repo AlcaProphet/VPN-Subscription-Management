@@ -103,7 +103,10 @@ export const getAssemblyContext = () =>
 export const previewAssembly = (data: GenerateInput) =>
   http.post<any, PreviewResponse>('/admin/assembly/preview', data, { timeout: 120000 })
 export const generateAssembly = (data: GenerateInput) =>
-  http.post<any, { version_id: number; version_no: number; auto_activated: boolean; rule_id?: number; skipped: SkipItem[]; warnings: string[] }>(
+  http.post<any, {
+    version_id: number; version_no: number; auto_activated: boolean; rule_id?: number;
+    skipped: SkipItem[]; warnings: string[]; receipt?: ConversionReceipt;
+  }>(
     '/admin/assembly/generate', data, { timeout: 120000 },
   )
 export const getBlueprint = (versionId: number) =>

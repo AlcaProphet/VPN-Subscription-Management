@@ -46,6 +46,7 @@ vi.mock('@/components/Notify', () => ({
 
 import AssemblyView from '@/views/admin/AssemblyView.vue'
 import PoolTab from '@/views/admin/assembly/PoolTab.vue'
+import PreviewStep from '@/views/admin/assembly/PreviewStep.vue'
 import { getAssemblyContext, previewAssembly, generateAssembly } from '@/api/assembly'
 import { listPools } from '@/api/pool'
 import { Notify } from '@/components/Notify'
@@ -161,6 +162,109 @@ describe('AssemblyView 装配页核心交互', () => {
       overseas_members: [],
       fallback_group_members: ['🚀直接连接', '🌎国外流量'],
     }))
+  })
+
+  it('preview 回执保存、传给预览步骤并渲染六项数字', async () => {
+    const receipt = {
+      input: 7, direct_output: 4, equivalent_conversions: 2,
+      skipped_unsupported: 1, target_validation_failed: 0, final_output: 6,
+    }
+    mockPreview.mockResolvedValue({ content: 'proxies:', preview_hash: 'preview-hash', skipped: [], warnings: [], receipt })
+    const wrapper = await mountWith('tab=sr-conf')
+    const vm = wrapper.vm as unknown as { form: { platform_id?: number }; doPreview: () => Promise<void>; previewReceipt: unknown }
+    vm.form.platform_id = 1
+    await vm.doPreview()
+    await wrapper.vm.$nextTick()
+    expect(vm.previewReceipt).toEqual(receipt)
+    expect(wrapper.findComponent(PreviewStep).props('receipt')).toEqual(receipt)
+    expect(wrapper.text()).toContain('输入 7')
+    expect(wrapper.text()).toContain('直接输出 4')
+    expect(wrapper.text()).toContain('等价转换 2')
+    expect(wrapper.text()).toContain('目标不支持跳过 1')
+    expect(wrapper.text()).toContain('校验失败 0')
+    expect(wrapper.text()).toContain('最终输出 6')
+  })
+
+  it('目标或输入变化后旧 preview 回执被清除且不显示', async () => {
+    const receipt = {
+      input: 7, direct_output: 4, equivalent_conversions: 2,
+      skipped_unsupported: 1, target_validation_failed: 0, final_output: 6,
+    }
+    mockPreview.mockResolvedValue({ content: 'proxies:', preview_hash: 'preview-hash', skipped: [], warnings: [], receipt })
+    const wrapper = await mountWith('tab=clash-yaml')
+    const vm = wrapper.vm as unknown as {
+      form: { platform_id?: number; fixed_params_text: string }
+      doPreview: () => Promise<void>
+      previewStale: boolean
+      previewReceipt: unknown
+    }
+    vm.form.platform_id = 1
+    await vm.doPreview()
+    await wrapper.vm.$nextTick()
+    expect(vm.previewReceipt).toEqual(receipt)
+
+    vm.form.platform_id = 2
+    await wrapper.vm.$nextTick()
+    expect(vm.previewStale).toBe(true)
+    expect(vm.previewReceipt).toBeNull()
+
+    vm.form.platform_id = 1
+    vm.form.fixed_params_text = '{"port":7891}'
+    await wrapper.vm.$nextTick()
+    expect(vm.previewStale).toBe(true)
+    expect(vm.previewReceipt).toBeNull()
+    expect(wrapper.text()).not.toContain('转换回执')
+  })
+
+  it('generate 使用本次服务端回执，不与 preview 回执混用', async () => {
+    const previewReceipt = {
+      input: 7, direct_output: 4, equivalent_conversions: 2,
+      skipped_unsupported: 1, target_validation_failed: 0, final_output: 6,
+    }
+    const generateReceipt = {
+      input: 9, direct_output: 5, equivalent_conversions: 3,
+      skipped_unsupported: 1, target_validation_failed: 0, final_output: 8,
+    }
+    mockPreview.mockResolvedValue({ content: 'proxies:', preview_hash: 'preview-hash', skipped: [], warnings: [], receipt: previewReceipt })
+    mockGenerate.mockResolvedValue({
+      version_id: 1, version_no: 1, auto_activated: true, skipped: [], warnings: [], receipt: generateReceipt,
+    })
+    const wrapper = await mountWith('tab=sr-conf')
+    const vm = wrapper.vm as unknown as {
+      form: { platform_id?: number; sr_rule_mode: 'existing' | 'new'; rule_name: string }
+      doPreview: () => Promise<void>
+      doGenerate: () => Promise<void>
+      generateResult: { receipt?: unknown } | null
+    }
+    vm.form.platform_id = 1
+    vm.form.sr_rule_mode = 'new'
+    vm.form.rule_name = 'receipt-test'
+    await vm.doPreview()
+    await vm.doGenerate()
+    await wrapper.vm.$nextTick()
+    expect(vm.generateResult?.receipt).toEqual(generateReceipt)
+    expect(wrapper.text()).toContain('最终输出 8')
+    expect(wrapper.text()).not.toContain('最终输出 6')
+  })
+
+  it('preview 与 generate 缺省 receipt 时保持兼容', async () => {
+    mockPreview.mockResolvedValue({ content: 'proxies:', preview_hash: 'preview-hash', skipped: [], warnings: [] })
+    mockGenerate.mockResolvedValue({ version_id: 1, version_no: 1, auto_activated: true, skipped: [], warnings: [] })
+    const wrapper = await mountWith('tab=sr-subs')
+    const vm = wrapper.vm as unknown as {
+      form: { platform_id?: number }
+      doPreview: () => Promise<void>
+      doGenerate: () => Promise<void>
+      previewReceipt: unknown
+    }
+    vm.form.platform_id = 1
+    await vm.doPreview()
+    await wrapper.vm.$nextTick()
+    expect(vm.previewReceipt).toBeNull()
+    expect(wrapper.text()).not.toContain('转换回执')
+    await vm.doGenerate()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('转换回执')
   })
 
   it('构建请求携带代理组成员顺序 group_member_orders', async () => {

@@ -339,7 +339,7 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
           <Switch v-model:checked="form.auto_sync" size="small" />
           <AppTimePicker :value="form.sync_time ? dayjs(form.sync_time, 'HH:mm') : undefined" format="HH:mm" :minute-step="1"
                          @change="(t: any) => form.sync_time = t ? t.format('HH:mm') : '04:00'" />
-          <span class="text-xs text-text-tertiary">HH:MM，按 UTC 每日执行，停机错过不补跑</span>
+          <span class="text-xs text-text-tertiary">HH:MM，按 UTC 每日执行，服务启动时补跑今日错过</span>
         </div>
       </div>
     </FormOverlay>
