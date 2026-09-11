@@ -13,7 +13,7 @@
 | [Build22.md](Build22.md) | Step 1～6、8～10 已验收；Step 7 专属自动化证据缺失；Step 11 不能声明 D3 全验收 | **Build22 Step 7** |
 | [Design3.md](Design3.md) | 因 Build22 Step 7 未闭环而保持活跃 | Build22 Step 7、11 后收口 |
 | [Issue14.md](Issue14.md) | 步骤一、二、四、六已关闭；步骤三、五、七、八未关闭 | **Issue14 步骤三** |
-| [Issue15.md](Issue15.md) | R29-01、R29-11、R29-12 未关闭；R29-06、09、10 待人工 | R29-11 随 Build22；R29-01 与 R28-07G 联动 |
+| [Issue15.md](Issue15.md) | R29-01 工程修复待人工复验；R29-11 未关闭；R29-12 已确认并完成文档补记；R29-06、09、10 待人工 | R29-11 随 Build22；R29-01 与 R28-07G 联动 |
 | [Design4.md](Design4.md) | 当前最新设计；Build17～25 主体已完成 | 仅在实际变更影响其合同时同步 |
 | [ProdTestList.md](ProdTestList.md) | 保留 Production、浏览器、真机和真实客户端人工项 | 按工程前置分批执行 |
 | [SecurityScanPlan1.md](SecurityScanPlan1.md) / [SecurityReport3.md](SecurityReport3.md) | Step 1～3 已完成；Step 4～28 未开始，报告未完成 | 工程冻结后执行 **Step 4** |
@@ -26,10 +26,10 @@
 
 ### P0 — 开工前确认
 
-- [ ] **P0-1｜Issue15 R29-12：** 确认 `Dockerfile` 从 `node:22-alpine` 升至 `node:24-alpine` 是否有意。保留则补记原因和验证边界；非有意则另行授权回滚。结论供 Issue14 步骤七使用。
-- [ ] **P0-2｜Issue15 R29-01：** 实施前复核 Setup 新库导入、管理端导入和旧镜像证据，确认报告中 `RESET` 与当前代码 `DISABLE` 的差异。
+- [x] **P0-1｜Issue15 R29-12：** 已确认 `Dockerfile` 从 `node:22-alpine` 升至 `node:24-alpine` 是有意的安全性更新；保留该变更。验证边界限定为前端构建镜像、依赖安装和相关构建/测试链，不将其表述为业务运行时行为变更。结论已回写 [Issue15.md](Issue15.md)，供 Issue14 步骤七使用。
+- [x] **P0-2｜Issue15 R29-01：** 已完成实施前复核：Setup 新库导入只发送 `IMPORT`；管理端已有库导入继续要求 `IMPORT → DISABLE`；2026-09-11 用户截图和当前代码确认报告中的 `RESET` 为历史误记，当前合同为 `DISABLE`。复核、修复和隔离 Production 真实文件证据已记录在 [Issue15.md](Issue15.md)，当前 Docker 镜像重建后的浏览器复验仍由 [ProdTestList.md](ProdTestList.md) 跟踪。
 
-P0 不阻塞 Build22 Step 7；P0-1 必须在 Issue14 步骤七前完成，P0-2 必须在 R29-01/R28-07G 实施前完成。
+P0 不阻塞 Build22 Step 7；P0-1、P0-2 已完成。P0-2 的后续 R28-07G 工程实施仍须按 P2-7 单独授权和验收，不能以本次复核替代。
 
 ### P1 — Build22 Step 7 → Step 11 → Issue14 步骤三
 
@@ -68,7 +68,7 @@ P0 不阻塞 Build22 Step 7；P0-1 必须在 Issue14 步骤七前完成，P0-2 �
 
 前置：Issue14 步骤三、四、五、六全部关闭。
 
-- [ ] **P3-1｜步骤七/R28-09：** 按 P0-1 处理 Node 版本记录；安装/验证 `ca-certificates`，评估并固定基础镜像/GHCR digest。
+- [ ] **P3-1｜步骤七/R28-09：** 按 P0-1 已确认的 Node 24 记录继续处理；安装/验证 `ca-certificates`，评估并固定基础镜像/GHCR digest。
 - [ ] **P3-2｜步骤七/R28-09：** 补 `LICENSE` 或修正 README 许可证描述；涉及授权选择时先请用户决策。
 - [ ] **P3-3｜步骤七/R28-09：** 修复 `docs/Reference/Xray-Server-Config-Research.md` 的仓库外失效链接。
 - [ ] **P3-4｜步骤七/R28-09：** 逐项确认 `GenerateStep.vue`、`PreviewState.vue`、`ResponsiveCollection.vue`、`CopyField.vue` 无引用后再清理。
@@ -152,3 +152,4 @@ P0 不阻塞 Build22 Step 7；P0-1 必须在 Issue14 步骤七前完成，P0-2 �
 |---|---|
 | 2026-09-10 | 创建临时 TODOLIST，登记当时活跃文档、确认项、工程工作流与人工队列。 |
 | 2026-09-11 | 按最新活跃文档重排：以 Build22 Step 7 → Step 11 → Issue14 步骤三为首要主线；细化 Issue14 步骤五、七、八；逐项列出 SecurityScanPlan1 Step 4～28；更新人工测试开始条件与授权边界。 |
+| 2026-09-11 | 完成 P0-1/P0-2：确认 Node 22→24 为有意的安全性更新并限定验证边界；复核 Setup/管理端导入合同及 `RESET`→`DISABLE` 历史差异。P5 SecurityScanPlan1 仍作为构建之外的独立审查清单，不并入任何 Build/Design/Issue。 |

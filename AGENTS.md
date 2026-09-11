@@ -1,7 +1,7 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前最新设计：[Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.20 已同步 R28-06 存档/诊断/白名单/父子草稿合同；Build17～Build21 主体已完成，其中 Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 已完成 Design3/Build16 D3 主体代码与运行门禁，但 Step 7 专属自动化证据缺口未补，Build22 保持活跃，R29-06 控件语义收口见 Build24，R28-06 主体、2026-09-10 交叉审核发现的 R28-06B 前端 `item_id_field` 白名单缺口、保存定位排序和条件隐藏清理证据缺口均已闭环，Build25 已归档）；已归档构建：[Build21.md](docs/reports/Build/Build21.md)、[Build23.md](docs/reports/Build/Build23.md)、[Build24.md](docs/reports/Build/Build24.md)、[Build25.md](docs/reports/Build/Build25.md)（除已登记在 [ProdTestList.md](ProdTestList.md) 的人工项目外，工程实现与自动化验收均已完成；Build23 为 R27-09 交接说明，Build24 为 R29-06 独立增量记录，Build25 为 R28-06 未知扩展/局部 JSON 边界构建）；当前构建记录：根目录 [Build22.md](Build22.md)（D3 主体与运行门禁完成、Step 7 自动化证据缺口待补）；当前根目录设计基线：[Design3.md](Design3.md)（规则来源识别、结构化素材与跨平台装配，已经 Build16 构建；Build22 Step 7 证据缺口未补，暂不归档）与 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)（订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。历史构建：[Build11.md](docs/reports/Build/Build11.md)～[Build20.md](docs/reports/Build/Build20.md)（均已验收存档，Build11 原后端死锁已由 R24-01 修复）及 [Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（已验收存档）；Build21、Build23、Build24、Build25 已归档；Build22 因证据缺口保持根目录活跃；历史问题记录已归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue13.md](docs/reports/Issue/Issue13.md)（均已闭环存档）；当前工程问题见 [Issue14.md](Issue14.md)，人工测试及交叉审核补充问题见 [Issue15.md](Issue15.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)；第三期安全审查计划与结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)（Step 25～28 尚未完成，保持活跃）；其他历史文档统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
+> 当前最新已确认设计：[Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.20 已同步 R28-06 存档/诊断/白名单/父子草稿合同；Build17～Build21 主体已完成，其中 Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 已完成 Design3/Build16 D3 主体代码与运行门禁，但 Step 7 专属自动化证据缺口未补，Build22 保持活跃，R29-06 控件语义收口见 Build24，R28-06 主体、2026-09-10 交叉审核发现的 R28-06B 前端 `item_id_field` 白名单缺口、保存定位排序和条件隐藏清理证据缺口均已闭环，Build25 已归档）；后续候选设计：[Design5.md](Design5.md)（完整数据加密导出与 Setup 一步整站迁移，当前仅登记构想，未研究定稿、未进入构建）；已归档构建：[Build21.md](docs/reports/Build/Build21.md)、[Build23.md](docs/reports/Build/Build23.md)、[Build24.md](docs/reports/Build/Build24.md)、[Build25.md](docs/reports/Build/Build25.md)（除已登记在 [ProdTestList.md](ProdTestList.md) 的人工项目外，工程实现与自动化验收均已完成；Build23 为 R27-09 交接说明，Build24 为 R29-06 独立增量记录，Build25 为 R28-06 未知扩展/局部 JSON 边界构建）；当前构建记录：根目录 [Build22.md](Build22.md)（D3 主体与运行门禁完成、Step 7 自动化证据缺口待补）；当前根目录设计基线：[Design3.md](Design3.md)（规则来源识别、结构化素材与跨平台装配，已经 Build16 构建；Build22 Step 7 证据缺口未补，暂不归档）与 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)（订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。历史构建：[Build11.md](docs/reports/Build/Build11.md)～[Build20.md](docs/reports/Build/Build20.md)（均已验收存档，Build11 原后端死锁已由 R24-01 修复）及 [Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（已验收存档）；Build21、Build23、Build24、Build25 已归档；Build22 因证据缺口保持根目录活跃；历史问题记录已归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue13.md](docs/reports/Issue/Issue13.md)（均已闭环存档）；当前工程问题见 [Issue14.md](Issue14.md)，人工测试及交叉审核补充问题见 [Issue15.md](Issue15.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)；第三期安全审查计划与结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)（Step 25～28 尚未完成，保持活跃）；其他历史文档统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
 
 ---
 
@@ -220,7 +220,7 @@
 | 文档类型 | 文件 | 定位 | 约束力 |
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
-| Design 文档 | [Design4.md](Design4.md)（当前最新设计，v1.20 已同步 R28-06；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成但 Step 7 自动化证据缺口未补，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；人工结果见 ProdTestList）；[Design3.md](Design3.md)（已经 Build16 构建的规则素材与装配设计；Build22 Step 7 证据缺口未补，保持根目录活跃、暂不归档）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
+| Design 文档 | [Design5.md](Design5.md)（完整数据加密导出与 Setup 一步整站迁移候选，当前只登记构想、未研究定稿或进入构建）；[Design4.md](Design4.md)（当前最新已确认设计，v1.20 已同步 R28-06；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成但 Step 7 自动化证据缺口未补，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；人工结果见 ProdTestList）；[Design3.md](Design3.md)（已经 Build16 构建的规则素材与装配设计；Build22 Step 7 证据缺口未补，保持根目录活跃、暂不归档）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
 | Design GUI 规格 | [Design2-UI.md](docs/reports/Design/Design2-UI.md)（已实现并归档的 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；Design3 新增界面行为由 Design3 §八补充；Design4 节点表单界面行为由 Design4 §三/§十二补充 | 非强制，供参考 |
 | Build 文档 | 已归档：Build1～Build21、Build23、Build24、Build25、Build6-2（具体链接见下方清单）。Build21、Build23、Build24、Build25 除已登记 [ProdTestList.md](ProdTestList.md) 的人工项目外，工程与自动化验收均已完成；当前根目录活跃构建记录：[Build22.md](Build22.md)（D3 主体与运行门禁完成、Step 7 自动化证据缺口待补） | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
 | Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue13.md](docs/reports/Issue/Issue13.md)（全部已闭环归档）；当前工程问题为 [Issue14.md](Issue14.md)，人工测试及交叉审核补充问题为 [Issue15.md](Issue15.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
@@ -242,11 +242,18 @@
 - 若 Design / Build / Issue 文档之间存在冲突，或与 AGENTS.md 冲突：**提示用户并让用户做决策**，不擅自选择遵守哪一份
 - 若设计内容本身存在冲突，同样**提示用户**，由用户决策
 
+### 8.3.1 当前文档同步记录（2026-09-11）
+
+- `TODOLIST.md` P0-1 已完成：已确认 `Dockerfile` 的 `node:22-alpine` → `node:24-alpine` 是有意的安全性更新并保留；验证边界限定为前端构建镜像、依赖安装及相关构建/测试链，不将其表述为业务运行时行为变更。对应追溯记录见 [Issue15.md](Issue15.md) R29-12。
+- `TODOLIST.md` P0-2 已完成：已复核 Setup 新库导入只需 `IMPORT`、管理端已有库导入继续使用 `IMPORT → DISABLE`，并确认历史报告中的 `RESET` 为误记；修复与隔离 Production 真实文件证据见 [Issue15.md](Issue15.md) R29-01，当前 Docker 镜像重建后的浏览器复验仍由 [ProdTestList.md](ProdTestList.md) 跟踪。
+- `TODOLIST.md` P5 `SecurityScanPlan1` 是构建之外的独立安全审查跟踪清单；不得将其步骤、证据或状态混入任何 Build、Design、Issue 或其他类似文档。
+
 ### 8.4 文档清单
 
 | 文档 | 目标读者 | 内容 | 状态 |
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
+| [Design5.md](Design5.md) | 人类（开发者/用户）与 AI 编码助手 | 后续候选设计：完整数据加密导出、Setup 一步整站迁移、恢复安全与一致性边界 | v0.1 构想已登记；未研究定稿、未创建 Build、未实施 |
 | [Design4.md](Design4.md) | 人类（开发者/用户）与 AI 编码助手 | 当前最新增量设计：节点编辑器条件表单、分支清空与当前状态、统一保存契约、首批四协议矩阵、客户端兼容与目标检查 | v1.20 已同步 R28-06；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成但 Step 7 自动化证据缺口未补，R29-06 见 Build24，R28-06 主体与前端 `item_id_field` 白名单、保存定位排序、条件隐藏清理证据均已闭环，Build25 已归档，人工结果见 ProdTestList |
 | [Design3.md](Design3.md) | 人类（开发者/用户）与 AI 编码助手 | 已构建增量设计：规则来源三模式、单 URL 单主方言、Canonical Rule、来源快照、能力注册表与跨平台装配 | 活跃未归档；已经 Build16 构建，但 Build22 Step 7 自动化证据缺口未补，D3 全验收不成立，暂不归档 |
 | [Design2.md](docs/reports/Design/Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现增量基线：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接 | 已存档，已构建 |
