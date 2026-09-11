@@ -12,7 +12,7 @@
 - **记录原则：** 人工测试项只登记用户实际观察到的现象、测试项目、环境、复现步骤和证据；没有实际测试证据时不创建问题结论。交叉审核项应给出代码/文档证据、主跟踪文档和后续验证入口，不把静态检查写成人工通过。
 - **处理边界：** 新问题默认只记录，不自行探索或修复；用户明确授权后，可在同一问题中补充根因、修复方案、实施结果和验收证据。自动化通过不得代替 Production、浏览器或真实客户端人工核验。
 - **编号约定：** 本文件新增问题使用 `R29-*` 编号；`PT-*` 继续表示 [ProdTestList.md](ProdTestList.md) 的测试项目，不与问题编号混用。
-- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-02～R29-05、R29-07、R29-08 已完成修复、自动化验证和用户人工核验；R29-06 已完成代码修复与自动化验证、等待用户真实运行核验；R29-09、R29-10 已完成工程修复与自动化验证，等待 ProdTestList 人工复验；R29-01、R29-11、R29-12 仍未关闭。此前已经记录在 [Issue14.md](Issue14.md) 的 R28-01～R28-04 不重复迁移。
+- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-02～R29-05、R29-07、R29-08 已完成修复、自动化验证和用户人工核验；R29-01、R29-06、R29-09、R29-10 已完成工程修复与自动化验证，等待 ProdTestList 人工复验；R29-11、R29-12 仍未关闭。此前已经记录在 [Issue14.md](Issue14.md) 的 R28-01～R28-04 不重复迁移。
 
 ---
 
@@ -20,20 +20,25 @@
 
 > 后续发现错误时先追加发现记录；只有收到用户明确授权后，才在对应问题中补充根因、修复方案、实施结果或验收结论。人工测试记录必须关联一个或多个 `ProdTestList.md` 测试项目并保留原始证据位置；交叉审核登记项若没有对应人工测试项目，则必须注明工程主跟踪文档和后续复验入口。
 
-### R29-01 未启用高级模式时数据导入被要求同时输入 IMPORT 和 RESET
+### R29-01 Setup 新库导入被错误要求同时输入 IMPORT 和 DISABLE
 
 - **关联测试项目：** [ProdTestList.md](ProdTestList.md) §三“Production 专项人工核查”前两项：v2 导出文件导入、新库数据引用核对
 - **发现日期：** 2026-09-09
-- **测试环境/版本：** 用户报告，具体环境和版本待补充
-- **现象：** 当前项目在未启用高级模式的情况下执行数据导入时，界面要求同时输入 `IMPORT` 和 `RESET`，并提示高级模式已开启。
+- **测试环境/版本：** 2026-09-11 本地 Docker Production，`http://localhost:8080/setup`；导入文件 `vpn-sub-config-20260911.enc`，截图由用户提供
+- **现象：** 未配置且未启用高级模式的 Setup 页面使用 v2 文件导入时，输入 `IMPORT` 后提示“该导入会清空高级模式数据，请输入 DISABLE 确认”；Setup 页面没有第二确认入口，导入被阻断。
 - **复现步骤：** 在未启用高级模式的状态下，使用 v2 导出文件向新库执行导入。
-- **实际结果：** 导入流程要求同时输入 `IMPORT` 和 `RESET`，并提示高级模式已开启，导致数据无法导入。
-- **预期结果：** 未启用高级模式时，v2 导出文件应能够按照正常导入流程处理，不应出现高级模式已开启的提示，也不应因该提示要求同时输入 `IMPORT` 和 `RESET`。
-- **证据：** 当前用户报告；尚未附加截图、日志或导入响应。
-- **状态：** ☐ 待后续处理（2026-09-10 文档交叉审核确认当前 HEAD 仍未修复；未进行代码修复）
-- **只读复核（2026-09-10）：** `backend/internal/config/export.go:285-306` 仍对“v2 无实例/账号且 `advanced_mode != true`”分支强制要求 `disable_confirm_word=DISABLE`；`frontend/src/views/SetupView.vue:64-71` 的 Setup 新库导入只发送 `confirm_word=IMPORT`，没有第二步 `DISABLE` 通道，因此该场景仍会被第二确认词阻断。`SettingsView.vue` 的面板导入已有两步流程，但 Setup 入口不同；`ImportV2` 的该守卫目前没有入口级测试。原报告写的是 `RESET`，当前代码中的第二确认词为 `DISABLE`，需用户提供原始截图、日志或镜像版本以确认当时入口。
+- **实际结果：** 后端要求 `IMPORT + DISABLE`，但 Setup 只发送 `IMPORT`，导致无法继续。早期记录中的 `RESET` 和“提示高级模式已开启”经 2026-09-11 截图核对后均不准确。
+- **预期结果：** Setup 入口已经先行保证目标库 `configured=false`；该入口导入 v2 基础模式文件时只要求 `IMPORT`，不得误报会清空既有高级数据。已配置系统的管理面板覆盖导入继续保留 `IMPORT → DISABLE` 双确认。
+- **根因：** `ImportV2` 仅依据导入 payload “无实例/账号且 `advanced_mode != true`”判断是否要求 `DISABLE`，没有区分 `setupMode=true` 的未配置新库与管理面板已有库。`SetupView.vue` 按原入口合同只发送 `IMPORT`，因此该 payload 在 Setup 中必然进入无法完成的第二确认死路。
+- **数据库核查：** 当前 8080 Docker Production 使用独立 `/data/app-prod.db`；只读快照确认 `configured`、`advanced_mode` 均不存在，users/groups 及 xray_instances/xray_ext_accounts/xray_users/xray_ext_users/traffic_records/xray_ext_traffic 均为 0，没有任何高级模式数据可清理。导出文件可成功解密，结构为 format_version=2、advanced_mode 缺省、instances=0、accounts=0；未输出配置值或敏感密文。
+- **修复内容：** `ImportV2` 的 `DISABLE` 守卫限定为 `setupMode=false`；Setup 新库仍只要求 `IMPORT`。管理面板双确认、事务内 OFF 清理、签名密钥保护、认证可用性校验和异步导入流程均保持不变。
+- **回归测试：** 新增入口语义测试，覆盖 Setup 相同 v2 文件只凭 `IMPORT` 可提交、管理面板缺 `DISABLE` 仍拒绝、补 `DISABLE` 后可提交并完成。旧实现上的 Setup 分支先稳定失败，修复后三分支通过。
+- **自动化证据：** 2026-09-11 定向 `go test ./internal/config -run 'TestImportV2DisableConfirmationByEntry|TestImportV2' -count=1` 通过；后端 `go test ./...`、`go build ./...`、`go vet ./...` 全部通过；前端 `npm run build` 通过；根目录 `git diff --check` 通过。
+- **真实文件隔离验证：** 使用用户提供的文件和密码，在临时数据目录、独立 18080 端口启动当前代码的 Production 服务；真实 `POST /api/setup/import` 仅发送 `IMPORT` 返回 HTTP 200 与 `task_id`，异步导入完成后公开状态为 `configured=true`、`advanced_mode=false`、本地登录可用，未自动开启高级模式。临时服务随后停止并清理，当前 8080 Docker 数据卷未改动。
+- **状态：** ◐ 代码修复与自动化/隔离 Production 真实文件验证通过；等待当前 Docker 镜像重建后的用户浏览器人工复验
+- **历史只读复核（2026-09-10，修复前）：** 当时 `backend/internal/config/export.go:285-306` 对“v2 无实例/账号且 `advanced_mode != true`”分支强制要求 `disable_confirm_word=DISABLE`；`frontend/src/views/SetupView.vue:64-71` 的 Setup 新库导入只发送 `confirm_word=IMPORT`，没有第二步 `DISABLE` 通道，因此该场景被第二确认词阻断。`SettingsView.vue` 的面板导入已有两步流程，但 Setup 入口不同；当时 `ImportV2` 尚无入口级测试。2026-09-11 已由用户截图确认原报告中的 `RESET` 应为 `DISABLE`，并按上述范围完成修复。
 
-> 本条仅记录当前人工测试观察到的现象；上述只读复核只确认工程未完成，不包含修复实施或验收结论。
+> 本条不把临时 Production API 验证替代为当前 8080 Docker 浏览器人工验收；最终关闭仍以 [ProdTestList.md](ProdTestList.md) 复验结果为准。
 
 ### R29-02 不同素材池的同步任务被列表页全局状态错误阻断
 
@@ -245,3 +250,4 @@
 | v1.13 | 2026-09-10 | 登记并闭环 R29-08：修复素材池取消接口成功但任务继续运行的问题；取消终态改为原子持久化，工作线程终态使用独立 context 和条件更新，补充受控竞态及真实 URL 取消测试，并记录用户实际运行测试通过。 |
 | v1.14 | 2026-09-10 | 新增“文档交叉审核补充登记”章节：R29-09 登记 Build25/R28-06B WireGuard `peers._credential_id` 高级 JSON 白名单缺口；R29-10 登记多草稿保存定位排序未统一与条件隐藏清理证据缺口；R29-11 登记 Build22 Step 7 自动化证据矩阵缺失；R29-12 登记 R29-04 附带 Dockerfile Node 22→24 变更未记录。同步更新记录范围、当前状态与 ProdTestList 同步约定；本轮只改文档，未修改任何代码。 |
 | v1.15 | 2026-09-10 | 闭环 R29-09/R29-10 工程部分：`knownFieldNames()` 放行 `item_id_field`；保存定位统一稳定排序；补条件隐藏清理、保留无关有效草稿、折叠/组件卸载边界回归。重新执行后端定向 4 包/全量/build/vet、前端定向 5 文件/89 用例、全量 42 文件/259 用例/build、Docker build、Production smoke 与 `git diff --check`；R28-06 人工复验项仍保留 ProdTestList，未标记通过。 |
+| v1.16 | 2026-09-11 | 修复 R29-01：用户截图确认第二确认词为 DISABLE；核验实际 v2 文件与当前未配置 Docker 数据库均无高级数据。将 DISABLE 守卫限定为管理面板导入，新增 Setup/管理面板三分支失败优先回归；后端定向/全量/build/vet、前端 build 和 diff-check 通过，并以临时 Production 服务和用户真实文件验证仅 IMPORT 即可导入且高级模式保持关闭；当前 8080 镜像重建后的浏览器复验仍保留 ProdTestList。 |

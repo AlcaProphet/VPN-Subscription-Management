@@ -2,11 +2,14 @@ package config
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
+	"time"
 
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
+	"vpn-sub/internal/tasks"
 	"vpn-sub/migrations"
 )
 
@@ -83,4 +86,69 @@ func TestImportV2ReturnsHints(t *testing.T) {
 	if !found["检测提示"] || !found["对账提示"] {
 		t.Fatalf("hints 应包含注入的后处理提示，实际 %v", hints)
 	}
+}
+
+// TestImportV2DisableConfirmationByEntry 确认 DISABLE 只保护已有系统的覆盖导入，Setup 新库不得被阻断。
+func TestImportV2DisableConfirmationByEntry(t *testing.T) {
+	ctx := context.Background()
+	sourceStore, sourceSvc := newFullExportTest(t)
+	sourceCfg := NewService(sourceStore, log.New("error", "console"))
+	for key, value := range map[string]string{
+		KeyConfigured:      "true",
+		KeyAllowLocalLogin: "true",
+	} {
+		if err := sourceCfg.Set(ctx, key, value); err != nil {
+			t.Fatalf("写入导出配置 %s 失败: %v", key, err)
+		}
+	}
+	data, err := sourceSvc.Export(ctx, "export-pass-123")
+	if err != nil {
+		t.Fatalf("生成 v2 导出文件失败: %v", err)
+	}
+
+	t.Run("setup import only requires IMPORT", func(t *testing.T) {
+		_, svc := newFullExportTest(t)
+		registry := tasks.NewRegistry()
+		svc.SetTaskRegistry(registry)
+		svc.SetSeedPresets(func(context.Context, *sql.Tx, string) error { return nil })
+		taskID, err := svc.ImportV2(ctx, data, "export-pass-123", ConfirmWordImport, "", true)
+		if err != nil {
+			t.Fatalf("Setup 新库导入不应要求 DISABLE: %v", err)
+		}
+		waitImportTask(t, registry, taskID)
+	})
+
+	t.Run("admin import still requires DISABLE", func(t *testing.T) {
+		_, svc := newFullExportTest(t)
+		if _, err := svc.ImportV2(ctx, data, "export-pass-123", ConfirmWordImport, "", false); err == nil || !strings.Contains(err.Error(), ConfirmWordDisable) {
+			t.Fatalf("管理面板导入缺少 DISABLE 应被拒绝，实际 err=%v", err)
+		}
+	})
+
+	t.Run("admin import accepts DISABLE", func(t *testing.T) {
+		_, svc := newFullExportTest(t)
+		registry := tasks.NewRegistry()
+		svc.SetTaskRegistry(registry)
+		taskID, err := svc.ImportV2(ctx, data, "export-pass-123", ConfirmWordImport, ConfirmWordDisable, false)
+		if err != nil {
+			t.Fatalf("管理面板导入提供 DISABLE 后应提交成功: %v", err)
+		}
+		waitImportTask(t, registry, taskID)
+	})
+}
+
+func waitImportTask(t *testing.T, registry *tasks.Registry, taskID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		task := registry.Get(taskID)
+		if task.Status == tasks.StatusSucceeded {
+			return
+		}
+		if task.Status == tasks.StatusFailed {
+			t.Fatalf("导入任务失败: %s", task.Error)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("等待导入任务完成超时")
 }

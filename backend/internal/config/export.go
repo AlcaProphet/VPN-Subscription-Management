@@ -281,7 +281,8 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 }
 
 // ImportV2 导入入口：v1 保持同步兼容；v2 返回异步任务 ID。
-// disableConfirmWord 用于“无实例/账号且 advanced_mode=false”分支的 DISABLE 第二确认词。
+// disableConfirmWord 用于已有系统“无实例/账号且 advanced_mode=false”分支的 DISABLE 第二确认词；
+// Setup 入口只允许 configured=false 的新库，不存在需要额外确认的既有高级数据。
 func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, confirmWord, disableConfirmWord string, setupMode bool) (string, error) {
 	if s.mode != "prod" {
 		return "", ErrModeRestricted
@@ -300,9 +301,10 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 	if confirmWord != ConfirmWordImport {
 		return "", errors.New("确认词不正确")
 	}
-	// 无实例/账号且高级模式关闭：按 OFF 清空口径清理旧高级数据，需要额外的 DISABLE 确认。
+	// 已有系统导入无实例/账号且高级模式关闭：按 OFF 清空口径清理旧高级数据，需要额外的 DISABLE 确认。
+	// Setup 新库导入由入口先行校验 configured=false，不要求前端无法提供且无实际清理对象的第二确认词。
 	hasAdvancedData := len(payload.Instances) > 0 || len(payload.Accounts) > 0
-	if !hasAdvancedData && payload.Config[KeyAdvancedMode] != "true" && disableConfirmWord != ConfirmWordDisable {
+	if !setupMode && !hasAdvancedData && payload.Config[KeyAdvancedMode] != "true" && disableConfirmWord != ConfirmWordDisable {
 		return "", errors.New("该导入会清空高级模式数据，请输入 DISABLE 确认")
 	}
 	if s.registry == nil {
