@@ -504,7 +504,8 @@ async function save() {
   }
   if (unappliedJsonPaths.size > 0) {
     Notify.warning('存在未应用的 JSON 草稿，请先应用或放弃后再保存')
-    await revealField([...unappliedJsonPaths][0])
+    const firstJsonPath = sortedUnappliedJsonPaths()[0]
+    if (firstJsonPath) await revealField(firstJsonPath)
     return
   }
   if (unappliedControlPaths.size > 0) {

@@ -1,12 +1,12 @@
-# VPN 订阅管理系统 功能构建计划（Build25：R28-06 未知扩展与局部 JSON 边界，进行中未归档）
+# VPN 订阅管理系统 功能构建计划（Build25：R28-06 未知扩展与局部 JSON 边界，已归档）
 
-> **文档定位：** 本文档是 Issue14 步骤四、R28-06（N-node-6）的**唯一详细构建记录**。承接 [Build22.md](Build22.md)（D3 收口仍在进行）与已归档 [Build24.md](docs/reports/Build/Build24.md)，只处理 R28-06A/B/C，不进入 R28-07、R28-08、R28-09。Step 0～4 的主体代码与自动化门禁已完成，但 2026-09-10 文档交叉审核发现 R28-06B 仍有一个前端白名单缺口（详见下方“交叉审核补充”），**因此本文件保持仓库根目录活跃，不归档；缺口修复并通过回归前不得标记 R28-06 工程闭环。** 浏览器、手机和真实客户端人工项见 ProdTestList。
-> - 设计记录：[Design4.md](Design4.md)（R28-06 文档同步目标；与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - 问题追踪：[Issue14.md](Issue14.md)（步骤四 R28-06）
-> - 历史来源：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §5.3 N-node-6、[BuildReport3.md](docs/reports/BuildReport/BuildReport3.md) §6.4、[Build23.md](docs/reports/Build/Build23.md) §二.7
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 人工核验：[ProdTestList.md](ProdTestList.md)（R28-06 人工项目统一迁入此处）
-> - 构建模板：[docs/DocTemplates/Build.template.md](docs/DocTemplates/Build.template.md)
+> **文档定位：** 本文档是 Issue14 步骤四、R28-06（N-node-6）的**唯一详细构建记录**。承接 [Build22.md](../../../Build22.md)（D3 收口仍在进行）与已归档 [Build24.md](Build24.md)，只处理 R28-06A/B/C，不进入 R28-07、R28-08、R28-09。Step 0～4 已完成，2026-09-10 文档交叉审核发现的前端 `item_id_field` 白名单缺口、保存定位排序和条件隐藏清理证据缺口已修复/补齐，并重新通过全部自动化门禁；**本文件已按归档规则移入 `docs/reports/Build/`**。浏览器、手机和真实客户端人工项仍以 [ProdTestList.md](../../../ProdTestList.md) 为准，未标记为通过。
+> - 设计记录：[Design4.md](../../../Design4.md)（R28-06 文档同步目标；与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - 问题追踪：[Issue14.md](../../../Issue14.md)（步骤四 R28-06）
+> - 历史来源：[BuildReport4.md](../BuildReport/BuildReport4.md) §5.3 N-node-6、[BuildReport3.md](../BuildReport/BuildReport3.md) §6.4、[Build23.md](Build23.md) §二.7
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 人工核验：[ProdTestList.md](../../../ProdTestList.md)（R28-06 人工项目统一迁入此处）
+> - 构建模板：[Build.template.md](../../DocTemplates/Build.template.md)
 
 > **用户已确认决策（2026-09-09）：**
 > 1. **R28-06A：** 未知扩展定位为受保护的加密存档块，当前只保存、回显摘要和诊断，不进入 Clash、Shadowrocket 或 generic 客户端产物；`targets` 仅表示期望/关联目标，不代表输出支持。
@@ -23,13 +23,13 @@
 |---|---|---|---|
 | 0 | 构建前合同检查、对象白名单盘点与 Design4 冲突同步 | Issue14 R28-06；Design4 §6.4/§12 | ✅ 验收通过 |
 | 1 | R28-06A 未知扩展存档/诊断/目标校验 | Issue14 R28-06A；Design4 §6.4/§12.3 | ✅ 验收通过 |
-| 2 | R28-06B 局部 JSON 显式白名单与存量边界 | Issue14 R28-06B；Design4 §6.4/§12.2 | ◧ 后端主体完成；前端仍缺 `item_id_field` 白名单，交叉审核发现缺口 |
-| 3 | R28-06C 父子 JSON 草稿协调 | Issue14 R28-06C；Design4 §6.4 | ✅ 主体通过；保存定位排序与“条件隐藏清理”专项测试仍有证据缺口 |
-| 4 | 前后端联合回归、人工边界迁移和文档收口 | Issue14 步骤四关闭条件 | ✅ 修复前自动化门禁通过；R28-06B 缺口修复后需重跑并重新收口 |
+| 2 | R28-06B 局部 JSON 显式白名单与存量边界 | Issue14 R28-06B；Design4 §6.4/§12.2 | ✅ 验收通过；前端 `item_id_field` 已放行并由高级 JSON 回归覆盖 |
+| 3 | R28-06C 父子 JSON 草稿协调 | Issue14 R28-06C；Design4 §6.4 | ✅ 验收通过；保存定位统一稳定排序，条件隐藏清理与折叠/卸载边界专项回归已补齐 |
+| 4 | 前后端联合回归、人工边界迁移和文档收口 | Issue14 步骤四关闭条件 | ✅ 缺口修复后全部定向/全量/build/vet/Docker/Production smoke 门禁通过 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过 / ⛔ 阻断
 >
-> **交叉审核补充（2026-09-10）：** 本文件 2026-09-10 版本在 Step 2 只验证了后端 `obj()`/`allow_unknown` 与开放 Map 行为，未覆盖前端高级 JSON 的固定对象白名单。实际代码中 [ProtocolFieldEditor.vue](frontend/src/components/ProtocolFieldEditor.vue) 的 `validateFixedObjectProperties()` 只把 `field.properties` 的名字计入 known，没有加入 `field.item_id_field`；而后端 [node.go](backend/internal/node/node.go) 与 [project.go](backend/internal/node/project.go) 都会放行该内部标识。WireGuard `peers` 的 `item_id_field` 为 `_credential_id`（见 [registry.go](backend/internal/node/registry.go)），节点响应会保留该字段，切换到 `peers` 高级 JSON 时默认文本包含 `_credential_id`，点击“应用”会报 `字段 peers[0]._credential_id 未在协议注册表中声明`，保存/检查被阻断。该项属于 R28-06B 显式白名单范围，**未闭环**；Build25 保持活跃，修复和回归验证完成前不得归档。
+> **交叉审核闭环（2026-09-10）：** 交叉审核确认的前端固定对象高级 JSON 未放行 `field.item_id_field` 缺口已修复：[ProtocolFieldEditor.vue](../../../frontend/src/components/ProtocolFieldEditor.vue) 新增 `knownFieldNames()`，统一纳入 `field.properties` 与 `field.item_id_field`；WireGuard `peers._credential_id` 可原样应用/保存/检查，输出剥离合同不变。保存定位改为复用 `sortedUnappliedJsonPaths()`，并新增多草稿顺序、条件隐藏清理、折叠/组件卸载保留等专项回归。**R28-06B/C 自动化工程缺口已闭环，Build25 已归档；人工/真机项目仍由 ProdTestList 跟踪。**
 
 ---
 
@@ -363,6 +363,7 @@ git diff --check
   - `project.go` 固定对象投影只保留声明字段，同时保留 `ItemIDField` 内部身份到脱敏步骤后再剥离；
   - `node.go` 的 `mergeProtocolJSON` 对固定 `fields` 对象执行 schema-aware 合并：旧未知键未在本次显式提交中继续出现时不再复活，新显式未知键保留给校验层精确定位；`validateObjectProperties`/`validateActiveObjectFields` 对 `ItemIDField` 放行。
 - **前端实现：** `ProtocolFieldEditor.vue` 高级 JSON 增加递归 `allow_unknown !== true` 固定对象未知键校验与字段路径错误；开放 Map 仍允许普通键、字符串 Map 仍拒绝非字符串值；固定对象未声明参数提示改为“需显式删除后才能保存或检查”。
+- **缺口修复补记（2026-09-10）：** 新增 `knownFieldNames()`，将 `field.properties` 与 `field.item_id_field` 统一纳入已知字段集合；`validateFixedObjectProperties()` 复用该集合，WireGuard `peers._credential_id` 可原样通过高级 JSON 应用、保存和检查，其他固定对象未知键仍拒绝。新增组件级多 Peer 重排保留 ID、固定对象其他未知键拒绝，以及 `NodesView` WireGuard 高级 JSON 保存集成回归。
 - **实际命令与结果：**
   - `cd backend && go test ./internal/node ./internal/server -count=1`：2 包 `ok`；
   - `cd backend && go build ./...`：通过；
@@ -445,12 +446,12 @@ git diff --check
 ### 7.11 执行记录
 
 - **实现方式：** `ProtocolFieldEditor` 新增 `jsonDirtyPaths` prop 与 `advanced-json-blocked` 事件；点击“高级 JSON”时先按字段段落筛选严格后代 dirty 路径，存在则阻止自身 `advanced` 切换并上报 `{ path, blockedBy }`。`NodesView` 继续作为页面级唯一协调者，持有 `unappliedJsonPaths` 集合并按“长度 + 字典序”稳定排序；收到阻断事件后显示明确提示，展开祖先 `details`、滚动并聚焦真实可见的后代编辑器。递归组件只转发事件，不维护页面级副本。
-- **保存/检查：** 保存仍要求 `unappliedJsonPaths` 为空，并用 `[...unappliedJsonPaths][0]` 定位草稿；该顺序是 Set 插入序，尚未复用父阻断/定位使用的“长度+字典序”稳定排序，多草稿保存定位缺少专项测试。目标检查的 `blockedReason` 在控件草稿之前优先报告未应用 JSON 草稿；`NodeCheckPanel` 新增“定位草稿”入口，与父阻断定位使用同一页面级路径解析。
-- **失效清理：** 既有 `clearScopedFields`、`jsonResetVersions` 与 `resetAllEditScopes` 继续负责分支/reset/取消编辑时清理 dirty/validity；未添加组件卸载无条件清理，保留折叠和视觉隐藏草稿。`foo` 与 `foo-bar` 通过严格字段段落判断避免误父子匹配。
-- **失败优先测试：** 新增 `ProtocolFieldEditor` 的两层/三层后代阻断、稳定首个路径、`foo` vs `foo-bar` 不误匹配、开放 Map 与固定对象 JSON 校验；新增 `NodesView` 真实父/子编辑器端到端回归：子草稿阻止父切换、提示后代草稿、展开/聚焦正确编辑器、子草稿应用后父可继续；原“集中开关修改使重叠 JSON 草稿失效”“保存展开定位”“折叠不丢草稿”回归保持。
+- **保存/检查：** 保存要求 `unappliedJsonPaths` 为空，并复用 `sortedUnappliedJsonPaths()[0]` 定位草稿，与父阻断/检查定位统一为“长度+字典序”稳定排序。目标检查的 `blockedReason` 在控件草稿之前优先报告未应用 JSON 草稿；`NodeCheckPanel` 的“定位草稿”入口与父阻断定位使用同一页面级路径解析。
+- **失效清理：** 既有 `clearScopedFields`、`jsonResetVersions` 与 `resetAllEditScopes` 负责分支/reset/取消编辑时清理 dirty/validity；新增 `ProtocolFieldEditor` 模型值快照保护，父级因无关参数变化而替换对象但内容未变时不清理仍有效的 JSON 草稿，不添加组件卸载无条件清理。`foo` 与 `foo-bar` 通过严格字段段落判断避免误父子匹配。
+- **失败优先测试：** 新增 `ProtocolFieldEditor` 的两层/三层后代阻断、稳定首个路径、`foo` vs `foo-bar` 不误匹配、开放 Map 与固定对象 JSON 校验；新增 `NodesView` 真实父/子编辑器端到端回归：子草稿阻止父切换、提示后代草稿、展开/聚焦正确编辑器、子草稿应用后父可继续；新增多 JSON 草稿保存稳定排序、条件隐藏清理与保留无关有效草稿、折叠/组件卸载保留边界回归。原“集中开关修改使重叠 JSON 草稿失效”“保存展开定位”“折叠不丢草稿”回归保持。
 - **实际命令与结果：**
-  - `cd frontend && npm test -- --run tests/protocol-field-editor.spec.ts tests/nodes-view.spec.ts tests/node-features.spec.ts tests/node-form-layout.spec.ts tests/node-check-panel.spec.ts`：5 文件 / 83 用例通过；
-  - `cd frontend && npm run build`：通过（仅既有大 chunk 提示）；
+  - `cd frontend && npm test -- --run tests/protocol-field-editor.spec.ts tests/nodes-view.spec.ts tests/node-features.spec.ts tests/node-form-layout.spec.ts tests/node-check-panel.spec.ts`：5 文件 / 89 用例通过；
+  - `cd frontend && npm run build`：通过（仅既有大 chunk 提示）；全量 `npm test -- --run`：42 文件 / 259 用例通过；
   - `git diff --check`：通过。
 - **边界说明：** 未自动应用、自动丢弃或自动合并父子草稿；未引入新的全局状态框架；未改变后端节点 API 或数据库结构。
 
@@ -495,13 +496,13 @@ git diff --check
 
 ### 8.6 执行记录
 
-- **后端定向回归（2026-09-10）：** `go test ./internal/node ./internal/assembly ./internal/assembly/links ./internal/server -count=1 -timeout 180s`：4 包全部 `ok`；`go build ./...` 通过；`go vet ./...` 通过。
-- **前端定向回归：** `npm test -- --run tests/protocol-field-editor.spec.ts tests/nodes-view.spec.ts tests/node-check-panel.spec.ts tests/node-features.spec.ts tests/node-form-layout.spec.ts`：5 文件 / 83 用例通过；`npm run build` 通过（仅既有大 chunk 提示）。
+- **后端定向回归（2026-09-10 缺口修复后）：** `go test ./internal/node ./internal/assembly ./internal/assembly/links ./internal/server -count=1 -timeout 180s`：4 包全部 `ok`；`go build ./...` 通过；`go vet ./...` 通过。
+- **前端定向回归：** `npm test -- --run tests/protocol-field-editor.spec.ts tests/nodes-view.spec.ts tests/node-check-panel.spec.ts tests/node-features.spec.ts tests/node-form-layout.spec.ts`：5 文件 / 89 用例通过；`npm run build` 通过（仅既有大 chunk 提示）。
 - **后端全量回归：** `go test ./... -count=1 -timeout 180s`：全部包 `ok`。
-- **前端全量回归：** `npm test -- --run`：42 个测试文件 / 253 个用例全部通过。
+- **前端全量回归：** `npm test -- --run`：42 个测试文件 / 259 个用例全部通过。
 - **容器与 Production smoke：** `docker compose build` 成功产出 `vpn-subscription-management-vpn-sub` 镜像；`bash .smoke-test-prod.sh` 完成启动、`SMOKE ALL DONE`、`PROD SMOKE ALL DONE`。
 - **工作区检查：** `git diff --check` 通过。
-- **文档同步：** `Design4.md` 追加 v1.18；`Issue14.md` 更新步骤四、R28-06 证据、关闭条件与 v1.19；`AGENTS.md` 加入 Build25 与 R28-06 状态；`Build23.md` 追加 N-node-6 交接状态；`ProdTestList.md` 新增独立 R28-06 人工核验章节与 v2.12，未混入 Build22/R29-06 条目。
+- **文档同步：** `Design4.md` 追加 v1.20 并澄清 `item_id_field` 白名单合同；`Issue14.md` 更新步骤四、R28-06 证据、关闭条件与 v1.22；`AGENTS.md` 将 Build25 移入归档构建；`Build23.md` 更新 N-node-6 交接闭环状态；`ProdTestList.md` 保留 R28-06 人工待核验并追加 v2.15；`Issue15.md` 同步 R29-09/R29-10 自动化闭环状态。未标记任何人工项目为通过。
 - **人工边界：** 浏览器、手机、真实客户端项目未执行/未虚标通过，统一登记 ProdTestList；自动化结果只证明合同、存储、API、诊断和生成结果。
 - **范围外：** 未进入 R28-07（步骤五），未进入 R28-08/R28-09，未新增未知扩展输出适配器，未自动迁移未知字段，未解密回显 payload，未改数据库 schema。
 
@@ -529,6 +530,7 @@ git diff --check
 | v1.5 | 2026-09-10 | 完成 Step 4：后端定向 4 包、全量测试、build、vet，前端定向 5 文件/83 用例、全量 42 文件/253 用例、build，Docker Compose build、正式 Production smoke 与 `git diff --check` 全部通过；Build25、Design4、Issue14、AGENTS、Build23、ProdTestList 已同步；人工/真机项目迁移 ProdTestList 并保留未执行状态；R28-06 达到代码与自动化工程闭环，未进入步骤五。 |
 | v1.6 | 2026-09-10 | 审计证据补强：新增服务端用户下载重渲染 sentinel 测试、节点服务日志 sentinel 测试，并补回后端/前端历史未知子键关闭清理回归；后端 node/server 定向测试与 build/vet、前端 42 文件/253 用例、build 与 `git diff --check` 重新通过；Build25 Step 1 执行记录、Issue14 R28-06 证据同步更新。 |
 | v1.7 | 2026-09-10 | 文档交叉审核修正：确认 R28-06B 前端仍未把 `item_id_field` 纳入高级 JSON 固定对象白名单，WireGuard `peers._credential_id` 会阻断 JSON 应用/保存/检查，故 Step 2 标记为存在缺口、Build25 保持根目录活跃且不归档；同时修正执行/变更记录日期、修正“保存复用稳定排序”和“条件隐藏清理已有专项回归”两处超出实际证据的表述。本次只改文档，未修改任何代码。 |
+| v1.8 | 2026-09-10 | 缺口修复闭环：新增 `knownFieldNames()` 放行 `item_id_field`、保存定位统一稳定排序、补条件隐藏清理与折叠/组件卸载边界回归；前端定向 5 文件/89 用例、全量 42 文件/259 用例、build，后端定向 4 包/全量测试/build/vet、Docker Compose build、正式 Production smoke 与 `git diff --check` 全部通过；同步 Design4 v1.20、Issue14 v1.22、AGENTS、Build23、ProdTestList v2.15、Issue15，并将 Build25 移入 `docs/reports/Build/`。人工/真机项目仍未标记通过。 |
 
 ---
 
@@ -538,6 +540,7 @@ git diff --check
 |----|----------|------|------|------------|------------------|----------|------|
 | AD-01 | 2026-09-10 | Step 1 | 自主决策 | 前端 targets 需要受控多选，后端 `ssplugin.TargetNames()` 是权威校验源；无现成跨端共享接口 | 在后端使用 `TargetNames()` 作为检查与扩展校验唯一事实源；前端新增 `NODE_CHECK_TARGETS` 仅用于受控选项和展示，非法值仍由后端拒绝；不新增公开 API 字段 | `api/node.ts`、`NodesView.vue`、`check.go`、`ssplugin/contract.go` | 已应用 |
 | AD-02 | 2026-09-10 | Step 2 | 自主决策 | 固定对象默认拒绝后，WireGuard `_credential_id` 内部身份会在脱敏前被 ProjectActive 丢弃 | 在 `projectObjectFields` 保留 `ItemIDField` 到脱敏步骤，再由 `StripInternalProtocolMetadata` 在检查/输出前剥离；不把内部 ID 暴露给客户端产物 | `project.go`、`sensitive_paths.go` 既有剥离链 | 已应用 |
-| AD-03 | 2026-09-10 | Step 3 | 自主决策/审核修正 | 多个后代 dirty 路径需要稳定首个定位 | 父组件阻断与后代定位采用“路径长度 + 字典序”确定性排序；保存路径当前仍使用 Set 插入序，未复用该排序，已在交叉审核中登记为证据/实现一致性缺口，不改代码 | `NodesView.vue`、`ProtocolFieldEditor.vue` | 部分应用（保存定位排序待统一） |
+| AD-03 | 2026-09-10 | Step 3 | 自主决策/审核修正 | 多个后代 dirty 路径需要稳定首个定位 | 父组件阻断、后代定位和保存定位统一采用“路径长度 + 字典序”确定性排序并补多草稿回归 | `NodesView.vue`、`ProtocolFieldEditor.vue`、前端测试 | 已应用 |
 | AD-04 | 2026-09-10 | Step 4 | 范围控制 | Issue14 将扩展 payload 类型/大小摘要列为可读性收口，但非核心合同 | 不新增 API 字段、数据库元数据或解密读取，只用现有安全摘要字段完成 R28-06 | 无 API/schema 变更 | 已应用 |
+| AD-05 | 2026-09-10 | Step 3 | 缺陷修复/审核补充 | 父级因无关参数变化而替换整个 `protocol_json` 时，子编辑器的模型值内容未变但引用已变；旧逻辑会无条件清除子级 JSON dirty，导致仍有效的无关草稿失去保存阻断 | 在 `ProtocolFieldEditor` 增加模型值快照保护：`jsonDirty` 为真且内容快照未变时不清理、不 emit 假清除；由 reset scope 继续负责真正失效分支清理 | `ProtocolFieldEditor.vue`、`nodes-view.spec.ts` | 已应用 |
 | BL-01 | 2026-09-10 | 全 Step | 阻断记录 | 无 | 未触发停止上报边界；未实施未经确认的输出适配器、迁移、解密回显或 API/schema 变更；人工项按授权迁移 ProdTestList | R28-06 | 无需阻断 |

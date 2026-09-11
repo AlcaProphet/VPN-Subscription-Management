@@ -1,6 +1,6 @@
 # TODOLIST.md — 临时工作顺序跟踪（2026-09-10）
 
-> **文件性质：** 本文件是仓库根目录的临时跟踪清单，不是 AGENTS.md 正式文档体系的一部分，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build22.md](Build22.md)、[Build25.md](Build25.md)、[Design3.md](Design3.md)、[Design4.md](Design4.md)、[ProdTestList.md](ProdTestList.md) 等正式文档的验收与状态记录。
+> **文件性质：** 本文件是仓库根目录的临时跟踪清单，不是 AGENTS.md 正式文档体系的一部分，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build22.md](Build22.md)、[Build25.md](docs/reports/Build/Build25.md)、[Design3.md](Design3.md)、[Design4.md](Design4.md)、[ProdTestList.md](ProdTestList.md) 等正式文档的验收与状态记录。
 > **冻结声明（2026-09-10）：** 用户要求暂不处理任何问题。本文件只登记、排序和跟踪，不授权修复、不修改代码、不修改正式文档状态。
 > **使用方式：** 每项完成后，先回写对应主跟踪文档并完成归档，再在本文件勾选；本文件不产生独立完成结论。
 
@@ -10,15 +10,15 @@
 
 | 文档 | 位置 | 当前状态 |
 |---|---|---|
-| [Issue14.md](Issue14.md) | 根目录 | 活跃。步骤一/二/六已关闭；步骤三（Build22 Step 7 证据缺口）、步骤四（Build25 R28-06B/C 缺口）、步骤五（R28-07A～E/G～I 未实施）、步骤七（R28-09 未完成）、步骤八（最终复核未执行）仍未关闭 |
-| [Issue15.md](Issue15.md) | 根目录 | 活跃。已登记 R29-01～R29-12；其中 R29-01、R29-06（待人工）、R29-09～R29-12 未关闭 |
+| [Issue14.md](Issue14.md) | 根目录 | 活跃。步骤一/二/四/六已关闭；步骤三（Build22 Step 7 证据缺口）、步骤五（R28-07A～E/G～I 未实施）、步骤七（R28-09 未完成）、步骤八（最终复核未执行）仍未关闭 |
+| [Issue15.md](Issue15.md) | 根目录 | 活跃。已登记 R29-01～R29-12；其中 R29-01、R29-06（待人工）、R29-09/R29-10（工程已修复、待人工）、R29-11～R29-12 未关闭 |
 | [Build22.md](Build22.md) | 根目录 | 活跃未归档。Step 1～6、8～10 代码与测试成立；Step 7 专属自动化证据缺口待补，Step 11 不能声明 D3 全验收 |
-| [Build25.md](Build25.md) | 根目录 | 活跃未归档。R28-06 主体与门禁通过；R28-06B 前端 `item_id_field` 白名单缺口、R28-06C 排序/清理证据缺口待处理 |
+| [Build25.md](docs/reports/Build/Build25.md) | 已归档 | 已归档。R28-06 缺口修复、定向/全量/build/vet/Docker/Production smoke 重新通过；人工项仍在 ProdTestList |
 | [Design3.md](Design3.md) | 根目录 | 活跃未归档。已经 Build16 构建；因 Build22 Step 7 证据缺口未补而暂不归档 |
-| [Design4.md](Design4.md) | 根目录 | 当前最新设计；已同步 R28-06 的未闭合状态，人工/真机项由 ProdTestList 跟踪 |
-| [ProdTestList.md](ProdTestList.md) | 根目录 | 活跃。仅保留人工核验项；R28-06 人工项需先完成对应工程修复 |
+| [Design4.md](Design4.md) | 根目录 | 当前最新设计；已同步 R28-06 缺口修复闭环状态，人工/真机项由 ProdTestList 跟踪 |
+| [ProdTestList.md](ProdTestList.md) | 根目录 | 活跃。仅保留人工核验项；R28-06 自动化缺口已闭环，人工项仍待执行 |
 | [SecurityScanPlan1.md](SecurityScanPlan1.md) + [SecurityReport3.md](SecurityReport3.md) | 根目录 | 活跃。Step 1～3 已完成；Step 4～28 尚未开始，报告未完成 |
-| [Build21.md](docs/reports/Build/Build21.md)、[Build23.md](docs/reports/Build/Build23.md)、[Build24.md](docs/reports/Build/Build24.md) | 已归档 | 已归档，仅核查 |
+| [Build21.md](docs/reports/Build/Build21.md)、[Build23.md](docs/reports/Build/Build23.md)、[Build24.md](docs/reports/Build/Build24.md)、[Build25.md](docs/reports/Build/Build25.md) | 已归档 | 已归档，仅核查 |
 
 ---
 
@@ -26,8 +26,8 @@
 
 - [ ] **T-000-1（R29-01 原始证据）** 确认 Issue15 R29-01 的原始入口是 Setup 新库导入、管理面板导入还是旧镜像；确认报告中的 `RESET` 与当前代码 `DISABLE` 的差异。主跟踪：Issue15 R29-01 / ProdTestList §三。
 - [ ] **T-000-2（R29-12 Dockerfile 变更）** 确认提交 `f8d7474` 将 `Dockerfile` 从 `node:22-alpine` 改为 `node:24-alpine` 是否有意；决定补记验证还是回滚。主跟踪：Issue15 R29-12 / Dockerfile。
-- [ ] **T-000-3（R29-10 排序预期）** 确认高级 JSON 多草稿保存定位是否必须统一为“路径长度+字典序”稳定排序，还是接受当前 Set 插入序并只修正文档。主跟踪：Issue15 R29-10 / Issue14 R28-06C。
-- [ ] **T-000-4（执行顺序门禁）** 确认是否允许按“用户可见缺陷优先”先执行 Build25/R28-06、再执行 Build22/R28-05；Issue14 文档原本是步骤三在步骤四之前。若不允许调整，则 T-100 与 T-200 对调。
+- [x] **T-000-3（R29-10 排序预期）** 已确认采用方案 A：高级 JSON 保存定位统一为“路径长度+字典序”稳定排序。主跟踪：Issue15 R29-10 / Issue14 R28-06C。
+- [x] **T-000-4（执行顺序门禁）** 用户已明确授权只执行 Build25/R28-06，不进入 R28-05；本轮按定向顺序例外处理。
 
 ---
 
@@ -37,11 +37,11 @@
 
 **目标：** 修复 R28-06B 前端白名单缺口与 R28-06C 的排序/证据缺口，重跑 Step 4 门禁，关闭 Issue14 步骤四，归档 Build25。
 
-- [ ] **T-101 R29-09：** `ProtocolFieldEditor.vue` 的固定对象 JSON 白名单加入 `field.item_id_field`，使 WireGuard `peers._credential_id` 可正常应用/保存/检查，同时不进入客户端产物；补单测、多 Peer、重排回归。
-- [ ] **T-102 R29-10：** 统一保存定位排序（或按 T-000-3 决策明确接受插入序并改文档）；补多草稿保存定位测试。
-- [ ] **T-103 R28-06C 证据：** 补“条件隐藏清理”专项回归；核对 Build25 中“保存/检查/父阻断均复用稳定排序”的表述。
-- [ ] **T-104 Build25 Step 4 门禁：** 后端全量/build/vet、前端全量/build、`docker compose build`、`bash .smoke-test-prod.sh`、`git diff --check`。
-- [ ] **T-105 文档关闭：** 回写 Issue14 R28-06/步骤四、Build25、Design4、ProdTestList、AGENTS；将 Build25 移入 `docs/reports/Build/`。
+- [x] **T-101 R29-09：** `ProtocolFieldEditor.vue` 的固定对象 JSON 白名单加入 `field.item_id_field`，使 WireGuard `peers._credential_id` 可正常应用/保存/检查，同时不进入客户端产物；补单测、多 Peer、重排回归。
+- [x] **T-102 R29-10：** 已按 T-000-3 决策统一保存定位为稳定排序；补多草稿保存定位测试。
+- [x] **T-103 R28-06C 证据：** 已补“条件隐藏清理”专项回归；Build25 中保存/检查/父阻断稳定排序表述已修正。
+- [x] **T-104 Build25 Step 4 门禁：** 后端全量/build/vet、前端全量/build、`docker compose build`、`bash .smoke-test-prod.sh`、`git diff --check` 均已执行通过。
+- [x] **T-105 文档关闭：** 已回写 Issue14 R28-06/步骤四、Build25、Design4、ProdTestList、AGENTS、Issue15、Build23；Build25 已移入 `docs/reports/Build/`。
 - [ ] **T-106 人工复验（用户）：** 按 ProdTestList `R28-06` §B/§C 执行 WireGuard 高级 JSON 与多草稿定位核验。
 
 ### T-200 Build22 / R28-05 关闭（D3 证据补齐）

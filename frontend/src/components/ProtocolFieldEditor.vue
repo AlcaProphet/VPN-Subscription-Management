@@ -67,7 +67,12 @@ const objectValue = computed<Record<string, unknown>>(() => {
 })
 
 const listValue = computed<unknown[]>(() => Array.isArray(props.modelValue) ? props.modelValue : [])
-const knownNames = computed(() => new Set((props.field.properties ?? []).map((item) => item.name)))
+function knownFieldNames(field: FieldSchema): Set<string> {
+  const known = new Set((field.properties ?? []).map((property) => property.name))
+  if (field.item_id_field) known.add(field.item_id_field)
+  return known
+}
+const knownNames = computed(() => knownFieldNames(props.field))
 const unknownCount = computed(() => Object.keys(objectValue.value).filter((key) => !knownNames.value.has(key)).length)
 const mapEntries = computed(() => Object.entries(objectValue.value).map(([key, value]) => ({
   id: mapRowIDs.get(key) ?? `map-key:${key}`,
@@ -89,12 +94,17 @@ const shownCredentialState = computed(() => {
   return props.savedSensitivePaths.includes(fieldPath.value) ? 'saved' : 'unset'
 })
 
+let lastModelSnapshot = ''
 watch(() => props.modelValue, (value) => {
   syncMapRowIDs(value)
   if (scalarListDraftOpen.value) cancelScalarListDraft()
+  const snapshot = JSON.stringify(value ?? emptyObjectValue()) ?? ''
+  // 父级因无关参数变化而替换对象时，值内容可能不变；此时不能清掉仍有效的 JSON 草稿。
+  if (jsonDirty.value && snapshot === lastModelSnapshot) return
+  lastModelSnapshot = snapshot
   jsonDirty.value = false
   emitJsonDirty(false)
-  if (!advanced.value) jsonText.value = JSON.stringify(value ?? emptyObjectValue(), null, 2)
+  if (!advanced.value) jsonText.value = snapshot
 }, { immediate: true, deep: true })
 
 // 只丢弃与重置范围重叠的局部草稿，关闭子功能也会使覆盖它的父 JSON 草稿失效。
@@ -192,7 +202,7 @@ function isPlainJSONObject(value: unknown): value is Record<string, unknown> {
 }
 
 function validateFixedObjectProperties(field: FieldSchema, object: Record<string, unknown>, path: string): { error: string; path: string } {
-  const known = new Set((field.properties ?? []).map((property) => property.name))
+  const known = knownFieldNames(field)
   if (field.allow_unknown !== true) {
     for (const key of Object.keys(object)) {
       if (!known.has(key)) {

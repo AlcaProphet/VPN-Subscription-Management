@@ -22,7 +22,7 @@
 > - N-node-1：未知插件存储/URI 导入与 Clash 结构化 `plugin`/`plugin-opts` 输出已由 [Build21.md](Build21.md) Step 8/10/11/13 修复；项目自检已能识别并拒绝旧 URI 字符串格式。
 > - N-node-2/N-node-5：SS 插件范围内的目标诊断已由 [Build21.md](Build21.md) Step 12 接入节点检查与正式装配，v2ray-plugin/shadow-tls/restls 不再无条件误报 `ok`；非 SS 字段级 `target_evidence` 仍按用户确认不全局启用。
 > - N-node-3/N-node-4：SR VMess/VLESS 的 TLS/ALPN/指纹/Flow/Skip 输出与解析已由 [Build21.md](Build21.md) Step 15 补全。
-> - N-node-6：未知扩展/局部 JSON 边界主体已由 Issue14 步骤四 R28-06 / [Build25.md](../../../Build25.md) 实施，但前端固定对象高级 JSON 仍未放行 `item_id_field`（WireGuard `peers._credential_id`），R28-06B 未闭环；Build25 保持根目录活跃，详见 [Issue14.md](../../../Issue14.md) R28-06。
+> - N-node-6：未知扩展/局部 JSON 边界主体与交叉审核缺口已由 Issue14 步骤四 R28-06 / [Build25.md](Build25.md) 完成；前端 `item_id_field` 白名单、保存定位稳定排序和条件隐藏清理证据已闭环，Build25 已归档，详见 [Issue14.md](../../../Issue14.md) R28-06。
 > - 遗留：Build21 Step 14 的工程问题与安全/D3 等其他 BuildReport4 遗留工程问题统一见 [Issue14.md](../../../Issue14.md)。
 
 ---
@@ -49,9 +49,9 @@
 4. **非 SS 字段级 `target_evidence`**不全局消费，仅按 SS 插件合同派生诊断，避免无关降级。
 5. **固定版本证据**主要指 Mihomo 1.19.29 与 CVR 2.5.2 的离线/源码证据；Shadowrocket 兼容性仍以人工导入/连接证据为准，本轮 PT-28-01～PT-28-05 已完成相关核验。
 6. **R27-08**（`diagnostics: []` 契约）已在当前代码中修复，后续回归需继续保持非空数组语义。
-7. **N-node-6**（未知扩展/局部 JSON 边界）主体已由 [Build25.md](../../../Build25.md) Step 0～4 实施，但前端固定对象高级 JSON 仍未放行 `item_id_field`，R28-06B 未闭环；Build25 保持根目录活跃，后续以 [Issue14.md](../../../Issue14.md) R28-06 为唯一跟踪入口。
+7. **N-node-6**（未知扩展/局部 JSON 边界）主体与交叉审核缺口已由 [Build25.md](Build25.md) Step 0～4 及后续修复完成；前端固定对象高级 JSON 已放行 `item_id_field`，保存定位稳定排序和条件隐藏清理专项回归补齐，Build25 已归档。后续以 [Issue14.md](../../../Issue14.md) R28-06 为唯一跟踪入口。
 
-> **交接更新（2026-09-10）：** N-node-6 主体已完成：未知扩展仅加密存档/诊断、不进入任何客户端产物；局部 JSON 固定对象默认拒绝未知键、开放 Map 显式白名单；父子 JSON 草稿阻止覆盖并定位。但交叉审核确认前端固定对象高级 JSON 白名单未放行 `item_id_field`（WireGuard `peers._credential_id`），R28-06B 仍有工程缺口，Build25 保持根目录活跃，不得归档。Build23 继续保留为历史交接与边界说明，不重新成为执行入口；浏览器、手机和真实客户端人工项见 [ProdTestList.md](../../../ProdTestList.md)。
+> **交接更新（2026-09-10）：** N-node-6 已完成：未知扩展仅加密存档/诊断、不进入任何客户端产物；局部 JSON 固定对象默认拒绝未知键、开放 Map 显式白名单；父子 JSON 草稿阻止覆盖并定位；WireGuard `peers._credential_id` 高级 JSON 白名单、保存定位稳定排序和条件隐藏清理证据均已在缺口修复后重新执行全部自动化门禁。Build25 已归档；Build23 继续保留为历史交接与边界说明，不重新成为执行入口。浏览器、手机和真实客户端人工项见 [ProdTestList.md](../../../ProdTestList.md)，未标记为通过。
 
 ---
 
@@ -78,3 +78,4 @@
 | v3.1 | 2026-09-08 | 文档交叉审核：更新研究结论为当前已落地状态（N-node-1/2/3/4/5 已由 Build21 处理），并将 N-node-6 及 BuildReport4 其余遗留工程项登记至 Issue14。 |
 | v3.2 | 2026-09-10 | 追加交接状态：N-node-6 主体已由 Issue14 步骤四 R28-06 / Build25 实施，但前端固定对象高级 JSON 仍未放行 `item_id_field`，R28-06B 未闭环，Build25 保持根目录活跃；Build23 继续作为历史交接说明，不重新成为执行入口。 |
 | v3.3 | 2026-09-10 | 文档交叉审核：修正此前“N-node-6 已完整闭环”的过时表述，保留候选与研究边界，明确 Build21、Build23、Build24 已归档；Build22 与 Build25 因仍有缺口保持根目录活跃。 |
+| v3.4 | 2026-09-10 | N-node-6 缺口修复闭环：前端 `item_id_field` 白名单、保存定位稳定排序、条件隐藏清理与折叠/卸载边界回归完成；Build25 重新通过后端定向/全量/build/vet、前端定向/全量/build、Docker build、Production smoke 与 `git diff --check` 并归档。人工/真机项仍在 ProdTestList，未标记通过。 |

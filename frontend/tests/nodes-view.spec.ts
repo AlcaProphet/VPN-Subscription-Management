@@ -211,6 +211,77 @@ describe('NodesView 节点管理页', () => {
     wrapper.unmount()
   })
 
+  it('多个未应用 JSON 草稿保存时按稳定路径排序定位首个', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless',
+      label: 'VLESS',
+      form_schema: [
+        { name: 'uuid', type: 'password', required: true, label: 'UUID', group: 'auth' },
+        { name: 'a-opts', type: 'object', required: false, label: 'A 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, properties: [{ name: 'value', type: 'text', required: false, label: '值' }] },
+        { name: 'z-opts', type: 'object', required: false, label: 'Z 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, properties: [{ name: 'value', type: 'text', required: false, label: '值' }] },
+      ],
+      sensitive_fields: ['uuid'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { 'a-opts': { value: 'a' }, 'z-opts': { value: 'z' } }
+    await nextTick()
+    // 故意按稳定排序的逆序加入，证明保存没有沿用 Set 插入序。
+    vm.handleJsonDirty({ path: 'z-opts', dirty: true })
+    vm.handleJsonDirty({ path: 'a-opts', dirty: true })
+    await vm.save()
+    const focusedPath = (document.activeElement as HTMLElement | null)?.closest('[data-field-path]')?.getAttribute('data-field-path')
+    expect(focusedPath?.startsWith('a-opts')).toBe(true)
+    expect(mockCreateNode).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('业务条件隐藏清理失效 dirty/validity，并保留无关有效草稿', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless',
+      label: 'VLESS',
+      form_schema: [
+        { name: 'uuid', type: 'password', required: true, label: 'UUID', group: 'auth' },
+        { name: 'network', type: 'select', required: true, label: '传输', group: 'connection', options: ['ws', 'tcp'] },
+        {
+          name: 'ws-opts', type: 'object', required: false, label: 'WebSocket 参数', group: 'connection',
+          object_kind: 'fields', allow_unknown: false, when: { network: ['ws'] }, reset_on: ['network'],
+          properties: [{ name: 'headers', type: 'object', required: false, label: '请求头', object_kind: 'map', allow_unknown: true }],
+        },
+        { name: 'stable-opts', type: 'object', required: false, label: '稳定参数', group: 'connection', object_kind: 'fields', allow_unknown: false, reset_on: ['protocol'], properties: [{ name: 'value', type: 'text', required: false, label: '值' }] },
+      ],
+      sensitive_fields: ['uuid'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { network: 'ws', 'ws-opts': { headers: {} }, 'stable-opts': { value: 'keep' } }
+    await nextTick()
+    const ws = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'ws-opts')!
+    const stable = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'stable-opts')!
+    await ws.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await ws.find('textarea').setValue('{')
+    await stable.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await stable.find('textarea').setValue('{"value":"draft"}')
+    await nextTick()
+    expect(vm.invalidProtocolPaths.size).toBeGreaterThan(0)
+    expect(vm.unappliedJsonPaths.has('ws-opts')).toBe(true)
+    expect(vm.unappliedJsonPaths.has('stable-opts')).toBe(true)
+
+    vm.setField('network', 'tcp')
+    await nextTick()
+    expect(vm.form.protocol_json['ws-opts']).toBeUndefined()
+    expect(vm.form.protocol_json['stable-opts']).toEqual({ value: 'keep' })
+    expect(vm.invalidProtocolPaths.size).toBe(0)
+    expect(Array.from(vm.unappliedJsonPaths)).toEqual(['stable-opts'])
+    wrapper.unmount()
+  })
+
   it('集中开关修改使重叠 JSON 草稿失效，不能重新应用旧值', async () => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
     const wrapper = mount(NodesView, { attachTo: document.body })
@@ -946,4 +1017,64 @@ describe('NodesView 节点管理页', () => {
     expect(mockCreateNode).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
+  it('WireGuard peers 高级 JSON 应用后保留内部身份且保存不再被阻断', async () => {
+    const firstID = '11111111-1111-4111-8111-111111111111'
+    const secondID = '22222222-2222-4222-8222-222222222222'
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'wireguard',
+      label: 'WireGuard',
+      form_schema: [
+        { name: 'private-key', type: 'password', required: true, label: '私钥', group: 'auth' },
+        { name: 'public-key', type: 'text', required: true, label: '公钥', group: 'auth' },
+        {
+          name: 'peers', type: 'object', required: false, label: 'Peer 列表', group: 'connection',
+          object_kind: 'list', item_id_field: '_credential_id', allow_unknown: false,
+          properties: [
+            { name: 'server', type: 'text', required: false, label: '服务器' },
+            { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+          ],
+        },
+      ],
+      sensitive_fields: ['private-key', 'peers[].pre-shared-key'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wireguardNode = {
+      ...node,
+      protocol: 'wireguard',
+      protocol_json: {
+        'private-key': '',
+        'public-key': 'wg-public',
+        peers: [
+          { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+          { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+        ],
+      },
+      current_state: { security: 'none' },
+      saved_sensitive_paths: [`peers[${firstID}].pre-shared-key`, `peers[${secondID}].pre-shared-key`],
+    }
+    mockListNodes.mockResolvedValue([wireguardNode])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit(wireguardNode)
+    await nextTick()
+    const peers = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'peers')!
+    await peers.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    const reordered = [
+      { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+      { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+    ]
+    await peers.find('textarea').setValue(JSON.stringify(reordered))
+    await peers.findAll('button').find((button) => button.text().replace(/\s/g, '') === '应用')!.trigger('click')
+    expect(vm.invalidProtocolPaths.size).toBe(0)
+    expect(vm.unappliedJsonPaths.size).toBe(0)
+    expect(vm.form.protocol_json.peers).toEqual(reordered)
+
+    mockUpdateNode.mockResolvedValue({ ...wireguardNode, edit_revision: 4 })
+    await vm.save()
+    expect(mockUpdateNode).toHaveBeenCalledTimes(1)
+    expect(mockUpdateNode.mock.calls[0][1].protocol_json.peers).toEqual(reordered)
+    wrapper.unmount()
+  })
+
 })

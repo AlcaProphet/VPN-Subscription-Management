@@ -399,6 +399,57 @@ describe('ProtocolFieldEditor', () => {
     expect(editors[1].find('input').attributes('placeholder')).toBe('已保存（留空保留）')
   })
 
+  it('对象数组高级 JSON 放行内部 item_id_field，重排后保留稳定身份', async () => {
+    const firstID = '11111111-1111-4111-8111-111111111111'
+    const secondID = '22222222-2222-4222-8222-222222222222'
+    const peers: FieldSchema = {
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list',
+      item_id_field: '_credential_id', allow_unknown: false,
+      properties: [
+        { name: 'server', type: 'text', required: false, label: '服务器' },
+        { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+      ],
+    }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: {
+        field: peers,
+        modelValue: [
+          { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+          { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+        ],
+      },
+    })
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    const textarea = wrapper.find('textarea')
+    expect((textarea.element as HTMLTextAreaElement).value).toContain(firstID)
+    await textarea.setValue(JSON.stringify([
+      { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+      { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+    ]))
+    expect(wrapper.text()).not.toContain('未在协议注册表中声明')
+    await wrapper.findAll('button').find((button) => button.text().replace(/\s/g, '') === '应用')!.trigger('click')
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1][0]).toEqual([
+      { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+      { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+    ])
+  })
+
+  it('对象数组高级 JSON 仍拒绝 item_id_field 之外的未知键', async () => {
+    const id = '11111111-1111-4111-8111-111111111111'
+    const peers: FieldSchema = {
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list',
+      item_id_field: '_credential_id', allow_unknown: false,
+      properties: [{ name: 'server', type: 'text', required: false, label: '服务器' }],
+    }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field: peers, modelValue: [{ _credential_id: id, server: 'peer' }] } })
+    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await wrapper.find('textarea').setValue(JSON.stringify([{ _credential_id: id, server: 'peer', future: true }]))
+    expect(wrapper.text()).toContain('peers[0].future')
+    const apply = wrapper.find('button.ant-btn-sm.ant-btn-primary')
+    expect((apply.element as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('对象数组可新增条目并按子 schema 编辑', async () => {
     const peers: FieldSchema = {
       name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', allow_unknown: false,
@@ -556,5 +607,31 @@ describe('ProtocolFieldEditor', () => {
     expect(updates[updates.length - 1]).toEqual([{ flag: '', special: ':;=\\' }])
     validity = wrapper.emitted('validity-change') ?? []
     expect(validity).toContainEqual([{ path: 'plugin-opts', valid: true }])
+  })
+
+  it('组件卸载不会为仍有效的高级 JSON 草稿发出清除事件', async () => {
+    const events: Array<{ path: string; dirty: boolean }> = []
+    const Host = defineComponent({
+      components: { ProtocolFieldEditor },
+      setup() {
+        return {
+          field: objectField,
+          value: ref({ path: '/keep' }),
+          show: ref(true),
+          onJsonDirty: (payload: { path: string; dirty: boolean }) => events.push(payload),
+        }
+      },
+      template: '<ProtocolFieldEditor v-if="show" :field="field" v-model="value" @json-dirty-change="onJsonDirty" />',
+    })
+    const host = mount(Host)
+    const editor = host.findComponent(ProtocolFieldEditor)
+    await editor.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await editor.find('textarea').setValue('{"path":"/draft"}')
+    expect(events[events.length - 1]).toEqual({ path: 'ws-opts', dirty: true })
+    const before = events.length
+    ;(host.vm as any).show = false
+    await nextTick()
+    expect(events).toHaveLength(before)
+    host.unmount()
   })
 })
