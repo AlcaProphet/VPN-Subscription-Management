@@ -1,7 +1,7 @@
 # TODOLIST.md — 后续工作顺序跟踪（2026-09-11）
 
-> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
-> **授权边界：** 本次只授权更新本清单，不授权执行下列代码修复、测试、归档或正式文档状态变更。进入构建前仍须按 AGENTS.md 完成影响评估、文档疑点检查并取得对应授权。
+> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build26.md](Build26.md)、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
+> **授权边界：** 本次只授权同步 Build26/TODOLIST/Issue14/AGENTS 的文档指向，不授权执行 Step 1～20 的代码修复、测试、归档或正式验收状态变更。进入各 Step 前仍须按 AGENTS.md 完成影响评估、文档疑点检查并取得对应授权。
 > **排序原则：** 先关闭已有活跃 Build 的验收缺口，再处理 Issue14 的工程整改和项目收尾；工程基线冻结后继续第三期安全审查；人工结论单独由 ProdTestList 跟踪。
 
 ---
@@ -12,13 +12,14 @@
 |---|---|---|
 | [docs/reports/Build/Build22.md](docs/reports/Build/Build22.md) | 已归档；Step 1～11 全部验收通过，D3-1～D3-10 闭环 | ✅ 已完成 |
 | [docs/reports/Design/Design3.md](docs/reports/Design/Design3.md) | 已随 Build22 收口归档 | ✅ 已完成 |
-| [Issue14.md](Issue14.md) | 步骤一、二、三、四、六已关闭；步骤五、七、八未关闭 | **Issue14 步骤五** |
+| [Build26.md](Build26.md) | **活跃构建记录**；Step 0 已完成，Step 1～20 未开始，等待逐 Step 授权 | **Build26 Step 1** |
+| [Issue14.md](Issue14.md) | 步骤一、二、三、四、六已关闭；步骤五已创建 Build26/Step 0，代码实施未开始；步骤七、八未关闭 | **Issue14 步骤五 / Build26 Step 1** |
 | [Issue15.md](Issue15.md) | R29-11 已关闭；R29-12 已完成；R29-01、R29-06、R29-09、R29-10 待人工复验 | R29-01 与 R28-07G 联动 |
 | [Design4.md](Design4.md) | 当前最新设计；Build17～25 主体已完成 | 仅在实际变更影响其合同时同步 |
 | [ProdTestList.md](ProdTestList.md) | 保留 Production、浏览器、真机和真实客户端人工项 | 按工程前置分批执行 |
 | [SecurityScanPlan1.md](SecurityScanPlan1.md) / [SecurityReport3.md](SecurityReport3.md) | Step 1～3 已完成；Step 4～28 未开始，报告未完成 | 工程冻结后执行 **Step 4** |
 
-已归档的 Build21、Build22、Build23、Build24、Build25 只用于核查，不再作为执行入口。
+已归档的 Build21、Build22、Build23、Build24、Build25 只用于核查，不再作为执行入口；当前执行入口为根目录 [Build26.md](Build26.md)，Step 1 尚未授权。
 
 ---
 
@@ -53,7 +54,9 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 
 主跟踪：Issue14 步骤五/R28-07A～E、G～I；R28-07F 已确认为设计取向，不改代码。
 
-> 先新建或确认专门 Build 文档，把下列内容拆为可独立验收的 Steps；不得把本清单当作 Build 手册。顺序遵循 Issue14 已确认的“失败优先门禁 → A/B/D → C/E → G/I → H → 全量回归”。
+> 先新建或确认专门 Build 文档，把下列内容拆为可独立验收的 Steps；不得把本清单当作 Build 手册。具体 Step 编号、前置、影响评估、失败优先测试和验收命令以 [Build26.md](Build26.md) 为准。
+>
+> **当前进展（2026-09-11）：** 用户已确认先创建完整 Build26 文档；[Build26.md](Build26.md) 已创建并完成 Step 0（范围、决策、Step 1～20、静态门禁和最终联合门禁冻结）。用户确认 E 先于 C、G 采用 21 MiB 请求体上限、I 采用流内每 15 秒权限重查、D1 使用 `internal/userrender` 独立包等；P2-1 保持未完成，Step 1 尚未授权执行。本清单保留为上层顺序索引，具体逐 Step 状态以 Build26 为准。
 
 - [ ] **P2-1｜步骤五前置：** 建立失败优先回归、架构/静态门禁，并冻结各 Build Step 的范围、回滚边界和验收命令。
 - [ ] **P2-2｜R28-07A：** 删除首管理员初始化冗余标记写入；覆盖密码注册、OIDC、后续用户和并发首建。
@@ -61,7 +64,7 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 - [ ] **P2-4｜R28-07D：** 将用户下载渲染、流量汇总、OIDC 换票事务移出接入层；增加禁止 `internal/server` 直访 `DB()` / `TxImmediate()` 的检查。
 - [ ] **P2-5｜R28-07C：** 全量审计生产代码忽略的 error，按回滚、补偿日志、异步状态写入分类处理，补失败注入和静态门禁。
 - [ ] **P2-6｜R28-07E：** 去除运行期可变包级状态，改为实例注入或不可变规则；补多实例和 race 回归。
-- [ ] **P2-7｜R28-07G + Issue15 R29-01：** 联动处理双导入入口确认词与 20 MiB 上限；覆盖边界值、超 1 字节、分块、截断读取、413 和前端提前拒绝。
+- [ ] **P2-7｜R28-07G：** 固定双导入入口 20 MiB 文件 / 21 MiB 请求体上限，覆盖边界值、超 1 字节、分块、伪造长度、截断读取、413 和前端提前拒绝；仅保护 Issue15 R29-01 既有 IMPORT/DISABLE 语义，不顺带处理其问题状态或人工复验。
 - [ ] **P2-8｜R28-07I：** SSE 改为管理员路由 + `fetch`/`ReadableStream` Bearer 鉴权，移除一次性查询 Token；覆盖 401/403、权限变化、分帧、重连、卸载。
 - [ ] **P2-9｜R28-07H：** 清理 `NodeCheckPanel.vue` 遗留 gray/white 类，补静态扫描与双主题断言。
 - [ ] **P2-10｜步骤五验收：** 跑后端定向/全量/race/build/vet、前端定向/全量/build、接口级 401/403/413、Production smoke、`git diff --check`，同步受影响文档。
@@ -156,3 +159,4 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 | 2026-09-11 | 按最新活跃文档重排：以 Build22 Step 7 → Step 11 → Issue14 步骤三为首要主线；细化 Issue14 步骤五、七、八；逐项列出 SecurityScanPlan1 Step 4～28；更新人工测试开始条件与授权边界。 |
 | 2026-09-11 | 完成 P1：Build22 Step 1～11 全部证据补齐并重新通过全量门禁，修复脱敏/存量清洗/旧 plan 回退边界；问题 R28-05/R29-11 关闭，Build22/Design3 归档。 |
 | 2026-09-11 | 完成 P0-1/P0-2：确认 Node 22→24 为有意的安全性更新并限定验证边界；复核 Setup/管理端导入合同及 `RESET`→`DISABLE` 历史差异。P5 SecurityScanPlan1 仍作为构建之外的独立审查清单，不并入任何 Build/Design/Issue。 |
+| 2026-09-11 | 同步步骤五文档指向：用户确认先创建完整 [Build26.md](Build26.md)，Step 0 已完成；TODOLIST 活跃快照、P2 入口和 Issue14 状态已同步。E 先于 C、G 21 MiB、I 15 秒权限重查等决策记录在 Build26 §一；Step 1 未授权，P2-1 仍未完成。 |
