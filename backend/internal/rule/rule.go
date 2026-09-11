@@ -71,7 +71,7 @@ func (s *Service) Create(ctx context.Context, name, slugVal, clientType string, 
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if slugVal == "" {
 			// 自动生成：事务内跨四类唯一性检查，冲突自动重试
-			generated, err := subscription.GenerateSlugTx(ctx, tx, "rule-")
+			generated, err := subscription.GenerateSlugTx(ctx, tx, "rule-", s.log)
 			if err != nil {
 				return err
 			}
@@ -132,7 +132,11 @@ func (s *Service) Rename(ctx context.Context, id int64, name string) error {
 	if err != nil {
 		return fmt.Errorf("改名失败: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("读取改名结果失败: %w", err)
+	}
+	if n == 0 {
 		return ErrNotFound
 	}
 	return nil

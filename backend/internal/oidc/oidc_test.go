@@ -47,7 +47,11 @@ func newTestOidcService(t *testing.T) (*store.Store, *Service, *user.Service) {
 			nonce TEXT NOT NULL DEFAULT '',
 			intent TEXT NOT NULL CHECK (intent IN ('login','bind')),
 			bind_user_id INTEGER,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
+			ticket TEXT PRIMARY KEY,
+			session_token TEXT NOT NULL,
+			expires_at TIMESTAMP NOT NULL);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
@@ -269,5 +273,30 @@ func TestMockExchange(t *testing.T) {
 	}
 	if id.Subject != "carol@example.com" || !id.EmailVerified {
 		t.Errorf("身份还原异常: %+v", id)
+	}
+}
+
+// TestResolveLoginFirstAdminDoesNotWriteAdminInitialized 通过完整 ResolveLogin 路径验证：
+// OIDC 首个用户仍为 admin，但不再写入无读取方的 admin_initialized 标记。
+func TestResolveLoginFirstAdminDoesNotWriteAdminInitialized(t *testing.T) {
+	st, svc, _ := newTestOidcService(t)
+	res, err := svc.ResolveLogin(ctx, &Identity{
+		Subject:       "oidc-first-subject",
+		Email:         "oidc-first@example.com",
+		EmailVerified: true,
+		Username:      "oidc-first",
+	})
+	if err != nil {
+		t.Fatalf("ResolveLogin 失败: %v", err)
+	}
+	if res.User == nil || res.User.Role != "admin" {
+		t.Fatalf("OIDC 首用户应为 admin: %+v", res)
+	}
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM system_config WHERE key = ?`, config.KeyAdminInitialized).Scan(&count); err != nil {
+		t.Fatalf("查询 admin_initialized 失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("OIDC 首管理员不应写入 admin_initialized，实际 %d 行", count)
 	}
 }

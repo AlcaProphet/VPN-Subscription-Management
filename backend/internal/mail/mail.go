@@ -16,7 +16,7 @@ import (
 	"vpn-sub/internal/config"
 )
 
-// 配置键（存 system_config；smtp_password 为敏感键，登记入 config.sensitiveKeys 加密落库）
+// 配置键（存 system_config；smtp_password 为编译期固定敏感键，由 config 包自动加解密）
 const (
 	KeyHost     = "smtp_host"
 	KeyPort     = "smtp_port"
@@ -34,11 +34,6 @@ const (
 	ScopeWelcome        = "welcome"
 )
 
-// init 登记敏感配置键：smtp_password 以 AES-256-GCM 加密落库（AGENTS §4.2，Build3 面板配置接通）
-func init() {
-	config.RegisterSensitive(KeyPassword)
-}
-
 // Service SMTP 邮件服务
 type Service struct {
 	cfg *config.Service
@@ -51,9 +46,9 @@ func NewService(cfg *config.Service, lg *slog.Logger) *Service {
 
 // Configured SMTP 是否已配置（host+user+password 三键非空，与用户管理 smtpConfigured 同口径）
 func (s *Service) Configured(ctx context.Context) bool {
-	host, _ := s.cfg.Get(ctx, KeyHost)
-	user, _ := s.cfg.Get(ctx, KeyUser)
-	pass, _ := s.cfg.Get(ctx, KeyPassword)
+	host := s.cfg.GetOr(ctx, KeyHost)
+	user := s.cfg.GetOr(ctx, KeyUser)
+	pass := s.cfg.GetOr(ctx, KeyPassword)
 	return host != "" && user != "" && pass != ""
 }
 
@@ -62,14 +57,14 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 	if !s.Configured(ctx) {
 		return errors.New("SMTP 未配置")
 	}
-	host, _ := s.cfg.Get(ctx, KeyHost)
-	port, _ := s.cfg.Get(ctx, KeyPort)
+	host := s.cfg.GetOr(ctx, KeyHost)
+	port := s.cfg.GetOr(ctx, KeyPort)
 	if port == "" {
 		port = "587"
 	}
-	user, _ := s.cfg.Get(ctx, KeyUser)
-	pass, _ := s.cfg.Get(ctx, KeyPassword)
-	from, _ := s.cfg.Get(ctx, KeyFrom)
+	user := s.cfg.GetOr(ctx, KeyUser)
+	pass := s.cfg.GetOr(ctx, KeyPassword)
+	from := s.cfg.GetOr(ctx, KeyFrom)
 	if from == "" {
 		from = user // 发件人缺省取账号
 	}

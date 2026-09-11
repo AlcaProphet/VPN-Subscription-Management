@@ -42,6 +42,7 @@ import (
 	"vpn-sub/internal/tasks"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/user"
+	"vpn-sub/internal/userrender"
 	"vpn-sub/internal/version"
 	"vpn-sub/internal/xray"
 )
@@ -76,13 +77,15 @@ type Server struct {
 	// 后续 Step 的 Handler 经构造函数追加注入（setup/oidc...）
 }
 
-// New 构造注入装配：全部依赖经参数传入，禁止包级全局变量持有服务实例
-func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Logger, mode string, trust *proxytrust.Policy, port, dataDir string, streamSvc *log.StreamService) (*Server, error) {
+// New 构造注入装配：全部依赖经参数传入，禁止包级全局变量持有服务实例。
+// 日志由 Runtime 提供 Logger + 独立 LevelVar，config.AdminService 接收 Level 控制器。
+func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runtime, mode string, trust *proxytrust.Policy, port, dataDir string, streamSvc *log.StreamService) (*Server, error) {
+	lg := rt.Logger
 	engine := gin.New() // 不用 gin.Default，避免默认 logger/recovery 绕过脱敏与统一响应
 	if err := applyTrustProxy(engine, trust); err != nil {
 		return nil, err
 	}
-	engine.Use(requestLogger(), panicRecovery(), securityHeaders(), bodyLimitMiddleware(cfg))
+	engine.Use(requestLogger(lg), panicRecovery(lg), securityHeaders(), bodyLimitMiddleware(cfg), loggerContextMiddleware(lg), debugContextMiddleware(cfg))
 	s := &Server{engine: engine, cfg: cfg, store: st, mode: mode, log: lg,
 		httpSrv: newHTTPServer(":"+port, engine, cfg)}
 	registerHealth(engine)
@@ -99,7 +102,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	// Setup 路由（本 Build Step 5/6）
 	RegisterSetupRoutes(engine, &SetupHandler{setupSvc: setupSvc, oidcSvc: oidcSvc})
 	// OIDC 路由（本 Build Step 6）
-	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc, setupSvc: setupSvc, store: st, cfg: cfg, trust: trust}, authSvc.SessionMiddleware(), limiter)
+	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc, setupSvc: setupSvc, cfg: cfg, trust: trust}, authSvc.SessionMiddleware(), limiter)
 	// 版本组件 + 订阅池路由（Build2 Step 2；会话 + 管理员双中间件）
 	versionSvc := version.NewService(st, dataDir, lg)
 	// 平台路由（Build2 Step 1；会话 + 管理员双中间件；Step 5 起持有版本组件用于完整级联）
@@ -227,11 +230,10 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	tokenSvc := token.NewService(st, lg)
 	subSvc.SetOnTokenDeleted(tokenSvc.DeleteBySubscriptionTx)
 	dlSvc := download.NewService(st, versionSvc, cfg, lg)
-	dlSvc.SetRenderUser(func(ctx context.Context, subID, userID int64, content []byte, fileName string) ([]byte, error) {
-		return renderUserSubscription(ctx, st, cfg, syncSvc, credsSvc, subID, userID, content, fileName)
-	})
+	userRenderSvc := userrender.NewService(st, cfg, syncSvc, credsSvc, lg)
+	dlSvc.SetRenderUser(userRenderSvc.Render)
 	homeSvc := home.NewService(st, tokenSvc, cfg)
-	homeHandler := &HomeHandler{homeSvc: homeSvc, st: st, cfg: cfg, syncSvc: syncSvc}
+	homeHandler := &HomeHandler{homeSvc: homeSvc, trafficSvc: syncSvc}
 	RegisterDownloadRoutes(engine, &DownloadHandler{dlSvc: dlSvc, limiter: limiter, sessionMW: authSvc.SessionMiddleware()})
 	RegisterHomeRoutes(engine, homeHandler, authSvc.SessionMiddleware())
 	// 自定义订阅 + 分享订阅（Build2 Step 5；会话 + 管理员双中间件）
@@ -248,6 +250,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	RegisterAssemblyRoutes(engine, &AssemblyHandler{
 		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
 		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc, subSvc: subSvc,
+		logger: lg,
 		onGenerateActivated: func(ctx context.Context) {
 			detach(ctx, func(ctx context.Context) {
 				if _, err := groupSvc.RecomputeCandidateSet(ctx); err != nil {
@@ -256,7 +259,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 			})
 		},
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
-	RegisterProfileRoutes(engine, &ProfileHandler{userSvc: users, st: st, cfg: cfg, syncSvc: syncSvc}, authSvc.SessionMiddleware())
+	RegisterProfileRoutes(engine, &ProfileHandler{userSvc: users, trafficSvc: syncSvc}, authSvc.SessionMiddleware())
 	// 用户管理（Build3 Step 1）：五重管理员保护 + 全生命周期操作；复用 Token/重置令牌/版本组件
 	adminUserSvc := user.NewAdminService(st, users, tokenSvc, resetSvc, cfg, versionSvc, lg)
 	RegisterUserAdminRoutes(engine, &UserAdminHandler{adminSvc: adminUserSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware(), AdvancedMode(cfg))
@@ -308,12 +311,12 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 	// 邮件服务 + 审批中心（Build3 Step 2）：接通密码重置邮件与欢迎邮件注入点（SMTP 未配置/失败不阻断主流程）
 	mailSvc := mail.NewService(cfg, lg)
 	resetSvc.SetSendMail(func(ctx context.Context, to, resetURL string) error {
-		furl, _ := cfg.Get(ctx, config.KeyFrontendURL)
+		furl := cfg.GetOr(ctx, config.KeyFrontendURL)
 		return mailSvc.SendPasswordReset(ctx, to, furl+resetURL)
 	})
 	users.SetWelcomeSender(func(ctx context.Context, to, source string) error {
-		siteName, _ := cfg.Get(ctx, "site_name")
-		loginURL, _ := cfg.Get(ctx, config.KeyFrontendURL)
+		siteName := cfg.GetOr(ctx, "site_name")
+		loginURL := cfg.GetOr(ctx, config.KeyFrontendURL)
 		return mailSvc.SendWelcome(ctx, to, siteName, loginURL, source)
 	})
 	approvalSvc := approval.NewService(st, mailSvc, cfg, lg)
@@ -336,13 +339,10 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 			}
 		})
 	})
-	// 面板配置（Build3 Step 3）：分区读写 + 死锁防护 + 加密脱敏；接通调试模式 5xx 详情
-	response.SetDebugProvider(func(ctx context.Context) bool {
-		return cfg.GetBool(ctx, "debug_mode", false)
-	})
+	// 面板配置（Build3 Step 3）：分区读写 + 死锁防护 + 加密脱敏；调试模式经请求上下文中间件注入
 	offClearSvc := xray.NewOffClearService(st, cfg, taskReg, lg)
 	offClearSvc.SetAfterAdvancedOff(syncSvc.AfterAdvancedOff)
-	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, lg)
+	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, lg, rt.Level)
 	adminCfgSvc.SetAdvancedModeSwitcher(offClearSvc)
 	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trust},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
@@ -436,8 +436,8 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, lg *slog.Log
 		clearSvc: clearSvc, exportSvc: exportSvc, backupSvc: backupSvc, setupSvc: setupSvc, limiter: limiter,
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 日志查看（Build3 Step 5）：访问日志查询/清空 + 实时日志流 SSE（短期 Token + 8 连接上限）
-	accessLogSvc := log.NewAccessService(st.DB(), lg)
-	RegisterLogRoutes(engine, &LogHandler{accessSvc: accessLogSvc, streamSvc: streamSvc},
+	accessLogSvc := log.NewAccessServiceFromProvider(st, lg)
+	RegisterLogRoutes(engine, &LogHandler{accessSvc: accessLogSvc, streamSvc: streamSvc, users: users},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 管理概览与版本归属：聚合只读数据，须在全部依赖服务完成装配后注册。
 	RegisterOverviewRoutes(engine, &OverviewHandler{
@@ -463,7 +463,7 @@ func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service
 	if err := applyTrustProxy(engine, trust); err != nil {
 		return nil, err
 	}
-	engine.Use(requestLogger(), panicRecovery(), securityHeaders(), bodyLimitMiddleware(cfg), emergencyGate())
+	engine.Use(requestLogger(lg), panicRecovery(lg), securityHeaders(), bodyLimitMiddleware(cfg), loggerContextMiddleware(lg), debugContextMiddleware(cfg), emergencyGate())
 	s := &Server{engine: engine, cfg: cfg, store: st, mode: mode, log: lg,
 		httpSrv: newHTTPServer(":"+port, engine, cfg)}
 	// /health 应急模式返回 503（docker compose 仅状态展示，不触发重启）
@@ -478,8 +478,8 @@ func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service
 	registerStatus(engine, cfg, users, oidcSvc, captchaSvc, mode, emSvc)
 	engine.GET("/api/site/info", func(c *gin.Context) {
 		ctx := c.Request.Context()
-		name, _ := cfg.Get(ctx, "site_name")
-		icon, _ := cfg.Get(ctx, "site_icon_url")
+		name := cfg.GetOr(ctx, "site_name")
+		icon := cfg.GetOr(ctx, "site_icon_url")
 		OK(c, gin.H{"site_name": name, "icon_url": icon})
 	})
 	// 应急端点（仅应急模式注册）
@@ -498,12 +498,31 @@ func applyTrustProxy(engine *gin.Engine, policy *proxytrust.Policy) error {
 	return engine.SetTrustedProxies(policy.TrustedProxies())
 }
 
-// requestLogger 方法/路径/状态/耗时；路径中 ?token= 值由 slog 脱敏 Handler 统一处理
-func requestLogger() gin.HandlerFunc {
+// loggerContextMiddleware 把当前 Server 实例的 Logger 注入请求上下文；
+// response.Fail 等接入层助手经 log.FromContext 使用，不依赖包级全局 logger。
+func loggerContextMiddleware(lg *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request = c.Request.WithContext(log.WithLogger(c.Request.Context(), lg))
+		c.Next()
+	}
+}
+
+// debugContextMiddleware 每个请求按所属 Server 的 cfg 实时读取 debug_mode，写入请求上下文；
+// response.Fail 只读取当前请求上下文，不使用包级可变回调，保证多 Server 实例隔离。
+func debugContextMiddleware(cfg *config.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		enabled := cfg.GetBool(c.Request.Context(), "debug_mode", false)
+		c.Request = c.Request.WithContext(response.WithDebug(c.Request.Context(), enabled))
+		c.Next()
+	}
+}
+
+// requestLogger 方法/路径/状态/耗时；?token= 等敏感值由实例 Logger 的脱敏 Handler 统一处理
+func requestLogger(lg *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		log.Info("http_request",
+		lg.Info("http_request",
 			"method", c.Request.Method,
 			"path", c.Request.URL.RequestURI(),
 			"ip", c.ClientIP(),
@@ -513,12 +532,12 @@ func requestLogger() gin.HandlerFunc {
 	}
 }
 
-// panicRecovery panic 统一转 500 通用信息（详情仅入日志）
-func panicRecovery() gin.HandlerFunc {
+// panicRecovery panic 统一转 500 通用信息（详情仅入实例 Logger）
+func panicRecovery(lg *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Error("panic 恢复", "err", fmt.Sprint(r), "path", c.Request.URL.Path)
+				lg.Error("panic 恢复", "err", fmt.Sprint(r), "path", c.Request.URL.Path)
 				Fail(c, http.StatusInternalServerError, "服务器内部错误")
 				c.Abort()
 			}

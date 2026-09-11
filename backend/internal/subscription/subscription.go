@@ -144,11 +144,12 @@ func slugExistsTx(ctx context.Context, tx *sql.Tx, slugVal string) (bool, error)
 	return false, nil
 }
 
-// GenerateSlugTx 事务内生成四类资源全局唯一标识（类型前缀 + 8 位随机短码，冲突自动重试；供订阅/规则自动生成复用）
-func GenerateSlugTx(ctx context.Context, tx *sql.Tx, prefix string) (string, error) {
+// GenerateSlugTx 事务内生成四类资源全局唯一标识（类型前缀 + 8 位随机短码，冲突自动重试；供订阅/规则自动生成复用）。
+// lg 由调用方实例注入。
+func GenerateSlugTx(ctx context.Context, tx *sql.Tx, prefix string, lg *slog.Logger) (string, error) {
 	return slug.Generate(ctx, tx, prefix, func(v string) (bool, error) {
 		return slugExistsTx(ctx, tx, v)
-	})
+	}, lg)
 }
 
 // Create 指定平台 + 名称；product_type 从平台读取；平台唯一占用（事务内查重 + UNIQUE 索引兜底）。
@@ -189,7 +190,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Subscription, er
 		}
 		if in.Slug == "" {
 			// 自动生成：事务内跨四类唯一性检查，冲突自动重试
-			slugVal, err := GenerateSlugTx(ctx, tx, "subscription-")
+			slugVal, err := GenerateSlugTx(ctx, tx, "subscription-", s.log)
 			if err != nil {
 				return err
 			}

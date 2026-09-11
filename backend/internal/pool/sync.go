@@ -465,12 +465,11 @@ func (s *Service) syncOne(ctx context.Context, bgStore *store.Store, client *htt
 	r.OK = true
 
 	err = bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-		id, pending, err := applyParseResultTx(ctx, tx, poolID, sourceID, parsed)
+		_, pending, err := applyParseResultTxWithMarshal(ctx, tx, poolID, sourceID, parsed, s.marshalJSON)
 		if err != nil {
 			return err
 		}
 		r.Pending = pending
-		_ = id
 		return nil
 	})
 	if err != nil {
@@ -499,7 +498,7 @@ func (s *Service) failSourceWithError(ctx context.Context, bgStore *store.Store,
 	r.Error = SanitizeTaskError(errMsg)
 	reason := failureReason(failure)
 	if err := bgStore.TxImmediate(ctx, func(tx *sql.Tx) error {
-		return recordFailedSnapshotTxWithReason(ctx, tx, poolID, sourceID, errMsg, reason)
+		return recordFailedSnapshotTxWithReasonAndMarshal(ctx, tx, poolID, sourceID, errMsg, reason, s.marshalJSON)
 	}); err != nil {
 		s.log.Error("写入失败快照失败", "pool_id", poolID, "source_id", sourceID, "err", err)
 		r.Error = taskErrorWithFailureSnapshotSuffix(errMsg)
@@ -518,6 +517,11 @@ func taskErrorWithFailureSnapshotSuffix(base string) string {
 }
 
 func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, parsed *ParseResult) (int64, bool, error) {
+	return applyParseResultTxWithMarshal(ctx, tx, poolID, sourceID, parsed, json.Marshal)
+}
+
+// applyParseResultTxWithMarshal 与 applyParseResultTx 相同，但允许注入 JSON 序列化函数以覆盖失败路径。
+func applyParseResultTxWithMarshal(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, parsed *ParseResult, marshal func(any) ([]byte, error)) (int64, bool, error) {
 	// 读取旧 active 信息，用于异常保护。
 	var oldFormat, oldProfile sql.NullString
 	var oldAccepted sql.NullInt64
@@ -604,8 +608,14 @@ func applyParseResultTx(ctx context.Context, tx *sql.Tx, poolID, sourceID int64,
 		Decision:             &DecisionStats{InitialStatus: status, ReasonCodes: reasons},
 	}
 
-	diagJSON, _ := json.Marshal(NormalizeDiagnostics(parsed.Diagnostics))
-	statsJSON, _ := json.Marshal(stats)
+	diagJSON, err := marshal(NormalizeDiagnostics(parsed.Diagnostics))
+	if err != nil {
+		return 0, false, fmt.Errorf("序列化来源快照诊断失败: %w", err)
+	}
+	statsJSON, err := marshal(stats)
+	if err != nil {
+		return 0, false, fmt.Errorf("序列化来源快照统计失败: %w", err)
+	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO pool_source_snapshots
 		   (source_id, format, profile, status, input_count, recognized_count, accepted_count, excluded_count, rejected_count, duplicate_count, diagnostic_json, stats_json)
@@ -656,14 +666,25 @@ func recordFailedSnapshotTx(ctx context.Context, tx *sql.Tx, poolID, sourceID in
 
 // recordFailedSnapshotTxWithReason 写入 failed snapshot，不修改 active/pending 指针。
 func recordFailedSnapshotTxWithReason(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, errMsg, reasonCode string) error {
+	return recordFailedSnapshotTxWithReasonAndMarshal(ctx, tx, poolID, sourceID, errMsg, reasonCode, json.Marshal)
+}
+
+// recordFailedSnapshotTxWithReasonAndMarshal 允许注入 JSON 序列化函数，覆盖序列化失败路径。
+func recordFailedSnapshotTxWithReasonAndMarshal(ctx context.Context, tx *sql.Tx, poolID, sourceID int64, errMsg, reasonCode string, marshal func(any) ([]byte, error)) error {
 	var mode string
 	var oldID sql.NullInt64
 	var oldFormat, oldProfile sql.NullString
 	var oldAccepted sql.NullInt64
-	_ = tx.QueryRowContext(ctx,
+	err := tx.QueryRowContext(ctx,
 		`SELECT src.source_mode, s.id, s.format, s.profile, s.accepted_count
 		 FROM rule_pool_sources src LEFT JOIN pool_source_snapshots s ON s.id = src.active_snapshot_id
 		 WHERE src.id=?`, sourceID).Scan(&mode, &oldID, &oldFormat, &oldProfile, &oldAccepted)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("读取失败快照旧 active 状态失败: %w", err)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("读取失败快照旧 active 状态失败: 来源不存在: %w", err)
+	}
 	comparison := &ComparisonStats{AcceptedDropThresholdPercent: 70}
 	if oldID.Valid {
 		comparison.PreviousActive = &PreviousActiveSnapshot{
@@ -685,9 +706,15 @@ func recordFailedSnapshotTxWithReason(ctx context.Context, tx *sql.Tx, poolID, s
 		},
 	}
 	diag := []ParseDiagnostic{{Kind: "error", Message: SanitizeTaskError(errMsg)}}
-	diagJSON, _ := json.Marshal(NormalizeDiagnostics(diag))
-	statsJSON, _ := json.Marshal(stats)
-	_, err := tx.ExecContext(ctx,
+	diagJSON, err := marshal(NormalizeDiagnostics(diag))
+	if err != nil {
+		return fmt.Errorf("序列化失败快照诊断失败: %w", err)
+	}
+	statsJSON, err := marshal(stats)
+	if err != nil {
+		return fmt.Errorf("序列化失败快照统计失败: %w", err)
+	}
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO pool_source_snapshots
 		   (source_id, format, profile, status, input_count, recognized_count, accepted_count, excluded_count, rejected_count, duplicate_count, diagnostic_json, stats_json)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -744,11 +771,15 @@ func (s *Service) finishTask(taskCtx context.Context, bgStore *store.Store, pool
 	for i, r := range results {
 		cleanResults[i] = SanitizePerURLResult(r)
 	}
-	perJSON, _ := json.Marshal(cleanResults)
+	perJSON, err := s.marshalJSON(cleanResults)
+	if err != nil {
+		s.log.Error("序列化同步任务结果失败", "pool_id", poolID, "task_id", taskID, "err", err)
+		perJSON = []byte("[]")
+	}
 	errMsg = SanitizeTaskError(errMsg)
 	writeCtx, cancel := context.WithTimeout(context.Background(), terminalWriteTime)
 	defer cancel()
-	err := bgStore.TxImmediate(writeCtx, func(tx *sql.Tx) error {
+	err = bgStore.TxImmediate(writeCtx, func(tx *sql.Tx) error {
 		if cause := context.Cause(taskCtx); cause != nil {
 			status = "failed"
 			errMsg = SanitizeTaskError(cause.Error())
@@ -773,12 +804,14 @@ func (s *Service) finishTask(taskCtx context.Context, bgStore *store.Store, pool
 		return err
 	})
 	if err != nil {
-		s.log.Error("回写同步终态失败", "task_id", taskID, "err", err)
+		s.log.Error("回写同步终态失败", "pool_id", poolID, "task_id", taskID, "err", err)
 		return
 	}
-	// 清理 7 天前的终态任务，不删除 active/pending 快照。
-	_, _ = bgStore.DB().ExecContext(writeCtx,
-		`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at IS NOT NULL AND finished_at < datetime('now', ?)`, poolID, fmt.Sprintf("-%d days", taskRetentionDays))
+	// 清理 7 天前的终态任务，不删除 active/pending 快照；清理失败必须可见但不影响终态已提交。
+	if _, err := bgStore.DB().ExecContext(writeCtx,
+		`DELETE FROM pool_sync_tasks WHERE pool_id=? AND finished_at IS NOT NULL AND finished_at < datetime('now', ?)`, poolID, fmt.Sprintf("-%d days", taskRetentionDays)); err != nil {
+		s.log.Error("清理终态同步任务失败", "pool_id", poolID, "task_id", taskID, "err", err)
+	}
 }
 
 func (s *Service) failTask(taskCtx context.Context, poolID, taskID int64, results []PerURLResult, msg string) {
@@ -786,7 +819,11 @@ func (s *Service) failTask(taskCtx context.Context, poolID, taskID int64, result
 	for i, r := range results {
 		cleanResults[i] = SanitizePerURLResult(r)
 	}
-	perJSON, _ := json.Marshal(cleanResults)
+	perJSON, err := s.marshalJSON(cleanResults)
+	if err != nil {
+		s.log.Error("序列化失败任务结果失败", "pool_id", poolID, "task_id", taskID, "err", err)
+		perJSON = []byte("[]")
+	}
 	msg = SanitizeTaskError(msg)
 	writeCtx, cancel := context.WithTimeout(context.Background(), terminalWriteTime)
 	defer cancel()
@@ -808,7 +845,7 @@ func (s *Service) failTask(taskCtx context.Context, poolID, taskID int64, result
 			`UPDATE rule_pools SET sync_status='failed', sync_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, msg, poolID)
 		return err
 	}); err != nil {
-		s.log.Error("回写失败任务", "task_id", taskID, "err", err)
+		s.log.Error("回写失败任务", "pool_id", poolID, "task_id", taskID, "err", err)
 	}
 }
 

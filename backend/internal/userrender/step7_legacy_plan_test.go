@@ -1,4 +1,4 @@
-package server
+package userrender
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 
 func TestLegacyStringArrayClashPlanDownloadFallback(t *testing.T) {
 	ctx := context.Background()
-	_, st, cfg := newAssemblyTestEnv(t)
+	st, cfg := newUserrenderTestEnv(t)
 
 	// 历史 Build6 修复前的 render_plan_json：manual_proxies/proxy_groups/rules 均为字符串数组。
 	legacyPlan, err := json.Marshal(map[string]any{
@@ -53,8 +53,9 @@ func TestLegacyStringArrayClashPlanDownloadFallback(t *testing.T) {
 	instSvc := xray.NewInstanceService(st, lg, tasks.NewRegistry())
 	creds := xray.NewCredentialService(st, cfg)
 	syncSvc := xray.NewSyncService(st, cfg, creds, instSvc, tasks.NewRegistry(), lg)
+	svc := NewService(st, cfg, syncSvc, creds, lg)
 	content := []byte("proxies: []\nrules:\n  - # {{xray_nodes}}\n")
-	out, err := renderUserSubscription(ctx, st, cfg, syncSvc, creds, subID, 0, content, "legacy-plan.yaml")
+	out, err := svc.Render(ctx, subID, 0, content, "legacy-plan.yaml")
 	if err != nil {
 		t.Fatalf("旧字符串数组 plan 下载重渲染应走回退路径，实际失败: %v", err)
 	}

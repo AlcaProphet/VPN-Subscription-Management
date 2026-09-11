@@ -12,6 +12,7 @@ import (
 	"vpn-sub/internal/backup"
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/dataclear"
+	"vpn-sub/internal/log"
 	"vpn-sub/internal/ratelimit"
 	"vpn-sub/internal/setup"
 )
@@ -101,21 +102,31 @@ func (h *SettingsOpsHandler) importSetup(c *gin.Context) {
 
 // importCommon 导入公共处理（multipart：file + password + confirm_word）
 func (h *SettingsOpsHandler) importCommon(c *gin.Context, setupMode bool) {
+	ctx := c.Request.Context()
 	file, _, err := c.Request.FormFile("file")
 	if err != nil {
-		Fail(c, http.StatusBadRequest, "未接收到导入文件")
+		if isRequestBodyTooLarge(err) {
+			Fail(c, http.StatusRequestEntityTooLarge, "请求体过大")
+			return
+		}
+		log.FromContext(ctx).Error("读取导入文件失败", "err", err)
+		if errors.Is(err, http.ErrMissingFile) {
+			Fail(c, http.StatusBadRequest, "未接收到导入文件")
+			return
+		}
+		Fail(c, http.StatusInternalServerError, "读取导入文件失败")
 		return
 	}
 	defer file.Close()
-	// 导入上传文件不设大小上限（设计取舍：正常导出文件 ≤3MB，边界由部署层反代控制，Design1 §3.4.8）
-	data := make([]byte, 0)
-	buf := make([]byte, 64*1024)
-	for {
-		n, rerr := file.Read(buf)
-		data = append(data, buf[:n]...)
-		if rerr != nil {
-			break
+	data, err := readImportFile(file)
+	if err != nil {
+		if errors.Is(err, errImportFileTooLarge) {
+			Fail(c, http.StatusRequestEntityTooLarge, "导入文件超过 20 MiB")
+			return
 		}
+		log.FromContext(ctx).Error("读取导入文件失败", "err", err)
+		Fail(c, http.StatusInternalServerError, "读取导入文件失败")
+		return
 	}
 	password := c.PostForm("password")
 	confirmWord := c.PostForm("confirm_word")

@@ -1,4 +1,4 @@
-package server
+package userrender
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 // R28-06 审计补强：带未知扩展的 manual 节点生成 Clash 蓝图后，用户下载重渲染路径不得引入扩展明文或密文。
 func TestR28_06DownloadRerenderDoesNotExposeExtensionSentinel(t *testing.T) {
 	ctx := context.Background()
-	_, st, cfg := newAssemblyTestEnv(t)
+	st, cfg := newUserrenderTestEnv(t)
 	lg := log.New("error", "console")
 	const (
 		plain      = "r28-06-download-plain-sentinel"
@@ -97,7 +97,8 @@ func TestR28_06DownloadRerenderDoesNotExposeExtensionSentinel(t *testing.T) {
 	instSvc := xray.NewInstanceService(st, lg, tasks.NewRegistry())
 	creds := xray.NewCredentialService(st, cfg)
 	syncSvc := xray.NewSyncService(st, cfg, creds, instSvc, tasks.NewRegistry(), lg)
-	output, err := renderUserSubscription(ctx, st, cfg, syncSvc, creds, subscriptionID, 0, rendered.Content, "r28-06-download.yaml")
+	svc := NewService(st, cfg, syncSvc, creds, lg)
+	output, err := svc.Render(ctx, subscriptionID, 0, rendered.Content, "r28-06-download.yaml")
 	if err != nil {
 		t.Fatalf("下载重渲染失败: %v", err)
 	}

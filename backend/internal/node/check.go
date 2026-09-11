@@ -393,12 +393,15 @@ func checkFieldPath(err error) string {
 }
 
 func makeCheckID(in CheckRequest, params map[string]any) string {
-	raw, _ := json.Marshal(struct {
+	raw, err := json.Marshal(struct {
 		NodeID   int64          `json:"node_id"`
 		Revision int64          `json:"revision"`
 		Protocol string         `json:"protocol"`
 		Params   map[string]any `json:"params"`
 	}{in.NodeID, in.BaseRevision, in.Protocol, params})
+	if err != nil {
+		raw = []byte("{}") // 请求结构本应可序列化；异常时仅降级摘要输入，时间戳仍保证 check_id 唯一
+	}
 	hash := sha256.Sum256(raw)
 	return fmt.Sprintf("chk-%d-%s", time.Now().UnixNano(), hex.EncodeToString(hash[:])[:12])
 }

@@ -10,6 +10,7 @@ import { http } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import { oidcTest, setupOidc } from '@/api/oidc'
 import { setupImportConfig } from '@/api/settings'
+import { importFileError } from '@/utils/fileLimits'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 
 const router = useRouter()
@@ -51,6 +52,12 @@ const importPwd = ref('')
 const importing = ref(false)
 
 function onImportFile(file: File) {
+  const err = importFileError(file)
+  if (err) {
+    importFile.value = null
+    Notify.error(err)
+    return false
+  }
   importFile.value = file
   return false
 }

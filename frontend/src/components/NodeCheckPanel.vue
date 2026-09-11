@@ -107,7 +107,7 @@ const targetKeys = computed(() => result.value ? Object.keys(result.value.target
         <div v-else class="text-xs text-text-tertiary mt-2">未发现诊断</div>
         <details v-if="result.targets[key].preview" class="mt-2">
           <summary class="cursor-pointer text-xs text-text-secondary">脱敏产物（不能直接连接）</summary>
-          <pre class="mt-1 overflow-auto rounded bg-gray-50 p-2 text-xs">{{ result.targets[key].preview }}</pre>
+          <pre class="mt-1 overflow-auto rounded bg-surface-subtle p-2 text-xs">{{ result.targets[key].preview }}</pre>
         </details>
       </div>
       <p class="text-xs text-text-tertiary">检查结果仅用于提示，不自动保存节点。</p>

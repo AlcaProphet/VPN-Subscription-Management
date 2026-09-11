@@ -17,7 +17,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
 )
 
@@ -93,10 +92,11 @@ type AdminService struct {
 	advancedSwitcher AdvancedModeSwitcher
 	dataDir          string // 数据卷根目录（站点 ICON 落盘用）
 	log              *slog.Logger
+	level            *slog.LevelVar
 }
 
-func NewAdminService(cfg *Service, st *store.Store, oidcOps OidcOps, dataDir string, lg *slog.Logger) *AdminService {
-	return &AdminService{cfg: cfg, store: st, oidcOps: oidcOps, dataDir: dataDir, log: lg}
+func NewAdminService(cfg *Service, st *store.Store, oidcOps OidcOps, dataDir string, lg *slog.Logger, level *slog.LevelVar) *AdminService {
+	return &AdminService{cfg: cfg, store: st, oidcOps: oidcOps, dataDir: dataDir, log: lg, level: level}
 }
 
 // SetAdvancedModeSwitcher 注入高级模式开关实现（server 装配时调用）。
@@ -108,7 +108,7 @@ func (s *AdminService) SetAdvancedModeSwitcher(fn AdvancedModeSwitcher) {
 
 // getMasked 敏感字段 GET 返回脱敏值（已配置 → "***"，未配置 → ""），禁止返回明文
 func (s *AdminService) getMasked(ctx context.Context, key string) string {
-	v, _ := s.cfg.Get(ctx, key)
+	v := s.cfg.GetOr(ctx, key)
 	if v == "" {
 		return ""
 	}
@@ -154,9 +154,9 @@ func (s *AdminService) oidcUsable(ctx context.Context, in OidcSettings) bool {
 // GetOidc 回显当前 OIDC 配置（Secret 脱敏；frontend/callback 返回库值——启动缓存语义）
 func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 	out := OidcSettings{}
-	out.ProviderType, _ = s.cfg.Get(ctx, oidcKeyProviderType)
-	out.FrontendURL, _ = s.cfg.Get(ctx, KeyFrontendURL)
-	out.CallbackURL, _ = s.cfg.Get(ctx, KeyCallbackURL)
+	out.ProviderType = s.cfg.GetOr(ctx, oidcKeyProviderType)
+	out.FrontendURL = s.cfg.GetOr(ctx, KeyFrontendURL)
+	out.CallbackURL = s.cfg.GetOr(ctx, KeyCallbackURL)
 	if out.ProviderType != "" {
 		baseURL, realm, clientID, secret, err := s.oidcOps.LoadParams(ctx, out.ProviderType)
 		if err != nil {
@@ -324,8 +324,8 @@ func (s *AdminService) SaveCaptcha(ctx context.Context, in CaptchaSettings) erro
 		return fmt.Errorf("%w: 验证码提供商无效", ErrBadRequest)
 	}
 	if in.Provider != "off" && len(in.Pages) > 0 {
-		existingSite, _ := s.cfg.Get(ctx, captchaKeySiteKey)
-		existingSecret, _ := s.cfg.Get(ctx, captchaKeySecretKey)
+		existingSite := s.cfg.GetOr(ctx, captchaKeySiteKey)
+		existingSecret := s.cfg.GetOr(ctx, captchaKeySecretKey)
 		if (in.SiteKey == "" && existingSite == "") || (in.SecretKey == "" && existingSecret == "") {
 			return ErrCaptchaKeyMissing
 		}
@@ -589,7 +589,18 @@ func (s *AdminService) SetLogLevel(ctx context.Context, level string) error {
 	if err := s.cfg.Set(ctx, KeyLogLevel, level); err != nil {
 		return err
 	}
-	log.SetLevel(level) // 运行时切换：LevelVar 全局可调，立即生效
+	if s.level != nil { // 只切换当前运行时实例的 LevelVar，不影响其他 Runtime
+		switch level {
+		case "debug":
+			s.level.Set(slog.LevelDebug)
+		case "warn":
+			s.level.Set(slog.LevelWarn)
+		case "error":
+			s.level.Set(slog.LevelError)
+		default:
+			s.level.Set(slog.LevelInfo)
+		}
+	}
 	return nil
 }
 

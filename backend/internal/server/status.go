@@ -30,9 +30,9 @@ func registerStatus(engine *gin.Engine, cfg *config.Service, users *user.Service
 
 // announcement 公告/页脚公开端点：返回首页公告 / 登录页公告 / 登录页页脚（仅管理员面板可写，无敏感信息；R07-02/R10-07）
 func (h *StatusHandler) announcement(c *gin.Context) {
-	home, _ := h.cfg.Get(c.Request.Context(), "announcement")
-	login, _ := h.cfg.Get(c.Request.Context(), "login_announcement")
-	footer, _ := h.cfg.Get(c.Request.Context(), "login_footer")
+	home := h.cfg.GetOr(c.Request.Context(), "announcement")
+	login := h.cfg.GetOr(c.Request.Context(), "login_announcement")
+	footer := h.cfg.GetOr(c.Request.Context(), "login_footer")
 	OK(c, gin.H{"home_announcement": home, "login_announcement": login, "login_footer": footer})
 }
 
@@ -50,9 +50,9 @@ func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 			Fail(c, 500, err.Error())
 			return
 		}
-		providerType, _ := h.cfg.Get(ctx, oidc.KeyProviderType)
-		captchaProvider, _ := h.cfg.Get(ctx, captcha.KeyProvider)
-		siteKey, _ := h.cfg.Get(ctx, captcha.KeySiteKey)
+		providerType := h.cfg.GetOr(ctx, oidc.KeyProviderType)
+		captchaProvider := h.cfg.GetOr(ctx, captcha.KeyProvider)
+		siteKey := h.cfg.GetOr(ctx, captcha.KeySiteKey)
 		// 应急标记（Build3 Step 6）：应急模式下 true + 触发原因 + 可用能力
 		emergencyOn := false
 		emergencyReason := ""

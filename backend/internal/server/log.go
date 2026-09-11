@@ -1,14 +1,17 @@
 // server/log.go：日志端点（接入层，Build3 Step 5）——访问日志查询/清空 + 实时日志流 SSE；
-// 会话 + 管理员双中间件；SSE 认证用一次性短期 Token（EventSource 无法带 Header，Design1 §4.8）。
+// 全部日志端点（含 SSE）统一叠加会话 + 管理员双中间件；查询 Token 已删除。
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"vpn-sub/internal/auth"
 	"vpn-sub/internal/log"
 )
 
@@ -16,17 +19,17 @@ import (
 type LogHandler struct {
 	accessSvc *log.AccessService
 	streamSvc *log.StreamService
+	users     auth.UserSource
+	// permissionInterval 流内权限重查间隔；生产默认 15 秒，测试可注入更短间隔。
+	permissionInterval time.Duration
 }
 
-// RegisterLogRoutes 注册日志端点；访问日志/清空/换 Token 叠加会话 + 管理员双中间件；
-// /stream 独立注册：SSE 仅靠一次性短期 Token 鉴权（EventSource 无法带 Authorization 头，Design1 §4.8），
-// 若置于会话组内 EventSource 请求必被 401 拒绝
+// RegisterLogRoutes 注册日志端点；访问日志/清空/SSE 全部叠加会话 + 管理员双中间件。
 func RegisterLogRoutes(engine *gin.Engine, h *LogHandler, sessionMW, adminMW gin.HandlerFunc) {
 	g := engine.Group("/api/admin/logs", sessionMW, adminMW)
 	g.GET("/access", h.queryAccess) // ?from=&to=&page=&size=
 	g.POST("/access/clear", h.clearAccess)
-	g.POST("/stream/token", h.issueStreamToken)    // 换一次性短期 Token（会话凭据鉴权）
-	engine.GET("/api/admin/logs/stream", h.stream) // SSE：?token= 短期 Token（EventSource 无法带 Header）
+	g.GET("/stream", h.stream) // SSE：Bearer 会话凭据经 fetch/ReadableStream 连接
 }
 
 // queryAccess 访问日志查询（日期范围 + 后端分页）
@@ -50,23 +53,10 @@ func (h *LogHandler) clearAccess(c *gin.Context) {
 	OK(c, nil)
 }
 
-// issueStreamToken 换取一次性短期 Token（仅管理员——双中间件已保证）
-func (h *LogHandler) issueStreamToken(c *gin.Context) {
-	token, err := h.streamSvc.IssueToken()
-	if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-	OK(c, gin.H{"token": token})
-}
-
-// stream SSE 端点——先推缓冲历史，再实时推增量；Token 单次连接建立后即删；连接断开自动清理
+// stream SSE 端点——管理员路由中间件已鉴权；先推缓冲历史，再实时推增量；
+// 流内每 15 秒通过 UserSource 实时查库，用户缺失/非 active/非 admin 时关闭连接并清理订阅。
 func (h *LogHandler) stream(c *gin.Context) {
 	clearWriteDeadline(c)
-	if !h.streamSvc.ConsumeToken(c.Query("token")) { // 一次性校验（用后即删）
-		Fail(c, http.StatusUnauthorized, "短期 Token 无效或已过期")
-		return
-	}
 	ch, history, ok := h.streamSvc.Subscribe()
 	if !ok {
 		Fail(c, http.StatusTooManyRequests, "连接数已达上限，请关闭其他日志页后重试")
@@ -82,11 +72,17 @@ func (h *LogHandler) stream(c *gin.Context) {
 	for _, e := range history {
 		writeSSE(c, e)
 	}
-	// 历史推送后立即 flush 一次：连接建立即有响应头/历史下发，EventSource onopen 即时触发（即使无新事件）
+	// 历史推送后立即 flush 一次：连接建立即有响应头/历史下发（即使无新事件）
 	if flusher != nil {
 		flusher.Flush()
 	}
-	// 再推增量（断开检测：请求上下文取消）
+	interval := h.permissionInterval
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	permissionTicker := time.NewTicker(interval)
+	defer permissionTicker.Stop()
+	userID := c.GetInt64(auth.CtxUserID)
 	for {
 		select {
 		case e, ok := <-ch:
@@ -97,10 +93,27 @@ func (h *LogHandler) stream(c *gin.Context) {
 			if flusher != nil {
 				flusher.Flush()
 			}
+		case <-permissionTicker.C:
+			if !h.streamUserAllowed(c.Request.Context(), userID) {
+				log.FromContext(c.Request.Context()).Warn("实时日志流权限变化，关闭连接", "user_id", userID)
+				return
+			}
 		case <-c.Request.Context().Done(): // 客户端断开
 			return
 		}
 	}
+}
+
+// streamUserAllowed 实时查库校验：用户存在、active 且 admin。
+func (h *LogHandler) streamUserAllowed(ctx context.Context, userID int64) bool {
+	if h.users == nil {
+		return false
+	}
+	snap, err := h.users.SnapshotByID(ctx, userID)
+	if err != nil || snap == nil {
+		return false
+	}
+	return snap.Status == "active" && snap.Role == "admin"
 }
 
 // writeSSE 按 SSE 协议输出：data: <json>\n\n

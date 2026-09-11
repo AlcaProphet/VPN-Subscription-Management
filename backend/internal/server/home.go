@@ -2,25 +2,27 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
-	"vpn-sub/internal/config"
 	"vpn-sub/internal/home"
-	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/xray"
 )
 
+// trafficSummaryProvider 将流量汇总限定为接入层可调用的业务接口，避免 Handler 直接依赖存储/配置。
+type trafficSummaryProvider interface {
+	TrafficSummaryForUser(ctx context.Context, userID int64) (*xray.TrafficSummary, error)
+}
+
 // HomeHandler 用户端数据处理器（结构体 Handler + 依赖注入；R14-16：查询已下沉 internal/home）
 type HomeHandler struct {
-	homeSvc *home.Service
-	st      *store.Store
-	cfg     *config.Service
-	syncSvc *xray.SyncService
+	homeSvc    *home.Service
+	trafficSvc trafficSummaryProvider
 }
 
 // RegisterHomeRoutes 注册用户端数据端点；全部需会话
@@ -54,7 +56,7 @@ func (h *HomeHandler) summary(c *gin.Context) {
 		return
 	}
 	userID := c.GetInt64(auth.CtxUserID)
-	traffic, err := trafficPayload(ctx, h.st, h.cfg, h.syncSvc, userID)
+	traffic, err := h.trafficSvc.TrafficSummaryForUser(ctx, userID)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return

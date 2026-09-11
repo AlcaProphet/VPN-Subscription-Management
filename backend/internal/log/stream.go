@@ -1,12 +1,9 @@
 // log/stream.go：实时日志流服务（Build3 Step 5）——内存环形缓冲（最近 500 条）+ SSE 订阅管理 +
-// 一次性短期 Token（≥128 位，单次连接建立后即删，未使用 5 分钟 TTL）+ 全局 8 连接上限（Design1 §4.8）。
+// 全局 8 连接上限（Design1 §4.8）。认证由管理员路由会话 + 角色中间件承担，不再使用一次性查询 Token。
 package log
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -14,9 +11,8 @@ import (
 )
 
 const (
-	RingBufferSize    = 500             // 环形缓冲最近 500 条
-	MaxSSEConnections = 8               // 全局 8 连接（不按管理员计）
-	StreamTokenTTL    = 5 * time.Minute // 未使用短期 Token 5 分钟过期
+	RingBufferSize    = 500 // 环形缓冲最近 500 条
+	MaxSSEConnections = 8   // 全局 8 连接（不按管理员计）
 )
 
 // Entry 缓冲日志条目（SSE 推送 JSON 结构）
@@ -114,53 +110,16 @@ func formatAttrs(r slog.Record) string {
 	return sb.String()
 }
 
-// StreamService 实时日志流服务（短期 Token + SSE 连接管理）
+// StreamService 实时日志流服务（SSE 连接管理；认证由管理员路由中间件承担）
 type StreamService struct {
 	buf       *RingBuffer
 	log       *slog.Logger
 	mu        sync.Mutex
-	tokens    map[string]time.Time // token → 过期时间（仅存内存）
-	connCount int                  // 当前活跃 SSE 连接数
+	connCount int // 当前活跃 SSE 连接数
 }
 
 func NewStreamService(buf *RingBuffer, lg *slog.Logger) *StreamService {
-	return &StreamService{buf: buf, log: lg, tokens: map[string]time.Time{}}
-}
-
-// IssueToken 换取一次性短期 Token（256 位 ≥ 128 位；单次连接建立后即删；未使用 5 分钟 TTL）
-func (s *StreamService) IssueToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("生成短期 Token 失败: %w", err)
-	}
-	token := base64.RawURLEncoding.EncodeToString(b)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.gcLocked() // 顺带清理过期 Token
-	s.tokens[token] = time.Now().Add(StreamTokenTTL)
-	return token, nil
-}
-
-// ConsumeToken 校验并用后即删（严格一次性）；过期视同无效
-func (s *StreamService) ConsumeToken(token string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	exp, ok := s.tokens[token]
-	if !ok || time.Now().After(exp) {
-		return false
-	}
-	delete(s.tokens, token) // 用后即删
-	return true
-}
-
-// gcLocked 清理过期 Token（调用方持锁）
-func (s *StreamService) gcLocked() {
-	now := time.Now()
-	for t, exp := range s.tokens {
-		if now.After(exp) {
-			delete(s.tokens, t)
-		}
-	}
+	return &StreamService{buf: buf, log: lg}
 }
 
 // Subscribe 注册订阅者：先返回缓冲历史快照；超 8 连接上限返回 false（接入层拒绝并提示）
@@ -190,12 +149,11 @@ func (s *StreamService) Unsubscribe(ch chan Entry) {
 	s.connCount--
 }
 
-// Reset 一键清空数据时内存态复位（Build3 Step 4 的 resetRuntimeState 回调）：清空短期 Token、
-// 缓冲与全部活跃连接
+// Reset 一键清空数据时内存态复位（Build3 Step 4 的 resetRuntimeState 回调）：清空缓冲与全部活跃连接。
+// 查询 Token 状态已删除，不再需要复位。
 func (s *StreamService) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tokens = map[string]time.Time{}
 	s.buf.mu.Lock()
 	s.buf.entries = nil
 	for ch := range s.buf.subs { // 断开全部活跃连接

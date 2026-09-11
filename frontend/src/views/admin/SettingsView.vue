@@ -20,6 +20,7 @@ import { pollTask } from '@/api/request'
 import { useSystemStore } from '@/stores/system'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/api/request'
+import { importFileError } from '@/utils/fileLimits'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { Notify } from '@/components/Notify'
@@ -522,6 +523,12 @@ async function doExport() {
 }
 
 function onImportFile(file: File) {
+  const err = importFileError(file)
+  if (err) {
+    importForm.file = null
+    Notify.error(err)
+    return false
+  }
   importForm.file = file
   return false
 }

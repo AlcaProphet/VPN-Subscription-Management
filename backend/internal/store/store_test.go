@@ -1,10 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -171,5 +174,22 @@ func TestTxImmediateRollback(t *testing.T) {
 func TestOpenPathTraversal(t *testing.T) {
 	if _, err := Open(t.TempDir(), "../evil.db"); err == nil {
 		t.Error("含路径分隔符的数据库文件名应拒绝")
+	}
+}
+
+// TestOpenInjectsMigrationLogger 迁移日志写入 Open 选项注入的实例 Logger，不使用包级全局 logger。
+func TestOpenInjectsMigrationLogger(t *testing.T) {
+	var buf bytes.Buffer
+	lg := slog.New(slog.NewTextHandler(&buf, nil))
+	st, err := Open(t.TempDir(), "test.db", WithLogger(lg))
+	if err != nil {
+		t.Fatalf("打开失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(context.Background(), testFS()); err != nil {
+		t.Fatalf("迁移失败: %v", err)
+	}
+	if !strings.Contains(buf.String(), "迁移已应用") {
+		t.Fatalf("迁移日志未进入注入 Logger: %q", buf.String())
 	}
 }

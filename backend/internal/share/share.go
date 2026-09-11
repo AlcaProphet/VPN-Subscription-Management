@@ -53,7 +53,7 @@ func (s *Service) Create(ctx context.Context, name string, src version.ContentPr
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		value, err := slug.Generate(ctx, tx, "share-", func(v string) (bool, error) {
 			return slug.ExistsInFourTables(ctx, tx, v) // rules 表 Step 6 才建，缺失则跳过
-		})
+		}, s.log)
 		if err != nil {
 			return err
 		}
@@ -61,7 +61,10 @@ func (s *Service) Create(ctx context.Context, name string, src version.ContentPr
 		if err != nil {
 			return fmt.Errorf("创建分享订阅失败: %w", err)
 		}
-		id, _ := res.LastInsertId()
+		id, err := res.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("读取分享订阅 ID 失败: %w", err)
+		}
 		tk, err := s.tokens.CreateShareTokenTx(ctx, tx, id) // 创建时自动生成 Token
 		if err != nil {
 			return err
@@ -105,7 +108,11 @@ func (s *Service) Rename(ctx context.Context, id int64, name string) error {
 	if err != nil {
 		return fmt.Errorf("改名失败: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("读取改名结果失败: %w", err)
+	}
+	if n == 0 {
 		return ErrNotFound
 	}
 	return nil

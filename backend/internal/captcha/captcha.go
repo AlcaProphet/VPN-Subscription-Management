@@ -40,7 +40,7 @@ func NewService(cfg *config.Service, lg *slog.Logger) *Service {
 
 // Enforced 某页面是否强制校验（页面在 captcha_pages 且密钥已配置）
 func (s *Service) Enforced(ctx context.Context, page string) bool {
-	provider, _ := s.cfg.Get(ctx, KeyProvider)
+	provider := s.cfg.GetOr(ctx, KeyProvider)
 	if provider == "off" || provider == "" {
 		return false
 	}
@@ -48,7 +48,7 @@ func (s *Service) Enforced(ctx context.Context, page string) bool {
 	if !slices.Contains(pages, page) {
 		return false
 	}
-	secret, _ := s.cfg.Get(ctx, KeySecretKey)
+	secret := s.cfg.GetOr(ctx, KeySecretKey)
 	if secret == "" {
 		// 运行中密钥配置缺失 → 跳过校验兜底并记 warn（Design1 §3.2）
 		s.log.Warn("验证码密钥未配置，跳过校验", "page", page, "provider", provider)
@@ -66,8 +66,8 @@ func (s *Service) Verify(ctx context.Context, page, captchaToken string) error {
 	if captchaToken == "" {
 		return errors.New("请完成验证码校验")
 	}
-	provider, _ := s.cfg.Get(ctx, KeyProvider)
-	secret, _ := s.cfg.Get(ctx, KeySecretKey)
+	provider := s.cfg.GetOr(ctx, KeyProvider)
+	secret := s.cfg.GetOr(ctx, KeySecretKey)
 	var verifyURL string
 	switch provider {
 	case "recaptcha":
@@ -116,7 +116,9 @@ func (s *Service) Middleware(page string) gin.HandlerFunc {
 		var body struct {
 			CaptchaToken string `json:"captcha_token"`
 		}
-		_ = c.ShouldBindBodyWithJSON(&body) // 校验失败由 Verify 统一处理
+		if err := c.ShouldBindBodyWithJSON(&body); err != nil {
+			body.CaptchaToken = "" // 解析失败保持既有语义：由 Verify 统一返回 400
+		}
 		if err := s.Verify(c.Request.Context(), page, body.CaptchaToken); err != nil {
 			response.Fail(c, http.StatusBadRequest, err.Error())
 			c.Abort()

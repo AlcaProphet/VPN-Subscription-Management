@@ -48,12 +48,23 @@ type Service struct {
 	store *store.Store
 	log   *slog.Logger
 
+	// marshal 用于快照/任务结果 JSON 序列化；默认 json.Marshal，测试可注入失败返回以覆盖错误路径。
+	marshal func(any) ([]byte, error)
+
 	mu      sync.Mutex
 	cancels map[int64]context.CancelCauseFunc
 }
 
 func NewService(st *store.Store, lg *slog.Logger) *Service {
-	return &Service{store: st, log: lg, cancels: map[int64]context.CancelCauseFunc{}}
+	return &Service{store: st, log: lg, marshal: json.Marshal, cancels: map[int64]context.CancelCauseFunc{}}
+}
+
+// marshalJSON 使用实例序列化函数；未注入时回退 json.Marshal（测试可注入失败函数覆盖错误路径）。
+func (s *Service) marshalJSON(v any) ([]byte, error) {
+	if s.marshal != nil {
+		return s.marshal(v)
+	}
+	return json.Marshal(v)
 }
 
 // Pool 素材池
@@ -435,7 +446,9 @@ ranked AS (
 			return nil, 0, err
 		}
 		var opts rulespec.RuleOptions
-		_ = json.Unmarshal([]byte(optionsRaw), &opts)
+		if err := json.Unmarshal([]byte(optionsRaw), &opts); err != nil {
+			s.log.Warn("解析规则选项失败，按空选项展示", "entry_id", id, "err", err)
+		}
 		rule := rulespec.CanonicalRule{Family: rulespec.Family(family), Matcher: rulespec.Matcher(matcher), Value: value, Options: opts}
 		out = append(out, Entry{
 			ID: id, PoolID: poolID, RuleType: legacyTypeForCanonical(rule), MatchValue: value,
@@ -460,7 +473,6 @@ func (s *Service) CreateEntry(ctx context.Context, poolID int64, ruleType, match
 		if err != nil {
 			return err
 		}
-		semanticKey := canonical.SemanticKey()
 		canonicalID, err := ensureCanonicalTx(ctx, tx, poolID, canonical)
 		if err != nil {
 			return err
@@ -485,7 +497,6 @@ func (s *Service) CreateEntry(ctx context.Context, poolID int64, ruleType, match
 			return err
 		}
 		created = &Entry{ID: canonicalID, PoolID: poolID, RuleType: legacyType, MatchValue: value, Source: "manual", SortOrder: order}
-		_ = semanticKey
 		return nil
 	})
 	return created, err
@@ -617,7 +628,10 @@ func ensureCanonicalTx(ctx context.Context, tx *sql.Tx, poolID int64, rule rules
 	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
-	opts, _ := json.Marshal(rule.Options)
+	opts, err := json.Marshal(rule.Options)
+	if err != nil {
+		return 0, fmt.Errorf("序列化规则选项失败: %w", err)
+	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO pool_canonical_rules (pool_id, semantic_key, family, matcher, value, options_json) VALUES (?,?,?,?,?,?)`,
 		poolID, rule.SemanticKey(), string(rule.Family), string(rule.Matcher), rule.Value, string(opts))

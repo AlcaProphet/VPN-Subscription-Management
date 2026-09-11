@@ -126,7 +126,9 @@ func scanSnapshot(row rowScanner) (*SourceSnapshot, error) {
 		return nil, err
 	}
 	var diags []ParseDiagnostic
-	_ = json.Unmarshal([]byte(diagRaw), &diags)
+	if err := json.Unmarshal([]byte(diagRaw), &diags); err != nil {
+		return nil, fmt.Errorf("解析快照诊断失败: %w", err)
+	}
 	s.Diagnostics = NormalizeDiagnostics(diags)
 	s.Stats = parseStats(statsRaw)
 	s.Error = snapshotErrorFromDiagnostics(s.Status, s.Diagnostics)

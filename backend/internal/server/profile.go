@@ -8,18 +8,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
-	"vpn-sub/internal/config"
-	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
-	"vpn-sub/internal/xray"
 )
 
 // ProfileHandler 个人中心处理器（结构体 Handler + 依赖注入）
 type ProfileHandler struct {
-	userSvc *user.Service
-	st      *store.Store
-	cfg     *config.Service
-	syncSvc *xray.SyncService
+	userSvc    *user.Service
+	trafficSvc trafficSummaryProvider
 }
 
 // RegisterProfileRoutes 注册个人中心端点；全部需会话
@@ -104,7 +99,7 @@ func (h *ProfileHandler) updatePassword(c *gin.Context) {
 
 func (h *ProfileHandler) traffic(c *gin.Context) {
 	userID := c.GetInt64(auth.CtxUserID)
-	payload, err := trafficPayload(c.Request.Context(), h.st, h.cfg, h.syncSvc, userID)
+	payload, err := h.trafficSvc.TrafficSummaryForUser(c.Request.Context(), userID)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return

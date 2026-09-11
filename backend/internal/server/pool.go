@@ -144,8 +144,14 @@ func (h *PoolHandler) delete(c *gin.Context) {
 }
 
 func pagination(c *gin.Context) (int64, int64) {
-	page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
-	size, _ := strconv.ParseInt(c.DefaultQuery("page_size", "20"), 10, 64)
+	page, err := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
+	if err != nil {
+		page = 1
+	}
+	size, err := strconv.ParseInt(c.DefaultQuery("page_size", "20"), 10, 64)
+	if err != nil {
+		size = 20
+	}
 	return page, size
 }
 

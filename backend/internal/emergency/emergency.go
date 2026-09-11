@@ -58,7 +58,7 @@ func Detect(ctx context.Context, st *store.Store, cfg *config.Service, lg *slog.
 		return TriggerDBCorrupt, false
 	}
 	configured := cfg.GetBool(ctx, config.KeyConfigured, false)
-	signingKey, _ := cfg.Get(ctx, config.KeySigningKey)
+	signingKey := cfg.GetOr(ctx, config.KeySigningKey)
 	if configured && signingKey == "" {
 		return TriggerKeyMissing, true
 	}
@@ -178,7 +178,11 @@ func (s *Service) ResetAdminPassword(ctx context.Context, userID int64, newPassw
 	if err != nil {
 		return fmt.Errorf("重置管理员密码失败: %w", err)
 	}
-	if affected, _ := res.RowsAffected(); affected == 0 {
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("读取重置结果失败: %w", err)
+	}
+	if affected == 0 {
 		return errors.New("管理员账号不存在或不可用")
 	}
 	s.log.Warn("应急重置管理员密码已执行", "user_id", userID)

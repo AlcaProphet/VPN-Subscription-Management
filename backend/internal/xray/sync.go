@@ -412,7 +412,10 @@ func (s *SyncService) RetryUser(ctx context.Context, userID int64) (map[string]a
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	removed, removeFailed, _ := s.RemoveUserFromTargets(ctx, userID, removeTargets)
+	removed, removeFailed, err := s.RemoveUserFromTargets(ctx, userID, removeTargets)
+	if err != nil {
+		return nil, fmt.Errorf("重试前移除旧目标失败: %w", err)
+	}
 	synced, failed, err := s.PushUser(ctx, userID)
 	if err != nil {
 		return nil, err

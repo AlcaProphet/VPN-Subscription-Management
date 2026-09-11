@@ -1004,7 +1004,23 @@ v1.5 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、�
 
 Build 编写时上述契约如与 AGENTS.md、现有 Design2/Design3 或用户决策冲突，必须停下提问，不擅自取舍。
 
+### 12.7 核心工程约束现行合同补充（Build26，2026-09-11）
 
+本节记录 Build26 / Issue14 步骤五已实施并验收的 R28-07 核心工程约束现行口径；不替代 AGENTS.md，不回写归档 Design1 的历史决策，也不把历史设计描述为“当时错误”。
+
+**A. 首管理员初始化：** 首个本地注册用户或首个 OIDC 建号是否成为 `admin`，只以同一 `BEGIN IMMEDIATE` 事务内 `users` 表是否为空这一唯一事实来源判断；历史库中的 `admin_initialized` 键保留但不读取、不写入、不参与判断、不做迁移。待审批用户记录同样占用表，存在任意用户行时不触发首管理员逻辑。
+
+**B. 自定义订阅与下载 Token 业务键：** 用户/平台 Token 的业务键按当前业务状态在单事务内解析：存在自定义订阅时优先自定义 Token，并清理该用户/平台的历史无标识组 Token 与旧 custom Token；不存在自定义且平台有激活版本时使用/创建无标识组 Token；两者都没有时不创建新 Token。刷新链接按业务键原子轮替并做同样的历史双 Token 清理。显式订阅 Token（管理员预览）继续按 `subscription_id` 保留，不参与自定义/组协调。下载端点状态码、自定义覆盖优先级、无激活版本的 `HTTP 200 + # error: unassigned` 合同不变。
+
+**D. 分层与架构：** 用户动态下载渲染统一落在 `internal/userrender`；月流量/有效配额/`quota_exceeded` 汇总落在 `internal/xray` 业务结构体；OIDC ticket 的创建、消费、过期清理落在 `internal/oidc`。`internal/server` 非测试生产文件不再直接调用 `DB()`/`TxImmediate()`；Handler/接入层只做协议解析、中间件和响应映射。用户下载渲染、流量 JSON、OIDC ticket cookie/HTTP 合同保持既有形状。
+
+**E. 日志与可变包级状态：** 运行日志使用 `log.Runtime{Logger, Level}` 实例；`log.New` 保留为每次独立 LevelVar 的兼容入口；请求上下文注入实例 Logger，5xx/请求/panic 日志不使用包级可变回调和默认 logger。Store 通过 `Open(..., WithLogger(...))` 注入迁移日志，`config.AdminService` 持有运行时 LevelVar 控制器。敏感配置键为编译期固定判定（当前仅 `smtp_password`），不再运行期注册。日志格式、环境变量、级别持久化和脱敏语义不变。
+
+**G. 双导入入口体积边界：** `/api/setup/import` 与 `/api/admin/settings/import` 的完整 multipart 请求体硬上限为 21 MiB，其中 `file` 字段硬上限为 20 MiB（20 × 1024 × 1024 字节）；前端在选择文件阶段对 >20 MiB 提前拒绝。无 Content-Length、chunked、伪造 Content-Length 均受同一后端上限约束；超限返回 413，真实读取错误返回 500 且不创建任务；`io.EOF` 与真实读取错误分开处理。`IMPORT` / 管理端 `IMPORT → DISABLE` 语义保持不变，导入文件格式和 AES-GCM 整体格式不变。
+
+**I. SSE 管理员鉴权：** 实时日志流端点位于管理员路由组，使用会话 + 管理员双中间件；前端用 `fetch` + `ReadableStream` 携带现有 Bearer 会话凭据并解析 SSE 帧，不使用 `EventSource` 查询 Token，也不存在 `/stream/token` 换取端点。保留历史缓冲、增量推送、断线重连、卸载 abort、连接上限 8。流建立后每 15 秒通过 `auth.UserSource` 实时查库，用户缺失、非 active 或非 admin 时关闭并清理订阅。
+
+**F. 设计取向、未实施：** 验证码 Site/Secret Key 的明文存储、原值回显及数据库/导入导出/API/管理页行为继续按用户已确认的设计取向保留；Build26 不实施加密迁移、掩码回显或只写更新，不得记录为“已修复”。
 
 ## 十三、变更记录
 
@@ -1034,3 +1050,4 @@ Build 编写时上述契约如与 AGENTS.md、现有 Design2/Design3 或用户�
 | v1.19 | 2026-09-10 | 文档交叉审核同步 Build22/Design3 状态：Build22 Step 7 专属自动化证据矩阵未落地，D3 全验收不成立；Build22 与 Design3 保持根目录活跃、暂不归档，待 Step 7 证据补齐并重跑 Step 11 后再收口。节点编辑器正式契约不受影响。 |
 | v1.20 | 2026-09-10 | 闭环 R28-06/Build25 缺口：明确 `item_id_field` 为列表固定对象内部合法键，前端高级 JSON 校验须与 `properties` 一并放行，输出前仍按 schema 剥离；同步记录 `knownFieldNames()`、保存定位稳定排序、条件隐藏清理与折叠/组件卸载边界回归，以及缺口修复后定向/全量/build/vet/Docker/Production smoke 门禁全部通过。Build25 已归档，人工/真机项仍在 ProdTestList。 |
 | v1.21 | 2026-09-11 | 随 Build22 Step 7 证据补齐与 Step 11 重新收口：D3-1～D3-10 全部验收通过，Build22/Design3 已归档；节点编辑器正式契约不受影响。 |
+| v1.22 | 2026-09-11 | 增加 §12.7 “核心工程约束现行合同补充（Build26）”：记录 R28-07A/B/D/E/G/I 的现行口径、边界与不变合同，明确 R28-07F 仍为设计取向且未实施；不回写归档 Design1，不把历史设计称为当时错误。 |

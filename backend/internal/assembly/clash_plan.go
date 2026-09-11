@@ -327,7 +327,9 @@ func mapIntValue(m gyaml.MapSlice, key string) int {
 		return int(v)
 	case string:
 		var n int
-		_, _ = fmt.Sscanf(v, "%d", &n)
+		if _, err := fmt.Sscanf(v, "%d", &n); err != nil {
+			return 0
+		}
 		return n
 	default:
 		return 0

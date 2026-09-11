@@ -46,45 +46,156 @@ type UserToken struct {
 }
 
 // GetOrCreateUserToken 并发首建——单个 BEGIN IMMEDIATE 事务内先查后建，复用键命中即复用（Design1 §4.2）。
-// 复用键：无标识 user+platform；自定义 user+platform+custom_sub_id；显式 user+platform+subscription_id
+// 复用键：无标识 user+platform；自定义 user+platform+custom_sub_id；显式 user+platform+subscription_id。
+// 新业务路径优先使用 ResolveUserToken（按自定义/组激活状态协调并清理历史双 Token）；本方法保留给显式
+// Token 和底层复用键调用方。
 func (s *Service) GetOrCreateUserToken(ctx context.Context, userID, platformID, customSubID, subscriptionID int64) (*UserToken, error) {
 	if customSubID != 0 && subscriptionID != 0 {
 		return nil, errors.New("custom_sub_id 与 subscription_id 互斥")
 	}
 	var t *UserToken
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		// 先查（NULL 语义：可选标识为 0 时匹配 IS NULL）
-		row := tx.QueryRowContext(ctx,
-			`SELECT id, token, user_id, platform_id,
-			        COALESCE(custom_sub_id,0), COALESCE(subscription_id,0)
-			 FROM download_tokens
-			 WHERE user_id = ? AND platform_id = ?
-			   AND COALESCE(custom_sub_id,0) = ? AND COALESCE(subscription_id,0) = ?`,
-			userID, platformID, customSubID, subscriptionID)
-		var found UserToken
-		if err := row.Scan(&found.ID, &found.Token, &found.UserID, &found.PlatformID, &found.CustomSubID, &found.SubscriptionID); err == nil {
-			t = &found // 复用键命中 → 复用既有 Token
-			return nil
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		// 后建（冲突重试兜底：UNIQUE(token) 失败时重新生成）
-		for attempt := 0; attempt < 3; attempt++ {
-			value, err := generate()
-			if err != nil {
-				return err
-			}
-			_, err = tx.ExecContext(ctx,
-				`INSERT INTO download_tokens (token, user_id, platform_id, custom_sub_id, subscription_id) VALUES (?,?,?,?,?)`,
-				value, userID, platformID, nullIf0(customSubID), nullIf0(subscriptionID))
-			if err == nil {
-				t = &UserToken{Token: value, UserID: userID, PlatformID: platformID, CustomSubID: customSubID, SubscriptionID: subscriptionID}
-				return nil
-			}
-		}
-		return errors.New("Token 创建冲突超过重试上限")
+		var err error
+		t, err = getOrCreateUserTokenTx(ctx, tx, userID, platformID, customSubID, subscriptionID)
+		return err
 	})
 	return t, err
+}
+
+// getOrCreateUserTokenTx 在调用方事务内按复用键先查后建（NULL 语义：可选标识为 0 时匹配 IS NULL）。
+func getOrCreateUserTokenTx(ctx context.Context, tx *sql.Tx, userID, platformID, customSubID, subscriptionID int64) (*UserToken, error) {
+	row := tx.QueryRowContext(ctx,
+		`SELECT id, token, user_id, platform_id,
+		        COALESCE(custom_sub_id,0), COALESCE(subscription_id,0)
+		 FROM download_tokens
+		 WHERE user_id = ? AND platform_id = ?
+		   AND COALESCE(custom_sub_id,0) = ? AND COALESCE(subscription_id,0) = ?`,
+		userID, platformID, customSubID, subscriptionID)
+	var found UserToken
+	if err := row.Scan(&found.ID, &found.Token, &found.UserID, &found.PlatformID, &found.CustomSubID, &found.SubscriptionID); err == nil {
+		return &found, nil // 复用键命中 → 复用既有 Token
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	// 后建（冲突重试兜底：UNIQUE(token) 失败时重新生成）
+	for attempt := 0; attempt < 3; attempt++ {
+		value, err := generate()
+		if err != nil {
+			return nil, err
+		}
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO download_tokens (token, user_id, platform_id, custom_sub_id, subscription_id) VALUES (?,?,?,?,?)`,
+			value, userID, platformID, nullIf0(customSubID), nullIf0(subscriptionID))
+		if err == nil {
+			return &UserToken{Token: value, UserID: userID, PlatformID: platformID, CustomSubID: customSubID, SubscriptionID: subscriptionID}, nil
+		}
+	}
+	return nil, errors.New("Token 创建冲突超过重试上限")
+}
+
+// resolveApplicableTokenKeyTx 在事务内确定当前用户/平台的唯一适用业务键：
+// 自定义订阅存在时返回 custom_sub_id；否则平台有激活版本时返回组 Token（0/true）；两者都无返回 0/false。
+func resolveApplicableTokenKeyTx(ctx context.Context, tx *sql.Tx, userID, platformID int64) (customSubID int64, group bool, err error) {
+	err = tx.QueryRowContext(ctx,
+		`SELECT id FROM custom_subscriptions WHERE user_id = ? AND platform_id = ?`,
+		userID, platformID).Scan(&customSubID)
+	if err == nil {
+		return customSubID, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, false, err
+	}
+	var currentVersion int64
+	err = tx.QueryRowContext(ctx,
+		`SELECT COALESCE(current_version,0) FROM subscriptions WHERE platform_id = ?`,
+		platformID).Scan(&currentVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return 0, currentVersion > 0, nil
+}
+
+// cleanupNonApplicableUserTokensTx 清理同用户/平台下已不适用业务键的用户 Token：
+// 保留显式订阅 Token（subscription_id IS NOT NULL），只删无标识组 Token 或指定自定义 Token 之外的旧记录。
+func cleanupNonApplicableUserTokensTx(ctx context.Context, tx *sql.Tx, userID, platformID, customSubID int64) error {
+	if customSubID != 0 {
+		_, err := tx.ExecContext(ctx,
+			`DELETE FROM download_tokens
+			 WHERE user_id = ? AND platform_id = ? AND subscription_id IS NULL
+			   AND (custom_sub_id IS NULL OR custom_sub_id <> ?)`,
+			userID, platformID, customSubID)
+		return err
+	}
+	_, err := tx.ExecContext(ctx,
+		`DELETE FROM download_tokens
+		 WHERE user_id = ? AND platform_id = ? AND subscription_id IS NULL AND custom_sub_id IS NOT NULL`,
+		userID, platformID)
+	return err
+}
+
+// ResolveUserToken 按业务键原子解析用户下载 Token（Design1 §2.3/§4.2）：
+// 自定义订阅优先；存在自定义时只创建/复用自定义 Token，并清理历史无标识组 Token；
+// 无自定义且平台有激活版本时创建/复用组 Token；两者都不存在时清理孤儿自定义 Token 并返回 nil。
+func (s *Service) ResolveUserToken(ctx context.Context, userID, platformID int64) (*UserToken, error) {
+	var out *UserToken
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		customSubID, group, err := resolveApplicableTokenKeyTx(ctx, tx, userID, platformID)
+		if err != nil {
+			return err
+		}
+		if customSubID == 0 && !group {
+			return cleanupNonApplicableUserTokensTx(ctx, tx, userID, platformID, 0)
+		}
+		if err := cleanupNonApplicableUserTokensTx(ctx, tx, userID, platformID, customSubID); err != nil {
+			return err
+		}
+		out, err = getOrCreateUserTokenTx(ctx, tx, userID, platformID, customSubID, 0)
+		return err
+	})
+	return out, err
+}
+
+// RefreshUserTokenByBusinessKey 按业务键原子轮替用户下载 Token：自定义优先、组回退；
+// 同一事务内清理历史双 Token 后只保留/重建当前适用 Token。无适用业务内容返回 ErrTokenNotFound。
+func (s *Service) RefreshUserTokenByBusinessKey(ctx context.Context, userID, platformID int64) (*UserToken, error) {
+	var out *UserToken
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		customSubID, group, err := resolveApplicableTokenKeyTx(ctx, tx, userID, platformID)
+		if err != nil {
+			return err
+		}
+		if customSubID == 0 && !group {
+			if err := cleanupNonApplicableUserTokensTx(ctx, tx, userID, platformID, 0); err != nil {
+				return err
+			}
+			return ErrTokenNotFound
+		}
+		if err := cleanupNonApplicableUserTokensTx(ctx, tx, userID, platformID, customSubID); err != nil {
+			return err
+		}
+		// 同一业务键若有历史重复行先全部清理，保证轮替后至多一条。
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM download_tokens
+			 WHERE user_id = ? AND platform_id = ? AND subscription_id IS NULL AND COALESCE(custom_sub_id,0) = ?`,
+			userID, platformID, customSubID); err != nil {
+			return err
+		}
+		value, err := generate()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO download_tokens (token, user_id, platform_id, custom_sub_id, subscription_id) VALUES (?,?,?,?,NULL)`,
+			value, userID, platformID, nullIf0(customSubID)); err != nil {
+			return err
+		}
+		out = &UserToken{Token: value, UserID: userID, PlatformID: platformID, CustomSubID: customSubID}
+		return nil
+	})
+	return out, err
 }
 
 // --- 生命周期联动（Design1 §4.2，全部物理删除，无标记态）---

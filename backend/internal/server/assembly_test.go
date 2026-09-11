@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,6 +29,12 @@ import (
 
 func newAssemblyTestEnv(t *testing.T) (*gin.Engine, *store.Store, *config.Service) {
 	t.Helper()
+	engine, st, cfg, _ := newAssemblyTestEnvWithLogger(t, log.New("error", "console"))
+	return engine, st, cfg
+}
+
+func newAssemblyTestEnvWithLogger(t *testing.T, lg *slog.Logger) (*gin.Engine, *store.Store, *config.Service, *AssemblyHandler) {
+	t.Helper()
 	st, err := store.Open(t.TempDir(), "test.db")
 	if err != nil {
 		t.Fatalf("打开测试库失败: %v", err)
@@ -36,7 +43,6 @@ func newAssemblyTestEnv(t *testing.T) (*gin.Engine, *store.Store, *config.Servic
 	if err := st.Migrate(context.Background(), migrations.FS); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
-	lg := log.New("error", "console")
 	cfg := config.NewService(st, lg)
 	if err := cfg.Set(context.Background(), config.KeySigningKey, "test-signing-key-0123456789abcdef"); err != nil {
 		t.Fatalf("写入签名密钥失败: %v", err)
@@ -54,13 +60,13 @@ func newAssemblyTestEnv(t *testing.T) (*gin.Engine, *store.Store, *config.Servic
 	h := &AssemblyHandler{
 		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
 		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc,
-		versionSvc: versionSvc,
+		versionSvc: versionSvc, subSvc: subSvc, logger: lg,
 	}
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	noop := func(c *gin.Context) { c.Next() }
 	RegisterAssemblyRoutes(engine, h, noop, noop)
-	return engine, st, cfg
+	return engine, st, cfg, h
 }
 
 func insertAssemblyBase(t *testing.T, st *store.Store) int64 {

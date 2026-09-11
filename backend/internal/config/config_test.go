@@ -75,18 +75,17 @@ func TestDecryptTampered(t *testing.T) {
 	}
 }
 
-// TestSensitiveSetGet 敏感键 Set/Get 自动加解密
+// TestSensitiveSetGet 编译期固定敏感键 smtp_password 的 Set/Get 自动加解密；
+// 未知键（如验证码密钥）保持明文，不依赖运行期注册。
 func TestSensitiveSetGet(t *testing.T) {
 	_, cfg := newTestStore(t)
 	ctx := context.Background()
-	RegisterSensitive("test_secret")
-	t.Cleanup(func() { delete(sensitiveKeys, "test_secret") })
 
-	if err := cfg.Set(ctx, "test_secret", "plain-value"); err != nil {
+	if err := cfg.Set(ctx, "smtp_password", "plain-value"); err != nil {
 		t.Fatalf("Set 失败: %v", err)
 	}
 	// 库内应为密文
-	raw, err := cfg.GetRaw(ctx, "test_secret")
+	raw, err := cfg.GetRaw(ctx, "smtp_password")
 	if err != nil {
 		t.Fatalf("GetRaw 失败: %v", err)
 	}
@@ -94,12 +93,19 @@ func TestSensitiveSetGet(t *testing.T) {
 		t.Error("敏感值应以密文落库")
 	}
 	// 读取自动解密
-	got, err := cfg.Get(ctx, "test_secret")
+	got, err := cfg.Get(ctx, "smtp_password")
 	if err != nil {
 		t.Fatalf("Get 失败: %v", err)
 	}
 	if got != "plain-value" {
 		t.Errorf("Get 解密结果不一致: got %q", got)
+	}
+	// 未知键仍明文，不受固定敏感键集合影响
+	if err := cfg.Set(ctx, "captcha_secret_key", "plain-captcha"); err != nil {
+		t.Fatalf("未知键 Set 失败: %v", err)
+	}
+	if raw, err := cfg.GetRaw(ctx, "captcha_secret_key"); err != nil || raw != "plain-captcha" {
+		t.Fatalf("未知键应明文落库: raw=%q err=%v", raw, err)
 	}
 }
 

@@ -112,4 +112,19 @@ describe('NodeCheckPanel', () => {
     await locate.trigger('click')
     expect(wrapper.emitted('locate')).toHaveLength(1)
   })
+
+  it.each([false, true])('预览背景使用设计 Token（dark=%s）', async (dark) => {
+    document.documentElement.classList.toggle('dark', dark)
+    const wrapper = mount(NodeCheckPanel, { props: { request }, attachTo: document.body })
+    const button = wrapper.findAll('button').find((b) => b.text().replace(/\s/g, '').includes('检查当前节点'))
+    await button!.trigger('click')
+    await flushPromises()
+    const pre = wrapper.find('pre')
+    expect(pre.exists()).toBe(true)
+    expect(pre.classes()).toContain('bg-surface-subtle')
+    expect(pre.classes()).not.toContain('bg-gray-50')
+    document.documentElement.classList.remove('dark')
+    wrapper.unmount()
+  })
+
 })

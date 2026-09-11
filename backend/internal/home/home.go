@@ -90,7 +90,7 @@ type Summary struct {
 // 为空时保持相对路径（异常场景——Setup 完成时必写，正常不触发）
 // 非关键展示类配置，维持 fail-safe 并记录口径（R14-25）。
 func (s *Service) frontendBase(ctx context.Context) string {
-	f, _ := s.cfg.Get(ctx, config.KeyFrontendURL)
+	f := s.cfg.GetOr(ctx, config.KeyFrontendURL)
 	return strings.TrimSuffix(f, "/")
 }
 
@@ -143,41 +143,33 @@ func (s *Service) ListPlatforms(ctx context.Context, userID int64, role string) 
 			card.Status = "admin_preview"
 			card.Subscription = sub
 			card.PreviewAvailable = sub != nil && sub.CurrentVersion > 0
-		} else if sub == nil || sub.CurrentVersion <= 0 {
-			// 平台无订阅行 / 无激活版本：不生成 Token（下载端点返回 200 注释块）
-			card.Status = "unassigned"
-		} else {
+			out = append(out, card)
+			continue
+		}
+		// 普通用户：Token 业务键先由 token 服务在单事务内解析（自定义优先，且在此原子清理历史隐藏组 Token），
+		// 再据解析结果生成卡片；避免旧实现先建组 Token 后被自定义覆盖而留下不可见 Token。
+		t, err := s.tokenSvc.ResolveUserToken(ctx, userID, p.id)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case t != nil && t.CustomSubID != 0:
+			card.Status = "custom"
+			card.SubscriptionName = "自定义订阅"
+			card.DownloadToken = t.Token
+			card.DownloadURL = s.frontendBase(ctx) + "/subscriptions/" + p.slug + "/download?token=" + t.Token
+		case t != nil:
 			card.Status = "ready"
-			card.SubscriptionName = sub.Name
-			card.SubscriptionProductType = sub.ProductType
-			card.VersionUpdatedAt = sub.VersionUpdatedAt
-			// 无标识 Token（按平台解析）
-			t, err := s.tokenSvc.GetOrCreateUserToken(ctx, userID, p.id, 0, 0)
-			if err != nil {
-				return nil, err
+			if sub != nil {
+				card.SubscriptionName = sub.Name
+				card.SubscriptionProductType = sub.ProductType
+				card.VersionUpdatedAt = sub.VersionUpdatedAt
 			}
 			card.DownloadToken = t.Token
 			card.DownloadURL = s.frontendBase(ctx) + "/subscriptions/" + p.slug + "/download?token=" + t.Token
-		}
-		// 普通用户自定义订阅优先（优先级最高）
-		if role != "admin" {
-			var customID int64
-			err := s.store.DB().QueryRowContext(ctx,
-				`SELECT id FROM custom_subscriptions WHERE user_id = ? AND platform_id = ?`, userID, p.id).Scan(&customID)
-			if err == nil {
-				card.Status = "custom"
-				card.SubscriptionName = "自定义订阅"
-				card.SubscriptionProductType = ""
-				card.VersionUpdatedAt = nil
-				t, err := s.tokenSvc.GetOrCreateUserToken(ctx, userID, p.id, customID, 0)
-				if err != nil {
-					return nil, err
-				}
-				card.DownloadToken = t.Token
-				card.DownloadURL = s.frontendBase(ctx) + "/subscriptions/" + p.slug + "/download?token=" + t.Token
-			} else if !errors.Is(err, sql.ErrNoRows) {
-				return nil, err
-			}
+		default:
+			// 平台无订阅行 / 无激活版本且无自定义：不生成 Token（下载端点返回 200 注释块）
+			card.Status = "unassigned"
 		}
 		out = append(out, card)
 	}
@@ -258,26 +250,10 @@ func (s *Service) Summary(ctx context.Context) (*Summary, error) {
 	return resp, nil
 }
 
-// RefreshToken 刷新指定平台下载 Token（旧失效）——先查该用户该平台当前有效 Token（自定义优先）再轮替
+// RefreshToken 刷新指定平台下载 Token（旧失效）——Token 服务在单事务内按业务键
+// 判定自定义优先/组回退，并同步清理历史双 Token 后轮替。
 func (s *Service) RefreshToken(ctx context.Context, userID, platformID int64) (string, error) {
-	// 自定义优先
-	var current string
-	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT token FROM download_tokens WHERE user_id = ? AND platform_id = ? AND custom_sub_id IS NOT NULL LIMIT 1`,
-		userID, platformID).Scan(&current)
-	if errors.Is(err, sql.ErrNoRows) {
-		// 无自定义 → 无标识 Token
-		err = s.store.DB().QueryRowContext(ctx,
-			`SELECT token FROM download_tokens WHERE user_id = ? AND platform_id = ? AND custom_sub_id IS NULL AND subscription_id IS NULL LIMIT 1`,
-			userID, platformID).Scan(&current)
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", token.ErrTokenNotFound
-	}
-	if err != nil {
-		return "", err
-	}
-	t, err := s.tokenSvc.RefreshUserToken(ctx, current)
+	t, err := s.tokenSvc.RefreshUserTokenByBusinessKey(ctx, userID, platformID)
 	if err != nil {
 		return "", err
 	}

@@ -50,7 +50,7 @@ func newTestAdmin(t *testing.T, oidcOps OidcOps) (*store.Store, *AdminService) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := NewService(st, log.New("error", "console"))
-	svc := NewAdminService(cfg, st, oidcOps, t.TempDir(), log.New("error", "console"))
+	svc := NewAdminService(cfg, st, oidcOps, t.TempDir(), log.New("error", "console"), new(slog.LevelVar))
 	return st, svc
 }
 
@@ -58,9 +58,6 @@ func newTestAdmin(t *testing.T, oidcOps OidcOps) (*store.Store, *AdminService) {
 func TestSensitiveMasked(t *testing.T) {
 	st, svc := newTestAdmin(t, &mockOidcOps{})
 	ctx := context.Background()
-	// smtp_password 敏感登记由 mail 包 init 完成；测试内显式登记（同 config_test.go 模式）
-	RegisterSensitive("smtp_password")
-	t.Cleanup(func() { delete(sensitiveKeys, "smtp_password") })
 
 	if err := svc.SaveSMTP(ctx, SMTPSettings{Host: "smtp.example.com", Port: "587", User: "u",
 		Password: "plain-pass", From: "f@example.com", TLS: true}); err != nil {
@@ -183,11 +180,12 @@ func TestCaptchaPlainStorage(t *testing.T) {
 	}
 }
 
-// TestLogLevelSwitch 日志级别：持久化 + LevelVar 立即生效
+// TestLogLevelSwitch 日志级别：持久化 + 当前 Runtime LevelVar 立即生效，不影响其他 Runtime
 func TestLogLevelSwitch(t *testing.T) {
-	logger := log.New("error", "console")
-	log.SetDefault(logger) // 测试内接管默认 logger（生产由 main 装配）
+	runtime := log.NewRuntime("error", "console")
+	other := log.NewRuntime("error", "console")
 	_, svc := newTestAdmin(t, &mockOidcOps{})
+	svc.level = runtime.Level
 	ctx := context.Background()
 	if err := svc.SetLogLevel(ctx, "debug"); err != nil {
 		t.Fatalf("设置日志级别失败: %v", err)
@@ -195,8 +193,11 @@ func TestLogLevelSwitch(t *testing.T) {
 	if got := svc.GetLogLevel(ctx); got != "debug" {
 		t.Errorf("持久化异常: %s", got)
 	}
-	if !log.Default().Enabled(ctx, slog.LevelDebug) {
-		t.Error("debug 级别应已生效（LevelVar 切换）")
+	if !runtime.Logger.Enabled(ctx, slog.LevelDebug) {
+		t.Error("当前 Runtime 的 debug 级别应已生效")
+	}
+	if other.Logger.Enabled(ctx, slog.LevelDebug) {
+		t.Error("切换日志级别不应污染其他 Runtime")
 	}
 	if err := svc.SetLogLevel(ctx, "bogus"); !errors.Is(err, ErrBadRequest) {
 		t.Errorf("非法级别应拒绝: %v", err)

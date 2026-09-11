@@ -1,4 +1,4 @@
-package server
+package userrender
 
 import (
 	"context"
@@ -10,27 +10,14 @@ import (
 	"vpn-sub/internal/assembly"
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
-	"vpn-sub/internal/store"
 	"vpn-sub/internal/tasks"
 	"vpn-sub/internal/xray"
-	"vpn-sub/migrations"
 )
 
 // TestRenderUserSubscription10kRules 验证用户订阅动态渲染在 1 万规则规模下仍满足 <500ms 性能基准。
 func TestRenderUserSubscription10kRules(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir(), "test.db")
-	if err != nil {
-		t.Fatalf("打开测试库失败: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	if err := st.Migrate(ctx, migrations.FS); err != nil {
-		t.Fatalf("迁移失败: %v", err)
-	}
-	cfg := config.NewService(st, log.New("error", "console"))
-	if err := cfg.Set(ctx, config.KeySigningKey, "0123456789abcdef0123456789abcdef"); err != nil {
-		t.Fatal(err)
-	}
+	st, cfg := newUserrenderTestEnv(t)
 	if err := cfg.Set(ctx, config.KeyAdvancedMode, "true"); err != nil {
 		t.Fatal(err)
 	}
@@ -88,9 +75,10 @@ func TestRenderUserSubscription10kRules(t *testing.T) {
 	instSvc := xray.NewInstanceService(st, log.New("error", "console"), tasks.NewRegistry())
 	creds := xray.NewCredentialService(st, cfg)
 	syncSvc := xray.NewSyncService(st, cfg, creds, instSvc, tasks.NewRegistry(), log.New("error", "console"))
+	svc := NewService(st, cfg, syncSvc, creds, log.New("error", "console"))
 	start := time.Now()
-	if _, err := renderUserSubscription(ctx, st, cfg, syncSvc, creds, subID, userID, []byte("# {{xray_nodes}}\n"), "x.yaml"); err != nil {
-		t.Fatalf("renderUserSubscription 失败: %v", err)
+	if _, err := svc.Render(ctx, subID, userID, []byte("# {{xray_nodes}}\n"), "x.yaml"); err != nil {
+		t.Fatalf("Render 失败: %v", err)
 	}
 	if d := time.Since(start); d > 500*time.Millisecond {
 		t.Fatalf("用户订阅 1 万规则渲染超过 500ms: %v", d)

@@ -238,7 +238,9 @@ func (s *Service) loadPoolEntries(ctx context.Context, poolID int64) ([]poolEntr
 			return nil, err
 		}
 		var opts rulespec.RuleOptions
-		_ = json.Unmarshal([]byte(optionsRaw), &opts)
+		if err := json.Unmarshal([]byte(optionsRaw), &opts); err != nil {
+			s.log.Warn("解析素材池规则选项失败，按空选项装配", "err", err)
+		}
 		rule := rulespec.CanonicalRule{Family: rulespec.Family(family), Matcher: rulespec.Matcher(matcher), Value: value, Options: opts}
 		out = append(out, poolEntry{
 			RuleType: legacyPoolType(rule), MatchValue: value, Canonical: rule, NoResolve: opts.NoResolve,

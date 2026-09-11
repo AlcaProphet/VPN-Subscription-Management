@@ -12,8 +12,9 @@ import (
 // 短码字符集：小写字母数字，去除易混淆字符
 const slugCharset = "abcdefghjkmnpqrstuvwxyz23456789"
 
-// Generate 类型前缀 + 8 位加密安全随机短码；冲突自动重试最多 3 次，仍冲突报错并记日志（Design1 §2.2）
-func Generate(ctx context.Context, tx *sql.Tx, prefix string, exists func(slug string) (bool, error)) (string, error) {
+// Generate 类型前缀 + 8 位加密安全随机短码；冲突自动重试最多 3 次，仍冲突报错并记日志（Design1 §2.2）。
+// logger 由调用服务实例注入，避免直接使用标准库 slog 全局 logger。
+func Generate(ctx context.Context, tx *sql.Tx, prefix string, exists func(slug string) (bool, error), lg *slog.Logger) (string, error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		code, err := randomCode(8) // crypto/rand 从 slugCharset 取 8 字符；失败返回 err
 		if err != nil {
@@ -28,7 +29,9 @@ func Generate(ctx context.Context, tx *sql.Tx, prefix string, exists func(slug s
 			return value, nil
 		}
 	}
-	slog.Error("标识生成冲突超过重试上限", "prefix", prefix)
+	if lg != nil {
+		lg.Error("标识生成冲突超过重试上限", "prefix", prefix)
+	}
 	return "", fmt.Errorf("标识生成失败：连续冲突，请重试")
 }
 

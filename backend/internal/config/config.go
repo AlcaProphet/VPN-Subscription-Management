@@ -31,19 +31,17 @@ const (
 	KeyAllowLocalLogin  = "allow_local_login" // 允许本地登录（默认 true）
 	KeyAllowSelfreg     = "allow_selfreg"     // 允许自注册（默认 false）
 	KeySelfRegApproval  = "selfreg_approval"  // 自注册审批开关（默认 false）
-	KeyAdminInitialized = "admin_initialized" // 首管理员已初始化标记
+	KeyAdminInitialized = "admin_initialized" // 历史键：保留读取/常量兼容，不写入、不参与首管理员判断，不做迁移
 	KeyFrontendURL      = "frontend_url"      // 前端地址（Setup 推导初始值，Build3 面板可手动覆盖）
 	KeyCallbackURL      = "callback_url"      // OIDC 回调地址（OIDC Setup 推导初始值）
 	KeyAdvancedMode     = "advanced_mode"     // 高级模式开关（"true"/"false"，未设置视为 false；Build4 只读暴露）
 )
 
-// sensitiveKeys 敏感配置键集合（值以 AES-256-GCM 密文落库）；
-// 当前登记：smtp_password（mail 包 init）；OIDC Client Secret 由 oidc 包手动加密，验证码双密钥明文存储不入集合
-var sensitiveKeys = map[string]bool{}
-
-// RegisterSensitive 登记敏感配置键（供各业务包在初始化时注册）
-func RegisterSensitive(key string) {
-	sensitiveKeys[key] = true
+// isSensitiveKey 编译期固定敏感配置键判定（值以 AES-256-GCM 密文落库）：
+// 当前仅 smtp_password；OIDC Client Secret 由 oidc 包手动加密，验证码双密钥明文存储不入集合。
+// 不再提供运行期注册入口，避免可变包级注册表。
+func isSensitiveKey(key string) bool {
+	return key == "smtp_password"
 }
 
 type Service struct {
@@ -69,7 +67,7 @@ func (s *Service) Get(ctx context.Context, key string) (string, error) {
 		return "", fmt.Errorf("读取配置 %s 失败: %w", key, err)
 	}
 	// 敏感键解密返回（密文无法解密时返回错误，防止静默使用损坏数据）
-	if sensitiveKeys[key] && v != "" {
+	if isSensitiveKey(key) && v != "" {
 		plain, err := s.DecryptWithKey(ctx, v)
 		if err != nil {
 			return "", fmt.Errorf("解密配置 %s 失败: %w", key, err)
@@ -77,6 +75,16 @@ func (s *Service) Get(ctx context.Context, key string) (string, error) {
 		return string(plain), nil
 	}
 	return v, nil
+}
+
+// GetOr 读取非关键配置：读取失败时记录结构化 warn 并返回空串，保持既有 fail-safe 外部行为。
+// 供展示/公告/邮件启用判断等非 correctness 配置使用；关键配置仍需调用 Get 并显式处理错误。
+func (s *Service) GetOr(ctx context.Context, key string) string {
+	v, err := s.Get(ctx, key)
+	if err != nil && s.log != nil {
+		s.log.Warn("读取配置失败，按未设置降级", "key", key, "err", err)
+	}
+	return v
 }
 
 // GetRaw 读取配置原始值（不解密；供导出等需要密文原样的场景）
@@ -95,7 +103,7 @@ func (s *Service) GetRaw(ctx context.Context, key string) (string, error) {
 // Set 写入配置；敏感键自动加密落库
 func (s *Service) Set(ctx context.Context, key, value string) error {
 	v := value
-	if sensitiveKeys[key] {
+	if isSensitiveKey(key) {
 		enc, err := s.EncryptSensitive(ctx, value) // 失败即中断，禁止明文落库
 		if err != nil {
 			return err
@@ -121,7 +129,7 @@ func (s *Service) GetTx(ctx context.Context, tx *sql.Tx, key string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("读取配置 %s 失败: %w", key, err)
 	}
-	if sensitiveKeys[key] && v != "" {
+	if isSensitiveKey(key) && v != "" {
 		// 事务内敏感键读取：先取同事务签名密钥解密
 		keyBytes, err := s.GetSigningKeyTx(ctx, tx)
 		if err != nil {
@@ -152,7 +160,7 @@ func (s *Service) GetSigningKeyTx(ctx context.Context, tx *sql.Tx) ([]byte, erro
 // SetTx 事务内写入（供 Setup 快速开始等多键原子写入场景复用）
 func (s *Service) SetTx(ctx context.Context, tx *sql.Tx, key, value string) error {
 	v := value
-	if sensitiveKeys[key] {
+	if isSensitiveKey(key) {
 		enc, err := s.EncryptWithTx(ctx, tx, value)
 		if err != nil {
 			return err

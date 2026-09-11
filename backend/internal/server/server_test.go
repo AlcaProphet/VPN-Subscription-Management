@@ -70,7 +70,7 @@ func newTestServer(t *testing.T) *Server {
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	buf := log.NewRingBuffer()
 	streamSvc := log.NewStreamService(buf, log.New("error", "console"))
-	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", mustPolicy(t, "off"), "0", t.TempDir(), streamSvc)
+	srv, err := New(st, cfg, users, log.NewRuntime("error", "console"), "dev", mustPolicy(t, "off"), "0", t.TempDir(), streamSvc)
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,8 +15,6 @@ import (
 	"sync"
 
 	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动（零 CGO）
-
-	"vpn-sub/internal/log"
 )
 
 // migrationsFS 由 backend/migrations 目录 go:embed 嵌入（var FS embed.FS），
@@ -25,10 +24,30 @@ type Store struct {
 	dbPath     string     // 数据库主文件路径（Open 时记录，备份快照降级路径使用）
 	mu         sync.Mutex // 迁移串行化
 	maxVersion int        // 迁移框架执行后回填：当前代码支持的最高版本
+	logger     *slog.Logger
 }
 
-// Open 打开数据库：WAL 模式 + 外键 + busy_timeout + 单写者模型
-func Open(dataDir, dbFile string) (*Store, error) {
+type openOptions struct {
+	logger *slog.Logger
+}
+
+// Option 为 store.Open 的构造选项（实例注入，不使用包级可变 Logger）。
+type Option func(*openOptions)
+
+// WithLogger 注入迁移/存储日志使用的实例 Logger。
+func WithLogger(lg *slog.Logger) Option {
+	return func(o *openOptions) { o.logger = lg }
+}
+
+// Open 打开数据库：WAL 模式 + 外键 + busy_timeout + 单写者模型。
+// 未传 WithLogger 时使用仅输出到 stdout 的默认实例 logger，不修改任何全局状态。
+func Open(dataDir, dbFile string, opts ...Option) (*Store, error) {
+	options := openOptions{logger: slog.New(slog.NewTextHandler(os.Stdout, nil))}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("创建数据目录失败: %w", err)
 	}
@@ -47,7 +66,7 @@ func Open(dataDir, dbFile string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("初始化 PRAGMA 失败: %w", err)
 	}
-	return &Store{db: db, dbPath: filepath.Join(dataDir, dbFile)}, nil
+	return &Store{db: db, dbPath: filepath.Join(dataDir, dbFile), logger: options.logger}, nil
 }
 
 func (s *Store) DB() *sql.DB { return s.db }
@@ -113,7 +132,7 @@ func (s *Store) Migrate(ctx context.Context, migrationsFS fs.FS) error {
 		if version > s.maxVersion {
 			s.maxVersion = version
 		}
-		log.Info("迁移已应用", "file", name, "version", version)
+		s.logger.Info("迁移已应用", "file", name, "version", version)
 	}
 	// 4) 回滚边界校验
 	var dbVersion int

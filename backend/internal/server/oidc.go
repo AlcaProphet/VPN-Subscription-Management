@@ -1,10 +1,7 @@
 package server
 
 import (
-	"context"
-	"crypto/rand"
-	"database/sql"
-	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,7 +15,6 @@ import (
 	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/ratelimit"
 	"vpn-sub/internal/setup"
-	"vpn-sub/internal/store"
 )
 
 // OidcHandler OIDC 端点处理器（接入层）
@@ -26,7 +22,6 @@ type OidcHandler struct {
 	oidcSvc  *oidc.Service
 	authSvc  *auth.Service
 	setupSvc *setup.Service
-	store    *store.Store
 	cfg      *config.Service
 	trust    *proxytrust.Policy
 }
@@ -68,7 +63,7 @@ func (h *OidcHandler) requestIsSecure(c *gin.Context) bool {
 		}
 	}
 	if h.cfg != nil {
-		furl, _ := h.cfg.Get(c.Request.Context(), config.KeyFrontendURL)
+		furl := h.cfg.GetOr(c.Request.Context(), config.KeyFrontendURL)
 		if strings.HasPrefix(strings.ToLower(furl), "https://") {
 			return true
 		}
@@ -133,7 +128,7 @@ func (h *OidcHandler) callback(c *gin.Context) {
 			c.Redirect(http.StatusFound, "/login?oidc_error=issue_failed")
 			return
 		}
-		ticket, err := h.issueLoginTicket(ctx, token)
+		ticket, err := h.oidcSvc.IssueLoginTicket(ctx, token)
 		if err != nil {
 			c.Redirect(http.StatusFound, "/login?oidc_error=exchange_failed")
 			return
@@ -179,58 +174,25 @@ func (h *OidcHandler) mockLogin(c *gin.Context) {
 	OK(c, gin.H{"token": token, "expires_at": exp.Unix(), "status": res.User.Status})
 }
 
-// issueLoginTicket 生成一次性换票记录（60 秒），用于 OIDC 回调后通过 HttpOnly Cookie 换取会话。
-func (h *OidcHandler) issueLoginTicket(ctx context.Context, sessionToken string) (string, error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	ticket := base64.RawURLEncoding.EncodeToString(buf)
-	err := h.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM oidc_login_tickets WHERE expires_at < ?`, time.Now()); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO oidc_login_tickets (ticket, session_token, expires_at) VALUES (?,?,?)`,
-			ticket, sessionToken, time.Now().Add(60*time.Second))
-		return err
-	})
-	if err != nil {
-		return "", err
-	}
-	return ticket, nil
-}
-
-// exchange 读取一次性 HttpOnly ticket，返回会话 token；严格一次性，且不留查询参数痕迹。
+// exchange 读取一次性 HttpOnly ticket，调用 OIDC 业务层消费后返回会话 token；
+// 严格一次性，且不留查询参数痕迹。无效/过期 ticket 统一 401，数据库清理失败按 500 处理。
 func (h *OidcHandler) exchange(c *gin.Context) {
-	ctx := c.Request.Context()
 	ticket, err := c.Cookie("oidc_login_ticket")
+	c.SetCookie("oidc_login_ticket", "", -1, "/api/auth/oidc/exchange", "", h.requestIsSecure(c), true)
 	if err != nil || ticket == "" {
 		Fail(c, http.StatusUnauthorized, "换票凭据缺失或已过期")
 		return
 	}
-	var sessionToken string
-	var expiresAt time.Time
-	err = h.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		err := tx.QueryRowContext(ctx,
-			`SELECT session_token, expires_at FROM oidc_login_tickets WHERE ticket = ?`, ticket).
-			Scan(&sessionToken, &expiresAt)
-		if err != nil {
-			return err
-		}
-		if time.Now().After(expiresAt) {
-			_, _ = tx.ExecContext(ctx, `DELETE FROM oidc_login_tickets WHERE ticket = ?`, ticket)
-			return sql.ErrNoRows
-		}
-		_, err = tx.ExecContext(ctx, `DELETE FROM oidc_login_tickets WHERE ticket = ?`, ticket)
-		return err
-	})
-	c.SetCookie("oidc_login_ticket", "", -1, "/api/auth/oidc/exchange", "", h.requestIsSecure(c), true)
-	if err != nil {
+	sessionToken, err := h.oidcSvc.ConsumeLoginTicket(c.Request.Context(), ticket)
+	if errors.Is(err, oidc.ErrLoginTicketInvalid) {
 		Fail(c, http.StatusUnauthorized, "换票凭据无效或已过期")
 		return
 	}
-	OK(c, gin.H{"token": sessionToken, "expires_at": time.Now().Add(7 * 24 * time.Hour).Unix()})
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, gin.H{"token": sessionToken, "expires_at": time.Now().Add(auth.OidcSession).Unix()})
 }
 
 // bind 会话内发起绑定授权（StartFlow("bind", userID) → Cookie + 返回授权 URL 供前端跳转）

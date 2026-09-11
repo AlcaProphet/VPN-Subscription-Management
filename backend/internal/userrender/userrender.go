@@ -1,4 +1,6 @@
-package server
+// Package userrender 提供用户动态下载渲染业务：按装配蓝图、用户凭据与 Xray 目标集合重渲染订阅产物。
+// 本包不感知 HTTP/Gin；internal/server 只负责装配下载服务与映射响应。
+package userrender
 
 import (
 	"context"
@@ -16,10 +18,23 @@ import (
 	"vpn-sub/internal/xray"
 )
 
-// renderUserSubscription 是下载服务注入的用户动态渲染器。
-func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Service, syncSvc *xray.SyncService, creds *xray.CredentialService, subID, userID int64, content []byte, fileName string) ([]byte, error) {
+// Service 用户动态渲染服务（依赖构造注入）。
+type Service struct {
+	store *store.Store
+	cfg   *config.Service
+	sync  *xray.SyncService
+	creds *xray.CredentialService
+	log   *slog.Logger
+}
+
+func NewService(st *store.Store, cfg *config.Service, syncSvc *xray.SyncService, creds *xray.CredentialService, lg *slog.Logger) *Service {
+	return &Service{store: st, cfg: cfg, sync: syncSvc, creds: creds, log: lg}
+}
+
+// Render 完整承载原 server/render.go 的用户动态下载渲染逻辑；产物与错误语义保持不变。
+func (s *Service) Render(ctx context.Context, subID, userID int64, content []byte, _ string) ([]byte, error) {
 	var targetSyntax, planRaw string
-	err := st.DB().QueryRowContext(ctx,
+	err := s.store.DB().QueryRowContext(ctx,
 		`SELECT b.target_syntax, COALESCE(b.render_plan_json, '{}')
 		 FROM assembly_blueprints b
 		 JOIN versions v ON v.id = b.version_id
@@ -34,7 +49,7 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 	}
 
 	// 注释优先级：高级模式关闭 > 无凭据 > 有凭据但空目标集（空目标集仅对 SR/generic 整行移除）。
-	advancedOn := cfg.GetBool(ctx, config.KeyAdvancedMode, false)
+	advancedOn := s.cfg.GetBool(ctx, config.KeyAdvancedMode, false)
 	comment := ""
 	if !advancedOn {
 		comment = "# Xray 高级模式未启用"
@@ -43,7 +58,7 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 	hasCreds := false
 	if advancedOn {
 		var credErr error
-		uuid, secret, credErr = creds.Credentials(ctx, userID)
+		uuid, secret, credErr = s.creds.Credentials(ctx, userID)
 		hasCreds = credErr == nil
 		if credErr != nil && !errors.Is(credErr, xray.ErrIncompleteCredentials) {
 			return nil, credErr
@@ -52,7 +67,7 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 			comment = "# 节点未开通，请联系管理员"
 		}
 	}
-	targets, err := syncSvc.Targets(ctx, userID)
+	targets, err := s.sync.Targets(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -64,16 +79,16 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 			if comment != "" {
 				return replacePlaceholder(content, targetSyntax, comment), nil
 			}
-			lines := renderLinkLines(ctx, syncSvc, targets, targetSyntax, uuid, secret, hasCreds)
+			lines := s.renderLinkLines(ctx, targets, targetSyntax, uuid, secret, hasCreds)
 			return replacePlaceholderLines(content, lines), nil
 		}
-		manualNames, err := manualRenderNames(ctx, st)
+		manualNames, err := s.manualRenderNames(ctx)
 		if err != nil {
 			return nil, err
 		}
 		dynamic := make([]assembly.DynamicNode, 0, len(targets))
 		for _, t := range targets {
-			protocol, params, err := syncSvc.NodeRenderParams(ctx, t.NodeID)
+			protocol, params, err := s.sync.NodeRenderParams(ctx, t.NodeID)
 			if err != nil {
 				return nil, err
 			}
@@ -91,7 +106,7 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 			return nil, err
 		}
 		if issues := assembly.CheckClashContent(content); assembly.HasError(issues) {
-			slog.Warn("Clash 下载重渲染自检存在错误", "err", firstOutputError(issues))
+			s.log.Warn("Clash 下载重渲染自检存在错误", "err", firstOutputError(issues))
 		}
 		return content, nil
 	}
@@ -101,7 +116,7 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 		replaced := replacePlaceholderLines(content, []string{comment})
 		return []byte(base64.StdEncoding.EncodeToString(replaced)), nil
 	}
-	lines := renderLinkLines(ctx, syncSvc, targets, targetSyntax, uuid, secret, true)
+	lines := s.renderLinkLines(ctx, targets, targetSyntax, uuid, secret, true)
 	switch targetSyntax {
 	case "sr-subs", "generic-subs":
 		if len(lines) == 0 {
@@ -115,21 +130,21 @@ func renderUserSubscription(ctx context.Context, st *store.Store, cfg *config.Se
 	}
 }
 
-func renderLinkLines(ctx context.Context, syncSvc *xray.SyncService, targets []xray.Target, targetSyntax, uuid, secret string, hasCreds bool) []string {
+func (s *Service) renderLinkLines(ctx context.Context, targets []xray.Target, targetSyntax, uuid, secret string, hasCreds bool) []string {
 	if !hasCreds {
 		return nil
 	}
 	var lines []string
 	for _, t := range targets {
-		protocol, params, err := syncSvc.NodeRenderParams(ctx, t.NodeID)
+		protocol, params, err := s.sync.NodeRenderParams(ctx, t.NodeID)
 		if err != nil {
-			slog.Warn("读取动态节点渲染参数失败", "node", t.Name, "err", err)
+			s.log.Warn("读取动态节点渲染参数失败", "node", t.Name, "err", err)
 			continue
 		}
 		generic := targetSyntax == "generic-subs"
 		link, err := assembly.RenderLink(protocol, t.RenderName, hostOf(t.APIAddr), t.Port, withCreds(params, protocol, uuid, secret), generic)
 		if err != nil {
-			slog.Warn("生成订阅链接失败", "node", t.Name, "err", err)
+			s.log.Warn("生成订阅链接失败", "node", t.Name, "err", err)
 			continue
 		}
 		lines = append(lines, link)
@@ -137,8 +152,8 @@ func renderLinkLines(ctx context.Context, syncSvc *xray.SyncService, targets []x
 	return lines
 }
 
-func manualRenderNames(ctx context.Context, st *store.Store) (map[string]string, error) {
-	rows, err := st.DB().QueryContext(ctx,
+func (s *Service) manualRenderNames(ctx context.Context) (map[string]string, error) {
+	rows, err := s.store.DB().QueryContext(ctx,
 		`SELECT name, COALESCE(NULLIF(display_name,''), name) FROM nodes WHERE source = 'manual'`)
 	if err != nil {
 		return nil, err
@@ -153,6 +168,15 @@ func manualRenderNames(ctx context.Context, st *store.Store) (map[string]string,
 		out[name] = render
 	}
 	return out, rows.Err()
+}
+
+func firstOutputError(issues []assembly.OutputIssue) string {
+	for _, issue := range issues {
+		if issue.Severity == "error" {
+			return issue.Message
+		}
+	}
+	return "未知错误"
 }
 
 func isLegacyClashPlan(raw string) bool {
@@ -189,7 +213,7 @@ func isLegacyClashPlan(raw string) bool {
 func replacePlaceholder(content []byte, targetSyntax, comment string) []byte {
 	if targetSyntax == "sr-subs" || targetSyntax == "generic-subs" {
 		replaced := removePlaceholderLine(content)
-		if !bytesContains(replaced, []byte("# {{xray_nodes}}")) {
+		if !strings.Contains(string(replaced), "# {{xray_nodes}}") {
 			return []byte(base64.StdEncoding.EncodeToString(replaced))
 		}
 		return []byte(base64.StdEncoding.EncodeToString(replacePlaceholderLines(replaced, []string{comment})))
@@ -229,10 +253,6 @@ func removePlaceholderLine(content []byte) []byte {
 		out = append(out, line)
 	}
 	return []byte(strings.Join(out, "\n"))
-}
-
-func bytesContains(b []byte, sub []byte) bool {
-	return strings.Contains(string(b), string(sub))
 }
 
 func hostOf(apiAddr string) string {

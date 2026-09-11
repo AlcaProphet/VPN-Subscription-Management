@@ -46,6 +46,27 @@ func newTestLogDB(t *testing.T) *sql.DB {
 	return db
 }
 
+type testDBProvider struct{ db *sql.DB }
+
+func (p testDBProvider) DB() *sql.DB { return p.db }
+
+// TestAccessServiceFromProvider 验证 server 装配通过 DBProvider 接口注入存储后，
+// 查询/清空行为与直接 *sql.DB 构造一致（Step 7 架构门禁接线）。
+func TestAccessServiceFromProvider(t *testing.T) {
+	db := newTestLogDB(t)
+	svc := NewAccessServiceFromProvider(testDBProvider{db: db}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := db.Exec(`INSERT INTO access_logs (ip, download_type, resource_slug, status) VALUES ('1.1.1.1','rule','r-x','success')`); err != nil {
+		t.Fatalf("插入日志失败: %v", err)
+	}
+	list, total, err := svc.Query(context.Background(), "", "", 1, 20)
+	if err != nil || total != 1 || len(list) != 1 {
+		t.Fatalf("Provider 装配查询异常: total=%d len=%d err=%v", total, len(list), err)
+	}
+	if err := svc.Clear(context.Background()); err != nil {
+		t.Fatalf("Provider 装配清空失败: %v", err)
+	}
+}
+
 // TestAccessQuery 访问日志分页/日期筛选/清空/联查用户名
 func TestAccessQuery(t *testing.T) {
 	db := newTestLogDB(t)
@@ -161,33 +182,6 @@ func TestRingBufferCapacity(t *testing.T) {
 	}
 }
 
-// TestStreamTokenOneTime 短期 Token 一次性：ConsumeToken 后再用失败；过期失效
-func TestStreamTokenOneTime(t *testing.T) {
-	buf := NewRingBuffer()
-	svc := NewStreamService(buf, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	token, err := svc.IssueToken()
-	if err != nil {
-		t.Fatalf("换取 Token 失败: %v", err)
-	}
-	if len(token) < 32 {
-		t.Errorf("Token 熵不足: %d", len(token))
-	}
-	if !svc.ConsumeToken(token) {
-		t.Fatal("首次消费应成功")
-	}
-	if svc.ConsumeToken(token) {
-		t.Error("用后即删：二次消费应失败")
-	}
-	// 过期 Token 失效（直接注入过期时间）
-	token2, _ := svc.IssueToken()
-	svc.mu.Lock()
-	svc.tokens[token2] = time.Now().Add(-time.Minute)
-	svc.mu.Unlock()
-	if svc.ConsumeToken(token2) {
-		t.Error("过期 Token 应失效")
-	}
-}
-
 // TestStreamConnectionLimit 8 连接上限：第 9 个 Subscribe 返回 false
 func TestStreamConnectionLimit(t *testing.T) {
 	buf := NewRingBuffer()
@@ -211,19 +205,18 @@ func TestStreamConnectionLimit(t *testing.T) {
 	svc.Unsubscribe(chans[1])
 }
 
-// TestStreamReset Reset 后 tokens/缓冲/连接全复位
+// TestStreamReset Reset 后缓冲/连接全复位（不再有查询 Token 状态）
 func TestStreamReset(t *testing.T) {
 	buf := NewRingBuffer()
 	svc := NewStreamService(buf, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	_, _ = svc.IssueToken()
 	_, _, ok := svc.Subscribe()
 	if !ok {
 		t.Fatal("订阅失败")
 	}
 	buf.Append(Entry{Message: "x"})
 	svc.Reset()
-	if len(svc.tokens) != 0 || svc.connCount != 0 {
-		t.Errorf("Reset 后内存态应复位: tokens=%d conns=%d", len(svc.tokens), svc.connCount)
+	if svc.connCount != 0 {
+		t.Errorf("Reset 后连接数应复位: conns=%d", svc.connCount)
 	}
 	if len(buf.History()) != 0 {
 		t.Error("Reset 后缓冲应清空")
@@ -302,7 +295,9 @@ func TestNewFormats(t *testing.T) {
 		t.Fatal("json logger 构建失败")
 	}
 	// 级别过滤：error 级别下 info 不输出
-	l3 := New("error", "console")
+	runtime := NewRuntime("error", "console")
+	l3 := runtime.Logger
+	other := New("error", "console")
 	ctx := context.Background()
 	if l3.Enabled(ctx, slog.LevelInfo) {
 		t.Error("error 级别下 info 不应启用")
@@ -310,9 +305,12 @@ func TestNewFormats(t *testing.T) {
 	if !l3.Enabled(ctx, slog.LevelError) {
 		t.Error("error 级别下 error 应启用")
 	}
-	// SetLevel 运行时切换生效
-	SetLevel("debug")
+	// Runtime.SetLevel 只切换本实例，不影响 New 兼容入口创建的独立 logger
+	runtime.SetLevel("debug")
 	if !l3.Enabled(ctx, slog.LevelDebug) {
-		t.Error("切换 debug 后 debug 应启用")
+		t.Error("切换 debug 后本 Runtime debug 应启用")
+	}
+	if other.Enabled(ctx, slog.LevelDebug) {
+		t.Error("New 兼容入口不应共享其他 Runtime 的可变 LevelVar")
 	}
 }

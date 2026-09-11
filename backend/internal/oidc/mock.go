@@ -18,7 +18,7 @@ import (
 // subject 固定为输入邮箱，走与真实 OIDC 一致的查建/合并逻辑（可复现合并/冲突测试）。
 // 返回结构：登录成功返回 User + 已签发凭据由接入层处理；pending/冲突返回 ResolveResult。
 func (s *Service) MockLogin(ctx context.Context, email, username string, emailVerified bool, roles, groups []string) (*ResolveResult, error) {
-	providerType, _ := s.cfg.Get(ctx, KeyProviderType)
+	providerType := s.cfg.GetOr(ctx, KeyProviderType)
 	if s.mode != "dev" || providerType != "mock" {
 		return nil, errors.New("模拟登录仅 Dev 模式且选择模拟 OIDC 时可用")
 	}

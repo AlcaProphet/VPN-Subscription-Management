@@ -73,7 +73,7 @@ func (s *Service) Upsert(ctx context.Context, userID, platformID int64, src vers
 			// 首次创建：生成标识（custom- 前缀，参与四类命名空间校验；rules 表 Step 6 才建，缺失则跳过）
 			value, err := slug.Generate(ctx, tx, "custom-", func(v string) (bool, error) {
 				return slug.ExistsInFourTables(ctx, tx, v)
-			})
+			}, s.log)
 			if err != nil {
 				return err
 			}

@@ -181,7 +181,7 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 		s.log.Warn("解析平台附加头失败", "platform_id", platformID, "err", err)
 	} else {
-		frontendURL, _ := s.cfg.Get(ctx, config.KeyFrontendURL)
+		frontendURL := s.cfg.GetOr(ctx, config.KeyFrontendURL)
 		for k, v := range parsed {
 			if platform.IsContentDispositionHeader(k) {
 				if manualFilename == "" {
@@ -198,7 +198,7 @@ func (s *Service) withPlatformHeaders(ctx context.Context, content []byte, fileN
 	}
 	// 高级模式系统注入：profile 头覆盖平台同键，subscription-userinfo 仅用户订阅类携带
 	if s.cfg.GetBool(ctx, config.KeyAdvancedMode, false) && (dlType == "subscription" || dlType == "custom" || dlType == "explicit") {
-		frontendURL, _ := s.cfg.Get(ctx, config.KeyFrontendURL)
+		frontendURL := s.cfg.GetOr(ctx, config.KeyFrontendURL)
 		headers["profile-update-interval"] = "6"
 		headers["profile-web-page-url"] = frontendURL
 		up, down, total, err := s.userUsage(ctx, userID)
