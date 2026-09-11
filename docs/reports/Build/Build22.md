@@ -1,14 +1,14 @@
-# VPN 订阅管理系统 功能构建计划（Build22：Design3/Build16 D3-1～D3-10 缺口收口，进行中未归档）
+# VPN 订阅管理系统 功能构建计划（Build22：Design3/Build16 D3-1～D3-10 缺口收口，已完成并归档）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的第二十二轮构建记录（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接 [Build17.md](docs/reports/Build/Build17.md)～[Build20.md](docs/reports/Build/Build20.md) 以及已归档的 Build21；Build21 Step 14 已于 2026-09-09 收口，工程问题见 [Issue14.md](Issue14.md)，用户人工结果见 [ProdTestList.md](ProdTestList.md)。本轮针对 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 的**未闭环项 1** 完成深入研究、Step 1～11 代码实现与运行门禁。**但文档交叉审核确认 Step 7 的多项专属自动化测试未落地，Step 11 的“D3-7 全证据/全部验收通过”声明过强；本文件保持仓库根目录活跃，不归档，Step 7 证据缺口补齐并重新收口后才可归档。** 实际浏览器、真实设备和真实客户端人工项见 [ProdTestList.md](ProdTestList.md)，未标记为人工通过。
-> - 设计记录：[Design3.md](Design3.md)（Build16 的目标设计，当前仍有效）、[Build16.md](docs/reports/Build/Build16.md)（原构建计划）
-> - 问题来源：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md)（全量核验报告，未闭环项 1）
-> - 问题追踪：[Issue14.md](Issue14.md)（R28-05）
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 历史构建与问题记录：见 [docs/reports/](docs/reports)（均已存档，仅核查）
+> **文档定位：** 本文档是 VPN 订阅管理系统的第二十二轮构建记录（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接 [Build17.md](Build17.md)～[Build20.md](Build20.md) 以及已归档的 Build21；Build21 Step 14 已于 2026-09-09 收口，工程问题见 [Issue14.md](../../../Issue14.md)，用户人工结果见 [ProdTestList.md](../../../ProdTestList.md)。本轮针对 [BuildReport4.md](../BuildReport/BuildReport4.md) 的**未闭环项 1** 完成深入研究、Step 1～11 代码实现与运行门禁。**2026-09-10 文档交叉审核曾确认 Step 7 的多项专属自动化测试未落地；2026-09-11 已补齐全部交叉审核缺口及 Step 7 原始清单中的额外边界测试，并重新通过 Step 11 全量门禁。本文件已按归档规则移入 `docs/reports/Build/`。** 实际浏览器、真实设备和真实客户端人工项见 [ProdTestList.md](../../../ProdTestList.md)，未标记为人工通过。
+> - 设计记录：[Design3.md](../Design/Design3.md)（Build16 的目标设计，当前仍有效）、[Build16.md](Build16.md)（原构建计划）
+> - 问题来源：[BuildReport4.md](../BuildReport/BuildReport4.md)（全量核验报告，未闭环项 1）
+> - 问题追踪：[Issue14.md](../../../Issue14.md)（R28-05）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 历史构建与问题记录：见 [docs/reports/](..)（均已存档，仅核查）
 >
 > **用户已确认的决策：**
-> 1. Build22.md 放仓库根目录，作为当前构建方案。
+> 1. Build22.md 先放仓库根目录作为当前构建方案；收口后按规则归档。
 > 2. 研究范围覆盖 BuildReport4 §4.2 的 **D3-1～D3-10** 全部缺口。
 > 3. 文档采用“研究依据 + 可执行 Build 计划”形态，按本模板重新排版。
 > 4. per-URL failed 状态采用**持久化 failed 快照行**，不只在任务 JSON 中临时记录。
@@ -25,7 +25,7 @@
 > - AI 执行指令：每次仅执行一个 Step，完成后运行验收命令，确认通过后再进入下一步。
 > - **排序原则：先修复后构建、先安全后优化、先依赖后独立**。
 > - 每步的新增逻辑必须配套单元测试；测试应先复现缺口，再修改实现。
-> - 本文档当前仅完成研究、方案与排版，**未修改任何业务代码**。
+> - 本文档初稿仅完成研究、方案与排版；后续代码与测试实施记录见各 Step。
 > - **执行顺序注意：** Build21 已完成；Build22 仍按本文 Step 1～11 串行执行。若期间出现其他任务修改 `pool`、`rulespec`、`assembly` 或素材池前端文件，必须先重新核对差异和同文件冲突。
 
 ---
@@ -40,17 +40,17 @@
 | 4 | 后端素材池能力白名单（D3-4，按原始 legacy 类型拒绝 `SRC-*`） | Design3 §3.3、§3.4、§8.3 | ✅ 验收通过 |
 | 5 | 手工编辑不污染共享 Canonical（D3-3） | Design3 §3.2、§6.1 | ✅ 验收通过 |
 | 6 | 零输出门槛补全（D3-6） | Design3 §7.2 | ✅ 验收通过 |
-| 7 | failed 快照、v1 统计/激活时间 + per-URL 状态/诊断 API（D3-7） | Design3 §6.4、§8.2、§8.3 | ◧ 代码实现大体存在；交叉审核确认专属自动化测试矩阵大面积缺测，未达验收标准 |
+| 7 | failed 快照、v1 统计/激活时间 + per-URL 状态/诊断 API（D3-7） | Design3 §6.4、§8.2、§8.3 | ✅ 代码与专属自动化证据矩阵已补齐；Step 11 重新验收通过 |
 | 8 | 前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8） | Design3 §8.2 | ✅ 自动化验收通过；人工浏览器项目待用户核验（见 ProdTestList） |
 | 9 | 装配回执前端展示（D3-9） | Design3 §7.2、§8.2 | ✅ 自动化验收通过；人工页面项目待用户核验（见 ProdTestList） |
 | 10 | 1016 迁移 store 级回归测试（D3-10） | Design3 §6.5、§9.3 | ✅ 验收通过 |
-| 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | AGENTS.md §3.4～§3.6 | ◧ 后端/前端全量、Docker build 与 Production smoke 运行门禁通过；Step 7 专属自动化证据缺口未收口，不能声明 D3-1～D3-10 全部验收通过 |
+| 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | AGENTS.md §3.4～§3.6 | ✅ 后端/前端全量、race、Docker build 与 Production smoke 门禁通过；D3-1～D3-10 收口，Build22/Design3 已归档 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
-> 当前 Step 1～6、8～10 的代码与测试声明成立；Step 7 代码实现大体存在，但 Build22 自己列出的专属测试矩阵大面积未落地；Step 11 的运行门禁可以复现通过，但不能替代 Step 7 证据，也不能据此声明 D3-1～D3-10 全部验收通过。Step 8/9 实际浏览器与真实客户端项目已按用户授权迁移至 [ProdTestList.md](ProdTestList.md)，尚未形成用户人工通过结论。
-> 工程状态追踪：上述 D3-1～D3-10 未闭环项已登记至 [Issue14.md](Issue14.md) R28-05；本文档作为实施计划，不替代问题追踪。
+> 2026-09-11 收口结果：Step 1～11 全部验收通过；Step 7 曾在 2026-09-10 交叉审核中暴露专属自动化证据缺口，现已补齐对应测试并重新运行 Step 11 门禁。Step 8/9 实际浏览器与真实客户端项目已按用户授权迁移至 [ProdTestList.md](../../../ProdTestList.md)，尚未形成用户人工通过结论。
+> 工程状态追踪：R28-05 已由 [Issue14.md](../../../Issue14.md) 关闭；本文档作为构建记录归档，不替代问题追踪。
 >
-> **交叉审核补充（2026-09-10）：** 已确认的 Step 7 自动化证据缺口包括：`ActivatePending`/`DiscardPending` 与 `activated_at` 激活语义；`SanitizeStoredSyncOutputs` 幂等/非破坏性清洗；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 的读时脱敏 raw JSON；`NormalizeDiagnostics` 的 19+1 与 200 rune 限额；v1 `rule_counts` 分项合计不变量、`previous_active` 比较和旧 stats `version 0` 解析；最近失败后恢复及同时间戳按 ID 排序；failed 快照写入失败时 active/pending 不变且不虚报 snapshot ID。另有一条历史计划回退路径（旧字符串数组 Clash plan 的下载重渲染）缺少自动化覆盖。**Build22 在补齐这些证据并重新执行 Step 11 验收前保持根目录活跃，不归档。**
+> **交叉审核补充（2026-09-10）：** 已确认的 Step 7 自动化证据缺口包括：`ActivatePending`/`DiscardPending` 与 `activated_at` 激活语义；`SanitizeStoredSyncOutputs` 幂等/非破坏性清洗；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 的读时脱敏 raw JSON；`NormalizeDiagnostics` 的 19+1 与 200 rune 限额；v1 `rule_counts` 分项合计不变量、`previous_active` 比较和旧 stats `version 0` 解析；最近失败后恢复及同时间戳按 ID 排序；failed 快照写入失败时 active/pending 不变且不虚报 snapshot ID。另有一条历史计划回退路径（旧字符串数组 Clash plan 的下载重渲染）缺少自动化覆盖。**2026-09-11 收口：上述缺口已逐项补齐并新增额外边界测试；Step 7 重跑定向证据、后端全量/race/build/vet、前端全量/build、Docker build、Production smoke 与 `git diff --check` 全部通过，Build22/Design3 已按规则归档。**
 
 ---
 
@@ -744,6 +744,18 @@ Step 11（全量回归/文档收口） ←────────────�
   - failed 快照写入失败时预留后缀长度，保证 200 rune 内仍附带“失败快照写入失败”。
   - 验证命令：`go test ./... -count=1 -timeout 300s`、`go build ./...`、`go vet ./...`、`cd frontend && npm run build` 均通过。
 
+- **Step 7 证据补齐与收口记录（2026-09-11，按用户确认的完整闭环方案）：**
+  - 新增 `ActivatePending`/`DiscardPending`/`activated_at` 原子语义、stats/decision 不可变、历史 active/failed 不补造时间测试。
+  - 新增 `SanitizeStoredSyncOutputs` 事务化、仅变更更新、幂等/非破坏性、非法 `per_url_json` 脱敏与 200 rune 截断测试；实现同步修复为事务内执行。
+  - 新增现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON、原始编辑 URL 保留、新 API 原始 JSON 形状/404/400 测试。
+  - 新增 `NormalizeDiagnostics` 19+1、200 rune、空 `[]` 测试。
+  - 新增 v1 `rule_counts` 分项合计不变量、稳定排序、`previous_active` 格式/缩量比较、旧 stats version 0 兼容测试。
+  - 新增 `latest_failed` 失败后恢复、同时间戳按 ID 排序、failed 写库失败指针不变/不虚报/DB error 不泄漏测试。
+  - 新增 7 天清理不误删 active/pending/被引用快照与有效 origin/Canonical、任务取消不写 failed、单 URL 超时写 `network_error` failed 快照测试。
+  - 新增旧字符串数组 Clash plan 下载重渲染回退测试；同步修复 `isLegacyClashPlan` 对 `rules` 字符串数组的识别。
+  - 新增 `RedactDisplayURL` 的 `;`、嵌套 URL、`%26/%23/%3b/%3f/%3d` 编码分隔符深度加固测试；`RedactDisplayURL` 与 `RedactText` 统一解析，保留原始编码。
+  - 验证命令：`cd backend && go test ./internal/redact ./internal/log ./internal/store ./internal/pool ./internal/server -count=1 -timeout 300s`、`go test ./... -count=1 -timeout 300s`、`go vet ./...`、`go test -race ./internal/pool ./internal/server ./internal/redact ./internal/log ./internal/store`、`cd frontend && npm test -- --run`（42 文件/259 用例）、`npm run build` 均通过。
+
 ---
 
 ### Step 8：前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8）
@@ -958,7 +970,7 @@ Step 11（全量回归/文档收口） ←────────────�
     - 本文件：更新进度表与验收结果。
 
 - **验收标准：**
-  所有自动命令和正式 Production smoke 通过；D3-1 的新计划实例语义与旧计划兼容均有下载证据，D3-5 的排序/分页有数据库级证据，D3-7 的状态恢复、v1 stats 不变量、旧 JSON 兼容、1018 激活时间和脱敏有限诊断应有迁移/API/UI 证据，D3-10 的真实 1015→1016 迁移有 store 级证据；Build22、Design3、Issue14 与 AGENTS 状态一致，归档 Build16 只保留历史记录和后续勘误，不倒改或虚标验收状态。**交叉审核确认 D3-7 专属自动化证据矩阵未落地，本条件的“全部验收通过”不成立。**
+  所有自动命令和正式 Production smoke 通过；D3-1 的新计划实例语义与旧计划兼容均有下载证据，D3-5 的排序/分页有数据库级证据，D3-7 的状态恢复、v1 stats 不变量、旧 JSON 兼容、1018 激活时间和脱敏有限诊断应有迁移/API/UI 证据，D3-10 的真实 1015→1016 迁移有 store 级证据；Build22、Design3、Issue14 与 AGENTS 状态一致，归档 Build16 只保留历史记录和后续勘误，不倒改或虚标验收状态。**2026-09-11 补齐 D3-7 专属自动化证据矩阵后，全部验收条件成立。**
 
 - **Step 11 执行记录（2026-09-10）：**
   - 全量自动门禁均在本次任务实际运行并通过：`cd backend && go build ./...`、`go vet ./...`、`go test ./... -count=1 -timeout 180s`、`cd frontend && npm run build`、`cd frontend && npm test -- --run`、`docker compose build`、`bash .smoke-test-prod.sh`、`git diff --check`。
@@ -969,11 +981,17 @@ Step 11（全量回归/文档收口） ←────────────�
   - **交叉审核修正（2026-09-10）：** 上述全量门禁真实通过，但 Step 7 专属自动化证据缺口未在本次门禁中被覆盖或声明降级；本 Step 11 的运行门禁结果不能作为 D3 全验收通过的充分证据。缺口清单与重跑条件见进度表下方“交叉审核补充”。
   - 实际浏览器双视口、真实交互、真实手机和真实客户端仍只登记为待用户人工核验，不得由本次自动化结果外推为通过。
 
+- **Step 11 重新收口记录（2026-09-11）：**
+  - Step 7 专属证据补齐后重新运行：`go test ./internal/redact ./internal/log ./internal/store ./internal/pool ./internal/server -count=1 -timeout 300s`、`go test ./... -count=1 -timeout 300s`、`go vet ./...`、`go test -race ./internal/pool ./internal/server ./internal/redact ./internal/log ./internal/store` 全部通过。
+  - 前端 `npm test -- --run`（42 文件/259 用例）与 `npm run build` 通过；`docker compose build`、`bash .smoke-test-prod.sh`、`git diff --check` 通过。
+  - Step 7 交叉审核缺口的逐项证据见本节“Step 7 证据补齐与收口记录”；D3-1～D3-10 工程闭环成立，Build22 与 Design3 按归档规则移入 `docs/reports/`。
+  - 实际浏览器、真实设备和真实客户端项目仍以 [ProdTestList.md](../../../ProdTestList.md) 为准，未标记为人工通过。
+
 ---
 
 ## 五、已确认构建项映射
 
-> 以下候选均来自 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §4.2，并已经用户确认纳入 Build22。工程跟踪见 [Issue14.md](Issue14.md) R28-05；后续实施时按上述 Step 顺序逐项执行。
+> 以下候选均来自 [BuildReport4.md](../BuildReport/BuildReport4.md) §4.2，并已经用户确认纳入 Build22。工程跟踪见 [Issue14.md](../../../Issue14.md) R28-05；后续实施时按上述 Step 顺序逐项执行。
 
 | # | 候选 | 说明 | 来源 | 对应 Step |
 |---|------|------|------|-----------|
@@ -996,6 +1014,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.15 | 2026-09-11 | Step 7 证据补齐并重新收口：新增 8 项交叉审核缺口测试及额外边界测试；修复 `RedactDisplayURL` 编码分隔符/嵌套 URL 脱敏、`SanitizeStoredSyncOutputs` 事务化与 fallback 限额、`isLegacyClashPlan` 对字符串 `rules` 的识别。后端定向/全量/race/build/vet、前端 42 文件/259 用例/build、Docker build、Production smoke 与 `git diff --check` 全部通过；D3-1～D3-10 闭环，Build22/Design3 归档。 |
 | v1.14 | 2026-09-10 | 文档交叉审核修正：Step 7 专属自动化测试矩阵大面积未落地（激活/activated_at、存量清洗、现有 sync/status 与 sync/tasks 脱敏、19+1/200 rune、v1 stats 不变量/version 0、latest_failed 恢复与 ID 排序、failed 写失败指针不变等），Step 11 不能声明 D3-1～D3-10 全部验收通过；Build22 保持根目录活跃，不归档，补齐证据后重跑 Step 11 门禁再收口。 |
 | v1.13 | 2026-09-10 | 完成 Build22 Step 8～11 代码与运行门禁：Step 8 每 URL 来源状态/诊断/pending UI 与组件测试、Step 9 preview/generate 六项回执展示与后端原始 JSON 合同、Step 10 真实 1015→1016 store 级迁移/幂等/回滚测试、Step 11 后端 build/vet/全量测试、前端 build/全量测试、Docker Compose build 与正式 Production smoke 全部通过；但该记录未发现 Step 7 专属自动化证据缺口，D3 全验收口径由 v1.14 修正。Smoke 旧夹具与 Step 6 零输出门槛冲突已按 B-3 修正并记录。实际浏览器/真机项目迁移至 ProdTestList，不标记为人工通过。 |
 | v1.12 | 2026-09-10 | 按用户确认的补修方案完成 Build22 Step 1～7 的缺口复修：Step3 修复 SR `no-resolve` 目标能力判断、未知 option warn/位置法尾部解析；Step7 修复 detector evidence codes 来源、sentinel reason_code、严格 v1 stats 形状、显式 null/空串 wire shape、snapshots 严格分页、URL 200 rune 限长和 failed 写入失败后缀保留。后端全量测试/build/vet、前端 build 均通过；Step 8 进行中，Step 9～11 未开始。 |
@@ -1183,5 +1202,5 @@ receipt?: ConversionReceipt
 | ID | 日期时间 | Step | 类型 | 发现与证据 | 处理决定或阻断点 | 影响范围 | 状态 |
 |----|----------|------|------|------------|------------------|----------|------|
 | B-1 | 2026-09-10 | Step 8 | 阻断问题 | Build22 Step 8 明确要求以实际浏览器取得 1440px 与 390px 两种视口证据；当前执行环境 `which chromium/chromium-browser/google-chrome/playwright` 均无结果，frontend 也未安装 Playwright，无法执行真实浏览器交互与截图证据。 | 停止在 Step 8 前，不实施/标记 Step 8 完成；Steps 1～7 已完成后保持当前部分实现；等待用户提供浏览器证据环境或明确调整证据边界。 | Step 8 UI、Step 11 全量收口 | 已由 B-2 解阻（原始阻断事实保留） |
-| B-2 | 2026-09-10 20:04 | Step 8 | 用户决策/验收边界 | 用户已明确允许将实际浏览器、真实设备和真实客户端核验延期至 [ProdTestList.md](ProdTestList.md)；B-1 的“缺少实际浏览器环境”不再阻断 Step 8 的代码和自动化验收。Step 8 仍必须完成组件测试与生产构建，1440px、390px、真实交互和控制台检查不得标记通过。 | 按用户授权继续执行 Step 8～11 的代码与自动化验收；未执行的实际浏览器项目迁移为待用户人工核验，完成自动化后不得宣称真实浏览器已通过。 | Step 8、Step 11 文档收口 | 已确认 |
+| B-2 | 2026-09-10 20:04 | Step 8 | 用户决策/验收边界 | 用户已明确允许将实际浏览器、真实设备和真实客户端核验延期至 [ProdTestList.md](../../../ProdTestList.md)；B-1 的“缺少实际浏览器环境”不再阻断 Step 8 的代码和自动化验收。Step 8 仍必须完成组件测试与生产构建，1440px、390px、真实交互和控制台检查不得标记通过。 | 按用户授权继续执行 Step 8～11 的代码与自动化验收；未执行的实际浏览器项目迁移为待用户人工核验，完成自动化后不得宣称真实浏览器已通过。 | Step 8、Step 11 文档收口 | 已确认 |
 | B-3 | 2026-09-10 20:13 | Step 11 | 自主决策/测试夹具修正 | Step 11 首次运行 `bash .smoke-test-prod.sh` 在步骤 13d“sr-conf 装配生成”失败：脚本发送 `pools:[]`、`custom_rules:[]`，服务端按 Build22 Step 6 已冻结的零输出门槛返回 400“当前目标没有可输出的非系统规则”。该行为与 `server/assembly_test.go` 的 `TestAssemblyGenerateZeroOutputGate` 一致，属于旧 smoke 夹具与设计合同漂移，不是产品回归。 | 保留失败证据，不修改零输出门槛、不修改生产代码或迁移 SQL；仅把 `.smoke-test.sh` 的 sr-conf 请求夹具改为一条有效 `DOMAIN-SUFFIX` 自定义规则，使 smoke 验证成功路径。空规则负例继续由后端自动化测试固定，不以脚本改动隐藏。修正后完整 smoke 与 v2 导入导出往返通过。 | `.smoke-test.sh` 夹具；Step 11 门禁记录 | 已确认并验证 |

@@ -58,7 +58,7 @@ func isAssignmentSeparator(c byte) bool {
 
 func isValueEnd(c byte) bool {
 	switch c {
-	case '&', ';', ' ', '\t', '\n', '\r', ',', '"', '\'', ')', ']', '}', '>':
+	case '&', ';', ' ', '\t', '\n', '\r', ',', '"', '\'', ')', ']', '}', '>', '#':
 		return true
 	}
 	return false
@@ -95,7 +95,73 @@ func redactURLUserinfos(s string) string {
 	}
 }
 
+// encodedSeparatorAt 判断 i 起是否为编码后的 query/赋值边界：
+// %26(&)、%23(#)、%3b(;)、%3f(?)。
+func encodedSeparatorAt(s string, i int) bool {
+	if i < 0 || i+3 > len(s) || s[i] != '%' {
+		return false
+	}
+	switch s[i+1] {
+	case '2':
+		return s[i+2] == '6' || s[i+2] == '3'
+	case '3':
+		return s[i+2] == 'b' || s[i+2] == 'B' ||
+			s[i+2] == 'f' || s[i+2] == 'F' ||
+			s[i+2] == 'd' || s[i+2] == 'D'
+	}
+	return false
+}
+
+// findAssignmentSep 查找普通 = 或编码 %3d/%3D，返回位置与分隔符字节长度。
+func findAssignmentSep(s string, from int) (int, int) {
+	for i := from; i < len(s); i++ {
+		if s[i] == '=' {
+			return i, 1
+		}
+		if i+3 <= len(s) && s[i] == '%' && s[i+1] == '3' &&
+			(s[i+2] == 'd' || s[i+2] == 'D') {
+			return i, 3
+		}
+	}
+	return -1, 0
+}
+
+// keyStartBefore 从赋值分隔符向前回退 key；编码边界（如 %26、%3f）视为 key 起点。
+func keyStartBefore(s string, eq int) int {
+	i := eq
+	for i > 0 {
+		if encodedSeparatorAt(s, i-3) {
+			break
+		}
+		if !isKeyChar(s[i-1]) {
+			break
+		}
+		i--
+	}
+	return i
+}
+
+// assignmentBoundaryBefore 判断 key 前是否是合法赋值上下文边界。
+func assignmentBoundaryBefore(s string, keyStart int) bool {
+	if keyStart == 0 {
+		return true
+	}
+	if encodedSeparatorAt(s, keyStart-3) {
+		return true
+	}
+	return isAssignmentSeparator(s[keyStart-1])
+}
+
+// valueEndAt 判断 value 扫描是否应在此结束；编码分隔符与普通分隔符同等处理。
+func valueEndAt(s string, i int) bool {
+	if encodedSeparatorAt(s, i) {
+		return true
+	}
+	return isValueEnd(s[i])
+}
+
 // RedactText 通用文本脱敏：覆盖 URL query/fragment/userinfo 和普通 key=value 文本中的疑似凭据。
+// 同时识别 %26/%23/%3b/%3f 等编码分隔符和 %3d 编码赋值符，保留原始编码。
 func RedactText(s string) string {
 	if s == "" {
 		return ""
@@ -105,85 +171,42 @@ func RedactText(s string) string {
 	b.Grow(len(s))
 	i := 0
 	for i < len(s) {
-		eq := strings.IndexByte(s[i:], '=')
+		eq, sepLen := findAssignmentSep(s, i)
 		if eq < 0 {
 			b.WriteString(s[i:])
 			break
 		}
-		abs := i + eq
-		keyEnd := abs
-		keyStart := keyEnd
-		for keyStart > i && isKeyChar(s[keyStart-1]) {
-			keyStart--
-		}
+		keyStart := keyStartBefore(s, eq)
 		// key 前必须是赋值上下文分隔符或文本起点，避免把普通文本中单词后的 = 误判。
-		if keyStart > 0 && !isAssignmentSeparator(s[keyStart-1]) {
-			b.WriteString(s[i : abs+1])
-			i = abs + 1
+		if !assignmentBoundaryBefore(s, keyStart) {
+			b.WriteString(s[i : eq+sepLen])
+			i = eq + sepLen
 			continue
 		}
-		key := s[keyStart:keyEnd]
+		key := s[keyStart:eq]
 		if isSensitiveKey(key) {
-			valStart := abs + 1
+			valStart := eq + sepLen
 			valEnd := valStart
-			for valEnd < len(s) && !isValueEnd(s[valEnd]) {
+			for valEnd < len(s) && !valueEndAt(s, valEnd) {
 				valEnd++
 			}
-			b.WriteString(s[i:keyEnd])
-			b.WriteString("=***")
+			b.WriteString(s[i:eq])
+			b.WriteString(s[eq : eq+sepLen])
+			b.WriteString("***")
 			i = valEnd
 		} else {
-			b.WriteString(s[i : abs+1])
-			i = abs + 1
+			b.WriteString(s[i : eq+sepLen])
+			i = eq + sepLen
 		}
 	}
 	return b.String()
 }
 
-// redactRawQuery redacts sensitive assignments in a raw query/fragment string while
-// preserving parameter order, duplicate parameters and original encoding.
-func redactRawQuery(raw string) string {
-	if raw == "" {
-		return raw
-	}
-	parts := strings.Split(raw, "&")
-	for i, part := range parts {
-		eq := strings.IndexByte(part, '=')
-		if eq < 0 {
-			continue
-		}
-		key := part[:eq]
-		if isSensitiveKey(key) {
-			parts[i] = key + "=***"
-		}
-	}
-	return strings.Join(parts, "&")
-}
-
 // RedactDisplayURL 只用于展示 URL：保留非敏感参数、参数顺序、重复参数和原始编码，
 // 仅把敏感 query/fragment 参数值替换为 ***，并隐藏 userinfo 密码。
+// 与通用文本脱敏共用同一套解析，避免 ;、嵌套 URL 或编码分隔符绕过。
 func RedactDisplayURL(raw string) string {
-	raw = redactURLUserinfos(raw)
-	q := strings.IndexByte(raw, '?')
-	h := strings.IndexByte(raw, '#')
-	if q >= 0 && (h < 0 || q < h) {
-		queryEnd := len(raw)
-		if h >= 0 {
-			queryEnd = h
-		}
-		var b strings.Builder
-		b.WriteString(raw[:q+1])
-		b.WriteString(redactRawQuery(raw[q+1 : queryEnd]))
-		if h >= 0 {
-			b.WriteString("#")
-			b.WriteString(RedactText(raw[h+1:]))
-		}
-		return b.String()
-	}
-	if h >= 0 {
-		return raw[:h+1] + RedactText(raw[h+1:])
-	}
-	return raw
+	return RedactText(redactURLUserinfos(raw))
 }
 
 // TruncateText 按 rune 安全截断字符串。

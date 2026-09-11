@@ -23,6 +23,28 @@ func TestRedactTextCoversSensitiveKeys(t *testing.T) {
 	}
 }
 
+func TestRedactTextEncodedAndNestedAssignments(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"https://example.com/?a=1;token=SECRET", "https://example.com/?a=1;token=***"},
+		{"https://example.com/?next=https://nested.example/path?token=SECRET", "https://example.com/?next=https://nested.example/path?token=***"},
+		{"https://example.com/?foo=bar%26token%3DSECRET", "https://example.com/?foo=bar%26token%3D***"},
+		{"https://example.com/?foo=bar%3Btoken%3dSECRET", "https://example.com/?foo=bar%3Btoken%3d***"},
+		{"https://example.com/?next=https://nested.example/path%3Ftoken%3DSECRET", "https://example.com/?next=https://nested.example/path%3Ftoken%3D***"},
+		{"https://example.com/?next=https://nested.example/path%23token%3DSECRET", "https://example.com/?next=https://nested.example/path%23token%3D***"},
+		{"https://example.com/?token=abc#frag", "https://example.com/?token=***#frag"},
+		{"token=", "token=***"},
+		{"普通文本 %26 没有赋值分隔符", "普通文本 %26 没有赋值分隔符"},
+	}
+	for _, c := range cases {
+		if got := RedactText(c.in); got != c.want {
+			t.Errorf("RedactText(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	if got := RedactText("no equals but %3D encoded here"); strings.Contains(got, "***") {
+		t.Fatalf("无敏感 key 的编码分隔符不应误脱敏: %q", got)
+	}
+}
+
 func TestRedactDisplayURLPreservesStructure(t *testing.T) {
 	in := "https://example.com/path?a=1&token=abc&a=2&code=def#state=ghi"
 	got := RedactDisplayURL(in)

@@ -1,6 +1,6 @@
 # TODOLIST.md — 后续工作顺序跟踪（2026-09-11）
 
-> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build22.md](Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
+> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
 > **授权边界：** 本次只授权更新本清单，不授权执行下列代码修复、测试、归档或正式文档状态变更。进入构建前仍须按 AGENTS.md 完成影响评估、文档疑点检查并取得对应授权。
 > **排序原则：** 先关闭已有活跃 Build 的验收缺口，再处理 Issue14 的工程整改和项目收尾；工程基线冻结后继续第三期安全审查；人工结论单独由 ProdTestList 跟踪。
 
@@ -10,15 +10,15 @@
 
 | 文档 | 当前状态 | 下一入口 |
 |---|---|---|
-| [Build22.md](Build22.md) | Step 1～6、8～10 已验收；Step 7 专属自动化证据缺失；Step 11 不能声明 D3 全验收 | **Build22 Step 7** |
-| [Design3.md](Design3.md) | 因 Build22 Step 7 未闭环而保持活跃 | Build22 Step 7、11 后收口 |
-| [Issue14.md](Issue14.md) | 步骤一、二、四、六已关闭；步骤三、五、七、八未关闭 | **Issue14 步骤三** |
-| [Issue15.md](Issue15.md) | R29-01 工程修复待人工复验；R29-11 未关闭；R29-12 已确认并完成文档补记；R29-06、09、10 待人工 | R29-11 随 Build22；R29-01 与 R28-07G 联动 |
+| [docs/reports/Build/Build22.md](docs/reports/Build/Build22.md) | 已归档；Step 1～11 全部验收通过，D3-1～D3-10 闭环 | ✅ 已完成 |
+| [docs/reports/Design/Design3.md](docs/reports/Design/Design3.md) | 已随 Build22 收口归档 | ✅ 已完成 |
+| [Issue14.md](Issue14.md) | 步骤一、二、三、四、六已关闭；步骤五、七、八未关闭 | **Issue14 步骤五** |
+| [Issue15.md](Issue15.md) | R29-11 已关闭；R29-12 已完成；R29-01、R29-06、R29-09、R29-10 待人工复验 | R29-01 与 R28-07G 联动 |
 | [Design4.md](Design4.md) | 当前最新设计；Build17～25 主体已完成 | 仅在实际变更影响其合同时同步 |
 | [ProdTestList.md](ProdTestList.md) | 保留 Production、浏览器、真机和真实客户端人工项 | 按工程前置分批执行 |
 | [SecurityScanPlan1.md](SecurityScanPlan1.md) / [SecurityReport3.md](SecurityReport3.md) | Step 1～3 已完成；Step 4～28 未开始，报告未完成 | 工程冻结后执行 **Step 4** |
 
-已归档的 Build21、Build23、Build24、Build25 只用于核查，不再作为执行入口。
+已归档的 Build21、Build22、Build23、Build24、Build25 只用于核查，不再作为执行入口。
 
 ---
 
@@ -29,23 +29,25 @@
 - [x] **P0-1｜Issue15 R29-12：** 已确认 `Dockerfile` 从 `node:22-alpine` 升至 `node:24-alpine` 是有意的安全性更新；保留该变更。验证边界限定为前端构建镜像、依赖安装和相关构建/测试链，不将其表述为业务运行时行为变更。结论已回写 [Issue15.md](Issue15.md)，供 Issue14 步骤七使用。
 - [x] **P0-2｜Issue15 R29-01：** 已完成实施前复核：Setup 新库导入只发送 `IMPORT`；管理端已有库导入继续要求 `IMPORT → DISABLE`；2026-09-11 用户截图和当前代码确认报告中的 `RESET` 为历史误记，当前合同为 `DISABLE`。复核、修复和隔离 Production 真实文件证据已记录在 [Issue15.md](Issue15.md)，当前 Docker 镜像重建后的浏览器复验仍由 [ProdTestList.md](ProdTestList.md) 跟踪。
 
-P0 不阻塞 Build22 Step 7；P0-1、P0-2 已完成。P0-2 的后续 R28-07G 工程实施仍须按 P2-7 单独授权和验收，不能以本次复核替代。
+Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 的后续 R28-07G 工程实施仍须按 P2-7 单独授权和验收，不能以本次复核替代。
 
-### P1 — Build22 Step 7 → Step 11 → Issue14 步骤三
+### P1 — Build22 Step 7 → Step 11 → Issue14 步骤三（已完成）
 
 主跟踪：Build22 Step 7、Issue14 步骤三/R28-05、Issue15 R29-11。
 
-- [ ] **P1-1｜Build22 Step 7：** 补 `ActivatePending` / `DiscardPending` 与 `activated_at` 测试：激活原子更新、不改 stats/decision、历史 active/failed 不补造时间。
-- [ ] **P1-2｜Build22 Step 7：** 补 `SanitizeStoredSyncOutputs` 幂等、非破坏性清洗测试。
-- [ ] **P1-3｜Build22 Step 7：** 补 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON 测试，并证明编辑用 URL 保留原值。
-- [ ] **P1-4｜Build22 Step 7：** 补 `NormalizeDiagnostics` 19 条真实 + 1 条截断摘要、200 rune 限额和空数组合同。
-- [ ] **P1-5｜Build22 Step 7：** 补 v1 `rule_counts` 合计不变量、`previous_active`、稳定 reason/evidence codes 与旧 stats `version 0` 兼容测试。
-- [ ] **P1-6｜Build22 Step 7：** 补 `latest_failed` 恢复、失败后成功不永久标红、同时间戳按 ID 稳定选择测试。
-- [ ] **P1-7｜Build22 Step 7：** 补 failed 快照写失败时指针不变、不虚报 snapshot ID、详细 DB error 不进入展示字段的测试。
-- [ ] **P1-8｜Build22 Step 7：** 补旧字符串数组 Clash plan 用户下载重渲染回退测试。
-- [ ] **P1-9｜Build22 Step 7 验收：** 跑定向测试、后端 build、前端 build，逐条核对专属证据矩阵；不能只以全量绿灯替代。
-- [ ] **P1-10｜Build22 Step 11：** 重跑后端全量/build/vet/相关 race、前端全量/build、Docker build、正式 Production smoke、`git diff --check`。
-- [ ] **P1-11｜Issue14 步骤三：** 回写 R28-05、Issue15 R29-11、Build22、Design3、AGENTS；满足条件后归档 Build22 与 Design3。
+- [x] **P1-1｜Build22 Step 7：** 补 `ActivatePending` / `DiscardPending` 与 `activated_at` 测试：激活原子更新、不改 stats/decision、历史 active/failed 不补造时间。
+- [x] **P1-2｜Build22 Step 7：** 补 `SanitizeStoredSyncOutputs` 幂等、非破坏性清洗测试。
+- [x] **P1-3｜Build22 Step 7：** 补 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON 测试，并证明编辑用 URL 保留原值。
+- [x] **P1-4｜Build22 Step 7：** 补 `NormalizeDiagnostics` 19 条真实 + 1 条截断摘要、200 rune 限额和空数组合同。
+- [x] **P1-5｜Build22 Step 7：** 补 v1 `rule_counts` 合计不变量、`previous_active`、稳定 reason/evidence codes 与旧 stats `version 0` 兼容测试。
+- [x] **P1-6｜Build22 Step 7：** 补 `latest_failed` 恢复、失败后成功不永久标红、同时间戳按 ID 稳定选择测试。
+- [x] **P1-7｜Build22 Step 7：** 补 failed 快照写失败时指针不变、不虚报 snapshot ID、详细 DB error 不进入展示字段的测试。
+- [x] **P1-8｜Build22 Step 7：** 补旧字符串数组 Clash plan 用户下载重渲染回退测试。
+- [x] **P1-9｜Build22 Step 7 验收：** 跑定向测试、后端 build、前端 build，逐条核对专属证据矩阵；不能只以全量绿灯替代。
+- [x] **P1-10｜Build22 Step 11：** 重跑后端全量/build/vet/相关 race、前端全量/build、Docker build、正式 Production smoke、`git diff --check`。
+- [x] **P1-11｜Issue14 步骤三：** 回写 R28-05、Issue15 R29-11、Build22、Design3、AGENTS；满足条件后归档 Build22 与 Design3。
+
+> 2026-09-11 完成记录：P1-1～P1-11 已全部执行；额外修复 `RedactDisplayURL` 编码分隔符/嵌套 URL 脱敏、`SanitizeStoredSyncOutputs` 事务化与 fallback 限额、`isLegacyClashPlan` 字符串 `rules` 识别。后端定向/全量/race/build/vet、前端 42 文件/259 用例/build、Docker build、Production smoke、`git diff --check` 通过；Build22/Design3 已归档，Issue14 步骤三与 Issue15 R29-11 已关闭。
 
 ### P2 — Issue14 步骤五（R28-07）
 
@@ -152,4 +154,5 @@ P0 不阻塞 Build22 Step 7；P0-1、P0-2 已完成。P0-2 的后续 R28-07G 工
 |---|---|
 | 2026-09-10 | 创建临时 TODOLIST，登记当时活跃文档、确认项、工程工作流与人工队列。 |
 | 2026-09-11 | 按最新活跃文档重排：以 Build22 Step 7 → Step 11 → Issue14 步骤三为首要主线；细化 Issue14 步骤五、七、八；逐项列出 SecurityScanPlan1 Step 4～28；更新人工测试开始条件与授权边界。 |
+| 2026-09-11 | 完成 P1：Build22 Step 1～11 全部证据补齐并重新通过全量门禁，修复脱敏/存量清洗/旧 plan 回退边界；问题 R28-05/R29-11 关闭，Build22/Design3 归档。 |
 | 2026-09-11 | 完成 P0-1/P0-2：确认 Node 22→24 为有意的安全性更新并限定验证边界；复核 Setup/管理端导入合同及 `RESET`→`DISABLE` 历史差异。P5 SecurityScanPlan1 仍作为构建之外的独立审查清单，不并入任何 Build/Design/Issue。 |

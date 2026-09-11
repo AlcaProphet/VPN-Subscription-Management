@@ -30,6 +30,6 @@
 
 ## 三、与其他目录的关系
 
-- 设计文档：[Design2.md](../reports/Design/Design2.md)、[Design3.md](../../Design3.md)、[Design4.md](../../Design4.md)
+- 设计文档：[Design2.md](../reports/Design/Design2.md)、[Design3.md](../reports/Design/Design3.md)、[Design4.md](../../Design4.md)
 - 构建/问题/验收记录：[docs/reports/](../reports)、根目录 Build/Issue/ProdTestList
 - 文档模板与样例：[docs/DocTemplates/](../DocTemplates)

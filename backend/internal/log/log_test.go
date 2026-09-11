@@ -276,6 +276,11 @@ func TestRedact(t *testing.T) {
 		{"/sub?token=xyz&platform=clash", "/sub?token=***&platform=clash"},
 		{"no token here", "no token here"},
 		{"token=without_prefix", "token=***"},
+		{"?code=abc&state=def&Token=ghi", "?code=***&state=***&Token=***"},
+		{"a=1;token=abc", "a=1;token=***"},
+		{"?foo=bar%26token%3DSECRET", "?foo=bar%26token%3D***"},
+		{"?next=https://nested.example/path?token=SECRET", "?next=https://nested.example/path?token=***"},
+		{"#token=abc", "#token=***"},
 	}
 	for _, c := range cases {
 		if got := Redact(c.in); got != c.want {

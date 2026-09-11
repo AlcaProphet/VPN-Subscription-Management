@@ -1,7 +1,7 @@
 # Issue11.md — VPN 订阅管理系统问题追踪（已归档）
 
 > **文档定位：** 本文档记录 VPN 订阅管理系统 R25-10～R25-19 问题及修复闭环，现已与当前问题记录分离并移入 `docs/reports/Issue/` 存档。
-> 设计记录见 [Design3.md](../../../Design3.md) 及已归档的 [Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md)；编码指令见 [AGENTS.md](../../../AGENTS.md)（唯一强要求）。
+> 设计记录见 [Design3.md](../Design/Design3.md) 及已归档的 [Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md)；编码指令见 [AGENTS.md](../../../AGENTS.md)（唯一强要求）。
 > **归档说明：** R25-10～R25-19 均已完成代码修复、自动化回归和既定产品决策闭环；本文件于 2026-09-03 移入 `docs/reports/Issue/` 存档。后续人工/Production 测试统一维护于 [ProdTestList.md](../../../ProdTestList.md)。
 
 ## 〇、本轮说明

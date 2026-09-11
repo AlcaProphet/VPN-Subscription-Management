@@ -1,7 +1,7 @@
 # Issue14.md — VPN 订阅管理系统问题追踪（当前）
 
 > **文档定位：** 本文承接已归档的 [Issue13.md](docs/reports/Issue/Issue13.md) 的 R27-09 / Build21 收口核验，并汇总 [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 全量核验中仍未闭环的工程问题；只记录除用户真机人工验收之外，当前仍未完成、待处理或新发现的工程问题与验收证据缺口。用户需要亲自执行的 Production、浏览器和客户端人工测试在执行期间由 [ProdTestList.md](ProdTestList.md) 记录，人工测试中发现的问题及文档交叉审核补充登记的问题由 [Issue15.md](Issue15.md) 记录；已完成项目从当前清单移除，结论保留在本文件和已归档的 Build21～Build25 中，当前仍待人工复验的项目继续由 ProdTestList 跟踪。
-> 关联构建：[Build21.md](docs/reports/Build/Build21.md) §7.11 Step 14、[Build22.md](Build22.md)（D3 实施记录）；交接收口：[Build23.md](docs/reports/Build/Build23.md)、[Build24.md](docs/reports/Build/Build24.md)、[Build25.md](docs/reports/Build/Build25.md)；设计基线：[Design3.md](Design3.md)（因 Build22 Step 7 证据缺口保持活跃）、[Design4.md](Design4.md)；编码约束：[AGENTS.md](AGENTS.md)。
+> 关联构建：[Build21.md](docs/reports/Build/Build21.md) §7.11 Step 14、[Build22.md](docs/reports/Build/Build22.md)（D3 实施记录）；交接收口：[Build23.md](docs/reports/Build/Build23.md)、[Build24.md](docs/reports/Build/Build24.md)、[Build25.md](docs/reports/Build/Build25.md)；设计基线：[Design3.md](docs/reports/Design/Design3.md)（已随 Build22 收口归档）、[Design4.md](Design4.md)；编码约束：[AGENTS.md](AGENTS.md)。
 
 ---
 
@@ -10,8 +10,8 @@
 - **创建时间：** 2026-09-08
 - **来源：** [核验 Build21 构建问题](thread://01a080de-c26e-7540-9db2-6b7b808f5eaa)、[继续 Build21 Step 14 测试](thread://01a080ce-4c83-7830-b7c2-aca36ba501b9)、[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 及当前工作区文档核对。
 - **已通过：** Build21 Step 7～15 的自动化与验收证据已收口；后端全量测试、指定竞态测试、编译、`go vet`，前端 41 个测试文件 / 210 个用例（后续提交已扩展为 42 个文件 / 259 个用例）和生产构建，以及固定 Mihomo 1.19.29 严格正反例门禁均有通过记录。
-- **当前状态：** Build21 Step 14 的 R28-01～R28-04 工程问题、正式 Production smoke、固定 Mihomo 1.19.29 证据门禁及 PT-28-01～PT-28-05 人工项目均已完成，Step 14 已验收收口；Build22 R28-05 的 D3 缺口已完成 Step 1～6、8～10 的代码与测试实现，Step 11 运行门禁通过，但 Step 7 专属自动化证据矩阵未落地，D3-1～D3-10 全部验收不成立，Build22 与 Design3 保持根目录活跃，实际浏览器/真机项目迁移至 ProdTestList。R28-06 步骤四主体与 2026-09-10 交叉审核发现的 R28-06B 前端 `item_id_field` 白名单缺口、R28-06C 保存定位排序和条件隐藏清理证据缺口均已修复/补齐，[Build25.md](docs/reports/Build/Build25.md) 已重新通过全部自动化门禁并按归档规则移入 `docs/reports/Build/`；浏览器、手机和真实客户端人工项仍由 ProdTestList 跟踪，未标记为通过。R28-07 已完成只读研究和方案确认，其中 R28-07F 经用户确认属于设计取向、不作为问题整改；R28-08 的 N01～N07 经用户确认整体属于设计取向，已从工程实施范围关闭。剩余历史人工项目见 [ProdTestList.md](ProdTestList.md)，不在本文件重复登记为缺陷。
-- **当前执行步骤：** 步骤一、步骤二已完成代码与自动化工程验收；步骤三代码主体与运行门禁完成，但 Build22 Step 7 专属自动化证据缺口未补，尚未关闭；步骤四已由 Build25 完成代码、自动化与文档同步，缺口修复后定向/全量、build/vet、Docker build、Production smoke 与 `git diff --check` 均重新通过，工程关闭；浏览器、手机和真实客户端人工项目已迁移 [ProdTestList.md](ProdTestList.md)，尚未形成人工通过结论。步骤五（R28-07A～R28-07E、R28-07G～R28-07I；R28-07F 为设计取向）仍未开始代码实施；R28-08 已按设计取向关闭；步骤七（R28-09）仍待后续。
+- **当前状态：** Build21 Step 14 的 R28-01～R28-04 工程问题、正式 Production smoke、固定 Mihomo 1.19.29 证据门禁及 PT-28-01～PT-28-05 人工项目均已完成，Step 14 已验收收口；Build22 R28-05 的 D3 缺口已完成 Step 1～11 的代码、测试与运行门禁，Step 7 专属自动化证据已于 2026-09-11 补齐并重新通过 Step 11，D3-1～D3-10 全部验收通过，Build22 与 Design3 已归档，实际浏览器/真机项目迁移至 ProdTestList。R28-06 步骤四主体与 2026-09-10 交叉审核发现的 R28-06B 前端 `item_id_field` 白名单缺口、R28-06C 保存定位排序和条件隐藏清理证据缺口均已修复/补齐，[Build25.md](docs/reports/Build/Build25.md) 已重新通过全部自动化门禁并按归档规则移入 `docs/reports/Build/`；浏览器、手机和真实客户端人工项仍由 ProdTestList 跟踪，未标记为通过。R28-07 已完成只读研究和方案确认，其中 R28-07F 经用户确认属于设计取向、不作为问题整改；R28-08 的 N01～N07 经用户确认整体属于设计取向，已从工程实施范围关闭。剩余历史人工项目见 [ProdTestList.md](ProdTestList.md)，不在本文件重复登记为缺陷。
+- **当前执行步骤：** 步骤一、步骤二已完成代码与自动化工程验收；步骤三已完成 Step 1～11 代码、专属自动化证据与运行门禁，2026-09-11 关闭；步骤四已由 Build25 完成代码、自动化与文档同步，缺口修复后定向/全量、build/vet、Docker build、Production smoke 与 `git diff --check` 均重新通过，工程关闭；浏览器、手机和真实客户端人工项目已迁移 [ProdTestList.md](ProdTestList.md)，尚未形成人工通过结论。步骤五（R28-07A～R28-07E、R28-07G～R28-07I；R28-07F 为设计取向）仍未开始代码实施；R28-08 已按设计取向关闭；步骤七（R28-09）仍待后续。
 - **本轮边界：** Build25 只处理 R28-06A/B/C，未实施 R28-07/R28-08/R28-09，未新增未知扩展输出适配器，未自动迁移未知字段到 extensions，未改变数据库 schema。缺口修复后 Build25 Step 4 重新执行了后端定向/全量测试、build、vet，前端定向/全量测试、build，Docker Compose build、正式 Production smoke 与 `git diff --check`；人工/真机项目仍登记在 ProdTestList，未标记为通过。缺陷位置与证据见下方步骤四和 R28-06。
 
 ---
@@ -42,8 +42,8 @@
 
 - **关联问题标号：** R28-05；具体缺口为 D3-1～D3-10。
 - **前置条件：** 步骤一、步骤二全部完成，Build21 Step 14 已按证据收口。
-- **操作内容：** 按 [Build22.md](Build22.md) 的构建计划，依次执行 Build22 子步骤；本次用户已授权 Step 8～11 连续串行实施，不并行。
-- **研究状态：** 已完成当前代码复核、修复方案细化和 Build22 Step 1～6、8～10 的代码与测试验收；Step 7 代码实现主体存在，但交叉审核确认其专属自动化证据矩阵大面积未落地，D3-1～D3-10 全部工程闭环不成立；Build22 保持根目录活跃，实际浏览器/真机项目按用户授权迁移至 [ProdTestList.md](ProdTestList.md)。
+- **操作内容：** 按 [Build22.md](docs/reports/Build/Build22.md) 的构建计划，依次执行 Build22 子步骤；本次用户已授权 Step 8～11 连续串行实施，不并行。
+- **研究状态：** 已完成当前代码复核、修复方案细化以及 Build22 Step 1～11 的代码、测试和运行门禁验收；Step 7 专属自动化证据已补齐，D3-1～D3-10 工程闭环成立，Build22/Design3 已归档；实际浏览器/真机项目按用户授权迁移至 [ProdTestList.md](ProdTestList.md)。
 - **完成条件：** D3-1～D3-10 全部验收通过（含 Step 7 专属自动化证据），Build16/Design3 状态完成同步收口。
 
 Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤命名：
@@ -56,11 +56,11 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 | Step 4 | 后端素材池能力白名单 | D3-4 | ✅ 验收通过 |
 | Step 5 | 手工 origin 换绑、共享 Canonical 保护与重复 409 | D3-3 | ✅ 验收通过 |
 | Step 6 | 零输出门槛补全 | D3-6 | ✅ 验收通过 |
-| Step 7 | failed 快照、v1 强类型统计、1018 激活时间、log/pool 共用脱敏、存量输出清洗、`display_url` 状态 API | D3-7 | ◧ 代码主体存在；专属自动化证据缺口未补，未达验收标准 |
+| Step 7 | failed 快照、v1 强类型统计、1018 激活时间、log/pool 共用脱敏、存量输出清洗、`display_url` 状态 API | D3-7 | ✅ 专属自动化证据补齐，Step 11 重新验收通过 |
 | Step 8 | 前端来源状态、诊断与 pending 操作 | D3-8 | ✅ 自动化验收通过；真实浏览器项目转 ProdTestList |
 | Step 9 | 装配回执前端展示 | D3-9 | ✅ 自动化验收通过；真实页面项目转 ProdTestList |
 | Step 10 | 真实 1015→1016 store 级迁移、幂等与回滚测试 | D3-10 | ✅ 验收通过 |
-| Step 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | D3-1～D3-10 | ◧ 后端/前端全量、Docker build 与 Production smoke 门禁通过；Step 7 证据缺口未收口，不能声明 D3 全验收 |
+| Step 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | D3-1～D3-10 | ✅ 后端/前端全量、race、Docker build 与 Production smoke 通过；Step 7 证据收口，D3 全验收通过 |
 
 ### 步骤四：处理未知扩展与局部 JSON 边界
 
@@ -166,7 +166,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 - **关联步骤：** 步骤三。
 
-- **来源：** [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §4.2 未闭环项 1；实施计划见 [Build22.md](Build22.md)。
+- **来源：** [BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §4.2 未闭环项 1；实施计划见 [Build22.md](docs/reports/Build/Build22.md)。
 - **原始现象/范围（修复前）：** Build16/Design3 当时存在以下实质缺口：
   - D3-1 `no_resolve` 实例语义丢失；
   - D3-2 被来源模式排除的数量重复计算；
@@ -178,7 +178,8 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
   - D3-8 pending 激活/丢弃无前端 UI；
   - D3-9 装配回执未展示；
   - D3-10 1015→1016 迁移缺少 store 级测试。
-- **当前证据：** Build22 Step 1～6、8～10 的代码与测试声明成立；Step 8 组件测试 22 项与前端生产构建通过；Step 9 后端 server 定向测试、前端 25 项定向测试与前后端构建通过，generate 回执已用原始 JSON 固定；Step 10 真实 1015→1016 store 级迁移、幂等和失败回滚测试通过；Step 11 后端 build/vet/全量测试、前端 42 文件/244 用例全量测试、生产构建、Docker Compose build 与正式 Production smoke 均通过。实际浏览器、真实设备和真实客户端项目已迁移至 [ProdTestList.md](ProdTestList.md)，未标记为人工通过。**但 2026-09-10 交叉审核确认 Step 7 专属自动化测试矩阵大面积未落地（见下条），因此 Step 11 不能声明 D3-1～D3-10 全部验收通过，Build22 与 Design3 均保持根目录活跃。**
+- **当前证据：** Build22 Step 1～11 的代码与测试声明成立；Step 8 组件测试 22 项与前端生产构建通过；Step 9 后端 server 定向测试、前端 25 项定向测试与前后端构建通过，generate 回执已用原始 JSON 固定；Step 10 真实 1015→1016 store 级迁移、幂等和失败回滚测试通过；Step 11 后端 build/vet/全量测试、相关 race、前端 42 文件/259 用例全量测试、生产构建、Docker Compose build 与正式 Production smoke 均通过。实际浏览器、真实设备和真实客户端项目已迁移至 [ProdTestList.md](ProdTestList.md)，未标记为人工通过。**2026-09-11 已按交叉审核清单补齐 Step 7 专属自动化测试矩阵并重新执行 Step 11 门禁；D3-1～D3-10 全部验收通过，Build22 与 Design3 已归档。**
+- **2026-09-11 复验证据：** Step 7 交叉审核缺口已逐项补齐（激活/activated_at、存量清洗、现有 sync API 读时脱敏、19+1/200 rune、v1 stats/version 0、latest_failed 恢复/排序、failed 写失败保护、旧 Clash plan 回退），并新增清理/API/取消/超时代理边界测试；后端定向/全量/race/build/vet、前端 42 文件/259 用例与 build、Docker build、Production smoke、`git diff --check` 全部通过。
 - **深入研究新增结论：**
   - Design3 要求语义去重时保留 origin；已确认同一 URL 内重复位置和跨来源重复均保留 origin，`accepted` 统计唯一 Canonical，`duplicates` 统计额外 origin，列表/装配必须在 SQL 分页前按最早有效 origin 去重排序。
   - `no_resolve` 不仅在装配加载中丢失，来源解析还使用整行子串判断，Clash `render_plan_json` 和下载重渲染也按类型补加；已确认改为结构化 token，并固定采用逐规则 `NoResolve *bool` 三态编码：字段缺失或 JSON `null` 维持历史按类型推断，新计划每条规则显式写入 boolean true/false，不为这一单字段引入顶层 plan schema version；覆盖层降级只保留原行选项。
@@ -191,8 +192,8 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
   - Build22 Step 7“脱敏机制复用范围”已按用户确认更新 Build22/Design3/AGENTS：新建 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 使用 `display_url`；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 纳入读时清洗；历史 `pool_sync_tasks`/`rule_pools.sync_error` 做非破坏性清洗；诊断超 20 条采用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长并统一脱敏。
   - **Step 7 自动化证据缺口（2026-09-10 交叉审核）：** 计划要求但当前测试文件未覆盖的证据包括：① `ActivatePending`/`DiscardPending`、`activated_at` 写入与激活不改 stats/decision；② `SanitizeStoredSyncOutputs` 幂等/非破坏性清洗；③ 现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON；④ `NormalizeDiagnostics` 19+1 与 200 rune 限额；⑤ v1 `rule_counts` 分项合计不变量、`previous_active` 比较、旧 stats `version 0` 后端解析；⑥ 最近失败后恢复与同时间戳 ID 排序；⑦ failed 快照写入失败时 active/pending 不变且不虚报 snapshot ID；⑧ 旧字符串数组 Clash plan 的下载重渲染回退路径。Build22 必须在补齐这些证据并重新执行 Step 11 门禁后才满足关闭条件。
 - **前置条件：** 步骤一、步骤二已完成，Build21 Step 14 已按证据收口；不得在此前开始 Build22 的任何子步骤。
-- **修复过程：** 按已详细修订的 [Build22.md](Build22.md) Step 1～11 串行实施；Step 1～6、8～10 的代码与测试验收成立，Step 7 代码主体存在但专属自动化证据未补齐，Step 11 运行门禁通过但不能替代 Step 7 证据。实际浏览器/真机项目按用户授权迁移至 ProdTestList，未提前实施 R28-06 及后续步骤。
-- **状态：** ◧ Build22 Step 1～6、8～10 代码与测试验收通过 / ◧ Step 7 代码主体存在但专属自动化证据缺口未补 / ◧ D3-1～D3-10 工程闭环不成立，Build22 与 Design3 保持根目录活跃 / ◐ 实际浏览器与真机项目已迁移 ProdTestList，待用户人工核验。人工浏览器项目不构成代码/自动化未完成，也不得声称已人工验证。
+- **修复过程：** 按已详细修订的 [Build22.md](docs/reports/Build/Build22.md) Step 1～11 串行实施；Step 1～11 的代码、测试与运行门禁均已验收，Step 7 专属自动化证据已补齐，D3-1～D3-10 工程闭环成立。实际浏览器/真机项目按用户授权迁移至 ProdTestList，未提前实施 R28-06 及后续步骤。
+- **状态：** ☑ Build22 Step 1～11 代码、测试与运行门禁验收通过 / ☑ Step 7 专属自动化证据补齐并重新通过 Step 11 / ☑ D3-1～D3-10 工程闭环成立，Build22 与 Design3 已归档 / ◐ 实际浏览器与真机项目已迁移 ProdTestList，待用户人工核验。人工浏览器项目不构成代码/自动化未完成，也不得声称已人工验证。
 
 ### 问题 R28-06：未知扩展/局部 JSON 边界（N-node-6）
 
@@ -271,7 +272,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 - **步骤一关闭：** ☑ R28-01～R28-04 的工程修复和重新验证均有证据，正式 smoke 使用仓库正式脚本完整通过。
 - **步骤二关闭：** ☑ PT-28-01～PT-28-05 已由用户确认完成且未发现问题，相关人工项目已从 ProdTestList 当前待办移除；Build21 Step 14 已完成验收收口。
-- **步骤三关闭：** ◧ 未关闭。Build22 Step 1～6、8～10 的代码与测试声明成立，Step 11 运行门禁通过；但 Step 7 专属自动化证据矩阵未落地，D3-1～D3-10 全部验收不成立。Build22 与 Design3 保持根目录活跃，补齐 Step 7 证据并重新验收后再关闭。
+- **步骤三关闭：** ☑ 已关闭。Build22 Step 1～11 的代码、测试与运行门禁全部验收通过；Step 7 专属自动化证据矩阵已补齐并重新通过 Step 11，D3-1～D3-10 工程闭环成立，Build22 与 Design3 已归档。
 - **步骤四关闭：** ☑ 工程关闭。R28-06A/C 与 R28-06B 前端/后端缺口均已修复并补回归，Build25 以缺口修复后的真实结果重新执行后端定向 4 包、后端全量测试/build/vet、前端定向 5 文件/89 用例、前端全量 42 文件/259 用例/build、Docker Compose build、正式 Production smoke 与 `git diff --check`，全部通过，Build25 已归档。浏览器/手机/真实客户端人工项已迁移 ProdTestList，尚未形成人工通过结论，不阻塞本次工程关闭。
 - **步骤五关闭：** R28-07A～R28-07E、R28-07G～R28-07I 已按确认方案完成代码、定向回归、全量门禁和受影响文档同步；R28-07F 保持设计取向且未误记为已修复。
 - **步骤六关闭：** ☑ R28-08 的 N01～N07 已由用户确认为设计取向并从工程实施范围关闭；历史风险背景保留，未把“未实施”写成“已修复”。
@@ -284,6 +285,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.23 | 2026-09-11 | 闭环 Build22 R28-05 步骤三：补齐 Step 7 全部专属自动化证据及额外边界测试，修复 RedactDisplayURL 编码分隔符/嵌套 URL、SanitizeStoredSyncOutputs 事务化与 fallback 限额、isLegacyClashPlan 字符串 rules 识别；后端定向/全量/race/build/vet、前端 42 文件/259 用例/build、Docker build、Production smoke、`git diff --check` 通过；D3-1～D3-10 验收通过，Build22/Design3 归档。 |
 | v1.22 | 2026-09-10 | 闭环 R28-06/Build25：`ProtocolFieldEditor` 的 `knownFieldNames()` 放行 `item_id_field`；保存定位统一稳定排序；新增多草稿顺序、条件隐藏清理、折叠/组件卸载保留等回归。缺口修复后后端定向 4 包/全量测试/build/vet、前端定向 5 文件/89 用例、全量 42 文件/259 用例/build、Docker Compose build、正式 Production smoke 与 `git diff --check` 全部通过；Build25 已移入 `docs/reports/Build/`。人工/真机项目保持 ProdTestList 未执行，不阻塞工程关闭。 |
 | v1.21 | 2026-09-10 | 文档交叉审核发现并登记 Build22 Step 7 自动化证据缺口：`ActivatePending`/`DiscardPending` 与 `activated_at`、`SanitizeStoredSyncOutputs`、`/sync/status` 与 `/sync/tasks` 读时脱敏、`NormalizeDiagnostics` 19+1/200 rune、v1 stats 不变量/version 0、latest_failed 恢复与 ID 排序、failed 写失败指针不变等测试未落地；Step 11 运行门禁通过但不能声明 D3 全验收。Build22 与 Design3 改为保持根目录活跃、不归档；Issue14 步骤三/R28-05 降级为“代码实现主体闭环、Step 7 证据缺口待补”。 |
 | v1.20 | 2026-09-10 | 文档交叉审核发现并登记 R28-06B 遗漏缺口：前端固定对象高级 JSON 白名单未放行 `item_id_field`，WireGuard `peers._credential_id` 会导致应用/保存/检查被阻断；同步修正“R28-06/Build25 已工程闭环”“保存定位复用稳定排序”“条件隐藏清理已有专项回归”等不准确状态，Build25 保持根目录活跃且不归档。本次只更新文档，未修改任何代码。 |

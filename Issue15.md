@@ -12,7 +12,7 @@
 - **记录原则：** 人工测试项只登记用户实际观察到的现象、测试项目、环境、复现步骤和证据；没有实际测试证据时不创建问题结论。交叉审核项应给出代码/文档证据、主跟踪文档和后续验证入口，不把静态检查写成人工通过。
 - **处理边界：** 新问题默认只记录，不自行探索或修复；用户明确授权后，可在同一问题中补充根因、修复方案、实施结果和验收证据。自动化通过不得代替 Production、浏览器或真实客户端人工核验。
 - **编号约定：** 本文件新增问题使用 `R29-*` 编号；`PT-*` 继续表示 [ProdTestList.md](ProdTestList.md) 的测试项目，不与问题编号混用。
-- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-02～R29-05、R29-07、R29-08 已完成修复、自动化验证和用户人工核验；R29-01、R29-06、R29-09、R29-10 已完成工程修复与自动化验证，等待 ProdTestList 人工复验；R29-11 未关闭，R29-12 已确认并完成文档补记。此前已经记录在 [Issue14.md](Issue14.md) 的 R28-01～R28-04 不重复迁移。
+- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-02～R29-05、R29-07、R29-08 已完成修复、自动化验证和用户人工核验；R29-01、R29-06、R29-09、R29-10 已完成工程修复与自动化验证，等待 ProdTestList 人工复验；R29-11 已补齐 Step 7 专属自动化证据并随 Build22 收口关闭，R29-12 已确认并完成文档补记。此前已经记录在 [Issue14.md](Issue14.md) 的 R28-01～R28-04 不重复迁移。
 
 ---
 
@@ -171,7 +171,7 @@
 
 ## 三、文档交叉审核补充登记（2026-09-10）
 
-> 以下条目由文档交叉审核发现，不是 [ProdTestList.md](ProdTestList.md) 的人工测试记录；工程实施与关闭仍以 Issue14、Build22、Build25 为准。未获授权修复前只记录事实、证据与复验入口。
+> 以下条目由文档交叉审核发现，不是 [ProdTestList.md](ProdTestList.md) 的人工测试记录；工程实施与关闭仍以 Issue14 与对应已归档 Build 为准。未获授权修复前只记录事实、证据与复验入口。
 
 ### R29-09 WireGuard peers 高级 JSON 未放行内部 `_credential_id`
 
@@ -199,13 +199,13 @@
 ### R29-11 Build22 Step 7 专属自动化证据矩阵缺失
 
 - **来源：** 2026-09-10 文档交叉审核（Build22 / Issue14 R28-05）。
-- **现象：** Build22 Step 1～6、8～10 的代码与测试声明成立，Step 11 的后端/前端全量、Docker build 与 Production smoke 门禁真实通过；但 Step 7 计划列出的专属自动化测试未落地，Step 11 不能声明 D3-1～D3-10 全部验收通过，Build22/Design3 不能归档。
+- **现象（历史）：** Build22 Step 1～6、8～10 的代码与测试声明成立，Step 11 的后端/前端全量、Docker build 与 Production smoke 门禁真实通过；但当时 Step 7 计划列出的专属自动化测试未落地，Step 11 不能声明 D3-1～D3-10 全部验收通过，Build22/Design3 不能归档。
 - **已知缺口：** `ActivatePending`/`DiscardPending` 与 `activated_at` 语义；`SanitizeStoredSyncOutputs` 幂等/非破坏性清洗；`/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON；`NormalizeDiagnostics` 19+1 与 200 rune 限额；v1 `rule_counts` 分项合计不变量、`previous_active` 比较、旧 stats `version 0` 解析；`latest_failed` 恢复与同时间戳 ID 排序；failed 快照写失败时 active/pending 不变、不虚报 snapshot ID；旧字符串数组 Clash plan 下载重渲染回退。
 - **影响：** D3 工程闭环缺少可回归证据；不影响当前代码可构建/可运行，但不能按 Build22 自身验收标准关闭。
-- **预期：** 按 Build22 Step 7 测试清单补齐自动化，重新执行 Step 11 门禁，再关闭 R28-05。
-- **工程主跟踪：** [Issue14.md](Issue14.md) R28-05 / [Build22.md](Build22.md)。
+- **修复结果（2026-09-11）：** 已按 Build22 Step 7 测试清单补齐全部自动化证据，并新增额外的清理/API/取消/超时/脱敏边界；重新执行后端定向/全量/race/build/vet、前端全量/build、Docker build、Production smoke、`git diff --check` 全部通过，D3-1～D3-10 闭环，Build22/Design3 已归档。
+- **工程主跟踪：** [Issue14.md](Issue14.md) R28-05 / [Build22.md](docs/reports/Build/Build22.md)。
 - **人工复验入口：** 无（属于自动化证据补齐；完成后由 Step 11 门禁验证）。
-- **状态：** ☐ 待补测试
+- **状态：** ☑ 已修复 / ☑ 自动化回归通过 / ☑ 随 Build22 Step 11 重新收口
 
 ### R29-12 R29-04 附带 Dockerfile Node 版本变更未登记
 
@@ -253,3 +253,4 @@
 | v1.15 | 2026-09-10 | 闭环 R29-09/R29-10 工程部分：`knownFieldNames()` 放行 `item_id_field`；保存定位统一稳定排序；补条件隐藏清理、保留无关有效草稿、折叠/组件卸载边界回归。重新执行后端定向 4 包/全量/build/vet、前端定向 5 文件/89 用例、全量 42 文件/259 用例/build、Docker build、Production smoke 与 `git diff --check`；R28-06 人工复验项仍保留 ProdTestList，未标记通过。 |
 | v1.16 | 2026-09-11 | 修复 R29-01：用户截图确认第二确认词为 DISABLE；核验实际 v2 文件与当前未配置 Docker 数据库均无高级数据。将 DISABLE 守卫限定为管理面板导入，新增 Setup/管理面板三分支失败优先回归；后端定向/全量/build/vet、前端 build 和 diff-check 通过，并以临时 Production 服务和用户真实文件验证仅 IMPORT 即可导入且高级模式保持关闭；当前 8080 镜像重建后的浏览器复验仍保留 ProdTestList。 |
 | v1.17 | 2026-09-11 | 闭环 R29-12：确认 Dockerfile 的 Node 22→24 是有意的安全性更新，保留变更并限定验证边界为前端构建链；同步更新 TODOLIST 与 AGENTS。 |
+| v1.18 | 2026-09-11 | 闭环 R29-11：Build22 Step 7 全部自动化证据补齐（激活/activated_at、存量清洗、sync API 读时脱敏、NormalizeDiagnostics 19+1/200 rune、v1 stats/version 0、latest_failed 恢复/排序、failed 写失败保护、旧 Clash plan 回退及额外清理/API/取消/超时边界）；后端定向/全量/race/build/vet、前端 42 文件/259 用例/build、Docker build、Production smoke、`git diff --check` 通过；D3-1～D3-10 闭环，Build22/Design3 归档。 |

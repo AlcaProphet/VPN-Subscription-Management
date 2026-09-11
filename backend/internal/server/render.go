@@ -174,6 +174,9 @@ func isLegacyClashPlan(raw string) bool {
 		}
 	}
 	if v, ok := m["rules"].([]any); ok && len(v) > 0 {
+		if _, ok := v[0].(string); ok {
+			return true
+		}
 		if first, ok := v[0].(map[string]any); ok {
 			if _, hasType := first["type"]; !hasType {
 				return true

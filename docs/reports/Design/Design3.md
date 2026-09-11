@@ -1,7 +1,7 @@
 # Design3.md — VPN 订阅管理系统增量设计（规则来源识别、结构化素材与跨平台装配）
 
-> **文档定位：** 本文定义规则素材池下一阶段设计：管理员为每个 URL 选择 Clash 规则源、Shadowrocket（下文简称 SR）规则源或“我不确定”，系统以单 URL 单主方言为边界识别格式、提取平台无关规则、形成可追踪快照，再由 Clash/SR 目标适配器过滤和渲染。本文承接 [Design2.md](docs/reports/Design/Design2.md) 第二～四章；第一期基线见 [Design1.md](docs/reports/Design/Design1.md)。编码约束遵循 [AGENTS.md](AGENTS.md)（**唯一强要求**）。
-> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](docs/reports/Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径。2026-09-10 交叉审核确认 Build22 Step 1～6、8～10 的代码与测试声明成立，但 Step 7 专属自动化证据仍有缺口，Step 11 不能声明 D3-1～D3-10 全部验收通过；因此本文件保持仓库根目录活跃，不归档，待 Build22 补齐 Step 7 证据并重新执行 Step 11 门禁后再归档。Build16 只保留历史记录与后续勘误；实际浏览器、真实设备和真实客户端项目见 [ProdTestList.md](ProdTestList.md)，均未标记为人工通过。剩余工程问题见 [Issue14.md](Issue14.md)。
+> **文档定位：** 本文定义规则素材池下一阶段设计：管理员为每个 URL 选择 Clash 规则源、Shadowrocket（下文简称 SR）规则源或“我不确定”，系统以单 URL 单主方言为边界识别格式、提取平台无关规则、形成可追踪快照，再由 Clash/SR 目标适配器过滤和渲染。本文承接 [Design2.md](Design2.md) 第二～四章；第一期基线见 [Design1.md](Design1.md)。编码约束遵循 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
+> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](../Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](../Build/Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径。2026-09-10 交叉审核曾确认 Build22 Step 1～6、8～10 的代码与测试声明成立，但 Step 7 专属自动化证据仍有缺口；2026-09-11 Build22 已补齐 Step 7 全部证据并重新通过 Step 11 门禁，D3-1～D3-10 工程闭环成立，本文件按归档规则移入 `docs/reports/Design/`。Build16 只保留历史记录与后续勘误；实际浏览器、真实设备和真实客户端项目见 [ProdTestList.md](../../../ProdTestList.md)，均未标记为人工通过。剩余工程问题见 [Issue14.md](../../../Issue14.md)。
 > **范围边界：** 本期只重构“规则素材 URL/手工素材 → Canonical Rule → Clash/SR 渲染”链路，不重定义节点、代理组、装配版本、订阅分发、Xray 或权限体系。
 
 ---
@@ -12,7 +12,7 @@
 
 当前 URL 内容仍以逐行解析为主：`full:` 被识别为完整域名，不含逗号的文本一律当作域名后缀，含逗号的规则直接保存为 `rule_type + match_value`。多 URL 同步还会分批写入活动 `pool_entries`，后续来源失败时可能留下部分新数据；后端和前端分别维护目标平台类型列表，能力口径也会漂移。
 
-该方式不能可靠区分 Mihomo domain/ipcidr/classical YAML、sing-box source JSON、显式类型文本和纯 CIDR 列表，也可能把 YAML 键、HTML 错误页或完整子域名误识别。以 [DailyData.txt.template2.md](docs/DocTemplates/DailyData.txt.template2.md) 为例：
+该方式不能可靠区分 Mihomo domain/ipcidr/classical YAML、sing-box source JSON、显式类型文本和纯 CIDR 列表，也可能把 YAML 键、HTML 错误页或完整子域名误识别。以 [DailyData.txt.template2.md](../../DocTemplates/DailyData.txt.template2.md) 为例：
 
 ```yaml
 payload:
@@ -22,7 +22,7 @@ payload:
 
 在 Mihomo domain provider 中，前者是完整域名，后者是覆盖主域及子域的后缀。素材必须先按整份文档格式解释，不能只看单行外观。
 
-[DailyData.txt.template3.md](docs/DocTemplates/DailyData.txt.template3.md) 使用相同 `payload` 容器承载纯 CIDR，属于 Mihomo ipcidr provider；[DailyData.txt.template4.md](docs/DocTemplates/DailyData.txt.template4.md) 则是 `IP-ASN`/`IP-CIDR` 显式类型文本。来源模式只调整识别器优先级或适用范围，不能把识别后的 Canonical Rule 绑定到单一输出平台。
+[DailyData.txt.template3.md](../../DocTemplates/DailyData.txt.template3.md) 使用相同 `payload` 容器承载纯 CIDR，属于 Mihomo ipcidr provider；[DailyData.txt.template4.md](../../DocTemplates/DailyData.txt.template4.md) 则是 `IP-ASN`/`IP-CIDR` 显式类型文本。来源模式只调整识别器优先级或适用范围，不能把识别后的 Canonical Rule 绑定到单一输出平台。
 
 ### 1.2 设计目标
 
@@ -482,7 +482,7 @@ Build22 实现收口（2026-09-10）：详情页卡片只展示后端返回的 `
 5. “更多参数”预填个人模板其余头部值：`allow-lan`、`find-process-mode`、`mode`、`log-level`、全局 `ipv6` 和 `ntp`；本分区同样默认折叠，且集中 `allow-lan`、`ipv6`、NTP 启用/写入系统时间等开关。未被前三个分区识别的既有顶层参数也保留在该分区，供高级用户处理。
 6. 四个分区各自提供“结构化编辑 / 高级 JSON”切换。高级 JSON 的作用域仅为当前分区：端口和 Geo 为相应顶层键、DNS 为 `dns` 对象、更多参数为其余顶层键。切换或保存时必须验证 JSON 对象形状；无效 JSON 不得静默丢弃。结构化操作保留其他分区和“更多参数”内未知键，从而兼容旧蓝图和未来 Mihomo 扩展。
 
-默认值来自 [Clash.yaml.template.md](docs/DocTemplates/Clash.yaml.template.md) 的头部（不包含由装配后续步骤拥有的 `proxies`、`proxy-groups`、`rules`）。[ClashOfficial.yaml.template.md](docs/DocTemplates/ClashOfficial.yaml.template.md) 仅用于字段含义与可选能力参考，不能以其样例值覆盖个人默认配置。
+默认值来自 [Clash.yaml.template.md](../../DocTemplates/Clash.yaml.template.md) 的头部（不包含由装配后续步骤拥有的 `proxies`、`proxy-groups`、`rules`）。[ClashOfficial.yaml.template.md](../../DocTemplates/ClashOfficial.yaml.template.md) 仅用于字段含义与可选能力参考，不能以其样例值覆盖个人默认配置。
 
 ---
 
@@ -509,7 +509,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 ### 9.3 实施边界与验收
 
-- Build16 的原始构建已归档；其 D3-1～D3-10 后续缺口以 Build22 为唯一分步计划。Build22 已完成 Step 1～11 的代码实现与运行门禁，但 Step 7 专属自动化证据仍有缺口，不能声明 D3-1～D3-10 全部验收通过；实际浏览器、真实设备和真实客户端项目整体迁移至 [ProdTestList.md](ProdTestList.md)，不构成代码/自动化验收的未完成阻断，也不得表述为已人工通过。
+- Build16 的原始构建已归档；其 D3-1～D3-10 后续缺口以 Build22 为唯一分步计划。Build22 已完成 Step 1～11 的代码实现与运行门禁，Step 7 专属自动化证据也已于 2026-09-11 补齐并重新通过 Step 11 门禁，D3-1～D3-10 工程闭环成立，Build22 与本设计均已归档。实际浏览器、真实设备和真实客户端项目整体迁移至 [ProdTestList.md](../../../ProdTestList.md)，不构成代码/自动化验收的未完成阻断，也不得表述为已人工通过。
 - 不顺带修改节点、代理组、Xray 或权限体系，不新增后续适配器。
 - 不因素材池限制删除高级装配现有能力。
 - 语法变化优先更新语料和注册表，不增加无证据 fallback。
@@ -536,6 +536,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.12 | 2026-09-11 | Build22 Step 7 证据补齐并重新通过 Step 11 全量门禁：激活/activated_at、存量清洗、现有 sync API 读时脱敏、19+1/200 rune、v1 stats/version 0、latest_failed 恢复/排序、failed 写失败保护、旧 Clash plan 回退及额外边界均有自动化证据；D3-1～D3-10 闭环，本设计随 Build22 归档。 |
 | v1.11 | 2026-09-10 | 文档交叉审核修正：Build22 Step 7 专属自动化测试矩阵大面积未落地，Step 11 不能声明 D3-1～D3-10 全部验收通过；Design3 因此保持根目录活跃、不归档，待 Build22 补齐 Step 7 证据并重新执行 Step 11 门禁后再归档。 |
 | v1.10 | 2026-09-10 | Build22 Step 8～11 按实际实现收口：补充来源状态卡片的 display_url 边界、latest_attempt 主状态、failed+旧 active 提示、ConfirmModal 新旧差异、服务端 activated_at、v1 stats/version 0 展示，以及 preview/generate 回执的生成与清除规则；§9.3 更新为 Build22 已完成代码与运行门禁，人工浏览器/真机项目迁移 ProdTestList。未写入未实现能力；Step 7 自动化证据缺口由 v1.11 修正。 |
 | v1.9 | 2026-09-10 | 按用户确认的补修方案同步 Step3/Step7 设计口径并落地代码：source policy 按位置法静默忽略、未知尾部 option 生成 warn 而不改变统计；SR `no-resolve` 与 Clash 一致按实例和目标能力求交集；evidence codes 在实际 detector 分支产生；failed 使用 sentinel 稳定 reason_code 与严格 v1 stats 形状；snapshots 严格分页、URL 先脱敏后 200 rune 限长、wire null/空串固定。D3-1～D3-7 已完成并通过自动化回归，D3-8～D3-10 仍待实施。 |

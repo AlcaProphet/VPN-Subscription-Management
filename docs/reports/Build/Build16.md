@@ -1,7 +1,7 @@
 # Build16.md — 规则来源识别、结构化素材与跨平台装配构建计划
 
-> **文档定位：** 本文是 VPN 订阅管理系统第十六轮当前构建方案，将 [Design3.md](../../../Design3.md) 的已确认设计转化为可逐步执行和验收的实现手册。本文已完成八个 Step 实施并通过全量验证。
-> - 设计依据：[Design3.md](../../../Design3.md)（本轮规则来源、Canonical Rule、快照和跨平台装配设计）
+> **文档定位：** 本文是 VPN 订阅管理系统第十六轮当前构建方案，将 [Design3.md](../Design/Design3.md) 的已确认设计转化为可逐步执行和验收的实现手册。本文已完成八个 Step 实施并通过全量验证。
+> - 设计依据：[Design3.md](../Design/Design3.md)（本轮规则来源、Canonical Rule、快照和跨平台装配设计）
 > - 现行基线：[Design2.md](../Design/Design2.md)、[Design2-UI.md](../Design/Design2-UI.md)
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 前一轮构建：[Build15.md](Build15.md)（已完成）
@@ -194,7 +194,7 @@ Step 1 中央语义/能力
   ```
 - **验收标准：** 旧 schema 可原子升级；旧业务数据不存在；新池 ID 不复用；来源对象、手工规则、分页、范围统计和 origins 查询正确；不存在写旧 `pool_entries` 的可达路径。
 
-  > **后续勘误（2026-09-10，对应 Build22 R28-05/D3-10）：** 上述 Step 3 文字中的 `store_test.go` “从 1015 旧 schema/数据升级” 在当前代码中并未完整落地；归档进度保持原状，真实 1015→1016 store 级迁移回归测试由 Build22 Step 10 补齐。具体测试构造口径见 [Build22.md](../../../Build22.md) Step 10。
+  > **后续勘误（2026-09-10，对应 Build22 R28-05/D3-10）：** 上述 Step 3 文字中的 `store_test.go` “从 1015 旧 schema/数据升级” 在当前代码中并未完整落地；归档进度保持原状，真实 1015→1016 store 级迁移回归测试由 Build22 Step 10 补齐。具体测试构造口径见 [Build22.md](Build22.md) Step 10。
 
 ### Step 4：per-source 快照同步、异常保护与 pending 操作
 
@@ -418,6 +418,7 @@ Step 1 中央语义/能力
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.6 | 2026-09-11 | Build22 已补齐 Step 7 专属自动化证据并重新通过 Step 11 全量门禁，D3-1～D3-10 闭环，Build22/Design3 归档；本文 v1.5 中“缺口由 Issue14/Build22 继续跟踪”的状态至此闭环。 |
 | v1.5 | 2026-09-10 | 追加 Build22 后续闭环说明：本文 Step 6/D3-9 回执展示、Step 6/D3-8 pending UI 与 Step 3/D3-10 真实 1015→1016 store 级回归均已由 Build22 Step 8～11 完成代码与运行门禁；Build22 Step 11 后端 build/vet/全量测试、前端 build/全量测试、Docker Compose build 与正式 Production smoke 通过。但后续交叉审核确认 Build22 Step 7 专属自动化证据仍有缺口，D3 全验收不成立，该缺口由 Issue14/Build22 继续跟踪。本文原“八个 Step 已完成”的归档表述保持为历史记录，Build16 不再作为当前执行入口；实际浏览器/真机项目见 ProdTestList，不倒改或虚标本文历史进度。 |
 | v1.4 | 2026-09-10 | 追加后续勘误：Build22 R28-05/D3-10 确认当前 `store_test.go` 并未完整落地本文 Step 3 中“从 1015 旧 schema/数据升级”的测试；该真实 1015→1016 store 级迁移回归由 Build22 Step 10 补齐。不倒改本归档历史进度，仅追加说明。 |
 | v1.3 | 2026-08-31 | 补充 template3/template4 来源识别：新增严格的 `mihomo-ipcidr-yaml`、整份 payload behavior 冲突检查、IPv4/IPv6 CIDR 规范化与动态目标类型；SR 显式 IP 文本继续作为双方通用 `typed-rule-text`。后端 build/vet/全量 test、前端 35 个文件 126 项测试与生产构建、Docker Compose 镜像构建及 `git diff --check` 均通过。 |

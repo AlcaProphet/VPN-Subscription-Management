@@ -79,3 +79,4 @@
 | v3.2 | 2026-09-10 | 追加交接状态：N-node-6 主体已由 Issue14 步骤四 R28-06 / Build25 实施，但前端固定对象高级 JSON 仍未放行 `item_id_field`，R28-06B 未闭环，Build25 保持根目录活跃；Build23 继续作为历史交接说明，不重新成为执行入口。 |
 | v3.3 | 2026-09-10 | 文档交叉审核：修正此前“N-node-6 已完整闭环”的过时表述，保留候选与研究边界，明确 Build21、Build23、Build24 已归档；Build22 与 Build25 因仍有缺口保持根目录活跃。 |
 | v3.4 | 2026-09-10 | N-node-6 缺口修复闭环：前端 `item_id_field` 白名单、保存定位稳定排序、条件隐藏清理与折叠/卸载边界回归完成；Build25 重新通过后端定向/全量/build/vet、前端定向/全量/build、Docker build、Production smoke 与 `git diff --check` 并归档。人工/真机项仍在 ProdTestList，未标记通过。 |
+| v3.5 | 2026-09-11 | Build22 Step 7 证据补齐并重新通过 Step 11 全量门禁，D3-1～D3-10 闭环，Build22/Design3 归档；v3.3 中“Build22 保持活跃”的历史状态至此更新。 |
