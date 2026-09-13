@@ -17,7 +17,12 @@ COPY --from=frontend /build/dist ./web/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 # ============ 阶段三：最小运行时 ============
-FROM alpine:3.21
+FROM alpine:3.24
+
+# 显式安装 CA 证书；安装脚本/trigger 会更新证书存储
+RUN apk add --no-cache ca-certificates \
+ && test -s /etc/ssl/certs/ca-certificates.crt
+
 # alpine 自带 wget/shell，healthcheck 可用；创建非 root 用户运行（Design1 §7.1）
 RUN addgroup -S app && adduser -S app -G app
 COPY --from=backend /out/server /server

@@ -4,7 +4,7 @@
 
 services:
   vpn-sub:
-    # 生产镜像：ghcr.io 拉取（含具体版本 tag 示例，如 :v1.2.3；latest 随默认分支更新）
+    # 生产镜像：ghcr.io 拉取（latest 随默认分支更新；可复现时使用发布版本 tag，如 :v3.0.2，必要时记录 digest；当前 GHCR 仅 linux/amd64）
     image: ghcr.io/alcaprophet/vpnmanagement:latest
     # 本地构建方式（开发调试）：注释掉上面 image 行，取消下行注释
     # build: .

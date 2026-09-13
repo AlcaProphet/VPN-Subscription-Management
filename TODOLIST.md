@@ -1,7 +1,7 @@
-# TODOLIST.md — 后续工作顺序跟踪（2026-09-11）
+# TODOLIST.md — 后续工作顺序跟踪（2026-09-13）
 
-> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build26.md](docs/reports/Build/Build26.md)、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
-> **授权边界（2026-09-11 用户最新确认）：** 用户已一次性授权按 [Build26.md](docs/reports/Build/Build26.md) Step 1～20 串行执行；单个 Step 通过其全部验收后无需再次等待单独授权。每一步仍须按 AGENTS.md 完成影响评估、文档疑点检查、失败优先测试和验收记录；不得跳步、并行或扩围。遇到阻断、重大设计选择或文档冲突仍须停止并报告。
+> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build26.md](docs/reports/Build/Build26.md)、[Build27.md](docs/reports/Build/Build27.md)（已归档）、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
+> **授权边界（2026-09-11 用户最新确认）：** 用户已一次性授权按 [Build26.md](docs/reports/Build/Build26.md) Step 1～20、[Build27.md](docs/reports/Build/Build27.md) Step 1～6 串行执行；单个 Step 通过其全部验收后无需再次等待单独授权。每一步仍须按 AGENTS.md 完成影响评估、文档疑点检查、失败优先测试和验收记录；不得跳步、并行或扩围。遇到阻断、重大设计选择或文档冲突仍须停止并报告。
 > **排序原则：** 先关闭已有活跃 Build 的验收缺口，再处理 Issue14 的工程整改和项目收尾；工程基线冻结后继续第三期安全审查；人工结论单独由 ProdTestList 跟踪。
 
 ---
@@ -13,13 +13,14 @@
 | [docs/reports/Build/Build22.md](docs/reports/Build/Build22.md) | 已归档；Step 1～11 全部验收通过，D3-1～D3-10 闭环 | ✅ 已完成 |
 | [docs/reports/Design/Design3.md](docs/reports/Design/Design3.md) | 已随 Build22 收口归档 | ✅ 已完成 |
 | [Build26.md](docs/reports/Build/Build26.md) | **已归档的步骤五构建记录**；Step 1～20 已按一次性串行授权完成并验收通过；R28-07F 保持设计取向未实施 | ✅ 已完成并归档；真实人工项在 ProdTestList 保持未执行 |
-| [Issue14.md](Issue14.md) | 步骤一、二、三、四、五、六已关闭；步骤五 R28-07A～E、G～I 代码/自动化/Production smoke/文档同步完成；步骤七、八未启动 | **Issue14 步骤七（Build27，需用户另行授权）** |
+| [Build27.md](docs/reports/Build/Build27.md) | **已归档的步骤七构建记录**；Step 1～6 已按一次性串行授权完成并验收通过；R28-09 关闭 | ✅ 已完成并归档；远端 CI 与真实人工项未执行 |
+| [Issue14.md](Issue14.md) | 步骤一～七已关闭；步骤八未启动 | **Issue14 步骤八（P4，需用户另行授权）** |
 | [Issue15.md](Issue15.md) | R29-11 已关闭；R29-12 已完成；R29-01、R29-06、R29-09、R29-10 待人工复验 | R29-01 已由 Step 14 工程边界保护，人工复验仍由 ProdTestList 跟踪 |
 | [Design4.md](Design4.md) | 当前最新设计；Build17～25 主体已完成；已增加 §12.7 Build26 核心工程约束现行合同补充 | 仅在实际变更影响其合同时同步 |
 | [ProdTestList.md](ProdTestList.md) | 保留 Production、浏览器、真机和真实客户端人工项 | 按工程前置分批执行 |
 | [SecurityScanPlan1.md](SecurityScanPlan1.md) / [SecurityReport3.md](SecurityReport3.md) | Step 1～3 已完成；Step 4～28 未开始，报告未完成 | 工程冻结后执行 **Step 4** |
 
-已归档的 Build21、Build22、Build23、Build24、Build25、Build26 只用于核查，不再作为执行入口。Build26 Step 1～20 已按用户一次性串行授权完成并按归档规则移入 `docs/reports/Build/`，P2 已按实际验收结果勾选；P3（Issue14 步骤七/R28-09）仍需用户另行授权，不得由本次 Build26 授权自动启动。
+已归档的 Build21～Build27 只用于核查，不再作为执行入口。Build26 Step 1～20、Build27 Step 1～6 均已按一次性串行授权完成并按归档规则移入 `docs/reports/Build/`；P2、P3 已按实际验收结果勾选；P4（Issue14 步骤八）仍需用户另行授权，不得由 Build27 授权自动启动。
 
 ---
 
@@ -71,13 +72,13 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 
 ### P3 — Issue14 步骤七（R28-09）
 
-前置：Issue14 步骤三、四、五、六全部关闭；Build26 已归档；Build27 Step 0.5 已完成只读前置核验。
+前置：Issue14 步骤三、四、五、六已关闭；Build26 已归档；Build27 Step 0.5 已完成；用户 2026-09-13 一次性授权 Build27 Step 1～6 串行执行。
 
-- [ ] **P3-1｜步骤七/R28-09：** 按 P0-1 已确认的 Node 24 记录继续处理；安装/验证 `ca-certificates`，按已确认口径记录“不固定 Dockerfile digest”，并落实 CI 应用镜像 digest 记录与人工月度/发布检查。
-- [ ] **P3-2｜步骤七/R28-09：** 按已确认的 MIT 许可证决策恢复 `LICENSE`，并同步 README 许可证描述；不重新发起许可证选择。
-- [ ] **P3-3｜步骤七/R28-09：** 修复 `docs/Reference/Xray-Server-Config-Research.md` 的仓库外失效链接。
-- [ ] **P3-4｜步骤七/R28-09：** 逐项确认 `GenerateStep.vue`、`PreviewState.vue`、`ResponsiveCollection.vue`、`CopyField.vue` 无引用后再清理。
-- [ ] **P3-5｜步骤七验收：** 跑受影响构建、镜像、链接和静态扫描门禁，回写 R28-09、Build 与 AGENTS。
+- [x] **P3-1｜步骤七/R28-09：** ✅ 已按 P0-1 记录继续处理：运行阶段升级 `alpine:3.24` 并显式安装/验证 `ca-certificates`；保持 Dockerfile 不固定 digest；workflow `setup-node` 对齐 Node 24 并增加应用镜像最终 digest summary；README/Compose 保持 GHCR `latest` 并补充升级/可复现说明。
+- [x] **P3-2｜步骤七/R28-09：** ✅ 已恢复历史 MIT `LICENSE` 并同步 README 许可证描述；未重新发起许可证选择。
+- [x] **P3-3｜步骤七/R28-09：** ✅ 已将 `docs/Reference/Xray-Server-Config-Research.md` 的 13 个仓库外失效链接改为官方固定 commit URL，并新增最小内链检查脚本。
+- [x] **P3-4｜步骤七/R28-09：** ✅ 已逐项完成引用扫描后删除 `GenerateStep.vue`、`PreviewState.vue`、`ResponsiveCollection.vue`、`CopyField.vue`；前端 46 文件/275 用例和 build 通过。
+- [x] **P3-5｜步骤七验收：** ✅ 已完成联合构建、最终镜像 CA/非 root/HTTPS/无构建工具探针、内链/外链检查、静态扫描、隔离 Production smoke 与 `git diff --check`；已回写 R28-09、Build27、TODOLIST 与 AGENTS。
 
 ### P4 — Issue14 步骤八（全量复核与关闭）
 
@@ -164,4 +165,5 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 | 2026-09-11 | 按用户最新授权同步授权口径：用户已一次性授权 Build26 Step 1～20 串行执行，每 Step 仍须独立失败优先、独立验收，当前 Step 验收通过后方可进入下一 Step；P2 项未完成前保持未勾选。预检记录见 [Build26.md](docs/reports/Build/Build26.md) §十。 |
 | 2026-09-11 | 完成 P2：Build26 Step 1～20 全部 ✅ 验收通过，R28-07A～E、G～I 闭环，errgate/架构/颜色门禁清零，后端全量/race/build/vet、前端 46 文件/275 用例/build、Docker build、隔离 Production smoke、接口级 401/403/413 与 `git diff --check` 通过；R28-07F 保持设计取向未实施。P2 已按实际结果勾选。 |
 | 2026-09-11 | 步骤五收口归档：Build26 全部 Step 验收通过并按 AGENTS 归档规则移入 `docs/reports/Build/`；ProdTestList v2.17 登记导入/SSE/主题人工项且保持未执行，TODOLIST 快照与人工队列同步；P3/P4/P5 未启动，等待用户另行授权。 |
-| 2026-09-13 | 重新核验并准备 Build27：确认 Build26 已归档、Issue14 步骤五已关闭、Git 与 `origin/beta` 同步；同步 Build27 Step 0.5 已完成和 P3 前置状态，统一“不固定 Dockerfile digest”与已确认 MIT 许可证口径；未启动 R28-09 Step 1～6。 |
+| 2026-09-13 | 重新核验并准备 Build27：确认 Build26 已归档、Issue14 步骤五已关闭；当时本地 `beta` 领先 `origin/beta` 1 个提交（用户已有提交 `cd52beb`，未推送）。同步 Build27 Step 0.5 已完成和 P3 前置状态，统一“不固定 Dockerfile digest”与已确认 MIT 许可证口径；未启动 R28-09 Step 1～6。 |
+| 2026-09-13 | 完成 P3：用户一次性授权 Build27 Step 1～6 串行执行，全部 ✅ 验收通过；Alpine 3.24 + `ca-certificates`、GHCR/CI Node 24/digest、MIT LICENSE、Xray 固定外链与内链脚本、四个未引用前端文件删除完成；最终 Compose/Docker 构建、镜像探针、前端 46 文件/275 用例/build、静态扫描、13/13 外链 HTTP 200、隔离 Production smoke、`git diff --check` 通过；R28-09/步骤七工程关闭，Build27 归档；P4/P5 未启动。 |

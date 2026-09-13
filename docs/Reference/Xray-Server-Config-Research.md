@@ -21,7 +21,7 @@
 
 ### 1.2 样本统计
 
-对 `/Users/kyle/Desktop/Repo/Xray-examples/` 下名称为 `server.jsonc` 或 `config_server.jsonc` 的文件进行只读检查，共得到 33 个服务端配置文件和 50 个可识别的业务入站：
+对 [XTLS/Xray-examples](https://github.com/XTLS/Xray-examples/tree/a64a519ab7f49f55a464a34596533e26666f75f8) 固定 commit `a64a519ab7f49f55a464a34596533e26666f75f8` 下名称为 `server.jsonc` 或 `config_server.jsonc` 的文件进行只读检查，共得到 33 个服务端配置文件和 50 个可识别的业务入站：
 
 | 协议 | 入站数 | 覆盖文件数 | 样本中常见的传输/安全组合 |
 |------|-------:|-----------:|---------------------------|
@@ -89,7 +89,7 @@ Xray 的服务端入站配置同时包含监听、认证、传输、安全证书
 
 #### VLESS
 
-【样本事实】VLESS 是样本最多的协议，覆盖 TCP、WS、gRPC、H2、HTTP、XHTTP、SplitHTTP 和 mKCP，并出现无安全、TLS 和 REALITY 三类安全模式。参考：[VLESS TCP/TLS](../../../Xray-examples/VLESS-TCP-TLS/config_server.jsonc)、[VLESS TCP/REALITY](../../../Xray-examples/VLESS-TCP-REALITY%20(without%20being%20stolen)/config_server.jsonc)、[VLESS gRPC](../../../Xray-examples/VLESS-GRPC/server.jsonc)、[VLESS XHTTP/REALITY](../../../Xray-examples/VLESS-XHTTP-Reality/minimal-steal_others/server.jsonc)。
+【样本事实】VLESS 是样本最多的协议，覆盖 TCP、WS、gRPC、H2、HTTP、XHTTP、SplitHTTP 和 mKCP，并出现无安全、TLS 和 REALITY 三类安全模式。参考：[VLESS TCP/TLS](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/VLESS-TCP-TLS/config_server.jsonc)、[VLESS TCP/REALITY](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/VLESS-TCP-REALITY%20%28without%20being%20stolen%29/config_server.jsonc)、[VLESS gRPC](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/VLESS-GRPC/server.jsonc)、[VLESS XHTTP/REALITY](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/VLESS-XHTTP-Reality/minimal-steal_others/server.jsonc)。
 
 【UI 建议】
 
@@ -103,7 +103,7 @@ Xray 的服务端入站配置同时包含监听、认证、传输、安全证书
 
 #### VMess
 
-【样本事实】VMess 样本覆盖 TCP、WS、gRPC、H2/HTTP 和 mKCP；安全方式出现无安全和 TLS，没有 VMess REALITY 样本。参考：[VMess TCP/TLS](../../../Xray-examples/VMess-TCP-TLS/config_server.jsonc)、[VMess HTTP 伪装](../../../Xray-examples/VMess-HTTP/config_server.jsonc)、[VMess mKCP](../../../Xray-examples/VMess-mKCPSeed/config_server.jsonc)。
+【样本事实】VMess 样本覆盖 TCP、WS、gRPC、H2/HTTP 和 mKCP；安全方式出现无安全和 TLS，没有 VMess REALITY 样本。参考：[VMess TCP/TLS](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/VMess-TCP-TLS/config_server.jsonc)、[VMess HTTP 伪装](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/VMess-HTTP/config_server.jsonc)、[VMess mKCP](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/VMess-mKCPSeed/config_server.jsonc)。
 
 【UI 建议】
 
@@ -115,7 +115,7 @@ Xray 的服务端入站配置同时包含监听、认证、传输、安全证书
 
 #### Trojan
 
-【样本事实】Trojan 样本覆盖 TCP、WS、gRPC、H2；TCP 样本使用 TLS，WS/gRPC/H2 样本多为反向代理前置后的无安全入站。参考：[Trojan TCP/TLS](../../../Xray-examples/Trojan-TCP-TLS%20(minimal)/config_server.jsonc)、[Trojan gRPC](../../../Xray-examples/Trojan-gRPC-Caddy2%EF%BC%8FNginx/server.jsonc)。
+【样本事实】Trojan 样本覆盖 TCP、WS、gRPC、H2；TCP 样本使用 TLS，WS/gRPC/H2 样本多为反向代理前置后的无安全入站。参考：[Trojan TCP/TLS](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/Trojan-TCP-TLS%20%28minimal%29/config_server.jsonc)、[Trojan gRPC](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/Trojan-gRPC-Caddy2%EF%BC%8FNginx/server.jsonc)。
 
 【UI 建议】
 
@@ -128,7 +128,7 @@ Xray 的服务端入站配置同时包含监听、认证、传输、安全证书
 
 #### Shadowsocks
 
-【样本事实】Shadowsocks 样本出现 TCP、WS、gRPC、H2，基础配置稳定为 `method` + `password`。参考：[Shadowsocks TCP](../../../Xray-examples/Shadowsocks-TCP/server.jsonc)、[All-in-One 多入站样本](../../../Xray-examples/All-in-One-fallbacks-Nginx/server.jsonc)。
+【样本事实】Shadowsocks 样本出现 TCP、WS、gRPC、H2，基础配置稳定为 `method` + `password`。参考：[Shadowsocks TCP](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/Shadowsocks-TCP/server.jsonc)、[All-in-One 多入站样本](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/All-in-One-fallbacks-Nginx/server.jsonc)。
 
 【UI 建议】
 
@@ -148,7 +148,7 @@ Xray 的服务端入站配置同时包含监听、认证、传输、安全证书
 - `hysteriaSettings.auth`
 - TLS + SNI + ALPN `h3`
 
-参考：[Hysteria2 server.jsonc](../../../Xray-examples/Hysteria2/server.jsonc)。这说明 Xray 服务端配置名称与客户端 URI/项目协议名称存在版本映射，不能据此把两个客户端协议合并。
+参考：[Hysteria2 server.jsonc](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/Hysteria2/server.jsonc)。这说明 Xray 服务端配置名称与客户端 URI/项目协议名称存在版本映射，不能据此把两个客户端协议合并。
 
 【UI 建议】
 
@@ -161,7 +161,7 @@ Xray 的服务端入站配置同时包含监听、认证、传输、安全证书
 
 #### SOCKS5
 
-【样本事实】SOCKS 示例为 `protocol: "socks"`，使用 `auth: "password"`、账号数组、UDP 和 TCP + TLS。参考：[SOCKS5 TLS](../../../Xray-examples/Socks5-TLS/config_server.jsonc)。
+【样本事实】SOCKS 示例为 `protocol: "socks"`，使用 `auth: "password"`、账号数组、UDP 和 TCP + TLS。参考：[SOCKS5 TLS](https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/Socks5-TLS/config_server.jsonc)。
 
 【UI 建议】
 
@@ -370,7 +370,7 @@ REALITY  → SNI、公钥、Short ID、客户端指纹、适用时的 Flow
 
 ## 九、研究依据
 
-- 外部样本目录：`/Users/kyle/Desktop/Repo/Xray-examples/` 下所有 `server.jsonc` / `config_server.jsonc` 文件。
+- 外部样本来源：[XTLS/Xray-examples](https://github.com/XTLS/Xray-examples/tree/a64a519ab7f49f55a464a34596533e26666f75f8) 固定 commit `a64a519ab7f49f55a464a34596533e26666f75f8` 下所有 `server.jsonc` / `config_server.jsonc` 文件。
 - 当前项目协议注册表：[backend/internal/node/registry.go](../../backend/internal/node/registry.go)。
 - 当前节点表单：[frontend/src/views/admin/NodesView.vue](../../frontend/src/views/admin/NodesView.vue)。
 - 当前递归对象编辑器：[frontend/src/components/ProtocolFieldEditor.vue](../../frontend/src/components/ProtocolFieldEditor.vue)。

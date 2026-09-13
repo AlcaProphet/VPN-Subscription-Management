@@ -1,22 +1,22 @@
-# VPN 订阅管理系统 功能构建计划（Build27：Issue14 步骤七 R28-09 项目级工程与文档收尾）
+# VPN 订阅管理系统 功能构建计划（Build27：Issue14 步骤七 R28-09 项目级工程与文档收尾，已归档）
 
-> **文档定位：** 本文档是 Issue14 步骤七、R28-09 项目级工程与文档收尾的**唯一详细构建计划**。承接已归档的 Build1～Build26 与 [Build26.md](docs/reports/Build/Build26.md)（Issue14 步骤五/R28-07）。本文件只处理 R28-09 范围，不进入步骤五、步骤八/P4、Issue15 其他问题、`SecurityScanPlan1.md`、`SecurityReport3.md`、`Design5.md` 或任何发布动作。
+> **文档定位：** 本文档是 Issue14 步骤七、R28-09 项目级工程与文档收尾的**唯一详细构建计划**。承接已归档的 Build1～Build26 与 [Build26.md](Build26.md)（Issue14 步骤五/R28-07）。本文件只处理 R28-09 范围，不进入步骤五、步骤八/P4、Issue15 其他问题、`SecurityScanPlan1.md`、`SecurityReport3.md`、`Design5.md` 或任何发布动作。
 >
-> **创建状态（2026-09-11）：** 用户明确要求将 R28-09 已确认决策和操作内容整合为 Build27 并创建本文档。**创建行为只授权文档创建与计划冻结，不授权 Step 1～6 的代码、Dockerfile、工作流、README、LICENSE、参考文档、Issue、TODOLIST、AGENTS 或其他工作区文件修改，也不构成步骤七正式实施授权。**本次 2026-09-13 准备工作仅修正本计划与 TODOLIST 的同步状态，不启动 Step 1～6。
+> **执行状态（2026-09-13）：** 用户于 2026-09-13 一次性授权 Step 1～6 串行执行；Step 0.5 前置核验通过后，Step 1～6 已全部完成并验收通过，R28-09/步骤七工程关闭。**本文档已按归档规则移入 `docs/reports/Build/Build27.md`，仅作历史核查，不再作为执行入口。**P4/步骤八与 P5 未启动，仍需另行授权。
 >
 > **当前活跃构建关系：**
-> - [Build26.md](docs/reports/Build/Build26.md) 已完成并归档，是 Issue14 步骤五/R28-07 的历史构建记录；
+> - [Build26.md](Build26.md) 已完成并归档，是 Issue14 步骤五/R28-07 的历史构建记录；
 > - Build26 Step 1～20 已完成并验收通过，R28-07A～E、G～I 已关闭，R28-07F 保持设计取向且未实施；
-> - Build27 的 Step 0.5 已完成只读前置核验；Step 1～6 仍未开始，且仍须按本计划取得对应实施授权；
+> - Build27 的 Step 0.5 已完成只读前置核验，Step 1～6 已按用户一次性授权完成并验收通过；R28-09/步骤七工程关闭；本文档已归档；
 > - Build27 与 Build26 不并行实施，不把 R28-09 加入 Build26，也不把 R28-07 加入 Build27。
 >
 > **关联文档：**
-> - 编码指令：[AGENTS.md](AGENTS.md)（**唯一强要求**）
-> - 当前设计：[Design4.md](Design4.md)（R28-09 原则上不改设计合同；仅在用户确认需要时同步）
-> - 问题追踪：[Issue14.md](Issue14.md)（步骤七、R28-09、关闭条件）
-> - 人工测试：[ProdTestList.md](ProdTestList.md)（R28-09 不新增人工通过结论；如新增真实浏览器/升级项目，只登记、不标通过）
-> - 历史核验：[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) §6.1/§6.4/§6.6、[BuildReport5.md](docs/reports/BuildReport/BuildReport5.md) OBS-03/OBS-04
-> - 构建模板：[Build.template.md](docs/DocTemplates/Build.template.md)
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 当前设计：[Design4.md](../../../Design4.md)（R28-09 原则上不改设计合同；仅在用户确认需要时同步）
+> - 问题追踪：[Issue14.md](../../../Issue14.md)（步骤七、R28-09、关闭条件）
+> - 人工测试：[ProdTestList.md](../../../ProdTestList.md)（R28-09 不新增人工通过结论；如新增真实浏览器/升级项目，只登记、不标通过）
+> - 历史核验：[BuildReport4.md](../BuildReport/BuildReport4.md) §6.1/§6.4/§6.6、[BuildReport5.md](../BuildReport/BuildReport5.md) OBS-03/OBS-04
+> - 构建模板：[Build.template.md](../../DocTemplates/Build.template.md)
 
 ---
 
@@ -53,7 +53,7 @@
 12. **安全审查边界：** R28-09 只做项目级整改；`SecurityScanPlan1.md` / `SecurityReport3.md` 保持独立，不引用其 Step、证据或状态。
 13. **发布边界：** 本轮接受只改引用策略/文档，**不发布新镜像、不推送 GHCR、不打 Git tag、不创建 GitHub Release**。
 14. **digest 更新机制：** 不固定 Dockerfile digest；由人工按发布或月度检查官方基础镜像/GHCR 状态并记录，不新增 Renovate/Dependabot。
-15. **Build27 创建时机：** 用户明确要求现在创建 Build27 并整合上述操作内容；Build27 作为计划/决策载体存在，Step 0.5 已完成，Step 1～6 仍须逐 Step 取得实施授权。
+15. **Build27 创建时机：** 用户明确要求现在创建 Build27 并整合上述操作内容；Build27 作为计划/决策载体存在，Step 0.5 已完成。Step 1～6 的逐 Step 授权旧口径已由 2026-09-13 一次性串行授权覆盖，并已全部完成验收。
 
 ---
 
@@ -96,8 +96,8 @@
 
 ## 三、准备核验事实快照（2026-09-13）
 
-- 当前分支：`beta`；HEAD：`ae39cafa3feb8f257cca1e94c5f02e3cc2b8b354`；本次文档同步前 `git status --short` 为空，且与 `origin/beta` 一致。
-- 当前无已授权的活跃构建；[归档 Build26.md](docs/reports/Build/Build26.md)（Issue14 步骤五/R28-07）Step 1～20 已完成并验收通过。
+- 准备时基线：分支 `beta`；HEAD `ae39cafa3feb8f257cca1e94c5f02e3cc2b8b354`；开始时工作区干净且与 `origin/beta` 一致。实际实施基于用户已有本地提交 `cd52beb`，完成后仍有未提交修改并本地领先 `origin/beta` 1 个提交；未 commit、未 push。
+- Build27 已完成并归档；[归档 Build26.md](Build26.md)（Issue14 步骤五/R28-07）Step 1～20 已完成并验收通过。
 - Dockerfile：
   - 前端构建阶段：`node:24-alpine`，本机解析 Node v24.21.0 / Alpine 3.24.1；
   - 后端构建阶段：`golang:1.26-alpine`，本机解析 Go 1.26.8 / Alpine 3.24.1；
@@ -121,16 +121,16 @@
 |---|---|---|---|
 | 0 | 创建 Build27、冻结用户决策与范围 | 用户 2026-09-11 明确要求；Issue14 R28-09 | ✅ 本文档创建并记录决策 |
 | 0.5 | 前置条件核验：Build26 关闭/归档、步骤五关闭、Git 复核 | Issue14 步骤七前置；TODOLIST P3 | ✅ 2026-09-13 只读核验通过 |
-| 1 | 运行阶段 Alpine 3.24、显式安装/验证 `ca-certificates` | R28-09-1/2；用户决策 1/2/3 | ☐ 未开始 |
-| 2 | GHCR `latest` 升级说明、CI digest 记录、workflow Node 24 对齐 | R28-09-3；用户决策 4/5/6/11/13/14 | ☐ 未开始 |
-| 3 | 恢复 MIT LICENSE 并同步 README | R28-09-4；用户决策 7 | ☐ 未开始 |
-| 4 | 修复 Xray 外链并加入最小内链检查 | R28-09-5；用户决策 8/10 | ☐ 未开始 |
-| 5 | 逐文件删除四个未引用前端文件并回归 | R28-09-6；用户决策 9 | ☐ 未开始 |
-| 6 | 联合构建、镜像、链接、静态扫描、Production smoke、文档收口 | R28-09-7～10；用户决策 11/12/13 | ☐ 未开始 |
+| 1 | 运行阶段 Alpine 3.24、显式安装/验证 `ca-certificates` | R28-09-1/2；用户决策 1/2/3 | ✅ 已验收（2026-09-13；本地 linux/arm64） |
+| 2 | GHCR `latest` 升级说明、CI digest 记录、workflow Node 24 对齐 | R28-09-3；用户决策 4/5/6/11/13/14 | ✅ 已验收（2026-09-13；远端 CI 未触发） |
+| 3 | 恢复 MIT LICENSE 并同步 README | R28-09-4；用户决策 7 | ✅ 已验收（2026-09-13；文本与历史 `36ce532:LICENSE` 一致） |
+| 4 | 修复 Xray 外链并加入最小内链检查 | R28-09-5；用户决策 8/10 | ✅ 已验收（2026-09-13；13/13 固定 commit URL HTTP 200） |
+| 5 | 逐文件删除四个未引用前端文件并回归 | R28-09-6；用户决策 9 | ✅ 已验收（2026-09-13；46 文件/275 用例、build 通过） |
+| 6 | 联合构建、镜像、链接、静态扫描、Production smoke、文档收口 | R28-09-7～10；用户决策 11/12/13 | ✅ 已验收（2026-09-13；联合门禁与隔离 Production smoke 通过，文档已收口/归档） |
 
 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 已验收 / ⛔ 阻断。
 
-> Step 0.5 的“已验收”仅表示步骤七的文档/Git 前置条件已核验通过；**不代表 Step 1～6 中任何工程动作已获授权。**
+> **授权更新（2026-09-13）：** 用户在实施前一次性授权 Step 1～6 串行执行；本计划文字中“用户单独授权/再次确认”的旧口径由该次一次性授权覆盖。Step 1～6 已全部验收通过；Step 0.5 的“已验收”仅表示当时步骤七的文档/Git 前置条件已核验通过。
 
 ---
 
@@ -257,6 +257,13 @@ git diff --check
   - 基础镜像只读探针不得替代最终镜像验证。
 - **范围外：** 不固定 digest；不改 Node/Golang 构建阶段；不改业务代码；不发布镜像。
 
+- **Step 1 实施记录（2026-09-13，受用户一次性串行授权）：**
+  - 失败优先：修改前 `Dockerfile:20` 为 `FROM alpine:3.21`，且 `grep -q 'apk add --no-cache ca-certificates' Dockerfile` 不匹配，均符合预期。
+  - 实施：`FROM alpine:3.24`；在 `addgroup`/`adduser`/`USER app` 前增加 `RUN apk add --no-cache ca-certificates && test -s /etc/ssl/certs/ca-certificates.crt`；未固定 digest、未改构建阶段。
+  - 实际命令：`docker build -t vpn-sub:r28-09-step1 .`；容器内 `apk info -e ca-certificates`、证书文件断言、`id -u` 非 root、`wget --spider https://example.com`、构建工具残留检查；`docker image inspect`；`git diff --check`。
+  - 真实结果：Docker build 通过；容器内 Alpine 3.24.1、`ca-certificates` 已安装、`/etc/ssl/certs/ca-certificates.crt` 非空（179359 bytes）、`uid=100(app)`、HTTPS 探测通过、无 go/node/npm/gcc/cc/make；镜像平台 `linux/arm64`；`git diff --check` 通过。
+  - 证据边界：本地 Docker 为 linux/arm64，不能替代 GHCR linux/amd64 或远端 CI 结果；基础镜像只读探针已与最终镜像验证分开。
+
 ### Step 2：GHCR `latest` 升级说明、CI digest 记录、workflow Node 24 对齐
 
 - **目标：** 保持用户部署引用为 `latest`，补充可变 tag 风险/升级说明；让 CI 记录应用镜像最终 digest；将 GitHub Actions 的 Node 版本对齐到 24。
@@ -307,6 +314,13 @@ git diff --check
   - 不修改 GHCR 上的任何 tag/digest，不推送。
 - **范围外：** 不发布新版本；不加多架构；不新增 APK/Go 依赖；不把 Actions 供应链审查混入。
 
+- **Step 2 实施记录（2026-09-13，受用户一次性串行授权）：**
+  - 失败优先：修改前 `node-version: 22`，无 `outputs.digest`；README/Compose 已使用 `latest`，均符合预期。
+  - 实施：workflow `node-version: 24`；`Build and push` 增加 `id: build`；新增 `Record application image digest` 写入 `$GITHUB_STEP_SUMMARY`；README 升级说明与 Compose 注释补充 `latest` 可变、版本 tag 示例 `v3.0.2`、必要时 digest、当前 GHCR 仅 `linux/amd64`；未改 image 引用。
+  - 实际命令：`docker compose -f docker-compose.yml.example config --quiet`、`docker compose -f docker-compose.yml config --quiet`、`git grep -n ':latest' -- README.md docker-compose.yml.example`、`grep -n 'node-version: 24' .github/workflows/docker-build.yml`、`grep -n 'outputs.digest' .github/workflows/docker-build.yml`、`git diff --check`。
+  - 真实结果：两个 Compose config 通过；README/Compose 仍引用 `ghcr.io/alcaprophet/vpnmanagement:latest`；workflow 已对齐 Node 24 且包含 digest summary；`git diff --check` 通过。
+  - 证据边界：未 push、未打 tag、未触发 workflow_dispatch；远端 CI 未运行，本轮 digest 只能静态核验，不能写成 CI 已通过；GHCR tag/digest 未变更。
+
 ### Step 3：恢复 MIT LICENSE 并同步 README
 
 - **目标：** 恢复历史 MIT 许可证，修正 README 的许可证描述，使“开源项目/License 文件”表述与仓库事实一致。
@@ -339,6 +353,13 @@ git diff --check
   - `git status --short` 只含本 Step 预期文件；
   - 不修改依赖许可证，不修改仓库元数据。
 - **范围外：** 不选其他许可证；不追写历史归档报告；不推动 GitHub license 自动识别之外的设置变更。
+
+- **Step 3 实施记录（2026-09-13，受用户一次性串行授权）：**
+  - 失败优先：修改前 `LICENSE` 不存在；README 第 288 行为“本项目为自托管开源项目，详情见仓库 LICENSE 文件。”，符合旧状态。
+  - 实施：新增 MIT `LICENSE`，文本与 `36ce532:LICENSE` 完全一致，版权行为 `Copyright (c) 2026 AlcaProphet`；README 改为“本项目基于 MIT License 开源，详情见仓库 LICENSE 文件。”
+  - 实际命令：`test -s LICENSE`、`grep -n 'MIT License' LICENSE`、`grep -n 'Copyright (c) 2026 AlcaProphet' LICENSE`、`git show 36ce532:LICENSE > /tmp/... && cmp -s LICENSE /tmp/...`、`grep -n 'MIT' README.md`、`git diff --check`、`git diff --no-index --check -- /dev/null LICENSE`。
+  - 真实结果：`LICENSE` 非空且与历史文本完全一致；README 已明确 MIT；`git diff --check` 无输出；新增文件 whitespace 检查无异常。
+  - 证据边界：依据用户已确认的 MIT 决策与历史文件恢复，不构成对其他贡献者或仓库设置的法律意见；未改 git 历史或 GitHub 设置。
 
 ### Step 4：修复 Xray 外链并加入最小内链检查
 
@@ -394,6 +415,14 @@ git diff --check
   - 网络波动不导致全仓强制失败；如需 CI 化只纳入内链检查。
 - **范围外：** 不扩展修改其他 Reference 文档；不复制 Xray-examples 文件进仓库；不改外部仓库。
 
+- **Step 4 实施记录（2026-09-13，受用户一次性串行授权）：**
+  - 用户决策 D1（2026-09-13）：内链检查收窄为 `README.md` + `docs/Reference/Xray-Server-Config-Research.md`；`docs/Reference/Node-Editor-Research.md:496` 指向已移除 `backend/internal/server/render.go` 的历史断链记录为范围外，不阻塞本 Step。
+  - 失败优先：修改前 `git grep '../../../Xray-examples/'` 命中 13 次；`scripts/check-md-links.mjs` 不存在，均符合旧状态。
+  - 实施：第 24/373 行本机绝对路径改为固定 commit 官方来源；13 个外链改为 `XTLS/Xray-examples` 固定 commit URL，路径经 `%20`、`%28`/`%29`、全角字符转义；新增 `scripts/check-md-links.mjs`。
+  - 实际命令与结果：`node --check` 通过；`node scripts/check-md-links.mjs README.md docs/Reference/Xray-Server-Config-Research.md` 输出 `checked_links=24 missing=0 files=2`；固定 commit URL 去重 `13`；13/13 逐个 `curl -L` 返回 HTTP 200（查询时间 2026-09-13）；tree 来源 URL HTTP 200；`git grep '../../../Xray-examples/'` 已无命中；本机绝对路径已移除；`git diff --check` 与新脚本 whitespace 检查通过。
+  - 过程说明：一次 shell 循环外链核验因执行工具超时被中止，未作为最终证据；随后逐 URL 受控 `curl` 完整返回 13/13 HTTP 200。
+  - 证据边界：外部 URL 核验依赖本机网络，不是 CI 结果；`Node-Editor-Research.md` 历史断链已由脚本确认存在但仍属范围外。
+
 ### Step 5：逐文件删除四个未引用前端文件并回归
 
 - **目标：** 逐文件、可审计地删除四个确认未引用的前端文件，并证明删除不影响前端测试、类型检查和生产构建。
@@ -448,8 +477,16 @@ git diff --check
   - 每个文件删除前有引用扫描结果，删除后有存在性/零引用证据；
   - 前端定向测试、全量测试、生产构建通过；
   - 当前 Build/Issue 记录说明归档 Design2-UI/Build11 等历史引用不回写为“原报告错误”；
-  - 不修改 `frontend/dist`、`node_modules`、构建产物。
+  - 按用户 D2 决策：允许 `npm test`/`npm run build` 刷新 gitignored 的 `frontend/dist`、`frontend/tsconfig.tsbuildinfo` 及 TS 生成配置缓存；不暂存、不提交这些生成物，tracked 源文件与业务行为不变。
 - **范围外：** 不清理其他前端文件；不修改业务组件行为；不新增人工浏览器通过结论。
+
+- **Step 5 实施记录（2026-09-13，受用户一次性串行授权）：**
+  - 用户决策 D2（2026-09-13）：允许前端测试/构建刷新被 `.gitignore` 忽略的生成物；不暂存、不提交，tracked 源文件保持可审计。
+  - 失败优先：删除前四个精确文件均存在；`git grep` 在 `frontend/src`/`frontend/tests` 仅命中四个候选文件自身的首行注释，无 import、模板、路由、barrel、动态注册或测试引用。
+  - 实施：仅用精确路径删除 `frontend/src/views/admin/assembly/GenerateStep.vue`、`frontend/src/components/PreviewState.vue`、`frontend/src/components/ResponsiveCollection.vue`、`frontend/src/components/CopyField.vue`，未使用 glob。
+  - 实际命令与结果：删除后存在性检查通过；`frontend/src`/`frontend/tests` 零引用；定向测试 4 文件/37 用例通过；全量测试 46 文件/275 用例通过；`npm run build` 通过（仅保留既有 main chunk 提示）；`git diff --check` 通过。
+  - 生成物刷新：`frontend/dist` 聚合 SHA-256 由 `3676a073...d9bf7` 变为 `8e9f1207...4c0f`，`frontend/tsconfig.tsbuildinfo` 由 `6e552ff9...f736d` 变为 `4bb943b2...7850`；均为 gitignored 构建产物，未暂存。
+  - 证据边界：删除依据是当前静态/动态引用、路由、自动注册、测试和文档交叉扫描；归档 Design2-UI/Build11 等历史引用不回写为“原报告错误”；本 Step 未新增浏览器人工通过结论。
 
 ### Step 6：联合构建、镜像、链接、静态扫描和文档收口
 
@@ -489,8 +526,8 @@ cd ..
 # 未引用文件静态扫描（删除后应为 0）
 ! git grep -n -E 'GenerateStep|PreviewState|ResponsiveCollection|CopyField' -- frontend/src frontend/tests
 
-# 仓库内 Markdown 链接检查
-node scripts/check-md-links.mjs README.md docs/Reference/*.md
+# 仓库内 Markdown 链接检查（D1：仅本次 R28-09 指定范围）
+node scripts/check-md-links.mjs README.md docs/Reference/Xray-Server-Config-Research.md
 
 # 本次涉及外链的有边界核验（记录时间与状态码）
 test "$(rg -o 'https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/[^)]+' docs/Reference/Xray-Server-Config-Research.md | sort -u | wc -l | tr -d ' ')" -eq 13
@@ -515,6 +552,16 @@ bash .smoke-test-prod.sh
   - 自动化、Docker、Production smoke、浏览器人工、真实部署证据分开记录；
   - 远端 CI 未触发时明确记录“未执行”，不写成通过；
   - 步骤七关闭后仍不自动进入 P4/步骤八。
+
+- **Step 6 实施记录（2026-09-13，受用户一次性串行授权）：**
+  - 前置：Step 1～5 均 ✅ 已验收；Step 6 开始时工作区仅含本 Build27 预期修改。
+  - 用户决策 D3（2026-09-13）：允许 Production smoke 覆盖既有 `/tmp/vpn-smoke-export.enc`、`/tmp/vpn-smoke-import.out` 与本地 `vpn-sub:smoke-prod` 镜像；执行前已确认固定 smoke 容器/卷不存在，未触碰项目 `vpn-subscription-management_vpn-data` 或 `backend/data`。
+  - 实际命令与真实结果：`docker compose config --quiet` 通过；`docker compose build` 通过；`docker build -t vpn-sub:r28-09-final .` 通过；最终镜像内 Alpine 3.24.1、`ca-certificates` 已安装、证书 bundle 非空、`uid=100(app)`、HTTPS 探测通过、无 go/node/npm/gcc/cc/make，镜像平台 `linux/arm64`；前端全量 46 文件/275 用例通过；`npm run build` 通过（仅既有 main chunk 提示）；`frontend/src`/`frontend/tests` 四文件零引用；D1 内链检查 `checked_links=24 missing=0`；13/13 固定 commit URL HTTP 200；`git diff --check` 通过。
+  - Production smoke：`bash .smoke-test-prod.sh` 通过，在 `127.0.0.1:18081` 临时容器与独立临时卷上完成 Setup、注册、订阅/版本、四类装配器、URI 导入、覆盖层、v2 导出导入，输出 `=== PROD SMOKE ALL DONE ===`；未使用真实凭据/生产数据，脚本 trap 已清理临时容器与卷。
+  - 文档同步：`Issue14.md` R28-09/步骤七关闭；`TODOLIST.md` P3 勾选与快照同步；`AGENTS.md` 归档状态同步；README/Compose/Xray 文档按 Step 2/3/4 同步；Build27 按归档规则移入 `docs/reports/Build/Build27.md`。
+  - R28-09 关闭核对：CA/Alpine、digest 不固定+CI digest 记录、GHCR `latest` 升级说明、MIT LICENSE、13 个固定 commit 外链+内链脚本、四个未引用文件删除、PoolTab/AGENTS 历史证据均已闭环；`docs/Reference/Node-Editor-Research.md:496` 历史断链按用户 D1 决策保留为范围外记录。
+  - 证据边界：远端 CI 未触发；本地 Docker 为 linux/arm64，不代表 GHCR linux/amd64；Production smoke 是隔离容器/API 级证据，不代表真实浏览器、真机、真实客户端或真实部署；D2 允许的 gitignored 生成物已刷新但未暂存/提交。
+  - 后续边界：步骤七关闭不等于 Issue14 关闭；P4/步骤八全量复核与 Issue14 关闭仍需另行授权，P5 安全审查保持独立。
 
 ---
 
@@ -565,5 +612,6 @@ bash .smoke-test-prod.sh
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.2 | 2026-09-13 | 用户一次性授权后完成 Step 1～6：Alpine 3.24/CA、GHCR/CI digest/Node 24、MIT LICENSE、Xray 固定外链+内链脚本、四文件删除；联合门禁、最终镜像探针、前端 46/275、13/13 外链、隔离 Production smoke、`git diff --check` 通过；Issue14 R28-09/步骤七关闭，TODOLIST/AGENTS 同步，Build27 归档；远端 CI/真实人工未执行。 |
 | v1.1 | 2026-09-13 | 完成进入 Build27 前置同步：Build26 归档路径、当前 HEAD、Step 0.5 前置核验状态已更新；统一 digest“不固定”和 MIT 许可证决策；修正 `docs/Reference`、Alpine 拼写及外链验收命令占位符；未启动 Step 1～6。 |
 | v1.0 | 2026-09-11 | 用户要求整合 R28-09 决策与操作内容并创建 Build27；记录 CA、digest、Alpine、GHCR、CI Node、LICENSE、Xray、前端清理、链接门禁、安全审查边界和发布边界；Build27 仅作为计划/决策载体，Step 1～6 未开始，等待步骤五关闭与逐 Step 授权。 |
