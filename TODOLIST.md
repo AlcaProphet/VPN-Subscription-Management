@@ -13,7 +13,7 @@
 | [docs/reports/Build/Build22.md](docs/reports/Build/Build22.md) | 已归档；Step 1～11 全部验收通过，D3-1～D3-10 闭环 | ✅ 已完成 |
 | [docs/reports/Design/Design3.md](docs/reports/Design/Design3.md) | 已随 Build22 收口归档 | ✅ 已完成 |
 | [Build26.md](docs/reports/Build/Build26.md) | **已归档的步骤五构建记录**；Step 1～20 已按一次性串行授权完成并验收通过；R28-07F 保持设计取向未实施 | ✅ 已完成并归档；真实人工项在 ProdTestList 保持未执行 |
-| [Issue14.md](Issue14.md) | 步骤一、二、三、四、五、六已关闭；步骤五 R28-07A～E、G～I 代码/自动化/Production smoke/文档同步完成；步骤七、八未启动 | **Issue14 步骤七（需用户另行授权）** |
+| [Issue14.md](Issue14.md) | 步骤一、二、三、四、五、六已关闭；步骤五 R28-07A～E、G～I 代码/自动化/Production smoke/文档同步完成；步骤七、八未启动 | **Issue14 步骤七（Build27，需用户另行授权）** |
 | [Issue15.md](Issue15.md) | R29-11 已关闭；R29-12 已完成；R29-01、R29-06、R29-09、R29-10 待人工复验 | R29-01 已由 Step 14 工程边界保护，人工复验仍由 ProdTestList 跟踪 |
 | [Design4.md](Design4.md) | 当前最新设计；Build17～25 主体已完成；已增加 §12.7 Build26 核心工程约束现行合同补充 | 仅在实际变更影响其合同时同步 |
 | [ProdTestList.md](ProdTestList.md) | 保留 Production、浏览器、真机和真实客户端人工项 | 按工程前置分批执行 |
@@ -71,10 +71,10 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 
 ### P3 — Issue14 步骤七（R28-09）
 
-前置：Issue14 步骤三、四、五、六全部关闭；Build26 已归档，Build27 仍须用户逐 Step 另行授权。
+前置：Issue14 步骤三、四、五、六全部关闭；Build26 已归档；Build27 Step 0.5 已完成只读前置核验。
 
-- [ ] **P3-1｜步骤七/R28-09：** 按 P0-1 已确认的 Node 24 记录继续处理；安装/验证 `ca-certificates`，评估并固定基础镜像/GHCR digest。
-- [ ] **P3-2｜步骤七/R28-09：** 补 `LICENSE` 或修正 README 许可证描述；涉及授权选择时先请用户决策。
+- [ ] **P3-1｜步骤七/R28-09：** 按 P0-1 已确认的 Node 24 记录继续处理；安装/验证 `ca-certificates`，按已确认口径记录“不固定 Dockerfile digest”，并落实 CI 应用镜像 digest 记录与人工月度/发布检查。
+- [ ] **P3-2｜步骤七/R28-09：** 按已确认的 MIT 许可证决策恢复 `LICENSE`，并同步 README 许可证描述；不重新发起许可证选择。
 - [ ] **P3-3｜步骤七/R28-09：** 修复 `docs/Reference/Xray-Server-Config-Research.md` 的仓库外失效链接。
 - [ ] **P3-4｜步骤七/R28-09：** 逐项确认 `GenerateStep.vue`、`PreviewState.vue`、`ResponsiveCollection.vue`、`CopyField.vue` 无引用后再清理。
 - [ ] **P3-5｜步骤七验收：** 跑受影响构建、镜像、链接和静态扫描门禁，回写 R28-09、Build 与 AGENTS。
@@ -164,3 +164,4 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 | 2026-09-11 | 按用户最新授权同步授权口径：用户已一次性授权 Build26 Step 1～20 串行执行，每 Step 仍须独立失败优先、独立验收，当前 Step 验收通过后方可进入下一 Step；P2 项未完成前保持未勾选。预检记录见 [Build26.md](docs/reports/Build/Build26.md) §十。 |
 | 2026-09-11 | 完成 P2：Build26 Step 1～20 全部 ✅ 验收通过，R28-07A～E、G～I 闭环，errgate/架构/颜色门禁清零，后端全量/race/build/vet、前端 46 文件/275 用例/build、Docker build、隔离 Production smoke、接口级 401/403/413 与 `git diff --check` 通过；R28-07F 保持设计取向未实施。P2 已按实际结果勾选。 |
 | 2026-09-11 | 步骤五收口归档：Build26 全部 Step 验收通过并按 AGENTS 归档规则移入 `docs/reports/Build/`；ProdTestList v2.17 登记导入/SSE/主题人工项且保持未执行，TODOLIST 快照与人工队列同步；P3/P4/P5 未启动，等待用户另行授权。 |
+| 2026-09-13 | 重新核验并准备 Build27：确认 Build26 已归档、Issue14 步骤五已关闭、Git 与 `origin/beta` 同步；同步 Build27 Step 0.5 已完成和 P3 前置状态，统一“不固定 Dockerfile digest”与已确认 MIT 许可证口径；未启动 R28-09 Step 1～6。 |

@@ -1,13 +1,13 @@
 # VPN 订阅管理系统 功能构建计划（Build27：Issue14 步骤七 R28-09 项目级工程与文档收尾）
 
-> **文档定位：** 本文档是 Issue14 步骤七、R28-09 项目级工程与文档收尾的**唯一详细构建计划**。承接已归档的 Build1～Build25 与当前活跃的 [Build26.md](Build26.md)（Issue14 步骤五/R28-07）。本文件只处理 R28-09 范围，不进入步骤五、步骤八/P4、Issue15 其他问题、`SecurityScanPlan1.md`、`SecurityReport3.md`、`Design5.md` 或任何发布动作。
+> **文档定位：** 本文档是 Issue14 步骤七、R28-09 项目级工程与文档收尾的**唯一详细构建计划**。承接已归档的 Build1～Build26 与 [Build26.md](docs/reports/Build/Build26.md)（Issue14 步骤五/R28-07）。本文件只处理 R28-09 范围，不进入步骤五、步骤八/P4、Issue15 其他问题、`SecurityScanPlan1.md`、`SecurityReport3.md`、`Design5.md` 或任何发布动作。
 >
-> **创建状态（2026-09-11）：** 用户明确要求将 R28-09 已确认决策和操作内容整合为 Build27 并创建本文档。**创建行为只授权文档创建与计划冻结，不授权 Step 1～6 的代码、Dockerfile、工作流、README、LICENSE、参考文档、Issue、TODOLIST、AGENTS 或其他工作区文件修改，也不构成步骤七正式实施授权。**
+> **创建状态（2026-09-11）：** 用户明确要求将 R28-09 已确认决策和操作内容整合为 Build27 并创建本文档。**创建行为只授权文档创建与计划冻结，不授权 Step 1～6 的代码、Dockerfile、工作流、README、LICENSE、参考文档、Issue、TODOLIST、AGENTS 或其他工作区文件修改，也不构成步骤七正式实施授权。**本次 2026-09-13 准备工作仅修正本计划与 TODOLIST 的同步状态，不启动 Step 1～6。
 >
 > **当前活跃构建关系：**
-> - [Build26.md](Build26.md) 仍是 Issue14 步骤五/R28-07 的当前活跃唯一构建记录；
-> - Build26 的 Step 0 已完成，Step 1～20 尚未执行；
-> - Build27 在 Step 1 正式实施前必须先满足：Issue14 步骤五按 Build26 真实证据关闭、Build26 归档、Git 工作区重新核对、用户逐 Step 授权；
+> - [Build26.md](docs/reports/Build/Build26.md) 已完成并归档，是 Issue14 步骤五/R28-07 的历史构建记录；
+> - Build26 Step 1～20 已完成并验收通过，R28-07A～E、G～I 已关闭，R28-07F 保持设计取向且未实施；
+> - Build27 的 Step 0.5 已完成只读前置核验；Step 1～6 仍未开始，且仍须按本计划取得对应实施授权；
 > - Build27 与 Build26 不并行实施，不把 R28-09 加入 Build26，也不把 R28-07 加入 Build27。
 >
 > **关联文档：**
@@ -53,7 +53,7 @@
 12. **安全审查边界：** R28-09 只做项目级整改；`SecurityScanPlan1.md` / `SecurityReport3.md` 保持独立，不引用其 Step、证据或状态。
 13. **发布边界：** 本轮接受只改引用策略/文档，**不发布新镜像、不推送 GHCR、不打 Git tag、不创建 GitHub Release**。
 14. **digest 更新机制：** 不固定 Dockerfile digest；由人工按发布或月度检查官方基础镜像/GHCR 状态并记录，不新增 Renovate/Dependabot。
-15. **Build27 创建时机：** 用户明确要求现在创建 Build27 并整合上述操作内容；Build27 作为计划/决策载体存在，但 Step 1～6 仍须等待 Build26/步骤五关闭并逐 Step 授权。
+15. **Build27 创建时机：** 用户明确要求现在创建 Build27 并整合上述操作内容；Build27 作为计划/决策载体存在，Step 0.5 已完成，Step 1～6 仍须逐 Step 取得实施授权。
 
 ---
 
@@ -80,7 +80,7 @@
 - `SecurityScanPlan1.md`、`SecurityReport3.md` 的任何 Step、证据胶囊或状态。
 - `Design5.md`、Issue15 其他问题、与 R28-09 无关的依赖升级或代码清理。
 - 新版本发布、Git tag、GitHub Release、GHCR 推送、CI 密钥或仓库设置变更。
-- 修改 `Build26.md`、归档 Build/Design/Issue/Report 文档；修改 `docs/reference` 中本文件未纳入的其他文档。
+- 修改归档的 `docs/reports/Build/Build26.md`、其他归档 Build/Design/Issue/Report 文档；修改 `docs/Reference` 中本文件未纳入的其他文档。
 - 把自动化、Docker 构建、Production smoke、浏览器人工或真实部署结果互相替代。
 
 ### 2.3 通用执行规则
@@ -94,10 +94,10 @@
 
 ---
 
-## 三、当前事实快照（2026-09-11）
+## 三、准备核验事实快照（2026-09-13）
 
-- 当前分支：`beta`；HEAD：`8df4364b890d9d638d9642ed07ce32764304331c`；`git status --short` 在本 Build27 创建前为空。
-- 当前活跃构建：`Build26.md`（Issue14 步骤五/R28-07），Step 0 完成，Step 1～20 未开始。
+- 当前分支：`beta`；HEAD：`ae39cafa3feb8f257cca1e94c5f02e3cc2b8b354`；本次文档同步前 `git status --short` 为空，且与 `origin/beta` 一致。
+- 当前无已授权的活跃构建；[归档 Build26.md](docs/reports/Build/Build26.md)（Issue14 步骤五/R28-07）Step 1～20 已完成并验收通过。
 - Dockerfile：
   - 前端构建阶段：`node:24-alpine`，本机解析 Node v24.21.0 / Alpine 3.24.1；
   - 后端构建阶段：`golang:1.26-alpine`，本机解析 Go 1.26.8 / Alpine 3.24.1；
@@ -111,7 +111,7 @@
 - PoolTab：当前文案已为“服务启动时补跑今日错过”，由 Build22 Step 11 修正。
 - AGENTS 文档清单：当前已包含 BuildReport1～5、SecurityReport1～2、根目录 SecurityReport3。
 - 远端 CI：当前 workflow 仅定义 `setup-node` Node 22；实际工作流未在本次触发。
-- 当前工作区在 Build27 创建前未发现用户未提交改动；Build27 创建后只应新增该文件，其他文件保持不变。
+- 本次准备工作不启动 Build27 Step 1～6；仅同步 Build27 与 TODOLIST 的状态和执行命令，业务代码、Issue14、AGENTS、Design4、归档 Build26 与人工验收记录不变。
 
 ---
 
@@ -120,7 +120,7 @@
 | Step | 内容 | 依据 | 状态 |
 |---|---|---|---|
 | 0 | 创建 Build27、冻结用户决策与范围 | 用户 2026-09-11 明确要求；Issue14 R28-09 | ✅ 本文档创建并记录决策 |
-| 0.5 | 前置条件核验：Build26 关闭/归档、步骤五关闭、Git 复核 | Issue14 步骤七前置；TODOLIST P3 | ☐ 未执行；等待步骤五关闭 |
+| 0.5 | 前置条件核验：Build26 关闭/归档、步骤五关闭、Git 复核 | Issue14 步骤七前置；TODOLIST P3 | ✅ 2026-09-13 只读核验通过 |
 | 1 | 运行阶段 Alpine 3.24、显式安装/验证 `ca-certificates` | R28-09-1/2；用户决策 1/2/3 | ☐ 未开始 |
 | 2 | GHCR `latest` 升级说明、CI digest 记录、workflow Node 24 对齐 | R28-09-3；用户决策 4/5/6/11/13/14 | ☐ 未开始 |
 | 3 | 恢复 MIT LICENSE 并同步 README | R28-09-4；用户决策 7 | ☐ 未开始 |
@@ -130,7 +130,7 @@
 
 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 已验收 / ⛔ 阻断。
 
-> Step 0 的“已完成”仅表示本文档已按用户要求创建并记录决策；**不代表步骤七已具备实施条件，也不代表 Step 1～6 中任何工程动作已获授权。**
+> Step 0.5 的“已验收”仅表示步骤七的文档/Git 前置条件已核验通过；**不代表 Step 1～6 中任何工程动作已获授权。**
 
 ---
 
@@ -139,11 +139,11 @@
 | Step | 主要涉及文件 | 要点 |
 |---|---|---|
 | 0 | `Build27.md` | 创建计划、冻结用户决策、范围与排除项 |
-| 0.5 | `Issue14.md`、`Build26.md`、`docs/reports/Build/Build26.md`、Git 状态 | 只读核验步骤五关闭证据与 Build26 归档状态；不修改 Build26 |
+| 0.5 | `Issue14.md`、`docs/reports/Build/Build26.md`、Git 状态 | 只读核验步骤五关闭证据与 Build26 归档状态；不修改归档 Build26 |
 | 1 | `Dockerfile` | `alpine:3.24`、`apk add --no-cache ca-certificates`、证书文件断言；不固定 digest |
 | 2 | `.github/workflows/docker-build.yml`、`README.md`、`docker-compose.yml.example` | Node 24 对齐、digest 记录、`latest` 升级说明；不推送/不发布 |
 | 3 | `LICENSE`（新增）、`README.md` | 恢复历史 MIT 文本，修正 README 许可证描述 |
-| 4 | `docs/Reference/Xray-Server-Config-Research.md`、`scripts/check-md-links.mjs`（候选新增） | 13 个外链改为官方固定 commit 链接；新增最小内链检查 |
+| 4 | `docs/Reference/Xray-Server-Config-Research.md`、`scripts/check-md-links.mjs`（本 Step 新增） | 13 个外链改为官方固定 commit 链接；新增最小内链检查 |
 | 5 | 四个精确 Vue 文件、相关前端测试 | 逐文件删除，删除前后引用扫描，前端定向/全量/build |
 | 6 | 全仓库受影响文件、`Build27.md`、`Issue14.md`、`TODOLIST.md`、`AGENTS.md`、README/Compose（按 Step 2/3） | 联合门禁、真实证据、文档收口、R28-09 关闭/迁移核验 |
 
@@ -152,11 +152,11 @@
 ## 六、构建顺序依赖图
 
 ```text
-Step 0：Build27 创建与决策冻结（当前已完成）
+Step 0：Build27 创建与决策冻结（已完成）
    ↓
-Step 0.5：等待 Build26 关闭并归档、Issue14 步骤五关闭、Git 复核
+Step 0.5：Build26 已归档、Issue14 步骤五已关闭、Git 已复核（当前已完成）
    ↓
-Step 1（Dockerfile/Apline/CA）┐
+Step 1（Dockerfile/Alpine/CA）┐
 Step 3（LICENSE）               ├─→ Step 6 联合门禁与文档收口
 Step 4（Xray 链接）             │
 Step 5（前端文件删除）          │
@@ -356,10 +356,10 @@ git diff --check
   - 官方固定链接形式：
 
 ```text
-https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/<百分号编码路径>
+https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/<URL-encoded-path>
 ```
 
-  - 新增最小内链检查脚本（建议 `scripts/check-md-links.mjs`）：
+  - 新增最小内链检查脚本 `scripts/check-md-links.mjs`：
     - 支持解析 Markdown 链接；
     - 只检查仓库内相对路径；
     - 跳过外部 URL、`#` 锚点、`mailto:`、localhost、示例占位符和代码块；
@@ -378,8 +378,9 @@ test ! -e scripts/check-md-links.mjs && echo 'link checker absent'
 
 ```bash
 node scripts/check-md-links.mjs docs/Reference/Xray-Server-Config-Research.md
-for url in <13 个官方固定 commit URL>; do
-  curl -sS -L -o /dev/null -w '%{http_code} %{url_effective}\n' --max-time 15 "$url"
+test "$(rg -o 'https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/[^)]+' docs/Reference/Xray-Server-Config-Research.md | sort -u | wc -l | tr -d ' ')" -eq 13
+rg -o 'https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/[^)]+' docs/Reference/Xray-Server-Config-Research.md | sort -u | while IFS= read -r url; do
+  curl -sS -L -o /dev/null -w '%{http_code} %{url_effective}\n' --max-time 15 "$url" || exit $?
 done
 git grep -n 'Xray-examples' -- docs/Reference/Xray-Server-Config-Research.md
 git diff --check
@@ -492,8 +493,9 @@ cd ..
 node scripts/check-md-links.mjs README.md docs/Reference/*.md
 
 # 本次涉及外链的有边界核验（记录时间与状态码）
-for url in <本次 Xray 固定链接>; do
-  curl -sS -L -o /dev/null -w '%{http_code} %{url_effective}\n' --max-time 15 "$url"
+test "$(rg -o 'https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/[^)]+' docs/Reference/Xray-Server-Config-Research.md | sort -u | wc -l | tr -d ' ')" -eq 13
+rg -o 'https://github.com/XTLS/Xray-examples/blob/a64a519ab7f49f55a464a34596533e26666f75f8/[^)]+' docs/Reference/Xray-Server-Config-Research.md | sort -u | while IFS= read -r url; do
+  curl -sS -L -o /dev/null -w '%{http_code} %{url_effective}\n' --max-time 15 "$url" || exit $?
 done
 
 # 正式 Production smoke（隔离环境；单独记录）
@@ -504,9 +506,9 @@ bash .smoke-test-prod.sh
   - `Build27.md`：Step 状态、真实命令、结果、证据类型、未执行项；
   - `Issue14.md`：R28-09 逐项关闭/迁移状态、步骤七关闭条件、变更记录；
   - `TODOLIST.md`：P3 勾选、活跃快照；
-  - `AGENTS.md`：Build27 当前/归档状态（Build26 归档后再切换）；
+  - `AGENTS.md`：Build27 完成后的当前/归档状态（不提前标记 Step 1～6）；
   - `README.md`、`docs/Reference/Xray-Server-Config-Research.md`：按 Step 2/3/4 实际修改同步；
-  - 不修改 Build26、归档报告、SecurityScanPlan1/Report3、Design5、Issue15 其他问题。
+  - 不修改归档的 `docs/reports/Build/Build26.md`、其他归档报告、SecurityScanPlan1/Report3、Design5、Issue15 其他问题。
 - **验收标准：**
   - Step 1～5 的真实修改均有重新验证结果；
   - R28-09 每项关闭或迁移到专项并保留链接；
@@ -543,7 +545,7 @@ bash .smoke-test-prod.sh
 ## 十、文档同步与关闭条件
 
 - **Step 0：** 仅创建 `Build27.md`。
-- **Step 0.5：** 只读核验 Issue14/Build26/AGENTS/TODOLIST 的步骤五关闭证据；不修改 Build26。
+- **Step 0.5：** 只读核验 Issue14/归档 Build26/AGENTS/TODOLIST 的步骤五关闭证据；不修改归档 Build26。
 - **Step 1～5：** 仅同步受实际修改影响的文件与本 Build27 记录。
 - **Step 6：** 统一回写 Issue14/TODOLIST/AGENTS；Build27 完成后按归档规则移入 `docs/reports/Build/Build27.md`。
 - **R28-09 关闭条件：**
@@ -563,4 +565,5 @@ bash .smoke-test-prod.sh
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.1 | 2026-09-13 | 完成进入 Build27 前置同步：Build26 归档路径、当前 HEAD、Step 0.5 前置核验状态已更新；统一 digest“不固定”和 MIT 许可证决策；修正 `docs/Reference`、Alpine 拼写及外链验收命令占位符；未启动 Step 1～6。 |
 | v1.0 | 2026-09-11 | 用户要求整合 R28-09 决策与操作内容并创建 Build27；记录 CA、digest、Alpine、GHCR、CI Node、LICENSE、Xray、前端清理、链接门禁、安全审查边界和发布边界；Build27 仅作为计划/决策载体，Step 1～6 未开始，等待步骤五关闭与逐 Step 授权。 |
