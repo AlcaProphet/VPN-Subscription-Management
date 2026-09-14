@@ -353,24 +353,28 @@ func (s *AdminService) SaveCaptcha(ctx context.Context, in CaptchaSettings) erro
 // --- SMTP 分区 ---
 
 type SMTPSettings struct {
-	Host     string   `json:"host"`
-	Port     string   `json:"port"`
-	User     string   `json:"user"`
-	Password string   `json:"password"` // GET 脱敏；PUT 空=不修改（敏感加密）
-	From     string   `json:"from"`
-	TLS      bool     `json:"tls"`
-	Scopes   []string `json:"scopes"` // password_reset/approval_notify/welcome
+	Host               string   `json:"host"`
+	Port               string   `json:"port"`
+	User               string   `json:"user"`
+	Password           string   `json:"password"` // GET 始终为空；PUT 空=保持原值
+	PasswordConfigured bool     `json:"password_configured"`
+	From               string   `json:"from"`
+	TLS                bool     `json:"tls"`
+	Security           string   `json:"security"` // implicit_tls/starttls/legacy；legacy 保留旧配置语义
+	Scopes             []string `json:"scopes"`   // password_reset/approval_notify/welcome
 }
 
 func (s *AdminService) GetSMTP(ctx context.Context) SMTPSettings {
 	return SMTPSettings{
-		Host:     mustStr(s.cfg.Get(ctx, "smtp_host")),
-		Port:     mustStr(s.cfg.Get(ctx, "smtp_port")),
-		User:     mustStr(s.cfg.Get(ctx, "smtp_user")),
-		Password: s.getMasked(ctx, "smtp_password"),
-		From:     mustStr(s.cfg.Get(ctx, "smtp_from")),
-		TLS:      s.cfg.GetBool(ctx, "smtp_tls", false), // 默认关闭（R10-04）
-		Scopes:   s.cfg.GetJSONStringSlice(ctx, "smtp_enabled_scopes"),
+		Host:               mustStr(s.cfg.Get(ctx, "smtp_host")),
+		Port:               mustStr(s.cfg.Get(ctx, "smtp_port")),
+		User:               mustStr(s.cfg.Get(ctx, "smtp_user")),
+		Password:           "",
+		PasswordConfigured: mustStr(s.cfg.Get(ctx, "smtp_password")) != "",
+		From:               mustStr(s.cfg.Get(ctx, "smtp_from")),
+		TLS:                s.cfg.GetBool(ctx, "smtp_tls", false), // 默认关闭（R10-04）
+		Security:           s.smtpSecurity(ctx),
+		Scopes:             s.cfg.GetJSONStringSlice(ctx, "smtp_enabled_scopes"),
 	}
 }
 
@@ -378,6 +382,20 @@ func (s *AdminService) GetSMTP(ctx context.Context) SMTPSettings {
 func (s *AdminService) SaveSMTP(ctx context.Context, in SMTPSettings) error {
 	if in.Host == "" {
 		return fmt.Errorf("%w: SMTP 服务器必填", ErrBadRequest)
+	}
+	if in.Password == "***" {
+		return fmt.Errorf("%w: 不能将脱敏占位符保存为 SMTP 密码，请留空保持原密码或输入新密码", ErrBadRequest)
+	}
+	security := in.Security
+	if security == "" { // 兼容旧版只提交 tls 的客户端
+		if in.TLS {
+			security = "implicit_tls"
+		} else {
+			security = "legacy"
+		}
+	}
+	if security != "implicit_tls" && security != "starttls" && security != "legacy" {
+		return fmt.Errorf("%w: SMTP 加密方式无效", ErrBadRequest)
 	}
 	for k, v := range map[string]string{
 		"smtp_host": in.Host,
@@ -395,7 +413,10 @@ func (s *AdminService) SaveSMTP(ctx context.Context, in SMTPSettings) error {
 	if err := s.setSensitive(ctx, "smtp_password", in.Password); err != nil {
 		return err
 	}
-	if err := s.cfg.Set(ctx, "smtp_tls", strconv.FormatBool(in.TLS)); err != nil {
+	if err := s.cfg.Set(ctx, "smtp_tls", strconv.FormatBool(security == "implicit_tls")); err != nil {
+		return err
+	}
+	if err := s.cfg.Set(ctx, "smtp_security", security); err != nil {
 		return err
 	}
 	scopes, err := json.Marshal(in.Scopes)
@@ -403,6 +424,17 @@ func (s *AdminService) SaveSMTP(ctx context.Context, in SMTPSettings) error {
 		return err
 	}
 	return s.cfg.Set(ctx, "smtp_enabled_scopes", string(scopes))
+}
+
+func (s *AdminService) smtpSecurity(ctx context.Context) string {
+	security := mustStr(s.cfg.Get(ctx, "smtp_security"))
+	if security != "" {
+		return security
+	}
+	if s.cfg.GetBool(ctx, "smtp_tls", false) {
+		return "implicit_tls"
+	}
+	return "legacy"
 }
 
 // --- 站点信息分区 ---

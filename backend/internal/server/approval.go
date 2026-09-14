@@ -4,6 +4,8 @@ package server
 import (
 	"errors"
 	"net/http"
+	stdmail "net/mail"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -90,17 +92,52 @@ func (h *ApprovalHandler) batchApprove(c *gin.Context) {
 	OK(c, gin.H{"succeeded": succeeded, "failed": failed})
 }
 
-// smtpTest 发送测试邮件到当前操作管理员邮箱，失败返回具体错误（供面板展示）
+// smtpTest 可将测试邮件发送至指定邮箱；留空时使用当前管理员邮箱。
 func (h *ApprovalHandler) smtpTest(c *gin.Context) {
-	userID := c.GetInt64(auth.CtxUserID)
-	u, err := h.users.GetByID(c.Request.Context(), userID)
-	if err != nil || u == nil || u.Email == "" {
-		Fail(c, http.StatusBadRequest, "当前账号无邮箱，无法发送测试邮件")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024)
+	var req struct {
+		To string `json:"to"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		var sizeErr *http.MaxBytesError
+		if errors.As(err, &sizeErr) {
+			Fail(c, http.StatusRequestEntityTooLarge, "测试邮件请求体过大")
+			return
+		}
+		Fail(c, http.StatusBadRequest, "测试收件人参数无效")
 		return
 	}
-	if err := h.mailSvc.SendTest(c.Request.Context(), u.Email); err != nil {
+	userID := c.GetInt64(auth.CtxUserID)
+	u, err := h.users.GetByID(c.Request.Context(), userID)
+	if err != nil || u == nil {
+		Fail(c, http.StatusBadRequest, "当前管理员账号不可用")
+		return
+	}
+	to, source, err := resolveSMTPTestRecipient(req.To, u.Email)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.mailSvc.SendTest(c.Request.Context(), to); err != nil {
 		Fail(c, http.StatusBadRequest, "发送失败："+err.Error()) // 具体错误供面板展示
 		return
 	}
-	OK(c, gin.H{"message": "测试邮件已发送"})
+	OK(c, gin.H{"message": "测试邮件已发送", "to": to, "recipient_source": source})
+}
+
+func resolveSMTPTestRecipient(input, adminEmail string) (string, string, error) {
+	to := strings.TrimSpace(input)
+	source := "specified"
+	if to == "" {
+		to = adminEmail
+		source = "default"
+	}
+	if to == "" {
+		return "", "", errors.New("当前账号无邮箱，请填写测试收件人")
+	}
+	parsed, err := stdmail.ParseAddress(to)
+	if err != nil || parsed.Address != to || strings.ContainsAny(to, "\r\n,;") {
+		return "", "", errors.New("请输入单个有效的收件邮箱")
+	}
+	return to, source, nil
 }

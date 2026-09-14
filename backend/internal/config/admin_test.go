@@ -71,17 +71,23 @@ func TestSensitiveMasked(t *testing.T) {
 	if raw == "plain-pass" {
 		t.Error("smtp_password 应以密文落库")
 	}
-	// GET 脱敏回显
+	// GET 只回显配置状态，输入值始终为空
 	got := svc.GetSMTP(ctx)
-	if got.Password != "***" || got.Host != "smtp.example.com" {
+	if got.Password != "" || !got.PasswordConfigured || got.Host != "smtp.example.com" {
 		t.Errorf("回显应脱敏: %+v", got)
 	}
-	// PUT 空串不修改（仍为 ***）
-	if err := svc.SaveSMTP(ctx, SMTPSettings{Host: "smtp.example.com", Password: ""}); err != nil {
+	// PUT 空串不修改密码或加密方式
+	if err := svc.SaveSMTP(ctx, SMTPSettings{Host: "smtp.example.com", Password: "", Security: got.Security}); err != nil {
 		t.Fatalf("保存失败: %v", err)
 	}
-	if got := svc.GetSMTP(ctx); got.Password != "***" {
+	if got := svc.GetSMTP(ctx); got.Password != "" || !got.PasswordConfigured || got.Security != "implicit_tls" {
 		t.Errorf("空串不应修改密码: %+v", got)
+	}
+	if password, err := svc.cfg.Get(ctx, "smtp_password"); err != nil || password != "plain-pass" {
+		t.Errorf("已保存密码被改写: %q, %v", password, err)
+	}
+	if err := svc.SaveSMTP(ctx, SMTPSettings{Host: "smtp.example.com", Password: "***", Security: "implicit_tls"}); !errors.Is(err, ErrBadRequest) {
+		t.Errorf("占位符应被拒绝: %v", err)
 	}
 }
 

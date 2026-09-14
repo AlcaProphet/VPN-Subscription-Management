@@ -37,8 +37,10 @@ export interface SMTPSettings {
   port: string
   user: string
   password: string
+  password_configured: boolean
   from: string
   tls: boolean
+  security: 'implicit_tls' | 'starttls' | 'legacy'
   scopes: string[]
 }
 
@@ -86,7 +88,7 @@ export const getCaptcha = () => http.get<any, CaptchaSettings>('/admin/settings/
 export const saveCaptcha = (data: CaptchaSettings) => http.put('/admin/settings/captcha', data)
 export const getSMTP = () => http.get<any, SMTPSettings>('/admin/settings/smtp')
 export const saveSMTP = (data: SMTPSettings) => http.put('/admin/settings/smtp', data)
-export const testSMTP = () => http.post('/admin/settings/smtp/test')
+export const testSMTP = (to: string) => http.post<any, { message: string; to: string; recipient_source: string }>('/admin/settings/smtp/test', { to }, { timeout: 40000 })
 export const getSite = () => http.get<any, SiteInfo>('/admin/settings/site')
 export const saveSite = (form: FormData) => http.put<any, SiteInfo>('/admin/settings/site', form)
 export const deleteSiteIcon = () => http.delete('/admin/settings/site/icon')

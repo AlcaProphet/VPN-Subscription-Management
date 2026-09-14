@@ -1,7 +1,10 @@
 package mail
 
 import (
+	"bufio"
 	"context"
+	"net"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -9,6 +12,53 @@ import (
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
 )
+
+// TestStartTLSRequired 未宣告 STARTTLS 的服务器不能继续进入认证或发送阶段。
+func TestStartTLSRequired(t *testing.T) {
+	st, svc := newTestMail(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	done := make(chan string, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			done <- err.Error()
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		_, _ = conn.Write([]byte("220 mock SMTP\r\n"))
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			done <- err.Error()
+			return
+		}
+		if !strings.HasPrefix(line, "EHLO ") {
+			done <- line
+			return
+		}
+		_, _ = conn.Write([]byte("250 mock\r\n"))
+		line, _ = reader.ReadString('\n')
+		done <- line
+	}()
+	ctx := context.Background()
+	cfg := config.NewService(st, log.New("error", "console"))
+	host, port, _ := net.SplitHostPort(listener.Addr().String())
+	for k, v := range map[string]string{KeyHost: host, KeyPort: port, KeyUser: "sender@example.com", KeyPassword: "secret", KeySecurity: "starttls"} {
+		if err := cfg.Set(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.SendTest(ctx, "recipient@example.com"); err == nil || !strings.Contains(err.Error(), "未提供 STARTTLS") {
+		t.Fatalf("应拒绝未升级连接: %v", err)
+	}
+	if line := <-done; line != "" {
+		t.Fatalf("拒绝后仍发送了 SMTP 命令: %q", line)
+	}
+}
 
 // newTestMail 创建临时库 + 邮件服务（不连真实 SMTP）
 func newTestMail(t *testing.T) (*store.Store, *Service) {

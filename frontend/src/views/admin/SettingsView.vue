@@ -33,7 +33,7 @@ const isProd = ref(system.status?.app_mode === 'prod')
 // --- 六大设置分组：桌面左侧导航，手机顶部 Select。 ---
 const settingGroups = [
   { key: 'identity', title: '身份与访问', description: 'OIDC、本地认证与验证码' },
-  { key: 'notifications', title: '通知', description: 'SMTP 邮件通知' },
+  { key: 'notifications', title: '通知', description: '邮件发送设置与测试' },
   { key: 'content', title: '外观与内容', description: '站点信息、公告与页脚' },
   { key: 'runtime', title: '运行与安全', description: '运行模式、高级模式、限流与日志' },
   { key: 'data', title: '数据管理', description: '导入导出与备份' },
@@ -237,9 +237,15 @@ async function doSaveCaptcha() {
 }
 
 // --- SMTP ---
-const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', from: '', tls: false, scopes: [] })
+const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', password_configured: false, from: '', tls: false, security: 'legacy', scopes: [] })
 const smtpSaving = ref(false)
 const smtpTesting = ref(false)
+const smtpTestTo = ref('')
+const smtpSecurityOptions = [
+  { label: '连接即 TLS（如腾讯云 465 / 587）', value: 'implicit_tls' },
+  { label: '必须 STARTTLS（常见 587）', value: 'starttls' },
+  { label: '旧配置：自动尝试 STARTTLS', value: 'legacy' },
+]
 const scopeOptions = [
   { label: '密码重置邮件', value: 'password_reset' },
   { label: '审批结果通知', value: 'approval_notify' },
@@ -255,7 +261,7 @@ async function loadSMTP() {
 async function doSaveSMTP() {
   smtpSaving.value = true
   try {
-    await saveSMTP({ ...smtp })
+    await saveSMTP({ ...smtp, tls: smtp.security === 'implicit_tls' })
     Notify.success('SMTP 配置已保存')
     await reloadClean('smtp', loadSMTP)
   } catch (err) {
@@ -267,8 +273,8 @@ async function doSaveSMTP() {
 async function doTestSMTP() {
   smtpTesting.value = true
   try {
-    await testSMTP()
-    Notify.success('测试邮件已发送，请查收')
+    const result = await testSMTP(smtpTestTo.value.trim())
+    Notify.success(`测试邮件已发送至 ${result.to}，请查收`)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -827,40 +833,39 @@ onMounted(async () => {
         </Card>
 
         <!-- SMTP -->
-        <Card v-show="isGroupVisible('notifications')" id="smtp" title="SMTP" size="small">
-          <div class="space-y-3 max-w-xl">
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">服务器</span>
-              <Input v-model:value="smtp.host" placeholder="smtp.example.com" />
+        <Card v-show="isGroupVisible('notifications')" id="smtp" title="邮件发送 · 通用 SMTP" size="small">
+          <div class="max-w-2xl space-y-5">
+            <p class="text-sm text-text-secondary">填写邮件服务商提供的 SMTP 参数。测试邮件使用已保存的配置；修改后请先保存。</p>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="space-y-1 text-sm"><span>SMTP 服务器</span><Input v-model:value="smtp.host" placeholder="smtp.example.com" /></label>
+              <label class="space-y-1 text-sm"><span>端口</span><Input v-model:value="smtp.port" placeholder="例如 465 或 587" /></label>
+              <label class="space-y-1 text-sm"><span>登录账号</span><Input v-model:value="smtp.user" placeholder="服务商提供的 SMTP 账号" /></label>
+              <label class="space-y-1 text-sm"><span>发件邮箱</span><Input v-model:value="smtp.from" placeholder="留空时使用登录账号" /></label>
             </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">端口</span>
-              <Input v-model:value="smtp.port" placeholder="587" />
+            <div class="space-y-1 text-sm">
+              <span>SMTP 专用密码 <Tag v-if="smtp.password_configured" color="success">已配置</Tag><Tag v-else>未配置</Tag></span>
+              <Input.Password v-model:value="smtp.password" autocomplete="new-password" placeholder="留空保持原密码；输入新密码后保存" />
+              <p class="text-xs text-text-secondary">这里不会回显已保存密码。若密码曾被占位符覆盖，请重新填写服务商提供的专用密码。</p>
             </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">账号</span>
-              <Input v-model:value="smtp.user" placeholder="登录账号" />
+            <div class="space-y-1 text-sm">
+              <span>连接加密方式</span>
+              <AppSelect v-model:value="smtp.security" :options="smtpSecurityOptions" class="w-full" />
+              <p class="text-xs text-text-secondary">按服务商要求选择，不能只凭端口判断。腾讯云本次实测 465 与 587 均需“连接即 TLS”；“必须 STARTTLS”会在服务器不支持升级时停止发送。旧配置选项保留原行为。</p>
             </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">密码</span>
-              <Input.Password v-model:value="smtp.password" placeholder="已配置时留空不修改" />
+            <div class="space-y-1 text-sm">
+              <span>启用业务邮件</span>
+              <Checkbox.Group v-model:value="smtp.scopes" :options="scopeOptions" class="flex flex-wrap gap-2" />
+              <p class="text-xs text-text-secondary">测试邮件不受此范围限制；密码重置、审批通知与欢迎邮件分别按勾选项发送。</p>
             </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">发件人</span>
-              <Input v-model:value="smtp.from" placeholder="缺省取账号" />
+            <Button type="primary" :loading="smtpSaving" @click="doSaveSMTP">保存 SMTP 设置</Button>
+            <div class="border-t border-border pt-4 space-y-2">
+              <div class="text-sm font-medium">发送测试邮件</div>
+              <p class="text-xs text-text-secondary">留空发送至当前管理员邮箱{{ auth.user?.email ? `（${auth.user.email}）` : '' }}；填写后只发送至指定地址。发送成功仅表示服务商接受该邮件，请另行检查收件箱。</p>
+              <div class="flex flex-col gap-2 sm:flex-row">
+                <Input v-model:value="smtpTestTo" type="email" placeholder="测试收件邮箱（可留空）" aria-label="测试收件邮箱" />
+                <Button :loading="smtpTesting" class="sm:flex-none" @click="doTestSMTP">发送测试邮件</Button>
+              </div>
             </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">TLS</span>
-              <Switch v-model:checked="smtp.tls" />
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="w-24 text-sm">启用范围</span>
-              <Checkbox.Group v-model:value="smtp.scopes" :options="scopeOptions" />
-            </div>
-            <Space>
-              <Button type="primary" :loading="smtpSaving" @click="doSaveSMTP">保存</Button>
-              <Button :loading="smtpTesting" @click="doTestSMTP">发送测试邮件</Button>
-            </Space>
           </div>
         </Card>
 

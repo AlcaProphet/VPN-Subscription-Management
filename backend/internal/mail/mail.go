@@ -12,6 +12,7 @@ import (
 	"net/smtp"
 	"slices"
 	"strings"
+	"time"
 
 	"vpn-sub/internal/config"
 )
@@ -24,6 +25,7 @@ const (
 	KeyPassword = "smtp_password" // 敏感加密
 	KeyFrom     = "smtp_from"
 	KeyTLS      = "smtp_tls"            // "true"/"false"
+	KeySecurity = "smtp_security"       // implicit_tls/starttls/legacy
 	KeyScopes   = "smtp_enabled_scopes" // JSON 数组：password_reset/approval_notify/welcome，默认全不启用
 )
 
@@ -52,7 +54,7 @@ func (s *Service) Configured(ctx context.Context) bool {
 	return host != "" && user != "" && pass != ""
 }
 
-// Send SMTP 发送（TLS 直连 / STARTTLS 升级 / 明文三路径）；未配置或发送失败返回 error（不 panic、不阻断调用方）
+// Send SMTP 发送；未配置或发送失败返回 error（不阻断调用方）
 func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 	if !s.Configured(ctx) {
 		return errors.New("SMTP 未配置")
@@ -68,18 +70,34 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 	if from == "" {
 		from = user // 发件人缺省取账号
 	}
-	useTLS := s.cfg.GetBool(ctx, KeyTLS, true)
+	security := s.cfg.GetOr(ctx, KeySecurity)
+	if security == "" {
+		if s.cfg.GetBool(ctx, KeyTLS, false) {
+			security = "implicit_tls"
+		} else {
+			security = "legacy"
+		}
+	}
 	addr := net.JoinHostPort(host, port)
+	// 包括 TCP、TLS、SMTP 会话与 DATA 的总期限；取消请求时关闭连接以解除阻塞读取。
+	sendCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	dialer := &net.Dialer{}
 
 	var conn net.Conn
 	var err error
-	if useTLS {
-		conn, err = tls.Dial("tcp", addr, &tls.Config{ServerName: host})
+	if security == "implicit_tls" {
+		conn, err = (&tls.Dialer{NetDialer: dialer, Config: &tls.Config{ServerName: host}}).DialContext(sendCtx, "tcp", addr)
 	} else {
-		conn, err = net.Dial("tcp", addr)
+		conn, err = dialer.DialContext(sendCtx, "tcp", addr)
 	}
 	if err != nil {
 		return fmt.Errorf("连接 SMTP 服务器失败: %w", err)
+	}
+	stopClose := context.AfterFunc(sendCtx, func() { _ = conn.Close() })
+	defer stopClose()
+	if deadline, ok := sendCtx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
 	}
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
@@ -87,12 +105,14 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 		return fmt.Errorf("初始化 SMTP 会话失败: %w", err)
 	}
 	defer client.Close()
-	// 明文路径尝试 STARTTLS 升级（服务器支持时）
-	if !useTLS {
+	// legacy 保留旧配置的机会性升级；starttls 必须升级成功。
+	if security != "implicit_tls" {
 		if ok, _ := client.Extension("STARTTLS"); ok {
 			if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
 				return fmt.Errorf("STARTTLS 升级失败: %w", err)
 			}
+		} else if security == "starttls" {
+			return errors.New("SMTP 服务器未提供 STARTTLS，已停止发送")
 		}
 	}
 	if user != "" {
