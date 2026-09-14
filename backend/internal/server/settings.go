@@ -117,7 +117,7 @@ func (h *SettingsHandler) clearOidc(c *gin.Context) {
 	OK(c, nil)
 }
 
-// testOidc 测试连接（复用 Build1 Step 6 TestConnection，加管理员校验）
+// testOidc 测试连接（管理员面板允许在参数一致时复用已保存 Secret；Setup 匿名路径不启用回退）。
 func (h *SettingsHandler) testOidc(c *gin.Context) {
 	var req struct {
 		ProviderType string `json:"provider_type"`
@@ -131,7 +131,7 @@ func (h *SettingsHandler) testOidc(c *gin.Context) {
 		return
 	}
 	p := oidc.Params{BaseURL: req.BaseURL, Realm: req.Realm, ClientID: req.ClientID, ClientSecret: req.ClientSecret}
-	res, err := h.oidcSvc.TestConnection(c.Request.Context(), req.ProviderType, p)
+	res, err := h.oidcSvc.TestConnectionWithSavedSecret(c.Request.Context(), req.ProviderType, p)
 	if err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return

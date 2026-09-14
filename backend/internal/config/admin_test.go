@@ -217,9 +217,12 @@ func TestSMTPAuthValidation(t *testing.T) {
 
 // TestAuthDeadlock 死锁防护：本地登录关 + OIDC 不可用 → 三入口均 ErrAuthDeadlock
 func TestAuthDeadlock(t *testing.T) {
-	mock := &mockOidcOps{configured: true} // 先允许保存本地登录关
+	mock := &mockOidcOps{configured: true, secret: "cipher"} // 先允许保存本地登录关
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
 		t.Fatalf("OIDC 可用时保存本地登录关应成功: %v", err)
 	}
@@ -232,6 +235,79 @@ func TestAuthDeadlock(t *testing.T) {
 	}
 	if err := svc.ClearOidc(ctx); !errors.Is(err, ErrAuthDeadlock) {
 		t.Errorf("ClearOidc 应拒绝: %v", err)
+	}
+}
+
+// TestSaveLocalAuthRejectsDamagedOidcSecret 损坏的历史占位符不能被 oidc_configured 标记掩盖；
+// 本地登录关闭必须被拒绝，直至管理员重新填写可用 Secret。
+func TestSaveLocalAuthRejectsDamagedOidcSecret(t *testing.T) {
+	mock := &mockOidcOps{configured: true, secret: MaskedSecret}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("损坏 Secret 时关闭本地登录应返回 ErrAuthDeadlock: %v", err)
+	}
+	mock.secret = "fresh-secret" // 模拟管理员重填后恢复
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
+		t.Fatalf("重填 Secret 后应允许关闭本地登录: %v", err)
+	}
+}
+
+// TestSaveLocalAuthRejectsEmptyOidcSecret 空 Secret 视为未配置，不能作为关闭本地登录的依据。
+func TestSaveLocalAuthRejectsEmptyOidcSecret(t *testing.T) {
+	mock := &mockOidcOps{configured: true, secret: ""}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("空 Secret 时关闭本地登录应返回 ErrAuthDeadlock: %v", err)
+	}
+	mock.secret = "fresh-secret" // 模拟管理员填写后恢复
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
+		t.Fatalf("填写 Secret 后应允许关闭本地登录: %v", err)
+	}
+}
+
+// TestSaveLocalAuthMockOnlyAvailableInDev mock OIDC 仅在 Dev 模式有登录能力，Prod 下不得关闭本地登录。
+func TestSaveLocalAuthMockOnlyAvailableInDev(t *testing.T) {
+	mock := &mockOidcOps{configured: true}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyAppMode, "prod"); err != nil {
+		t.Fatalf("设置运行模式失败: %v", err)
+	}
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("Prod + mock 关闭本地登录应返回 ErrAuthDeadlock: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyAppMode, "dev"); err != nil {
+		t.Fatalf("设置运行模式失败: %v", err)
+	}
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
+		t.Fatalf("Dev + mock 应允许关闭本地登录: %v", err)
+	}
+}
+
+// TestSaveLocalAuthMockMissingParamsRejected Dev + mock 但参数结构缺失时仍视为不可用，防止后续登录入口失效。
+func TestSaveLocalAuthMockMissingParamsRejected(t *testing.T) {
+	mock := &mockOidcOps{configured: true, params: map[string]mockOidcParams{}}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyAppMode, "dev"); err != nil {
+		t.Fatalf("设置运行模式失败: %v", err)
+	}
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("Dev + mock 缺少参数时应返回 ErrAuthDeadlock: %v", err)
 	}
 }
 
@@ -529,6 +605,9 @@ func TestOidcUsableWithStoredSecret(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: "cipher"}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
 	// 先保存本地登录关（OIDC 可用时允许）
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
 		t.Fatalf("保存本地登录关失败: %v", err)

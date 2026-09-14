@@ -154,6 +154,31 @@ func (s *AdminService) oidcUsable(ctx context.Context, in OidcSettings) bool {
 	return err == nil && SecretUsable(secret)
 }
 
+// oidcAvailable 判定当前生效的 OIDC 是否可作为登录方式（防认证死锁第二层校验）：
+// 已标记配置、当前提供商参数可读取、base_url/client_id 非空且 Secret 可用；
+// mock 仅 Dev 模式可用；空 Secret 视为未配置所需 Secret，不能作为关闭本地登录的依据。
+func (s *AdminService) oidcAvailable(ctx context.Context) bool {
+	if !s.oidcOps.IsConfigured(ctx) {
+		return false
+	}
+	providerType := s.cfg.GetOr(ctx, oidcKeyProviderType)
+	if providerType == "" {
+		return false
+	}
+	if providerType == "mock" { // 模拟 OIDC 仅 Dev 模式提供登录能力
+		if s.cfg.GetOr(ctx, KeyAppMode) != "dev" {
+			return false
+		}
+		_, _, _, _, err := s.oidcOps.LoadParams(ctx, providerType)
+		return err == nil
+	}
+	baseURL, _, clientID, secret, err := s.oidcOps.LoadParams(ctx, providerType)
+	if err != nil || baseURL == "" || clientID == "" {
+		return false
+	}
+	return SecretUsable(secret)
+}
+
 // GetOidc 回显当前 OIDC 配置（Secret 输入值始终为空，另以 client_secret_configured 表示已配置）。
 func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 	out := OidcSettings{}
@@ -293,9 +318,10 @@ func (s *AdminService) GetLocalAuth(ctx context.Context) LocalAuthSettings {
 	}
 }
 
-// SaveLocalAuth 三开关；本地登录关且 OIDC 不可用 → 禁止保存 + 显著警告（防认证死锁）
+// SaveLocalAuth 三开关；本地登录关且 OIDC 不可用 → 禁止保存 + 显著警告（防认证死锁）。
+// 可用性使用 oidcAvailable 校验实际参数与 Secret 状态，不能只信 oidc_configured 标记。
 func (s *AdminService) SaveLocalAuth(ctx context.Context, in LocalAuthSettings) error {
-	if !in.AllowLocalLogin && !s.oidcOps.IsConfigured(ctx) {
+	if !in.AllowLocalLogin && !s.oidcAvailable(ctx) {
 		return ErrAuthDeadlock
 	}
 	for k, v := range map[string]bool{

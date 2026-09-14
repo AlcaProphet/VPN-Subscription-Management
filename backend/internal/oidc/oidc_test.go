@@ -365,19 +365,22 @@ func TestSaveParamsEmptyPreservesCipher(t *testing.T) {
 	}
 }
 
-// TestTestConnectionUsesSavedSecret 测试连接空 Secret 时回退到库内已保存明文；无已保存 Secret 时给出警告。
-func TestTestConnectionUsesSavedSecret(t *testing.T) {
+// TestTestConnectionSavedSecretScopes 测试连接的空 Secret 回退边界：
+// 仅管理员面板且 base_url/realm/client_id 与已保存配置一致时使用库内明文；默认/Setup 与任一字段不一致均不回退。
+func TestTestConnectionSavedSecretScopes(t *testing.T) {
 	_, svc, _ := newTestOidcService(t)
 	var gotSecret string
 	var ts *httptest.Server
 	ts = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		if strings.HasSuffix(r.URL.Path, "/.well-known/openid-configuration") {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(Discovery{
 				AuthorizationEndpoint: ts.URL + "/authorize",
 				TokenEndpoint:         ts.URL + "/token",
 			})
+			return
+		}
+		switch r.URL.Path {
 		case "/token":
 			if err := r.ParseForm(); err != nil {
 				http.Error(w, "bad form", http.StatusBadRequest)
@@ -392,39 +395,67 @@ func TestTestConnectionUsesSavedSecret(t *testing.T) {
 	}))
 	defer ts.Close()
 	svc.httpCli = ts.Client()
-	if err := svc.SaveParams(ctx, "generic", Params{
-		BaseURL: ts.URL, ClientID: "c", ClientSecret: "saved-secret",
+	if err := svc.SaveParams(ctx, "keycloak", Params{
+		BaseURL: ts.URL, Realm: "realm-a", ClientID: "c", ClientSecret: "saved-secret",
 	}); err != nil {
-		t.Fatalf("保存 generic 参数失败: %v", err)
+		t.Fatalf("保存 keycloak 参数失败: %v", err)
 	}
-	res, err := svc.TestConnection(ctx, "generic", Params{BaseURL: ts.URL, ClientID: "c"})
-	if err != nil {
-		t.Fatalf("TestConnection 失败: %v", err)
-	}
-	if res == nil || !res.OK {
-		t.Fatalf("空 Secret 应回退库内明文并通过: %+v", res)
-	}
-	if gotSecret != "saved-secret" {
-		t.Fatalf("token 端点应收到解密后的明文 Secret，实际 %q", gotSecret)
-	}
-	// 无已保存 Secret 的其他提供商：仍可测发现文档，但必须提示未验证凭据
-	res2, err := svc.TestConnection(ctx, "auth0", Params{BaseURL: ts.URL, ClientID: "c2"})
-	if err != nil {
-		t.Fatalf("TestConnection（无已存 Secret）失败: %v", err)
-	}
-	if res2 == nil || !res2.OK {
-		t.Fatalf("无 Secret 时 discovery 通过应返回 OK: %+v", res2)
-	}
-	foundWarning := false
-	for _, w := range res2.Warnings {
-		if strings.Contains(w, "未执行凭据校验") {
-			foundWarning = true
-			break
+	reset := func() { gotSecret = "" }
+	assertNoFallback := func(name string, res *TestResult, err error) {
+		t.Helper()
+		if err != nil || res == nil || !res.OK {
+			t.Fatalf("%s discovery 应完成并返回 OK: %+v %v", name, res, err)
+		}
+		if gotSecret != "" {
+			t.Fatalf("%s 不应回退已存 Secret，token 端点收到 %q", name, gotSecret)
+		}
+		if !hasWarning(res, "未执行凭据校验") {
+			t.Fatalf("%s 应提示未执行凭据校验: %+v", name, res)
 		}
 	}
-	if !foundWarning {
-		t.Fatalf("无 Secret 时应提示未执行凭据校验: %+v", res2)
+
+	// 默认 TestConnection（Setup/草稿路径）不得回退已存 Secret
+	reset()
+	res, err := svc.TestConnection(ctx, "keycloak", Params{BaseURL: ts.URL, Realm: "realm-a", ClientID: "c"})
+	assertNoFallback("默认 TestConnection", res, err)
+
+	// 管理面板回退：ClientID 不一致时不回退
+	reset()
+	res2, err := svc.TestConnectionWithSavedSecret(ctx, "keycloak", Params{BaseURL: ts.URL, Realm: "realm-a", ClientID: "other"})
+	assertNoFallback("ClientID 不一致", res2, err)
+
+	// 管理面板回退：Realm 不一致时不回退
+	reset()
+	res3, err := svc.TestConnectionWithSavedSecret(ctx, "keycloak", Params{BaseURL: ts.URL, Realm: "realm-b", ClientID: "c"})
+	assertNoFallback("Realm 不一致", res3, err)
+
+	// 管理面板回退：BaseURL 不一致时不回退
+	reset()
+	res4, err := svc.TestConnectionWithSavedSecret(ctx, "keycloak", Params{BaseURL: ts.URL + "/other", Realm: "realm-a", ClientID: "c"})
+	assertNoFallback("BaseURL 不一致", res4, err)
+
+	// 管理面板回退且三项一致：使用已存明文
+	reset()
+	res5, err := svc.TestConnectionWithSavedSecret(ctx, "keycloak", Params{BaseURL: ts.URL, Realm: "realm-a", ClientID: "c"})
+	if err != nil || res5 == nil || !res5.OK {
+		t.Fatalf("参数一致时应回退并通过: %+v %v", res5, err)
 	}
+	if gotSecret != "saved-secret" {
+		t.Fatalf("参数一致时 token 端点应收到解密明文，实际 %q", gotSecret)
+	}
+}
+
+// hasWarning 判定测试结果是否包含指定警告片段。
+func hasWarning(res *TestResult, want string) bool {
+	if res == nil {
+		return false
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(w, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestTestConnectionRejectsMaskedSecret 测试接口同样拒绝占位符，不发起凭据校验。
@@ -436,6 +467,60 @@ func TestTestConnectionRejectsMaskedSecret(t *testing.T) {
 	}
 	if res == nil || res.OK || !strings.Contains(res.Message, "脱敏占位符") {
 		t.Fatalf("占位符应返回明确失败结果: %+v", res)
+	}
+}
+
+// TestCurrentParamsRejectsDamagedPlaceholder 真实 OIDC 登录链路（StartFlow/Exchange 共用 currentParams）
+// 必须在进入授权或换 token 前拒绝解密后为脱敏占位符的 Secret。
+func TestCurrentParamsRejectsDamagedPlaceholder(t *testing.T) {
+	st, svc, _ := newTestOidcService(t)
+	writeMaskedOidcParams(t, st, svc, "generic", "https://idp.example.com", "", "c")
+	if _, err := svc.currentParams(ctx); err == nil || !strings.Contains(err.Error(), "重新输入") {
+		t.Fatalf("损坏占位符应被 currentParams 拒绝并提示重填: %v", err)
+	}
+	if _, _, err := svc.StartFlow(ctx, "login", 0); err == nil || !strings.Contains(err.Error(), "重新输入") {
+		t.Fatalf("损坏占位符应在 StartFlow 阶段被拒绝: %v", err)
+	}
+	rec := &StateRecord{CodeVerifier: "dummy"}
+	if _, err := svc.Exchange(ctx, rec, "code"); err == nil || !strings.Contains(err.Error(), "重新输入") {
+		t.Fatalf("损坏占位符应在 Exchange 阶段被拒绝: %v", err)
+	}
+}
+
+// TestTestConnectionStoredMaskedSecret 管理员面板回退命中已存密文时，
+// 解密结果为脱敏占位符必须直接返回失败，不能把 "***" 送进 token 请求。
+func TestTestConnectionStoredMaskedSecret(t *testing.T) {
+	st, svc, _ := newTestOidcService(t)
+	writeMaskedOidcParams(t, st, svc, "generic", "https://idp.example.com", "", "c")
+	res, err := svc.TestConnectionWithSavedSecret(ctx, "generic", Params{BaseURL: "https://idp.example.com", ClientID: "c"})
+	if err != nil {
+		t.Fatalf("TestConnectionWithSavedSecret 不应返回错误: %v", err)
+	}
+	if res == nil || res.OK || !strings.Contains(res.Message, "脱敏占位符") {
+		t.Fatalf("已存脱敏占位符应返回明确失败结果: %+v", res)
+	}
+}
+
+// writeMaskedOidcParams 写入指定提供商参数，client_secret 为加密后的脱敏占位符（测试辅助）。
+func writeMaskedOidcParams(t *testing.T, st *store.Store, svc *Service, providerType, baseURL, realm, clientID string) {
+	t.Helper()
+	cipher, err := svc.cfg.EncryptSensitive(ctx, config.MaskedSecret)
+	if err != nil {
+		t.Fatalf("加密占位符失败: %v", err)
+	}
+	raw, err := json.Marshal(Params{BaseURL: baseURL, Realm: realm, ClientID: clientID, ClientSecret: cipher})
+	if err != nil {
+		t.Fatalf("序列化参数失败: %v", err)
+	}
+	if _, err := st.DB().Exec(
+		`INSERT INTO system_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		"oidc_params_"+providerType, string(raw)); err != nil {
+		t.Fatalf("写入 %s 参数失败: %v", providerType, err)
+	}
+	if _, err := st.DB().Exec(
+		`INSERT INTO system_config(key,value) VALUES('oidc_provider_type',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		providerType); err != nil {
+		t.Fatalf("设置提供商失败: %v", err)
 	}
 }
 

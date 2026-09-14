@@ -119,7 +119,7 @@ func (s *Service) IsConfigured(ctx context.Context) bool {
 	return s.cfg.GetBool(ctx, KeyConfigured, false)
 }
 
-// currentParams 读取当前提供商参数
+// currentParams 读取当前提供商参数；损坏的脱敏占位符不得进入授权/换 token 链路。
 func (s *Service) currentParams(ctx context.Context) (*Params, error) {
 	providerType, err := s.cfg.Get(ctx, KeyProviderType)
 	if err != nil {
@@ -128,7 +128,14 @@ func (s *Service) currentParams(ctx context.Context) (*Params, error) {
 	if providerType == "" {
 		return nil, errors.New("OIDC 未配置")
 	}
-	return s.loadParams(ctx, providerType)
+	p, err := s.loadParams(ctx, providerType)
+	if err != nil {
+		return nil, err
+	}
+	if p.ClientSecret == config.MaskedSecret {
+		return nil, errors.New("OIDC Client Secret 已被脱敏占位符覆盖，请管理员在设置页重新输入")
+	}
+	return p, nil
 }
 
 // LoadParams 读取指定提供商参数（client_secret 自动解密为明文；供面板回显/可用性判定/测试连接，Build3 Step 3）

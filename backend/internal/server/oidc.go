@@ -209,7 +209,8 @@ func (h *OidcHandler) bind(c *gin.Context) {
 	OK(c, gin.H{"auth_url": authURL})
 }
 
-// test 测试连接（不落库）；入参 provider_type + 参数（Setup 与面板共用）
+// test 测试连接（不落库）；入参 provider_type + 参数。
+// Setup 匿名入口只测试显式表单，不回退库内已保存 Secret（管理员面板测试见 SettingsHandler.testOidc）。
 func (h *OidcHandler) test(c *gin.Context) {
 	var req struct {
 		ProviderType string `json:"provider_type" binding:"required"`
