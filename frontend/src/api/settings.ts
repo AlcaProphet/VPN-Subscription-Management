@@ -39,8 +39,9 @@ export interface SMTPSettings {
   password: string
   password_configured: boolean
   from: string
-  tls: boolean
-  security: 'implicit_tls' | 'starttls' | 'legacy'
+  security: 'implicit_tls' | 'starttls' | 'plain' | ''
+  auth_required: boolean
+  configured: boolean
   scopes: string[]
 }
 

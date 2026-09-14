@@ -3,6 +3,7 @@ package mail
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -12,6 +13,16 @@ import (
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
 )
+
+func TestSendErrorRedactsServerReply(t *testing.T) {
+	err := &sendError{stage: "认证", err: errors.New("535 password=secret@example.com")}
+	if got := err.Error(); got != "SMTP 认证失败" {
+		t.Fatalf("服务商响应不应直接回显: %q", got)
+	}
+	if !strings.Contains(err.Unwrap().Error(), "535") {
+		t.Fatal("内部诊断原因应保留")
+	}
+}
 
 // TestStartTLSRequired 未宣告 STARTTLS 的服务器不能继续进入认证或发送阶段。
 func TestStartTLSRequired(t *testing.T) {
@@ -47,7 +58,7 @@ func TestStartTLSRequired(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.NewService(st, log.New("error", "console"))
 	host, port, _ := net.SplitHostPort(listener.Addr().String())
-	for k, v := range map[string]string{KeyHost: host, KeyPort: port, KeyUser: "sender@example.com", KeyPassword: "secret", KeySecurity: "starttls"} {
+	for k, v := range map[string]string{KeyHost: host, KeyPort: port, KeyUser: "sender@example.com", KeyPassword: "secret", KeyFrom: "sender@example.com", KeySecurity: "starttls", KeyAuth: "true"} {
 		if err := cfg.Set(ctx, k, v); err != nil {
 			t.Fatal(err)
 		}
@@ -57,6 +68,75 @@ func TestStartTLSRequired(t *testing.T) {
 	}
 	if line := <-done; line != "" {
 		t.Fatalf("拒绝后仍发送了 SMTP 命令: %q", line)
+	}
+}
+
+// TestPlainLoopbackRelay 即使本地中继宣告 STARTTLS，也不发送 AUTH 或自动升级。
+func TestPlainLoopbackRelay(t *testing.T) {
+	st, svc := newTestMail(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	done := make(chan string, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			done <- err.Error()
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		_, _ = conn.Write([]byte("220 mock SMTP\r\n"))
+		var commands strings.Builder
+		inData := false
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				done <- err.Error()
+				return
+			}
+			commands.WriteString(line)
+			if inData {
+				if line == ".\r\n" {
+					inData = false
+					_, _ = conn.Write([]byte("250 queued\r\n"))
+				}
+				continue
+			}
+			switch {
+			case strings.HasPrefix(line, "EHLO "):
+				_, _ = conn.Write([]byte("250-mock\r\n250-STARTTLS\r\n250 AUTH PLAIN\r\n"))
+			case strings.HasPrefix(line, "MAIL FROM:"), strings.HasPrefix(line, "RCPT TO:"):
+				_, _ = conn.Write([]byte("250 ok\r\n"))
+			case line == "DATA\r\n":
+				inData = true
+				_, _ = conn.Write([]byte("354 send\r\n"))
+			case line == "QUIT\r\n":
+				_, _ = conn.Write([]byte("221 bye\r\n"))
+				done <- commands.String()
+				return
+			default:
+				done <- "unexpected: " + line
+				return
+			}
+		}
+	}()
+	ctx := context.Background()
+	cfg := config.NewService(st, log.New("error", "console"))
+	host, port, _ := net.SplitHostPort(listener.Addr().String())
+	for k, v := range map[string]string{KeyHost: host, KeyPort: port, KeyFrom: "sender@example.com", KeySecurity: config.SMTPSecurityPlain, KeyAuth: "false"} {
+		if err := cfg.Set(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.SendTest(ctx, "recipient@example.com"); err != nil {
+		t.Fatalf("本地中继发送失败: %v", err)
+	}
+	commands := <-done
+	if strings.Contains(commands, "STARTTLS\r\n") || strings.Contains(commands, "AUTH ") || !strings.Contains(commands, "DATA\r\n") {
+		t.Fatalf("本地中继命令不符: %q", commands)
 	}
 }
 
@@ -81,7 +161,7 @@ func newTestMail(t *testing.T) (*store.Store, *Service) {
 	return st, NewService(cfg, log.New("error", "console"))
 }
 
-// TestConfigured SMTP 配置判定（三键口径）
+// TestConfigured SMTP 配置判定包含连接方式、发件人与认证模式。
 func TestConfigured(t *testing.T) {
 	st, svc := newTestMail(t)
 	ctx := context.Background()
@@ -89,13 +169,13 @@ func TestConfigured(t *testing.T) {
 		t.Error("未配置时 Configured 应为 false")
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
-	for k, v := range map[string]string{"smtp_host": "h", "smtp_user": "u", "smtp_password": "p"} {
+	for k, v := range map[string]string{KeyHost: "h", KeyPort: "587", KeyFrom: "f@example.com", KeySecurity: "starttls", KeyAuth: "true", KeyUser: "u", KeyPassword: "p"} {
 		if err := cfg.Set(ctx, k, v); err != nil {
 			t.Fatalf("配置失败: %v", err)
 		}
 	}
 	if !svc.Configured(ctx) {
-		t.Error("三键配置后 Configured 应为 true")
+		t.Error("完整认证配置后 Configured 应为 true")
 	}
 }
 

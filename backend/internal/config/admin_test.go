@@ -59,8 +59,9 @@ func TestSensitiveMasked(t *testing.T) {
 	st, svc := newTestAdmin(t, &mockOidcOps{})
 	ctx := context.Background()
 
+	auth := true
 	if err := svc.SaveSMTP(ctx, SMTPSettings{Host: "smtp.example.com", Port: "587", User: "u",
-		Password: "plain-pass", From: "f@example.com", TLS: true}); err != nil {
+		Password: "plain-pass", From: "f@example.com", Security: SMTPSecurityImplicitTLS, AuthRequired: &auth}); err != nil {
 		t.Fatalf("保存 SMTP 失败: %v", err)
 	}
 	// 库内为密文
@@ -77,7 +78,7 @@ func TestSensitiveMasked(t *testing.T) {
 		t.Errorf("回显应脱敏: %+v", got)
 	}
 	// PUT 空串不修改密码或加密方式
-	if err := svc.SaveSMTP(ctx, SMTPSettings{Host: "smtp.example.com", Password: "", Security: got.Security}); err != nil {
+	if err := svc.SaveSMTP(ctx, SMTPSettings{Host: "smtp.example.com", Port: "587", User: "u", From: "f@example.com", Password: "", Security: got.Security, AuthRequired: &auth}); err != nil {
 		t.Fatalf("保存失败: %v", err)
 	}
 	if got := svc.GetSMTP(ctx); got.Password != "" || !got.PasswordConfigured || got.Security != "implicit_tls" {
@@ -88,6 +89,89 @@ func TestSensitiveMasked(t *testing.T) {
 	}
 	if err := svc.SaveSMTP(ctx, SMTPSettings{Host: "smtp.example.com", Password: "***", Security: "implicit_tls"}); !errors.Is(err, ErrBadRequest) {
 		t.Errorf("占位符应被拒绝: %v", err)
+	}
+}
+
+// TestSMTPNewContract 验证旧配置不发送、无认证中继清除凭据及非法保存不部分写入。
+func TestSMTPNewContract(t *testing.T) {
+	st, svc := newTestAdmin(t, &mockOidcOps{})
+	ctx := context.Background()
+	for k, v := range map[string]string{
+		"smtp_host": "smtp.example.com", "smtp_port": "587", "smtp_from": "sender@example.com",
+		"smtp_user": "sender@example.com", "smtp_password": "old-secret", "smtp_security": "legacy",
+	} {
+		if err := svc.cfg.Set(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := svc.GetSMTP(ctx); got.Configured || got.Security != "" {
+		t.Fatalf("旧连接方式应等待重新选择: %+v", got)
+	}
+	noAuth := false
+	plain := SMTPSettings{Host: "127.0.0.1", Port: "2525", From: "sender@example.com", Security: SMTPSecurityPlain, AuthRequired: &noAuth}
+	if err := svc.SaveSMTP(ctx, plain); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.GetSMTP(ctx); !got.Configured || got.PasswordConfigured || got.User != "" || got.Security != SMTPSecurityPlain {
+		t.Fatalf("本地无认证中继应可用且凭据已清除: %+v", got)
+	}
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM system_config WHERE key IN ('smtp_password', 'smtp_tls')`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("旧密钥未清除: n=%d err=%v", n, err)
+	}
+	plain.Host = "smtp.example.com"
+	if err := svc.SaveSMTP(ctx, plain); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("远端明文中继应拒绝: %v", err)
+	}
+	if got := svc.GetSMTP(ctx); got.Host != "127.0.0.1" || !got.Configured {
+		t.Fatalf("失败保存不应改变有效配置: %+v", got)
+	}
+}
+
+// TestSMTPAuthValidation 验证认证密码、地址、端口与连接方式必须同时有效。
+func TestSMTPAuthValidation(t *testing.T) {
+	_, svc := newTestAdmin(t, &mockOidcOps{})
+	ctx := context.Background()
+	auth := true
+	base := SMTPSettings{Host: "smtp.example.com", Port: "587", From: "sender@example.com", User: "sender", Security: SMTPSecurityStartTLS, AuthRequired: &auth}
+	for _, tc := range []struct {
+		name string
+		edit func(*SMTPSettings)
+	}{
+		{"missing password", func(*SMTPSettings) {}},
+		{"bad port", func(s *SMTPSettings) { s.Port = "65536"; s.Password = "secret" }},
+		{"bad from", func(s *SMTPSettings) { s.From = "Name <sender@example.com>"; s.Password = "secret" }},
+		{"old mode", func(s *SMTPSettings) { s.Security = "legacy"; s.Password = "secret" }},
+		{"plain auth", func(s *SMTPSettings) { s.Host = "127.0.0.1"; s.Security = SMTPSecurityPlain; s.Password = "secret" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := base
+			tc.edit(&in)
+			if err := svc.SaveSMTP(ctx, in); !errors.Is(err, ErrBadRequest) {
+				t.Fatalf("应拒绝无效配置: %v", err)
+			}
+		})
+	}
+	base.Password = "secret"
+	if err := svc.SaveSMTP(ctx, base); err != nil {
+		t.Fatalf("有效 STARTTLS 配置应保存: %v", err)
+	}
+	if got := svc.GetSMTP(ctx); !got.Configured || got.Security != SMTPSecurityStartTLS {
+		t.Fatalf("配置状态错误: %+v", got)
+	}
+	if err := svc.cfg.Set(ctx, "smtp_password", "***"); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.GetSMTP(ctx); got.Configured {
+		t.Fatal("历史占位符密码不应被判为可发送")
+	}
+	base.Password = ""
+	if err := svc.SaveSMTP(ctx, base); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("不能沿用已损坏的占位符密码: %v", err)
+	}
+	base.Password = "new-secret"
+	if err := svc.SaveSMTP(ctx, base); err != nil || !svc.GetSMTP(ctx).Configured {
+		t.Fatalf("重新填写后应恢复发送配置: %v", err)
 	}
 }
 

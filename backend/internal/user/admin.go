@@ -95,12 +95,9 @@ func (s *AdminService) countActiveAdmins(ctx context.Context, tx *sql.Tx, exclud
 	return n, err
 }
 
-// smtpConfigured SMTP 是否已配置（host+user+password 三键非空；与 mail 包判定口径一致，Step 2 接通）
+// smtpConfigured 与邮件服务使用同一配置判定。
 func (s *AdminService) smtpConfigured(ctx context.Context) bool {
-	host := s.cfg.GetOr(ctx, "smtp_host")
-	user := s.cfg.GetOr(ctx, "smtp_user")
-	pass := s.cfg.GetOr(ctx, "smtp_password")
-	return host != "" && user != "" && pass != ""
+	return config.SMTPConfigured(ctx, s.cfg)
 }
 
 // --- 列表：后端分页（默认 20 条/页）+ 用户名/邮箱模糊搜索 ---

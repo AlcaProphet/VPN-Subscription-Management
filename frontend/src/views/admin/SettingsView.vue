@@ -237,14 +237,14 @@ async function doSaveCaptcha() {
 }
 
 // --- SMTP ---
-const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', password_configured: false, from: '', tls: false, security: 'legacy', scopes: [] })
+const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', password_configured: false, from: '', security: 'starttls', auth_required: true, configured: false, scopes: [] })
 const smtpSaving = ref(false)
 const smtpTesting = ref(false)
 const smtpTestTo = ref('')
 const smtpSecurityOptions = [
-  { label: '连接即 TLS（如腾讯云 465 / 587）', value: 'implicit_tls' },
-  { label: '必须 STARTTLS（常见 587）', value: 'starttls' },
-  { label: '旧配置：自动尝试 STARTTLS', value: 'legacy' },
+  { label: 'STARTTLS（必须升级）', value: 'starttls' },
+  { label: '连接即 TLS', value: 'implicit_tls' },
+  { label: '无加密（仅本地无认证中继）', value: 'plain' },
 ]
 const scopeOptions = [
   { label: '密码重置邮件', value: 'password_reset' },
@@ -261,7 +261,7 @@ async function loadSMTP() {
 async function doSaveSMTP() {
   smtpSaving.value = true
   try {
-    await saveSMTP({ ...smtp, tls: smtp.security === 'implicit_tls' })
+    await saveSMTP({ ...smtp })
     Notify.success('SMTP 配置已保存')
     await reloadClean('smtp', loadSMTP)
   } catch (err) {
@@ -270,6 +270,9 @@ async function doSaveSMTP() {
     smtpSaving.value = false
   }
 }
+watch(() => smtp.security, (security) => {
+  if (security === 'plain') smtp.auth_required = false
+})
 async function doTestSMTP() {
   smtpTesting.value = true
   try {
@@ -836,22 +839,30 @@ onMounted(async () => {
         <Card v-show="isGroupVisible('notifications')" id="smtp" title="邮件发送 · 通用 SMTP" size="small">
           <div class="max-w-2xl space-y-5">
             <p class="text-sm text-text-secondary">填写邮件服务商提供的 SMTP 参数。测试邮件使用已保存的配置；修改后请先保存。</p>
+            <Alert v-if="smtp.host && !smtp.configured" type="warning" show-icon message="当前 SMTP 设置尚未符合新连接方式要求，请重新选择、保存并发送测试邮件。" />
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label class="space-y-1 text-sm"><span>SMTP 服务器</span><Input v-model:value="smtp.host" placeholder="smtp.example.com" /></label>
-              <label class="space-y-1 text-sm"><span>端口</span><Input v-model:value="smtp.port" placeholder="例如 465 或 587" /></label>
-              <label class="space-y-1 text-sm"><span>登录账号</span><Input v-model:value="smtp.user" placeholder="服务商提供的 SMTP 账号" /></label>
-              <label class="space-y-1 text-sm"><span>发件邮箱</span><Input v-model:value="smtp.from" placeholder="留空时使用登录账号" /></label>
+              <label class="space-y-1 text-sm"><span>SMTP 服务器</span><Input v-model:value="smtp.host" placeholder="smtp.example.com；本地中继填 127.0.0.1" /></label>
+              <label class="space-y-1 text-sm"><span>端口</span><Input v-model:value="smtp.port" placeholder="STARTTLS 常见 587；连接即 TLS 常见 465" /></label>
+              <label class="space-y-1 text-sm"><span>发件邮箱</span><Input v-model:value="smtp.from" placeholder="sender@example.com" /></label>
             </div>
             <div class="space-y-1 text-sm">
-              <span>SMTP 专用密码 <Tag v-if="smtp.password_configured" color="success">已配置</Tag><Tag v-else>未配置</Tag></span>
-              <Input.Password v-model:value="smtp.password" autocomplete="new-password" placeholder="留空保持原密码；输入新密码后保存" />
-              <p class="text-xs text-text-secondary">这里不会回显已保存密码。若密码曾被占位符覆盖，请重新填写服务商提供的专用密码。</p>
-            </div>
-            <div class="space-y-1 text-sm">
-              <span>连接加密方式</span>
+              <span>连接方式</span>
               <AppSelect v-model:value="smtp.security" :options="smtpSecurityOptions" class="w-full" />
-              <p class="text-xs text-text-secondary">按服务商要求选择，不能只凭端口判断。腾讯云本次实测 465 与 587 均需“连接即 TLS”；“必须 STARTTLS”会在服务器不支持升级时停止发送。旧配置选项保留原行为。</p>
+              <p class="text-xs text-text-secondary">按服务商要求选择，端口不会自动决定连接方式。STARTTLS 必须升级成功才发送；“连接即 TLS”从建立连接时加密。无加密只允许本机回环地址上的无认证中继。</p>
             </div>
+            <div class="space-y-2 text-sm">
+              <div class="flex items-center gap-3"><span>需要 SMTP 认证</span><Switch v-model:checked="smtp.auth_required" :disabled="smtp.security === 'plain'" /></div>
+              <p v-if="smtp.security === 'plain'" class="text-xs text-text-secondary">本地中继不发送账号或密码。</p>
+              <p v-else-if="!smtp.auth_required" class="text-xs text-text-secondary">此连接将不发送 SMTP 账号或密码。</p>
+            </div>
+            <template v-if="smtp.auth_required">
+              <label class="block space-y-1 text-sm"><span>登录账号</span><Input v-model:value="smtp.user" placeholder="服务商提供的 SMTP 账号" /></label>
+              <div class="space-y-1 text-sm">
+                <span>SMTP 专用密码 <Tag v-if="smtp.password_configured" color="success">已配置</Tag><Tag v-else>未配置</Tag></span>
+                <Input.Password v-model:value="smtp.password" autocomplete="new-password" placeholder="留空保持原密码；输入新密码后保存" />
+                <p class="text-xs text-text-secondary">已保存密码不会回显。若曾被占位符覆盖，请重新填写服务商提供的专用密码。</p>
+              </div>
+            </template>
             <div class="space-y-1 text-sm">
               <span>启用业务邮件</span>
               <Checkbox.Group v-model:value="smtp.scopes" :options="scopeOptions" class="flex flex-wrap gap-2" />
