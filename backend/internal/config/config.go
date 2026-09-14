@@ -37,6 +37,14 @@ const (
 	KeyAdvancedMode     = "advanced_mode"     // 高级模式开关（"true"/"false"，未设置视为 false；Build4 只读暴露）
 )
 
+// MaskedSecret 敏感配置在接口回显中的固定占位符；读写两侧统一识别，禁止作为新值保存。
+const MaskedSecret = "***"
+
+// SecretUsable 判定敏感值是否已配置且不是回显占位符（损坏的历史占位符按未配置处理）。
+func SecretUsable(secret string) bool {
+	return secret != "" && secret != MaskedSecret
+}
+
 // isSensitiveKey 编译期固定敏感配置键判定（值以 AES-256-GCM 密文落库）：
 // 当前仅 smtp_password；OIDC Client Secret 由 oidc 包手动加密，验证码双密钥明文存储不入集合。
 // 不再提供运行期注册入口，避免可变包级注册表。

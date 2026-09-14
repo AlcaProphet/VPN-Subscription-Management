@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/setup"
 )
@@ -75,6 +76,10 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 	case "keycloak", "auth0", "generic", "mock":
 	default:
 		Fail(c, http.StatusBadRequest, "提供商类型无效")
+		return
+	}
+	if req.ClientSecret == config.MaskedSecret {
+		Fail(c, http.StatusBadRequest, "不能将脱敏占位符保存为 Client Secret，请重新输入")
 		return
 	}
 	providerType := req.ProviderType

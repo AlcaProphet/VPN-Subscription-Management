@@ -14,18 +14,58 @@ import (
 	"vpn-sub/internal/store"
 )
 
+// mockOidcSaveCall 记录一次 SaveParams 入参，供测试断言“空值保持”与 provider 隔离。
+type mockOidcSaveCall struct {
+	providerType string
+	baseURL      string
+	realm        string
+	clientID     string
+	clientSecret string
+}
+
+// mockOidcParams 模拟某个提供商的参数存储（secret 为已解密明文）。
+type mockOidcParams struct {
+	baseURL  string
+	realm    string
+	clientID string
+	secret   string
+}
+
 // mockOidcOps 模拟 oidc.Service（config 包避免循环依赖的接口注入）
 type mockOidcOps struct {
 	configured bool
-	secret     string // 库内已存密文（模拟）
+	secret     string // 单提供商兼容字段：库内已存明文（模拟）
+	params     map[string]mockOidcParams
+	saveCalls  []mockOidcSaveCall
 }
 
 func (m *mockOidcOps) SaveParams(ctx context.Context, providerType, baseURL, realm, clientID, clientSecret string) error {
-	m.secret = clientSecret
+	m.saveCalls = append(m.saveCalls, mockOidcSaveCall{
+		providerType: providerType, baseURL: baseURL, realm: realm, clientID: clientID, clientSecret: clientSecret,
+	})
+	if m.params == nil {
+		if clientSecret != "" { // 空值保留原值
+			m.secret = clientSecret
+		}
+		return nil
+	}
+	p := m.params[providerType]
+	p.baseURL, p.realm, p.clientID = baseURL, realm, clientID
+	if clientSecret != "" {
+		p.secret = clientSecret
+	}
+	m.params[providerType] = p
 	return nil
 }
 
 func (m *mockOidcOps) LoadParams(ctx context.Context, providerType string) (string, string, string, string, error) {
+	if m.params != nil {
+		p, ok := m.params[providerType]
+		if !ok {
+			return "", "", "", "", errors.New("OIDC 参数未配置")
+		}
+		return p.baseURL, p.realm, p.clientID, p.secret, nil
+	}
 	return "https://idp.example.com", "realm", "client-x", m.secret, nil
 }
 
@@ -349,8 +389,107 @@ func TestFrontendURLCached(t *testing.T) {
 	if got.FrontendURL != "https://app.example.com" || got.CallbackURL != "https://app.example.com/cb" {
 		t.Errorf("手动值应优先沿用: %+v", got)
 	}
-	if got.ClientSecret != "***" {
-		t.Errorf("Secret 应脱敏: %+v", got)
+	if got.ClientSecret != "" || !got.ClientSecretConfigured {
+		t.Errorf("Secret 应空回显且状态为已配置: %+v", got)
+	}
+}
+
+// TestOidcSecretKeepAndReplace Secret 空值保持原值、显式新值替换、回显始终为空。
+func TestOidcSecretKeepAndReplace(t *testing.T) {
+	mock := &mockOidcOps{}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	in := OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com", ClientID: "c"}
+	in.ClientSecret = "sec123"
+	if err := svc.SaveOidc(ctx, in); err != nil {
+		t.Fatalf("保存 OIDC 失败: %v", err)
+	}
+	if got, _ := svc.GetOidc(ctx); got.ClientSecret != "" || !got.ClientSecretConfigured {
+		t.Fatalf("GET 应空 Secret + 已配置状态: %+v", got)
+	}
+	// 空值保存：请求透传空串，底层保留原密文
+	in.ClientSecret = ""
+	if err := svc.SaveOidc(ctx, in); err != nil {
+		t.Fatalf("空值保存失败: %v", err)
+	}
+	if mock.secret != "sec123" {
+		t.Errorf("空值保存不应覆盖已存 Secret: %q", mock.secret)
+	}
+	if len(mock.saveCalls) == 0 || mock.saveCalls[len(mock.saveCalls)-1].clientSecret != "" {
+		t.Errorf("PUT 空值应原样传给 SaveParams: %+v", mock.saveCalls)
+	}
+	// 显式新值替换
+	in.ClientSecret = "new-secret"
+	if err := svc.SaveOidc(ctx, in); err != nil {
+		t.Fatalf("显式替换失败: %v", err)
+	}
+	if mock.secret != "new-secret" {
+		t.Errorf("显式新值应替换旧 Secret: %q", mock.secret)
+	}
+}
+
+// TestOidcPlaceholderRejected 服务端拒绝把回显占位符当新 Secret 保存，且不调用底层写入。
+func TestOidcPlaceholderRejected(t *testing.T) {
+	mock := &mockOidcOps{secret: "sec123"}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	in := OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com", ClientID: "c", ClientSecret: MaskedSecret}
+	if err := svc.SaveOidc(ctx, in); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("占位符应返回 ErrBadRequest: %v", err)
+	}
+	if mock.secret != "sec123" || len(mock.saveCalls) != 0 {
+		t.Errorf("占位符不应改写库内 Secret 或触发写入: secret=%q calls=%+v", mock.secret, mock.saveCalls)
+	}
+}
+
+// TestOidcDamagedPlaceholderHandling 历史占位符：GET 显示未配置；空值保存拒绝；重新输入后恢复。
+func TestOidcDamagedPlaceholderHandling(t *testing.T) {
+	mock := &mockOidcOps{secret: MaskedSecret}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	got, err := svc.GetOidc(ctx)
+	if err != nil {
+		t.Fatalf("GET 失败: %v", err)
+	}
+	if got.ClientSecret != "" || got.ClientSecretConfigured {
+		t.Fatalf("历史占位符应按未配置回显: %+v", got)
+	}
+	in := OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com", ClientID: "c"}
+	if err := svc.SaveOidc(ctx, in); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("空值沿用历史占位符应被拒绝: %v", err)
+	}
+	in.ClientSecret = "fresh-secret"
+	if err := svc.SaveOidc(ctx, in); err != nil {
+		t.Fatalf("重新填写后应保存成功: %v", err)
+	}
+	if got, _ := svc.GetOidc(ctx); !got.ClientSecretConfigured || got.ClientSecret != "" {
+		t.Errorf("重新填写后应恢复已配置状态: %+v", got)
+	}
+}
+
+// TestOidcProviderSwitchKeepsOtherProviderSecret 切换提供商只写目标 provider，空 Secret 保留目标 provider 原值。
+func TestOidcProviderSwitchKeepsOtherProviderSecret(t *testing.T) {
+	mock := &mockOidcOps{params: map[string]mockOidcParams{
+		"keycloak": {baseURL: "https://kc.example.com", realm: "master", clientID: "kc", secret: "kc-secret"},
+	}}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	// 切到 generic：目标无已存 Secret，写空但不碰 keycloak
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://generic.example.com", ClientID: "g"}); err != nil {
+		t.Fatalf("切换到 generic 失败: %v", err)
+	}
+	if mock.params["keycloak"].secret != "kc-secret" {
+		t.Errorf("切换不应覆盖其他提供商 Secret: %+v", mock.params)
+	}
+	if mock.params["generic"].secret != "" {
+		t.Errorf("generic 目标无旧 Secret 时应为空: %+v", mock.params["generic"])
+	}
+	// 切回 keycloak：空 Secret 保留该提供商原值
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "keycloak", BaseURL: "https://kc.example.com", Realm: "master", ClientID: "kc"}); err != nil {
+		t.Fatalf("切回 keycloak 失败: %v", err)
+	}
+	if mock.params["keycloak"].secret != "kc-secret" {
+		t.Errorf("切回后空 Secret 应保留原值: %+v", mock.params["keycloak"])
 	}
 }
 

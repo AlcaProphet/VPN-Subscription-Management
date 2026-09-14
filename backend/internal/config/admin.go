@@ -70,7 +70,7 @@ func (w WhitelistConfig) Empty() bool {
 
 // OidcOps OIDC 能力接口（oidc.Service 经 server 适配注入；config 包避免 config↔oidc 循环依赖）
 type OidcOps interface {
-	// SaveParams 保存提供商参数（client_secret 加密落库；空值保留原密文）
+	// SaveParams 保存提供商参数（入参 client_secret 为明文，加密落库；空值保留原密文）
 	SaveParams(ctx context.Context, providerType, baseURL, realm, clientID, clientSecret string) error
 	// LoadParams 读取提供商参数（client_secret 已解密）
 	LoadParams(ctx context.Context, providerType string) (baseURL, realm, clientID, clientSecret string, err error)
@@ -127,32 +127,34 @@ func (s *AdminService) setSensitive(ctx context.Context, key, value string) erro
 // --- OIDC 配置分区 ---
 
 type OidcSettings struct {
-	ProviderType string `json:"provider_type"`
-	BaseURL      string `json:"base_url"`
-	Realm        string `json:"realm"`
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"` // GET 脱敏；PUT 空=不修改
-	FrontendURL  string `json:"frontend_url"`  // 启动时缓存（库驱动），修改需重启生效
-	CallbackURL  string `json:"callback_url"`  // 同上
+	ProviderType           string `json:"provider_type"`
+	BaseURL                string `json:"base_url"`
+	Realm                  string `json:"realm"`
+	ClientID               string `json:"client_id"`
+	ClientSecret           string `json:"client_secret"`            // GET 始终为空；PUT 空=保留当前提供商原密文
+	ClientSecretConfigured bool   `json:"client_secret_configured"` // 当前提供商是否已有可用 Secret（只读）
+	FrontendURL            string `json:"frontend_url"`             // 启动时缓存（库驱动），修改需重启生效
+	CallbackURL            string `json:"callback_url"`             // 同上
 }
 
 // 合法提供商类型
 var validProviders = []string{"keycloak", "auth0", "generic", "mock"}
 
 // oidcUsable 判定 OIDC 是否「可用」（防认证死锁的核心判定，Design1 §3.4.8）：
-// base_url 非空 且 client_id 非空 且（PUT 入参 secret 非空 或 库内已有对应密文）
+// base_url 非空 且 client_id 非空 且（PUT 入参 Secret 有效 或 库内已有可用明文 Secret）。
+// GET 空回显/历史占位符均不被视为可用。
 func (s *AdminService) oidcUsable(ctx context.Context, in OidcSettings) bool {
 	if in.BaseURL == "" || in.ClientID == "" {
 		return false
 	}
-	if in.ClientSecret != "" {
+	if SecretUsable(in.ClientSecret) {
 		return true
 	}
-	_, _, _, secret, err := s.oidcOps.LoadParams(ctx, in.ProviderType) // 库内已有密文视为可用
-	return err == nil && secret != ""
+	_, _, _, secret, err := s.oidcOps.LoadParams(ctx, in.ProviderType) // LoadParams 返回解密后明文
+	return err == nil && SecretUsable(secret)
 }
 
-// GetOidc 回显当前 OIDC 配置（Secret 脱敏；frontend/callback 返回库值——启动缓存语义）
+// GetOidc 回显当前 OIDC 配置（Secret 输入值始终为空，另以 client_secret_configured 表示已配置）。
 func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 	out := OidcSettings{}
 	out.ProviderType = s.cfg.GetOr(ctx, oidcKeyProviderType)
@@ -161,23 +163,32 @@ func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 	if out.ProviderType != "" {
 		baseURL, realm, clientID, secret, err := s.oidcOps.LoadParams(ctx, out.ProviderType)
 		if err != nil {
-			return out, nil // 参数缺失按未配置处理（不阻断回显）
+			return out, nil // 参数缺失/解密失败按未配置处理（不阻断回显）
 		}
 		out.BaseURL = baseURL
 		out.Realm = realm
 		out.ClientID = clientID
-		if secret != "" {
-			out.ClientSecret = "***"
-		}
+		out.ClientSecret = ""
+		out.ClientSecretConfigured = SecretUsable(secret)
 	}
 	return out, nil
 }
 
 // SaveOidc 保存 OIDC 参数；受「本地登录与 OIDC 均不可用禁止保存」约束（防认证死锁）；
-// 各提供商参数独立存储（切换类型保留已填字段）；frontend_url/callback_url 手动覆盖优先
+// 各提供商参数独立存储（切换类型保留已填字段）；Secret 空值保留当前提供商原密文，显式新值才替换；
+// frontend_url/callback_url 手动覆盖优先。
 func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 	if !slices.Contains(validProviders, in.ProviderType) {
 		return fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
+	}
+	if in.ClientSecret == MaskedSecret {
+		return fmt.Errorf("%w: 不能将脱敏占位符保存为 Client Secret，请留空保持原值或输入新 Secret", ErrBadRequest)
+	}
+	// 空值保留原密文，但库内已是脱敏占位符时不能继续沿用（已损坏，须管理员重新填写）。
+	if in.ClientSecret == "" {
+		if _, _, _, existing, err := s.oidcOps.LoadParams(ctx, in.ProviderType); err == nil && existing == MaskedSecret {
+			return fmt.Errorf("%w: 已保存的 Client Secret 为脱敏占位符，请重新输入新的 Client Secret", ErrBadRequest)
+		}
 	}
 	allowLocal := s.cfg.GetBool(ctx, KeyAllowLocalLogin, true)
 	if !allowLocal && !s.oidcUsable(ctx, in) {

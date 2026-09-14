@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('@/api/settings', () => ({
-  getOidc: vi.fn().mockResolvedValue({ provider_type: '', base_url: '', realm: '', client_id: '', client_secret: '', frontend_url: '', callback_url: '' }),
+  getOidc: vi.fn().mockResolvedValue({ provider_type: '', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '' }),
   saveOidc: vi.fn(),
   clearOidc: vi.fn(),
   testOidc: vi.fn(),
@@ -41,6 +41,7 @@ vi.mock('@/api/system', () => ({
 }))
 
 import SettingsView from '@/views/admin/SettingsView.vue'
+import { getOidc, saveOidc } from '@/api/settings'
 
 describe('SettingsView 基础渲染', () => {
   beforeEach(() => {
@@ -89,4 +90,37 @@ describe('SettingsView 基础渲染', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('Dev 模式不提供配置导入导出')
   })
+
+  it('OIDC Secret 空回显、状态标签与空值保存提交', async () => {
+    vi.mocked(getOidc).mockResolvedValueOnce({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: '',
+      callback_url: '',
+    })
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain('已配置')
+    const password = card.find('input[type="password"]')
+    expect(password.exists()).toBe(true)
+    expect((password.element as HTMLInputElement).value).toBe('')
+
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledTimes(1)
+    expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({ client_secret: '' }))
+  })
+
 })

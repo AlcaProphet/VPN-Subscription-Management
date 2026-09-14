@@ -7,7 +7,8 @@ export interface OidcSettings {
   base_url: string
   realm: string
   client_id: string
-  client_secret: string // GET 脱敏（***/""）；PUT 空=不修改
+  client_secret: string // GET 始终为空；PUT 空=保留当前提供商已存 Secret
+  client_secret_configured: boolean // 当前提供商是否已有可用 Secret（只读）
   frontend_url: string
   callback_url: string
 }

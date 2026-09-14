@@ -3,6 +3,9 @@ package oidc
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -299,4 +302,149 @@ func TestResolveLoginFirstAdminDoesNotWriteAdminInitialized(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("OIDC 首管理员不应写入 admin_initialized，实际 %d 行", count)
 	}
+}
+
+// TestLoadParamsDecryptsSavedSecret 库内存储密文，LoadParams 必须返回解密后的明文。
+func TestLoadParamsDecryptsSavedSecret(t *testing.T) {
+	st, svc, _ := newTestOidcService(t)
+	if err := svc.SaveParams(ctx, "generic", Params{
+		BaseURL: "https://idp.example.com", ClientID: "c", ClientSecret: "plain-secret",
+	}); err != nil {
+		t.Fatalf("SaveParams 失败: %v", err)
+	}
+	raw := readOidcParamsRaw(t, st, "generic")
+	if strings.Contains(raw, "plain-secret") {
+		t.Fatalf("库内不应出现明文 Secret: %s", raw)
+	}
+	got, err := svc.LoadParams(ctx, "generic")
+	if err != nil {
+		t.Fatalf("LoadParams 失败: %v", err)
+	}
+	if got.ClientSecret != "plain-secret" {
+		t.Fatalf("LoadParams 应返回解密明文，实际 %q", got.ClientSecret)
+	}
+}
+
+// TestSaveParamsEmptyPreservesCipher 空值保存保留原密文，显式新值替换，并拒绝脱敏占位符。
+func TestSaveParamsEmptyPreservesCipher(t *testing.T) {
+	st, svc, _ := newTestOidcService(t)
+	if err := svc.SaveParams(ctx, "generic", Params{
+		BaseURL: "https://idp.example.com", ClientID: "c", ClientSecret: "first-secret",
+	}); err != nil {
+		t.Fatalf("首次保存失败: %v", err)
+	}
+	first := readOidcParamsRaw(t, st, "generic")
+	var firstParams Params
+	if err := json.Unmarshal([]byte(first), &firstParams); err != nil {
+		t.Fatalf("解析首次保存 JSON 失败: %v", err)
+	}
+	if firstParams.ClientSecret == "" || firstParams.ClientSecret == "first-secret" {
+		t.Fatalf("首次保存应为密文: %q", firstParams.ClientSecret)
+	}
+	// 空值保存：Secret 密文原样保留
+	if err := svc.SaveParams(ctx, "generic", Params{BaseURL: "https://idp.example.com", ClientID: "c"}); err != nil {
+		t.Fatalf("空值保存失败: %v", err)
+	}
+	second := readOidcParamsRaw(t, st, "generic")
+	var secondParams Params
+	if err := json.Unmarshal([]byte(second), &secondParams); err != nil {
+		t.Fatalf("解析二次保存 JSON 失败: %v", err)
+	}
+	if secondParams.ClientSecret != firstParams.ClientSecret {
+		t.Fatalf("空值保存不得改写原密文: before=%q after=%q", firstParams.ClientSecret, secondParams.ClientSecret)
+	}
+	if got, _ := svc.LoadParams(ctx, "generic"); got.ClientSecret != "first-secret" {
+		t.Fatalf("空值保存后应仍解密为原明文: %q", got.ClientSecret)
+	}
+	// 显式占位符拒绝且不落库
+	if err := svc.SaveParams(ctx, "generic", Params{BaseURL: "https://idp.example.com", ClientID: "c", ClientSecret: config.MaskedSecret}); err == nil {
+		t.Fatal("SaveParams 应拒绝脱敏占位符")
+	}
+	if readOidcParamsRaw(t, st, "generic") != second {
+		t.Fatal("占位符拒绝后库内参数不应变化")
+	}
+}
+
+// TestTestConnectionUsesSavedSecret 测试连接空 Secret 时回退到库内已保存明文；无已保存 Secret 时给出警告。
+func TestTestConnectionUsesSavedSecret(t *testing.T) {
+	_, svc, _ := newTestOidcService(t)
+	var gotSecret string
+	var ts *httptest.Server
+	ts = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(Discovery{
+				AuthorizationEndpoint: ts.URL + "/authorize",
+				TokenEndpoint:         ts.URL + "/token",
+			})
+		case "/token":
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "bad form", http.StatusBadRequest)
+				return
+			}
+			gotSecret = r.Form.Get("client_secret")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"access_token":"test-token"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	svc.httpCli = ts.Client()
+	if err := svc.SaveParams(ctx, "generic", Params{
+		BaseURL: ts.URL, ClientID: "c", ClientSecret: "saved-secret",
+	}); err != nil {
+		t.Fatalf("保存 generic 参数失败: %v", err)
+	}
+	res, err := svc.TestConnection(ctx, "generic", Params{BaseURL: ts.URL, ClientID: "c"})
+	if err != nil {
+		t.Fatalf("TestConnection 失败: %v", err)
+	}
+	if res == nil || !res.OK {
+		t.Fatalf("空 Secret 应回退库内明文并通过: %+v", res)
+	}
+	if gotSecret != "saved-secret" {
+		t.Fatalf("token 端点应收到解密后的明文 Secret，实际 %q", gotSecret)
+	}
+	// 无已保存 Secret 的其他提供商：仍可测发现文档，但必须提示未验证凭据
+	res2, err := svc.TestConnection(ctx, "auth0", Params{BaseURL: ts.URL, ClientID: "c2"})
+	if err != nil {
+		t.Fatalf("TestConnection（无已存 Secret）失败: %v", err)
+	}
+	if res2 == nil || !res2.OK {
+		t.Fatalf("无 Secret 时 discovery 通过应返回 OK: %+v", res2)
+	}
+	foundWarning := false
+	for _, w := range res2.Warnings {
+		if strings.Contains(w, "未执行凭据校验") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("无 Secret 时应提示未执行凭据校验: %+v", res2)
+	}
+}
+
+// TestTestConnectionRejectsMaskedSecret 测试接口同样拒绝占位符，不发起凭据校验。
+func TestTestConnectionRejectsMaskedSecret(t *testing.T) {
+	_, svc, _ := newTestOidcService(t)
+	res, err := svc.TestConnection(ctx, "generic", Params{BaseURL: "https://idp.example.com", ClientID: "c", ClientSecret: config.MaskedSecret})
+	if err != nil {
+		t.Fatalf("TestConnection 不应返回错误: %v", err)
+	}
+	if res == nil || res.OK || !strings.Contains(res.Message, "脱敏占位符") {
+		t.Fatalf("占位符应返回明确失败结果: %+v", res)
+	}
+}
+
+// readOidcParamsRaw 读取指定提供商参数 JSON 原始值（测试辅助）。
+func readOidcParamsRaw(t *testing.T, st *store.Store, providerType string) string {
+	t.Helper()
+	var raw string
+	if err := st.DB().QueryRow(`SELECT value FROM system_config WHERE key = ?`, "oidc_params_"+providerType).Scan(&raw); err != nil {
+		t.Fatalf("读取 %s 参数失败: %v", providerType, err)
+	}
+	return raw
 }

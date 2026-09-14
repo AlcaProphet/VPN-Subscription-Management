@@ -69,9 +69,9 @@ async function reloadClean(key: string, loader: () => Promise<void>) {
 }
 
 // --- OIDC 配置 ---
-const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', realm: '', client_id: '', client_secret: '', frontend_url: '', callback_url: '' })
+const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '' })
 const oidcSaving = ref(false)
-const oidcTest = ref<{ ok: boolean; message: string } | null>(null)
+const oidcTest = ref<{ ok: boolean; message: string; warnings?: string[] } | null>(null)
 const providerOptions = [
   { label: '暂未启用（本地账号模式）', value: 'off' }, // R10-08：off 为前端显示值，映射 provider_type 空串（未配置）
   { label: 'Keycloak', value: 'keycloak' },
@@ -81,7 +81,11 @@ const providerOptions = [
 ]
 async function loadOidc() {
   try {
-    Object.assign(oidc, await getOidc())
+    const res = await getOidc()
+    Object.assign(oidc, res)
+    // Secret 输入值始终为空；只有 client_secret_configured 表示当前提供商已存可用 Secret。
+    oidc.client_secret = ''
+    oidc.client_secret_configured = res.client_secret_configured === true
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -91,9 +95,13 @@ const isMockProvider = computed(() => oidc.provider_type === 'mock')
 const urlLabel = computed(() => (oidc.provider_type === 'auth0' ? 'Domain' : 'Base URL'))
 const urlPlaceholder = computed(() => (oidc.provider_type === 'auth0' ? 'your-tenant.auth0.com' : 'https://idp.example.com'))
 const showRealm = computed(() => oidc.provider_type === 'keycloak')
-// 切换提供商：写入类型并清空不适用字段（realm 仅 Keycloak 适用；残留会导致 Auth0/通用发现文档 URL 拼接错误）
+// 切换提供商：写入类型并清空不适用字段（realm 仅 Keycloak 适用；残留会导致 Auth0/通用发现文档 URL 拼接错误）；
+// Secret 状态只对当前已加载提供商有效，切换后先按未配置显示，保存并重新加载后再以目标提供商实际状态为准。
 function applyProvider(v: string) {
   oidc.provider_type = v
+  oidc.client_secret = ''
+  oidc.client_secret_configured = false
+  oidcTest.value = null
   if (v !== 'keycloak') oidc.realm = ''
 }
 // onProviderChange：'off'（暂未启用）映射为空串；首次配置直接生效，启用态之间切换需确认（含切到暂未启用——R10-08）
@@ -108,7 +116,7 @@ function onProviderChange(v: any) {
     title: '切换提供商类型',
     content: target === ''
       ? '切换为暂未启用将停用 OIDC 登录，已绑定 OIDC 身份的账号将无法通过 OIDC 登录（本地密码登录不受影响）。确定？'
-      : '已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后通用字段（地址/Client ID/Secret）保留；Realm 为 Keycloak 专用，切换后自动清空。',
+      : '已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后地址/Client ID 保留，Client Secret 输入框清空；留空保存会保留目标提供商此前已存 Secret（如有），Realm 为 Keycloak 专用、切换后自动清空。',
     okText: '继续切换',
     cancelText: '取消',
     onOk: () => applyProvider(target),
@@ -725,9 +733,10 @@ onMounted(async () => {
                   <Input v-model:value="oidc.client_id" placeholder="客户端标识" />
                 </div>
                 <div class="flex items-center gap-3">
-                  <span class="w-24 text-sm">Client Secret</span>
-                  <Input.Password v-model:value="oidc.client_secret" placeholder="已配置时留空不修改" />
+                  <span class="w-24 text-sm">Client Secret <Tag v-if="oidc.client_secret_configured" color="success">已配置</Tag><Tag v-else>未配置</Tag></span>
+                  <Input.Password v-model:value="oidc.client_secret" autocomplete="new-password" placeholder="留空保持原值；输入新 Secret 后保存替换" />
                 </div>
+                <p class="text-xs text-text-secondary">已保存 Secret 不会回显；输入留空保存保持原值，输入新 Secret 才替换。切换提供商后状态先按未配置显示，保存并重新加载后以目标提供商实际状态为准。</p>
               </template>
               <Alert v-else type="info" show-icon message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
               <Alert type="info" show-icon message="接入提示" description="OIDC 回调要求公网可达的 HTTPS 域名，局域网直连模式可能无法完成回调" />
@@ -740,7 +749,7 @@ onMounted(async () => {
                 <Input v-model:value="oidc.callback_url" placeholder="https://app.example.com/api/auth/oidc/callback" />
               </div>
               <Alert v-if="oidc.frontend_url || oidc.callback_url" type="warning" show-icon message="前端地址/回调地址修改后需重启容器生效" />
-              <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" />
+              <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" :description="oidcTest.warnings?.length ? oidcTest.warnings.join('；') : undefined" />
               <Space>
                 <Button type="primary" :loading="oidcSaving" @click="doSaveOidc">保存</Button>
                 <Button @click="doTestOidc">测试连接</Button>

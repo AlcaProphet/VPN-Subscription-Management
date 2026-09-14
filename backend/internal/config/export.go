@@ -642,6 +642,19 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	if p.BaseURL == "" || p.ClientID == "" || p.ClientSecret == "" {
 		return ErrAuthDeadlock
 	}
+	// OIDC Secret 是库内密文：本地登录关闭时，必须用导入包的签名密钥确认解密后可用，
+	// 避免把历史占位符/无法解密的密文导入成“认证看似可用、实际死锁”的状态。
+	signingKey := cfgMap[KeySigningKey]
+	if signingKey == "" {
+		return fmt.Errorf("%w: 导入配置缺少签名密钥，无法验证 OIDC Client Secret", ErrAuthDeadlock)
+	}
+	plain, err := Decrypt(p.ClientSecret, []byte(signingKey))
+	if err != nil {
+		return fmt.Errorf("%w: 导入的 OIDC Client Secret 密文无法解密", ErrAuthDeadlock)
+	}
+	if !SecretUsable(string(plain)) {
+		return fmt.Errorf("%w: 导入的 OIDC Client Secret 为脱敏占位符，请重新配置", ErrAuthDeadlock)
+	}
 	return nil
 }
 

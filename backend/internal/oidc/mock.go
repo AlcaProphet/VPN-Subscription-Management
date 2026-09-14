@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/config"
 )
 
 // MockLogin 模拟 OIDC 登录（仅 Dev 模式且 provider=mock）：
@@ -79,14 +80,27 @@ type TestResult struct {
 }
 
 // TestConnection 验证发现文档可达性与配置完整性；以 client_credentials 换 token 验证 Client ID/Secret；
-// 不支持该授权类型时降级为警告不阻断；模拟模式始终通过
+// 表单空 Secret 沿用该提供商已保存明文（“留空保持”语义）；未提供 Secret 时仅告警不阻断；
+// 不支持该授权类型时降级为警告不阻断；模拟模式始终通过。
 func (s *Service) TestConnection(ctx context.Context, providerType string, p Params) (*TestResult, error) {
 	if providerType == "mock" {
 		return &TestResult{OK: true, Message: "模拟模式始终通过"}, nil
 	}
+	if p.ClientSecret == config.MaskedSecret {
+		return &TestResult{OK: false, Message: "Client Secret 不能使用脱敏占位符，请重新输入"}, nil
+	}
 	// ① 发现文档可达性 + 配置完整性（base_url/client_id/回调地址）
 	if p.BaseURL == "" || p.ClientID == "" {
 		return &TestResult{OK: false, Message: "Base URL 与 Client ID 为必填项"}, nil
+	}
+	// 表单留空表示不修改已保存 Secret：测试时回退到该提供商库内明文。
+	if p.ClientSecret == "" {
+		if stored, err := s.loadParams(ctx, providerType); err == nil {
+			if stored.ClientSecret == config.MaskedSecret {
+				return &TestResult{OK: false, Message: "已保存的 Client Secret 为脱敏占位符，请重新输入后再测试"}, nil
+			}
+			p.ClientSecret = stored.ClientSecret
+		}
 	}
 	disc, err := s.fetchDiscoveryWithParams(ctx, providerType, &p)
 	if err != nil {
@@ -102,6 +116,8 @@ func (s *Service) TestConnection(ctx context.Context, providerType string, p Par
 				return &TestResult{OK: false, Message: "Client ID/Secret 验证失败：" + err.Error()}, nil
 			}
 		}
+	} else {
+		res.Warnings = append(res.Warnings, "未提供 Client Secret，未执行凭据校验")
 	}
 	return res, nil
 }

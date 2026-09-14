@@ -1,5 +1,5 @@
 // server/settings.go：面板配置端点（接入层，Build3 Step 3）——会话 + 管理员双中间件；按分区独立 GET/PUT。
-// 敏感字段 GET 返回脱敏值；PUT 空串字段不修改；站点信息公开端点无需鉴权。
+// 敏感字段 GET 不回显输入值，仅以配置状态字段表示；PUT 空串字段不修改；站点信息公开端点无需鉴权。
 package server
 
 import (
