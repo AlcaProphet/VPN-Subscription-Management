@@ -1,177 +1,27 @@
-# TODOLIST.md — 后续工作顺序跟踪（2026-09-13）
+# TODOLIST.md — 短期待办跟踪（2026-09-14）
 
-> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](docs/reports/Issue/Issue14.md)、[Issue15.md](docs/reports/Issue/Issue15.md)（已归档）、[Build26.md](docs/reports/Build/Build26.md)、[Build27.md](docs/reports/Build/Build27.md)（已归档）、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
-> **授权边界（2026-09-11 用户最新确认）：** 用户已一次性授权按 [Build26.md](docs/reports/Build/Build26.md) Step 1～20、[Build27.md](docs/reports/Build/Build27.md) Step 1～6 串行执行；单个 Step 通过其全部验收后无需再次等待单独授权。每一步仍须按 AGENTS.md 完成影响评估、文档疑点检查、失败优先测试和验收记录；不得跳步、并行或扩围。遇到阻断、重大设计选择或文档冲突仍须停止并报告。
-> **排序原则：** 先关闭已有活跃 Build 的验收缺口，再处理 Issue14 的工程整改和项目收尾；工程基线冻结后继续第三期安全审查；人工结论单独由 ProdTestList 跟踪。
+> 本文件只保留当前仍需处理的短期事项。已完成的构建、修复、自动化验证和人工验收不在此重复记录。
 
----
+## 当前待办
 
-## 0. 活跃文档快照
+### 1. Issue16 R30-01：Build11 邮件相关人工测试
 
-| 文档 | 当前状态 | 下一入口 |
-|---|---|---|
-| [docs/reports/Build/Build22.md](docs/reports/Build/Build22.md) | 已归档；Step 1～11 全部验收通过，D3-1～D3-10 闭环 | ✅ 已完成 |
-| [docs/reports/Design/Design3.md](docs/reports/Design/Design3.md) | 已随 Build22 收口归档 | ✅ 已完成 |
-| [Build26.md](docs/reports/Build/Build26.md) | **已归档的步骤五构建记录**；Step 1～20 已按一次性串行授权完成并验收通过；R28-07F 保持设计取向未实施 | ✅ 已完成并归档；真实人工项在 ProdTestList 保持未执行 |
-| [Build27.md](docs/reports/Build/Build27.md) | **已归档的步骤七构建记录**；Step 1～6 已按一次性串行授权完成并验收通过；R28-09 关闭 | ✅ 已完成并归档；远端 CI 与真实人工项未执行 |
-| [docs/reports/Issue/Issue14.md](docs/reports/Issue/Issue14.md) | 步骤一～八已关闭，P4-1 重跑和 P4-3 已完成；Issue14 已归档 | ✅ 已完成并归档 |
-| [Issue15.md](docs/reports/Issue/Issue15.md) | R29-01～R29-10 已由用户确认真机、本地人工测试通过；R29-11 已关闭；R29-12 已完成 | 已归档；完整数据备份缺陷已转入 Design5，当前不作为问题追踪 |
-| [Issue16.md](Issue16.md) | R30-01：Build11 邮件相关人工测试不通过，具体失败事实待补充 | 先补充失败现象、复现步骤和证据，再研究根因与修复方案 |
-| [Design4.md](Design4.md) | 当前最新设计；Build17～25 主体已完成；已增加 §12.7 Build26 核心工程约束现行合同补充 | 仅在实际变更影响其合同时同步 |
-| [ProdTestList.md](ProdTestList.md) | 保留 Production、浏览器、真机和真实客户端人工项 | 按工程前置分批执行 |
-| [SecurityScanPlan1.md](SecurityScanPlan1.md) / [SecurityReport3.md](SecurityReport3.md) | Step 1～3 已完成；Step 4～28 未开始，报告未完成 | 工程冻结后执行 **Step 4** |
+- [ ] 补充重置链接四态（`valid` / `missing` / `used` / `expired`）的具体失败现象、复现步骤和证据。
+- [ ] 根据 [Issue16.md](Issue16.md) 的记录继续处理；修复后重新执行对应人工核验。
 
-已归档的 Build21～Build27 只用于核查，不再作为执行入口。Build26 Step 1～20、Build27 Step 1～6 均已按一次性串行授权完成并按归档规则移入 `docs/reports/Build/`；P2、P3 已按实际验收结果勾选；P4（Issue14 步骤八）仍需用户另行授权，不得由 Build27 授权自动启动。
+### 2. R26-07：Xray 节点禁止编辑的错误码
 
----
+- [ ] 在隔离 Production 或等价真实 API 环境完成一次人工核验，并将结果回写 [ProdTestList.md](ProdTestList.md)。
+- [ ] 覆盖 Xray 来源节点禁止编辑的 `403`、manual 节点普通字段校验的 `400`、过期 `base_revision` 的 `409`，以及前端对三类错误的区分；确认均不写入数据。
 
-## 1. 推荐主线顺序
+## 跟踪规则
 
-### P0 — 开工前确认
+1. 未执行项目不得标为通过；人工发现的问题登记到 [Issue16.md](Issue16.md) 或新的当前问题记录。
+2. 工程实现、自动化门禁和正式构建结果写入对应的 Issue/Build/Design 文档，本文件只保留待处理入口。
+3. 完成事项从本文件移除，不保留逐项历史快照。
 
-- [x] **P0-1｜Issue15 R29-12：** 已确认 `Dockerfile` 从 `node:22-alpine` 升至 `node:24-alpine` 是有意的安全性更新；保留该变更。验证边界限定为前端构建镜像、依赖安装和相关构建/测试链，不将其表述为业务运行时行为变更。结论已回写 [Issue15.md](docs/reports/Issue/Issue15.md)，供 Issue14 步骤七使用。
-- [x] **P0-2｜Issue15 R29-01：** 已完成实施前复核：Setup 新库导入只发送 `IMPORT`；管理端已有库导入继续要求 `IMPORT → DISABLE`；2026-09-11 用户截图和当前代码确认报告中的 `RESET` 为历史误记，当前合同为 `DISABLE`。修复、隔离 Production 真实文件证据及 2026-09-14 真机本地人工测试通过结果已记录在 [Issue15.md](docs/reports/Issue/Issue15.md)；数据无法正确备份的能力缺口已转入 [Design5.md](Design5.md)，当前不作为问题追踪。
+## 变更记录
 
-Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 的后续 R28-07G 工程实施仍须按 P2-7 单独授权和验收，不能以本次复核替代。
-
-### P1 — Build22 Step 7 → Step 11 → Issue14 步骤三（已完成）
-
-主跟踪：Build22 Step 7、Issue14 步骤三/R28-05、Issue15 R29-11。
-
-- [x] **P1-1｜Build22 Step 7：** 补 `ActivatePending` / `DiscardPending` 与 `activated_at` 测试：激活原子更新、不改 stats/decision、历史 active/failed 不补造时间。
-- [x] **P1-2｜Build22 Step 7：** 补 `SanitizeStoredSyncOutputs` 幂等、非破坏性清洗测试。
-- [x] **P1-3｜Build22 Step 7：** 补 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON 测试，并证明编辑用 URL 保留原值。
-- [x] **P1-4｜Build22 Step 7：** 补 `NormalizeDiagnostics` 19 条真实 + 1 条截断摘要、200 rune 限额和空数组合同。
-- [x] **P1-5｜Build22 Step 7：** 补 v1 `rule_counts` 合计不变量、`previous_active`、稳定 reason/evidence codes 与旧 stats `version 0` 兼容测试。
-- [x] **P1-6｜Build22 Step 7：** 补 `latest_failed` 恢复、失败后成功不永久标红、同时间戳按 ID 稳定选择测试。
-- [x] **P1-7｜Build22 Step 7：** 补 failed 快照写失败时指针不变、不虚报 snapshot ID、详细 DB error 不进入展示字段的测试。
-- [x] **P1-8｜Build22 Step 7：** 补旧字符串数组 Clash plan 用户下载重渲染回退测试。
-- [x] **P1-9｜Build22 Step 7 验收：** 跑定向测试、后端 build、前端 build，逐条核对专属证据矩阵；不能只以全量绿灯替代。
-- [x] **P1-10｜Build22 Step 11：** 重跑后端全量/build/vet/相关 race、前端全量/build、Docker build、正式 Production smoke、`git diff --check`。
-- [x] **P1-11｜Issue14 步骤三：** 回写 R28-05、Issue15 R29-11、Build22、Design3、AGENTS；满足条件后归档 Build22 与 Design3。
-
-> 2026-09-11 完成记录：P1-1～P1-11 已全部执行；额外修复 `RedactDisplayURL` 编码分隔符/嵌套 URL 脱敏、`SanitizeStoredSyncOutputs` 事务化与 fallback 限额、`isLegacyClashPlan` 字符串 `rules` 识别。后端定向/全量/race/build/vet、前端 42 文件/259 用例/build、Docker build、Production smoke、`git diff --check` 通过；Build22/Design3 已归档，Issue14 步骤三与 Issue15 R29-11 已关闭。
-
-### P2 — Issue14 步骤五（R28-07）
-
-主跟踪：Issue14 步骤五/R28-07A～E、G～I；R28-07F 已确认为设计取向，不改代码。
-
-> 先新建或确认专门 Build 文档，把下列内容拆为可独立验收的 Steps；不得把本清单当作 Build 手册。具体 Step 编号、前置、影响评估、失败优先测试和验收命令以 [Build26.md](docs/reports/Build/Build26.md) 为准。
->
-> **当前进展（2026-09-11）：** [Build26.md](docs/reports/Build/Build26.md) Step 1～20 已按用户一次性串行授权完成并按归档规则移入 `docs/reports/Build/`，全部 Step ✅ 验收通过；R28-07A～E、G～I 已闭环，R28-07F 保持设计取向未实施。后端全量/race/build/vet、errgate、架构/SSE/导入接口回归、前端 46 文件/275 用例/build、Docker build、隔离 Production smoke、`git diff --check` 均通过。P2 复选框按实际验收结果勾选；真实浏览器/手机/客户端人工项目仍在 ProdTestList，不得因自动化通过而标记人工通过。
-
-- [x] **P2-1｜步骤五前置：** 建立失败优先回归、架构/静态门禁，并冻结各 Build Step 的范围、回滚边界和验收命令。
-- [x] **P2-2｜R28-07A：** 删除首管理员初始化冗余标记写入；覆盖密码注册、OIDC、后续用户和并发首建。
-- [x] **P2-3｜R28-07B：** 修正自定义订阅与隐藏组 Token 创建/清理顺序，实现业务键幂等协调；覆盖历史双 Token 和并发。
-- [x] **P2-4｜R28-07D：** 将用户下载渲染、流量汇总、OIDC 换票事务移出接入层；增加禁止 `internal/server` 直访 `DB()` / `TxImmediate()` 的检查。
-- [x] **P2-5｜R28-07C：** 全量审计生产代码忽略的 error，按回滚、补偿日志、异步状态写入分类处理，补失败注入和静态门禁。
-- [x] **P2-6｜R28-07E：** 去除运行期可变包级状态，改为实例注入或不可变规则；补多实例和 race 回归。
-- [x] **P2-7｜R28-07G：** 固定双导入入口 20 MiB 文件 / 21 MiB 请求体上限，覆盖边界值、超 1 字节、分块、伪造长度、截断读取、413 和前端提前拒绝；仅保护 Issue15 R29-01 既有 IMPORT/DISABLE 语义，不顺带处理其问题状态或人工复验。
-- [x] **P2-8｜R28-07I：** SSE 改为管理员路由 + `fetch`/`ReadableStream` Bearer 鉴权，移除一次性查询 Token；覆盖 401/403、权限变化、分帧、重连、卸载。
-- [x] **P2-9｜R28-07H：** 清理 `NodeCheckPanel.vue` 遗留 gray/white 类，补静态扫描与双主题断言。
-- [x] **P2-10｜步骤五验收：** 跑后端定向/全量/race/build/vet、前端定向/全量/build、接口级 401/403/413、Production smoke、`git diff --check`，同步受影响文档。
-
-### P3 — Issue14 步骤七（R28-09）
-
-前置：Issue14 步骤三、四、五、六已关闭；Build26 已归档；Build27 Step 0.5 已完成；用户 2026-09-13 一次性授权 Build27 Step 1～6 串行执行。
-
-- [x] **P3-1｜步骤七/R28-09：** ✅ 已按 P0-1 记录继续处理：运行阶段升级 `alpine:3.24` 并显式安装/验证 `ca-certificates`；保持 Dockerfile 不固定 digest；workflow `setup-node` 对齐 Node 24 并增加应用镜像最终 digest summary；README/Compose 保持 GHCR `latest` 并补充升级/可复现说明。
-- [x] **P3-2｜步骤七/R28-09：** ✅ 已恢复历史 MIT `LICENSE` 并同步 README 许可证描述；未重新发起许可证选择。
-- [x] **P3-3｜步骤七/R28-09：** ✅ 已将 `docs/Reference/Xray-Server-Config-Research.md` 的 13 个仓库外失效链接改为官方固定 commit URL，并新增最小内链检查脚本。
-- [x] **P3-4｜步骤七/R28-09：** ✅ 已逐项完成引用扫描后删除 `GenerateStep.vue`、`PreviewState.vue`、`ResponsiveCollection.vue`、`CopyField.vue`；前端 46 文件/275 用例和 build 通过。
-- [x] **P3-5｜步骤七验收：** ✅ 已完成联合构建、最终镜像 CA/非 root/HTTPS/无构建工具探针、内链/外链检查、静态扫描、隔离 Production smoke 与 `git diff --check`；已回写 R28-09、Build27、TODOLIST 与 AGENTS。
-
-### P4 — Issue14 步骤八（全量复核与关闭）
-
-- [x] **P4-1｜步骤八：** ✅ 2026-09-14 首轮通过，并在 R28 直接人工项完成后重新执行通过：后端全量 40 个有测试包全 `ok`、指定 11 包 race、build、vet、errgate、管理端定向测试、固定 Mihomo v1.19.29 严格门禁、前端 46 文件/275 用例、`npm run build`、正式 Production smoke、`git diff --check` 均通过。
-- [x] **P4-2｜步骤八：** ✅ 2026-09-14 首轮完成：Design4 顶部 v1.22/§12.7 状态、AGENTS Design4 引用与 SecurityScanPlan1 “Step 4～28 尚未开始”文案已同步；相关文档链接与证据边界已核对，无新增真实断链。
-- [x] **P4-3｜步骤八：** ✅ 已完成：确认 R28 各项均有关闭证据或明确后继文档；P4-1 已在 R28 直接人工项完成后重跑并通过；Issue14 已关闭并移入 `docs/reports/Issue/Issue14.md`。
-
-> **2026-09-14 P4 进展：** P4-1、P4-2 首轮完成；R28-05 §七 A/B、R28-06 A～E 与 R28-07 B/C 已通过真机核验，R28-07 A 已转入 Design5。随后完整 P4-1 已重跑通过，P4-3 已完成，Issue14 已归档。
-
-### P5 — SecurityScanPlan1 Step 4～28
-
-> 建议在 P1～P4 后执行，减少基线漂移。必须串行，每次仅一个 Step 进行中；每步向 SecurityReport3 追加证据胶囊和交接摘要，审查阶段不直接修业务代码。
-
-- [ ] **P5-04｜Step 4：** 后端 API、前端路由与保护链全量清点。
-- [ ] **P5-05｜Step 5：** 本地隔离动态环境与合成数据基线。
-- [ ] **P5-06｜Step 6：** Go/npm/容器/CI 软件供应链审查。
-- [ ] **P5-07｜Step 7：** 应用交付与运行时安全配置审查。
-- [ ] **P5-08｜Step 8：** Setup、本地认证、注册与应急模式审查。
-- [ ] **P5-09｜Step 9：** OIDC 发现、登录、绑定与换票链审查。
-- [ ] **P5-10｜Step 10：** 会话、Bearer/Cookie、CSRF 与凭据失效审查。
-- [ ] **P5-11｜Step 11：** RBAC、对象所有权、管理员与高级模式授权审查。
-- [ ] **P5-12｜Step 12：** 下载 Token、分享、公开内容与 SSE 凭据审查。
-- [ ] **P5-13｜Step 13：** 密码重置、验证码、审批与邮件安全审查。
-- [ ] **P5-14｜Step 14：** SQL、命令、配置、CRLF 与解析器注入审查。
-- [ ] **P5-15｜Step 15：** 前端 XSS、DOM、Markdown、URL 与第三方组件审查。
-- [ ] **P5-16｜Step 16：** CSP、安全响应头、CORS、跳转与缓存策略审查。
-- [ ] **P5-17｜Step 17：** 路径穿越、上传下载、静态资源与临时文件审查。
-- [ ] **P5-18｜Step 18：** 配置导入导出、备份、清空与数据完整性审查。
-- [ ] **P5-19｜Step 19：** 密码学、密钥派生、凭据存储与敏感数据生命周期审查。
-- [ ] **P5-20｜Step 20：** SSRF、DNS rebinding、重定向与全部出站网络审查。
-- [ ] **P5-21｜Step 21：** 请求限制、超时、限流、任务与小规模 DoS 审查。
-- [ ] **P5-22｜Step 22：** 业务一致性、并发事务、级联、预览/生成竞态审查。
-- [ ] **P5-23｜Step 23：** Xray 集成、协议参数、凭据与对账副作用审查。
-- [ ] **P5-24｜Step 24：** 日志脱敏、错误处理、调试、审计与告警能力审查。
-- [ ] **P5-25｜Step 25：** 匿名、公开、Setup 与异常状态黑盒验证。
-- [ ] **P5-26｜Step 26：** 普通用户、管理员与跨角色黑盒验证。
-- [ ] **P5-27｜Step 27：** 恶意输入、历史修复与全量验证。
-- [ ] **P5-28｜Step 28：** 发现去重、风险校准、OWASP 总结和最终交付；后续修复另行进入 Issue/Design/Build 决策。
-- [ ] **P5-29｜安全文档收口：** Step 1～28 全部验收，或阻塞项明确且获用户接受后，决定两份安全文档的最终状态与归档。
-
----
-
-## 2. 人工测试队列
-
-未执行项目不得标为通过；发现新问题登记到 Issue15，并记录环境、版本、入口和结果。
-
-| 顺序 | ProdTestList 项目 | 开始条件 |
-|---|---|---|
-| M1 | R28-06 §A/§B/§C/§D（含 WireGuard peers、多草稿与条件隐藏） | ✅ 用户于 2026-09-14 确认真机测试通过；R28-06 A～E 完成 |
-| M2 | R29-06 节点动态表单真实运行 | ✅ 用户于 2026-09-14 确认真机、本地人工测试通过 |
-| M3 | R29-04 真实手机/Production | ✅ 用户于 2026-09-14 确认真机、本地人工测试通过 |
-| M4 | R27-05 额外尺寸/焦点/折叠；R26-07 Xray PUT 403/400/409 | R27-05 ✅ 用户于 2026-09-14 确认真机测试通过且无问题；R26-07 当前可安排 |
-| M5 | Build22 Step 8 来源状态、Step 9 装配回执 | Step 8 A、Step 9 B ✅ 用户于 2026-09-14 确认真机、本地人工测试通过；R28-05 §七 A/B 完成 |
-| M6 | R29-01 修复后 Production 新库导入与引用关系 | ✅ 用户于 2026-09-14 确认真机、本地人工测试通过；完整备份缺陷转入 Design5 |
-| M7 | OIDC Mock 登录、Build11 重置链接四态 | OIDC Mock ✅ 用户于 2026-09-14 确认真机、本地人工测试通过；Build11 邮件测试不通过，已转 Issue16 R30-01 |
-| M8 | R20-11 重启数据保留 | ✅ 用户于 2026-09-14 确认真机、本地人工测试通过 |
-| M9 | Build26 §A 导入 20 MiB 边界、§B SSE 管理日志流、§C 主题 Token | §A 导入导出相关功能已转入 Design5；§B/§C ✅ 用户于 2026-09-14 确认真机、本地人工测试通过 |
-
----
-
-## 3. 后续设计候选（不并入当前收尾）
-
-- [ ] **F1｜Design4 后续范围：** 全量 19 协议条件表单、SS 2022、独立 Xray outbound 等须先形成新 Design/Build 并经用户决策。
-- [ ] **F2｜历史候选：** 非 SS 字段级 `target_evidence` 全局诊断等不得借 Issue14/15 收尾顺带实施。
-
----
-
-## 4. 回写规则
-
-1. 先在主文档分层记录事实、根因、实施、自动化和人工证据，再勾选本文件。
-2. Build/Design/Issue 满足关闭条件后才能归档；归档后同步链接。
-3. 每阶段执行 Markdown 本地链接检查和 `git diff --check`；代码阶段执行 AGENTS.md 对应门禁。
-4. 不改相邻问题状态，不把代码完成、自动化、Production smoke、人工或真实连接证据互相替代。
-
----
-
-## 5. 变更记录
-
-| 日期 | 变更 |
+| 日期 | 说明 |
 |---|---|
-| 2026-09-10 | 创建临时 TODOLIST，登记当时活跃文档、确认项、工程工作流与人工队列。 |
-| 2026-09-11 | 按最新活跃文档重排：以 Build22 Step 7 → Step 11 → Issue14 步骤三为首要主线；细化 Issue14 步骤五、七、八；逐项列出 SecurityScanPlan1 Step 4～28；更新人工测试开始条件与授权边界。 |
-| 2026-09-11 | 完成 P1：Build22 Step 1～11 全部证据补齐并重新通过全量门禁，修复脱敏/存量清洗/旧 plan 回退边界；问题 R28-05/R29-11 关闭，Build22/Design3 归档。 |
-| 2026-09-11 | 完成 P0-1/P0-2：确认 Node 22→24 为有意的安全性更新并限定验证边界；复核 Setup/管理端导入合同及 `RESET`→`DISABLE` 历史差异。P5 SecurityScanPlan1 仍作为构建之外的独立审查清单，不并入任何 Build/Design/Issue。 |
-| 2026-09-11 | 同步步骤五文档指向：用户确认先创建完整 [Build26.md](docs/reports/Build/Build26.md)，Step 0 已完成；TODOLIST 活跃快照、P2 入口和 Issue14 状态已同步。E 先于 C、G 21 MiB、I 15 秒权限重查等决策记录在 Build26 §一；Step 1 未授权，P2-1 仍未完成。 |
-| 2026-09-11 | 按用户最新授权同步授权口径：用户已一次性授权 Build26 Step 1～20 串行执行，每 Step 仍须独立失败优先、独立验收，当前 Step 验收通过后方可进入下一 Step；P2 项未完成前保持未勾选。预检记录见 [Build26.md](docs/reports/Build/Build26.md) §十。 |
-| 2026-09-11 | 完成 P2：Build26 Step 1～20 全部 ✅ 验收通过，R28-07A～E、G～I 闭环，errgate/架构/颜色门禁清零，后端全量/race/build/vet、前端 46 文件/275 用例/build、Docker build、隔离 Production smoke、接口级 401/403/413 与 `git diff --check` 通过；R28-07F 保持设计取向未实施。P2 已按实际结果勾选。 |
-| 2026-09-11 | 步骤五收口归档：Build26 全部 Step 验收通过并按 AGENTS 归档规则移入 `docs/reports/Build/`；ProdTestList v2.17 登记导入/SSE/主题人工项且保持未执行，TODOLIST 快照与人工队列同步；P3/P4/P5 未启动，等待用户另行授权。 |
-| 2026-09-13 | 重新核验并准备 Build27：确认 Build26 已归档、Issue14 步骤五已关闭；当时本地 `beta` 领先 `origin/beta` 1 个提交（用户已有提交 `cd52beb`，未推送）。同步 Build27 Step 0.5 已完成和 P3 前置状态，统一“不固定 Dockerfile digest”与已确认 MIT 许可证口径；未启动 R28-09 Step 1～6。 |
-| 2026-09-13 | 完成 P3：用户一次性授权 Build27 Step 1～6 串行执行，全部 ✅ 验收通过；Alpine 3.24 + `ca-certificates`、GHCR/CI Node 24/digest、MIT LICENSE、Xray 固定外链与内链脚本、四个未引用前端文件删除完成；最终 Compose/Docker 构建、镜像探针、前端 46 文件/275 用例/build、静态扫描、13/13 外链 HTTP 200、隔离 Production smoke、`git diff --check` 通过；R28-09/步骤七工程关闭，Build27 归档；P4/P5 未启动。 |
-| 2026-09-14 | 启动 P4：P4-1 首轮通过（后端全量 40 个有测试包全 ok、17 包 race、build、vet、errgate、固定 Mihomo v1.19.29 严格门禁、前端 46 文件/275 用例、build、正式 Production smoke、`git diff --check`）；P4-2 首轮完成 Design4 v1.22/§12.7、AGENTS Design4 引用与 SecurityScanPlan1 状态文案同步，并完成链接/证据边界核对；P4-3 未启动。按用户决策，必须等 ProdTestList 的 R28 直接人工项（§七 A/B、§R28-06 A～E、§八 A～C）完成后重跑 P4-1，再关闭归档 Issue14。 |
-| 2026-09-14 | R27-05 额外尺寸与交互边界已由用户确认真机测试通过且无问题，从 ProdTestList 当前人工队列移除；不新增 Issue15 问题，Issue14 P4-3 关闭门槛不变。 |
-| 2026-09-14 | Build22 Step 8 A 来源状态与 pending 操作已由用户确认真机、本地人工测试通过；更新 ProdTestList §七 A 记录。Step 8 B 仍待执行，Issue14 P4-3 继续等待 R28 直接人工项完整完成。 |
-| 2026-09-14 | Build22 Step 9 B 装配回执已由用户确认真机、本地人工测试通过；更新 ProdTestList §七 B 记录。R28-05 §七 A/B 已完成，Issue14 P4-3 仍等待 R28-06 A～E、R28-07 A～C 并重跑 P4-1。 |
-| 2026-09-14 | 完成 P4：R28 直接人工项已完成登记；重跑后端全量/指定 11 包 race/build/vet/errgate/管理端定向测试、固定 Mihomo v1.19.29 严格门禁、前端 46 文件/275 用例/build、隔离 Production smoke 与 `git diff --check` 全部通过；P4-3 完成，Issue14 已归档至 `docs/reports/Issue/Issue14.md`。ProdTestList、Issue16 和安全审查未纳入本次处理。 |
+| 2026-09-14 | 清理已完成事项和历史展开，仅保留 Issue16 R30-01、R26-07 两项短期待办。 |
