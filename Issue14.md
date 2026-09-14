@@ -11,7 +11,7 @@
 - **来源：** [核验 Build21 构建问题](thread://01a080de-c26e-7540-9db2-6b7b808f5eaa)、[继续 Build21 Step 14 测试](thread://01a080ce-4c83-7830-b7c2-aca36ba501b9)、[BuildReport4.md](docs/reports/BuildReport/BuildReport4.md) 及当前工作区文档核对。
 - **已通过：** Build21 Step 7～15 的自动化与验收证据已收口；后端全量测试、指定竞态测试、编译、`go vet`，前端 41 个测试文件 / 210 个用例（后续提交已扩展为 42 个文件 / 259 个用例）和生产构建，以及固定 Mihomo 1.19.29 严格正反例门禁均有通过记录。
 - **当前状态：** Build21 Step 14 的 R28-01～R28-04 工程问题、正式 Production smoke、固定 Mihomo 1.19.29 证据门禁及 PT-28-01～PT-28-05 人工项目均已完成，Step 14 已验收收口；Build22 R28-05 的 D3 缺口已完成 Step 1～11 的代码、测试与运行门禁，Step 7 专属自动化证据已于 2026-09-11 补齐并重新通过 Step 11，D3-1～D3-10 全部验收通过，Build22 与 Design3 已归档，实际浏览器/真机项目迁移至 ProdTestList。R28-06 步骤四主体与 2026-09-10 交叉审核发现的 R28-06B 前端 `item_id_field` 白名单缺口、R28-06C 保存定位排序和条件隐藏清理证据缺口均已修复/补齐，[Build25.md](docs/reports/Build/Build25.md) 已重新通过全部自动化门禁并按归档规则移入 `docs/reports/Build/`；浏览器、手机和真实客户端人工项仍由 ProdTestList 跟踪，未标记为通过。R28-07 已完成只读研究和方案确认，并已于 2026-09-11 创建 [Build26.md](docs/reports/Build/Build26.md)、完成 Step 0；用户随后一次性授权后，Build26 Step 1～20 已按严格串行、失败优先、独立验收完成并按归档规则移入 `docs/reports/Build/`：A/B/D/E/G/H/I 均有代码与自动化证据，C 的 errgate 基线清零，最终后端全量/race/build/vet、前端 46 文件/275 用例/build、接口级 401/403/413、Docker build、隔离 Production smoke 与 `git diff --check` 均通过；其中 R28-07F 经用户确认属于设计取向、未实施、未记为已修复；R28-08 的 N01～N07 经用户确认整体属于设计取向，已从工程实施范围关闭。剩余历史人工项目见 [ProdTestList.md](ProdTestList.md)，不在本文件重复登记为缺陷。R28-09 已由 2026-09-13 [Build27.md](docs/reports/Build/Build27.md) Step 1～6 完成：运行镜像升级 Alpine 3.24 并显式安装/验证 `ca-certificates`，GHCR `latest` 升级说明、CI 应用镜像 digest 记录与 workflow Node 24 对齐完成，MIT LICENSE 恢复，Xray 13 个固定 commit 外链与最小内链检查通过，四个未引用前端文件逐项删除并回归通过，隔离 Production smoke 与联合门禁通过；Build27 已归档。
-- **当前执行步骤：** 步骤一、步骤二已完成代码与自动化工程验收；步骤三已完成 Step 1～11 代码、专属自动化证据与运行门禁，2026-09-11 关闭；步骤四已由 Build25 完成代码、自动化与文档同步，工程关闭；步骤五（R28-07A～R28-07E、R28-07G～R28-07I；R28-07F 为设计取向）已按 [Build26.md](docs/reports/Build/Build26.md) Step 1～20 完成全部代码、失败优先、定向/全量/race/build/vet、前端全量/build、接口级和隔离 Production smoke 门禁，满足步骤五关闭条件；R28-08 已按设计取向关闭；步骤七（R28-09）已由 Build27 于 2026-09-13 完成工程与文档收尾并归档，步骤八全量复核未开始。浏览器、手机和真实客户端人工项目继续由 [ProdTestList.md](ProdTestList.md) 跟踪，未标记为人工通过。
+- **当前执行步骤：** 步骤一、步骤二已完成工程收口（步骤二的人工验收结论按用户确认记录）；步骤三已完成 Step 1～11 代码、专属自动化证据与运行门禁，2026-09-11 关闭；步骤四已由 Build25 完成代码、自动化与文档同步，工程关闭；步骤五（R28-07A～R28-07E、R28-07G～R28-07I；R28-07F 为设计取向）已按 [Build26.md](docs/reports/Build/Build26.md) Step 1～20 完成全部代码、失败优先、定向/全量/race/build/vet、前端全量/build、接口级和隔离 Production smoke 门禁，满足步骤五关闭条件；R28-08 已按设计取向关闭；步骤七（R28-09）已由 Build27 于 2026-09-13 完成工程与文档收尾并归档；步骤八已启动：P4-1 首轮门禁与 P4-2 首轮文档核对已完成，按用户 2026-09-14 决策，P4-3 及 Issue14 归档必须等待 ProdTestList 中 R28 直接人工项全部完成并重跑 P4-1 后再执行。浏览器、手机和真实客户端人工项目继续由 [ProdTestList.md](ProdTestList.md) 跟踪，未标记为人工通过。
 - **本轮边界：** Build26 Step 1～20 只处理 R28-07A～E、G～I；R28-07F 保持“设计取向、不实施”；未实施 R28-08/R28-09、Issue15 其他问题、SecurityScanPlan1 或 Design5；未新增数据库 schema、未改导入格式/AES-GCM 整体格式/下载或 HTTP 合同。最终后端全量测试、指定包 race、errgate 清零、架构/SSE/导入接口回归、build/vet，前端 46 文件/275 用例与 build，Docker build、隔离 Production smoke 和 `git diff --check` 均通过；人工/真机项目仍登记在 ProdTestList，未标记为通过。
 
 ---
@@ -102,6 +102,10 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 - **关联问题标号：** R28-01～R28-09，以及步骤三中的 D3-1～D3-10、步骤五实际整改的 R28-07A～E/G～I；R28-07F 与步骤六 R28-08 仅核对设计决策记录，不纳入代码整改验收。
 - **操作内容：** 按实际变更范围重新执行后端全量测试、竞态测试、`go build ./...`、`go vet ./...`、前端全量测试、`npm run build`、正式 Production smoke 和 `git diff --check`；核对 Build21、Build22、Design3、Design4、ProdTestList 和本文件的状态。
 - **完成条件：** 所有纳入本轮范围的问题均有关闭证据或明确迁移记录；Issue14 不再存在无归属、无状态或无后继文档的问题。
+- **P4 执行进展（2026-09-14，首轮；人工项完成前）：**
+  - **P4-1 首轮已真实执行并通过：** 后端 `go test ./... -count=1 -timeout 300s` 通过（45 个包，40 个有测试包全部 `ok`，5 个 `no test files`）；指定 17 包 `go test -race ... -count=1 -timeout 600s` 通过；`go build ./...`、`go vet ./...` 通过；`go run ./cmd/errgate ./...` 输出 `OK (0 ignored errors matched baseline; baseline entries 0; 0 unexpected)`；本机精确 `Mihomo Meta v1.19.29` 严格门禁 `.mihomo-test.sh` 通过；前端 `npm test -- --run` 通过（46 文件 / 275 用例），`npm run build` 通过（仅既有 main chunk 提示）；`bash .smoke-test-prod.sh` 在隔离临时 Production 容器/临时卷上完成并输出 `=== PROD SMOKE ALL DONE ===`；`git diff --check` 退出码 0。
+  - **P4-2 首轮文档核对已完成：** `Design4.md` 顶部版本由 v1.21 同步为 v1.22，并核验 §12.7 与 Build26/Build27 归档状态；`AGENTS.md` 同步 Design4 v1.22 引用，并将 `SecurityScanPlan1` 状态文案修正为 Step 4～28 尚未开始；`SecurityScanPlan1.md` 与 `SecurityReport3.md` 未修改。全仓 Markdown 行号感知扫描与 P4-1 前基线一致（995 条链接、33 条既有模板占位/已确认范围外断链，无新增真实断链）；内置脚本对 11 个 `文件:行号` 形式的误报已单独记录。
+  - **P4-3 未启动、Issue14 未关闭未归档：** 按用户 2026-09-14 决策，必须先完成 ProdTestList 中的 R28 直接人工项：§七 A/B（R28-05）、§R28-06 A～E（R28-06）、§八 A～C（R28-07）。这些项目完成并登记真实结果后，需重新执行完整 P4-1；只有重跑通过，才进入 P4-3 关闭与归档。其余 ProdTestList 历史项不阻塞本次工程归档，但仍保持未执行、未标记通过。
 
 补充说明：`Build23.md` 不作为新的操作步骤启动。其 R27-09/N-node-3/4 内容已归入 Build21；N-node-6 已在步骤四作为 R28-06 跟踪，主体与交叉审核缺口已由 [Build25.md](docs/reports/Build/Build25.md) 修复并归档；Build23 继续保留为交接与边界说明。
 
@@ -294,7 +298,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 - **步骤五关闭：** ✅ 已满足。R28-07A～R28-07E、R28-07G～R28-07I 均按确认方案完成代码、失败优先、定向/全量门禁、接口级和 Production smoke 证据，并同步 Design4/AGENTS/TODOLIST/ProdTestList/Issue14；R28-07F 保持设计取向、未实施且未误记为已修复。真实浏览器/手机/客户端/真实部署未执行，单独由 ProdTestList 跟踪，不阻塞工程关闭。
 - **步骤六关闭：** ☑ R28-08 的 N01～N07 已由用户确认为设计取向并从工程实施范围关闭；历史风险背景保留，未把“未实施”写成“已修复”。
 - **步骤七关闭：** ✅ 已满足。R28-09 每项已关闭或保留范围外记录；Build27 Step 1～6 已完成并归档，步骤八另需授权。
-- **步骤八关闭：** 按实际变更范围重新执行后端全量测试、竞态测试、`go build ./...`、`go vet ./...`、前端全量测试、`npm run build`、正式 Production smoke 和 `git diff --check`；Issue14 中每个问题均有关闭证据或明确后继文档。
+- **步骤八关闭：** 按实际变更范围重新执行后端全量测试、竞态测试、`go build ./...`、`go vet ./...`、前端全量测试、`npm run build`、正式 Production smoke 和 `git diff --check`；Issue14 中每个问题均有关闭证据或明确后继文档。**当前尚未满足：** 等待 ProdTestList 的 R28 直接人工项全部完成并重跑 P4-1；完成前 Issue14 保持活跃，不关闭、不归档。
 
 ---
 
@@ -302,6 +306,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.27 | 2026-09-14 | 启动 Issue14 步骤八/P4：P4-1 首轮门禁真实通过（后端全量 40 个有测试包全 `ok`、17 包 race、build、vet、errgate 0 违规、固定 Mihomo v1.19.29 严格门禁、前端 46 文件/275 用例、build、正式 Production smoke、`git diff --check`）；P4-2 首轮完成 Design4 v1.22/§12.7 状态与 AGENTS Design4 引用、SecurityScanPlan1 “Step 4～28 尚未开始”文案同步，链接与证据边界核对无新增真实断链。按用户决策，P4-3 及 Issue14 归档必须等待 ProdTestList 的 R28 直接人工项（§七 A/B、§R28-06 A～E、§八 A～C）全部完成并重跑 P4-1；当前 Issue14 保持活跃，未关闭、未归档。 |
 | v1.26 | 2026-09-13 | 完成 Issue14 步骤七/R28-09：用户一次性授权 Build27 Step 1～6 串行执行；运行镜像 Alpine 3.24 + `ca-certificates`、GHCR `latest` 升级说明/digest 记录/Node 24、MIT LICENSE、Xray 固定 commit 外链+内链脚本、四个未引用前端文件删除、联合门禁与隔离 Production smoke 均完成并验收；Build27 已归档；步骤七关闭，步骤八未启动。 |
 | v1.25 | 2026-09-11 | 完成 Issue14 步骤五/Build26 Step 1～20：R28-07A～E、G～I 代码与自动化验收通过，errgate 基线清零，架构/颜色门禁清零，后端全量/race/build/vet、前端 46 文件/275 用例/build、Docker build、隔离 Production smoke 与接口级 401/403/413 通过；R28-07F 保持设计取向未实施；Design4 增加 §12.7 现行合同补充，AGENTS/TODOLIST/ProdTestList/Issue14 同步完成；Build26 已按归档规则移入 `docs/reports/Build/`；步骤五关闭条件满足。 |
 | v1.24 | 2026-09-11 | 创建步骤五唯一构建记录 [Build26.md](docs/reports/Build/Build26.md)，完成 Step 0（范围、用户 2026-09-11 决策、Step 1～20、静态门禁、最终联合门禁与文档同步边界冻结）；同步 Issue14/TODOLIST/AGENTS 的文档指向，修正步骤五研究状态中的陈旧步骤三描述；Step 1 未执行，未修改代码/测试。 |
