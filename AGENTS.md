@@ -263,7 +263,7 @@
 | 文档 | 目标读者 | 内容 | 状态 |
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
-| [Design5.md](Design5.md) | 人类（开发者/用户）与 AI 编码助手 | §一～§六：完整数据加密导出与 Setup 一步迁移候选；§七：业务邮件内容定制与完整 URL 超链接 | v0.5；整站迁移未定稿；邮件内容已确认、Build28 已创建但未执行 |
+| [Design5.md](Design5.md) | 人类（开发者/用户）与 AI 编码助手 | §一～§六：Production 完整数据加密导出与 Setup 一步迁移候选；§七：业务邮件内容定制与完整 URL 超链接 | v0.6；整站迁移仅限 Production 且未定稿；邮件内容已确认、Build28 已创建但未执行 |
 | [Design4.md](Design4.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现增量设计基线：节点编辑器条件表单、分支清空与当前状态、统一保存契约、首批四协议矩阵、客户端兼容与目标检查 | v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体与前端 `item_id_field` 白名单、保存定位排序、条件隐藏清理证据均已闭环，Build25 已归档，已完成人工结果见 Issue14／Issue15，通用待核验项见 ProdTestList，Xray 专项见 XrayRelated1 |
 | [Design3.md](docs/reports/Design/Design3.md) | 人类（开发者/用户）与 AI 编码助手 | 已构建增量设计：规则来源三模式、单 URL 单主方言、Canonical Rule、来源快照、能力注册表与跨平台装配 | 已归档；已经 Build16 构建，Build22 Step 7 证据补齐后 D3 全验收通过 |
 | [Design2.md](docs/reports/Design/Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现增量基线：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接 | 已存档，已构建 |

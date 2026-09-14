@@ -9,7 +9,7 @@
 - [ ] R31-02：为真实 OIDC 的 discovery/token/JWKS endpoint 增加统一 HTTPS/SSRF 校验；真实 OIDC 登录仅在隔离环境核验。
 - [ ] R31-03：确认提供商切换字段语义后，处理“源地址/Client ID + 目标 Secret”混合风险。
 - [ ] R31-04：对字面值/不可解密密文增加损坏识别与强制重填路径。
-- [ ] R31-06：统一限制 OIDC mock 仅 Dev 可用（Setup/SaveOidc/oidcAvailable/Exchange），并补 prod+mock 回归测试。
+- [ ] R31-06：统一限制 OIDC mock 仅 Dev 可用；现有 Production 配置导入遇任何 mock 配置整体拒绝，并补保存、状态、登录及导入回归。未来整站恢复边界见 [Design5.md](Design5.md)，单独实施。
 - [ ] R31-07：明确「暂未启用」是本地 UI 状态还是持久化停用语义；若为后者，设计停用保留参数与重新启用合同。
 
 ## 跟踪规则
@@ -30,3 +30,4 @@
 | 2026-09-14 | 用户更正 R26-07 尚未完成；恢复对应短期待办。 |
 | 2026-09-14 | 将 R26-07 从本表拆分至 [XrayRelated1.md](XrayRelated1.md) 集中跟踪；本表不再重复列出 Xray 相关待办。 |
 | 2026-09-14 | 将 R31-01 从 Issue17 和本表分至 [ExportRelated1.md](ExportRelated1.md) 独立跟踪，并关联 Design5；R31-02 保留独立跟踪。 |
+| 2026-09-15 | 按用户确认细化 R31-06：现有 Production 导入拒绝任何 mock 配置；Design5 整站导出/导入仅限 Production，恢复前拒绝非 Production 来源及 mock 配置。 |
