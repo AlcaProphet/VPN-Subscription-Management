@@ -1,7 +1,7 @@
 # Issue17.md — R30-05 核验后的 OIDC 与配置导出遗留问题
 
 > **文档定位：** 本文件为核验 Issue16 R30-05 修复后新开的独立问题记录。R30-05 的三个阻塞项已在本轮修复；本文件跟踪未纳入该批次、但在核验中确认的既有高危问题与残余边界。
-> 关联：[Issue16.md](Issue16.md)、[AGENTS.md](AGENTS.md)。
+> 关联：[Issue16.md](docs/reports/Issue/Issue16.md)、[AGENTS.md](AGENTS.md)。
 
 ---
 
