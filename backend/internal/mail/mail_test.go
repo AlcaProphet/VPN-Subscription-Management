@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
@@ -70,6 +71,106 @@ func TestStartTLSRequired(t *testing.T) {
 		t.Fatalf("拒绝后仍发送了 SMTP 命令: %q", line)
 	}
 }
+
+// TestSetDeadlineErrorIsReturned SetDeadline 失败必须返回阶段化错误并关闭连接。
+func TestSetDeadlineErrorIsReturned(t *testing.T) {
+	st, _ := newTestMail(t)
+	ctx := context.Background()
+	cfg := config.NewService(st, log.New("error", "console"))
+	for k, v := range map[string]string{KeyHost: "127.0.0.1", KeyPort: "2525", KeyFrom: "sender@example.com", KeySecurity: config.SMTPSecurityPlain, KeyAuth: "false"} {
+		if err := cfg.Set(ctx, k, v); err != nil {
+			t.Fatalf("配置失败: %v", err)
+		}
+	}
+	stubErr := errors.New("SetDeadline stub failure")
+	conn := &deadlineErrorConn{err: stubErr}
+	svc := newServiceWithDialContext(cfg, log.New("error", "console"), func(context.Context, string, string) (net.Conn, error) {
+		return conn, nil
+	})
+	err := svc.Send(ctx, "recipient@example.com", "主题", "内容")
+	if err == nil {
+		t.Fatal("SetDeadline 失败时应返回错误")
+	}
+	var sendErr *sendError
+	if !errors.As(err, &sendErr) || sendErr.stage != "设置超时" {
+		t.Fatalf("应返回设置超时阶段的 sendError: %v", err)
+	}
+	if !errors.Is(err, stubErr) {
+		t.Fatalf("应保留原始 SetDeadline 错误供诊断: %v", err)
+	}
+	if got := err.Error(); got != "SMTP 设置超时失败" {
+		t.Fatalf("阶段化提示不符: %q", got)
+	}
+	if !conn.closed {
+		t.Fatal("SetDeadline 失败后应关闭连接")
+	}
+}
+
+// TestStartTLSExtensionErrorStopsBeforeCommands EHLO 阶段读取失败不能被伪装成“服务器未提供 STARTTLS”。
+func TestStartTLSExtensionErrorStopsBeforeCommands(t *testing.T) {
+	st, svc := newTestMail(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	done := make(chan string, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			done <- err.Error()
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		_, _ = conn.Write([]byte("220 mock SMTP\r\n"))
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			done <- err.Error()
+			return
+		}
+		if !strings.HasPrefix(line, "EHLO ") {
+			done <- line
+			return
+		}
+		done <- line
+		// 读取 EHLO 后立即断开，模拟 Extension 读取/解析失败。
+	}()
+	ctx := context.Background()
+	cfg := config.NewService(st, log.New("error", "console"))
+	host, port, _ := net.SplitHostPort(listener.Addr().String())
+	for k, v := range map[string]string{KeyHost: host, KeyPort: port, KeyUser: "sender@example.com", KeyPassword: "secret", KeyFrom: "sender@example.com", KeySecurity: config.SMTPSecurityStartTLS, KeyAuth: "true"} {
+		if err := cfg.Set(ctx, k, v); err != nil {
+			t.Fatalf("配置失败: %v", err)
+		}
+	}
+	err = svc.SendTest(ctx, "recipient@example.com")
+	if err == nil || !strings.Contains(err.Error(), "STARTTLS 能力探测失败") {
+		t.Fatalf("应返回 STARTTLS 能力探测失败: %v", err)
+	}
+	var sendErr *sendError
+	if !errors.As(err, &sendErr) || sendErr.stage != "STARTTLS 能力探测" {
+		t.Fatalf("应返回 STARTTLS 能力探测阶段的 sendError: %v", err)
+	}
+	if command := <-done; !strings.HasPrefix(command, "EHLO ") || strings.Contains(command, "AUTH ") || strings.Contains(command, "MAIL FROM:") || strings.Contains(command, "RCPT TO:") || command == "DATA\r\n" {
+		t.Fatalf("能力探测失败后不应继续发送邮件命令: %q", command)
+	}
+}
+
+// deadlineErrorConn 是仅用于测试的 net.Conn：SetDeadline 返回注入错误，记录 Close 调用。
+type deadlineErrorConn struct {
+	err    error
+	closed bool
+}
+
+func (c *deadlineErrorConn) Read([]byte) (int, error)         { return 0, c.err }
+func (c *deadlineErrorConn) Write([]byte) (int, error)        { return 0, c.err }
+func (c *deadlineErrorConn) Close() error                     { c.closed = true; return nil }
+func (c *deadlineErrorConn) LocalAddr() net.Addr              { return nil }
+func (c *deadlineErrorConn) RemoteAddr() net.Addr             { return nil }
+func (c *deadlineErrorConn) SetDeadline(time.Time) error      { return c.err }
+func (c *deadlineErrorConn) SetReadDeadline(time.Time) error  { return c.err }
+func (c *deadlineErrorConn) SetWriteDeadline(time.Time) error { return c.err }
 
 // TestPlainLoopbackRelay 即使本地中继宣告 STARTTLS，也不发送 AUTH 或自动升级。
 func TestPlainLoopbackRelay(t *testing.T) {

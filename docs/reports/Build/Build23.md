@@ -4,7 +4,7 @@
 > - 设计记录：[Design4.md](../../../Design4.md)（当前设计记录；与 AGENTS.md 或用户决策冲突时以用户确认为准）
 > - 问题来源：[BuildReport4.md](../BuildReport/BuildReport4.md)（全量核验报告，未闭环项 3）
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
-> - 问题追踪：[Issue14.md](../../../Issue14.md)（Build21 Step 14 工程问题、D3/N-core/N-node-6/安全等遗留工程问题）；R27 历史记录见 [Issue13.md](../Issue/Issue13.md)
+> - 问题追踪：[Issue14.md](../Issue/Issue14.md)（Build21 Step 14 工程问题、D3/N-core/N-node-6/安全等遗留工程问题）；R27 历史记录见 [Issue13.md](../Issue/Issue13.md)
 > - 用户人工验收：[ProdTestList.md](../../../ProdTestList.md)（Production、浏览器和真实客户端结果以此为准）
 > - 历史构建与问题记录：见 [docs/reports/](..)（均已存档，仅核查）
 >
@@ -22,8 +22,8 @@
 > - N-node-1：未知插件存储/URI 导入与 Clash 结构化 `plugin`/`plugin-opts` 输出已由 [Build21.md](Build21.md) Step 8/10/11/13 修复；项目自检已能识别并拒绝旧 URI 字符串格式。
 > - N-node-2/N-node-5：SS 插件范围内的目标诊断已由 [Build21.md](Build21.md) Step 12 接入节点检查与正式装配，v2ray-plugin/shadow-tls/restls 不再无条件误报 `ok`；非 SS 字段级 `target_evidence` 仍按用户确认不全局启用。
 > - N-node-3/N-node-4：SR VMess/VLESS 的 TLS/ALPN/指纹/Flow/Skip 输出与解析已由 [Build21.md](Build21.md) Step 15 补全。
-> - N-node-6：未知扩展/局部 JSON 边界主体与交叉审核缺口已由 Issue14 步骤四 R28-06 / [Build25.md](Build25.md) 完成；前端 `item_id_field` 白名单、保存定位稳定排序和条件隐藏清理证据已闭环，Build25 已归档，详见 [Issue14.md](../../../Issue14.md) R28-06。
-> - 遗留：Build21 Step 14 的工程问题与安全/D3 等其他 BuildReport4 遗留工程问题统一见 [Issue14.md](../../../Issue14.md)。
+> - N-node-6：未知扩展/局部 JSON 边界主体与交叉审核缺口已由 Issue14 步骤四 R28-06 / [Build25.md](Build25.md) 完成；前端 `item_id_field` 白名单、保存定位稳定排序和条件隐藏清理证据已闭环，Build25 已归档，详见 [Issue14.md](../Issue/Issue14.md) R28-06。
+> - 遗留：Build21 Step 14 的工程问题与安全/D3 等其他 BuildReport4 遗留工程问题统一见 [Issue14.md](../Issue/Issue14.md)。
 
 ---
 
@@ -49,7 +49,7 @@
 4. **非 SS 字段级 `target_evidence`**不全局消费，仅按 SS 插件合同派生诊断，避免无关降级。
 5. **固定版本证据**主要指 Mihomo 1.19.29 与 CVR 2.5.2 的离线/源码证据；Shadowrocket 兼容性仍以人工导入/连接证据为准，本轮 PT-28-01～PT-28-05 已完成相关核验。
 6. **R27-08**（`diagnostics: []` 契约）已在当前代码中修复，后续回归需继续保持非空数组语义。
-7. **N-node-6**（未知扩展/局部 JSON 边界）主体与交叉审核缺口已由 [Build25.md](Build25.md) Step 0～4 及后续修复完成；前端固定对象高级 JSON 已放行 `item_id_field`，保存定位稳定排序和条件隐藏清理专项回归补齐，Build25 已归档。后续以 [Issue14.md](../../../Issue14.md) R28-06 为唯一跟踪入口。
+7. **N-node-6**（未知扩展/局部 JSON 边界）主体与交叉审核缺口已由 [Build25.md](Build25.md) Step 0～4 及后续修复完成；前端固定对象高级 JSON 已放行 `item_id_field`，保存定位稳定排序和条件隐藏清理专项回归补齐，Build25 已归档。后续以 [Issue14.md](../Issue/Issue14.md) R28-06 为唯一跟踪入口。
 
 > **交接更新（2026-09-10）：** N-node-6 已完成：未知扩展仅加密存档/诊断、不进入任何客户端产物；局部 JSON 固定对象默认拒绝未知键、开放 Map 显式白名单；父子 JSON 草稿阻止覆盖并定位；WireGuard `peers._credential_id` 高级 JSON 白名单、保存定位稳定排序和条件隐藏清理证据均已在缺口修复后重新执行全部自动化门禁。Build25 已归档；Build23 继续保留为历史交接与边界说明，不重新成为执行入口。浏览器、手机和真实客户端人工项见 [ProdTestList.md](../../../ProdTestList.md)，未标记为通过。
 
@@ -61,7 +61,7 @@
 |---|------|------|------|
 | 1 | 后续 Shadowrocket/客户端矩阵验收 | 本轮 PT-28 人工项目已完成；后续新增矩阵仍迁移至 [ProdTestList.md](../../../ProdTestList.md)，不属于自动化可闭环项 | Design4 §8.5；ProdTestList |
 | 2 | 非 SS 字段级 `target_evidence` 全局诊断或前端逐字段证据展示 | 当前已确认仅按 SS 插件合同消费；全局启用会扩大影响面，建议作为后续独立优化 | Build21 §7.2 排除说明 |
-| 3 | BuildReport4 未闭环项 1、2、4～6 | Build16/Design3、smoke、安全报告、人工验收等，均不属于本 Build 范围；工程项已登记至 [Issue14.md](../../../Issue14.md) R28-05/R28-09，R28-08 已记录为设计取向关闭，人工项见 [ProdTestList.md](../../../ProdTestList.md) | BuildReport4 结论摘要 |
+| 3 | BuildReport4 未闭环项 1、2、4～6 | Build16/Design3、smoke、安全报告、人工验收等，均不属于本 Build 范围；工程项已登记至 [Issue14.md](../Issue/Issue14.md) R28-05/R28-09，R28-08 已记录为设计取向关闭，人工项见 [ProdTestList.md](../../../ProdTestList.md) | BuildReport4 结论摘要 |
 
 > 候选转 Step 流程：用户确认后，直接在 Build21 或后续对应 Build 文档中追加 Step，不在本文件重复展开。
 

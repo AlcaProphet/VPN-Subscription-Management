@@ -17,7 +17,7 @@
 - `FieldSchema` 条件/选项/重置元数据、活动投影、保存校验与 `/check`（Build18）；
 - 前端动态分区、可编辑下拉、局部 JSON、目标检查 UI（Build19）；
 - 19 个 manual 协议统一保存契约、URI 导入归一化、Xray 来源适配、输出门槛（Build20）；
-- R27-01～R27-08 与 R27-09 Step7～13（SS 插件统一合同、幂等归一化、固定敏感路径、SIP002 与 URI 目标分流、Clash/Mihomo 结构化插件投影、SS 插件专属目标诊断、未知插件前端编辑）已闭环，N-node-3/4 Step15 也已验收；**Step14 全链路回归与文档收口已完成**（见 [Build21.md](../reports/Build/Build21.md) 与 [Issue14.md](../../Issue14.md)），后续还有“其余 15 个协议完整条件表单、SS2022、独立 Xray outbound”等专项。
+- R27-01～R27-08 与 R27-09 Step7～13（SS 插件统一合同、幂等归一化、固定敏感路径、SIP002 与 URI 目标分流、Clash/Mihomo 结构化插件投影、SS 插件专属目标诊断、未知插件前端编辑）已闭环，N-node-3/4 Step15 也已验收；**Step14 全链路回归与文档收口已完成**（见 [Build21.md](../reports/Build/Build21.md) 与 [Issue14.md](../reports/Issue/Issue14.md)），后续还有“其余 15 个协议完整条件表单、SS2022、独立 Xray outbound”等专项。
 
 因此，本文不是“是否要条件表单/当前状态”的研究，而是：
 
@@ -144,7 +144,7 @@ SSPanel 的订阅渲染器都从 `custom_config` 读取协议参数，再生成�
 
 ### 4.1 R27-09 已收口步骤（Step11～Step13、Step15）中 SSPanel 的对照价值
 
-- 【项目事实】Build21 Step11～13 已完成并通过验收：Clash/Mihomo 结构化 SS 插件投影、SS 插件专属目标诊断与未知插件前端编辑均已落地；Step14 全链路回归/文档收口仍在 [Issue14.md](../../Issue14.md) 跟踪。
+- 【项目事实】Build21 Step11～13 已完成并通过验收：Clash/Mihomo 结构化 SS 插件投影、SS 插件专属目标诊断与未知插件前端编辑均已落地；Step14 全链路回归/文档收口仍在 [Issue14.md](../reports/Issue/Issue14.md) 跟踪。
 - 【SSPanel 事实】SSPanel 的 Clash 渲染器只把 `plugin` + `plugin_option` 当作字符串透传（Clash.php:29-43），没有为 `obfs/v2ray-plugin/shadow-tls/restls` 提供结构化字段映射；SIP002 也是把 `plugin`/`plugin_option` 直接拼进 query（SIP002.php:25-33）。
 - 【经推理】SSPanel **不能作为 SS 插件结构化输出的正面证据源**。它说明“旧生态长期使用字符串插件形式”，而当前项目已采用结构化 `obfs-opts`/`v2ray-plugin-opts`/`shadow-tls-opts`/`restls-opts` + Mihomo 固定版本证据；SSPanel 可当作“旧字符串形态无法表达结构化参数/易产生静默差异”的反例。
 - 【可能】未知插件参数的自由 JSON/键值编辑可参考 SSPanel 的 JSONEditor tree/code 双模式；当前项目 `ProtocolFieldEditor` 的 `map_value_type=string` 已更贴近未知字符串参数，是否需要全屏 JSON tree 编辑器取决于 UX，不是功能缺口。

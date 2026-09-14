@@ -99,6 +99,13 @@
 - 发送限时沿用有界 context；连接、握手、TLS、认证、发件人、收件人、内容传输和结束会话按阶段返回安全错误，不把服务商原始响应直接回显给页面或普通错误日志。发送成功仅表示 SMTP 服务端接受，收件箱投递另行核验。
 - 测试收件人仍为本次请求的单一 `to`，留空使用当前管理员邮箱，不持久化。发送按钮要区分“保存配置”和“用已保存配置测试”；三类业务邮件及管理员发链接共用新的“SMTP 已配置”判定，不引入平台切换或另一条发送路径。
 
+### 现行合同勘误（DC-01／DC-02，2026-09-14 已确认）
+
+> 本节为 BuildReport6 的 DC-01／DC-02 收敛口径；归档 `Design1.md` 的旧文字继续保留为历史记录，不按旧文实现，也不修改归档原文。
+
+- **DC-01 重置令牌四态：** 重置令牌一次性、1 小时 TTL；使用后不可再次设密；DB 保留 `used=1` 记录，用于区分 `valid / missing / used / expired`；过期历史由既有清理任务处理；不再以 Design1“用后即删”作为当前验收口径。当前实现位置：`backend/internal/auth/reset.go`、`backend/internal/server/auth.go`；定向测试见 `internal/auth/reset_test.go`、`internal/server/reset_validate_test.go`。
+- **DC-02 SMTP 三态合同：** `smtp_security` 固定为 `starttls / implicit_tls / plain`；`smtp_auth_required` 为独立开关；`plain` 仅允许回环 IP 且强制无认证；密码 GET 不回显并返回 `password_configured`，PUT 空值保持原密文、拒绝字面 `***`；保存走事务，`configured` 由后端统一判定；旧 `legacy`/机会性 STARTTLS 退出新合同，不静默迁移。当前实现位置：`backend/internal/config/smtp.go`、`backend/internal/config/admin.go`、`backend/internal/mail/mail.go`、`backend/internal/server/settings.go`。
+
 ### 面板中的“自定义发信内容”模块预留（只研究，未实施）
 
 - **放置与状态：** 预留在同一“通知”分组、SMTP 设置与测试区之后的独立“邮件内容”卡片；SMTP 连接参数与邮件文案分别保存，避免只改正文时触碰密码和连接方式。当前页面、数据库和发送结果均未新增该模块；正式实施前须先在 Design/Build 中定稿。
@@ -158,3 +165,4 @@
 | v1.5 | 2026-09-14 | 按用户决定将 R30-05 移回本文件并撤回 Issue17；连接方式改为两态开关研究并保留 `legacy` 第三态待定稿；预留自定义业务邮件内容模块，另登记用户管理邮件入口置灰风险 R30-06。 |
 | v1.6 | 2026-09-14 | 对照 Gitea/Vaultwarden/Mattermost/Nextcloud/GitLab 当前 SMTP 设置；按用户最新指示撤销旧设计兼容约束，推荐三态选择器（含本地无认证中继）并移除机会性自动模式；补对用户管理、导入恢复和邮件模板默认覆盖的影响，待用户确认后才进入实现。 |
 | v1.7 | 2026-09-14 | 按用户确认实施三态 SMTP、认证开关、完整校验与事务保存、统一已配置判定、阶段化安全错误和 R30-06 页面修复；后端 build/vet/test、前端 build/test 通过，真实服务及浏览器人工项保留待验收。 |
+| v1.8 | 2026-09-14 | 按 BuildReport6 DC-01/DC-02 收敛现行合同：补重置令牌四态与 SMTP 三态合同速查；归档 Design1.md 旧文字不修改、不作为当前实现/验收口径。 |

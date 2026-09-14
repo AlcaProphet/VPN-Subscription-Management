@@ -160,7 +160,9 @@
 
 ### 4.7 级联与清理
 
-- 删除操作必须按设计文档的级联规则完整清理关联数据与文件，不留孤儿
+- 数据库级联删除必须完整，不留孤儿记录，不破坏外键与事务一致性
+- 版本/内容文件的删除为 best-effort：DB 记录删除在同一事务提交成功后，再 best-effort 删除文件；删除失败只记录 warn，允许留下孤儿文件，不阻塞业务删除
+- 上述 best-effort 窄例外不放宽数据库级联、外键、事务一致性要求；残留文件由运维/备份恢复流程清理
 - 文件写入类操作统一失败清理模式（任一步失败完整回滚清理）
 
 ### 4.8 错误码
@@ -252,7 +254,7 @@
 - `TODOLIST.md` P0-1 已完成：已确认 `Dockerfile` 的 `node:22-alpine` → `node:24-alpine` 是有意的安全性更新并保留；验证边界限定为前端构建镜像、依赖安装及相关构建/测试链，不将其表述为业务运行时行为变更。对应追溯记录见 [Issue15.md](docs/reports/Issue/Issue15.md) R29-12。
 - `TODOLIST.md` P0-2 已完成：已复核 Setup 新库导入只需 `IMPORT`、管理端已有库导入继续使用 `IMPORT → DISABLE`，并确认历史报告中的 `RESET` 为误记；修复与隔离 Production 真实文件证据见 [Issue15.md](docs/reports/Issue/Issue15.md) R29-01，当前 Docker 镜像重建后的浏览器复验仍由 [ProdTestList.md](ProdTestList.md) 跟踪。
 - `TODOLIST.md` P5 `SecurityScanPlan1` 是构建之外的独立安全审查跟踪清单；不得将其步骤、证据或状态混入任何 Build、Design、Issue 或其他类似文档。
-- 2026-09-11 已完成并归档 [Build26.md](docs/reports/Build/Build26.md)（Issue14 步骤五/R28-07 唯一构建记录）：用户一次性授权后 Step 1～20 严格串行完成，R28-07A～E、G～I 已有代码/定向回归/全量门禁/接口级和隔离 Production smoke 证据，errgate 与架构/颜色门禁清零；R28-07F 保持设计取向未实施。现行工程合同补充见 [Design4.md](Design4.md) §12.7；AGENTS 仅同步状态和入口。
+- 2026-09-11 已完成并归档 [Build26.md](docs/reports/Build/Build26.md)（Issue14 步骤五/R28-07 唯一构建记录）：用户一次性授权后 Step 1～20 严格串行完成，R28-07A～E、G～I 已有代码/定向回归/全量门禁/接口级和隔离 Production smoke 证据，errgate 与架构/颜色门禁清零；R28-07F 保持设计取向未实施。现行工程合同补充见 [Design4.md](Design4.md) §12.7；AGENTS 仅同步状态和入口。2026-09-14 后续 N-01 修复后，当前 HEAD 的 `errgate` 重新通过，修复记录见 [BuildReport6.md](docs/reports/BuildReport/BuildReport6.md) 第十八章。
 
 ### 8.4 文档清单
 

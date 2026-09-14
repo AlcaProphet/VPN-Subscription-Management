@@ -1,7 +1,7 @@
 # Design3.md — VPN 订阅管理系统增量设计（规则来源识别、结构化素材与跨平台装配）
 
 > **文档定位：** 本文定义规则素材池下一阶段设计：管理员为每个 URL 选择 Clash 规则源、Shadowrocket（下文简称 SR）规则源或“我不确定”，系统以单 URL 单主方言为边界识别格式、提取平台无关规则、形成可追踪快照，再由 Clash/SR 目标适配器过滤和渲染。本文承接 [Design2.md](Design2.md) 第二～四章；第一期基线见 [Design1.md](Design1.md)。编码约束遵循 [AGENTS.md](../../../AGENTS.md)（**唯一强要求**）。
-> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](../Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](../Build/Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径。2026-09-10 交叉审核曾确认 Build22 Step 1～6、8～10 的代码与测试声明成立，但 Step 7 专属自动化证据仍有缺口；2026-09-11 Build22 已补齐 Step 7 全部证据并重新通过 Step 11 门禁，D3-1～D3-10 工程闭环成立，本文件按归档规则移入 `docs/reports/Design/`。Build16 只保留历史记录与后续勘误；实际浏览器、真实设备和真实客户端项目见 [ProdTestList.md](../../../ProdTestList.md)，均未标记为人工通过。剩余工程问题见 [Issue14.md](../../../Issue14.md)。
+> **设计状态：** 截至 2026-08-31，本设计已经完成研究和用户决策，并经 [Build16.md](../Build/Build16.md) 构建；后续同日补充 Mihomo ipcidr YAML 与 SR 显式 IP 规则文本识别口径。2026-09-09 经 R28-05 复核确认 Build16 仍有 D3-1～D3-10 未闭环项，实施以 [Build22.md](../Build/Build22.md) 为准；本文已补充重复 origin、手工编辑冲突、来源当前状态、v1 快照统计/激活时间和历史 Clash 渲染计划兼容口径。2026-09-10 交叉审核曾确认 Build22 Step 1～6、8～10 的代码与测试声明成立，但 Step 7 专属自动化证据仍有缺口；2026-09-11 Build22 已补齐 Step 7 全部证据并重新通过 Step 11 门禁，D3-1～D3-10 工程闭环成立，本文件按归档规则移入 `docs/reports/Design/`。Build16 只保留历史记录与后续勘误；实际浏览器、真实设备和真实客户端项目见 [ProdTestList.md](../../../ProdTestList.md)，均未标记为人工通过。剩余工程问题见 [Issue14.md](../Issue/Issue14.md)。
 > **范围边界：** 本期只重构“规则素材 URL/手工素材 → Canonical Rule → Clash/SR 渲染”链路，不重定义节点、代理组、装配版本、订阅分发、Xray 或权限体系。
 
 ---

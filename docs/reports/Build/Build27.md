@@ -13,7 +13,7 @@
 > **关联文档：**
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 当前设计：[Design4.md](../../../Design4.md)（R28-09 原则上不改设计合同；仅在用户确认需要时同步）
-> - 问题追踪：[Issue14.md](../../../Issue14.md)（步骤七、R28-09、关闭条件）
+> - 问题追踪：[Issue14.md](../Issue/Issue14.md)（步骤七、R28-09、关闭条件）
 > - 人工测试：[ProdTestList.md](../../../ProdTestList.md)（R28-09 不新增人工通过结论；如新增真实浏览器/升级项目，只登记、不标通过）
 > - 历史核验：[BuildReport4.md](../BuildReport/BuildReport4.md) §6.1/§6.4/§6.6、[BuildReport5.md](../BuildReport/BuildReport5.md) OBS-03/OBS-04
 > - 构建模板：[Build.template.md](../../DocTemplates/Build.template.md)

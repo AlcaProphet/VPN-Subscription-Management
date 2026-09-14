@@ -10,12 +10,12 @@
 ## 一、当前记录范围
 
 - **创建时间：** 2026-09-09
-- **记录来源：** [ProdTestList.md](ProdTestList.md) 中 PT-28-01～PT-28-05、R27、R26 和其他人工测试项目的实际执行结果；2026-09-10 起也登记文档交叉审核新发现、且尚未形成独立 Issue14 主跟踪条目的问题。
+- **记录来源：** [ProdTestList.md](../../../ProdTestList.md) 中 PT-28-01～PT-28-05、R27、R26 和其他人工测试项目的实际执行结果；2026-09-10 起也登记文档交叉审核新发现、且尚未形成独立 Issue14 主跟踪条目的问题。
 - **记录原则：** 人工测试项只登记用户实际观察到的现象、测试项目、环境、复现步骤和证据；没有实际测试证据时不创建问题结论。交叉审核项应给出代码/文档证据、主跟踪文档和后续验证入口，不把静态检查写成人工通过。
 - **处理边界：** 新问题默认只记录，不自行探索或修复；用户明确授权后，可在同一问题中补充根因、修复方案、实施结果和验收证据。自动化通过不得代替 Production、浏览器或真实客户端人工核验。
-- **编号约定：** 本文件新增问题使用 `R29-*` 编号；`PT-*` 继续表示 [ProdTestList.md](ProdTestList.md) 的测试项目，不与问题编号混用。
-- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-01～R29-10 已完成修复、自动化验证和用户人工核验；R29-11 已补齐 Step 7 专属自动化证据并随 Build22 收口关闭，R29-12 已确认并完成文档补记。此前已经记录在 [Issue14.md](docs/reports/Issue/Issue14.md) 的 R28-01～R28-04 不重复迁移。
-- **交叉引用：** Build11 §四邮件相关人工测试不通过已新建 [Issue16.md](Issue16.md) R30-01 跟踪，不并入本文件既有 R29 问题编号。
+- **编号约定：** 本文件新增问题使用 `R29-*` 编号；`PT-*` 继续表示 [ProdTestList.md](../../../ProdTestList.md) 的测试项目，不与问题编号混用。
+- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](../../../ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-01～R29-10 已完成修复、自动化验证和用户人工核验；R29-11 已补齐 Step 7 专属自动化证据并随 Build22 收口关闭，R29-12 已确认并完成文档补记。此前已经记录在 [Issue14.md](Issue14.md) 的 R28-01～R28-04 不重复迁移。
+- **交叉引用：** Build11 §四邮件相关人工测试不通过已新建 [Issue16.md](../../../Issue16.md) R30-01 跟踪，不并入本文件既有 R29 问题编号。
 
 ---
 
@@ -25,7 +25,7 @@
 
 ### R29-01 Setup 新库导入被错误要求同时输入 IMPORT 和 DISABLE
 
-- **关联测试项目：** [ProdTestList.md](ProdTestList.md) §三“Production 专项人工核查”前两项：v2 导出文件导入、新库数据引用核对
+- **关联测试项目：** [ProdTestList.md](../../../ProdTestList.md) §三“Production 专项人工核查”前两项：v2 导出文件导入、新库数据引用核对
 - **发现日期：** 2026-09-09
 - **测试环境/版本：** 2026-09-11 本地 Docker Production，`http://localhost:8080/setup`；导入文件 `vpn-sub-config-20260911.enc`，截图由用户提供
 - **现象：** 未配置且未启用高级模式的 Setup 页面使用 v2 文件导入时，输入 `IMPORT` 后提示“该导入会清空高级模式数据，请输入 DISABLE 确认”；Setup 页面没有第二确认入口，导入被阻断。
@@ -38,7 +38,7 @@
 - **回归测试：** 新增入口语义测试，覆盖 Setup 相同 v2 文件只凭 `IMPORT` 可提交、管理面板缺 `DISABLE` 仍拒绝、补 `DISABLE` 后可提交并完成。旧实现上的 Setup 分支先稳定失败，修复后三分支通过。
 - **自动化证据：** 2026-09-11 定向 `go test ./internal/config -run 'TestImportV2DisableConfirmationByEntry|TestImportV2' -count=1` 通过；后端 `go test ./...`、`go build ./...`、`go vet ./...` 全部通过；前端 `npm run build` 通过；根目录 `git diff --check` 通过。
 - **真实文件隔离验证：** 使用用户提供的文件和密码，在临时数据目录、独立 18080 端口启动当前代码的 Production 服务；真实 `POST /api/setup/import` 仅发送 `IMPORT` 返回 HTTP 200 与 `task_id`，异步导入完成后公开状态为 `configured=true`、`advanced_mode=false`、本地登录可用，未自动开启高级模式。临时服务随后停止并清理，当前 8080 Docker 数据卷未改动。
-- **人工核验：** 用户于 2026-09-14 确认 Production 专项人工核查在真机、本地环境通过，导入导出可用；同时指出数据仍无法正确备份。该备份能力缺陷已转入 [Design5.md](Design5.md) 待后续改进，按用户决定当前不作为问题追踪。
+- **人工核验：** 用户于 2026-09-14 确认 Production 专项人工核查在真机、本地环境通过，导入导出可用；同时指出数据仍无法正确备份。该备份能力缺陷已转入 [Design5.md](../../../Design5.md) 待后续改进，按用户决定当前不作为问题追踪。
 - **状态：** ✅ 已闭环（代码修复、自动化/隔离 Production 验证及真机本地人工测试通过；备份能力改进转入 Design5，不作为当前问题）
 - **历史只读复核（2026-09-10，修复前）：** 当时 `backend/internal/config/export.go:285-306` 对“v2 无实例/账号且 `advanced_mode != true`”分支强制要求 `disable_confirm_word=DISABLE`；`frontend/src/views/SetupView.vue:64-71` 的 Setup 新库导入只发送 `confirm_word=IMPORT`，没有第二步 `DISABLE` 通道，因此该场景被第二确认词阻断。`SettingsView.vue` 的面板导入已有两步流程，但 Setup 入口不同；当时 `ImportV2` 尚无入口级测试。2026-09-11 已由用户截图确认原报告中的 `RESET` 应为 `DISABLE`，并按上述范围完成修复。
 
@@ -46,7 +46,7 @@
 
 ### R29-02 不同素材池的同步任务被列表页全局状态错误阻断
 
-- **关联测试项目：** [ProdTestList.md](ProdTestList.md) 原 §二“Issue15 问题修复后的人工复验”的 R29-02（用户确认修复后已从当前待办移除）
+- **关联测试项目：** [ProdTestList.md](../../../ProdTestList.md) 原 §二“Issue15 问题修复后的人工复验”的 R29-02（用户确认修复后已从当前待办移除）
 - **发现日期：** 2026-09-09
 - **测试环境/版本：** 用户报告，具体环境和版本待补充
 - **现象：** 单个素材池同步任务工作正常，但同时运行多个同步任务时，似乎不能并行执行。
@@ -66,7 +66,7 @@
 
 ### R29-03 批量导入回执 UI 出现列错位和长文本溢出
 
-- **关联测试项目：** [ProdTestList.md](ProdTestList.md) 原 §二“Issue15 问题修复后的人工复验”的 R29-03（真机验证通过后已从当前待办移除）
+- **关联测试项目：** [ProdTestList.md](../../../ProdTestList.md) 原 §二“Issue15 问题修复后的人工复验”的 R29-03（真机验证通过后已从当前待办移除）
 - **发现日期：** 2026-09-09
 - **测试环境/版本：** 原始问题由用户提供的界面截图确认；修复后用户于 2026-09-09 确认真机验证通过，具体设备和版本未补充
 - **现象：** 批量导入本身无问题，但导入回执界面出现 UI 错位：名称列内容发生异常换行，回执中的长 URI 文本横向溢出并超出弹窗内容区域，表格列与内容显示不协调。
@@ -86,7 +86,7 @@
 
 ### R29-04 手机宽度下主页丢失进入管理面板按钮
 
-- **关联测试项目：** [ProdTestList.md](ProdTestList.md) 原 §二“Issue15 问题修复后的人工复验”的 R29-04；该项已完成人工复验并从当前清单移除
+- **关联测试项目：** [ProdTestList.md](../../../ProdTestList.md) 原 §二“Issue15 问题修复后的人工复验”的 R29-04；该项已完成人工复验并从当前清单移除
 - **发现日期：** 2026-09-09
 - **测试环境/版本：** 本地页面 `http://127.0.0.1:8080/`，并已在真机、本地环境完成人工测试；具体设备、系统、浏览器和版本未提供
 - **现象：** 在手机宽度（≤430px）下，当前主页丢失进入管理面板的按钮。
@@ -103,7 +103,7 @@
 
 ### R29-05 节点条件表单重复渲染输入框且下拉元数据文案粘连
 
-- **关联测试项目：** [ProdTestList.md](ProdTestList.md) §五“R27 后续人工核查”的 R27-05 额外尺寸与交互边界
+- **关联测试项目：** [ProdTestList.md](../../../ProdTestList.md) §五“R27 后续人工核查”的 R27-05 额外尺寸与交互边界
 - **发现日期：** 2026-09-09
 - **测试环境/版本：** 本地浏览器 `http://localhost:8080/admin/nodes`；节点编辑弹窗；用户通过浏览器标记指出重复输入框和选项文案显示问题
 - **现象：** 节点编辑表单的“传输”“安全”“Flow”“客户端指纹”等推荐值字段同时出现可编辑下拉和额外普通输入框；数字字段和列表字段也会额外出现普通输入框。下拉选项的显示名称、验证来源和分组文案缺少明确分隔，例如连成 `无mihomo-1.19.29常用`。
@@ -122,7 +122,7 @@
 
 ### R29-06 节点推荐字段缺少标准选择框语义并伴随数字/列表误写
 
-- **关联测试项目：** [ProdTestList.md](ProdTestList.md) 原 §二“Issue15 问题修复后的人工复验”的 R29-06；该项已完成人工复验并从当前清单移除
+- **关联测试项目：** [ProdTestList.md](../../../ProdTestList.md) 原 §二“Issue15 问题修复后的人工复验”的 R29-06；该项已完成人工复验并从当前清单移除
 - **发现日期：** 2026-09-09
 - **测试环境/版本：** 本地浏览器 `http://localhost:8080/admin/nodes`；用户通过浏览器标记指出推荐字段应使用与协议字段一致的标准下拉框，并确认“其他（自定义）”后显示独立内联表单
 - **现象：** “传输”“安全”等推荐字段原由原生输入框承载，缺少下拉箭头和明确的整框展开语义；首轮改为标准 Select 后，用户真实运行进一步发现其关闭态因始终启用 `show-search` 而仍呈现输入式语义，未与“协议”的按钮式关闭态完全一致。同步检查还发现 ALPN 推荐项仅为不可点击文字、可选数字未设置时显示为 `0`、WireGuard `int-list` 新增空项立即因 `Number('')` 写成 `0`。
@@ -138,7 +138,7 @@
 
 ### R29-07 节点分支清空提示脱离表单且 Select 切换导致弹窗滚动跳顶
 
-- **关联测试项目：** [ProdTestList.md](ProdTestList.md) §五“R27 后续人工核查”的 R27-05 焦点与交互边界
+- **关联测试项目：** [ProdTestList.md](../../../ProdTestList.md) §五“R27 后续人工核查”的 R27-05 焦点与交互边界
 - **发现日期：** 2026-09-10
 - **测试环境/版本：** 本地浏览器 `http://localhost:8080/admin/nodes`；用户通过浏览器标记指出清空提示的位置和选择框切换后的页面位移
 - **现象：** 切换协议、传输、安全方式或插件后，清空说明以页面顶部的短暂全局消息展示，没有持久归属于“新建节点/编辑节点”模块；在弹窗中下部切换任意 Select 选项时，弹窗会被自动拖回顶部，打断连续编辑。
@@ -155,7 +155,7 @@
 
 ### R29-08 素材池同步取消请求成功但任务继续运行
 
-- **关联测试项目：** [ProdTestList.md](ProdTestList.md) 原 R29-02 素材池同步并发行为复验期间发现的取消分支问题；修复并经用户确认后未加入当前待办。
+- **关联测试项目：** [ProdTestList.md](../../../ProdTestList.md) 原 R29-02 素材池同步并发行为复验期间发现的取消分支问题；修复并经用户确认后未加入当前待办。
 - **发现日期：** 2026-09-10
 - **测试环境/版本：** 用户在素材池同步实际运行测试中发现；具体设备、浏览器和 Production 版本未补充。
 - **现象：** 素材池开始同步后点击“取消”，界面提示正在取消，但任务仍继续执行并最终完成。
@@ -175,7 +175,7 @@
 
 ## 三、文档交叉审核补充登记（2026-09-10）
 
-> 以下条目由文档交叉审核发现，不是 [ProdTestList.md](ProdTestList.md) 的人工测试记录；工程实施与关闭仍以 Issue14 与对应已归档 Build 为准。未获授权修复前只记录事实、证据与复验入口。
+> 以下条目由文档交叉审核发现，不是 [ProdTestList.md](../../../ProdTestList.md) 的人工测试记录；工程实施与关闭仍以 Issue14 与对应已归档 Build 为准。未获授权修复前只记录事实、证据与复验入口。
 
 ### R29-09 WireGuard peers 高级 JSON 未放行内部 `_credential_id`
 
@@ -185,8 +185,8 @@
 - **影响：** WireGuard peers 高级 JSON 无法正确应用；多 Peer、重排或需要直接编辑 Peer 列表时尤为明显。
 - **预期：** 前端 known 集合加入 `field.item_id_field`，列表项应用/保存保留该内部标识且不进入客户端产物；补单测及多 Peer/重排回归。
 - **修复结果（2026-09-10）：** `ProtocolFieldEditor.vue` 新增 `knownFieldNames()`，将 `properties` 与 `item_id_field` 统一纳入已知字段；WireGuard `peers._credential_id` 可原样应用/保存/检查。新增多 Peer 重排保留 ID、固定对象其他未知键仍拒绝、`NodesView` 保存集成回归；后端定向/全量/build/vet、前端定向/全量/build、Docker build、Production smoke 与 `git diff --check` 通过。目标输出仍按 schema 剥离内部 ID。
-- **工程主跟踪：** [Issue14.md](docs/reports/Issue/Issue14.md) R28-06B / [Build25.md](docs/reports/Build/Build25.md)。
-- **人工复验入口：** [ProdTestList.md](ProdTestList.md) `R28-06` §B 的 WireGuard peers 高级 JSON 项。
+- **工程主跟踪：** [Issue14.md](Issue14.md) R28-06B / [Build25.md](../Build/Build25.md)。
+- **人工复验入口：** [ProdTestList.md](../../../ProdTestList.md) `R28-06` §B 的 WireGuard peers 高级 JSON 项。
 - **状态：** ✅ 已闭环（工程修复、自动化回归及 ProdTestList R28-06 §B 用户人工复验均已完成）
 
 ### R29-10 高级 JSON 多草稿保存定位排序未统一
@@ -196,8 +196,8 @@
 - **影响：** 多个后代 JSON 草稿并存时，保存定位顺序可能与提示和预期不一致；不造成数据丢失。
 - **预期：** 统一使用稳定路径排序 helper，或明确接受插入序并修正文档；补多草稿保存定位与条件隐藏清理回归。
 - **修复结果（2026-09-10）：** `NodesView.save()` 改为使用 `sortedUnappliedJsonPaths()[0]`，与父阻断/检查定位统一稳定排序；新增多草稿保存定位回归。`ProtocolFieldEditor` 增加模型值快照保护，父级因无关参数变化替换对象但内容不变时不清除仍有效 JSON 草稿；新增条件隐藏清理、保留无关有效草稿、折叠及组件卸载边界回归。后端定向/全量/build/vet、前端定向 5 文件/89 用例、全量 42 文件/259 用例/build、Docker build、Production smoke 与 `git diff --check` 通过。
-- **工程主跟踪：** [Issue14.md](docs/reports/Issue/Issue14.md) R28-06C / [Build25.md](docs/reports/Build/Build25.md)。
-- **人工复验入口：** [ProdTestList.md](ProdTestList.md) `R28-06` §C 的多草稿/条件隐藏项。
+- **工程主跟踪：** [Issue14.md](Issue14.md) R28-06C / [Build25.md](../Build/Build25.md)。
+- **人工复验入口：** [ProdTestList.md](../../../ProdTestList.md) `R28-06` §C 的多草稿/条件隐藏项。
 - **状态：** ✅ 已闭环（采用稳定路径排序方案 A；工程修复、自动化回归及 ProdTestList R28-06 §C 用户人工复验均已完成）
 
 ### R29-11 Build22 Step 7 专属自动化证据矩阵缺失
@@ -207,7 +207,7 @@
 - **已知缺口：** `ActivatePending`/`DiscardPending` 与 `activated_at` 语义；`SanitizeStoredSyncOutputs` 幂等/非破坏性清洗；`/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON；`NormalizeDiagnostics` 19+1 与 200 rune 限额；v1 `rule_counts` 分项合计不变量、`previous_active` 比较、旧 stats `version 0` 解析；`latest_failed` 恢复与同时间戳 ID 排序；failed 快照写失败时 active/pending 不变、不虚报 snapshot ID；旧字符串数组 Clash plan 下载重渲染回退。
 - **影响：** D3 工程闭环缺少可回归证据；不影响当前代码可构建/可运行，但不能按 Build22 自身验收标准关闭。
 - **修复结果（2026-09-11）：** 已按 Build22 Step 7 测试清单补齐全部自动化证据，并新增额外的清理/API/取消/超时/脱敏边界；重新执行后端定向/全量/race/build/vet、前端全量/build、Docker build、Production smoke、`git diff --check` 全部通过，D3-1～D3-10 闭环，Build22/Design3 已归档。
-- **工程主跟踪：** [Issue14.md](docs/reports/Issue/Issue14.md) R28-05 / [Build22.md](docs/reports/Build/Build22.md)。
+- **工程主跟踪：** [Issue14.md](Issue14.md) R28-05 / [Build22.md](../Build/Build22.md)。
 - **人工复验入口：** 无（属于自动化证据补齐；完成后由 Step 11 门禁验证）。
 - **状态：** ☑ 已修复 / ☑ 自动化回归通过 / ☑ 随 Build22 Step 11 重新收口
 

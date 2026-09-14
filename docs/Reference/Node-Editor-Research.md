@@ -493,7 +493,7 @@ generic URI：复用相同分支，存在相同限制
 | C5 | [render_clash.go](../../backend/internal/assembly/render_clash.go)：`clashProxy`、`normalizeClashFields` | 参数全量复制、列表归一化范围 |
 | C6 | [links.go](../../backend/internal/assembly/links/links.go)：`srLink`、`genericLink`、`transportValues`、`realityOpts` | VLESS REALITY 判定、Trojan 传输缺口、generic 映射 |
 | C7 | [validate.go](../../backend/internal/assembly/validate.go)：`hasLinkableNode`；[render_sr.go](../../backend/internal/assembly/render_sr.go)：`renderSrSubs` | 协议级能力判断与跳过节点回执 |
-| C8 | [clash_plan.go](../../backend/internal/assembly/clash_plan.go)：`ClashPlan`、`RenderClashPlan`；[render.go](../../backend/internal/server/render.go)：`renderUserSubscription` | manual 冻结快照与动态 Xray 下载边界 |
+| C8 | [clash_plan.go](../../backend/internal/assembly/clash_plan.go)：`ClashPlan`、`RenderClashPlan`；[render.go](../../backend/internal/userrender/userrender.go)：`renderUserSubscription` | manual 冻结快照与动态 Xray 下载边界 |
 | C9 | [uri_import.go](../../backend/internal/node/uri_import.go)；[uriparse.go](../../backend/internal/uriparse/uriparse.go)；[export.go](../../backend/internal/config/export.go)：`ExportPayload` | URI 输入与现有配置导出范围 |
 | C10 | [FormOverlay.vue](../../frontend/src/components/FormOverlay.vue)、[FormSection.vue](../../frontend/src/components/FormSection.vue) | 复用载体、焦点基础与静态分区能力 |
 | C11 | [node_test.go](../../backend/internal/node/node_test.go)、[nodes-view.spec.ts](../../frontend/tests/nodes-view.spec.ts)、[protocol-field-editor.spec.ts](../../frontend/tests/protocol-field-editor.spec.ts)、[links_test.go](../../backend/internal/assembly/links/links_test.go) | 已有测试入口；本轮仅阅读，没有重新运行 |

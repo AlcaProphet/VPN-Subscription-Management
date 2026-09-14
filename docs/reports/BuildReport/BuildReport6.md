@@ -6,8 +6,8 @@
 > **核验对象：** 当前工作区实际代码、配置、测试、迁移与文档，不采用任何旧 Build/BuildReport 的“已完成”表述代替当前实现证据。
 > **核验范围：** Design1～Design4 有效合同、AGENTS.md 强要求、BuildReport1～5 发现项回归、活跃跟踪项排除矩阵、当前工作区证据层级边界。
 > **核验原则：** 只读、证据驱动、先建立需求—实现—证据矩阵再判定；区分静态代码、自动化测试、隔离运行、Docker、Production、真实浏览器/手机/固定版本客户端/真实连接和用户人工验收。
-> **明确排除：** SecurityScanPlan1/SecurityReport3 第三期安全扫描步骤与结论、用户指定的 Issue16 当前跟进项及其未授权未来方案、核验期间外部新增的 Issue17 已跟踪项、ProdTestList/TODOLIST 人工核验动作、Design5 候选构想，以及其他明确属于未来版本的内容。
-> **重要环境说明：** 本次核验开始后约 12:18，工作区外部并行出现 `AGENTS.md`/`Issue16.md` 修改和 `Issue17.md` 新增；这不是本报告操作产生的。本报告不对其内容作设计判定，仅将其登记为活跃排除/当前跟踪来源；对这些文件的判定以其外部修改后的当前状态和本报告核验时点为准。
+> **明确排除：** SecurityScanPlan1/SecurityReport3 第三期安全扫描步骤与结论、用户指定的 Issue16 当前跟进项及其未授权未来方案、核验期间外部新增且随后由用户撤回的 Issue17 已跟踪项（R30-05 已回到 Issue16）、ProdTestList/TODOLIST 人工核验动作、Design5 候选构想，以及其他明确属于未来版本的内容。
+> **重要环境说明：** 本次核验开始后约 12:18，工作区外部并行出现 `AGENTS.md`/`Issue16.md` 修改和 `Issue17.md` 新增；这不是本报告操作产生的。后续外部提交已撤回并删除 `Issue17.md`，R30-05 回到 `Issue16.md`；本报告仅将其登记为活跃排除/当前跟踪来源，不恢复该文件。
 
 ---
 
@@ -70,11 +70,16 @@
 | 项目 | 值 |
 |---|---|
 | 分支 | `beta` |
-| HEAD | `2300369daf876729b91979763b3e1575c3676156` |
-| HEAD 标题 | 改进邮件配置的安全性与灵活性 |
-| HEAD 时间 | 2026-09-14 11:54:37 +0800 |
+| 原始审计 HEAD | `2300369daf876729b91979763b3e1575c3676156` |
+| 原始审计 HEAD 标题 | 改进邮件配置的安全性与灵活性 |
+| 原始审计 HEAD 时间 | 2026-09-14 11:54:37 +0800 |
+| 当前修复基线 HEAD | `11e7512bedab33965d1853dff4dd10b42c5402b7` |
+| 当前修复基线标题 | 实施通用 SMTP 三态连接方案，统一配置判定并改进错误提示 |
+| 当前修复基线时间 | 2026-09-14 13:00:22 +0800 |
+| 后续外部提交 | `b4ba217`（更新文档，2026-09-14 12:33:52 +0800）；`11e7512`（SMTP 三态实现，2026-09-14 13:00:22 +0800） |
 | 开始核验时 `git status --short` | 无输出（干净） |
 | 核验期间工作区变化 | 外部并行出现 `M AGENTS.md`、`M Issue16.md`、`?? Issue17.md`；HEAD 未变 |
+| 后续外部处置 | `Issue17.md` 已由用户撤回并删除，R30-05 回到 `Issue16.md` 独立跟踪；当前工作区干净 |
 | 本次新报告 | `docs/reports/BuildReport/BuildReport6.md` |
 
 ### 2.2 工具链
@@ -389,6 +394,8 @@ BuildReport5 基于旧 HEAD `a09dc5...`，其中以下结论在当前 HEAD 需�
 - **严重程度：** 中低。实际触发需要网络/协议读错误；一旦触发，legacy 模式可能继续未升级连接，starttls 模式返回错误原因不准确。
 - **为什么不属于本次排除范围：** Issue16 R30-03 的已知问题是“表单混淆端口/加密方式、超时与投递验证”，其修复要求是“不得把未升级 TLS 误报为加密”；本项是 `Extension` 读取错误被丢弃的独立错误处理缺口，没有在 Issue16/Issue17/ProdTestList 登记，也没有 `errgate:allow` 理由。
 
+> **后续 API 复核（2026-09-14 修复时）：** Go 1.26.4 的 `net/smtp.Client.Extension(ext string) (bool, string)` 不返回 error；其内部 `hello()` 会吞掉 EHLO/HELO 错误。因此不能按“`extErr != nil`”处理，而应在 STARTTLS 分支先调用 `client.Hello("")` 取回该错误，再读取缓存的扩展能力。N-02 的实质缺口与验收目标不变，修复证据见第十八章。
+
 > **说明：** 本报告不把版本文件失败清理路径列为“确定性新发现”，因其与 Build2/Build26 已记录的清理语义和用户对 `os.Remove` 的允许理由存在交叉，且本次未进行故障注入；将其列在 OBS-01/待确认。
 
 ---
@@ -396,6 +403,8 @@ BuildReport5 基于旧 HEAD `a09dc5...`，其中以下结论在当前 HEAD 需�
 ## 十三、观察项、文档冲突与待用户决策
 
 ### 13.1 观察项
+
+> **后续处置：** N-01/N-02、OBS-01/02/03/04 与 DC-01/DC-02 已在用户授权后按第十八章处理；本章保留核验时点原文，最终状态以第十八章、当前代码与测试结果为准。
 
 #### OBS-01：版本文件删除/驱逐失败清理存在非事务边界（待确认）
 
@@ -437,12 +446,17 @@ BuildReport5 基于旧 HEAD `a09dc5...`，其中以下结论在当前 HEAD 需�
 - **待用户决策点：** 由用户确认是更新 Design1 口径为“用后不可再用，记录可保留用于状态区分”，还是调整实现/验收四态定义。本报告不自行选边，也不实施。
 - **排除说明：** 该人工四态核验本身已由 ProdTestList/Issue16 跟踪，本报告不把未完成人工项计为新缺口；此条只登记文档合同冲突。
 
-#### DC-02：SMTP 配置 GET 的脱敏合同与当前实现冲突
+#### DC-02：SMTP 配置合同与 Design1 旧文字冲突（已按现行三态合同收敛）
 
-- **Design1 原文：** Design1 §3.4.8 描述 SMTP 密码“加密存储”、面板回显 `***`（以及“空=不修改”旧语义）。
-- **当前实现/活跃记录：** `config/admin.go` 的 `GetSMTP` 当前返回 `Password: ""` + `PasswordConfigured`，并在保存时拒绝字面 `***`；`Issue16.md` R30-02 记录此前的 `***` 覆盖缺陷与修复。
-- **影响：** Design1 文档仍是旧合同；若后续构建按 Design1 旧文实现，会重新引入密码覆盖风险。
-- **待用户决策点：** 由用户决定何时把该现行合同写入后续 Design/AGENTS 状态文档。当前修复已在 Issue16 单独授权下实施，本报告按排除项 EX-02 处理，不重复登记新缺口。
+- **Design1 原文：** Design1 §3.4.8 描述 SMTP 密码“加密存储”、面板回显 `***`（以及“空=不修改”旧语义），并用单一 TLS 开关表达连接安全。
+- **现行合同（`11e7512` 已实现，以 `Issue16.md` §三与代码为准）：**
+  - `smtp_security`：`starttls / implicit_tls / plain` 三态；`plain` 仅允许回环 IP 且强制无认证；
+  - `smtp_auth_required` 为独立开关，与连接方式解耦；
+  - 密码 GET 不回显，返回空输入 + `password_configured`；PUT 空值保持原密文，拒绝字面值 `***`；
+  - 保存走单个事务，`configured` 由后端统一判定；
+  - 旧 `legacy`/机会性 STARTTLS 退出新合同，不静默迁移。
+- **影响：** 归档 Design1 的旧文字继续作为历史记录，但后续不得再按“回显 `***`”“默认关闭 TLS”实现；现行合同补充同步到 `Issue16.md` §三，本报告只留核对索引。
+- **状态：** 已由用户确认，不再作为待决策项；不改归档 `Design1.md` 历史文字。
 
 #### DC-03：AGENTS.md 的 errgate 状态文字与当前实测不一致
 
@@ -523,6 +537,7 @@ BuildReport5 基于旧 HEAD `a09dc5...`，其中以下结论在当前 HEAD 需�
 |---|---|---|
 | v1.0 | 2026-09-14 | 首次创建：对当前 HEAD 的 Design1～Design4、AGENTS.md、BuildReport1～5 回归、活跃排除矩阵、命令证据、证据层级和最终判定进行全量只读核验；记录 N-01/N-02 新发现、OBS/DC 待确认项。 |
 | v1.1 | 2026-09-14 | 追加“用户决策确认记录”：通过 `ask_user_question` 确认 N-01/N-02 修复、OBS-01 best-effort 设计说明、DC-01/DC-02 文档同步、DC-03 修复后更新 AGENTS、OBS-02 有限内链修复、OBS-04 后续清理、OBS-05 保持外部改动、Issue17 保持独立跟踪、人工项暂不安排。未实施代码或报告外文档修改。 |
+| v1.2 | 2026-09-14 | 按用户授权执行后续修复：N-01/N-02、版本文件 best-effort、注释/死代码、AGENTS §4.7/状态、DC-01/DC-02、真实内链与脚本占位符；新增第十八章记录 R1～R12 与联合门禁。代码尚未提交。 |
 
 ### 本次操作声明
 
@@ -551,8 +566,69 @@ BuildReport5 基于旧 HEAD `a09dc5...`，其中以下结论在当前 HEAD 需�
 | OBS-02 Markdown 内链 | **只修复真实失效的归档/现行链接** | 后续需先分类 97 条缺失项，跳过模板占位符，只修归档迁移造成的实际断链；本次未改文档。 |
 | OBS-04 注释与死代码 | **并入下一次获授权的代码/文档收尾** | 后续与真实代码改动一起清理 `settings_ops.go` 旧注释和 `rulespec.go` 无常量；本次未改代码。 |
 | OBS-05 外部并行改动 | **确认预期，保持不动** | `AGENTS.md`、`Issue16.md` 的修改和 `Issue17.md` 的新增按外部工作保留，本报告不覆盖、不回退。 |
-| Issue17 R30-05 OIDC Secret | **先只做静态复核，不修复** | 继续由 Issue17 独立跟踪，不在本次授权范围内修改 OIDC 代码或配置。 |
+| Issue17 R30-05 OIDC Secret | **先只做静态复核，不修复；外部 Issue17 已撤回** | R30-05 现回到 `Issue16.md` 独立跟踪；不在本次授权范围内修改 OIDC 代码或配置，不恢复 `Issue17.md`。 |
 | ProdTestList 人工核验 | **暂时不安排** | R30-01、R26-07 等人工项继续挂起；项目不能据此宣称人工验收完成。 |
+| Build28 与后续记录 | **暂不需要新增 Build28** | 后续修复方案、执行步骤与验收证据追加到本报告；DC-01/DC-02 现行合同同步到 `Issue16.md` 与 `ProdTestList.md`；AGENTS 仅在 errgate 恢复后更新；不改归档 `Design1.md`。 |
 
-**边界说明：** 以上决策不改变第十六章“当前代码实现符合度、自动化验证结果、仍待人工确认”三者的分离结论；后续实施需要新的授权/构建/问题记录承载，不得在本只读核验中直接展开。
+**边界说明：** 以上决策不改变第十六章“当前代码实现符合度、自动化验证结果、仍待人工确认”三者的分离结论；后续实施需要新的授权/构建/问题记录承载，不得在本只读核验中直接展开。2026-09-14 用户已另行授权按第十八章执行修复。
 
+---
+
+## 十八、后续修复执行记录（2026-09-14，无 Build28）
+
+> 用户于 2026-09-14 授权“逐个完成上述问题”，并决定暂不新增 Build28。本节承载 D1～D4 最新决策、R1～R12 落点与结果、联合门禁证据；第十七章保留当初的决策输入，冲突处以本节为准。以下实现均尚未提交。
+
+### 18.1 D1～D4 决策索引与落点
+
+| 决策 | 最新决定 | 本轮落点 |
+|---|---|---|
+| D1 | AGENTS §4.7 增加“版本/内容文件删除为 best-effort”窄例外，不放宽 DB 级联/外键/事务一致性 | R5 |
+| D2 | 版本文件删除改为“事务内只删 DB 记录，提交成功后再 best-effort 删文件” | R3 |
+| D3 | 暂不新增 Build28；修复方案、步骤与验收证据由本报告第十八章承载；DC-01/DC-02 同步到 `Issue16.md` 与 `ProdTestList.md`；不改归档 `Design1.md` | P0、R9，以及 R7/R8 |
+| D4 | `check-md-links.mjs` 仅跳过 `BuildN/DesignN/IssueN` 模板占位符，不改变其他相对路径检查 | R12 |
+
+### 18.2 R1～R12 结果
+
+| 条目 | 状态 | 实现与验收证据 |
+|---|---|---|
+| R1 N-01 | 已完成 | `backend/internal/mail/mail.go`：`conn.SetDeadline` 失败返回 `sendError{stage: "设置超时"}` 并关闭连接；新增 `TestSetDeadlineErrorIsReturned`；`go test ./internal/mail`、`errgate` 通过。 |
+| R2 N-02 | 已完成（按真实 API 调整） | Go 1.26.4 `net/smtp.Client.Extension` 实际签名为 `(bool, string)`，内部 `hello()` 会吞掉 EHLO/HELO 错误；修复改为在 STARTTLS 分支先 `client.Hello("")` 取回错误，再读取扩展能力。新增 `TestStartTLSExtensionErrorStopsBeforeCommands`，覆盖 EHLO 阶段断开、不得继续 AUTH/MAIL/RCPT/DATA；`errgate` 通过。 |
+| R3 OBS-01 + D2 | 已完成 | `DeleteVersion` 事务内只删 DB 记录并读取 `file_path`，提交成功后调用 `removeVersionFilesBestEffort`；`evictOldest` 改为返回待删路径，由 `CreateVersion` 在事务成功后统一 best-effort 删除。新增 3 个测试：正常删除清文件、删除失败仍成功、提交失败不提前删旧文件（SQLite 延迟外键故障注入）。`go test ./internal/version` 通过。 |
+| R4 OBS-04 | 已完成 | `settings_ops.go` 导入注释改为“完整 multipart 请求体 21 MiB、file 字段 20 MiB 硬上限”；`rulespec.go` 删除 `var _ = http.StatusOK` 与 `net/http` import。`go build`、`go vet`、`go test ./internal/server` 通过。 |
+| R5 D1 | 已完成 | `AGENTS.md` §4.7 明确：DB 级联删除必须完整；版本/内容文件删除为 best-effort，DB 事务提交后执行，失败只 warn，允许孤儿文件；该例外不放宽 DB 级联/外键/事务一致性；残留文件由运维/备份恢复流程清理。 |
+| R6 DC-03 | 已完成 | N-01 修复且 `errgate` 恢复 OK 后，`AGENTS.md` §8.3.1 补记“2026-09-14 后续 N-01 修复后当前 HEAD errgate 重新通过”，并指向本报告第十八章。 |
+| R7 DC-01 | 已完成 | `Issue16.md` §三新增“现行合同勘误（DC-01／DC-02）”：一次性、1 小时 TTL、使用后不可再次设密、保留 `used=1` 记录区分四态、过期由清理任务处理、不再以 Design1“用后即删”为验收口径；`ProdTestList.md` §1 同步。 |
+| R8 DC-02 | 已完成 | `Issue16.md` §三补明 SMTP 三态合同：`starttls / implicit_tls / plain`、独立 `smtp_auth_required`、`plain` 仅回环且强制无认证、GET 不回显 + `password_configured`、PUT 空值保持且拒绝 `***`、事务保存、后端统一 `configured`、旧 `legacy` 退出且不静默迁移。 |
+| R9 BuildReport6 | 已完成 | §2.1 补记原始审计 HEAD `2300369` 与当前修复基线 `11e7512`；Issue17 撤回、R30-05 回到 Issue16；DC-02 改为现行三态合同；本第十八章追加 D1～D4 与 R1～R12 结果索引。 |
+| R10 OBS-05 | 保持不变 | 不恢复 `Issue17.md`；R30-05 继续由 `Issue16.md` 静态跟踪；未修改 OIDC 代码或配置。 |
+| R11 OBS-02 | 已完成 | 修复 65 条真实失效内链：34 条归档后 `Issue14.md` 路径、19 条 `Issue15.md` 其他错误相对路径、11 条带行号代码引用、1 条已删除 `render.go`；模板占位符保留。 |
+| R12 D4 | 已完成 | `scripts/check-md-links.mjs` 仅新增 `^(?:\.\.?\/)*(?:Build|Design|Issue)N\.md$` 跳过规则和中文注释；其余相对路径逻辑未改。 |
+
+### 18.3 联合门禁实际结果
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 后端编译 | `cd backend && go build ./...` | PASS |
+| 后端静态检查 | `cd backend && go vet ./...` | PASS |
+| 后端全量测试 | `cd backend && go test ./... -count=1 -timeout 300s` | PASS，全部有测试包 ok |
+| 错误静态门禁 | `cd backend && go run ./cmd/errgate ./...` | PASS，输出 `OK (0 ignored errors matched baseline; baseline entries 0; 0 unexpected)` |
+| 关键包 race | `cd backend && go test -race ./internal/mail ./internal/version -count=1` | PASS |
+| 仓库内链 | `git ls-files '*.md' \| xargs node scripts/check-md-links.mjs` | PASS，`checked_links=887 missing=0 files=107` |
+| 空白检查 | `git diff --check` | PASS |
+
+> 说明：R1/R2 的 `errgate` 通过是在 N-01/N-02 修复后实际重跑所得；本文档中的 `Issue17` 相关历史文字不再作为当前跟踪来源。
+
+### 18.4 本次变更文件
+
+- 后端：`backend/internal/mail/mail.go`、`backend/internal/mail/mail_test.go`、`backend/internal/version/version.go`、`backend/internal/version/version_test.go`、`backend/internal/server/settings_ops.go`、`backend/internal/server/rulespec.go`
+- 强要求/活跃跟踪：`AGENTS.md`、`Issue16.md`、`ProdTestList.md`
+- 报告与 Reference：`docs/reports/BuildReport/BuildReport6.md`、`docs/Reference/Node-Editor-Research.md`、`docs/Reference/Node-Editor-3xui-Xray-Research.md`、`docs/Reference/SSPanel-Node-Editor-Research.md`、`docs/Reference/Node-Editor-Ecosystem-Research.md`
+- 归档文档链接：`docs/reports/Design/Design3.md`、`docs/reports/Issue/Issue13.md`～`Issue15.md`、`docs/reports/Build/Build21.md`～`Build27.md` 中实际失效的相对链接
+- 脚本：`scripts/check-md-links.mjs`
+
+### 18.5 仍待人工/未执行边界
+
+1. R30-05 OIDC Secret 未修复，继续由 `Issue16.md` 静态跟踪。
+2. `ProdTestList.md` 的 R30-01 重置链接四态、R26-07 Xray 错误码仍待人工核验；本轮未替代真机/浏览器/真实服务。
+3. Docker/Production smoke、真实 SMTP、真实 OIDC、真实 Xray、固定版本客户端/手机/浏览器验收均未执行。
+4. 本轮未提交 Git；最终提交粒度由用户决定。

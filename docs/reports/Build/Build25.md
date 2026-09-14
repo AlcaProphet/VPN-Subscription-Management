@@ -2,7 +2,7 @@
 
 > **文档定位：** 本文档是 Issue14 步骤四、R28-06（N-node-6）的**唯一详细构建记录**。承接已归档 [Build22.md](../Build/Build22.md)（D3 已收口）与已归档 [Build24.md](Build24.md)，只处理 R28-06A/B/C，不进入 R28-07、R28-08、R28-09。Step 0～4 已完成，2026-09-10 文档交叉审核发现的前端 `item_id_field` 白名单缺口、保存定位排序和条件隐藏清理证据缺口已修复/补齐，并重新通过全部自动化门禁；**本文件已按归档规则移入 `docs/reports/Build/`**。浏览器、手机和真实客户端人工项仍以 [ProdTestList.md](../../../ProdTestList.md) 为准，未标记为通过。
 > - 设计记录：[Design4.md](../../../Design4.md)（R28-06 文档同步目标；与 AGENTS.md 或用户决策冲突时以用户确认为准）
-> - 问题追踪：[Issue14.md](../../../Issue14.md)（步骤四 R28-06）
+> - 问题追踪：[Issue14.md](../Issue/Issue14.md)（步骤四 R28-06）
 > - 历史来源：[BuildReport4.md](../BuildReport/BuildReport4.md) §5.3 N-node-6、[BuildReport3.md](../BuildReport/BuildReport3.md) §6.4、[Build23.md](Build23.md) §二.7
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 人工核验：[ProdTestList.md](../../../ProdTestList.md)（R28-06 人工项目统一迁入此处）

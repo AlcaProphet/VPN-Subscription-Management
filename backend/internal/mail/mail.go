@@ -37,8 +37,9 @@ const (
 
 // Service SMTP 邮件服务
 type Service struct {
-	cfg *config.Service
-	log *slog.Logger
+	cfg         *config.Service
+	log         *slog.Logger
+	dialContext func(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 // sendError 保留内部原因供诊断，但对页面与普通日志只暴露阶段化提示。
@@ -61,7 +62,12 @@ func (e *sendError) Error() string {
 func (e *sendError) Unwrap() error { return e.err }
 
 func NewService(cfg *config.Service, lg *slog.Logger) *Service {
-	return &Service{cfg: cfg, log: lg}
+	return newServiceWithDialContext(cfg, lg, (&net.Dialer{}).DialContext)
+}
+
+// newServiceWithDialContext 构造注入网络拨号（测试可替换为本地 stub，不引入包级可变状态）。
+func newServiceWithDialContext(cfg *config.Service, lg *slog.Logger, dialContext func(ctx context.Context, network, address string) (net.Conn, error)) *Service {
+	return &Service{cfg: cfg, log: lg, dialContext: dialContext}
 }
 
 // Configured SMTP 是否按当前连接方式与认证设置完整配置。
@@ -85,14 +91,12 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 	// 包括 TCP、TLS、SMTP 会话与 DATA 的总期限；取消请求时关闭连接以解除阻塞读取。
 	sendCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	dialer := &net.Dialer{}
-
 	var conn net.Conn
 	var err error
 	if security == "implicit_tls" {
-		conn, err = (&tls.Dialer{NetDialer: dialer, Config: &tls.Config{ServerName: host}}).DialContext(sendCtx, "tcp", addr)
+		conn, err = (&tls.Dialer{NetDialer: &net.Dialer{}, Config: &tls.Config{ServerName: host}}).DialContext(sendCtx, "tcp", addr)
 	} else {
-		conn, err = dialer.DialContext(sendCtx, "tcp", addr)
+		conn, err = s.dialContext(sendCtx, "tcp", addr)
 	}
 	if err != nil {
 		return &sendError{stage: "连接", err: err}
@@ -100,7 +104,10 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 	stopClose := context.AfterFunc(sendCtx, func() { _ = conn.Close() })
 	defer stopClose()
 	if deadline, ok := sendCtx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
+		if err := conn.SetDeadline(deadline); err != nil {
+			_ = conn.Close()
+			return &sendError{stage: "设置超时", err: err}
+		}
 	}
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
@@ -110,12 +117,17 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 	defer client.Close()
 	// STARTTLS 必须升级成功；本地无认证中继保持明文且不尝试升级。
 	if security == config.SMTPSecurityStartTLS {
-		if ok, _ := client.Extension("STARTTLS"); ok {
-			if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
-				return &sendError{stage: "STARTTLS 升级", err: err}
-			}
-		} else {
+		// Go 1.26 的 net/smtp.Client.Extension 返回 (bool, string)，内部 hello() 的错误会被吞掉；
+		// 先显式执行 Hello 以暴露 EHLO/HELO 阶段错误，再读取缓存的扩展能力。
+		if err := client.Hello(""); err != nil {
+			return &sendError{stage: "STARTTLS 能力探测", err: err}
+		}
+		ok, _ := client.Extension("STARTTLS")
+		if !ok {
 			return errors.New("SMTP 服务器未提供 STARTTLS，已停止发送")
+		}
+		if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
+			return &sendError{stage: "STARTTLS 升级", err: err}
 		}
 	}
 	if authRequired {
