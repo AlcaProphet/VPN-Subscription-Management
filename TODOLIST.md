@@ -1,6 +1,6 @@
 # TODOLIST.md — 后续工作顺序跟踪（2026-09-13）
 
-> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](docs/reports/Issue/Issue14.md)、[Issue15.md](Issue15.md)、[Build26.md](docs/reports/Build/Build26.md)、[Build27.md](docs/reports/Build/Build27.md)（已归档）、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
+> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](docs/reports/Issue/Issue14.md)、[Issue15.md](docs/reports/Issue/Issue15.md)（已归档）、[Build26.md](docs/reports/Build/Build26.md)、[Build27.md](docs/reports/Build/Build27.md)（已归档）、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
 > **授权边界（2026-09-11 用户最新确认）：** 用户已一次性授权按 [Build26.md](docs/reports/Build/Build26.md) Step 1～20、[Build27.md](docs/reports/Build/Build27.md) Step 1～6 串行执行；单个 Step 通过其全部验收后无需再次等待单独授权。每一步仍须按 AGENTS.md 完成影响评估、文档疑点检查、失败优先测试和验收记录；不得跳步、并行或扩围。遇到阻断、重大设计选择或文档冲突仍须停止并报告。
 > **排序原则：** 先关闭已有活跃 Build 的验收缺口，再处理 Issue14 的工程整改和项目收尾；工程基线冻结后继续第三期安全审查；人工结论单独由 ProdTestList 跟踪。
 
@@ -15,7 +15,7 @@
 | [Build26.md](docs/reports/Build/Build26.md) | **已归档的步骤五构建记录**；Step 1～20 已按一次性串行授权完成并验收通过；R28-07F 保持设计取向未实施 | ✅ 已完成并归档；真实人工项在 ProdTestList 保持未执行 |
 | [Build27.md](docs/reports/Build/Build27.md) | **已归档的步骤七构建记录**；Step 1～6 已按一次性串行授权完成并验收通过；R28-09 关闭 | ✅ 已完成并归档；远端 CI 与真实人工项未执行 |
 | [docs/reports/Issue/Issue14.md](docs/reports/Issue/Issue14.md) | 步骤一～八已关闭，P4-1 重跑和 P4-3 已完成；Issue14 已归档 | ✅ 已完成并归档 |
-| [Issue15.md](Issue15.md) | R29-01～R29-10 已由用户确认真机、本地人工测试通过；R29-11 已关闭；R29-12 已完成 | 完整数据备份缺陷已转入 Design5，当前不作为问题追踪 |
+| [Issue15.md](docs/reports/Issue/Issue15.md) | R29-01～R29-10 已由用户确认真机、本地人工测试通过；R29-11 已关闭；R29-12 已完成 | 已归档；完整数据备份缺陷已转入 Design5，当前不作为问题追踪 |
 | [Issue16.md](Issue16.md) | R30-01：Build11 邮件相关人工测试不通过，具体失败事实待补充 | 先补充失败现象、复现步骤和证据，再研究根因与修复方案 |
 | [Design4.md](Design4.md) | 当前最新设计；Build17～25 主体已完成；已增加 §12.7 Build26 核心工程约束现行合同补充 | 仅在实际变更影响其合同时同步 |
 | [ProdTestList.md](ProdTestList.md) | 保留 Production、浏览器、真机和真实客户端人工项 | 按工程前置分批执行 |
@@ -29,8 +29,8 @@
 
 ### P0 — 开工前确认
 
-- [x] **P0-1｜Issue15 R29-12：** 已确认 `Dockerfile` 从 `node:22-alpine` 升至 `node:24-alpine` 是有意的安全性更新；保留该变更。验证边界限定为前端构建镜像、依赖安装和相关构建/测试链，不将其表述为业务运行时行为变更。结论已回写 [Issue15.md](Issue15.md)，供 Issue14 步骤七使用。
-- [x] **P0-2｜Issue15 R29-01：** 已完成实施前复核：Setup 新库导入只发送 `IMPORT`；管理端已有库导入继续要求 `IMPORT → DISABLE`；2026-09-11 用户截图和当前代码确认报告中的 `RESET` 为历史误记，当前合同为 `DISABLE`。修复、隔离 Production 真实文件证据及 2026-09-14 真机本地人工测试通过结果已记录在 [Issue15.md](Issue15.md)；数据无法正确备份的能力缺口已转入 [Design5.md](Design5.md)，当前不作为问题追踪。
+- [x] **P0-1｜Issue15 R29-12：** 已确认 `Dockerfile` 从 `node:22-alpine` 升至 `node:24-alpine` 是有意的安全性更新；保留该变更。验证边界限定为前端构建镜像、依赖安装和相关构建/测试链，不将其表述为业务运行时行为变更。结论已回写 [Issue15.md](docs/reports/Issue/Issue15.md)，供 Issue14 步骤七使用。
+- [x] **P0-2｜Issue15 R29-01：** 已完成实施前复核：Setup 新库导入只发送 `IMPORT`；管理端已有库导入继续要求 `IMPORT → DISABLE`；2026-09-11 用户截图和当前代码确认报告中的 `RESET` 为历史误记，当前合同为 `DISABLE`。修复、隔离 Production 真实文件证据及 2026-09-14 真机本地人工测试通过结果已记录在 [Issue15.md](docs/reports/Issue/Issue15.md)；数据无法正确备份的能力缺口已转入 [Design5.md](Design5.md)，当前不作为问题追踪。
 
 Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 的后续 R28-07G 工程实施仍须按 P2-7 单独授权和验收，不能以本次复核替代。
 

@@ -2,7 +2,7 @@
 
 > **文档定位：** 本文档记录用户根据“研究选择框样式优化”结论明确授权实施的 R29-06 独立增量步骤。该修复已由提交 `f3258ee` 实施；本文补齐中断后的构建交接、自动化验收与人工边界。**本文件已归档至 `docs/reports/Build/Build24.md`，仅用于核查，不再作为当前执行入口；真实运行核验见 ProdTestList。**
 > - 设计记录：[Design4.md](../../../Design4.md) v1.15 §4.1
-> - 问题追踪：[Issue15.md](../../../Issue15.md) R29-06；[Issue14.md](../../../Issue14.md) R28-07H 仅记录随改造删除的遗留颜色类
+> - 问题追踪：[Issue15.md](../Issue/Issue15.md) R29-06；[Issue14.md](../../../Issue14.md) R28-07H 仅记录随改造删除的遗留颜色类
 > - 人工核验：[ProdTestList.md](../../../ProdTestList.md) R29-06
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（唯一强要求）
 >

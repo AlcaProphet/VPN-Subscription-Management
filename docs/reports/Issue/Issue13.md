@@ -2,7 +2,7 @@
 
 > **文档定位：** 本文记录对 Build17～Build20 进行严格对齐核验后发现的节点编辑器、目标检查与输出问题，现已与当前问题记录分离并移入 `docs/reports/Issue/` 存档。相关历史问题见当前目录下的 [Issue1～Issue12](.)。R27-09 的工程性未完成项、新错误和证据缺口已迁移至 [Issue14.md](../../../Issue14.md)；需要用户亲自执行的 Production、浏览器和真实客户端人工项目已迁移至 [ProdTestList.md](../../../ProdTestList.md)。当前核验以 [Design4.md](../../../Design4.md) 为设计基线，并参考 [BuildReport3.md](../BuildReport/BuildReport3.md)；编码约束以 [AGENTS.md](../../../AGENTS.md) 为准。
 
-> **归档说明：** R27-01～R27-09 的工程修复、Build21 Step 14 收口及相关人工项目迁移均已完成；当前仍待处理的工程问题见 [Issue14.md](../../../Issue14.md)，人工测试发现的问题见 [Issue15.md](../../../Issue15.md)，当前待人工核验清单见 [ProdTestList.md](../../../ProdTestList.md)。本文件仅保留历史调查、决策、实施结果和迁移指针，不再作为当前问题入口。
+> **归档说明：** R27-01～R27-09 的工程修复、Build21 Step 14 收口及相关人工项目迁移均已完成；当前仍待处理的工程问题见 [Issue14.md](../../../Issue14.md)，人工测试发现的问题见 [Issue15.md](Issue15.md)，当前待人工核验清单见 [ProdTestList.md](../../../ProdTestList.md)。本文件仅保留历史调查、决策、实施结果和迁移指针，不再作为当前问题入口。
 
 ---
 

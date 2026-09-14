@@ -5,7 +5,7 @@
 > **工作区状态：** `git status --short` 无输出，工作区干净。
 > **核验范围：** Design1～Design4、Build1～Build25、Issue1～Issue15、AGENTS.md 强要求、BuildReport1～4 回归、活跃跟踪文档排除矩阵。
 > **核验原则：** 只读、证据驱动、不信任文档声称；区分静态代码/自动化测试/Docker/Production/浏览器/真实客户端/人工证据层级。
-> **排除口径：** TODOLIST.md、Issue14.md、Issue15.md、ProdTestList.md、SecurityScanPlan1.md、SecurityReport3.md 中登记的活跃事项，以及 Design5.md 候选构想。
+> **排除口径：** TODOLIST.md、Issue14.md、Issue16.md、ProdTestList.md、SecurityScanPlan1.md、SecurityReport3.md 中登记的活跃事项，以及 Design5.md 候选构想；已归档的 Issue15.md 不再属于活跃事项。
 > **是否存在阻断：** 无致命阻断。缺少真实 Production 环境和真实客户端的动态验证能力，已归入证据边界。
 
 ---
@@ -126,9 +126,9 @@
 | 候选设计 | Design5.md | 候选构想，v0.1，未定稿 |
 | 归档设计 | Design1.md、Design2.md、Design2-UI.md、Design3.md | 已归档 |
 | 构建 | Build1.md～Build25.md、Build6-2.md | 全部已归档 |
-| 问题 | Issue1.md～Issue13.md | 全部已归档 |
+| 问题 | Issue1.md～Issue15.md | 全部已归档 |
 | 当前问题 | Issue14.md | 活跃（步骤一～四、六关闭；五、七、八未关闭） |
-| 人工问题 | Issue15.md | 活跃（多数已闭环，R29-01/06/09/10 待人工复验） |
+| 人工问题 | Issue15.md | 已归档（R29-01～R29-12 已闭环） |
 | 人工测试 | ProdTestList.md | 活跃 |
 | 安全 | SecurityScanPlan1.md、SecurityReport3.md | 活跃（Step 1～3 完成，Step 4～28 未开始） |
 | 核验报告 | BuildReport1.md～BuildReport4.md | 已归档 |
@@ -146,7 +146,7 @@
 ### 活跃跟踪文档
 
 - **Issue14.md**：步骤五（R28-07）、步骤七（R28-09）、步骤八未关闭。
-- **Issue15.md**：R29-01/06/09/10 待人工复验。
+- **Issue16.md**：R30-01 邮件相关人工测试不通过，具体失败事实待补充。
 - **ProdTestList.md**：大量 Production/浏览器/手机/客户端人工项待执行。
 - **TODOLIST.md**：P2（步骤五）、P3（步骤七）、P4（步骤八）、P5（安全审查）未完成。
 - **SecurityScanPlan1.md / SecurityReport3.md**：Step 4～28 未开始。
