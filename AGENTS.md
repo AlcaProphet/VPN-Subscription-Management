@@ -2,7 +2,7 @@
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
 > **当前设计：** [Design4.md](Design4.md) 是最新已确认的增量设计；[Design5.md](Design5.md) 仅为候选构想，尚未研究定稿或进入构建。
-> **当前工作：** 构建记录均已归档，暂无已授权的活跃构建；短期待办见 [TODOLIST.md](TODOLIST.md)，邮件测试问题见 [Issue16.md](Issue16.md)。
+> **当前工作：** 构建记录均已归档，暂无已授权的活跃构建；短期待办见 [TODOLIST.md](TODOLIST.md)，邮件测试、SMTP 优化及同轮独立 OIDC 问题见 [Issue16.md](Issue16.md)。
 > **人工核验：** [ProdTestList.md](ProdTestList.md) 当前仅跟踪 Build11 邮件相关复验和 R26-07 Xray 节点错误码核验；工程自动化与人工验收分别记录。
 > **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
 > 已完成的设计、构建与问题记录统一见 [docs/reports/](docs/reports)，仅用于历史核查。
@@ -228,7 +228,7 @@
 | Design 文档 | [Design5.md](Design5.md)（完整数据加密导出与 Setup 一步整站迁移候选，当前只登记构想、未研究定稿或进入构建）；[Design4.md](Design4.md)（当前最新已确认设计，v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；已完成人工结果见 Issue14／Issue15，待核验项见 ProdTestList）；[Design3.md](docs/reports/Design/Design3.md)（已经 Build16 构建并已归档的规则素材与装配设计）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
 | Design GUI 规格 | [Design2-UI.md](docs/reports/Design/Design2-UI.md)（已实现并归档的 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；Design3 新增界面行为由 Design3 §八补充；Design4 节点表单界面行为由 Design4 §三/§十二补充 | 非强制，供参考 |
 | Build 文档 | 已归档：Build1～Build27、Build6-2（具体链接见下方清单）。除已登记 [ProdTestList.md](ProdTestList.md) 的人工项目外，工程与自动化验收均已完成；Build22 的 Step 7 证据已补齐并重新通过 Step 11 门禁。Build26（Issue14 步骤五/R28-07，Step 1～20 已完成并验收通过；现行工程合同补充见 Design4 §12.7）已归档；Build27（Issue14 步骤七/R28-09，Step 1～6 已完成并验收通过）已归档；当前无已授权活跃构建记录 | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
-| Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue15.md](docs/reports/Issue/Issue15.md)（全部已闭环归档）；当前工程问题为 [Issue14.md](docs/reports/Issue/Issue14.md)，后续人工测试问题见 [Issue16.md](Issue16.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
+| Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue15.md](docs/reports/Issue/Issue15.md)（全部已闭环归档）；当前邮件问题、SMTP 优化及独立 OIDC Secret 问题见 [Issue16.md](Issue16.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
 
 **优先级**：AGENTS.md > Design > Build > Issue。
 
