@@ -12,7 +12,7 @@
 - **记录原则：** 人工测试项只登记用户实际观察到的现象、测试项目、环境、复现步骤和证据；没有实际测试证据时不创建问题结论。交叉审核项应给出代码/文档证据、主跟踪文档和后续验证入口，不把静态检查写成人工通过。
 - **处理边界：** 新问题默认只记录，不自行探索或修复；用户明确授权后，可在同一问题中补充根因、修复方案、实施结果和验收证据。自动化通过不得代替 Production、浏览器或真实客户端人工核验。
 - **编号约定：** 本文件新增问题使用 `R29-*` 编号；`PT-*` 继续表示 [ProdTestList.md](ProdTestList.md) 的测试项目，不与问题编号混用。
-- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-02～R29-08 已完成修复、自动化验证和用户人工核验；R29-01、R29-09、R29-10 已完成工程修复与自动化验证，等待 ProdTestList 人工复验；R29-11 已补齐 Step 7 专属自动化证据并随 Build22 收口关闭，R29-12 已确认并完成文档补记。此前已经记录在 [Issue14.md](Issue14.md) 的 R28-01～R28-04 不重复迁移。
+- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-01～R29-10 已完成修复、自动化验证和用户人工核验；R29-11 已补齐 Step 7 专属自动化证据并随 Build22 收口关闭，R29-12 已确认并完成文档补记。此前已经记录在 [Issue14.md](Issue14.md) 的 R28-01～R28-04 不重复迁移。
 - **交叉引用：** Build11 §四邮件相关人工测试不通过已新建 [Issue16.md](Issue16.md) R30-01 跟踪，不并入本文件既有 R29 问题编号。
 
 ---
@@ -185,7 +185,7 @@
 - **修复结果（2026-09-10）：** `ProtocolFieldEditor.vue` 新增 `knownFieldNames()`，将 `properties` 与 `item_id_field` 统一纳入已知字段；WireGuard `peers._credential_id` 可原样应用/保存/检查。新增多 Peer 重排保留 ID、固定对象其他未知键仍拒绝、`NodesView` 保存集成回归；后端定向/全量/build/vet、前端定向/全量/build、Docker build、Production smoke 与 `git diff --check` 通过。目标输出仍按 schema 剥离内部 ID。
 - **工程主跟踪：** [Issue14.md](Issue14.md) R28-06B / [Build25.md](docs/reports/Build/Build25.md)。
 - **人工复验入口：** [ProdTestList.md](ProdTestList.md) `R28-06` §B 的 WireGuard peers 高级 JSON 项。
-- **状态：** ☑ 已修复 / ☑ 自动化回归通过 / ◐ 人工复验入口保留在 ProdTestList，等待用户执行
+- **状态：** ✅ 已闭环（工程修复、自动化回归及 ProdTestList R28-06 §B 用户人工复验均已完成）
 
 ### R29-10 高级 JSON 多草稿保存定位排序未统一
 
@@ -196,7 +196,7 @@
 - **修复结果（2026-09-10）：** `NodesView.save()` 改为使用 `sortedUnappliedJsonPaths()[0]`，与父阻断/检查定位统一稳定排序；新增多草稿保存定位回归。`ProtocolFieldEditor` 增加模型值快照保护，父级因无关参数变化替换对象但内容不变时不清除仍有效 JSON 草稿；新增条件隐藏清理、保留无关有效草稿、折叠及组件卸载边界回归。后端定向/全量/build/vet、前端定向 5 文件/89 用例、全量 42 文件/259 用例/build、Docker build、Production smoke 与 `git diff --check` 通过。
 - **工程主跟踪：** [Issue14.md](Issue14.md) R28-06C / [Build25.md](docs/reports/Build/Build25.md)。
 - **人工复验入口：** [ProdTestList.md](ProdTestList.md) `R28-06` §C 的多草稿/条件隐藏项。
-- **状态：** ☑ 已修复（采用稳定路径排序方案 A） / ☑ 自动化回归通过 / ◐ 人工复验入口保留在 ProdTestList，等待用户执行
+- **状态：** ✅ 已闭环（采用稳定路径排序方案 A；工程修复、自动化回归及 ProdTestList R28-06 §C 用户人工复验均已完成）
 
 ### R29-11 Build22 Step 7 专属自动化证据矩阵缺失
 
