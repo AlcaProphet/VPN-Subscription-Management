@@ -3,46 +3,47 @@ package log
 
 import (
 	"context"
+	"io"
 	"log/slog"
-	"net/url"
 	"os"
 	"regexp"
-	"strings"
+
+	"vpn-sub/internal/redact"
 )
 
-// 包级默认 logger（仅日志设施自身例外；业务服务实例一律构造注入）
-var (
-	defaultLogger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+// Runtime 一次日志装配的实例：Logger 与独立 LevelVar 成对持有，不共享可变包级状态。
+// 多 Server/multi-runtime 测试可通过各自 Runtime 切换级别而互不影响。
+type Runtime struct {
+	Logger *slog.Logger
+	Level  *slog.LevelVar
+}
 
-	// levelVar 全局级别控制器：运行时切换立即生效（Build3 Step 3 接通，持久化由调用方写配置键）
-	levelVar = new(slog.LevelVar)
-)
-
-func SetDefault(l *slog.Logger) { defaultLogger = l }
-
-// SetLevel 运行时切换日志级别（debug/info/warn/error），立即生效
-func SetLevel(level string) {
-	switch level {
-	case "debug":
-		levelVar.Set(slog.LevelDebug)
-	case "warn":
-		levelVar.Set(slog.LevelWarn)
-	case "error":
-		levelVar.Set(slog.LevelError)
-	default:
-		levelVar.Set(slog.LevelInfo)
+// SetLevel 运行时切换本实例日志级别（debug/info/warn/error），立即生效。
+func (r Runtime) SetLevel(level string) {
+	if r.Level != nil {
+		setLevel(r.Level, level)
 	}
 }
 
-func Info(msg string, args ...any)  { defaultLogger.Info(msg, args...) }
-func Error(msg string, args ...any) { defaultLogger.Error(msg, args...) }
+func setLevel(lv *slog.LevelVar, level string) {
+	switch level {
+	case "debug":
+		lv.Set(slog.LevelDebug)
+	case "warn":
+		lv.Set(slog.LevelWarn)
+	case "error":
+		lv.Set(slog.LevelError)
+	default:
+		lv.Set(slog.LevelInfo)
+	}
+}
 
-// New 构建分级 + 双格式 logger：format="json" 用 JSONHandler，否则 TextHandler，均输出 stdout。
-// 内部以 *slog.LevelVar 代替固定 Level，并暴露 SetLevel：运行时切换立即生效。
-// 可选 bufs：传入环形缓冲时日志同时写入内存缓冲（实时日志流 SSE 数据源，Build3 Step 5）
-func New(level, format string, bufs ...*RingBuffer) *slog.Logger {
-	opts := &slog.HandlerOptions{Level: levelVar}
-	SetLevel(level)
+// NewRuntime 构建分级 + 双格式运行实例：format="json" 用 JSONHandler，否则 TextHandler，均输出 stdout。
+// 可选 bufs：传入环形缓冲时日志同时写入内存缓冲（实时日志流 SSE 数据源，Build3 Step 5）。
+func NewRuntime(level, format string, bufs ...*RingBuffer) Runtime {
+	lv := new(slog.LevelVar)
+	setLevel(lv, level)
+	opts := &slog.HandlerOptions{Level: lv}
 	var h slog.Handler
 	if format == "json" {
 		h = slog.NewJSONHandler(os.Stdout, opts)
@@ -53,62 +54,43 @@ func New(level, format string, bufs ...*RingBuffer) *slog.Logger {
 		h = NewRingHandler(h, bufs[0]) // 缓冲与 stdout 输出并存
 	}
 	// 外层 Redact 保证 stdout 与缓冲内容均经 token 脱敏
-	return slog.New(NewRedactHandler(h))
+	return Runtime{Logger: slog.New(NewRedactHandler(h)), Level: lv}
 }
 
-// 当前默认 logger（供测试与特殊场景取用）
-func Default() *slog.Logger { return defaultLogger }
+// New 兼容入口：每次返回独立 Logger，不再共享任何包级 LevelVar。
+// 需要运行时切换级别的调用方应使用 NewRuntime 并持有 Runtime.Level。
+func New(level, format string, bufs ...*RingBuffer) *slog.Logger {
+	return NewRuntime(level, format, bufs...).Logger
+}
 
-// --- token 脱敏：?token=xxx、/reset/<token>、code/state 均替换为 ***（AGENTS §4.3）---
+// --- 请求上下文 Logger 注入（业务 Handler/中间件经 FromContext 取实例 Logger）---
 
-var (
-	tokenValueRe  = regexp.MustCompile(`([?&]token=)[^&\s]*`)
-	resetPathRe   = regexp.MustCompile(`(?i)(/reset/)[^/?#\s]*`)
-	sensitiveKeyRe = regexp.MustCompile(`(?i)^(token|code|state)$`)
-)
+type loggerContextKey struct{}
 
-// Redact 对字符串中的敏感参数与密码重置路径进行脱敏，覆盖大小写与常见编码形态。
+// WithLogger 把实例 Logger 写入请求上下文。
+func WithLogger(ctx context.Context, lg *slog.Logger) context.Context {
+	if lg == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, loggerContextKey{}, lg)
+}
+
+// FromContext 返回当前请求的实例 Logger；缺失时返回丢弃输出的 logger，避免回退到可变全局状态。
+func FromContext(ctx context.Context) *slog.Logger {
+	if lg, ok := ctx.Value(loggerContextKey{}).(*slog.Logger); ok && lg != nil {
+		return lg
+	}
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// --- token 脱敏：密码重置路径 + 公共 redact 规则（AGENTS §4.3）---
+
+var resetPathRe = regexp.MustCompile(`(?i)(/reset/)[^/?#\s]*`)
+
+// Redact 对字符串中的敏感参数与密码重置路径进行脱敏，规则与 pool 共用 redact.RedactText。
 func Redact(s string) string {
-	// 1) 路径段：/reset/<token> 整段替换
-	s = resetPathRe.ReplaceAllString(s, "${1}***")
-	// 2) 查询串：按 & 或 ; 分段，键名经 URL 解码后命中 token/code/state 即替换值
-	qIdx := strings.IndexByte(s, '?')
-	if qIdx < 0 {
-		return tokenValueRe.ReplaceAllString(s, "${1}***")
-	}
-	var b strings.Builder
-	b.WriteString(s[:qIdx+1])
-	tail := s[qIdx+1:]
-	start := 0
-	for i := 0; i <= len(tail); i++ {
-		if i == len(tail) || tail[i] == '&' || tail[i] == ';' {
-			seg := tail[start:i]
-			if seg != "" {
-				b.WriteString(redactQuerySegment(seg))
-			}
-			if i < len(tail) {
-				b.WriteByte(tail[i])
-			}
-			start = i + 1
-		}
-	}
-	return b.String()
-}
-
-func redactQuerySegment(seg string) string {
-	eq := strings.IndexByte(seg, '=')
-	if eq < 0 {
-		return seg
-	}
-	keyPart := seg[:eq]
-	decoded, err := url.QueryUnescape(keyPart)
-	if err != nil {
-		decoded = keyPart
-	}
-	if sensitiveKeyRe.MatchString(decoded) {
-		return keyPart + "=***"
-	}
-	return seg
+	s = redact.RedactText(s)
+	return resetPathRe.ReplaceAllString(s, "${1}***")
 }
 
 // RedactHandler 包装任意 slog.Handler：消息与字符串属性统一经脱敏（关键约束 AGENTS §4.3）

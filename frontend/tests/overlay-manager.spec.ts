@@ -51,15 +51,17 @@ describe('overlayManager', () => {
     document.body.appendChild(trigger)
     const focusSpy = vi.spyOn(trigger, 'focus')
     trigger.focus()
+    focusSpy.mockClear()
     registerOverlay({
       id: 'esc',
       type: 'select',
       close: () => {},
-      focusTrigger: () => trigger.focus(),
+      focusTrigger: () => trigger.focus({ preventScroll: true }),
     })
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(getActiveOverlay()).toBeNull()
-    expect(focusSpy).toHaveBeenCalled()
+    expect(focusSpy).toHaveBeenCalledOnce()
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true })
   })
 
   it('nextOverlayId 生成唯一 id', () => {
@@ -68,10 +70,16 @@ describe('overlayManager', () => {
     expect(a).not.toBe(b)
   })
 
-  it('unregister 后不再位于活动栈', () => {
+  it('普通 unregister 只移除浮层，不恢复旧焦点', () => {
+    const trigger = document.createElement('button')
+    document.body.appendChild(trigger)
+    const focusSpy = vi.spyOn(trigger, 'focus')
+    trigger.focus()
+    focusSpy.mockClear()
     const un = registerOverlay({ id: 'u1', type: 'popover', close: () => {} })
     un()
     expect(getActiveOverlay()).toBeNull()
+    expect(focusSpy).not.toHaveBeenCalled()
   })
 
   it('unregisterOverlay 支持直接按 id 移除', () => {

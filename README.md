@@ -146,6 +146,8 @@ docker compose pull && docker compose up -d
 
 数据全部保存在数据卷中，升级不影响任何数据。
 
+> `latest` 会随默认分支更新。生产升级前建议先阅读仓库变更记录；需要可复现的版本时，可改用发布版本 tag（例如 `:v3.0.2`）。版本 tag 仍可能被覆盖；如需更严格验证，请记录本次拉取镜像的 digest 并在部署时使用该 digest。当前 GHCR 预构建镜像仅提供 `linux/amd64`，其他架构请本地构建。
+
 ---
 
 ## 常见问题 FAQ
@@ -283,4 +285,4 @@ docker compose up -d --build
 
 ## 许可证
 
-本项目为自托管开源项目，详情见仓库 LICENSE 文件。
+本项目基于 MIT License 开源，详情见仓库 LICENSE 文件。

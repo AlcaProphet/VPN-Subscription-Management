@@ -14,7 +14,7 @@ func TestGenerate(t *testing.T) {
 	value, err := Generate(ctx, nil, "group-", func(s string) (bool, error) {
 		attempts++
 		return attempts <= 2, nil // 前两次冲突，第三次成功
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Generate 失败: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestGenerate(t *testing.T) {
 	// 一直冲突 → 超限报错
 	if _, err = Generate(ctx, nil, "platform-", func(s string) (bool, error) {
 		return true, nil
-	}); err == nil {
+	}, nil); err == nil {
 		t.Error("连续冲突应报错")
 	}
 }

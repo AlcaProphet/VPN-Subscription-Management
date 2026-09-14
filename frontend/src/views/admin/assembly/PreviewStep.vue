@@ -4,7 +4,7 @@
 import { computed, ref, watch } from 'vue'
 import { Alert, Button, Input, Segmented, Space, Switch } from 'ant-design-vue'
 import DiffView from '@/components/DiffView.vue'
-import type { TargetSyntax } from '@/api/assembly'
+import type { ConversionReceipt, TargetSyntax } from '@/api/assembly'
 
 const props = defineProps<{
   previewing: boolean
@@ -18,6 +18,7 @@ const props = defineProps<{
   diffOld: string
   diffMissing: boolean
   diffLoading: boolean
+  receipt?: ConversionReceipt | null
 }>()
 
 const emit = defineEmits<{ preview: []; 'toggle-diff': [] }>()
@@ -82,6 +83,17 @@ function splitLine(line: string): Array<{ text: string; hit: boolean }> {
     <Alert v-else-if="previewText && previewMeta" type="success" show-icon :message="previewMeta" />
     <Alert v-for="(w, i) in previewWarnings" :key="i" type="warning" show-icon :message="w" />
     <Alert v-for="(s, i) in previewSkipped" :key="'s'+i" type="warning" show-icon :message="`跳过 ${s.name}：${s.reason}`" />
+    <div v-if="receipt" data-testid="conversion-receipt" class="rounded border p-3 text-xs bg-surface-subtle">
+      <div class="text-sm font-medium mb-1">转换回执</div>
+      <div class="flex flex-wrap gap-x-4 gap-y-1">
+        <span>输入 {{ receipt.input }}</span>
+        <span>直接输出 {{ receipt.direct_output }}</span>
+        <span>等价转换 {{ receipt.equivalent_conversions }}</span>
+        <span>目标不支持跳过 {{ receipt.skipped_unsupported }}</span>
+        <span>校验失败 {{ receipt.target_validation_failed }}</span>
+        <span>最终输出 {{ receipt.final_output }}</span>
+      </div>
+    </div>
     <Alert v-if="previewText.includes('# {{xray_nodes}}')" type="info" show-icon
            message="# {{xray_nodes}} 占位将在下载时按用户分配节点动态注入" />
 

@@ -3,7 +3,7 @@
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Button, Drawer, Modal } from 'ant-design-vue'
 import { CloseOutlined } from '@ant-design/icons-vue'
-import { nextOverlayId, registerOverlay, focusFirstInContainer } from '@/utils/overlayManager'
+import { nextOverlayId, registerOverlay, focusFirstInContainer, focusWithoutScroll } from '@/utils/overlayManager'
 
 const props = withDefaults(defineProps<{
   open: boolean
@@ -37,7 +37,7 @@ watch(() => props.open, async (open) => {
       id: overlayId,
       type: isMobile.value ? 'drawer' : 'modal',
       close: () => emit('update:open', false),
-      focusTrigger: () => lastFocused.value?.focus?.(),
+      focusTrigger: () => focusWithoutScroll(lastFocused.value),
     })
     await nextTick()
     setTimeout(() => {
@@ -45,7 +45,7 @@ watch(() => props.open, async (open) => {
       if (container) focusFirstInContainer(container)
     }, 0)
   } else {
-    lastFocused.value?.focus?.()
+    focusWithoutScroll(lastFocused.value)
     lastFocused.value = null
     overlayUnregister?.()
     overlayUnregister = null

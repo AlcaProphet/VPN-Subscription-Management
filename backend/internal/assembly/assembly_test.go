@@ -182,7 +182,7 @@ func TestPreviewClash(t *testing.T) {
 		t.Fatalf("Clash 预览失败: %v", err)
 	}
 	content := string(res.Content)
-	for _, want := range []string{"port: 7890", "name: 节点A", "proxy-groups:", "DOMAIN-SUFFIX,example.com,组A", "IP-CIDR,1.2.3.0/24,组A,no-resolve", "GEOIP,CN,DIRECT", "无法归属的流量"} {
+	for _, want := range []string{"port: 7890", "name: 节点A", "proxy-groups:", "DOMAIN-SUFFIX,example.com,组A", "IP-CIDR,1.2.3.0/24,组A", "GEOIP,CN,DIRECT", "无法归属的流量"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("Clash 内容缺少 %q\n%s", want, content)
 		}
@@ -442,7 +442,7 @@ func TestClashExtendedRulesAndSrSkip(t *testing.T) {
 		t.Fatalf("Clash 扩展规则失败: %v", err)
 	}
 	content := string(res.Content)
-	for _, want := range []string{"GEOSITE,cn,组A", "IP-ASN,45102,组A,no-resolve", "AND,((DOMAIN,a.com),(NETWORK,tcp)),组A", "MATCH,🛟无法归属的流量"} {
+	for _, want := range []string{"GEOSITE,cn,组A", "IP-ASN,45102,组A", "AND,((DOMAIN,a.com),(NETWORK,tcp)),组A", "MATCH,🛟无法归属的流量"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("Clash 缺少 %q:\n%s", want, content)
 		}

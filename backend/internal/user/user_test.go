@@ -194,3 +194,123 @@ func TestSnapshotByID(t *testing.T) {
 		t.Errorf("不存在用户应返回 nil,nil: %v %v", snap, err)
 	}
 }
+
+func adminInitializedCount(t *testing.T, st *store.Store) int {
+	t.Helper()
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM system_config WHERE key = ?`, config.KeyAdminInitialized).Scan(&n); err != nil {
+		t.Fatalf("查询初始化标记失败: %v", err)
+	}
+	return n
+}
+
+// TestFirstAdminDoesNotWriteAdminInitialized 首管理员角色只由同事务 users 空表判定；
+// 旧实现会写入无读取方的 admin_initialized 元数据，本测试先红后绿锁定删除结果。
+func TestFirstAdminDoesNotWriteAdminInitialized(t *testing.T) {
+	st, svc := newTestUserService(t)
+	ctx := context.Background()
+	u, err := svc.Register(ctx, "kyle", "kyle@example.com", "password123")
+	if err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	if u.Role != "admin" {
+		t.Fatalf("首注册应为 admin: %s", u.Role)
+	}
+	if n := adminInitializedCount(t, st); n != 0 {
+		t.Fatalf("首管理员注册不应写入 admin_initialized，实际 %d 行", n)
+	}
+}
+
+// TestHistoricalAdminInitializedIgnored 历史库中已存在的初始化标记不参与任何判断：
+// users 为空时仍可由首个注册者获得 admin。
+func TestHistoricalAdminInitializedIgnored(t *testing.T) {
+	_, svc := newTestUserService(t)
+	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, config.KeyAdminInitialized, "true"); err != nil {
+		t.Fatalf("预置历史标记失败: %v", err)
+	}
+	u, err := svc.Register(ctx, "kyle", "kyle@example.com", "password123")
+	if err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	if u.Role != "admin" || u.Status != "active" {
+		t.Fatalf("历史标记存在但 users 为空时首注册者仍应为 admin/active: role=%s status=%s", u.Role, u.Status)
+	}
+}
+
+// TestPendingUserOccupiesTableBlocksFirstAdmin 空表判定含待审批记录：
+// 已有 pending 行时不产生第二个 admin，也不写入初始化标记。
+func TestPendingUserOccupiesTableBlocksFirstAdmin(t *testing.T) {
+	st, svc := newTestUserService(t)
+	ctx := context.Background()
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO users (username, email, user_source, status) VALUES (?,?,?,?)`,
+		"pending", "pending@example.com", "oidc", "pending"); err != nil {
+		t.Fatalf("预置待审批用户失败: %v", err)
+	}
+	u, err := svc.Register(ctx, "kyle", "kyle@example.com", "password123")
+	if err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	if u.Role != "user" {
+		t.Fatalf("待审批记录占表时后续注册不得成为 admin: %s", u.Role)
+	}
+	if n := adminInitializedCount(t, st); n != 0 {
+		t.Fatalf("非首管理员注册不应写入 admin_initialized，实际 %d 行", n)
+	}
+}
+
+// TestFirstOidcAdminDoesNotWriteAdminInitialized OIDC 首次建号沿用同一空表事务，
+// 删除冗余标记写入后不得影响 admin 角色。
+func TestFirstOidcAdminDoesNotWriteAdminInitialized(t *testing.T) {
+	st, svc := newTestUserService(t)
+	ctx := context.Background()
+	u, err := svc.CreateFromOidc(ctx, "oidc-first", "oidc-first@example.com", "oidc-sub-1", "", false)
+	if err != nil {
+		t.Fatalf("OIDC 首次建号失败: %v", err)
+	}
+	if u.Role != "admin" || u.Status != "active" {
+		t.Fatalf("OIDC 首用户应为 admin/active: role=%s status=%s", u.Role, u.Status)
+	}
+	if n := adminInitializedCount(t, st); n != 0 {
+		t.Fatalf("OIDC 首管理员不应写入 admin_initialized，实际 %d 行", n)
+	}
+}
+
+// TestConcurrentFirstOidcAdmin 并发 OIDC 建号仍由 BEGIN IMMEDIATE 串行化，
+// 只产生一个 admin，且不留下初始化标记。
+func TestConcurrentFirstOidcAdmin(t *testing.T) {
+	st, svc := newTestUserService(t)
+	ctx := context.Background()
+	const N = 6
+	var wg sync.WaitGroup
+	errs := make(chan error, N)
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			_, err := svc.CreateFromOidc(ctx,
+				fmt.Sprintf("oidc%d", n),
+				fmt.Sprintf("oidc%d@example.com", n),
+				fmt.Sprintf("oidc-sub-%d", n), "", false)
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("并发 OIDC 建号失败: %v", err)
+		}
+	}
+	var admins int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&admins); err != nil {
+		t.Fatalf("统计 admin 失败: %v", err)
+	}
+	if admins != 1 {
+		t.Fatalf("并发 OIDC 建号应只产生一个 admin，实际 %d", admins)
+	}
+	if n := adminInitializedCount(t, st); n != 0 {
+		t.Fatalf("并发 OIDC 首管理员不应写入 admin_initialized，实际 %d 行", n)
+	}
+}

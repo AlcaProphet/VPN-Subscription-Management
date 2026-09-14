@@ -32,6 +32,7 @@ func downloadTestFS() fstest.MapFS {
 			user_source TEXT NOT NULL CHECK (user_source IN ('oidc','local','selfreg')),
 			status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
 			credential_version INTEGER NOT NULL DEFAULT 0, oidc_claims TEXT,
+			quota_override REAL, quota_exceeded INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
 		"0003_groups_platforms.sql": &fstest.MapFile{Data: []byte(`
 			CREATE TABLE IF NOT EXISTS groups (
@@ -114,6 +115,18 @@ func downloadTestFS() fstest.MapFS {
 				rule_id INTEGER NOT NULL,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				refreshed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		"1007_traffic_summary.sql": &fstest.MapFile{Data: []byte(`
+			CREATE TABLE IF NOT EXISTS traffic_records (
+				user_id INTEGER NOT NULL,
+				ym TEXT NOT NULL,
+				uplink INTEGER NOT NULL DEFAULT 0,
+				downlink INTEGER NOT NULL DEFAULT 0,
+				PRIMARY KEY (user_id, ym));`)},
+		"1008_oidc_ticket.sql": &fstest.MapFile{Data: []byte(`
+			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
+				ticket TEXT PRIMARY KEY,
+				session_token TEXT NOT NULL,
+				expires_at TIMESTAMP NOT NULL);`)},
 	}
 }
 
@@ -137,7 +150,7 @@ func newDownloadTestServerWithDir(t *testing.T) (*Server, string) {
 	cfg := config.NewService(st, log.New("error", "console"))
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	streamSvc := log.NewStreamService(log.NewRingBuffer(), log.New("error", "console"))
-	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", mustPolicy(t, "off"), "0", dataDir, streamSvc)
+	srv, err := New(st, cfg, users, log.NewRuntime("error", "console"), "dev", mustPolicy(t, "off"), "0", dataDir, streamSvc)
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}
@@ -249,7 +262,7 @@ func TestPreviewNoVersion(t *testing.T) {
 	cfg := config.NewService(st, log.New("error", "console"))
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	streamSvc := log.NewStreamService(log.NewRingBuffer(), log.New("error", "console"))
-	srv, err := New(st, cfg, users, log.New("error", "console"), "dev", mustPolicy(t, "off"), "0", dataDir, streamSvc)
+	srv, err := New(st, cfg, users, log.NewRuntime("error", "console"), "dev", mustPolicy(t, "off"), "0", dataDir, streamSvc)
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}

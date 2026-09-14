@@ -99,4 +99,32 @@ describe('NodeCheckPanel', () => {
     expect(wrapper.text()).not.toContain('clash-yaml')
     wrapper.unmount()
   })
+
+  it('存在未应用控件草稿时禁用检查并可由用户定位草稿', async () => {
+    const blockedReason = '存在未应用的自定义值或列表项草稿，请先应用或取消后再检查'
+    const wrapper = mount(NodeCheckPanel, { props: { request, blockedReason } })
+    const button = wrapper.findAll('button').find((b) => b.text().replace(/\s/g, '').includes('检查当前节点'))!
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain(blockedReason)
+    await button.trigger('click')
+    expect(mockCheckNode).not.toHaveBeenCalled()
+    const locate = wrapper.findAll('button').find((b) => b.text().replace(/\s/g, '').includes('定位草稿'))!
+    await locate.trigger('click')
+    expect(wrapper.emitted('locate')).toHaveLength(1)
+  })
+
+  it.each([false, true])('预览背景使用设计 Token（dark=%s）', async (dark) => {
+    document.documentElement.classList.toggle('dark', dark)
+    const wrapper = mount(NodeCheckPanel, { props: { request }, attachTo: document.body })
+    const button = wrapper.findAll('button').find((b) => b.text().replace(/\s/g, '').includes('检查当前节点'))
+    await button!.trigger('click')
+    await flushPromises()
+    const pre = wrapper.find('pre')
+    expect(pre.exists()).toBe(true)
+    expect(pre.classes()).toContain('bg-surface-subtle')
+    expect(pre.classes()).not.toContain('bg-gray-50')
+    document.documentElement.classList.remove('dark')
+    wrapper.unmount()
+  })
+
 })

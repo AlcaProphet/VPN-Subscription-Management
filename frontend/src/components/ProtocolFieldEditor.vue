@@ -1,6 +1,6 @@
 <!-- ProtocolFieldEditor.vue：协议字段递归编辑器；对象默认结构化，保留对象级高级 JSON。 -->
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { CurrentState, FieldSchema } from '@/api/node'
@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
   path?: string
   currentState?: CurrentState
   jsonResetVersions?: Record<string, number>
+  jsonDirtyPaths?: string[]
   centralizedSwitches?: boolean
 }>(), {
   modelValue: undefined,
@@ -27,6 +28,7 @@ const props = withDefaults(defineProps<{
   path: '',
   currentState: undefined,
   jsonResetVersions: () => ({}),
+  jsonDirtyPaths: () => [],
   centralizedSwitches: false,
 })
 
@@ -34,10 +36,15 @@ const emit = defineEmits<{
   'update:modelValue': [value: unknown]
   'validity-change': [payload: { path: string; valid: boolean }]
   'json-dirty-change': [payload: { path: string; dirty: boolean }]
+  'draft-dirty-change': [payload: { path: string; dirty: boolean }]
   'credential-change': [payload: { path: string; value: string }]
+  'advanced-json-blocked': [payload: { path: string; blockedBy: string }]
 }>()
 
 const fieldPath = computed(() => props.path || props.field.name)
+const descendantJsonDirtyPaths = computed(() => Array.from(new Set(props.jsonDirtyPaths ?? []))
+  .filter((path) => isStrictDescendantPath(path, fieldPath.value))
+  .sort((left, right) => left.length - right.length || left.localeCompare(right)))
 const advanced = ref(false)
 const jsonText = ref('')
 const jsonError = ref('')
@@ -46,6 +53,10 @@ const jsonInvalidPath = ref('')
 const mapErrors = reactive<Record<string, string>>({})
 const mapKeyErrors = reactive<Record<string, string>>({})
 const mapRowIDs = reactive(new Map<string, string>())
+const LIST_CUSTOM_VALUE = '__vpn_sub_list_custom_value__'
+const scalarListDraftOpen = ref(false)
+const scalarListDraft = ref<string | number | undefined>(undefined)
+const scalarListDraftError = ref('')
 let nextMapRowID = 0
 
 const objectValue = computed<Record<string, unknown>>(() => {
@@ -56,7 +67,12 @@ const objectValue = computed<Record<string, unknown>>(() => {
 })
 
 const listValue = computed<unknown[]>(() => Array.isArray(props.modelValue) ? props.modelValue : [])
-const knownNames = computed(() => new Set((props.field.properties ?? []).map((item) => item.name)))
+function knownFieldNames(field: FieldSchema): Set<string> {
+  const known = new Set((field.properties ?? []).map((property) => property.name))
+  if (field.item_id_field) known.add(field.item_id_field)
+  return known
+}
+const knownNames = computed(() => knownFieldNames(props.field))
 const unknownCount = computed(() => Object.keys(objectValue.value).filter((key) => !knownNames.value.has(key)).length)
 const mapEntries = computed(() => Object.entries(objectValue.value).map(([key, value]) => ({
   id: mapRowIDs.get(key) ?? `map-key:${key}`,
@@ -78,11 +94,17 @@ const shownCredentialState = computed(() => {
   return props.savedSensitivePaths.includes(fieldPath.value) ? 'saved' : 'unset'
 })
 
+let lastModelSnapshot = ''
 watch(() => props.modelValue, (value) => {
   syncMapRowIDs(value)
+  if (scalarListDraftOpen.value) cancelScalarListDraft()
+  const snapshot = JSON.stringify(value ?? emptyObjectValue()) ?? ''
+  // 父级因无关参数变化而替换对象时，值内容可能不变；此时不能清掉仍有效的 JSON 草稿。
+  if (jsonDirty.value && snapshot === lastModelSnapshot) return
+  lastModelSnapshot = snapshot
   jsonDirty.value = false
   emitJsonDirty(false)
-  if (!advanced.value) jsonText.value = JSON.stringify(value ?? emptyObjectValue(), null, 2)
+  if (!advanced.value) jsonText.value = snapshot
 }, { immediate: true, deep: true })
 
 // 只丢弃与重置范围重叠的局部草稿，关闭子功能也会使覆盖它的父 JSON 草稿失效。
@@ -92,6 +114,12 @@ watch(() => Object.entries(props.jsonResetVersions)
 
 function emptyObjectValue(): Record<string, unknown> | unknown[] {
   return props.field.object_kind === 'list' ? [] : {}
+}
+
+// 严格按字段段落判断后代路径：foo.bar 是 foo 后代，foo-bar 不是。
+function isStrictDescendantPath(candidate: string, ancestor: string): boolean {
+  if (!candidate || !ancestor || candidate === ancestor) return false
+  return candidate.startsWith(`${ancestor}.`) || candidate.startsWith(`${ancestor}[`)
 }
 
 function createMapRowID(): string {
@@ -124,6 +152,18 @@ function forwardJsonDirty(payload: { path: string; dirty: boolean }) {
   emit('json-dirty-change', payload)
 }
 
+function forwardAdvancedJSONBlocked(payload: { path: string; blockedBy: string }) {
+  emit('advanced-json-blocked', payload)
+}
+
+function forwardDraftDirty(payload: { path: string; dirty: boolean }) {
+  emit('draft-dirty-change', payload)
+}
+
+function emitDraftDirty(dirty: boolean) {
+  emit('draft-dirty-change', { path: fieldPath.value, dirty })
+}
+
 function forwardCredentialChange(payload: { path: string; value: string }) {
   emit('credential-change', payload)
 }
@@ -146,15 +186,61 @@ function setJSONValidity(path: string) {
   jsonInvalidPath.value = path
 }
 
-function validateStringMap(value: Record<string, unknown>): { error: string; path: string } {
+function validateStringMap(value: Record<string, unknown>, path: string): { error: string; path: string } {
   for (const [key, item] of Object.entries(value)) {
-    if (key === '') return { error: `${fieldPath.value} 参数名不能为空`, path: fieldPath.value }
+    if (key === '') return { error: `${path} 参数名不能为空`, path }
     if (typeof item !== 'string') {
-      const path = `${fieldPath.value}.${key}`
-      return { error: `${path} 的值必须为字符串`, path }
+      const itemPath = `${path}.${key}`
+      return { error: `${itemPath} 的值必须为字符串`, path: itemPath }
     }
   }
   return { error: '', path: '' }
+}
+
+function isPlainJSONObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function validateFixedObjectProperties(field: FieldSchema, object: Record<string, unknown>, path: string): { error: string; path: string } {
+  const known = knownFieldNames(field)
+  if (field.allow_unknown !== true) {
+    for (const key of Object.keys(object)) {
+      if (!known.has(key)) {
+        return { error: `字段 ${path}.${key} 未在协议注册表中声明`, path: `${path}.${key}` }
+      }
+    }
+  }
+  for (const property of field.properties ?? []) {
+    if (!(property.name in object)) continue
+    const result = validateNestedJSONShape(property, object[property.name], `${path}.${property.name}`)
+    if (result.error) return result
+  }
+  return { error: '', path: '' }
+}
+
+function validateNestedJSONShape(field: FieldSchema, value: unknown, path: string): { error: string; path: string } {
+  if (field.type !== 'object') return { error: '', path: '' }
+  switch (field.object_kind) {
+    case 'map': {
+      if (!isPlainJSONObject(value)) return { error: `请输入 JSON 对象：${path}`, path }
+      if (field.map_value_type === 'string') return validateStringMap(value, path)
+      return { error: '', path: '' }
+    }
+    case 'list': {
+      if (!Array.isArray(value)) return { error: `字段 ${path} 类型应为 object 数组`, path }
+      for (let index = 0; index < value.length; index += 1) {
+        const item = value[index]
+        if (!isPlainJSONObject(item)) return { error: `字段 ${path}[${index}] 类型应为 object`, path: `${path}[${index}]` }
+        const result = validateFixedObjectProperties(field, item, `${path}[${index}]`)
+        if (result.error) return result
+      }
+      return { error: '', path: '' }
+    }
+    default: {
+      if (!isPlainJSONObject(value)) return { error: `请输入 JSON 对象：${path}`, path }
+      return validateFixedObjectProperties(field, value, path)
+    }
+  }
 }
 
 function discardMapKeyDrafts() {
@@ -168,6 +254,11 @@ function setAdvanced(next: boolean) {
   if (next === advanced.value) return
   if (!next && jsonError.value) return
   if (next) {
+    const blockedBy = descendantJsonDirtyPaths.value[0]
+    if (blockedBy) {
+      emit('advanced-json-blocked', { path: fieldPath.value, blockedBy })
+      return
+    }
     // 非法改名从未进入模型；切到 JSON 时丢弃其输入草稿并恢复当前有效键。
     discardMapKeyDrafts()
     jsonText.value = JSON.stringify(props.modelValue ?? emptyObjectValue(), null, 2)
@@ -194,10 +285,8 @@ function parseJSONText(): { parsed: unknown; error: string; path: string } {
     if (!validShape) {
       return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象', path: fieldPath.value }
     }
-    if (props.field.object_kind === 'map' && props.field.map_value_type === 'string') {
-      const validation = validateStringMap(parsed as Record<string, unknown>)
-      if (validation.error) return { parsed: null, ...validation }
-    }
+    const shape = validateNestedJSONShape(props.field, parsed, fieldPath.value)
+    if (shape.error) return { parsed: null, ...shape }
     return { parsed, error: '', path: '' }
   } catch {
     return { parsed: null, error: props.field.object_kind === 'list' ? '请输入 JSON 对象数组' : '请输入 JSON 对象', path: fieldPath.value }
@@ -342,6 +431,11 @@ const scalarListItems = computed<string[]>(() => {
   return []
 })
 
+const numberValue = computed<number | undefined>(() => {
+  const value = props.modelValue ?? props.field.default
+  return typeof value === 'number' ? value : undefined
+})
+
 function emitScalarList(items: string[]) {
   if (props.field.type === 'int-list') {
     const numbers: number[] = []
@@ -355,8 +449,10 @@ function emitScalarList(items: string[]) {
   update(items)
 }
 
-function addScalarListItem() {
-  emitScalarList([...scalarListItems.value, ''])
+function appendScalarListItem(value: string | number) {
+  const next = [...(Array.isArray(props.modelValue) ? props.modelValue : [])]
+  next.push(value)
+  update(next)
 }
 
 function removeScalarListItem(index: number) {
@@ -366,10 +462,73 @@ function removeScalarListItem(index: number) {
 }
 
 function setScalarListItem(index: number, value: string) {
+  if (value === '') {
+    removeScalarListItem(index)
+    return
+  }
   const next = [...scalarListItems.value]
   next[index] = value
   emitScalarList(next)
 }
+
+function setScalarNumberItem(index: number, value: number | null) {
+  if (value === null) {
+    removeScalarListItem(index)
+    return
+  }
+  const next = [...(Array.isArray(props.modelValue) ? props.modelValue : [])]
+  next[index] = value
+  update(next)
+}
+
+function startScalarListDraft() {
+  scalarListDraftOpen.value = true
+  scalarListDraft.value = undefined
+  scalarListDraftError.value = ''
+  emitDraftDirty(true)
+}
+
+function selectScalarListOption(value: unknown) {
+  if (value === LIST_CUSTOM_VALUE) {
+    startScalarListDraft()
+    return
+  }
+  appendScalarListItem(props.field.type === 'int-list' ? Number(value) : String(value))
+}
+
+function updateScalarListDraft(value: string | number | undefined) {
+  scalarListDraft.value = value
+  scalarListDraftError.value = ''
+}
+
+function applyScalarListDraft() {
+  if (props.field.type === 'int-list') {
+    if (typeof scalarListDraft.value !== 'number' || !Number.isInteger(scalarListDraft.value)) {
+      scalarListDraftError.value = '请输入整数'
+      return
+    }
+    appendScalarListItem(scalarListDraft.value)
+  } else {
+    const value = String(scalarListDraft.value ?? '').trim()
+    if (!value) {
+      scalarListDraftError.value = '请输入条目'
+      return
+    }
+    appendScalarListItem(value)
+  }
+  cancelScalarListDraft()
+}
+
+function cancelScalarListDraft() {
+  scalarListDraftOpen.value = false
+  scalarListDraft.value = undefined
+  scalarListDraftError.value = ''
+  emitDraftDirty(false)
+}
+
+onBeforeUnmount(() => {
+  if (scalarListDraftOpen.value) emitDraftDirty(false)
+})
 
 function isLongText(field: FieldSchema): boolean {
   return field.type === 'text' && ['client-config', 'certificate', 'ca', 'ca-str', 'host-key', 'restls-script'].includes(field.name)
@@ -443,10 +602,13 @@ function isComplex(value: unknown): boolean {
               :path="`${fieldPath}[${listItemID(item, index)}].${property.name}`"
               :current-state="currentState"
               :json-reset-versions="jsonResetVersions"
+              :json-dirty-paths="jsonDirtyPaths"
               @update:model-value="(value: unknown) => setListChild(index, property.name, value)"
               @validity-change="forwardValidity"
               @json-dirty-change="forwardJsonDirty"
+              @draft-dirty-change="forwardDraftDirty"
               @credential-change="forwardCredentialChange"
+              @advanced-json-blocked="forwardAdvancedJSONBlocked"
             />
           </div>
         </div>
@@ -472,18 +634,22 @@ function isComplex(value: unknown): boolean {
           :path="`${fieldPath}.${property.name}`"
           :current-state="currentState"
           :json-reset-versions="jsonResetVersions"
+          :json-dirty-paths="jsonDirtyPaths"
           :centralized-switches="centralizedSwitches"
           :class="property.type === 'object' ? 'md:col-span-2' : ''"
           @update:model-value="(value: unknown) => setChild(property.name, value)"
           @validity-change="forwardValidity"
           @json-dirty-change="forwardJsonDirty"
+          @draft-dirty-change="forwardDraftDirty"
           @credential-change="forwardCredentialChange"
+          @advanced-json-blocked="forwardAdvancedJSONBlocked"
         />
         </div>
       </component>
       <div v-if="centralizedSwitches && visibleProperties(field.properties).some((property) => property.type === 'bool')" class="text-xs text-text-tertiary mt-2">运行开关位于“独立开关”区域。</div>
-      <div v-if="unknownCount" class="text-xs text-text-tertiary mt-3">
-        已保留 {{ unknownCount }} 个未识别参数，可在高级 JSON 中查看和编辑。
+      <div v-if="unknownCount" class="text-xs mt-3" :class="field.allow_unknown === true ? 'text-text-tertiary' : 'text-red-500'">
+        <template v-if="field.allow_unknown === true">已保留 {{ unknownCount }} 个未识别参数，可在高级 JSON 中查看和编辑。</template>
+        <template v-else>检测到 {{ unknownCount }} 个未声明参数；当前固定对象不接受未知键，请在高级 JSON 中显式删除后才能保存或检查。</template>
       </div>
     </template>
   </div>
@@ -495,25 +661,39 @@ function isComplex(value: unknown): boolean {
 
   <div v-else :data-field-path="fieldPath" class="protocol-scalar-field">
     <label class="text-sm text-text-secondary">{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></label>
-    <Input.Password v-if="sensitive" :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
-    <InputNumber v-else-if="field.type === 'number'" :value="Number(modelValue ?? field.default ?? 0)" class="w-full" @change="(value: any) => update(value ?? 0)" />
-    <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" class="w-full" @update:model-value="(value: string) => update(value)" />
+    <template v-if="sensitive">
+      <Input.Password :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
+      <div class="text-xs text-text-tertiary mt-1">
+        {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
+      </div>
+    </template>
+    <InputNumber v-else-if="field.type === 'number'" :value="numberValue" :placeholder="field.required ? `请输入${field.label}` : '未设置'" class="w-full" @change="(value: any) => update(value ?? undefined)" />
+    <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" :placeholder="`请选择${field.label}`" class="w-full" @update:model-value="(value: string) => update(value)" @draft-dirty-change="(dirty: boolean) => emitDraftDirty(dirty)" />
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
       <Select.Option v-for="option in field.options" :key="option" :value="option">{{ option }}</Select.Option>
     </AppSelect>
     <div v-else-if="field.type === 'text-list' || field.type === 'int-list'" class="protocol-list-editor space-y-2">
       <div v-for="(item, index) in scalarListItems" :key="index" class="flex items-center gap-2">
-        <Input :value="item" :placeholder="field.type === 'int-list' ? '数字' : '条目'" @change="(event: any) => setScalarListItem(index, event.target.value)" />
+        <InputNumber v-if="field.type === 'int-list'" :value="Number(item)" :precision="0" placeholder="整数" class="w-full" @change="(value: any) => setScalarNumberItem(index, value)" />
+        <Input v-else :value="item" placeholder="条目" @change="(event: any) => setScalarListItem(index, event.target.value)" />
         <Button danger @click="removeScalarListItem(index)">删除</Button>
       </div>
       <div v-if="scalarListItems.length === 0" class="text-xs text-text-tertiary">暂无条目</div>
-      <Button size="small" @click="addScalarListItem">新增条目</Button>
-      <div v-if="field.option_items?.length" class="text-xs text-text-tertiary">
-        推荐：{{ field.option_items.map((item) => item.label || item.value).join('、') }}
+      <AppSelect v-if="field.option_items?.length" :value="undefined" :disabled="scalarListDraftOpen" placeholder="添加推荐条目" class="w-full" @change="selectScalarListOption">
+        <Select.Option v-for="option in field.option_items" :key="option.value" :value="option.value">{{ option.label || option.value }}</Select.Option>
+        <Select.Option v-if="field.allow_custom === true" :value="LIST_CUSTOM_VALUE">其他（自定义）</Select.Option>
+      </AppSelect>
+      <Button v-else-if="!scalarListDraftOpen" size="small" @click="startScalarListDraft">新增条目</Button>
+      <div v-if="scalarListDraftOpen" class="scalar-list-draft rounded-md border p-3">
+        <InputNumber v-if="field.type === 'int-list'" :value="typeof scalarListDraft === 'number' ? scalarListDraft : undefined" :precision="0" placeholder="请输入整数" class="w-full" :status="scalarListDraftError ? 'error' : undefined" @change="(value: any) => updateScalarListDraft(value ?? undefined)" @press-enter="applyScalarListDraft" />
+        <Input v-else :value="String(scalarListDraft ?? '')" placeholder="请输入自定义条目" :status="scalarListDraftError ? 'error' : undefined" @input="(event: any) => updateScalarListDraft(event.target.value)" @press-enter="applyScalarListDraft" />
+        <div v-if="scalarListDraftError" class="mt-1 text-xs text-red-500">{{ scalarListDraftError }}</div>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <Button type="primary" size="small" @click="applyScalarListDraft">应用条目</Button>
+          <Button size="small" @click="cancelScalarListDraft">取消</Button>
+          <span class="text-xs text-text-tertiary">列表项草稿未应用</span>
+        </div>
       </div>
-    </div>
-    <div v-if="sensitive" class="text-xs text-text-tertiary mt-1">
-      {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
     </div>
     <Input.TextArea v-else-if="isLongText(field)" :value="String(modelValue ?? '')" :rows="4" @change="(event: any) => update(event.target.value)" />
     <Input v-else :value="String(modelValue ?? '')" @change="(event: any) => update(event.target.value)" />

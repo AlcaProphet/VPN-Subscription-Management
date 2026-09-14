@@ -67,7 +67,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	// rules
 	rules := make([]any, 0)
 	skipped := []SkipItem{}
-	appendRule := func(ruleType, value, target string) {
+	appendRule := func(ruleType, value, target string, noResolve bool) {
 		typ, normalized, err := rulespec.ValidateValue(ruleType, value)
 		if err != nil {
 			return
@@ -82,7 +82,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			line += normalized + ","
 		}
 		line += target
-		if mapped.SupportsNoResolve {
+		if noResolve && mapped.SupportsNoResolve {
 			line += ",no-resolve"
 		}
 		rules = append(rules, line)
@@ -90,14 +90,14 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	for _, psel := range in.Pools {
 		entries := ld.pools[psel.PoolID]
 		for _, e := range entries {
-			appendRule(e.RuleType, e.MatchValue, psel.Target)
+			appendRule(e.RuleType, e.MatchValue, psel.Target, e.NoResolve)
 		}
 	}
 	for _, r := range in.CustomRules {
-		appendRule(r.RuleType, r.MatchValue, r.Target)
+		appendRule(r.RuleType, r.MatchValue, r.Target, false)
 	}
-	appendRule("GEOIP", "CN", "DIRECT")
-	appendRule("MATCH", "", node.ForceFallback)
+	appendRule("GEOIP", "CN", "DIRECT", false)
+	appendRule("MATCH", "", node.ForceFallback, false)
 	root = append(root, gyaml.MapItem{Key: "rules", Value: rules})
 	if hasXrayNode(ld) {
 		xrayNames := make([]any, 0)
@@ -162,7 +162,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 					}
 					typ, value, err := rulespec.ValidateValue(e.RuleType, e.MatchValue)
 					if err == nil {
-						out = append(out, ClashPlanRule{Type: typ, Value: value, Target: psel.Target})
+						out = append(out, ClashPlanRule{Type: typ, Value: value, Target: psel.Target, NoResolve: boolPtr(e.NoResolve)})
 					}
 				}
 			}
@@ -172,7 +172,7 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 				}
 				typ, value, err := rulespec.ValidateValue(r.RuleType, r.MatchValue)
 				if err == nil {
-					out = append(out, ClashPlanRule{Type: typ, Value: value, Target: r.Target})
+					out = append(out, ClashPlanRule{Type: typ, Value: value, Target: r.Target, NoResolve: boolPtr(false)})
 				}
 			}
 			return out

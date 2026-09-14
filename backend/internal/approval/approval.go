@@ -132,8 +132,8 @@ func (s *Service) RecentPending(ctx context.Context, limit int) ([]PendingUser, 
 
 // siteContext 站点名称与登录链接（邮件模板用）
 func (s *Service) siteContext(ctx context.Context) (siteName, loginURL string) {
-	siteName, _ = s.cfg.Get(ctx, "site_name")
-	loginURL, _ = s.cfg.Get(ctx, config.KeyFrontendURL)
+	siteName = s.cfg.GetOr(ctx, "site_name")
+	loginURL = s.cfg.GetOr(ctx, config.KeyFrontendURL)
 	return
 }
 

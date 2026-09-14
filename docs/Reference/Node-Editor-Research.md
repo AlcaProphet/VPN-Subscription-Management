@@ -39,7 +39,7 @@
 | [Design2-UI §6.2](../reports/Design/Design2-UI.md)：顶层 bool 集中在独立开关区 | 按语义归属分区，在区内集中开关 | 属于设计调整，待用户选择；不把 Issue12 的头部规则自动套用到节点 |
 | Design2-UI §6.2：切换协议清空参数 | v1.2 已确认：跨协议清空全部协议参数/凭据；同协议切换传输/安全/插件也清空相应分支且切回不恢复 | 不再保留同次编辑内分支草稿 |
 | [Build15](../reports/Build/Build15.md)：当轮保持 `protocol_json` 与数据库 schema 不变 | v1.2 已确认：在 `nodes` 行内新增当前状态/扩展/修订列，不再新增独立 `node_edit_states` 表 | 是新增设计范围，允许后端迁移，但不得引入独立恢复表 |
-| [Design3](../../Design3.md)：规则素材改造不重定义节点 | 研究节点专用能力模型 | 后续另行承接节点增量设计，不扩写规则能力注册表的职责 |
+| [Design3](../reports/Design/Design3.md)：规则素材改造不重定义节点 | 研究节点专用能力模型 | 后续另行承接节点增量设计，不扩写规则能力注册表的职责 |
 | Design2-UI 描述服务端错误按字段路径回显 | 当前 `NodesView.save()` 统一调用 `Notify.error` | 记录设计与代码落差；本轮不改文档基线、不宣称已实现字段定位 |
 
 ---
@@ -498,7 +498,7 @@ generic URI：复用相同分支，存在相同限制
 | C10 | [FormOverlay.vue](../../frontend/src/components/FormOverlay.vue)、[FormSection.vue](../../frontend/src/components/FormSection.vue) | 复用载体、焦点基础与静态分区能力 |
 | C11 | [node_test.go](../../backend/internal/node/node_test.go)、[nodes-view.spec.ts](../../frontend/tests/nodes-view.spec.ts)、[protocol-field-editor.spec.ts](../../frontend/tests/protocol-field-editor.spec.ts)、[links_test.go](../../backend/internal/assembly/links/links_test.go) | 已有测试入口；本轮仅阅读，没有重新运行 |
 | C12 | [go.mod](../../backend/go.mod) | 项目当前 Xray 库依赖版本 |
-| D-Base | [Design2-UI §6](../reports/Design/Design2-UI.md)、[Build15](../reports/Build/Build15.md)、[Design3](../../Design3.md)、[Issue12](../reports/Issue/Issue12.md) | 节点既有基线、已完成分区改造及头部改造的范围边界 |
+| D-Base | [Design2-UI §6](../reports/Design/Design2-UI.md)、[Build15](../reports/Build/Build15.md)、[Design3](../reports/Design/Design3.md)、[Issue12](../reports/Issue/Issue12.md) | 节点既有基线、已完成分区改造及头部改造的范围边界 |
 | R-Base | [Node-Editor-Research.md](Node-Editor-Research.md)（原 Design-Research 与 Improvement-Directions 合并）、[Node-Link-Standards.md](Node-Link-Standards.md) | 已确认研究方向、原候选方案与历史 URI 证据；不代替当前实现 |
 
 ### 12.2 外部资料使用原则
@@ -520,7 +520,7 @@ generic URI：复用相同分支，存在相同限制
 - [Clash-Verge-Rev-Node-Parameters.md](Clash-Verge-Rev-Node-Parameters.md)
 - [Clash.yaml.template.md](../DocTemplates/Clash.yaml.template.md)
 - [Issue12.md](../reports/Issue/Issue12.md)
-- [Design3.md](../../Design3.md)（当前明确不重定义节点，本研究不改变该范围）
+- [Design3.md](../reports/Design/Design3.md)（当前明确不重定义节点，本研究不改变该范围）
 - [NodesView.vue](../../frontend/src/views/admin/NodesView.vue)
 - [ProtocolFieldEditor.vue](../../frontend/src/components/ProtocolFieldEditor.vue)
 - [registry.go](../../backend/internal/node/registry.go)

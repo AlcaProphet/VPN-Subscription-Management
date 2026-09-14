@@ -65,6 +65,95 @@ export interface SourceInput {
   source_mode: SourceMode
 }
 
+export interface RuleCountItem {
+  family: string
+  matcher: string
+  scope: string
+  accepted: number
+  excluded: number
+  rejected: number
+  duplicates: number
+}
+
+export interface DetectionStats {
+  evidence_codes: string[]
+  recognition_required_percent?: number | null
+}
+
+export interface PreviousActiveSnapshot {
+  snapshot_id: number
+  format: string
+  profile: string
+  accepted: number
+}
+
+export interface ComparisonStats {
+  previous_active?: PreviousActiveSnapshot | null
+  format_changed: boolean
+  profile_changed: boolean
+  accepted_drop_threshold_percent: number
+  accepted_drop_triggered: boolean
+}
+
+export interface DecisionStats {
+  initial_status: string
+  reason_codes: string[]
+}
+
+export interface SnapshotStats {
+  schema_version: number
+  source_mode: string
+  detection?: DetectionStats | null
+  rule_counts: RuleCountItem[]
+  unclassified_rejected: number
+  comparison?: ComparisonStats | null
+  decision?: DecisionStats | null
+}
+
+export interface SourceDiagnostic {
+  line: number
+  kind: string
+  message: string
+  raw: string
+}
+
+export interface SourceSnapshot {
+  id: number
+  source_id: number
+  format: string
+  profile: string
+  status: string
+  input: number
+  recognized: number
+  accepted: number
+  excluded: number
+  rejected: number
+  duplicates: number
+  diagnostics: SourceDiagnostic[]
+  stats: SnapshotStats
+  error?: string
+  activated_at?: string | null
+  created_at?: string | null
+}
+
+export interface SourceStatusItem {
+  source_id: number
+  display_url: string
+  source_mode: SourceMode
+  never_synced: boolean
+  latest_attempt?: SourceSnapshot | null
+  active?: SourceSnapshot | null
+  pending?: SourceSnapshot | null
+  latest_failed?: SourceSnapshot | null
+}
+
+export const listSourceStatuses = (poolId: number) =>
+  http.get<any, { list: SourceStatusItem[]; total: number }>(`/admin/pools/${poolId}/sources/status`).then((d) => d.list)
+export const listSourceSnapshots = (poolId: number, sourceId: number, page = 1, pageSize = 20) =>
+  http.get<any, { list: SourceSnapshot[]; total: number }>(`/admin/pools/${poolId}/sources/${sourceId}/snapshots`, {
+    params: { page, page_size: pageSize },
+  })
+
 export const listPools = () =>
   http.get<any, { list: PoolItem[]; total: number }>('/admin/pools').then((d) => d.list)
 export const createPool = (data: { name: string; sources: SourceInput[]; auto_sync: boolean; sync_time: string }) =>

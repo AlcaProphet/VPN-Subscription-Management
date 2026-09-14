@@ -8,8 +8,8 @@ import (
 )
 
 // parseDomainText 解析 full:/+. /裸域名文本。
-func parseDomainText(body []byte) ([]rulespec.CanonicalRule, []ParseDiagnostic, error) {
-	var rules []rulespec.CanonicalRule
+func parseDomainText(body []byte) ([]ParsedRule, []ParseDiagnostic, error) {
+	var rules []ParsedRule
 	var diagnostics []ParseDiagnostic
 	lines := strings.Split(string(body), "\n")
 	for i, raw := range lines {
@@ -38,7 +38,7 @@ func parseDomainText(body []byte) ([]rulespec.CanonicalRule, []ParseDiagnostic, 
 			diagnostics = append(diagnostics, ParseDiagnostic{Line: i + 1, Kind: "reject", Message: err.Error(), Raw: line})
 			continue
 		}
-		rules = append(rules, rule)
+		rules = append(rules, ParsedRule{Rule: rule, Origin: RuleOriginMeta{Line: i + 1, Raw: line, Order: i}})
 	}
 	return rules, diagnostics, nil
 }

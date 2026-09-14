@@ -10,10 +10,12 @@ import { ApiError } from '@/api/request'
 
 const props = defineProps<{
   request: NodeCheckRequest
+  blockedReason?: string
 }>()
 
 const emit = defineEmits<{
   conflict: []
+  locate: []
 }>()
 
 const checking = ref(false)
@@ -28,6 +30,7 @@ watch(() => props.request, () => {
 }, { deep: true, immediate: true })
 
 async function run() {
+  if (props.blockedReason) return
   checking.value = true
   error.value = ''
   const currentSeq = ++seq.value
@@ -76,10 +79,14 @@ const targetKeys = computed(() => result.value ? Object.keys(result.value.target
         <div class="text-sm font-medium text-text">目标检查</div>
         <div class="text-xs text-text-tertiary">按当前草稿检查去敏输出与诊断；检查不写库，也不保存节点。</div>
       </div>
-      <Button type="primary" size="small" :loading="checking" @click="run">检查当前节点</Button>
+      <div class="flex shrink-0 items-center gap-2">
+        <Button v-if="blockedReason" size="small" @click="emit('locate')">定位草稿</Button>
+        <Button type="primary" size="small" :loading="checking" :disabled="!!blockedReason" @click="run">检查当前节点</Button>
+      </div>
     </div>
 
-    <Alert v-if="error" type="error" show-icon class="mb-2" :message="error" />
+    <Alert v-if="blockedReason" type="warning" show-icon class="mb-2" :message="blockedReason" />
+    <Alert v-else-if="error" type="error" show-icon class="mb-2" :message="error" />
 
     <div v-if="checking && !result" class="text-xs text-text-tertiary">正在检查…</div>
 
@@ -100,7 +107,7 @@ const targetKeys = computed(() => result.value ? Object.keys(result.value.target
         <div v-else class="text-xs text-text-tertiary mt-2">未发现诊断</div>
         <details v-if="result.targets[key].preview" class="mt-2">
           <summary class="cursor-pointer text-xs text-text-secondary">脱敏产物（不能直接连接）</summary>
-          <pre class="mt-1 overflow-auto rounded bg-gray-50 p-2 text-xs">{{ result.targets[key].preview }}</pre>
+          <pre class="mt-1 overflow-auto rounded bg-surface-subtle p-2 text-xs">{{ result.targets[key].preview }}</pre>
         </details>
       </div>
       <p class="text-xs text-text-tertiary">检查结果仅用于提示，不自动保存节点。</p>

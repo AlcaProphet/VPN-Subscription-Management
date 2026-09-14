@@ -84,7 +84,7 @@ func (s *Service) Create(ctx context.Context, name string) (*Group, error) {
 		}
 		value, err := slug.Generate(ctx, tx, "group-", func(v string) (bool, error) {
 			return slug.TableHasSlug(ctx, tx, "groups", v)
-		})
+		}, s.log)
 		if err != nil {
 			return err
 		}

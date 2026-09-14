@@ -24,12 +24,18 @@ type ListData struct {
 	Total int64 `json:"total"`
 }
 
-// debugProvider 调试模式判定注入（Build3 Step 3 接通）：开启时 5xx 返回详细内部信息（生产默认关闭）
-var debugProvider func(ctx context.Context) bool
+// debugContextKey 请求上下文中的调试模式标志键（类型化私有键，避免与其他包 context 值冲突）。
+type debugContextKey struct{}
 
-// SetDebugProvider 注入调试模式判定函数（server.New 装配时设置，读 debug_mode 配置键）
-func SetDebugProvider(fn func(ctx context.Context) bool) {
-	debugProvider = fn
+// WithDebug 把当前请求的调试模式标志写入 context；server 中间件按各自 cfg 注入，不使用包级可变回调。
+func WithDebug(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, debugContextKey{}, enabled)
+}
+
+// DebugEnabled 读取请求上下文调试标志；缺失时默认 false（5xx 对外脱敏）。
+func DebugEnabled(ctx context.Context) bool {
+	enabled, _ := ctx.Value(debugContextKey{}).(bool)
+	return enabled
 }
 
 // OK 成功响应
@@ -40,9 +46,9 @@ func OK(c *gin.Context, data any) {
 // Fail httpStatus 与业务码同步取值（400/401/403/409/429/500）
 func Fail(c *gin.Context, httpStatus int, msg string) {
 	if httpStatus >= 500 {
-		log.Error("内部错误", "path", c.Request.URL.Path, "msg", msg) // 经脱敏 Handler 输出
-		// 5xx 对外脱敏：调试模式开启时返回真实错误详情（Build3 Step 3 接通）
-		if debugProvider == nil || !debugProvider(c.Request.Context()) {
+		log.FromContext(c.Request.Context()).Error("内部错误", "path", c.Request.URL.Path, "msg", msg) // 经脱敏 Handler 输出
+		// 5xx 对外脱敏：仅当前请求上下文显式开启调试时返回真实详情
+		if !DebugEnabled(c.Request.Context()) {
 			msg = "服务器内部错误"
 		}
 	}

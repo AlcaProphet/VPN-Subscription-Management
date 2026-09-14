@@ -1,0 +1,1206 @@
+# VPN 订阅管理系统 功能构建计划（Build22：Design3/Build16 D3-1～D3-10 缺口收口，已完成并归档）
+
+> **文档定位：** 本文档是 VPN 订阅管理系统的第二十二轮构建记录（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接 [Build17.md](Build17.md)～[Build20.md](Build20.md) 以及已归档的 Build21；Build21 Step 14 已于 2026-09-09 收口，工程问题见 [Issue14.md](../../../Issue14.md)，用户人工结果见 [ProdTestList.md](../../../ProdTestList.md)。本轮针对 [BuildReport4.md](../BuildReport/BuildReport4.md) 的**未闭环项 1** 完成深入研究、Step 1～11 代码实现与运行门禁。**2026-09-10 文档交叉审核曾确认 Step 7 的多项专属自动化测试未落地；2026-09-11 已补齐全部交叉审核缺口及 Step 7 原始清单中的额外边界测试，并重新通过 Step 11 全量门禁。本文件已按归档规则移入 `docs/reports/Build/`。** 实际浏览器、真实设备和真实客户端人工项见 [ProdTestList.md](../../../ProdTestList.md)，未标记为人工通过。
+> - 设计记录：[Design3.md](../Design/Design3.md)（Build16 的目标设计，当前仍有效）、[Build16.md](Build16.md)（原构建计划）
+> - 问题来源：[BuildReport4.md](../BuildReport/BuildReport4.md)（全量核验报告，未闭环项 1）
+> - 问题追踪：[Issue14.md](../../../Issue14.md)（R28-05）
+> - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
+> - 历史构建与问题记录：见 [docs/reports/](..)（均已存档，仅核查）
+>
+> **用户已确认的决策：**
+> 1. Build22.md 先放仓库根目录作为当前构建方案；收口后按规则归档。
+> 2. 研究范围覆盖 BuildReport4 §4.2 的 **D3-1～D3-10** 全部缺口。
+> 3. 文档采用“研究依据 + 可执行 Build 计划”形态，按本模板重新排版。
+> 4. per-URL failed 状态采用**持久化 failed 快照行**，不只在任务 JSON 中临时记录。
+> 5. 来源原始证据**暂不新增 `origin_path` 列**，使用现有 `line_no`、`raw_line`；JSON/YAML 路径信息放入 `raw_line` 或诊断说明。
+> 6. 相同语义只建立一个 Canonical Rule，但**保留每一个 origin**，包括同一 URL 内的重复位置；`accepted` 统计唯一 Canonical，`duplicates` 统计额外 origin。
+> 7. 手工条目修改到另一个已存在的手工语义时返回 409；若目标 Canonical 仅有 URL origin，则允许换绑并共享。
+> 8. 每 URL 主状态以**最近一次同步尝试**为准；最近失败但旧 active 仍有效时同时显示“同步失败”和“继续使用旧活动快照”，之后成功则旧 failed 只保留在历史中。
+> 9. 新 Clash render plan 使用逐规则 `NoResolve *bool` 三态并显式冻结实例级 `no_resolve` true/false，不为这一单字段引入顶层 plan schema version；旧计划字段缺失或 JSON `null` 时维持历史按类型推断，禁止历史下载漂移。
+> 10. 素材池能力白名单以后端入口的**原始 legacy 类型**为准，拒绝 `SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR` 等 `material_pool=false` 类型；不能只按 Canonical `family/matcher` 判定，避免与 `GEOIP`/`IP-ASN`/`IP-CIDR` 同语义碰撞后被放行。
+> 11. Step 7 脱敏采用新建 `backend/internal/redact` 公共包并由日志/pool 共用；`SourceStatus` 使用 `display_url`；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 也纳入读时清洗；历史同步输出做非破坏性清洗；诊断超 20 条时使用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长。
+>
+> **执行原则（与 Build17～Build21 一致）：**
+> - 每一步完成后均可编译、可测试。不跳步、不并行多步。
+> - AI 执行指令：每次仅执行一个 Step，完成后运行验收命令，确认通过后再进入下一步。
+> - **排序原则：先修复后构建、先安全后优化、先依赖后独立**。
+> - 每步的新增逻辑必须配套单元测试；测试应先复现缺口，再修改实现。
+> - 本文档初稿仅完成研究、方案与排版；后续代码与测试实施记录见各 Step。
+> - **执行顺序注意：** Build21 已完成；Build22 仍按本文 Step 1～11 串行执行。若期间出现其他任务修改 `pool`、`rulespec`、`assembly` 或素材池前端文件，必须先重新核对差异和同文件冲突。
+
+---
+
+## 一、构建进度追踪
+
+| Step | 内容 | 设计依据 | 状态 |
+|------|------|---------|------|
+| 1 | 修复来源统计计数（D3-2） | Design3 §5.3、§6.4 | ✅ 验收通过 |
+| 2 | 来源原始证据采集、排序与装配去重（D3-5） | Design3 §3.2、§5.4、§6.1 | ✅ 验收通过 |
+| 3 | `no_resolve` 实例语义贯通（D3-1） | Design3 §7.2 | ✅ 验收通过 |
+| 4 | 后端素材池能力白名单（D3-4，按原始 legacy 类型拒绝 `SRC-*`） | Design3 §3.3、§3.4、§8.3 | ✅ 验收通过 |
+| 5 | 手工编辑不污染共享 Canonical（D3-3） | Design3 §3.2、§6.1 | ✅ 验收通过 |
+| 6 | 零输出门槛补全（D3-6） | Design3 §7.2 | ✅ 验收通过 |
+| 7 | failed 快照、v1 统计/激活时间 + per-URL 状态/诊断 API（D3-7） | Design3 §6.4、§8.2、§8.3 | ✅ 代码与专属自动化证据矩阵已补齐；Step 11 重新验收通过 |
+| 8 | 前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8） | Design3 §8.2 | ✅ 自动化验收通过；人工浏览器项目待用户核验（见 ProdTestList） |
+| 9 | 装配回执前端展示（D3-9） | Design3 §7.2、§8.2 | ✅ 自动化验收通过；人工页面项目待用户核验（见 ProdTestList） |
+| 10 | 1016 迁移 store 级回归测试（D3-10） | Design3 §6.5、§9.3 | ✅ 验收通过 |
+| 11 | 全量回归、文档同步与 Build16/Design3 状态收口 | AGENTS.md §3.4～§3.6 | ✅ 后端/前端全量、race、Docker build 与 Production smoke 门禁通过；D3-1～D3-10 收口，Build22/Design3 已归档 |
+
+> 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
+> 2026-09-11 收口结果：Step 1～11 全部验收通过；Step 7 曾在 2026-09-10 交叉审核中暴露专属自动化证据缺口，现已补齐对应测试并重新运行 Step 11 门禁。Step 8/9 实际浏览器与真实客户端项目已按用户授权迁移至 [ProdTestList.md](../../../ProdTestList.md)，尚未形成用户人工通过结论。
+> 工程状态追踪：R28-05 已由 [Issue14.md](../../../Issue14.md) 关闭；本文档作为构建记录归档，不替代问题追踪。
+>
+> **交叉审核补充（2026-09-10）：** 已确认的 Step 7 自动化证据缺口包括：`ActivatePending`/`DiscardPending` 与 `activated_at` 激活语义；`SanitizeStoredSyncOutputs` 幂等/非破坏性清洗；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 的读时脱敏 raw JSON；`NormalizeDiagnostics` 的 19+1 与 200 rune 限额；v1 `rule_counts` 分项合计不变量、`previous_active` 比较和旧 stats `version 0` 解析；最近失败后恢复及同时间戳按 ID 排序；failed 快照写入失败时 active/pending 不变且不虚报 snapshot ID。另有一条历史计划回退路径（旧字符串数组 Clash plan 的下载重渲染）缺少自动化覆盖。**2026-09-11 收口：上述缺口已逐项补齐并新增额外边界测试；Step 7 重跑定向证据、后端全量/race/build/vet、前端全量/build、Docker build、Production smoke 与 `git diff --check` 全部通过，Build22/Design3 已按规则归档。**
+
+---
+
+## 二、构建概要（文件清单总览）
+
+| Step | 涉及文件 | 要点 |
+|------|---------|------|
+| 1 | `backend/internal/pool/pipeline.go`、`backend/internal/pool/parser_test.go` | 修正 `Excluded` 重复累加、adapter reject 计数、`detected_profile` 计算顺序与清洗阶段诊断回写；补充统计/诊断回归测试 |
+| 2 | `backend/internal/pool/types.go`、`adapter_*.go`、`pipeline.go`、`sync.go`、`pool.go`、`backend/internal/assembly/load.go` 及相关测试 | 使用 `ParsedRule{Rule, Origin}`；真实证据落库；保留全部 origin；查询在分页前按 Canonical 去重并稳定排序 |
+| 3 | `backend/internal/pool/parser.go`、`adapter_typed.go`、`adapter_mihomo.go`、`backend/internal/assembly/load.go`、`render_clash.go`、`render_sr.go`、`clash_plan.go` 及相关测试 | 结构化解析并贯通 `no_resolve`；新计划显式冻结，旧计划兼容；生成与下载语义一致 |
+| 4 | `backend/internal/rulespec/legacy.go`（或新增 helper）、`backend/internal/pool/pool.go`、`adapter_typed.go`、`adapter_mihomo.go`、`pool_test.go` | 后端按**原始 legacy 类型**强制 `MaterialPool` 白名单；手工 CRUD 与来源解析均拒绝 advanced-only/`SRC-*` 等非素材池类型 |
+| 5 | `backend/internal/pool/pool.go`、`backend/internal/pool/pool_test.go`、`backend/internal/server/pool_test.go` | 手工编辑改为换绑 canonical origin；manual 重复返回 409；后端服务与 HTTP 409 合同均有回归，不直接修改共享 canonical 行 |
+| 6 | `backend/internal/server/assembly.go`、`server/assembly_test.go` | 规则型目标无条件执行 `FinalOutput==0` 禁止生成 |
+| 7 | 新增 `backend/internal/redact/redact.go`、`backend/internal/log/log.go`、`backend/internal/pool/sanitize.go`、`backend/migrations/1018_pool_snapshot_activated_at.sql`、`backend/internal/store/migration_1018_test.go`、`backend/internal/pool/detector.go`、`types.go`、`sync.go`、新增 `snapshot.go`（或同类文件）、`backend/internal/server/pool.go`、`frontend/src/api/pool.ts`、后端/前端测试 | 失败时写入 failed snapshot；冻结 v1 强类型统计和检测依据；记录 pending 激活时间；统一限额/脱敏；清洗历史同步输出；增加 latest-attempt 来源状态与快照历史 API |
+| 8 | `frontend/src/views/admin/assembly/PoolDetail.vue`、`frontend/tests/pool-detail.spec.ts` | 每 URL 展示状态/统计/诊断；pending 激活与丢弃 |
+| 9 | `backend/internal/server/assembly.go`、`backend/internal/server/assembly_test.go`、`frontend/src/views/admin/AssemblyView.vue`、`frontend/src/views/admin/assembly/PreviewStep.vue`、`frontend/tests/assembly-view.spec.ts`、`preview-step.spec.ts` | generate 返回本次回执；前端保存并渲染 preview/generate 装配转换回执 |
+| 10 | 新增 `backend/internal/store/migration_1016_test.go` | 使用真实 0001～1016 两阶段迁移，验证旧数据清除、ID 防复用、无关历史保留及失败回滚 |
+| 11 | `docs/reports/Build/Build16.md`（仅追加勘误/后续闭环说明）、`Design3.md`、`Issue14.md`、`AGENTS.md`、本文件 | 全量验证与 R28-05/Design3 文档状态收口，不倒改归档 Build16 的历史进度 |
+
+---
+
+## 三、构建顺序依赖图
+
+```text
+Step 1（统计修正）      Step 4（白名单）      Step 10（迁移测试）
+        │                      │                      │
+        ▼                      ▼                      │
+Step 2（origin/排序/去重）→ Step 5（手工换绑）            │
+        │                                              │
+        ▼                                              │
+Step 3（no_resolve 贯通）                               │
+        │                                              │
+        ▼                                              │
+Step 6（零输出门槛）                                    │
+        │                                              │
+        ▼                                              │
+Step 7（failed 快照 + per-URL API）                     │
+        │                                              │
+        ▼                                              │
+Step 8（前端来源状态/pending）                          │
+        │                                              │
+        ▼                                              │
+Step 9（装配回执展示）                                  │
+        │                                              │
+        ▼                                              │
+Step 11（全量回归/文档收口） ←──────────────────────────┘
+```
+
+依赖说明：
+
+- Step 1 先修正统计，避免后续 origin/receipt 相关测试被错误计数干扰。
+- Step 2 产出真实 origin 数据，是 Step 3 与最终排序/去重的基础。
+- Step 3 依赖 Step 2 的 Canonical 携带能力。
+- Step 4 是 Step 5 的前置校验来源；按“不并行多步”的执行原则，建议按 Step 4 → Step 5 串行实施。
+- Step 6 依赖 Step 2/3 后的 receipt 可正确区分真实规则与内置兜底。
+- Step 7 是 Step 8 的前置。
+- Step 10 独立，可先做，但建议在 Step 11 前完成。
+- Step 11 在全部 Step 通过后执行，只做验证与文档同步，不新增功能。
+
+---
+
+## 四、分步构建计划
+
+### Step 1：修复来源统计计数（D3-2）
+
+- **背景/根因：**
+  - `pool/pipeline.go finalizeParseResult()` 在循环中已对“因来源模式被排除”的规则执行 `res.Excluded++`，循环后又执行 `res.Excluded += len(rules) - res.Accepted - res.Rejected`。后者把已排除项再累加一次，同时把重复项也计入 excluded，导致同步回执与前端统计失真。
+  - adapter 产生的 `Kind:"reject"` 诊断只被计入 `Input`，没有进入 `Rejected`，因此结构、类型和值错误不满足 Design3 的 rejected 口径。
+  - 当前循环在按显式 `source_mode` 排除规则后才计算平台私有能力，可能把“通用 + 另一平台私有”的真实 `detected_profile` 错写为 `common`，并进一步污染格式/profile 变化保护。
+
+- **目标：** 让 `Excluded`、`Rejected`、`Duplicates` 各自遵守 Design3 固定口径，并让 `detected_profile` 反映来源内容而不是显式来源模式过滤后的残余内容。
+
+- **前置条件：** 无。
+
+- **产出文件与操作：**
+  - `backend/internal/pool/pipeline.go`：
+    - 删除循环后的 `res.Excluded += len(rules) - res.Accepted - res.Rejected`；
+    - 在循环内 Clash/SR 模式排除时精确 `res.Excluded++`；
+    - adapter 返回的每条 `reject` 诊断精确计入 `res.Rejected`，并保证 `Input`、`Recognized`、`Rejected` 的候选分母口径可核对；
+    - 在执行 `source_mode` 排除前，先基于全部已识别、规范化候选计算 `detected_profile`；显式 Clash/SR 模式不得把另一平台私有项排除后再误报为 `common`；
+    - 保持 `res.Duplicates++` 独立；
+    - 清洗/能力分类阶段追加诊断后，将最终切片回写 `res.Diagnostics`，避免 `res := &ParseResult{Diagnostics: diagnostics}` 后继续 append 局部切片导致结果缺项。
+  - `backend/internal/pool/parser_test.go`：新增表驱动用例，覆盖普通排除、重复+排除、adapter 结构/类型/值 reject、auto 模式不产生被来源模式排除、非素材池能力诊断实际出现在结果中，以及显式模式排除另一平台私有项后 profile 仍反映原始内容等场景。
+
+- **参考伪代码：**
+  ```go
+  // 循环内
+  if mode == SourceModeClash && !supportsTarget(rule, rulespec.TargetClash) {
+      res.Excluded++
+      continue
+  }
+  if mode == SourceModeShadowrocket && !supportsTarget(rule, rulespec.TargetSR) {
+      res.Excluded++
+      continue
+  }
+  // 删除下面的重复累加：
+  // res.Excluded += len(rules) - res.Accepted - res.Rejected
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/pool -run 'TestParseSource|TestFinalize'
+  cd backend && go build ./...
+  ```
+
+- **验收标准：**
+  Clash/SR 模式下 excluded 与 duplicates 互不污染；adapter reject 完整进入 rejected；auto 模式不出现来源模式排除；`detected_profile` 不受显式来源模式过滤污染；清洗阶段新增诊断不丢失；现有解析测试全部通过。
+
+- **Step 1 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/pool -run 'TestParseSource|TestFinalize' -count=1 -timeout 60s` 与 `cd backend && go build ./...`，均通过；另运行 `cd backend && go test ./internal/pool -count=1 -timeout 60s` 全 pool 回归通过。
+  - 新增 5 个回归用例：重复与排除分离、adapter reject 计入 rejected、显式模式前计算 profile、auto 无来源排除、能力阶段诊断回写。
+
+---
+
+### Step 2：来源原始证据采集、排序与装配去重（D3-5）
+
+- **背景/根因：**
+  - 各 adapter 只返回 `[]rulespec.CanonicalRule`，接受的规则没有携带行号、原始行、来源内顺序。
+  - `sync.go applyParseResultTx()` 写入 `sort_order=int64(len(parsed.Rules))`、`raw_line=rule.SemanticKey()`、`line_no=0`。
+  - `ListEntries()` 与 `assembly/load.go loadPoolEntries()` 只按 `src.sort_order, cr.id` 排序，未使用 `pool_rule_origins` 的真实顺序。
+  - `loadPoolEntries()` 未按 canonical 去重，多个 active origin 指向同一 canonical 时可能重复渲染。
+
+- **目标：** 让每个通过来源准入的候选都携带完整来源证据并正确落库；相同语义只建立一个 Canonical Rule，但包括同一来源内重复位置在内的每个 origin 都保留；列表与装配按“手工在前 → URL 配置顺序 → 来源内原始顺序”稳定输出，且同一 Canonical 只展示/渲染一次。
+
+- **前置条件：** Step 1 通过。
+
+- **产出文件与操作：**
+  - `backend/internal/pool/types.go`：
+    - 新增：
+      ```go
+      type RuleOriginMeta struct {
+          Line  int    `json:"line"`
+          Raw   string `json:"raw"`
+          Order int    `json:"order"`
+      }
+
+      type ParsedRule struct {
+          Rule   rulespec.CanonicalRule
+          Origin RuleOriginMeta
+      }
+      ```
+    - `ParseResult` 以 `Items []ParsedRule`（名称可按实现调整）承载规则与 origin，避免 `Rules`/`Origins` 平行切片长度或排序发生错位；如为兼容测试暂时保留 `Rules` 投影，投影只能由 `Items` 派生，不能成为第二事实来源。
+  - `adapter_legacy.go`、`adapter_typed.go`、`adapter_mihomo.go`、`adapter_ip.go`、`adapter_singbox.go`：
+    - 每个 accepted rule 记录 Line/Raw/Order。
+    - 对纯文本适配器，Line 为真实 1-based 行号，Raw 为原始行。
+    - 对 Mihomo YAML，Line 可为 0，Order 为 `payload` 内索引，Raw 保存原始条目；如后续需要可在适配器内使用 YAML 节点行号增强。
+    - 对 sing-box JSON，Line 可为 0，Order 使用全局递增序号（避免 `ruleIndex*1000+valueIndex` 在大量规则下碰撞），Raw 保存 JSON 路径如 `rules[0].domain[1]`。
+  - `pool/pipeline.go finalizeParseResult()`：
+    - 第一个 `semantic_key` 计入 `Accepted`，后续相同语义计入 `Duplicates`；
+    - 所有通过来源准入的 item 均保留 origin，重复 item 不新增 Canonical 计数但仍进入 origin 持久化集合；
+    - `Accepted + Duplicates` 表示通过来源准入的 origin 数，`Accepted` 单独表示唯一 Canonical 数。
+  - `pool/sync.go applyParseResultTx()`：
+    - `sort_order` 写 `origin.Order`；
+    - `line_no` 写 `origin.Line`；
+    - `raw_line` 写 `origin.Raw`。
+  - `pool/pool.go ListEntries()`：
+    - 查询增加 `o.sort_order, o.line_no, o.raw_line`；
+    - 排序改为 `CASE WHEN src.kind='manual' THEN 0 ELSE 1 END, src.sort_order, o.sort_order, o.line_no, o.id`；
+    - 在 SQL 中先从当前有效 origins 为每个 `canonical_rule_id` 选定排序最早的一条，再执行 `LIMIT/OFFSET`；推荐使用 `ROW_NUMBER() OVER (PARTITION BY canonical_rule_id ORDER BY ...) = 1` 或等价 CTE；
+    - `COUNT` 与分页查询必须复用同一个有效 origin 条件和去重口径；Go 侧 `seen` 只能作为非必要的安全断言，不得再承担分页后的主去重职责；
+    - `source=manual/url` 筛选先限定来源集合，再在该集合内选最早 origin，确保来源筛选总数与列表一致。
+  - `backend/internal/assembly/load.go loadPoolEntries()`：
+    - `poolEntry` 增加 `NoResolve bool`、`Canonical rulespec.CanonicalRule`、`OriginOrder`、`OriginLine`、`RawLine` 等字段（按 Step 3 需要）；
+    - 查询增加 origin 字段，以相同的有效 origin CTE/窗口口径按 Canonical 去重并排序；
+    - 返回顺序直接代表最终渲染顺序，不依赖 Canonical 自增 ID。
+
+- **参考数据写入伪代码：**
+  ```go
+  for _, pr := range parsed.Items { // 包含唯一与重复语义的全部有效 origin
+      canonicalID, err := ensureCanonicalTx(ctx, tx, poolID, pr.Rule)
+      if err != nil { return err }
+      if _, err := tx.ExecContext(ctx,
+          `INSERT INTO pool_rule_origins
+             (pool_id, canonical_rule_id, source_id, snapshot_id, sort_order, raw_line, line_no)
+           VALUES (?,?,?,?,?,?,?)`,
+          poolID, canonicalID, sourceID, snapshotID,
+          pr.Origin.Order, pr.Origin.Raw, pr.Origin.Line); err != nil {
+          return err
+      }
+  }
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/pool ./internal/assembly ./internal/server
+  cd backend && go build ./...
+  ```
+
+- **验收标准：**
+  `pool_rule_origins.sort_order/line_no/raw_line` 不再全部是占位值；同一 URL 内重复和跨来源重复均保留 origin，但相同 Canonical 只展示/渲染一次；`accepted` 为唯一 Canonical 数、`duplicates` 为额外 origin 数；手工在前、URL 按配置顺序、来源内按原始顺序；删除最早 origin 后按剩余最早 origin 稳定重排；ListEntries 任意分页和来源筛选均不因重复 origin 少条或出现总数不一致。
+
+- **Step 2 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 120s` 与 `cd backend && go build ./...`，均通过。
+  - 新增 `internal/pool/origin_test.go` 覆盖：解析项 origin 元数据、落库重复 origin 与 sort_order/line_no/raw_line 证据、分页前去重与 COUNT 一致、manual→URL→来源内稳定排序、删除最早 origin 后回退到下一 origin。
+
+### Step 3：`no_resolve` 实例语义贯通（D3-1）
+
+- **背景/根因：**
+  - `loadPoolEntries()` 读取 `options_json` 后仅构造 `poolEntry{RuleType, MatchValue}`，丢失 `Options.NoResolve`。渲染层随后依赖 `mapped.SupportsNoResolve`，只要类型支持就追加 `no-resolve`。
+  - `parseTypedText()`、`parseMihomoClassicalYAML()` 和手工兼容入口使用整行/值的 `strings.Contains(..., "no-resolve")` 推断选项，可能把 `no-resolve.example.com` 等匹配值误判为选项。
+  - `ClashPlanRule` 没有保存实例级选项，下载重渲染继续按类型自动追加；即使预览 renderer 修正，下载仍会恢复错误后缀。
+  - `downgradeRuleLines()` 在重写目标组时也按类型补加 `no-resolve`。以上共同违反 Design3 “仅当规则实际设置且目标支持时输出”和历史下载不漂移合同。
+
+- **目标：** 从来源结构化解析、Canonical、装配加载、首次渲染到 Clash 下载重渲染全链路保留规则实例的 `no_resolve`；新计划严格按实例输出，旧计划维持历史行为。
+
+- **前置条件：** Step 2 通过（装配层已携带 Canonical 能力）。
+
+- **产出文件与操作：**
+  - `backend/internal/pool/parser.go`、`adapter_typed.go`、`adapter_mihomo.go`：
+    - 扩展解析结果，结构化区分 type、value、源 policy 和尾部 options；
+    - 仅独立且大小写规范化后等于 `no-resolve` 的 option token 设置 `RuleOptions.NoResolve=true`；
+    - 不再对整行或 `matchValue` 做子串搜索；尾部 token 按位置法解释：value 后第一个非 `no-resolve` token 为 source policy 静默忽略，其后非 `no-resolve` token 为未知 option 并生成 `kind:"warn"` 诊断，不改变 accepted/rejected 统计，也不静默转义为 `no_resolve`；
+    - 手工 CRUD 当前没有独立 options 输入，默认 `NoResolve=false`，值中出现 `no-resolve` 文本不得改变选项。
+  - `backend/internal/assembly/load.go`：
+    - `poolEntry` 明确保存 `NoResolve bool` 或完整 `Canonical rulespec.CanonicalRule`。
+  - `backend/internal/assembly/render_clash.go`：
+    - `appendRule` 增加 `noResolve bool`；
+    - 仅在 `noResolve && mapped.SupportsNoResolve` 时追加 `,no-resolve`。
+  - `backend/internal/assembly/render_sr.go`：
+    - `formatRuleLine` 增加 `noResolve bool`，同样按 `mapped.SupportsNoResolve` 判定。
+  - `backend/internal/assembly/clash_plan.go`：
+    - `ClashPlanRule` 固定增加 `NoResolve *bool`，JSON tag 固定为 `json:"no_resolve,omitempty"`；本 Step 不为该单字段引入 Clash plan 顶层 `schema_version`；逐规则三态语义为：`nil` 表示历史计划字段缺失，非 nil `false/true` 表示新计划显式实例值；
+    - 新生成计划必须通过单一构造 helper 为每条规则写入非 nil 指针，对 true/false 都显式冻结；不得依赖调用方散落的结构体字面量，以免遗漏字段后把新计划误当历史计划；
+    - 读取旧计划时字段缺失或 JSON `null` 均按 `nil` 处理，沿用旧版按类型推断以保持历史下载正文；读取新计划时只按实例字段输出，并继续与目标 `SupportsNoResolve` 能力求交集；当前 `render_plan_json` 是内部生成、原始 JSON 直接存取且没有任意 plan 写入接口，不为 `null` 额外增加自定义反序列化或拒绝分支；
+    - 本字段只解决逐规则存在性兼容，不妨碍未来在整份 plan 出现第二项结构变更时再独立引入顶层版本号；
+    - `downgradeRuleLines()` 只保留已解析到的 `noResolve`，不得因类型支持再次追加。
+  - 相关测试：
+    - 池内 `IP-CIDR` 未写 no-resolve → 不输出；
+    - 池内 `IP-CIDR` 写了 no-resolve → 输出；
+    - 自定义规则默认不继承 no-resolve（本轮不新增自定义规则 no-resolve 输入）；
+    - 内置 `GEOIP` 等系统规则没有实例设置时不因类型能力自动追加；
+    - SR 侧同样覆盖；
+    - `DOMAIN,no-resolve.example.com,...` 不误设选项，独立尾部 `no-resolve` 正确设置；
+    - 新 Clash plan 的显式 false/true 在下载重渲染后与预览一致；对生成的原始 `render_plan_json` 逐条断言 `rules[]` 必须存在 boolean `no_resolve`，包括 false，不能只断言 Go 结构值；
+    - 历史兼容测试使用手写 JSON 夹具明确省略 `no_resolve`，不得用新结构 marshal 冒充历史数据；字段缺失和 `null` 均维持修复前按类型推断，真正旧版的字符串数组 plan 仍走既有占位替换路径；
+    - 新 plan 显式 true 但目标类型不支持时不得输出；内置 `GEOIP` 等系统规则与自定义 IP 规则默认 false；
+    - 覆盖层中无后缀/有后缀规则在目标组降级为 `DIRECT` 后分别保持无后缀/有后缀，不凭类型新增后缀。
+
+- **参考伪代码：**
+  ```go
+  if noResolve && mapped.SupportsNoResolve {
+      line += ",no-resolve"
+  }
+
+  type ClashPlanRule struct {
+      Type      string `json:"type"`
+      Value     string `json:"value"`
+      Target    string `json:"target"`
+      NoResolve *bool  `json:"no_resolve,omitempty"`
+  }
+
+  // Clash plan：nil 表示旧计划，非 nil 表示新计划显式实例值。
+  effective := mapped.SupportsNoResolve // 仅用于兼容旧计划
+  if planRule.NoResolve != nil {
+      effective = *planRule.NoResolve && mapped.SupportsNoResolve
+  }
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/pool ./internal/assembly ./internal/server
+  cd backend && go build ./...
+  ```
+
+- **验收标准：**
+  Clash YAML 与 SR 分流规则中的 `no-resolve` 仅出现在源实际设置且目标支持的行；值内同名子串不触发选项；新版本预览、生成正文和用户下载重渲染一致，且原始 plan 中每条新规则都显式携带 boolean；既有历史 Clash plan 下载不漂移；覆盖层重写不重新引入后缀；既有默认“IP 类型必加 no-resolve”的新计划测试期望改为按实例断言。
+
+- **Step 3 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
+  - 实现：独立 option token 解析、Clash/SR 按实例渲染、`ClashPlanRule.NoResolve *bool` 三态、新 plan 每条规则显式 boolean、历史 nil/null 保持类型推断、downgrade 不按类型补后缀。
+  - 新增 `internal/assembly/no_resolve_test.go` 与 pool 解析用例覆盖 true/false、历史兼容、SR、降级等。
+
+- **Step 3 补修记录（2026-09-10，按用户确认的方案复修）：**
+  - 修复 `renderSrConf`：`no-resolve` 仅在实例设置且 `mapped.SupportsNoResolve` 为 true 时输出；新增 `DOMAIN`、`USER-AGENT` 反例测试，防止 SR 目标不支持仍补后缀。
+  - 新增 `parseRuleLineDetailed` 与位置法尾部解析：value 后第一个非 `no-resolve` token 视为 source policy 静默忽略；其后非 `no-resolve` token 生成 `kind:"warn"` 诊断；未知 option 不改变 accepted/rejected 统计，也不误设 `no_resolve`。
+  - 保留 `ParseLine`/`parseRuleLine` 旧签名与兼容 wrapper；新增 policy 静默、未知 option warn、位置法单 token 边界等回归测试。
+  - 验证命令：`go test ./internal/pool ./internal/assembly ./internal/server -count=1`、`go build ./...`、`go vet ./...` 均通过。
+
+---
+
+### Step 4：后端素材池能力白名单（D3-4）
+
+- **背景/根因：**
+  - `pool.go` 的 `canonicalFromLegacyInput()` 只做 `ValidateValue` 和 `CanonicalizeLegacyType`，未检查 `MaterialPool`。前端下拉虽已过滤，但直接调用后端 API 可以创建 `RULE-SET`、`AND`、`OR`、`NOT`、`MATCH`、`GEOSITE` 等 advanced-only 素材。
+  - 进一步核对发现：`CanonicalizeLegacyType()` 会把 `SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR` 分别映射成与 `GEOIP`、`IP-ASN`、`IP-CIDR` 相同的 `family/matcher`；因此若只按 Canonical Rule 查 `capabilityRegistry.MaterialPool`，这 3 个 `material_pool=false` 类型仍会被后端放行。**白名单必须以后端入口的原始 legacy 类型为准。**
+
+- **目标：** 后端成为素材池可选能力的最终约束；手工 CRUD、来源解析准入、前端下拉共用同一份“原始 legacy 类型 `MaterialPool`”事实来源。
+
+- **前置条件：** 无。
+
+- **产出文件与操作：**
+  - `backend/internal/rulespec/legacy.go`（或新增 helper）：
+    - 新增可复用 helper：
+      ```go
+      // IsMaterialPoolType 按原始 legacy 规则类型判断是否可进入素材池。
+      // 事实来源与前端下拉一致：legacyCapabilityMap / LegacyMetadata() 的 MaterialPool。
+      func IsMaterialPoolType(ruleType string) bool
+      ```
+    - 不得只用 `capabilityRegistry`/`findCapability` 按 Canonical `family/matcher` 判定，避免 `SRC-GEOIP`/`SRC-IP-ASN`/`SRC-IP-CIDR` 与素材池通用类型碰撞。
+    - `legacy_test.go` 补充 helper 正反例，尤其是 `SRC-*` 反例。
+  - `backend/internal/pool/pool.go`：
+    - `canonicalFromLegacyInput()` 先由 `ValidateValue()` 校验类型和值并取得规范化的原始 legacy 类型 `typ`，再调用 `rulespec.IsMaterialPoolType(typ)`，最后才执行 `CanonicalizeLegacyType()`；这样既保留未知类型/非法值的既有错误语义，又确保 `SRC-*` 在有损 Canonical 映射前被拒绝；
+    - 非素材池类型返回 `ErrBadRequest`，错误信息明确“不是素材池可选能力”，且不得写入任何 canonical/origin。
+  - `backend/internal/pool/adapter_typed.go`、`adapter_mihomo.go`：
+    - 解析到显式类型 `typ` 后、映射 Canonical 前先调用 `rulespec.IsMaterialPoolType(typ)`；
+    - 非素材池类型按当前解析器惯例追加 `reject` 诊断（`Kind:"reject", Message:"不是素材池可选能力", Raw:line`），不再进入后续 Canonical/统计流程。
+  - `backend/internal/pool/pipeline.go`：
+    - 保留现有“不是素材池可选能力”的 capability 检查作为第二道防线，但 Step 4 不把它作为唯一判定来源；待 Step 2 引入 `ParsedRule{Rule, Origin}` 后如需保留类型证据可再增强，不在本步扩大 Canonical 模型。
+  - `pool_test.go` 及相关解析测试：
+    - 新增反例：`RULE-SET`、`AND`、`OR`、`NOT`、`MATCH`、`GEOSITE`、`SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR`、`IP-SUFFIX`、`DST-PORT` 等创建/更新/来源解析均拒绝；
+    - 正例：`DOMAIN`、`DOMAIN-SUFFIX`、`IP-CIDR`、`USER-AGENT` 等允许。
+
+- **参考伪代码：**
+  ```go
+  // pool 手工 CRUD 入口
+  typ, normalized, err := rulespec.ValidateValue(ruleType, matchValue)
+  if err != nil {
+      return ..., err
+  }
+  if !rulespec.IsMaterialPoolType(typ) {
+      return ..., fmt.Errorf("不是素材池可选能力: %s", typ)
+  }
+  family, matcher, ok := rulespec.CanonicalizeLegacyType(typ)
+
+  // adapter_typed.go / adapter_mihomo.go 显式类型解析
+  if !rulespec.IsMaterialPoolType(typ) {
+      diagnostics = append(diagnostics, ParseDiagnostic{
+          Line: i + 1, Kind: "reject", Message: "不是素材池可选能力", Raw: line,
+      })
+      continue
+  }
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/rulespec ./internal/pool
+  cd backend && go build ./...
+  ```
+
+- **验收标准：**
+  - 后端手工 CRUD 与 URL 来源解析均拒绝所有 `LegacyMetadata().MaterialPool == false` 的类型，包括 `SRC-GEOIP`、`SRC-IP-ASN`、`SRC-IP-CIDR`；
+  - `RULE-SET`、`AND/OR/NOT`、`MATCH`、`GEOSITE` 等 advanced-only 类型不能进入素材池；
+  - `DOMAIN`、`DOMAIN-SUFFIX`、`IP-CIDR`、`USER-AGENT` 等素材池类型可正常创建/解析；
+  - 前端下拉、手工 CRUD、来源解析共用同一原始 legacy 类型白名单，不再出现“前端不可选但后端可创建”的偏差。
+
+- **Step 4 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/rulespec ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
+  - 新增 `rulespec.IsMaterialPoolType` 及 CRUD/来源解析反例测试，覆盖 `SRC-GEOIP/SRC-IP-ASN/SRC-IP-CIDR` 等有损映射碰撞类型在 Canonical 化前被拒绝。
+
+---
+
+### Step 5：手工编辑不污染共享 Canonical（D3-3）
+
+- **背景/根因：**
+  `UpdateEntry()` 直接 `UPDATE pool_canonical_rules`。由于 `pool_canonical_rules` 对 `pool_id + semantic_key` 唯一，手工 origin 与 URL origin 可能共用同一 canonical 行；直接修改会改变 URL 派生规则。
+
+- **目标：** 手工编辑只改动手工 origin 的绑定关系，不修改共享 canonical 行。
+
+- **前置条件：** Step 4 通过（复用白名单校验）。
+
+- **产出文件与操作：**
+  - `backend/internal/pool/pool.go UpdateEntry()`：
+    1. 事务内按传入 Canonical ID 定位唯一手工 origin（`o.snapshot_id IS NULL AND src.kind='manual'`），同时取得 origin ID、旧 Canonical ID、pool ID 和 manual source ID；
+    2. 若新语义与旧 canonical 相同，直接返回；
+    3. 对新 canonical 执行 `ensureCanonicalTx()`（已存在则复用）；
+    4. 换绑前检查目标 Canonical 是否已有另一个 `snapshot_id IS NULL` 的 manual origin：存在则返回 `ErrEntryConflict`，由 server 映射为 HTTP 409；仅有 URL origins 时允许共享；
+    5. 更新当前 origin 的 `canonical_rule_id`、`raw_line`，保留原 `sort_order`，避免编辑导致手工顺序变化；
+    6. 调用 `cleanupOrphanCanonicalTx()` 清理旧 canonical 孤儿。
+  - 不修改 shared canonical 行的 `family/matcher/value/options_json/semantic_key`。
+  - `backend/internal/pool/pool_test.go` 与 `backend/internal/server/pool_test.go`：新增“手工与 URL 同语义，手工修改后 URL 仍保持旧值；目标仅有 URL origin 时允许共享；目标已有另一 manual origin 时服务层返回 `ErrEntryConflict`、HTTP 层返回 409 且两条原记录不变；换绑保留排序；旧 canonical 无有效 origin 时被清理”的回归。
+
+- **参考伪代码：**
+  ```go
+  newCanonicalID, err := ensureCanonicalTx(ctx, tx, poolID, canonical)
+  if err != nil { return err }
+  if _, err := tx.ExecContext(ctx,
+      `UPDATE pool_rule_origins SET canonical_rule_id=?, raw_line=? WHERE id=?`,
+      newCanonicalID, ruleType+","+value, manualOriginID); err != nil {
+      return err
+  }
+  return s.cleanupOrphanCanonicalTx(ctx, tx, poolID)
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/pool ./internal/assembly ./internal/server
+  cd backend && go build ./...
+  ```
+
+- **验收标准：**
+  手工规则更新只影响指定 manual origin；同语义 URL 规则保持原值；manual→manual 重复稳定返回 409 且事务无部分写入；manual→仅 URL Canonical 可共享；编辑前后手工顺序不变；无孤儿 canonical 残留。
+
+- **Step 5 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/pool ./internal/assembly ./internal/server -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
+  - `UpdateEntry` 改为事务内换绑唯一 manual origin，不再 UPDATE 共享 canonical；新增 pool 层换绑/共享/409/排序/孤儿清理测试及 HTTP 409 路由测试。
+
+---
+
+### Step 6：零输出门槛补全（D3-6）
+
+- **背景/根因：**
+  `server/assembly.go generate()` 只在 `len(in.Pools)>0 || len(in.CustomRules)>0` 时检查 `FinalOutput==0`。用户不选任何素材/自定义规则时，仍可仅依赖内置 `GEOIP`/`MATCH`/`FINAL` 生成。
+
+- **目标：** 对 Clash YAML 与 SR 分流规则，最终非系统规则输出必须 >= 1；否则禁止生成。
+
+- **前置条件：** Steps 2～3 通过（receipt 能正确区分真实规则与系统兜底）。
+
+- **产出文件与操作：**
+  - `backend/internal/server/assembly.go generate()`：
+    - 删除 `len(in.Pools)>0 || len(in.CustomRules)>0` 条件；
+    - 对 `clash-yaml`、`sr-conf` 检查 `res.Receipt != nil && res.Receipt.FinalOutput == 0`，命中即返回 400。
+  - `server/assembly_test.go`：
+    - 无池无自定义 → 拒绝；
+    - 只有不支持的自定义规则 → 拒绝；
+    - 至少一条有效素材或自定义规则 → 通过；
+    - `sr-subs/generic-subs` 不适用该门槛。
+
+- **参考伪代码：**
+  ```go
+  if res.Receipt != nil && res.Receipt.FinalOutput == 0 {
+      Fail(c, http.StatusBadRequest, "当前目标没有可输出的非系统规则")
+      return
+  }
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/server ./internal/assembly
+  cd backend && go build ./...
+  ```
+
+- **验收标准：**
+  空素材/空自定义不能生成 Clash YAML 或 SR conf；有效的单条规则可生成；预览仍可返回 receipt。
+
+- **Step 6 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/server ./internal/assembly -count=1 -timeout 180s` 与 `cd backend && go build ./...`，均通过。
+  - `generate()` 已无条件执行 `FinalOutput==0` 拒绝；新增空规则、仅不支持规则、有效单条规则、sr-subs 不套用的 HTTP 回归测试。
+
+---
+
+### Step 7：failed 快照持久化 + per-URL 状态/诊断 API（D3-7）
+
+- **背景/根因：**
+  - `pool_source_snapshots` 有 `status='failed'`，但 `syncOne()` 在 HTTP/解析失败时直接返回，不写 failed 行。
+  - `PoolSource` 仅回传 active/pending ID；`server/pool.go` 没有读取快照的服务与路由。
+  - 前端无法展示格式、平台、统计、诊断、failed/待同步等来源状态。
+  - 当前成功快照把六项顶层计数再次复制进无版本 `stats_json`，却没有保存检测依据、family/matcher/scope 分项、前后差异和初始决策原因；detector 的未使用 `score/reason` 候选也没有形成真实可持久化证据。
+  - `ActivatePending()` 只修改指针和快照状态，没有记录 Design3 已要求的管理员激活时间。
+
+- **目标：** 持久化每次失败的来源尝试，冻结可兼容的 v1 强类型快照统计和 pending 激活时间，并提供 per-URL 当前状态与快照历史 API。
+
+- **前置条件：** Steps 2～3 通过（统计与 origin 已修正）。
+
+- **产出文件与操作：**
+  - 新增 `backend/internal/redact/redact.go`、`backend/internal/redact/redact_test.go`：
+    - `RedactText(s string) string`：通用文本脱敏，供日志、任务错误、诊断 Message/Raw、池 sync_error 共用；按参数名/字段路径判断敏感键，覆盖 URL query、fragment、URL userinfo、password/secret/token 等疑似凭据的 `key=value` 文本。
+    - `RedactDisplayURL(raw string) string`：只用于展示 URL；保留非敏感参数、参数顺序、重复参数和原始编码；对敏感 query 参数值替换为 `***`；不得用于覆盖 `rule_pool_sources.url`。
+    - `TruncateText(s string, maxRunes int) string`：Unicode 安全截断，按 rune 而非 byte。
+    - `MaxDiagnostics` / `MaxFieldRunes` 常量，默认 20 条 / 200 字符。
+  - `backend/internal/log/log.go` 与 `backend/internal/log/log_test.go`：
+    - `log.Redact` 改为 `backend/internal/redact.RedactText` 的薄封装，或由 `RedactHandler` 直接调用公共包；
+    - 保留 AGENTS §4.3 对日志 token 脱敏的既有行为；
+    - 补充 code/state、大小写、重复参数、编码参数、fragment 等测试。
+  - `backend/internal/pool/sanitize.go`（或 `snapshot.go` 内同职责部分）：
+    - `NormalizeDiagnostics([]ParseDiagnostic) []ParseDiagnostic`：每条先对 Message/Raw 调用 `RedactText`，再 `TruncateText(200)`；超过 20 条时保留前 19 条，并在第 20 条写入截断摘要；空诊断必须输出 `[]`，不得输出 `null`。
+    - `SanitizePerURLResult(PerURLResult) PerURLResult`：URL 使用 `RedactDisplayURL`，Error 使用 `RedactText` + `TruncateText(200)`。
+    - `SanitizeTaskError(err string) string`：`RedactText` + `TruncateText(200)`。
+  - `backend/internal/pool/sync.go`：
+    - 新增 `recordFailedSnapshotTx(ctx, tx, poolID, sourceID, errMsg)`；
+    - 写入 `pool_source_snapshots(status='failed', format='', profile='', counts=0, diagnostic_json=[{kind:"error", message:...}], stats_json=<v1 failed stats>)`；failed stats 使用稳定原因码，具体脱敏错误只进入顶层 `error`，不得在 stats 中复制第二份；
+    - 提取统一的 snapshot 持久化规范化 helper；所有成功/失败诊断在写 `diagnostic_json`、`stats_json`、任务 `per_url_json/error`、池 `sync_error` 前必须先执行脱敏和限额；
+    - 脱敏与限额适用于所有进入持久化或展示 API 的字符串字段：`ParseDiagnostic.Message`、`ParseDiagnostic.Raw`、`PerURLResult.URL`、`PerURLResult.Error`、`SyncTask.Error`、`Pool.SyncError`、`SourceStatus.display_url`；
+    - 疑似凭据按参数名/字段路径判断，不按值特征猜测。至少覆盖：`token`、`code`、`state`、`password`、`passwd`、`secret`、`client_secret`、`private-key`/`private_key`、`pre-shared-key`/`pre_shared_key`、`psk`、`auth`、`auth-key`/`auth_key`、`access_token`、`refresh_token`、`api_key`、`apikey`；参数名比较前先做 URL 解码并忽略大小写；
+    - `RedactDisplayURL` 只用于展示/任务输出，不得写回 `rule_pool_sources.url`，也不得用于编辑表单回填。管理员编辑仍使用 `GET /api/admin/pools` 返回的 `Pool.sources[].url` 与 `Pool.urls[]` 原始值；
+    - 诊断最多保留 20 条；若原始超过 20 条，保留前 19 条真实诊断，第 20 条固定为截断摘要，例如 `{ "line": 0, "kind": "truncated", "message": "另有 N 条诊断未展示", "raw": "" }`，总条数不得超过 20；
+    - 每条字符串字段按 rune 截断到 200 字符；空诊断必须序列化为 `[]`，不得输出 `null`；
+    - 不保存响应正文、HTML 或整份 parser 输入；failed 仅保存有限错误分类与摘要；
+    - 不修改 active/pending 指针；
+    - pending 判定和 v1 stats 必须在同一事务内使用同一份旧 active 数据构造，避免先写 stats 后再得出状态而产生原因漂移；`ActivatePending()` 原子更新 active 指针、快照 `status='active'` 与 `activated_at=CURRENT_TIMESTAMP`，不改写解析统计或 `decision.initial_status`。
+  - `syncOne()`：
+    - 请求构造、HTTP 状态码错误、超时、读取失败/超限、HTML/空内容、格式冲突和解析错误等可归属到具体 source 的失败路径均调用上述方法；
+    - failed snapshot 写入本身失败时不能伪称已持久化，单 URL 结果应返回原始业务错误的脱敏摘要并附带“失败快照写入失败”，详细数据库错误只进脱敏日志；不得修改旧 active/pending；
+    - `applyParseResultTx()` 等数据库基础设施失败无法可靠再在同一失败事务中落 failed 行，归为任务/日志基础设施错误，并由测试固定边界。
+  - `backend/internal/pool/detector.go`、`types.go`：
+    - 将 detector 的真实命中依据作为稳定枚举码随解析结果返回，例如 `sing_box_version_and_rules`、`top_level_payload`、`payload_domain_only`、`payload_ipcidr_only`、`payload_classical_only`、`typed_rule_marker`、`all_items_ip_cidr_or_asn`、`legacy_domain_prefix`、`plain_domain_candidates`；依据必须在实际命中分支产生，不能仅根据最终 format 反向猜测；
+    - 不使用未校准的数值 `confidence_score`；当前确定性 detector 的“置信依据”由 `evidence_codes` 与识别率门槛共同表达；
+    - 新增强类型 `SnapshotStats` 及子结构，禁止以任意 `map[string]any` 作为稳定持久化/API 合同。
+  - 新增 `backend/internal/pool/snapshot.go`（或同类文件）：
+    - `SourceSnapshot` 模型：ID、source_id、format、profile、status、`input/recognized/accepted/excluded/rejected/duplicates` 等完整计数、`Diagnostics`、强类型 `Stats`、`Error`、CreatedAt、nullable ActivatedAt；`Diagnostics` 固定复用 `ParseDiagnostic{line,kind,message,raw}`，不另增未定义的 `severity` 字段，空诊断序列化为 `[]` 而不是 `null`；
+    - v1 `Stats` 固定包含 `schema_version`、`source_mode`、`detection`、稳定排序的 `rule_counts`、`unclassified_rejected`、`comparison`、`decision`；六项计数、format、profile 与当前 status 以快照顶层列为唯一事实来源，不在 stats 重复保存；
+    - `rule_counts` 的每项包含 family/matcher/scope 和 accepted/excluded/rejected/duplicates；无法形成 family/matcher 的拒绝项进入 `unclassified_rejected`。必须校验各分项合计与顶层 accepted/excluded/duplicates 一致，且 `sum(rule_counts.rejected)+unclassified_rejected == rejected`；
+    - `comparison.previous_active` 首次同步为 null，否则冻结旧 snapshot_id/format/profile/accepted、格式/profile 变化、70% 阈值和是否触发缩量；不保存浮点比例；
+    - `decision.initial_status` 记录创建时的 active/pending/failed 决策，`reason_codes` 为可多选的稳定枚举；快照顶层 status 表达当前生命周期，pending 人工激活后允许变为 active，但初始决策和解析统计保持不变；
+    - 首期 `reason_codes` 固定为：`first_success`、`normal`、`format_changed`、`profile_changed`、`accepted_below_threshold`、`request_invalid`、`network_error`、`http_status_error`、`body_read_error`、`body_too_large`、`html_source`、`unrecognized_source`、`ambiguous_format`、`conflicting_format`、`mixed_platform`、`no_accepted_rules`、`recognition_threshold_not_met`、`parse_error`；同一次 pending 可包含多个保护原因；
+    - active/pending/failed 共用同一 v1 类型；无法进入解析的 failed 使用空 evidence/rule_counts、nullable `recognition_required_percent: null` 和稳定失败原因码。历史 `{}` 或旧无版本计数 JSON 统一规范化为 `schema_version:0`、空 source_mode/rule_counts、null detection/comparison/decision 和 `unclassified_rejected:0`，不能反向编造检测依据、比较数据或原因，也不能使整个状态列表失败；
+    - `SourceStatus` 模型：source_id、`display_url`（脱敏后的展示 URL）、source_mode、`latest_attempt`、active、pending、latest_failed、never_synced 标记，并要求 active/pending/latest_attempt/latest_failed 对象都使用同一个 `SourceSnapshot` 摘要形状，携带对应快照计数与有限诊断；原始 URL 只存在于 `rule_pool_sources.url`，用于管理员编辑与实际拉取，不得由状态/历史 API 回传，也不得被 `display_url` 覆盖；
+    - `latest_attempt` 取该 source 按 `created_at DESC, id DESC` 的最近快照，用它决定主状态；`latest_failed` 仅作为历史快捷信息，不单独决定主状态；
+    - 最近失败但 active 仍存在时同时返回 failed latest_attempt 与 active；失败后又有更新的 active/pending 时，主状态按新尝试恢复，旧 failed 只在历史/latest_failed 中可查；
+    - `ListSourceStatuses(ctx, poolID)`；
+    - `ListSourceSnapshots(ctx, poolID, sourceID, page, pageSize)`。
+  - 新增 `backend/migrations/1018_pool_snapshot_activated_at.sql`、`backend/internal/store/migration_1018_test.go`：
+    - 为 `pool_source_snapshots` 增加 nullable `activated_at`；已有 active/failed 及尚未人工激活的 pending 保持 null，不根据 `created_at` 或当前 status 伪造历史激活时间；
+    - 增加真实 1017→1018、全新全量迁移和重复迁移幂等测试；本迁移只增加列，不改写 `stats_json` 或快照状态。
+  - `backend/internal/server/pool.go`：
+    - 新增路由：
+      ```
+      GET /api/admin/pools/:id/sources/status
+      GET /api/admin/pools/:id/sources/:sourceId/snapshots
+      ```
+    - 路由继续叠加 session + admin 双中间件。
+    - `sources/status` 是当前池全部 URL 来源的非分页列表，统一返回 `{ "list": SourceStatus[], "total": number }`，无 URL 来源时必须返回 `list: []`；`SourceStatus` 顶层字段使用 `display_url`，不使用 `url`；
+    - `snapshots` 接受 `page`、`page_size`，使用列表默认值 1/20 和 `MaxPageSize` 上限，按 `created_at DESC, id DESC` 返回 `{ "list": SourceSnapshot[], "total": number }`；pool/source 不匹配返回 404，非法 ID 或非数字分页参数返回 400；
+    - 状态/历史 API 不得回传 `rule_pool_sources.url` 原始值；
+    - 现有 `/sync/status`、`/sync/tasks` 和 `GET /api/admin/pools` 的 `sync_error` 同样纳入读时清洗：`sync/status`、`sync/tasks` 中的 `per_url[].url` 使用脱敏后的展示 URL，`per_url[].error`、`task.error` 使用脱敏+限长文本；`Pool.sync_error` 使用脱敏+限长文本；`Pool.sources[].url` 与 `Pool.urls[]` 保持原始值，以支持编辑；
+    - server 原始 JSON 测试必须固定列表包裹、snake_case 字段、`display_url`、`[]` 非 `null`、分页总数以及 URL/诊断脱敏，并覆盖现有 sync/status、sync/tasks、Pool.sync_error 的读时清洗，避免只依赖 Go 类型或前端 mock。
+  - `frontend/src/api/pool.ts`：
+    - 新增 `SourceSnapshot`、`SourceStatus` 类型与 `listSourceStatuses`、`listSourceSnapshots` 请求函数。
+  - 清理策略：
+    - 在 `CleanupOldTasks()` 或新增清理逻辑中，以单个事务同时清理超过 7 天、状态为 failed 且未被任何 active/pending 指针引用的快照；active/pending 快照和所有仍被指针引用的快照不得删除；
+    - 删除 failed snapshot 后执行孤儿 Canonical 清理，但不得影响任何手工或 active/pending origin；手动“清理同步历史”保持现有语义，只清任务，不扩大为快照删除。
+    - 新增 `SanitizeStoredSyncOutputs(ctx)`（或等价命名）：
+      - 以幂等、非破坏性方式清洗存量数据：`pool_sync_tasks.per_url_json`、`pool_sync_tasks.error`、`rule_pools.sync_error`；
+      - 不清除任务或池记录；
+      - 不修改 `rule_pool_sources.url`；
+      - 不修改 active/pending/failed 快照的原始计数、`stats_json` 或诊断证据；
+      - 该函数在启动清理或 `CleanupOldTasks()` 入口执行一次；后续新增写入仍必须经过持久化脱敏边界；
+      - 所有受影响 API 仍应在读取时对返回对象执行 copy-sanitize，作为防御纵深，防止历史脏数据或未来遗漏写入再次泄漏。
+  - 测试：
+    - `backend/internal/redact` 单元测试覆盖：token/code/state 大小写、重复参数、URL 编码参数名和值、空值、fragment、嵌套 URL、URL userinfo 中的密码、非敏感参数保留、无法解析为 URL 的任意错误文本不 panic 且不泄漏敏感 `key=value`、Unicode 200 字符截断；
+    - HTTP 失败生成 failed snapshot；
+    - 解析失败生成 failed snapshot；
+    - active/pending 不变；
+    - 失败路径写入 failed snapshot 时，`diagnostic_json`、`stats_json`、顶层 `error` 不含敏感值；
+    - 成功、pending、failed 使用同一套脱敏与限额规则；
+    - 诊断超过 20 条时输出 19 条真实诊断 + 1 条截断摘要；
+    - 每条字符串字段不超过 200 rune；
+    - 空诊断输出 `[]`；
+    - `per_url_json`、`pool_sync_tasks.error`、`rule_pools.sync_error` 不含敏感值；
+    - 状态 API 返回统一包裹的 latest_attempt/active/pending/latest_failed/never_synced，四类快照摘要形状一致，顶层字段为 `display_url`；
+    - v1 stats 原始 JSON 固定 snake_case 字段、稳定 reason/evidence codes、分项合计不变量和 previous-active 比较；不得出现重复的六项顶层计数或数值 confidence score；
+    - `{}` 与旧无版本计数 stats 可读取为 version 0，不伪造新字段，也不阻断同一列表中的新 v1 快照；
+    - 最近失败+旧 active 时主状态为 failed 且 active 同时返回；随后成功时主状态恢复 active，旧 failed 不再控制徽标；
+    - pending 激活后顶层 status/active 指针和 `activated_at` 原子更新，`decision.initial_status` 与原解析统计保持 pending 时的不可变证据；历史 active/failed 不补造激活时间；
+    - 同时间戳时使用 ID 稳定选择 latest_attempt；
+    - 快照历史分页、稳定倒序、总数以及 pool/source 归属校验正确；
+    - failed/成功诊断、展示 URL、任务 JSON、新增两个 API 的原始 JSON 均不包含 URL 查询凭据/Token，且诊断严格满足 20×200 限额；
+    - 现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 的 raw JSON 中不包含 token/code/state/password 等敏感参数值；
+    - `Pool.sources[].url` 与 `Pool.urls[]` 仍保留原始 URL；
+    - 脱敏不会覆盖 `rule_pool_sources.url`；
+    - 管理员仍能通过 `GET /api/admin/pools` 读取原始 URL，并通过现有编辑流程保存原始配置；
+    - 前端状态卡片/status API 的展示 URL 与编辑表单的原始 URL 来源不同，不会把脱敏 URL 提交回 update/create；
+    - failed 写库失败不会改变 active/pending，也不会报告虚假的 snapshot ID，详细 DB error 不进入任务/API/池 `sync_error`；
+    - `SanitizeStoredSyncOutputs` 对含原始 URL 的存量 `per_url_json`、`error`、`sync_error` 执行一次后变为脱敏值，幂等、不删除任务/池记录、不修改 `rule_pool_sources.url`；
+    - 7 天清理不删 active/pending/被引用快照，不误删有效 origin。
+
+- **参考状态列表 API 响应：**
+  ```json
+  {
+    "list": [{
+      "source_id": 1,
+      "display_url": "https://example.com/rules.txt?token=***",
+      "source_mode": "auto",
+      "never_synced": false,
+      "latest_attempt": {
+        "id": 12,
+        "source_id": 1,
+        "format": "",
+        "profile": "",
+        "status": "failed",
+        "input": 0,
+        "recognized": 0,
+        "accepted": 0,
+        "excluded": 0,
+        "rejected": 0,
+        "duplicates": 0,
+        "diagnostics": [{"line": 0, "kind": "error", "message": "HTTP 500", "raw": ""}],
+        "stats": {
+          "schema_version": 1,
+          "source_mode": "auto",
+          "detection": {"evidence_codes": [], "recognition_required_percent": null},
+          "rule_counts": [],
+          "unclassified_rejected": 0,
+          "comparison": {
+            "previous_active": {"snapshot_id": 10, "format": "typed-rule-text", "profile": "shadowrocket", "accepted": 3},
+            "format_changed": false,
+            "profile_changed": false,
+            "accepted_drop_threshold_percent": 70,
+            "accepted_drop_triggered": false
+          },
+          "decision": {"initial_status": "failed", "reason_codes": ["http_status_error"]}
+        },
+        "error": "HTTP 500",
+        "activated_at": null,
+        "created_at": "2026-09-09T12:00:00+08:00"
+      },
+      "active": {
+        "id": 10,
+        "source_id": 1,
+        "format": "typed-rule-text",
+        "profile": "shadowrocket",
+        "status": "active",
+        "input": 3,
+        "recognized": 3,
+        "accepted": 3,
+        "excluded": 0,
+        "rejected": 0,
+        "duplicates": 0,
+        "diagnostics": [],
+        "stats": {
+          "schema_version": 1,
+          "source_mode": "auto",
+          "detection": {"evidence_codes": ["typed_rule_marker"], "recognition_required_percent": 100},
+          "rule_counts": [
+            {"family": "domain", "matcher": "exact", "scope": "common", "accepted": 2, "excluded": 0, "rejected": 0, "duplicates": 0},
+            {"family": "user_agent", "matcher": "exact", "scope": "sr_only", "accepted": 1, "excluded": 0, "rejected": 0, "duplicates": 0}
+          ],
+          "unclassified_rejected": 0,
+          "comparison": {
+            "previous_active": null,
+            "format_changed": false,
+            "profile_changed": false,
+            "accepted_drop_threshold_percent": 70,
+            "accepted_drop_triggered": false
+          },
+          "decision": {"initial_status": "active", "reason_codes": ["first_success"]}
+        },
+        "error": "",
+        "activated_at": null,
+        "created_at": "2026-09-09T11:00:00+08:00"
+      },
+      "pending": null,
+      "latest_failed": {
+        "id": 12,
+        "source_id": 1,
+        "format": "",
+        "profile": "",
+        "status": "failed",
+        "input": 0,
+        "recognized": 0,
+        "accepted": 0,
+        "excluded": 0,
+        "rejected": 0,
+        "duplicates": 0,
+        "diagnostics": [{"line": 0, "kind": "error", "message": "HTTP 500", "raw": ""}],
+        "stats": {
+          "schema_version": 1,
+          "source_mode": "auto",
+          "detection": {"evidence_codes": [], "recognition_required_percent": null},
+          "rule_counts": [],
+          "unclassified_rejected": 0,
+          "comparison": {
+            "previous_active": {"snapshot_id": 10, "format": "typed-rule-text", "profile": "shadowrocket", "accepted": 3},
+            "format_changed": false,
+            "profile_changed": false,
+            "accepted_drop_threshold_percent": 70,
+            "accepted_drop_triggered": false
+          },
+          "decision": {"initial_status": "failed", "reason_codes": ["http_status_error"]}
+        },
+        "error": "HTTP 500",
+        "activated_at": null,
+        "created_at": "2026-09-09T12:00:00+08:00"
+      }
+    }],
+    "total": 1
+  }
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/redact ./internal/log ./internal/store ./internal/pool ./internal/server
+  cd backend && go build ./...
+  cd frontend && npm run build
+  ```
+
+- **验收标准：**
+  可归属到来源的拉取/内容/解析失败可持久化并查询；v1 stats 能以真实检测依据、能力分项、旧 active 比较和初始决策原因解释每次尝试，旧 stats 兼容但不补造证据；pending 人工激活时间可查询且不改写解析结果；来源状态 API 以最近尝试区分 active/pending/failed/从未同步，并能表达“最近失败但旧 active 继续生效”；失败后成功不会永久标红；failed 快照不会进入 active 查询；诊断限额和脱敏在所有持久化出口一致；`SourceStatus` 只返回 `display_url`，现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 也经读时清洗；存量同步输出经非破坏性清洗后不再含敏感 URL/凭据；清理不会误删有效快照、origin 或 Canonical。
+
+- **Step 7 执行记录（2026-09-10）：**
+  - 已运行 `cd backend && go test ./internal/redact ./internal/log ./internal/store ./internal/pool ./internal/server -count=1 -timeout 180s`、`cd backend && go build ./...`、`cd frontend && npm run build`，均通过。
+  - 新增 `internal/redact` 公共包、log 接入、pool sanitize、1018 activated_at 迁移及 store 测试、v1 SnapshotStats、failed snapshot 写入、来源状态/快照历史 API、server 读时清洗、前端类型与请求函数。
+  - 新增 HTTP failed snapshot、display_url 不泄漏、快照分页/总数、HTTP 409 路由等回归测试。
+
+- **Step 7 补修记录（2026-09-10，按用户确认的深入检查方案复修）：**
+  - `evidence_codes` 改为 `detectOne` 在实际命中分支产生，`DetectOne` 保留旧签名兼容 wrapper；新增各格式分支 evidence codes 测试。
+  - 新增 `sourceFailure`/sentinel 分类：HTTP、读取、超限、网络、取消/超时、请求构造和 ParseSource sentinel 均映射稳定 `reason_code`；旧 `failSource`/`recordFailedSnapshotTx` 字符串分类保留为兼容 wrapper。
+  - v1 stats 严格形状：failed 的 `detection` 固定为非空空 evidence、`recognition_required_percent:null`；首次成功/首次 failed 的 `comparison` 固定为非空、`previous_active:null`、阈值 70；历史 version 0 兼容不变。
+  - wire shape 固定：`SourceSnapshot.error/activated_at/created_at` 与 `SourceStatus.latest_attempt/active/pending/latest_failed` 显式输出空串或 null，不再 `omitempty` 省略。
+  - snapshots API 使用严格分页：参数缺失默认 1/20，显式空值、非数字、`<1` 返回 400；entries/sync-tasks 保持旧容错。
+  - `PerURLResult.URL` 与 `SourceStatus.display_url` 统一“先脱敏后 200 rune 截断”；`rule_pool_sources.url` 仍保留原始值。
+  - failed 快照写入失败时预留后缀长度，保证 200 rune 内仍附带“失败快照写入失败”。
+  - 验证命令：`go test ./... -count=1 -timeout 300s`、`go build ./...`、`go vet ./...`、`cd frontend && npm run build` 均通过。
+
+- **Step 7 证据补齐与收口记录（2026-09-11，按用户确认的完整闭环方案）：**
+  - 新增 `ActivatePending`/`DiscardPending`/`activated_at` 原子语义、stats/decision 不可变、历史 active/failed 不补造时间测试。
+  - 新增 `SanitizeStoredSyncOutputs` 事务化、仅变更更新、幂等/非破坏性、非法 `per_url_json` 脱敏与 200 rune 截断测试；实现同步修复为事务内执行。
+  - 新增现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON、原始编辑 URL 保留、新 API 原始 JSON 形状/404/400 测试。
+  - 新增 `NormalizeDiagnostics` 19+1、200 rune、空 `[]` 测试。
+  - 新增 v1 `rule_counts` 分项合计不变量、稳定排序、`previous_active` 格式/缩量比较、旧 stats version 0 兼容测试。
+  - 新增 `latest_failed` 失败后恢复、同时间戳按 ID 排序、failed 写库失败指针不变/不虚报/DB error 不泄漏测试。
+  - 新增 7 天清理不误删 active/pending/被引用快照与有效 origin/Canonical、任务取消不写 failed、单 URL 超时写 `network_error` failed 快照测试。
+  - 新增旧字符串数组 Clash plan 下载重渲染回退测试；同步修复 `isLegacyClashPlan` 对 `rules` 字符串数组的识别。
+  - 新增 `RedactDisplayURL` 的 `;`、嵌套 URL、`%26/%23/%3b/%3f/%3d` 编码分隔符深度加固测试；`RedactDisplayURL` 与 `RedactText` 统一解析，保留原始编码。
+  - 验证命令：`cd backend && go test ./internal/redact ./internal/log ./internal/store ./internal/pool ./internal/server -count=1 -timeout 300s`、`go test ./... -count=1 -timeout 300s`、`go vet ./...`、`go test -race ./internal/pool ./internal/server ./internal/redact ./internal/log ./internal/store`、`cd frontend && npm test -- --run`（42 文件/259 用例）、`npm run build` 均通过。
+
+---
+
+### Step 8：前端来源状态、诊断与 pending 操作（D3-7 UI、D3-8）
+
+- **背景/根因：**
+  `frontend/src/api/pool.ts` 已有 `activatePending/discardPending`，但没有任何页面调用；`PoolDetail.vue` 只显示“URL 数量”与同步历史摘要，不展示每个 URL 的格式、平台、状态、统计和诊断。
+
+- **目标：** 在素材池详情中增加每个 URL 的来源状态卡片，并支持 pending 激活/丢弃。
+
+- **前置条件：** Step 7 通过。
+
+- **产出文件与操作：**
+  - `frontend/src/views/admin/assembly/PoolDetail.vue`：
+    - onMounted 与同步完成后调用 `listSourceStatuses`；
+    - 每个 URL 展示后端返回的 `display_url`（脱敏后的展示 URL），不得将 `display_url` 作为编辑表单的原始 URL 提交；来源模式、检测格式/平台、由 `latest_attempt.status` 决定的 active/pending/failed/待同步主徽标、input/recognized/接受/排除/拒绝/重复统计、诊断摘要与有限样例；
+    - 展示 v1 stats 的检测依据、family/matcher/scope 分项、与旧 active 的数量/格式/profile 差异及稳定原因；version 0 只显示“历史统计不可用”，不得把空字段解释为零变化或成功依据；
+    - 最近失败但 active 仍存在时显示“同步失败，继续使用旧活动快照”，并分别展示失败尝试与当前 active 摘要；成功发生在 failed 之后时不得仅因 `latest_failed` 非空继续显示失败主徽标；
+    - `pending_snapshot_id` 存在时显示“激活/丢弃”按钮；
+    - 激活前 ConfirmModal 展示旧 active 与新 pending 的 input/accepted、格式、平台、诊断差异；
+    - 调用 `activatePending/discardPending` 后刷新来源状态与条目；激活成功后显示服务端 `activated_at`，不得使用浏览器本地时间伪造。
+  - `frontend/src/api/pool.ts`：
+    - 复用 Step 7 新增类型。
+  - `frontend/tests/pool-detail.spec.ts`：
+    - mock `listSourceStatuses`、`activatePending`、`discardPending`；
+    - 覆盖 pending 展示、激活确认、丢弃、同步后刷新；
+    - 覆盖 v1 stats 分项/差异/原因、version 0 不可用兼容、服务端 activated_at 展示、failed+active 并存、failed 后成功恢复、从未同步、同一来源历史 failed 不永久控制主状态。
+
+- **测试与验收命令：**
+  ```bash
+  cd frontend && npm test -- --run tests/pool-detail.spec.ts
+  cd frontend && npm run build
+  ```
+
+- **浏览器验收证据：**
+  - 自动化组件测试只证明状态分支、按钮和刷新逻辑；另以实际浏览器至少核对 1440px 桌面与 390px 窄屏，覆盖 failed+active、pending 确认、诊断长文本和激活/丢弃后的刷新；
+  - 记录可复查的视口、操作结果与控制台状态；该证据只证明浏览器交互，不外推为真实客户端导入/连接兼容。
+
+- **验收标准：**
+  每个 URL 的最近尝试状态及实际生效 active 均可辨认；状态卡片展示的是 `display_url`，不把脱敏 URL 回写为编辑配置；失败后恢复不会永久标红；pending 可人工激活/丢弃，激活前能看到旧/新差异；所有诊断只展示后端已脱敏的有限数据；桌面与 <768px 窄屏均可操作。
+
+- **Step 8 执行记录（2026-09-10）：**
+  - 已实施 `PoolDetail.vue` 每 URL 状态卡片：`display_url`、`source_mode`、由 `latest_attempt.status` 决定的 active/pending/failed/待同步主徽标、六项计数、有限诊断、v1 stats（evidence/rule_counts/comparison/decision）与 version 0 历史统计不可用，以及 failed+旧 active 并存和失败后恢复。
+  - 已实现 pending 激活/丢弃：激活前使用现有 `ConfirmModal` 展示旧 active/新 pending 的输入、接受数、格式、平台与诊断差异；成功后刷新来源状态与素材条目；`activated_at` 仅展示服务端值；失败按现有 Notify 错误处理。
+  - `frontend/src/api/pool.ts` 复用 Step 7 已有类型与请求函数，未改动 wire shape；`display_url` 仅用于展示，测试固定其不进入条目编辑提交。
+  - 验证命令：`cd frontend && npm test -- --run tests/pool-detail.spec.ts`（22 项通过）、`cd frontend && npm run build`、`git diff --check` 均通过。
+  - 1440px/390px 实际浏览器、真实交互和控制台核验未执行，已按 B-2 授权迁移至 Step 11 的 ProdTestList 人工章节，不标记为通过。
+
+---
+
+### Step 9：装配回执前端展示（D3-9）
+
+- **背景/根因：**
+  后端 preview 已返回 `receipt`，`frontend/src/api/assembly.ts` 也已有 `ConversionReceipt` 类型；但 `AssemblyView.vue` 未保存 `res.receipt`，`PreviewStep.vue` 也未接收该 prop，因此用户看不到回执。
+
+- **目标：** 在预览步骤与生成成功页展示输入数、直接输出、等价转换、目标不支持跳过、目标校验失败、最终输出。
+
+- **前置条件：** Step 6 通过（回执统计口径已正确）。
+
+- **产出文件与操作：**
+  - `frontend/src/views/admin/AssemblyView.vue`：
+    - 新增 `previewReceipt` ref；
+    - `doPreview()` 中 `previewReceipt.value = res.receipt ?? null`；
+    - 将 `previewReceipt` 传给 `PreviewStep`；目标、输入或预览发生失效/清空时同步清空回执，禁止把旧目标统计显示为当前结果。
+  - `frontend/src/views/admin/assembly/PreviewStep.vue`：
+    - 新增 `receipt?: ConversionReceipt | null` prop；
+    - 在警告/跳过区域附近渲染回执摘要卡或列表。
+  - 必做（Design3 §7.2 要求 preview/generate 都返回回执）：
+    - 后端 `generate` 响应同样返回本次 `res.Receipt`；
+    - `backend/internal/server/assembly_test.go` 增加 generate 成功响应的原始 JSON 合同断言，固定 `receipt` 六项 snake_case 数值来自本次 `Render` 结果，不用前端 mock 代替后端 wire shape；
+    - `frontend/src/api/assembly.ts` 的 generate 响应类型增加 `receipt?: ConversionReceipt`；
+    - `generateResult` 保存该字段，生成成功结果页同步展示，不复用可能已经 stale 的 previewReceipt。
+  - `frontend/tests/assembly-view.spec.ts`、`frontend/tests/preview-step.spec.ts`：
+    - 验证 preview 保存、传递与六项数字渲染；
+    - 验证目标/输入变化后旧回执不再显示；
+    - 验证 generate 使用服务端本次返回的回执，且缺省 receipt 时界面保持兼容。
+
+- **参考 UI 文案：**
+  ```text
+  转换回执：输入 N · 直接输出 N · 等价转换 N · 目标不支持跳过 N · 校验失败 N · 最终输出 N
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/server
+  cd backend && go build ./...
+  cd frontend && npm test -- --run tests/assembly-view.spec.ts tests/preview-step.spec.ts
+  cd frontend && npm run build
+  ```
+
+- **验收标准：**
+  用户能在预览和生成结果中看到完整转换回执；数字分别与对应 preview/generate 响应一致；过期回执不会冒充当前结果；已有预览、差异、previewStale 和生成成功流程无回归。
+
+- **Step 9 执行记录（2026-09-10）：**
+  - 后端 `generate()` 成功响应新增本次 `res.Receipt`；未改动零输出门槛、预览摘要校验、自检或版本落库语义。
+  - 新增 `TestAssemblyGenerateReceiptRawJSON`：用原始 JSON 断言 `data.receipt` 固定六项 snake_case 字段（`input`、`direct_output`、`equivalent_conversions`、`skipped_unsupported`、`target_validation_failed`、`final_output`）；先以 1 条规则 preview、再以 2 条规则 generate，证明生成回执来自本次 Render 而非旧 preview 数据。
+  - 前端 `AssemblyView.vue` 新增加 `previewReceipt`，`previewStale` 变化时清除旧回执；`PreviewStep.vue` 接收可选 `receipt` 并渲染六项中文标签；生成成功页只展示本次 `generateResult.receipt`，缺省时兼容不显示虚假零值；`api/assembly.ts` 的 generate 响应类型补齐可选 receipt。
+  - 验证命令：`cd backend && go test ./internal/server`、`cd backend && go build ./...`、`cd frontend && npm test -- --run tests/assembly-view.spec.ts tests/preview-step.spec.ts`（25 项通过）、`cd frontend && npm run build`、`git diff --check` 均通过。
+  - 真实运行页面 preview/generate 回执、目标/规则变更后旧回执消失、桌面与窄屏布局及控制台检查未执行，按 B-2 授权迁移至 Step 11 的 ProdTestList，不标记为通过。
+
+---
+
+### Step 10：1016 迁移 store 级回归测试（D3-10）
+
+- **背景/根因：**
+  现有测试只验证“全新迁移后旧表不存在”，未验证旧数据清除、旧 ID 不复用、无关历史数据保留。
+
+- **目标：** 用迁移级测试保护 1016 不兼容迁移语义。
+
+- **前置条件：** 无。
+
+- **产出文件与操作：**
+  - 新增 `backend/internal/store/migration_1016_test.go`，由 store 层直接验证迁移框架与真实 SQL；pool 测试只保留迁移后的业务行为，不复制迁移脚本。
+  - 测试流程：
+    1. 从 `migrations.FS` 读取真实迁移文件，构造包含真实 0001～1015 的 `fstest.MapFS`；不得复制或手写简化版 1009 素材池 schema。helper 必须按“解析后的迁移版本号 <= target”过滤，推荐命名为 `migrationsThrough(target)`；禁止用文件名 glob 后全量复制，禁止把 1016、1017 或未来迁移带入 1015 FS。
+    2. 对独立临时数据库执行 `Store.Migrate(ctx, migrationsThrough(1015))`；断言 `MAX(version)=1015`，并断言不存在 1016/1017/更高版本；当前迁移文件数量下可同时断言 `COUNT(*)=20`（0001～0005 + 1001～1015），防止未来新增 <=1015 文件被静默纳入。
+    3. 插入真实 1015 旧数据最小夹具：
+       - 两个旧 `rule_pools`：ID 10 与 100（非连续且最大 ID 为 100）；
+       - 同一旧池下的 manual 与 URL `pool_entries` 各一条；
+       - 至少一条旧 `pool_sync_tasks`；
+       - 一条可识别的 `versions` 历史记录；
+       - 一条 `assembly_blueprints`，其 `selection_json` 引用旧 `pool_id:100`，`render_plan_json` 使用唯一 sentinel。
+       最小夹具不额外插入 platform/subscription/rule 等 owner 记录；这些表与 `versions`、`assembly_blueprints` 之间没有数据库外键需求，插入它们不提供独立的 1016 迁移证据。
+    4. 对同一 Store 使用真实 0001～1016 的 FS 继续 `Migrate(ctx, migrationsThrough(1016))`。
+    5. 成功迁移后断言：
+       - `pool_entries` 表不存在；
+       - `pool_sync_tasks` 表存在但为空（1016 会先删旧表再重建同名新表，因此断言是“旧任务数据清零”，不是“表不存在”）；
+       - `rule_pools` 为重建后的新 schema，旧池行数为 0；
+       - `rule_pool_sources`、`pool_source_snapshots`、`pool_canonical_rules`、`pool_rule_origins` 均存在；
+       - `versions`、`assembly_blueprints` 的 sentinel 内容和关联保持逐字不变；
+       - `schema_migrations` 只新增 1016，且不存在大于 1016 的记录；
+       - 迁移后、插入新池前 `sqlite_sequence('rule_pools').seq == 100`；
+       - 插入新池后精确断言 `LastInsertId() == 101`，同时 `seq == 101`，且不存在 ID <= 100 的新池。
+    6. 幂等子用例：
+       - 同一 Store 再次 `Migrate(ctx, migrationsThrough(1016))`，断言无错误且数据不变；
+       - 关闭 Store 后使用同一临时目录重新 `Open`，再次 `Migrate(ctx, migrationsThrough(1016))`，断言仍幂等、`schema_migrations` 不变、历史数据与 `sqlite_sequence` 不变。
+    7. 失败回滚子用例必须使用独立的新临时数据库：
+       - 先应用真实 0001～1015 并插入可识别夹具；
+       - 构造 `brokenMigrationsThrough1016()`：复制真实 0001～1016，仅把真实 `1016_rule_pool_snapshots.sql` 替换为“真实 1016 SQL + 末尾必然失败语句”；
+       - 失败语句必须追加在真实 1016 文件末尾（即 `DROP TABLE _pool_1016_old_max;` 之后），以覆盖删表、建表、`sqlite_sequence` 更新与临时表删除后的整体回滚；
+       - 断言失败后旧表仍存在、旧数据仍可读、新表不存在、`rule_pools` 旧 schema 未变、`sqlite_sequence` 未变、`schema_migrations` 没有 1016、1015 历史记录仍在；
+       - 随后用真实 `migrationsThrough(1016)` 再次迁移，必须成功，证明失败后的数据库可恢复继续升级。
+  - 测试 helper 必须直接读取嵌入的真实迁移内容并按版本过滤，避免测试 SQL 与生产迁移漂移。建议新增：
+    - `migrationsThrough(target int) fstest.MapFS`：只包含真实 FS 中版本号 <= target 的文件；
+    - `brokenMigrationsThrough1016() fstest.MapFS`：在真实 1016 文件末尾追加必然失败语句；
+    - `insertOldPoolFixtures` / 断言 helper：集中维护上述最小 1015 夹具。
+  - helper 放在 `backend/internal/store/migration_1016_test.go`，测试文件使用 `package store`，以复用 `parseVersion()`/`sortedEntries()`；新池创建使用与 `pool.Service.Create` 等价的原始 SQL，不反向依赖 `pool` 包。
+
+- **参考流程：**
+  ```go
+  // 第一次 Migrate：真实 0001～1015
+  _ = st.Migrate(ctx, migrationsThrough(1015))
+  // 插入旧数据
+  // 第二次 Migrate：真实 0001～1016
+  _ = st.Migrate(ctx, migrationsThrough(1016))
+  // 幂等：同一 Store 再跑一次
+  _ = st.Migrate(ctx, migrationsThrough(1016))
+  // 可选：关闭后重新 Open，再跑一次
+  ```
+
+- **测试与验收命令：**
+  ```bash
+  cd backend && go test ./internal/store ./internal/pool -run 'Migration|1016'
+  cd backend && go build ./...
+  ```
+
+- **验收标准：**
+  真实 1015→1016 链路下，旧素材池业务数据清除、ID 防复用、`sqlite_sequence` 防复用状态、无关历史保留、schema 版本、重复迁移幂等、close/reopen 后幂等和失败事务回滚均有自动断言。
+
+- **边界说明：**
+  - Step 10 为 store 级测试；`assembly_blueprints.selection_json` 中的旧 pool ID 应原样保留，不在此 Step 调用 assembly 服务断言 invalid reference。“旧蓝图重新编辑时显示旧池引用失效”由装配层测试覆盖。
+  - 1017 及未来更高迁移不属于本 Step 目标；helper 与断言都必须排除 1017。
+
+> Step 7 新增的 1018 `activated_at` 是独立、向前兼容的小迁移，其 1017→1018 与全新全量迁移证据在 Step 7 完成；本 Step 仍专门证明 1016 不兼容迁移，不得用 1018 测试替代或弱化上述真实 1015→1016 夹具。
+
+- **范围外备注（本 Step 不修复）：**
+  - `Build16.md` 历史文字曾称 `store_test.go` 已覆盖 1015 旧 schema/数据升级，但当前 `store_test.go` 并未包含该测试；此差异不在 Step 10 范围内处理。
+  - 当前 `pool_test.go` 只在全新迁移后检查 `pool_entries` 表不存在，未覆盖 1016 的旧数据、ID、`sqlite_sequence`、幂等与回滚；Step 10 的新增 store 测试负责补齐这些能力，不要求改写 pool 测试语义。
+
+- **Step 10 执行记录（2026-09-10）：**
+  - 新增 `backend/internal/store/migration_1016_test.go`（`package store`），复用真实 `migrations.FS` 与既有 `migrationsThrough(target)`；未复制或手写任何简化 1009/1016 schema，未修改生产迁移 SQL。
+  - `TestMigration1015To1016StoreLevel`：对独立临时库应用真实 0001～1015，断言 `MAX(version)=1015`、无更高迁移、记录数 20；插入 ID 10/100 旧池、同一旧池 manual/URL 条目、旧任务、versions 与 assembly_blueprints sentinel（selection_json 引用旧 pool_id:100）；再应用真实 1016，断言旧表清除、旧任务清零、新表存在、sentinel 逐字保留、schema_migrations 只新增 1016、`sqlite_sequence==100`；插入新池精确得到 ID 101 且 sequence 同步 101；同一 Store 重复迁移与 close/reopen 后再次迁移均幂等。
+  - `TestMigration1016FailureRollsBack`：使用独立临时库迁移到真实 1015 并插入夹具；`brokenMigrationsThrough1016()` 只把必然失败语句追加到真实 1016 SQL 末尾，覆盖删表、建表、sequence 与临时表操作之后；断言失败后旧 schema/数据/sequence/sentinel 与 schema_migrations 全部回滚、新表与临时表不存在，随后使用真实 1016 重试成功。
+  - 验证命令：`cd backend && go test ./internal/store ./internal/pool -run 'Migration|1016'`、`cd backend && go build ./...`、`git diff --check` 均通过。
+  - 真实旧版本数据库升级演练不作为本 Step 完成条件；如用户后续需要，仅作为隔离副本上的可选人工项，不替代本 store 自动化测试。
+
+---
+
+### Step 11：全量回归、文档同步与 R28-05/Design3 状态收口
+
+- **目标：** 完成全量自动验证，并按实际结果同步文档状态；本 Step 不新增功能。
+
+- **前置条件：** Steps 1～10 全部通过。
+
+- **产出文件与操作：**
+  - 自动门禁：
+    ```bash
+    cd backend && go build ./...
+    cd backend && go vet ./...
+    cd backend && go test ./... -count=1 -timeout 180s
+    cd frontend && npm run build
+    cd frontend && npm test -- --run
+    docker compose build
+    bash .smoke-test-prod.sh
+    git diff --check
+    ```
+  - 文档同步：
+    - `docs/reports/Build/Build16.md`：保留归档构建的历史 Step 状态；如需消除“当时已全部闭环”的歧义，只追加后续勘误/关联说明，记录 D3-1～D3-10 经 BuildReport4 发现，并由 Build22 完成主体代码与运行门禁；Step 7 证据缺口补齐后再闭环，不倒改历史进度或把 Build16 重新作为当前构建入口。
+    - `Design3.md`：按实际实现核对 failed 快照持久化、来源证据存储方式、v1 stats/旧 JSON 兼容、1018 activated_at 和 per-URL API 形态；§9.3 当前串行执行入口继续保持 Build22。
+    - `Issue14.md`：仅在 Steps 1～10 均有验收证据后，同步步骤三表格、R28-05 状态和关闭条件；不得提前标记 D3-1～D3-10 完成。
+    - 顺带修正 `PoolTab.vue` 中“停机错过不补跑”的陈旧文案，与当前启动补跑实现保持一致。
+    - `AGENTS.md`：仅在全部实际完成后登记 Build22。
+    - 本文件：更新进度表与验收结果。
+
+- **验收标准：**
+  所有自动命令和正式 Production smoke 通过；D3-1 的新计划实例语义与旧计划兼容均有下载证据，D3-5 的排序/分页有数据库级证据，D3-7 的状态恢复、v1 stats 不变量、旧 JSON 兼容、1018 激活时间和脱敏有限诊断应有迁移/API/UI 证据，D3-10 的真实 1015→1016 迁移有 store 级证据；Build22、Design3、Issue14 与 AGENTS 状态一致，归档 Build16 只保留历史记录和后续勘误，不倒改或虚标验收状态。**2026-09-11 补齐 D3-7 专属自动化证据矩阵后，全部验收条件成立。**
+
+- **Step 11 执行记录（2026-09-10）：**
+  - 全量自动门禁均在本次任务实际运行并通过：`cd backend && go build ./...`、`go vet ./...`、`go test ./... -count=1 -timeout 180s`、`cd frontend && npm run build`、`cd frontend && npm test -- --run`、`docker compose build`、`bash .smoke-test-prod.sh`、`git diff --check`。
+  - 前端全量测试结果为 42 个测试文件 / 244 个用例全部通过；后端全包测试均为 `ok`，无失败包。
+  - 关键包 skip 检查：`TestR2902ProvidedURLsConcurrentIntegration`、`TestProvidedURLCancelIntegration` 需用户提供的真实 URL；`TestMihomo11929AcceptsGeneratedSSPluginStructures` 需外部 Mihomo 1.19.29 二进制。三者均不属于 Build22 Step 8～10 或本 Step 自动验收范围，不影响本次结论，未把其记为已执行。
+  - Smoke 首轮在 `sr-conf` 装配生成处失败：旧脚本仍发送空 `custom_rules`/`pools`，与 Build22 Step 6 已冻结的“SR conf 最终非系统规则为 0 时禁止生成”合同冲突。按“不隐藏失败”原则保留失败证据，仅将 smoke 夹具修正为一条有效 `DOMAIN-SUFFIX` 自定义规则后重跑，完整 build + Production smoke + v2 导入导出往返通过；决策见附录 B-3。
+  - 文档同步：已更新本文件进度/执行记录、`Issue14.md` R28-05 与步骤三、`Design3.md` 实现口径/变更记录、`docs/reports/Build/Build16.md` 后续勘误、`AGENTS.md` 状态、`ProdTestList.md` Build22 人工核验章节；`PoolTab.vue` 陈旧文案已修正为“服务启动时补跑今日错过”。
+  - **交叉审核修正（2026-09-10）：** 上述全量门禁真实通过，但 Step 7 专属自动化证据缺口未在本次门禁中被覆盖或声明降级；本 Step 11 的运行门禁结果不能作为 D3 全验收通过的充分证据。缺口清单与重跑条件见进度表下方“交叉审核补充”。
+  - 实际浏览器双视口、真实交互、真实手机和真实客户端仍只登记为待用户人工核验，不得由本次自动化结果外推为通过。
+
+- **Step 11 重新收口记录（2026-09-11）：**
+  - Step 7 专属证据补齐后重新运行：`go test ./internal/redact ./internal/log ./internal/store ./internal/pool ./internal/server -count=1 -timeout 300s`、`go test ./... -count=1 -timeout 300s`、`go vet ./...`、`go test -race ./internal/pool ./internal/server ./internal/redact ./internal/log ./internal/store` 全部通过。
+  - 前端 `npm test -- --run`（42 文件/259 用例）与 `npm run build` 通过；`docker compose build`、`bash .smoke-test-prod.sh`、`git diff --check` 通过。
+  - Step 7 交叉审核缺口的逐项证据见本节“Step 7 证据补齐与收口记录”；D3-1～D3-10 工程闭环成立，Build22 与 Design3 按归档规则移入 `docs/reports/`。
+  - 实际浏览器、真实设备和真实客户端项目仍以 [ProdTestList.md](../../../ProdTestList.md) 为准，未标记为人工通过。
+
+---
+
+## 五、已确认构建项映射
+
+> 以下候选均来自 [BuildReport4.md](../BuildReport/BuildReport4.md) §4.2，并已经用户确认纳入 Build22。工程跟踪见 [Issue14.md](../../../Issue14.md) R28-05；后续实施时按上述 Step 顺序逐项执行。
+
+| # | 候选 | 说明 | 来源 | 对应 Step |
+|---|------|------|------|-----------|
+| 1 | `no_resolve` 语义丢失 | 装配层丢失 Options，渲染按类型支持度无条件追加 | Design3 §7.2 | Step 3 |
+| 2 | `excluded` 重复计算 | 统计循环与后置累加导致排除数错误，且混入重复 | Design3 §5.3、§6.4 | Step 1 |
+| 3 | 手工更新污染 URL Canonical | UpdateEntry 直接改共享 canonical 行 | Design3 §3.2、§6.1 | Step 5 |
+| 4 | 后端素材池白名单未强制 | 只做值校验，未按原始 legacy 类型校验 `MaterialPool`；且不能仅按 Canonical `family/matcher` 判定，需拒绝 `SRC-*` 碰撞类型 | Design3 §3.3、§3.4 | Step 4 |
+| 5 | 来源原始证据/排序未落库 | 行号/原始行/来源内顺序均为占位；查询未按 origin 排序且未去重 | Design3 §3.2、§5.4 | Step 2 |
+| 6 | 零输出门槛漏网 | 无池/自定义时绕过 `FinalOutput==0` 检查 | Design3 §7.2 | Step 6 |
+| 7 | per-URL 快照状态/诊断 API 缺失 | 无快照读取服务与路由；failed 未持久化 | Design3 §6.4、§8.2、§8.3 | Step 7 |
+| 8 | pending 激活/丢弃无 UI | 前端已有 API 但无页面调用 | Design3 §8.2 | Step 8 |
+| 9 | 装配回执未展示 | 后端返回 receipt，前端未保存/渲染 | Design3 §7.2、§8.2 | Step 9 |
+| 10 | 1016 迁移测试缺失 | 只验新库无旧表，未验旧数据/ID/历史保留 | Design3 §6.5、§9.3 | Step 10 |
+
+> D3-1～D3-10 及本轮补充的重复 origin、manual 409、latest-attempt 状态、v1 stats/旧 JSON 兼容、1018 activated_at、profile/rejected 统计修正、旧 render plan 兼容口径和“原始 legacy 类型素材池白名单（拒绝 `SRC-*`）”均已由用户确认并写入对应 Step。后续若发现改变产品语义或兼容边界的新候选，仍须先研究并由用户决策，不能直接并入构建。
+
+---
+
+## 六、变更记录
+
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| v1.15 | 2026-09-11 | Step 7 证据补齐并重新收口：新增 8 项交叉审核缺口测试及额外边界测试；修复 `RedactDisplayURL` 编码分隔符/嵌套 URL 脱敏、`SanitizeStoredSyncOutputs` 事务化与 fallback 限额、`isLegacyClashPlan` 对字符串 `rules` 的识别。后端定向/全量/race/build/vet、前端 42 文件/259 用例/build、Docker build、Production smoke 与 `git diff --check` 全部通过；D3-1～D3-10 闭环，Build22/Design3 归档。 |
+| v1.14 | 2026-09-10 | 文档交叉审核修正：Step 7 专属自动化测试矩阵大面积未落地（激活/activated_at、存量清洗、现有 sync/status 与 sync/tasks 脱敏、19+1/200 rune、v1 stats 不变量/version 0、latest_failed 恢复与 ID 排序、failed 写失败指针不变等），Step 11 不能声明 D3-1～D3-10 全部验收通过；Build22 保持根目录活跃，不归档，补齐证据后重跑 Step 11 门禁再收口。 |
+| v1.13 | 2026-09-10 | 完成 Build22 Step 8～11 代码与运行门禁：Step 8 每 URL 来源状态/诊断/pending UI 与组件测试、Step 9 preview/generate 六项回执展示与后端原始 JSON 合同、Step 10 真实 1015→1016 store 级迁移/幂等/回滚测试、Step 11 后端 build/vet/全量测试、前端 build/全量测试、Docker Compose build 与正式 Production smoke 全部通过；但该记录未发现 Step 7 专属自动化证据缺口，D3 全验收口径由 v1.14 修正。Smoke 旧夹具与 Step 6 零输出门槛冲突已按 B-3 修正并记录。实际浏览器/真机项目迁移至 ProdTestList，不标记为人工通过。 |
+| v1.12 | 2026-09-10 | 按用户确认的补修方案完成 Build22 Step 1～7 的缺口复修：Step3 修复 SR `no-resolve` 目标能力判断、未知 option warn/位置法尾部解析；Step7 修复 detector evidence codes 来源、sentinel reason_code、严格 v1 stats 形状、显式 null/空串 wire shape、snapshots 严格分页、URL 200 rune 限长和 failed 写入失败后缀保留。后端全量测试/build/vet、前端 build 均通过；Step 8 进行中，Step 9～11 未开始。 |
+| v1.11 | 2026-09-10 | 完成 Build22 Step 10“真实 1015 迁移测试夹具最小可行构造”只读研究并按用户确认细化：`migrationsThrough` helper 按解析版本过滤且排除 1017；最小夹具固定为 ID 10/100 两个旧池、manual/URL 条目、旧同步任务、versions、assembly_blueprints；不额外插入 owner 记录；成功断言覆盖 `pool_sync_tasks` 重建为空表、`sqlite_sequence`、精确新 ID 101、close/reopen 幂等；失败回滚在真实 1016 文件末尾追加失败语句并在回滚后用真实 1016 重试。同步在附录 A.10 和范围外备注中记录 Build16 历史表述差异与 pool_test 当前缺口。仅更新文档，未修改业务代码、未执行构建。 |
+| v1.10 | 2026-09-10 | 将 Step 7 脱敏结论同步至 AGENTS.md、Design3.md、Issue14.md，并补齐 Build22 附录 A.7 中的 `display_url`、公共 redact、历史清洗与 19+1 截断口径。仅更新文档，未修改业务代码、未执行构建。 |
+| v1.9 | 2026-09-10 | 完成 Build22 Step 7“脱敏机制复用范围”只读研究并按用户确认更新 Step 7/8 文档：新增 `backend/internal/redact` 公共脱敏包并由 log/pool 共用；`SourceStatus` 改用 `display_url`；脱敏范围扩展至现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error`；新增存量同步输出非破坏性清洗；诊断超 20 条时采用 19 条真实 + 1 条截断摘要；所有进入持久化/展示 API 的字符串字段按 200 rune 限长。仅更新 Build22 文档，未修改业务代码、未执行构建。 |
+| v1.8 | 2026-09-09 | Step 3 Clash render plan 兼容编码专项研究并经用户确认：固定采用逐规则 `NoResolve *bool` 三态，不为单字段引入顶层 plan schema version；字段缺失或 null 兼容历史按类型推断，新计划逐条显式写入 boolean true/false；补充单一构造 helper、原始 JSON 字段存在性、历史手写夹具、目标能力、内置规则和覆盖层降级测试合同。仅更新文档，Build22 代码仍未开始。 |
+| v1.7 | 2026-09-09 | R28-05 `stats_json` 专项研究并经用户确认：Step 1 补齐 adapter reject 与来源模式污染 profile 的统计缺口；Step 7 冻结 version 1 强类型统计、确定性检测依据码、family/matcher/scope 分项、旧 active 比较、初始决策原因和旧 JSON 兼容，并通过 1018 nullable `activated_at` 记录 pending 人工激活时间；Step 8/11 同步补齐展示与验收证据。仅更新文档，Build22 代码仍未开始。 |
+| v1.6 | 2026-09-09 | 构建前文档核验补强：冻结 Step 7 列表包裹、分页、统一快照摘要、诊断字段与展示 URL 脱敏合同；补齐 Step 5/9 后端测试和编译门禁、Step 8 双视口浏览器证据、Step 10 独立数据库失败回滚；Step 11 改为同步 Issue14/Design3/AGENTS，并仅向归档 Build16 追加后续勘误而不倒改历史状态。仅完善文档，未修改业务代码、未执行构建。 |
+| v1.5 | 2026-09-09 | 按用户确认微调 Step 4：素材池白名单改为在手工 CRUD 与来源解析入口按**原始 legacy 类型**判定，拒绝 `SRC-GEOIP`/`SRC-IP-ASN`/`SRC-IP-CIDR` 等与 `GEOIP`/`IP-ASN`/`IP-CIDR` Canonical 碰撞的非素材池类型；同步修订构建概要、决策清单、候选映射与附录 A.4。仅完善文档，未修改业务代码、未执行构建。 |
+| v1.4 | 2026-09-09 | R28-05 第二次只读研究后按用户确认详细修订：补充相同语义保留全部 origin 与分页前去重；`no_resolve` 扩展至结构化来源解析、实例渲染、新旧 Clash render plan 和覆盖层重写；manual→manual 重复返回 409；来源主状态以 latest attempt 为准并可同时保留旧 active；统一诊断限额/脱敏；迁移测试改用真实 0001～1016 两阶段链路并覆盖幂等/回滚。Build21 Step 14 前置已完成，Build22 Step 1～11 仍全部未开始，本次未修改业务代码。 |
+| v1.0 | 2026-09-05 | 根据 BuildReport4 未闭环项 1 完成 D3-1～D3-10 根因研究、修复方向与候选清单。 |
+| v1.1 | 2026-09-05 | 进一步深入研究并按照 `docs/DocTemplates/Build.template.md` 重排：新增构建进度追踪、构建概要、顺序依赖图、分步构建计划、候选构建项与变更记录；补充 failed 快照持久化、来源证据实现细节、迁移测试方法与清理策略。未修改任何业务代码。 |
+| v1.2 | 2026-09-05 | 按审阅建议补强：generate 回执改为必做；per-URL SourceStatus/SourceSnapshot 补全 input/recognized、诊断摘要与有限样例；failed 快照增加脱敏与诊断限额；依赖说明改为串行；补充与 Build21 同文件区域的串行执行提醒。 |
+| v1.3 | 2026-09-08 | 文档交叉审核：将 D3-1～D3-10 未闭环项登记至 Issue14 R28-05；本文档保留为实施计划并在进度追踪中补充 Issue14 链接。未修改业务代码。 |
+
+---
+
+## 附录 A：深入研究记录（代码证据与修复依据）
+
+> 本附录用于保留详细代码证据，作为后续执行时的排查依据；不属于模板必需节。
+
+### A.1 D3-1：`no_resolve`
+
+当前链路：
+
+```text
+pool_canonical_rules.options_json
+  → assembly/load.go loadPoolEntries()（读出 options 后丢弃）
+  → poolEntry{RuleType, MatchValue}
+  → render_clash.go appendRule() 在 mapped.SupportsNoResolve 时追加
+  → render_sr.go formatRuleLine() 对 IP-CIDR/IP-CIDR6 无条件追加
+```
+
+关键代码位置：
+
+- `backend/internal/assembly/load.go`：`loadPoolEntries()` 读取 `cr.options_json` 但只构造 `poolEntry`。
+- `backend/internal/assembly/render_clash.go`：`appendRule` 中 `if mapped.SupportsNoResolve { line += ",no-resolve" }`。
+- `backend/internal/assembly/render_sr.go`：`formatRuleLine` 对 `IP-CIDR`/`IP-CIDR6` 无条件追加。
+- `backend/internal/pool/adapter_typed.go`、`adapter_mihomo.go` 与手工兼容入口：使用整行/值的子串搜索识别 `no-resolve`，没有区分匹配值、policy 和独立 option token。
+- `backend/internal/assembly/clash_plan.go`：`ClashPlanRule` 未冻结实例选项，下载重渲染和目标组降级仍按类型追加。修复必须覆盖 plan 的新旧兼容，不能只让管理员首次预览正确。
+
+### A.2 D3-2：统计重复
+
+`backend/internal/pool/pipeline.go finalizeParseResult()`：
+
+- 循环内对 Clash/SR 排除项执行 `res.Excluded++`；
+- 循环后执行 `res.Excluded += len(rules)-res.Accepted-res.Rejected`；
+- 该后置公式会把已排除项与重复项一并计入 excluded。
+- `ParseResult` 在循环前保存了 `Diagnostics` slice，循环内新增“不是素材池可选能力”诊断后没有回写最终 slice，存在诊断缺项；Step 1 一并修正，Step 7 再在持久化边界统一限额和脱敏。
+
+### A.3 D3-3：共享 Canonical 污染
+
+`backend/internal/pool/pool.go UpdateEntry()`：
+
+```sql
+UPDATE pool_canonical_rules SET family=?, matcher=?, value=?, options_json=?, semantic_key=? WHERE id=?
+```
+
+由于 `pool_canonical_rules` 以 `pool_id + semantic_key` 唯一，手工 origin 与 URL origin 会共享同一 canonical 行，直接 UPDATE 会污染 URL 派生规则。
+
+换绑还必须处理目标 Canonical 已经存在的情况：只有 URL origin 时允许共享；已经存在另一个 manual origin 时不能静默合并，否则一次编辑会让两条手工记录在列表去重后看似丢失。已确认维持现有手工唯一语义并返回 409，事务失败后两条旧记录均保持不变。
+
+### A.4 D3-4：白名单
+
+`backend/internal/pool/pool.go canonicalFromLegacyInput()` 只做：
+
+```go
+typ, normalized, err := rulespec.ValidateValue(ruleType, matchValue)
+family, matcher, ok := rulespec.CanonicalizeLegacyType(typ)
+```
+
+未检查 `rulespec.LegacyMetadata()` 的 `MaterialPool` 标志。前端 `PoolDetail.vue` 虽已按 `material_pool` 过滤，但后端无强制。
+
+**本轮补充确认的 Canonical 碰撞：** 当前 `CanonicalizeLegacyType()` 存在有损映射：
+
+```text
+SRC-GEOIP   → geo/equals      （与 GEOIP 相同）
+SRC-IP-ASN  → ip/asn          （与 IP-ASN 相同）
+SRC-IP-CIDR → ip/cidr         （与 IP-CIDR 相同）
+```
+
+因此不能以“Canonical Rule 的 family/matcher 查 capabilityRegistry.MaterialPool”作为唯一白名单依据，否则上述 `SRC-*` 会被误判为可进入素材池。已确认改为：在手工 CRUD 和显式类型来源解析入口，先按**原始 legacy 类型**的 `MaterialPool` 做白名单，再 Canonical 化；`capabilityRegistry` 检查仅作为第二道防线。`RULE-SET`、`AND/OR/NOT`、`MATCH`、`GEOSITE` 及 `SRC-*` 等 `material_pool=false` 类型统一拒绝进入素材池。
+
+### A.5 D3-5：来源证据
+
+当前 `ParseResult`：
+
+```go
+type ParseResult struct {
+    Format      DetectedFormat
+    Profile     string
+    Rules       []rulespec.CanonicalRule
+    Diagnostics []ParseDiagnostic
+    ...
+}
+```
+
+`sync.go applyParseResultTx()` 写入：
+
+```sql
+sort_order = int64(len(parsed.Rules))  -- 所有规则相同
+raw_line   = rule.SemanticKey()
+line_no    = 0
+```
+
+查询排序：
+
+```sql
+ORDER BY CASE WHEN src.kind='manual' THEN 0 ELSE 1 END, src.sort_order, cr.id
+```
+
+没有使用 origin 的真实顺序；`loadPoolEntries()` 也没有按 canonical 去重，存在同规则重复渲染风险。
+
+初版 Build22 曾提出“重复项只计数、不新增 origin”，与 Design3 §3.2/§5.3 的“语义去重但保留 origin”冲突。本轮已按用户确认修正：所有原始位置均落 origin，`accepted` 计唯一 Canonical，`duplicates` 计额外 origin；查询必须先从有效 origin 集合选最早 origin，再分页/渲染。
+
+### A.6 D3-6：零输出门槛
+
+`backend/internal/server/assembly.go generate()`：
+
+```go
+if res.Receipt != nil && res.Receipt.FinalOutput == 0 && (len(in.Pools) > 0 || len(in.CustomRules) > 0) {
+    Fail(...)
+}
+```
+
+当池和自定义规则都为空时绕过检查，与 Design3 §7.2 不符。
+
+### A.7 D3-7：per-URL API 与 failed
+
+当前：
+
+- `pool_source_snapshots.status` 已包含 `failed`，但 `syncOne()` 失败时不会写该行；
+- `server/pool.go` 只有 pending 激活/丢弃路由，没有快照读取路由；
+- `PoolSource` 只返回 `active_snapshot_id`、`pending_snapshot_id`；
+- `frontend/src/api/pool.ts` 只有 `PerURLResult`、`SyncTaskItem`，没有当前来源状态与快照详情类型。
+
+只返回 `latest_failed` 会让历史失败长期控制 UI。本轮已确认以 `latest_attempt` 决定主状态，同时独立返回 active/pending/latest_failed：最近失败可以与旧 active 并存，后续成功后旧 failed 只作为历史。所有 snapshot/task 诊断必须在共同持久化边界执行脱敏与限额，采用 `backend/internal/redact` 公共规则，`SourceStatus` 返回 `display_url`；诊断超过 20 条时保留 19 条真实 + 1 条截断摘要，字符串字段按 200 rune 限长，并清洗存量 `per_url_json`/`error`/`sync_error`。
+
+### A.8 D3-8：pending UI
+
+`frontend/src/api/pool.ts` 已导出：
+
+```ts
+activatePending
+discardPending
+```
+
+但全前端没有任何调用点；`PoolDetail.vue` 只显示“待激活”文字。
+
+### A.9 D3-9：回执展示
+
+`backend/internal/server/assembly.go preview()` 返回：
+
+```json
+{ "receipt": ... }
+```
+
+`frontend/src/api/assembly.ts` 已定义：
+
+```ts
+receipt?: ConversionReceipt
+```
+
+但 `AssemblyView.vue` 未保存 `res.receipt`，`PreviewStep.vue` 未接收/渲染。
+
+### A.10 D3-10：迁移测试
+
+现有 `backend/internal/pool/pool_test.go` 仅在全新迁移后检查 `pool_entries` 表不存在，未覆盖旧数据、ID 防复用、历史版本保留。`Store.Migrate` 支持多次调用，但使用手写最小 1009 schema 会绕过真实历史迁移间的表、索引和外键关系；Step 10 必须从嵌入的 `migrations.FS` 过滤出真实 0001～1015，再对同一数据库应用真实 1016，并覆盖重复迁移幂等和单迁移失败整体回滚。
+
+经只读研究并按用户确认，Step 10 的构造口径细化为：
+
+- `migrationsThrough(target)` helper 按解析后的版本号过滤真实 `migrations.FS`，不得包含 1017/未来迁移。
+- 最小夹具使用两个旧 `rule_pools`：ID 10 与 100；同一池下 manual/URL `pool_entries` 各一条；一条旧 `pool_sync_tasks`；一条 `versions`；一条 `assembly_blueprints`，其 `selection_json` 引用旧 `pool_id:100`。
+- `versions`、`assembly_blueprints` 对 `platforms`、`subscriptions`、`rules` 等 owner 表没有数据库外键，因此最小夹具不额外插入 owner 记录。
+- 成功断言必须覆盖 `pool_sync_tasks` 被重建为空表、`sqlite_sequence('rule_pools')` 在迁移后等于旧 max、插入新池后 `LastInsertId()==101` 且 `seq==101`。
+- 幂等断言包含同一 Store 重复 Migrate，以及 close/reopen 后再次 Migrate。
+- 失败回滚使用独立临时库；把必然失败语句追加到真实 1016 SQL 末尾；失败后先用断言确认 1015 状态完整，再用真实 1016 重试并成功。
+- 该测试是 store 级测试，不调用 assembly 服务断言 invalid reference；旧蓝图 JSON 原样保留即可。
+
+---
+
+## 附录 B：Build22 执行自主决策与阻断记录
+
+| ID | 日期时间 | Step | 类型 | 发现与证据 | 处理决定或阻断点 | 影响范围 | 状态 |
+|----|----------|------|------|------------|------------------|----------|------|
+| B-1 | 2026-09-10 | Step 8 | 阻断问题 | Build22 Step 8 明确要求以实际浏览器取得 1440px 与 390px 两种视口证据；当前执行环境 `which chromium/chromium-browser/google-chrome/playwright` 均无结果，frontend 也未安装 Playwright，无法执行真实浏览器交互与截图证据。 | 停止在 Step 8 前，不实施/标记 Step 8 完成；Steps 1～7 已完成后保持当前部分实现；等待用户提供浏览器证据环境或明确调整证据边界。 | Step 8 UI、Step 11 全量收口 | 已由 B-2 解阻（原始阻断事实保留） |
+| B-2 | 2026-09-10 20:04 | Step 8 | 用户决策/验收边界 | 用户已明确允许将实际浏览器、真实设备和真实客户端核验延期至 [ProdTestList.md](../../../ProdTestList.md)；B-1 的“缺少实际浏览器环境”不再阻断 Step 8 的代码和自动化验收。Step 8 仍必须完成组件测试与生产构建，1440px、390px、真实交互和控制台检查不得标记通过。 | 按用户授权继续执行 Step 8～11 的代码与自动化验收；未执行的实际浏览器项目迁移为待用户人工核验，完成自动化后不得宣称真实浏览器已通过。 | Step 8、Step 11 文档收口 | 已确认 |
+| B-3 | 2026-09-10 20:13 | Step 11 | 自主决策/测试夹具修正 | Step 11 首次运行 `bash .smoke-test-prod.sh` 在步骤 13d“sr-conf 装配生成”失败：脚本发送 `pools:[]`、`custom_rules:[]`，服务端按 Build22 Step 6 已冻结的零输出门槛返回 400“当前目标没有可输出的非系统规则”。该行为与 `server/assembly_test.go` 的 `TestAssemblyGenerateZeroOutputGate` 一致，属于旧 smoke 夹具与设计合同漂移，不是产品回归。 | 保留失败证据，不修改零输出门槛、不修改生产代码或迁移 SQL；仅把 `.smoke-test.sh` 的 sr-conf 请求夹具改为一条有效 `DOMAIN-SUFFIX` 自定义规则，使 smoke 验证成功路径。空规则负例继续由后端自动化测试固定，不以脚本改动隐藏。修正后完整 smoke 与 v2 导入导出往返通过。 | `.smoke-test.sh` 夹具；Step 11 门禁记录 | 已确认并验证 |

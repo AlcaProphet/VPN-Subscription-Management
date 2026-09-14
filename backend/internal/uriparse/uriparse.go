@@ -135,7 +135,9 @@ func parseSS(s string) (*Result, error) {
 	if v := q.Get("v2ray-plugin"); v != "" && params["plugin"] == nil {
 		params["plugin"] = "v2ray-plugin"
 		var opts map[string]any
-		_ = json.Unmarshal([]byte(decodeBase64OrOriginal(v)), &opts)
+		if err := json.Unmarshal([]byte(decodeBase64OrOriginal(v)), &opts); err != nil {
+			opts = nil // 非法插件参数保持无选项，后续输出会给出诊断
+		}
 		setSSPluginOpts(params, "v2ray-plugin", opts)
 	}
 	if _, ok := q["uot"]; ok && parseBoolPresence(q.Get("uot")) {
@@ -537,7 +539,7 @@ func parseVLESS(s string) (*Result, error) {
 		}
 	}
 	applyVLESSTransport(params)
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	if decodedName == "" {
 		decodedName = firstNonEmpty(q.Get("remarks"), q.Get("remark"))
 	}
@@ -646,7 +648,7 @@ func parseTrojan(s string) (*Result, error) {
 		params["client-fingerprint"] = v
 	}
 	applyTrojanTransport(params)
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	return &Result{Protocol: "trojan", Name: defaultName(decodedName, "Trojan", host, port), Host: host, Port: port, Params: params}, nil
 }
 
@@ -719,7 +721,7 @@ func parseAnyTLS(s string) (*Result, error) {
 	if v := q.Get("min-idle-session"); v != "" {
 		params["min-idle-session"] = parseIntString(v)
 	}
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	return &Result{Protocol: "anytls", Name: defaultName(decodedName, "AnyTLS", host, port), Host: host, Port: port, Params: params}, nil
 }
 
@@ -765,7 +767,7 @@ func parseHysteria2(s string) (*Result, error) {
 	if v := q.Get("pinSHA256"); v != "" {
 		params["fingerprint"] = v
 	}
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	return &Result{Protocol: "hysteria2", Name: defaultName(decodedName, "Hysteria2", host, port), Host: host, Port: port, Params: params}, nil
 }
 
@@ -819,7 +821,7 @@ func parseHysteria(s string) (*Result, error) {
 	if _, ok := q["fast-open"]; ok {
 		params["fast-open"] = parseBoolPresence(q.Get("fast-open"))
 	}
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	return &Result{Protocol: "hysteria", Name: defaultName(decodedName, "Hysteria", host, port), Host: host, Port: port, Params: params}, nil
 }
 
@@ -882,7 +884,7 @@ func parseTUIC(s string) (*Result, error) {
 	} else if _, ok := q["skip-cert-verify"]; ok {
 		params["skip-cert-verify"] = parseBoolPresence(q.Get("skip-cert-verify"))
 	}
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	return &Result{Protocol: "tuic", Name: defaultName(decodedName, "TUIC", host, port), Host: host, Port: port, Params: params}, nil
 }
 
@@ -945,7 +947,7 @@ func parseWireGuard(s string) (*Result, error) {
 	if _, ok := q["remote-dns-resolve"]; ok {
 		params["remote-dns-resolve"] = parseBoolPresence(q.Get("remote-dns-resolve"))
 	}
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	return &Result{Protocol: "wireguard", Name: defaultName(decodedName, "WireGuard", host, port), Host: host, Port: port, Params: params}, nil
 }
 
@@ -1007,7 +1009,7 @@ func parseHTTP(s string) (*Result, error) {
 	if v := q.Get("ip-version"); v != "" {
 		params["ip-version"] = v
 	}
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	return &Result{Protocol: "http", Name: defaultName(decodedName, "HTTP", host, port), Host: host, Port: port, Params: params}, nil
 }
 
@@ -1050,7 +1052,7 @@ func parseSocks5(s string) (*Result, error) {
 	if v := q.Get("ip-version"); v != "" {
 		params["ip-version"] = v
 	}
-	decodedName, _ := url.QueryUnescape(name)
+	decodedName := urlQueryUnescapeOrRaw(name)
 	return &Result{Protocol: "socks5", Name: defaultName(decodedName, "SOCKS5", host, port), Host: host, Port: port, Params: params}, nil
 }
 
@@ -1065,7 +1067,10 @@ func splitFragment(s string) (string, string) {
 
 func splitQuery(s string) (string, url.Values) {
 	if idx := strings.Index(s, "?"); idx >= 0 {
-		q, _ := url.ParseQuery(s[idx+1:])
+		q, err := url.ParseQuery(s[idx+1:])
+		if err != nil {
+			return s[:idx], url.Values{}
+		}
 		return s[:idx], q
 	}
 	return s, url.Values{}
@@ -1075,7 +1080,10 @@ func parseQuery(raw string) url.Values {
 	if raw == "" {
 		return url.Values{}
 	}
-	q, _ := url.ParseQuery(raw)
+	q, err := url.ParseQuery(raw)
+	if err != nil {
+		return url.Values{}
+	}
 	return q
 }
 
@@ -1145,7 +1153,10 @@ func parseBoolPresence(v string) bool {
 }
 
 func parseIntString(v string) int {
-	n, _ := strconv.Atoi(v)
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0
+	}
 	return n
 }
 

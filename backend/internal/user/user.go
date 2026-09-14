@@ -87,7 +87,8 @@ type User struct {
 }
 
 // Register 自注册 + 首管理员机制（Design1 §2.5，关键约束）：
-// 「邮箱唯一预查 → 空表判定 → 写入（首管理员）→ 置位标记」全程单个 BEGIN IMMEDIATE 事务（并发串行化）
+// 「邮箱唯一预查 → users 空表判定 → 写入」全程单个 BEGIN IMMEDIATE 事务（并发串行化）。
+// 首管理员只以同事务内 users 表计数为唯一事实来源，不再写入 admin_initialized 元数据。
 func (s *Service) Register(ctx context.Context, username, emailRaw, password string) (*User, error) {
 	email, err := auth.NormalizeEmail(emailRaw)
 	if err != nil {
@@ -141,12 +142,6 @@ func (s *Service) Register(ctx context.Context, username, emailRaw, password str
 			return err
 		}
 		created = &User{ID: id, Username: username, Email: email, Role: role, Status: status, Source: source, HasPassword: true}
-		// 4) 首管理员：同事务置位「已初始化」标记（用户表为空时忽略该标记）
-		if first {
-			if err := s.cfg.SetTx(ctx, tx, config.KeyAdminInitialized, "true"); err != nil {
-				return err
-			}
-		}
 		return nil
 	})
 	if err != nil {

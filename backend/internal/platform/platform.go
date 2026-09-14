@@ -165,7 +165,7 @@ func (s *Service) Create(ctx context.Context, name, description, productType str
 	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		value, err := slug.Generate(ctx, tx, "platform-", func(v string) (bool, error) {
 			return slug.TableHasSlug(ctx, tx, "platforms", v)
-		})
+		}, s.log)
 		if err != nil {
 			return err
 		}
@@ -379,7 +379,7 @@ func ValidateExtraHeaders(h map[string]string) error {
 }
 
 // ParseContentDispositionFilename 解析平台附加头中的 Content-Disposition，提取并校验完整下载文件名。
-// 兼容 `attachment; filename*=UTF-8''Luneflare` 与标准 `attachment; filename="foo.yaml"`。
+// 兼容 `attachment; filename*=UTF-8”Luneflare` 与标准 `attachment; filename="foo.yaml"`。
 func ParseContentDispositionFilename(value string) (string, error) {
 	mt, params, err := mime.ParseMediaType(value)
 	if err != nil {

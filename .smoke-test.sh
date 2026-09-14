@@ -149,8 +149,10 @@ require_success "sr-subs 装配生成" "$GEN3"
 GEN3ID=$(echo "$GEN3" | J "['data']['version_id']")
 echo "13c) sr-subs 装配 version_id=$GEN3ID"
 
+# Build22 Step 6：Clash YAML 与 SR conf 均要求最终非系统规则 >= 1，空 rules 必须被拒绝；
+# smoke 使用一条有效自定义规则验证成功路径，而不是把空规则当作合法输入。
 GENR=$(curl -s -X POST $BASE/api/admin/assembly/generate -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"target_syntax":"sr-conf","rule_id":'$RULEID',"node_names":[],"group_names":[],"pools":[],"custom_rules":[],"final_direction":"PROXY"}')
+  -d '{"target_syntax":"sr-conf","rule_id":'$RULEID',"node_names":[],"group_names":[],"pools":[],"custom_rules":[{"rule_type":"DOMAIN-SUFFIX","match_value":"smoke.example","target":"PROXY"}],"final_direction":"PROXY"}')
 require_success "sr-conf 装配生成" "$GENR"
 GENRID=$(echo "$GENR" | J "['data']['version_id']")
 echo "13d) sr-conf 装配 version_id=$GENRID"

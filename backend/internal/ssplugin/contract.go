@@ -14,6 +14,11 @@ const (
 	TargetGeneric      = "generic-subs"
 )
 
+// TargetNames 返回节点检查支持的稳定目标集合副本，供检查、扩展 targets 校验和前端元数据派生共用。
+func TargetNames() []string {
+	return []string{TargetClash, TargetShadowrocket, TargetGeneric}
+}
+
 // TargetIssue 是由固定插件合同派生的目标诊断，不依赖上层节点或装配类型。
 type TargetIssue struct {
 	Severity  string

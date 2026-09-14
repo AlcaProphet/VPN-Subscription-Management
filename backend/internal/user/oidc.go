@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"vpn-sub/internal/auth"
-	"vpn-sub/internal/config"
 )
 
 // GetBySubject 按 OIDC subject 查询用户（未命中返回 nil）
@@ -66,6 +65,7 @@ func (s *Service) BindSubjectIfNull(ctx context.Context, id int64, subject strin
 }
 
 // CreateFromOidc 从 OIDC 身份创建新用户（复用首管理员 BEGIN IMMEDIATE 事务：空表判定 → 首管理员免审批）。
+// 首管理员只以同事务内 users 表计数为唯一事实来源，不再写入 admin_initialized 元数据。
 // pending=true 时存 oidc_claims 快照且不激活；否则直接激活
 func (s *Service) CreateFromOidc(ctx context.Context, username, email, subject, rawClaims string, pending bool) (*User, error) {
 	var created *User
@@ -99,12 +99,6 @@ func (s *Service) CreateFromOidc(ctx context.Context, username, email, subject, 
 			return err
 		}
 		created = &User{ID: id, Username: username, Email: email, Role: role, Status: status, Source: source, OidcSubject: subject}
-		// 首管理员：同事务置位「已初始化」标记
-		if first {
-			if err := s.cfg.SetTx(ctx, tx, config.KeyAdminInitialized, "true"); err != nil {
-				return err
-			}
-		}
 		return nil
 	})
 	if err != nil {

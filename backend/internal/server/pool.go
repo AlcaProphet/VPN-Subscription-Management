@@ -37,6 +37,8 @@ func RegisterPoolRoutes(engine *gin.Engine, h *PoolHandler, sessionMW, adminMW g
 
 	admin.POST("/:id/sources/:sourceId/pending/:snapshotId/activate", h.activatePending)
 	admin.DELETE("/:id/sources/:sourceId/pending/:snapshotId", h.discardPending)
+	admin.GET("/:id/sources/status", h.sourceStatuses)
+	admin.GET("/:id/sources/:sourceId/snapshots", h.sourceSnapshots)
 }
 
 type poolReq struct {
@@ -64,6 +66,10 @@ func (h *PoolHandler) list(c *gin.Context) {
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// 防御性读时清洗：只清洗 sync_error，sources[].url 与 urls[] 保持原始编辑值。
+	for i := range list {
+		pool.SanitizePoolSyncError(&list[i])
 	}
 	OK(c, ListData{List: list, Total: int64(len(list))})
 }
@@ -138,9 +144,42 @@ func (h *PoolHandler) delete(c *gin.Context) {
 }
 
 func pagination(c *gin.Context) (int64, int64) {
-	page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
-	size, _ := strconv.ParseInt(c.DefaultQuery("page_size", "20"), 10, 64)
+	page, err := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
+	if err != nil {
+		page = 1
+	}
+	size, err := strconv.ParseInt(c.DefaultQuery("page_size", "20"), 10, 64)
+	if err != nil {
+		size = 20
+	}
 	return page, size
+}
+
+// paginationStrict 仅用于 snapshots API：
+// 参数缺失使用默认值；显式空值、非数字或小于 1 一律 400。
+func paginationStrict(c *gin.Context) (int64, int64, bool) {
+	page, ok := positiveQuery(c, "page", 1)
+	if !ok {
+		return 0, 0, false
+	}
+	size, ok := positiveQuery(c, "page_size", pool.DefaultPageSize)
+	if !ok {
+		return 0, 0, false
+	}
+	return page, size, true
+}
+
+func positiveQuery(c *gin.Context, key string, def int64) (int64, bool) {
+	raw, exists := c.GetQuery(key)
+	if !exists {
+		return def, true
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v < 1 {
+		Fail(c, http.StatusBadRequest, "参数错误")
+		return 0, false
+	}
+	return v, true
 }
 
 func (h *PoolHandler) listEntries(c *gin.Context) {
@@ -333,7 +372,7 @@ func (h *PoolHandler) syncStatus(c *gin.Context) {
 		OK(c, gin.H{"task_id": 0, "status": "", "per_url": []pool.PerURLResult{}, "error": ""})
 		return
 	}
-	OK(c, t)
+	OK(c, pool.SanitizeSyncTask(t))
 }
 
 func (h *PoolHandler) listSyncTasks(c *gin.Context) {
@@ -351,7 +390,11 @@ func (h *PoolHandler) listSyncTasks(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, ListData{List: list, Total: total})
+	clean := make([]*pool.SyncTask, len(list))
+	for i := range list {
+		clean[i] = pool.SanitizeSyncTask(&list[i])
+	}
+	OK(c, ListData{List: clean, Total: total})
 }
 
 func (h *PoolHandler) activatePending(c *gin.Context) {
@@ -410,4 +453,52 @@ func (h *PoolHandler) discardPending(c *gin.Context) {
 		return
 	}
 	OK(c, nil)
+}
+
+func (h *PoolHandler) sourceStatuses(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	list, err := h.poolSvc.ListSourceStatuses(c.Request.Context(), id)
+	if errors.Is(err, pool.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "素材池不存在")
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []pool.SourceStatus{}
+	}
+	OK(c, ListData{List: list, Total: int64(len(list))})
+}
+
+func (h *PoolHandler) sourceSnapshots(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	sourceID, ok := parseID(c, "sourceId")
+	if !ok {
+		return
+	}
+	page, size, ok := paginationStrict(c)
+	if !ok {
+		return
+	}
+	list, total, err := h.poolSvc.ListSourceSnapshots(c.Request.Context(), id, sourceID, page, size)
+	if errors.Is(err, pool.ErrNotFound) {
+		Fail(c, http.StatusNotFound, "来源或素材池不存在")
+		return
+	}
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []pool.SourceSnapshot{}
+	}
+	OK(c, ListData{List: list, Total: total})
 }

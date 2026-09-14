@@ -4,7 +4,8 @@ import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { Badge, Button, Pagination, Select, Space, Table, Tabs } from 'ant-design-vue'
 import AppRangePicker from '@/components/AppRangePicker.vue'
-import { queryAccessLogs, clearAccessLogs, issueStreamToken, type AccessLog, type LogEntry } from '@/api/log'
+import { queryAccessLogs, clearAccessLogs, openLogStream, type AccessLog, type LogEntry } from '@/api/log'
+import { createSSEParser } from '@/utils/sse'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TriStateList from '@/components/TriStateList.vue'
@@ -66,62 +67,98 @@ async function confirmClear() {
   }
 }
 
-// --- 实时日志流页签（SSE：短期 Token + 8 连接上限） ---
+// --- 实时日志流页签（SSE：fetch + ReadableStream + 8 连接上限） ---
 const activeTab = ref('access')
 const paused = ref(false)
 const levelFilter = ref('')
 const lines = ref<LogEntry[]>([])
 const connected = ref(false)
-let eventSource: EventSource | null = null
+let streamAbort: AbortController | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectCount = 0
+let stopReconnect = false
 
 const levelColor: Record<string, string> = {
   info: 'level-info', warn: 'level-warn', error: 'level-error', debug: 'level-debug',
 }
 
-// SSE 短期 Token 换取过程对 UI 透明：自动先换 Token 再建 EventSource（Design1 §4.8）
+function scheduleReconnect() {
+  if (stopReconnect || activeTab.value !== 'stream') return
+  reconnectCount++
+  if (reconnectCount > 3) {
+    Notify.warning('多次重连失败：可能已达连接数上限，请关闭其他日志页后重试')
+    return
+  }
+  Notify.warning('日志流连接断开，正在重连…')
+  reconnectTimer = setTimeout(connect, 3000)
+}
+
+// SSE 连接：fetch 携带 Bearer 会话凭据，ReadableStream 分块交给 SSE 帧解析器。
 async function connect() {
+  if (streamAbort) streamAbort.abort()
+  const controller = new AbortController()
+  streamAbort = controller
   try {
-    const { token } = await issueStreamToken() // POST /admin/logs/stream/token（Bearer 会话）
-    eventSource = new EventSource(`/api/admin/logs/stream?token=${token}`)
-    eventSource.onopen = () => {
-      connected.value = true
-      reconnectCount = 0
+    const resp = await openLogStream(controller.signal)
+    if (controller.signal.aborted) return
+    if (resp.status === 401) {
+      stopReconnect = true
+      connected.value = false
+      Notify.error('会话已过期，请重新登录后查看实时日志')
+      return
     }
-    eventSource.onmessage = (ev) => {
+    if (resp.status === 403) {
+      stopReconnect = true
+      connected.value = false
+      Notify.error('权限不足，无法查看实时日志')
+      return
+    }
+    if (!resp.ok || !resp.body) {
+      throw new Error(`日志流连接失败（HTTP ${resp.status}）`)
+    }
+    connected.value = true
+    reconnectCount = 0
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder()
+    const parser = createSSEParser((message) => {
       if (paused.value) return // 暂停：停止渲染（后端缓冲继续滚动）
       try {
-        const entry = JSON.parse(ev.data) as LogEntry
+        const entry = JSON.parse(message.data) as LogEntry
         if (levelFilter.value && entry.level !== levelFilter.value) return
         lines.value.push(entry)
         if (lines.value.length > 1000) lines.value = lines.value.slice(-1000) // 前端渲染上限
         void nextTick(() => scrollToBottom())
       } catch { /* 忽略畸形帧 */ }
+    })
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      parser.feed(decoder.decode(value, { stream: true }))
     }
-    eventSource.onerror = () => {
-      connected.value = false
-      eventSource?.close()
-      if (activeTab.value !== 'stream') return // 离开页签不重连
-      Notify.warning('日志流连接断开，正在重连…')
-      reconnectCount++
-      // 重连重新换取 Token（严格一次性）；连接数达上限时提示
-      if (reconnectCount > 3) {
-        Notify.warning('多次重连失败：可能已达连接数上限，请关闭其他日志页后重试')
-        return
-      }
-      reconnectTimer = setTimeout(connect, 3000)
-    }
+    parser.flush()
+    if (!controller.signal.aborted) scheduleReconnect()
   } catch (err) {
+    if (controller.signal.aborted || (err as Error).name === 'AbortError') return
+    connected.value = false
     Notify.error((err as Error).message)
+    scheduleReconnect()
+  } finally {
+    if (streamAbort === controller) {
+      streamAbort = null
+      connected.value = false
+    }
   }
 }
 
 function disconnect() {
-  eventSource?.close()
-  eventSource = null
+  if (streamAbort) streamAbort.abort()
+  streamAbort = null
   connected.value = false
-  if (reconnectTimer) clearTimeout(reconnectTimer)
+  stopReconnect = true
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
 }
 
 // 滚动跟随（终端容器底部）
@@ -140,6 +177,8 @@ function onTabChange(key: any) {
   activeTab.value = key
   if (key === 'stream') {
     lines.value = [] // 重新连接后先推缓冲历史
+    stopReconnect = false
+    reconnectCount = 0
     void connect()
   } else {
     disconnect()

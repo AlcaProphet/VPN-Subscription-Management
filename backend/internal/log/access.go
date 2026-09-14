@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+// DBProvider 只暴露 *sql.DB 的存储适配接口；server 层用 *store.Store 满足它，
+// 避免 internal/server 生产文件直接调用 st.DB()，也避免 log→store 循环依赖。
+type DBProvider interface {
+	DB() *sql.DB
+}
+
 // AccessService 访问日志服务
 // 依赖注入采用 *sql.DB（而非 store.Store）避免 store→log 循环依赖。
 type AccessService struct {
@@ -22,6 +28,11 @@ type AccessService struct {
 
 func NewAccessService(db *sql.DB, lg *slog.Logger) *AccessService {
 	return &AccessService{db: db, log: lg}
+}
+
+// NewAccessServiceFromProvider 从存储适配接口装配访问日志服务（server.New 生产入口）。
+func NewAccessServiceFromProvider(provider DBProvider, lg *slog.Logger) *AccessService {
+	return &AccessService{db: provider.DB(), log: lg}
 }
 
 // AccessLog 访问日志记录

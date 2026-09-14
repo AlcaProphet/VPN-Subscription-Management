@@ -17,7 +17,7 @@ import PreviewStep from './assembly/PreviewStep.vue'
 import { defaultClashHeaderText } from './assembly/clashHeaderDefaults'
 import {
   getAssemblyContext, previewAssembly, generateAssembly, getBlueprint,
-  type AssemblyContext, type GenerateInput, type TargetSyntax, type PoolSelection, type RuleLine,
+  type AssemblyContext, type ConversionReceipt, type GenerateInput, type TargetSyntax, type PoolSelection, type RuleLine,
 } from '@/api/assembly'
 import { Notify } from '@/components/Notify'
 import { listCapabilityMeta, type LegacyCapabilityMetadata } from '@/api/rulespec'
@@ -94,6 +94,7 @@ const generating = ref(false)
 const previewText = ref('')
 const previewSkipped = ref<any[]>([])
 const previewWarnings = ref<string[]>([])
+const previewReceipt = ref<ConversionReceipt | null>(null)
 const lastPreviewFingerprint = ref('')
 const lastPreviewHash = ref('')
 const selectedPoolContentRevision = ref(0)
@@ -110,7 +111,10 @@ const layoutMode = ref<'step' | 'page'>(localStorage.getItem('assembly_layout_mo
 const currentStep = ref(0)
 const headerConfirmOpen = ref(false)
 const diffLoading = ref(false)
-const generateResult = ref<{ version_id: number; version_no: number; auto_activated: boolean; skipped: any[]; warnings: string[]; rule_id?: number } | null>(null)
+const generateResult = ref<{
+  version_id: number; version_no: number; auto_activated: boolean; skipped: any[]; warnings: string[];
+  rule_id?: number; receipt?: ConversionReceipt | null;
+} | null>(null)
 
 const form = reactive({
   platform_id: undefined as number | undefined,
@@ -270,6 +274,10 @@ const previewFingerprint = computed(() => stableStringify({
   overlay: form.overlay,
 }))
 const previewStale = computed(() => !lastPreviewFingerprint.value || lastPreviewFingerprint.value !== previewFingerprint.value)
+// 目标、输入、选中素材、自定义规则等任一会导致预览失效的变化都清除旧回执，避免冒充当前结果。
+watch(previewStale, (stale) => {
+  if (stale) previewReceipt.value = null
+}, { immediate: true })
 const canGenerate = computed(() => !!previewText.value && !!lastPreviewHash.value && !previewStale.value && !generating.value)
 const visiblePreviewWarnings = computed(() =>
   targetSyntax.value === 'sr-subs' || targetSyntax.value === 'generic-subs'
@@ -525,6 +533,7 @@ async function doPreview() {
     previewSkipped.value = res.skipped
     previewWarnings.value = res.warnings
     lastPreviewFingerprint.value = fingerprint
+    previewReceipt.value = res.receipt ?? null
     previewedAt.value = Date.now()
     previewedTargetSyntax.value = previewTarget
     showDiff.value = false
@@ -859,6 +868,7 @@ const outputGroups = computed(() => {
                   <PreviewStep :previewing="previewing" :preview-warnings="visiblePreviewWarnings" :preview-skipped="previewSkipped"
                                :preview-text="previewText" :preview-stale="previewStale" :previewed-at="previewedAt" :previewed-target-syntax="previewedTargetSyntax"
                                :show-diff="showDiff" :diff-old="diffOld" :diff-missing="diffMissing" :diff-loading="diffLoading"
+                               :receipt="previewReceipt"
                                @preview="doPreview" @toggle-diff="toggleDiff" />
                 </template>
               </AssemblerShell>
@@ -872,6 +882,14 @@ const outputGroups = computed(() => {
                     <Button @click="continueAssembly">继续装配</Button>
                   </Space>
                 </template>
+                <div v-if="generateResult.receipt" data-testid="generate-receipt"
+                     class="mt-3 text-xs text-text-secondary">
+                  转换回执：输入 {{ generateResult.receipt.input }} · 直接输出 {{ generateResult.receipt.direct_output }} ·
+                  等价转换 {{ generateResult.receipt.equivalent_conversions }} ·
+                  目标不支持跳过 {{ generateResult.receipt.skipped_unsupported }} ·
+                  校验失败 {{ generateResult.receipt.target_validation_failed }} ·
+                  最终输出 {{ generateResult.receipt.final_output }}
+                </div>
               </Result>
               </template>
             </div>

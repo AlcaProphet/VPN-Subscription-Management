@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -31,6 +32,7 @@ type AssemblyHandler struct {
 	ruleSvc       *rule.Service
 	versionSvc    *version.Service
 	subSvc        *subscription.Service
+	logger        *slog.Logger
 	// onGenerateActivated 装配首版自动激活后的候选集重算回调（Build6 Step2）
 	onGenerateActivated func(ctx context.Context)
 }
@@ -132,9 +134,9 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		}
 		return
 	}
-	// 零输出门槛：只统计素材池+自定义规则，不含内置兜底。
-	if res.Receipt != nil && res.Receipt.FinalOutput == 0 && (len(in.Pools) > 0 || len(in.CustomRules) > 0) {
-		Fail(c, http.StatusBadRequest, "当前目标没有可输出的规则")
+	// 零输出门槛：Clash YAML/SR conf 无条件要求最终非系统规则 >=1，预览不受此限制。
+	if res.Receipt != nil && res.Receipt.FinalOutput == 0 {
+		Fail(c, http.StatusBadRequest, "当前目标没有可输出的非系统规则")
 		return
 	}
 	// 预览摘要由前端随生成请求回传；渲染结果发生变化时拒绝落库，避免素材池同步等外部变更造成预览与生成不一致。
@@ -162,11 +164,19 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 	}
 	ownerType, ownerID, fileName, err := h.resolveOwner(ctx, in)
 	if err != nil {
+		var cleanupErr error
 		if autoCreatedRuleID > 0 {
-			_ = h.ruleSvc.Delete(ctx, autoCreatedRuleID)
+			cleanupErr = h.rollbackAutoRule(ctx, autoCreatedRuleID)
+			if cleanupErr != nil {
+				err = errors.Join(err, cleanupErr)
+			}
 		}
 		if errors.Is(err, assembly.ErrBadRequest) {
-			Fail(c, http.StatusBadRequest, err.Error())
+			msg := err.Error()
+			if cleanupErr != nil {
+				msg = "装配参数错误（自动创建规则回滚失败）"
+			}
+			Fail(c, http.StatusBadRequest, msg)
 		} else {
 			Fail(c, http.StatusInternalServerError, err.Error())
 		}
@@ -182,7 +192,9 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		})
 	if err != nil {
 		if autoCreatedRuleID > 0 {
-			_ = h.ruleSvc.Delete(ctx, autoCreatedRuleID)
+			if cleanupErr := h.rollbackAutoRule(ctx, autoCreatedRuleID); cleanupErr != nil {
+				err = errors.Join(err, cleanupErr)
+			}
 		}
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
@@ -197,12 +209,27 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		"rule_id":        in.RuleID,
 		"skipped":        res.Skipped,
 		"warnings":       h.assemblySvc.Warnings(in, res),
+		"receipt":        res.Receipt,
 	})
 }
 
 // assemblyPreviewHash 绑定管理员预览正文与最终生成正文。
 func assemblyPreviewHash(content []byte) string {
 	return fmt.Sprintf("%x", sha256.Sum256(content))
+}
+
+// rollbackAutoRule 删除装配过程中自动创建的分流规则；失败写结构化日志并返回错误，供 errors.Join 与主错误共同返回。
+func (h *AssemblyHandler) rollbackAutoRule(ctx context.Context, ruleID int64) error {
+	if ruleID <= 0 {
+		return nil
+	}
+	if err := h.ruleSvc.Delete(ctx, ruleID); err != nil {
+		if h.logger != nil {
+			h.logger.Error("回滚自动创建的分流规则失败", "rule_id", ruleID, "err", err)
+		}
+		return fmt.Errorf("回滚自动创建规则失败（rule_id=%d）: %w", ruleID, err)
+	}
+	return nil
 }
 
 func firstOutputError(issues []assembly.OutputIssue) string {

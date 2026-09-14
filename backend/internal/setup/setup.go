@@ -79,7 +79,7 @@ func (s *Service) SeedPresetsTx(ctx context.Context, tx *sql.Tx, frontendURL str
 func (s *Service) seedPresets(ctx context.Context, tx *sql.Tx, frontendURL string) error {
 	groupSlug, err := slug.Generate(ctx, tx, "group-", func(value string) (bool, error) {
 		return slug.TableHasSlug(ctx, tx, "groups", value)
-	})
+	}, s.log)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func (s *Service) seedPresets(ctx context.Context, tx *sql.Tx, frontendURL strin
 	for _, p := range defaultPlatforms(frontendURL) {
 		value, err := slug.Generate(ctx, tx, "platform-", func(v string) (bool, error) {
 			return slug.TableHasSlug(ctx, tx, "platforms", v)
-		})
+		}, s.log)
 		if err != nil {
 			return err
 		}

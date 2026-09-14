@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
-import { listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type ImportLineResult, type FieldSchema, type CurrentState, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
+import { NODE_CHECK_TARGETS, NODE_CHECK_TARGET_LABELS, listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type NodeCheckTarget, type ImportLineResult, type FieldSchema, type CurrentState, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
 import FormSection from '@/components/FormSection.vue'
@@ -50,16 +50,29 @@ const clearedSensitivePaths = reactive(new Set<string>())
 const invalidatedSensitivePaths = reactive(new Set<string>())
 const jsonResetVersions = reactive<Record<string, number>>({})
 const unappliedJsonPaths = reactive(new Set<string>())
+const unappliedControlPaths = reactive(new Set<string>())
+function compareFieldPath(left: string, right: string): number {
+  return left.length - right.length || left.localeCompare(right)
+}
+function sortedUnappliedJsonPaths(): string[] {
+  return Array.from(unappliedJsonPaths).sort(compareFieldPath)
+}
+const unappliedJsonPathList = computed(() => sortedUnappliedJsonPaths())
+function isPathDescendant(candidate: string, ancestor: string): boolean {
+  if (!candidate || !ancestor || candidate === ancestor) return false
+  return candidate.startsWith(`${ancestor}.`) || candidate.startsWith(`${ancestor}[`)
+}
 const extensionOps = ref<ExtensionOp[]>([])
 const extensionDraft = reactive({
   open: false,
   mode: 'add' as 'add' | 'replace',
   editingId: '',
   scope: 'node',
-  targets: '',
+  targets: [] as NodeCheckTarget[],
   label: '',
   payload: '',
 })
+const extensionDraftError = ref('')
 const sourceLabel: Record<string, string> = { manual: '手动添加', xray: 'Xray' }
 
 async function load() {
@@ -201,7 +214,7 @@ const checkRequest = computed<NodeCheckRequest>(() => {
     current_state: { ...currentState.value },
     reset_scopes: resetScopesArray(),
     credential_ops: credentialOps.length > 0 ? credentialOps : undefined,
-    targets: ['clash-yaml', 'sr-subs', 'generic-subs'],
+    targets: [...NODE_CHECK_TARGETS],
   }
   if (editing.value) {
     if (extensionOps.value.length > 0) request.extension_ops = [...extensionOps.value]
@@ -238,28 +251,41 @@ function handleJsonDirty(payload: { path: string; dirty: boolean }) {
   if (payload.dirty) unappliedJsonPaths.add(payload.path)
   else unappliedJsonPaths.delete(payload.path)
 }
-function warnResetScope(scope: string) {
-  const messages: Record<string, string> = {
-    protocol: '切换协议将清空当前协议参数与凭据，切回需重新填写',
-    network: '切换传输将清空该分区参数，切回需重新填写',
-    security: '切换安全方式将清空该分区参数，切回需重新填写',
-    plugin: '切换或取消插件将清空插件参数与扩展，切回需重新填写',
-  }
-  if (scope.startsWith('feature.')) {
-    Notify.warning('关闭该功能将清空其子参数与扩展，重新开启不会恢复')
+function firstJsonDraftInRange(ancestor: string): string {
+  return sortedUnappliedJsonPaths().find((path) => isPathDescendant(path, ancestor)) ?? ''
+}
+async function handleAdvancedJSONBlocked(payload: { path: string; blockedBy: string }) {
+  const blockedBy = firstJsonDraftInRange(payload.path) || payload.blockedBy
+  Notify.warning('存在未应用的后代 JSON 草稿，请先应用或放弃后再切换高级 JSON')
+  if (blockedBy) await revealField(blockedBy)
+}
+function handleControlDraftDirty(payload: { path: string; dirty: boolean }) {
+  if (payload.dirty) unappliedControlPaths.add(payload.path)
+  else unappliedControlPaths.delete(payload.path)
+}
+async function locateBlockedDraft() {
+  const jsonPath = sortedUnappliedJsonPaths()[0]
+  if (jsonPath) {
+    await revealField(jsonPath)
     return
   }
-  const message = messages[scope] ?? `切换将清空该分区参数，切回需重新填写`
-  Notify.warning(message)
+  const controlPath = Array.from(unappliedControlPaths).sort(compareFieldPath)[0]
+  if (controlPath) await revealField(controlPath)
 }
+const checkBlockedReason = computed(() => {
+  if (unappliedJsonPaths.size > 0) return '存在未应用的 JSON 草稿，请先应用或放弃后再检查'
+  if (unappliedControlPaths.size > 0) return '存在未应用的自定义值或列表项草稿，请先应用或取消后再检查'
+  return ''
+})
 function resetExtensionDraft() {
   extensionDraft.open = false
   extensionDraft.mode = 'add'
   extensionDraft.editingId = ''
   extensionDraft.scope = 'node'
-  extensionDraft.targets = ''
+  extensionDraft.targets = []
   extensionDraft.label = ''
   extensionDraft.payload = ''
+  extensionDraftError.value = ''
 }
 function scopeOptions() {
   const state = currentState.value
@@ -279,7 +305,8 @@ function openExtensionReplace(ext: Pick<ExtensionSummary, 'id' | 'scope' | 'targ
   extensionDraft.mode = 'replace'
   extensionDraft.editingId = ext.id
   extensionDraft.scope = ext.scope
-  extensionDraft.targets = (ext.targets ?? []).join(', ')
+  extensionDraft.targets = (ext.targets ?? []).filter((target): target is NodeCheckTarget =>
+    (NODE_CHECK_TARGETS as readonly string[]).includes(target))
   extensionDraft.label = ext.label ?? ''
   extensionDraft.open = true
 }
@@ -291,7 +318,14 @@ function removePendingAdd(op: ExtensionOp) {
   extensionOps.value = extensionOps.value.filter((item) => item !== op)
 }
 function commitExtensionDraft() {
-  const targets = extensionDraft.targets.split(',').map((item) => item.trim()).filter(Boolean)
+  extensionDraftError.value = ''
+  const targets = Array.from(new Set(extensionDraft.targets))
+  const invalidTarget = targets.find((target) => !(NODE_CHECK_TARGETS as readonly string[]).includes(target))
+  if (invalidTarget) {
+    extensionDraftError.value = `目标不在节点检查支持集合中：${invalidTarget}`
+    Notify.warning(extensionDraftError.value)
+    return
+  }
   if (!extensionDraft.scope.trim()) {
     Notify.warning('请填写扩展所属范围')
     return
@@ -349,6 +383,9 @@ function clearScopedFields(scope: string) {
     for (const path of Array.from(unappliedJsonPaths)) {
       if (pathContains(clearedPath, path) || pathContains(path, clearedPath)) unappliedJsonPaths.delete(path)
     }
+    for (const path of Array.from(unappliedControlPaths)) {
+      if (pathContains(clearedPath, path) || pathContains(path, clearedPath)) unappliedControlPaths.delete(path)
+    }
   }
   const concretePaths = new Set([
     ...savedSensitivePaths.value,
@@ -373,24 +410,24 @@ function applyResetScope(scope: string, changed: boolean) {
   if (!changed) return
   resetScopes.add(scope)
   clearScopedFields(scope)
-  warnResetScope(scope)
 }
 function resetAllEditScopes() {
   resetScopes.clear()
   clearedSensitivePaths.clear()
   invalidatedSensitivePaths.clear()
   unappliedJsonPaths.clear()
+  unappliedControlPaths.clear()
   extensionOps.value = []
   resetExtensionDraft()
   for (const path of Object.keys(jsonResetVersions)) delete jsonResetVersions[path]
 }
 function updateProtocol(protocol: string) {
   if (form.protocol === protocol) return
-  warnResetScope('protocol')
   form.protocol = protocol
   form.protocol_json = {}
   invalidProtocolPaths.clear()
   unappliedJsonPaths.clear()
+  unappliedControlPaths.clear()
   extensionOps.value = []
   resetExtensionDraft()
   resetScopes.add('protocol')
@@ -467,7 +504,13 @@ async function save() {
   }
   if (unappliedJsonPaths.size > 0) {
     Notify.warning('存在未应用的 JSON 草稿，请先应用或放弃后再保存')
-    await revealField([...unappliedJsonPaths][0])
+    const firstJsonPath = sortedUnappliedJsonPaths()[0]
+    if (firstJsonPath) await revealField(firstJsonPath)
+    return
+  }
+  if (unappliedControlPaths.size > 0) {
+    Notify.warning('存在未应用的自定义值或列表项草稿，请先应用或取消后再保存')
+    await revealField([...unappliedControlPaths][0])
     return
   }
   saving.value = true
@@ -728,6 +771,12 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <Button size="small" @click="reloadAfterConflict">重新加载</Button>
           </template>
         </Alert>
+        <Alert
+          type="warning"
+          show-icon
+          class="node-reset-warning mb-2"
+          message="切换协议、传输、安全方式、插件，或关闭带子配置的功能，将清空所属参数、凭据、扩展及未应用草稿；切回或重新开启不会恢复。跨协议切换仍保留名称、服务器和端口，插件切换仍保留 Shadowsocks 主密码。"
+        />
         <FormSection title="基本信息" help="选择协议并填写节点的稳定名称与连接地址。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-x-3">
             <Form.Item label="协议" required>
@@ -756,9 +805,10 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <ProtocolFieldEditor v-for="field in groupFields('auth')" :key="field.name" :field="field"
               centralized-switches
               :json-reset-versions="jsonResetVersions"
+              :json-dirty-paths="unappliedJsonPathList"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
           </div>
         </FormSection>
 
@@ -771,9 +821,10 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <ProtocolFieldEditor v-for="field in groupFields('connection').filter((field) => !!field.advanced === tier)" :key="field.name" :field="field"
               centralized-switches
               :json-reset-versions="jsonResetVersions"
+              :json-dirty-paths="unappliedJsonPathList"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
             </div>
           </component>
         </FormSection>
@@ -782,14 +833,14 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="item in switchFields.filter((item) => !item.advanced)" :key="item.path" :field="item.field" :path="item.path"
               :model-value="valueAtPath(form.protocol_json, item.path)" :current-state="currentState"
-              @update:model-value="(value: unknown) => setSwitchField(item.path, value)" />
+              @update:model-value="(value: unknown) => setSwitchField(item.path, value)" @draft-dirty-change="handleControlDraftDirty" />
           </div>
           <details v-if="switchFields.some((item) => item.advanced)" class="node-more-switches mt-3 rounded-lg border p-3">
             <summary class="cursor-pointer text-sm font-medium">更多开关（已配置 {{ configuredSwitchCount }} 项）</summary>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
               <ProtocolFieldEditor v-for="item in switchFields.filter((item) => item.advanced)" :key="item.path" :field="item.field" :path="item.path"
                 :model-value="valueAtPath(form.protocol_json, item.path)" :current-state="currentState"
-                @update:model-value="(value: unknown) => setSwitchField(item.path, value)" />
+                @update:model-value="(value: unknown) => setSwitchField(item.path, value)" @draft-dirty-change="handleControlDraftDirty" />
             </div>
           </details>
         </FormSection>
@@ -801,9 +852,10 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <ProtocolFieldEditor v-for="field in groupFields('advanced')" :key="field.name" :field="field"
               centralized-switches
               :json-reset-versions="jsonResetVersions"
+              :json-dirty-paths="unappliedJsonPathList"
               :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @credential-change="handleCredentialChange" />
+              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
           </div>
         </details>
 
@@ -815,7 +867,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <div class="flex items-center justify-between gap-3">
               <div>
                 <div class="text-sm font-medium">未知扩展</div>
-                <div class="text-xs text-text-tertiary">扩展负载加密保存；当前仅保存并用于诊断，不会自动进入任何输出产物。</div>
+                <div class="text-xs text-text-tertiary">当前仅加密保存并参与诊断，不会进入任何输出产物。</div>
               </div>
               <Button size="small" @click="openExtensionAdd">新增扩展</Button>
             </div>
@@ -845,14 +897,25 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
                   <Select.Option v-for="opt in scopeOptions()" :key="opt.value" :value="opt.value">{{ opt.label }}</Select.Option>
                 </AppSelect>
               </Form.Item>
-              <Form.Item label="目标">
-                <Input v-model:value="extensionDraft.targets" placeholder="clash-yaml, sr-subs, generic-subs" />
+              <Form.Item label="关联目标（期望，不代表输出支持）">
+                <AppSelect
+                  mode="multiple"
+                  :value="extensionDraft.targets"
+                  placeholder="可多选；留空表示未关联任何目标"
+                  @change="(value: any) => extensionDraft.targets = Array.from(value ?? []) as NodeCheckTarget[]"
+                >
+                  <Select.Option v-for="target in NODE_CHECK_TARGETS" :key="target" :value="target">
+                    {{ NODE_CHECK_TARGET_LABELS[target] }}
+                  </Select.Option>
+                </AppSelect>
+                <div class="text-xs text-text-tertiary mt-1">仅表示期望/关联目标，不代表会进入产物；空 targets 会在检查中提示未参与输出。</div>
+                <div v-if="extensionDraftError" class="text-xs text-red-500 mt-1">{{ extensionDraftError }}</div>
               </Form.Item>
               <Form.Item label="标签">
                 <Input v-model:value="extensionDraft.label" placeholder="可选，例如 WebSocket 未知扩展" />
               </Form.Item>
               <Form.Item label="负载内容" required>
-                <Input.TextArea v-model:value="extensionDraft.payload" :rows="4" placeholder="扩展负载将整体加密保存；检查/输出仅返回摘要和诊断。" />
+                <Input.TextArea v-model:value="extensionDraft.payload" :rows="4" placeholder="扩展负载将整体加密保存；不会进入 Clash、Shadowrocket 或 generic 产物。" />
               </Form.Item>
               <div class="flex gap-2">
                 <Button type="primary" size="small" @click="commitExtensionDraft">应用扩展</Button>
@@ -862,7 +925,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           </div>
 
           <div class="mt-4 border-t pt-3">
-            <NodeCheckPanel :request="checkRequest" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
+            <NodeCheckPanel :request="checkRequest" :blocked-reason="checkBlockedReason" @locate="locateBlockedDraft" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
           </div>
         </details>
       </Form>
@@ -891,18 +954,41 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
       <Input.TextArea v-model:value="importText" :rows="8" placeholder="每行一条节点 URI" />
       <div v-if="importResults.length" class="mt-3">
         <div class="text-sm font-medium mb-2">导入回执（{{ importResults.filter((r) => r.ok).length }} 成功 / {{ importResults.filter((r) => !r.ok).length }} 跳过）</div>
-        <Table :data-source="importResults" row-key="(r: any) => r.line + r.raw" :pagination="false" size="small">
-          <Table.Column key="line" title="行" data-index="line" width="60" />
-          <Table.Column key="name" title="名称" data-index="name" width="160" />
-          <Table.Column key="result" title="结果" width="90">
-            <template #default="{ record }">
-              <Tag :color="record.ok ? 'success' : 'warning'">{{ record.ok ? '成功' : '跳过' }}</Tag>
-            </template>
-          </Table.Column>
-          <Table.Column key="reason" title="说明">
-            <template #default="{ record }">{{ record.reason || record.raw }}</template>
-          </Table.Column>
-        </Table>
+        <div class="import-receipt max-h-[40vh] overflow-y-auto pr-1" role="region" aria-label="批量导入回执">
+          <Table :data-source="importResults" row-key="(r: any) => r.line + r.raw" :pagination="false" size="small"
+                 table-layout="fixed" class="import-receipt-table hidden md:block">
+            <Table.Column key="line" title="行" data-index="line" width="60" />
+            <Table.Column key="name" title="名称" width="160">
+              <template #default="{ record }">
+                <div class="import-receipt-name">{{ record.name || '—' }}</div>
+              </template>
+            </Table.Column>
+            <Table.Column key="result" title="结果" width="90">
+              <template #default="{ record }">
+                <Tag :color="record.ok ? 'success' : 'warning'">{{ record.ok ? '成功' : '跳过' }}</Tag>
+              </template>
+            </Table.Column>
+            <Table.Column key="reason" title="说明">
+              <template #default="{ record }">
+                <div class="import-receipt-detail">{{ record.reason || record.raw }}</div>
+              </template>
+            </Table.Column>
+          </Table>
+
+          <div class="import-receipt-mobile grid grid-cols-1 gap-2 md:hidden">
+            <div v-for="record in importResults" :key="record.line + record.raw" class="rounded-lg border p-3">
+              <div class="flex min-w-0 items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="text-xs text-text-secondary">第 {{ record.line }} 行</div>
+                  <div class="import-receipt-name mt-0.5 font-medium">{{ record.name || '—' }}</div>
+                </div>
+                <Tag :color="record.ok ? 'success' : 'warning'">{{ record.ok ? '成功' : '跳过' }}</Tag>
+              </div>
+              <div class="mt-2 text-xs text-text-secondary">说明</div>
+              <div class="import-receipt-detail mt-1 text-sm">{{ record.reason || record.raw }}</div>
+            </div>
+          </div>
+        </div>
       </div>
       <template #footer>
         <Button class="touch-target" @click="importOpen = false">取消</Button>
@@ -918,21 +1004,23 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
 .node-protocol-form :deep(.ant-input-affix-wrapper),
 .node-protocol-form :deep(.ant-input-number),
 .node-protocol-form :deep(.ant-select-single .ant-select-selector),
-.node-protocol-form :deep(.editable-combobox > input),
 .node-protocol-form :deep(.protocol-list-editor .ant-input),
 .node-protocol-form :deep(.protocol-list-editor .ant-btn) { min-height: 32px; }
-.node-protocol-form :deep(.editable-combobox > input) {
-  height: 32px; padding: 4px 11px; border-color: var(--ui-border); background: var(--ui-surface); color: var(--ui-text);
+.import-receipt-table :deep(table) { table-layout: fixed; }
+.import-receipt-table :deep(.ant-table-cell) { min-width: 0; }
+.import-receipt-name,
+.import-receipt-detail {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
-.node-protocol-form :deep(.editable-combobox > div) { background: var(--ui-surface-raised); }
-.node-protocol-form :deep(.editable-combobox button:hover) { background: var(--ui-surface-subtle); }
 @media (max-width: 767px) {
   .node-protocol-form :deep(.ant-input:not(textarea)),
   .node-protocol-form :deep(.ant-input-affix-wrapper),
   .node-protocol-form :deep(.ant-input-number),
   .node-protocol-form :deep(.ant-input-number-input),
-  .node-protocol-form :deep(.ant-select-single .ant-select-selector),
-  .node-protocol-form :deep(.editable-combobox > input) { min-height: 44px; }
+  .node-protocol-form :deep(.ant-select-single .ant-select-selector) { min-height: 44px; }
   .node-protocol-form :deep(.ant-input-affix-wrapper > .ant-input) { min-height: 0; }
   .node-protocol-form :deep(.ant-select-single .ant-select-selection-item) { line-height: 42px; }
 }

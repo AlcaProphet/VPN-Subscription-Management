@@ -725,14 +725,13 @@ func TestLegacySSPluginOptsReadAndCheckUseCanonicalCopy(t *testing.T) {
 	}
 }
 
-func TestObjectSchemaKeepsExtensionsAndSmuxShape(t *testing.T) {
+func TestObjectSchemaKeepsOpenMapsAndSmuxShape(t *testing.T) {
 	vless, _ := GetProtocol("vless")
 	params := map[string]any{
 		"uuid": "secret",
 		"ws-opts": map[string]any{
-			"path":          "/ws",
-			"headers":       map[string]any{"Host": []any{"cdn.example.com"}},
-			"future-option": map[string]any{"enabled": true},
+			"path":    "/ws",
+			"headers": map[string]any{"Host": []any{"cdn.example.com"}, "X-Custom": map[string]any{"enabled": true}},
 		},
 		"smux": map[string]any{
 			"enabled":     true,
@@ -741,8 +740,13 @@ func TestObjectSchemaKeepsExtensionsAndSmuxShape(t *testing.T) {
 		},
 	}
 	if err := validateProtocolFields(vless, params, false); err != nil {
-		t.Fatalf("已知嵌套字段与未知扩展键应兼容: %v", err)
+		t.Fatalf("开放 Headers 与已知 Smux 字段应兼容: %v", err)
 	}
+	params["ws-opts"].(map[string]any)["future-option"] = true
+	if err := validateProtocolFields(vless, params, false); err == nil || !strings.Contains(err.Error(), "ws-opts.future-option") {
+		t.Fatalf("固定对象未知键应精确拒绝: %v", err)
+	}
+	delete(params["ws-opts"].(map[string]any), "future-option")
 	params["smux"] = true
 	if err := validateProtocolFields(vless, params, false); err == nil {
 		t.Fatal("smux 应按嵌套对象校验")
@@ -1155,7 +1159,7 @@ func TestSSPluginPrivateKeyCredentialLifecycle(t *testing.T) {
 				Name: "ss-" + tc.name, Protocol: "ss", Host: "example.com", Port: 8388,
 				ProtocolJSON: map[string]any{
 					"cipher": "aes-256-gcm", "password": "main-secret", "plugin": tc.plugin,
-					tc.storageKey: map[string]any{"private-key": "plugin-private-key", "legacy-field": "keep-me"},
+					tc.storageKey: map[string]any{"private-key": "plugin-private-key"},
 				},
 			})
 			if err != nil {
@@ -1172,15 +1176,11 @@ func TestSSPluginPrivateKeyCredentialLifecycle(t *testing.T) {
 			if !ok || !strings.HasPrefix(ciphertext.(string), encPrefix) {
 				t.Fatalf("插件私钥未加密落库: %v", ciphertext)
 			}
-			if legacy, _ := GetPath(rawCreated.ProtocolJSON, tc.storageKey+".legacy-field"); legacy != "keep-me" {
-				t.Fatalf("所属已知对象的未知旧字段被删除: %v", legacy)
-			}
-
 			kept, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
 				Protocol: "ss", Host: created.Host, Port: created.Port, BaseRevision: created.EditRevision,
 				ProtocolJSON: map[string]any{
 					"cipher": "aes-256-gcm", "password": "", "plugin": tc.plugin,
-					tc.storageKey: map[string]any{"private-key": "", "legacy-field": "keep-me"},
+					tc.storageKey: map[string]any{"private-key": ""},
 				},
 			})
 			if err != nil {
@@ -1199,7 +1199,7 @@ func TestSSPluginPrivateKeyCredentialLifecycle(t *testing.T) {
 				Protocol: "ss", Host: created.Host, Port: created.Port, BaseRevision: kept.EditRevision,
 				ProtocolJSON: map[string]any{
 					"cipher": "aes-256-gcm", "password": "", "plugin": tc.plugin,
-					tc.storageKey: map[string]any{"private-key": "", "legacy-field": "keep-me"},
+					tc.storageKey: map[string]any{"private-key": ""},
 				},
 				CredentialOps: []CredentialOp{{Path: path, Op: "clear"}},
 			})

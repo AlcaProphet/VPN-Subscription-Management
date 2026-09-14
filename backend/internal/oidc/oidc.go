@@ -109,8 +109,8 @@ func NewService(st *store.Store, cfg *config.Service, authSvc *auth.Service, use
 				return validateOIDCURL(req.URL.String())
 			},
 		},
-		discCache:  map[string]*Discovery{},
-		jwksCache:  map[string]*jwkSet{},
+		discCache: map[string]*Discovery{},
+		jwksCache: map[string]*jwkSet{},
 	}
 }
 
@@ -192,7 +192,7 @@ func (s *Service) SetProviderTx(ctx context.Context, tx *sql.Tx, providerType st
 
 // CallbackURL 回调地址（frontend_url + /api/auth/oidc/callback）
 func (s *Service) CallbackURL(ctx context.Context) string {
-	furl, _ := s.cfg.Get(ctx, config.KeyFrontendURL)
+	furl := s.cfg.GetOr(ctx, config.KeyFrontendURL)
 	return furl + "/api/auth/oidc/callback"
 }
 
@@ -201,7 +201,7 @@ func (s *Service) CallbackURL(ctx context.Context) string {
 // fetchDiscovery 获取发现文档（带缓存，缓存键 = base_url + realm）
 func (s *Service) fetchDiscovery(ctx context.Context, p *Params) (*Discovery, error) {
 	// 模拟模式：不依赖真实提供商
-	if providerType, _ := s.cfg.Get(ctx, KeyProviderType); providerType == "mock" {
+	if providerType := s.cfg.GetOr(ctx, KeyProviderType); providerType == "mock" {
 		return &Discovery{AuthorizationEndpoint: "mock://authorize", TokenEndpoint: "mock://token"}, nil
 	}
 	base := strings.TrimSuffix(p.BaseURL, "/")
@@ -297,7 +297,6 @@ func (s *Service) refreshJWKS(jwksURI string) {
 	delete(s.jwksCache, jwksURI)
 	s.jwksMu.Unlock()
 }
-
 
 // matchWhitelist 白名单匹配（Build3 Step 3 接通配置）：
 // 读取 oidc_whitelist（JSON：{role_claim_path, role_values, group_claim_path, group_values}）；

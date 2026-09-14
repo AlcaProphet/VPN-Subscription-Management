@@ -9,32 +9,38 @@ import (
 	"vpn-sub/internal/rulespec"
 )
 
-// detectionCandidate 是探测阶段的候选结果。
-type detectionCandidate struct {
-	format DetectedFormat
-	score  int
-	reason string
+// detectionResult 是探测阶段的格式与命中依据。
+type detectionResult struct {
+	Format        DetectedFormat
+	EvidenceCodes []string
 }
 
 // DetectOne 对整份文档进行探测，返回唯一详细格式或硬错误。
+// 旧签名保留，供既有调用方使用；需要 evidence codes 时使用 detectOne。
 func DetectOne(body []byte, mode SourceMode) (DetectedFormat, error) {
+	result, err := detectOne(body, mode)
+	return result.Format, err
+}
+
+// detectOne 在返回格式的同时返回实际命中分支产生的稳定 evidence codes。
+func detectOne(body []byte, mode SourceMode) (detectionResult, error) {
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {
-		return "", ErrUnrecognizedSource
+		return detectionResult{}, ErrUnrecognizedSource
 	}
 	lower := strings.ToLower(string(trimmed))
 
 	// 错误页/HTML 直接失败。
 	if strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html") || strings.Contains(lower, "<html") {
-		return "", ErrHTMLSource
+		return detectionResult{}, ErrHTMLSource
 	}
 
 	// JSON：仅识别带 version/rules 的 sing-box source。
 	if trimmed[0] == '{' {
 		if strings.Contains(lower, `"rules"`) && (strings.Contains(lower, `"version"`) || strings.Contains(lower, `"version":`)) {
-			return FormatSingBoxSourceJSON, nil
+			return detectionResult{Format: FormatSingBoxSourceJSON, EvidenceCodes: []string{"sing_box_version_and_rules"}}, nil
 		}
-		return "", ErrUnrecognizedSource
+		return detectionResult{}, ErrUnrecognizedSource
 	}
 
 	// YAML：完整读取 Mihomo payload，并按整份内容区分 domain/ipcidr/classical。
@@ -44,23 +50,23 @@ func DetectOne(body []byte, mode SourceMode) (DetectedFormat, error) {
 
 	// 显式类型文本。
 	if hasTypedRuleLine(trimmed) {
-		return FormatTypedRuleText, nil
+		return detectionResult{Format: FormatTypedRuleText, EvidenceCodes: []string{"typed_rule_marker"}}, nil
 	}
 
 	// 纯 IP/CIDR/ASN。
 	if isIPOrASNList(trimmed) {
-		return FormatPlainIPCIDRText, nil
+		return detectionResult{Format: FormatPlainIPCIDRText, EvidenceCodes: []string{"all_items_ip_cidr_or_asn"}}, nil
 	}
 
 	// legacy/plain 域名文本。
 	if hasDomainLines(trimmed) {
 		if bytes.Contains(trimmed, []byte("full:")) || bytes.Contains(trimmed, []byte("+.")) {
-			return FormatLegacyDomainText, nil
+			return detectionResult{Format: FormatLegacyDomainText, EvidenceCodes: []string{"legacy_domain_prefix"}}, nil
 		}
-		return FormatPlainDomainText, nil
+		return detectionResult{Format: FormatPlainDomainText, EvidenceCodes: []string{"plain_domain_candidates"}}, nil
 	}
 
-	return "", ErrUnrecognizedSource
+	return detectionResult{}, ErrUnrecognizedSource
 }
 
 func hasTopLevelPayloadKey(body []byte) bool {
@@ -80,28 +86,38 @@ func hasTopLevelPayloadKey(body []byte) bool {
 	return false
 }
 
-func detectMihomoPayloadFormat(body []byte) (DetectedFormat, error) {
+func detectMihomoPayloadFormat(body []byte) (detectionResult, error) {
 	items, err := decodeMihomoPayload(body)
 	if err != nil {
-		return "", err
+		return detectionResult{}, err
 	}
 	var detected DetectedFormat
+	evidence := ""
 	for _, item := range items {
 		format := FormatMihomoDomainYAML
+		code := "payload_domain_only"
 		if strings.Contains(item, ",") {
 			format = FormatMihomoClassicalYAML
+			code = "payload_classical_only"
 		} else if _, err := NormalizeCIDRValue(item); err == nil {
 			format = FormatMihomoIPCIDRYAML
+			code = "payload_ipcidr_only"
 		}
 		if detected != "" && detected != format {
-			return "", ErrConflictingDocumentFormat
+			return detectionResult{}, ErrConflictingDocumentFormat
 		}
 		detected = format
+		if evidence == "" {
+			evidence = code
+		}
 	}
 	if detected == "" {
-		return "", ErrUnrecognizedSource
+		return detectionResult{}, ErrUnrecognizedSource
 	}
-	return detected, nil
+	return detectionResult{
+		Format:        detected,
+		EvidenceCodes: []string{"top_level_payload", evidence},
+	}, nil
 }
 
 func hasTypedRuleLine(body []byte) bool {

@@ -2,8 +2,9 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PreviewStep from '@/views/admin/assembly/PreviewStep.vue'
+import type { ConversionReceipt } from '@/api/assembly'
 
-function makeWrapper() {
+function makeWrapper(receipt?: ConversionReceipt | null) {
   return mount(PreviewStep, {
     props: {
       previewing: false,
@@ -17,6 +18,7 @@ function makeWrapper() {
       diffOld: '',
       diffMissing: false,
       diffLoading: false,
+      receipt,
     },
   })
 }
@@ -46,5 +48,26 @@ describe('PreviewStep 工具栏', () => {
     expect(wrapper.text()).toContain('差异对比')
     expect(wrapper.text()).toContain('加载当前激活版本差异')
     expect(wrapper.text()).not.toContain('与当前激活版本对比')
+  })
+
+  it('渲染完整六项转换回执', () => {
+    const wrapper = makeWrapper({
+      input: 7, direct_output: 4, equivalent_conversions: 2,
+      skipped_unsupported: 1, target_validation_failed: 0, final_output: 6,
+    })
+    expect(wrapper.find('[data-testid="conversion-receipt"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('输入 7')
+    expect(wrapper.text()).toContain('直接输出 4')
+    expect(wrapper.text()).toContain('等价转换 2')
+    expect(wrapper.text()).toContain('目标不支持跳过 1')
+    expect(wrapper.text()).toContain('校验失败 0')
+    expect(wrapper.text()).toContain('最终输出 6')
+  })
+
+  it('receipt 缺省时不显示虚假零值回执', () => {
+    const wrapper = makeWrapper()
+    expect(wrapper.find('[data-testid="conversion-receipt"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('转换回执')
+    expect(wrapper.text()).not.toContain('最终输出 0')
   })
 })

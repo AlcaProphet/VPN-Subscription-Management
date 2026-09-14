@@ -138,7 +138,7 @@ type Identity struct {
 // 实现说明：真实提供商场景需验签 id_token（jwks）；为保持本 Build 可自测，mock 提供商走本地解析。
 // 真实解析：POST token_endpoint 换 token → 解析 id_token（JWT payload 提取 subject/email/email_verified/username）。
 func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (*Identity, error) {
-	providerType, _ := s.cfg.Get(ctx, KeyProviderType)
+	providerType := s.cfg.GetOr(ctx, KeyProviderType)
 	if providerType == "mock" {
 		return s.mockExchange(rec, code) // 模拟模式：code 即携带身份信息的 base64 JSON
 	}

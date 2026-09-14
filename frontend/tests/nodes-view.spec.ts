@@ -4,6 +4,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 vi.mock('@/api/node', () => ({
+  NODE_CHECK_TARGETS: ['clash-yaml', 'sr-subs', 'generic-subs'],
+  NODE_CHECK_TARGET_LABELS: {
+    'clash-yaml': 'clash-yaml（Clash YAML）',
+    'sr-subs': 'sr-subs（Shadowrocket 订阅）',
+    'generic-subs': 'generic-subs（通用订阅）',
+  },
   listNodes: vi.fn(),
   getProtocols: vi.fn(),
   createNode: vi.fn(),
@@ -30,16 +36,18 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import NodesView from '@/views/admin/NodesView.vue'
-import { listNodes, getProtocols, createNode, updateNode } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, importNodes, type FieldSchema } from '@/api/node'
 import { ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
+import NodeCheckPanel from '@/components/NodeCheckPanel.vue'
 import { smuxSchema, smuxValue } from './fixtures/smux'
 
 const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
 const mockGetProtocols = getProtocols as unknown as ReturnType<typeof vi.fn>
 const mockCreateNode = createNode as unknown as ReturnType<typeof vi.fn>
 const mockUpdateNode = updateNode as unknown as ReturnType<typeof vi.fn>
+const mockImportNodes = importNodes as unknown as ReturnType<typeof vi.fn>
 
 const node = {
   id: 1,
@@ -87,7 +95,7 @@ const protocols = [
       },
       ...['obfs', 'v2ray-plugin', 'shadow-tls', 'restls'].map((plugin) => ({
         name: `${plugin}-opts`, type: 'object', required: false, label: `${plugin} 参数`, group: 'connection',
-        object_kind: 'fields', allow_unknown: true, reset_on: ['plugin'], when: { plugin: [plugin] }, properties: [],
+        object_kind: 'fields', allow_unknown: false, reset_on: ['plugin'], when: { plugin: [plugin] }, properties: [],
       })),
       { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
       { name: 'routing-mark', type: 'number', required: false, label: '路由标记', section: 'advanced' },
@@ -103,9 +111,63 @@ describe('NodesView 节点管理页', () => {
     mockGetProtocols.mockReset()
     mockCreateNode.mockReset()
     mockUpdateNode.mockReset()
+    mockImportNodes.mockReset()
     ;(Notify.warning as unknown as ReturnType<typeof vi.fn>).mockClear()
     mockListNodes.mockResolvedValue([node])
     mockGetProtocols.mockResolvedValue(protocols)
+  })
+
+  it('新建节点内持久展示分支清空规则，不使用顶部动态消息', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { openCreate: () => void }
+    vm.openCreate()
+    await nextTick()
+
+    const warning = document.body.querySelector<HTMLElement>('.node-reset-warning')
+    expect(warning).not.toBeNull()
+    expect(warning?.textContent).toContain('切回或重新开启不会恢复')
+    expect(warning?.textContent).toContain('仍保留名称、服务器和端口')
+    expect(Notify.warning).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('批量导入回执为长 URI 提供局部桌面表格和手机卡片布局', async () => {
+    const raw = 'vless://uuid@example.com:443?' + 'transport-parameter='.repeat(20)
+    const reason = 'URI 参数无法识别：' + 'unknown-parameter='.repeat(20)
+    mockImportNodes.mockResolvedValue({
+      list: [
+        { line: 1, raw, ok: true, name: 'US-2' },
+        { line: 2, raw: 'invalid://node', ok: false, name: 'failed-node', reason },
+      ],
+      total: 2,
+    })
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openImport()
+    vm.importText = raw
+    await vm.doImport()
+    await flushPromises()
+
+    expect(mockImportNodes).toHaveBeenCalledWith(raw)
+    const receipt = document.body.querySelector('.import-receipt')!
+    const table = receipt.querySelector('.import-receipt-table')!
+    const mobile = receipt.querySelector('.import-receipt-mobile')!
+    expect(receipt.classList).toContain('overflow-y-auto')
+    expect(table.classList).toContain('hidden')
+    expect(table.classList).toContain('md:block')
+    expect(mobile.classList).toContain('md:hidden')
+    const details = [...receipt.querySelectorAll('.import-receipt-detail')]
+    expect(details).toHaveLength(4)
+    expect(details.filter((detail) => detail.textContent === raw)).toHaveLength(2)
+    expect(details.filter((detail) => detail.textContent === reason)).toHaveLength(2)
+    expect(mobile.textContent).toContain('第 1 行')
+    expect(mobile.textContent).toContain('第 2 行')
+    expect(mobile.textContent).toContain('US-2')
+    expect(mobile.textContent).toContain('成功')
+    expect(mobile.textContent).toContain('跳过')
+    wrapper.unmount()
   })
 
   it('SMux 开关只出现一次并集中于更多开关，参数仍位于高级结构化区', async () => {
@@ -146,6 +208,77 @@ describe('NodesView 节点管理页', () => {
     expect((smux.element.closest('.node-advanced-fields') as HTMLDetailsElement).open).toBe(true)
     expect(document.activeElement).toBe(smux.find('textarea').element)
     expect(mockCreateNode).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('多个未应用 JSON 草稿保存时按稳定路径排序定位首个', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless',
+      label: 'VLESS',
+      form_schema: [
+        { name: 'uuid', type: 'password', required: true, label: 'UUID', group: 'auth' },
+        { name: 'a-opts', type: 'object', required: false, label: 'A 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, properties: [{ name: 'value', type: 'text', required: false, label: '值' }] },
+        { name: 'z-opts', type: 'object', required: false, label: 'Z 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, properties: [{ name: 'value', type: 'text', required: false, label: '值' }] },
+      ],
+      sensitive_fields: ['uuid'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { 'a-opts': { value: 'a' }, 'z-opts': { value: 'z' } }
+    await nextTick()
+    // 故意按稳定排序的逆序加入，证明保存没有沿用 Set 插入序。
+    vm.handleJsonDirty({ path: 'z-opts', dirty: true })
+    vm.handleJsonDirty({ path: 'a-opts', dirty: true })
+    await vm.save()
+    const focusedPath = (document.activeElement as HTMLElement | null)?.closest('[data-field-path]')?.getAttribute('data-field-path')
+    expect(focusedPath?.startsWith('a-opts')).toBe(true)
+    expect(mockCreateNode).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('业务条件隐藏清理失效 dirty/validity，并保留无关有效草稿', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless',
+      label: 'VLESS',
+      form_schema: [
+        { name: 'uuid', type: 'password', required: true, label: 'UUID', group: 'auth' },
+        { name: 'network', type: 'select', required: true, label: '传输', group: 'connection', options: ['ws', 'tcp'] },
+        {
+          name: 'ws-opts', type: 'object', required: false, label: 'WebSocket 参数', group: 'connection',
+          object_kind: 'fields', allow_unknown: false, when: { network: ['ws'] }, reset_on: ['network'],
+          properties: [{ name: 'headers', type: 'object', required: false, label: '请求头', object_kind: 'map', allow_unknown: true }],
+        },
+        { name: 'stable-opts', type: 'object', required: false, label: '稳定参数', group: 'connection', object_kind: 'fields', allow_unknown: false, reset_on: ['protocol'], properties: [{ name: 'value', type: 'text', required: false, label: '值' }] },
+      ],
+      sensitive_fields: ['uuid'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { network: 'ws', 'ws-opts': { headers: {} }, 'stable-opts': { value: 'keep' } }
+    await nextTick()
+    const ws = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'ws-opts')!
+    const stable = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'stable-opts')!
+    await ws.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await ws.find('textarea').setValue('{')
+    await stable.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await stable.find('textarea').setValue('{"value":"draft"}')
+    await nextTick()
+    expect(vm.invalidProtocolPaths.size).toBeGreaterThan(0)
+    expect(vm.unappliedJsonPaths.has('ws-opts')).toBe(true)
+    expect(vm.unappliedJsonPaths.has('stable-opts')).toBe(true)
+
+    vm.setField('network', 'tcp')
+    await nextTick()
+    expect(vm.form.protocol_json['ws-opts']).toBeUndefined()
+    expect(vm.form.protocol_json['stable-opts']).toEqual({ value: 'keep' })
+    expect(vm.invalidProtocolPaths.size).toBe(0)
+    expect(Array.from(vm.unappliedJsonPaths)).toEqual(['stable-opts'])
     wrapper.unmount()
   })
 
@@ -221,6 +354,62 @@ describe('NodesView 节点管理页', () => {
     await vm.save()
     expect(mockUpdateNode.mock.calls[0][1].protocol_json.smux['brutal-opts']).toEqual({ enabled: true, up: '50 Mbps' })
     expect(original.protocol_json.smux).toEqual(smuxValue())
+    wrapper.unmount()
+  })
+
+  it('子对象未应用 JSON 草稿阻止父对象进入高级 JSON 并定位子编辑器', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless',
+      label: 'VLESS',
+      form_schema: [
+        { name: 'uuid', type: 'password', required: true, label: 'UUID', group: 'auth' },
+        { name: 'network', type: 'select', required: true, label: '传输', group: 'connection', options: ['tcp', 'ws'] },
+        {
+          name: 'ws-opts', type: 'object', required: false, label: 'WebSocket 参数', group: 'connection',
+          object_kind: 'fields', allow_unknown: false, when: { network: ['ws'] },
+          properties: [
+            { name: 'path', type: 'text', required: false, label: '路径' },
+            { name: 'headers', type: 'object', required: false, label: '请求头', object_kind: 'map', allow_unknown: true },
+          ],
+        } as FieldSchema,
+      ],
+      sensitive_fields: ['uuid'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    vm.form.protocol_json = { uuid: 'child-json-secret', network: 'ws', 'ws-opts': { path: '/ws' } }
+    await nextTick()
+
+    const child = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('path') === 'ws-opts.headers')!
+    const parent = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'ws-opts')!
+    await child.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await child.find('textarea').setValue('{"X-Test":"draft"}')
+    await nextTick()
+    expect(Array.from(vm.unappliedJsonPaths)).toContain('ws-opts.headers')
+    expect(parent.props('jsonDirtyPaths')).toContain('ws-opts.headers')
+    expect((parent.vm as any).descendantJsonDirtyPaths).toEqual(['ws-opts.headers'])
+
+    await parent.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await nextTick()
+    await flushPromises()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect((parent.vm as any).advanced).toBe(false)
+    expect(child.find('textarea').exists()).toBe(true)
+    expect(Notify.warning).toHaveBeenCalledWith(expect.stringContaining('后代 JSON 草稿'))
+    const focusedPath = (document.activeElement as HTMLElement | null)?.closest('[data-field-path]')?.getAttribute('data-field-path')
+    expect(focusedPath).toBe('ws-opts.headers')
+
+    // 子草稿应用后，父对象才可进入高级 JSON。
+    await child.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
+    await nextTick()
+    await parent.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await nextTick()
+    expect((parent.vm as any).advanced).toBe(true)
     wrapper.unmount()
   })
 
@@ -363,7 +552,7 @@ describe('NodesView 节点管理页', () => {
         { name: 'network', type: 'select', required: true, label: '传输', group: 'connection', options: ['tcp', 'ws'] },
         {
           name: 'ws-opts', type: 'object', required: false, label: 'WebSocket 参数', group: 'connection',
-          object_kind: 'fields', allow_unknown: true, reset_on: ['network'],
+          object_kind: 'fields', allow_unknown: false, reset_on: ['network'],
           properties: [{ name: 'path', type: 'text', required: false, label: '路径' }],
         },
       ],
@@ -386,7 +575,7 @@ describe('NodesView 节点管理页', () => {
     expect(vm.form.protocol_json.network).toBe('tcp')
     expect(vm.form.protocol_json['ws-opts']).toBeUndefined()
     expect(vm.resetScopesArray()).toContain('network')
-    expect(Notify.warning).toHaveBeenCalled()
+    expect(Notify.warning).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -417,6 +606,7 @@ describe('NodesView 节点管理页', () => {
 
     expect(vm.form.protocol_json).toEqual({})
     expect(vm.resetScopesArray()).toContain('protocol')
+    expect(Notify.warning).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -533,7 +723,25 @@ describe('NodesView 节点管理页', () => {
     await vm.save()
 
     expect(mockCreateNode).not.toHaveBeenCalled()
-    expect(Notify.warning).toHaveBeenCalled()
+    expect(Notify.warning).toHaveBeenCalledWith(expect.stringContaining('未应用的 JSON'))
+    expect(wrapper.findComponent(NodeCheckPanel).props('blockedReason')).toContain('未应用的 JSON')
+    wrapper.unmount()
+  })
+
+  it('存在未应用自定义值或列表项草稿时阻止保存和目标检查', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.name = 'new-node'
+    vm.form.host = 'example.com'
+    vm.form.port = 443
+    vm.handleControlDraftDirty({ path: 'network', dirty: true })
+    await vm.save()
+
+    expect(mockCreateNode).not.toHaveBeenCalled()
+    expect(Notify.warning).toHaveBeenCalledWith('存在未应用的自定义值或列表项草稿，请先应用或取消后再保存')
+    expect(wrapper.findComponent(NodeCheckPanel).props('blockedReason')).toContain('未应用')
     wrapper.unmount()
   })
 
@@ -546,14 +754,14 @@ describe('NodesView 节点管理页', () => {
       commitExtensionDraft: () => void
       save: () => Promise<void>
       form: { name: string; host: string; port: number }
-      extensionDraft: { scope: string; targets: string; label: string; payload: string }
+      extensionDraft: { scope: string; targets: string[]; label: string; payload: string }
     }
     vm.openCreate()
     vm.form.name = 'new-node'
     vm.form.host = 'example.com'
     vm.form.port = 443
     vm.extensionDraft.scope = 'node'
-    vm.extensionDraft.targets = 'clash-yaml, sr-subs'
+    vm.extensionDraft.targets = ['clash-yaml', 'sr-subs']
     vm.extensionDraft.label = '测试扩展'
     vm.extensionDraft.payload = '{"unknown":true}'
     vm.commitExtensionDraft()
@@ -563,6 +771,66 @@ describe('NodesView 节点管理页', () => {
     expect(payload.extensions).toEqual([
       { scope: 'node', targets: ['clash-yaml', 'sr-subs'], label: '测试扩展', payload: '{"unknown":true}' },
     ])
+    wrapper.unmount()
+  })
+
+  it('未知扩展 targets 接受空数组并明确不进入输出产物', async () => {
+    mockCreateNode.mockResolvedValue(node)
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      openExtensionAdd: () => void
+      commitExtensionDraft: () => void
+      save: () => Promise<void>
+      form: { name: string; host: string; port: number }
+      extensionDraft: { scope: string; targets: string[]; label: string; payload: string }
+      checkRequest: { targets: string[] }
+    }
+    vm.openCreate()
+    await nextTick()
+    vm.openExtensionAdd()
+    vm.form.name = 'empty-target-node'
+    vm.form.host = 'example.com'
+    vm.form.port = 443
+    vm.extensionDraft.scope = 'node'
+    vm.extensionDraft.targets = []
+    vm.extensionDraft.label = '空 targets'
+    vm.extensionDraft.payload = '{"unknown":true}'
+    vm.openExtensionAdd()
+    await nextTick()
+    expect(document.body.textContent).toContain('不会进入任何输出产物')
+    expect(document.body.textContent).toContain('留空表示未关联任何目标')
+    vm.extensionDraft.targets = []
+    vm.extensionDraft.label = '空 targets'
+    vm.extensionDraft.payload = '{"unknown":true}'
+    vm.commitExtensionDraft()
+    expect(vm.checkRequest.targets).toEqual(['clash-yaml', 'sr-subs', 'generic-subs'])
+    await vm.save()
+    const payload = mockCreateNode.mock.calls[0][0] as Record<string, any>
+    expect(payload.extensions).toEqual([
+      { scope: 'node', targets: [], label: '空 targets', payload: '{"unknown":true}' },
+    ])
+    wrapper.unmount()
+  })
+
+  it('未知扩展非法 targets 被前端阻断且不进入保存草稿', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openCreate: () => void
+      commitExtensionDraft: () => void
+      extensionOps: Array<{ op: string }>
+      extensionDraft: { scope: string; targets: string[]; label: string; payload: string }
+    }
+    vm.openCreate()
+    vm.extensionDraft.scope = 'node'
+    vm.extensionDraft.targets = ['sr-conf']
+    vm.extensionDraft.label = '非法 target'
+    vm.extensionDraft.payload = '{"unknown":true}'
+    vm.commitExtensionDraft()
+    expect(vm.extensionOps).toEqual([])
+    expect(Notify.warning).toHaveBeenCalledWith(expect.stringContaining('sr-conf'))
     wrapper.unmount()
   })
 
@@ -603,14 +871,14 @@ describe('NodesView 节点管理页', () => {
         },
         {
           name: 'obfs-opts', type: 'object', required: false, label: 'obfs 参数', group: 'connection',
-          object_kind: 'fields', allow_unknown: true, when: { plugin: ['obfs'] },
+          object_kind: 'fields', allow_unknown: false, when: { plugin: ['obfs'] },
           properties: [
             { name: 'mode', type: 'select', required: false, label: '模式', option_items: [{ value: 'http', label: 'HTTP' }, { value: 'tls', label: 'TLS' }] },
           ],
         },
         {
           name: 'v2ray-plugin-opts', type: 'object', required: false, label: 'v2ray-plugin 参数', group: 'connection',
-          object_kind: 'fields', allow_unknown: true, when: { plugin: ['v2ray-plugin'] },
+          object_kind: 'fields', allow_unknown: false, when: { plugin: ['v2ray-plugin'] },
           properties: [{ name: 'tls', type: 'bool', required: false, label: 'TLS' }],
         },
       ],
@@ -749,4 +1017,64 @@ describe('NodesView 节点管理页', () => {
     expect(mockCreateNode).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
+  it('WireGuard peers 高级 JSON 应用后保留内部身份且保存不再被阻断', async () => {
+    const firstID = '11111111-1111-4111-8111-111111111111'
+    const secondID = '22222222-2222-4222-8222-222222222222'
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'wireguard',
+      label: 'WireGuard',
+      form_schema: [
+        { name: 'private-key', type: 'password', required: true, label: '私钥', group: 'auth' },
+        { name: 'public-key', type: 'text', required: true, label: '公钥', group: 'auth' },
+        {
+          name: 'peers', type: 'object', required: false, label: 'Peer 列表', group: 'connection',
+          object_kind: 'list', item_id_field: '_credential_id', allow_unknown: false,
+          properties: [
+            { name: 'server', type: 'text', required: false, label: '服务器' },
+            { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+          ],
+        },
+      ],
+      sensitive_fields: ['private-key', 'peers[].pre-shared-key'],
+      link_mappings: { sr: true, generic: true },
+    }])
+    const wireguardNode = {
+      ...node,
+      protocol: 'wireguard',
+      protocol_json: {
+        'private-key': '',
+        'public-key': 'wg-public',
+        peers: [
+          { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+          { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+        ],
+      },
+      current_state: { security: 'none' },
+      saved_sensitive_paths: [`peers[${firstID}].pre-shared-key`, `peers[${secondID}].pre-shared-key`],
+    }
+    mockListNodes.mockResolvedValue([wireguardNode])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit(wireguardNode)
+    await nextTick()
+    const peers = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'peers')!
+    await peers.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    const reordered = [
+      { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+      { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+    ]
+    await peers.find('textarea').setValue(JSON.stringify(reordered))
+    await peers.findAll('button').find((button) => button.text().replace(/\s/g, '') === '应用')!.trigger('click')
+    expect(vm.invalidProtocolPaths.size).toBe(0)
+    expect(vm.unappliedJsonPaths.size).toBe(0)
+    expect(vm.form.protocol_json.peers).toEqual(reordered)
+
+    mockUpdateNode.mockResolvedValue({ ...wireguardNode, edit_revision: 4 })
+    await vm.save()
+    expect(mockUpdateNode).toHaveBeenCalledTimes(1)
+    expect(mockUpdateNode.mock.calls[0][1].protocol_json.peers).toEqual(reordered)
+    wrapper.unmount()
+  })
+
 })

@@ -2,10 +2,13 @@ package pool
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"vpn-sub/internal/rulespec"
 )
 
 func readDailyDataTemplate(t *testing.T, name string) []byte {
@@ -198,6 +201,219 @@ func TestParseSourceSingBox(t *testing.T) {
 	if _, err := ParseSource(multi, SourceModeAuto); err != nil {
 		// 允许作为 rejected/无法满足阈值，但不应该 panic；这里只要最终 error 不是 nil 即可。
 		t.Logf("multi-condition 返回错误符合预期: %v", err)
+	}
+}
+
+func TestParseSourceEvidenceCodesFromDetectorBranches(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		format  DetectedFormat
+		reasons []string
+	}{
+		{"sing-box", `{"version":1,"rules":[{"domain":["a.com"]}]}`, FormatSingBoxSourceJSON, []string{"sing_box_version_and_rules"}},
+		{"mihomo-domain", "payload:\n  - 'a.com'\n", FormatMihomoDomainYAML, []string{"top_level_payload", "payload_domain_only"}},
+		{"mihomo-ipcidr", "payload:\n  - '1.2.3.0/24'\n", FormatMihomoIPCIDRYAML, []string{"top_level_payload", "payload_ipcidr_only"}},
+		{"mihomo-classical", "payload:\n  - 'DOMAIN,a.com'\n", FormatMihomoClassicalYAML, []string{"top_level_payload", "payload_classical_only"}},
+		{"typed", "DOMAIN,a.com\n", FormatTypedRuleText, []string{"typed_rule_marker"}},
+		{"ip-list", "1.2.3.4\n", FormatPlainIPCIDRText, []string{"all_items_ip_cidr_or_asn"}},
+		{"legacy", "full:a.com\n", FormatLegacyDomainText, []string{"legacy_domain_prefix"}},
+		{"plain", "a.com\n", FormatPlainDomainText, []string{"plain_domain_candidates"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := ParseSource([]byte(tc.body), SourceModeAuto)
+			if err != nil {
+				t.Fatalf("解析失败: %v", err)
+			}
+			if res.Format != tc.format {
+				t.Fatalf("format=%s want %s", res.Format, tc.format)
+			}
+			if len(res.EvidenceCodes) != len(tc.reasons) {
+				t.Fatalf("evidence codes=%v want %v", res.EvidenceCodes, tc.reasons)
+			}
+			for i := range tc.reasons {
+				if res.EvidenceCodes[i] != tc.reasons[i] {
+					t.Fatalf("evidence codes=%v want %v", res.EvidenceCodes, tc.reasons)
+				}
+			}
+		})
+	}
+}
+
+func TestFinalizeStatsStep1DuplicatesExcludedSeparate(t *testing.T) {
+	// SR 模式下：DOMAIN-REGEX 是合法但 Clash-only，应计入 Excluded；
+	// 两个相同 DOMAIN 应只算 1 Accepted + 1 Duplicates，不能借后置差值再进入 Excluded。
+	body := []byte("DOMAIN,a.com\nDOMAIN,a.com\nDOMAIN-REGEX,^example\\.com$\n")
+	res, err := ParseSource(body, SourceModeShadowrocket)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Input != 3 || res.Recognized != 3 || res.Accepted != 1 || res.Excluded != 1 || res.Rejected != 0 || res.Duplicates != 1 {
+		t.Fatalf("统计口径错误: %+v", res)
+	}
+	if len(res.Rules) != 1 {
+		t.Fatalf("accepted 规则数错误: %d", len(res.Rules))
+	}
+}
+
+func TestFinalizeStatsStep1AdapterRejectEntersRejected(t *testing.T) {
+	body := []byte("DOMAIN,a0.com\nDOMAIN,a1.com\nDOMAIN,a2.com\nDOMAIN,a3.com\nDOMAIN,a4.com\nDOMAIN,a5.com\nDOMAIN,a6.com\nDOMAIN,a7.com\nDOMAIN,a8.com\nDOMAIN,a9.com\nBOGUS,xxx\n")
+	res, err := ParseSource(body, SourceModeAuto)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Input != 11 || res.Recognized != 10 || res.Accepted != 10 || res.Rejected != 1 {
+		t.Fatalf("adapter reject 未计入 rejected: %+v", res)
+	}
+	if len(res.Diagnostics) != 1 || res.Diagnostics[0].Kind != "reject" {
+		t.Fatalf("应保留 adapter reject 诊断: %+v", res.Diagnostics)
+	}
+}
+
+func TestFinalizeStatsStep1ProfileBeforeModeExclusion(t *testing.T) {
+	// Clash 模式会把 USER-AGENT 排除；detected_profile 仍需由排除前全部已识别候选得出 shadowrocket。
+	body := []byte("DOMAIN,a.com\nUSER-AGENT,curl\n")
+	res, err := ParseSource(body, SourceModeClash)
+	if err != nil {
+		t.Fatalf("Clash 模式解析失败: %v", err)
+	}
+	if res.Profile != "shadowrocket" {
+		t.Fatalf("profile 应在来源模式排除前计算，当前 %q", res.Profile)
+	}
+	if res.Excluded != 1 || res.Rejected != 0 {
+		t.Fatalf("Clash 模式应只排除 USER-AGENT: %+v", res)
+	}
+}
+
+func TestFinalizeStatsStep1AutoNoModeExclusion(t *testing.T) {
+	body := []byte("DOMAIN,a.com\nDOMAIN-SUFFIX,b.com\n")
+	res, err := ParseSource(body, SourceModeAuto)
+	if err != nil {
+		t.Fatalf("auto 解析失败: %v", err)
+	}
+	if res.Excluded != 0 {
+		t.Fatalf("auto 模式不应产生来源模式排除: %+v", res)
+	}
+}
+
+func TestFinalizeStatsStep1AppendedDiagnosticsWrittenBack(t *testing.T) {
+	// 直接构造 capability 阶段拒绝项，验证循环内追加的诊断会回写最终切片。
+	items := []ParsedRule{
+		{Rule: rulespec.CanonicalRule{Family: rulespec.FamilyProcess, Matcher: rulespec.MatcherEquals, Value: "cn"}, Origin: RuleOriginMeta{Raw: "RULE-SET,cn"}},
+		{Rule: rulespec.CanonicalRule{Family: rulespec.FamilyDomain, Matcher: rulespec.MatcherExact, Value: "a.com"}, Origin: RuleOriginMeta{Raw: "DOMAIN,a.com"}},
+	}
+	res, err := finalizeParseResult(FormatTypedRuleText, items, nil, SourceModeAuto, nil)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Accepted != 1 || res.Rejected != 1 {
+		t.Fatalf("统计错误: %+v", res)
+	}
+	if len(res.Diagnostics) != 1 || res.Diagnostics[0].Kind != "reject" || res.Diagnostics[0].Message != "不是素材池可选能力" {
+		t.Fatalf("清洗阶段诊断未回写: %+v", res.Diagnostics)
+	}
+}
+
+func TestParseSourceNoResolveUsesIndependentOptionToken(t *testing.T) {
+	body := []byte("DOMAIN,no-resolve.example.com\nIP-CIDR,1.2.3.0/24,no-resolve\nIP-CIDR,10.0.0.0/8,NO-RESOLVE\n")
+	res, err := ParseSource(body, SourceModeAuto)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if len(res.Items) != 3 {
+		t.Fatalf("应解析 3 条: %d", len(res.Items))
+	}
+	if res.Items[0].Rule.Options.NoResolve {
+		t.Errorf("匹配值含 no-resolve 字样不得误设为选项: %+v", res.Items[0])
+	}
+	if !res.Items[1].Rule.Options.NoResolve || !res.Items[2].Rule.Options.NoResolve {
+		t.Errorf("独立 no-resolve token 应设置选项: %+v", res.Items)
+	}
+}
+
+func TestParseSourcePolicySilentAndUnknownOptionWarn(t *testing.T) {
+	body := []byte("DOMAIN,a.com,PROXY\nIP-CIDR,1.2.3.0/24,no-resolve\nIP-CIDR,10.0.0.0/8,PROXY,no-resolve\nDOMAIN,b.com,PROXY,unknown-opt\n")
+	res, err := ParseSource(body, SourceModeAuto)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Accepted != 4 || res.Rejected != 0 || res.Excluded != 0 || res.Duplicates != 0 {
+		t.Fatalf("policy/未知 option 不应改变 accepted/rejected/excluded/duplicates: %+v", res)
+	}
+	if len(res.Items) != 4 {
+		t.Fatalf("应保留 4 条 items: %d", len(res.Items))
+	}
+	if res.Items[0].Rule.Options.NoResolve || res.Items[3].Rule.Options.NoResolve {
+		t.Fatalf("source policy 后的普通选项不应被误设为 no-resolve: %+v", res.Items)
+	}
+	if !res.Items[1].Rule.Options.NoResolve || !res.Items[2].Rule.Options.NoResolve {
+		t.Fatalf("独立 no-resolve token 应设置选项: %+v", res.Items)
+	}
+	if len(res.Diagnostics) != 1 || res.Diagnostics[0].Kind != "warn" || !strings.Contains(res.Diagnostics[0].Message, "unknown-opt") {
+		t.Fatalf("未知 option 应产生单条 warn 诊断: %+v", res.Diagnostics)
+	}
+}
+
+func TestParseSourcePositionRuleTreatsSingleTailAsPolicy(t *testing.T) {
+	// 只有一个非 no-resolve 尾部 token 时无法区分 policy 与未知 option，
+	// 按位置法视为 source policy 静默忽略。
+	res, err := ParseSource([]byte("DOMAIN,a.com,unknown-option\n"), SourceModeAuto)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Accepted != 1 || len(res.Diagnostics) != 0 {
+		t.Fatalf("单个非 no-resolve 尾部 token 应按 source policy 静默忽略: %+v", res)
+	}
+}
+
+func TestParseSourceWarnsEachUnknownTailToken(t *testing.T) {
+	res, err := ParseSource([]byte("DOMAIN,a.com,PROXY,foo,bar\n"), SourceModeAuto)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Accepted != 1 || len(res.Diagnostics) != 2 {
+		t.Fatalf("两个未知尾部 token 应产生两条 warn: %+v", res.Diagnostics)
+	}
+	for i, want := range []string{"foo", "bar"} {
+		if res.Diagnostics[i].Kind != "warn" || !strings.Contains(res.Diagnostics[i].Message, want) {
+			t.Fatalf("第 %d 条 warn 异常: %+v", i, res.Diagnostics[i])
+		}
+	}
+}
+
+func TestParseSourceRejectsNonMaterialPoolByOriginalLegacyType(t *testing.T) {
+	cases := []string{
+		"RULE-SET,cn",
+		"AND,((DOMAIN,a.com),(NETWORK,tcp))",
+		"OR,((DOMAIN,a.com),(DOMAIN,b.com))",
+		"NOT,((DOMAIN,a.com))",
+		"MATCH,",
+		"GEOSITE,cn",
+		"SRC-GEOIP,CN",
+		"SRC-IP-ASN,13335",
+		"SRC-IP-CIDR,10.0.0.0/8",
+		"IP-SUFFIX,10.0.0.0/8",
+		"DST-PORT,443",
+	}
+	for _, badLine := range cases {
+		var b strings.Builder
+		for i := 0; i < 10; i++ {
+			fmt.Fprintf(&b, "DOMAIN,ok%d.com\n", i)
+		}
+		b.WriteString(badLine)
+		b.WriteString("\n")
+		body := b.String()
+		res, err := ParseSource([]byte(body), SourceModeAuto)
+		if err != nil {
+			t.Fatalf("应能解析出拒绝诊断而不是硬失败: %v\n%s", err, body)
+		}
+		if res.Rejected != 1 || res.Accepted != 10 {
+			t.Fatalf("非素材池类型应 rejected=1 accepted=10: %+v\n%s", res, body)
+		}
+		if len(res.Diagnostics) != 1 || !strings.Contains(res.Diagnostics[0].Message, "不是素材池可选能力") {
+			t.Fatalf("应产生素材池白名单拒绝诊断: %+v\n%s", res.Diagnostics, body)
+		}
 	}
 }
 

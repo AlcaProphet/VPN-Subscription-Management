@@ -97,9 +97,9 @@ func (s *AdminService) countActiveAdmins(ctx context.Context, tx *sql.Tx, exclud
 
 // smtpConfigured SMTP 是否已配置（host+user+password 三键非空；与 mail 包判定口径一致，Step 2 接通）
 func (s *AdminService) smtpConfigured(ctx context.Context) bool {
-	host, _ := s.cfg.Get(ctx, "smtp_host")
-	user, _ := s.cfg.Get(ctx, "smtp_user")
-	pass, _ := s.cfg.Get(ctx, "smtp_password")
+	host := s.cfg.GetOr(ctx, "smtp_host")
+	user := s.cfg.GetOr(ctx, "smtp_user")
+	pass := s.cfg.GetOr(ctx, "smtp_password")
 	return host != "" && user != "" && pass != ""
 }
 
@@ -333,7 +333,11 @@ func (s *AdminService) UpdateGroup(ctx context.Context, targetID, groupID int64)
 	if err != nil {
 		return fmt.Errorf("更新用户组失败: %w", err)
 	}
-	if affected, _ := res.RowsAffected(); affected == 0 {
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("读取更新结果失败: %w", err)
+	}
+	if affected == 0 {
 		return ErrUserNotFound
 	}
 	if s.onUserGroupChanged != nil {
@@ -533,7 +537,11 @@ func (s *AdminService) SetStatus(ctx context.Context, operatorID, targetID int64
 		if err != nil {
 			return err
 		}
-		if affected, _ := res.RowsAffected(); affected == 0 {
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("读取更新结果失败: %w", err)
+		}
+		if affected == 0 {
 			return ErrUserNotFound
 		}
 		return nil
@@ -690,7 +698,11 @@ func (s *AdminService) SetQuotaOverride(ctx context.Context, userID int64, quota
 	if err != nil {
 		return fmt.Errorf("更新用户配额覆盖失败: %w", err)
 	}
-	if affected, _ := res.RowsAffected(); affected == 0 {
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("读取更新结果失败: %w", err)
+	}
+	if affected == 0 {
 		return ErrUserNotFound
 	}
 	return nil

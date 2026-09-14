@@ -2,14 +2,14 @@
 import type { FieldSchema } from '@/api/node'
 
 export const smuxSchema: FieldSchema = {
-  name: 'smux', label: '多路复用', type: 'object', required: false, object_kind: 'fields', allow_unknown: true,
+  name: 'smux', label: '多路复用', type: 'object', required: false, object_kind: 'fields', allow_unknown: false,
   group: 'advanced', feature: { name: 'smux', toggle: 'enabled' }, reset_on: ['feature.smux'],
   properties: [
     { name: 'enabled', label: 'SMux 启用', type: 'bool', required: false, default: false },
     { name: 'max-connections', label: '最大连接数', type: 'number', required: false, when: { features: ['smux'] } },
     { name: 'padding', label: '填充', type: 'bool', required: false, when: { features: ['smux'] } },
     {
-      name: 'brutal-opts', label: 'Brutal 参数', type: 'object', required: false, object_kind: 'fields', allow_unknown: true,
+      name: 'brutal-opts', label: 'Brutal 参数', type: 'object', required: false, object_kind: 'fields', allow_unknown: false,
       feature: { name: 'smux.brutal', toggle: 'enabled' }, reset_on: ['feature.smux.brutal'], when: { features: ['smux'] },
       properties: [
         { name: 'enabled', label: 'Brutal 启用', type: 'bool', required: false, default: false },
@@ -21,6 +21,6 @@ export const smuxSchema: FieldSchema = {
 }
 
 export function smuxValue() {
-  return { enabled: true, 'max-connections': 7, padding: true, future: { value: 'old' },
-    'brutal-opts': { enabled: true, up: '100 Mbps', down: '200 Mbps', future: 'old' } }
+  return { enabled: true, 'max-connections': 7, padding: true,
+    'brutal-opts': { enabled: true, up: '100 Mbps', down: '200 Mbps' } }
 }

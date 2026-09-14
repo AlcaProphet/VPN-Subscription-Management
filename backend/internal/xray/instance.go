@@ -107,7 +107,7 @@ func (s *InstanceService) Create(ctx context.Context, name, apiAddr, apiTag stri
 				return dup, err
 			}
 			return slug.ExistsInFourTables(ctx, tx, v)
-		})
+		}, s.log)
 		if err != nil {
 			return err
 		}

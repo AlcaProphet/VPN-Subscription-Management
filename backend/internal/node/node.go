@@ -944,28 +944,77 @@ func mergeJSONValues(oldValue, newValue any) any {
 }
 
 // mergeProtocolJSON 从旧节点构造更新基底，先清除 reset_scopes，再合并新协议声明的字段。
+// 固定 fields 对象按 schema 合并：旧未知键只有本次显式提交时才继续保留，从而支持高级 JSON 显式删除；
+// 否则旧未知键会在后续校验中被定位并阻断。开放 Map 继续沿用普通 JSON 合并合同。
 func mergeProtocolJSON(existing, incoming map[string]any, proto Protocol, resetScopes []string) map[string]any {
 	base := cleanDisabledFeatures(proto.FormSchema, existing)
 	for _, scope := range resetScopes {
 		base = clearScope(base, scope, proto.FormSchema)
 	}
 
-	allowed := make(map[string]bool, len(proto.FormSchema))
+	schemaByName := make(map[string]FieldSchema, len(proto.FormSchema))
 	out := make(map[string]any, len(proto.FormSchema))
 	for _, field := range proto.FormSchema {
-		allowed[field.Name] = true
+		schemaByName[field.Name] = field
 		if value, ok := base[field.Name]; ok {
 			out[field.Name] = cloneJSONValue(value)
 		}
 	}
 	for key, value := range incoming {
-		if !allowed[key] {
+		field, allowed := schemaByName[key]
+		if !allowed {
 			continue
 		}
 		if old, ok := out[key]; ok {
-			out[key] = mergeJSONValues(old, value)
+			out[key] = mergeSchemaFieldValue(field, old, value)
 		} else {
 			out[key] = cloneJSONValue(value)
+		}
+	}
+	return out
+}
+
+// mergeSchemaFieldValue 对固定 fields 对象执行 schema-aware 合并；其余类型保持既有普通合并语义。
+func mergeSchemaFieldValue(field FieldSchema, oldValue, newValue any) any {
+	if field.Type != "object" || field.ObjectKind != "fields" {
+		return mergeJSONValues(oldValue, newValue)
+	}
+	newObject, ok := newValue.(map[string]any)
+	if !ok {
+		return cloneJSONValue(newValue)
+	}
+	if len(newObject) == 0 {
+		return map[string]any{}
+	}
+	oldObject, _ := oldValue.(map[string]any)
+	known := make(map[string]bool, len(field.Properties))
+	out := make(map[string]any, len(field.Properties)+len(newObject))
+	for _, property := range field.Properties {
+		known[property.Name] = true
+		oldChild, hasOld := oldObject[property.Name]
+		newChild, hasNew := newObject[property.Name]
+		switch {
+		case hasNew && hasOld:
+			out[property.Name] = mergeSchemaFieldValue(property, oldChild, newChild)
+		case hasNew:
+			out[property.Name] = cloneJSONValue(newChild)
+		case hasOld:
+			out[property.Name] = cloneJSONValue(oldChild)
+		}
+	}
+	// 本次显式提交的未知键必须保留给后续校验定位；旧未知键只有本次显式出现才继续保留。
+	for key, value := range newObject {
+		if !known[key] {
+			out[key] = cloneJSONValue(value)
+		}
+	}
+	if field.AllowUnknown {
+		for key, value := range oldObject {
+			if !known[key] {
+				if _, exists := out[key]; !exists {
+					out[key] = cloneJSONValue(value)
+				}
+			}
 		}
 	}
 	return out
@@ -1488,6 +1537,18 @@ func normalizeTargets(targets []string) []string {
 	return out
 }
 
+// validateExtensionTargets 允许空数组，非空值只能来自节点检查权威目标集合；重复值去重。
+// targets 只表示扩展的期望/关联目标，不代表当前已有输出支持。
+func validateExtensionTargets(targets []string) ([]string, error) {
+	out := normalizeTargets(targets)
+	for _, target := range out {
+		if !isSupportedCheckTarget(target) {
+			return nil, fmt.Errorf("扩展 targets 不支持目标: %s", target)
+		}
+	}
+	return out, nil
+}
+
 func extensionID(id string) string {
 	if id != "" {
 		return id
@@ -1521,6 +1582,10 @@ func (s *Service) prepareExtensionInputs(ctx context.Context, state CurrentState
 		if input.Payload == "" {
 			return nil, errors.New("扩展负载不能为空")
 		}
+		targets, err := validateExtensionTargets(input.Targets)
+		if err != nil {
+			return nil, err
+		}
 		id := extensionID(strings.TrimSpace(input.ID))
 		if seen[id] {
 			return nil, fmt.Errorf("节点扩展 id 重复: %s", id)
@@ -1533,7 +1598,7 @@ func (s *Service) prepareExtensionInputs(ctx context.Context, state CurrentState
 		records = append(records, ExtensionRecord{
 			ID:         id,
 			Scope:      scope,
-			Targets:    normalizeTargets(input.Targets),
+			Targets:    targets,
 			Label:      input.Label,
 			Status:     "encrypted",
 			PayloadEnc: payload,
@@ -1591,7 +1656,11 @@ func (s *Service) prepareExtensionOps(ctx context.Context, existing []ExtensionR
 				return nil, fmt.Errorf("扩展 scope %s 不属于当前分支", record.Scope)
 			}
 			if op.Targets != nil {
-				record.Targets = normalizeTargets(op.Targets)
+				targets, err := validateExtensionTargets(op.Targets)
+				if err != nil {
+					return nil, err
+				}
+				record.Targets = targets
 			}
 			if op.Label != "" {
 				record.Label = op.Label
@@ -1614,6 +1683,10 @@ func (s *Service) prepareExtensionOps(ctx context.Context, existing []ExtensionR
 			if op.Payload == "" {
 				return nil, errors.New("add 扩展负载不能为空")
 			}
+			targets, err := validateExtensionTargets(op.Targets)
+			if err != nil {
+				return nil, err
+			}
 			id := extensionID(strings.TrimSpace(op.ID))
 			if _, exists := byID[id]; exists {
 				return nil, fmt.Errorf("节点扩展 id 重复: %s", id)
@@ -1626,7 +1699,7 @@ func (s *Service) prepareExtensionOps(ctx context.Context, existing []ExtensionR
 			records = append(records, ExtensionRecord{
 				ID:         id,
 				Scope:      scope,
-				Targets:    normalizeTargets(op.Targets),
+				Targets:    targets,
 				Label:      op.Label,
 				Status:     "encrypted",
 				PayloadEnc: payload,
@@ -1827,7 +1900,10 @@ func validateActiveInputMaps(fields []FieldSchema, state CurrentState, params ma
 }
 
 func validateObjectProperties(field FieldSchema, object map[string]any, path string) error {
-	known := make(map[string]FieldSchema, len(field.Properties))
+	known := make(map[string]FieldSchema, len(field.Properties)+1)
+	if field.ItemIDField != "" {
+		known[field.ItemIDField] = FieldSchema{Name: field.ItemIDField}
+	}
 	for _, property := range field.Properties {
 		known[property.Name] = property
 		value, ok := object[property.Name]

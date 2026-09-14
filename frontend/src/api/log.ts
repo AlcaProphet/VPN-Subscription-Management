@@ -1,4 +1,4 @@
-// api/log.ts：日志接口（Build3 Step 5）——访问日志查询/清空 + 实时日志流 SSE 短期 Token
+// api/log.ts：日志接口（Build3 Step 5）——访问日志查询/清空 + 实时日志流 SSE（R28-07I fetch/ReadableStream）
 import { http } from './request'
 
 export interface AccessLog {
@@ -28,4 +28,13 @@ export interface LogEntry {
 export const queryAccessLogs = (q: { from: string; to: string; page: number; size: number }) =>
   http.get<any, { list: AccessLog[]; total: number }>('/admin/logs/access', { params: q })
 export const clearAccessLogs = () => http.post('/admin/logs/access/clear')
-export const issueStreamToken = () => http.post<any, { token: string }>('/admin/logs/stream/token')
+// openLogStream 用 fetch 携带现有 Bearer 会话凭据连接管理员 SSE 路由；不再换取/传递查询 Token。
+export async function openLogStream(signal?: AbortSignal): Promise<Response> {
+  const token = localStorage.getItem('token')
+  return fetch('/api/admin/logs/stream', {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: 'no-store',
+    signal,
+  })
+}

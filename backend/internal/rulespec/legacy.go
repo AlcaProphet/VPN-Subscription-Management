@@ -49,6 +49,13 @@ var legacyCapabilityMap = map[string]LegacyCapability{
 	"USER-AGENT":         {RuleType: "USER-AGENT", Scope: ScopeSrOnly, ClashRenderType: "", SRRenderType: "USER-AGENT", MaterialPool: true, Advanced: true},
 }
 
+// IsMaterialPoolType 按原始 legacy 规则类型判断是否可进入素材池。
+// 事实来源与前端下拉一致：legacyCapabilityMap / LegacyMetadata() 的 MaterialPool。
+func IsMaterialPoolType(ruleType string) bool {
+	cap, ok := legacyCapabilityMap[normalizeRuleType(ruleType)]
+	return ok && cap.MaterialPool
+}
+
 // SupportsAndMapLegacy 按旧规则类型返回目标映射结果。
 func SupportsAndMapLegacy(ruleType string, target Target) MappingResult {
 	typ := normalizeRuleType(ruleType)
