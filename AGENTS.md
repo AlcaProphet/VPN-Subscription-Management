@@ -225,7 +225,7 @@
 | 文档类型 | 文件 | 定位 | 约束力 |
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
-| Design 文档 | [Design5.md](Design5.md)（完整数据加密导出与 Setup 一步整站迁移候选，当前只登记构想、未研究定稿或进入构建）；[Design4.md](Design4.md)（当前最新已确认设计，v1.22 已同步 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；人工结果见 ProdTestList）；[Design3.md](docs/reports/Design/Design3.md)（已经 Build16 构建并已归档的规则素材与装配设计）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
+| Design 文档 | [Design5.md](Design5.md)（完整数据加密导出与 Setup 一步整站迁移候选，当前只登记构想、未研究定稿或进入构建）；[Design4.md](Design4.md)（当前最新已确认设计，v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；已完成人工结果见 Issue14／Issue15，待核验项见 ProdTestList）；[Design3.md](docs/reports/Design/Design3.md)（已经 Build16 构建并已归档的规则素材与装配设计）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
 | Design GUI 规格 | [Design2-UI.md](docs/reports/Design/Design2-UI.md)（已实现并归档的 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；Design3 新增界面行为由 Design3 §八补充；Design4 节点表单界面行为由 Design4 §三/§十二补充 | 非强制，供参考 |
 | Build 文档 | 已归档：Build1～Build27、Build6-2（具体链接见下方清单）。除已登记 [ProdTestList.md](ProdTestList.md) 的人工项目外，工程与自动化验收均已完成；Build22 的 Step 7 证据已补齐并重新通过 Step 11 门禁。Build26（Issue14 步骤五/R28-07，Step 1～20 已完成并验收通过；现行工程合同补充见 Design4 §12.7）已归档；Build27（Issue14 步骤七/R28-09，Step 1～6 已完成并验收通过）已归档；当前无已授权活跃构建记录 | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
 | Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue15.md](docs/reports/Issue/Issue15.md)（全部已闭环归档）；当前工程问题为 [Issue14.md](docs/reports/Issue/Issue14.md)，后续人工测试问题见 [Issue16.md](Issue16.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
@@ -235,7 +235,7 @@
 ### 8.2 文档分工规则
 
 - **AGENTS.md 不含具体设计内容**：产品定义、功能流程、数据模型、架构细节等设计信息全部留在 Design 文档中，本文件仅通过引用指向
-- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；当前最新设计为 Design4.md（v1.22 已同步 R28-06 与 §12.7 核心工程约束合同，Build17～Build20 已完成，Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环且 Build25 已归档，人工结果以 ProdTestList 为准），其明确覆盖的节点编辑器条件表单、保存状态、客户端兼容和首批四协议契约构建时不得偏离；Design3.md 是已经 Build16 构建的规则素材与装配设计，随 Build22 收口归档（其明确覆盖内容继续有效）；Design2.md + Design2-UI.md 是已实现并归档的运行基线，Design3/Design4 未覆盖的行为继续以其为准；Design1.md 为第一期已建成功能基线（存档参考）
+- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；当前最新设计为 Design4.md（v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同，Build17～Build20 已完成，Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环且 Build25 已归档，已完成人工结果见 Issue14／Issue15，待核验项见 ProdTestList），其明确覆盖的节点编辑器条件表单、保存状态、客户端兼容和首批四协议契约构建时不得偏离；Design3.md 是已经 Build16 构建的规则素材与装配设计，随 Build22 收口归档（其明确覆盖内容继续有效）；Design2.md + Design2-UI.md 是已实现并归档的运行基线，Design3/Design4 未覆盖的行为继续以其为准；Design1.md 为第一期已建成功能基线（存档参考）
 - **Build 文档**面向 AI 执行，每个 Step 必须含：目标、前置条件、产出文件与参考代码/伪代码、验收规范与验证命令；每次仅执行一个 Step，验收通过后再进入下一步
 - **Issue 文档**只记录 bug 与修复闭环；非问题的优化候选归 Design 文档记录
 - **归档规则**：构建验收完成或被后续文档取代的 Design/Build/Issue 文档移入 [docs/reports/](docs/reports)，仅作核查，不用于构建；研究参考资料存于 [docs/Reference/](docs/Reference)
@@ -260,7 +260,7 @@
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
 | [Design5.md](Design5.md) | 人类（开发者/用户）与 AI 编码助手 | 后续候选设计：完整数据加密导出、Setup 一步整站迁移、恢复安全与一致性边界 | v0.1 构想已登记；未研究定稿、未创建 Build、未实施 |
-| [Design4.md](Design4.md) | 人类（开发者/用户）与 AI 编码助手 | 当前最新增量设计：节点编辑器条件表单、分支清空与当前状态、统一保存契约、首批四协议矩阵、客户端兼容与目标检查 | v1.22 已同步 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体与前端 `item_id_field` 白名单、保存定位排序、条件隐藏清理证据均已闭环，Build25 已归档，人工结果见 ProdTestList |
+| [Design4.md](Design4.md) | 人类（开发者/用户）与 AI 编码助手 | 当前最新增量设计：节点编辑器条件表单、分支清空与当前状态、统一保存契约、首批四协议矩阵、客户端兼容与目标检查 | v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体与前端 `item_id_field` 白名单、保存定位排序、条件隐藏清理证据均已闭环，Build25 已归档，已完成人工结果见 Issue14／Issue15，待核验项见 ProdTestList |
 | [Design3.md](docs/reports/Design/Design3.md) | 人类（开发者/用户）与 AI 编码助手 | 已构建增量设计：规则来源三模式、单 URL 单主方言、Canonical Rule、来源快照、能力注册表与跨平台装配 | 已归档；已经 Build16 构建，Build22 Step 7 证据补齐后 D3 全验收通过 |
 | [Design2.md](docs/reports/Design/Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现增量基线：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接 | 已存档，已构建 |
 | [Design2-UI.md](docs/reports/Design/Design2-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现 GUI 规格：Design2 受影响界面的布局/组件/状态分支/响应式；Design3 界面增量见 Design3 §八 | 已存档，已构建 |
@@ -281,7 +281,7 @@
 | [Build18.md](docs/reports/Build/Build18.md) | AI 编码助手 | 第十八轮构建：FieldSchema 条件/选项扩展、当前状态投影、节点检查与固定版本正反例 | 已归档（已完成实现与自动化验收） |
 | [Build19.md](docs/reports/Build/Build19.md) | AI 编码助手 | 第十九轮构建：前端动态表单、可编辑下拉、分支清空、局部 JSON 与目标检查 UI | 已归档（已完成实现与自动化验收，含未知扩展/JSON/切换提示收口） |
 | [Build20.md](docs/reports/Build/Build20.md) | AI 编码助手 | 第二十轮构建：全量手动协议过渡、URI/Xray 来源适配、输出门槛与回归收口 | 已归档（已完成实现与自动化验收） |
-| [Build21.md](docs/reports/Build/Build21.md) | AI 编码助手 | 第二十一轮构建：BuildReport3 对齐修复与 R27-09 全量扩展计划；R27-09 主体 Step 14 与 N-node-3/4 Step 15 的唯一分步记录 | 已归档（Step 1～15 已完成并验收；后续工程问题见 Issue14，人工结果见 ProdTestList） |
+| [Build21.md](docs/reports/Build/Build21.md) | AI 编码助手 | 第二十一轮构建：BuildReport3 对齐修复与 R27-09 全量扩展计划；R27-09 主体 Step 14 与 N-node-3/4 Step 15 的唯一分步记录 | 已归档（Step 1～15 已完成并验收；工程与 PT-28 人工结果见 Build21／Issue14，当前待核验项见 ProdTestList） |
 | [Build22.md](docs/reports/Build/Build22.md) | AI 编码助手 | 第二十二轮构建：BuildReport4 未闭环项 1（Design3/Build16 D3-1～D3-10） | 已归档；Step 1～11 全部验收通过，D3-1～D3-10 闭环。实际浏览器/真机项目见 ProdTestList |
 | [Build23.md](docs/reports/Build/Build23.md) | AI 编码助手 | Build23 交接说明：R27-09 与 N-node-3/4 已并入 Build21，不再重复分步 | 已归档（交接文档，执行历史以 Build21 为准） |
 | [Build24.md](docs/reports/Build/Build24.md) | AI 编码助手 | R29-06 节点动态表单控件语义收口：标准推荐下拉、自定义/列表草稿、数字未设置与页面级阻断 | 已归档（代码与自动化验收完成；真实运行核验见 ProdTestList） |
