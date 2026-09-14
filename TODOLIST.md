@@ -4,9 +4,8 @@
 
 ## 当前待办
 
-### 1. Issue17：OIDC 与配置导出遗留问题（核验 R30-05 后确认）
+### 1. Issue17：OIDC 遗留问题（核验 R30-05 后确认）
 
-- [ ] R31-01：修复 `signing_key` 原始二进制经 JSON 导出损坏的问题，并补真实随机 key 的 Export→Import→解密往返测试。
 - [ ] R31-02：为真实 OIDC 的 discovery/token/JWKS endpoint 增加统一 HTTPS/SSRF 校验；真实 OIDC 登录仅在隔离环境核验。
 - [ ] R31-03：确认提供商切换字段语义后，处理“源地址/Client ID + 目标 Secret”混合风险。
 - [ ] R31-04：对字面值/不可解密密文增加损坏识别与强制重填路径。
@@ -30,3 +29,4 @@
 | 2026-09-14 | 用户确认 Issue16 R30-01 人工核验完成；移除对应短期待办，Issue16 按归档规则关闭。 |
 | 2026-09-14 | 用户更正 R26-07 尚未完成；恢复对应短期待办。 |
 | 2026-09-14 | 将 R26-07 从本表拆分至 [XrayRelated1.md](XrayRelated1.md) 集中跟踪；本表不再重复列出 Xray 相关待办。 |
+| 2026-09-14 | 将 R31-01 从 Issue17 和本表分至 [ExportRelated1.md](ExportRelated1.md) 独立跟踪，并关联 Design5；R31-02 保留独立跟踪。 |
