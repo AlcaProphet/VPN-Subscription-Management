@@ -4,12 +4,7 @@
 
 ## 当前待办
 
-### 1. R26-07：Xray 节点禁止编辑的错误码
-
-- [ ] 在隔离 Production 或等价真实 API 环境完成一次人工核验，并将结果回写 [ProdTestList.md](ProdTestList.md)。
-- [ ] 覆盖 Xray 来源节点禁止编辑的 `403`、manual 节点普通字段校验的 `400`、过期 `base_revision` 的 `409`，以及前端对三类错误的区分；确认均不写入数据。
-
-### 2. Issue17：OIDC 与配置导出遗留问题（核验 R30-05 后确认）
+### 1. Issue17：OIDC 与配置导出遗留问题（核验 R30-05 后确认）
 
 - [ ] R31-01：修复 `signing_key` 原始二进制经 JSON 导出损坏的问题，并补真实随机 key 的 Export→Import→解密往返测试。
 - [ ] R31-02：为真实 OIDC 的 discovery/token/JWKS endpoint 增加统一 HTTPS/SSRF 校验；真实 OIDC 登录仅在隔离环境核验。
@@ -34,3 +29,4 @@
 | 2026-09-14 | 二轮核验补充 Issue17 R31-06：mock 模式校验不完整，Setup/SaveOidc/Exchange 需统一限制 Dev。 |
 | 2026-09-14 | 用户确认 Issue16 R30-01 人工核验完成；移除对应短期待办，Issue16 按归档规则关闭。 |
 | 2026-09-14 | 用户更正 R26-07 尚未完成；恢复对应短期待办。 |
+| 2026-09-14 | 将 R26-07 从本表拆分至 [XrayRelated1.md](XrayRelated1.md) 集中跟踪；本表不再重复列出 Xray 相关待办。 |
