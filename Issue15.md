@@ -1,7 +1,7 @@
 # Issue15.md — VPN 订阅管理系统问题记录（人工测试与交叉审核补充，当前）
 
-> **文档定位：** 本文记录 [ProdTestList.md](ProdTestList.md) 执行过程中由用户发现的 Production、浏览器和真实客户端错误；2026-09-10 起并登记文档交叉审核发现、尚未在 Issue14 独立立项的工程/验证/文档追溯问题。默认只登记发现事实，经用户明确授权分析或修复后，可在对应问题中同步根因、修复内容、自动化证据和用户人工核验结论。工程问题、既有 R28 问题和通用自动化证据仍分别由 [Issue14.md](Issue14.md) 及相关文档跟踪；交叉审核项必须在条目内注明工程主跟踪文档。
-> 关联测试清单：[ProdTestList.md](ProdTestList.md)；编码约束：[AGENTS.md](AGENTS.md)；当前工程问题：[Issue14.md](Issue14.md)。
+> **文档定位：** 本文记录 [ProdTestList.md](ProdTestList.md) 执行过程中由用户发现的 Production、浏览器和真实客户端错误；2026-09-10 起并登记文档交叉审核发现、尚未在 Issue14 独立立项的工程/验证/文档追溯问题。默认只登记发现事实，经用户明确授权分析或修复后，可在对应问题中同步根因、修复内容、自动化证据和用户人工核验结论。工程问题、既有 R28 问题和通用自动化证据仍分别由 [Issue14.md](docs/reports/Issue/Issue14.md) 及相关文档跟踪；交叉审核项必须在条目内注明工程主跟踪文档。
+> 关联测试清单：[ProdTestList.md](ProdTestList.md)；编码约束：[AGENTS.md](AGENTS.md)；当前工程问题：[Issue14.md](docs/reports/Issue/Issue14.md)。
 
 ---
 
@@ -12,7 +12,7 @@
 - **记录原则：** 人工测试项只登记用户实际观察到的现象、测试项目、环境、复现步骤和证据；没有实际测试证据时不创建问题结论。交叉审核项应给出代码/文档证据、主跟踪文档和后续验证入口，不把静态检查写成人工通过。
 - **处理边界：** 新问题默认只记录，不自行探索或修复；用户明确授权后，可在同一问题中补充根因、修复方案、实施结果和验收证据。自动化通过不得代替 Production、浏览器或真实客户端人工核验。
 - **编号约定：** 本文件新增问题使用 `R29-*` 编号；`PT-*` 继续表示 [ProdTestList.md](ProdTestList.md) 的测试项目，不与问题编号混用。
-- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-01～R29-10 已完成修复、自动化验证和用户人工核验；R29-11 已补齐 Step 7 专属自动化证据并随 Build22 收口关闭，R29-12 已确认并完成文档补记。此前已经记录在 [Issue14.md](Issue14.md) 的 R28-01～R28-04 不重复迁移。
+- **当前状态：** 已登记 12 条：R29-01～R29-08 来自 [ProdTestList.md](ProdTestList.md) 及实际运行核查；R29-09～R29-12 来自 2026-09-10 文档交叉审核，主跟踪分别在 Issue14 R28-06B、R28-06C、R28-05 与 Build/Docker 文档。R29-01～R29-10 已完成修复、自动化验证和用户人工核验；R29-11 已补齐 Step 7 专属自动化证据并随 Build22 收口关闭，R29-12 已确认并完成文档补记。此前已经记录在 [Issue14.md](docs/reports/Issue/Issue14.md) 的 R28-01～R28-04 不重复迁移。
 - **交叉引用：** Build11 §四邮件相关人工测试不通过已新建 [Issue16.md](Issue16.md) R30-01 跟踪，不并入本文件既有 R29 问题编号。
 
 ---
@@ -183,7 +183,7 @@
 - **影响：** WireGuard peers 高级 JSON 无法正确应用；多 Peer、重排或需要直接编辑 Peer 列表时尤为明显。
 - **预期：** 前端 known 集合加入 `field.item_id_field`，列表项应用/保存保留该内部标识且不进入客户端产物；补单测及多 Peer/重排回归。
 - **修复结果（2026-09-10）：** `ProtocolFieldEditor.vue` 新增 `knownFieldNames()`，将 `properties` 与 `item_id_field` 统一纳入已知字段；WireGuard `peers._credential_id` 可原样应用/保存/检查。新增多 Peer 重排保留 ID、固定对象其他未知键仍拒绝、`NodesView` 保存集成回归；后端定向/全量/build/vet、前端定向/全量/build、Docker build、Production smoke 与 `git diff --check` 通过。目标输出仍按 schema 剥离内部 ID。
-- **工程主跟踪：** [Issue14.md](Issue14.md) R28-06B / [Build25.md](docs/reports/Build/Build25.md)。
+- **工程主跟踪：** [Issue14.md](docs/reports/Issue/Issue14.md) R28-06B / [Build25.md](docs/reports/Build/Build25.md)。
 - **人工复验入口：** [ProdTestList.md](ProdTestList.md) `R28-06` §B 的 WireGuard peers 高级 JSON 项。
 - **状态：** ✅ 已闭环（工程修复、自动化回归及 ProdTestList R28-06 §B 用户人工复验均已完成）
 
@@ -194,7 +194,7 @@
 - **影响：** 多个后代 JSON 草稿并存时，保存定位顺序可能与提示和预期不一致；不造成数据丢失。
 - **预期：** 统一使用稳定路径排序 helper，或明确接受插入序并修正文档；补多草稿保存定位与条件隐藏清理回归。
 - **修复结果（2026-09-10）：** `NodesView.save()` 改为使用 `sortedUnappliedJsonPaths()[0]`，与父阻断/检查定位统一稳定排序；新增多草稿保存定位回归。`ProtocolFieldEditor` 增加模型值快照保护，父级因无关参数变化替换对象但内容不变时不清除仍有效 JSON 草稿；新增条件隐藏清理、保留无关有效草稿、折叠及组件卸载边界回归。后端定向/全量/build/vet、前端定向 5 文件/89 用例、全量 42 文件/259 用例/build、Docker build、Production smoke 与 `git diff --check` 通过。
-- **工程主跟踪：** [Issue14.md](Issue14.md) R28-06C / [Build25.md](docs/reports/Build/Build25.md)。
+- **工程主跟踪：** [Issue14.md](docs/reports/Issue/Issue14.md) R28-06C / [Build25.md](docs/reports/Build/Build25.md)。
 - **人工复验入口：** [ProdTestList.md](ProdTestList.md) `R28-06` §C 的多草稿/条件隐藏项。
 - **状态：** ✅ 已闭环（采用稳定路径排序方案 A；工程修复、自动化回归及 ProdTestList R28-06 §C 用户人工复验均已完成）
 
@@ -205,7 +205,7 @@
 - **已知缺口：** `ActivatePending`/`DiscardPending` 与 `activated_at` 语义；`SanitizeStoredSyncOutputs` 幂等/非破坏性清洗；`/sync/status`、`/sync/tasks`、`Pool.sync_error` 读时脱敏 raw JSON；`NormalizeDiagnostics` 19+1 与 200 rune 限额；v1 `rule_counts` 分项合计不变量、`previous_active` 比较、旧 stats `version 0` 解析；`latest_failed` 恢复与同时间戳 ID 排序；failed 快照写失败时 active/pending 不变、不虚报 snapshot ID；旧字符串数组 Clash plan 下载重渲染回退。
 - **影响：** D3 工程闭环缺少可回归证据；不影响当前代码可构建/可运行，但不能按 Build22 自身验收标准关闭。
 - **修复结果（2026-09-11）：** 已按 Build22 Step 7 测试清单补齐全部自动化证据，并新增额外的清理/API/取消/超时/脱敏边界；重新执行后端定向/全量/race/build/vet、前端全量/build、Docker build、Production smoke、`git diff --check` 全部通过，D3-1～D3-10 闭环，Build22/Design3 已归档。
-- **工程主跟踪：** [Issue14.md](Issue14.md) R28-05 / [Build22.md](docs/reports/Build/Build22.md)。
+- **工程主跟踪：** [Issue14.md](docs/reports/Issue/Issue14.md) R28-05 / [Build22.md](docs/reports/Build/Build22.md)。
 - **人工复验入口：** 无（属于自动化证据补齐；完成后由 Step 11 门禁验证）。
 - **状态：** ☑ 已修复 / ☑ 自动化回归通过 / ☑ 随 Build22 Step 11 重新收口
 

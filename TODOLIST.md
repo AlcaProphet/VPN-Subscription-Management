@@ -1,6 +1,6 @@
 # TODOLIST.md — 后续工作顺序跟踪（2026-09-13）
 
-> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](Issue14.md)、[Issue15.md](Issue15.md)、[Build26.md](docs/reports/Build/Build26.md)、[Build27.md](docs/reports/Build/Build27.md)（已归档）、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
+> **性质：** 本文件是临时顺序清单，不替代 [Issue14.md](docs/reports/Issue/Issue14.md)、[Issue15.md](Issue15.md)、[Build26.md](docs/reports/Build/Build26.md)、[Build27.md](docs/reports/Build/Build27.md)（已归档）、[Build22.md](docs/reports/Build/Build22.md)、[SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)、[Design3.md](docs/reports/Design/Design3.md)、[Design4.md](Design4.md) 与 [ProdTestList.md](ProdTestList.md) 的正式状态和验收记录。
 > **授权边界（2026-09-11 用户最新确认）：** 用户已一次性授权按 [Build26.md](docs/reports/Build/Build26.md) Step 1～20、[Build27.md](docs/reports/Build/Build27.md) Step 1～6 串行执行；单个 Step 通过其全部验收后无需再次等待单独授权。每一步仍须按 AGENTS.md 完成影响评估、文档疑点检查、失败优先测试和验收记录；不得跳步、并行或扩围。遇到阻断、重大设计选择或文档冲突仍须停止并报告。
 > **排序原则：** 先关闭已有活跃 Build 的验收缺口，再处理 Issue14 的工程整改和项目收尾；工程基线冻结后继续第三期安全审查；人工结论单独由 ProdTestList 跟踪。
 
@@ -14,7 +14,7 @@
 | [docs/reports/Design/Design3.md](docs/reports/Design/Design3.md) | 已随 Build22 收口归档 | ✅ 已完成 |
 | [Build26.md](docs/reports/Build/Build26.md) | **已归档的步骤五构建记录**；Step 1～20 已按一次性串行授权完成并验收通过；R28-07F 保持设计取向未实施 | ✅ 已完成并归档；真实人工项在 ProdTestList 保持未执行 |
 | [Build27.md](docs/reports/Build/Build27.md) | **已归档的步骤七构建记录**；Step 1～6 已按一次性串行授权完成并验收通过；R28-09 关闭 | ✅ 已完成并归档；远端 CI 与真实人工项未执行 |
-| [Issue14.md](Issue14.md) | 步骤一～七已关闭；步骤八进行中：P4-1/P4-2 首轮已完成，P4-3 受 R28 直接人工项阻塞 | **完成 ProdTestList §七 A/B、§R28-06 A～E、§八 A～C 后重跑 P4-1，再执行 P4-3** |
+| [docs/reports/Issue/Issue14.md](docs/reports/Issue/Issue14.md) | 步骤一～八已关闭，P4-1 重跑和 P4-3 已完成；Issue14 已归档 | ✅ 已完成并归档 |
 | [Issue15.md](Issue15.md) | R29-01～R29-10 已由用户确认真机、本地人工测试通过；R29-11 已关闭；R29-12 已完成 | 完整数据备份缺陷已转入 Design5，当前不作为问题追踪 |
 | [Issue16.md](Issue16.md) | R30-01：Build11 邮件相关人工测试不通过，具体失败事实待补充 | 先补充失败现象、复现步骤和证据，再研究根因与修复方案 |
 | [Design4.md](Design4.md) | 当前最新设计；Build17～25 主体已完成；已增加 §12.7 Build26 核心工程约束现行合同补充 | 仅在实际变更影响其合同时同步 |
@@ -83,11 +83,11 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 
 ### P4 — Issue14 步骤八（全量复核与关闭）
 
-- [x] **P4-1｜步骤八：** ✅ 2026-09-14 首轮通过：后端全量 40 个有测试包全 `ok`、指定 17 包 race、build、vet、errgate、固定 Mihomo v1.19.29 严格门禁、前端 46 文件/275 用例、`npm run build`、正式 Production smoke、`git diff --check` 均通过；关闭前需在 R28 直接人工项完成后重跑。
+- [x] **P4-1｜步骤八：** ✅ 2026-09-14 首轮通过，并在 R28 直接人工项完成后重新执行通过：后端全量 40 个有测试包全 `ok`、指定 11 包 race、build、vet、errgate、管理端定向测试、固定 Mihomo v1.19.29 严格门禁、前端 46 文件/275 用例、`npm run build`、正式 Production smoke、`git diff --check` 均通过。
 - [x] **P4-2｜步骤八：** ✅ 2026-09-14 首轮完成：Design4 顶部 v1.22/§12.7 状态、AGENTS Design4 引用与 SecurityScanPlan1 “Step 4～28 尚未开始”文案已同步；相关文档链接与证据边界已核对，无新增真实断链。
-- [ ] **P4-3｜步骤八：** 确认每个 R28 项有关闭证据或明确后继文档后，关闭并归档 Issue14。**当前阻塞：** R28-05、R28-06 已完成；R28-07 A 已转入 Design5，B/C 已通过，需先重跑 P4-1。
+- [x] **P4-3｜步骤八：** ✅ 已完成：确认 R28 各项均有关闭证据或明确后继文档；P4-1 已在 R28 直接人工项完成后重跑并通过；Issue14 已关闭并移入 `docs/reports/Issue/Issue14.md`。
 
-> **2026-09-14 P4 进展：** P4-1、P4-2 首轮已完成；R28-05 §七 A/B 与 R28-06 A～E 已通过真机核验，R28-07 A 已转入 Design5，B/C 已通过真机核验。P4-3 未启动，下一步重跑完整 P4-1，重跑通过后进入 P4-3。
+> **2026-09-14 P4 进展：** P4-1、P4-2 首轮完成；R28-05 §七 A/B、R28-06 A～E 与 R28-07 B/C 已通过真机核验，R28-07 A 已转入 Design5。随后完整 P4-1 已重跑通过，P4-3 已完成，Issue14 已归档。
 
 ### P5 — SecurityScanPlan1 Step 4～28
 
@@ -174,3 +174,4 @@ Build22 Step 7 已收口，不阻塞后续主线；P0-1、P0-2 已完成。P0-2 
 | 2026-09-14 | R27-05 额外尺寸与交互边界已由用户确认真机测试通过且无问题，从 ProdTestList 当前人工队列移除；不新增 Issue15 问题，Issue14 P4-3 关闭门槛不变。 |
 | 2026-09-14 | Build22 Step 8 A 来源状态与 pending 操作已由用户确认真机、本地人工测试通过；更新 ProdTestList §七 A 记录。Step 8 B 仍待执行，Issue14 P4-3 继续等待 R28 直接人工项完整完成。 |
 | 2026-09-14 | Build22 Step 9 B 装配回执已由用户确认真机、本地人工测试通过；更新 ProdTestList §七 B 记录。R28-05 §七 A/B 已完成，Issue14 P4-3 仍等待 R28-06 A～E、R28-07 A～C 并重跑 P4-1。 |
+| 2026-09-14 | 完成 P4：R28 直接人工项已完成登记；重跑后端全量/指定 11 包 race/build/vet/errgate/管理端定向测试、固定 Mihomo v1.19.29 严格门禁、前端 46 文件/275 用例/build、隔离 Production smoke 与 `git diff --check` 全部通过；P4-3 完成，Issue14 已归档至 `docs/reports/Issue/Issue14.md`。ProdTestList、Issue16 和安全审查未纳入本次处理。 |
