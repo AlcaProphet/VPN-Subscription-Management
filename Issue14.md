@@ -105,7 +105,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 - **P4 执行进展（2026-09-14，首轮；人工项完成前）：**
   - **P4-1 首轮已真实执行并通过：** 后端 `go test ./... -count=1 -timeout 300s` 通过（45 个包，40 个有测试包全部 `ok`，5 个 `no test files`）；指定 17 包 `go test -race ... -count=1 -timeout 600s` 通过；`go build ./...`、`go vet ./...` 通过；`go run ./cmd/errgate ./...` 输出 `OK (0 ignored errors matched baseline; baseline entries 0; 0 unexpected)`；本机精确 `Mihomo Meta v1.19.29` 严格门禁 `.mihomo-test.sh` 通过；前端 `npm test -- --run` 通过（46 文件 / 275 用例），`npm run build` 通过（仅既有 main chunk 提示）；`bash .smoke-test-prod.sh` 在隔离临时 Production 容器/临时卷上完成并输出 `=== PROD SMOKE ALL DONE ===`；`git diff --check` 退出码 0。
   - **P4-2 首轮文档核对已完成：** `Design4.md` 顶部版本由 v1.21 同步为 v1.22，并核验 §12.7 与 Build26/Build27 归档状态；`AGENTS.md` 同步 Design4 v1.22 引用，并将 `SecurityScanPlan1` 状态文案修正为 Step 4～28 尚未开始；`SecurityScanPlan1.md` 与 `SecurityReport3.md` 未修改。全仓 Markdown 行号感知扫描与 P4-1 前基线一致（995 条链接、33 条既有模板占位/已确认范围外断链，无新增真实断链）；内置脚本对 11 个 `文件:行号` 形式的误报已单独记录。
-  - **P4-3 未启动、Issue14 未关闭未归档：** 按用户 2026-09-14 决策，必须先完成 ProdTestList 中的 R28 直接人工项：§七 A/B（R28-05）、§R28-06 A～E（R28-06）、§八 A～C（R28-07）。这些项目完成并登记真实结果后，需重新执行完整 P4-1；只有重跑通过，才进入 P4-3 关闭与归档。其余 ProdTestList 历史项不阻塞本次工程归档，但仍保持未执行、未标记通过。
+  - **P4-3 未启动、Issue14 未关闭未归档：** R28-05 §七 A/B 与 R28-06 A～E 已完成并登记真实结果；R28-07 A 已有 Design5 后继文档，B/C 已完成并登记真实结果。下一步为重新执行完整 P4-1；重跑通过后进入 P4-3 关闭与归档。其余 ProdTestList 历史项不阻塞本次工程归档。
 
 补充说明：`Build23.md` 不作为新的操作步骤启动。其 R27-09/N-node-3/4 内容已归入 Build21；N-node-6 已在步骤四作为 R28-06 跟踪，主体与交叉审核缺口已由 [Build25.md](docs/reports/Build/Build25.md) 修复并归档；Build23 继续保留为交接与边界说明。
 
@@ -307,6 +307,12 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.27 | 2026-09-14 | 启动 Issue14 步骤八/P4：P4-1 首轮门禁真实通过（后端全量 40 个有测试包全 `ok`、17 包 race、build、vet、errgate 0 违规、固定 Mihomo v1.19.29 严格门禁、前端 46 文件/275 用例、build、正式 Production smoke、`git diff --check`）；P4-2 首轮完成 Design4 v1.22/§12.7 状态与 AGENTS Design4 引用、SecurityScanPlan1 “Step 4～28 尚未开始”文案同步，链接与证据边界核对无新增真实断链。按用户决策，P4-3 及 Issue14 归档必须等待 ProdTestList 的 R28 直接人工项（§七 A/B、§R28-06 A～E、§八 A～C）全部完成并重跑 P4-1；当前 Issue14 保持活跃，未关闭、未归档。 |
+| v1.28 | 2026-09-14 | 用户确认 Issue15 的 R29-04、R29-06 已在真机、本地环境完成人工测试并通过；该两项不属于 P4-3 的 R28 直接人工依赖，故不改变 Issue14 当前等待 ProdTestList §七 A/B、§R28-06 A～E、§八 A～C 并重跑 P4-1 的关闭条件。 |
+| v1.29 | 2026-09-14 | 用户确认 ProdTestList §三 Production 专项人工核查已在真机、本地环境通过；导入导出可用，但数据备份能力仍不足，已转入 Design5 待后续改进且当前不作为问题。该项不属于 P4-3 的 R28 直接人工依赖，Issue14 关闭条件不变。 |
+| v1.30 | 2026-09-14 | 用户确认 ProdTestList §七 A（Build22 Step 8 来源状态与 pending 操作）已在真机、本地环境通过；A 已完成，B 及 R28-06/R28-07 直接人工项仍待执行，P4-3 关闭条件不变。 |
+| v1.31 | 2026-09-14 | 用户确认 ProdTestList §七 B（Build22 Step 9 装配回执）已在真机、本地环境通过；R28-05 §七 A/B 已完成，仍需完成 R28-06 A～E、R28-07 A～C 并重跑 P4-1，Issue14 暂不关闭。 |
+| v1.32 | 2026-09-14 | 用户确认 ProdTestList R28-06 未知扩展与局部 JSON 人工核验已在真机、本地环境通过；R28-06 A～E 已完成。Issue14 P4-3 仅剩 R28-07 A～C 人工项，完成后重跑 P4-1。 |
+| v1.33 | 2026-09-14 | 用户确认 R28-07 人工核验中，除导入导出相关功能已转入 Design5 待后续改进外，SSE 管理员日志流与主题 Token 已在真机、本地环境通过；R28-07 A 有明确后继文档，B/C 已完成，下一步为重跑 P4-1。 |
 | v1.26 | 2026-09-13 | 完成 Issue14 步骤七/R28-09：用户一次性授权 Build27 Step 1～6 串行执行；运行镜像 Alpine 3.24 + `ca-certificates`、GHCR `latest` 升级说明/digest 记录/Node 24、MIT LICENSE、Xray 固定 commit 外链+内链脚本、四个未引用前端文件删除、联合门禁与隔离 Production smoke 均完成并验收；Build27 已归档；步骤七关闭，步骤八未启动。 |
 | v1.25 | 2026-09-11 | 完成 Issue14 步骤五/Build26 Step 1～20：R28-07A～E、G～I 代码与自动化验收通过，errgate 基线清零，架构/颜色门禁清零，后端全量/race/build/vet、前端 46 文件/275 用例/build、Docker build、隔离 Production smoke 与接口级 401/403/413 通过；R28-07F 保持设计取向未实施；Design4 增加 §12.7 现行合同补充，AGENTS/TODOLIST/ProdTestList/Issue14 同步完成；Build26 已按归档规则移入 `docs/reports/Build/`；步骤五关闭条件满足。 |
 | v1.24 | 2026-09-11 | 创建步骤五唯一构建记录 [Build26.md](docs/reports/Build/Build26.md)，完成 Step 0（范围、用户 2026-09-11 决策、Step 1～20、静态门禁、最终联合门禁与文档同步边界冻结）；同步 Issue14/TODOLIST/AGENTS 的文档指向，修正步骤五研究状态中的陈旧步骤三描述；Step 1 未执行，未修改代码/测试。 |

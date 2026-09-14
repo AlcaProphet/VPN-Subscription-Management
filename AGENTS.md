@@ -298,6 +298,7 @@
 | [Issue13.md](docs/reports/Issue/Issue13.md) | AI 编码助手 / 开发者 | R27-01～R27-09 历史调查、决策与已实施结果；未完成项已迁移至 Issue14，人工项目见 ProdTestList | 已归档 |
 | [Issue14.md](Issue14.md) | AI 编码助手 / 开发者 | Build21 Step 14 与 BuildReport4 遗留工程问题（R28 系列：D3/N-core/N-node-6/安全等） | 活跃 |
 | [Issue15.md](Issue15.md) | AI 编码助手 / 开发者 | Production、浏览器和真实客户端人工测试中发现的问题，以及 2026-09-10 起文档交叉审核补充登记的问题（R29 系列） | 活跃 |
+| [Issue16.md](Issue16.md) | AI 编码助手 / 开发者 | Build11 邮件相关人工测试不通过的问题（R30 系列） | 活跃 |
 
 | [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | Production 模式待人工验证清单（含 .smoke-test.sh 实机执行） | 活跃 |
 | [docs/Reference/TestPasswordList.md](docs/Reference/TestPasswordList.md) | 测试者 / AI 编码助手 | 仅供本地隔离环境使用的合成测试账号与统一密码清单；严禁用于生产或真实数据环境 | 活跃 |
