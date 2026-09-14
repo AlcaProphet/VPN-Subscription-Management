@@ -1,17 +1,21 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> 当前最新已确认设计：[Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.22 已同步 R28-06 存档/诊断/白名单/父子草稿合同与 §12.7 核心工程约束合同；Build17～Build21 主体已完成，其中 Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 已完成 Design3/Build16 D3 主体代码与运行门禁，Step 7 专属自动化证据已补齐并重新通过 Step 11 门禁，Build22 已归档，R29-06 控件语义收口见 Build24，R28-06 主体、2026-09-10 交叉审核发现的 R28-06B 前端 `item_id_field` 白名单缺口、保存定位排序和条件隐藏清理证据缺口均已闭环，Build25 已归档）；后续候选设计：[Design5.md](Design5.md)（完整数据加密导出与 Setup 一步整站迁移，当前仅登记构想，未研究定稿、未进入构建）；已归档构建：[Build21.md](docs/reports/Build/Build21.md)、[Build22.md](docs/reports/Build/Build22.md)、[Build23.md](docs/reports/Build/Build23.md)、[Build24.md](docs/reports/Build/Build24.md)、[Build25.md](docs/reports/Build/Build25.md)、[Build26.md](docs/reports/Build/Build26.md)（除已登记在 [ProdTestList.md](ProdTestList.md) 的人工项目外，工程实现与自动化验收均已完成；Build23 为 R27-09 交接说明，Build24 为 R29-06 独立增量记录，Build25 为 R28-06 未知扩展/局部 JSON 边界构建，Build26 为 Issue14 步骤五/R28-07 核心工程约束整改）、[Build27.md](docs/reports/Build/Build27.md)（Issue14 步骤七/R28-09 项目级工程与文档收尾，Step 1～6 已按一次性串行授权完成并验收通过，已归档）；当前无已授权的活跃构建记录；已归档设计基线：[Design3.md](docs/reports/Design/Design3.md)（规则来源识别、结构化素材与跨平台装配，已经 Build16 构建）与 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)（订阅装配与 Xray 对接，已定稿并已构建验收）；[Design1.md](docs/reports/Design/Design1.md) 为第一期基线（已构建完成，存档）。历史构建：[Build11.md](docs/reports/Build/Build11.md)～[Build20.md](docs/reports/Build/Build20.md)（均已验收存档，Build11 原后端死锁已由 R24-01 修复）及 [Build8.md](docs/reports/Build/Build8.md)～[Build10.md](docs/reports/Build/Build10.md)（已验收存档）；Build21～Build27 已归档；当前无已授权的活跃构建记录；历史问题记录已归档：[Issue5.md](docs/reports/Issue/Issue5.md)～[Issue15.md](docs/reports/Issue/Issue15.md)（均已闭环存档）；当前工程问题见 [Issue14.md](docs/reports/Issue/Issue14.md)，后续人工测试问题见 [Issue16.md](Issue16.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)；第三期安全审查计划与结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)（Step 4～28 尚未开始，保持活跃）；其他历史文档统一存档于 [docs/reports/](docs/reports) 下按类型归档，仅用于核查，不再用于构建。
+> **当前设计：** [Design4.md](Design4.md) 是最新已确认的增量设计；[Design5.md](Design5.md) 仅为候选构想，尚未研究定稿或进入构建。
+> **当前工作：** 构建记录均已归档，暂无已授权的活跃构建；短期待办见 [TODOLIST.md](TODOLIST.md)，邮件测试问题见 [Issue16.md](Issue16.md)。
+> **人工核验：** [ProdTestList.md](ProdTestList.md) 当前仅跟踪 Build11 邮件相关复验和 R26-07 Xray 节点错误码核验；工程自动化与人工验收分别记录。
+> **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
+> 已完成的设计、构建与问题记录统一见 [docs/reports/](docs/reports)，仅用于历史核查。
 
 ---
 
 ## 一、项目基本信息
 
 - **项目**：自托管 VPN 订阅管理系统（单容器 + SQLite，面向小团队）
-- **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`（Go 版本升级见 Build4 Step 0；xray-core 依赖引入见 Build6 Step 0，均为 Design2 §5.3 决策的构建落点）
+- **后端**：Go 1.26，module `vpn-sub`，目录 `backend/`
 - **前端**：Vue 3 + Vite + Tailwind CSS，目录 `frontend/`
 - **部署**：Docker Compose 单服务，多阶段构建单镜像
-- **文档定位与优先级**：编码前先阅读本文件（强要求）。当前最新设计见 [Design4.md](Design4.md)（节点编辑器条件表单与客户端兼容，v1.22 已同步 R28-06 存档/诊断/白名单/父子草稿合同与 §12.7 核心工程约束合同；Build17～Build21 主体已完成，Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 已完成 Design3/Build16 D3 主体代码与运行门禁，Step 7 专属自动化证据已补齐并重新通过 Step 11 门禁，Build22 已归档，R29-06 见 Build24，R28-06 主体、`item_id_field` 白名单缺口修复及保存排序/条件清理证据均已闭环，Build25 已归档）；已归档构建见 [Build21.md](docs/reports/Build/Build21.md)、[Build22.md](docs/reports/Build/Build22.md)、[Build23.md](docs/reports/Build/Build23.md)、[Build24.md](docs/reports/Build/Build24.md)、[Build25.md](docs/reports/Build/Build25.md)、[Build26.md](docs/reports/Build/Build26.md)、[Build27.md](docs/reports/Build/Build27.md)，其中 Build23 为 R27-09 交接说明，Build24 为 R29-06 独立增量记录，Build26 为 Issue14 步骤五/R28-07 核心工程约束整改，Build27 为 Issue14 步骤七/R28-09 工程与文档收尾并已归档；当前无已授权的活跃构建记录；已归档设计基线 [Design3.md](docs/reports/Design/Design3.md)（已由 Build16 构建）与已归档运行基线 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md)，第一期基线见存档的 [Design1.md](docs/reports/Design/Design1.md)；历史构建（Build1～Build27、Build6-2）已归档到 [docs/reports/Build/](docs/reports/Build)；历史问题记录（Issue1～Issue13）见 [docs/reports/Issue/](docs/reports/Issue)，当前工程问题见 [Issue14.md](docs/reports/Issue/Issue14.md)，人工测试及交叉审核补充问题见 [Issue15.md](docs/reports/Issue/Issue15.md)，用户人工验收见 [ProdTestList.md](ProdTestList.md)，第三期安全审查计划与结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)
+- **文档定位与优先级**：编码前阅读本文件；当前工作入口见文首，文档分工与优先级见「八、文档体系与优先级」。
 
 ---
 
@@ -87,6 +91,8 @@
 
 ### 3.7 内置工具使用优先级
 
+不同 AI 助手的工具名称和接口可能不同。以下名称用于说明优先选择的能力，不表示缺少该名称的工具时必须停下；先检查当前环境提供的内置工具链，再按同等能力完成查看、编辑或提问。
+
 #### 3.7.1 文件编辑：优先使用 str_replace_editor
 
 - 在开始编码或修改任何文件/文档前，**先检查当前环境是否提供 `str_replace_editor` 工具**。
@@ -95,9 +101,8 @@
   - `create`：新建文件；
   - `str_replace`：用唯一、精确的 `old_str` 替换；
   - `insert`：在指定行后插入内容。
-- **禁止优先使用 Python 脚本、sed/perl 等替代工具直接改文档或代码**，除非 `str_replace_editor` 不可用、无法处理该场景，或用户明确要求使用其他方式。
 - 使用 `str_replace` 前必须先用 `view` 读取目标文件，确保 `old_str` 与文件内容完全一致；替换失败时应重新查看并调整上下文，不要盲目批量替换。
-- 如果 `str_replace_editor` 不存在，再考虑其他可用工具，并尽量保持最小化改动。
+- 如果没有 `str_replace_editor`，优先使用当前环境内置的文件查看、补丁或精确替换工具，遵守相同的先读后改、精确定位和差异复核要求；专用工具不适用时，才使用命令行或脚本。无论使用哪种工具，都应保持最小化改动。
 
 #### 3.7.2 需要用户决策：优先使用 ask_user_question
 
@@ -111,7 +116,7 @@
   - 明确列出每个方案的优缺点/风险；
   - 将推荐选项放在首位并标注“(Recommended)/推荐”；
   - 等待用户回答后再继续实施。
-- 如果 `ask_user_question` 不存在，再采用其他可用的提问/沟通方式，但不得在未确认关键决策前直接改动。
+- 如果没有 `ask_user_question`，优先使用当前环境内置的用户提问或输入工具；没有相应工具时，在对话中直接提问。必须由用户决策的事项，应等待答复后再进行依赖该决策的改动。
 
 ---
 
