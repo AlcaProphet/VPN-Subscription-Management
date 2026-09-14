@@ -81,7 +81,7 @@ func (h *SettingsOpsHandler) export(c *gin.Context) {
 	c.Data(http.StatusOK, "application/octet-stream", data)
 }
 
-// importPanel 面板导入（multipart 文件不设大小上限 + password + confirm_word=IMPORT）
+// importPanel 面板导入（完整 multipart 请求体 21 MiB、file 字段 20 MiB 硬上限；password + confirm_word=IMPORT）
 func (h *SettingsOpsHandler) importPanel(c *gin.Context) {
 	h.importCommon(c, false)
 }

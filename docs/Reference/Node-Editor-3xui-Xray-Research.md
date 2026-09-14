@@ -405,7 +405,7 @@ outbounds[]
 - `FieldSchema` 条件/选项/重置元数据、活动投影、保存校验与 `/check`（Build18）；
 - 前端动态分区、可编辑下拉、局部 JSON、目标检查 UI（Build19）；
 - 19 个 manual 协议统一保存契约、URI 导入归一化、Xray 来源适配、输出门槛（Build20）；
-- R27-01～R27-08 与 R27-09 Step7～13（SS 插件统一合同、幂等归一化、固定敏感路径、SIP002 与 URI 目标分流、Clash/Mihomo 结构化插件投影、SS 插件专属目标诊断、未知插件前端编辑）已闭环，N-node-3/4 Step15 也已验收；**Step14 全链路回归与文档收口已完成**（见 [Build21.md](../reports/Build/Build21.md) 与 [Issue14.md](../../Issue14.md)），后续还有“其余 15 个协议完整条件表单、SS2022、独立 Xray outbound”等专项。
+- R27-01～R27-08 与 R27-09 Step7～13（SS 插件统一合同、幂等归一化、固定敏感路径、SIP002 与 URI 目标分流、Clash/Mihomo 结构化插件投影、SS 插件专属目标诊断、未知插件前端编辑）已闭环，N-node-3/4 Step15 也已验收；**Step14 全链路回归与文档收口已完成**（见 [Build21.md](../reports/Build/Build21.md) 与 [Issue14.md](../reports/Issue/Issue14.md)），后续还有“其余 15 个协议完整条件表单、SS2022、独立 Xray outbound”等专项。
 
 因此，本文不是“是否需要条件表单/当前状态”的研究，而是：
 
@@ -580,7 +580,7 @@ outbounds[]
 
 #### 4.1 R27-09 已收口步骤（Step11～Step13、Step15）
 
-- 【项目事实】Build21 Step11～13 已完成并通过验收：Clash/Mihomo 结构化 SS 插件投影、SS 插件专属目标诊断与未知插件前端编辑均已落地；Step14 全链路回归/文档收口仍在 [Issue14.md](../../Issue14.md) 跟踪。
+- 【项目事实】Build21 Step11～13 已完成并通过验收：Clash/Mihomo 结构化 SS 插件投影、SS 插件专属目标诊断与未知插件前端编辑均已落地；Step14 全链路回归/文档收口仍在 [Issue14.md](../reports/Issue/Issue14.md) 跟踪。
 - 【3x-ui 事实】3x-ui 的 SS/Clash 输出并不覆盖 obfs/v2ray-plugin/shadow-tls/restls 这套插件体系，因此它**不能作为 SS 插件 Clash 结构化输出的字段证据**；其相关代码只在 raw 链接生成时把 TCP HTTP header 重编码成 `obfs-local`。
 - 【经推理】SS 插件输出权威仍是当前项目 `ssplugin/contract.go` 与 Mihomo 1.19.29 固定版本源码/离线证据，而不是 3x-ui。3x-ui 可作为“不要把 URI 字符串插件形式用于 Clash 结构化输出”的反面佐证。
 - 【经推理】未知插件参数前端编辑已落地，后续可继续借鉴 3x-ui `HeaderMapEditor`/Host 子树的“本地空行 + map 序列化 + 保留未知键”模式；当前项目 `ProtocolFieldEditor` 对 `map_value_type=string` 已有基本编辑，可补充“复杂值逐 key JSON 校验”与“空行不立刻写回”的交互。

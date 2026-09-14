@@ -1,8 +1,8 @@
 # Issue12.md — VPN 订阅管理系统问题追踪（已归档）
 
 > **文档定位：** 本文记录 VPN 订阅管理系统 R26-01～R26-07 问题及修复闭环，现已与当前问题记录分离并移入 `docs/reports/Issue/` 存档。相关历史问题见当前目录下的 [Issue1～Issue11](.)。
-> 当前核验范围涉及 [Design4.md](../../../Design4.md)、[Build17.md](../Build/Build17.md)、[Build18.md](../Build/Build18.md)；R26 系列需要人工执行的回归项已迁移至 [ProdTestList.md](../../../ProdTestList.md)；编码约束以 [AGENTS.md](../../../AGENTS.md) 为准。
-> **归档说明：** R26-01～R26-07 的代码修复与自动化回归已完成，人工浏览器/API/Production 回归已转入 [ProdTestList.md](../../../ProdTestList.md) §五；本文件于 2026-09-03 移入 `docs/reports/Issue/` 存档。“暂时完成”不代表人工测试已通过。
+> 当前核验范围涉及 [Design4.md](../../../Design4.md)、[Build17.md](../Build/Build17.md)、[Build18.md](../Build/Build18.md)；R26 系列需要人工执行的回归项已迁移至 [XrayRelated1.md](../../../XrayRelated1.md)；编码约束以 [AGENTS.md](../../../AGENTS.md) 为准。
+> **归档说明：** R26-01～R26-07 的代码修复与自动化回归已完成；R26-07 的人工浏览器/API/Production 回归继续由 [XrayRelated1.md](../../../XrayRelated1.md) 跟踪。本文件已移入 `docs/reports/Issue/` 存档。
 
 ---
 
@@ -88,7 +88,7 @@
 - **影响范围：** 管理端前端和外部 API 客户端会将权限/资源限制误判为表单错误，影响错误提示、重试策略和接口契约一致性。
 - **修复方向：** 将 ErrForbidden 独立映射为 HTTP 403，并补充更新接口的权限错误、校验错误和冲突错误状态码测试。
 - **待确认事项：** 无产品决策；按 AGENTS.md 既定错误码契约修正。
-- **状态：** ✅ 暂时完成（2026-09-03：代码与自动化回归已完成；禁止编辑 Xray 节点的 PUT 403、校验错误和冲突错误状态码回归已迁移至 [ProdTestList.md](../../../ProdTestList.md) §五，待人工后续手动处理；不代表人工测试已通过）。
+- **状态：** ✅ 暂时完成（2026-09-03：代码与自动化回归已完成；禁止编辑 Xray 节点的 PUT 403、校验错误和冲突错误状态码回归已迁移至 [XrayRelated1.md](../../../XrayRelated1.md)，待人工后续手动处理；不代表人工测试已通过）。
 
 ---
 
@@ -101,3 +101,4 @@
 | v1.2 | 2026-09-02 | 实施 R26-02～R26-07 修复：统一检查/保存字段校验、URI 导入规范化和完整校验、Trojan 自定义传输允许保存并由目标诊断、security 权威覆盖旧 tls、未知顶层字段显式拒绝、PUT 403 映射；补充回归测试并通过后端全量测试、`go vet`、`go build`、`git diff --check`。 |
 | v1.3 | 2026-09-03 | 将 R26-01～R26-07 中需要人工执行的浏览器、API、Production 与兼容性回归项迁移至 [ProdTestList.md](../../../ProdTestList.md) §五；7 条状态标记为“暂时完成”，明确待人工后续手动处理且不代表人工测试通过。 |
 | v1.4 | 2026-09-03 | 核验 R26-01～R26-07 无待修复项；保留人工测试待办并将本文件移入 `docs/reports/Issue/` 存档。 |
+| v1.5 | 2026-09-14 | 用户更正 R26-07 尚未完成；恢复人工核验待办状态，继续由 XrayRelated1 跟踪。 |

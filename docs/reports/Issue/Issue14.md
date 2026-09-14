@@ -138,7 +138,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 - **来源：** 实际运行 `bash .smoke-test-prod.sh` 的 Step 14 核验。
 - **现象：** `.smoke-test.sh` 的通用 `J()` 使用 Python `print()` 输出解析结果，JSON 布尔值 `false` 会变成 `False`，再与小写字符串 `false` 比较，导致正常响应失败；相反，错误类型的 JSON 字符串 `"false"` 会输出为 `false` 并被旧断言接受，存在假绿。
-- **证据：** 修复前失败优先矩阵确认 JSON 布尔 `false` 被拒绝，而字符串 `"false"` 被接受；当前严格断言见 [.smoke-test.sh](.smoke-test.sh:94)～[.smoke-test.sh](.smoke-test.sh:106)。服务端 [status.go](backend/internal/server/status.go:56)～[status.go](backend/internal/server/status.go:79) 始终以 Go `bool` 返回该字段，定向普通态/应急态测试通过，未发现后端合同异常。
+- **证据：** 修复前失败优先矩阵确认 JSON 布尔 `false` 被拒绝，而字符串 `"false"` 被接受；当前严格断言见 [.smoke-test.sh](../../../.smoke-test.sh) 第 94～106 行。服务端 [status.go](../../../backend/internal/server/status.go) 第 56～79 行 始终以 Go `bool` 返回该字段，定向普通态/应急态测试通过，未发现后端合同异常。
 - **影响范围：** 原始 Production smoke 在正常实例上被误阻断，并且旧字符串比较没有严格验证接口类型；不影响服务端应急状态计算、API 结构或前端行为。
 - **修复结果：** 仅收紧 `.smoke-test.sh` 的 10d 断言，不修改通用 `J()`。Python 直接读取 `data.emergency`，用 `value is False` 同时校验 JSON 布尔类型和值，并用 `json.dumps()` 输出规范诊断值；`true`、字符串 `"false"`、`0`、`null`、缺失字段和非法 JSON 均不能通过。
 - **自动化验证：** `bash -n .smoke-test.sh .smoke-test-prod.sh` 通过；独立输入矩阵确认仅 JSON 布尔 `false` 通过，`true`、字符串 `"false"`、`0` 与 `null` 均失败；服务端普通/应急状态定向测试、后端 `go test ./... -count=1`、`go build ./...`、`go vet ./...` 及前端 `npm run build` 均通过。
@@ -151,7 +151,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 
 - **来源：** R28-02 修正后的临时执行流继续运行时发现。
 - **现象：** `.smoke-test.sh` 的步骤 13 基础 Clash 装配和步骤 13f 覆盖层 Clash 装配均没有传当前接口要求的 `fallback_group_members`；第一处会先触发无法归属流量组缺少成员的 400 错误，若只修第一处，脚本会在第二处以同一原因再次失败。
-- **证据：** 两处已修正请求见 [.smoke-test.sh](.smoke-test.sh:126)～[.smoke-test.sh](.smoke-test.sh:129) 与 [.smoke-test.sh](.smoke-test.sh:176)～[.smoke-test.sh](.smoke-test.sh:180)；请求模型字段见 [models.go](backend/internal/assembly/models.go:168)～[models.go](backend/internal/assembly/models.go:176)。仓库其余活跃 Clash API 测试夹具未发现同类遗漏。
+- **证据：** 两处已修正请求见 [.smoke-test.sh](../../../.smoke-test.sh) 第 126～129 行 与 [.smoke-test.sh](../../../.smoke-test.sh) 第 176～180 行；请求模型字段见 [models.go](../../../backend/internal/assembly/models.go) 第 168～176 行。仓库其余活跃 Clash API 测试夹具未发现同类遗漏。
 - **影响范围：** 原始 smoke 无法完成基础 Clash，并会连带阻断其他三类装配器、URI 导入、覆盖层 Clash 与 v2 往返；问题仅在 smoke 请求夹具，不影响服务端装配实现、接口合同或前端行为。
 - **修复结果：** 两处请求均显式补齐 `fallback_group_members:["🚀直接连接","🌎国外流量"]`，顺序与当前前端初始值及既有强制组合同一致；未修改 `GenerateInput`、后端非空校验、渲染逻辑、前端默认值、数据库或非 Clash 请求。
 - **自动化验证：** `bash -n .smoke-test.sh .smoke-test-prod.sh` 与强制组合同定向测试通过；未做临时转换的 `bash .smoke-test-prod.sh` 完整通过步骤 13、generic-subs、sr-subs、sr-conf、URI 导入 2 ok / 1 skip、步骤 13f 覆盖层、v2 导出/导入，并输出 `SMOKE ALL DONE` 与 `PROD SMOKE ALL DONE`。后端 `go test ./... -count=1`、`go build ./...`、`go vet ./...` 及前端 `npm run build` 均通过。
@@ -162,7 +162,7 @@ Build22 子步骤只用于定位构建计划，不改变本文件的操作步骤
 - **关联步骤：** 步骤一、步骤二。
 
 - **来源：** 两个 Step 14 任务结论之间的证据复核。
-- **现象：** [mihomo_ssplugin_test.go](backend/internal/assembly/mihomo_ssplugin_test.go:15) 在 `MIHOMO_11929_BIN` 未设置时调用 `t.Skip`，测试进程仍以成功退出。因此全量测试通过不能单独证明固定 Mihomo 1.19.29 正反例实际执行。
+- **现象：** [mihomo_ssplugin_test.go](../../../backend/internal/assembly/mihomo_ssplugin_test.go) 第 15 行 在 `MIHOMO_11929_BIN` 未设置时调用 `t.Skip`，测试进程仍以成功退出。因此全量测试通过不能单独证明固定 Mihomo 1.19.29 正反例实际执行。
 - **影响范围：** Step 14 固定版本验收证据；可能把“未执行”误读为“通过”。
 - **修复方向：** 在正式验收入口显式提供并校验 Mihomo Meta v1.19.29 二进制；必要时为验收命令增加强制模式，使缺少二进制时失败而不是跳过。此前带显式环境变量的定向通过记录可保留，但需与本次全量测试区分。
 - **修复前核对证据（2026-09-09）：** `/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo` 报告 `Mihomo Meta v1.19.29 darwin arm64`；显式设置 `MIHOMO_11929_BIN` 后 `obfs`、`v2ray-plugin`、`shadow-tls`、`restls` 四个正例均通过。未设置该变量的同一测试仍为 `SKIP`，说明当时固定版本内容已有通过证据，但“缺少二进制不得静默通过”的验收门禁尚未完成。

@@ -70,7 +70,7 @@ async function loadMeta() {
     const [grps, plats, smtp] = await Promise.all([listGroups(), listPlatforms(), getSMTP()])
     groupOptions.value = grps.map((g: GroupItem) => ({ label: g.name, value: g.id }))
     platforms.value = plats
-    smtpConfigured.value = !!(smtp.host && smtp.user && smtp.password)
+    smtpConfigured.value = smtp.configured
   } catch (err) {
     Notify.error((err as Error).message)
   }

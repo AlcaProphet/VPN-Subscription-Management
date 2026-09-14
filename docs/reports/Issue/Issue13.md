@@ -1,8 +1,8 @@
 # Issue13.md — VPN 订阅管理系统问题追踪（已归档）
 
-> **文档定位：** 本文记录对 Build17～Build20 进行严格对齐核验后发现的节点编辑器、目标检查与输出问题，现已与当前问题记录分离并移入 `docs/reports/Issue/` 存档。相关历史问题见当前目录下的 [Issue1～Issue12](.)。R27-09 的工程性未完成项、新错误和证据缺口已迁移至 [Issue14.md](../../../Issue14.md)；需要用户亲自执行的 Production、浏览器和真实客户端人工项目已迁移至 [ProdTestList.md](../../../ProdTestList.md)。当前核验以 [Design4.md](../../../Design4.md) 为设计基线，并参考 [BuildReport3.md](../BuildReport/BuildReport3.md)；编码约束以 [AGENTS.md](../../../AGENTS.md) 为准。
+> **文档定位：** 本文记录对 Build17～Build20 进行严格对齐核验后发现的节点编辑器、目标检查与输出问题，现已与当前问题记录分离并移入 `docs/reports/Issue/` 存档。相关历史问题见当前目录下的 [Issue1～Issue12](.)。R27-09 的工程性未完成项、新错误和证据缺口已迁移至 [Issue14.md](Issue14.md)；需要用户亲自执行的 Production、浏览器和真实客户端人工项目已迁移至 [ProdTestList.md](../../../ProdTestList.md)。当前核验以 [Design4.md](../../../Design4.md) 为设计基线，并参考 [BuildReport3.md](../BuildReport/BuildReport3.md)；编码约束以 [AGENTS.md](../../../AGENTS.md) 为准。
 
-> **归档说明：** R27-01～R27-09 的工程修复、Build21 Step 14 收口及相关人工项目迁移均已完成；当前仍待处理的工程问题见 [Issue14.md](../../../Issue14.md)，人工测试发现的问题见 [Issue15.md](Issue15.md)，当前待人工核验清单见 [ProdTestList.md](../../../ProdTestList.md)。本文件仅保留历史调查、决策、实施结果和迁移指针，不再作为当前问题入口。
+> **归档说明：** R27-01～R27-09 的工程修复、Build21 Step 14 收口及相关人工项目迁移均已完成；当前仍待处理的工程问题见 [Issue14.md](Issue14.md)，人工测试发现的问题见 [Issue15.md](Issue15.md)，当前待人工核验清单见 [ProdTestList.md](../../../ProdTestList.md)。本文件仅保留历史调查、决策、实施结果和迁移指针，不再作为当前问题入口。
 
 ---
 
@@ -13,8 +13,8 @@
 - **核验范围：** Build17～Build20 的落地产物；当前提交 `db14912` 已包含 Build21 的后续修复，因此 Build21 引入的输出回归也纳入现状记录。
 - **运行时核对：** 节点管理页实际返回的 JS/CSS 与本次源码构建结果一致，已排除浏览器使用旧静态资源造成的假象；本次调查没有保存新节点，也未修改业务代码。
 - **自动化结果：** 后端 `node`、`server`、`assembly`、`assembly/links`、`xray` 五个包测试通过，`go build ./...`、`go vet ./...` 通过；前端相关 4 个测试文件、26 个用例通过，`npm run build` 通过；调查时 `git status --short` 干净，`git diff --check` 通过。
-- **验收结论：** R27-01～R27-09 的实施结果已分别并入 Build21 Step 7～13，N-node-3/4 已并入 Step 15；Build21 Step 14 的 R28-01～R28-04、正式 Production smoke、固定 Mihomo 1.19.29 门禁和 PT-28-01～PT-28-05 人工项目均已完成，Step 14 已验收收口。Issue13 内没有仍待实施的 R27 工程修复；其余项目级工程问题继续由 [Issue14.md](../../../Issue14.md) R28-05～R28-09 跟踪。
-- **范围边界：** 本文保留 R27-01～R27-09 的历史调查、决策和已实施结果；当前工程问题见 [Issue14.md](../../../Issue14.md)（除 Step 14/R28-01～04 外，还包含 BuildReport4 遗留的 D3/N-core/N-node-6/安全等 R28-05～R28-09），剩余人工后续项目见 [ProdTestList.md](../../../ProdTestList.md)。Issue12 的 R26-02～R26-06 不重复登记，R26-07 按用户要求继续在 ProdTestList 跟踪。
+- **验收结论：** R27-01～R27-09 的实施结果已分别并入 Build21 Step 7～13，N-node-3/4 已并入 Step 15；Build21 Step 14 的 R28-01～R28-04、正式 Production smoke、固定 Mihomo 1.19.29 门禁和 PT-28-01～PT-28-05 人工项目均已完成，Step 14 已验收收口。Issue13 内没有仍待实施的 R27 工程修复；其余项目级工程问题继续由 [Issue14.md](Issue14.md) R28-05～R28-09 跟踪。
+- **范围边界：** 本文保留 R27-01～R27-09 的历史调查、决策和已实施结果；当前工程问题见 [Issue14.md](Issue14.md)（除 Step 14/R28-01～04 外，还包含 BuildReport4 遗留的 D3/N-core/N-node-6/安全等 R28-05～R28-09），剩余人工后续项目见 [ProdTestList.md](../../../ProdTestList.md)。Issue12 的 R26-02～R26-06 不重复登记，R26-07 按用户要求继续在 ProdTestList 跟踪。
 
 ---
 
@@ -247,9 +247,9 @@
 - Build21 Step 13 已验收，并按用户确认纳入高级 JSON 空参数名合同缺口：未知插件字符串 Map 的结构化编辑提供空名/重复名行内错误，高级 JSON 对空键与非字符串值给出精确路径并阻止应用/保存；后端创建、更新与检查共同拒绝空参数名，避免“可保存但 SIP002 无法输出”。插件切换清理五类对象、错误和 JSON 草稿且 A→B→A 不恢复，保存重开与普通 `password/token/secret` 凭据隔离回归通过。
 - 独立的 N-node-3/4 Build21 Step 15 已验收：SR VMess/VLESS 补齐 TLS 身份、ALPN、指纹、Flow 与 TLS skip 参数；解析端补齐 VMess 参数回读，并以显式 `security` 优先、缺省时 `xtls=2`→REALITY／活动 `tls=1`→TLS 的规则恢复本项目自产 SR VLESS 方言。生成→解析、TLS 关闭残留、generic VLESS 正例、generic VMess 负例与检查链回归通过；相关真实客户端人工项目已由用户确认完成，剩余工程问题见 Issue14。
 - Build21 Step 14 的 PT-28-01～PT-28-05 人工项目已由用户确认完成且未发现问题；R28-04 已以严格固定 Mihomo 入口、四正例、四反例和旧格式双层自检证据收口，Step 14 已验收通过。
-- **Step 14 收口结论：** R28-01～R28-04、正式 Production smoke、固定版本证据和用户人工项目均已完成；[Issue14.md](../../../Issue14.md) 继续跟踪的 R28-05～R28-09 不属于 Step 14，历史后续人工项目见 [ProdTestList.md](../../../ProdTestList.md)。
-  1. 详细记录已迁移至 [Issue14.md](../../../Issue14.md) R28-01。
-  2. smoke 布尔值断言和 Clash 请求夹具已迁移至 [Issue14.md](../../../Issue14.md) R28-02/R28-03。
+- **Step 14 收口结论：** R28-01～R28-04、正式 Production smoke、固定版本证据和用户人工项目均已完成；[Issue14.md](Issue14.md) 继续跟踪的 R28-05～R28-09 不属于 Step 14，历史后续人工项目见 [ProdTestList.md](../../../ProdTestList.md)。
+  1. 详细记录已迁移至 [Issue14.md](Issue14.md) R28-01。
+  2. smoke 布尔值断言和 Clash 请求夹具已迁移至 [Issue14.md](Issue14.md) R28-02/R28-03。
   3. PT-28-01～PT-28-05 已由用户确认完成且未发现问题，已从 [ProdTestList.md](../../../ProdTestList.md) 当前待办中移除。
 - 本轮未修改业务代码、前端组件或 smoke 测试脚本；Issue14 仅承接问题与验收条件，临时 Docker 容器、数据卷及端口已清理。
 - Clash/Mihomo YAML：
@@ -311,7 +311,7 @@
 | v1.17 | 2026-09-08 | 完成独立的 N-node-3/4 Build21 Step 15：SR VMess/VLESS TLS/ALPN/指纹/Flow/Skip 输出与自产 SR VLESS 安全方言回读已补齐，生成→解析、关闭残留、generic 边界及检查链回归通过；Step 14 与 Shadowrocket 真机验证仍待后续执行。 |
 | v1.18 | 2026-09-08 | 开始执行 Build21 Step 14：记录自动化/固定 Mihomo/隔离 Production smoke/浏览器真实 API 通过证据；同时记录动态插件输入控制台异常和两个 smoke 夹具契约问题，Step 14 保持未闭环，未修改业务代码。 |
 | v1.19 | 2026-09-08 | 将 Build21 Step 14 未闭环项拆分记录：浏览器动态插件输入控制台异常、smoke 布尔值断言不匹配、Clash 请求缺少 `fallback_group_members`，以及 Shadowrocket 真机验证未完成；明确本轮仅记录证据，未修改业务代码或测试脚本。 |
-| v1.20 | 2026-09-08 | 将 Step 14 的工程性问题和证据缺口迁移至 [Issue14.md](../../../Issue14.md)，将用户人工项目迁移至 [ProdTestList.md](../../../ProdTestList.md)；Issue13 保留 R27 历史调查、决策和迁移指针。 |
+| v1.20 | 2026-09-08 | 将 Step 14 的工程性问题和证据缺口迁移至 [Issue14.md](Issue14.md)，将用户人工项目迁移至 [ProdTestList.md](../../../ProdTestList.md)；Issue13 保留 R27 历史调查、决策和迁移指针。 |
 | v1.21 | 2026-09-08 | 文档交叉审核：补充 Issue14 已扩展承接 BuildReport4 遗留工程项，Issue13 的 R27 范围边界更精确；未修改业务代码。 |
 | v1.22 | 2026-09-09 | 用户确认 PT-28-01～PT-28-05 已完成且未发现问题；更新 R27/Step 14 人工验收边界，已完成项目不再作为当前清单跟踪。 |
 | v1.23 | 2026-09-09 | 交叉核验当前工作区：确认 R27-01～R27-09 的非人工工程项已分别并入 Build21 Step 7～13/15；将 Step 14 剩余阻挡明确归入 Issue14 R28-04，并更新 R27 历史记录中的过时人工待办措辞。 |

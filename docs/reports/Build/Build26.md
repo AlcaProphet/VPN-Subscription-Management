@@ -5,7 +5,7 @@
 > **关联文档：**
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 当前设计：[Design4.md](../../../Design4.md)（已增加 §12.7“核心工程约束现行合同补充”；不修改归档 Design1）
-> - 问题追踪：[Issue14.md](../../../Issue14.md)（步骤五、R28-07A～I）
+> - 问题追踪：[Issue14.md](../Issue/Issue14.md)（步骤五、R28-07A～I）
 > - 人工测试：[ProdTestList.md](../../../ProdTestList.md)（未新增人工通过结论，真实浏览器/Production 项目保持未执行）
 > - 历史核验：[BuildReport4.md](../BuildReport/BuildReport4.md) §3.2/§6.3、[BuildReport5.md](../BuildReport/BuildReport5.md)
 > - 构建模板：[Build.template.md](../../DocTemplates/Build.template.md)

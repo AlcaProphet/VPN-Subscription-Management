@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/config"
 )
 
 // MockLogin 模拟 OIDC 登录（仅 Dev 模式且 provider=mock）：
@@ -78,15 +79,38 @@ type TestResult struct {
 	Warnings []string `json:"warnings"`
 }
 
-// TestConnection 验证发现文档可达性与配置完整性；以 client_credentials 换 token 验证 Client ID/Secret；
-// 不支持该授权类型时降级为警告不阻断；模拟模式始终通过
+// TestConnection 使用显式表单参数验证连接，不回退库内已保存 Secret（Setup/草稿测试路径）。
 func (s *Service) TestConnection(ctx context.Context, providerType string, p Params) (*TestResult, error) {
+	return s.testConnection(ctx, providerType, p, false)
+}
+
+// TestConnectionWithSavedSecret 管理员面板测试：Secret 留空时，仅当请求的 base_url/realm/client_id
+// 与库内已保存配置完全一致，才回退已存明文，避免把已存 Secret 发往调用者指定的其他地址。
+func (s *Service) TestConnectionWithSavedSecret(ctx context.Context, providerType string, p Params) (*TestResult, error) {
+	return s.testConnection(ctx, providerType, p, true)
+}
+
+// testConnection 统一实现；allowSavedSecret 控制空 Secret 是否可回退已保存明文。
+func (s *Service) testConnection(ctx context.Context, providerType string, p Params, allowSavedSecret bool) (*TestResult, error) {
 	if providerType == "mock" {
 		return &TestResult{OK: true, Message: "模拟模式始终通过"}, nil
+	}
+	if p.ClientSecret == config.MaskedSecret {
+		return &TestResult{OK: false, Message: "Client Secret 不能使用脱敏占位符，请重新输入"}, nil
 	}
 	// ① 发现文档可达性 + 配置完整性（base_url/client_id/回调地址）
 	if p.BaseURL == "" || p.ClientID == "" {
 		return &TestResult{OK: false, Message: "Base URL 与 Client ID 为必填项"}, nil
+	}
+	// 表单留空表示不修改已保存 Secret：仅管理面板测试且目标参数与已保存配置完全一致时回退。
+	if p.ClientSecret == "" && allowSavedSecret {
+		if stored, err := s.loadParams(ctx, providerType); err == nil &&
+			stored.BaseURL == p.BaseURL && stored.Realm == p.Realm && stored.ClientID == p.ClientID {
+			if stored.ClientSecret == config.MaskedSecret {
+				return &TestResult{OK: false, Message: "已保存的 Client Secret 为脱敏占位符，请重新输入后再测试"}, nil
+			}
+			p.ClientSecret = stored.ClientSecret
+		}
 	}
 	disc, err := s.fetchDiscoveryWithParams(ctx, providerType, &p)
 	if err != nil {
@@ -102,6 +126,8 @@ func (s *Service) TestConnection(ctx context.Context, providerType string, p Par
 				return &TestResult{OK: false, Message: "Client ID/Secret 验证失败：" + err.Error()}, nil
 			}
 		}
+	} else {
+		res.Warnings = append(res.Warnings, "未提供 Client Secret，未执行凭据校验")
 	}
 	return res, nil
 }

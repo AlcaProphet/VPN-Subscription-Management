@@ -13,7 +13,7 @@
 
 - 【项目事实】Build17～Build21 主体已完成：`nodes` 行内当前状态/扩展/修订、`FieldSchema` 条件/选项/目标证据、活动投影、`/check`、前端动态表单、19 协议统一保存契约、URI/Xray 来源归一化、SS 插件统一合同、R27-09 Step11～13 与 N-node-3/4 Step15 等已验收；Step14 仍在 Issue14/ProdTestList 跟踪。
 - 【项目事实】原 `Build23.md` 的 R27-09 Step 1～5 已并入 [Build21.md](../reports/Build/Build21.md) §7 并收口；`Build23.md` 现仅作为交接/边界说明，不再包含可执行 Step。
-- 【项目事实】`BuildReport4.md` 列出 N-node-1～N-node-6 等节点输出/诊断缺口；其中 N-node-1/2/3/4/5 已由 Build21 处理，N-node-6 及 Build16/Design3 D3 等遗留登记在 [Issue14.md](../../Issue14.md)。
+- 【项目事实】`BuildReport4.md` 列出 N-node-1～N-node-6 等节点输出/诊断缺口；其中 N-node-1/2/3/4/5 已由 Build21 处理，N-node-6 及 Build16/Design3 D3 等遗留登记在 [Issue14.md](../reports/Issue/Issue14.md)。
 - 【项目事实】既有 3x-ui / SSPanel 研究主要回答“这些生态还能提供什么”，尚未系统回答：**如果进一步看向 v2rayN、NekoBox、Sub-Store、Hiddify、Marzban、sing-box 等更广生态，哪些能力值得参考？** 以及 **当前协议注册表相对本仓库自己的 Clash/Mihomo 模板还有多少字段级缺口？**
 
 因此本文的定位不是替代 Build23，也不是重复 3x-ui/SSPanel 研究，而是给 **后续“协议全量表单、编辑效率、导入/导出、模板/复制、远程资源”** 等方向提供候选素材。

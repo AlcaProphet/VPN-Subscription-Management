@@ -458,3 +458,122 @@ func TestWriteFileAtomicNoTempLeft(t *testing.T) {
 		}
 	}
 }
+
+// TestDeleteVersionRemovesFileAfterCommit 正常删除：DB 记录提交后 best-effort 清理文件。
+func TestDeleteVersionRemovesFileAfterCommit(t *testing.T) {
+	st, svc := newTestVersionService(t, true)
+	ctx := context.Background()
+	owner := newOwner(t, st)
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v1")), CreateOptions{Activate: true}); err != nil {
+		t.Fatalf("创建 v1 失败: %v", err)
+	}
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2")), CreateOptions{Activate: true}); err != nil {
+		t.Fatalf("创建 v2 失败: %v", err)
+	}
+	rel := versionRelPath(OwnerSubscription, owner, 1)
+	full := filepath.Join(svc.dataDir, "contents", rel)
+	if _, err := os.Stat(full); err != nil {
+		t.Fatalf("删除前 v1 文件应存在: %v", err)
+	}
+	if err := svc.DeleteVersion(ctx, OwnerSubscription, owner, 1); err != nil {
+		t.Fatalf("DeleteVersion 失败: %v", err)
+	}
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM versions WHERE owner_type='subscription' AND owner_id=? AND version_no=1`, owner).Scan(&count); err != nil {
+		t.Fatalf("查询 v1 记录失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("v1 DB 记录应删除，实际 %d", count)
+	}
+	if _, err := os.Stat(full); !os.IsNotExist(err) {
+		t.Fatalf("v1 文件应在提交后删除: %v", err)
+	}
+}
+
+// TestDeleteVersionFileRemoveFailureBestEffort 文件删除失败不影响 DB 删除成功。
+func TestDeleteVersionFileRemoveFailureBestEffort(t *testing.T) {
+	st, svc := newTestVersionService(t, true)
+	ctx := context.Background()
+	owner := newOwner(t, st)
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v1")), CreateOptions{Activate: true}); err != nil {
+		t.Fatalf("创建 v1 失败: %v", err)
+	}
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v2")), CreateOptions{Activate: true}); err != nil {
+		t.Fatalf("创建 v2 失败: %v", err)
+	}
+	rel := versionRelPath(OwnerSubscription, owner, 1)
+	full := filepath.Join(svc.dataDir, "contents", rel)
+	if err := os.Remove(full); err != nil {
+		t.Fatalf("移除原文件失败: %v", err)
+	}
+	if err := os.MkdirAll(full, 0o755); err != nil {
+		t.Fatalf("创建不可删目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(full, "keep"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("创建占位文件失败: %v", err)
+	}
+	if err := svc.DeleteVersion(ctx, OwnerSubscription, owner, 1); err != nil {
+		t.Fatalf("文件删除失败不应影响 DeleteVersion: %v", err)
+	}
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM versions WHERE owner_type='subscription' AND owner_id=? AND version_no=1`, owner).Scan(&count); err != nil {
+		t.Fatalf("查询 v1 记录失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("v1 DB 记录应删除，实际 %d", count)
+	}
+	if _, err := os.Stat(full); err != nil {
+		t.Fatalf("文件删除失败后应允许残留孤儿文件: %v", err)
+	}
+}
+
+// TestEvictOldestDoesNotRemoveFileBeforeCommit 提交失败时不能删除待驱逐版本文件。
+func TestEvictOldestDoesNotRemoveFileBeforeCommit(t *testing.T) {
+	st, svc := newTestVersionService(t, true)
+	ctx := context.Background()
+	owner := newOwner(t, st)
+	for i := 1; i <= MaxVersions; i++ {
+		if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v")), CreateOptions{Activate: true}); err != nil {
+			t.Fatalf("创建 v%d 失败: %v", i, err)
+		}
+	}
+	oldestRel := versionRelPath(OwnerSubscription, owner, 1)
+	oldestFull := filepath.Join(svc.dataDir, "contents", oldestRel)
+	if _, err := os.Stat(oldestFull); err != nil {
+		t.Fatalf("v1 文件应存在: %v", err)
+	}
+	// 故障注入：AFTER INSERT 触发器向子表写入不存在的父键；defer_foreign_keys=ON 把外键失败推迟到 COMMIT。
+	if _, err := st.DB().Exec(`
+		CREATE TABLE fk_parent (id INTEGER PRIMARY KEY);
+		CREATE TABLE fk_child (parent_id INTEGER NOT NULL REFERENCES fk_parent(id));
+		CREATE TRIGGER fail_evict_fk AFTER INSERT ON versions
+		BEGIN
+			INSERT INTO fk_child (parent_id) VALUES (999999);
+		END;`); err != nil {
+		t.Fatalf("创建故障注入 schema 失败: %v", err)
+	}
+	if _, err := st.DB().Exec(`PRAGMA defer_foreign_keys=ON`); err != nil {
+		t.Fatalf("开启 defer_foreign_keys 失败: %v", err)
+	}
+	if _, _, err := svc.CreateVersion(ctx, OwnerSubscription, owner, BytesContent([]byte("v6")), CreateOptions{Activate: true}); err == nil || !strings.Contains(err.Error(), "提交事务失败") {
+		t.Fatalf("应在外键提交阶段失败，实际: %v", err)
+	}
+	// 事务回滚：旧记录仍在，且旧文件不能被删除。
+	var oldCount int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM versions WHERE owner_type='subscription' AND owner_id=? AND version_no=1`, owner).Scan(&oldCount); err != nil {
+		t.Fatalf("查询 v1 记录失败: %v", err)
+	}
+	if oldCount != 1 {
+		t.Fatalf("事务回滚后 v1 记录应保留，实际 %d", oldCount)
+	}
+	if _, err := os.Stat(oldestFull); err != nil {
+		t.Fatalf("事务提交失败时 v1 文件不应被删除: %v", err)
+	}
+	var newCount int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM versions WHERE owner_type='subscription' AND owner_id=? AND version_no=?`, owner, MaxVersions+1).Scan(&newCount); err != nil {
+		t.Fatalf("查询 v6 记录失败: %v", err)
+	}
+	if newCount != 0 {
+		t.Fatalf("事务回滚后 v6 记录不应存在，实际 %d", newCount)
+	}
+}

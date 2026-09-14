@@ -119,7 +119,7 @@ func (s *Service) IsConfigured(ctx context.Context) bool {
 	return s.cfg.GetBool(ctx, KeyConfigured, false)
 }
 
-// currentParams 读取当前提供商参数
+// currentParams 读取当前提供商参数；损坏的脱敏占位符不得进入授权/换 token 链路。
 func (s *Service) currentParams(ctx context.Context) (*Params, error) {
 	providerType, err := s.cfg.Get(ctx, KeyProviderType)
 	if err != nil {
@@ -128,16 +128,23 @@ func (s *Service) currentParams(ctx context.Context) (*Params, error) {
 	if providerType == "" {
 		return nil, errors.New("OIDC 未配置")
 	}
-	return s.loadParams(ctx, providerType)
+	p, err := s.loadParams(ctx, providerType)
+	if err != nil {
+		return nil, err
+	}
+	if p.ClientSecret == config.MaskedSecret {
+		return nil, errors.New("OIDC Client Secret 已被脱敏占位符覆盖，请管理员在设置页重新输入")
+	}
+	return p, nil
 }
 
-// LoadParams 读取指定提供商参数（client_secret 自动解密；供面板配置回显/可用性判定，Build3 Step 3）
+// LoadParams 读取指定提供商参数（client_secret 自动解密为明文；供面板回显/可用性判定/测试连接，Build3 Step 3）
 func (s *Service) LoadParams(ctx context.Context, providerType string) (*Params, error) {
 	return s.loadParams(ctx, providerType)
 }
 
-// loadParams 读取指定提供商参数（client_secret 自动解密）
-func (s *Service) loadParams(ctx context.Context, providerType string) (*Params, error) {
+// loadRawParams 读取指定提供商参数（client_secret 保持库内密文，仅用于保存空输入时保留原值）
+func (s *Service) loadRawParams(ctx context.Context, providerType string) (*Params, error) {
 	raw, err := s.cfg.Get(ctx, "oidc_params_"+providerType)
 	if err != nil {
 		return nil, err
@@ -152,8 +159,27 @@ func (s *Service) loadParams(ctx context.Context, providerType string) (*Params,
 	return &p, nil
 }
 
-// SaveParams 保存提供商参数（client_secret 加密落库；空值保留原密文）
+// loadParams 读取指定提供商参数（client_secret 自动解密为明文）
+func (s *Service) loadParams(ctx context.Context, providerType string) (*Params, error) {
+	p, err := s.loadRawParams(ctx, providerType)
+	if err != nil {
+		return nil, err
+	}
+	if p.ClientSecret != "" {
+		plain, err := s.cfg.DecryptWithKey(ctx, p.ClientSecret)
+		if err != nil {
+			return nil, fmt.Errorf("解密 OIDC Client Secret 失败: %w", err)
+		}
+		p.ClientSecret = string(plain)
+	}
+	return p, nil
+}
+
+// SaveParams 保存提供商参数（入参 client_secret 为明文；空值保留库内原密文，显式新值才加密替换）
 func (s *Service) SaveParams(ctx context.Context, providerType string, p Params) error {
+	if p.ClientSecret == config.MaskedSecret {
+		return errors.New("Client Secret 不能使用脱敏占位符")
+	}
 	secretCipher := ""
 	if p.ClientSecret != "" {
 		enc, err := s.cfg.EncryptSensitive(ctx, p.ClientSecret)
@@ -162,8 +188,8 @@ func (s *Service) SaveParams(ctx context.Context, providerType string, p Params)
 		}
 		secretCipher = enc
 	} else {
-		// 未提供新 Secret：保留库内既有密文（面板回显脱敏场景）
-		if existing, err := s.loadParams(ctx, providerType); err == nil {
+		// 未提供新 Secret：保留库内既有密文（面板空输入场景）；此处必须走 raw 读取，避免明文被当作密文回写
+		if existing, err := s.loadRawParams(ctx, providerType); err == nil {
 			secretCipher = existing.ClientSecret
 		}
 	}

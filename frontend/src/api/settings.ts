@@ -7,7 +7,8 @@ export interface OidcSettings {
   base_url: string
   realm: string
   client_id: string
-  client_secret: string // GET 脱敏（***/""）；PUT 空=不修改
+  client_secret: string // GET 始终为空；PUT 空=保留当前提供商已存 Secret
+  client_secret_configured: boolean // 当前提供商是否已有可用 Secret（只读）
   frontend_url: string
   callback_url: string
 }
@@ -37,8 +38,11 @@ export interface SMTPSettings {
   port: string
   user: string
   password: string
+  password_configured: boolean
   from: string
-  tls: boolean
+  security: 'implicit_tls' | 'starttls' | 'plain' | ''
+  auth_required: boolean
+  configured: boolean
   scopes: string[]
 }
 
@@ -86,7 +90,7 @@ export const getCaptcha = () => http.get<any, CaptchaSettings>('/admin/settings/
 export const saveCaptcha = (data: CaptchaSettings) => http.put('/admin/settings/captcha', data)
 export const getSMTP = () => http.get<any, SMTPSettings>('/admin/settings/smtp')
 export const saveSMTP = (data: SMTPSettings) => http.put('/admin/settings/smtp', data)
-export const testSMTP = () => http.post('/admin/settings/smtp/test')
+export const testSMTP = (to: string) => http.post<any, { message: string; to: string; recipient_source: string }>('/admin/settings/smtp/test', { to }, { timeout: 40000 })
 export const getSite = () => http.get<any, SiteInfo>('/admin/settings/site')
 export const saveSite = (form: FormData) => http.put<any, SiteInfo>('/admin/settings/site', form)
 export const deleteSiteIcon = () => http.delete('/admin/settings/site/icon')

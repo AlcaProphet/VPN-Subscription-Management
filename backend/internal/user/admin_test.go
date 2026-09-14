@@ -284,12 +284,16 @@ func TestAdminResetPasswordDirect(t *testing.T) {
 	}
 }
 
-// seedSMTP 配置 SMTP 三键（经 config.Set 加密落库，与生产同路径）
+// seedSMTP 配置完整的认证 SMTP（经 config.Set 加密落库，与生产同路径）
 func seedSMTP(t *testing.T, st *store.Store) {
 	t.Helper()
 	cfg := config.NewService(st, log.New("error", "console"))
 	ctx := context.Background()
-	for k, v := range map[string]string{"smtp_host": "smtp.example.com", "smtp_user": "user@example.com", "smtp_password": "secret"} {
+	for k, v := range map[string]string{
+		"smtp_host": "smtp.example.com", "smtp_port": "587", "smtp_from": "user@example.com",
+		"smtp_security": config.SMTPSecurityStartTLS, config.SMTPAuthRequiredKey: "true",
+		"smtp_user": "user@example.com", "smtp_password": "secret",
+	} {
 		if err := cfg.Set(ctx, k, v); err != nil {
 			t.Fatalf("配置 SMTP 失败: %v", err)
 		}

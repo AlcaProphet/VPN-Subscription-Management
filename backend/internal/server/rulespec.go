@@ -2,8 +2,6 @@
 package server
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/rulespec"
@@ -18,6 +16,3 @@ func RegisterRulespecRoutes(engine *gin.Engine, sessionMW, adminMW gin.HandlerFu
 		})
 	})
 }
-
-// ensureRulespecRoutesUsed 防止未来重构时误删注册入口。
-var _ = http.StatusOK

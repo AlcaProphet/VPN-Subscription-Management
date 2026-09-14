@@ -129,8 +129,9 @@ type CreateOptions struct {
 }
 
 // CreateVersion 单个 BEGIN IMMEDIATE 事务内：计算版本号（已有最大编号 + 1，禁止列表长度 + 1）
-// → 写版本文件 → 写版本记录 → AfterCreate → 按 activate 语义切换当前指针 → 5 版上限驱逐。
+// → 写版本文件 → 写版本记录 → AfterCreate → 按 activate 语义切换当前指针 → 5 版上限只驱逐 DB 记录。
 // current==0（首版）时无论 Activate 取值均自动激活；该判定与切换在同一事务内完成（防双首版并发）。
+// 事务提交成功后再 best-effort 删被驱逐版本文件；DB 记录一致性优先，文件删除失败只 warn。
 // 返回 (新版本, 是否激活)。
 func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64, src ContentProvider, opts CreateOptions) (*Version, bool, error) {
 	if src == nil {
@@ -145,6 +146,7 @@ func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64
 	}
 	var created *Version
 	activated := false
+	var evictedFiles []string
 	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		// 版本号 = 已有最大编号 + 1（删除后不复用，Design1 §4.1）
 		var maxNo int64
@@ -201,13 +203,17 @@ func (s *Service) CreateVersion(ctx context.Context, ot OwnerType, ownerID int64
 			activated = true
 			effectiveCurrent = newNo
 		}
-		// 5 版上限：超出自动删最旧（文件 + 记录，不含当前激活版本）
-		if err := s.evictOldest(ctx, tx, ot, ownerID, effectiveCurrent); err != nil {
+		// 5 版上限：事务内只删最旧 DB 记录并返回待删文件路径，提交成功后再 best-effort 删文件。
+		evictedFiles, err = s.evictOldest(ctx, tx, ot, ownerID, effectiveCurrent)
+		if err != nil {
 			return err
 		}
 		created = &Version{ID: versionID, No: newNo, FilePath: rel, FileName: fileName, Current: activated}
 		return nil
 	})
+	if err == nil {
+		s.removeVersionFilesBestEffort(evictedFiles)
+	}
 	return created, activated, err
 }
 
@@ -252,40 +258,53 @@ type TextContent struct {
 func (t TextContent) Content() ([]byte, error) { return t.Text, nil }
 func (t TextContent) FileName() string         { return t.Name }
 
-// evictOldest 版本数 > MaxVersions 时删最旧（不删当前激活；文件 + 记录同步删，事务内完成）
-func (s *Service) evictOldest(ctx context.Context, tx *sql.Tx, ot OwnerType, ownerID, currentNo int64) error {
+// evictOldest 版本数 > MaxVersions 时删除最旧 DB 记录并返回待删文件路径；
+// 不删当前激活版本，文件删除由 CreateVersion 在事务提交后 best-effort 执行。
+func (s *Service) evictOldest(ctx context.Context, tx *sql.Tx, ot OwnerType, ownerID, currentNo int64) ([]string, error) {
 	var total int
 	if err := tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM versions WHERE owner_type = ? AND owner_id = ?`, ot, ownerID).Scan(&total); err != nil {
-		return err
+		return nil, err
 	}
 	excess := total - MaxVersions
 	if excess <= 0 {
-		return nil
+		return nil, nil
 	}
 	rows, err := tx.QueryContext(ctx,
 		`SELECT version_no, file_path FROM versions
 		 WHERE owner_type = ? AND owner_id = ? AND version_no != ?
 		 ORDER BY version_no ASC LIMIT ?`, ot, ownerID, currentNo, excess)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
+	evicted := make([]string, 0, excess)
 	for rows.Next() {
 		var no int64
 		var rel string
 		if err := rows.Scan(&no, &rel); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM versions WHERE owner_type = ? AND owner_id = ? AND version_no = ?`, ot, ownerID, no); err != nil {
-			return err
+			return nil, err
 		}
+		evicted = append(evicted, rel)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return evicted, nil
+}
+
+// removeVersionFilesBestEffort 在 DB 事务成功提交后 best-effort 删除版本文件；
+// 删除失败只记录 warn，不回滚、不阻塞已提交的 DB 记录一致性。
+func (s *Service) removeVersionFilesBestEffort(rels []string) {
+	for _, rel := range rels {
 		if err := os.Remove(filepath.Join(s.dataDir, "contents", rel)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			s.log.Warn("驱逐最旧版本文件失败", "path", rel, "err", err) // 不阻断
+			s.log.Warn("版本文件 best-effort 删除失败", "path", rel, "err", err)
 		}
 	}
-	return rows.Err()
 }
 
 // SwitchVersion 原子切换——切 symlink（临时指针 + rename）→ 事务内更新 DB「当前」+ 刷新该版本时间戳
@@ -373,9 +392,11 @@ func ownerCurrent(ctx context.Context, tx *sql.Tx, ot OwnerType, ownerID int64) 
 	return current, nil
 }
 
-// DeleteVersion 不可删最后一个；不可删当前激活版本（须先切换）；级联删文件（记录删除在事务内）
+// DeleteVersion 不可删最后一个；不可删当前激活版本（须先切换）。
+// 事务内只删除 DB 记录并读取 file_path；提交成功后 best-effort 删除文件，失败只 warn。
 func (s *Service) DeleteVersion(ctx context.Context, ot OwnerType, ownerID, versionNo int64) error {
-	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	var rel string
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		var count int
 		if err := tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM versions WHERE owner_type = ? AND owner_id = ?`, ot, ownerID).Scan(&count); err != nil {
@@ -391,7 +412,6 @@ func (s *Service) DeleteVersion(ctx context.Context, ot OwnerType, ownerID, vers
 		if current == versionNo {
 			return ErrCurrentVersion // 「不可删当前激活版本（须先切换）」
 		}
-		var rel string
 		if err := tx.QueryRowContext(ctx,
 			`SELECT file_path FROM versions WHERE owner_type = ? AND owner_id = ? AND version_no = ?`, ot, ownerID, versionNo).Scan(&rel); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -403,11 +423,13 @@ func (s *Service) DeleteVersion(ctx context.Context, ot OwnerType, ownerID, vers
 			`DELETE FROM versions WHERE owner_type = ? AND owner_id = ? AND version_no = ?`, ot, ownerID, versionNo); err != nil {
 			return err
 		}
-		if err := os.Remove(filepath.Join(s.dataDir, "contents", rel)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			s.log.Warn("删除版本文件失败", "path", rel, "err", err) // 不阻断
-		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.removeVersionFilesBestEffort([]string{rel})
+	return nil
 }
 
 // CurrentNo 读取资源当前版本号（以 DB 记录为准，Design1 §4.1；供列表填充当前激活标记）

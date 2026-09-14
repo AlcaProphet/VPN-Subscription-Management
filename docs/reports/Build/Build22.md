@@ -1,9 +1,9 @@
 # VPN 订阅管理系统 功能构建计划（Build22：Design3/Build16 D3-1～D3-10 缺口收口，已完成并归档）
 
-> **文档定位：** 本文档是 VPN 订阅管理系统的第二十二轮构建记录（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接 [Build17.md](Build17.md)～[Build20.md](Build20.md) 以及已归档的 Build21；Build21 Step 14 已于 2026-09-09 收口，工程问题见 [Issue14.md](../../../Issue14.md)，用户人工结果见 [ProdTestList.md](../../../ProdTestList.md)。本轮针对 [BuildReport4.md](../BuildReport/BuildReport4.md) 的**未闭环项 1** 完成深入研究、Step 1～11 代码实现与运行门禁。**2026-09-10 文档交叉审核曾确认 Step 7 的多项专属自动化测试未落地；2026-09-11 已补齐全部交叉审核缺口及 Step 7 原始清单中的额外边界测试，并重新通过 Step 11 全量门禁。本文件已按归档规则移入 `docs/reports/Build/`。** 实际浏览器、真实设备和真实客户端人工项见 [ProdTestList.md](../../../ProdTestList.md)，未标记为人工通过。
+> **文档定位：** 本文档是 VPN 订阅管理系统的第二十二轮构建记录（依据 AGENTS.md：Build 文档为详细构建方案，非强规则），承接 [Build17.md](Build17.md)～[Build20.md](Build20.md) 以及已归档的 Build21；Build21 Step 14 已于 2026-09-09 收口，工程问题见 [Issue14.md](../Issue/Issue14.md)，用户人工结果见 [ProdTestList.md](../../../ProdTestList.md)。本轮针对 [BuildReport4.md](../BuildReport/BuildReport4.md) 的**未闭环项 1** 完成深入研究、Step 1～11 代码实现与运行门禁。**2026-09-10 文档交叉审核曾确认 Step 7 的多项专属自动化测试未落地；2026-09-11 已补齐全部交叉审核缺口及 Step 7 原始清单中的额外边界测试，并重新通过 Step 11 全量门禁。本文件已按归档规则移入 `docs/reports/Build/`。** 实际浏览器、真实设备和真实客户端人工项见 [ProdTestList.md](../../../ProdTestList.md)，未标记为人工通过。
 > - 设计记录：[Design3.md](../Design/Design3.md)（Build16 的目标设计，当前仍有效）、[Build16.md](Build16.md)（原构建计划）
 > - 问题来源：[BuildReport4.md](../BuildReport/BuildReport4.md)（全量核验报告，未闭环项 1）
-> - 问题追踪：[Issue14.md](../../../Issue14.md)（R28-05）
+> - 问题追踪：[Issue14.md](../Issue/Issue14.md)（R28-05）
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 历史构建与问题记录：见 [docs/reports/](..)（均已存档，仅核查）
 >
@@ -48,7 +48,7 @@
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。
 > 2026-09-11 收口结果：Step 1～11 全部验收通过；Step 7 曾在 2026-09-10 交叉审核中暴露专属自动化证据缺口，现已补齐对应测试并重新运行 Step 11 门禁。Step 8/9 实际浏览器与真实客户端项目已按用户授权迁移至 [ProdTestList.md](../../../ProdTestList.md)，尚未形成用户人工通过结论。
-> 工程状态追踪：R28-05 已由 [Issue14.md](../../../Issue14.md) 关闭；本文档作为构建记录归档，不替代问题追踪。
+> 工程状态追踪：R28-05 已由 [Issue14.md](../Issue/Issue14.md) 关闭；本文档作为构建记录归档，不替代问题追踪。
 >
 > **交叉审核补充（2026-09-10）：** 已确认的 Step 7 自动化证据缺口包括：`ActivatePending`/`DiscardPending` 与 `activated_at` 激活语义；`SanitizeStoredSyncOutputs` 幂等/非破坏性清洗；现有 `/sync/status`、`/sync/tasks`、`Pool.sync_error` 的读时脱敏 raw JSON；`NormalizeDiagnostics` 的 19+1 与 200 rune 限额；v1 `rule_counts` 分项合计不变量、`previous_active` 比较和旧 stats `version 0` 解析；最近失败后恢复及同时间戳按 ID 排序；failed 快照写入失败时 active/pending 不变且不虚报 snapshot ID。另有一条历史计划回退路径（旧字符串数组 Clash plan 的下载重渲染）缺少自动化覆盖。**2026-09-11 收口：上述缺口已逐项补齐并新增额外边界测试；Step 7 重跑定向证据、后端全量/race/build/vet、前端全量/build、Docker build、Production smoke 与 `git diff --check` 全部通过，Build22/Design3 已按规则归档。**
 
@@ -991,7 +991,7 @@ Step 11（全量回归/文档收口） ←────────────�
 
 ## 五、已确认构建项映射
 
-> 以下候选均来自 [BuildReport4.md](../BuildReport/BuildReport4.md) §4.2，并已经用户确认纳入 Build22。工程跟踪见 [Issue14.md](../../../Issue14.md) R28-05；后续实施时按上述 Step 顺序逐项执行。
+> 以下候选均来自 [BuildReport4.md](../BuildReport/BuildReport4.md) §4.2，并已经用户确认纳入 Build22。工程跟踪见 [Issue14.md](../Issue/Issue14.md) R28-05；后续实施时按上述 Step 顺序逐项执行。
 
 | # | 候选 | 说明 | 来源 | 对应 Step |
 |---|------|------|------|-----------|

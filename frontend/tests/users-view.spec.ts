@@ -41,6 +41,7 @@ vi.mock('@/api/system', () => ({
 import UsersView from '@/views/admin/UsersView.vue'
 import { listUsers } from '@/api/user'
 import { getSystemStatus } from '@/api/system'
+import { getSMTP } from '@/api/settings'
 
 describe('UsersView 基础渲染', () => {
   beforeEach(() => {
@@ -49,6 +50,7 @@ describe('UsersView 基础渲染', () => {
     document.body.innerHTML = ''
     vi.clearAllMocks()
     ;(listUsers as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ list: [], total: 0 })
+    ;(getSMTP as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ configured: false })
   })
 
   it('空态展示暂无用户', async () => {
@@ -59,6 +61,16 @@ describe('UsersView 基础渲染', () => {
     })
     await flushPromises()
     expect(wrapper.text()).toContain('暂无用户')
+  })
+
+  it('邮件入口使用后端可用状态，允许无密码的本地中继', async () => {
+    ;(getSMTP as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      host: '127.0.0.1', security: 'plain', auth_required: false, password: '', configured: true,
+    })
+    const wrapper = mount(UsersView, { global: { mocks: { $router: { push: vi.fn() } } } })
+    await flushPromises()
+    const button = wrapper.findAll('button').find((item) => item.text().includes('为所有无密码用户发送密码设置链接'))
+    expect(button?.attributes('disabled')).toBeUndefined()
   })
 
   it('列表展示用户名与邮箱', async () => {

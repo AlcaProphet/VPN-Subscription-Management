@@ -67,6 +67,8 @@ function skipTarget(target) {
   if (isExternal(target)) return true
   if (target.startsWith('localhost') || target.includes('127.0.0.1')) return true
   if (target.includes('{') || target.includes('}') || target.startsWith('...')) return true
+  // 模板占位符是模板示例，不代表仓库中真实存在的文件；仅跳过 BuildN/DesignN/IssueN 三种占位目标。
+  if (/^(?:\.\.?\/)*(?:Build|Design|Issue)N\.md$/.test(target)) return true
   return false
 }
 

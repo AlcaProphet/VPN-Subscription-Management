@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,7 +70,7 @@ func (w WhitelistConfig) Empty() bool {
 
 // OidcOps OIDC 能力接口（oidc.Service 经 server 适配注入；config 包避免 config↔oidc 循环依赖）
 type OidcOps interface {
-	// SaveParams 保存提供商参数（client_secret 加密落库；空值保留原密文）
+	// SaveParams 保存提供商参数（入参 client_secret 为明文，加密落库；空值保留原密文）
 	SaveParams(ctx context.Context, providerType, baseURL, realm, clientID, clientSecret string) error
 	// LoadParams 读取提供商参数（client_secret 已解密）
 	LoadParams(ctx context.Context, providerType string) (baseURL, realm, clientID, clientSecret string, err error)
@@ -126,32 +127,59 @@ func (s *AdminService) setSensitive(ctx context.Context, key, value string) erro
 // --- OIDC 配置分区 ---
 
 type OidcSettings struct {
-	ProviderType string `json:"provider_type"`
-	BaseURL      string `json:"base_url"`
-	Realm        string `json:"realm"`
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"` // GET 脱敏；PUT 空=不修改
-	FrontendURL  string `json:"frontend_url"`  // 启动时缓存（库驱动），修改需重启生效
-	CallbackURL  string `json:"callback_url"`  // 同上
+	ProviderType           string `json:"provider_type"`
+	BaseURL                string `json:"base_url"`
+	Realm                  string `json:"realm"`
+	ClientID               string `json:"client_id"`
+	ClientSecret           string `json:"client_secret"`            // GET 始终为空；PUT 空=保留当前提供商原密文
+	ClientSecretConfigured bool   `json:"client_secret_configured"` // 当前提供商是否已有可用 Secret（只读）
+	FrontendURL            string `json:"frontend_url"`             // 启动时缓存（库驱动），修改需重启生效
+	CallbackURL            string `json:"callback_url"`             // 同上
 }
 
 // 合法提供商类型
 var validProviders = []string{"keycloak", "auth0", "generic", "mock"}
 
 // oidcUsable 判定 OIDC 是否「可用」（防认证死锁的核心判定，Design1 §3.4.8）：
-// base_url 非空 且 client_id 非空 且（PUT 入参 secret 非空 或 库内已有对应密文）
+// base_url 非空 且 client_id 非空 且（PUT 入参 Secret 有效 或 库内已有可用明文 Secret）。
+// GET 空回显/历史占位符均不被视为可用。
 func (s *AdminService) oidcUsable(ctx context.Context, in OidcSettings) bool {
 	if in.BaseURL == "" || in.ClientID == "" {
 		return false
 	}
-	if in.ClientSecret != "" {
+	if SecretUsable(in.ClientSecret) {
 		return true
 	}
-	_, _, _, secret, err := s.oidcOps.LoadParams(ctx, in.ProviderType) // 库内已有密文视为可用
-	return err == nil && secret != ""
+	_, _, _, secret, err := s.oidcOps.LoadParams(ctx, in.ProviderType) // LoadParams 返回解密后明文
+	return err == nil && SecretUsable(secret)
 }
 
-// GetOidc 回显当前 OIDC 配置（Secret 脱敏；frontend/callback 返回库值——启动缓存语义）
+// oidcAvailable 判定当前生效的 OIDC 是否可作为登录方式（防认证死锁第二层校验）：
+// 已标记配置、当前提供商参数可读取、base_url/client_id 非空且 Secret 可用；
+// mock 仅 Dev 模式可用；空 Secret 视为未配置所需 Secret，不能作为关闭本地登录的依据。
+func (s *AdminService) oidcAvailable(ctx context.Context) bool {
+	if !s.oidcOps.IsConfigured(ctx) {
+		return false
+	}
+	providerType := s.cfg.GetOr(ctx, oidcKeyProviderType)
+	if providerType == "" {
+		return false
+	}
+	if providerType == "mock" { // 模拟 OIDC 仅 Dev 模式提供登录能力
+		if s.cfg.GetOr(ctx, KeyAppMode) != "dev" {
+			return false
+		}
+		_, _, _, _, err := s.oidcOps.LoadParams(ctx, providerType)
+		return err == nil
+	}
+	baseURL, _, clientID, secret, err := s.oidcOps.LoadParams(ctx, providerType)
+	if err != nil || baseURL == "" || clientID == "" {
+		return false
+	}
+	return SecretUsable(secret)
+}
+
+// GetOidc 回显当前 OIDC 配置（Secret 输入值始终为空，另以 client_secret_configured 表示已配置）。
 func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 	out := OidcSettings{}
 	out.ProviderType = s.cfg.GetOr(ctx, oidcKeyProviderType)
@@ -160,23 +188,32 @@ func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 	if out.ProviderType != "" {
 		baseURL, realm, clientID, secret, err := s.oidcOps.LoadParams(ctx, out.ProviderType)
 		if err != nil {
-			return out, nil // 参数缺失按未配置处理（不阻断回显）
+			return out, nil // 参数缺失/解密失败按未配置处理（不阻断回显）
 		}
 		out.BaseURL = baseURL
 		out.Realm = realm
 		out.ClientID = clientID
-		if secret != "" {
-			out.ClientSecret = "***"
-		}
+		out.ClientSecret = ""
+		out.ClientSecretConfigured = SecretUsable(secret)
 	}
 	return out, nil
 }
 
 // SaveOidc 保存 OIDC 参数；受「本地登录与 OIDC 均不可用禁止保存」约束（防认证死锁）；
-// 各提供商参数独立存储（切换类型保留已填字段）；frontend_url/callback_url 手动覆盖优先
+// 各提供商参数独立存储（切换类型保留已填字段）；Secret 空值保留当前提供商原密文，显式新值才替换；
+// frontend_url/callback_url 手动覆盖优先。
 func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 	if !slices.Contains(validProviders, in.ProviderType) {
 		return fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
+	}
+	if in.ClientSecret == MaskedSecret {
+		return fmt.Errorf("%w: 不能将脱敏占位符保存为 Client Secret，请留空保持原值或输入新 Secret", ErrBadRequest)
+	}
+	// 空值保留原密文，但库内已是脱敏占位符时不能继续沿用（已损坏，须管理员重新填写）。
+	if in.ClientSecret == "" {
+		if _, _, _, existing, err := s.oidcOps.LoadParams(ctx, in.ProviderType); err == nil && existing == MaskedSecret {
+			return fmt.Errorf("%w: 已保存的 Client Secret 为脱敏占位符，请重新输入新的 Client Secret", ErrBadRequest)
+		}
 	}
 	allowLocal := s.cfg.GetBool(ctx, KeyAllowLocalLogin, true)
 	if !allowLocal && !s.oidcUsable(ctx, in) {
@@ -281,9 +318,10 @@ func (s *AdminService) GetLocalAuth(ctx context.Context) LocalAuthSettings {
 	}
 }
 
-// SaveLocalAuth 三开关；本地登录关且 OIDC 不可用 → 禁止保存 + 显著警告（防认证死锁）
+// SaveLocalAuth 三开关；本地登录关且 OIDC 不可用 → 禁止保存 + 显著警告（防认证死锁）。
+// 可用性使用 oidcAvailable 校验实际参数与 Secret 状态，不能只信 oidc_configured 标记。
 func (s *AdminService) SaveLocalAuth(ctx context.Context, in LocalAuthSettings) error {
-	if !in.AllowLocalLogin && !s.oidcOps.IsConfigured(ctx) {
+	if !in.AllowLocalLogin && !s.oidcAvailable(ctx) {
 		return ErrAuthDeadlock
 	}
 	for k, v := range map[string]bool{
@@ -353,56 +391,126 @@ func (s *AdminService) SaveCaptcha(ctx context.Context, in CaptchaSettings) erro
 // --- SMTP 分区 ---
 
 type SMTPSettings struct {
-	Host     string   `json:"host"`
-	Port     string   `json:"port"`
-	User     string   `json:"user"`
-	Password string   `json:"password"` // GET 脱敏；PUT 空=不修改（敏感加密）
-	From     string   `json:"from"`
-	TLS      bool     `json:"tls"`
-	Scopes   []string `json:"scopes"` // password_reset/approval_notify/welcome
+	Host               string   `json:"host"`
+	Port               string   `json:"port"`
+	User               string   `json:"user"`
+	Password           string   `json:"password"` // GET 始终为空；PUT 空=保持原值
+	PasswordConfigured bool     `json:"password_configured"`
+	From               string   `json:"from"`
+	Security           string   `json:"security"` // starttls/implicit_tls/plain
+	AuthRequired       *bool    `json:"auth_required"`
+	Configured         bool     `json:"configured"`
+	Scopes             []string `json:"scopes"` // password_reset/approval_notify/welcome
 }
 
 func (s *AdminService) GetSMTP(ctx context.Context) SMTPSettings {
+	security := mustStr(s.cfg.Get(ctx, "smtp_security"))
+	if security == "" && s.cfg.GetOr(ctx, "smtp_host") == "" {
+		security = SMTPSecurityStartTLS
+	}
+	if security != SMTPSecurityStartTLS && security != SMTPSecurityImplicitTLS && security != SMTPSecurityPlain {
+		security = ""
+	}
+	authRequired := s.cfg.GetOr(ctx, SMTPAuthRequiredKey) != "false"
+	port := mustStr(s.cfg.Get(ctx, "smtp_port"))
+	if port == "" {
+		port = "587"
+	}
 	return SMTPSettings{
-		Host:     mustStr(s.cfg.Get(ctx, "smtp_host")),
-		Port:     mustStr(s.cfg.Get(ctx, "smtp_port")),
-		User:     mustStr(s.cfg.Get(ctx, "smtp_user")),
-		Password: s.getMasked(ctx, "smtp_password"),
-		From:     mustStr(s.cfg.Get(ctx, "smtp_from")),
-		TLS:      s.cfg.GetBool(ctx, "smtp_tls", false), // 默认关闭（R10-04）
-		Scopes:   s.cfg.GetJSONStringSlice(ctx, "smtp_enabled_scopes"),
+		Host:               mustStr(s.cfg.Get(ctx, "smtp_host")),
+		Port:               port,
+		User:               mustStr(s.cfg.Get(ctx, "smtp_user")),
+		Password:           "",
+		PasswordConfigured: mustStr(s.cfg.Get(ctx, "smtp_password")) != "",
+		From:               mustStr(s.cfg.Get(ctx, "smtp_from")),
+		Security:           security,
+		AuthRequired:       &authRequired,
+		Configured:         SMTPConfigured(ctx, s.cfg),
+		Scopes:             s.cfg.GetJSONStringSlice(ctx, "smtp_enabled_scopes"),
 	}
 }
 
-// SaveSMTP 服务器/端口/账号/密码（加密）/发件人/TLS + 启用范围（JSON 数组）
+// SaveSMTP 完整校验后原子保存服务器、连接方式、认证与启用范围。
 func (s *AdminService) SaveSMTP(ctx context.Context, in SMTPSettings) error {
-	if in.Host == "" {
-		return fmt.Errorf("%w: SMTP 服务器必填", ErrBadRequest)
+	in.Host = strings.TrimSpace(in.Host)
+	in.Port = strings.TrimSpace(in.Port)
+	in.From = strings.TrimSpace(in.From)
+	in.User = strings.TrimSpace(in.User)
+	if in.Host == "" || strings.ContainsAny(in.Host, " \t\r\n/") {
+		return fmt.Errorf("%w: SMTP 服务器无效", ErrBadRequest)
 	}
-	for k, v := range map[string]string{
-		"smtp_host": in.Host,
-		"smtp_port": in.Port,
-		"smtp_user": in.User,
-		"smtp_from": in.From,
-	} {
-		if v == "" {
-			continue // 空 = 不修改
+	port, err := strconv.Atoi(in.Port)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("%w: SMTP 端口须为 1–65535", ErrBadRequest)
+	}
+	addr, err := mail.ParseAddress(in.From)
+	if err != nil || addr.Address != in.From {
+		return fmt.Errorf("%w: 发件邮箱须为单一邮箱地址", ErrBadRequest)
+	}
+	if in.Password == "***" {
+		return fmt.Errorf("%w: 不能将脱敏占位符保存为 SMTP 密码，请留空保持原密码或输入新密码", ErrBadRequest)
+	}
+	if in.AuthRequired == nil {
+		return fmt.Errorf("%w: 请选择是否需要 SMTP 认证", ErrBadRequest)
+	}
+	if in.Security != SMTPSecurityStartTLS && in.Security != SMTPSecurityImplicitTLS && in.Security != SMTPSecurityPlain {
+		return fmt.Errorf("%w: SMTP 连接方式无效", ErrBadRequest)
+	}
+	if in.Security == SMTPSecurityPlain && (*in.AuthRequired || !SMTPLoopbackHost(in.Host)) {
+		return fmt.Errorf("%w: 无加密仅支持回环地址上的无认证中继", ErrBadRequest)
+	}
+	if *in.AuthRequired && in.User == "" {
+		return fmt.Errorf("%w: SMTP 认证账号必填", ErrBadRequest)
+	}
+	for _, scope := range in.Scopes {
+		if scope != "password_reset" && scope != "approval_notify" && scope != "welcome" {
+			return fmt.Errorf("%w: 邮件启用范围无效", ErrBadRequest)
 		}
-		if err := s.cfg.Set(ctx, k, v); err != nil {
-			return err
-		}
-	}
-	if err := s.setSensitive(ctx, "smtp_password", in.Password); err != nil {
-		return err
-	}
-	if err := s.cfg.Set(ctx, "smtp_tls", strconv.FormatBool(in.TLS)); err != nil {
-		return err
 	}
 	scopes, err := json.Marshal(in.Scopes)
 	if err != nil {
 		return err
 	}
-	return s.cfg.Set(ctx, "smtp_enabled_scopes", string(scopes))
+	tx, err := s.store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if *in.AuthRequired {
+		password := in.Password
+		if password == "" {
+			password, err = s.cfg.GetTx(ctx, tx, "smtp_password")
+			if err != nil {
+				return err
+			}
+		}
+		if password == "" || password == "***" {
+			return fmt.Errorf("%w: SMTP 认证密码无效，请重新填写专用密码", ErrBadRequest)
+		}
+		if in.Password != "" {
+			if err := s.cfg.SetTx(ctx, tx, "smtp_password", in.Password); err != nil {
+				return err
+			}
+		}
+	} else {
+		in.User = ""
+		if _, err := tx.ExecContext(ctx, `DELETE FROM system_config WHERE key = 'smtp_password'`); err != nil {
+			return err
+		}
+	}
+	for _, item := range [][2]string{
+		{"smtp_host", in.Host}, {"smtp_port", strconv.Itoa(port)}, {"smtp_user", in.User},
+		{"smtp_from", in.From}, {"smtp_security", in.Security},
+		{SMTPAuthRequiredKey, strconv.FormatBool(*in.AuthRequired)}, {"smtp_enabled_scopes", string(scopes)},
+	} {
+		if err := s.cfg.SetTx(ctx, tx, item[0], item[1]); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM system_config WHERE key = 'smtp_tls'`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // --- 站点信息分区 ---
