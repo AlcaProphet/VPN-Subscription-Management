@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"vpn-sub/internal/mail"
 )
 
 // TestMailTemplateRoutesAuthAndNoStore 四类路由必须 session+admin 双中间件且全部响应 no-store。
@@ -264,4 +267,73 @@ func serverConfigCount(t *testing.T, srv *Server) int {
 		t.Fatalf("统计 system_config 失败: %v", err)
 	}
 	return n
+}
+
+func rawProfileReq(srv *Server, method, path, token, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	srv.Engine().ServeHTTP(w, req)
+	return w
+}
+
+// TestMailTemplateRequestStrictJSONAndLimit PUT/preview 必须在严格 JSON 和 64 KiB 边界前失败。
+func TestMailTemplateRequestStrictJSONAndLimit(t *testing.T) {
+	srv := newTestServer(t)
+	adminToken := regUser(t, srv, "mail-strict", "mail-strict@example.com", "password123")
+
+	invalidBodies := []struct {
+		name string
+		raw  string
+	}{
+		{"大小写 subject", `{"Subject":"x","Body":"{{reset_url}}"}`},
+		{"大小写 body", `{"subject":"x","Body":"{{reset_url}}"}`},
+		{"重复 subject", `{"subject":"x","body":"{{reset_url}}","subject":"y"}`},
+		{"重复 body", `{"subject":"x","body":"{{reset_url}}","body":"y"}`},
+		{"未知字段", `{"subject":"x","body":"{{reset_url}}","extra":1}`},
+		{"非字符串", `{"subject":1,"body":"{{reset_url}}"}`},
+		{"缺 body", `{"subject":"x"}`},
+	}
+	for _, tc := range invalidBodies {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, path := range []string{
+				"/api/admin/settings/mail-templates/password_reset",
+				"/api/admin/settings/mail-templates/password_reset/preview",
+			} {
+				method := http.MethodPut
+				if strings.HasSuffix(path, "/preview") {
+					method = http.MethodPost
+				}
+				w := rawProfileReq(srv, method, path, adminToken, tc.raw)
+				if w.Code != http.StatusBadRequest {
+					t.Fatalf("%s %s 应 400: %d %s", method, path, w.Code, w.Body.String())
+				}
+			}
+		})
+	}
+
+	validTpl, err := json.Marshal(mail.Template{
+		Subject: "边界",
+		Body:    strings.Repeat("a", 10000-len("{{reset_url}}")) + "{{reset_url}}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const limit = 64 << 10
+	exact := string(validTpl) + strings.Repeat(" ", limit-len(validTpl))
+	if len(exact) != limit {
+		t.Fatalf("构造边界请求失败: len=%d", len(exact))
+	}
+	w := rawProfileReq(srv, http.MethodPut, "/api/admin/settings/mail-templates/password_reset", adminToken, exact)
+	if w.Code != http.StatusOK {
+		t.Fatalf("64 KiB 精确边界应接受: %d %s", w.Code, w.Body.String())
+	}
+	over := exact + " "
+	w = rawProfileReq(srv, http.MethodPut, "/api/admin/settings/mail-templates/password_reset", adminToken, over)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("64 KiB+1 应 413: %d %s", w.Code, w.Body.String())
+	}
 }

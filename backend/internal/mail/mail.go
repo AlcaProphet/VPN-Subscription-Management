@@ -40,6 +40,8 @@ type Service struct {
 	cfg         *config.Service
 	log         *slog.Logger
 	dialContext func(ctx context.Context, network, address string) (net.Conn, error)
+	// tlsConfig 仅供测试注入自签证书/信任配置；生产默认 nil，行为与内建默认一致。
+	tlsConfig *tls.Config
 }
 
 // sendError 保留内部原因供诊断，但对页面与普通日志只暴露阶段化提示。
@@ -68,6 +70,18 @@ func NewService(cfg *config.Service, lg *slog.Logger) *Service {
 // newServiceWithDialContext 构造注入网络拨号（测试可替换为本地 stub，不引入包级可变状态）。
 func newServiceWithDialContext(cfg *config.Service, lg *slog.Logger, dialContext func(ctx context.Context, network, address string) (net.Conn, error)) *Service {
 	return &Service{cfg: cfg, log: lg, dialContext: dialContext}
+}
+
+// tlsConfigForHost 返回本次 TLS 握手配置：默认使用内建配置，仅测试注入覆盖敏感/证书校验参数。
+func (s *Service) tlsConfigForHost(host string) *tls.Config {
+	cfg := &tls.Config{}
+	if s.tlsConfig != nil {
+		cfg = s.tlsConfig.Clone()
+	}
+	if cfg.ServerName == "" {
+		cfg.ServerName = host
+	}
+	return cfg
 }
 
 // Configured SMTP 是否按当前连接方式与认证设置完整配置。
@@ -103,7 +117,7 @@ func (s *Service) sendMessage(ctx context.Context, from, to string, msg []byte) 
 	var conn net.Conn
 	var err error
 	if security == "implicit_tls" {
-		conn, err = (&tls.Dialer{NetDialer: &net.Dialer{}, Config: &tls.Config{ServerName: host}}).DialContext(sendCtx, "tcp", addr)
+		conn, err = (&tls.Dialer{NetDialer: &net.Dialer{}, Config: s.tlsConfigForHost(host)}).DialContext(sendCtx, "tcp", addr)
 	} else {
 		conn, err = s.dialContext(sendCtx, "tcp", addr)
 	}
@@ -135,7 +149,7 @@ func (s *Service) sendMessage(ctx context.Context, from, to string, msg []byte) 
 		if !ok {
 			return errors.New("SMTP 服务器未提供 STARTTLS，已停止发送")
 		}
-		if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
+		if err := client.StartTLS(s.tlsConfigForHost(host)); err != nil {
 			return &sendError{stage: "STARTTLS 升级", err: err}
 		}
 	}

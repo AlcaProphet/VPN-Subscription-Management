@@ -272,6 +272,9 @@ func TestParseTemplateJSONStrict(t *testing.T) {
 	if err != nil || got.Subject != "主题" || got.Body != "{{reset_url}}" {
 		t.Fatalf("合法 JSON 解析失败: got=%+v err=%v", got, err)
 	}
+	if got, err := ParseTemplateJSON(" \n\t" + string(validJSON) + " \n\t"); err != nil || got.Subject != "主题" || got.Body != "{{reset_url}}" {
+		t.Fatalf("合法 JSON 的尾随空白应允许: got=%+v err=%v", got, err)
+	}
 	for _, tc := range []struct {
 		name string
 		raw  string
@@ -284,6 +287,11 @@ func TestParseTemplateJSONStrict(t *testing.T) {
 		{"非字符串", `{"subject":1,"body":"y"}`},
 		{"null", `{"subject":null,"body":"y"}`},
 		{"尾随值", `{"subject":"x","body":"y"} {}`},
+		{"大小写 subject", `{"Subject":"x","body":"y"}`},
+		{"大小写 body", `{"subject":"x","Body":"y"}`},
+		{"大小写双字段", `{"Subject":"x","Body":"y"}`},
+		{"重复 subject", `{"subject":"x","body":"y","subject":"z"}`},
+		{"重复 body", `{"subject":"x","body":"y","body":"z"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := ParseTemplateJSON(tc.raw); !errors.Is(err, ErrInvalidTemplate) {
@@ -324,6 +332,8 @@ func TestValidateTemplateOverrides(t *testing.T) {
 		{"非法 JSON", `{`},
 		{"领域非法", `{"subject":"x","body":"没有必需变量"}`},
 		{"未知字段", `{"subject":"x","body":"{{reset_url}}","extra":1}`},
+		{"大小写变体", `{"Subject":"x","Body":"{{reset_url}}"}`},
+		{"重复字段", `{"subject":"x","body":"{{reset_url}}","body":"y"}`},
 	} {
 		cfg := map[string]string{ConfigKeyPasswordReset: tc.raw}
 		if err := ValidateTemplateOverrides(cfg); !errors.Is(err, ErrInvalidTemplate) {

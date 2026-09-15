@@ -331,5 +331,103 @@ describe('MailTemplateCard', () => {
     expect(wrapper.text()).toContain('默认文案')
   })
 
+  it('新预览请求开始后立即清空旧预览，只允许最新结果落地', async () => {
+    const wrapper = mount(MailTemplateCard)
+    await flushPromises()
+    expect(wrapper.text()).toContain('预览主题')
+
+    let resolveSecond: (value: any) => void = () => {}
+    vi.mocked(previewMailTemplate).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSecond = resolve
+    }))
+    await wrapper.find('input[aria-label="邮件主题"]').setValue('第二次预览')
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 310))
+    await flushPromises()
+
+    // 请求已开始但未返回，旧预览必须已清空。
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('预览主题')
+
+    resolveSecond({ subject: '第二次预览结果', text_body: 'second', html_body: '<p>second</p>' })
+    await flushPromises()
+    expect(wrapper.text()).toContain('第二次预览结果')
+  })
+
+  it('组件卸载时清空 debounce 定时器，不再发起预览请求', async () => {
+    const wrapper = mount(MailTemplateCard)
+    await flushPromises()
+    vi.mocked(previewMailTemplate).mockClear()
+    vi.useFakeTimers()
+    try {
+      await wrapper.find('input[aria-label="邮件主题"]').setValue('卸载前修改')
+      await nextTick()
+      wrapper.unmount()
+      vi.advanceTimersByTime(400)
+      await flushPromises()
+      expect(previewMailTemplate).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('切换分支取消时保留当前分支与未保存草稿', async () => {
+    const wrapper = mount(MailTemplateCard)
+    await flushPromises()
+    const confirmOptions: any[] = []
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      confirmOptions.push(options)
+      return {} as any
+    })
+    await wrapper.find('input[aria-label="邮件主题"]').setValue('未保存主题')
+    await nextTick()
+
+    const select = wrapper.findComponent(AppSelect).findComponent(Select)
+    select.vm.$emit('change', 'approval_approved')
+    await nextTick()
+    expect(confirmOptions).toHaveLength(1)
+    expect(confirmOptions[0].cancelText).toBe('继续编辑')
+    expect(typeof confirmOptions[0].onOk).toBe('function')
+
+    // 模拟“继续编辑”：不执行 onOk，分支与草稿均不得变化。
+    await flushPromises()
+    expect(select.props('value')).toBe('password_reset')
+    expect((wrapper.find('input[aria-label="邮件主题"]').element as HTMLInputElement).value).toBe('未保存主题')
+    confirmSpy.mockRestore()
+  })
+
+  it('恢复默认失败时保留自定义草稿与状态', async () => {
+    vi.mocked(getMailTemplates).mockResolvedValueOnce({
+      templates: [
+        { ...templates[0], state: 'customized', subject: '自定义主题', body: '自定义正文 {{reset_url}}' },
+        ...templates.slice(1),
+      ],
+      limits: { subject: 200, body: 10000 },
+      preview_values: {
+        site_name: '示例站点',
+        login_url: 'https://example.invalid/login?source=preview',
+        reset_url: 'https://example.invalid/reset/example-token?source=preview',
+      },
+    } as any)
+    const wrapper = mount(MailTemplateCard)
+    await flushPromises()
+    vi.mocked(restoreMailTemplate).mockRejectedValueOnce(new Error('恢复失败'))
+    const confirmOptions: any[] = []
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      confirmOptions.push(options)
+      return {} as any
+    })
+    const restoreButton = wrapper.findAll('button').find((item) => item.text().includes('恢复默认'))
+    await restoreButton!.trigger('click')
+    await nextTick()
+    expect(confirmOptions).toHaveLength(1)
+
+    await confirmOptions[0].onOk()
+    await flushPromises()
+    expect(restoreMailTemplate).toHaveBeenCalledWith('password_reset')
+    expect((wrapper.find('input[aria-label="邮件主题"]').element as HTMLInputElement).value).toBe('自定义主题')
+    expect(wrapper.text()).toContain('已自定义')
+    confirmSpy.mockRestore()
+  })
 
 })

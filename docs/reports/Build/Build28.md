@@ -25,7 +25,7 @@
 | frontend/src/views/admin/SettingsView.vue、frontend/src/api/settings.ts | 只有 SMTP 连接设置、启用范围与固定测试邮件 | 增加单分支编辑、变量插入、即时预览、草稿保护和状态/错误提示 |
 | 配置导入导出、备份 | 邮件模板覆盖需随配置迁移和完整备份保留 | 验证模板覆盖保留与缺键默认 |
 
-**边界：** 不改整站迁移、SMTP 服务商/认证合同、连接测试邮件、营销群发、通知种类、Xray 专项或 SecurityScanPlan1。正式 SMTP 投递、真实收件箱、邮件客户端链接表现及浏览器人工验收是独立证据，不以单元测试冒充。除计划本身外，尚未取得 Step 0.5～8 的执行授权。
+**边界：** 不改整站迁移、SMTP 服务商/认证合同、连接测试邮件、营销群发、通知种类、Xray 专项或 SecurityScanPlan1。正式 SMTP 投递、真实收件箱、邮件客户端链接表现及浏览器人工验收是独立证据，不以单元测试冒充。Step 0.5～8 已于 2026-09-15 获用户一次性授权并完成工程实现、联合门禁与归档；正式人工项仍以 [ProdTestList.md](../../../ProdTestList.md) 为准。
 
 ---
 
@@ -298,6 +298,7 @@ type Rendered struct { Subject, TextBody, HTMLBody string }
   - `cd backend && go vet ./...` → 退出码 0。
   - `gofmt -l`（4 个修改文件）→ 无输出；`git diff --check` → 无输出。
 - **验收标准逐项结论：** 五分支默认值/顺序/配置键/变量/scope、边界长度、CRLF 先后顺序、控制字符、未知/未闭合/跨分支占位符、必需变量重复与缺失、严格 JSON、三态、单键覆盖/恢复、数据库错误、保存不触碰其他分支/scope/`smtp_password` 均已由测试覆盖并通过。
+  - **归档后补强（2026-09-15）：** `ParseTemplateJSON` 改为 token 级严格解析，补大小写变体、重复字段与合法尾随空白测试。
 - **残余边界：** 尚未实现渲染、MIME、真实发送、管理 API、前端卡片、导入回调和备份测试；`SendWelcome` 等仍使用旧文案路径，待 Step 2～7 处理。
 - **对后续 Step 的影响：** Step 2 可直接复用 `TemplateKind`/`TemplateDefinition`/`Template`/`ValidateTemplate`/`NormalizeTemplate`/`TemplateView`；无需改 Step 1 合同。
 
@@ -364,7 +365,8 @@ type Rendered struct { Subject, TextBody, HTMLBody string }
   - `cd backend && go build ./...` → 退出码 0。
   - `cd backend && go vet ./...` → 退出码 0。
   - `gofmt -l backend/internal/mail/*.go` → 无输出；`git diff --check` → 无输出。
-- **验收标准逐项结论：** 实际字节通过 `net/mail`、`multipart.NewReader` 的 `NextRawPart`、`quotedprintable` 和 x/net/html DOM 解析验证；覆盖顶层 multipart/alternative、唯一 boundary、部分顺序/类型/charset/CTE、CRLF、完整结束边界、200 个中文 rune 主题、10,000 字符模板正文解码、href/可见文字/纯文本三处一致、无 CID/附件/图片/脚本/远程资源；`SendTest` 仍为固定单一 text/plain；现有 STARTTLS/plain 定向测试继续通过。
+- **验收标准逐项结论：** 实际字节通过 `net/mail`、`multipart.NewReader` 的 `NextRawPart`、`quotedprintable` 和 x/net/html DOM 解析验证；覆盖顶层 multipart/alternative、唯一 boundary、部分顺序/类型/charset/CTE、CRLF、完整结束边界、200 个中文 rune 主题、10,000 字符模板正文解码、href/可见文字/纯文本三处一致、无 CID/附件/图片/脚本/远程资源；`SendTest` 仍为固定单一 text/plain；现有 STARTTLS/plain 与新增 implicit TLS 定向测试继续通过。
+  - **归档后补强（2026-09-15）：** 新增 `backend/internal/mail/implicit_tls_test.go`；`Service` 仅增加测试可注入 `tlsConfig`，默认生产行为不变；本地自签 TLS mock 验证 implicit TLS 从连接即 TLS 且不发送 STARTTLS。
 - **残余边界：** 五类业务入口仍使用 Step 2 前的纯文本 `Send`；`sendMultipart` 尚未接入真实业务分支，留待 Step 4。
 - **对后续 Step 的影响：** Step 4 的所有业务邮件必须调用 `sendMultipart`（不得绕回报文字符串拼接）；审批通过/拒绝、本地/OIDC 欢迎和密码重置只需负责选择模板与传入实际值。
 
@@ -426,6 +428,7 @@ type Rendered struct { Subject, TextBody, HTMLBody string }
   - `cd backend && go build ./...` → 退出码 0；`go vet ./...` → 退出码 0。
   - `gofmt -l` 相关目录 → 无输出；`git diff --check` → 无输出。
 - **验收标准逐项结论：** 401/403/400/413/500、no-store、GET 顺序/limits/变量元数据/固定预览值、单项 damaged 200 且不回显坏值、PUT/DELETE 目标键隔离、DELETE 幂等、preview 零写库、原 SMTP GET 保持 200 均已覆盖。
+  - **归档后补强（2026-09-15）：** `decodeMailTemplateRequest` 复用 `mail.ParseTemplateJSON`，并补 64 KiB 精确边界及大小写/重复/未知/非字符串 HTTP 负向测试。
 - **残余边界：** 前端卡片、导入回调、备份内容测试尚未实现；Step 6/7 仍待完成。
 - **对后续 Step 的影响：** 前端 Step 6 直接对接四路由；Step 7 只需把 `mail.ValidateTemplateOverrides` 注入导出服务。
 
@@ -452,9 +455,10 @@ type Rendered struct { Subject, TextBody, HTMLBody string }
 - **实际命令与结果：**
   - 修复前：`npm test -- tests/mail-template-card.spec.ts --reporter=dot` → FAIL（组件缺失）。
   - 修复后：`cd frontend && npm run build` → `vue-tsc -b` 与 Vite 构建成功，`✓ built`。
-  - `npm test -- tests/mail-template-card.spec.ts tests/settings-view.spec.ts --reporter=dot` → 2 个文件、34 个测试全部通过。
+  - `npm test -- tests/mail-template-card.spec.ts tests/settings-view.spec.ts --reporter=dot` → 2 个文件、38 个测试全部通过（含归档后补强用例）。
   - `git diff --check` → 无输出。
 - **验收标准逐项结论：** 首次读取/重试、五分支顺序与元数据、光标和末尾插入、299/300 ms、后发先至、错误清旧预览、切换丢弃确认、保存成功/失败、恢复默认确认、damaged 警示、sandbox、dirty 事件、卡片位于 SMTP 之后、通知说明更新、父页加载竞态和 memory router 离开保护均已覆盖。
+  - **归档后补强（2026-09-15）：** 新增组件卸载清定时器、切换继续编辑、恢复失败保留草稿、请求开始清旧预览测试；前端定向 2 文件 38 项、全量 47 文件 311 项通过。
 - **残余边界：** 尚未做真实浏览器人工核验；Step 7 导入导出与 Step 8 联合门禁仍待完成。
 - **对后续 Step 的影响：** Step 8 的前端全量测试将覆盖新增卡片；真实浏览器行为写入 ProdTestList。
 
@@ -495,13 +499,13 @@ type Rendered struct { Subject, TextBody, HTMLBody string }
 
 #### Step 8 执行记录（2026-09-15）
 
-- **实际修改文件：** 新增 `backend/internal/server/mail_template_smoke_test.go`（隔离临时库 + 本地 SMTP mock smoke）；本记录与后续文档同步修改 `Build28.md`、`Design5.md`、`AGENTS.md`、`ProdTestList.md`。
+- **实际修改文件：** 新增 `backend/internal/server/mail_template_smoke_test.go`（隔离临时库 + 本地 SMTP mock smoke）；本记录与后续文档同步修改 `Build28.md`、`Design5.md`、`AGENTS.md`、`ProdTestList.md`、`ExportRelated1.md`。
 - **联合门禁：**
   - `cd backend && go build ./...` → 退出码 0。
   - `cd backend && go vet ./...` → 退出码 0。
   - `cd backend && go test ./... -count=1` → 全部包通过（包含新增 smoke）。
   - `cd frontend && npm run build` → `vue-tsc -b` + Vite `✓ built`。
-  - `cd frontend && npm test -- --reporter=dot` → 47 个文件、307 个测试全部通过。
+  - `cd frontend && npm test -- --reporter=dot` → 47 个文件、311 个测试全部通过（含归档后补强用例）。
 - **隔离 smoke（`TestMailTemplateIsolatedSmoke`）：** 使用临时 SQLite 全量迁移库与 `127.0.0.1` 本地 SMTP mock；覆盖管理 API 保存/预览、预览零写库、审批通过实际 MIME 报文、审批通过仅一封、配置 `Export → Import` 五键模板覆盖保留；未使用真实 SMTP、真实收件箱或外部持久数据。
 - **静态与工作区门禁：**
   - `test -d backend/internal/mail`、`test -d frontend/src/components/settings` 通过。
@@ -540,3 +544,4 @@ type Rendered struct { Subject, TextBody, HTMLBody string }
 | v0.4 | 2026-09-14 | 清理独立配置导出问题对本计划的引用，保留邮件模板导入导出与备份的既定验收范围。 |
 | v0.5 | 2026-09-15 | 实施定稿：固定五个模板 ID/配置键/默认值、严格 JSON 与长度/变量校验、三态回退、统一渲染和 MIME 算法、管理 API、发送矩阵、前端草稿状态机、导入/备份接线及文件级测试验收；仍未授权代码构建。 |
 | v0.6 | 2026-09-15 | 当前项目复核定稿：确认导入 A 方案，仅校验五个已知模板键且不处理全局未知键偏差；补齐 user 三个生产调用点与安全日志、独立 dirty 竞态、API JSON DTO、直接 URL userinfo 拒绝、测试邮件编码边界及不会误杀测试的静态门禁；仍未授权代码构建。 |
+| v0.7 | 2026-09-15 | 用户一次性授权后完成 Step 0.5～8 工程实现、逐步验收、联合门禁与隔离 smoke 并归档；归档后补充严格 JSON 解析、implicit TLS、前端组件边界、smoke 五键及 64 KiB/API 负向回归，并同步状态文档。 |

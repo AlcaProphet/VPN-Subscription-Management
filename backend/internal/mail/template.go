@@ -278,27 +278,69 @@ func isPlaceholderName(name string) bool {
 	return true
 }
 
-type templateJSON struct {
-	Subject *string `json:"subject"`
-	Body    *string `json:"body"`
+// ParseTemplateJSON 严格解析持久化 JSON：只接受 subject/body 两个必需字符串字段。
+// 字段名大小写敏感；重复字段、未知字段、缺字段、尾随值和错误类型均拒绝。
+func ParseTemplateJSON(raw string) (Template, error) {
+	return parseTemplateJSONDecoder(json.NewDecoder(strings.NewReader(raw)))
 }
 
-// ParseTemplateJSON 严格解析持久化 JSON：只接受 subject/body 两个必需字符串字段。
-func ParseTemplateJSON(raw string) (Template, error) {
-	dec := json.NewDecoder(strings.NewReader(raw))
-	dec.DisallowUnknownFields()
-	var in templateJSON
-	if err := dec.Decode(&in); err != nil {
+func parseTemplateJSONDecoder(dec *json.Decoder) (Template, error) {
+	first, err := dec.Token()
+	if err != nil {
 		return Template{}, fmt.Errorf("%w：模板 JSON 非法", ErrInvalidTemplate)
 	}
-	if in.Subject == nil || in.Body == nil {
+	open, ok := first.(json.Delim)
+	if !ok || open != '{' {
+		return Template{}, fmt.Errorf("%w：模板 JSON 必须为对象", ErrInvalidTemplate)
+	}
+	var out Template
+	seen := make(map[string]bool, 2)
+	for dec.More() {
+		keyToken, err := dec.Token()
+		if err != nil {
+			return Template{}, fmt.Errorf("%w：模板 JSON 非法", ErrInvalidTemplate)
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return Template{}, fmt.Errorf("%w：模板 JSON 字段名非法", ErrInvalidTemplate)
+		}
+		if seen[key] {
+			return Template{}, fmt.Errorf("%w：模板 JSON 存在重复字段", ErrInvalidTemplate)
+		}
+		seen[key] = true
+		switch key {
+		case "subject":
+			var value *string
+			if err := dec.Decode(&value); err != nil || value == nil {
+				return Template{}, fmt.Errorf("%w：模板 JSON 的 subject 必须为字符串", ErrInvalidTemplate)
+			}
+			out.Subject = *value
+		case "body":
+			var value *string
+			if err := dec.Decode(&value); err != nil || value == nil {
+				return Template{}, fmt.Errorf("%w：模板 JSON 的 body 必须为字符串", ErrInvalidTemplate)
+			}
+			out.Body = *value
+		default:
+			return Template{}, fmt.Errorf("%w：模板 JSON 存在未知字段", ErrInvalidTemplate)
+		}
+	}
+	closeToken, err := dec.Token()
+	if err != nil {
+		return Template{}, fmt.Errorf("%w：模板 JSON 非法", ErrInvalidTemplate)
+	}
+	closeDelim, ok := closeToken.(json.Delim)
+	if !ok || closeDelim != '}' {
+		return Template{}, fmt.Errorf("%w：模板 JSON 非法", ErrInvalidTemplate)
+	}
+	if !seen["subject"] || !seen["body"] {
 		return Template{}, fmt.Errorf("%w：模板 JSON 缺少 subject 或 body", ErrInvalidTemplate)
 	}
-	var extra any
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+	// 只允许尾随空白；再出现任何 JSON token 均视为尾随内容。
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return Template{}, fmt.Errorf("%w：模板 JSON 存在尾随内容", ErrInvalidTemplate)
 	}
-	return Template{Subject: *in.Subject, Body: *in.Body}, nil
+	return out, nil
 }
 
 // LoadTemplate 读取并校验单分支覆盖：

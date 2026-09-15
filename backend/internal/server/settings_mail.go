@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -120,33 +119,18 @@ func (h *SettingsHandler) previewMailTemplate(c *gin.Context) {
 }
 
 // decodeMailTemplateRequest 严格解析 {subject, body}，并执行 64 KiB MaxBytesReader 限制。
+// 请求体读取失败（含超限）原样返回，便于上层映射 413；解析统一复用 mail.ParseTemplateJSON。
 func decodeMailTemplateRequest(c *gin.Context) (mail.Template, error) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxMailTemplateBodyBytes)
-	dec := json.NewDecoder(c.Request.Body)
-	dec.DisallowUnknownFields()
-	var req struct {
-		Subject *string `json:"subject"`
-		Body    *string `json:"body"`
-	}
-	if err := dec.Decode(&req); err != nil {
+	data, err := io.ReadAll(c.Request.Body)
+	if err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			return mail.Template{}, maxErr
 		}
-		return mail.Template{}, fmt.Errorf("%w：请求 JSON 非法", mail.ErrInvalidTemplate)
+		return mail.Template{}, fmt.Errorf("%w：请求读取失败", mail.ErrInvalidTemplate)
 	}
-	if req.Subject == nil || req.Body == nil {
-		return mail.Template{}, fmt.Errorf("%w：请求必须包含 subject 与 body", mail.ErrInvalidTemplate)
-	}
-	var extra any
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			return mail.Template{}, maxErr
-		}
-		return mail.Template{}, fmt.Errorf("%w：请求存在尾随内容", mail.ErrInvalidTemplate)
-	}
-	return mail.Template{Subject: *req.Subject, Body: *req.Body}, nil
+	return mail.ParseTemplateJSON(string(data))
 }
 
 func mapMailTemplateRequestErr(c *gin.Context, err error) {

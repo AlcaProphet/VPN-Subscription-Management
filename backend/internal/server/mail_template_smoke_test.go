@@ -131,14 +131,20 @@ func TestMailTemplateIsolatedSmoke(t *testing.T) {
 	}
 	adminToken := regUser(t, srv, "smoke-admin", "smoke-admin@example.com", "password123")
 
-	custom := map[string]string{"subject": "审批通过自定义", "body": "请点击登录：{{login_url}}"}
-	w := profileReq(t, srv, http.MethodPut, "/api/admin/settings/mail-templates/approval_approved", adminToken, custom)
-	if w.Code != http.StatusOK {
-		t.Fatalf("保存模板应 200: %d %s", w.Code, w.Body.String())
+	customTemplates := make(map[mail.TemplateKind]mail.Template, len(mail.Definitions()))
+	for _, def := range mail.Definitions() {
+		tpl := mail.Template{Subject: "smoke-" + string(def.ID), Body: def.Default.Body}
+		customTemplates[def.ID] = tpl
+		w := profileReq(t, srv, http.MethodPut, "/api/admin/settings/mail-templates/"+string(def.ID), adminToken,
+			map[string]string{"subject": tpl.Subject, "body": tpl.Body})
+		if w.Code != http.StatusOK {
+			t.Fatalf("保存模板 %s 应 200: %d %s", def.ID, w.Code, w.Body.String())
+		}
 	}
+	custom := customTemplates[mail.TemplateApprovalApproved]
 
 	beforeCount := serverConfigCount(t, srv)
-	w = profileReq(t, srv, http.MethodPost, "/api/admin/settings/mail-templates/password_reset/preview", adminToken,
+	w := profileReq(t, srv, http.MethodPost, "/api/admin/settings/mail-templates/password_reset/preview", adminToken,
 		map[string]string{"subject": "重置预览", "body": "请打开 {{reset_url}}"})
 	if w.Code != http.StatusOK {
 		t.Fatalf("预览应 200: %d %s", w.Code, w.Body.String())
@@ -180,7 +186,7 @@ func TestMailTemplateIsolatedSmoke(t *testing.T) {
 		t.Fatal("未在超时内收到审批通过邮件")
 	}
 	subject, textBody := readSmokeTextPart(t, rawMsg)
-	if subject != "审批通过自定义" || !strings.Contains(textBody, "https://app.example.com") {
+	if subject != custom.Subject || !strings.Contains(textBody, "https://app.example.com") {
 		t.Fatalf("实际 MIME 内容异常: subject=%q body=%q", subject, textBody)
 	}
 	select {
@@ -212,8 +218,11 @@ func TestMailTemplateIsolatedSmoke(t *testing.T) {
 		t.Fatalf("配置往返导入失败: %v", err)
 	}
 	targetMail := mail.NewService(targetCfg, log.New("error", "console"))
-	tpl, state, err := targetMail.LoadTemplate(ctx, mail.TemplateApprovalApproved)
-	if err != nil || state != mail.TemplateStateCustomized || tpl.Subject != custom["subject"] || tpl.Body != custom["body"] {
-		t.Fatalf("配置往返后模板覆盖未保留: tpl=%+v state=%s err=%v", tpl, state, err)
+	for _, def := range mail.Definitions() {
+		want := customTemplates[def.ID]
+		tpl, state, err := targetMail.LoadTemplate(ctx, def.ID)
+		if err != nil || state != mail.TemplateStateCustomized || tpl != want {
+			t.Fatalf("配置往返后 %s 模板覆盖未保留: got=%+v want=%+v state=%s err=%v", def.ID, tpl, want, state, err)
+		}
 	}
 }
