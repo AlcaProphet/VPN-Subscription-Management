@@ -619,3 +619,47 @@ func TestOidcUsableWithStoredSecret(t *testing.T) {
 	}
 	_ = io.Discard // 占位避免未使用（io 供后续扩展）
 }
+
+// TestR3102SaveOidcRejectsHTTPBaseURL 写入口必须在任何配置写入前拒绝 HTTP Base URL。
+func TestR3102SaveOidcRejectsHTTPBaseURL(t *testing.T) {
+	mock := &mockOidcOps{configured: true, secret: "cipher"}
+	st, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	err := svc.SaveOidc(ctx, OidcSettings{
+		ProviderType: "generic", BaseURL: "http://idp.example.com", ClientID: "c", ClientSecret: "s",
+	})
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("HTTP Base URL 应被 ErrBadRequest 拒绝，实际: %v", err)
+	}
+	if len(mock.saveCalls) != 0 {
+		t.Fatalf("拒绝后不应调用 SaveParams，实际 %d 次", len(mock.saveCalls))
+	}
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM system_config WHERE key LIKE 'oidc_%'`).Scan(&count); err != nil {
+		t.Fatalf("查询 OIDC 配置失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("拒绝后不应写入 OIDC 配置，实际 %d 个键", count)
+	}
+}
+
+// TestR3102SaveLocalAuthRejectsHTTPOidcBaseURL 已有 HTTP OIDC 配置时，不得关闭本地登录形成死锁。
+func TestR3102SaveLocalAuthRejectsHTTPOidcBaseURL(t *testing.T) {
+	mock := &mockOidcOps{
+		configured: true,
+		params: map[string]mockOidcParams{
+			"generic": {baseURL: "http://idp.example.com", clientID: "c", secret: "cipher"},
+		},
+	}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("HTTP OIDC Base URL 不得作为关闭本地登录的依据，实际: %v", err)
+	}
+	if !svc.cfg.GetBool(ctx, KeyAllowLocalLogin, true) {
+		t.Fatal("拒绝时不应关闭本地登录")
+	}
+}

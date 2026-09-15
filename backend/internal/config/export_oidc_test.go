@@ -45,3 +45,33 @@ func TestValidateImportedAuthUsableRejectsDamagedOidcSecret(t *testing.T) {
 		t.Fatalf("本地登录开启时不应拒绝: %v", err)
 	}
 }
+
+// TestR3102ValidateImportedAuthUsableHTTPBaseURL 导入路径：本地登录关闭时必须拒绝 HTTP Base URL；
+// 本地登录开启时按既定策略放行，由运行时 OIDC 守卫阻止真实 HTTP 请求。
+func TestR3102ValidateImportedAuthUsableHTTPBaseURL(t *testing.T) {
+	signingKey := "import-http-test-signing-key"
+	validCipher, err := Encrypt([]byte("oidc-secret"), []byte(signingKey))
+	if err != nil {
+		t.Fatalf("加密测试 Secret 失败: %v", err)
+	}
+	build := func(allowLocal, baseURL string) map[string]string {
+		return map[string]string{
+			KeyConfigured:        "true",
+			KeyAllowLocalLogin:   allowLocal,
+			KeySigningKey:        signingKey,
+			"oidc_provider_type": "generic",
+			"oidc_params_generic": fmt.Sprintf(
+				`{"base_url":%q,"client_id":"client","client_secret":%q}`, baseURL, validCipher),
+		}
+	}
+
+	if err := ValidateImportedAuthUsable(build("false", "http://idp.example.com")); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("本地登录关闭且 HTTP Base URL 应被 ErrAuthDeadlock 拒绝，实际: %v", err)
+	}
+	if err := ValidateImportedAuthUsable(build("false", "https://idp.example.com")); err != nil {
+		t.Fatalf("本地登录关闭且 HTTPS Base URL 不应被拒绝: %v", err)
+	}
+	if err := ValidateImportedAuthUsable(build("true", "http://idp.example.com")); err != nil {
+		t.Fatalf("本地登录开启时按既定策略不应拒绝: %v", err)
+	}
+}

@@ -12,7 +12,16 @@
 - **核查补充：** 测试连接路径已对发现文档地址和 token endpoint 调用 `validateOIDCURL`，但真实 `StartFlow` / `Exchange` 共用的 `fetchDiscovery` 未校验，`getJWKS` 也未校验。`CheckRedirect` 只覆盖后续重定向，不覆盖初始请求；当前 `ProxyFromEnvironment` 还需核对代理转发时公网 IP 检查是否仍作用于目标地址。
 - **拟议修复方案：** 在真实流程所有初始出站请求前复用统一的 HTTPS/语法校验；解析发现文档后在缓存前校验授权、token、JWKS 地址，且在实际请求处再次守卫；保持每次重定向的 HTTPS 校验。建议 OIDC 专用客户端禁用 `ProxyFromEnvironment`，使现有拨号时 DNS/公网 IP 检查实际作用于目标主机；如部署确需代理，应另行设计可验证的目标地址限制。对 `base_url` 在 Setup/保存时提前拒绝不合规输入。用隔离 mock/本地受控 HTTP 客户端覆盖 HTTP 初始地址、HTTPS 发现文档夹带 HTTP endpoint、重定向降级、缓存命中与代理边界；真实 OIDC 登录仅在隔离环境核验。
 - **方案核验补充（2026-09-15）：** `Exchange` 的 token POST 含明文 Client Secret；现有 `CheckRedirect` 只要求跳转目标为 HTTPS，允许 HTTPS 跨主机跳转。即使完成上述 HTTPS 校验，仍可能把 Secret 转发给另一主机。token 请求必须另设不转发 Secret 的重定向边界：禁止重定向，或仅允许经明确校验的同源重定向；不能仅复用通用的 HTTPS 重定向规则。实施前需确定采用哪种策略，并分别测试同源/跨源 HTTPS 跳转、HTTP 降级及目标端未收到 Secret；测试连接的凭据请求也须同口径。
-- **状态：** ☐ 待单独授权修复。
+- **已实施修复（2026-09-15，用户确认后按串行顺序实施）：**
+  1. 新增 `internal/urlguard.ValidateHTTPS`，统一 OIDC 地址的 HTTPS/语法校验。真实流程在初始 `.well-known` 请求前、discovery 解析后写缓存前校验 authorization/token/JWKS endpoint，并在 `StartFlow` 返回授权 URL 前、`Exchange` 发 token POST 前、`getJWKS` 发请求/命中缓存前再次守卫。
+  2. `SaveOidc`、Setup、`SaveParams`/`SaveParamsTx` 对真实提供商非空 `base_url` 提前拒绝 HTTP；`oidcUsable`/`oidcAvailable` 同步要求真实提供商 base_url 为 HTTPS，防止已有 HTTP 配置被用来关闭本地登录形成死锁。
+  3. 经用户确认的 token 凭据重定向策略为**禁止任何重定向**：`Exchange` 与测试连接 `client_credentials` 统一走 `doCredentialRequest`，任何 3xx 都在发出下一跳前失败；307/308 不会重放含明文 Client Secret 的 body，HTTPS 降级也不会跟随。同源重定向同样按该策略拒绝。
+  4. 导入策略按用户确认采用“仅本地登录关闭时拒绝非 HTTPS base_url”；本地登录开启时仍允许导入，但真实登录/绑定/测试连接会被运行时守卫拦截。该检查由 v1/v2、Setup/管理端导入共同复用。
+  5. 代理策略按用户确认维持 [SecurityReport1.md](docs/reports/SecurityReport/SecurityReport1.md) D-F06-2：继续使用 `ProxyFromEnvironment`，经代理时目标 DNS/公网 IP 校验不生效，代理可信作为部署边界；代码注释已明确残余边界，部署层可用 `NO_PROXY` 让 OIDC 目标直连并恢复目标 IP 校验。
+- **残余边界：** OIDC Discovery 标准允许 authorization/token/JWKS 与 issuer 不同 HTTPS 源；本轮继续信任配置的 discovery 来源，不增加跨源 endpoint 白名单。若 discovery 自身被恶意控制或跨源跳转到恶意文档，仍可能声明另一 HTTPS token 主机；这不属于“HTTP/重定向泄露 Secret”的修复范围，如需收紧需单独立项。
+- **自动化证据（2026-09-15）：** 新增 `internal/oidc/r31_02_test.go`、`internal/urlguard` 单测及 config/server 写入口回归；覆盖 HTTP 初始地址 0 网络请求、HTTPS discovery 夹带 HTTP authorization/token/JWKS 时拒绝且不缓存、合法 discovery 缓存命中、缓存中恶意 endpoint 在 `StartFlow`/`Exchange` 实际使用点被拒绝、token POST HTTPS→HTTP 降级/跨源 307/308/同源 307 均被拒绝且目标端 0 命中/未收到 Secret、测试连接 HTTP endpoint 拒绝、非公网 IP 拨号拒绝，以及 `SaveOidc`/Setup/导入/关闭本地登录锁死保护的入口与状态码。`cd backend && go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...` 均通过；改动包 `go test -race ./internal/oidc ./internal/config ./internal/server ./internal/urlguard` 通过。
+- **真实 IdP 验收边界：** 上述均为隔离 HTTP/TLS 端点自动化证据，不等同于真实 IdP 登录验收。本环境没有真实 IdP，未执行真实授权码/PKCE 登录；该项保持“待隔离环境人工验收”，需在提供隔离 IdP 的 discovery/client/回调信息后单独记录。
+- **状态：** ☑ R31-02 代码与自动化隔离验证完成；真实 IdP 登录待隔离环境人工验收。
 
 ## 二、R31-03 提供商切换仍可能混合非 Secret 字段（中）
 
@@ -80,7 +89,7 @@
 
 ## 七、处理建议
 
-1. R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪；R31-02 仍在本文件独立跟踪，修复授权不与 R30-05 混批。
+1. R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪；R31-02 已按用户单独授权修复并完成自动化隔离验证，真实 IdP 登录待隔离环境人工验收，不与 R30-05 混批。
 2. R31-03 字段语义已确认；实施时增加按目标提供商读取能力，并在后端限制旧 Secret 仅能与原地址/Realm/Client ID 组合复用。
 3. R31-04 的损坏范围、签名密钥故障边界及修复合同已确认，仍待单独授权实施；R31-05 的导入入口与即时地址合同已确认，实施时分别核对导入和 OIDC 登录路径；R31-06 的现有 Production 导入拒绝与 Design5 整站恢复边界已确认，安全修复不等待整站迁移；R31-07 的持久化停用与既有会话边界已确认，仍待单独授权实施。
 
@@ -100,3 +109,4 @@
 | v1.7 | 2026-09-15 | 按用户确认 R31-06：现有 Production 配置导入遇任何 mock 配置整体拒绝；未来 Design5 整站导出/导入仅限 Production，恢复前拒绝非 Production 来源与 mock 配置；代码未实施。 |
 | v1.8 | 2026-09-15 | 按用户确认 R31-07：暂未启用须保存落库、保留提供商参数、阻断新的 OIDC 登录/绑定及进行中流程；既有会话保持至自然过期或按既有规则失效。补充事务防锁死、界面与验收合同；代码未实施。 |
 | v1.9 | 2026-09-15 | 核验 R31-02/03/05/07 方案并补充 token 凭据重定向、切换提供商时进行中流程、独立回调地址清除/路径、停用后旧 state/票据不可恢复及并发验收边界；未确定的实现策略保持待决，代码未实施。 |
+| v2.0 | 2026-09-15 | 按用户确认实施 R31-02：统一 HTTPS 校验、discovery endpoint 缓存前校验与实际使用点守卫、token 凭据 POST 禁止重定向、Setup/管理端保存/导入/锁死保护；新增隔离端点自动化证据；代理维持 D-F06-2，真实 IdP 登录待隔离环境人工验收。 |

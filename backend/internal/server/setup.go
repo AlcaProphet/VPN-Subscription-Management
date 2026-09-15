@@ -12,6 +12,7 @@ import (
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/setup"
+	"vpn-sub/internal/urlguard"
 )
 
 // SetupHandler Setup 端点处理器（接入层）
@@ -78,6 +79,12 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "提供商类型无效")
 		return
 	}
+	if req.ProviderType != "mock" && req.BaseURL != "" {
+		if err := urlguard.ValidateHTTPS(req.BaseURL); err != nil {
+			Fail(c, http.StatusBadRequest, "OIDC Base URL 必须是 HTTPS 地址: "+err.Error())
+			return
+		}
+	}
 	if req.ClientSecret == config.MaskedSecret {
 		Fail(c, http.StatusBadRequest, "不能将脱敏占位符保存为 Client Secret，请重新输入")
 		return
@@ -109,6 +116,10 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, setup.ErrAlreadyConfigured) {
 			Fail(c, http.StatusConflict, "系统已完成配置")
+			return
+		}
+		if errors.Is(err, config.ErrBadRequest) {
+			Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
 		Fail(c, http.StatusInternalServerError, err.Error())

@@ -24,6 +24,7 @@ import (
 
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/tasks"
+	"vpn-sub/internal/urlguard"
 )
 
 const (
@@ -641,6 +642,11 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	}
 	if p.BaseURL == "" || p.ClientID == "" || p.ClientSecret == "" {
 		return ErrAuthDeadlock
+	}
+	if providerType != "mock" {
+		if err := urlguard.ValidateHTTPS(p.BaseURL); err != nil {
+			return fmt.Errorf("%w: 导入的 OIDC Base URL 必须是 HTTPS 地址: %v", ErrAuthDeadlock, err)
+		}
 	}
 	// OIDC Secret 是库内密文：本地登录关闭时，必须用导入包的签名密钥确认解密后可用，
 	// 避免把历史占位符/无法解密的密文导入成“认证看似可用、实际死锁”的状态。

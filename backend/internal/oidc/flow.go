@@ -53,6 +53,12 @@ func (s *Service) StartFlow(ctx context.Context, intent string, bindUserID int64
 	if err != nil {
 		return "", "", err
 	}
+	// 实际使用点再守卫：mock 无真实网络请求，真实提供商必须使用 HTTPS 授权端点。
+	if s.cfg.GetOr(ctx, KeyProviderType) != "mock" {
+		if err := validateOIDCURL(disc.AuthorizationEndpoint); err != nil {
+			return "", "", fmt.Errorf("授权端点地址校验失败: %w", err)
+		}
+	}
 	q := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {p.ClientID},
@@ -150,6 +156,9 @@ func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (
 	if err != nil {
 		return nil, err
 	}
+	if err := validateOIDCURL(disc.TokenEndpoint); err != nil {
+		return nil, fmt.Errorf("token 端点地址校验失败: %w", err)
+	}
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -165,7 +174,7 @@ func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (
 		return nil, fmt.Errorf("构造 token 请求失败: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := s.httpCli.Do(req)
+	resp, err := s.doCredentialRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("token 端点不可达: %w", err)
 	}

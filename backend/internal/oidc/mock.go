@@ -162,8 +162,8 @@ func (s *Service) fetchDiscoveryWithParams(ctx context.Context, providerType str
 	if err := json.Unmarshal(body, &disc); err != nil {
 		return nil, fmt.Errorf("解析发现文档失败: %w", err)
 	}
-	if disc.AuthorizationEndpoint == "" || disc.TokenEndpoint == "" {
-		return nil, errors.New("发现文档缺少必要端点")
+	if err := validateDiscoveryEndpoints(&disc); err != nil {
+		return nil, err
 	}
 	return &disc, nil
 }
@@ -183,7 +183,7 @@ func (s *Service) verifyClientCredentials(ctx context.Context, tokenEndpoint str
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := s.httpCli.Do(req)
+	resp, err := s.doCredentialRequest(req)
 	if err != nil {
 		return err
 	}

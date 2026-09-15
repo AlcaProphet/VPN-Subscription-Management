@@ -1,4 +1,4 @@
-# TODOLIST.md — 短期待办跟踪（2026-09-14）
+# TODOLIST.md — 短期待办跟踪（2026-09-15）
 
 > 本文件只保留当前仍需处理的短期事项。已完成的构建、修复、自动化验证和人工验收不在此重复记录。
 
@@ -6,7 +6,6 @@
 
 ### 1. Issue17：OIDC 遗留问题（核验 R30-05 后确认）
 
-- [ ] R31-02：为真实 OIDC 的 discovery/token/JWKS endpoint 增加统一 HTTPS/SSRF 校验；真实 OIDC 登录仅在隔离环境核验。
 - [ ] R31-03：确认提供商切换字段语义后，处理“源地址/Client ID + 目标 Secret”混合风险。
 - [ ] R31-04：对字面值/不可解密密文增加损坏识别与强制重填路径。
 - [ ] R31-06：统一限制 OIDC mock 仅 Dev 可用；现有 Production 配置导入遇任何 mock 配置整体拒绝，并补保存、状态、登录及导入回归。未来整站恢复边界见 [Design5.md](Design5.md)，单独实施。
@@ -31,3 +30,4 @@
 | 2026-09-14 | 将 R26-07 从本表拆分至 [XrayRelated1.md](XrayRelated1.md) 集中跟踪；本表不再重复列出 Xray 相关待办。 |
 | 2026-09-14 | 将 R31-01 从 Issue17 和本表分至 [ExportRelated1.md](ExportRelated1.md) 独立跟踪，并关联 Design5；R31-02 保留独立跟踪。 |
 | 2026-09-15 | 按用户确认细化 R31-06：现有 Production 导入拒绝任何 mock 配置；Design5 整站导出/导入仅限 Production，恢复前拒绝非 Production 来源及 mock 配置。 |
+| 2026-09-15 | R31-02 已按用户确认实施并完成自动化隔离验证：统一 OIDC HTTPS 校验、discovery endpoint 缓存前校验与实际使用点守卫、token 凭据 POST 禁止重定向、写入口与导入校验、锁死保护；代理维持 D-F06-2，真实 IdP 登录待隔离环境人工验收。 |

@@ -18,6 +18,7 @@ import (
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/store"
+	"vpn-sub/internal/urlguard"
 	"vpn-sub/internal/user"
 )
 
@@ -70,6 +71,8 @@ type Service struct {
 
 func NewService(st *store.Store, cfg *config.Service, authSvc *auth.Service, users *user.Service, mode string, lg *slog.Logger) *Service {
 	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+	// 代理策略：D-F06-2 已确认保留 ProxyFromEnvironment；经代理时 DialContext 只能看到代理地址，
+	// 目标 DNS/公网 IP 校验不生效，代理可信作为部署边界。需要直连校验时由部署层配置 NO_PROXY。
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -175,8 +178,22 @@ func (s *Service) loadParams(ctx context.Context, providerType string) (*Params,
 	return p, nil
 }
 
+// validateOIDCBaseURL 校验真实提供商写入的 base_url；mock 与空值不在参数写入层拦截。
+func validateOIDCBaseURL(providerType, baseURL string) error {
+	if providerType == "mock" || baseURL == "" {
+		return nil
+	}
+	if err := urlguard.ValidateHTTPS(baseURL); err != nil {
+		return fmt.Errorf("%w: OIDC Base URL 必须是 HTTPS 地址: %v", config.ErrBadRequest, err)
+	}
+	return nil
+}
+
 // SaveParams 保存提供商参数（入参 client_secret 为明文；空值保留库内原密文，显式新值才加密替换）
 func (s *Service) SaveParams(ctx context.Context, providerType string, p Params) error {
+	if err := validateOIDCBaseURL(providerType, p.BaseURL); err != nil {
+		return err
+	}
 	if p.ClientSecret == config.MaskedSecret {
 		return errors.New("Client Secret 不能使用脱敏占位符")
 	}
@@ -206,8 +223,15 @@ func (s *Service) EncryptWithTx(ctx context.Context, tx *sql.Tx, plain string) (
 	return s.cfg.EncryptWithTx(ctx, tx, plain)
 }
 
-// SaveParamsTx 事务内写入提供商参数 JSON（Setup OIDC 分支使用）
+// SaveParamsTx 事务内写入提供商参数 JSON（Setup OIDC 分支使用）；写入前校验 base_url。
 func (s *Service) SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType, rawJSON string) error {
+	var p Params
+	if err := json.Unmarshal([]byte(rawJSON), &p); err != nil {
+		return fmt.Errorf("解析 OIDC 参数失败: %w", err)
+	}
+	if err := validateOIDCBaseURL(providerType, p.BaseURL); err != nil {
+		return err
+	}
 	return s.cfg.SetTx(ctx, tx, "oidc_params_"+providerType, rawJSON)
 }
 
@@ -224,6 +248,25 @@ func (s *Service) CallbackURL(ctx context.Context) string {
 
 // --- 发现文档获取（带缓存）---
 
+// validateDiscoveryEndpoints 校验发现文档声明的必要端点；JWKS 缺失留给验签阶段报错，存在时必须为 HTTPS。
+func validateDiscoveryEndpoints(d *Discovery) error {
+	if d.AuthorizationEndpoint == "" || d.TokenEndpoint == "" {
+		return errors.New("发现文档缺少必要端点")
+	}
+	if err := validateOIDCURL(d.AuthorizationEndpoint); err != nil {
+		return fmt.Errorf("authorization_endpoint 校验失败: %w", err)
+	}
+	if err := validateOIDCURL(d.TokenEndpoint); err != nil {
+		return fmt.Errorf("token_endpoint 校验失败: %w", err)
+	}
+	if d.JWKSURI != "" {
+		if err := validateOIDCURL(d.JWKSURI); err != nil {
+			return fmt.Errorf("jwks_uri 校验失败: %w", err)
+		}
+	}
+	return nil
+}
+
 // fetchDiscovery 获取发现文档（带缓存，缓存键 = base_url + realm）
 func (s *Service) fetchDiscovery(ctx context.Context, p *Params) (*Discovery, error) {
 	// 模拟模式：不依赖真实提供商
@@ -234,6 +277,9 @@ func (s *Service) fetchDiscovery(ctx context.Context, p *Params) (*Discovery, er
 	wellKnown := base + "/.well-known/openid-configuration"
 	if p.Realm != "" {
 		wellKnown = base + "/realms/" + p.Realm + "/.well-known/openid-configuration"
+	}
+	if err := validateOIDCURL(wellKnown); err != nil {
+		return nil, fmt.Errorf("发现文档地址校验失败: %w", err)
 	}
 	cacheKey := wellKnown
 	s.mu.Lock()
@@ -263,8 +309,8 @@ func (s *Service) fetchDiscovery(ctx context.Context, p *Params) (*Discovery, er
 	if err := json.Unmarshal(body, &disc); err != nil {
 		return nil, fmt.Errorf("解析发现文档失败: %w", err)
 	}
-	if disc.AuthorizationEndpoint == "" || disc.TokenEndpoint == "" {
-		return nil, errors.New("发现文档缺少必要端点")
+	if err := validateDiscoveryEndpoints(&disc); err != nil {
+		return nil, err
 	}
 	s.mu.Lock()
 	s.discCache[cacheKey] = &disc
@@ -284,6 +330,9 @@ func (s *Service) ClearDiscCache() {
 
 // getJWKS 获取并缓存 OIDC 提供商 JWKS；使用当前 httpCli 以沿用 SSRF/代理策略。
 func (s *Service) getJWKS(ctx context.Context, jwksURI string) (*jwkSet, error) {
+	if err := validateOIDCURL(jwksURI); err != nil {
+		return nil, fmt.Errorf("JWKS 地址校验失败: %w", err)
+	}
 	s.jwksMu.Lock()
 	if set, ok := s.jwksCache[jwksURI]; ok {
 		s.jwksMu.Unlock()
@@ -315,6 +364,22 @@ func (s *Service) getJWKS(ctx context.Context, jwksURI string) (*jwkSet, error) 
 	s.jwksCache[jwksURI] = &set
 	s.jwksMu.Unlock()
 	return &set, nil
+}
+
+// doCredentialRequest 执行携带 Client Secret 的 token 请求，禁止任何重定向。
+// Go 对 307/308 会保留 method 与 body；沿用通用 HTTPS 重定向策略可能把 Secret 重放到其他主机。
+func (s *Service) doCredentialRequest(req *http.Request) (*http.Response, error) {
+	if err := validateOIDCURL(req.URL.String()); err != nil {
+		return nil, err
+	}
+	cli := *s.httpCli
+	cli.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
+		if err := validateOIDCURL(next.URL.String()); err != nil {
+			return err
+		}
+		return errors.New("token 凭据请求禁止重定向，已阻止 Client Secret 转发")
+	}
+	return cli.Do(req)
 }
 
 // refreshJWKS 删除指定 JWKS 缓存，下次 getJWKS 会重新拉取（用于密钥轮换后的重试）。

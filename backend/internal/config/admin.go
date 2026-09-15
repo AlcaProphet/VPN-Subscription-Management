@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"vpn-sub/internal/store"
+	"vpn-sub/internal/urlguard"
 )
 
 // 业务错误（接入层映射 HTTP 状态码）
@@ -141,11 +142,16 @@ type OidcSettings struct {
 var validProviders = []string{"keycloak", "auth0", "generic", "mock"}
 
 // oidcUsable 判定 OIDC 是否「可用」（防认证死锁的核心判定，Design1 §3.4.8）：
-// base_url 非空 且 client_id 非空 且（PUT 入参 Secret 有效 或 库内已有可用明文 Secret）。
-// GET 空回显/历史占位符均不被视为可用。
+// 真实提供商 base_url 必须为 HTTPS，且 client_id 非空，且（PUT 入参 Secret 有效 或 库内已有可用明文 Secret）。
+// GET 空回显/历史占位符均不被视为可用；mock 不要求 base_url。
 func (s *AdminService) oidcUsable(ctx context.Context, in OidcSettings) bool {
 	if in.BaseURL == "" || in.ClientID == "" {
 		return false
+	}
+	if in.ProviderType != "mock" {
+		if err := urlguard.ValidateHTTPS(in.BaseURL); err != nil {
+			return false
+		}
 	}
 	if SecretUsable(in.ClientSecret) {
 		return true
@@ -155,7 +161,7 @@ func (s *AdminService) oidcUsable(ctx context.Context, in OidcSettings) bool {
 }
 
 // oidcAvailable 判定当前生效的 OIDC 是否可作为登录方式（防认证死锁第二层校验）：
-// 已标记配置、当前提供商参数可读取、base_url/client_id 非空且 Secret 可用；
+// 已标记配置、当前提供商参数可读取、真实提供商 base_url 为 HTTPS、client_id 非空且 Secret 可用；
 // mock 仅 Dev 模式可用；空 Secret 视为未配置所需 Secret，不能作为关闭本地登录的依据。
 func (s *AdminService) oidcAvailable(ctx context.Context) bool {
 	if !s.oidcOps.IsConfigured(ctx) {
@@ -174,6 +180,9 @@ func (s *AdminService) oidcAvailable(ctx context.Context) bool {
 	}
 	baseURL, _, clientID, secret, err := s.oidcOps.LoadParams(ctx, providerType)
 	if err != nil || baseURL == "" || clientID == "" {
+		return false
+	}
+	if err := urlguard.ValidateHTTPS(baseURL); err != nil {
 		return false
 	}
 	return SecretUsable(secret)
@@ -200,14 +209,19 @@ func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 }
 
 // SaveOidc 保存 OIDC 参数；受「本地登录与 OIDC 均不可用禁止保存」约束（防认证死锁）；
-// 各提供商参数独立存储（切换类型保留已填字段）；Secret 空值保留当前提供商原密文，显式新值才替换；
-// frontend_url/callback_url 手动覆盖优先。
+// 真实提供商 base_url 非空时必须为 HTTPS；各提供商参数独立存储（切换类型保留已填字段）；
+// Secret 空值保留当前提供商原密文，显式新值才替换；frontend_url/callback_url 手动覆盖优先。
 func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 	if !slices.Contains(validProviders, in.ProviderType) {
 		return fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
 	}
 	if in.ClientSecret == MaskedSecret {
 		return fmt.Errorf("%w: 不能将脱敏占位符保存为 Client Secret，请留空保持原值或输入新 Secret", ErrBadRequest)
+	}
+	if in.ProviderType != "mock" && in.BaseURL != "" {
+		if err := urlguard.ValidateHTTPS(in.BaseURL); err != nil {
+			return fmt.Errorf("%w: OIDC Base URL 必须是 HTTPS 地址: %v", ErrBadRequest, err)
+		}
 	}
 	// 空值保留原密文，但库内已是脱敏占位符时不能继续沿用（已损坏，须管理员重新填写）。
 	if in.ClientSecret == "" {
