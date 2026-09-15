@@ -52,7 +52,8 @@ func newTestOidcService(t *testing.T) (*store.Store, *Service, *user.Service) {
 			bind_user_id INTEGER,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			provider_type TEXT NOT NULL DEFAULT '',
-			config_hash TEXT NOT NULL DEFAULT '');
+			config_hash TEXT NOT NULL DEFAULT '',
+			redirect_uri TEXT NOT NULL DEFAULT '');
 			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
 			ticket TEXT PRIMARY KEY,
 			session_token TEXT NOT NULL,
@@ -555,5 +556,6 @@ func pinnedStateRecord(t *testing.T, svc *Service, providerType string) *StateRe
 		ProviderType: providerType,
 		ConfigHash:   providerConfigHash(providerType, raw),
 		CodeVerifier: "verifier",
+		RedirectURI:  svc.CallbackURL(ctx),
 	}
 }

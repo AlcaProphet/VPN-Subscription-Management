@@ -443,10 +443,19 @@ func (s *Service) SetProviderTx(ctx context.Context, tx *sql.Tx, providerType st
 	return s.cfg.SetTx(ctx, tx, KeyProviderType, providerType)
 }
 
-// CallbackURL 回调地址（frontend_url + /api/auth/oidc/callback）
+// CallbackURL 兼容读取当前生效回调地址：独立 callback_url 优先，未设置时由 frontend_url 推导。
+// StartFlow/Exchange 必须使用 state 中固定的 redirect_uri，不能依赖本方法的当前值。
+// 解析失败时保留旧的 fail-safe 拼接行为，避免非关键调用方因配置异常拿到空串。
 func (s *Service) CallbackURL(ctx context.Context) string {
-	furl := s.cfg.GetOr(ctx, config.KeyFrontendURL)
-	return furl + "/api/auth/oidc/callback"
+	resolved, err := config.ResolveOidcCallbackURL(
+		s.cfg.GetOr(ctx, config.KeyCallbackURL),
+		s.cfg.GetOr(ctx, config.KeyFrontendURL),
+	)
+	if err == nil {
+		return resolved
+	}
+	furl := strings.TrimSuffix(s.cfg.GetOr(ctx, config.KeyFrontendURL), "/")
+	return furl + config.OidcCallbackPath
 }
 
 // --- 发现文档获取（带缓存）---

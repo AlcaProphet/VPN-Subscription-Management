@@ -128,9 +128,8 @@ func (h *SettingsHandler) saveOidc(c *gin.Context) {
 		mapSettingsErr(c, err)
 		return
 	}
-	// 前端地址/回调地址修改需重启容器生效（启动缓存语义）
-	needRestart := in.FrontendURL != "" || in.CallbackURL != ""
-	OK(c, gin.H{"need_restart": needRestart})
+	// R31-05：前端地址/独立回调地址保存后即时生效，不再返回 need_restart。
+	OK(c, nil)
 }
 
 func (h *SettingsHandler) clearOidc(c *gin.Context) {

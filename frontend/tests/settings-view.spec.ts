@@ -349,3 +349,93 @@ describe('SettingsView OIDC R31-04 状态展示', () => {
   })
 })
 
+
+
+describe('SettingsView OIDC R31-05 地址即时生效与显式清除', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('保存地址携带 clear_callback_url=false，页面不再提示需重启', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('保存后即时生效')
+    expect(card.text()).not.toContain('需重启容器生效')
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+      clear_callback_url: false,
+    }))
+  })
+
+  it('恢复推导后以 clear_callback_url=true 和空 callback_url 保存', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+    })
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    const clearButton = card.findAll('button').find((btn) => btn.text().includes('恢复推导'))
+    expect(clearButton).toBeTruthy()
+    await clearButton!.trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('已标记清除独立回调')
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({
+      callback_url: '',
+      clear_callback_url: true,
+    }))
+    confirmSpy.mockRestore()
+  })
+
+  it('独立回调 host 与前端地址不一致时提示 state Cookie 边界', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    expect(wrapper.find('#oidc').text()).toContain('state Cookie')
+  })
+})

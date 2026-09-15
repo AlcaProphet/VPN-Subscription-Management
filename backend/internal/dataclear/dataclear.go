@@ -65,7 +65,7 @@ func (s *Service) ClearAll(ctx context.Context, confirmWord string) error {
 		return errors.New("确认词不正确")
 	}
 	// 1) 清库：单事务删除全部业务数据 + 系统配置（含签名密钥、configured 标记）
-	//    地址启动缓存为全清特例——回 Setup 重新推导写入新值
+	//    系统回到未配置状态，回 Setup 后重新推导并写入前端地址等初始值
 	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		return s.ClearTablesTx(ctx, tx)
 	}); err != nil {

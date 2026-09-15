@@ -29,8 +29,9 @@ type OidcHandler struct {
 // RegisterOidcRoutes 注册 OIDC 路由
 func RegisterOidcRoutes(engine *gin.Engine, h *OidcHandler, sessionMW gin.HandlerFunc, limiter *ratelimit.Limiter) {
 	g := engine.Group("/api/auth/oidc")
-	g.GET("/login", h.login)           // 发起授权（302），不限流
-	g.GET("/callback", h.callback)     // 回调，不限流（state 一次性 + 三重校验已防重放）
+	g.GET("/login", h.login) // 发起授权（302），不限流
+	// 回调路径与地址校验共用 config.OidcCallbackPath，避免校验路径与真实注册路径漂移。
+	engine.GET(config.OidcCallbackPath, h.callback)
 	g.POST("/mock/login", h.mockLogin) // 模拟登录（仅 Dev + mock）
 	g.POST("/bind", sessionMW, h.bind) // 发起绑定（需会话）
 	g.POST("/exchange", h.exchange)    // HttpOnly ticket 一次性换会话（L01）

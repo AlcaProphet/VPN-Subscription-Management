@@ -17,8 +17,9 @@ export interface OidcSettings {
   client_id: string
   client_secret: string // GET 始终为空；PUT 空=保留当前提供商已存 Secret
   client_secret_configured: boolean // 当前提供商是否已有可用 Secret（只读）
-  frontend_url: string
-  callback_url: string
+  frontend_url: string // 保存后即时生效
+  callback_url: string // 空=不修改；clear_callback_url=true 时显式清除并回退推导
+  clear_callback_url?: boolean // 请求字段：显式清除独立回调地址
   params_state?: OidcParamsState // 完整只读状态枚举
   params_damaged?: boolean // 已存参数存在 JSON/Secret 损坏（只读）
   params_warning?: string // 固定损坏/重填提示（只读）
@@ -90,7 +91,7 @@ export const getOidc = (providerType?: string) =>
   http.get<any, OidcSettings>('/admin/settings/oidc', {
     params: providerType ? { provider_type: providerType } : undefined,
   })
-export const saveOidc = (data: OidcSettings) => http.put<any, { need_restart?: boolean }>('/admin/settings/oidc', data)
+export const saveOidc = (data: OidcSettings) => http.put<any, void>('/admin/settings/oidc', data)
 export const clearOidc = () => http.delete('/admin/settings/oidc')
 export const testOidc = (data: Partial<OidcSettings>) => http.post<any, { ok: boolean; message: string; warnings: string[] }>(
   '/admin/settings/oidc/test', data,

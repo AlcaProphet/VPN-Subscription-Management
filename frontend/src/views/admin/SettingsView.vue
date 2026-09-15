@@ -73,6 +73,34 @@ const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', re
 const oidcSaving = ref(false)
 const oidcTargetLoading = ref(false)
 const oidcTest = ref<{ ok: boolean; message: string; warnings?: string[] } | null>(null)
+const clearCallbackURL = ref(false)
+const oidcCallbackPath = '/api/auth/oidc/callback'
+// 未设置独立回调时的推导值；独立值优先，供管理员核对实际 redirect_uri。
+const derivedCallbackURL = computed(() => {
+  const base = (oidc.frontend_url || '').replace(/\/+$/, '')
+  return base ? base + oidcCallbackPath : ''
+})
+const effectiveCallbackURL = computed(() => oidc.callback_url || derivedCallbackURL.value)
+// 独立 callback_url 与前端地址 host/scheme 不一致时提示 state Cookie 边界，不阻断保存。
+const callbackHostWarning = computed(() => {
+  if (!oidc.callback_url) return ''
+  try {
+    const callback = new URL(oidc.callback_url)
+    const frontend = oidc.frontend_url ? new URL(oidc.frontend_url) : null
+    if (!frontend) return ''
+    const hostMismatch = callback.host !== frontend.host
+    const schemeDowngrade = frontend.protocol === 'https:' && callback.protocol !== 'https:'
+    if (hostMismatch || schemeDowngrade) {
+      const reason = hostMismatch
+        ? `host 不一致（${callback.host} ≠ ${frontend.host}）`
+        : '回调 scheme 非 HTTPS 而前端地址为 HTTPS'
+      return `独立回调地址与前端地址 ${reason}：state Cookie 仅限发起登录的 host，HTTPS 前端下的 Secure Cookie 也不会随 HTTP 回调发送；实际登录必须从回调地址所在 host/协议发起，否则回调会因 state 不匹配失败。`
+    }
+  } catch {
+    return ''
+  }
+  return ''
+})
 const providerOptions = [
   { label: '暂未启用（本地账号模式）', value: 'off' }, // R10-08：off 为前端显示值，映射 provider_type 空串（未配置）
   { label: 'Keycloak', value: 'keycloak' },
@@ -110,6 +138,7 @@ async function loadOidc() {
     oidc.params_state = res.params_state
     oidc.params_damaged = res.params_damaged === true
     oidc.params_warning = res.params_warning || ''
+    clearCallbackURL.value = false
     captureOidcBaseline()
   } catch (err) {
     Notify.error((err as Error).message)
@@ -167,6 +196,7 @@ function applyProvider(v: string) {
   oidc.params_state = undefined
   oidc.params_damaged = false
   oidc.params_warning = ''
+  clearCallbackURL.value = false
   oidcTest.value = null
   captureOidcBaseline()
 }
@@ -181,6 +211,7 @@ function applyOidcTarget(providerType: string, res: OidcSettings) {
   oidc.params_state = res.params_state
   oidc.params_damaged = res.params_damaged === true
   oidc.params_warning = res.params_warning || ''
+  clearCallbackURL.value = false
   oidcTest.value = null
   captureOidcBaseline()
 }
@@ -224,15 +255,33 @@ function onProviderChange(v: any) {
     },
   })
 }
+// markClearCallback：显式清除独立回调地址；空 callback_url 本身仍表示不修改，必须由该标记驱动。
+function markClearCallback() {
+  Modal.confirm({
+    title: '恢复跟随前端地址',
+    content: '保存后将清除已保存的独立回调地址，改用“前端地址 + /api/auth/oidc/callback”推导。进行中的 OIDC 授权仍使用原地址。',
+    okText: '标记清除',
+    cancelText: '取消',
+    onOk: () => {
+      oidc.callback_url = ''
+      clearCallbackURL.value = true
+      markDirty('oidc')
+    },
+  })
+}
+
+// 手动编辑独立回调地址即取消待清除标记。
+function onCallbackInput() {
+  clearCallbackURL.value = false
+}
+
 async function doSaveOidc() {
   if (oidcTargetLoading.value || oidcKeyFault.value) return
   oidcSaving.value = true
   try {
-    const res = await saveOidc({ ...oidc })
-    Notify.success('OIDC 配置已保存')
-    if (res.need_restart) {
-      Modal.warning({ title: '需重启容器生效', content: '前端地址与回调地址修改后需重启容器生效，请同步核对两字段' })
-    }
+    await saveOidc({ ...oidc, clear_callback_url: clearCallbackURL.value })
+    Notify.success('OIDC 配置已保存，地址即时生效')
+    clearCallbackURL.value = false
     await reloadClean('oidc', loadOidc)
   } catch (err) {
     Notify.error((err as Error).message)
@@ -679,7 +728,8 @@ async function submitImport(withDisable = true) {
     fd.append('disable_confirm_word', withDisable ? 'DISABLE' : '')
     const res = await importConfig(fd)
     disableImportOpen.value = false
-    let importHintText = '配置已整体覆盖（导出文件中不存在的配置键已清除）；前端地址与回调地址已按导出值覆盖，若域名/端口有变化请先核对修改（修改后需重启生效）。请立即重启容器后再重新登录。'
+    const importAftercare = '地址与 OIDC 配置即时生效；签名密钥替换后全部会话失效，请重新登录；如导入文件包含不同的日志级别/HTTP 超时等启动参数，重启容器后完全生效。'
+    let importHintText = '配置已整体覆盖（导出文件中不存在的配置键已清除）。' + importAftercare
     if (res.task_id) {
       const task = await pollTask({
         submit: () => Promise.resolve(),
@@ -692,8 +742,8 @@ async function submitImport(withDisable = true) {
       const result = (task.result ?? {}) as { hints?: string[] }
       const hints = result.hints ?? []
       importHintText = hints.length > 0
-        ? '配置已导入并完成异步处理，完成提示：\n' + hints.join('\n')
-        : '配置已导入并完成异步处理，请刷新页面后确认高级模式状态。'
+        ? '配置已导入并完成异步处理，完成提示：\n' + hints.join('\n') + '\n' + importAftercare
+        : '配置已导入并完成异步处理，请刷新页面后确认高级模式状态。' + importAftercare
     }
     Modal.warning({
       title: '导入完成',
@@ -850,11 +900,20 @@ onMounted(async () => {
                 <span class="w-24 text-sm">前端地址</span>
                 <Input v-model:value="oidc.frontend_url" placeholder="https://app.example.com" />
               </div>
-              <div class="flex items-center gap-3">
-                <span class="w-24 text-sm">回调地址</span>
-                <Input v-model:value="oidc.callback_url" placeholder="https://app.example.com/api/auth/oidc/callback" />
+              <div class="flex items-start gap-3">
+                <span class="w-24 text-sm pt-1">回调地址</span>
+                <div class="flex-1 min-w-0 space-y-1">
+                  <div class="flex items-center gap-2">
+                    <Input v-model:value="oidc.callback_url" :placeholder="derivedCallbackURL || 'https://app.example.com/api/auth/oidc/callback'" @input="onCallbackInput" />
+                    <Button size="small" :disabled="!oidc.callback_url || oidcKeyFault" @click="markClearCallback">恢复推导</Button>
+                  </div>
+                  <p class="text-xs text-text-tertiary">
+                    当前生效回调：{{ effectiveCallbackURL || '未配置（请填写前端地址或独立回调地址）' }}<span v-if="clearCallbackURL">；已标记清除独立回调，保存后回退推导</span>
+                  </p>
+                </div>
               </div>
-              <Alert v-if="oidc.frontend_url || oidc.callback_url" type="warning" show-icon message="前端地址/回调地址修改后需重启容器生效" />
+              <Alert type="info" show-icon message="前端地址与回调地址保存后即时生效" />
+              <Alert v-if="callbackHostWarning" type="warning" show-icon :message="callbackHostWarning" />
               <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" :description="oidcTest.warnings?.length ? oidcTest.warnings.join('；') : undefined" />
               <Space>
                 <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading || oidcKeyFault" @click="doSaveOidc">保存</Button>
@@ -1154,7 +1213,7 @@ onMounted(async () => {
                 <Button danger @click="importOpen = true">导入</Button>
               </Space>
               <Alert v-if="importProtectError" type="error" show-icon class="mt-2" :message="importProtectError" />
-              <div class="text-xs text-text-tertiary mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；完成后需重启容器并重新登录</div>
+              <div class="text-xs text-text-tertiary mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；地址与 OIDC 配置即时生效，签名密钥替换后请重新登录，日志级别/HTTP 超时等启动参数重启后生效</div>
             </div>
           </div>
         </Card>
@@ -1194,7 +1253,7 @@ onMounted(async () => {
                   @confirm="confirmIconDelete" @update:open="iconDeleteOpen = false" />
     <!-- 导入确认（IMPORT 确认词） -->
     <ConfirmModal :open="importOpen" title="导入配置（整体覆盖）" danger confirm-word="IMPORT" :loading="importing"
-                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员）；导入完成后请立即重启容器再重新登录。"
+                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员），请重新登录；地址与 OIDC 配置即时生效，日志级别/HTTP 超时等启动参数重启后生效。"
                   @confirm="doImport" @update:open="importOpen = false" />
       <!-- v2 导入第二确认（DISABLE；仅当导入会清空高级模式数据时后端强制校验） -->
       <ConfirmModal :open="disableImportOpen" title="确认清空高级模式数据" danger confirm-word="DISABLE" :loading="importing"

@@ -81,8 +81,16 @@
   2. `frontend_url` 与 `callback_url` 改为保存后即时生效；真实 OIDC 优先使用已保存的独立 `callback_url`，未设置时沿用由 `frontend_url` 推导的现有回调路径。地址变化不再因启动缓存返回 `need_restart=true` 或提示“需重启生效”。这是用户明确选择的新合同，覆盖上述归档 Design1 的旧描述；实施时同步现行设计、设置页与导入提示中涉及地址生效的文案。导入是否因其他状态仍需重启，应独立核对，不由本条推断。
   3. 发起 OIDC 授权时将该次使用的 `redirect_uri` 随 state 保存，回调换取 token 时复用同一值；管理员修改地址后，新发起的登录立即使用新地址，进行中的登录仍使用原地址。若旧域名在进行中的授权完成前已不可访问，该次登录仍可能失败，应作为换域名操作边界说明。
 - **方案核验补充（2026-09-15）：** 当前管理端保存把空 `callback_url` 视作“不修改”，因此已保存独立回调地址后，单靠提交空值无法恢复“未设置时从 `frontend_url` 推导”的回退状态。实施时须定义并提供显式清除独立回调地址的写入语义，同时校验所填回调地址可回到本站实际注册的 OIDC 回调路径；地址变化与清除均须明确是否影响进行中的 state，保持第 3 点已确认的 `redirect_uri` 固定合同。
+- **实施与自动化隔离证据（2026-09-15，用户确认按串行实施）：**
+  1. 导入：`ValidateImportedAuthUsable` 在“已配置且本地登录关闭”分支强制 `oidc_configured=true`，并在原有 provider/HTTPS base_url/Secret 校验后要求可解析出有效回调地址（独立优先、否则 `frontend_url` 推导）；本地登录开启时不因 OIDC 未启用/无地址拒绝。v1 `Import` 保持覆盖事务前校验；v2 `ImportV2` 在注册异步任务前同步执行同一校验，`importV2` 内保留校验覆盖直接调用。隔离测试覆盖缺失/false/true、本地登录开/关、参数损坏、地址缺失/错误，断言拒绝时 `system_config` 全表不变且未创建异步任务；HTTP 覆盖 Setup/管理端两个入口。证据见 `backend/internal/config/export_oidc_test.go`、`backend/internal/config/r3105_import_test.go`、`backend/internal/server/r31_05_test.go`。
+  2. 地址：新增 `urlguard.ParseAbsoluteHTTPURL` / `ValidateOIDCCallbackURL` 与 `config.ResolveOidcCallbackURL`；`config.OidcCallbackPath` 同时用于真实 Gin 回调路由注册与校验，防止路径漂移。`SaveOidc` 在同一 `BEGIN IMMEDIATE` 内校验/写入 `frontend_url` 与 `callback_url`：空 `callback_url` 仍=不修改，`clear_callback_url=true` 显式清除并恢复推导回退；清除要求当前/提交的 `frontend_url` 能推导出有效绝对地址；独立回调允许任意 host，但路径必须精确为 `/api/auth/oidc/callback`，无 userinfo/query/fragment。本地登录关闭时，`SaveOidc` 防死锁与 `oidcAvailable`（`SaveLocalAuth` 路径）都要求可解析有效回调地址。保存响应不再返回 `need_restart`，设置页移除重启提示并增加“恢复推导”、当前生效回调和 host 不一致警示。证据见 `backend/internal/urlguard/urlguard_test.go`、`backend/internal/config/r31_05_test.go`、`backend/internal/server/r31_05_test.go`、`frontend/tests/settings-view.spec.ts`。
+  3. state 固定：迁移 `1020_oidc_state_redirect_uri.sql` 增加 `redirect_uri`；`StartFlow` 在同一写事务内读取 provider/参数与地址、解析并固定 `redirect_uri` 后写 state；`ConsumeState` 拒绝缺少该值的旧行并保留原行；`Exchange` 只使用 state 中的固定值，不再读取当前地址。地址变化/清除不会改变 R31-03 的 provider/config 指纹，因此不影响进行中的 state；新发起的授权使用新地址。证据见 `backend/internal/oidc/r31_05_test.go`、`backend/internal/store/migration_1020_test.go`。
+  4. Setup 默认值：`CompleteOidcSetup` 不再写独立 `callback_url`，新装默认由 `frontend_url` 推导；旧导出中已保存的独立回调仍按严格整体覆盖优先。证据见 `backend/internal/setup/setup_test.go`。
+  5. 前端与文案：设置页保存时传递 `clear_callback_url`，展示有效回调与清除状态，独立回调 host 不一致时提示 state Cookie host-only 边界；管理端/Setup 导入完成文案改为“地址与 OIDC 即时生效、重新登录、启动参数重启后生效”。证据见 `frontend/src/views/admin/SettingsView.vue`、`frontend/src/views/SetupView.vue`、`frontend/src/api/settings.ts`、`frontend/tests/settings-view.spec.ts`。
+  6. 门禁：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...`、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1`、`npm run test`（287 项）、`npm run build` 均通过。上述均为隔离数据库、HTTP/TLS mock 与前端组件测试，不等于真实 IdP 授权码/PKCE 登录或真实浏览器/反代验收。
+
 - **验收重点：** 隔离导入覆盖 `oidc_configured` 缺失/false/true、本地登录开/关、v1/v2 与 Setup/管理端入口，断言拒绝时配置不变；接口与服务测试覆盖地址原值重复保存、地址变化即时生效、独立回调优先、显式清除后未设置回退、回调路径校验、授权与 token 交换之间改址时 `redirect_uri` 一致，并核对设置页/导入文案。自动化或 mock 不等于真实 IdP 登录验收。
-- **状态：** ☑ 处理合同已确认；☐ 待单独授权实施与验证。
+- **状态：** ☑ 代码与自动化隔离验证完成；真实 IdP 登录/浏览器/反代跨 host 验收待隔离环境人工核验。
 
 ## 五、R31-06 OIDC mock 模式校验不完整（高，既有问题）
 
@@ -119,7 +127,7 @@
 
 1. R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪；R31-02 已按用户单独授权修复并完成自动化隔离验证，真实 IdP 登录待隔离环境人工验收，不与 R30-05 混批。
 2. R31-03 字段语义、实施方案、代码与自动化隔离验证已完成：增加按目标提供商读取能力，空 Secret 仅能与目标原地址/Realm/Client ID 组合复用，授权发起/回调固定 provider/config 指纹；真实 IdP 登录待隔离环境人工验收。
-3. R31-04 已按用户确认的 T1/S1/K1/SCOPE-A/TC-A 完成代码与自动化隔离验证：六态状态机、管理端 GET/PUT 与 SaveOidc 单事务、底层 SaveParams 严格密钥读取、测试连接专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；真实 IdP 登录待隔离环境人工验收。R31-05 的导入入口与即时地址合同已确认，实施时分别核对导入和 OIDC 登录路径；R31-06 的现有 Production 导入拒绝与 Design5 整站恢复边界已确认，安全修复不等待整站迁移；R31-07 的持久化停用与既有会话边界已确认，仍需深入研究 `ClearOidc` / 停用 / 本地登录并发串行化的事务边界。
+3. R31-04 已按用户确认的 T1/S1/K1/SCOPE-A/TC-A 完成代码与自动化隔离验证：六态状态机、管理端 GET/PUT 与 SaveOidc 单事务、底层 SaveParams 严格密钥读取、测试连接专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；真实 IdP 登录待隔离环境人工验收。R31-05 已完成代码与自动化隔离验证：导入同步校验 `oidc_configured` 与有效回调地址，地址保存即时生效、独立回调优先、显式清除回退，OIDC state 固定 `redirect_uri`，Setup 默认不再写独立回调；真实 IdP/浏览器与跨 host 反代验收待隔离环境人工核验。R31-06 的现有 Production 导入拒绝与 Design5 整站恢复边界已确认，安全修复不等待整站迁移；R31-07 的持久化停用与既有会话边界已确认，仍需深入研究 `ClearOidc` / 停用 / 本地登录并发串行化的事务边界。
 
 ---
 
@@ -141,3 +149,4 @@
 | v2.1 | 2026-09-15 | 按用户确认细化 R31-03 实施边界（固定发起 state 快照、旧 state 行保留并在回调拒绝、目标损坏最小读取与显式新 Secret 重填）；同步更新 R31-04 与 R31-03 的边界，避免重复设计空值保存/目标读取判定；记录 `SaveOidc` / `ClearOidc` 多键非事务写入的静态调用链、失败/并发窗口与 R31-07 故障注入要求；未实施代码。 |
 | v2.2 | 2026-09-15 | 实施 R31-03：目标提供商读取与最小损坏重填、空 Secret 复用原子守卫、固定发起 state provider/config 指纹、设置页草稿/目标读取/警示与文案更新；补迁移、配置/服务/HTTP/前端隔离测试及全量门禁；真实 IdP 登录仍待隔离环境人工验收。 |
 | v2.3 | 2026-09-15 | 按用户确认实施 R31-04（T1/S1/K1/SCOPE-A/TC-A）：六态 `params_state` 与 signing_key 故障优先只读状态、SaveOidc 全链单事务与严格密钥读取、管理端测试连接损坏/密钥故障专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；补隔离数据库/HTTP/前端测试与全量门禁，真实 IdP 登录待隔离环境人工验收。 |
+| v2.4 | 2026-09-15 | 按用户确认实施 R31-05：`ValidateImportedAuthUsable` 校验 `oidc_configured` 与可解析回调地址，v2 注册任务前同步预检；`frontend_url`/独立 `callback_url` 保存即时生效，新增 `clear_callback_url` 显式清除回退；`oidc_states` 增加 `redirect_uri` 并固定发起值；Setup 不再写独立回调；清理地址“需重启”文案；补迁移、导入、地址、state、前端测试与全量门禁；真实 IdP/浏览器与跨 host 反代验收待隔离环境人工核验。 |

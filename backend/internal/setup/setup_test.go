@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http/httptest"
 	"testing"
@@ -221,5 +222,29 @@ func TestTrustProxyTiers(t *testing.T) {
 	req4.Header.Set("X-Forwarded-Host", "vpn.example.com")
 	if got := DeriveFrontendURL(req4, autoSvc.trustedForwarded(req4)); got != "http://inner" {
 		t.Errorf("auto 档公网来源应忽略转发头: %s", got)
+	}
+}
+
+// TestCompleteOidcSetupDoesNotWriteCallbackURL R31-05：OIDC Setup 只写 frontend_url，
+// 不再写独立 callback_url，默认走“前端地址 + 回调路径”推导。
+func TestCompleteOidcSetupDoesNotWriteCallbackURL(t *testing.T) {
+	_, svc := newTestSetupService(t)
+	ctx := context.Background()
+	req := httptest.NewRequest("POST", "http://vpn.example.com/api/setup/oidc", nil)
+	err := svc.CompleteOidcSetup(ctx, req, "generic", func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO system_config (key, value) VALUES ('oidc_params_generic', '{}')`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("CompleteOidcSetup 失败: %v", err)
+	}
+	frontend, _ := svc.cfg.Get(ctx, config.KeyFrontendURL)
+	if frontend != "http://vpn.example.com" {
+		t.Fatalf("frontend_url 推导异常: %q", frontend)
+	}
+	callback, _ := svc.cfg.Get(ctx, config.KeyCallbackURL)
+	if callback != "" {
+		t.Fatalf("Setup 不应写入独立 callback_url: %q", callback)
 	}
 }

@@ -10,9 +10,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/urlguard"
 )
 
 // StateRecord oidc_states 记录
@@ -25,6 +27,7 @@ type StateRecord struct {
 	CreatedAt    time.Time
 	ProviderType string // 发起授权时的生效提供商
 	ConfigHash   string // 发起授权时该提供商参数原始 JSON 的带版本哈希
+	RedirectURI  string // 发起授权时固定的 redirect_uri（回调换 token 必须复用）
 }
 
 // StartFlow 生成 state（≥128 位）、nonce 与 code_verifier（PKCE S256）→ 持久化 → 返回授权页 URL
@@ -44,8 +47,9 @@ func (s *Service) StartFlow(ctx context.Context, intent string, bindUserID int64
 		return "", "", fmt.Errorf("生成 nonce 失败: %w", err)
 	}
 	nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
-	// 在同一 BEGIN IMMEDIATE 事务内读取当前 provider/raw 参数并固定到 state，避免发起后配置切换造成混用。
-	providerType, p, err := s.saveState(ctx, state, verifier, nonce, intent, bindUserID)
+	// 在同一 BEGIN IMMEDIATE 事务内读取当前 provider/raw 参数与地址并固定到 state，
+	// 避免发起后配置/地址切换造成混用或 token 交换使用不同 redirect_uri。
+	providerType, p, redirectURI, err := s.saveState(ctx, state, verifier, nonce, intent, bindUserID)
 	if err != nil {
 		return "", "", err
 	}
@@ -63,7 +67,7 @@ func (s *Service) StartFlow(ctx context.Context, intent string, bindUserID int64
 	q := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {p.ClientID},
-		"redirect_uri":          {s.CallbackURL(ctx)},
+		"redirect_uri":          {redirectURI},
 		"scope":                 {"openid email profile"},
 		"state":                 {state},
 		"nonce":                 {nonce},
@@ -115,9 +119,9 @@ func (s *Service) parseParamsWithTx(ctx context.Context, tx *sql.Tx, providerTyp
 	}
 }
 
-// saveState 在单个 BEGIN IMMEDIATE 事务内清理过期 state、固定发起时 provider/raw 参数并写入 state。
-// 返回的 Params 已解密，供 StartFlow 以同一配置快照获取 discovery 与构造授权 URL。
-func (s *Service) saveState(ctx context.Context, state, verifier, nonce, intent string, bindUserID int64) (providerType string, p *Params, err error) {
+// saveState 在单个 BEGIN IMMEDIATE 事务内清理过期 state、固定发起时 provider/raw 参数与 redirect_uri 并写入 state。
+// 返回的 Params 已解密、redirectURI 已解析，供 StartFlow 以同一配置/地址快照获取 discovery 与构造授权 URL。
+func (s *Service) saveState(ctx context.Context, state, verifier, nonce, intent string, bindUserID int64) (providerType string, p *Params, redirectURI string, err error) {
 	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		// 顺带清理过期记录（代替独立定时器，简单可靠）
 		if _, err := tx.ExecContext(ctx, `DELETE FROM oidc_states WHERE created_at < ?`,
@@ -142,15 +146,27 @@ func (s *Service) saveState(ctx context.Context, state, verifier, nonce, intent 
 		if err != nil {
 			return err
 		}
+		callbackRaw, err := s.cfg.GetTx(ctx, tx, config.KeyCallbackURL)
+		if err != nil {
+			return fmt.Errorf("读取独立回调地址失败: %w", err)
+		}
+		frontendRaw, err := s.cfg.GetTx(ctx, tx, config.KeyFrontendURL)
+		if err != nil {
+			return fmt.Errorf("读取前端地址失败: %w", err)
+		}
+		redirectURI, err = config.ResolveOidcCallbackURL(callbackRaw, frontendRaw)
+		if err != nil {
+			return fmt.Errorf("OIDC 回调地址不可用: %w", err)
+		}
 		configHash := providerConfigHash(providerType, raw)
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO oidc_states (state, code_verifier, nonce, intent, bind_user_id, provider_type, config_hash) VALUES (?,?,?,?,?,?,?)`,
-			state, verifier, nonce, intent, nullIf0(bindUserID), providerType, configHash); err != nil {
+			`INSERT INTO oidc_states (state, code_verifier, nonce, intent, bind_user_id, provider_type, config_hash, redirect_uri) VALUES (?,?,?,?,?,?,?,?)`,
+			state, verifier, nonce, intent, nullIf0(bindUserID), providerType, configHash, redirectURI); err != nil {
 			return fmt.Errorf("写入 state 失败: %w", err)
 		}
 		return nil
 	})
-	return providerType, p, err
+	return providerType, p, redirectURI, err
 }
 
 // loadPinnedParams 回调换取身份前校验 state 固定的 provider/config 指纹仍与当前生效配置一致。
@@ -201,8 +217,8 @@ func (s *Service) ConsumeState(ctx context.Context, state string) (*StateRecord,
 	var rec StateRecord
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx,
-			`SELECT state, code_verifier, nonce, intent, COALESCE(bind_user_id,0), created_at, provider_type, config_hash FROM oidc_states WHERE state = ?`, state).
-			Scan(&rec.State, &rec.CodeVerifier, &rec.Nonce, &rec.Intent, &rec.BindUserID, &rec.CreatedAt, &rec.ProviderType, &rec.ConfigHash)
+			`SELECT state, code_verifier, nonce, intent, COALESCE(bind_user_id,0), created_at, provider_type, config_hash, redirect_uri FROM oidc_states WHERE state = ?`, state).
+			Scan(&rec.State, &rec.CodeVerifier, &rec.Nonce, &rec.Intent, &rec.BindUserID, &rec.CreatedAt, &rec.ProviderType, &rec.ConfigHash, &rec.RedirectURI)
 		if errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -215,6 +231,10 @@ func (s *Service) ConsumeState(ctx context.Context, state string) (*StateRecord,
 		// 旧记录没有发起时提供商/配置标识：保留原行，回调视为无效 state 拒绝。
 		if rec.ProviderType == "" || rec.ConfigHash == "" {
 			return errors.New("state 缺少发起时提供商配置标识")
+		}
+		// R31-05：迁移前已存在且无固定 redirect_uri 的进行中 state 同样保留，回调统一按失效处理。
+		if strings.TrimSpace(rec.RedirectURI) == "" {
+			return errors.New("state 缺少发起时回调地址")
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM oidc_states WHERE state = ?`, state) // 用后即删
 		return err
@@ -244,6 +264,13 @@ func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (
 	if err != nil {
 		return nil, err
 	}
+	// R31-05：token 交换必须复用发起时固定的 redirect_uri，绝不读取当前配置。
+	// 这里只要求 state 值仍是有效绝对 http(s) 地址；显式独立回调的精确路径已在保存/发起时校验，
+	// frontend_url 带反代前缀时推导值路径可不同于根路径。
+	redirectURI := strings.TrimSpace(rec.RedirectURI)
+	if _, err := urlguard.ParseAbsoluteHTTPURL(redirectURI); err != nil {
+		return nil, fmt.Errorf("授权 state 中的回调地址无效: %w", err)
+	}
 	if rec.ProviderType == "mock" {
 		return s.mockExchange(rec, code) // 模拟模式：code 即携带身份信息的 base64 JSON
 	}
@@ -257,7 +284,7 @@ func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
-		"redirect_uri":  {s.CallbackURL(ctx)},
+		"redirect_uri":  {redirectURI},
 		"client_id":     {p.ClientID},
 		"code_verifier": {rec.CodeVerifier},
 	}

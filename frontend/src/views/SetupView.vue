@@ -80,7 +80,7 @@ async function doSetupImport() {
     await system.fetchStatus(true) // configured=true，守卫将后续访问跳转登录
     Modal.warning({
       title: '导入完成',
-      content: '配置已整体覆盖（导出文件中不存在的配置键已清除）；签名密钥已替换，如有旧会话将全部失效。请立即重启容器后再重新登录。',
+      content: '配置已整体覆盖（导出文件中不存在的配置键已清除）；地址与 OIDC 配置即时生效，签名密钥已替换，如有旧会话将全部失效，请重新登录；如导入文件包含不同的日志级别/HTTP 超时等启动参数，重启容器后完全生效。',
       okText: '前往登录',
       onOk: async () => {
         // 签名密钥已替换，旧会话全部失效：先清本地凭据再跳登录（R07-08，防残留失效 token 触发首页 me() 401 全局提示）
@@ -214,7 +214,7 @@ async function completeOidc() {
             <Input.Password v-model:value="importPwd" placeholder="导出密码（≥8 字符）" style="max-width: 220px" />
             <Button danger @click="importOpen = true">导入</Button>
           </Space>
-          <div class="text-xs text-text-tertiary mt-2">导入将整体覆盖全部配置并替换签名密钥，完成后需重启容器再重新登录</div>
+          <div class="text-xs text-text-tertiary mt-2">导入将整体覆盖全部配置并替换签名密钥；地址与 OIDC 配置即时生效，请重新登录；启动参数重启后生效</div>
         </Card>
         <Card v-else class="mb-4" hoverable>
           <div class="font-medium">导入已有配置</div>
@@ -290,7 +290,7 @@ async function completeOidc() {
       </Result>
       <!-- 导入确认（IMPORT 确认词 + 二次确认） -->
       <ConfirmModal :open="importOpen" title="导入配置（整体覆盖）" danger confirm-word="IMPORT" :loading="importing"
-                    content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；签名密钥替换后如有旧会话将全部失效；导入完成后请立即重启容器再重新登录。"
+                    content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；签名密钥替换后如有旧会话将全部失效，请重新登录；地址与 OIDC 配置即时生效，启动参数重启后生效。"
                     @confirm="doSetupImport" @update:open="importOpen = false" />
     </Card>
   </div>

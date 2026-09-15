@@ -154,7 +154,7 @@ func TestR3104SaveOidcTransactionRollback(t *testing.T) {
 	w := put(map[string]any{
 		"provider_type": "keycloak", "base_url": "https://target.example.com", "realm": "master",
 		"client_id": "target", "client_secret": "target-secret",
-		"frontend_url": "https://new-site.example.com", "callback_url": "https://new-site.example.com/cb",
+		"frontend_url": "https://new-site.example.com", "callback_url": "https://new-site.example.com/api/auth/oidc/callback",
 	})
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("注入失败应返回 500: code=%d body=%s", w.Code, w.Body.String())

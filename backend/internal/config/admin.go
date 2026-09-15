@@ -215,8 +215,9 @@ type OidcSettings struct {
 	ClientID               string              `json:"client_id"`
 	ClientSecret           string              `json:"client_secret"`            // GET 始终为空；PUT 空=保留当前提供商原密文
 	ClientSecretConfigured bool                `json:"client_secret_configured"` // 当前提供商是否已有可用 Secret（只读）
-	FrontendURL            string              `json:"frontend_url"`             // 启动时缓存（库驱动），修改需重启生效
-	CallbackURL            string              `json:"callback_url"`             // 同上
+	FrontendURL            string              `json:"frontend_url"`             // 保存后即时生效（库驱动）
+	CallbackURL            string              `json:"callback_url"`             // 空=不修改；clear_callback_url=true 时显式清除并恢复推导回退
+	ClearCallbackURL       bool                `json:"clear_callback_url"`       // 请求字段：显式清除独立回调地址
 	ParamsState            OidcParamsStateCode `json:"params_state,omitempty"`   // 完整只读状态枚举
 	ParamsDamaged          bool                `json:"params_damaged,omitempty"` // 已存参数存在 JSON/Secret 损坏（只读，兼容 R31-03）
 	ParamsWarning          string              `json:"params_warning,omitempty"` // 固定损坏/重填提示（只读）
@@ -247,8 +248,8 @@ func (s *AdminService) oidcUsableState(in OidcSettings, st OidcParamsState) bool
 }
 
 // oidcAvailable 判定当前生效的 OIDC 是否可作为登录方式（防认证死锁第二层校验）：
-// 已标记配置、当前提供商参数可读取/可解密、真实提供商 base_url 为 HTTPS、client_id 非空且 Secret 可用；
-// mock 仅 Dev 模式可用；空 Secret/损坏/签名密钥故障均不能作为关闭本地登录的依据。
+// 已标记配置、当前提供商参数可读取/可解密、真实提供商 base_url 为 HTTPS、client_id 非空且 Secret 可用，
+// 且能解析出有效回调地址；mock 仅 Dev 模式可用；空 Secret/损坏/签名密钥故障均不能作为关闭本地登录的依据。
 func (s *AdminService) oidcAvailable(ctx context.Context) bool {
 	if !s.oidcOps.IsConfigured(ctx) {
 		return false
@@ -272,6 +273,9 @@ func (s *AdminService) oidcAvailable(ctx context.Context) bool {
 		return false
 	}
 	if err := urlguard.ValidateHTTPS(st.BaseURL); err != nil {
+		return false
+	}
+	if _, err := ResolveOidcCallbackURL(s.cfg.GetOr(ctx, KeyCallbackURL), s.cfg.GetOr(ctx, KeyFrontendURL)); err != nil {
 		return false
 	}
 	return true
@@ -396,6 +400,7 @@ func (s *AdminService) allowLocalLoginTx(ctx context.Context, tx *sql.Tx) (bool,
 // SaveOidc 保存 OIDC 参数（T1：旧值读取、校验、分类、密钥操作和相关配置写入在同一 BEGIN IMMEDIATE 内）；
 // 受「本地登录与 OIDC 均不可用禁止保存」约束（防认证死锁）；真实提供商 base_url 非空时必须为 HTTPS；
 // 各提供商参数独立存储；Secret 空值仅可在目标字段一致且旧 Secret 可用时保留；显式新值才替换。
+// R31-05：前端地址/独立回调地址保存即时生效；空 callback_url=不修改，clear_callback_url=true 显式清除并回退推导。
 func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 	if !slices.Contains(validProviders, in.ProviderType) {
 		return fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
@@ -426,6 +431,55 @@ func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 				return fmt.Errorf("%w: 目标提供商已存 OIDC 参数 JSON 损坏，须重新填写 Base URL 与 Client ID 后再保存", ErrBadRequest)
 			}
 		}
+		// R31-05：地址校验与最终生效回调解析在同一写事务内完成，失败不产生任何参数/地址写入。
+		requestedFrontend := strings.TrimSpace(in.FrontendURL)
+		requestedCallback := strings.TrimSpace(in.CallbackURL)
+		var normalizedFrontend string
+		if requestedFrontend != "" {
+			normalizedFrontend, err = normalizeAndValidateFrontendURL(requestedFrontend)
+			if err != nil {
+				return err
+			}
+		} else {
+			currentFrontend, gerr := s.cfg.GetTx(ctx, tx, KeyFrontendURL)
+			if gerr != nil {
+				return gerr
+			}
+			normalizedFrontend = strings.TrimSpace(currentFrontend)
+		}
+		if in.ClearCallbackURL && requestedCallback != "" {
+			return fmt.Errorf("%w: clear_callback_url 与非空 callback_url 不能同时提交", ErrBadRequest)
+		}
+		var normalizedCallback string
+		if !in.ClearCallbackURL && requestedCallback != "" {
+			normalizedCallback, err = normalizeAndValidateCallbackURL(requestedCallback)
+			if err != nil {
+				return err
+			}
+		}
+		if in.ClearCallbackURL {
+			if _, err := ResolveOidcCallbackURL("", normalizedFrontend); err != nil {
+				return fmt.Errorf("%w: 清除独立回调地址需要有效前端地址用于推导: %v", ErrBadRequest, err)
+			}
+		}
+		if !allowLocal && in.ProviderType != "mock" {
+			var resolveErr error
+			switch {
+			case in.ClearCallbackURL:
+				_, resolveErr = ResolveOidcCallbackURL("", normalizedFrontend)
+			case normalizedCallback != "":
+				_, resolveErr = ResolveOidcCallbackURL(normalizedCallback, "")
+			default:
+				currentCallback, gerr := s.cfg.GetTx(ctx, tx, KeyCallbackURL)
+				if gerr != nil {
+					return gerr
+				}
+				_, resolveErr = ResolveOidcCallbackURL(strings.TrimSpace(currentCallback), normalizedFrontend)
+			}
+			if resolveErr != nil {
+				return ErrAuthDeadlock // 本地登录与 OIDC 回调地址均不可用，禁止保存
+			}
+		}
 		if !allowLocal && !s.oidcUsableState(in, st) {
 			return ErrAuthDeadlock // 本地登录与 OIDC 均不可用，禁止保存
 		}
@@ -439,14 +493,18 @@ func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 		if err := s.cfg.SetTx(ctx, tx, oidcKeyConfigured, "true"); err != nil {
 			return err
 		}
-		// 前端地址/回调地址：手动覆盖优先（空 = 不修改）；启动缓存语义——修改需重启容器生效
-		if in.FrontendURL != "" {
-			if err := s.cfg.SetTx(ctx, tx, KeyFrontendURL, in.FrontendURL); err != nil {
+		// 前端地址/回调地址：保存即时生效；空 callback_url=不修改，clear_callback_url 显式清除后走推导回退。
+		if requestedFrontend != "" {
+			if err := s.cfg.SetTx(ctx, tx, KeyFrontendURL, normalizedFrontend); err != nil {
 				return err
 			}
 		}
-		if in.CallbackURL != "" {
-			if err := s.cfg.SetTx(ctx, tx, KeyCallbackURL, in.CallbackURL); err != nil {
+		if in.ClearCallbackURL {
+			if err := s.cfg.SetTx(ctx, tx, KeyCallbackURL, ""); err != nil {
+				return err
+			}
+		} else if normalizedCallback != "" {
+			if err := s.cfg.SetTx(ctx, tx, KeyCallbackURL, normalizedCallback); err != nil {
 				return err
 			}
 		}

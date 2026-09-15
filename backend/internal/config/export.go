@@ -276,7 +276,7 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 		}
 	}
 	// 导入后效果：签名密钥替换 → 全部现有会话立即失效（含执行导入的管理员，前端清凭据跳登录）；
-	// 含前端地址/回调地址时需重启生效——UI 提示「导入完成 → 立即重启容器 → 再重新登录」
+	// 地址/OIDC 配置按库内值即时生效；日志级别、HTTP 超时等启动期参数需重启后完全生效。
 	s.log.Warn("配置导入已执行", "setup_mode", setupMode)
 	return nil
 }
@@ -307,6 +307,10 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 	hasAdvancedData := len(payload.Instances) > 0 || len(payload.Accounts) > 0
 	if !setupMode && !hasAdvancedData && payload.Config[KeyAdvancedMode] != "true" && disableConfirmWord != ConfirmWordDisable {
 		return "", errors.New("该导入会清空高级模式数据，请输入 DISABLE 确认")
+	}
+	// R31-05：认证可用性预检必须在注册异步任务前同步完成，Setup/管理端才能在覆盖前直接得到拒绝结果。
+	if err := ValidateImportedAuthUsable(payload.Config); err != nil {
+		return "", err
 	}
 	if s.registry == nil {
 		return "", errors.New("任务注册表未注入")
@@ -607,7 +611,8 @@ func (s *ExportService) checkImportProtection(ctx context.Context, payload *Expo
 	return nil
 }
 
-// ValidateImportedAuthUsable 按“导入后视角”校验认证可用性：若本地登录关闭，则 OIDC 参数必须完整可用。
+// ValidateImportedAuthUsable 按“导入后视角”校验认证可用性：若本地登录关闭，则 OIDC 必须已启用、
+// 参数/Secret 完整可用且能解析出有效回调地址。
 // 该函数只读 map，不做任何写入。
 func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	if cfgMap[KeyConfigured] != "true" {
@@ -623,6 +628,9 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	}
 	if ok {
 		return nil
+	}
+	if cfgMap["oidc_configured"] != "true" {
+		return fmt.Errorf("%w: 导入配置已关闭本地登录，但未启用 OIDC（oidc_configured 缺失或非 true），禁止导入", ErrAuthDeadlock)
 	}
 	providerType := cfgMap["oidc_provider_type"]
 	if providerType == "" {
@@ -660,6 +668,11 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	}
 	if !SecretUsable(string(plain)) {
 		return fmt.Errorf("%w: 导入的 OIDC Client Secret 为脱敏占位符，请重新配置", ErrAuthDeadlock)
+	}
+	if providerType != "mock" {
+		if _, err := ResolveOidcCallbackURL(cfgMap[KeyCallbackURL], cfgMap[KeyFrontendURL]); err != nil {
+			return fmt.Errorf("%w: 导入配置无法解析出有效 OIDC 回调地址: %v", ErrAuthDeadlock, err)
+		}
 	}
 	return nil
 }

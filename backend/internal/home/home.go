@@ -86,7 +86,7 @@ type Summary struct {
 	HomeRule *HomeRule   `json:"home_rule"`
 }
 
-// frontendBase 下载链接前缀：frontend_url（Setup 推导初始值/面板可覆盖，修改需重启生效，Design1 §3.4.8）；
+// frontendBase 下载链接前缀：frontend_url（Setup 推导初始值/面板保存即时生效，R31-05）；
 // 为空时保持相对路径（异常场景——Setup 完成时必写，正常不触发）
 // 非关键展示类配置，维持 fail-safe 并记录口径（R14-25）。
 func (s *Service) frontendBase(ctx context.Context) string {

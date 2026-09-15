@@ -35,3 +35,47 @@ func TestValidateHTTPS(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAbsoluteHTTPURL(t *testing.T) {
+	valid := []string{
+		"http://localhost:8080",
+		"https://app.example.com",
+		"https://app.example.com/subpath/",
+	}
+	for _, raw := range valid {
+		if _, err := ParseAbsoluteHTTPURL(raw); err != nil {
+			t.Fatalf("ParseAbsoluteHTTPURL(%q) 不应失败: %v", raw, err)
+		}
+	}
+	invalid := []string{
+		"",
+		"/relative",
+		"ftp://app.example.com",
+		"https://",
+		"https://user:pass@app.example.com",
+		"https://app.example.com/?a=1",
+		"https://app.example.com/#frag",
+	}
+	for _, raw := range invalid {
+		if _, err := ParseAbsoluteHTTPURL(raw); err == nil {
+			t.Fatalf("ParseAbsoluteHTTPURL(%q) 应失败", raw)
+		}
+	}
+}
+
+func TestValidateOIDCCallbackURL(t *testing.T) {
+	const callbackPath = "/api/auth/oidc/callback"
+	if _, err := ValidateOIDCCallbackURL("https://callback.example.com"+callbackPath, callbackPath); err != nil {
+		t.Fatalf("合法回调地址不应失败: %v", err)
+	}
+	for _, raw := range []string{
+		"https://callback.example.com/wrong",
+		"https://callback.example.com" + callbackPath + "/",
+		"https://callback.example.com" + callbackPath + "?x=1",
+		callbackPath,
+	} {
+		if _, err := ValidateOIDCCallbackURL(raw, callbackPath); err == nil {
+			t.Fatalf("非法回调地址 %q 应失败", raw)
+		}
+	}
+}

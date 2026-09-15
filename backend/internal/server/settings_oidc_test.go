@@ -281,7 +281,7 @@ func TestR3103CallbackAfterProviderSwitch(t *testing.T) {
 	// 先配置 Dev mock 提供商并启动登录。
 	w := put(map[string]any{
 		"provider_type": "mock", "base_url": "", "realm": "", "client_id": "",
-		"client_secret": "", "frontend_url": "", "callback_url": "",
+		"client_secret": "", "frontend_url": "https://app.example.com", "callback_url": "",
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("保存 mock OIDC 失败: %d %s", w.Code, w.Body.String())
@@ -369,7 +369,7 @@ func TestR3103LocalLoginOffSwitchProtection(t *testing.T) {
 	token := regUser(t, srv, "r3103-localoff-admin", "r3103-localoff-admin@example.com", "password123")
 	w := profileReq(t, srv, http.MethodPut, "/api/admin/settings/oidc", token, map[string]any{
 		"provider_type": "generic", "base_url": "https://source.example.com", "realm": "",
-		"client_id": "source", "client_secret": "source-secret", "frontend_url": "", "callback_url": "",
+		"client_id": "source", "client_secret": "source-secret", "frontend_url": "https://app.example.com", "callback_url": "",
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("保存源 generic 失败: %d %s", w.Code, w.Body.String())

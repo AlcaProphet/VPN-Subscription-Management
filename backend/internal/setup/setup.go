@@ -113,9 +113,8 @@ func (s *Service) CompleteOidcSetup(ctx context.Context, r *http.Request, provid
 	if configured {
 		return ErrAlreadyConfigured
 	}
-	// 事务前：推导 frontend_url 与 callback_url 初始值（frontend_url + "/api/auth/oidc/callback"）
+	// 事务前：推导 frontend_url 初始值；不再写入独立 callback_url，未设置时由前端地址推导。
 	frontendURL := DeriveFrontendURL(r, s.trustedForwarded(r))
-	callbackURL := frontendURL + "/api/auth/oidc/callback"
 	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if _, err := s.cfg.EnsureSigningKeyTx(ctx, tx); err != nil {
 			return err // 复用不重复生成
@@ -133,9 +132,6 @@ func (s *Service) CompleteOidcSetup(ctx context.Context, r *http.Request, provid
 			return err
 		}
 		if err := s.cfg.SetTx(ctx, tx, config.KeyFrontendURL, frontendURL); err != nil {
-			return err
-		}
-		if err := s.cfg.SetTx(ctx, tx, config.KeyCallbackURL, callbackURL); err != nil {
 			return err
 		}
 		return nil

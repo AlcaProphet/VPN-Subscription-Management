@@ -261,6 +261,9 @@ func TestAuthDeadlock(t *testing.T) {
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
+	if err := svc.cfg.Set(ctx, KeyFrontendURL, "https://app.example.com"); err != nil {
+		t.Fatalf("设置前端地址失败: %v", err)
+	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
 		t.Fatalf("OIDC 可用时保存本地登录关应成功: %v", err)
 	}
@@ -285,6 +288,9 @@ func TestSaveLocalAuthRejectsDamagedOidcSecret(t *testing.T) {
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
+	if err := svc.cfg.Set(ctx, KeyFrontendURL, "https://app.example.com"); err != nil {
+		t.Fatalf("设置前端地址失败: %v", err)
+	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
 		t.Fatalf("损坏 Secret 时关闭本地登录应返回 ErrAuthDeadlock: %v", err)
 	}
@@ -301,6 +307,9 @@ func TestSaveLocalAuthRejectsEmptyOidcSecret(t *testing.T) {
 	ctx := context.Background()
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyFrontendURL, "https://app.example.com"); err != nil {
+		t.Fatalf("设置前端地址失败: %v", err)
 	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
 		t.Fatalf("空 Secret 时关闭本地登录应返回 ErrAuthDeadlock: %v", err)
@@ -488,20 +497,43 @@ func TestIconValidation(t *testing.T) {
 	}
 }
 
-// TestFrontendURLCached 前端地址/回调地址：手动保存后沿用（库驱动缓存语义，重启不推导覆盖）
-func TestFrontendURLCached(t *testing.T) {
+// TestFrontendURLAndCallbackURLImmediate 前端地址/独立回调地址保存即时生效；独立值优先，显式清除后回退推导。
+func TestFrontendURLAndCallbackURLImmediate(t *testing.T) {
 	_, svc := newTestAdmin(t, &mockOidcOps{})
 	ctx := context.Background()
 	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com",
-		ClientID: "c", ClientSecret: "sec123", FrontendURL: "https://app.example.com", CallbackURL: "https://app.example.com/cb"}); err != nil {
+		Realm: "realm", ClientID: "client-x", ClientSecret: "sec123",
+		FrontendURL: "https://app.example.com", CallbackURL: "https://callback.example.com/api/auth/oidc/callback"}); err != nil {
 		t.Fatalf("保存 OIDC 失败: %v", err)
 	}
 	got, err := svc.GetOidc(ctx)
 	if err != nil {
 		t.Fatalf("回显失败: %v", err)
 	}
-	if got.FrontendURL != "https://app.example.com" || got.CallbackURL != "https://app.example.com/cb" {
-		t.Errorf("手动值应优先沿用: %+v", got)
+	if got.FrontendURL != "https://app.example.com" || got.CallbackURL != "https://callback.example.com/api/auth/oidc/callback" {
+		t.Errorf("地址应即时保存并回显: %+v", got)
+	}
+	// 仅改前端地址时独立回调继续优先。
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com",
+		Realm: "realm", ClientID: "client-x", FrontendURL: "https://new.example.com"}); err != nil {
+		t.Fatalf("更新前端地址失败: %v", err)
+	}
+	got, _ = svc.GetOidc(ctx)
+	if got.FrontendURL != "https://new.example.com" || got.CallbackURL != "https://callback.example.com/api/auth/oidc/callback" {
+		t.Errorf("独立回调应优先且前端地址即时生效: %+v", got)
+	}
+	// 显式清除独立回调后回退推导。
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com",
+		Realm: "realm", ClientID: "client-x", ClearCallbackURL: true}); err != nil {
+		t.Fatalf("清除独立回调失败: %v", err)
+	}
+	got, _ = svc.GetOidc(ctx)
+	if got.CallbackURL != "" {
+		t.Fatalf("清除后 callback_url 应为空: %+v", got)
+	}
+	resolved, err := ResolveOidcCallbackURL(got.CallbackURL, got.FrontendURL)
+	if err != nil || resolved != "https://new.example.com"+OidcCallbackPath {
+		t.Fatalf("清除后应回退 frontend_url 推导: resolved=%q err=%v", resolved, err)
 	}
 	if got.ClientSecret != "" || !got.ClientSecretConfigured {
 		t.Errorf("Secret 应空回显且状态为已配置: %+v", got)
@@ -657,6 +689,9 @@ func TestOidcUsableWithStoredSecret(t *testing.T) {
 	ctx := context.Background()
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyFrontendURL, "https://app.example.com"); err != nil {
+		t.Fatalf("设置前端地址失败: %v", err)
 	}
 	// 先保存本地登录关（OIDC 可用时允许）
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
