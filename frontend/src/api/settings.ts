@@ -11,6 +11,7 @@ export type OidcParamsState =
   | 'signing_key_fault'
 
 export interface OidcSettings {
+  enabled?: boolean // R31-07：OIDC 是否生效启用（只读；停用走 disableOidc）
   provider_type: string
   base_url: string
   realm: string
@@ -92,6 +93,7 @@ export const getOidc = (providerType?: string) =>
     params: providerType ? { provider_type: providerType } : undefined,
   })
 export const saveOidc = (data: OidcSettings) => http.put<any, void>('/admin/settings/oidc', data)
+export const disableOidc = () => http.post<any, void>('/admin/settings/oidc/disable')
 export const clearOidc = () => http.delete('/admin/settings/oidc')
 export const testOidc = (data: Partial<OidcSettings>) => http.post<any, { ok: boolean; message: string; warnings: string[] }>(
   '/admin/settings/oidc/test', data,

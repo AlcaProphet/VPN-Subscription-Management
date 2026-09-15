@@ -166,8 +166,8 @@ func TestR3103StartFlowPinsProviderAndConfig(t *testing.T) {
 	if err := st.DB().QueryRow(`SELECT provider_type, config_hash FROM oidc_states ORDER BY created_at DESC LIMIT 1`).Scan(&providerType, &configHash); err != nil {
 		t.Fatalf("查询 state 固定标识失败: %v", err)
 	}
-	if providerType != "mock" || configHash != providerConfigHash("mock", raw) {
-		t.Fatalf("state 固定标识异常: provider=%q hash=%q want=%q", providerType, configHash, providerConfigHash("mock", raw))
+	if want := testFlowHash(t, svc, "mock", raw); providerType != "mock" || configHash != want {
+		t.Fatalf("state 固定标识异常: provider=%q hash=%q want=%q", providerType, configHash, want)
 	}
 }
 
@@ -226,7 +226,7 @@ func TestR3103ExchangeRejectsProviderOrConfigChange(t *testing.T) {
 		if err := svc.SaveParams(ctx, "mock", Params{BaseURL: "https://changed.example.com", ClientID: "changed", ClientSecret: "new-secret"}); err != nil {
 			t.Fatalf("修改 mock 参数失败: %v", err)
 		}
-		if _, err := svc.Exchange(ctx, rec, "code"); err == nil || !strings.Contains(err.Error(), "配置已变更") {
+		if _, err := svc.Exchange(ctx, rec, "code"); !errors.Is(err, ErrOidcFlowInvalid) {
 			t.Fatalf("同提供商参数变化后旧 state 应拒绝: %v", err)
 		}
 	})
@@ -348,7 +348,7 @@ func TestR3103RealProviderPinnedBoundary(t *testing.T) {
 	if err := svc.SaveParams(ctx, "keycloak", Params{BaseURL: srv.URL + "/a2", ClientID: "client-a", ClientSecret: "new-secret"}); err != nil {
 		t.Fatalf("修改 provider A 失败: %v", err)
 	}
-	if _, err := svc.Exchange(ctx, rec2, "old-code-2"); err == nil || !strings.Contains(err.Error(), "配置已变更") {
+	if _, err := svc.Exchange(ctx, rec2, "old-code-2"); !errors.Is(err, ErrOidcFlowInvalid) {
 		t.Fatalf("同 provider 改参后旧 state 应在网络前拒绝: %v", err)
 	}
 	mu.Lock()

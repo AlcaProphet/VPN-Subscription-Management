@@ -133,6 +133,9 @@ func TestR3105LocalLoginOffRequiresCallbackAddress(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: "cipher"}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置 provider 失败: %v", err)
 	}

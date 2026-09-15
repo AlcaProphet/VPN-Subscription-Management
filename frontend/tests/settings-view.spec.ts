@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia'
 vi.mock('@/api/settings', () => ({
   getOidc: vi.fn().mockResolvedValue({ provider_type: '', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '' }),
   saveOidc: vi.fn(),
+  disableOidc: vi.fn(),
   clearOidc: vi.fn(),
   testOidc: vi.fn(),
   getOidcRules: vi.fn().mockResolvedValue({}),
@@ -42,7 +43,7 @@ vi.mock('@/api/system', () => ({
 }))
 
 import SettingsView from '@/views/admin/SettingsView.vue'
-import { getOidc, saveOidc, testOidc, type OidcSettings, type OidcParamsState } from '@/api/settings'
+import { getOidc, saveOidc, disableOidc, testOidc, type OidcSettings, type OidcParamsState } from '@/api/settings'
 import { useSystemStore } from '@/stores/system'
 
 describe('SettingsView 基础渲染', () => {
@@ -481,5 +482,93 @@ describe('SettingsView R31-06 Production mock 只读边界', () => {
     await flushPromises()
     expect(saveOidc).not.toHaveBeenCalled()
     expect(testOidc).not.toHaveBeenCalled()
+  })
+})
+
+describe('SettingsView R31-07 暂未启用草稿与停用', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('选择暂未启用只形成草稿，点击保存停用才调用 disableOidc', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      enabled: true,
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: '',
+    })
+    let confirmOptions: any
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      confirmOptions = options
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const system = useSystemStore()
+    const statusSpy = vi.spyOn(system, 'fetchStatus').mockResolvedValue(undefined as any)
+    const card = wrapper.find('#oidc')
+    card.findComponent(Select).vm.$emit('change', 'off')
+    await flushPromises()
+
+    expect(confirmOptions).toBeTruthy()
+    expect(confirmOptions.content).toContain('只形成页面草稿')
+    expect(disableOidc).not.toHaveBeenCalled()
+    expect(saveOidc).not.toHaveBeenCalled()
+
+    await confirmOptions.onOk()
+    await flushPromises()
+    expect(card.findComponent(Select).props('value')).toBe('off')
+    expect(card.text()).toContain('尚未保存停用')
+    const saveDisableButton = card.findAll('button').find((btn) => btn.text().includes('保存停用'))
+    expect(saveDisableButton).toBeTruthy()
+    await saveDisableButton!.trigger('click')
+    await flushPromises()
+    expect(disableOidc).toHaveBeenCalledTimes(1)
+    expect(statusSpy).toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('停用响应展示保留 provider，选择 provider 保存后才重新启用', async () => {
+    const disabled = {
+      enabled: false,
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: '',
+      params_state: 'usable' as OidcParamsState,
+    }
+    vi.mocked(getOidc).mockResolvedValue(disabled)
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('OIDC 已停用')
+    expect(card.text()).toContain('generic')
+    expect(card.findComponent(Select).props('value')).toBe('off')
+
+    card.findComponent(Select).vm.$emit('change', 'generic')
+    await flushPromises()
+    expect(getOidc).toHaveBeenCalledWith('generic')
+    expect(card.findComponent(Select).props('value')).toBe('generic')
+
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledTimes(1)
   })
 })

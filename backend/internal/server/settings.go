@@ -68,7 +68,8 @@ func RegisterSettingsRoutes(engine *gin.Engine, h *SettingsHandler, sessionMW, a
 	g := engine.Group("/api/admin/settings", sessionMW, adminMW)
 	g.GET("/oidc", h.getOidc)
 	g.PUT("/oidc", h.saveOidc)
-	g.DELETE("/oidc", h.clearOidc) // 清空 OIDC 配置（二次确认前端负责）
+	g.POST("/oidc/disable", h.disableOidc) // R31-07：保存停用（保留 provider/参数，仅关闭生效状态）
+	g.DELETE("/oidc", h.clearOidc)         // 清空 OIDC 配置（二次确认前端负责）
 	g.GET("/oidc-rules", h.getOidcRules)
 	g.PUT("/oidc-rules", h.saveOidcRules)
 	g.GET("/local-auth", h.getLocalAuth)
@@ -129,6 +130,15 @@ func (h *SettingsHandler) saveOidc(c *gin.Context) {
 		return
 	}
 	// R31-05：前端地址/独立回调地址保存后即时生效，不再返回 need_restart。
+	OK(c, nil)
+}
+
+// disableOidc R31-07：持久化停用入口，与 ClearOidc（删除全部参数）严格区分。
+func (h *SettingsHandler) disableOidc(c *gin.Context) {
+	if err := h.adminCfg.DisableOidc(c.Request.Context()); err != nil {
+		mapSettingsErr(c, err)
+		return
+	}
 	OK(c, nil)
 }
 

@@ -34,6 +34,7 @@ const (
 	KeyAdminInitialized = "admin_initialized" // 历史键：保留读取/常量兼容，不写入、不参与首管理员判断，不做迁移
 	KeyFrontendURL      = "frontend_url"      // 前端地址（Setup 推导初始值，Build3 面板可手动覆盖）
 	KeyCallbackURL      = "callback_url"      // OIDC 回调地址（OIDC Setup 推导初始值）
+	KeyOidcFlowEpoch    = "oidc_flow_epoch"   // R31-07：OIDC 流程代际（停用/清空时轮换，为空按 initial 处理）
 	KeyAdvancedMode     = "advanced_mode"     // 高级模式开关（"true"/"false"，未设置视为 false；Build4 只读暴露）
 )
 

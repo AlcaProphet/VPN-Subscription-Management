@@ -136,7 +136,8 @@ func downloadTestFS() fstest.MapFS {
 			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
 				ticket TEXT PRIMARY KEY,
 				session_token TEXT NOT NULL,
-				expires_at TIMESTAMP NOT NULL);`)},
+				expires_at TIMESTAMP NOT NULL,
+				flow_hash TEXT NOT NULL DEFAULT '');`)},
 	}
 }
 

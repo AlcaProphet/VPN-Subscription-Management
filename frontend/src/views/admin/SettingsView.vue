@@ -7,7 +7,7 @@ import {
   Alert, Button, Card, Checkbox, Input, InputNumber, Modal, Radio, Space, Switch, Tag, Upload,
 } from 'ant-design-vue'
 import {
-  getOidc, saveOidc, clearOidc, testOidc, getOidcRules, saveOidcRules, getLocalAuth, saveLocalAuth,
+  getOidc, saveOidc, disableOidc, clearOidc, testOidc, getOidcRules, saveOidcRules, getLocalAuth, saveLocalAuth,
   getCaptcha, saveCaptcha, getSMTP, saveSMTP, testSMTP, getSite, saveSite, deleteSiteIcon,
   getRateLimit, saveRateLimit, getLogLevel, saveLogLevel, getAnnouncement, saveAnnouncement,
   getDebug, saveDebug, exportConfig, importConfig, clearAll, downloadBackup,
@@ -70,6 +70,8 @@ async function reloadClean(key: string, loader: () => Promise<void>) {
 
 // --- OIDC 配置 ---
 const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '', params_state: undefined, params_damaged: false, params_warning: '' })
+const oidcEnabled = ref(false) // 后端当前生效启用状态；与下拉草稿分开
+const oidcSelection = ref('off') // 下拉选择：'off' 或具体 provider；选择 off 时仍保留 oidc.provider_type 供展示
 const oidcSaving = ref(false)
 const oidcTargetLoading = ref(false)
 const oidcTest = ref<{ ok: boolean; message: string; warnings?: string[] } | null>(null)
@@ -140,6 +142,9 @@ function hasProviderDraft() {
 async function loadOidc() {
   try {
     const res = await getOidc()
+    oidcEnabled.value = res.enabled !== false // 兼容未返回 enabled 的旧响应/缓存，仅显式 false 视为停用
+    // 停用时仍保留 provider/参数；下拉回到 off，但页面用 oidc.provider_type 展示保留的提供商。
+    oidcSelection.value = oidcEnabled.value ? (res.provider_type || 'off') : 'off'
     Object.assign(oidc, res)
     // Secret 输入值始终为空；只有 client_secret_configured 表示当前提供商已存可用 Secret。
     oidc.client_secret = ''
@@ -197,24 +202,12 @@ const secretPlaceholder = computed(() => {
     ? '留空保持原值；输入新 Secret 后保存替换'
     : '必须输入新的 Client Secret'
 })
-// 切换“暂未启用”只形成页面草稿；持久化停用语义由 R31-07 处理。
-function applyProvider(v: string) {
-  oidc.provider_type = v
-  oidc.base_url = ''
-  oidc.realm = ''
-  oidc.client_id = ''
-  oidc.client_secret = ''
-  oidc.client_secret_configured = false
-  oidc.params_state = undefined
-  oidc.params_damaged = false
-  oidc.params_warning = ''
-  clearCallbackURL.value = false
-  oidcTest.value = null
-  captureOidcBaseline()
-}
+// R31-07：选择“暂未启用”只形成页面草稿；保存停用走独立入口，不清空 oidc.provider_type，
+// 以便停用态仍展示保留的提供商。
 // 目标提供商读取成功后整体替换提供商字段，避免异步返回期间出现“目标 provider + 源字段”的中间态。
 function applyOidcTarget(providerType: string, res: OidcSettings) {
   oidc.provider_type = providerType
+  oidcSelection.value = providerType
   oidc.base_url = res.base_url || ''
   oidc.realm = res.realm || ''
   oidc.client_id = res.client_id || ''
@@ -240,27 +233,28 @@ async function loadOidcTarget(providerType: string) {
     if (seq === oidcLoadSeq) oidcTargetLoading.value = false
   }
 }
-// onProviderChange：'off'（暂未启用）映射为空串；首次配置直接读取目标，启用态之间切换需确认（含切到暂未启用——R10-08）
+// onProviderChange：'off'（暂未启用）只改页面草稿；启用态之间切换需确认；停用态选择 provider 仅加载目标字段，保存成功后才重新启用。
 function onProviderChange(v: any) {
   const target = v === 'off' ? '' : v
-  if (target === oidc.provider_type) return
-  if (oidc.provider_type === '') {
-    void loadOidcTarget(target) // 首次配置也读取目标已存字段，避免沿用空表单
+  if (target === oidcSelection.value) return
+  if (oidcSelection.value === 'off') {
+    if (target !== '') void loadOidcTarget(target)
     return
   }
   const draftWarning = hasProviderDraft()
     ? '当前提供商的未保存参数草稿将被丢弃（前端地址/回调地址保留）。'
     : ''
   Modal.confirm({
-    title: '切换提供商类型',
+    title: target === '' ? '保存停用草稿' : '切换提供商类型',
     content: target === ''
-      ? `切换为暂未启用将停用 OIDC 登录，已绑定 OIDC 身份的账号将无法通过 OIDC 登录（本地密码登录不受影响）。${draftWarning}确定？`
+      ? `选择“暂未启用”只形成页面草稿，不会立即停用；点击“保存停用”后 OIDC 登录与绑定才会关闭。提供商参数与已有绑定会保留，现有会话继续有效。${draftWarning}`
       : `已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后将读取目标提供商自己的 Base URL/Realm/Client ID；目标未配置则清空。Client Secret 输入框始终清空，留空仅在目标字段与已存配置完全一致且已有可用 Secret 时可复用，否则必须输入新 Secret。${draftWarning}`,
-    okText: '继续切换',
+    okText: target === '' ? '保留草稿' : '继续切换',
     cancelText: '取消',
     onOk: async () => {
       if (target === '') {
-        applyProvider('')
+        oidcSelection.value = 'off'
+        markDirty('oidc')
         return
       }
       await loadOidcTarget(target)
@@ -288,6 +282,20 @@ function onCallbackInput() {
 }
 
 async function doSaveOidc() {
+  if (oidcSelection.value === 'off') {
+    oidcSaving.value = true
+    try {
+      await disableOidc()
+      Notify.success('OIDC 已停用，提供商参数与已有绑定已保留；现有会话继续有效')
+      await reloadClean('oidc', loadOidc)
+      await system.fetchStatus(true)
+    } catch (err) {
+      Notify.error((err as Error).message)
+    } finally {
+      oidcSaving.value = false
+    }
+    return
+  }
   if (mockBlocked.value) {
     Notify.error('生产模式不支持模拟 OIDC，请切换到真实提供商')
     return
@@ -299,6 +307,7 @@ async function doSaveOidc() {
     Notify.success('OIDC 配置已保存，地址即时生效')
     clearCallbackURL.value = false
     await reloadClean('oidc', loadOidc)
+    await system.fetchStatus(true)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -306,6 +315,7 @@ async function doSaveOidc() {
   }
 }
 async function doTestOidc() {
+  if (oidcSelection.value === 'off') return
   if (mockBlocked.value) {
     Notify.error('生产模式不支持模拟 OIDC，请切换到真实提供商')
     return
@@ -325,6 +335,7 @@ async function confirmClearOidc() {
     Notify.success('OIDC 配置已清空')
     clearOidcOpen.value = false
     await reloadClean('oidc', loadOidc)
+    await system.fetchStatus(true)
   } catch (err) {
     Notify.error((err as Error).message) // 本地登录已关时提示死锁
   }
@@ -834,6 +845,7 @@ async function doClearAll() {
 
 // 初始加载完成前不记录脏状态；之后每个独立保存分区都准确参与离开确认。
 watch(oidc, () => markDirty('oidc'), { deep: true })
+watch(oidcSelection, () => markDirty('oidc'))
 watch(oidcRules, () => markDirty('oidc-rules'), { deep: true })
 watch(localAuth, () => markDirty('local-auth'), { deep: true })
 watch(captcha, () => markDirty('captcha'), { deep: true })
@@ -889,10 +901,12 @@ onMounted(async () => {
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">提供商类型</span>
-              <AppSelect class="flex-1" :value="oidc.provider_type || 'off'" :options="providerOptions" :disabled="oidcTargetLoading" @change="onProviderChange" />
+              <AppSelect class="flex-1" :value="oidcSelection" :options="providerOptions" :disabled="oidcTargetLoading" @change="onProviderChange" />
             </div>
-            <!-- 未配置（暂未启用）：折叠全部配置框（R10-08） -->
-            <template v-if="oidc.provider_type">
+            <!-- 暂未启用（off）只折叠参数区；未保存草稿与已停用状态在下方单独展示。 -->
+            <template v-if="oidcSelection !== 'off'">
+              <Alert v-if="!oidcEnabled" type="info" show-icon
+                     message="保存后将重新启用 OIDC。请核对目标提供商参数与 Secret 状态后保存。" />
               <template v-if="!isMockProvider">
                 <div class="flex items-center gap-3">
                   <span class="w-24 text-sm">{{ urlLabel }}</span>
@@ -942,7 +956,21 @@ onMounted(async () => {
                 <Button danger :disabled="oidcTargetLoading" @click="clearOidcOpen = true">清空 OIDC 配置</Button>
               </Space>
             </template>
-            <Alert v-else type="info" show-icon message="暂未启用 OIDC：保持本地账号模式，或选择上方提供商开始配置" />
+            <template v-else>
+              <Alert v-if="oidcEnabled" type="warning" show-icon
+                     message="尚未保存停用：点击“保存停用”后，新的 OIDC 登录与绑定将关闭；提供商参数与已有绑定保留，现有会话继续有效。" />
+              <Alert v-else type="info" show-icon
+                     :message="oidc.provider_type
+                       ? `OIDC 已停用。已保留提供商：${oidc.provider_type}；选择提供商并保存后重新启用。`
+                       : '暂未启用 OIDC：保持本地账号模式，或选择上方提供商开始配置。'" />
+              <div v-if="oidcEnabled" class="flex items-center gap-2">
+                <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading" @click="doSaveOidc">保存停用</Button>
+                <Button :disabled="oidcTargetLoading" @click="oidcSelection = oidc.provider_type || 'off'">取消草稿</Button>
+              </div>
+              <Space v-else>
+                <Button v-if="oidc.provider_type" danger :disabled="oidcTargetLoading" @click="clearOidcOpen = true">清空 OIDC 配置</Button>
+              </Space>
+            </template>
           </div>
         </Card>
 

@@ -3,6 +3,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -95,12 +96,8 @@ func NewService(cfg *config.Service, users UserSource, lg *slog.Logger) *Service
 	return &Service{cfg: cfg, users: users, log: lg}
 }
 
-// Issue 用 signing_key 以 HS256 签名；签发前确保签名密钥存在（Setup 前兜底，不重复生成）
-func (s *Service) Issue(ctx context.Context, userID int64, credVersion int, dur time.Duration) (string, time.Time, error) {
-	key, err := s.cfg.EnsureSigningKey(ctx)
-	if err != nil {
-		return "", time.Time{}, err
-	}
+// signSession 以给定 signing_key 生成会话凭据；Issue 与 OIDC 事务内签发共用。
+func signSession(key []byte, userID int64, credVersion int, dur time.Duration) (string, time.Time, error) {
 	now := time.Now()
 	exp := now.Add(dur)
 	claims := Claims{
@@ -113,6 +110,25 @@ func (s *Service) Issue(ctx context.Context, userID int64, credVersion int, dur 
 		return "", time.Time{}, fmt.Errorf("签发会话凭据失败: %w", err)
 	}
 	return token, exp, nil
+}
+
+// Issue 用 signing_key 以 HS256 签名；签发前确保签名密钥存在（Setup 前兜底，不重复生成）
+func (s *Service) Issue(ctx context.Context, userID int64, credVersion int, dur time.Duration) (string, time.Time, error) {
+	key, err := s.cfg.EnsureSigningKey(ctx)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return signSession(key, userID, credVersion, dur)
+}
+
+// IssueTx 在调用方写事务内读取 signing_key 并签发会话，供 OIDC 流程将“启用/流程守卫 + 签发 + ticket 写入”串行化。
+// 与 Issue 的关键差异：不生成新密钥；签名密钥缺失/读取失败时必须让整个事务失败，不得静默换密钥。
+func (s *Service) IssueTx(ctx context.Context, tx *sql.Tx, userID int64, credVersion int, dur time.Duration) (string, time.Time, error) {
+	key, err := s.cfg.GetSigningKeyTx(ctx, tx)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return signSession(key, userID, credVersion, dur)
 }
 
 // Parse 解析并验签会话凭据

@@ -26,6 +26,11 @@ func (s *Service) MockLogin(ctx context.Context, email, username string, emailVe
 	if providerType != "mock" {
 		return nil, errors.New("当前提供商不是模拟 OIDC")
 	}
+	// R31-07：请求开始即固定当前流程边界；后续建号/合并/直连会话签发必须仍处于该流程。
+	flowHash, err := s.currentFlowHash(ctx)
+	if err != nil {
+		return nil, err
+	}
 	normalized, err := auth.NormalizeEmail(email)
 	if err != nil {
 		return nil, err
@@ -53,7 +58,12 @@ func (s *Service) MockLogin(ctx context.Context, email, username string, emailVe
 		return nil, err
 	}
 	id.RawClaims = string(raw)
-	return s.ResolveLogin(ctx, id)
+	res, err := s.resolveLoginWithGuard(ctx, id, s.flowGuard(flowHash))
+	if err != nil {
+		return nil, err
+	}
+	res.FlowHash = flowHash
+	return res, nil
 }
 
 // MockCode 生成模拟授权 code（携带身份信息，供 mockExchange 还原）

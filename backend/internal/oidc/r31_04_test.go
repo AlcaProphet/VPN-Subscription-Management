@@ -283,7 +283,8 @@ func TestR3104StartFlowRejectsDamageBeforeNetwork(t *testing.T) {
 		t.Fatalf("签名密钥故障 StartFlow 不应发出网络请求: before=%d after=%d", before, got)
 	}
 	// Exchange 同样必须在 discovery/token 前拒绝。
-	rec := &StateRecord{ProviderType: "generic", ConfigHash: providerConfigHash("generic", rawParams("https://idp.example.com", "", "c", "any-cipher")), CodeVerifier: "verifier", Nonce: "nonce", RedirectURI: svc.CallbackURL(ctx)}
+	rawForFlow := rawParams("https://idp.example.com", "", "c", "any-cipher")
+	rec := &StateRecord{ProviderType: "generic", ConfigHash: testFlowHash(t, svc, "generic", rawForFlow), CodeVerifier: "verifier", Nonce: "nonce", RedirectURI: svc.CallbackURL(ctx)}
 	before = atomic.LoadInt32(&hits)
 	if _, err := svc.Exchange(ctx, rec, "code"); err == nil || !strings.Contains(err.Error(), "签名密钥") {
 		t.Fatalf("签名密钥故障 Exchange 应拒绝且提示密钥: %v", err)

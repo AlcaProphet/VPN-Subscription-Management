@@ -51,7 +51,11 @@ func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 			return
 		}
 		providerType := h.cfg.GetOr(ctx, oidc.KeyProviderType)
-		oidcConfigured := h.oidcSvc.IsConfigured(ctx)
+		oidcConfigured := h.oidcSvc.IsConfigured(ctx) && providerType != ""
+		if !oidcConfigured {
+			// R31-07：停用/未启用时不把保留的 provider 误报为可用登录能力。
+			providerType = ""
+		}
 		if mode != "dev" && providerType == "mock" {
 			// R31-06：Production 不把模拟 OIDC 呈现为可用登录方式；历史参数仅管理端可见。
 			oidcConfigured = false

@@ -123,20 +123,30 @@
   3. 后端使用与清空操作区分的停用写入路径，不以空 `provider_type` 调用现有 `SaveOidc`，也不调用会清除参数的 `ClearOidc`。本地登录关闭时拒绝停用且配置不变；停用与关闭本地登录的检查、写入须在写事务内串行，防止并发请求各自通过旧状态检查后形成双登录不可用。事务内只用事务配置读写接口；相邻的 OIDC 保存/清空路径也需核对同一防死锁边界。
   4. OIDC 服务端在登录/绑定发起写入 state 前检查启用状态；回调换取身份、模拟登录、绑定落库和签发新会话前再次守卫，停用后未兑换的登录票据不得返回会话。不凭页面隐藏入口替代服务端校验；已有会话继续走既有校验，不新增按登录来源的撤销机制。与 R31-06 的 Production mock 限制合并核对这些入口，但不混同两个问题的授权和状态。
 - **方案核验补充（2026-09-15）：** 仅在兑换时读取当前 `oidc_configured` 不足以满足“停用阻断进行中流程”：停用后若在旧 state/票据 TTL 内重新启用，旧记录可能重新可用。停用须使此前的 state 与未兑换票据不可逆失效（可在同一停用事务清理，或采用流程版本校验），重新启用不能恢复它们。最终绑定落库、会话签发/票据创建和票据兑换的启用检查还须与停用写入串行，避免检查通过后停用已提交却仍完成写入或返回会话；具体失效机制需在实施前确定。
-- **相邻多键写入事务风险证据（2026-09-15，R31-03 风险 4，待 R31-07 深入研究）：**
+- **相邻多键写入事务风险证据（2026-09-15，R31-03 风险 4；R31-07 已据此完成事务化改造）：**
   1. 现状调用链：`AdminService.SaveOidc` 依次调用 `oidcOps.SaveParams` 写参数 JSON、`cfg.Set(oidc_provider_type)`、`cfg.Set(oidc_configured)`，再按需写 `frontend_url` / `callback_url`，最后 `ClearDiscCache`；各步分散在多个自动提交语句中，未包裹在单个写事务内。
   2. `ClearOidc` 同样先写 `oidc_configured=false`，再清 `oidc_provider_type` 和各 `oidc_params_*`，也不是单事务；`SaveLocalAuth` 与这两条 OIDC 写入路径之间也没有共同的写事务或串行化。
   3. 已识别的失败/并发窗口：① 参数 JSON 已写但 `oidc_provider_type` 写失败 → 目标参数成为未生效残留；② `oidc_provider_type` 已写但 `oidc_configured` 写失败 → 生效提供商与“已启用”标记不一致；③ 参数与提供商已完成切换但站点地址写失败 → API 返回失败而配置已部分生效；④ 目标与源地址指向同一 discovery 缓存键时 `ClearDiscCache` 未执行可能残留旧发现文档；⑤ `ClearOidc` 部分失败时可能留下“已标记停用但提供商/参数未清空”的中间态。
   4. 与 R31-03 的关系：固定发起 state 快照在单个 `BEGIN IMMEDIATE` 事务内读取 provider/raw 参数并校验指纹，空 Secret 复用也下沉到 `SaveParams` 的同一写事务；因此“旧授权码由新提供商地址/Secret 处理”和“空 Secret 字段混用”已由 R31-03 封死，但 `SaveOidc` / `ClearOidc` 的多键整体原子性仍未解决。
   5. R31-07 研究/验收要求：不得只做静态阅读；需用故障注入或可观察的写失败点验证上述中间态，评估把 OIDC 保存/停用/清空及相邻本地登录检查统一纳入写事务或服务层串行化；事务内只能使用 `GetTx` / `SetTx` / `EncryptWithTx` 等事务接口，不得回退到非事务配置读写。该研究结论未确定前，R31-03 不实施跨包事务改造。
+  - **R31-07 实施与自动化隔离证据（2026-09-15）：**
+    1. 流程代际与指纹：新增 `oidc_flow_epoch` 配置键与迁移 `1021_oidc_ticket_flow_hash.sql`（`oidc_login_tickets.flow_hash`）；`StartFlow` 在写 state 前固定 `SHA256("v2"+mode+epoch+provider+rawParams)`，`Exchange` 在网络请求前校验同一指纹；停用/清空轮换代际，重新启用不恢复旧流程。旧格式 state hash 与空 `flow_hash` ticket 均按失效处理，关闭 R31-06 的旧 Dev ticket 残余边界。
+    2. 事务边界：`AdminService.DisableOidc`、`ClearOidc`、`SaveLocalAuth` 均改为单个 `BEGIN IMMEDIATE`；停用/清空在同一事务清理 `oidc_states`/`oidc_login_tickets`、写 `oidc_configured=false` 并轮换 epoch；本地登录关闭在同一事务调用 `oidcAvailableTx`（仅 `GetTx`/`DescribeParamsTx`），与停用/清空串行，阻止双登录不可用。新增 `POST /api/admin/settings/oidc/disable`。
+    3. 服务端守卫：`StartFlow`、`ConsumeState`、`Exchange`、`ResolveBind`、`ResolveLoginForFlow`、`MockLogin`、`IssueLoginSessionForFlow`、`IssueDirectSessionForFlow`、`ConsumeLoginTicket` 均在最终写入/兑换事务内校验启用状态与固定流程指纹；绑定/建号写入通过 user 包 guarded 事务方法执行，会话签发使用 `auth.IssueTx` 在同一事务内完成。已有 JWT 会话校验链不变。
+    4. 管理端与前端：GET 增加只读 `enabled`，停用态保留 provider 与参数；公开状态停用时不返回保留 provider。设置页选择「暂未启用」仅形成草稿并显示「保存停用」，保存后重新读取配置并刷新系统状态；重新选择 provider 后保存成功才启用；清空 OIDC 仍是独立危险操作。
+    5. 证据文件：`backend/internal/config/r31_07_test.go`、`backend/internal/oidc/r31_07_test.go`、`backend/internal/oidc/r31_07_concurrency_test.go`、`backend/internal/server/r31_07_test.go`、`backend/internal/store/migration_1021_test.go`、`frontend/tests/settings-view.spec.ts`。覆盖停用落库与参数/绑定保留、故障注入整体回滚、停用 vs 关闭本地登录并发、state 已消费后进行中回调不可恢复、旧 ticket/空指纹 ticket 拒绝、停用与绑定/签发并发交错无停用后结果、直接 API 与公开状态、已有会话仍有效。并发测试使用事件表触发器记录 `disable`/`bind`/`ticket` 写入顺序，断言不存在停用后新绑定或 ticket。
+    6. 门禁：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...`、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1`、`npm run test`、`npm run build` 均通过。以上均为隔离数据库/HTTP/前端组件测试，不等同于真实 IdP、真实浏览器、跨 host 反代及人工并发验收。
+  - **人工验收边界：** 选择后仅草稿、保存停用后刷新仍停用、停用态展示保留 provider、重新启用原/其他提供商、清空与停用区别、本地登录关闭/并发保存人工复核、直接 API 与旧回调/旧 ticket 重放、已有会话继续有效等仍需在真实浏览器/隔离 IdP 环境逐项记录；真实 IdP 登录仍按既有人工验收边界执行。
+
 - **验收重点：** 覆盖选择后未保存、保存停用与刷新后仍停用、保留各提供商参数和绑定、重新启用原/其他提供商、清空与停用的区别；本地登录关闭时停用拒绝且数据库不变，以及停用与关闭本地登录并发保存；公开状态、登录页、绑定页和直接 API 的一致性；发起前无新 state、停用前已发起回调不能绑定或签发、未兑换票据不能返回会话、停用后在旧记录 TTL 内重新启用仍不能兑换旧 state/票据、停用与绑定/签发/兑换并发交错时无停用后新结果、已有会话仍可用。隔离自动化与真实 IdP/浏览器人工验收分别记录。
-- **状态：** ☑ 停用语义与既有会话边界已确认；☐ 待单独授权实施与验证。
+- **状态：** ☑ 停用语义与既有会话边界已确认；☑ R31-07 代码与自动化隔离验证完成；☐ 真实浏览器/隔离 IdP 人工验收待执行。
 
 ## 七、处理建议
 
 1. R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪；R31-02 已按用户单独授权修复并完成自动化隔离验证，真实 IdP 登录待隔离环境人工验收，不与 R30-05 混批。
 2. R31-03 字段语义、实施方案、代码与自动化隔离验证已完成：增加按目标提供商读取能力，空 Secret 仅能与目标原地址/Realm/Client ID 组合复用，授权发起/回调固定 provider/config 指纹；真实 IdP 登录待隔离环境人工验收。
-3. R31-04 已按用户确认的 T1/S1/K1/SCOPE-A/TC-A 完成代码与自动化隔离验证：六态状态机、管理端 GET/PUT 与 SaveOidc 单事务、底层 SaveParams 严格密钥读取、测试连接专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；真实 IdP 登录待隔离环境人工验收。R31-05 已完成代码与自动化隔离验证：导入同步校验 `oidc_configured` 与有效回调地址，地址保存即时生效、独立回调优先、显式清除回退，OIDC state 固定 `redirect_uri`，Setup 默认不再写独立回调；真实 IdP/浏览器与跨 host 反代验收待隔离环境人工核验。R31-06 的现有 Production 导入拒绝与 Design5 整站恢复边界已确认，安全修复不等待整站迁移；R31-07 的持久化停用与既有会话边界已确认，仍需深入研究 `ClearOidc` / 停用 / 本地登录并发串行化的事务边界。
+3. R31-04 已按用户确认的 T1/S1/K1/SCOPE-A/TC-A 完成代码与自动化隔离验证：六态状态机、管理端 GET/PUT 与 SaveOidc 单事务、底层 SaveParams 严格密钥读取、测试连接专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；真实 IdP 登录待隔离环境人工验收。R31-05 已完成代码与自动化隔离验证：导入同步校验 `oidc_configured` 与有效回调地址，地址保存即时生效、独立回调优先、显式清除回退，OIDC state 固定 `redirect_uri`，Setup 默认不再写独立回调；真实 IdP/浏览器与跨 host 反代验收待隔离环境人工核验。R31-06 的现有 Production 导入拒绝与 Design5 整站恢复边界已确认，安全修复不等待整站迁移；R31-07 的持久化停用与既有会话边界已确认。
+4. R31-07 已完成代码与自动化隔离验证：流程代际指纹、停用/清空/本地登录单事务、旧 state/票据不可恢复、直接 API 与公开状态守卫、设置页草稿/保存停用/重新启用；真实浏览器与隔离 IdP 人工验收待执行。
 
 ---
 
@@ -160,3 +170,4 @@
 | v2.3 | 2026-09-15 | 按用户确认实施 R31-04（T1/S1/K1/SCOPE-A/TC-A）：六态 `params_state` 与 signing_key 故障优先只读状态、SaveOidc 全链单事务与严格密钥读取、管理端测试连接损坏/密钥故障专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；补隔离数据库/HTTP/前端测试与全量门禁，真实 IdP 登录待隔离环境人工验收。 |
 | v2.4 | 2026-09-15 | 按用户确认实施 R31-05：`ValidateImportedAuthUsable` 校验 `oidc_configured` 与可解析回调地址，v2 注册任务前同步预检；`frontend_url`/独立 `callback_url` 保存即时生效，新增 `clear_callback_url` 显式清除回退；`oidc_states` 增加 `redirect_uri` 并固定发起值；Setup 不再写独立回调；清理地址“需重启”文案；补迁移、导入、地址、state、前端测试与全量门禁；真实 IdP/浏览器与跨 host 反代验收待隔离环境人工核验。 |
 | v2.5 | 2026-09-15 | 按用户确认实施 R31-06：启动 mode 成为唯一运行模式依据；Production Setup/管理端保存与测试连接拒绝 mock；登录/绑定发起与回调再次拒绝且无新 state/会话；公开状态隐藏 mock、管理端只读警示；v1/v2 的 Setup/管理端导入遇到 mock 类型或 `oidc_params_mock` 键（含空值）整体拒绝且不写库；Dev mock 路径保持；按全新激活裁决不提供旧 mock 键清理兼容路径；补隔离测试与全量门禁，真实 IdP 与 Design5 整站恢复未验收。 |
+| v2.6 | 2026-09-15 | 按用户确认实施 R31-07：新增 `oidc_flow_epoch` 与 `oidc_login_tickets.flow_hash`，流程指纹含 mode/provider/raw/代际；`DisableOidc`/`ClearOidc`/`SaveLocalAuth` 单事务，停用/清空同事务清理 state/ticket 并轮换代际；新增停用端点与 `enabled` 只读回显；登录/绑定/回调/模拟登录/会话签发/ticket 兑换统一事务守卫；设置页草稿、保存停用、保留 provider 与重新启用状态机落地；补故障注入、并发交错、迁移、HTTP、前端隔离测试与全量门禁；真实浏览器/隔离 IdP 人工验收待执行。 |

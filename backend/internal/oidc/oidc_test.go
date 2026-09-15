@@ -57,7 +57,8 @@ func newTestOidcService(t *testing.T) (*store.Store, *Service, *user.Service) {
 			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
 			ticket TEXT PRIMARY KEY,
 			session_token TEXT NOT NULL,
-			expires_at TIMESTAMP NOT NULL);`)},
+			expires_at TIMESTAMP NOT NULL,
+			flow_hash TEXT NOT NULL DEFAULT '');`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
@@ -541,6 +542,16 @@ func readOidcParamsRaw(t *testing.T, st *store.Store, providerType string) strin
 	return raw
 }
 
+// testFlowHash 按当前服务 mode、库内代际与给定 raw 计算 R31-07 完整流程指纹（测试辅助）。
+func testFlowHash(t *testing.T, svc *Service, providerType, raw string) string {
+	t.Helper()
+	epoch, err := svc.cfg.Get(ctx, config.KeyOidcFlowEpoch)
+	if err != nil {
+		t.Fatalf("读取流程代际失败: %v", err)
+	}
+	return flowConfigHash(svc.mode, epoch, providerType, raw)
+}
+
 // pinnedStateRecord 构造一个与当前库内配置匹配的 StateRecord，供直接调用 Exchange 的旧测试复用；
 // 不需要真实 StartFlow 网络请求。
 func pinnedStateRecord(t *testing.T, svc *Service, providerType string) *StateRecord {
@@ -554,7 +565,7 @@ func pinnedStateRecord(t *testing.T, svc *Service, providerType string) *StateRe
 	}
 	return &StateRecord{
 		ProviderType: providerType,
-		ConfigHash:   providerConfigHash(providerType, raw),
+		ConfigHash:   testFlowHash(t, svc, providerType, raw),
 		CodeVerifier: "verifier",
 		RedirectURI:  svc.CallbackURL(ctx),
 	}

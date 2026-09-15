@@ -119,7 +119,7 @@ func newTestClear(t *testing.T) (*store.Store, *Service, string) {
 			bind_user_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			provider_type TEXT NOT NULL DEFAULT '', config_hash TEXT NOT NULL DEFAULT '', redirect_uri TEXT NOT NULL DEFAULT '');`)},
 		"1013_oidc_login_tickets.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_login_tickets (
-			ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL);`)},
+			ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, flow_hash TEXT NOT NULL DEFAULT '');`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)

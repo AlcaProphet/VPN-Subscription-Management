@@ -79,6 +79,7 @@ type Server struct {
 	log             *slog.Logger
 	stopXrayCollect func()
 	xrayInstances   *xray.InstanceService
+	oidcSvc         *oidc.Service // R31-07：测试可直接用服务签发/校验流程记录
 	// 后续 Step 的 Handler 经构造函数追加注入（setup/oidc...）
 }
 
@@ -98,6 +99,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	authSvc := auth.NewService(cfg, users, lg)
 	setupSvc := setup.NewService(st, cfg, lg, trust)
 	oidcSvc := oidc.NewService(st, cfg, authSvc, users, mode, lg)
+	s.oidcSvc = oidcSvc
 	captchaSvc := captcha.NewService(cfg, lg)
 	limiter := ratelimit.New(cfg, lg)
 	resetSvc := auth.NewResetService(st, users, lg)

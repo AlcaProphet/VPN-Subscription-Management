@@ -128,7 +128,15 @@ func newTestAdminWithMode(t *testing.T, oidcOps OidcOps, mode string) (*store.St
 		"0001_init.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 			CREATE TABLE IF NOT EXISTS system_config (
-			key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+			key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+			CREATE TABLE IF NOT EXISTS oidc_states (
+			state TEXT PRIMARY KEY, code_verifier TEXT NOT NULL, nonce TEXT NOT NULL DEFAULT '',
+			intent TEXT NOT NULL, bind_user_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			provider_type TEXT NOT NULL DEFAULT '', config_hash TEXT NOT NULL DEFAULT '', redirect_uri TEXT NOT NULL DEFAULT '');
+			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
+			ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, flow_hash TEXT NOT NULL DEFAULT '');
+			CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY, oidc_subject TEXT);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
@@ -264,6 +272,9 @@ func TestAuthDeadlock(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: "cipher"} // 先允许保存本地登录关
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
@@ -274,6 +285,9 @@ func TestAuthDeadlock(t *testing.T) {
 		t.Fatalf("OIDC 可用时保存本地登录关应成功: %v", err)
 	}
 	mock.configured = false // 模拟 OIDC 不可用
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "false"); err != nil {
+		t.Fatalf("设置 OIDC 停用标记失败: %v", err)
+	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
 		t.Errorf("SaveLocalAuth 应拒绝: %v", err)
 	}
@@ -291,6 +305,9 @@ func TestSaveLocalAuthRejectsDamagedOidcSecret(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: MaskedSecret}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
@@ -311,6 +328,9 @@ func TestSaveLocalAuthRejectsEmptyOidcSecret(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: ""}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
@@ -333,6 +353,9 @@ func TestSaveLocalAuthMockOnlyAvailableInDev(t *testing.T) {
 
 	// Production 启动：即使 DB app_mode 被写成 dev，也不能关闭本地登录。
 	_, prodSvc := newTestAdminWithMode(t, &mockOidcOps{configured: true}, "prod")
+	if err := prodSvc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := prodSvc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
@@ -345,6 +368,9 @@ func TestSaveLocalAuthMockOnlyAvailableInDev(t *testing.T) {
 
 	// Dev 启动：即使 DB app_mode 被写成 prod，Dev mock 仍可用。
 	_, devSvc := newTestAdminWithMode(t, &mockOidcOps{configured: true}, "dev")
+	if err := devSvc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := devSvc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
@@ -701,6 +727,9 @@ func TestOidcUsableWithStoredSecret(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: "cipher"}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}

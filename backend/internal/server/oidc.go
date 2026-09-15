@@ -79,6 +79,10 @@ func (h *OidcHandler) login(c *gin.Context) {
 			Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
+		if errors.Is(err, oidc.ErrOidcDisabled) {
+			Fail(c, http.StatusForbidden, "OIDC 已停用，请使用本地账号登录")
+			return
+		}
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -114,7 +118,7 @@ func (h *OidcHandler) callback(c *gin.Context) {
 		}
 		c.Redirect(http.StatusFound, "/profile?oidc_bound=1") // 不签发会话
 	case "login":
-		res, err := h.oidcSvc.ResolveLogin(ctx, id)
+		res, err := h.oidcSvc.ResolveLoginForFlow(ctx, rec, id)
 		if err != nil {
 			c.Redirect(http.StatusFound, "/login?oidc_error=resolve_failed")
 			return
@@ -127,14 +131,13 @@ func (h *OidcHandler) callback(c *gin.Context) {
 			c.Redirect(http.StatusFound, "/login?oidc_error="+url.QueryEscape(res.Message))
 			return
 		}
-		// OIDC 会话固定 7 天，无记住我（Design1 §3.2）
-		token, _, err := h.authSvc.Issue(ctx, res.User.ID, res.User.CredentialVersion, auth.OidcSession)
+		// R31-07：会话签发与 ticket 写入同事务，且仍绑定本次发起时固定的流程指纹。
+		ticket, _, err := h.oidcSvc.IssueLoginSessionForFlow(ctx, res.User.ID, res.User.CredentialVersion, res.FlowHash)
 		if err != nil {
-			c.Redirect(http.StatusFound, "/login?oidc_error=issue_failed")
-			return
-		}
-		ticket, err := h.oidcSvc.IssueLoginTicket(ctx, token)
-		if err != nil {
+			if errors.Is(err, oidc.ErrOidcDisabled) || errors.Is(err, oidc.ErrOidcFlowInvalid) {
+				c.Redirect(http.StatusFound, "/login?oidc_error=oidc_disabled")
+				return
+			}
 			c.Redirect(http.StatusFound, "/login?oidc_error=exchange_failed")
 			return
 		}
@@ -160,6 +163,10 @@ func (h *OidcHandler) mockLogin(c *gin.Context) {
 	ctx := c.Request.Context()
 	res, err := h.oidcSvc.MockLogin(ctx, req.Email, req.Username, req.EmailVerified, req.Roles, req.Groups)
 	if err != nil {
+		if errors.Is(err, oidc.ErrOidcDisabled) {
+			Fail(c, http.StatusForbidden, "OIDC 已停用")
+			return
+		}
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -171,8 +178,12 @@ func (h *OidcHandler) mockLogin(c *gin.Context) {
 		Fail(c, http.StatusConflict, res.Message)
 		return
 	}
-	token, exp, err := h.authSvc.Issue(ctx, res.User.ID, res.User.CredentialVersion, auth.OidcSession)
+	token, exp, err := h.oidcSvc.IssueDirectSessionForFlow(ctx, res.User.ID, res.User.CredentialVersion, res.FlowHash)
 	if err != nil {
+		if errors.Is(err, oidc.ErrOidcDisabled) || errors.Is(err, oidc.ErrOidcFlowInvalid) {
+			Fail(c, http.StatusForbidden, "OIDC 已停用或流程已失效，请重新登录")
+			return
+		}
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -208,6 +219,10 @@ func (h *OidcHandler) bind(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, config.ErrMockModeRestricted) {
 			Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, oidc.ErrOidcDisabled) {
+			Fail(c, http.StatusForbidden, "OIDC 已停用，无法发起绑定")
 			return
 		}
 		Fail(c, http.StatusInternalServerError, err.Error())
