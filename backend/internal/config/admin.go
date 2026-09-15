@@ -214,8 +214,8 @@ func (s *AdminService) setSensitive(ctx context.Context, key, value string) erro
 // --- OIDC 配置分区 ---
 
 type OidcSettings struct {
-	Enabled                bool                `json:"enabled"`                  // R31-07：OIDC 是否生效启用（只读；GET/PUT 由独立 disable 入口控制）
-	ProviderType           string              `json:"provider_type"`            // 停用时仍保留，供重新启用
+	Enabled                bool                `json:"enabled"`       // R31-07：OIDC 是否生效启用（只读；GET/PUT 由独立 disable 入口控制）
+	ProviderType           string              `json:"provider_type"` // 停用时仍保留，供重新启用
 	BaseURL                string              `json:"base_url"`
 	Realm                  string              `json:"realm"`
 	ClientID               string              `json:"client_id"`
@@ -231,6 +231,11 @@ type OidcSettings struct {
 
 // 合法提供商类型
 var validProviders = []string{"keycloak", "auth0", "generic", "mock"}
+
+// isKnownProviderType 判断提供商类型是否属于当前支持的白名单；面板保存与配置导入共用。
+func isKnownProviderType(providerType string) bool {
+	return slices.Contains(validProviders, providerType)
+}
 
 // oidcUsableState 判定“请求参数 + 已存状态”合并后 OIDC 是否可用；供 SaveOidc 事务内防死锁判定。
 // 真实提供商 base_url 必须 HTTPS、client_id 非空；显式新 Secret 视为可用；空 Secret 仅在已存状态可用
@@ -380,7 +385,7 @@ func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 // GetOidcForProvider 按指定提供商读取面板配置（目标提供商切换专用）：
 // Secret 始终空回显；返回目标已存的非 Secret 字段、完整状态枚举与固定损坏/重填提示。
 func (s *AdminService) GetOidcForProvider(ctx context.Context, providerType string) (OidcSettings, error) {
-	if !slices.Contains(validProviders, providerType) {
+	if !isKnownProviderType(providerType) {
 		return OidcSettings{}, fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
 	}
 	out := OidcSettings{ProviderType: providerType}
@@ -449,7 +454,7 @@ func (s *AdminService) allowLocalLoginTx(ctx context.Context, tx *sql.Tx) (bool,
 // 各提供商参数独立存储；Secret 空值仅可在目标字段一致且旧 Secret 可用时保留；显式新值才替换。
 // R31-05：前端地址/独立回调地址保存即时生效；空 callback_url=不修改，clear_callback_url=true 显式清除并回退推导。
 func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
-	if !slices.Contains(validProviders, in.ProviderType) {
+	if !isKnownProviderType(in.ProviderType) {
 		return fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
 	}
 	if in.ProviderType == "mock" && s.mode != "dev" {

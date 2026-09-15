@@ -124,3 +124,55 @@ func TestR3105ValidateImportedAuthUsableOidcConfigured(t *testing.T) {
 		t.Fatalf("本地登录开启时不因 OIDC 未启用/无地址阻断导入: %v", err)
 	}
 }
+
+// TestR3105ValidateImportedAuthUsableBooleanAndProviderSemantics 审计补齐：
+// configured 的布尔语义必须与运行时一致；本地登录关闭时导入的 provider_type 必须属于已知白名单。
+func TestR3105ValidateImportedAuthUsableBooleanAndProviderSemantics(t *testing.T) {
+	const signingKey = "r3105-boolean-provider-signing-key"
+	validCipher, err := Encrypt([]byte("oidc-secret"), []byte(signingKey))
+	if err != nil {
+		t.Fatalf("加密测试 Secret 失败: %v", err)
+	}
+	build := func(configured, oidcConfigured, providerType string) map[string]string {
+		return map[string]string{
+			KeyConfigured:        configured,
+			KeyAllowLocalLogin:   "false",
+			KeySigningKey:        signingKey,
+			"frontend_url":       "https://app.example.com",
+			"oidc_configured":    oidcConfigured,
+			"oidc_provider_type": providerType,
+			"oidc_params_" + providerType: fmt.Sprintf(
+				`{"base_url":"https://idp.example.com","client_id":"client","client_secret":%q}`, validCipher),
+		}
+	}
+
+	cases := []struct {
+		name    string
+		cfg     map[string]string
+		wantErr error
+	}{
+		{name: "configured=TRUE 仍进入认证可用性校验", cfg: build("TRUE", "false", "generic"), wantErr: ErrAuthDeadlock},
+		{name: "configured=1 仍进入认证可用性校验", cfg: build("1", "false", "generic"), wantErr: ErrAuthDeadlock},
+		{name: "configured 非法值拒绝", cfg: build("yes", "true", "generic"), wantErr: ErrBadRequest},
+		{name: "configured 带空白拒绝", cfg: build(" true ", "true", "generic"), wantErr: ErrBadRequest},
+		{name: "oidc_configured 带空白拒绝", cfg: build("true", " true ", "generic"), wantErr: ErrAuthDeadlock},
+		{name: "未知 provider_type 拒绝", cfg: build("true", "true", "bogus"), wantErr: ErrAuthDeadlock},
+		{name: "provider_type 带空白拒绝", cfg: build("true", "true", " generic "), wantErr: ErrAuthDeadlock},
+		{name: "合法 provider_type 通过", cfg: build("true", "true", "generic"), wantErr: nil},
+		{name: "未配置导入跳过认证校验", cfg: build("false", "false", "bogus"), wantErr: nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateImportedAuthUsable(tc.cfg)
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("不应返回错误: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("错误类型不符: got=%v want=%v", err, tc.wantErr)
+			}
+		})
+	}
+}

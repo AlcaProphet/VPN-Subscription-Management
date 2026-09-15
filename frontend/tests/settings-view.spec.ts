@@ -422,6 +422,58 @@ describe('SettingsView OIDC R31-05 地址即时生效与显式清除', () => {
     }))
     confirmSpy.mockRestore()
   })
+  it('已标记清除独立回调后切换提供商仍保留清除草稿', async () => {
+    const source = {
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+    }
+    const target = {
+      provider_type: 'keycloak',
+      base_url: 'https://kc.example.com',
+      realm: 'master',
+      client_id: 'kc-client',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://ignored.example.com',
+      callback_url: 'https://ignored.example.com/api/auth/oidc/callback',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      Promise.resolve(providerType === 'keycloak' ? target : source))
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    const clearButton = card.findAll('button').find((btn) => btn.text().includes('恢复推导'))
+    await clearButton!.trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('已标记清除独立回调')
+
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+    expect(getOidc).toHaveBeenLastCalledWith('keycloak')
+    expect(card.text()).toContain('已标记清除独立回调')
+
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({
+      provider_type: 'keycloak',
+      callback_url: '',
+      clear_callback_url: true,
+    }))
+    confirmSpy.mockRestore()
+  })
 
   it('独立回调 host 与前端地址不一致时提示 state Cookie 边界', async () => {
     vi.mocked(getOidc).mockResolvedValue({
@@ -534,6 +586,49 @@ describe('SettingsView R31-07 暂未启用草稿与停用', () => {
     await flushPromises()
     expect(disableOidc).toHaveBeenCalledTimes(1)
     expect(statusSpy).toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('从暂未启用草稿切回提供商时提示丢弃，不静默覆盖停用草稿', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      enabled: true,
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: '',
+    })
+    const confirmOptions: any[] = []
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      confirmOptions.push(options)
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    card.findComponent(Select).vm.$emit('change', 'off')
+    await flushPromises()
+    await confirmOptions[0].onOk()
+    await flushPromises()
+    expect(card.findComponent(Select).props('value')).toBe('off')
+    expect(card.text()).toContain('尚未保存停用')
+
+    card.findComponent(Select).vm.$emit('change', 'generic')
+    await flushPromises()
+    expect(confirmOptions).toHaveLength(2)
+    expect(confirmOptions[1].content).toContain('丢弃')
+    expect(confirmOptions[1].content).toContain('停用草稿')
+    expect(card.findComponent(Select).props('value')).toBe('off')
+
+    await confirmOptions[1].onOk()
+    await flushPromises()
+    expect(getOidc).toHaveBeenLastCalledWith('generic')
+    expect(card.findComponent(Select).props('value')).toBe('generic')
     confirmSpy.mockRestore()
   })
 

@@ -627,7 +627,7 @@ func (s *ExportService) checkImportProtection(ctx context.Context, payload *Expo
 // 生效类型为 mock，或存在 oidc_params_mock 键（即使值为空），均要求整体拒绝；
 // 该判断独立于本地登录开关与 oidc_configured 标记。
 func validateImportedNoMock(cfgMap map[string]string) error {
-	if cfgMap["oidc_provider_type"] == "mock" {
+	if strings.TrimSpace(cfgMap["oidc_provider_type"]) == "mock" {
 		return fmt.Errorf("%w: 导入文件的 oidc_provider_type 为 mock，Production 配置导入不接受模拟 OIDC 配置", ErrMockModeRestricted)
 	}
 	if _, ok := cfgMap["oidc_params_mock"]; ok {
@@ -637,13 +637,22 @@ func validateImportedNoMock(cfgMap map[string]string) error {
 }
 
 // ValidateImportedAuthUsable 按“导入后视角”校验认证可用性：若本地登录关闭，则 OIDC 必须已启用、
-// 参数/Secret 完整可用且能解析出有效回调地址。
+// 参数/Secret 完整可用且能解析出有效回调地址；configured 使用与运行时一致的 ParseBool 语义，
+// 本地登录关闭时 provider_type 必须属于当前支持的真实提供商白名单。
 // 该函数只读 map，不做任何写入。
 func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	if err := validateImportedNoMock(cfgMap); err != nil {
 		return err
 	}
-	if cfgMap[KeyConfigured] != "true" {
+	configuredRaw := cfgMap[KeyConfigured]
+	if configuredRaw == "" {
+		return nil
+	}
+	configured, err := strconv.ParseBool(configuredRaw)
+	if err != nil {
+		return fmt.Errorf("%w: configured 非法", ErrBadRequest)
+	}
+	if !configured {
 		return nil
 	}
 	allowLocal := cfgMap[KeyAllowLocalLogin]
@@ -657,12 +666,12 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	if ok {
 		return nil
 	}
-	if cfgMap["oidc_configured"] != "true" {
+	if !strings.EqualFold(cfgMap["oidc_configured"], "true") {
 		return fmt.Errorf("%w: 导入配置已关闭本地登录，但未启用 OIDC（oidc_configured 缺失或非 true），禁止导入", ErrAuthDeadlock)
 	}
 	providerType := cfgMap["oidc_provider_type"]
-	if providerType == "" {
-		return ErrAuthDeadlock
+	if providerType == "" || providerType == "mock" || !isKnownProviderType(providerType) {
+		return fmt.Errorf("%w: 导入配置的 OIDC 提供商类型无效", ErrAuthDeadlock)
 	}
 	raw := cfgMap["oidc_params_"+providerType]
 	if raw == "" {

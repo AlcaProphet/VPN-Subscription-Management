@@ -54,6 +54,31 @@ func TestR3107HTTPDisablePersistsBlocksAndKeepsSession(t *testing.T) {
 	token := regUser(t, srv, "r3107-http-admin", "r3107-http-admin@example.com", "password123")
 	enableOidcForTest(t, srv, token, "generic")
 
+	// 停用前签发一枚 OIDC 会话 JWT，停用后必须与本地会话一样继续有效。
+	var oidcSession string
+	{
+		var userID int64
+		var credVersion int
+		if err := srv.store.DB().QueryRow(
+			`SELECT id, credential_version FROM users WHERE email = ?`, "r3107-http-admin@example.com").
+			Scan(&userID, &credVersion); err != nil {
+			t.Fatalf("查询 OIDC 会话用户失败: %v", err)
+		}
+		placeholderTicket, err := srv.oidcSvc.IssueLoginTicket(context.Background(), "r3107-oidc-session-placeholder")
+		if err != nil {
+			t.Fatalf("签发 OIDC 流程 ticket 失败: %v", err)
+		}
+		var flowHash string
+		if err := srv.store.DB().QueryRow(
+			`SELECT flow_hash FROM oidc_login_tickets WHERE ticket = ?`, placeholderTicket).Scan(&flowHash); err != nil {
+			t.Fatalf("读取 OIDC 流程指纹失败: %v", err)
+		}
+		oidcSession, _, err = srv.oidcSvc.IssueDirectSessionForFlow(context.Background(), userID, credVersion, flowHash)
+		if err != nil {
+			t.Fatalf("签发 OIDC 会话失败: %v", err)
+		}
+	}
+
 	if w := profileReq(t, srv, http.MethodPost, "/api/admin/settings/oidc/disable", token, nil); w.Code != http.StatusOK {
 		t.Fatalf("停用 OIDC 应 200: %d %s", w.Code, w.Body.String())
 	}
@@ -96,9 +121,12 @@ func TestR3107HTTPDisablePersistsBlocksAndKeepsSession(t *testing.T) {
 		t.Fatalf("停用后不得新增 state，实际 %d", stateCount)
 	}
 
-	// 停用前已登录的本地会话继续有效。
+	// 停用前已登录的本地会话与 OIDC 会话均继续有效。
 	if w := profileReq(t, srv, http.MethodGet, "/api/auth/me", token, nil); w.Code != http.StatusOK {
-		t.Fatalf("停用不得撤销已有会话: %d %s", w.Code, w.Body.String())
+		t.Fatalf("停用不得撤销已有本地会话: %d %s", w.Code, w.Body.String())
+	}
+	if w := profileReq(t, srv, http.MethodGet, "/api/auth/me", oidcSession, nil); w.Code != http.StatusOK {
+		t.Fatalf("停用不得撤销已有 OIDC 会话: %d %s", w.Code, w.Body.String())
 	}
 
 	// 直接回调旧 state 也必须在停用态被拒。

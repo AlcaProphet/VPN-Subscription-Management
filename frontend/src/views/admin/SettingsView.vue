@@ -216,7 +216,7 @@ function applyOidcTarget(providerType: string, res: OidcSettings) {
   oidc.params_state = res.params_state
   oidc.params_damaged = res.params_damaged === true
   oidc.params_warning = res.params_warning || ''
-  clearCallbackURL.value = false
+  // clearCallbackURL 属于站点级回调地址草稿，切换提供商必须保留；只重新读取目标提供商的参数字段。
   oidcTest.value = null
   captureOidcBaseline()
 }
@@ -238,7 +238,21 @@ function onProviderChange(v: any) {
   const target = v === 'off' ? '' : v
   if (target === oidcSelection.value) return
   if (oidcSelection.value === 'off') {
-    if (target !== '') void loadOidcTarget(target)
+    if (target === '') return
+    // R31-07：已启用状态下选择“暂未启用”只是未保存草稿；切回提供商须提示丢弃，不能静默覆盖草稿状态。
+    if (oidcEnabled.value) {
+      Modal.confirm({
+        title: '丢弃未保存的停用草稿？',
+        content: '当前“暂未启用”尚未保存，切换提供商将丢弃该停用草稿，OIDC 不会自动停用。',
+        okText: '继续切换',
+        cancelText: '取消',
+        onOk: async () => {
+          await loadOidcTarget(target)
+        },
+      })
+      return
+    }
+    void loadOidcTarget(target)
     return
   }
   const draftWarning = hasProviderDraft()
