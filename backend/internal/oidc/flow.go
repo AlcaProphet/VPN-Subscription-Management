@@ -123,17 +123,22 @@ func (s *Service) parseParamsWithTx(ctx context.Context, tx *sql.Tx, providerTyp
 // 返回的 Params 已解密、redirectURI 已解析，供 StartFlow 以同一配置/地址快照获取 discovery 与构造授权 URL。
 func (s *Service) saveState(ctx context.Context, state, verifier, nonce, intent string, bindUserID int64) (providerType string, p *Params, redirectURI string, err error) {
 	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		pt, err := s.cfg.GetTx(ctx, tx, KeyProviderType)
+		if err != nil {
+			return fmt.Errorf("读取 OIDC 提供商失败: %w", err)
+		}
+		if pt == "" {
+			return errors.New("OIDC 未配置")
+		}
+		// R31-06：Production mock 在清理过期 state/写入新 state 之前拒绝。
+		if err := s.rejectMockInProduction(pt); err != nil {
+			return err
+		}
+		providerType = pt
 		// 顺带清理过期记录（代替独立定时器，简单可靠）
 		if _, err := tx.ExecContext(ctx, `DELETE FROM oidc_states WHERE created_at < ?`,
 			time.Now().Add(-stateTTL)); err != nil {
 			return fmt.Errorf("清理过期 state 失败: %w", err)
-		}
-		providerType, err = s.cfg.GetTx(ctx, tx, KeyProviderType)
-		if err != nil {
-			return fmt.Errorf("读取 OIDC 提供商失败: %w", err)
-		}
-		if providerType == "" {
-			return errors.New("OIDC 未配置")
 		}
 		raw, err := s.cfg.GetTx(ctx, tx, "oidc_params_"+providerType)
 		if err != nil {
@@ -260,6 +265,10 @@ type Identity struct {
 // 实现说明：真实提供商场景需验签 id_token（jwks）；为保持本 Build 可自测，mock 提供商走本地解析。
 // 真实解析：POST token_endpoint 换 token → 解析 id_token（JWT payload 提取 subject/email/email_verified/username）。
 func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (*Identity, error) {
+	// R31-06：Production 不解析 mock 身份；旧库配置与进行中的旧 state 在此再次拒绝。
+	if err := s.rejectMockInProduction(rec.ProviderType); err != nil {
+		return nil, err
+	}
 	p, err := s.loadPinnedParams(ctx, rec)
 	if err != nil {
 		return nil, err

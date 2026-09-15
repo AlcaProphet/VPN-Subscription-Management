@@ -19,6 +19,7 @@ import (
 type SetupHandler struct {
 	setupSvc *setup.Service
 	oidcSvc  *oidc.Service
+	mode     string // 启动时确定的 APP_MODE（dev/prod），Production 下拒绝 mock
 }
 
 // RegisterSetupRoutes 注册 Setup 路由
@@ -79,6 +80,10 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "提供商类型无效")
 		return
 	}
+	if req.ProviderType == "mock" && h.mode != "dev" {
+		Fail(c, http.StatusBadRequest, "生产模式不支持模拟 OIDC 提供商")
+		return
+	}
 	if req.ProviderType != "mock" && req.BaseURL != "" {
 		if err := urlguard.ValidateHTTPS(req.BaseURL); err != nil {
 			Fail(c, http.StatusBadRequest, "OIDC Base URL 必须是 HTTPS 地址: "+err.Error())
@@ -119,6 +124,10 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, config.ErrBadRequest) {
+			Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, config.ErrMockModeRestricted) {
 			Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}

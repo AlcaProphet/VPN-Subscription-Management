@@ -101,7 +101,16 @@
   2. 现有 Production 配置导入在任何覆盖写入前检查 v1/v2 文件：`oidc_provider_type=mock`，或存在 `oidc_params_mock` 键（含空值），均整体拒绝；Setup 与管理端入口同口径，拒绝后配置不变。此规则独立于本地登录是否开启及 `oidc_configured` 标记。已有 Production 配置若保留 mock 历史键，其导出文件也不能直接往返导入，须先清理该键再重新导出。
   3. mock 可用性依据启动时确定的运行模式，不能信任可被配置导入整体覆盖的 `system_config.app_mode`。未来 Design5 整站导出/导入仅面向 Production；整站恢复须在替换目标数据前拒绝非 Production 来源文件及任何 mock 配置，不设计 Dev 文件的导入/导出。新格式的来源模式由文件元数据表达，不能从待恢复的配置键推断；元数据本身不等于不可伪造的来源证明，具体格式与验证机制仍由 Design5 后续设计决定。现行配置导入的安全修复不等待整站迁移实施。
 - **验收重点：** 隔离 Production 回归覆盖 Setup/管理端保存与测试连接、已有 mock 配置的公开状态、登录/绑定发起与回调，断言拒绝后无配置写入、无新 state、无会话签发；v1/v2 的 Setup/管理端导入覆盖生效类型为 mock、仅保留空/非空 `oidc_params_mock`、本地登录开/关及 OIDC 启用标记，均在覆盖前整体拒绝。Dev mock 原有路径保持可用；未来整站恢复另测非 Production 来源、含 mock 配置与失败后目标数据不变，不以现有配置导入测试代替。
-- **状态：** ☑ 处理合同与 Design5 关联边界已确认；☐ 待单独授权实施与验证。
+- **后续边界裁决（2026-09-15，用户确认）：** 当前项目按全新激活设计，不存在旧版本兼容要求；R31-06 不实现旧 `oidc_params_mock` 键清理/重新导出修复路径。含 mock 键的旧导出文件直接按上述导入规则整体拒绝，不属于本项支持范围。
+- **实施与自动化隔离证据（2026-09-15，用户确认后串行实施）：**
+  1. 运行模式：`config.AdminService` / `server.SetupHandler` 注入启动 `APP_MODE`；`oidcAvailable` 与 OIDC mock 分支不再读取 `system_config.app_mode`。隔离测试在 Production 库把 DB `app_mode` 写成 `dev`，断言公开状态、保存与防锁死判断仍按启动 `prod` 处理。
+  2. 写入口与登录：`SaveOidc`、Setup/OIDC Setup 与底层 `SaveParams(Tx)` / `SaveRawParamsTx` / `SetProviderTx` 对 Production mock 拒绝且无配置写入；`StartFlow` 在清理过期 state/写入新 state 前拒绝；`Exchange` 在解析 mock code 前拒绝；`MockLogin` 保持 Dev 限制；`TestConnection*` 返回 `ok=false`。
+  3. 公开状态与管理端：Production mock 的 `/api/system/status` 返回 `oidc_configured=false`、provider 为空；管理端 GET 只读保留历史参数并返回固定切换提示；设置页的 mock 选项在 Production 不可选，历史 mock 禁止保存/测试；登录页增加同口径隐藏防御。
+  4. 导入：新增 `validateImportedNoMock`，在 `Import` / `ImportV2` / `importV2` 与 `ValidateImportedAuthUsable` 中检查 `oidc_provider_type=mock` 或 `oidc_params_mock` 键存在（含空值），均在覆盖写入/注册异步任务前整体拒绝，拒绝后 `system_config` 不变。
+  5. 证据文件：`backend/internal/config/r31_06_test.go`、`backend/internal/oidc/r31_06_test.go`、`backend/internal/server/r31_06_test.go`、`frontend/tests/settings-view.spec.ts`、`frontend/tests/form-submit.spec.ts`。
+  6. 门禁：`cd backend && go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...`（0 unexpected）、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1` 均通过；`cd frontend && npm run test`（289 项）与 `npm run build` 均通过。
+- **残余边界：** 旧 Dev 已签发且未兑换的 `oidc_login_tickets` 不携带 provider 归属，其失效机制仍由 R31-07 处理，本项不宣称已阻断。未来 Design5 整站恢复的非 Production 来源与 mock 配置拦截仍未实现、未验收，现有配置导入修复不替代整站恢复测试。
+- **状态：** ☑ R31-06 代码与自动化隔离验证完成；真实 IdP 登录、R31-07、Design5 整站恢复均未验收。
 
 ## 六、R31-07 OIDC「暂未启用」未真正落库停用（中）
 
@@ -150,3 +159,4 @@
 | v2.2 | 2026-09-15 | 实施 R31-03：目标提供商读取与最小损坏重填、空 Secret 复用原子守卫、固定发起 state provider/config 指纹、设置页草稿/目标读取/警示与文案更新；补迁移、配置/服务/HTTP/前端隔离测试及全量门禁；真实 IdP 登录仍待隔离环境人工验收。 |
 | v2.3 | 2026-09-15 | 按用户确认实施 R31-04（T1/S1/K1/SCOPE-A/TC-A）：六态 `params_state` 与 signing_key 故障优先只读状态、SaveOidc 全链单事务与严格密钥读取、管理端测试连接损坏/密钥故障专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；补隔离数据库/HTTP/前端测试与全量门禁，真实 IdP 登录待隔离环境人工验收。 |
 | v2.4 | 2026-09-15 | 按用户确认实施 R31-05：`ValidateImportedAuthUsable` 校验 `oidc_configured` 与可解析回调地址，v2 注册任务前同步预检；`frontend_url`/独立 `callback_url` 保存即时生效，新增 `clear_callback_url` 显式清除回退；`oidc_states` 增加 `redirect_uri` 并固定发起值；Setup 不再写独立回调；清理地址“需重启”文案；补迁移、导入、地址、state、前端测试与全量门禁；真实 IdP/浏览器与跨 host 反代验收待隔离环境人工核验。 |
+| v2.5 | 2026-09-15 | 按用户确认实施 R31-06：启动 mode 成为唯一运行模式依据；Production Setup/管理端保存与测试连接拒绝 mock；登录/绑定发起与回调再次拒绝且无新 state/会话；公开状态隐藏 mock、管理端只读警示；v1/v2 的 Setup/管理端导入遇到 mock 类型或 `oidc_params_mock` 键（含空值）整体拒绝且不写库；Dev mock 路径保持；按全新激活裁决不提供旧 mock 键清理兼容路径；补隔离测试与全量门禁，真实 IdP 与 Design5 整站恢复未验收。 |

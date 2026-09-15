@@ -75,6 +75,12 @@ const showRegister = computed(() => {
 // 本地登录区块可见性：仅当 allow_local_login 开启时显示（Design1 §3.2）
 const showLocalLogin = computed(() => system.status?.allow_local_login !== false)
 const tableEmpty = computed(() => system.status?.user_table_empty ?? false)
+// R31-06：后端公开状态应停用 Production mock；前端再加一层防御，避免异常/缓存状态展示 mock 入口。
+const showOidcLogin = computed(() => {
+  const st = system.status
+  if (!st?.oidc_configured) return false
+  return !(st.oidc_provider_type === 'mock' && st.app_mode !== 'dev')
+})
 
 // 真实提供商登录：跳转后端发起授权
 function startOidcLogin() {
@@ -147,10 +153,10 @@ onMounted(async () => {
         </Form>
       </template>
       <!-- OIDC 区块：oidc_configured 时渲染（Step 6 填充） -->
-      <template v-if="system.status?.oidc_configured">
+      <template v-if="showOidcLogin">
         <Divider plain>或</Divider>
         <!-- mock 提供商（仅 Dev）：模拟登录表单，标题标注「Dev 模拟登录」 -->
-        <Form v-if="system.status.oidc_provider_type === 'mock'" layout="vertical" :model="mockForm" @finish="onMockLogin">
+        <Form v-if="system.status?.oidc_provider_type === 'mock'" layout="vertical" :model="mockForm" @finish="onMockLogin">
           <div class="text-sm text-text-tertiary mb-2">Dev 模拟登录</div>
           <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email', trigger: 'blur' }]">
             <Input v-model:value="mockForm.email" />

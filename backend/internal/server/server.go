@@ -104,8 +104,8 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	registerStatus(engine, cfg, users, oidcSvc, captchaSvc, mode, nil)
 	// 认证路由（本 Build Step 4/7）：后续业务域路由同样在此按序注册
 	RegisterAuthRoutes(engine, &AuthHandler{authSvc: authSvc, userSvc: users, cfg: cfg, resetSvc: resetSvc}, limiter, captchaSvc)
-	// Setup 路由（本 Build Step 5/6）
-	RegisterSetupRoutes(engine, &SetupHandler{setupSvc: setupSvc, oidcSvc: oidcSvc})
+	// Setup 路由（本 Build Step 5/6）；mode 使用启动值，Production 下拒绝 mock。
+	RegisterSetupRoutes(engine, &SetupHandler{setupSvc: setupSvc, oidcSvc: oidcSvc, mode: mode})
 	// OIDC 路由（本 Build Step 6）
 	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc, setupSvc: setupSvc, cfg: cfg, trust: trust}, authSvc.SessionMiddleware(), limiter)
 	// 版本组件 + 订阅池路由（Build2 Step 2；会话 + 管理员双中间件）
@@ -347,7 +347,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	// 面板配置（Build3 Step 3）：分区读写 + 死锁防护 + 加密脱敏；调试模式经请求上下文中间件注入
 	offClearSvc := xray.NewOffClearService(st, cfg, taskReg, lg)
 	offClearSvc.SetAfterAdvancedOff(syncSvc.AfterAdvancedOff)
-	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, lg, rt.Level)
+	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, mode, lg, rt.Level)
 	adminCfgSvc.SetAdvancedModeSwitcher(offClearSvc)
 	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trust},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())

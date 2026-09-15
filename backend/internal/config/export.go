@@ -232,6 +232,10 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 	if err != nil {
 		return err // 「密码错误或文件损坏」
 	}
+	// R31-06：Production 配置导入在任何覆盖写入前整体拒绝 mock 配置。
+	if err := validateImportedNoMock(payload.Config); err != nil {
+		return err
+	}
 	// 校验格式与版本：format_version 不匹配仅警告不阻断；未知键忽略并警告；校验失败不做任何变更
 	if payload.FormatVersion != FormatVersion {
 		s.log.Warn("导入配置 format_version 不匹配", "got", payload.FormatVersion, "want", FormatVersion)
@@ -292,6 +296,10 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 	if err != nil {
 		return "", err
 	}
+	// R31-06：v1/v2 均在注册异步任务或同步覆盖前整体拒绝 mock 配置。
+	if err := validateImportedNoMock(payload.Config); err != nil {
+		return "", err
+	}
 	if payload.FormatVersion != FormatVersion {
 		// v1 兼容：保持旧同步语义。
 		if err := s.Import(ctx, data, password, confirmWord, setupMode); err != nil {
@@ -332,6 +340,10 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, confirmWord string, setupMode bool) ([]string, error) {
 	if confirmWord != ConfirmWordImport {
 		return nil, errors.New("确认词不正确")
+	}
+	// R31-06：任务体内再次兜底拒绝 mock 配置，直接调用路径也不得覆盖写入。
+	if err := validateImportedNoMock(payload.Config); err != nil {
+		return nil, err
 	}
 	// 导入保护：signing_key 变化且存在业务密文时拒绝。
 	if err := s.checkImportProtection(ctx, payload); err != nil {
@@ -611,10 +623,26 @@ func (s *ExportService) checkImportProtection(ctx context.Context, payload *Expo
 	return nil
 }
 
+// validateImportedNoMock R31-06：Production 配置导入不接受模拟 OIDC 配置。
+// 生效类型为 mock，或存在 oidc_params_mock 键（即使值为空），均要求整体拒绝；
+// 该判断独立于本地登录开关与 oidc_configured 标记。
+func validateImportedNoMock(cfgMap map[string]string) error {
+	if cfgMap["oidc_provider_type"] == "mock" {
+		return fmt.Errorf("%w: 导入文件的 oidc_provider_type 为 mock，Production 配置导入不接受模拟 OIDC 配置", ErrMockModeRestricted)
+	}
+	if _, ok := cfgMap["oidc_params_mock"]; ok {
+		return fmt.Errorf("%w: 导入文件存在 oidc_params_mock 键（含空值），Production 配置导入不接受模拟 OIDC 配置", ErrMockModeRestricted)
+	}
+	return nil
+}
+
 // ValidateImportedAuthUsable 按“导入后视角”校验认证可用性：若本地登录关闭，则 OIDC 必须已启用、
 // 参数/Secret 完整可用且能解析出有效回调地址。
 // 该函数只读 map，不做任何写入。
 func ValidateImportedAuthUsable(cfgMap map[string]string) error {
+	if err := validateImportedNoMock(cfgMap); err != nil {
+		return err
+	}
 	if cfgMap[KeyConfigured] != "true" {
 		return nil
 	}

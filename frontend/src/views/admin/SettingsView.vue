@@ -28,7 +28,7 @@ import { Notify } from '@/components/Notify'
 const system = useSystemStore()
 const auth = useAuthStore()
 const router = useRouter()
-const isProd = ref(system.status?.app_mode === 'prod')
+const isProd = computed(() => system.status?.app_mode === 'prod')
 
 // --- 六大设置分组：桌面左侧导航，手机顶部 Select。 ---
 const settingGroups = [
@@ -101,13 +101,23 @@ const callbackHostWarning = computed(() => {
   }
   return ''
 })
-const providerOptions = [
-  { label: '暂未启用（本地账号模式）', value: 'off' }, // R10-08：off 为前端显示值，映射 provider_type 空串（未配置）
-  { label: 'Keycloak', value: 'keycloak' },
-  { label: 'Auth0', value: 'auth0' },
-  { label: 'Generic OIDC', value: 'generic' },
-  { label: 'Mock（仅 Dev）', value: 'mock' },
-]
+const providerOptions = computed(() => {
+  const opts = [
+    { label: '暂未启用（本地账号模式）', value: 'off' }, // R10-08：off 为前端显示值，映射 provider_type 空串（未配置）
+    { label: 'Keycloak', value: 'keycloak' },
+    { label: 'Auth0', value: 'auth0' },
+    { label: 'Generic OIDC', value: 'generic' },
+  ]
+  // R31-06：Production 下 Mock 只读保留已有选择，不再作为可选启用项。
+  if (!isProd.value || oidc.provider_type === 'mock') {
+    opts.push({
+      label: isProd.value ? 'Mock（生产不可用）' : 'Mock（仅 Dev）',
+      value: 'mock',
+      disabled: isProd.value,
+    } as any)
+  }
+  return opts
+})
 // 当前提供商参数基线：用于判断“切离时是否有该提供商的未保存草稿”。
 // frontend_url / callback_url 是站点级字段，不进入该基线、切换时保留。
 let oidcBaseline = { provider_type: '', base_url: '', realm: '', client_id: '' }
@@ -146,6 +156,8 @@ async function loadOidc() {
 }
 // OIDC 字段随提供商动态显隐（R10-02）：Auth0 用 Domain 标识；Realm 仅 Keycloak 适用；Mock 无参数
 const isMockProvider = computed(() => oidc.provider_type === 'mock')
+// R31-06：Production 下历史 mock 配置只读保留，禁止保存/测试并在界面提示切换真实提供商。
+const mockBlocked = computed(() => isProd.value && isMockProvider.value)
 const urlLabel = computed(() => (oidc.provider_type === 'auth0' ? 'Domain' : 'Base URL'))
 const urlPlaceholder = computed(() => (oidc.provider_type === 'auth0' ? 'your-tenant.auth0.com' : 'https://idp.example.com'))
 const showRealm = computed(() => oidc.provider_type === 'keycloak')
@@ -276,6 +288,10 @@ function onCallbackInput() {
 }
 
 async function doSaveOidc() {
+  if (mockBlocked.value) {
+    Notify.error('生产模式不支持模拟 OIDC，请切换到真实提供商')
+    return
+  }
   if (oidcTargetLoading.value || oidcKeyFault.value) return
   oidcSaving.value = true
   try {
@@ -290,6 +306,10 @@ async function doSaveOidc() {
   }
 }
 async function doTestOidc() {
+  if (mockBlocked.value) {
+    Notify.error('生产模式不支持模拟 OIDC，请切换到真实提供商')
+    return
+  }
   if (oidcTargetLoading.value || oidcKeyFault.value) return
   oidcTest.value = null
   try {
@@ -894,7 +914,8 @@ onMounted(async () => {
                        :message="oidcStateAlert || '已存 OIDC 配置需要处理，请按提示重填后保存'" />
                   <p class="text-xs text-text-secondary">{{ secretHint }}</p>
               </template>
-              <Alert v-else type="info" show-icon message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
+              <Alert v-else :type="mockBlocked ? 'error' : 'info'" show-icon
+                     :message="mockBlocked ? '生产模式不支持模拟 OIDC：历史参数已保留但登录入口已停用，请切换到真实提供商' : '模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单'" />
               <Alert type="info" show-icon message="接入提示" description="OIDC 回调要求公网可达的 HTTPS 域名，局域网直连模式可能无法完成回调" />
               <div class="flex items-center gap-3">
                 <span class="w-24 text-sm">前端地址</span>
@@ -916,8 +937,8 @@ onMounted(async () => {
               <Alert v-if="callbackHostWarning" type="warning" show-icon :message="callbackHostWarning" />
               <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" :description="oidcTest.warnings?.length ? oidcTest.warnings.join('；') : undefined" />
               <Space>
-                <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading || oidcKeyFault" @click="doSaveOidc">保存</Button>
-                <Button :disabled="oidcTargetLoading || oidcKeyFault" @click="doTestOidc">测试连接</Button>
+                <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading || oidcKeyFault || mockBlocked" @click="doSaveOidc">保存</Button>
+                <Button :disabled="oidcTargetLoading || oidcKeyFault || mockBlocked" @click="doTestOidc">测试连接</Button>
                 <Button danger :disabled="oidcTargetLoading" @click="clearOidcOpen = true">清空 OIDC 配置</Button>
               </Space>
             </template>

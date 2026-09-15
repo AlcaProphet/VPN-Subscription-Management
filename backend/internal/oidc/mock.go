@@ -19,9 +19,12 @@ import (
 // subject 固定为输入邮箱，走与真实 OIDC 一致的查建/合并逻辑（可复现合并/冲突测试）。
 // 返回结构：登录成功返回 User + 已签发凭据由接入层处理；pending/冲突返回 ResolveResult。
 func (s *Service) MockLogin(ctx context.Context, email, username string, emailVerified bool, roles, groups []string) (*ResolveResult, error) {
+	if s.mode != "dev" {
+		return nil, fmt.Errorf("%w: 模拟登录仅 Dev 模式可用", config.ErrMockModeRestricted)
+	}
 	providerType := s.cfg.GetOr(ctx, KeyProviderType)
-	if s.mode != "dev" || providerType != "mock" {
-		return nil, errors.New("模拟登录仅 Dev 模式且选择模拟 OIDC 时可用")
+	if providerType != "mock" {
+		return nil, errors.New("当前提供商不是模拟 OIDC")
 	}
 	normalized, err := auth.NormalizeEmail(email)
 	if err != nil {
@@ -95,6 +98,9 @@ func (s *Service) TestConnectionWithSavedSecret(ctx context.Context, providerTyp
 // TC-A：Secret 留空且目标已存 JSON/Secret 损坏时直接返回专门失败，不继续以“未提供 Secret”警告代替。
 func (s *Service) testConnection(ctx context.Context, providerType string, p Params, allowSavedSecret bool) (*TestResult, error) {
 	if providerType == "mock" {
+		if s.mode != "dev" {
+			return &TestResult{OK: false, Message: "生产模式不支持模拟 OIDC 测试连接，请切换到真实提供商"}, nil
+		}
 		return &TestResult{OK: true, Message: "模拟模式始终通过"}, nil
 	}
 	if p.ClientSecret == config.MaskedSecret {

@@ -110,8 +110,14 @@ func (m *mockOidcOps) DescribeParamsTx(ctx context.Context, tx *sql.Tx, provider
 func (m *mockOidcOps) IsConfigured(ctx context.Context) bool { return m.configured }
 func (m *mockOidcOps) ClearDiscCache()                       {}
 
-// newTestAdmin 创建临时库 + 面板配置服务
+// newTestAdmin 创建临时库 + 面板配置服务（默认 Dev；需要 Production 语义时用 newTestAdminWithMode）
 func newTestAdmin(t *testing.T, oidcOps OidcOps) (*store.Store, *AdminService) {
+	t.Helper()
+	return newTestAdminWithMode(t, oidcOps, "dev")
+}
+
+// newTestAdminWithMode 创建指定启动 mode 的面板配置服务，用于验证不读取 system_config.app_mode。
+func newTestAdminWithMode(t *testing.T, oidcOps OidcOps, mode string) (*store.Store, *AdminService) {
 	t.Helper()
 	st, err := store.Open(t.TempDir(), "test.db")
 	if err != nil {
@@ -128,7 +134,7 @@ func newTestAdmin(t *testing.T, oidcOps OidcOps) (*store.Store, *AdminService) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := NewService(st, log.New("error", "console"))
-	svc := NewAdminService(cfg, st, oidcOps, t.TempDir(), log.New("error", "console"), new(slog.LevelVar))
+	svc := NewAdminService(cfg, st, oidcOps, t.TempDir(), mode, log.New("error", "console"), new(slog.LevelVar))
 	return st, svc
 }
 
@@ -320,25 +326,33 @@ func TestSaveLocalAuthRejectsEmptyOidcSecret(t *testing.T) {
 	}
 }
 
-// TestSaveLocalAuthMockOnlyAvailableInDev mock OIDC 仅在 Dev 模式有登录能力，Prod 下不得关闭本地登录。
+// TestSaveLocalAuthMockOnlyAvailableInDev mock OIDC 仅在 Dev 模式有登录能力；
+// 运行模式取启动注入值，不信任可被导入覆盖的 system_config.app_mode。
 func TestSaveLocalAuthMockOnlyAvailableInDev(t *testing.T) {
-	mock := &mockOidcOps{configured: true}
-	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
-	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
+
+	// Production 启动：即使 DB app_mode 被写成 dev，也不能关闭本地登录。
+	_, prodSvc := newTestAdminWithMode(t, &mockOidcOps{configured: true}, "prod")
+	if err := prodSvc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
-	if err := svc.cfg.Set(ctx, KeyAppMode, "prod"); err != nil {
-		t.Fatalf("设置运行模式失败: %v", err)
+	if err := prodSvc.cfg.Set(ctx, KeyAppMode, "dev"); err != nil {
+		t.Fatalf("写入可被导入覆盖的 app_mode 失败: %v", err)
 	}
-	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
-		t.Fatalf("Prod + mock 关闭本地登录应返回 ErrAuthDeadlock: %v", err)
+	if err := prodSvc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("Production 启动 + mock 关闭本地登录应返回 ErrAuthDeadlock（不得信任 DB app_mode）: %v", err)
 	}
-	if err := svc.cfg.Set(ctx, KeyAppMode, "dev"); err != nil {
-		t.Fatalf("设置运行模式失败: %v", err)
+
+	// Dev 启动：即使 DB app_mode 被写成 prod，Dev mock 仍可用。
+	_, devSvc := newTestAdminWithMode(t, &mockOidcOps{configured: true}, "dev")
+	if err := devSvc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
 	}
-	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
-		t.Fatalf("Dev + mock 应允许关闭本地登录: %v", err)
+	if err := devSvc.cfg.Set(ctx, KeyAppMode, "prod"); err != nil {
+		t.Fatalf("写入可被导入覆盖的 app_mode 失败: %v", err)
+	}
+	if err := devSvc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
+		t.Fatalf("Dev 启动 + mock 应允许关闭本地登录: %v", err)
 	}
 }
 

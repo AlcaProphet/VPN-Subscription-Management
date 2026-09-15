@@ -25,9 +25,10 @@ import (
 
 // 业务错误（接入层映射 HTTP 状态码）
 var (
-	ErrAuthDeadlock      = errors.New("本地登录与 OIDC 均不可用，禁止保存（防认证死锁）")
-	ErrCaptchaKeyMissing = errors.New("启用验证码页面需先配置密钥")
-	ErrBadRequest        = errors.New("参数错误")
+	ErrAuthDeadlock       = errors.New("本地登录与 OIDC 均不可用，禁止保存（防认证死锁）")
+	ErrCaptchaKeyMissing  = errors.New("启用验证码页面需先配置密钥")
+	ErrBadRequest         = errors.New("参数错误")
+	ErrMockModeRestricted = errors.New("生产模式不支持模拟 OIDC")
 )
 
 // OIDC 配置键（与 oidc 包常量同值；config 包避免循环依赖以字面量引用）
@@ -92,6 +93,7 @@ const (
 	OidcTestStoredDamagedMessage     = "目标提供商已存 OIDC 配置损坏，须重新填写必要参数并输入新的 Client Secret 后再测试"
 	OidcTestSigningKeyFaultMessage   = "系统签名密钥不可用，无法校验已存 OIDC 配置；请通过备份恢复或应急初始化处理"
 	OidcSigningKeyFaultPublicMessage = "系统签名密钥不可用，OIDC 配置无法保存；请通过备份恢复或应急初始化处理"
+	OidcWarningMockProduction        = "生产模式不支持模拟 OIDC：历史参数已保留但登录入口已停用，请切换到真实提供商"
 )
 
 // OidcParamsState OIDC 提供商参数只读状态（不含 Secret 明文或原始密文）。
@@ -174,12 +176,13 @@ type AdminService struct {
 	oidcOps          OidcOps
 	advancedSwitcher AdvancedModeSwitcher
 	dataDir          string // 数据卷根目录（站点 ICON 落盘用）
+	mode             string // 启动时确定的 APP_MODE（dev/prod），不读取 system_config.app_mode
 	log              *slog.Logger
 	level            *slog.LevelVar
 }
 
-func NewAdminService(cfg *Service, st *store.Store, oidcOps OidcOps, dataDir string, lg *slog.Logger, level *slog.LevelVar) *AdminService {
-	return &AdminService{cfg: cfg, store: st, oidcOps: oidcOps, dataDir: dataDir, log: lg, level: level}
+func NewAdminService(cfg *Service, st *store.Store, oidcOps OidcOps, dataDir, mode string, lg *slog.Logger, level *slog.LevelVar) *AdminService {
+	return &AdminService{cfg: cfg, store: st, oidcOps: oidcOps, dataDir: dataDir, mode: mode, log: lg, level: level}
 }
 
 // SetAdvancedModeSwitcher 注入高级模式开关实现（server 装配时调用）。
@@ -234,8 +237,8 @@ func (s *AdminService) oidcUsableState(in OidcSettings, st OidcParamsState) bool
 		return false
 	}
 	if in.ProviderType == "mock" {
-		// 保持 R31-06/R31-07 前的 mock 锁死判定：mock 空 Secret 不作为关闭本地登录的依据。
-		return SecretUsable(in.ClientSecret)
+		// R31-06：模拟 OIDC 仅 Dev 模式可用，Production 不能以 mock 作为关闭本地登录的依据。
+		return s.mode == "dev" && SecretUsable(in.ClientSecret)
 	}
 	if err := urlguard.ValidateHTTPS(in.BaseURL); err != nil {
 		return false
@@ -263,8 +266,8 @@ func (s *AdminService) oidcAvailable(ctx context.Context) bool {
 		return false
 	}
 	state := EffectiveOidcParamsState(st)
-	if providerType == "mock" { // 模拟 OIDC 仅 Dev 模式提供登录能力
-		if s.cfg.GetOr(ctx, KeyAppMode) != "dev" {
+	if providerType == "mock" { // 模拟 OIDC 仅 Dev 模式提供登录能力，依据启动 mode 而非可被导入覆盖的 DB 键。
+		if s.mode != "dev" {
 			return false
 		}
 		return state != OidcParamsJSONDamaged && state != OidcParamsNotConfigured
@@ -282,8 +285,8 @@ func (s *AdminService) oidcAvailable(ctx context.Context) bool {
 }
 
 // applyOidcParamsState 将只读状态写入 GET 响应：Secret 始终清空，JSON 损坏时不猜测非 Secret 字段，
-// 固定提示与状态枚举由 OidcStateWarning 提供；mock 不展示 Secret/损坏提示，保持 R31-03 前的回显语义。
-func applyOidcParamsState(out *OidcSettings, st OidcParamsState) {
+// 固定提示与状态枚举由 OidcStateWarning 提供；mock 不展示 Secret/损坏提示，Production 下增加只读警示。
+func (s *AdminService) applyOidcParamsState(out *OidcSettings, st OidcParamsState) {
 	state := EffectiveOidcParamsState(st)
 	out.ParamsState = state
 	if state == OidcParamsJSONDamaged {
@@ -303,6 +306,9 @@ func applyOidcParamsState(out *OidcSettings, st OidcParamsState) {
 		out.ClientSecretConfigured = false // mock 无 Secret 语义，保持旧回显
 		out.ParamsDamaged = false
 		out.ParamsWarning = ""
+		if s.mode != "dev" {
+			out.ParamsWarning = OidcWarningMockProduction
+		}
 	}
 }
 
@@ -322,12 +328,12 @@ func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 			if st.State == "" {
 				st.State = OidcParamsSigningKeyFault
 			}
-			applyOidcParamsState(&out, st)
+			s.applyOidcParamsState(&out, st)
 			return out, nil // 独立只读系统错误，不伪装成 HTTP 5xx
 		}
 		return out, err
 	}
-	applyOidcParamsState(&out, st)
+	s.applyOidcParamsState(&out, st)
 	return out, nil
 }
 
@@ -346,12 +352,12 @@ func (s *AdminService) GetOidcForProvider(ctx context.Context, providerType stri
 			if st.State == "" {
 				st.State = OidcParamsSigningKeyFault
 			}
-			applyOidcParamsState(&out, st)
+			s.applyOidcParamsState(&out, st)
 			return out, nil
 		}
 		return out, err
 	}
-	applyOidcParamsState(&out, st)
+	s.applyOidcParamsState(&out, st)
 	return out, nil
 }
 
@@ -404,6 +410,9 @@ func (s *AdminService) allowLocalLoginTx(ctx context.Context, tx *sql.Tx) (bool,
 func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 	if !slices.Contains(validProviders, in.ProviderType) {
 		return fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
+	}
+	if in.ProviderType == "mock" && s.mode != "dev" {
+		return fmt.Errorf("%w: 生产模式不支持模拟 OIDC 提供商，请切换到真实提供商", ErrMockModeRestricted)
 	}
 	if in.ClientSecret == MaskedSecret {
 		return fmt.Errorf("%w: 不能将脱敏占位符保存为 Client Secret，请留空保持原值或输入新 Secret", ErrBadRequest)

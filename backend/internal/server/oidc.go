@@ -75,6 +75,10 @@ func (h *OidcHandler) requestIsSecure(c *gin.Context) bool {
 func (h *OidcHandler) login(c *gin.Context) {
 	authURL, state, err := h.oidcSvc.StartFlow(c.Request.Context(), "login", 0)
 	if err != nil {
+		if errors.Is(err, config.ErrMockModeRestricted) {
+			Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -202,6 +206,10 @@ func (h *OidcHandler) bind(c *gin.Context) {
 	userID := c.GetInt64(auth.CtxUserID)
 	authURL, state, err := h.oidcSvc.StartFlow(c.Request.Context(), "bind", userID)
 	if err != nil {
+		if errors.Is(err, config.ErrMockModeRestricted) {
+			Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}

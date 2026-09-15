@@ -43,6 +43,7 @@ vi.mock('@/api/system', () => ({
 
 import SettingsView from '@/views/admin/SettingsView.vue'
 import { getOidc, saveOidc, testOidc, type OidcSettings, type OidcParamsState } from '@/api/settings'
+import { useSystemStore } from '@/stores/system'
 
 describe('SettingsView 基础渲染', () => {
   beforeEach(() => {
@@ -437,5 +438,48 @@ describe('SettingsView OIDC R31-05 地址即时生效与显式清除', () => {
     })
     await flushPromises()
     expect(wrapper.find('#oidc').text()).toContain('state Cookie')
+  })
+})
+
+describe('SettingsView R31-06 Production mock 只读边界', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('Production 历史 mock 显示警示、禁用保存/测试且不作为可选启用项', async () => {
+    const system = useSystemStore()
+    system.status = { configured: true, app_mode: 'prod', advanced_mode: false } as any
+    vi.mocked(getOidc).mockResolvedValueOnce({
+      provider_type: 'mock',
+      base_url: '',
+      realm: '',
+      client_id: '',
+      client_secret: '',
+      client_secret_configured: false,
+      frontend_url: 'https://app.example.com',
+      callback_url: '',
+      params_state: 'usable',
+    } as OidcSettings)
+
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('生产模式不支持模拟 OIDC')
+    expect(card.text()).toContain('Mock（生产不可用）')
+
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    const testButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('测试连接'))
+    expect(saveButton?.attributes('disabled')).toBeDefined()
+    expect(testButton?.attributes('disabled')).toBeDefined()
+
+    await saveButton!.trigger('click')
+    await testButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).not.toHaveBeenCalled()
+    expect(testOidc).not.toHaveBeenCalled()
   })
 })

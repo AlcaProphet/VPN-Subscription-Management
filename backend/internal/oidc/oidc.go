@@ -117,6 +117,15 @@ func NewService(st *store.Store, cfg *config.Service, authSvc *auth.Service, use
 	}
 }
 
+// rejectMockInProduction R31-06：模拟 OIDC 仅 Dev 可用；运行模式取构造时的启动 mode，
+// 不读取可被配置导入覆盖的 system_config.app_mode。
+func (s *Service) rejectMockInProduction(providerType string) error {
+	if providerType == "mock" && s.mode != "dev" {
+		return fmt.Errorf("%w: 生产模式不支持模拟 OIDC 提供商", config.ErrMockModeRestricted)
+	}
+	return nil
+}
+
 // IsConfigured OIDC 是否已配置
 func (s *Service) IsConfigured(ctx context.Context) bool {
 	return s.cfg.GetBool(ctx, KeyConfigured, false)
@@ -398,6 +407,9 @@ func (s *Service) saveParamsTxLocked(ctx context.Context, tx *sql.Tx, providerTy
 // SaveParams 保存提供商参数（入参 client_secret 为明文；空值保留库内原密文，显式新值才加密替换）。
 // 真实提供商路径整体位于单个 BEGIN IMMEDIATE 内；签名密钥缺失/读取失败不生成新密钥。
 func (s *Service) SaveParams(ctx context.Context, providerType string, p Params) error {
+	if err := s.rejectMockInProduction(providerType); err != nil {
+		return err
+	}
 	if err := validateOIDCBaseURL(providerType, p.BaseURL); err != nil {
 		return err
 	}
@@ -411,6 +423,9 @@ func (s *Service) SaveParams(ctx context.Context, providerType string, p Params)
 
 // SaveParamsTx 在调用方写事务内保存参数；供 SaveOidc T1 使用，行为与 SaveParams 一致。
 func (s *Service) SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType string, p Params) error {
+	if err := s.rejectMockInProduction(providerType); err != nil {
+		return err
+	}
 	if err := validateOIDCBaseURL(providerType, p.BaseURL); err != nil {
 		return err
 	}
@@ -428,6 +443,9 @@ func (s *Service) EncryptWithTx(ctx context.Context, tx *sql.Tx, plain string) (
 // SaveRawParamsTx 事务内写入已序列化的提供商参数 JSON（Setup OIDC 分支使用）；写入前校验 base_url。
 // 管理端与运行期参数保存不得使用本方法，必须走 SaveParams/SaveParamsTx 完成分类与密钥校验。
 func (s *Service) SaveRawParamsTx(ctx context.Context, tx *sql.Tx, providerType, rawJSON string) error {
+	if err := s.rejectMockInProduction(providerType); err != nil {
+		return err
+	}
 	var p Params
 	if err := json.Unmarshal([]byte(rawJSON), &p); err != nil {
 		return fmt.Errorf("解析 OIDC 参数失败: %w", err)
@@ -440,6 +458,9 @@ func (s *Service) SaveRawParamsTx(ctx context.Context, tx *sql.Tx, providerType,
 
 // SetProviderTx 事务内写入提供商类型
 func (s *Service) SetProviderTx(ctx context.Context, tx *sql.Tx, providerType string) error {
+	if err := s.rejectMockInProduction(providerType); err != nil {
+		return err
+	}
 	return s.cfg.SetTx(ctx, tx, KeyProviderType, providerType)
 }
 

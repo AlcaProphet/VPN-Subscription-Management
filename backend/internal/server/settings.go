@@ -422,7 +422,7 @@ func mapSettingsErr(c *gin.Context, err error) {
 	case errors.Is(err, config.ErrSigningKeyUnavailable):
 		FailSanitized(c, http.StatusServiceUnavailable, config.OidcSigningKeyFaultPublicMessage, err)
 	case errors.Is(err, config.ErrBadRequest), errors.Is(err, config.ErrAuthDeadlock),
-		errors.Is(err, config.ErrCaptchaKeyMissing):
+		errors.Is(err, config.ErrCaptchaKeyMissing), errors.Is(err, config.ErrMockModeRestricted):
 		Fail(c, http.StatusBadRequest, err.Error())
 	default:
 		Fail(c, http.StatusInternalServerError, err.Error())
