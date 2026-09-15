@@ -1,9 +1,12 @@
 package user
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -312,5 +315,55 @@ func TestConcurrentFirstOidcAdmin(t *testing.T) {
 	}
 	if n := adminInitializedCount(t, st); n != 0 {
 		t.Fatalf("并发 OIDC 首管理员不应写入 admin_initialized，实际 %d 行", n)
+	}
+}
+
+// TestWelcomeSenderReceivesUserIDForSelfregAndOIDC 自注册与 OIDC 首次激活必须把用户 ID 传给欢迎邮件入口。
+func TestWelcomeSenderReceivesUserIDForSelfregAndOIDC(t *testing.T) {
+	_, svc := newTestUserService(t)
+	ctx := context.Background()
+	type call struct {
+		userID int64
+		to     string
+		source string
+	}
+	var calls []call
+	svc.SetWelcomeSender(func(_ context.Context, userID int64, to, source string) error {
+		calls = append(calls, call{userID: userID, to: to, source: source})
+		return nil
+	})
+	selfreg, err := svc.Register(ctx, "selfreg-user", "selfreg@example.com", "password123")
+	if err != nil {
+		t.Fatalf("自注册失败: %v", err)
+	}
+	oidcUser, err := svc.CreateFromOidc(ctx, "oidc-user", "oidc@example.com", "oidc-sub-1", "", false)
+	if err != nil {
+		t.Fatalf("OIDC 建号失败: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("应记录两次欢迎回调: %+v", calls)
+	}
+	if calls[0].userID != selfreg.ID || calls[0].to != "selfreg@example.com" || calls[0].source != "selfreg" {
+		t.Fatalf("自注册欢迎回调异常: %+v", calls[0])
+	}
+	if calls[1].userID != oidcUser.ID || calls[1].to != "oidc@example.com" || calls[1].source != "oidc" {
+		t.Fatalf("OIDC 欢迎回调异常: %+v", calls[1])
+	}
+}
+
+// TestWelcomeFailureLogDoesNotContainEmail 欢迎邮件失败日志只记录 user_id 与安全错误，不记录邮箱。
+func TestWelcomeFailureLogDoesNotContainEmail(t *testing.T) {
+	var buf bytes.Buffer
+	svc := &Service{log: slog.New(slog.NewTextHandler(&buf, nil))}
+	svc.sendWelcome = func(context.Context, int64, string, string) error {
+		return errors.New("模拟发送失败")
+	}
+	svc.sendWelcomeIf(context.Background(), 42, "secret@example.com", "selfreg")
+	out := buf.String()
+	if strings.Contains(out, "secret@example.com") {
+		t.Fatalf("日志不得包含收件邮箱: %s", out)
+	}
+	if !strings.Contains(out, "user_id=42") {
+		t.Fatalf("日志应包含 user_id=42: %s", out)
 	}
 }

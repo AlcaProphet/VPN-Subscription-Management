@@ -59,6 +59,47 @@ export interface SMTPSettings {
   scopes: string[]
 }
 
+export type MailTemplateKind =
+  | 'password_reset'
+  | 'approval_approved'
+  | 'approval_rejected'
+  | 'welcome_local'
+  | 'welcome_oidc'
+
+export type MailTemplateState = 'default' | 'customized' | 'damaged'
+
+export interface MailTemplateView {
+  id: MailTemplateKind
+  label: string
+  scope: string
+  subject: string
+  body: string
+  state: MailTemplateState
+  warning: string
+  subject_variables: string[]
+  body_variables: string[]
+  required_body_variables: string[]
+}
+
+export interface MailTemplatesResponse {
+  templates: MailTemplateView[]
+  limits: {
+    subject: number
+    body: number
+  }
+  preview_values: {
+    site_name: string
+    login_url: string
+    reset_url: string
+  }
+}
+
+export interface MailTemplatePreview {
+  subject: string
+  text_body: string
+  html_body: string
+}
+
 export interface RateLimitSettings {
   login: number
   register: number
@@ -108,6 +149,13 @@ export const saveCaptcha = (data: CaptchaSettings) => http.put('/admin/settings/
 export const getSMTP = () => http.get<any, SMTPSettings>('/admin/settings/smtp')
 export const saveSMTP = (data: SMTPSettings) => http.put('/admin/settings/smtp', data)
 export const testSMTP = (to: string) => http.post<any, { message: string; to: string; recipient_source: string }>('/admin/settings/smtp/test', { to }, { timeout: 40000 })
+export const getMailTemplates = () => http.get<any, MailTemplatesResponse>('/admin/settings/mail-templates')
+export const saveMailTemplate = (kind: MailTemplateKind, data: { subject: string; body: string }) =>
+  http.put<any, MailTemplateView>(`/admin/settings/mail-templates/${encodeURIComponent(kind)}`, data)
+export const restoreMailTemplate = (kind: MailTemplateKind) =>
+  http.delete<any, MailTemplateView>(`/admin/settings/mail-templates/${encodeURIComponent(kind)}`)
+export const previewMailTemplate = (kind: MailTemplateKind, data: { subject: string; body: string }) =>
+  http.post<any, MailTemplatePreview>(`/admin/settings/mail-templates/${encodeURIComponent(kind)}/preview`, data)
 export const getSite = () => http.get<any, SiteInfo>('/admin/settings/site')
 export const saveSite = (form: FormData) => http.put<any, SiteInfo>('/admin/settings/site', form)
 export const deleteSiteIcon = () => http.delete('/admin/settings/site/icon')

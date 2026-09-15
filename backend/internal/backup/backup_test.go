@@ -108,6 +108,74 @@ func TestCreateBackup(t *testing.T) {
 	}
 }
 
+// TestCreateBackupPreservesMailTemplateKeys 完整备份 tar.gz 内的 app.db 必须保留五个模板键值。
+func TestCreateBackupPreservesMailTemplateKeys(t *testing.T) {
+	st, svc, _ := newTestBackup(t)
+	ctx := context.Background()
+	want := map[string]string{
+		"mail_template_password_reset":    `{"subject":"密码重置","body":"{{reset_url}}"}`,
+		"mail_template_approval_approved": `{"subject":"{{site_name}} 审批通知","body":"{{login_url}}"}`,
+		"mail_template_approval_rejected": `{"subject":"{{site_name}} 审批通知","body":"拒绝"}`,
+		"mail_template_welcome_local":     `{"subject":"{{site_name}} 账号已激活","body":"{{login_url}}"}`,
+		"mail_template_welcome_oidc":      `{"subject":"{{site_name}} 账号已激活","body":"{{login_url}}"}`,
+	}
+	for key, value := range want {
+		if _, err := st.DB().ExecContext(ctx,
+			`INSERT INTO system_config (key, value) VALUES (?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value); err != nil {
+			t.Fatalf("写入模板键 %s 失败: %v", key, err)
+		}
+	}
+	var buf bytes.Buffer
+	if err := svc.CreateBackup(ctx, &buf); err != nil {
+		t.Fatalf("创建备份失败: %v", err)
+	}
+	gz, err := gzip.NewReader(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	var snapshot []byte
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Name == "app.db" {
+			snapshot, err = io.ReadAll(tr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+	}
+	if len(snapshot) == 0 {
+		t.Fatal("备份 tar.gz 未找到 app.db")
+	}
+	snapDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(snapDir, "app.db"), snapshot, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapSt, err := store.Open(snapDir, "app.db")
+	if err != nil {
+		t.Fatalf("打开备份 app.db 失败: %v", err)
+	}
+	defer snapSt.Close()
+	for key, value := range want {
+		var got string
+		if err := snapSt.DB().QueryRow(`SELECT value FROM system_config WHERE key = ?`, key).Scan(&got); err != nil {
+			t.Fatalf("备份 app.db 读取 %s 失败: %v", key, err)
+		}
+		if got != value {
+			t.Fatalf("备份 app.db 中 %s 值不一致: got=%q want=%q", key, got, value)
+		}
+	}
+}
+
 // keysOf map 键列表（错误信息辅助）
 func keysOf(m map[string]string) []string {
 	out := make([]string, 0, len(m))

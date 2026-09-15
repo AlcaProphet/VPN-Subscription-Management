@@ -75,8 +75,18 @@ func (s *Service) Configured(ctx context.Context) bool {
 	return config.SMTPConfigured(ctx, s.cfg)
 }
 
-// Send SMTP 发送；未配置或发送失败返回 error（不阻断调用方）
+// Send 发送固定单一 text/plain 报文（SMTP 测试邮件沿用此入口）；未配置或发送失败返回 error。
 func (s *Service) Send(ctx context.Context, to, subject, body string) error {
+	from := s.cfg.GetOr(ctx, KeyFrom)
+	msg, err := buildPlainMessage(from, to, subject, body)
+	if err != nil {
+		return &sendError{stage: "内容传输", err: err}
+	}
+	return s.sendMessage(ctx, from, to, msg)
+}
+
+// sendMessage 只负责 SMTP 会话：接收已构造的完整报文字节，不参与正文/模板拼接。
+func (s *Service) sendMessage(ctx context.Context, from, to string, msg []byte) error {
 	if !s.Configured(ctx) {
 		return errors.New("SMTP 未配置")
 	}
@@ -84,7 +94,6 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 	port := s.cfg.GetOr(ctx, KeyPort)
 	user := s.cfg.GetOr(ctx, KeyUser)
 	pass := s.cfg.GetOr(ctx, KeyPassword)
-	from := s.cfg.GetOr(ctx, KeyFrom)
 	security := s.cfg.GetOr(ctx, KeySecurity)
 	authRequired := s.cfg.GetOr(ctx, KeyAuth) == "true"
 	addr := net.JoinHostPort(host, port)
@@ -145,13 +154,7 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 	if err != nil {
 		return &sendError{stage: "内容传输", err: err}
 	}
-	// 组装 RFC822 报文（Subject 清洗换行防头注入；站点名等外部输入可能含 \r\n）
-	msg := "From: " + sanitizeHeader(from) + "\r\n" +
-		"To: " + sanitizeHeader(to) + "\r\n" +
-		"Subject: " + sanitizeHeader(subject) + "\r\n" +
-		"Content-Type: text/plain; charset=utf-8\r\n" +
-		"MIME-Version: 1.0\r\n\r\n" + body
-	if _, err := w.Write([]byte(msg)); err != nil {
+	if _, err := w.Write(msg); err != nil {
 		return &sendError{stage: "内容传输", err: err}
 	}
 	if err := w.Close(); err != nil {
@@ -161,6 +164,16 @@ func (s *Service) Send(ctx context.Context, to, subject, body string) error {
 		return &sendError{stage: "结束会话", err: err}
 	}
 	return nil
+}
+
+// sendMultipart 构造业务邮件 multipart/alternative 报文后交给同一 SMTP 会话函数。
+func (s *Service) sendMultipart(ctx context.Context, to, subject, textBody, htmlBody string) error {
+	from := s.cfg.GetOr(ctx, KeyFrom)
+	msg, err := buildMultipartAlternativeMessage(from, to, subject, textBody, htmlBody)
+	if err != nil {
+		return &sendError{stage: "内容传输", err: err}
+	}
+	return s.sendMessage(ctx, from, to, msg)
 }
 
 // sanitizeHeader 清洗邮件头中的换行（防 SMTP 头注入）
@@ -179,41 +192,51 @@ func (s *Service) ScopeEnabled(ctx context.Context, scope string) bool {
 	return slices.Contains(scopes, scope)
 }
 
-// --- 业务邮件模板（纯文本，最小模板，Design1 §3.4.6）---
+// --- 业务邮件（Design5 §七 / Build28 §3.8）---
 
-// SendWelcome 欢迎邮件——所有新用户首次激活时发送（审批通过/直接激活/白名单命中/管理员创建均发送）；
-// 按来源区分文案：本地创建/自注册 → 邮箱与密码登录；OIDC → 单点登录（不携带凭据）
+// renderAndSendTemplate 读取三态模板并复用 Render；读取损坏或数据库错误时使用内置默认值继续发送。
+func (s *Service) renderAndSendTemplate(ctx context.Context, kind TemplateKind, to string, values RenderValues) error {
+	// LoadTemplate 已记录不含模板内容的读取类别，并在读取错误/损坏时返回内置默认值；本封邮件继续发送。
+	t, _, _ := s.LoadTemplate(ctx, kind)
+	rendered, err := Render(kind, t, values)
+	if err != nil {
+		return err
+	}
+	return s.sendMultipart(ctx, to, rendered.Subject, rendered.TextBody, rendered.HTMLBody)
+}
+
+// SendWelcome 非审批路径首次激活的欢迎邮件；仅 source=="oidc" 走 OIDC 分支，其余既有本地来源走 local。
 func (s *Service) SendWelcome(ctx context.Context, to, siteName, loginURL, source string) error {
 	if !s.ScopeEnabled(ctx, ScopeWelcome) {
 		return nil
 	}
-	body := siteName + "\n\n"
+	kind := TemplateWelcomeLocal
 	if source == "oidc" {
-		body += "您的账号已激活，请使用单点登录（OIDC）登录：" + loginURL
-	} else {
-		body += "您的账号已激活，请使用邮箱与密码登录：" + loginURL
+		kind = TemplateWelcomeOIDC
 	}
-	return s.Send(ctx, to, siteName+" 账号已激活", body)
+	return s.renderAndSendTemplate(ctx, kind, to, RenderValues{SiteName: siteName, LoginURL: loginURL})
 }
 
-// SendApprovalNotify 通过/拒绝通知（按 approval_notify scope）；拒绝通知在点击「拒绝」动作时触发发送
-func (s *Service) SendApprovalNotify(ctx context.Context, to, siteName string, approved bool) error {
+// SendApprovalApproved 审批通过通知（approval_notify scope）；每个成功审批账号至多一封。
+func (s *Service) SendApprovalApproved(ctx context.Context, to, siteName, loginURL string) error {
 	if !s.ScopeEnabled(ctx, ScopeApprovalNotify) {
 		return nil
 	}
-	var body string
-	if approved {
-		body = "您在 " + siteName + " 的账号已通过审批，现在可以登录。"
-	} else {
-		body = "您在 " + siteName + " 的账号申请未通过审批。"
-	}
-	return s.Send(ctx, to, siteName+" 审批通知", body)
+	return s.renderAndSendTemplate(ctx, TemplateApprovalApproved, to, RenderValues{SiteName: siteName, LoginURL: loginURL})
 }
 
-// SendPasswordReset 密码重置邮件（接通 Build1 Step 7 预留的 sendMail 注入点）
+// SendApprovalRejected 审批拒绝通知（approval_notify scope）；每个成功拒绝账号至多一封。
+func (s *Service) SendApprovalRejected(ctx context.Context, to, siteName string) error {
+	if !s.ScopeEnabled(ctx, ScopeApprovalNotify) {
+		return nil
+	}
+	return s.renderAndSendTemplate(ctx, TemplateApprovalRejected, to, RenderValues{SiteName: siteName})
+}
+
+// SendPasswordReset 密码重置邮件（password_reset scope；reset_url 必填且为绝对 http/https URL）。
 func (s *Service) SendPasswordReset(ctx context.Context, to, resetURL string) error {
 	if !s.ScopeEnabled(ctx, ScopePasswordReset) {
 		return nil
 	}
-	return s.Send(ctx, to, "密码重置", "请在 1 小时内使用以下链接重置密码（一次性）：\n"+resetURL)
+	return s.renderAndSendTemplate(ctx, TemplatePasswordReset, to, RenderValues{ResetURL: resetURL})
 }

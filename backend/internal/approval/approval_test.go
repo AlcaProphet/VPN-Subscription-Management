@@ -14,35 +14,36 @@ import (
 	"vpn-sub/internal/xray"
 )
 
-// mockMail 记录调用并以可配置错误返回（SMTP 失败不阻断验证）；
-// scopes 模拟 mail.Service.ScopeEnabled——nil/未含项表示该类型邮件未启用（不记录调用）
+// approvalMailCall 记录一次审批邮件具名调用及实际值。
+type approvalMailCall struct {
+	to, siteName, loginURL string
+}
+
+// mockMail 记录审批通过/拒绝具名调用并以可配置错误返回（SMTP 失败不阻断验证）；
+// scopes 模拟 mail.Service.ScopeEnabled——nil/未含项表示该类型邮件未启用（不记录调用）。
 type mockMail struct {
-	welcomeBodies []string
-	notifyCalls   []bool // approved 值
+	approvedCalls []approvalMailCall
+	rejectedCalls []approvalMailCall
 	failSend      bool
 	scopes        map[string]bool
 }
 
-func (m *mockMail) SendWelcome(ctx context.Context, to, siteName, loginURL, source string) error {
-	if !m.scopes["welcome"] {
+func (m *mockMail) SendApprovalApproved(_ context.Context, to, siteName, loginURL string) error {
+	if !m.scopes["approval_notify"] {
 		return nil // scope 未启用不发送
 	}
-	if source == "oidc" {
-		m.welcomeBodies = append(m.welcomeBodies, "单点登录")
-	} else {
-		m.welcomeBodies = append(m.welcomeBodies, "邮箱与密码")
-	}
+	m.approvedCalls = append(m.approvedCalls, approvalMailCall{to: to, siteName: siteName, loginURL: loginURL})
 	if m.failSend {
 		return errors.New("模拟发送失败")
 	}
 	return nil
 }
 
-func (m *mockMail) SendApprovalNotify(ctx context.Context, to, siteName string, approved bool) error {
+func (m *mockMail) SendApprovalRejected(_ context.Context, to, siteName string) error {
 	if !m.scopes["approval_notify"] {
 		return nil // scope 未启用不发送
 	}
-	m.notifyCalls = append(m.notifyCalls, approved)
+	m.rejectedCalls = append(m.rejectedCalls, approvalMailCall{to: to, siteName: siteName})
 	if m.failSend {
 		return errors.New("模拟发送失败")
 	}
@@ -125,7 +126,7 @@ func TestRecentPendingDesc(t *testing.T) {
 // TestApproveActivatesAndClearsClaims 通过：激活 + 清 claims；欢迎邮件按来源区分文案
 func TestApproveActivatesAndClearsClaims(t *testing.T) {
 	st, svc, mm := newTestApproval(t, false)
-	mm.scopes = map[string]bool{"welcome": true}
+	mm.scopes = map[string]bool{"approval_notify": true}
 	ctx := context.Background()
 	oidcID := seedPending(t, st, "alice", "alice@example.com", "oidc", `{"sub":"s1"}`)
 	selfID := seedPending(t, st, "bob", "bob@example.com", "selfreg", "")
@@ -143,9 +144,20 @@ func TestApproveActivatesAndClearsClaims(t *testing.T) {
 	if status != "active" || claims != "" {
 		t.Errorf("通过后应激活且清空 claims: status=%s claims=%q", status, claims)
 	}
-	// 欢迎邮件按来源区分文案（oidc → 单点登录；selfreg → 邮箱与密码）
-	if len(mm.welcomeBodies) != 2 || mm.welcomeBodies[0] != "单点登录" || mm.welcomeBodies[1] != "邮箱与密码" {
-		t.Errorf("欢迎邮件按来源区分文案异常: %v", mm.welcomeBodies)
+	// 审批通过只走 approval_notify 的审批通过通知，不得再叠发 welcome；每个成功账号一封。
+	if len(mm.approvedCalls) != 2 {
+		t.Fatalf("审批通过应每个账号发送一封审批通过通知: %+v", mm.approvedCalls)
+	}
+	if mm.approvedCalls[0].to != "alice@example.com" || mm.approvedCalls[1].to != "bob@example.com" {
+		t.Errorf("审批通过通知收件人异常: %+v", mm.approvedCalls)
+	}
+	for _, call := range mm.approvedCalls {
+		if call.siteName != "测试站点" || call.loginURL != "https://vpn.example.com" {
+			t.Errorf("审批通过通知实际值异常: %+v", call)
+		}
+	}
+	if len(mm.rejectedCalls) != 0 {
+		t.Errorf("审批通过不得触发拒绝通知: %+v", mm.rejectedCalls)
 	}
 }
 
@@ -166,8 +178,11 @@ func TestRejectDeletesAndReleasesEmail(t *testing.T) {
 	if n != 0 {
 		t.Errorf("拒绝后账号应删除: %d", n)
 	}
-	if len(mm.notifyCalls) != 1 || mm.notifyCalls[0] != false {
-		t.Errorf("拒绝应触发拒绝通知: %v", mm.notifyCalls)
+	if len(mm.rejectedCalls) != 1 || mm.rejectedCalls[0].to != "carol@example.com" || mm.rejectedCalls[0].siteName != "测试站点" {
+		t.Errorf("拒绝应触发审批拒绝通知: %+v", mm.rejectedCalls)
+	}
+	if len(mm.approvedCalls) != 0 {
+		t.Errorf("拒绝不得触发审批通过通知: %+v", mm.approvedCalls)
 	}
 	// 邮箱释放：同邮箱可重新插入（唯一约束不冲突）
 	if _, err := st.DB().Exec(`INSERT INTO users (username, email, role, user_source, status)
@@ -201,7 +216,8 @@ func TestRejectCallsXrayCleanupHooks(t *testing.T) {
 
 // TestBatchApproveCounts 批量通过：部分失败回执计数正确（不存在的 id 计失败）
 func TestBatchApproveCounts(t *testing.T) {
-	st, svc, _ := newTestApproval(t, false)
+	st, svc, mm := newTestApproval(t, false)
+	mm.scopes = map[string]bool{"approval_notify": true}
 	ctx := context.Background()
 	id1 := seedPending(t, st, "d1", "d1@example.com", "selfreg", "")
 	id2 := seedPending(t, st, "d2", "d2@example.com", "selfreg", "")
@@ -213,12 +229,20 @@ func TestBatchApproveCounts(t *testing.T) {
 	if succeeded != 2 || failed != 1 {
 		t.Errorf("批量通过计数异常: succeeded=%d failed=%d", succeeded, failed)
 	}
+	if len(mm.approvedCalls) != 2 {
+		t.Fatalf("批量通过应每个成功账号复用单次审批发送一封：%+v", mm.approvedCalls)
+	}
+	for _, call := range mm.approvedCalls {
+		if call.loginURL != "https://vpn.example.com" {
+			t.Fatalf("批量通过实际值异常: %+v", call)
+		}
+	}
 }
 
 // TestSMTPFailureDoesNotBlock SMTP 失败不阻断：注入发送失败 → Approve/Reject 仍成功
 func TestSMTPFailureDoesNotBlock(t *testing.T) {
 	st, svc, mm := newTestApproval(t, true)
-	mm.scopes = map[string]bool{"welcome": true, "approval_notify": true}
+	mm.scopes = map[string]bool{"approval_notify": true}
 	ctx := context.Background()
 	id := seedPending(t, st, "e1", "e1@example.com", "selfreg", "")
 
@@ -229,8 +253,8 @@ func TestSMTPFailureDoesNotBlock(t *testing.T) {
 	if err := svc.Reject(ctx, id2); err != nil {
 		t.Errorf("邮件失败不应阻断拒绝: %v", err)
 	}
-	if len(mm.welcomeBodies) != 1 || len(mm.notifyCalls) != 1 {
-		t.Errorf("mock 调用异常: %v %v", mm.welcomeBodies, mm.notifyCalls)
+	if len(mm.approvedCalls) != 1 || len(mm.rejectedCalls) != 1 {
+		t.Errorf("mock 调用异常: approved=%+v rejected=%+v", mm.approvedCalls, mm.rejectedCalls)
 	}
 }
 
@@ -238,20 +262,20 @@ func TestSMTPFailureDoesNotBlock(t *testing.T) {
 func TestScopeEnabled(t *testing.T) {
 	st, svc, mm := newTestApproval(t, false)
 	ctx := context.Background()
-	// 未配置任何 scope：welcome/approval_notify 均未启用
+	// 未配置任何 scope：审批通过/拒绝通知均不应发送。
 	id := seedPending(t, st, "f1", "f1@example.com", "selfreg", "")
 	if err := svc.Approve(ctx, id); err != nil {
 		t.Fatalf("通过失败: %v", err)
 	}
-	if len(mm.welcomeBodies) != 0 {
-		t.Errorf("welcome scope 未启用不应发送欢迎邮件: %v", mm.welcomeBodies)
+	if len(mm.approvedCalls) != 0 {
+		t.Errorf("approval_notify scope 未启用不应发送审批通过通知: %+v", mm.approvedCalls)
 	}
 	id2 := seedPending(t, st, "f2", "f2@example.com", "selfreg", "")
 	if err := svc.Reject(ctx, id2); err != nil {
 		t.Fatalf("拒绝失败: %v", err)
 	}
-	if len(mm.notifyCalls) != 0 {
-		t.Errorf("approval_notify scope 未启用不应发送通知邮件: %v", mm.notifyCalls)
+	if len(mm.rejectedCalls) != 0 {
+		t.Errorf("approval_notify scope 未启用不应发送审批拒绝通知: %+v", mm.rejectedCalls)
 	}
 }
 
@@ -279,5 +303,36 @@ func TestListPagination(t *testing.T) {
 	}
 	if total != 2 {
 		t.Errorf("激活后待审批数应为 2: %d", total)
+	}
+}
+
+// TestApproveRejectSkipEmptyEmail 无邮箱账号仍可完成审批主流程，但不得调用任何邮件发送。
+func TestApproveRejectSkipEmptyEmail(t *testing.T) {
+	st, svc, mm := newTestApproval(t, false)
+	mm.scopes = map[string]bool{"approval_notify": true}
+	ctx := context.Background()
+	insert := func(username, status string) int64 {
+		res, err := st.DB().ExecContext(ctx,
+			`INSERT INTO users (username, email, role, user_source, status) VALUES (?, NULL, 'user', 'selfreg', ?)`,
+			username, status)
+		if err != nil {
+			t.Fatalf("插入无邮箱用户失败: %v", err)
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	approveID := insert("no-email-approve", "pending")
+	rejectID := insert("no-email-reject", "pending")
+	if err := svc.Approve(ctx, approveID); err != nil {
+		t.Fatalf("无邮箱审批通过失败: %v", err)
+	}
+	if err := svc.Reject(ctx, rejectID); err != nil {
+		t.Fatalf("无邮箱审批拒绝失败: %v", err)
+	}
+	if len(mm.approvedCalls) != 0 || len(mm.rejectedCalls) != 0 {
+		t.Fatalf("无邮箱账号不得发送邮件: approved=%+v rejected=%+v", mm.approvedCalls, mm.rejectedCalls)
 	}
 }

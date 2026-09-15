@@ -531,3 +531,22 @@ func TestAdminListNoSyncError(t *testing.T) {
 		t.Errorf("SyncError 应为空串: %+v", list)
 	}
 }
+
+// TestAdminCreateWelcomePassesUserID 管理员创建用户首次激活时必须把用户 ID 传给欢迎邮件入口。
+func TestAdminCreateWelcomePassesUserID(t *testing.T) {
+	_, adminSvc, _, _, _ := newTestAdminService(t)
+	ctx := context.Background()
+	var gotID int64
+	var gotTo, gotSource string
+	adminSvc.users.SetWelcomeSender(func(_ context.Context, userID int64, to, source string) error {
+		gotID, gotTo, gotSource = userID, to, source
+		return nil
+	})
+	created, err := adminSvc.Create(ctx, "admin-create", "admin-create@example.com", "password123")
+	if err != nil {
+		t.Fatalf("管理员创建用户失败: %v", err)
+	}
+	if gotID != created.ID || gotTo != "admin-create@example.com" || gotSource != "local" {
+		t.Fatalf("管理员创建欢迎回调异常: id=%d to=%q source=%q", gotID, gotTo, gotSource)
+	}
+}

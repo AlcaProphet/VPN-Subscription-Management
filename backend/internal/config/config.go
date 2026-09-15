@@ -90,6 +90,22 @@ func (s *Service) Get(ctx context.Context, key string) (string, error) {
 	return v, nil
 }
 
+// Exists 判断配置键是否存在；供需要区分“缺键”和“键存在但值为空/损坏”的读取路径使用。
+func (s *Service) Exists(ctx context.Context, key string) (bool, error) {
+	if s.store == nil { // 应急模式无持久化配置，统一按缺键处理
+		return false, nil
+	}
+	var one int
+	err := s.store.DB().QueryRowContext(ctx, `SELECT 1 FROM system_config WHERE key = ?`, key).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("检查配置 %s 失败: %w", key, err)
+	}
+	return true, nil
+}
+
 // GetOr 读取非关键配置：读取失败时记录结构化 warn 并返回空串，保持既有 fail-safe 外部行为。
 // 供展示/公告/邮件启用判断等非 correctness 配置使用；关键配置仍需调用 Get 并显式处理错误。
 func (s *Service) GetOr(ctx context.Context, key string) string {
@@ -128,6 +144,17 @@ func (s *Service) Set(ctx context.Context, key, value string) error {
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`, key, v)
 	if err != nil {
 		return fmt.Errorf("写入配置 %s 失败: %w", key, err)
+	}
+	return nil
+}
+
+// Delete 删除单个配置键；键不存在时仍成功（幂等），供邮件模板恢复默认等场景复用。
+func (s *Service) Delete(ctx context.Context, key string) error {
+	if s.store == nil { // 应急模式下无持久化配置可删除，按幂等成功处理
+		return nil
+	}
+	if _, err := s.store.DB().ExecContext(ctx, `DELETE FROM system_config WHERE key = ?`, key); err != nil {
+		return fmt.Errorf("删除配置 %s 失败: %w", key, err)
 	}
 	return nil
 }

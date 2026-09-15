@@ -321,7 +321,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 		furl := cfg.GetOr(ctx, config.KeyFrontendURL)
 		return mailSvc.SendPasswordReset(ctx, to, furl+resetURL)
 	})
-	users.SetWelcomeSender(func(ctx context.Context, to, source string) error {
+	users.SetWelcomeSender(func(ctx context.Context, _ int64, to, source string) error {
 		siteName := cfg.GetOr(ctx, "site_name")
 		loginURL := cfg.GetOr(ctx, config.KeyFrontendURL)
 		return mailSvc.SendWelcome(ctx, to, siteName, loginURL, source)
@@ -351,7 +351,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	offClearSvc.SetAfterAdvancedOff(syncSvc.AfterAdvancedOff)
 	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, mode, lg, rt.Level)
 	adminCfgSvc.SetAdvancedModeSwitcher(offClearSvc)
-	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trust},
+	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trust, mailTemplates: mailSvc},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 运维端点（Build3 Step 4）：一键清空/配置导入导出/备份下载；内存态复位回调（Step 5 追加 SSE 复位）
 	clearSvc := dataclear.NewService(st, dataDir, lg)
@@ -361,7 +361,8 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 		clearSvc.SetResetRuntimeState(limiter.Reset) // 限流计数同步重置
 	}
 	exportSvc := config.NewExportService(st, cfg, dataDir, mode, lg)
-	exportSvc.SetSeedPresets(setupSvc.SeedPresetsTx) // Setup 导入分支预置默认组/平台
+	exportSvc.SetSeedPresets(setupSvc.SeedPresetsTx)            // Setup 导入分支预置默认组/平台
+	exportSvc.SetValidateConfig(mail.ValidateTemplateOverrides) // 邮件模板只读导入校验回调
 	exportSvc.SetTaskRegistry(taskReg)
 	// v2 导入后处理：旧 Xray 清理、自动检测、显示名/ext 重绑、装配重绑与对账
 	exportSvc.SetCleanupXrayTargets(func(ctx context.Context, targets []config.ImportCleanupTarget) {

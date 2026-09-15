@@ -2,7 +2,7 @@
 
 > **文档定位：** 集中跟踪配置导出、导入与迁移相关的当前问题。R31-01 从 [Issue17.md](Issue17.md) 分出，由本文件独立跟踪。
 > **设计关联：** [Design5.md](Design5.md) §一～§六是整站加密导出与 Setup 一步迁移的候选设计，尚未定稿或实施；§七的邮件模板导入导出边界也须核对 R31-01。本文件只记录已发现缺陷，不代表 Design5 §一～§六已获实施授权。
-> **关联文档：** [AGENTS.md](AGENTS.md)（唯一强要求）、[TODOLIST.md](TODOLIST.md)、[Build28.md](Build28.md)、[Issue17.md](Issue17.md)。
+> **关联文档：** [AGENTS.md](AGENTS.md)（唯一强要求）、[TODOLIST.md](TODOLIST.md)、[Build28.md](docs/reports/Build/Build28.md)、[Issue17.md](Issue17.md)。
 
 ---
 

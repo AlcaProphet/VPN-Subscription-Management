@@ -27,8 +27,8 @@ type Service struct {
 	store *store.Store
 	cfg   *config.Service
 	log   *slog.Logger
-	// sendWelcome 预留：新用户首次激活时发送欢迎邮件（Build3 Step 2 注入 mail 包；nil 时跳过）
-	sendWelcome func(ctx context.Context, to, source string) error
+	// sendWelcome：新用户首次激活时发送欢迎邮件（mail 包注入；携带用户 ID 供安全日志，nil 时跳过）
+	sendWelcome func(ctx context.Context, userID int64, to, source string) error
 	// onUserActive 用户激活后的 Xray 同步回调（Build6 Step3 注入）
 	onUserActive func(ctx context.Context, userID int64)
 }
@@ -37,8 +37,8 @@ func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service 
 	return &Service{store: st, cfg: cfg, log: lg}
 }
 
-// SetWelcomeSender 注入欢迎邮件发送函数（Build3 Step 2 SMTP 接通时调用）
-func (s *Service) SetWelcomeSender(fn func(ctx context.Context, to, source string) error) {
+// SetWelcomeSender 注入欢迎邮件发送函数；回调必须携带 userID 供安全日志使用。
+func (s *Service) SetWelcomeSender(fn func(ctx context.Context, userID int64, to, source string) error) {
 	s.sendWelcome = fn
 }
 
@@ -61,13 +61,13 @@ func defaultGroupIDTx(ctx context.Context, tx *sql.Tx) (any, error) {
 	return nil, err
 }
 
-// sendWelcomeIf 新用户首次激活时发送欢迎邮件（Design1 §3.4.6）；失败不阻断主流程
-func (s *Service) sendWelcomeIf(ctx context.Context, email, source string) {
+// sendWelcomeIf 新用户首次激活时发送欢迎邮件；失败不阻断主流程，日志只记录用户 ID 与安全错误。
+func (s *Service) sendWelcomeIf(ctx context.Context, userID int64, email, source string) {
 	if s.sendWelcome == nil || email == "" {
 		return
 	}
-	if err := s.sendWelcome(ctx, email, source); err != nil {
-		s.log.Warn("欢迎邮件发送失败", "email", email, "err", err)
+	if err := s.sendWelcome(ctx, userID, email, source); err != nil {
+		s.log.Warn("欢迎邮件发送失败", "user_id", userID, "err", err)
 	}
 }
 
@@ -149,7 +149,7 @@ func (s *Service) Register(ctx context.Context, username, emailRaw, password str
 	}
 	// 欢迎邮件：直接激活（含首管理员）时发送；待审批不发（审批通过时由审批中心发送）
 	if created.Status == "active" {
-		s.sendWelcomeIf(ctx, created.Email, created.Source)
+		s.sendWelcomeIf(ctx, created.ID, created.Email, created.Source)
 		if s.onUserActive != nil {
 			s.onUserActive(ctx, created.ID)
 		}

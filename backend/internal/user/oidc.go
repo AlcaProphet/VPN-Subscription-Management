@@ -176,7 +176,7 @@ func (s *Service) CreateFromOidcGuarded(ctx context.Context, username, email, su
 	}
 	// 欢迎邮件：直接激活（含首管理员/白名单命中）时发送；待审批不发（审批通过时由审批中心发送）
 	if created.Status == "active" {
-		s.sendWelcomeIf(ctx, created.Email, created.Source)
+		s.sendWelcomeIf(ctx, created.ID, created.Email, created.Source)
 		if s.onUserActive != nil {
 			s.onUserActive(ctx, created.ID)
 		}

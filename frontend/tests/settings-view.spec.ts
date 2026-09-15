@@ -18,6 +18,28 @@ vi.mock('@/api/settings', () => ({
   getSMTP: vi.fn().mockResolvedValue({}),
   saveSMTP: vi.fn(),
   testSMTP: vi.fn(),
+  getMailTemplates: vi.fn().mockResolvedValue({
+    templates: [
+      { id: 'password_reset', label: '密码重置', scope: 'password_reset', subject: '密码重置', body: '请在 1 小时内使用以下链接重置密码（一次性）：\n{{reset_url}}', state: 'default', warning: '', subject_variables: [], body_variables: ['reset_url'], required_body_variables: ['reset_url'] },
+      { id: 'approval_approved', label: '审批通过', scope: 'approval_notify', subject: '{{site_name}} 审批通知', body: '通过 {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+      { id: 'approval_rejected', label: '审批拒绝', scope: 'approval_notify', subject: '{{site_name}} 审批通知', body: '拒绝 {{site_name}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name'], required_body_variables: [] },
+      { id: 'welcome_local', label: '本地欢迎', scope: 'welcome', subject: '{{site_name}} 账号已激活', body: '欢迎 {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+      { id: 'welcome_oidc', label: 'OIDC 欢迎', scope: 'welcome', subject: '{{site_name}} 账号已激活', body: 'OIDC {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+    ],
+    limits: { subject: 200, body: 10000 },
+    preview_values: {
+      site_name: '示例站点',
+      login_url: 'https://example.invalid/login?source=preview',
+      reset_url: 'https://example.invalid/reset/example-token?source=preview',
+    },
+  }),
+  saveMailTemplate: vi.fn(),
+  restoreMailTemplate: vi.fn(),
+  previewMailTemplate: vi.fn().mockResolvedValue({
+    subject: '预览主题',
+    text_body: '预览文本 https://example.invalid/login?source=preview',
+    html_body: '<a href="https://example.invalid/login?source=preview">https://example.invalid/login?source=preview</a>',
+  }),
   getSite: vi.fn().mockResolvedValue({}),
   saveSite: vi.fn(),
   deleteSiteIcon: vi.fn(),
@@ -43,8 +65,12 @@ vi.mock('@/api/system', () => ({
 }))
 
 import SettingsView from '@/views/admin/SettingsView.vue'
-import { getOidc, saveOidc, disableOidc, testOidc, type OidcSettings, type OidcParamsState } from '@/api/settings'
+import {
+  getOidc, saveOidc, disableOidc, testOidc, getMailTemplates, getRateLimit,
+  type OidcSettings, type OidcParamsState,
+} from '@/api/settings'
 import { useSystemStore } from '@/stores/system'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 describe('SettingsView 基础渲染', () => {
   beforeEach(() => {
@@ -665,5 +691,75 @@ describe('SettingsView R31-07 暂未启用草稿与停用', () => {
     await saveButton!.trigger('click')
     await flushPromises()
     expect(saveOidc).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('SettingsView 邮件内容卡片集成', () => {
+  const RootView = { template: '<router-view />' }
+
+  function makeRouter() {
+    return createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/settings', component: SettingsView },
+        { path: '/other', component: { template: '<div>other</div>' } },
+      ],
+    })
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+    vi.mocked(getMailTemplates).mockResolvedValue({
+      templates: [
+        { id: 'password_reset', label: '密码重置', scope: 'password_reset', subject: '密码重置', body: '请在 1 小时内使用以下链接重置密码（一次性）：\n{{reset_url}}', state: 'default', warning: '', subject_variables: [], body_variables: ['reset_url'], required_body_variables: ['reset_url'] },
+        { id: 'approval_approved', label: '审批通过', scope: 'approval_notify', subject: '{{site_name}} 审批通知', body: '通过 {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+        { id: 'approval_rejected', label: '审批拒绝', scope: 'approval_notify', subject: '{{site_name}} 审批通知', body: '拒绝 {{site_name}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name'], required_body_variables: [] },
+        { id: 'welcome_local', label: '本地欢迎', scope: 'welcome', subject: '{{site_name}} 账号已激活', body: '欢迎 {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+        { id: 'welcome_oidc', label: 'OIDC 欢迎', scope: 'welcome', subject: '{{site_name}} 账号已激活', body: 'OIDC {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+      ],
+      limits: { subject: 200, body: 10000 },
+      preview_values: {
+        site_name: '示例站点',
+        login_url: 'https://example.invalid/login?source=preview',
+        reset_url: 'https://example.invalid/reset/example-token?source=preview',
+      },
+    } as any)
+    vi.mocked(getRateLimit).mockResolvedValue({} as any)
+  })
+
+  it('邮件内容卡片位于 SMTP 卡片之后且通知说明包含邮件内容', async () => {
+    const router = makeRouter()
+    await router.push('/settings')
+    await router.isReady()
+    const wrapper = mount(RootView, { global: { plugins: [router] } })
+    await flushPromises()
+    const html = wrapper.html()
+    expect(html.indexOf('id="smtp"')).toBeGreaterThan(-1)
+    expect(html.indexOf('id="mail-templates"')).toBeGreaterThan(html.indexOf('id="smtp"'))
+    expect(wrapper.text()).toContain('邮件发送设置、测试与邮件内容')
+  })
+
+  it('父页其他设置仍在加载时，邮件模板 dirty 不被 settingsLoaded 门槛吞掉并参与离开保护', async () => {
+    // 让父页某个配置加载悬挂，settingsLoaded 保持 false；邮件模板组件仍应独立加载并报告 dirty。
+    vi.mocked(getRateLimit).mockImplementation(() => new Promise(() => {}))
+    const router = makeRouter()
+    await router.push('/settings')
+    await router.isReady()
+    const wrapper = mount(RootView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="邮件主题"]').setValue('未保存的模板主题')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 个分区有未保存更改')
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await router.push('/other')
+    await flushPromises()
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(String(confirmSpy.mock.calls[confirmSpy.mock.calls.length - 1]?.[0] || '')).toContain('1 个分区')
+    expect(router.currentRoute.value.path).toBe('/settings')
+    confirmSpy.mockRestore()
   })
 })

@@ -97,6 +97,8 @@ type ExportService struct {
 	cleanupXrayTargets        func(ctx context.Context, targets []ImportCleanupTarget)
 	detectImportedInstances   func(ctx context.Context, payload *ExportPayload) []string
 	postImportRebindReconcile func(ctx context.Context, payload *ExportPayload) []string
+	// validateConfig 由 server.New 注入邮件领域校验回调（只读 map，不访问 DB/网络）。
+	validateConfig func(map[string]string) error
 }
 
 // ImportCleanupTarget 是导入覆盖前需要从 Xray 侧清理的旧账号快照。
@@ -118,6 +120,18 @@ func (s *ExportService) SetTaskRegistry(reg *tasks.Registry) {
 // SetSeedPresets 注入 Setup 预置逻辑（Setup 导入分支使用）
 func (s *ExportService) SetSeedPresets(fn func(ctx context.Context, tx *sql.Tx, frontendURL string) error) {
 	s.seedPresets = fn
+}
+
+// SetValidateConfig 注入导入配置的只读领域校验回调；回调只接收 map，不访问数据库或网络。
+func (s *ExportService) SetValidateConfig(fn func(map[string]string) error) {
+	s.validateConfig = fn
+}
+
+func (s *ExportService) validateConfigOverrides(cfg map[string]string) error {
+	if s.validateConfig == nil {
+		return nil
+	}
+	return s.validateConfig(cfg)
 }
 
 // SetCleanupXrayTargets 注入 v2 导入覆盖后对旧 Xray 账号的 best-effort 清理函数。
@@ -236,6 +250,10 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 	if err := validateImportedNoMock(payload.Config); err != nil {
 		return err
 	}
+	// 邮件模板：v1 同步路径在 DELETE FROM system_config 之前完成只读领域校验。
+	if err := s.validateConfigOverrides(payload.Config); err != nil {
+		return err
+	}
 	// 校验格式与版本：format_version 不匹配仅警告不阻断；未知键忽略并警告；校验失败不做任何变更
 	if payload.FormatVersion != FormatVersion {
 		s.log.Warn("导入配置 format_version 不匹配", "got", payload.FormatVersion, "want", FormatVersion)
@@ -343,6 +361,10 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 	}
 	// R31-06：任务体内再次兜底拒绝 mock 配置，直接调用路径也不得覆盖写入。
 	if err := validateImportedNoMock(payload.Config); err != nil {
+		return nil, err
+	}
+	// 邮件模板：v2 任务体内在覆盖事务前完成只读领域校验，失败使任务终态 failed。
+	if err := s.validateConfigOverrides(payload.Config); err != nil {
 		return nil, err
 	}
 	// 导入保护：signing_key 变化且存在业务密文时拒绝。

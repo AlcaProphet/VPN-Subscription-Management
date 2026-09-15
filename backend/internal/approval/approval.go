@@ -15,10 +15,11 @@ import (
 	"vpn-sub/internal/xray"
 )
 
-// MailSender 邮件发送接口（mail.Service 实现；测试注入 mock）
+// MailSender 审批邮件发送接口（mail.Service 实现；测试注入 mock）。
+// 审批通过/拒绝使用具名方法，避免布尔参数与登录 URL 缺失的歧义。
 type MailSender interface {
-	SendWelcome(ctx context.Context, to, siteName, loginURL, source string) error
-	SendApprovalNotify(ctx context.Context, to, siteName string, approved bool) error
+	SendApprovalApproved(ctx context.Context, to, siteName, loginURL string) error
+	SendApprovalRejected(ctx context.Context, to, siteName string) error
 }
 
 // 业务错误
@@ -137,13 +138,13 @@ func (s *Service) siteContext(ctx context.Context) (siteName, loginURL string) {
 	return
 }
 
-// Approve 通过：激活账号（status→active）+ 清空 oidc_claims；发欢迎邮件（按来源区分文案，失败不阻断）
+// Approve 通过：激活账号（status→active）+ 清空 oidc_claims；只发一封审批通过通知（approval_notify），失败不阻断。
 func (s *Service) Approve(ctx context.Context, id int64) error {
-	var email, source string
+	var email string
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		if err := tx.QueryRowContext(ctx,
-			`SELECT COALESCE(email,''), user_source FROM users WHERE id = ? AND status = 'pending'`, id).
-			Scan(&email, &source); err != nil {
+			`SELECT COALESCE(email,'') FROM users WHERE id = ? AND status = 'pending'`, id).
+			Scan(&email); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
 			}
@@ -158,11 +159,11 @@ func (s *Service) Approve(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	// 欢迎邮件（事务提交后发送，失败不阻断——记 warn 日志，Design1 §4.6）
+	// 审批通过通知（事务提交后发送，失败不阻断——记 warn 日志，Design1 §4.6）
 	if email != "" {
 		siteName, loginURL := s.siteContext(ctx)
-		if err := s.mail.SendWelcome(ctx, email, siteName, loginURL, source); err != nil {
-			s.log.Warn("欢迎邮件发送失败", "user_id", id, "err", err)
+		if err := s.mail.SendApprovalApproved(ctx, email, siteName, loginURL); err != nil {
+			s.log.Warn("审批通过通知邮件发送失败", "user_id", id, "err", err)
 		}
 	}
 	if s.onApproved != nil {
@@ -201,8 +202,8 @@ func (s *Service) Reject(ctx context.Context, id int64) error {
 	}
 	if email != "" {
 		siteName, _ := s.siteContext(ctx)
-		if err := s.mail.SendApprovalNotify(ctx, email, siteName, false); err != nil {
-			s.log.Warn("拒绝通知邮件发送失败", "user_id", id, "err", err) // 不阻断
+		if err := s.mail.SendApprovalRejected(ctx, email, siteName); err != nil {
+			s.log.Warn("审批拒绝通知邮件发送失败", "user_id", id, "err", err) // 不阻断
 		}
 	}
 	if s.onUserDeleted != nil && len(cleanupTargets) > 0 {

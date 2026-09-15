@@ -307,7 +307,7 @@ func (s *AdminService) Create(ctx context.Context, username, emailRaw, password 
 		return nil, err
 	}
 	// 欢迎邮件：管理员创建的本地用户默认直接激活（Design1 §3.4.6，Step 2 注入回调后发送）
-	s.users.sendWelcomeIf(ctx, created.Email, created.Source)
+	s.users.sendWelcomeIf(ctx, created.ID, created.Email, created.Source)
 	if s.onUserActive != nil {
 		s.onUserActive(ctx, created.ID)
 	}

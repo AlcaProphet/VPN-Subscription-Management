@@ -23,6 +23,7 @@ import { ApiError } from '@/api/request'
 import { importFileError } from '@/utils/fileLimits'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import MailTemplateCard from '@/components/settings/MailTemplateCard.vue'
 import { Notify } from '@/components/Notify'
 
 const system = useSystemStore()
@@ -33,7 +34,7 @@ const isProd = computed(() => system.status?.app_mode === 'prod')
 // --- 六大设置分组：桌面左侧导航，手机顶部 Select。 ---
 const settingGroups = [
   { key: 'identity', title: '身份与访问', description: 'OIDC、本地认证与验证码' },
-  { key: 'notifications', title: '通知', description: '邮件发送设置与测试' },
+  { key: 'notifications', title: '通知', description: '邮件发送设置、测试与邮件内容' },
   { key: 'content', title: '外观与内容', description: '站点信息、公告与页脚' },
   { key: 'runtime', title: '运行与安全', description: '运行模式、高级模式、限流与日志' },
   { key: 'data', title: '数据管理', description: '导入导出与备份' },
@@ -55,6 +56,14 @@ function markDirty(key: string) {
 function markSaved(key: string) {
   const next = new Set(dirtyParts.value)
   next.delete(key)
+  dirtyParts.value = next
+}
+// 邮件模板组件自行完成首次加载，dirty 事件必须绕过 settingsLoaded/suppressDirty 门槛，
+// 否则父页其他设置仍在加载时会吞掉模板草稿状态。
+function onMailTemplateDirtyChange(dirty: boolean) {
+  const next = new Set(dirtyParts.value)
+  if (dirty) next.add('mail-template')
+  else next.delete('mail-template')
   dirtyParts.value = next
 }
 async function reloadClean(key: string, loader: () => Promise<void>) {
@@ -1116,6 +1125,10 @@ onMounted(async () => {
             </div>
           </div>
         </Card>
+
+        <!-- 邮件内容：独立卡片，位于 SMTP 设置与测试区之后 -->
+        <MailTemplateCard v-show="isGroupVisible('notifications')" @dirty-change="onMailTemplateDirtyChange" />
+
 
         <!-- 站点信息 -->
         <Card v-show="isGroupVisible('content')" id="site" title="站点信息" size="small">

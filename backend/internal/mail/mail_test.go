@@ -332,8 +332,11 @@ func TestSendUnconfigured(t *testing.T) {
 	if err := svc.SendWelcome(ctx, "a@example.com", "站点", "https://x", "local"); err != nil {
 		t.Errorf("scope 未启用时 SendWelcome 应返回 nil（不发送）: %v", err)
 	}
-	if err := svc.SendApprovalNotify(ctx, "a@example.com", "站点", true); err != nil {
-		t.Errorf("scope 未启用时 SendApprovalNotify 应返回 nil: %v", err)
+	if err := svc.SendApprovalApproved(ctx, "a@example.com", "站点", "https://x/login"); err != nil {
+		t.Errorf("scope 未启用时 SendApprovalApproved 应返回 nil: %v", err)
+	}
+	if err := svc.SendApprovalRejected(ctx, "a@example.com", "站点"); err != nil {
+		t.Errorf("scope 未启用时 SendApprovalRejected 应返回 nil: %v", err)
 	}
 	if err := svc.SendPasswordReset(ctx, "a@example.com", "https://x/reset/t"); err != nil {
 		t.Errorf("scope 未启用时 SendPasswordReset 应返回 nil: %v", err)

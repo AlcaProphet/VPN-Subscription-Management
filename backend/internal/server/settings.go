@@ -18,9 +18,10 @@ import (
 
 // SettingsHandler 面板配置处理器（结构体 Handler + 依赖注入）
 type SettingsHandler struct {
-	adminCfg   *config.AdminService
-	oidcSvc    *oidc.Service
-	trustProxy *proxytrust.Policy // TRUST_PROXY 策略（速率限制分区展示生效值）
+	adminCfg      *config.AdminService
+	oidcSvc       *oidc.Service
+	trustProxy    *proxytrust.Policy // TRUST_PROXY 策略（速率限制分区展示生效值）
+	mailTemplates mailTemplateService
 }
 
 // oidcOpsAdapter 将 oidc.Service 适配为 config.OidcOps 接口（config 包避免循环依赖）
@@ -65,6 +66,8 @@ func (a oidcOpsAdapter) ClearDiscCache() {
 
 // RegisterSettingsRoutes 注册面板配置端点；按分区独立 GET/PUT（不聚合）
 func RegisterSettingsRoutes(engine *gin.Engine, h *SettingsHandler, sessionMW, adminMW gin.HandlerFunc) {
+	// 邮件模板 API 需要 no-store 先于 session/admin，单独注册分组。
+	registerMailTemplateRoutes(engine, h, sessionMW, adminMW)
 	g := engine.Group("/api/admin/settings", sessionMW, adminMW)
 	g.GET("/oidc", h.getOidc)
 	g.PUT("/oidc", h.saveOidc)
