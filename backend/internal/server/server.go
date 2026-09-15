@@ -59,6 +59,11 @@ func OK(c *gin.Context, data any) { response.OK(c, data) }
 // Fail 错误响应（便捷包装）；httpStatus 与业务码同步取值（400/401/403/409/429/500）
 func Fail(c *gin.Context, httpStatus int, msg string) { response.Fail(c, httpStatus, msg) }
 
+// FailSanitized 已知可安全外显的系统错误响应：对外固定文案，内部错误仅进脱敏日志。
+func FailSanitized(c *gin.Context, httpStatus int, publicMsg string, internalErr error) {
+	response.FailSanitized(c, httpStatus, publicMsg, internalErr)
+}
+
 // detach 将事务提交后的副作用回调放入后台 goroutine，并解除请求 Context 的取消绑定。
 func detach(ctx context.Context, fn func(context.Context)) {
 	bg := context.WithoutCancel(ctx)

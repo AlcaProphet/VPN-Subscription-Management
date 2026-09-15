@@ -5,6 +5,7 @@ package config
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,15 +70,78 @@ func (w WhitelistConfig) Empty() bool {
 	return len(w.RoleValues) == 0 && len(w.GroupValues) == 0
 }
 
+// OidcParamsStateCode OIDC 参数状态枚举；接口只返回枚举与固定提示，不返回 Secret 明文/密文/签名密钥。
+type OidcParamsStateCode string
+
+const (
+	OidcParamsNotConfigured   OidcParamsStateCode = "not_configured"
+	OidcParamsMissingSecret   OidcParamsStateCode = "missing_secret"
+	OidcParamsUsable          OidcParamsStateCode = "usable"
+	OidcParamsJSONDamaged     OidcParamsStateCode = "json_damaged"
+	OidcParamsSecretDamaged   OidcParamsStateCode = "secret_damaged"
+	OidcParamsSigningKeyFault OidcParamsStateCode = "signing_key_fault"
+)
+
+// OIDC 固定提示：所有出口共用，禁止拼接 Secret/密文/签名密钥，避免日志与响应漂移。
+const (
+	OidcWarningNotConfigured         = "当前提供商尚未保存 OIDC 参数，请填写必要参数并输入新的 Client Secret 后保存"
+	OidcWarningMissingSecret         = "已存 OIDC 参数尚未配置可用 Client Secret，请填写新的 Client Secret 后保存"
+	OidcWarningJSONDamaged           = "已存 OIDC 参数 JSON 无法解析，请重新填写必要的 Base URL/Realm/Client ID 并输入新的 Client Secret 后保存"
+	OidcWarningSecretDamaged         = "已存 Client Secret 损坏或为脱敏占位符，请输入新的 Client Secret 后保存"
+	OidcWarningSigningKeyFault       = "系统签名密钥缺失或不可读取，当前无法校验或保存 OIDC 凭据；请通过备份恢复或应急初始化处理，不要在此重填 Secret"
+	OidcTestStoredDamagedMessage     = "目标提供商已存 OIDC 配置损坏，须重新填写必要参数并输入新的 Client Secret 后再测试"
+	OidcTestSigningKeyFaultMessage   = "系统签名密钥不可用，无法校验已存 OIDC 配置；请通过备份恢复或应急初始化处理"
+	OidcSigningKeyFaultPublicMessage = "系统签名密钥不可用，OIDC 配置无法保存；请通过备份恢复或应急初始化处理"
+)
+
 // OidcParamsState OIDC 提供商参数只读状态（不含 Secret 明文或原始密文）。
 type OidcParamsState struct {
-	Present       bool   // 是否存在非空参数 JSON
-	BaseURL       string // JSON 可解析时的非 Secret 字段
+	State         OidcParamsStateCode // 完整状态枚举；为空时由 EffectiveOidcParamsState 从旧标记推导
+	Present       bool                // 是否存在非空参数 JSON
+	BaseURL       string              // JSON 可解析时的非 Secret 字段
 	Realm         string
 	ClientID      string
 	SecretUsable  bool // 已存 Secret 解密后非空且非脱敏占位符
 	SecretDamaged bool // Secret 非空但无法解密，或解密后为 ***
 	JSONDamaged   bool // 原始 JSON 非空但无法解析
+}
+
+// EffectiveOidcParamsState 兼容旧标记：State 已设置时直接返回，否则按 R31-03 布尔标记推导。
+func EffectiveOidcParamsState(st OidcParamsState) OidcParamsStateCode {
+	if st.State != "" {
+		return st.State
+	}
+	if !st.Present {
+		return OidcParamsNotConfigured
+	}
+	if st.JSONDamaged {
+		return OidcParamsJSONDamaged
+	}
+	if st.SecretDamaged {
+		return OidcParamsSecretDamaged
+	}
+	if st.SecretUsable {
+		return OidcParamsUsable
+	}
+	return OidcParamsMissingSecret
+}
+
+// OidcStateWarning 返回状态对应的固定只读提示；调用方不得再拼接任何配置值。
+func OidcStateWarning(st OidcParamsState) string {
+	switch EffectiveOidcParamsState(st) {
+	case OidcParamsNotConfigured:
+		return OidcWarningNotConfigured
+	case OidcParamsMissingSecret:
+		return OidcWarningMissingSecret
+	case OidcParamsJSONDamaged:
+		return OidcWarningJSONDamaged
+	case OidcParamsSecretDamaged:
+		return OidcWarningSecretDamaged
+	case OidcParamsSigningKeyFault:
+		return OidcWarningSigningKeyFault
+	default:
+		return ""
+	}
 }
 
 // OidcOps OIDC 能力接口（oidc.Service 经 server 适配注入；config 包避免 config↔oidc 循环依赖）
@@ -88,6 +152,10 @@ type OidcOps interface {
 	LoadParams(ctx context.Context, providerType string) (baseURL, realm, clientID, clientSecret string, err error)
 	// DescribeParams 读取提供商参数只读状态（不返回 Secret；供目标读取与保存校验）
 	DescribeParams(ctx context.Context, providerType string) (OidcParamsState, error)
+	// SaveParamsTx 在调用方写事务内保存参数并完成分类/密钥校验/加密或保留密文
+	SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType, baseURL, realm, clientID, clientSecret string) error
+	// DescribeParamsTx 在调用方写事务内读取参数只读状态
+	DescribeParamsTx(ctx context.Context, tx *sql.Tx, providerType string) (OidcParamsState, error)
 	// IsConfigured OIDC 是否已配置
 	IsConfigured(ctx context.Context) bool
 	// ClearDiscCache 配置变更后清发现文档缓存
@@ -141,43 +209,46 @@ func (s *AdminService) setSensitive(ctx context.Context, key, value string) erro
 // --- OIDC 配置分区 ---
 
 type OidcSettings struct {
-	ProviderType           string `json:"provider_type"`
-	BaseURL                string `json:"base_url"`
-	Realm                  string `json:"realm"`
-	ClientID               string `json:"client_id"`
-	ClientSecret           string `json:"client_secret"`            // GET 始终为空；PUT 空=保留当前提供商原密文
-	ClientSecretConfigured bool   `json:"client_secret_configured"` // 当前提供商是否已有可用 Secret（只读）
-	FrontendURL            string `json:"frontend_url"`             // 启动时缓存（库驱动），修改需重启生效
-	CallbackURL            string `json:"callback_url"`             // 同上
-	ParamsDamaged          bool   `json:"params_damaged,omitempty"` // 目标读取专用：已存参数存在损坏（只读）
-	ParamsWarning          string `json:"params_warning,omitempty"` // 目标读取专用：损坏/重填提示（只读）
+	ProviderType           string              `json:"provider_type"`
+	BaseURL                string              `json:"base_url"`
+	Realm                  string              `json:"realm"`
+	ClientID               string              `json:"client_id"`
+	ClientSecret           string              `json:"client_secret"`            // GET 始终为空；PUT 空=保留当前提供商原密文
+	ClientSecretConfigured bool                `json:"client_secret_configured"` // 当前提供商是否已有可用 Secret（只读）
+	FrontendURL            string              `json:"frontend_url"`             // 启动时缓存（库驱动），修改需重启生效
+	CallbackURL            string              `json:"callback_url"`             // 同上
+	ParamsState            OidcParamsStateCode `json:"params_state,omitempty"`   // 完整只读状态枚举
+	ParamsDamaged          bool                `json:"params_damaged,omitempty"` // 已存参数存在 JSON/Secret 损坏（只读，兼容 R31-03）
+	ParamsWarning          string              `json:"params_warning,omitempty"` // 固定损坏/重填提示（只读）
 }
 
 // 合法提供商类型
 var validProviders = []string{"keycloak", "auth0", "generic", "mock"}
 
-// oidcUsable 判定 OIDC 是否「可用」（防认证死锁的核心判定，Design1 §3.4.8）：
-// 真实提供商 base_url 必须为 HTTPS，且 client_id 非空，且（PUT 入参 Secret 有效 或 库内已有可用明文 Secret）。
-// GET 空回显/历史占位符均不被视为可用；mock 不要求 base_url。
-func (s *AdminService) oidcUsable(ctx context.Context, in OidcSettings) bool {
+// oidcUsableState 判定“请求参数 + 已存状态”合并后 OIDC 是否可用；供 SaveOidc 事务内防死锁判定。
+// 真实提供商 base_url 必须 HTTPS、client_id 非空；显式新 Secret 视为可用；空 Secret 仅在已存状态可用
+// 且 Base URL/Realm/Client ID 完全一致时视为可用。
+func (s *AdminService) oidcUsableState(in OidcSettings, st OidcParamsState) bool {
 	if in.BaseURL == "" || in.ClientID == "" {
 		return false
 	}
-	if in.ProviderType != "mock" {
-		if err := urlguard.ValidateHTTPS(in.BaseURL); err != nil {
-			return false
-		}
+	if in.ProviderType == "mock" {
+		// 保持 R31-06/R31-07 前的 mock 锁死判定：mock 空 Secret 不作为关闭本地登录的依据。
+		return SecretUsable(in.ClientSecret)
+	}
+	if err := urlguard.ValidateHTTPS(in.BaseURL); err != nil {
+		return false
 	}
 	if SecretUsable(in.ClientSecret) {
 		return true
 	}
-	_, _, _, secret, err := s.oidcOps.LoadParams(ctx, in.ProviderType) // LoadParams 返回解密后明文
-	return err == nil && SecretUsable(secret)
+	return EffectiveOidcParamsState(st) == OidcParamsUsable &&
+		st.BaseURL == in.BaseURL && st.Realm == in.Realm && st.ClientID == in.ClientID
 }
 
 // oidcAvailable 判定当前生效的 OIDC 是否可作为登录方式（防认证死锁第二层校验）：
-// 已标记配置、当前提供商参数可读取、真实提供商 base_url 为 HTTPS、client_id 非空且 Secret 可用；
-// mock 仅 Dev 模式可用；空 Secret 视为未配置所需 Secret，不能作为关闭本地登录的依据。
+// 已标记配置、当前提供商参数可读取/可解密、真实提供商 base_url 为 HTTPS、client_id 非空且 Secret 可用；
+// mock 仅 Dev 模式可用；空 Secret/损坏/签名密钥故障均不能作为关闭本地登录的依据。
 func (s *AdminService) oidcAvailable(ctx context.Context) bool {
 	if !s.oidcOps.IsConfigured(ctx) {
 		return false
@@ -186,45 +257,78 @@ func (s *AdminService) oidcAvailable(ctx context.Context) bool {
 	if providerType == "" {
 		return false
 	}
+	st, err := s.oidcOps.DescribeParams(ctx, providerType)
+	if err != nil {
+		return false
+	}
+	state := EffectiveOidcParamsState(st)
 	if providerType == "mock" { // 模拟 OIDC 仅 Dev 模式提供登录能力
 		if s.cfg.GetOr(ctx, KeyAppMode) != "dev" {
 			return false
 		}
-		_, _, _, _, err := s.oidcOps.LoadParams(ctx, providerType)
-		return err == nil
+		return state != OidcParamsJSONDamaged && state != OidcParamsNotConfigured
 	}
-	baseURL, _, clientID, secret, err := s.oidcOps.LoadParams(ctx, providerType)
-	if err != nil || baseURL == "" || clientID == "" {
+	if state != OidcParamsUsable || st.BaseURL == "" || st.ClientID == "" {
 		return false
 	}
-	if err := urlguard.ValidateHTTPS(baseURL); err != nil {
+	if err := urlguard.ValidateHTTPS(st.BaseURL); err != nil {
 		return false
 	}
-	return SecretUsable(secret)
+	return true
 }
 
-// GetOidc 回显当前 OIDC 配置（Secret 输入值始终为空，另以 client_secret_configured 表示已配置）。
+// applyOidcParamsState 将只读状态写入 GET 响应：Secret 始终清空，JSON 损坏时不猜测非 Secret 字段，
+// 固定提示与状态枚举由 OidcStateWarning 提供；mock 不展示 Secret/损坏提示，保持 R31-03 前的回显语义。
+func applyOidcParamsState(out *OidcSettings, st OidcParamsState) {
+	state := EffectiveOidcParamsState(st)
+	out.ParamsState = state
+	if state == OidcParamsJSONDamaged {
+		out.BaseURL, out.Realm, out.ClientID = "", "", ""
+	} else if out.ProviderType != "" {
+		out.BaseURL, out.Realm, out.ClientID = st.BaseURL, st.Realm, st.ClientID
+	}
+	out.ClientSecret = ""
+	out.ClientSecretConfigured = state == OidcParamsUsable
+	out.ParamsDamaged = state == OidcParamsJSONDamaged || state == OidcParamsSecretDamaged
+	// 未配置/缺 Secret 保持 R31-03 的最小回显（提示由前端按状态补全）；损坏与密钥故障由后端给固定提示。
+	out.ParamsWarning = ""
+	if state == OidcParamsJSONDamaged || state == OidcParamsSecretDamaged || state == OidcParamsSigningKeyFault {
+		out.ParamsWarning = OidcStateWarning(st)
+	}
+	if out.ProviderType == "mock" {
+		out.ClientSecretConfigured = false // mock 无 Secret 语义，保持旧回显
+		out.ParamsDamaged = false
+		out.ParamsWarning = ""
+	}
+}
+
+// GetOidc 回显当前 OIDC 配置（Secret 输入值始终为空，完整状态由 params_state 表示）。
 func (s *AdminService) GetOidc(ctx context.Context) (OidcSettings, error) {
 	out := OidcSettings{}
 	out.ProviderType = s.cfg.GetOr(ctx, oidcKeyProviderType)
 	out.FrontendURL = s.cfg.GetOr(ctx, KeyFrontendURL)
 	out.CallbackURL = s.cfg.GetOr(ctx, KeyCallbackURL)
-	if out.ProviderType != "" {
-		baseURL, realm, clientID, secret, err := s.oidcOps.LoadParams(ctx, out.ProviderType)
-		if err != nil {
-			return out, nil // 参数缺失/解密失败按未配置处理（不阻断回显）
-		}
-		out.BaseURL = baseURL
-		out.Realm = realm
-		out.ClientID = clientID
-		out.ClientSecret = ""
-		out.ClientSecretConfigured = SecretUsable(secret)
+	if out.ProviderType == "" {
+		out.ParamsState = OidcParamsNotConfigured
+		return out, nil
 	}
+	st, err := s.oidcOps.DescribeParams(ctx, out.ProviderType)
+	if err != nil {
+		if errors.Is(err, ErrSigningKeyUnavailable) {
+			if st.State == "" {
+				st.State = OidcParamsSigningKeyFault
+			}
+			applyOidcParamsState(&out, st)
+			return out, nil // 独立只读系统错误，不伪装成 HTTP 5xx
+		}
+		return out, err
+	}
+	applyOidcParamsState(&out, st)
 	return out, nil
 }
 
 // GetOidcForProvider 按指定提供商读取面板配置（目标提供商切换专用）：
-// Secret 始终空回显；返回目标已存的非 Secret 字段、Secret 可用状态与最小损坏提示。
+// Secret 始终空回显；返回目标已存的非 Secret 字段、完整状态枚举与固定损坏/重填提示。
 func (s *AdminService) GetOidcForProvider(ctx context.Context, providerType string) (OidcSettings, error) {
 	if !slices.Contains(validProviders, providerType) {
 		return OidcSettings{}, fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
@@ -234,61 +338,64 @@ func (s *AdminService) GetOidcForProvider(ctx context.Context, providerType stri
 	out.CallbackURL = s.cfg.GetOr(ctx, KeyCallbackURL)
 	st, err := s.oidcOps.DescribeParams(ctx, providerType)
 	if err != nil {
+		if errors.Is(err, ErrSigningKeyUnavailable) {
+			if st.State == "" {
+				st.State = OidcParamsSigningKeyFault
+			}
+			applyOidcParamsState(&out, st)
+			return out, nil
+		}
 		return out, err
 	}
-	if !st.Present {
-		return out, nil
-	}
-	out.BaseURL = st.BaseURL
-	out.Realm = st.Realm
-	out.ClientID = st.ClientID
-	out.ClientSecret = ""
-	out.ClientSecretConfigured = st.SecretUsable
-	if st.JSONDamaged {
-		// 整个 JSON 不可解析时不猜测非 Secret 字段，但明确标损坏并要求重填。
-		out.BaseURL, out.Realm, out.ClientID = "", "", ""
-		out.ParamsDamaged = true
-		out.ParamsWarning = "已存 OIDC 参数 JSON 无法解析，请重新填写必要的 Base URL/Realm/Client ID 并输入新的 Client Secret 后保存"
-		return out, nil
-	}
-	if st.SecretDamaged {
-		out.ParamsDamaged = true
-		out.ParamsWarning = "已存 Client Secret 损坏或为脱敏占位符，请输入新的 Client Secret 后保存"
-	}
+	applyOidcParamsState(&out, st)
 	return out, nil
 }
 
-// validateOidcSecretReuse 空 Secret 保存前置校验：目标必须存在、三字段完全一致且旧 Secret 可用。
-// 最终原子判定由 oidc.SaveParams 在同一写事务内再次执行，避免校验后配置变化。
-func (s *AdminService) validateOidcSecretReuse(ctx context.Context, in OidcSettings) error {
+// validateOidcSecretReuseState 空 Secret 保存事务内校验：目标状态必须可用、三字段完全一致。
+// SaveOidc 与底层 oidc.SaveParamsTx 共用同一判定，避免校验后配置变化。
+func validateOidcSecretReuseState(in OidcSettings, st OidcParamsState) error {
 	if in.ProviderType == "mock" {
-		return nil // mock 无 Client Secret 复用语义（Production mock 限制由 R31-06 处理）
+		return nil // mock 无 Client Secret 复用语义
 	}
-	st, err := s.oidcOps.DescribeParams(ctx, in.ProviderType)
-	if err != nil {
-		return err
-	}
-	if !st.Present {
-		return fmt.Errorf("%w: 目标提供商尚无可用 Client Secret，请输入新的 Client Secret", ErrBadRequest)
-	}
-	if st.JSONDamaged {
+	switch EffectiveOidcParamsState(st) {
+	case OidcParamsSigningKeyFault:
+		return ErrSigningKeyUnavailable
+	case OidcParamsJSONDamaged:
 		return fmt.Errorf("%w: 目标提供商已存 OIDC 参数 JSON 损坏，请重新填写必要参数并输入新的 Client Secret", ErrBadRequest)
-	}
-	if st.SecretDamaged {
+	case OidcParamsSecretDamaged:
 		return fmt.Errorf("%w: 目标提供商已存 Client Secret 损坏，请输入新的 Client Secret", ErrBadRequest)
-	}
-	if !st.SecretUsable {
+	case OidcParamsUsable:
+		if !st.SecretUsable {
+			return fmt.Errorf("%w: 目标提供商尚无可用 Client Secret，请输入新的 Client Secret", ErrBadRequest)
+		}
+		if st.BaseURL != in.BaseURL || st.Realm != in.Realm || st.ClientID != in.ClientID {
+			return fmt.Errorf("%w: 目标提供商的 Base URL/Realm/Client ID 与已存配置不一致，不能留空复用旧 Client Secret，请重新输入", ErrBadRequest)
+		}
+		return nil
+	default: // not_configured / missing_secret
 		return fmt.Errorf("%w: 目标提供商尚无可用 Client Secret，请输入新的 Client Secret", ErrBadRequest)
 	}
-	if st.BaseURL != in.BaseURL || st.Realm != in.Realm || st.ClientID != in.ClientID {
-		return fmt.Errorf("%w: 目标提供商的 Base URL/Realm/Client ID 与已存配置不一致，不能留空复用旧 Client Secret，请重新输入", ErrBadRequest)
-	}
-	return nil
 }
 
-// SaveOidc 保存 OIDC 参数；受「本地登录与 OIDC 均不可用禁止保存」约束（防认证死锁）；
-// 真实提供商 base_url 非空时必须为 HTTPS；各提供商参数独立存储（切换类型保留已填字段）；
-// Secret 空值保留当前提供商原密文，显式新值才替换；frontend_url/callback_url 手动覆盖优先。
+// allowLocalLoginTx 在写事务内读取本地登录开关；缺失按默认 true。
+func (s *AdminService) allowLocalLoginTx(ctx context.Context, tx *sql.Tx) (bool, error) {
+	v, err := s.cfg.GetTx(ctx, tx, KeyAllowLocalLogin)
+	if err != nil {
+		return false, err
+	}
+	if v == "" {
+		return true, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("%w: allow_local_login 非法", ErrBadRequest)
+	}
+	return b, nil
+}
+
+// SaveOidc 保存 OIDC 参数（T1：旧值读取、校验、分类、密钥操作和相关配置写入在同一 BEGIN IMMEDIATE 内）；
+// 受「本地登录与 OIDC 均不可用禁止保存」约束（防认证死锁）；真实提供商 base_url 非空时必须为 HTTPS；
+// 各提供商参数独立存储；Secret 空值仅可在目标字段一致且旧 Secret 可用时保留；显式新值才替换。
 func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 	if !slices.Contains(validProviders, in.ProviderType) {
 		return fmt.Errorf("%w: 提供商类型无效", ErrBadRequest)
@@ -301,45 +408,52 @@ func (s *AdminService) SaveOidc(ctx context.Context, in OidcSettings) error {
 			return fmt.Errorf("%w: OIDC Base URL 必须是 HTTPS 地址: %v", ErrBadRequest, err)
 		}
 	}
-	if in.ProviderType != "mock" {
-		if in.ClientSecret == "" {
-			if err := s.validateOidcSecretReuse(ctx, in); err != nil {
-				return err
-			}
-		} else {
-			st, err := s.oidcOps.DescribeParams(ctx, in.ProviderType)
-			if err != nil {
-				return err
-			}
-			if st.JSONDamaged && (in.BaseURL == "" || in.ClientID == "") {
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		allowLocal, err := s.allowLocalLoginTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		st, err := s.oidcOps.DescribeParamsTx(ctx, tx, in.ProviderType)
+		if err != nil {
+			return err // 含 signing_key 故障的独立类型错误
+		}
+		if in.ProviderType != "mock" {
+			if in.ClientSecret == "" {
+				if err := validateOidcSecretReuseState(in, st); err != nil {
+					return err
+				}
+			} else if EffectiveOidcParamsState(st) == OidcParamsJSONDamaged && (in.BaseURL == "" || in.ClientID == "") {
 				return fmt.Errorf("%w: 目标提供商已存 OIDC 参数 JSON 损坏，须重新填写 Base URL 与 Client ID 后再保存", ErrBadRequest)
 			}
 		}
-	}
-	allowLocal := s.cfg.GetBool(ctx, KeyAllowLocalLogin, true)
-	if !allowLocal && !s.oidcUsable(ctx, in) {
-		return ErrAuthDeadlock // 本地登录与 OIDC 均不可用，禁止保存
-	}
-	// 各提供商参数独立存储（切换类型保留已填字段）；Secret 经 oidcOps 加密；空值保留原密文
-	if err := s.oidcOps.SaveParams(ctx, in.ProviderType, in.BaseURL, in.Realm, in.ClientID, in.ClientSecret); err != nil {
-		return err
-	}
-	if err := s.cfg.Set(ctx, oidcKeyProviderType, in.ProviderType); err != nil {
-		return err
-	}
-	if err := s.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
-		return err
-	}
-	// 前端地址/回调地址：手动覆盖优先（空 = 不修改）；启动缓存语义——修改需重启容器生效
-	if in.FrontendURL != "" {
-		if err := s.cfg.Set(ctx, KeyFrontendURL, in.FrontendURL); err != nil {
+		if !allowLocal && !s.oidcUsableState(in, st) {
+			return ErrAuthDeadlock // 本地登录与 OIDC 均不可用，禁止保存
+		}
+		// 各提供商参数独立存储；SaveParamsTx 在同一事务内完成分类/密钥校验/加密或保留密文。
+		if err := s.oidcOps.SaveParamsTx(ctx, tx, in.ProviderType, in.BaseURL, in.Realm, in.ClientID, in.ClientSecret); err != nil {
 			return err
 		}
-	}
-	if in.CallbackURL != "" {
-		if err := s.cfg.Set(ctx, KeyCallbackURL, in.CallbackURL); err != nil {
+		if err := s.cfg.SetTx(ctx, tx, oidcKeyProviderType, in.ProviderType); err != nil {
 			return err
 		}
+		if err := s.cfg.SetTx(ctx, tx, oidcKeyConfigured, "true"); err != nil {
+			return err
+		}
+		// 前端地址/回调地址：手动覆盖优先（空 = 不修改）；启动缓存语义——修改需重启容器生效
+		if in.FrontendURL != "" {
+			if err := s.cfg.SetTx(ctx, tx, KeyFrontendURL, in.FrontendURL); err != nil {
+				return err
+			}
+		}
+		if in.CallbackURL != "" {
+			if err := s.cfg.SetTx(ctx, tx, KeyCallbackURL, in.CallbackURL); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	s.oidcOps.ClearDiscCache() // 配置变更后清发现文档缓存
 	return nil

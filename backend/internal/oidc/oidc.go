@@ -178,46 +178,122 @@ func (s *Service) loadParams(ctx context.Context, providerType string) (*Params,
 	return p, nil
 }
 
-// DescribeParams 读取指定提供商参数并给出只读状态（不含 Secret 明文/密文）。
-// Secret 留空视为尚未配置可用 Secret；可解析但解密失败/为脱敏占位符视为 Secret 损坏；
-// JSON 非空但无法解析视为 JSON 损坏；签名密钥读取失败作为独立系统错误返回。
-func (s *Service) DescribeParams(ctx context.Context, providerType string) (config.OidcParamsState, error) {
-	raw, err := s.cfg.Get(ctx, "oidc_params_"+providerType)
-	if err != nil {
-		return config.OidcParamsState{}, fmt.Errorf("读取 OIDC 参数失败: %w", err)
-	}
+// paramInspection 一次参数分类的结构化结果；Raw 保留密文原样，Plain 仅在可用/缺 Secret 时提供解密副本。
+// 该结构只在 oidc 包内部使用，HTTP 层只接触 config.OidcParamsState。
+type paramInspection struct {
+	Raw   *Params
+	Plain *Params
+	State config.OidcParamsState
+}
+
+// inspectParamsRaw 基于已读取的 raw 与签名密钥读取结果分类；不向调用方返回原始密文。
+// 真实提供商非空参数优先判定签名密钥故障；JSON 可解析时保留非 Secret 字段供面板核对。
+func inspectParamsRaw(providerType, raw string, key []byte, keyErr error) (*paramInspection, error) {
+	state := config.OidcParamsState{}
 	if strings.TrimSpace(raw) == "" {
-		return config.OidcParamsState{}, nil
+		state.State = config.OidcParamsNotConfigured
+		return &paramInspection{State: state}, nil
 	}
-	var out config.OidcParamsState
-	out.Present = true
-	var p Params
-	if err := json.Unmarshal([]byte(raw), &p); err != nil {
-		out.JSONDamaged = true
-		return out, nil
+	state.Present = true
+	var parsed Params
+	parseErr := json.Unmarshal([]byte(raw), &parsed)
+	if parseErr == nil {
+		state.BaseURL, state.Realm, state.ClientID = parsed.BaseURL, parsed.Realm, parsed.ClientID
 	}
-	out.BaseURL, out.Realm, out.ClientID = p.BaseURL, p.Realm, p.ClientID
-	if p.ClientSecret == "" {
-		return out, nil
+	rawCopy := parsed
+	if providerType != "mock" && keyErr != nil {
+		state.State = config.OidcParamsSigningKeyFault
+		if parseErr != nil {
+			state.JSONDamaged = true
+		}
+		return &paramInspection{Raw: &rawCopy, State: state}, keyErr
 	}
-	key, err := s.cfg.GetSigningKey(ctx)
+	if parseErr != nil {
+		state.JSONDamaged = true
+		state.State = config.OidcParamsJSONDamaged
+		return &paramInspection{State: state}, nil
+	}
+	if providerType == "mock" {
+		state.State = config.OidcParamsUsable
+		return &paramInspection{Raw: &rawCopy, Plain: &rawCopy, State: state}, nil
+	}
+	if parsed.ClientSecret == "" {
+		state.State = config.OidcParamsMissingSecret
+		plainCopy := parsed
+		return &paramInspection{Raw: &rawCopy, Plain: &plainCopy, State: state}, nil
+	}
+	plain, err := config.Decrypt(parsed.ClientSecret, key)
 	if err != nil {
-		return config.OidcParamsState{}, fmt.Errorf("读取签名密钥失败: %w", err)
-	}
-	plain, err := config.Decrypt(p.ClientSecret, key)
-	if err != nil {
-		out.SecretDamaged = true
-		return out, nil
+		state.SecretDamaged = true
+		state.State = config.OidcParamsSecretDamaged
+		return &paramInspection{Raw: &rawCopy, State: state}, nil
 	}
 	switch string(plain) {
 	case "":
-		// 空密文按尚未配置可用 Secret 处理，不标损坏。
+		// 加密的空值按“尚未配置可用 Secret”处理，不标损坏。
+		state.State = config.OidcParamsMissingSecret
+		plainCopy := parsed
+		plainCopy.ClientSecret = ""
+		return &paramInspection{Raw: &rawCopy, Plain: &plainCopy, State: state}, nil
 	case config.MaskedSecret:
-		out.SecretDamaged = true
+		state.SecretDamaged = true
+		state.State = config.OidcParamsSecretDamaged
+		return &paramInspection{Raw: &rawCopy, State: state}, nil
 	default:
-		out.SecretUsable = true
+		state.SecretUsable = true
+		state.State = config.OidcParamsUsable
+		plainCopy := parsed
+		plainCopy.ClientSecret = string(plain)
+		return &paramInspection{Raw: &rawCopy, Plain: &plainCopy, State: state}, nil
 	}
-	return out, nil
+}
+
+// inspectParams 读取 raw 与签名密钥后完成一次结构化检查（非事务只读路径）。
+func (s *Service) inspectParams(ctx context.Context, providerType string) (*paramInspection, error) {
+	raw, err := s.cfg.Get(ctx, "oidc_params_"+providerType)
+	if err != nil {
+		return nil, fmt.Errorf("读取 OIDC 参数失败: %w", err)
+	}
+	var key []byte
+	var keyErr error
+	if providerType != "mock" && strings.TrimSpace(raw) != "" {
+		key, keyErr = s.cfg.GetSigningKey(ctx)
+	}
+	return inspectParamsRaw(providerType, raw, key, keyErr)
+}
+
+// inspectParamsTx 在调用方事务内读取 raw 与签名密钥后完成一次结构化检查。
+func (s *Service) inspectParamsTx(ctx context.Context, tx *sql.Tx, providerType, raw string) (*paramInspection, error) {
+	var key []byte
+	var keyErr error
+	if providerType != "mock" && strings.TrimSpace(raw) != "" {
+		key, keyErr = s.cfg.GetSigningKeyTx(ctx, tx)
+	}
+	return inspectParamsRaw(providerType, raw, key, keyErr)
+}
+
+// DescribeParams 读取指定提供商参数并给出完整只读状态（不含 Secret 明文/密文/签名密钥）。
+// JSON 可解析但 Secret 空→missing_secret；字面/不可解密/解密后 ***→secret_damaged；JSON 非空但无法解析→json_damaged；
+// signing_key 缺失或读取失败→signing_key_fault，且 JSON 可解析时仍保留非 Secret 字段。
+func (s *Service) DescribeParams(ctx context.Context, providerType string) (config.OidcParamsState, error) {
+	insp, err := s.inspectParams(ctx, providerType)
+	if insp == nil {
+		return config.OidcParamsState{}, err
+	}
+	return insp.State, err
+}
+
+// DescribeParamsTx 在调用方写事务内完成与 DescribeParams 相同的结构化检查。
+func (s *Service) DescribeParamsTx(ctx context.Context, tx *sql.Tx, providerType string) (config.OidcParamsState, error) {
+	raw, err := s.cfg.GetTx(ctx, tx, "oidc_params_"+providerType)
+	if err != nil {
+		return config.OidcParamsState{}, fmt.Errorf("读取 OIDC 参数失败: %w", err)
+	}
+	insp, err := s.inspectParamsTx(ctx, tx, providerType, raw)
+	if insp == nil {
+		return config.OidcParamsState{}, err
+	}
+	return insp.State, err
 }
 
 // validateOIDCBaseURL 校验真实提供商写入的 base_url；mock 与空值不在参数写入层拦截。
@@ -231,48 +307,96 @@ func validateOIDCBaseURL(providerType, baseURL string) error {
 	return nil
 }
 
-// saveParamsKeepSecret 空 Secret 保存的原子守卫：字段组校验、旧 Secret 可用性校验与保留密文写回必须在同一写事务内完成。
-func (s *Service) saveParamsKeepSecret(ctx context.Context, providerType string, p Params) error {
-	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		raw, err := s.cfg.GetTx(ctx, tx, "oidc_params_"+providerType)
+// saveMockParamsTx 模拟提供商参数写入：无 Secret 语义，保留旧密文；显式非空值沿用旧行为加密存储。
+func (s *Service) saveMockParamsTx(ctx context.Context, tx *sql.Tx, providerType string, insp *paramInspection, p Params) error {
+	secretCipher := ""
+	if insp != nil && insp.Raw != nil {
+		secretCipher = insp.Raw.ClientSecret
+	}
+	if p.ClientSecret != "" {
+		enc, err := s.cfg.EncryptWithTx(ctx, tx, p.ClientSecret)
 		if err != nil {
-			return fmt.Errorf("读取 OIDC 参数失败: %w", err)
+			return err
 		}
-		if strings.TrimSpace(raw) == "" {
+		secretCipher = enc
+	}
+	params := Params{BaseURL: p.BaseURL, Realm: p.Realm, ClientID: p.ClientID, ClientSecret: secretCipher}
+	rawNew, err := json.Marshal(params)
+	if err != nil {
+		return fmt.Errorf("序列化 OIDC 参数失败: %w", err)
+	}
+	return s.cfg.SetTx(ctx, tx, "oidc_params_"+providerType, string(rawNew))
+}
+
+// saveParamsKeepSecretTx 空 Secret 保存的原子守卫：字段组校验、旧 Secret 可用性校验与保留密文写回在同一写事务内完成。
+func (s *Service) saveParamsKeepSecretTx(ctx context.Context, tx *sql.Tx, providerType string, insp *paramInspection, p Params) error {
+	switch config.EffectiveOidcParamsState(insp.State) {
+	case config.OidcParamsJSONDamaged:
+		return fmt.Errorf("%w: 目标提供商已存 OIDC 参数 JSON 损坏，请重新填写必要参数并输入新的 Client Secret", config.ErrBadRequest)
+	case config.OidcParamsSecretDamaged:
+		return fmt.Errorf("%w: 目标提供商已存 Client Secret 损坏，请输入新的 Client Secret", config.ErrBadRequest)
+	case config.OidcParamsSigningKeyFault:
+		return config.ErrSigningKeyUnavailable
+	case config.OidcParamsUsable:
+		if insp.Raw == nil || insp.Raw.ClientSecret == "" {
 			return fmt.Errorf("%w: 目标提供商尚无可用 Client Secret，请输入新的 Client Secret", config.ErrBadRequest)
 		}
-		var existing Params
-		if err := json.Unmarshal([]byte(raw), &existing); err != nil {
-			return fmt.Errorf("%w: 目标提供商已存 OIDC 参数 JSON 损坏，请重新填写必要参数并输入新的 Client Secret", config.ErrBadRequest)
-		}
-		if existing.ClientSecret == "" {
-			return fmt.Errorf("%w: 目标提供商尚无可用 Client Secret，请输入新的 Client Secret", config.ErrBadRequest)
-		}
-		key, err := s.cfg.GetSigningKeyTx(ctx, tx)
-		if err != nil {
-			return fmt.Errorf("读取签名密钥失败: %w", err)
-		}
-		plain, err := config.Decrypt(existing.ClientSecret, key)
-		if err != nil {
-			return fmt.Errorf("%w: 目标提供商已存 Client Secret 损坏，请输入新的 Client Secret", config.ErrBadRequest)
-		}
-		if string(plain) == "" || string(plain) == config.MaskedSecret {
-			return fmt.Errorf("%w: 目标提供商已存 Client Secret 损坏或为空，请输入新的 Client Secret", config.ErrBadRequest)
-		}
-		if existing.BaseURL != p.BaseURL || existing.Realm != p.Realm || existing.ClientID != p.ClientID {
+		if insp.Raw.BaseURL != p.BaseURL || insp.Raw.Realm != p.Realm || insp.Raw.ClientID != p.ClientID {
 			return fmt.Errorf("%w: 目标提供商的 Base URL/Realm/Client ID 与已存配置不一致，不能留空复用旧 Client Secret，请重新输入", config.ErrBadRequest)
 		}
-		params := Params{BaseURL: p.BaseURL, Realm: p.Realm, ClientID: p.ClientID, ClientSecret: existing.ClientSecret}
+		params := Params{BaseURL: p.BaseURL, Realm: p.Realm, ClientID: p.ClientID, ClientSecret: insp.Raw.ClientSecret}
 		rawNew, err := json.Marshal(params)
 		if err != nil {
 			return fmt.Errorf("序列化 OIDC 参数失败: %w", err)
 		}
 		return s.cfg.SetTx(ctx, tx, "oidc_params_"+providerType, string(rawNew))
-	})
+	default: // not_configured / missing_secret
+		return fmt.Errorf("%w: 目标提供商尚无可用 Client Secret，请输入新的 Client Secret", config.ErrBadRequest)
+	}
+}
+
+// saveParamsReplaceSecretTx 显式新 Secret 写入：必须使用当前已存在的签名密钥，JSON 整体损坏时要求必要非 Secret 字段。
+func (s *Service) saveParamsReplaceSecretTx(ctx context.Context, tx *sql.Tx, providerType string, insp *paramInspection, p Params) error {
+	if config.EffectiveOidcParamsState(insp.State) == config.OidcParamsJSONDamaged && (p.BaseURL == "" || p.ClientID == "") {
+		return fmt.Errorf("%w: 目标提供商已存 OIDC 参数 JSON 损坏，须重新填写 Base URL 与 Client ID 后再保存", config.ErrBadRequest)
+	}
+	key, err := s.cfg.GetSigningKeyTx(ctx, tx)
+	if err != nil {
+		return err // ErrSigningKeyUnavailable，不生成新密钥
+	}
+	secretCipher, err := config.Encrypt([]byte(p.ClientSecret), key)
+	if err != nil {
+		return err
+	}
+	params := Params{BaseURL: p.BaseURL, Realm: p.Realm, ClientID: p.ClientID, ClientSecret: secretCipher}
+	rawNew, err := json.Marshal(params)
+	if err != nil {
+		return fmt.Errorf("序列化 OIDC 参数失败: %w", err)
+	}
+	return s.cfg.SetTx(ctx, tx, "oidc_params_"+providerType, string(rawNew))
+}
+
+// saveParamsTxLocked 在已打开的写事务内完成参数分类、旧值校验、密钥读取与写回。
+func (s *Service) saveParamsTxLocked(ctx context.Context, tx *sql.Tx, providerType string, p Params) error {
+	raw, err := s.cfg.GetTx(ctx, tx, "oidc_params_"+providerType)
+	if err != nil {
+		return fmt.Errorf("读取 OIDC 参数失败: %w", err)
+	}
+	insp, err := s.inspectParamsTx(ctx, tx, providerType, raw)
+	if err != nil {
+		return err // 含签名密钥故障的独立类型错误
+	}
+	if providerType == "mock" {
+		return s.saveMockParamsTx(ctx, tx, providerType, insp, p)
+	}
+	if p.ClientSecret == "" {
+		return s.saveParamsKeepSecretTx(ctx, tx, providerType, insp, p)
+	}
+	return s.saveParamsReplaceSecretTx(ctx, tx, providerType, insp, p)
 }
 
 // SaveParams 保存提供商参数（入参 client_secret 为明文；空值保留库内原密文，显式新值才加密替换）。
-// 真实提供商空 Secret 必须走 saveParamsKeepSecret 原子守卫；mock 无 Secret 语义，保持独立存储路径。
+// 真实提供商路径整体位于单个 BEGIN IMMEDIATE 内；签名密钥缺失/读取失败不生成新密钥。
 func (s *Service) SaveParams(ctx context.Context, providerType string, p Params) error {
 	if err := validateOIDCBaseURL(providerType, p.BaseURL); err != nil {
 		return err
@@ -280,37 +404,30 @@ func (s *Service) SaveParams(ctx context.Context, providerType string, p Params)
 	if p.ClientSecret == config.MaskedSecret {
 		return errors.New("Client Secret 不能使用脱敏占位符")
 	}
-	if providerType != "mock" && p.ClientSecret == "" {
-		return s.saveParamsKeepSecret(ctx, providerType, p)
-	}
-	secretCipher := ""
-	if p.ClientSecret != "" {
-		enc, err := s.cfg.EncryptSensitive(ctx, p.ClientSecret)
-		if err != nil {
-			return err
-		}
-		secretCipher = enc
-	} else {
-		// mock 空 Secret：保留库内既有密文，避免已存在值被无意义清空。
-		if existing, err := s.loadRawParams(ctx, providerType); err == nil {
-			secretCipher = existing.ClientSecret
-		}
-	}
-	params := Params{BaseURL: p.BaseURL, Realm: p.Realm, ClientID: p.ClientID, ClientSecret: secretCipher}
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return fmt.Errorf("序列化 OIDC 参数失败: %w", err)
-	}
-	return s.cfg.Set(ctx, "oidc_params_"+providerType, string(raw))
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		return s.saveParamsTxLocked(ctx, tx, providerType, p)
+	})
 }
 
-// EncryptWithTx 事务内加密（Setup/OIDC Setup 事务内使用：同一事务读签名密钥）
+// SaveParamsTx 在调用方写事务内保存参数；供 SaveOidc T1 使用，行为与 SaveParams 一致。
+func (s *Service) SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType string, p Params) error {
+	if err := validateOIDCBaseURL(providerType, p.BaseURL); err != nil {
+		return err
+	}
+	if p.ClientSecret == config.MaskedSecret {
+		return errors.New("Client Secret 不能使用脱敏占位符")
+	}
+	return s.saveParamsTxLocked(ctx, tx, providerType, p)
+}
+
+// EncryptWithTx 事务内加密（Setup/OIDC Setup 事务内使用：同一事务读签名密钥，缺失时按 Setup 语义生成）
 func (s *Service) EncryptWithTx(ctx context.Context, tx *sql.Tx, plain string) (string, error) {
 	return s.cfg.EncryptWithTx(ctx, tx, plain)
 }
 
-// SaveParamsTx 事务内写入提供商参数 JSON（Setup OIDC 分支使用）；写入前校验 base_url。
-func (s *Service) SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType, rawJSON string) error {
+// SaveRawParamsTx 事务内写入已序列化的提供商参数 JSON（Setup OIDC 分支使用）；写入前校验 base_url。
+// 管理端与运行期参数保存不得使用本方法，必须走 SaveParams/SaveParamsTx 完成分类与密钥校验。
+func (s *Service) SaveRawParamsTx(ctx context.Context, tx *sql.Tx, providerType, rawJSON string) error {
 	var p Params
 	if err := json.Unmarshal([]byte(rawJSON), &p); err != nil {
 		return fmt.Errorf("解析 OIDC 参数失败: %w", err)

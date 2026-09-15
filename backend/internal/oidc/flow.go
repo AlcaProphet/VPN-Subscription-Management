@@ -85,27 +85,34 @@ func providerConfigHash(providerType, rawJSON string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-// parseParamsWithTx 在事务内解析参数 JSON 并解密 Secret，保持与 loadParams/currentParams 相同的损坏拒绝语义。
-func (s *Service) parseParamsWithTx(ctx context.Context, tx *sql.Tx, rawJSON string) (*Params, error) {
-	var p Params
-	if err := json.Unmarshal([]byte(rawJSON), &p); err != nil {
-		return nil, fmt.Errorf("解析 OIDC 参数失败: %w", err)
-	}
-	if p.ClientSecret != "" {
-		key, err := s.cfg.GetSigningKeyTx(ctx, tx)
-		if err != nil {
-			return nil, fmt.Errorf("解密 OIDC Client Secret 失败: %w", err)
+// parseParamsWithTx 在事务内复用统一分类器解析参数；损坏与签名密钥故障在网络请求前拒绝，
+// missing_secret 保持 public client/PKCE 的现有语义（允许进入授权，但 Secret 为空）。
+func (s *Service) parseParamsWithTx(ctx context.Context, tx *sql.Tx, providerType, rawJSON string) (*Params, error) {
+	insp, err := s.inspectParamsTx(ctx, tx, providerType, rawJSON)
+	if err != nil {
+		if errors.Is(err, config.ErrSigningKeyUnavailable) {
+			return nil, fmt.Errorf("签名密钥不可用，无法完成 OIDC 登录: %w", err)
 		}
-		plain, err := config.Decrypt(p.ClientSecret, key)
-		if err != nil {
-			return nil, fmt.Errorf("解密 OIDC Client Secret 失败: %w", err)
+		return nil, err
+	}
+	switch config.EffectiveOidcParamsState(insp.State) {
+	case config.OidcParamsUsable:
+		if insp.Plain == nil {
+			return nil, errors.New("OIDC 参数不可用，请管理员在设置页重新填写")
 		}
-		p.ClientSecret = string(plain)
+		return insp.Plain, nil
+	case config.OidcParamsMissingSecret:
+		if insp.Plain == nil {
+			return nil, errors.New("OIDC 参数未配置")
+		}
+		return insp.Plain, nil
+	case config.OidcParamsJSONDamaged:
+		return nil, errors.New("OIDC 参数 JSON 损坏，请管理员在设置页重新填写")
+	case config.OidcParamsSecretDamaged:
+		return nil, errors.New("OIDC Client Secret 损坏，请管理员在设置页重新输入")
+	default:
+		return nil, errors.New("OIDC 参数未配置")
 	}
-	if p.ClientSecret == config.MaskedSecret {
-		return nil, errors.New("OIDC Client Secret 已被脱敏占位符覆盖，请管理员在设置页重新输入")
-	}
-	return &p, nil
 }
 
 // saveState 在单个 BEGIN IMMEDIATE 事务内清理过期 state、固定发起时 provider/raw 参数并写入 state。
@@ -131,7 +138,7 @@ func (s *Service) saveState(ctx context.Context, state, verifier, nonce, intent 
 		if raw == "" {
 			return errors.New("OIDC 参数未配置")
 		}
-		p, err = s.parseParamsWithTx(ctx, tx, raw)
+		p, err = s.parseParamsWithTx(ctx, tx, providerType, raw)
 		if err != nil {
 			return err
 		}
@@ -171,7 +178,7 @@ func (s *Service) loadPinnedParams(ctx context.Context, rec *StateRecord) (*Para
 		if providerConfigHash(currentProvider, raw) != rec.ConfigHash {
 			return errors.New("授权发起后 OIDC 配置已变更，请重新发起登录")
 		}
-		p, err = s.parseParamsWithTx(ctx, tx, raw)
+		p, err = s.parseParamsWithTx(ctx, tx, currentProvider, raw)
 		return err
 	})
 	if err != nil {

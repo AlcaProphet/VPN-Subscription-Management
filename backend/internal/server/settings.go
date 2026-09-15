@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"net/http"
@@ -42,6 +43,16 @@ func (a oidcOpsAdapter) LoadParams(ctx context.Context, providerType string) (st
 }
 func (a oidcOpsAdapter) DescribeParams(ctx context.Context, providerType string) (config.OidcParamsState, error) {
 	return a.svc.DescribeParams(ctx, providerType)
+}
+
+func (a oidcOpsAdapter) SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType, baseURL, realm, clientID, clientSecret string) error {
+	return a.svc.SaveParamsTx(ctx, tx, providerType, oidc.Params{
+		BaseURL: baseURL, Realm: realm, ClientID: clientID, ClientSecret: clientSecret,
+	})
+}
+
+func (a oidcOpsAdapter) DescribeParamsTx(ctx context.Context, tx *sql.Tx, providerType string) (config.OidcParamsState, error) {
+	return a.svc.DescribeParamsTx(ctx, tx, providerType)
 }
 
 func (a oidcOpsAdapter) IsConfigured(ctx context.Context) bool {
@@ -405,9 +416,12 @@ func (h *SettingsHandler) saveAdvanced(c *gin.Context) {
 	OK(c, gin.H{"message": "高级模式设置已保存"})
 }
 
-// mapSettingsErr 面板配置错误映射：参数类 → 400（含死锁/验证码密钥缺失提示）
+// mapSettingsErr 面板配置错误映射：参数类 → 400（含死锁/验证码密钥缺失提示）；
+// signing_key 故障使用固定安全 503，不向响应泄露底层错误细节。
 func mapSettingsErr(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, config.ErrSigningKeyUnavailable):
+		FailSanitized(c, http.StatusServiceUnavailable, config.OidcSigningKeyFaultPublicMessage, err)
 	case errors.Is(err, config.ErrBadRequest), errors.Is(err, config.ErrAuthDeadlock),
 		errors.Is(err, config.ErrCaptchaKeyMissing):
 		Fail(c, http.StatusBadRequest, err.Error())

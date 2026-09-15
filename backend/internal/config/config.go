@@ -40,6 +40,10 @@ const (
 // MaskedSecret 敏感配置在接口回显中的固定占位符；读写两侧统一识别，禁止作为新值保存。
 const MaskedSecret = "***"
 
+// ErrSigningKeyUnavailable 表示全站签名密钥缺失或读取失败。
+// 管理端 OIDC 保存必须使用该错误阻止任何重填写入，不得在该路径自动生成新密钥。
+var ErrSigningKeyUnavailable = errors.New("签名密钥不可用")
+
 // SecretUsable 判定敏感值是否已配置且不是回显占位符（损坏的历史占位符按未配置处理）。
 func SecretUsable(secret string) bool {
 	return secret != "" && secret != MaskedSecret
@@ -152,15 +156,18 @@ func (s *Service) GetTx(ctx context.Context, tx *sql.Tx, key string) (string, er
 	return v, nil
 }
 
-// GetSigningKeyTx 事务内读取签名密钥（缺失返回错误不生成）
+// GetSigningKeyTx 事务内读取签名密钥（缺失或读取失败返回 ErrSigningKeyUnavailable，不生成）
 func (s *Service) GetSigningKeyTx(ctx context.Context, tx *sql.Tx) ([]byte, error) {
 	var v string
 	err := tx.QueryRowContext(ctx, `SELECT value FROM system_config WHERE key = ?`, KeySigningKey).Scan(&v)
-	if errors.Is(err, sql.ErrNoRows) || v == "" {
-		return nil, errors.New("签名密钥未配置")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("%w: 未配置", ErrSigningKeyUnavailable)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("读取签名密钥失败: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrSigningKeyUnavailable, err)
+	}
+	if v == "" {
+		return nil, fmt.Errorf("%w: 未配置", ErrSigningKeyUnavailable)
 	}
 	return []byte(v), nil
 }
@@ -312,14 +319,14 @@ func Decrypt(encoded string, signingKey []byte) ([]byte, error) {
 	return plain, nil
 }
 
-// GetSigningKey 读取签名密钥（明文落库）；缺失返回错误不生成
+// GetSigningKey 读取签名密钥（明文落库）；缺失或读取失败返回 ErrSigningKeyUnavailable，不生成。
 func (s *Service) GetSigningKey(ctx context.Context) ([]byte, error) {
 	v, err := s.Get(ctx, KeySigningKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrSigningKeyUnavailable, err)
 	}
 	if v == "" {
-		return nil, errors.New("签名密钥未配置")
+		return nil, fmt.Errorf("%w: 未配置", ErrSigningKeyUnavailable)
 	}
 	return []byte(v), nil
 }

@@ -59,8 +59,17 @@
   2. JSON 可解析但 Secret 不可解密、字面 `***` 或解密后为 `***` 时，目标读取返回可解析字段和损坏提示；JSON 整体不可解析时返回空字段和“须重新填写必要参数”的提示；签名密钥故障返回独立系统错误，不伪装成目标 Secret 损坏。
   3. 目标损坏时，空 Secret 保存在任何参数、站点地址或生效提供商写入前拒绝；显式新 Secret 可覆盖修复；JSON 整体损坏修复时须同时重新填写必要的非 Secret 参数。
   4. R31-03 已将空 Secret 复用的最终判定下沉到 `oidc.SaveParams` 的同一写事务内，保证原字段组和旧 Secret 可用性校验与保留密文写回不可分离。R31-04 应复用该原子守卫并扩展损坏分类，不得另建“先读后写”的空值保存判定。
-  5. R31-04 仍需单独完成的范围：当前生效提供商 GET 的完整损坏状态机、`signing_key` 缺失/读取失败的专用交互、管理员测试连接对“已存配置损坏”的专门失败结果、完整状态枚举及设置页统一展示。不得把 R31-03 的目标读取最小子集宣称为 R31-04 已完成。
-- **状态：** ☑ 损坏范围与签名密钥故障边界已确认，修复合同已按 R31-03 边界更新；☐ 待单独授权实施与验证。
+  5. R31-04 单独完成的范围（本轮已实施）：当前生效提供商 GET 的完整损坏状态机、`signing_key` 缺失/读取失败的专用交互、管理员测试连接对“已存配置损坏”的专门失败结果、完整状态枚举及设置页统一展示。不得把 R31-03 的目标读取最小子集宣称为 R31-04 已完成。
+- **实施与自动化隔离证据（2026-09-15，用户确认后按 T1/S1/K1/SCOPE-A/TC-A 串行实施）：**
+  1. 新增 `config.OidcParamsStateCode` 六态枚举（`not_configured/missing_secret/usable/json_damaged/secret_damaged/signing_key_fault`）与固定提示；`GET` 的 `params_state` 对当前和目标提供商统一返回，Secret 始终为空，JSON 可解析时保留非 Secret 字段，JSON 损坏时不猜测字段；`signing_key` 缺失/NULL 读取失败在 JSON 可解析时也保留字段并返回 `signing_key_fault`。
+  2. 管理端保存改为 T1：`SaveOidc` 在单个 `BEGIN IMMEDIATE` 内完成旧参数读取、分类、字段校验、严格读取 `signing_key`、加密/保留密文、写参数、写 `oidc_provider_type`/`oidc_configured` 与站点地址；事务内只使用 `GetTx`/`SetTx`/`GetSigningKeyTx`/`EncryptWithTx` 口径接口。空 Secret 复用继续由 `oidc.SaveParamsTx` 原子守卫裁决；显式新 Secret 不再经 `EncryptSensitive` 自动生成密钥。
+  3. `SaveParams`/`SaveParamsTx` 使用同一分类器；损坏状态空 Secret 一律拒绝且 raw JSON 不变，显式新 Secret 可修复字面 `***`、非法/旧密钥密文、解密后 `***` 与坏 JSON（补齐必要 Base URL/Client ID）；`signing_key` 故障时显式新 Secret 也拒绝且不生成新密钥。
+  4. 管理端测试连接对 JSON/Secret 损坏返回专门“已存配置损坏，须重填”失败且 0 网络请求；显式新 Secret 仍可测试；`signing_key` 故障按 K1 阻断保存与测试，直接 PUT 返回固定安全 503 文案，底层错误只进脱敏日志。
+  5. `StartFlow`/`Exchange` 复用同一分类器，对 JSON 损坏、Secret 损坏与 `signing_key` 故障在 discovery/token 网络请求前拒绝；`missing_secret` 保持 public client/PKCE 现状语义；R31-03 的 provider/config 指纹边界不变。
+  6. 设置页按六态显示警示/重填提示；`signing_key_fault` 显示独立系统错误并禁用保存、测试连接及 OIDC 凭据重填输入；损坏状态不再显示“留空保持原值”的通用提示。
+  7. 隔离测试覆盖：临时库逐一写入空 JSON、`{}`、空 Secret、字面 `***`、非法密文、解密后 `***`、正常密文、坏 JSON、`signing_key` 缺失与 NULL 读取失败；HTTP 断言 `params_state`/字段/Secret 空回显且响应不泄露原始密文；T1 用 SQLite 触发器在 `oidc_configured` 更新点注入失败，断言参数、provider、configured、站点地址全部回滚；测试连接覆盖损坏专门失败 0 网络请求、密钥故障阻断显式新 Secret、正常密文字段一致回退、字段变化不回退。门禁：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1`、`go run ./cmd/errgate ./...`、`npm run test`（284 项）、`npm run build` 均通过。
+- **真实 IdP 验收边界：** 上述均为隔离数据库、HTTP/TLS 端点和前端组件测试，不等同于真实 IdP 授权码/PKCE 登录验收；真实 IdP 登录仍需在隔离 IdP 环境单独核验并记录。
+- **状态：** ☑ 代码与自动化隔离验证完成；真实 IdP 登录待隔离环境人工验收。
 
 ## 四、R31-05 导入登录入口与 OIDC 地址生效语义（同轮观察）
 
@@ -110,7 +119,7 @@
 
 1. R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪；R31-02 已按用户单独授权修复并完成自动化隔离验证，真实 IdP 登录待隔离环境人工验收，不与 R30-05 混批。
 2. R31-03 字段语义、实施方案、代码与自动化隔离验证已完成：增加按目标提供商读取能力，空 Secret 仅能与目标原地址/Realm/Client ID 组合复用，授权发起/回调固定 provider/config 指纹；真实 IdP 登录待隔离环境人工验收。
-3. R31-04 的损坏范围、签名密钥故障边界及修复合同已确认，并已按 R31-03 的目标最小损坏读取/重填边界更新，仍待单独授权实施；R31-05 的导入入口与即时地址合同已确认，实施时分别核对导入和 OIDC 登录路径；R31-06 的现有 Production 导入拒绝与 Design5 整站恢复边界已确认，安全修复不等待整站迁移；R31-07 的持久化停用与既有会话边界已确认，仍需深入研究 R31-03 风险 4 的 `SaveOidc` / `ClearOidc` 多键写入事务边界。
+3. R31-04 已按用户确认的 T1/S1/K1/SCOPE-A/TC-A 完成代码与自动化隔离验证：六态状态机、管理端 GET/PUT 与 SaveOidc 单事务、底层 SaveParams 严格密钥读取、测试连接专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；真实 IdP 登录待隔离环境人工验收。R31-05 的导入入口与即时地址合同已确认，实施时分别核对导入和 OIDC 登录路径；R31-06 的现有 Production 导入拒绝与 Design5 整站恢复边界已确认，安全修复不等待整站迁移；R31-07 的持久化停用与既有会话边界已确认，仍需深入研究 `ClearOidc` / 停用 / 本地登录并发串行化的事务边界。
 
 ---
 
@@ -131,3 +140,4 @@
 | v2.0 | 2026-09-15 | 按用户确认实施 R31-02：统一 HTTPS 校验、discovery endpoint 缓存前校验与实际使用点守卫、token 凭据 POST 禁止重定向、Setup/管理端保存/导入/锁死保护；新增隔离端点自动化证据；代理维持 D-F06-2，真实 IdP 登录待隔离环境人工验收。 |
 | v2.1 | 2026-09-15 | 按用户确认细化 R31-03 实施边界（固定发起 state 快照、旧 state 行保留并在回调拒绝、目标损坏最小读取与显式新 Secret 重填）；同步更新 R31-04 与 R31-03 的边界，避免重复设计空值保存/目标读取判定；记录 `SaveOidc` / `ClearOidc` 多键非事务写入的静态调用链、失败/并发窗口与 R31-07 故障注入要求；未实施代码。 |
 | v2.2 | 2026-09-15 | 实施 R31-03：目标提供商读取与最小损坏重填、空 Secret 复用原子守卫、固定发起 state provider/config 指纹、设置页草稿/目标读取/警示与文案更新；补迁移、配置/服务/HTTP/前端隔离测试及全量门禁；真实 IdP 登录仍待隔离环境人工验收。 |
+| v2.3 | 2026-09-15 | 按用户确认实施 R31-04（T1/S1/K1/SCOPE-A/TC-A）：六态 `params_state` 与 signing_key 故障优先只读状态、SaveOidc 全链单事务与严格密钥读取、管理端测试连接损坏/密钥故障专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；补隔离数据库/HTTP/前端测试与全量门禁，真实 IdP 登录待隔离环境人工验收。 |

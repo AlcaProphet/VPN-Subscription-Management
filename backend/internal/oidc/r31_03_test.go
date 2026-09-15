@@ -72,11 +72,18 @@ func TestR3103DescribeParamsStates(t *testing.T) {
 		t.Fatalf("非法 JSON 应标 JSON 损坏: %+v %v", st, err)
 	}
 
-	// 签名密钥缺失为独立错误，不伪装成 Secret 损坏。
+	// 签名密钥缺失为独立错误，不伪装成 Secret 损坏；JSON 可解析时仍保留非 Secret 字段。
 	_, svc2, _ := newTestOidcService(t)
 	setRawOidcParams(t, svc2, "generic", `{"base_url":"https://idp.example.com","client_id":"c","client_secret":"not-a-cipher"}`)
-	if _, err := svc2.DescribeParams(ctx, "generic"); err == nil || !strings.Contains(err.Error(), "签名密钥") {
-		t.Fatalf("签名密钥缺失应返回独立错误: %v", err)
+	if err := svc2.cfg.Set(ctx, config.KeySigningKey, ""); err != nil {
+		t.Fatalf("清空测试签名密钥失败: %v", err)
+	}
+	st2, err := svc2.DescribeParams(ctx, "generic")
+	if err == nil || !strings.Contains(err.Error(), "签名密钥") || st2.State != config.OidcParamsSigningKeyFault {
+		t.Fatalf("签名密钥缺失应返回独立 signing_key_fault: state=%+v err=%v", st2, err)
+	}
+	if st2.BaseURL != "https://idp.example.com" || st2.ClientID != "c" {
+		t.Fatalf("签名密钥故障时 JSON 可解析字段应保留: %+v", st2)
 	}
 }
 

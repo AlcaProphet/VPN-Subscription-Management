@@ -62,6 +62,10 @@ func newTestOidcService(t *testing.T) (*store.Store, *Service, *user.Service) {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
+	// 运行期 OIDC 保存不再自动生成签名密钥；测试库按已完成 Setup 的态显式生成。
+	if _, err := cfg.EnsureSigningKey(context.Background()); err != nil {
+		t.Fatalf("生成测试签名密钥失败: %v", err)
+	}
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	authSvc := auth.NewService(cfg, users, log.New("error", "console"))
 	svc := NewService(st, cfg, authSvc, users, "dev", log.New("error", "console"))
@@ -498,8 +502,8 @@ func TestTestConnectionStoredMaskedSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestConnectionWithSavedSecret 不应返回错误: %v", err)
 	}
-	if res == nil || res.OK || !strings.Contains(res.Message, "脱敏占位符") {
-		t.Fatalf("已存脱敏占位符应返回明确失败结果: %+v", res)
+	if res == nil || res.OK || res.Message != config.OidcTestStoredDamagedMessage {
+		t.Fatalf("已存脱敏占位符应返回专门损坏失败结果: %+v", res)
 	}
 }
 

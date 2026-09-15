@@ -91,6 +91,8 @@ func (s *Service) TestConnectionWithSavedSecret(ctx context.Context, providerTyp
 }
 
 // testConnection 统一实现；allowSavedSecret 控制空 Secret 是否可回退已保存明文。
+// K1：管理端测试连接在真实提供商路径先确认 signing_key 可用，故障时任何输入都在网络前阻断。
+// TC-A：Secret 留空且目标已存 JSON/Secret 损坏时直接返回专门失败，不继续以“未提供 Secret”警告代替。
 func (s *Service) testConnection(ctx context.Context, providerType string, p Params, allowSavedSecret bool) (*TestResult, error) {
 	if providerType == "mock" {
 		return &TestResult{OK: true, Message: "模拟模式始终通过"}, nil
@@ -98,26 +100,43 @@ func (s *Service) testConnection(ctx context.Context, providerType string, p Par
 	if p.ClientSecret == config.MaskedSecret {
 		return &TestResult{OK: false, Message: "Client Secret 不能使用脱敏占位符，请重新输入"}, nil
 	}
-	// ① 发现文档可达性 + 配置完整性（base_url/client_id/回调地址）
+	if allowSavedSecret {
+		// 管理员面板路径：K1 阻断 signing_key 缺失/读取失败；Setup 的显式参数测试不受影响。
+		if _, err := s.cfg.GetSigningKey(ctx); err != nil {
+			return &TestResult{OK: false, Message: config.OidcTestSigningKeyFaultMessage}, nil
+		}
+	}
+	// ① 留空 Secret 时先检查已存状态：损坏直接专门失败；仅完全一致且状态可用才回退明文。
+	if p.ClientSecret == "" && allowSavedSecret {
+		insp, err := s.inspectParams(ctx, providerType)
+		if err != nil {
+			if errors.Is(err, config.ErrSigningKeyUnavailable) {
+				return &TestResult{OK: false, Message: config.OidcTestSigningKeyFaultMessage}, nil
+			}
+			return &TestResult{OK: false, Message: "读取已存 OIDC 配置失败，请稍后重试"}, nil
+		}
+		if insp != nil {
+			switch config.EffectiveOidcParamsState(insp.State) {
+			case config.OidcParamsJSONDamaged, config.OidcParamsSecretDamaged, config.OidcParamsSigningKeyFault:
+				return &TestResult{OK: false, Message: config.OidcTestStoredDamagedMessage}, nil
+			case config.OidcParamsUsable:
+				if insp.Raw != nil && insp.Plain != nil &&
+					insp.Raw.BaseURL == p.BaseURL && insp.Raw.Realm == p.Realm && insp.Raw.ClientID == p.ClientID {
+					p.ClientSecret = insp.Plain.ClientSecret
+				}
+			}
+		}
+	}
+	// ② 发现文档可达性 + 配置完整性（base_url/client_id）
 	if p.BaseURL == "" || p.ClientID == "" {
 		return &TestResult{OK: false, Message: "Base URL 与 Client ID 为必填项"}, nil
-	}
-	// 表单留空表示不修改已保存 Secret：仅管理面板测试且目标参数与已保存配置完全一致时回退。
-	if p.ClientSecret == "" && allowSavedSecret {
-		if stored, err := s.loadParams(ctx, providerType); err == nil &&
-			stored.BaseURL == p.BaseURL && stored.Realm == p.Realm && stored.ClientID == p.ClientID {
-			if stored.ClientSecret == config.MaskedSecret {
-				return &TestResult{OK: false, Message: "已保存的 Client Secret 为脱敏占位符，请重新输入后再测试"}, nil
-			}
-			p.ClientSecret = stored.ClientSecret
-		}
 	}
 	disc, err := s.fetchDiscoveryWithParams(ctx, providerType, &p)
 	if err != nil {
 		return &TestResult{OK: false, Message: "发现文档不可达：" + err.Error()}, nil
 	}
 	res := &TestResult{OK: true, Message: "配置有效"}
-	// ② client_credentials 换 token 验证 Client ID/Secret；不支持该授权类型时降级为警告不阻断
+	// ③ client_credentials 换 token 验证 Client ID/Secret；不支持该授权类型时降级为警告不阻断
 	if p.ClientSecret != "" {
 		if err := s.verifyClientCredentials(ctx, disc.TokenEndpoint, &p); err != nil {
 			if isGrantUnsupported(err) {

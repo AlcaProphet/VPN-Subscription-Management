@@ -54,3 +54,16 @@ func Fail(c *gin.Context, httpStatus int, msg string) {
 	}
 	c.JSON(httpStatus, Response{Code: httpStatus, Message: msg})
 }
+
+// FailSanitized 已知可安全外显的系统错误：对外始终返回固定 publicMsg，内部错误仅记脱敏日志。
+// 仅供经过安全评审、不会携带密钥/凭据的窄类型错误使用，不得把 err.Error() 直接外显。
+func FailSanitized(c *gin.Context, httpStatus int, publicMsg string, internalErr error) {
+	if httpStatus >= 500 {
+		lg := log.FromContext(c.Request.Context())
+		if internalErr != nil {
+			// 以字符串属性记录，确保外层 RedactHandler 对错误文本中的凭据赋值同样生效。
+			lg.Error("内部错误", "path", c.Request.URL.Path, "err", internalErr.Error())
+		}
+	}
+	c.JSON(httpStatus, Response{Code: httpStatus, Message: publicMsg})
+}

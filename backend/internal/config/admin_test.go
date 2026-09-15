@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"log/slog"
@@ -38,6 +39,10 @@ type mockOidcOps struct {
 	secret     string // 单提供商兼容字段：库内已存明文（模拟）
 	params     map[string]mockOidcParams
 	saveCalls  []mockOidcSaveCall
+
+	// describeErr / describeState 用于注入 signing_key_fault 等 R31-04 状态。
+	describeErr   error
+	describeState OidcParamsState
 }
 
 func (m *mockOidcOps) SaveParams(ctx context.Context, providerType, baseURL, realm, clientID, clientSecret string) error {
@@ -71,6 +76,9 @@ func (m *mockOidcOps) LoadParams(ctx context.Context, providerType string) (stri
 }
 
 func (m *mockOidcOps) DescribeParams(ctx context.Context, providerType string) (OidcParamsState, error) {
+	if m.describeErr != nil {
+		return m.describeState, m.describeErr
+	}
 	if m.params != nil {
 		p, ok := m.params[providerType]
 		if !ok {
@@ -88,6 +96,15 @@ func (m *mockOidcOps) DescribeParams(ctx context.Context, providerType string) (
 		SecretUsable:  m.secret != "" && m.secret != MaskedSecret,
 		SecretDamaged: m.secret == MaskedSecret,
 	}, nil
+}
+
+// SaveParamsTx / DescribeParamsTx 与只读测试替身同语义；测试不模拟事务可见性。
+func (m *mockOidcOps) SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType, baseURL, realm, clientID, clientSecret string) error {
+	return m.SaveParams(ctx, providerType, baseURL, realm, clientID, clientSecret)
+}
+
+func (m *mockOidcOps) DescribeParamsTx(ctx context.Context, tx *sql.Tx, providerType string) (OidcParamsState, error) {
+	return m.DescribeParams(ctx, providerType)
 }
 
 func (m *mockOidcOps) IsConfigured(ctx context.Context) bool { return m.configured }

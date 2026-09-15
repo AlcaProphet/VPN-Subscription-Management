@@ -2,6 +2,14 @@
 import axios from 'axios'
 import { http } from './request'
 
+export type OidcParamsState =
+  | 'not_configured'
+  | 'missing_secret'
+  | 'usable'
+  | 'json_damaged'
+  | 'secret_damaged'
+  | 'signing_key_fault'
+
 export interface OidcSettings {
   provider_type: string
   base_url: string
@@ -11,8 +19,9 @@ export interface OidcSettings {
   client_secret_configured: boolean // 当前提供商是否已有可用 Secret（只读）
   frontend_url: string
   callback_url: string
-  params_damaged?: boolean // 目标读取专用：已存参数损坏（只读）
-  params_warning?: string // 目标读取专用：损坏/重填提示（只读）
+  params_state?: OidcParamsState // 完整只读状态枚举
+  params_damaged?: boolean // 已存参数存在 JSON/Secret 损坏（只读）
+  params_warning?: string // 固定损坏/重填提示（只读）
 }
 
 export interface WhitelistConfig {

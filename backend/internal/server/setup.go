@@ -105,7 +105,7 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 		if err != nil {
 			return fmt.Errorf("序列化 OIDC 参数失败: %w", err)
 		}
-		if err := h.oidcSvc.SaveParamsTx(ctx, tx, providerType, string(raw)); err != nil {
+		if err := h.oidcSvc.SaveRawParamsTx(ctx, tx, providerType, string(raw)); err != nil {
 			return err
 		}
 		if err := h.oidcSvc.SetProviderTx(ctx, tx, providerType); err != nil {

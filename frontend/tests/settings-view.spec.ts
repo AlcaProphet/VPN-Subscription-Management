@@ -42,7 +42,7 @@ vi.mock('@/api/system', () => ({
 }))
 
 import SettingsView from '@/views/admin/SettingsView.vue'
-import { getOidc, saveOidc } from '@/api/settings'
+import { getOidc, saveOidc, testOidc, type OidcSettings, type OidcParamsState } from '@/api/settings'
 
 describe('SettingsView 基础渲染', () => {
   beforeEach(() => {
@@ -244,5 +244,108 @@ describe('SettingsView OIDC 目标切换', () => {
     expect(card.findComponent(Select).props('value')).toBe('generic')
   })
 
+})
+
+describe('SettingsView OIDC R31-04 状态展示', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  function mountWithStatus(params_state: OidcParamsState, extra: Record<string, unknown> = {}) {
+    vi.mocked(getOidc).mockResolvedValueOnce({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: false,
+      frontend_url: '',
+      callback_url: '',
+      params_state,
+      ...extra,
+    })
+    return mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+  }
+
+  it('signing_key_fault 显示独立系统错误，阻断保存/测试并禁用重填输入', async () => {
+    const wrapper = mountWithStatus('signing_key_fault', {
+      params_warning: '系统签名密钥缺失或不可读取，当前无法校验或保存 OIDC 凭据；请通过备份恢复或应急初始化处理，不要在此重填 Secret',
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('系统签名密钥缺失或不可读取')
+    expect(card.text()).toContain('不要在此重填 Secret')
+
+    const buttons = card.findAll('button')
+    const saveButton = buttons.find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    const testButton = buttons.find((btn) => btn.text().replace(/\s/g, '').includes('测试连接'))
+    expect(saveButton?.attributes('disabled')).toBeDefined()
+    expect(testButton?.attributes('disabled')).toBeDefined()
+    const password = card.find('input[type="password"]')
+    expect((password.element as HTMLInputElement).disabled).toBe(true)
+
+    await saveButton!.trigger('click')
+    await testButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).not.toHaveBeenCalled()
+    expect(testOidc).not.toHaveBeenCalled()
+  })
+
+  it('missing_secret 不再显示“留空保持原值”，必须输入新 Secret', async () => {
+    const wrapper = mountWithStatus('missing_secret')
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('尚未配置可用 Client Secret')
+    expect(card.text()).not.toContain('留空仅在')
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    expect(saveButton?.attributes('disabled')).toBeUndefined()
+  })
+
+  it('json_damaged 不回显猜测字段并提示重填必要参数', async () => {
+    const wrapper = mountWithStatus('json_damaged', {
+      base_url: '',
+      client_id: '',
+      params_damaged: true,
+      params_warning: '已存 OIDC 参数 JSON 无法解析，请重新填写必要的 Base URL/Realm/Client ID 并输入新的 Client Secret 后保存',
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('JSON 无法解析')
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('')
+    expect((card.find('input[placeholder="客户端标识"]').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('目标读取 signing_key_fault 时只展示目标状态并阻断操作', async () => {
+    const source: OidcSettings = {
+      provider_type: 'generic', base_url: 'https://source.example.com', realm: '', client_id: 'source-client',
+      client_secret: '', client_secret_configured: true, frontend_url: '', callback_url: '', params_state: 'usable',
+    }
+    const target: OidcSettings = {
+      provider_type: 'keycloak', base_url: 'https://target.example.com', realm: 'master', client_id: 'target-client',
+      client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '',
+      params_state: 'signing_key_fault', params_warning: '系统签名密钥缺失或不可读取，当前无法校验或保存 OIDC 凭据；请通过备份恢复或应急初始化处理，不要在此重填 Secret',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      Promise.resolve(providerType === 'keycloak' ? target : source))
+    vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+    expect(card.text()).toContain('系统签名密钥缺失或不可读取')
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('https://target.example.com')
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    expect(saveButton?.attributes('disabled')).toBeDefined()
+  })
 })
 

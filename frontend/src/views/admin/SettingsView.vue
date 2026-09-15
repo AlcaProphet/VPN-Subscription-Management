@@ -69,7 +69,7 @@ async function reloadClean(key: string, loader: () => Promise<void>) {
 }
 
 // --- OIDC 配置 ---
-const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '', params_damaged: false, params_warning: '' })
+const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '', params_state: undefined, params_damaged: false, params_warning: '' })
 const oidcSaving = ref(false)
 const oidcTargetLoading = ref(false)
 const oidcTest = ref<{ ok: boolean; message: string; warnings?: string[] } | null>(null)
@@ -107,6 +107,7 @@ async function loadOidc() {
     oidc.client_secret = ''
     oidc.client_secret_configured = res.client_secret_configured === true
     // 当前生效提供商 GET 不返回目标损坏字段；显式归零，避免残留上一次目标读取的提示。
+    oidc.params_state = res.params_state
     oidc.params_damaged = res.params_damaged === true
     oidc.params_warning = res.params_warning || ''
     captureOidcBaseline()
@@ -119,9 +120,42 @@ const isMockProvider = computed(() => oidc.provider_type === 'mock')
 const urlLabel = computed(() => (oidc.provider_type === 'auth0' ? 'Domain' : 'Base URL'))
 const urlPlaceholder = computed(() => (oidc.provider_type === 'auth0' ? 'your-tenant.auth0.com' : 'https://idp.example.com'))
 const showRealm = computed(() => oidc.provider_type === 'keycloak')
-const secretHint = computed(() => oidc.params_damaged
-  ? '目标提供商已存 Client Secret 损坏，必须输入新的 Client Secret 后保存。'
-  : '已保存 Secret 不会回显；留空仅在目标提供商的 Base URL/Realm/Client ID 与已存配置完全一致且已有可用 Secret 时保持原值，否则保存会被拒绝，需输入新 Secret。')
+// 兼容未返回 params_state 的旧响应：按损坏标记/已配置状态降级推断，避免旧测试与缓存响应失效。
+const oidcState = computed(() => oidc.params_state
+  || (oidc.params_damaged ? 'secret_damaged' : (oidc.client_secret_configured ? 'usable' : 'not_configured')))
+const oidcKeyFault = computed(() => oidcState.value === 'signing_key_fault')
+const oidcStateAlert = computed(() => oidc.params_warning || (() => {
+  switch (oidcState.value) {
+    case 'not_configured': return '当前提供商尚未保存 OIDC 参数，请填写必要参数并输入新的 Client Secret 后保存'
+    case 'missing_secret': return '已存 OIDC 参数尚未配置可用 Client Secret，请填写新的 Client Secret 后保存'
+    case 'json_damaged': return '已存 OIDC 参数 JSON 无法解析，请重新填写必要的 Base URL/Realm/Client ID 并输入新的 Client Secret 后保存'
+    case 'secret_damaged': return '已存 Client Secret 损坏或为脱敏占位符，请输入新的 Client Secret 后保存'
+    case 'signing_key_fault': return '系统签名密钥缺失或不可读取，当前无法校验或保存 OIDC 凭据；请通过备份恢复或应急初始化处理，不要在此重填 Secret'
+    default: return ''
+  }
+})())
+const secretHint = computed(() => {
+  switch (oidcState.value) {
+    case 'usable':
+      return '已保存 Secret 不会回显；留空仅在目标提供商的 Base URL/Realm/Client ID 与已存配置完全一致且已有可用 Secret 时保持原值，否则保存会被拒绝，需输入新 Secret。'
+    case 'missing_secret':
+      return '该提供商尚未配置可用 Client Secret，必须输入新的 Client Secret 后保存。'
+    case 'json_damaged':
+      return '已存参数 JSON 损坏，请重新填写必要的 Base URL/Realm/Client ID 并输入新的 Client Secret 后保存。'
+    case 'secret_damaged':
+      return '已存 Client Secret 损坏或为脱敏占位符，必须输入新的 Client Secret 后保存。'
+    case 'signing_key_fault':
+      return '系统签名密钥不可用，OIDC 配置无法校验或保存；请先按备份恢复或应急初始化处理，不要通过重填 Secret 尝试恢复。'
+    default:
+      return '尚未保存 OIDC 参数，请填写必要参数并输入新的 Client Secret 后保存。'
+  }
+})
+const secretPlaceholder = computed(() => {
+  if (oidcKeyFault.value) return '系统签名密钥不可用，已阻断重填'
+  return oidcState.value === 'usable'
+    ? '留空保持原值；输入新 Secret 后保存替换'
+    : '必须输入新的 Client Secret'
+})
 // 切换“暂未启用”只形成页面草稿；持久化停用语义由 R31-07 处理。
 function applyProvider(v: string) {
   oidc.provider_type = v
@@ -130,6 +164,7 @@ function applyProvider(v: string) {
   oidc.client_id = ''
   oidc.client_secret = ''
   oidc.client_secret_configured = false
+  oidc.params_state = undefined
   oidc.params_damaged = false
   oidc.params_warning = ''
   oidcTest.value = null
@@ -143,6 +178,7 @@ function applyOidcTarget(providerType: string, res: OidcSettings) {
   oidc.client_id = res.client_id || ''
   oidc.client_secret = ''
   oidc.client_secret_configured = res.client_secret_configured === true
+  oidc.params_state = res.params_state
   oidc.params_damaged = res.params_damaged === true
   oidc.params_warning = res.params_warning || ''
   oidcTest.value = null
@@ -189,7 +225,7 @@ function onProviderChange(v: any) {
   })
 }
 async function doSaveOidc() {
-  if (oidcTargetLoading.value) return
+  if (oidcTargetLoading.value || oidcKeyFault.value) return
   oidcSaving.value = true
   try {
     const res = await saveOidc({ ...oidc })
@@ -205,7 +241,7 @@ async function doSaveOidc() {
   }
 }
 async function doTestOidc() {
-  if (oidcTargetLoading.value) return
+  if (oidcTargetLoading.value || oidcKeyFault.value) return
   oidcTest.value = null
   try {
     oidcTest.value = await testOidc({ ...oidc })
@@ -790,21 +826,22 @@ onMounted(async () => {
               <template v-if="!isMockProvider">
                 <div class="flex items-center gap-3">
                   <span class="w-24 text-sm">{{ urlLabel }}</span>
-                  <Input v-model:value="oidc.base_url" :placeholder="urlPlaceholder" />
+                  <Input v-model:value="oidc.base_url" :placeholder="urlPlaceholder" :disabled="oidcKeyFault" />
                 </div>
                 <div v-if="showRealm" class="flex items-center gap-3">
                   <span class="w-24 text-sm">Realm</span>
-                  <Input v-model:value="oidc.realm" placeholder="Keycloak 专用，如 master" />
+                  <Input v-model:value="oidc.realm" placeholder="Keycloak 专用，如 master" :disabled="oidcKeyFault" />
                 </div>
                 <div class="flex items-center gap-3">
                   <span class="w-24 text-sm">Client ID</span>
-                  <Input v-model:value="oidc.client_id" placeholder="客户端标识" />
+                  <Input v-model:value="oidc.client_id" placeholder="客户端标识" :disabled="oidcKeyFault" />
                 </div>
                 <div class="flex items-center gap-3">
                   <span class="w-24 text-sm">Client Secret <Tag v-if="oidc.client_secret_configured" color="success">已配置</Tag><Tag v-else>未配置</Tag></span>
-                  <Input.Password v-model:value="oidc.client_secret" autocomplete="new-password" placeholder="留空保持原值；输入新 Secret 后保存替换" />
+                  <Input.Password v-model:value="oidc.client_secret" autocomplete="new-password" :placeholder="secretPlaceholder" :disabled="oidcKeyFault" />
                 </div>
-                <Alert v-if="oidc.params_damaged" type="warning" show-icon :message="oidc.params_warning || '目标提供商已存配置损坏，请重新填写后保存'" />
+                <Alert v-if="oidcState !== 'usable'" :type="oidcKeyFault ? 'error' : 'warning'" show-icon
+                       :message="oidcStateAlert || '已存 OIDC 配置需要处理，请按提示重填后保存'" />
                   <p class="text-xs text-text-secondary">{{ secretHint }}</p>
               </template>
               <Alert v-else type="info" show-icon message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
@@ -820,8 +857,8 @@ onMounted(async () => {
               <Alert v-if="oidc.frontend_url || oidc.callback_url" type="warning" show-icon message="前端地址/回调地址修改后需重启容器生效" />
               <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" :description="oidcTest.warnings?.length ? oidcTest.warnings.join('；') : undefined" />
               <Space>
-                <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading" @click="doSaveOidc">保存</Button>
-                <Button :disabled="oidcTargetLoading" @click="doTestOidc">测试连接</Button>
+                <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading || oidcKeyFault" @click="doSaveOidc">保存</Button>
+                <Button :disabled="oidcTargetLoading || oidcKeyFault" @click="doTestOidc">测试连接</Button>
                 <Button danger :disabled="oidcTargetLoading" @click="clearOidcOpen = true">清空 OIDC 配置</Button>
               </Space>
             </template>
