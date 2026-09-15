@@ -95,7 +95,8 @@ var emergencyTestFS = fstest.MapFS{
 		token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at TIMESTAMP NOT NULL);`)},
 	"0004_oidc.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_states (
 		state TEXT PRIMARY KEY, code_verifier TEXT NOT NULL, intent TEXT NOT NULL DEFAULT '',
-		bind_user_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		bind_user_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		provider_type TEXT NOT NULL DEFAULT '', config_hash TEXT NOT NULL DEFAULT '');`)},
 	"1013_oidc_login_tickets.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_login_tickets (
 		ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL);`)},
 }

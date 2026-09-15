@@ -216,7 +216,7 @@ func TestR3102ActualUseGuardRejectsCachedHTTPEndpoints(t *testing.T) {
 		TokenEndpoint:         "http://evil.example.com/token",
 		JWKSURI:               base + "/jwks",
 	}
-	if _, err := svc.Exchange(ctx, &StateRecord{CodeVerifier: "verifier"}, "code"); err == nil || !strings.Contains(err.Error(), "token 端点地址校验失败") {
+	if _, err := svc.Exchange(ctx, pinnedStateRecord(t, svc, "generic"), "code"); err == nil || !strings.Contains(err.Error(), "token 端点地址校验失败") {
 		t.Fatalf("缓存中的 HTTP token 端点应被实际使用点守卫拒绝，实际: %v", err)
 	}
 
@@ -294,7 +294,7 @@ func TestR3102CredentialRedirectsForbidden(t *testing.T) {
 	svc.httpCli.Transport = tokenSrv.Client().Transport
 
 	t.Run("Exchange 跨源 HTTPS 307", func(t *testing.T) {
-		_, err := svc.Exchange(ctx, &StateRecord{CodeVerifier: "verifier"}, "code")
+		_, err := svc.Exchange(ctx, pinnedStateRecord(t, svc, "generic"), "code")
 		if err == nil || !strings.Contains(err.Error(), "禁止重定向") {
 			t.Fatalf("Exchange 应拒绝跨源 307，实际: %v", err)
 		}

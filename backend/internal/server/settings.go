@@ -40,6 +40,9 @@ func (a oidcOpsAdapter) LoadParams(ctx context.Context, providerType string) (st
 	}
 	return p.BaseURL, p.Realm, p.ClientID, p.ClientSecret, nil
 }
+func (a oidcOpsAdapter) DescribeParams(ctx context.Context, providerType string) (config.OidcParamsState, error) {
+	return a.svc.DescribeParams(ctx, providerType)
+}
 
 func (a oidcOpsAdapter) IsConfigured(ctx context.Context) bool {
 	return a.svc.IsConfigured(ctx)
@@ -86,7 +89,17 @@ func RegisterSettingsRoutes(engine *gin.Engine, h *SettingsHandler, sessionMW, a
 // --- OIDC 配置分区 ---
 
 func (h *SettingsHandler) getOidc(c *gin.Context) {
-	out, err := h.adminCfg.GetOidc(c.Request.Context())
+	ctx := c.Request.Context()
+	if providerType := c.Query("provider_type"); providerType != "" {
+		out, err := h.adminCfg.GetOidcForProvider(ctx, providerType)
+		if err != nil {
+			mapSettingsErr(c, err)
+			return
+		}
+		OK(c, out)
+		return
+	}
+	out, err := h.adminCfg.GetOidc(ctx)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return

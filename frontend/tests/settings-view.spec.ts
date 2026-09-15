@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { Modal, Select } from 'ant-design-vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('@/api/settings', () => ({
@@ -124,3 +125,124 @@ describe('SettingsView 基础渲染', () => {
   })
 
 })
+
+describe('SettingsView OIDC 目标切换', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+
+  it('切换提供商读取目标字段、丢弃参数草稿并保留站点地址', async () => {
+    const source = {
+      provider_type: 'generic',
+      base_url: 'https://source.example.com',
+      realm: '',
+      client_id: 'source-client',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://site.example.com',
+      callback_url: '',
+    }
+    const target = {
+      provider_type: 'keycloak',
+      base_url: 'https://target.example.com',
+      realm: 'master',
+      client_id: 'target-client',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://should-not-apply.example.com',
+      callback_url: '',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      Promise.resolve(providerType === 'keycloak' ? target : source))
+    let confirmOptions: any
+    vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      confirmOptions = options
+      return {} as any
+    })
+
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    await card.find('input[placeholder="https://idp.example.com"]').setValue('https://draft.example.com') // 制造源提供商参数草稿
+
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+    expect(confirmOptions).toBeTruthy()
+    expect(confirmOptions.content).toContain('目标提供商自己的')
+    expect(confirmOptions.content).toContain('未保存参数草稿将被丢弃')
+    await confirmOptions.onOk()
+    await flushPromises()
+
+    expect(getOidc).toHaveBeenLastCalledWith('keycloak')
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('https://target.example.com')
+    expect((card.find('input[placeholder="Keycloak 专用，如 master"]').element as HTMLInputElement).value).toBe('master')
+    expect((card.find('input[placeholder="客户端标识"]').element as HTMLInputElement).value).toBe('target-client')
+    expect((card.find('input[type="password"]').element as HTMLInputElement).value).toBe('') // Secret 始终为空
+    expect((card.find('input[placeholder="https://app.example.com"]').element as HTMLInputElement).value).toBe('https://site.example.com') // 站点地址不被目标读取覆盖
+    expect(card.text()).toContain('已配置')
+  })
+
+  it('目标读取损坏时显示警示并允许重填', async () => {
+    const source = {
+      provider_type: 'generic', base_url: 'https://source.example.com', realm: '', client_id: 'source-client',
+      client_secret: '', client_secret_configured: true, frontend_url: '', callback_url: '',
+    }
+    const target = {
+      provider_type: 'keycloak', base_url: 'https://target.example.com', realm: 'master', client_id: 'target-client',
+      client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '',
+      params_damaged: true, params_warning: '已存 Client Secret 损坏或为脱敏占位符，请输入新的 Client Secret 后保存',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      Promise.resolve(providerType === 'keycloak' ? target : source))
+    vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+
+    expect(card.text()).toContain('已存 Client Secret 损坏')
+    expect(card.text()).toContain('必须输入新的 Client Secret')
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('https://target.example.com')
+  })
+
+  it('目标读取失败时保持源提供商字段与草稿', async () => {
+    const source = {
+      provider_type: 'generic', base_url: 'https://source.example.com', realm: '', client_id: 'source-client',
+      client_secret: '', client_secret_configured: true, frontend_url: '', callback_url: '',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      providerType === 'keycloak' ? Promise.reject(new Error('目标配置读取失败')) : Promise.resolve(source))
+    vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    await card.find('input[placeholder="https://idp.example.com"]').setValue('https://draft.example.com')
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('https://draft.example.com')
+    expect(card.findComponent(Select).props('value')).toBe('generic')
+  })
+
+})
+

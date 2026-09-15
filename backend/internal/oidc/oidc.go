@@ -178,6 +178,48 @@ func (s *Service) loadParams(ctx context.Context, providerType string) (*Params,
 	return p, nil
 }
 
+// DescribeParams 读取指定提供商参数并给出只读状态（不含 Secret 明文/密文）。
+// Secret 留空视为尚未配置可用 Secret；可解析但解密失败/为脱敏占位符视为 Secret 损坏；
+// JSON 非空但无法解析视为 JSON 损坏；签名密钥读取失败作为独立系统错误返回。
+func (s *Service) DescribeParams(ctx context.Context, providerType string) (config.OidcParamsState, error) {
+	raw, err := s.cfg.Get(ctx, "oidc_params_"+providerType)
+	if err != nil {
+		return config.OidcParamsState{}, fmt.Errorf("读取 OIDC 参数失败: %w", err)
+	}
+	if strings.TrimSpace(raw) == "" {
+		return config.OidcParamsState{}, nil
+	}
+	var out config.OidcParamsState
+	out.Present = true
+	var p Params
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		out.JSONDamaged = true
+		return out, nil
+	}
+	out.BaseURL, out.Realm, out.ClientID = p.BaseURL, p.Realm, p.ClientID
+	if p.ClientSecret == "" {
+		return out, nil
+	}
+	key, err := s.cfg.GetSigningKey(ctx)
+	if err != nil {
+		return config.OidcParamsState{}, fmt.Errorf("读取签名密钥失败: %w", err)
+	}
+	plain, err := config.Decrypt(p.ClientSecret, key)
+	if err != nil {
+		out.SecretDamaged = true
+		return out, nil
+	}
+	switch string(plain) {
+	case "":
+		// 空密文按尚未配置可用 Secret 处理，不标损坏。
+	case config.MaskedSecret:
+		out.SecretDamaged = true
+	default:
+		out.SecretUsable = true
+	}
+	return out, nil
+}
+
 // validateOIDCBaseURL 校验真实提供商写入的 base_url；mock 与空值不在参数写入层拦截。
 func validateOIDCBaseURL(providerType, baseURL string) error {
 	if providerType == "mock" || baseURL == "" {
@@ -189,13 +231,57 @@ func validateOIDCBaseURL(providerType, baseURL string) error {
 	return nil
 }
 
-// SaveParams 保存提供商参数（入参 client_secret 为明文；空值保留库内原密文，显式新值才加密替换）
+// saveParamsKeepSecret 空 Secret 保存的原子守卫：字段组校验、旧 Secret 可用性校验与保留密文写回必须在同一写事务内完成。
+func (s *Service) saveParamsKeepSecret(ctx context.Context, providerType string, p Params) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		raw, err := s.cfg.GetTx(ctx, tx, "oidc_params_"+providerType)
+		if err != nil {
+			return fmt.Errorf("读取 OIDC 参数失败: %w", err)
+		}
+		if strings.TrimSpace(raw) == "" {
+			return fmt.Errorf("%w: 目标提供商尚无可用 Client Secret，请输入新的 Client Secret", config.ErrBadRequest)
+		}
+		var existing Params
+		if err := json.Unmarshal([]byte(raw), &existing); err != nil {
+			return fmt.Errorf("%w: 目标提供商已存 OIDC 参数 JSON 损坏，请重新填写必要参数并输入新的 Client Secret", config.ErrBadRequest)
+		}
+		if existing.ClientSecret == "" {
+			return fmt.Errorf("%w: 目标提供商尚无可用 Client Secret，请输入新的 Client Secret", config.ErrBadRequest)
+		}
+		key, err := s.cfg.GetSigningKeyTx(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("读取签名密钥失败: %w", err)
+		}
+		plain, err := config.Decrypt(existing.ClientSecret, key)
+		if err != nil {
+			return fmt.Errorf("%w: 目标提供商已存 Client Secret 损坏，请输入新的 Client Secret", config.ErrBadRequest)
+		}
+		if string(plain) == "" || string(plain) == config.MaskedSecret {
+			return fmt.Errorf("%w: 目标提供商已存 Client Secret 损坏或为空，请输入新的 Client Secret", config.ErrBadRequest)
+		}
+		if existing.BaseURL != p.BaseURL || existing.Realm != p.Realm || existing.ClientID != p.ClientID {
+			return fmt.Errorf("%w: 目标提供商的 Base URL/Realm/Client ID 与已存配置不一致，不能留空复用旧 Client Secret，请重新输入", config.ErrBadRequest)
+		}
+		params := Params{BaseURL: p.BaseURL, Realm: p.Realm, ClientID: p.ClientID, ClientSecret: existing.ClientSecret}
+		rawNew, err := json.Marshal(params)
+		if err != nil {
+			return fmt.Errorf("序列化 OIDC 参数失败: %w", err)
+		}
+		return s.cfg.SetTx(ctx, tx, "oidc_params_"+providerType, string(rawNew))
+	})
+}
+
+// SaveParams 保存提供商参数（入参 client_secret 为明文；空值保留库内原密文，显式新值才加密替换）。
+// 真实提供商空 Secret 必须走 saveParamsKeepSecret 原子守卫；mock 无 Secret 语义，保持独立存储路径。
 func (s *Service) SaveParams(ctx context.Context, providerType string, p Params) error {
 	if err := validateOIDCBaseURL(providerType, p.BaseURL); err != nil {
 		return err
 	}
 	if p.ClientSecret == config.MaskedSecret {
 		return errors.New("Client Secret 不能使用脱敏占位符")
+	}
+	if providerType != "mock" && p.ClientSecret == "" {
+		return s.saveParamsKeepSecret(ctx, providerType, p)
 	}
 	secretCipher := ""
 	if p.ClientSecret != "" {
@@ -205,7 +291,7 @@ func (s *Service) SaveParams(ctx context.Context, providerType string, p Params)
 		}
 		secretCipher = enc
 	} else {
-		// 未提供新 Secret：保留库内既有密文（面板空输入场景）；此处必须走 raw 读取，避免明文被当作密文回写
+		// mock 空 Secret：保留库内既有密文，避免已存在值被无意义清空。
 		if existing, err := s.loadRawParams(ctx, providerType); err == nil {
 			secretCipher = existing.ClientSecret
 		}
@@ -267,10 +353,16 @@ func validateDiscoveryEndpoints(d *Discovery) error {
 	return nil
 }
 
-// fetchDiscovery 获取发现文档（带缓存，缓存键 = base_url + realm）
+// fetchDiscovery 获取发现文档（带缓存，缓存键 = base_url + realm）；使用当前生效提供商判定 mock。
+// StartFlow/Exchange 必须使用 fetchDiscoveryForProvider 传入固定 provider，不能经本包装读取当前配置。
 func (s *Service) fetchDiscovery(ctx context.Context, p *Params) (*Discovery, error) {
+	return s.fetchDiscoveryForProvider(ctx, s.cfg.GetOr(ctx, KeyProviderType), p)
+}
+
+// fetchDiscoveryForProvider 按显式 provider 获取发现文档；mock 不依赖真实网络。
+func (s *Service) fetchDiscoveryForProvider(ctx context.Context, providerType string, p *Params) (*Discovery, error) {
 	// 模拟模式：不依赖真实提供商
-	if providerType := s.cfg.GetOr(ctx, KeyProviderType); providerType == "mock" {
+	if providerType == "mock" {
 		return &Discovery{AuthorizationEndpoint: "mock://authorize", TokenEndpoint: "mock://token"}, nil
 	}
 	base := strings.TrimSuffix(p.BaseURL, "/")

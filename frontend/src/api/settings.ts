@@ -11,6 +11,8 @@ export interface OidcSettings {
   client_secret_configured: boolean // 当前提供商是否已有可用 Secret（只读）
   frontend_url: string
   callback_url: string
+  params_damaged?: boolean // 目标读取专用：已存参数损坏（只读）
+  params_warning?: string // 目标读取专用：损坏/重填提示（只读）
 }
 
 export interface WhitelistConfig {
@@ -75,7 +77,10 @@ export const saveAdvancedSettings = (data: AdvancedSettings & { confirm_word?: s
   http.put<any, { task_id?: string; message?: string }>('/admin/settings/advanced', data)
 export const getAdminTask = (id: string) => http.get<any, { id: string; kind: string; status: string; result?: unknown; error?: string }>(`/admin/tasks/${id}`)
 
-export const getOidc = () => http.get<any, OidcSettings>('/admin/settings/oidc')
+export const getOidc = (providerType?: string) =>
+  http.get<any, OidcSettings>('/admin/settings/oidc', {
+    params: providerType ? { provider_type: providerType } : undefined,
+  })
 export const saveOidc = (data: OidcSettings) => http.put<any, { need_restart?: boolean }>('/admin/settings/oidc', data)
 export const clearOidc = () => http.delete('/admin/settings/oidc')
 export const testOidc = (data: Partial<OidcSettings>) => http.post<any, { ok: boolean; message: string; warnings: string[] }>(
