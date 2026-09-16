@@ -501,6 +501,9 @@ func TestLogLevelSwitch(t *testing.T) {
 func TestIconValidation(t *testing.T) {
 	_, svc := newTestAdmin(t, &mockOidcOps{})
 	ctx := context.Background()
+	if got := svc.GetSiteInfo(ctx).Name; got != DefaultSiteName {
+		t.Fatalf("未设置站点名时应返回默认名称: %q", got)
+	}
 	if err := svc.SaveSiteInfo(ctx, "站点", bytes.NewReader(make([]byte, MaxIconSize+1)), "icon.png"); !errors.Is(err, ErrBadRequest) {
 		t.Errorf("超 2MB 应拒绝: %v", err)
 	}
@@ -514,6 +517,9 @@ func TestIconValidation(t *testing.T) {
 		t.Fatalf("png 应通过: %v", err)
 	}
 	info := svc.GetSiteInfo(ctx)
+	if info.Name != "站点" {
+		t.Errorf("已保存站点名未生效: %q", info.Name)
+	}
 	if !strings.Contains(info.IconURL, "/public/site/icon.png?v=1") {
 		t.Errorf("ICON URL 应带版本参数: %s", info.IconURL)
 	}

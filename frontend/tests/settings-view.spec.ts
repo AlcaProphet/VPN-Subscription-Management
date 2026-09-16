@@ -28,7 +28,7 @@ vi.mock('@/api/settings', () => ({
     ],
     limits: { subject: 200, body: 10000 },
     preview_values: {
-      site_name: '示例站点',
+      site_name: 'VPN 订阅管理',
       login_url: 'https://example.invalid/login?source=preview',
       reset_url: 'https://example.invalid/reset/example-token?source=preview',
     },
@@ -721,7 +721,7 @@ describe('SettingsView 邮件内容卡片集成', () => {
       ],
       limits: { subject: 200, body: 10000 },
       preview_values: {
-        site_name: '示例站点',
+        site_name: 'VPN 订阅管理',
         login_url: 'https://example.invalid/login?source=preview',
         reset_url: 'https://example.invalid/reset/example-token?source=preview',
       },

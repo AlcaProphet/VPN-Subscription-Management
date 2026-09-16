@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/mail"
 )
 
@@ -64,10 +65,10 @@ func TestMailTemplateRoutesAuthAndNoStore(t *testing.T) {
 	if getResp.Data.Limits.Subject != 200 || getResp.Data.Limits.Body != 10000 {
 		t.Fatalf("limits 元数据异常: %+v", getResp.Data.Limits)
 	}
-	if getResp.Data.PreviewValues.SiteName != "示例站点" ||
+	if getResp.Data.PreviewValues.SiteName != config.DefaultSiteName ||
 		getResp.Data.PreviewValues.LoginURL != "https://example.invalid/login?source=preview" ||
 		getResp.Data.PreviewValues.ResetURL != "https://example.invalid/reset/example-token?source=preview" {
-		t.Fatalf("preview_values 必须是固定合成值: %+v", getResp.Data.PreviewValues)
+		t.Fatalf("preview_values 应使用默认站点名与合成 URL: %+v", getResp.Data.PreviewValues)
 	}
 
 	// 原 SMTP GET API 不受新增模板路由影响。
@@ -89,10 +90,13 @@ func TestMailTemplateRoutesAuthAndNoStore(t *testing.T) {
 	}
 }
 
-// TestMailTemplateCRUDRestoreAndPreview 保存/恢复只影响目标键，preview 使用固定合成值且不应写库。
+// TestMailTemplateCRUDRestoreAndPreview 保存/恢复只影响目标键，preview 使用有效站点名与合成 URL 且不应写库。
 func TestMailTemplateCRUDRestoreAndPreview(t *testing.T) {
 	srv := newTestServer(t)
 	adminToken := regUser(t, srv, "mail-crud", "mail-crud@example.com", "password123")
+	if err := srv.cfg.Set(context.Background(), config.KeySiteName, "邮件站点"); err != nil {
+		t.Fatalf("设置站点名失败: %v", err)
+	}
 
 	// 未知 kind → 400 + no-store。
 	w := profileReq(t, srv, http.MethodPut, "/api/admin/settings/mail-templates/bogus", adminToken,
@@ -148,7 +152,7 @@ func TestMailTemplateCRUDRestoreAndPreview(t *testing.T) {
 		t.Fatalf("保存响应异常: %+v", saved.Data)
 	}
 
-	// preview 使用固定合成值；不应写库。
+	// preview 使用有效站点名与固定合成 URL；不应写库。
 	before := serverConfigCount(t, srv)
 	w = profileReq(t, srv, http.MethodPost, "/api/admin/settings/mail-templates/password_reset/preview", adminToken, custom)
 	if w.Code != http.StatusOK {
@@ -171,7 +175,19 @@ func TestMailTemplateCRUDRestoreAndPreview(t *testing.T) {
 	if preview.Data.Subject != custom["subject"] ||
 		!strings.Contains(preview.Data.TextBody, "example.invalid/reset/example-token?source=preview") ||
 		!strings.Contains(preview.Data.HTMLBody, "example.invalid/reset/example-token?source=preview") {
-		t.Fatalf("preview 应使用固定合成值: %+v", preview.Data)
+		t.Fatalf("preview 应使用合成 URL: %+v", preview.Data)
+	}
+
+	w = profileReq(t, srv, http.MethodPost, "/api/admin/settings/mail-templates/approval_rejected/preview", adminToken,
+		map[string]string{"subject": "{{site_name}} 审批通知", "body": "您在 {{site_name}} 的申请未通过。"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("站点名预览应 200: %d %s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &preview); err != nil {
+		t.Fatalf("解析站点名 preview 失败: %v", err)
+	}
+	if preview.Data.Subject != "邮件站点 审批通知" || !strings.Contains(preview.Data.TextBody, "您在 邮件站点 ") {
+		t.Fatalf("preview 应使用已保存站点名: %+v", preview.Data)
 	}
 
 	w = profileReq(t, srv, http.MethodDelete, "/api/admin/settings/mail-templates/password_reset", adminToken, nil)

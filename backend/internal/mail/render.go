@@ -24,16 +24,15 @@ type Rendered struct {
 	HTMLBody string `json:"html_body"`
 }
 
-// 预览固定合成值：不读取当前数据库站点名、真实 URL 或一次性 token。
+// 预览链接使用固定合成值，不读取真实 URL 或一次性 token。
 const (
-	PreviewSiteName = "示例站点"
 	PreviewResetURL = "https://example.invalid/reset/example-token?source=preview"
 	PreviewLoginURL = "https://example.invalid/login?source=preview"
 )
 
-// PreviewValues 返回固定合成预览值，保证预览不成为运行配置探测接口。
-func PreviewValues() RenderValues {
-	return RenderValues{SiteName: PreviewSiteName, LoginURL: PreviewLoginURL, ResetURL: PreviewResetURL}
+// PreviewValues 返回有效站点名称与固定合成链接组成的预览值。
+func PreviewValues(siteName string) RenderValues {
+	return RenderValues{SiteName: siteName, LoginURL: PreviewLoginURL, ResetURL: PreviewResetURL}
 }
 
 // Render 是业务发送与管理员预览的唯一渲染入口：
@@ -58,9 +57,9 @@ func Render(kind TemplateKind, t Template, values RenderValues) (Rendered, error
 	return Rendered{Subject: subject, TextBody: textBody, HTMLBody: htmlBody}, nil
 }
 
-// PreviewTemplate 使用固定合成值调用同一个 Render；不访问数据库、不发送邮件。
-func (s *Service) PreviewTemplate(_ context.Context, kind TemplateKind, t Template) (Rendered, error) {
-	return Render(kind, t, PreviewValues())
+// PreviewTemplate 使用当前有效站点名称与固定合成链接调用同一个 Render；不发送邮件。
+func (s *Service) PreviewTemplate(ctx context.Context, kind TemplateKind, t Template) (Rendered, error) {
+	return Render(kind, t, PreviewValues(s.cfg.EffectiveSiteName(ctx)))
 }
 
 // renderContent 单次扫描模板，生成纯文本与最小 HTML；变量值不会被再次解释。

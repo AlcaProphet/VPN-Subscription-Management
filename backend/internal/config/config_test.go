@@ -109,6 +109,31 @@ func TestSensitiveSetGet(t *testing.T) {
 	}
 }
 
+func TestEffectiveSiteName(t *testing.T) {
+	_, cfg := newTestStore(t)
+	ctx := context.Background()
+
+	if got := cfg.EffectiveSiteName(ctx); got != DefaultSiteName {
+		t.Fatalf("缺失配置应回退默认站点名: %q", got)
+	}
+	if err := cfg.Set(ctx, KeySiteName, "  \t\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.EffectiveSiteName(ctx); got != DefaultSiteName {
+		t.Fatalf("纯空白配置应回退默认站点名: %q", got)
+	}
+	if err := cfg.Set(ctx, KeySiteName, "  自定义站点  "); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.EffectiveSiteName(ctx); got != "自定义站点" {
+		t.Fatalf("应优先返回去除首尾空白的已保存站点名: %q", got)
+	}
+	var nilCfg *Service
+	if got := nilCfg.EffectiveSiteName(ctx); got != DefaultSiteName {
+		t.Fatalf("nil Service 应回退默认站点名: %q", got)
+	}
+}
+
 // TestGetSetBasic 普通键读写与类型化读取
 func TestGetSetBasic(t *testing.T) {
 	_, cfg := newTestStore(t)

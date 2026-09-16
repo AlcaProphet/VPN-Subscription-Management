@@ -322,7 +322,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 		return mailSvc.SendPasswordReset(ctx, to, furl+resetURL)
 	})
 	users.SetWelcomeSender(func(ctx context.Context, _ int64, to, source string) error {
-		siteName := cfg.GetOr(ctx, "site_name")
+		siteName := cfg.EffectiveSiteName(ctx)
 		loginURL := cfg.GetOr(ctx, config.KeyFrontendURL)
 		return mailSvc.SendWelcome(ctx, to, siteName, loginURL, source)
 	})
@@ -486,7 +486,7 @@ func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service
 	registerStatus(engine, cfg, users, oidcSvc, captchaSvc, mode, emSvc)
 	engine.GET("/api/site/info", func(c *gin.Context) {
 		ctx := c.Request.Context()
-		name := cfg.GetOr(ctx, "site_name")
+		name := cfg.EffectiveSiteName(ctx)
 		icon := cfg.GetOr(ctx, "site_icon_url")
 		OK(c, gin.H{"site_name": name, "icon_url": icon})
 	})

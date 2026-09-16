@@ -934,7 +934,7 @@ type SiteInfo struct {
 
 func (s *AdminService) GetSiteInfo(ctx context.Context) SiteInfo {
 	return SiteInfo{
-		Name:    mustStr(s.cfg.Get(ctx, "site_name")),
+		Name:    s.cfg.EffectiveSiteName(ctx),
 		IconURL: mustStr(s.cfg.Get(ctx, "site_icon_url")),
 	}
 }
@@ -945,7 +945,7 @@ func (s *AdminService) SaveSiteInfo(ctx context.Context, name string, icon io.Re
 	if utf8.RuneCountInString(name) > MaxSiteNameLen {
 		return fmt.Errorf("%w: 站点名称不超过 50 字符", ErrBadRequest)
 	}
-	if err := s.cfg.Set(ctx, "site_name", name); err != nil {
+	if err := s.cfg.Set(ctx, KeySiteName, name); err != nil {
 		return err
 	}
 	if icon == nil {

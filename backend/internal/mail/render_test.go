@@ -263,7 +263,7 @@ func TestRenderLinkHrefVisibleAndPlainTextExact(t *testing.T) {
 	}
 }
 
-func TestPreviewUsesFixedValuesAndSharedRender(t *testing.T) {
+func TestPreviewUsesEffectiveSiteNameAndSyntheticURLs(t *testing.T) {
 	def, err := Definition(TemplateWelcomeLocal)
 	if err != nil {
 		t.Fatal(err)
@@ -273,17 +273,17 @@ func TestPreviewUsesFixedValuesAndSharedRender(t *testing.T) {
 	if err != nil {
 		t.Fatalf("预览失败: %v", err)
 	}
-	values := PreviewValues()
-	if values.SiteName != "示例站点" ||
+	values := PreviewValues("VPN 订阅管理")
+	if values.SiteName != "VPN 订阅管理" ||
 		values.ResetURL != "https://example.invalid/reset/example-token?source=preview" ||
 		values.LoginURL != "https://example.invalid/login?source=preview" {
-		t.Fatalf("固定预览值不符: %+v", values)
+		t.Fatalf("预览值不符: %+v", values)
 	}
 	want, err := Render(def.ID, def.Default, values)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
-		t.Fatalf("预览必须与 Render(kind, template, 固定值) 完全一致:\ngot=%+v\nwant=%+v", got, want)
+		t.Fatalf("预览必须与 Render(kind, template, 有效站点名+合成 URL) 完全一致:\ngot=%+v\nwant=%+v", got, want)
 	}
 }

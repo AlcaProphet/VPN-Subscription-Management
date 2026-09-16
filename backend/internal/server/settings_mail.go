@@ -40,7 +40,7 @@ func noStoreMiddleware() gin.HandlerFunc {
 	}
 }
 
-// getMailTemplates 返回五个有效模板、limits 元数据与固定合成预览值。
+// getMailTemplates 返回五个有效模板、limits 元数据与预览值。
 func (h *SettingsHandler) getMailTemplates(c *gin.Context) {
 	if h.mailTemplates == nil {
 		FailSanitized(c, http.StatusInternalServerError, "邮件模板服务不可用", errors.New("mailTemplates 未注入"))
@@ -51,7 +51,7 @@ func (h *SettingsHandler) getMailTemplates(c *gin.Context) {
 		FailSanitized(c, http.StatusInternalServerError, "读取邮件模板失败", err)
 		return
 	}
-	preview := mail.PreviewValues()
+	preview := mail.PreviewValues(h.adminCfg.GetSiteInfo(c.Request.Context()).Name)
 	OK(c, gin.H{
 		"templates": templates,
 		"limits": gin.H{

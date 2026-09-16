@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"golang.org/x/crypto/hkdf"
 
@@ -27,6 +28,7 @@ const (
 	KeySigningKey = "signing_key" // 签名密钥（Setup 时生成，明文落库，Design1 §6.2）
 	KeyLogLevel   = "log_level"
 	KeyAppMode    = "app_mode"
+	KeySiteName   = "site_name"
 	// Step 4 新增：本地认证与首管理员相关
 	KeyAllowLocalLogin  = "allow_local_login" // 允许本地登录（默认 true）
 	KeyAllowSelfreg     = "allow_selfreg"     // 允许自注册（默认 false）
@@ -114,6 +116,21 @@ func (s *Service) GetOr(ctx context.Context, key string) string {
 		s.log.Warn("读取配置失败，按未设置降级", "key", key, "err", err)
 	}
 	return v
+}
+
+// DefaultSiteName 是站点名称未配置时的统一回退文案。
+const DefaultSiteName = "VPN 订阅管理"
+
+// EffectiveSiteName 返回已保存的非空站点名称；未设置或仅含空白时返回默认名称。
+// nil Service 仅用于不依赖持久化的渲染单测，同样按未设置处理。
+func (s *Service) EffectiveSiteName(ctx context.Context) string {
+	if s == nil {
+		return DefaultSiteName
+	}
+	if name := strings.TrimSpace(s.GetOr(ctx, KeySiteName)); name != "" {
+		return name
+	}
+	return DefaultSiteName
 }
 
 // GetRaw 读取配置原始值（不解密；供导出等需要密文原样的场景）

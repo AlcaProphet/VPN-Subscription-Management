@@ -211,7 +211,10 @@ func (s *Service) ScopeEnabled(ctx context.Context, scope string) bool {
 // renderAndSendTemplate 读取三态模板并复用 Render；读取损坏或数据库错误时使用内置默认值继续发送。
 func (s *Service) renderAndSendTemplate(ctx context.Context, kind TemplateKind, to string, values RenderValues) error {
 	// LoadTemplate 已记录不含模板内容的读取类别，并在读取错误/损坏时返回内置默认值；本封邮件继续发送。
-	t, _, _ := s.LoadTemplate(ctx, kind)
+	t, _, loadErr := s.LoadTemplate(ctx, kind)
+	if loadErr != nil {
+		s.log.Debug("邮件模板读取失败，继续使用内置默认值", "template", kind)
+	}
 	rendered, err := Render(kind, t, values)
 	if err != nil {
 		return err
