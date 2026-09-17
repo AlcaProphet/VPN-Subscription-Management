@@ -121,16 +121,34 @@ func (s *Service) GetOr(ctx context.Context, key string) string {
 // DefaultSiteName 是站点名称未配置时的统一回退文案。
 const DefaultSiteName = "VPN 订阅管理"
 
+// effectiveSiteName 统一有效站点名称回退规则：已保存值去空白后非空则使用，否则回退默认名称。
+func effectiveSiteName(raw string) string {
+	if name := strings.TrimSpace(raw); name != "" {
+		return name
+	}
+	return DefaultSiteName
+}
+
 // EffectiveSiteName 返回已保存的非空站点名称；未设置或仅含空白时返回默认名称。
 // nil Service 仅用于不依赖持久化的渲染单测，同样按未设置处理。
 func (s *Service) EffectiveSiteName(ctx context.Context) string {
 	if s == nil {
 		return DefaultSiteName
 	}
-	if name := strings.TrimSpace(s.GetOr(ctx, KeySiteName)); name != "" {
-		return name
+	return effectiveSiteName(s.GetOr(ctx, KeySiteName))
+}
+
+// EffectiveSiteNameStrict 与 EffectiveSiteName 使用同一回退规则，但配置读取失败时返回错误；
+// 供派发器在入队前快照有效站点名，避免把数据库读取故障误当成未配置。
+func (s *Service) EffectiveSiteNameStrict(ctx context.Context) (string, error) {
+	if s == nil {
+		return DefaultSiteName, nil
 	}
-	return DefaultSiteName
+	raw, err := s.Get(ctx, KeySiteName)
+	if err != nil {
+		return "", err
+	}
+	return effectiveSiteName(raw), nil
 }
 
 // GetRaw 读取配置原始值（不解密；供导出等需要密文原样的场景）
@@ -288,18 +306,30 @@ func (s *Service) GetInt(ctx context.Context, key string, def int) int {
 	return n
 }
 
-// GetJSONStringSlice 解析 JSON 字符串数组配置（解析失败返回空切片并记 warn）
+// GetJSONStringSlice 解析 JSON 字符串数组配置（读取/解析失败返回空切片并记 warn）。
 func (s *Service) GetJSONStringSlice(ctx context.Context, key string) []string {
+	out, err := s.GetJSONStringSliceStrict(ctx, key)
+	if err != nil && s.log != nil {
+		s.log.Warn("解析 JSON 数组配置失败，按未设置降级", "key", key, "err", err)
+	}
+	return out
+}
+
+// GetJSONStringSliceStrict 严格解析 JSON 字符串数组；缺键返回空切片，读取/解析失败返回错误。
+// 供邮件 scope 等 correctness 路径使用，避免损坏配置被静默当成“未启用”。
+func (s *Service) GetJSONStringSliceStrict(ctx context.Context, key string) ([]string, error) {
 	v, err := s.Get(ctx, key)
-	if err != nil || v == "" {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if v == "" {
+		return nil, nil
 	}
 	var out []string
 	if err := json.Unmarshal([]byte(v), &out); err != nil {
-		s.log.Warn("解析 JSON 数组配置失败", "key", key, "err", err)
-		return nil
+		return nil, fmt.Errorf("解析 JSON 数组配置 %s 失败: %w", key, err)
 	}
-	return out
+	return out, nil
 }
 
 // --- 敏感配置加解密：AES-256-GCM，密钥由签名密钥经 HKDF-SHA256 派生（用户已确认选型）---

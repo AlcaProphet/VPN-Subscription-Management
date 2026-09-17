@@ -5,14 +5,17 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/mail"
 )
 
 // LogHandler 日志处理器（结构体 Handler + 依赖注入）
@@ -20,16 +23,22 @@ type LogHandler struct {
 	accessSvc *log.AccessService
 	streamSvc *log.StreamService
 	users     auth.UserSource
+	mailLog   *mail.ActivityLog
 	// permissionInterval 流内权限重查间隔；生产默认 15 秒，测试可注入更短间隔。
 	permissionInterval time.Duration
 }
 
-// RegisterLogRoutes 注册日志端点；访问日志/清空/SSE 全部叠加会话 + 管理员双中间件。
+// RegisterLogRoutes 注册日志端点；访问日志/清空/SSE 全部叠加会话 + 管理员双中间件；
+// 邮件发送日志列表/清空按 R32-02 先经过 no-store 再鉴权，确保 401/403 也带 no-store。
 func RegisterLogRoutes(engine *gin.Engine, h *LogHandler, sessionMW, adminMW gin.HandlerFunc) {
 	g := engine.Group("/api/admin/logs", sessionMW, adminMW)
 	g.GET("/access", h.queryAccess) // ?from=&to=&page=&size=
 	g.POST("/access/clear", h.clearAccess)
 	g.GET("/stream", h.stream) // SSE：Bearer 会话凭据经 fetch/ReadableStream 连接
+
+	mailGroup := engine.Group("/api/admin/logs/mail", noStoreMiddleware(), sessionMW, adminMW)
+	mailGroup.GET("", h.queryMail)
+	mailGroup.POST("/clear", h.clearMail)
 }
 
 // queryAccess 访问日志查询（日期范围 + 后端分页）
@@ -123,4 +132,98 @@ func writeSSE(c *gin.Context, e log.Entry) {
 		return
 	}
 	_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+}
+
+// queryMail 邮件发送日志查询：严格分页 + kind/status 过滤；只返回内存快照中的安全字段。
+func (h *LogHandler) queryMail(c *gin.Context) {
+	if h.mailLog == nil {
+		FailSanitized(c, http.StatusInternalServerError, "邮件发送日志服务不可用", errors.New("mailLog 未注入"))
+		return
+	}
+	page, err := mailPositiveQuery(c, "page", 1)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	size, err := mailPositiveQuery(c, "size", 20)
+	if err != nil || size > 100 {
+		Fail(c, http.StatusBadRequest, "size 须为 1–100 的整数")
+		return
+	}
+	kind := c.Query("kind")
+	if kind != "" && !mailKindAllowed(kind) {
+		Fail(c, http.StatusBadRequest, "未知邮件类型")
+		return
+	}
+	status := c.Query("status")
+	if status != "" && !mailStatusAllowed(status) {
+		Fail(c, http.StatusBadRequest, "未知邮件状态")
+		return
+	}
+	all := h.mailLog.Snapshot()
+	filtered := make([]mail.ActivityRecord, 0, len(all))
+	for _, rec := range all {
+		if kind != "" && string(rec.Kind) != kind {
+			continue
+		}
+		if status != "" && string(rec.Status) != status {
+			continue
+		}
+		filtered = append(filtered, rec)
+	}
+	total := int64(len(filtered))
+	start := (page - 1) * size
+	if start >= len(filtered) {
+		OK(c, ListData{List: make([]mail.ActivityRecord, 0), Total: total})
+		return
+	}
+	end := start + size
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	list := make([]mail.ActivityRecord, 0, end-start)
+	list = append(list, filtered[start:end]...)
+	OK(c, ListData{List: list, Total: total})
+}
+
+// clearMail 清空当前可见邮件发送日志；不取消发送、不丢队列、不重置 ID。
+func (h *LogHandler) clearMail(c *gin.Context) {
+	if h.mailLog == nil {
+		FailSanitized(c, http.StatusInternalServerError, "邮件发送日志服务不可用", errors.New("mailLog 未注入"))
+		return
+	}
+	h.mailLog.Clear()
+	OK(c, nil)
+}
+
+func mailPositiveQuery(c *gin.Context, key string, def int) (int, error) {
+	raw := c.Query(key)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("%s 须为正整数", key)
+	}
+	return n, nil
+}
+
+func mailKindAllowed(kind string) bool {
+	switch kind {
+	case string(mail.JobWelcomeLocal), string(mail.JobWelcomeOIDC),
+		string(mail.JobApprovalApproved), string(mail.JobApprovalRejected),
+		string(mail.JobPasswordReset), string(mail.ActivityKindSMTPTest):
+		return true
+	default:
+		return false
+	}
+}
+
+func mailStatusAllowed(status string) bool {
+	switch mail.ActivityStatus(status) {
+	case mail.ActivityQueued, mail.ActivitySending, mail.ActivityAccepted, mail.ActivityFailed:
+		return true
+	default:
+		return false
+	}
 }

@@ -1,5 +1,5 @@
 // logs-view.spec.ts：实时日志页 fetch/ReadableStream 协议边界（R28-07I Step 17）。
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { readFileSync } from 'node:fs'
@@ -9,12 +9,16 @@ const mocks = vi.hoisted(() => ({
   openLogStream: vi.fn(),
   notifyError: vi.fn(),
   notifyWarning: vi.fn(),
+  queryMailLogs: vi.fn(),
+  clearMailLogs: vi.fn(),
 }))
 
 vi.mock('@/api/log', () => ({
   queryAccessLogs: vi.fn().mockResolvedValue({ list: [], total: 0 }),
   clearAccessLogs: vi.fn(),
   openLogStream: mocks.openLogStream,
+  queryMailLogs: mocks.queryMailLogs,
+  clearMailLogs: mocks.clearMailLogs,
 }))
 
 vi.mock('@/components/Notify', () => ({
@@ -22,6 +26,10 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import LogsView from '@/views/admin/LogsView.vue'
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 function sseResponse(body: ReadableStream<Uint8Array>, status = 200): Response {
   return new Response(body, { status, headers: { 'Content-Type': 'text/event-stream' } })
@@ -34,12 +42,23 @@ async function openStreamTab(wrapper: ReturnType<typeof mount>) {
   await flushPromises()
 }
 
+async function openMailTab(wrapper: ReturnType<typeof mount>) {
+  const tab = wrapper.findAll('.ant-tabs-tab').find((node) => node.text().includes('邮件发送日志'))
+  expect(tab).toBeTruthy()
+  await tab!.trigger('click')
+  await flushPromises()
+}
+
 describe('LogsView 实时日志流', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     mocks.openLogStream.mockReset()
     mocks.notifyError.mockReset()
     mocks.notifyWarning.mockReset()
+    mocks.queryMailLogs.mockReset()
+    mocks.queryMailLogs.mockResolvedValue({ list: [], total: 0 })
+    mocks.clearMailLogs.mockReset()
+    vi.useRealTimers()
   })
 
   it('源码使用 fetch/ReadableStream，不再使用 EventSource 或查询 Token', () => {
@@ -98,5 +117,73 @@ describe('LogsView 实时日志流', () => {
     expect(signal).toBeInstanceOf(AbortSignal)
     wrapper.unmount()
     expect(signal.aborted).toBe(true)
+  })
+})
+
+describe('LogsView 邮件发送日志', () => {
+  it('页签展示掩码记录与 SMTP 已接受状态', async () => {
+    mocks.queryMailLogs.mockResolvedValue({
+      list: [{
+        id: 1,
+        created_at: '2026-09-17T00:00:00Z',
+        started_at: '2026-09-17T00:00:00Z',
+        finished_at: '2026-09-17T00:00:01Z',
+        kind: 'password_reset',
+        source: 'public_forgot',
+        user_id: 1,
+        recipient_masked: 'k***@example.com',
+        status: 'accepted',
+        failure_stage: null,
+        queue_duration_ms: 1,
+        send_duration_ms: 2,
+      }],
+      total: 1,
+    })
+    const wrapper = mount(LogsView)
+    await flushPromises()
+    await openMailTab(wrapper)
+    expect(wrapper.text()).toContain('密码重置')
+    expect(wrapper.text()).toContain('k***@example.com')
+    expect(wrapper.text()).toContain('SMTP 已接受')
+    expect(wrapper.text()).toContain('SMTP 已接受仅表示发件服务器接受邮件')
+    wrapper.unmount()
+  })
+
+  it('5 秒轮询单飞且切出页签后停止', async () => {
+    let tick: (() => void) | null = null
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms?: number) => {
+      if (ms === 5000) tick = fn
+      return 1 as unknown as ReturnType<typeof setInterval>
+    }) as any)
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {})
+
+    let resolvePending!: (value: any) => void
+    const pending = new Promise<any>((resolve) => { resolvePending = resolve })
+    mocks.queryMailLogs.mockReturnValue(pending)
+    const wrapper = mount(LogsView)
+    await flushPromises()
+    await openMailTab(wrapper)
+    expect(tick).toBeTypeOf('function')
+    const before = mocks.queryMailLogs.mock.calls.length
+    expect(before).toBeGreaterThanOrEqual(1)
+
+    tick!() // 前一次仍在请求中：本轮必须跳过
+    await flushPromises()
+    expect(mocks.queryMailLogs.mock.calls.length).toBe(before)
+
+    resolvePending({ list: [], total: 0 })
+    await flushPromises()
+    tick!()
+    await flushPromises()
+    expect(mocks.queryMailLogs.mock.calls.length).toBeGreaterThan(before)
+
+    const accessTab = wrapper.findAll('.ant-tabs-tab').find((node) => node.text().includes('访问日志'))
+    await accessTab!.trigger('click')
+    await flushPromises()
+    expect(clearIntervalSpy).toHaveBeenCalled()
+    wrapper.unmount()
+
+    setIntervalSpy.mockRestore()
+    clearIntervalSpy.mockRestore()
   })
 })

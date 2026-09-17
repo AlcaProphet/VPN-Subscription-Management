@@ -804,6 +804,9 @@ type SMTPSettings struct {
 	AuthRequired       *bool    `json:"auth_required"`
 	Configured         bool     `json:"configured"`
 	Scopes             []string `json:"scopes"` // password_reset/approval_notify/welcome
+	// PasswordResetAvailable 只读统一可用性结果（SMTP 完整配置且 password_reset scope 启用）。
+	// config.AdminService 不直接计算，由 server 接入层用邮件领域结果填充，避免包依赖倒置。
+	PasswordResetAvailable bool `json:"password_reset_available"`
 }
 
 func (s *AdminService) GetSMTP(ctx context.Context) SMTPSettings {

@@ -452,7 +452,7 @@ async function doSaveCaptcha() {
 }
 
 // --- SMTP ---
-const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', password_configured: false, from: '', security: 'starttls', auth_required: true, configured: false, scopes: [] })
+const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', password_configured: false, from: '', security: 'starttls', auth_required: true, configured: false, scopes: [], password_reset_available: false })
 const smtpSaving = ref(false)
 const smtpTesting = ref(false)
 const smtpTestTo = ref('')
@@ -492,7 +492,7 @@ async function doTestSMTP() {
   smtpTesting.value = true
   try {
     const result = await testSMTP(smtpTestTo.value.trim())
-    Notify.success(`测试邮件已发送至 ${result.to}，请查收`)
+    Notify.success(`SMTP 已接受测试邮件，已提交至 ${result.to}，请查收`)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {

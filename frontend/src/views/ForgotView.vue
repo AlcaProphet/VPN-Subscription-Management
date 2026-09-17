@@ -28,7 +28,7 @@ async function onSubmit() {
 <template>
   <div class="w-full max-w-md">
     <div class="bg-surface rounded-lg shadow p-8">
-      <Result v-if="submitted" status="success" title="若该邮箱已注册，重置链接已发送"
+      <Result v-if="submitted" status="success" title="若该邮箱已注册，重置邮件将发送"
               sub-title="请查收邮件（1 小时内有效）">
         <template #extra><Button type="primary" @click="$router.push('/login')">返回登录</Button></template>
       </Result>

@@ -15,6 +15,7 @@ import (
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/mail"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/version"
@@ -28,7 +29,6 @@ var (
 	ErrPendingNotAllowed = errors.New("请先在审批中心处理待审批账号")
 	ErrUserNotFound      = errors.New("用户不存在")
 	ErrNoEmail           = errors.New("该用户无邮箱，请先补填邮箱")
-	ErrSMTPNotConfigured = errors.New("SMTP 未配置")
 )
 
 // AdminService 管理员用户管理服务
@@ -93,11 +93,6 @@ func (s *AdminService) countActiveAdmins(ctx context.Context, tx *sql.Tx, exclud
 	err := tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active' AND id != ?`, excludeID).Scan(&n)
 	return n, err
-}
-
-// smtpConfigured 与邮件服务使用同一配置判定。
-func (s *AdminService) smtpConfigured(ctx context.Context) bool {
-	return config.SMTPConfigured(ctx, s.cfg)
 }
 
 // --- 列表：后端分页（默认 20 条/页）+ 用户名/邮箱模糊搜索 ---
@@ -438,30 +433,27 @@ func (s *AdminService) ResetPasswordDirect(ctx context.Context, operatorID, targ
 	return pwd, nil
 }
 
-// ResetPasswordByEmail 触发重置邮件：生成一次性重置令牌（1h TTL，复用 ResetService）并发送。
-// 已配置 SMTP 时可选；待审批拒绝；无邮箱拒绝（提示先补填）
-func (s *AdminService) ResetPasswordByEmail(ctx context.Context, operatorID, targetID int64) error {
+// ResetPasswordByEmail 触发重置邮件：统一可用性检查、生成一次性重置令牌（1h TTL）并提交派发。
+// 待审批拒绝；无邮箱拒绝（提示先补填）；邮件不可用/队列拒绝返回封闭派发结果。
+func (s *AdminService) ResetPasswordByEmail(ctx context.Context, operatorID, targetID int64) (mail.DispatchResult, error) {
 	if err := s.checkNotSelf(operatorID, targetID); err != nil {
-		return err
-	}
-	if !s.smtpConfigured(ctx) {
-		return ErrSMTPNotConfigured
+		return mail.DispatchResult{}, err
 	}
 	var status, email string
 	if err := s.store.DB().QueryRowContext(ctx,
 		`SELECT status, COALESCE(email,'') FROM users WHERE id = ?`, targetID).Scan(&status, &email); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrUserNotFound
+			return mail.DispatchResult{}, ErrUserNotFound
 		}
-		return err
+		return mail.DispatchResult{}, err
 	}
 	if status == "pending" {
-		return ErrPendingNotAllowed
+		return mail.DispatchResult{}, ErrPendingNotAllowed
 	}
 	if email == "" {
-		return ErrNoEmail
+		return mail.DispatchResult{}, ErrNoEmail
 	}
-	return s.resetSvc.IssueForUser(ctx, targetID, email)
+	return s.resetSvc.IssueForUser(ctx, targetID, email, mail.SourceAdminSingle)
 }
 
 // FillEmail 无邮箱用户补填邮箱（规范化 + 唯一预查；补填后获得设置密码/重置能力，Design1 §4.6）
@@ -705,16 +697,30 @@ func (s *AdminService) SetQuotaOverride(ctx context.Context, userID int64, quota
 	return nil
 }
 
+// BatchSendPasswordLinksResult 批量密码设置链接提交结果；异步 SMTP 失败不在本回执中，只进入邮件发送日志。
+type BatchSendPasswordLinksResult struct {
+	Queued             int
+	QueueFailed        int
+	Failed             int
+	SkippedPending     int
+	SkippedDisabled    int
+	SkippedNoEmail     int
+	SkippedUnavailable int
+}
+
 // --- 批量操作：为所有无密码用户发送密码设置链接 ---
-// 仅面向已激活的无密码用户；待审批/已禁用/无邮箱自动排除并回执计数；依赖 SMTP（未配置返回错误，前端置灰）
-func (s *AdminService) BatchSendPasswordLinks(ctx context.Context) (sent, skippedPending, skippedDisabled, skippedNoEmail int, err error) {
-	if !s.smtpConfigured(ctx) {
-		return 0, 0, 0, 0, ErrSMTPNotConfigured
+// 待审批/已禁用/无邮箱自动排除；全局不可用时符合条件目标计入 skipped_unavailable；
+// 入队拒绝计入 queue_failed；随机数/token 写库等准备失败计入 failed。
+func (s *AdminService) BatchSendPasswordLinks(ctx context.Context) (BatchSendPasswordLinksResult, error) {
+	var out BatchSendPasswordLinksResult
+	available, err := s.resetSvc.PasswordResetAvailable(ctx)
+	if err != nil {
+		return out, fmt.Errorf("读取密码重置邮件可用性失败: %w", err)
 	}
 	rows, err := s.store.DB().QueryContext(ctx,
 		`SELECT id, COALESCE(email,''), status FROM users WHERE password_hash IS NULL`)
 	if err != nil {
-		return 0, 0, 0, 0, fmt.Errorf("查询无密码用户失败: %w", err)
+		return out, fmt.Errorf("查询无密码用户失败: %w", err)
 	}
 	type rec struct {
 		id     int64
@@ -726,29 +732,45 @@ func (s *AdminService) BatchSendPasswordLinks(ctx context.Context) (sent, skippe
 		var r rec
 		if err := rows.Scan(&r.id, &r.email, &r.status); err != nil {
 			_ = rows.Close()
-			return 0, 0, 0, 0, err
+			return out, err
 		}
 		recs = append(recs, r)
 	}
 	if err := rows.Close(); err != nil {
-		return 0, 0, 0, 0, err
+		return out, err
 	}
 	for _, r := range recs {
 		switch {
 		case r.status == "pending":
-			skippedPending++
+			out.SkippedPending++
 		case r.status == "disabled":
-			skippedDisabled++
+			out.SkippedDisabled++
 		case r.email == "":
-			skippedNoEmail++
+			out.SkippedNoEmail++
+		case !available:
+			out.SkippedUnavailable++
 		default:
-			if err := s.resetSvc.IssueForUser(ctx, r.id, r.email); err != nil {
-				s.log.Warn("批量发送密码设置链接失败", "user_id", r.id, "err", err) // 单项失败不阻断其余
+			res, err := s.resetSvc.IssueForUser(ctx, r.id, r.email, mail.SourceAdminBatch)
+			if err != nil {
+				out.Failed++
+				s.log.Warn("批量提交密码设置链接失败", "user_id", r.id, "err", err) // 单项失败不阻断其余
 				continue
 			}
-			sent++
+			switch res.Status {
+			case mail.DispatchQueued:
+				out.Queued++
+			case mail.DispatchRejected:
+				out.QueueFailed++
+			case mail.DispatchSkipped:
+				out.SkippedUnavailable++
+			default:
+				out.Failed++
+			}
 		}
 	}
-	s.log.Info("批量发送密码设置链接完成", "sent", sent, "skipped_pending", skippedPending, "skipped_disabled", skippedDisabled, "skipped_no_email", skippedNoEmail)
-	return sent, skippedPending, skippedDisabled, skippedNoEmail, nil
+	s.log.Info("批量提交密码设置链接完成",
+		"queued", out.Queued, "queue_failed", out.QueueFailed, "failed", out.Failed,
+		"skipped_pending", out.SkippedPending, "skipped_disabled", out.SkippedDisabled,
+		"skipped_no_email", out.SkippedNoEmail, "skipped_unavailable", out.SkippedUnavailable)
+	return out, nil
 }

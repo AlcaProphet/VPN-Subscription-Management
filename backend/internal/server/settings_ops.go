@@ -48,6 +48,10 @@ func (h *SettingsOpsHandler) clearAll(c *gin.Context) {
 		return
 	}
 	if err := h.clearSvc.ClearAll(c.Request.Context(), req.ConfirmWord); err != nil {
+		if errors.Is(err, dataclear.ErrClearLifecycle) {
+			FailSanitized(c, http.StatusServiceUnavailable, "邮件发送暂停失败，未执行清空，请稍后重试", err)
+			return
+		}
 		Fail(c, http.StatusBadRequest, err.Error()) // 确认词不正确等
 		return
 	}

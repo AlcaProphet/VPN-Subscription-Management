@@ -4,6 +4,7 @@ package auth_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -11,9 +12,29 @@ import (
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/mail"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/user"
 )
+
+// resetMailerFake 是 auth 测试用的统一邮件 fake。
+type resetMailerFake struct {
+	available bool
+	reason    mail.DispatchReason
+	result    mail.DispatchResult
+	err       error
+}
+
+func (m *resetMailerFake) CheckAvailability(context.Context, string) (mail.Availability, error) {
+	if m.err != nil {
+		return mail.Availability{}, m.err
+	}
+	return mail.Availability{Available: m.available, Reason: m.reason}, nil
+}
+
+func (m *resetMailerFake) DispatchPasswordReset(context.Context, int64, string, string, string) mail.DispatchResult {
+	return m.result
+}
 
 // newResetEnv 创建临时库 + 重置服务环境
 func newResetEnv(t *testing.T) (*store.Store, *auth.ResetService, *user.Service) {
@@ -55,6 +76,10 @@ func newResetEnv(t *testing.T) (*store.Store, *auth.ResetService, *user.Service)
 	cfg := config.NewService(st, log.New("error", "console"))
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	resetSvc := auth.NewResetService(st, users, log.New("error", "console"))
+	resetSvc.SetMailer(&resetMailerFake{
+		available: true,
+		result:    mail.DispatchResult{Status: mail.DispatchQueued, LogID: 1},
+	})
 	return st, resetSvc, users
 }
 
@@ -193,5 +218,76 @@ func TestResetAntiEnumeration(t *testing.T) {
 	// 格式非法 → 同样无错误
 	if err := resetSvc.Request(ctx, "not-an-email"); err != nil {
 		t.Errorf("非法邮箱 Request 失败: %v", err)
+	}
+}
+
+// TestResetRequestQueueRejectedCompensatesToken 入队拒绝：公共路径固定成功但精确删除本次 token。
+func TestResetRequestQueueRejectedCompensatesToken(t *testing.T) {
+	st, resetSvc, users := newResetEnv(t)
+	ctx := context.Background()
+	if _, err := users.Register(ctx, "kyle", "kyle@example.com", "password123"); err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	resetSvc.SetMailer(&resetMailerFake{
+		available: true,
+		result:    mail.DispatchResult{Status: mail.DispatchRejected, Reason: mail.ReasonQueueFull, LogID: 1},
+	})
+	if err := resetSvc.Request(ctx, "kyle@example.com"); err != nil {
+		t.Fatalf("队列拒绝公共路径应返回 nil: %v", err)
+	}
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM password_reset_tokens`).Scan(&n); err != nil {
+		t.Fatalf("统计 token 失败: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("队列拒绝后本次 token 应被精确删除，实际 %d", n)
+	}
+}
+
+// TestResetRequestUnavailableDoesNotCreateToken 邮件不可用：返回统一 nil 且完全不写 token。
+func TestResetRequestUnavailableDoesNotCreateToken(t *testing.T) {
+	st, resetSvc, users := newResetEnv(t)
+	ctx := context.Background()
+	if _, err := users.Register(ctx, "kyle", "kyle@example.com", "password123"); err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	resetSvc.SetMailer(&resetMailerFake{available: false, reason: mail.ReasonScopeDisabled})
+	if err := resetSvc.Request(ctx, "kyle@example.com"); err != nil {
+		t.Fatalf("不可用公共路径应返回 nil: %v", err)
+	}
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM password_reset_tokens`).Scan(&n); err != nil {
+		t.Fatalf("统计 token 失败: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("不可用不应写 token，实际 %d", n)
+	}
+}
+
+// TestResetRequestInternalFailure 可用性严格读取失败/派发前配置读取失败：公共路径返回 error 且不遗留 token。
+func TestResetRequestInternalFailure(t *testing.T) {
+	st, resetSvc, users := newResetEnv(t)
+	ctx := context.Background()
+	if _, err := users.Register(ctx, "kyle", "kyle@example.com", "password123"); err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	resetSvc.SetMailer(&resetMailerFake{err: errors.New("availability read failed")})
+	if err := resetSvc.Request(ctx, "kyle@example.com"); err == nil {
+		t.Fatal("可用性读取失败应返回 error")
+	}
+
+	resetSvc.SetMailer(&resetMailerFake{
+		available: true,
+		result:    mail.DispatchResult{Status: mail.DispatchRejected, Reason: mail.ReasonConfigReadFailed, LogID: 1},
+	})
+	if err := resetSvc.Request(ctx, "kyle@example.com"); err == nil {
+		t.Fatal("派发前严格配置读取失败应返回 error")
+	}
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM password_reset_tokens`).Scan(&n); err != nil {
+		t.Fatalf("统计 token 失败: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("内部故障后本次 token 应被删除，实际 %d", n)
 	}
 }

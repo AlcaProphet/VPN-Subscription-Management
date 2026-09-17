@@ -57,6 +57,7 @@ export interface SMTPSettings {
   auth_required: boolean
   configured: boolean
   scopes: string[]
+  password_reset_available: boolean
 }
 
 export type MailTemplateKind =

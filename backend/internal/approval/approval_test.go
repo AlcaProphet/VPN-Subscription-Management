@@ -2,25 +2,25 @@ package approval
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
-	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/mail"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/xray"
 )
 
-// approvalMailCall 记录一次审批邮件具名调用及实际值。
+// approvalMailCall 记录一次审批邮件派发调用。
 type approvalMailCall struct {
-	to, siteName, loginURL string
+	userID int64
+	to     string
 }
 
-// mockMail 记录审批通过/拒绝具名调用并以可配置错误返回（SMTP 失败不阻断验证）；
-// scopes 模拟 mail.Service.ScopeEnabled——nil/未含项表示该类型邮件未启用（不记录调用）。
+// mockMail 记录审批通过/拒绝派发调用并返回可配置结果；
+// scopes 模拟派发器 scope 判定——nil/未含项返回 skipped 且不记录调用。
 type mockMail struct {
 	approvedCalls []approvalMailCall
 	rejectedCalls []approvalMailCall
@@ -28,26 +28,26 @@ type mockMail struct {
 	scopes        map[string]bool
 }
 
-func (m *mockMail) SendApprovalApproved(_ context.Context, to, siteName, loginURL string) error {
+func (m *mockMail) DispatchApprovalApproved(_ context.Context, userID int64, to string) mail.DispatchResult {
 	if !m.scopes["approval_notify"] {
-		return nil // scope 未启用不发送
+		return mail.DispatchResult{Status: mail.DispatchSkipped, Reason: mail.ReasonScopeDisabled}
 	}
-	m.approvedCalls = append(m.approvedCalls, approvalMailCall{to: to, siteName: siteName, loginURL: loginURL})
+	m.approvedCalls = append(m.approvedCalls, approvalMailCall{userID: userID, to: to})
 	if m.failSend {
-		return errors.New("模拟发送失败")
+		return mail.DispatchResult{Status: mail.DispatchRejected, Reason: mail.ReasonQueueFull, LogID: 1}
 	}
-	return nil
+	return mail.DispatchResult{Status: mail.DispatchQueued, LogID: 1}
 }
 
-func (m *mockMail) SendApprovalRejected(_ context.Context, to, siteName string) error {
+func (m *mockMail) DispatchApprovalRejected(_ context.Context, userID int64, to string) mail.DispatchResult {
 	if !m.scopes["approval_notify"] {
-		return nil // scope 未启用不发送
+		return mail.DispatchResult{Status: mail.DispatchSkipped, Reason: mail.ReasonScopeDisabled}
 	}
-	m.rejectedCalls = append(m.rejectedCalls, approvalMailCall{to: to, siteName: siteName})
+	m.rejectedCalls = append(m.rejectedCalls, approvalMailCall{userID: userID, to: to})
 	if m.failSend {
-		return errors.New("模拟发送失败")
+		return mail.DispatchResult{Status: mail.DispatchRejected, Reason: mail.ReasonQueueFull, LogID: 1}
 	}
-	return nil
+	return mail.DispatchResult{Status: mail.DispatchQueued, LogID: 1}
 }
 
 // newTestApproval 创建临时库 + 审批服务（mock mail）
@@ -75,11 +75,8 @@ func newTestApproval(t *testing.T, failSend bool) (*store.Store, *Service, *mock
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
-	cfg := config.NewService(st, log.New("error", "console"))
-	_ = cfg.Set(context.Background(), "site_name", "测试站点")
-	_ = cfg.Set(context.Background(), "frontend_url", "https://vpn.example.com")
 	mm := &mockMail{failSend: failSend}
-	svc := NewService(st, mm, cfg, log.New("error", "console"))
+	svc := NewService(st, mm, log.New("error", "console"))
 	return st, svc, mm
 }
 
@@ -151,10 +148,8 @@ func TestApproveActivatesAndClearsClaims(t *testing.T) {
 	if mm.approvedCalls[0].to != "alice@example.com" || mm.approvedCalls[1].to != "bob@example.com" {
 		t.Errorf("审批通过通知收件人异常: %+v", mm.approvedCalls)
 	}
-	for _, call := range mm.approvedCalls {
-		if call.siteName != "测试站点" || call.loginURL != "https://vpn.example.com" {
-			t.Errorf("审批通过通知实际值异常: %+v", call)
-		}
+	if mm.approvedCalls[0].userID != oidcID || mm.approvedCalls[1].userID != selfID {
+		t.Errorf("审批通过通知用户 ID 异常: %+v", mm.approvedCalls)
 	}
 	if len(mm.rejectedCalls) != 0 {
 		t.Errorf("审批通过不得触发拒绝通知: %+v", mm.rejectedCalls)
@@ -178,7 +173,7 @@ func TestRejectDeletesAndReleasesEmail(t *testing.T) {
 	if n != 0 {
 		t.Errorf("拒绝后账号应删除: %d", n)
 	}
-	if len(mm.rejectedCalls) != 1 || mm.rejectedCalls[0].to != "carol@example.com" || mm.rejectedCalls[0].siteName != "测试站点" {
+	if len(mm.rejectedCalls) != 1 || mm.rejectedCalls[0].to != "carol@example.com" || mm.rejectedCalls[0].userID != id {
 		t.Errorf("拒绝应触发审批拒绝通知: %+v", mm.rejectedCalls)
 	}
 	if len(mm.approvedCalls) != 0 {
@@ -233,8 +228,8 @@ func TestBatchApproveCounts(t *testing.T) {
 		t.Fatalf("批量通过应每个成功账号复用单次审批发送一封：%+v", mm.approvedCalls)
 	}
 	for _, call := range mm.approvedCalls {
-		if call.loginURL != "https://vpn.example.com" {
-			t.Fatalf("批量通过实际值异常: %+v", call)
+		if call.userID == 0 || call.to == "" {
+			t.Fatalf("批量通过派发参数异常: %+v", call)
 		}
 	}
 }

@@ -16,7 +16,7 @@ import (
 )
 
 func TestSendErrorRedactsServerReply(t *testing.T) {
-	err := &sendError{stage: "认证", err: errors.New("535 password=secret@example.com")}
+	err := &sendError{stage: FailureAuth, err: errors.New("535 password=secret@example.com")}
 	if got := err.Error(); got != "SMTP 认证失败" {
 		t.Fatalf("服务商响应不应直接回显: %q", got)
 	}
@@ -92,13 +92,13 @@ func TestSetDeadlineErrorIsReturned(t *testing.T) {
 		t.Fatal("SetDeadline 失败时应返回错误")
 	}
 	var sendErr *sendError
-	if !errors.As(err, &sendErr) || sendErr.stage != "设置超时" {
-		t.Fatalf("应返回设置超时阶段的 sendError: %v", err)
+	if !errors.As(err, &sendErr) || sendErr.stage != FailureInternal {
+		t.Fatalf("SetDeadline 失败应归类 internal: %v", err)
 	}
 	if !errors.Is(err, stubErr) {
 		t.Fatalf("应保留原始 SetDeadline 错误供诊断: %v", err)
 	}
-	if got := err.Error(); got != "SMTP 设置超时失败" {
+	if got := err.Error(); got != "SMTP 内部错误" {
 		t.Fatalf("阶段化提示不符: %q", got)
 	}
 	if !conn.closed {
@@ -145,12 +145,12 @@ func TestStartTLSExtensionErrorStopsBeforeCommands(t *testing.T) {
 		}
 	}
 	err = svc.SendTest(ctx, "recipient@example.com")
-	if err == nil || !strings.Contains(err.Error(), "STARTTLS 能力探测失败") {
-		t.Fatalf("应返回 STARTTLS 能力探测失败: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "STARTTLS") {
+		t.Fatalf("应返回 STARTTLS 安全错误: %v", err)
 	}
 	var sendErr *sendError
-	if !errors.As(err, &sendErr) || sendErr.stage != "STARTTLS 能力探测" {
-		t.Fatalf("应返回 STARTTLS 能力探测阶段的 sendError: %v", err)
+	if !errors.As(err, &sendErr) || sendErr.stage != FailureStartTLS {
+		t.Fatalf("应返回 starttls 阶段的 sendError: %v", err)
 	}
 	if command := <-done; !strings.HasPrefix(command, "EHLO ") || strings.Contains(command, "AUTH ") || strings.Contains(command, "MAIL FROM:") || strings.Contains(command, "RCPT TO:") || command == "DATA\r\n" {
 		t.Fatalf("能力探测失败后不应继续发送邮件命令: %q", command)

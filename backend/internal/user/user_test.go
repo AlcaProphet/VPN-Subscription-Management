@@ -13,6 +13,7 @@ import (
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/mail"
 	"vpn-sub/internal/store"
 )
 
@@ -328,9 +329,9 @@ func TestWelcomeSenderReceivesUserIDForSelfregAndOIDC(t *testing.T) {
 		source string
 	}
 	var calls []call
-	svc.SetWelcomeSender(func(_ context.Context, userID int64, to, source string) error {
+	svc.SetWelcomeSender(func(_ context.Context, userID int64, to, source string) mail.DispatchResult {
 		calls = append(calls, call{userID: userID, to: to, source: source})
-		return nil
+		return mail.DispatchResult{Status: mail.DispatchQueued, LogID: 1}
 	})
 	selfreg, err := svc.Register(ctx, "selfreg-user", "selfreg@example.com", "password123")
 	if err != nil {
@@ -355,8 +356,8 @@ func TestWelcomeSenderReceivesUserIDForSelfregAndOIDC(t *testing.T) {
 func TestWelcomeFailureLogDoesNotContainEmail(t *testing.T) {
 	var buf bytes.Buffer
 	svc := &Service{log: slog.New(slog.NewTextHandler(&buf, nil))}
-	svc.sendWelcome = func(context.Context, int64, string, string) error {
-		return errors.New("模拟发送失败")
+	svc.sendWelcome = func(context.Context, int64, string, string) mail.DispatchResult {
+		return mail.DispatchResult{Status: mail.DispatchRejected, Reason: mail.ReasonQueueFull}
 	}
 	svc.sendWelcomeIf(context.Background(), 42, "secret@example.com", "selfreg")
 	out := buf.String()

@@ -1,9 +1,9 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> **当前设计：** [Design4.md](Design4.md) 是已实现的节点编辑器等增量设计基线；[Design5.md](Design5.md) §一～§六保留整站迁移候选，§七记录已确认并已实施的邮件内容定制设计，构建记录见 [Build28.md](docs/reports/Build/Build28.md)，有效站点名称后续修复见 [Issue18.md](Issue18.md)。
-> **当前工作：** 已完成的构建记录均已归档；[Build28.md](docs/reports/Build/Build28.md) 的 Step 0.5～8 已完成工程实现、联合门禁、隔离 smoke 与归档后回归补强并按规则归档，有效站点名称一致性修复已由 [Issue18.md](Issue18.md) 闭环并在根目录保留；正式 SMTP/收件箱/邮件客户端/真实浏览器人工项见 [ProdTestList.md](ProdTestList.md)。短期待办见 [TODOLIST.md](TODOLIST.md)，已归档的邮件测试与 SMTP 优化记录见 [Issue16.md](docs/reports/Issue/Issue16.md)；R30-05 核验发现的真实 OIDC 网络边界问题见 [Issue17.md](Issue17.md)，配置导出 R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪。
-> **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；[ProdTestList.md](ProdTestList.md) 记录 Build28 邮件内容/真实 SMTP/客户端浏览器人工项；Issue16 R30-01 已完成并归档；工程自动化与人工验收分别记录。
+> **当前设计：** [Design4.md](Design4.md) 是已实现的节点编辑器等增量设计基线；[Design5.md](Design5.md) §一～§六保留整站迁移候选，§七记录已确认并已实施的邮件内容定制设计，构建记录见 [Build28.md](docs/reports/Build/Build28.md)，有效站点名称与邮件运行语义修复见 [Issue18.md](Issue18.md)。
+> **当前工作：** 已完成的构建记录均已归档；[Build28.md](docs/reports/Build/Build28.md) 的 Step 0.5～8 已完成工程实现、联合门禁、隔离 smoke 与归档后回归补强并按规则归档；R32-01 有效站点名称修复与 R32-02 业务邮件统一异步派发/短期发送日志已由 [Build29.md](docs/reports/Build/Build29.md) 实施并完成自动化门禁与本地隔离 smoke，Issue18 已在根目录保留；正式 SMTP/收件箱/邮件客户端/真实浏览器人工项见 [ProdTestList.md](ProdTestList.md)。短期待办见 [TODOLIST.md](TODOLIST.md)，已归档的邮件测试与 SMTP 优化记录见 [Issue16.md](docs/reports/Issue/Issue16.md)；R30-05 核验发现的真实 OIDC 网络边界问题见 [Issue17.md](Issue17.md)，配置导出 R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪。
+> **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；[ProdTestList.md](ProdTestList.md) 记录 Build28 邮件内容与 R32-02 异步发送/日志/真实 SMTP/客户端浏览器人工项；Issue16 R30-01 已完成并归档；工程自动化与人工验收分别记录。
 > **当前范围：** 当前项目聚焦基础模式完善；高级模式暂不跟进。Xray 相关范围和待办见 [XrayRelated1.md](XrayRelated1.md)。
 > **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
 > 已完成的设计、构建与问题记录统一见 [docs/reports/](docs/reports)，仅用于历史核查。
@@ -293,6 +293,7 @@
 | [Build26.md](docs/reports/Build/Build26.md) | AI 编码助手 | Issue14 步骤五 R28-07 核心工程约束整改：A/B/D/E/G/H/I 分步实施、架构/error/颜色静态门禁、逐 Step 失败优先测试与最终联合门禁 | Step 1～20 已按一次性串行授权完成并验收通过；已归档；R28-07F 保持设计取向未实施 |
 | [Build27.md](docs/reports/Build/Build27.md) | AI 编码助手 | Issue14 步骤七 R28-09 项目级工程与文档收尾：Alpine 3.24/CA、GHCR/CI digest/Node 24、MIT LICENSE、Xray 固定外链与内链脚本、四文件清理、联合门禁 | Step 1～6 已按一次性串行授权完成并验收通过；已归档；远端 CI 与真实人工项未执行 |
 | [Build28.md](docs/reports/Build/Build28.md) | AI 编码助手 | Design5 §七：五分支邮件内容编辑/预览、审批通过单封、完整 URL 超链接、无图片邮件、配置往返与验收 | 已归档；Step 0.5～8 工程实现、联合门禁、隔离 smoke 与归档后回归补强已验收；真实 SMTP/收件箱/客户端/浏览器人工项见 ProdTestList |
+| [Build29.md](docs/reports/Build/Build29.md) | AI 编码助手 | R32-02：业务邮件统一异步派发、2/100/500 容量、短期发送日志、密码重置补偿、SMTP 测试同步日志、退出/清空生命周期、管理 API 与前端页签 | 已按用户一次性授权严格串行完成 Step 1～11；自动化/race/errgate/前端门禁与本地隔离 smoke 通过；真实 SMTP/收件箱人工项见 ProdTestList |
 
 | [Issue1.md](docs/reports/Issue/Issue1.md) | AI 编码助手 / 开发者 | 问题记录：R1~R11 系列（首轮基础问题与修复） | 已存档 |
 
@@ -310,7 +311,7 @@
 | [Issue15.md](docs/reports/Issue/Issue15.md) | AI 编码助手 / 开发者 | Production、浏览器和真实客户端人工测试中发现的问题，以及 2026-09-10 起文档交叉审核补充登记的问题（R29 系列） | 已归档 |
 | [Issue16.md](docs/reports/Issue/Issue16.md) | AI 编码助手 / 开发者 | Build11 邮件相关人工测试与 SMTP 优化问题（R30 系列） | 已存档 |
 | [Issue17.md](Issue17.md) | AI 编码助手 / 开发者 | 核验 Issue16 R30-05 后新开的独立问题：真实 OIDC endpoint HTTPS 校验缺失、提供商切换字段混合与损坏占位符残余边界；R31-01 已移出 | 活跃 |
-| [Issue18.md](Issue18.md) | AI 编码助手 / 开发者 | R32-01 邮件预览、实际发送与站点信息的有效站点名称一致性修复 | 已闭环（根目录保留） |
+| [Issue18.md](Issue18.md) | AI 编码助手 / 开发者 | R32-01 有效站点名称一致性修复；R32-02 业务邮件异步派发、短期发送日志、全路径迁移与生命周期 | 已闭环（根目录保留；R32-02 构建记录见 Build29） |
 | [XrayRelated1.md](XrayRelated1.md) | AI 编码助手 / 开发者 | Xray 相关问题与基础模式人工核验（R26-07）；高级模式暂不跟进 | 活跃 |
 | [ExportRelated1.md](ExportRelated1.md) | AI 编码助手 / 开发者 | 配置导出与迁移问题独立跟踪（R31-01），关联 Design5 候选迁移与邮件模板导入导出边界 | 活跃 |
 

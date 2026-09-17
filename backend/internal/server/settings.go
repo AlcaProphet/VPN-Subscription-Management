@@ -12,16 +12,23 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/log"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/proxytrust"
 )
 
+// mailAvailability 供 settings GET /smtp 读取邮件领域统一可用性结果。
+type mailAvailability interface {
+	PasswordResetAvailable(ctx context.Context) (bool, error)
+}
+
 // SettingsHandler 面板配置处理器（结构体 Handler + 依赖注入）
 type SettingsHandler struct {
-	adminCfg      *config.AdminService
-	oidcSvc       *oidc.Service
-	trustProxy    *proxytrust.Policy // TRUST_PROXY 策略（速率限制分区展示生效值）
-	mailTemplates mailTemplateService
+	adminCfg         *config.AdminService
+	oidcSvc          *oidc.Service
+	trustProxy       *proxytrust.Policy // TRUST_PROXY 策略（速率限制分区展示生效值）
+	mailTemplates    mailTemplateService
+	mailAvailability mailAvailability
 }
 
 // oidcOpsAdapter 将 oidc.Service 适配为 config.OidcOps 接口（config 包避免循环依赖）
@@ -244,7 +251,17 @@ func (h *SettingsHandler) saveCaptcha(c *gin.Context) {
 // --- SMTP 分区 ---
 
 func (h *SettingsHandler) getSMTP(c *gin.Context) {
-	OK(c, h.adminCfg.GetSMTP(c.Request.Context()))
+	ctx := c.Request.Context()
+	out := h.adminCfg.GetSMTP(ctx)
+	if h.mailAvailability != nil {
+		available, err := h.mailAvailability.PasswordResetAvailable(ctx)
+		if err != nil {
+			log.FromContext(ctx).Warn("读取密码重置邮件可用性失败，按不可用展示", "err", err)
+		} else {
+			out.PasswordResetAvailable = available
+		}
+	}
+	OK(c, out)
 }
 
 func (h *SettingsHandler) saveSMTP(c *gin.Context) {

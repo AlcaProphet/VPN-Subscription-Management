@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
+	"vpn-sub/internal/mail"
 	"vpn-sub/internal/user"
 )
 
@@ -39,8 +40,7 @@ func RegisterUserAdminRoutes(engine *gin.Engine, h *UserAdminHandler, sessionMW,
 func mapProtectErr(c *gin.Context, err error) bool {
 	switch {
 	case errors.Is(err, user.ErrSelfOperation), errors.Is(err, user.ErrPendingNotAllowed),
-		errors.Is(err, user.ErrNoEmail), errors.Is(err, user.ErrSMTPNotConfigured),
-		errors.Is(err, user.ErrBadRequest):
+		errors.Is(err, user.ErrNoEmail), errors.Is(err, user.ErrBadRequest):
 		Fail(c, http.StatusBadRequest, err.Error())
 	case errors.Is(err, user.ErrLastAdmin):
 		Fail(c, http.StatusForbidden, err.Error())
@@ -162,7 +162,7 @@ func (h *UserAdminHandler) revokeTokens(c *gin.Context) {
 }
 
 // resetPassword 重置密码：mode=direct → 返回 { password }（仅一次展示）；
-// mode=send_email → SMTP 未配置返 400 提示
+// mode=send_email → 200 仅表示已提交发送；不可用/队列拒绝返回 503 安全文案。
 func (h *UserAdminHandler) resetPassword(c *gin.Context) {
 	id, ok := parseID(c, "id")
 	if !ok {
@@ -189,13 +189,28 @@ func (h *UserAdminHandler) resetPassword(c *gin.Context) {
 		OK(c, gin.H{"password": pwd})
 		return
 	}
-	if err := h.adminSvc.ResetPasswordByEmail(ctx, operatorID, id); mapProtectErr(c, err) {
-		return
-	} else if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
+	res, err := h.adminSvc.ResetPasswordByEmail(ctx, operatorID, id)
+	if mapProtectErr(c, err) {
 		return
 	}
-	OK(c, gin.H{"message": "重置邮件已发送"})
+	if err != nil {
+		FailSanitized(c, http.StatusInternalServerError, "服务器内部错误", err)
+		return
+	}
+	switch res.Status {
+	case mail.DispatchQueued:
+		OK(c, gin.H{"message": "重置邮件已提交发送"})
+	case mail.DispatchSkipped:
+		FailSanitized(c, http.StatusServiceUnavailable, "密码重置邮件当前不可用，请先完成 SMTP 配置并启用密码重置邮件", nil)
+	case mail.DispatchRejected:
+		if res.Reason == mail.ReasonQueueFull {
+			FailSanitized(c, http.StatusServiceUnavailable, "邮件队列繁忙，请稍后重试", nil)
+			return
+		}
+		FailSanitized(c, http.StatusServiceUnavailable, "邮件服务暂时不可用，请稍后重试", nil)
+	default:
+		FailSanitized(c, http.StatusInternalServerError, "服务器内部错误", errors.New("未知邮件派发状态"))
+	}
 }
 
 // clearOidc 清除 OIDC 绑定；返回 has_password 标记供前端显著警告
@@ -258,21 +273,24 @@ func (h *UserAdminHandler) delete(c *gin.Context) {
 	OK(c, nil)
 }
 
-// batchSendLinks 为所有无密码用户发送密码设置链接（回执排除范围计数）
+// batchSendLinks 为所有无密码用户提交密码设置链接；异步 SMTP 失败不在本响应计数。
 func (h *UserAdminHandler) batchSendLinks(c *gin.Context) {
-	sent, skippedPending, skippedDisabled, skippedNoEmail, err := h.adminSvc.BatchSendPasswordLinks(c.Request.Context())
+	out, err := h.adminSvc.BatchSendPasswordLinks(c.Request.Context())
 	if mapProtectErr(c, err) {
 		return
 	}
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
+		FailSanitized(c, http.StatusInternalServerError, "服务器内部错误", err)
 		return
 	}
 	OK(c, gin.H{
-		"sent":             sent,
-		"skipped_pending":  skippedPending,
-		"skipped_disabled": skippedDisabled,
-		"skipped_no_email": skippedNoEmail,
+		"queued":              out.Queued,
+		"queue_failed":        out.QueueFailed,
+		"failed":              out.Failed,
+		"skipped_pending":     out.SkippedPending,
+		"skipped_disabled":    out.SkippedDisabled,
+		"skipped_no_email":    out.SkippedNoEmail,
+		"skipped_unavailable": out.SkippedUnavailable,
 	})
 }
 

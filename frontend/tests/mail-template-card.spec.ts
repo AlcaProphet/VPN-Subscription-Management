@@ -126,6 +126,8 @@ describe('MailTemplateCard', () => {
     await nextTick()
     expect((appendWrapper.find('textarea[aria-label="邮件正文"]').element as HTMLTextAreaElement).value)
       .toBe('XYZ{{reset_url}}')
+    wrapper.unmount()
+    appendWrapper.unmount()
   })
 
   it('预览请求 299ms 不触发、300ms 触发一次', async () => {

@@ -12,6 +12,7 @@ import (
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/mail"
 	"vpn-sub/internal/store"
 )
 
@@ -27,8 +28,8 @@ type Service struct {
 	store *store.Store
 	cfg   *config.Service
 	log   *slog.Logger
-	// sendWelcome：新用户首次激活时发送欢迎邮件（mail 包注入；携带用户 ID 供安全日志，nil 时跳过）
-	sendWelcome func(ctx context.Context, userID int64, to, source string) error
+	// sendWelcome：新用户首次激活时提交欢迎邮件（mail 派发器注入；携带用户 ID 供安全日志，nil 时跳过）
+	sendWelcome func(ctx context.Context, userID int64, to, source string) mail.DispatchResult
 	// onUserActive 用户激活后的 Xray 同步回调（Build6 Step3 注入）
 	onUserActive func(ctx context.Context, userID int64)
 }
@@ -37,8 +38,8 @@ func NewService(st *store.Store, cfg *config.Service, lg *slog.Logger) *Service 
 	return &Service{store: st, cfg: cfg, log: lg}
 }
 
-// SetWelcomeSender 注入欢迎邮件发送函数；回调必须携带 userID 供安全日志使用。
-func (s *Service) SetWelcomeSender(fn func(ctx context.Context, userID int64, to, source string) error) {
+// SetWelcomeSender 注入欢迎邮件派发函数；回调必须携带 userID 供安全日志使用，且只返回封闭派发结果。
+func (s *Service) SetWelcomeSender(fn func(ctx context.Context, userID int64, to, source string) mail.DispatchResult) {
 	s.sendWelcome = fn
 }
 
@@ -61,14 +62,26 @@ func defaultGroupIDTx(ctx context.Context, tx *sql.Tx) (any, error) {
 	return nil, err
 }
 
-// sendWelcomeIf 新用户首次激活时发送欢迎邮件；失败不阻断主流程，日志只记录用户 ID 与安全错误。
+// sendWelcomeIf 新用户首次激活时提交欢迎邮件；不等待 SMTP，失败不阻断主流程。
+// 日志只记录用户 ID、邮件类型与封闭 reason，不记录邮箱、主题、正文或 URL。
 func (s *Service) sendWelcomeIf(ctx context.Context, userID int64, email, source string) {
 	if s.sendWelcome == nil || email == "" {
 		return
 	}
-	if err := s.sendWelcome(ctx, userID, email, source); err != nil {
-		s.log.Warn("欢迎邮件发送失败", "user_id", userID, "err", err)
+	res := s.sendWelcome(ctx, userID, email, source)
+	switch res.Status {
+	case mail.DispatchRejected:
+		s.log.Warn("欢迎邮件派发失败", "user_id", userID, "kind", welcomeKind(source), "reason", res.Reason)
+	case mail.DispatchSkipped:
+		s.log.Debug("欢迎邮件未派发", "user_id", userID, "kind", welcomeKind(source), "reason", res.Reason)
 	}
+}
+
+func welcomeKind(source string) string {
+	if source == "oidc" {
+		return string(mail.JobWelcomeOIDC)
+	}
+	return string(mail.JobWelcomeLocal)
 }
 
 // User 对外用户信息
