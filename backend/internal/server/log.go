@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -148,6 +149,11 @@ func (h *LogHandler) queryMail(c *gin.Context) {
 	size, err := mailPositiveQuery(c, "size", 20)
 	if err != nil || size > 100 {
 		Fail(c, http.StatusBadRequest, "size 须为 1–100 的整数")
+		return
+	}
+	// 阻止 (page-1)*size 溢出为负数后触发 slice panic；超出可表示范围的页码按非法分页处理。
+	if page > math.MaxInt/size {
+		Fail(c, http.StatusBadRequest, "page 超出可处理范围")
 		return
 	}
 	kind := c.Query("kind")

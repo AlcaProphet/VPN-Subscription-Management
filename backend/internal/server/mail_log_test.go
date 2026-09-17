@@ -2,8 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -81,5 +83,43 @@ func TestMailActivityLogAPI(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"list":[]`) {
 		t.Fatalf("空列表必须为 []: %s", w.Body.String())
+	}
+}
+
+// TestMailActivityLogPaginationBounds 分页边界：大页码不得整数溢出 panic；溢出页码按 400，合法越界页返回空列表。
+func TestMailActivityLogPaginationBounds(t *testing.T) {
+	srv := newTestServer(t)
+	adminToken := regUser(t, srv, "log-bounds-admin", "log-bounds-admin@example.com", "password123")
+
+	for _, path := range []string{
+		"/api/admin/logs/mail?page=0&size=20",
+		"/api/admin/logs/mail?page=-1&size=20",
+		"/api/admin/logs/mail?page=abc&size=20",
+		"/api/admin/logs/mail?page=" + "9223372036854775807" + "&size=20",
+		"/api/admin/logs/mail?page=" + "9223372036854775807" + "&size=100",
+	} {
+		w := profileReq(t, srv, http.MethodGet, path, adminToken, nil)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%s 应 400，实际 %d %s", path, w.Code, w.Body.String())
+		}
+	}
+
+	// 该 maxPage 精确等于 MaxInt/size 的边界值；start 不会溢出，应返回空列表而非 400。
+	maxPage := math.MaxInt / 100
+	w := profileReq(t, srv, http.MethodGet, "/api/admin/logs/mail?page="+strconv.Itoa(maxPage)+"&size=100", adminToken, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("合法大页码应 200，实际 %d %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"list":[]`) {
+		t.Fatalf("合法大页码应返回空列表: %s", w.Body.String())
+	}
+
+	// 普通越界页仍返回空列表（不因“超出总数”误报 400）。
+	w = profileReq(t, srv, http.MethodGet, "/api/admin/logs/mail?page=2&size=20", adminToken, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("普通越界页应 200，实际 %d %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"list":[]`) {
+		t.Fatalf("普通越界页应返回空列表: %s", w.Body.String())
 	}
 }

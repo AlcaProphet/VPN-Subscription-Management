@@ -347,3 +347,327 @@ func (t *staticTransport) sendJob(ctx context.Context, _ TemplateKind, _ string,
 	}
 	return nil
 }
+
+// lifecycleTransport 用于生命周期并发测试：sendJob 故意忽略 ctx，只在 release 关闭后返回。
+type lifecycleTransport struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func newLifecycleTransport() *lifecycleTransport {
+	return &lifecycleTransport{started: make(chan struct{}, 1), release: make(chan struct{})}
+}
+func (t *lifecycleTransport) availability(context.Context, string) (Availability, error) {
+	return Availability{Available: true}, nil
+}
+func (t *lifecycleTransport) siteContext(context.Context) (string, string, error) {
+	return "测试站点", "https://app.example.com", nil
+}
+func (t *lifecycleTransport) siteName(context.Context) (string, error) { return "测试站点", nil }
+func (t *lifecycleTransport) frontendURL(context.Context) (string, error) {
+	return "https://app.example.com", nil
+}
+func (t *lifecycleTransport) testSMTP(context.Context, string) error { return nil }
+func (t *lifecycleTransport) sendJob(context.Context, TemplateKind, string, RenderValues) error {
+	select {
+	case t.started <- struct{}{}:
+	default:
+	}
+	<-t.release
+	return nil
+}
+
+// TestDispatcherConcurrentStopWaitsForWorkers 并发的第二个 Stop 必须等待第一个 Stop 完成 worker 退出后才返回。
+func TestDispatcherConcurrentStopWaitsForWorkers(t *testing.T) {
+	tr := newLifecycleTransport()
+	logs := NewActivityLog(ActivityLogCapacity)
+	d := newDispatcherWithTransport(tr, logs, nil)
+
+	res := d.DispatchWelcome(context.Background(), 1, "stop@example.com", "selfreg")
+	if res.Status != DispatchQueued {
+		t.Fatalf("任务应 queued: %+v", res)
+	}
+	select {
+	case <-tr.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待 worker 开始发送超时")
+	}
+
+	firstDone := make(chan struct{})
+	go func() {
+		d.Stop()
+		close(firstDone)
+	}()
+	// 等第一个 Stop 已设置 stopped/generation=nil 并进入 wg.Wait；此时 worker 仍阻塞在 release。
+	waitFor(t, 2*time.Second, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.stopped && d.generation == nil
+	}, "第一个 Stop 未进入等待")
+
+	secondDone := make(chan struct{})
+	go func() {
+		d.Stop()
+		close(secondDone)
+	}()
+	select {
+	case <-secondDone:
+		t.Fatal("第二个 Stop 在 worker 退出前提前返回")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(tr.release)
+	select {
+	case <-firstDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("第一个 Stop 未退出")
+	}
+	select {
+	case <-secondDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("第二个 Stop 未退出")
+	}
+}
+
+// TestDispatcherResumeWaitsForPauseDrain Resume 必须等待 PauseAndDrain 完成后再启动新代次。
+func TestDispatcherResumeWaitsForPauseDrain(t *testing.T) {
+	tr := newLifecycleTransport()
+	logs := NewActivityLog(ActivityLogCapacity)
+	d := newDispatcherWithTransport(tr, logs, nil)
+	t.Cleanup(func() {
+		select {
+		case <-tr.release:
+		default:
+			close(tr.release)
+		}
+		d.Stop()
+	})
+
+	res := d.DispatchWelcome(context.Background(), 1, "pause@example.com", "selfreg")
+	if res.Status != DispatchQueued {
+		t.Fatalf("任务应 queued: %+v", res)
+	}
+	select {
+	case <-tr.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待 worker 开始发送超时")
+	}
+
+	pauseDone := make(chan error, 1)
+	go func() { pauseDone <- d.PauseAndDrain() }()
+	waitFor(t, 2*time.Second, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.paused && d.generation != nil
+	}, "PauseAndDrain 未进入等待")
+
+	// 暂停期间新派发必须立即 rejected/dispatcher_unavailable。
+	resPaused := d.DispatchWelcome(context.Background(), 2, "paused@example.com", "selfreg")
+	if resPaused.Status != DispatchRejected || resPaused.Reason != ReasonDispatcherUnavailable {
+		t.Fatalf("暂停期间必须 rejected/dispatcher_unavailable: %+v", resPaused)
+	}
+
+	resumeDone := make(chan error, 1)
+	go func() { resumeDone <- d.Resume() }()
+	select {
+	case err := <-resumeDone:
+		t.Fatalf("Resume 在 PauseAndDrain 完成前返回: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(tr.release)
+
+	select {
+	case err := <-pauseDone:
+		if err != nil {
+			t.Fatalf("PauseAndDrain 失败: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PauseAndDrain 未退出")
+	}
+	select {
+	case err := <-resumeDone:
+		if err != nil {
+			t.Fatalf("Resume 失败: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Resume 未退出")
+	}
+
+	resNew := d.DispatchWelcome(context.Background(), 3, "resume@example.com", "selfreg")
+	if resNew.Status != DispatchQueued {
+		t.Fatalf("Resume 后新任务应 queued: %+v", resNew)
+	}
+	waitFor(t, 2*time.Second, func() bool {
+		rec := findActivity(logs, resNew.LogID)
+		return rec != nil && rec.Status == ActivityAccepted
+	}, "Resume 后新任务应发送成功")
+}
+
+// TestDispatcherResumeAfterClearRequiresDrainedGeneration 不允许在旧代次仍运行时清日志并重复启动 worker。
+func TestDispatcherResumeAfterClearRequiresDrainedGeneration(t *testing.T) {
+	tr := &staticTransport{}
+	d := newDispatcherWithTransport(tr, NewActivityLog(ActivityLogCapacity), nil)
+	t.Cleanup(d.Stop)
+	if err := d.ResumeAfterClear(); err == nil {
+		t.Fatal("活动代次上 ResumeAfterClear 应返回错误")
+	}
+}
+
+// preflightTransport 记录 availability/frontendURL 调用次数，并支持按测试需要阻塞 availability。
+type preflightTransport struct {
+	mu            sync.Mutex
+	availCalls    int
+	frontendCalls int
+	avail         Availability
+	availErr      error
+	frontendErr   error
+	entered       chan struct{}
+	release       chan struct{}
+}
+
+func (t *preflightTransport) availability(ctx context.Context, _ string) (Availability, error) {
+	t.mu.Lock()
+	t.availCalls++
+	entered, release, avail, availErr := t.entered, t.release, t.avail, t.availErr
+	t.mu.Unlock()
+	if entered != nil {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+	}
+	if release != nil {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return Availability{}, ctx.Err()
+		}
+	}
+	return avail, availErr
+}
+func (t *preflightTransport) siteContext(context.Context) (string, string, error) {
+	return "测试站点", "https://app.example.com", nil
+}
+func (t *preflightTransport) siteName(context.Context) (string, error) { return "测试站点", nil }
+func (t *preflightTransport) frontendURL(context.Context) (string, error) {
+	t.mu.Lock()
+	t.frontendCalls++
+	err := t.frontendErr
+	t.mu.Unlock()
+	return "https://app.example.com", err
+}
+func (t *preflightTransport) testSMTP(context.Context, string) error { return nil }
+func (t *preflightTransport) sendJob(context.Context, TemplateKind, string, RenderValues) error {
+	return nil
+}
+func (t *preflightTransport) calls() (avail, frontend int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.availCalls, t.frontendCalls
+}
+
+// TestDispatcherPausedRejectsBeforeAvailability 暂停后新派发应立即 rejected，且不得调用 availability。
+func TestDispatcherPausedRejectsBeforeAvailability(t *testing.T) {
+	tr := &preflightTransport{avail: Availability{Available: true}}
+	logs := NewActivityLog(ActivityLogCapacity)
+	d := newDispatcherWithTransport(tr, logs, nil)
+	t.Cleanup(d.Stop)
+
+	if err := d.PauseAndDrain(); err != nil {
+		t.Fatalf("PauseAndDrain 失败: %v", err)
+	}
+	res := d.DispatchWelcome(context.Background(), 1, "paused@example.com", "selfreg")
+	if res.Status != DispatchRejected || res.Reason != ReasonDispatcherUnavailable || res.LogID == 0 {
+		t.Fatalf("暂停期间应 rejected/dispatcher_unavailable: %+v", res)
+	}
+	avail, frontend := tr.calls()
+	if avail != 0 || frontend != 0 {
+		t.Fatalf("暂停拒绝不得读取配置: availability=%d frontend=%d", avail, frontend)
+	}
+	rec := findActivity(logs, res.LogID)
+	if rec == nil || rec.Status != ActivityFailed || rec.FailureStage == nil || *rec.FailureStage != FailureDispatcherUnavailable {
+		t.Fatalf("拒绝日志异常: %+v", rec)
+	}
+}
+
+// TestDispatchPasswordResetScopeBeforeFrontendURL scope 关闭时不得读取前端地址。
+func TestDispatchPasswordResetScopeBeforeFrontendURL(t *testing.T) {
+	tr := &preflightTransport{
+		avail:       Availability{Reason: ReasonScopeDisabled},
+		frontendErr: errors.New("frontend url read should not happen"),
+	}
+	logs := NewActivityLog(ActivityLogCapacity)
+	d := newDispatcherWithTransport(tr, logs, nil)
+	t.Cleanup(d.Stop)
+
+	res := d.DispatchPasswordReset(context.Background(), 1, "a@example.com", "/reset#token=x", SourcePublicForgot)
+	if res.Status != DispatchSkipped || res.Reason != ReasonScopeDisabled || res.LogID != 0 {
+		t.Fatalf("scope 关闭应 skipped 且不写日志: %+v", res)
+	}
+	avail, frontend := tr.calls()
+	if avail != 1 || frontend != 0 {
+		t.Fatalf("应先查 scope 且不得读前端地址: availability=%d frontend=%d", avail, frontend)
+	}
+	if got := len(logs.Snapshot()); got != 0 {
+		t.Fatalf("skipped 不应写日志: %d", got)
+	}
+}
+
+// TestDispatcherFinalStateRecheck availability 读取期间发生 Stop 时，最终入队前必须再次拒绝。
+func TestDispatcherFinalStateRecheck(t *testing.T) {
+	tr := &preflightTransport{
+		avail:   Availability{Available: true},
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	logs := NewActivityLog(ActivityLogCapacity)
+	d := newDispatcherWithTransport(tr, logs, nil)
+	t.Cleanup(d.Stop)
+
+	resultCh := make(chan DispatchResult, 1)
+	go func() {
+		resultCh <- d.DispatchWelcome(context.Background(), 1, "recheck@example.com", "selfreg")
+	}()
+	select {
+	case <-tr.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待 availability 进入超时")
+	}
+	// Stop 不等待 availability 释放；随后释放读取，dispatch 必须在最终入队前拒绝。
+	d.Stop()
+	close(tr.release)
+	select {
+	case res := <-resultCh:
+		if res.Status != DispatchRejected || res.Reason != ReasonDispatcherUnavailable || res.LogID == 0 {
+			t.Fatalf("最终状态复核应 rejected/dispatcher_unavailable: %+v", res)
+		}
+		if len(d.queue) != 0 {
+			t.Fatalf("拒绝后队列必须为空: %d", len(d.queue))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待 dispatch 结果超时")
+	}
+}
+
+// TestDispatchPasswordResetFrontendReadFailure 前端地址读取失败仍按配置读取失败归类。
+func TestDispatchPasswordResetFrontendReadFailure(t *testing.T) {
+	tr := &preflightTransport{
+		avail:       Availability{Available: true},
+		frontendErr: errors.New("frontend read failed"),
+	}
+	logs := NewActivityLog(ActivityLogCapacity)
+	d := newDispatcherWithTransport(tr, logs, nil)
+	t.Cleanup(d.Stop)
+
+	res := d.DispatchPasswordReset(context.Background(), 1, "a@example.com", "/reset#token=x", SourceAdminSingle)
+	if res.Status != DispatchRejected || res.Reason != ReasonConfigReadFailed || res.LogID == 0 {
+		t.Fatalf("前端地址读取失败应 rejected/config_read_failed: %+v", res)
+	}
+	rec := findActivity(logs, res.LogID)
+	if rec == nil || rec.FailureStage == nil || *rec.FailureStage != FailureConfig {
+		t.Fatalf("读取失败日志阶段应为 config: %+v", rec)
+	}
+	avail, frontend := tr.calls()
+	if avail != 1 || frontend != 1 {
+		t.Fatalf("调用次数异常: availability=%d frontend=%d", avail, frontend)
+	}
+}

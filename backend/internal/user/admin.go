@@ -698,6 +698,7 @@ func (s *AdminService) SetQuotaOverride(ctx context.Context, userID int64, quota
 }
 
 // BatchSendPasswordLinksResult 批量密码设置链接提交结果；异步 SMTP 失败不在本回执中，只进入邮件发送日志。
+// QueueFailed 只统计队列满或派发器不可用；Failed 统计准备/内部错误。
 type BatchSendPasswordLinksResult struct {
 	Queued             int
 	QueueFailed        int
@@ -710,7 +711,7 @@ type BatchSendPasswordLinksResult struct {
 
 // --- 批量操作：为所有无密码用户发送密码设置链接 ---
 // 待审批/已禁用/无邮箱自动排除；全局不可用时符合条件目标计入 skipped_unavailable；
-// 入队拒绝计入 queue_failed；随机数/token 写库等准备失败计入 failed。
+// 仅队列满/派发器不可用计入 queue_failed；随机数/token 写库/严格配置读取等准备或内部失败计入 failed。
 func (s *AdminService) BatchSendPasswordLinks(ctx context.Context) (BatchSendPasswordLinksResult, error) {
 	var out BatchSendPasswordLinksResult
 	available, err := s.resetSvc.PasswordResetAvailable(ctx)
@@ -760,7 +761,12 @@ func (s *AdminService) BatchSendPasswordLinks(ctx context.Context) (BatchSendPas
 			case mail.DispatchQueued:
 				out.Queued++
 			case mail.DispatchRejected:
-				out.QueueFailed++
+				switch res.Reason {
+				case mail.ReasonQueueFull, mail.ReasonDispatcherUnavailable:
+					out.QueueFailed++
+				default:
+					out.Failed++ // 严格配置读取失败或未知拒绝原因均按内部/准备失败处理
+				}
 			case mail.DispatchSkipped:
 				out.SkippedUnavailable++
 			default:

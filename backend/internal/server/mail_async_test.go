@@ -14,7 +14,8 @@ import (
 	"vpn-sub/internal/mail"
 )
 
-// TestRegisterDoesNotWaitForSMTP R32-02：欢迎邮件走派发器后，注册响应不得等待 SMTP 网络阶段。
+// TestRegisterDoesNotWaitForSMTP R32-02：欢迎邮件走派发器后，注册响应必须在 SMTP 仍阻塞时返回。
+// 使用“HTTP 响应完成 + SMTP stub 已接受连接但仍未应答”的双通道屏障，避免墙钟阈值在 race/高负载下抖动。
 func TestRegisterDoesNotWaitForSMTP(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
@@ -24,13 +25,16 @@ func TestRegisterDoesNotWaitForSMTP(t *testing.T) {
 		t.Fatalf("启动 SMTP stub 失败: %v", err)
 	}
 	defer ln.Close()
+	acceptedCh := make(chan struct{}, 1)
+	connCh := make(chan net.Conn, 1)
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		defer conn.Close()
-		_, _ = io.Copy(io.Discard, conn)
+		connCh <- conn
+		acceptedCh <- struct{}{}
+		_, _ = io.Copy(io.Discard, conn) // 不发送 SMTP greeting，保持会话阻塞
 	}()
 	host, port, _ := net.SplitHostPort(ln.Addr().String())
 	for k, v := range map[string]string{
@@ -49,14 +53,31 @@ func TestRegisterDoesNotWaitForSMTP(t *testing.T) {
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	start := time.Now()
-	srv.Engine().ServeHTTP(w, req)
-	elapsed := time.Since(start)
-	if w.Code != http.StatusOK {
-		t.Fatalf("注册应成功: %d %s", w.Code, w.Body.String())
+	respCh := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		w := httptest.NewRecorder()
+		srv.Engine().ServeHTTP(w, req)
+		respCh <- w
+	}()
+
+	var resp *httptest.ResponseRecorder
+	accepted := false
+	deadline := time.After(10 * time.Second)
+	for resp == nil || !accepted {
+		select {
+		case <-acceptedCh:
+			accepted = true
+			acceptedCh = nil // 避免关闭后忙轮询
+		case w := <-respCh:
+			resp = w
+		case <-deadline:
+			t.Fatal("注册响应未在 SMTP 会话仍阻塞时返回（疑似同步等待 SMTP）")
+		}
 	}
-	if elapsed > time.Second {
-		t.Fatalf("注册响应等待 SMTP 超时: %v", elapsed)
+	if conn := <-connCh; conn != nil {
+		_ = conn.Close()
+	}
+	if resp.Code != http.StatusOK {
+		t.Fatalf("注册应成功: %d %s", resp.Code, resp.Body.String())
 	}
 }

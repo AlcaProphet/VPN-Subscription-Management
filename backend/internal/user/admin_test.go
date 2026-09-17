@@ -351,6 +351,42 @@ func TestAdminBatchSendLinks(t *testing.T) {
 	}
 }
 
+// TestAdminBatchSendLinksRejectedReasons queue_failed 只统计队列满/派发器不可用；严格配置读取失败等拒绝归 failed。
+func TestAdminBatchSendLinksRejectedReasons(t *testing.T) {
+	tests := []struct {
+		name          string
+		reason        mail.DispatchReason
+		wantQueueFail int
+		wantFailed    int
+	}{
+		{name: "queue_full", reason: mail.ReasonQueueFull, wantQueueFail: 1, wantFailed: 0},
+		{name: "dispatcher_unavailable", reason: mail.ReasonDispatcherUnavailable, wantQueueFail: 1, wantFailed: 0},
+		{name: "config_read_failed", reason: mail.ReasonConfigReadFailed, wantQueueFail: 0, wantFailed: 1},
+		{name: "unknown_reason", reason: mail.DispatchReason("unknown"), wantQueueFail: 0, wantFailed: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st, adminSvc, _, resetSvc, _ := newTestAdminService(t)
+			seedUser(t, st.DB(), "batch-reason", "batch-reason@example.com", "user", "active", "")
+			resetSvc.SetMailer(&userTestMailer{
+				available: true,
+				result:    mail.DispatchResult{Status: mail.DispatchRejected, Reason: tc.reason, LogID: 1},
+			})
+			out, err := adminSvc.BatchSendPasswordLinks(context.Background())
+			if err != nil {
+				t.Fatalf("批量提交不应报错: %v", err)
+			}
+			if out.QueueFailed != tc.wantQueueFail || out.Failed != tc.wantFailed {
+				t.Fatalf("分类计数异常: got queue_failed=%d failed=%d, want queue_failed=%d failed=%d",
+					out.QueueFailed, out.Failed, tc.wantQueueFail, tc.wantFailed)
+			}
+			if out.Queued != 0 || out.SkippedUnavailable != 0 {
+				t.Fatalf("其余计数异常: %+v", out)
+			}
+		})
+	}
+}
+
 // TestAdminDeleteUserCascade 删除用户级联：Token/自定义订阅/版本文件无残留；邮箱释放后可重新注册
 func TestAdminDeleteUserCascade(t *testing.T) {
 	st, adminSvc, tokenSvc, _, verSvc := newTestAdminService(t)

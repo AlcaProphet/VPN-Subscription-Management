@@ -87,10 +87,13 @@ type Dispatcher struct {
 	// queue 为运行代次共用；PauseAndDrain 会清空后才能 Resume。
 	queue chan *Job
 
-	mu         sync.Mutex
-	generation *generation
-	paused     bool
-	stopped    bool
+	// lifecycleMu 串行化 Stop/PauseAndDrain/Resume/ResumeAfterClear，避免并发生命周期操作交错；
+	// mu 只保护 generation/paused/stopped 等短临界区状态，dispatch 不持有 lifecycleMu。
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
+	generation  *generation
+	paused      bool
+	stopped     bool
 }
 
 const (
@@ -177,8 +180,12 @@ func (d *Dispatcher) DispatchApprovalRejected(ctx context.Context, userID int64,
 }
 
 // DispatchPasswordReset 密码重置邮件；source 区分公共/管理员单用户/管理员批量。
-// 相对重置路径在此处与前端地址拼成绝对 URL 并随任务快照固定；前端地址缺失属已知配置不可用。
+// 先通过 preflight 判定 scope/派发器状态，再与前端地址拼成绝对 URL 并随任务快照固定；
+// 前端地址缺失属已知配置不可用，避免 scope 关闭时仍读取前端地址。
 func (d *Dispatcher) DispatchPasswordReset(ctx context.Context, userID int64, to, resetURL, source string) DispatchResult {
+	if r := d.preflight(ctx, JobPasswordReset, source, userID, to); r != nil {
+		return *r
+	}
 	if strings.HasPrefix(resetURL, "/") {
 		base, err := d.svc.frontendURL(ctx)
 		if err != nil {
@@ -190,20 +197,12 @@ func (d *Dispatcher) DispatchPasswordReset(ctx context.Context, userID int64, to
 		}
 		resetURL = base + resetURL
 	}
-	return d.dispatch(ctx, JobPasswordReset, source, userID, to, RenderValues{ResetURL: resetURL}, false)
+	return d.enqueuePrepared(JobPasswordReset, source, userID, to, RenderValues{ResetURL: resetURL})
 }
 
 func (d *Dispatcher) dispatch(ctx context.Context, kind JobKind, source string, userID int64, to string, values RenderValues, needSite bool) DispatchResult {
-	if strings.TrimSpace(to) == "" {
-		return DispatchResult{Status: DispatchSkipped, Reason: ReasonEmptyRecipient}
-	}
-	scope := scopeForJob(kind)
-	avail, err := d.svc.availability(ctx, scope)
-	if err != nil {
-		return d.rejectBeforeEnqueue(kind, source, &userID, to)
-	}
-	if !avail.Available {
-		return DispatchResult{Status: DispatchSkipped, Reason: avail.Reason}
+	if r := d.preflight(ctx, kind, source, userID, to); r != nil {
+		return *r
 	}
 	if needSite {
 		if kind == JobApprovalRejected {
@@ -221,14 +220,42 @@ func (d *Dispatcher) dispatch(ctx context.Context, kind JobKind, source string, 
 			values.LoginURL = loginURL
 		}
 	}
-	j := &Job{kind: kind, source: source, userID: cloneInt64Ptr(&userID), to: to, values: values}
+	return d.enqueuePrepared(kind, source, userID, to, values)
+}
 
+// preflight 入队前置：空收件人/派发器状态/scope 可用性按固定顺序判定。
+// 返回 nil 表示可继续准备 values；返回 skipped/rejected 结果表示不得创建任务。
+// 状态检查先于任何配置读取，保证暂停/停止时立即拒绝且不等待清空事务。
+func (d *Dispatcher) preflight(ctx context.Context, kind JobKind, source string, userID int64, to string) *DispatchResult {
+	if strings.TrimSpace(to) == "" {
+		return &DispatchResult{Status: DispatchSkipped, Reason: ReasonEmptyRecipient}
+	}
+	d.mu.Lock()
+	unavailable := d.stopped || d.paused || d.generation == nil
+	d.mu.Unlock()
+	if unavailable {
+		res := d.rejectUnavailable(kind, source, &userID, to)
+		return &res
+	}
+	avail, err := d.svc.availability(ctx, scopeForJob(kind))
+	if err != nil {
+		res := d.rejectBeforeEnqueue(kind, source, &userID, to)
+		return &res
+	}
+	if !avail.Available {
+		return &DispatchResult{Status: DispatchSkipped, Reason: avail.Reason}
+	}
+	return nil
+}
+
+// enqueuePrepared 在最终临界区内复核派发器状态，创建 queued 日志并非阻塞入队。
+func (d *Dispatcher) enqueuePrepared(kind JobKind, source string, userID int64, to string, values RenderValues) DispatchResult {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.stopped || d.paused || d.generation == nil {
-		id := d.logs.RecordTerminalFailed(kind.templateKind(), source, &userID, to, FailureDispatcherUnavailable)
-		return DispatchResult{Status: DispatchRejected, Reason: ReasonDispatcherUnavailable, LogID: id}
+		return d.rejectUnavailableLocked(kind, source, &userID, to)
 	}
+	j := &Job{kind: kind, source: source, userID: cloneInt64Ptr(&userID), to: to, values: values}
 	id := d.logs.BeginQueued(kind.templateKind(), source, &userID, to)
 	j.logID = id
 	select {
@@ -245,11 +272,23 @@ func (d *Dispatcher) rejectBeforeEnqueue(kind JobKind, source string, userID *in
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.stopped || d.paused || d.generation == nil {
-		id := d.logs.RecordTerminalFailed(kind.templateKind(), source, userID, to, FailureDispatcherUnavailable)
-		return DispatchResult{Status: DispatchRejected, Reason: ReasonDispatcherUnavailable, LogID: id}
+		return d.rejectUnavailableLocked(kind, source, userID, to)
 	}
 	id := d.logs.RecordTerminalFailed(kind.templateKind(), source, userID, to, FailureConfig)
 	return DispatchResult{Status: DispatchRejected, Reason: ReasonConfigReadFailed, LogID: id}
+}
+
+// rejectUnavailable 拒绝派发并创建 dispatcher_unavailable 终态日志。
+func (d *Dispatcher) rejectUnavailable(kind JobKind, source string, userID *int64, to string) DispatchResult {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.rejectUnavailableLocked(kind, source, userID, to)
+}
+
+// rejectUnavailableLocked 在已持有 d.mu 时记录 dispatcher_unavailable 终态。
+func (d *Dispatcher) rejectUnavailableLocked(kind JobKind, source string, userID *int64, to string) DispatchResult {
+	id := d.logs.RecordTerminalFailed(kind.templateKind(), source, userID, to, FailureDispatcherUnavailable)
+	return DispatchResult{Status: DispatchRejected, Reason: ReasonDispatcherUnavailable, LogID: id}
 }
 
 func scopeForJob(kind JobKind) string {
@@ -318,6 +357,9 @@ func (d *Dispatcher) drainCanceled() {
 
 // PauseAndDrain 停止入队并取消/丢弃当前代次；返回后队列为空、worker 已退出。
 func (d *Dispatcher) PauseAndDrain() error {
+	d.lifecycleMu.Lock()
+	defer d.lifecycleMu.Unlock()
+
 	d.mu.Lock()
 	if d.stopped {
 		d.mu.Unlock()
@@ -344,6 +386,9 @@ func (d *Dispatcher) PauseAndDrain() error {
 
 // Resume 清空失败/正常恢复用：保留现有日志并启动新代次。Stop 后不可恢复。
 func (d *Dispatcher) Resume() error {
+	d.lifecycleMu.Lock()
+	defer d.lifecycleMu.Unlock()
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.stopped {
@@ -358,11 +403,18 @@ func (d *Dispatcher) Resume() error {
 }
 
 // ResumeAfterClear 清空成功用：在同一临界区内清空 ActivityLog 并启动新代次。
+// 必须等待 PauseAndDrain 完成后调用；若仍有运行代次则返回错误，禁止重复启动 worker。
 func (d *Dispatcher) ResumeAfterClear() error {
+	d.lifecycleMu.Lock()
+	defer d.lifecycleMu.Unlock()
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.stopped {
 		return ErrDispatcherStopped
+	}
+	if d.generation != nil {
+		return errors.New("邮件派发器尚未完成暂停，不能清空日志并启动新代次")
 	}
 	d.logs.Clear()
 	d.startGenerationLocked()
@@ -382,6 +434,9 @@ func (d *Dispatcher) startGenerationLocked() {
 
 // Stop 永久停止派发器：取消当前代次、等待任务标 failed/canceled、等待 worker 退出；幂等。
 func (d *Dispatcher) Stop() {
+	d.lifecycleMu.Lock()
+	defer d.lifecycleMu.Unlock()
+
 	d.mu.Lock()
 	if d.stopped {
 		gen := d.generation

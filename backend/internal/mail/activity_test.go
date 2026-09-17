@@ -62,6 +62,7 @@ func TestActivityLogStateMachineAndCapacity(t *testing.T) {
 	id4 := log.BeginQueued(TemplatePasswordReset, "public_forgot", &uid, "c@example.com")
 	id5 := log.BeginQueued(TemplatePasswordReset, "admin_single", &uid, "d@example.com")
 	id6 := log.BeginQueued(TemplatePasswordReset, "admin_batch", &uid, "e@example.com")
+	log.MarkSending(id4)
 	log.MarkSendFailed(id4, FailureConnect)
 	recs = log.Snapshot()
 	if len(recs) != 3 || recs[0].ID != id6 || recs[1].ID != id5 || recs[2].ID != id4 {
@@ -86,6 +87,54 @@ func TestActivityLogStateMachineAndCapacity(t *testing.T) {
 	id7 := log.BeginQueued(TemplatePasswordReset, "public_forgot", &uid, "f@example.com")
 	if id7 <= id6 {
 		t.Fatalf("Clear 后 ID 必须继续单调: id6=%d id7=%d", id6, id7)
+	}
+}
+
+// TestActivityLogRejectsIllegalTransitions 锁定封闭状态机：非法前置状态不得直接进入终态。
+func TestActivityLogRejectsIllegalTransitions(t *testing.T) {
+	log := NewActivityLog(10)
+	uid := int64(1)
+
+	queued := log.BeginQueued(TemplateWelcomeLocal, "selfreg", &uid, "queued@example.com")
+	log.MarkAccepted(queued)
+	rec := log.Snapshot()[0]
+	if rec.Status != ActivityQueued || rec.StartedAt != nil || rec.FinishedAt != nil ||
+		rec.QueueDurationMS != nil || rec.SendDurationMS != nil || rec.FailureStage != nil {
+		t.Fatalf("queued 直接 MarkAccepted 必须无效果: %+v", rec)
+	}
+	log.MarkSendFailed(queued, FailureConnect)
+	rec = log.Snapshot()[0]
+	if rec.Status != ActivityQueued || rec.FailureStage != nil {
+		t.Fatalf("queued 直接 MarkSendFailed 必须无效果: %+v", rec)
+	}
+
+	sending := log.BeginQueued(TemplateWelcomeLocal, "selfreg", &uid, "sending@example.com")
+	log.MarkSending(sending)
+	log.MarkAccepted(sending)
+	rec = log.Snapshot()[0]
+	if rec.Status != ActivityAccepted || rec.StartedAt == nil || rec.FinishedAt == nil ||
+		rec.QueueDurationMS == nil || rec.SendDurationMS == nil {
+		t.Fatalf("sending 合法 accepted 路径异常: %+v", rec)
+	}
+
+	// 已进入终态后所有非法/重复更新均不得回退或改写。
+	before := log.Snapshot()[0]
+	log.MarkQueuedFailed(sending, FailureQueueFull)
+	log.MarkSendFailed(sending, FailureConnect)
+	log.MarkSending(sending)
+	after := log.Snapshot()[0]
+	if after.Status != ActivityAccepted || after.FinishedAt == nil || after.FailureStage != nil ||
+		after.ID != before.ID || !after.FinishedAt.Equal(*before.FinishedAt) {
+		t.Fatalf("终态记录不得回退/改写: before=%+v after=%+v", before, after)
+	}
+
+	// queued 只能通过 MarkQueuedFailed 进入 failed，且不伪造发送耗时。
+	queueFail := log.BeginQueued(TemplateApprovalRejected, "approval", &uid, "queuefail@example.com")
+	log.MarkQueuedFailed(queueFail, FailureQueueFull)
+	rec = log.Snapshot()[0]
+	if rec.Status != ActivityFailed || rec.FailureStage == nil || *rec.FailureStage != FailureQueueFull ||
+		rec.StartedAt != nil || rec.QueueDurationMS != nil || rec.SendDurationMS != nil {
+		t.Fatalf("queued→failed 队列拒绝路径异常: %+v", rec)
 	}
 }
 

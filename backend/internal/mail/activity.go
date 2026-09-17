@@ -110,12 +110,12 @@ func (l *ActivityLog) MarkSending(id int64) {
 	rec.QueueDurationMS = durationMS(rec.CreatedAt, now)
 }
 
-// MarkAccepted sending→accepted；重复终态更新无效果。
+// MarkAccepted 仅允许 sending→accepted；重复终态、非法前置状态均无效果。
 func (l *ActivityLog) MarkAccepted(id int64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	rec := l.findLocked(id)
-	if rec == nil || rec.Status == ActivityAccepted || rec.Status == ActivityFailed {
+	if rec == nil || rec.Status != ActivitySending {
 		return
 	}
 	now := time.Now()
@@ -127,12 +127,12 @@ func (l *ActivityLog) MarkAccepted(id int64) {
 	rec.FailureStage = nil
 }
 
-// MarkSendFailed sending→failed；不伪造未进入阶段的耗时。
+// MarkSendFailed 仅允许 sending→failed；不伪造未进入阶段的耗时。
 func (l *ActivityLog) MarkSendFailed(id int64, stage FailureStage) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	rec := l.findLocked(id)
-	if rec == nil || rec.Status == ActivityAccepted || rec.Status == ActivityFailed {
+	if rec == nil || rec.Status != ActivitySending {
 		return
 	}
 	now := time.Now()
@@ -144,12 +144,12 @@ func (l *ActivityLog) MarkSendFailed(id int64, stage FailureStage) {
 	}
 }
 
-// MarkQueuedFailed queued→failed（队列满/暂停/停止前拒绝）；开始时间与耗时保持 null。
+// MarkQueuedFailed 仅允许 queued→failed（队列满/暂停/停止前拒绝）；开始时间与耗时保持 null。
 func (l *ActivityLog) MarkQueuedFailed(id int64, stage FailureStage) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	rec := l.findLocked(id)
-	if rec == nil || rec.Status == ActivityAccepted || rec.Status == ActivityFailed || rec.Status == ActivitySending {
+	if rec == nil || rec.Status != ActivityQueued {
 		return
 	}
 	now := time.Now()

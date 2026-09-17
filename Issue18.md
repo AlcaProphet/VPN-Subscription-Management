@@ -175,12 +175,27 @@
   - 定向 smoke：阻塞 SMTP 下注册快速返回；2 worker/100 队列/第 103 个 rejected；SMTP 测试无 queued 且写日志；邮件日志 API 401/403/400/no-store/清空幂等；清空邮件日志不影响发送；全量清空成功清日志并恢复派发器、前置暂停失败 503 且不清库。
 - **验收边界：** 上述为编译、静态检查、单元/竞态、接口级与本地 mock smoke 证据；正式 SMTP、真实收件箱、外部邮件客户端显示与最终投递仍属 [ProdTestList.md](ProdTestList.md) 人工项，不以自动化结果替代。
 
+### 2.14 独立核验后修复（2026-09-17）
+
+- **F1 邮件日志 API 分页溢出：** `queryMail` 在解析 `page`/`size` 后增加 `page > math.MaxInt/size` 溢出保护；算术溢出页码返回 400“page 超出可处理范围”，合法但超出总数的页码仍返回 200 + 空 `{list,total}`。新增 `TestMailActivityLogPaginationBounds` 覆盖 `MaxInt`、边界值和普通越界页。
+- **F2 批量密码邮件计数分类：** `BatchSendPasswordLinks` 仅将 `ReasonQueueFull` / `ReasonDispatcherUnavailable` 计入 `queue_failed`；`ReasonConfigReadFailed` 及未知拒绝原因计入 `failed`。新增 `TestAdminBatchSendLinksRejectedReasons` 覆盖四种 reason 映射。
+- **F3 ActivityLog 状态机闭合：** `MarkAccepted` / `MarkSendFailed` 仅允许 `sending` 前置，`MarkQueuedFailed` 仅允许 `queued` 前置；非法/重复终态更新静默无效果。新增 `TestActivityLogRejectsIllegalTransitions`。
+- **F4 Dispatcher 前置顺序：** 新增 `preflight`，固定“空收件人 → 派发器状态 → scope 可用性”顺序；`DispatchPasswordReset` 先 `preflight`，再读取 `frontendURL`；`enqueuePrepared` 在最终临界区再次复核状态并创建 queued 日志/入队。新增暂停前置拒绝、scope 先于前端地址、availability 读取期间 Stop 的最终复核、前端地址读取失败分类测试。
+- **F5 生命周期并发：** Dispatcher 增加 `lifecycleMu` 串行化 `Stop`/`PauseAndDrain`/`Resume`/`ResumeAfterClear`；`ResumeAfterClear` 在旧 generation 未清空时返回错误，禁止重复启动 worker。新增并发 Stop 等待、Resume 等待 PauseAndDrain 完成、活动代次上 ResumeAfterClear 拒绝测试。
+- **修复后证据：**
+  - 后端 `go test ./... -count=1`、`go build ./...`、`go vet ./...`、`go run ./cmd/errgate ./...` 通过；受影响包定向 race 测试通过。
+  - 前端 `npm test -- --reporter=dot`（47 文件/314 测试）与 `npm run build` 通过。
+  - 隔离 smoke（临时 `DATA_DIR`、本地回环 SMTP stub）：阻塞 SMTP 下管理员创建用户 0.30s 返回；超大页码 `page=9223372036854775807` 返回 400 且带 `no-store`；正常 SMTP 记录 `accepted`；全量清空后重新 Setup 可继续派发。
+  - **race 门禁：** 精确执行 `go test -race -count=1 ./internal/mail ./internal/auth ./internal/user ./internal/approval ./internal/dataclear ./internal/server` 已全部通过。既有 `TestRegisterDoesNotWaitForSMTP` 的 1 秒墙钟阈值在 race/高负载下不稳定；已按授权替换为“HTTP 响应完成 + SMTP stub 已接受连接但未应答”的双通道屏障，10 秒仅作挂起保护，保留异步语义证明。
+
+
 ---
 
 ## 三、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.4 | 2026-09-17 | 按用户确认的 F1～F5 方案完成独立核验后修复：邮件日志分页溢出 400、批量 queue_failed 精确分类、ActivityLog 状态机闭合、Dispatcher 前置顺序与生命周期串行化；补定向测试并记录 race 环境下既有 1 秒阈值 flake 的环境边界。 |
 | v1.3 | 2026-09-17 | 按用户一次性授权严格串行实施 R32-02：统一异步派发、短期发送日志、全路径迁移、SMTP 测试同步日志、退出/清空生命周期、管理 API 与前端页签；记录 2.12 两项决策及自动化/人工边界。 |
 | v1.2 | 2026-09-17 | 进一步完善 R32-02 修复方法：冻结派发结果、任务快照和状态机，补齐安全失败阶段、公共防枚举边界、服务退出与清库前后双阶段生命周期、API/UI 合同、影响文件、严格串行步骤、验收矩阵与停止条件；批量失败计数已确认，另登记两项必须由用户确认的最终决策，仍未授权代码实施。 |
 | v1.1 | 2026-09-16 | 新增 R32-02：记录业务邮件同步阻塞、统一有界异步派发、SMTP 测试同步例外、短期邮件发送日志、生命周期/隐私边界及实施前验收合同；方案已确认，暂未实施。 |
