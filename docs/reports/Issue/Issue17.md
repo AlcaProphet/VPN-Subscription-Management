@@ -1,7 +1,9 @@
 # Issue17.md — R30-05 核验后的 OIDC 遗留问题
 
-> **文档定位：** 本文件为核验 Issue16 R30-05 修复后新开的独立问题记录。R30-05 的三个阻塞项已在本轮修复；本文件跟踪未纳入该批次、但在核验中确认的真实 OIDC 网络边界问题与残余边界。原 R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪。
-> 关联：[Issue16.md](docs/reports/Issue/Issue16.md)、[ExportRelated1.md](ExportRelated1.md)、[AGENTS.md](AGENTS.md)。
+> **归档状态：** R31-02～R31-07 的代码修复、自动化/隔离验证及用户确认的真实浏览器、真机人工验收均已完成（2026-09-17）；本文件已闭环，按规则归档至本目录。R31-01 仍由 [ExportRelated1.md](../../../ExportRelated1.md) 独立跟踪；Design5 整站恢复仍是候选设计，不属于本 Issue 的未完成项。
+
+> **文档定位：** 本文件为核验 Issue16 R30-05 修复后新开的独立问题记录。R30-05 的三个阻塞项已在本轮修复；本文件跟踪未纳入该批次、但在核验中确认的真实 OIDC 网络边界问题与残余边界。原 R31-01 由 [ExportRelated1.md](../../../ExportRelated1.md) 独立跟踪。
+> 关联：[Issue16.md](Issue16.md)、[ExportRelated1.md](../../../ExportRelated1.md)、[AGENTS.md](../../../AGENTS.md)。
 
 ---
 
@@ -17,17 +19,17 @@
   2. `SaveOidc`、Setup、`SaveParams`/`SaveParamsTx` 对真实提供商非空 `base_url` 提前拒绝 HTTP；`oidcUsable`/`oidcAvailable` 同步要求真实提供商 base_url 为 HTTPS，防止已有 HTTP 配置被用来关闭本地登录形成死锁。
   3. 经用户确认的 token 凭据重定向策略为**禁止任何重定向**：`Exchange` 与测试连接 `client_credentials` 统一走 `doCredentialRequest`，任何 3xx 都在发出下一跳前失败；307/308 不会重放含明文 Client Secret 的 body，HTTPS 降级也不会跟随。同源重定向同样按该策略拒绝。
   4. 导入策略按用户确认采用“仅本地登录关闭时拒绝非 HTTPS base_url”；本地登录开启时仍允许导入，但真实登录/绑定/测试连接会被运行时守卫拦截。该检查由 v1/v2、Setup/管理端导入共同复用。
-  5. 代理策略按用户确认维持 [SecurityReport1.md](docs/reports/SecurityReport/SecurityReport1.md) D-F06-2：继续使用 `ProxyFromEnvironment`，经代理时目标 DNS/公网 IP 校验不生效，代理可信作为部署边界；代码注释已明确残余边界，部署层可用 `NO_PROXY` 让 OIDC 目标直连并恢复目标 IP 校验。
+  5. 代理策略按用户确认维持 [SecurityReport1.md](../SecurityReport/SecurityReport1.md) D-F06-2：继续使用 `ProxyFromEnvironment`，经代理时目标 DNS/公网 IP 校验不生效，代理可信作为部署边界；代码注释已明确残余边界，部署层可用 `NO_PROXY` 让 OIDC 目标直连并恢复目标 IP 校验。
 - **残余边界：** OIDC Discovery 标准允许 authorization/token/JWKS 与 issuer 不同 HTTPS 源；本轮继续信任配置的 discovery 来源，不增加跨源 endpoint 白名单。若 discovery 自身被恶意控制或跨源跳转到恶意文档，仍可能声明另一 HTTPS token 主机；这不属于“HTTP/重定向泄露 Secret”的修复范围，如需收紧需单独立项。
 - **自动化证据（2026-09-15）：** 新增 `internal/oidc/r31_02_test.go`、`internal/urlguard` 单测及 config/server 写入口回归；覆盖 HTTP 初始地址 0 网络请求、HTTPS discovery 夹带 HTTP authorization/token/JWKS 时拒绝且不缓存、合法 discovery 缓存命中、缓存中恶意 endpoint 在 `StartFlow`/`Exchange` 实际使用点被拒绝、token POST HTTPS→HTTP 降级/跨源 307/308/同源 307 均被拒绝且目标端 0 命中/未收到 Secret、测试连接 HTTP endpoint 拒绝、非公网 IP 拨号拒绝，以及 `SaveOidc`/Setup/导入/关闭本地登录锁死保护的入口与状态码。`cd backend && go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...` 均通过；改动包 `go test -race ./internal/oidc ./internal/config ./internal/server ./internal/urlguard` 通过。
-- **真实 IdP 验收边界：** 上述均为隔离 HTTP/TLS 端点自动化证据，不等同于真实 IdP 登录验收。本环境没有真实 IdP，未执行真实授权码/PKCE 登录；该项保持“待隔离环境人工验收”，需在提供隔离 IdP 的 discovery/client/回调信息后单独记录。
-- **状态：** ☑ R31-02 代码与自动化隔离验证完成；真实 IdP 登录待隔离环境人工验收。
+- **真实 IdP 验收边界：** 自动化证据与真实 IdP/浏览器人工验收分开记录；PT-OIDC-01 已在隔离真实环境完成授权码 + PKCE、回调及脱敏核验。
+- **状态：** ☑ R31-02 代码、自动化隔离验证及真实 IdP/浏览器人工验收完成。
 
 ## 二、R31-03 提供商切换仍可能混合非 Secret 字段（中）
 
 - **现象与根因：** 设置页切换提供商时只清空 Secret，保留源提供商的 `base_url` / `client_id`；保存目标提供商时，后端使用表单字段覆盖目标参数、仅在 Secret 为空时保留目标原 Secret，可能形成“源地址/Client ID + 目标 Secret”的混合配置。
 - **影响范围：** 切换后直接保存可能使目标提供商配置不可用；若源地址的发现文档与 token endpoint 可达，后续真实登录还可能把目标提供商的 Client Secret 发送到该端点。现有可用性判定只检查地址、Client ID 与 Secret 是否存在，不能证明三者属于同一配置；本地登录关闭时存在登录锁死风险。保存前的测试连接因字段与目标已存配置不一致，不会回退使用目标旧 Secret；保存后字段已被覆盖，再测试可能回退该 Secret，不能靠测试连接代替字段隔离。
-- **已确认设计（2026-09-14）：** 用户选择“切换时加载目标提供商已保存字段”，不采用切换后全部显式清空，也不再跨提供商沿用当前表单的地址/Client ID。此结论明确覆盖归档 [Design1.md](docs/reports/Design/Design1.md) §3.1 中“切换时保留通用字段”的旧描述；实施时须同步现行设计与界面文案。`frontend_url` / `callback_url` 是站点级字段，切换提供商不清空。
+- **已确认设计（2026-09-14）：** 用户选择“切换时加载目标提供商已保存字段”，不采用切换后全部显式清空，也不再跨提供商沿用当前表单的地址/Client ID。此结论明确覆盖归档 [Design1.md](../Design/Design1.md) §3.1 中“切换时保留通用字段”的旧描述；实施时须同步现行设计与界面文案。`frontend_url` / `callback_url` 是站点级字段，切换提供商不清空。
 - **拟议处理合同：**
   1. 切换下拉选项只改变页面草稿，不立即改变生效提供商。确认切换后读取目标提供商自己的 `base_url` / `realm` / `client_id`；目标从未配置则清空这些字段。切离有未保存参数草稿的提供商时提示丢弃该草稿，避免异步读取覆盖用户正在编辑的目标字段。Secret 输入始终为空，`client_secret_configured` 反映目标提供商的实际可用状态；不将源提供商 Secret 或“已配置”标记带入目标。
   2. 服务端以目标提供商已存的 `base_url` / `realm` / `client_id` 为一组比较：PUT 显式提供新 Secret 时加密替换；Secret 留空且三字段均与目标已存值一致时，才允许保留目标旧密文；任一字段变化或目标无旧 Secret 时，拒绝空 Secret 保存并要求输入新 Secret。比较与拒绝必须位于后端，覆盖直接调用 API 及同一提供商原地修改参数；校验失败不得写入参数或切换生效提供商。
@@ -40,8 +42,8 @@
   3. `oidc_states` 新增 `provider_type` / `config_hash`（迁移 `1019_oidc_state_signature.sql`）并保留旧行；`StartFlow` 在同一写事务内固定发起时 provider/raw 参数指纹，`Exchange` 在 discovery/token 请求前校验当前 provider 与指纹，不一致直接拒绝；旧行在 `ConsumeState` 阶段以 `state_expired` 拒绝并保留至 TTL。覆盖见 `backend/internal/oidc/r31_03_test.go`、`backend/internal/store/migration_1019_test.go`。
   4. 隔离 HTTP/TLS 接口覆盖：源字段 + 目标空 Secret 直接 API 400 且数据库不变；切到已有目标空 Secret 保留目标密文；切回源保留源密文；保存前空 Secret 测试连接只回退目标已存 Secret，字段变化不回退/不发凭据，显式新 Secret 保存后回退新值，源/目标 Secret 互不进入对方地址；Dev mock 发起授权后切换真实提供商再回调，以 `exchange_failed` 拒绝且不签发 ticket；本地登录关闭时空 Secret 切换拒绝、显式新 Secret 可完成切换；前端未保存草稿切换、目标损坏警示、读取失败保持源字段均有测试。
   5. 门禁通过：`cd backend && go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...`、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1`；`cd frontend && npm run test`（280 项）、`npm run build`。
-- **真实 IdP 验收边界：** 上述证据均为隔离 mock/TLS 端点、数据库与服务/HTTP 接口测试，不等同于真实 IdP 授权码/PKCE 登录验收；真实 IdP 登录仍需在提供隔离 discovery/client/回调环境的条件下单独核验并记录。
-- **状态：** ☑ 字段语义、实施方案、代码与自动化隔离验证完成；真实 IdP 登录待隔离环境人工验收。
+- **真实 IdP 验收边界：** 自动化证据与真实环境验收分开记录；PT-OIDC-01/02 已完成真实 IdP、真实浏览器及双提供商隔离核验。
+- **状态：** ☑ 字段语义、实施方案、代码、自动化隔离验证及真实环境人工验收完成。
 
 ## 三、R31-04 字面值/不可解密占位符未强制重填（中）
 
@@ -69,12 +71,12 @@
   6. 设置页按六态显示警示/重填提示；`signing_key_fault` 显示独立系统错误并禁用保存、测试连接及 OIDC 凭据重填输入；损坏状态不再显示“留空保持原值”的通用提示。
   7. 隔离测试覆盖：临时库逐一写入空 JSON、`{}`、空 Secret、字面 `***`、非法密文、解密后 `***`、正常密文、坏 JSON、`signing_key` 缺失与 NULL 读取失败；HTTP 断言 `params_state`/字段/Secret 空回显且响应不泄露原始密文；T1 用 SQLite 触发器在 `oidc_configured` 更新点注入失败，断言参数、provider、configured、站点地址全部回滚；测试连接覆盖损坏专门失败 0 网络请求、密钥故障阻断显式新 Secret、正常密文字段一致回退、字段变化不回退。门禁：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1`、`go run ./cmd/errgate ./...`、`npm run test`（284 项）、`npm run build` 均通过。
 - **真实 IdP 验收边界：** 上述均为隔离数据库、HTTP/TLS 端点和前端组件测试，不等同于真实 IdP 授权码/PKCE 登录验收；真实 IdP 登录仍需在隔离 IdP 环境单独核验并记录。
-- **状态：** ☑ 代码与自动化隔离验证完成；真实 IdP 登录待隔离环境人工验收。
+- **状态：** ☑ 代码、自动化隔离验证及 PT-OIDC-03 损坏恢复真机人工验收完成。
 
 ## 四、R31-05 导入登录入口与 OIDC 地址生效语义（同轮观察）
 
 - **导入登录入口：** `ValidateImportedAuthUsable` 在 `configured=true` 且本地登录关闭时校验提供商参数与 Secret，却未校验 `oidc_configured`。系统状态接口按该标记返回 OIDC 状态，登录页据此显示入口；极端导入文件可能使参数完整、校验通过，但登录页同时隐藏本地与 OIDC 登录入口。此处尚无真实导入事故证据。
-- **地址保存与回调：** OIDC 保存接口仅凭入参 `frontend_url` / `callback_url` 非空返回 `need_restart=true`，相同值重复保存也提示重启。现有配置读取按请求查库，`frontend_url` 的使用路径实际读取新值；独立 `callback_url` 虽保存和回显，真实 OIDC 的 `redirect_uri` 仍由 `frontend_url` 拼接，未使用该字段。归档 [Design1.md](docs/reports/Design/Design1.md) §3.1、§3.4.8 与第八章的“两个地址启动缓存、修改后重启生效”描述与当前实现不一致。
+- **地址保存与回调：** OIDC 保存接口仅凭入参 `frontend_url` / `callback_url` 非空返回 `need_restart=true`，相同值重复保存也提示重启。现有配置读取按请求查库，`frontend_url` 的使用路径实际读取新值；独立 `callback_url` 虽保存和回显，真实 OIDC 的 `redirect_uri` 仍由 `frontend_url` 拼接，未使用该字段。归档 [Design1.md](../Design/Design1.md) §3.1、§3.4.8 与第八章的“两个地址启动缓存、修改后重启生效”描述与当前实现不一致。
 - **归属边界：** `GetOidc` 在 Secret 解密失败时丢失非 Secret 字段回显，已并入 R31-04 的损坏状态与恢复合同；R31-01 的导出密钥损坏和 R31-06 的 Production mock 限制分别处理。
 - **已确认处理合同（2026-09-15）：**
   1. 导入后的系统已配置且本地登录关闭时，必须要求导入文件的 `oidc_configured=true`，并继续校验当前提供商参数与 Secret；标记缺失或为 false 时在覆盖写入前拒绝，不自动改为 true。该条件同时覆盖 v1/v2 与 Setup/管理端导入；本地登录开启时不因 OIDC 未启用而拒绝。参数检查不能证明真实 IdP 可登录。
@@ -91,7 +93,7 @@
   7. 审计后修复（2026-09-15）：导入校验将 `configured` 改为与运行时一致的 `strconv.ParseBool` 语义，非法值直接拒绝；本地登录关闭分支要求 `oidc_provider_type` 属于真实提供商白名单。前端切换提供商时不再重置 `clearCallbackURL`，显式清除独立回调的未保存草稿得以保留。新增 `TestR3105ValidateImportedAuthUsableBooleanAndProviderSemantics` 与设置页“已标记清除后切换提供商”组件用例。修复后 `go test ./... -count=1`、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1`、`go run ./cmd/errgate ./...`、`npm run test`（293 项）与 `npm run build` 均通过。
 
 - **验收重点：** 隔离导入覆盖 `oidc_configured` 缺失/false/true、本地登录开/关、v1/v2 与 Setup/管理端入口，断言拒绝时配置不变；接口与服务测试覆盖地址原值重复保存、地址变化即时生效、独立回调优先、显式清除后未设置回退、显式清除草稿跨提供商保留、导入 `configured` 非规范真值与非法 `provider_type` 拒绝、回调路径校验、授权与 token 交换之间改址时 `redirect_uri` 一致，并核对设置页/导入文案。自动化或 mock 不等于真实 IdP 登录验收。
-- **状态：** ☑ 代码与自动化隔离验证完成（含审计后修复）；真实 IdP 登录/浏览器/反代跨 host 验收待隔离环境人工核验。
+- **状态：** ☑ 代码、自动化隔离验证（含审计后修复）及 PT-OIDC-04 真实浏览器/反代人工验收完成。
 
 ## 五、R31-06 OIDC mock 模式校验不完整（高，既有问题）
 
@@ -110,8 +112,8 @@
   4. 导入：新增 `validateImportedNoMock`，在 `Import` / `ImportV2` / `importV2` 与 `ValidateImportedAuthUsable` 中检查 `oidc_provider_type=mock` 或 `oidc_params_mock` 键存在（含空值），均在覆盖写入/注册异步任务前整体拒绝，拒绝后 `system_config` 不变。
   5. 证据文件：`backend/internal/config/r31_06_test.go`、`backend/internal/oidc/r31_06_test.go`、`backend/internal/server/r31_06_test.go`、`frontend/tests/settings-view.spec.ts`、`frontend/tests/form-submit.spec.ts`。
   6. 门禁：`cd backend && go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...`（0 unexpected）、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1` 均通过；`cd frontend && npm run test`（289 项）与 `npm run build` 均通过。
-- **残余边界（R31-06 完成时点）：** 旧 Dev 已签发且未兑换的 `oidc_login_tickets` 不携带 provider 归属；该边界随后续 R31-07 的流程代际与 `flow_hash` 守卫关闭，见第六节。未来 Design5 整站恢复的非 Production 来源与 mock 配置拦截仍未实现、未验收，现有配置导入修复不替代整站恢复测试。
-- **状态：** ☑ R31-06 代码与自动化隔离验证完成；真实 IdP 登录、Design5 整站恢复未验收。R31-07 在 R31-06 完成时为未实施状态，后续已由第六节的流程代际与 `flow_hash` 实现完成并关闭旧 Dev ticket 残余边界。
+- **残余边界（R31-06 完成时点）：** 旧 Dev 已签发且未兑换的 `oidc_login_tickets` 不携带 provider 归属；该边界随后续 R31-07 的流程代际与 `flow_hash` 守卫关闭，见第六节。Design5 整站恢复的非 Production 来源与 mock 配置拦截仍是候选设计范围，不属于本 Issue 的现行待办。
+- **状态：** ☑ R31-06 代码、自动化隔离验证及 PT-OIDC-05 Production mock 拒绝人工验收完成；Design5 整站恢复不在本 Issue 验收范围内。
 
 ## 六、R31-07 OIDC「暂未启用」未真正落库停用（中）
 
@@ -139,17 +141,19 @@
     6. 门禁：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...`、`go test -race ./internal/oidc ./internal/config ./internal/server -count=1`、`npm run test`、`npm run build` 均通过。以上均为隔离数据库/HTTP/前端组件测试，不等同于真实 IdP、真实浏览器、跨 host 反代及人工并发验收。
     7. 审计后修复（2026-09-15）：设置页在“暂未启用”未保存草稿上切回提供商时，`onProviderChange` 先弹出丢弃确认，不再直接加载目标字段覆盖停用草稿；未保存停用仍不会自动保存或启用。HTTP 回归同时用真实 OIDC 会话 JWT 验证停用后已有会话继续有效。新增 `frontend/tests/settings-view.spec.ts` 组件用例；修复后前端 `npm run test`（293 项）与 `npm run build` 均通过。
 
-  - **人工验收边界：** 选择后仅草稿、保存停用后刷新仍停用、停用态展示保留 provider、重新启用原/其他提供商、清空与停用区别、本地登录关闭/并发保存人工复核、直接 API 与旧回调/旧 ticket 重放、已有会话继续有效等仍需在真实浏览器/隔离 IdP 环境逐项记录；真实 IdP 登录仍按既有人工验收边界执行。
+- **人工验收边界：** PT-OIDC-06 已在真实浏览器/隔离环境完成：停用草稿与落库、参数/绑定保留、重新启用、清空差异、本地登录关闭保护、旧 state/ticket 重放、并发边界及既有会话存活均已核验。
 
 - **验收重点：** 覆盖选择后未保存、保存停用与刷新后仍停用、保留各提供商参数和绑定、重新启用原/其他提供商、清空与停用的区别；本地登录关闭时停用拒绝且数据库不变，以及停用与关闭本地登录并发保存；公开状态、登录页、绑定页和直接 API 的一致性；发起前无新 state、停用前已发起回调不能绑定或签发、未兑换票据不能返回会话、停用后在旧记录 TTL 内重新启用仍不能兑换旧 state/票据、停用与绑定/签发/兑换并发交错时无停用后新结果、已有会话仍可用。隔离自动化与真实 IdP/浏览器人工验收分别记录。
-- **状态：** ☑ 停用语义与既有会话边界已确认；☑ R31-07 代码与自动化隔离验证完成（含审计后修复）；☐ 真实浏览器/隔离 IdP 人工验收待执行。
+- **状态：** ☑ 停用语义与既有会话边界已确认；☑ R31-07 代码、自动化隔离验证（含审计后修复）及真实浏览器/隔离环境人工验收完成。
 
 ## 七、处理建议
 
-1. R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪；R31-02 已按用户单独授权修复并完成自动化隔离验证，真实 IdP 登录待隔离环境人工验收，不与 R30-05 混批。
-2. R31-03 字段语义、实施方案、代码与自动化隔离验证已完成：增加按目标提供商读取能力，空 Secret 仅能与目标原地址/Realm/Client ID 组合复用，授权发起/回调固定 provider/config 指纹；真实 IdP 登录待隔离环境人工验收。
-3. R31-04 已按用户确认的 T1/S1/K1/SCOPE-A/TC-A 完成代码与自动化隔离验证：六态状态机、管理端 GET/PUT 与 SaveOidc 单事务、底层 SaveParams 严格密钥读取、测试连接专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏；真实 IdP 登录待隔离环境人工验收。R31-05 已完成代码与自动化隔离验证（含审计后修复）：导入同步校验 `oidc_configured`、`configured` 布尔语义、有效回调地址与真实 provider 白名单，地址保存即时生效、独立回调优先、显式清除回退且清除草稿跨提供商保留，OIDC state 固定 `redirect_uri`，Setup 默认不再写独立回调；真实 IdP/浏览器与跨 host 反代验收待隔离环境人工核验。R31-06 的现有 Production 导入拒绝与 Design5 整站恢复边界已确认，安全修复不等待整站迁移；R31-07 的持久化停用与既有会话边界已确认。
-4. R31-07 已完成代码与自动化隔离验证（含审计后修复）：流程代际指纹、停用/清空/本地登录单事务、旧 state/票据不可恢复、直接 API 与公开状态守卫、设置页草稿/保存停用/重新启用，以及 from-off 未保存停用草稿切回提供商时的丢弃确认；真实浏览器与隔离 IdP 人工验收待执行。
+1. R31-01 由 [ExportRelated1.md](../../../ExportRelated1.md) 独立跟踪；R31-02 已完成代码、自动化隔离验证及 PT-OIDC-01 真实 IdP/浏览器人工验收，不与 R30-05 混批。
+2. R31-03 已完成字段语义、实施方案、代码、自动化隔离验证及 PT-OIDC-02 真实双提供商人工验收：按目标提供商读取，空 Secret 仅能与目标原地址/Realm/Client ID 组合复用，授权发起/回调固定 provider/config 指纹。
+3. R31-04 已完成 T1/S1/K1/SCOPE-A/TC-A 代码与自动化隔离验证，以及 PT-OIDC-03 损坏恢复真机人工验收：六态状态机、管理端 GET/PUT 与 SaveOidc 单事务、严格密钥读取、测试连接专门失败、真实登录网络前拒绝、设置页统一展示及响应/日志脱敏。R31-05 已完成代码与自动化隔离验证（含审计后修复）及 PT-OIDC-04 真实浏览器/反代人工验收：导入同步校验、地址即时生效、独立回调优先、显式清除回退、OIDC state 固定 `redirect_uri`。R31-06 的现有 Production 导入拒绝与 PT-OIDC-05 人工验收完成；Design5 整站恢复边界仍独立于本 Issue。
+4. R31-07 已完成代码与自动化隔离验证（含审计后修复）及 PT-OIDC-06 真实浏览器/隔离环境人工验收：流程代际指纹、停用/清空/本地登录单事务、旧 state/票据不可恢复、直接 API 与公开状态守卫、设置页草稿/保存停用/重新启用，以及未保存停用草稿切回提供商时的丢弃确认。
+
+**整体状态：** ☑ R31-02～R31-07 当前问题均已完成工程修复、自动化/隔离验证和用户确认的真实环境人工验收；☑ `ProdTestList.md` 与 `TODOLIST.md` 中对应项目已移除；☑ 本 Issue 闭环，归档后不再作为活跃待办。
 
 ---
 
@@ -175,3 +179,4 @@
 | v2.5 | 2026-09-15 | 按用户确认实施 R31-06：启动 mode 成为唯一运行模式依据；Production Setup/管理端保存与测试连接拒绝 mock；登录/绑定发起与回调再次拒绝且无新 state/会话；公开状态隐藏 mock、管理端只读警示；v1/v2 的 Setup/管理端导入遇到 mock 类型或 `oidc_params_mock` 键（含空值）整体拒绝且不写库；Dev mock 路径保持；按全新激活裁决不提供旧 mock 键清理兼容路径；补隔离测试与全量门禁，真实 IdP 与 Design5 整站恢复未验收。 |
 | v2.6 | 2026-09-15 | 按用户确认实施 R31-07：新增 `oidc_flow_epoch` 与 `oidc_login_tickets.flow_hash`，流程指纹含 mode/provider/raw/代际；`DisableOidc`/`ClearOidc`/`SaveLocalAuth` 单事务，停用/清空同事务清理 state/ticket 并轮换代际；新增停用端点与 `enabled` 只读回显；登录/绑定/回调/模拟登录/会话签发/ticket 兑换统一事务守卫；设置页草稿、保存停用、保留 provider 与重新启用状态机落地；补故障注入、并发交错、迁移、HTTP、前端隔离测试与全量门禁；真实浏览器/隔离 IdP 人工验收待执行。 |
 | v2.7 | 2026-09-15 | 按核验建议修复审计发现的 R31-05/07 缺口：导入认证可用性校验改用与运行时一致的 `configured` 布尔语义并校验真实 `provider_type` 白名单；设置页显式清除独立回调的草稿跨提供商切换保留；未保存停用草稿切回提供商时增加丢弃确认；补 OIDC 会话 JWT 停用后存活回归。新增 `TestR3105ValidateImportedAuthUsableBooleanAndProviderSemantics` 与前端组件回归；后端定向/race/全量/errgate、前端 `npm run test`（293 项）与 `npm run build` 重新通过；真实 IdP/浏览器/跨 host 反代人工验收仍未执行。 |
+| v2.8 | 2026-09-17 | 用户确认 PT-OIDC-01～06 已完成真实浏览器/真机人工核验并通过；同步关闭 R31-02～R31-07 的人工验收边界，明确 Design5 整站恢复不属于本 Issue 未完成项，Issue17 闭环并按规则归档。 |
