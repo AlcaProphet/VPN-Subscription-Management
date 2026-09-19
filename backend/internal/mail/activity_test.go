@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+type captureResultRecorder struct {
+	mu      sync.Mutex
+	records []ResultRecord
+}
+
+func (r *captureResultRecorder) TryRecord(record ResultRecord) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = append(r.records, cloneResultRecord(record))
+}
+
+func (r *captureResultRecorder) snapshot() []ResultRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]ResultRecord(nil), r.records...)
+}
+
 func TestMaskRecipient(t *testing.T) {
 	tests := []struct {
 		in   string
@@ -167,4 +184,36 @@ func TestActivityLogConcurrent(t *testing.T) {
 		t.Fatalf("并发写入后容量应为 %d，实际 %d", ActivityLogCapacity, got)
 	}
 	log.Clear()
+}
+
+func TestActivityLogRecordsOnlyLegalTerminalTransitions(t *testing.T) {
+	activity := NewActivityLog(10)
+	recorder := &captureResultRecorder{}
+	activity.SetResultRecorder(recorder)
+	uid := int64(9)
+
+	acceptedID := activity.BeginQueued(TemplateWelcomeLocal, "selfreg", &uid, "full@example.com")
+	activity.MarkAccepted(acceptedID) // queued 不能直接进入 accepted，也不得旁路记录。
+	activity.MarkSending(acceptedID)
+	activity.MarkAccepted(acceptedID)
+	activity.MarkAccepted(acceptedID) // 重复终态不得重复记录。
+
+	failedID := activity.BeginSending(ActivityKindSMTPTest, SourceSMTPTest, nil, "smtp@example.com")
+	activity.MarkSendFailed(failedID, FailureAuth)
+	activity.MarkSendFailed(failedID, FailureConnect)
+	activity.RecordTerminalFailed(TemplatePasswordReset, SourceAdminBatch, &uid, "batch@example.com", FailureQueueFull)
+
+	records := recorder.snapshot()
+	if len(records) != 3 {
+		t.Fatalf("每个合法终态应恰好记录一次，实际 %+v", records)
+	}
+	if records[0].Result != ActivityAccepted || records[0].FailureStage != nil || records[0].RecipientMasked != "f***@example.com" {
+		t.Fatalf("accepted 旁路记录异常: %+v", records[0])
+	}
+	if records[1].Result != ActivityFailed || records[1].FailureStage == nil || *records[1].FailureStage != FailureAuth {
+		t.Fatalf("发送失败旁路记录异常: %+v", records[1])
+	}
+	if records[2].Result != ActivityFailed || records[2].FailureStage == nil || *records[2].FailureStage != FailureQueueFull {
+		t.Fatalf("派发前失败旁路记录异常: %+v", records[2])
+	}
 }

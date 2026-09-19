@@ -1,6 +1,6 @@
 # Issue18.md — 邮件运行语义与站点信息问题
 
-> **文档定位：** 本文档记录 2026-09-16 发现的邮件与站点信息问题。R32-01 记录站点名称一致性修复与自动化验收；R32-02 记录业务邮件同步发送阻塞主流程的问题、已确认实施方案与验收合同，已于 2026-09-17 按用户授权实施并完成自动化门禁与本地隔离 smoke，构建记录见 [Build29.md](docs/reports/Build/Build29.md)。已实施的邮件内容设计仍见 [Design5.md](Design5.md) §7，历史构建记录仍以 [Build28.md](docs/reports/Build/Build28.md) 为准。
+> **文档定位：** 本文档记录 2026-09-16 起发现的邮件与站点信息问题。R32-01 记录站点名称一致性修复；R32-02 记录业务邮件异步派发与进程内日志；R32-03 记录终态结果持久化、当前发送队列快照与取消页面轮询的后续优化。R32-02/R32-03 构建记录分别见 [Build29.md](docs/reports/Build/Build29.md)、[Build30.md](docs/reports/Build/Build30.md)。已实施的邮件内容设计仍见 [Design5.md](Design5.md) §7，历史构建记录仍以 [Build28.md](docs/reports/Build/Build28.md) 为准。
 
 ---
 
@@ -193,10 +193,47 @@
 
 ---
 
-## 三、变更记录
+## 三、R32-03 邮件终态结果持久化与当前发送队列优化
+
+### 3.1 问题与最终决策
+
+- **问题：** R32-02 的管理员邮件日志仅保存在最多 500 条的进程内 `ActivityLog`，服务重启后丢失；邮件页签激活时每 5 秒轮询。该行为不适合历史排障，也产生持续后台请求。
+- **最终决策：** 保留现有内存 ActivityLog 作为当前运行态来源；另以 SQLite 保存每封邮件的一条终态结果。页面拆成默认折叠的“当前发送队列”和“历史发送结果”，两者均不自动刷新。
+- **不变量：** Dispatcher 的 2 worker、100 等待容量、非阻塞入队、SMTP 30 秒总超时、业务返回、密码 token 补偿、同步 SMTP 测试、Stop/PauseAndDrain/Resume 与 best-effort 无重试语义均不改变；不增加 outbox 或跨进程任务恢复。
+
+### 3.2 已实施合同
+
+- **终态表：** 迁移 `1022_mail_result_logs.sql` 新增 `mail_result_logs`，仅保存 `kind/source/user_id/recipient_masked/result/failure_stage/recorded_at`。`result` 仅允许 `accepted/failed`，accepted 不得带失败阶段；无用户外键，删除用户后历史仍保留。
+- **隐私：** 不持久化完整收件/发件邮箱、主题、正文、站点名、URL、Token、SMTP 配置/响应、原始错误、任务对象、排队/发送耗时或运行态时间。
+- **旁路 writer：** 单 goroutine、容量 128、有界非阻塞 `TryRecord`；缓冲满、SQLite 写入失败或服务停止时允许丢日志并写安全 warn，不重试、不返回错误给邮件流程、不改变邮件或业务终态。
+- **终态接入：** `ActivityLog` 只有在合法 `sending→accepted|failed`、`queued→failed` 或直接终态失败时提交一次安全快照；`BeginQueued`、`BeginSending`、`MarkSending`、非法转换和重复终态不落库。
+- **保留与备份：** 启动时先清理 90 天前结果，此后每日清理；完整 SQLite 备份自然包含历史结果，配置导入导出仍排除日志。
+- **退出与全量清空：** 服务退出先停止 Dispatcher，再限时排空已接收结果。全量清空先暂停/排空 Dispatcher 和 writer，再在业务清表事务中删除 `mail_result_logs`；成功后清内存 ActivityLog 并恢复新派发代次。
+
+### 3.3 API、页面与清空边界
+
+- `GET /api/admin/logs/mail` 改为查询 SQLite，只接受空/`accepted`/`failed` 状态筛选，仍使用严格分页、`{list,total}`、空数组、session + admin 与 `no-store`。
+- `POST /api/admin/logs/mail/clear` 改为“清空历史结果”，不清 ActivityLog、不暂停/取消 SMTP、不丢队列。
+- 新增 `GET /api/admin/logs/mail/active`：只读 ActivityLog 中 `queued/sending`，按内存 ID 倒序，不分页、不读 SQLite、不修改任务，返回 `list/queued/sending`，同样双重鉴权与 `no-store`。
+- 当前发送队列默认折叠；首次及每次展开主动读取一次，面板内可“刷新队列”。折叠期间不请求。页面“刷新”始终刷新历史；面板已展开时同时刷新 active。筛选和分页只作用于历史结果。
+- 页面已删除邮件 5 秒轮询、轮询单飞状态与卸载定时器清理；不新增 SSE。快照展示“截至”时间，避免被误认为持续实时状态。
+- 清空时间边界改为：清空时已经形成的旧终态（包括 writer 缓冲项）删除且不得迟到重现；清空时仍为 `queued/sending` 的任务继续运行，其在清空后形成的终态作为新历史正常记录。
+
+### 3.4 自动化证据与验收边界（2026-09-19）
+
+- 后端：`go test ./...`、`go test -race ./internal/mail ./internal/server`、`go build ./...`、`go vet ./...`、`go run ./cmd/errgate ./...` 全部通过。
+- 前端：定向日志页测试通过；全量 `npm test -- --reporter=dot` 为 47 个测试文件、314 项测试通过；`npm run build` 通过。
+- 隔离 smoke：邮件日志 API、分页边界、active 过滤、历史清空不清 active、邮件派发/SMTP 生命周期相关定向测试通过。日志数据库写入失败与缓冲满不会阻塞调用方；90 天清理和全量清表测试通过。
+- **人工边界：** 正式 SMTP、真实收件箱、真实浏览器响应式、服务重启后的历史持久性、清空时在途邮件以及外部邮件客户端仍按 [ProdTestList.md](ProdTestList.md) 跟踪，自动化不替代人工结果。
+- **状态：** ✅ R32-03 工程实现、自动化/race/errgate/前端门禁与本地隔离 smoke 已完成；☐ 正式环境人工项待用户执行。
+
+---
+
+## 四、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.6 | 2026-09-19 | 新增 R32-03：按用户最终决策完成终态结果 SQLite 持久化、128 容量旁路 writer、90 天清理、独立 active 快照、历史清空新边界与取消邮件轮询；记录 Build30 自动化及人工边界。 |
 | v1.5 | 2026-09-19 | 联合核验 Issue17/Issue18：明确 R32-02 工程闭环与正式邮件人工项的跟踪边界；Issue17 另行闭环归档。 |
 | v1.4 | 2026-09-17 | 按用户确认的 F1～F5 方案完成独立核验后修复：邮件日志分页溢出 400、批量 queue_failed 精确分类、ActivityLog 状态机闭合、Dispatcher 前置顺序与生命周期串行化；补定向测试并记录 race 环境下既有 1 秒阈值 flake 的环境边界。 |
 | v1.3 | 2026-09-17 | 按用户一次性授权严格串行实施 R32-02：统一异步派发、短期发送日志、全路径迁移、SMTP 测试同步日志、退出/清空生命周期、管理 API 与前端页签；记录 2.12 两项决策及自动化/人工边界。 |

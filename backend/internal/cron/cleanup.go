@@ -36,6 +36,32 @@ func cleanupOnce(db *sql.DB, lg *slog.Logger) {
 	}
 }
 
+// StartMailResultCleanup 邮件终态结果保留 90 天：启动即清理，此后每日巡检一次。
+func StartMailResultCleanup(db *sql.DB, lg *slog.Logger) (stop func()) {
+	ticker := time.NewTicker(24 * time.Hour)
+	done := make(chan struct{})
+	go func() {
+		cleanupMailResultsOnce(db, lg)
+		for {
+			select {
+			case <-ticker.C:
+				cleanupMailResultsOnce(db, lg)
+			case <-done:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+	return func() { close(done) }
+}
+
+func cleanupMailResultsOnce(db *sql.DB, lg *slog.Logger) {
+	cutoff := time.Now().AddDate(0, 0, -90)
+	if _, err := db.Exec(`DELETE FROM mail_result_logs WHERE recorded_at < ?`, cutoff); err != nil {
+		lg.Warn("清理邮件终态结果失败", "err", err)
+	}
+}
+
 // StartResetTokenCleanup 每日清理过期/已使用的密码重置令牌。
 func StartResetTokenCleanup(db *sql.DB, lg *slog.Logger) (stop func()) {
 	ticker := time.NewTicker(24 * time.Hour)

@@ -55,3 +55,35 @@ func TestResetCleanup(t *testing.T) {
 		}
 	}
 }
+
+func TestMailResultCleanupKeepsNinetyDayBoundary(t *testing.T) {
+	st, err := store.Open(t.TempDir(), "mail-cleanup.db")
+	if err != nil {
+		t.Fatalf("打开测试库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(context.Background(), migrations.FS); err != nil {
+		t.Fatalf("迁移失败: %v", err)
+	}
+	now := time.Now()
+	for _, tc := range []struct {
+		masked string
+		at     time.Time
+	}{
+		{masked: "o***@example.com", at: now.AddDate(0, 0, -91)},
+		{masked: "k***@example.com", at: now.AddDate(0, 0, -89)},
+	} {
+		if _, err := st.DB().Exec(`INSERT INTO mail_result_logs
+			(kind, source, recipient_masked, result, recorded_at) VALUES ('smtp_test','smtp_test',?,'accepted',?)`, tc.masked, tc.at); err != nil {
+			t.Fatalf("插入邮件结果失败: %v", err)
+		}
+	}
+	cleanupMailResultsOnce(st.DB(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM mail_result_logs WHERE recipient_masked = 'o***@example.com'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("90 天前结果应删除: count=%d err=%v", count, err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM mail_result_logs WHERE recipient_masked = 'k***@example.com'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("90 天内结果应保留: count=%d err=%v", count, err)
+	}
+}

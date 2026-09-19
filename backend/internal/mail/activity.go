@@ -41,10 +41,18 @@ type ActivityRecord struct {
 // ActivityLog 并发安全的进程内短期发送日志。
 // 满容量后淘汰最旧记录；ID 单调递增，Clear/Resume 均不归零。
 type ActivityLog struct {
-	mu     sync.Mutex
-	max    int
-	nextID int64
-	items  []ActivityRecord // 按创建顺序保存，最新在尾部
+	mu       sync.Mutex
+	max      int
+	nextID   int64
+	items    []ActivityRecord // 按创建顺序保存，最新在尾部
+	recorder ResultRecorder
+}
+
+// SetResultRecorder 注入终态结果旁路记录器；应在开始派发邮件前完成装配。
+func (l *ActivityLog) SetResultRecorder(recorder ResultRecorder) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.recorder = recorder
 }
 
 // NewActivityLog 创建短期日志；max<=0 时使用固定容量。
@@ -84,7 +92,7 @@ func (l *ActivityLog) BeginSending(kind TemplateKind, source string, userID *int
 // RecordTerminalFailed 创建终态 failed 记录（队列/派发前拒绝、SMTP 测试前已知失败），返回日志 ID。
 func (l *ActivityLog) RecordTerminalFailed(kind TemplateKind, source string, userID *int64, recipient string, stage FailureStage) int64 {
 	now := time.Now()
-	return l.append(ActivityRecord{
+	rec := ActivityRecord{
 		CreatedAt:       now,
 		FinishedAt:      timePtr(now),
 		Kind:            kind,
@@ -93,7 +101,11 @@ func (l *ActivityLog) RecordTerminalFailed(kind TemplateKind, source string, use
 		RecipientMasked: MaskRecipient(recipient),
 		Status:          ActivityFailed,
 		FailureStage:    stagePtr(stage),
-	})
+	}
+	id := l.append(rec)
+	rec.ID = id
+	l.tryRecordTerminal(rec)
+	return id
 }
 
 // MarkSending queued→sending；已完成/不存在的 ID 静默跳过。
@@ -113,9 +125,9 @@ func (l *ActivityLog) MarkSending(id int64) {
 // MarkAccepted 仅允许 sending→accepted；重复终态、非法前置状态均无效果。
 func (l *ActivityLog) MarkAccepted(id int64) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	rec := l.findLocked(id)
 	if rec == nil || rec.Status != ActivitySending {
+		l.mu.Unlock()
 		return
 	}
 	now := time.Now()
@@ -125,14 +137,18 @@ func (l *ActivityLog) MarkAccepted(id int64) {
 		rec.SendDurationMS = durationMS(*rec.StartedAt, now)
 	}
 	rec.FailureStage = nil
+	terminal := cloneRecord(*rec)
+	recorder := l.recorder
+	l.mu.Unlock()
+	tryRecordResult(recorder, terminal)
 }
 
 // MarkSendFailed 仅允许 sending→failed；不伪造未进入阶段的耗时。
 func (l *ActivityLog) MarkSendFailed(id int64, stage FailureStage) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	rec := l.findLocked(id)
 	if rec == nil || rec.Status != ActivitySending {
+		l.mu.Unlock()
 		return
 	}
 	now := time.Now()
@@ -142,14 +158,18 @@ func (l *ActivityLog) MarkSendFailed(id int64, stage FailureStage) {
 	if rec.StartedAt != nil {
 		rec.SendDurationMS = durationMS(*rec.StartedAt, now)
 	}
+	terminal := cloneRecord(*rec)
+	recorder := l.recorder
+	l.mu.Unlock()
+	tryRecordResult(recorder, terminal)
 }
 
 // MarkQueuedFailed 仅允许 queued→failed（队列满/暂停/停止前拒绝）；开始时间与耗时保持 null。
 func (l *ActivityLog) MarkQueuedFailed(id int64, stage FailureStage) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	rec := l.findLocked(id)
 	if rec == nil || rec.Status != ActivityQueued {
+		l.mu.Unlock()
 		return
 	}
 	now := time.Now()
@@ -159,6 +179,10 @@ func (l *ActivityLog) MarkQueuedFailed(id int64, stage FailureStage) {
 	rec.StartedAt = nil
 	rec.QueueDurationMS = nil
 	rec.SendDurationMS = nil
+	terminal := cloneRecord(*rec)
+	recorder := l.recorder
+	l.mu.Unlock()
+	tryRecordResult(recorder, terminal)
 }
 
 // Snapshot 返回最新在前的深拷贝快照。
@@ -275,4 +299,26 @@ func cloneStagePtr(v *FailureStage) *FailureStage {
 	}
 	n := *v
 	return &n
+}
+
+func (l *ActivityLog) tryRecordTerminal(rec ActivityRecord) {
+	l.mu.Lock()
+	recorder := l.recorder
+	l.mu.Unlock()
+	tryRecordResult(recorder, rec)
+}
+
+func tryRecordResult(recorder ResultRecorder, rec ActivityRecord) {
+	if recorder == nil || rec.FinishedAt == nil || (rec.Status != ActivityAccepted && rec.Status != ActivityFailed) {
+		return
+	}
+	recorder.TryRecord(ResultRecord{
+		Kind:            rec.Kind,
+		Source:          rec.Source,
+		UserID:          cloneInt64Ptr(rec.UserID),
+		RecipientMasked: rec.RecipientMasked,
+		Result:          rec.Status,
+		FailureStage:    cloneStagePtr(rec.FailureStage),
+		RecordedAt:      *rec.FinishedAt,
+	})
 }

@@ -120,6 +120,10 @@ func newTestClear(t *testing.T) (*store.Store, *Service, string) {
 			provider_type TEXT NOT NULL DEFAULT '', config_hash TEXT NOT NULL DEFAULT '', redirect_uri TEXT NOT NULL DEFAULT '');`)},
 		"1013_oidc_login_tickets.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS oidc_login_tickets (
 			ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, flow_hash TEXT NOT NULL DEFAULT '');`)},
+		"1022_mail_result_logs.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS mail_result_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, source TEXT NOT NULL,
+			user_id INTEGER, recipient_masked TEXT NOT NULL, result TEXT NOT NULL,
+			failure_stage TEXT, recorded_at TIMESTAMP NOT NULL);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
@@ -215,6 +219,7 @@ func TestClearTablesTxClearsBuild4Tables(t *testing.T) {
 		`INSERT INTO users (id, username, email) VALUES (1, 'u1', 'u1@example.com')`,
 		`INSERT INTO xray_users (user_id, instance_id, inbound_tag, node_id) VALUES (1, 1, 't1', 1)`,
 		`INSERT INTO traffic_records (user_id, ym) VALUES (1, '2026-08')`,
+		`INSERT INTO mail_result_logs (kind, source, recipient_masked, result, recorded_at) VALUES ('smtp_test', 'smtp_test', 't***@example.com', 'accepted', CURRENT_TIMESTAMP)`,
 		`INSERT INTO versions (id, owner_type, owner_id, version_no, file_path) VALUES (1, 'subscription', 1, 1, 'x')`,
 		`INSERT INTO assembly_blueprints (id, version_id) VALUES (1, 1)`,
 		`INSERT INTO xray_ext_accounts (id, name) VALUES (1, 'ext1')`,
@@ -236,7 +241,7 @@ func TestClearTablesTxClearsBuild4Tables(t *testing.T) {
 	tables := []string{
 		"rule_pools", "rule_pool_sources", "pool_source_snapshots", "pool_canonical_rules", "pool_rule_origins", "pool_sync_tasks",
 		"xray_instances", "nodes", "proxy_groups", "group_nodes",
-		"xray_users", "traffic_records", "assembly_blueprints",
+		"xray_users", "traffic_records", "mail_result_logs", "assembly_blueprints",
 		"xray_ext_accounts", "xray_ext_users", "xray_ext_traffic",
 	}
 	for _, name := range tables {

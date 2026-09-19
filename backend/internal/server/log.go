@@ -21,10 +21,11 @@ import (
 
 // LogHandler 日志处理器（结构体 Handler + 依赖注入）
 type LogHandler struct {
-	accessSvc *log.AccessService
-	streamSvc *log.StreamService
-	users     auth.UserSource
-	mailLog   *mail.ActivityLog
+	accessSvc   *log.AccessService
+	streamSvc   *log.StreamService
+	users       auth.UserSource
+	mailLog     *mail.ActivityLog
+	mailResults *mail.ResultLog
 	// permissionInterval 流内权限重查间隔；生产默认 15 秒，测试可注入更短间隔。
 	permissionInterval time.Duration
 }
@@ -39,6 +40,7 @@ func RegisterLogRoutes(engine *gin.Engine, h *LogHandler, sessionMW, adminMW gin
 
 	mailGroup := engine.Group("/api/admin/logs/mail", noStoreMiddleware(), sessionMW, adminMW)
 	mailGroup.GET("", h.queryMail)
+	mailGroup.GET("/active", h.queryActiveMail)
 	mailGroup.POST("/clear", h.clearMail)
 }
 
@@ -135,10 +137,10 @@ func writeSSE(c *gin.Context, e log.Entry) {
 	_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", data)
 }
 
-// queryMail 邮件发送日志查询：严格分页 + kind/status 过滤；只返回内存快照中的安全字段。
+// queryMail 历史邮件终态结果查询：严格分页 + kind/status 过滤；数据来自 SQLite。
 func (h *LogHandler) queryMail(c *gin.Context) {
-	if h.mailLog == nil {
-		FailSanitized(c, http.StatusInternalServerError, "邮件发送日志服务不可用", errors.New("mailLog 未注入"))
+	if h.mailResults == nil {
+		FailSanitized(c, http.StatusInternalServerError, "邮件发送日志服务不可用", errors.New("mailResults 未注入"))
 		return
 	}
 	page, err := mailPositiveQuery(c, "page", 1)
@@ -166,39 +168,46 @@ func (h *LogHandler) queryMail(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "未知邮件状态")
 		return
 	}
-	all := h.mailLog.Snapshot()
-	filtered := make([]mail.ActivityRecord, 0, len(all))
-	for _, rec := range all {
-		if kind != "" && string(rec.Kind) != kind {
-			continue
-		}
-		if status != "" && string(rec.Status) != status {
-			continue
-		}
-		filtered = append(filtered, rec)
-	}
-	total := int64(len(filtered))
-	start := (page - 1) * size
-	if start >= len(filtered) {
-		OK(c, ListData{List: make([]mail.ActivityRecord, 0), Total: total})
+	list, total, err := h.mailResults.Query(c.Request.Context(), page, size, kind, mail.ActivityStatus(status))
+	if err != nil {
+		FailSanitized(c, http.StatusInternalServerError, "查询邮件发送日志失败", err)
 		return
 	}
-	end := start + size
-	if end > len(filtered) {
-		end = len(filtered)
-	}
-	list := make([]mail.ActivityRecord, 0, end-start)
-	list = append(list, filtered[start:end]...)
 	OK(c, ListData{List: list, Total: total})
 }
 
-// clearMail 清空当前可见邮件发送日志；不取消发送、不丢队列、不重置 ID。
-func (h *LogHandler) clearMail(c *gin.Context) {
+// queryActiveMail 返回当前进程 queued/sending 快照；不读取 SQLite、不改变任务状态。
+func (h *LogHandler) queryActiveMail(c *gin.Context) {
 	if h.mailLog == nil {
-		FailSanitized(c, http.StatusInternalServerError, "邮件发送日志服务不可用", errors.New("mailLog 未注入"))
+		FailSanitized(c, http.StatusInternalServerError, "当前发送队列服务不可用", errors.New("mailLog 未注入"))
 		return
 	}
-	h.mailLog.Clear()
+	all := h.mailLog.Snapshot()
+	list := make([]mail.ActivityRecord, 0)
+	queued, sending := 0, 0
+	for _, rec := range all {
+		switch rec.Status {
+		case mail.ActivityQueued:
+			queued++
+			list = append(list, rec)
+		case mail.ActivitySending:
+			sending++
+			list = append(list, rec)
+		}
+	}
+	OK(c, gin.H{"list": list, "queued": queued, "sending": sending})
+}
+
+// clearMail 只清空 SQLite 历史终态；不取消发送、不丢队列、不清 ActivityLog。
+func (h *LogHandler) clearMail(c *gin.Context) {
+	if h.mailResults == nil {
+		FailSanitized(c, http.StatusInternalServerError, "邮件发送日志服务不可用", errors.New("mailResults 未注入"))
+		return
+	}
+	if err := h.mailResults.Clear(c.Request.Context()); err != nil {
+		FailSanitized(c, http.StatusInternalServerError, "清空邮件发送日志失败", err)
+		return
+	}
 	OK(c, nil)
 }
 
@@ -227,7 +236,7 @@ func mailKindAllowed(kind string) bool {
 
 func mailStatusAllowed(status string) bool {
 	switch mail.ActivityStatus(status) {
-	case mail.ActivityQueued, mail.ActivitySending, mail.ActivityAccepted, mail.ActivityFailed:
+	case mail.ActivityAccepted, mail.ActivityFailed:
 		return true
 	default:
 		return false

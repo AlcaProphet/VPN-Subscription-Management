@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -62,6 +63,15 @@ func newTestServer(t *testing.T) *Server {
 			expires_at TIMESTAMP NOT NULL,
 			used INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+		"1022_mail_result_logs.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE mail_result_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			kind TEXT NOT NULL,
+			source TEXT NOT NULL,
+			user_id INTEGER,
+			recipient_masked TEXT NOT NULL,
+			result TEXT NOT NULL CHECK (result IN ('accepted','failed')),
+			failure_stage TEXT,
+			recorded_at TIMESTAMP NOT NULL);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
@@ -74,6 +84,12 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("装配 server 失败: %v", err)
 	}
+	t.Cleanup(func() {
+		srv.mailDispatcher.Stop()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.mailResultLog.Stop(ctx)
+	})
 	return srv
 }
 

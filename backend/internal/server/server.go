@@ -82,6 +82,7 @@ type Server struct {
 	oidcSvc         *oidc.Service     // R31-07：测试可直接用服务签发/校验流程记录
 	mailDispatcher  *mail.Dispatcher  // R32-02：Server 唯一持有的邮件异步派发器
 	activityLog     *mail.ActivityLog // R32-02：短期邮件发送日志，供日志 API 使用
+	mailResultLog   *mail.ResultLog   // R32-03：终态结果旁路 writer 与持久化查询
 	// 后续 Step 的 Handler 经构造函数追加注入（setup/oidc...）
 }
 
@@ -320,12 +321,23 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	// 邮件服务 + 审批中心（Build3 Step 2 / R32-02）：业务邮件统一走进程内异步派发器；SMTP 测试保持同步。
 	mailSvc := mail.NewService(cfg, lg)
 	activityLog := mail.NewActivityLog(mail.ActivityLogCapacity)
+	mailResultLog, err := mail.NewResultLogFromProvider(st, lg)
+	if err != nil {
+		return nil, fmt.Errorf("装配邮件结果日志失败: %w", err)
+	}
+	activityLog.SetResultRecorder(mailResultLog)
 	mailDispatcher, err := mail.NewDispatcher(mailSvc, activityLog, lg)
 	if err != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if stopErr := mailResultLog.Stop(stopCtx); stopErr != nil {
+			lg.Warn("派发器装配失败后停止邮件结果日志服务失败", "err", stopErr)
+		}
 		return nil, fmt.Errorf("装配邮件派发器失败: %w", err)
 	}
 	s.activityLog = activityLog
 	s.mailDispatcher = mailDispatcher
+	s.mailResultLog = mailResultLog
 	resetSvc.SetMailer(mailDispatcher)
 	users.SetWelcomeSender(mailDispatcher.DispatchWelcome)
 	approvalSvc := approval.NewService(st, mailDispatcher, lg)
@@ -358,7 +370,10 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	// 运维端点（Build3 Step 4）：一键清空/配置导入导出/备份下载；内存态复位回调（Step 5 追加 SSE 复位）
 	clearSvc := dataclear.NewService(st, dataDir, lg)
 	clearSvc.SetClearHooks(func(ctx context.Context) error {
-		return mailDispatcher.PauseAndDrain()
+		if err := mailDispatcher.PauseAndDrain(); err != nil {
+			return err
+		}
+		return mailResultLog.Flush(ctx)
 	}, func(_ context.Context, cleared bool) {
 		var err error
 		if cleared {
@@ -460,7 +475,8 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 日志查看（Build3 Step 5）：访问日志查询/清空 + 实时日志流 SSE（短期 Token + 8 连接上限）
 	accessLogSvc := log.NewAccessServiceFromProvider(st, lg)
-	RegisterLogRoutes(engine, &LogHandler{accessSvc: accessLogSvc, streamSvc: streamSvc, users: users, mailLog: activityLog},
+	RegisterLogRoutes(engine, &LogHandler{accessSvc: accessLogSvc, streamSvc: streamSvc, users: users,
+		mailLog: activityLog, mailResults: mailResultLog},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 管理概览与版本归属：聚合只读数据，须在全部依赖服务完成装配后注册。
 	RegisterOverviewRoutes(engine, &OverviewHandler{
@@ -474,6 +490,11 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	if err := registerStatic(engine, dataDir); err != nil {
 		mailDispatcher.Stop()
+		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if stopErr := mailResultLog.Stop(stopCtx); stopErr != nil {
+			lg.Warn("静态路由装配失败后停止邮件结果日志服务失败", "err", stopErr)
+		}
 		return nil, err
 	}
 	return s, nil
@@ -575,6 +596,13 @@ func (s *Server) Run(ctx context.Context) error {
 	defer func() {
 		if s.mailDispatcher != nil {
 			s.mailDispatcher.Stop()
+		}
+		if s.mailResultLog != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := s.mailResultLog.Stop(stopCtx); err != nil {
+				s.log.Warn("停止邮件结果日志服务失败", "err", err)
+			}
 		}
 	}()
 	errCh := make(chan error, 1)
