@@ -1,9 +1,9 @@
-# V4UpgradeRelated.md — 首版数据库基线与历史兼容清理候选
+# V4UpgradeRelated.md — 首版数据库基线合并实施定稿与历史兼容清理候选
 
-> **文档定位：** 本文档仅保存未来 V4／首个正式版本发布前可考虑的数据库基线重建与历史兼容清理研究结论，供后续重新评估和规划。
-> **状态边界：** 本文档不是当前活跃工作，不是 `TODOLIST.md`，不登记当前短期待办，不代表任何代码、数据库、迁移、测试或文档变更已获实施授权，也不要求当前工作被其阻塞。
-> **实施边界：** 后续只有在用户重新明确授权后，才能复核当前仓库状态、确认不兼容边界、建立对应 Design／Build 计划并开始修改。本文件中的路径、行号、数量和候选项均是 2026-09-16 的只读研究快照，实施前必须重新验证。
-> **关联约束：** 实际处理仍须遵循 [AGENTS.md](AGENTS.md)；不得将本候选资料自行加入 [TODOLIST.md](TODOLIST.md)、[ProdTestList.md](ProdTestList.md) 或当前 Issue／Build。
+> **文档定位：** 本文档保存 V4／首个正式版本发布前的数据库基线合并实施定稿，并继续保留数据库外历史兼容清理的研究候选。数据库基线合并方案已经完成当前仓库复核；数据库外兼容清理仍不是本次实施范围。
+> **状态边界：** 用户已于 2026-09-20 授权把完整实施方案写入本文档，但尚未授权修改代码、SQL、测试、其他文档或删除数据。本文档不是 `TODOLIST.md`，不登记当前短期待办，也不代表代码实施已经开始。
+> **实施边界：** 后续代码实施仍须先建立独立 Build 记录并取得明确授权；本地数据库、外部 `DATA_DIR`、Docker 命名卷和备份的删除必须分别核对目标与授权。不得以本方案自动推导数据删除权限。
+> **关联约束：** 实际处理仍须遵循 [AGENTS.md](AGENTS.md)。数据库基线合并不得混入 [SecurityScanPlan1.md](SecurityScanPlan1.md) 的步骤、证据或状态，也不得自行改写已归档的 Design／Build／Issue 历史记录。
 
 ---
 
@@ -17,7 +17,7 @@
 
 研究结论：
 
-- 可以清除当前 `backend/migrations/` 中 `0001`～`1021` 的开发期演进历史，并重建为一个首版最终数据库基线。
+- 可以清除当前 `backend/migrations/` 中 `0001`～`1022` 的开发期演进历史，并重建为一个首版最终数据库基线。
 - 不能在没有替代结构定义的情况下把迁移目录永久清空。全新的 SQLite 文件没有任何业务表，项目仍需要一套 SQL 定义创建 `users`、`groups`、`nodes`、`subscriptions` 等当前表结构。
 - 推荐保留迁移目录、`schema_migrations` 和迁移执行器，以一个新的 `0001_initial_schema.sql` 直接创建首版最终结构；首版发布后的结构变化从 `0002` 开始。
 - 数据库基线压缩只是第一层。代码中还存在启动期数据升级、旧 API 字段、旧导入格式、旧蓝图／快照和旧响应容错，需要逐项区分“项目历史兼容”与“当前外部格式或安全可靠性能力”。
@@ -102,14 +102,100 @@ SQLite 新建的数据库文件最初是一张白纸。若没有执行建表 SQL
 
 纯文本首版基线迁移更符合当前单二进制、SQLite、轻量和可审查的工程方向。
 
-## 三、2026-09-16 迁移链只读快照
+## 三、当前迁移链复核基线（2026-09-20）
 
-当日只读检查结果：
+### 3.1 前置检查结果
 
-- `backend/migrations/` 包含 26 个 SQL 文件，约 596 行。
-- 完整执行链最终得到 33 张表（包含 `schema_migrations`）和 24 个索引。
-- `go test ./internal/store` 通过。
-- 工作区在研究开始时无未提交变更。
+本次实施方案定稿前已经完成以下只读检查：
+
+- 已重新阅读当前 `AGENTS.md`、本文档、当前工作入口和 Git 状态。
+- 当前无已授权活跃 Build；只读前置检查开始和结束时工作区均无未提交变更，本轮写入后预期只出现本文档的修改。
+- 用户已再次确认项目仍处于个人快速开发阶段，不存在真实用户和历史兼容包袱。
+- `backend/migrations/` 当前包含 27 个 SQL 文件，共 611 行，版本范围为 `0001`～`0005`、`1001`～`1022`。
+- 相比 2026-09-16 快照，新增 `1022_mail_result_logs.sql`；其 `mail_result_logs` 表和时间索引必须并入首版基线。
+- 在临时空 SQLite 数据库顺序执行当前完整迁移链，最终得到 34 张表（包含 `schema_migrations`）和 25 个显式命名索引。
+- 临时库 `PRAGMA foreign_key_check` 无结果，`PRAGMA integrity_check` 返回 `ok`。
+- 迁移层唯一产品种子为 9 个预设代理组；`groups`、`platforms`、`system_config` 初始均为空。
+- 默认组和 3 个默认平台由 `backend/internal/setup/setup.go` 的 Setup 事务创建，不属于迁移种子。
+- 生产 Go 和 `frontend/src` 中已经没有 `group_selections`、`subscription_group_rel`、`pool_entries`、`urls_json`、旧单值 `installer_file`／`installer_url` 的引用。
+- `go test ./internal/store ./internal/setup ./internal/mail ./internal/cron` 通过。
+
+本轮检查只创建了系统临时目录中的一次性 SQLite 校对库，没有修改仓库、项目数据库或外部系统。
+
+### 3.2 当前最终对象清单
+
+最终 34 张表为：
+
+```text
+access_logs
+assembly_blueprints
+custom_subscriptions
+download_tokens
+group_nodes
+groups
+mail_result_logs
+nodes
+oidc_login_tickets
+oidc_states
+password_reset_tokens
+platforms
+pool_canonical_rules
+pool_rule_origins
+pool_source_snapshots
+pool_sync_tasks
+proxy_groups
+rule_pool_sources
+rule_pools
+rule_tokens
+rules
+schema_migrations
+share_subscriptions
+share_tokens
+subscriptions
+system_config
+traffic_records
+users
+versions
+xray_ext_accounts
+xray_ext_traffic
+xray_ext_users
+xray_instances
+xray_users
+```
+
+最终 25 个显式命名索引为：
+
+```text
+idx_access_logs_created
+idx_custom_platform
+idx_custom_user
+idx_dt_user_platform
+idx_group_nodes_node
+idx_mail_result_logs_recorded_at
+idx_nodes_instance
+idx_nodes_render_name
+idx_oidc_login_tickets_exp
+idx_oidc_states_created
+idx_pool_canonical_pool
+idx_pool_origins_rule
+idx_pool_origins_source
+idx_pool_snapshots_source
+idx_pool_sources_manual
+idx_pool_sources_pool
+idx_pool_sources_url
+idx_pool_sync_tasks_pool
+idx_reset_tokens_user
+idx_rules_home_default
+idx_subscriptions_platform_uniq
+idx_users_group_id
+idx_versions_owner
+idx_xray_ext_users_node
+idx_xray_users_node
+```
+
+SQLite 为主键和表内 `UNIQUE` 约束自动创建的内部索引不计入上述 25 个显式索引，但必须通过列、唯一约束和行为测试保留其语义。
+
+### 3.3 已确认的开发期历史
 
 已经确认的开发期历史示例：
 
@@ -118,6 +204,7 @@ SQLite 新建的数据库文件最初是一张白纸。若没有执行建表 SQL
 3. `1009_xray.sql` 在既有表上追加大量字段，创建早期素材池结构，并删除更早的分发模型；首版可直接建立最终表。
 4. `1016_rule_pool_snapshots.sql` 删除早期素材池表，建立 Canonical Rule／Snapshot 模型，并保存旧最大 ID 防止复用；没有旧数据时不需要 ID 保留。
 5. `1018`～`1021` 主要为旧行增加字段、保留空值或使旧 OIDC 流程记录失效；首版可以直接把最终字段写入建表定义。
+6. `1022_mail_result_logs.sql` 直接建立当前业务仍使用的邮件终态表和时间索引；DDL 必须保留，但不需要保留迁移编号 1022。
 
 ## 四、首版基线迁移方案
 
@@ -141,13 +228,27 @@ SQLite 新建的数据库文件最初是一张白纸。若没有执行建表 SQL
 - 旧 OIDC state／ticket 兼容；
 - “旧记录为空则按旧行为处理”的升级备注。
 
-### 4.2 种子数据边界
+### 4.2 冻结的等价边界
 
-- 九个预设代理组属于当前产品初始数据，应保留，但应核对其 JSON 是否仍包含已失效的 `nodes` 字段。
+本次数据库基线合并只做等价压缩，不顺带改变数据模型。实施时必须遵守：
+
+- 保留当前全部表、列、列顺序、类型、NULL、DEFAULT、主键、外键、CHECK、UNIQUE、部分索引和表达式索引语义。
+- 不新增当前 schema 中不存在的外键。例如 `users.group_id` 当前只有普通列和索引，本次不得借机增加 `REFERENCES groups(id)`。
+- 不把 `rule_pool_sources.active_snapshot_id`／`pending_snapshot_id`、`assembly_blueprints.platform_id`／`rule_id`、`access_logs.user_id` 或 `mail_result_logs.user_id` 改造成新外键。
+- 不改变任何 `ON DELETE` 行为，不调整枚举 CHECK，不改变时间字段类型和默认值。
+- 不修复当前设计或安全审查中另行记录的 schema 候选问题；这些问题需要独立决策、设计和测试。
+- 不删除 `schema_migrations`、迁移执行器、`go:embed` 或数据库高版本拒绝启动能力。
+- 新首版最高 schema 版本固定为 1，正式发布后的第一个结构变化使用 `0002_<name>.sql`。
+
+若候选基线与当前最终结构发生除迁移记录内容之外的任何差异，必须停止实施并报告，不得用“没有历史数据”作为接受意外差异的理由。
+
+### 4.3 种子数据边界
+
+- 九个预设代理组属于当前产品初始数据，应保留其当前名称、`preset_key`、启用状态和 `definition_json`。当前 JSON 仍包含 `"nodes":[]`；这属于现行种子值，本次等价合并不得擅自删除。
 - 默认用户组和三个默认平台当前由 Setup 流程创建，不应在基线迁移中重复创建。
 - 不得把本地测试账号、测试密码、测试 URL、测试节点、开发序列或任何密钥写入基线。
 
-### 4.3 不应直接使用数据库 dump
+### 4.4 不应直接使用数据库 dump
 
 SQLite `.dump` 可以作为校对材料，但不应未经审查直接作为基线，因为可能带入：
 
@@ -159,7 +260,7 @@ SQLite `.dump` 可以作为校对材料，但不应未经审查直接作为基�
 
 应以完整迁移后的 schema manifest 为基准，人工整理一份明确、最小、可审查的最终 DDL。
 
-### 4.4 测试替换
+### 4.5 测试替换
 
 当前针对 `1015 → 1016`、`1018 → 1019`、`1019 → 1020`、`1020 → 1021` 的专项测试，在首版基线重建后将失去产品意义。不能只删除测试而不补替代保障。
 
@@ -175,6 +276,21 @@ SQLite `.dump` 可以作为校对材料，但不应未经审查直接作为基�
 - 一个测试专用的模拟 `0001 → 0002`，验证未来升级机制仍有效；
 - `PRAGMA foreign_key_check` 无结果；
 - `PRAGMA integrity_check` 返回 `ok`。
+
+### 4.6 本次明确排除的内容
+
+以下内容虽然继续保留在第五节作为未来研究候选，但不属于数据库迁移合并 Build：
+
+- WireGuard 启动期敏感数组升级器及其接线；
+- 素材池旧请求字段 `urls`；
+- 配置导入 v1／v2 路径；
+- Clash 旧蓝图和旧快照统计回退；
+- OIDC、节点编辑器和浏览器草稿的旧格式推断；
+- 结构体旧字段、旧签名包装函数和同版本前后端容错；
+- 外部规则语法、URI、Mihomo／Shadowrocket／Xray 适配；
+- 当前安全、错误处理、降级、脱敏和备份恢复能力。
+
+这些内容不得与迁移基线压缩并行实施，也不得因旧迁移测试被删除而连带删除其业务测试。
 
 ## 五、历史兼容清理分类
 
@@ -241,83 +357,313 @@ SQLite `.dump` 可以作为校对材料，但不应未经审查直接作为基�
 
 若这些名称造成误解，可以评估重命名，但不能仅凭名称删除行为。
 
-## 六、未来实施阶段建议
+## 六、数据库基线合并完整实施方案
 
-> 本节只是未来顺序建议，不是当前执行清单。
+> 本节是后续 Build 的实施定稿。只有在建立独立 Build 文档并获得代码实施授权后，才可按 Step 0.5～8 严格串行执行。每个 Step 验收通过后才能进入下一步；任一停止条件触发时必须暂停并向用户报告。
 
-### 阶段 0：重新确认不兼容边界
+### Step 0.5：实施启动、状态复核与边界冻结
 
-实施前由用户明确以下内容是否全部可丢弃：
+**目标：** 把本文档中的方案转换为唯一活跃 Build，确认实施时仓库没有漂移或未解决决策。
 
-- 本地开发数据库；
-- 开发期备份；
-- 旧 `.enc` 配置导出文件；
-- 旧 HTTP API 请求和响应；
-- 浏览器本地草稿；
-- 已保存的装配蓝图和素材池快照；
-- 手动节点旧 JSON；
-- 旧镜像与新镜像之间的滚动升级。
+**只读前置检查：**
 
-当前推荐边界：上述开发期产物均不兼容；当前明确支持的外部协议、URI、规则来源和客户端格式继续保留。
+1. 重新阅读 `AGENTS.md`、本文档、当时的当前工作入口和 Git 状态。
+2. 确认没有其他活跃 Build 正在修改 `backend/migrations/`、`backend/internal/store/`、Setup、清库或启动路径。
+3. 重新统计迁移文件、最高版本、最终表和索引；若不再是 27 个 SQL、最高 1022、34 表、25 个显式索引，则先更新 manifest 和实施文档。
+4. 再次确认没有真实用户、真实业务数据、已发布数据库或必须恢复的旧 SQLite 备份。
+5. 区分本地 `backend/data`、外部 `DATA_DIR` 和 Docker `vpn-data`；只确认存在性与归属，不在本 Step 删除。
 
-### 阶段 1：建立可比较的最终 schema manifest
+**文档产出：**
 
-1. 在临时空库执行当前完整迁移链。
-2. 导出仅含结构的表、列、索引、外键、约束和种子数据清单。
-3. 记录哪些对象由 Setup 创建，哪些由迁移创建。
-4. 把 manifest 作为新基线的审查依据，而不是直接复制 dump。
+- 创建新的 Build 文档，按本节拆分 Step，不把第五节的兼容清理候选纳入 Build。
+- `AGENTS.md` 只登记当前工作入口和 Build 状态，不复制具体设计内容。
+- 不把本工作写入 `SecurityScanPlan1.md`、`SecurityReport3.md` 或归档报告。
 
-### 阶段 2：编写并验证首版基线
+**验收：** 工作区基线、迁移计数、schema 对象计数、数据边界和执行范围均有当前证据；没有待用户决策项。
 
-1. 新建最终 `0001_initial_schema.sql`。
-2. 删除开发期旧迁移文件。
-3. 替换历史升级专项测试。
-4. 清空精确限定的本地 `backend/data` 后执行首次启动与 Setup。
-5. 验证 schema manifest、外键、完整性、重启幂等和迁移失败回滚。
+**停止条件：** 发现真实数据、外部持久化目标不明、其他分支并行修改迁移、当前 schema 与本文清单不一致，或用户要求兼容任何旧 SQLite 数据库／备份。
 
-### 阶段 3：删除数据库外的数据升级器
+### Step 1：冻结旧链最终 schema manifest
 
-优先处理启动时 WireGuard 凭据迁移、旧 OIDC 行处理、旧蓝图／快照推断等直接增加启动路径或运行时分支的逻辑。
+**目标：** 在删除旧迁移前建立机器可比较、人工可审查的当前最终结构合同。
 
-### 阶段 4：收紧内部与前后端合同
+**实施方式：**
 
-按以下顺序处理：
+1. 使用 `store.Open` 和当前 `migrations.FS` 在 `t.TempDir()` 空库执行完整旧链，避免依赖系统 `sqlite3` CLI 的实现差异。
+2. 建立测试辅助函数，稳定导出以下信息：
+   - `sqlite_schema` 中非 `sqlite_%` 的表和显式索引名称；
+   - 每表 `PRAGMA table_xinfo`：列序、名称、类型、NOT NULL、DEFAULT、主键序号、hidden；
+   - 每表 `PRAGMA foreign_key_list`：来源列、目标表／列、更新／删除动作；
+   - 每表 `PRAGMA index_list` 和每索引 `PRAGMA index_xinfo`：唯一性、来源、部分索引、列序和表达式槽位；
+   - 表／索引 `sqlite_schema.sql`，用于人工核对 CHECK、表达式索引和部分索引谓词；
+   - 9 个 `proxy_groups` 种子行；
+   - 所有其他业务表的初始行数。
+3. manifest 排序必须稳定，不包含数据库路径、时间戳、`schema_migrations` 行内容或其他运行相关值。
+4. manifest 只描述当前最终 schema，不保存旧迁移 SQL 副本，不成为历史兼容夹具。
 
-1. 旧 API 请求字段；
-2. 旧 API 响应容错；
-3. 旧导入格式；
-4. 旧蓝图／草稿格式；
-5. 旧结构体字段和包装函数；
-6. 仅为以上兼容路径存在的测试。
+**推荐测试文件：**
 
-### 阶段 5：审计外部格式边界
+- `backend/internal/store/baseline_schema_test.go`
+- 如确需静态期望文件：`backend/internal/store/testdata/schema_v1_manifest.json`
 
-对每个 `legacy`、`compatibility`、`alias`、`fallback` 路径分类：
+是否使用 JSON 夹具可在 Build 编写时按可读性决定，但不能降低上述覆盖范围。
 
-- 项目旧版本兼容；
-- 当前 API／前端合同；
-- 外部协议／客户端格式；
-- 安全／可靠性容错；
-- 当前业务历史功能；
-- 测试专用兼容。
+**验收：** manifest 明确覆盖 34 张表、25 个显式索引、全部列／外键／约束和 9 个种子；`foreign_key_check` 为空，`integrity_check` 为 `ok`。
 
-只直接清除第一类；第二类需要迁移当前调用者；其他类别默认保留。
+**停止条件：** manifest 暴露出无法解释的临时表、测试数据、密钥、URL、非预期种子或损坏约束。
 
-### 阶段 6：联合验收
+### Step 2：编写隔离候选 `0001_initial_schema.sql`
 
-除 AGENTS.md 规定的后端 build／vet／test 和前端 build 外，至少覆盖：
+**目标：** 在不破坏生产嵌入迁移链的前提下编写可独立应用的首版基线。
 
+**实施方式：**
+
+1. 先把候选 SQL 放入 store 测试夹具目录，尚不删除 `backend/migrations/*.sql`。
+2. 按依赖和可读性组织直接建表 DDL，避免当前旧链中的先建后删和跨文件 `ALTER TABLE`。
+3. 直接创建最终列、外键、CHECK、UNIQUE、部分索引和表达式索引。
+4. 在全部结构创建后插入 9 个预设代理组。
+5. 不包含任何旧行转换、回填、旧 ID 保留、旧 state／ticket 失效、临时表或 `sqlite_sequence` 手工更新。
+6. 可显式包含幂等的 `schema_migrations` 建表语句，与 `Store.Migrate` 的预建行为共存；迁移版本记录仍由 `Store.applyOne` 写入。
+
+**DDL 排序建议：**
+
+1. `schema_migrations`、`system_config`；
+2. `groups`、`platforms`、`users`；
+3. OIDC 和密码重置短期表；
+4. subscriptions／versions／custom／share／rules 及其 token；
+5. access logs；
+6. Xray、nodes、proxy groups、group assignments 和流量表；
+7. rule pool、source、snapshot、canonical 和 origin 表；
+8. assembly blueprints；
+9. mail result logs；
+10. 预设代理组种子。
+
+上述顺序只改善可读性，不得改变现有约束语义。
+
+**验收：** 候选 SQL 可在空库单事务成功执行；初始对象计数和种子边界正确。
+
+**停止条件：** 为了让候选 SQL 通过而需要改变生产代码、放宽约束、增加兼容分支或删除当前字段。
+
+### Step 3：旧链与候选基线双库等价验证
+
+**目标：** 在删除旧迁移前证明候选基线与当前最终结构等价。
+
+**对比模型：**
+
+```text
+数据库 A：当前 0001～1022 完整迁移链
+数据库 B：隔离候选 0001_initial_schema.sql
+```
+
+**必须相等：**
+
+- 34 张最终表；
+- 25 个显式索引；
+- 每张表的列序、名称、类型、NULL、DEFAULT 和主键；
+- 外键目标和动作；
+- UNIQUE、CHECK、部分索引和表达式索引语义；
+- 9 个代理组种子的全部字段；
+- 非种子业务表为空；
+- 关键约束的正反例行为；
+- `foreign_key_check` 和 `integrity_check`。
+
+**允许的差异只有：**
+
+- A 的 `schema_migrations` 含 27 个历史版本，最高为 1022；
+- B 的 `schema_migrations` 只含版本 1；
+- A 的 `sqlite_schema.sql` 可能保留 `ALTER TABLE` 形成的文本布局，B 是直接 `CREATE TABLE`；比较应基于结构语义而不是原始文本相等；
+- B 不保留 1016 的旧 rule pool ID／`sqlite_sequence` 防复用历史。
+
+**约束行为探针至少覆盖：**
+
+- users role/source/status；
+- oidc state intent；
+- versions owner_type；
+- share token status；
+- nodes source／instance 组合；
+- proxy group type；
+- Xray sync status/action；
+- assembly target syntax；
+- pool source kind/mode、snapshot status 和 sync task status；
+- mail result/failure_stage 组合；
+- 节点有效渲染名、默认首页规则、订阅平台、素材池来源的唯一约束。
+
+**验收：** 除允许差异外，双库 manifest 和行为探针完全一致。
+
+**停止条件：** 出现任何额外差异。此时保留旧迁移链，修正候选或提交用户决策，不得进入 Step 4。
+
+### Step 4：替换生产迁移链
+
+**目标：** 将验证通过的候选基线提升为唯一生产迁移。
+
+**文件变更：**
+
+- 新增 `backend/migrations/0001_initial_schema.sql`；
+- 删除当前 27 个开发期迁移 SQL；
+- 保留 `backend/migrations/embed.go`；
+- 更新 `backend/internal/store/store.go` 中点名 `0001_init.sql` 的注释；
+- 不改变 `Store.Migrate`、`applyOne`、`parseVersion`、`sortedEntries` 和 `TxImmediate` 的生产逻辑。
+
+**静态检查：**
+
+- `backend/migrations/` 只剩 `0001_initial_schema.sql` 和 `embed.go`；
+- 生产代码没有被删除迁移文件名或版本号依赖；
+- `go:embed *.sql` 正常包含新基线；
+- 新空库执行后 `schema_migrations` 只有版本 1。
+
+**验收：** `go test ./internal/store` 通过，Step 3 的等价测试改为对正式 `migrations.FS` 执行并继续通过。
+
+**停止条件：** 迁移框架需要生产逻辑改造才能识别新基线，或正式嵌入结果与隔离候选不一致。
+
+### Step 5：替换历史升级专项测试
+
+**目标：** 删除失去产品意义的开发期升级测试，同时建立更强的首版基线和未来升级保障。
+
+**删除候选：**
+
+- `backend/internal/store/migration_1016_test.go`
+- `backend/internal/store/migration_1018_test.go`
+- `backend/internal/store/migration_1019_test.go`
+- `backend/internal/store/migration_1020_test.go`
+- `backend/internal/store/migration_1021_test.go`
+- `backend/internal/store/migration_helpers_test.go`
+
+**必须保留或新增的测试：**
+
+1. 空库应用正式 `0001` 成功。
+2. `schema_migrations` 只有版本 1。
+3. 同一 Store 重复迁移幂等。
+4. 关闭／重新打开后重复迁移幂等。
+5. 完整 schema manifest 匹配。
+6. 只有 9 个代理组种子，默认组／默认平台／配置尚未创建。
+7. Setup 后恰有 1 个默认组和 3 个默认平台，重启不重复插入。
+8. 候选基线末尾注入失败语句时，业务 DDL、索引和种子全部回滚；允许迁移器在事务外预建空 `schema_migrations`，但不得有版本 1 记录。
+9. 测试专用 `0002_probe.sql` 可从版本 1 升至版本 2，并保持重启幂等。
+10. 数据库伪造更高版本时仍拒绝启动。
+11. `foreign_key_check` 为空，`integrity_check` 为 `ok`。
+12. 9 个代理组种子后创建新 proxy group 得到连续的新 ID；空 `rule_pools` 中创建首个素材池从 ID 1 开始，不继承 1016 的旧素材池 ID 防复用逻辑。
+
+仓库内直接使用 `migrations.FS` 的业务测试继续保留，它们会自然改为覆盖新基线。各包自带最小 `fstest.MapFS` 的隔离测试也默认保留；它们不是旧数据库兼容测试，不能仅因文件名仍叫 `0001_init.sql` 或 `100x_*.sql` 就批量改写。
+
+**验收：** store 测试不再依赖 1015～1021 的真实升级链，同时完整覆盖基线、回滚、幂等、高版本拒绝和未来 `0002`。
+
+**停止条件：** 删除历史测试后出现无法由新合同测试解释的覆盖缺口，或业务测试仍真实依赖旧中间 schema。
+
+### Step 6：本地空库切换与 Setup smoke
+
+**目标：** 在精确限定的本地测试数据范围内验证真实启动路径。
+
+**重要版本边界：** 新程序最高版本为 1。任何含 `schema_migrations=1022` 的旧数据库都会被 `Store.Migrate` 判定为“数据库版本高于程序支持版本”，进入应急模式。这是有意的不兼容边界，不是需要新增升级桥的错误。
+
+**为什么不能使用普通一键清空切换：** `dataclear.ClearTablesTx` 有意保留 `schema_migrations`。旧数据库即使清空全部业务表，版本 1022 仍存在，重启后仍会被新程序拒绝。应急模式在数据库可读时也复用该 SQL 清空路径，因此不能把应急“重新初始化”当作 1022→1 的版本重置工具。
+
+**执行前检查：**
+
+1. 停止所有使用目标数据库的本地进程。
+2. 从仓库根目录解析并打印规范化绝对路径。
+3. 目标只能是 `/Users/kyle/Desktop/Repo/VPN-Subscription-Management/backend/data`；不得使用 `$HOME`、`~`、未解析变量、宽泛 glob 或工作区根目录。
+4. 核对未设置外部 `DATA_DIR`，也未把目标指向 Docker 卷或其他环境。
+5. 再次列出将处理的 `app-dev.db`／`app-prod.db` 及其 `-wal`／`-shm` 文件。
+6. 删除动作必须依赖用户对代码实施和本地测试数据清理的明确授权；本方案文档授权本身不等于删除授权。
+
+**smoke：**
+
+1. 从空 `backend/data` 启动 dev，确认自动创建 schema version 1 并进入 Setup。
+2. 执行 Quick Start，核对 1 个默认组、3 个默认平台、签名密钥、`configured=true` 和 `frontend_url`。
+3. 关闭并重启，确认 `0001` 不重复、Setup 种子不重复。
+4. 执行一键清空，确认业务数据被清除、schema version 1 保留、系统回到 Setup。
+5. 再次完成 Setup，确认清空生命周期仍正常。
+
+**Docker 边界：** Compose 使用独立的 `vpn-data:/data` 命名卷。除非用户单独授权并核对目标，否则不删除或重建该卷。Docker smoke 应使用明确的新空卷或经确认可丢弃的项目卷。
+
+**停止条件：** 目标路径不精确、进程仍占用数据库、存在外部 `DATA_DIR`、卷归属不明、发现真实数据，或旧数据库需要保留。
+
+### Step 7：联合自动化与隔离回归
+
+**后端门禁：**
+
+```bash
+cd backend
+go test ./...
+go test -race ./...
+go build ./...
+go vet ./...
+```
+
+若仓库现行 errgate／架构静态门禁仍可用，应按当前 `AGENTS.md` 和最近 Build 的实际入口一并执行，不得从历史文档猜测命令。
+
+**前端门禁：**
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+前端没有 schema 代码变更，但完整构建可证明嵌入交付和同镜像前后端没有被文档／构建调整破坏。
+
+**联合 smoke 范围：**
+
+- Setup、本地账号和 OIDC 配置基本路径；
+- 配置导入导出当前格式；
+- 素材池创建、同步、快照和手工激活；
+- 手动节点创建、保存、重新打开、检查和装配；
+- 预设代理组；
+- 邮件结果日志写入、分页和 90 天清理；
+- 一键清空和重启幂等；
 - Docker 空卷首次启动；
-- Setup 完整创建；
-- 本地账号和 OIDC；
-- 配置导入导出；
-- 素材池创建、同步、快照；
-- 手动节点创建、保存、重新打开和装配；
-- 预设代理组结构；
-- 容器重启幂等；
-- `PRAGMA foreign_key_check`；
-- `PRAGMA integrity_check`；
-- 旧版本号、旧字段和旧迁移测试无残余引用。
+- `foreign_key_check` 与 `integrity_check`。
+
+**仓库检查：**
+
+```bash
+git diff --check
+```
+
+另行搜索生产目录中的旧迁移文件名、`migrationsThrough`、1015～1022 迁移测试 helper 和不应存在的旧表／旧列。搜索无匹配和搜索命令失败必须分开判定。
+
+**证据边界：** 自动化、接口级 smoke 和 Docker 空卷只能证明工程行为；不得表述为真实 SMTP、真实 OIDC、真实客户端、真实浏览器或用户人工验收通过。
+
+**停止条件：** 任一门禁失败、出现数据竞态、空卷不能进入 Setup、重启重复种子，或新基线与 manifest 漂移。
+
+### Step 8：文档同步、归档与最终交付
+
+**当前事实文档：**
+
+- 更新本文档的实施状态、最终对象计数、实际测试证据和变更记录；
+- 更新 `AGENTS.md` 的当前工作入口、Build 清单和归档状态；
+- Build 文档记录每个 Step 的实际文件、命令、结果、未执行人工项和停止条件；
+- 根目录 `Issue18.md` 中对 `1022_mail_result_logs.sql` 的当前表述改为“该表最初由 1022 引入，首版基线合并后由 0001 直接创建”，避免留下当前路径误导。
+
+**不得批量改写：**
+
+- `docs/reports/` 下的历史 Design／Build／Issue／SecurityReport；
+- 历史报告中当时真实存在的 1001～1022 文件名和版本证据；
+- `SecurityScanPlan1.md`／`SecurityReport3.md` 的步骤、证据或状态。
+
+安全报告中的旧路径若需要重新定位，应由安全审查自己的后续 Step 处理；本 Build 只可说明历史报告未被改写，不得替其更新结论。
+
+**最终交付应明确：**
+
+- 代码和 SQL 实际变更；
+- 删除的历史迁移与测试；
+- 新增的 schema 合同测试；
+- 版本重置和旧数据库不兼容边界；
+- 自动化／smoke 实际结果；
+- Docker 卷、真实服务和人工项目是否执行；
+- 工作区是否只含本 Build 变更。
+
+**归档条件：** Step 0.5～8 全部完成、所有自动化门禁通过、当前文档同步完成且不存在待处理代码问题。未执行的真实环境／人工项应迁往其正式跟踪文档，不得用“未执行”阻塞纯数据库基线 Build 的工程归档。
+
+### 6.9 实施时需要用户再次确认的事项
+
+当前没有阻塞本实施方案定稿的问题。代码实施开始前仍必须取得一次明确授权；执行到数据切换前，还必须确认实际需要处理的持久化目标：
+
+1. 只处理当前仓库 `backend/data`，还是还要处理 Docker `vpn-data`；
+2. 是否存在外部 `DATA_DIR` 或需要保留的 SQLite 备份；
+3. 是否要求保留任何旧镜像到新镜像的滚动升级能力。
+
+推荐默认值是：只清理经过路径核对的当前仓库本地测试数据库；Docker 卷、外部 `DATA_DIR` 和备份一律不动；不支持旧镜像滚动升级。若用户选择不同边界，必须在 Step 0.5 修改 Build 后再实施。
 
 ## 七、供其他 AI 使用的只读扫描提示词
 
@@ -364,7 +710,7 @@ SQLite `.dump` 可以作为校对材料，但不应未经审查直接作为基�
 - 旧 schema 到新 schema 的专项测试
 - 启动后执行的数据升级器
 
-判断当前 26 个迁移能否压缩为一个首版 0001_initial_schema.sql。
+重新统计当前迁移数量和最高版本，并判断完整迁移链能否压缩为一个首版 0001_initial_schema.sql；不得沿用本文档中的历史数量而不复核。
 迁移框架本身是否应保留要单独评价，不得把“删除旧迁移链”等同于“删除迁移机制”。
 
 二、运行时历史数据升级
@@ -487,21 +833,58 @@ migrate|fallback|alias|missing|default|schema_version|format_version|
 禁止实施任何修改。发现结论不确定时明确说明缺少什么证据。
 ```
 
-## 八、后续重新启动本候选时的前置条件
+## 八、实施前影响评估与授权闸门
 
-后续若用户决定开始处理，必须先完成：
+### 8.1 受影响范围
 
-1. 重新阅读当时的 `AGENTS.md`、当前 Design／Issue／Build 和 Git 状态。
-2. 重新验证“没有真实数据、没有已发布数据库、没有需要兼容的旧导出文件”。
-3. 明确旧 API、浏览器草稿、旧蓝图和旧配置导出的不兼容边界。
-4. 输出影响评估和需要用户决策的内容。
-5. 建立单独 Design／Build 记录并获得明确实施授权。
-6. 实施期间严格区分自动化检查、隔离 smoke、真实客户端／浏览器核验和用户人工验收。
+数据库基线合并会直接影响：
 
-在上述条件满足前，本文件仅作为未来候选资料保留，不产生当前待办。
+- `backend/migrations/` 的全部 SQL 文件布局和嵌入结果；
+- `backend/internal/store/` 的迁移专项测试和基线合同测试；
+- 新空库首次启动、Setup、重启和一键清空；
+- Docker 空卷构建／启动验证；
+- 当前文档、Build 记录、`AGENTS.md` 当前工作入口以及 `Issue18.md` 的 1022 当前引用。
+
+它不会直接改变：
+
+- HTTP API、前端 DTO 或页面行为；
+- 当前配置 `.enc` 导入／导出格式；
+- 节点、素材池、装配、OIDC、SMTP 或 Xray 的业务逻辑；
+- 外部协议、URI、客户端和规则格式；
+- 已归档历史报告中的迁移编号证据。
+
+### 8.2 已知运行影响
+
+- 新空库直接执行版本 1，不再依次执行 27 个开发期迁移。
+- 已含 1022 迁移记录的旧数据库会被新程序拒绝并进入应急模式。
+- 普通一键清空和数据库可读时的应急 SQL 重新初始化均保留 `schema_migrations`，不能把旧库转换为新基线。
+- 旧 SQLite 备份不能直接恢复给新程序；需要保留时必须停止本方案并另做兼容迁移设计。
+- 当前 `.enc` 配置导入是否接受旧格式不由本次工作改变；数据库不兼容不能被表述为配置导入也必然不兼容。
+- 版本号重置不影响全新部署，但禁止旧新镜像针对同一数据卷做滚动升级。
+
+### 8.3 授权分层
+
+本工作必须保持三层授权分离：
+
+1. **方案文档授权：** 本次已获得，只允许更新 `V4UpgradeRelated.md`。
+2. **代码实施授权：** 尚未获得；取得后才可创建 Build、修改 SQL／Go／测试和同步相关文档。
+3. **数据清理授权：** 尚未获得；必须在 Step 6 针对精确路径或卷再次确认，不能从代码实施授权自动推导。
+
+在代码实施授权前，本文档不产生当前代码 TODO，不修改 `TODOLIST.md`，也不把兼容清理候选升级为活跃工作。
+
+### 8.4 当前未决项结论
+
+方案层面没有需要立即向用户确认的阻塞问题。以下事项已经采用保守默认值并在实施闸门再次核对：
+
+- schema 合并只保持等价，不修正既有约束；
+- 只处理数据库迁移链，不处理第五节兼容代码；
+- 历史报告不改写；
+- 本地仓库数据、Docker 卷、外部 `DATA_DIR` 和备份分别授权；
+- 真实服务／客户端／浏览器结果不由自动化推断。
 
 ## 九、变更记录
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-16 | 记录首版数据库基线压缩、迁移框架保留理由、历史兼容分类、未来阶段建议及其他 AI 只读扫描提示词；明确非当前活跃工作且不纳入 TODOLIST。 |
+| v2.0 | 2026-09-20 | 重新验证当前 0001～1022 共 27 个 SQL、611 行、34 表和 25 个显式索引；纳入 1022 邮件终态表；冻结等价合并范围、旧数据库不兼容边界、Step 0.5～8 串行实施定稿、测试替换矩阵、空库切换和三层授权闸门。本次仅更新本文档，未授权或实施代码与数据变更。 |
