@@ -203,7 +203,7 @@
 
 ### 3.2 已实施合同
 
-- **终态表：** 迁移 `1022_mail_result_logs.sql` 新增 `mail_result_logs`，仅保存 `kind/source/user_id/recipient_masked/result/failure_stage/recorded_at`。`result` 仅允许 `accepted/failed`，accepted 不得带失败阶段；无用户外键，删除用户后历史仍保留。
+- **终态表：** `mail_result_logs` 最初由迁移 `1022_mail_result_logs.sql` 引入；首版基线合并后改由 `0001_initial_schema.sql` 直接创建。该表仅保存 `kind/source/user_id/recipient_masked/result/failure_stage/recorded_at`。`result` 仅允许 `accepted/failed`，accepted 不得带失败阶段；无用户外键，删除用户后历史仍保留。
 - **隐私：** 不持久化完整收件/发件邮箱、主题、正文、站点名、URL、Token、SMTP 配置/响应、原始错误、任务对象、排队/发送耗时或运行态时间。
 - **旁路 writer：** 单 goroutine、容量 128、有界非阻塞 `TryRecord`；缓冲满、SQLite 写入失败或服务停止时允许丢日志并写安全 warn，不重试、不返回错误给邮件流程、不改变邮件或业务终态。
 - **终态接入：** `ActivityLog` 只有在合法 `sending→accepted|failed`、`queued→failed` 或直接终态失败时提交一次安全快照；`BeginQueued`、`BeginSending`、`MarkSending`、非法转换和重复终态不落库。

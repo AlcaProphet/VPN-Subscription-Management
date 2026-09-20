@@ -2,7 +2,7 @@
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
 > **当前设计：** [Design4.md](Design4.md) 是已实现的节点编辑器等增量设计基线；[Design5.md](Design5.md) §一～§六保留整站迁移候选，§七记录已确认并已实施的邮件内容定制设计，构建记录见 [Build28.md](docs/reports/Build/Build28.md)，有效站点名称与邮件运行语义修复见 [Issue18.md](Issue18.md)。
-> **当前工作：** 已完成的构建记录均已归档；R32-01 有效站点名称、R32-02 业务邮件异步派发与 R32-03 终态结果持久化/当前发送队列优化均已实施，R32-02/R32-03 构建记录见 [Build29.md](docs/reports/Build/Build29.md)、[Build30.md](docs/reports/Build/Build30.md)。Issue18 保留在根目录承载正式 SMTP、收件箱、重启持久性与客户端浏览器人工项；人工项见 [ProdTestList.md](ProdTestList.md)，短期待办见 [TODOLIST.md](TODOLIST.md)。已归档的邮件测试与 SMTP 优化记录见 [Issue16.md](docs/reports/Issue/Issue16.md)；R30-05 核验发现的真实 OIDC 网络边界问题已闭环归档至 [Issue17.md](docs/reports/Issue/Issue17.md)，配置导出 R31-01 由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪。
+> **当前工作：** 已完成的代码构建均已归档；数据库首版基线合并已按 [V4UpgradeRelated.md](V4UpgradeRelated.md) 定案实施并记录于 [Build31.md](docs/reports/Build/Build31.md)，既有本地数据库、Docker 卷、外部 `DATA_DIR` 和备份未触碰，其他历史兼容清理仍未激活。R32-01 有效站点名称、R32-02 业务邮件异步派发与 R32-03 终态结果持久化/当前发送队列优化均已实施，构建记录见 [Build29.md](docs/reports/Build/Build29.md)、[Build30.md](docs/reports/Build/Build30.md)。Issue18 保留在根目录承载正式 SMTP、收件箱、重启持久性与客户端浏览器人工项；人工项见 [ProdTestList.md](ProdTestList.md)，短期待办见 [TODOLIST.md](TODOLIST.md)。
 > **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；[ProdTestList.md](ProdTestList.md) 记录 R32-02/R32-03 异步发送、历史结果、当前队列、真实 SMTP/收件箱及客户端浏览器人工项；Issue16 R30-01 已完成并归档；工程自动化与人工验收分别记录。
 > **当前范围：** 当前项目聚焦基础模式完善；高级模式暂不跟进。Xray 相关范围和待办见 [XrayRelated1.md](XrayRelated1.md)。
 > **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
@@ -230,7 +230,7 @@
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
 | Design 文档 | [Design5.md](Design5.md)（§一～§六整站迁移仍为候选；§七邮件内容定制已确认并已完成工程实施，构建记录见 [Build28.md](docs/reports/Build/Build28.md)）；[Design4.md](Design4.md)（已实现的节点编辑器等增量设计基线，v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；已完成人工结果见 Issue14／Issue15，通用待核验项见 ProdTestList，Xray 专项见 XrayRelated1）；[Design3.md](docs/reports/Design/Design3.md)（已经 Build16 构建并已归档的规则素材与装配设计）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
 | Design GUI 规格 | [Design2-UI.md](docs/reports/Design/Design2-UI.md)（已实现并归档的 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；Design3 新增界面行为由 Design3 §八补充；Design4 节点表单界面行为由 Design4 §三/§十二补充 | 非强制，供参考 |
-| Build 文档 | 已归档：Build1～Build30、Build6-2（具体链接见下方清单）；当前无已授权活跃代码构建，正式 SMTP/收件箱/客户端/浏览器人工项见 [ProdTestList.md](ProdTestList.md) | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
+| Build 文档 | 已归档 Build1～Build31、Build6-2（具体链接见下方清单）；当前无已授权活跃代码构建 | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
 | Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue17.md](docs/reports/Issue/Issue17.md)（已闭环归档）；根目录保留 [Issue18.md](Issue18.md)（R32-02/R32-03 正式邮件人工项仍在 ProdTestList） | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
 | 专项跟踪文档 | [XrayRelated1.md](XrayRelated1.md)、[ExportRelated1.md](ExportRelated1.md) | 分别跟踪 Xray 基础模式问题与人工核验、配置导出与迁移问题 R31-01；Design5 §一～§六仍为候选 | 非强制，当前跟踪 |
 
@@ -295,6 +295,7 @@
 | [Build28.md](docs/reports/Build/Build28.md) | AI 编码助手 | Design5 §七：五分支邮件内容编辑/预览、审批通过单封、完整 URL 超链接、无图片邮件、配置往返与验收 | 已归档；Step 0.5～8 工程实现、联合门禁、隔离 smoke 与归档后回归补强已验收；真实 SMTP/收件箱/客户端/浏览器人工项见 ProdTestList |
 | [Build29.md](docs/reports/Build/Build29.md) | AI 编码助手 | R32-02：业务邮件统一异步派发、2/100/500 容量、短期发送日志、密码重置补偿、SMTP 测试同步日志、退出/清空生命周期、管理 API 与前端页签 | 已按用户一次性授权严格串行完成 Step 1～11；自动化/race/errgate/前端门禁与本地隔离 smoke 通过；真实 SMTP/收件箱人工项见 ProdTestList |
 | [Build30.md](docs/reports/Build/Build30.md) | AI 编码助手 | R32-03：终态结果 SQLite 持久化、128 容量旁路 writer、90 天清理、当前发送队列快照、历史清空新边界与取消页面轮询 | Step 0.5～7 已严格串行完成；后端全量/race/build/vet/errgate、前端全量/build 与隔离 smoke 通过；真实环境人工项见 ProdTestList |
+| [Build31.md](docs/reports/Build/Build31.md) | AI 编码助手 | 首版数据库基线合并：将 0001～1022 开发期迁移链等价压缩为单一 0001，建立 schema 合同测试 | Step 0.5～8 已完成并归档；联合门禁与独立 Docker 空卷 smoke 通过；既有数据目标未触碰 |
 
 | [Issue1.md](docs/reports/Issue/Issue1.md) | AI 编码助手 / 开发者 | 问题记录：R1~R11 系列（首轮基础问题与修复） | 已存档 |
 
@@ -324,7 +325,7 @@
 | [docs/reports/Design/Design1.md](docs/reports/Design/Design1.md) | 人类（开发者/用户） | 第一期设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维（已构建完成） | 已存档 |
 | [docs/reports/Design/Design1-UI.md](docs/reports/Design/Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已建界面 GUI 样式规格：13 个页面/部件；增量界面规格已由 Design2-UI.md 取代 | 已存档 |
 | [docs/reports/Design/DesignOnHold.md](docs/reports/Design/DesignOnHold.md) | 开发者 | 增量设计源稿（含修订过程记录），内容已全量转入 Design2.md | 已存档 |
-| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1～Build30、Build6-2（均已验收/归档）；当前无已授权活跃构建记录 | 已存档 |
+| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1～Build31、Build6-2（均已验收/归档）；当前无已授权活跃构建记录 | 已存档 |
 | [docs/reports/Design/](docs/reports/Design) | 人类（开发者/用户）与 AI 编码助手 | 历史设计文档：Design0、Design1、Design1-UI、Design2、Design2-UI、Design3、DesignOnHold | 已存档 |
 | [docs/reports/Issue/](docs/reports/Issue) | AI 编码助手 / 开发者 | 历史问题追踪：Issue1～13（均已闭环归档） | 已存档 |
 | [docs/reports/DesignReport/](docs/reports/DesignReport) | 人类（开发者/用户）与 AI 编码助手 | Design2 核验/研究报告：DesignReport1~10（原 Design2Report1~11，缺 6 已重新连续编号） | 已存档 |

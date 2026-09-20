@@ -12,6 +12,7 @@ import (
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/store"
+	"vpn-sub/migrations"
 )
 
 // newTestSetupService 创建临时库 + setup 服务（含全部 Build1 表迁移）
@@ -124,6 +125,62 @@ func TestCompleteQuickStart(t *testing.T) {
 	// 重复调用返回 ErrAlreadyConfigured
 	if err := svc.CompleteQuickStart(ctx, req); !errors.Is(err, ErrAlreadyConfigured) {
 		t.Errorf("重复调用应返回 ErrAlreadyConfigured: %v", err)
+	}
+}
+
+// TestBaselineQuickStartSmoke 使用正式首版基线验证空库 Setup 与重开幂等。
+func TestBaselineQuickStartSmoke(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir, "baseline-setup.db")
+	if err != nil {
+		t.Fatalf("打开空库失败: %v", err)
+	}
+	if err := st.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("应用正式基线失败: %v", err)
+	}
+	var groups, platforms int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&groups); err != nil {
+		t.Fatalf("查询初始组失败: %v", err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM platforms`).Scan(&platforms); err != nil {
+		t.Fatalf("查询初始平台失败: %v", err)
+	}
+	if groups != 0 || platforms != 0 {
+		t.Fatalf("Setup 前 groups=%d platforms=%d，期望 0/0", groups, platforms)
+	}
+
+	cfg := config.NewService(st, log.New("error", "console"))
+	policy, _ := proxytrust.Parse("auto", "")
+	svc := NewService(st, cfg, log.New("error", "console"), policy)
+	req := httptest.NewRequest("POST", "http://vpn.example.com/api/setup/quickstart", nil)
+	if err := svc.CompleteQuickStart(ctx, req); err != nil {
+		t.Fatalf("正式基线 Quick Start 失败: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("关闭 Setup 数据库失败: %v", err)
+	}
+
+	st, err = store.Open(dir, "baseline-setup.db")
+	if err != nil {
+		t.Fatalf("重开 Setup 数据库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("重开后迁移失败: %v", err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM groups WHERE is_default=1`).Scan(&groups); err != nil {
+		t.Fatalf("查询重开后默认组失败: %v", err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM platforms WHERE is_default=1`).Scan(&platforms); err != nil {
+		t.Fatalf("查询重开后默认平台失败: %v", err)
+	}
+	var versions int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=1`).Scan(&versions); err != nil {
+		t.Fatalf("查询基线版本失败: %v", err)
+	}
+	if groups != 1 || platforms != 3 || versions != 1 {
+		t.Fatalf("重开后 groups=%d platforms=%d versions=%d，期望 1/3/1", groups, platforms, versions)
 	}
 }
 
