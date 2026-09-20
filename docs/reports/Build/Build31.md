@@ -1,7 +1,8 @@
 # Build31.md — 首版数据库基线合并
 
-> **文档定位：** 本文档是已完成并归档的构建记录，依据 [V4UpgradeRelated.md](../../../V4UpgradeRelated.md) 的已定案范围，将开发期 `0001`～`1022` 迁移链等价压缩为首版 `0001_initial_schema.sql`。
-> **编码约束：** [AGENTS.md](../../../AGENTS.md) 是唯一强要求文档；本 Build 未实施 `V4UpgradeRelated.md` 第五节的历史兼容清理候选。
+> **文档定位：** 本文档是已完成并归档的构建记录，依据已归档的 [V4UpgradeRelated.md](../Others/V4UpgradeRelated.md) 定案范围，将开发期 `0001`～`1022` 迁移链等价压缩为首版 `0001_initial_schema.sql`。
+> **归档状态：** ✅ Build31 已归档于 `docs/reports/Build/`；关联方案文档已归档至 `docs/reports/Others/`。本 Build 未实施 V4UpgradeRelated.md 第五节的历史兼容清理候选。
+> **编码约束：** [AGENTS.md](../../../AGENTS.md) 是唯一强要求文档。
 > **授权边界：** 用户已于 2026-09-20 明确授权开始实施合并。该授权覆盖 Build、SQL、Go 测试及必要文档同步；不授权删除 `backend/data`、Docker 卷、外部 `DATA_DIR` 或备份。
 
 ---
@@ -126,3 +127,4 @@ git diff --check
 |---|---|---|
 | v1.0 | 2026-09-20 | 根据用户实施授权建立；Step 0.5 完成，开始冻结旧链 manifest。 |
 | v1.1 | 2026-09-20 | Step 0.5～8 完成：基线等价替换、合同测试、联合门禁和独立 Docker 空卷 smoke 通过；既有数据目标未触碰，Build 归档。 |
+| v1.2 | 2026-09-20 | 关联 V4UpgradeRelated.md 已归档至 `docs/reports/Others/`；Build31 继续保留在 `docs/reports/Build/` 作为历史构建记录。 |

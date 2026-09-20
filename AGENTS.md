@@ -2,8 +2,8 @@
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
 > **当前设计：** [Design4.md](Design4.md) 是已实现的节点编辑器等增量设计基线；[Design5.md](Design5.md) §一～§六保留整站迁移候选，§七记录已确认并已实施的邮件内容定制设计，构建记录见 [Build28.md](docs/reports/Build/Build28.md)，有效站点名称与邮件运行语义修复见 [Issue18.md](Issue18.md)。
-> **当前工作：** 已完成的代码构建均已归档；数据库首版基线合并已按 [V4UpgradeRelated.md](V4UpgradeRelated.md) 定案实施并记录于 [Build31.md](docs/reports/Build/Build31.md)，既有本地数据库、Docker 卷、外部 `DATA_DIR` 和备份未触碰，其他历史兼容清理仍未激活。R32-01 有效站点名称、R32-02 业务邮件异步派发与 R32-03 终态结果持久化/当前发送队列优化均已实施，构建记录见 [Build29.md](docs/reports/Build/Build29.md)、[Build30.md](docs/reports/Build/Build30.md)。Issue18 保留在根目录承载正式 SMTP、收件箱、重启持久性与客户端浏览器人工项；人工项见 [ProdTestList.md](ProdTestList.md)，短期待办见 [TODOLIST.md](TODOLIST.md)。
-> **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；[ProdTestList.md](ProdTestList.md) 记录 R32-02/R32-03 异步发送、历史结果、当前队列、真实 SMTP/收件箱及客户端浏览器人工项；Issue16 R30-01 已完成并归档；工程自动化与人工验收分别记录。
+> **当前工作：** 已完成的代码构建均已归档；数据库首版基线合并已按归档的 [V4UpgradeRelated.md](docs/reports/Others/V4UpgradeRelated.md) 定案实施并记录于 [Build31.md](docs/reports/Build/Build31.md)，既有本地数据库、Docker 卷、外部 `DATA_DIR` 和备份未触碰，其他历史兼容清理仍未激活。R32-01 有效站点名称、R32-02 业务邮件异步派发与 R32-03 终态结果持久化/当前发送队列优化均已完成工程与人工核验，构建记录见 [Build29.md](docs/reports/Build/Build29.md)、[Build30.md](docs/reports/Build/Build30.md)。Issue18 已闭环并保留在根目录；[ProdTestList.md](ProdTestList.md) 与 [TODOLIST.md](TODOLIST.md) 当前均无短期条目。
+> **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；R32-02/R32-03 已由用户确认完成人工真机核验，暂未发现问题；工程自动化与人工验收分别记录。
 > **当前范围：** 当前项目聚焦基础模式完善；高级模式暂不跟进。Xray 相关范围和待办见 [XrayRelated1.md](XrayRelated1.md)。
 > **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
 > 已完成的设计、构建与问题记录统一见 [docs/reports/](docs/reports)，仅用于历史核查。
@@ -313,12 +313,12 @@
 | [Issue15.md](docs/reports/Issue/Issue15.md) | AI 编码助手 / 开发者 | Production、浏览器和真实客户端人工测试中发现的问题，以及 2026-09-10 起文档交叉审核补充登记的问题（R29 系列） | 已归档 |
 | [Issue16.md](docs/reports/Issue/Issue16.md) | AI 编码助手 / 开发者 | Build11 邮件相关人工测试与 SMTP 优化问题（R30 系列） | 已存档 |
 | [Issue17.md](docs/reports/Issue/Issue17.md) | AI 编码助手 / 开发者 | 核验 Issue16 R30-05 后新开的独立问题：真实 OIDC endpoint HTTPS 校验缺失、提供商切换字段混合与损坏占位符残余边界；R31-01 已移出 | 已归档（R31-02～R31-07 工程与人工验收完成） |
-| [Issue18.md](Issue18.md) | AI 编码助手 / 开发者 | R32-01 有效站点名称一致性；R32-02 业务邮件异步派发；R32-03 终态结果持久化、当前发送队列与无轮询页面 | R32-01～R32-03 工程闭环；正式邮件/浏览器/重启人工项待验 |
+| [Issue18.md](Issue18.md) | AI 编码助手 / 开发者 | R32-01 有效站点名称一致性；R32-02 业务邮件异步派发；R32-03 终态结果持久化、当前发送队列与无轮询页面 | R32-01～R32-03 工程与人工核验均已闭环，根目录保留 |
 | [XrayRelated1.md](XrayRelated1.md) | AI 编码助手 / 开发者 | Xray 相关问题与基础模式人工核验（R26-07）；高级模式暂不跟进 | 活跃 |
 | [ExportRelated1.md](ExportRelated1.md) | AI 编码助手 / 开发者 | 配置导出与迁移问题独立跟踪（R31-01），关联 Design5 候选迁移与邮件模板导入导出边界 | 活跃 |
 
 
-| [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | 通用 Production、浏览器和真实客户端待人工验证清单；Xray 专项见 XrayRelated1.md | 活跃 |
+| [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | 通用 Production、浏览器和真实客户端待人工验证清单；Xray 专项见 XrayRelated1.md | 活跃但当前无待核验条目 |
 | [docs/Reference/TestPasswordList.md](docs/Reference/TestPasswordList.md) | 测试者 / AI 编码助手 | 仅供本地隔离环境使用的合成测试账号与统一密码清单；严禁用于生产或真实数据环境 | 活跃 |
 | [docs/DocTemplates/](docs/DocTemplates) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue）与 Clash/Shadowrocket 配置参考样例 | 活跃 |
 | [docs/Reference/](docs/Reference) | 开发者 / 测试者 | 研究参考资料与本地测试资料；分类索引见 [docs/Reference/README.md](docs/Reference/README.md)：Xray-core API、SSPanel 订阅研究、节点编辑器研究、合成测试账号清单等 | 活跃 |
