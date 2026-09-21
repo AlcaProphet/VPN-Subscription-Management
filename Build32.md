@@ -190,7 +190,7 @@ selector 注册与持久化规则：
 | MASQUE | `network_mode` | `quic/h2/h3_l4proxy` | 空值为 `quic` |
 | AnyTLS | `security_mode` | `plain/shadow_tls/restls/jls` | 无附加安全对象时 `plain` |
 | TrustTunnel | `reuse_mode` | `none/connections/streams` | 无复用参数时 `none` |
-| OpenVPN | `auth_mode`、`tls_key_mode` | `userpass/cert`；`none/tls_auth/tls_crypt/tls_crypt_v2` | 按已有字段唯一派生；认证两组均空或同时存在时阻断 |
+| OpenVPN | `auth_mode`、`tls_key_mode` | `userpass/cert/cert_userpass`；`none/tls_auth/tls_crypt/tls_crypt_v2` | 只有 username/password 为 `userpass`，只有 cert/key 为 `cert`，两组均完整为 `cert_userpass`；两组均空或任一组不完整时阻断 |
 
 Tailscale、ShadowQUIC 不为“只有一个合法分支”的维度制造 selector；普通 feature 继续使用 `features`。
 
@@ -237,6 +237,8 @@ Clash YAML 不再由 `clashProxy()` 对 15 个协议直接 map 透传。新增�
 
 ```go
 type ClashNodeDraft struct {
+    NodeID    int64
+    Persisted bool
     Protocol string
     Name     string
     Host     string
@@ -252,6 +254,8 @@ type ClashProtocolAdapter func(ClashNodeDraft) (map[string]any, []node.TargetDia
 
 - 正式装配与 `/api/admin/nodes/check` 调用同一 adapter。
 - adapter 只处理已由 schema 验证并经 `ProjectActive()` 投影的副本，不回写数据库参数。
+- `NodeID`／`Persisted` 由服务端根据节点生命周期填充，不接受请求伪造：已保存节点的 check 和正式装配必须携带同一正整数 ID；未保存的新建草稿固定为 `NodeID=0`、`Persisted=false`。
+- 只有确需稳定运行身份的 adapter 可以消费 `NodeID`。Tailscale 已保存节点据此派生 `tailscale/node-<id>`；新建草稿 check 不生成 `state-dir`，只验证保存后可以派生，正式装配若缺少稳定 ID 必须阻断。
 - `state_only`、稳定条目 ID、内部导入元数据、非活动字段不得进入 wire。
 - adapter 返回字段级诊断；阻断错误禁止正式输出，warn 不得伪装为 complete。
 - 最终 YAML 继续执行 `CheckClashContent`，随后由固定 v1.19.31 `-t` 门禁验证代表性正反例。
@@ -312,7 +316,7 @@ Content-Type: application/json
 | AnyTLS | `security_mode=plain/shadow_tls/restls/jls` | 三种伪装互斥；TLS mTLS 成对；不开放 Reality | `password`、`private-key`、三种伪装密码 | Clash 完整；既有 URI 只输出可表达子集 |
 | ShadowQUIC | QUIC feature 组合 | username/password；QUIC versions v1/v2；0-RTT 显示风险提示 | `password` | Clash 完整；SR/generic 稳定 skip |
 | TrustTunnel | QUIC feature、`reuse_mode=none/connections/streams` | username/password 成对；max-connections/min-streams 与 max-streams 冲突 | `password`、`private-key` | Clash 完整；SR/generic 稳定 skip |
-| OpenVPN | `auth_mode=userpass/cert`、`tls_key_mode=none/tls_auth/tls_crypt/tls_crypt_v2` | CA 必填；userpass 或 cert/key 二选一；三种 tls key 互斥；tls-auth 关联 key-direction | `password`、`key`、`tls-auth`、`tls-crypt`、`tls-crypt-v2` | Clash 完整；SR/generic 稳定 skip；`.ovpn` 仅解析为草稿 |
+| OpenVPN | `auth_mode=userpass/cert/cert_userpass`、`tls_key_mode=none/tls_auth/tls_crypt/tls_crypt_v2` | CA 必填；userpass、cert/key 或二者组合至少一组完整；三种 tls key 互斥；tls-auth 关联 key-direction | `password`、`key`、`tls-auth`、`tls-crypt`、`tls-crypt-v2` | Clash 完整；SR/generic 稳定 skip；`.ovpn` 仅解析为草稿 |
 
 补充约束：
 
@@ -321,7 +325,7 @@ Content-Type: application/json
 - SSH `host-key`／`host-key-algorithms` 改为结构化列表；私钥输入包含 PEM 标志才进入 wire，禁止把用户文本当服务器路径读取。
 - AnyTLS 的 `client-metadata` 和 `disable-reuse` 属于 v1.19.31 tag 合同，纳入高级区。
 - MASQUE `name-cert-verify` 在 tag 源码中只是 placeholder，不作为可编辑已支持字段。
-- Tailscale `state-dir` 不提供任意路径输入；adapter 使用稳定节点 ID 派生的安全相对目录（例如 `tailscale/node-<id>`），避免重命名改变身份或多个节点共享默认目录。未保存的新建草稿只显示“保存后分配”，节点检查不得启动 tsnet 或制造临时状态目录。
+- Tailscale `state-dir` 不提供任意路径输入；adapter 使用服务端注入的稳定 `NodeID` 派生安全相对目录（例如 `tailscale/node-<id>`），避免重命名改变身份或多个节点共享默认目录。已保存节点的 check 与正式装配必须使用同一 ID；未保存的新建草稿固定为 `NodeID=0/Persisted=false`，只显示“保存后分配”，不得输出占位 `state-dir`、启动 tsnet 或制造临时状态目录。
 - 所有证书私钥和多行 secret 使用 `secret-multiline`；普通证书／CA 使用 `multiline`，预览仍按路径脱敏。
 
 ---
@@ -375,7 +379,7 @@ Content-Type: application/json
 | 11 | 10 | 同上，WireGuard 测试 | 标准单／多 Peer、稳定 `_credential_id`、reserved 通过，仓库无新增 AmneziaWG 活动字段 |
 | 12 | 11 | 同上，Mieru 测试 | endpoint 二选一、完整枚举和 Base64 校验通过 |
 | 13 | 12 | 同上，MASQUE 测试 | 三种 network、地址／密钥和 UDP 互斥通过 |
-| 14 | 13 | 同上，Tailscale 测试 | 无 endpoint、稳定 state-dir、空 auth-key 警告且检查零副作用通过 |
+| 14 | 13 | 同上，Tailscale 测试 | 无 endpoint、已保存 check／装配共用稳定 NodeID 派生 state-dir、新建草稿无 state-dir、空 auth-key 警告且检查零副作用通过 |
 | 15 | 14 | 同上，AnyTLS 测试 | 三类附加安全互斥、TLS 与主密码生命周期通过 |
 | 16 | 15 | 同上，ShadowQUIC 测试 | QUIC／0-RTT／流控及风险提示通过 |
 | 17 | 16 | 同上，TrustTunnel 测试 | TLS／QUIC／复用互斥通过 |
@@ -575,8 +579,8 @@ Step 0.5 授权/冻结
 - UI 完全隐藏普通 server/port；wire 禁止输出。
 - auth-key 可空；节点静态检查只返回“首次真实连接需要交互登录”的 warn，不启动 tsnet、不联网，也不伪造／回显登录 URL。真实 Mihomo 首次启动时才可能在其日志输出官方文档所述 URL。
 - hostname、control-url、ephemeral、UDP、accept-routes、exit-node 和 LAN access 条件化。
-- 已保存节点的 `state-dir` 由稳定节点 ID 派生；不得接受用户路径，不在 API 回显主机绝对路径。新建草稿检查不创建目录，正式保存后才具备稳定派生值。
-- **字段逻辑：** endpoint policy 固定把 host/port 规范为 `''/0`，wire 永不输出 `server/port`。可编辑字段只有 `hostname/auth-key/control-url/ephemeral/udp/accept-routes/exit-node/exit-node-allow-lan-access` 及适用的 `BasicOption`；`auth-key` 是 secret。`control-url` 为空表示官方控制面，非空必须是合法绝对 HTTP(S) URL；非 HTTPS 值显示安全提示但不擅自禁止本地 Headscale 场景。`hostname` 按 Tailscale 设备名约束。`accept-routes` 和 `exit-node-allow-lan-access` 保留 unset/false/true 三态，不能用普通 false 默认吞掉“未设置”；LAN access 只有 exit-node 非空时活动，关闭／清空 exit-node 时一并清空。`exit-node` 接受合法 IP 或 tag 支持的 `auto:*` 形式。`state-dir` 是 adapter 派生字段，不在 `protocol_json`、API schema 或请求体出现；新建草稿检查只验证可派生性，保存后的 check／装配用稳定节点 ID 得到相同相对路径。
+- 已保存节点的 `state-dir` 由服务端注入 adapter 的稳定 `NodeID` 派生；不得接受用户路径，不在 API 回显主机绝对路径。已保存节点 check 与正式装配必须传入同一 ID；新建草稿检查使用 `NodeID=0/Persisted=false`，不输出目录、不创建目录，正式保存后才具备稳定派生值。
+- **字段逻辑：** endpoint policy 固定把 host/port 规范为 `''/0`，wire 永不输出 `server/port`。可编辑字段只有 `hostname/auth-key/control-url/ephemeral/udp/accept-routes/exit-node/exit-node-allow-lan-access` 及适用的 `BasicOption`；`auth-key` 是 secret。`control-url` 为空表示官方控制面，非空必须是合法绝对 HTTP(S) URL；非 HTTPS 值显示安全提示但不擅自禁止本地 Headscale 场景。`hostname` 按 Tailscale 设备名约束。`accept-routes` 和 `exit-node-allow-lan-access` 保留 unset/false/true 三态，不能用普通 false 默认吞掉“未设置”；LAN access 只有 exit-node 非空时活动，关闭／清空 exit-node 时一并清空。`exit-node` 接受合法 IP 或 tag 支持的 `auto:*` 形式。`state-dir` 是 adapter 派生字段，不在 `protocol_json`、API schema 或请求体出现；`Persisted=true` 时要求 `NodeID>0` 并输出 `tailscale/node-<id>`，`Persisted=false` 时要求 `NodeID=0` 且禁止输出 `state-dir`。检查仅构造并验证 wire map，不得调用 Mihomo 构造器、启动 tsnet 或触碰文件系统。
 
 - **验收：** endpoint policy、列表显示、正式装配和固定内核正反例必须一起通过；检查请求前后数据库快照相同。
 
@@ -607,11 +611,11 @@ Step 0.5 授权/冻结
 ### Step 18：OpenVPN 结构化模型与 adapter
 
 - 移除 editor schema 中 `client-config`，新增第五章字段矩阵对应的结构化字段。
-- `auth_mode` 与 `tls_key_mode` 为 state-only selector；CA、cert、key、tls key 使用明确 multiline 类型。
+- `auth_mode=userpass/cert/cert_userpass` 与 `tls_key_mode` 为 state-only selector；CA、cert、key、tls key 使用明确 multiline 类型。
 - OpenVPN wire adapter 只输出 v1.19.31 `OpenVPNOption` 字段；禁止输出原始 `.ovpn` 或未知指令。
 - 旧 `client-config` 不自动解释、不透传。若 Step 0.5 在任何目标数据库发现遗留行，立即停止在 Step 18 前，由用户决定迁移／清除策略；不得靠删除 schema 字段使旧内容在下一次保存时静默丢失。只有确认无遗留行，或另行获得明确处置授权后，才能移除编辑入口。
-- **字段逻辑：** `server/port/ca` 必填，CA 为 multiline 非 secret；`proto` 只允许 `udp/tcp`，`dev` 固定为 `tun`。`cipher`／`data-ciphers`／`data-ciphers-fallback` 只允许 tag 支持的 `AES-128/192/256-GCM`、`AES-128/192/256-CBC`、`CHACHA20-POLY1305`；`auth` 只允许 `MD5/SHA1/SHA256/SHA384/SHA512`，`comp-lzo` 只保留 tag 可接受值，列表去空白去重。`auth_mode=userpass` 只活动成对必填 `username/password` 并清空 cert/key；`cert` 只活动成对必填 PEM `cert/key` 并清空 username/password；password、key 为 secret。`tls_key_mode=none` 清空全部 TLS key；`tls_auth` 要求 `tls-auth`，`key-direction` 只允许 `0/1/空`；`tls_crypt` 与 `tls_crypt_v2` 分别只活动对应 key，三组严格互斥且均为 secret。`peer-info` 是 string map，键值限制同 headers；`ping/ping-restart/handshake-timeout/mtu` 非负，`tran-window` 必须保留 unset 与显式 0 的区别。`udp` 是代理转发能力，不等同于 `proto`。`ip-stack` 复用 WireGuard 枚举；`remote-dns-resolve=false` 清空 DNS，开启时 DNS 列表必填。adapter 只输出 `OpenVPNOption` 的点名 wire key，绝不输出 selector、导入行号或原文。
-- **验收：** user/pass、cert/key、三种 tls key、互斥反例、字段脱敏与固定内核正反例通过。
+- **字段逻辑：** `server/port/ca` 必填，CA 为 multiline 非 secret；`proto` 只允许 `udp/tcp`，`dev` 固定为 `tun`。`cipher`／`data-ciphers`／`data-ciphers-fallback` 只允许 tag 支持的 `AES-128/192/256-GCM`、`AES-128/192/256-CBC`、`CHACHA20-POLY1305`；`auth` 只允许 `MD5/SHA1/SHA256/SHA384/SHA512`，`comp-lzo` 只保留 tag 可接受值，列表去空白去重。`auth_mode=userpass` 只活动成对必填 `username/password` 并清空 cert/key；`cert` 只活动成对必填 PEM `cert/key` 并清空 username/password；`cert_userpass` 同时活动且要求完整的 `username/password` 与 PEM `cert/key`，不得清除任一组。两组均空或任一活动组只填一半均返回字段级 400；password、key 为 secret。三种 selector 互相切换时只清除新分支不再活动的凭据，例如 `cert_userpass→cert` 清除 username/password，`cert_userpass→userpass` 清除 cert/key，A→B→A 不恢复。`tls_key_mode=none` 清空全部 TLS key；`tls_auth` 要求 `tls-auth`，`key-direction` 只允许 `0/1/空`；`tls_crypt` 与 `tls_crypt_v2` 分别只活动对应 key，三组严格互斥且均为 secret。`peer-info` 是 string map，键值限制同 headers；`ping/ping-restart/handshake-timeout/mtu` 非负，`tran-window` 必须保留 unset 与显式 0 的区别。`udp` 是代理转发能力，不等同于 `proto`。`ip-stack` 复用 WireGuard 枚举；`remote-dns-resolve=false` 清空 DNS，开启时 DNS 列表必填。adapter 只输出 `OpenVPNOption` 的点名 wire key，绝不输出 selector、导入行号或原文。
+- **验收：** user/pass、cert/key、cert＋user/pass 组合、认证组缺半反例、三种 tls key、TLS key 互斥反例、字段脱敏与固定内核正反例通过。
 
 ### Step 19：`.ovpn` 解析导入
 
@@ -620,7 +624,7 @@ Step 0.5 授权/冻结
 - parser 草稿与现有自定义／JSON 草稿纳入页面级阻断；切换协议或关闭面板清空未应用原文。
 - API 日志只记录长度、结果计数和错误 code，不记录原文、remote 凭据或内嵌块。
 - `no-store` 中间件必须注册在 session／admin 之前；匿名、普通用户、超限、解析失败和成功响应均测试响应头。
-- **字段逻辑：** parser 将 `remote` 映射顶层 host/port，将 `proto/dev/cipher/data-ciphers/data-ciphers-fallback/auth/comp-lzo/ping/ping-restart/peer-info` 映射同名结构化字段，将 `<ca>/<cert>/<key>/<tls-auth>/<tls-crypt>/<tls-crypt-v2>` 去标签后映射内容；`auth-user-pass` 只选择 userpass 模式，不读取引用文件、不制造 username/password。`key-direction` 只与 tls-auth 同时应用。重复同值指令可合并，互相冲突的单值指令、多个不同 remote、混合认证或多种 TLS key 必须阻断。响应同时给每个已映射字段来源行号；未知安全普通指令只 warn，脚本／hook／include／外部文件引用 400。点击应用时只覆盖 parser 明确产出的字段，并为被替换 selector 添加 reset scope；未产出的现有草稿字段不应被“空响应”静默删除，除非用户确认全量替换。原文、行号、diagnostics 都不进入最终保存请求。
+- **字段逻辑：** parser 将 `remote` 映射顶层 host/port，将 `proto/dev/cipher/data-ciphers/data-ciphers-fallback/auth/comp-lzo/ping/ping-restart/peer-info` 映射同名结构化字段，将 `<ca>/<cert>/<key>/<tls-auth>/<tls-crypt>/<tls-crypt-v2>` 去标签后映射内容；`auth-user-pass` 只标记 userpass 能力，不读取引用文件、不制造 username/password。只有 `auth-user-pass` 时选择 `userpass`，只有完整 cert/key 时选择 `cert`，两者同时存在时选择合法的 `cert_userpass`；cert/key 缺半才以 `ovpn_conflicting_auth` 阻断，不得把组合认证误判为冲突。`key-direction` 只与 tls-auth 同时应用。重复同值指令可合并，互相冲突的单值指令、多个不同 remote 或多种 TLS key 必须阻断。响应同时给每个已映射字段来源行号；未知安全普通指令只 warn，脚本／hook／include／外部文件引用 400。点击应用时只覆盖 parser 明确产出的字段，并为被替换 selector 添加 reset scope；未产出的现有草稿字段不应被“空响应”静默删除，除非用户确认全量替换。原文、行号、diagnostics 都不进入最终保存请求。
 - **验收命令：**
   ```bash
   cd backend
@@ -708,9 +712,9 @@ git diff --check
 专项矩阵另加：
 
 - endpoint：普通必填、替代、隐藏、请求残值清空、wire 不输出；
-- OpenVPN：大小限制、多 remote、inline block、外部路径拒绝、未知指令、脱敏和不落库；
+- OpenVPN：大小限制、多 remote、inline block、外部路径拒绝、未知指令、脱敏、不落库，以及 userpass、cert、cert＋userpass 三种认证正例、各组缺半反例、三态切换清空和组合 `.ovpn` 导入；
 - WireGuard：条目稳定 ID、重排、删除、PSK keep/clear、reserved 两种输入；
-- Tailscale：派生目录稳定、路径安全、空 auth-key warn；
+- Tailscale：已保存 check／装配使用同一 NodeID、派生目录稳定、重命名不变、缺失／伪造生命周期拒绝、新建草稿不输出或创建目录、路径安全、空 auth-key warn；
 - URI：可表达字段往返、不表达字段阻断／warn、无映射稳定 skip。
 
 ---
@@ -724,6 +728,8 @@ git diff --check
 - AmneziaWG 范围已由用户拍板：不并入 Build32，留作后续独立专项；当前没有其他已知的实施前产品决策项。
 - 已补齐 selector 注册／v1 读取规则、逐 Step 产出文件与共同完成门槛、OpenVPN API 状态码／no-store／secret 生命周期，以及遗留 `client-config` 的停止条件。
 - 已更正 Tailscale 边界：静态检查只提示首次真实连接需要交互登录，不生成登录 URL；`state-dir` 由稳定节点 ID 派生且新建草稿检查零文件系统副作用。
+- 已按 v1.19.31 固定 tag 修正 OpenVPN 认证合同：用户名密码、客户端证书以及二者组合均为合法模式；只有认证组缺半或两组均空才阻断，`.ovpn` 导入不得把组合认证误判为冲突。
+- 已补齐统一 adapter 的节点生命周期输入：服务端注入 `NodeID/Persisted`，已保存 Tailscale check 与正式装配共用稳定 ID，新建草稿不生成 `state-dir`。
 - 已逐 Step 补充字段逻辑，覆盖输入／selector／显示与必填／清空与凭据／wire 输出／诊断；并以固定 tag 源码纠正 Snell reuse、Hysteria 带宽字段和 SOCKS5 无独立 SNI 三处边界。
 - 本轮只修改本文档，没有修改业务代码、Design4、AGENTS.md、测试或数据库，也没有执行构建门禁。
 
@@ -737,3 +743,4 @@ git diff --check
 | v1.1 | 2026-09-21 | 按用户确认冻结方案 A：Build32 的 WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 明确排除并留作后续独立专项。本次确认不授权进入 Step 0.5，全部代码 Step 继续保持未开始。 |
 | v1.2 | 2026-09-21 | 进一步实施定稿：补齐 selector 持久化与 v1 派生矩阵、endpoint 防伪造、OpenVPN API 安全响应合同、逐 Step 文件／前置／完成定义和共同门槛；增加 legacy adapter 归零与遗留 `client-config` 停止条件；更正 Tailscale 登录提示和稳定 `state-dir` 边界。仍未授权任何代码 Step。 |
 | v1.3 | 2026-09-21 | 为 Step 0.5～22 逐项补充字段逻辑：字段集合、selector、条件必填、清空、敏感路径、wire 映射、diagnostic 与最终 manifest；按 Mihomo v1.19.31 固定 tag 纠正 Snell reuse、Hysteria 规范带宽入口和 SOCKS5 无独立 SNI 等细节。仍只修订文档，未授权代码实施。 |
+| v1.4 | 2026-09-21 | 核验修正：OpenVPN 认证改为 userpass／cert／cert_userpass 三态，允许固定 tag 支持的证书＋用户名密码组合并同步导入与测试合同；统一 adapter 增加服务端注入的 NodeID/Persisted，明确 Tailscale 已保存 check／装配和新建草稿的稳定 state-dir 生命周期。仍只修订文档，未授权代码实施。 |
