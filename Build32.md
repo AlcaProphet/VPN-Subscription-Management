@@ -1,7 +1,7 @@
 # Build32.md — 19 个 manual 协议编辑体验完整化
 
 > **文档定位：** 本文档是下一轮活动构建方案，承接 [Design4.md](Design4.md) 第九章“完成当前全部 19 个已兼容 manual 协议的编辑体验改进”目标，以及用户于 2026-09-21 对研究结论的最新确认。
-> **当前状态：** 研究与方案编写完成；**尚未获得代码实施授权，所有 Step 均未开始**。本文档建立不等于授权执行 Step 0.5 或修改业务代码。
+> **当前状态：** 研究、范围决策与实施方案定稿完成；**尚未获得代码实施授权，所有 Step 均未开始**。本文档建立或继续完善均不等于授权执行 Step 0.5 或修改业务代码。
 > **编码约束：** [AGENTS.md](AGENTS.md) 是唯一强要求文档。实施时必须一次只执行一个 Step，逐步验收，不并行实施多个协议。
 > **最新用户决策：** 新兼容基线为 Mihomo **v1.19.31**，不再把 v1.19.29 作为新设计兼容目标；允许协议级 endpoint policy；OpenVPN 使用“结构化编辑为主＋粘贴 `.ovpn` 解析导入”，不再把 `client-config` 直接作为 Mihomo 输出字段；WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 不纳入 Build32，留作后续独立专项。以上范围确认不等于代码实施授权。
 
@@ -169,6 +169,31 @@ selector 名称必须由当前协议 schema 声明，格式为小写字母、数
 
 `currentStateFormatVersion` 升为 2。读取 v1 时按协议参数派生 selectors；成功保存后以 v2 写回。不得增加整库回填迁移，也不得读取时写库。
 
+selector 注册与持久化规则：
+
+- `Protocol` 必须声明 selector 名称、允许值、默认值和来源字段；注册时检查重名、空允许值、默认值不在允许集合、`selector_name` 指向未声明 selector 等错误。
+- v2 中 `current_state.selectors` 是 `state_only` 选择的持久化权威；普通 wire 字段派生的 selector 必须与 `protocol_json` 一致，二者不一致返回 400，不做“任选一边”的修复。
+- 新建节点未提交 selector 时使用注册表默认值；读取 v1 时按下表先从现有参数确定，无法唯一判断时使用默认值并附加只读迁移 diagnostic；若现有参数同时命中互斥分支，则阻断保存／检查并要求用户明确选择。
+- `state_only` 字段不得写入 `protocol_json`、Clash YAML、URI、未知扩展或检查预览；它只通过 `current_state_json` 保存。
+- selector 切换必须同时进入 `reset_scopes`；后端根据旧状态和新状态复核所需 scope，不能只相信前端声明。
+
+| 协议 | selector | 允许值 | 新建／v1 无线索默认 |
+|---|---|---|---|
+| HTTP、SOCKS5 | `auth_mode` | `none/basic` | `none`；存在 username/password 时派生 `basic` |
+| SSH | `auth_mode` | `password/private_key` | 有 private-key 时为 `private_key`，否则 `password` |
+| Snell | `version`、`obfs_mode` | `1/2/3/4/5`；`none/http/tls/shadow_tls/restls/jls` | tag 默认版本；无 obfs 对象时 `none` |
+| Hysteria | `auth_mode`、`bandwidth_mode` | `auth/auth_str`；`text/numeric` | 按已有字段唯一派生；均无值时阻断认证选择 |
+| Hysteria2 | `endpoint_mode`、`obfs_mode` | `single/ports`；`none/salamander/gecko` | 有 ports 时 `ports`，否则 `single`；无 obfs 时 `none` |
+| TUIC | `auth_mode` | `v4/v5` | token 为 `v4`，UUID/password 为 `v5`；均无值时按 tag 默认版本 |
+| WireGuard | `peer_mode` | `single/peers` | peers 非空时 `peers`，否则 `single` |
+| Mieru | `endpoint_mode` | `single/range` | 有 port-range 时 `range`，否则 `single` |
+| MASQUE | `network_mode` | `quic/h2/h3_l4proxy` | 空值为 `quic` |
+| AnyTLS | `security_mode` | `plain/shadow_tls/restls/jls` | 无附加安全对象时 `plain` |
+| TrustTunnel | `reuse_mode` | `none/connections/streams` | 无复用参数时 `none` |
+| OpenVPN | `auth_mode`、`tls_key_mode` | `userpass/cert`；`none/tls_auth/tls_crypt/tls_crypt_v2` | 按已有字段唯一派生；认证两组均空或同时存在时阻断 |
+
+Tailscale、ShadowQUIC 不为“只有一个合法分支”的维度制造 selector；普通 feature 继续使用 `features`。
+
 ### 4.2 Endpoint policy
 
 `Protocol` 增加有序 `EndpointPolicies`：
@@ -190,6 +215,8 @@ type EndpointPolicy struct {
 - `optional` 不是绕过语义校验；替代字段通过 `required_when` 和协议组合校验保证。
 - 数据库 `nodes.host`／`port` 继续保持 `NOT NULL`；“无 endpoint”分别存 `''`／`0`，无需 schema migration。
 - 列表和移动端对无 endpoint 节点显示“协议自身管理”，不得显示 `:0`。
+- create／update／check 共用同一 `ValidateEndpoint`；URI 导入仍只接受带合法 endpoint 的 URI，不能借 endpoint policy 创建 Tailscale 等无 URI 协议。
+- policy 从注册表和 selector 计算，不接受请求直接提交；否则客户端可伪造 `hidden` 绕过普通协议必填。
 
 | 协议／模式 | host | port | 输出 |
 |---|---|---|---|
@@ -253,6 +280,7 @@ Content-Type: application/json
 解析边界：
 
 - 后端和前端均限制 256 KiB；超过返回 413。
+- 路由必须先设置 `Cache-Control: no-store` 再经过 session／admin 中间件，保证成功、400、401、403、413、500 均不可缓存；只接受 `application/json`。
 - 支持 v1.19.31 `OpenVPNOption` 对应的结构化指令和 `<ca>`、`<cert>`、`<key>`、`<tls-auth>`、`<tls-crypt>`、`<tls-crypt-v2>` 内嵌块。
 - `remote host [port]` 填充顶层 host/port；多个不同 remote 阻断，不静默选第一项。
 - `auth-user-pass` 只确定认证模式；引用本地文件时不读取文件，用户名／密码保持待填写。
@@ -260,6 +288,9 @@ Content-Type: application/json
 - 未识别指令只产生结构化 diagnostic，不存入未知扩展，也不原样透传到 YAML。
 - 预览和日志对所有内嵌私钥、密码、tls key 脱敏；解析失败不得记录原文。
 - 用户点击“应用解析结果”后才覆盖当前草稿；应用前后均不落库，最终仍需普通保存／检查。
+- 解析响应可以把内嵌 secret 返回给本次已鉴权管理页面以供显式应用，但不得在 `diagnostics.message`、结构化日志、错误响应、check preview 或浏览器持久化存储中复制；前端关闭面板、切换协议或离开页面时立即丢弃原文和未应用 secret。
+- 状态码固定为：JSON／语法错误以及脚本、hook、外部文件读取等危险指令 400，未认证 401，非管理员 403，超限 413，意外内部错误 500；可安全忽略的未知普通指令使用 200＋warn diagnostic，仅当草稿可安全展示且没有阻断错误时返回草稿。
+- diagnostic code 至少冻结 `ovpn_unsupported_directive`、`ovpn_external_file_forbidden`、`ovpn_multiple_remotes`、`ovpn_unclosed_inline_block`、`ovpn_conflicting_auth`、`ovpn_conflicting_tls_key`，并带稳定 `severity`、`line`、`field_path`；前端不得解析中文 message 决定行为。
 
 ---
 
@@ -290,7 +321,7 @@ Content-Type: application/json
 - SSH `host-key`／`host-key-algorithms` 改为结构化列表；私钥输入包含 PEM 标志才进入 wire，禁止把用户文本当服务器路径读取。
 - AnyTLS 的 `client-metadata` 和 `disable-reuse` 属于 v1.19.31 tag 合同，纳入高级区。
 - MASQUE `name-cert-verify` 在 tag 源码中只是 placeholder，不作为可编辑已支持字段。
-- Tailscale `state-dir` 不提供任意路径输入；adapter 使用由不可变 manual 节点名称摘要生成的安全相对目录，避免多个节点共享默认目录。
+- Tailscale `state-dir` 不提供任意路径输入；adapter 使用稳定节点 ID 派生的安全相对目录（例如 `tailscale/node-<id>`），避免重命名改变身份或多个节点共享默认目录。未保存的新建草稿只显示“保存后分配”，节点检查不得启动 tsnet 或制造临时状态目录。
 - 所有证书私钥和多行 secret 使用 `secret-multiline`；普通证书／CA 使用 `multiline`，预览仍按路径脱敏。
 
 ---
@@ -318,6 +349,51 @@ Content-Type: application/json
 - 跨协议切换不能一概“保留服务器和端口”：目标协议 policy 隐藏 endpoint 时必须清空草稿值，切回不恢复；相应更新现有警告文案。
 - 历史装配快照不重写；重新装配才得到新 adapter 产物。
 - `docs/reports/` 历史文档不改写；完成后只同步当前事实并归档 Build32。
+
+### 6.1 公共产出文件边界
+
+- 只在职责确实独立时新增 `registry_extended.go`、`clash_protocols.go`、`openvpn_import.go`、`OpenVPNImportPanel.vue`；不得把现有逻辑机械拆成大量单协议文件。
+- schema／状态／保存规则属于 `backend/internal/node/`，wire shape 属于 `backend/internal/assembly/`，HTTP 只做限流、绑定和错误映射；不得在 Handler 或 Vue 页面复制协议校验。
+- 测试可按协议建立表驱动文件，但固定内核用例必须继续由 `.mihomo-test.sh` 统一版本校验后进入 Go 测试，不能由各测试自行寻找任意 `mihomo`。
+- 下表是每个 Step 的最小产出边界；实施时若新增文件，必须在对应 Step 完成记录中补入，若不需要预计新增文件也要记录“复用现有文件”。
+
+### 6.2 Step 产出文件与完成定义
+
+| Step | 前置 | 最小产出文件 | 本步完成定义 |
+|---|---|---|---|
+| 0.5 | 用户明确实施授权 | `Build32.md` | HEAD、既有改动、二进制、遗留 OpenVPN 行和数据目标均已只读复核；本 Step 标为完成后才进入 Step 1 |
+| 1 | 0.5 | `.mihomo-test.sh`、`backend/internal/assembly/{mihomo_ssplugin_test.go,node_check.go}`、`backend/internal/node/registry.go`、相关前端测试 | 活动基线全部改为 1.19.31，历史文档未改写，首批四协议与 SS 插件重新通过 |
+| 2 | 1 | `backend/internal/node/{schema.go,registry.go,node.go,normalize.go,project.go}`、`frontend/src/api/node.ts`、`frontend/src/utils/{nodeFeatures.ts,nodeFormLayout.ts}` 及定向测试 | v1 只读派生、v2 保存、selector 白名单与后端复核、A→B→A 清空全链通过 |
+| 3 | 2 | `backend/internal/node/{registry.go,node.go,check.go}`、`backend/internal/assembly/{render_clash.go,node_check.go,clash_protocols.go}`、`frontend/src/views/admin/NodesView.vue` 及测试 | endpoint policy 不能由请求伪造；check／正式装配共用 adapter；未迁移协议显式标为 legacy adapter |
+| 4 | 3 | 协议注册表、adapter、node／assembly／server／frontend HTTP 测试 | HTTP 全分支、清空、凭据和固定内核矩阵通过 |
+| 5 | 4 | 同上，SOCKS5 测试 | SOCKS5 全分支和 URI 降级诊断通过 |
+| 6 | 5 | 同上，SSH 测试 | 私钥内容边界、Host Key 列表与稳定 skip 通过 |
+| 7 | 6 | 同上，Snell 测试 | 版本／五类 obfs／reuse 矩阵与固定内核通过 |
+| 8 | 7 | 同上，Hysteria 测试 | 认证、带宽、TLS 和端口跳跃矩阵通过 |
+| 9 | 8 | 同上，Hysteria2 测试 | 端口替代、obfs、Realm 和清空矩阵通过 |
+| 10 | 9 | 同上，TUIC 测试 | v4/v5 凭据隔离与固定内核正反例通过 |
+| 11 | 10 | 同上，WireGuard 测试 | 标准单／多 Peer、稳定 `_credential_id`、reserved 通过，仓库无新增 AmneziaWG 活动字段 |
+| 12 | 11 | 同上，Mieru 测试 | endpoint 二选一、完整枚举和 Base64 校验通过 |
+| 13 | 12 | 同上，MASQUE 测试 | 三种 network、地址／密钥和 UDP 互斥通过 |
+| 14 | 13 | 同上，Tailscale 测试 | 无 endpoint、稳定 state-dir、空 auth-key 警告且检查零副作用通过 |
+| 15 | 14 | 同上，AnyTLS 测试 | 三类附加安全互斥、TLS 与主密码生命周期通过 |
+| 16 | 15 | 同上，ShadowQUIC 测试 | QUIC／0-RTT／流控及风险提示通过 |
+| 17 | 16 | 同上，TrustTunnel 测试 | TLS／QUIC／复用互斥通过 |
+| 18 | 17 | `backend/internal/node/registry_extended.go`（若采用）、`backend/internal/assembly/clash_protocols.go`、OpenVPN node／assembly 测试 | 结构化 schema 与 adapter 通过；`client-config` 不再进入任何输出，遗留行边界已处理 |
+| 19 | 18 | `backend/internal/node/openvpn_import.go`、`backend/internal/server/node.go`、`frontend/src/api/node.ts`、`OpenVPNImportPanel.vue` 及测试 | 256 KiB、no-store、鉴权、危险指令、secret 生命周期和零落库通过 |
+| 20 | 19 | `backend/internal/assembly/{render_clash.go,node_check.go,links.go,links/links.go}`、`CheckClashContent` 与测试夹具 | 15 个 legacy adapter 计数归零；19 协议 check／正式装配一致；8 个 URI skip 稳定 |
+| 21 | 20 | `NodesView.vue`、`ProtocolFieldEditor.vue`、`NodeCheckPanel.vue`、前端工具和测试 | 19 协议桌面／375px、草稿阻断、错误定位、明暗主题回归通过 |
+| 22 | 21 | `Build32.md`、`Design4.md`、`AGENTS.md`、必要的人工清单 | 联合门禁和隔离 smoke 完成，证据分层记录，文档链接通过后归档 |
+
+### 6.3 所有代码 Step 的共同完成门槛
+
+除各 Step 点名的验收外，Step 1～21 均须满足：
+
+1. 本步新增逻辑有失败优先的正反单元测试；相关包测试、对应前端测试和 `git diff --check` 通过。
+2. 本步结束时后端可编译；涉及前端生产代码时 `npm run build` 通过。不得把编译失败留给下一 Step。
+3. 敏感字段覆盖 create／update／get／list／check／日志／错误文本／正式输出；检查前后数据库业务表快照一致。
+4. schema、活动投影、组合校验、credential keep／replace／clear、reset scope、adapter、目标 evidence 和 UI 使用同一字段路径。
+5. 实际文件、命令、测试数量、未执行证据和偏差写回本 Step；失败即保持当前 Step 未通过，不提前启动下一 Step。
 
 ---
 
@@ -349,8 +425,9 @@ Step 0.5 授权/冻结
 - **前置：** 用户另行明确授权“开始实施 Build32”；当前范围已冻结，AmneziaWG 无需再次决策。
 - 复核 `git status --short --branch`、当前 HEAD、Build32 版本和 Mihomo 二进制版本。
 - 重新搜索活动代码中的 `1.19.29`、`MIHOMO_11929_BIN`、`client-config`、统一 `validateHostPort` 和无条件 `server/port` 输出。
+- 只读查询本次获授权实施目标中是否存在 `protocol='openvpn'` 且含 `client-config` 的既有节点；默认最多检查当前仓库 `backend/data`，不得自行连接外部 `DATA_DIR`、Docker 卷或生产环境。目标不明确或发现遗留行时只记录数量、不回显正文，并按 Step 18 的停止条件处理。
 - 不删除本地数据库，不启动任何代码修改前先记录影响清单。
-- **验收：** 工作区既有改动已识别且不会覆盖；没有未决范围冲突；只把本 Step 标为进行中。
+- **验收：** 工作区既有改动已识别且不会覆盖；没有未决范围冲突；影响清单与遗留数据结果已写回本文。复核完成后把 Step 0.5 标为验收通过，再单独进入 Step 1。
 
 ### Step 1：固定 Mihomo v1.19.31 证据门禁
 
@@ -385,7 +462,7 @@ Step 0.5 授权/冻结
 
 - 实现第四章 endpoint policy；创建／更新／检查统一调用协议感知校验。
 - 前端按 policy 显示、必填、清空 host/port；列表不显示 `:0`。
-- `clashProxy()` 改为 adapter registry；先提供默认 adapter 保持首批四协议行为，再为后续协议逐步替换。
+- `clashProxy()` 改为 adapter registry；先提供点名协议的临时 legacy adapter 保持尚未轮到的协议行为，并返回 `legacy_adapter_pending` evidence，不允许静默 default map 透传。每完成一个协议 Step 就删除该协议的 legacy 登记；Step 20 必须归零。
 - 节点检查和正式装配必须调用同一函数；增加静态／单元门禁禁止第二套拼装。
 - **验收：** 普通协议空 host/port 仍 400；Tailscale policy 夹具可空；Mieru range 不输出 port；WireGuard peers 不输出顶层 endpoint。
 - **验收命令：**
@@ -482,9 +559,9 @@ Step 0.5 授权/冻结
 #### Step 14：Tailscale
 
 - UI 完全隐藏普通 server/port；wire 禁止输出。
-- auth-key 可空，但节点检查返回交互式登录 URL／首次连接行为的 warn；不得把 warn 当 error。
+- auth-key 可空；节点静态检查只返回“首次真实连接需要交互登录”的 warn，不启动 tsnet、不联网，也不伪造／回显登录 URL。真实 Mihomo 首次启动时才可能在其日志输出官方文档所述 URL。
 - hostname、control-url、ephemeral、UDP、accept-routes、exit-node 和 LAN access 条件化。
-- `state-dir` 由 immutable manual 名称的安全摘要派生；不得接受用户路径，不在 API 回显主机绝对路径。
+- 已保存节点的 `state-dir` 由稳定节点 ID 派生；不得接受用户路径，不在 API 回显主机绝对路径。新建草稿检查不创建目录，正式保存后才具备稳定派生值。
 
 - **验收：** endpoint policy、列表显示、正式装配和固定内核正反例必须一起通过；检查请求前后数据库快照相同。
 
@@ -514,7 +591,7 @@ Step 0.5 授权/冻结
 - 移除 editor schema 中 `client-config`，新增第五章字段矩阵对应的结构化字段。
 - `auth_mode` 与 `tls_key_mode` 为 state-only selector；CA、cert、key、tls key 使用明确 multiline 类型。
 - OpenVPN wire adapter 只输出 v1.19.31 `OpenVPNOption` 字段；禁止输出原始 `.ovpn` 或未知指令。
-- 旧 `client-config` 不自动解释、不透传；若数据库中存在，读取时给出阻断诊断并要求重新导入，不做静默迁移。
+- 旧 `client-config` 不自动解释、不透传。若 Step 0.5 在任何目标数据库发现遗留行，立即停止在 Step 18 前，由用户决定迁移／清除策略；不得靠删除 schema 字段使旧内容在下一次保存时静默丢失。只有确认无遗留行，或另行获得明确处置授权后，才能移除编辑入口。
 - **验收：** user/pass、cert/key、三种 tls key、互斥反例、字段脱敏与固定内核正反例通过。
 
 ### Step 19：`.ovpn` 解析导入
@@ -523,6 +600,7 @@ Step 0.5 授权/冻结
 - 前端 OpenVPN 区提供“粘贴 `.ovpn`”面板：解析、显示 diagnostics、查看脱敏结构、显式应用／取消。
 - parser 草稿与现有自定义／JSON 草稿纳入页面级阻断；切换协议或关闭面板清空未应用原文。
 - API 日志只记录长度、结果计数和错误 code，不记录原文、remote 凭据或内嵌块。
+- `no-store` 中间件必须注册在 session／admin 之前；匿名、普通用户、超限、解析失败和成功响应均测试响应头。
 - **验收命令：**
   ```bash
   cd backend
@@ -583,6 +661,7 @@ git diff --check
 - 证据分层记录：源码／单测、固定内核、API、浏览器、真实客户端／连接、用户人工验收。
 - 真实客户端和连接未执行时明确登记未执行；不得以 Docker 或浏览器 smoke 替代。
 - 完成后同步 Design4 当前事实、AGENTS 当前入口和必要人工清单，再把 Build32 移入 `docs/reports/Build/`。文档同步属于本 Step，必须基于实际结果，不得预写完成。
+- 归档前执行 `node scripts/check-md-links.mjs Build32.md Design4.md AGENTS.md`；归档移动后重新执行链接检查，避免相对路径因目录变化失效。
 
 ---
 
@@ -620,7 +699,9 @@ git diff --check
 - 已把用户确认的三项方向转换为可执行合同：新版本证据、endpoint policy、OpenVPN 结构化＋解析导入。
 - 已确认不需要数据库 schema migration；状态格式使用现有列升 v2，endpoint 空值使用现有 NOT NULL 列中的 `''`／`0`。
 - AmneziaWG 范围已由用户拍板：不并入 Build32，留作后续独立专项；当前没有其他已知的实施前产品决策项。
-- 本轮只新增本文档，没有修改业务代码、Design4、AGENTS.md、测试或数据库，也没有执行构建门禁。
+- 已补齐 selector 注册／v1 读取规则、逐 Step 产出文件与共同完成门槛、OpenVPN API 状态码／no-store／secret 生命周期，以及遗留 `client-config` 的停止条件。
+- 已更正 Tailscale 边界：静态检查只提示首次真实连接需要交互登录，不生成登录 URL；`state-dir` 由稳定节点 ID 派生且新建草稿检查零文件系统副作用。
+- 本轮只修改本文档，没有修改业务代码、Design4、AGENTS.md、测试或数据库，也没有执行构建门禁。
 
 ---
 
@@ -630,3 +711,4 @@ git diff --check
 |---|---|---|
 | v1.0 | 2026-09-21 | 完成 19 个 manual 协议后续专项研究并建立 Build32；冻结 Mihomo v1.19.31、selector/state v2、endpoint policy、15 协议矩阵、显式 wire adapter、OpenVPN 结构化＋`.ovpn` 解析、串行 Step 与验收门禁。所有代码 Step 未获授权、未开始；AmneziaWG 保留为唯一待确认候选。 |
 | v1.1 | 2026-09-21 | 按用户确认冻结方案 A：Build32 的 WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 明确排除并留作后续独立专项。本次确认不授权进入 Step 0.5，全部代码 Step 继续保持未开始。 |
+| v1.2 | 2026-09-21 | 进一步实施定稿：补齐 selector 持久化与 v1 派生矩阵、endpoint 防伪造、OpenVPN API 安全响应合同、逐 Step 文件／前置／完成定义和共同门槛；增加 legacy adapter 归零与遗留 `client-config` 停止条件；更正 Tailscale 登录提示和稳定 `state-dir` 边界。仍未授权任何代码 Step。 |
