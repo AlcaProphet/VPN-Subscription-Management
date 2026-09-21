@@ -109,6 +109,31 @@ func TestSensitiveSetGet(t *testing.T) {
 	}
 }
 
+func TestEffectiveSiteName(t *testing.T) {
+	_, cfg := newTestStore(t)
+	ctx := context.Background()
+
+	if got := cfg.EffectiveSiteName(ctx); got != DefaultSiteName {
+		t.Fatalf("缺失配置应回退默认站点名: %q", got)
+	}
+	if err := cfg.Set(ctx, KeySiteName, "  \t\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.EffectiveSiteName(ctx); got != DefaultSiteName {
+		t.Fatalf("纯空白配置应回退默认站点名: %q", got)
+	}
+	if err := cfg.Set(ctx, KeySiteName, "  自定义站点  "); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.EffectiveSiteName(ctx); got != "自定义站点" {
+		t.Fatalf("应优先返回去除首尾空白的已保存站点名: %q", got)
+	}
+	var nilCfg *Service
+	if got := nilCfg.EffectiveSiteName(ctx); got != DefaultSiteName {
+		t.Fatalf("nil Service 应回退默认站点名: %q", got)
+	}
+}
+
 // TestGetSetBasic 普通键读写与类型化读取
 func TestGetSetBasic(t *testing.T) {
 	_, cfg := newTestStore(t)
@@ -168,5 +193,29 @@ func TestEnsureSigningKey(t *testing.T) {
 	}
 	if string(k1) != string(k2) {
 		t.Error("签名密钥应复用不重复生成")
+	}
+}
+
+// TestConfigDelete 通用单键删除：幂等、不影响其他键，供邮件模板恢复默认使用。
+func TestConfigDelete(t *testing.T) {
+	_, cfg := newTestStore(t)
+	ctx := context.Background()
+	if err := cfg.Set(ctx, "keep_key", "keep-value"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Set(ctx, "mail_template_password_reset", `{"subject":"x","body":"y"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Delete(ctx, "mail_template_password_reset"); err != nil {
+		t.Fatalf("删除已存在键失败: %v", err)
+	}
+	if v, err := cfg.Get(ctx, "mail_template_password_reset"); err != nil || v != "" {
+		t.Fatalf("删除后应为缺键: v=%q err=%v", v, err)
+	}
+	if v, err := cfg.Get(ctx, "keep_key"); err != nil || v != "keep-value" {
+		t.Fatalf("删除不应影响其他键: v=%q err=%v", v, err)
+	}
+	if err := cfg.Delete(ctx, "mail_template_password_reset"); err != nil {
+		t.Fatalf("重复删除应幂等成功: %v", err)
 	}
 }

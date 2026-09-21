@@ -59,6 +59,11 @@ func OK(c *gin.Context, data any) { response.OK(c, data) }
 // Fail 错误响应（便捷包装）；httpStatus 与业务码同步取值（400/401/403/409/429/500）
 func Fail(c *gin.Context, httpStatus int, msg string) { response.Fail(c, httpStatus, msg) }
 
+// FailSanitized 已知可安全外显的系统错误响应：对外固定文案，内部错误仅进脱敏日志。
+func FailSanitized(c *gin.Context, httpStatus int, publicMsg string, internalErr error) {
+	response.FailSanitized(c, httpStatus, publicMsg, internalErr)
+}
+
 // detach 将事务提交后的副作用回调放入后台 goroutine，并解除请求 Context 的取消绑定。
 func detach(ctx context.Context, fn func(context.Context)) {
 	bg := context.WithoutCancel(ctx)
@@ -74,6 +79,10 @@ type Server struct {
 	log             *slog.Logger
 	stopXrayCollect func()
 	xrayInstances   *xray.InstanceService
+	oidcSvc         *oidc.Service     // R31-07：测试可直接用服务签发/校验流程记录
+	mailDispatcher  *mail.Dispatcher  // R32-02：Server 唯一持有的邮件异步派发器
+	activityLog     *mail.ActivityLog // R32-02：短期邮件发送日志，供日志 API 使用
+	mailResultLog   *mail.ResultLog   // R32-03：终态结果旁路 writer 与持久化查询
 	// 后续 Step 的 Handler 经构造函数追加注入（setup/oidc...）
 }
 
@@ -93,14 +102,15 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	authSvc := auth.NewService(cfg, users, lg)
 	setupSvc := setup.NewService(st, cfg, lg, trust)
 	oidcSvc := oidc.NewService(st, cfg, authSvc, users, mode, lg)
+	s.oidcSvc = oidcSvc
 	captchaSvc := captcha.NewService(cfg, lg)
 	limiter := ratelimit.New(cfg, lg)
 	resetSvc := auth.NewResetService(st, users, lg)
 	registerStatus(engine, cfg, users, oidcSvc, captchaSvc, mode, nil)
 	// 认证路由（本 Build Step 4/7）：后续业务域路由同样在此按序注册
 	RegisterAuthRoutes(engine, &AuthHandler{authSvc: authSvc, userSvc: users, cfg: cfg, resetSvc: resetSvc}, limiter, captchaSvc)
-	// Setup 路由（本 Build Step 5/6）
-	RegisterSetupRoutes(engine, &SetupHandler{setupSvc: setupSvc, oidcSvc: oidcSvc})
+	// Setup 路由（本 Build Step 5/6）；mode 使用启动值，Production 下拒绝 mock。
+	RegisterSetupRoutes(engine, &SetupHandler{setupSvc: setupSvc, oidcSvc: oidcSvc, mode: mode})
 	// OIDC 路由（本 Build Step 6）
 	RegisterOidcRoutes(engine, &OidcHandler{oidcSvc: oidcSvc, authSvc: authSvc, setupSvc: setupSvc, cfg: cfg, trust: trust}, authSvc.SessionMiddleware(), limiter)
 	// 版本组件 + 订阅池路由（Build2 Step 2；会话 + 管理员双中间件）
@@ -308,19 +318,30 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 			}
 		})
 	})
-	// 邮件服务 + 审批中心（Build3 Step 2）：接通密码重置邮件与欢迎邮件注入点（SMTP 未配置/失败不阻断主流程）
+	// 邮件服务 + 审批中心（Build3 Step 2 / R32-02）：业务邮件统一走进程内异步派发器；SMTP 测试保持同步。
 	mailSvc := mail.NewService(cfg, lg)
-	resetSvc.SetSendMail(func(ctx context.Context, to, resetURL string) error {
-		furl := cfg.GetOr(ctx, config.KeyFrontendURL)
-		return mailSvc.SendPasswordReset(ctx, to, furl+resetURL)
-	})
-	users.SetWelcomeSender(func(ctx context.Context, to, source string) error {
-		siteName := cfg.GetOr(ctx, "site_name")
-		loginURL := cfg.GetOr(ctx, config.KeyFrontendURL)
-		return mailSvc.SendWelcome(ctx, to, siteName, loginURL, source)
-	})
-	approvalSvc := approval.NewService(st, mailSvc, cfg, lg)
-	RegisterApprovalRoutes(engine, &ApprovalHandler{approvalSvc: approvalSvc, mailSvc: mailSvc, users: users},
+	activityLog := mail.NewActivityLog(mail.ActivityLogCapacity)
+	mailResultLog, err := mail.NewResultLogFromProvider(st, lg)
+	if err != nil {
+		return nil, fmt.Errorf("装配邮件结果日志失败: %w", err)
+	}
+	activityLog.SetResultRecorder(mailResultLog)
+	mailDispatcher, err := mail.NewDispatcher(mailSvc, activityLog, lg)
+	if err != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if stopErr := mailResultLog.Stop(stopCtx); stopErr != nil {
+			lg.Warn("派发器装配失败后停止邮件结果日志服务失败", "err", stopErr)
+		}
+		return nil, fmt.Errorf("装配邮件派发器失败: %w", err)
+	}
+	s.activityLog = activityLog
+	s.mailDispatcher = mailDispatcher
+	s.mailResultLog = mailResultLog
+	resetSvc.SetMailer(mailDispatcher)
+	users.SetWelcomeSender(mailDispatcher.DispatchWelcome)
+	approvalSvc := approval.NewService(st, mailDispatcher, lg)
+	RegisterApprovalRoutes(engine, &ApprovalHandler{approvalSvc: approvalSvc, dispatcher: mailDispatcher, users: users},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	approvalSvc.SetOnApproved(func(ctx context.Context, userID int64) {
 		detach(ctx, func(ctx context.Context) {
@@ -342,19 +363,36 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	// 面板配置（Build3 Step 3）：分区读写 + 死锁防护 + 加密脱敏；调试模式经请求上下文中间件注入
 	offClearSvc := xray.NewOffClearService(st, cfg, taskReg, lg)
 	offClearSvc.SetAfterAdvancedOff(syncSvc.AfterAdvancedOff)
-	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, lg, rt.Level)
+	adminCfgSvc := config.NewAdminService(cfg, st, oidcOpsAdapter{svc: oidcSvc}, dataDir, mode, lg, rt.Level)
 	adminCfgSvc.SetAdvancedModeSwitcher(offClearSvc)
-	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trust},
+	RegisterSettingsRoutes(engine, &SettingsHandler{adminCfg: adminCfgSvc, oidcSvc: oidcSvc, trustProxy: trust, mailTemplates: mailSvc, mailAvailability: mailDispatcher},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 运维端点（Build3 Step 4）：一键清空/配置导入导出/备份下载；内存态复位回调（Step 5 追加 SSE 复位）
 	clearSvc := dataclear.NewService(st, dataDir, lg)
+	clearSvc.SetClearHooks(func(ctx context.Context) error {
+		if err := mailDispatcher.PauseAndDrain(); err != nil {
+			return err
+		}
+		return mailResultLog.Flush(ctx)
+	}, func(_ context.Context, cleared bool) {
+		var err error
+		if cleared {
+			err = mailDispatcher.ResumeAfterClear()
+		} else {
+			err = mailDispatcher.Resume()
+		}
+		if err != nil {
+			lg.Error("清空后恢复邮件派发器失败", "cleared", cleared, "err", err)
+		}
+	})
 	if streamSvc != nil {
 		clearSvc.SetResetRuntimeState(func() { limiter.Reset(); streamSvc.Reset() }) // 限流计数 + SSE 连接/短期 Token/日志缓冲同步重置
 	} else {
 		clearSvc.SetResetRuntimeState(limiter.Reset) // 限流计数同步重置
 	}
 	exportSvc := config.NewExportService(st, cfg, dataDir, mode, lg)
-	exportSvc.SetSeedPresets(setupSvc.SeedPresetsTx) // Setup 导入分支预置默认组/平台
+	exportSvc.SetSeedPresets(setupSvc.SeedPresetsTx)            // Setup 导入分支预置默认组/平台
+	exportSvc.SetValidateConfig(mail.ValidateTemplateOverrides) // 邮件模板只读导入校验回调
 	exportSvc.SetTaskRegistry(taskReg)
 	// v2 导入后处理：旧 Xray 清理、自动检测、显示名/ext 重绑、装配重绑与对账
 	exportSvc.SetCleanupXrayTargets(func(ctx context.Context, targets []config.ImportCleanupTarget) {
@@ -437,7 +475,8 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 日志查看（Build3 Step 5）：访问日志查询/清空 + 实时日志流 SSE（短期 Token + 8 连接上限）
 	accessLogSvc := log.NewAccessServiceFromProvider(st, lg)
-	RegisterLogRoutes(engine, &LogHandler{accessSvc: accessLogSvc, streamSvc: streamSvc, users: users},
+	RegisterLogRoutes(engine, &LogHandler{accessSvc: accessLogSvc, streamSvc: streamSvc, users: users,
+		mailLog: activityLog, mailResults: mailResultLog},
 		authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 管理概览与版本归属：聚合只读数据，须在全部依赖服务完成装配后注册。
 	RegisterOverviewRoutes(engine, &OverviewHandler{
@@ -450,6 +489,12 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 		versionSvc: versionSvc, subSvc: subSvc, ruleSvc: ruleSvc, shareSvc: shareSvc, customSvc: customSvc,
 	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	if err := registerStatic(engine, dataDir); err != nil {
+		mailDispatcher.Stop()
+		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if stopErr := mailResultLog.Stop(stopCtx); stopErr != nil {
+			lg.Warn("静态路由装配失败后停止邮件结果日志服务失败", "err", stopErr)
+		}
 		return nil, err
 	}
 	return s, nil
@@ -478,7 +523,7 @@ func NewEmergency(st *store.Store, cfg *config.Service, emSvc *emergency.Service
 	registerStatus(engine, cfg, users, oidcSvc, captchaSvc, mode, emSvc)
 	engine.GET("/api/site/info", func(c *gin.Context) {
 		ctx := c.Request.Context()
-		name := cfg.GetOr(ctx, "site_name")
+		name := cfg.EffectiveSiteName(ctx)
 		icon := cfg.GetOr(ctx, "site_icon_url")
 		OK(c, gin.H{"site_name": name, "icon_url": icon})
 	})
@@ -548,6 +593,18 @@ func panicRecovery(lg *slog.Logger) gin.HandlerFunc {
 
 // Run 以非阻塞优雅退出方式启动 HTTP 服务
 func (s *Server) Run(ctx context.Context) error {
+	defer func() {
+		if s.mailDispatcher != nil {
+			s.mailDispatcher.Stop()
+		}
+		if s.mailResultLog != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := s.mailResultLog.Stop(stopCtx); err != nil {
+				s.log.Warn("停止邮件结果日志服务失败", "err", err)
+			}
+		}
+	}()
 	errCh := make(chan error, 1)
 	go func() {
 		if err := s.httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

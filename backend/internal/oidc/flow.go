@@ -10,7 +10,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
+
+	"vpn-sub/internal/config"
+	"vpn-sub/internal/urlguard"
 )
 
 // StateRecord oidc_states 记录
@@ -21,7 +25,19 @@ type StateRecord struct {
 	Intent       string
 	BindUserID   int64
 	CreatedAt    time.Time
+	ProviderType string // 发起授权时的生效提供商
+	ConfigHash   string // 发起授权时固定的完整流程指纹（mode/provider/raw/流程代际）
+	RedirectURI  string // 发起授权时固定的 redirect_uri（回调换 token 必须复用）
 }
+
+// R31-07 流程守卫错误：停用与流程失效分别返回类型化错误，接入层据此映射状态码/回调错误码。
+var (
+	ErrOidcDisabled    = errors.New("OIDC 已停用")
+	ErrOidcFlowInvalid = errors.New("OIDC 授权流程已失效，请重新发起")
+)
+
+// flowEpochInitial 流程代际未写入时的固定初始值；停用/清空会写入新的随机代际。
+const flowEpochInitial = "initial"
 
 // StartFlow 生成 state（≥128 位）、nonce 与 code_verifier（PKCE S256）→ 持久化 → 返回授权页 URL
 func (s *Service) StartFlow(ctx context.Context, intent string, bindUserID int64) (authURL, state string, err error) {
@@ -40,23 +56,27 @@ func (s *Service) StartFlow(ctx context.Context, intent string, bindUserID int64
 		return "", "", fmt.Errorf("生成 nonce 失败: %w", err)
 	}
 	nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
-	// TTL 10 分钟：写入前顺带清理过期记录（代替独立定时器，简单可靠）
-	if err := s.saveState(ctx, state, verifier, nonce, intent, bindUserID); err != nil {
-		return "", "", err
-	}
-	p, err := s.currentParams(ctx)
+	// 在同一 BEGIN IMMEDIATE 事务内读取当前 provider/raw 参数与地址并固定到 state，
+	// 避免发起后配置/地址切换造成混用或 token 交换使用不同 redirect_uri。
+	providerType, p, redirectURI, err := s.saveState(ctx, state, verifier, nonce, intent, bindUserID)
 	if err != nil {
 		return "", "", err
 	}
 	challenge := pkceChallenge(verifier)
-	disc, err := s.fetchDiscovery(ctx, p)
+	disc, err := s.fetchDiscoveryForProvider(ctx, providerType, p)
 	if err != nil {
 		return "", "", err
+	}
+	// 实际使用点再守卫：mock 无真实网络请求，真实提供商必须使用 HTTPS 授权端点。
+	if providerType != "mock" {
+		if err := validateOIDCURL(disc.AuthorizationEndpoint); err != nil {
+			return "", "", fmt.Errorf("授权端点地址校验失败: %w", err)
+		}
 	}
 	q := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {p.ClientID},
-		"redirect_uri":          {s.CallbackURL(ctx)},
+		"redirect_uri":          {redirectURI},
 		"scope":                 {"openid email profile"},
 		"state":                 {state},
 		"nonce":                 {nonce},
@@ -72,21 +92,235 @@ func pkceChallenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// saveState 持久化 state 与 nonce（写入前清理过期记录；BEGIN IMMEDIATE 先读后写防并发）
-func (s *Service) saveState(ctx context.Context, state, verifier, nonce, intent string, bindUserID int64) error {
-	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+// flowConfigHash 计算完整流程指纹：运行模式（阻止 Dev mock ticket 跨到 Production）、
+// 流程代际（停用/清空后不可恢复）、生效提供商与参数原始 JSON（含密文，继承 R31-03 边界）。
+// 地址不在指纹内：R31-05 允许进行中 state 继续使用发起时固定的 redirect_uri。
+func flowConfigHash(mode, epoch, providerType, rawJSON string) string {
+	if strings.TrimSpace(epoch) == "" {
+		epoch = flowEpochInitial
+	}
+	sum := sha256Sum([]byte("v2\x00" + mode + "\x00" + epoch + "\x00" + providerType + "\x00" + rawJSON))
+	return fmt.Sprintf("%x", sum)
+}
+
+// readFlowEpochTx 事务内读取流程代际；未写入时返回固定初始值。
+func (s *Service) readFlowEpochTx(ctx context.Context, tx *sql.Tx) (string, error) {
+	epoch, err := s.cfg.GetTx(ctx, tx, config.KeyOidcFlowEpoch)
+	if err != nil {
+		return "", fmt.Errorf("读取 OIDC 流程代际失败: %w", err)
+	}
+	if strings.TrimSpace(epoch) == "" {
+		return flowEpochInitial, nil
+	}
+	return strings.TrimSpace(epoch), nil
+}
+
+// currentFlowHashTx 事务内读取当前生效配置并计算完整流程指纹；未启用/参数缺失时返回 ErrOidcDisabled。
+func (s *Service) currentFlowHashTx(ctx context.Context, tx *sql.Tx) (string, error) {
+	providerType, err := s.cfg.GetTx(ctx, tx, KeyProviderType)
+	if err != nil {
+		return "", fmt.Errorf("读取 OIDC 提供商失败: %w", err)
+	}
+	if strings.TrimSpace(providerType) == "" {
+		return "", ErrOidcDisabled
+	}
+	raw, err := s.cfg.GetTx(ctx, tx, "oidc_params_"+providerType)
+	if err != nil {
+		return "", fmt.Errorf("读取 OIDC 参数失败: %w", err)
+	}
+	if strings.TrimSpace(raw) == "" {
+		return "", ErrOidcDisabled
+	}
+	epoch, err := s.readFlowEpochTx(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+	return flowConfigHash(s.mode, epoch, providerType, raw), nil
+}
+
+// assertOidcEnabledTx 事务内校验 OIDC 处于启用状态；停用/未知一律返回 ErrOidcDisabled。
+func (s *Service) assertOidcEnabledTx(ctx context.Context, tx *sql.Tx) error {
+	configured, err := s.cfg.GetTx(ctx, tx, KeyConfigured)
+	if err != nil {
+		return fmt.Errorf("读取 OIDC 启用状态失败: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(configured), "true") {
+		return ErrOidcDisabled
+	}
+	return nil
+}
+
+// assertFlowCurrentTx 事务内校验启用状态与完整流程指纹，供所有最终绑定/签发/兑换入口串行化守卫。
+func (s *Service) assertFlowCurrentTx(ctx context.Context, tx *sql.Tx, expectedHash string) error {
+	if strings.TrimSpace(expectedHash) == "" {
+		return ErrOidcFlowInvalid
+	}
+	if err := s.assertOidcEnabledTx(ctx, tx); err != nil {
+		return err
+	}
+	currentHash, err := s.currentFlowHashTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if currentHash != expectedHash {
+		return ErrOidcFlowInvalid
+	}
+	return nil
+}
+
+// flowGuard 生成可供 user 包在自身事务内调用的守卫函数；其检查与最终写入同事务。
+func (s *Service) flowGuard(expectedHash string) func(context.Context, *sql.Tx) error {
+	return func(ctx context.Context, tx *sql.Tx) error {
+		return s.assertFlowCurrentTx(ctx, tx, expectedHash)
+	}
+}
+
+// currentFlowHash 读取当前启用流程的指纹；用于 MockLogin 在请求开始时固定流程边界。
+func (s *Service) currentFlowHash(ctx context.Context) (string, error) {
+	var hash string
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if err := s.assertOidcEnabledTx(ctx, tx); err != nil {
+			return err
+		}
+		var err error
+		hash, err = s.currentFlowHashTx(ctx, tx)
+		return err
+	})
+	return hash, err
+}
+
+// parseParamsWithTx 在事务内复用统一分类器解析参数；损坏与签名密钥故障在网络请求前拒绝，
+// missing_secret 保持 public client/PKCE 的现有语义（允许进入授权，但 Secret 为空）。
+func (s *Service) parseParamsWithTx(ctx context.Context, tx *sql.Tx, providerType, rawJSON string) (*Params, error) {
+	insp, err := s.inspectParamsTx(ctx, tx, providerType, rawJSON)
+	if err != nil {
+		if errors.Is(err, config.ErrSigningKeyUnavailable) {
+			return nil, fmt.Errorf("签名密钥不可用，无法完成 OIDC 登录: %w", err)
+		}
+		return nil, err
+	}
+	switch config.EffectiveOidcParamsState(insp.State) {
+	case config.OidcParamsUsable:
+		if insp.Plain == nil {
+			return nil, errors.New("OIDC 参数不可用，请管理员在设置页重新填写")
+		}
+		return insp.Plain, nil
+	case config.OidcParamsMissingSecret:
+		if insp.Plain == nil {
+			return nil, errors.New("OIDC 参数未配置")
+		}
+		return insp.Plain, nil
+	case config.OidcParamsJSONDamaged:
+		return nil, errors.New("OIDC 参数 JSON 损坏，请管理员在设置页重新填写")
+	case config.OidcParamsSecretDamaged:
+		return nil, errors.New("OIDC Client Secret 损坏，请管理员在设置页重新输入")
+	default:
+		return nil, errors.New("OIDC 参数未配置")
+	}
+}
+
+// saveState 在单个 BEGIN IMMEDIATE 事务内清理过期 state、固定发起时 provider/raw 参数与 redirect_uri 并写入 state。
+// 返回的 Params 已解密、redirectURI 已解析，供 StartFlow 以同一配置/地址快照获取 discovery 与构造授权 URL。
+func (s *Service) saveState(ctx context.Context, state, verifier, nonce, intent string, bindUserID int64) (providerType string, p *Params, redirectURI string, err error) {
+	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		pt, err := s.cfg.GetTx(ctx, tx, KeyProviderType)
+		if err != nil {
+			return fmt.Errorf("读取 OIDC 提供商失败: %w", err)
+		}
+		if pt == "" {
+			return errors.New("OIDC 未配置")
+		}
+		// R31-06：Production mock 在清理过期 state/写入新 state 之前拒绝。
+		if err := s.rejectMockInProduction(pt); err != nil {
+			return err
+		}
+		// R31-07：停用后不得清理过期记录或写入新 state。
+		if err := s.assertOidcEnabledTx(ctx, tx); err != nil {
+			return err
+		}
+		providerType = pt
 		// 顺带清理过期记录（代替独立定时器，简单可靠）
 		if _, err := tx.ExecContext(ctx, `DELETE FROM oidc_states WHERE created_at < ?`,
 			time.Now().Add(-stateTTL)); err != nil {
 			return fmt.Errorf("清理过期 state 失败: %w", err)
 		}
+		raw, err := s.cfg.GetTx(ctx, tx, "oidc_params_"+providerType)
+		if err != nil {
+			return fmt.Errorf("读取 OIDC 参数失败: %w", err)
+		}
+		if raw == "" {
+			return errors.New("OIDC 参数未配置")
+		}
+		p, err = s.parseParamsWithTx(ctx, tx, providerType, raw)
+		if err != nil {
+			return err
+		}
+		callbackRaw, err := s.cfg.GetTx(ctx, tx, config.KeyCallbackURL)
+		if err != nil {
+			return fmt.Errorf("读取独立回调地址失败: %w", err)
+		}
+		frontendRaw, err := s.cfg.GetTx(ctx, tx, config.KeyFrontendURL)
+		if err != nil {
+			return fmt.Errorf("读取前端地址失败: %w", err)
+		}
+		redirectURI, err = config.ResolveOidcCallbackURL(callbackRaw, frontendRaw)
+		if err != nil {
+			return fmt.Errorf("OIDC 回调地址不可用: %w", err)
+		}
+		epoch, err := s.readFlowEpochTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		configHash := flowConfigHash(s.mode, epoch, providerType, raw)
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO oidc_states (state, code_verifier, nonce, intent, bind_user_id) VALUES (?,?,?,?,?)`,
-			state, verifier, nonce, intent, nullIf0(bindUserID)); err != nil {
+			`INSERT INTO oidc_states (state, code_verifier, nonce, intent, bind_user_id, provider_type, config_hash, redirect_uri) VALUES (?,?,?,?,?,?,?,?)`,
+			state, verifier, nonce, intent, nullIf0(bindUserID), providerType, configHash, redirectURI); err != nil {
 			return fmt.Errorf("写入 state 失败: %w", err)
 		}
 		return nil
 	})
+	return providerType, p, redirectURI, err
+}
+
+// loadPinnedParams 回调换取身份前校验 state 固定的 provider/config 指纹仍与当前生效配置一致。
+// 不一致时在发出任何 discovery/token 请求前拒绝，确保旧授权码绝不接触新提供商地址或 Secret。
+func (s *Service) loadPinnedParams(ctx context.Context, rec *StateRecord) (*Params, error) {
+	if rec.ProviderType == "" || rec.ConfigHash == "" {
+		return nil, errors.New("授权 state 缺少发起时提供商配置标识，请重新发起登录")
+	}
+	var p *Params
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if err := s.assertOidcEnabledTx(ctx, tx); err != nil {
+			return err
+		}
+		currentProvider, err := s.cfg.GetTx(ctx, tx, KeyProviderType)
+		if err != nil {
+			return fmt.Errorf("读取 OIDC 提供商失败: %w", err)
+		}
+		if currentProvider != rec.ProviderType {
+			return errors.New("授权发起后 OIDC 提供商已变更，请重新发起登录")
+		}
+		raw, err := s.cfg.GetTx(ctx, tx, "oidc_params_"+currentProvider)
+		if err != nil {
+			return fmt.Errorf("读取 OIDC 参数失败: %w", err)
+		}
+		if raw == "" {
+			return errors.New("OIDC 参数未配置")
+		}
+		epoch, err := s.readFlowEpochTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if flowConfigHash(s.mode, epoch, currentProvider, raw) != rec.ConfigHash {
+			return ErrOidcFlowInvalid
+		}
+		p, err = s.parseParamsWithTx(ctx, tx, currentProvider, raw)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // nullIf0 0 转 NULL
@@ -102,9 +336,13 @@ func nullIf0(v int64) any {
 func (s *Service) ConsumeState(ctx context.Context, state string) (*StateRecord, error) {
 	var rec StateRecord
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		// R31-07：停用后不消费 state、不删除原行；重新启用也不得恢复旧流程。
+		if err := s.assertOidcEnabledTx(ctx, tx); err != nil {
+			return err
+		}
 		err := tx.QueryRowContext(ctx,
-			`SELECT state, code_verifier, nonce, intent, COALESCE(bind_user_id,0), created_at FROM oidc_states WHERE state = ?`, state).
-			Scan(&rec.State, &rec.CodeVerifier, &rec.Nonce, &rec.Intent, &rec.BindUserID, &rec.CreatedAt)
+			`SELECT state, code_verifier, nonce, intent, COALESCE(bind_user_id,0), created_at, provider_type, config_hash, redirect_uri FROM oidc_states WHERE state = ?`, state).
+			Scan(&rec.State, &rec.CodeVerifier, &rec.Nonce, &rec.Intent, &rec.BindUserID, &rec.CreatedAt, &rec.ProviderType, &rec.ConfigHash, &rec.RedirectURI)
 		if errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -113,6 +351,14 @@ func (s *Service) ConsumeState(ctx context.Context, state string) (*StateRecord,
 		}
 		if time.Since(rec.CreatedAt) > stateTTL {
 			return sql.ErrNoRows // 过期视同不存在
+		}
+		// 旧记录没有发起时提供商/配置标识：保留原行，回调视为无效 state 拒绝。
+		if rec.ProviderType == "" || rec.ConfigHash == "" {
+			return errors.New("state 缺少发起时提供商配置标识")
+		}
+		// R31-05：迁移前已存在且无固定 redirect_uri 的进行中 state 同样保留，回调统一按失效处理。
+		if strings.TrimSpace(rec.RedirectURI) == "" {
+			return errors.New("state 缺少发起时回调地址")
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM oidc_states WHERE state = ?`, state) // 用后即删
 		return err
@@ -138,22 +384,35 @@ type Identity struct {
 // 实现说明：真实提供商场景需验签 id_token（jwks）；为保持本 Build 可自测，mock 提供商走本地解析。
 // 真实解析：POST token_endpoint 换 token → 解析 id_token（JWT payload 提取 subject/email/email_verified/username）。
 func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (*Identity, error) {
-	providerType := s.cfg.GetOr(ctx, KeyProviderType)
-	if providerType == "mock" {
+	// R31-06：Production 不解析 mock 身份；旧库配置与进行中的旧 state 在此再次拒绝。
+	if err := s.rejectMockInProduction(rec.ProviderType); err != nil {
+		return nil, err
+	}
+	p, err := s.loadPinnedParams(ctx, rec)
+	if err != nil {
+		return nil, err
+	}
+	// R31-05：token 交换必须复用发起时固定的 redirect_uri，绝不读取当前配置。
+	// 这里只要求 state 值仍是有效绝对 http(s) 地址；显式独立回调的精确路径已在保存/发起时校验，
+	// frontend_url 带反代前缀时推导值路径可不同于根路径。
+	redirectURI := strings.TrimSpace(rec.RedirectURI)
+	if _, err := urlguard.ParseAbsoluteHTTPURL(redirectURI); err != nil {
+		return nil, fmt.Errorf("授权 state 中的回调地址无效: %w", err)
+	}
+	if rec.ProviderType == "mock" {
 		return s.mockExchange(rec, code) // 模拟模式：code 即携带身份信息的 base64 JSON
 	}
-	p, err := s.currentParams(ctx)
+	disc, err := s.fetchDiscoveryForProvider(ctx, rec.ProviderType, p)
 	if err != nil {
 		return nil, err
 	}
-	disc, err := s.fetchDiscovery(ctx, p)
-	if err != nil {
-		return nil, err
+	if err := validateOIDCURL(disc.TokenEndpoint); err != nil {
+		return nil, fmt.Errorf("token 端点地址校验失败: %w", err)
 	}
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
-		"redirect_uri":  {s.CallbackURL(ctx)},
+		"redirect_uri":  {redirectURI},
 		"client_id":     {p.ClientID},
 		"code_verifier": {rec.CodeVerifier},
 	}
@@ -165,7 +424,7 @@ func (s *Service) Exchange(ctx context.Context, rec *StateRecord, code string) (
 		return nil, fmt.Errorf("构造 token 请求失败: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := s.httpCli.Do(req)
+	resp, err := s.doCredentialRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("token 端点不可达: %w", err)
 	}

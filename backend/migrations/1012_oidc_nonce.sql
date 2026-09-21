@@ -1,1 +1,0 @@
-ALTER TABLE oidc_states ADD COLUMN nonce TEXT NOT NULL DEFAULT '';

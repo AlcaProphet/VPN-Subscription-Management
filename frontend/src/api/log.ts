@@ -38,3 +38,50 @@ export async function openLogStream(signal?: AbortSignal): Promise<Response> {
     signal,
   })
 }
+
+// --- 邮件发送日志（R32-02）---
+export type MailActivityStatus = 'queued' | 'sending' | 'accepted' | 'failed'
+export type MailResultStatus = 'accepted' | 'failed'
+export type MailActivityKind =
+  | 'welcome_local'
+  | 'welcome_oidc'
+  | 'approval_approved'
+  | 'approval_rejected'
+  | 'password_reset'
+  | 'smtp_test'
+
+export interface MailActiveRecord {
+  id: number
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  kind: MailActivityKind
+  source: string
+  user_id: number | null
+  recipient_masked: string
+  status: MailActivityStatus
+  failure_stage: string | null
+  queue_duration_ms: number | null
+  send_duration_ms: number | null
+}
+
+export interface MailResultRecord {
+  id: number
+  kind: MailActivityKind
+  source: string
+  user_id: number | null
+  recipient_masked: string
+  result: MailResultStatus
+  failure_stage: string | null
+  recorded_at: string
+}
+
+export const queryMailLogs = (q: {
+  page: number
+  size: number
+  kind?: MailActivityKind | ''
+  status?: MailResultStatus | ''
+}) => http.get<any, { list: MailResultRecord[]; total: number }>('/admin/logs/mail', { params: q })
+export const queryActiveMail = () =>
+  http.get<any, { list: MailActiveRecord[]; queued: number; sending: number }>('/admin/logs/mail/active')
+export const clearMailLogs = () => http.post('/admin/logs/mail/clear')

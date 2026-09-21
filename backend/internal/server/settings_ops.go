@@ -48,6 +48,10 @@ func (h *SettingsOpsHandler) clearAll(c *gin.Context) {
 		return
 	}
 	if err := h.clearSvc.ClearAll(c.Request.Context(), req.ConfirmWord); err != nil {
+		if errors.Is(err, dataclear.ErrClearLifecycle) {
+			FailSanitized(c, http.StatusServiceUnavailable, "邮件发送暂停失败，未执行清空，请稍后重试", err)
+			return
+		}
 		Fail(c, http.StatusBadRequest, err.Error()) // 确认词不正确等
 		return
 	}
@@ -157,8 +161,9 @@ func (h *SettingsOpsHandler) importCommon(c *gin.Context, setupMode bool) {
 		OK(c, gin.H{"task_id": taskID})
 		return
 	}
-	// 导入后效果：签名密钥替换 → 全部会话立即失效（含执行导入的管理员）；含前端地址/回调地址时需重启生效
-	OK(c, gin.H{"message": "配置已导入，请立即重启容器后再重新登录"})
+	// 导入后效果：签名密钥替换 → 全部会话立即失效（含执行导入的管理员）；地址/OIDC 即时生效，
+	// 日志级别、HTTP 超时等启动期参数按导入值生效仍需重启。
+	OK(c, gin.H{"message": "配置已导入，请重新登录；地址与 OIDC 配置即时生效，日志级别/HTTP 超时等启动参数重启后生效"})
 }
 
 // backup 备份下载（tar.gz 流式；打包前预检失败时仍返回 500）

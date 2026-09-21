@@ -24,6 +24,7 @@ import (
 
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/tasks"
+	"vpn-sub/internal/urlguard"
 )
 
 const (
@@ -96,6 +97,8 @@ type ExportService struct {
 	cleanupXrayTargets        func(ctx context.Context, targets []ImportCleanupTarget)
 	detectImportedInstances   func(ctx context.Context, payload *ExportPayload) []string
 	postImportRebindReconcile func(ctx context.Context, payload *ExportPayload) []string
+	// validateConfig 由 server.New 注入邮件领域校验回调（只读 map，不访问 DB/网络）。
+	validateConfig func(map[string]string) error
 }
 
 // ImportCleanupTarget 是导入覆盖前需要从 Xray 侧清理的旧账号快照。
@@ -117,6 +120,18 @@ func (s *ExportService) SetTaskRegistry(reg *tasks.Registry) {
 // SetSeedPresets 注入 Setup 预置逻辑（Setup 导入分支使用）
 func (s *ExportService) SetSeedPresets(fn func(ctx context.Context, tx *sql.Tx, frontendURL string) error) {
 	s.seedPresets = fn
+}
+
+// SetValidateConfig 注入导入配置的只读领域校验回调；回调只接收 map，不访问数据库或网络。
+func (s *ExportService) SetValidateConfig(fn func(map[string]string) error) {
+	s.validateConfig = fn
+}
+
+func (s *ExportService) validateConfigOverrides(cfg map[string]string) error {
+	if s.validateConfig == nil {
+		return nil
+	}
+	return s.validateConfig(cfg)
 }
 
 // SetCleanupXrayTargets 注入 v2 导入覆盖后对旧 Xray 账号的 best-effort 清理函数。
@@ -231,6 +246,14 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 	if err != nil {
 		return err // 「密码错误或文件损坏」
 	}
+	// R31-06：Production 配置导入在任何覆盖写入前整体拒绝 mock 配置。
+	if err := validateImportedNoMock(payload.Config); err != nil {
+		return err
+	}
+	// 邮件模板：v1 同步路径在 DELETE FROM system_config 之前完成只读领域校验。
+	if err := s.validateConfigOverrides(payload.Config); err != nil {
+		return err
+	}
 	// 校验格式与版本：format_version 不匹配仅警告不阻断；未知键忽略并警告；校验失败不做任何变更
 	if payload.FormatVersion != FormatVersion {
 		s.log.Warn("导入配置 format_version 不匹配", "got", payload.FormatVersion, "want", FormatVersion)
@@ -275,7 +298,7 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 		}
 	}
 	// 导入后效果：签名密钥替换 → 全部现有会话立即失效（含执行导入的管理员，前端清凭据跳登录）；
-	// 含前端地址/回调地址时需重启生效——UI 提示「导入完成 → 立即重启容器 → 再重新登录」
+	// 地址/OIDC 配置按库内值即时生效；日志级别、HTTP 超时等启动期参数需重启后完全生效。
 	s.log.Warn("配置导入已执行", "setup_mode", setupMode)
 	return nil
 }
@@ -289,6 +312,10 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 	}
 	payload, err := s.decrypt(data, password)
 	if err != nil {
+		return "", err
+	}
+	// R31-06：v1/v2 均在注册异步任务或同步覆盖前整体拒绝 mock 配置。
+	if err := validateImportedNoMock(payload.Config); err != nil {
 		return "", err
 	}
 	if payload.FormatVersion != FormatVersion {
@@ -306,6 +333,10 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 	hasAdvancedData := len(payload.Instances) > 0 || len(payload.Accounts) > 0
 	if !setupMode && !hasAdvancedData && payload.Config[KeyAdvancedMode] != "true" && disableConfirmWord != ConfirmWordDisable {
 		return "", errors.New("该导入会清空高级模式数据，请输入 DISABLE 确认")
+	}
+	// R31-05：认证可用性预检必须在注册异步任务前同步完成，Setup/管理端才能在覆盖前直接得到拒绝结果。
+	if err := ValidateImportedAuthUsable(payload.Config); err != nil {
+		return "", err
 	}
 	if s.registry == nil {
 		return "", errors.New("任务注册表未注入")
@@ -327,6 +358,14 @@ func (s *ExportService) ImportV2(ctx context.Context, data []byte, password, con
 func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, confirmWord string, setupMode bool) ([]string, error) {
 	if confirmWord != ConfirmWordImport {
 		return nil, errors.New("确认词不正确")
+	}
+	// R31-06：任务体内再次兜底拒绝 mock 配置，直接调用路径也不得覆盖写入。
+	if err := validateImportedNoMock(payload.Config); err != nil {
+		return nil, err
+	}
+	// 邮件模板：v2 任务体内在覆盖事务前完成只读领域校验，失败使任务终态 failed。
+	if err := s.validateConfigOverrides(payload.Config); err != nil {
+		return nil, err
 	}
 	// 导入保护：signing_key 变化且存在业务密文时拒绝。
 	if err := s.checkImportProtection(ctx, payload); err != nil {
@@ -606,10 +645,36 @@ func (s *ExportService) checkImportProtection(ctx context.Context, payload *Expo
 	return nil
 }
 
-// ValidateImportedAuthUsable 按“导入后视角”校验认证可用性：若本地登录关闭，则 OIDC 参数必须完整可用。
+// validateImportedNoMock R31-06：Production 配置导入不接受模拟 OIDC 配置。
+// 生效类型为 mock，或存在 oidc_params_mock 键（即使值为空），均要求整体拒绝；
+// 该判断独立于本地登录开关与 oidc_configured 标记。
+func validateImportedNoMock(cfgMap map[string]string) error {
+	if strings.TrimSpace(cfgMap["oidc_provider_type"]) == "mock" {
+		return fmt.Errorf("%w: 导入文件的 oidc_provider_type 为 mock，Production 配置导入不接受模拟 OIDC 配置", ErrMockModeRestricted)
+	}
+	if _, ok := cfgMap["oidc_params_mock"]; ok {
+		return fmt.Errorf("%w: 导入文件存在 oidc_params_mock 键（含空值），Production 配置导入不接受模拟 OIDC 配置", ErrMockModeRestricted)
+	}
+	return nil
+}
+
+// ValidateImportedAuthUsable 按“导入后视角”校验认证可用性：若本地登录关闭，则 OIDC 必须已启用、
+// 参数/Secret 完整可用且能解析出有效回调地址；configured 使用与运行时一致的 ParseBool 语义，
+// 本地登录关闭时 provider_type 必须属于当前支持的真实提供商白名单。
 // 该函数只读 map，不做任何写入。
 func ValidateImportedAuthUsable(cfgMap map[string]string) error {
-	if cfgMap[KeyConfigured] != "true" {
+	if err := validateImportedNoMock(cfgMap); err != nil {
+		return err
+	}
+	configuredRaw := cfgMap[KeyConfigured]
+	if configuredRaw == "" {
+		return nil
+	}
+	configured, err := strconv.ParseBool(configuredRaw)
+	if err != nil {
+		return fmt.Errorf("%w: configured 非法", ErrBadRequest)
+	}
+	if !configured {
 		return nil
 	}
 	allowLocal := cfgMap[KeyAllowLocalLogin]
@@ -623,9 +688,12 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	if ok {
 		return nil
 	}
+	if !strings.EqualFold(cfgMap["oidc_configured"], "true") {
+		return fmt.Errorf("%w: 导入配置已关闭本地登录，但未启用 OIDC（oidc_configured 缺失或非 true），禁止导入", ErrAuthDeadlock)
+	}
 	providerType := cfgMap["oidc_provider_type"]
-	if providerType == "" {
-		return ErrAuthDeadlock
+	if providerType == "" || providerType == "mock" || !isKnownProviderType(providerType) {
+		return fmt.Errorf("%w: 导入配置的 OIDC 提供商类型无效", ErrAuthDeadlock)
 	}
 	raw := cfgMap["oidc_params_"+providerType]
 	if raw == "" {
@@ -642,6 +710,11 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	if p.BaseURL == "" || p.ClientID == "" || p.ClientSecret == "" {
 		return ErrAuthDeadlock
 	}
+	if providerType != "mock" {
+		if err := urlguard.ValidateHTTPS(p.BaseURL); err != nil {
+			return fmt.Errorf("%w: 导入的 OIDC Base URL 必须是 HTTPS 地址: %v", ErrAuthDeadlock, err)
+		}
+	}
 	// OIDC Secret 是库内密文：本地登录关闭时，必须用导入包的签名密钥确认解密后可用，
 	// 避免把历史占位符/无法解密的密文导入成“认证看似可用、实际死锁”的状态。
 	signingKey := cfgMap[KeySigningKey]
@@ -654,6 +727,11 @@ func ValidateImportedAuthUsable(cfgMap map[string]string) error {
 	}
 	if !SecretUsable(string(plain)) {
 		return fmt.Errorf("%w: 导入的 OIDC Client Secret 为脱敏占位符，请重新配置", ErrAuthDeadlock)
+	}
+	if providerType != "mock" {
+		if _, err := ResolveOidcCallbackURL(cfgMap[KeyCallbackURL], cfgMap[KeyFrontendURL]); err != nil {
+			return fmt.Errorf("%w: 导入配置无法解析出有效 OIDC 回调地址: %v", ErrAuthDeadlock, err)
+		}
 	}
 	return nil
 }

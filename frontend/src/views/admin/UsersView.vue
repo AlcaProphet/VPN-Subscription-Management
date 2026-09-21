@@ -61,16 +61,16 @@ async function load() {
 watch([page, keyword], () => load())
 onMounted(load)
 
-// 数据源：组选项 + 平台选项（编辑/上传自定义订阅用）+ SMTP 配置状态（批量发链接置灰依据）
+// 数据源：组选项 + 平台选项（编辑/上传自定义订阅用）+ 密码重置邮件统一可用性（批量/单用户置灰依据）
 const groupOptions = ref<{ label: string; value: number }[]>([])
 const platforms = ref<PlatformItem[]>([])
-const smtpConfigured = ref(false)
+const passwordResetAvailable = ref(false)
 async function loadMeta() {
   try {
     const [grps, plats, smtp] = await Promise.all([listGroups(), listPlatforms(), getSMTP()])
     groupOptions.value = grps.map((g: GroupItem) => ({ label: g.name, value: g.id }))
     platforms.value = plats
-    smtpConfigured.value = smtp.configured
+    passwordResetAvailable.value = smtp.password_reset_available === true
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -81,14 +81,14 @@ onMounted(loadMeta)
 // 当前登录管理员（本人入口禁用：重置密码/禁用/删除/角色变更）
 const me = computed(() => auth.user)
 
-// --- 头部批量操作：为所有无密码用户发送密码设置链接 ---
+// --- 头部批量操作：为所有无密码用户提交密码设置链接 ---
 const sendingLinks = ref(false)
 async function batchSendLinks() {
   sendingLinks.value = true
   try {
     const res = await sendPasswordLinks()
     Notify.success(
-      `已发送 ${res.sent} 封；排除：待审批 ${res.skipped_pending}、已禁用 ${res.skipped_disabled}、无邮箱 ${res.skipped_no_email}`,
+      `已提交 ${res.queued} 封；入队失败 ${res.queue_failed}；准备失败 ${res.failed}；跳过：待审批 ${res.skipped_pending}、已禁用 ${res.skipped_disabled}、无邮箱 ${res.skipped_no_email}、邮件不可用 ${res.skipped_unavailable}`,
     )
   } catch (err) {
     Notify.error((err as Error).message)
@@ -254,7 +254,7 @@ async function doReset() {
       directResult.value = res.password ?? ''
       Notify.info('该用户全部现有会话已失效')
     } else {
-      Notify.success('重置邮件已发送')
+      Notify.success('重置邮件已提交发送')
       resetOpen.value = false
     }
     await load()
@@ -495,8 +495,8 @@ const roleConfirmContent = computed(() => {
       <template #actions>
         <!-- Space wrap：长文案按钮 + 新建按钮在窄屏自动换行，防止溢出页面框架 -->
         <Space :wrap="true">
-          <Button :loading="sendingLinks" :disabled="!smtpConfigured"
-                  :title="smtpConfigured ? '' : 'SMTP 未配置，请先在面板配置'"
+          <Button :loading="sendingLinks" :disabled="!passwordResetAvailable"
+                  :title="passwordResetAvailable ? '' : '请先配置 SMTP 并启用密码重置邮件'"
                   @click="batchSendLinks">为所有无密码用户发送密码设置链接</Button>
           <Button type="primary" @click="openCreate">新建用户</Button>
         </Space>
@@ -677,12 +677,12 @@ const roleConfirmContent = computed(() => {
       <div class="space-y-3">
         <Radio.Group v-model:value="resetMode">
           <Radio value="direct">直接重置（系统生成 8 位密码）</Radio>
-          <Radio value="send_email" :disabled="!smtpConfigured">触发重置邮件（用户自设密码）</Radio>
+          <Radio value="send_email" :disabled="!passwordResetAvailable">触发重置邮件（用户自设密码）</Radio>
         </Radio.Group>
         <Alert v-if="resetMode === 'direct' && directResult" type="success" show-icon
                :message="`新密码：${directResult}`"
                description="请复制并妥善保管，仅展示一次；该用户全部现有会话已失效" />
-        <Alert v-if="resetMode === 'send_email'" type="info" show-icon message="将发送一次性重置链接（1 小时有效），SMTP 未配置时不可用" />
+        <Alert v-if="resetMode === 'send_email'" type="info" show-icon message="将提交一次性重置链接（1 小时有效）；需同时完成 SMTP 配置并启用密码重置邮件" />
       </div>
       <template #footer>
         <Button class="touch-target" @click="resetOpen = false">{{ directResult ? '完成' : '取消' }}</Button>

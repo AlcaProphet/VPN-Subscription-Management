@@ -84,7 +84,7 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Migrate(ctx context.Context, migrationsFS fs.FS) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// 1) 自建迁移登记表（与 0001_init.sql 中显式建表幂等共存）
+	// 1) 自建迁移登记表（与 0001_initial_schema.sql 中显式建表幂等共存）
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`); err != nil {
 		return fmt.Errorf("创建 schema_migrations 失败: %w", err)

@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"log/slog"
@@ -25,10 +26,11 @@ type mockOidcSaveCall struct {
 
 // mockOidcParams 模拟某个提供商的参数存储（secret 为已解密明文）。
 type mockOidcParams struct {
-	baseURL  string
-	realm    string
-	clientID string
-	secret   string
+	baseURL     string
+	realm       string
+	clientID    string
+	secret      string
+	jsonDamaged bool
 }
 
 // mockOidcOps 模拟 oidc.Service（config 包避免循环依赖的接口注入）
@@ -37,6 +39,10 @@ type mockOidcOps struct {
 	secret     string // 单提供商兼容字段：库内已存明文（模拟）
 	params     map[string]mockOidcParams
 	saveCalls  []mockOidcSaveCall
+
+	// describeErr / describeState 用于注入 signing_key_fault 等 R31-04 状态。
+	describeErr   error
+	describeState OidcParamsState
 }
 
 func (m *mockOidcOps) SaveParams(ctx context.Context, providerType, baseURL, realm, clientID, clientSecret string) error {
@@ -69,11 +75,49 @@ func (m *mockOidcOps) LoadParams(ctx context.Context, providerType string) (stri
 	return "https://idp.example.com", "realm", "client-x", m.secret, nil
 }
 
+func (m *mockOidcOps) DescribeParams(ctx context.Context, providerType string) (OidcParamsState, error) {
+	if m.describeErr != nil {
+		return m.describeState, m.describeErr
+	}
+	if m.params != nil {
+		p, ok := m.params[providerType]
+		if !ok {
+			return OidcParamsState{}, nil
+		}
+		return OidcParamsState{
+			Present: true, BaseURL: p.baseURL, Realm: p.realm, ClientID: p.clientID,
+			SecretUsable:  p.secret != "" && p.secret != MaskedSecret,
+			SecretDamaged: p.secret == MaskedSecret,
+			JSONDamaged:   p.jsonDamaged,
+		}, nil
+	}
+	return OidcParamsState{
+		Present: true, BaseURL: "https://idp.example.com", Realm: "realm", ClientID: "client-x",
+		SecretUsable:  m.secret != "" && m.secret != MaskedSecret,
+		SecretDamaged: m.secret == MaskedSecret,
+	}, nil
+}
+
+// SaveParamsTx / DescribeParamsTx 与只读测试替身同语义；测试不模拟事务可见性。
+func (m *mockOidcOps) SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType, baseURL, realm, clientID, clientSecret string) error {
+	return m.SaveParams(ctx, providerType, baseURL, realm, clientID, clientSecret)
+}
+
+func (m *mockOidcOps) DescribeParamsTx(ctx context.Context, tx *sql.Tx, providerType string) (OidcParamsState, error) {
+	return m.DescribeParams(ctx, providerType)
+}
+
 func (m *mockOidcOps) IsConfigured(ctx context.Context) bool { return m.configured }
 func (m *mockOidcOps) ClearDiscCache()                       {}
 
-// newTestAdmin 创建临时库 + 面板配置服务
+// newTestAdmin 创建临时库 + 面板配置服务（默认 Dev；需要 Production 语义时用 newTestAdminWithMode）
 func newTestAdmin(t *testing.T, oidcOps OidcOps) (*store.Store, *AdminService) {
+	t.Helper()
+	return newTestAdminWithMode(t, oidcOps, "dev")
+}
+
+// newTestAdminWithMode 创建指定启动 mode 的面板配置服务，用于验证不读取 system_config.app_mode。
+func newTestAdminWithMode(t *testing.T, oidcOps OidcOps, mode string) (*store.Store, *AdminService) {
 	t.Helper()
 	st, err := store.Open(t.TempDir(), "test.db")
 	if err != nil {
@@ -84,13 +128,21 @@ func newTestAdmin(t *testing.T, oidcOps OidcOps) (*store.Store, *AdminService) {
 		"0001_init.sql": &fstest.MapFile{Data: []byte(`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 			CREATE TABLE IF NOT EXISTS system_config (
-			key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)},
+			key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+			CREATE TABLE IF NOT EXISTS oidc_states (
+			state TEXT PRIMARY KEY, code_verifier TEXT NOT NULL, nonce TEXT NOT NULL DEFAULT '',
+			intent TEXT NOT NULL, bind_user_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			provider_type TEXT NOT NULL DEFAULT '', config_hash TEXT NOT NULL DEFAULT '', redirect_uri TEXT NOT NULL DEFAULT '');
+			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
+			ticket TEXT PRIMARY KEY, session_token TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, flow_hash TEXT NOT NULL DEFAULT '');
+			CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY, oidc_subject TEXT);`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := NewService(st, log.New("error", "console"))
-	svc := NewAdminService(cfg, st, oidcOps, t.TempDir(), log.New("error", "console"), new(slog.LevelVar))
+	svc := NewAdminService(cfg, st, oidcOps, t.TempDir(), mode, log.New("error", "console"), new(slog.LevelVar))
 	return st, svc
 }
 
@@ -220,17 +272,26 @@ func TestAuthDeadlock(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: "cipher"} // 先允许保存本地登录关
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyFrontendURL, "https://app.example.com"); err != nil {
+		t.Fatalf("设置前端地址失败: %v", err)
 	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
 		t.Fatalf("OIDC 可用时保存本地登录关应成功: %v", err)
 	}
 	mock.configured = false // 模拟 OIDC 不可用
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "false"); err != nil {
+		t.Fatalf("设置 OIDC 停用标记失败: %v", err)
+	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
 		t.Errorf("SaveLocalAuth 应拒绝: %v", err)
 	}
-	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "", ClientID: ""}); !errors.Is(err, ErrAuthDeadlock) {
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "", ClientID: "", ClientSecret: "fresh-secret"}); !errors.Is(err, ErrAuthDeadlock) {
 		t.Errorf("SaveOidc 应拒绝: %v", err)
 	}
 	if err := svc.ClearOidc(ctx); !errors.Is(err, ErrAuthDeadlock) {
@@ -244,8 +305,14 @@ func TestSaveLocalAuthRejectsDamagedOidcSecret(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: MaskedSecret}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyFrontendURL, "https://app.example.com"); err != nil {
+		t.Fatalf("设置前端地址失败: %v", err)
 	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
 		t.Fatalf("损坏 Secret 时关闭本地登录应返回 ErrAuthDeadlock: %v", err)
@@ -261,8 +328,14 @@ func TestSaveLocalAuthRejectsEmptyOidcSecret(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: ""}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyFrontendURL, "https://app.example.com"); err != nil {
+		t.Fatalf("设置前端地址失败: %v", err)
 	}
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
 		t.Fatalf("空 Secret 时关闭本地登录应返回 ErrAuthDeadlock: %v", err)
@@ -273,25 +346,39 @@ func TestSaveLocalAuthRejectsEmptyOidcSecret(t *testing.T) {
 	}
 }
 
-// TestSaveLocalAuthMockOnlyAvailableInDev mock OIDC 仅在 Dev 模式有登录能力，Prod 下不得关闭本地登录。
+// TestSaveLocalAuthMockOnlyAvailableInDev mock OIDC 仅在 Dev 模式有登录能力；
+// 运行模式取启动注入值，不信任可被导入覆盖的 system_config.app_mode。
 func TestSaveLocalAuthMockOnlyAvailableInDev(t *testing.T) {
-	mock := &mockOidcOps{configured: true}
-	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
-	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
+
+	// Production 启动：即使 DB app_mode 被写成 dev，也不能关闭本地登录。
+	_, prodSvc := newTestAdminWithMode(t, &mockOidcOps{configured: true}, "prod")
+	if err := prodSvc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
+	if err := prodSvc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
 	}
-	if err := svc.cfg.Set(ctx, KeyAppMode, "prod"); err != nil {
-		t.Fatalf("设置运行模式失败: %v", err)
+	if err := prodSvc.cfg.Set(ctx, KeyAppMode, "dev"); err != nil {
+		t.Fatalf("写入可被导入覆盖的 app_mode 失败: %v", err)
 	}
-	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
-		t.Fatalf("Prod + mock 关闭本地登录应返回 ErrAuthDeadlock: %v", err)
+	if err := prodSvc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("Production 启动 + mock 关闭本地登录应返回 ErrAuthDeadlock（不得信任 DB app_mode）: %v", err)
 	}
-	if err := svc.cfg.Set(ctx, KeyAppMode, "dev"); err != nil {
-		t.Fatalf("设置运行模式失败: %v", err)
+
+	// Dev 启动：即使 DB app_mode 被写成 prod，Dev mock 仍可用。
+	_, devSvc := newTestAdminWithMode(t, &mockOidcOps{configured: true}, "dev")
+	if err := devSvc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
 	}
-	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
-		t.Fatalf("Dev + mock 应允许关闭本地登录: %v", err)
+	if err := devSvc.cfg.Set(ctx, oidcKeyProviderType, "mock"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := devSvc.cfg.Set(ctx, KeyAppMode, "prod"); err != nil {
+		t.Fatalf("写入可被导入覆盖的 app_mode 失败: %v", err)
+	}
+	if err := devSvc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
+		t.Fatalf("Dev 启动 + mock 应允许关闭本地登录: %v", err)
 	}
 }
 
@@ -414,6 +501,9 @@ func TestLogLevelSwitch(t *testing.T) {
 func TestIconValidation(t *testing.T) {
 	_, svc := newTestAdmin(t, &mockOidcOps{})
 	ctx := context.Background()
+	if got := svc.GetSiteInfo(ctx).Name; got != DefaultSiteName {
+		t.Fatalf("未设置站点名时应返回默认名称: %q", got)
+	}
 	if err := svc.SaveSiteInfo(ctx, "站点", bytes.NewReader(make([]byte, MaxIconSize+1)), "icon.png"); !errors.Is(err, ErrBadRequest) {
 		t.Errorf("超 2MB 应拒绝: %v", err)
 	}
@@ -427,6 +517,9 @@ func TestIconValidation(t *testing.T) {
 		t.Fatalf("png 应通过: %v", err)
 	}
 	info := svc.GetSiteInfo(ctx)
+	if info.Name != "站点" {
+		t.Errorf("已保存站点名未生效: %q", info.Name)
+	}
 	if !strings.Contains(info.IconURL, "/public/site/icon.png?v=1") {
 		t.Errorf("ICON URL 应带版本参数: %s", info.IconURL)
 	}
@@ -450,20 +543,43 @@ func TestIconValidation(t *testing.T) {
 	}
 }
 
-// TestFrontendURLCached 前端地址/回调地址：手动保存后沿用（库驱动缓存语义，重启不推导覆盖）
-func TestFrontendURLCached(t *testing.T) {
+// TestFrontendURLAndCallbackURLImmediate 前端地址/独立回调地址保存即时生效；独立值优先，显式清除后回退推导。
+func TestFrontendURLAndCallbackURLImmediate(t *testing.T) {
 	_, svc := newTestAdmin(t, &mockOidcOps{})
 	ctx := context.Background()
 	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com",
-		ClientID: "c", ClientSecret: "sec123", FrontendURL: "https://app.example.com", CallbackURL: "https://app.example.com/cb"}); err != nil {
+		Realm: "realm", ClientID: "client-x", ClientSecret: "sec123",
+		FrontendURL: "https://app.example.com", CallbackURL: "https://callback.example.com/api/auth/oidc/callback"}); err != nil {
 		t.Fatalf("保存 OIDC 失败: %v", err)
 	}
 	got, err := svc.GetOidc(ctx)
 	if err != nil {
 		t.Fatalf("回显失败: %v", err)
 	}
-	if got.FrontendURL != "https://app.example.com" || got.CallbackURL != "https://app.example.com/cb" {
-		t.Errorf("手动值应优先沿用: %+v", got)
+	if got.FrontendURL != "https://app.example.com" || got.CallbackURL != "https://callback.example.com/api/auth/oidc/callback" {
+		t.Errorf("地址应即时保存并回显: %+v", got)
+	}
+	// 仅改前端地址时独立回调继续优先。
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com",
+		Realm: "realm", ClientID: "client-x", FrontendURL: "https://new.example.com"}); err != nil {
+		t.Fatalf("更新前端地址失败: %v", err)
+	}
+	got, _ = svc.GetOidc(ctx)
+	if got.FrontendURL != "https://new.example.com" || got.CallbackURL != "https://callback.example.com/api/auth/oidc/callback" {
+		t.Errorf("独立回调应优先且前端地址即时生效: %+v", got)
+	}
+	// 显式清除独立回调后回退推导。
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com",
+		Realm: "realm", ClientID: "client-x", ClearCallbackURL: true}); err != nil {
+		t.Fatalf("清除独立回调失败: %v", err)
+	}
+	got, _ = svc.GetOidc(ctx)
+	if got.CallbackURL != "" {
+		t.Fatalf("清除后 callback_url 应为空: %+v", got)
+	}
+	resolved, err := ResolveOidcCallbackURL(got.CallbackURL, got.FrontendURL)
+	if err != nil || resolved != "https://new.example.com"+OidcCallbackPath {
+		t.Fatalf("清除后应回退 frontend_url 推导: resolved=%q err=%v", resolved, err)
 	}
 	if got.ClientSecret != "" || !got.ClientSecretConfigured {
 		t.Errorf("Secret 应空回显且状态为已配置: %+v", got)
@@ -475,7 +591,7 @@ func TestOidcSecretKeepAndReplace(t *testing.T) {
 	mock := &mockOidcOps{}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
-	in := OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com", ClientID: "c"}
+	in := OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com", Realm: "realm", ClientID: "client-x"}
 	in.ClientSecret = "sec123"
 	if err := svc.SaveOidc(ctx, in); err != nil {
 		t.Fatalf("保存 OIDC 失败: %v", err)
@@ -543,24 +659,36 @@ func TestOidcDamagedPlaceholderHandling(t *testing.T) {
 	}
 }
 
-// TestOidcProviderSwitchKeepsOtherProviderSecret 切换提供商只写目标 provider，空 Secret 保留目标 provider 原值。
+// TestOidcProviderSwitchKeepsOtherProviderSecret 切换提供商只写目标 provider；
+// 目标无旧 Secret 时禁止空 Secret，显式新 Secret 后切换，切回源提供商时空 Secret 保留源原值。
 func TestOidcProviderSwitchKeepsOtherProviderSecret(t *testing.T) {
 	mock := &mockOidcOps{params: map[string]mockOidcParams{
 		"keycloak": {baseURL: "https://kc.example.com", realm: "master", clientID: "kc", secret: "kc-secret"},
 	}}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
-	// 切到 generic：目标无已存 Secret，写空但不碰 keycloak
-	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://generic.example.com", ClientID: "g"}); err != nil {
-		t.Fatalf("切换到 generic 失败: %v", err)
+	// 切到 generic：目标无已存 Secret，空 Secret 必须拒绝，且不写 generic、不碰 keycloak
+	err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://generic.example.com", ClientID: "g"})
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("目标无旧 Secret 时空 Secret 应返回 ErrBadRequest: %v", err)
+	}
+	if mock.params["keycloak"].secret != "kc-secret" {
+		t.Errorf("拒绝时不应覆盖其他提供商 Secret: %+v", mock.params)
+	}
+	if _, ok := mock.params["generic"]; ok {
+		t.Errorf("拒绝时空 Secret 不应写入 generic 参数: %+v", mock.params["generic"])
+	}
+	// 显式新 Secret 才能切换到 generic
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://generic.example.com", ClientID: "g", ClientSecret: "g-secret"}); err != nil {
+		t.Fatalf("显式新 Secret 切换到 generic 失败: %v", err)
 	}
 	if mock.params["keycloak"].secret != "kc-secret" {
 		t.Errorf("切换不应覆盖其他提供商 Secret: %+v", mock.params)
 	}
-	if mock.params["generic"].secret != "" {
-		t.Errorf("generic 目标无旧 Secret 时应为空: %+v", mock.params["generic"])
+	if mock.params["generic"].secret != "g-secret" {
+		t.Errorf("generic 应写入显式新 Secret: %+v", mock.params["generic"])
 	}
-	// 切回 keycloak：空 Secret 保留该提供商原值
+	// 切回 keycloak：空 Secret 且字段一致，保留该提供商原值
 	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "keycloak", BaseURL: "https://kc.example.com", Realm: "master", ClientID: "kc"}); err != nil {
 		t.Fatalf("切回 keycloak 失败: %v", err)
 	}
@@ -605,17 +733,165 @@ func TestOidcUsableWithStoredSecret(t *testing.T) {
 	mock := &mockOidcOps{configured: true, secret: "cipher"}
 	_, svc := newTestAdmin(t, mock)
 	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyConfigured, "true"); err != nil {
+		t.Fatalf("设置 OIDC 启用标记失败: %v", err)
+	}
 	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
 		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.cfg.Set(ctx, KeyFrontendURL, "https://app.example.com"); err != nil {
+		t.Fatalf("设置前端地址失败: %v", err)
 	}
 	// 先保存本地登录关（OIDC 可用时允许）
 	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); err != nil {
 		t.Fatalf("保存本地登录关失败: %v", err)
 	}
 	mock.configured = false // 模拟 OIDC 配置状态不可知（以入参+库内密文判定）
-	// 新 secret 为空但库内已有密文 + base_url/client_id 非空 → 视为可用，允许保存
-	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com", ClientID: "c"}); err != nil {
+	// 新 secret 为空但库内已有密文 + base_url/realm/client_id 与已存一致 → 视为可用，允许保存
+	if err := svc.SaveOidc(ctx, OidcSettings{ProviderType: "generic", BaseURL: "https://idp.example.com", Realm: "realm", ClientID: "client-x"}); err != nil {
 		t.Errorf("库内已有密文时应可保存: %v", err)
 	}
 	_ = io.Discard // 占位避免未使用（io 供后续扩展）
+}
+
+// TestR3102SaveOidcRejectsHTTPBaseURL 写入口必须在任何配置写入前拒绝 HTTP Base URL。
+func TestR3102SaveOidcRejectsHTTPBaseURL(t *testing.T) {
+	mock := &mockOidcOps{configured: true, secret: "cipher"}
+	st, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	err := svc.SaveOidc(ctx, OidcSettings{
+		ProviderType: "generic", BaseURL: "http://idp.example.com", ClientID: "c", ClientSecret: "s",
+	})
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("HTTP Base URL 应被 ErrBadRequest 拒绝，实际: %v", err)
+	}
+	if len(mock.saveCalls) != 0 {
+		t.Fatalf("拒绝后不应调用 SaveParams，实际 %d 次", len(mock.saveCalls))
+	}
+	var count int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM system_config WHERE key LIKE 'oidc_%'`).Scan(&count); err != nil {
+		t.Fatalf("查询 OIDC 配置失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("拒绝后不应写入 OIDC 配置，实际 %d 个键", count)
+	}
+}
+
+// TestR3102SaveLocalAuthRejectsHTTPOidcBaseURL 已有 HTTP OIDC 配置时，不得关闭本地登录形成死锁。
+func TestR3102SaveLocalAuthRejectsHTTPOidcBaseURL(t *testing.T) {
+	mock := &mockOidcOps{
+		configured: true,
+		params: map[string]mockOidcParams{
+			"generic": {baseURL: "http://idp.example.com", clientID: "c", secret: "cipher"},
+		},
+	}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+	if err := svc.cfg.Set(ctx, oidcKeyProviderType, "generic"); err != nil {
+		t.Fatalf("设置当前提供商失败: %v", err)
+	}
+	if err := svc.SaveLocalAuth(ctx, LocalAuthSettings{AllowLocalLogin: false}); !errors.Is(err, ErrAuthDeadlock) {
+		t.Fatalf("HTTP OIDC Base URL 不得作为关闭本地登录的依据，实际: %v", err)
+	}
+	if !svc.cfg.GetBool(ctx, KeyAllowLocalLogin, true) {
+		t.Fatal("拒绝时不应关闭本地登录")
+	}
+}
+
+// TestGetOidcForProviderReadsOnlyTarget R31-03：目标读取只返回指定提供商自己的字段与 Secret 状态。
+func TestGetOidcForProviderReadsOnlyTarget(t *testing.T) {
+	mock := &mockOidcOps{params: map[string]mockOidcParams{
+		"keycloak": {baseURL: "https://kc.example.com", realm: "master", clientID: "kc", secret: "kc-secret"},
+		"generic":  {baseURL: "https://g.example.com", clientID: "g", secret: "g-secret"},
+	}}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+
+	got, err := svc.GetOidcForProvider(ctx, "keycloak")
+	if err != nil {
+		t.Fatalf("读取 keycloak 失败: %v", err)
+	}
+	if got.ProviderType != "keycloak" || got.BaseURL != "https://kc.example.com" || got.Realm != "master" || got.ClientID != "kc" {
+		t.Fatalf("keycloak 字段回显异常: %+v", got)
+	}
+	if got.ClientSecret != "" || !got.ClientSecretConfigured || got.ParamsDamaged {
+		t.Fatalf("keycloak Secret 状态异常: %+v", got)
+	}
+
+	got, err = svc.GetOidcForProvider(ctx, "generic")
+	if err != nil {
+		t.Fatalf("读取 generic 失败: %v", err)
+	}
+	if got.BaseURL != "https://g.example.com" || got.ClientID != "g" || !got.ClientSecretConfigured {
+		t.Fatalf("generic 不应混入 keycloak 字段: %+v", got)
+	}
+
+	if _, err := svc.GetOidcForProvider(ctx, "unknown"); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("非法目标提供商应返回 ErrBadRequest: %v", err)
+	}
+}
+
+// TestGetOidcForProviderDamagedState R31-03：目标损坏时保留可解析字段并返回最小损坏提示。
+func TestGetOidcForProviderDamagedState(t *testing.T) {
+	mock := &mockOidcOps{params: map[string]mockOidcParams{
+		"generic": {baseURL: "https://g.example.com", realm: "r", clientID: "g", secret: MaskedSecret},
+		"auth0":   {baseURL: "https://a.example.com", clientID: "a", jsonDamaged: true},
+	}}
+	_, svc := newTestAdmin(t, mock)
+	ctx := context.Background()
+
+	got, err := svc.GetOidcForProvider(ctx, "generic")
+	if err != nil {
+		t.Fatalf("读取损坏 Secret 目标失败: %v", err)
+	}
+	if got.BaseURL != "https://g.example.com" || got.ClientID != "g" || got.ClientSecretConfigured || !got.ParamsDamaged || got.ParamsWarning == "" {
+		t.Fatalf("Secret 损坏目标应保留字段并要求重填: %+v", got)
+	}
+
+	got, err = svc.GetOidcForProvider(ctx, "auth0")
+	if err != nil {
+		t.Fatalf("读取损坏 JSON 目标失败: %v", err)
+	}
+	if got.BaseURL != "" || got.ClientID != "" || !got.ParamsDamaged || got.ParamsWarning == "" {
+		t.Fatalf("JSON 损坏目标不应猜测字段: %+v", got)
+	}
+
+	missing, err := svc.GetOidcForProvider(ctx, "keycloak")
+	if err != nil {
+		t.Fatalf("读取未配置目标失败: %v", err)
+	}
+	if missing.BaseURL != "" || missing.ClientSecretConfigured || missing.ParamsDamaged {
+		t.Fatalf("未配置目标应清空字段且不标损坏: %+v", missing)
+	}
+}
+
+// TestSaveOidcEmptySecretRequiresTargetFieldsUnchanged R31-03：空 Secret 复用必须 Base URL/Realm/Client ID 三项均一致。
+func TestSaveOidcEmptySecretRequiresTargetFieldsUnchanged(t *testing.T) {
+	cases := []struct {
+		name string
+		in   OidcSettings
+	}{
+		{"BaseURL 变化", OidcSettings{ProviderType: "keycloak", BaseURL: "https://evil.example.com", Realm: "master", ClientID: "kc"}},
+		{"Realm 变化", OidcSettings{ProviderType: "keycloak", BaseURL: "https://kc.example.com", Realm: "other", ClientID: "kc"}},
+		{"ClientID 变化", OidcSettings{ProviderType: "keycloak", BaseURL: "https://kc.example.com", Realm: "master", ClientID: "other"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := &mockOidcOps{params: map[string]mockOidcParams{
+				"keycloak": {baseURL: "https://kc.example.com", realm: "master", clientID: "kc", secret: "kc-secret"},
+			}}
+			_, svc := newTestAdmin(t, mock)
+			ctx := context.Background()
+			if err := svc.SaveOidc(ctx, tc.in); !errors.Is(err, ErrBadRequest) {
+				t.Fatalf("字段变化时空 Secret 应返回 ErrBadRequest: %v", err)
+			}
+			if len(mock.saveCalls) != 0 {
+				t.Fatalf("拒绝时不应调用 SaveParams: %+v", mock.saveCalls)
+			}
+			p := mock.params["keycloak"]
+			if p.baseURL != "https://kc.example.com" || p.realm != "master" || p.clientID != "kc" || p.secret != "kc-secret" {
+				t.Fatalf("拒绝时不应改动目标参数: %+v", p)
+			}
+		})
+	}
 }

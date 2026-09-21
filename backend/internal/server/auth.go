@@ -183,10 +183,11 @@ func (h *AuthHandler) forgot(c *gin.Context) {
 		return
 	}
 	if err := h.resetSvc.Request(c.Request.Context(), req.Email); err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
+		// 内部随机数/token 写库/严格配置读取故障：保留 500，仅返回通用安全信息。
+		FailSanitized(c, http.StatusInternalServerError, "服务器内部错误", err)
 		return
 	}
-	OK(c, gin.H{"message": "若该邮箱已注册，重置链接已发送"}) // 统一防枚举响应
+	OK(c, gin.H{"message": "若该邮箱已注册，重置邮件将发送"}) // 统一防枚举响应
 }
 
 // reset/validate 只读校验重置链接状态（missing/used/expired/valid），不消费 token。

@@ -68,7 +68,7 @@ async function approveOne(u: PendingUser) {
   operating.value = true
   try {
     await approve(u.id)
-    Notify.success('已通过，欢迎邮件按配置发送')
+    Notify.success('已通过，审批通知按配置提交发送')
     await load()
   } catch (err) {
     Notify.error((err as Error).message)

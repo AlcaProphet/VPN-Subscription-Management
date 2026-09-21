@@ -1,0 +1,245 @@
+# Issue18.md — 邮件运行语义与站点信息问题
+
+> **文档定位：** 本文档记录 2026-09-16 起发现的邮件与站点信息问题。R32-01 记录站点名称一致性修复；R32-02 记录业务邮件异步派发与进程内日志；R32-03 记录终态结果持久化、当前发送队列快照与取消页面轮询的后续优化。R32-02/R32-03 构建记录分别见 [Build29.md](docs/reports/Build/Build29.md)、[Build30.md](docs/reports/Build/Build30.md)。已实施的邮件内容设计仍见 [Design5.md](Design5.md) §7，历史构建记录仍以 [Build28.md](docs/reports/Build/Build28.md) 为准。
+> **当前状态：** ✅ R32-01～R32-03 均已完成工程、自动化和人工真机核验；2026-09-20 用户确认业务邮件异步派发、历史结果与当前发送队列人工核验完成，暂未发现问题。本记录闭环后保留在根目录。
+
+---
+
+## 一、R32-01 邮件预览、实际发送与站点信息的名称语义不一致
+
+- **现象：** 邮件即时预览中的 `{{site_name}}` 恒定渲染为“示例站点”，不跟随已保存站点名称；未保存名称时，页面标题回退为“VPN 订阅管理”，但站点信息接口与实际邮件变量仍得到空串。
+- **根因：** Build28 把预览站点名与示例 URL 一并固定为合成值；前端另有独立默认名称；正常/应急站点信息和欢迎/审批发信路径则直接读取原始 `system_config.site_name`，没有共用有效值规则。
+- **影响范围：** 面板站点信息、公共站点信息、正常/应急页面标题、五分支邮件模板元数据与预览、欢迎邮件、审批通过/拒绝邮件。密码重置分支不含 `site_name`，仅保留合成重置 URL 预览。原始配置导入导出与备份语义不变。
+- **用户决策：** 有效站点名称优先使用已保存的非空站点名称；未设置或去除首尾空白后为空时，统一回退“VPN 订阅管理”。
+- **修复方案与实施：** `config.Service` 新增唯一 `EffectiveSiteName`；管理/公共/应急站点信息、邮件模板列表元数据、预览 POST、欢迎与审批发信均改用该入口。预览的登录/重置 URL 仍固定为 `example.invalid`，不读取真实链接或令牌；未保存站点名称草稿不进入预览。导出继续读取原始 `site_name`，不把运行时回退值写入导出文件。
+- **相关门禁补强：** 邮件发送路径对 `LoadTemplate` 读取错误改为显式处理；该服务已在内部记录安全告警并返回内置默认模板，发信仍按原设计继续，仅补齐 errgate 的显式错误处理证据。
+- **自动化证据：** `go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go run ./cmd/errgate ./...`、前端 `npm run test`（47 个测试文件、311 项测试）与 `npm run build` 通过。新增/更新回归覆盖配置缺失、纯空白、已保存非空名称、nil 隔离渲染、站点信息回退、邮件模板元数据默认值及已保存名称的预览渲染。
+- **本地运行证据：** `docker compose build` 与 `docker compose up -d` 完成，保留原数据卷；`/health` 返回 200，当前未保存站点名称的 `/api/site/info` 返回“VPN 订阅管理”。本地浏览器重载后，站点信息输入框显示“VPN 订阅管理”，审批通过模板即时预览主题显示“VPN 订阅管理 审批通知”，不再出现“示例站点”。
+- **验收边界：** 上述是编译、静态检查、隔离数据库/API/组件测试和前端生产构建证据；不等同于正式 SMTP、真实收件箱或外部邮件客户端验收。
+- **状态：** ✅ 已修复并完成自动化验收（2026-09-16）。
+
+---
+
+## 二、R32-02 业务邮件同步发送阻塞主流程且缺少短期发送记录
+
+### 2.1 现象与根因
+
+- **现象：** 新用户直接激活后，注册请求会同步等待欢迎邮件完成；SMTP 响应慢时注册页面长时间等待，超过前端通用 15 秒请求超时后会显示网络异常。此时用户写库事务已经提交，再次注册会得到邮箱冲突，形成“页面认为失败、账号实际已创建”的不一致体验。
+- **静态调用链：** `user.Service.Register` 提交用户事务后同步调用 `sendWelcomeIf`，生产回调进入 `mail.Service.SendWelcome`；邮件完成后注册 Handler 才继续签发会话并返回。SMTP 单封总超时为 30 秒，长于前端通用请求的 15 秒超时。
+- **错误边界：** 当前欢迎邮件的普通 SMTP 错误会被 `sendWelcomeIf` 记录并吞掉，不会回滚用户；真正导致流程表象中断的是同步等待、请求取消与后续会话签发共用请求 Context。问题不等于“SMTP 错误直接回滚注册”。
+- **同类范围：** 同一同步模式还覆盖 OIDC 首次激活、管理员创建本地用户、审批通过/拒绝通知、公共忘记密码、管理员单用户重置邮件及批量密码链接，不能只在注册按钮或单个 HTTP Handler 上局部启动 goroutine。
+- **现有附带缺口：** 管理员密码邮件入口只检查 SMTP 配置完整性，没有同时检查 `password_reset` scope；scope 关闭时仍可能生成重置令牌并向页面报告“已发送”。批量接口的 `sent` 实际也只表示令牌生成路径未返回错误，不构成 SMTP 已接受证据。
+
+### 2.2 已确认设计
+
+- **统一异步边界：** 所有业务邮件通过邮件领域的统一异步派发器提交，不等待 DNS、TCP、TLS/STARTTLS、SMTP 认证、收件人确认或 DATA 传输；注册、审批、密码重置等调用方只完成业务事务与任务提交，不自行创建 goroutine，也不与按钮实现绑定。
+- **同步诊断例外：** 设置页 SMTP 测试邮件保持同步。其目标是立即验证当前 SMTP 配置并返回安全的阶段化结果，不进入业务邮件队列；该例外属于后端诊断合同，不与具体前端按钮耦合。
+- **投递保证：** 采用进程内、best-effort 模式，不新增数据库 outbox、外部消息队列或自动重试；进程退出时尚未完成的邮件允许丢失。业务成功、任务已入队、SMTP 已接受、真实收件箱收到与邮件客户端展示是五个独立证据层，禁止互相替代。
+- **日志范围：** 用户确认“收发日志”中的“收”为误写；新增功能正式命名为“邮件发送日志”，只记录出站邮件提交、发送、SMTP 接受或失败，不记录外部来信、最终投递、垃圾邮件分类、退信回执或打开状态。
+
+### 2.3 修复目标与不变量
+
+1. 注册、OIDC 首次激活、管理员创建用户、审批和密码重置的 HTTP 响应不得等待任何 SMTP 网络阶段；前端通用 15 秒超时保持不变。
+2. 业务事务或重置令牌写入失败时不得提交邮件；邮件排队或发送失败不得回滚已经提交的用户、审批或令牌事务。
+3. 所有业务邮件共用一个有界派发器；调用方不得自行 `go` 启动发送，也不得把异步逻辑绑定到 Vue 按钮或单个 Handler。
+4. SMTP 测试保持同步，以便管理员得到本次连接的确定结果；测试与业务邮件共用 SMTP 传输和安全阶段分类，但不占用业务队列。
+5. 不新增数据库 outbox、外部消息队列、自动重试或跨进程投递保证。进程崩溃可能丢失尚未完成的任务；由于 SMTP 在 DATA/QUIT 附近失败时是否已被服务端接受可能不确定，首版禁止自动重试，避免重复邮件。
+6. 现有邮件模板、三种 SMTP 安全模式、五类业务内容、scope 含义和 30 秒单封发送总超时保持不变。
+
+### 2.4 后端对象、接口与所有权
+
+1. **同步 SMTP 传输器 `mail.Service`：** 继续负责 SMTP 配置、模板读取与默认回退、变量渲染、MIME 构造及 SMTP 会话；不持有队列，不启动 goroutine。其内部错误须可稳定归类为安全阶段，但原始错误只进入脱敏后的服务日志。
+2. **统一异步派发器 `mail.Dispatcher`：** 由 `server.New` 创建并唯一持有，内部组合 `mail.Service`、`mail.ActivityLog`、2 个 worker 和容量 100 的等待队列。提供 `DispatchWelcome`、`DispatchApprovalApproved`、`DispatchApprovalRejected`、`DispatchPasswordReset`，以及生命周期方法 `Stop`、`PauseAndDrain`、`Resume`；所有方法必须并发安全且停止操作幂等。
+3. **短期日志 `mail.ActivityLog`：** 独立于传输器和队列，保存最近 500 条并发安全内存快照；不写 SQLite，不进入备份、配置导入导出、访问日志或长期审计。
+4. **类型化任务 `mail.Job`：** 业务 `JobKind` 仅允许 `welcome_local`、`welcome_oidc`、`approval_approved`、`approval_rejected`、`password_reset`；同步诊断日志另使用 `smtp_test`，不创建 `Job`。任务保存发送所需的结构化值，禁止接受任意闭包。完整收件地址、站点名、登录 URL 和重置 URL 只存在于进程内任务对象，任务不得被 JSON 序列化或写入普通日志。
+5. **派发结果：** 派发方法返回类型化结果，而不是让调用方解析错误文字：
+
+   | 状态 | 含义 | 是否创建任务/日志 | 调用方处理 |
+   |------|------|------------------|------------|
+   | `skipped` | 对应 scope 未启用 | 否 | 业务继续；密码邮件入口按“不可用”处理 |
+   | `queued` | 已非阻塞写入当前队列 | 是，初始日志状态为 `queued` | 只表示已提交发送；返回时 worker 可能已经开始发送 |
+   | `rejected` | 队列已满、派发器暂停/停止或入队前读取失败 | 不创建可发送任务；创建终态 `failed` 日志 | 普通业务继续；管理员显式发信入口显示安全错误 |
+
+   结果只暴露封闭的 `reason` 枚举和可选日志 ID，不返回底层 SMTP/数据库错误。欢迎和审批调用方只记录用户 ID、邮件类型、`reason`；不得记录邮箱、主题、正文或 URL。
+
+### 2.5 入队、执行与状态机
+
+- **固定并发：** 2 个 worker 最多建立两个 SMTP 会话；容量 100 指等待队列可容纳 100 项，因此运行中的 2 项之外最多再接受 100 项。使用非阻塞 `select` 入队；满队列不得等待空位，也不得额外创建 goroutine。
+- **Context 所有权：** `Job` 不保存 HTTP 请求 Context。入队前的快速配置读取使用调用方 Context；worker 使用派发器当前运行代次的根 Context，并由 `mail.Service` 在其上建立现有 30 秒发送超时。这样请求取消不会中止已排队邮件，派发器停止或全量清空仍能主动取消 SMTP 连接。
+- **入队快照：** scope、`JobKind`、用户 ID、业务来源、收件地址、有效站点名及本次登录/重置 URL 在入队时固定。模板覆盖和 SMTP 连接配置在 worker 真正发送时读取；因此已经排队的业务事件不会因随后关闭 scope 而消失，但可能使用发送时最新的模板或 SMTP 配置，并在配置无效时记录失败。
+- **日志与队列顺序：** scope 通过后先在 `ActivityLog` 创建 `queued` 记录，再尝试非阻塞入队；入队失败时原记录原子转为 `failed`，阶段为 `queue_full` 或 `dispatcher_unavailable`。任务只能携带该日志 ID。不得出现任务已入队但没有日志 ID 的路径。派发器暂停/停止状态、日志创建和入队须在同一派发临界区内判定，避免清空数据与新任务入队交错。
+- **允许的状态转换：** 业务任务只能 `queued → sending → accepted|failed`；队列拒绝为创建后直接 `failed`；同步 SMTP 测试为 `sending → accepted|failed`。终态不得回退，重复完成更新必须无效果。
+- **SMTP 接受定义：** 仅 `mail.Service` 完整执行到成功返回时记为 `accepted`。在 DATA 完成后、QUIT 返回前发生错误时仍记 `failed/quit`，含义是系统无法确认完整会话结果，不自动重试，也不得向管理员声称邮件确定未被服务器接受。
+- **panic 隔离：** worker 必须在单任务边界恢复 panic，将该任务记为 `failed/internal` 并继续处理后续任务；panic 日志不得包含任务敏感字段。
+
+### 2.6 失败阶段与短期邮件发送日志
+
+- **状态：** `queued`（已入队）、`sending`（开始发送）、`accepted`（SMTP 会话成功完成）、`failed`（排队或发送未能确认完成）。`accepted` 不得展示为“已送达”。
+- **安全阶段枚举：** `queue_full`、`dispatcher_unavailable`、`config`、`render`、`connect`、`handshake`、`starttls`、`auth`、`mail_from`、`rcpt_to`、`data`、`quit`、`timeout`、`canceled`、`internal`。`mail.Service` 应提供同包内类型化阶段或统一分类函数，派发器不得从中文 `error.Error()` 反向解析阶段。未知错误统一归 `internal`。
+- **字段合同：** `id`、`created_at`、可空的 `started_at`/`finished_at`、`kind`、`source`、可空的 `user_id`、`recipient_masked`、`status`、可空的 `failure_stage`、`queue_duration_ms`、`send_duration_ms`。未进入相应阶段的时间和耗时返回 `null`，不用 `0` 冒充真实耗时。
+- **收件人掩码：** 只保留邮箱本地部分首字符、固定 `***` 和域名，例如 `k***@example.com`；空值或不能安全解析时统一为 `***`。掩码函数归邮件领域所有并单独测试，不复用可能返回完整邮箱的 UI 工具。
+- **安全边界：** ActivityLog、管理 API 和普通日志均不得包含完整收件/发件邮箱、主题、正文、站点名、登录/重置 URL 或 Token、SMTP 用户名/密码、模板 JSON、队列任务对象或服务商原始响应。
+- **容量与并发：** 最多保留最近 500 条，按 ID 倒序查询；满后淘汰最旧项。日志 ID 在进程内单调递增，`Clear` 和派发器复位均不得把计数器归零。已清除/淘汰项的后续更新静默跳过，不重新插入；在 `go test -race` 下不得出现竞态。
+- **清空边界：** 单独清空邮件发送日志只删除当前可见记录，不停止 worker、不取消 SMTP、不丢弃队列。清空前已存在的任务之后完成时，因为原 ID 已不存在，不得重新出现在列表。
+
+### 2.7 各业务入口的确定语义
+
+| 入口 | 提交前置 | `queued` | `skipped/rejected` | 对外语义 |
+|------|----------|----------|--------------------|----------|
+| 本地自注册/首管理员 | 用户事务提交且状态为 `active` | 注册继续签发 token | 注册仍成功，记录安全告警 | 不向注册页暴露邮件状态 |
+| OIDC 首次激活 | 用户创建/绑定事务提交且状态为 `active` | 登录流程继续 | 登录仍成功，记录安全告警 | 不拖延 ticket/session 签发 |
+| 管理员创建用户 | 用户事务提交且状态为 `active` | 创建成功 | 创建仍成功，记录安全告警 | 不把邮件失败算作创建失败 |
+| 审批通过/拒绝 | 对应事务提交 | 审批成功 | 审批仍成功，记录安全告警 | 批量失败数只统计审批业务失败 |
+| 公共忘记密码 | SMTP 完整配置、`password_reset` scope 启用、用户存在且有本地密码、令牌写入成功 | 固定 200 | 不存在/不可用/入队拒绝固定 200；内部故障保持 500 | 成功与防枚举分支使用“若该邮箱已注册，重置邮件将发送” |
+| 管理员单用户密码邮件 | SMTP 完整配置、scope 启用、目标有效、令牌写入成功 | 200，“重置邮件已提交发送” | 503，“邮件队列繁忙，请稍后重试” | 不使用“已发送/已送达”；token 补偿见 2.12 |
+| 管理员批量密码邮件 | 每个目标分别满足单用户前置 | 计入 `queued` | 入队拒绝计入 `queue_failed`；随机数/token 写库等准备失败计入 `failed` | 另返回各类 `skipped_*`，不再使用含义模糊的 `sent` |
+| SMTP 测试 | SMTP 配置完整 | 同步返回“SMTP 已接受” | 同步返回安全阶段错误 | 不进入业务队列，但写 ActivityLog |
+
+- **欢迎和审批：** 保持 Build28 的分支语义；审批通过只提交 `approval_approved`，不得叠发欢迎邮件。事务失败、用户待审批、空邮箱或 scope 未启用时不创建任务或日志。
+- **密码重置可用性：** 增加邮件领域统一可用性查询，要求 SMTP 配置完整且 `password_reset` scope 启用；公共、管理员单个、批量和前端置灰全部使用同一结果，不再各自推断。
+- **令牌顺序与补偿：** 先成功写入一小时令牌，再构造包含该令牌的任务；写库失败时不得创建任务或日志。入队拒绝后是否精确 best-effort 删除本次 token，按 2.12 的用户决策执行；任何方案都绝不按用户 ID 宽泛删除历史令牌，也不得把 token 写入日志。自动化至少覆盖写库失败与入队拒绝，若采用补偿方案再覆盖补偿成功和补偿失败。
+- **公共防枚举：** 邮箱格式非法、用户不存在、无本地密码、邮件不可用或队列拒绝保持同一 200 响应，不创建虚假任务或日志来“模拟”不存在邮箱。随机数生成、token 写库和严格配置读取等内部故障保持 500，由调用方和监控发现。保留现有验证码与限流，不增加人为 sleep，也不声称达到严格恒定耗时。
+
+### 2.8 生命周期与全量清空
+
+- **正常启动：** `server.New` 在完成 `mail.Service` 和 `ActivityLog` 构造后创建并启动唯一 `Dispatcher`，再把派发接口注入 user、approval、reset 等服务。装配依赖校验失败时 `server.New` 返回错误，禁止以部分装配状态提供服务。
+- **正常退出：** `Server` 持有派发器。HTTP server 停止接收请求并完成/取消在途 Handler 后，必须调用幂等 `Dispatcher.Stop`：停止接受任务、取消当前运行代次 Context、把等待任务标为 `failed/canceled`、等待两个 worker 退出，再关闭其他依赖。退出不尝试排空发送全部邮件，也不得额外等待每封 30 秒超时。
+- **全量清空前置：** 现有 `dataclear.ClearAll` 的 `resetRuntimeState` 在清库后才执行，不能满足邮件安全顺序。实施时须为邮件增加独立的清库前/清库后生命周期 hook：清库前 `PauseAndDrain` 停止入队、取消活动 SMTP、丢弃等待任务并等待 worker 退出；确认完成后才允许删除用户、令牌和 SMTP 配置。
+- **全量清空后置：** 清库成功后清空 ActivityLog（保留单调 ID）并以新运行代次 `Resume` 两个 worker；清库失败也必须恢复派发器，但保留已有日志，并将被清库尝试取消/丢弃的任务维持为失败终态。后置恢复须通过 `defer` 或等价结构保证所有错误返回路径都会执行。
+- **运行代次隔离：** 每次启动或 Resume 生成新的 generation；旧 worker/旧任务不得向新队列写入或更新新代次记录。实现应先等待旧 worker 退出再启动新 worker，并保留 ActivityLog 的“ID 不存在则跳过”保护。
+- **并发清空：** `PauseAndDrain` 后的新业务派发立即得到 `rejected/dispatcher_unavailable`，不得阻塞等待清空完成。全量清空原有确认词、数据库事务和文件清理顺序保持不变；邮件 hook 不放宽其事务与路径安全要求。
+
+### 2.9 管理 API 与前端合同
+
+- **列表接口：** `GET /api/admin/logs/mail?page=&size=&kind=&status=`；`page` 默认 1，`size` 默认 20、最大 100，非法页码、未知 kind/status 返回 400。结果按 ID 倒序，沿用 `{list,total}`，空列表必须为 `[]`。
+- **清空接口：** `POST /api/admin/logs/mail/clear`，无请求体且幂等；成功返回统一空成功响应。两个接口叠加 session + admin 中间件，并统一返回 `Cache-Control: no-store`。
+- **页面位置：** 在“访问日志”和“实时日志流”之间增加“邮件发送日志”页签。提供类型/状态筛选、手动刷新、桌面表格、移动端卡片、独立清空确认和分页。
+- **轮询：** 仅邮件页签处于活动状态时每 5 秒刷新当前筛选和页码；切出页签、页面卸载、会话失效或请求仍在进行时停止/跳过后续轮询，禁止请求重叠。手动刷新可立即执行，但同样服从单飞约束。不新增 SSE 连接。
+- **展示：** 状态固定显示“已排队、发送中、SMTP 已接受、失败”；失败只翻译封闭阶段，不展示原始错误。固定提示：“SMTP 已接受仅表示发件服务器接受邮件，不代表进入收件箱；本页为当前进程短期记录，服务重启后清空。”
+- **文案同步：** 用户管理的单个和批量密码邮件入口统一使用“已提交发送”；前端不得把 `queued`、`accepted` 或接口 200 翻译为“已送达”。
+
+### 2.10 影响文件与实施顺序
+
+**预计影响范围：**
+
+| 模块 | 预计文件 | 处理内容 |
+|------|----------|----------|
+| 邮件领域 | `backend/internal/mail/` 新增 activity/dispatcher 文件及测试，调整 `mail.go` | 状态机、掩码、失败阶段、有界 worker、生命周期、同步测试日志 |
+| 注册/OIDC/管理员创建 | `backend/internal/user/user.go`、`oidc.go`、`admin.go` 及测试 | 三个欢迎入口改用统一派发结果，不再等待 SMTP |
+| 审批 | `backend/internal/approval/approval.go` 及测试 | `MailSender` 改为具名派发接口，保持通过单封与业务失败隔离 |
+| 密码重置 | `backend/internal/auth/reset.go`、用户管理服务/Handler 及测试 | 统一可用性、令牌补偿、防枚举、`queued/queue_failed/failed` |
+| 服务装配与生命周期 | `backend/internal/server/server.go`、`backend/internal/dataclear/dataclear.go` 及测试 | 派发器唯一所有权、退出停止、清库前后 hook |
+| 邮件日志 API | `backend/internal/server/log.go`、相关 DTO/路由测试 | 管理员列表/清空、筛选分页、no-store |
+| 前端 | `frontend/src/api/log.ts`、`views/admin/LogsView.vue`、`UsersView.vue` 及测试 | 邮件日志页签、单飞轮询、响应式展示与准确文案 |
+
+**严格串行实施顺序：**
+
+1. 先实现并 race 测试 `ActivityLog`、收件人掩码、状态转换和失败阶段分类。
+2. 实现 `Dispatcher` 的入队、worker、panic 隔离、Stop、PauseAndDrain/Resume；用可控阻塞传输器证明并发上限和取消。
+3. 迁移欢迎邮件三个生产入口，证明注册 token/OIDC ticket/管理员创建不等待阻塞 SMTP。
+4. 迁移审批通过/拒绝，证明单个与批量业务统计不受邮件结果影响。
+5. 迁移公共、管理员单个与批量密码重置，并完成统一可用性、防枚举、token 补偿及响应字段调整；批量响应固定返回 `queued`、`queue_failed`、`failed` 和各类 `skipped_*`。
+6. 保留 SMTP 测试同步语义并接入 ActivityLog，覆盖 DATA/QUIT 模糊结果不自动重试。
+7. 接通服务退出和全量清空前后 hook，先验证失败恢复，再验证成功清空与新代次隔离。
+8. 增加邮件日志 API、前端第三页签、轮询和全部文案测试。
+9. 最后执行定向、race、全量、构建、静态门禁与隔离 Docker smoke；任一步失败先停在当前步修复，不并行推进后续步骤。
+
+### 2.11 验收矩阵与停止条件
+
+- **异步性：** 使用阻塞 SMTP stub，证明注册 token、OIDC 首次登录 ticket、管理员创建、单个/批量审批均在不等待 SMTP 的情况下返回；不得通过缩短 stub、放宽断言或提高前端超时伪造通过。
+- **并发与容量：** 证明活动发送数从不超过 2；前两项发送、后 100 项等待时均为 `queued`，再提交一项立即 `rejected/queue_full`；释放 worker 后按队列顺序继续。测试不依赖不稳定 sleep，使用 channel/barrier 协调。
+- **状态机：** 覆盖每条合法转换、终态重复更新、清空/淘汰后的迟到更新、同步测试无 `queued`、队列拒绝直接失败、worker panic 后继续消费。
+- **一致性：** 覆盖用户/审批事务失败不入队、成功最多入队一次；重置令牌写入失败不入队，队列拒绝后的 token 按 2.12 决策处理且不得影响历史 token；邮件失败不改变已提交业务状态。
+- **防枚举：** 对非法邮箱、不存在用户、无本地密码、scope 关闭、SMTP 未配置和队列满分别断言相同公共状态码与文案；随机数失败和 token 写库失败按 2.12 决策断言。不存在用户时不得产生 token、URL、任务或 ActivityLog。
+- **生命周期：** 覆盖 Stop 幂等、活动连接取消、等待任务丢弃、暂停期间立即拒绝、清库失败恢复、清库成功日志清空、Resume 新代次可发送，以及旧任务不能污染新代次。
+- **隐私：** 用哨兵值覆盖完整邮箱、主题、正文、站点名、SMTP 用户/密码、登录 URL、重置 URL/Token 和服务商错误；扫描 API JSON、ActivityLog、普通日志与 panic 日志均不得出现哨兵。
+- **接口/UI：** 覆盖 401、403、400、分页上限、过滤、空数组、no-store、清空幂等、桌面/移动布局、活动页签 5 秒单飞轮询、切页/卸载停止、失败保留旧列表或明确错误状态，以及 `queued/queue_failed`/“SMTP 已接受”文案。
+- **回归命令：** 后端执行 `go test -race ./internal/mail ./internal/auth ./internal/user ./internal/approval ./internal/dataclear ./internal/server`、`go test ./... -count=1`、`go build ./...`、`go vet ./...`、`go run ./cmd/errgate ./...`；前端执行 `npm test -- --reporter=dot`、`npm run build`；根目录执行 `git diff --check`。若修改文件触及现有架构/颜色门禁，再执行对应静态脚本。
+- **隔离 smoke：** 使用临时 `DATA_DIR`、合成账号与本地可控 SMTP，不读取或发送到真实地址。至少验证注册快速返回、队列状态流转、管理员鉴权/no-store、清日志不取消发送、全量清空取消旧任务且新 Setup 后可重新派发。
+- **验收记录规则：** 正式 SMTP、真实收件箱、外部邮件客户端显示和最终投递的人工结果由 [ProdTestList.md](ProdTestList.md) 记录；自动化或本地 mock 不得替代真实人工结果。若实现中发现必须改变已确认的 2 worker/100 队列/500 日志容量、best-effort 无重试、SMTP 测试同步或公共防枚举语义，停止当前 Step 并交由用户重新决策。
+
+### 2.12 已确认的最后两项决策
+
+以下两项会改变当前接口或数据语义，不能由实现者自行假设；现已完成用户决策。除这两项外，2.3～2.11 作为 R32-02 实施合同：
+
+1. **公共忘记密码内部故障状态码：** ✅ 已决策（2026-09-17）保留 500，仅不存在邮箱、无本地密码、邮件不可用和入队拒绝保持统一 200；随机数、token 写库、严格配置读取故障可由调用方和监控发现。
+2. **入队拒绝后的 token：** ✅ 已决策（2026-09-17）公共忘记密码、管理员单用户、管理员批量三条路径都在派发结果非 `queued` 时按本次 token 精确 best-effort 删除，删除失败仅记录安全告警；绝不按 user_id 宽泛删除历史令牌。
+3. **其他实现级决策：** 管理员单用户 `skipped` 返回 503“密码重置邮件当前不可用…”；批量全局不可用返回 200 + `skipped_unavailable` 计数；GET `/api/admin/settings/smtp` 增加 `password_reset_available`；SMTP 测试响应按用户确认保留完整 `to`（日志仍掩码）；scope 已启用但 SMTP 不完整归 `skipped/config_unavailable`；全量清空前置暂停失败返回 503“邮件发送暂停失败…”。
+
+### 2.13 实施结果（2026-09-17）
+
+- **已实施：** `mail.FailureStage` 类型化安全阶段、严格可用性、`mail.ActivityLog`（最近 500 条、单调 ID、收件人掩码）、`mail.Dispatcher`（2 worker、等待队列 100、非阻塞入队、状态机、panic 隔离、Stop/PauseAndDrain/Resume、运行代次）、注册/OIDC/管理员创建/审批/公共忘记密码/管理员单用户/批量密码邮件迁移、SMTP 测试同步接入 ActivityLog、服务退出 Stop、全量清空前后 hook、邮件日志管理 API 与前端第三页签。
+- **接口/文案：** 公共忘记密码固定返回“若该邮箱已注册，重置邮件将发送”；管理员单用户 queued 返回“重置邮件已提交发送”，不可用/队列拒绝返回 503 安全文案；批量响应改为 `queued/queue_failed/failed/skipped_*`（含 `skipped_unavailable`），不再返回 `sent`；用户管理入口按 `password_reset_available` 统一置灰。
+- **自动化证据：**
+  - 后端：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go test -race ./internal/mail ./internal/auth ./internal/user ./internal/approval ./internal/dataclear ./internal/server -count=1`、`go run ./cmd/errgate ./...` 均通过。
+  - 前端：`npm test -- --reporter=dot`（47 个测试文件、314 项测试）与 `npm run build` 通过。
+  - 定向 smoke：阻塞 SMTP 下注册快速返回；2 worker/100 队列/第 103 个 rejected；SMTP 测试无 queued 且写日志；邮件日志 API 401/403/400/no-store/清空幂等；清空邮件日志不影响发送；全量清空成功清日志并恢复派发器、前置暂停失败 503 且不清库。
+- **验收边界：** 上述为编译、静态检查、单元/竞态、接口级与本地 mock smoke 证据；正式 SMTP、真实收件箱、外部邮件客户端显示与最终投递的人工结果另由 [ProdTestList.md](ProdTestList.md) 记录，不以自动化结果替代。相关人工项目已于 2026-09-20 完成并暂未发现问题。
+
+- **人工核验：** 用户于 2026-09-20 确认 R32-02 业务邮件异步派发与邮件发送结果相关人工项目已完成真机核验，暂未发现问题。
+- **状态：** ✅ R32-02 工程修复、自动化门禁、本地隔离 smoke 与人工真机核验均已完成（2026-09-20）。
+
+### 2.14 独立核验后修复（2026-09-17）
+
+- **F1 邮件日志 API 分页溢出：** `queryMail` 在解析 `page`/`size` 后增加 `page > math.MaxInt/size` 溢出保护；算术溢出页码返回 400“page 超出可处理范围”，合法但超出总数的页码仍返回 200 + 空 `{list,total}`。新增 `TestMailActivityLogPaginationBounds` 覆盖 `MaxInt`、边界值和普通越界页。
+- **F2 批量密码邮件计数分类：** `BatchSendPasswordLinks` 仅将 `ReasonQueueFull` / `ReasonDispatcherUnavailable` 计入 `queue_failed`；`ReasonConfigReadFailed` 及未知拒绝原因计入 `failed`。新增 `TestAdminBatchSendLinksRejectedReasons` 覆盖四种 reason 映射。
+- **F3 ActivityLog 状态机闭合：** `MarkAccepted` / `MarkSendFailed` 仅允许 `sending` 前置，`MarkQueuedFailed` 仅允许 `queued` 前置；非法/重复终态更新静默无效果。新增 `TestActivityLogRejectsIllegalTransitions`。
+- **F4 Dispatcher 前置顺序：** 新增 `preflight`，固定“空收件人 → 派发器状态 → scope 可用性”顺序；`DispatchPasswordReset` 先 `preflight`，再读取 `frontendURL`；`enqueuePrepared` 在最终临界区再次复核状态并创建 queued 日志/入队。新增暂停前置拒绝、scope 先于前端地址、availability 读取期间 Stop 的最终复核、前端地址读取失败分类测试。
+- **F5 生命周期并发：** Dispatcher 增加 `lifecycleMu` 串行化 `Stop`/`PauseAndDrain`/`Resume`/`ResumeAfterClear`；`ResumeAfterClear` 在旧 generation 未清空时返回错误，禁止重复启动 worker。新增并发 Stop 等待、Resume 等待 PauseAndDrain 完成、活动代次上 ResumeAfterClear 拒绝测试。
+- **修复后证据：**
+  - 后端 `go test ./... -count=1`、`go build ./...`、`go vet ./...`、`go run ./cmd/errgate ./...` 通过；受影响包定向 race 测试通过。
+  - 前端 `npm test -- --reporter=dot`（47 文件/314 测试）与 `npm run build` 通过。
+  - 隔离 smoke（临时 `DATA_DIR`、本地回环 SMTP stub）：阻塞 SMTP 下管理员创建用户 0.30s 返回；超大页码 `page=9223372036854775807` 返回 400 且带 `no-store`；正常 SMTP 记录 `accepted`；全量清空后重新 Setup 可继续派发。
+  - **race 门禁：** 精确执行 `go test -race -count=1 ./internal/mail ./internal/auth ./internal/user ./internal/approval ./internal/dataclear ./internal/server` 已全部通过。既有 `TestRegisterDoesNotWaitForSMTP` 的 1 秒墙钟阈值在 race/高负载下不稳定；已按授权替换为“HTTP 响应完成 + SMTP stub 已接受连接但未应答”的双通道屏障，10 秒仅作挂起保护，保留异步语义证明。
+
+
+---
+
+## 三、R32-03 邮件终态结果持久化与当前发送队列优化
+
+### 3.1 问题与最终决策
+
+- **问题：** R32-02 的管理员邮件日志仅保存在最多 500 条的进程内 `ActivityLog`，服务重启后丢失；邮件页签激活时每 5 秒轮询。该行为不适合历史排障，也产生持续后台请求。
+- **最终决策：** 保留现有内存 ActivityLog 作为当前运行态来源；另以 SQLite 保存每封邮件的一条终态结果。页面拆成默认折叠的“当前发送队列”和“历史发送结果”，两者均不自动刷新。
+- **不变量：** Dispatcher 的 2 worker、100 等待容量、非阻塞入队、SMTP 30 秒总超时、业务返回、密码 token 补偿、同步 SMTP 测试、Stop/PauseAndDrain/Resume 与 best-effort 无重试语义均不改变；不增加 outbox 或跨进程任务恢复。
+
+### 3.2 已实施合同
+
+- **终态表：** `mail_result_logs` 最初由迁移 `1022_mail_result_logs.sql` 引入；首版基线合并后改由 `0001_initial_schema.sql` 直接创建。该表仅保存 `kind/source/user_id/recipient_masked/result/failure_stage/recorded_at`。`result` 仅允许 `accepted/failed`，accepted 不得带失败阶段；无用户外键，删除用户后历史仍保留。
+- **隐私：** 不持久化完整收件/发件邮箱、主题、正文、站点名、URL、Token、SMTP 配置/响应、原始错误、任务对象、排队/发送耗时或运行态时间。
+- **旁路 writer：** 单 goroutine、容量 128、有界非阻塞 `TryRecord`；缓冲满、SQLite 写入失败或服务停止时允许丢日志并写安全 warn，不重试、不返回错误给邮件流程、不改变邮件或业务终态。
+- **终态接入：** `ActivityLog` 只有在合法 `sending→accepted|failed`、`queued→failed` 或直接终态失败时提交一次安全快照；`BeginQueued`、`BeginSending`、`MarkSending`、非法转换和重复终态不落库。
+- **保留与备份：** 启动时先清理 90 天前结果，此后每日清理；完整 SQLite 备份自然包含历史结果，配置导入导出仍排除日志。
+- **退出与全量清空：** 服务退出先停止 Dispatcher，再限时排空已接收结果。全量清空先暂停/排空 Dispatcher 和 writer，再在业务清表事务中删除 `mail_result_logs`；成功后清内存 ActivityLog 并恢复新派发代次。
+
+### 3.3 API、页面与清空边界
+
+- `GET /api/admin/logs/mail` 改为查询 SQLite，只接受空/`accepted`/`failed` 状态筛选，仍使用严格分页、`{list,total}`、空数组、session + admin 与 `no-store`。
+- `POST /api/admin/logs/mail/clear` 改为“清空历史结果”，不清 ActivityLog、不暂停/取消 SMTP、不丢队列。
+- 新增 `GET /api/admin/logs/mail/active`：只读 ActivityLog 中 `queued/sending`，按内存 ID 倒序，不分页、不读 SQLite、不修改任务，返回 `list/queued/sending`，同样双重鉴权与 `no-store`。
+- 当前发送队列默认折叠；首次及每次展开主动读取一次，面板内可“刷新队列”。折叠期间不请求。页面“刷新”始终刷新历史；面板已展开时同时刷新 active。筛选和分页只作用于历史结果。
+- 页面已删除邮件 5 秒轮询、轮询单飞状态与卸载定时器清理；不新增 SSE。快照展示“截至”时间，避免被误认为持续实时状态。
+- 清空时间边界改为：清空时已经形成的旧终态（包括 writer 缓冲项）删除且不得迟到重现；清空时仍为 `queued/sending` 的任务继续运行，其在清空后形成的终态作为新历史正常记录。
+
+### 3.4 自动化证据与验收边界（2026-09-19）
+
+- 后端：`go test ./...`、`go test -race ./internal/mail ./internal/server`、`go build ./...`、`go vet ./...`、`go run ./cmd/errgate ./...` 全部通过。
+- 前端：定向日志页测试通过；全量 `npm test -- --reporter=dot` 为 47 个测试文件、314 项测试通过；`npm run build` 通过。
+- 隔离 smoke：邮件日志 API、分页边界、active 过滤、历史清空不清 active、邮件派发/SMTP 生命周期相关定向测试通过。日志数据库写入失败与缓冲满不会阻塞调用方；90 天清理和全量清表测试通过。
+- **人工核验：** 用户于 2026-09-20 确认 R32-03 历史结果与当前发送队列相关人工项目已完成真机核验，暂未发现问题；自动化证据与人工结果分别保留。
+- **状态：** ✅ R32-03 工程实现、自动化/race/errgate/前端门禁、本地隔离 smoke 与人工真机核验均已完成（2026-09-20）。
+
+---
+
+## 四、变更记录
+
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| v1.7 | 2026-09-20 | 用户确认 R32-02/R32-03 业务邮件异步派发、历史结果与当前发送队列已完成人工真机核验，暂未发现问题；Issue18 整体闭环，ProdTestList 清空当前人工项目。 |
+| v1.6 | 2026-09-19 | 新增 R32-03：按用户最终决策完成终态结果 SQLite 持久化、128 容量旁路 writer、90 天清理、独立 active 快照、历史清空新边界与取消邮件轮询；记录 Build30 自动化及人工边界。 |
+| v1.5 | 2026-09-19 | 联合核验 Issue17/Issue18：明确 R32-02 工程闭环与正式邮件人工项的跟踪边界；Issue17 另行闭环归档。 |
+| v1.4 | 2026-09-17 | 按用户确认的 F1～F5 方案完成独立核验后修复：邮件日志分页溢出 400、批量 queue_failed 精确分类、ActivityLog 状态机闭合、Dispatcher 前置顺序与生命周期串行化；补定向测试并记录 race 环境下既有 1 秒阈值 flake 的环境边界。 |
+| v1.3 | 2026-09-17 | 按用户一次性授权严格串行实施 R32-02：统一异步派发、短期发送日志、全路径迁移、SMTP 测试同步日志、退出/清空生命周期、管理 API 与前端页签；记录 2.12 两项决策及自动化/人工边界。 |
+| v1.2 | 2026-09-17 | 进一步完善 R32-02 修复方法：冻结派发结果、任务快照和状态机，补齐安全失败阶段、公共防枚举边界、服务退出与清库前后双阶段生命周期、API/UI 合同、影响文件、严格串行步骤、验收矩阵与停止条件；批量失败计数已确认，另登记两项必须由用户确认的最终决策，仍未授权代码实施。 |
+| v1.1 | 2026-09-16 | 新增 R32-02：记录业务邮件同步阻塞、统一有界异步派发、SMTP 测试同步例外、短期邮件发送日志、生命周期/隐私边界及实施前验收合同；方案已确认，暂未实施。 |
+| v1.0 | 2026-09-16 | 记录 R32-01 现象、用户决策、实施、自动化证据与验收边界；闭环后在根目录保留。 |

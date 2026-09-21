@@ -5,31 +5,43 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/mail"
 )
 
 // LogHandler 日志处理器（结构体 Handler + 依赖注入）
 type LogHandler struct {
-	accessSvc *log.AccessService
-	streamSvc *log.StreamService
-	users     auth.UserSource
+	accessSvc   *log.AccessService
+	streamSvc   *log.StreamService
+	users       auth.UserSource
+	mailLog     *mail.ActivityLog
+	mailResults *mail.ResultLog
 	// permissionInterval 流内权限重查间隔；生产默认 15 秒，测试可注入更短间隔。
 	permissionInterval time.Duration
 }
 
-// RegisterLogRoutes 注册日志端点；访问日志/清空/SSE 全部叠加会话 + 管理员双中间件。
+// RegisterLogRoutes 注册日志端点；访问日志/清空/SSE 全部叠加会话 + 管理员双中间件；
+// 邮件发送日志列表/清空按 R32-02 先经过 no-store 再鉴权，确保 401/403 也带 no-store。
 func RegisterLogRoutes(engine *gin.Engine, h *LogHandler, sessionMW, adminMW gin.HandlerFunc) {
 	g := engine.Group("/api/admin/logs", sessionMW, adminMW)
 	g.GET("/access", h.queryAccess) // ?from=&to=&page=&size=
 	g.POST("/access/clear", h.clearAccess)
 	g.GET("/stream", h.stream) // SSE：Bearer 会话凭据经 fetch/ReadableStream 连接
+
+	mailGroup := engine.Group("/api/admin/logs/mail", noStoreMiddleware(), sessionMW, adminMW)
+	mailGroup.GET("", h.queryMail)
+	mailGroup.GET("/active", h.queryActiveMail)
+	mailGroup.POST("/clear", h.clearMail)
 }
 
 // queryAccess 访问日志查询（日期范围 + 后端分页）
@@ -123,4 +135,110 @@ func writeSSE(c *gin.Context, e log.Entry) {
 		return
 	}
 	_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+}
+
+// queryMail 历史邮件终态结果查询：严格分页 + kind/status 过滤；数据来自 SQLite。
+func (h *LogHandler) queryMail(c *gin.Context) {
+	if h.mailResults == nil {
+		FailSanitized(c, http.StatusInternalServerError, "邮件发送日志服务不可用", errors.New("mailResults 未注入"))
+		return
+	}
+	page, err := mailPositiveQuery(c, "page", 1)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	size, err := mailPositiveQuery(c, "size", 20)
+	if err != nil || size > 100 {
+		Fail(c, http.StatusBadRequest, "size 须为 1–100 的整数")
+		return
+	}
+	// 阻止 (page-1)*size 溢出为负数后触发 slice panic；超出可表示范围的页码按非法分页处理。
+	if page > math.MaxInt/size {
+		Fail(c, http.StatusBadRequest, "page 超出可处理范围")
+		return
+	}
+	kind := c.Query("kind")
+	if kind != "" && !mailKindAllowed(kind) {
+		Fail(c, http.StatusBadRequest, "未知邮件类型")
+		return
+	}
+	status := c.Query("status")
+	if status != "" && !mailStatusAllowed(status) {
+		Fail(c, http.StatusBadRequest, "未知邮件状态")
+		return
+	}
+	list, total, err := h.mailResults.Query(c.Request.Context(), page, size, kind, mail.ActivityStatus(status))
+	if err != nil {
+		FailSanitized(c, http.StatusInternalServerError, "查询邮件发送日志失败", err)
+		return
+	}
+	OK(c, ListData{List: list, Total: total})
+}
+
+// queryActiveMail 返回当前进程 queued/sending 快照；不读取 SQLite、不改变任务状态。
+func (h *LogHandler) queryActiveMail(c *gin.Context) {
+	if h.mailLog == nil {
+		FailSanitized(c, http.StatusInternalServerError, "当前发送队列服务不可用", errors.New("mailLog 未注入"))
+		return
+	}
+	all := h.mailLog.Snapshot()
+	list := make([]mail.ActivityRecord, 0)
+	queued, sending := 0, 0
+	for _, rec := range all {
+		switch rec.Status {
+		case mail.ActivityQueued:
+			queued++
+			list = append(list, rec)
+		case mail.ActivitySending:
+			sending++
+			list = append(list, rec)
+		}
+	}
+	OK(c, gin.H{"list": list, "queued": queued, "sending": sending})
+}
+
+// clearMail 只清空 SQLite 历史终态；不取消发送、不丢队列、不清 ActivityLog。
+func (h *LogHandler) clearMail(c *gin.Context) {
+	if h.mailResults == nil {
+		FailSanitized(c, http.StatusInternalServerError, "邮件发送日志服务不可用", errors.New("mailResults 未注入"))
+		return
+	}
+	if err := h.mailResults.Clear(c.Request.Context()); err != nil {
+		FailSanitized(c, http.StatusInternalServerError, "清空邮件发送日志失败", err)
+		return
+	}
+	OK(c, nil)
+}
+
+func mailPositiveQuery(c *gin.Context, key string, def int) (int, error) {
+	raw := c.Query(key)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("%s 须为正整数", key)
+	}
+	return n, nil
+}
+
+func mailKindAllowed(kind string) bool {
+	switch kind {
+	case string(mail.JobWelcomeLocal), string(mail.JobWelcomeOIDC),
+		string(mail.JobApprovalApproved), string(mail.JobApprovalRejected),
+		string(mail.JobPasswordReset), string(mail.ActivityKindSMTPTest):
+		return true
+	default:
+		return false
+	}
+}
+
+func mailStatusAllowed(status string) bool {
+	switch mail.ActivityStatus(status) {
+	case mail.ActivityAccepted, mail.ActivityFailed:
+		return true
+	default:
+		return false
+	}
 }

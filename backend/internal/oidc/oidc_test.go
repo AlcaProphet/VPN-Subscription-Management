@@ -50,16 +50,24 @@ func newTestOidcService(t *testing.T) (*store.Store, *Service, *user.Service) {
 			nonce TEXT NOT NULL DEFAULT '',
 			intent TEXT NOT NULL CHECK (intent IN ('login','bind')),
 			bind_user_id INTEGER,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			provider_type TEXT NOT NULL DEFAULT '',
+			config_hash TEXT NOT NULL DEFAULT '',
+			redirect_uri TEXT NOT NULL DEFAULT '');
 			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
 			ticket TEXT PRIMARY KEY,
 			session_token TEXT NOT NULL,
-			expires_at TIMESTAMP NOT NULL);`)},
+			expires_at TIMESTAMP NOT NULL,
+			flow_hash TEXT NOT NULL DEFAULT '');`)},
 	}
 	if err := st.Migrate(context.Background(), fsys); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	cfg := config.NewService(st, log.New("error", "console"))
+	// 运行期 OIDC 保存不再自动生成签名密钥；测试库按已完成 Setup 的态显式生成。
+	if _, err := cfg.EnsureSigningKey(context.Background()); err != nil {
+		t.Fatalf("生成测试签名密钥失败: %v", err)
+	}
 	users := user.NewService(st, cfg, log.New("error", "console"))
 	authSvc := auth.NewService(cfg, users, log.New("error", "console"))
 	svc := NewService(st, cfg, authSvc, users, "dev", log.New("error", "console"))
@@ -481,7 +489,7 @@ func TestCurrentParamsRejectsDamagedPlaceholder(t *testing.T) {
 	if _, _, err := svc.StartFlow(ctx, "login", 0); err == nil || !strings.Contains(err.Error(), "重新输入") {
 		t.Fatalf("损坏占位符应在 StartFlow 阶段被拒绝: %v", err)
 	}
-	rec := &StateRecord{CodeVerifier: "dummy"}
+	rec := pinnedStateRecord(t, svc, "generic")
 	if _, err := svc.Exchange(ctx, rec, "code"); err == nil || !strings.Contains(err.Error(), "重新输入") {
 		t.Fatalf("损坏占位符应在 Exchange 阶段被拒绝: %v", err)
 	}
@@ -496,8 +504,8 @@ func TestTestConnectionStoredMaskedSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestConnectionWithSavedSecret 不应返回错误: %v", err)
 	}
-	if res == nil || res.OK || !strings.Contains(res.Message, "脱敏占位符") {
-		t.Fatalf("已存脱敏占位符应返回明确失败结果: %+v", res)
+	if res == nil || res.OK || res.Message != config.OidcTestStoredDamagedMessage {
+		t.Fatalf("已存脱敏占位符应返回专门损坏失败结果: %+v", res)
 	}
 }
 
@@ -532,4 +540,33 @@ func readOidcParamsRaw(t *testing.T, st *store.Store, providerType string) strin
 		t.Fatalf("读取 %s 参数失败: %v", providerType, err)
 	}
 	return raw
+}
+
+// testFlowHash 按当前服务 mode、库内代际与给定 raw 计算 R31-07 完整流程指纹（测试辅助）。
+func testFlowHash(t *testing.T, svc *Service, providerType, raw string) string {
+	t.Helper()
+	epoch, err := svc.cfg.Get(ctx, config.KeyOidcFlowEpoch)
+	if err != nil {
+		t.Fatalf("读取流程代际失败: %v", err)
+	}
+	return flowConfigHash(svc.mode, epoch, providerType, raw)
+}
+
+// pinnedStateRecord 构造一个与当前库内配置匹配的 StateRecord，供直接调用 Exchange 的旧测试复用；
+// 不需要真实 StartFlow 网络请求。
+func pinnedStateRecord(t *testing.T, svc *Service, providerType string) *StateRecord {
+	t.Helper()
+	raw, err := svc.cfg.Get(ctx, "oidc_params_"+providerType)
+	if err != nil {
+		t.Fatalf("读取 %s 参数失败: %v", providerType, err)
+	}
+	if raw == "" {
+		t.Fatalf("%s 参数未配置", providerType)
+	}
+	return &StateRecord{
+		ProviderType: providerType,
+		ConfigHash:   testFlowHash(t, svc, providerType, raw),
+		CodeVerifier: "verifier",
+		RedirectURI:  svc.CallbackURL(ctx),
+	}
 }

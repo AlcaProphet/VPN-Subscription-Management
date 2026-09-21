@@ -118,6 +118,9 @@ func main() {
 	// 访问日志 90 天自动清理（Build2 Step 4）
 	stopCleanup := cron.StartAccessLogCleanup(st.DB(), logger)
 	defer stopCleanup()
+	// 邮件终态结果 90 天自动清理（R32-03）
+	stopMailResultCleanup := cron.StartMailResultCleanup(st.DB(), logger)
+	defer stopMailResultCleanup()
 	// 密码重置令牌每日清理（低风险硬化 L08）
 	stopResetCleanup := cron.StartResetTokenCleanup(st.DB(), logger)
 	defer stopResetCleanup()

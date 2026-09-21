@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	stdmail "net/mail"
@@ -11,14 +12,18 @@ import (
 
 	"vpn-sub/internal/approval"
 	"vpn-sub/internal/auth"
-	"vpn-sub/internal/mail"
 	"vpn-sub/internal/user"
 )
+
+// smtpTestDispatcher 同步 SMTP 测试接口（mail.Dispatcher 实现；测试可注入 fake）。
+type smtpTestDispatcher interface {
+	TestSMTP(ctx context.Context, to string) error
+}
 
 // ApprovalHandler 审批中心处理器（结构体 Handler + 依赖注入）
 type ApprovalHandler struct {
 	approvalSvc *approval.Service
-	mailSvc     *mail.Service
+	dispatcher  smtpTestDispatcher
 	users       *user.Service
 }
 
@@ -118,11 +123,15 @@ func (h *ApprovalHandler) smtpTest(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.mailSvc.SendTest(c.Request.Context(), to); err != nil {
-		Fail(c, http.StatusBadRequest, "发送失败："+err.Error()) // 具体错误供面板展示
+	if h.dispatcher == nil {
+		FailSanitized(c, http.StatusInternalServerError, "邮件服务暂时不可用", errors.New("SMTP 测试派发器未注入"))
 		return
 	}
-	OK(c, gin.H{"message": "测试邮件已发送", "to": to, "recipient_source": source})
+	if err := h.dispatcher.TestSMTP(c.Request.Context(), to); err != nil {
+		Fail(c, http.StatusBadRequest, "发送失败："+err.Error()) // Error() 已是封闭安全阶段文案
+		return
+	}
+	OK(c, gin.H{"message": "SMTP 已接受测试邮件", "to": to, "recipient_source": source})
 }
 
 func resolveSMTPTestRecipient(input, adminEmail string) (string, string, error) {

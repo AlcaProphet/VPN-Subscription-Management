@@ -43,8 +43,14 @@ export const clearOidc = (id: number) => http.delete<any, { has_password: boolea
 export const setStatus = (id: number, disabled: boolean) => http.put(`/admin/users/${id}/status`, { disabled })
 export const deleteUser = (id: number) => http.delete(`/admin/users/${id}`)
 export const sendPasswordLinks = () =>
-  http.post<any, { sent: number; skipped_pending: number; skipped_disabled: number; skipped_no_email: number }>(
-    '/admin/users/send_password_links',
-  )
+  http.post<any, {
+    queued: number
+    queue_failed: number
+    failed: number
+    skipped_pending: number
+    skipped_disabled: number
+    skipped_no_email: number
+    skipped_unavailable: number
+  }>('/admin/users/send_password_links')
 export const setUserQuota = (id: number, data: { quota_override?: number | null }) =>
   http.put(`/admin/users/${id}/quota`, data)

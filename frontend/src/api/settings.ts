@@ -2,15 +2,28 @@
 import axios from 'axios'
 import { http } from './request'
 
+export type OidcParamsState =
+  | 'not_configured'
+  | 'missing_secret'
+  | 'usable'
+  | 'json_damaged'
+  | 'secret_damaged'
+  | 'signing_key_fault'
+
 export interface OidcSettings {
+  enabled?: boolean // R31-07：OIDC 是否生效启用（只读；停用走 disableOidc）
   provider_type: string
   base_url: string
   realm: string
   client_id: string
   client_secret: string // GET 始终为空；PUT 空=保留当前提供商已存 Secret
   client_secret_configured: boolean // 当前提供商是否已有可用 Secret（只读）
-  frontend_url: string
-  callback_url: string
+  frontend_url: string // 保存后即时生效
+  callback_url: string // 空=不修改；clear_callback_url=true 时显式清除并回退推导
+  clear_callback_url?: boolean // 请求字段：显式清除独立回调地址
+  params_state?: OidcParamsState // 完整只读状态枚举
+  params_damaged?: boolean // 已存参数存在 JSON/Secret 损坏（只读）
+  params_warning?: string // 固定损坏/重填提示（只读）
 }
 
 export interface WhitelistConfig {
@@ -44,6 +57,48 @@ export interface SMTPSettings {
   auth_required: boolean
   configured: boolean
   scopes: string[]
+  password_reset_available: boolean
+}
+
+export type MailTemplateKind =
+  | 'password_reset'
+  | 'approval_approved'
+  | 'approval_rejected'
+  | 'welcome_local'
+  | 'welcome_oidc'
+
+export type MailTemplateState = 'default' | 'customized' | 'damaged'
+
+export interface MailTemplateView {
+  id: MailTemplateKind
+  label: string
+  scope: string
+  subject: string
+  body: string
+  state: MailTemplateState
+  warning: string
+  subject_variables: string[]
+  body_variables: string[]
+  required_body_variables: string[]
+}
+
+export interface MailTemplatesResponse {
+  templates: MailTemplateView[]
+  limits: {
+    subject: number
+    body: number
+  }
+  preview_values: {
+    site_name: string
+    login_url: string
+    reset_url: string
+  }
+}
+
+export interface MailTemplatePreview {
+  subject: string
+  text_body: string
+  html_body: string
 }
 
 export interface RateLimitSettings {
@@ -75,8 +130,12 @@ export const saveAdvancedSettings = (data: AdvancedSettings & { confirm_word?: s
   http.put<any, { task_id?: string; message?: string }>('/admin/settings/advanced', data)
 export const getAdminTask = (id: string) => http.get<any, { id: string; kind: string; status: string; result?: unknown; error?: string }>(`/admin/tasks/${id}`)
 
-export const getOidc = () => http.get<any, OidcSettings>('/admin/settings/oidc')
-export const saveOidc = (data: OidcSettings) => http.put<any, { need_restart?: boolean }>('/admin/settings/oidc', data)
+export const getOidc = (providerType?: string) =>
+  http.get<any, OidcSettings>('/admin/settings/oidc', {
+    params: providerType ? { provider_type: providerType } : undefined,
+  })
+export const saveOidc = (data: OidcSettings) => http.put<any, void>('/admin/settings/oidc', data)
+export const disableOidc = () => http.post<any, void>('/admin/settings/oidc/disable')
 export const clearOidc = () => http.delete('/admin/settings/oidc')
 export const testOidc = (data: Partial<OidcSettings>) => http.post<any, { ok: boolean; message: string; warnings: string[] }>(
   '/admin/settings/oidc/test', data,
@@ -91,6 +150,13 @@ export const saveCaptcha = (data: CaptchaSettings) => http.put('/admin/settings/
 export const getSMTP = () => http.get<any, SMTPSettings>('/admin/settings/smtp')
 export const saveSMTP = (data: SMTPSettings) => http.put('/admin/settings/smtp', data)
 export const testSMTP = (to: string) => http.post<any, { message: string; to: string; recipient_source: string }>('/admin/settings/smtp/test', { to }, { timeout: 40000 })
+export const getMailTemplates = () => http.get<any, MailTemplatesResponse>('/admin/settings/mail-templates')
+export const saveMailTemplate = (kind: MailTemplateKind, data: { subject: string; body: string }) =>
+  http.put<any, MailTemplateView>(`/admin/settings/mail-templates/${encodeURIComponent(kind)}`, data)
+export const restoreMailTemplate = (kind: MailTemplateKind) =>
+  http.delete<any, MailTemplateView>(`/admin/settings/mail-templates/${encodeURIComponent(kind)}`)
+export const previewMailTemplate = (kind: MailTemplateKind, data: { subject: string; body: string }) =>
+  http.post<any, MailTemplatePreview>(`/admin/settings/mail-templates/${encodeURIComponent(kind)}/preview`, data)
 export const getSite = () => http.get<any, SiteInfo>('/admin/settings/site')
 export const saveSite = (form: FormData) => http.put<any, SiteInfo>('/admin/settings/site', form)
 export const deleteSiteIcon = () => http.delete('/admin/settings/site/icon')

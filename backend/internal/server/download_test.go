@@ -123,10 +123,21 @@ func downloadTestFS() fstest.MapFS {
 				downlink INTEGER NOT NULL DEFAULT 0,
 				PRIMARY KEY (user_id, ym));`)},
 		"1008_oidc_ticket.sql": &fstest.MapFile{Data: []byte(`
+			CREATE TABLE IF NOT EXISTS oidc_states (
+				state TEXT PRIMARY KEY,
+				code_verifier TEXT NOT NULL,
+				nonce TEXT NOT NULL DEFAULT '',
+				intent TEXT NOT NULL,
+				bind_user_id INTEGER,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				provider_type TEXT NOT NULL DEFAULT '',
+				config_hash TEXT NOT NULL DEFAULT '',
+				redirect_uri TEXT NOT NULL DEFAULT '');
 			CREATE TABLE IF NOT EXISTS oidc_login_tickets (
 				ticket TEXT PRIMARY KEY,
 				session_token TEXT NOT NULL,
-				expires_at TIMESTAMP NOT NULL);`)},
+				expires_at TIMESTAMP NOT NULL,
+				flow_hash TEXT NOT NULL DEFAULT '');`)},
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"golang.org/x/crypto/hkdf"
 
@@ -27,6 +28,7 @@ const (
 	KeySigningKey = "signing_key" // 签名密钥（Setup 时生成，明文落库，Design1 §6.2）
 	KeyLogLevel   = "log_level"
 	KeyAppMode    = "app_mode"
+	KeySiteName   = "site_name"
 	// Step 4 新增：本地认证与首管理员相关
 	KeyAllowLocalLogin  = "allow_local_login" // 允许本地登录（默认 true）
 	KeyAllowSelfreg     = "allow_selfreg"     // 允许自注册（默认 false）
@@ -34,11 +36,16 @@ const (
 	KeyAdminInitialized = "admin_initialized" // 历史键：保留读取/常量兼容，不写入、不参与首管理员判断，不做迁移
 	KeyFrontendURL      = "frontend_url"      // 前端地址（Setup 推导初始值，Build3 面板可手动覆盖）
 	KeyCallbackURL      = "callback_url"      // OIDC 回调地址（OIDC Setup 推导初始值）
+	KeyOidcFlowEpoch    = "oidc_flow_epoch"   // R31-07：OIDC 流程代际（停用/清空时轮换，为空按 initial 处理）
 	KeyAdvancedMode     = "advanced_mode"     // 高级模式开关（"true"/"false"，未设置视为 false；Build4 只读暴露）
 )
 
 // MaskedSecret 敏感配置在接口回显中的固定占位符；读写两侧统一识别，禁止作为新值保存。
 const MaskedSecret = "***"
+
+// ErrSigningKeyUnavailable 表示全站签名密钥缺失或读取失败。
+// 管理端 OIDC 保存必须使用该错误阻止任何重填写入，不得在该路径自动生成新密钥。
+var ErrSigningKeyUnavailable = errors.New("签名密钥不可用")
 
 // SecretUsable 判定敏感值是否已配置且不是回显占位符（损坏的历史占位符按未配置处理）。
 func SecretUsable(secret string) bool {
@@ -85,6 +92,22 @@ func (s *Service) Get(ctx context.Context, key string) (string, error) {
 	return v, nil
 }
 
+// Exists 判断配置键是否存在；供需要区分“缺键”和“键存在但值为空/损坏”的读取路径使用。
+func (s *Service) Exists(ctx context.Context, key string) (bool, error) {
+	if s.store == nil { // 应急模式无持久化配置，统一按缺键处理
+		return false, nil
+	}
+	var one int
+	err := s.store.DB().QueryRowContext(ctx, `SELECT 1 FROM system_config WHERE key = ?`, key).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("检查配置 %s 失败: %w", key, err)
+	}
+	return true, nil
+}
+
 // GetOr 读取非关键配置：读取失败时记录结构化 warn 并返回空串，保持既有 fail-safe 外部行为。
 // 供展示/公告/邮件启用判断等非 correctness 配置使用；关键配置仍需调用 Get 并显式处理错误。
 func (s *Service) GetOr(ctx context.Context, key string) string {
@@ -93,6 +116,39 @@ func (s *Service) GetOr(ctx context.Context, key string) string {
 		s.log.Warn("读取配置失败，按未设置降级", "key", key, "err", err)
 	}
 	return v
+}
+
+// DefaultSiteName 是站点名称未配置时的统一回退文案。
+const DefaultSiteName = "VPN 订阅管理"
+
+// effectiveSiteName 统一有效站点名称回退规则：已保存值去空白后非空则使用，否则回退默认名称。
+func effectiveSiteName(raw string) string {
+	if name := strings.TrimSpace(raw); name != "" {
+		return name
+	}
+	return DefaultSiteName
+}
+
+// EffectiveSiteName 返回已保存的非空站点名称；未设置或仅含空白时返回默认名称。
+// nil Service 仅用于不依赖持久化的渲染单测，同样按未设置处理。
+func (s *Service) EffectiveSiteName(ctx context.Context) string {
+	if s == nil {
+		return DefaultSiteName
+	}
+	return effectiveSiteName(s.GetOr(ctx, KeySiteName))
+}
+
+// EffectiveSiteNameStrict 与 EffectiveSiteName 使用同一回退规则，但配置读取失败时返回错误；
+// 供派发器在入队前快照有效站点名，避免把数据库读取故障误当成未配置。
+func (s *Service) EffectiveSiteNameStrict(ctx context.Context) (string, error) {
+	if s == nil {
+		return DefaultSiteName, nil
+	}
+	raw, err := s.Get(ctx, KeySiteName)
+	if err != nil {
+		return "", err
+	}
+	return effectiveSiteName(raw), nil
 }
 
 // GetRaw 读取配置原始值（不解密；供导出等需要密文原样的场景）
@@ -127,6 +183,17 @@ func (s *Service) Set(ctx context.Context, key, value string) error {
 	return nil
 }
 
+// Delete 删除单个配置键；键不存在时仍成功（幂等），供邮件模板恢复默认等场景复用。
+func (s *Service) Delete(ctx context.Context, key string) error {
+	if s.store == nil { // 应急模式下无持久化配置可删除，按幂等成功处理
+		return nil
+	}
+	if _, err := s.store.DB().ExecContext(ctx, `DELETE FROM system_config WHERE key = ?`, key); err != nil {
+		return fmt.Errorf("删除配置 %s 失败: %w", key, err)
+	}
+	return nil
+}
+
 // GetTx 事务内读取配置（供事务闭包内使用；事务内禁止经 store.DB() 二次取连接，防连接池死锁）
 func (s *Service) GetTx(ctx context.Context, tx *sql.Tx, key string) (string, error) {
 	var v string
@@ -152,15 +219,18 @@ func (s *Service) GetTx(ctx context.Context, tx *sql.Tx, key string) (string, er
 	return v, nil
 }
 
-// GetSigningKeyTx 事务内读取签名密钥（缺失返回错误不生成）
+// GetSigningKeyTx 事务内读取签名密钥（缺失或读取失败返回 ErrSigningKeyUnavailable，不生成）
 func (s *Service) GetSigningKeyTx(ctx context.Context, tx *sql.Tx) ([]byte, error) {
 	var v string
 	err := tx.QueryRowContext(ctx, `SELECT value FROM system_config WHERE key = ?`, KeySigningKey).Scan(&v)
-	if errors.Is(err, sql.ErrNoRows) || v == "" {
-		return nil, errors.New("签名密钥未配置")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("%w: 未配置", ErrSigningKeyUnavailable)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("读取签名密钥失败: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrSigningKeyUnavailable, err)
+	}
+	if v == "" {
+		return nil, fmt.Errorf("%w: 未配置", ErrSigningKeyUnavailable)
 	}
 	return []byte(v), nil
 }
@@ -236,18 +306,30 @@ func (s *Service) GetInt(ctx context.Context, key string, def int) int {
 	return n
 }
 
-// GetJSONStringSlice 解析 JSON 字符串数组配置（解析失败返回空切片并记 warn）
+// GetJSONStringSlice 解析 JSON 字符串数组配置（读取/解析失败返回空切片并记 warn）。
 func (s *Service) GetJSONStringSlice(ctx context.Context, key string) []string {
+	out, err := s.GetJSONStringSliceStrict(ctx, key)
+	if err != nil && s.log != nil {
+		s.log.Warn("解析 JSON 数组配置失败，按未设置降级", "key", key, "err", err)
+	}
+	return out
+}
+
+// GetJSONStringSliceStrict 严格解析 JSON 字符串数组；缺键返回空切片，读取/解析失败返回错误。
+// 供邮件 scope 等 correctness 路径使用，避免损坏配置被静默当成“未启用”。
+func (s *Service) GetJSONStringSliceStrict(ctx context.Context, key string) ([]string, error) {
 	v, err := s.Get(ctx, key)
-	if err != nil || v == "" {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if v == "" {
+		return nil, nil
 	}
 	var out []string
 	if err := json.Unmarshal([]byte(v), &out); err != nil {
-		s.log.Warn("解析 JSON 数组配置失败", "key", key, "err", err)
-		return nil
+		return nil, fmt.Errorf("解析 JSON 数组配置 %s 失败: %w", key, err)
 	}
-	return out
+	return out, nil
 }
 
 // --- 敏感配置加解密：AES-256-GCM，密钥由签名密钥经 HKDF-SHA256 派生（用户已确认选型）---
@@ -312,14 +394,14 @@ func Decrypt(encoded string, signingKey []byte) ([]byte, error) {
 	return plain, nil
 }
 
-// GetSigningKey 读取签名密钥（明文落库）；缺失返回错误不生成
+// GetSigningKey 读取签名密钥（明文落库）；缺失或读取失败返回 ErrSigningKeyUnavailable，不生成。
 func (s *Service) GetSigningKey(ctx context.Context) ([]byte, error) {
 	v, err := s.Get(ctx, KeySigningKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrSigningKeyUnavailable, err)
 	}
 	if v == "" {
-		return nil, errors.New("签名密钥未配置")
+		return nil, fmt.Errorf("%w: 未配置", ErrSigningKeyUnavailable)
 	}
 	return []byte(v), nil
 }

@@ -66,11 +66,23 @@ describe('UsersView 基础渲染', () => {
   it('邮件入口使用后端可用状态，允许无密码的本地中继', async () => {
     ;(getSMTP as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       host: '127.0.0.1', security: 'plain', auth_required: false, password: '', configured: true,
+      scopes: ['password_reset'], password_reset_available: true,
     })
     const wrapper = mount(UsersView, { global: { mocks: { $router: { push: vi.fn() } } } })
     await flushPromises()
     const button = wrapper.findAll('button').find((item) => item.text().includes('为所有无密码用户发送密码设置链接'))
     expect(button?.attributes('disabled')).toBeUndefined()
+  })
+
+  it('password_reset 不可用时批量入口置灰', async () => {
+    ;(getSMTP as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      host: '127.0.0.1', security: 'plain', auth_required: false, password: '', configured: true,
+      scopes: [], password_reset_available: false,
+    })
+    const wrapper = mount(UsersView, { global: { mocks: { $router: { push: vi.fn() } } } })
+    await flushPromises()
+    const button = wrapper.findAll('button').find((item) => item.text().includes('为所有无密码用户发送密码设置链接'))
+    expect(button?.attributes('disabled')).toBeDefined()
   })
 
   it('列表展示用户名与邮箱', async () => {

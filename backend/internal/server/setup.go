@@ -12,12 +12,14 @@ import (
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/setup"
+	"vpn-sub/internal/urlguard"
 )
 
 // SetupHandler Setup 端点处理器（接入层）
 type SetupHandler struct {
 	setupSvc *setup.Service
 	oidcSvc  *oidc.Service
+	mode     string // 启动时确定的 APP_MODE（dev/prod），Production 下拒绝 mock
 }
 
 // RegisterSetupRoutes 注册 Setup 路由
@@ -78,6 +80,16 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "提供商类型无效")
 		return
 	}
+	if req.ProviderType == "mock" && h.mode != "dev" {
+		Fail(c, http.StatusBadRequest, "生产模式不支持模拟 OIDC 提供商")
+		return
+	}
+	if req.ProviderType != "mock" && req.BaseURL != "" {
+		if err := urlguard.ValidateHTTPS(req.BaseURL); err != nil {
+			Fail(c, http.StatusBadRequest, "OIDC Base URL 必须是 HTTPS 地址: "+err.Error())
+			return
+		}
+	}
 	if req.ClientSecret == config.MaskedSecret {
 		Fail(c, http.StatusBadRequest, "不能将脱敏占位符保存为 Client Secret，请重新输入")
 		return
@@ -98,7 +110,7 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 		if err != nil {
 			return fmt.Errorf("序列化 OIDC 参数失败: %w", err)
 		}
-		if err := h.oidcSvc.SaveParamsTx(ctx, tx, providerType, string(raw)); err != nil {
+		if err := h.oidcSvc.SaveRawParamsTx(ctx, tx, providerType, string(raw)); err != nil {
 			return err
 		}
 		if err := h.oidcSvc.SetProviderTx(ctx, tx, providerType); err != nil {
@@ -109,6 +121,14 @@ func (h *SetupHandler) oidcSetup(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, setup.ErrAlreadyConfigured) {
 			Fail(c, http.StatusConflict, "系统已完成配置")
+			return
+		}
+		if errors.Is(err, config.ErrBadRequest) {
+			Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, config.ErrMockModeRestricted) {
+			Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
 		Fail(c, http.StatusInternalServerError, err.Error())

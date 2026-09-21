@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { Modal, Select } from 'ant-design-vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('@/api/settings', () => ({
   getOidc: vi.fn().mockResolvedValue({ provider_type: '', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '' }),
   saveOidc: vi.fn(),
+  disableOidc: vi.fn(),
   clearOidc: vi.fn(),
   testOidc: vi.fn(),
   getOidcRules: vi.fn().mockResolvedValue({}),
@@ -16,6 +18,28 @@ vi.mock('@/api/settings', () => ({
   getSMTP: vi.fn().mockResolvedValue({}),
   saveSMTP: vi.fn(),
   testSMTP: vi.fn(),
+  getMailTemplates: vi.fn().mockResolvedValue({
+    templates: [
+      { id: 'password_reset', label: '密码重置', scope: 'password_reset', subject: '密码重置', body: '请在 1 小时内使用以下链接重置密码（一次性）：\n{{reset_url}}', state: 'default', warning: '', subject_variables: [], body_variables: ['reset_url'], required_body_variables: ['reset_url'] },
+      { id: 'approval_approved', label: '审批通过', scope: 'approval_notify', subject: '{{site_name}} 审批通知', body: '通过 {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+      { id: 'approval_rejected', label: '审批拒绝', scope: 'approval_notify', subject: '{{site_name}} 审批通知', body: '拒绝 {{site_name}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name'], required_body_variables: [] },
+      { id: 'welcome_local', label: '本地欢迎', scope: 'welcome', subject: '{{site_name}} 账号已激活', body: '欢迎 {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+      { id: 'welcome_oidc', label: 'OIDC 欢迎', scope: 'welcome', subject: '{{site_name}} 账号已激活', body: 'OIDC {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+    ],
+    limits: { subject: 200, body: 10000 },
+    preview_values: {
+      site_name: 'VPN 订阅管理',
+      login_url: 'https://example.invalid/login?source=preview',
+      reset_url: 'https://example.invalid/reset/example-token?source=preview',
+    },
+  }),
+  saveMailTemplate: vi.fn(),
+  restoreMailTemplate: vi.fn(),
+  previewMailTemplate: vi.fn().mockResolvedValue({
+    subject: '预览主题',
+    text_body: '预览文本 https://example.invalid/login?source=preview',
+    html_body: '<a href="https://example.invalid/login?source=preview">https://example.invalid/login?source=preview</a>',
+  }),
   getSite: vi.fn().mockResolvedValue({}),
   saveSite: vi.fn(),
   deleteSiteIcon: vi.fn(),
@@ -41,7 +65,12 @@ vi.mock('@/api/system', () => ({
 }))
 
 import SettingsView from '@/views/admin/SettingsView.vue'
-import { getOidc, saveOidc } from '@/api/settings'
+import {
+  getOidc, saveOidc, disableOidc, testOidc, getMailTemplates, getRateLimit,
+  type OidcSettings, type OidcParamsState,
+} from '@/api/settings'
+import { useSystemStore } from '@/stores/system'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 describe('SettingsView 基础渲染', () => {
   beforeEach(() => {
@@ -123,4 +152,614 @@ describe('SettingsView 基础渲染', () => {
     expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({ client_secret: '' }))
   })
 
+})
+
+describe('SettingsView OIDC 目标切换', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+
+  it('切换提供商读取目标字段、丢弃参数草稿并保留站点地址', async () => {
+    const source = {
+      provider_type: 'generic',
+      base_url: 'https://source.example.com',
+      realm: '',
+      client_id: 'source-client',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://site.example.com',
+      callback_url: '',
+    }
+    const target = {
+      provider_type: 'keycloak',
+      base_url: 'https://target.example.com',
+      realm: 'master',
+      client_id: 'target-client',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://should-not-apply.example.com',
+      callback_url: '',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      Promise.resolve(providerType === 'keycloak' ? target : source))
+    let confirmOptions: any
+    vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      confirmOptions = options
+      return {} as any
+    })
+
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    await card.find('input[placeholder="https://idp.example.com"]').setValue('https://draft.example.com') // 制造源提供商参数草稿
+
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+    expect(confirmOptions).toBeTruthy()
+    expect(confirmOptions.content).toContain('目标提供商自己的')
+    expect(confirmOptions.content).toContain('未保存参数草稿将被丢弃')
+    await confirmOptions.onOk()
+    await flushPromises()
+
+    expect(getOidc).toHaveBeenLastCalledWith('keycloak')
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('https://target.example.com')
+    expect((card.find('input[placeholder="Keycloak 专用，如 master"]').element as HTMLInputElement).value).toBe('master')
+    expect((card.find('input[placeholder="客户端标识"]').element as HTMLInputElement).value).toBe('target-client')
+    expect((card.find('input[type="password"]').element as HTMLInputElement).value).toBe('') // Secret 始终为空
+    expect((card.find('input[placeholder="https://app.example.com"]').element as HTMLInputElement).value).toBe('https://site.example.com') // 站点地址不被目标读取覆盖
+    expect(card.text()).toContain('已配置')
+  })
+
+  it('目标读取损坏时显示警示并允许重填', async () => {
+    const source = {
+      provider_type: 'generic', base_url: 'https://source.example.com', realm: '', client_id: 'source-client',
+      client_secret: '', client_secret_configured: true, frontend_url: '', callback_url: '',
+    }
+    const target = {
+      provider_type: 'keycloak', base_url: 'https://target.example.com', realm: 'master', client_id: 'target-client',
+      client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '',
+      params_damaged: true, params_warning: '已存 Client Secret 损坏或为脱敏占位符，请输入新的 Client Secret 后保存',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      Promise.resolve(providerType === 'keycloak' ? target : source))
+    vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+
+    expect(card.text()).toContain('已存 Client Secret 损坏')
+    expect(card.text()).toContain('必须输入新的 Client Secret')
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('https://target.example.com')
+  })
+
+  it('目标读取失败时保持源提供商字段与草稿', async () => {
+    const source = {
+      provider_type: 'generic', base_url: 'https://source.example.com', realm: '', client_id: 'source-client',
+      client_secret: '', client_secret_configured: true, frontend_url: '', callback_url: '',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      providerType === 'keycloak' ? Promise.reject(new Error('目标配置读取失败')) : Promise.resolve(source))
+    vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    await card.find('input[placeholder="https://idp.example.com"]').setValue('https://draft.example.com')
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('https://draft.example.com')
+    expect(card.findComponent(Select).props('value')).toBe('generic')
+  })
+
+})
+
+describe('SettingsView OIDC R31-04 状态展示', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  function mountWithStatus(params_state: OidcParamsState, extra: Record<string, unknown> = {}) {
+    vi.mocked(getOidc).mockResolvedValueOnce({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: false,
+      frontend_url: '',
+      callback_url: '',
+      params_state,
+      ...extra,
+    })
+    return mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+  }
+
+  it('signing_key_fault 显示独立系统错误，阻断保存/测试并禁用重填输入', async () => {
+    const wrapper = mountWithStatus('signing_key_fault', {
+      params_warning: '系统签名密钥缺失或不可读取，当前无法校验或保存 OIDC 凭据；请通过备份恢复或应急初始化处理，不要在此重填 Secret',
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('系统签名密钥缺失或不可读取')
+    expect(card.text()).toContain('不要在此重填 Secret')
+
+    const buttons = card.findAll('button')
+    const saveButton = buttons.find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    const testButton = buttons.find((btn) => btn.text().replace(/\s/g, '').includes('测试连接'))
+    expect(saveButton?.attributes('disabled')).toBeDefined()
+    expect(testButton?.attributes('disabled')).toBeDefined()
+    const password = card.find('input[type="password"]')
+    expect((password.element as HTMLInputElement).disabled).toBe(true)
+
+    await saveButton!.trigger('click')
+    await testButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).not.toHaveBeenCalled()
+    expect(testOidc).not.toHaveBeenCalled()
+  })
+
+  it('missing_secret 不再显示“留空保持原值”，必须输入新 Secret', async () => {
+    const wrapper = mountWithStatus('missing_secret')
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('尚未配置可用 Client Secret')
+    expect(card.text()).not.toContain('留空仅在')
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    expect(saveButton?.attributes('disabled')).toBeUndefined()
+  })
+
+  it('json_damaged 不回显猜测字段并提示重填必要参数', async () => {
+    const wrapper = mountWithStatus('json_damaged', {
+      base_url: '',
+      client_id: '',
+      params_damaged: true,
+      params_warning: '已存 OIDC 参数 JSON 无法解析，请重新填写必要的 Base URL/Realm/Client ID 并输入新的 Client Secret 后保存',
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('JSON 无法解析')
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('')
+    expect((card.find('input[placeholder="客户端标识"]').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('目标读取 signing_key_fault 时只展示目标状态并阻断操作', async () => {
+    const source: OidcSettings = {
+      provider_type: 'generic', base_url: 'https://source.example.com', realm: '', client_id: 'source-client',
+      client_secret: '', client_secret_configured: true, frontend_url: '', callback_url: '', params_state: 'usable',
+    }
+    const target: OidcSettings = {
+      provider_type: 'keycloak', base_url: 'https://target.example.com', realm: 'master', client_id: 'target-client',
+      client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '',
+      params_state: 'signing_key_fault', params_warning: '系统签名密钥缺失或不可读取，当前无法校验或保存 OIDC 凭据；请通过备份恢复或应急初始化处理，不要在此重填 Secret',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      Promise.resolve(providerType === 'keycloak' ? target : source))
+    vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+    expect(card.text()).toContain('系统签名密钥缺失或不可读取')
+    expect((card.find('input[placeholder="https://idp.example.com"]').element as HTMLInputElement).value).toBe('https://target.example.com')
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    expect(saveButton?.attributes('disabled')).toBeDefined()
+  })
+})
+
+
+
+describe('SettingsView OIDC R31-05 地址即时生效与显式清除', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('保存地址携带 clear_callback_url=false，页面不再提示需重启', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('保存后即时生效')
+    expect(card.text()).not.toContain('需重启容器生效')
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+      clear_callback_url: false,
+    }))
+  })
+
+  it('恢复推导后以 clear_callback_url=true 和空 callback_url 保存', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+    })
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    const clearButton = card.findAll('button').find((btn) => btn.text().includes('恢复推导'))
+    expect(clearButton).toBeTruthy()
+    await clearButton!.trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('已标记清除独立回调')
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({
+      callback_url: '',
+      clear_callback_url: true,
+    }))
+    confirmSpy.mockRestore()
+  })
+  it('已标记清除独立回调后切换提供商仍保留清除草稿', async () => {
+    const source = {
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+    }
+    const target = {
+      provider_type: 'keycloak',
+      base_url: 'https://kc.example.com',
+      realm: 'master',
+      client_id: 'kc-client',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://ignored.example.com',
+      callback_url: 'https://ignored.example.com/api/auth/oidc/callback',
+    }
+    vi.mocked(getOidc).mockImplementation((providerType?: string) =>
+      Promise.resolve(providerType === 'keycloak' ? target : source))
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      void options.onOk()
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    const clearButton = card.findAll('button').find((btn) => btn.text().includes('恢复推导'))
+    await clearButton!.trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('已标记清除独立回调')
+
+    card.findComponent(Select).vm.$emit('change', 'keycloak')
+    await flushPromises()
+    expect(getOidc).toHaveBeenLastCalledWith('keycloak')
+    expect(card.text()).toContain('已标记清除独立回调')
+
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({
+      provider_type: 'keycloak',
+      callback_url: '',
+      clear_callback_url: true,
+    }))
+    confirmSpy.mockRestore()
+  })
+
+  it('独立回调 host 与前端地址不一致时提示 state Cookie 边界', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: 'https://callback.example.com/api/auth/oidc/callback',
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    expect(wrapper.find('#oidc').text()).toContain('state Cookie')
+  })
+})
+
+describe('SettingsView R31-06 Production mock 只读边界', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('Production 历史 mock 显示警示、禁用保存/测试且不作为可选启用项', async () => {
+    const system = useSystemStore()
+    system.status = { configured: true, app_mode: 'prod', advanced_mode: false } as any
+    vi.mocked(getOidc).mockResolvedValueOnce({
+      provider_type: 'mock',
+      base_url: '',
+      realm: '',
+      client_id: '',
+      client_secret: '',
+      client_secret_configured: false,
+      frontend_url: 'https://app.example.com',
+      callback_url: '',
+      params_state: 'usable',
+    } as OidcSettings)
+
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('生产模式不支持模拟 OIDC')
+    expect(card.text()).toContain('Mock（生产不可用）')
+
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    const testButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('测试连接'))
+    expect(saveButton?.attributes('disabled')).toBeDefined()
+    expect(testButton?.attributes('disabled')).toBeDefined()
+
+    await saveButton!.trigger('click')
+    await testButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).not.toHaveBeenCalled()
+    expect(testOidc).not.toHaveBeenCalled()
+  })
+})
+
+describe('SettingsView R31-07 暂未启用草稿与停用', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('选择暂未启用只形成草稿，点击保存停用才调用 disableOidc', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      enabled: true,
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: '',
+    })
+    let confirmOptions: any
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      confirmOptions = options
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const system = useSystemStore()
+    const statusSpy = vi.spyOn(system, 'fetchStatus').mockResolvedValue(undefined as any)
+    const card = wrapper.find('#oidc')
+    card.findComponent(Select).vm.$emit('change', 'off')
+    await flushPromises()
+
+    expect(confirmOptions).toBeTruthy()
+    expect(confirmOptions.content).toContain('只形成页面草稿')
+    expect(disableOidc).not.toHaveBeenCalled()
+    expect(saveOidc).not.toHaveBeenCalled()
+
+    await confirmOptions.onOk()
+    await flushPromises()
+    expect(card.findComponent(Select).props('value')).toBe('off')
+    expect(card.text()).toContain('尚未保存停用')
+    const saveDisableButton = card.findAll('button').find((btn) => btn.text().includes('保存停用'))
+    expect(saveDisableButton).toBeTruthy()
+    await saveDisableButton!.trigger('click')
+    await flushPromises()
+    expect(disableOidc).toHaveBeenCalledTimes(1)
+    expect(statusSpy).toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('从暂未启用草稿切回提供商时提示丢弃，不静默覆盖停用草稿', async () => {
+    vi.mocked(getOidc).mockResolvedValue({
+      enabled: true,
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: '',
+    })
+    const confirmOptions: any[] = []
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((options: any) => {
+      confirmOptions.push(options)
+      return {} as any
+    })
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    card.findComponent(Select).vm.$emit('change', 'off')
+    await flushPromises()
+    await confirmOptions[0].onOk()
+    await flushPromises()
+    expect(card.findComponent(Select).props('value')).toBe('off')
+    expect(card.text()).toContain('尚未保存停用')
+
+    card.findComponent(Select).vm.$emit('change', 'generic')
+    await flushPromises()
+    expect(confirmOptions).toHaveLength(2)
+    expect(confirmOptions[1].content).toContain('丢弃')
+    expect(confirmOptions[1].content).toContain('停用草稿')
+    expect(card.findComponent(Select).props('value')).toBe('off')
+
+    await confirmOptions[1].onOk()
+    await flushPromises()
+    expect(getOidc).toHaveBeenLastCalledWith('generic')
+    expect(card.findComponent(Select).props('value')).toBe('generic')
+    confirmSpy.mockRestore()
+  })
+
+  it('停用响应展示保留 provider，选择 provider 保存后才重新启用', async () => {
+    const disabled = {
+      enabled: false,
+      provider_type: 'generic',
+      base_url: 'https://idp.example.com',
+      realm: '',
+      client_id: 'client-x',
+      client_secret: '',
+      client_secret_configured: true,
+      frontend_url: 'https://app.example.com',
+      callback_url: '',
+      params_state: 'usable' as OidcParamsState,
+    }
+    vi.mocked(getOidc).mockResolvedValue(disabled)
+    const wrapper = mount(SettingsView, {
+      global: { mocks: { $router: { push: vi.fn() } } },
+    })
+    await flushPromises()
+    const card = wrapper.find('#oidc')
+    expect(card.text()).toContain('OIDC 已停用')
+    expect(card.text()).toContain('generic')
+    expect(card.findComponent(Select).props('value')).toBe('off')
+
+    card.findComponent(Select).vm.$emit('change', 'generic')
+    await flushPromises()
+    expect(getOidc).toHaveBeenCalledWith('generic')
+    expect(card.findComponent(Select).props('value')).toBe('generic')
+
+    const saveButton = card.findAll('button').find((btn) => btn.text().replace(/\s/g, '').includes('保存'))
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(saveOidc).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('SettingsView 邮件内容卡片集成', () => {
+  const RootView = { template: '<router-view />' }
+
+  function makeRouter() {
+    return createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/settings', component: SettingsView },
+        { path: '/other', component: { template: '<div>other</div>' } },
+      ],
+    })
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+    vi.mocked(getMailTemplates).mockResolvedValue({
+      templates: [
+        { id: 'password_reset', label: '密码重置', scope: 'password_reset', subject: '密码重置', body: '请在 1 小时内使用以下链接重置密码（一次性）：\n{{reset_url}}', state: 'default', warning: '', subject_variables: [], body_variables: ['reset_url'], required_body_variables: ['reset_url'] },
+        { id: 'approval_approved', label: '审批通过', scope: 'approval_notify', subject: '{{site_name}} 审批通知', body: '通过 {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+        { id: 'approval_rejected', label: '审批拒绝', scope: 'approval_notify', subject: '{{site_name}} 审批通知', body: '拒绝 {{site_name}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name'], required_body_variables: [] },
+        { id: 'welcome_local', label: '本地欢迎', scope: 'welcome', subject: '{{site_name}} 账号已激活', body: '欢迎 {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+        { id: 'welcome_oidc', label: 'OIDC 欢迎', scope: 'welcome', subject: '{{site_name}} 账号已激活', body: 'OIDC {{login_url}}', state: 'default', warning: '', subject_variables: ['site_name'], body_variables: ['site_name', 'login_url'], required_body_variables: ['login_url'] },
+      ],
+      limits: { subject: 200, body: 10000 },
+      preview_values: {
+        site_name: 'VPN 订阅管理',
+        login_url: 'https://example.invalid/login?source=preview',
+        reset_url: 'https://example.invalid/reset/example-token?source=preview',
+      },
+    } as any)
+    vi.mocked(getRateLimit).mockResolvedValue({} as any)
+  })
+
+  it('邮件内容卡片位于 SMTP 卡片之后且通知说明包含邮件内容', async () => {
+    const router = makeRouter()
+    await router.push('/settings')
+    await router.isReady()
+    const wrapper = mount(RootView, { global: { plugins: [router] } })
+    await flushPromises()
+    const html = wrapper.html()
+    expect(html.indexOf('id="smtp"')).toBeGreaterThan(-1)
+    expect(html.indexOf('id="mail-templates"')).toBeGreaterThan(html.indexOf('id="smtp"'))
+    expect(wrapper.text()).toContain('邮件发送设置、测试与邮件内容')
+  })
+
+  it('父页其他设置仍在加载时，邮件模板 dirty 不被 settingsLoaded 门槛吞掉并参与离开保护', async () => {
+    // 让父页某个配置加载悬挂，settingsLoaded 保持 false；邮件模板组件仍应独立加载并报告 dirty。
+    vi.mocked(getRateLimit).mockImplementation(() => new Promise(() => {}))
+    const router = makeRouter()
+    await router.push('/settings')
+    await router.isReady()
+    const wrapper = mount(RootView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="邮件主题"]').setValue('未保存的模板主题')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 个分区有未保存更改')
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await router.push('/other')
+    await flushPromises()
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(String(confirmSpy.mock.calls[confirmSpy.mock.calls.length - 1]?.[0] || '')).toContain('1 个分区')
+    expect(router.currentRoute.value.path).toBe('/settings')
+    confirmSpy.mockRestore()
+  })
 })

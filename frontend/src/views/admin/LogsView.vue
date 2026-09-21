@@ -1,10 +1,23 @@
-<!-- LogsView.vue：日志查看（UI §5.9，Design1 §3.4.9）——a-tabs 双页签：访问日志 / 实时日志流（SSE） -->
+<!-- LogsView.vue：日志查看（UI §5.9，Design1 §3.4.9；R32-02）——访问日志 / 邮件发送日志 / 实时日志流（SSE） -->
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import dayjs from 'dayjs'
-import { Badge, Button, Pagination, Select, Space, Table, Tabs } from 'ant-design-vue'
+import { Alert, Badge, Button, Pagination, Select, Space, Table, Tabs } from 'ant-design-vue'
 import AppRangePicker from '@/components/AppRangePicker.vue'
-import { queryAccessLogs, clearAccessLogs, openLogStream, type AccessLog, type LogEntry } from '@/api/log'
+import {
+  queryAccessLogs,
+  clearAccessLogs,
+  openLogStream,
+  queryMailLogs,
+  queryActiveMail,
+  clearMailLogs,
+  type AccessLog,
+  type LogEntry,
+  type MailActivityKind,
+  type MailActiveRecord,
+  type MailResultRecord,
+  type MailResultStatus,
+} from '@/api/log'
 import { createSSEParser } from '@/utils/sse'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -64,6 +77,145 @@ async function confirmClear() {
     Notify.error((err as Error).message)
   } finally {
     clearing.value = false
+  }
+}
+
+// --- 邮件发送日志页签（R32-03：当前队列手动快照 + SQLite 历史终态） ---
+const mailLoading = ref(false)
+const mailList = ref<MailResultRecord[]>([])
+const mailTotal = ref(0)
+const mailPage = ref(1)
+const mailSize = ref(20)
+const mailKind = ref<MailActivityKind | ''>('')
+const mailStatus = ref<MailResultStatus | ''>('')
+const mailError = ref('')
+const mailClearOpen = ref(false)
+const mailClearing = ref(false)
+const mailActiveOpen = ref(false)
+const mailActiveLoading = ref(false)
+const mailActiveError = ref('')
+const mailActiveList = ref<MailActiveRecord[]>([])
+const mailActiveQueued = ref(0)
+const mailActiveSending = ref(0)
+const mailActiveLoaded = ref(false)
+const mailActiveSnapshotAt = ref('')
+
+const mailKindOptions: { label: string; value: MailActivityKind }[] = [
+  { label: '本地欢迎', value: 'welcome_local' },
+  { label: 'OIDC 欢迎', value: 'welcome_oidc' },
+  { label: '审批通过', value: 'approval_approved' },
+  { label: '审批拒绝', value: 'approval_rejected' },
+  { label: '密码重置', value: 'password_reset' },
+  { label: 'SMTP 测试', value: 'smtp_test' },
+]
+const mailStatusOptions: { label: string; value: MailResultStatus }[] = [
+  { label: 'SMTP 已接受', value: 'accepted' },
+  { label: '失败', value: 'failed' },
+]
+const mailKindText = Object.fromEntries(mailKindOptions.map((item) => [item.value, item.label])) as Record<string, string>
+const mailStatusText: Record<string, string> = {
+  queued: '已排队', sending: '发送中', accepted: 'SMTP 已接受', failed: '失败',
+}
+const mailStageText: Record<string, string> = {
+  queue_full: '队列已满',
+  dispatcher_unavailable: '派发器不可用',
+  config: '配置不可用',
+  render: '内容渲染失败',
+  connect: '连接失败',
+  handshake: '握手失败',
+  starttls: 'STARTTLS 失败',
+  auth: '认证失败',
+  mail_from: '发件人失败',
+  rcpt_to: '收件人失败',
+  data: '内容传输失败',
+  quit: '结束会话失败',
+  timeout: '超时',
+  canceled: '已取消',
+  internal: '内部错误',
+}
+const mailSourceText: Record<string, string> = {
+  selfreg: '本地注册', local: '管理员创建', oidc: 'OIDC',
+  approval: '审批', public_forgot: '公共忘记密码', admin_single: '管理员单个',
+  admin_batch: '管理员批量', smtp_test: 'SMTP 测试',
+}
+
+function mailKindLabel(kind: string): string { return mailKindText[kind] ?? kind }
+function mailStatusLabel(status: string): string { return mailStatusText[status] ?? status }
+function mailSourceLabel(source: string): string { return mailSourceText[source] ?? source }
+function mailStageLabel(stage: string | null): string { return stage ? (mailStageText[stage] ?? '失败') : '—' }
+function mailStatusColor(status: string): string {
+  if (status === 'accepted') return 'green'
+  if (status === 'failed') return 'red'
+  if (status === 'sending') return 'blue'
+  return 'default'
+}
+async function loadMail() {
+  if (mailLoading.value) return
+  mailLoading.value = true
+  try {
+    const res = await queryMailLogs({
+      page: mailPage.value,
+      size: mailSize.value,
+      kind: mailKind.value,
+      status: mailStatus.value,
+    })
+    mailList.value = res.list ?? []
+    mailTotal.value = res.total
+    mailError.value = ''
+  } catch (err) {
+    // 失败保留旧列表并暴露明确错误态；轮询不弹全局提示，避免干扰。
+    mailError.value = (err as Error).message
+  } finally {
+    mailLoading.value = false
+  }
+}
+
+async function loadActiveMail() {
+  if (mailActiveLoading.value) return
+  mailActiveLoading.value = true
+  try {
+    const res = await queryActiveMail()
+    mailActiveList.value = res.list ?? []
+    mailActiveQueued.value = res.queued
+    mailActiveSending.value = res.sending
+    mailActiveLoaded.value = true
+    mailActiveSnapshotAt.value = dayjs().format('HH:mm:ss')
+    mailActiveError.value = ''
+  } catch (err) {
+    mailActiveError.value = (err as Error).message
+  } finally {
+    mailActiveLoading.value = false
+  }
+}
+
+function toggleActiveMail() {
+  mailActiveOpen.value = !mailActiveOpen.value
+  if (mailActiveOpen.value) void loadActiveMail()
+}
+
+async function refreshMailPage() {
+  const jobs: Promise<void>[] = [loadMail()]
+  if (mailActiveOpen.value) jobs.push(loadActiveMail())
+  await Promise.all(jobs)
+}
+
+function onMailFilterChange() {
+  mailPage.value = 1
+  void loadMail()
+}
+
+async function confirmMailClear() {
+  mailClearing.value = true
+  try {
+    await clearMailLogs()
+    Notify.success('邮件历史发送结果已清空')
+    mailClearOpen.value = false
+    mailPage.value = 1
+    await loadMail()
+  } catch (err) {
+    Notify.error((err as Error).message)
+  } finally {
+    mailClearing.value = false
   }
 }
 
@@ -172,20 +324,26 @@ function clearScreen() {
   lines.value = []
 }
 
-// 页签切换：进入实时流页签时连接，离开时断开
+// 页签切换：实时流进入时连接、离开时断开；邮件历史仅在用户进入页签时加载一次。
 function onTabChange(key: any) {
+  if (activeTab.value === key) return
   activeTab.value = key
   if (key === 'stream') {
     lines.value = [] // 重新连接后先推缓冲历史
     stopReconnect = false
     reconnectCount = 0
     void connect()
-  } else {
-    disconnect()
+    return
+  }
+  disconnect()
+  if (key === 'mail') {
+    void loadMail()
   }
 }
 
-onUnmounted(disconnect)
+onUnmounted(() => {
+  disconnect()
+})
 </script>
 
 <template>
@@ -265,6 +423,128 @@ onUnmounted(disconnect)
         </div>
       </Tabs.TabPane>
 
+      <!-- 邮件发送日志页签 -->
+      <Tabs.TabPane key="mail" tab="邮件发送日志">
+        <div class="border rounded-lg bg-surface mb-3">
+          <button type="button" class="w-full flex items-center justify-between gap-3 p-3 text-left"
+                  :aria-expanded="mailActiveOpen" @click="toggleActiveMail">
+            <span class="font-medium">
+              当前发送队列
+              <span v-if="mailActiveLoaded" class="text-xs font-normal text-text-secondary">
+                （等待 {{ mailActiveQueued }} · 发送中 {{ mailActiveSending }}）
+              </span>
+              <span v-else class="text-xs font-normal text-text-secondary">（展开查看）</span>
+            </span>
+            <span class="text-xs text-text-secondary">
+              <template v-if="mailActiveSnapshotAt">截至 {{ mailActiveSnapshotAt }} · </template>{{ mailActiveOpen ? '收起' : '展开' }}
+            </span>
+          </button>
+          <div v-if="mailActiveOpen" class="border-t p-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <span class="text-xs text-text-secondary">仅展示本次服务运行期间的快照，不会自动刷新；服务重启后运行态记录清空。</span>
+              <Button size="small" :loading="mailActiveLoading" @click="loadActiveMail">刷新队列</Button>
+            </div>
+            <TriStateList :loading="mailActiveLoading" :empty="mailActiveList.length === 0"
+                          :error="mailActiveError || undefined" empty-text="当前没有等待中或发送中的邮件" @retry="loadActiveMail">
+              <Table :data-source="mailActiveList" row-key="id" :pagination="false" size="small" class="hidden md:block">
+                <Table.Column key="created" title="创建时间" width="160">
+                  <template #default="{ record }">{{ dayjs(record.created_at).format('YYYY-MM-DD HH:mm:ss') }}</template>
+                </Table.Column>
+                <Table.Column key="kind" title="类型" width="120">
+                  <template #default="{ record }">{{ mailKindLabel(record.kind) }}</template>
+                </Table.Column>
+                <Table.Column key="source" title="来源" width="120">
+                  <template #default="{ record }">{{ mailSourceLabel(record.source) }}</template>
+                </Table.Column>
+                <Table.Column key="recipient" title="收件人" width="160">
+                  <template #default="{ record }"><span class="font-mono text-xs">{{ record.recipient_masked }}</span></template>
+                </Table.Column>
+                <Table.Column key="status" title="当前状态" width="110">
+                  <template #default="{ record }"><Badge :color="mailStatusColor(record.status)" :text="mailStatusLabel(record.status)" /></template>
+                </Table.Column>
+                <Table.Column key="started" title="开始时间" width="160">
+                  <template #default="{ record }">{{ record.started_at ? dayjs(record.started_at).format('YYYY-MM-DD HH:mm:ss') : '—' }}</template>
+                </Table.Column>
+              </Table>
+              <div class="grid grid-cols-1 gap-2 md:hidden">
+                <div v-for="rec in mailActiveList" :key="rec.id" class="border rounded-lg p-3 bg-surface">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium truncate">{{ mailKindLabel(rec.kind) }} · {{ mailSourceLabel(rec.source) }}</span>
+                    <Badge :color="mailStatusColor(rec.status)" :text="mailStatusLabel(rec.status)" />
+                  </div>
+                  <div class="text-xs text-text-secondary mt-1 space-y-0.5">
+                    <div>收件人：<span class="font-mono">{{ rec.recipient_masked }}</span></div>
+                    <div>创建时间：{{ dayjs(rec.created_at).format('YYYY-MM-DD HH:mm:ss') }}</div>
+                    <div v-if="rec.started_at">开始时间：{{ dayjs(rec.started_at).format('YYYY-MM-DD HH:mm:ss') }}</div>
+                  </div>
+                </div>
+              </div>
+            </TriStateList>
+          </div>
+        </div>
+
+        <div class="text-sm font-medium mb-2">历史发送结果</div>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <Space :wrap="true">
+            <AppSelect v-model:value="mailKind" style="width: 150px" allow-clear placeholder="类型筛选" @change="onMailFilterChange">
+              <Select.Option v-for="opt in mailKindOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</Select.Option>
+            </AppSelect>
+            <AppSelect v-model:value="mailStatus" style="width: 150px" allow-clear placeholder="状态筛选" @change="onMailFilterChange">
+              <Select.Option v-for="opt in mailStatusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</Select.Option>
+            </AppSelect>
+            <Button @click="refreshMailPage()">刷新</Button>
+          </Space>
+          <Button v-if="mailTotal > 0" danger @click="mailClearOpen = true">清空历史结果</Button>
+        </div>
+        <Alert type="info" show-icon class="mb-3"
+               message="SMTP 已接受仅表示发件服务器接受邮件，不代表进入收件箱；历史发送结果保留 90 天。" />
+        <TriStateList :loading="mailLoading" :empty="mailList.length === 0 && mailTotal === 0"
+                      :error="mailError || undefined" empty-text="暂无邮件发送记录" @retry="loadMail()">
+          <!-- ≥768：表格 -->
+          <Table :data-source="mailList" row-key="id" :pagination="false" size="small" class="hidden md:block">
+            <Table.Column key="time" title="时间" width="160">
+              <template #default="{ record }">{{ dayjs(record.recorded_at).format('YYYY-MM-DD HH:mm:ss') }}</template>
+            </Table.Column>
+            <Table.Column key="kind" title="类型" width="120">
+              <template #default="{ record }">{{ mailKindLabel(record.kind) }}</template>
+            </Table.Column>
+            <Table.Column key="source" title="来源" width="120">
+              <template #default="{ record }">{{ mailSourceLabel(record.source) }}</template>
+            </Table.Column>
+            <Table.Column key="recipient" title="收件人" width="160">
+              <template #default="{ record }"><span class="font-mono text-xs">{{ record.recipient_masked }}</span></template>
+            </Table.Column>
+            <Table.Column key="status" title="状态" width="110">
+              <template #default="{ record }">
+                <Badge :color="mailStatusColor(record.result)" :text="mailStatusLabel(record.result)" />
+              </template>
+            </Table.Column>
+            <Table.Column key="stage" title="失败阶段" width="120">
+              <template #default="{ record }">{{ mailStageLabel(record.failure_stage) }}</template>
+            </Table.Column>
+          </Table>
+
+          <!-- <768：移动端卡片 -->
+          <div class="grid grid-cols-1 gap-2 md:hidden">
+            <div v-for="rec in mailList" :key="rec.id" class="border rounded-lg p-3 bg-surface">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium truncate">{{ mailKindLabel(rec.kind) }} · {{ mailSourceLabel(rec.source) }}</span>
+                <Badge :color="mailStatusColor(rec.result)" :text="mailStatusLabel(rec.result)" />
+              </div>
+              <div class="text-xs text-text-secondary mt-1 space-y-0.5">
+                <div>收件人：<span class="font-mono">{{ rec.recipient_masked }}</span></div>
+                <div v-if="rec.failure_stage">失败阶段：{{ mailStageLabel(rec.failure_stage) }}</div>
+                <div>{{ dayjs(rec.recorded_at).format('YYYY-MM-DD HH:mm:ss') }}</div>
+              </div>
+            </div>
+          </div>
+        </TriStateList>
+        <div v-if="mailTotal > 0" class="flex justify-end mt-3">
+          <Pagination v-model:current="mailPage" :page-size="mailSize" :total="mailTotal"
+                      :show-total="(t: number) => `共 ${t} 条`" @change="loadMail" />
+        </div>
+      </Tabs.TabPane>
+
       <!-- 实时日志流页签 -->
       <Tabs.TabPane key="stream" tab="实时日志流">
         <div class="flex flex-wrap items-center gap-2 mb-3">
@@ -292,9 +572,12 @@ onUnmounted(disconnect)
     </Tabs>
 
     <!-- 清空日志确认 -->
-    <ConfirmModal :open="clearOpen" title="清空日志" danger
+    <ConfirmModal :open="clearOpen" title="清空访问日志" danger
                   content="将删除全部访问日志记录（不可恢复）。确定继续？"
                   :loading="clearing" @confirm="confirmClear" @update:open="clearOpen = false" />
+    <ConfirmModal :open="mailClearOpen" title="清空历史发送结果" danger
+                  content="将删除全部历史邮件发送结果，不会取消等待中或正在发送的邮件；这些邮件之后产生的最终结果仍会被记录。确定继续？"
+                  :loading="mailClearing" @confirm="confirmMailClear" @update:open="mailClearOpen = false" />
   </div>
 </template>
 

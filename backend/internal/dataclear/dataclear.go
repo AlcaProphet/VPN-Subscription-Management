@@ -16,6 +16,9 @@ import (
 
 const ConfirmWordReset = "RESET" // 一键清空确认词（固定，二次确认由前端负责）
 
+// ErrClearLifecycle 清库前的生命周期暂停失败；数据库不得被清空，调用方应返回可重试的服务不可用错误。
+var ErrClearLifecycle = errors.New("清空前置生命周期操作失败")
+
 // Service 数据清理服务
 type Service struct {
 	store   *store.Store
@@ -23,6 +26,9 @@ type Service struct {
 	log     *slog.Logger
 	// resetRuntimeState 内存态复位回调（server.New 装配注入）：限流计数、实时日志缓冲等
 	resetRuntimeState func()
+	// beforeClear/afterClear R32-02 邮件生命周期 hook；afterClear 的 cleared 表示数据库清空是否成功。
+	beforeClear func(ctx context.Context) error
+	afterClear  func(ctx context.Context, cleared bool)
 }
 
 func NewService(st *store.Store, dataDir string, lg *slog.Logger) *Service {
@@ -32,6 +38,12 @@ func NewService(st *store.Store, dataDir string, lg *slog.Logger) *Service {
 // SetResetRuntimeState 注入内存态复位回调（Build3 Step 5 追加 SSE 连接与短期 Token 复位）
 func (s *Service) SetResetRuntimeState(fn func()) {
 	s.resetRuntimeState = fn
+}
+
+// SetClearHooks 注入清库前后生命周期 hook；after 在所有错误返回路径上保证至少执行一次。
+func (s *Service) SetClearHooks(before func(ctx context.Context) error, after func(ctx context.Context, cleared bool)) {
+	s.beforeClear = before
+	s.afterClear = after
 }
 
 // ClearTablesTx 清空全部业务数据表 + 系统配置（单事务内；应急重新初始化与一键清空共用，Build3 Step 6）。
@@ -46,7 +58,7 @@ func (s *Service) ClearTablesTx(ctx context.Context, tx *sql.Tx) error {
 		"nodes", "xray_instances", "proxy_groups",
 		// 既有表（保留）
 		"download_tokens", "share_tokens", "rule_tokens", "password_reset_tokens", "oidc_login_tickets", "oidc_states",
-		"access_logs", "versions",
+		"mail_result_logs", "access_logs", "versions",
 		"custom_subscriptions", "share_subscriptions", "rules", "subscriptions",
 		"users", "groups", "platforms", "system_config",
 	}
@@ -58,19 +70,40 @@ func (s *Service) ClearTablesTx(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// ClearAll 一键清空所有数据——先清库（事务）再删数据文件；内存态复位；
-// 旧会话凭据因签名密钥轮换验签失败自然失效；系统回到未配置状态，无需重启
+// ClearAll 一键清空所有数据——先执行前置邮件生命周期暂停，再清库（事务）、删数据文件、内存态复位；
+// 旧会话凭据因签名密钥轮换验签失败自然失效；系统回到未配置状态，无需重启。
 func (s *Service) ClearAll(ctx context.Context, confirmWord string) error {
 	if confirmWord != ConfirmWordReset {
 		return errors.New("确认词不正确")
 	}
+	if s.beforeClear != nil {
+		if err := s.beforeClear(ctx); err != nil {
+			if s.afterClear != nil {
+				s.afterClear(context.WithoutCancel(ctx), false)
+			}
+			return fmt.Errorf("%w: %v", ErrClearLifecycle, err)
+		}
+	}
+	cleared := false
+	afterCalled := false
+	callAfter := func(cleared bool) {
+		if s.afterClear == nil || afterCalled {
+			return
+		}
+		afterCalled = true
+		s.afterClear(context.WithoutCancel(ctx), cleared)
+	}
+	// 保证清库事务失败等所有错误路径恢复派发器；成功路径在清库提交后立即执行。
+	defer func() { callAfter(cleared) }()
 	// 1) 清库：单事务删除全部业务数据 + 系统配置（含签名密钥、configured 标记）
-	//    地址启动缓存为全清特例——回 Setup 重新推导写入新值
+	//    系统回到未配置状态，回 Setup 后重新推导并写入前端地址等初始值
 	if err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		return s.ClearTablesTx(ctx, tx)
 	}); err != nil {
 		return err
 	}
+	cleared = true
+	callAfter(true) // 清库成功后立即清空短期日志并启动新代次，避免文件删除期间阻塞业务
 	// 2) 删数据文件（版本文件目录 + /public 资源）；失败记错误日志并提示，不阻断回 Setup
 	var fileErrs []string
 	for _, dir := range []string{"contents", "public"} {

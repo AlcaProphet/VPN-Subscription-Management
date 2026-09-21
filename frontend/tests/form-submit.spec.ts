@@ -1,6 +1,6 @@
 // form-submit.spec.ts：表单校验防回归——Form 必须绑定 :model，否则 required 校验永远失败无法提交
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { Form } from 'ant-design-vue'
 
@@ -35,6 +35,7 @@ import LoginView from '@/views/LoginView.vue'
 import RegisterView from '@/views/RegisterView.vue'
 import ForgotView from '@/views/ForgotView.vue'
 import { login } from '@/api/auth'
+import { getSystemStatus } from '@/api/system'
 
 const mockLogin = login as unknown as ReturnType<typeof vi.fn>
 
@@ -75,4 +76,19 @@ describe('认证表单提交', () => {
     const wrapper = mount(ForgotView)
     expect(wrapper.findComponent(Form).props('model')).toBeDefined()
   })
+
+  it('R31-06：Production mock 状态不展示 OIDC/mock 登录入口', async () => {
+    vi.mocked(getSystemStatus).mockResolvedValueOnce({
+      configured: true,
+      app_mode: 'prod',
+      emergency: false,
+      oidc_configured: true,
+      oidc_provider_type: 'mock',
+    } as any)
+    const wrapper = mount(LoginView)
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Dev 模拟登录')
+    expect(wrapper.text()).not.toContain('使用 OIDC 登录')
+  })
+
 })

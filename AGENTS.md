@@ -1,9 +1,9 @@
 # AGENTS.md — VPN 订阅管理系统 AI 编码指令
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
-> **当前设计：** [Design4.md](Design4.md) 是最新已确认的增量设计；[Design5.md](Design5.md) 仅为候选构想，尚未研究定稿或进入构建。
-> **当前工作：** 构建记录均已归档，暂无已授权的活跃构建；短期待办见 [TODOLIST.md](TODOLIST.md)，已归档的邮件测试与 SMTP 优化记录见 [Issue16.md](docs/reports/Issue/Issue16.md)；R30-05 核验发现的配置导出与真实 OIDC 网络边界问题见 [Issue17.md](Issue17.md)。
-> **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；[ProdTestList.md](ProdTestList.md) 当前无通用人工核验项目；Issue16 R30-01 已完成并归档；工程自动化与人工验收分别记录。
+> **当前设计：** [Design4.md](Design4.md) 是已实现的节点编辑器等增量设计基线；[Design5.md](Design5.md) §一～§六保留整站迁移候选，§七记录已确认并已实施的邮件内容定制设计，构建记录见 [Build28.md](docs/reports/Build/Build28.md)，有效站点名称与邮件运行语义修复见 [Issue18.md](Issue18.md)。
+> **当前工作：** 已完成的代码构建均已归档；数据库首版基线合并已按归档的 [V4UpgradeRelated.md](docs/reports/Others/V4UpgradeRelated.md) 定案实施并记录于 [Build31.md](docs/reports/Build/Build31.md)，既有本地数据库、Docker 卷、外部 `DATA_DIR` 和备份未触碰，其他历史兼容清理仍未激活。R32-01 有效站点名称、R32-02 业务邮件异步派发与 R32-03 终态结果持久化/当前发送队列优化均已完成工程与人工核验，构建记录见 [Build29.md](docs/reports/Build/Build29.md)、[Build30.md](docs/reports/Build/Build30.md)。Issue18 已闭环并保留在根目录；[ProdTestList.md](ProdTestList.md) 与 [TODOLIST.md](TODOLIST.md) 当前均无短期条目。
+> **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；R32-02/R32-03 已由用户确认完成人工真机核验，暂未发现问题；工程自动化与人工验收分别记录。
 > **当前范围：** 当前项目聚焦基础模式完善；高级模式暂不跟进。Xray 相关范围和待办见 [XrayRelated1.md](XrayRelated1.md)。
 > **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
 > 已完成的设计、构建与问题记录统一见 [docs/reports/](docs/reports)，仅用于历史核查。
@@ -228,18 +228,18 @@
 | 文档类型 | 文件 | 定位 | 约束力 |
 |---------|------|------|--------|
 | **强要求** | **AGENTS.md（本文件）** | AI 编码助手的强制指令集：编码原则、工程约束、操作规范、行为准则 | **唯一强要求，尽量不违背** |
-| Design 文档 | [Design5.md](Design5.md)（完整数据加密导出与 Setup 一步整站迁移候选，当前只登记构想、未研究定稿或进入构建）；[Design4.md](Design4.md)（当前最新已确认设计，v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；已完成人工结果见 Issue14／Issue15，通用待核验项见 ProdTestList，Xray 专项见 XrayRelated1）；[Design3.md](docs/reports/Design/Design3.md)（已经 Build16 构建并已归档的规则素材与装配设计）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
+| Design 文档 | [Design5.md](Design5.md)（§一～§六整站迁移仍为候选；§七邮件内容定制已确认并已完成工程实施，构建记录见 [Build28.md](docs/reports/Build/Build28.md)）；[Design4.md](Design4.md)（已实现的节点编辑器等增量设计基线，v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；已完成人工结果见 Issue14／Issue15，通用待核验项见 ProdTestList，Xray 专项见 XrayRelated1）；[Design3.md](docs/reports/Design/Design3.md)（已经 Build16 构建并已归档的规则素材与装配设计）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
 | Design GUI 规格 | [Design2-UI.md](docs/reports/Design/Design2-UI.md)（已实现并归档的 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；Design3 新增界面行为由 Design3 §八补充；Design4 节点表单界面行为由 Design4 §三/§十二补充 | 非强制，供参考 |
-| Build 文档 | 已归档：Build1～Build27、Build6-2（具体链接见下方清单）。除已登记 [ProdTestList.md](ProdTestList.md) 的人工项目外，工程与自动化验收均已完成；Build22 的 Step 7 证据已补齐并重新通过 Step 11 门禁。Build26（Issue14 步骤五/R28-07，Step 1～20 已完成并验收通过；现行工程合同补充见 Design4 §12.7）已归档；Build27（Issue14 步骤七/R28-09，Step 1～6 已完成并验收通过）已归档；当前无已授权活跃构建记录 | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
-| Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue16.md](docs/reports/Issue/Issue16.md)（全部已闭环归档）；R30-05 核验后新增的配置导出与真实 OIDC 网络边界问题见 [Issue17.md](Issue17.md) | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
-| 专项跟踪文档 | [XrayRelated1.md](XrayRelated1.md) | Xray 相关问题、基础模式人工核验和当前处理边界；高级模式暂不跟进 | 非强制，当前跟踪 |
+| Build 文档 | 已归档 Build1～Build31、Build6-2（具体链接见下方清单）；当前无已授权活跃代码构建 | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
+| Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue17.md](docs/reports/Issue/Issue17.md)（已闭环归档）；根目录保留 [Issue18.md](Issue18.md)（R32-02/R32-03 正式邮件人工项仍在 ProdTestList） | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
+| 专项跟踪文档 | [XrayRelated1.md](XrayRelated1.md)、[ExportRelated1.md](ExportRelated1.md) | 分别跟踪 Xray 基础模式问题与人工核验、配置导出与迁移问题 R31-01；Design5 §一～§六仍为候选 | 非强制，当前跟踪 |
 
 **优先级**：AGENTS.md > Design > Build > Issue。
 
 ### 8.2 文档分工规则
 
 - **AGENTS.md 不含具体设计内容**：产品定义、功能流程、数据模型、架构细节等设计信息全部留在 Design 文档中，本文件仅通过引用指向
-- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；当前最新设计为 Design4.md（v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同，Build17～Build20 已完成，Build21 的 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环且 Build25 已归档，已完成人工结果见 Issue14／Issue15，待核验项见 ProdTestList），其明确覆盖的节点编辑器条件表单、保存状态、客户端兼容和首批四协议契约构建时不得偏离；Design3.md 是已经 Build16 构建的规则素材与装配设计，随 Build22 收口归档（其明确覆盖内容继续有效）；Design2.md + Design2-UI.md 是已实现并归档的运行基线，Design3/Design4 未覆盖的行为继续以其为准；Design1.md 为第一期已建成功能基线（存档参考）
+- **Design 文档**面向人类阅读，描述「为什么这样设计」与最终设计结论；Design5.md §七为已确认并已实施的邮件内容定制设计，构建与自动化验收记录见 [docs/reports/Build/Build28.md](docs/reports/Build/Build28.md)；§一～§六整站迁移仍是候选，不随 Build28 实施。Design4.md（v1.23）继续作为已实现的节点编辑器条件表单、保存状态、客户端兼容和首批四协议契约基线；Design3.md 是已经 Build16 构建的规则素材与装配设计，随 Build22 收口归档（其明确覆盖内容继续有效）；Design2.md + Design2-UI.md 是已实现并归档的运行基线，Design3/Design4 未覆盖的行为继续以其为准；Design1.md 为第一期已建成功能基线（存档参考）
 - **Build 文档**面向 AI 执行，每个 Step 必须含：目标、前置条件、产出文件与参考代码/伪代码、验收规范与验证命令；每次仅执行一个 Step，验收通过后再进入下一步
 - **Issue 文档**只记录 bug 与修复闭环；非问题的优化候选归 Design 文档记录
 - **归档规则**：构建验收完成或被后续文档取代的 Design/Build/Issue 文档移入 [docs/reports/](docs/reports)，仅作核查，不用于构建；研究参考资料存于 [docs/Reference/](docs/Reference)
@@ -263,8 +263,8 @@
 | 文档 | 目标读者 | 内容 | 状态 |
 |------|---------|------|------|
 | AGENTS.md（本文件） | AI 编码助手 | 编码指令与约束（**唯一强要求**） | 活跃 |
-| [Design5.md](Design5.md) | 人类（开发者/用户）与 AI 编码助手 | 后续候选设计：完整数据加密导出、Setup 一步整站迁移、恢复安全与一致性边界 | v0.1 构想已登记；未研究定稿、未创建 Build、未实施 |
-| [Design4.md](Design4.md) | 人类（开发者/用户）与 AI 编码助手 | 当前最新增量设计：节点编辑器条件表单、分支清空与当前状态、统一保存契约、首批四协议矩阵、客户端兼容与目标检查 | v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体与前端 `item_id_field` 白名单、保存定位排序、条件隐藏清理证据均已闭环，Build25 已归档，已完成人工结果见 Issue14／Issue15，通用待核验项见 ProdTestList，Xray 专项见 XrayRelated1 |
+| [Design5.md](Design5.md) | 人类（开发者/用户）与 AI 编码助手 | §一～§六：Production 完整数据加密导出与 Setup 一步迁移候选；§七：业务邮件内容定制与完整 URL 超链接 | v0.8；整站迁移仅限 Production 且未定稿；邮件内容已完成工程实施、联合门禁、隔离 smoke 与归档后回归补强并由 [Build28.md](docs/reports/Build/Build28.md) 记录，有效站点名称修复见 Issue18，真实 SMTP/收件箱/客户端/浏览器人工项见 ProdTestList |
+| [Design4.md](Design4.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现增量设计基线：节点编辑器条件表单、分支清空与当前状态、统一保存契约、首批四协议矩阵、客户端兼容与目标检查 | v1.23 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体与前端 `item_id_field` 白名单、保存定位排序、条件隐藏清理证据均已闭环，Build25 已归档，已完成人工结果见 Issue14／Issue15，通用待核验项见 ProdTestList，Xray 专项见 XrayRelated1 |
 | [Design3.md](docs/reports/Design/Design3.md) | 人类（开发者/用户）与 AI 编码助手 | 已构建增量设计：规则来源三模式、单 URL 单主方言、Canonical Rule、来源快照、能力注册表与跨平台装配 | 已归档；已经 Build16 构建，Build22 Step 7 证据补齐后 D3 全验收通过 |
 | [Design2.md](docs/reports/Design/Design2.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现增量基线：模式分层 / 规则素材池 / 装配拼接 / 配置生成与分发 / Xray 对接 | 已存档，已构建 |
 | [Design2-UI.md](docs/reports/Design/Design2-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已实现 GUI 规格：Design2 受影响界面的布局/组件/状态分支/响应式；Design3 界面增量见 Design3 §八 | 已存档，已构建 |
@@ -292,6 +292,10 @@
 | [Build25.md](docs/reports/Build/Build25.md) | AI 编码助手 | Issue14 步骤四 R28-06 未知扩展与局部 JSON 边界：加密存档/诊断、targets 白名单、显式 allow_unknown、父子草稿协调、内部 `item_id_field` 白名单 | 已归档（缺口修复后定向/全量/build/vet/Docker/Production smoke 门禁重新通过；人工浏览器/手机/客户端项目见 ProdTestList） |
 | [Build26.md](docs/reports/Build/Build26.md) | AI 编码助手 | Issue14 步骤五 R28-07 核心工程约束整改：A/B/D/E/G/H/I 分步实施、架构/error/颜色静态门禁、逐 Step 失败优先测试与最终联合门禁 | Step 1～20 已按一次性串行授权完成并验收通过；已归档；R28-07F 保持设计取向未实施 |
 | [Build27.md](docs/reports/Build/Build27.md) | AI 编码助手 | Issue14 步骤七 R28-09 项目级工程与文档收尾：Alpine 3.24/CA、GHCR/CI digest/Node 24、MIT LICENSE、Xray 固定外链与内链脚本、四文件清理、联合门禁 | Step 1～6 已按一次性串行授权完成并验收通过；已归档；远端 CI 与真实人工项未执行 |
+| [Build28.md](docs/reports/Build/Build28.md) | AI 编码助手 | Design5 §七：五分支邮件内容编辑/预览、审批通过单封、完整 URL 超链接、无图片邮件、配置往返与验收 | 已归档；Step 0.5～8 工程实现、联合门禁、隔离 smoke 与归档后回归补强已验收；真实 SMTP/收件箱/客户端/浏览器人工项见 ProdTestList |
+| [Build29.md](docs/reports/Build/Build29.md) | AI 编码助手 | R32-02：业务邮件统一异步派发、2/100/500 容量、短期发送日志、密码重置补偿、SMTP 测试同步日志、退出/清空生命周期、管理 API 与前端页签 | 已按用户一次性授权严格串行完成 Step 1～11；自动化/race/errgate/前端门禁与本地隔离 smoke 通过；真实 SMTP/收件箱人工项见 ProdTestList |
+| [Build30.md](docs/reports/Build/Build30.md) | AI 编码助手 | R32-03：终态结果 SQLite 持久化、128 容量旁路 writer、90 天清理、当前发送队列快照、历史清空新边界与取消页面轮询 | Step 0.5～7 已严格串行完成；后端全量/race/build/vet/errgate、前端全量/build 与隔离 smoke 通过；真实环境人工项见 ProdTestList |
+| [Build31.md](docs/reports/Build/Build31.md) | AI 编码助手 | 首版数据库基线合并：将 0001～1022 开发期迁移链等价压缩为单一 0001，建立 schema 合同测试 | Step 0.5～8 已完成并归档；联合门禁与独立 Docker 空卷 smoke 通过；既有数据目标未触碰 |
 
 | [Issue1.md](docs/reports/Issue/Issue1.md) | AI 编码助手 / 开发者 | 问题记录：R1~R11 系列（首轮基础问题与修复） | 已存档 |
 
@@ -308,18 +312,20 @@
 | [Issue14.md](docs/reports/Issue/Issue14.md) | AI 编码助手 / 开发者 | Build21 Step 14 与 BuildReport4 遗留工程问题（R28 系列：D3/N-core/N-node-6/安全等） | 已归档 |
 | [Issue15.md](docs/reports/Issue/Issue15.md) | AI 编码助手 / 开发者 | Production、浏览器和真实客户端人工测试中发现的问题，以及 2026-09-10 起文档交叉审核补充登记的问题（R29 系列） | 已归档 |
 | [Issue16.md](docs/reports/Issue/Issue16.md) | AI 编码助手 / 开发者 | Build11 邮件相关人工测试与 SMTP 优化问题（R30 系列） | 已存档 |
-| [Issue17.md](Issue17.md) | AI 编码助手 / 开发者 | 核验 Issue16 R30-05 后新开的独立问题：signing_key 导出损坏、真实 OIDC endpoint HTTPS 校验缺失、提供商切换字段混合与损坏占位符残余边界 | 活跃 |
-| [XrayRelated1.md](XrayRelated1.md) | AI 编码助手 / 开发者 | Xray 相关问题与基础模式人工核验（当前含 R26-07）；高级模式暂不跟进 | 活跃 |
+| [Issue17.md](docs/reports/Issue/Issue17.md) | AI 编码助手 / 开发者 | 核验 Issue16 R30-05 后新开的独立问题：真实 OIDC endpoint HTTPS 校验缺失、提供商切换字段混合与损坏占位符残余边界；R31-01 已移出 | 已归档（R31-02～R31-07 工程与人工验收完成） |
+| [Issue18.md](Issue18.md) | AI 编码助手 / 开发者 | R32-01 有效站点名称一致性；R32-02 业务邮件异步派发；R32-03 终态结果持久化、当前发送队列与无轮询页面 | R32-01～R32-03 工程与人工核验均已闭环，根目录保留 |
+| [XrayRelated1.md](XrayRelated1.md) | AI 编码助手 / 开发者 | Xray 相关问题与基础模式人工核验（R26-07）；高级模式暂不跟进 | 活跃 |
+| [ExportRelated1.md](ExportRelated1.md) | AI 编码助手 / 开发者 | 配置导出与迁移问题独立跟踪（R31-01），关联 Design5 候选迁移与邮件模板导入导出边界 | 活跃 |
 
 
-| [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | 通用 Production、浏览器和真实客户端待人工验证清单；Xray 专项见 XrayRelated1.md | 活跃 |
+| [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | 通用 Production、浏览器和真实客户端待人工验证清单；Xray 专项见 XrayRelated1.md | 活跃但当前无待核验条目 |
 | [docs/Reference/TestPasswordList.md](docs/Reference/TestPasswordList.md) | 测试者 / AI 编码助手 | 仅供本地隔离环境使用的合成测试账号与统一密码清单；严禁用于生产或真实数据环境 | 活跃 |
 | [docs/DocTemplates/](docs/DocTemplates) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue）与 Clash/Shadowrocket 配置参考样例 | 活跃 |
 | [docs/Reference/](docs/Reference) | 开发者 / 测试者 | 研究参考资料与本地测试资料；分类索引见 [docs/Reference/README.md](docs/Reference/README.md)：Xray-core API、SSPanel 订阅研究、节点编辑器研究、合成测试账号清单等 | 活跃 |
 | [docs/reports/Design/Design1.md](docs/reports/Design/Design1.md) | 人类（开发者/用户） | 第一期设计基线：产品定义、角色权限、功能全景、核心机制、架构、安全、部署运维（已构建完成） | 已存档 |
 | [docs/reports/Design/Design1-UI.md](docs/reports/Design/Design1-UI.md) | 人类（开发者/用户）与 AI 编码助手 | 已建界面 GUI 样式规格：13 个页面/部件；增量界面规格已由 Design2-UI.md 取代 | 已存档 |
 | [docs/reports/Design/DesignOnHold.md](docs/reports/Design/DesignOnHold.md) | 开发者 | 增量设计源稿（含修订过程记录），内容已全量转入 Design2.md | 已存档 |
-| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1～Build27、Build6-2（均已验收/归档），含 Build22、Build26 与 Build27；当前无已授权活跃构建记录 | 已存档 |
+| [docs/reports/Build/](docs/reports/Build) | AI 编码助手 / 开发者 | 历史构建方案：Build1～Build31、Build6-2（均已验收/归档）；当前无已授权活跃构建记录 | 已存档 |
 | [docs/reports/Design/](docs/reports/Design) | 人类（开发者/用户）与 AI 编码助手 | 历史设计文档：Design0、Design1、Design1-UI、Design2、Design2-UI、Design3、DesignOnHold | 已存档 |
 | [docs/reports/Issue/](docs/reports/Issue) | AI 编码助手 / 开发者 | 历史问题追踪：Issue1～13（均已闭环归档） | 已存档 |
 | [docs/reports/DesignReport/](docs/reports/DesignReport) | 人类（开发者/用户）与 AI 编码助手 | Design2 核验/研究报告：DesignReport1~10（原 Design2Report1~11，缺 6 已重新连续编号） | 已存档 |

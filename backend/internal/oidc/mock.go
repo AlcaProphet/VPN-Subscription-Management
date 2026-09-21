@@ -19,9 +19,17 @@ import (
 // subject 固定为输入邮箱，走与真实 OIDC 一致的查建/合并逻辑（可复现合并/冲突测试）。
 // 返回结构：登录成功返回 User + 已签发凭据由接入层处理；pending/冲突返回 ResolveResult。
 func (s *Service) MockLogin(ctx context.Context, email, username string, emailVerified bool, roles, groups []string) (*ResolveResult, error) {
+	if s.mode != "dev" {
+		return nil, fmt.Errorf("%w: 模拟登录仅 Dev 模式可用", config.ErrMockModeRestricted)
+	}
 	providerType := s.cfg.GetOr(ctx, KeyProviderType)
-	if s.mode != "dev" || providerType != "mock" {
-		return nil, errors.New("模拟登录仅 Dev 模式且选择模拟 OIDC 时可用")
+	if providerType != "mock" {
+		return nil, errors.New("当前提供商不是模拟 OIDC")
+	}
+	// R31-07：请求开始即固定当前流程边界；后续建号/合并/直连会话签发必须仍处于该流程。
+	flowHash, err := s.currentFlowHash(ctx)
+	if err != nil {
+		return nil, err
 	}
 	normalized, err := auth.NormalizeEmail(email)
 	if err != nil {
@@ -50,7 +58,12 @@ func (s *Service) MockLogin(ctx context.Context, email, username string, emailVe
 		return nil, err
 	}
 	id.RawClaims = string(raw)
-	return s.ResolveLogin(ctx, id)
+	res, err := s.resolveLoginWithGuard(ctx, id, s.flowGuard(flowHash))
+	if err != nil {
+		return nil, err
+	}
+	res.FlowHash = flowHash
+	return res, nil
 }
 
 // MockCode 生成模拟授权 code（携带身份信息，供 mockExchange 还原）
@@ -91,33 +104,55 @@ func (s *Service) TestConnectionWithSavedSecret(ctx context.Context, providerTyp
 }
 
 // testConnection 统一实现；allowSavedSecret 控制空 Secret 是否可回退已保存明文。
+// K1：管理端测试连接在真实提供商路径先确认 signing_key 可用，故障时任何输入都在网络前阻断。
+// TC-A：Secret 留空且目标已存 JSON/Secret 损坏时直接返回专门失败，不继续以“未提供 Secret”警告代替。
 func (s *Service) testConnection(ctx context.Context, providerType string, p Params, allowSavedSecret bool) (*TestResult, error) {
 	if providerType == "mock" {
+		if s.mode != "dev" {
+			return &TestResult{OK: false, Message: "生产模式不支持模拟 OIDC 测试连接，请切换到真实提供商"}, nil
+		}
 		return &TestResult{OK: true, Message: "模拟模式始终通过"}, nil
 	}
 	if p.ClientSecret == config.MaskedSecret {
 		return &TestResult{OK: false, Message: "Client Secret 不能使用脱敏占位符，请重新输入"}, nil
 	}
-	// ① 发现文档可达性 + 配置完整性（base_url/client_id/回调地址）
+	if allowSavedSecret {
+		// 管理员面板路径：K1 阻断 signing_key 缺失/读取失败；Setup 的显式参数测试不受影响。
+		if _, err := s.cfg.GetSigningKey(ctx); err != nil {
+			return &TestResult{OK: false, Message: config.OidcTestSigningKeyFaultMessage}, nil
+		}
+	}
+	// ① 留空 Secret 时先检查已存状态：损坏直接专门失败；仅完全一致且状态可用才回退明文。
+	if p.ClientSecret == "" && allowSavedSecret {
+		insp, err := s.inspectParams(ctx, providerType)
+		if err != nil {
+			if errors.Is(err, config.ErrSigningKeyUnavailable) {
+				return &TestResult{OK: false, Message: config.OidcTestSigningKeyFaultMessage}, nil
+			}
+			return &TestResult{OK: false, Message: "读取已存 OIDC 配置失败，请稍后重试"}, nil
+		}
+		if insp != nil {
+			switch config.EffectiveOidcParamsState(insp.State) {
+			case config.OidcParamsJSONDamaged, config.OidcParamsSecretDamaged, config.OidcParamsSigningKeyFault:
+				return &TestResult{OK: false, Message: config.OidcTestStoredDamagedMessage}, nil
+			case config.OidcParamsUsable:
+				if insp.Raw != nil && insp.Plain != nil &&
+					insp.Raw.BaseURL == p.BaseURL && insp.Raw.Realm == p.Realm && insp.Raw.ClientID == p.ClientID {
+					p.ClientSecret = insp.Plain.ClientSecret
+				}
+			}
+		}
+	}
+	// ② 发现文档可达性 + 配置完整性（base_url/client_id）
 	if p.BaseURL == "" || p.ClientID == "" {
 		return &TestResult{OK: false, Message: "Base URL 与 Client ID 为必填项"}, nil
-	}
-	// 表单留空表示不修改已保存 Secret：仅管理面板测试且目标参数与已保存配置完全一致时回退。
-	if p.ClientSecret == "" && allowSavedSecret {
-		if stored, err := s.loadParams(ctx, providerType); err == nil &&
-			stored.BaseURL == p.BaseURL && stored.Realm == p.Realm && stored.ClientID == p.ClientID {
-			if stored.ClientSecret == config.MaskedSecret {
-				return &TestResult{OK: false, Message: "已保存的 Client Secret 为脱敏占位符，请重新输入后再测试"}, nil
-			}
-			p.ClientSecret = stored.ClientSecret
-		}
 	}
 	disc, err := s.fetchDiscoveryWithParams(ctx, providerType, &p)
 	if err != nil {
 		return &TestResult{OK: false, Message: "发现文档不可达：" + err.Error()}, nil
 	}
 	res := &TestResult{OK: true, Message: "配置有效"}
-	// ② client_credentials 换 token 验证 Client ID/Secret；不支持该授权类型时降级为警告不阻断
+	// ③ client_credentials 换 token 验证 Client ID/Secret；不支持该授权类型时降级为警告不阻断
 	if p.ClientSecret != "" {
 		if err := s.verifyClientCredentials(ctx, disc.TokenEndpoint, &p); err != nil {
 			if isGrantUnsupported(err) {
@@ -162,8 +197,8 @@ func (s *Service) fetchDiscoveryWithParams(ctx context.Context, providerType str
 	if err := json.Unmarshal(body, &disc); err != nil {
 		return nil, fmt.Errorf("解析发现文档失败: %w", err)
 	}
-	if disc.AuthorizationEndpoint == "" || disc.TokenEndpoint == "" {
-		return nil, errors.New("发现文档缺少必要端点")
+	if err := validateDiscoveryEndpoints(&disc); err != nil {
+		return nil, err
 	}
 	return &disc, nil
 }
@@ -183,7 +218,7 @@ func (s *Service) verifyClientCredentials(ctx context.Context, tokenEndpoint str
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := s.httpCli.Do(req)
+	resp, err := s.doCredentialRequest(req)
 	if err != nil {
 		return err
 	}

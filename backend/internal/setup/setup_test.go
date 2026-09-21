@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/store"
+	"vpn-sub/migrations"
 )
 
 // newTestSetupService 创建临时库 + setup 服务（含全部 Build1 表迁移）
@@ -126,6 +128,62 @@ func TestCompleteQuickStart(t *testing.T) {
 	}
 }
 
+// TestBaselineQuickStartSmoke 使用正式首版基线验证空库 Setup 与重开幂等。
+func TestBaselineQuickStartSmoke(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir, "baseline-setup.db")
+	if err != nil {
+		t.Fatalf("打开空库失败: %v", err)
+	}
+	if err := st.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("应用正式基线失败: %v", err)
+	}
+	var groups, platforms int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&groups); err != nil {
+		t.Fatalf("查询初始组失败: %v", err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM platforms`).Scan(&platforms); err != nil {
+		t.Fatalf("查询初始平台失败: %v", err)
+	}
+	if groups != 0 || platforms != 0 {
+		t.Fatalf("Setup 前 groups=%d platforms=%d，期望 0/0", groups, platforms)
+	}
+
+	cfg := config.NewService(st, log.New("error", "console"))
+	policy, _ := proxytrust.Parse("auto", "")
+	svc := NewService(st, cfg, log.New("error", "console"), policy)
+	req := httptest.NewRequest("POST", "http://vpn.example.com/api/setup/quickstart", nil)
+	if err := svc.CompleteQuickStart(ctx, req); err != nil {
+		t.Fatalf("正式基线 Quick Start 失败: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("关闭 Setup 数据库失败: %v", err)
+	}
+
+	st, err = store.Open(dir, "baseline-setup.db")
+	if err != nil {
+		t.Fatalf("重开 Setup 数据库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("重开后迁移失败: %v", err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM groups WHERE is_default=1`).Scan(&groups); err != nil {
+		t.Fatalf("查询重开后默认组失败: %v", err)
+	}
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM platforms WHERE is_default=1`).Scan(&platforms); err != nil {
+		t.Fatalf("查询重开后默认平台失败: %v", err)
+	}
+	var versions int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=1`).Scan(&versions); err != nil {
+		t.Fatalf("查询基线版本失败: %v", err)
+	}
+	if groups != 1 || platforms != 3 || versions != 1 {
+		t.Fatalf("重开后 groups=%d platforms=%d versions=%d，期望 1/3/1", groups, platforms, versions)
+	}
+}
+
 // TestQuickStartRollback 注入中途失败 → 整体回滚（表内无残留）
 func TestQuickStartRollback(t *testing.T) {
 	// 构造缺失表（无 groups 表）的库 → 快速开始失败 → 无残留配置
@@ -221,5 +279,29 @@ func TestTrustProxyTiers(t *testing.T) {
 	req4.Header.Set("X-Forwarded-Host", "vpn.example.com")
 	if got := DeriveFrontendURL(req4, autoSvc.trustedForwarded(req4)); got != "http://inner" {
 		t.Errorf("auto 档公网来源应忽略转发头: %s", got)
+	}
+}
+
+// TestCompleteOidcSetupDoesNotWriteCallbackURL R31-05：OIDC Setup 只写 frontend_url，
+// 不再写独立 callback_url，默认走“前端地址 + 回调路径”推导。
+func TestCompleteOidcSetupDoesNotWriteCallbackURL(t *testing.T) {
+	_, svc := newTestSetupService(t)
+	ctx := context.Background()
+	req := httptest.NewRequest("POST", "http://vpn.example.com/api/setup/oidc", nil)
+	err := svc.CompleteOidcSetup(ctx, req, "generic", func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO system_config (key, value) VALUES ('oidc_params_generic', '{}')`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("CompleteOidcSetup 失败: %v", err)
+	}
+	frontend, _ := svc.cfg.Get(ctx, config.KeyFrontendURL)
+	if frontend != "http://vpn.example.com" {
+		t.Fatalf("frontend_url 推导异常: %q", frontend)
+	}
+	callback, _ := svc.cfg.Get(ctx, config.KeyCallbackURL)
+	if callback != "" {
+		t.Fatalf("Setup 不应写入独立 callback_url: %q", callback)
 	}
 }

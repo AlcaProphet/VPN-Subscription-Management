@@ -51,6 +51,16 @@ func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 			return
 		}
 		providerType := h.cfg.GetOr(ctx, oidc.KeyProviderType)
+		oidcConfigured := h.oidcSvc.IsConfigured(ctx) && providerType != ""
+		if !oidcConfigured {
+			// R31-07：停用/未启用时不把保留的 provider 误报为可用登录能力。
+			providerType = ""
+		}
+		if mode != "dev" && providerType == "mock" {
+			// R31-06：Production 不把模拟 OIDC 呈现为可用登录方式；历史参数仅管理端可见。
+			oidcConfigured = false
+			providerType = ""
+		}
 		captchaProvider := h.cfg.GetOr(ctx, captcha.KeyProvider)
 		siteKey := h.cfg.GetOr(ctx, captcha.KeySiteKey)
 		// 应急标记（Build3 Step 6）：应急模式下 true + 触发原因 + 可用能力
@@ -81,8 +91,8 @@ func (h *StatusHandler) handle(mode string) gin.HandlerFunc {
 			"allow_local_login":    h.cfg.GetBool(ctx, config.KeyAllowLocalLogin, true),
 			"allow_selfreg":        h.cfg.GetBool(ctx, config.KeyAllowSelfreg, false),
 			"user_table_empty":     empty, // 注册入口可见性所需，有意公开（Design1 §5.2）
-			"oidc_configured":      h.oidcSvc.IsConfigured(ctx),
-			"oidc_provider_type":   providerType, // 未配置时为空串
+			"oidc_configured":      oidcConfigured,
+			"oidc_provider_type":   providerType, // 未配置或 Production mock 被停用时为空串
 			// 验证码字段（供前端渲染验证码组件；secret_key 禁止返回）
 			"captcha_provider": captchaProvider,
 			"captcha_site_key": siteKey,

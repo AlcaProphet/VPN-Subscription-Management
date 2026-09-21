@@ -14,6 +14,7 @@ import (
 	"vpn-sub/internal/auth"
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/mail"
 	"vpn-sub/internal/store"
 	"vpn-sub/internal/token"
 	"vpn-sub/internal/version"
@@ -102,6 +103,7 @@ func newTestAdminService(t *testing.T) (*store.Store, *AdminService, *token.Serv
 	users := NewService(st, cfg, lg)
 	tokenSvc := token.NewService(st, lg)
 	resetSvc := auth.NewResetService(st, users, lg)
+	resetSvc.SetMailer(defaultTestResetMailer())
 	dataDir := t.TempDir()
 	verSvc := version.NewService(st, dataDir, lg)
 	adminSvc := NewAdminService(st, users, tokenSvc, resetSvc, cfg, verSvc, lg)
@@ -150,7 +152,7 @@ func TestAdminSelfOperation(t *testing.T) {
 	if _, err := adminSvc.ResetPasswordDirect(ctx, adminID, adminID); !errors.Is(err, ErrSelfOperation) {
 		t.Errorf("重置自己密码应拒绝: %v", err)
 	}
-	if err := adminSvc.ResetPasswordByEmail(ctx, adminID, adminID); !errors.Is(err, ErrSelfOperation) {
+	if _, err := adminSvc.ResetPasswordByEmail(ctx, adminID, adminID); !errors.Is(err, ErrSelfOperation) {
 		t.Errorf("邮件重置自己密码应拒绝: %v", err)
 	}
 }
@@ -311,14 +313,14 @@ func TestAdminResetPendingRejected(t *testing.T) {
 	if _, err := adminSvc.ResetPasswordDirect(ctx, adminID, pendingID); !errors.Is(err, ErrPendingNotAllowed) {
 		t.Errorf("待审批直接重置应拒绝: %v", err)
 	}
-	if err := adminSvc.ResetPasswordByEmail(ctx, adminID, pendingID); !errors.Is(err, ErrPendingNotAllowed) {
+	if _, err := adminSvc.ResetPasswordByEmail(ctx, adminID, pendingID); !errors.Is(err, ErrPendingNotAllowed) {
 		t.Errorf("待审批邮件重置应拒绝: %v", err)
 	}
 }
 
-// TestAdminBatchSendLinks 批量发链接筛选：合格/待审批/禁用/无邮箱四类计数；SMTP 未配置拒绝
+// TestAdminBatchSendLinks 批量提交筛选：合格/待审批/禁用/无邮箱计数；全局不可用时计入 skipped_unavailable。
 func TestAdminBatchSendLinks(t *testing.T) {
-	st, adminSvc, _, _, _ := newTestAdminService(t)
+	st, adminSvc, _, resetSvc, _ := newTestAdminService(t)
 	ctx := context.Background()
 	seedUser(t, st.DB(), "ok", "ok@example.com", "user", "active", "")
 	seedUser(t, st.DB(), "pending", "pending@example.com", "user", "pending", "")
@@ -328,19 +330,60 @@ func TestAdminBatchSendLinks(t *testing.T) {
 		t.Fatalf("插入无邮箱用户失败: %v", err)
 	}
 
-	// SMTP 未配置：返回错误（前端置灰依据）
-	if _, _, _, _, err := adminSvc.BatchSendPasswordLinks(ctx); !errors.Is(err, ErrSMTPNotConfigured) {
-		t.Errorf("SMTP 未配置应拒绝: %v", err)
+	// 全局不可用：不报错，符合单用户前置的账号计入 skipped_unavailable。
+	resetSvc.SetMailer(&userTestMailer{available: false, reason: mail.ReasonConfigUnavailable})
+	out, err := adminSvc.BatchSendPasswordLinks(ctx)
+	if err != nil {
+		t.Fatalf("批量不可用查询不应报错: %v", err)
 	}
-	seedSMTP(t, st)
+	if out.Queued != 0 || out.SkippedUnavailable != 1 || out.SkippedPending != 1 || out.SkippedDisabled != 1 || out.SkippedNoEmail != 1 {
+		t.Fatalf("不可用计数异常: %+v", out)
+	}
 
-	sent, skippedPending, skippedDisabled, skippedNoEmail, err := adminSvc.BatchSendPasswordLinks(ctx)
+	// 可用：合格账号计入 queued，其余仍按类别跳过。
+	resetSvc.SetMailer(defaultTestResetMailer())
+	out, err = adminSvc.BatchSendPasswordLinks(ctx)
 	if err != nil {
 		t.Fatalf("批量发送失败: %v", err)
 	}
-	if sent != 1 || skippedPending != 1 || skippedDisabled != 1 || skippedNoEmail != 1 {
-		t.Errorf("筛选计数异常: sent=%d pending=%d disabled=%d noemail=%d",
-			sent, skippedPending, skippedDisabled, skippedNoEmail)
+	if out.Queued != 1 || out.SkippedPending != 1 || out.SkippedDisabled != 1 || out.SkippedNoEmail != 1 {
+		t.Errorf("筛选计数异常: %+v", out)
+	}
+}
+
+// TestAdminBatchSendLinksRejectedReasons queue_failed 只统计队列满/派发器不可用；严格配置读取失败等拒绝归 failed。
+func TestAdminBatchSendLinksRejectedReasons(t *testing.T) {
+	tests := []struct {
+		name          string
+		reason        mail.DispatchReason
+		wantQueueFail int
+		wantFailed    int
+	}{
+		{name: "queue_full", reason: mail.ReasonQueueFull, wantQueueFail: 1, wantFailed: 0},
+		{name: "dispatcher_unavailable", reason: mail.ReasonDispatcherUnavailable, wantQueueFail: 1, wantFailed: 0},
+		{name: "config_read_failed", reason: mail.ReasonConfigReadFailed, wantQueueFail: 0, wantFailed: 1},
+		{name: "unknown_reason", reason: mail.DispatchReason("unknown"), wantQueueFail: 0, wantFailed: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st, adminSvc, _, resetSvc, _ := newTestAdminService(t)
+			seedUser(t, st.DB(), "batch-reason", "batch-reason@example.com", "user", "active", "")
+			resetSvc.SetMailer(&userTestMailer{
+				available: true,
+				result:    mail.DispatchResult{Status: mail.DispatchRejected, Reason: tc.reason, LogID: 1},
+			})
+			out, err := adminSvc.BatchSendPasswordLinks(context.Background())
+			if err != nil {
+				t.Fatalf("批量提交不应报错: %v", err)
+			}
+			if out.QueueFailed != tc.wantQueueFail || out.Failed != tc.wantFailed {
+				t.Fatalf("分类计数异常: got queue_failed=%d failed=%d, want queue_failed=%d failed=%d",
+					out.QueueFailed, out.Failed, tc.wantQueueFail, tc.wantFailed)
+			}
+			if out.Queued != 0 || out.SkippedUnavailable != 0 {
+				t.Fatalf("其余计数异常: %+v", out)
+			}
+		})
 	}
 }
 
@@ -529,5 +572,24 @@ func TestAdminListNoSyncError(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].SyncError != "" {
 		t.Errorf("SyncError 应为空串: %+v", list)
+	}
+}
+
+// TestAdminCreateWelcomePassesUserID 管理员创建用户首次激活时必须把用户 ID 传给欢迎邮件入口。
+func TestAdminCreateWelcomePassesUserID(t *testing.T) {
+	_, adminSvc, _, _, _ := newTestAdminService(t)
+	ctx := context.Background()
+	var gotID int64
+	var gotTo, gotSource string
+	adminSvc.users.SetWelcomeSender(func(_ context.Context, userID int64, to, source string) mail.DispatchResult {
+		gotID, gotTo, gotSource = userID, to, source
+		return mail.DispatchResult{Status: mail.DispatchQueued, LogID: 1}
+	})
+	created, err := adminSvc.Create(ctx, "admin-create", "admin-create@example.com", "password123")
+	if err != nil {
+		t.Fatalf("管理员创建用户失败: %v", err)
+	}
+	if gotID != created.ID || gotTo != "admin-create@example.com" || gotSource != "local" {
+		t.Fatalf("管理员创建欢迎回调异常: id=%d to=%q source=%q", gotID, gotTo, gotSource)
 	}
 }

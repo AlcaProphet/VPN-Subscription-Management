@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"net/http"
@@ -11,15 +12,23 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpn-sub/internal/config"
+	"vpn-sub/internal/log"
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/proxytrust"
 )
 
+// mailAvailability 供 settings GET /smtp 读取邮件领域统一可用性结果。
+type mailAvailability interface {
+	PasswordResetAvailable(ctx context.Context) (bool, error)
+}
+
 // SettingsHandler 面板配置处理器（结构体 Handler + 依赖注入）
 type SettingsHandler struct {
-	adminCfg   *config.AdminService
-	oidcSvc    *oidc.Service
-	trustProxy *proxytrust.Policy // TRUST_PROXY 策略（速率限制分区展示生效值）
+	adminCfg         *config.AdminService
+	oidcSvc          *oidc.Service
+	trustProxy       *proxytrust.Policy // TRUST_PROXY 策略（速率限制分区展示生效值）
+	mailTemplates    mailTemplateService
+	mailAvailability mailAvailability
 }
 
 // oidcOpsAdapter 将 oidc.Service 适配为 config.OidcOps 接口（config 包避免循环依赖）
@@ -40,6 +49,19 @@ func (a oidcOpsAdapter) LoadParams(ctx context.Context, providerType string) (st
 	}
 	return p.BaseURL, p.Realm, p.ClientID, p.ClientSecret, nil
 }
+func (a oidcOpsAdapter) DescribeParams(ctx context.Context, providerType string) (config.OidcParamsState, error) {
+	return a.svc.DescribeParams(ctx, providerType)
+}
+
+func (a oidcOpsAdapter) SaveParamsTx(ctx context.Context, tx *sql.Tx, providerType, baseURL, realm, clientID, clientSecret string) error {
+	return a.svc.SaveParamsTx(ctx, tx, providerType, oidc.Params{
+		BaseURL: baseURL, Realm: realm, ClientID: clientID, ClientSecret: clientSecret,
+	})
+}
+
+func (a oidcOpsAdapter) DescribeParamsTx(ctx context.Context, tx *sql.Tx, providerType string) (config.OidcParamsState, error) {
+	return a.svc.DescribeParamsTx(ctx, tx, providerType)
+}
 
 func (a oidcOpsAdapter) IsConfigured(ctx context.Context) bool {
 	return a.svc.IsConfigured(ctx)
@@ -51,10 +73,13 @@ func (a oidcOpsAdapter) ClearDiscCache() {
 
 // RegisterSettingsRoutes 注册面板配置端点；按分区独立 GET/PUT（不聚合）
 func RegisterSettingsRoutes(engine *gin.Engine, h *SettingsHandler, sessionMW, adminMW gin.HandlerFunc) {
+	// 邮件模板 API 需要 no-store 先于 session/admin，单独注册分组。
+	registerMailTemplateRoutes(engine, h, sessionMW, adminMW)
 	g := engine.Group("/api/admin/settings", sessionMW, adminMW)
 	g.GET("/oidc", h.getOidc)
 	g.PUT("/oidc", h.saveOidc)
-	g.DELETE("/oidc", h.clearOidc) // 清空 OIDC 配置（二次确认前端负责）
+	g.POST("/oidc/disable", h.disableOidc) // R31-07：保存停用（保留 provider/参数，仅关闭生效状态）
+	g.DELETE("/oidc", h.clearOidc)         // 清空 OIDC 配置（二次确认前端负责）
 	g.GET("/oidc-rules", h.getOidcRules)
 	g.PUT("/oidc-rules", h.saveOidcRules)
 	g.GET("/local-auth", h.getLocalAuth)
@@ -86,7 +111,17 @@ func RegisterSettingsRoutes(engine *gin.Engine, h *SettingsHandler, sessionMW, a
 // --- OIDC 配置分区 ---
 
 func (h *SettingsHandler) getOidc(c *gin.Context) {
-	out, err := h.adminCfg.GetOidc(c.Request.Context())
+	ctx := c.Request.Context()
+	if providerType := c.Query("provider_type"); providerType != "" {
+		out, err := h.adminCfg.GetOidcForProvider(ctx, providerType)
+		if err != nil {
+			mapSettingsErr(c, err)
+			return
+		}
+		OK(c, out)
+		return
+	}
+	out, err := h.adminCfg.GetOidc(ctx)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
@@ -104,9 +139,17 @@ func (h *SettingsHandler) saveOidc(c *gin.Context) {
 		mapSettingsErr(c, err)
 		return
 	}
-	// 前端地址/回调地址修改需重启容器生效（启动缓存语义）
-	needRestart := in.FrontendURL != "" || in.CallbackURL != ""
-	OK(c, gin.H{"need_restart": needRestart})
+	// R31-05：前端地址/独立回调地址保存后即时生效，不再返回 need_restart。
+	OK(c, nil)
+}
+
+// disableOidc R31-07：持久化停用入口，与 ClearOidc（删除全部参数）严格区分。
+func (h *SettingsHandler) disableOidc(c *gin.Context) {
+	if err := h.adminCfg.DisableOidc(c.Request.Context()); err != nil {
+		mapSettingsErr(c, err)
+		return
+	}
+	OK(c, nil)
 }
 
 func (h *SettingsHandler) clearOidc(c *gin.Context) {
@@ -208,7 +251,17 @@ func (h *SettingsHandler) saveCaptcha(c *gin.Context) {
 // --- SMTP 分区 ---
 
 func (h *SettingsHandler) getSMTP(c *gin.Context) {
-	OK(c, h.adminCfg.GetSMTP(c.Request.Context()))
+	ctx := c.Request.Context()
+	out := h.adminCfg.GetSMTP(ctx)
+	if h.mailAvailability != nil {
+		available, err := h.mailAvailability.PasswordResetAvailable(ctx)
+		if err != nil {
+			log.FromContext(ctx).Warn("读取密码重置邮件可用性失败，按不可用展示", "err", err)
+		} else {
+			out.PasswordResetAvailable = available
+		}
+	}
+	OK(c, out)
 }
 
 func (h *SettingsHandler) saveSMTP(c *gin.Context) {
@@ -392,11 +445,14 @@ func (h *SettingsHandler) saveAdvanced(c *gin.Context) {
 	OK(c, gin.H{"message": "高级模式设置已保存"})
 }
 
-// mapSettingsErr 面板配置错误映射：参数类 → 400（含死锁/验证码密钥缺失提示）
+// mapSettingsErr 面板配置错误映射：参数类 → 400（含死锁/验证码密钥缺失提示）；
+// signing_key 故障使用固定安全 503，不向响应泄露底层错误细节。
 func mapSettingsErr(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, config.ErrSigningKeyUnavailable):
+		FailSanitized(c, http.StatusServiceUnavailable, config.OidcSigningKeyFaultPublicMessage, err)
 	case errors.Is(err, config.ErrBadRequest), errors.Is(err, config.ErrAuthDeadlock),
-		errors.Is(err, config.ErrCaptchaKeyMissing):
+		errors.Is(err, config.ErrCaptchaKeyMissing), errors.Is(err, config.ErrMockModeRestricted):
 		Fail(c, http.StatusBadRequest, err.Error())
 	default:
 		Fail(c, http.StatusInternalServerError, err.Error())

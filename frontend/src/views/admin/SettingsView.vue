@@ -7,7 +7,7 @@ import {
   Alert, Button, Card, Checkbox, Input, InputNumber, Modal, Radio, Space, Switch, Tag, Upload,
 } from 'ant-design-vue'
 import {
-  getOidc, saveOidc, clearOidc, testOidc, getOidcRules, saveOidcRules, getLocalAuth, saveLocalAuth,
+  getOidc, saveOidc, disableOidc, clearOidc, testOidc, getOidcRules, saveOidcRules, getLocalAuth, saveLocalAuth,
   getCaptcha, saveCaptcha, getSMTP, saveSMTP, testSMTP, getSite, saveSite, deleteSiteIcon,
   getRateLimit, saveRateLimit, getLogLevel, saveLogLevel, getAnnouncement, saveAnnouncement,
   getDebug, saveDebug, exportConfig, importConfig, clearAll, downloadBackup,
@@ -23,17 +23,18 @@ import { ApiError } from '@/api/request'
 import { importFileError } from '@/utils/fileLimits'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import MailTemplateCard from '@/components/settings/MailTemplateCard.vue'
 import { Notify } from '@/components/Notify'
 
 const system = useSystemStore()
 const auth = useAuthStore()
 const router = useRouter()
-const isProd = ref(system.status?.app_mode === 'prod')
+const isProd = computed(() => system.status?.app_mode === 'prod')
 
 // --- 六大设置分组：桌面左侧导航，手机顶部 Select。 ---
 const settingGroups = [
   { key: 'identity', title: '身份与访问', description: 'OIDC、本地认证与验证码' },
-  { key: 'notifications', title: '通知', description: '邮件发送设置与测试' },
+  { key: 'notifications', title: '通知', description: '邮件发送设置、测试与邮件内容' },
   { key: 'content', title: '外观与内容', description: '站点信息、公告与页脚' },
   { key: 'runtime', title: '运行与安全', description: '运行模式、高级模式、限流与日志' },
   { key: 'data', title: '数据管理', description: '导入导出与备份' },
@@ -57,6 +58,14 @@ function markSaved(key: string) {
   next.delete(key)
   dirtyParts.value = next
 }
+// 邮件模板组件自行完成首次加载，dirty 事件必须绕过 settingsLoaded/suppressDirty 门槛，
+// 否则父页其他设置仍在加载时会吞掉模板草稿状态。
+function onMailTemplateDirtyChange(dirty: boolean) {
+  const next = new Set(dirtyParts.value)
+  if (dirty) next.add('mail-template')
+  else next.delete('mail-template')
+  dirtyParts.value = next
+}
 async function reloadClean(key: string, loader: () => Promise<void>) {
   suppressDirty.value = true
   try {
@@ -69,68 +78,259 @@ async function reloadClean(key: string, loader: () => Promise<void>) {
 }
 
 // --- OIDC 配置 ---
-const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '' })
+const oidc = reactive<OidcSettings>({ provider_type: 'generic', base_url: '', realm: '', client_id: '', client_secret: '', client_secret_configured: false, frontend_url: '', callback_url: '', params_state: undefined, params_damaged: false, params_warning: '' })
+const oidcEnabled = ref(false) // 后端当前生效启用状态；与下拉草稿分开
+const oidcSelection = ref('off') // 下拉选择：'off' 或具体 provider；选择 off 时仍保留 oidc.provider_type 供展示
 const oidcSaving = ref(false)
+const oidcTargetLoading = ref(false)
 const oidcTest = ref<{ ok: boolean; message: string; warnings?: string[] } | null>(null)
-const providerOptions = [
-  { label: '暂未启用（本地账号模式）', value: 'off' }, // R10-08：off 为前端显示值，映射 provider_type 空串（未配置）
-  { label: 'Keycloak', value: 'keycloak' },
-  { label: 'Auth0', value: 'auth0' },
-  { label: 'Generic OIDC', value: 'generic' },
-  { label: 'Mock（仅 Dev）', value: 'mock' },
-]
+const clearCallbackURL = ref(false)
+const oidcCallbackPath = '/api/auth/oidc/callback'
+// 未设置独立回调时的推导值；独立值优先，供管理员核对实际 redirect_uri。
+const derivedCallbackURL = computed(() => {
+  const base = (oidc.frontend_url || '').replace(/\/+$/, '')
+  return base ? base + oidcCallbackPath : ''
+})
+const effectiveCallbackURL = computed(() => oidc.callback_url || derivedCallbackURL.value)
+// 独立 callback_url 与前端地址 host/scheme 不一致时提示 state Cookie 边界，不阻断保存。
+const callbackHostWarning = computed(() => {
+  if (!oidc.callback_url) return ''
+  try {
+    const callback = new URL(oidc.callback_url)
+    const frontend = oidc.frontend_url ? new URL(oidc.frontend_url) : null
+    if (!frontend) return ''
+    const hostMismatch = callback.host !== frontend.host
+    const schemeDowngrade = frontend.protocol === 'https:' && callback.protocol !== 'https:'
+    if (hostMismatch || schemeDowngrade) {
+      const reason = hostMismatch
+        ? `host 不一致（${callback.host} ≠ ${frontend.host}）`
+        : '回调 scheme 非 HTTPS 而前端地址为 HTTPS'
+      return `独立回调地址与前端地址 ${reason}：state Cookie 仅限发起登录的 host，HTTPS 前端下的 Secure Cookie 也不会随 HTTP 回调发送；实际登录必须从回调地址所在 host/协议发起，否则回调会因 state 不匹配失败。`
+    }
+  } catch {
+    return ''
+  }
+  return ''
+})
+const providerOptions = computed(() => {
+  const opts = [
+    { label: '暂未启用（本地账号模式）', value: 'off' }, // R10-08：off 为前端显示值，映射 provider_type 空串（未配置）
+    { label: 'Keycloak', value: 'keycloak' },
+    { label: 'Auth0', value: 'auth0' },
+    { label: 'Generic OIDC', value: 'generic' },
+  ]
+  // R31-06：Production 下 Mock 只读保留已有选择，不再作为可选启用项。
+  if (!isProd.value || oidc.provider_type === 'mock') {
+    opts.push({
+      label: isProd.value ? 'Mock（生产不可用）' : 'Mock（仅 Dev）',
+      value: 'mock',
+      disabled: isProd.value,
+    } as any)
+  }
+  return opts
+})
+// 当前提供商参数基线：用于判断“切离时是否有该提供商的未保存草稿”。
+// frontend_url / callback_url 是站点级字段，不进入该基线、切换时保留。
+let oidcBaseline = { provider_type: '', base_url: '', realm: '', client_id: '' }
+let oidcLoadSeq = 0
+function captureOidcBaseline() {
+  oidcBaseline = {
+    provider_type: oidc.provider_type,
+    base_url: oidc.base_url,
+    realm: oidc.realm,
+    client_id: oidc.client_id,
+  }
+}
+function hasProviderDraft() {
+  return oidc.client_secret !== ''
+    || oidc.provider_type !== oidcBaseline.provider_type
+    || oidc.base_url !== oidcBaseline.base_url
+    || oidc.realm !== oidcBaseline.realm
+    || oidc.client_id !== oidcBaseline.client_id
+}
 async function loadOidc() {
   try {
     const res = await getOidc()
+    oidcEnabled.value = res.enabled !== false // 兼容未返回 enabled 的旧响应/缓存，仅显式 false 视为停用
+    // 停用时仍保留 provider/参数；下拉回到 off，但页面用 oidc.provider_type 展示保留的提供商。
+    oidcSelection.value = oidcEnabled.value ? (res.provider_type || 'off') : 'off'
     Object.assign(oidc, res)
     // Secret 输入值始终为空；只有 client_secret_configured 表示当前提供商已存可用 Secret。
     oidc.client_secret = ''
     oidc.client_secret_configured = res.client_secret_configured === true
+    // 当前生效提供商 GET 不返回目标损坏字段；显式归零，避免残留上一次目标读取的提示。
+    oidc.params_state = res.params_state
+    oidc.params_damaged = res.params_damaged === true
+    oidc.params_warning = res.params_warning || ''
+    clearCallbackURL.value = false
+    captureOidcBaseline()
   } catch (err) {
     Notify.error((err as Error).message)
   }
 }
 // OIDC 字段随提供商动态显隐（R10-02）：Auth0 用 Domain 标识；Realm 仅 Keycloak 适用；Mock 无参数
 const isMockProvider = computed(() => oidc.provider_type === 'mock')
+// R31-06：Production 下历史 mock 配置只读保留，禁止保存/测试并在界面提示切换真实提供商。
+const mockBlocked = computed(() => isProd.value && isMockProvider.value)
 const urlLabel = computed(() => (oidc.provider_type === 'auth0' ? 'Domain' : 'Base URL'))
 const urlPlaceholder = computed(() => (oidc.provider_type === 'auth0' ? 'your-tenant.auth0.com' : 'https://idp.example.com'))
 const showRealm = computed(() => oidc.provider_type === 'keycloak')
-// 切换提供商：写入类型并清空不适用字段（realm 仅 Keycloak 适用；残留会导致 Auth0/通用发现文档 URL 拼接错误）；
-// Secret 状态只对当前已加载提供商有效，切换后先按未配置显示，保存并重新加载后再以目标提供商实际状态为准。
-function applyProvider(v: string) {
-  oidc.provider_type = v
+// 兼容未返回 params_state 的旧响应：按损坏标记/已配置状态降级推断，避免旧测试与缓存响应失效。
+const oidcState = computed(() => oidc.params_state
+  || (oidc.params_damaged ? 'secret_damaged' : (oidc.client_secret_configured ? 'usable' : 'not_configured')))
+const oidcKeyFault = computed(() => oidcState.value === 'signing_key_fault')
+const oidcStateAlert = computed(() => oidc.params_warning || (() => {
+  switch (oidcState.value) {
+    case 'not_configured': return '当前提供商尚未保存 OIDC 参数，请填写必要参数并输入新的 Client Secret 后保存'
+    case 'missing_secret': return '已存 OIDC 参数尚未配置可用 Client Secret，请填写新的 Client Secret 后保存'
+    case 'json_damaged': return '已存 OIDC 参数 JSON 无法解析，请重新填写必要的 Base URL/Realm/Client ID 并输入新的 Client Secret 后保存'
+    case 'secret_damaged': return '已存 Client Secret 损坏或为脱敏占位符，请输入新的 Client Secret 后保存'
+    case 'signing_key_fault': return '系统签名密钥缺失或不可读取，当前无法校验或保存 OIDC 凭据；请通过备份恢复或应急初始化处理，不要在此重填 Secret'
+    default: return ''
+  }
+})())
+const secretHint = computed(() => {
+  switch (oidcState.value) {
+    case 'usable':
+      return '已保存 Secret 不会回显；留空仅在目标提供商的 Base URL/Realm/Client ID 与已存配置完全一致且已有可用 Secret 时保持原值，否则保存会被拒绝，需输入新 Secret。'
+    case 'missing_secret':
+      return '该提供商尚未配置可用 Client Secret，必须输入新的 Client Secret 后保存。'
+    case 'json_damaged':
+      return '已存参数 JSON 损坏，请重新填写必要的 Base URL/Realm/Client ID 并输入新的 Client Secret 后保存。'
+    case 'secret_damaged':
+      return '已存 Client Secret 损坏或为脱敏占位符，必须输入新的 Client Secret 后保存。'
+    case 'signing_key_fault':
+      return '系统签名密钥不可用，OIDC 配置无法校验或保存；请先按备份恢复或应急初始化处理，不要通过重填 Secret 尝试恢复。'
+    default:
+      return '尚未保存 OIDC 参数，请填写必要参数并输入新的 Client Secret 后保存。'
+  }
+})
+const secretPlaceholder = computed(() => {
+  if (oidcKeyFault.value) return '系统签名密钥不可用，已阻断重填'
+  return oidcState.value === 'usable'
+    ? '留空保持原值；输入新 Secret 后保存替换'
+    : '必须输入新的 Client Secret'
+})
+// R31-07：选择“暂未启用”只形成页面草稿；保存停用走独立入口，不清空 oidc.provider_type，
+// 以便停用态仍展示保留的提供商。
+// 目标提供商读取成功后整体替换提供商字段，避免异步返回期间出现“目标 provider + 源字段”的中间态。
+function applyOidcTarget(providerType: string, res: OidcSettings) {
+  oidc.provider_type = providerType
+  oidcSelection.value = providerType
+  oidc.base_url = res.base_url || ''
+  oidc.realm = res.realm || ''
+  oidc.client_id = res.client_id || ''
   oidc.client_secret = ''
-  oidc.client_secret_configured = false
+  oidc.client_secret_configured = res.client_secret_configured === true
+  oidc.params_state = res.params_state
+  oidc.params_damaged = res.params_damaged === true
+  oidc.params_warning = res.params_warning || ''
+  // clearCallbackURL 属于站点级回调地址草稿，切换提供商必须保留；只重新读取目标提供商的参数字段。
   oidcTest.value = null
-  if (v !== 'keycloak') oidc.realm = ''
+  captureOidcBaseline()
 }
-// onProviderChange：'off'（暂未启用）映射为空串；首次配置直接生效，启用态之间切换需确认（含切到暂未启用——R10-08）
+async function loadOidcTarget(providerType: string) {
+  const seq = ++oidcLoadSeq
+  oidcTargetLoading.value = true
+  try {
+    const res = await getOidc(providerType)
+    if (seq !== oidcLoadSeq) return // 过期响应丢弃
+    applyOidcTarget(providerType, res)
+  } catch (err) {
+    if (seq === oidcLoadSeq) Notify.error((err as Error).message)
+  } finally {
+    if (seq === oidcLoadSeq) oidcTargetLoading.value = false
+  }
+}
+// onProviderChange：'off'（暂未启用）只改页面草稿；启用态之间切换需确认；停用态选择 provider 仅加载目标字段，保存成功后才重新启用。
 function onProviderChange(v: any) {
   const target = v === 'off' ? '' : v
-  if (target === oidc.provider_type) return
-  if (oidc.provider_type === '') {
-    applyProvider(target) // 首次配置：直接生效
+  if (target === oidcSelection.value) return
+  if (oidcSelection.value === 'off') {
+    if (target === '') return
+    // R31-07：已启用状态下选择“暂未启用”只是未保存草稿；切回提供商须提示丢弃，不能静默覆盖草稿状态。
+    if (oidcEnabled.value) {
+      Modal.confirm({
+        title: '丢弃未保存的停用草稿？',
+        content: '当前“暂未启用”尚未保存，切换提供商将丢弃该停用草稿，OIDC 不会自动停用。',
+        okText: '继续切换',
+        cancelText: '取消',
+        onOk: async () => {
+          await loadOidcTarget(target)
+        },
+      })
+      return
+    }
+    void loadOidcTarget(target)
     return
   }
+  const draftWarning = hasProviderDraft()
+    ? '当前提供商的未保存参数草稿将被丢弃（前端地址/回调地址保留）。'
+    : ''
   Modal.confirm({
-    title: '切换提供商类型',
+    title: target === '' ? '保存停用草稿' : '切换提供商类型',
     content: target === ''
-      ? '切换为暂未启用将停用 OIDC 登录，已绑定 OIDC 身份的账号将无法通过 OIDC 登录（本地密码登录不受影响）。确定？'
-      : '已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后地址/Client ID 保留，Client Secret 输入框清空；留空保存会保留目标提供商此前已存 Secret（如有），Realm 为 Keycloak 专用、切换后自动清空。',
-    okText: '继续切换',
+      ? `选择“暂未启用”只形成页面草稿，不会立即停用；点击“保存停用”后 OIDC 登录与绑定才会关闭。提供商参数与已有绑定会保留，现有会话继续有效。${draftWarning}`
+      : `已绑定旧提供商 OIDC 身份的用户在新提供商下登录将失效，建议先为相关管理员设置本地密码。切换后将读取目标提供商自己的 Base URL/Realm/Client ID；目标未配置则清空。Client Secret 输入框始终清空，留空仅在目标字段与已存配置完全一致且已有可用 Secret 时可复用，否则必须输入新 Secret。${draftWarning}`,
+    okText: target === '' ? '保留草稿' : '继续切换',
     cancelText: '取消',
-    onOk: () => applyProvider(target),
+    onOk: async () => {
+      if (target === '') {
+        oidcSelection.value = 'off'
+        markDirty('oidc')
+        return
+      }
+      await loadOidcTarget(target)
+    },
   })
 }
+// markClearCallback：显式清除独立回调地址；空 callback_url 本身仍表示不修改，必须由该标记驱动。
+function markClearCallback() {
+  Modal.confirm({
+    title: '恢复跟随前端地址',
+    content: '保存后将清除已保存的独立回调地址，改用“前端地址 + /api/auth/oidc/callback”推导。进行中的 OIDC 授权仍使用原地址。',
+    okText: '标记清除',
+    cancelText: '取消',
+    onOk: () => {
+      oidc.callback_url = ''
+      clearCallbackURL.value = true
+      markDirty('oidc')
+    },
+  })
+}
+
+// 手动编辑独立回调地址即取消待清除标记。
+function onCallbackInput() {
+  clearCallbackURL.value = false
+}
+
 async function doSaveOidc() {
+  if (oidcSelection.value === 'off') {
+    oidcSaving.value = true
+    try {
+      await disableOidc()
+      Notify.success('OIDC 已停用，提供商参数与已有绑定已保留；现有会话继续有效')
+      await reloadClean('oidc', loadOidc)
+      await system.fetchStatus(true)
+    } catch (err) {
+      Notify.error((err as Error).message)
+    } finally {
+      oidcSaving.value = false
+    }
+    return
+  }
+  if (mockBlocked.value) {
+    Notify.error('生产模式不支持模拟 OIDC，请切换到真实提供商')
+    return
+  }
+  if (oidcTargetLoading.value || oidcKeyFault.value) return
   oidcSaving.value = true
   try {
-    const res = await saveOidc({ ...oidc })
-    Notify.success('OIDC 配置已保存')
-    if (res.need_restart) {
-      Modal.warning({ title: '需重启容器生效', content: '前端地址与回调地址修改后需重启容器生效，请同步核对两字段' })
-    }
+    await saveOidc({ ...oidc, clear_callback_url: clearCallbackURL.value })
+    Notify.success('OIDC 配置已保存，地址即时生效')
+    clearCallbackURL.value = false
     await reloadClean('oidc', loadOidc)
+    await system.fetchStatus(true)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -138,6 +338,12 @@ async function doSaveOidc() {
   }
 }
 async function doTestOidc() {
+  if (oidcSelection.value === 'off') return
+  if (mockBlocked.value) {
+    Notify.error('生产模式不支持模拟 OIDC，请切换到真实提供商')
+    return
+  }
+  if (oidcTargetLoading.value || oidcKeyFault.value) return
   oidcTest.value = null
   try {
     oidcTest.value = await testOidc({ ...oidc })
@@ -152,6 +358,7 @@ async function confirmClearOidc() {
     Notify.success('OIDC 配置已清空')
     clearOidcOpen.value = false
     await reloadClean('oidc', loadOidc)
+    await system.fetchStatus(true)
   } catch (err) {
     Notify.error((err as Error).message) // 本地登录已关时提示死锁
   }
@@ -245,7 +452,7 @@ async function doSaveCaptcha() {
 }
 
 // --- SMTP ---
-const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', password_configured: false, from: '', security: 'starttls', auth_required: true, configured: false, scopes: [] })
+const smtp = reactive<SMTPSettings>({ host: '', port: '587', user: '', password: '', password_configured: false, from: '', security: 'starttls', auth_required: true, configured: false, scopes: [], password_reset_available: false })
 const smtpSaving = ref(false)
 const smtpTesting = ref(false)
 const smtpTestTo = ref('')
@@ -285,7 +492,7 @@ async function doTestSMTP() {
   smtpTesting.value = true
   try {
     const result = await testSMTP(smtpTestTo.value.trim())
-    Notify.success(`测试邮件已发送至 ${result.to}，请查收`)
+    Notify.success(`SMTP 已接受测试邮件，已提交至 ${result.to}，请查收`)
   } catch (err) {
     Notify.error((err as Error).message)
   } finally {
@@ -575,7 +782,8 @@ async function submitImport(withDisable = true) {
     fd.append('disable_confirm_word', withDisable ? 'DISABLE' : '')
     const res = await importConfig(fd)
     disableImportOpen.value = false
-    let importHintText = '配置已整体覆盖（导出文件中不存在的配置键已清除）；前端地址与回调地址已按导出值覆盖，若域名/端口有变化请先核对修改（修改后需重启生效）。请立即重启容器后再重新登录。'
+    const importAftercare = '地址与 OIDC 配置即时生效；签名密钥替换后全部会话失效，请重新登录；如导入文件包含不同的日志级别/HTTP 超时等启动参数，重启容器后完全生效。'
+    let importHintText = '配置已整体覆盖（导出文件中不存在的配置键已清除）。' + importAftercare
     if (res.task_id) {
       const task = await pollTask({
         submit: () => Promise.resolve(),
@@ -588,8 +796,8 @@ async function submitImport(withDisable = true) {
       const result = (task.result ?? {}) as { hints?: string[] }
       const hints = result.hints ?? []
       importHintText = hints.length > 0
-        ? '配置已导入并完成异步处理，完成提示：\n' + hints.join('\n')
-        : '配置已导入并完成异步处理，请刷新页面后确认高级模式状态。'
+        ? '配置已导入并完成异步处理，完成提示：\n' + hints.join('\n') + '\n' + importAftercare
+        : '配置已导入并完成异步处理，请刷新页面后确认高级模式状态。' + importAftercare
     }
     Modal.warning({
       title: '导入完成',
@@ -660,6 +868,7 @@ async function doClearAll() {
 
 // 初始加载完成前不记录脏状态；之后每个独立保存分区都准确参与离开确认。
 watch(oidc, () => markDirty('oidc'), { deep: true })
+watch(oidcSelection, () => markDirty('oidc'))
 watch(oidcRules, () => markDirty('oidc-rules'), { deep: true })
 watch(localAuth, () => markDirty('local-auth'), { deep: true })
 watch(captcha, () => markDirty('captcha'), { deep: true })
@@ -715,48 +924,76 @@ onMounted(async () => {
           <div class="space-y-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">提供商类型</span>
-              <AppSelect class="flex-1" :value="oidc.provider_type || 'off'" :options="providerOptions" @change="onProviderChange" />
+              <AppSelect class="flex-1" :value="oidcSelection" :options="providerOptions" :disabled="oidcTargetLoading" @change="onProviderChange" />
             </div>
-            <!-- 未配置（暂未启用）：折叠全部配置框（R10-08） -->
-            <template v-if="oidc.provider_type">
+            <!-- 暂未启用（off）只折叠参数区；未保存草稿与已停用状态在下方单独展示。 -->
+            <template v-if="oidcSelection !== 'off'">
+              <Alert v-if="!oidcEnabled" type="info" show-icon
+                     message="保存后将重新启用 OIDC。请核对目标提供商参数与 Secret 状态后保存。" />
               <template v-if="!isMockProvider">
                 <div class="flex items-center gap-3">
                   <span class="w-24 text-sm">{{ urlLabel }}</span>
-                  <Input v-model:value="oidc.base_url" :placeholder="urlPlaceholder" />
+                  <Input v-model:value="oidc.base_url" :placeholder="urlPlaceholder" :disabled="oidcKeyFault" />
                 </div>
                 <div v-if="showRealm" class="flex items-center gap-3">
                   <span class="w-24 text-sm">Realm</span>
-                  <Input v-model:value="oidc.realm" placeholder="Keycloak 专用，如 master" />
+                  <Input v-model:value="oidc.realm" placeholder="Keycloak 专用，如 master" :disabled="oidcKeyFault" />
                 </div>
                 <div class="flex items-center gap-3">
                   <span class="w-24 text-sm">Client ID</span>
-                  <Input v-model:value="oidc.client_id" placeholder="客户端标识" />
+                  <Input v-model:value="oidc.client_id" placeholder="客户端标识" :disabled="oidcKeyFault" />
                 </div>
                 <div class="flex items-center gap-3">
                   <span class="w-24 text-sm">Client Secret <Tag v-if="oidc.client_secret_configured" color="success">已配置</Tag><Tag v-else>未配置</Tag></span>
-                  <Input.Password v-model:value="oidc.client_secret" autocomplete="new-password" placeholder="留空保持原值；输入新 Secret 后保存替换" />
+                  <Input.Password v-model:value="oidc.client_secret" autocomplete="new-password" :placeholder="secretPlaceholder" :disabled="oidcKeyFault" />
                 </div>
-                <p class="text-xs text-text-secondary">已保存 Secret 不会回显；输入留空保存保持原值，输入新 Secret 才替换。切换提供商后状态先按未配置显示，保存并重新加载后以目标提供商实际状态为准。</p>
+                <Alert v-if="oidcState !== 'usable'" :type="oidcKeyFault ? 'error' : 'warning'" show-icon
+                       :message="oidcStateAlert || '已存 OIDC 配置需要处理，请按提示重填后保存'" />
+                  <p class="text-xs text-text-secondary">{{ secretHint }}</p>
               </template>
-              <Alert v-else type="info" show-icon message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
+              <Alert v-else :type="mockBlocked ? 'error' : 'info'" show-icon
+                     :message="mockBlocked ? '生产模式不支持模拟 OIDC：历史参数已保留但登录入口已停用，请切换到真实提供商' : '模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单'" />
               <Alert type="info" show-icon message="接入提示" description="OIDC 回调要求公网可达的 HTTPS 域名，局域网直连模式可能无法完成回调" />
               <div class="flex items-center gap-3">
                 <span class="w-24 text-sm">前端地址</span>
                 <Input v-model:value="oidc.frontend_url" placeholder="https://app.example.com" />
               </div>
-              <div class="flex items-center gap-3">
-                <span class="w-24 text-sm">回调地址</span>
-                <Input v-model:value="oidc.callback_url" placeholder="https://app.example.com/api/auth/oidc/callback" />
+              <div class="flex items-start gap-3">
+                <span class="w-24 text-sm pt-1">回调地址</span>
+                <div class="flex-1 min-w-0 space-y-1">
+                  <div class="flex items-center gap-2">
+                    <Input v-model:value="oidc.callback_url" :placeholder="derivedCallbackURL || 'https://app.example.com/api/auth/oidc/callback'" @input="onCallbackInput" />
+                    <Button size="small" :disabled="!oidc.callback_url || oidcKeyFault" @click="markClearCallback">恢复推导</Button>
+                  </div>
+                  <p class="text-xs text-text-tertiary">
+                    当前生效回调：{{ effectiveCallbackURL || '未配置（请填写前端地址或独立回调地址）' }}<span v-if="clearCallbackURL">；已标记清除独立回调，保存后回退推导</span>
+                  </p>
+                </div>
               </div>
-              <Alert v-if="oidc.frontend_url || oidc.callback_url" type="warning" show-icon message="前端地址/回调地址修改后需重启容器生效" />
+              <Alert type="info" show-icon message="前端地址与回调地址保存后即时生效" />
+              <Alert v-if="callbackHostWarning" type="warning" show-icon :message="callbackHostWarning" />
               <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" :description="oidcTest.warnings?.length ? oidcTest.warnings.join('；') : undefined" />
               <Space>
-                <Button type="primary" :loading="oidcSaving" @click="doSaveOidc">保存</Button>
-                <Button @click="doTestOidc">测试连接</Button>
-                <Button danger @click="clearOidcOpen = true">清空 OIDC 配置</Button>
+                <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading || oidcKeyFault || mockBlocked" @click="doSaveOidc">保存</Button>
+                <Button :disabled="oidcTargetLoading || oidcKeyFault || mockBlocked" @click="doTestOidc">测试连接</Button>
+                <Button danger :disabled="oidcTargetLoading" @click="clearOidcOpen = true">清空 OIDC 配置</Button>
               </Space>
             </template>
-            <Alert v-else type="info" show-icon message="暂未启用 OIDC：保持本地账号模式，或选择上方提供商开始配置" />
+            <template v-else>
+              <Alert v-if="oidcEnabled" type="warning" show-icon
+                     message="尚未保存停用：点击“保存停用”后，新的 OIDC 登录与绑定将关闭；提供商参数与已有绑定保留，现有会话继续有效。" />
+              <Alert v-else type="info" show-icon
+                     :message="oidc.provider_type
+                       ? `OIDC 已停用。已保留提供商：${oidc.provider_type}；选择提供商并保存后重新启用。`
+                       : '暂未启用 OIDC：保持本地账号模式，或选择上方提供商开始配置。'" />
+              <div v-if="oidcEnabled" class="flex items-center gap-2">
+                <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading" @click="doSaveOidc">保存停用</Button>
+                <Button :disabled="oidcTargetLoading" @click="oidcSelection = oidc.provider_type || 'off'">取消草稿</Button>
+              </div>
+              <Space v-else>
+                <Button v-if="oidc.provider_type" danger :disabled="oidcTargetLoading" @click="clearOidcOpen = true">清空 OIDC 配置</Button>
+              </Space>
+            </template>
           </div>
         </Card>
 
@@ -888,6 +1125,10 @@ onMounted(async () => {
             </div>
           </div>
         </Card>
+
+        <!-- 邮件内容：独立卡片，位于 SMTP 设置与测试区之后 -->
+        <MailTemplateCard v-show="isGroupVisible('notifications')" @dirty-change="onMailTemplateDirtyChange" />
+
 
         <!-- 站点信息 -->
         <Card v-show="isGroupVisible('content')" id="site" title="站点信息" size="small">
@@ -1048,7 +1289,7 @@ onMounted(async () => {
                 <Button danger @click="importOpen = true">导入</Button>
               </Space>
               <Alert v-if="importProtectError" type="error" show-icon class="mt-2" :message="importProtectError" />
-              <div class="text-xs text-text-tertiary mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；完成后需重启容器并重新登录</div>
+              <div class="text-xs text-text-tertiary mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；地址与 OIDC 配置即时生效，签名密钥替换后请重新登录，日志级别/HTTP 超时等启动参数重启后生效</div>
             </div>
           </div>
         </Card>
@@ -1088,7 +1329,7 @@ onMounted(async () => {
                   @confirm="confirmIconDelete" @update:open="iconDeleteOpen = false" />
     <!-- 导入确认（IMPORT 确认词） -->
     <ConfirmModal :open="importOpen" title="导入配置（整体覆盖）" danger confirm-word="IMPORT" :loading="importing"
-                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员）；导入完成后请立即重启容器再重新登录。"
+                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员），请重新登录；地址与 OIDC 配置即时生效，日志级别/HTTP 超时等启动参数重启后生效。"
                   @confirm="doImport" @update:open="importOpen = false" />
       <!-- v2 导入第二确认（DISABLE；仅当导入会清空高级模式数据时后端强制校验） -->
       <ConfirmModal :open="disableImportOpen" title="确认清空高级模式数据" danger confirm-word="DISABLE" :loading="importing"
