@@ -182,7 +182,7 @@ selector 注册与持久化规则：
 | HTTP、SOCKS5 | `auth_mode` | `none/basic` | `none`；存在 username/password 时派生 `basic` |
 | SSH | `auth_mode` | `password/private_key` | 有 private-key 时为 `private_key`，否则 `password` |
 | Snell | `version`、`obfs_mode` | `1/2/3/4/5`；`none/http/tls/shadow_tls/restls/jls` | tag 默认版本；无 obfs 对象时 `none` |
-| Hysteria | `auth_mode`、`bandwidth_mode` | `auth/auth_str`；`text/numeric` | 按已有字段唯一派生；均无值时阻断认证选择 |
+| Hysteria | `auth_mode` | `none/base64/string` | 有 `auth` 为 `base64`，有 `auth-str` 为 `string`，均无值为 `none` |
 | Hysteria2 | `endpoint_mode`、`obfs_mode` | `single/ports`；`none/salamander/gecko` | 有 ports 时 `ports`，否则 `single`；无 obfs 时 `none` |
 | TUIC | `auth_mode` | `v4/v5` | token 为 `v4`，UUID/password 为 `v5`；均无值时按 tag 默认版本 |
 | WireGuard | `peer_mode` | `single/peers` | peers 非空时 `peers`，否则 `single` |
@@ -301,8 +301,8 @@ Content-Type: application/json
 | HTTP | `auth_mode=none/basic`、TLS feature | basic 时 username/password 成对；TLS 开启才允许 SNI、证书、mTLS | `password`、`private-key` | Clash 完整；既有 URI 只输出可表达字段 |
 | SOCKS5 | `auth_mode=none/basic`、TLS feature | basic 成对；TLS 条件；UDP 独立 | `password`、`private-key` | Clash 完整；既有 URI 对 TLS/mTLS 不可表达部分诊断 |
 | SSH | `auth_mode=password/private_key` | username 必填；私钥只接受 PEM 内容；passphrase 仅私钥模式 | `password`、`private-key`、`private-key-passphrase` | Clash 完整；SR/generic 稳定 skip |
-| Snell | `version=1..5`、`obfs_mode=none/http/tls/shadow-tls/restls/jls` | v1/2 禁 UDP；reuse 仅 v4/5；各 obfs 凭据条件必填 | `psk`、obfs password/private-key、JLS password | Clash 完整；SR/generic 稳定 skip |
-| Hysteria | `auth_mode=auth/auth_str`、`bandwidth_mode=text/numeric` | 两种认证互斥；up/down 表达按模式成对；port 始终必填 | `auth`、`auth-str`、`private-key` | Clash 完整；既有 URI 仅可无损子集 |
+| Snell | `version=1..5`、`obfs_mode=none/http/tls/shadow-tls/restls/jls` | v1/2 禁 UDP；v2 固定 reuse，v4/v5 可编辑；各 obfs 凭据条件必填 | `psk`、obfs password/private-key、JLS password | Clash 完整；SR/generic 稳定 skip |
+| Hysteria | `auth_mode=none/base64/string` | 两种认证互斥；`up/down` 规范字符串成对必填；port 始终必填 | `auth`、`auth-str`、`obfs`、`private-key` | Clash 完整；既有 URI 仅可无损子集 |
 | Hysteria2 | `endpoint_mode=single/ports`、`obfs_mode=none/salamander/gecko`、Realm feature | password 必填；启用 obfs 时密码必填；包大小仅 gecko；Realm 子字段条件化 | `password`、`obfs-password`、`private-key`、`realm-opts.token`、`realm-opts.private-key` | Clash 完整；既有 URI 对 Realm 等不可表达项诊断 |
 | TUIC | `auth_mode=v4/v5` | v4 只允许 token；v5 只允许 UUID＋password；切换清空旧凭据 | `token`、`uuid`、`password`、`private-key` | Clash 完整；既有 URI 只按当前版本分支输出 |
 | WireGuard | `peer_mode=single/peers` | private-key 和至少一个本地 IP 必填；多 Peer 每项 allowed-ips 必填且不可冲突；reserved 恰 3 字节 | `private-key`、`pre-shared-key`、`peers[].pre-shared-key` | Clash 完整；已有 URI 仅支持可表达子集；AmneziaWG 明确排除 |
@@ -427,6 +427,7 @@ Step 0.5 授权/冻结
 - 重新搜索活动代码中的 `1.19.29`、`MIHOMO_11929_BIN`、`client-config`、统一 `validateHostPort` 和无条件 `server/port` 输出。
 - 只读查询本次获授权实施目标中是否存在 `protocol='openvpn'` 且含 `client-config` 的既有节点；默认最多检查当前仓库 `backend/data`，不得自行连接外部 `DATA_DIR`、Docker 卷或生产环境。目标不明确或发现遗留行时只记录数量、不回显正文，并按 Step 18 的停止条件处理。
 - 不删除本地数据库，不启动任何代码修改前先记录影响清单。
+- **字段逻辑：** 本 Step 只读盘点 `nodes.protocol/host/port/protocol_json/state_format_version/current_state_json/extensions_json`，统计 19 个 manual 协议的行数、v1/v2 状态数量、空 endpoint、未知顶层键和 OpenVPN `client-config` 遗留数量；只记录计数和字段名，不输出任何字段值、凭据或扩展 payload。盘点不得规范化、回写、迁移或触发凭据解密。
 - **验收：** 工作区既有改动已识别且不会覆盖；没有未决范围冲突；影响清单与遗留数据结果已写回本文。复核完成后把 Step 0.5 标为验收通过，再单独进入 Step 1。
 
 ### Step 1：固定 Mihomo v1.19.31 证据门禁
@@ -436,6 +437,7 @@ Step 0.5 授权/冻结
 - 历史 Design／Build／Issue 中的 v1.19.29 字样不改。
 - 首先复跑首批四协议与 SS 插件正反例，确认升级没有静默语义变化。
 - 普通 Go 测试未设置外部二进制时仍可 skip；`.mihomo-test.sh` 未设置或版本错误必须失败。
+- **字段逻辑：** 本 Step 不改变协议字段集合，只更新字段证据元数据：`OptionItem.verified`、`TargetEvidence.version/entry/status`、检查 diagnostic 的 `evidence` 和固定内核环境变量。历史值只在活动注册表／运行代码中从 `mihomo-1.19.29` 改为 `mihomo-1.19.31`；不得借版本替换改变字段默认值、枚举、必填性、敏感路径或 wire key。若固定 tag 对首批四协议或 SS 插件显示真实字段差异，停止并先把差异补入对应字段合同，不能夹带在版本字符串替换中。
 - **验收命令：**
   ```bash
   MIHOMO_11931_BIN='/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo' ./.mihomo-test.sh
@@ -451,6 +453,7 @@ Step 0.5 授权/冻结
 - `normalizeResetScopes` 只接受当前协议声明的 `selector.<name>`；未知 selector 返回 400。
 - v1 状态读取派生但不回写；保存改写为 v2。
 - 覆盖 A→B→A、失败保存回滚、检查不落库、凭据 keep/clear、扩展作用域清理。
+- **字段逻辑：** 新增 `CurrentState.selectors`、`ConditionRule.selectors`、`FieldSchema.selector_name/state_only` 和 `selector.<name>` reset scope；`network/security/plugin/features` 保持原语义。selector 值必须来自注册表白名单，`state_only` 值只进 `current_state_json`，普通 selector 源字段仍保存在 `protocol_json`。切换 selector 时，后端根据旧值和新值清除所有带相应 `reset_on` 的普通字段、递归敏感路径、未知扩展和未应用草稿；失败保存不得改变 `edit_revision`、密文或状态。v1 派生使用第四章矩阵，互斥字段同时存在时不猜测，返回字段级 400。
 - **验收命令：**
   ```bash
   cd backend && go test ./internal/node -run 'Test.*(Selector|CurrentState|Reset|Credential|Extension)'
@@ -464,6 +467,7 @@ Step 0.5 授权/冻结
 - 前端按 policy 显示、必填、清空 host/port；列表不显示 `:0`。
 - `clashProxy()` 改为 adapter registry；先提供点名协议的临时 legacy adapter 保持尚未轮到的协议行为，并返回 `legacy_adapter_pending` evidence，不允许静默 default map 透传。每完成一个协议 Step 就删除该协议的 legacy 登记；Step 20 必须归零。
 - 节点检查和正式装配必须调用同一函数；增加静态／单元门禁禁止第二套拼装。
+- **字段逻辑：** `Protocol.EndpointPolicies` 只由 `protocol + CurrentState` 计算；`host/port` 不进入 `protocol_json`。`required` 模式要求 host 非空且 port 为 1～65535；`hidden` 模式在 create／update／check 中统一规范为 `''/0` 并禁止 wire 输出；替代字段（`ports`、`port-range`、`peers[]`）由协议 Step 自己校验。adapter 公共层统一写 `name/type`，再按 policy 写 `server/port`，最后处理活动协议字段和 `BasicOption` 白名单：`tfo`、`mptcp`、`interface-name`、`routing-mark`、`ip-version`、`dialer-proxy`。公共字段必须有类型／范围校验，`dialer-proxy` 继续走现有名称引用检查；协议不支持的公共字段不得因共享 schema 被盲目输出。
 - **验收：** 普通协议空 host/port 仍 400；Tailscale policy 夹具可空；Mieru range 不输出 port；WireGuard peers 不输出顶层 endpoint。
 - **验收命令：**
   ```bash
@@ -481,23 +485,27 @@ Step 0.5 授权/冻结
 - basic 认证成对；TLS 关闭清空 SNI、证书校验、certificate/private-key；mTLS 成对。
 - Headers 保持开放 string map；未知复杂值拒绝。
 - 正反例覆盖无认证、basic、TLS、mTLS、缺半对凭据。
+- **字段逻辑：** 顶层 `server/port` 必填；`auth_mode=none` 时不活动且清空 `username/password`，`basic` 时二者均必填，`password` 为敏感字段。`tls=false` 时清空并禁止输出 `sni`、`skip-cert-verify`、`name-cert-verify`、`fingerprint`、`certificate/private-key`；`tls=true` 时 SNI 可空并由 Mihomo 回退 server，证书与私钥必须成对，只有 `private-key` 为 secret。`headers` 是开放 string map：键去首尾空白后不能为空、大小写不敏感重复键拒绝、值只允许字符串；禁止由用户覆盖 adapter 固定的代理认证内部处理。wire 逐项映射 v1.19.31 `HttpOption`，不输出 `auth_mode`。
 
 #### Step 5：SOCKS5
 
 - 与 HTTP 共用有语义的认证／TLS schema helper，不复制整段字段；保留 UDP 独立开关。
 - URI 不能表达的 mTLS 字段返回 diagnostic，不丢字段后仍标 complete。
+- **字段逻辑：** `server/port` 必填；`auth_mode=none/basic` 对 `username/password` 的显示、成对必填、清空与敏感处理同 HTTP。wire 字段为 `tls`、`udp`、`skip-cert-verify`、`name-cert-verify`、`fingerprint`、`certificate/private-key`；固定 tag 的 `Socks5Option` 没有独立 `sni`，不得因复用 TLS helper 而下发或输出 `sni`。`tls=false` 清空全部 TLS 子字段；证书／私钥成对。`udp` 独立保存和输出，不因 TLS／认证切换被清除。URI 仅在活动字段可无损表达时 complete，否则对具体字段给出 warn／unsupported。
 
 #### Step 6：SSH
 
 - 私钥只接受 PEM 内容；密码和私钥分支切换清除相应凭据，私钥口令只随私钥活动。
 - `host-key` 和 `host-key-algorithms` 改为列表；空 host-key 明确显示“接受任意 Host Key”的安全提示。
 - 固定内核正例不得引用本机文件。
+- **字段逻辑：** `server/port/username` 必填。`auth_mode=password` 只活动 `password`；`private_key` 只活动 `private-key/private-key-passphrase`，私钥必须含合法 PEM 标志且在保存前解析，绝不把普通文本或路径交给 Mihomo；分支切换清除另一组 secret。`host-key` 为公钥文本列表，逐项用 authorized-key 语法验证、去空白去重；`host-key-algorithms` 为非空算法名列表并保持用户顺序。空 `host-key` 允许保存但产生安全 warn，非空时必须至少一项有效。SSH 不支持 UDP；不得输出 `udp=true`。wire 仅输出 `username/password/private-key/private-key-passphrase/host-key/host-key-algorithms` 及适用公共字段，检查预览对三类认证 secret 脱敏。
 
 #### Step 7：Snell
 
 - 版本 1～5；v5 按 Mihomo tag 的 v4 客户端兼容实现记录诊断，不能伪称独立 v5 wire。
-- v1/2 禁 UDP；reuse 只在 v4/v5 显示；五类 obfs 的字段、凭据、TLS 选项按模式清空。
+- v1/2 禁 UDP；v2 固定启用 reuse，v4/v5 才显示可编辑 reuse；五类 obfs 的字段、凭据、TLS 选项按模式清空。
 - `client-fingerprint` 只在相关伪装分支显示。
+- **字段逻辑：** `server/port/psk` 必填，`psk` 为 secret；`version` 允许 1～5，空值按 tag 默认 v1，v5 wire 保留 `version: 5` 但诊断明确内核以 v4 客户端实现。`udp` 在 v1/v2 必须 false，v3/v4/v5 可编辑；`reuse` 在 v1/v3 隐藏并清空、v2 固定 true 且不让用户关闭、v4/v5 可编辑。`obfs_mode` 是 state-only，映射到 `obfs-opts.mode`：`none` 删除整个对象；`http/tls` 活动 `host`；`shadow-tls` 活动 `host/password/version/fingerprint/certificate/private-key/skip-cert-verify/name-cert-verify/alpn`；`restls` 活动 `host/password/version-hint/restls-script/fingerprint/skip-cert-verify/name-cert-verify/force-tls12`；`jls` 活动 `host/username/password/alpn`。各模式的 password、private-key、restls-script 按敏感合同处理，模式切换清空旧对象全部字段。`client-fingerprint` 只在 shadow-tls／restls／jls 活动；证书／私钥成对，结构化 `obfs-opts` 禁止未知键。
 
 - **每步验收命令模板：**
   ```bash
@@ -515,9 +523,10 @@ Step 0.5 授权/冻结
 #### Step 8：Hysteria
 
 - `auth` 为 Base64、`auth-str` 为普通认证字符串，按 selector 二选一；禁止同时输出。
-- `up/down` 文本模式和 `up-speed/down-speed` 数字模式二选一；合法单位与正数校验。
+- `up/down` 作为唯一编辑入口；旧 `up-speed/down-speed` 只允许在兼容输入归一化时转换，不能作为第二套可保存字段。
 - `protocol` 只开放 tag 支持值；`obfs-protocol` 仅作为兼容输入别名归一化，不作为第二个编辑入口。
 - TLS/ECH/mTLS、端口跳跃和窗口高级项补齐；port 仍必填。
+- **字段逻辑：** `server/port` 始终必填，`ports` 是端口跳跃补充字段而非 port 替代；端口／范围语法分别校验。`auth_mode=none` 清空 `auth/auth-str`，`base64` 只活动并校验 `auth`，`string` 只活动 `auth-str`；二者及 `obfs` 都按 secret 处理。固定 tag 的构造函数会先解析 `up/down`，即使存在兼容字段 `up-speed/down-speed` 也不能只填数字字段，因此表单只保存非零带单位的 `up/down`，兼容输入在 Normalize 阶段转成规范字符串后删除旧键。`protocol` 空值按 `udp`，`obfs-protocol` 只读入后归一化到 `protocol`。TLS 字段为 `sni/ech-opts/skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key/alpn`，证书／私钥成对；高级字段为 `recv-window-conn/recv-window/disable-mtu-discovery/fast-open/hop-interval`，整数非负，窗口关系由项目先校验。wire 不输出 `auth_mode`、`up-speed/down-speed` 或 `obfs-protocol`。
 
 #### Step 9：Hysteria2
 
@@ -525,12 +534,14 @@ Step 0.5 授权/冻结
 - obfs none/salamander/gecko；启用即要求密码，包大小仅 gecko。
 - Realm 作为 feature object，包含 token、realm-id、STUN 列表和自身 TLS 子树；关闭清空全部子凭据。
 - 补 BBR profile、handshake timeout 和 quic-go 高级窗口，默认不写库。
+- **字段逻辑：** `server/password` 必填；`endpoint_mode=single` 活动顶层 port 并删除 `ports/hop-interval`，`ports` 活动端口列表／范围字符串并把顶层 port 规范为 0，`hop-interval` 只在 ports 模式活动，接受单值或 `start-end` 且最终最小值按 tag 不低于 5 秒。`up/down` 为可选带单位速率字符串。`obfs_mode=none` 清空 `obfs/obfs-password/obfs-min-packet-size/obfs-max-packet-size`；salamander/gecko 均要求 `obfs-password`，包大小上下界只在 gecko 活动且 min≤max。公共 TLS 字段为 `sni/ech-opts/skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key/alpn`；`udp-mtu/handshake-timeout/cwnd` 为正整数或未设置，`bbr-profile` 仅在相关拥塞配置活动。四个 QUIC window 字段使用非负整数并验证 initial≤max。`realm-opts.enable=false` 清空整个对象；开启时活动 `server-url/token/realm-id/stun-servers` 与独立 TLS 子树，token/private-key 为 secret，URL／STUN／证书成对关系逐项校验。
 
 #### Step 10：TUIC
 
 - v4 token 与 v5 UUID/password 强互斥；A→B→A 不恢复凭据。
 - UDP relay、拥塞、SNI/ECH/mTLS、UOT version 等枚举／范围按 tag 校验。
 - 固定内核正反例必须分别覆盖 v4、v5、混合凭据拒绝和非法 UOT version。
+- **字段逻辑：** `server/port` 必填。`auth_mode=v4` 只活动必填 `token` 并清空 UUID/password；`v5` 只活动合法 UUID＋非空 password 并清空 token，三者均为敏感路径。`ip` 是可选直连地址覆盖，仅改变实际拨号地址而不替代 server/SNI；校验为 IP。TLS／QUIC 字段包括 `alpn/reduce-rtt/request-timeout/heartbeat-interval/udp-relay-mode/congestion-controller/disable-sni/max-udp-relay-packet-size/fast-open/max-open-streams/cwnd/bbr-profile/skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key/recv-window-conn/recv-window/disable-mtu-discovery/max-datagram-frame-size/sni/ech-opts`。`disable-sni=true` 必须显示会同时跳过证书主机名验证的风险，不保留冲突 SNI；证书／私钥成对。`udp-over-stream=false` 清空／不输出 version；开启时 version 只允许 tag 支持的 legacy/current 数值，0 只作为输入缺省归一化，不在 UI 作为第三个版本。所有毫秒／窗口／包大小字段非负，datagram 上限和 relay packet 联动在项目层先给出字段错误，不能依赖内核静默截断。
 
 - **验收：** 每协议执行 Step 4～7 的命令模板，并追加 `MIHOMO_11931_BIN=... ./.mihomo-test.sh` 中该协议正反例。
 
@@ -543,18 +554,21 @@ Step 0.5 授权/冻结
 - reserved 统一为 3 字节；多 Peer `allowed-ips` 必填且不同 Peer 不允许相同网段。
 - private-key、ip/ipv6、IP stack、DNS 和 refresh interval 按 tag 校验。
 - AmneziaWG 已由第三章明确排除；本 Step 不得添加其字段、UI、输出 adapter 或测试矩阵。
+- **字段逻辑：** 顶层 `private-key` 必填且为合法 Base64 WireGuard 私钥；`ip/ipv6` 至少一项存在，允许省略前缀时分别规范为 `/32`、`/128`。`peer_mode=single` 要求顶层 `server/port/public-key`，可选 `pre-shared-key/reserved/allowed-ips`，并清空 `peers`；`peers` 模式要求至少两个结构化条目，每项要求稳定 `_credential_id`、`server/port/public-key/allowed-ips`，可选独立 `pre-shared-key/reserved`，并清空顶层 peer 字段。公钥、PSK 均校验 Base64 长度；reserved 接受三字节数组或 Base64，存储／wire 统一 `[0..255]` 三整数。`allowed-ips` 逐项 CIDR 校验、去重，并拒绝不同 Peer 的相同网段。公共字段 `workers/mtu/udp/persistent-keepalive/refresh-server-ip-interval` 为非负有界整数或 bool。`ip-stack.mode` 只允许 `auto/gvisor/mips`，`congestion-controller` 只允许 `cubic/reno/bbr/bbr3`；gvisor 是否可用属于构建能力诊断。`remote-dns-resolve=false` 时清空／不输出 `dns`，开启时 DNS 列表必填且逐项校验。`amnezia-wg-option` 在 schema、已知字段白名单、adapter 和 UI 中都必须保持不存在。
 
 #### Step 12：Mieru
 
 - 单端口／范围模式严格二选一；范围格式 `1-65535` 且 begin≤end。
 - 修复 multiplexing 与 handshake mode 完整枚举；traffic-pattern Base64／语义错误返回字段级错误。
 - transport 只允许 `TCP`／`UDP`，不做全局大小写转换。
+- **字段逻辑：** `server/username/password/transport` 必填，password 为 secret；`transport` 精确允许 `TCP/UDP`。`endpoint_mode=single` 要求顶层 port 1～65535 并清空 `port-range`；`range` 把顶层 port 规范为 0，要求单个 `begin-end`，两端 1～65535 且 begin≤end。`udp` 是节点转发能力开关，不替代 transport，二者分别保存。`multiplexing` 只允许完整常量 `MULTIPLEXING_OFF/MULTIPLEXING_LOW/MULTIPLEXING_MIDDLE/MULTIPLEXING_HIGH`，`handshake-mode` 只允许 `HANDSHAKE_STANDARD/HANDSHAKE_NO_WAIT`；空值表示由内核使用默认，不将默认值强写入数据库。`traffic-pattern` 先 Base64 解码再执行 tag 语义校验；错误定位到该字段，不在日志中输出原串。wire 按 endpoint 分支严格二选一输出 `port` 或 `port-range`。
 
 #### Step 13：MASQUE
 
 - network 明确为默认 QUIC、`h2`、`h3-l4proxy`；L4 proxy 时 UDP 必须关闭且不得保存 true。
 - private/public key、ip/ipv6、URI、SNI、IP stack、拥塞和 handshake timeout 按 tag 结构输出。
 - 至少一个本地地址必填；密钥和地址错误需在项目校验阶段返回，不依赖内核晚失败。
+- **字段逻辑：** `server/port/private-key/public-key` 必填，私钥为 secret；两类密钥必须 Base64 解码并符合 tag 所需 EC key 格式。`ip/ipv6` 至少一项，缺省前缀分别规范为 `/32`、`/128`。`network_mode=quic` 在 wire 省略或写 tag 规范值，`h2`、`h3_l4proxy` 分别映射 `network: h2/h3-l4proxy`；`h3_l4proxy` 强制 `udp=false`，切回其他模式不恢复旧值。`uri/sni/mtu/handshake-timeout/skip-cert-verify` 按类型和范围校验；URI 中的 userinfo、query、fragment 继续走项目统一凭据脱敏，不能完整进入日志或 diagnostic。`name-cert-verify` 因 tag 只是 placeholder，不进入 schema／wire。QUIC 分支活动 `congestion-controller/cwnd/bbr-profile`；h2 分支不输出无效 QUIC 调优字段。`ip-stack` 与 WireGuard 共用枚举合同。`remote-dns-resolve=false` 清空 DNS，开启时 DNS 列表必填。adapter 不允许用户密钥或未脱敏 URI 出现在 diagnostic／日志。
 
 #### Step 14：Tailscale
 
@@ -562,6 +576,7 @@ Step 0.5 授权/冻结
 - auth-key 可空；节点静态检查只返回“首次真实连接需要交互登录”的 warn，不启动 tsnet、不联网，也不伪造／回显登录 URL。真实 Mihomo 首次启动时才可能在其日志输出官方文档所述 URL。
 - hostname、control-url、ephemeral、UDP、accept-routes、exit-node 和 LAN access 条件化。
 - 已保存节点的 `state-dir` 由稳定节点 ID 派生；不得接受用户路径，不在 API 回显主机绝对路径。新建草稿检查不创建目录，正式保存后才具备稳定派生值。
+- **字段逻辑：** endpoint policy 固定把 host/port 规范为 `''/0`，wire 永不输出 `server/port`。可编辑字段只有 `hostname/auth-key/control-url/ephemeral/udp/accept-routes/exit-node/exit-node-allow-lan-access` 及适用的 `BasicOption`；`auth-key` 是 secret。`control-url` 为空表示官方控制面，非空必须是合法绝对 HTTP(S) URL；非 HTTPS 值显示安全提示但不擅自禁止本地 Headscale 场景。`hostname` 按 Tailscale 设备名约束。`accept-routes` 和 `exit-node-allow-lan-access` 保留 unset/false/true 三态，不能用普通 false 默认吞掉“未设置”；LAN access 只有 exit-node 非空时活动，关闭／清空 exit-node 时一并清空。`exit-node` 接受合法 IP 或 tag 支持的 `auto:*` 形式。`state-dir` 是 adapter 派生字段，不在 `protocol_json`、API schema 或请求体出现；新建草稿检查只验证可派生性，保存后的 check／装配用稳定节点 ID 得到相同相对路径。
 
 - **验收：** endpoint policy、列表显示、正式装配和固定内核正反例必须一起通过；检查请求前后数据库快照相同。
 
@@ -572,17 +587,20 @@ Step 0.5 授权/冻结
 - plain TLS 与 ShadowTLS／Restls／JLS 三种附加安全模式互斥；禁止 Reality。
 - ECH、mTLS、client fingerprint、client-metadata、session 参数和 disable-reuse 完整建模。
 - 分支切换清空各自密码／脚本，不清空 AnyTLS 主密码。
+- **字段逻辑：** `server/port/password` 必填，主 password 为 secret 且不随 `security_mode` 切换清除。始终可编辑 TLS 字段 `alpn/sni/ech-opts/client-fingerprint/skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key`，证书／私钥成对；`ech-opts.enable=false` 清空 `config/query-server-name`。`security_mode=plain` 删除三类附加对象；`shadow_tls` 只活动 `shadow-tls-opts.password/version`；`restls` 只活动 `restls-opts.password/version-hint/restls-script`；`jls` 只活动 `jls-opts.username/password`。三个对象不得并存，所有附加 password、restls-script 和 private-key 都是敏感路径。`udp/client-metadata/idle-session-check-interval/idle-session-timeout/min-idle-session/disable-reuse` 独立活动；数值必须非负，并验证 timeout／check interval 的合理关系。wire 不输出 selector，只有当前安全对象进入 YAML。
 
 #### Step 16：ShadowQUIC
 
 - username、password、SNI、ALPN、QUIC v1/v2、UOT、0-RTT、keepalive、拥塞／窗口完整建模。
 - 0-RTT 开启时显示重放风险提示；提示不替代服务端验证。
+- **字段逻辑：** `server/port/username/password` 必填，password 为 secret；用户名／密码必须成对。TLS 仅暴露 `sni/alpn`，固定 tag option 没有 `skip-cert-verify`、证书或 ECH 字段，前端不得从通用 TLS helper 误加。`quic-versions` 为有序去重列表，只接受 tag parser 支持的 v1/v2 表达；空列表使用内核默认。`udp-over-stream`、`zero-rtt` 为独立 bool；关闭 UOT 不产生附加版本字段。`keep-alive-interval/cwnd/recv-window-conn/recv-window/max-datagram-frame-size/max-open-streams` 为非负整数，`up/down` 为可选带单位速率，`congestion-controller/bbr-profile` 按 tag 枚举／格式校验，`disable-mtu-discovery` 为 bool。开启 0-RTT 产生固定风险提示但不改变保存结果；非活动或默认值不强写入数据库。
 
 #### Step 17：TrustTunnel
 
 - username/password 成对；TLS/ECH/mTLS 字段完整。
 - QUIC 开关控制拥塞参数；连接复用以 selector 表达互斥模式，`max-connections/min-streams` 与 `max-streams` 不得同时活动。
 - health-check、UDP 和复用分支分别验证。
+- **字段逻辑：** `server/port` 必填；`username/password` 必须同时为空或同时非空，password 为 secret。TLS 字段为 `alpn/sni/ech-opts/client-fingerprint/skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key`，证书／私钥成对，ECH 关闭清空子字段。`udp/health-check/quic` 独立 bool；`quic=false` 清空并禁止输出 `congestion-controller/cwnd/bbr-profile`。`reuse_mode=none` 清空三个复用数字；`connections` 只活动正整数 `max-connections/min-streams`；`streams` 只活动正整数 `max-streams`。两组不得混合，selector 切换不恢复旧值。adapter 只输出当前分支字段，credential 和 ECH／mTLS 清空必须覆盖 check 与正式装配。
 
 - **验收：** 每协议定向 node／assembly／frontend 测试和固定 v1.19.31 正反例通过，敏感值不进入响应、日志或 check preview。
 
@@ -592,6 +610,7 @@ Step 0.5 授权/冻结
 - `auth_mode` 与 `tls_key_mode` 为 state-only selector；CA、cert、key、tls key 使用明确 multiline 类型。
 - OpenVPN wire adapter 只输出 v1.19.31 `OpenVPNOption` 字段；禁止输出原始 `.ovpn` 或未知指令。
 - 旧 `client-config` 不自动解释、不透传。若 Step 0.5 在任何目标数据库发现遗留行，立即停止在 Step 18 前，由用户决定迁移／清除策略；不得靠删除 schema 字段使旧内容在下一次保存时静默丢失。只有确认无遗留行，或另行获得明确处置授权后，才能移除编辑入口。
+- **字段逻辑：** `server/port/ca` 必填，CA 为 multiline 非 secret；`proto` 只允许 `udp/tcp`，`dev` 固定为 `tun`。`cipher`／`data-ciphers`／`data-ciphers-fallback` 只允许 tag 支持的 `AES-128/192/256-GCM`、`AES-128/192/256-CBC`、`CHACHA20-POLY1305`；`auth` 只允许 `MD5/SHA1/SHA256/SHA384/SHA512`，`comp-lzo` 只保留 tag 可接受值，列表去空白去重。`auth_mode=userpass` 只活动成对必填 `username/password` 并清空 cert/key；`cert` 只活动成对必填 PEM `cert/key` 并清空 username/password；password、key 为 secret。`tls_key_mode=none` 清空全部 TLS key；`tls_auth` 要求 `tls-auth`，`key-direction` 只允许 `0/1/空`；`tls_crypt` 与 `tls_crypt_v2` 分别只活动对应 key，三组严格互斥且均为 secret。`peer-info` 是 string map，键值限制同 headers；`ping/ping-restart/handshake-timeout/mtu` 非负，`tran-window` 必须保留 unset 与显式 0 的区别。`udp` 是代理转发能力，不等同于 `proto`。`ip-stack` 复用 WireGuard 枚举；`remote-dns-resolve=false` 清空 DNS，开启时 DNS 列表必填。adapter 只输出 `OpenVPNOption` 的点名 wire key，绝不输出 selector、导入行号或原文。
 - **验收：** user/pass、cert/key、三种 tls key、互斥反例、字段脱敏与固定内核正反例通过。
 
 ### Step 19：`.ovpn` 解析导入
@@ -601,6 +620,7 @@ Step 0.5 授权/冻结
 - parser 草稿与现有自定义／JSON 草稿纳入页面级阻断；切换协议或关闭面板清空未应用原文。
 - API 日志只记录长度、结果计数和错误 code，不记录原文、remote 凭据或内嵌块。
 - `no-store` 中间件必须注册在 session／admin 之前；匿名、普通用户、超限、解析失败和成功响应均测试响应头。
+- **字段逻辑：** parser 将 `remote` 映射顶层 host/port，将 `proto/dev/cipher/data-ciphers/data-ciphers-fallback/auth/comp-lzo/ping/ping-restart/peer-info` 映射同名结构化字段，将 `<ca>/<cert>/<key>/<tls-auth>/<tls-crypt>/<tls-crypt-v2>` 去标签后映射内容；`auth-user-pass` 只选择 userpass 模式，不读取引用文件、不制造 username/password。`key-direction` 只与 tls-auth 同时应用。重复同值指令可合并，互相冲突的单值指令、多个不同 remote、混合认证或多种 TLS key 必须阻断。响应同时给每个已映射字段来源行号；未知安全普通指令只 warn，脚本／hook／include／外部文件引用 400。点击应用时只覆盖 parser 明确产出的字段，并为被替换 selector 添加 reset scope；未产出的现有草稿字段不应被“空响应”静默删除，除非用户确认全量替换。原文、行号、diagnostics 都不进入最终保存请求。
 - **验收命令：**
   ```bash
   cd backend
@@ -620,6 +640,7 @@ Step 0.5 授权/冻结
 - 对已有 URI 映射的协议只输出无损字段；无法表达的活动字段产生 `core_semantic_unexpressible` 或 `unverified_compatibility`。
 - `target_evidence` 必须由检查／装配实际消费，不能只是 UI 标签。
 - `CheckClashContent` 增加 15 协议关键 shape 和互斥门禁；内核接受但项目不允许的结构仍由项目拒绝。
+- **字段逻辑：** 为每个协议冻结 `clash-yaml/sr-subs/generic-subs` 的字段能力表，状态只能从实际 adapter 结果计算：所有活动字段可无损表达才为 `ok/complete`；存在被舍弃但不阻断的字段为 `warn/partial`；目标无映射为 `skip/unsupported` 且 `preview=null`；必填、互斥或安全边界失败为 `error`。`target_evidence` 的 field path 必须和 schema canonical path 一致，不能只按协议给笼统标签。Clash adapter 必须剥离 `state_only`、`_credential_id`、导入元数据、未知非目标扩展和非活动字段；URI adapter 必须逐字段声明可表达集合，任何活动 secret 或高级字段不能静默丢弃后仍 complete。check 与正式装配使用相同的 name/type/endpoint/协议字段构造函数，仅预览脱敏发生在构造之后的副本上。
 - **验收：** 节点检查预览与正式装配单节点片段语义相同；skip 不带 preview，不报 500。
 
 ### Step 21：全协议前端回归
@@ -628,6 +649,7 @@ Step 0.5 授权/冻结
 - 375px 与桌面 920px；明暗主题；长证书／私钥；WireGuard Peer 排序；OpenVPN 导入 diagnostics。
 - 切换协议提示改为按 endpoint policy 说明，不再统一声称保留 server/port。
 - 前端不得维护第二份协议字段或枚举全集；所有协议差异来自后端 schema／policy。
+- **字段逻辑：** `text/password/number/bool/select/object/text-list/int-list/multiline/secret-multiline/byte-sequence` 均由单一 schema 渲染；`state_only` 控件读写 `current_state.selectors`，不混入 `protocol_json`。`when/required_when/reset_on/feature/endpoint policy` 决定显示、必填、清空和错误定位，隐藏字段必须从提交草稿和 credential ops 中同步移除。number 保持“未设置”与 0 区别；三态 bool 保持 unset/false/true；list/object 使用稳定 item ID，secret 只显示 configured／keep／replace／clear 状态。切换 selector、协议、endpoint 模式、OpenVPN 导入应用前统一检查未应用自定义值／JSON／parser 草稿，并展示将清除的字段名称和凭据数量但不展示值。后端返回的 field path 必须能定位折叠区、Peer 条目和 OpenVPN 行级 diagnostic。
 - **验收命令：**
   ```bash
   cd frontend
@@ -662,6 +684,7 @@ git diff --check
 - 真实客户端和连接未执行时明确登记未执行；不得以 Docker 或浏览器 smoke 替代。
 - 完成后同步 Design4 当前事实、AGENTS 当前入口和必要人工清单，再把 Build32 移入 `docs/reports/Build/`。文档同步属于本 Step，必须基于实际结果，不得预写完成。
 - 归档前执行 `node scripts/check-md-links.mjs Build32.md Design4.md AGENTS.md`；归档移动后重新执行链接检查，避免相对路径因目录变化失效。
+- **字段逻辑：** 本 Step 不新增字段；以注册表导出的 19 协议 schema manifest 作为最终合同，逐协议比较字段名、类型、默认值、枚举、selector、endpoint policy、敏感路径、reset scope、target evidence 和 wire key。manifest 与 Step 4～20 已验收结果不一致即失败。隔离 smoke 对每个代表分支执行“创建／检查／保存／读取／重开／切换／清除／装配”，并对数据库原始 JSON、API 脱敏响应和最终 YAML 三层分别断言；任何 secret 出现在 list/get/check preview/log/error 或非目标输出即阻断归档。文档只记录实际通过的字段矩阵和未执行人工项，不把预定字段写成已完成。
 
 ---
 
@@ -701,6 +724,7 @@ git diff --check
 - AmneziaWG 范围已由用户拍板：不并入 Build32，留作后续独立专项；当前没有其他已知的实施前产品决策项。
 - 已补齐 selector 注册／v1 读取规则、逐 Step 产出文件与共同完成门槛、OpenVPN API 状态码／no-store／secret 生命周期，以及遗留 `client-config` 的停止条件。
 - 已更正 Tailscale 边界：静态检查只提示首次真实连接需要交互登录，不生成登录 URL；`state-dir` 由稳定节点 ID 派生且新建草稿检查零文件系统副作用。
+- 已逐 Step 补充字段逻辑，覆盖输入／selector／显示与必填／清空与凭据／wire 输出／诊断；并以固定 tag 源码纠正 Snell reuse、Hysteria 带宽字段和 SOCKS5 无独立 SNI 三处边界。
 - 本轮只修改本文档，没有修改业务代码、Design4、AGENTS.md、测试或数据库，也没有执行构建门禁。
 
 ---
@@ -712,3 +736,4 @@ git diff --check
 | v1.0 | 2026-09-21 | 完成 19 个 manual 协议后续专项研究并建立 Build32；冻结 Mihomo v1.19.31、selector/state v2、endpoint policy、15 协议矩阵、显式 wire adapter、OpenVPN 结构化＋`.ovpn` 解析、串行 Step 与验收门禁。所有代码 Step 未获授权、未开始；AmneziaWG 保留为唯一待确认候选。 |
 | v1.1 | 2026-09-21 | 按用户确认冻结方案 A：Build32 的 WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 明确排除并留作后续独立专项。本次确认不授权进入 Step 0.5，全部代码 Step 继续保持未开始。 |
 | v1.2 | 2026-09-21 | 进一步实施定稿：补齐 selector 持久化与 v1 派生矩阵、endpoint 防伪造、OpenVPN API 安全响应合同、逐 Step 文件／前置／完成定义和共同门槛；增加 legacy adapter 归零与遗留 `client-config` 停止条件；更正 Tailscale 登录提示和稳定 `state-dir` 边界。仍未授权任何代码 Step。 |
+| v1.3 | 2026-09-21 | 为 Step 0.5～22 逐项补充字段逻辑：字段集合、selector、条件必填、清空、敏感路径、wire 映射、diagnostic 与最终 manifest；按 Mihomo v1.19.31 固定 tag 纠正 Snell reuse、Hysteria 规范带宽入口和 SOCKS5 无独立 SNI 等细节。仍只修订文档，未授权代码实施。 |
