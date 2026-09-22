@@ -15,7 +15,7 @@ func ProjectActive(proto Protocol, state CurrentState, params map[string]any) ma
 	state.Features = activeFeatures(proto.FormSchema, params)
 	out := make(map[string]any, len(params))
 	for _, field := range proto.FormSchema {
-		if !field.Matches(state, "") {
+		if field.StateOnly || !field.Matches(state, "") {
 			continue
 		}
 		value, ok := params[field.Name]
@@ -147,6 +147,9 @@ func ValidateCurrentState(proto Protocol, state CurrentState, params map[string]
 // ValidateCurrentStateForTarget 在节点检查阶段额外执行目标限定的条件必填。
 // target 为空表示保存节点本身，不要求用户预先选择某个输出目标。
 func ValidateCurrentStateForTarget(proto Protocol, state CurrentState, params map[string]any, target string) error {
+	if err := validateStateOnlyParams(proto, params); err != nil {
+		return err
+	}
 	params = normalizeProtocolParameters(proto, params)
 	derived := DeriveCurrentState(proto, params)
 	if stateEmpty(state) {
@@ -169,6 +172,9 @@ func ValidateCurrentStateForTarget(proto Protocol, state CurrentState, params ma
 	if err := validateStateOptions(proto, state); err != nil {
 		return err
 	}
+	if err := validateSelectors(proto, state, params); err != nil {
+		return err
+	}
 	if err := validateActiveFields(proto.FormSchema, state, params, "", target); err != nil {
 		return err
 	}
@@ -179,7 +185,7 @@ func ValidateCurrentStateForTarget(proto Protocol, state CurrentState, params ma
 }
 
 func stateEmpty(state CurrentState) bool {
-	return state.Network == "" && state.Security == "" && state.Plugin == nil && len(state.Features) == 0
+	return state.Network == "" && state.Security == "" && state.Plugin == nil && len(state.Features) == 0 && len(state.Selectors) == 0
 }
 
 func samePlugin(left, right *string) bool {
@@ -217,7 +223,7 @@ func findSchemaField(fields []FieldSchema, name string) (FieldSchema, bool) {
 
 func validateActiveFields(fields []FieldSchema, state CurrentState, params map[string]any, prefix, target string) error {
 	for _, field := range fields {
-		if !field.Matches(state, target) {
+		if field.StateOnly || !field.Matches(state, target) {
 			continue
 		}
 		path := field.Name
@@ -597,8 +603,14 @@ func protocolParamsForStorage(proto Protocol, params map[string]any) map[string]
 // validateKnownTopLevel 拒绝协议注册表未声明的顶层字段，避免更新/导入时静默丢弃。
 // 未知内容应作为扩展显式声明 scope/targets 后保存。
 func validateKnownTopLevel(proto Protocol, params map[string]any) error {
+	if err := validateStateOnlyParams(proto, params); err != nil {
+		return err
+	}
 	allowed := make(map[string]bool, len(proto.FormSchema))
 	for _, field := range proto.FormSchema {
+		if field.StateOnly {
+			continue
+		}
 		allowed[field.Name] = true
 	}
 	for key := range params {

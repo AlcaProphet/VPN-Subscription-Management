@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collectSwitchFields, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
+import { collectSwitchFields, endpointPolicyFor, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 import type { FieldSchema } from '@/api/node'
 import { smuxSchema, smuxValue } from './fixtures/smux'
 
@@ -13,6 +13,24 @@ describe('节点开关展示投影', () => {
     expect(matchesCondition(rule, { plugin: 'restls', network: 'tcp' })).toBe(false)
     expect(matchesCondition(rule, { plugin: 'custom', network: 'ws' })).toBe(false)
     expect(matchesCondition(rule, { plugin: null, network: 'tcp' })).toBe(false)
+  })
+
+  it('selector 条件参与 AND 匹配并隔离未知值', () => {
+    const rule = { selectors: { auth_mode: ['basic'], version: ['2', '3'] }, network: ['tcp'] }
+    expect(matchesCondition(rule, { network: 'tcp', selectors: { auth_mode: 'basic', version: '2' } })).toBe(true)
+    expect(matchesCondition(rule, { network: 'tcp', selectors: { auth_mode: 'none', version: '2' } })).toBe(false)
+    expect(matchesCondition(rule, { network: 'tcp', selectors: { auth_mode: 'basic', version: '4' } })).toBe(false)
+    expect(matchesCondition(rule, { network: 'ws', selectors: { auth_mode: 'basic', version: '2' } })).toBe(false)
+  })
+
+  it('endpoint policy 按 selector 命中且无配置时回退普通 required', () => {
+    expect(endpointPolicyFor(undefined, {})?.host_mode).toBe('required')
+    const policies = [
+      { when: { selectors: { endpoint_mode: ['single'] } }, host_mode: 'required' as const, port_mode: 'required' as const, emit_host: true, emit_port: true },
+      { when: { selectors: { endpoint_mode: ['ports'] } }, host_mode: 'required' as const, port_mode: 'hidden' as const, emit_host: true, emit_port: false },
+    ]
+    expect(endpointPolicyFor(policies, { selectors: { endpoint_mode: 'ports' } })?.port_mode).toBe('hidden')
+    expect(endpointPolicyFor(policies, { selectors: { endpoint_mode: 'other' } })).toBeNull()
   })
 
   it('继承祖先条件和高级分类，关闭父功能后子开关消失', () => {

@@ -40,6 +40,7 @@ export interface ConditionRule {
   plugin?: string[]
   plugin_not?: string[]
   features?: string[]
+  selectors?: Record<string, string[]>
   targets?: string[]
 }
 
@@ -83,6 +84,8 @@ export interface FieldSchema {
   canonical_path?: string
   aliases?: string[]
   target_evidence?: TargetEvidence[]
+  selector_name?: string
+  state_only?: boolean
 }
 
 export interface CurrentState {
@@ -90,6 +93,7 @@ export interface CurrentState {
   security?: string
   plugin?: string | null
   features?: string[]
+  selectors?: Record<string, string>
 }
 
 export interface CredentialOp {
@@ -128,10 +132,27 @@ export interface LinkMapping {
   params?: string[]
 }
 
+export interface SelectorInfo {
+  name: string
+  values: string[]
+  default: string
+  source_field?: string
+}
+
+export interface EndpointPolicy {
+  when?: ConditionRule
+  host_mode: 'required' | 'optional' | 'hidden'
+  port_mode: 'required' | 'optional' | 'hidden'
+  emit_host: boolean
+  emit_port: boolean
+}
+
 export interface ProtocolInfo {
   protocol: string
   label: string
   form_schema: FieldSchema[]
+  selectors?: SelectorInfo[]
+  endpoint_policies?: EndpointPolicy[]
   sensitive_fields: string[]
   link_mappings: LinkMapping
 }

@@ -30,8 +30,24 @@ func isSupportedCheckTarget(target string) bool {
 	return false
 }
 
-// CheckRenderer 是装配层注入的只读目标适配器检查函数。
+// CheckRenderer 是装配层注入的只读目标适配器检查函数（旧签名，保留给既有测试与兼容入口）。
 type CheckRenderer func(ctx context.Context, target, protocol, renderName, host string, port int, params map[string]any) (CheckRenderResult, error)
+
+// CheckTargetDraft 是节点检查阶段的完整草稿输入，服务端注入 NodeID/Persisted，客户端不能提交。
+type CheckTargetDraft struct {
+	Target     string
+	Protocol   string
+	RenderName string
+	Host       string
+	Port       int
+	Params     map[string]any
+	NodeID     int64
+	Persisted  bool
+	State      CurrentState
+}
+
+// CheckRendererDraft 是正式检查路径使用的 adapter 输入；与正式装配共享同一构建入口。
+type CheckRendererDraft func(ctx context.Context, in CheckTargetDraft) (CheckRenderResult, error)
 
 // CheckRenderResult 是目标适配器返回的脱敏预览与诊断。
 type CheckRenderResult struct {
@@ -86,9 +102,6 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	if err := validateHostPort(in.Host, in.Port); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
-	}
 	proto, err := GetProtocol(in.Protocol)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
@@ -103,6 +116,8 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 	}
 	var existing *Node
 	var extensionRecords []ExtensionRecord
+	var state CurrentState
+	var stateErr error
 	if in.NodeID > 0 {
 		n, err := s.getRaw(ctx, in.NodeID)
 		if err != nil {
@@ -120,17 +135,25 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 			}
 		}
 		existing = &n
-		normalizedReset, err := normalizeResetScopes(in.ResetScopes)
+		normalizedReset, err := normalizeResetScopes(proto, in.ResetScopes)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 		}
 		if n.Protocol != in.Protocol && !containsString(normalizedReset, "protocol") {
 			normalizedReset = append(normalizedReset, "protocol")
 		}
+		if n.Protocol == in.Protocol && len(proto.Selectors) > 0 {
+			oldState := hydrateCurrentStateForRead(proto, n.CurrentState, n.ProtocolJSON, n.StateFormatVersion)
+			preState, preStateErr := resolveCurrentState(proto, in.CurrentState, params)
+			if preStateErr != nil {
+				return s.checkValidationResponse(in, targets, preStateErr, params), nil
+			}
+			normalizedReset = appendResetScopes(normalizedReset, selectorResetScopes(proto, oldState, preState))
+		}
 		params = mergeProtocolJSON(n.ProtocolJSON, params, proto, normalizedReset)
 		params = normalizeProtocolParameters(proto, params)
 		params = cleanDisabledFeatures(proto.FormSchema, params)
-		state, stateErr := resolveCurrentState(proto, in.CurrentState, params)
+		state, stateErr = resolveCurrentState(proto, in.CurrentState, params)
 		if stateErr != nil {
 			return s.checkValidationResponse(in, targets, stateErr, params), nil
 		}
@@ -156,7 +179,7 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		if err := validateProtocolFields(proto, params, false); err != nil {
 			return s.checkValidationResponse(in, targets, err, params), nil
 		}
-		state, stateErr := resolveCurrentState(proto, in.CurrentState, params)
+		state, stateErr = resolveCurrentState(proto, in.CurrentState, params)
 		if stateErr != nil {
 			return s.checkValidationResponse(in, targets, stateErr, params), nil
 		}
@@ -169,7 +192,10 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		}
 	}
 
-	state := DeriveCurrentState(proto, params)
+	in.Host, in.Port, _, stateErr = NormalizeEndpoint(proto, state, in.Host, in.Port)
+	if stateErr != nil {
+		return s.checkValidationResponse(in, targets, stateErr, params), nil
+	}
 	active := ProjectActive(proto, state, params)
 	redacted := redactCheckParams(proto, active)
 	redacted = StripInternalProtocolMetadata(proto, redacted)
@@ -188,13 +214,23 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 			response.Targets[target] = result
 			continue
 		}
-		if s.checkRenderer == nil {
+		if s.checkRendererDraft == nil && s.checkRenderer == nil {
 			result.Diagnostics = []TargetDiagnostic{{
 				Severity: "error", Code: "target_checker_unavailable", Target: target,
 				Message: "目标检查适配器未配置", Evidence: "build18-check-v1",
 			}}
 		} else {
-			rendered, renderErr := s.checkRenderer(ctx, target, proto.Protocol, checkRenderName(in, existing), in.Host, in.Port, redacted)
+			var rendered CheckRenderResult
+			var renderErr error
+			if s.checkRendererDraft != nil {
+				rendered, renderErr = s.checkRendererDraft(ctx, CheckTargetDraft{
+					Target: target, Protocol: proto.Protocol, RenderName: checkRenderName(in, existing),
+					Host: in.Host, Port: in.Port, Params: redacted,
+					NodeID: in.NodeID, Persisted: existing != nil, State: state,
+				})
+			} else {
+				rendered, renderErr = s.checkRenderer(ctx, target, proto.Protocol, checkRenderName(in, existing), in.Host, in.Port, redacted)
+			}
 			result.Diagnostics = append(result.Diagnostics, rendered.Diagnostics...)
 			if renderErr != nil {
 				result.Diagnostics = append(result.Diagnostics, TargetDiagnostic{
@@ -285,18 +321,23 @@ func extensionDiagnostics(target string, records []ExtensionRecord) []TargetDiag
 }
 
 func statusForDiagnostics(diagnostics []TargetDiagnostic) string {
-	if len(diagnostics) == 0 {
-		return "ok"
-	}
+	hasEffective := false
 	hasError := false
 	allSkippable := true
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Severity != "error" {
-			continue
-		}
-		hasError = true
-		if !isSkippableDiagnostic(diagnostic) {
-			allSkippable = false
+		switch diagnostic.Severity {
+		case "warn":
+			hasEffective = true
+		case "error":
+			hasEffective = true
+			hasError = true
+			if !isSkippableDiagnostic(diagnostic) {
+				allSkippable = false
+			}
+		case "info":
+			// info 只用于可观测证据，不改变目标状态。
+		default:
+			hasEffective = true
 		}
 	}
 	if hasError {
@@ -305,7 +346,10 @@ func statusForDiagnostics(diagnostics []TargetDiagnostic) string {
 		}
 		return "error"
 	}
-	return "warn"
+	if hasEffective {
+		return "warn"
+	}
+	return "ok"
 }
 
 func (s *Service) checkValidationResponse(in CheckRequest, targets []string, err error, params map[string]any) *CheckResponse {
@@ -408,7 +452,7 @@ func makeCheckID(in CheckRequest, params map[string]any) string {
 
 func targetEvidenceFor(target string) string {
 	if target == "clash-yaml" {
-		return "mihomo-1.19.29-yaml"
+		return "mihomo-1.19.31-yaml"
 	}
 	return "cvr-2.5.2-uri"
 }

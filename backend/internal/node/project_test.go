@@ -239,7 +239,7 @@ func TestFirstBatchGroupingAndSecurityOrdering(t *testing.T) {
 	}
 }
 
-func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
+func TestSSPluginFieldsMatchMihomo11931Contract(t *testing.T) {
 	ss, err := GetProtocol("ss")
 	if err != nil {
 		t.Fatal(err)
@@ -306,7 +306,7 @@ func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
 				}
 			}
 			if !hasTargetEvidence(object.TargetEvidence, "clash-yaml", "complete") {
-				t.Fatalf("%s 缺少 Mihomo 1.19.29 完整证据: %+v", tc.name, object.TargetEvidence)
+				t.Fatalf("%s 缺少 Mihomo 1.19.31 完整证据: %+v", tc.name, object.TargetEvidence)
 			}
 			requiresObject := len(tc.required) > len(tc.defaults)
 			plugin := object.When.Plugin[0]
@@ -348,7 +348,7 @@ func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
 
 func hasTargetEvidence(evidence []TargetEvidence, target, status string) bool {
 	for _, item := range evidence {
-		if item.Target == target && item.Status == status && item.Client == "Mihomo" && item.Version == "1.19.29" {
+		if item.Target == target && item.Status == status && item.Client == "Mihomo" && item.Version == "1.19.31" {
 			return true
 		}
 	}

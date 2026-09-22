@@ -1,5 +1,15 @@
 // 节点表单的展示投影：只消费 schema，不维护协议字段全集或另一份协议数据。
-import type { ConditionRule, CurrentState, FieldSchema } from '@/api/node'
+import type { ConditionRule, CurrentState, EndpointPolicy, FieldSchema } from '@/api/node'
+
+export const DEFAULT_ENDPOINT_POLICY: EndpointPolicy = {
+  host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true,
+}
+
+export function endpointPolicyFor(policies: EndpointPolicy[] | undefined, state?: CurrentState): EndpointPolicy | null {
+  if (!policies?.length) return DEFAULT_ENDPOINT_POLICY
+  const matched = policies.filter((policy) => matchesCondition(policy.when, state))
+  return matched.length === 1 ? matched[0] : null
+}
 
 export function matchesCondition(rule: ConditionRule | undefined, state?: CurrentState, target?: string): boolean {
   if (!rule || !state) return true
@@ -8,6 +18,12 @@ export function matchesCondition(rule: ConditionRule | undefined, state?: Curren
   if (rule.plugin?.length && !rule.plugin.includes(state.plugin ?? '')) return false
   if (rule.plugin_not?.length && rule.plugin_not.includes(state.plugin ?? '')) return false
   if (rule.features?.length && !rule.features.some((item) => state.features?.includes(item))) return false
+  if (rule.selectors) {
+    for (const [name, allowed] of Object.entries(rule.selectors)) {
+      if (!allowed.length) continue
+      if (!allowed.includes(state.selectors?.[name] ?? '')) return false
+    }
+  }
   return !(target && rule.targets?.length && !rule.targets.includes(target))
 }
 

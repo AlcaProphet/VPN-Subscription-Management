@@ -1,6 +1,6 @@
 <!-- NodesView.vue：节点管理页（Design2-UI §6）——manual/xray 双态列表 + 动态表单 -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
 import { NODE_CHECK_TARGETS, NODE_CHECK_TARGET_LABELS, listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type NodeCheckTarget, type ImportLineResult, type FieldSchema, type CurrentState, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -13,7 +13,7 @@ import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
 import { activeFeatures, cleanDisabledFeatures, concreteSensitivePaths, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
-import { collectSwitchFields, fieldGroup, hasConfiguredValue, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
+import { collectSwitchFields, endpointPolicyFor, fieldGroup, hasConfiguredValue, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 
 const loading = ref(false)
 const nodes = ref<NodeItem[]>([])
@@ -117,6 +117,18 @@ const currentState = computed<CurrentState>(() => {
   state.features = activeFeatures(currentSchema()?.form_schema ?? [], params)
   return state
 })
+  const endpointPolicy = computed(() => endpointPolicyFor(currentSchema()?.endpoint_policies, currentState.value))
+  const showHostField = computed(() => endpointPolicy.value?.host_mode !== 'hidden')
+  const showPortField = computed(() => endpointPolicy.value?.port_mode !== 'hidden')
+  const hostRequired = computed(() => endpointPolicy.value?.host_mode === 'required')
+  const portRequired = computed(() => endpointPolicy.value?.port_mode === 'required')
+  const portMin = computed(() => endpointPolicy.value?.port_mode === 'optional' ? 0 : 1)
+  watch(endpointPolicy, (policy) => {
+    if (!policy) return
+    if (policy.host_mode === 'hidden') form.host = ''
+    if (policy.port_mode === 'hidden') form.port = 0
+  })
+
 function fieldVisible(field: FieldSchema): boolean {
   return matchesCondition(field.when, currentState.value)
 }
@@ -369,6 +381,7 @@ function scopeResetsExtension(extensionScope: string, resetScope: string): boole
   if (resetScope === 'security') return extensionScope.startsWith('security.')
   if (resetScope === 'plugin') return extensionScope.startsWith('plugin.')
   if (resetScope.startsWith('feature.')) return pathContains(resetScope, extensionScope)
+  if (resetScope.startsWith('selector.')) return pathContains(resetScope, extensionScope)
   return false
 }
 function clearScopedFields(scope: string) {
@@ -716,7 +729,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         </Table.Column>
         <Table.Column key="protocol" title="协议" data-index="protocol" width="110" />
         <Table.Column key="addr" title="地址">
-          <template #default="{ record }">{{ record.host }}:{{ record.port }}</template>
+          <template #default="{ record }"><span v-if="record.port > 0">{{ record.host }}:{{ record.port }}</span><span v-else>协议自身管理</span></template>
         </Table.Column>
         <Table.Column key="enabled" title="启用" width="90">
           <template #default="{ record }">
@@ -787,11 +800,14 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <Form.Item label="名称" required :validate-status="nameSpaceError ? 'error' : undefined" :help="nameSpaceError || undefined">
               <Input v-model:value="form.name" :disabled="nameReadonly" placeholder="禁止空格/逗号，支持中文与 emoji" />
             </Form.Item>
-            <Form.Item label="服务器" required>
+            <Form.Item v-if="showHostField" label="服务器" :required="hostRequired">
               <Input v-model:value="form.host" placeholder="域名或 IP" />
             </Form.Item>
-            <Form.Item label="端口" required>
-              <InputNumber v-model:value="form.port" :min="1" :max="65535" class="w-full" />
+            <Form.Item v-if="showPortField" label="端口" :required="portRequired">
+              <InputNumber v-model:value="form.port" :min="portMin" :max="65535" class="w-full" />
+            </Form.Item>
+            <Form.Item v-if="!showHostField && !showPortField" label="端点">
+              <span class="text-gray-500">协议自身管理</span>
             </Form.Item>
           </div>
         </FormSection>

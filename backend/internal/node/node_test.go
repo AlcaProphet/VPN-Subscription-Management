@@ -1010,7 +1010,7 @@ func TestCreateWithCurrentStateAndExtensions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建状态扩展节点失败: %v", err)
 	}
-	if created.EditRevision != 1 || created.StateFormatVersion != 1 {
+	if created.EditRevision != 1 || created.StateFormatVersion != currentStateFormatVersion {
 		t.Fatalf("创建修订/格式版本异常: %+v", created)
 	}
 	if created.CurrentState.Network != "ws" || created.CurrentState.Security != "tls" || len(created.Extensions) != 1 {

@@ -77,7 +77,7 @@ func TestClashProxyKeyOrder(t *testing.T) {
 	}
 	p := new(Service).clashProxy(nd)
 	got := p.Keys()
-	want := []string{"name", "type", "server", "port", "alpn", "network", "tls", "uuid"}
+	want := []string{"name", "type", "server", "port", "alpn", "alterId", "cipher", "network", "tls", "uuid"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("proxies 条目键序不稳定：got %v, want %v", got, want)
 	}

@@ -256,7 +256,7 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	RegisterRuleRoutes(engine, &RuleHandler{ruleSvc: ruleSvc, verSvc: versionSvc}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 装配端点（Build5 Step 4：context/preview/generate/blueprint）
 	assemblySvc := assembly.NewService(st, cfg, lg)
-	nodeSvc.SetCheckRenderer(assemblySvc.CheckNodeTarget)
+	nodeSvc.SetCheckRendererDraft(assemblySvc.CheckNodeTargetDraft)
 	RegisterAssemblyRoutes(engine, &AssemblyHandler{
 		assemblySvc: assemblySvc, nodeSvc: nodeSvc, proxyGroupSvc: proxyGroupSvc,
 		poolSvc: poolSvc, platformSvc: platformSvc, ruleSvc: ruleSvc, versionSvc: versionSvc, subSvc: subSvc,

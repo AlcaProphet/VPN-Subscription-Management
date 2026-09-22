@@ -110,7 +110,13 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 			preparedList = append(preparedList, item)
 			continue
 		}
-		state := InitCurrentState(proto, params)
+		state, stateErr := resolveCurrentState(proto, nil, params)
+		if stateErr != nil {
+			item.skip = true
+			item.reason = stateErr.Error()
+			preparedList = append(preparedList, item)
+			continue
+		}
 		if err := ValidateCurrentState(proto, state, params); err != nil {
 			item.skip = true
 			item.reason = err.Error()
@@ -159,8 +165,8 @@ func (s *Service) ImportURIs(ctx context.Context, text string) ([]ImportLineResu
 				`INSERT INTO nodes (source, name, display_name, instance_id, tag, protocol, host, port,
 				 protocol_json, current_state_json, extensions_json, edit_revision, state_format_version,
 				 is_public, enabled, allocatable, missing)
-				 VALUES ('manual', ?, NULL, NULL, '', ?, ?, ?, ?, ?, '{}', 1, 1, 0, 1, 1, 0)`,
-				p.name, p.protocol, p.host, p.port, string(rawJSON), string(stateRaw)); err != nil {
+				 VALUES ('manual', ?, NULL, NULL, '', ?, ?, ?, ?, ?, '{}', 1, ?, 0, 1, 1, 0)`,
+				p.name, p.protocol, p.host, p.port, string(rawJSON), string(stateRaw), currentStateFormatVersion); err != nil {
 				if isUniqueViolation(err) {
 					out = append(out, ImportLineResult{Line: p.line, Raw: p.raw, OK: false, Name: p.name, Reason: "名称重复，已跳过"})
 					continue

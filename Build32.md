@@ -1,9 +1,9 @@
 # Build32.md — 19 个 manual 协议编辑体验完整化
 
 > **文档定位：** 本文档是下一轮活动构建方案，承接 [Design4.md](Design4.md) 第九章“完成当前全部 19 个已兼容 manual 协议的编辑体验改进”目标，以及用户于 2026-09-21 对研究结论的最新确认。
-> **当前状态：** 研究、范围决策与实施方案定稿完成；**尚未获得代码实施授权，所有 Step 均未开始**。本文档建立或继续完善均不等于授权执行 Step 0.5 或修改业务代码。
+> **当前状态：** 用户已授权实施并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准；Step 0.5～3 已在本地未提交工作区完成并验收通过，Step 4～22 待严格串行实施。当前中断恢复入口为 Step 4；继续实施时必须保留 Step 1～3 的既有改动。本文档按实际完成情况逐步更新，不预写后续 Step。
 > **编码约束：** [AGENTS.md](AGENTS.md) 是唯一强要求文档。实施时必须一次只执行一个 Step，逐步验收，不并行实施多个协议。
-> **最新用户决策：** 新兼容基线为 Mihomo **v1.19.31**，不再把 v1.19.29 作为新设计兼容目标；允许协议级 endpoint policy；OpenVPN 使用“结构化编辑为主＋粘贴 `.ovpn` 解析导入”，不再把 `client-config` 直接作为 Mihomo 输出字段；WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 不纳入 Build32，留作后续独立专项。以上范围确认不等于代码实施授权。
+> **最新用户决策：** 新兼容基线为 Mihomo **v1.19.31**（commit `ab405bad5beeeac8b003bb01f60f134f6df54471`），不再把 v1.19.29 作为新设计兼容目标；允许协议级 endpoint policy；OpenVPN 使用“结构化编辑为主＋粘贴 `.ovpn` 解析导入”，不再把 `client-config` 直接作为 Mihomo 输出字段；WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 不纳入 Build32，留作后续独立专项。
 
 ---
 
@@ -11,10 +11,10 @@
 
 | Step | 内容 | 状态 |
 |---|---|---|
-| 0.5 | 实施授权、状态复核与范围冻结 | ☐ 未开始 |
-| 1 | 固定 Mihomo v1.19.31 证据门禁并清除活动代码中的 v1.19.29 基线 | ☐ 未开始 |
-| 2 | `CurrentState` v2：通用 selector、条件、清空域与旧状态读取 | ☐ 未开始 |
-| 3 | 协议级 endpoint policy 与统一 Clash wire adapter 骨架 | ☐ 未开始 |
+| 0.5 | 实施授权、状态复核与范围冻结 | ✅ 验收通过 |
+| 1 | 固定 Mihomo v1.19.31 证据门禁并清除活动代码中的 v1.19.29 基线 | ✅ 验收通过 |
+| 2 | `CurrentState` v2：通用 selector、条件、清空域与旧状态读取 | ✅ 验收通过 |
+| 3 | 协议级 endpoint policy 与统一 Clash wire adapter 骨架 | ✅ 验收通过 |
 | 4 | HTTP 完整条件表单、TLS／认证与输出合同 | ☐ 未开始 |
 | 5 | SOCKS5 完整条件表单、TLS／认证／UDP 与输出合同 | ☐ 未开始 |
 | 6 | SSH 密码／私钥认证、Host Key 与多行凭据 | ☐ 未开始 |
@@ -35,7 +35,7 @@
 | 21 | 全协议前端交互、375px／桌面、草稿与错误定位回归 | ☐ 未开始 |
 | 22 | 联合门禁、隔离浏览器 smoke、证据分层与文档归档 | ☐ 未开始 |
 
-> 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。没有用户新的实施授权，不得把 Step 0.5 改为进行中。
+> 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。只有完成对应 Step 的实施记录与验收命令后才能标记为验收通过；本地验收通过不等同于已提交、联合门禁或真实客户端／人工验收通过。
 
 ---
 
@@ -434,6 +434,21 @@ Step 0.5 授权/冻结
 - **字段逻辑：** 本 Step 只读盘点 `nodes.protocol/host/port/protocol_json/state_format_version/current_state_json/extensions_json`，统计 19 个 manual 协议的行数、v1/v2 状态数量、空 endpoint、未知顶层键和 OpenVPN `client-config` 遗留数量；只记录计数和字段名，不输出任何字段值、凭据或扩展 payload。盘点不得规范化、回写、迁移或触发凭据解密。
 - **验收：** 工作区既有改动已识别且不会覆盖；没有未决范围冲突；影响清单与遗留数据结果已写回本文。复核完成后把 Step 0.5 标为验收通过，再单独进入 Step 1。
 
+**实施记录（2026-09-22）**
+
+- 用户已明确授权开始实施 Step 0.5～22，并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准。
+- Git：分支 `beta`，HEAD `f00b350c127773b9ee57e4c77c7d98d23121c859`，跟踪 `origin/beta`（ahead/behind 0/0），工作区干净，无 staged/unstaged/untracked；最近 4 个提交均只修改本文件。
+- 已阅读 `AGENTS.md`、本文件 v1.4、`Design4.md` 节点编辑器/保存合同/CurrentState/目标兼容相关章节、当前 `TODOLIST.md`、`ProdTestList.md`，以及 Build32 明确引用的 `docs/reports/Build/Build21.md`、`docs/reports/Issue/Issue13.md`、`docs/reports/Issue/Issue14.md` 相关记录。
+- 固定二进制：`/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo` 自报 `Mihomo Meta v1.19.31 darwin arm64`，二进制内嵌提交 `ab405bad5beeeac8b003bb01f60f134f6df54471`。
+- 在线源码：`git ls-remote --tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.31` 返回 `ab405bad5beeeac8b003bb01f60f134f6df54471 refs/tags/v1.19.31`；随后以 `--depth 1 --branch v1.19.31` 只读克隆到仓库外临时目录 `/tmp/mihomo-v1.19.31`，HEAD 与 tag 一致。原先提示的本地 `/Users/kyle/Desktop/Repo/clash-verge-rev` 仅为 Clash Verge Rev 仓库，其本地文件不作为 Mihomo 源码依据。
+- 数据目标：只读检查 `backend/data`；该目录为空，无 `app-dev.db`/`app-prod.db`/其他数据库文件，因此无法执行 nodes 表 SQL 统计。授权目标内可见计数为：数据库文件 0、manual 协议节点行 0、state v1/v2 行 0、空 endpoint 行 0、未知顶层键 0、OpenVPN `client-config` 遗留行 0。未连接或读取任何外部 `DATA_DIR`、Docker 卷、生产/预发布环境或备份。
+- 活动代码盘点：`1.19.29`/`MIHOMO_11929_BIN` 出现在 `.mihomo-test.sh`、`backend/internal/assembly/mihomo_ssplugin_test.go`、`backend/internal/assembly/node_check.go`、`backend/internal/node/check.go`、`backend/internal/node/project_test.go`、`backend/internal/node/registry.go`、`frontend/tests/editable-combobox.spec.ts`；活动代码无 `1.19.31`/`MIHOMO_11931_BIN`。`client-config` 仍存在于 `backend/internal/node/node_test.go`、`backend/internal/node/registry.go` 与前端 `ProtocolFieldEditor.vue` 的文本分支特判中。`validateHostPort()` 在 create/update/check/URI 导入四处调用；`clashProxy()` 仍无条件写 `name/type/server/port`，除 SS 插件外基本透传 `protocol_json`。
+- 影响评估：Step 1 只替换活动证据版本与门禁变量，不修改字段集合；后续 Step 2～22 的影响范围与本文第六、八章一致。未发现中断实施成果或无法安全合并的工作区改动。
+- 停止条件：未触发。在线 tag 源码、本地固定二进制与 Build32 冻结矩阵的当前核对未发现冲突；数据目标未发现遗留行；普通测试仍可在缺少外部二进制时显式 SKIP，严格门禁保持显式外部入口。
+- 本 Step 未修改业务代码、测试、Design4/AGENTS 或数据；下一步从 Step 1 开始，严格串行实施。
+
+
+
 ### Step 1：固定 Mihomo v1.19.31 证据门禁
 
 - 把活动门禁变量改为 `MIHOMO_11931_BIN`，测试函数和错误文本同步版本；不保留同时接受两个版本的 fallback。
@@ -450,6 +465,23 @@ Step 0.5 授权/冻结
   cd .. && git diff --check
   ```
 
+
+**实施记录（2026-09-22）**
+
+- 活动基线全部改为 `MIHOMO_11931_BIN` / `mihomo-1.19.31`：`.mihomo-test.sh`、`mihomo_ssplugin_test.go`、`node_check.go`、`check.go`、`project_test.go`、`registry.go`、`ssplugin/contract_test.go`、`frontend/tests/editable-combobox.spec.ts`；活动代码和测试中已无 `11929` / `1.19.29` 残留，历史 Design/Build/Issue 文档未改写。
+- 新增 `backend/internal/assembly/mihomo_first_batch_test.go`：固定 v1.19.31 下首批四协议正例（VLESS/VMess/Trojan/SS 固定夹具）和四类内核反例（VLESS 缺 uuid、VMess 缺 uuid、Trojan 缺 password、SS 非法 cipher）；`.mihomo-test.sh` 运行范围扩展为 `^TestMihomo11931`。
+- 失败优先证据：更新前用 v1.19.31 二进制执行旧脚本，脚本按预期在第 21 行以 `固定验收要求 Mihomo Meta v1.19.29，实际: ...v1.19.31...` 失败。
+- 首轮固定内核执行发现 VMess 固定夹具缺少 `alterId`，v1.19.31 报 `proxy 0: '' has unset fields: alterId`。核对 tag 源码 `adapter/outbound/vmess.go`：`AlterID` 与 `Cipher` 均无 `omitempty`。按既有 schema 默认（`alterId=0`、`cipher=auto`）在 `normalizeClashFields()` 的 VMess 输出副本中补齐缺失值；不改字段集合、枚举、必填性、敏感路径、`protocol_json` 持久化或 URI 输出。`links_test.go` 的键序期望同步增加 `alterId`、`cipher`。
+- 定向门禁：
+  - `MIHOMO_11931_BIN='/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo' ./.mihomo-test.sh`：通过（首批四协议 4 正例/4 反例，SS 插件 4 正例/4 反例，旧拼接字符串仍由项目自检拒绝）。
+  - `cd backend && go test ./internal/node ./internal/assembly -count=1`：通过。
+  - `cd backend && go build ./...`：通过。
+  - `cd backend && go test ./... -count=1`：通过；未设置外部二进制时固定内核测试保持显式 `SKIP`。
+  - `cd frontend && npm test -- --run editable-combobox node-form-layout nodes-view`：3 文件 / 50 用例通过。
+  - `git diff --check`：退出码 0。
+- 未执行项：本 Step 未运行完整 `go test -race`、`go vet`、前端生产构建、Docker 构建、API/浏览器 smoke 或真实连接；保留到后续 Step/Step 22。
+
+
 ### Step 2：`CurrentState` v2、selector 与清空域
 
 - 实现第四章 selector 合同、递归 selector 源路径和 `state_only` 投影排除。
@@ -464,6 +496,26 @@ Step 0.5 授权/冻结
   cd ../frontend && npm test -- --run node-form-layout node-features protocol-field-editor nodes-view
   cd .. && git diff --check
   ```
+**实施记录（2026-09-22）**
+
+- 公共模型：`CurrentState` 增加 `selectors`；`ConditionRule` 增加 `selectors`；新增 `SelectorSchema{name,values,default,source_field}`；`FieldSchema` 增加 `selector_name/state_only`；`Protocol` 增加 `selectors`。
+- 注册表：新增 `validateProtocolSelectors()`，在 `protocolIndex` 初始化时校验 selector 名称、允许值、默认值、来源字段、字段引用和 `state_only` 字段类型；非法注册直接阻断启动。
+- 新增 `backend/internal/node/selector.go`：selector 值转换、wire 派生、v1 内存派生、请求归一化、`selector.<name>` reset scope 白名单、后端 selector 变化复核、state_only 禁止进入 `protocol_json`、selector 一致性校验。
+- 状态生命周期：`currentStateFormatVersion` 升为 2；创建、更新、URI 导入写入 v2；读取 v1 时只在 `scanNode` 内存派生 selector，不写库；`resolveCurrentState()` 统一补全 selector 与普通 selector 的 `source_field`。
+- 清空与安全：`normalizeResetScopes(proto, scopes)` 只接受当前协议声明的 `selector.<name>`；更新/检查时后端根据旧、新状态自动补齐 selector reset scope；`ProjectActive`、`validateActiveFields`、`validateProtocolFields`、`validateKnownTopLevel` 排除 `state_only`；敏感字段与 `selector.<name>` 扩展作用域按同一 reset 链清除。
+- 前端：`api/node.ts` 增加 selector 类型；`matchesCondition()` 支持 `selectors` 且与其它维度保持 AND；`NodesView.vue` 的扩展清空识别 `selector.<name>`；新增前端 selector 匹配回归。
+- 定向测试：
+  - `cd backend && go test ./internal/node -count=1`：通过。
+  - `cd backend && go test ./... -count=1`：通过。
+  - `cd backend && go build ./...`：通过。
+  - `cd frontend && npm test -- --run node-form-layout node-features protocol-field-editor nodes-view`：4 文件 / 86 用例通过。
+  - `cd frontend && npm run build`：通过（仅既有 chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- 覆盖事实：合成协议服务级测试覆盖 v2 创建/读取/重开、未知 selector 与非法值 400、普通 selector 与 wire 不一致 400、A→B→A 不恢复旧参数、失败保存不改库、检查前后数据库快照一致、selector 切换清除敏感字段与所属扩展；v1 读取派生测试断言原状态和 `protocol_json` 不变。
+- 边界：本 Step 只实现公共 selector 机制，未给任何真实协议批量预置 selector；HTTP/SSH/Snell 等协议的 selector 声明与 UI 在各自 Step 中串行加入。
+- 未执行项：本 Step 未运行 race/vet/Docker/API/浏览器 smoke；保留到 Step 22。
+
+
 
 ### Step 3：Endpoint policy 与 adapter 骨架
 
@@ -479,6 +531,33 @@ Step 0.5 授权/冻结
   cd ../frontend && npm test -- --run nodes-view node-form-layout
   cd .. && git diff --check
   ```
+
+
+**实施记录（2026-09-22）**
+
+- 公共 endpoint policy：新增 `EndpointPolicy{HostMode,PortMode,EmitHost,EmitPort,When}`；`Protocol` 增加 `endpoint_policies`；`validateProtocolEndpointPolicies()` 在注册表初始化时校验 mode、emit 关系和 selector 条件引用；无声明时使用 required/required 的隐式默认策略，保持既有普通协议行为。
+- 新增 `backend/internal/node/endpoint.go`：`MatchEndpointPolicy` 要求协议＋CurrentState 恰好命中一条；`NormalizeEndpoint` 对 hidden 统一 `''/0`，required 校验 host/port，optional 允许 0，并返回实际策略；创建、更新、检查统一调用。
+- Clash adapter 骨架：新增 `backend/internal/assembly/clash_protocols.go`，定义 `ClashNodeDraft`、`ClashProtocolAdapter`、注册表和 `buildClashProxy()`；正式装配与节点检查均通过该入口。未迁移协议走显式 legacy 投影并返回 `legacy_adapter_pending` info evidence；`legacyAdapterPendingCount()` 用于后续归零统计。
+- 节点检查生命周期：新增 `CheckTargetDraft` / `CheckRendererDraft`；生产装配路径注入 `NodeID/Persisted/CurrentState`，`CheckNodeTargetDraft()` 与正式装配共用 `buildClashProxy()`；旧 `CheckNodeTarget()` 签名保留为兼容包装。`load.go` 读取节点 `id/state_format_version`，装配层按 v1/v2 在内存补全 selector。
+- 前端：`api/node.ts` 增加 `EndpointPolicy` 与 `endpoint_policies` 类型；`nodeFormLayout.ts` 增加 `endpointPolicyFor()` 与默认 required 策略；`NodesView.vue` 按 policy 显示/必填/隐藏服务器与端口，hidden 时显示“协议自身管理”，列表对 port=0 不再显示 `:0`。
+- 定向测试与门禁：
+  - `cd backend && go test ./internal/node ./internal/assembly ./internal/server -count=1 -run 'Test.*(Endpoint|ClashAdapter|NodeCheck)'`：通过。
+  - `cd backend && go test ./... -count=1`：通过；`go build ./...`：通过。
+  - `cd frontend && npm test -- --run nodes-view node-form-layout`：2 文件 / 44 用例通过。
+  - `cd frontend && npm run build`：通过（仅既有 chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- 覆盖事实：普通协议空 host/port 仍 400；hidden policy 请求残值规范化为 `''/0` 且服务端落库为空；selector 条件下的 policy 匹配；legacy_adapter_pending info 不改变目标 status；注册 adapter 时 check 与正式装配都能读取同一 draft 的 NodeID/Persisted/State；hidden endpoint 公共层不输出 server/port。
+- 边界：本 Step 只加入公共 policy 机制和 adapter 骨架，19 个真实协议的 endpoint 替代策略（Hysteria2 ports、Mieru range、WireGuard peers、Tailscale hidden）将在各自协议 Step 声明并用实际协议夹具验收；当前 `legacyAdapterPendingCount()` 为 19，后续每步递减并在 Step 20 归零。
+- 未执行项：race、vet、Docker、API/浏览器 smoke、真实连接仍未执行；保留到 Step 22 或后续协议 Step。
+
+**中断恢复检查点（2026-09-22）**
+
+- 恢复核验确认 Step 0.5～3 的成果完整保留在本地未提交工作区：24 个已跟踪文件修改、7 个未跟踪新文件，暂存区为空；分支仍为 `beta`，HEAD `f00b350c127773b9ee57e4c77c7d98d23121c859`，相对 `origin/beta` ahead/behind 0/0。该工作区是 Build32 已完成成果，不得清理、覆盖或按“脏工作区”回退。
+- 边界核验确认尚未进入 Step 4：HTTP 仍使用 `legacy_adapter_pending`，未注册 HTTP 正式 adapter，也未加入 Step 4 要求的 HTTP selector、条件 schema、组合校验和协议固定夹具；因此 Step 4～22 继续保持未开始，恢复入口固定为 Step 4。
+- 中断后独立复验通过：`cd backend && go test ./... -count=1 && go build ./... && go vet ./...`；前端 `node-form-layout/node-features/protocol-field-editor/nodes-view/editable-combobox` 共 95 个用例通过且 `npm run build` 通过（仅既有 chunk 体积提示）；固定 Mihomo v1.19.31 门禁通过首批四协议与 SS 插件正反例；Markdown 链接检查和 `git diff --check` 通过。
+- 本次恢复核验没有执行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；这些证据仍按后续 Step 和 Step 22 收集，不得由本检查点推定通过。
+- 继续实施前先复核 `git status --short --branch` 与本检查点；若改动集合出现无法解释的减少、Step 4 相关实现已经出现，或既有 Step 1～3 测试失败，应暂停并先更新实际断点，不得直接重做 Step 1～3 或越过 Step 4。
+
 
 ### Step 4～7：基础代理组（严格按 Step 号串行）
 
@@ -731,7 +810,7 @@ git diff --check
 - 已按 v1.19.31 固定 tag 修正 OpenVPN 认证合同：用户名密码、客户端证书以及二者组合均为合法模式；只有认证组缺半或两组均空才阻断，`.ovpn` 导入不得把组合认证误判为冲突。
 - 已补齐统一 adapter 的节点生命周期输入：服务端注入 `NodeID/Persisted`，已保存 Tailscale check 与正式装配共用稳定 ID，新建草稿不生成 `state-dir`。
 - 已逐 Step 补充字段逻辑，覆盖输入／selector／显示与必填／清空与凭据／wire 输出／诊断；并以固定 tag 源码纠正 Snell reuse、Hysteria 带宽字段和 SOCKS5 无独立 SNI 三处边界。
-- 本轮只修改本文档，没有修改业务代码、Design4、AGENTS.md、测试或数据库，也没有执行构建门禁。
+- 文档定稿阶段只修改本文档；其后用户已授权实施，Step 0.5～3 已产生业务代码、前后端测试与门禁脚本改动，并完成各 Step 记录的本地自动化验收。当前成果尚未提交，且不代表 race、Docker、API／浏览器 smoke、真实客户端连接或用户人工验收通过。
 
 ---
 
@@ -744,3 +823,4 @@ git diff --check
 | v1.2 | 2026-09-21 | 进一步实施定稿：补齐 selector 持久化与 v1 派生矩阵、endpoint 防伪造、OpenVPN API 安全响应合同、逐 Step 文件／前置／完成定义和共同门槛；增加 legacy adapter 归零与遗留 `client-config` 停止条件；更正 Tailscale 登录提示和稳定 `state-dir` 边界。仍未授权任何代码 Step。 |
 | v1.3 | 2026-09-21 | 为 Step 0.5～22 逐项补充字段逻辑：字段集合、selector、条件必填、清空、敏感路径、wire 映射、diagnostic 与最终 manifest；按 Mihomo v1.19.31 固定 tag 纠正 Snell reuse、Hysteria 规范带宽入口和 SOCKS5 无独立 SNI 等细节。仍只修订文档，未授权代码实施。 |
 | v1.4 | 2026-09-21 | 核验修正：OpenVPN 认证改为 userpass／cert／cert_userpass 三态，允许固定 tag 支持的证书＋用户名密码组合并同步导入与测试合同；统一 adapter 增加服务端注入的 NodeID/Persisted，明确 Tailscale 已保存 check／装配和新建草稿的稳定 state-dir 生命周期。仍只修订文档，未授权代码实施。 |
+| v1.5 | 2026-09-22 | 实施状态同步与中断恢复：记录用户已授权 Step 0.5～22 串行实施，Step 0.5～3 已在本地未提交工作区完成并通过独立复验，Step 4～22 未开始；补充工作区保护、精确恢复入口、已通过门禁与未执行证据边界，清理过期的“未授权”和“仅修改文档”表述。 |

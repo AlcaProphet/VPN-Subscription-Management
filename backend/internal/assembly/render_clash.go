@@ -30,7 +30,11 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			return nil, fmt.Errorf("%w: 节点 %s 目标检查未通过: %s", ErrBadRequest, nd.Name, firstNodeDiagnosticMessage(nodeDiags))
 		}
 		diagnostics = append(diagnostics, nodeDiags...)
-		proxies = append(proxies, orderedMapToMapSlice(s.clashProxy(nd)))
+		proxy, _, err := s.buildClashProxy(nd, true)
+		if err != nil {
+			return nil, fmt.Errorf("%w: 节点 %s Clash adapter 失败: %v", ErrBadRequest, nd.Name, err)
+		}
+		proxies = append(proxies, orderedMapToMapSlice(proxy))
 	}
 	root = append(root, gyaml.MapItem{Key: "proxies", Value: proxies})
 	comments := gyaml.CommentMap(nil)
@@ -199,8 +203,9 @@ func clashPlanGroupFromData(g *groupData, proxies []string) ClashPlanGroup {
 	}
 }
 
-// clashProxy 构造 Clash proxies 条目（固定 name/type/server/port 在前，其余协议字段按键名排序，保证产物键序稳定）。
-func (s *Service) clashProxy(nd *nodeData) *OrderedMap {
+// legacyClashProxy 是尚未迁移到显式 adapter 的旧拼装路径。
+// 新代码必须通过 clashProxy()/buildClashProxy() 进入，保证 check 与正式装配共用同一入口。
+func (s *Service) legacyClashProxy(nd *nodeData) *OrderedMap {
 	p := NewOrderedMap()
 	p.Set("name", nd.RenderName)
 	p.Set("type", nd.Protocol)
@@ -254,6 +259,16 @@ func normalizeClashFields(protocol string, params map[string]any) map[string]any
 			if valid {
 				out[schema.Name] = values
 			}
+		}
+	}
+	if proto.Protocol == "vmess" {
+		// Mihomo v1.19.31 的 VmessOption 对 alterId/cipher 不使用 omitempty；
+		// 表单未显式写入默认值时，输出层按既有 schema 默认补齐，避免内核报 unset fields。
+		if _, exists := out["alterId"]; !exists {
+			out["alterId"] = 0
+		}
+		if cipher, exists := out["cipher"].(string); !exists || strings.TrimSpace(cipher) == "" {
+			out["cipher"] = "auto"
 		}
 	}
 	if protocol == "ss" {

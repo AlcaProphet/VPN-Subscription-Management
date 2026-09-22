@@ -11,35 +11,49 @@ import (
 	"vpn-sub/internal/ssplugin"
 )
 
-// CheckNodeTarget 使用实际输出适配器检查单个节点目标；该方法只构造内存产物。
+// CheckNodeTarget 使用旧签名调用实际输出适配器（兼容既有测试与调用方）。
 func (s *Service) CheckNodeTarget(ctx context.Context, target, protocol, renderName, host string, port int, params map[string]any) (node.CheckRenderResult, error) {
+	return s.CheckNodeTargetDraft(ctx, node.CheckTargetDraft{
+		Target: target, Protocol: protocol, RenderName: renderName, Host: host, Port: port, Params: params,
+	})
+}
+
+// CheckNodeTargetDraft 使用服务端注入的完整草稿检查单个节点目标；该方法只构造内存产物。
+func (s *Service) CheckNodeTargetDraft(ctx context.Context, in node.CheckTargetDraft) (node.CheckRenderResult, error) {
 	if err := ctx.Err(); err != nil {
 		return node.CheckRenderResult{}, err
 	}
-	switch target {
+	switch in.Target {
 	case "clash-yaml":
-		return s.checkClashNodeTarget(protocol, renderName, host, port, params)
+		return s.checkClashNodeTarget(in.Protocol, in.RenderName, in.Host, in.Port, in.Params, in.NodeID, in.Persisted, in.State)
 	case "sr-subs", "generic-subs":
-		return checkLinkNodeTarget(target, protocol, renderName, host, port, params)
+		return checkLinkNodeTarget(in.Target, in.Protocol, in.RenderName, in.Host, in.Port, in.Params)
 	default:
-		return node.CheckRenderResult{}, fmt.Errorf("节点检查不支持目标: %s", target)
+		return node.CheckRenderResult{}, fmt.Errorf("节点检查不支持目标: %s", in.Target)
 	}
 }
 
-func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port int, params map[string]any) (node.CheckRenderResult, error) {
+func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port int, params map[string]any, nodeID int64, persisted bool, state node.CurrentState) (node.CheckRenderResult, error) {
 	diagnostics := diagnoseSSPluginForTarget("clash-yaml", protocol, params)
 	if hasBlockingTargetDiagnostic(diagnostics) {
 		return node.CheckRenderResult{Diagnostics: diagnostics}, nil
 	}
 	nd := &nodeData{
+		NodeID:       nodeID,
 		Protocol:     protocol,
 		RenderName:   renderName,
 		Host:         host,
 		Port:         port,
 		ProtocolJSON: params,
+		CurrentState: state,
 	}
+	proxy, adapterDiagnostics, err := s.buildClashProxy(nd, persisted)
+	if err != nil {
+		return node.CheckRenderResult{}, fmt.Errorf("构造 Clash 节点检查片段失败: %w", err)
+	}
+	diagnostics = append(diagnostics, adapterDiagnostics...)
 	root := gyaml.MapSlice{
-		{Key: "proxies", Value: []any{orderedMapToMapSlice(s.clashProxy(nd))}},
+		{Key: "proxies", Value: []any{orderedMapToMapSlice(proxy)}},
 		{Key: "rules", Value: []any{"GEOIP,CN,DIRECT", "MATCH,DIRECT"}},
 	}
 	content, err := marshalClashYAML(root, nil)
@@ -65,7 +79,7 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 			Target:    "clash-yaml",
 			FieldPath: issue.Path,
 			Message:   issue.Message,
-			Evidence:  "mihomo-1.19.29-yaml",
+			Evidence:  "mihomo-1.19.31-yaml",
 		})
 	}
 	if protocol == "trojan" {
@@ -80,7 +94,7 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 				Target:    "clash-yaml",
 				FieldPath: "network",
 				Message:   "Trojan 自定义传输不作为普通组合；目标内核可能按 TCP 处理或静默回退",
-				Evidence:  "mihomo-1.19.29-yaml",
+				Evidence:  "mihomo-1.19.31-yaml",
 			})
 		}
 	}
@@ -157,7 +171,7 @@ func diagnoseSSPluginForTarget(target, protocol string, params map[string]any) [
 	for _, issue := range issues {
 		evidence := "cvr-2.5.2-uri"
 		if target == ssplugin.TargetClash {
-			evidence = "mihomo-1.19.29-yaml"
+			evidence = "mihomo-1.19.31-yaml"
 		} else if issue.Code == "plugin_no_verified_mapping" {
 			evidence = "project-unknown"
 		}

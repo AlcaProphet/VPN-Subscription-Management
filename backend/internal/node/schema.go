@@ -3,12 +3,33 @@ package node
 // ConditionRule 是协议字段的声明式活动条件。
 // 不引入脚本求值；同一维度的多个值表示“或”，不同维度之间表示“且”。
 type ConditionRule struct {
-	Network   []string `json:"network,omitempty"`
-	Security  []string `json:"security,omitempty"`
-	Plugin    []string `json:"plugin,omitempty"`
-	PluginNot []string `json:"plugin_not,omitempty"`
-	Features  []string `json:"features,omitempty"`
-	Targets   []string `json:"targets,omitempty"`
+	Network   []string            `json:"network,omitempty"`
+	Security  []string            `json:"security,omitempty"`
+	Plugin    []string            `json:"plugin,omitempty"`
+	PluginNot []string            `json:"plugin_not,omitempty"`
+	Features  []string            `json:"features,omitempty"`
+	Selectors map[string][]string `json:"selectors,omitempty"`
+	Targets   []string            `json:"targets,omitempty"`
+}
+
+// SelectorSchema 声明协议级 selector 的名称、允许值、默认值与来源字段。
+// SourceField 为空表示 state_only selector，只保存在 current_state_json；
+// 非空时使用点路径从 protocol_json 的普通 wire 字段派生选择值。
+type SelectorSchema struct {
+	Name        string   `json:"name"`
+	Values      []string `json:"values"`
+	Default     string   `json:"default"`
+	SourceField string   `json:"source_field,omitempty"`
+}
+
+// EndpointPolicy 声明当前协议／selector 组合下 host/port 的显示、必填与 wire 输出策略。
+// When 为空表示默认策略；每个状态必须且只能命中一条策略。
+type EndpointPolicy struct {
+	When     *ConditionRule `json:"when,omitempty"`
+	HostMode string         `json:"host_mode"` // required|optional|hidden
+	PortMode string         `json:"port_mode"` // required|optional|hidden
+	EmitHost bool           `json:"emit_host"`
+	EmitPort bool           `json:"emit_port"`
 }
 
 // OptionItem 是下拉/可搜索输入使用的推荐项。
@@ -81,6 +102,18 @@ func (r ConditionRule) Matches(state CurrentState, target string) bool {
 	}
 	if len(r.Features) > 0 && !containsAny(r.Features, state.Features) {
 		return false
+	}
+	for name, allowed := range r.Selectors {
+		if len(allowed) == 0 {
+			continue
+		}
+		current := ""
+		if state.Selectors != nil {
+			current = state.Selectors[name]
+		}
+		if !containsAny(allowed, []string{current}) {
+			return false
+		}
 	}
 	if target != "" && len(r.Targets) > 0 && !containsAny(r.Targets, []string{target}) {
 		return false

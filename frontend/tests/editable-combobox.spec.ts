@@ -6,9 +6,9 @@ import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { OptionItem } from '@/api/node'
 
 const items: OptionItem[] = [
-  { value: 'tcp', label: 'TCP', group: 'common', verified: 'mihomo-1.19.29' },
-  { value: 'ws', label: 'WebSocket', group: 'common', verified: 'mihomo-1.19.29' },
-  { value: 'grpc', label: 'gRPC', group: 'common', verified: 'mihomo-1.19.29' },
+  { value: 'tcp', label: 'TCP', group: 'common', verified: 'mihomo-1.19.31' },
+  { value: 'ws', label: 'WebSocket', group: 'common', verified: 'mihomo-1.19.31' },
+  { value: 'grpc', label: 'gRPC', group: 'common', verified: 'mihomo-1.19.31' },
 ]
 
 async function selectValue(wrapper: ReturnType<typeof mount>, value: string) {
@@ -83,8 +83,8 @@ describe('EditableCombobox', () => {
   it('选项元数据保持可读名称和明确分隔', async () => {
     const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: true }, attachTo: document.body })
     await wrapper.find('.ant-select-selector').trigger('mousedown')
-    expect(document.body.textContent).toContain('Mihomo 1.19.29 · 常用')
-    expect(document.body.textContent).not.toContain('mihomo-1.19.29常用')
+    expect(document.body.textContent).toContain('Mihomo 1.19.31 · 常用')
+    expect(document.body.textContent).not.toContain('mihomo-1.19.31常用')
     wrapper.unmount()
   })
 })

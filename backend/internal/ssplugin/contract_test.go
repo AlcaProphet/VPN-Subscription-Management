@@ -63,7 +63,7 @@ func TestFixedTargetSupportAndRequirements(t *testing.T) {
 	}
 }
 
-func TestClashExpressibleFieldsMatchMihomo11929(t *testing.T) {
+func TestClashExpressibleFieldsMatchMihomo11931(t *testing.T) {
 	want := map[string][]string{
 		"obfs":         {"mode", "host"},
 		"v2ray-plugin": {"mode", "host", "path", "headers", "tls", "ech-opts", "mux", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open", "fingerprint", "certificate", "private-key", "skip-cert-verify", "name-cert-verify"},
@@ -79,7 +79,7 @@ func TestClashExpressibleFieldsMatchMihomo11929(t *testing.T) {
 	}
 }
 
-func TestClashPluginModeEnumsMatchMihomo11929(t *testing.T) {
+func TestClashPluginModeEnumsMatchMihomo11931(t *testing.T) {
 	want := map[string][]string{
 		"obfs":         {"http", "tls"},
 		"v2ray-plugin": {"websocket"},

@@ -35,7 +35,7 @@ const encPrefix = "enc:v1:"
 // extEncPrefix 节点未知扩展负载密文前缀。
 const extEncPrefix = "enc:ext:v1:"
 
-const currentStateFormatVersion = 1
+const currentStateFormatVersion = 2
 
 // 业务错误。
 var (
@@ -94,12 +94,13 @@ type Node struct {
 	extensionRecords []ExtensionRecord `json:"-"`
 }
 
-// CurrentState 保存当前激活的传输、安全、插件和功能选择。
+// CurrentState 保存当前激活的传输、安全、插件、功能和协议级 selector 选择。
 type CurrentState struct {
-	Network  string   `json:"network,omitempty"`
-	Security string   `json:"security,omitempty"`
-	Plugin   *string  `json:"plugin"`
-	Features []string `json:"features,omitempty"`
+	Network   string            `json:"network,omitempty"`
+	Security  string            `json:"security,omitempty"`
+	Plugin    *string           `json:"plugin"`
+	Features  []string          `json:"features,omitempty"`
+	Selectors map[string]string `json:"selectors,omitempty"`
 }
 
 // CredentialOp 表示一次明确的凭据保留或清除操作。
@@ -190,12 +191,13 @@ type XrayNodeDeletedFunc func(ctx context.Context, targets []XrayDeleteTarget)
 
 // Service 节点服务。
 type Service struct {
-	store             *store.Store
-	cfg               *config.Service
-	log               *slog.Logger
-	onXrayChanged     XrayChangedFunc
-	onXrayNodeDeleted XrayNodeDeletedFunc
-	checkRenderer     CheckRenderer
+	store              *store.Store
+	cfg                *config.Service
+	log                *slog.Logger
+	onXrayChanged      XrayChangedFunc
+	onXrayNodeDeleted  XrayNodeDeletedFunc
+	checkRenderer      CheckRenderer
+	checkRendererDraft CheckRendererDraft
 }
 
 // NewService 构造节点服务。
@@ -216,6 +218,11 @@ func (s *Service) SetOnXrayNodeDeleted(fn XrayNodeDeletedFunc) {
 // SetCheckRenderer 注入目标适配器检查器，避免节点领域层反向依赖装配层。
 func (s *Service) SetCheckRenderer(fn CheckRenderer) {
 	s.checkRenderer = fn
+}
+
+// SetCheckRendererDraft 注入带节点生命周期与 CurrentState 的正式检查入口。
+func (s *Service) SetCheckRendererDraft(fn CheckRendererDraft) {
+	s.checkRendererDraft = fn
 }
 
 // ValidateNodeName 节点名（manual 录入名与 xray 系统名），禁止空格。
@@ -336,9 +343,6 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if err := ValidateNodeName(in.Name); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	if err := validateHostPort(in.Host, in.Port); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
-	}
 	proto, err := GetProtocol(in.Protocol)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
@@ -360,16 +364,15 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if params == nil {
 		params = map[string]any{}
 	}
-	var state CurrentState
-	if in.CurrentState == nil {
-		state = InitCurrentState(proto, params)
-	} else {
-		state, err = resolveCurrentState(proto, in.CurrentState, params)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
-		}
+	state, err := resolveCurrentState(proto, in.CurrentState, params)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	if err := ValidateCurrentState(proto, state, params); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	in.Host, in.Port, _, err = NormalizeEndpoint(proto, state, in.Host, in.Port)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	storedParams := protocolParamsForStorage(proto, params)
@@ -403,8 +406,8 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 			`INSERT INTO nodes (source, name, display_name, instance_id, tag, protocol, host, port,
 			 protocol_json, current_state_json, extensions_json, edit_revision, state_format_version,
 			 is_public, enabled, allocatable, missing)
-			 VALUES ('manual', ?, NULL, NULL, '', ?, ?, ?, ?, ?, ?, 1, 1, 0, 1, 1, 0)`,
-			in.Name, in.Protocol, in.Host, in.Port, string(raw), string(stateRaw), string(extensionsRaw))
+			 VALUES ('manual', ?, NULL, NULL, '', ?, ?, ?, ?, ?, ?, 1, ?, 0, 1, 1, 0)`,
+			in.Name, in.Protocol, in.Host, in.Port, string(raw), string(stateRaw), string(extensionsRaw), currentStateFormatVersion)
 		if err != nil {
 			if isUniqueViolation(err) {
 				return fmt.Errorf("%w: 节点名称已存在", ErrConflict)
@@ -444,9 +447,6 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if in.Name != "" && in.Name != existing.Name {
 		return nil, fmt.Errorf("%w: 节点名称创建后不可修改", ErrBadRequest)
 	}
-	if err := validateHostPort(in.Host, in.Port); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
-	}
 	proto, err := GetProtocol(in.Protocol)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
@@ -466,13 +466,22 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 			return nil, fmt.Errorf("%w: 已有节点含未归入扩展的顶层字段: %v", ErrBadRequest, err)
 		}
 	}
-	resetScopes, err := normalizeResetScopes(in.ResetScopes)
+	resetScopes, err := normalizeResetScopes(proto, in.ResetScopes)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	// 跨协议切换的清空边界由服务端强制补齐，避免旧协议凭据通过同名路径复活。
 	if existing.Protocol != in.Protocol && !containsString(resetScopes, "protocol") {
 		resetScopes = append(resetScopes, "protocol")
+	}
+	// selector 变化的清空范围由后端根据旧、新状态复核；不能只相信前端声明的 reset_scopes。
+	if existing.Protocol == in.Protocol && len(proto.Selectors) > 0 {
+		oldState := hydrateCurrentStateForRead(proto, existing.CurrentState, existing.ProtocolJSON, existing.StateFormatVersion)
+		preState, stateErr := resolveCurrentState(proto, in.CurrentState, incoming)
+		if stateErr != nil {
+			return nil, fmt.Errorf("%w: %v", ErrBadRequest, stateErr)
+		}
+		resetScopes = appendResetScopes(resetScopes, selectorResetScopes(proto, oldState, preState))
 	}
 	merged := mergeProtocolJSON(existing.ProtocolJSON, incoming, proto, resetScopes)
 	merged, err = NormalizeProtocolJSON(proto, merged)
@@ -483,14 +492,9 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err := validateKnownTopLevel(proto, merged); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	var state CurrentState
-	if in.CurrentState == nil {
-		state = InitCurrentState(proto, merged)
-	} else {
-		state, err = resolveCurrentState(proto, in.CurrentState, merged)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
-		}
+	state, err := resolveCurrentState(proto, in.CurrentState, merged)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	merged, err = s.mergeSensitiveWithOps(ctx, existing, proto, merged, resetScopes, in.CredentialOps)
 	if err != nil {
@@ -500,6 +504,10 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	if err := ValidateCurrentState(proto, state, merged); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	in.Host, in.Port, _, err = NormalizeEndpoint(proto, state, in.Host, in.Port)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	storedParams := protocolParamsForStorage(proto, merged)
@@ -847,6 +855,12 @@ func scanNode(row rowScanner) (Node, error) {
 	if err := json.Unmarshal([]byte(currentStateRaw), &n.CurrentState); err != nil {
 		return Node{}, fmt.Errorf("解析节点当前状态失败: %w", err)
 	}
+	// v1 状态只在读取内存中派生 selector；不写回数据库，保存时才升级到 v2。
+	if n.Source == "manual" {
+		if proto, err := GetProtocol(n.Protocol); err == nil {
+			n.CurrentState = hydrateCurrentStateForRead(proto, n.CurrentState, n.ProtocolJSON, n.StateFormatVersion)
+		}
+	}
 	records, err := decodeExtensionRecords(extensionsRaw)
 	if err != nil {
 		return Node{}, err
@@ -1021,7 +1035,7 @@ func mergeSchemaFieldValue(field FieldSchema, oldValue, newValue any) any {
 }
 
 // normalizeResetScopes 校验并去重本次编辑的清空作用域。
-func normalizeResetScopes(scopes []string) ([]string, error) {
+func normalizeResetScopes(proto Protocol, scopes []string) ([]string, error) {
 	out := make([]string, 0, len(scopes))
 	seen := make(map[string]bool, len(scopes))
 	for _, raw := range scopes {
@@ -1032,6 +1046,12 @@ func normalizeResetScopes(scopes []string) ([]string, error) {
 		valid := scope == "protocol" || scope == "network" || scope == "security" || scope == "plugin"
 		if strings.HasPrefix(scope, "feature.") && len(strings.TrimPrefix(scope, "feature.")) > 0 {
 			valid = true
+		}
+		if strings.HasPrefix(scope, "selector.") {
+			name := strings.TrimPrefix(scope, "selector.")
+			if _, ok := selectorSchemaByName(proto, name); ok {
+				valid = true
+			}
 		}
 		if !valid {
 			return nil, fmt.Errorf("不支持的 reset scope: %s", scope)
@@ -1179,6 +1199,7 @@ func DeriveCurrentState(proto Protocol, params map[string]any) CurrentState {
 		state.Plugin = &plugin
 	}
 	state.Features = activeFeatures(proto.FormSchema, params)
+	state.Selectors = deriveSelectors(proto, params)
 	return state
 }
 
@@ -1228,6 +1249,9 @@ func sameStringSet(left, right []string) bool {
 func resolveCurrentState(proto Protocol, requested *CurrentState, params map[string]any) (CurrentState, error) {
 	derived := DeriveCurrentState(proto, params)
 	if requested == nil {
+		if _, err := resolveSelectors(proto, derived.Selectors, derived.Selectors, params); err != nil {
+			return CurrentState{}, err
+		}
 		return derived, nil
 	}
 	state := *requested
@@ -1258,6 +1282,11 @@ func resolveCurrentState(proto Protocol, requested *CurrentState, params map[str
 	} else {
 		state.Features = uniqueSortedStrings(state.Features)
 	}
+	selectors, err := resolveSelectors(proto, state.Selectors, derived.Selectors, params)
+	if err != nil {
+		return CurrentState{}, err
+	}
+	state.Selectors = selectors
 	return state, nil
 }
 
@@ -1465,10 +1494,10 @@ func validateExtensionScope(scope string) error {
 	}
 	parts := strings.SplitN(scope, ".", 2)
 	if len(parts) != 2 || parts[1] == "" {
-		return errors.New("scope 必须为 node、transport.<network>、security.<security>、plugin.<plugin> 或 feature.<feature>")
+		return errors.New("scope 必须为 node、transport.<network>、security.<security>、plugin.<plugin>、feature.<feature> 或 selector.<name>")
 	}
 	switch parts[0] {
-	case "transport", "security", "plugin", "feature":
+	case "transport", "security", "plugin", "feature", "selector":
 		return nil
 	default:
 		return fmt.Errorf("不支持的 scope: %s", scope)
@@ -1492,6 +1521,8 @@ func extensionScopeActive(scope string, state CurrentState) bool {
 		return state.Plugin != nil && *state.Plugin == parts[1]
 	case "feature":
 		return containsString(state.Features, parts[1])
+	case "selector":
+		return state.Selectors != nil && state.Selectors[parts[1]] != ""
 	default:
 		return false
 	}
@@ -1515,7 +1546,7 @@ func extensionScopeReset(scope string, resetScopes []string) bool {
 				return true
 			}
 		default:
-			if strings.HasPrefix(reset, "feature.") && (scope == reset || strings.HasPrefix(scope, reset+".")) {
+			if (strings.HasPrefix(reset, "feature.") || strings.HasPrefix(reset, "selector.")) && (scope == reset || strings.HasPrefix(scope, reset+".")) {
 				return true
 			}
 		}
@@ -1741,6 +1772,9 @@ func validateProtocolFields(proto Protocol, m map[string]any, allowEmptySensitiv
 		sensitive[f] = true
 	}
 	for _, f := range proto.FormSchema {
+		if f.StateOnly {
+			continue
+		}
 		v, ok := m[f.Name]
 		if f.Required && (!ok || v == nil || v == "") {
 			if !(allowEmptySensitive && sensitive[f.Name]) {
@@ -1855,7 +1889,7 @@ func validateInputMapValueTypes(proto Protocol, params map[string]any) error {
 
 func validateActiveInputMaps(fields []FieldSchema, state CurrentState, params map[string]any, prefix string) error {
 	for _, field := range fields {
-		if !field.Matches(state, "") || field.Type != "object" {
+		if field.StateOnly || !field.Matches(state, "") || field.Type != "object" {
 			continue
 		}
 		value, exists := params[field.Name]

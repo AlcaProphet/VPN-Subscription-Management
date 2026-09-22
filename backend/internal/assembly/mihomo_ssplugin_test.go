@@ -12,18 +12,18 @@ import (
 	"vpn-sub/internal/ssplugin"
 )
 
-func TestMihomo11929AcceptsGeneratedSSPluginStructures(t *testing.T) {
-	bin := os.Getenv("MIHOMO_11929_BIN")
+func TestMihomo11931AcceptsGeneratedSSPluginStructures(t *testing.T) {
+	bin := os.Getenv("MIHOMO_11931_BIN")
 	if bin == "" {
-		t.Skip("未设置 MIHOMO_11929_BIN，跳过固定 Mihomo 1.19.29 二进制验收")
+		t.Skip("未设置 MIHOMO_11931_BIN，跳过固定 Mihomo 1.19.31 二进制验收")
 	}
 	version, err := exec.Command(bin, "-v").CombinedOutput()
 	if err != nil {
 		t.Fatalf("读取 Mihomo 版本失败: %v: %s", err, version)
 	}
 	versionFields := strings.Fields(string(version))
-	if len(versionFields) < 3 || versionFields[0] != "Mihomo" || versionFields[1] != "Meta" || versionFields[2] != "v1.19.29" {
-		t.Fatalf("固定验收要求 Mihomo v1.19.29，实际: %s", version)
+	if len(versionFields) < 3 || versionFields[0] != "Mihomo" || versionFields[1] != "Meta" || versionFields[2] != "v1.19.31" {
+		t.Fatalf("固定验收要求 Mihomo v1.19.31，实际: %s", version)
 	}
 
 	cases := []struct {
@@ -55,7 +55,7 @@ func TestMihomo11929AcceptsGeneratedSSPluginStructures(t *testing.T) {
 				content := mihomoSSPluginConfig(t, orderedMapToMapSlice(proxy), "ss-"+tc.name)
 				output, err := runMihomoConfigTest(t, bin, content)
 				if err != nil {
-					t.Fatalf("Mihomo 1.19.29 拒绝生成的 %s 结构: %v\n%s\nYAML:\n%s", tc.plugin, err, output, content)
+					t.Fatalf("Mihomo 1.19.31 拒绝生成的 %s 结构: %v\n%s\nYAML:\n%s", tc.plugin, err, output, content)
 				}
 			})
 		}
@@ -80,10 +80,10 @@ func TestMihomo11929AcceptsGeneratedSSPluginStructures(t *testing.T) {
 				content := mihomoSSPluginConfig(t, proxy, proxyName)
 				output, err := runMihomoConfigTest(t, bin, content)
 				if err == nil {
-					t.Fatalf("Mihomo 1.19.29 应拒绝无效 %s 结构\n%s\nYAML:\n%s", tc.plugin, output, content)
+					t.Fatalf("Mihomo 1.19.31 应拒绝无效 %s 结构\n%s\nYAML:\n%s", tc.plugin, output, content)
 				}
 				if !strings.Contains(string(output), tc.wantOutput) {
-					t.Fatalf("Mihomo 1.19.29 拒绝原因异常，期望包含 %q，实际:\n%s", tc.wantOutput, output)
+					t.Fatalf("Mihomo 1.19.31 拒绝原因异常，期望包含 %q，实际:\n%s", tc.wantOutput, output)
 				}
 			})
 		}
@@ -94,7 +94,7 @@ func TestMihomo11929AcceptsGeneratedSSPluginStructures(t *testing.T) {
 		proxy := mihomoSSPluginProxy(proxyName, "obfs-local;obfs=http", nil)
 		content := mihomoSSPluginConfig(t, proxy, proxyName)
 		if output, err := runMihomoConfigTest(t, bin, content); err != nil {
-			t.Fatalf("固定回归要求 Mihomo 1.19.29 接受旧插件字符串，以证明内核检查不足: %v\n%s", err, output)
+			t.Fatalf("固定回归要求 Mihomo 1.19.31 接受旧插件字符串，以证明内核检查不足: %v\n%s", err, output)
 		}
 		issues := CheckClashContent(content)
 		for _, issue := range issues {

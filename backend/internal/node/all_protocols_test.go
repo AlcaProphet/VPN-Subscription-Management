@@ -67,7 +67,7 @@ func TestAllManualProtocolsUnifiedSaveContract(t *testing.T) {
 			if err != nil {
 				t.Fatalf("读取 %s 失败: %v", proto.Protocol, err)
 			}
-			if got.EditRevision != 2 || got.StateFormatVersion != 1 {
+			if got.EditRevision != 2 || got.StateFormatVersion != currentStateFormatVersion {
 				t.Fatalf("读取后修订/格式异常: %+v", got)
 			}
 		})
