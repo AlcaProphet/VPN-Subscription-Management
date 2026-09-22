@@ -80,8 +80,13 @@ func TestCheckWireGuardArrayCredentialIsRedactedAndInternalIDIsStripped(t *testi
 	resp, err := svc.Check(context.Background(), CheckRequest{
 		Protocol: "wireguard", Host: "example.com", Port: 51820,
 		ProtocolJSON: map[string]any{
-			"private-key": "private-secret", "public-key": "server-public",
-			"peers": []any{map[string]any{"server": "peer", "pre-shared-key": "peer-secret"}},
+			"private-key": wgPrivateKey, "ip": "192.0.2.2",
+			"peers": []any{
+				map[string]any{"server": "peer", "port": 51820, "public-key": wgPublicKey,
+					"allowed-ips": []any{"10.0.0.0/24"}, "pre-shared-key": wgPSK},
+				map[string]any{"server": "peer2", "port": 51821, "public-key": wgPublicKey2,
+					"allowed-ips": []any{"10.0.1.0/24"}, "pre-shared-key": ""},
+			},
 		},
 		Targets: []string{"clash-yaml"},
 	})

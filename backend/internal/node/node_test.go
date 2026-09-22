@@ -385,7 +385,9 @@ func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
 
 func TestValidateProtocolFieldTypes(t *testing.T) {
 	wg, _ := GetProtocol("wireguard")
-	valid := map[string]any{"private-key": "secret", "public-key": "pub", "allowed-ips": "0.0.0.0/0,::/0", "reserved": "1,2,3", "peers": []any{map[string]any{"server": "peer"}}}
+	valid := map[string]any{"private-key": wgPrivateKey, "public-key": wgPublicKey, "ip": "192.0.2.2",
+		"allowed-ips": "0.0.0.0/0,::/0", "reserved": "1,2,3",
+		"peers": []any{map[string]any{"server": "peer", "port": 51820, "public-key": wgPublicKey, "allowed-ips": "10.0.0.0/24"}}}
 	if err := validateProtocolFields(wg, valid, false); err != nil {
 		t.Fatalf("合法列表/对象字段被拒绝: %v", err)
 	}
@@ -394,7 +396,7 @@ func TestValidateProtocolFieldTypes(t *testing.T) {
 		t.Fatal("错误 int-list 类型应被拒绝")
 	}
 	valid["reserved"] = "1,2,3"
-	valid["peers"] = []any{map[string]any{"server": "peer", "port": true}}
+	valid["peers"] = []any{map[string]any{"server": "peer", "port": true, "public-key": wgPublicKey, "allowed-ips": "10.0.0.0/24"}}
 	if err := validateProtocolFields(wg, valid, false); err == nil || !strings.Contains(err.Error(), "peers[0].port") {
 		t.Fatalf("嵌套字段类型错误应定位完整路径，实际 %v", err)
 	}
@@ -1327,13 +1329,17 @@ func TestSSPluginClashRequirementsDoNotBlockDraftSave(t *testing.T) {
 func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()
+	// Step 11 后多 Peer 模式要求每项 server/port/public-key/allowed-ips，并使用 32 字节 Base64 密钥；
+	// 本用例只更新输入形状，R27-07 的稳定身份与凭据生命周期断言保持不变。
 	created, err := svc.CreateManual(ctx, CreateManualInput{
 		Name: "WireGuard多Peer", Protocol: "wireguard", Host: "example.com", Port: 51820,
 		ProtocolJSON: map[string]any{
-			"private-key": "private-secret", "public-key": "server-public",
+			"private-key": wgPrivateKey, "ip": "192.0.2.2",
 			"peers": []any{
-				map[string]any{"server": "peer-a", "pre-shared-key": "peer-a-secret"},
-				map[string]any{"server": "peer-b", "pre-shared-key": "peer-b-secret"},
+				map[string]any{"server": "peer-a", "port": 51820, "public-key": wgPublicKey,
+					"allowed-ips": []any{"10.0.0.0/24"}, "pre-shared-key": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg="},
+				map[string]any{"server": "peer-b", "port": 51821, "public-key": wgPublicKey2,
+					"allowed-ips": []any{"10.0.1.0/24"}, "pre-shared-key": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk="},
 			},
 		},
 	})
@@ -1377,10 +1383,12 @@ func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 	updated, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
 		Protocol: "wireguard", Host: "example.com", Port: 51820, BaseRevision: created.EditRevision,
 		ProtocolJSON: map[string]any{
-			"private-key": "", "public-key": "server-public",
+			"private-key": "", "ip": "192.0.2.2",
 			"peers": []any{
-				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "pre-shared-key": ""},
-				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "pre-shared-key": ""},
+				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "port": 51821,
+					"public-key": wgPublicKey2, "allowed-ips": []any{"10.0.1.0/24"}, "pre-shared-key": ""},
+				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "port": 51820,
+					"public-key": wgPublicKey, "allowed-ips": []any{"10.0.0.0/24"}, "pre-shared-key": ""},
 			},
 		},
 	})
@@ -1400,10 +1408,12 @@ func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 	finalResponse, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
 		Protocol: "wireguard", Host: "example.com", Port: 51820, BaseRevision: updated.EditRevision,
 		ProtocolJSON: map[string]any{
-			"private-key": "", "public-key": "server-public",
+			"private-key": "", "ip": "192.0.2.2",
 			"peers": []any{
-				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "pre-shared-key": ""},
-				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "pre-shared-key": "replacement"},
+				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "port": 51821,
+					"public-key": wgPublicKey2, "allowed-ips": []any{"10.0.1.0/24"}, "pre-shared-key": ""},
+				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "port": 51820,
+					"public-key": wgPublicKey, "allowed-ips": []any{"10.0.0.0/24"}, "pre-shared-key": "CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo="},
 			},
 		},
 		CredentialOps: []CredentialOp{{Path: "peers[" + ids[1] + "].pre-shared-key", Op: "clear"}},

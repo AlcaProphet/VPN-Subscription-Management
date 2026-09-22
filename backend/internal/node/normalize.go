@@ -51,6 +51,68 @@ func normalizeProtocolListFields(proto Protocol, params map[string]any) {
 	case "ssh":
 		normalizeStringListField(params, "host-key")
 		normalizeStringListField(params, "host-key-algorithms")
+	case "mieru":
+		normalizeTrimmedTextFields(params, "port-range", "traffic-pattern", "transport", "multiplexing", "handshake-mode")
+	case "masque":
+		normalizeLocalAddressPrefixes(params)
+	case "tailscale":
+		normalizeTrimmedTextFields(params, "hostname", "control-url", "exit-node")
+	case "shadowquic":
+		normalizeStringListField(params, "quic-versions")
+	case "wireguard":
+		normalizeLocalAddressPrefixes(params)
+		normalizeStringListField(params, "allowed-ips")
+		normalizeStringListField(params, "dns")
+		normalizeWireGuardPeerFields(params)
+	}
+}
+
+// normalizeTrimmedTextFields 去除声明文本字段的首尾空白；只做去空白，不做大小写或别名转换，
+// 保持固定 tag 的精确值语义。空字符串必须原样保留：它是「清空该字段」的显式信号，
+// 若在此删除，更新合并会退回旧值，用户将无法清空文本字段（空值在上层统一按未设置处理）。
+func normalizeTrimmedTextFields(params map[string]any, keys ...string) {
+	for _, key := range keys {
+		text, ok := params[key].(string)
+		if !ok {
+			continue
+		}
+		params[key] = strings.TrimSpace(text)
+	}
+}
+
+// normalizeLocalAddressPrefixes 为省略前缀的本地地址补默认前缀：IPv4→/32、IPv6→/128
+// （WireGuard／MASQUE 共用；固定 tag 的 Prefixes() 行为一致）。
+// 空值删除，非法值保留给字段级校验报错，不在归一化阶段吞掉。
+func normalizeLocalAddressPrefixes(params map[string]any) {
+	for _, item := range []struct{ key, suffix string }{{"ip", "/32"}, {"ipv6", "/128"}} {
+		text, ok := params[item.key].(string)
+		if !ok {
+			continue
+		}
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" {
+			delete(params, item.key)
+			continue
+		}
+		if !strings.Contains(trimmed, "/") {
+			trimmed += item.suffix
+		}
+		params[item.key] = trimmed
+	}
+}
+
+// normalizeWireGuardPeerFields 对每个 Peer 的 allowed-ips 去空白去重并保持用户顺序。
+func normalizeWireGuardPeerFields(params map[string]any) {
+	peers, ok := params["peers"].([]any)
+	if !ok {
+		return
+	}
+	for _, value := range peers {
+		peer, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		normalizeStringListField(peer, "allowed-ips")
 	}
 }
 
@@ -115,9 +177,18 @@ func canonicalizeLegacyAliases(proto Protocol, params map[string]any) {
 		canonicalizeHysteriaAliases(params)
 	case "tuic":
 		canonicalizeTUICGuards(params)
+	case "tailscale":
+		canonicalizeTailscaleGuards(params)
 	}
 	if proto.Protocol == "vless" {
 		canonicalizeRealityAliases(params)
+	}
+}
+
+// canonicalizeTailscaleGuards 在 exit-node 为空时清空依赖它的 LAN 访问三态开关。
+func canonicalizeTailscaleGuards(params map[string]any) {
+	if !hasTextParam(params, "exit-node") {
+		delete(params, "exit-node-allow-lan-access")
 	}
 }
 

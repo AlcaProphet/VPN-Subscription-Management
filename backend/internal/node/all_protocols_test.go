@@ -16,7 +16,7 @@ func minimalProtocolParams(proto Protocol) map[string]any {
 		if field.StateOnly {
 			continue
 		}
-		conditionalRequired := field.RequiredWhen != nil && field.RequiredWhen.Matches(state, "")
+		conditionalRequired := field.RequiredWhen != nil && field.RequiredWhen.Matches(state, nil, "")
 		if !field.Required && !conditionalRequired {
 			continue
 		}
@@ -44,9 +44,21 @@ func minimalProtocolParams(proto Protocol) map[string]any {
 			case field.Name == "uuid":
 				// TUIC v5 与 VMess/VLESS 的 uuid 必须为合法 UUID。
 				value = "11111111-2222-3333-4444-555555555555"
+			case proto.Protocol == "wireguard" && field.Name == "private-key":
+				value = wgPrivateKey
+			case proto.Protocol == "wireguard" && field.Name == "public-key":
+				value = wgPublicKey
+			case proto.Protocol == "masque" && field.Name == "private-key":
+				value = masqueFixturePrivateKey
+			case proto.Protocol == "masque" && field.Name == "public-key":
+				value = masqueFixturePublicKey
 			}
 			out[field.Name] = value
 		}
+	}
+	// WireGuard／MASQUE 的本地地址是项目级组合必填（ip／ipv6 任一即可），不在 schema 中声明为必填。
+	if proto.Protocol == "wireguard" || proto.Protocol == "masque" {
+		out["ip"] = "192.0.2.2"
 	}
 	return out
 }

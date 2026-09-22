@@ -192,13 +192,221 @@ func ssOpts() FieldSchema {
 		f("password", "password", "密码"))
 }
 
-func wireGuardPeers() FieldSchema {
+// wireGuardPeerModeField 声明标准 WireGuard 的单 Peer／多 Peer selector；
+// state_only 只保存在 current_state.selectors，不进入 protocol_json 与 wire。
+func wireGuardPeerModeField() FieldSchema {
+	field := sel("peer-mode", "Peer 模式", "single", "single", "peers")
+	field.StateOnly = true
+	field.SelectorName = "peer_mode"
+	field.Group = "connection"
+	field.Help = "single 使用顶层服务器与公钥；peers 使用结构化 Peer 列表并隐藏顶层 endpoint。"
+	return field
+}
+
+// wireGuardModeField 声明只在指定 Peer 模式活动、切换 selector 即清空的字段。
+// required 表示该字段在其活动分支内条件必填。
+func wireGuardModeField(field FieldSchema, modes []string, required bool) FieldSchema {
+	condition := &ConditionRule{Selectors: map[string][]string{"peer_mode": modes}}
+	field.When = condition
+	if required {
+		field.RequiredWhen = condition
+	}
+	field.ResetOn = []string{"selector.peer_mode"}
+	return field
+}
+
+// wireGuardPeersField 声明多 Peer 结构化列表；每项以 _credential_id 作为稳定凭据身份，
+// 使 Peer 重排／删除／替换只影响对应 PSK（R27-07 数组凭据合同）。
+func wireGuardPeersField() FieldSchema {
 	peers := obj("peers", "Peer 列表", "list",
-		f("server", "text", "服务器"), f("port", "number", "端口"), f("public-key", "text", "公钥"),
-		f("pre-shared-key", "password", "预共享密钥"), f("reserved", "int-list", "保留字节"), f("allowed-ips", "text-list", "Allowed IPs"))
+		req("server", "text", "服务器"), req("port", "number", "端口"), req("public-key", "text", "公钥"),
+		f("pre-shared-key", "password", "预共享密钥"), f("reserved", "byte-sequence", "保留字节"),
+		req("allowed-ips", "text-list", "Allowed IPs"))
 	peers.ItemIDField = sensitiveItemIDField
+	condition := &ConditionRule{Selectors: map[string][]string{"peer_mode": {"peers"}}}
+	peers.When = condition
+	peers.RequiredWhen = condition
+	peers.ResetOn = []string{"selector.peer_mode"}
+	peers.Group = "connection"
 	return peers
 }
+
+// ipStackModeField 声明固定 tag IPStackOption.mode；空值表示内核默认 auto（WireGuard／MASQUE 共用）。
+func ipStackModeField() FieldSchema {
+	field := sel("mode", "IP 栈", "", "", "auto", "gvisor", "mips")
+	field.Group = "advanced"
+	return field
+}
+
+// ipStackControllerField 声明固定 tag IPStackOption.congestion-controller；空值为内核默认（共用）。
+func ipStackControllerField() FieldSchema {
+	field := sel("congestion-controller", "拥塞控制器", "", "", "cubic", "reno", "bbr", "bbr3")
+	field.Group = "advanced"
+	return field
+}
+
+// ipStackField 声明固定 tag 的 ip-stack 对象（WireGuard／MASQUE 共用枚举合同）。
+func ipStackField() FieldSchema {
+	field := obj("ip-stack", "IP 栈参数", "fields", ipStackModeField(), ipStackControllerField())
+	field.Group = "advanced"
+	return field
+}
+
+// dnsListField 声明仅在 remote-dns-resolve 开启时活动、条件必填的 DNS 列表（WireGuard／MASQUE 共用）。
+// 关闭开关时的清空与 When 由 setScalarFeatures 统一挂接 feature.remote-dns-resolve。
+func dnsListField() FieldSchema {
+	field := f("dns", "text-list", "DNS")
+	field.RequiredWhen = &ConditionRule{Features: []string{"remote-dns-resolve"}}
+	field.Group = "advanced"
+	return field
+}
+
+// mieruEndpointModeField 声明单端口／端口段 selector；range 模式下顶层 port 由 endpoint policy 隐藏。
+func mieruEndpointModeField() FieldSchema {
+	field := sel("endpoint-mode", "端口模式", "single", "single", "range")
+	field.StateOnly = true
+	field.SelectorName = "endpoint_mode"
+	field.Group = "connection"
+	field.Help = "single 使用顶层端口；range 使用单个 begin-end 端口段并隐藏顶层端口。"
+	return field
+}
+
+// mieruPortRangeField 声明仅在 range 模式活动且必填的端口段；single 模式清空。
+func mieruPortRangeField() FieldSchema {
+	field := f("port-range", "text", "端口范围")
+	condition := &ConditionRule{Selectors: map[string][]string{"endpoint_mode": {"range"}}}
+	field.When = condition
+	field.RequiredWhen = condition
+	field.ResetOn = []string{"selector.endpoint_mode"}
+	field.Group = "connection"
+	field.Help = "只接受单个 begin-end，两端为 1-65535 且 begin ≤ end。"
+	return field
+}
+
+// mieruTransportField 声明固定 tag 精确匹配的传输枚举；不做大小写或别名转换。
+func mieruTransportField() FieldSchema {
+	field := sel("transport", "传输", "TCP", "TCP", "UDP")
+	field.Group = "connection"
+	return field
+}
+
+// mieruMultiplexingField 声明固定 tag 的完整多路复用常量名；空值表示内核默认，不强写默认值。
+func mieruMultiplexingField() FieldSchema {
+	field := sel("multiplexing", "多路复用", "",
+		"", "MULTIPLEXING_OFF", "MULTIPLEXING_LOW", "MULTIPLEXING_MIDDLE", "MULTIPLEXING_HIGH")
+	field.Group = "connection"
+	return field
+}
+
+// mieruHandshakeModeField 声明固定 tag 的完整握手模式常量名；空值表示内核默认。
+func mieruHandshakeModeField() FieldSchema {
+	field := sel("handshake-mode", "握手模式", "", "", "HANDSHAKE_STANDARD", "HANDSHAKE_NO_WAIT")
+	field.Group = "connection"
+	return field
+}
+
+// mieruTrafficPatternField 声明 Base64 流量特征；语义由固定 tag 校验，错误不回显原值。
+func mieruTrafficPatternField() FieldSchema {
+	field := f("traffic-pattern", "text", "流量特征")
+	field.Group = "advanced"
+	field.Help = "固定 tag 的 Base64 编码 TrafficPattern；错误只定位到本字段，不回显原值。"
+	return field
+}
+
+// shadowQUICVersionsField 声明 QUIC 版本有序去重列表；空列表表示内核默认，不强写默认值。
+func shadowQUICVersionsField() FieldSchema {
+	field := f("quic-versions", "text-list", "QUIC 版本")
+	field.Help = "只接受固定 tag parser 支持的 v1／v2；空列表使用内核默认顺序。"
+	return field
+}
+
+// anytlsSecurityModeField 声明附加伪装 selector；state_only 只保存在 current_state.selectors。
+func anytlsSecurityModeField() FieldSchema {
+	field := sel("security-mode", "附加安全", "plain", "plain", "shadow_tls", "restls", "jls")
+	field.StateOnly = true
+	field.SelectorName = "security_mode"
+	field.Group = "connection"
+	field.Help = "plain 只使用 TLS；其余三种伪装对象严格互斥，切换即清空旧分支凭据。"
+	return field
+}
+
+// anytlsCamouflageField 声明只在指定 security_mode 活动、切换即清空的伪装字段。
+func anytlsCamouflageField(field FieldSchema, modes []string, required bool) FieldSchema {
+	condition := &ConditionRule{Selectors: map[string][]string{"security_mode": modes}}
+	field.When = condition
+	if required {
+		field.RequiredWhen = condition
+	}
+	field.ResetOn = []string{"selector.security_mode"}
+	return field
+}
+
+// anytlsCamouflageObject 组装固定伪装对象：对象本身也按 selector 活动，非当前分支整块清空。
+func anytlsCamouflageObject(name, label string, mode string, properties ...FieldSchema) FieldSchema {
+	field := obj(name, label, "fields", properties...)
+	condition := &ConditionRule{Selectors: map[string][]string{"security_mode": {mode}}}
+	field.When = condition
+	field.RequiredWhen = condition
+	field.ResetOn = []string{"selector.security_mode"}
+	field.Group = "connection"
+	return field
+}
+
+// anytlsShadowTLSOptsField 声明 ShadowTLS 参数：固定 tag 的 ShadowTLSOptions 只有 password 与 version。
+func anytlsShadowTLSOptsField() FieldSchema {
+	version := sel("version", "版本", "", "", "1", "2", "3")
+	return anytlsCamouflageObject("shadow-tls-opts", "ShadowTLS 参数", "shadow_tls",
+		anytlsCamouflageField(f("password", "password", "密码"), []string{"shadow_tls"}, true),
+		anytlsCamouflageField(version, []string{"shadow_tls"}, false))
+}
+
+// anytlsRestlsOptsField 声明 Restls 参数：固定 tag 的 version-hint 只接受 tls12／tls13。
+func anytlsRestlsOptsField() FieldSchema {
+	versionHint := sel("version-hint", "版本提示", "", "", "tls12", "tls13")
+	return anytlsCamouflageObject("restls-opts", "Restls 参数", "restls",
+		anytlsCamouflageField(f("password", "password", "密码"), []string{"restls"}, true),
+		anytlsCamouflageField(versionHint, []string{"restls"}, true),
+		anytlsCamouflageField(f("restls-script", "secret-multiline", "Restls Script"), []string{"restls"}, false))
+}
+
+// anytlsJLSOptsField 声明 JLS 参数：固定 tag 的 jls.NewConfig 要求用户名与密码同时非空。
+func anytlsJLSOptsField() FieldSchema {
+	return anytlsCamouflageObject("jls-opts", "JLS 参数", "jls",
+		anytlsCamouflageField(f("username", "text", "用户名"), []string{"jls"}, true),
+		anytlsCamouflageField(f("password", "password", "密码"), []string{"jls"}, true))
+}
+
+// masqueNetworkModeField 声明 QUIC／h2／h3-l4proxy selector；wire 的 network 由 adapter 注入。
+func masqueNetworkModeField() FieldSchema {
+	field := sel("network-mode", "网络模式", "quic", "quic", "h2", "h3_l4proxy")
+	field.StateOnly = true
+	field.SelectorName = "network_mode"
+	field.Group = "connection"
+	field.Help = "quic 使用内核默认 QUIC；h2 使用 h2c；h3_l4proxy 使用 L3／L4 代理并强制关闭 UDP。"
+	return field
+}
+
+// masqueModeField 声明只在指定 network_mode 活动、切换 selector 即清空的字段。
+func masqueModeField(field FieldSchema, modes []string, required bool) FieldSchema {
+	condition := &ConditionRule{Selectors: map[string][]string{"network_mode": modes}}
+	field.When = condition
+	if required {
+		field.RequiredWhen = condition
+	}
+	field.ResetOn = []string{"selector.network_mode"}
+	return field
+}
+
+// tailscaleLANAccessField 声明只在 exit-node 非空时活动的三态 LAN 访问开关。
+// non_empty 是 ConditionRule 的第八个维度，由 schema 驱动显示与清空，前端不另写依赖表。
+func tailscaleLANAccessField() FieldSchema {
+	field := f("exit-node-allow-lan-access", "bool", "出口节点允许 LAN 访问")
+	field.When = &ConditionRule{NonEmpty: []string{"exit-node"}}
+	field.Group = "switches"
+	field.Help = "只有填写出口节点后才生效；未设置表示沿用 Tailscale 默认。"
+	return field
+}
+
 func commonFieldSchema() []FieldSchema {
 	tfo := def("tfo", "bool", "TCP Fast Open", false)
 	mptcp := def("mptcp", "bool", "MPTCP", false)
@@ -428,8 +636,9 @@ func tuicUDPRelayModeField() FieldSchema {
 	return field
 }
 
-// tuicCongestionControllerField 声明固定 tag 实际处理的拥塞控制器；空值表示沿用内核默认行为。
-func tuicCongestionControllerField() FieldSchema {
+// quicCongestionControllerField 声明固定 tag 实际处理的 QUIC 拥塞控制器；空值表示沿用内核默认行为
+// （TUIC／MASQUE／ShadowQUIC 共用同一实现集合）。
+func quicCongestionControllerField() FieldSchema {
 	field := sel("congestion-controller", "拥塞控制器", "", "", "cubic", "new_reno", "bbr_meta_v1", "bbr_meta_v2", "bbr")
 	field.Group = "advanced"
 	return field
@@ -656,7 +865,7 @@ func ManualProtocols() []Protocol {
 			f("request-timeout", "number", "请求超时"),
 			f("heartbeat-interval", "number", "心跳间隔"),
 			tuicUDPRelayModeField(),
-			tuicCongestionControllerField(),
+			quicCongestionControllerField(),
 			def("disable-sni", "bool", "禁用 SNI", false),
 			f("max-udp-relay-packet-size", "number", "最大 UDP 中继包"),
 			def("fast-open", "bool", "Fast Open", false),
@@ -673,9 +882,25 @@ func ManualProtocols() []Protocol {
 			SensitiveFields: []string{"token", "uuid", "password", "private-key"},
 			LinkMappings:    links("token", "uuid", "password", "sni", "alpn")},
 		{Protocol: "wireguard", Label: "WireGuard", FormSchema: common(
-			req("private-key", "secret-multiline", "私钥"), req("public-key", "text", "公钥"), f("pre-shared-key", "password", "预共享密钥"), f("reserved", "int-list", "保留字节"), f("allowed-ips", "text-list", "Allowed IPs"),
-			f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("workers", "number", "Worker 数"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), f("persistent-keepalive", "number", "持久 Keepalive"),
-			wireGuardPeers(), def("remote-dns-resolve", "bool", "远端 DNS 解析", false), f("dns", "text-list", "DNS"), f("refresh-server-ip-interval", "number", "刷新服务器 IP 间隔")),
+			wireGuardPeerModeField(),
+			req("private-key", "secret-multiline", "私钥"),
+			wireGuardModeField(f("public-key", "text", "公钥"), []string{"single"}, true),
+			wireGuardModeField(f("pre-shared-key", "password", "预共享密钥"), []string{"single"}, false),
+			wireGuardModeField(f("reserved", "byte-sequence", "保留字节"), []string{"single"}, false),
+			wireGuardModeField(f("allowed-ips", "text-list", "Allowed IPs"), []string{"single"}, false),
+			wireGuardPeersField(),
+			f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), ipStackField(),
+			f("workers", "number", "Worker 数"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true),
+			f("persistent-keepalive", "number", "持久 Keepalive"),
+			def("remote-dns-resolve", "bool", "远端 DNS 解析", false), dnsListField(),
+			f("refresh-server-ip-interval", "number", "刷新服务器 IP 间隔")),
+			Selectors: []SelectorSchema{{Name: "peer_mode", Values: []string{"single", "peers"}, Default: "single"}},
+			EndpointPolicies: []EndpointPolicy{
+				{When: &ConditionRule{Selectors: map[string][]string{"peer_mode": {"single"}}},
+					HostMode: "required", PortMode: "required", EmitHost: true, EmitPort: true},
+				{When: &ConditionRule{Selectors: map[string][]string{"peer_mode": {"peers"}}},
+					HostMode: "hidden", PortMode: "hidden", EmitHost: false, EmitPort: false},
+			},
 			SensitiveFields: []string{"private-key", "pre-shared-key", "peers[].pre-shared-key"}, LinkMappings: links("private-key", "public-key", "ip", "ipv6", "allowed-ips", "pre-shared-key", "mtu", "dns")},
 		{Protocol: "http", Label: "HTTP", FormSchema: common(
 			basicAuthModeField(),
@@ -717,9 +942,65 @@ func ManualProtocols() []Protocol {
 				{Name: "obfs_mode", Values: []string{"none", "http", "tls", "shadow_tls", "restls", "jls"}, Default: "none"},
 			},
 			SensitiveFields: []string{"psk", "obfs-opts.password", "obfs-opts.private-key", "obfs-opts.restls-script"}},
-		{Protocol: "anytls", Label: "AnyTLS", FormSchema: common(req("password", "password", "密码"), f("alpn", "text-list", "ALPN"), f("sni", "text", "SNI"), f("client-fingerprint", "text", "客户端指纹"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), f("certificate", "multiline", "证书"), f("private-key", "secret-multiline", "私钥"), obj("ech-opts", "ECH 参数", "fields", def("enable", "bool", "启用", false), f("config", "text", "配置")), def("udp", "bool", "UDP", true), f("idle-session-check-interval", "number", "空闲检查间隔"), f("idle-session-timeout", "number", "空闲超时"), f("min-idle-session", "number", "最小空闲会话")), SensitiveFields: []string{"password", "private-key"}, LinkMappings: links("password", "sni", "alpn", "client-fingerprint")},
-		{Protocol: "mieru", Label: "Mieru", FormSchema: common(req("username", "text", "用户名"), req("password", "password", "密码"), f("port-range", "text", "端口范围"), sel("transport", "传输", "TCP", "TCP", "UDP"), def("udp", "bool", "UDP", true), sel("multiplexing", "多路复用", "MULTIPLEXING_OFF", "MULTIPLEXING_OFF", "LOW", "MIDDLE", "HIGH"), f("handshake-mode", "text", "握手模式")), SensitiveFields: []string{"password"}},
-		{Protocol: "masque", Label: "MASQUE", FormSchema: common(req("private-key", "secret-multiline", "私钥"), req("public-key", "text", "公钥"), f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), def("remote-dns-resolve", "bool", "远端 DNS 解析", false), f("dns", "text-list", "DNS")), SensitiveFields: []string{"private-key"}},
+		{Protocol: "anytls", Label: "AnyTLS", FormSchema: common(
+			anytlsSecurityModeField(),
+			req("password", "password", "密码"),
+			f("alpn", "text-list", "ALPN"),
+			f("sni", "text", "SNI"),
+			echOptsField(),
+			f("client-fingerprint", "text", "客户端指纹"),
+			def("skip-cert-verify", "bool", "跳过证书校验", false),
+			f("name-cert-verify", "text", "证书名称校验"),
+			f("fingerprint", "text", "TLS 指纹"),
+			f("certificate", "multiline", "证书"),
+			f("private-key", "secret-multiline", "私钥"),
+			anytlsShadowTLSOptsField(),
+			anytlsRestlsOptsField(),
+			anytlsJLSOptsField(),
+			def("udp", "bool", "UDP", true),
+			f("client-metadata", "text", "客户端元数据"),
+			f("idle-session-check-interval", "number", "空闲检查间隔"),
+			f("idle-session-timeout", "number", "空闲超时"),
+			f("min-idle-session", "number", "最小空闲会话"),
+			def("disable-reuse", "bool", "禁用会话复用", false)),
+			Selectors: []SelectorSchema{{Name: "security_mode", Values: []string{"plain", "shadow_tls", "restls", "jls"}, Default: "plain"}},
+			SensitiveFields: []string{"password", "private-key", "shadow-tls-opts.password",
+				"restls-opts.password", "restls-opts.restls-script", "jls-opts.password"},
+			LinkMappings: links("password", "sni", "alpn", "client-fingerprint")},
+		{Protocol: "mieru", Label: "Mieru", FormSchema: common(
+			mieruEndpointModeField(),
+			mieruPortRangeField(),
+			req("username", "text", "用户名"),
+			req("password", "password", "密码"),
+			mieruTransportField(),
+			def("udp", "bool", "UDP", true),
+			mieruMultiplexingField(),
+			mieruHandshakeModeField(),
+			mieruTrafficPatternField()),
+			Selectors: []SelectorSchema{{Name: "endpoint_mode", Values: []string{"single", "range"}, Default: "single"}},
+			EndpointPolicies: []EndpointPolicy{
+				{When: &ConditionRule{Selectors: map[string][]string{"endpoint_mode": {"single"}}},
+					HostMode: "required", PortMode: "required", EmitHost: true, EmitPort: true},
+				{When: &ConditionRule{Selectors: map[string][]string{"endpoint_mode": {"range"}}},
+					HostMode: "required", PortMode: "hidden", EmitHost: true, EmitPort: false},
+			},
+			SensitiveFields: []string{"password"}},
+		{Protocol: "masque", Label: "MASQUE", FormSchema: common(
+			masqueNetworkModeField(),
+			req("private-key", "secret-multiline", "私钥"),
+			req("public-key", "text", "公钥"),
+			f("ip", "text", "IP"), f("ipv6", "text", "IPv6"),
+			f("uri", "text", "连接 URI"), f("sni", "text", "SNI"), f("mtu", "number", "MTU"),
+			f("handshake-timeout", "number", "握手超时"),
+			def("skip-cert-verify", "bool", "跳过证书校验", false),
+			masqueModeField(def("udp", "bool", "UDP", true), []string{"quic", "h2"}, false),
+			masqueModeField(quicCongestionControllerField(), []string{"quic"}, false),
+			masqueModeField(f("cwnd", "number", "拥塞窗口"), []string{"quic"}, false),
+			masqueModeField(f("bbr-profile", "text", "BBR Profile"), []string{"quic"}, false),
+			ipStackField(),
+			def("remote-dns-resolve", "bool", "远端 DNS 解析", false), dnsListField()),
+			Selectors:       []SelectorSchema{{Name: "network_mode", Values: []string{"quic", "h2", "h3_l4proxy"}, Default: "quic"}},
+			SensitiveFields: []string{"private-key"}},
 		{Protocol: "openvpn", Label: "OpenVPN", FormSchema: common(req("client-config", "multiline", "客户端配置"))},
 		{Protocol: "ssh", Label: "SSH", FormSchema: common(
 			sshAuthModeField(),
@@ -731,9 +1012,40 @@ func ManualProtocols() []Protocol {
 			sshHostKeyAlgorithmsField()),
 			Selectors:       []SelectorSchema{{Name: "auth_mode", Values: []string{"password", "private_key"}, Default: "password"}},
 			SensitiveFields: []string{"password", "private-key", "private-key-passphrase"}},
-		{Protocol: "shadowquic", Label: "ShadowQUIC", FormSchema: common(req("password", "password", "密码"), f("sni", "text", "SNI")), SensitiveFields: []string{"password"}},
+		{Protocol: "shadowquic", Label: "ShadowQUIC", FormSchema: common(
+			req("username", "text", "用户名"),
+			req("password", "password", "密码"),
+			f("sni", "text", "SNI"),
+			f("alpn", "text-list", "ALPN"),
+			shadowQUICVersionsField(),
+			def("udp-over-stream", "bool", "UDP over Stream", false),
+			def("zero-rtt", "bool", "0-RTT", false),
+			f("keep-alive-interval", "number", "保活间隔"),
+			quicCongestionControllerField(),
+			f("up", "text", "上行带宽"),
+			f("down", "text", "下行带宽"),
+			f("cwnd", "number", "拥塞窗口"),
+			f("bbr-profile", "text", "BBR Profile"),
+			f("recv-window-conn", "number", "连接接收窗口"),
+			f("recv-window", "number", "接收窗口"),
+			def("disable-mtu-discovery", "bool", "禁用 MTU 发现", false),
+			f("max-datagram-frame-size", "number", "最大数据报帧"),
+			f("max-open-streams", "number", "最大并发流")),
+			SensitiveFields: []string{"password"}},
 		{Protocol: "trusttunnel", Label: "TrustTunnel", FormSchema: common(f("password", "password", "密码")), SensitiveFields: []string{"password"}},
-		{Protocol: "tailscale", Label: "Tailscale", FormSchema: common(f("auth-key", "password", "认证密钥")), SensitiveFields: []string{"auth-key"}},
+		{Protocol: "tailscale", Label: "Tailscale", FormSchema: common(
+			f("hostname", "text", "设备名"),
+			f("auth-key", "password", "认证密钥"),
+			f("control-url", "text", "控制面地址"),
+			def("ephemeral", "bool", "临时节点", false),
+			def("udp", "bool", "UDP", true),
+			f("accept-routes", "bool", "接受路由"),
+			f("exit-node", "text", "出口节点"),
+			tailscaleLANAccessField()),
+			EndpointPolicies: []EndpointPolicy{
+				{HostMode: "hidden", PortMode: "hidden", EmitHost: false, EmitPort: false},
+			},
+			SensitiveFields: []string{"auth-key"}},
 	}
 	enrichFirstBatchProtocols(protocols)
 	return protocols

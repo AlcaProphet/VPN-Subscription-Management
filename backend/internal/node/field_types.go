@@ -66,6 +66,12 @@ func validateProtocolFieldTypes(p Protocol) error {
 // byteSequenceLength 是 byte-sequence 的固定长度（当前仅用于 WireGuard reserved）。
 const byteSequenceLength = 3
 
+// ParseByteSequence 导出 byte-sequence 规范化入口，供装配层输出 reserved 时复用同一语义，
+// 避免在 adapter 内复制第二份解析规则。
+func ParseByteSequence(value any) ([]int, error) {
+	return parseByteSequence(value)
+}
+
 // parseByteSequence 把三种合法输入统一解析为 3 个 0-255 整数：
 // 整数序列、以逗号/空白分隔的整数字符串、Base64 字符串（解码后必须恰 3 字节）。
 func parseByteSequence(value any) ([]int, error) {

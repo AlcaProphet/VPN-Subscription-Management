@@ -120,7 +120,7 @@ describe('ProtocolFieldEditor', () => {
     const field: FieldSchema = { ...objectField, properties: [...objectField.properties!,
       { name: 'early', type: 'object', object_kind: 'fields', label: 'Early Data', required: false, advanced: true,
         properties: [{ name: 'limit', type: 'number', label: '上限', required: false }] },
-      { name: 'upgrade', type: 'bool', label: 'Upgrade', required: false, advanced: true },
+      { name: 'upgrade', type: 'bool', default: false, label: 'Upgrade', required: false, advanced: true },
     ] }
     const wrapper = mount(ProtocolFieldEditor, { props: { field, centralizedSwitches: true, modelValue: { path: '/keep', early: { limit: 7 } } } })
     expect(wrapper.find('.ant-switch').exists()).toBe(false)
@@ -474,7 +474,7 @@ describe('ProtocolFieldEditor', () => {
       properties: [
         { name: 'mode', type: 'select', required: false, label: '模式', when: { plugin: ['obfs'] } },
         { name: 'host', type: 'text', required: false, label: 'Host', when: { plugin: ['obfs', 'v2ray-plugin'] } },
-        { name: 'tls', type: 'bool', required: false, label: 'TLS', when: { plugin: ['v2ray-plugin'] } },
+        { name: 'tls', type: 'bool', default: false, required: false, label: 'TLS', when: { plugin: ['v2ray-plugin'] } },
       ],
     }
     const wrapper = mount(ProtocolFieldEditor, {

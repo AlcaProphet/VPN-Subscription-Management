@@ -81,10 +81,10 @@ func TestSelectorMatchesAndProjection(t *testing.T) {
 	})
 	stateA := CurrentState{Selectors: map[string]string{"mode": "a"}}
 	stateB := CurrentState{Selectors: map[string]string{"mode": "b"}}
-	if !proto.FormSchema[len(proto.FormSchema)-1].Matches(stateB, "") {
+	if !proto.FormSchema[len(proto.FormSchema)-1].Matches(stateB, nil, "") {
 		t.Fatal("selector=b 时字段应活动")
 	}
-	if proto.FormSchema[len(proto.FormSchema)-1].Matches(stateA, "") {
+	if proto.FormSchema[len(proto.FormSchema)-1].Matches(stateA, nil, "") {
 		t.Fatal("selector=a 时字段不应活动")
 	}
 	params := map[string]any{"branch": "a", "branch-value": "keep", "b-value": "hidden", "auth-mode": "none"}

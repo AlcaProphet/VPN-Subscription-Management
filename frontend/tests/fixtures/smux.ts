@@ -7,7 +7,7 @@ export const smuxSchema: FieldSchema = {
   properties: [
     { name: 'enabled', label: 'SMux 启用', type: 'bool', required: false, default: false },
     { name: 'max-connections', label: '最大连接数', type: 'number', required: false, when: { features: ['smux'] } },
-    { name: 'padding', label: '填充', type: 'bool', required: false, when: { features: ['smux'] } },
+    { name: 'padding', label: '填充', type: 'bool', default: false, required: false, when: { features: ['smux'] } },
     {
       name: 'brutal-opts', label: 'Brutal 参数', type: 'object', required: false, object_kind: 'fields', allow_unknown: false,
       feature: { name: 'smux.brutal', toggle: 'enabled' }, reset_on: ['feature.smux.brutal'], when: { features: ['smux'] },

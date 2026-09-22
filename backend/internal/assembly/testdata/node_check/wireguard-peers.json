@@ -1,0 +1,30 @@
+{
+  "protocol": "wireguard",
+  "host": "",
+  "port": 0,
+  "protocol_json": {
+    "private-key": "d2lyZWd1YXJkLXByaXZhdGUta2V5LWZpeHR1cmUtMzI=",
+    "ip": "192.0.2.2/32",
+    "ipv6": "2001:db8::2/128",
+    "peers": [
+      {
+        "_credential_id": "11111111-1111-1111-1111-111111111111",
+        "server": "192.0.2.10",
+        "port": 51820,
+        "public-key": "d2lyZWd1YXJkLXBlZXItcHVibGljLWtleS1maXh0dXI=",
+        "allowed-ips": ["10.0.0.0/24"],
+        "pre-shared-key": "d2lyZWd1YXJkLXBzay1maXh0dXJlLXNlY3JldC0zMng=",
+        "reserved": [7, 8, 9]
+      },
+      {
+        "_credential_id": "22222222-2222-2222-2222-222222222222",
+        "server": "192.0.2.11",
+        "port": 51821,
+        "public-key": "d2lyZWd1YXJkLXBlZXItcHVibGljLWtleS1maXh0dTI=",
+        "allowed-ips": ["10.0.1.0/24"]
+      }
+    ]
+  },
+  "current_state": { "selectors": { "peer_mode": "peers" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

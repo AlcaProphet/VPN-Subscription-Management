@@ -26,7 +26,7 @@ func setScalarFeatures(fields []FieldSchema) {
 	for i := range fields {
 		field := &fields[i]
 		switch field.Name {
-		case "udp-over-tcp", "udp-over-stream", "xudp", "multiplexing":
+		case "udp-over-tcp", "udp-over-stream", "xudp", "multiplexing", "remote-dns-resolve":
 			field.Feature = &FeatureSchema{Name: field.Name}
 			if field.Name == "multiplexing" {
 				field.Feature.DisabledValue = "MULTIPLEXING_OFF"
@@ -38,6 +38,12 @@ func setScalarFeatures(fields []FieldSchema) {
 			name := strings.TrimSuffix(field.Name, "-version")
 			field.ResetOn = []string{"feature." + name}
 			field.When = &ConditionRule{Features: []string{name}}
+		case "dns":
+			// WireGuard／MASQUE 的 DNS 列表只在远端解析开启时活动；关闭即清空。
+			field.When = &ConditionRule{Features: []string{"remote-dns-resolve"}}
+			if !field.ShouldReset("feature.remote-dns-resolve") {
+				field.ResetOn = append(field.ResetOn, "feature.remote-dns-resolve")
+			}
 		}
 	}
 }

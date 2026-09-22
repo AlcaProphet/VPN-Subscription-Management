@@ -216,6 +216,17 @@ func TestNodeCheckFixtures(t *testing.T) {
 		{name: "hysteria2-realm.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 		{name: "tuic-v5.json"},
 		{name: "tuic-v4.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
+		{name: "wireguard-single.json", warnURI: true, expectCode: "uri_partial_fields"},
+		{name: "wireguard-peers.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
+		{name: "mieru-single.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "mieru-range.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "masque-quic.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "masque-l4proxy.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "tailscale-draft.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "tailscale-no-auth.json", skipURI: true, warnClash: "tailscale_auth_key_interactive_login", expectCode: "target_unsupported"},
+		{name: "anytls-plain.json"},
+		{name: "anytls-shadow-tls.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
+		{name: "shadowquic-basic.json", skipURI: true, warnClash: "shadowquic_zero_rtt_replay_risk", expectCode: "target_unsupported"},
 	}
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -238,7 +249,11 @@ func TestNodeCheckFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("序列化固定夹具响应失败: %v", err)
 			}
-			for _, secret := range []string{"trojan-password", "inner-password", "shadowsocks-password", "shadowsocks-2022-password", "http-password", "socks-password", "ssh-password", "11111111-2222-3333-4444-555555555555", "MC4CAQAwBQYDK2VwBCIEIEt4q5YVLyauvDa3VGquPz1AG5LyzbQQzIEFaSeIDjZl", "snell-password", "snell-obfs-password", "hysteria-auth-str", "hysteria2-password", "hysteria2-obfs-password", "hysteria2-realm-token", "tuic-v5-password", "tuic-v4-token"} {
+			for _, secret := range []string{"trojan-password", "inner-password", "shadowsocks-password", "shadowsocks-2022-password", "http-password", "socks-password", "ssh-password", "11111111-2222-3333-4444-555555555555", "MC4CAQAwBQYDK2VwBCIEIEt4q5YVLyauvDa3VGquPz1AG5LyzbQQzIEFaSeIDjZl", "snell-password", "snell-obfs-password", "hysteria-auth-str", "hysteria2-password", "hysteria2-obfs-password", "hysteria2-realm-token", "tuic-v5-password", "tuic-v4-token",
+				"d2lyZWd1YXJkLXByaXZhdGUta2V5LWZpeHR1cmUtMzI=", "d2lyZWd1YXJkLXBzay1maXh0dXJlLXNlY3JldC0zMng=",
+				"mieru-password", "ts-fixture-auth-secret",
+				"anytls-plain-password", "anytls-shadow-password", "anytls-shadow-tls-secret",
+				"shadowquic-password"} {
 				if strings.Contains(string(encoded), secret) {
 					t.Fatalf("固定夹具响应泄漏凭据 %q: %s", secret, encoded)
 				}

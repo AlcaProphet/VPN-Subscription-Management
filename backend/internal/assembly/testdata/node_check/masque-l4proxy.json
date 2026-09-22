@@ -1,0 +1,12 @@
+{
+  "protocol": "masque",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "private-key": "MHcCAQEEIMufpAZbwGL1tVijQ1W75eD7XO5WPksPV4jDdBOcaewXoAoGCCqGSM49AwEHoUQDQgAEnX9WTsWhQKf1dpuENdH0NzmFspTB2M65dUgddx9WRkon8WkdycFYUetBTFGyLg+qs8VtaACuGIcnvfXkIG7L5g==",
+    "public-key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnX9WTsWhQKf1dpuENdH0NzmFspTB2M65dUgddx9WRkon8WkdycFYUetBTFGyLg+qs8VtaACuGIcnvfXkIG7L5g==",
+    "ip": "192.0.2.2/32"
+  },
+  "current_state": { "selectors": { "network_mode": "h3_l4proxy" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

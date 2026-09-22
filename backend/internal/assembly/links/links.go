@@ -396,6 +396,13 @@ func listString(m map[string]any, key string) string {
 	switch items := value.(type) {
 	case []string:
 		return strings.Join(items, ",")
+	case []int:
+		// byte-sequence（WireGuard reserved）在存储中是 []int，按项目 URI 约定输出为逗号列表。
+		parts := make([]string, 0, len(items))
+		for _, item := range items {
+			parts = append(parts, strconv.Itoa(item))
+		}
+		return strings.Join(parts, ",")
 	case []any:
 		parts := make([]string, 0, len(items))
 		for _, item := range items {

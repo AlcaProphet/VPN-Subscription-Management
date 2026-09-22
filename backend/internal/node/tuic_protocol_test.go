@@ -260,3 +260,23 @@ func TestTUICSensitivePathsDeclared(t *testing.T) {
 		}
 	}
 }
+
+// TestTUICKeepsSavedCredentialsOnUpdate 回归 Step 11 暴露的共享基线缺陷：
+// 更新时保留的 UUID 是项目密文，不得再按 UUID 明文语义解析。
+func TestTUICKeepsSavedCredentialsOnUpdate(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	state := tuicState("v5")
+	created, err := svc.CreateManual(ctx, tuicCreateInput("tuic-keep-uuid", map[string]any{
+		"uuid": tuicTestUUID, "password": "pw-secret",
+	}, state))
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	if _, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "tuic", Host: "example.com", Port: 443, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{"uuid": "", "password": ""}, CurrentState: state,
+	}); err != nil {
+		t.Fatalf("保留已保存 v5 凭据的更新必须成功: %v", err)
+	}
+}

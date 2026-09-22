@@ -13,7 +13,7 @@ import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
 import { activeFeatures, cleanDisabledFeatures, concreteSensitivePaths, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
-import { collectSwitchFields, endpointPolicyFor, fieldGroup, hasConfiguredValue, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
+import { collectSwitchFields, endpointPolicyFor, fieldGroup, hasConfiguredValue, isTriStateBool, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 
 const loading = ref(false)
 const nodes = ref<NodeItem[]>([])
@@ -124,7 +124,7 @@ const currentState = computed<CurrentState>(() => {
   if (Object.keys(selectors).length > 0) state.selectors = selectors
   return state
 })
-  const endpointPolicy = computed(() => endpointPolicyFor(currentSchema()?.endpoint_policies, currentState.value))
+  const endpointPolicy = computed(() => endpointPolicyFor(currentSchema()?.endpoint_policies, currentState.value, form.protocol_json as Record<string, unknown>))
   const showHostField = computed(() => endpointPolicy.value?.host_mode !== 'hidden')
   const showPortField = computed(() => endpointPolicy.value?.port_mode !== 'hidden')
   const hostRequired = computed(() => endpointPolicy.value?.host_mode === 'required')
@@ -137,12 +137,13 @@ const currentState = computed<CurrentState>(() => {
   })
 
 function fieldVisible(field: FieldSchema): boolean {
-  return matchesCondition(field.when, currentState.value)
+  return matchesCondition(field.when, currentState.value, undefined, form.protocol_json as Record<string, unknown>)
 }
 function groupFields(group: string): FieldSchema[] {
-  return currentSchema()?.form_schema.filter((field) => field.type !== 'bool' && fieldGroup(field) === group && fieldVisible(field)) ?? []
+  // 三态 bool 不走集中开关区，保留在所属分组内用三态控件渲染。
+  return currentSchema()?.form_schema.filter((field) => (field.type !== 'bool' || isTriStateBool(field)) && fieldGroup(field) === group && fieldVisible(field)) ?? []
 }
-const switchFields = computed(() => collectSwitchFields(currentSchema()?.form_schema ?? [], currentState.value))
+const switchFields = computed(() => collectSwitchFields(currentSchema()?.form_schema ?? [], currentState.value, form.protocol_json as Record<string, unknown>))
 const configuredSwitchCount = computed(() => switchFields.value.filter((item) => item.advanced && hasConfiguredValue(valueAtPath(form.protocol_json, item.path))).length)
 
 function setSwitchField(path: string, value: unknown) {
@@ -871,7 +872,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               centralized-switches
               :json-reset-versions="jsonResetVersions"
               :json-dirty-paths="unappliedJsonPathList"
-              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
+              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState" :root-params="form.protocol_json"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
           </div>
@@ -887,15 +888,20 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               centralized-switches
               :json-reset-versions="jsonResetVersions"
               :json-dirty-paths="unappliedJsonPathList"
-              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
+              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState" :root-params="form.protocol_json"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
             </div>
           </component>
         </FormSection>
 
-        <FormSection v-if="switchFields.length" title="独立开关" help="当前组合适用的运行开关；嵌套开关标明所属功能，参数仍在对应结构化区域编辑。">
-          <div class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
+        <FormSection v-if="switchFields.length || groupFields('switches').length" title="独立开关" help="当前组合适用的运行开关；嵌套开关标明所属功能，参数仍在对应结构化区域编辑。">
+          <div v-if="groupFields('switches').length" class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
+            <ProtocolFieldEditor v-for="field in groupFields('switches')" :key="field.name" :field="field"
+              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState" :root-params="form.protocol_json"
+              @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @credential-change="handleCredentialChange" />
+          </div>
+          <div v-if="switchFields.length" class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3" :class="groupFields('switches').length ? 'mt-3' : ''">
             <ProtocolFieldEditor v-for="item in switchFields.filter((item) => !item.advanced)" :key="item.path" :field="item.field" :path="item.path"
               :model-value="valueAtPath(form.protocol_json, item.path)" :current-state="currentState"
               @update:model-value="(value: unknown) => setSwitchField(item.path, value)" @draft-dirty-change="handleControlDraftDirty" />
@@ -918,7 +924,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               centralized-switches
               :json-reset-versions="jsonResetVersions"
               :json-dirty-paths="unappliedJsonPathList"
-              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
+              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState" :root-params="form.protocol_json"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
               @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
           </div>

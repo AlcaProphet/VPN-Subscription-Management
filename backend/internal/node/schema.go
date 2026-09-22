@@ -9,7 +9,10 @@ type ConditionRule struct {
 	PluginNot []string            `json:"plugin_not,omitempty"`
 	Features  []string            `json:"features,omitempty"`
 	Selectors map[string][]string `json:"selectors,omitempty"`
-	Targets   []string            `json:"targets,omitempty"`
+	// NonEmpty 声明依赖的兄弟字段在 protocol_json 中必须存在有效值（Build32 Step 14 引入的第八个维度）。
+	// 路径使用与 protocol_json 一致的规范点路径；任一列出的字段缺失或为空即不匹配。
+	NonEmpty []string `json:"non_empty,omitempty"`
+	Targets  []string `json:"targets,omitempty"`
 }
 
 // SelectorSchema 声明协议级 selector 的名称、允许值、默认值与来源字段。
@@ -51,14 +54,15 @@ type TargetEvidence struct {
 
 // Matches 判断当前字段是否属于给定状态。
 // target 为空时只判断节点公共活动状态，忽略目标限定，供活动参数投影使用。
-func (f FieldSchema) Matches(state CurrentState, target string) bool {
-	return f.When == nil || f.When.Matches(state, target)
+// root 是完整的 protocol_json，用于评估 non_empty 兄弟字段条件。
+func (f FieldSchema) Matches(state CurrentState, root map[string]any, target string) bool {
+	return f.When == nil || f.When.Matches(state, root, target)
 }
 
 // RequiredFor 判断字段是否在给定状态/目标下必填。
 // Required 是活动字段的无条件必填；RequiredWhen 是额外的条件必填。
-func (f FieldSchema) RequiredFor(state CurrentState, target string) bool {
-	if f.Required && f.Matches(state, target) {
+func (f FieldSchema) RequiredFor(state CurrentState, root map[string]any, target string) bool {
+	if f.Required && f.Matches(state, root, target) {
 		return true
 	}
 	if f.RequiredWhen == nil {
@@ -69,7 +73,7 @@ func (f FieldSchema) RequiredFor(state CurrentState, target string) bool {
 	if target == "" && len(f.RequiredWhen.Targets) > 0 {
 		return false
 	}
-	return f.RequiredWhen.Matches(state, target)
+	return f.RequiredWhen.Matches(state, root, target)
 }
 
 // ShouldReset 判断字段是否声明了指定的清空作用域。
@@ -83,7 +87,7 @@ func (f FieldSchema) ShouldReset(scope string) bool {
 }
 
 // Matches 判断状态是否满足条件规则。
-func (r ConditionRule) Matches(state CurrentState, target string) bool {
+func (r ConditionRule) Matches(state CurrentState, root map[string]any, target string) bool {
 	if len(r.Network) > 0 && !containsAny(r.Network, []string{state.Network}) {
 		return false
 	}
@@ -113,6 +117,14 @@ func (r ConditionRule) Matches(state CurrentState, target string) bool {
 		}
 		if !containsAny(allowed, []string{current}) {
 			return false
+		}
+	}
+	if len(r.NonEmpty) > 0 {
+		for _, path := range r.NonEmpty {
+			value, ok := GetPath(root, path)
+			if !ok || !hasEffectiveValue(value) {
+				return false
+			}
 		}
 	}
 	if target != "" && len(r.Targets) > 0 && !containsAny(r.Targets, []string{target}) {

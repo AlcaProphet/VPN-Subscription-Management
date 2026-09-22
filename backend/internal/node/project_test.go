@@ -18,10 +18,10 @@ func TestSchemaConditionAndOptionMetadata(t *testing.T) {
 		t.Fatalf("VLESS security 元数据异常: %+v", security)
 	}
 	ws, ok := findSchemaField(vless.FormSchema, "ws-opts")
-	if !ok || !ws.Matches(CurrentState{Network: "ws", Security: "none"}, "") || ws.Matches(CurrentState{Network: "grpc", Security: "none"}, "") || !ws.ShouldReset("network") {
+	if !ok || !ws.Matches(CurrentState{Network: "ws", Security: "none"}, nil, "") || ws.Matches(CurrentState{Network: "grpc", Security: "none"}, nil, "") || !ws.ShouldReset("network") {
 		t.Fatalf("WS 条件元数据异常: %+v", ws)
 	}
-	if ws.Matches(CurrentState{Network: "ws"}, "sr-subs") && len(ws.When.Targets) != 0 {
+	if ws.Matches(CurrentState{Network: "ws"}, nil, "sr-subs") && len(ws.When.Targets) != 0 {
 		t.Fatal("无目标限定的 WS 字段不应因输出目标改变")
 	}
 
@@ -48,12 +48,12 @@ func TestSSUnknownPluginSchemaUsesComplementCondition(t *testing.T) {
 	}
 	for _, plugin := range wantExcluded {
 		plugin := plugin
-		if field.Matches(CurrentState{Plugin: &plugin}, "") {
+		if field.Matches(CurrentState{Plugin: &plugin}, nil, "") {
 			t.Errorf("排除插件 %q 不应激活未知参数字段", plugin)
 		}
 	}
 	custom := "custom-plugin"
-	if !field.Matches(CurrentState{Plugin: &custom}, "") {
+	if !field.Matches(CurrentState{Plugin: &custom}, nil, "") {
 		t.Fatal("未知插件应激活 plugin-opts")
 	}
 	raw, err := json.Marshal(field)
@@ -301,7 +301,7 @@ func TestSSPluginFieldsMatchMihomo11931Contract(t *testing.T) {
 					}
 					continue
 				}
-				if field.Required || field.RequiredWhen == nil || !field.RequiredWhen.Matches(CurrentState{}, "clash-yaml") || field.RequiredWhen.Matches(CurrentState{}, "generic-subs") {
+				if field.Required || field.RequiredWhen == nil || !field.RequiredWhen.Matches(CurrentState{}, nil, "clash-yaml") || field.RequiredWhen.Matches(CurrentState{}, nil, "generic-subs") {
 					t.Fatalf("%s.%s 应仅在 Clash 目标必填: %+v", tc.name, name, field)
 				}
 			}
@@ -310,7 +310,7 @@ func TestSSPluginFieldsMatchMihomo11931Contract(t *testing.T) {
 			}
 			requiresObject := len(tc.required) > len(tc.defaults)
 			plugin := object.When.Plugin[0]
-			if requiresObject != (object.RequiredWhen != nil && object.RequiredWhen.Matches(CurrentState{Plugin: &plugin}, "clash-yaml")) {
+			if requiresObject != (object.RequiredWhen != nil && object.RequiredWhen.Matches(CurrentState{Plugin: &plugin}, nil, "clash-yaml")) {
 				t.Fatalf("%s 对象级 Clash 必填条件异常: %+v", tc.name, object.RequiredWhen)
 			}
 		})

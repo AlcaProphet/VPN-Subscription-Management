@@ -283,6 +283,49 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 					"当前 URI 适配器不表达该高级调优字段，导入后连接行为可能不同", "cvr-2.5.2-uri")
 			}
 		}
+	case "anytls":
+		// URI 只表达密码、SNI、ALPN、客户端指纹与证书校验开关；
+		// 活动但不可表达的字段必须给出明确诊断，不得静默丢弃后仍标 complete。
+		if hasTextParamValue(params, "certificate") || hasTextParamValue(params, "private-key") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "certificate",
+				"当前 URI 适配器不能表达 AnyTLS 客户端证书（mTLS）参数", "project-uri-anytls")
+		}
+		for _, path := range []string{"shadow-tls-opts", "restls-opts", "jls-opts"} {
+			if options, ok := params[path].(map[string]any); ok && len(options) > 0 {
+				add(&diagnostics, "error", "core_semantic_unexpressible", path,
+					"当前 URI 适配器不能表达 AnyTLS 附加伪装安全对象", "project-uri-anytls")
+			}
+		}
+		for _, path := range []string{"name-cert-verify", "fingerprint"} {
+			if hasTextParamValue(params, path) {
+				add(&diagnostics, "warn", "unverified_compatibility", path,
+					"当前 URI 适配器不表达该证书校验参数，导入后需复核", "project-uri-anytls")
+			}
+		}
+		if ech, ok := params["ech-opts"].(map[string]any); ok && boolValue(ech["enable"]) {
+			add(&diagnostics, "warn", "uri_partial_fields", "ech-opts",
+				"当前 URI 适配器不携带 ECH 参数，导入后需复核", "project-uri-anytls")
+		}
+		for _, path := range []string{"client-metadata", "idle-session-check-interval", "idle-session-timeout",
+			"min-idle-session", "disable-reuse"} {
+			if hasActiveParam(params, path) {
+				add(&diagnostics, "warn", "uri_partial_fields", path,
+					"当前 URI 适配器不表达该会话调优字段，导入后连接行为可能不同", "project-uri-anytls")
+			}
+		}
+	case "wireguard":
+		// 项目 wireguard:// 只表达单 endpoint 的可无损回读子集；多 Peer 结构无法表达。
+		if peers, ok := params["peers"].([]any); ok && len(peers) > 0 {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "peers",
+				"当前 URI 适配器不能表达 WireGuard 多 Peer 结构", "project-uri-wireguard")
+		}
+		for _, path := range []string{"ip-stack", "workers", "persistent-keepalive", "refresh-server-ip-interval",
+			"tfo", "mptcp", "interface-name", "routing-mark", "ip-version"} {
+			if hasActiveParam(params, path) {
+				add(&diagnostics, "warn", "uri_partial_fields", path,
+					"当前 URI 适配器不表达该高级调优字段，导入后连接行为可能不同", "project-uri-wireguard")
+			}
+		}
 	}
 	return diagnostics
 }

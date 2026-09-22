@@ -1,0 +1,15 @@
+{
+  "protocol": "mieru",
+  "host": "192.0.2.1",
+  "port": 8964,
+  "protocol_json": {
+    "username": "mieru-user",
+    "password": "mieru-password",
+    "transport": "TCP",
+    "multiplexing": "MULTIPLEXING_HIGH",
+    "handshake-mode": "HANDSHAKE_NO_WAIT",
+    "udp": true
+  },
+  "current_state": { "selectors": { "endpoint_mode": "single" }, "features": ["multiplexing"] },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

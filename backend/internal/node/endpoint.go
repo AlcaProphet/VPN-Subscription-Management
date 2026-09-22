@@ -57,6 +57,11 @@ func validateEndpointPolicy(proto Protocol, policy EndpointPolicy) error {
 	if policy.When == nil {
 		return nil
 	}
+	// endpoint policy 在 NormalizeEndpoint 阶段没有 protocol_json 上下文，
+	// 因此不允许声明 non_empty 依赖，避免条件被静默忽略。
+	if len(policy.When.NonEmpty) > 0 {
+		return errors.New("endpoint policy 不支持 non_empty 条件")
+	}
 	for name, values := range policy.When.Selectors {
 		selector, ok := selectorSchemaByName(proto, name)
 		if !ok {
@@ -76,7 +81,7 @@ func MatchEndpointPolicy(proto Protocol, state CurrentState) (EndpointPolicy, er
 	policies := effectiveEndpointPolicies(proto)
 	var matched []EndpointPolicy
 	for _, policy := range policies {
-		if policy.When != nil && !policy.When.Matches(state, "") {
+		if policy.When != nil && !policy.When.Matches(state, nil, "") {
 			continue
 		}
 		matched = append(matched, policy)

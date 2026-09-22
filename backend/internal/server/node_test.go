@@ -294,9 +294,122 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			if custom.ObjectKind != "map" || custom.MapValueType != "string" || custom.When == nil || len(custom.When.PluginNot) != 5 || !slices.Contains(custom.ResetOn, "plugin") {
 				t.Errorf("SS 未知插件参数元数据缺失: %+v", custom)
 			}
+		case "shadowquic":
+			// Build32 Step 16：凭据成对必填、TLS 只暴露 sni／alpn、QUIC 版本与流控字段。
+			for _, name := range []string{"username", "password", "sni", "alpn", "quic-versions",
+				"udp-over-stream", "zero-rtt", "keep-alive-interval", "congestion-controller",
+				"up", "down", "cwnd", "recv-window-conn", "recv-window", "disable-mtu-discovery",
+				"max-datagram-frame-size", "max-open-streams"} {
+				if _, exists := fields[name]; !exists {
+					t.Errorf("ShadowQUIC 缺少字段 %s", name)
+				}
+			}
+			for _, forbidden := range []string{"skip-cert-verify", "certificate", "private-key", "ech-opts", "udp-over-stream-version"} {
+				if _, exists := fields[forbidden]; exists {
+					t.Errorf("ShadowQUIC 不得声明 %s", forbidden)
+				}
+			}
+			if !fields["username"].Required || !fields["password"].Required {
+				t.Error("ShadowQUIC username／password 必须必填")
+			}
+			if !slices.Contains(proto.SensitiveFields, "password") {
+				t.Errorf("ShadowQUIC password 必须是敏感字段: %v", proto.SensitiveFields)
+			}
+			if proto.LinkMappings.SR || proto.LinkMappings.Generic {
+				t.Errorf("ShadowQUIC 无 URI 映射: %+v", proto.LinkMappings)
+			}
+		case "anytls":
+			// Build32 Step 15：security_mode selector、三种伪装互斥与主密码不进入 selector 清空域。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "security_mode" || proto.Selectors[0].Default != "plain" {
+				t.Errorf("AnyTLS 缺少 security_mode selector: %+v", proto.Selectors)
+			}
+			if got := strings.Join(proto.Selectors[0].Values, ","); got != "plain,shadow_tls,restls,jls" {
+				t.Errorf("AnyTLS security_mode 允许值异常: %s", got)
+			}
+			for _, name := range []string{"shadow-tls-opts", "restls-opts", "jls-opts"} {
+				if fields[name].When == nil || !slices.Contains(fields[name].ResetOn, "selector.security_mode") {
+					t.Errorf("AnyTLS %s 必须按 security_mode 分支清空: %+v", name, fields[name])
+				}
+			}
+			if slices.Contains(fields["password"].ResetOn, "selector.security_mode") {
+				t.Error("AnyTLS 主 password 不得随 security_mode 切换清空")
+			}
+			if _, exists := fields["reality-opts"]; exists {
+				t.Error("AnyTLS 不得开放 Reality")
+			}
+		case "tailscale":
+			// Build32 Step 14：无 endpoint、三态 bool、state-dir 不进入 schema。
+			if len(proto.EndpointPolicies) != 1 || proto.EndpointPolicies[0].HostMode != "hidden" || proto.EndpointPolicies[0].PortMode != "hidden" {
+				t.Errorf("Tailscale 必须固定隐藏 endpoint: %+v", proto.EndpointPolicies)
+			}
+			for _, name := range []string{"accept-routes", "exit-node-allow-lan-access"} {
+				if fields[name].Type != "bool" || fields[name].Default != nil {
+					t.Errorf("Tailscale %s 必须保留 unset/false/true 三态: %+v", name, fields[name])
+				}
+			}
+			if fields["exit-node-allow-lan-access"].When == nil || len(fields["exit-node-allow-lan-access"].When.NonEmpty) != 1 {
+				t.Errorf("Tailscale LAN access 必须声明 non_empty 依赖: %+v", fields["exit-node-allow-lan-access"].When)
+			}
+			if _, exists := fields["state-dir"]; exists {
+				t.Error("state-dir 必须由 adapter 派生，不得进入 schema")
+			}
+			if !slices.Contains(proto.SensitiveFields, "auth-key") {
+				t.Errorf("Tailscale auth-key 必须是敏感字段: %v", proto.SensitiveFields)
+			}
+		case "masque":
+			// Build32 Step 13：network_mode selector、三种网络模式与 h3-l4proxy 强制关闭 UDP。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "network_mode" || proto.Selectors[0].Default != "quic" {
+				t.Errorf("MASQUE 缺少 network_mode selector: %+v", proto.Selectors)
+			}
+			if got := strings.Join(proto.Selectors[0].Values, ","); got != "quic,h2,h3_l4proxy" {
+				t.Errorf("MASQUE network_mode 允许值异常: %s", got)
+			}
+			for _, name := range []string{"udp", "congestion-controller", "cwnd", "bbr-profile"} {
+				if fields[name].When == nil || !slices.Contains(fields[name].ResetOn, "selector.network_mode") {
+					t.Errorf("MASQUE %s 必须按 network_mode 分支清空: %+v", name, fields[name])
+				}
+			}
+			if _, exists := fields["name-cert-verify"]; exists {
+				t.Error("MASQUE name-cert-verify 只是固定 tag placeholder，不得进入 schema")
+			}
+			if fields["ip-stack"].ObjectKind != "fields" {
+				t.Errorf("MASQUE ip-stack 必须复用共享枚举合同: %+v", fields["ip-stack"])
+			}
+		case "mieru":
+			// Build32 Step 12：endpoint_mode selector、single／range endpoint policy 与完整枚举。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "endpoint_mode" || proto.Selectors[0].Default != "single" {
+				t.Errorf("Mieru 缺少 endpoint_mode selector: %+v", proto.Selectors)
+			}
+			if len(proto.EndpointPolicies) != 2 {
+				t.Errorf("Mieru 必须声明 single／range 两条 endpoint policy: %+v", proto.EndpointPolicies)
+			}
+			if got := strings.Join(fields["multiplexing"].Options, ","); got != ",MULTIPLEXING_OFF,MULTIPLEXING_LOW,MULTIPLEXING_MIDDLE,MULTIPLEXING_HIGH" {
+				t.Errorf("Mieru multiplexing 必须是完整上游常量: %s", got)
+			}
+			if got := strings.Join(fields["handshake-mode"].Options, ","); got != ",HANDSHAKE_STANDARD,HANDSHAKE_NO_WAIT" {
+				t.Errorf("Mieru handshake-mode 必须是完整上游常量: %s", got)
+			}
+			if fields["port-range"].When == nil || fields["port-range"].RequiredWhen == nil {
+				t.Errorf("Mieru port-range 必须只在 range 模式活动且条件必填: %+v", fields["port-range"])
+			}
 		case "wireguard":
 			if fields["peers"].ItemIDField != "_credential_id" || !slices.Contains(proto.SensitiveFields, "peers[].pre-shared-key") {
 				t.Errorf("WireGuard Peer 稳定身份/敏感路径契约缺失: %+v", fields["peers"])
+			}
+			// Build32 Step 11：peer_mode selector、single／peers endpoint policy、reserved 三字节与 AmneziaWG 排除。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "peer_mode" || proto.Selectors[0].Default != "single" {
+				t.Errorf("WireGuard 缺少 peer_mode selector: %+v", proto.Selectors)
+			}
+			if len(proto.EndpointPolicies) != 2 {
+				t.Errorf("WireGuard 必须声明 single／peers 两条 endpoint policy: %+v", proto.EndpointPolicies)
+			}
+			if fields["reserved"].Type != "byte-sequence" || fields["ip-stack"].ObjectKind != "fields" {
+				t.Errorf("WireGuard reserved／ip-stack 元数据缺失: %+v", fields)
+			}
+			for name := range fields {
+				if strings.Contains(strings.ToLower(name), "amnezia") {
+					t.Errorf("WireGuard 不得声明 AmneziaWG 活动字段: %s", name)
+				}
 			}
 		}
 	}

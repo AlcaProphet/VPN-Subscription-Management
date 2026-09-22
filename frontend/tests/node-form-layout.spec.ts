@@ -45,6 +45,17 @@ describe('节点开关展示投影', () => {
     expect(smuxSchema.properties![0].label).toBe('SMux 启用')
   })
 
+  it('non_empty 条件按兄弟字段是否非空匹配，缺少 params 时按不匹配处理', () => {
+    const rule = { non_empty: ['exit-node'] }
+    expect(matchesCondition(rule, {})).toBe(false)
+    expect(matchesCondition(rule, {}, undefined, {})).toBe(false)
+    expect(matchesCondition(rule, {}, undefined, { 'exit-node': '' })).toBe(false)
+    expect(matchesCondition(rule, {}, undefined, { 'exit-node': '   ' })).toBe(false)
+    expect(matchesCondition(rule, {}, undefined, { 'exit-node': '100.64.0.1' })).toBe(true)
+    expect(matchesCondition({ non_empty: ['a.b'] }, {}, undefined, { a: { b: 'x' } })).toBe(true)
+    expect(matchesCondition({ non_empty: ['a.b'] }, {}, undefined, { a: { b: '' } })).toBe(false)
+  })
+
   it('嵌套更新不修改原对象、不扁平化路径、不丢失其它键', () => {
     const original = smuxValue()
     const next = replaceNestedValue(original, ['brutal-opts', 'enabled'], false) as typeof original
@@ -56,7 +67,7 @@ describe('节点开关展示投影', () => {
 
   it('非首批协议的对象数组保留条目内控件，不产生失去索引的开关', () => {
     const schema: FieldSchema[] = [{ name: 'peers', label: 'Peer', type: 'object', object_kind: 'list', required: false,
-      properties: [{ name: 'enabled', label: '启用', type: 'bool', required: false }] }]
+      properties: [{ name: 'enabled', label: '启用', type: 'bool', required: false, default: false }] }]
     expect(collectSwitchFields(schema, {})).toEqual([])
   })
 })

@@ -1,0 +1,21 @@
+{
+  "protocol": "wireguard",
+  "host": "192.0.2.1",
+  "port": 51820,
+  "protocol_json": {
+    "private-key": "d2lyZWd1YXJkLXByaXZhdGUta2V5LWZpeHR1cmUtMzI=",
+    "public-key": "d2lyZWd1YXJkLXBlZXItcHVibGljLWtleS1maXh0dXI=",
+    "pre-shared-key": "d2lyZWd1YXJkLXBzay1maXh0dXJlLXNlY3JldC0zMng=",
+    "reserved": [1, 2, 3],
+    "allowed-ips": ["0.0.0.0/0", "::/0"],
+    "ip": "192.0.2.2/32",
+    "mtu": 1420,
+    "workers": 4,
+    "persistent-keepalive": 25,
+    "ip-stack": { "mode": "gvisor", "congestion-controller": "bbr3" },
+    "remote-dns-resolve": true,
+    "dns": ["1.1.1.1"]
+  },
+  "current_state": { "selectors": { "peer_mode": "single" }, "features": ["remote-dns-resolve"] },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

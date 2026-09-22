@@ -1,0 +1,17 @@
+{
+  "protocol": "tailscale",
+  "host": "",
+  "port": 0,
+  "protocol_json": {
+    "hostname": "node-a",
+    "auth-key": "ts-fixture-auth-secret",
+    "control-url": "https://headscale.example.com",
+    "ephemeral": true,
+    "udp": true,
+    "accept-routes": false,
+    "exit-node": "100.64.0.1",
+    "exit-node-allow-lan-access": true
+  },
+  "current_state": {},
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

@@ -1,0 +1,13 @@
+{
+  "protocol": "anytls",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "password": "anytls-shadow-password",
+    "sni": "example.com",
+    "shadow-tls-opts": { "password": "anytls-shadow-tls-secret", "version": "3" },
+    "idle-session-timeout": 60
+  },
+  "current_state": { "selectors": { "security_mode": "shadow_tls" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

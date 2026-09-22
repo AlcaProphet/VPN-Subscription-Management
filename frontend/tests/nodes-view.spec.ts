@@ -879,7 +879,7 @@ describe('NodesView 节点管理页', () => {
         {
           name: 'v2ray-plugin-opts', type: 'object', required: false, label: 'v2ray-plugin 参数', group: 'connection',
           object_kind: 'fields', allow_unknown: false, when: { plugin: ['v2ray-plugin'] },
-          properties: [{ name: 'tls', type: 'bool', required: false, label: 'TLS' }],
+          properties: [{ name: 'tls', type: 'bool', required: false, default: false, label: 'TLS' }],
         },
       ],
       sensitive_fields: ['password'],
@@ -1467,6 +1467,436 @@ describe('NodesView 节点管理页', () => {
     vm.setField('udp-over-stream', false)
     await nextTick()
     expect(vm.form.protocol_json['udp-over-stream-version']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 11：WireGuard 单 Peer／多 Peer 切换、endpoint policy、reserved 与 Peer 稳定身份。
+  it('WireGuard 单/多 Peer 切换隐藏 endpoint、清空对侧字段并保留 reserved 三字节编辑', async () => {
+    const wgProtocol = {
+      protocol: 'wireguard',
+      label: 'WireGuard',
+      form_schema: [
+        { name: 'peer-mode', type: 'select', required: false, label: 'Peer 模式', group: 'connection', state_only: true, selector_name: 'peer_mode', options: ['single', 'peers'], default: 'single' },
+        { name: 'private-key', type: 'secret-multiline', required: true, label: '私钥', group: 'auth' },
+        { name: 'public-key', type: 'text', required: false, label: '公钥', group: 'auth', when: { selectors: { peer_mode: ['single'] } }, required_when: { selectors: { peer_mode: ['single'] } }, reset_on: ['selector.peer_mode'] },
+        { name: 'reserved', type: 'byte-sequence', required: false, label: '保留字节', group: 'advanced', when: { selectors: { peer_mode: ['single'] } }, reset_on: ['selector.peer_mode'] },
+        { name: 'allowed-ips', type: 'text-list', required: false, label: 'Allowed IPs', group: 'advanced', when: { selectors: { peer_mode: ['single'] } }, reset_on: ['selector.peer_mode'] },
+        {
+          name: 'peers', type: 'object', required: false, label: 'Peer 列表', group: 'connection',
+          object_kind: 'list', item_id_field: '_credential_id', allow_unknown: false,
+          when: { selectors: { peer_mode: ['peers'] } }, required_when: { selectors: { peer_mode: ['peers'] } }, reset_on: ['selector.peer_mode'],
+          properties: [
+            { name: 'server', type: 'text', required: true, label: '服务器' },
+            { name: 'port', type: 'number', required: true, label: '端口' },
+            { name: 'public-key', type: 'text', required: true, label: '公钥' },
+            { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+            { name: 'reserved', type: 'byte-sequence', required: false, label: '保留字节' },
+            { name: 'allowed-ips', type: 'text-list', required: true, label: 'Allowed IPs' },
+          ],
+        },
+        { name: 'ip', type: 'text', required: false, label: 'IP', group: 'advanced' },
+      ],
+      selectors: [{ name: 'peer_mode', values: ['single', 'peers'], default: 'single' }],
+      endpoint_policies: [
+        { when: { selectors: { peer_mode: ['single'] } }, host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true },
+        { when: { selectors: { peer_mode: ['peers'] } }, host_mode: 'hidden', port_mode: 'hidden', emit_host: false, emit_port: false },
+      ],
+      sensitive_fields: ['private-key', 'pre-shared-key', 'peers[].pre-shared-key'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([wgProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'wireguard'
+    vm.form.host = 'example.com'
+    vm.form.port = 51820
+    await nextTick()
+
+    // single：显示 endpoint 与顶层 Peer 字段，不显示 peers 列表。
+    expect(vm.currentState.selectors).toEqual({ peer_mode: 'single' })
+    expect(vm.showHostField).toBe(true)
+    expect(vm.showPortField).toBe(true)
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    expect(fieldNames()).toContain('public-key')
+    expect(fieldNames()).not.toContain('peers')
+
+    // 顶层 reserved：三整数控件可编辑并写入规范数组。
+    vm.setField('reserved', [1, 2, 3])
+    await nextTick()
+    expect(vm.form.protocol_json.reserved).toEqual([1, 2, 3])
+
+    // 切到 peers：隐藏 endpoint 并清空顶层 Peer 字段。
+    vm.setFieldModelValue(wgProtocol.form_schema[0] as FieldSchema, 'peers')
+    await nextTick()
+    expect(vm.showHostField).toBe(false)
+    expect(vm.showPortField).toBe(false)
+    expect(vm.form.host).toBe('')
+    expect(vm.form.port).toBe(0)
+    expect(vm.form.protocol_json['public-key']).toBeUndefined()
+    expect(vm.form.protocol_json.reserved).toBeUndefined()
+    expect(fieldNames()).toContain('peers')
+    expect(vm.resetScopesArray()).toContain('selector.peer_mode')
+
+    // 切回 single：peers 列表清空，顶层字段恢复且不复活旧值。
+    vm.setFieldModelValue(wgProtocol.form_schema[0] as FieldSchema, 'single')
+    await nextTick()
+    expect(vm.form.protocol_json.peers).toBeUndefined()
+    expect(vm.showPortField).toBe(true)
+    expect(vm.form.protocol_json.reserved).toBeUndefined()
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 12：Mieru 单端口／端口段切换、隐藏端口与完整枚举。
+  it('Mieru 端口段模式隐藏顶层端口并按 selector 清空 port-range', async () => {
+    const mieruProtocol = {
+      protocol: 'mieru',
+      label: 'Mieru',
+      form_schema: [
+        { name: 'endpoint-mode', type: 'select', required: false, label: '端口模式', group: 'connection', state_only: true, selector_name: 'endpoint_mode', options: ['single', 'range'], default: 'single' },
+        { name: 'port-range', type: 'text', required: false, label: '端口范围', group: 'connection', when: { selectors: { endpoint_mode: ['range'] } }, required_when: { selectors: { endpoint_mode: ['range'] } }, reset_on: ['selector.endpoint_mode'] },
+        { name: 'username', type: 'text', required: true, label: '用户名', group: 'auth' },
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        { name: 'transport', type: 'select', required: false, label: '传输', group: 'connection', options: ['TCP', 'UDP'], default: 'TCP' },
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+        { name: 'multiplexing', type: 'select', required: false, label: '多路复用', group: 'connection', options: ['', 'MULTIPLEXING_OFF', 'MULTIPLEXING_LOW', 'MULTIPLEXING_MIDDLE', 'MULTIPLEXING_HIGH'], default: '' },
+        { name: 'handshake-mode', type: 'select', required: false, label: '握手模式', group: 'connection', options: ['', 'HANDSHAKE_STANDARD', 'HANDSHAKE_NO_WAIT'], default: '' },
+        { name: 'traffic-pattern', type: 'text', required: false, label: '流量特征', group: 'advanced' },
+      ],
+      selectors: [{ name: 'endpoint_mode', values: ['single', 'range'], default: 'single' }],
+      endpoint_policies: [
+        { when: { selectors: { endpoint_mode: ['single'] } }, host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true },
+        { when: { selectors: { endpoint_mode: ['range'] } }, host_mode: 'required', port_mode: 'hidden', emit_host: true, emit_port: false },
+      ],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([mieruProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'mieru'
+    vm.form.port = 8964
+    await nextTick()
+
+    // 完整枚举来自后端 schema，旧值 LOW/MIDDLE/HIGH 不再出现。
+    expect(vm.currentSchema().form_schema.find((field: FieldSchema) => field.name === 'multiplexing').options)
+      .toEqual(['', 'MULTIPLEXING_OFF', 'MULTIPLEXING_LOW', 'MULTIPLEXING_MIDDLE', 'MULTIPLEXING_HIGH'])
+    expect(vm.currentState.selectors).toEqual({ endpoint_mode: 'single' })
+    expect(vm.showPortField).toBe(true)
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    expect(fieldNames()).not.toContain('port-range')
+
+    // 切到 range：隐藏顶层端口，port-range 出现并规范化 port=0。
+    vm.setFieldModelValue(mieruProtocol.form_schema[0] as FieldSchema, 'range')
+    await nextTick()
+    expect(vm.showPortField).toBe(false)
+    expect(vm.form.port).toBe(0)
+    expect(fieldNames()).toContain('port-range')
+    vm.setField('port-range', '1000-2000')
+    await nextTick()
+    expect(vm.form.protocol_json['port-range']).toBe('1000-2000')
+
+    // 切回 single：port-range 清空且不恢复，端口恢复显示。
+    vm.setFieldModelValue(mieruProtocol.form_schema[0] as FieldSchema, 'single')
+    await nextTick()
+    expect(vm.form.protocol_json['port-range']).toBeUndefined()
+    expect(vm.showPortField).toBe(true)
+    expect(vm.resetScopesArray()).toContain('selector.endpoint_mode')
+
+    // traffic-pattern 是普通文本字段（非 secret），错误定位由后端返回。
+    vm.setField('traffic-pattern', '!!!bad!!!')
+    await nextTick()
+    expect(vm.form.protocol_json['traffic-pattern']).toBe('!!!bad!!!')
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 13：MASQUE 三种网络模式、h3-l4proxy 强制关闭 UDP 与 QUIC 调优清空。
+  it('MASQUE 三种网络模式切换、h3-l4proxy 关闭 UDP 并清空 QUIC 调优', async () => {
+    const masqueProtocol = {
+      protocol: 'masque',
+      label: 'MASQUE',
+      form_schema: [
+        { name: 'network-mode', type: 'select', required: false, label: '网络模式', group: 'connection', state_only: true, selector_name: 'network_mode', options: ['quic', 'h2', 'h3_l4proxy'], default: 'quic' },
+        { name: 'private-key', type: 'secret-multiline', required: true, label: '私钥', group: 'auth' },
+        { name: 'public-key', type: 'text', required: true, label: '公钥', group: 'auth' },
+        { name: 'ip', type: 'text', required: false, label: 'IP', group: 'advanced' },
+        { name: 'uri', type: 'text', required: false, label: '连接 URI', group: 'advanced' },
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches', when: { selectors: { network_mode: ['quic', 'h2'] } }, reset_on: ['selector.network_mode'] },
+        { name: 'congestion-controller', type: 'select', required: false, label: '拥塞控制器', group: 'advanced', options: ['', 'cubic', 'new_reno', 'bbr_meta_v1', 'bbr_meta_v2', 'bbr'], default: '', when: { selectors: { network_mode: ['quic'] } }, reset_on: ['selector.network_mode'] },
+        { name: 'cwnd', type: 'number', required: false, label: '拥塞窗口', group: 'advanced', when: { selectors: { network_mode: ['quic'] } }, reset_on: ['selector.network_mode'] },
+        { name: 'skip-cert-verify', type: 'bool', default: false, label: '跳过证书校验', section: 'switches' },
+      ],
+      selectors: [{ name: 'network_mode', values: ['quic', 'h2', 'h3_l4proxy'], default: 'quic' }],
+      sensitive_fields: ['private-key'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([masqueProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'masque'
+    vm.form.host = 'example.com'
+    vm.form.port = 443
+    await nextTick()
+
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    expect(vm.currentState.selectors).toEqual({ network_mode: 'quic' })
+    expect(fieldNames()).toContain('udp')
+    expect(fieldNames()).toContain('congestion-controller')
+    vm.setField('udp', true)
+    vm.setField('congestion-controller', 'bbr_meta_v2')
+    vm.setField('cwnd', 64)
+    await nextTick()
+
+    // h2：保留 UDP，清空 QUIC 调优。
+    vm.setFieldModelValue(masqueProtocol.form_schema[0] as FieldSchema, 'h2')
+    await nextTick()
+    expect(fieldNames()).not.toContain('congestion-controller')
+    expect(vm.form.protocol_json['congestion-controller']).toBeUndefined()
+    expect(vm.form.protocol_json.cwnd).toBeUndefined()
+
+    // h3_l4proxy：UDP 字段隐藏并清空，不得保留 true。
+    vm.setFieldModelValue(masqueProtocol.form_schema[0] as FieldSchema, 'h3_l4proxy')
+    await nextTick()
+    expect(fieldNames()).not.toContain('udp')
+    expect(vm.form.protocol_json.udp).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('selector.network_mode')
+
+    // 切回 quic：旧 udp／调优值都不恢复。
+    vm.setFieldModelValue(masqueProtocol.form_schema[0] as FieldSchema, 'quic')
+    await nextTick()
+    expect(vm.form.protocol_json.udp).toBeUndefined()
+    expect(vm.form.protocol_json['congestion-controller']).toBeUndefined()
+    expect(fieldNames()).toContain('udp')
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 14：Tailscale 无 endpoint、non_empty 依赖与三态 bool。
+  it('Tailscale 隐藏 endpoint、按 exit-node 条件显示 LAN access 并保留三态 bool', async () => {
+    const tailscaleProtocol = {
+      protocol: 'tailscale',
+      label: 'Tailscale',
+      form_schema: [
+        { name: 'hostname', type: 'text', required: false, label: '设备名', group: 'basic' },
+        { name: 'auth-key', type: 'password', required: false, label: '认证密钥', group: 'auth' },
+        { name: 'control-url', type: 'text', required: false, label: '控制面地址', group: 'connection' },
+        { name: 'ephemeral', type: 'bool', default: false, label: '临时节点', section: 'switches' },
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+        { name: 'accept-routes', type: 'bool', required: false, label: '接受路由', group: 'switches' },
+        { name: 'exit-node', type: 'text', required: false, label: '出口节点', group: 'connection' },
+        { name: 'exit-node-allow-lan-access', type: 'bool', required: false, label: '出口节点允许 LAN 访问', group: 'switches', when: { non_empty: ['exit-node'] } },
+      ],
+      endpoint_policies: [
+        { host_mode: 'hidden', port_mode: 'hidden', emit_host: false, emit_port: false },
+      ],
+      sensitive_fields: ['auth-key'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([tailscaleProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'tailscale'
+    await nextTick()
+
+    // 无 endpoint：host／port 不显示，且 request 载荷规范化。
+    expect(vm.showHostField).toBe(false)
+    expect(vm.showPortField).toBe(false)
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    // 三态 bool 不进入集中开关区，而在所属分组内以三态控件渲染。
+    expect(vm.switchFields.map((item: { path: string }) => item.path)).toEqual(['ephemeral', 'udp'])
+    expect(fieldNames()).toContain('accept-routes')
+
+    // exit-node 为空时 LAN access 不显示。
+    expect(fieldNames()).not.toContain('exit-node-allow-lan-access')
+    vm.setField('exit-node', '100.64.0.1')
+    await nextTick()
+    expect(fieldNames()).toContain('exit-node-allow-lan-access')
+
+    // 三态：未设置 → 关闭 → 开启，且不写成 false 吞掉未设置。
+    const lanField = tailscaleProtocol.form_schema[7] as FieldSchema
+    expect(vm.fieldModelValue(lanField)).toBe(undefined)
+    vm.setFieldModelValue(lanField, false)
+    await nextTick()
+    expect(vm.form.protocol_json['exit-node-allow-lan-access']).toBe(false)
+    vm.setFieldModelValue(lanField, true)
+    await nextTick()
+    expect(vm.form.protocol_json['exit-node-allow-lan-access']).toBe(true)
+    vm.setFieldModelValue(lanField, undefined)
+    await nextTick()
+    expect(vm.form.protocol_json['exit-node-allow-lan-access']).toBe(undefined)
+
+    // 清空 exit-node 后 LAN access 立即隐藏。
+    vm.setField('exit-node', '')
+    await nextTick()
+    expect(fieldNames()).not.toContain('exit-node-allow-lan-access')
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 15：AnyTLS 四种安全模式互斥、主密码保留、ECH 与 mTLS。
+  it('AnyTLS 三种附加伪装互斥、主密码保留且 ECH 关闭清空子字段', async () => {
+    const anytlsProtocol = {
+      protocol: 'anytls',
+      label: 'AnyTLS',
+      form_schema: [
+        { name: 'security-mode', type: 'select', required: false, label: '附加安全', group: 'connection', state_only: true, selector_name: 'security_mode', options: ['plain', 'shadow_tls', 'restls', 'jls'], default: 'plain' },
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        { name: 'sni', type: 'text', required: false, label: 'SNI', group: 'security' },
+        { name: 'ech-opts', type: 'object', required: false, label: 'ECH 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, feature: { name: 'ech', toggle: 'enable' }, reset_on: ['feature.ech'], properties: [
+          { name: 'enable', type: 'bool', default: false, label: '启用' },
+          { name: 'config', type: 'text', required: false, label: '配置', when: { features: ['ech'] }, reset_on: ['feature.ech'] },
+          { name: 'query-server-name', type: 'text', required: false, label: '查询服务器名', when: { features: ['ech'] }, reset_on: ['feature.ech'] },
+        ] },
+        { name: 'certificate', type: 'multiline', required: false, label: '证书', group: 'security' },
+        { name: 'private-key', type: 'secret-multiline', required: false, label: '私钥', group: 'security' },
+        { name: 'shadow-tls-opts', type: 'object', required: false, label: 'ShadowTLS 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, when: { selectors: { security_mode: ['shadow_tls'] } }, required_when: { selectors: { security_mode: ['shadow_tls'] } }, reset_on: ['selector.security_mode'], properties: [
+          { name: 'password', type: 'password', required: false, label: '密码', when: { selectors: { security_mode: ['shadow_tls'] } }, required_when: { selectors: { security_mode: ['shadow_tls'] } }, reset_on: ['selector.security_mode'] },
+          { name: 'version', type: 'select', required: false, label: '版本', options: ['', '1', '2', '3'], default: '', when: { selectors: { security_mode: ['shadow_tls'] } }, reset_on: ['selector.security_mode'] },
+        ] },
+        { name: 'restls-opts', type: 'object', required: false, label: 'Restls 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, when: { selectors: { security_mode: ['restls'] } }, required_when: { selectors: { security_mode: ['restls'] } }, reset_on: ['selector.security_mode'], properties: [
+          { name: 'password', type: 'password', required: false, label: '密码', when: { selectors: { security_mode: ['restls'] } }, required_when: { selectors: { security_mode: ['restls'] } }, reset_on: ['selector.security_mode'] },
+          { name: 'version-hint', type: 'select', required: false, label: '版本提示', options: ['', 'tls12', 'tls13'], default: '', when: { selectors: { security_mode: ['restls'] } }, required_when: { selectors: { security_mode: ['restls'] } }, reset_on: ['selector.security_mode'] },
+        ] },
+        { name: 'jls-opts', type: 'object', required: false, label: 'JLS 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, when: { selectors: { security_mode: ['jls'] } }, required_when: { selectors: { security_mode: ['jls'] } }, reset_on: ['selector.security_mode'], properties: [
+          { name: 'username', type: 'text', required: false, label: '用户名', when: { selectors: { security_mode: ['jls'] } }, required_when: { selectors: { security_mode: ['jls'] } }, reset_on: ['selector.security_mode'] },
+          { name: 'password', type: 'password', required: false, label: '密码', when: { selectors: { security_mode: ['jls'] } }, required_when: { selectors: { security_mode: ['jls'] } }, reset_on: ['selector.security_mode'] },
+        ] },
+      ],
+      selectors: [{ name: 'security_mode', values: ['plain', 'shadow_tls', 'restls', 'jls'], default: 'plain' }],
+      sensitive_fields: ['password', 'private-key', 'shadow-tls-opts.password', 'restls-opts.password', 'jls-opts.password'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([anytlsProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'anytls'
+    await nextTick()
+
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    expect(vm.currentState.selectors).toEqual({ security_mode: 'plain' })
+    for (const name of ['shadow-tls-opts', 'restls-opts', 'jls-opts']) {
+      expect(fieldNames()).not.toContain(name)
+    }
+
+    // 主密码在切换分支时保留（不留空即为待替换；此处仅验证字段始终可编辑且不被清空）。
+    vm.setField('password', 'main-secret')
+    await nextTick()
+    const modeField = anytlsProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'shadow_tls')
+    await nextTick()
+    expect(vm.form.protocol_json.password).toBe('main-secret')
+    expect(fieldNames()).toContain('shadow-tls-opts')
+    expect(fieldNames()).not.toContain('restls-opts')
+    vm.setField('shadow-tls-opts', { password: 'shadow-secret', version: '3' })
+    await nextTick()
+
+    // 切换到 restls：旧伪装对象必须清空且主密码保留。
+    vm.setFieldModelValue(modeField, 'restls')
+    await nextTick()
+    expect(vm.form.protocol_json['shadow-tls-opts']).toBeUndefined()
+    expect(fieldNames()).toContain('restls-opts')
+    expect(vm.form.protocol_json.password).toBe('main-secret')
+
+    // 切到 jls：restls 清空。
+    vm.setFieldModelValue(modeField, 'jls')
+    await nextTick()
+    expect(vm.form.protocol_json['restls-opts']).toBeUndefined()
+    expect(fieldNames()).toContain('jls-opts')
+    expect(vm.resetScopesArray()).toContain('selector.security_mode')
+
+    // 回到 plain：三类对象全部消失。
+    vm.setFieldModelValue(modeField, 'plain')
+    await nextTick()
+    for (const name of ['shadow-tls-opts', 'restls-opts', 'jls-opts']) {
+      expect(vm.form.protocol_json[name]).toBeUndefined()
+      expect(fieldNames()).not.toContain(name)
+    }
+
+    // ECH 关闭清空 config／query-server-name。
+    vm.setField('ech-opts', { enable: true, config: 'cfg', 'query-server-name': 'q.example.com' })
+    await nextTick()
+    expect(vm.form.protocol_json['ech-opts'].config).toBe('cfg')
+    vm.setField('ech-opts', { enable: false })
+    await nextTick()
+    expect(vm.form.protocol_json['ech-opts'].config).toBeUndefined()
+    expect(vm.form.protocol_json['ech-opts']['query-server-name']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 16：ShadowQUIC QUIC 版本列表、UOT／0-RTT 独立开关与流控字段。
+  it('ShadowQUIC 版本列表保序去重、UOT 与 0-RTT 独立且不改写保存结果', async () => {
+    const shadowquicProtocol = {
+      protocol: 'shadowquic',
+      label: 'ShadowQUIC',
+      form_schema: [
+        { name: 'username', type: 'text', required: true, label: '用户名', group: 'auth' },
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        { name: 'sni', type: 'text', required: false, label: 'SNI', group: 'security' },
+        { name: 'alpn', type: 'text-list', required: false, label: 'ALPN', group: 'security' },
+        { name: 'quic-versions', type: 'text-list', required: false, label: 'QUIC 版本', group: 'connection' },
+        { name: 'udp-over-stream', type: 'bool', default: false, label: 'UDP over Stream', section: 'switches' },
+        { name: 'zero-rtt', type: 'bool', default: false, label: '0-RTT', section: 'switches' },
+        { name: 'keep-alive-interval', type: 'number', required: false, label: '保活间隔', group: 'advanced' },
+        { name: 'recv-window-conn', type: 'number', required: false, label: '连接接收窗口', group: 'advanced' },
+        { name: 'recv-window', type: 'number', required: false, label: '接收窗口', group: 'advanced' },
+        { name: 'up', type: 'text', required: false, label: '上行带宽', group: 'advanced' },
+      ],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([shadowquicProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'shadowquic'
+    await nextTick()
+
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    // 不得从通用 TLS helper 误加固定 tag 没有的字段。
+    for (const forbidden of ['skip-cert-verify', 'certificate', 'private-key', 'ech-opts', 'udp-over-stream-version']) {
+      expect(fieldNames()).not.toContain(forbidden)
+    }
+    expect(fieldNames()).toContain('quic-versions')
+
+    // 版本列表保序去重。
+    vm.setField('quic-versions', ['v2', 'v1', 'v2'])
+    await nextTick()
+    expect(vm.form.protocol_json['quic-versions']).toEqual(['v2', 'v1', 'v2'])
+
+    // UOT 与 0-RTT 是独立开关，且不产生附加版本字段。
+    vm.setField('udp-over-stream', true)
+    vm.setField('zero-rtt', true)
+    await nextTick()
+    expect(vm.form.protocol_json['udp-over-stream']).toBe(true)
+    expect(vm.form.protocol_json['zero-rtt']).toBe(true)
+    expect(vm.form.protocol_json['udp-over-stream-version']).toBeUndefined()
+
+    // 关闭 UOT 不影响 0-RTT 与版本列表。
+    vm.setField('udp-over-stream', false)
+    await nextTick()
+    expect(vm.form.protocol_json['udp-over-stream']).toBe(false)
+    expect(vm.form.protocol_json['zero-rtt']).toBe(true)
+    expect(vm.form.protocol_json['quic-versions']).toEqual(['v2', 'v1', 'v2'])
+
+    // 流控字段保持“未设置”与 0 的区别。
+    expect(vm.form.protocol_json['recv-window']).toBeUndefined()
+    vm.setField('recv-window', 0)
+    await nextTick()
+    expect(vm.form.protocol_json['recv-window']).toBe(0)
     wrapper.unmount()
   })
 

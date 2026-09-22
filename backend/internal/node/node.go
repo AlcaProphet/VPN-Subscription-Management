@@ -1893,12 +1893,12 @@ func validateMapValues(field FieldSchema, object map[string]any, path string) er
 // 避免旧别名清理先删除非法输入而使保存请求绕过类型约束。
 func validateInputMapValueTypes(proto Protocol, params map[string]any) error {
 	state := DeriveCurrentState(proto, params)
-	return validateActiveInputMaps(proto.FormSchema, state, params, "")
+	return validateActiveInputMaps(proto.FormSchema, state, params, "", params)
 }
 
-func validateActiveInputMaps(fields []FieldSchema, state CurrentState, params map[string]any, prefix string) error {
+func validateActiveInputMaps(fields []FieldSchema, state CurrentState, params map[string]any, prefix string, root map[string]any) error {
 	for _, field := range fields {
-		if field.StateOnly || !field.Matches(state, "") || field.Type != "object" {
+		if field.StateOnly || !field.Matches(state, root, "") || field.Type != "object" {
 			continue
 		}
 		value, exists := params[field.Name]
@@ -1923,7 +1923,7 @@ func validateActiveInputMaps(fields []FieldSchema, state CurrentState, params ma
 			}
 		case "fields":
 			if object, ok := value.(map[string]any); ok {
-				if err := validateActiveInputMaps(field.Properties, state, object, path); err != nil {
+				if err := validateActiveInputMaps(field.Properties, state, object, path, root); err != nil {
 					return err
 				}
 			}
@@ -1931,7 +1931,7 @@ func validateActiveInputMaps(fields []FieldSchema, state CurrentState, params ma
 			if items, ok := value.([]any); ok {
 				for i, item := range items {
 					if object, ok := item.(map[string]any); ok {
-						if err := validateActiveInputMaps(field.Properties, state, object, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+						if err := validateActiveInputMaps(field.Properties, state, object, fmt.Sprintf("%s[%d]", path, i), root); err != nil {
 							return err
 						}
 					}

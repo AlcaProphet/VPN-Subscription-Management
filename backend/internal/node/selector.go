@@ -105,6 +105,20 @@ func deriveStateOnlySelector(proto Protocol, name string, params map[string]any)
 			}
 			return "v5", true
 		}
+	case "mieru":
+		if name == "endpoint_mode" {
+			if hasTextParam(params, "port-range") {
+				return "range", true
+			}
+			return "single", true
+		}
+	case "wireguard":
+		if name == "peer_mode" {
+			if items, ok := params["peers"].([]any); ok && len(items) > 0 {
+				return "peers", true
+			}
+			return "single", true
+		}
 	}
 	return "", false
 }

@@ -1,16 +1,20 @@
 package node
 
 import (
+	"crypto/ecdsa"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"math"
 	"net"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 
+	mierutp "github.com/enfein/mieru/v3/apis/trafficpattern"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
 )
@@ -25,14 +29,14 @@ func ProjectActive(proto Protocol, state CurrentState, params map[string]any) ma
 	state.Features = activeFeatures(proto.FormSchema, params)
 	out := make(map[string]any, len(params))
 	for _, field := range proto.FormSchema {
-		if field.StateOnly || !field.Matches(state, "") {
+		if field.StateOnly || !field.Matches(state, params, "") {
 			continue
 		}
 		value, ok := params[field.Name]
 		if !ok {
 			continue
 		}
-		projected, ok := projectFieldValue(field, value, state)
+		projected, ok := projectFieldValue(field, value, state, params)
 		if ok {
 			out[field.Name] = projected
 		}
@@ -46,7 +50,7 @@ func ProjectActive(proto Protocol, state CurrentState, params map[string]any) ma
 	return out
 }
 
-func projectFieldValue(field FieldSchema, value any, state CurrentState) (any, bool) {
+func projectFieldValue(field FieldSchema, value any, state CurrentState, root map[string]any) (any, bool) {
 	if !hasEffectiveValue(value) {
 		return nil, false
 	}
@@ -60,7 +64,7 @@ func projectFieldValue(field FieldSchema, value any, state CurrentState) (any, b
 		if !ok {
 			return cloneProjectValue(value), true
 		}
-		return projectObjectFields(field, object, state)
+		return projectObjectFields(field, object, state, root)
 	case "map":
 		object, ok := value.(map[string]any)
 		if !ok {
@@ -96,7 +100,7 @@ func projectFieldValue(field FieldSchema, value any, state CurrentState) (any, b
 				}
 				continue
 			}
-			projected, ok := projectObjectFields(field, object, state)
+			projected, ok := projectObjectFields(field, object, state, root)
 			if ok {
 				out = append(out, projected)
 			}
@@ -110,7 +114,7 @@ func projectFieldValue(field FieldSchema, value any, state CurrentState) (any, b
 	}
 }
 
-func projectObjectFields(field FieldSchema, object map[string]any, state CurrentState) (map[string]any, bool) {
+func projectObjectFields(field FieldSchema, object map[string]any, state CurrentState, root map[string]any) (map[string]any, bool) {
 	out := make(map[string]any, len(object))
 	known := make(map[string]bool, len(field.Properties)+1)
 	// 稳定条目身份是内部编辑元数据，需要保留到脱敏步骤之后再剥离，不能作为未知业务键丢弃。
@@ -122,14 +126,14 @@ func projectObjectFields(field FieldSchema, object map[string]any, state Current
 	}
 	for _, property := range field.Properties {
 		known[property.Name] = true
-		if !property.Matches(state, "") {
+		if !property.Matches(state, root, "") {
 			continue
 		}
 		value, ok := object[property.Name]
 		if !ok {
 			continue
 		}
-		projected, ok := projectFieldValue(property, value, state)
+		projected, ok := projectFieldValue(property, value, state, root)
 		if ok {
 			out[property.Name] = projected
 		}
@@ -185,7 +189,7 @@ func ValidateCurrentStateForTarget(proto Protocol, state CurrentState, params ma
 	if err := validateSelectors(proto, state, params); err != nil {
 		return err
 	}
-	if err := validateActiveFields(proto.FormSchema, state, params, "", target); err != nil {
+	if err := validateActiveFields(proto.FormSchema, state, params, "", target, params); err != nil {
 		return err
 	}
 	if err := validateProtocolCombination(proto, state, params); err != nil {
@@ -231,9 +235,9 @@ func findSchemaField(fields []FieldSchema, name string) (FieldSchema, bool) {
 	return FieldSchema{}, false
 }
 
-func validateActiveFields(fields []FieldSchema, state CurrentState, params map[string]any, prefix, target string) error {
+func validateActiveFields(fields []FieldSchema, state CurrentState, params map[string]any, prefix, target string, root map[string]any) error {
 	for _, field := range fields {
-		if field.StateOnly || !field.Matches(state, target) {
+		if field.StateOnly || !field.Matches(state, root, target) {
 			continue
 		}
 		path := field.Name
@@ -241,20 +245,20 @@ func validateActiveFields(fields []FieldSchema, state CurrentState, params map[s
 			path = prefix + "." + path
 		}
 		value, exists := params[field.Name]
-		if field.RequiredFor(state, target) && (!exists || !hasEffectiveValue(value)) {
+		if field.RequiredFor(state, root, target) && (!exists || !hasEffectiveValue(value)) {
 			return fmt.Errorf("字段 %s 必填", path)
 		}
 		if !exists || !hasEffectiveValue(value) {
 			continue
 		}
-		if err := validateActiveFieldValue(field, value, state, path, target); err != nil {
+		if err := validateActiveFieldValue(field, value, state, path, target, root); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateActiveFieldValue(field FieldSchema, value any, state CurrentState, path, target string) error {
+func validateActiveFieldValue(field FieldSchema, value any, state CurrentState, path, target string, root map[string]any) error {
 	if field.Type != "object" {
 		if err := validateFieldValue(field, value, path); err != nil {
 			return err
@@ -267,7 +271,7 @@ func validateActiveFieldValue(field FieldSchema, value any, state CurrentState, 
 		if !ok {
 			return fmt.Errorf("字段 %s 类型应为 object", path)
 		}
-		return validateActiveObjectFields(field, object, state, path, target)
+		return validateActiveObjectFields(field, object, state, path, target, root)
 	case "map":
 		return validateFieldValue(field, value, path)
 	case "list":
@@ -280,7 +284,7 @@ func validateActiveFieldValue(field FieldSchema, value any, state CurrentState, 
 			if !ok {
 				return fmt.Errorf("字段 %s[%d] 类型应为 object", path, i)
 			}
-			if err := validateActiveObjectFields(field, object, state, fmt.Sprintf("%s[%d]", path, i), target); err != nil {
+			if err := validateActiveObjectFields(field, object, state, fmt.Sprintf("%s[%d]", path, i), target, root); err != nil {
 				return err
 			}
 		}
@@ -290,25 +294,25 @@ func validateActiveFieldValue(field FieldSchema, value any, state CurrentState, 
 	}
 }
 
-func validateActiveObjectFields(field FieldSchema, object map[string]any, state CurrentState, path, target string) error {
+func validateActiveObjectFields(field FieldSchema, object map[string]any, state CurrentState, path, target string, root map[string]any) error {
 	known := make(map[string]bool, len(field.Properties)+1)
 	if field.ItemIDField != "" {
 		known[field.ItemIDField] = true
 	}
 	for _, property := range field.Properties {
 		known[property.Name] = true
-		if !property.Matches(state, target) {
+		if !property.Matches(state, root, target) {
 			continue
 		}
 		value, exists := object[property.Name]
 		propertyPath := path + "." + property.Name
-		if property.RequiredFor(state, target) && (!exists || !hasEffectiveValue(value)) {
+		if property.RequiredFor(state, root, target) && (!exists || !hasEffectiveValue(value)) {
 			return fmt.Errorf("字段 %s 必填", propertyPath)
 		}
 		if !exists || !hasEffectiveValue(value) {
 			continue
 		}
-		if err := validateActiveFieldValue(property, value, state, propertyPath, target); err != nil {
+		if err := validateActiveFieldValue(property, value, state, propertyPath, target, root); err != nil {
 			return err
 		}
 	}
@@ -392,6 +396,30 @@ func validateProtocolCombination(proto Protocol, state CurrentState, params map[
 		if err := validateTUICCombination(state, params); err != nil {
 			return err
 		}
+	case "shadowquic":
+		if err := validateShadowQUICCombination(params); err != nil {
+			return err
+		}
+	case "anytls":
+		if err := validateAnyTLSCombination(params); err != nil {
+			return err
+		}
+	case "tailscale":
+		if err := validateTailscaleCombination(params); err != nil {
+			return err
+		}
+	case "masque":
+		if err := validateMASQUECombination(state, params); err != nil {
+			return err
+		}
+	case "mieru":
+		if err := validateMieruCombination(state, params); err != nil {
+			return err
+		}
+	case "wireguard":
+		if err := validateWireGuardCombination(state, params); err != nil {
+			return err
+		}
 	case "vless":
 		if state.Network == "xhttp" {
 			xhttp := objectValue(params, "xhttp-opts")
@@ -434,6 +462,14 @@ func validateProtocolCombination(proto Protocol, state CurrentState, params map[
 
 func errorsForField(path, message string) error {
 	return fmt.Errorf("字段 %s: %s", path, message)
+}
+
+// isKeptCredentialCiphertext 判断字段值是否为更新／检查路径中保留的项目密文。
+// 未改动的敏感字段以密文参与合并校验；密文在首次保存时已通过同一语义校验，
+// 重新按明文解析既无意义也必然失败（Step 11 暴露的共享基线缺陷）。
+func isKeptCredentialCiphertext(value any) bool {
+	text, ok := value.(string)
+	return ok && strings.HasPrefix(strings.TrimSpace(text), encPrefix)
 }
 
 // bandwidthPattern 与固定 tag 的 utils.StringToBps 保持一致；纯整数按 Mbps 处理。
@@ -500,7 +536,7 @@ func validateHysteriaCombination(params map[string]any) error {
 			return errorsForField(name, "带宽必须是非零的速率字符串（例如 100 Mbps）")
 		}
 	}
-	if auth := strings.TrimSpace(stringValue(params["auth"])); auth != "" {
+	if auth := strings.TrimSpace(stringValue(params["auth"])); auth != "" && !isKeptCredentialCiphertext(params["auth"]) {
 		if _, err := base64.StdEncoding.DecodeString(auth); err != nil {
 			return errorsForField("auth", "认证必须是合法的 Base64 字符串")
 		}
@@ -539,7 +575,7 @@ const tuicDatagramFrameLimit = 1400
 
 // validateTUICCombination 校验 TUIC 的 v5 UUID、直连 IP、非负数值、mTLS 与数据报／中继包联动。
 func validateTUICCombination(state CurrentState, params map[string]any) error {
-	if state.Selectors["auth_mode"] == "v5" {
+	if state.Selectors["auth_mode"] == "v5" && !isKeptCredentialCiphertext(params["uuid"]) {
 		if _, err := uuid.Parse(strings.TrimSpace(stringValue(params["uuid"]))); err != nil {
 			return errorsForField("uuid", "UUID 必须是合法的 UUID")
 		}
@@ -564,6 +600,409 @@ func validateTUICCombination(state CurrentState, params map[string]any) error {
 		return errorsForField("max-udp-relay-packet-size", "最大 UDP 中继包不能超过最大数据报帧")
 	}
 	return nil
+}
+
+// shadowQUICVersionAllowed 判断单个 QUIC 版本表达是否属于固定 tag parser 的 v1／v2。
+// 固定 tag 的 ParseQUICVersion 还接受 1／2／rfc9000／rfc9369，Build32 只要求规范 v1／v2 表达。
+func shadowQUICVersionAllowed(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "v1", "v2":
+		return true
+	}
+	return false
+}
+
+// validateShadowQUICCombination 校验 QUIC 版本列表、非负整数与可选速率字符串。
+// TLS 只有 sni／alpn（固定 tag 的 ShadowQuicOption 没有证书／ECH／skip-cert-verify）；
+// zero-rtt 的重放风险由 adapter 以 warn 提示，不改变保存结果。
+func validateShadowQUICCombination(params map[string]any) error {
+	if items, ok := stringListItems(params["quic-versions"]); ok {
+		for i, item := range items {
+			if !shadowQUICVersionAllowed(item) {
+				return errorsForField(fmt.Sprintf("quic-versions[%d]", i), "只接受固定 tag parser 支持的 v1 或 v2")
+			}
+		}
+	}
+	for _, name := range []string{"keep-alive-interval", "cwnd", "recv-window-conn", "recv-window",
+		"max-datagram-frame-size", "max-open-streams"} {
+		if err := validateIntegerMinimum(params, name, 0, "该字段必须是非负整数"); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"up", "down"} {
+		if value := strings.TrimSpace(stringValue(params[name])); value != "" && !validBandwidth(value) {
+			return errorsForField(name, "带宽必须是非零的速率字符串（例如 100 Mbps）")
+		}
+	}
+	return nil
+}
+
+// anytlsIdleSessionMinimum 是固定 tag 静默替换阈值：≤5 秒会被内核改成 30 秒。
+// 项目要求显式取值只能为 0（未设置）或不低于该下限，避免保存值与内核生效值不一致。
+const anytlsIdleSessionMinimum = 6
+
+// validateAnyTLSCombination 校验 mTLS 成对、会话参数范围与固定 tag 的 idle-session 语义。
+// 三种伪装对象的互斥、条件必填与切换清空由 schema 的 when／required_when／reset_on 结构性保证；
+// 主 password 不声明 selector 清空域，因此不随 security_mode 切换清除。
+func validateAnyTLSCombination(params map[string]any) error {
+	if err := validateTLSKeyPair(params); err != nil {
+		return err
+	}
+	for _, name := range []string{"idle-session-check-interval", "idle-session-timeout", "min-idle-session"} {
+		if err := validateIntegerMinimum(params, name, 0, "该字段必须是非负整数"); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"idle-session-check-interval", "idle-session-timeout"} {
+		if value, ok := numberParam(params[name]); ok && value != 0 && value < anytlsIdleSessionMinimum {
+			return errorsForField(name, fmt.Sprintf("空闲会话取值只能是 0（未设置）或不小于 %d 秒", anytlsIdleSessionMinimum))
+		}
+	}
+	if interval, ok := numberParam(params["idle-session-check-interval"]); ok && interval > 0 {
+		if timeout, ok := numberParam(params["idle-session-timeout"]); ok && timeout > 0 && timeout < interval {
+			return errorsForField("idle-session-timeout", "空闲超时不能小于空闲检查间隔")
+		}
+	}
+	return nil
+}
+
+// tailscaleHostnamePattern 是 Tailscale 设备名的 DNS label 约束（固定 tag 本身不做校验）。
+var tailscaleHostnamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// validateTailscaleCombination 校验设备名、控制面地址与出口节点。
+// auth-key 允许为空（由 adapter 返回“首次真实连接需要交互登录”的 warn）；LAN access 的空值清空
+// 由 canonicalizeTailscaleGuards 与 non_empty 条件共同保证。
+func validateTailscaleCombination(params map[string]any) error {
+	if hostname := strings.TrimSpace(stringValue(params["hostname"])); hostname != "" && !tailscaleHostnamePattern.MatchString(hostname) {
+		return errorsForField("hostname", "必须是合法设备名（小写字母、数字与连字符，1-63 位，首尾不能为连字符）")
+	}
+	if controlURL := strings.TrimSpace(stringValue(params["control-url"])); controlURL != "" {
+		parsed, err := url.Parse(controlURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return errorsForField("control-url", "必须是绝对的 HTTP(S) URL")
+		}
+	}
+	if exitNode := strings.TrimSpace(stringValue(params["exit-node"])); exitNode != "" {
+		if net.ParseIP(exitNode) == nil {
+			// 固定 tag 只把 "auto:" + 非空后缀识别为自动出口节点。
+			expr, ok := strings.CutPrefix(exitNode, "auto:")
+			if !ok || strings.TrimSpace(expr) == "" {
+				return errorsForField("exit-node", "必须是合法 IP 或 auto:* 形式")
+			}
+		}
+	}
+	return nil
+}
+
+// validateMASQUEKeys 按固定 tag 校验 MASQUE 的两类 EC 密钥：
+// private-key 必须是 Base64＋SEC1 EC 私钥，public-key 必须是 Base64＋PKIX 且为 ECDSA 公钥。
+// 只判断「能 Base64 解码」不足以表达固定 tag 的结构要求。
+func validateMASQUEKeys(params map[string]any) error {
+	privateKey := strings.TrimSpace(stringValue(params["private-key"]))
+	if privateKey != "" && !isKeptCredentialCiphertext(privateKey) {
+		decoded, err := base64.StdEncoding.DecodeString(privateKey)
+		if err != nil {
+			return errorsForField("private-key", "必须是合法的 Base64 编码")
+		}
+		if _, err := x509.ParseECPrivateKey(decoded); err != nil {
+			return errorsForField("private-key", "必须是 SEC1 编码的 EC 私钥")
+		}
+	}
+	publicKey := strings.TrimSpace(stringValue(params["public-key"]))
+	if publicKey != "" {
+		decoded, err := base64.StdEncoding.DecodeString(publicKey)
+		if err != nil {
+			return errorsForField("public-key", "必须是合法的 Base64 编码")
+		}
+		parsed, err := x509.ParsePKIXPublicKey(decoded)
+		if err != nil {
+			return errorsForField("public-key", "必须是 PKIX 编码的公钥")
+		}
+		if _, ok := parsed.(*ecdsa.PublicKey); !ok {
+			return errorsForField("public-key", "必须是 ECDSA 公钥")
+		}
+	}
+	return nil
+}
+
+// validateMASQUEURI 校验连接 URI 是带 scheme 与 host 的绝对 URL。
+// 错误只返回固定文案，不回显可能含 userinfo／query 凭据的原值。
+func validateMASQUEURI(params map[string]any) error {
+	raw := strings.TrimSpace(stringValue(params["uri"]))
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return errorsForField("uri", "必须是带 scheme 与 host 的绝对 URL")
+	}
+	return nil
+}
+
+// validateMASQUECombination 校验 MASQUE 的 EC 密钥结构、本地地址、URI、非负数值与 DNS 列表。
+// network_mode 分支清空（h3_l4proxy 强制关闭 UDP、h2／h3_l4proxy 清空 QUIC 调优）由 schema 的
+// when／reset_on 与 clearSelectorScopedFields 结构性保证。
+func validateMASQUECombination(_ CurrentState, params map[string]any) error {
+	if err := validateMASQUEKeys(params); err != nil {
+		return err
+	}
+	if err := validateLocalAddresses(params, "MASQUE"); err != nil {
+		return err
+	}
+	if err := validateMASQUEURI(params); err != nil {
+		return err
+	}
+	for _, name := range []string{"mtu", "cwnd", "handshake-timeout"} {
+		if err := validateIntegerMinimum(params, name, 0, "该字段必须是非负整数"); err != nil {
+			return err
+		}
+	}
+	return validateDNSList(params)
+}
+
+// mieruPortRangeBounds 解析并校验固定 tag 的单段 begin-end 端口段（两端 1-65535 且 begin ≤ end）。
+// 固定 tag 使用 Sscanf，会静默接受 "1-2-3" 这类尾随输入；项目按 Build32 收紧为严格单段。
+func mieruPortRangeBounds(value string) (int, int, bool) {
+	parts := strings.Split(strings.TrimSpace(value), "-")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	begin, errBegin := strconv.Atoi(strings.TrimSpace(parts[0]))
+	end, errEnd := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if errBegin != nil || errEnd != nil {
+		return 0, 0, false
+	}
+	if begin < 1 || begin > 65535 || end < 1 || end > 65535 || begin > end {
+		return 0, 0, false
+	}
+	return begin, end, true
+}
+
+// validateMieruTrafficPattern 先 Base64 解码再执行固定 tag 语义校验。
+// 固定 tag 的错误文本包含原串，因此项目只返回不含原值的字段级错误。
+func validateMieruTrafficPattern(params map[string]any) error {
+	raw := strings.TrimSpace(stringValue(params["traffic-pattern"]))
+	if raw == "" {
+		return nil
+	}
+	pattern, err := mierutp.Decode(raw)
+	if err != nil {
+		return errorsForField("traffic-pattern", "必须是固定 tag 可解析的 Base64 TrafficPattern")
+	}
+	if err := mierutp.Validate(pattern); err != nil {
+		return errorsForField("traffic-pattern", "TrafficPattern 未通过固定 tag 语义校验")
+	}
+	return nil
+}
+
+// validateMieruCombination 校验 Mieru 的端口段、流量特征与传输枚举。
+// port 与 port-range 的二选一由 endpoint policy＋selector 清空域结构性保证：
+// range 模式顶层 port 规范化为 0，single 模式清空 port-range。
+func validateMieruCombination(state CurrentState, params map[string]any) error {
+	if state.Selectors["endpoint_mode"] == "range" {
+		value := strings.TrimSpace(stringValue(params["port-range"]))
+		if value == "" {
+			return errorsForField("port-range", "range 模式必须填写单个 begin-end 端口段")
+		}
+		if _, _, ok := mieruPortRangeBounds(value); !ok {
+			return errorsForField("port-range", "端口段只接受 1-65535 的单个 begin-end 且 begin ≤ end")
+		}
+	}
+	return validateMieruTrafficPattern(params)
+}
+
+// wireGuardKeyLength 是 curve25519 私钥／公钥与预共享密钥的固定长度（字节）。
+// 固定 tag 只校验 Base64 可解码，长度是 WireGuard 协议自身的形状要求，由项目在保存前收紧。
+const wireGuardKeyLength = 32
+
+// wireGuardDNSSchemes 是固定 tag parseNameServer 明确接受的 DNS scheme 集合。
+var wireGuardDNSSchemes = map[string]bool{
+	"udp": true, "tcp": true, "tls": true, "http": true, "https": true, "quic": true,
+	"system": true, "ts": true, "tailscale": true, "et": true, "easytier": true, "dhcp": true,
+}
+
+// validateWireGuardCombination 校验标准 WireGuard 的密钥、本地地址、非负整数、DNS 与 Peer 分支合同。
+// AmneziaWG 已由 Build32 第三章明确排除，不在此校验任何 amnezia-wg-option 字段。
+func validateWireGuardCombination(state CurrentState, params map[string]any) error {
+	if err := validateWireGuardKeys(params); err != nil {
+		return err
+	}
+	if err := validateLocalAddresses(params, "WireGuard"); err != nil {
+		return err
+	}
+	for _, name := range []string{"workers", "mtu", "persistent-keepalive", "refresh-server-ip-interval"} {
+		if err := validateIntegerMinimum(params, name, 0, "该字段必须是非负整数"); err != nil {
+			return err
+		}
+	}
+	if err := validateDNSList(params); err != nil {
+		return err
+	}
+	if state.Selectors["peer_mode"] == "peers" {
+		return validateWireGuardPeers(params)
+	}
+	_, err := validateWireGuardAllowedIPs(stringListValues(params["allowed-ips"]), "allowed-ips")
+	return err
+}
+
+// validateWireGuardBase64Key 校验单个 WireGuard 密钥为合法 Base64 且恰为 32 字节。
+// 更新／检查路径中未改动的敏感字段以项目密文参与合并，密文不重新解析（保留语义）。
+func validateWireGuardBase64Key(source map[string]any, name, path string) error {
+	text := strings.TrimSpace(stringValue(source[name]))
+	if text == "" || isKeptCredentialCiphertext(text) {
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(text)
+	if err != nil {
+		return errorsForField(path, "必须是合法的 Base64 编码")
+	}
+	if len(decoded) != wireGuardKeyLength {
+		return errorsForField(path, fmt.Sprintf("Base64 解码后必须为 %d 字节，实际 %d", wireGuardKeyLength, len(decoded)))
+	}
+	return nil
+}
+
+// validateWireGuardKeys 覆盖顶层 private-key／public-key／pre-shared-key 与每个 Peer 的公钥、PSK。
+func validateWireGuardKeys(params map[string]any) error {
+	for _, name := range []string{"private-key", "public-key", "pre-shared-key"} {
+		if err := validateWireGuardBase64Key(params, name, name); err != nil {
+			return err
+		}
+	}
+	peers, ok := params["peers"].([]any)
+	if !ok {
+		return nil
+	}
+	for i, value := range peers {
+		peer, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, name := range []string{"public-key", "pre-shared-key"} {
+			if err := validateWireGuardBase64Key(peer, name, fmt.Sprintf("peers[%d].%s", i, name)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateLocalAddresses 要求 ip／ipv6 至少一项且均为合法前缀（缺省前缀已在归一化补齐）；
+// WireGuard 与 MASQUE 的固定 tag 都使用同一 Prefixes() 语义。
+func validateLocalAddresses(params map[string]any, label string) error {
+	count := 0
+	for _, name := range []string{"ip", "ipv6"} {
+		text := strings.TrimSpace(stringValue(params[name]))
+		if text == "" {
+			continue
+		}
+		if _, err := netip.ParsePrefix(text); err != nil {
+			return errorsForField(name, "必须是合法的 IP 地址或 CIDR 前缀")
+		}
+		count++
+	}
+	if count == 0 {
+		return errorsForField("ip", label+" 至少需要一个本地地址（ip 或 ipv6）")
+	}
+	return nil
+}
+
+// wireGuardNetworkKey 把 CIDR 归一化为掩码后的网段字符串，用于跨 Peer 冲突比较。
+func wireGuardNetworkKey(cidr string) (string, bool) {
+	prefix, err := netip.ParsePrefix(strings.TrimSpace(cidr))
+	if err != nil {
+		return "", false
+	}
+	return prefix.Masked().String(), true
+}
+
+// validateWireGuardAllowedIPs 逐项校验 CIDR，返回出现的网段集合（值无实际用途）。
+func validateWireGuardAllowedIPs(items []string, path string) (map[string]bool, error) {
+	seen := make(map[string]bool, len(items))
+	for i, item := range items {
+		key, ok := wireGuardNetworkKey(item)
+		if !ok {
+			return nil, errorsForField(fmt.Sprintf("%s[%d]", path, i), "Allowed IPs 必须是合法 CIDR")
+		}
+		seen[key] = true
+	}
+	return seen, nil
+}
+
+// validateWireGuardPeers 校验多 Peer 分支：至少两项、每项稳定身份与必填字段、allowed-ips 不跨 Peer 冲突。
+func validateWireGuardPeers(params map[string]any) error {
+	peers, ok := params["peers"].([]any)
+	if !ok || len(peers) == 0 {
+		return errorsForField("peers", "多 Peer 模式必须提供 peers 列表")
+	}
+	if len(peers) < 2 {
+		return errorsForField("peers", "多 Peer 模式至少需要两个 Peer 条目")
+	}
+	owner := map[string]int{}
+	for i, value := range peers {
+		peer, ok := value.(map[string]any)
+		if !ok {
+			return errorsForField(fmt.Sprintf("peers[%d]", i), "Peer 必须是结构化对象")
+		}
+		if strings.TrimSpace(stringValue(peer[sensitiveItemIDField])) == "" {
+			return errorsForField(fmt.Sprintf("peers[%d].%s", i, sensitiveItemIDField), "Peer 必须具有稳定凭据身份")
+		}
+		if strings.TrimSpace(stringValue(peer["server"])) == "" {
+			return errorsForField(fmt.Sprintf("peers[%d].server", i), "Peer 服务器不能为空")
+		}
+		if port, ok := numberParam(peer["port"]); !ok || math.Trunc(port) != port || port < 1 || port > 65535 {
+			return errorsForField(fmt.Sprintf("peers[%d].port", i), "Peer 端口必须是 1-65535 的整数")
+		}
+		items := stringListValues(peer["allowed-ips"])
+		if len(items) == 0 {
+			return errorsForField(fmt.Sprintf("peers[%d].allowed-ips", i), "多 Peer 模式每项必须填写 Allowed IPs")
+		}
+		for j, item := range items {
+			key, ok := wireGuardNetworkKey(item)
+			if !ok {
+				return errorsForField(fmt.Sprintf("peers[%d].allowed-ips[%d]", i, j), "Allowed IPs 必须是合法 CIDR")
+			}
+			if previous, exists := owner[key]; exists && previous != i {
+				return errorsForField(fmt.Sprintf("peers[%d].allowed-ips", i),
+					fmt.Sprintf("网段 %s 已被第 %d 个 Peer 使用，不同 Peer 不允许相同网段", key, previous+1))
+			}
+			owner[key] = i
+		}
+	}
+	return nil
+}
+
+// validateDNSList 校验远端解析开启时的 DNS 列表；关闭时的清空由 feature 清空域保证（共用）。
+func validateDNSList(params map[string]any) error {
+	for i, item := range stringListValues(params["dns"]) {
+		text := strings.TrimSpace(item)
+		if text == "" {
+			return errorsForField(fmt.Sprintf("dns[%d]", i), "DNS 条目不能为空")
+		}
+		if strings.ContainsAny(text, " \t") {
+			return errorsForField(fmt.Sprintf("dns[%d]", i), "DNS 条目不能包含空白字符")
+		}
+		scheme, rest, found := strings.Cut(text, "://")
+		if !found {
+			continue
+		}
+		if !wireGuardDNSSchemes[strings.ToLower(scheme)] {
+			return errorsForField(fmt.Sprintf("dns[%d]", i), "不支持的 DNS scheme: "+scheme)
+		}
+		if strings.TrimSpace(rest) == "" && !strings.EqualFold(scheme, "system") {
+			return errorsForField(fmt.Sprintf("dns[%d]", i), "DNS 条目缺少地址")
+		}
+	}
+	return nil
+}
+
+// stringListValues 把列表字段读取为字符串切片；非文本类型返回 nil（类型错误由 schema 校验报告）。
+func stringListValues(value any) []string {
+	items, ok := stringListItems(value)
+	if !ok {
+		return nil
+	}
+	return items
 }
 
 // validateHysteria2Combination 校验 Hysteria2 的 mTLS、混淆、QUIC 窗口、高级整数与 Realm 子树。
@@ -699,7 +1138,7 @@ func validateSnellCombination(params map[string]any) error {
 // 使用与固定内核一致的 ssh 解析语义，避免把普通文本当作主机文件路径交给 Mihomo 读取。
 func validateSSHPrivateKey(params map[string]any) error {
 	key := strings.TrimSpace(stringValue(params["private-key"]))
-	if key == "" {
+	if key == "" || isKeptCredentialCiphertext(params["private-key"]) {
 		return nil
 	}
 	if !strings.Contains(key, "PRIVATE KEY") {
@@ -799,7 +1238,7 @@ func clearSelectorScopedFields(proto Protocol, state CurrentState, params map[st
 			if field.StateOnly {
 				continue
 			}
-			if field.When != nil && len(field.When.Selectors) > 0 && !field.When.Matches(state, "") {
+			if field.When != nil && len(field.When.Selectors) > 0 && !field.When.Matches(state, params, "") {
 				delete(object, field.Name)
 				continue
 			}

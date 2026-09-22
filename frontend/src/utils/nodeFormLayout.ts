@@ -5,13 +5,34 @@ export const DEFAULT_ENDPOINT_POLICY: EndpointPolicy = {
   host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true,
 }
 
-export function endpointPolicyFor(policies: EndpointPolicy[] | undefined, state?: CurrentState): EndpointPolicy | null {
+export type Params = Record<string, unknown>
+
+export function endpointPolicyFor(policies: EndpointPolicy[] | undefined, state?: CurrentState, params?: Params): EndpointPolicy | null {
   if (!policies?.length) return DEFAULT_ENDPOINT_POLICY
-  const matched = policies.filter((policy) => matchesCondition(policy.when, state))
+  const matched = policies.filter((policy) => matchesCondition(policy.when, state, undefined, params))
   return matched.length === 1 ? matched[0] : null
 }
 
-export function matchesCondition(rule: ConditionRule | undefined, state?: CurrentState, target?: string): boolean {
+// valueAtDotPath 读取规范点路径；与后端 GetPath 的顶层/嵌套路径语义一致。
+function valueAtDotPath(params: Params | undefined, path: string): unknown {
+  if (!params) return undefined
+  let current: unknown = params
+  for (const part of path.split('.')) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined
+    current = (current as Params)[part]
+  }
+  return current
+}
+
+function isNonEmptyValue(value: unknown): boolean {
+  if (value === undefined || value === null) return false
+  if (typeof value === 'string') return value.trim() !== ''
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'object') return Object.keys(value as Params).length > 0
+  return true
+}
+
+export function matchesCondition(rule: ConditionRule | undefined, state?: CurrentState, target?: string, params?: Params): boolean {
   if (!rule || !state) return true
   if (rule.network?.length && !rule.network.includes(state.network ?? '')) return false
   if (rule.security?.length && !rule.security.includes(state.security ?? '')) return false
@@ -24,7 +45,18 @@ export function matchesCondition(rule: ConditionRule | undefined, state?: Curren
       if (!allowed.includes(state.selectors?.[name] ?? '')) return false
     }
   }
+  // non_empty：依赖的兄弟字段必须存在有效值；缺少 params 时按不匹配处理，避免误显示。
+  if (rule.non_empty?.length) {
+    for (const path of rule.non_empty) {
+      if (!isNonEmptyValue(valueAtDotPath(params, path))) return false
+    }
+  }
   return !(target && rule.targets?.length && !rule.targets.includes(target))
+}
+
+// isTriStateBool 判定未声明 default 的 bool 字段：保留 unset／false／true 三态，不用 false 吞掉“未设置”。
+export function isTriStateBool(field: FieldSchema): boolean {
+  return field.type === 'bool' && field.default === undefined
 }
 
 export function fieldGroup(field: FieldSchema): string {
@@ -35,16 +67,19 @@ export function fieldGroup(field: FieldSchema): string {
 
 export interface SwitchField { path: string; field: FieldSchema; advanced: boolean }
 
-export function collectSwitchFields(fields: FieldSchema[], state: CurrentState, prefix = '', labels: string[] = [], advanced = false): SwitchField[] {
+export function collectSwitchFields(fields: FieldSchema[], state: CurrentState, params?: Params, prefix = '', labels: string[] = [], advanced = false): SwitchField[] {
   return fields.flatMap((field) => {
     // 祖先不活动时不遍历；功能启用控件本身不依赖自身已启用。
-    if (!matchesCondition(field.when, state)) return []
+    if (!matchesCondition(field.when, state, undefined, params)) return []
     const path = prefix ? `${prefix}.${field.name}` : field.name
     const isAdvanced = advanced || !!field.advanced || fieldGroup(field) === 'advanced'
-    if (field.type === 'bool') return [{ path, advanced: isAdvanced, field: { ...field, label: [...labels, field.label].join('：') } }]
+    // 三态 bool 不能用集中开关区的普通 Switch 表达，改在所属分组内用三态控件渲染。
+    if (field.type === 'bool') {
+      return isTriStateBool(field) ? [] : [{ path, advanced: isAdvanced, field: { ...field, label: [...labels, field.label].join('：') } }]
+    }
     // 对象数组保留条目内的编辑与开关，避免动态索引脱离所属条目；首批四协议没有此类运行开关。
     return field.type === 'object' && field.object_kind === 'fields'
-      ? collectSwitchFields(field.properties ?? [], state, path, [...labels, field.label], isAdvanced)
+      ? collectSwitchFields(field.properties ?? [], state, params, path, [...labels, field.label], isAdvanced)
       : []
   })
 }

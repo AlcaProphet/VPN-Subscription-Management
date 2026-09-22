@@ -1,6 +1,7 @@
 package assembly
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -136,10 +137,222 @@ func init() {
 	registerClashProtocolAdapter("hysteria", hysteriaClashAdapter)
 	registerClashProtocolAdapter("hysteria2", hysteria2ClashAdapter)
 	registerClashProtocolAdapter("tuic", tuicClashAdapter)
+	registerClashProtocolAdapter("wireguard", wireguardClashAdapter)
+	registerClashProtocolAdapter("mieru", mieruClashAdapter)
+	registerClashProtocolAdapter("masque", masqueClashAdapter)
+	registerClashProtocolAdapter("tailscale", tailscaleClashAdapter)
+	registerClashProtocolAdapter("anytls", anytlsClashAdapter)
+	registerClashProtocolAdapter("shadowquic", shadowquicClashAdapter)
+}
+
+// shadowquicClashAdapter 把 ShadowQUIC 内部活动模型映射为 Mihomo v1.19.31 ShadowQuicOption。
+// TLS 只输出 sni／alpn；quic-versions 以有序去重数组输出；UOT 没有附加版本字段；
+// 固定 tag 不消费 TFO／MPTCP，因此使用受限 BasicOption 子集。
+func shadowquicClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 18)
+	copyClashActiveFields(fields, draft.Params,
+		"username", "password", "sni", "udp-over-stream", "zero-rtt", "keep-alive-interval",
+		"congestion-controller", "up", "down", "cwnd", "bbr-profile",
+		"recv-window-conn", "recv-window", "disable-mtu-discovery",
+		"max-datagram-frame-size", "max-open-streams")
+	copyClashListFields(fields, draft.Params, "alpn", "quic-versions")
+	copyClashActiveFields(fields, draft.Params, basicOptionWithoutTFOMPTCP...)
+	var diagnostics []node.TargetDiagnostic
+	if zeroRTT, _ := draft.Params["zero-rtt"].(bool); zeroRTT {
+		diagnostics = append(diagnostics, node.TargetDiagnostic{
+			Severity: "warn", Code: "shadowquic_zero_rtt_replay_risk", Target: "clash-yaml", FieldPath: "zero-rtt",
+			Message:  "开启 0-RTT 会复用会话票据，早期数据存在重放风险；风险提示不替代服务端验证",
+			Evidence: "mihomo-1.19.31-yaml",
+		})
+	}
+	return fields, diagnostics, nil
+}
+
+// anytlsCamouflageWireKeys 是三种附加伪装的固定 tag wire key；只有当前安全对象会进入 YAML。
+var anytlsCamouflageWireKeys = []string{"shadow-tls-opts", "restls-opts", "jls-opts"}
+
+// anytlsClashAdapter 把 AnyTLS 内部活动模型映射为 Mihomo v1.19.31 AnyTLSOption。
+// selector 不进入 wire；三种伪装对象互斥已由 schema 清空域保证，adapter 只输出实际存在的那一个。
+func anytlsClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 22)
+	copyClashActiveFields(fields, draft.Params,
+		"password", "sni", "client-fingerprint", "skip-cert-verify", "name-cert-verify", "fingerprint",
+		"certificate", "private-key", "udp", "client-metadata",
+		"idle-session-check-interval", "idle-session-timeout", "min-idle-session", "disable-reuse")
+	copyClashListFields(fields, draft.Params, "alpn")
+	copyClashEnabledObject(fields, draft.Params, "ech-opts")
+	for _, key := range anytlsCamouflageWireKeys {
+		copyClashActiveObject(fields, draft.Params, key)
+	}
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// tailscaleStateDirPrefix 是服务端派生的稳定状态目录前缀；不接受用户路径，也不进入 protocol_json。
+const tailscaleStateDirPrefix = "tailscale/node-"
+
+// tailscaleClashAdapter 把 Tailscale 内部活动模型映射为 Mihomo v1.19.31 TailscaleOption。
+// wire 永不输出 server／port（endpoint policy 固定 hidden）；state-dir 由服务端注入的稳定 NodeID 派生：
+// 已保存节点必须 NodeID>0，新建草稿必须 NodeID=0 且不输出任何占位目录。
+func tailscaleClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 10)
+	copyClashActiveFields(fields, draft.Params, "hostname", "auth-key", "control-url", "ephemeral", "udp", "exit-node")
+	copyClashTriStateBool(fields, draft.Params, "accept-routes", "exit-node-allow-lan-access")
+	copyClashActiveFields(fields, draft.Params, basicOptionWithoutTFOMPTCP...)
+	switch {
+	case draft.Persisted && draft.NodeID > 0:
+		fields["state-dir"] = fmt.Sprintf("%s%d", tailscaleStateDirPrefix, draft.NodeID)
+	case draft.Persisted:
+		return nil, nil, errors.New("Tailscale 已保存节点缺少稳定 NodeID，无法派生 state-dir")
+	case draft.NodeID != 0:
+		return nil, nil, errors.New("Tailscale 未保存草稿不得携带节点 ID")
+	}
+	var diagnostics []node.TargetDiagnostic
+	if clashTextValue(draft.Params["auth-key"]) == "" {
+		// 只提示首次真实连接需要交互登录：不启动 tsnet、不联网、不生成或伪造登录 URL。
+		diagnostics = append(diagnostics, node.TargetDiagnostic{
+			Severity: "warn", Code: "tailscale_auth_key_interactive_login", Target: "clash-yaml", FieldPath: "auth-key",
+			Message:  "未配置认证密钥：首次真实连接需要交互式登录，静态检查不会生成或回显登录地址",
+			Evidence: "mihomo-1.19.31-yaml",
+		})
+	}
+	if strings.HasPrefix(clashTextValue(draft.Params["control-url"]), "http://") {
+		diagnostics = append(diagnostics, node.TargetDiagnostic{
+			Severity: "warn", Code: "tailscale_control_url_insecure", Target: "clash-yaml", FieldPath: "control-url",
+			Message:  "控制面使用非 HTTPS 地址，凭据传输不受 TLS 保护；本地 Headscale 场景可自行评估",
+			Evidence: "mihomo-1.19.31-yaml",
+		})
+	}
+	return fields, diagnostics, nil
+}
+
+// clashTextValue 读取字符串字段并去除首尾空白。
+func clashTextValue(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
+// copyClashTriStateBool 复制显式设置的三态 bool：false 必须保留，未设置必须省略。
+func copyClashTriStateBool(fields map[string]any, params map[string]any, keys ...string) {
+	for _, key := range keys {
+		value, ok := params[key]
+		if !ok {
+			continue
+		}
+		if typed, ok := value.(bool); ok {
+			fields[key] = typed
+		}
+	}
+}
+
+// masqueNetworkToWire 把 state_only network_mode 映射为固定 tag 的 network 值。
+// quic 是内核默认分支，不写 network；h2 与 h3_l4proxy 分别映射固定 tag 的规范值。
+var masqueNetworkToWire = map[string]string{"h2": "h2", "h3_l4proxy": "h3-l4proxy"}
+
+// masqueClashAdapter 把 MASQUE 内部活动模型映射为 Mihomo v1.19.31 MasqueOption。
+// name-cert-verify 在固定 tag 中只是 placeholder，schema 与 wire 都不包含；
+// h3_l4proxy 的 UDP 关闭与 h2／h3_l4proxy 的 QUIC 调优清空由 selector 清空域保证。
+func masqueClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 18)
+	copyClashActiveFields(fields, draft.Params,
+		"private-key", "public-key", "ip", "ipv6", "uri", "sni", "mtu", "udp", "handshake-timeout",
+		"skip-cert-verify", "congestion-controller", "cwnd", "bbr-profile", "remote-dns-resolve")
+	if network, ok := masqueNetworkToWire[draft.State.Selectors["network_mode"]]; ok {
+		fields["network"] = network
+	}
+	copyClashActiveObject(fields, draft.Params, "ip-stack")
+	copyClashListFields(fields, draft.Params, "dns")
+	copyClashActiveFields(fields, draft.Params, basicOptionWithoutTFOMPTCP...)
+	return fields, nil, nil
+}
+
+// mieruClashAdapter 把 Mieru 内部活动模型映射为 Mihomo v1.19.31 MieruOption。
+// port 与 port-range 严格二选一：range 模式下顶层 port 由 endpoint policy 隐藏（规范化为 0），
+// single 模式下 port-range 已由 selector 清空域移除，adapter 不再兜底拼接。
+func mieruClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 8)
+	copyClashActiveFields(fields, draft.Params,
+		"username", "password", "transport", "udp", "multiplexing", "handshake-mode", "traffic-pattern")
+	if draft.State.Selectors["endpoint_mode"] == "range" {
+		copyClashActiveFields(fields, draft.Params, "port-range")
+	}
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
 }
 
 // basicOptionClashFields 是所有协议共享的 Mihomo BasicOption 白名单。
 var basicOptionClashFields = []string{"tfo", "mptcp", "interface-name", "routing-mark", "ip-version", "dialer-proxy"}
+
+// basicOptionWithoutTFOMPTCP 用于固定 tag 构造器不消费 TFO／MPTCP 的协议
+// （WireGuard／MASQUE／Tailscale／ShadowQUIC）：共享 schema 保留字段，但不得盲目输出。
+var basicOptionWithoutTFOMPTCP = []string{"interface-name", "routing-mark", "ip-version", "dialer-proxy"}
+
+// wireguardClashAdapter 把标准 WireGuard 内部活动模型映射为 Mihomo v1.19.31 WireGuardOption。
+// single 模式输出顶层 peer 字段；peers 模式只输出结构化 peers[]；两者都不输出 selector 与 _credential_id。
+// AmneziaWG 不在本 adapter 内（Build32 第三章明确排除）。
+func wireguardClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 16)
+	copyClashActiveFields(fields, draft.Params,
+		"private-key", "ip", "ipv6", "workers", "mtu", "udp", "persistent-keepalive",
+		"remote-dns-resolve", "refresh-server-ip-interval")
+	copyClashActiveObject(fields, draft.Params, "ip-stack")
+	copyClashListFields(fields, draft.Params, "dns")
+	if draft.State.Selectors["peer_mode"] == "peers" {
+		if peers := wireguardPeerWireList(draft.Params["peers"]); len(peers) > 0 {
+			fields["peers"] = peers
+		}
+	} else {
+		copyClashActiveFields(fields, draft.Params, "public-key", "pre-shared-key")
+		copyClashByteSequence(fields, draft.Params, "reserved")
+		copyClashListFields(fields, draft.Params, "allowed-ips")
+	}
+	copyClashActiveFields(fields, draft.Params, basicOptionWithoutTFOMPTCP...)
+	return fields, nil, nil
+}
+
+// wireguardPeerWireList 只复制固定 tag WireGuardPeerOption 的点名 wire key，
+// 剥离 _credential_id 等内部编辑元数据，避免污染订阅产物。
+func wireguardPeerWireList(value any) []any {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]any, 0, len(items))
+	for _, item := range items {
+		peer, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		wire := make(map[string]any, 6)
+		copyClashActiveFields(wire, peer, "server", "port", "public-key", "pre-shared-key")
+		copyClashByteSequence(wire, peer, "reserved")
+		copyClashListFields(wire, peer, "allowed-ips")
+		out = append(out, wire)
+	}
+	return out
+}
+
+// copyClashActiveObject 复制已声明且非空的对象字段（例如 ip-stack），空对象不写入 wire。
+func copyClashActiveObject(fields map[string]any, params map[string]any, key string) {
+	object, ok := params[key].(map[string]any)
+	if !ok || len(object) == 0 {
+		return
+	}
+	fields[key] = object
+}
+
+// copyClashByteSequence 把 byte-sequence 规范化为 3 个 0-255 整数后复制，供 reserved 输出。
+func copyClashByteSequence(fields map[string]any, params map[string]any, key string) {
+	value, ok := params[key]
+	if !ok {
+		return
+	}
+	values, err := node.ParseByteSequence(value)
+	if err != nil || len(values) == 0 {
+		return
+	}
+	fields[key] = values
+}
 
 // httpClashAdapter 把 HTTP 内部活动模型映射为 Mihomo v1.19.31 HttpOption wire 字段。
 // 输入已由 schema 校验并经 ProjectActive 投影，因此非活动分支与 state_only 不会出现。

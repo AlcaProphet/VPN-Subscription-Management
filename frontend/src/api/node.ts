@@ -41,6 +41,7 @@ export interface ConditionRule {
   plugin_not?: string[]
   features?: string[]
   selectors?: Record<string, string[]>
+  non_empty?: string[]
   targets?: string[]
 }
 

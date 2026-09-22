@@ -298,3 +298,25 @@ func TestHysteriaSensitivePathsDeclared(t *testing.T) {
 		}
 	}
 }
+
+// TestHysteriaKeepsSavedAuthOnUpdate 回归 Step 11 暴露的共享基线缺陷：
+// 更新时未改动的敏感字段以项目密文参与合并校验，不得再按明文 Base64 语义解析。
+func TestHysteriaKeepsSavedAuthOnUpdate(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	state := hysteriaAuthState("base64")
+	params := hysteriaBaseParams()
+	params["auth"] = "dGVzdC1hdXRo"
+	created, err := svc.CreateManual(ctx, hysteriaCreateInput("hy-keep-auth", params, state))
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	kept := hysteriaBaseParams()
+	kept["auth"] = ""
+	if _, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "hysteria", Host: "example.com", Port: 443, BaseRevision: created.EditRevision,
+		ProtocolJSON: kept, CurrentState: state,
+	}); err != nil {
+		t.Fatalf("保留已保存 auth 的更新必须成功: %v", err)
+	}
+}

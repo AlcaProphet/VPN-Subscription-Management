@@ -5,7 +5,7 @@ import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { CurrentState, FieldSchema } from '@/api/node'
 import { matchesSensitivePath, pathContains } from '@/utils/nodeFeatures'
-import { hasConfiguredValue, matchesCondition } from '@/utils/nodeFormLayout'
+import { hasConfiguredValue, isTriStateBool, matchesCondition } from '@/utils/nodeFormLayout'
 
 const props = withDefaults(defineProps<{
   field: FieldSchema
@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<{
   jsonResetVersions?: Record<string, number>
   jsonDirtyPaths?: string[]
   centralizedSwitches?: boolean
+  rootParams?: Record<string, unknown>
 }>(), {
   modelValue: undefined,
   sensitivePaths: () => [],
@@ -30,6 +31,7 @@ const props = withDefaults(defineProps<{
   jsonResetVersions: () => ({}),
   jsonDirtyPaths: () => [],
   centralizedSwitches: false,
+  rootParams: undefined,
 })
 
 const emit = defineEmits<{
@@ -79,10 +81,16 @@ const mapEntries = computed(() => Object.entries(objectValue.value).map(([key, v
   key,
   value,
 })))
+// 三态 bool：未声明 default 的 bool 保留 unset／false／true，不能用普通 Switch 吞掉“未设置”。
+const triStateValue = computed(() => (props.modelValue === true ? 'true' : props.modelValue === false ? 'false' : ''))
+function updateTriState(value: unknown) {
+  update(value === '' || value === undefined ? undefined : value === 'true')
+}
+
 const sensitive = computed(() => props.field.type === 'password' || props.field.type === 'secret-multiline' || props.sensitivePaths.some((path) => matchesSensitivePath(path, fieldPath.value)))
 
 function visibleProperties(properties?: FieldSchema[]): FieldSchema[] {
-  return (properties ?? []).filter((property) => matchesCondition(property.when, props.currentState))
+  return (properties ?? []).filter((property) => matchesCondition(property.when, props.currentState, undefined, props.rootParams))
 }
 const structuredProperties = computed(() => visibleProperties(props.field.properties)
   .filter((field) => !props.centralizedSwitches || field.type !== 'bool'))
@@ -714,6 +722,15 @@ function isComplex(value: unknown): boolean {
       </div>
     </template>
   </div>
+
+  <label v-else-if="isTriStateBool(field)" :data-field-path="fieldPath" class="protocol-switch-field flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm text-text-secondary">
+    <span>{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span><span v-if="field.help" class="block text-xs text-text-tertiary">{{ field.help }}</span></span>
+    <AppSelect :value="triStateValue" class="w-32" :aria-label="field.label" @change="(value: any) => updateTriState(value)">
+      <Select.Option value="">未设置</Select.Option>
+      <Select.Option value="false">关闭</Select.Option>
+      <Select.Option value="true">开启</Select.Option>
+    </AppSelect>
+  </label>
 
   <label v-else-if="field.type === 'bool'" :data-field-path="fieldPath" class="protocol-switch-field flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm text-text-secondary">
     <span>{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span><span v-if="field.help" class="block text-xs text-text-tertiary">{{ field.help }}</span></span>

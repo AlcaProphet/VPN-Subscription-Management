@@ -90,8 +90,10 @@ func TestNormalizeClashListFields(t *testing.T) {
 	if !reflect.DeepEqual(got["allowed-ips"], []string{"0.0.0.0/0", "::/0"}) {
 		t.Fatalf("text-list 未归一化: %#v", got["allowed-ips"])
 	}
-	if !reflect.DeepEqual(got["reserved"], []int{1, 2, 3}) {
-		t.Fatalf("int-list 未归一化: %#v", got["reserved"])
+	// reserved 自 Step 11 起是 byte-sequence，归一化入口在 node.NormalizeProtocolJSON，
+	// normalizeClashFields 不再把它当 int-list 处理（见 node 包 TestWireGuardReservedByteSequence）。
+	if _, coerced := got["reserved"].([]int); coerced {
+		t.Fatalf("byte-sequence reserved 不应再由 normalizeClashFields 归一化: %#v", got["reserved"])
 	}
 }
 

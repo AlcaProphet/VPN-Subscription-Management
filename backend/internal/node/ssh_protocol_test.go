@@ -356,3 +356,23 @@ func TestSSHSensitivePathsDeclared(t *testing.T) {
 		}
 	}
 }
+
+// TestSSHKeepsSavedPrivateKeyOnUpdate 回归 Step 11 暴露的共享基线缺陷：
+// 更新时保留的私钥是项目密文，不得再按 PEM 明文语义解析。
+func TestSSHKeepsSavedPrivateKeyOnUpdate(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+	state := &CurrentState{Selectors: map[string]string{"auth_mode": "private_key"}}
+	created, err := svc.CreateManual(ctx, sshCreateInput("ssh-keep-key", map[string]any{
+		"username": "root", "private-key": string(sshTestPrivateKeyPEM(t)),
+	}, state))
+	if err != nil {
+		t.Fatalf("创建失败: %v", err)
+	}
+	if _, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
+		Protocol: "ssh", Host: "example.com", Port: 22, BaseRevision: created.EditRevision,
+		ProtocolJSON: map[string]any{"username": "root", "private-key": ""}, CurrentState: state,
+	}); err != nil {
+		t.Fatalf("保留已保存私钥的更新必须成功: %v", err)
+	}
+}
