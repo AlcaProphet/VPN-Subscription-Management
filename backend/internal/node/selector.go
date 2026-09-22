@@ -59,8 +59,29 @@ func selectorStringValue(value any) (string, bool) {
 	}
 }
 
+// deriveStateOnlySelector 为 state_only selector 提供协议级派生规则（v1 读取与缺省提交共用）。
+// 无规则的协议回退注册表默认值；派生只读取 protocol_json，不写库。
+func deriveStateOnlySelector(proto Protocol, name string, params map[string]any) (string, bool) {
+	switch proto.Protocol {
+	case "http", "socks5":
+		if name == "auth_mode" {
+			if hasTextParam(params, "username") || hasTextParam(params, "password") {
+				return "basic", true
+			}
+			return "none", true
+		}
+	}
+	return "", false
+}
+
+// hasTextParam 判断字段是否存在非空文本值。
+func hasTextParam(params map[string]any, name string) bool {
+	value, ok := params[name].(string)
+	return ok && strings.TrimSpace(value) != ""
+}
+
 // deriveSelectors 从当前协议参数派生 selector 值。
-// 普通 selector 读取 source_field 或默认值；state_only selector 使用注册表默认值。
+// 普通 selector 读取 source_field 或默认值；state_only 使用协议派生规则或注册表默认值。
 func deriveSelectors(proto Protocol, params map[string]any) map[string]string {
 	if len(proto.Selectors) == 0 {
 		return nil
@@ -72,6 +93,8 @@ func deriveSelectors(proto Protocol, params map[string]any) map[string]string {
 			if sourceValue, ok := selectorSourceValue(params, selector.SourceField); ok && sourceValue != "" {
 				value = sourceValue
 			}
+		} else if derived, ok := deriveStateOnlySelector(proto, selector.Name, params); ok {
+			value = derived
 		}
 		out[selector.Name] = value
 	}
@@ -124,9 +147,11 @@ func resolveSelectors(proto Protocol, requested map[string]string, derived map[s
 			hasValue = value != ""
 		}
 		if !hasValue {
-			// 未显式提交时使用 wire 派生值；state_only 使用注册表默认值。
+			// 未显式提交时使用 wire 派生值；state_only 使用协议派生规则或注册表默认值。
 			if selector.SourceField != "" {
 				value = derived[selector.Name]
+			} else if stateOnly, ok := deriveStateOnlySelector(proto, selector.Name, params); ok {
+				value = stateOnly
 			}
 			if value == "" {
 				value = selector.Default

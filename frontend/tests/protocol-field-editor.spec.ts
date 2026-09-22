@@ -634,4 +634,67 @@ describe('ProtocolFieldEditor', () => {
     expect(events).toHaveLength(before)
     host.unmount()
   })
+
+  it('multiline 字段按显式类型渲染多行文本并回写字符串', async () => {
+    const field: FieldSchema = { name: 'ca', type: 'multiline', required: false, label: 'CA 内容' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: '' } })
+    const textarea = wrapper.find('textarea')
+    expect(textarea.exists()).toBe(true)
+    await textarea.setValue('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----')
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1]).toEqual(['-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----'])
+  })
+
+  it('secret-multiline 字段渲染多行凭据入口并保留凭据状态语义', async () => {
+    const field: FieldSchema = { name: 'private-key', type: 'secret-multiline', required: false, label: '私钥' }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field, modelValue: '', savedSensitivePaths: ['private-key'] },
+    })
+    expect(wrapper.find('textarea').exists()).toBe(true)
+    expect(wrapper.text()).toContain('已保存（留空保留）')
+    await wrapper.find('textarea').setValue('-----BEGIN PRIVATE KEY-----\nMIIB\n')
+    const credentialEvents = wrapper.emitted('credential-change') ?? []
+    expect(credentialEvents[credentialEvents.length - 1]).toEqual([{ path: 'private-key', value: '-----BEGIN PRIVATE KEY-----\nMIIB\n' }])
+  })
+
+  it('text 类型不再按字段名猜测大文本', () => {
+    const field: FieldSchema = { name: 'certificate', type: 'text', required: false, label: '客户端证书' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: '' } })
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(wrapper.findAll('input')).toHaveLength(1)
+  })
+
+  it('byte-sequence 三整数输入完整后才回写规范数组', async () => {
+    const field: FieldSchema = { name: 'reserved', type: 'byte-sequence', required: false, label: '保留字节' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: undefined } })
+    const inputs = wrapper.findAll('.ant-input-number input')
+    expect(inputs).toHaveLength(3)
+    await inputs[0].setValue('1')
+    await inputs[1].setValue('2')
+    expect((wrapper.emitted('update:modelValue') ?? []).length).toBe(0)
+    let validity = wrapper.emitted('validity-change') ?? []
+    expect(validity[validity.length - 1]).toEqual([{ path: 'reserved', valid: false }])
+    await inputs[2].setValue('3')
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1]).toEqual([[1, 2, 3]])
+    validity = wrapper.emitted('validity-change') ?? []
+    expect(validity[validity.length - 1]).toEqual([{ path: 'reserved', valid: true }])
+    expect(wrapper.text()).not.toContain('请输入 3 个 0-255 整数')
+  })
+
+  it('byte-sequence 支持 Base64 应用并拒绝非法长度', async () => {
+    const field: FieldSchema = { name: 'reserved', type: 'byte-sequence', required: false, label: '保留字节' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: undefined } })
+    const base64Input = wrapper.find('.protocol-byte-sequence-editor input[placeholder^="粘贴 Base64"]')
+    await base64Input.setValue('AQID')
+    await wrapper.findAll('button').find((button) => button.text() === '应用 Base64')!.trigger('click')
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1]).toEqual([[1, 2, 3]])
+
+    await base64Input.setValue('AQ')
+    await wrapper.findAll('button').find((button) => button.text() === '应用 Base64')!.trigger('click')
+    expect(wrapper.text()).toContain('Base64 解码后必须为 3 字节')
+    const afterInvalid = wrapper.emitted('update:modelValue') ?? []
+    expect(afterInvalid[afterInvalid.length - 1]).toEqual([[1, 2, 3]])
+  })
 })

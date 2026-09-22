@@ -368,6 +368,7 @@ func (s *Service) CreateManual(ctx context.Context, in CreateManualInput) (*Node
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
+	params = clearSelectorScopedFields(proto, state, params)
 	if err := ValidateCurrentState(proto, state, params); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -500,6 +501,7 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
+	merged = clearSelectorScopedFields(proto, state, merged)
 	if err := validateProtocolFields(proto, merged, false); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -1806,6 +1808,13 @@ func validateFieldValue(field FieldSchema, value any, path string) error {
 		} else if field.Type == "int-list" {
 			valid = valid || numberList(value)
 		}
+	case "multiline", "secret-multiline":
+		_, valid = value.(string)
+	case "byte-sequence":
+		if _, err := parseByteSequence(value); err != nil {
+			return fmt.Errorf("字段 %s %v", path, err)
+		}
+		valid = true
 	case "number":
 		switch value.(type) {
 		case int, int32, int64, float32, float64, json.Number:

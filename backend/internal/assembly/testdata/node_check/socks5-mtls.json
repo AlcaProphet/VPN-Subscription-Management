@@ -1,0 +1,15 @@
+{
+  "protocol": "socks5",
+  "host": "192.0.2.1",
+  "port": 1080,
+  "protocol_json": {
+    "username": "socks-user",
+    "password": "socks-password",
+    "tls": true,
+    "udp": true,
+    "certificate": "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----",
+    "private-key": "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----"
+  },
+  "current_state": { "security": "tls", "features": ["tls"], "selectors": { "auth_mode": "basic" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

@@ -161,6 +161,7 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		if err != nil {
 			return s.checkValidationResponse(in, targets, err, params), nil
 		}
+		params = clearSelectorScopedFields(proto, state, params)
 		if err := validateKnownTopLevel(proto, params); err != nil {
 			return s.checkValidationResponse(in, targets, err, params), nil
 		}
@@ -183,6 +184,7 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		if stateErr != nil {
 			return s.checkValidationResponse(in, targets, stateErr, params), nil
 		}
+		params = clearSelectorScopedFields(proto, state, params)
 		if err := ValidateCurrentState(proto, state, params); err != nil {
 			return s.checkValidationResponse(in, targets, err, params), nil
 		}

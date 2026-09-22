@@ -168,21 +168,21 @@ func v2rayPluginOpts() FieldSchema {
 		obj("ech-opts", "ECH 参数", "fields", def("enable", "bool", "启用", false), f("config", "text", "配置"), f("query-server-name", "text", "查询服务器名称")),
 		def("mux", "bool", "Mux", false), def("v2ray-http-upgrade", "bool", "HTTP Upgrade", false),
 		def("v2ray-http-upgrade-fast-open", "bool", "HTTP Upgrade Fast Open", false), f("fingerprint", "text", "证书指纹"),
-		f("certificate", "text", "客户端证书"), f("private-key", "password", "客户端私钥"),
+		f("certificate", "multiline", "客户端证书"), f("private-key", "secret-multiline", "客户端私钥"),
 		def("skip-cert-verify", "bool", "跳过证书校验", false), f("name-cert-verify", "text", "证书名称校验"))
 }
 
 func shadowTlsOpts() FieldSchema {
 	return obj("shadow-tls-opts", "shadow-tls 参数", "fields",
 		f("password", "password", "密码"), f("host", "text", "Host"), f("version", "number", "版本"), f("alpn", "text-list", "ALPN"),
-		f("fingerprint", "text", "证书指纹"), f("certificate", "text", "客户端证书"), f("private-key", "password", "客户端私钥"),
+		f("fingerprint", "text", "证书指纹"), f("certificate", "multiline", "客户端证书"), f("private-key", "secret-multiline", "客户端私钥"),
 		def("skip-cert-verify", "bool", "跳过证书校验", false), f("name-cert-verify", "text", "证书名称校验"))
 }
 
 func restlsOpts() FieldSchema {
 	return obj("restls-opts", "restls 参数", "fields",
 		f("password", "password", "密码"), f("host", "text", "Host"), f("version-hint", "text", "版本提示"),
-		f("restls-script", "text", "Restls Script"), f("fingerprint", "text", "证书指纹"),
+		f("restls-script", "multiline", "Restls Script"), f("fingerprint", "text", "证书指纹"),
 		def("skip-cert-verify", "bool", "跳过证书校验", false), f("name-cert-verify", "text", "证书名称校验"))
 }
 
@@ -210,6 +210,52 @@ func commonFieldSchema() []FieldSchema {
 }
 func common(v ...FieldSchema) []FieldSchema { return append(v, commonFieldSchema()...) }
 func links(params ...string) LinkMapping    { return LinkMapping{SR: true, Generic: true, Params: params} }
+
+// basicAuthModeField 声明 none/basic 认证模式 selector；state_only 只保存在 current_state.selectors。
+func basicAuthModeField() FieldSchema {
+	field := sel("auth-mode", "认证方式", "none", "none", "basic")
+	field.StateOnly = true
+	field.SelectorName = "auth_mode"
+	field.Group = "auth"
+	field.Help = "none 不使用代理认证；basic 使用用户名与密码。"
+	return field
+}
+
+// basicAuthCredential 声明仅在 basic 认证下活动且成对必填的用户名／密码字段（HTTP／SOCKS5 共用）。
+func basicAuthCredential(name, typ, label string) FieldSchema {
+	field := f(name, typ, label)
+	field.When = &ConditionRule{Selectors: map[string][]string{"auth_mode": {"basic"}}}
+	field.RequiredWhen = &ConditionRule{Selectors: map[string][]string{"auth_mode": {"basic"}}}
+	field.ResetOn = []string{"selector.auth_mode"}
+	field.Group = "auth"
+	return field
+}
+
+// tlsFeatureField 把 TLS 开关声明为标量功能域；关闭时清空全部 TLS 子字段（HTTP／SOCKS5 共用）。
+func tlsFeatureField() FieldSchema {
+	field := def("tls", "bool", "TLS", false)
+	field.Feature = &FeatureSchema{Name: "tls"}
+	field.ResetOn = []string{"feature.tls"}
+	return field
+}
+
+// tlsSubField 标记仅在 TLS 开启时活动、关闭即清空的 TLS 身份字段（HTTP／SOCKS5 共用）。
+func tlsSubField(field FieldSchema) FieldSchema {
+	field.When = &ConditionRule{Features: []string{"tls"}}
+	if !field.ShouldReset("feature.tls") {
+		field.ResetOn = append(field.ResetOn, "feature.tls")
+	}
+	field.Group = "connection"
+	return field
+}
+
+// httpHeadersField 是开放的字符串请求头映射；键去空白非空、大小写不敏感不重复由组合校验保证。
+func httpHeadersField() FieldSchema {
+	field := openMap("headers", "请求头")
+	field.MapValueType = "string"
+	field.Help = "值只允许字符串；键不能为空，且大小写不敏感地不能重复。"
+	return field
+}
 
 // ManualProtocols 返回 manual 节点可用的协议注册表（19 项封闭清单，ssr 除外）。
 func ManualProtocols() []Protocol {
@@ -239,32 +285,57 @@ func ManualProtocols() []Protocol {
 		{Protocol: "hysteria", Label: "Hysteria", FormSchema: common(
 			req("auth", "password", "认证"), f("auth-str", "password", "认证字符串"), f("ports", "text", "端口组"), f("protocol", "text", "协议"), f("obfs-protocol", "text", "混淆协议"), f("up", "text", "上行"), f("up-speed", "number", "上行速率"),
 			f("down", "text", "下行"), f("down-speed", "number", "下行速率"), f("obfs", "text", "混淆"), f("sni", "text", "SNI"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"),
-			f("alpn", "text-list", "ALPN"), f("ca", "text", "CA 文件"), f("ca-str", "text", "CA 内容"), f("recv-window-conn", "number", "连接接收窗口"), f("recv-window", "number", "接收窗口"),
+			f("alpn", "text-list", "ALPN"), f("ca", "multiline", "CA 文件"), f("ca-str", "multiline", "CA 内容"), f("recv-window-conn", "number", "连接接收窗口"), f("recv-window", "number", "接收窗口"),
 			def("disable-mtu-discovery", "bool", "禁用 MTU 发现", false), def("fast-open", "bool", "Fast Open", false), f("hop-interval", "number", "Hop 间隔")), SensitiveFields: []string{"auth", "auth-str"}, LinkMappings: links("auth", "protocol", "up", "down", "sni", "alpn", "ports", "obfs")},
 		{Protocol: "hysteria2", Label: "Hysteria2", FormSchema: common(
 			req("password", "password", "密码"), f("ports", "text", "端口组"), f("hop-interval", "number", "Hop 间隔"), f("protocol", "text", "协议"), f("obfs-protocol", "text", "混淆协议"), f("up", "text", "上行"), f("down", "text", "下行"),
 			f("obfs", "text", "混淆"), f("obfs-password", "password", "混淆密码"), f("sni", "text", "SNI"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), f("alpn", "text-list", "ALPN"),
-			f("ca", "text", "CA 文件"), f("ca-str", "text", "CA 内容"), f("cwnd", "number", "拥塞窗口"), f("udp-mtu", "number", "UDP MTU")), SensitiveFields: []string{"password", "obfs-password"}, LinkMappings: links("password", "sni", "alpn", "obfs", "obfs-password", "ports")},
+			f("ca", "multiline", "CA 文件"), f("ca-str", "multiline", "CA 内容"), f("cwnd", "number", "拥塞窗口"), f("udp-mtu", "number", "UDP MTU")), SensitiveFields: []string{"password", "obfs-password"}, LinkMappings: links("password", "sni", "alpn", "obfs", "obfs-password", "ports")},
 		{Protocol: "tuic", Label: "TUIC", FormSchema: common(
 			f("token", "password", "Token"), f("uuid", "password", "UUID"), f("password", "password", "密码"), f("ip", "text", "IP"), f("heartbeat-interval", "number", "心跳间隔"), f("alpn", "text-list", "ALPN"), def("reduce-rtt", "bool", "减少 RTT", false),
 			f("request-timeout", "number", "请求超时"), f("udp-relay-mode", "text", "UDP 中继模式"), f("congestion-controller", "text", "拥塞控制器"), def("disable-sni", "bool", "禁用 SNI", false), f("max-udp-relay-packet-size", "number", "最大 UDP 中继包"),
 			def("fast-open", "bool", "Fast Open", false), f("max-open-streams", "number", "最大并发流"), f("cwnd", "number", "拥塞窗口"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"),
-			f("ca", "text", "CA 文件"), f("ca-str", "text", "CA 内容"), f("recv-window-conn", "number", "连接接收窗口"), f("recv-window", "number", "接收窗口"), def("disable-mtu-discovery", "bool", "禁用 MTU 发现", false),
+			f("ca", "multiline", "CA 文件"), f("ca-str", "multiline", "CA 内容"), f("recv-window-conn", "number", "连接接收窗口"), f("recv-window", "number", "接收窗口"), def("disable-mtu-discovery", "bool", "禁用 MTU 发现", false),
 			f("max-datagram-frame-size", "number", "最大数据报帧"), f("sni", "text", "SNI"), def("udp-over-stream", "bool", "UDP over Stream", false), f("udp-over-stream-version", "number", "UDP over Stream 版本")),
 			SensitiveFields: []string{"token", "uuid", "password"}, LinkMappings: links("token", "uuid", "password", "sni", "alpn")},
 		{Protocol: "wireguard", Label: "WireGuard", FormSchema: common(
-			req("private-key", "password", "私钥"), req("public-key", "text", "公钥"), f("pre-shared-key", "password", "预共享密钥"), f("reserved", "int-list", "保留字节"), f("allowed-ips", "text-list", "Allowed IPs"),
+			req("private-key", "secret-multiline", "私钥"), req("public-key", "text", "公钥"), f("pre-shared-key", "password", "预共享密钥"), f("reserved", "int-list", "保留字节"), f("allowed-ips", "text-list", "Allowed IPs"),
 			f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("workers", "number", "Worker 数"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), f("persistent-keepalive", "number", "持久 Keepalive"),
 			wireGuardPeers(), def("remote-dns-resolve", "bool", "远端 DNS 解析", false), f("dns", "text-list", "DNS"), f("refresh-server-ip-interval", "number", "刷新服务器 IP 间隔")),
 			SensitiveFields: []string{"private-key", "pre-shared-key", "peers[].pre-shared-key"}, LinkMappings: links("private-key", "public-key", "ip", "ipv6", "allowed-ips", "pre-shared-key", "mtu", "dns")},
-		{Protocol: "http", Label: "HTTP", FormSchema: common(f("username", "text", "用户名"), f("password", "password", "密码"), def("tls", "bool", "TLS", false), f("sni", "text", "SNI"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), openMap("headers", "请求头")), SensitiveFields: []string{"password"}, LinkMappings: links("username", "password", "tls", "sni")},
-		{Protocol: "socks5", Label: "SOCKS5", FormSchema: common(f("username", "text", "用户名"), f("password", "password", "密码"), def("tls", "bool", "TLS", false), def("udp", "bool", "UDP", true), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹")), SensitiveFields: []string{"password"}, LinkMappings: links("username", "password", "tls", "udp")},
+		{Protocol: "http", Label: "HTTP", FormSchema: common(
+			basicAuthModeField(),
+			basicAuthCredential("username", "text", "用户名"),
+			basicAuthCredential("password", "password", "密码"),
+			tlsFeatureField(),
+			tlsSubField(f("sni", "text", "SNI")),
+			tlsSubField(def("skip-cert-verify", "bool", "跳过证书校验", false)),
+			tlsSubField(f("name-cert-verify", "text", "证书名称校验")),
+			tlsSubField(f("fingerprint", "text", "TLS 指纹")),
+			tlsSubField(f("certificate", "multiline", "客户端证书")),
+			tlsSubField(f("private-key", "secret-multiline", "客户端私钥")),
+			httpHeadersField()),
+			Selectors:       []SelectorSchema{{Name: "auth_mode", Values: []string{"none", "basic"}, Default: "none"}},
+			SensitiveFields: []string{"password", "private-key"}, LinkMappings: links("username", "password", "tls", "sni")},
+		{Protocol: "socks5", Label: "SOCKS5", FormSchema: common(
+			basicAuthModeField(),
+			basicAuthCredential("username", "text", "用户名"),
+			basicAuthCredential("password", "password", "密码"),
+			tlsFeatureField(),
+			tlsSubField(def("skip-cert-verify", "bool", "跳过证书校验", false)),
+			tlsSubField(f("name-cert-verify", "text", "证书名称校验")),
+			tlsSubField(f("fingerprint", "text", "TLS 指纹")),
+			tlsSubField(f("certificate", "multiline", "客户端证书")),
+			tlsSubField(f("private-key", "secret-multiline", "客户端私钥")),
+			def("udp", "bool", "UDP", true)),
+			Selectors:       []SelectorSchema{{Name: "auth_mode", Values: []string{"none", "basic"}, Default: "none"}},
+			SensitiveFields: []string{"password", "private-key"}, LinkMappings: links("username", "password", "tls", "udp")},
 		{Protocol: "snell", Label: "Snell", FormSchema: common(req("psk", "password", "PSK"), def("udp", "bool", "UDP", true), def("version", "number", "版本", 2)), SensitiveFields: []string{"psk"}},
-		{Protocol: "anytls", Label: "AnyTLS", FormSchema: common(req("password", "password", "密码"), f("alpn", "text-list", "ALPN"), f("sni", "text", "SNI"), f("client-fingerprint", "text", "客户端指纹"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), f("certificate", "text", "证书"), f("private-key", "password", "私钥"), obj("ech-opts", "ECH 参数", "fields", def("enable", "bool", "启用", false), f("config", "text", "配置")), def("udp", "bool", "UDP", true), f("idle-session-check-interval", "number", "空闲检查间隔"), f("idle-session-timeout", "number", "空闲超时"), f("min-idle-session", "number", "最小空闲会话")), SensitiveFields: []string{"password", "private-key"}, LinkMappings: links("password", "sni", "alpn", "client-fingerprint")},
+		{Protocol: "anytls", Label: "AnyTLS", FormSchema: common(req("password", "password", "密码"), f("alpn", "text-list", "ALPN"), f("sni", "text", "SNI"), f("client-fingerprint", "text", "客户端指纹"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), f("certificate", "multiline", "证书"), f("private-key", "secret-multiline", "私钥"), obj("ech-opts", "ECH 参数", "fields", def("enable", "bool", "启用", false), f("config", "text", "配置")), def("udp", "bool", "UDP", true), f("idle-session-check-interval", "number", "空闲检查间隔"), f("idle-session-timeout", "number", "空闲超时"), f("min-idle-session", "number", "最小空闲会话")), SensitiveFields: []string{"password", "private-key"}, LinkMappings: links("password", "sni", "alpn", "client-fingerprint")},
 		{Protocol: "mieru", Label: "Mieru", FormSchema: common(req("username", "text", "用户名"), req("password", "password", "密码"), f("port-range", "text", "端口范围"), sel("transport", "传输", "TCP", "TCP", "UDP"), def("udp", "bool", "UDP", true), sel("multiplexing", "多路复用", "MULTIPLEXING_OFF", "MULTIPLEXING_OFF", "LOW", "MIDDLE", "HIGH"), f("handshake-mode", "text", "握手模式")), SensitiveFields: []string{"password"}},
-		{Protocol: "masque", Label: "MASQUE", FormSchema: common(req("private-key", "password", "私钥"), req("public-key", "text", "公钥"), f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), def("remote-dns-resolve", "bool", "远端 DNS 解析", false), f("dns", "text-list", "DNS")), SensitiveFields: []string{"private-key"}},
-		{Protocol: "openvpn", Label: "OpenVPN", FormSchema: common(req("client-config", "text", "客户端配置"))},
-		{Protocol: "ssh", Label: "SSH", FormSchema: common(req("username", "text", "用户名"), f("password", "password", "密码"), f("private-key", "password", "私钥"), f("private-key-passphrase", "password", "私钥口令"), f("host-key", "text", "Host Key"), f("host-key-algorithms", "text", "Host Key 算法")), SensitiveFields: []string{"password", "private-key", "private-key-passphrase"}},
+		{Protocol: "masque", Label: "MASQUE", FormSchema: common(req("private-key", "secret-multiline", "私钥"), req("public-key", "text", "公钥"), f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), def("remote-dns-resolve", "bool", "远端 DNS 解析", false), f("dns", "text-list", "DNS")), SensitiveFields: []string{"private-key"}},
+		{Protocol: "openvpn", Label: "OpenVPN", FormSchema: common(req("client-config", "multiline", "客户端配置"))},
+		{Protocol: "ssh", Label: "SSH", FormSchema: common(req("username", "text", "用户名"), f("password", "password", "密码"), f("private-key", "secret-multiline", "私钥"), f("private-key-passphrase", "password", "私钥口令"), f("host-key", "multiline", "Host Key"), f("host-key-algorithms", "text", "Host Key 算法")), SensitiveFields: []string{"password", "private-key", "private-key-passphrase"}},
 		{Protocol: "shadowquic", Label: "ShadowQUIC", FormSchema: common(req("password", "password", "密码"), f("sni", "text", "SNI")), SensitiveFields: []string{"password"}},
 		{Protocol: "trusttunnel", Label: "TrustTunnel", FormSchema: common(f("password", "password", "密码")), SensitiveFields: []string{"password"}},
 		{Protocol: "tailscale", Label: "Tailscale", FormSchema: common(f("auth-key", "password", "认证密钥")), SensitiveFields: []string{"auth-key"}},
@@ -853,6 +924,9 @@ var protocolIndex = func() map[string]Protocol {
 	for _, p := range ManualProtocols() {
 		if err := validateProtocolSelectors(p); err != nil {
 			panic(fmt.Sprintf("协议 %s selector 注册错误: %v", p.Protocol, err))
+		}
+		if err := validateProtocolFieldTypes(p); err != nil {
+			panic(fmt.Sprintf("协议 %s 字段类型注册错误: %v", p.Protocol, err))
 		}
 		if err := validateProtocolEndpointPolicies(p); err != nil {
 			panic(fmt.Sprintf("协议 %s endpoint policy 注册错误: %v", p.Protocol, err))

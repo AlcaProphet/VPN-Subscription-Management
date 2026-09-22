@@ -200,6 +200,10 @@ func TestNodeCheckFixtures(t *testing.T) {
 		{name: "ss-obfs.json", warnURI: true, expectCode: "plugin_partial_mapping"},
 		{name: "ss-v2ray-plugin.json", warnURI: true, expectCode: "plugin_partial_mapping"},
 		{name: "ss-2022-pending.json", warnURI: true, expectCode: "unverified_compatibility"},
+		{name: "http-basic-tls.json", warnURI: true, expectCode: "uri_partial_fields"},
+		{name: "http-mtls.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
+		{name: "socks5-basic-tls.json"},
+		{name: "socks5-mtls.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 	}
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -222,7 +226,7 @@ func TestNodeCheckFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("序列化固定夹具响应失败: %v", err)
 			}
-			for _, secret := range []string{"trojan-password", "inner-password", "shadowsocks-password", "shadowsocks-2022-password", "11111111-2222-3333-4444-555555555555"} {
+			for _, secret := range []string{"trojan-password", "inner-password", "shadowsocks-password", "shadowsocks-2022-password", "http-password", "socks-password", "11111111-2222-3333-4444-555555555555"} {
 				if strings.Contains(string(encoded), secret) {
 					t.Fatalf("固定夹具响应泄漏凭据 %q: %s", secret, encoded)
 				}

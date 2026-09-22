@@ -3,6 +3,7 @@ package assembly
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"vpn-sub/internal/node"
 )
@@ -123,5 +124,84 @@ func legacyAdapterPendingDiagnostic(protocol string) node.TargetDiagnostic {
 		FieldPath: "",
 		Message:   "协议 " + protocol + " 尚未迁移到显式 Clash adapter，当前由 legacy 投影承载",
 		Evidence:  "build32-step3",
+	}
+}
+
+func init() {
+	registerClashProtocolAdapter("http", httpClashAdapter)
+	registerClashProtocolAdapter("socks5", socks5ClashAdapter)
+}
+
+// basicOptionClashFields 是所有协议共享的 Mihomo BasicOption 白名单。
+var basicOptionClashFields = []string{"tfo", "mptcp", "interface-name", "routing-mark", "ip-version", "dialer-proxy"}
+
+// httpClashAdapter 把 HTTP 内部活动模型映射为 Mihomo v1.19.31 HttpOption wire 字段。
+// 输入已由 schema 校验并经 ProjectActive 投影，因此非活动分支与 state_only 不会出现。
+func httpClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 12)
+	copyClashActiveFields(fields, draft.Params, "username", "password")
+	if tls, _ := draft.Params["tls"].(bool); tls {
+		fields["tls"] = true
+		copyClashActiveFields(fields, draft.Params,
+			"sni", "skip-cert-verify", "name-cert-verify", "fingerprint", "certificate", "private-key")
+	}
+	copyClashActiveFields(fields, draft.Params, "headers")
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// socks5ClashAdapter 把 SOCKS5 内部活动模型映射为 Mihomo v1.19.31 Socks5Option。
+// 固定 tag 的 Socks5Option 没有独立 sni 字段，因此 adapter 不下发也不输出 sni。
+func socks5ClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 10)
+	copyClashActiveFields(fields, draft.Params, "username", "password", "udp")
+	if tls, _ := draft.Params["tls"].(bool); tls {
+		fields["tls"] = true
+		copyClashActiveFields(fields, draft.Params,
+			"skip-cert-verify", "name-cert-verify", "fingerprint", "certificate", "private-key")
+	}
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// copyClashActiveFields 只复制已设置且非零值的字段，避免向 wire 输出空串、false 或 0。
+func copyClashActiveFields(fields map[string]any, params map[string]any, keys ...string) {
+	for _, key := range keys {
+		value, ok := params[key]
+		if !ok || !clashValueActive(value) {
+			continue
+		}
+		fields[key] = value
+	}
+}
+
+func clashValueActive(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case bool:
+		return typed
+	case int:
+		return typed != 0
+	case int32:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case float32:
+		return typed != 0
+	case float64:
+		return typed != 0
+	case map[string]any:
+		return len(typed) > 0
+	case map[string]string:
+		return len(typed) > 0
+	case []any:
+		return len(typed) > 0
+	case []string:
+		return len(typed) > 0
+	default:
+		return true
 	}
 }

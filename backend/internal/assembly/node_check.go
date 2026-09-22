@@ -156,8 +156,42 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 			add(&diagnostics, "warn", "unverified_compatibility", "cipher",
 				"SS 2022 当前仅登记为待验证兼容项，未宣称完整 URI 支持", "cvr-2.5.2-uri")
 		}
+	case "http":
+		// URI 只携带代理地址、认证与 TLS 开关；mTLS 与自定义请求头不可表达。
+		if hasTextParamValue(params, "certificate") || hasTextParamValue(params, "private-key") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "certificate",
+				"当前 URI 适配器不能表达 HTTP 客户端证书（mTLS）参数", "cvr-2.5.2-uri")
+		}
+		if headers, ok := params["headers"].(map[string]any); ok && len(headers) > 0 {
+			add(&diagnostics, "warn", "uri_partial_fields", "headers",
+				"当前 URI 适配器不会携带自定义请求头，导入后连接行为可能不同", "cvr-2.5.2-uri")
+		}
+		for _, path := range []string{"name-cert-verify", "fingerprint"} {
+			if hasTextParamValue(params, path) {
+				add(&diagnostics, "warn", "unverified_compatibility", path,
+					"当前 URI 适配器不表达该证书校验参数，导入后需复核", "cvr-2.5.2-uri")
+			}
+		}
+	case "socks5":
+		// SOCKS5 URI 可表达认证、TLS 开关与 UDP，但不能表达 mTLS 与证书校验参数。
+		if hasTextParamValue(params, "certificate") || hasTextParamValue(params, "private-key") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "certificate",
+				"当前 URI 适配器不能表达 SOCKS5 客户端证书（mTLS）参数", "cvr-2.5.2-uri")
+		}
+		for _, path := range []string{"name-cert-verify", "fingerprint"} {
+			if hasTextParamValue(params, path) {
+				add(&diagnostics, "warn", "unverified_compatibility", path,
+					"当前 URI 适配器不表达该证书校验参数，导入后需复核", "cvr-2.5.2-uri")
+			}
+		}
 	}
 	return diagnostics
+}
+
+// hasTextParamValue 判断协议参数中的字符串字段是否已配置非空值。
+func hasTextParamValue(params map[string]any, key string) bool {
+	value, _ := params[key].(string)
+	return strings.TrimSpace(value) != ""
 }
 
 // diagnoseSSPluginForTarget 把叶子合同诊断投影为节点检查的公共响应类型。

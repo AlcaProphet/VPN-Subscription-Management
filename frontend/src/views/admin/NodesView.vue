@@ -46,6 +46,8 @@ const nameSpaceError = computed(() => {
 })
 const invalidProtocolPaths = reactive(new Set<string>())
 const resetScopes = reactive(new Set<string>())
+// state_only selector 只保存在 current_state.selectors，不进入 protocol_json。
+const selectorState = reactive<Record<string, string>>({})
 const clearedSensitivePaths = reactive(new Set<string>())
 const invalidatedSensitivePaths = reactive(new Set<string>())
 const jsonResetVersions = reactive<Record<string, number>>({})
@@ -115,6 +117,11 @@ const currentState = computed<CurrentState>(() => {
   const plugin = typeof params.plugin === 'string' && params.plugin ? params.plugin : null
   state.plugin = plugin
   state.features = activeFeatures(currentSchema()?.form_schema ?? [], params)
+  const selectors: Record<string, string> = {}
+  for (const selector of currentSchema()?.selectors ?? []) {
+    selectors[selector.name] = selectorValueFor(selector.name)
+  }
+  if (Object.keys(selectors).length > 0) state.selectors = selectors
   return state
 })
   const endpointPolicy = computed(() => endpointPolicyFor(currentSchema()?.endpoint_policies, currentState.value))
@@ -426,6 +433,7 @@ function applyResetScope(scope: string, changed: boolean) {
 }
 function resetAllEditScopes() {
   resetScopes.clear()
+  clearSelectorState()
   clearedSensitivePaths.clear()
   invalidatedSensitivePaths.clear()
   unappliedJsonPaths.clear()
@@ -438,6 +446,7 @@ function updateProtocol(protocol: string) {
   if (form.protocol === protocol) return
   form.protocol = protocol
   form.protocol_json = {}
+  clearSelectorState()
   invalidProtocolPaths.clear()
   unappliedJsonPaths.clear()
   unappliedControlPaths.clear()
@@ -505,6 +514,9 @@ function openEdit(n: NodeItem) {
   }
   if (hasSchemaField('plugin') && n.current_state?.plugin) {
     protocolJson.plugin = n.current_state.plugin
+  }
+  for (const [name, value] of Object.entries(n.current_state?.selectors ?? {})) {
+    if (value) selectorState[name] = String(value)
   }
   form.protocol_json = cleanDisabledFeatures(currentSchema()?.form_schema ?? [], protocolJson)
   invalidProtocolPaths.clear()
@@ -673,6 +685,32 @@ const deleteContent = computed(() => {
 function fieldValue(key: string): unknown {
   return form.protocol_json[key]
 }
+// state_only selector：值只读写 current_state.selectors，切换时进入 selector.<name> 清空范围。
+function selectorNameFor(field: FieldSchema): string {
+  return field.selector_name ?? field.name
+}
+function selectorValueFor(name: string): string {
+  if (selectorState[name]) return selectorState[name]
+  const selector = currentSchema()?.selectors?.find((item) => item.name === name)
+  return selector?.default ?? ''
+}
+function fieldModelValue(field: FieldSchema): unknown {
+  return field.state_only ? selectorValueFor(selectorNameFor(field)) : fieldValue(field.name)
+}
+function setFieldModelValue(field: FieldSchema, value: unknown) {
+  if (!field.state_only) {
+    setField(field.name, value)
+    return
+  }
+  const name = selectorNameFor(field)
+  const next = String(value ?? '')
+  const changed = next !== selectorValueFor(name)
+  selectorState[name] = next
+  applyResetScope(`selector.${name}`, changed)
+}
+function clearSelectorState() {
+  for (const name of Object.keys(selectorState)) delete selectorState[name]
+}
 function setField(key: string, val: unknown) {
   const schema = currentSchema()?.form_schema ?? []
   const oldFeatures = activeFeatures(schema, form.protocol_json)
@@ -807,7 +845,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               <InputNumber v-model:value="form.port" :min="portMin" :max="65535" class="w-full" />
             </Form.Item>
             <Form.Item v-if="!showHostField && !showPortField" label="端点">
-              <span class="text-gray-500">协议自身管理</span>
+              <span class="text-text-tertiary">协议自身管理</span>
             </Form.Item>
           </div>
         </FormSection>
@@ -822,9 +860,9 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               centralized-switches
               :json-reset-versions="jsonResetVersions"
               :json-dirty-paths="unappliedJsonPathList"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
+              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
+              @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
           </div>
         </FormSection>
 
@@ -838,9 +876,9 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               centralized-switches
               :json-reset-versions="jsonResetVersions"
               :json-dirty-paths="unappliedJsonPathList"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
+              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
+              @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
             </div>
           </component>
         </FormSection>
@@ -869,9 +907,9 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               centralized-switches
               :json-reset-versions="jsonResetVersions"
               :json-dirty-paths="unappliedJsonPathList"
-              :model-value="fieldValue(field.name)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
+              :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setField(field.name, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
+              @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
           </div>
         </details>
 

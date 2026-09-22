@@ -1,0 +1,15 @@
+{
+  "protocol": "http",
+  "host": "192.0.2.1",
+  "port": 8080,
+  "protocol_json": {
+    "username": "http-user",
+    "password": "http-password",
+    "tls": true,
+    "sni": "example.com",
+    "certificate": "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----",
+    "private-key": "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----"
+  },
+  "current_state": { "security": "tls", "features": ["tls"], "selectors": { "auth_mode": "basic" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

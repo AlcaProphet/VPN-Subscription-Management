@@ -1,7 +1,7 @@
 # Build32.md — 19 个 manual 协议编辑体验完整化
 
 > **文档定位：** 本文档是下一轮活动构建方案，承接 [Design4.md](Design4.md) 第九章“完成当前全部 19 个已兼容 manual 协议的编辑体验改进”目标，以及用户于 2026-09-21 对研究结论的最新确认。
-> **当前状态：** 用户已授权实施并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准；Step 0.5～3 已在本地未提交工作区完成并验收通过，Step 4～22 待严格串行实施。当前中断恢复入口为 Step 4；继续实施时必须保留 Step 1～3 的既有改动。本文档按实际完成情况逐步更新，不预写后续 Step。
+> **当前状态：** 用户已授权实施并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准；Step 0.5～3 已完成并提交在 `7ecb6d5aa0619d560fcbc786547cf95e0fef7080`（分支 `beta`，与 `origin/beta` 一致），Step 3 遗留的前端静态颜色门禁缺口已由 Step 3-fix 修正，Step 3.5 公共字段类型增补、Step 4 HTTP 与 Step 5 SOCKS5 已验收通过（legacy 待迁移协议 19→17）；固定 Mihomo v1.19.31 二进制已按用户确认重新获取并复验。当前中断恢复入口为 Step 6；继续实施时必须保留 Step 0.5～5 的既有改动。本文档按实际完成情况逐步更新，不预写后续 Step。
 > **编码约束：** [AGENTS.md](AGENTS.md) 是唯一强要求文档。实施时必须一次只执行一个 Step，逐步验收，不并行实施多个协议。
 > **最新用户决策：** 新兼容基线为 Mihomo **v1.19.31**（commit `ab405bad5beeeac8b003bb01f60f134f6df54471`），不再把 v1.19.29 作为新设计兼容目标；允许协议级 endpoint policy；OpenVPN 使用“结构化编辑为主＋粘贴 `.ovpn` 解析导入”，不再把 `client-config` 直接作为 Mihomo 输出字段；WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 不纳入 Build32，留作后续独立专项。
 
@@ -14,9 +14,10 @@
 | 0.5 | 实施授权、状态复核与范围冻结 | ✅ 验收通过 |
 | 1 | 固定 Mihomo v1.19.31 证据门禁并清除活动代码中的 v1.19.29 基线 | ✅ 验收通过 |
 | 2 | `CurrentState` v2：通用 selector、条件、清空域与旧状态读取 | ✅ 验收通过 |
-| 3 | 协议级 endpoint policy 与统一 Clash wire adapter 骨架 | ✅ 验收通过 |
-| 4 | HTTP 完整条件表单、TLS／认证与输出合同 | ☐ 未开始 |
-| 5 | SOCKS5 完整条件表单、TLS／认证／UDP 与输出合同 | ☐ 未开始 |
+| 3 | 协议级 endpoint policy 与统一 Clash wire adapter 骨架 | ✅ 验收通过（静态颜色门禁缺口由 Step 3-fix 补齐） |
+| 3.5 | 公共字段类型增补（`multiline`／`secret-multiline`／`byte-sequence`） | ✅ 验收通过 |
+| 4 | HTTP 完整条件表单、TLS／认证与输出合同 | ✅ 验收通过 |
+| 5 | SOCKS5 完整条件表单、TLS／认证／UDP 与输出合同 | ✅ 验收通过 |
 | 6 | SSH 密码／私钥认证、Host Key 与多行凭据 | ☐ 未开始 |
 | 7 | Snell 版本、UDP／reuse 与五类 obfs 分支 | ☐ 未开始 |
 | 8 | Hysteria 认证、带宽、端口跳跃与 TLS 合同 | ☐ 未开始 |
@@ -550,13 +551,77 @@ Step 0.5 授权/冻结
 - 边界：本 Step 只加入公共 policy 机制和 adapter 骨架，19 个真实协议的 endpoint 替代策略（Hysteria2 ports、Mieru range、WireGuard peers、Tailscale hidden）将在各自协议 Step 声明并用实际协议夹具验收；当前 `legacyAdapterPendingCount()` 为 19，后续每步递减并在 Step 20 归零。
 - 未执行项：race、vet、Docker、API/浏览器 smoke、真实连接仍未执行；保留到 Step 22 或后续协议 Step。
 
-**中断恢复检查点（2026-09-22）**
+**中断恢复检查点（2026-09-22 首次核验，已被提交取代）**
 
-- 恢复核验确认 Step 0.5～3 的成果完整保留在本地未提交工作区：24 个已跟踪文件修改、7 个未跟踪新文件，暂存区为空；分支仍为 `beta`，HEAD `f00b350c127773b9ee57e4c77c7d98d23121c859`，相对 `origin/beta` ahead/behind 0/0。该工作区是 Build32 已完成成果，不得清理、覆盖或按“脏工作区”回退。
-- 边界核验确认尚未进入 Step 4：HTTP 仍使用 `legacy_adapter_pending`，未注册 HTTP 正式 adapter，也未加入 Step 4 要求的 HTTP selector、条件 schema、组合校验和协议固定夹具；因此 Step 4～22 继续保持未开始，恢复入口固定为 Step 4。
-- 中断后独立复验通过：`cd backend && go test ./... -count=1 && go build ./... && go vet ./...`；前端 `node-form-layout/node-features/protocol-field-editor/nodes-view/editable-combobox` 共 95 个用例通过且 `npm run build` 通过（仅既有 chunk 体积提示）；固定 Mihomo v1.19.31 门禁通过首批四协议与 SS 插件正反例；Markdown 链接检查和 `git diff --check` 通过。
-- 本次恢复核验没有执行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；这些证据仍按后续 Step 和 Step 22 收集，不得由本检查点推定通过。
-- 继续实施前先复核 `git status --short --branch` 与本检查点；若改动集合出现无法解释的减少、Step 4 相关实现已经出现，或既有 Step 1～3 测试失败，应暂停并先更新实际断点，不得直接重做 Step 1～3 或越过 Step 4。
+- 首次核验时 Step 0.5～3 成果位于本地未提交工作区（24 个已跟踪文件修改、7 个未跟踪新文件），HEAD `f00b350c127773b9ee57e4c77c7d98d23121c859`。该状态已由后续提交 `7ecb6d5aa0619d560fcbc786547cf95e0fef7080` 取代，本条仅保留当时事实，不作为当前恢复依据。
+- 边界核验当时确认尚未进入 Step 4：HTTP 仍使用 `legacy_adapter_pending`，未注册 HTTP 正式 adapter，也未加入 Step 4 要求的 HTTP selector、条件 schema、组合校验和协议固定夹具。
+- 当时中断后独立复验通过：`cd backend && go test ./... -count=1 && go build ./... && go vet ./...`；前端 `node-form-layout/node-features/protocol-field-editor/nodes-view/editable-combobox` 共 95 个用例通过且 `npm run build` 通过（仅既有 chunk 体积提示）；固定 Mihomo v1.19.31 门禁通过首批四协议与 SS 插件正反例；Markdown 链接检查和 `git diff --check` 通过。
+
+**二次恢复核验与 Step 3-fix（2026-09-22）**
+
+- **实际恢复点更正：** Step 0.5～3 的成果已提交在 `7ecb6d5`（31 个文件，+1800/−224），分支 `beta`、HEAD 与 `origin/beta` 一致、ahead/behind 0/0；核验开始时工作区干净，`git diff --stat` 为空、`git diff --check` 退出码 0。首次检查点中“未提交工作区／HEAD `f00b350`”的描述已过时。
+- **Step 3 静态门禁缺口（Step 3-fix）：** 二次全量复核发现 `frontend/tests/style-tokens.spec.ts` 失败：`src/views/admin/NodesView.vue:810` 的 `text-gray-500` 未登记，而该行由 `7ecb6d5` 写入（Step 3 的“协议自身管理”占位）；Step 3 当时只执行 `nodes-view node-form-layout`（44 用例）与 `npm run build`，未覆盖全量静态门禁，故未暴露。失败优先证据为全量前端门禁 `1 failed | 315 passed (316 tests)`。
+- **Step 3-fix 实施：** 仅将该行的 `text-gray-500` 替换为既有设计 Token `text-text-tertiary`（`--ui-text-tertiary`，light `#64748B`／dark `#94A3B8`，与 Tailwind `gray-500` 语义最近的次要文本 Token），不修改组件结构、文案、样式尺寸或其他文件。
+- **Step 3-fix 验收：** `cd frontend && npm test -- --run` → 47 文件 / 316 用例全部通过；`npm run build` 通过（仅既有 main chunk 体积提示）；`cd backend && go build ./...` 通过（确认未影响后端编译）；`git diff --check` 退出码 0。本步只改 1 行前端代码，未触及数据库、schema、wire 输出或协议合同。
+- **固定 Mihomo v1.19.31 恢复（用户已确认）：** 记录路径 `/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo` 已变为 `Mihomo Meta v1.19.29`（内嵌 `vcs.revision=e26714a181ac0e2fa803453c0a8e9a9ce94e31cb`），原 v1.19.31 固定二进制已不在本机。经用户确认改为从官方 release 获取并在仓库外固定路径保存：主用 `~/mihomo-bins/mihomo-v1.19.31-go122`（`-v` = `Mihomo Meta v1.19.31 darwin arm64 with go1.22.12 Mon Sep 14 13:27:59 UTC 2026`，与本文档第二章记录逐字一致；`vcs.revision=ab405bad5beeeac8b003bb01f60f134f6df54471`；SHA-256 `a756bc56fee64201b3d5b706e946e926d265dd2d34450de8943f83d2f4c797fe`），交叉核对件 `~/mihomo-bins/mihomo-v1.19.31`（官方默认 go1.26.8 构建，同 revision，SHA-256 `fae1f37e28ee53fcf5be7a8bb121099db1fe442e44205734ed49c62579364090`）。`MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh` 退出码 0，首批四协议与 SS 插件正反例全部通过。后续所有 Step 的固定内核证据统一使用该路径，不再使用 Clash Verge 随附内核。
+- **数据目标复核：** 当前仓库 `backend/data` 不存在，仓库内无 `*.db`／`*.sqlite*` 文件，授权目标内数据库、manual 节点、state v1/v2、空 endpoint、未知顶层键与 OpenVPN `client-config` 遗留行计数均为 0；未连接外部 `DATA_DIR`、Docker 卷、生产或备份。
+- **边界核验：** 尚未进入 Step 4：`clashProtocolAdapters` 注册数为 0，`legacyAdapterPendingCount()` 为 19，HTTP 仍是旧 schema（无 `auth_mode`、无 TLS 条件字段、无 mTLS 成对字段），恢复入口在 Step 3.5 完成后为 Step 4。
+- **本检查点未执行：** `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；这些证据仍按后续 Step 与 Step 22 收集，不由本检查点推定通过。
+
+
+### Step 3.5：公共字段类型增补（multiline／secret-multiline／byte-sequence）
+
+- **来源与授权：** 第四章 4.1 要求 `multiline`／`secret-multiline` 成为明确类型（停止依赖字段名猜测大文本），并新增 WireGuard reserved 专用的 `byte-sequence`；用户于 2026-09-22 确认在 Step 4 之前一次性完成该公共类型增补。本 Step 是 Build32 未编号的公共批次，完成后再进入 Step 4。
+- **前置：** Step 3-fix 已完成；Step 2 的 selector 机制与 Step 3 的 endpoint policy／adapter 骨架已就绪；本步不新增协议字段分支，不改变任何 wire key。
+- **影响文件：** `backend/internal/node/registry.go`（类型白名单校验、既有字段重定型）、`backend/internal/node/node.go`（类型校验与 byte-sequence 规范化）、`backend/internal/node/normalize.go`（保存前规范化入口）、`backend/internal/node/field_types_test.go`（新增）、`frontend/src/components/ProtocolFieldEditor.vue`（类型渲染，移除 `isLongText` 名称启发式）、`frontend/tests/protocol-field-editor.spec.ts`（新增用例）。
+- **类型合同：**
+
+  | 类型 | 语义 | 存储／wire | UI |
+  |---|---|---|---|
+  | `multiline` | 非敏感多行文本（证书、CA、Host Key、Restls Script、OpenVPN client-config） | string，不加密 | 多行文本域（4 行） |
+  | `secret-multiline` | 敏感多行文本（私钥、PEM 内容） | string，按 `SensitiveFields` 既有路径加密 | 多行文本域＋既有凭据状态语义 |
+  | `byte-sequence` | 恰 3 字节序列（WireGuard reserved） | 规范化为 `[0..255]` 三整数数组 | 三个 0–255 整数输入＋Base64 应用 |
+
+- **注册与校验合同：**
+  - 注册表初始化时递归校验 `FieldSchema.Type` 必须属于已知集合；未知类型直接阻断启动。已知集合为 `text/password/select/text-list/int-list/number/bool/object/multiline/secret-multiline/byte-sequence`。
+  - `secret-multiline` 字段必须在其协议的 `SensitiveFields` 中声明对应路径（含嵌套点路径与 `[]` 列表路径），否则阻断注册；`password` 的既有敏感性声明方式不变，本步不为历史字段补声明。
+  - `byte-sequence` 接受三种输入并统一规范化为 3 整数数组：`[a,b,c]`（含 JSON 数字序列）、`"1,2,3"`／`"1 2 3"`、Base64 字符串（解码后必须恰 3 字节）。长度不足／超出、越界值、非法 Base64 与非数字串均返回字段级错误；规范化在 `NormalizeProtocolJSON` 内完成，保存、检查与 URI 导入共用同一入口。
+- **重定型（保持行为与敏感性不变）：** `certificate`、`ca`、`ca-str`、`host-key`、`restls-script`、`client-config` → `multiline`；既有 `private-key` 字段（WireGuard／AnyTLS／MASQUE／SSH／v2ray-plugin-opts／shadow-tls-opts）→ `secret-multiline`。这些字段此前已由字段名启发式渲染为多行文本，或已声明为敏感路径，因此本步不产生用户可见语义变化，只把隐式约定改为显式类型。
+- **不属于本步：** 不新增任何协议字段、selector、endpoint policy 或 adapter；不把 `host-key`／`host-key-algorithms` 改为列表（Step 6）；不改变 SS 插件 `restls-script` 的敏感性（保持普通参数）；不引入 TypeScript 侧联合类型（`api/node.ts` 的 `type` 仍为 string）。
+- **失败优先测试：** 后端 `TestValidateProtocolFieldTypes`（未知类型／secret-multiline 未声明敏感／合法嵌套）、`TestNormalizeByteSequence`（三种输入、长度与越界反例）、`TestByteSequenceNormalizedOnSave`（保存前规范化）、`TestMultilineFieldTypes`（字符串接受、非字符串拒绝）、`TestRegistryFieldTypesKnown`（全部已注册协议通过类型门禁）；前端 `multiline`／`secret-multiline` 渲染为多行、`byte-sequence` 三输入与校验、以及"普通 `text` 类型不再按字段名渲染多行"的反向断言。
+- **验收命令：**
+
+  ```bash
+  cd backend && go test ./internal/node -run 'Test.*(FieldType|ByteSequence|Multiline)' -count=1
+  cd backend && go test ./internal/node ./internal/assembly -count=1
+  cd ../frontend && npm test -- --run protocol-field-editor node-form-layout node-features nodes-view
+  cd ../frontend && npm run build
+  cd .. && git diff --check
+  ```
+
+- **完成定义：** 三种类型在注册、校验、规范化、前端渲染四处一致；未知类型与未声明敏感的 `secret-multiline` 注册即失败；既有 19 协议全部仍可注册并通过原测试；前端全量测试与生产构建通过。
+
+**实施记录（2026-09-22）**
+
+- **失败优先证据：** 先新增 `backend/internal/node/field_types_test.go`，仅使用既有入口（`validateFieldValue`／`NormalizeProtocolJSON`）运行定向用例，得到 4 项真实失败：`字段 ca 使用未知类型 multiline`、`字段 reserved 使用未知类型 byte-sequence`、`byte-sequence 规范化结果类型应为 []int，实际 []interface {}{1,2,3}`、嵌套列表 `首条 reserved = "AQID"`；证明三类语义当时均未实现。
+- **后端实现：**
+  - 新增 `backend/internal/node/field_types.go`：`knownFieldTypes` 类型白名单、`validateProtocolFieldTypes`（递归校验类型集合，并强制 `secret-multiline` 必须在其协议 `SensitiveFields` 中声明，列表内使用 `peers[].pre-*` 形式）、`parseByteSequence`／`parseByteSequenceString`／`byteSequenceFromInts`（整数序列、`"1,2,3"`／`"1 2 3"`、Base64 三种输入统一为 3 个 0-255 整数，长度／越界／非法 Base64／非数字均报错）、`normalizeByteSequenceFields`（递归覆盖对象与列表条目）。
+  - `backend/internal/node/node.go`：`validateFieldValue` 新增 `multiline`／`secret-multiline`（字符串语义）与 `byte-sequence`（解析失败返回带字段路径的错误）分支。
+  - `backend/internal/node/normalize.go`：`NormalizeProtocolJSON` 在旧别名归一化后调用 `normalizeByteSequenceFields`，使创建、更新、检查与 URI 导入共用同一规范化入口。
+  - `backend/internal/node/registry.go`：`protocolIndex` 初始化新增 `validateProtocolFieldTypes` 门禁；既有显式重定型 `certificate`／`ca`／`ca-str`／`host-key`／`restls-script`／`client-config` → `multiline`，`private-key`（WireGuard／AnyTLS／MASQUE／SSH／v2ray-plugin-opts／shadow-tls-opts）→ `secret-multiline`。敏感性声明不变：上述 `private-key` 路径原本已在 `SensitiveFields` 中，`certificate`／`ca`／`restls-script` 仍为普通参数。
+- **前端实现：** `frontend/src/components/ProtocolFieldEditor.vue` 新增 `secret-multiline`（多行文本域＋既有凭据状态文案与 `credential-change` 语义）、`multiline`（多行文本域）、`byte-sequence`（三个 0-255 整数输入＋Base64 应用／取消，未完整时发出 `validity-change: false` 阻断保存，完整或 Base64 成功时回写规范整数数组）；`sensitive` 计算纳入 `secret-multiline`；删除 `isLongText()` 字段名启发式。
+- **偏差与处理（1 项，属合同更新而非放宽）：** 两处既有测试把 SS 插件 `private-key` 锁定为旧 `password` 类型：`backend/internal/server/node_test.go` 的 SS 固定插件投影断言与 `backend/internal/node/project_test.go` 的 `TestSSPluginFieldsMatchMihomo11931Contract`。按第五章“所有证书私钥和多行 secret 使用 `secret-multiline`”更新为显式类型断言，并保留／加强 `SensitiveFields` 与 `certificate`／`restls-script` 类型断言，未删除任何安全或字段集合检查。
+- **边界：** `byte-sequence` 在 Step 3.5 只建立类型机制，没有生产协议使用；WireGuard `reserved` 仍为 `int-list`，其重定型、`peers[].reserved` 与 Base64 语义属 Step 11。`host-key`／`host-key-algorithms` 的列表化属 Step 6；SS 插件 `restls-script` 保持普通参数，Snell 侧 `secret-multiline` 属 Step 7。`api/node.ts` 的 `type` 仍为 string，无需为新增类型改动联合类型。
+- **定向与联合门禁（全部实际执行）：**
+  - `cd backend && go test ./internal/node -run 'Test.*(FieldType|ByteSequence|Multiline|LargeText)' -count=1`：通过（含既有 `TestValidateProtocolFieldTypes`，node 包新增 6 个测试函数、共 8 个匹配用例）。
+  - `cd backend && go test ./... -count=1`：`ok=41 no_test_files=5 fail=0`。
+  - `cd backend && go build ./...`、`go vet ./...`、`gofmt -l ./internal/`（无输出）、`go run ./cmd/errgate ./...`（`OK (0 ignored errors matched baseline; baseline entries 0; 0 unexpected)`）：通过。
+  - `cd frontend && npm test -- --run`：47 文件 / 321 用例全部通过（Step 3-fix 后为 316，本次新增 5 个用例）。
+  - `cd frontend && npm run build`：通过（仅既有 main chunk 体积提示）。
+  - `MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh`：退出码 0（首批四协议与 SS 插件正反例全部通过，证明重定型未改变 wire 输出）。
+  - `git diff --check`：退出码 0。
+- **未执行项：** 本步未运行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；保留到后续 Step 与 Step 22。
+
 
 
 ### Step 4～7：基础代理组（严格按 Step 号串行）
@@ -569,12 +634,54 @@ Step 0.5 授权/冻结
 - Headers 保持开放 string map；未知复杂值拒绝。
 - 正反例覆盖无认证、basic、TLS、mTLS、缺半对凭据。
 - **字段逻辑：** 顶层 `server/port` 必填；`auth_mode=none` 时不活动且清空 `username/password`，`basic` 时二者均必填，`password` 为敏感字段。`tls=false` 时清空并禁止输出 `sni`、`skip-cert-verify`、`name-cert-verify`、`fingerprint`、`certificate/private-key`；`tls=true` 时 SNI 可空并由 Mihomo 回退 server，证书与私钥必须成对，只有 `private-key` 为 secret。`headers` 是开放 string map：键去首尾空白后不能为空、大小写不敏感重复键拒绝、值只允许字符串；禁止由用户覆盖 adapter 固定的代理认证内部处理。wire 逐项映射 v1.19.31 `HttpOption`，不输出 `auth_mode`。
+- **本步影响（计划）：** `backend/internal/node/registry.go`（HTTP schema：`auth_mode` state_only selector、TLS feature 子字段、headers 声明 `map_value_type=string`、敏感路径新增 `private-key`）、`backend/internal/node/selector.go`（state_only selector 的 v1／缺省派生：存在 username／password → `basic`）、`backend/internal/node/project.go`（selector 分支清空与 HTTP 组合校验：认证成对、mTLS 成对、headers 规则、拒绝覆盖代理认证头）、`backend/internal/node/node.go`（创建／更新／检查在 `resolveCurrentState` 后执行 selector 分支清空）、`backend/internal/assembly/clash_protocols.go`（HTTP 显式 adapter＋BasicOption 公共字段复制，legacy 计数 19→18）、`backend/internal/assembly/node_check.go`／`links/links.go`（HTTP URI 不可表达字段降级诊断）、`frontend/src/views/admin/NodesView.vue`（`state_only` selector 控件读写 `current_state.selectors`、`selector.auth_mode` 清空范围、编辑回填）。
+
+**实施记录（2026-09-22）**
+
+- **失败优先证据：** 先新增 `backend/internal/node/http_protocol_test.go` 并运行定向用例，实现前 8 个测试函数真实失败：`HTTP 必须声明 auth_mode selector`、`无凭据应派生 none，实际 ""`、`创建后 auth_mode 应为 basic，实际 ""`、basic 缺半对返回 `当前协议不支持 selector: auth_mode`、`auth_mode=none 创建失败: 当前协议不支持 selector`、`tls=false 必须清空 sni`、headers 五类非法输入全部未被拒绝、`字段 certificate 未在协议注册表中声明`。
+- **后端 schema 与 selector：**
+  - `registry.go` HTTP 条目：`auth-mode`（`state_only` select，`selector_name=auth_mode`，`none/basic`，默认 `none`）＋ `username`／`password`（`when`／`required_when` 为 `selectors.auth_mode=[basic]`，`reset_on` 为 `selector.auth_mode`）＋ `tls`（标量 feature `tls`，`reset_on` 为 `feature.tls`）＋ TLS 子字段 `sni`／`skip-cert-verify`／`name-cert-verify`／`fingerprint`／`certificate`（multiline）／`private-key`（secret-multiline），全部 `when.features=[tls]` 且 `reset_on` 含 `feature.tls`；`headers` 为开放 string Map；协议级 `selectors` 声明 `auth_mode`；`SensitiveFields` 增加 `private-key`。
+  - `selector.go` 新增 `deriveStateOnlySelector`：未显式提交 selector 时按 username／password 是否非空派生 `basic`／`none`，v1 读取与新建共用同一规则且不写库；显式提交的 `none` 优先。
+- **清空与组合校验：** `project.go` 新增 `clearSelectorScopedFields`（只删除声明了 selector 条件且不匹配的字段，递归对象），接入创建、更新（敏感合并之后）与检查的两条分支，使 `auth_mode=none` 清空并禁止输出 `username/password`；`validateProtocolCombination` 新增 `http` 分支：mTLS 证书／私钥成对、headers 键去空白非空、值只允许字符串、大小写不敏感重复拒绝、禁止覆盖 `Proxy-Authorization`。`tls=false` 的字段清空复用既有标量 feature 机制。
+- **Clash adapter：** `assembly/clash_protocols.go` 注册 `httpClashAdapter`，逐项映射 v1.19.31 `HttpOption`（`username`／`password`／`tls`／`sni`／`skip-cert-verify`／`name-cert-verify`／`fingerprint`／`certificate`／`private-key`／`headers`）并复制 BasicOption 白名单（`tfo`／`mptcp`／`interface-name`／`routing-mark`／`ip-version`／`dialer-proxy`）；只输出活动且非零值字段，`tls=false` 不输出任何 TLS 键，永不输出 `auth-mode`／`auth_mode`。legacy 待迁移计数由 19 降为 18。
+- **URI 降级诊断：** `assembly/node_check.go` 新增 `http` 分支：mTLS（certificate／private-key）→ `core_semantic_unexpressible`（error，目标 skip）；自定义 `headers` → `uri_partial_fields`（warn）；`name-cert-verify`／`fingerprint` → `unverified_compatibility`（warn）。
+- **前端：** `NodesView.vue` 新增 `selectorState`，`currentState` 计算输出 `current_state.selectors`；`state_only` 字段经 `fieldModelValue`／`setFieldModelValue` 读写 selector 状态，切回时按差异加入 `selector.<name>` 清空范围并触发既有 `resetProtocolScope` 清空；`openEdit` 从 `current_state.selectors` 回填，协议切换与新建时清空。三处字段渲染绑定统一改走该入口。
+- **测试与夹具：** 新增固定夹具 `http-basic-tls.json`（basic＋TLS＋headers 正例）与 `http-mtls.json`（mTLS → URI skip），在 `node_check_test.go` 登记为 `warnURI`／`skipURI` 并把 `http-password` 加入凭据泄漏断言；新增 `mihomo_http_test.go`（固定内核 HTTP 正例＋非法客户端证书与非字符串 headers 两个反例）；`clash_protocols_test.go` 新增 HTTP wire 形状断言与 `legacyAdapterPendingCount()==18` 绝对断言；`server/node_test.go` 新增 HTTP 编辑 schema 断言；`nodes-view.spec.ts` 新增 selector 写入／切换清空／保存载荷与编辑回填两个用例。
+- **偏差（2 项，均为契约更新，非放宽）：** ①`clash_protocols_test.go` 的 legacy 可观测测试与“check／正式装配共用 adapter”测试原先以 `http` 作为未迁移协议样本，HTTP 迁移后改用 `socks5`，并新增“HTTP 不再返回 `legacy_adapter_pending`”正向断言；②旧 `nodes-view` 与后端断言未受影响，SS 插件类型断言已在 Step 3.5 同步。
+- **定向与联合门禁（全部实际执行）：**
+  - `cd backend && go test ./internal/node -run 'TestHTTP' -count=1`：通过（新增 9 个测试函数）。
+  - `cd backend && go test ./... -count=1`：`ok=41 no_test_files=5 fail=0`。
+  - `cd backend && go build ./... && go vet ./...`、`gofmt -l ./internal/ ./cmd/`（无输出）、`go run ./cmd/errgate ./...`（0 违规）：通过。
+  - `MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh`：退出码 0；新增 HTTP 正例 1 项、内核反例 2 项全部通过（非法客户端证书报 `parse certificate failed`）。
+  - `cd frontend && npm test -- --run`：47 文件 / 323 用例全部通过（Step 3.5 后为 321，本次新增 2 个用例）。
+  - `cd frontend && npm run build`：通过（仅既有 main chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- **未执行项：** 本步未运行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；保留到后续 Step 与 Step 22。
+
 
 #### Step 5：SOCKS5
 
 - 与 HTTP 共用有语义的认证／TLS schema helper，不复制整段字段；保留 UDP 独立开关。
 - URI 不能表达的 mTLS 字段返回 diagnostic，不丢字段后仍标 complete。
 - **字段逻辑：** `server/port` 必填；`auth_mode=none/basic` 对 `username/password` 的显示、成对必填、清空与敏感处理同 HTTP。wire 字段为 `tls`、`udp`、`skip-cert-verify`、`name-cert-verify`、`fingerprint`、`certificate/private-key`；固定 tag 的 `Socks5Option` 没有独立 `sni`，不得因复用 TLS helper 而下发或输出 `sni`。`tls=false` 清空全部 TLS 子字段；证书／私钥成对。`udp` 独立保存和输出，不因 TLS／认证切换被清除。URI 仅在活动字段可无损表达时 complete，否则对具体字段给出 warn／unsupported。
+
+**实施记录（2026-09-22）**
+
+- **失败优先证据：** 先新增 `backend/internal/node/socks5_protocol_test.go`，实现前 4 个测试函数真实失败：`SOCKS5 必须声明 state_only auth_mode selector`（selector 缺失、派生为空）、basic 缺半对返回 `当前协议不支持 selector: auth_mode`、`auth_mode=none` 创建失败、`tls=false 必须清空` 与 `sni` schema 断言失败。
+- **共享 helper 抽取（Build32 要求不复制整段字段）：** `registry.go` 把 Step 4 的 HTTP 专用 helper 重命名为协议无关的 `basicAuthModeField`、`basicAuthCredential`、`tlsFeatureField`、`tlsSubField`，HTTP 与 SOCKS5 共同复用；`selector.go` 的 `deriveStateOnlySelector` 扩展为 `http`／`socks5` 共用；`project.go` 的 `validateHTTPTLSKeyPair` 重命名为 `validateTLSKeyPair` 并在 `validateProtocolCombination` 新增 `socks5` 分支。
+- **SOCKS5 schema：** `auth-mode`（state_only select，none／basic，默认 none）＋ `username`／`password`（`when`／`required_when` 为 `selectors.auth_mode=[basic]`，`reset_on` 为 `selector.auth_mode`）＋ `tls` 标量 feature ＋ TLS 子字段 `skip-cert-verify`／`name-cert-verify`／`fingerprint`／`certificate`（multiline）／`private-key`（secret-multiline），**不声明 `sni`**；`udp` 为独立 bool，无任何 selector／feature 清空归属；协议级 `selectors` 声明 `auth_mode`，`SensitiveFields` 为 `password`／`private-key`。
+- **Clash adapter：** 新增 `socks5ClashAdapter` 并注册，逐项映射 v1.19.31 `Socks5Option`（`username`／`password`／`udp`／`tls`／`skip-cert-verify`／`name-cert-verify`／`fingerprint`／`certificate`／`private-key`）＋ BasicOption 白名单；不下发也不输出 `sni`，`tls=false` 不输出任何 TLS 键，`udp` 与 TLS／认证状态无关。legacy 待迁移计数 18→17。
+- **URI 降级诊断：** `assembly/node_check.go` 新增 `socks5` 分支：mTLS → `core_semantic_unexpressible`（error，skip）；`name-cert-verify`／`fingerprint` → `unverified_compatibility`（warn）；`tls`／`udp`／认证可在 URI 无损表达，不产生诊断。
+- **测试与夹具：** 新增夹具 `socks5-basic-tls.json`（basic＋TLS＋udp 正例，URI 无诊断）与 `socks5-mtls.json`（mTLS → URI skip），在 `node_check_test.go` 登记并把 `socks-password` 加入凭据泄漏断言；新增 `mihomo_socks5_test.go`（固定内核 SOCKS5 正例＋非法客户端证书反例）；`clash_protocols_test.go` 新增 SOCKS5 wire 形状断言（含 `sni` 不输出、`udp` 独立）并把 legacy 计数断言更新为 17；`nodes-view.spec.ts` 新增 SOCKS5 复用条件字段与 UDP 独立用例。
+- **偏差（1 项，为可维护性改进）：** `clash_protocols_test.go` 中“未迁移协议”样本改为动态选择（`firstLegacyProtocol` 取第一个未注册 adapter 的协议），避免每个协议 Step 重复改写同一测试；HTTP／SOCKS5 已迁移的正向断言保留。
+- **定向与联合门禁（全部实际执行）：**
+  - `cd backend && go test ./internal/node -run 'TestSocks5' -count=1`：通过（新增 5 个测试函数）。
+  - `cd backend && go test ./... -count=1`：`ok=41 no_test_files=5 fail=0`；`go build ./...`、`go vet ./...`、`gofmt -l ./internal/ ./cmd/`（无输出）、`go run ./cmd/errgate ./...`（0 违规）通过。
+  - `MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh`：退出码 0；SOCKS5 正例 1 项、内核反例 1 项通过。
+  - `cd frontend && npm test -- --run`：47 文件 / 324 用例全部通过；`npm run build` 通过（仅既有 main chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- **未执行项：** 本步未运行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；保留到后续 Step 与 Step 22。
+
 
 #### Step 6：SSH
 
@@ -810,7 +917,7 @@ git diff --check
 - 已按 v1.19.31 固定 tag 修正 OpenVPN 认证合同：用户名密码、客户端证书以及二者组合均为合法模式；只有认证组缺半或两组均空才阻断，`.ovpn` 导入不得把组合认证误判为冲突。
 - 已补齐统一 adapter 的节点生命周期输入：服务端注入 `NodeID/Persisted`，已保存 Tailscale check 与正式装配共用稳定 ID，新建草稿不生成 `state-dir`。
 - 已逐 Step 补充字段逻辑，覆盖输入／selector／显示与必填／清空与凭据／wire 输出／诊断；并以固定 tag 源码纠正 Snell reuse、Hysteria 带宽字段和 SOCKS5 无独立 SNI 三处边界。
-- 文档定稿阶段只修改本文档；其后用户已授权实施，Step 0.5～3 已产生业务代码、前后端测试与门禁脚本改动，并完成各 Step 记录的本地自动化验收。当前成果尚未提交，且不代表 race、Docker、API／浏览器 smoke、真实客户端连接或用户人工验收通过。
+- 文档定稿阶段只修改本文档；其后用户已授权实施，Step 0.5～3 已产生业务代码、前后端测试与门禁脚本改动，并作为提交 `7ecb6d5` 保存完成；Step 3-fix 已补齐该提交遗漏的前端静态颜色门禁。当前成果不代表 race、Docker、API／浏览器 smoke、真实客户端连接或用户人工验收通过。
 
 ---
 
@@ -824,3 +931,7 @@ git diff --check
 | v1.3 | 2026-09-21 | 为 Step 0.5～22 逐项补充字段逻辑：字段集合、selector、条件必填、清空、敏感路径、wire 映射、diagnostic 与最终 manifest；按 Mihomo v1.19.31 固定 tag 纠正 Snell reuse、Hysteria 规范带宽入口和 SOCKS5 无独立 SNI 等细节。仍只修订文档，未授权代码实施。 |
 | v1.4 | 2026-09-21 | 核验修正：OpenVPN 认证改为 userpass／cert／cert_userpass 三态，允许固定 tag 支持的证书＋用户名密码组合并同步导入与测试合同；统一 adapter 增加服务端注入的 NodeID/Persisted，明确 Tailscale 已保存 check／装配和新建草稿的稳定 state-dir 生命周期。仍只修订文档，未授权代码实施。 |
 | v1.5 | 2026-09-22 | 实施状态同步与中断恢复：记录用户已授权 Step 0.5～22 串行实施，Step 0.5～3 已在本地未提交工作区完成并通过独立复验，Step 4～22 未开始；补充工作区保护、精确恢复入口、已通过门禁与未执行证据边界，清理过期的“未授权”和“仅修改文档”表述。 |
+| v1.6 | 2026-09-22 | 二次恢复核验与 Step 3-fix：更正“Step 0.5～3 位于本地未提交工作区／HEAD `f00b350`”的过时描述为提交 `7ecb6d5`（`beta` 与 `origin/beta` 一致、工作区干净）；记录全量前端复核发现的 Step 3 静态颜色门禁缺口（`NodesView.vue:810` `text-gray-500`）及其最小修正为设计 Token `text-text-tertiary`，修正后前端 47 文件/316 用例与生产构建通过；记录固定 Mihomo v1.19.31 二进制失效与经用户确认的官方 release 重新获取路径、SHA-256 与门禁通过结果，以及数据目标零遗留复核结论。仍只修订文档与 1 行前端样式，未进入 Step 3.5／Step 4。 |
+| v1.7 | 2026-09-22 | 完成 Step 3.5 公共字段类型增补：新增 `field_types.go`（类型白名单、`secret-multiline` 敏感性门禁、byte-sequence 三输入规范化与递归嵌套处理）、`validateFieldValue`／`NormalizeProtocolJSON`／`protocolIndex` 接入；既有大文本与私钥字段显式重定型为 `multiline`／`secret-multiline` 且不改变敏感性；前端按显式类型渲染并新增 byte-sequence 三整数＋Base64 控件，删除 `isLongText` 名称启发式。失败优先 4 项、node 包定向 8 用例、后端全量 41 包、前端 47 文件/321 用例、build/vet/gofmt/errgate、固定 v1.19.31 门禁与 `git diff --check` 全部通过；`reserved` 重定型等属 Step 11。Step 4 未开始。 |
+| v1.9 | 2026-09-22 | 完成 Step 5 SOCKS5：与 HTTP 共用 `basicAuthModeField`／`basicAuthCredential`／`tlsFeatureField`／`tlsSubField` 与 `validateTLSKeyPair`，schema 不声明 `sni`，UDP 保持独立开关；新增 `socks5ClashAdapter`（v1.19.31 `Socks5Option`，legacy 18→17）与 URI 降级诊断（mTLS skip、证书校验 warn）；新增夹具、固定内核正反例、wire 形状与前端用例。后端全量 41 包、前端 47 文件/324 用例、build/vet/gofmt/errgate、固定 v1.19.31 门禁与 `git diff --check` 全部通过；legacy 样本测试改为动态选择。 |
+| v1.8 | 2026-09-22 | 完成 Step 4 HTTP：`auth_mode` state-only selector（none／basic，缺省按凭据派生）、TLS 标量 feature 条件字段与关闭清空、认证／mTLS 成对校验、headers 字符串 Map 五类规则、selector 分支清空接入创建／更新／检查、HTTP 显式 Clash adapter（v1.19.31 `HttpOption`＋BasicOption 白名单，legacy 19→18）、HTTP URI 降级诊断（mTLS skip、headers／证书校验 warn）、前端 `state_only` 控件与 `current_state.selectors` 提交。失败优先 8 项、node 定向 9 用例、后端全量 41 包、前端 47 文件/323 用例、固定内核 HTTP 正例＋2 反例与 `git diff --check` 全部通过；legacy 测试样本改用 socks5。 |

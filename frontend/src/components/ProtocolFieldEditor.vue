@@ -79,7 +79,7 @@ const mapEntries = computed(() => Object.entries(objectValue.value).map(([key, v
   key,
   value,
 })))
-const sensitive = computed(() => props.field.type === 'password' || props.sensitivePaths.some((path) => matchesSensitivePath(path, fieldPath.value)))
+const sensitive = computed(() => props.field.type === 'password' || props.field.type === 'secret-multiline' || props.sensitivePaths.some((path) => matchesSensitivePath(path, fieldPath.value)))
 
 function visibleProperties(properties?: FieldSchema[]): FieldSchema[] {
   return (properties ?? []).filter((property) => matchesCondition(property.when, props.currentState))
@@ -171,6 +171,71 @@ function forwardCredentialChange(payload: { path: string; value: string }) {
 function updateCredential(value: string) {
   update(value)
   emit('credential-change', { path: fieldPath.value, value })
+}
+
+// byte-sequence：内部规范值为 3 个 0-255 整数；输入支持三个整数或 Base64。
+const BYTE_SEQUENCE_LENGTH = 3
+const byteSequenceItems = ref<Array<number | undefined>>([undefined, undefined, undefined])
+const byteSequenceDraft = ref('')
+const byteSequenceError = ref('')
+
+watch(() => props.modelValue, (value) => {
+  if (Array.isArray(value) && value.length === BYTE_SEQUENCE_LENGTH) {
+    byteSequenceItems.value = value.map((item) => Number(item))
+    byteSequenceError.value = ''
+    return
+  }
+  if (value === undefined || value === null || value === '') {
+    byteSequenceItems.value = [undefined, undefined, undefined]
+  }
+}, { immediate: true, deep: true })
+
+function byteSequenceComplete(): boolean {
+  return byteSequenceItems.value.every((item) => typeof item === 'number' && Number.isInteger(item) && item >= 0 && item <= 255)
+}
+
+function setByteSequenceItem(index: number, value: number | undefined) {
+  const next = [...byteSequenceItems.value]
+  next[index] = value === undefined || value === null || Number.isNaN(value) ? undefined : Math.trunc(value)
+  byteSequenceItems.value = next
+  if (byteSequenceComplete()) {
+    byteSequenceError.value = ''
+    update([...next] as number[])
+    emit('validity-change', { path: fieldPath.value, valid: true })
+    return
+  }
+  byteSequenceError.value = `请输入 ${BYTE_SEQUENCE_LENGTH} 个 0-255 整数`
+  emit('validity-change', { path: fieldPath.value, valid: false })
+}
+
+function applyByteSequenceBase64() {
+  const text = byteSequenceDraft.value.trim()
+  if (text === '') {
+    byteSequenceError.value = '请输入 Base64 内容'
+    return
+  }
+  let decoded = ''
+  try {
+    decoded = window.atob(text)
+  } catch {
+    byteSequenceError.value = 'Base64 内容非法'
+    return
+  }
+  if (decoded.length !== BYTE_SEQUENCE_LENGTH) {
+    byteSequenceError.value = `Base64 解码后必须为 ${BYTE_SEQUENCE_LENGTH} 字节`
+    return
+  }
+  const values = Array.from(decoded).map((char) => char.charCodeAt(0))
+  byteSequenceItems.value = values
+  byteSequenceDraft.value = ''
+  byteSequenceError.value = ''
+  update(values)
+  emit('validity-change', { path: fieldPath.value, valid: true })
+}
+
+function cancelByteSequenceDraft() {
+  byteSequenceDraft.value = ''
+  byteSequenceError.value = ''
 }
 
 function emitJsonDirty(dirty: boolean) {
@@ -530,10 +595,6 @@ onBeforeUnmount(() => {
   if (scalarListDraftOpen.value) emitDraftDirty(false)
 })
 
-function isLongText(field: FieldSchema): boolean {
-  return field.type === 'text' && ['client-config', 'certificate', 'ca', 'ca-str', 'host-key', 'restls-script'].includes(field.name)
-}
-
 function isComplex(value: unknown): boolean {
   return value !== null && typeof value === 'object'
 }
@@ -661,13 +722,32 @@ function isComplex(value: unknown): boolean {
 
   <div v-else :data-field-path="fieldPath" class="protocol-scalar-field">
     <label class="text-sm text-text-secondary">{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></label>
-    <template v-if="sensitive">
+    <template v-if="field.type === 'secret-multiline'">
+      <Input.TextArea :value="String(modelValue ?? '')" :rows="4" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
+      <div class="text-xs text-text-tertiary mt-1">
+        {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
+      </div>
+    </template>
+    <template v-else-if="sensitive">
       <Input.Password :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
       <div class="text-xs text-text-tertiary mt-1">
         {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
       </div>
     </template>
     <InputNumber v-else-if="field.type === 'number'" :value="numberValue" :placeholder="field.required ? `请输入${field.label}` : '未设置'" class="w-full" @change="(value: any) => update(value ?? undefined)" />
+    <div v-else-if="field.type === 'byte-sequence'" class="protocol-byte-sequence-editor space-y-2">
+      <div class="grid grid-cols-3 gap-2">
+        <InputNumber v-for="(item, index) in byteSequenceItems" :key="index" :value="item" :min="0" :max="255" :precision="0"
+          :placeholder="`第 ${index + 1} 项`" class="w-full" @change="(value: any) => setByteSequenceItem(index, value ?? undefined)" />
+      </div>
+      <div class="flex items-center gap-2">
+        <Input :value="byteSequenceDraft" placeholder="粘贴 Base64（解码为 3 字节）" @change="(event: any) => { byteSequenceDraft = event.target.value }" />
+        <Button size="small" @click="applyByteSequenceBase64">应用 Base64</Button>
+        <Button v-if="byteSequenceDraft" size="small" @click="cancelByteSequenceDraft">取消</Button>
+      </div>
+      <div v-if="byteSequenceError" class="text-xs text-red-500">{{ byteSequenceError }}</div>
+      <div v-else class="text-xs text-text-tertiary">保存前统一为 3 字节整数序列。</div>
+    </div>
     <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" :placeholder="`请选择${field.label}`" class="w-full" @update:model-value="(value: string) => update(value)" @draft-dirty-change="(dirty: boolean) => emitDraftDirty(dirty)" />
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
       <Select.Option v-for="option in field.options" :key="option" :value="option">{{ option }}</Select.Option>
@@ -695,7 +775,7 @@ function isComplex(value: unknown): boolean {
         </div>
       </div>
     </div>
-    <Input.TextArea v-else-if="isLongText(field)" :value="String(modelValue ?? '')" :rows="4" @change="(event: any) => update(event.target.value)" />
+    <Input.TextArea v-else-if="field.type === 'multiline'" :value="String(modelValue ?? '')" :rows="4" @change="(event: any) => update(event.target.value)" />
     <Input v-else :value="String(modelValue ?? '')" @change="(event: any) => update(event.target.value)" />
     <div v-if="field.help" class="text-xs text-text-tertiary mt-1">{{ field.help }}</div>
   </div>

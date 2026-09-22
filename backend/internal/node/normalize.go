@@ -11,6 +11,9 @@ func NormalizeProtocolJSON(proto Protocol, params map[string]any) (map[string]an
 	}
 	out := normalizeProtocolParameters(proto, params)
 	canonicalizeLegacyAliases(proto, out)
+	if err := normalizeByteSequenceFields(proto.FormSchema, out, ""); err != nil {
+		return nil, err
+	}
 	if err := ensureSensitiveItemIDs(out, proto.SensitiveFields); err != nil {
 		return nil, err
 	}

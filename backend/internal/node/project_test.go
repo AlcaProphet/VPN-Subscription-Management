@@ -260,12 +260,12 @@ func TestSSPluginFieldsMatchMihomo11931Contract(t *testing.T) {
 			name:      "v2ray-plugin-opts",
 			fields:    []string{"certificate", "ech-opts", "fingerprint", "headers", "host", "mode", "mux", "name-cert-verify", "path", "private-key", "skip-cert-verify", "tls", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open"},
 			forbidden: "version", required: []string{"mode"}, defaults: map[string]any{"mode": "websocket"},
-			fieldTypes: map[string]string{"ech-opts": "object", "headers": "object", "private-key": "password", "skip-cert-verify": "bool", "tls": "bool"},
+			fieldTypes: map[string]string{"certificate": "multiline", "ech-opts": "object", "headers": "object", "private-key": "secret-multiline", "skip-cert-verify": "bool", "tls": "bool"},
 		},
 		{
 			name:     "shadow-tls-opts",
 			fields:   []string{"alpn", "certificate", "fingerprint", "host", "name-cert-verify", "password", "private-key", "skip-cert-verify", "version"},
-			required: []string{"host"}, fieldTypes: map[string]string{"alpn": "text-list", "private-key": "password", "version": "number"},
+			required: []string{"host"}, fieldTypes: map[string]string{"alpn": "text-list", "certificate": "multiline", "private-key": "secret-multiline", "version": "number"},
 		},
 		{
 			name:      "restls-opts",

@@ -1077,4 +1077,110 @@ describe('NodesView 节点管理页', () => {
     wrapper.unmount()
   })
 
+  const httpProtocol = {
+    protocol: 'http',
+    label: 'HTTP',
+    form_schema: [
+      { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['none', 'basic'], default: 'none' },
+      { name: 'username', type: 'text', required: false, label: '用户名', group: 'auth', when: { selectors: { auth_mode: ['basic'] } }, required_when: { selectors: { auth_mode: ['basic'] } }, reset_on: ['selector.auth_mode'] },
+      { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['basic'] } }, required_when: { selectors: { auth_mode: ['basic'] } }, reset_on: ['selector.auth_mode'] },
+      { name: 'tls', type: 'bool', default: false, label: 'TLS', section: 'switches', feature: { name: 'tls' }, reset_on: ['feature.tls'] },
+      { name: 'sni', type: 'text', required: false, label: 'SNI', group: 'connection', when: { features: ['tls'] }, reset_on: ['feature.tls'] },
+      { name: 'headers', type: 'object', required: false, label: '请求头', group: 'advanced', object_kind: 'map', map_value_type: 'string', allow_unknown: true },
+    ],
+    selectors: [{ name: 'auth_mode', values: ['none', 'basic'], default: 'none' }],
+    sensitive_fields: ['password'],
+    link_mappings: { sr: true, generic: true },
+  }
+
+  it('HTTP state_only selector 写入 current_state.selectors 并随切换清空凭据', async () => {
+    mockGetProtocols.mockResolvedValue([httpProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'http'
+    await nextTick()
+
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'none' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'username')).toBe(false)
+    expect(vm.form.protocol_json['auth-mode']).toBeUndefined()
+
+    const modeField = httpProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'basic')
+    await nextTick()
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'basic' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'username')).toBe(true)
+    expect(vm.form.protocol_json['auth-mode']).toBeUndefined()
+
+    vm.setField('username', 'u')
+    vm.setField('password', 'p')
+    await nextTick()
+    vm.setFieldModelValue(modeField, 'none')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBeUndefined()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'none' })
+
+    vm.form.name = 'http-node'
+    mockCreateNode.mockResolvedValue({})
+    await vm.save()
+    expect(mockCreateNode.mock.calls[0][0].current_state.selectors).toEqual({ auth_mode: 'none' })
+    wrapper.unmount()
+  })
+
+  it('编辑 HTTP 节点时从 current_state.selectors 回填 state_only 选择', async () => {
+    mockGetProtocols.mockResolvedValue([httpProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit({
+      ...node,
+      protocol: 'http',
+      port: 8080,
+      protocol_json: { username: 'u', password: '', tls: true, sni: 's.example.com' },
+      current_state: { security: 'tls', features: ['tls'], selectors: { auth_mode: 'basic' } },
+    })
+    await nextTick()
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'basic' })
+    const mode = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'auth-mode')
+    expect(mode?.props('modelValue')).toBe('basic')
+    wrapper.unmount()
+  })
+
+  it('SOCKS5 复用认证/TLS 条件字段且 UDP 独立于认证切换', async () => {
+    const socks5Protocol = {
+      ...httpProtocol,
+      protocol: 'socks5',
+      label: 'SOCKS5',
+      form_schema: [
+        ...httpProtocol.form_schema.filter((field) => field.name !== 'sni' && field.name !== 'headers'),
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+      ],
+    }
+    mockGetProtocols.mockResolvedValue([socks5Protocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'socks5'
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'sni')).toBe(false)
+
+    const modeField = socks5Protocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'basic')
+    await nextTick()
+    vm.setField('username', 'u')
+    vm.setField('password', 'p')
+    vm.setField('udp', false)
+    await nextTick()
+    vm.setFieldModelValue(modeField, 'none')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBeUndefined()
+    expect(vm.form.protocol_json.udp).toBe(false)
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    wrapper.unmount()
+  })
+
 })

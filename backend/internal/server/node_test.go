@@ -69,7 +69,33 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 					t.Errorf("%s 安全字段应在真实接口中明确禁止自定义: %+v", proto.Protocol, security)
 				}
 			}
-		case "http", "socks5":
+		case "http":
+			if fields["tls"].Type != "bool" {
+				t.Errorf("%s 有效 TLS 开关被删除", proto.Protocol)
+			}
+			mode := fields["auth-mode"]
+			if !mode.StateOnly || mode.SelectorName != "auth_mode" || mode.Type != "select" {
+				t.Errorf("HTTP 认证模式必须为 state_only select selector: %+v", mode)
+			}
+			for _, name := range []string{"username", "password"} {
+				if fields[name].When == nil || fields[name].RequiredWhen == nil || !slices.Contains(fields[name].ResetOn, "selector.auth_mode") {
+					t.Errorf("HTTP %s 缺少 basic 条件必填或 selector 清空归属: %+v", name, fields[name])
+				}
+			}
+			for _, name := range []string{"sni", "skip-cert-verify", "name-cert-verify", "fingerprint", "certificate", "private-key"} {
+				field, exists := fields[name]
+				if !exists {
+					t.Errorf("HTTP 缺少 TLS 子字段 %s", name)
+					continue
+				}
+				if field.When == nil || !slices.Contains(field.When.Features, "tls") || !slices.Contains(field.ResetOn, "feature.tls") {
+					t.Errorf("HTTP TLS 子字段 %s 缺少 feature 条件或清空归属: %+v", name, field)
+				}
+			}
+			if fields["headers"].MapValueType != "string" || fields["headers"].ObjectKind != "map" {
+				t.Errorf("HTTP headers 必须为字符串开放 Map: %+v", fields["headers"])
+			}
+		case "socks5":
 			if fields["tls"].Type != "bool" {
 				t.Errorf("%s 有效 TLS 开关被删除", proto.Protocol)
 			}
@@ -99,8 +125,11 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			for _, field := range fields["restls-opts"].Properties {
 				restlsFields[field.Name] = field
 			}
-			if v2rayFields["private-key"].Type != "password" || shadowFields["private-key"].Type != "password" || shadowFields["host"].Required || restlsFields["host"].Required {
-				t.Errorf("SS 固定插件字段或目标限定必填被错误投影: v2ray=%+v shadow=%+v restls=%+v", v2rayFields, shadowFields, restlsFields)
+			if v2rayFields["private-key"].Type != "secret-multiline" || shadowFields["private-key"].Type != "secret-multiline" ||
+				v2rayFields["certificate"].Type != "multiline" || shadowFields["certificate"].Type != "multiline" ||
+				restlsFields["restls-script"].Type != "multiline" ||
+				shadowFields["host"].Required || restlsFields["host"].Required {
+				t.Errorf("SS 固定插件字段类型或目标限定必填被错误投影: v2ray=%+v shadow=%+v restls=%+v", v2rayFields, shadowFields, restlsFields)
 			}
 			if _, exists := v2rayFields["version"]; exists {
 				t.Error("v2ray-plugin version 不应继续标记为固定版本字段")

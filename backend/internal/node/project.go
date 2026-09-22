@@ -348,6 +348,17 @@ func allowsCustom(field FieldSchema) bool {
 
 func validateProtocolCombination(proto Protocol, state CurrentState, params map[string]any) error {
 	switch proto.Protocol {
+	case "http":
+		if err := validateTLSKeyPair(params); err != nil {
+			return err
+		}
+		if err := validateHTTPHeaders(params); err != nil {
+			return err
+		}
+	case "socks5":
+		if err := validateTLSKeyPair(params); err != nil {
+			return err
+		}
 	case "vless":
 		if state.Network == "xhttp" {
 			xhttp := objectValue(params, "xhttp-opts")
@@ -390,6 +401,75 @@ func validateProtocolCombination(proto Protocol, state CurrentState, params map[
 
 func errorsForField(path, message string) error {
 	return fmt.Errorf("字段 %s: %s", path, message)
+}
+
+// validateTLSKeyPair 要求客户端证书与私钥同时提供或同时为空（HTTP／SOCKS5 mTLS 成对）。
+func validateTLSKeyPair(params map[string]any) error {
+	certificate := hasTextParam(params, "certificate")
+	privateKey := hasTextParam(params, "private-key")
+	if certificate == privateKey {
+		return nil
+	}
+	if certificate {
+		return errorsForField("private-key", "使用客户端证书时必须同时提供私钥")
+	}
+	return errorsForField("certificate", "使用客户端私钥时必须同时提供证书")
+}
+
+// validateHTTPHeaders 执行请求头键值合同，并禁止覆盖 adapter 固定的代理认证内部处理。
+func validateHTTPHeaders(params map[string]any) error {
+	headers, ok := params["headers"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	seen := make(map[string]string, len(headers))
+	for key, value := range headers {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			return errorsForField("headers", "请求头键不能为空")
+		}
+		if _, ok := value.(string); !ok {
+			return errorsForField("headers."+trimmed, "请求头值必须为字符串")
+		}
+		lower := strings.ToLower(trimmed)
+		if lower == "proxy-authorization" {
+			return errorsForField("headers."+trimmed, "不得覆盖代理认证头 Proxy-Authorization")
+		}
+		if previous, exists := seen[lower]; exists {
+			return errorsForField("headers."+trimmed, "请求头键 "+previous+" 与 "+trimmed+" 大小写不敏感重复")
+		}
+		seen[lower] = trimmed
+	}
+	return nil
+}
+
+// clearSelectorScopedFields 删除与已解析 selector 状态不匹配的声明字段（含子对象）。
+// 只处理声明了 selector 条件的字段，用于分支切换后旧分支参数不落库、不进入输出。
+func clearSelectorScopedFields(proto Protocol, state CurrentState, params map[string]any) map[string]any {
+	if len(proto.Selectors) == 0 || len(params) == 0 {
+		return params
+	}
+	out := cloneJSONMap(params)
+	var walk func([]FieldSchema, map[string]any)
+	walk = func(fields []FieldSchema, object map[string]any) {
+		for _, field := range fields {
+			if field.StateOnly {
+				continue
+			}
+			if field.When != nil && len(field.When.Selectors) > 0 && !field.When.Matches(state, "") {
+				delete(object, field.Name)
+				continue
+			}
+			if field.Type != "object" {
+				continue
+			}
+			if value, ok := object[field.Name].(map[string]any); ok {
+				walk(field.Properties, value)
+			}
+		}
+	}
+	walk(proto.FormSchema, out)
+	return out
 }
 
 func objectValue(params map[string]any, key string) map[string]any {
