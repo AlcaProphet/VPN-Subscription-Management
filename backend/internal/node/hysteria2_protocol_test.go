@@ -185,6 +185,42 @@ func TestHysteria2TLSAndWindowRelations(t *testing.T) {
 	}
 }
 
+func TestHysteria2BandwidthAndIntegerBoundaries(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	for _, tc := range []struct {
+		field string
+		value any
+	}{
+		{field: "up", value: "not-a-rate"},
+		{field: "down", value: "0 Mbps"},
+		{field: "cwnd", value: 0},
+		{field: "udp-mtu", value: -1},
+		{field: "handshake-timeout", value: 1.5},
+		{field: "initial-stream-receive-window", value: 1.5},
+		{field: "max-stream-receive-window", value: -1},
+		{field: "initial-connection-receive-window", value: 1.5},
+		{field: "max-connection-receive-window", value: -1},
+	} {
+		params := map[string]any{"password": "hy2-secret", tc.field: tc.value}
+		_, err := svc.CreateManual(context.Background(), hysteria2CreateInput(
+			"hy2-invalid-boundary-"+tc.field, params, hysteria2State("single", "none")))
+		if err == nil || !strings.Contains(err.Error(), tc.field) {
+			t.Fatalf("%s=%v 必须返回字段级错误，实际: %v", tc.field, tc.value, err)
+		}
+	}
+
+	params := map[string]any{
+		"password": "hy2-secret", "up": "100 Mbps", "down": "1 Gbps",
+		"cwnd": 1, "udp-mtu": 1200, "handshake-timeout": 1,
+		"initial-stream-receive-window": 0, "max-stream-receive-window": 4096,
+		"initial-connection-receive-window": 0, "max-connection-receive-window": 8192,
+	}
+	if _, err := svc.CreateManual(context.Background(), hysteria2CreateInput(
+		"hy2-valid-boundaries", params, hysteria2State("single", "none"))); err != nil {
+		t.Fatalf("合法速率、正整数和非负整数应通过: %v", err)
+	}
+}
+
 func TestHysteria2RealmSubtree(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	// enable=false 清空整个对象。

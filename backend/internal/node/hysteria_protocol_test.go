@@ -237,6 +237,36 @@ func TestHysteriaTLSKeyPairAndWindowRelation(t *testing.T) {
 	}
 }
 
+func TestHysteriaAdvancedNumbersRequireNonnegativeIntegers(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	for _, tc := range []struct {
+		field string
+		value any
+	}{
+		{field: "hop-interval", value: -1},
+		{field: "hop-interval", value: 1.5},
+		{field: "recv-window-conn", value: 1.5},
+		{field: "recv-window", value: 1.5},
+	} {
+		params := hysteriaBaseParams()
+		params[tc.field] = tc.value
+		_, err := svc.CreateManual(context.Background(), hysteriaCreateInput(
+			"hy-invalid-integer-"+tc.field, params, hysteriaAuthState("none")))
+		if err == nil || !strings.Contains(err.Error(), tc.field) {
+			t.Fatalf("%s=%v 必须返回非负整数字段错误，实际: %v", tc.field, tc.value, err)
+		}
+	}
+
+	params := hysteriaBaseParams()
+	params["hop-interval"] = 0
+	params["recv-window-conn"] = 0
+	params["recv-window"] = 0
+	if _, err := svc.CreateManual(context.Background(), hysteriaCreateInput(
+		"hy-zero-integers", params, hysteriaAuthState("none"))); err != nil {
+		t.Fatalf("非负整数 0 应通过: %v", err)
+	}
+}
+
 func TestHysteriaStateOnlyAuthModeRejectedInProtocolJSON(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	params := hysteriaBaseParams()

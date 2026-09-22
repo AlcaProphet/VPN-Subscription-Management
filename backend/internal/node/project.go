@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"regexp"
@@ -480,6 +481,18 @@ func validHysteriaPorts(value string) bool {
 	return true
 }
 
+// validateIntegerMinimum 校验已声明为 number 的活动字段必须是整数且不低于下限。
+func validateIntegerMinimum(params map[string]any, name string, minimum float64, message string) error {
+	value, ok := numberParam(params[name])
+	if !ok {
+		return nil
+	}
+	if math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value || value < minimum {
+		return errorsForField(name, message)
+	}
+	return nil
+}
+
 // validateHysteriaCombination 校验 Hysteria v1 的带宽、认证、端口跳跃、mTLS 与接收窗口关系。
 func validateHysteriaCombination(params map[string]any) error {
 	for _, name := range []string{"up", "down"} {
@@ -500,19 +513,21 @@ func validateHysteriaCombination(params map[string]any) error {
 	if err := validateTLSKeyPair(params); err != nil {
 		return err
 	}
+	if err := validateIntegerMinimum(params, "hop-interval", 0, "Hop 间隔必须是非负整数"); err != nil {
+		return err
+	}
 	return validateReceiveWindows(params)
 }
 
 // validateReceiveWindows 校验接收窗口非负且连接窗口不小于流窗口。
 func validateReceiveWindows(params map[string]any) error {
+	for _, name := range []string{"recv-window-conn", "recv-window"} {
+		if err := validateIntegerMinimum(params, name, 0, "接收窗口必须是非负整数"); err != nil {
+			return err
+		}
+	}
 	stream, hasStream := numberParam(params["recv-window-conn"])
 	connection, hasConnection := numberParam(params["recv-window"])
-	if hasStream && stream < 0 {
-		return errorsForField("recv-window-conn", "连接接收窗口不能为负数")
-	}
-	if hasConnection && connection < 0 {
-		return errorsForField("recv-window", "接收窗口不能为负数")
-	}
 	if hasStream && hasConnection && stream > connection {
 		return errorsForField("recv-window-conn", "连接接收窗口不能小于流接收窗口 recv-window")
 	}
@@ -556,11 +571,21 @@ func validateHysteria2Combination(state CurrentState, params map[string]any) err
 	if err := validateTLSKeyPair(params); err != nil {
 		return err
 	}
-	for _, name := range []string{"cwnd", "udp-mtu", "handshake-timeout",
+	for _, name := range []string{"up", "down"} {
+		if value := strings.TrimSpace(stringValue(params[name])); value != "" && !validBandwidth(value) {
+			return errorsForField(name, "带宽必须是非零的速率字符串（例如 100 Mbps）")
+		}
+	}
+	for _, name := range []string{"cwnd", "udp-mtu", "handshake-timeout"} {
+		if err := validateIntegerMinimum(params, name, 1, "该字段必须是正整数或未设置"); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{
 		"initial-stream-receive-window", "max-stream-receive-window",
 		"initial-connection-receive-window", "max-connection-receive-window"} {
-		if value, ok := numberParam(params[name]); ok && value < 0 {
-			return errorsForField(name, "该字段不能为负数")
+		if err := validateIntegerMinimum(params, name, 0, "该字段必须是非负整数"); err != nil {
+			return err
 		}
 	}
 	if ports := strings.TrimSpace(stringValue(params["ports"])); ports != "" && !validHysteriaPorts(ports) {

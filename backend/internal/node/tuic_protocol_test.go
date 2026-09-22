@@ -46,6 +46,30 @@ func TestTUICAuthModeSelectorDeclaration(t *testing.T) {
 	}
 }
 
+func TestTUICCongestionControllerEnum(t *testing.T) {
+	proto, err := GetProtocol("tuic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	field, ok := findSchemaField(proto.FormSchema, "congestion-controller")
+	want := []string{"", "cubic", "new_reno", "bbr_meta_v1", "bbr_meta_v2", "bbr"}
+	if !ok || field.Type != "select" || len(field.Options) != len(want) {
+		t.Fatalf("TUIC congestion-controller 必须声明固定 tag 枚举: %+v", field)
+	}
+	for i := range want {
+		if field.Options[i] != want[i] {
+			t.Fatalf("congestion-controller 允许值顺序异常: %+v", field.Options)
+		}
+	}
+
+	svc, _, _ := newTestService(t)
+	_, err = svc.CreateManual(context.Background(), tuicCreateInput("tuic-bad-congestion",
+		map[string]any{"uuid": tuicTestUUID, "password": "pw", "congestion-controller": "unknown"}, tuicState("v5")))
+	if err == nil || !strings.Contains(err.Error(), "congestion-controller") {
+		t.Fatalf("未知拥塞控制器必须返回字段级错误，实际: %v", err)
+	}
+}
+
 func TestTUICAuthModeDerivation(t *testing.T) {
 	proto, _ := GetProtocol("tuic")
 	if got := DeriveCurrentState(proto, map[string]any{"token": "t"}).Selectors["auth_mode"]; got != "v4" {

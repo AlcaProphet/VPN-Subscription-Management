@@ -428,6 +428,13 @@ func tuicUDPRelayModeField() FieldSchema {
 	return field
 }
 
+// tuicCongestionControllerField 声明固定 tag 实际处理的拥塞控制器；空值表示沿用内核默认行为。
+func tuicCongestionControllerField() FieldSchema {
+	field := sel("congestion-controller", "拥塞控制器", "", "", "cubic", "new_reno", "bbr_meta_v1", "bbr_meta_v2", "bbr")
+	field.Group = "advanced"
+	return field
+}
+
 // tuicUDPOverStreamVersionField 声明仅在 UOT 开启时可选的版本；0 只作为兼容输入归一化。
 func tuicUDPOverStreamVersionField() FieldSchema {
 	field := sel("udp-over-stream-version", "UDP over Stream 版本", "1", "1", "2")
@@ -649,7 +656,7 @@ func ManualProtocols() []Protocol {
 			f("request-timeout", "number", "请求超时"),
 			f("heartbeat-interval", "number", "心跳间隔"),
 			tuicUDPRelayModeField(),
-			f("congestion-controller", "text", "拥塞控制器"),
+			tuicCongestionControllerField(),
 			def("disable-sni", "bool", "禁用 SNI", false),
 			f("max-udp-relay-packet-size", "number", "最大 UDP 中继包"),
 			def("fast-open", "bool", "Fast Open", false),
