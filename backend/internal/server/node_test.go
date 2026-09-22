@@ -99,6 +99,154 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			if fields["tls"].Type != "bool" {
 				t.Errorf("%s 有效 TLS 开关被删除", proto.Protocol)
 			}
+		case "ssh":
+			mode := fields["auth-mode"]
+			if !mode.StateOnly || mode.SelectorName != "auth_mode" || mode.Type != "select" {
+				t.Errorf("SSH 认证模式必须为 state_only select selector: %+v", mode)
+			}
+			if fields["username"].Required != true {
+				t.Errorf("SSH 用户名为无条件必填: %+v", fields["username"])
+			}
+			if fields["password"].When == nil || !slices.Contains(fields["password"].When.Selectors["auth_mode"], "password") {
+				t.Errorf("SSH password 必须只在 password 分支活动: %+v", fields["password"])
+			}
+			if fields["private-key"].When == nil || !slices.Contains(fields["private-key"].When.Selectors["auth_mode"], "private_key") {
+				t.Errorf("SSH private-key 必须只在 private_key 分支活动: %+v", fields["private-key"])
+			}
+			for _, name := range []string{"password", "private-key", "private-key-passphrase"} {
+				if !slices.Contains(fields[name].ResetOn, "selector.auth_mode") {
+					t.Errorf("SSH %s 缺少 selector.auth_mode 清空归属: %+v", name, fields[name])
+				}
+			}
+			for _, name := range []string{"host-key", "host-key-algorithms"} {
+				if fields[name].Type != "text-list" {
+					t.Errorf("SSH %s 必须为结构化列表: %+v", name, fields[name])
+				}
+			}
+		case "snell":
+			versionField, ok := fields["version"]
+			if !ok || versionField.SelectorName != "version" || len(versionField.Options) != 5 {
+				t.Errorf("Snell version 必须为 1～5 的普通 selector 来源字段: %+v", versionField)
+			}
+			mode := fields["obfs-mode"]
+			if !mode.StateOnly || mode.SelectorName != "obfs_mode" || mode.Type != "select" {
+				t.Errorf("Snell 混淆模式必须为 state_only select selector: %+v", mode)
+			}
+			if fields["udp"].When == nil || !slices.Contains(fields["udp"].When.Selectors["version"], "3") {
+				t.Errorf("Snell udp 必须只在 v3 起活动: %+v", fields["udp"])
+			}
+			if fields["reuse"].When == nil || !slices.Contains(fields["reuse"].When.Selectors["version"], "4") {
+				t.Errorf("Snell reuse 必须只在 v4/v5 活动: %+v", fields["reuse"])
+			}
+			obfs := fields["obfs-opts"]
+			if obfs.Type != "object" || obfs.ObjectKind != "fields" || obfs.AllowUnknown {
+				t.Errorf("Snell obfs-opts 必须为拒绝未知键的固定对象: %+v", obfs)
+			}
+			for _, name := range []string{"host", "password", "version-hint", "username"} {
+				var found *node.FieldSchema
+				for i := range obfs.Properties {
+					if obfs.Properties[i].Name == name {
+						found = &obfs.Properties[i]
+					}
+				}
+				if found == nil || found.When == nil || !slices.Contains(found.ResetOn, "selector.obfs_mode") {
+					t.Errorf("Snell obfs-opts.%s 缺少模式条件或清空归属: %+v", name, found)
+				}
+			}
+			if fields["client-fingerprint"].When == nil || !slices.Contains(fields["client-fingerprint"].When.Selectors["obfs_mode"], "shadow_tls") {
+				t.Errorf("Snell client-fingerprint 必须只在伪装分支活动: %+v", fields["client-fingerprint"])
+			}
+		case "hysteria2":
+			for fieldName, want := range map[string]struct{ selector, value string }{
+				"endpoint-mode": {"endpoint_mode", "single"},
+				"obfs-mode":     {"obfs_mode", "none"},
+			} {
+				selector, ok := fields[fieldName]
+				if !ok || !selector.StateOnly || selector.SelectorName != want.selector || selector.Default != want.value {
+					t.Errorf("Hysteria2 %s 必须为 state_only selector: %+v", fieldName, selector)
+				}
+			}
+			if len(proto.EndpointPolicies) != 2 {
+				t.Fatalf("Hysteria2 必须声明 single／ports 两条 endpoint policy: %+v", proto.EndpointPolicies)
+			}
+			if field, exists := fields["ports"]; !exists || field.RequiredWhen == nil {
+				t.Errorf("Hysteria2 ports 必须在 ports 模式条件必填: %+v", field)
+			}
+			if field, exists := fields["hop-interval"]; !exists || field.When == nil {
+				t.Errorf("Hysteria2 hop-interval 必须只在 ports 模式活动: %+v", field)
+			}
+			if field, exists := fields["obfs-password"]; !exists || field.RequiredWhen == nil {
+				t.Errorf("Hysteria2 obfs-password 必须在混淆分支条件必填: %+v", field)
+			}
+			for _, name := range []string{"obfs-min-packet-size", "obfs-max-packet-size"} {
+				if field, exists := fields[name]; !exists || field.When == nil || !slices.Contains(field.When.Selectors["obfs_mode"], "gecko") {
+					t.Errorf("Hysteria2 %s 必须只在 gecko 分支活动: %+v", name, field)
+				}
+			}
+			realm := fields["realm-opts"]
+			if realm.Type != "object" || realm.Feature == nil || realm.Feature.Toggle != "enable" {
+				t.Errorf("Hysteria2 realm-opts 必须为以 enable 控制的 Realm 对象: %+v", realm)
+			}
+			for _, legacy := range []string{"ca", "ca-str", "protocol", "obfs-protocol", "obfs"} {
+				if _, exists := fields[legacy]; exists {
+					t.Errorf("Hysteria2 不应把历史字段 %s 保留为可保存入口", legacy)
+				}
+			}
+		case "hysteria":
+			mode := fields["auth-mode"]
+			if !mode.StateOnly || mode.SelectorName != "auth_mode" || mode.Type != "select" {
+				t.Errorf("Hysteria 认证方式必须为 state_only select selector: %+v", mode)
+			}
+			for _, name := range []string{"auth", "auth-str"} {
+				field, exists := fields[name]
+				if !exists || field.When == nil || field.RequiredWhen == nil || !slices.Contains(field.ResetOn, "selector.auth_mode") {
+					t.Errorf("Hysteria %s 缺少分支条件、条件必填或清空归属: %+v", name, field)
+				}
+			}
+			for _, name := range []string{"up", "down"} {
+				if field, exists := fields[name]; !exists || !field.Required {
+					t.Errorf("Hysteria %s 必须为无条件必填带宽入口: %+v", name, field)
+				}
+			}
+			if field, exists := fields["protocol"]; !exists || len(field.Options) != 3 {
+				t.Errorf("Hysteria protocol 必须为固定 tag 支持的枚举: %+v", field)
+			}
+			for _, legacy := range []string{"obfs-protocol", "up-speed", "down-speed", "ca", "ca-str"} {
+				if _, exists := fields[legacy]; exists {
+					t.Errorf("Hysteria 不应把历史字段 %s 保留为可保存入口", legacy)
+				}
+			}
+			if ech := fields["ech-opts"]; ech.Type != "object" || ech.Feature == nil || ech.Feature.Toggle != "enable" {
+				t.Errorf("Hysteria ech-opts 必须为以 enable 控制的 ECH 对象: %+v", ech)
+			}
+		case "tuic":
+			mode := fields["auth-mode"]
+			if !mode.StateOnly || mode.SelectorName != "auth_mode" || mode.Type != "select" {
+				t.Errorf("TUIC 认证方式必须为 state_only select selector: %+v", mode)
+			}
+			for _, name := range []string{"token", "uuid", "password"} {
+				field, exists := fields[name]
+				if !exists || field.When == nil || field.RequiredWhen == nil || !slices.Contains(field.ResetOn, "selector.auth_mode") {
+					t.Errorf("TUIC %s 缺少分支条件、条件必填或清空归属: %+v", name, field)
+				}
+			}
+			if relay := fields["udp-relay-mode"]; len(relay.Options) != 2 {
+				t.Errorf("TUIC udp-relay-mode 必须为固定 tag 支持的枚举: %+v", relay)
+			}
+			version := fields["udp-over-stream-version"]
+			if version.Type != "select" || len(version.Options) != 2 || version.When == nil || !slices.Contains(version.When.Features, "udp-over-stream") {
+				t.Errorf("TUIC UOT 版本必须为只在 UOT 开启时活动的两值枚举: %+v", version)
+			}
+			for _, legacy := range []string{"ca", "ca-str"} {
+				if _, exists := fields[legacy]; exists {
+					t.Errorf("TUIC 不应把历史字段 %s 保留为可保存入口", legacy)
+				}
+			}
+			for _, name := range []string{"name-cert-verify", "certificate", "private-key", "ech-opts", "bbr-profile"} {
+				if _, exists := fields[name]; !exists {
+					t.Errorf("TUIC 缺少固定 tag 字段 %s", name)
+				}
+			}
 		case "ss":
 			for _, name := range []string{"cipher", "plugin"} {
 				field := fields[name]

@@ -7,8 +7,17 @@ import (
 
 func minimalProtocolParams(proto Protocol) map[string]any {
 	out := map[string]any{}
+	// 先按注册表默认值构造默认 selector 组合，使默认分支的条件必填字段也纳入最小合法输入。
+	state := CurrentState{Selectors: map[string]string{}}
+	for _, selector := range proto.Selectors {
+		state.Selectors[selector.Name] = selector.Default
+	}
 	for _, field := range proto.FormSchema {
-		if !field.Required {
+		if field.StateOnly {
+			continue
+		}
+		conditionalRequired := field.RequiredWhen != nil && field.RequiredWhen.Matches(state, "")
+		if !field.Required && !conditionalRequired {
 			continue
 		}
 		switch field.Type {
@@ -26,8 +35,15 @@ func minimalProtocolParams(proto Protocol) map[string]any {
 			out[field.Name] = map[string]any{}
 		default:
 			value := "test-value"
-			if field.Name == "cipher" && proto.Protocol == "ss" {
+			switch {
+			case field.Name == "cipher" && proto.Protocol == "ss":
 				value = "aes-256-gcm"
+			case field.Name == "up" || field.Name == "down":
+				// Hysteria 系列要求内核可解析的非零速率字符串。
+				value = "100 Mbps"
+			case field.Name == "uuid":
+				// TUIC v5 与 VMess/VLESS 的 uuid 必须为合法 UUID。
+				value = "11111111-2222-3333-4444-555555555555"
 			}
 			out[field.Name] = value
 		}

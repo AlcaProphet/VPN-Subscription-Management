@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -159,10 +160,10 @@ func srLink(nd *nodeData) (string, error) {
 		if auth := str(nd.ProtocolJSON, "auth", ""); auth != "" {
 			q.Set("auth", auth)
 		}
-		if up := str(nd.ProtocolJSON, "up", ""); up != "" {
+		if up := mbpsString(str(nd.ProtocolJSON, "up", "")); up != "" {
 			q.Set("upmbps", up)
 		}
-		if down := str(nd.ProtocolJSON, "down", ""); down != "" {
+		if down := mbpsString(str(nd.ProtocolJSON, "down", "")); down != "" {
 			q.Set("downmbps", down)
 		}
 		if sni := firstNonEmpty(nd.ProtocolJSON, "sni", "servername"); sni != "" {
@@ -624,6 +625,54 @@ func userinfoPart(user, pass string) string {
 		return ""
 	}
 	return user + ":" + pass + "@"
+}
+
+// mbpsPattern 匹配固定 tag 接受的 bits 速率写法，例如 100 Mbps／1 Gbps。
+var mbpsPattern = regexp.MustCompile(`^(\d+)\s*([KMGT]?)bps$`)
+
+// mbpsString 把内部带单位速率字符串转换为 URI 约定的 Mbps 数字。
+// 纯整数按 Mbps 原样保留；无法解析的写法原样返回，交由项目诊断处理。
+func mbpsString(value string) string {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return ""
+	}
+	if amount, err := strconv.Atoi(text); err == nil {
+		return strconv.Itoa(amount)
+	}
+	matched := mbpsPattern.FindStringSubmatch(text)
+	if matched == nil {
+		return text
+	}
+	amount, err := strconv.Atoi(matched[1])
+	if err != nil {
+		return text
+	}
+	switch matched[2] {
+	case "T":
+		amount *= 1000 * 1000
+	case "G":
+		amount *= 1000
+	case "K":
+		if amount < 1000 {
+			return text
+		}
+		amount /= 1000
+	}
+	return strconv.Itoa(amount)
+}
+
+// uriProtocols 是当前具备 SR／generic URI 映射的协议集合。
+// 其余 manual 协议在目标检查中必须返回稳定 target_unsupported／skip，不伪造 URI。
+var uriProtocols = map[string]bool{
+	"ss": true, "vmess": true, "vless": true, "trojan": true,
+	"anytls": true, "hysteria": true, "hysteria2": true, "tuic": true,
+	"wireguard": true, "http": true, "socks5": true,
+}
+
+// SupportsURI 报告协议是否存在 SR／generic URI 映射。
+func SupportsURI(protocol string) bool {
+	return uriProtocols[protocol]
 }
 
 // Render 导出给下载渲染复用：按协议生成 SR 或通用标准链接。

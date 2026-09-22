@@ -1,0 +1,11 @@
+{
+  "protocol": "ssh",
+  "host": "192.0.2.1",
+  "port": 22,
+  "protocol_json": {
+    "username": "ssh-user",
+    "private-key": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIEt4q5YVLyauvDa3VGquPz1AG5LyzbQQzIEFaSeIDjZl\n-----END PRIVATE KEY-----\n"
+  },
+  "current_state": { "selectors": { "auth_mode": "private_key" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

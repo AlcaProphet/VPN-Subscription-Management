@@ -1,8 +1,17 @@
 package node
 
 import (
+	"encoding/base64"
+	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
+	"golang.org/x/crypto/ssh"
 )
 
 // ProjectActive 按当前状态投影实际活动的协议参数。
@@ -359,6 +368,29 @@ func validateProtocolCombination(proto Protocol, state CurrentState, params map[
 		if err := validateTLSKeyPair(params); err != nil {
 			return err
 		}
+	case "ssh":
+		if err := validateSSHPrivateKey(params); err != nil {
+			return err
+		}
+		if err := validateSSHHostKeys(params); err != nil {
+			return err
+		}
+	case "snell":
+		if err := validateSnellCombination(params); err != nil {
+			return err
+		}
+	case "hysteria":
+		if err := validateHysteriaCombination(params); err != nil {
+			return err
+		}
+	case "hysteria2":
+		if err := validateHysteria2Combination(state, params); err != nil {
+			return err
+		}
+	case "tuic":
+		if err := validateTUICCombination(state, params); err != nil {
+			return err
+		}
 	case "vless":
 		if state.Network == "xhttp" {
 			xhttp := objectValue(params, "xhttp-opts")
@@ -401,6 +433,292 @@ func validateProtocolCombination(proto Protocol, state CurrentState, params map[
 
 func errorsForField(path, message string) error {
 	return fmt.Errorf("字段 %s: %s", path, message)
+}
+
+// bandwidthPattern 与固定 tag 的 utils.StringToBps 保持一致；纯整数按 Mbps 处理。
+var bandwidthPattern = regexp.MustCompile(`^(\d+)\s*([KMGT]?)([Bb])ps$`)
+
+// validBandwidth 判断 up／down 是否为内核可接受的非零带宽字符串。
+func validBandwidth(value string) bool {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return false
+	}
+	if amount, err := strconv.Atoi(text); err == nil {
+		return amount > 0
+	}
+	matched := bandwidthPattern.FindStringSubmatch(text)
+	if matched == nil {
+		return false
+	}
+	amount, err := strconv.Atoi(matched[1])
+	return err == nil && amount > 0
+}
+
+// validHysteriaPorts 校验端口跳跃语法：逗号分隔的单端口或 begin-end 范围，均为 1-65535。
+func validHysteriaPorts(value string) bool {
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return false
+		}
+		if bounds := strings.Split(part, "-"); len(bounds) == 2 {
+			start, errStart := strconv.Atoi(strings.TrimSpace(bounds[0]))
+			end, errEnd := strconv.Atoi(strings.TrimSpace(bounds[1]))
+			if errStart != nil || errEnd != nil || start < 1 || end > 65535 || start > end {
+				return false
+			}
+			continue
+		} else if len(bounds) > 2 {
+			return false
+		}
+		port, err := strconv.Atoi(part)
+		if err != nil || port < 1 || port > 65535 {
+			return false
+		}
+	}
+	return true
+}
+
+// validateHysteriaCombination 校验 Hysteria v1 的带宽、认证、端口跳跃、mTLS 与接收窗口关系。
+func validateHysteriaCombination(params map[string]any) error {
+	for _, name := range []string{"up", "down"} {
+		if !validBandwidth(stringValue(params[name])) {
+			return errorsForField(name, "带宽必须是非零的速率字符串（例如 100 Mbps）")
+		}
+	}
+	if auth := strings.TrimSpace(stringValue(params["auth"])); auth != "" {
+		if _, err := base64.StdEncoding.DecodeString(auth); err != nil {
+			return errorsForField("auth", "认证必须是合法的 Base64 字符串")
+		}
+	}
+	if ports := strings.TrimSpace(stringValue(params["ports"])); ports != "" {
+		if !validHysteriaPorts(ports) {
+			return errorsForField("ports", "端口跳跃只接受 1-65535 的单端口或 begin-end 范围")
+		}
+	}
+	if err := validateTLSKeyPair(params); err != nil {
+		return err
+	}
+	return validateReceiveWindows(params)
+}
+
+// validateReceiveWindows 校验接收窗口非负且连接窗口不小于流窗口。
+func validateReceiveWindows(params map[string]any) error {
+	stream, hasStream := numberParam(params["recv-window-conn"])
+	connection, hasConnection := numberParam(params["recv-window"])
+	if hasStream && stream < 0 {
+		return errorsForField("recv-window-conn", "连接接收窗口不能为负数")
+	}
+	if hasConnection && connection < 0 {
+		return errorsForField("recv-window", "接收窗口不能为负数")
+	}
+	if hasStream && hasConnection && stream > connection {
+		return errorsForField("recv-window-conn", "连接接收窗口不能小于流接收窗口 recv-window")
+	}
+	return nil
+}
+
+// tuicDatagramFrameLimit 是固定 tag 对 max-datagram-frame-size 的硬上限。
+const tuicDatagramFrameLimit = 1400
+
+// validateTUICCombination 校验 TUIC 的 v5 UUID、直连 IP、非负数值、mTLS 与数据报／中继包联动。
+func validateTUICCombination(state CurrentState, params map[string]any) error {
+	if state.Selectors["auth_mode"] == "v5" {
+		if _, err := uuid.Parse(strings.TrimSpace(stringValue(params["uuid"]))); err != nil {
+			return errorsForField("uuid", "UUID 必须是合法的 UUID")
+		}
+	}
+	if ip := strings.TrimSpace(stringValue(params["ip"])); ip != "" && net.ParseIP(ip) == nil {
+		return errorsForField("ip", "IP 必须是合法地址")
+	}
+	for _, name := range []string{"heartbeat-interval", "request-timeout", "max-udp-relay-packet-size",
+		"max-open-streams", "cwnd", "recv-window-conn", "recv-window", "max-datagram-frame-size"} {
+		if value, ok := numberParam(params[name]); ok && value < 0 {
+			return errorsForField(name, "该字段不能为负数")
+		}
+	}
+	if err := validateTLSKeyPair(params); err != nil {
+		return err
+	}
+	datagram, hasDatagram := numberParam(params["max-datagram-frame-size"])
+	if hasDatagram && datagram > tuicDatagramFrameLimit {
+		return errorsForField("max-datagram-frame-size", "最大数据报帧不能超过内核上限 1400")
+	}
+	if relay, hasRelay := numberParam(params["max-udp-relay-packet-size"]); hasDatagram && hasRelay && relay > datagram {
+		return errorsForField("max-udp-relay-packet-size", "最大 UDP 中继包不能超过最大数据报帧")
+	}
+	return nil
+}
+
+// validateHysteria2Combination 校验 Hysteria2 的 mTLS、混淆、QUIC 窗口、高级整数与 Realm 子树。
+func validateHysteria2Combination(state CurrentState, params map[string]any) error {
+	if err := validateTLSKeyPair(params); err != nil {
+		return err
+	}
+	for _, name := range []string{"cwnd", "udp-mtu", "handshake-timeout",
+		"initial-stream-receive-window", "max-stream-receive-window",
+		"initial-connection-receive-window", "max-connection-receive-window"} {
+		if value, ok := numberParam(params[name]); ok && value < 0 {
+			return errorsForField(name, "该字段不能为负数")
+		}
+	}
+	if ports := strings.TrimSpace(stringValue(params["ports"])); ports != "" && !validHysteriaPorts(ports) {
+		return errorsForField("ports", "端口组只接受 1-65535 的单端口或 begin-end 范围")
+	}
+	if interval := strings.TrimSpace(stringValue(params["hop-interval"])); interval != "" && !validHopInterval(interval) {
+		return errorsForField("hop-interval", "Hop 间隔只接受单值或单范围，且最小不低于 5 秒")
+	}
+	if state.Selectors["obfs_mode"] == "gecko" {
+		minSize, hasMin := numberParam(params["obfs-min-packet-size"])
+		maxSize, hasMax := numberParam(params["obfs-max-packet-size"])
+		if hasMin && minSize <= 0 {
+			return errorsForField("obfs-min-packet-size", "混淆包大小必须为正数")
+		}
+		if hasMax && maxSize <= 0 {
+			return errorsForField("obfs-max-packet-size", "混淆包大小必须为正数")
+		}
+		if hasMin && hasMax && minSize > maxSize {
+			return errorsForField("obfs-min-packet-size", "混淆最小包不能大于混淆最大包")
+		}
+	}
+	if initial, ok := numberParam(params["initial-stream-receive-window"]); ok {
+		if maximum, ok := numberParam(params["max-stream-receive-window"]); ok && initial > maximum {
+			return errorsForField("initial-stream-receive-window", "初始流接收窗口不能大于最大流接收窗口")
+		}
+	}
+	if initial, ok := numberParam(params["initial-connection-receive-window"]); ok {
+		if maximum, ok := numberParam(params["max-connection-receive-window"]); ok && initial > maximum {
+			return errorsForField("initial-connection-receive-window", "初始连接接收窗口不能大于最大连接接收窗口")
+		}
+	}
+	return validateHysteria2Realm(params)
+}
+
+// validHopInterval 校验 Hop 间隔单值或单范围，且最小值不低于固定 tag 的 5 秒下限。
+func validHopInterval(value string) bool {
+	bounds := strings.Split(strings.TrimSpace(value), "-")
+	if len(bounds) > 2 {
+		return false
+	}
+	start, err := strconv.Atoi(strings.TrimSpace(bounds[0]))
+	if err != nil {
+		return false
+	}
+	end := start
+	if len(bounds) == 2 {
+		end, err = strconv.Atoi(strings.TrimSpace(bounds[1]))
+		if err != nil {
+			return false
+		}
+	}
+	return start >= 5 && end >= start
+}
+
+// validateHysteria2Realm 校验启用的 Realm 子树：绝对服务地址、STUN 主机端口与证书成对。
+func validateHysteria2Realm(params map[string]any) error {
+	options, ok := params["realm-opts"].(map[string]any)
+	if !ok || !boolValue(options["enable"]) {
+		return nil
+	}
+	serverURL := strings.TrimSpace(stringValue(options["server-url"]))
+	if serverURL == "" {
+		return errorsForField("realm-opts.server-url", "启用 Realm 时必须填写 Realm 服务地址")
+	}
+	parsed, err := url.Parse(serverURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return errorsForField("realm-opts.server-url", "Realm 服务地址必须是绝对的 HTTP(S) URL")
+	}
+	if servers, ok := stringListItems(options["stun-servers"]); ok {
+		for i, item := range servers {
+			host, port, err := net.SplitHostPort(strings.TrimSpace(item))
+			if err != nil || host == "" || port == "" {
+				return errorsForField(fmt.Sprintf("realm-opts.stun-servers[%d]", i), "STUN 服务器必须是 host:port")
+			}
+		}
+	}
+	hasCertificate := strings.TrimSpace(stringValue(options["certificate"])) != ""
+	hasPrivateKey := strings.TrimSpace(stringValue(options["private-key"])) != ""
+	if hasCertificate == hasPrivateKey {
+		return nil
+	}
+	if hasCertificate {
+		return errorsForField("realm-opts.private-key", "Realm 使用客户端证书时必须同时提供私钥")
+	}
+	return errorsForField("realm-opts.certificate", "Realm 使用客户端私钥时必须同时提供证书")
+}
+
+// validateSnellCombination 校验 Snell 版本与 UDP 的互斥关系，以及 shadow-tls 证书／私钥成对。
+// 条件必填（host／password／version-hint／username）由 schema 的 required_when 保证。
+func validateSnellCombination(params map[string]any) error {
+	version := strings.TrimSpace(stringValue(params["version"]))
+	if (version == "1" || version == "2") && boolValue(params["udp"]) {
+		return errorsForField("udp", "Snell v"+version+" 不支持 UDP")
+	}
+	options, ok := params["obfs-opts"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	hasCertificate := strings.TrimSpace(stringValue(options["certificate"])) != ""
+	hasPrivateKey := strings.TrimSpace(stringValue(options["private-key"])) != ""
+	if hasCertificate == hasPrivateKey {
+		return nil
+	}
+	if hasCertificate {
+		return errorsForField("obfs-opts.private-key", "使用客户端证书时必须同时提供私钥")
+	}
+	return errorsForField("obfs-opts.certificate", "使用客户端私钥时必须同时提供证书")
+}
+
+// validateSSHPrivateKey 要求 private-key 只接受可解析的 PEM 内容。
+// 使用与固定内核一致的 ssh 解析语义，避免把普通文本当作主机文件路径交给 Mihomo 读取。
+func validateSSHPrivateKey(params map[string]any) error {
+	key := strings.TrimSpace(stringValue(params["private-key"]))
+	if key == "" {
+		return nil
+	}
+	if !strings.Contains(key, "PRIVATE KEY") {
+		return errorsForField("private-key", "私钥必须是 PEM 内容，不能是主机文件路径或普通文本")
+	}
+	passphrase := strings.TrimSpace(stringValue(params["private-key-passphrase"]))
+	if passphrase != "" {
+		if _, err := ssh.ParsePrivateKeyWithPassphrase([]byte(key), []byte(passphrase)); err != nil {
+			return errorsForField("private-key-passphrase", "私钥口令无法解开该私钥")
+		}
+		return nil
+	}
+	if _, err := ssh.ParsePrivateKey([]byte(key)); err != nil {
+		var missing *ssh.PassphraseMissingError
+		if errors.As(err, &missing) {
+			return errorsForField("private-key-passphrase", "私钥已加密，必须提供私钥口令")
+		}
+		return errorsForField("private-key", "私钥不是合法的 PEM 私钥内容")
+	}
+	return nil
+}
+
+// validateSSHHostKeys 按 authorized-key 语法逐项校验 Host Key，并拒绝空算法名。
+// 列表的去空白与去重已在 NormalizeProtocolJSON 完成，此处只做语义校验。
+func validateSSHHostKeys(params map[string]any) error {
+	if hostKeys, ok := stringListItems(params["host-key"]); ok {
+		for i, item := range hostKeys {
+			key := strings.TrimSpace(item)
+			if key == "" {
+				return errorsForField(fmt.Sprintf("host-key[%d]", i), "Host Key 不能为空")
+			}
+			if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(key)); err != nil {
+				return errorsForField(fmt.Sprintf("host-key[%d]", i), "Host Key 必须符合 authorized-key 语法")
+			}
+		}
+	}
+	if algorithms, ok := stringListItems(params["host-key-algorithms"]); ok {
+		for i, item := range algorithms {
+			if strings.TrimSpace(item) == "" {
+				return errorsForField(fmt.Sprintf("host-key-algorithms[%d]", i), "Host Key 算法不能为空")
+			}
+		}
+	}
+	return nil
 }
 
 // validateTLSKeyPair 要求客户端证书与私钥同时提供或同时为空（HTTP／SOCKS5 mTLS 成对）。

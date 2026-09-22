@@ -396,3 +396,40 @@ func TestSSPluginURLAndSIP002EscapingCompose(t *testing.T) {
 		t.Fatalf("URL query 与 SIP002 组合往返异常: name=%q opts=%#v link=%s", name, opts, link)
 	}
 }
+
+// TestHysteriaURIBandwidthNormalization 锁定 up／down 带单位值进入 URI 时归一化为 Mbps 数字。
+func TestHysteriaURIBandwidthNormalization(t *testing.T) {
+	cases := []struct {
+		up   string
+		want string
+	}{
+		{"100", "100"},
+		{"100 Mbps", "100"},
+		{"1 Gbps", "1000"},
+		{"2 Tbps", "2000000"},
+		{"100 Kbps", "100 Kbps"},
+		{"1000 Kbps", "1"},
+	}
+	for _, tc := range cases {
+		link, err := Render("hysteria", "hy-node", "example.com", 443, map[string]any{"up": tc.up, "down": tc.up}, false)
+		if err != nil {
+			t.Fatalf("渲染 Hysteria URI 失败: %v", err)
+		}
+		parsed, err := url.Parse(link)
+		if err != nil {
+			t.Fatalf("解析 Hysteria URI 失败: %v", err)
+		}
+		if got := parsed.Query().Get("upmbps"); got != tc.want {
+			t.Fatalf("up=%q 的 upmbps 应为 %q，实际 %q（%s）", tc.up, tc.want, got, link)
+		}
+	}
+	// 无法解析的写法原样保留，不静默改写。
+	link, err := Render("hysteria", "hy-node", "example.com", 443, map[string]any{"up": "custom", "down": "custom"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _ := url.Parse(link)
+	if got := parsed.Query().Get("upmbps"); got != "custom" {
+		t.Fatalf("无法解析的带宽应原样保留，实际 %q", got)
+	}
+}

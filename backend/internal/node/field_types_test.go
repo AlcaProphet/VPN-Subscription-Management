@@ -3,6 +3,7 @@ package node
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -180,10 +181,15 @@ func TestRegistryFieldTypesKnown(t *testing.T) {
 }
 
 // TestLargeTextFieldsUseExplicitTypes 锁定"停止依赖字段名猜测大文本"的显式类型合同：
-// 多行文本字段必须为 multiline，私钥必须为 secret-multiline。
+// 多行文本字段必须为 multiline（Snell 的 restls-script 按敏感合同为 secret-multiline），
+// 私钥必须为 secret-multiline；SSH 的 Host Key 字段按 Build32 Step 6 改为结构化 text-list。
 func TestLargeTextFieldsUseExplicitTypes(t *testing.T) {
-	multilineNames := map[string]bool{
-		"certificate": true, "ca": true, "ca-str": true, "host-key": true, "restls-script": true, "client-config": true,
+	multilineNames := map[string][]string{
+		"certificate": {"multiline"}, "ca": {"multiline"}, "ca-str": {"multiline"},
+		"client-config": {"multiline"}, "restls-script": {"multiline", "secret-multiline"},
+	}
+	textListNames := map[string]bool{
+		"host-key": true, "host-key-algorithms": true,
 	}
 	var walk func(t *testing.T, protocol string, fields []FieldSchema, prefix string)
 	walk = func(t *testing.T, protocol string, fields []FieldSchema, prefix string) {
@@ -192,8 +198,11 @@ func TestLargeTextFieldsUseExplicitTypes(t *testing.T) {
 			if prefix != "" {
 				path = prefix + "." + field.Name
 			}
-			if multilineNames[field.Name] && field.Type != "multiline" {
-				t.Fatalf("协议 %s 字段 %s 应使用显式 multiline 类型，实际 %s", protocol, path, field.Type)
+			if allowed, ok := multilineNames[field.Name]; ok && !slices.Contains(allowed, field.Type) {
+				t.Fatalf("协议 %s 字段 %s 应使用显式多行类型 %v，实际 %s", protocol, path, allowed, field.Type)
+			}
+			if textListNames[field.Name] && field.Type != "text-list" {
+				t.Fatalf("协议 %s 字段 %s 应使用结构化 text-list 类型，实际 %s", protocol, path, field.Type)
 			}
 			if field.Name == "private-key" && field.Type != "secret-multiline" {
 				t.Fatalf("协议 %s 字段 %s 应使用显式 secret-multiline 类型，实际 %s", protocol, path, field.Type)

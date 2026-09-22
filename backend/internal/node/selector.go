@@ -70,14 +70,75 @@ func deriveStateOnlySelector(proto Protocol, name string, params map[string]any)
 			}
 			return "none", true
 		}
+	case "ssh":
+		if name == "auth_mode" {
+			if hasTextParam(params, "private-key") {
+				return "private_key", true
+			}
+			return "password", true
+		}
+	case "snell":
+		if name == "obfs_mode" {
+			return deriveSnellObfsMode(params), true
+		}
+	case "hysteria":
+		if name == "auth_mode" {
+			if hasTextParam(params, "auth") {
+				return "base64", true
+			}
+			if hasTextParam(params, "auth-str") {
+				return "string", true
+			}
+			return "none", true
+		}
+	case "hysteria2":
+		if name == "endpoint_mode" {
+			if hasTextParam(params, "ports") {
+				return "ports", true
+			}
+			return "single", true
+		}
+	case "tuic":
+		if name == "auth_mode" {
+			if hasTextParam(params, "token") {
+				return "v4", true
+			}
+			return "v5", true
+		}
 	}
 	return "", false
+}
+
+// deriveSnellObfsMode 从 obfs-opts 的实际字段推断 v1 状态或缺少显式选择时的混淆模式。
+// mode 本身是 state_only 不落库，因此只能按各模式独有字段判定；无对象时为 none。
+func deriveSnellObfsMode(params map[string]any) string {
+	options, ok := params["obfs-opts"].(map[string]any)
+	if !ok || len(options) == 0 {
+		return "none"
+	}
+	if hasTextParam(options, "version-hint") || hasTextParam(options, "restls-script") || boolParam(options, "force-tls12") {
+		return "restls"
+	}
+	if hasTextParam(options, "username") {
+		return "jls"
+	}
+	if hasTextParam(options, "password") || hasTextParam(options, "certificate") || hasTextParam(options, "private-key") ||
+		hasTextParam(options, "fingerprint") || hasTextParam(options, "name-cert-verify") || hasTextParam(options, "alpn") {
+		return "shadow_tls"
+	}
+	return "http"
 }
 
 // hasTextParam 判断字段是否存在非空文本值。
 func hasTextParam(params map[string]any, name string) bool {
 	value, ok := params[name].(string)
 	return ok && strings.TrimSpace(value) != ""
+}
+
+// boolParam 判断字段是否为显式 true。
+func boolParam(params map[string]any, name string) bool {
+	value, _ := params[name].(bool)
+	return value
 }
 
 // deriveSelectors 从当前协议参数派生 selector 值。
@@ -106,7 +167,9 @@ func HydrateCurrentStateForRead(proto Protocol, state CurrentState, params map[s
 	return hydrateCurrentStateForRead(proto, state, params, version)
 }
 
-// hydrateCurrentStateForRead 在内存中补全 selector；v1 只派生不回写，v2 保留已存值。
+// hydrateCurrentStateForRead 在内存中补全 selector；只填充缺失值，不写库。
+// 显式 selector 始终保留：检查／诊断路径不携带状态版本，若在此按参数重新猜测，
+// 会让 http/tls 之类无法由字段唯一反推的分支在预览与正式装配之间产生分歧。
 func hydrateCurrentStateForRead(proto Protocol, state CurrentState, params map[string]any, version int) CurrentState {
 	out := state
 	out.Features = append([]string(nil), state.Features...)
@@ -116,7 +179,7 @@ func hydrateCurrentStateForRead(proto Protocol, state CurrentState, params map[s
 	}
 	derived := deriveSelectors(proto, params)
 	for _, selector := range proto.Selectors {
-		if version < currentStateFormatVersion || out.Selectors[selector.Name] == "" {
+		if out.Selectors[selector.Name] == "" {
 			out.Selectors[selector.Name] = derived[selector.Name]
 		}
 	}

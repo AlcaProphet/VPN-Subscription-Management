@@ -1183,4 +1183,291 @@ describe('NodesView 节点管理页', () => {
     wrapper.unmount()
   })
 
+  it('SSH 认证分支切换清空另一组凭据并保留结构化 Host Key 列表', async () => {
+    const sshProtocol = {
+      protocol: 'ssh',
+      label: 'SSH',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['password', 'private_key'], default: 'password' },
+        { name: 'username', type: 'text', required: true, label: '用户名', group: 'auth' },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['password'] } }, required_when: { selectors: { auth_mode: ['password'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'private-key', type: 'secret-multiline', required: false, label: '私钥', group: 'auth', when: { selectors: { auth_mode: ['private_key'] } }, required_when: { selectors: { auth_mode: ['private_key'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'private-key-passphrase', type: 'password', required: false, label: '私钥口令', group: 'auth', when: { selectors: { auth_mode: ['private_key'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'host-key', type: 'text-list', required: false, label: 'Host Key', group: 'connection' },
+        { name: 'host-key-algorithms', type: 'text-list', required: false, label: 'Host Key 算法', group: 'connection' },
+      ],
+      selectors: [{ name: 'auth_mode', values: ['password', 'private_key'], default: 'password' }],
+      sensitive_fields: ['password', 'private-key', 'private-key-passphrase'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([sshProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'ssh'
+    await nextTick()
+
+    // 默认 password 分支只显示密码，不显示私钥。
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'password' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'password')).toBe(true)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'private-key')).toBe(false)
+
+    vm.setField('username', 'u')
+    vm.setField('password', 'pw')
+    await nextTick()
+
+    // A→B：切到 private_key 清空密码并显示私钥字段。
+    const modeField = sshProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'private_key')
+    await nextTick()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'private-key')).toBe(true)
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    expect(vm.form.protocol_json['auth-mode']).toBeUndefined()
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'private_key' })
+
+    // Host Key 以结构化列表提交，不进入 state_only。
+    vm.setField('host-key', ['ssh-ed25519 AAAA test'])
+    vm.setField('host-key-algorithms', ['ssh-ed25519'])
+    await nextTick()
+    expect(vm.form.protocol_json['host-key']).toEqual(['ssh-ed25519 AAAA test'])
+
+    // 编辑已保存节点时从 current_state.selectors 回填私钥分支。
+    vm.openEdit({
+      ...node,
+      protocol: 'ssh',
+      port: 22,
+      protocol_json: { username: 'u', 'private-key': '', 'host-key': ['ssh-ed25519 AAAA test'] },
+      current_state: { selectors: { auth_mode: 'private_key' } },
+    })
+    await nextTick()
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'private_key' })
+    const mode = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'auth-mode')
+    expect(mode?.props('modelValue')).toBe('private_key')
+    wrapper.unmount()
+  })
+
+  it('Snell 版本与混淆模式切换按 reset 清空旧分支字段', async () => {
+    const snellProtocol = {
+      protocol: 'snell',
+      label: 'Snell',
+      form_schema: [
+        { name: 'psk', type: 'password', required: true, label: 'PSK', group: 'auth' },
+        { name: 'version', type: 'select', required: false, label: '版本', group: 'connection', selector_name: 'version', options: ['1', '2', '3', '4', '5'], default: '1' },
+        { name: 'udp', type: 'bool', default: false, label: 'UDP', section: 'switches', when: { selectors: { version: ['3', '4', '5'] } }, reset_on: ['selector.version'] },
+        { name: 'reuse', type: 'bool', default: false, label: '连接复用', group: 'connection', when: { selectors: { version: ['4', '5'] } }, reset_on: ['selector.version'] },
+        { name: 'obfs-mode', type: 'select', required: false, label: '混淆模式', group: 'connection', state_only: true, selector_name: 'obfs_mode', options: ['none', 'http', 'tls', 'shadow_tls', 'restls', 'jls'], default: 'none' },
+        {
+          name: 'obfs-opts', type: 'object', required: false, label: '混淆参数', group: 'connection', object_kind: 'fields', allow_unknown: false,
+          when: { selectors: { obfs_mode: ['http', 'tls', 'shadow_tls', 'restls', 'jls'] } }, reset_on: ['selector.obfs_mode'],
+          properties: [
+            { name: 'host', type: 'text', required: false, label: 'Host', group: 'connection', when: { selectors: { obfs_mode: ['http', 'tls', 'shadow_tls', 'restls', 'jls'] } }, reset_on: ['selector.obfs_mode'] },
+            { name: 'password', type: 'password', required: false, label: '密码', group: 'connection', when: { selectors: { obfs_mode: ['shadow_tls', 'restls', 'jls'] } }, required_when: { selectors: { obfs_mode: ['shadow_tls', 'restls', 'jls'] } }, reset_on: ['selector.obfs_mode'] },
+            { name: 'version-hint', type: 'text', required: false, label: '版本提示', group: 'connection', when: { selectors: { obfs_mode: ['restls'] } }, reset_on: ['selector.obfs_mode'] },
+            { name: 'username', type: 'text', required: false, label: '用户名', group: 'connection', when: { selectors: { obfs_mode: ['jls'] } }, reset_on: ['selector.obfs_mode'] },
+          ],
+        },
+        { name: 'client-fingerprint', type: 'text', required: false, label: '客户端指纹', group: 'connection', when: { selectors: { obfs_mode: ['shadow_tls', 'restls', 'jls'] } }, reset_on: ['selector.obfs_mode'] },
+      ],
+      selectors: [
+        { name: 'version', values: ['1', '2', '3', '4', '5'], default: '1', source_field: 'version' },
+        { name: 'obfs_mode', values: ['none', 'http', 'tls', 'shadow_tls', 'restls', 'jls'], default: 'none' },
+      ],
+      sensitive_fields: ['psk', 'obfs-opts.password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([snellProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'snell'
+    await nextTick()
+
+    // 默认 v1：UDP／reuse 不活动。
+    expect(vm.currentState.selectors).toEqual({ version: '1', obfs_mode: 'none' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'udp')).toBe(false)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'reuse')).toBe(false)
+
+    // 切到 v4：UDP／reuse 出现并可编辑。
+    vm.setField('version', '4')
+    await nextTick()
+    expect(vm.currentState.selectors).toEqual({ version: '4', obfs_mode: 'none' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'reuse')).toBe(true)
+
+    // 切到 shadow_tls：obfs-opts 出现，切回 none 后整体清空。
+    const modeField = snellProtocol.form_schema[4] as FieldSchema
+    vm.setFieldModelValue(modeField, 'shadow_tls')
+    await nextTick()
+    vm.setField('obfs-opts', { host: 'bing.com', password: 'p' })
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'obfs-opts')).toBe(true)
+    vm.setFieldModelValue(modeField, 'none')
+    await nextTick()
+    expect(vm.form.protocol_json['obfs-opts']).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('selector.obfs_mode')
+    expect(vm.form.protocol_json['obfs-mode']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('Hysteria 认证分支互斥并在切换时清空另一组凭据', async () => {
+    const hysteriaProtocol = {
+      protocol: 'hysteria',
+      label: 'Hysteria',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['none', 'base64', 'string'], default: 'none' },
+        { name: 'auth', type: 'password', required: false, label: 'Base64 认证', group: 'auth', when: { selectors: { auth_mode: ['base64'] } }, required_when: { selectors: { auth_mode: ['base64'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'auth-str', type: 'password', required: false, label: '认证字符串', group: 'auth', when: { selectors: { auth_mode: ['string'] } }, required_when: { selectors: { auth_mode: ['string'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'up', type: 'text', required: true, label: '上行带宽', group: 'connection' },
+        { name: 'down', type: 'text', required: true, label: '下行带宽', group: 'connection' },
+        { name: 'protocol', type: 'select', required: false, label: '传输协议', group: 'connection', options: ['udp', 'wechat-video', 'faketcp'], default: 'udp' },
+      ],
+      selectors: [{ name: 'auth_mode', values: ['none', 'base64', 'string'], default: 'none' }],
+      sensitive_fields: ['auth', 'auth-str'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([hysteriaProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'hysteria'
+    await nextTick()
+
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'none' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'auth')).toBe(false)
+
+    const modeField = hysteriaProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'base64')
+    await nextTick()
+    vm.setField('auth', 'dGVzdC1hdXRo')
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'auth')).toBe(true)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'auth-str')).toBe(false)
+
+    vm.setFieldModelValue(modeField, 'string')
+    await nextTick()
+    expect(vm.form.protocol_json.auth).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    expect(vm.form.protocol_json['auth-mode']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('Hysteria2 端口模式隐藏顶层端口并按分支清空端口组与混淆字段', async () => {
+    const hysteria2Protocol = {
+      protocol: 'hysteria2',
+      label: 'Hysteria2',
+      form_schema: [
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        { name: 'endpoint-mode', type: 'select', required: false, label: '端口模式', group: 'connection', state_only: true, selector_name: 'endpoint_mode', options: ['single', 'ports'], default: 'single' },
+        { name: 'obfs-mode', type: 'select', required: false, label: '混淆模式', group: 'connection', state_only: true, selector_name: 'obfs_mode', options: ['none', 'salamander', 'gecko'], default: 'none' },
+        { name: 'ports', type: 'text', required: false, label: '端口组', group: 'connection', when: { selectors: { endpoint_mode: ['ports'] } }, required_when: { selectors: { endpoint_mode: ['ports'] } }, reset_on: ['selector.endpoint_mode'] },
+        { name: 'hop-interval', type: 'text', required: false, label: 'Hop 间隔', group: 'connection', when: { selectors: { endpoint_mode: ['ports'] } }, reset_on: ['selector.endpoint_mode'] },
+        { name: 'obfs-password', type: 'password', required: false, label: '混淆密码', group: 'connection', when: { selectors: { obfs_mode: ['salamander', 'gecko'] } }, required_when: { selectors: { obfs_mode: ['salamander', 'gecko'] } }, reset_on: ['selector.obfs_mode'] },
+      ],
+      selectors: [
+        { name: 'endpoint_mode', values: ['single', 'ports'], default: 'single' },
+        { name: 'obfs_mode', values: ['none', 'salamander', 'gecko'], default: 'none' },
+      ],
+      endpoint_policies: [
+        { when: { selectors: { endpoint_mode: ['single'] } }, host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true },
+        { when: { selectors: { endpoint_mode: ['ports'] } }, host_mode: 'required', port_mode: 'hidden', emit_host: true, emit_port: false },
+      ],
+      sensitive_fields: ['password', 'obfs-password'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([hysteria2Protocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'hysteria2'
+    await nextTick()
+
+    // single 模式：显示端口，不显示端口组。
+    expect(vm.currentState.selectors).toEqual({ endpoint_mode: 'single', obfs_mode: 'none' })
+    expect(vm.showPortField).toBe(true)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'ports')).toBe(false)
+
+    // 切到 ports：隐藏顶层端口，端口组出现。
+    const endpointField = hysteria2Protocol.form_schema[1] as FieldSchema
+    vm.setFieldModelValue(endpointField, 'ports')
+    await nextTick()
+    expect(vm.showPortField).toBe(false)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'ports')).toBe(true)
+    vm.setField('ports', '1000-2000')
+    await nextTick()
+
+    // 切回 single：端口组被清空，顶层端口恢复。
+    vm.setFieldModelValue(endpointField, 'single')
+    await nextTick()
+    expect(vm.form.protocol_json.ports).toBeUndefined()
+    expect(vm.showPortField).toBe(true)
+    expect(vm.resetScopesArray()).toContain('selector.endpoint_mode')
+
+    // 混淆分支：salamander 出现密码字段，切回 none 清空。
+    const obfsField = hysteria2Protocol.form_schema[2] as FieldSchema
+    vm.setFieldModelValue(obfsField, 'salamander')
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'obfs-password')).toBe(true)
+    vm.setField('obfs-password', 'p')
+    await nextTick()
+    vm.setFieldModelValue(obfsField, 'none')
+    await nextTick()
+    expect(vm.form.protocol_json['obfs-password']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('TUIC v4/v5 凭据互斥且 UOT 版本随开关清空', async () => {
+    const tuicProtocol = {
+      protocol: 'tuic',
+      label: 'TUIC',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['v4', 'v5'], default: 'v5' },
+        { name: 'token', type: 'password', required: false, label: 'Token', group: 'auth', when: { selectors: { auth_mode: ['v4'] } }, required_when: { selectors: { auth_mode: ['v4'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'uuid', type: 'password', required: false, label: 'UUID', group: 'auth', when: { selectors: { auth_mode: ['v5'] } }, required_when: { selectors: { auth_mode: ['v5'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['v5'] } }, required_when: { selectors: { auth_mode: ['v5'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'udp-over-stream', type: 'bool', default: false, label: 'UDP over Stream', section: 'switches', feature: { name: 'udp-over-stream' }, reset_on: ['feature.udp-over-stream'] },
+        { name: 'udp-over-stream-version', type: 'select', required: false, label: 'UDP over Stream 版本', group: 'connection', options: ['1', '2'], default: '1', when: { features: ['udp-over-stream'] }, reset_on: ['feature.udp-over-stream'] },
+      ],
+      selectors: [{ name: 'auth_mode', values: ['v4', 'v5'], default: 'v5' }],
+      sensitive_fields: ['token', 'uuid', 'password'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([tuicProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'tuic'
+    await nextTick()
+
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'v5' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'token')).toBe(false)
+    vm.setField('uuid', '11111111-2222-3333-4444-555555555555')
+    vm.setField('password', 'pw')
+    await nextTick()
+
+    // 切到 v4：uuid/password 被清空，token 出现。
+    const modeField = tuicProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'v4')
+    await nextTick()
+    expect(vm.form.protocol_json.uuid).toBeUndefined()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'token')).toBe(true)
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+
+    // UOT：开启后版本出现，关闭后版本清空。
+    vm.setField('udp-over-stream', true)
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'udp-over-stream-version')).toBe(true)
+    vm.setField('udp-over-stream-version', '2')
+    await nextTick()
+    vm.setField('udp-over-stream', false)
+    await nextTick()
+    expect(vm.form.protocol_json['udp-over-stream-version']).toBeUndefined()
+    wrapper.unmount()
+  })
+
 })

@@ -7,6 +7,7 @@ import (
 
 	gyaml "github.com/goccy/go-yaml"
 
+	assemblylinks "vpn-sub/internal/assembly/links"
 	"vpn-sub/internal/node"
 	"vpn-sub/internal/ssplugin"
 )
@@ -103,6 +104,16 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 }
 
 func checkLinkNodeTarget(target, protocol, renderName, host string, port int, params map[string]any) (node.CheckRenderResult, error) {
+	if !assemblylinks.SupportsURI(protocol) {
+		return node.CheckRenderResult{
+			Status: "skip",
+			Diagnostics: []node.TargetDiagnostic{{
+				Severity: "error", Code: "target_unsupported", Target: target, FieldPath: "protocol",
+				Message:  fmt.Sprintf("协议 %s 没有 %s URI 映射，目标不可用", protocol, target),
+				Evidence: "build32-uri-registry",
+			}},
+		}, nil
+	}
 	diagnostics := linkTargetDiagnostics(target, protocol, params)
 	diagnostics = append(diagnostics, diagnoseSSPluginForTarget(target, protocol, params)...)
 	if hasBlockingTargetDiagnostic(diagnostics) {
@@ -184,8 +195,124 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 					"当前 URI 适配器不表达该证书校验参数，导入后需复核", "cvr-2.5.2-uri")
 			}
 		}
+	case "hysteria":
+		// URI 只能表达 Base64 auth、端口跳跃与 TLS 开关，不能表达 auth-str、mTLS 与高级调优。
+		if hasTextParamValue(params, "auth-str") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "auth-str",
+				"当前 URI 适配器只能表达 Base64 auth，不能表达 auth-str 认证", "cvr-2.5.2-uri")
+		}
+		if hasTextParamValue(params, "certificate") || hasTextParamValue(params, "private-key") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "certificate",
+				"当前 URI 适配器不能表达 Hysteria 客户端证书（mTLS）参数", "cvr-2.5.2-uri")
+		}
+		for _, path := range []string{"name-cert-verify", "fingerprint"} {
+			if hasTextParamValue(params, path) {
+				add(&diagnostics, "warn", "unverified_compatibility", path,
+					"当前 URI 适配器不表达该证书校验参数，导入后需复核", "cvr-2.5.2-uri")
+			}
+		}
+		if ech, ok := params["ech-opts"].(map[string]any); ok && boolValue(ech["enable"]) {
+			add(&diagnostics, "warn", "uri_partial_fields", "ech-opts",
+				"当前 URI 适配器不携带 ECH 参数，导入后需复核", "cvr-2.5.2-uri")
+		}
+		for _, path := range []string{"recv-window-conn", "recv-window", "disable-mtu-discovery", "fast-open", "hop-interval"} {
+			if hasActiveParam(params, path) {
+				add(&diagnostics, "warn", "uri_partial_fields", path,
+					"当前 URI 适配器不表达该高级调优字段，导入后连接行为可能不同", "cvr-2.5.2-uri")
+			}
+		}
+	case "hysteria2":
+		// URI 只能表达单端口、认证、obfs 与 TLS 开关；端口组、Realm、mTLS 与高级调优不可表达。
+		if hasTextParamValue(params, "ports") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "ports",
+				"当前 URI 适配器不能表达 Hysteria2 端口组（端口跳跃）语义", "cvr-2.5.2-uri")
+		}
+		if realm, ok := params["realm-opts"].(map[string]any); ok && boolValue(realm["enable"]) {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "realm-opts",
+				"当前 URI 适配器不能表达 Hysteria2 Realm 服务发现语义", "cvr-2.5.2-uri")
+		}
+		if hasTextParamValue(params, "certificate") || hasTextParamValue(params, "private-key") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "certificate",
+				"当前 URI 适配器不能表达 Hysteria2 客户端证书（mTLS）参数", "cvr-2.5.2-uri")
+		}
+		for _, path := range []string{"name-cert-verify", "fingerprint"} {
+			if hasTextParamValue(params, path) {
+				add(&diagnostics, "warn", "unverified_compatibility", path,
+					"当前 URI 适配器不表达该证书校验参数，导入后需复核", "cvr-2.5.2-uri")
+			}
+		}
+		if ech, ok := params["ech-opts"].(map[string]any); ok && boolValue(ech["enable"]) {
+			add(&diagnostics, "warn", "uri_partial_fields", "ech-opts",
+				"当前 URI 适配器不携带 ECH 参数，导入后需复核", "cvr-2.5.2-uri")
+		}
+		for _, path := range []string{"up", "down", "obfs-min-packet-size", "obfs-max-packet-size",
+			"cwnd", "bbr-profile", "udp-mtu", "handshake-timeout",
+			"initial-stream-receive-window", "max-stream-receive-window",
+			"initial-connection-receive-window", "max-connection-receive-window"} {
+			if hasActiveParam(params, path) {
+				add(&diagnostics, "warn", "uri_partial_fields", path,
+					"当前 URI 适配器不表达该高级调优字段，导入后连接行为可能不同", "cvr-2.5.2-uri")
+			}
+		}
+	case "tuic":
+		// URI 只能表达 v5 的 UUID／密码、SNI、ALPN 与证书校验开关。
+		if hasTextParamValue(params, "token") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "token",
+				"当前 URI 适配器只表达 TUIC v5 的 UUID／密码，不能表达 v4 Token 认证", "cvr-2.5.2-uri")
+		}
+		if hasTextParamValue(params, "certificate") || hasTextParamValue(params, "private-key") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "certificate",
+				"当前 URI 适配器不能表达 TUIC 客户端证书（mTLS）参数", "cvr-2.5.2-uri")
+		}
+		for _, path := range []string{"name-cert-verify", "fingerprint"} {
+			if hasTextParamValue(params, path) {
+				add(&diagnostics, "warn", "unverified_compatibility", path,
+					"当前 URI 适配器不表达该证书校验参数，导入后需复核", "cvr-2.5.2-uri")
+			}
+		}
+		if ech, ok := params["ech-opts"].(map[string]any); ok && boolValue(ech["enable"]) {
+			add(&diagnostics, "warn", "uri_partial_fields", "ech-opts",
+				"当前 URI 适配器不携带 ECH 参数，导入后需复核", "cvr-2.5.2-uri")
+		}
+		for _, path := range []string{"ip", "request-timeout", "heartbeat-interval", "udp-relay-mode",
+			"congestion-controller", "disable-sni", "max-udp-relay-packet-size", "reduce-rtt",
+			"fast-open", "max-open-streams", "cwnd", "bbr-profile", "recv-window-conn", "recv-window",
+			"disable-mtu-discovery", "max-datagram-frame-size", "udp-over-stream", "udp-over-stream-version"} {
+			if hasActiveParam(params, path) {
+				add(&diagnostics, "warn", "uri_partial_fields", path,
+					"当前 URI 适配器不表达该高级调优字段，导入后连接行为可能不同", "cvr-2.5.2-uri")
+			}
+		}
 	}
 	return diagnostics
+}
+
+// hasActiveParam 判断调优字段是否设置了非零／非 false 值。
+func hasActiveParam(params map[string]any, key string) bool {
+	value, ok := params[key]
+	if !ok {
+		return false
+	}
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case int:
+		return typed != 0
+	case int32:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case float32:
+		return typed != 0
+	case float64:
+		return typed != 0
+	default:
+		return true
+	}
 }
 
 // hasTextParamValue 判断协议参数中的字符串字段是否已配置非空值。

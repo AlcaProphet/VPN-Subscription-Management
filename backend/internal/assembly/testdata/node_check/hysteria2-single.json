@@ -1,0 +1,13 @@
+{
+  "protocol": "hysteria2",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "password": "hysteria2-password",
+    "obfs-password": "hysteria2-obfs-password",
+    "sni": "example.com",
+    "alpn": ["h3"]
+  },
+  "current_state": { "selectors": { "endpoint_mode": "single", "obfs_mode": "salamander" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

@@ -1,7 +1,7 @@
 # Build32.md — 19 个 manual 协议编辑体验完整化
 
 > **文档定位：** 本文档是下一轮活动构建方案，承接 [Design4.md](Design4.md) 第九章“完成当前全部 19 个已兼容 manual 协议的编辑体验改进”目标，以及用户于 2026-09-21 对研究结论的最新确认。
-> **当前状态：** 用户已授权实施并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准；Step 0.5～3 已完成并提交在 `7ecb6d5aa0619d560fcbc786547cf95e0fef7080`（分支 `beta`，与 `origin/beta` 一致），Step 3 遗留的前端静态颜色门禁缺口已由 Step 3-fix 修正，Step 3.5 公共字段类型增补、Step 4 HTTP 与 Step 5 SOCKS5 已验收通过（legacy 待迁移协议 19→17）；固定 Mihomo v1.19.31 二进制已按用户确认重新获取并复验。当前中断恢复入口为 Step 6；继续实施时必须保留 Step 0.5～5 的既有改动。本文档按实际完成情况逐步更新，不预写后续 Step。
+> **当前状态：** 用户已授权实施并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准；Step 0.5～3 已完成并提交在 `7ecb6d5aa0619d560fcbc786547cf95e0fef7080`（分支 `beta`），Step 3 遗留的前端静态颜色门禁缺口已由 Step 3-fix 修正，Step 3.5 公共字段类型增补、Step 4 HTTP、Step 5 SOCKS5、Step 6 SSH、Step 7 Snell、Step 8 Hysteria、9 Hysteria2、10 TUIC 已验收通过（legacy 待迁移协议 19→12）；固定 Mihomo v1.19.31 二进制已按用户确认重新获取并复验。**用户已要求 Step 10 完成后停止后续构建**；当前中断恢复入口为 Step 11，继续实施前需用户另行确认。本文档按实际完成情况逐步更新，不预写后续 Step。
 > **编码约束：** [AGENTS.md](AGENTS.md) 是唯一强要求文档。实施时必须一次只执行一个 Step，逐步验收，不并行实施多个协议。
 > **最新用户决策：** 新兼容基线为 Mihomo **v1.19.31**（commit `ab405bad5beeeac8b003bb01f60f134f6df54471`），不再把 v1.19.29 作为新设计兼容目标；允许协议级 endpoint policy；OpenVPN 使用“结构化编辑为主＋粘贴 `.ovpn` 解析导入”，不再把 `client-config` 直接作为 Mihomo 输出字段；WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 不纳入 Build32，留作后续独立专项。
 
@@ -18,11 +18,11 @@
 | 3.5 | 公共字段类型增补（`multiline`／`secret-multiline`／`byte-sequence`） | ✅ 验收通过 |
 | 4 | HTTP 完整条件表单、TLS／认证与输出合同 | ✅ 验收通过 |
 | 5 | SOCKS5 完整条件表单、TLS／认证／UDP 与输出合同 | ✅ 验收通过 |
-| 6 | SSH 密码／私钥认证、Host Key 与多行凭据 | ☐ 未开始 |
-| 7 | Snell 版本、UDP／reuse 与五类 obfs 分支 | ☐ 未开始 |
-| 8 | Hysteria 认证、带宽、端口跳跃与 TLS 合同 | ☐ 未开始 |
-| 9 | Hysteria2 端口替代、混淆、Realm 与 QUIC 合同 | ☐ 未开始 |
-| 10 | TUIC v4／v5 认证互斥与 QUIC 合同 | ☐ 未开始 |
+| 6 | SSH 密码／私钥认证、Host Key 与多行凭据 | ✅ 验收通过 |
+| 7 | Snell 版本、UDP／reuse 与五类 obfs 分支 | ✅ 验收通过 |
+| 8 | Hysteria 认证、带宽、端口跳跃与 TLS 合同 | ✅ 验收通过 |
+| 9 | Hysteria2 端口替代、混淆、Realm 与 QUIC 合同 | ✅ 验收通过 |
+| 10 | TUIC v4／v5 认证互斥与 QUIC 合同 | ✅ 验收通过 |
 | 11 | 标准 WireGuard 单 Peer／多 Peer、稳定凭据与 reserved | ☐ 未开始 |
 | 12 | Mieru 单端口／`port-range` 真互斥与枚举修复 | ☐ 未开始 |
 | 13 | MASQUE 网络模式、L3 参数与 UDP 限制 | ☐ 未开始 |
@@ -690,12 +690,53 @@ Step 0.5 授权/冻结
 - 固定内核正例不得引用本机文件。
 - **字段逻辑：** `server/port/username` 必填。`auth_mode=password` 只活动 `password`；`private_key` 只活动 `private-key/private-key-passphrase`，私钥必须含合法 PEM 标志且在保存前解析，绝不把普通文本或路径交给 Mihomo；分支切换清除另一组 secret。`host-key` 为公钥文本列表，逐项用 authorized-key 语法验证、去空白去重；`host-key-algorithms` 为非空算法名列表并保持用户顺序。空 `host-key` 允许保存但产生安全 warn，非空时必须至少一项有效。SSH 不支持 UDP；不得输出 `udp=true`。wire 仅输出 `username/password/private-key/private-key-passphrase/host-key/host-key-algorithms` 及适用公共字段，检查预览对三类认证 secret 脱敏。
 
+**实施记录（2026-09-22）**
+
+- **失败优先证据：** 先新增 `backend/internal/node/ssh_protocol_test.go`（10 个测试函数）并运行 `go test ./internal/node -run 'TestSSH'`，实现前真实失败：`SSH 必须声明 auth_mode selector`、`无 private-key 应派生 password，实际 ""`、password 模式缺半对返回 `当前协议不支持 selector: auth_mode`、私钥路径／普通文本未被拒、口令生命周期无判定、Host Key 列表类型错误（`字段 host-key 类型应为 multiline`、`字段 host-key-algorithms 类型应为 text`）、敏感路径未登记。
+- **后端 schema：** `registry.go` 新增 `sshAuthModeField`（`auth-mode` state_only select，`selector_name=auth_mode`，`password/private_key`，默认 `password`）、`sshBranchCredential`（`when`／`required_when` 为 `selectors.auth_mode=[<branch>]`、`reset_on=selector.auth_mode`）、`sshHostKeyField`、`sshHostKeyAlgorithmsField`；SSH 条目改为 `username` 无条件必填 ＋ `password`（password 分支必填）＋ `private-key`／`private-key-passphrase`（private_key 分支，前者必填）＋ `host-key`／`host-key-algorithms`（`text-list`，含留空安全提示）；协议级 `selectors` 声明 `auth_mode`；`SensitiveFields` 保持 `password/private-key/private-key-passphrase`。
+- **selector 派生：** `selector.go` 的 `deriveStateOnlySelector` 增加 `ssh`：存在非空 `private-key` 派生 `private_key`，否则 `password`（v1 读取与新建共用，不写库）。
+- **列表归一化：** `normalize.go` 新增 `normalizeProtocolListFields`／`normalizeStringListField`／`stringListItems`，对 SSH `host-key`／`host-key-algorithms` 去空白、去重并保持用户顺序；纯空白列表规范化为未设置；非文本类型继续交由 `validateFieldValue` 报字段级错误。
+- **PEM 与 Host Key 校验：** `project.go` 新增 `validateSSHPrivateKey`（必须含 PEM `PRIVATE KEY` 标志；使用与固定内核一致的 `golang.org/x/crypto/ssh` 解析；加密私钥缺口令定位 `private-key-passphrase`；未加密私钥带口令也定位 `private-key-passphrase`）与 `validateSSHHostKeys`（逐项 `ssh.ParseAuthorizedKey` 校验 authorized-key 语法，拒绝空项），并在 `validateProtocolCombination` 的 `ssh` 分支接入创建／更新／检查三条路径。
+- **Clash adapter：** `assembly/clash_protocols.go` 注册 `sshClashAdapter`，逐项映射 v1.19.31 `SshOption`（`username/password/private-key/private-key-passphrase/host-key/host-key-algorithms`）＋ BasicOption 白名单；新增 `copyClashListFields`／`clashStringList` 保证 `host-key*` 以 YAML 数组输出；永不输出 `udp`、`auth-mode/auth_mode`；空 `host-key` 返回 `ssh_host_key_unverified`（warn，`field_path=host-key`）。legacy 待迁移计数由 17 降为 16。
+- **URI 稳定 skip：** `internal/assembly/links/links.go` 新增 `SupportsURI`（当前 11 个可表达协议）；`node_check.go` 对无 URI 映射协议返回稳定 `target_unsupported`＋`skip`＋无 preview，不再以 `协议无标准链接映射` 的形式落入 `core_semantic_unexpressible`。SSH 的 `sr-subs`／`generic-subs` 均稳定 skip，正式 SR/generic 装配继续按阻塞诊断跳过该节点。
+- **测试与夹具：** 新增 `ssh-password.json`（password＋Host Key＋算法列表；clash 正例、URI skip）与 `ssh-private-key.json`（private-key 无 Host Key；clash warn＋URI skip）并在 `node_check_test.go` 登记 `warnClash` 与凭据泄漏断言；新增 `mihomo_ssh_test.go`（固定内核 password／私钥两正例＋私钥路径文本与非法 Host Key 两反例）；`clash_protocols_test.go` 新增 SSH wire 形状断言并把 legacy 计数断言更新为 16；`server/node_test.go` 新增 SSH 编辑 schema 断言；`nodes-view.spec.ts` 新增 SSH 分支切换／列表提交／编辑回填用例。
+- **偏差（2 项，均为契约更新，非放宽）：** ①`field_types_test.go` 的 `TestLargeTextFieldsUseExplicitTypes` 把 `host-key` 从 `multiline` 移入新的 `text-list` 断言，并保留 private-key 的 `secret-multiline` 断言；②`all_protocols_test.go` 的 `minimalProtocolParams` 增加“按注册表默认 selector 组合补齐默认分支条件必填字段”，使 SSH 默认 `password` 分支的最小合法输入成立，HTTP/SOCKS5 默认 `none` 行为不变。
+- **定向与联合门禁（全部实际执行）：**
+  - `cd backend && go test ./internal/node -run 'TestSSH' -count=1`：通过（10 个测试函数）。
+  - `cd backend && go test ./internal/assembly -run 'TestSSH|TestLegacyAdapterPendingCount|TestNodeCheckFixtures' -count=1`：通过。
+  - `cd backend && go test ./... -count=1`：`ok=41 no_test_files=5 fail=0`；`go build ./...`、`go vet ./...`、`gofmt -l ./internal/ ./cmd/`（无输出）、`go run ./cmd/errgate ./...`（0 违规）通过。
+  - `MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh`：退出码 0；新增 SSH 正例 2 项、内核反例 2 项全部通过。
+  - `cd frontend && npm test -- --run`：47 文件 / 325 用例全部通过（Step 5 后为 324，本次新增 1 个用例）；`npm run build` 通过（仅既有 main chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- **未执行项：** 本步未运行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；保留到后续 Step 与 Step 22。
+
 #### Step 7：Snell
 
 - 版本 1～5；v5 按 Mihomo tag 的 v4 客户端兼容实现记录诊断，不能伪称独立 v5 wire。
 - v1/2 禁 UDP；v2 固定启用 reuse，v4/v5 才显示可编辑 reuse；五类 obfs 的字段、凭据、TLS 选项按模式清空。
 - `client-fingerprint` 只在相关伪装分支显示。
 - **字段逻辑：** `server/port/psk` 必填，`psk` 为 secret；`version` 允许 1～5，空值按 tag 默认 v1，v5 wire 保留 `version: 5` 但诊断明确内核以 v4 客户端实现。`udp` 在 v1/v2 必须 false，v3/v4/v5 可编辑；`reuse` 在 v1/v3 隐藏并清空、v2 固定 true 且不让用户关闭、v4/v5 可编辑。`obfs_mode` 是 state-only，映射到 `obfs-opts.mode`：`none` 删除整个对象；`http/tls` 活动 `host`；`shadow-tls` 活动 `host/password/version/fingerprint/certificate/private-key/skip-cert-verify/name-cert-verify/alpn`；`restls` 活动 `host/password/version-hint/restls-script/fingerprint/skip-cert-verify/name-cert-verify/force-tls12`；`jls` 活动 `host/username/password/alpn`。各模式的 password、private-key、restls-script 按敏感合同处理，模式切换清空旧对象全部字段。`client-fingerprint` 只在 shadow-tls／restls／jls 活动；证书／私钥成对，结构化 `obfs-opts` 禁止未知键。
+
+**实施记录（2026-09-22）**
+
+- **失败优先证据：** 先新增 `backend/internal/node/snell_protocol_test.go`（12 个测试函数），实现前真实失败：`Snell 必须声明 version／obfs_mode selector`、空值版本未派生 v1、`字段 version 类型应为 number`、`字段 reuse／obfs-opts／client-fingerprint 未在协议注册表中声明`、五类 obfs 分支条件必填全部未生效、`state_only obfs-mode` 未被专门拒绝。
+- **后端 schema：** `registry.go` 新增 `snellVersionField`（普通 selector 来源字段，`selector_name=version`，选项 1～5，默认 1）、`snellUDPField`（`when.selectors.version=[3,4,5]`）、`snellReuseField`（`[4,5]`）、`snellObfsModeField`（state_only select，`none/http/tls/shadow_tls/restls/jls`）、`snellObfsField`／`snellObfsOptsField`（固定对象，13 个模式化子字段，`allow_unknown=false`）、`snellClientFingerprintField`；协议级声明 `version`（`SourceField=version`）与 `obfs_mode` 两个 selector；`SensitiveFields` 为 `psk`、`obfs-opts.password`、`obfs-opts.private-key`、`obfs-opts.restls-script`。
+- **selector 派生：** `selector.go` 的 `deriveStateOnlySelector` 增加 `snell` 的 `obfs_mode`：按 `obfs-opts` 独有字段判定 restls／jls／shadow_tls／http，无对象或空对象为 none（`mode` 不落库，只能由字段反推）。
+- **组合校验：** `project.go` 新增 `validateSnellCombination`：v1/v2 开启 UDP 返回字段级 400；shadow-tls 的 `certificate`／`private-key` 成对；接入 `validateProtocolCombination` 的 `snell` 分支。
+- **Clash adapter：** `assembly/clash_protocols.go` 注册 `snellClashAdapter`，逐项映射 v1.19.31 `SnellOption`；`version` 归一化为整数（缺省 v1）；v2 固定输出 `reuse: true`，v4/v5 按用户值输出；v1/v2 不输出 `udp`；`snellObfsWireFields` 由 selector 注入 `obfs-opts.mode`（`shadow_tls`→`shadow-tls`）并输出已投影的活动子字段，`none` 不产生对象；v5 返回 `snell_v5_v4_compat`（info）诊断。legacy 待迁移计数由 16 降为 15。
+- **测试与夹具：** 新增夹具 `snell-http.json`（v4＋http 混淆，clash 正例）与 `snell-shadow-tls.json`（v4＋shadow-tls＋client-fingerprint，clash 正例），两者 URI 均稳定 `target_unsupported`／skip，并把 `snell-password`／`snell-obfs-password` 加入凭据泄漏断言；新增 `mihomo_snell_test.go`（固定内核 3 正例＋非法 obfs mode 与 v1 UDP 2 反例）；`clash_protocols_test.go` 新增 Snell wire 形状断言并把 legacy 计数断言更新为 15；`server/node_test.go` 新增 Snell schema 断言；`nodes-view.spec.ts` 新增版本／混淆模式切换与清空用例。
+- **基线缺陷修复（Step 7 暴露，含根因与影响）：**
+  1. **后端 selector 读取会覆盖显式选择：** 根因是 `hydrateCurrentStateForRead` 在 `version < currentStateFormatVersion` 时无条件用 wire 字段重新派生 selector，而检查／诊断路径（`CheckTargetDraft` 不带状态版本）正是这种情况。影响：Snell 的 `http`/`tls` 无法由 `obfs-opts` 字段唯一反推时，检查预览会猜成 `http`，与正式装配（带 v2 状态版本）的 `tls` 不一致，违反“检查与正式装配同源”。修复：只填充缺失 selector，显式 selector 始终权威；v1 状态无 selector 时仍照旧派生，行为不变。
+  2. **前端普通 selector 未投影来源字段：** 根因是 `selectorValueFor` 只读 state_only 的本地状态并回退注册表默认值，忽略 `selectors[].source_field`。影响：Snell `version` 改动后 `current_state.selectors.version` 仍为默认 1，提交时与 `protocol_json.version` 不一致会被后端 400 拒绝，且 `when.selectors.version` 条件分支在 UI 不生效。修复：`selectorValueFor` 优先读 `protocol_json` 的来源字段；`setField` 对 selector 来源字段变化补 `selector.<name>` 清空域，与后端复核一致。
+- **偏差（2 项，均为契约更新，非放宽）：** ①`TestLargeTextFieldsUseExplicitTypes` 的 `restls-script` 改为允许 `multiline`／`secret-multiline`，因为 Snell 侧按敏感合同使用 `secret-multiline`，SS 插件侧仍为普通 `multiline`；②`udp` 采用 `when.selectors.version=[3,4,5]` 的分支清空语义实现“v1/v2 必须 false”，与 selector 清空架构一致，测试断言落库值而非 400。
+- **定向与联合门禁（全部实际执行）：**
+  - `cd backend && go test ./internal/node -run 'TestSnell' -count=1`：通过（12 个测试函数）。
+  - `cd backend && go test ./internal/assembly -run 'TestSnell|TestMihomo11931Snell|TestNodeCheckFixtures|TestLegacyAdapterPendingCount' -count=1`：通过。
+  - `cd backend && go test ./... -count=1`：`ok=41 no_test_files=5 fail=0`；`go build ./...`、`go vet ./...`、`gofmt -l ./internal/ ./cmd/`（无输出）、`go run ./cmd/errgate ./...`（0 违规）通过。
+  - `MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh`：退出码 0；新增 Snell 正例 3 项、内核反例 2 项全部通过。
+  - `cd frontend && npm test -- --run`：47 文件 / 326 用例全部通过（Step 6 后为 325，本次新增 1 个用例）；`npm run build` 通过（仅既有 main chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- **未执行项：** 本步未运行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；保留到后续 Step 与 Step 22。
 
 - **每步验收命令模板：**
   ```bash
@@ -718,6 +759,26 @@ Step 0.5 授权/冻结
 - TLS/ECH/mTLS、端口跳跃和窗口高级项补齐；port 仍必填。
 - **字段逻辑：** `server/port` 始终必填，`ports` 是端口跳跃补充字段而非 port 替代；端口／范围语法分别校验。`auth_mode=none` 清空 `auth/auth-str`，`base64` 只活动并校验 `auth`，`string` 只活动 `auth-str`；二者及 `obfs` 都按 secret 处理。固定 tag 的构造函数会先解析 `up/down`，即使存在兼容字段 `up-speed/down-speed` 也不能只填数字字段，因此表单只保存非零带单位的 `up/down`，兼容输入在 Normalize 阶段转成规范字符串后删除旧键。`protocol` 空值按 `udp`，`obfs-protocol` 只读入后归一化到 `protocol`。TLS 字段为 `sni/ech-opts/skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key/alpn`，证书／私钥成对；高级字段为 `recv-window-conn/recv-window/disable-mtu-discovery/fast-open/hop-interval`，整数非负，窗口关系由项目先校验。wire 不输出 `auth_mode`、`up-speed/down-speed` 或 `obfs-protocol`。
 
+**实施记录（2026-09-22）**
+
+- **失败优先证据：** 先新增 `backend/internal/node/hysteria_protocol_test.go`（9 个测试函数），实现前真实失败：`Hysteria 必须声明 state_only auth_mode selector`、无认证参数未派生 none、base64 分支返回 `当前协议不支持 selector: auth_mode`、`up/down` 未作为必填带宽入口、`protocol` 非法值未校验、`ports` 语法未校验、`certificate` 未在注册表中声明、敏感路径未登记。
+- **后端 schema：** `registry.go` 新增 `hysteriaAuthModeField`（state_only select none／base64／string，默认 none）、`hysteriaAuthCredential`（分支条件＋条件必填＋`selector.auth_mode` 清空）、`hysteriaProtocolField`（`udp/wechat-video/faketcp`，默认 udp）、`echOptsField`（`enable` 控制的 ECH 对象，关闭清空 `config/query-server-name`）；Hysteria 条目重写为 `req(up)`／`req(down)`、端口跳跃、TLS 与 mTLS、窗口／Fast Open／Hop 高级项；移除固定 tag 中不存在的 `ca`／`ca-str`，移除 `obfs-protocol`／`up-speed`／`down-speed` 可保存入口，`obfs` 改为敏感 `password`；`SensitiveFields` 为 `auth`、`auth-str`、`obfs`、`private-key`。
+- **selector 派生：** `selector.go` 的增加 `hysteria` 的 `auth_mode`：有 `auth` → base64，有 `auth-str` → string，均无 → none。
+- **兼容归一化：** `normalize.go` 新增 `canonicalizeHysteriaAliases`：`obfs-protocol` → `protocol`（规范值优先）、`up-speed`／`down-speed`（Mbps 数字）→ 非零 `up`／`down` 规范字符串，旧键一律删除；`numberParam` 供数值读取复用。
+- **组合校验：** `project.go` 新增 `bandwidthPattern`／`validBandwidth`（与固定 tag `StringToBps` 一致，纯整数按 Mbps）、`validHysteriaPorts`（1-65535 单端口或 begin-end 范围）、`validateReceiveWindows`（非负且连接窗口不小于流窗口）与 `validateHysteriaCombination`（带宽、Base64 auth、端口跳跃、mTLS 成对、窗口关系）。
+- **Clash adapter：** `assembly/clash_protocols.go` 注册 `hysteriaClashAdapter`，逐项映射 v1.19.31 `HysteriaOption`（含 `ech-opts` 与 `alpn` 数组）；只输出当前认证分支，绝不输出 `auth-mode`／`obfs-protocol`／`up-speed`／`down-speed`；`ports` 作为 `port` 的补充字段保留。legacy 待迁移计数由 15 降为 14。
+- **URI 收口：** `assembly/node_check.go` 的 `linkTargetDiagnostics` 新增 `hysteria` 分支：`auth-str` 与 mTLS → `core_semantic_unexpressible`（skip）；`name-cert-verify`／`fingerprint`／已启用 `ech-opts` → `unverified_compatibility`／`uri_partial_fields`（warn）；窗口／MTU／Fast Open／Hop 等高级项 → `uri_partial_fields`（warn）。`links/links.go` 新增 `mbpsString`，把带单位 `up/down` 归一化为 URI 约定的 Mbps 数字（`100 Mbps`→`100`、`1 Gbps`→`1000`），无法解析的写法原样保留不静默改写。
+- **测试与夹具：** 新增夹具 `hysteria-basic.json`（base64 auth＋端口跳跃＋TLS，clash 正例且 URI 正例）与 `hysteria-auth-str.json`（string auth → URI skip），并把 `hysteria-auth-str` 加入凭据泄漏断言；新增 `mihomo_hysteria_test.go`（固定内核 base64／string 两正例＋非法 base64 与非法带宽两反例）；`clash_protocols_test.go` 新增 Hysteria wire 形状断言并把 legacy 计数断言更新为 14；`links_test.go` 新增带宽归一化用例；`server/node_test.go` 新增 Hysteria schema 断言；`nodes-view.spec.ts` 新增认证分支互斥用例。
+- **偏差（2 项，均为契约更新，非放宽）：** ①`all_protocols_test.go` 的 `minimalProtocolParams` 为 `up`／`down` 提供内核可解析的 `100 Mbps`；②Hysteria 移除固定 tag 中不存在的 `ca`／`ca-str`，相应断言以 `HysteriaOption` 字段集合为准。
+- **定向与联合门禁（全部实际执行）：**
+  - `cd backend && go test ./internal/node -run 'TestHysteria' -count=1`：通过（9 个测试函数）。
+  - `cd backend && go test ./internal/assembly -run 'TestHysteria|TestMihomo11931Hysteria|TestNodeCheckFixtures|TestLegacyAdapterPendingCount' -count=1`：通过；`go test ./internal/assembly/links -count=1`：通过。
+  - `cd backend && go test ./... -count=1`：`ok=41 no_test_files=5 fail=0`；`go build ./...`、`go vet ./...`、`gofmt -l ./internal/ ./cmd/`（无输出）、`go run ./cmd/errgate ./...`（0 违规）通过。
+  - `MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh`：退出码 0；新增 Hysteria 正例 2 项、内核反例 2 项全部通过。
+  - `cd frontend && npm test -- --run`：47 文件 / 327 用例全部通过（Step 7 后为 326，本次新增 1 个用例）；`npm run build` 通过（仅既有 main chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- **未执行项：** 本步未运行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；保留到后续 Step 与 Step 22。
+
 #### Step 9：Hysteria2
 
 - `ports` 模式真正替代 port；`hop-interval` 支持单值或单范围字符串。
@@ -726,12 +787,52 @@ Step 0.5 授权/冻结
 - 补 BBR profile、handshake timeout 和 quic-go 高级窗口，默认不写库。
 - **字段逻辑：** `server/password` 必填；`endpoint_mode=single` 活动顶层 port 并删除 `ports/hop-interval`，`ports` 活动端口列表／范围字符串并把顶层 port 规范为 0，`hop-interval` 只在 ports 模式活动，接受单值或 `start-end` 且最终最小值按 tag 不低于 5 秒。`up/down` 为可选带单位速率字符串。`obfs_mode=none` 清空 `obfs/obfs-password/obfs-min-packet-size/obfs-max-packet-size`；salamander/gecko 均要求 `obfs-password`，包大小上下界只在 gecko 活动且 min≤max。公共 TLS 字段为 `sni/ech-opts/skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key/alpn`；`udp-mtu/handshake-timeout/cwnd` 为正整数或未设置，`bbr-profile` 仅在相关拥塞配置活动。四个 QUIC window 字段使用非负整数并验证 initial≤max。`realm-opts.enable=false` 清空整个对象；开启时活动 `server-url/token/realm-id/stun-servers` 与独立 TLS 子树，token/private-key 为 secret，URL／STUN／证书成对关系逐项校验。
 
+**实施记录（2026-09-22）**
+
+- **失败优先证据：** 先新增 `backend/internal/node/hysteria2_protocol_test.go`（7 个测试函数），实现前真实失败：`Hysteria2 必须声明 state_only endpoint_mode selector`、`hop-interval 类型应为 number`、`当前协议不支持 selector: endpoint_mode`、`obfs-min-packet-size`／`certificate`／`realm-opts` 未在协议注册表中声明。
+- **后端 schema：** `registry.go` 新增 `hysteria2EndpointModeField`（state_only single／ports，默认 single）、`hysteria2ObfsModeField`（state_only none／salamander／gecko，默认 none）、`hy2ModeField`／`hy2PortsField`／`hy2HopIntervalField`／`hy2ObfsPasswordField`／`hy2ObfsPacketSizeField`（端口与混淆分支条件＋条件必填＋selector 清空）、`hysteria2RealmOptsField`＋`realmSubField`（`enable` 控制的 Realm 对象，关闭清空全部子字段与子凭据）；Hysteria2 条目补全 `up/down`、TLS／mTLS、`cwnd/bbr-profile/udp-mtu/handshake-timeout` 与四个 QUIC window 字段；声明 single／ports 两条 `EndpointPolicies`；移除固定 tag 中不存在的 `ca`／`ca-str`／`protocol`／`obfs-protocol` 与冗余 `obfs` 可保存入口（`obfs` 改由 selector 注入 wire）；`SensitiveFields` 为 `password`、`obfs-password`、`private-key`、`realm-opts.token`、`realm-opts.private-key`。
+- **selector 派生：** `selector.go` 增加 `hysteria2` 的 `endpoint_mode`：存在非空 `ports` 派生 `ports`，否则 `single`（避免 API 客户端只提交 ports 时被 single 清空域丢弃）。
+- **组合校验：** `project.go` 新增 `validHopInterval`（单值或单范围、最小 5 秒）与 `validateHysteria2Combination`（mTLS 成对、高级整数非负、gecko 包大小正数且 min≤max、流／连接窗口 initial≤max、端口组语法）及 `validateHysteria2Realm`（启用时 server-url 必填且为绝对 HTTP(S)、STUN 逐项 host:port、Realm 证书成对）。
+- **Clash adapter：** `assembly/clash_protocols.go` 注册 `hysteria2ClashAdapter`，逐项映射 v1.19.31 `Hysteria2Option`；`obfs` 由 selector 注入；禁用 `ech-opts`／`realm-opts` 通过新增 `copyClashEnabledObject` 不写入 wire；ports 模式由 endpoint policy 隐藏顶层 port。legacy 待迁移计数由 14 降为 13。
+- **产物自检收口（Step 9 暴露的基线缺陷）：** `CheckClashContent` 原先无条件要求每个 proxy 具备 `server`／`port`，会把合法的 ports 模式 Hysteria2 判为 `clash_output_invalid`。根因是自检硬编码了 endpoint 必填，未消费协议声明的 endpoint policy。修复：新增 `endpointPolicyRequirements`，仅当协议不存在隐藏该字段的合法状态时才把 `server`／`port` 作为 YAML 自检必填；未知节点类型仍保持原有 server／port 报错。该修复对后续 Mieru range、WireGuard peers、Tailscale 同样必要。
+- **URI 收口：** `assembly/node_check.go` 的 `linkTargetDiagnostics` 新增 `hysteria2` 分支：ports 端口组、启用的 Realm 与 mTLS → `core_semantic_unexpressible`（skip，避免生成 `host:0` 的错误链接）；`name-cert-verify`／`fingerprint` → `unverified_compatibility`；ECH 与 `up/down`／包大小／拥塞／MTU／握手超时／四个 QUIC window → `uri_partial_fields`（warn）。
+- **测试与夹具：** 新增夹具 `hysteria2-single.json`（single＋salamander，clash 与 URI 双正例）、`hysteria2-ports.json`（ports 模式无顶层 port → URI skip）、`hysteria2-realm.json`（Realm 开启 → URI skip），并把三个凭据值加入泄漏断言；新增 `mihomo_hysteria2_test.go`（固定内核 single＋gecko 与 ports 无 port 两正例＋未知 obfs 与缺混淆密码两反例）；`clash_protocols_test.go` 新增 Hysteria2 wire 形状断言并把 legacy 计数断言更新为 13；`server/node_test.go` 新增 Hysteria2 schema 与 endpoint policy 断言；`nodes-view.spec.ts` 新增端口模式隐藏／切换清空与混淆分支用例。
+- **偏差（2 项，均为契约更新，非放宽）：** ①Hysteria2 移除固定 tag 中不存在的 `ca`／`ca-str`／`protocol`／`obfs-protocol`，`obfs` 改为由 `obfs_mode` selector 注入 wire（不落库），因此不再作为可保存字段；②`bbr-profile` 在 `ConditionRule` 现有维度中无法表达“存在拥塞配置时才活动”，保持常驻可编辑并在 Step 记录中说明（内核仅在拥塞控制器生效时消费该值）。
+- **定向与联合门禁（全部实际执行）：**
+  - `cd backend && go test ./internal/node -run 'TestHysteria2' -count=1`：通过（7 个测试函数）。
+  - `cd backend && go test ./internal/assembly -run 'TestHysteria2|TestMihomo11931Hysteria2|TestNodeCheckFixtures|TestLegacyAdapterPendingCount' -count=1`：通过。
+  - `cd backend && go test ./... -count=1`：`ok=41 no_test_files=5 fail=0`；`go build ./...`、`go vet ./...`、`gofmt -l ./internal/ ./cmd/`（无输出）、`go run ./cmd/errgate ./...`（0 违规）通过。
+  - `MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh`：退出码 0；新增 Hysteria2 正例 2 项、内核反例 2 项全部通过。
+  - `cd frontend && npm test -- --run`：47 文件 / 328 用例全部通过（Step 8 后为 327，本次新增 1 个用例）；`npm run build` 通过（仅既有 main chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- **未执行项：** 本步未运行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；保留到后续 Step 与 Step 22。
+
 #### Step 10：TUIC
 
 - v4 token 与 v5 UUID/password 强互斥；A→B→A 不恢复凭据。
 - UDP relay、拥塞、SNI/ECH/mTLS、UOT version 等枚举／范围按 tag 校验。
 - 固定内核正反例必须分别覆盖 v4、v5、混合凭据拒绝和非法 UOT version。
 - **字段逻辑：** `server/port` 必填。`auth_mode=v4` 只活动必填 `token` 并清空 UUID/password；`v5` 只活动合法 UUID＋非空 password 并清空 token，三者均为敏感路径。`ip` 是可选直连地址覆盖，仅改变实际拨号地址而不替代 server/SNI；校验为 IP。TLS／QUIC 字段包括 `alpn/reduce-rtt/request-timeout/heartbeat-interval/udp-relay-mode/congestion-controller/disable-sni/max-udp-relay-packet-size/fast-open/max-open-streams/cwnd/bbr-profile/skip-cert-verify/name-cert-verify/fingerprint/certificate/private-key/recv-window-conn/recv-window/disable-mtu-discovery/max-datagram-frame-size/sni/ech-opts`。`disable-sni=true` 必须显示会同时跳过证书主机名验证的风险，不保留冲突 SNI；证书／私钥成对。`udp-over-stream=false` 清空／不输出 version；开启时 version 只允许 tag 支持的 legacy/current 数值，0 只作为输入缺省归一化，不在 UI 作为第三个版本。所有毫秒／窗口／包大小字段非负，datagram 上限和 relay packet 联动在项目层先给出字段错误，不能依赖内核静默截断。
+
+**实施记录（2026-09-22）**
+
+- **失败优先证据：** 先新增 `backend/internal/node/tuic_protocol_test.go`（10 个测试函数），实现前真实失败：`TUIC 必须声明 state_only auth_mode selector`、token 未派生 v4、v4/v5 分支返回 `当前协议不支持 selector: auth_mode`、UUID／IP／UOT／数据报联动／负数校验全部未生效、`certificate` 未在协议注册表中声明。
+- **后端 schema：** `registry.go` 新增 `tuicAuthModeField`（state_only v4／v5，默认 v5）、`tuicAuthCredential`（分支条件＋条件必填＋`selector.auth_mode` 清空）、`tuicUDPRelayModeField`（`quic/native` 枚举）、`tuicUDPOverStreamVersionField`（两值枚举，`setScalarFeatures` 自动挂 `feature.udp-over-stream` 条件与清空）；TUIC 条目补全 `name-cert-verify`／`certificate`／`private-key`／`ech-opts`／`bbr-profile` 与 `sni`、`ip`、QUIC 窗口、数据报字段；移除固定 tag 中不存在的 `ca`／`ca-str`；`SensitiveFields` 增加 `private-key`。
+- **selector 派生：** `selector.go` 增加 `tuic` 的 `auth_mode`：存在非空 `token` 派生 v4，否则 v5（tag 分支默认）。
+- **输入归一化：** `normalize.go` 新增 `canonicalizeTUICGuards`：`disable-sni=true` 时删除冲突 `sni`；`udp-over-stream-version` 的数值 0 归一化为 tag 缺省 legacy `"1"`，不把 0 作为第三个版本落库。
+- **组合校验：** `project.go` 新增 `tuicDatagramFrameLimit`（1400）与 `validateTUICCombination`：v5 模式用 `github.com/google/uuid` 校验 UUID；`ip` 必须为合法 IP；心跳／超时／中继包／并发流／cwnd／窗口／数据报帧非负；mTLS 成对；`max-datagram-frame-size > 1400` 与 `max-udp-relay-packet-size > max-datagram-frame-size` 均返回字段级错误，不依赖内核静默截断。
+- **Clash adapter：** `assembly/clash_protocols.go` 注册 `tuicClashAdapter`，逐项映射 v1.19.31 `TuicOption`；`udp-over-stream-version` 经 `clashIntValue` 以整数输出且仅在 UOT 开启时存在；`disable-sni=true` 时不下发 `sni` 并返回 `tuic_disable_sni_risk`（warn，含中间人风险说明）；禁用 ECH 不写入 wire。legacy 待迁移计数由 13 降为 12。
+- **URI 收口：** `assembly/node_check.go` 的 `linkTargetDiagnostics` 新增 `tuic` 分支：v4 token 与 mTLS → `core_semantic_unexpressible`（skip）；`name-cert-verify`／`fingerprint` → `unverified_compatibility`；`ip`／超时／心跳／中继模式／拥塞／disable-sni／包大小／reduce-rtt／Fast Open／并发流／cwnd／bbr-profile／窗口／MTU／数据报帧／UOT 与版本 → `uri_partial_fields`（warn）。
+- **测试与夹具：** 新增夹具 `tuic-v5.json`（UUID＋密码＋TLS，clash 与 URI 双正例）与 `tuic-v4.json`（token → URI skip），并把两个凭据加入泄漏断言；新增 `mihomo_tuic_test.go`（固定内核 v5 与 v4＋UOT 两正例，非法 UOT 版本与非法客户端证书两反例）；`clash_protocols_test.go` 新增 TUIC wire 形状与 `disable-sni` 风险断言并把 legacy 计数断言更新为 12；`server/node_test.go` 新增 TUIC schema 与 UOT 版本条件断言；`nodes-view.spec.ts` 新增 v4/v5 互斥与 UOT 开关清空用例。
+- **偏差（2 项，均为契约更新，非放宽）：** ①TUIC 移除固定 tag 中不存在的 `ca`／`ca-str`；②`minimalProtocolParams` 为 `uuid` 提供合法 UUID，使 TUIC v5／VLESS／VMess 的默认分支最小合法输入成立。
+- **定向与联合门禁（全部实际执行）：**
+  - `cd backend && go test ./internal/node -run 'TestTUIC' -count=1`：通过（10 个测试函数）。
+  - `cd backend && go test ./internal/assembly -run 'TestTUIC|TestMihomo11931TUIC|TestNodeCheckFixtures|TestLegacyAdapterPendingCount' -count=1`：通过。
+  - `cd backend && go test ./... -count=1`：`ok=41 no_test_files=5 fail=0`；`go build ./...`、`go vet ./...`、`gofmt -l ./internal/ ./cmd/`（无输出）、`go run ./cmd/errgate ./...`（0 违规）通过。
+  - `MIHOMO_11931_BIN=~/mihomo-bins/mihomo-v1.19.31-go122 ./.mihomo-test.sh`：退出码 0；新增 TUIC 正例 2 项、内核反例 2 项全部通过。
+  - `cd frontend && npm test -- --run`：47 文件 / 329 用例全部通过（Step 9 后为 328，本次新增 1 个用例）；`npm run build` 通过（仅既有 main chunk 体积提示）。
+  - `git diff --check`：退出码 0。
+- **未执行项：** 本步未运行 `go test -race`、Docker 构建、API／浏览器 smoke、真实客户端导入／连接或用户人工验收；保留到后续 Step 与 Step 22。
 
 - **验收：** 每协议执行 Step 4～7 的命令模板，并追加 `MIHOMO_11931_BIN=... ./.mihomo-test.sh` 中该协议正反例。
 
@@ -935,3 +1036,8 @@ git diff --check
 | v1.7 | 2026-09-22 | 完成 Step 3.5 公共字段类型增补：新增 `field_types.go`（类型白名单、`secret-multiline` 敏感性门禁、byte-sequence 三输入规范化与递归嵌套处理）、`validateFieldValue`／`NormalizeProtocolJSON`／`protocolIndex` 接入；既有大文本与私钥字段显式重定型为 `multiline`／`secret-multiline` 且不改变敏感性；前端按显式类型渲染并新增 byte-sequence 三整数＋Base64 控件，删除 `isLongText` 名称启发式。失败优先 4 项、node 包定向 8 用例、后端全量 41 包、前端 47 文件/321 用例、build/vet/gofmt/errgate、固定 v1.19.31 门禁与 `git diff --check` 全部通过；`reserved` 重定型等属 Step 11。Step 4 未开始。 |
 | v1.9 | 2026-09-22 | 完成 Step 5 SOCKS5：与 HTTP 共用 `basicAuthModeField`／`basicAuthCredential`／`tlsFeatureField`／`tlsSubField` 与 `validateTLSKeyPair`，schema 不声明 `sni`，UDP 保持独立开关；新增 `socks5ClashAdapter`（v1.19.31 `Socks5Option`，legacy 18→17）与 URI 降级诊断（mTLS skip、证书校验 warn）；新增夹具、固定内核正反例、wire 形状与前端用例。后端全量 41 包、前端 47 文件/324 用例、build/vet/gofmt/errgate、固定 v1.19.31 门禁与 `git diff --check` 全部通过；legacy 样本测试改为动态选择。 |
 | v1.8 | 2026-09-22 | 完成 Step 4 HTTP：`auth_mode` state-only selector（none／basic，缺省按凭据派生）、TLS 标量 feature 条件字段与关闭清空、认证／mTLS 成对校验、headers 字符串 Map 五类规则、selector 分支清空接入创建／更新／检查、HTTP 显式 Clash adapter（v1.19.31 `HttpOption`＋BasicOption 白名单，legacy 19→18）、HTTP URI 降级诊断（mTLS skip、headers／证书校验 warn）、前端 `state_only` 控件与 `current_state.selectors` 提交。失败优先 8 项、node 定向 9 用例、后端全量 41 包、前端 47 文件/323 用例、固定内核 HTTP 正例＋2 反例与 `git diff --check` 全部通过；legacy 测试样本改用 socks5。 |
+| v1.10 | 2026-09-22 | 完成 Step 6 SSH：`auth_mode=password/private_key` state-only selector 与缺省派生、分支互斥与切换清空另一组凭据、`private-key` 只接受可解析 PEM（拒绝主机文件路径，使用与固定内核一致的 `golang.org/x/crypto/ssh`）、加密私钥口令生命周期、`host-key` authorized-key 语法校验与 `host-key-algorithms` 去空白去重保序、空 `host-key` 安全 warn、SSH 显式 Clash adapter（v1.19.31 `SshOption`，`host-key*` 输出 YAML 数组、永不输出 `udp`，legacy 17→16）、无 URI 映射协议稳定 `target_unsupported`／`skip` 与 `SupportsURI` 注册表。失败优先 10 项、node／assembly／server 定向与全量 41 包、前端 47 文件/325 用例、固定内核 SSH 正例 2＋反例 2 与 `git diff --check` 全部通过；`host-key` 显式重定型为 `text-list` 并同步既有测试合同。 |
+| v1.11 | 2026-09-22 | 完成 Step 7 Snell：`version` 普通 selector（1～5，缺省 v1）与 `obfs_mode` state-only selector（none／http／tls／shadow_tls／restls／jls）、v1/v2 禁 UDP 与 v2 固定 reuse、v4/v5 可编辑 reuse、五类混淆分支字段与条件必填、`obfs-opts.mode` 由 selector 注入 wire、结构化对象禁未知键、v5 wire 保留 `version: 5` 并给出 v4 兼容诊断、Snell 显式 Clash adapter（v1.19.31 `SnellOption`，legacy 16→15）、SR/generic 稳定 `target_unsupported`／skip。同步修复两项 Step 7 暴露的基线缺陷：`hydrateCurrentStateForRead` 不再覆盖显式 selector（检查／诊断与正式装配对 http/tls 分支保持一致）、前端 `selectorValueFor`／`setField` 支持普通 selector 的 `source_field` 投影与清空域。失败优先 12 项、后端全量 41 包、前端 47 文件/326 用例、固定内核 Snell 正例 3＋反例 2 与 `git diff --check` 全部通过。 |
+| v1.12 | 2026-09-22 | 完成 Step 8 Hysteria：`auth_mode=none/base64/string` state-only selector 与 `auth`／`auth-str` 分支互斥、Base64 校验、`up/down` 唯一编辑入口（`up-speed/down-speed` 归一化后删除旧键）、`protocol` 枚举与 `obfs-protocol` 别名收敛、端口跳跃语法校验、TLS／ECH／mTLS、接收窗口关系校验、Hysteria 显式 Clash adapter（v1.19.31 `HysteriaOption`，legacy 15→14）、URI 固定 `auth-str`／mTLS skip 与高级项 warn 诊断、URI 带宽归一化为 Mbps 数字。失败优先 9 项、后端全量 41 包、links 包定向、前端 47 文件/327 用例、固定内核 Hysteria 正例 2＋反例 2 与 `git diff --check` 全部通过。 |
+| v1.13 | 2026-09-22 | 完成 Step 9 Hysteria2：`endpoint_mode=single/ports` 与 `obfs_mode=none/salamander/gecko` state-only selector、single／ports 两条 endpoint policy（ports 隐藏顶层 port 并输出 `ports`）、`hop-interval` 单值／单范围且最小 5 秒、gecko 包大小 min≤max、Realm 子树与 token／private-key 敏感路径、四个 QUIC window initial≤max、Hysteria2 显式 Clash adapter（v1.19.31 `Hysteria2Option`，obfs 由 selector 注入、禁用 ECH／Realm 不写入 wire，legacy 14→13）、URI 对端口组／Realm／mTLS 稳定 skip。同步修复 `CheckClashContent` 硬编码 server／port 必填的基线缺陷，改由协议 endpoint policy 推导。失败优先 7 项、后端全量 41 包、前端 47 文件/328 用例、固定内核 Hysteria2 正例 2＋反例 2 与 `git diff --check` 全部通过。 |
+| v1.14 | 2026-09-22 | 完成 Step 10 TUIC：`auth_mode=v4/v5` state-only selector 与 token／UUID＋密码强互斥、UUID 与 `ip` 校验、UOT 开关与版本 0 归一化、`disable-sni` 清空冲突 SNI 并给出中间人风险 warn、数据报帧 1400 上限与中继包联动校验、TUIC 显式 Clash adapter（v1.19.31 `TuicOption`，legacy 13→12）、URI 对 v4 token／mTLS 稳定 skip。失败优先 10 项、后端全量 41 包、前端 47 文件/329 用例、固定内核 TUIC 正例 2＋反例 2 与 `git diff --check` 全部通过。 |

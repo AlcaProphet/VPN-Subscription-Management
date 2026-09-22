@@ -231,6 +231,290 @@ func basicAuthCredential(name, typ, label string) FieldSchema {
 	return field
 }
 
+// sshAuthModeField 声明 SSH 的密码／私钥认证 selector；state_only 只保存在 current_state.selectors。
+func sshAuthModeField() FieldSchema {
+	field := sel("auth-mode", "认证方式", "password", "password", "private_key")
+	field.StateOnly = true
+	field.SelectorName = "auth_mode"
+	field.Group = "auth"
+	field.Help = "password 使用密码认证；private_key 使用 PEM 私钥（可带私钥口令）。"
+	return field
+}
+
+// sshBranchCredential 声明只在指定 SSH 认证分支活动、切换 selector 即清空的凭据字段。
+func sshBranchCredential(name, typ, label, branch string, required bool) FieldSchema {
+	field := f(name, typ, label)
+	condition := &ConditionRule{Selectors: map[string][]string{"auth_mode": {branch}}}
+	field.When = condition
+	if required {
+		field.RequiredWhen = condition
+	}
+	field.ResetOn = []string{"selector.auth_mode"}
+	field.Group = "auth"
+	return field
+}
+
+// sshHostKeyField 声明结构化 Host Key 列表；为空时由 Clash 目标检查给出安全 warn。
+func sshHostKeyField() FieldSchema {
+	field := f("host-key", "text-list", "Host Key")
+	field.Group = "security"
+	field.Help = "每项一条 authorized-key；留空将接受任意服务器 Host Key（存在中间人风险）。"
+	return field
+}
+
+// sshHostKeyAlgorithmsField 声明非空算法名列表；顺序保留、去空白去重由归一化保证。
+func sshHostKeyAlgorithmsField() FieldSchema {
+	field := f("host-key-algorithms", "text-list", "Host Key 算法")
+	field.Group = "security"
+	field.Help = "按用户顺序优先协商的 Host Key 算法名，例如 ssh-ed25519。"
+	return field
+}
+
+// snellVersionField 声明 Snell 版本普通 selector 的来源字段；空值按 tag 默认 v1 归一化。
+func snellVersionField() FieldSchema {
+	field := sel("version", "版本", "1", "1", "2", "3", "4", "5")
+	field.SelectorName = "version"
+	field.Group = "connection"
+	field.Help = "v1/v2 不支持 UDP；v2 固定启用 reuse；v5 由内核按 v4 客户端实现。"
+	return field
+}
+
+// snellUDPField 声明仅在 v3 起可编辑的 UDP 开关；v1/v2 不活动并按清空域归零。
+func snellUDPField() FieldSchema {
+	field := def("udp", "bool", "UDP", false)
+	field.When = &ConditionRule{Selectors: map[string][]string{"version": {"3", "4", "5"}}}
+	field.ResetOn = []string{"selector.version"}
+	field.Group = "switches"
+	return field
+}
+
+// snellReuseField 声明仅在 v4/v5 可编辑的连接复用开关；v2 由 adapter 固定启用。
+func snellReuseField() FieldSchema {
+	field := def("reuse", "bool", "连接复用", false)
+	field.When = &ConditionRule{Selectors: map[string][]string{"version": {"4", "5"}}}
+	field.ResetOn = []string{"selector.version"}
+	field.Group = "connection"
+	return field
+}
+
+// snellObfsModeField 声明 state_only 混淆模式 selector；模式切换清空整个 obfs-opts 对象。
+func snellObfsModeField() FieldSchema {
+	field := sel("obfs-mode", "混淆模式", "none", "none", "http", "tls", "shadow_tls", "restls", "jls")
+	field.StateOnly = true
+	field.SelectorName = "obfs_mode"
+	field.Group = "connection"
+	field.Help = "none 不启用混淆；各模式只活动对应字段。"
+	return field
+}
+
+// snellObfsField 声明只在指定混淆模式活动、切换即清空的嵌套字段。
+// requiredModes 非空时，该字段在对应模式下条件必填。
+func snellObfsField(field FieldSchema, activeModes, requiredModes []string) FieldSchema {
+	field.When = &ConditionRule{Selectors: map[string][]string{"obfs_mode": activeModes}}
+	if len(requiredModes) > 0 {
+		field.RequiredWhen = &ConditionRule{Selectors: map[string][]string{"obfs_mode": requiredModes}}
+	}
+	field.ResetOn = []string{"selector.obfs_mode"}
+	field.Group = "connection"
+	return field
+}
+
+// snellObfsOptsField 声明结构化混淆参数；固定对象拒绝未知键，mode 由 selector 注入 wire。
+func snellObfsOptsField() FieldSchema {
+	hostModes := []string{"http", "tls", "shadow_tls", "restls", "jls"}
+	credentialModes := []string{"shadow_tls", "restls", "jls"}
+	field := obj("obfs-opts", "混淆参数", "fields",
+		snellObfsField(f("host", "text", "Host"), hostModes, []string{"shadow_tls", "restls", "jls"}),
+		snellObfsField(f("password", "password", "密码"), credentialModes, credentialModes),
+		snellObfsField(f("version", "number", "ShadowTLS 版本"), []string{"shadow_tls"}, nil),
+		snellObfsField(f("fingerprint", "text", "TLS 指纹"), []string{"shadow_tls", "restls"}, nil),
+		snellObfsField(f("certificate", "multiline", "客户端证书"), []string{"shadow_tls"}, nil),
+		snellObfsField(f("private-key", "secret-multiline", "客户端私钥"), []string{"shadow_tls"}, nil),
+		snellObfsField(def("skip-cert-verify", "bool", "跳过证书校验", false), []string{"shadow_tls", "restls"}, nil),
+		snellObfsField(f("name-cert-verify", "text", "证书名称校验"), []string{"shadow_tls", "restls"}, nil),
+		snellObfsField(f("alpn", "text-list", "ALPN"), []string{"shadow_tls", "jls"}, nil),
+		snellObfsField(f("version-hint", "text", "版本提示"), []string{"restls"}, []string{"restls"}),
+		snellObfsField(f("restls-script", "secret-multiline", "Restls Script"), []string{"restls"}, nil),
+		snellObfsField(def("force-tls12", "bool", "强制 TLS1.2", false), []string{"restls"}, nil),
+		snellObfsField(f("username", "text", "用户名"), []string{"jls"}, []string{"jls"}),
+	)
+	field.When = &ConditionRule{Selectors: map[string][]string{"obfs_mode": hostModes}}
+	field.ResetOn = []string{"selector.obfs_mode"}
+	field.Group = "connection"
+	return field
+}
+
+// snellClientFingerprintField 声明只在三类伪装分支活动的客户端指纹。
+func snellClientFingerprintField() FieldSchema {
+	field := f("client-fingerprint", "text", "客户端指纹")
+	field.When = &ConditionRule{Selectors: map[string][]string{"obfs_mode": {"shadow_tls", "restls", "jls"}}}
+	field.ResetOn = []string{"selector.obfs_mode"}
+	field.Group = "connection"
+	return field
+}
+
+// hysteriaAuthModeField 声明 Hysteria 三态认证 selector；state_only 只保存在 current_state.selectors。
+func hysteriaAuthModeField() FieldSchema {
+	field := sel("auth-mode", "认证方式", "none", "none", "base64", "string")
+	field.StateOnly = true
+	field.SelectorName = "auth_mode"
+	field.Group = "auth"
+	field.Help = "none 不使用认证；base64 使用 Base64 认证；string 使用认证字符串。"
+	return field
+}
+
+// hysteriaAuthCredential 声明只在指定认证分支活动且必填的凭据字段。
+func hysteriaAuthCredential(name, label, branch string) FieldSchema {
+	field := f(name, "password", label)
+	condition := &ConditionRule{Selectors: map[string][]string{"auth_mode": {branch}}}
+	field.When = condition
+	field.RequiredWhen = condition
+	field.ResetOn = []string{"selector.auth_mode"}
+	field.Group = "auth"
+	return field
+}
+
+// hysteriaProtocolField 声明固定 tag 支持的伪装协议枚举；空值由 adapter 按 udp 处理。
+func hysteriaProtocolField() FieldSchema {
+	field := sel("protocol", "传输协议", "udp", "udp", "wechat-video", "faketcp")
+	field.Group = "connection"
+	return field
+}
+
+// echOptsField 声明 Mihomo 公共 ECH 参数；关闭 enable 时清空子字段（Hysteria／Hysteria2／TUIC／AnyTLS／TrustTunnel 共用）。
+func echOptsField() FieldSchema {
+	field := obj("ech-opts", "ECH 参数", "fields",
+		def("enable", "bool", "启用", false),
+		f("config", "text", "配置"),
+		f("query-server-name", "text", "查询服务器名"))
+	field.Feature = &FeatureSchema{Name: "ech", Toggle: "enable"}
+	field.ResetOn = []string{"feature.ech"}
+	for i := range field.Properties {
+		if field.Properties[i].Name == "enable" {
+			continue
+		}
+		field.Properties[i].When = &ConditionRule{Features: []string{"ech"}}
+		field.Properties[i].ResetOn = []string{"feature.ech"}
+	}
+	field.Group = "connection"
+	return field
+}
+
+// tuicAuthModeField 声明 TUIC v4／v5 认证 selector；state_only 只保存在 current_state.selectors。
+func tuicAuthModeField() FieldSchema {
+	field := sel("auth-mode", "认证方式", "v5", "v4", "v5")
+	field.StateOnly = true
+	field.SelectorName = "auth_mode"
+	field.Group = "auth"
+	field.Help = "v4 使用 Token；v5 使用 UUID 与密码。两组凭据互斥。"
+	return field
+}
+
+// tuicAuthCredential 声明只在指定 TUIC 认证分支活动且必填的凭据字段。
+func tuicAuthCredential(name, label, branch string) FieldSchema {
+	field := f(name, "password", label)
+	condition := &ConditionRule{Selectors: map[string][]string{"auth_mode": {branch}}}
+	field.When = condition
+	field.RequiredWhen = condition
+	field.ResetOn = []string{"selector.auth_mode"}
+	field.Group = "auth"
+	return field
+}
+
+// tuicUDPRelayModeField 声明固定 tag 支持的 UDP 中继模式枚举。
+func tuicUDPRelayModeField() FieldSchema {
+	field := sel("udp-relay-mode", "UDP 中继模式", "quic", "quic", "native")
+	field.Group = "connection"
+	return field
+}
+
+// tuicUDPOverStreamVersionField 声明仅在 UOT 开启时可选的版本；0 只作为兼容输入归一化。
+func tuicUDPOverStreamVersionField() FieldSchema {
+	field := sel("udp-over-stream-version", "UDP over Stream 版本", "1", "1", "2")
+	field.Group = "connection"
+	return field
+}
+
+// hysteria2EndpointModeField 声明端口替代 selector；ports 模式下顶层 port 由 endpoint policy 隐藏。
+func hysteria2EndpointModeField() FieldSchema {
+	field := sel("endpoint-mode", "端口模式", "single", "single", "ports")
+	field.StateOnly = true
+	field.SelectorName = "endpoint_mode"
+	field.Group = "connection"
+	field.Help = "single 使用顶层端口；ports 使用端口组并隐藏顶层端口。"
+	return field
+}
+
+// hysteria2ObfsModeField 声明 state_only 混淆 selector；wire 的 obfs 由 adapter 注入。
+func hysteria2ObfsModeField() FieldSchema {
+	field := sel("obfs-mode", "混淆模式", "none", "none", "salamander", "gecko")
+	field.StateOnly = true
+	field.SelectorName = "obfs_mode"
+	field.Group = "connection"
+	field.Help = "none 不启用混淆；salamander／gecko 需要混淆密码。"
+	return field
+}
+
+// hy2ModeField 声明只在指定端口／混淆模式下活动、切换即清空的字段。
+func hy2ModeField(field FieldSchema, selector string, modes []string, required bool) FieldSchema {
+	condition := &ConditionRule{Selectors: map[string][]string{selector: modes}}
+	field.When = condition
+	if required {
+		field.RequiredWhen = condition
+	}
+	field.ResetOn = []string{"selector." + selector}
+	field.Group = "connection"
+	return field
+}
+
+// hy2PortsField 声明仅在 ports 模式活动的端口组入口。
+func hy2PortsField() FieldSchema {
+	return hy2ModeField(f("ports", "text", "端口组"), "endpoint_mode", []string{"ports"}, true)
+}
+
+// hy2HopIntervalField 声明仅在 ports 模式活动的 Hop 间隔（单值或单范围字符串）。
+func hy2HopIntervalField() FieldSchema {
+	return hy2ModeField(f("hop-interval", "text", "Hop 间隔"), "endpoint_mode", []string{"ports"}, false)
+}
+
+// hy2ObfsPasswordField 声明启用混淆即必填的混淆密码。
+func hy2ObfsPasswordField() FieldSchema {
+	return hy2ModeField(f("obfs-password", "password", "混淆密码"), "obfs_mode", []string{"salamander", "gecko"}, true)
+}
+
+// hy2ObfsPacketSizeField 声明仅在 gecko 分支活动的混淆包大小。
+func hy2ObfsPacketSizeField(name, label string) FieldSchema {
+	return hy2ModeField(f(name, "number", label), "obfs_mode", []string{"gecko"}, false)
+}
+
+// hysteria2RealmOptsField 声明 Realm 子树；关闭 enable 时清空全部子字段与子凭据。
+func hysteria2RealmOptsField() FieldSchema {
+	field := obj("realm-opts", "Realm 参数", "fields",
+		def("enable", "bool", "启用", false),
+		realmSubField(f("server-url", "text", "Realm 服务地址")),
+		realmSubField(f("token", "password", "Token")),
+		realmSubField(f("realm-id", "text", "Realm ID")),
+		realmSubField(f("stun-servers", "text-list", "STUN 服务器")),
+		realmSubField(f("sni", "text", "Realm SNI")),
+		realmSubField(def("skip-cert-verify", "bool", "跳过证书校验", false)),
+		realmSubField(f("name-cert-verify", "text", "证书名称校验")),
+		realmSubField(f("fingerprint", "text", "TLS 指纹")),
+		realmSubField(f("certificate", "multiline", "客户端证书")),
+		realmSubField(f("private-key", "secret-multiline", "客户端私钥")),
+		realmSubField(f("alpn", "text-list", "ALPN")))
+	field.Feature = &FeatureSchema{Name: "realm", Toggle: "enable"}
+	field.ResetOn = []string{"feature.realm"}
+	field.Group = "connection"
+	return field
+}
+
+// realmSubField 标记 Realm 对象内随 enable 活动、关闭即清空的子字段。
+func realmSubField(field FieldSchema) FieldSchema {
+	field.When = &ConditionRule{Features: []string{"realm"}}
+	field.ResetOn = []string{"feature.realm"}
+	return field
+}
+
 // tlsFeatureField 把 TLS 开关声明为标量功能域；关闭时清空全部 TLS 子字段（HTTP／SOCKS5 共用）。
 func tlsFeatureField() FieldSchema {
 	field := def("tls", "bool", "TLS", false)
@@ -283,21 +567,104 @@ func ManualProtocols() []Protocol {
 			sel("network", "传输", "tcp", "tcp", "ws", "http", "h2", "grpc", "xhttp"), realityOpts(), grpcOpts(), wsOpts(), ssOpts(), f("client-fingerprint", "text", "客户端指纹")),
 			SensitiveFields: []string{"password", "ss-opts.password"}, LinkMappings: links("password", "sni", "alpn", "network", "reality-opts", "ws-opts", "grpc-opts")},
 		{Protocol: "hysteria", Label: "Hysteria", FormSchema: common(
-			req("auth", "password", "认证"), f("auth-str", "password", "认证字符串"), f("ports", "text", "端口组"), f("protocol", "text", "协议"), f("obfs-protocol", "text", "混淆协议"), f("up", "text", "上行"), f("up-speed", "number", "上行速率"),
-			f("down", "text", "下行"), f("down-speed", "number", "下行速率"), f("obfs", "text", "混淆"), f("sni", "text", "SNI"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"),
-			f("alpn", "text-list", "ALPN"), f("ca", "multiline", "CA 文件"), f("ca-str", "multiline", "CA 内容"), f("recv-window-conn", "number", "连接接收窗口"), f("recv-window", "number", "接收窗口"),
-			def("disable-mtu-discovery", "bool", "禁用 MTU 发现", false), def("fast-open", "bool", "Fast Open", false), f("hop-interval", "number", "Hop 间隔")), SensitiveFields: []string{"auth", "auth-str"}, LinkMappings: links("auth", "protocol", "up", "down", "sni", "alpn", "ports", "obfs")},
+			hysteriaAuthModeField(),
+			hysteriaAuthCredential("auth", "Base64 认证", "base64"),
+			hysteriaAuthCredential("auth-str", "认证字符串", "string"),
+			req("up", "text", "上行带宽"),
+			req("down", "text", "下行带宽"),
+			f("ports", "text", "端口跳跃"),
+			hysteriaProtocolField(),
+			f("obfs", "password", "混淆"),
+			f("sni", "text", "SNI"),
+			echOptsField(),
+			def("skip-cert-verify", "bool", "跳过证书校验", false),
+			f("name-cert-verify", "text", "证书名称校验"),
+			f("fingerprint", "text", "TLS 指纹"),
+			f("certificate", "multiline", "客户端证书"),
+			f("private-key", "secret-multiline", "客户端私钥"),
+			f("alpn", "text-list", "ALPN"),
+			f("recv-window-conn", "number", "连接接收窗口"),
+			f("recv-window", "number", "接收窗口"),
+			def("disable-mtu-discovery", "bool", "禁用 MTU 发现", false),
+			def("fast-open", "bool", "Fast Open", false),
+			f("hop-interval", "number", "Hop 间隔")),
+			Selectors:       []SelectorSchema{{Name: "auth_mode", Values: []string{"none", "base64", "string"}, Default: "none"}},
+			SensitiveFields: []string{"auth", "auth-str", "obfs", "private-key"},
+			LinkMappings:    links("auth", "protocol", "up", "down", "sni", "alpn", "ports", "obfs")},
 		{Protocol: "hysteria2", Label: "Hysteria2", FormSchema: common(
-			req("password", "password", "密码"), f("ports", "text", "端口组"), f("hop-interval", "number", "Hop 间隔"), f("protocol", "text", "协议"), f("obfs-protocol", "text", "混淆协议"), f("up", "text", "上行"), f("down", "text", "下行"),
-			f("obfs", "text", "混淆"), f("obfs-password", "password", "混淆密码"), f("sni", "text", "SNI"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), f("alpn", "text-list", "ALPN"),
-			f("ca", "multiline", "CA 文件"), f("ca-str", "multiline", "CA 内容"), f("cwnd", "number", "拥塞窗口"), f("udp-mtu", "number", "UDP MTU")), SensitiveFields: []string{"password", "obfs-password"}, LinkMappings: links("password", "sni", "alpn", "obfs", "obfs-password", "ports")},
+			req("password", "password", "密码"),
+			hysteria2EndpointModeField(),
+			hysteria2ObfsModeField(),
+			hy2PortsField(),
+			hy2HopIntervalField(),
+			f("up", "text", "上行带宽"),
+			f("down", "text", "下行带宽"),
+			hy2ObfsPasswordField(),
+			hy2ObfsPacketSizeField("obfs-min-packet-size", "混淆最小包"),
+			hy2ObfsPacketSizeField("obfs-max-packet-size", "混淆最大包"),
+			f("sni", "text", "SNI"),
+			echOptsField(),
+			def("skip-cert-verify", "bool", "跳过证书校验", false),
+			f("name-cert-verify", "text", "证书名称校验"),
+			f("fingerprint", "text", "TLS 指纹"),
+			f("certificate", "multiline", "客户端证书"),
+			f("private-key", "secret-multiline", "客户端私钥"),
+			f("alpn", "text-list", "ALPN"),
+			f("cwnd", "number", "拥塞窗口"),
+			f("bbr-profile", "text", "BBR Profile"),
+			f("udp-mtu", "number", "UDP MTU"),
+			f("handshake-timeout", "number", "握手超时"),
+			f("initial-stream-receive-window", "number", "初始流接收窗口"),
+			f("max-stream-receive-window", "number", "最大流接收窗口"),
+			f("initial-connection-receive-window", "number", "初始连接接收窗口"),
+			f("max-connection-receive-window", "number", "最大连接接收窗口"),
+			hysteria2RealmOptsField()),
+			Selectors: []SelectorSchema{
+				{Name: "endpoint_mode", Values: []string{"single", "ports"}, Default: "single"},
+				{Name: "obfs_mode", Values: []string{"none", "salamander", "gecko"}, Default: "none"},
+			},
+			EndpointPolicies: []EndpointPolicy{
+				{When: &ConditionRule{Selectors: map[string][]string{"endpoint_mode": {"single"}}},
+					HostMode: "required", PortMode: "required", EmitHost: true, EmitPort: true},
+				{When: &ConditionRule{Selectors: map[string][]string{"endpoint_mode": {"ports"}}},
+					HostMode: "required", PortMode: "hidden", EmitHost: true, EmitPort: false},
+			},
+			SensitiveFields: []string{"password", "obfs-password", "private-key", "realm-opts.token", "realm-opts.private-key"},
+			LinkMappings:    links("password", "sni", "alpn", "obfs", "obfs-password", "ports")},
 		{Protocol: "tuic", Label: "TUIC", FormSchema: common(
-			f("token", "password", "Token"), f("uuid", "password", "UUID"), f("password", "password", "密码"), f("ip", "text", "IP"), f("heartbeat-interval", "number", "心跳间隔"), f("alpn", "text-list", "ALPN"), def("reduce-rtt", "bool", "减少 RTT", false),
-			f("request-timeout", "number", "请求超时"), f("udp-relay-mode", "text", "UDP 中继模式"), f("congestion-controller", "text", "拥塞控制器"), def("disable-sni", "bool", "禁用 SNI", false), f("max-udp-relay-packet-size", "number", "最大 UDP 中继包"),
-			def("fast-open", "bool", "Fast Open", false), f("max-open-streams", "number", "最大并发流"), f("cwnd", "number", "拥塞窗口"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"),
-			f("ca", "multiline", "CA 文件"), f("ca-str", "multiline", "CA 内容"), f("recv-window-conn", "number", "连接接收窗口"), f("recv-window", "number", "接收窗口"), def("disable-mtu-discovery", "bool", "禁用 MTU 发现", false),
-			f("max-datagram-frame-size", "number", "最大数据报帧"), f("sni", "text", "SNI"), def("udp-over-stream", "bool", "UDP over Stream", false), f("udp-over-stream-version", "number", "UDP over Stream 版本")),
-			SensitiveFields: []string{"token", "uuid", "password"}, LinkMappings: links("token", "uuid", "password", "sni", "alpn")},
+			tuicAuthModeField(),
+			tuicAuthCredential("token", "Token", "v4"),
+			tuicAuthCredential("uuid", "UUID", "v5"),
+			tuicAuthCredential("password", "密码", "v5"),
+			f("ip", "text", "IP"),
+			f("sni", "text", "SNI"),
+			echOptsField(),
+			def("skip-cert-verify", "bool", "跳过证书校验", false),
+			f("name-cert-verify", "text", "证书名称校验"),
+			f("fingerprint", "text", "TLS 指纹"),
+			f("certificate", "multiline", "客户端证书"),
+			f("private-key", "secret-multiline", "客户端私钥"),
+			f("alpn", "text-list", "ALPN"),
+			def("reduce-rtt", "bool", "减少 RTT", false),
+			f("request-timeout", "number", "请求超时"),
+			f("heartbeat-interval", "number", "心跳间隔"),
+			tuicUDPRelayModeField(),
+			f("congestion-controller", "text", "拥塞控制器"),
+			def("disable-sni", "bool", "禁用 SNI", false),
+			f("max-udp-relay-packet-size", "number", "最大 UDP 中继包"),
+			def("fast-open", "bool", "Fast Open", false),
+			f("max-open-streams", "number", "最大并发流"),
+			f("cwnd", "number", "拥塞窗口"),
+			f("bbr-profile", "text", "BBR Profile"),
+			f("recv-window-conn", "number", "连接接收窗口"),
+			f("recv-window", "number", "接收窗口"),
+			def("disable-mtu-discovery", "bool", "禁用 MTU 发现", false),
+			f("max-datagram-frame-size", "number", "最大数据报帧"),
+			def("udp-over-stream", "bool", "UDP over Stream", false),
+			tuicUDPOverStreamVersionField()),
+			Selectors:       []SelectorSchema{{Name: "auth_mode", Values: []string{"v4", "v5"}, Default: "v5"}},
+			SensitiveFields: []string{"token", "uuid", "password", "private-key"},
+			LinkMappings:    links("token", "uuid", "password", "sni", "alpn")},
 		{Protocol: "wireguard", Label: "WireGuard", FormSchema: common(
 			req("private-key", "secret-multiline", "私钥"), req("public-key", "text", "公钥"), f("pre-shared-key", "password", "预共享密钥"), f("reserved", "int-list", "保留字节"), f("allowed-ips", "text-list", "Allowed IPs"),
 			f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("workers", "number", "Worker 数"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), f("persistent-keepalive", "number", "持久 Keepalive"),
@@ -330,12 +697,33 @@ func ManualProtocols() []Protocol {
 			def("udp", "bool", "UDP", true)),
 			Selectors:       []SelectorSchema{{Name: "auth_mode", Values: []string{"none", "basic"}, Default: "none"}},
 			SensitiveFields: []string{"password", "private-key"}, LinkMappings: links("username", "password", "tls", "udp")},
-		{Protocol: "snell", Label: "Snell", FormSchema: common(req("psk", "password", "PSK"), def("udp", "bool", "UDP", true), def("version", "number", "版本", 2)), SensitiveFields: []string{"psk"}},
+		{Protocol: "snell", Label: "Snell", FormSchema: common(
+			req("psk", "password", "PSK"),
+			snellVersionField(),
+			snellUDPField(),
+			snellReuseField(),
+			snellObfsModeField(),
+			snellObfsOptsField(),
+			snellClientFingerprintField()),
+			Selectors: []SelectorSchema{
+				{Name: "version", Values: []string{"1", "2", "3", "4", "5"}, Default: "1", SourceField: "version"},
+				{Name: "obfs_mode", Values: []string{"none", "http", "tls", "shadow_tls", "restls", "jls"}, Default: "none"},
+			},
+			SensitiveFields: []string{"psk", "obfs-opts.password", "obfs-opts.private-key", "obfs-opts.restls-script"}},
 		{Protocol: "anytls", Label: "AnyTLS", FormSchema: common(req("password", "password", "密码"), f("alpn", "text-list", "ALPN"), f("sni", "text", "SNI"), f("client-fingerprint", "text", "客户端指纹"), def("skip-cert-verify", "bool", "跳过证书校验", false), f("fingerprint", "text", "TLS 指纹"), f("certificate", "multiline", "证书"), f("private-key", "secret-multiline", "私钥"), obj("ech-opts", "ECH 参数", "fields", def("enable", "bool", "启用", false), f("config", "text", "配置")), def("udp", "bool", "UDP", true), f("idle-session-check-interval", "number", "空闲检查间隔"), f("idle-session-timeout", "number", "空闲超时"), f("min-idle-session", "number", "最小空闲会话")), SensitiveFields: []string{"password", "private-key"}, LinkMappings: links("password", "sni", "alpn", "client-fingerprint")},
 		{Protocol: "mieru", Label: "Mieru", FormSchema: common(req("username", "text", "用户名"), req("password", "password", "密码"), f("port-range", "text", "端口范围"), sel("transport", "传输", "TCP", "TCP", "UDP"), def("udp", "bool", "UDP", true), sel("multiplexing", "多路复用", "MULTIPLEXING_OFF", "MULTIPLEXING_OFF", "LOW", "MIDDLE", "HIGH"), f("handshake-mode", "text", "握手模式")), SensitiveFields: []string{"password"}},
 		{Protocol: "masque", Label: "MASQUE", FormSchema: common(req("private-key", "secret-multiline", "私钥"), req("public-key", "text", "公钥"), f("ip", "text", "IP"), f("ipv6", "text", "IPv6"), f("mtu", "number", "MTU"), def("udp", "bool", "UDP", true), def("remote-dns-resolve", "bool", "远端 DNS 解析", false), f("dns", "text-list", "DNS")), SensitiveFields: []string{"private-key"}},
 		{Protocol: "openvpn", Label: "OpenVPN", FormSchema: common(req("client-config", "multiline", "客户端配置"))},
-		{Protocol: "ssh", Label: "SSH", FormSchema: common(req("username", "text", "用户名"), f("password", "password", "密码"), f("private-key", "secret-multiline", "私钥"), f("private-key-passphrase", "password", "私钥口令"), f("host-key", "multiline", "Host Key"), f("host-key-algorithms", "text", "Host Key 算法")), SensitiveFields: []string{"password", "private-key", "private-key-passphrase"}},
+		{Protocol: "ssh", Label: "SSH", FormSchema: common(
+			sshAuthModeField(),
+			req("username", "text", "用户名"),
+			sshBranchCredential("password", "password", "密码", "password", true),
+			sshBranchCredential("private-key", "secret-multiline", "私钥", "private_key", true),
+			sshBranchCredential("private-key-passphrase", "password", "私钥口令", "private_key", false),
+			sshHostKeyField(),
+			sshHostKeyAlgorithmsField()),
+			Selectors:       []SelectorSchema{{Name: "auth_mode", Values: []string{"password", "private_key"}, Default: "password"}},
+			SensitiveFields: []string{"password", "private-key", "private-key-passphrase"}},
 		{Protocol: "shadowquic", Label: "ShadowQUIC", FormSchema: common(req("password", "password", "密码"), f("sni", "text", "SNI")), SensitiveFields: []string{"password"}},
 		{Protocol: "trusttunnel", Label: "TrustTunnel", FormSchema: common(f("password", "password", "密码")), SensitiveFields: []string{"password"}},
 		{Protocol: "tailscale", Label: "Tailscale", FormSchema: common(f("auth-key", "password", "认证密钥")), SensitiveFields: []string{"auth-key"}},

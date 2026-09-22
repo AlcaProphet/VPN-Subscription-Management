@@ -183,6 +183,7 @@ func TestNodeCheckFixtures(t *testing.T) {
 		invalid    bool
 		warnURI    bool
 		skipURI    bool
+		warnClash  string
 		expectCode string
 	}{
 		{name: "vless-tcp-tls.json"},
@@ -204,6 +205,17 @@ func TestNodeCheckFixtures(t *testing.T) {
 		{name: "http-mtls.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 		{name: "socks5-basic-tls.json"},
 		{name: "socks5-mtls.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
+		{name: "ssh-password.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "ssh-private-key.json", skipURI: true, warnClash: "ssh_host_key_unverified", expectCode: "target_unsupported"},
+		{name: "snell-http.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "snell-shadow-tls.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "hysteria-basic.json"},
+		{name: "hysteria-auth-str.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
+		{name: "hysteria2-single.json"},
+		{name: "hysteria2-ports.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
+		{name: "hysteria2-realm.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
+		{name: "tuic-v5.json"},
+		{name: "tuic-v4.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 	}
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -226,7 +238,7 @@ func TestNodeCheckFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("序列化固定夹具响应失败: %v", err)
 			}
-			for _, secret := range []string{"trojan-password", "inner-password", "shadowsocks-password", "shadowsocks-2022-password", "http-password", "socks-password", "11111111-2222-3333-4444-555555555555"} {
+			for _, secret := range []string{"trojan-password", "inner-password", "shadowsocks-password", "shadowsocks-2022-password", "http-password", "socks-password", "ssh-password", "11111111-2222-3333-4444-555555555555", "MC4CAQAwBQYDK2VwBCIEIEt4q5YVLyauvDa3VGquPz1AG5LyzbQQzIEFaSeIDjZl", "snell-password", "snell-obfs-password", "hysteria-auth-str", "hysteria2-password", "hysteria2-obfs-password", "hysteria2-realm-token", "tuic-v5-password", "tuic-v4-token"} {
 				if strings.Contains(string(encoded), secret) {
 					t.Fatalf("固定夹具响应泄漏凭据 %q: %s", secret, encoded)
 				}
@@ -235,7 +247,12 @@ func TestNodeCheckFixtures(t *testing.T) {
 				assertFixtureDiagnostic(t, resp.Targets["generic-subs"], "error", fixture.expectCode)
 				return
 			}
-			assertFixtureStatus(t, resp.Targets["clash-yaml"], "ok")
+			if fixture.warnClash != "" {
+				assertFixtureStatus(t, resp.Targets["clash-yaml"], "warn")
+				assertFixtureDiagnostic(t, resp.Targets["clash-yaml"], "warn", fixture.warnClash)
+			} else {
+				assertFixtureStatus(t, resp.Targets["clash-yaml"], "ok")
+			}
 			if fixture.skipURI {
 				assertFixtureStatus(t, resp.Targets["sr-subs"], "skip")
 				assertFixtureStatus(t, resp.Targets["generic-subs"], "skip")

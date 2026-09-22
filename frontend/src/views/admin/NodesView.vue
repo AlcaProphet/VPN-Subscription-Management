@@ -692,7 +692,13 @@ function selectorNameFor(field: FieldSchema): string {
 function selectorValueFor(name: string): string {
   if (selectorState[name]) return selectorState[name]
   const selector = currentSchema()?.selectors?.find((item) => item.name === name)
-  return selector?.default ?? ''
+  if (!selector) return ''
+  // 普通 selector 的权威值来自 protocol_json 来源字段；state_only 只能使用注册表默认值。
+  if (selector.source_field) {
+    const value = valueAtPath(form.protocol_json, selector.source_field)
+    if (value !== undefined && value !== null && String(value) !== '') return String(value)
+  }
+  return selector.default ?? ''
 }
 function fieldModelValue(field: FieldSchema): unknown {
   return field.state_only ? selectorValueFor(selectorNameFor(field)) : fieldValue(field.name)
@@ -723,6 +729,11 @@ function setField(key: string, val: unknown) {
     applyResetScope('security', val !== oldSecurity)
   } else if (key === 'plugin') {
     applyResetScope('plugin', val !== oldPlugin)
+  }
+  // 普通 selector 的来源字段变化时，按后端同一 selector.<name> 清空域清理旧分支字段。
+  const sourceSelector = currentSchema()?.selectors?.find((item) => item.source_field === key)
+  if (sourceSelector) {
+    applyResetScope(`selector.${sourceSelector.name}`, String(val ?? '') !== selectorValueFor(sourceSelector.name))
   }
   const candidate = { ...form.protocol_json, [key]: val }
   const newFeatures = activeFeatures(schema, candidate)

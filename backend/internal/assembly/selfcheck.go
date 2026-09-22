@@ -12,6 +12,21 @@ import (
 	"vpn-sub/internal/ssplugin"
 )
 
+// endpointPolicyRequirements 从协议声明的 endpoint policy 推导 self-check 是否强制 server／port。
+// 只要存在一种合法状态隐藏该字段，就不把它写成 YAML 自检的硬性必填。
+func endpointPolicyRequirements(proto node.Protocol) (requireHost, requirePort bool) {
+	requireHost, requirePort = true, true
+	for _, policy := range proto.EndpointPolicies {
+		if !policy.EmitHost {
+			requireHost = false
+		}
+		if !policy.EmitPort {
+			requirePort = false
+		}
+	}
+	return requireHost, requirePort
+}
+
 // OutputIssue 是 Clash 产物静态自检问题。
 type OutputIssue struct {
 	Severity string `json:"severity"`
@@ -65,30 +80,39 @@ func CheckClashContent(content []byte) []OutputIssue {
 					continue
 				}
 				if typ != "direct" && typ != "dns" {
+					proto, err := node.GetProtocol(typ)
+					if err != nil {
+						issues = append(issues, outputError(path, "不支持的节点类型: "+typ))
+						for _, key := range []string{"server", "port"} {
+							if _, exists := mapGet(proxy, key); !exists {
+								issues = append(issues, outputError(path, "节点缺少 "+key))
+							}
+						}
+						continue
+					}
+					// endpoint 必填性由协议声明的 policy 推导：任一合法状态隐藏该字段即不硬性要求，
+					// 具体组合由协议 adapter 与 endpoint policy 保证。
+					requireHost, requirePort := endpointPolicyRequirements(proto)
 					for _, key := range []string{"server", "port"} {
+						if (key == "server" && !requireHost) || (key == "port" && !requirePort) {
+							continue
+						}
 						if _, exists := mapGet(proxy, key); !exists {
 							issues = append(issues, outputError(path, "节点缺少 "+key))
 						}
 					}
-				}
-				proto, err := node.GetProtocol(typ)
-				if err != nil {
-					if typ != "direct" && typ != "dns" {
-						issues = append(issues, outputError(path, "不支持的节点类型: "+typ))
+					for _, field := range proto.FormSchema {
+						if !field.Required {
+							continue
+						}
+						value, exists := mapGet(proxy, field.Name)
+						if !exists || isEmptyYAMLValue(value) {
+							issues = append(issues, outputError(path, typ+" 缺少必填字段 "+field.Name))
+						}
 					}
-					continue
-				}
-				for _, field := range proto.FormSchema {
-					if !field.Required {
-						continue
+					if typ == "ss" {
+						issues = append(issues, checkSSPluginStructure(proxy, path)...)
 					}
-					value, exists := mapGet(proxy, field.Name)
-					if !exists || isEmptyYAMLValue(value) {
-						issues = append(issues, outputError(path, typ+" 缺少必填字段 "+field.Name))
-					}
-				}
-				if typ == "ss" {
-					issues = append(issues, checkSSPluginStructure(proxy, path)...)
 				}
 			}
 		}

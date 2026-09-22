@@ -1,0 +1,12 @@
+{
+  "protocol": "hysteria2",
+  "host": "192.0.2.1",
+  "port": 0,
+  "protocol_json": {
+    "password": "hysteria2-password",
+    "ports": "1000-2000",
+    "hop-interval": "10-20"
+  },
+  "current_state": { "selectors": { "endpoint_mode": "ports", "obfs_mode": "none" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}
