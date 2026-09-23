@@ -1020,7 +1020,7 @@ describe('NodesView 节点管理页', () => {
     expect(mockCreateNode).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
-  it('WireGuard peers 高级 JSON 应用后保留内部身份且保存不再被阻断', async () => {
+  it('WireGuard peers 结构化重排保持 selector、稳定身份与保存检查顺序', async () => {
     const firstID = '11111111-1111-4111-8111-111111111111'
     const secondID = '22222222-2222-4222-8222-222222222222'
     mockGetProtocols.mockResolvedValue([{
@@ -1038,6 +1038,7 @@ describe('NodesView 节点管理页', () => {
           ],
         },
       ],
+      selectors: [{ name: 'peer_mode', values: ['single', 'peers'], default: 'single' }],
       sensitive_fields: ['private-key', 'peers[].pre-shared-key'],
       link_mappings: { sr: true, generic: true },
     }])
@@ -1052,7 +1053,7 @@ describe('NodesView 节点管理页', () => {
           { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
         ],
       },
-      current_state: { security: 'none' },
+      current_state: { security: 'none', selectors: { peer_mode: 'peers' } },
       saved_sensitive_paths: [`peers[${firstID}].pre-shared-key`, `peers[${secondID}].pre-shared-key`],
     }
     mockListNodes.mockResolvedValue([wireguardNode])
@@ -1062,21 +1063,26 @@ describe('NodesView 节点管理页', () => {
     vm.openEdit(wireguardNode)
     await nextTick()
     const peers = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'peers')!
-    await peers.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     const reordered = [
       { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
       { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
     ]
-    await peers.find('textarea').setValue(JSON.stringify(reordered))
-    await peers.findAll('button').find((button) => button.text().replace(/\s/g, '') === '应用')!.trigger('click')
+    await peers.get('button[aria-label="上移第 2 个 Peer"]').trigger('click')
     expect(vm.invalidProtocolPaths.size).toBe(0)
     expect(vm.unappliedJsonPaths.size).toBe(0)
     expect(vm.form.protocol_json.peers).toEqual(reordered)
+    expect(vm.currentState.selectors).toEqual({ peer_mode: 'peers' })
+    expect(vm.resetScopesArray()).toEqual([])
+    expect(vm.checkRequest.protocol_json.peers).toEqual(reordered)
+    expect(vm.checkRequest.credential_ops).toBeUndefined()
 
     mockUpdateNode.mockResolvedValue({ ...wireguardNode, edit_revision: 4 })
     await vm.save()
     expect(mockUpdateNode).toHaveBeenCalledTimes(1)
     expect(mockUpdateNode.mock.calls[0][1].protocol_json.peers).toEqual(reordered)
+    expect(mockUpdateNode.mock.calls[0][1].current_state.selectors).toEqual({ peer_mode: 'peers' })
+    expect(mockUpdateNode.mock.calls[0][1].reset_scopes).toEqual([])
+    expect(mockUpdateNode.mock.calls[0][1].credential_ops).toBeUndefined()
     wrapper.unmount()
   })
 

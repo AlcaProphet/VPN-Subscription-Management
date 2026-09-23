@@ -399,6 +399,75 @@ describe('ProtocolFieldEditor', () => {
     expect(editors[1].find('input').attributes('placeholder')).toBe('已保存（留空保留）')
   })
 
+  it('对象数组可通过按钮重排且稳定身份、凭据状态与草稿事件不串项', async () => {
+    const firstID = '11111111-1111-4111-8111-111111111111'
+    const secondID = '22222222-2222-4222-8222-222222222222'
+    const thirdID = '33333333-3333-4333-8333-333333333333'
+    const peers: FieldSchema = {
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', item_id_field: '_credential_id',
+      properties: [
+        { name: 'server', type: 'text', required: true, label: '服务器' },
+        { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+      ],
+    }
+    const original = [
+      { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+      { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+      { _credential_id: thirdID, server: 'peer-c', 'pre-shared-key': '' },
+    ]
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: {
+        field: peers,
+        modelValue: original,
+        sensitivePaths: ['peers[].pre-shared-key'],
+        savedSensitivePaths: [`peers[${firstID}].pre-shared-key`],
+      },
+    })
+
+    expect((wrapper.get('button[aria-label="上移第 1 个 Peer"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((wrapper.get('button[aria-label="下移第 3 个 Peer"]').element as HTMLButtonElement).disabled).toBe(true)
+    const jsonDirtyEventCount = (wrapper.emitted('json-dirty-change') ?? []).length
+    const draftDirtyEventCount = (wrapper.emitted('draft-dirty-change') ?? []).length
+    await wrapper.get('button[aria-label="上移第 2 个 Peer"]').trigger('click')
+
+    let updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1][0]).toEqual([original[1], original[0], original[2]])
+    expect(wrapper.emitted('credential-change')).toBeUndefined()
+    expect(wrapper.emitted('validity-change')).toBeUndefined()
+    expect(wrapper.emitted('json-dirty-change') ?? []).toHaveLength(jsonDirtyEventCount)
+    expect(wrapper.emitted('draft-dirty-change') ?? []).toHaveLength(draftDirtyEventCount)
+
+    await wrapper.setProps({ modelValue: updates[updates.length - 1][0] })
+    const editors = wrapper.findAllComponents(ProtocolFieldEditor).filter((item) => item.props('field').name === 'pre-shared-key')
+    expect(editors.map((item) => item.props('path'))).toEqual([
+      `peers[${secondID}].pre-shared-key`,
+      `peers[${firstID}].pre-shared-key`,
+      `peers[${thirdID}].pre-shared-key`,
+    ])
+    expect(editors[0].find('input').attributes('placeholder')).toBe('未配置')
+    expect(editors[1].find('input').attributes('placeholder')).toBe('已保存（留空保留）')
+
+    await wrapper.get('button[aria-label="下移第 2 个 Peer"]').trigger('click')
+    updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1][0]).toEqual([original[1], original[2], original[0]])
+  })
+
+  it('单条对象数组的上移和下移按钮均禁用，删除行为保持不变', async () => {
+    const id = '11111111-1111-4111-8111-111111111111'
+    const peers: FieldSchema = {
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', item_id_field: '_credential_id',
+      properties: [{ name: 'server', type: 'text', required: true, label: '服务器' }],
+    }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field: peers, modelValue: [{ _credential_id: id, server: 'peer-a' }] },
+    })
+
+    expect((wrapper.get('button[aria-label="上移第 1 个 Peer"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((wrapper.get('button[aria-label="下移第 1 个 Peer"]').element as HTMLButtonElement).disabled).toBe(true)
+    await wrapper.get('button[aria-label="删除第 1 个 Peer"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[[]]])
+  })
+
   it('对象数组高级 JSON 放行内部 item_id_field，重排后保留稳定身份', async () => {
     const firstID = '11111111-1111-4111-8111-111111111111'
     const secondID = '22222222-2222-4222-8222-222222222222'
@@ -452,7 +521,7 @@ describe('ProtocolFieldEditor', () => {
 
   it('对象数组可新增条目并按子 schema 编辑', async () => {
     const peers: FieldSchema = {
-      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', allow_unknown: false,
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', item_id_field: '_credential_id', allow_unknown: false,
       properties: [{ name: 'server', type: 'text', required: false, label: '服务器' }],
     }
     const wrapper = mount(ProtocolFieldEditor, { props: { field: peers, modelValue: [] } })
@@ -460,7 +529,9 @@ describe('ProtocolFieldEditor', () => {
     const buttons = wrapper.findAll('button')
     await buttons[buttons.length - 1].trigger('click')
     const updateEvents = wrapper.emitted('update:modelValue') ?? []
-    expect(updateEvents[updateEvents.length - 1]).toEqual([[{}]])
+    expect(updateEvents[updateEvents.length - 1][0]).toEqual([
+      { _credential_id: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+    ])
   })
 
   it('对象子字段按当前插件状态递归执行 when', async () => {

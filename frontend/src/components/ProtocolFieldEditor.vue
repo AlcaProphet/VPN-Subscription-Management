@@ -495,6 +495,20 @@ function removeListItem(index: number) {
   update(next)
 }
 
+function moveListItem(index: number, offset: -1 | 1) {
+  const target = index + offset
+  if (target < 0 || target >= listValue.value.length) return
+  const next = [...listValue.value]
+  const [item] = next.splice(index, 1)
+  next.splice(target, 0, item)
+  update(next)
+}
+
+function listItemAriaLabel(action: string, index: number): string {
+  const itemLabel = props.field.label.replace(/\s*列表$/, '') || '条目'
+  return `${action}第 ${index + 1} 个 ${itemLabel}`
+}
+
 const scalarListItems = computed<string[]>(() => {
   const value = props.modelValue
   if (Array.isArray(value)) return value.map((item) => String(item))
@@ -655,9 +669,13 @@ function isComplex(value: unknown): boolean {
     <template v-else-if="field.object_kind === 'list'">
       <div v-if="listValue.length" class="space-y-3">
         <div v-for="(item, index) in listValue" :key="listItemID(item, index)" class="rounded-lg border p-3">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-sm font-medium">第 {{ index + 1 }} 项</span>
-            <Button size="small" danger @click="removeListItem(index)">删除</Button>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <span class="text-sm font-medium shrink-0">第 {{ index + 1 }} 项</span>
+            <div class="flex flex-wrap justify-end gap-2">
+              <Button size="small" :aria-label="listItemAriaLabel('上移', index)" :disabled="index === 0" @click="moveListItem(index, -1)">上移</Button>
+              <Button size="small" :aria-label="listItemAriaLabel('下移', index)" :disabled="index === listValue.length - 1" @click="moveListItem(index, 1)">下移</Button>
+              <Button size="small" danger :aria-label="listItemAriaLabel('删除', index)" @click="removeListItem(index)">删除</Button>
+            </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor

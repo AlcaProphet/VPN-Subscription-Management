@@ -1,7 +1,7 @@
 # Build32.md — 19 个 manual 协议编辑体验完整化
 
 > **文档定位：** 本文档是下一轮活动构建方案，承接 [Design4.md](Design4.md) 第九章“完成当前全部 19 个已兼容 manual 协议的编辑体验改进”目标，以及用户于 2026-09-21 对研究结论的最新确认。
-> **当前状态：** 用户已授权实施并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准；Step 0.5～3 已完成并提交在 `7ecb6d5aa0619d560fcbc786547cf95e0fef7080`（分支 `beta`），Step 3 遗留的前端静态颜色门禁缺口已由 Step 3-fix 修正，Step 3.5 公共字段类型增补、Step 4 HTTP、Step 5 SOCKS5、Step 6 SSH、Step 7 Snell、Step 8 Hysteria、9 Hysteria2、10 TUIC、11 标准 WireGuard、12 Mieru、13 MASQUE、14 Tailscale、15 AnyTLS、16 ShadowQUIC、**17 TrustTunnel**、**18 OpenVPN**、**19 `.ovpn` 只读解析导入**、**20 全 19 协议目标诊断与正式装配收口** 已验收通过（legacy 待迁移协议 19→4→0）；固定 Mihomo v1.19.31 二进制已由用户重新提供官方 `go124` 发布资产并复验通过。用户已一次性授权 Step 17～20 严格串行实施（2026-09-23，并确认 TrustTunnel `connections` 分支要求 `max-connections` 必填／`min-streams` 可选、OpenVPN 枚举按项目侧收紧、不存在外部遗留 `client-config` 数据、OpenVPN 认证组切换采用新增可选字段属性方案）；Step 20 的六项技术取舍已由用户在开工前逐项确认（固定二进制路径、构造后脱敏、删除 legacy 静默回退、轻量 evidence 消费、selfcheck 全量生效、URI 链接值级脱敏），其独立核验发现的已保存凭据密文检查、短凭据全局替换和对象列表路径解析三项缺口已于同日修复并重新通过全部 Step 20 门禁；当前恢复入口为 Step 21 全协议前端回归；**Step 20 已完成，Step 21～22 未开始，不得归档本文档。**
+> **当前状态：** 用户已授权实施并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准；Step 0.5～3 已完成并提交在 `7ecb6d5aa0619d560fcbc786547cf95e0fef7080`（分支 `beta`），Step 3 遗留的前端静态颜色门禁缺口已由 Step 3-fix 修正，Step 3.5 公共字段类型增补、Step 4 HTTP、Step 5 SOCKS5、Step 6 SSH、Step 7 Snell、Step 8 Hysteria、9 Hysteria2、10 TUIC、11 标准 WireGuard、12 Mieru、13 MASQUE、14 Tailscale、15 AnyTLS、16 ShadowQUIC、**17 TrustTunnel**、**18 OpenVPN**、**19 `.ovpn` 只读解析导入**、**20 全 19 协议目标诊断与正式装配收口** 已验收通过（legacy 待迁移协议 19→4→0）；固定 Mihomo v1.19.31 二进制已由用户重新提供官方 `go124` 发布资产并复验通过。用户已一次性授权 Step 17～20 严格串行实施（2026-09-23，并确认 TrustTunnel `connections` 分支要求 `max-connections` 必填／`min-streams` 可选、OpenVPN 枚举按项目侧收紧、不存在外部遗留 `client-config` 数据、OpenVPN 认证组切换采用新增可选字段属性方案）；Step 20 的六项技术取舍已由用户在开工前逐项确认（固定二进制路径、构造后脱敏、删除 legacy 静默回退、轻量 evidence 消费、selfcheck 全量生效、URI 链接值级脱敏），其独立核验发现的已保存凭据密文检查、短凭据全局替换和对象列表路径解析三项缺口已于同日修复并重新通过全部 Step 20 门禁；**Step 21 已开始，Issue19 R33-01 WireGuard Peer 结构化排序已修复并完成自动化、后端凭据回归及 375px／920px 隔离浏览器验收，R33-02 仍待处理；Step 21 整体未完成，Step 22 未开始，不得归档本文档。**
 > **编码约束：** [AGENTS.md](AGENTS.md) 是唯一强要求文档。实施时必须一次只执行一个 Step，逐步验收，不并行实施多个协议。
 > **最新用户决策：** 新兼容基线为 Mihomo **v1.19.31**（commit `ab405bad5beeeac8b003bb01f60f134f6df54471`），不再把 v1.19.29 作为新设计兼容目标；允许协议级 endpoint policy；OpenVPN 使用“结构化编辑为主＋粘贴 `.ovpn` 解析导入”，不再把 `client-config` 直接作为 Mihomo 输出字段；WireGuard 只覆盖标准单 Peer／多 Peer，AmneziaWG 不纳入 Build32，留作后续独立专项。
 
@@ -33,7 +33,7 @@
 | 18 | OpenVPN 结构化 schema、wire adapter 与敏感字段 | ✅ 验收通过 |
 | 19 | `.ovpn` 只读解析 API、导入预览与前端应用草稿 | ✅ 验收通过 |
 | 20 | 全 19 协议目标诊断、URI 支持／稳定 skip 与正式装配一致性 | ✅ 验收通过 |
-| 21 | 全协议前端交互、375px／桌面、草稿与错误定位回归 | ☐ 未开始 |
+| 21 | 全协议前端交互、375px／桌面、草稿与错误定位回归 | ◧ 进行中（R33-01 已完成，R33-02 待处理） |
 | 22 | 联合门禁、隔离浏览器 smoke、证据分层与文档归档 | ☐ 未开始 |
 
 > 状态标记：☐ 未开始 / ◧ 进行中 / ✅ 验收通过。只有完成对应 Step 的实施记录与验收命令后才能标记为验收通过；本地验收通过不等同于已提交、联合门禁或真实客户端／人工验收通过。
@@ -1177,6 +1177,8 @@ Step 0.5 授权/冻结
   npm run build
   ```
 
+- **R33-01 修复记录（2026-09-23）：** 首轮浏览器“只有 JSON、无新增／删除”的观察来自过期 `backend/web/dist`；当前源码原有结构化新增／删除，真实缺口只有排序。`ProtocolFieldEditor` 为通用对象列表增加上移／下移按钮，移动原对象并保留 `_credential_id`，不产生凭据、有效性、草稿、reset scope 或 credential op 副作用；不引入拖拽、不改后端／API／数据库。失败优先用例先在旧实现失败，修复后 Step21 五文件定向 118 项、前端全量 48 文件／346 项、生产构建、后端 WireGuard 三项定向回归及后端全量 test／build／vet 均通过。最新前端产物注入临时构建目录后，在全新临时 `DATA_DIR` 的隔离实例完成精确 `375 × 785`／`920 × 785`、浅色／深色浏览器复验：上下移动与边界禁用正常，375px 按钮换行且无横向溢出，保存重开顺序保持，PSK 状态跟随稳定 Peer 身份；Clash 脱敏预览顺序一致且不含 `_credential_id` 或明文 PSK。未执行真实 WireGuard 连接。R33-02 仍独立待处理，故 Step 21 不标记完成。
+
 ### Step 22：联合门禁、隔离 smoke 与归档
 
 ```bash
@@ -1254,6 +1256,7 @@ git diff --check
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.27 | 2026-09-23 | Step 21 开始并完成 Issue19 R33-01：校正过期嵌入产物导致的“只有 JSON”观察，将真实缺口收窄为结构化列表缺少排序；通用对象列表新增上移／下移、首末禁用、窄屏换行与条目级辅助标签，保持 `_credential_id`、PSK 状态、selector、reset scope 和 credential ops 不变。失败优先、Step21 定向 118 项、前端全量 346 项与 build、后端 WireGuard 定向及全量 test／build／vet通过；最新前端产物的隔离实例在 375×785／920×785、明暗主题下完成保存重开、稳定凭据状态与脱敏预览复验。真实 WireGuard 连接未执行；R33-02 尚未处理，Step 21 保持进行中。 |
 | v1.26 | 2026-09-23 | 修复 Step 20 独立核验发现的三项缺口：已保存节点检查在只读副本中先解密沿用凭据再进入目标校验和正式 adapter，使 check 与装配使用相同明文，并新增 WireGuard Base64 凭据在解密后参与校验／构造的保存节点回归；URI 预览删除会误伤 host／名称／普通参数的全局短字符串替换，改由同一链接构造器使用脱敏参数重建，失败时不返回预览；`SchemaPathExists` 支持并严格校验对象列表数字索引，诊断测试改为直接复用生产解析器。新增／收紧四项回归后，node 276、assembly 129 个测试函数、后端全量、build／vet／gofmt／errgate、固定 Mihomo 17 函数／89 用例全部通过；Step 20 重新确认验收通过，未进入 Step 21。 |
 | v1.25 | 2026-09-23 | 完成 Step 20 全 19 协议目标诊断、URI 支持／稳定 skip 与正式装配一致性收口：新增 `ss/vmess/vless/trojan` 四个白名单显式 Clash adapter（`ss` 复用既有插件规范化与 Clash 默认值、`smux` 仅启用时输出；`vmess` 始终输出无 `omitempty` 的 `alterId=0`／`cipher=auto` 并把 `h2-opts.host` 规范为数组；`vless` 排除固定 tag 没有的 ECH／伪装／mTLS 字段且旧 `ws-path`／`ws-headers` 只进 `ws-opts`；`trojan` 内层 `ss-opts` 仅在 `enabled` 时输出），**legacy 待迁移计数 4→0，19 个 manual 协议全部经过显式 adapter 且缺失集合为空**；删除 `legacyClashProxy`／`clashProxy()` 静默回退，渲染计划改由 `buildClashProxy` 构造并与生成产物同源；按用户决策把预览脱敏改为**构造后**（Clash 字段级按值替换，URI 用脱敏副本对照定位差异区间并按原文／URL 转义／Base64 值级替换 ＋ fail-closed 兜底，诊断与自检仍用真实参数，无凭据配置预览逐字节不变）；URI 能力逐字段收口（SR 与 generic 分别判断，vmess `skip-cert-verify`、ss `udp-over-tcp`、vless `packet-*`、trojan `client-fingerprint` 等按目标给出 `uri_partial_fields`／`core_semantic_unexpressible`，公共字段按目标区分 `tfo`）；`target_evidence` 落地为可消费证据（状态全由 adapter 诊断与 `CheckClashContent` 计算，新增 `node.SchemaPathExists` 与 `canonicalClashIssuePath` 把 `$.proxies[n]` 路径映射回 schema 规范路径，SS 插件参数映射到存储对象，问题路径改为字段级，证据来源限定白名单）；`CheckClashContent` 新增 11 个后续协议的关键 shape／互斥／endpoint 门禁（Tailscale 无顶层 endpoint、Hysteria2 `port`／`ports`、Mieru `port`／`port-range`、WireGuard peers 与顶层字段互斥及 Peer 必填与 `reserved` 恰 3 字节、TUIC v4／v5 与 UOT 版本、TrustTunnel 复用两组互斥、OpenVPN 认证成对与三种 TLS key 互斥及 `key-direction` 依赖、AnyTLS 三种伪装互斥、ShadowQUIC 拒绝不存在的 TLS／ECH／UOT 版本字段、Snell v1／v2 禁 `udp` 与 v1 禁 `reuse`、MASQUE network 与 h3-l4proxy 禁 UDP）。失败优先 19 个测试函数真实失败后实现；assembly 定向与全量 41 包、node 274 函数、build／vet／gofmt／errgate、固定 Mihomo v1.19.31 门禁 17 函数／89 用例（正例 37、反例 52）、Markdown 链接与 `git diff --check` 全部通过。本步未修改前端生产代码，未运行 race／Docker／API／浏览器 smoke／真实连接／人工验收，未归档 Build32、未提交。 |
 | v1.24 | 2026-09-23 | 完成 Step 19 `.ovpn` 只读解析导入：新增有界（256 KiB）纯内存 parser（`node/openvpn_import.go`），不读取外部文件、不执行脚本／hook／include、不落库；`remote`→host/port、结构化指令与 `<ca>/<cert>/<key>/<tls-auth>/<tls-crypt>/<tls-crypt-v2>` 去标签映射并给出逐字段来源行号；`auth-user-pass` 只标记能力（引用文件只 warn、不制造用户名密码）；完整 cert/key＋auth-user-pass 推导为合法的 `cert_userpass` 而非冲突；多 remote／cert-key 缺半／多种 TLS key／冲突单值／未闭合内块／inline 之外文件引用／脚本 hook include／枚举越界均按稳定 code 阻断，未知安全指令只 warn。新增 `POST /api/admin/nodes/openvpn/parse`，注册在 `noStoreMiddleware()` 先于 session/admin 的独立分组，401／403／400／413／200 均带 `no-store`；日志只记录长度、映射字段数与 error code。前端新增 `OpenVPNImportPanel.vue`（解析→按 code/行号展示诊断→脱敏结构→显式应用／取消，原文只在内存、不入 localStorage），`NodesView` 应用时先应用 selector 再合并解析产出字段并保留未产出的既有草稿，解析草稿纳入页面级阻断，切换协议／关闭面板丢弃原文；`ApiError` 增加可选 `details` 以读取 400 的 `error_code`／`diagnostics`。失败优先 6 项、node 定向 13 函数、server 定向 4 函数/7 子用例、前端 48 文件/344 用例、后端全量 41 包、legacy 计数保持 4 与 build/vet/gofmt/errgate/`git diff --check` 全部通过。 |
