@@ -51,7 +51,7 @@ func TestMihomo11931AcceptsGeneratedSSPluginStructures(t *testing.T) {
 					"cipher": "aes-128-gcm", "password": "secret", "plugin": tc.plugin,
 					definition.StorageKey: tc.opts,
 				}
-				proxy := new(Service).clashProxy(&nodeData{RenderName: "ss-" + tc.name, Protocol: "ss", Host: "example.com", Port: 443, ProtocolJSON: params})
+				proxy := clashProxyFixture(t, &nodeData{RenderName: "ss-" + tc.name, Protocol: "ss", Host: "example.com", Port: 443, ProtocolJSON: params})
 				content := mihomoSSPluginConfig(t, orderedMapToMapSlice(proxy), "ss-"+tc.name)
 				output, err := runMihomoConfigTest(t, bin, content)
 				if err != nil {

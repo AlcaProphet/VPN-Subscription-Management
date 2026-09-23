@@ -70,7 +70,7 @@ func TestMihomo11931MieruProtocolStructures(t *testing.T) {
 		}
 		for _, tc := range generated {
 			t.Run(tc.name, func(t *testing.T) {
-				proxy := new(Service).clashProxy(&nodeData{
+				proxy := clashProxyFixture(t, &nodeData{
 					Protocol: "mieru", RenderName: tc.render, Host: tc.host, Port: tc.port,
 					ProtocolJSON: tc.params, CurrentState: tc.state,
 				})

@@ -75,7 +75,7 @@ func TestMihomo11931WireGuardProtocolStructures(t *testing.T) {
 		}
 		for _, tc := range generated {
 			t.Run(tc.name, func(t *testing.T) {
-				proxy := new(Service).clashProxy(&nodeData{
+				proxy := clashProxyFixture(t, &nodeData{
 					Protocol: "wireguard", RenderName: tc.render, Host: tc.host, Port: tc.port,
 					ProtocolJSON: tc.params, CurrentState: tc.state,
 				})

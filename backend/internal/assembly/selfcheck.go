@@ -85,7 +85,7 @@ func CheckClashContent(content []byte) []OutputIssue {
 						issues = append(issues, outputError(path, "不支持的节点类型: "+typ))
 						for _, key := range []string{"server", "port"} {
 							if _, exists := mapGet(proxy, key); !exists {
-								issues = append(issues, outputError(path, "节点缺少 "+key))
+								issues = append(issues, outputError(path+"."+key, "节点缺少 "+key))
 							}
 						}
 						continue
@@ -98,7 +98,7 @@ func CheckClashContent(content []byte) []OutputIssue {
 							continue
 						}
 						if _, exists := mapGet(proxy, key); !exists {
-							issues = append(issues, outputError(path, "节点缺少 "+key))
+							issues = append(issues, outputError(path+"."+key, "节点缺少 "+key))
 						}
 					}
 					for _, field := range proto.FormSchema {
@@ -107,12 +107,13 @@ func CheckClashContent(content []byte) []OutputIssue {
 						}
 						value, exists := mapGet(proxy, field.Name)
 						if !exists || isEmptyYAMLValue(value) {
-							issues = append(issues, outputError(path, typ+" 缺少必填字段 "+field.Name))
+							issues = append(issues, outputError(path+"."+field.Name, typ+" 缺少必填字段 "+field.Name))
 						}
 					}
 					if typ == "ss" {
 						issues = append(issues, checkSSPluginStructure(proxy, path)...)
 					}
+					issues = append(issues, checkProtocolWireShape(typ, proxy, path)...)
 				}
 			}
 		}
@@ -538,4 +539,308 @@ func isEmptyYAMLValue(value any) bool {
 		return strings.TrimSpace(text) == ""
 	}
 	return false
+}
+
+// checkProtocolWireShape 检查后续协议在最终 YAML 中的关键 shape、互斥分支、endpoint 形状
+// 与项目明确禁止的组合。它只识别结构性错误，不复制 node 侧的整套业务校验。
+func checkProtocolWireShape(typ string, proxy gyaml.MapSlice, path string) []OutputIssue {
+	switch typ {
+	case "tailscale":
+		return checkTailscaleWireShape(proxy, path)
+	case "hysteria2":
+		return checkHysteria2WireShape(proxy, path)
+	case "mieru":
+		return checkMieruWireShape(proxy, path)
+	case "wireguard":
+		return checkWireGuardWireShape(proxy, path)
+	case "tuic":
+		return checkTUICWireShape(proxy, path)
+	case "trusttunnel":
+		return checkTrustTunnelWireShape(proxy, path)
+	case "openvpn":
+		return checkOpenVPNWireShape(proxy, path)
+	case "anytls":
+		return checkAnyTLSWireShape(proxy, path)
+	case "shadowquic":
+		return checkShadowQUICWireShape(proxy, path)
+	case "snell":
+		return checkSnellWireShape(proxy, path)
+	case "masque":
+		return checkMASQUEWireShape(proxy, path)
+	default:
+		return nil
+	}
+}
+
+// yamlHasKey 判断节点是否输出了指定键（区分「未输出」与「输出空值」）。
+func yamlHasKey(proxy gyaml.MapSlice, key string) bool {
+	_, exists := mapGet(proxy, key)
+	return exists
+}
+
+// checkTailscaleWireShape：Tailscale 的 endpoint 由协议自身管理，不得出现顶层 server／port。
+func checkTailscaleWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	for _, key := range []string{"server", "port"} {
+		if yamlHasKey(proxy, key) {
+			issues = append(issues, outputError(path+"."+key, "Tailscale 由协议自身管理 endpoint，不得输出 "+key))
+		}
+	}
+	return issues
+}
+
+// checkHysteria2WireShape：port 与 ports 严格二选一，混淆子字段必须与 obfs 同时出现。
+func checkHysteria2WireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	hasPort := yamlHasKey(proxy, "port")
+	hasPorts := yamlHasKey(proxy, "ports")
+	switch {
+	case hasPort && hasPorts:
+		issues = append(issues, outputError(path+".ports", "Hysteria2 的 port 与 ports 严格二选一，不得同时输出"))
+	case !hasPort && !hasPorts:
+		issues = append(issues, outputError(path+".port", "Hysteria2 缺少 endpoint：必须输出 port 或 ports"))
+	}
+	if !yamlHasKey(proxy, "obfs") {
+		for _, key := range []string{"obfs-password", "obfs-min-packet-size", "obfs-max-packet-size"} {
+			if yamlHasKey(proxy, key) {
+				issues = append(issues, outputError(path+"."+key, "Hysteria2 未输出 obfs 时不得输出混淆子字段 "+key))
+			}
+		}
+	}
+	return issues
+}
+
+// checkMieruWireShape：port 与 port-range 严格二选一。
+func checkMieruWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	hasPort := yamlHasKey(proxy, "port")
+	hasRange := yamlHasKey(proxy, "port-range")
+	switch {
+	case hasPort && hasRange:
+		issues = append(issues, outputError(path+".port-range", "Mieru 的 port 与 port-range 严格二选一，不得同时输出"))
+	case !hasPort && !hasRange:
+		issues = append(issues, outputError(path+".port", "Mieru 缺少 endpoint：必须输出 port 或 port-range"))
+	}
+	return issues
+}
+
+// checkWireGuardWireShape：peers 与顶层 peer 字段互斥，Peer 逐项必填，reserved 必须恰 3 字节。
+func checkWireGuardWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	peersRaw, hasPeers := mapGet(proxy, "peers")
+	if hasPeers {
+		for _, key := range []string{"server", "port", "public-key", "pre-shared-key", "allowed-ips"} {
+			if yamlHasKey(proxy, key) {
+				issues = append(issues, outputError(path+".peers", "WireGuard 输出 peers 时不得同时输出顶层 "+key))
+				break
+			}
+		}
+		peers, ok := seqOf(peersRaw)
+		if !ok {
+			issues = append(issues, outputError(path+".peers", "WireGuard peers 必须是列表"))
+			return issues
+		}
+		for i, raw := range peers {
+			peer, ok := yamlMap(raw)
+			if !ok {
+				issues = append(issues, outputError(fmt.Sprintf("%s.peers[%d]", path, i), "WireGuard Peer 必须是映射"))
+				continue
+			}
+			for _, key := range []string{"server", "port", "public-key", "allowed-ips"} {
+				value, exists := mapGet(peer, key)
+				if !exists || isEmptyYAMLValue(value) {
+					issues = append(issues, outputError(fmt.Sprintf("%s.peers[%d].%s", path, i, key),
+						"WireGuard Peer 缺少必填字段 "+key))
+				}
+			}
+		}
+	}
+	if !hasPeers {
+		for _, key := range []string{"server", "port"} {
+			if !yamlHasKey(proxy, key) {
+				issues = append(issues, outputError(path+"."+key, "WireGuard 缺少顶层 endpoint 字段 "+key))
+			}
+		}
+	}
+	issues = append(issues, checkByteSequenceLength(proxy, path, "reserved")...)
+	return issues
+}
+
+// checkByteSequenceLength 校验 reserved 必须是恰好 3 个 0-255 整数。
+func checkByteSequenceLength(proxy gyaml.MapSlice, path, key string) []OutputIssue {
+	raw, exists := mapGet(proxy, key)
+	if !exists {
+		return nil
+	}
+	items, ok := seqOf(raw)
+	if !ok || len(items) != 3 {
+		return []OutputIssue{outputError(path+"."+key, key+" 必须是恰好 3 个字节的整数数组")}
+	}
+	for _, item := range items {
+		number, ok := yamlIntValue(item)
+		if !ok || number < 0 || number > 255 {
+			return []OutputIssue{outputError(path+"."+key, key+" 的每个字节必须在 0-255 之间")}
+		}
+	}
+	return nil
+}
+
+// checkTUICWireShape：v4 Token 与 v5 UUID／密码互斥，UOT 版本依赖 UOT 开关。
+func checkTUICWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	if yamlHasKey(proxy, "token") && (yamlHasKey(proxy, "uuid") || yamlHasKey(proxy, "password")) {
+		issues = append(issues, outputError(path+".token", "TUIC 的 v4 Token 与 v5 UUID／密码严格互斥，不得同时输出"))
+	}
+	if yamlHasKey(proxy, "udp-over-stream-version") && !mapBool(proxy, "udp-over-stream") {
+		issues = append(issues, outputError(path+".udp-over-stream-version",
+			"TUIC 未启用 udp-over-stream 时不得输出版本字段"))
+	}
+	return issues
+}
+
+// checkTrustTunnelWireShape：连接复用两组数字互斥。
+func checkTrustTunnelWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	connectionsUsed := yamlHasKey(proxy, "max-connections") || yamlHasKey(proxy, "min-streams")
+	if connectionsUsed && yamlHasKey(proxy, "max-streams") {
+		issues = append(issues, outputError(path+".max-streams",
+			"TrustTunnel 的 max-connections／min-streams 与 max-streams 两组复用参数互斥"))
+	}
+	return issues
+}
+
+// checkOpenVPNWireShape：认证组成对、三种 TLS key 互斥、key-direction 依赖 tls-auth。
+func checkOpenVPNWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	for _, pair := range [][2]string{{"username", "password"}, {"cert", "key"}} {
+		hasFirst := yamlHasKey(proxy, pair[0])
+		hasSecond := yamlHasKey(proxy, pair[1])
+		if hasFirst == hasSecond {
+			continue
+		}
+		missing := pair[1]
+		present := pair[0]
+		if !hasFirst {
+			missing, present = pair[0], pair[1]
+		}
+		issues = append(issues, outputError(path+"."+present,
+			fmt.Sprintf("OpenVPN 认证组成对：输出 %s 时必须同时输出 %s", present, missing)))
+	}
+	firstKey := ""
+	for _, key := range []string{"tls-auth", "tls-crypt", "tls-crypt-v2"} {
+		if !yamlHasKey(proxy, key) {
+			continue
+		}
+		if firstKey != "" {
+			issues = append(issues, outputError(path+"."+key,
+				"OpenVPN 的 tls-auth／tls-crypt／tls-crypt-v2 严格互斥，不得同时输出"))
+			continue
+		}
+		firstKey = key
+	}
+	if yamlHasKey(proxy, "key-direction") && !yamlHasKey(proxy, "tls-auth") {
+		issues = append(issues, outputError(path+".key-direction", "OpenVPN 的 key-direction 只能与 tls-auth 同时输出"))
+	}
+	return issues
+}
+
+// checkAnyTLSWireShape：三种附加伪装安全对象严格互斥。
+func checkAnyTLSWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	first := ""
+	for _, key := range []string{"shadow-tls-opts", "restls-opts", "jls-opts"} {
+		if !yamlHasKey(proxy, key) {
+			continue
+		}
+		if first != "" {
+			issues = append(issues, outputError(path+"."+key,
+				"AnyTLS 的 shadow-tls-opts／restls-opts／jls-opts 严格互斥，不得同时输出"))
+			continue
+		}
+		first = key
+	}
+	return issues
+}
+
+// checkShadowQUICWireShape：固定 tag 的 ShadowQuicOption 没有 TLS 校验、证书、ECH 与 UOT 版本字段。
+func checkShadowQUICWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	var issues []OutputIssue
+	// udp-over-stream 是固定 tag 的真实字段；只拒绝 tag 中不存在的 TLS 校验、
+	// 证书、ECH 与 UOT 版本字段。
+	for _, key := range []string{"skip-cert-verify", "name-cert-verify", "certificate", "private-key",
+		"ech-opts", "udp-over-stream-version", "udp-over-tcp", "udp-over-tcp-version"} {
+		if yamlHasKey(proxy, key) {
+			issues = append(issues, outputError(path+"."+key,
+				"ShadowQUIC 的固定 tag option 不存在字段 "+key))
+		}
+	}
+	return issues
+}
+
+// checkSnellWireShape：v1／v2 不得输出 udp，v1 不得输出 reuse。
+func checkSnellWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	versionRaw, exists := mapGet(proxy, "version")
+	if !exists {
+		return nil
+	}
+	version, ok := yamlIntValue(versionRaw)
+	if !ok {
+		return []OutputIssue{outputError(path+".version", "Snell version 必须是整数")}
+	}
+	var issues []OutputIssue
+	if version <= 2 && yamlHasKey(proxy, "udp") {
+		issues = append(issues, outputError(path+".udp", "Snell v1／v2 不支持 UDP，不得输出 udp"))
+	}
+	if version <= 1 && yamlHasKey(proxy, "reuse") {
+		issues = append(issues, outputError(path+".reuse", "Snell v1 不支持 reuse，不得输出 reuse"))
+	}
+	return issues
+}
+
+// checkMASQUEWireShape：network 只接受 h2／h3-l4proxy，h3-l4proxy 不得启用 UDP。
+func checkMASQUEWireShape(proxy gyaml.MapSlice, path string) []OutputIssue {
+	raw, exists := mapGet(proxy, "network")
+	if !exists {
+		return nil
+	}
+	network, _ := raw.(string)
+	if network != "h2" && network != "h3-l4proxy" {
+		return []OutputIssue{outputError(path+".network", "MASQUE network 只接受 h2 或 h3-l4proxy")}
+	}
+	if network == "h3-l4proxy" && mapBool(proxy, "udp") {
+		return []OutputIssue{outputError(path+".udp", "MASQUE h3-l4proxy 模式不支持 UDP，不得输出 udp: true")}
+	}
+	return nil
+}
+
+// yamlIntValue 把 YAML 解码得到的整数值统一读取为 int。
+func yamlIntValue(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int8:
+		return int(typed), true
+	case int16:
+		return int(typed), true
+	case int32:
+		return int(typed), true
+	case int64:
+		return int(typed), true
+	case uint:
+		return int(typed), true
+	case uint8:
+		return int(typed), true
+	case uint16:
+		return int(typed), true
+	case uint32:
+		return int(typed), true
+	case uint64:
+		return int(typed), true
+	case float32:
+		return int(typed), true
+	case float64:
+		return int(typed), true
+	default:
+		return 0, false
+	}
 }

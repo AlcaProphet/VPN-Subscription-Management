@@ -3,7 +3,6 @@ package assembly
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -127,22 +126,15 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash YAML 失败: %w", err)
 	}
+	// 渲染计划内的 manual 节点必须与上面写入 YAML 的节点来自同一 adapter 与同一份输入，
+	// 否则下载重渲染会退回第二套拼装，绕过检查已经确认的核心阻断。
+	manualPlanProxies, err := s.manualClashPlanProxies(in, ld)
+	if err != nil {
+		return nil, err
+	}
 	plan := ClashPlan{
-		Head: in.FixedParams,
-		ManualProxies: func() []*OrderedMap {
-			out := make([]*OrderedMap, 0, len(in.NodeNames))
-			for _, name := range in.NodeNames {
-				nd := ld.nodes[name]
-				if nd.Source != "manual" {
-					continue
-				}
-				p := s.clashProxy(nd)
-				// 计划内节点引用统一存 nodes.name 稳定键，渲染时再映射当前 renderName。
-				p.Set("name", nd.Name)
-				out = append(out, p)
-			}
-			return out
-		}(),
+		Head:          in.FixedParams,
+		ManualProxies: manualPlanProxies,
 		ProxyGroups: func() []ClashPlanGroup {
 			out := make([]ClashPlanGroup, 0, len(in.GroupNames)+3)
 			out = append(out,
@@ -203,30 +195,28 @@ func clashPlanGroupFromData(g *groupData, proxies []string) ClashPlanGroup {
 	}
 }
 
-// legacyClashProxy 是尚未迁移到显式 adapter 的旧拼装路径。
-// 新代码必须通过 clashProxy()/buildClashProxy() 进入，保证 check 与正式装配共用同一入口。
-func (s *Service) legacyClashProxy(nd *nodeData) *OrderedMap {
-	p := NewOrderedMap()
-	p.Set("name", nd.RenderName)
-	p.Set("type", nd.Protocol)
-	p.Set("server", nd.Host)
-	p.Set("port", nd.Port)
-	params := normalizeClashFields(nd.Protocol, activeProtocolJSON(nd))
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		if k == "name" || k == "type" || k == "server" || k == "port" {
+// manualClashPlanProxies 用与正式装配完全相同的显式 adapter 构造渲染计划内的 manual 节点。
+// 计划内节点引用统一存 nodes.name 稳定键，渲染时再映射当前 renderName。
+func (s *Service) manualClashPlanProxies(in GenerateInput, ld *loadedData) ([]*OrderedMap, error) {
+	out := make([]*OrderedMap, 0, len(in.NodeNames))
+	for _, name := range in.NodeNames {
+		nd := ld.nodes[name]
+		if nd.Source != "manual" {
 			continue
 		}
-		keys = append(keys, k)
+		p, _, err := s.buildClashProxy(nd, true)
+		if err != nil {
+			return nil, fmt.Errorf("%w: 节点 %s 渲染计划构造失败: %v", ErrBadRequest, nd.Name, err)
+		}
+		p.Set("name", nd.Name)
+		out = append(out, p)
 	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		p.Set(k, params[k])
-	}
-	return p
+	return out, nil
 }
 
 // normalizeClashFields 把表单中的逗号列表转换为 mihomo 原生数组。
+// 该函数只服务 Xray 动态节点（下载重渲染）路径：manual 节点一律经由显式 adapter 构造，
+// 不再允许第二套拼装入口。
 func normalizeClashFields(protocol string, params map[string]any) map[string]any {
 	out := make(map[string]any, len(params))
 	for key, value := range params {

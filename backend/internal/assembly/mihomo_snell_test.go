@@ -35,7 +35,7 @@ func TestMihomo11931SnellProtocolStructures(t *testing.T) {
 		}{
 			{
 				name: "http obfs v4", render: "fixed-snell-http",
-				proxy: new(Service).clashProxy(&nodeData{
+				proxy: clashProxyFixture(t, &nodeData{
 					Protocol: "snell", RenderName: "fixed-snell-http", Host: "192.0.2.1", Port: 443,
 					ProtocolJSON: map[string]any{"psk": "psk-secret", "version": "4", "udp": true,
 						"obfs-opts": map[string]any{"host": "bing.com"}},
@@ -44,7 +44,7 @@ func TestMihomo11931SnellProtocolStructures(t *testing.T) {
 			},
 			{
 				name: "v2 fixed reuse", render: "fixed-snell-v2",
-				proxy: new(Service).clashProxy(&nodeData{
+				proxy: clashProxyFixture(t, &nodeData{
 					Protocol: "snell", RenderName: "fixed-snell-v2", Host: "192.0.2.1", Port: 443,
 					ProtocolJSON: map[string]any{"psk": "psk-secret", "version": "2"},
 					CurrentState: node.CurrentState{Selectors: map[string]string{"version": "2", "obfs_mode": "none"}},
@@ -52,7 +52,7 @@ func TestMihomo11931SnellProtocolStructures(t *testing.T) {
 			},
 			{
 				name: "shadow-tls v4", render: "fixed-snell-shadow-tls",
-				proxy: new(Service).clashProxy(&nodeData{
+				proxy: clashProxyFixture(t, &nodeData{
 					Protocol: "snell", RenderName: "fixed-snell-shadow-tls", Host: "192.0.2.1", Port: 443,
 					ProtocolJSON: map[string]any{"psk": "psk-secret", "version": "4", "client-fingerprint": "chrome",
 						"obfs-opts": map[string]any{"host": "bing.com", "password": "obfs-secret", "version": 2}},

@@ -42,8 +42,12 @@ func TestCheckNewDraftUsesActiveProjectionAndDoesNotWrite(t *testing.T) {
 			t.Fatalf("目标 %s 无诊断时应返回非 nil 空数组", target)
 		}
 	}
-	if seen["uuid"] != "REDACTED" {
-		t.Fatalf("检查适配器应只收到脱敏 UUID: %#v", seen["uuid"])
+	// Build32 Step 20：检查适配器接收真实活动参数，脱敏只发生在构造完成后的预览副本上。
+	if seen["uuid"] != "check-secret" {
+		t.Fatalf("检查适配器应收到真实活动参数: %#v", seen["uuid"])
+	}
+	if _, ok := seen[sensitiveItemIDField]; ok {
+		t.Fatalf("内部编辑元数据不得进入检查适配器: %#v", seen)
 	}
 	if _, ok := seen["security"]; ok {
 		t.Fatalf("表单层 security 不应进入实际检查参数: %#v", seen)
@@ -70,7 +74,9 @@ func TestCheckNewDraftUsesActiveProjectionAndDoesNotWrite(t *testing.T) {
 	}
 }
 
-func TestCheckWireGuardArrayCredentialIsRedactedAndInternalIDIsStripped(t *testing.T) {
+// TestCheckWireGuardKeepsRealCredentialAndStripsInternalID 锁定检查适配器接收真实凭据，
+// 但绝不接收 _credential_id 等内部编辑元数据；预览脱敏由装配层在构造完成后负责。
+func TestCheckWireGuardKeepsRealCredentialAndStripsInternalID(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	var seen map[string]any
 	svc.SetCheckRenderer(func(_ context.Context, _, _ string, _ string, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
@@ -98,8 +104,9 @@ func TestCheckWireGuardArrayCredentialIsRedactedAndInternalIDIsStripped(t *testi
 	}
 	peers := seen["peers"].([]any)
 	peer := peers[0].(map[string]any)
-	if peer["pre-shared-key"] != "REDACTED" {
-		t.Fatalf("Peer 凭据未脱敏: %+v", peer)
+	// 检查适配器接收真实凭据；响应与预览的脱敏由装配层在构造完成后完成。
+	if peer["pre-shared-key"] != wgPSK {
+		t.Fatalf("检查适配器应收到真实 Peer 凭据: %+v", peer)
 	}
 	if _, ok := peer[sensitiveItemIDField]; ok {
 		t.Fatalf("内部 Peer ID 进入检查适配器: %+v", peer)
@@ -151,8 +158,11 @@ func TestCheckEditAppliesResetInMemoryAndPreservesDatabase(t *testing.T) {
 	if _, ok := seen["ws-opts"]; ok {
 		t.Fatalf("网络重置后检查参数不应恢复旧 ws-opts: %#v", seen)
 	}
-	if _, ok := seen["grpc-opts"]; !ok || seen["uuid"] != "REDACTED" {
-		t.Fatalf("编辑检查参数未使用新分支/脱敏凭据: %#v", seen)
+	if _, ok := seen["grpc-opts"]; !ok {
+		t.Fatalf("编辑检查参数未使用新分支: %#v", seen)
+	}
+	if uuid, _ := seen["uuid"].(string); uuid == "" {
+		t.Fatalf("编辑检查参数应携带保留的凭据密文: %#v", seen)
 	}
 	after, err := svc.getRaw(context.Background(), created.ID)
 	if err != nil {

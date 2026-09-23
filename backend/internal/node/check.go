@@ -199,9 +199,14 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		return s.checkValidationResponse(in, targets, stateErr, params), nil
 	}
 	active := ProjectActive(proto, state, params)
-	redacted := redactCheckParams(proto, active)
-	redacted = StripInternalProtocolMetadata(proto, redacted)
-	response := &CheckResponse{CheckID: makeCheckID(in, redacted), CheckVersion: 1, Targets: make(map[string]TargetCheckResult, len(targets))}
+	// 目标检查适配器接收真实活动参数：脱敏只允许发生在构造完成后的预览副本上，
+	// 否则脱敏会改变构造输入并可能掩盖真实结构问题（Build32 Step 20）。
+	checkParams := StripInternalProtocolMetadata(proto, active)
+	response := &CheckResponse{
+		CheckID:      makeCheckID(in, StripInternalProtocolMetadata(proto, redactCheckParams(proto, active))),
+		CheckVersion: 1,
+		Targets:      make(map[string]TargetCheckResult, len(targets)),
+	}
 	for _, target := range targets {
 		result := TargetCheckResult{Diagnostics: make([]TargetDiagnostic, 0)}
 		if validationErr := ValidateCurrentStateForTarget(proto, state, params, target); validationErr != nil {
@@ -227,11 +232,11 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 			if s.checkRendererDraft != nil {
 				rendered, renderErr = s.checkRendererDraft(ctx, CheckTargetDraft{
 					Target: target, Protocol: proto.Protocol, RenderName: checkRenderName(in, existing),
-					Host: in.Host, Port: in.Port, Params: redacted,
+					Host: in.Host, Port: in.Port, Params: checkParams,
 					NodeID: in.NodeID, Persisted: existing != nil, State: state,
 				})
 			} else {
-				rendered, renderErr = s.checkRenderer(ctx, target, proto.Protocol, checkRenderName(in, existing), in.Host, in.Port, redacted)
+				rendered, renderErr = s.checkRenderer(ctx, target, proto.Protocol, checkRenderName(in, existing), in.Host, in.Port, checkParams)
 			}
 			result.Diagnostics = append(result.Diagnostics, rendered.Diagnostics...)
 			if renderErr != nil {

@@ -60,7 +60,7 @@ func TestMihomo11931SSHProtocolStructures(t *testing.T) {
 	}
 
 	t.Run("accepts generated structures", func(t *testing.T) {
-		proxy := new(Service).clashProxy(&nodeData{
+		proxy := clashProxyFixture(t, &nodeData{
 			Protocol: "ssh", RenderName: "fixed-ssh-password",
 			Host: "192.0.2.1", Port: 22,
 			ProtocolJSON: map[string]any{
@@ -77,7 +77,7 @@ func TestMihomo11931SSHProtocolStructures(t *testing.T) {
 	})
 
 	t.Run("accepts generated private key structure", func(t *testing.T) {
-		proxy := new(Service).clashProxy(&nodeData{
+		proxy := clashProxyFixture(t, &nodeData{
 			Protocol: "ssh", RenderName: "fixed-ssh-private-key",
 			Host: "192.0.2.1", Port: 22,
 			ProtocolJSON: map[string]any{

@@ -49,7 +49,7 @@ func TestMihomo11931TUICProtocolStructures(t *testing.T) {
 		}
 		for _, tc := range generated {
 			t.Run(tc.name, func(t *testing.T) {
-				proxy := new(Service).clashProxy(&nodeData{
+				proxy := clashProxyFixture(t, &nodeData{
 					Protocol: "tuic", RenderName: tc.render, Host: "192.0.2.1", Port: 443,
 					ProtocolJSON: tc.params, CurrentState: tc.state,
 				})

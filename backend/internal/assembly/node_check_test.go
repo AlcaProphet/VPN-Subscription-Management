@@ -13,6 +13,7 @@ import (
 
 	gyaml "github.com/goccy/go-yaml"
 
+	assemblylinks "vpn-sub/internal/assembly/links"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/node"
 )
@@ -170,8 +171,12 @@ func TestClashOutputDropsDisabledFeatureParameters(t *testing.T) {
 			if err := gyaml.Unmarshal([]byte(result.Preview), &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if len(decoded.Proxies) != 1 || !reflect.DeepEqual(decoded.Proxies[0]["smux"], map[string]any{"enabled": false}) {
-				t.Fatalf("输出残留已关闭参数: %s", result.Preview)
+			// Step 20 起显式 adapter 只输出活动字段：未启用的 smux 连同其子参数都不得残留。
+			if len(decoded.Proxies) != 1 {
+				t.Fatalf("检查预览代理数量异常: %s", result.Preview)
+			}
+			if _, ok := decoded.Proxies[0]["smux"]; ok {
+				t.Fatalf("输出残留已关闭的 smux 参数: %s", result.Preview)
 			}
 		})
 	}
@@ -478,4 +483,380 @@ func hasDiagnosticAt(diagnostics []node.TargetDiagnostic, severity, code, path s
 		}
 	}
 	return false
+}
+
+// ===== Build32 Step 20：URI 能力矩阵、canonical field path 与检查零落库 =====
+
+// step20URISupported / step20URIUnsupported 是 Build32 冻结的 URI 能力集合。
+var (
+	step20URISupported = []string{
+		"ss", "vmess", "vless", "trojan", "anytls",
+		"hysteria", "hysteria2", "tuic", "wireguard", "http", "socks5",
+	}
+	step20URIUnsupported = []string{
+		"snell", "mieru", "masque", "openvpn", "ssh", "shadowquic", "trusttunnel", "tailscale",
+	}
+)
+
+// TestURICapabilityMatrixMatchesFixedProtocolSets 断言 URI 能力集合与 manual 清单完全对齐：
+// 11 个具备映射、8 个稳定 skip，两者并集恰好是 19 个 manual 协议。
+func TestURICapabilityMatrixMatchesFixedProtocolSets(t *testing.T) {
+	manual := map[string]bool{}
+	for _, protocol := range node.ManualProtocols() {
+		manual[protocol.Protocol] = true
+	}
+	if len(manual) != 19 {
+		t.Fatalf("manual 协议清单必须为 19 项，实际 %d", len(manual))
+	}
+	covered := map[string]bool{}
+	for _, protocol := range step20URISupported {
+		if !assemblylinks.SupportsURI(protocol) {
+			t.Fatalf("协议 %s 应具备 URI 映射", protocol)
+		}
+		covered[protocol] = true
+	}
+	for _, protocol := range step20URIUnsupported {
+		if assemblylinks.SupportsURI(protocol) {
+			t.Fatalf("协议 %s 不应具备 URI 映射", protocol)
+		}
+		covered[protocol] = true
+	}
+	for protocol := range manual {
+		if !covered[protocol] {
+			t.Fatalf("协议 %s 未登记在 URI 能力矩阵中", protocol)
+		}
+	}
+	for protocol := range covered {
+		if !manual[protocol] {
+			t.Fatalf("URI 能力矩阵包含非 manual 协议 %s", protocol)
+		}
+	}
+	if len(covered) != len(manual) {
+		t.Fatalf("URI 能力矩阵与 manual 清单不一致: covered=%d manual=%d", len(covered), len(manual))
+	}
+}
+
+// TestUnsupportedURITargetsReturnStableSkipWithoutPreview 断言 8 个无 URI 映射的协议
+// 对两个 URI 目标都返回稳定 skip、target_unsupported、空预览，且不返回错误。
+func TestUnsupportedURITargetsReturnStableSkipWithoutPreview(t *testing.T) {
+	svc := &Service{}
+	for _, protocol := range step20URIUnsupported {
+		for _, target := range []string{"sr-subs", "generic-subs"} {
+			t.Run(protocol+"/"+target, func(t *testing.T) {
+				res, err := svc.CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+					Target: target, Protocol: protocol, RenderName: protocol + "-node",
+					Host: "example.com", Port: 443,
+				})
+				if err != nil {
+					t.Fatalf("不支持 URI 的协议不得返回错误: %v", err)
+				}
+				if res.Status != "skip" {
+					t.Fatalf("无 URI 映射必须稳定 skip，实际 %q", res.Status)
+				}
+				if res.Preview != "" {
+					t.Fatalf("skip 不得返回任何预览: %s", res.Preview)
+				}
+				found := false
+				for _, diagnostic := range res.Diagnostics {
+					if diagnostic.Code == "target_unsupported" && diagnostic.Severity == "error" {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("缺少 target_unsupported 诊断: %+v", res.Diagnostics)
+				}
+			})
+		}
+	}
+}
+
+// TestFirstBatchURIDiagnosticsDeclarePerTargetGaps 断言 SR 与 generic 表达能力不同时
+// 必须分别判断：能无损表达就不产生诊断，不能表达的活动字段必须给出稳定 partial code。
+func TestFirstBatchURIDiagnosticsDeclarePerTargetGaps(t *testing.T) {
+	cases := []struct {
+		name      string
+		protocol  string
+		target    string
+		params    map[string]any
+		fieldPath string
+		wantGap   bool
+	}{
+		{"vmess SR 可表达 skip-cert-verify", "vmess", "sr-subs",
+			map[string]any{"uuid": "u", "tls": true, "servername": "example.com", "skip-cert-verify": true}, "skip-cert-verify", false},
+		{"vmess generic 不表达 skip-cert-verify", "vmess", "generic-subs",
+			map[string]any{"uuid": "u", "tls": true, "servername": "example.com", "skip-cert-verify": true}, "skip-cert-verify", true},
+		{"vmess 高级字段两侧都不表达", "vmess", "sr-subs",
+			map[string]any{"uuid": "u", "packet-addr": true}, "packet-addr", true},
+		{"ss SR 不表达 UDP over TCP", "ss", "sr-subs",
+			map[string]any{"cipher": "aes-256-gcm", "password": "p", "udp-over-tcp": true}, "udp-over-tcp", true},
+		{"ss generic 不表达 UDP over TCP", "ss", "generic-subs",
+			map[string]any{"cipher": "aes-256-gcm", "password": "p", "udp-over-tcp": true}, "udp-over-tcp", true},
+		{"vless SR 不表达 packet-addr", "vless", "sr-subs",
+			map[string]any{"uuid": "u", "tls": true, "packet-addr": true}, "packet-addr", true},
+		{"vless generic 不表达 xudp", "vless", "generic-subs",
+			map[string]any{"uuid": "u", "tls": true, "xudp": true}, "xudp", true},
+		{"trojan SR 不表达 client-fingerprint", "trojan", "sr-subs",
+			map[string]any{"password": "p", "client-fingerprint": "chrome"}, "client-fingerprint", true},
+		{"trojan generic 不表达 client-fingerprint", "trojan", "generic-subs",
+			map[string]any{"password": "p", "client-fingerprint": "chrome"}, "client-fingerprint", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diagnostics := linkTargetDiagnostics(tc.target, tc.protocol, tc.params)
+			found := false
+			for _, diagnostic := range diagnostics {
+				if diagnostic.FieldPath != tc.fieldPath {
+					continue
+				}
+				found = true
+				if diagnostic.Severity != "warn" || diagnostic.Code != "uri_partial_fields" {
+					t.Fatalf("字段丢失必须使用稳定 partial code: %+v", diagnostic)
+				}
+			}
+			if found != tc.wantGap {
+				t.Fatalf("字段 %s 的诊断结论不符合目标表达能力: want=%v got=%+v", tc.fieldPath, tc.wantGap, diagnostics)
+			}
+		})
+	}
+}
+
+// step20EvidenceSources 是目标诊断允许引用的证据来源；任何新来源都必须在此登记，
+// 避免 evidence 退化为无法核验的展示标签。
+var step20EvidenceSources = map[string]bool{
+	"mihomo-1.19.31-yaml":    true,
+	"cvr-2.5.2-uri":          true,
+	"project-uri-capability": true,
+	"project-uri-common":     true,
+	"project-uri-anytls":     true,
+	"project-uri-wireguard":  true,
+	"build32-uri-registry":   true,
+	"build18-check-v1":       true,
+	"project-unknown":        true,
+}
+
+// step20SchemaPathExists 判断点路径能否在协议 schema 中解析（含对象属性与开放 Map）。
+func step20SchemaPathExists(fields []node.FieldSchema, segments []string) bool {
+	if len(segments) == 0 {
+		return true
+	}
+	for _, field := range fields {
+		if field.Name != segments[0] {
+			continue
+		}
+		if len(segments) == 1 {
+			return true
+		}
+		if field.Type != "object" {
+			return false
+		}
+		if field.AllowUnknown {
+			return true
+		}
+		return step20SchemaPathExists(field.Properties, segments[1:])
+	}
+	return false
+}
+
+// TestTargetDiagnosticFieldPathsResolveToSchemaCanonicalPath 断言所有目标诊断的
+// field_path 要么为空、要么是节点级路径、要么可回指协议 schema 的规范路径。
+func TestTargetDiagnosticFieldPathsResolveToSchemaCanonicalPath(t *testing.T) {
+	nodeLevel := map[string]bool{"protocol": true, "host": true, "port": true}
+	entries, err := os.ReadDir(filepath.Join("testdata", "node_check"))
+	if err != nil {
+		t.Fatalf("读取固定夹具目录失败: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		t.Run(entry.Name(), func(t *testing.T) {
+			svc, st, cfg := newTestService(t)
+			nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+			nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+			raw, err := os.ReadFile(filepath.Join("testdata", "node_check", entry.Name()))
+			if err != nil {
+				t.Fatalf("读取固定夹具失败: %v", err)
+			}
+			var req node.CheckRequest
+			if err := json.Unmarshal(raw, &req); err != nil {
+				t.Fatalf("解析固定夹具失败: %v", err)
+			}
+			proto, err := node.GetProtocol(req.Protocol)
+			if err != nil {
+				t.Fatalf("读取协议注册表失败: %v", err)
+			}
+			resp, err := nodeSvc.Check(context.Background(), req)
+			if err != nil {
+				t.Fatalf("执行固定夹具检查失败: %v", err)
+			}
+			for target, result := range resp.Targets {
+				for _, diagnostic := range result.Diagnostics {
+					if !step20EvidenceSources[diagnostic.Evidence] {
+						t.Fatalf("目标 %s 诊断 %s 缺少可核验的证据来源: %+v",
+							target, diagnostic.Code, diagnostic)
+					}
+					path := diagnostic.FieldPath
+					if path == "" || nodeLevel[path] || strings.HasPrefix(path, "extensions.") {
+						continue
+					}
+					if !step20SchemaPathExists(proto.FormSchema, strings.Split(path, ".")) {
+						t.Fatalf("目标 %s 诊断 %s 的 field_path=%q 无法回指 schema 规范路径: %+v",
+							target, diagnostic.Code, path, diagnostic)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestNodeCheckDoesNotWriteBusinessTables 断言节点检查前后所有业务表行数完全一致。
+func TestNodeCheckDoesNotWriteBusinessTables(t *testing.T) {
+	svc, st, cfg := newTestService(t)
+	nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+	nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+
+	snapshot := func() map[string]int {
+		t.Helper()
+		rows, err := st.DB().QueryContext(context.Background(),
+			`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+		if err != nil {
+			t.Fatalf("读取表清单失败: %v", err)
+		}
+		var names []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatalf("扫描表名失败: %v", err)
+			}
+			names = append(names, name)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("遍历表清单失败: %v", err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatalf("关闭表清单失败: %v", err)
+		}
+		counts := make(map[string]int, len(names))
+		for _, name := range names {
+			var count int
+			if err := st.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM "`+name+`"`).Scan(&count); err != nil {
+				t.Fatalf("统计表 %s 行数失败: %v", name, err)
+			}
+			counts[name] = count
+		}
+		return counts
+	}
+
+	before := snapshot()
+	cases := []struct {
+		protocol string
+		port     int
+		params   map[string]any
+	}{
+		{"ss", 8388, map[string]any{"cipher": "aes-256-gcm", "password": "ss-secret",
+			"plugin": "shadow-tls", "shadow-tls-opts": map[string]any{"host": "cdn.example.com", "password": "st-secret"}}},
+		{"vmess", 443, map[string]any{"uuid": "11111111-2222-3333-4444-555555555555", "network": "ws", "tls": true}},
+		{"vless", 443, map[string]any{"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true}},
+		{"trojan", 443, map[string]any{"password": "trojan-secret", "network": "tcp", "sni": "example.com"}},
+	}
+	for _, tc := range cases {
+		if _, err := nodeSvc.Check(context.Background(), node.CheckRequest{
+			Protocol: tc.protocol, Host: "example.com", Port: tc.port, ProtocolJSON: tc.params,
+		}); err != nil {
+			t.Fatalf("%s 检查失败: %v", tc.protocol, err)
+		}
+	}
+	after := snapshot()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("节点检查写入了业务表: before=%v after=%v", before, after)
+	}
+}
+
+// TestURICapabilityDrivesTargetStatus 证明目标状态确实由实际能力判断产生：
+// 存在无法表达的活动字段时，节点检查不得继续给出 ok，而是降级为 warn（非阻断丢失）。
+func TestURICapabilityDrivesTargetStatus(t *testing.T) {
+	cases := []struct {
+		protocol string
+		port     int
+		params   map[string]any
+	}{
+		{"ss", 8388, map[string]any{"cipher": "aes-256-gcm", "password": "ss-secret", "udp-over-tcp": true}},
+		{"vmess", 443, map[string]any{"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true, "packet-addr": true}},
+		{"vless", 443, map[string]any{"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true, "packet-addr": true}},
+		{"trojan", 443, map[string]any{"password": "trojan-secret", "network": "tcp", "sni": "example.com", "client-fingerprint": "chrome"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.protocol, func(t *testing.T) {
+			svc, st, cfg := newTestService(t)
+			nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
+			nodeSvc.SetCheckRenderer(svc.CheckNodeTarget)
+			resp, err := nodeSvc.Check(context.Background(), node.CheckRequest{
+				Protocol: tc.protocol, Host: "example.com", Port: tc.port,
+				ProtocolJSON: tc.params, Targets: []string{"sr-subs", "generic-subs"},
+			})
+			if err != nil {
+				t.Fatalf("节点检查失败: %v", err)
+			}
+			for _, target := range []string{"sr-subs", "generic-subs"} {
+				result := resp.Targets[target]
+				if result.Status != "warn" {
+					t.Fatalf("目标 %s 存在不可表达字段时必须降级为 warn，实际 %q: %+v",
+						target, result.Status, result.Diagnostics)
+				}
+			}
+		})
+	}
+}
+
+// TestClashIssuePathsMapToSchemaCanonicalPath 断言 YAML 自检问题被映射回 schema 规范路径，
+// 使 target evidence 的 field_path 可以回指协议字段而不是只给出 YAML 位置。
+func TestClashIssuePathsMapToSchemaCanonicalPath(t *testing.T) {
+	orig, had := clashProtocolAdapters["ss"]
+	defer func() {
+		if had {
+			clashProtocolAdapters["ss"] = orig
+		}
+	}()
+	cases := []struct {
+		name     string
+		fields   map[string]any
+		params   map[string]any
+		wantPath string
+	}{
+		{
+			name:     "缺少必填字段",
+			fields:   map[string]any{"cipher": "aes-256-gcm"},
+			params:   map[string]any{"cipher": "aes-256-gcm", "password": "ss-secret"},
+			wantPath: "password",
+		},
+		{
+			name: "插件参数缺失映射回存储对象",
+			fields: map[string]any{"cipher": "aes-256-gcm", "password": "ss-secret",
+				"plugin": "obfs", "plugin-opts": map[string]any{"host": "cdn.example.com"}},
+			params: map[string]any{"cipher": "aes-256-gcm", "password": "ss-secret",
+				"plugin": "obfs", "obfs-opts": map[string]any{"host": "cdn.example.com"}},
+			wantPath: "obfs-opts.mode",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fields := tc.fields
+			clashProtocolAdapters["ss"] = func(ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+				return fields, nil, nil
+			}
+			res, err := (&Service{}).CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+				Target: "clash-yaml", Protocol: "ss", RenderName: "ss-node",
+				Host: "example.com", Port: 8388, Params: tc.params,
+			})
+			if err != nil {
+				t.Fatalf("节点检查失败: %v", err)
+			}
+			for _, diagnostic := range res.Diagnostics {
+				if diagnostic.Severity == "error" && diagnostic.FieldPath == tc.wantPath {
+					return
+				}
+			}
+			t.Fatalf("缺少 canonical field_path=%s 的自检诊断: %+v", tc.wantPath, res.Diagnostics)
+		})
+	}
 }

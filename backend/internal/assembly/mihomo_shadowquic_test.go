@@ -52,7 +52,7 @@ func TestMihomo11931ShadowQUICProtocolStructures(t *testing.T) {
 		for _, tc := range generated {
 			t.Run(tc.name, func(t *testing.T) {
 				render := "fixed-squic-" + strings.ReplaceAll(tc.name, " ", "-")
-				proxy := new(Service).clashProxy(&nodeData{
+				proxy := clashProxyFixture(t, &nodeData{
 					Protocol: "shadowquic", RenderName: render,
 					Host: "192.0.2.1", Port: 443, ProtocolJSON: tc.params,
 				})

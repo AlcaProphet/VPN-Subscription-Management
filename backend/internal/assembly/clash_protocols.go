@@ -41,7 +41,8 @@ func clashAdapter(protocol string) (ClashProtocolAdapter, bool) {
 	return adapter, ok
 }
 
-// legacyAdapterPendingCount 返回尚未迁移到显式 adapter 的 manual 协议数量；Step 20 必须归零。
+// legacyAdapterPendingCount 返回尚未迁移到显式 adapter 的 manual 协议数量。
+// Step 20 起 19 个 manual 协议全部迁移完毕，该值必须恒为 0；保留函数用于清单门禁。
 func legacyAdapterPendingCount() int {
 	count := 0
 	for _, protocol := range node.ManualProtocols() {
@@ -53,11 +54,11 @@ func legacyAdapterPendingCount() int {
 }
 
 // buildClashProxy 是正式装配与节点检查共用的唯一 Clash 入口。
-// 未迁移协议仍走临时 legacy 投影，但返回可观测的 legacy_adapter_pending。
+// 未注册 adapter 直接返回显式错误，不存在第二套 legacy 拼装路径。
 func (s *Service) buildClashProxy(nd *nodeData, persisted bool) (*OrderedMap, []node.TargetDiagnostic, error) {
 	adapter, ok := clashAdapter(nd.Protocol)
 	if !ok {
-		return s.legacyClashProxy(nd), []node.TargetDiagnostic{legacyAdapterPendingDiagnostic(nd.Protocol)}, nil
+		return nil, nil, fmt.Errorf("协议 %s 没有显式 Clash adapter", nd.Protocol)
 	}
 	proto, err := node.GetProtocol(nd.Protocol)
 	if err != nil {
@@ -84,13 +85,13 @@ func (s *Service) buildClashProxy(nd *nodeData, persisted bool) (*OrderedMap, []
 	return orderedMapFromClashFields(nd.RenderName, nd.Protocol, nd.Host, nd.Port, fields, policy), diagnostics, nil
 }
 
-// clashProxy 保留原有调用形状；正式语义由 buildClashProxy 提供。
-func (s *Service) clashProxy(nd *nodeData) *OrderedMap {
-	p, _, err := s.buildClashProxy(nd, true)
-	if err != nil {
-		return s.legacyClashProxy(nd)
+// cloneClashParams 复制活动参数，保证 adapter 不修改调用方持有的 map。
+func cloneClashParams(params map[string]any) map[string]any {
+	out := make(map[string]any, len(params))
+	for key, value := range params {
+		out[key] = value
 	}
-	return p
+	return out
 }
 
 func orderedMapFromClashFields(name, protocol, host string, port int, fields map[string]any, policy node.EndpointPolicy) *OrderedMap {
@@ -118,18 +119,11 @@ func orderedMapFromClashFields(name, protocol, host string, port int, fields map
 	return p
 }
 
-func legacyAdapterPendingDiagnostic(protocol string) node.TargetDiagnostic {
-	return node.TargetDiagnostic{
-		Severity:  "info",
-		Code:      "legacy_adapter_pending",
-		Target:    "clash-yaml",
-		FieldPath: "",
-		Message:   "协议 " + protocol + " 尚未迁移到显式 Clash adapter，当前由 legacy 投影承载",
-		Evidence:  "build32-step3",
-	}
-}
-
 func init() {
+	registerClashProtocolAdapter("ss", ssClashAdapter)
+	registerClashProtocolAdapter("vmess", vmessClashAdapter)
+	registerClashProtocolAdapter("vless", vlessClashAdapter)
+	registerClashProtocolAdapter("trojan", trojanClashAdapter)
 	registerClashProtocolAdapter("http", httpClashAdapter)
 	registerClashProtocolAdapter("socks5", socks5ClashAdapter)
 	registerClashProtocolAdapter("ssh", sshClashAdapter)
@@ -145,6 +139,148 @@ func init() {
 	registerClashProtocolAdapter("shadowquic", shadowquicClashAdapter)
 	registerClashProtocolAdapter("trusttunnel", trusttunnelClashAdapter)
 	registerClashProtocolAdapter("openvpn", openvpnClashAdapter)
+}
+
+// ssClashAdapter 把 Shadowsocks 内部活动模型映射为 Mihomo v1.19.31 ShadowSocksOption。
+// 插件沿用项目既有规范化：存储对象 → plugin + plugin-opts（含 Clash 目标默认值）；
+// 插件存储键、state_only 与未启用的 feature 对象永不进入 wire。
+func ssClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	projected := cloneClashParams(draft.Params)
+	projectSSPluginForClash(projected)
+	fields := make(map[string]any, 14)
+	copyClashActiveFields(fields, projected,
+		"password", "cipher", "udp", "plugin", "udp-over-tcp", "udp-over-tcp-version", "client-fingerprint")
+	copyClashActiveObject(fields, projected, "plugin-opts")
+	copyClashFeatureObject(fields, projected, "smux")
+	copyClashActiveFields(fields, projected, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// vmessClashAdapter 把 VMess 内部活动模型映射为 Mihomo v1.19.31 VmessOption。
+// alterId 与 cipher 在固定 tag 中没有 omitempty，必须始终输出（缺省 0／auto）；
+// 固定 tag 存在但项目 schema 未开放的字段（tlsmirror-opts／mekya-opts／mkcp-opts 等）不会输出。
+func vmessClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 24)
+	copyClashActiveFields(fields, draft.Params,
+		"uuid", "udp", "network", "tls", "skip-cert-verify", "name-cert-verify",
+		"fingerprint", "certificate", "private-key", "servername", "packet-addr", "xudp",
+		"packet-encoding", "global-padding", "authenticated-length", "client-fingerprint")
+	copyClashALPN(fields, draft.Params, "alpn")
+	copyClashEnabledObject(fields, draft.Params, "ech-opts")
+	copyClashActiveObject(fields, draft.Params, "reality-opts")
+	copyClashTransportObject(fields, draft.Params, "http-opts", "path")
+	copyClashTransportObject(fields, draft.Params, "h2-opts", "host")
+	copyClashActiveObject(fields, draft.Params, "grpc-opts")
+	copyClashActiveObject(fields, draft.Params, "ws-opts")
+	copyClashFeatureObject(fields, draft.Params, "smux")
+	fields["alterId"] = clashAlterID(draft.Params["alterId"])
+	fields["cipher"] = clashVMessCipher(draft.Params["cipher"])
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// vlessClashAdapter 把 VLESS 内部活动模型映射为 Mihomo v1.19.31 VlessOption。
+// 固定 tag 没有的 ECH／伪装／mTLS 字段不在项目 schema 内，也不会因共享表单被输出；
+// ws-path／ws-headers 旧别名已在归一化阶段收敛进 ws-opts，不单独进入 wire。
+func vlessClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 24)
+	copyClashActiveFields(fields, draft.Params,
+		"uuid", "flow", "tls", "udp", "packet-addr", "xudp", "packet-encoding", "encryption",
+		"network", "skip-cert-verify", "name-cert-verify", "fingerprint", "certificate", "private-key",
+		"servername", "client-fingerprint")
+	copyClashALPN(fields, draft.Params, "alpn")
+	copyClashEnabledObject(fields, draft.Params, "ech-opts")
+	copyClashActiveObject(fields, draft.Params, "reality-opts")
+	copyClashTransportObject(fields, draft.Params, "http-opts", "path")
+	copyClashTransportObject(fields, draft.Params, "h2-opts", "host")
+	copyClashActiveObject(fields, draft.Params, "grpc-opts")
+	copyClashActiveObject(fields, draft.Params, "ws-opts")
+	copyClashActiveObject(fields, draft.Params, "xhttp-opts")
+	copyClashFeatureObject(fields, draft.Params, "smux")
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// trojanClashAdapter 把 Trojan 内部活动模型映射为 Mihomo v1.19.31 TrojanOption。
+// 内层 SS 只在 enabled 时输出；固定 tag 没有的 ECH／伪装／mTLS 字段不会输出。
+func trojanClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 14)
+	copyClashActiveFields(fields, draft.Params,
+		"password", "sni", "skip-cert-verify", "name-cert-verify", "fingerprint", "certificate",
+		"private-key", "udp", "network", "client-fingerprint")
+	copyClashALPN(fields, draft.Params, "alpn")
+	copyClashEnabledObject(fields, draft.Params, "ech-opts")
+	copyClashActiveObject(fields, draft.Params, "reality-opts")
+	copyClashActiveObject(fields, draft.Params, "grpc-opts")
+	copyClashActiveObject(fields, draft.Params, "ws-opts")
+	if ssOpts, ok := draft.Params["ss-opts"].(map[string]any); ok && boolValue(ssOpts["enabled"]) {
+		fields["ss-opts"] = ssOpts
+	}
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// copyClashALPN 把 alpn 规范为内核数组：既接受数组，也接受首批协议历史沿用的
+// 逗号分隔字符串（旧 legacy 投影按逗号拆分，Step 20 必须保持同一语义）。
+func copyClashALPN(fields map[string]any, params map[string]any, key string) {
+	value, ok := params[key]
+	if !ok {
+		return
+	}
+	if text, isText := value.(string); isText {
+		if items := clashStringList(strings.ReplaceAll(text, ",", "\n")); len(items) > 0 {
+			fields[key] = items
+		}
+		return
+	}
+	if items := clashStringList(value); len(items) > 0 {
+		fields[key] = items
+	}
+}
+
+// copyClashTransportObject 复制协议传输对象，并把声明的列表子字段规范为内核数组形状。
+func copyClashTransportObject(fields map[string]any, params map[string]any, key string, listFields ...string) {
+	object, ok := params[key].(map[string]any)
+	if !ok || len(object) == 0 {
+		return
+	}
+	out := make(map[string]any, len(object))
+	for name, value := range object {
+		out[name] = value
+	}
+	for _, name := range listFields {
+		if items := clashStringList(out[name]); len(items) > 0 {
+			out[name] = items
+		}
+	}
+	fields[key] = out
+}
+
+// copyClashFeatureObject 只在对象的 enabled 开关为 true 时复制（例如 smux）。
+func copyClashFeatureObject(fields map[string]any, params map[string]any, key string) {
+	object, ok := params[key].(map[string]any)
+	if !ok || !boolValue(object["enabled"]) {
+		return
+	}
+	fields[key] = object
+}
+
+// clashAlterID 读取 VMess 的 alterId，缺省与固定 tag 的 schema 默认一致为 0。
+func clashAlterID(value any) int {
+	parsed, ok := clashIntValue(value)
+	if !ok {
+		return 0
+	}
+	return parsed
+}
+
+// clashVMessCipher 读取 VMess 加密方式，缺省与 schema 默认一致为 auto。
+func clashVMessCipher(value any) string {
+	text := clashTextValue(value)
+	if text == "" {
+		return "auto"
+	}
+	return text
 }
 
 // shadowquicClashAdapter 把 ShadowQUIC 内部活动模型映射为 Mihomo v1.19.31 ShadowQuicOption。

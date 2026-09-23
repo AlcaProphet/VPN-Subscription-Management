@@ -41,7 +41,7 @@ func TestMihomo11931HTTPProtocolStructures(t *testing.T) {
 		if err := json.Unmarshal(raw, &fixture); err != nil {
 			t.Fatalf("解析固定夹具失败: %v", err)
 		}
-		proxy := new(Service).clashProxy(&nodeData{
+		proxy := clashProxyFixture(t, &nodeData{
 			Protocol: fixture.Protocol, RenderName: "fixed-http-basic-tls",
 			Host: fixture.Host, Port: fixture.Port, ProtocolJSON: fixture.ProtocolJSON,
 		})

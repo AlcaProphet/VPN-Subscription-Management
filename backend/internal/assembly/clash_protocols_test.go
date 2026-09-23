@@ -2,7 +2,9 @@ package assembly
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -11,13 +13,11 @@ import (
 	"vpn-sub/internal/node"
 )
 
-// TestLegacyAdapterPendingCountAfterMigratedProtocols 锁定当前已迁移协议的绝对计数：
-// Step 4 HTTP、5 SOCKS5、6 SSH、7 Snell、8 Hysteria、9 Hysteria2、10 TUIC、11 WireGuard、12 Mieru、
-// 13 MASQUE、14 Tailscale、15 AnyTLS、16 ShadowQUIC、17 TrustTunnel、18 OpenVPN，待迁移协议为 4；
-// 剩余 legacy 为 ss／vmess／vless／trojan，Step 20 归零。
+// TestLegacyAdapterPendingCountAfterMigratedProtocols 锁定 Step 4～20 全部迁移完成后的绝对计数：
+// 19 个 manual 协议必须全部经过显式 adapter，legacy 待迁移计数归零。
 func TestLegacyAdapterPendingCountAfterMigratedProtocols(t *testing.T) {
-	if got := legacyAdapterPendingCount(); got != 4 {
-		t.Fatalf("已迁移 15 个协议后 legacy adapter 数量应为 4，实际 %d", got)
+	if got := legacyAdapterPendingCount(); got != 0 {
+		t.Fatalf("19 个 manual 协议全部迁移后 legacy adapter 数量应为 0，实际 %d", got)
 	}
 }
 
@@ -491,67 +491,70 @@ func TestHTTPClashAdapterWireShape(t *testing.T) {
 	}
 }
 
-// TestClashAdapterRegistryLegacyPendingObservable 使用仍未迁移的协议验证 legacy 证据可观测，
-// 同时确认 HTTP 已迁移为显式 adapter（Build32 Step 4 起 legacy 计数逐协议递减）。
-// firstLegacyProtocol 返回当前仍未迁移到显式 adapter 的协议，避免每个协议 Step 反复改测试。
-func firstLegacyProtocol(t *testing.T) string {
-	t.Helper()
+// TestManualProtocolAdapterManifestComplete 断言 19 个 manual 协议全部注册显式 adapter：
+// 缺失集合必须为空（而不是只断言计数为 0），注册表也不得包含 manual 清单之外的协议。
+func TestManualProtocolAdapterManifestComplete(t *testing.T) {
+	missing := []string{}
+	known := map[string]bool{}
 	for _, protocol := range node.ManualProtocols() {
+		known[protocol.Protocol] = true
 		if _, ok := clashProtocolAdapters[protocol.Protocol]; !ok {
-			return protocol.Protocol
+			missing = append(missing, protocol.Protocol)
 		}
 	}
-	t.Fatal("没有待迁移协议可用于 legacy 断言")
-	return ""
+	if len(missing) != 0 {
+		t.Fatalf("manual 协议缺少显式 Clash adapter: %v", missing)
+	}
+	if got := legacyAdapterPendingCount(); got != 0 {
+		t.Fatalf("Step 20 完成后 legacy adapter 待迁移数量必须为 0，实际 %d", got)
+	}
+	for name := range clashProtocolAdapters {
+		if !known[name] {
+			t.Fatalf("注册了非 manual 协议 adapter: %s", name)
+		}
+	}
 }
 
-func TestClashAdapterRegistryLegacyPendingObservable(t *testing.T) {
+// TestClashAdapterRegistryRejectsUnknownProtocol 断言未注册 adapter 的协议不再走 legacy 投影，
+// 而是返回显式错误；这是「正式装配不能绕过检查」的前置条件。
+func TestClashAdapterRegistryRejectsUnknownProtocol(t *testing.T) {
 	svc := &Service{}
-	legacy := firstLegacyProtocol(t)
-	res, err := svc.CheckNodeTarget(context.Background(), "clash-yaml", legacy, "legacy-node", "example.com", 1080, map[string]any{})
-	if err != nil {
-		t.Fatal(err)
+	nd := &nodeData{Protocol: "no-such-protocol", RenderName: "unknown-node", Host: "example.com", Port: 443}
+	proxy, diagnostics, err := svc.buildClashProxy(nd, true)
+	if err == nil {
+		t.Fatalf("未注册 adapter 必须返回显式错误而不是 legacy 投影: %+v diagnostics=%+v", proxy, diagnostics)
 	}
-	found := false
-	for _, diagnostic := range res.Diagnostics {
-		if diagnostic.Code == "legacy_adapter_pending" && diagnostic.Severity == "info" {
-			found = true
-		}
+	if proxy != nil {
+		t.Fatalf("未注册 adapter 不得返回任何代理条目: %+v", proxy)
 	}
-	if !found {
-		t.Fatalf("legacy adapter 必须返回 legacy_adapter_pending 证据: %+v", res.Diagnostics)
-	}
-
-	httpRes, err := svc.CheckNodeTarget(context.Background(), "clash-yaml", "http", "migrated-node", "example.com", 8080, map[string]any{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, diagnostic := range httpRes.Diagnostics {
+	for _, diagnostic := range diagnostics {
 		if diagnostic.Code == "legacy_adapter_pending" {
-			t.Fatalf("HTTP 已迁移为显式 adapter，不应再返回 legacy 证据: %+v", httpRes.Diagnostics)
+			t.Fatalf("legacy_adapter_pending 必须彻底消失: %+v", diagnostics)
 		}
 	}
 }
 
+// TestCheckAndFormalAssemblyUseSameRegisteredAdapterDraft 锁定 check 与正式装配注入同一份草稿：
+// 服务端填充的 NodeID/Persisted/CurrentState 必须一致，且两条路径都经过同一 adapter。
 func TestCheckAndFormalAssemblyUseSameRegisteredAdapterDraft(t *testing.T) {
-	legacy := firstLegacyProtocol(t)
-	orig, had := clashProtocolAdapters[legacy]
+	const protocol = "vmess"
+	orig, had := clashProtocolAdapters[protocol]
 	var captured ClashNodeDraft
-	clashProtocolAdapters[legacy] = func(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	clashProtocolAdapters[protocol] = func(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
 		captured = draft
 		return map[string]any{"custom": "value"}, nil, nil
 	}
 	defer func() {
 		if had {
-			clashProtocolAdapters[legacy] = orig
+			clashProtocolAdapters[protocol] = orig
 		} else {
-			delete(clashProtocolAdapters, legacy)
+			delete(clashProtocolAdapters, protocol)
 		}
 	}()
 
 	svc := &Service{}
 	_, err := svc.CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
-		Target: "clash-yaml", Protocol: legacy, RenderName: "adapter-node",
+		Target: "clash-yaml", Protocol: protocol, RenderName: "adapter-node",
 		Host: "example.com", Port: 1080, Params: map[string]any{}, NodeID: 42, Persisted: true,
 		State: node.CurrentState{Security: "tls"},
 	})
@@ -562,7 +565,7 @@ func TestCheckAndFormalAssemblyUseSameRegisteredAdapterDraft(t *testing.T) {
 		t.Fatalf("check 路径未注入完整生命周期状态: %+v", captured)
 	}
 
-	nd := &nodeData{NodeID: 42, Protocol: legacy, RenderName: "adapter-node", Host: "example.com", Port: 1080, CurrentState: node.CurrentState{Security: "tls"}}
+	nd := &nodeData{NodeID: 42, Protocol: protocol, RenderName: "adapter-node", Host: "example.com", Port: 1080, CurrentState: node.CurrentState{Security: "tls"}}
 	p, _, err := svc.buildClashProxy(nd, true)
 	if err != nil {
 		t.Fatal(err)
@@ -572,23 +575,31 @@ func TestCheckAndFormalAssemblyUseSameRegisteredAdapterDraft(t *testing.T) {
 	}
 }
 
+// TestLegacyAdapterPendingCountTracksRegistry 断言缺失集合随注册收敛：
+// 临时移除任一协议 adapter 后，缺失集合必须恰好重新包含该协议。
 func TestLegacyAdapterPendingCountTracksRegistry(t *testing.T) {
-	before := legacyAdapterPendingCount()
-	legacy := firstLegacyProtocol(t)
-	orig, had := clashProtocolAdapters[legacy]
-	clashProtocolAdapters[legacy] = func(ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
-		return map[string]any{}, nil, nil
+	if before := legacyAdapterPendingCount(); before != 0 {
+		t.Fatalf("基线 legacy 计数必须为 0，实际 %d", before)
 	}
+	const protocol = "trojan"
+	orig, had := clashProtocolAdapters[protocol]
+	delete(clashProtocolAdapters, protocol)
 	defer func() {
 		if had {
-			clashProtocolAdapters[legacy] = orig
-		} else {
-			delete(clashProtocolAdapters, legacy)
+			clashProtocolAdapters[protocol] = orig
 		}
 	}()
-	after := legacyAdapterPendingCount()
-	if before <= 0 || after != before-1 {
-		t.Fatalf("legacy adapter 计数未随注册下降: before=%d after=%d", before, after)
+	missing := []string{}
+	for _, item := range node.ManualProtocols() {
+		if _, ok := clashProtocolAdapters[item.Protocol]; !ok {
+			missing = append(missing, item.Protocol)
+		}
+	}
+	if len(missing) != 1 || missing[0] != protocol {
+		t.Fatalf("缺失集合未随注册收敛: %v", missing)
+	}
+	if after := legacyAdapterPendingCount(); after != 1 {
+		t.Fatalf("legacy 计数未随注册变化: after=%d", after)
 	}
 }
 
@@ -859,8 +870,8 @@ func TestAnyTLSClashAdapterWireShape(t *testing.T) {
 	shadow := proxyFields(map[string]any{"password": "pw-cipher",
 		"shadow-tls-opts": map[string]any{"password": "shadow-cipher", "version": "3"}},
 		node.CurrentState{Selectors: map[string]string{"security_mode": "shadow_tls"}}, "example.com", 443)
-	if options, ok := shadow["shadow-tls-opts"].(map[string]any); !ok || options["password"] != "shadow-cipher" {
-		t.Fatalf("shadow_tls 分支必须输出当前伪装对象: %+v", shadow)
+	if options, ok := shadow["shadow-tls-opts"].(map[string]any); !ok || options["password"] != "REDACTED" || fmt.Sprint(options["version"]) != "3" {
+		t.Fatalf("shadow_tls 分支必须输出当前伪装对象（凭据已脱敏）: %+v", shadow)
 	}
 	for _, key := range []string{"restls-opts", "jls-opts", "security-mode"} {
 		if _, ok := shadow[key]; ok {
@@ -1187,5 +1198,473 @@ func TestOpenVPNClashAdapterWireShape(t *testing.T) {
 		if _, ok := certProxy[key]; ok {
 			t.Fatalf("未设置的 %s 不得写入 wire: %+v", key, certProxy)
 		}
+	}
+}
+
+// ===== Build32 Step 20：首批四协议显式 adapter 与 check／正式装配一致性 =====
+
+// step20ProxyFields 通过节点检查路径取出单节点 Clash 字段，供 wire shape 断言复用。
+func step20ProxyFields(t *testing.T, protocol, host string, port int, params map[string]any) (map[string]any, []node.TargetDiagnostic) {
+	t.Helper()
+	res, err := (&Service{}).CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+		Target: "clash-yaml", Protocol: protocol, RenderName: protocol + "-node",
+		Host: host, Port: port, Params: params,
+	})
+	if err != nil {
+		t.Fatalf("%s 目标检查失败: %v", protocol, err)
+	}
+	return step20FirstProxy(t, res.Preview), res.Diagnostics
+}
+
+// step20FirstProxy 解析单节点检查预览并返回第一个代理映射。
+func step20FirstProxy(t *testing.T, preview string) map[string]any {
+	t.Helper()
+	var decoded struct {
+		Proxies []map[string]any `yaml:"proxies"`
+	}
+	if err := gyaml.Unmarshal([]byte(preview), &decoded); err != nil {
+		t.Fatalf("解析检查预览失败: %v\n%s", err, preview)
+	}
+	if len(decoded.Proxies) != 1 {
+		t.Fatalf("检查预览代理数量异常: %s", preview)
+	}
+	return decoded.Proxies[0]
+}
+
+// step20MaskSecrets 按值把已构造结构中的敏感叶子替换为 REDACTED，用于比较两侧语义。
+func step20MaskSecrets(value any, secrets []string) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = step20MaskSecrets(item, secrets)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i := range typed {
+			out[i] = step20MaskSecrets(typed[i], secrets)
+		}
+		return out
+	case string:
+		for _, secret := range secrets {
+			if secret != "" && typed == secret {
+				return "REDACTED"
+			}
+		}
+		return typed
+	default:
+		return typed
+	}
+}
+
+// TestSSClashAdapterWireShape 锁定 SS adapter 的 v1.19.31 ShadowSocksOption 形状：
+// 只输出点名 wire key，插件走既有的存储键 → plugin／plugin-opts 投影，
+// 禁用 feature 对象与显式 false 不得进入 wire。
+func TestSSClashAdapterWireShape(t *testing.T) {
+	fields, _ := step20ProxyFields(t, "ss", "example.com", 8388, map[string]any{
+		"cipher": "aes-256-gcm", "password": "ss-secret",
+		"plugin": "shadow-tls", "shadow-tls-opts": map[string]any{"host": "cdn.example.com", "password": "st-secret", "version": "3"},
+		"udp-over-tcp": true, "udp-over-tcp-version": "2", "client-fingerprint": "chrome",
+		"smux": map[string]any{"enabled": false, "protocol": "smux"},
+		"tfo":  true, "mptcp": true, "interface-name": "utun0",
+	})
+	if fields["cipher"] != "aes-256-gcm" || fields["password"] != "REDACTED" {
+		t.Fatalf("SS 必填字段缺失或未脱敏: %+v", fields)
+	}
+	opts, ok := fields["plugin-opts"].(map[string]any)
+	if !ok || fields["plugin"] != "shadow-tls" || opts["host"] != "cdn.example.com" {
+		t.Fatalf("SS 插件投影异常: %+v", fields)
+	}
+	for _, key := range []string{"obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts", "plugin-opts-storage", "security", "smux"} {
+		if _, ok := fields[key]; ok {
+			t.Fatalf("SS wire 不得输出 %s: %+v", key, fields)
+		}
+	}
+	for _, key := range []string{"udp-over-tcp", "udp-over-tcp-version", "client-fingerprint", "tfo", "mptcp", "interface-name"} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("SS wire 缺少活动字段 %s: %+v", key, fields)
+		}
+	}
+
+	disabled, _ := step20ProxyFields(t, "ss", "example.com", 8388, map[string]any{
+		"cipher": "aes-256-gcm", "password": "ss-secret", "udp": false,
+	})
+	for _, key := range []string{"udp", "plugin", "plugin-opts"} {
+		if _, ok := disabled[key]; ok {
+			t.Fatalf("SS 未启用字段不得进入 wire: %s %+v", key, disabled)
+		}
+	}
+
+	unknown, _ := step20ProxyFields(t, "ss", "example.com", 8388, map[string]any{
+		"cipher": "aes-256-gcm", "password": "ss-secret",
+		"plugin": "custom-plugin", "plugin-opts": map[string]any{"flag": "on"},
+	})
+	if unknown["plugin"] != "custom-plugin" {
+		t.Fatalf("未知插件必须原样保留 plugin: %+v", unknown)
+	}
+	if unknown["plugin-opts"].(map[string]any)["flag"] != "on" {
+		t.Fatalf("未知插件参数必须原样保留: %+v", unknown)
+	}
+}
+
+// TestVMessClashAdapterWireShape 锁定 VMess adapter 的 v1.19.31 VmessOption 形状：
+// alterId／cipher 无 omitempty，必须始终输出；h2-opts.host 是内核数组；
+// 禁用 feature 与显式 false 不得进入 wire。
+func TestVMessClashAdapterWireShape(t *testing.T) {
+	fields, _ := step20ProxyFields(t, "vmess", "example.com", 443, map[string]any{
+		"uuid": "vmess-uuid", "network": "ws", "tls": true, "servername": "example.com",
+		"ws-opts": map[string]any{"path": "/vmess", "headers": map[string]any{"Host": "cdn.example.com"}},
+		"alpn":    "h2,http/1.1", "packet-addr": true, "xudp": true,
+		"smux": map[string]any{"enabled": false},
+	})
+	for _, key := range []string{"uuid", "alterId", "cipher", "network", "tls", "servername", "ws-opts", "packet-addr", "xudp"} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("VMess wire 缺少 %s: %+v", key, fields)
+		}
+	}
+	if fmt.Sprint(fields["alterId"]) != "0" || fmt.Sprint(fields["cipher"]) != "auto" {
+		t.Fatalf("VMess 必须补齐内核必需的 alterId=0／cipher=auto: %+v", fields)
+	}
+	alpn, ok := fields["alpn"].([]any)
+	if !ok || len(alpn) != 2 {
+		t.Fatalf("VMess alpn 必须为 YAML 数组: %#v", fields["alpn"])
+	}
+	for _, key := range []string{"security", "smux"} {
+		if _, ok := fields[key]; ok {
+			t.Fatalf("VMess wire 不得输出 %s: %+v", key, fields)
+		}
+	}
+
+	plain, _ := step20ProxyFields(t, "vmess", "example.com", 443, map[string]any{
+		"uuid": "vmess-uuid", "network": "tcp", "tls": false,
+		"skip-cert-verify": false, "servername": "example.com",
+	})
+	for _, key := range []string{"tls", "skip-cert-verify", "servername"} {
+		if _, ok := plain[key]; ok {
+			t.Fatalf("VMess TLS 关闭时不得输出 %s: %+v", key, plain)
+		}
+	}
+
+	h2, _ := step20ProxyFields(t, "vmess", "example.com", 443, map[string]any{
+		"uuid": "vmess-uuid", "network": "h2", "tls": true,
+		"h2-opts": map[string]any{"path": "/h2", "host": "h2.example.com"},
+	})
+	hosts, ok := h2["h2-opts"].(map[string]any)["host"].([]any)
+	if !ok || len(hosts) != 1 || hosts[0] != "h2.example.com" {
+		t.Fatalf("h2-opts.host 必须按固定 tag 的 []string 输出: %#v", h2["h2-opts"])
+	}
+}
+
+// TestVLESSClashAdapterWireShape 锁定 VLESS adapter 的 v1.19.31 VlessOption 形状：
+// 固定 tag 没有的 TLS／ECH／伪装字段不得因共享 schema 被输出，ws 旧别名只进 ws-opts。
+func TestVLESSClashAdapterWireShape(t *testing.T) {
+	fields, _ := step20ProxyFields(t, "vless", "example.com", 443, map[string]any{
+		"uuid": "vless-uuid", "network": "tcp", "tls": true, "servername": "example.com",
+		"flow":        "xtls-rprx-vision",
+		"encryption":  "none",
+		"ech-opts":    map[string]any{"enable": true, "config": "ech-config"},
+		"certificate": "client-cert", "private-key": "client-key", "name-cert-verify": "verify.example.com",
+		"shadow-tls-opts": map[string]any{"password": "st-secret", "version": "3"},
+		"jls-opts":        map[string]any{"username": "u", "password": "p"},
+		"smux":            map[string]any{"enabled": false},
+	})
+	for _, key := range []string{"uuid", "network", "tls", "servername", "flow", "encryption"} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("VLESS wire 缺少 %s: %+v", key, fields)
+		}
+	}
+	for _, key := range []string{"security", "ws-path", "ws-headers", "ech-opts", "certificate", "private-key",
+		"name-cert-verify", "shadow-tls-opts", "jls-opts", "smux"} {
+		if _, ok := fields[key]; ok {
+			t.Fatalf("VLESS wire 不得输出 %s: %+v", key, fields)
+		}
+	}
+
+	ws, _ := step20ProxyFields(t, "vless", "example.com", 443, map[string]any{
+		"uuid": "vless-uuid", "network": "ws", "tls": true, "servername": "example.com",
+		"ws-opts":    map[string]any{"path": "/vless", "headers": map[string]any{"Host": "cdn.example.com"}},
+		"ws-headers": map[string]any{"X-Alias": "1"},
+		"ws-path":    "/legacy",
+	})
+	for _, key := range []string{"ws-path", "ws-headers"} {
+		if _, ok := ws[key]; ok {
+			t.Fatalf("VLESS ws 旧别名不得单独进入 wire: %s %+v", key, ws)
+		}
+	}
+	headers, ok := ws["ws-opts"].(map[string]any)["headers"].(map[string]any)
+	if !ok || headers["Host"] != "cdn.example.com" || headers["X-Alias"] != "1" {
+		t.Fatalf("VLESS ws 旧别名必须收敛进 ws-opts.headers: %#v", ws["ws-opts"])
+	}
+}
+
+// TestTrojanClashAdapterWireShape 锁定 Trojan adapter 的 v1.19.31 TrojanOption 形状：
+// 内层 SS 只在启用时输出，固定 tag 没有的 TLS／ECH／伪装字段不得输出。
+func TestTrojanClashAdapterWireShape(t *testing.T) {
+	fields, _ := step20ProxyFields(t, "trojan", "example.com", 443, map[string]any{
+		"password": "trojan-secret", "network": "tcp", "sni": "example.com", "alpn": "h2,http/1.1",
+		"skip-cert-verify": false, "client-fingerprint": "chrome",
+		"ss-opts":          map[string]any{"enabled": true, "method": "aes-128-gcm", "password": "inner-secret"},
+		"ech-opts":         map[string]any{"enable": true},
+		"certificate":      "client-cert",
+		"private-key":      "client-key",
+		"name-cert-verify": "verify.example.com",
+	})
+	for _, key := range []string{"password", "network", "sni", "alpn", "client-fingerprint", "ss-opts"} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("Trojan wire 缺少 %s: %+v", key, fields)
+		}
+	}
+	for _, key := range []string{"skip-cert-verify", "security", "ech-opts", "certificate", "private-key",
+		"name-cert-verify", "reality-opts", "shadow-tls-opts", "restls-opts", "jls-opts"} {
+		if _, ok := fields[key]; ok {
+			t.Fatalf("Trojan wire 不得输出 %s: %+v", key, fields)
+		}
+	}
+	ssOpts, ok := fields["ss-opts"].(map[string]any)
+	if !ok || ssOpts["method"] != "aes-128-gcm" || ssOpts["password"] != "REDACTED" {
+		t.Fatalf("Trojan 内层 SS 形状异常: %#v", fields["ss-opts"])
+	}
+
+	disabled, _ := step20ProxyFields(t, "trojan", "example.com", 443, map[string]any{
+		"password": "trojan-secret", "network": "tcp",
+		"ss-opts": map[string]any{"enabled": false, "method": "aes-128-gcm", "password": "inner-secret"},
+	})
+	if _, ok := disabled["ss-opts"]; ok {
+		t.Fatalf("内层 SS 未启用时不得进入 wire: %+v", disabled)
+	}
+}
+
+// TestFirstBatchCheckPreviewMatchesFormalAssembly 证明 check 预览与正式装配单节点片段
+// 在脱敏差异之外语义一致：name／type／endpoint／协议字段与 endpoint policy 完全一致。
+func TestFirstBatchCheckPreviewMatchesFormalAssembly(t *testing.T) {
+	cases := []struct {
+		protocol string
+		host     string
+		port     int
+		params   map[string]any
+		secrets  []string
+	}{
+		{"ss", "example.com", 8388, map[string]any{
+			"cipher": "aes-256-gcm", "password": "ss-secret",
+			"plugin": "obfs", "obfs-opts": map[string]any{"mode": "http", "host": "cdn.example.com"},
+		}, []string{"ss-secret"}},
+		{"vmess", "example.com", 443, map[string]any{
+			"uuid": "vmess-uuid", "network": "ws", "tls": true, "servername": "example.com",
+			"ws-opts": map[string]any{"path": "/vmess", "headers": map[string]any{"Host": "cdn.example.com"}},
+		}, []string{"vmess-uuid"}},
+		{"vless", "example.com", 443, map[string]any{
+			"uuid": "vless-uuid", "network": "tcp", "tls": true, "servername": "example.com",
+			"reality-opts": map[string]any{"public-key": "reality-pk", "short-id": "01234567"},
+		}, []string{"vless-uuid"}},
+		{"trojan", "example.com", 443, map[string]any{
+			"password": "trojan-secret", "network": "grpc", "sni": "example.com",
+			"grpc-opts": map[string]any{"grpc-service-name": "trojan"},
+		}, []string{"trojan-secret"}},
+	}
+	const nodeID int64 = 7
+	for _, tc := range cases {
+		t.Run(tc.protocol, func(t *testing.T) {
+			svc := &Service{}
+			res, err := svc.CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+				Target: "clash-yaml", Protocol: tc.protocol, RenderName: tc.protocol + "-node",
+				Host: tc.host, Port: tc.port, Params: tc.params, NodeID: nodeID, Persisted: true,
+			})
+			if err != nil {
+				t.Fatalf("节点检查失败: %v", err)
+			}
+			nd := &nodeData{
+				NodeID: nodeID, Protocol: tc.protocol, RenderName: tc.protocol + "-node",
+				Host: tc.host, Port: tc.port, ProtocolJSON: tc.params,
+			}
+			proxy, _, err := svc.buildClashProxy(nd, true)
+			if err != nil {
+				t.Fatalf("正式装配失败: %v", err)
+			}
+			content, err := marshalClashYAML(gyaml.MapSlice{{Key: "proxies", Value: []any{orderedMapToMapSlice(proxy)}}}, nil)
+			if err != nil {
+				t.Fatalf("序列化正式装配片段失败: %v", err)
+			}
+			formal := step20MaskSecrets(step20FirstProxy(t, string(content)), tc.secrets)
+			preview := step20FirstProxy(t, res.Preview)
+			if !reflect.DeepEqual(formal, preview) {
+				t.Fatalf("check 预览与正式装配语义不一致:\nformal  = %#v\npreview = %#v", formal, preview)
+			}
+		})
+	}
+}
+
+// TestClashCheckPreviewRedactsSecretsAfterConstruction 证明脱敏发生在构造之后的副本上：
+// 预览必须保留结构与非敏感值，同时不出现任何凭据明文。
+func TestClashCheckPreviewRedactsSecretsAfterConstruction(t *testing.T) {
+	cases := []struct {
+		protocol string
+		port     int
+		params   map[string]any
+		secrets  []string
+	}{
+		{"ss", 8388, map[string]any{
+			"cipher": "aes-256-gcm", "password": "ss-secret-value",
+			"plugin": "shadow-tls", "shadow-tls-opts": map[string]any{"host": "cdn.example.com", "password": "st-secret-value"},
+		}, []string{"ss-secret-value", "st-secret-value"}},
+		{"vmess", 443, map[string]any{
+			"uuid": "11111111-2222-3333-4444-555555555555", "network": "tcp", "tls": true,
+		}, []string{"11111111-2222-3333-4444-555555555555"}},
+		{"vless", 443, map[string]any{
+			"uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "network": "tcp", "tls": true,
+		}, []string{"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}},
+		{"trojan", 443, map[string]any{
+			"password": "trojan-secret-value", "network": "tcp", "sni": "example.com",
+			"ss-opts": map[string]any{"enabled": true, "method": "aes-128-gcm", "password": "inner-secret-value"},
+		}, []string{"trojan-secret-value", "inner-secret-value"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.protocol, func(t *testing.T) {
+			res, err := (&Service{}).CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+				Target: "clash-yaml", Protocol: tc.protocol, RenderName: tc.protocol + "-node",
+				Host: "example.com", Port: tc.port, Params: tc.params,
+			})
+			if err != nil {
+				t.Fatalf("节点检查失败: %v", err)
+			}
+			for _, secret := range tc.secrets {
+				if strings.Contains(res.Preview, secret) {
+					t.Fatalf("检查预览泄漏凭据 %q:\n%s", secret, res.Preview)
+				}
+			}
+			if !strings.Contains(res.Preview, "example.com") {
+				t.Fatalf("脱敏不得破坏结构或丢弃非敏感字段:\n%s", res.Preview)
+			}
+			for _, diagnostic := range res.Diagnostics {
+				for _, secret := range tc.secrets {
+					if strings.Contains(diagnostic.Message, secret) {
+						t.Fatalf("诊断泄漏凭据 %q: %+v", secret, diagnostic)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestClashRenderPlanUsesSameAdapterAsGeneratedYAML 证明渲染计划中的 manual 节点
+// 与生成时写入 YAML 的节点来自同一显式 adapter：下载重渲染不会退回第二套拼装。
+func TestClashRenderPlanUsesSameAdapterAsGeneratedYAML(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	pid := insertPlatform(t, st, "yaml")
+	insertManualNode(t, st, "节点A", "vmess", map[string]any{
+		"uuid": "11111111-2222-3333-4444-555555555555", "network": "ws", "tls": true,
+		"servername": "example.com", "ws-opts": map[string]any{"path": "/vmess"},
+		"smux": map[string]any{"enabled": false},
+	})
+	insertGroup(t, st, "组A", "select", []string{"节点A"}, nil, true, false)
+	res, err := svc.Render(context.Background(), GenerateInput{
+		TargetSyntax: ClashYAML, PlatformID: pid,
+		NodeNames: []string{"节点A"}, GroupNames: []string{"组A"},
+		OverseasMembers: []string{"节点A"}, FallbackGroupMembers: []string{"🚀直接连接", "🌎国外流量"},
+	})
+	if err != nil {
+		t.Fatalf("Clash Render 失败: %v", err)
+	}
+	var decoded struct {
+		Proxies []map[string]any `yaml:"proxies"`
+	}
+	if err := gyaml.Unmarshal(res.Content, &decoded); err != nil {
+		t.Fatalf("解析 Clash 产物失败: %v", err)
+	}
+	var plan struct {
+		ManualProxies []map[string]any `json:"manual_proxies"`
+	}
+	if err := json.Unmarshal(res.RenderPlan, &plan); err != nil {
+		t.Fatalf("解析渲染计划失败: %v", err)
+	}
+	if len(decoded.Proxies) != 1 || len(plan.ManualProxies) != 1 {
+		t.Fatalf("产物与计划节点数量不一致: yaml=%d plan=%d", len(decoded.Proxies), len(plan.ManualProxies))
+	}
+	yamlProxy := decoded.Proxies[0]
+	planProxy := plan.ManualProxies[0]
+	if planProxy["name"] != "节点A" {
+		t.Fatalf("渲染计划必须使用 nodes.name 稳定键: %+v", planProxy)
+	}
+	delete(planProxy, "name")
+	delete(yamlProxy, "name")
+	// YAML 与 JSON 的整数解码类型不同（uint64／float64），统一按 JSON 规范化比较。
+	yamlJSON, err := json.Marshal(yamlProxy)
+	if err != nil {
+		t.Fatalf("序列化产物节点失败: %v", err)
+	}
+	planJSON, err := json.Marshal(planProxy)
+	if err != nil {
+		t.Fatalf("序列化计划节点失败: %v", err)
+	}
+	if string(yamlJSON) != string(planJSON) {
+		t.Fatalf("渲染计划与生成产物不同源:\nyaml=%s\nplan=%s", yamlJSON, planJSON)
+	}
+	if _, ok := yamlProxy["smux"]; ok {
+		t.Fatalf("未启用的 smux 不得进入产物: %+v", yamlProxy)
+	}
+}
+
+// TestNoManualProtocolReportsLegacyAdapterPending 断言 19 个 manual 协议的目标诊断中
+// 彻底不再出现 legacy_adapter_pending：该 info 证据不得继续掩盖其它诊断。
+func TestNoManualProtocolReportsLegacyAdapterPending(t *testing.T) {
+	svc := &Service{}
+	for _, protocol := range node.ManualProtocols() {
+		t.Run(protocol.Protocol, func(t *testing.T) {
+			res, err := svc.CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+				Target: "clash-yaml", Protocol: protocol.Protocol, RenderName: protocol.Protocol + "-node",
+				Host: "example.com", Port: 443,
+			})
+			if err != nil && len(res.Diagnostics) == 0 {
+				// adapter 自身的组合错误不属于本断言范围（例如缺少端点策略要求的端口）。
+				return
+			}
+			for _, diagnostic := range res.Diagnostics {
+				if diagnostic.Code == "legacy_adapter_pending" {
+					t.Fatalf("manual 协议不得再返回 legacy_adapter_pending: %+v", res.Diagnostics)
+				}
+			}
+		})
+	}
+}
+
+// TestFirstBatchAdaptersExcludeStateOnlyAndInternalMetadata 断言首批四协议的 wire
+// 只包含固定 tag 的真实字段：state_only、内部编辑元数据与插件存储键一律不得输出。
+func TestFirstBatchAdaptersExcludeStateOnlyAndInternalMetadata(t *testing.T) {
+	cases := []struct {
+		protocol  string
+		port      int
+		params    map[string]any
+		forbidden []string
+	}{
+		{"ss", 8388, map[string]any{
+			"cipher": "aes-256-gcm", "password": "ss-secret", "security": "tls",
+			"plugin": "obfs", "obfs-opts": map[string]any{"mode": "http", "host": "cdn.example.com"},
+			"_credential_id": "internal-id", "ovpn_source_lines": map[string]any{"ca": 3},
+		}, []string{"security", "auth-mode", "auth_mode", "_credential_id", "ovpn_source_lines",
+			"obfs-opts", "v2ray-plugin-opts", "shadow-tls-opts", "restls-opts"}},
+		{"vmess", 443, map[string]any{
+			"uuid": "vmess-uuid", "network": "tcp", "tls": true, "security": "tls",
+			"_credential_id": "internal-id",
+		}, []string{"security", "auth_mode", "_credential_id"}},
+		{"vless", 443, map[string]any{
+			"uuid": "vless-uuid", "network": "ws", "tls": true,
+			"ws-path": "/legacy", "ws-headers": map[string]any{"X-Alias": "1"},
+			"_credential_id": "internal-id",
+		}, []string{"security", "ws-path", "ws-headers", "_credential_id", "ech-opts", "shadow-tls-opts"}},
+		{"trojan", 443, map[string]any{
+			"password": "trojan-secret", "network": "tcp", "sni": "example.com",
+			"ss-opts":        map[string]any{"enabled": false, "method": "aes-128-gcm", "password": "inner"},
+			"_credential_id": "internal-id",
+		}, []string{"security", "ech-opts", "jls-opts", "certificate", "private-key", "_credential_id", "ss-opts"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.protocol, func(t *testing.T) {
+			fields, _ := step20ProxyFields(t, tc.protocol, "example.com", tc.port, tc.params)
+			for _, key := range tc.forbidden {
+				if _, ok := fields[key]; ok {
+					t.Fatalf("wire 不得输出 %s: %+v", key, fields)
+				}
+			}
+		})
 	}
 }

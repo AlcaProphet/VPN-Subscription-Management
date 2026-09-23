@@ -68,6 +68,8 @@ func TestGenericVmessTLSFalse(t *testing.T) {
 	}
 }
 
+// TestClashProxyKeyOrder 锁定正式装配条目的稳定键序：
+// 公共 name/type/endpoint 在前，协议字段按字母序随后，且不再存在第二套拼装入口。
 func TestClashProxyKeyOrder(t *testing.T) {
 	nd := &nodeData{
 		RenderName: "节点A", Protocol: "vmess", Host: "example.com", Port: 443,
@@ -75,7 +77,10 @@ func TestClashProxyKeyOrder(t *testing.T) {
 			"uuid": "u", "tls": true, "network": "ws", "alpn": "h2,http/1.1",
 		},
 	}
-	p := new(Service).clashProxy(nd)
+	p, _, err := new(Service).buildClashProxy(nd, true)
+	if err != nil {
+		t.Fatalf("构造 Clash 条目失败: %v", err)
+	}
 	got := p.Keys()
 	want := []string{"name", "type", "server", "port", "alpn", "alterId", "cipher", "network", "tls", "uuid"}
 	if !reflect.DeepEqual(got, want) {
@@ -175,7 +180,10 @@ func TestClashSSPluginProjectionIsStructuredAndImmutable(t *testing.T) {
 				t.Fatalf("Clash 投影修改了输入:\n got=%#v\nwant=%#v", tc.params, before)
 			}
 
-			proxy := new(Service).clashProxy(&nodeData{RenderName: "节点", Protocol: "ss", Host: "example.com", Port: 443, ProtocolJSON: tc.params})
+			proxy, _, err := new(Service).buildClashProxy(&nodeData{RenderName: "节点", Protocol: "ss", Host: "example.com", Port: 443, ProtocolJSON: tc.params}, true)
+			if err != nil {
+				t.Fatalf("构造 SS Clash 条目失败: %v", err)
+			}
 			raw, err := gyaml.Marshal(orderedMapToMapSlice(proxy))
 			if err != nil {
 				t.Fatal(err)

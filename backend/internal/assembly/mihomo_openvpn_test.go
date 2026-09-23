@@ -82,7 +82,7 @@ func TestMihomo11931OpenVPNProtocolStructures(t *testing.T) {
 		for _, tc := range generated {
 			t.Run(tc.name, func(t *testing.T) {
 				render := "fixed-ovpn-" + strings.ReplaceAll(tc.name, " ", "-")
-				proxy := new(Service).clashProxy(&nodeData{
+				proxy := clashProxyFixture(t, &nodeData{
 					Protocol: "openvpn", RenderName: render,
 					Host: "192.0.2.1", Port: 1194, ProtocolJSON: tc.params,
 				})

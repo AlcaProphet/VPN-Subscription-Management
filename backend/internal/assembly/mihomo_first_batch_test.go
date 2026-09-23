@@ -51,10 +51,13 @@ func TestMihomo11931FirstBatchProtocolStructures(t *testing.T) {
 					t.Fatalf("解析固定夹具失败: %v", err)
 				}
 				renderName := "fixed-" + strings.TrimSuffix(name, ".json")
-				proxy := new(Service).clashProxy(&nodeData{
+				proxy, _, err := new(Service).buildClashProxy(&nodeData{
 					Protocol: fixture.Protocol, RenderName: renderName,
 					Host: fixture.Host, Port: fixture.Port, ProtocolJSON: fixture.ProtocolJSON,
-				})
+				}, true)
+				if err != nil {
+					t.Fatalf("构造 %s 的 Clash 结构失败: %v", fixture.Protocol, err)
+				}
 				content := mihomoSSPluginConfig(t, orderedMapToMapSlice(proxy), renderName)
 				output, err := runMihomoConfigTest(t, bin, content)
 				if err != nil {

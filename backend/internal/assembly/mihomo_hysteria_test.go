@@ -35,7 +35,7 @@ func TestMihomo11931HysteriaProtocolStructures(t *testing.T) {
 		}{
 			{
 				name: "base64 auth with hopping", render: "fixed-hysteria-base64",
-				proxy: new(Service).clashProxy(&nodeData{
+				proxy: clashProxyFixture(t, &nodeData{
 					Protocol: "hysteria", RenderName: "fixed-hysteria-base64", Host: "192.0.2.1", Port: 443,
 					ProtocolJSON: map[string]any{"up": "100 Mbps", "down": "100 Mbps", "auth": "dGVzdC1hdXRo",
 						"ports": "1000-2000", "protocol": "udp", "sni": "example.com", "alpn": []any{"hysteria"}},
@@ -44,7 +44,7 @@ func TestMihomo11931HysteriaProtocolStructures(t *testing.T) {
 			},
 			{
 				name: "string auth no obfs", render: "fixed-hysteria-string",
-				proxy: new(Service).clashProxy(&nodeData{
+				proxy: clashProxyFixture(t, &nodeData{
 					Protocol: "hysteria", RenderName: "fixed-hysteria-string", Host: "192.0.2.1", Port: 443,
 					ProtocolJSON: map[string]any{"up": "100 Mbps", "down": "100 Mbps", "auth-str": "plain-auth"},
 					CurrentState: node.CurrentState{Selectors: map[string]string{"auth_mode": "string"}},

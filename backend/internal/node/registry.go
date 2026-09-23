@@ -4,6 +4,7 @@ package node
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"vpn-sub/internal/ssplugin"
 )
@@ -1955,4 +1956,36 @@ func SensitiveFieldsOf(protocol string) []string {
 		return p.SensitiveFields
 	}
 	return nil
+}
+
+// SchemaPathExists 报告点路径能否在协议 schema 中解析：支持嵌套对象属性、
+// 固定对象列表元素与开放 Map 的任意键。用于保证 target evidence 的 field_path
+// 可以回指 schema 的规范路径，而不是只给出笼统标签。
+func SchemaPathExists(proto Protocol, path string) bool {
+	if path == "" {
+		return false
+	}
+	return schemaPathExists(proto.FormSchema, strings.Split(path, "."))
+}
+
+func schemaPathExists(fields []FieldSchema, segments []string) bool {
+	if len(segments) == 0 {
+		return true
+	}
+	for _, field := range fields {
+		if field.Name != segments[0] {
+			continue
+		}
+		if len(segments) == 1 {
+			return true
+		}
+		if field.Type != "object" {
+			return false
+		}
+		if field.AllowUnknown {
+			return true
+		}
+		return schemaPathExists(field.Properties, segments[1:])
+	}
+	return false
 }

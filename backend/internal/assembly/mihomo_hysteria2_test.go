@@ -49,7 +49,7 @@ func TestMihomo11931Hysteria2ProtocolStructures(t *testing.T) {
 		}
 		for _, tc := range generated {
 			t.Run(tc.name, func(t *testing.T) {
-				proxy := new(Service).clashProxy(&nodeData{
+				proxy := clashProxyFixture(t, &nodeData{
 					Protocol: "hysteria2", RenderName: tc.render, Host: "192.0.2.1", Port: tc.port,
 					ProtocolJSON: tc.params, CurrentState: tc.state,
 				})

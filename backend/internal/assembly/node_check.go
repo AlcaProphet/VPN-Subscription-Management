@@ -2,7 +2,9 @@ package assembly
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"net/url"
 	"strings"
 
 	gyaml "github.com/goccy/go-yaml"
@@ -61,6 +63,7 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 	if err != nil {
 		return node.CheckRenderResult{}, fmt.Errorf("序列化 Clash 节点检查片段失败: %w", err)
 	}
+	// 自检针对真实产物；预览是构造完成之后的脱敏副本，两者结构完全一致。
 	issues := CheckClashContent(content)
 	for _, issue := range issues {
 		severity := issue.Severity
@@ -78,7 +81,7 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 			Severity:  severity,
 			Code:      code,
 			Target:    "clash-yaml",
-			FieldPath: issue.Path,
+			FieldPath: canonicalClashIssuePath(protocol, params, issue.Path),
 			Message:   issue.Message,
 			Evidence:  "mihomo-1.19.31-yaml",
 		})
@@ -99,8 +102,103 @@ func (s *Service) checkClashNodeTarget(protocol, renderName, host string, port i
 			})
 		}
 	}
-	preview := string(content)
-	return node.CheckRenderResult{Preview: preview, Diagnostics: diagnostics}, nil
+	previewContent, err := marshalClashYAML(gyaml.MapSlice{
+		{Key: "proxies", Value: []any{orderedMapToMapSlice(redactClashProxy(protocol, params, proxy))}},
+		{Key: "rules", Value: []any{"GEOIP,CN,DIRECT", "MATCH,DIRECT"}},
+	}, nil)
+	if err != nil {
+		return node.CheckRenderResult{}, fmt.Errorf("序列化 Clash 节点检查预览失败: %w", err)
+	}
+	return node.CheckRenderResult{Preview: string(previewContent), Diagnostics: diagnostics}, nil
+}
+
+// redactClashProxy 在 Clash 条目构造完成之后按具体敏感值替换字段叶子。
+// 该函数只产出预览副本，不参与自检、正式装配或持久化。
+func redactClashProxy(protocol string, params map[string]any, proxy *OrderedMap) *OrderedMap {
+	proto, err := node.GetProtocol(protocol)
+	if err != nil {
+		return proxy
+	}
+	secrets := node.SensitiveValues(proto, params)
+	if len(secrets) == 0 {
+		return proxy
+	}
+	set := make(map[string]bool, len(secrets))
+	for _, secret := range secrets {
+		set[secret] = true
+	}
+	out := NewOrderedMap()
+	for _, key := range proxy.Keys() {
+		value, _ := proxy.Get(key)
+		out.Set(key, redactClashValue(value, set))
+	}
+	return out
+}
+
+// redactClashValue 递归替换与具体敏感值完全相同的字符串叶子（不改动结构与其它字段）。
+func redactClashValue(value any, secrets map[string]bool) any {
+	switch typed := value.(type) {
+	case string:
+		if secrets[typed] {
+			return "REDACTED"
+		}
+		return typed
+	case []string:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = redactClashValue(item, secrets)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = redactClashValue(item, secrets)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = redactClashValue(item, secrets)
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = redactClashValue(item, secrets)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+// canonicalClashIssuePath 把自检产物的 YAML 路径映射回协议 schema 的规范字段路径，
+// 使 target evidence 的 field_path 可以回指 schema，而不是只给出笼统标签。
+func canonicalClashIssuePath(protocol string, params map[string]any, yamlPath string) string {
+	remainder := yamlPath
+	if strings.HasPrefix(remainder, "$.proxies[") {
+		if close := strings.Index(remainder, "]"); close >= 0 {
+			remainder = strings.TrimPrefix(remainder[close+1:], ".")
+		}
+	}
+	if remainder == "" || strings.HasPrefix(remainder, "$") || strings.HasPrefix(remainder, "proxies") {
+		return ""
+	}
+	proto, err := node.GetProtocol(protocol)
+	if err != nil {
+		return ""
+	}
+	if protocol == "ss" && strings.HasPrefix(remainder, "plugin-opts.") {
+		// SS 已知插件的真实存储对象是 schema 的规范路径；未知插件保持开放 Map 路径。
+		plugin, _ := params["plugin"].(string)
+		if definition, known := ssplugin.Lookup(plugin); known {
+			remainder = definition.StorageKey + strings.TrimPrefix(remainder, "plugin-opts")
+		}
+	}
+	if !node.SchemaPathExists(proto, remainder) {
+		return ""
+	}
+	return remainder
 }
 
 func checkLinkNodeTarget(target, protocol, renderName, host string, port int, params map[string]any) (node.CheckRenderResult, error) {
@@ -119,11 +217,121 @@ func checkLinkNodeTarget(target, protocol, renderName, host string, port int, pa
 	if hasBlockingTargetDiagnostic(diagnostics) {
 		return node.CheckRenderResult{Diagnostics: diagnostics}, nil
 	}
-	link, err := RenderLink(protocol, renderName, host, port, params, target == "generic-subs")
+	generic := target == "generic-subs"
+	link, err := RenderLink(protocol, renderName, host, port, params, generic)
 	if err != nil {
 		return node.CheckRenderResult{Diagnostics: diagnostics}, fmt.Errorf("生成 %s 节点链接失败: %w", target, err)
 	}
-	return node.CheckRenderResult{Preview: link, Diagnostics: diagnostics}, nil
+	return node.CheckRenderResult{Preview: redactLinkPreview(protocol, params, link, renderName, host, port, generic), Diagnostics: diagnostics}, nil
+}
+
+// redactLinkPreview 在链接构造完成之后做值级脱敏：用「敏感路径替换为占位值」的对照构造
+// 定位差异区间并替换，覆盖 base64 与 URL 转义等编码形式；任何残留都回退到对照构造结果。
+func redactLinkPreview(protocol string, params map[string]any, link, renderName, host string, port int, generic bool) string {
+	proto, err := node.GetProtocol(protocol)
+	if err != nil {
+		return link
+	}
+	secrets := node.SensitiveValues(proto, params)
+	if len(secrets) == 0 {
+		return link
+	}
+	redactedLink := ""
+	if redacted, renderErr := RenderLink(protocol, renderName, host, port, node.RedactSensitiveParams(proto, params), generic); renderErr == nil {
+		redactedLink = redacted
+	}
+	out := link
+	if redactedLink != "" {
+		out = spliceLinkPreview(link, redactedLink)
+	}
+	out = replaceEncodedSecrets(out, secrets)
+	if containsEncodedSecret(out, secrets) {
+		if redactedLink != "" {
+			return replaceEncodedSecrets(redactedLink, secrets)
+		}
+		return ""
+	}
+	return out
+}
+
+// spliceLinkPreview 把真实链接中所有与脱敏副本不同的区间替换为脱敏副本的对应区间。
+// 逐段收敛：每次消费公共前缀与公共后缀，差异中段取脱敏版本，从而支持一条链接中的多个凭据位置。
+func spliceLinkPreview(real, redacted string) string {
+	var out strings.Builder
+	for {
+		if real == redacted {
+			out.WriteString(real)
+			return out.String()
+		}
+		prefix := commonPrefixLen(real, redacted)
+		out.WriteString(real[:prefix])
+		real, redacted = real[prefix:], redacted[prefix:]
+		if real == "" || redacted == "" {
+			out.WriteString(redacted)
+			return out.String()
+		}
+		suffix := commonSuffixLen(real, redacted)
+		if suffix == 0 {
+			out.WriteString(redacted)
+			return out.String()
+		}
+		out.WriteString(redacted[:len(redacted)-suffix])
+		real, redacted = real[len(real)-suffix:], redacted[len(redacted)-suffix:]
+	}
+}
+
+func commonPrefixLen(a, b string) int {
+	limit := min(len(a), len(b))
+	index := 0
+	for index < limit && a[index] == b[index] {
+		index++
+	}
+	return index
+}
+
+func commonSuffixLen(a, b string) int {
+	limit := min(len(a), len(b))
+	index := 0
+	for index < limit && a[len(a)-1-index] == b[len(b)-1-index] {
+		index++
+	}
+	return index
+}
+
+// replaceEncodedSecrets 按原文、URL 转义与 Base64 编码形式替换凭据值。
+func replaceEncodedSecrets(value string, secrets []string) string {
+	out := value
+	for _, secret := range secrets {
+		for _, encoded := range encodedSecretForms(secret) {
+			out = strings.ReplaceAll(out, encoded, "REDACTED")
+		}
+	}
+	return out
+}
+
+// containsEncodedSecret 报告文本中是否仍残留任一凭据的原文或编码形式。
+func containsEncodedSecret(value string, secrets []string) bool {
+	for _, secret := range secrets {
+		for _, encoded := range encodedSecretForms(secret) {
+			if encoded != "" && strings.Contains(value, encoded) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// encodedSecretForms 列出需要在预览中覆盖的凭据编码形式。
+func encodedSecretForms(secret string) []string {
+	if secret == "" {
+		return nil
+	}
+	return []string{
+		secret,
+		url.QueryEscape(secret),
+		url.PathEscape(secret),
+		base64.StdEncoding.EncodeToString([]byte(secret)),
+	}
 }
 
 func linkTargetDiagnostics(target, protocol string, params map[string]any) []node.TargetDiagnostic {
@@ -139,6 +347,18 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 			add(&diagnostics, "error", "core_semantic_unexpressible", "encryption",
 				"当前 URI 适配器不会保留 VLESS 非 none 的 encryption 语义", "cvr-2.5.2-uri")
 		}
+		// REALITY 分支不携带证书校验开关，普通 TLS 分支两个目标都能表达。
+		if hasConfiguredObject(params, "reality-opts") && hasActiveParam(params, "skip-cert-verify") {
+			add(&diagnostics, "warn", "uri_partial_fields", "skip-cert-verify",
+				"REALITY 分支的 URI 不携带证书校验开关，导入后需复核", "project-uri-capability")
+		}
+		addURIPartialFields(&diagnostics, target, params,
+			"当前 URI 适配器不表达该字段，导入后连接行为可能不同",
+			"packet-addr", "xudp", "packet-encoding", "smux")
+		if path := linkDroppedHeaderPath(params); path != "" {
+			add(&diagnostics, "warn", "uri_partial_fields", path,
+				"当前 URI 适配器只携带 Host 请求头，其余自定义请求头会被丢弃", "project-uri-capability")
+		}
 	case "vmess":
 		switch cipher, _ := params["cipher"].(string); cipher {
 		case "chacha20-poly1305":
@@ -147,6 +367,23 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 		case "zero":
 			add(&diagnostics, "warn", "uri_algorithm_rewrite", "cipher",
 				"CVR 2.5.2 URI 入口对 zero 可能回退或改写，导入后需复核", "cvr-2.5.2-uri")
+		}
+		// SR 链接以 allowInsecure 表达跳过证书校验，通用 vmess:// JSON 不携带该开关。
+		if target == "generic-subs" && hasActiveParam(params, "skip-cert-verify") {
+			add(&diagnostics, "warn", "uri_partial_fields", "skip-cert-verify",
+				"当前通用 URI 适配器不携带证书校验开关，导入后需复核", "project-uri-capability")
+		}
+		// 两个目标都不表达 REALITY，静默降级为普通 TLS 会改变连接语义。
+		if hasConfiguredObject(params, "reality-opts") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "reality-opts",
+				"当前 URI 适配器不能表达 VMess REALITY 语义", "project-uri-capability")
+		}
+		addURIPartialFields(&diagnostics, target, params,
+			"当前 URI 适配器不表达该字段，导入后连接行为可能不同",
+			"packet-addr", "xudp", "packet-encoding", "global-padding", "authenticated-length", "smux")
+		if path := linkDroppedHeaderPath(params); path != "" {
+			add(&diagnostics, "warn", "uri_partial_fields", path,
+				"当前 URI 适配器只携带 Host 请求头，其余自定义请求头会被丢弃", "project-uri-capability")
 		}
 	case "trojan":
 		network, _ := params["network"].(string)
@@ -161,11 +398,38 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 			add(&diagnostics, "error", "core_semantic_unexpressible", "ss-opts",
 				"当前 URI 适配器不能表达 Trojan 内层 SS 参数", "cvr-2.5.2-uri")
 		}
+		if hasConfiguredObject(params, "reality-opts") {
+			add(&diagnostics, "error", "core_semantic_unexpressible", "reality-opts",
+				"当前 URI 适配器不能表达 Trojan REALITY 语义", "project-uri-capability")
+		}
+		if udp, ok := params["udp"].(bool); ok && !udp {
+			add(&diagnostics, "warn", "uri_partial_fields", "udp",
+				"当前 URI 适配器不表达显式关闭的 UDP，导入后可能重新启用 UDP", "project-uri-capability")
+		}
+		addURIPartialFields(&diagnostics, target, params,
+			"当前 URI 适配器不表达该字段，导入后连接行为可能不同",
+			"client-fingerprint")
+		if path := linkDroppedHeaderPath(params); path != "" {
+			add(&diagnostics, "warn", "uri_partial_fields", path,
+				"当前 URI 适配器只携带 Host 请求头，其余自定义请求头会被丢弃", "project-uri-capability")
+		}
 	case "ss":
 		cipher, _ := params["cipher"].(string)
 		if strings.HasPrefix(cipher, "2022-") {
 			add(&diagnostics, "warn", "unverified_compatibility", "cipher",
 				"SS 2022 当前仅登记为待验证兼容项，未宣称完整 URI 支持", "cvr-2.5.2-uri")
+		}
+		// SIP002 链接不携带 UDP 开关与 UDP over TCP 参数。
+		if udp, ok := params["udp"].(bool); ok && !udp {
+			add(&diagnostics, "warn", "uri_partial_fields", "udp",
+				"当前 URI 适配器不表达显式关闭的 UDP，导入后可能重新启用 UDP", "project-uri-capability")
+		}
+		addURIPartialFields(&diagnostics, target, params,
+			"当前 URI 适配器不表达该传输／调优字段，导入后连接行为可能不同",
+			"udp-over-tcp", "udp-over-tcp-version", "client-fingerprint")
+		if hasEnabledObject(params, "smux") {
+			add(&diagnostics, "warn", "uri_partial_fields", "smux",
+				"当前 URI 适配器不携带多路复用参数，导入后连接行为可能不同", "project-uri-capability")
 		}
 	case "http":
 		// URI 只携带代理地址、认证与 TLS 开关；mTLS 与自定义请求头不可表达。
@@ -319,14 +583,14 @@ func linkTargetDiagnostics(target, protocol string, params map[string]any) []nod
 			add(&diagnostics, "error", "core_semantic_unexpressible", "peers",
 				"当前 URI 适配器不能表达 WireGuard 多 Peer 结构", "project-uri-wireguard")
 		}
-		for _, path := range []string{"ip-stack", "workers", "persistent-keepalive", "refresh-server-ip-interval",
-			"tfo", "mptcp", "interface-name", "routing-mark", "ip-version"} {
+		for _, path := range []string{"ip-stack", "workers", "persistent-keepalive", "refresh-server-ip-interval"} {
 			if hasActiveParam(params, path) {
 				add(&diagnostics, "warn", "uri_partial_fields", path,
 					"当前 URI 适配器不表达该高级调优字段，导入后连接行为可能不同", "project-uri-wireguard")
 			}
 		}
 	}
+	addBasicOptionURIDiagnostics(&diagnostics, target, protocol, params)
 	return diagnostics
 }
 
@@ -336,6 +600,11 @@ func hasActiveParam(params map[string]any, key string) bool {
 	if !ok {
 		return false
 	}
+	return paramValueActive(value)
+}
+
+// paramValueActive 判断单个参数值是否处于活动状态（非空、非 false、非零）。
+func paramValueActive(value any) bool {
 	switch typed := value.(type) {
 	case nil:
 		return false
@@ -353,8 +622,100 @@ func hasActiveParam(params map[string]any, key string) bool {
 		return typed != 0
 	case float64:
 		return typed != 0
+	case map[string]any:
+		return len(typed) > 0
+	case []any:
+		return len(typed) > 0
 	default:
 		return true
+	}
+}
+
+// hasConfiguredObject 判断对象字段是否存在且至少有一个有效子值。
+func hasConfiguredObject(params map[string]any, key string) bool {
+	object, ok := params[key].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, value := range object {
+		if paramValueActive(value) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasEnabledObject 判断带 enabled 开关的对象字段是否真的启用。
+func hasEnabledObject(params map[string]any, key string) bool {
+	object, ok := params[key].(map[string]any)
+	if !ok {
+		return false
+	}
+	return boolValue(object["enabled"])
+}
+
+// linkDroppedHeaderPath 返回因 URI 只表达 Host 而被丢弃的请求头 schema 路径；
+// 没有额外请求头时返回空串。
+func linkDroppedHeaderPath(params map[string]any) string {
+	network, _ := params["network"].(string)
+	var path string
+	switch network {
+	case "ws":
+		path = "ws-opts"
+	case "http":
+		path = "http-opts"
+	default:
+		return ""
+	}
+	opts, ok := params[path].(map[string]any)
+	if !ok {
+		return ""
+	}
+	headers, ok := opts["headers"].(map[string]any)
+	if !ok || len(headers) == 0 {
+		return ""
+	}
+	for key, value := range headers {
+		if strings.EqualFold(key, "host") {
+			continue
+		}
+		if paramValueActive(value) {
+			return path + ".headers"
+		}
+	}
+	return ""
+}
+
+// addBasicOptionURIDiagnostics 报告 URI 不表达的内核公共字段。
+// tfo 只在 SR 的 vmess／vless 链接中可表达，其余目标与字段一律按非阻断丢失告警。
+func addBasicOptionURIDiagnostics(out *[]node.TargetDiagnostic, target, protocol string, params map[string]any) {
+	tfoExpressed := target == "sr-subs" && (protocol == "vmess" || protocol == "vless")
+	for _, path := range []string{"tfo", "mptcp", "interface-name", "routing-mark", "ip-version", "dialer-proxy"} {
+		if path == "tfo" && tfoExpressed {
+			continue
+		}
+		if !hasActiveParam(params, path) {
+			continue
+		}
+		*out = append(*out, node.TargetDiagnostic{
+			Severity: "warn", Code: "uri_partial_fields", Target: target, FieldPath: path,
+			Message:  "当前 URI 适配器不表达该内核公共字段，导入后连接行为可能不同",
+			Evidence: "project-uri-common",
+		})
+	}
+}
+
+// addURIPartialFields 批量报告非阻断丢失的字段。
+func addURIPartialFields(out *[]node.TargetDiagnostic, target string, params map[string]any, message string, paths ...string) {
+	for _, path := range paths {
+		if !hasActiveParam(params, path) {
+			continue
+		}
+		*out = append(*out, node.TargetDiagnostic{
+			Severity: "warn", Code: "uri_partial_fields", Target: target, FieldPath: path,
+			Message:  message,
+			Evidence: "project-uri-capability",
+		})
 	}
 }
 

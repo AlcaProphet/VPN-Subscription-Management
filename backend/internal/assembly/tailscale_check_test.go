@@ -157,8 +157,8 @@ func TestTailscaleClashAdapterAuthKeyWarn(t *testing.T) {
 	}
 
 	withKey, diagnostics := tailscaleFields(t, map[string]any{"hostname": "node-a", "auth-key": "ts-secret"}, 9, true)
-	if withKey["auth-key"] != "ts-secret" {
-		t.Fatalf("auth-key 必须进入 wire: %+v", withKey)
+	if withKey["auth-key"] != "REDACTED" {
+		t.Fatalf("auth-key 必须进入 wire 且预览已脱敏: %+v", withKey)
 	}
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Code == "tailscale_auth_key_interactive_login" {
