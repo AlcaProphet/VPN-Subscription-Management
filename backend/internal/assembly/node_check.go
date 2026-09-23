@@ -2,9 +2,7 @@ package assembly
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
-	"net/url"
 	"strings"
 
 	gyaml "github.com/goccy/go-yaml"
@@ -225,113 +223,22 @@ func checkLinkNodeTarget(target, protocol, renderName, host string, port int, pa
 	return node.CheckRenderResult{Preview: redactLinkPreview(protocol, params, link, renderName, host, port, generic), Diagnostics: diagnostics}, nil
 }
 
-// redactLinkPreview 在链接构造完成之后做值级脱敏：用「敏感路径替换为占位值」的对照构造
-// 定位差异区间并替换，覆盖 base64 与 URL 转义等编码形式；任何残留都回退到对照构造结果。
+// redactLinkPreview 在真实链接构造完成之后，以同一构造器和敏感字段占位副本重建预览。
+// 这样 URL 转义与 Base64 等编码仍由正式构造器负责，同时不会在整条链接中误替换
+// 与短凭据碰巧相同的 host、节点名或普通参数片段。对照构造失败时不返回预览。
 func redactLinkPreview(protocol string, params map[string]any, link, renderName, host string, port int, generic bool) string {
 	proto, err := node.GetProtocol(protocol)
 	if err != nil {
 		return link
 	}
-	secrets := node.SensitiveValues(proto, params)
-	if len(secrets) == 0 {
+	if len(node.SensitiveValues(proto, params)) == 0 {
 		return link
 	}
-	redactedLink := ""
-	if redacted, renderErr := RenderLink(protocol, renderName, host, port, node.RedactSensitiveParams(proto, params), generic); renderErr == nil {
-		redactedLink = redacted
-	}
-	out := link
-	if redactedLink != "" {
-		out = spliceLinkPreview(link, redactedLink)
-	}
-	out = replaceEncodedSecrets(out, secrets)
-	if containsEncodedSecret(out, secrets) {
-		if redactedLink != "" {
-			return replaceEncodedSecrets(redactedLink, secrets)
-		}
+	redactedLink, renderErr := RenderLink(protocol, renderName, host, port, node.RedactSensitiveParams(proto, params), generic)
+	if renderErr != nil {
 		return ""
 	}
-	return out
-}
-
-// spliceLinkPreview 把真实链接中所有与脱敏副本不同的区间替换为脱敏副本的对应区间。
-// 逐段收敛：每次消费公共前缀与公共后缀，差异中段取脱敏版本，从而支持一条链接中的多个凭据位置。
-func spliceLinkPreview(real, redacted string) string {
-	var out strings.Builder
-	for {
-		if real == redacted {
-			out.WriteString(real)
-			return out.String()
-		}
-		prefix := commonPrefixLen(real, redacted)
-		out.WriteString(real[:prefix])
-		real, redacted = real[prefix:], redacted[prefix:]
-		if real == "" || redacted == "" {
-			out.WriteString(redacted)
-			return out.String()
-		}
-		suffix := commonSuffixLen(real, redacted)
-		if suffix == 0 {
-			out.WriteString(redacted)
-			return out.String()
-		}
-		out.WriteString(redacted[:len(redacted)-suffix])
-		real, redacted = real[len(real)-suffix:], redacted[len(redacted)-suffix:]
-	}
-}
-
-func commonPrefixLen(a, b string) int {
-	limit := min(len(a), len(b))
-	index := 0
-	for index < limit && a[index] == b[index] {
-		index++
-	}
-	return index
-}
-
-func commonSuffixLen(a, b string) int {
-	limit := min(len(a), len(b))
-	index := 0
-	for index < limit && a[len(a)-1-index] == b[len(b)-1-index] {
-		index++
-	}
-	return index
-}
-
-// replaceEncodedSecrets 按原文、URL 转义与 Base64 编码形式替换凭据值。
-func replaceEncodedSecrets(value string, secrets []string) string {
-	out := value
-	for _, secret := range secrets {
-		for _, encoded := range encodedSecretForms(secret) {
-			out = strings.ReplaceAll(out, encoded, "REDACTED")
-		}
-	}
-	return out
-}
-
-// containsEncodedSecret 报告文本中是否仍残留任一凭据的原文或编码形式。
-func containsEncodedSecret(value string, secrets []string) bool {
-	for _, secret := range secrets {
-		for _, encoded := range encodedSecretForms(secret) {
-			if encoded != "" && strings.Contains(value, encoded) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// encodedSecretForms 列出需要在预览中覆盖的凭据编码形式。
-func encodedSecretForms(secret string) []string {
-	if secret == "" {
-		return nil
-	}
-	return []string{
-		secret,
-		url.QueryEscape(secret),
-		url.PathEscape(secret),
-		base64.StdEncoding.EncodeToString([]byte(secret)),
-	}
+	return redactedLink
 }
 
 func linkTargetDiagnostics(target, protocol string, params map[string]any) []node.TargetDiagnostic {

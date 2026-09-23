@@ -344,6 +344,23 @@ func TestNodeCheckTrojanCustomTransportDiagnosedByTarget(t *testing.T) {
 	assertFixtureDiagnostic(t, sr, "error", "core_semantic_unexpressible")
 }
 
+// TestLinkPreviewShortSecretDoesNotCorruptPublicFields 锁定短凭据只改变凭据组件，
+// 不得通过全局字符串替换破坏 host、节点名或其它非敏感 URI 内容。
+func TestLinkPreviewShortSecretDoesNotCorruptPublicFields(t *testing.T) {
+	result, err := (&Service{}).CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+		Target: "generic-subs", Protocol: "http", RenderName: "alpha",
+		Host: "a.example.com", Port: 8080,
+		Params: map[string]any{"username": "user", "password": "a"},
+	})
+	if err != nil {
+		t.Fatalf("HTTP 短凭据检查失败: %v", err)
+	}
+	want := "http://user:REDACTED@a.example.com:8080#alpha"
+	if result.Preview != want {
+		t.Fatalf("短凭据脱敏破坏非敏感 URI 内容: got=%q want=%q", result.Preview, want)
+	}
+}
+
 func TestNodeCheckUnknownPluginDiagnosed(t *testing.T) {
 	svc, st, cfg := newTestService(t)
 	nodeSvc := node.NewService(st, cfg, log.New("error", "console"))
@@ -634,29 +651,6 @@ var step20EvidenceSources = map[string]bool{
 	"project-unknown":        true,
 }
 
-// step20SchemaPathExists 判断点路径能否在协议 schema 中解析（含对象属性与开放 Map）。
-func step20SchemaPathExists(fields []node.FieldSchema, segments []string) bool {
-	if len(segments) == 0 {
-		return true
-	}
-	for _, field := range fields {
-		if field.Name != segments[0] {
-			continue
-		}
-		if len(segments) == 1 {
-			return true
-		}
-		if field.Type != "object" {
-			return false
-		}
-		if field.AllowUnknown {
-			return true
-		}
-		return step20SchemaPathExists(field.Properties, segments[1:])
-	}
-	return false
-}
-
 // TestTargetDiagnosticFieldPathsResolveToSchemaCanonicalPath 断言所有目标诊断的
 // field_path 要么为空、要么是节点级路径、要么可回指协议 schema 的规范路径。
 func TestTargetDiagnosticFieldPathsResolveToSchemaCanonicalPath(t *testing.T) {
@@ -699,7 +693,7 @@ func TestTargetDiagnosticFieldPathsResolveToSchemaCanonicalPath(t *testing.T) {
 					if path == "" || nodeLevel[path] || strings.HasPrefix(path, "extensions.") {
 						continue
 					}
-					if !step20SchemaPathExists(proto.FormSchema, strings.Split(path, ".")) {
+					if !node.SchemaPathExists(proto, path) {
 						t.Fatalf("目标 %s 诊断 %s 的 field_path=%q 无法回指 schema 规范路径: %+v",
 							target, diagnostic.Code, path, diagnostic)
 					}

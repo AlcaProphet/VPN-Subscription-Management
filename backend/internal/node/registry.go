@@ -4,6 +4,7 @@ package node
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"vpn-sub/internal/ssplugin"
@@ -1965,16 +1966,50 @@ func SchemaPathExists(proto Protocol, path string) bool {
 	if path == "" {
 		return false
 	}
-	return schemaPathExists(proto.FormSchema, strings.Split(path, "."))
+	segments, ok := parseSchemaPath(path)
+	return ok && schemaPathExists(proto.FormSchema, segments)
 }
 
-func schemaPathExists(fields []FieldSchema, segments []string) bool {
+type schemaPathSegment struct {
+	name    string
+	indexed bool
+}
+
+func parseSchemaPath(path string) ([]schemaPathSegment, bool) {
+	rawSegments := strings.Split(path, ".")
+	segments := make([]schemaPathSegment, 0, len(rawSegments))
+	for _, raw := range rawSegments {
+		if raw == "" {
+			return nil, false
+		}
+		segment := schemaPathSegment{name: raw}
+		if open := strings.IndexByte(raw, '['); open >= 0 {
+			if open == 0 || !strings.HasSuffix(raw, "]") || strings.Count(raw, "[") != 1 || strings.Count(raw, "]") != 1 {
+				return nil, false
+			}
+			index, err := strconv.Atoi(raw[open+1 : len(raw)-1])
+			if err != nil || index < 0 {
+				return nil, false
+			}
+			segment.name = raw[:open]
+			segment.indexed = true
+		}
+		segments = append(segments, segment)
+	}
+	return segments, true
+}
+
+func schemaPathExists(fields []FieldSchema, segments []schemaPathSegment) bool {
 	if len(segments) == 0 {
 		return true
 	}
 	for _, field := range fields {
-		if field.Name != segments[0] {
+		segment := segments[0]
+		if field.Name != segment.name {
 			continue
+		}
+		if segment.indexed && (field.Type != "object" || field.ObjectKind != "list") {
+			return false
 		}
 		if len(segments) == 1 {
 			return true

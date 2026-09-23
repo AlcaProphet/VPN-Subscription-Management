@@ -106,8 +106,8 @@ func TestLegacyWSReadCheckAndSaveUseCanonicalFields(t *testing.T) {
 			}
 			svc.SetCheckRenderer(func(_ context.Context, _, _, _, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
 				assertCanonical(params)
-				// 检查适配器接收真实凭据；脱敏只发生在构造完成后的预览副本上。
-				if params["tls"] != true || params["uuid"] == "" || params["uuid"] == "REDACTED" {
+				// 检查适配器接收解密后的真实凭据；脱敏只发生在构造完成后的预览副本上。
+				if params["tls"] != true || params["uuid"] != "ws-secret" {
 					t.Error("检查破坏了 TLS 或凭据传递")
 				}
 				return CheckRenderResult{}, nil

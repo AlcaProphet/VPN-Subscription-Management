@@ -161,6 +161,10 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		if err != nil {
 			return s.checkValidationResponse(in, targets, err, params), nil
 		}
+		params, err = s.materializeCheckSensitive(ctx, proto, params)
+		if err != nil {
+			return nil, err
+		}
 		params = clearSelectorScopedFields(proto, state, params)
 		if err := validateKnownTopLevel(proto, params); err != nil {
 			return s.checkValidationResponse(in, targets, err, params), nil
@@ -258,6 +262,28 @@ func (s *Service) Check(ctx context.Context, in CheckRequest) (*CheckResponse, e
 		response.Targets[target] = result
 	}
 	return response, nil
+}
+
+// materializeCheckSensitive 把已保存节点沿用的数据库密文解密为检查期明文副本。
+// 新草稿携带的明文保持不变；该副本只传给目标 adapter，不写回数据库或响应。
+func (s *Service) materializeCheckSensitive(ctx context.Context, proto Protocol, params map[string]any) (map[string]any, error) {
+	out := cloneJSONMap(params)
+	for _, path := range ConcreteSensitivePaths(out, proto.SensitiveFields) {
+		value, ok := GetPath(out, path)
+		if !ok {
+			continue
+		}
+		text, ok := value.(string)
+		if !ok || !strings.HasPrefix(text, encPrefix) {
+			continue
+		}
+		plain, err := s.decryptSecret(ctx, text)
+		if err != nil {
+			return nil, fmt.Errorf("解密节点检查凭据失败: %s: %w", path, err)
+		}
+		SetPath(out, path, plain)
+	}
+	return out, nil
 }
 
 func normalizeCheckTargets(targets []string) ([]string, error) {

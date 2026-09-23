@@ -161,8 +161,8 @@ func TestCheckEditAppliesResetInMemoryAndPreservesDatabase(t *testing.T) {
 	if _, ok := seen["grpc-opts"]; !ok {
 		t.Fatalf("编辑检查参数未使用新分支: %#v", seen)
 	}
-	if uuid, _ := seen["uuid"].(string); uuid == "" {
-		t.Fatalf("编辑检查参数应携带保留的凭据密文: %#v", seen)
+	if uuid, _ := seen["uuid"].(string); uuid != "stored-secret" {
+		t.Fatalf("编辑检查参数应携带解密后的保留凭据: %#v", seen)
 	}
 	after, err := svc.getRaw(context.Background(), created.ID)
 	if err != nil {
@@ -172,6 +172,36 @@ func TestCheckEditAppliesResetInMemoryAndPreservesDatabase(t *testing.T) {
 	afterJSON, _ := json.Marshal(after.ProtocolJSON)
 	if string(beforeJSON) != string(afterJSON) || before.EditRevision != after.EditRevision || before.Host != after.Host || before.Port != after.Port {
 		t.Fatalf("编辑草稿检查不应改变已保存节点: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestCheckSavedWireGuardMaterializesCredentialBeforeValidationAndRender(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	state := &CurrentState{Selectors: map[string]string{"peer_mode": "single"}}
+	created, err := createWireGuard(t, svc, "检查已保存WireGuard", wireGuardSingleParams(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := svc.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen map[string]any
+	svc.SetCheckRenderer(func(_ context.Context, _, _, _, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
+		seen = cloneJSONMap(params)
+		return CheckRenderResult{Preview: "safe-preview"}, nil
+	})
+	resp, err := svc.Check(context.Background(), CheckRequest{
+		NodeID: created.ID, BaseRevision: created.EditRevision,
+		Protocol: "wireguard", Host: created.Host, Port: created.Port,
+		ProtocolJSON: detail.ProtocolJSON, CurrentState: &detail.CurrentState,
+		Targets: []string{"clash-yaml"},
+	})
+	if err != nil {
+		t.Fatalf("检查已保存 WireGuard 失败: %v", err)
+	}
+	if resp.Targets["clash-yaml"].Status != "ok" || seen["private-key"] != wgPrivateKey {
+		t.Fatalf("已保存凭据必须先解密再校验和构造: response=%+v params=%+v", resp, seen)
 	}
 }
 
@@ -191,6 +221,23 @@ func TestCheckValidationResponseIncludesFieldPath(t *testing.T) {
 	result := resp.Targets["generic-subs"]
 	if result.Status != "error" || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "invalid_node_draft" || result.Diagnostics[0].FieldPath != "xhttp-opts.mode" {
 		t.Fatalf("非法草稿诊断异常: %+v", result)
+	}
+}
+
+func TestSchemaPathExistsSupportsObjectListIndices(t *testing.T) {
+	wireguard, err := GetProtocol("wireguard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"peers[0].allowed-ips", "peers[12].reserved", "peers.allowed-ips"} {
+		if !SchemaPathExists(wireguard, path) {
+			t.Fatalf("对象列表路径应能回指 schema: %s", path)
+		}
+	}
+	for _, path := range []string{"peers[x].allowed-ips", "peers[-1].server", "private-key[0]", "peers[0].missing"} {
+		if SchemaPathExists(wireguard, path) {
+			t.Fatalf("非法对象列表路径不应命中 schema: %s", path)
+		}
 	}
 }
 
