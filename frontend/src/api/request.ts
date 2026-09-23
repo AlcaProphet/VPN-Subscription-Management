@@ -23,7 +23,7 @@ http.interceptors.response.use(
     }
     const body = resp.data
     if (body && typeof body.code === 'number' && body.code !== 0) {
-      return Promise.reject(new ApiError(body.code, body.message ?? '请求失败'))
+      return Promise.reject(new ApiError(body.code, body.message ?? '请求失败', undefined, body))
     }
     return body.data // 调用方直接拿到 data
   },
@@ -47,7 +47,7 @@ http.interceptors.response.use(
         message.warning('高级功能未开启')
         void useSystemStore().fetchStatus(true)
       }
-    return Promise.reject(new ApiError(st, msg ?? defaultMsg(st), err.response?.headers?.['retry-after'] as string | undefined))
+    return Promise.reject(new ApiError(st, msg ?? defaultMsg(st), err.response?.headers?.['retry-after'] as string | undefined, err.response?.data))
   },
 )
 
@@ -63,9 +63,9 @@ function defaultMsg(st: number): string {
   }
 }
 
-// ApiError：携带 HTTP 状态码与 Retry-After（429 专用），供页面区分「表单定位」与「全局提示」
+// ApiError：携带 HTTP 状态码、Retry-After（429 专用）与响应体详情，供页面区分「表单定位」与「全局提示」
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public retryAfter?: string) { super(message) }
+  constructor(public status: number, message: string, public retryAfter?: string, public details?: unknown) { super(message) }
 }
 
 // --- pollTask：异步任务轮询封装（Design2-UI §9.2） ---

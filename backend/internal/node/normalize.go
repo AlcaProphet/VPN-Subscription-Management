@@ -64,6 +64,9 @@ func normalizeProtocolListFields(proto Protocol, params map[string]any) {
 		normalizeStringListField(params, "allowed-ips")
 		normalizeStringListField(params, "dns")
 		normalizeWireGuardPeerFields(params)
+	case "openvpn":
+		normalizeStringListField(params, "data-ciphers")
+		normalizeStringListField(params, "dns")
 	}
 }
 

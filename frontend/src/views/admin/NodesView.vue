@@ -7,12 +7,13 @@ import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
 import FormSection from '@/components/FormSection.vue'
 import NodeCheckPanel from '@/components/NodeCheckPanel.vue'
+import OpenVPNImportPanel from '@/components/OpenVPNImportPanel.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
-import { activeFeatures, cleanDisabledFeatures, concreteSensitivePaths, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
+import { activeFeatures, cleanDisabledFeatures, clearInactiveSelectorFields, concreteSensitivePaths, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
 import { collectSwitchFields, endpointPolicyFor, fieldGroup, hasConfiguredValue, isTriStateBool, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 
 const loading = ref(false)
@@ -32,6 +33,8 @@ const publicChanging = ref(false)
 const saving = ref(false)
 const conflictError = ref('')
 const importOpen = ref(false)
+// OpenVPN `.ovpn` 粘贴面板：草稿原文只在内存，关闭或切换协议即丢弃。
+const openvpnImportOpen = ref(false)
 const importText = ref('')
 const importResults = ref<ImportLineResult[]>([])
 const importing = ref(false)
@@ -283,6 +286,20 @@ function handleControlDraftDirty(payload: { path: string; dirty: boolean }) {
   if (payload.dirty) unappliedControlPaths.add(payload.path)
   else unappliedControlPaths.delete(payload.path)
 }
+// applyParsedOpenVPN 只覆盖 parser 明确产出的字段：先应用 selector（触发分支清空与 reset scope），
+// 再合并结构化字段与 endpoint；未产出的现有草稿字段不会被空响应静默删除。
+function applyParsedOpenVPN(payload: { host: string; port: number; protocol_json: Record<string, unknown>; selectors: Record<string, string> }) {
+  const schema = currentSchema()
+  if (!schema) return
+  for (const [name, value] of Object.entries(payload.selectors ?? {})) {
+    const field = schema.form_schema.find((item) => item.state_only && selectorNameFor(item) === name)
+    if (field) setFieldModelValue(field, value)
+  }
+  for (const [key, value] of Object.entries(payload.protocol_json ?? {})) setField(key, value)
+  if (payload.host) form.host = payload.host
+  if (payload.port > 0) form.port = payload.port
+  Notify.success('已应用 `.ovpn` 解析结果，请确认后保存或检查')
+}
 async function locateBlockedDraft() {
   const jsonPath = sortedUnappliedJsonPaths()[0]
   if (jsonPath) {
@@ -396,6 +413,14 @@ function clearScopedFields(scope: string) {
   const schema = currentSchema()
   if (!schema) return
   const reset = resetProtocolScope(schema.form_schema, form.protocol_json, scope)
+  // selector 切换时，除 reset_on 声明的字段外，还要清空声明 clear_when_inactive 且在新状态下
+  // 不再活动的字段；两条链与后端 clearSelectorScopedFields 语义一致，仍活动的共享字段得以保留。
+  const selectorName = scope.startsWith('selector.') ? scope.slice('selector.'.length) : ''
+  if (selectorName && selectorName in (currentState.value.selectors ?? {})) {
+    const inactive = clearInactiveSelectorFields(schema.form_schema, reset.params, currentState.value, selectorName)
+    reset.params = inactive.params
+    reset.paths.push(...inactive.paths)
+  }
   for (const clearedPath of reset.paths) {
     jsonResetVersions[clearedPath] = (jsonResetVersions[clearedPath] ?? 0) + 1
     for (const path of Array.from(invalidProtocolPaths)) {
@@ -441,6 +466,8 @@ function resetAllEditScopes() {
   unappliedControlPaths.clear()
   extensionOps.value = []
   resetExtensionDraft()
+  // 打开／切换节点与保存成功后一并丢弃未应用的 `.ovpn` 原文与解析结果。
+  openvpnImportOpen.value = false
   for (const path of Object.keys(jsonResetVersions)) delete jsonResetVersions[path]
 }
 function updateProtocol(protocol: string) {
@@ -453,6 +480,8 @@ function updateProtocol(protocol: string) {
   unappliedControlPaths.clear()
   extensionOps.value = []
   resetExtensionDraft()
+  // 切换协议必须丢弃未应用的 `.ovpn` 原文与解析结果。
+  openvpnImportOpen.value = false
   resetScopes.add('protocol')
   for (const path of savedSensitivePaths.value) invalidatedSensitivePaths.add(path)
   clearedSensitivePaths.clear()
@@ -893,6 +922,20 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
             </div>
           </component>
+        </FormSection>
+
+        <FormSection v-if="currentSchema()?.protocol === 'openvpn'" title="粘贴 `.ovpn` 导入"
+          help="只读解析粘贴文本并在内存中预览；点击「应用解析结果」后才写入当前草稿，不会落库。">
+          <Button size="small" class="openvpn-import-toggle" @click="openvpnImportOpen = !openvpnImportOpen">
+            {{ openvpnImportOpen ? '收起解析面板' : '粘贴 `.ovpn` 解析' }}
+          </Button>
+          <OpenVPNImportPanel
+            v-if="openvpnImportOpen"
+            class="mt-3"
+            :open="openvpnImportOpen"
+            :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
+            @apply="applyParsedOpenVPN"
+            @draft-dirty-change="handleControlDraftDirty" />
         </FormSection>
 
         <FormSection v-if="switchFields.length || groupFields('switches').length" title="独立开关" help="当前组合适用的运行开关；嵌套开关标明所属功能，参数仍在对应结构化区域编辑。">

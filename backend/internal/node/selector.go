@@ -119,8 +119,64 @@ func deriveStateOnlySelector(proto Protocol, name string, params map[string]any)
 			}
 			return "single", true
 		}
+	case "trusttunnel":
+		if name == "reuse_mode" {
+			return deriveTrustTunnelReuseMode(params), true
+		}
+	case "openvpn":
+		if name == "auth_mode" {
+			return deriveOpenVPNAuthMode(params), true
+		}
+		if name == "tls_key_mode" {
+			return deriveOpenVPNTLSKeyMode(params), true
+		}
 	}
 	return "", false
+}
+
+// deriveOpenVPNAuthMode 从现有凭据推断 v1 状态或缺少显式选择时的认证模式。
+// 任一组出现即视为该组被使用；两组同时出现是合法的组合认证；两组都无值时回退注册表默认值。
+func deriveOpenVPNAuthMode(params map[string]any) string {
+	hasUser := hasTextParam(params, "username") || hasTextParam(params, "password")
+	hasCert := hasTextParam(params, "cert") || hasTextParam(params, "key")
+	switch {
+	case hasUser && hasCert:
+		return "cert_userpass"
+	case hasCert:
+		return "cert"
+	default:
+		return "userpass"
+	}
+}
+
+// deriveOpenVPNTLSKeyMode 从实际 TLS key 字段推断模式；key-direction 单独出现视为 tls_auth。
+func deriveOpenVPNTLSKeyMode(params map[string]any) string {
+	switch {
+	case hasTextParam(params, "tls-crypt-v2"):
+		return "tls_crypt_v2"
+	case hasTextParam(params, "tls-crypt"):
+		return "tls_crypt"
+	case hasTextParam(params, "tls-auth") || hasTextParam(params, "key-direction"):
+		return "tls_auth"
+	default:
+		return "none"
+	}
+}
+
+// deriveTrustTunnelReuseMode 从实际复用参数推断 v1 状态或缺少显式选择时的复用模式。
+// max-streams 命中 streams 分支，max-connections／min-streams 命中 connections 分支；
+// 两者同时命中时不猜测，固定取 connections 并由组合校验阻断混合提交。
+func deriveTrustTunnelReuseMode(params map[string]any) string {
+	hasConnections := hasNumberParam(params, "max-connections") || hasNumberParam(params, "min-streams")
+	hasStreams := hasNumberParam(params, "max-streams")
+	switch {
+	case hasConnections:
+		return "connections"
+	case hasStreams:
+		return "streams"
+	default:
+		return "none"
+	}
 }
 
 // deriveSnellObfsMode 从 obfs-opts 的实际字段推断 v1 状态或缺少显式选择时的混淆模式。
@@ -153,6 +209,12 @@ func hasTextParam(params map[string]any, name string) bool {
 func boolParam(params map[string]any, name string) bool {
 	value, _ := params[name].(bool)
 	return value
+}
+
+// hasNumberParam 判断数字字段是否已显式设置（与 hasTextParam 对应）。
+func hasNumberParam(params map[string]any, name string) bool {
+	_, ok := numberParam(params[name])
+	return ok
 }
 
 // deriveSelectors 从当前协议参数派生 selector 值。

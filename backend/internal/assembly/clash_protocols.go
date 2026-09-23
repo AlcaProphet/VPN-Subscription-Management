@@ -143,6 +143,8 @@ func init() {
 	registerClashProtocolAdapter("tailscale", tailscaleClashAdapter)
 	registerClashProtocolAdapter("anytls", anytlsClashAdapter)
 	registerClashProtocolAdapter("shadowquic", shadowquicClashAdapter)
+	registerClashProtocolAdapter("trusttunnel", trusttunnelClashAdapter)
+	registerClashProtocolAdapter("openvpn", openvpnClashAdapter)
 }
 
 // shadowquicClashAdapter 把 ShadowQUIC 内部活动模型映射为 Mihomo v1.19.31 ShadowQuicOption。
@@ -166,6 +168,53 @@ func shadowquicClashAdapter(draft ClashNodeDraft) (map[string]any, []node.Target
 		})
 	}
 	return fields, diagnostics, nil
+}
+
+// trusttunnelClashAdapter 把 TrustTunnel 内部活动模型映射为 Mihomo v1.19.31 TrustTunnelOption。
+// reuse_mode selector 与 state_only 不进入 wire；非当前复用分支的三个数字已由 schema 清空域移除；
+// quic 关闭时 congestion-controller／cwnd／bbr-profile 同样已清空，因此这里只做点名键复制。
+// 固定 tag 的 NewTrustTunnel 消费 TFO／MPTCP，因此使用完整 BasicOption 白名单。
+func trusttunnelClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 24)
+	copyClashActiveFields(fields, draft.Params,
+		"username", "password", "sni", "client-fingerprint", "skip-cert-verify",
+		"name-cert-verify", "fingerprint", "certificate", "private-key",
+		"udp", "health-check", "quic", "congestion-controller", "cwnd", "bbr-profile",
+		"max-connections", "min-streams", "max-streams")
+	copyClashListFields(fields, draft.Params, "alpn")
+	copyClashEnabledObject(fields, draft.Params, "ech-opts")
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// openvpnClashAdapter 把 OpenVPN 结构化活动模型映射为 Mihomo v1.19.31 OpenVPNOption 的点名 wire key。
+// auth_mode／tls_key_mode selector 与 state_only 不进入 wire；非当前认证／TLS key 分支的凭据
+// 已由 schema 的 clear_when_inactive／reset_on 与后端 clearSelectorScopedFields 移除，
+// 原始 .ovpn、导入行号、未知指令与 client-config 永不输出。
+// 固定 tag 的构造器消费 TFO／MPTCP，因此使用完整 BasicOption 白名单。
+func openvpnClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagnostic, error) {
+	fields := make(map[string]any, 28)
+	copyClashActiveFields(fields, draft.Params,
+		"proto", "dev", "cipher", "data-ciphers-fallback", "auth", "comp-lzo",
+		"ca", "cert", "key", "tls-auth", "key-direction", "tls-crypt", "tls-crypt-v2",
+		"username", "password", "ping", "ping-restart", "handshake-timeout", "mtu",
+		"udp", "remote-dns-resolve")
+	copyClashListFields(fields, draft.Params, "data-ciphers", "dns")
+	copyClashActiveObject(fields, draft.Params, "peer-info")
+	copyClashActiveObject(fields, draft.Params, "ip-stack")
+	copyClashOptionalZeroInt(fields, draft.Params, "tran-window")
+	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
+	return fields, nil, nil
+}
+
+// copyClashOptionalZeroInt 复制需要区分「未设置」与「显式 0」的可选整数（OpenVPN tran-window）。
+// 固定 tag 用 *int 表达该区别，因此显式 0 必须写入 wire，不能被通用活动值过滤跳过。
+func copyClashOptionalZeroInt(fields map[string]any, params map[string]any, key string) {
+	value, ok := clashIntValue(params[key])
+	if !ok {
+		return
+	}
+	fields[key] = value
 }
 
 // anytlsCamouflageWireKeys 是三种附加伪装的固定 tag wire key；只有当前安全对象会进入 YAML。

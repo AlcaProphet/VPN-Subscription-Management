@@ -227,6 +227,10 @@ func TestNodeCheckFixtures(t *testing.T) {
 		{name: "anytls-plain.json"},
 		{name: "anytls-shadow-tls.json", skipURI: true, expectCode: "core_semantic_unexpressible"},
 		{name: "shadowquic-basic.json", skipURI: true, warnClash: "shadowquic_zero_rtt_replay_risk", expectCode: "target_unsupported"},
+		{name: "trusttunnel-connections.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "trusttunnel-streams.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "openvpn-userpass.json", skipURI: true, expectCode: "target_unsupported"},
+		{name: "openvpn-cert-userpass.json", skipURI: true, expectCode: "target_unsupported"},
 	}
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -253,7 +257,8 @@ func TestNodeCheckFixtures(t *testing.T) {
 				"d2lyZWd1YXJkLXByaXZhdGUta2V5LWZpeHR1cmUtMzI=", "d2lyZWd1YXJkLXBzay1maXh0dXJlLXNlY3JldC0zMng=",
 				"mieru-password", "ts-fixture-auth-secret",
 				"anytls-plain-password", "anytls-shadow-password", "anytls-shadow-tls-secret",
-				"shadowquic-password"} {
+				"shadowquic-password", "trusttunnel-password", "trusttunnel-private-key",
+				"openvpn-password", "openvpn-private-key", "openvpn-tls-auth", "openvpn-tls-crypt"} {
 				if strings.Contains(string(encoded), secret) {
 					t.Fatalf("固定夹具响应泄漏凭据 %q: %s", secret, encoded)
 				}

@@ -404,6 +404,14 @@ func validateProtocolCombination(proto Protocol, state CurrentState, params map[
 		if err := validateAnyTLSCombination(params); err != nil {
 			return err
 		}
+	case "trusttunnel":
+		if err := validateTrustTunnelCombination(params); err != nil {
+			return err
+		}
+	case "openvpn":
+		if err := validateOpenVPNCombination(params); err != nil {
+			return err
+		}
 	case "tailscale":
 		if err := validateTailscaleCombination(params); err != nil {
 			return err
@@ -666,8 +674,118 @@ func validateAnyTLSCombination(params map[string]any) error {
 	return nil
 }
 
+// validateTrustTunnelCombination 校验 TrustTunnel 的凭据成对、mTLS 成对、复用分支与 QUIC 调优字段。
+// reuse_mode 分支的活动、条件必填与切换清空由 schema 的 when／required_when／reset_on 结构性保证；
+// 本函数补齐字段级语义：用户名／密码必须同时为空或同时非空，复用数字必须是正整数且两组不得混合。
+func validateTrustTunnelCombination(params map[string]any) error {
+	username := hasTextParam(params, "username")
+	password := hasTextParam(params, "password")
+	if username != password {
+		if username {
+			return errorsForField("password", "提供用户名时必须同时提供密码")
+		}
+		return errorsForField("username", "提供密码时必须同时提供用户名")
+	}
+	if err := validateTLSKeyPair(params); err != nil {
+		return err
+	}
+	connections := hasNumberParam(params, "max-connections") || hasNumberParam(params, "min-streams")
+	streams := hasNumberParam(params, "max-streams")
+	if connections && streams {
+		return errorsForField("max-streams", "max-connections／min-streams 与 max-streams 属于互斥复用模式，不得同时配置")
+	}
+	for _, name := range []string{"max-connections", "min-streams", "max-streams"} {
+		if value, ok := numberParam(params[name]); ok && (value < 1 || value != math.Trunc(value)) {
+			return errorsForField(name, "复用参数必须是正整数")
+		}
+	}
+	if err := validateIntegerMinimum(params, "cwnd", 0, "该字段必须是非负整数"); err != nil {
+		return err
+	}
+	return nil
+}
+
 // tailscaleHostnamePattern 是 Tailscale 设备名的 DNS label 约束（固定 tag 本身不做校验）。
 var tailscaleHostnamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// openvpnCompLZOValues 是项目侧收紧后允许的 comp-lzo 取值（固定 tag 只归一化 yes／adaptive）。
+var openvpnCompLZOValues = []string{"yes", "no", "adaptive"}
+
+// validateOpenVPNCombination 校验 OpenVPN 的固定枚举、非负整数与 peer-info 键值合同。
+// 认证组完整性与三种 TLS key 的互斥由 schema 的 when／required_when／reset_on／clear_when_inactive
+// 结构性保证；本函数补齐固定 tag 会拒绝、但声明式元数据无法表达的取值约束。
+func validateOpenVPNCombination(params map[string]any) error {
+	if proto := strings.ToLower(strings.TrimSpace(stringValue(params["proto"]))); proto != "" && proto != "udp" && proto != "tcp" {
+		return errorsForField("proto", "固定 tag 只支持 udp 与 tcp")
+	}
+	if dev := strings.ToLower(strings.TrimSpace(stringValue(params["dev"]))); dev != "" && dev != "tun" {
+		return errorsForField("dev", "固定 tag 只支持 tun")
+	}
+	for _, name := range []string{"cipher", "data-ciphers-fallback"} {
+		value := strings.TrimSpace(stringValue(params[name]))
+		if value != "" && !containsString(openvpnCipherValues, value) {
+			return errorsForField(name, "只支持固定 tag 的 AES-GCM／AES-CBC 与 CHACHA20-POLY1305")
+		}
+	}
+	if items, ok := stringListItems(params["data-ciphers"]); ok {
+		for i, item := range items {
+			if !containsString(openvpnCipherValues, item) {
+				return errorsForField(fmt.Sprintf("data-ciphers[%d]", i), "只支持固定 tag 的 AES-GCM／AES-CBC 与 CHACHA20-POLY1305")
+			}
+		}
+	}
+	if auth := strings.TrimSpace(stringValue(params["auth"])); auth != "" && !openvpnAuthAllowed(auth) {
+		return errorsForField("auth", "只支持固定 tag 的 MD5／SHA1／SHA256／SHA384／SHA512")
+	}
+	if lzo := strings.ToLower(strings.TrimSpace(stringValue(params["comp-lzo"]))); lzo != "" && !containsString(openvpnCompLZOValues, lzo) {
+		return errorsForField("comp-lzo", "只支持 yes／no／adaptive 或留空")
+	}
+	if direction := strings.TrimSpace(stringValue(params["key-direction"])); direction != "" && direction != "0" && direction != "1" {
+		return errorsForField("key-direction", "只允许 0、1 或留空")
+	}
+	if err := validateOpenVPNPeerInfo(params); err != nil {
+		return err
+	}
+	for _, name := range []string{"ping", "ping-restart", "tran-window", "handshake-timeout", "mtu"} {
+		if err := validateIntegerMinimum(params, name, 0, "该字段必须是非负整数"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// openvpnAuthAllowed 判断 auth 摘要是否属于固定 tag 的 normalizeAuth 集合（大小写不敏感）。
+func openvpnAuthAllowed(value string) bool {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "MD5", "SHA1", "SHA256", "SHA384", "SHA512":
+		return true
+	}
+	return false
+}
+
+// validateOpenVPNPeerInfo 执行 peer-info 的键值合同，与 HTTP headers 保持同一套规则。
+func validateOpenVPNPeerInfo(params map[string]any) error {
+	peerInfo, ok := params["peer-info"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	seen := make(map[string]string, len(peerInfo))
+	for key, value := range peerInfo {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			return errorsForField("peer-info", "Peer Info 键不能为空")
+		}
+		if _, ok := value.(string); !ok {
+			return errorsForField("peer-info."+trimmed, "Peer Info 值必须为字符串")
+		}
+		lower := strings.ToLower(trimmed)
+		if previous, exists := seen[lower]; exists {
+			return errorsForField("peer-info."+trimmed, "Peer Info 键 "+previous+" 与 "+trimmed+" 大小写不敏感重复")
+		}
+		seen[lower] = trimmed
+	}
+	return nil
+}
 
 // validateTailscaleCombination 校验设备名、控制面地址与出口节点。
 // auth-key 允许为空（由 adapter 返回“首次真实连接需要交互登录”的 warn）；LAN access 的空值清空

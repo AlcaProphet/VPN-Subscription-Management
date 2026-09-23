@@ -1,5 +1,7 @@
 // nodeFeatures.ts：消费服务端声明的功能归属，不在前端维护协议字段清单。
-import type { FieldSchema } from '@/api/node'
+import type { CurrentState, FieldSchema } from '@/api/node'
+
+import { matchesCondition } from './nodeFormLayout'
 
 type Params = Record<string, unknown>
 
@@ -126,6 +128,37 @@ export function resetProtocolScope(schema: FieldSchema[], params: Params, scope:
     }
   }
   clear(schema, next, '')
+  return { params: next, paths }
+}
+
+// clearInactiveSelectorFields 清除声明 clear_when_inactive 且在新 selector 状态下不再活动的字段。
+// 后端 clearSelectorScopedFields 已具备同一「仅清除非活动字段」语义；该属性让多分支共享字段
+// （例如 OpenVPN 的 cert／key 同时属于 cert 与 cert_userpass）在仍活动时不被无方向 reset_on 误清，
+// 同时在离开全部分支时被显式清空并登记凭据失效。只返回确实存在值的路径，避免误失效无关草稿。
+export function clearInactiveSelectorFields(
+  schema: FieldSchema[],
+  params: Params,
+  state: CurrentState,
+  selectorName: string,
+): { params: Params; paths: string[] } {
+  const next = clone(params) as Params
+  const paths: string[] = []
+  function walk(fields: FieldSchema[], object: Params, prefix: string) {
+    for (const field of fields) {
+      const path = prefix ? `${prefix}.${field.name}` : field.name
+      const scoped = field.when?.selectors?.[selectorName]
+      if (field.clear_when_inactive && scoped?.length) {
+        if (field.name in object && !matchesCondition(field.when, state, undefined, params)) {
+          delete object[field.name]
+          paths.push(path)
+        }
+        continue
+      }
+      const value = object[field.name]
+      if (isObject(value)) walk(field.properties ?? [], value, path)
+    }
+  }
+  walk(schema, next, '')
   return { params: next, paths }
 }
 

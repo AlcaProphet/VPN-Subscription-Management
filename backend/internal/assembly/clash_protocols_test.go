@@ -13,11 +13,11 @@ import (
 
 // TestLegacyAdapterPendingCountAfterMigratedProtocols 锁定当前已迁移协议的绝对计数：
 // Step 4 HTTP、5 SOCKS5、6 SSH、7 Snell、8 Hysteria、9 Hysteria2、10 TUIC、11 WireGuard、12 Mieru、
-// 13 MASQUE、14 Tailscale、15 AnyTLS、16 ShadowQUIC，待迁移协议为 6；
-// 剩余 legacy 为 ss／vmess／vless／trojan／openvpn／trusttunnel，Step 20 归零。
+// 13 MASQUE、14 Tailscale、15 AnyTLS、16 ShadowQUIC、17 TrustTunnel、18 OpenVPN，待迁移协议为 4；
+// 剩余 legacy 为 ss／vmess／vless／trojan，Step 20 归零。
 func TestLegacyAdapterPendingCountAfterMigratedProtocols(t *testing.T) {
-	if got := legacyAdapterPendingCount(); got != 6 {
-		t.Fatalf("已迁移 13 个协议后 legacy adapter 数量应为 6，实际 %d", got)
+	if got := legacyAdapterPendingCount(); got != 4 {
+		t.Fatalf("已迁移 15 个协议后 legacy adapter 数量应为 4，实际 %d", got)
 	}
 }
 
@@ -1021,6 +1021,171 @@ func TestShadowQUICClashAdapterWireShape(t *testing.T) {
 		"bbr-profile", "up", "down", "max-datagram-frame-size", "max-open-streams"} {
 		if _, ok := quiet[key]; ok {
 			t.Fatalf("未设置的 %s 不得写入 wire: %+v", key, quiet)
+		}
+	}
+}
+
+// TestTrustTunnelClashAdapterWireShape 锁定 TrustTunnel adapter 的 v1.19.31 TrustTunnelOption 形状：
+// reuse_mode 的分支数字互斥、selector 不进入 wire、quic 关闭不输出 QUIC 调优字段、
+// ECH 关闭不输出对象，且固定 tag 消费 TFO／MPTCP。
+func TestTrustTunnelClashAdapterWireShape(t *testing.T) {
+	svc := &Service{}
+	proxyFields := func(params map[string]any, state node.CurrentState) (map[string]any, []node.TargetDiagnostic) {
+		res, err := svc.CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+			Target: "clash-yaml", Protocol: "trusttunnel", RenderName: "tt-node",
+			Host: "example.com", Port: 443, Params: params, State: state,
+		})
+		if err != nil {
+			t.Fatalf("TrustTunnel 目标检查失败: %v", err)
+		}
+		var decoded struct {
+			Proxies []map[string]any `yaml:"proxies"`
+		}
+		if err := gyaml.Unmarshal([]byte(res.Preview), &decoded); err != nil {
+			t.Fatalf("解析检查预览失败: %v\n%s", err, res.Preview)
+		}
+		if len(decoded.Proxies) != 1 {
+			t.Fatalf("检查预览代理数量异常: %s", res.Preview)
+		}
+		return decoded.Proxies[0], res.Diagnostics
+	}
+
+	// connections 分支：只输出 max-connections／min-streams。
+	connections, _ := proxyFields(map[string]any{
+		"username": "tt-user", "password": "tt-secret", "sni": "example.com",
+		"alpn": []any{"h2"}, "client-fingerprint": "chrome", "skip-cert-verify": true,
+		"health-check": true, "udp": true,
+		"max-connections": 8, "min-streams": 5, "tfo": true, "mptcp": true,
+	}, node.CurrentState{Selectors: map[string]string{"reuse_mode": "connections"}})
+	for _, key := range []string{"username", "password", "sni", "alpn", "client-fingerprint",
+		"skip-cert-verify", "health-check", "udp", "max-connections", "min-streams", "tfo", "mptcp"} {
+		if _, ok := connections[key]; !ok {
+			t.Fatalf("connections 分支 wire 缺少 %s: %+v", key, connections)
+		}
+	}
+	for _, key := range []string{"max-streams", "reuse-mode", "reuse_mode", "quic",
+		"congestion-controller", "cwnd", "bbr-profile", "ech-opts"} {
+		if _, ok := connections[key]; ok {
+			t.Fatalf("connections 分支不得输出 %s: %+v", key, connections)
+		}
+	}
+
+	// streams 分支：只输出 max-streams。
+	streams, _ := proxyFields(map[string]any{"max-streams": 4, "alpn": []any{"h3"}, "quic": true},
+		node.CurrentState{Selectors: map[string]string{"reuse_mode": "streams"}})
+	if _, ok := streams["max-streams"]; !ok {
+		t.Fatalf("streams 分支必须输出 max-streams: %+v", streams)
+	}
+	for _, key := range []string{"max-connections", "min-streams", "reuse-mode", "reuse_mode"} {
+		if _, ok := streams[key]; ok {
+			t.Fatalf("streams 分支不得输出 %s: %+v", key, streams)
+		}
+	}
+
+	// quic 开启：输出 QUIC 调优字段；ECH 关闭不输出对象。
+	quicOn, _ := proxyFields(map[string]any{
+		"quic": true, "congestion-controller": "bbr_meta_v2", "cwnd": 64, "bbr-profile": "standard",
+		"ech-opts": map[string]any{"enable": false, "config": "should-not-appear"},
+	}, node.CurrentState{Selectors: map[string]string{"reuse_mode": "none"}})
+	for _, key := range []string{"quic", "congestion-controller", "cwnd", "bbr-profile"} {
+		if _, ok := quicOn[key]; !ok {
+			t.Fatalf("quic 开启必须输出 %s: %+v", key, quicOn)
+		}
+	}
+	if _, ok := quicOn["ech-opts"]; ok {
+		t.Fatalf("ECH 关闭不得输出 ech-opts: %+v", quicOn)
+	}
+	if strings.Contains(quicOn["congestion-controller"].(string), "should-not-appear") {
+		t.Fatalf("ECH 子字段不得泄漏到 wire: %+v", quicOn)
+	}
+
+	// quic 关闭：不输出三个 QUIC 调优字段。
+	quicOff, _ := proxyFields(map[string]any{"quic": false},
+		node.CurrentState{Selectors: map[string]string{"reuse_mode": "none"}})
+	for _, key := range []string{"quic", "congestion-controller", "cwnd", "bbr-profile"} {
+		if _, ok := quicOff[key]; ok {
+			t.Fatalf("quic 关闭不得输出 %s: %+v", key, quicOff)
+		}
+	}
+}
+
+// TestOpenVPNClashAdapterWireShape 锁定 OpenVPN adapter 的 v1.19.31 OpenVPNOption 形状：
+// selector 与导入元数据不进入 wire、非活动认证／TLS key 分支凭据不输出、
+// tran-window 显式 0 必须保留，且 client-config 永不出现。
+func TestOpenVPNClashAdapterWireShape(t *testing.T) {
+	svc := &Service{}
+	proxyFields := func(params map[string]any, state node.CurrentState) map[string]any {
+		res, err := svc.CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+			Target: "clash-yaml", Protocol: "openvpn", RenderName: "ovpn-node",
+			Host: "vpn.example.com", Port: 1194, Params: params, State: state,
+		})
+		if err != nil {
+			t.Fatalf("OpenVPN 目标检查失败: %v", err)
+		}
+		var decoded struct {
+			Proxies []map[string]any `yaml:"proxies"`
+		}
+		if err := gyaml.Unmarshal([]byte(res.Preview), &decoded); err != nil {
+			t.Fatalf("解析检查预览失败: %v\n%s", err, res.Preview)
+		}
+		if len(decoded.Proxies) != 1 {
+			t.Fatalf("检查预览代理数量异常: %s", res.Preview)
+		}
+		return decoded.Proxies[0]
+	}
+
+	ca := "-----BEGIN CERTIFICATE-----\nTUlJQmZUA==\n-----END CERTIFICATE-----"
+	userpassState := node.CurrentState{Selectors: map[string]string{"auth_mode": "userpass", "tls_key_mode": "tls_auth"}}
+	proxy := proxyFields(map[string]any{
+		"proto": "tcp", "dev": "tun", "cipher": "CHACHA20-POLY1305",
+		"data-ciphers": []any{"AES-256-GCM", "CHACHA20-POLY1305"}, "data-ciphers-fallback": "AES-128-CBC",
+		"auth": "SHA256", "comp-lzo": "no", "ca": ca,
+		"username": "ovpn-user", "password": "ovpn-secret",
+		"tls-auth": "ovpn-tls-auth", "key-direction": "1",
+		"ping": 10, "ping-restart": 60, "tran-window": 0, "handshake-timeout": 30, "mtu": 1400,
+		"udp": true, "peer-info": map[string]any{"IV_VER": "2.6"}, "tfo": true, "mptcp": true,
+	}, userpassState)
+	for _, key := range []string{"proto", "dev", "cipher", "data-ciphers", "auth", "comp-lzo", "ca",
+		"username", "password", "tls-auth", "key-direction", "ping", "ping-restart", "handshake-timeout",
+		"mtu", "udp", "peer-info", "tfo", "mptcp", "tran-window"} {
+		if _, ok := proxy[key]; !ok {
+			t.Fatalf("OpenVPN userpass wire 缺少 %s: %+v", key, proxy)
+		}
+	}
+	if value, ok := proxy["tran-window"].(uint64); !ok || value != 0 {
+		t.Fatalf("显式 tran-window=0 必须写入 wire: %#v", proxy["tran-window"])
+	}
+	for _, key := range []string{"auth-mode", "tls-key-mode", "auth_mode", "tls_key_mode",
+		"cert", "key", "tls-crypt", "tls-crypt-v2", "client-config", "remote-dns-resolve", "dns"} {
+		if _, ok := proxy[key]; ok {
+			t.Fatalf("OpenVPN userpass wire 不得输出 %s: %+v", key, proxy)
+		}
+	}
+
+	// cert_userpass 分支输出证书、私钥与用户名密码，且不输出 tls-auth。
+	certState := node.CurrentState{Selectors: map[string]string{"auth_mode": "cert_userpass", "tls_key_mode": "tls_crypt"}}
+	certProxy := proxyFields(map[string]any{
+		"ca": ca, "cert": "-----BEGIN CERTIFICATE-----\nQ0VSVA==\n-----END CERTIFICATE-----",
+		"key":      "-----BEGIN PRIVATE KEY-----\nS0VZ\n-----END PRIVATE KEY-----",
+		"username": "ovpn-user", "password": "ovpn-secret", "tls-crypt": "ovpn-tls-crypt",
+		"remote-dns-resolve": true, "dns": []any{"1.1.1.1"},
+		"ip-stack": map[string]any{"mode": "gvisor", "congestion-controller": "bbr"},
+	}, certState)
+	for _, key := range []string{"ca", "cert", "key", "username", "password", "tls-crypt",
+		"remote-dns-resolve", "dns", "ip-stack"} {
+		if _, ok := certProxy[key]; !ok {
+			t.Fatalf("OpenVPN cert_userpass wire 缺少 %s: %+v", key, certProxy)
+		}
+	}
+	for _, key := range []string{"tls-auth", "key-direction", "tls-crypt-v2", "tran-window"} {
+		if _, ok := certProxy[key]; ok {
+			t.Fatalf("OpenVPN cert_userpass wire 不得输出 %s: %+v", key, certProxy)
+		}
+	}
+	// 未设置的可选整数不得写出 0。
+	for _, key := range []string{"ping", "ping-restart", "handshake-timeout", "mtu"} {
+		if _, ok := certProxy[key]; ok {
+			t.Fatalf("未设置的 %s 不得写入 wire: %+v", key, certProxy)
 		}
 	}
 }

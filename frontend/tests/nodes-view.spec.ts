@@ -18,6 +18,7 @@ vi.mock('@/api/node', () => ({
   toggleNode: vi.fn(),
   setNodeDisplayName: vi.fn(),
   importNodes: vi.fn(),
+  parseOpenVPN: vi.fn(),
 }))
 
 vi.mock('@/api/request', () => {
@@ -36,11 +37,12 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import NodesView from '@/views/admin/NodesView.vue'
-import { listNodes, getProtocols, createNode, updateNode, importNodes, type FieldSchema } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, importNodes, parseOpenVPN, type FieldSchema } from '@/api/node'
 import { ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import NodeCheckPanel from '@/components/NodeCheckPanel.vue'
+import OpenVPNImportPanel from '@/components/OpenVPNImportPanel.vue'
 import { smuxSchema, smuxValue } from './fixtures/smux'
 
 const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
@@ -48,6 +50,7 @@ const mockGetProtocols = getProtocols as unknown as ReturnType<typeof vi.fn>
 const mockCreateNode = createNode as unknown as ReturnType<typeof vi.fn>
 const mockUpdateNode = updateNode as unknown as ReturnType<typeof vi.fn>
 const mockImportNodes = importNodes as unknown as ReturnType<typeof vi.fn>
+const mockParseOpenVPN = parseOpenVPN as unknown as ReturnType<typeof vi.fn>
 
 const node = {
   id: 1,
@@ -1245,6 +1248,223 @@ describe('NodesView 节点管理页', () => {
     expect(vm.currentState.selectors).toEqual({ auth_mode: 'private_key' })
     const mode = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'auth-mode')
     expect(mode?.props('modelValue')).toBe('private_key')
+    wrapper.unmount()
+  })
+
+  it('TrustTunnel 复用分支互斥且 quic 关闭清空 QUIC 调优字段', async () => {
+    const trusttunnelProtocol = {
+      protocol: 'trusttunnel',
+      label: 'TrustTunnel',
+      form_schema: [
+        { name: 'reuse-mode', type: 'select', required: false, label: '连接复用', group: 'connection', state_only: true, selector_name: 'reuse_mode', options: ['none', 'connections', 'streams'], default: 'none' },
+        { name: 'username', type: 'text', required: false, label: '用户名', group: 'auth' },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth' },
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+        { name: 'health-check', type: 'bool', default: false, label: '健康检查', section: 'switches' },
+        { name: 'quic', type: 'bool', default: false, label: 'QUIC (HTTP/3)', group: 'connection', feature: { name: 'quic' } },
+        { name: 'congestion-controller', type: 'select', required: false, label: '拥塞控制器', group: 'advanced', options: ['', 'cubic', 'new_reno', 'bbr_meta_v1', 'bbr_meta_v2', 'bbr'], when: { features: ['quic'] }, reset_on: ['feature.quic'] },
+        { name: 'cwnd', type: 'number', required: false, label: '拥塞窗口', group: 'advanced', when: { features: ['quic'] }, reset_on: ['feature.quic'] },
+        { name: 'bbr-profile', type: 'text', required: false, label: 'BBR Profile', group: 'advanced', when: { features: ['quic'] }, reset_on: ['feature.quic'] },
+        { name: 'max-connections', type: 'number', required: false, label: '最大连接数', group: 'connection', when: { selectors: { reuse_mode: ['connections'] } }, required_when: { selectors: { reuse_mode: ['connections'] } }, reset_on: ['selector.reuse_mode'] },
+        { name: 'min-streams', type: 'number', required: false, label: '最小流数', group: 'connection', when: { selectors: { reuse_mode: ['connections'] } }, reset_on: ['selector.reuse_mode'] },
+        { name: 'max-streams', type: 'number', required: false, label: '最大流数', group: 'connection', when: { selectors: { reuse_mode: ['streams'] } }, required_when: { selectors: { reuse_mode: ['streams'] } }, reset_on: ['selector.reuse_mode'] },
+      ],
+      selectors: [{ name: 'reuse_mode', values: ['none', 'connections', 'streams'], default: 'none' }],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([trusttunnelProtocol])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'trusttunnel'
+    await nextTick()
+
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    // none 分支不显示任何复用数字，selector 本身不进入 protocol_json。
+    expect(vm.currentState.selectors).toEqual({ reuse_mode: 'none' })
+    expect(fieldNames()).not.toContain('max-connections')
+    expect(fieldNames()).not.toContain('max-streams')
+
+    // A：connections 分支只显示 max-connections／min-streams。
+    const modeField = trusttunnelProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'connections')
+    vm.setField('max-connections', 8)
+    vm.setField('min-streams', 5)
+    await nextTick()
+    expect(fieldNames()).toContain('max-connections')
+    expect(fieldNames()).toContain('min-streams')
+    expect(fieldNames()).not.toContain('max-streams')
+
+    // A→B：切到 streams 清空旧复用数字，切回也不恢复。
+    vm.setFieldModelValue(modeField, 'streams')
+    await nextTick()
+    expect(vm.form.protocol_json['max-connections']).toBeUndefined()
+    expect(vm.form.protocol_json['min-streams']).toBeUndefined()
+    expect(fieldNames()).toContain('max-streams')
+    expect(vm.resetScopesArray()).toContain('selector.reuse_mode')
+    expect(vm.form.protocol_json['reuse-mode']).toBeUndefined()
+    expect(vm.currentState.selectors).toEqual({ reuse_mode: 'streams' })
+
+    // quic 开启后可编辑调优字段，关闭必须清空。
+    vm.setField('quic', true)
+    vm.setField('cwnd', 64)
+    vm.setField('congestion-controller', 'bbr')
+    await nextTick()
+    expect(fieldNames()).toContain('cwnd')
+    vm.setField('quic', false)
+    await nextTick()
+    expect(vm.form.protocol_json.cwnd).toBeUndefined()
+    expect(vm.form.protocol_json['congestion-controller']).toBeUndefined()
+    expect(fieldNames()).not.toContain('cwnd')
+    wrapper.unmount()
+  })
+
+  it('OpenVPN 认证分支只清空不再活动的凭据并保留仍活动的共享凭据', async () => {
+    const openvpnProtocol = {
+      protocol: 'openvpn',
+      label: 'OpenVPN',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['userpass', 'cert', 'cert_userpass'], default: 'userpass' },
+        { name: 'tls-key-mode', type: 'select', required: false, label: 'TLS Key 模式', group: 'auth', state_only: true, selector_name: 'tls_key_mode', options: ['none', 'tls_auth', 'tls_crypt', 'tls_crypt_v2'], default: 'none' },
+        { name: 'ca', type: 'multiline', required: true, label: 'CA 证书', section: 'security' },
+        { name: 'username', type: 'text', required: false, label: '用户名', group: 'auth', when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, required_when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, required_when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'cert', type: 'multiline', required: false, label: '客户端证书', group: 'auth', when: { selectors: { auth_mode: ['cert', 'cert_userpass'] } }, required_when: { selectors: { auth_mode: ['cert', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'key', type: 'secret-multiline', required: false, label: '客户端私钥', group: 'auth', when: { selectors: { auth_mode: ['cert', 'cert_userpass'] } }, required_when: { selectors: { auth_mode: ['cert', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'tls-auth', type: 'secret-multiline', required: false, label: 'TLS Auth Key', group: 'auth', when: { selectors: { tls_key_mode: ['tls_auth'] } }, required_when: { selectors: { tls_key_mode: ['tls_auth'] } }, reset_on: ['selector.tls_key_mode'] },
+        { name: 'key-direction', type: 'select', required: false, label: 'Key Direction', group: 'auth', options: ['', '0', '1'], when: { selectors: { tls_key_mode: ['tls_auth'] } }, clear_when_inactive: true },
+      ],
+      selectors: [
+        { name: 'auth_mode', values: ['userpass', 'cert', 'cert_userpass'], default: 'userpass' },
+        { name: 'tls_key_mode', values: ['none', 'tls_auth', 'tls_crypt', 'tls_crypt_v2'], default: 'none' },
+      ],
+      sensitive_fields: ['password', 'key', 'tls-auth'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([openvpnProtocol])
+    mockUpdateNode.mockResolvedValue({})
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit({
+      ...node,
+      protocol: 'openvpn',
+      host: 'vpn.example.com',
+      port: 1194,
+      protocol_json: { ca: 'ca-pem', cert: 'cert-pem', key: '', username: 'u', password: '' },
+      current_state: { selectors: { auth_mode: 'cert_userpass', tls_key_mode: 'none' } },
+      saved_sensitive_paths: ['key', 'password'],
+    })
+    await nextTick()
+    const authField = openvpnProtocol.form_schema[0] as FieldSchema
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'cert_userpass', tls_key_mode: 'none' })
+
+    // cert_userpass → cert：只清空 username／password，证书与私钥必须保留。
+    vm.setFieldModelValue(authField, 'cert')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBeUndefined()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+    expect(vm.form.protocol_json.cert).toBe('cert-pem')
+    expect(vm.form.protocol_json.key).toBe('')
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    await vm.save()
+    const payload = mockUpdateNode.mock.calls[0][1] as { credential_ops?: { path: string; op: string }[] }
+    const clearedPaths = (payload.credential_ops ?? []).map((op) => op.path)
+    expect(clearedPaths).toContain('password')
+    expect(clearedPaths).not.toContain('key')
+
+    // A→B→A：切回 cert_userpass 不得恢复已清空的 username／password。
+    vm.setFieldModelValue(authField, 'cert_userpass')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBeUndefined()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+
+    // userpass→cert_userpass 不得清空仍活动的 username／password。
+    vm.setFieldModelValue(authField, 'userpass')
+    await nextTick()
+    vm.setField('username', 'kept-user')
+    vm.setField('password', 'kept-pass')
+    await nextTick()
+    vm.setFieldModelValue(authField, 'cert_userpass')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBe('kept-user')
+    expect(vm.form.protocol_json.password).toBe('kept-pass')
+    wrapper.unmount()
+  })
+
+  it('OpenVPN 粘贴解析应用只覆盖产出字段并纳入页面级阻断', async () => {
+    const openvpnProtocol = {
+      protocol: 'openvpn',
+      label: 'OpenVPN',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['userpass', 'cert', 'cert_userpass'], default: 'userpass' },
+        { name: 'ca', type: 'multiline', required: true, label: 'CA 证书', section: 'security' },
+        { name: 'proto', type: 'select', required: false, label: '传输协议', group: 'connection', options: ['udp', 'tcp'], default: 'udp' },
+        { name: 'username', type: 'text', required: false, label: '用户名', group: 'auth', when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, clear_when_inactive: true },
+      ],
+      selectors: [{ name: 'auth_mode', values: ['userpass', 'cert', 'cert_userpass'], default: 'userpass' }],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([openvpnProtocol])
+    mockParseOpenVPN.mockResolvedValue({
+      host: 'vpn.example.com',
+      port: 1194,
+      protocol_json: { ca: 'parsed-ca', proto: 'tcp' },
+      selectors: { auth_mode: 'userpass' },
+      field_sources: { remote: 3, ca: 8, proto: 4 },
+      diagnostics: [],
+    })
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'openvpn'
+    await nextTick()
+    // 预先存在的草稿字段必须在应用解析结果后保留。
+    vm.setField('username', 'kept-user')
+    await nextTick()
+    vm.openvpnImportOpen = true
+    await nextTick()
+
+    const panel = wrapper.findComponent(OpenVPNImportPanel)
+    expect(panel.exists()).toBe(true)
+    const panelButton = (label: string) => panel.findAll('button').find((button) => button.text().replace(/\s+/g, '') === label)
+
+    // 未应用的原文必须纳入页面级阻断，保存不得发出请求。
+    await panel.find('textarea').setValue('client\nremote vpn.example.com 1194\n')
+    await nextTick()
+    expect(vm.checkBlockedReason).toContain('未应用')
+    await vm.save()
+    expect(mockCreateNode).not.toHaveBeenCalled()
+
+    // 解析后显式应用。
+    await panelButton('解析')!.trigger('click')
+    await flushPromises()
+    await panelButton('应用解析结果')!.trigger('click')
+    await flushPromises()
+
+    expect(vm.form.host).toBe('vpn.example.com')
+    expect(vm.form.port).toBe(1194)
+    expect(vm.form.protocol_json.ca).toBe('parsed-ca')
+    expect(vm.form.protocol_json.proto).toBe('tcp')
+    // 解析未产出的既有草稿字段不得被空响应静默删除。
+    expect(vm.form.protocol_json.username).toBe('kept-user')
+    expect(vm.checkBlockedReason).toBe('')
+    expect((panel.find('textarea').element as HTMLTextAreaElement).value).toBe('')
+
+    // 切换协议必须丢弃未应用原文并关闭面板。
+    await panel.find('textarea').setValue('client\nremote vpn.example.com 1194\n')
+    await nextTick()
+    expect(vm.checkBlockedReason).toContain('未应用')
+    vm.updateProtocol('ss')
+    await nextTick()
+    expect(vm.openvpnImportOpen).toBe(false)
+    expect(wrapper.findComponent(OpenVPNImportPanel).exists()).toBe(false)
+    expect(vm.checkBlockedReason).toBe('')
     wrapper.unmount()
   })
 

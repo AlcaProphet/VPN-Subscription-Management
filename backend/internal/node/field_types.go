@@ -48,6 +48,10 @@ func validateProtocolFieldTypes(p Protocol) error {
 			if field.Type == "secret-multiline" && !sensitive[path] {
 				return fmt.Errorf("secret-multiline 字段 %s 必须在 SensitiveFields 中声明", path)
 			}
+			// clear_when_inactive 只在 selector 维度上有意义；缺失条件会让字段永远不被清空。
+			if field.ClearWhenInactive && (field.When == nil || len(field.When.Selectors) == 0) {
+				return fmt.Errorf("clear_when_inactive 字段 %s 必须声明 When.Selectors", path)
+			}
 			if field.Type == "object" {
 				childPrefix := path
 				if field.ObjectKind == "list" {

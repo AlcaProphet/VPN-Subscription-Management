@@ -1448,8 +1448,8 @@ func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 func TestSavedSensitivePathsAlwaysSerializeAsArray(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	created, err := svc.CreateManual(context.Background(), CreateManualInput{
-		Name: "无凭据协议", Protocol: "openvpn", Host: "example.com", Port: 1194,
-		ProtocolJSON: map[string]any{"client-config": "client\nremote example.com"},
+		Name: "无凭据协议", Protocol: "tailscale", Host: "", Port: 0,
+		ProtocolJSON: map[string]any{},
 	})
 	if err != nil {
 		t.Fatal(err)

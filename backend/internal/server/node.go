@@ -3,15 +3,67 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"vpn-sub/internal/log"
 	"vpn-sub/internal/node"
 )
 
 // NodeHandler 节点处理器。
 type NodeHandler struct {
 	nodeSvc *node.Service
+}
+
+// maxOpenVPNParseBodyBytes 是 `.ovpn` 解析端点完整请求体的上限：
+// 正文上限 256 KiB 加 JSON 包装余量；正文自身超限仍由解析器给出 413。
+const maxOpenVPNParseBodyBytes = node.MaxOpenVPNParseBytes + (16 << 10)
+
+// parseOpenVPN 把粘贴的 `.ovpn` 文本解析为结构化草稿。
+// 只读、无外部文件读取、无脚本执行、不落库；日志只记录长度、映射字段数与错误 code。
+func (h *NodeHandler) parseOpenVPN(c *gin.Context) {
+	if contentType := c.GetHeader("Content-Type"); !strings.HasPrefix(contentType, "application/json") {
+		Fail(c, http.StatusBadRequest, "只接受 application/json 请求")
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenVPNParseBodyBytes)
+	var input struct {
+		Text string `json:"text"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		if isRequestBodyTooLarge(err) {
+			Fail(c, http.StatusRequestEntityTooLarge, "`.ovpn` 文本超过 256 KiB 上限")
+			return
+		}
+		Fail(c, http.StatusBadRequest, "请求体必须是 {\"text\":\"...\"} 形式的 JSON")
+		return
+	}
+
+	result, parseErr := node.ParseOpenVPN(input.Text)
+	logger := log.FromContext(c.Request.Context())
+	if parseErr != nil {
+		var typed *node.OpenVPNParseError
+		code := "ovpn_parse_failed"
+		if errors.As(parseErr, &typed) {
+			code = typed.Code
+		}
+		// 只记录长度、结果数与错误 code，绝不记录原文、内嵌块或凭据。
+		logger.Warn("解析 .ovpn 被阻断", "bytes", len(input.Text), "mapped_fields", len(result.ProtocolJSON), "error_code", code)
+		if code == node.OpenVPNDiagSizeExceeded {
+			Fail(c, http.StatusRequestEntityTooLarge, "`.ovpn` 文本超过 256 KiB 上限")
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":        http.StatusBadRequest,
+			"message":     "`.ovpn` 解析被阻断",
+			"error_code":  code,
+			"diagnostics": result.Diagnostics,
+		})
+		return
+	}
+	logger.Info("解析 .ovpn 完成", "bytes", len(input.Text), "mapped_fields", len(result.ProtocolJSON), "diagnostics", len(result.Diagnostics))
+	OK(c, result)
 }
 
 // RegisterNodeRoutes 注册节点管理路由（会话 + 管理员双中间件）。
@@ -27,6 +79,10 @@ func RegisterNodeRoutes(engine *gin.Engine, h *NodeHandler, sessionMW, adminMW g
 	admin.PUT("/:id/display-name", h.setDisplayName)
 	admin.GET("/protocols", h.protocols)
 	admin.GET("/:id", h.get)
+	// `.ovpn` 只读解析：no-store 必须先于 session/admin 执行，保证匿名、非管理员、超限、
+	// 解析失败与成功响应都带禁止缓存头（沿用邮件模板与发送日志的既有分组方式）。
+	openvpnParse := engine.Group("/api/admin/nodes", noStoreMiddleware(), sessionMW, adminMW)
+	openvpnParse.POST("/openvpn/parse", h.parseOpenVPN)
 }
 
 func (h *NodeHandler) list(c *gin.Context) {

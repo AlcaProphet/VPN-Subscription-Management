@@ -318,6 +318,103 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			if proto.LinkMappings.SR || proto.LinkMappings.Generic {
 				t.Errorf("ShadowQUIC 无 URI 映射: %+v", proto.LinkMappings)
 			}
+		case "trusttunnel":
+			// Build32 Step 17：reuse_mode selector、复用分支互斥、quic 关闭清空 QUIC 调优字段。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "reuse_mode" || proto.Selectors[0].Default != "none" {
+				t.Errorf("TrustTunnel 缺少 reuse_mode selector: %+v", proto.Selectors)
+			}
+			if got := strings.Join(proto.Selectors[0].Values, ","); got != "none,connections,streams" {
+				t.Errorf("TrustTunnel reuse_mode 允许值异常: %s", got)
+			}
+			for _, name := range []string{"alpn", "sni", "ech-opts", "client-fingerprint", "skip-cert-verify",
+				"name-cert-verify", "fingerprint", "certificate", "private-key", "udp", "health-check", "quic",
+				"congestion-controller", "cwnd", "bbr-profile", "max-connections", "min-streams", "max-streams"} {
+				if _, exists := fields[name]; !exists {
+					t.Errorf("TrustTunnel 缺少字段 %s", name)
+				}
+			}
+			if fields["reuse-mode"].StateOnly != true || fields["reuse-mode"].SelectorName != "reuse_mode" {
+				t.Errorf("TrustTunnel reuse-mode 必须是 state_only selector: %+v", fields["reuse-mode"])
+			}
+			for _, name := range []string{"max-connections", "min-streams", "max-streams"} {
+				if !slices.Contains(fields[name].ResetOn, "selector.reuse_mode") {
+					t.Errorf("TrustTunnel %s 必须随 selector 切换清空: %+v", name, fields[name])
+				}
+			}
+			if fields["max-connections"].RequiredWhen == nil || fields["min-streams"].RequiredWhen != nil || fields["max-streams"].RequiredWhen == nil {
+				t.Error("TrustTunnel connections 分支要求 max-connections 必填、min-streams 可选，streams 分支要求 max-streams 必填")
+			}
+			if fields["quic"].Feature == nil || fields["quic"].Feature.Name != "quic" {
+				t.Errorf("TrustTunnel quic 必须作为功能开关: %+v", fields["quic"])
+			}
+			for _, name := range []string{"congestion-controller", "cwnd", "bbr-profile"} {
+				if !slices.Contains(fields[name].ResetOn, "feature.quic") {
+					t.Errorf("TrustTunnel %s 必须随 quic 关闭清空: %+v", name, fields[name])
+				}
+			}
+			for _, path := range []string{"password", "private-key"} {
+				if !slices.Contains(proto.SensitiveFields, path) {
+					t.Errorf("TrustTunnel 缺少敏感路径 %s: %v", path, proto.SensitiveFields)
+				}
+			}
+			if proto.LinkMappings.SR || proto.LinkMappings.Generic {
+				t.Errorf("TrustTunnel 无 URI 映射: %+v", proto.LinkMappings)
+			}
+		case "openvpn":
+			// Build32 Step 18：结构化 schema、auth_mode／tls_key_mode selector、client-config 入口移除。
+			if _, exists := fields["client-config"]; exists {
+				t.Error("OpenVPN 不得保留 client-config 编辑入口")
+			}
+			for _, name := range []string{"ca", "cert", "key", "username", "password",
+				"tls-auth", "tls-crypt", "tls-crypt-v2", "key-direction", "proto", "dev",
+				"cipher", "data-ciphers", "data-ciphers-fallback", "auth", "comp-lzo",
+				"remote-dns-resolve", "dns", "ping", "ping-restart", "tran-window",
+				"handshake-timeout", "mtu", "peer-info", "udp", "ip-stack"} {
+				if _, exists := fields[name]; !exists {
+					t.Errorf("OpenVPN 缺少字段 %s", name)
+				}
+			}
+			if len(proto.Selectors) != 2 {
+				t.Fatalf("OpenVPN 必须声明 auth_mode 与 tls_key_mode: %+v", proto.Selectors)
+			}
+			selectorByName := map[string]node.SelectorSchema{}
+			for _, selector := range proto.Selectors {
+				selectorByName[selector.Name] = selector
+			}
+			if got := strings.Join(selectorByName["auth_mode"].Values, ","); got != "userpass,cert,cert_userpass" {
+				t.Errorf("OpenVPN auth_mode 允许值异常: %s", got)
+			}
+			if got := strings.Join(selectorByName["tls_key_mode"].Values, ","); got != "none,tls_auth,tls_crypt,tls_crypt_v2" {
+				t.Errorf("OpenVPN tls_key_mode 允许值异常: %s", got)
+			}
+			// 多分支共享凭据只能声明 clear_when_inactive，不得声明无方向 reset_on。
+			for _, name := range []string{"username", "password", "cert", "key"} {
+				if !fields[name].ClearWhenInactive {
+					t.Errorf("OpenVPN %s 必须声明 clear_when_inactive: %+v", name, fields[name])
+				}
+				if slices.Contains(fields[name].ResetOn, "selector.auth_mode") {
+					t.Errorf("OpenVPN %s 不得声明无方向 reset_on: %+v", name, fields[name])
+				}
+			}
+			if fields["key-direction"].When == nil || fields["key-direction"].When.Selectors["tls_key_mode"][0] != "tls_auth" {
+				t.Errorf("OpenVPN key-direction 必须只在 tls_auth 分支活动: %+v", fields["key-direction"])
+			}
+			if !fields["ca"].Required || fields["ca"].Type != "multiline" {
+				t.Errorf("OpenVPN ca 必须是必填 multiline: %+v", fields["ca"])
+			}
+			for _, path := range []string{"password", "key", "tls-auth", "tls-crypt", "tls-crypt-v2"} {
+				if !slices.Contains(proto.SensitiveFields, path) {
+					t.Errorf("OpenVPN 缺少敏感路径 %s: %v", path, proto.SensitiveFields)
+				}
+			}
+			for _, path := range []string{"ca", "cert"} {
+				if slices.Contains(proto.SensitiveFields, path) {
+					t.Errorf("OpenVPN %s 必须是非敏感 multiline: %v", path, proto.SensitiveFields)
+				}
+			}
+			if proto.LinkMappings.SR || proto.LinkMappings.Generic {
+				t.Errorf("OpenVPN 无 URI 映射: %+v", proto.LinkMappings)
+			}
 		case "anytls":
 			// Build32 Step 15：security_mode selector、三种伪装互斥与主密码不进入 selector 清空域。
 			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "security_mode" || proto.Selectors[0].Default != "plain" {

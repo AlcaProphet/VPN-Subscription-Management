@@ -186,7 +186,7 @@ func TestRegistryFieldTypesKnown(t *testing.T) {
 func TestLargeTextFieldsUseExplicitTypes(t *testing.T) {
 	multilineNames := map[string][]string{
 		"certificate": {"multiline"}, "ca": {"multiline"}, "ca-str": {"multiline"},
-		"client-config": {"multiline"}, "restls-script": {"multiline", "secret-multiline"},
+		"restls-script": {"multiline", "secret-multiline"},
 	}
 	textListNames := map[string]bool{
 		"host-key": true, "host-key-algorithms": true,

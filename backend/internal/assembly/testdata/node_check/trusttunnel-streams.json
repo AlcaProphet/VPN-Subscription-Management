@@ -1,0 +1,19 @@
+{
+  "protocol": "trusttunnel",
+  "host": "192.0.2.2",
+  "port": 8443,
+  "protocol_json": {
+    "alpn": ["h2"],
+    "sni": "tt.example.com",
+    "ech-opts": {
+      "enable": true,
+      "config": "AEX+DQBBvgAgACA",
+      "query-server-name": "ech.example.com"
+    },
+    "certificate": "-----BEGIN CERTIFICATE-----\nTUlJQmZUA==\n-----END CERTIFICATE-----",
+    "private-key": "trusttunnel-private-key",
+    "max-streams": 4
+  },
+  "current_state": { "selectors": { "reuse_mode": "streams" }, "features": ["ech"] },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

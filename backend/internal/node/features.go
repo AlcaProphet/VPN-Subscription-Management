@@ -26,7 +26,7 @@ func setScalarFeatures(fields []FieldSchema) {
 	for i := range fields {
 		field := &fields[i]
 		switch field.Name {
-		case "udp-over-tcp", "udp-over-stream", "xudp", "multiplexing", "remote-dns-resolve":
+		case "udp-over-tcp", "udp-over-stream", "xudp", "multiplexing", "remote-dns-resolve", "quic":
 			field.Feature = &FeatureSchema{Name: field.Name}
 			if field.Name == "multiplexing" {
 				field.Feature.DisabledValue = "MULTIPLEXING_OFF"

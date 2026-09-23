@@ -1,0 +1,23 @@
+{
+  "protocol": "trusttunnel",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "username": "tt-user",
+    "password": "trusttunnel-password",
+    "alpn": ["h3"],
+    "sni": "example.com",
+    "client-fingerprint": "chrome",
+    "skip-cert-verify": true,
+    "udp": true,
+    "health-check": true,
+    "quic": true,
+    "congestion-controller": "bbr_meta_v2",
+    "cwnd": 64,
+    "bbr-profile": "standard",
+    "max-connections": 8,
+    "min-streams": 5
+  },
+  "current_state": { "selectors": { "reuse_mode": "connections" }, "features": ["quic"] },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

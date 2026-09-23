@@ -36,6 +36,11 @@ type FieldSchema struct {
 	TargetEvidence []TargetEvidence `json:"target_evidence,omitempty"`
 	SelectorName   string           `json:"selector_name,omitempty"`
 	StateOnly      bool             `json:"state_only,omitempty"`
+	// ClearWhenInactive 声明「仅当该字段在新 selector 状态下不再活动时才清空」（Build32 Step 18 引入）。
+	// 与无方向的 ResetOn 不同：多分支共享的字段（例如 OpenVPN 的 cert／key 同时属于 cert 与
+	// cert_userpass）在自己仍然活动的分支切换中必须保留，只在离开全部分支时清空。
+	// 声明该属性的字段必须同时声明 When.Selectors，否则注册期直接阻断。
+	ClearWhenInactive bool `json:"clear_when_inactive,omitempty"`
 }
 
 type LinkMapping struct {
@@ -374,6 +379,147 @@ func anytlsJLSOptsField() FieldSchema {
 	return anytlsCamouflageObject("jls-opts", "JLS 参数", "jls",
 		anytlsCamouflageField(f("username", "text", "用户名"), []string{"jls"}, true),
 		anytlsCamouflageField(f("password", "password", "密码"), []string{"jls"}, true))
+}
+
+// trustTunnelReuseModeField 声明 TrustTunnel 连接复用 selector；state_only 只保存在 current_state.selectors。
+// 固定 tag 只用优先级处理三个复用数字（max-connections 优先、max-streams 其次），不做互斥校验；
+// 项目按 Build32 用 selector 表达互斥模式，并保证两组参数不得同时落库。
+func trustTunnelReuseModeField() FieldSchema {
+	field := sel("reuse-mode", "连接复用", "none", "none", "connections", "streams")
+	field.StateOnly = true
+	field.SelectorName = "reuse_mode"
+	field.Group = "connection"
+	field.Help = "none 不启用复用；connections 复用连接并要求最大连接数；streams 按最大流数复用。两组参数互斥。"
+	return field
+}
+
+// trustTunnelReuseNumber 声明只在指定复用分支活动、且切换 selector 即清空的复用数字。
+func trustTunnelReuseNumber(name, label, mode string, required bool) FieldSchema {
+	field := f(name, "number", label)
+	condition := &ConditionRule{Selectors: map[string][]string{"reuse_mode": {mode}}}
+	field.When = condition
+	if required {
+		field.RequiredWhen = condition
+	}
+	field.ResetOn = []string{"selector.reuse_mode"}
+	field.Group = "connection"
+	return field
+}
+
+// trustTunnelQUICField 声明独立 QUIC 开关：关闭时固定 tag 走 HTTP/2 隧道（ALPN 需含 h2），
+// 开启时走 HTTP/3（ALPN 需含 h3）。开关本身由 setScalarFeatures 注册为 quic 功能。
+func trustTunnelQUICField() FieldSchema {
+	field := def("quic", "bool", "QUIC (HTTP/3)", false)
+	field.Group = "connection"
+	field.Help = "关闭使用 HTTP/2 隧道（ALPN 需含 h2）；开启使用 HTTP/3（ALPN 需含 h3）。"
+	return field
+}
+
+// trustTunnelQUICTuningField 声明只在 quic 开启时活动、关闭即清空的 QUIC 调优字段。
+// 固定 tag 在非 QUIC 分支不读取这三个字段，因此关闭时必须清空且禁止输出。
+func trustTunnelQUICTuningField(field FieldSchema) FieldSchema {
+	field.When = &ConditionRule{Features: []string{"quic"}}
+	field.ResetOn = []string{"feature.quic"}
+	return field
+}
+
+// openvpnAuthModeField 声明 OpenVPN 三种认证模式 selector；state_only 只保存在 current_state.selectors。
+func openvpnAuthModeField() FieldSchema {
+	field := sel("auth-mode", "认证方式", "userpass", "userpass", "cert", "cert_userpass")
+	field.StateOnly = true
+	field.SelectorName = "auth_mode"
+	field.Group = "auth"
+	field.Help = "userpass 使用用户名与密码；cert 使用客户端证书与私钥；cert_userpass 两者同时使用。"
+	return field
+}
+
+// openvpnTLSKeyModeField 声明 TLS key 三选一 selector；state_only 只保存在 current_state.selectors。
+func openvpnTLSKeyModeField() FieldSchema {
+	field := sel("tls-key-mode", "TLS Key 模式", "none", "none", "tls_auth", "tls_crypt", "tls_crypt_v2")
+	field.StateOnly = true
+	field.SelectorName = "tls_key_mode"
+	field.Group = "auth"
+	field.Help = "固定 tag 的 tls-auth、tls-crypt 与 tls-crypt-v2 严格互斥。"
+	return field
+}
+
+// openvpnAuthField 声明认证凭据字段。cert／key 同时属于 cert 与 cert_userpass 两个分支，
+// 因此只声明 clear_when_inactive 而**不**声明无方向 reset_on：
+// 离开自己仍然活动的分支时凭据必须保留，只有离开全部分支才清空（Build32 Step 18）。
+func openvpnAuthField(name, typ, label string, modes []string, required bool) FieldSchema {
+	field := f(name, typ, label)
+	condition := &ConditionRule{Selectors: map[string][]string{"auth_mode": modes}}
+	field.When = condition
+	if required {
+		field.RequiredWhen = condition
+	}
+	field.ClearWhenInactive = true
+	field.Group = "auth"
+	return field
+}
+
+// openvpnTLSKeyField 声明只在指定 tls_key_mode 分支活动且条件必填的 TLS key。
+// 三个 key 各自只属于一个分支，因此可以使用无方向 reset_on。
+func openvpnTLSKeyField(name, label, mode string) FieldSchema {
+	field := f(name, "secret-multiline", label)
+	condition := &ConditionRule{Selectors: map[string][]string{"tls_key_mode": {mode}}}
+	field.When = condition
+	field.RequiredWhen = condition
+	field.ResetOn = []string{"selector.tls_key_mode"}
+	field.Group = "auth"
+	return field
+}
+
+// openvpnKeyDirectionField 声明只在 tls_auth 分支活动的方向选择；固定 tag 只接受 0／1／空。
+func openvpnKeyDirectionField() FieldSchema {
+	field := sel("key-direction", "Key Direction", "", "", "0", "1")
+	field.When = &ConditionRule{Selectors: map[string][]string{"tls_key_mode": {"tls_auth"}}}
+	field.ClearWhenInactive = true
+	field.Group = "auth"
+	return field
+}
+
+// openvpnCipherValues 是固定 tag 的 `normalizeCipher` 与 `ValidateInstallScriptSubset` 共同认可的 cipher 集合。
+// 项目按 Build32 与用户确认把 `data-ciphers`／`data-ciphers-fallback` 收紧到同一集合（固定 tag 本身不校验）。
+var openvpnCipherValues = []string{
+	"AES-128-GCM", "AES-192-GCM", "AES-256-GCM",
+	"AES-128-CBC", "AES-192-CBC", "AES-256-CBC", "CHACHA20-POLY1305",
+}
+
+// openvpnCipherField 声明 cipher 枚举；空值由固定 tag 归一化为 AES-128-GCM，这里直接给出规范默认值。
+func openvpnCipherField() FieldSchema {
+	field := sel("cipher", "加密方式", "AES-128-GCM", openvpnCipherValues...)
+	field.Group = "connection"
+	return field
+}
+
+// openvpnFallbackCipherField 声明回退 cipher；空值表示不写 wire，由内核决定。
+func openvpnFallbackCipherField() FieldSchema {
+	field := sel("data-ciphers-fallback", "回退加密方式", "", append([]string{""}, openvpnCipherValues...)...)
+	field.Group = "advanced"
+	return field
+}
+
+// openvpnDataCiphersField 声明协商 cipher 列表；逐项必须落在固定 tag 的 cipher 集合内。
+func openvpnDataCiphersField() FieldSchema {
+	field := f("data-ciphers", "text-list", "协商加密列表")
+	field.Group = "advanced"
+	return field
+}
+
+// openvpnAuthDigestField 声明 auth 摘要枚举；空值由固定 tag 归一化为 SHA256。
+func openvpnAuthDigestField() FieldSchema {
+	field := sel("auth", "认证摘要", "SHA256", "MD5", "SHA1", "SHA256", "SHA384", "SHA512")
+	field.Group = "connection"
+	return field
+}
+
+// openvpnCompLZOField 声明 comp-lzo 枚举。固定 tag 只把 yes／adaptive 归一化为 yes、对其它值不报错，
+// 项目按用户确认收紧为 yes／no／adaptive／空，避免写出无法验证的值。
+func openvpnCompLZOField() FieldSchema {
+	field := sel("comp-lzo", "Comp-LZO", "", "", "yes", "no", "adaptive")
+	field.Group = "advanced"
+	return field
 }
 
 // masqueNetworkModeField 声明 QUIC／h2／h3-l4proxy selector；wire 的 network 由 adapter 注入。
@@ -1001,7 +1147,40 @@ func ManualProtocols() []Protocol {
 			def("remote-dns-resolve", "bool", "远端 DNS 解析", false), dnsListField()),
 			Selectors:       []SelectorSchema{{Name: "network_mode", Values: []string{"quic", "h2", "h3_l4proxy"}, Default: "quic"}},
 			SensitiveFields: []string{"private-key"}},
-		{Protocol: "openvpn", Label: "OpenVPN", FormSchema: common(req("client-config", "multiline", "客户端配置"))},
+		{Protocol: "openvpn", Label: "OpenVPN", FormSchema: common(
+			openvpnAuthModeField(),
+			openvpnTLSKeyModeField(),
+			req("ca", "multiline", "CA 证书"),
+			openvpnAuthField("username", "text", "用户名", []string{"userpass", "cert_userpass"}, true),
+			openvpnAuthField("password", "password", "密码", []string{"userpass", "cert_userpass"}, true),
+			openvpnAuthField("cert", "multiline", "客户端证书", []string{"cert", "cert_userpass"}, true),
+			openvpnAuthField("key", "secret-multiline", "客户端私钥", []string{"cert", "cert_userpass"}, true),
+			openvpnTLSKeyField("tls-auth", "TLS Auth Key", "tls_auth"),
+			openvpnKeyDirectionField(),
+			openvpnTLSKeyField("tls-crypt", "TLS Crypt Key", "tls_crypt"),
+			openvpnTLSKeyField("tls-crypt-v2", "TLS Crypt v2 Client Key", "tls_crypt_v2"),
+			sel("proto", "传输协议", "udp", "udp", "tcp"),
+			sel("dev", "设备", "tun", "tun"),
+			openvpnCipherField(),
+			openvpnDataCiphersField(),
+			openvpnFallbackCipherField(),
+			openvpnAuthDigestField(),
+			openvpnCompLZOField(),
+			def("remote-dns-resolve", "bool", "远端 DNS 解析", false),
+			dnsListField(),
+			f("ping", "number", "Ping 间隔"),
+			f("ping-restart", "number", "Ping 重启"),
+			f("tran-window", "number", "过渡窗口"),
+			f("handshake-timeout", "number", "握手超时"),
+			f("mtu", "number", "MTU"),
+			openMap("peer-info", "Peer Info"),
+			def("udp", "bool", "UDP", true),
+			ipStackField()),
+			Selectors: []SelectorSchema{
+				{Name: "auth_mode", Values: []string{"userpass", "cert", "cert_userpass"}, Default: "userpass"},
+				{Name: "tls_key_mode", Values: []string{"none", "tls_auth", "tls_crypt", "tls_crypt_v2"}, Default: "none"},
+			},
+			SensitiveFields: []string{"password", "key", "tls-auth", "tls-crypt", "tls-crypt-v2"}},
 		{Protocol: "ssh", Label: "SSH", FormSchema: common(
 			sshAuthModeField(),
 			req("username", "text", "用户名"),
@@ -1032,7 +1211,30 @@ func ManualProtocols() []Protocol {
 			f("max-datagram-frame-size", "number", "最大数据报帧"),
 			f("max-open-streams", "number", "最大并发流")),
 			SensitiveFields: []string{"password"}},
-		{Protocol: "trusttunnel", Label: "TrustTunnel", FormSchema: common(f("password", "password", "密码")), SensitiveFields: []string{"password"}},
+		{Protocol: "trusttunnel", Label: "TrustTunnel", FormSchema: common(
+			trustTunnelReuseModeField(),
+			f("username", "text", "用户名"),
+			f("password", "password", "密码"),
+			f("alpn", "text-list", "ALPN"),
+			f("sni", "text", "SNI"),
+			echOptsField(),
+			f("client-fingerprint", "text", "客户端指纹"),
+			def("skip-cert-verify", "bool", "跳过证书校验", false),
+			f("name-cert-verify", "text", "证书名称校验"),
+			f("fingerprint", "text", "TLS 指纹"),
+			f("certificate", "multiline", "证书"),
+			f("private-key", "secret-multiline", "私钥"),
+			def("udp", "bool", "UDP", true),
+			def("health-check", "bool", "健康检查", false),
+			trustTunnelQUICField(),
+			trustTunnelQUICTuningField(quicCongestionControllerField()),
+			trustTunnelQUICTuningField(f("cwnd", "number", "拥塞窗口")),
+			trustTunnelQUICTuningField(f("bbr-profile", "text", "BBR Profile")),
+			trustTunnelReuseNumber("max-connections", "最大连接数", "connections", true),
+			trustTunnelReuseNumber("min-streams", "最小流数", "connections", false),
+			trustTunnelReuseNumber("max-streams", "最大流数", "streams", true)),
+			Selectors:       []SelectorSchema{{Name: "reuse_mode", Values: []string{"none", "connections", "streams"}, Default: "none"}},
+			SensitiveFields: []string{"password", "private-key"}},
 		{Protocol: "tailscale", Label: "Tailscale", FormSchema: common(
 			f("hostname", "text", "设备名"),
 			f("auth-key", "password", "认证密钥"),
