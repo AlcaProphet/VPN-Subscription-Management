@@ -9,7 +9,7 @@ defineProps<{ title: string; subtitle?: string }>()
       <h1 class="text-2xl leading-8 font-semibold m-0 text-text">{{ title }}</h1>
       <div v-if="subtitle" class="text-sm text-text-tertiary mt-1">{{ subtitle }}</div>
     </div>
-    <div class="mobile-actions flex items-center gap-2 flex-shrink-0">
+    <div class="mobile-actions flex items-center gap-2 shrink-0">
       <slot name="actions" />
     </div>
   </div>

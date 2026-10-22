@@ -1,6 +1,38 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 将现有主题变量映射为 Tailwind 工具类，明暗主题继续由运行时变量驱动。 */
+@theme inline {
+  --color-page: var(--ui-page);
+  --color-surface: var(--ui-surface);
+  --color-surface-subtle: var(--ui-surface-subtle);
+  --color-surface-raised: var(--ui-surface-raised);
+  --color-border: var(--ui-border);
+  --color-border-subtle: var(--ui-border-subtle);
+  --color-text: var(--ui-text);
+  --color-text-secondary: var(--ui-text-secondary);
+  --color-text-tertiary: var(--ui-text-tertiary);
+  --color-primary: var(--ui-primary);
+  --color-primary-hover: var(--ui-primary-hover);
+  --color-primary-soft: var(--ui-primary-soft);
+  --color-success: var(--ui-success);
+  --color-success-soft: var(--ui-success-soft);
+  --color-warning: var(--ui-warning);
+  --color-warning-soft: var(--ui-warning-soft);
+  --color-danger: var(--ui-danger);
+  --color-danger-soft: var(--ui-danger-soft);
+  --color-info: var(--ui-info);
+  --color-info-soft: var(--ui-info-soft);
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 6%);
+  --shadow-overlay: 0 12px 32px rgb(15 23 42 / 12%);
+}
+
+/* Tailwind 4 默认边框色改为 currentColor；保留原有 Tailwind 3 外观。 */
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 /* 初始回退变量：运行时由 theme.ts 覆盖为当前主题值 */
 :root {

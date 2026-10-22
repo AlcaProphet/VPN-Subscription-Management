@@ -69,7 +69,7 @@ async function openPreview(r: RuleItem) {
       <div v-else-if="rules.length === 0" class="text-center py-16 text-text-tertiary">还没有规则</div>
 
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        <Card v-for="r in rules" :key="r.id" class="shadow-sm">
+        <Card v-for="r in rules" :key="r.id" class="shadow-xs">
           <div class="flex items-center justify-between">
             <span class="font-medium">{{ r.name }}</span>
             <Tag color="blue">{{ r.client_type }}</Tag>
