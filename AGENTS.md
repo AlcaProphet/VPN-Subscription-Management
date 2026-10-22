@@ -2,7 +2,7 @@
 
 > 本文档是给 AI 编码助手的指令集，也是项目**唯一的强要求文档**（详见「八、文档体系与优先级」）。
 > **当前设计：** [Design4.md](Design4.md) 是已实现的节点编辑器等增量设计基线；[Design5.md](Design5.md) §一～§六保留整站迁移候选，§七记录已确认并已实施的邮件内容定制设计，构建记录见 [Build28.md](docs/reports/Build/Build28.md)，有效站点名称与邮件运行语义修复见 [Issue18.md](docs/reports/Issue/Issue18.md)。
-> **当前工作：** [Build32.md](Build32.md) 是活跃构建记录：Step 0.5～20 已验收，Step 21 进行中，Step 22 未开始；[Issue19.md](Issue19.md) 的 R33-01／R33-02 及 P1 复核补修 R33-03 已关闭，Step 21 的 P1 工程前置已收口，但正式人工验收未完成。GitHub Actions 前端依赖审计失败 R34-01 的本地修复与待完成的远端验收见 [Issue20.md](Issue20.md)。当前短期待办见 [TODOLIST.md](TODOLIST.md)，Build32 人工项目见 [ProdTestList.md](ProdTestList.md)。配置导出 `signing_key` 损坏问题 R31-01 仍由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪。数据库首版基线合并已完成并归档于 [Build31.md](docs/reports/Build/Build31.md)；数据库外历史兼容清理仍未激活。R32-01～R32-03 已完成工程与人工核验，[Issue18.md](docs/reports/Issue/Issue18.md) 已闭环归档。
+> **当前工作：** [Build32.md](Build32.md) 是活跃构建记录：Step 0.5～20 已验收，Step 21 进行中，Step 22 未开始；[Issue19.md](Issue19.md) 的 R33-01／R33-02 及 P1 复核补修 R33-03 已关闭，正式 computer use 核验中 PT-B32-21-01／02 已通过，PT-B32-21-03 发现 R33-04（OpenVPN 行级 diagnostic 不能定位原文）及 R33-05（数字清空保存后旧值恢复）待修复，后续依赖验收已停止，Step 21 未完成。GitHub Actions 前端依赖审计失败 R34-01 的本地修复与待完成的远端验收见 [Issue20.md](Issue20.md)。当前短期待办见 [TODOLIST.md](TODOLIST.md)，Build32 人工项目见 [ProdTestList.md](ProdTestList.md)。配置导出 `signing_key` 损坏问题 R31-01 仍由 [ExportRelated1.md](ExportRelated1.md) 独立跟踪。数据库首版基线合并已完成并归档于 [Build31.md](docs/reports/Build/Build31.md)；数据库外历史兼容清理仍未激活。R32-01～R32-03 已完成工程与人工核验，[Issue18.md](docs/reports/Issue/Issue18.md) 已闭环归档。
 > **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；R32-02/R32-03 已由用户确认完成人工真机核验，暂未发现问题；工程自动化与人工验收分别记录。
 > **当前范围：** 当前项目聚焦基础模式完善；高级模式暂不跟进。Xray 相关范围和待办见 [XrayRelated1.md](XrayRelated1.md)。
 > **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
@@ -231,7 +231,7 @@
 | Design 文档 | [Design5.md](Design5.md)（§一～§六整站迁移仍为候选；§七邮件内容定制已确认并已完成工程实施，构建记录见 [Build28.md](docs/reports/Build/Build28.md)）；[Design4.md](Design4.md)（已实现的节点编辑器等增量设计基线，v1.25 已同步首批工程、人工结果与后续专项状态，并保留 R28-06 与 §12.7 核心工程约束合同；Build17～Build20 已完成，Build21 R27-09 Step 7～14 与 N-node-3/4 Step 15 已验收，Build22 D3 主体与运行门禁完成，Step 7 自动化证据已补齐并重新通过 Step 11 门禁，R29-06 见 Build24，R28-06 主体、前端 `item_id_field` 白名单缺口、保存定位排序与条件隐藏清理证据均已闭环，Build25 已归档；已完成人工结果见 Issue14／Issue15，通用待核验项见 ProdTestList，Xray 专项见 XrayRelated1）；[Design3.md](docs/reports/Design/Design3.md)（已经 Build16 构建并已归档的规则素材与装配设计）；[Design2.md](docs/reports/Design/Design2.md)（已实现并归档的增量基线） | 面向人类的可读性描述文档，阐述设计思路、方案选型、产品功能与架构决策；第一期基线见存档的 Design1.md | 非强制，供参考 |
 | Design GUI 规格 | [Design2-UI.md](docs/reports/Design/Design2-UI.md)（已实现并归档的 GUI 规格，承载 Design2 全部界面部件） | 受影响界面的 GUI 样式规格（布局/组件映射/状态分支/响应式）；Design3 新增界面行为由 Design3 §八补充；Design4 节点表单界面行为由 Design4 §三/§十二补充 | 非强制，供参考 |
 | Build 文档 | 已归档 Build1～Build31、Build6-2（具体链接见下方清单）；[Build32.md](Build32.md) 活跃，Step 21 进行中、Step 22 未开始 | 将 Design 设计转化为指导 AI 构建的手册，必须包含：分步 TODO LIST、构建参考代码/伪代码、每步的验收规范与验证命令 | 非强制，执行建议 |
-| Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue18.md](docs/reports/Issue/Issue18.md) 已归档；根目录保留 [Issue19.md](Issue19.md)（R33-01～R33-03 已关闭）与 [Issue20.md](Issue20.md)（R34-01 本地修复完成，远端验收未完成） | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
+| Issue 文档 | [Issue1.md](docs/reports/Issue/Issue1.md)～[Issue18.md](docs/reports/Issue/Issue18.md) 已归档；根目录保留 [Issue19.md](Issue19.md)（R33-01～R33-03 已关闭，R33-04／R33-05 待修复）与 [Issue20.md](Issue20.md)（R34-01 本地修复完成，远端验收未完成） | 记录 bug 或改进项，含现象、根因、影响范围、修复方案、状态追踪 | 非强制，经验参考 |
 | 专项跟踪文档 | [XrayRelated1.md](XrayRelated1.md)、[ExportRelated1.md](ExportRelated1.md) | 分别跟踪 Xray 基础模式问题与人工核验、配置导出与迁移问题 R31-01；Design5 §一～§六仍为候选 | 非强制，当前跟踪 |
 
 **优先级**：AGENTS.md > Design > Build > Issue。
@@ -315,13 +315,13 @@
 | [Issue16.md](docs/reports/Issue/Issue16.md) | AI 编码助手 / 开发者 | Build11 邮件相关人工测试与 SMTP 优化问题（R30 系列） | 已存档 |
 | [Issue17.md](docs/reports/Issue/Issue17.md) | AI 编码助手 / 开发者 | 核验 Issue16 R30-05 后新开的独立问题：真实 OIDC endpoint HTTPS 校验缺失、提供商切换字段混合与损坏占位符残余边界；R31-01 已移出 | 已归档（R31-02～R31-07 工程与人工验收完成） |
 | [Issue18.md](docs/reports/Issue/Issue18.md) | AI 编码助手 / 开发者 | R32-01 有效站点名称一致性；R32-02 业务邮件异步派发；R32-03 终态结果持久化、当前发送队列与无轮询页面 | R32-01～R32-03 工程与人工核验均已闭环；已归档 |
-| [Issue19.md](Issue19.md) | AI 编码助手 / 开发者 | Build32 Step 21 浏览器检查及 P1 复核问题 R33-01～R33-03 | 三项均已关闭；Step 21 其余合同仍进行中 |
+| [Issue19.md](Issue19.md) | AI 编码助手 / 开发者 | Build32 Step 21 浏览器检查及 P1 复核问题 R33-01～R33-05 | R33-01～R33-03 已关闭；R33-04／R33-05 待修复，正式验收停止在 PT-B32-21-03 |
 | [Issue20.md](Issue20.md) | AI 编码助手 / 开发者 | R34-01 `v4.1.2` GitHub Actions 前端依赖审计失败与 Tailwind 4 修复 | 本地修复与自动化通过；容器、远端 CI/GHCR、完整浏览器验收未完成 |
 | [XrayRelated1.md](XrayRelated1.md) | AI 编码助手 / 开发者 | Xray 相关问题与基础模式人工核验（R26-07）；高级模式暂不跟进 | 活跃 |
 | [ExportRelated1.md](ExportRelated1.md) | AI 编码助手 / 开发者 | 配置导出与迁移问题独立跟踪（R31-01），关联 Design5 候选迁移与邮件模板导入导出边界 | 活跃 |
 
 
-| [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | Build32 正式浏览器／API 与真实连接待人工验证清单；Xray 专项见 XrayRelated1.md | 活跃；Step 21 工程前置已收口，正式人工仍待按阶段执行 |
+| [ProdTestList.md](ProdTestList.md) | 用户 / 测试者 | Build32 正式浏览器／API 与真实连接待人工验证清单；Xray 专项见 XrayRelated1.md | 活跃；PT-B32-21-01／02 通过，03 因 R33-04／R33-05 失败；修复后继续后续依赖项目 |
 | [docs/Reference/TestPasswordList.md](docs/Reference/TestPasswordList.md) | 测试者 / AI 编码助手 | 仅供本地隔离环境使用的合成测试账号与统一密码清单；严禁用于生产或真实数据环境 | 活跃 |
 | [docs/DocTemplates/](docs/DocTemplates) | 开发者 | 四类文档的模板（AGENTS/Design/Build/Issue）与 Clash/Shadowrocket 配置参考样例 | 活跃 |
 | [docs/Reference/](docs/Reference) | 开发者 / 测试者 | 研究参考资料与本地测试资料；分类索引见 [docs/Reference/README.md](docs/Reference/README.md)：Xray-core API、SSPanel 订阅研究、节点编辑器研究、合成测试账号清单等 | 活跃 |

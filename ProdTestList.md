@@ -6,18 +6,18 @@
 
 ### Build32 人工核验执行前置
 
-> **正式人工验收尚未开始。** Build32 Step 21 的 P1 工程前置及本次复核补修 R33-03 已于 2026-10-22 完成；显式草稿回执、JSON 子配置预检、有效凭据／扩展计数、`.ovpn` 结果与迟到响应保护、嵌套确认焦点已通过失败优先回归、8 文件／167 项定向、全量 49 文件／382 项和生产构建。920px 浅色 Modal／375px 深色 Drawer 的取消、Tab／Esc、保存阻断及定向保存重开证据见 [Issue19.md](Issue19.md) R33-03 与 [Build32.md](Build32.md) Step 21。工程前置现已满足，接下来按下列顺序在最新产物和全新隔离数据上执行人工核验；本轮自动化和定向浏览器不代表任何正式 PT 项已验收。
+> **正式 computer use 核验已开始：PT-B32-21-01／02 通过，PT-B32-21-03 因 R33-04／R33-05 失败并停止后续依赖项目。** Build32 Step 21 的 P1 工程前置及本次复核补修 R33-03 已于 2026-10-22 完成；显式草稿回执、JSON 子配置预检、有效凭据／扩展计数、`.ovpn` 结果与迟到响应保护、嵌套确认焦点已通过失败优先回归、8 文件／167 项定向、全量 49 文件／382 项和生产构建。920px 浅色 Modal／375px 深色 Drawer 的取消、Tab／Esc、保存阻断及定向保存重开证据见 [Issue19.md](Issue19.md) R33-03 与 [Build32.md](Build32.md) Step 21。此前工程前置已满足；2026-10-22 正式 computer use 执行结果已记录到 Build32 Step21，按本文件规则移除已通过的 01／02 项。当前先处理 Issue19 R33-04／R33-05，修复后从 03 重新执行；未完成断言与后续项目仍待验收。
 >
 > 每轮必须使用最新 `frontend/dist` 与全新隔离 `DATA_DIR`／测试账号，先记录 HEAD、构建时间、浏览器版本、视口和主题，禁止复用无法确认版本的 `backend/web/dist`。发现问题时停止当前项目及其后续依赖项目，保存不含凭据的最小复现步骤，并登记到当前 Issue；修复后从失败项目重新开始。自动化通过、固定 Mihomo `-t`、浏览器可见结果和真实连接分别记录，不互相替代。
 
 ### 第一阶段：Build32 Step 21 全协议前端回归（按编号顺序执行）
 
-- [ ] **PT-B32-21-01 切换预检、清理摘要与 endpoint policy：** 在 920px 浅色主题先建立基线，分别覆盖普通 endpoint → Tailscale 无 endpoint、WireGuard `single → peers`、Hysteria2 `single → ports`、Mieru `single → range`、协议切换及 OpenVPN 解析结果应用。每条路径都先制造未应用的自定义值、列表项、局部 JSON 或 parser 草稿，并准备至少一个已保存或待替换凭据；确认切换前出现统一预检，摘要只列将清除的字段名称和凭据数量、不显示任何值，取消后草稿与凭据状态完整保留，确认后只清除命中范围且 A→B→A 不恢复。协议切换说明必须按目标 endpoint policy 区分保留、隐藏或清空 host/port，不得再统一声称保留 server/port。
-- [ ] **PT-B32-21-02 19 协议响应式与主题快速矩阵：** 对 `ss`、`vmess`、`vless`、`trojan`、`http`、`socks5`、`ssh`、`snell`、`hysteria`、`hysteria2`、`tuic`、`wireguard`、`mieru`、`masque`、`tailscale`、`anytls`、`shadowquic`、`trusttunnel`、`openvpn` 逐一检查 `920 × 785` 与 `375 × 785`、浅色与深色四种组合。每个组合至少确认协议可选、字段由 schema 正常渲染、当前组合与 endpoint 显隐正确、独立开关／高级折叠可操作、无横向溢出、无重复或缺失控件；375px 必须使用 Drawer 单列，920px 使用 Modal 并允许双列。此项是界面快速矩阵，不代替后续分支生命周期和真实连接测试。
-- [ ] **PT-B32-21-03 字段类型、长内容、列表与错误定位：** 依次核对 `text/password/number/bool/select/object/text-list/int-list/multiline/secret-multiline/byte-sequence` 的单一 schema 渲染；确认 number 区分未设置与 0、三态 bool 区分 unset/false/true、`state_only` 只进入 `current_state.selectors`、隐藏字段同步离开提交草稿和 credential ops。使用不含生产秘密的长 CA／证书／SSH 或 OpenVPN 私钥文本检查换行、滚动和脱敏；复核 WireGuard Peer 新增／删除／上移／下移、首末禁用、稳定身份和 PSK 状态。主动制造折叠区字段错误、Peer 条目错误及 OpenVPN 行级 diagnostic，确认页面能展开、滚动并聚焦到精确位置。
+- [ ] **PT-B32-21-03 字段类型、长内容、列表与错误定位（2026-10-22 失败，R33-04／R33-05 待修复）：** 依次核对 `text/password/number/bool/select/object/text-list/int-list/multiline/secret-multiline/byte-sequence` 的单一 schema 渲染；确认 number 区分未设置与 0、三态 bool 区分 unset/false/true、`state_only` 只进入 `current_state.selectors`、隐藏字段同步离开提交草稿和 credential ops。使用不含生产秘密的长 CA／证书／SSH 或 OpenVPN 私钥文本检查换行、滚动和脱敏；复核 WireGuard Peer 新增／删除／上移／下移、首末禁用、稳定身份和 PSK 状态。主动制造折叠区字段错误、Peer 条目错误及 OpenVPN 行级 diagnostic，确认页面能展开、滚动并聚焦到精确位置。
 - [ ] **PT-B32-21-04 保存、重开、检查与清空闭环：** 在 PT-B32-21-01～03 通过后，选取每个协议至少一个合法分支执行创建或编辑、检查目标、保存、读取和重开；对具有 selector/feature 的协议再执行一次分支切换与清空。确认当前组合、endpoint、列表顺序、configured／keep／replace／clear 状态及诊断在重开后符合合同，列表／详情／检查预览／错误中均无凭据明文。任何协议只能完成渲染但无法保存、重开或定位错误时，本项不得通过。
 
 ### 第二阶段：TrustTunnel、OpenVPN 与 `.ovpn` 深度人工核验
+
+> 本轮因 PT-B32-21-03 失败，PT-B32-21-04 及本阶段四项正式测试均按前置依赖跳过；此前局部 OpenVPN 解析／WireGuard 操作不替代这些项目的完整验收。
 
 > 工程实现与自动化证据见 [Build32.md](Build32.md) Step 17～19。以下项目仅在隔离测试环境执行；使用测试凭据与测试节点，截图、日志和验收记录不得包含密码、私钥、静态 key 或完整 `.ovpn` 原文。
 
@@ -28,6 +28,8 @@
 
 ### 第三阶段：最终候选产物的真实服务／客户端连接
 
+> 本轮未执行：第一／第二阶段及 Step22 最终候选产物前置未满足，隔离实例也未配置可控 TrustTunnel／OpenVPN 测试服务；未使用个人代理客户端或真实节点代替可控测试环境。
+
 > 仅在第一、第二阶段通过，且 Build32 Step 22 联合门禁与隔离 smoke 已形成最终候选产物后执行，避免代码继续变化导致真实连接结果失效。若暂时没有可控服务端，保留未执行状态并记录环境缺口，不以固定内核、Docker、API 或浏览器结果代替。
 
 - [ ] **PT-B32-17-02 TrustTunnel 真实连接：** 使用 Mihomo v1.19.31 与可控 TrustTunnel 测试服务，至少分别验证一个 HTTP/2 配置和一个 QUIC 配置可导入并建立真实连接；覆盖实际使用的复用模式，核对生成配置不含 `reuse_mode` 等 state-only 字段，关闭 QUIC 后不残留拥塞参数。若测试服务不支持某一分支，记录未覆盖分支，不得以固定内核 `-t` 结果代替连接成功。
@@ -35,10 +37,18 @@
 
 Xray 相关人工核验继续由 [XrayRelated1.md](XrayRelated1.md) 独立跟踪；当前聚焦基础模式，高级模式暂不跟进。
 
+## 本轮执行记录（2026-10-22）
+
+- 基线 HEAD `45cb62ae576dae49588535ad6cd947e25a1eab78`；Chrome 155.0.8059.85；全新隔离数据／合成 Admin；最新生产 dist、双视口和明暗主题，构建与环境摘要详见 [Build32.md](Build32.md) Step21。
+- PT-B32-21-01 通过；PT-B32-21-02 的 19 × 2 × 2 共 76 个快速组合通过，两项已按清单规则移除。
+- PT-B32-21-03 中 Peer 条目错误与折叠 MTU 错误定位、Peer 操作和局部保存／重开通过；OpenVPN 行级诊断只能展示行号、不能聚焦原文对应行，桌面浅色／手机深色均复现，见 [Issue19.md](Issue19.md) R33-04；收尾复核又确认 MTU 从显式 0 清空并保存后会恢复旧值，登记 R33-05，数字清空持久化未通过。本项整体失败；三态 bool、全字段类型、长证书／私钥等尚未完成，修复后继续完整验收。
+- 04 及第二阶段按失败即停规则跳过；第三阶段同时缺少最终候选产物和已配置的可控服务端。未执行 Step22、真实连接或远端 CI；未修改业务代码，未提交／推送。截图与 DOM／矩阵测量在本地忽略目录 `.ui-check/prodtest-20261022/`。
+
 ## 变更记录
 
 | 日期 | 说明 |
 |---|---|
+| 2026-10-22 | 正式 computer use 核验 01／02 通过并移除；03 发现 R33-04／R33-05 后停止，记录局部证据、后续跳过原因与剩余断言；Step21 仍进行中。 |
 | 2026-10-22 | R33-03 复核补修完成并补齐草稿回执、实际损失、解析生命周期及共享确认焦点的自动化与定向隔离浏览器证据；PT-B32-21-01～04 及后续正式人工项目继续未执行。 |
 | 2026-10-22 | Build32 Step 21 P1 工程前置已修复并通过三条前端门禁；将正式人工核验前置状态改为“可开始”，PT-B32-21-01～04 及其后续项目均未标记执行或通过。 |
 | 2026-09-27 | 建立 Build32 后续人工测试顺序：先等待 Step 21 的切换预检与 endpoint policy 提示两项工程合同收口，再按 PT-B32-21-01～04 完成全协议前端回归；随后执行 TrustTunnel／OpenVPN／`.ovpn` 深度浏览器与 API 核验，最后在 Step 22 最终候选产物上执行真实服务连接。补充最新产物、隔离数据、失败即停、证据分层和凭据保护要求。 |
