@@ -1561,6 +1561,7 @@ func ensureObjectParam(m map[string]any, key string) map[string]any {
 func protocolParamsForStorage(proto Protocol, params map[string]any) map[string]any {
 	out := normalizeProtocolParameters(proto, params)
 	out = cleanDisabledFeatures(proto.FormSchema, out)
+	normalizeUnsetScalarsForStorage(proto.FormSchema, proto.SensitiveFields, out, "")
 	if proto.Protocol != "vless" && proto.Protocol != "vmess" {
 		return out
 	}
@@ -1578,6 +1579,42 @@ func protocolParamsForStorage(proto Protocol, params map[string]any) map[string]
 	}
 	delete(out, "security")
 	return out
+}
+
+// normalizeUnsetScalarsForStorage 在合并和校验之后消费普通标量的 null 清空标记。
+// 合并前删除标记会恢复旧值；不清理开放 Map、未知键、凭据或普通二态开关的 null。
+func normalizeUnsetScalarsForStorage(fields []FieldSchema, sensitive []string, params map[string]any, prefix string) {
+	for _, field := range fields {
+		path := field.Name
+		if prefix != "" {
+			path = prefix + "." + field.Name
+		}
+		value, exists := params[field.Name]
+		if !exists || field.StateOnly || containsString(sensitive, path) {
+			continue
+		}
+		if value == nil && (field.Type == "number" || (field.Type == "bool" && field.Default == nil)) {
+			delete(params, field.Name)
+			continue
+		}
+		if field.Type != "object" {
+			continue
+		}
+		switch field.ObjectKind {
+		case "fields":
+			if object, ok := value.(map[string]any); ok {
+				normalizeUnsetScalarsForStorage(field.Properties, sensitive, object, path)
+			}
+		case "list":
+			if items, ok := value.([]any); ok {
+				for _, item := range items {
+					if object, ok := item.(map[string]any); ok {
+						normalizeUnsetScalarsForStorage(field.Properties, sensitive, object, path+"[]")
+					}
+				}
+			}
+		}
+	}
 }
 
 // validateKnownTopLevel 拒绝协议注册表未声明的顶层字段，避免更新/导入时静默丢弃。

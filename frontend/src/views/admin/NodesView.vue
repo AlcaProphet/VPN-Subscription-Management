@@ -16,6 +16,7 @@ import { ApiError } from '@/api/request'
 import { activeFeatures, cleanDisabledFeatures, clearInactiveSelectorFields, concreteSensitivePaths, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
 import { collectSwitchFields, endpointPolicyFor, fieldGroup, hasConfiguredValue, isTriStateBool, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 import type { DraftApplication } from '@/utils/nodeDraft'
+import { buildProtocolPayload } from '@/utils/nodeProtocolPayload'
 
 const loading = ref(false)
 const nodes = ref<NodeItem[]>([])
@@ -230,6 +231,13 @@ const extensionRows = computed<Array<{ key: string; id?: string; scope: string; 
   }
   return rows
 })
+function protocolPayload(): Record<string, unknown> {
+  const schema = currentSchema()
+  // 跨协议及 A→B→A 已整体重置，不能借用旧协议基准生成清空标记。
+  const baseline = editing.value?.protocol === form.protocol && !resetScopes.has('protocol')
+    ? editing.value.protocol_json : {}
+  return buildProtocolPayload(schema?.form_schema ?? [], form.protocol_json, baseline, currentState.value, schema?.sensitive_fields ?? [])
+}
 const checkRequest = computed<NodeCheckRequest>(() => {
   const credentialOps = Array.from(clearedSensitivePaths).map((path) => ({ path, op: 'clear' as const }))
   const request: NodeCheckRequest = {
@@ -238,7 +246,7 @@ const checkRequest = computed<NodeCheckRequest>(() => {
     protocol: form.protocol,
     host: form.host,
     port: form.port,
-    protocol_json: { ...form.protocol_json },
+    protocol_json: protocolPayload(),
     current_state: { ...currentState.value },
     reset_scopes: resetScopesArray(),
     credential_ops: credentialOps.length > 0 ? credentialOps : undefined,
@@ -713,6 +721,7 @@ async function save() {
     const credentialOps = Array.from(clearedSensitivePaths).map((path) => ({ path, op: 'clear' as const }))
     const payload: NodeForm = {
       ...form,
+      protocol_json: protocolPayload(),
       current_state: { ...currentState.value },
       reset_scopes: resetScopesArray(),
       credential_ops: credentialOps.length > 0 ? credentialOps : undefined,

@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, watch } from 'vue'
+import axios from 'axios'
 
 vi.mock('@/api/node', () => ({
   NODE_CHECK_TARGETS: ['clash-yaml', 'sr-subs', 'generic-subs'],
@@ -2689,5 +2690,139 @@ describe('复核 P1 切换状态', () => {
       expect(vm.pendingTransition).toBeNull()
       expect(vm.form.protocol_json.smux).toEqual({enabled:false})
     } finally {wrapper.unmount()}
+  })
+})
+
+describe('R33-05 数字清空与解析草稿隔离', () => {
+  const schema = {
+    protocol: 'openvpn', label: 'OpenVPN',
+    form_schema: [
+      { name: 'tran-window', type: 'number', required: false, label: '过渡窗口', section: 'advanced' },
+      { name: 'mtu', type: 'number', required: false, label: 'MTU', section: 'advanced' },
+      { name: 'ca', type: 'multiline', required: false, label: 'CA', section: 'security' },
+      { name: 'tri', type: 'bool', required: false, label: '三态布尔' },
+      { name: 'opts', type: 'object', object_kind: 'fields', required: false, label: '对象', properties: [
+        { name: 'window', type: 'number', required: false, label: '窗口' },
+        { name: 'sibling', type: 'text', required: false, label: '邻接字段' },
+      ] },
+    ], sensitive_fields: [], link_mappings: {},
+  }
+  async function setup() {
+    mockListNodes.mockReset(); mockGetProtocols.mockReset(); mockUpdateNode.mockReset(); mockParseOpenVPN.mockReset()
+    const original = { ...node, protocol: 'openvpn', protocol_json: { 'tran-window': 0, mtu: 1420, ca: 'synthetic-ca', tri: false, opts: { window: 3, sibling: 'keep' } } }
+    mockListNodes.mockResolvedValue([original]); mockGetProtocols.mockResolvedValue([schema, ...protocols]); mockUpdateNode.mockResolvedValue(original)
+    mockParseOpenVPN.mockResolvedValue({ host: '', port: 0, protocol_json: { ca: 'parsed-ca' }, selectors: {}, field_sources: { ca: 2 }, diagnostics: [] })
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit(original)
+    vm.openvpnImportOpen = true
+    await nextTick()
+    return { wrapper, vm, panel: wrapper.findComponent(OpenVPNImportPanel) }
+  }
+
+  it.each([0, 1420])('已保存数字 %s 清空后保存和检查 JSON 均显式发送 null，表单仍是未设置', async (old) => {
+    const { wrapper, vm } = await setup()
+    try {
+      vm.commitField('mtu', old)
+      await nextTick()
+      const field = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'mtu')!
+      await field.findComponent({ name: 'AInputNumber' }).vm.$emit('change', null)
+      await nextTick()
+      expect(vm.form.protocol_json.mtu).toBeUndefined()
+      expect(JSON.parse(JSON.stringify(vm.checkRequest)).protocol_json.mtu).toBeNull()
+      await vm.save()
+      expect(mockUpdateNode).toHaveBeenCalledOnce()
+      const transform = axios.defaults.transformRequest as Array<(data: unknown, headers: unknown) => string>
+      const wire = transform[0].call(axios.defaults, mockUpdateNode.mock.calls[0][1], new axios.AxiosHeaders())
+      expect(JSON.parse(wire).protocol_json.mtu).toBeNull()
+    } finally { wrapper.unmount() }
+  })
+
+  it('三态 bool 和局部 JSON 删除数字均表达清空，显式 0 与 false 保留', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      vm.commitField('tri', undefined)
+      vm.commitField('opts', { sibling: 'keep' })
+      await nextTick()
+      expect(vm.checkRequest.protocol_json).toMatchObject({ tri: null, 'tran-window': 0, opts: { window: null, sibling: 'keep' } })
+      expect(vm.form.protocol_json.opts).toEqual({ sibling: 'keep' })
+      vm.commitField('tri', false)
+      expect(vm.checkRequest.protocol_json.tri).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('清空数字不得解除过期 ovpn 阻断，原文清空后仍能定位且不得应用', async () => {
+    const { wrapper, vm, panel } = await setup()
+    try {
+      await panel.find('textarea').setValue('client\nproto udp')
+      await (panel.vm as any).run(); await flushPromises()
+      await panel.find('textarea').setValue('')
+      vm.commitField('tran-window', undefined)
+      await nextTick()
+      expect((panel.vm as any).canApply).toBe(false)
+      expect(vm.checkBlockedReason).toContain('未应用')
+      await vm.save()
+      expect(mockUpdateNode).not.toHaveBeenCalled()
+      await vm.locateBlockedDraft()
+      expect(document.activeElement).toBe(panel.find('textarea').element)
+      ;(panel.vm as any).apply()
+      expect(vm.form.protocol_json.ca).toBe('synthetic-ca')
+      expect(vm.checkRequest.protocol_json['tran-window']).toBeNull()
+    } finally { wrapper.unmount() }
+  })
+
+  it('行定位不改数字清空；部分解析应用保留未产出数字和此前清空', async () => {
+    const { wrapper, vm, panel } = await setup()
+    try {
+      vm.commitField('tran-window', undefined)
+      await panel.find('textarea').setValue('client\nproto udp')
+      await (panel.vm as any).run(); await flushPromises()
+      const before = JSON.stringify(vm.checkRequest)
+      const applyVersion = vm.openvpnApplyVersion
+      await panel.find('button[aria-label="定位原文第 2 行"]').trigger('click')
+      expect(JSON.stringify(vm.checkRequest)).toBe(before)
+      expect(vm.openvpnApplyVersion).toBe(applyVersion)
+      expect((panel.vm as any).canApply).toBe(true)
+      ;(panel.vm as any).apply(); await flushPromises()
+      expect(vm.form.protocol_json.ca).toBe('parsed-ca')
+      expect(vm.form.protocol_json.mtu).toBe(1420)
+      expect(vm.form.protocol_json['tran-window']).toBeUndefined()
+      expect(vm.checkRequest.protocol_json['tran-window']).toBeNull()
+      expect(vm.checkBlockedReason).toBe('')
+    } finally { wrapper.unmount() }
+  })
+
+  it('迟到解析不能恢复数字；重新解析并明确应用 0 后以新值为准', async () => {
+    const { wrapper, vm, panel } = await setup()
+    try {
+      let finish!: (value: unknown) => void
+      mockParseOpenVPN.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+      await panel.find('textarea').setValue('old')
+      const request = (panel.vm as any).run()
+      await panel.find('textarea').setValue('new')
+      vm.commitField('tran-window', undefined)
+      finish({ host: '', port: 0, protocol_json: { 'tran-window': 5 }, selectors: {}, field_sources: {}, diagnostics: [] })
+      await request; await nextTick()
+      ;(panel.vm as any).apply()
+      expect(vm.form.protocol_json['tran-window']).toBeUndefined()
+      expect(vm.checkRequest.protocol_json['tran-window']).toBeNull()
+      mockParseOpenVPN.mockResolvedValue({ host: '', port: 0, protocol_json: { 'tran-window': 0 }, selectors: {}, field_sources: {}, diagnostics: [] })
+      await (panel.vm as any).run(); await flushPromises()
+      ;(panel.vm as any).apply(); await flushPromises()
+      expect(vm.checkRequest.protocol_json['tran-window']).toBe(0)
+      expect(vm.checkBlockedReason).toBe('')
+    } finally { wrapper.unmount() }
+  })
+
+  it('跨协议及切回后不使用旧协议基准生成数字清空标记', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      vm.updateProtocol('ss'); await nextTick()
+      expect(vm.checkRequest.protocol_json).not.toHaveProperty('mtu')
+      vm.updateProtocol('openvpn'); await nextTick()
+      expect(vm.checkRequest.protocol_json).not.toHaveProperty('mtu')
+      expect(vm.checkRequest.protocol_json).not.toHaveProperty('tran-window')
+    } finally { wrapper.unmount() }
   })
 })
