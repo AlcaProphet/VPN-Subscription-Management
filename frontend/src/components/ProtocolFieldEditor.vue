@@ -6,6 +6,7 @@ import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { CurrentState, FieldSchema } from '@/api/node'
 import { matchesSensitivePath, pathContains } from '@/utils/nodeFeatures'
 import { hasConfiguredValue, isTriStateBool, matchesCondition } from '@/utils/nodeFormLayout'
+import type { DraftApplication } from '@/utils/nodeDraft'
 
 const props = withDefaults(defineProps<{
   field: FieldSchema
@@ -35,7 +36,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
+  'update:modelValue': [value: unknown, application?: DraftApplication]
   'validity-change': [payload: { path: string; valid: boolean }]
   'json-dirty-change': [payload: { path: string; dirty: boolean }]
   'draft-dirty-change': [payload: { path: string; dirty: boolean }]
@@ -148,8 +149,13 @@ function syncMapRowIDs(value: unknown) {
   }
 }
 
-function update(value: unknown) {
-  emit('update:modelValue', value)
+function update(value: unknown, application?: DraftApplication) {
+  if (application) emit('update:modelValue', value, application)
+  else emit('update:modelValue', value)
+}
+
+function applyCustomValue(value: string, applied?: () => void) {
+  update(value, applied ? { path: fieldPath.value, applied } : undefined)
 }
 
 function forwardValidity(payload: { path: string; valid: boolean }) {
@@ -186,15 +192,23 @@ const BYTE_SEQUENCE_LENGTH = 3
 const byteSequenceItems = ref<Array<number | undefined>>([undefined, undefined, undefined])
 const byteSequenceDraft = ref('')
 const byteSequenceError = ref('')
+function byteSequenceHasDraft(): boolean {
+  return byteSequenceDraft.value.trim() !== '' || (byteSequenceItems.value.some((item) => item !== undefined) && !byteSequenceComplete())
+}
+function reportByteSequenceDraft() {
+  if (props.field.type === 'byte-sequence') emitDraftDirty(byteSequenceHasDraft())
+}
 
 watch(() => props.modelValue, (value) => {
   if (Array.isArray(value) && value.length === BYTE_SEQUENCE_LENGTH) {
     byteSequenceItems.value = value.map((item) => Number(item))
     byteSequenceError.value = ''
+    reportByteSequenceDraft()
     return
   }
   if (value === undefined || value === null || value === '') {
     byteSequenceItems.value = [undefined, undefined, undefined]
+    reportByteSequenceDraft()
   }
 }, { immediate: true, deep: true })
 
@@ -207,12 +221,14 @@ function setByteSequenceItem(index: number, value: number | undefined) {
   next[index] = value === undefined || value === null || Number.isNaN(value) ? undefined : Math.trunc(value)
   byteSequenceItems.value = next
   if (byteSequenceComplete()) {
+    reportByteSequenceDraft()
     byteSequenceError.value = ''
     update([...next] as number[])
     emit('validity-change', { path: fieldPath.value, valid: true })
     return
   }
   byteSequenceError.value = `请输入 ${BYTE_SEQUENCE_LENGTH} 个 0-255 整数`
+  reportByteSequenceDraft()
   emit('validity-change', { path: fieldPath.value, valid: false })
 }
 
@@ -237,6 +253,7 @@ function applyByteSequenceBase64() {
   byteSequenceItems.value = values
   byteSequenceDraft.value = ''
   byteSequenceError.value = ''
+  reportByteSequenceDraft()
   update(values)
   emit('validity-change', { path: fieldPath.value, valid: true })
 }
@@ -244,6 +261,12 @@ function applyByteSequenceBase64() {
 function cancelByteSequenceDraft() {
   byteSequenceDraft.value = ''
   byteSequenceError.value = ''
+  reportByteSequenceDraft()
+}
+function updateByteSequenceDraft(value: string) {
+  byteSequenceDraft.value = value
+  byteSequenceError.value = ''
+  reportByteSequenceDraft()
 }
 
 function emitJsonDirty(dirty: boolean) {
@@ -382,10 +405,11 @@ function applyJSON() {
     setJSONValidity(result.path)
     return
   }
-  jsonDirty.value = false
-  emitJsonDirty(false)
-  setJSONValidity('')
-  update(result.parsed)
+  update(result.parsed, { path: fieldPath.value, applied: () => {
+    jsonDirty.value = false
+    emitJsonDirty(false)
+    setJSONValidity('')
+  } })
 }
 
 function discardJSON() {
@@ -400,8 +424,8 @@ function childValue(name: string): unknown {
   return objectValue.value[name]
 }
 
-function setChild(name: string, value: unknown) {
-  update({ ...objectValue.value, [name]: value })
+function setChild(name: string, value: unknown, application?: DraftApplication) {
+  update({ ...objectValue.value, [name]: value }, application)
 }
 
 function addMapEntry() {
@@ -479,14 +503,14 @@ function listItemID(item: unknown, index: number): string {
   return String(index)
 }
 
-function setListChild(index: number, name: string, value: unknown) {
+function setListChild(index: number, name: string, value: unknown, application?: DraftApplication) {
   const next = [...listValue.value]
   const current = next[index]
   const object = current && typeof current === 'object' && !Array.isArray(current)
     ? current as Record<string, unknown>
     : {}
   next[index] = { ...object, [name]: value }
-  update(next)
+  update(next, application)
 }
 
 function removeListItem(index: number) {
@@ -615,6 +639,7 @@ function cancelScalarListDraft() {
 
 onBeforeUnmount(() => {
   if (scalarListDraftOpen.value) emitDraftDirty(false)
+  if (props.field.type === 'byte-sequence' && byteSequenceHasDraft()) emitDraftDirty(false)
 })
 
 function isComplex(value: unknown): boolean {
@@ -690,7 +715,7 @@ function isComplex(value: unknown): boolean {
               :current-state="currentState"
               :json-reset-versions="jsonResetVersions"
               :json-dirty-paths="jsonDirtyPaths"
-              @update:model-value="(value: unknown) => setListChild(index, property.name, value)"
+              @update:model-value="(value: unknown, application?: DraftApplication) => setListChild(index, property.name, value, application)"
               @validity-change="forwardValidity"
               @json-dirty-change="forwardJsonDirty"
               @draft-dirty-change="forwardDraftDirty"
@@ -724,7 +749,7 @@ function isComplex(value: unknown): boolean {
           :json-dirty-paths="jsonDirtyPaths"
           :centralized-switches="centralizedSwitches"
           :class="property.type === 'object' ? 'md:col-span-2' : ''"
-          @update:model-value="(value: unknown) => setChild(property.name, value)"
+          @update:model-value="(value: unknown, application?: DraftApplication) => setChild(property.name, value, application)"
           @validity-change="forwardValidity"
           @json-dirty-change="forwardJsonDirty"
           @draft-dirty-change="forwardDraftDirty"
@@ -776,14 +801,14 @@ function isComplex(value: unknown): boolean {
           :placeholder="`第 ${index + 1} 项`" class="w-full" @change="(value: any) => setByteSequenceItem(index, value ?? undefined)" />
       </div>
       <div class="flex items-center gap-2">
-        <Input :value="byteSequenceDraft" placeholder="粘贴 Base64（解码为 3 字节）" @change="(event: any) => { byteSequenceDraft = event.target.value }" />
+        <Input :value="byteSequenceDraft" placeholder="粘贴 Base64（解码为 3 字节）" @change="(event: any) => updateByteSequenceDraft(event.target.value)" />
         <Button size="small" @click="applyByteSequenceBase64">应用 Base64</Button>
         <Button v-if="byteSequenceDraft" size="small" @click="cancelByteSequenceDraft">取消</Button>
       </div>
       <div v-if="byteSequenceError" class="text-xs text-red-500">{{ byteSequenceError }}</div>
       <div v-else class="text-xs text-text-tertiary">保存前统一为 3 字节整数序列。</div>
     </div>
-    <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" :placeholder="`请选择${field.label}`" class="w-full" @update:model-value="(value: string) => update(value)" @draft-dirty-change="(dirty: boolean) => emitDraftDirty(dirty)" />
+    <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" :placeholder="`请选择${field.label}`" class="w-full" @update:model-value="applyCustomValue" @draft-dirty-change="(dirty: boolean) => emitDraftDirty(dirty)" />
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
       <Select.Option v-for="option in field.options" :key="option" :value="option">{{ option }}</Select.Option>
     </AppSelect>

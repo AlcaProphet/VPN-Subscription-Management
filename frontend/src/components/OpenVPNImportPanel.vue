@@ -3,16 +3,17 @@
   未产出的现有草稿字段不会被空响应静默删除；关闭面板或切换协议时立即丢弃原文与未应用草稿。
 -->
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Alert, Button, Input } from 'ant-design-vue'
 import { parseOpenVPN } from '@/api/node'
 import type { OpenVPNParseDiagnostic, OpenVPNParseResult } from '@/api/node'
 import { ApiError } from '@/api/request'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   open: boolean
+  applyVersion?: number
   sensitivePaths: string[]
-}>()
+}>(), { applyVersion: 0 })
 
 const emit = defineEmits<{
   apply: [payload: { host: string; port: number; protocol_json: Record<string, unknown>; selectors: Record<string, string> }]
@@ -28,20 +29,27 @@ const result = ref<OpenVPNParseResult | null>(null)
 const diagnostics = ref<OpenVPNParseDiagnostic[]>([])
 const error = ref('')
 
-const hasDraft = computed(() => text.value.trim() !== '')
+let requestVersion = 0
+const hasText = computed(() => text.value.trim() !== '')
+const hasDraft = computed(() => hasText.value || result.value !== null)
 const canApply = computed(() => result.value !== null)
 
 watch(hasDraft, (dirty) => emit('draft-dirty-change', { path: DRAFT_PATH, dirty }))
 // 关闭面板即丢弃原文与未应用结果，阻断随之解除。
 watch(() => props.open, (open) => { if (!open) reset() })
+// 父页面完成预检并真正应用后才清空；取消预检时保留原文和解析结果。
+watch(() => props.applyVersion, () => reset())
 
 function reset() {
+  requestVersion += 1
+  parsing.value = false
   text.value = ''
   result.value = null
   diagnostics.value = []
   error.value = ''
   emit('draft-dirty-change', { path: DRAFT_PATH, dirty: false })
 }
+onBeforeUnmount(reset)
 
 function isSensitive(name: string): boolean {
   return props.sensitivePaths.some((path) => path === name || path.startsWith(`${name}.`) || path.startsWith(`${name}[`))
@@ -67,19 +75,22 @@ const maskedStructure = computed(() => {
 })
 
 async function run() {
-  if (!hasDraft.value) {
+  if (!props.open || !hasText.value) {
     error.value = '请先粘贴 `.ovpn` 内容'
     return
   }
   parsing.value = true
+  const version = ++requestVersion
   error.value = ''
   result.value = null
   diagnostics.value = []
   try {
     const parsed = await parseOpenVPN(text.value)
+    if (version !== requestVersion) return
     result.value = parsed
     diagnostics.value = parsed.diagnostics ?? []
   } catch (err) {
+    if (version !== requestVersion) return
     if (err instanceof ApiError && err.status === 400) {
       const details = err.details as { error_code?: string; diagnostics?: OpenVPNParseDiagnostic[] } | undefined
       diagnostics.value = details?.diagnostics ?? []
@@ -90,7 +101,7 @@ async function run() {
       error.value = (err as Error).message
     }
   } finally {
-    parsing.value = false
+    if (version === requestVersion) parsing.value = false
   }
 }
 
@@ -103,7 +114,6 @@ function apply() {
     protocol_json: parsed.protocol_json ?? {},
     selectors: parsed.selectors ?? {},
   })
-  reset()
 }
 </script>
 
@@ -126,9 +136,9 @@ function apply() {
     />
 
     <div class="mt-2 flex items-center gap-2">
-      <Button size="small" :loading="parsing" :disabled="!open" @click="run">解析</Button>
+      <Button size="small" :loading="parsing" :disabled="!open || !hasText" @click="run">解析</Button>
       <Button size="small" type="primary" :disabled="!canApply" @click="apply">应用解析结果</Button>
-      <Button size="small" :disabled="!hasDraft && !canApply" @click="reset">取消</Button>
+      <Button size="small" :disabled="!hasDraft && !parsing" @click="reset">取消</Button>
     </div>
 
     <Alert v-if="error" type="error" show-icon class="mt-2" :message="error" />

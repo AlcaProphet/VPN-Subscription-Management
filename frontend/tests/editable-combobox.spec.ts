@@ -1,6 +1,7 @@
 // editable-combobox.spec.ts：标准单选下拉与显式自定义草稿交互测试。
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { Select } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { OptionItem } from '@/api/node'
@@ -44,7 +45,11 @@ describe('EditableCombobox', () => {
     await customInput.trigger('keydown', { key: 'Enter', isComposing: true })
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     await wrapper.findAll('.custom-value-editor button').find((button) => button.text() === '应用自定义值')!.trigger('click')
-    expect(wrapper.emitted('update:modelValue')).toEqual([['custom-v2']])
+    expect(wrapper.emitted('update:modelValue')).toEqual([['custom-v2', expect.any(Function)]])
+    expect(wrapper.emitted('draft-dirty-change')).toEqual([[true]])
+    expect(wrapper.text()).toContain('自定义值草稿未应用')
+    ;(wrapper.emitted('update:modelValue')![0][1] as () => void)()
+    await nextTick()
     expect(wrapper.emitted('draft-dirty-change')).toEqual([[true], [false]])
   })
 

@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
-import { NODE_CHECK_TARGETS, NODE_CHECK_TARGET_LABELS, listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type NodeCheckTarget, type ImportLineResult, type FieldSchema, type CurrentState, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
+import { NODE_CHECK_TARGETS, NODE_CHECK_TARGET_LABELS, listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type NodeCheckTarget, type ImportLineResult, type FieldSchema, type CurrentState, type EndpointPolicy, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
 import FormSection from '@/components/FormSection.vue'
@@ -15,6 +15,7 @@ import { Notify } from '@/components/Notify'
 import { ApiError } from '@/api/request'
 import { activeFeatures, cleanDisabledFeatures, clearInactiveSelectorFields, concreteSensitivePaths, pathContains, resetProtocolScope, valueAtPath } from '@/utils/nodeFeatures'
 import { collectSwitchFields, endpointPolicyFor, fieldGroup, hasConfiguredValue, isTriStateBool, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
+import type { DraftApplication } from '@/utils/nodeDraft'
 
 const loading = ref(false)
 const nodes = ref<NodeItem[]>([])
@@ -56,6 +57,9 @@ const invalidatedSensitivePaths = reactive(new Set<string>())
 const jsonResetVersions = reactive<Record<string, number>>({})
 const unappliedJsonPaths = reactive(new Set<string>())
 const unappliedControlPaths = reactive(new Set<string>())
+const openvpnApplyVersion = ref(0)
+type PendingTransition = { fields: string[]; credentialCount: number; endpointText: string; commit: () => void }
+const pendingTransition = ref<PendingTransition | null>(null)
 function compareFieldPath(left: string, right: string): number {
   return left.length - right.length || left.localeCompare(right)
 }
@@ -151,9 +155,10 @@ const configuredSwitchCount = computed(() => switchFields.value.filter((item) =>
 
 function setSwitchField(path: string, value: unknown) {
   const [root, ...segments] = path.split('.')
-  setField(root, replaceNestedValue(form.protocol_json[root], segments, value))
-  // 集中开关与局部 JSON 共用同一对象；直接修改后旧 JSON 草稿不得覆盖新值。
-  jsonResetVersions[path] = (jsonResetVersions[path] ?? 0) + 1
+  setField(root, replaceNestedValue(form.protocol_json[root], segments, value), () => {
+    // 集中开关与局部 JSON 共用同一对象；确认修改后旧 JSON 草稿不得覆盖新值。
+    jsonResetVersions[path] = (jsonResetVersions[path] ?? 0) + 1
+  })
 }
 
 async function revealField(path: string) {
@@ -286,19 +291,132 @@ function handleControlDraftDirty(payload: { path: string; dirty: boolean }) {
   if (payload.dirty) unappliedControlPaths.add(payload.path)
   else unappliedControlPaths.delete(payload.path)
 }
+function fieldLabel(path: string): string {
+  if (path === 'host') return '服务器'
+  if (path === 'port') return '端口'
+  if (path === 'openvpn-import') return '.ovpn 解析草稿'
+  let fields = currentSchema()?.form_schema ?? []
+  let label = '协议参数'
+  for (const segment of path.split('.')) {
+    const field = fields.find((item) => item.name === segment.replace(/\[.*$/, ''))
+    if (!field) break
+    label = field.label
+    fields = field.properties ?? []
+  }
+  return label
+}
+function endpointText(policy: EndpointPolicy): string {
+  const part = (name: string, mode: string) => `${name}：${mode === 'hidden' ? '清空并隐藏' : '显示；已有值保留'}`
+  return `${part('服务器', policy.host_mode)}；${part('端口', policy.port_mode)}`
+}
+function resetForScope(scope: string, state: CurrentState, params = form.protocol_json) {
+  const schema = currentSchema()
+  const reset = resetProtocolScope(schema?.form_schema ?? [], params, scope)
+  const selectorName = scope.startsWith('selector.') ? scope.slice('selector.'.length) : ''
+  if (selectorName && selectorName in (state.selectors ?? {})) {
+    const inactive = clearInactiveSelectorFields(schema?.form_schema ?? [], reset.params, state, selectorName)
+    reset.params = inactive.params
+    reset.paths.push(...inactive.paths)
+  }
+  return reset
+}
+function affectedBy(paths: string[], path: string): boolean {
+  return paths.some((item) => pathContains(item, path))
+}
+function draftAffectedBy(paths: string[], path: string): boolean {
+  return paths.some((item) => pathContains(item, path) || pathContains(path, item))
+}
+function changedValuePaths(before: unknown, after: unknown, prefix: string, intentionalPaths: readonly string[]): string[] {
+  if (intentionalPaths.includes(prefix) || before === undefined || before === null) return []
+  if (before && typeof before === 'object' && !Array.isArray(before)
+    && after && typeof after === 'object' && !Array.isArray(after)) {
+    return Object.entries(before as Record<string, unknown>).flatMap(([name, value]) =>
+      changedValuePaths(value, (after as Record<string, unknown>)[name], prefix ? `${prefix}.${name}` : name, intentionalPaths))
+  }
+  return JSON.stringify(before) !== JSON.stringify(after) && hasConfiguredValue(before) ? [prefix] : []
+}
+function requestTransition(options: {
+  paths: string[]
+  valuePaths?: string[]
+  draftPaths?: string[]
+  scopes?: string[]
+  policy?: EndpointPolicy
+  discardParser?: boolean
+  application?: DraftApplication
+  commit: () => void
+}) {
+  if (pendingTransition.value) return
+  const paths = [...new Set(options.paths)]
+  const fields = new Set<string>()
+  for (const path of options.valuePaths ?? paths) {
+    const value = path === 'host' ? form.host : path === 'port' ? form.port : valueAtPath(form.protocol_json, path)
+    if (path === 'port' ? form.port > 0 : hasConfiguredValue(value)) fields.add(fieldLabel(path))
+  }
+  const draftPaths = [...paths, ...(options.draftPaths ?? [])]
+  for (const path of [...unappliedJsonPaths, ...unappliedControlPaths]) {
+    if (path === options.application?.path) continue
+    if (path === 'openvpn-import' ? options.discardParser : draftAffectedBy(draftPaths, path)) fields.add(fieldLabel(path))
+  }
+  const sensitive = new Set([
+    ...savedSensitivePaths.value.filter((path) => !clearedSensitivePaths.has(path) && !invalidatedSensitivePaths.has(path)),
+    ...concreteSensitivePaths(form.protocol_json, currentSchema()?.sensitive_fields ?? [])
+      .filter((path) => hasConfiguredValue(valueAtPath(form.protocol_json, path))),
+  ])
+  const credentialCount = [...sensitive].filter((path) => affectedBy(paths, path)).length
+  // 凭据只以数量出现；字段名称来自服务端 schema，不泄露自定义键和值。
+  for (const path of paths) {
+    if (sensitive.has(path)) fields.delete(fieldLabel(path))
+  }
+  if (effectiveExtensions().some((ext) => options.scopes?.some((scope) => scopeResetsExtension(ext.scope, scope)))) fields.add('扩展')
+  if (extensionDraft.open && options.scopes?.some((scope) => scopeResetsExtension(extensionDraft.scope, scope))) fields.add('扩展草稿')
+  const commit = () => {
+    options.commit()
+    options.application?.applied()
+  }
+  if (fields.size === 0 && credentialCount === 0) {
+    commit()
+    return
+  }
+  pendingTransition.value = {
+    fields: [...fields].sort(), credentialCount,
+    endpointText: options.policy ? endpointText(options.policy) : '',
+    commit,
+  }
+}
+function cancelTransition() {
+  pendingTransition.value = null
+}
+function confirmTransition() {
+  const pending = pendingTransition.value
+  if (!pending) return
+  pendingTransition.value = null
+  pending.commit()
+}
 // applyParsedOpenVPN 只覆盖 parser 明确产出的字段：先应用 selector（触发分支清空与 reset scope），
 // 再合并结构化字段与 endpoint；未产出的现有草稿字段不会被空响应静默删除。
 function applyParsedOpenVPN(payload: { host: string; port: number; protocol_json: Record<string, unknown>; selectors: Record<string, string> }) {
   const schema = currentSchema()
   if (!schema) return
-  for (const [name, value] of Object.entries(payload.selectors ?? {})) {
-    const field = schema.form_schema.find((item) => item.state_only && selectorNameFor(item) === name)
-    if (field) setFieldModelValue(field, value)
+  const nextState: CurrentState = { ...currentState.value, selectors: { ...currentState.value.selectors, ...payload.selectors } }
+  const scopes = Object.entries(payload.selectors ?? {})
+    .filter(([name, value]) => value !== selectorValueFor(name)).map(([name]) => `selector.${name}`)
+  const paths = scopes.flatMap((scope) => resetForScope(scope, nextState).paths)
+  for (const [key, value] of Object.entries(payload.protocol_json ?? {})) {
+    if (JSON.stringify(form.protocol_json[key]) !== JSON.stringify(value)) paths.push(key)
   }
-  for (const [key, value] of Object.entries(payload.protocol_json ?? {})) setField(key, value)
-  if (payload.host) form.host = payload.host
-  if (payload.port > 0) form.port = payload.port
-  Notify.success('已应用 `.ovpn` 解析结果，请确认后保存或检查')
+  if (payload.host && payload.host !== form.host) paths.push('host')
+  if (payload.port > 0 && payload.port !== form.port) paths.push('port')
+  requestTransition({ paths, scopes, commit: () => {
+    for (const [name, value] of Object.entries(payload.selectors ?? {})) {
+      const field = schema.form_schema.find((item) => item.state_only && selectorNameFor(item) === name)
+      if (field) commitFieldModelValue(field, value)
+    }
+    for (const [key, value] of Object.entries(payload.protocol_json ?? {})) commitField(key, value)
+    if (payload.host) form.host = payload.host
+    if (payload.port > 0) form.port = payload.port
+    openvpnApplyVersion.value += 1
+    Notify.success('已应用 `.ovpn` 解析结果，请确认后保存或检查')
+  } })
 }
 async function locateBlockedDraft() {
   const jsonPath = sortedUnappliedJsonPaths()[0]
@@ -409,18 +527,26 @@ function scopeResetsExtension(extensionScope: string, resetScope: string): boole
   if (resetScope.startsWith('selector.')) return pathContains(resetScope, extensionScope)
   return false
 }
-function clearScopedFields(scope: string) {
+// 叠加当前会话的清理及操作后再预检，旧扩展不会因连续切换重复计数。
+function effectiveExtensions(): { id?: string; scope: string }[] {
+  const saved = new Map((editing.value?.extensions ?? [])
+    .filter((ext) => ![...resetScopes].some((scope) => scopeResetsExtension(ext.scope, scope)))
+    .map((ext) => [ext.id, { id: ext.id, scope: ext.scope }]))
+  const added: { scope: string }[] = []
+  for (const op of extensionOps.value) {
+    if (op.op === 'clear' && op.id) saved.delete(op.id)
+    if (op.op === 'replace' && op.id) saved.set(op.id, { id: op.id, scope: op.scope ?? '' })
+    if (op.op === 'add') added.push({ scope: op.scope ?? '' })
+  }
+  return [...saved.values(), ...added]
+}
+function clearScopedFields(scope: string, nextState: CurrentState = currentState.value, prepared?: ReturnType<typeof resetForScope>) {
   const schema = currentSchema()
   if (!schema) return
-  const reset = resetProtocolScope(schema.form_schema, form.protocol_json, scope)
+  const reset = prepared ?? resetForScope(scope, nextState)
+  const extensionsToClear = effectiveExtensions().filter((ext) => scopeResetsExtension(ext.scope, scope))
   // selector 切换时，除 reset_on 声明的字段外，还要清空声明 clear_when_inactive 且在新状态下
   // 不再活动的字段；两条链与后端 clearSelectorScopedFields 语义一致，仍活动的共享字段得以保留。
-  const selectorName = scope.startsWith('selector.') ? scope.slice('selector.'.length) : ''
-  if (selectorName && selectorName in (currentState.value.selectors ?? {})) {
-    const inactive = clearInactiveSelectorFields(schema.form_schema, reset.params, currentState.value, selectorName)
-    reset.params = inactive.params
-    reset.paths.push(...inactive.paths)
-  }
   for (const clearedPath of reset.paths) {
     jsonResetVersions[clearedPath] = (jsonResetVersions[clearedPath] ?? 0) + 1
     for (const path of Array.from(invalidProtocolPaths)) {
@@ -444,20 +570,21 @@ function clearScopedFields(scope: string) {
     }
   }
   extensionOps.value = extensionOps.value.filter((op) => !scopeResetsExtension(op.scope ?? '', scope))
-  for (const ext of editing.value?.extensions ?? []) {
-    if (!scopeResetsExtension(ext.scope, scope)) continue
+  for (const ext of extensionsToClear) {
+    if (!ext.id) continue
     extensionOps.value = extensionOps.value.filter((op) => op.id !== ext.id)
     extensionOps.value.push({ op: 'clear', id: ext.id })
   }
   if (extensionDraft.open && scopeResetsExtension(extensionDraft.scope, scope)) resetExtensionDraft()
   form.protocol_json = reset.params
 }
-function applyResetScope(scope: string, changed: boolean) {
+function applyResetScope(scope: string, changed: boolean, nextState: CurrentState = currentState.value) {
   if (!changed) return
+  clearScopedFields(scope, nextState)
   resetScopes.add(scope)
-  clearScopedFields(scope)
 }
 function resetAllEditScopes() {
+  pendingTransition.value = null
   resetScopes.clear()
   clearSelectorState()
   clearedSensitivePaths.clear()
@@ -472,19 +599,32 @@ function resetAllEditScopes() {
 }
 function updateProtocol(protocol: string) {
   if (form.protocol === protocol) return
-  form.protocol = protocol
-  form.protocol_json = {}
-  clearSelectorState()
-  invalidProtocolPaths.clear()
-  unappliedJsonPaths.clear()
-  unappliedControlPaths.clear()
-  extensionOps.value = []
-  resetExtensionDraft()
-  // 切换协议必须丢弃未应用的 `.ovpn` 原文与解析结果。
-  openvpnImportOpen.value = false
-  resetScopes.add('protocol')
-  for (const path of savedSensitivePaths.value) invalidatedSensitivePaths.add(path)
-  clearedSensitivePaths.clear()
+  const target = protocols.value.find((item) => item.protocol === protocol)
+  const selectors = Object.fromEntries((target?.selectors ?? []).map((item) => [item.name, item.default]))
+  const policy = endpointPolicyFor(target?.endpoint_policies, { selectors }, {})
+  if (!policy) {
+    Notify.error('目标协议的端点规则无效')
+    return
+  }
+  const paths = [...new Set([...Object.keys(form.protocol_json), ...(currentSchema()?.form_schema ?? []).map((field) => field.name), ...savedSensitivePaths.value])]
+  if (policy.host_mode === 'hidden') paths.push('host')
+  if (policy.port_mode === 'hidden') paths.push('port')
+  requestTransition({ paths, scopes: ['protocol'], policy, discardParser: true, commit: () => {
+    form.protocol = protocol
+    form.protocol_json = {}
+    clearSelectorState()
+    invalidProtocolPaths.clear()
+    unappliedJsonPaths.clear()
+    unappliedControlPaths.clear()
+    extensionOps.value = []
+    resetExtensionDraft()
+    openvpnImportOpen.value = false
+    resetScopes.add('protocol')
+    for (const path of savedSensitivePaths.value) invalidatedSensitivePaths.add(path)
+    clearedSensitivePaths.clear()
+    if (policy.host_mode === 'hidden') form.host = ''
+    if (policy.port_mode === 'hidden') form.port = 0
+  } })
 }
 function openCreate() {
   creating.value = true
@@ -733,45 +873,127 @@ function selectorValueFor(name: string): string {
 function fieldModelValue(field: FieldSchema): unknown {
   return field.state_only ? selectorValueFor(selectorNameFor(field)) : fieldValue(field.name)
 }
-function setFieldModelValue(field: FieldSchema, value: unknown) {
+function setFieldModelValue(field: FieldSchema, value: unknown, application?: DraftApplication) {
   if (!field.state_only) {
-    setField(field.name, value)
+    setField(field.name, value, undefined, application)
     return
   }
   const name = selectorNameFor(field)
   const next = String(value ?? '')
   const changed = next !== selectorValueFor(name)
+  if (!changed) { application?.applied(); return }
+  const nextState: CurrentState = { ...currentState.value, selectors: { ...currentState.value.selectors, [name]: next } }
+  const scope = `selector.${name}`
+  const policy = endpointPolicyFor(currentSchema()?.endpoint_policies, nextState, form.protocol_json)
+  if (!policy) {
+    Notify.error('当前组合的端点规则无效')
+    return
+  }
+  const paths = resetForScope(scope, nextState).paths
+  if (policy.host_mode === 'hidden' && form.host) paths.push('host')
+  if (policy.port_mode === 'hidden' && form.port > 0) paths.push('port')
+  requestTransition({ paths, valuePaths: paths.filter((path) => path !== field.name), draftPaths: [field.name], scopes: [scope], policy, application, commit: () => {
+    commitFieldModelValue(field, value)
+    if (policy.host_mode === 'hidden') form.host = ''
+    if (policy.port_mode === 'hidden') form.port = 0
+  } })
+}
+function commitFieldModelValue(field: FieldSchema, value: unknown) {
+  const name = selectorNameFor(field)
+  const next = String(value ?? '')
+  const changed = next !== selectorValueFor(name)
   selectorState[name] = next
-  applyResetScope(`selector.${name}`, changed)
+  const nextState: CurrentState = { ...currentState.value, selectors: { ...currentState.value.selectors, [name]: next } }
+  applyResetScope(`selector.${name}`, changed, nextState)
 }
 function clearSelectorState() {
   for (const name of Object.keys(selectorState)) delete selectorState[name]
 }
-function setField(key: string, val: unknown) {
+function fieldTransition(key: string, val: unknown) {
   const schema = currentSchema()?.form_schema ?? []
+  const candidate = { ...form.protocol_json, [key]: val }
   const oldFeatures = activeFeatures(schema, form.protocol_json)
   const oldNetwork = currentState.value.network
   const oldSecurity = currentState.value.security
   const oldPlugin = currentState.value.plugin
+  const scopes: string[] = []
   if (key === 'network' || key === 'transport') {
-    applyResetScope('network', val !== oldNetwork)
+    if (val !== oldNetwork) scopes.push('network')
   } else if (key === 'security') {
-    applyResetScope('security', val !== oldSecurity)
+    if (val !== oldSecurity) scopes.push('security')
   } else if (key === 'plugin') {
-    applyResetScope('plugin', val !== oldPlugin)
+    if (val !== oldPlugin) scopes.push('plugin')
   }
-  // 普通 selector 的来源字段变化时，按后端同一 selector.<name> 清空域清理旧分支字段。
   const sourceSelector = currentSchema()?.selectors?.find((item) => item.source_field === key)
-  if (sourceSelector) {
-    applyResetScope(`selector.${sourceSelector.name}`, String(val ?? '') !== selectorValueFor(sourceSelector.name))
-  }
-  const candidate = { ...form.protocol_json, [key]: val }
+  if (sourceSelector && String(val ?? '') !== selectorValueFor(sourceSelector.name)) scopes.push(`selector.${sourceSelector.name}`)
   const newFeatures = activeFeatures(schema, candidate)
   const closed = new Set(oldFeatures.filter((feature) => !newFeatures.includes(feature)))
-  const cleaned = cleanDisabledFeatures(schema, candidate, (scope) => closed.add(scope.slice(8)))
+  cleanDisabledFeatures(schema, candidate, (scope) => closed.add(scope.slice(8)))
   for (const feature of closed) {
-    if (![...closed].some((parent) => parent !== feature && feature.startsWith(`${parent}.`))) applyResetScope(`feature.${feature}`, true)
+    if (![...closed].some((parent) => parent !== feature && feature.startsWith(`${parent}.`))) scopes.push(`feature.${feature}`)
   }
+  const nextState: CurrentState = { ...currentState.value, features: newFeatures }
+  if (key === 'network' || key === 'transport') nextState.network = String(val ?? '')
+  if (key === 'security') nextState.security = String(val ?? '')
+  if (key === 'plugin') nextState.plugin = String(val ?? '') || null
+  if (sourceSelector) nextState.selectors = { ...nextState.selectors, [sourceSelector.name]: String(val ?? '') }
+  return { scopes: [...new Set(scopes)], nextState, candidate }
+}
+function setField(key: string, val: unknown, afterCommit?: () => void, application?: DraftApplication) {
+  const transition = fieldTransition(key, val)
+  const policy = endpointPolicyFor(currentSchema()?.endpoint_policies, transition.nextState, transition.candidate)
+  if (!policy) {
+    Notify.error('当前组合的端点规则无效')
+    return
+  }
+  let preview = form.protocol_json
+  const paths: string[] = []
+  const resets: { scope: string; reset: ReturnType<typeof resetForScope> }[] = []
+  for (const scope of transition.scopes) {
+    const reset = resetForScope(scope, transition.nextState, preview)
+    resets.push({ scope, reset })
+    preview = reset.params
+    paths.push(...reset.paths)
+  }
+  preview = cleanDisabledFeatures(currentSchema()?.form_schema ?? [], { ...preview, [key]: val })
+  // 只排除选择值和功能启用位；JSON 删除的子配置仍属于实际损失。
+  const intentionalPaths = typeof val === 'object' && val !== null ? [] : [key]
+  function collectTogglePaths(fields: FieldSchema[], prefix = '') {
+    for (const field of fields) {
+      const path = prefix ? `${prefix}.${field.name}` : field.name
+      if (field.feature && transition.scopes.some((scope) => scopeResetsExtension(`feature.${field.feature!.name}`, scope))) {
+        intentionalPaths.push(field.feature.toggle ? `${path}.${field.feature.toggle}` : path)
+      }
+      collectTogglePaths(field.properties ?? [], path)
+    }
+  }
+  collectTogglePaths(currentSchema()?.form_schema ?? [])
+  const valuePaths = changedValuePaths(form.protocol_json, preview, '', intentionalPaths)
+    .filter((path) => affectedBy(paths, path))
+  paths.push(...valuePaths)
+  if (policy.host_mode === 'hidden' && form.host) { paths.push('host'); valuePaths.push('host') }
+  if (policy.port_mode === 'hidden' && form.port > 0) { paths.push('port'); valuePaths.push('port') }
+  requestTransition({ paths, valuePaths, draftPaths: transition.scopes.length > 0 ? [key] : [],
+    scopes: transition.scopes, policy, application, commit: () => {
+    for (const { scope, reset } of resets) {
+      clearScopedFields(scope, transition.nextState, reset)
+      resetScopes.add(scope)
+    }
+    form.protocol_json = preview
+    for (const path of concreteSensitivePaths(preview, currentSchema()?.sensitive_fields ?? [])) {
+      if (hasEffectiveValue(valueAtPath(preview, path))) clearedSensitivePaths.delete(path)
+    }
+    if (policy.host_mode === 'hidden') form.host = ''
+    if (policy.port_mode === 'hidden') form.port = 0
+    afterCommit?.()
+  } })
+}
+function commitField(key: string, val: unknown) {
+  const schema = currentSchema()?.form_schema ?? []
+  const transition = fieldTransition(key, val)
+  for (const scope of transition.scopes) applyResetScope(scope, true, transition.nextState)
+  const candidate = { ...form.protocol_json, [key]: val }
+  const cleaned = cleanDisabledFeatures(schema, candidate)
   // 使用本次候选对象的清理结果，避免递归组件的旧对象把已删除子树写回来。
   form.protocol_json = cleaned
   for (const path of concreteSensitivePaths(form.protocol_json, currentSchema()?.sensitive_fields ?? [])) {
@@ -840,7 +1062,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             <Tag :color="n.source === 'manual' ? 'default' : 'purple'">{{ sourceLabel[n.source] ?? n.source }}</Tag>
           </div>
           <div v-if="n.source === 'xray' && n.display_name" class="text-xs text-text-secondary">{{ n.name }}</div>
-          <div class="text-xs text-text-secondary mt-1">{{ n.protocol }} · {{ n.host }}:{{ n.port }}</div>
+          <div class="text-xs text-text-secondary mt-1">{{ n.protocol }} · {{ n.port > 0 ? `${n.host}:${n.port}` : '协议自身管理' }}</div>
           <div class="mobile-actions mt-2 flex items-center gap-2 flex-wrap">
             <label class="switch-hit">
               <Switch :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
@@ -867,7 +1089,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           type="warning"
           show-icon
           class="node-reset-warning mb-2"
-          message="切换协议、传输、安全方式、插件，或关闭带子配置的功能，将清空所属参数、凭据、扩展及未应用草稿；切回或重新开启不会恢复。跨协议切换仍保留名称、服务器和端口，插件切换仍保留 Shadowsocks 主密码。"
+          :message="`切换协议、传输、安全方式、插件，或关闭带子配置的功能，若会清空已填内容将先显示预检；切回或重新开启不会恢复。名称保留，地址按目标模式处理：${endpointPolicy ? endpointText(endpointPolicy) : '规则待确认'}。插件切换仍保留 Shadowsocks 主密码。`"
         />
         <FormSection title="基本信息" help="选择协议并填写节点的稳定名称与连接地址。">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-x-3">
@@ -903,7 +1125,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               :json-dirty-paths="unappliedJsonPathList"
               :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState" :root-params="form.protocol_json"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
+              @update:model-value="(value: unknown, application?: DraftApplication) => setFieldModelValue(field, value, application)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
           </div>
         </FormSection>
 
@@ -919,7 +1141,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               :json-dirty-paths="unappliedJsonPathList"
               :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState" :root-params="form.protocol_json"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
+              @update:model-value="(value: unknown, application?: DraftApplication) => setFieldModelValue(field, value, application)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
             </div>
           </component>
         </FormSection>
@@ -933,6 +1155,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
             v-if="openvpnImportOpen"
             class="mt-3"
             :open="openvpnImportOpen"
+            :apply-version="openvpnApplyVersion"
             :sensitive-paths="currentSchema()?.sensitive_fields ?? []"
             @apply="applyParsedOpenVPN"
             @draft-dirty-change="handleControlDraftDirty" />
@@ -942,7 +1165,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           <div v-if="groupFields('switches').length" class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor v-for="field in groupFields('switches')" :key="field.name" :field="field"
               :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState" :root-params="form.protocol_json"
-              @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @credential-change="handleCredentialChange" />
+              @update:model-value="(value: unknown, application?: DraftApplication) => setFieldModelValue(field, value, application)" @validity-change="handleFieldValidity" @credential-change="handleCredentialChange" />
           </div>
           <div v-if="switchFields.length" class="node-switch-fields grid grid-cols-1 md:grid-cols-2 gap-3" :class="groupFields('switches').length ? 'mt-3' : ''">
             <ProtocolFieldEditor v-for="item in switchFields.filter((item) => !item.advanced)" :key="item.path" :field="item.field" :path="item.path"
@@ -969,7 +1192,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
               :json-dirty-paths="unappliedJsonPathList"
               :model-value="fieldModelValue(field)" :sensitive-paths="currentSchema()?.sensitive_fields ?? []" :saved-sensitive-paths="savedSensitivePaths" :invalidated-sensitive-paths="[...invalidatedSensitivePaths]" :current-state="currentState" :root-params="form.protocol_json"
               :class="field.type === 'object' ? 'md:col-span-2' : ''"
-              @update:model-value="(value: unknown) => setFieldModelValue(field, value)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
+              @update:model-value="(value: unknown, application?: DraftApplication) => setFieldModelValue(field, value, application)" @validity-change="handleFieldValidity" @json-dirty-change="handleJsonDirty" @draft-dirty-change="handleControlDraftDirty" @credential-change="handleCredentialChange" @advanced-json-blocked="handleAdvancedJSONBlocked" />
           </div>
         </details>
 
@@ -1044,6 +1267,16 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         </details>
       </Form>
     </FormOverlay>
+
+    <ConfirmModal :open="pendingTransition !== null" title="确认切换并清理" danger
+                  @confirm="confirmTransition" @update:open="cancelTransition">
+      <p v-if="pendingTransition?.endpointText" class="mb-2">目标模式：{{ pendingTransition.endpointText }}</p>
+      <p class="mb-2">确认后将清除以下内容，切回不会恢复：</p>
+      <ul v-if="pendingTransition?.fields.length" class="list-disc pl-5">
+        <li v-for="field in pendingTransition.fields" :key="field">{{ field }}</li>
+      </ul>
+      <p v-if="pendingTransition?.credentialCount" class="mt-2">凭据 {{ pendingTransition.credentialCount }} 项</p>
+    </ConfirmModal>
 
     <FormOverlay :open="naming !== null" title="节点显示名" :loading="saving"
                  @submit="saveDisplayName" @update:open="naming = null">

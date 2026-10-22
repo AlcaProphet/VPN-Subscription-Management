@@ -50,6 +50,46 @@ function buttonByLabel(wrapper: ReturnType<typeof mountPanel>, label: string) {
 }
 
 describe('OpenVPNImportPanel', () => {
+  it.each(['reset', 'close', 'unmount', 'apply'] as const)('%s 后忽略迟到错误、诊断及结果', async (action) => {
+    let reject!: (error: Error) => void
+    mockParseOpenVPN.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail }))
+    const wrapper = mountPanel()
+    await wrapper.find('textarea').setValue('client\n')
+    const vm = wrapper.vm as any
+    const request = vm.run()
+    if (action === 'reset') vm.reset()
+    if (action === 'close') await wrapper.setProps({ open: false })
+    if (action === 'apply') await wrapper.setProps({ applyVersion: 1 })
+    if (action === 'unmount') wrapper.unmount()
+    reject(new ApiError(400, 'old-error', undefined, { diagnostics: [{ code: 'old-diagnostic' }] }))
+    await request
+    expect(vm.error).toBe('')
+    expect(vm.diagnostics).toEqual([])
+    expect(vm.parsing).toBe(false)
+    expect(vm.canApply).toBe(false)
+    if (action !== 'unmount') wrapper.unmount()
+  })
+
+  it('旧请求结束不能关闭新请求的 loading 或覆盖新结果', async () => {
+    const resolve: ((value: typeof sampleResult) => void)[] = []
+    mockParseOpenVPN.mockImplementation(() => new Promise(done => resolve.push(done)))
+    const wrapper = mountPanel()
+    const vm = wrapper.vm as any
+    await wrapper.find('textarea').setValue('old')
+    const old = vm.run()
+    vm.reset()
+    await wrapper.find('textarea').setValue('new')
+    const current = vm.run()
+    resolve[0](sampleResult)
+    await old
+    expect(vm.parsing).toBe(true)
+    expect(vm.canApply).toBe(false)
+    resolve[1]({ ...sampleResult, host: 'new.example.test' })
+    await current
+    expect(vm.parsing).toBe(false)
+    expect(vm.result.host).toBe('new.example.test')
+    wrapper.unmount()
+  })
   beforeEach(() => {
     mockParseOpenVPN.mockReset()
   })
@@ -90,7 +130,7 @@ describe('OpenVPNImportPanel', () => {
     wrapper.unmount()
   })
 
-  it('应用后只发出解析产出的字段并清空原文与草稿阻断', async () => {
+  it('应用请求只发出解析产出，收到页面确认回执后才清空原文与草稿阻断', async () => {
     mockParseOpenVPN.mockResolvedValue(sampleResult)
     const wrapper = mountPanel()
     await wrapper.find('textarea').setValue('client\n')
@@ -108,7 +148,12 @@ describe('OpenVPNImportPanel', () => {
       protocol_json: sampleResult.protocol_json,
       selectors: sampleResult.selectors,
     })
-    // 应用后原文与结果都被丢弃，阻断解除。
+    // 页面尚未确认时保留原文与解析结果；取消预检仍可继续编辑。
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('client\n')
+    expect(wrapper.text()).toContain('已解析结构')
+    await wrapper.setProps({ applyVersion: 1 })
+    await flushPromises()
+    // 收到应用回执后原文与结果才被丢弃，阻断解除。
     expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('')
     const dirtyEvents = wrapper.emitted('draft-dirty-change') ?? []
     expect(dirtyEvents[dirtyEvents.length - 1][0]).toEqual({ path: 'openvpn-import', dirty: false })

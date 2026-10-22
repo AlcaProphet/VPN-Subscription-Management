@@ -26,6 +26,29 @@ const stringMapField: FieldSchema = {
 }
 
 describe('ProtocolFieldEditor', () => {
+  it('对象列表透传自定义值来源与成功回执，保留稳定条目身份', async () => {
+    const wrapper = mount(ProtocolFieldEditor, { props: {
+      field: { name: 'peers', label: 'Peer 列表', type: 'object', required: false, object_kind: 'list',
+        item_id_field: '_credential_id', properties: [
+          { name: 'mode', label: '模式', type: 'select', required: false, allow_custom: true,
+            option_items: [{ value: 'default', label: '默认' }] },
+        ] },
+      modelValue: [{ _credential_id: 'peer-a', mode: 'default' }],
+    } })
+    try {
+      await wrapper.findComponent(Select).vm.$emit('change', '__vpn_sub_custom_value__')
+      await nextTick()
+      await wrapper.find('.custom-value-editor input').setValue('custom')
+      await wrapper.findAll('button').find(b => b.text() === '应用自定义值')!.trigger('click')
+      const [value, application] = wrapper.emitted('update:modelValue')!.slice(-1)[0] as [unknown, { path: string; applied: () => void }]
+      expect(value).toEqual([{ _credential_id: 'peer-a', mode: 'custom' }])
+      expect(application.path).toBe('peers[peer-a].mode')
+      expect(wrapper.emitted('draft-dirty-change')!.slice(-1)[0]).toEqual([{ path: 'peers[peer-a].mode', dirty: true }])
+      application.applied()
+      await nextTick()
+      expect(wrapper.emitted('draft-dirty-change')!.slice(-1)[0]).toEqual([{ path: 'peers[peer-a].mode', dirty: false }])
+    } finally { wrapper.unmount() }
+  })
   async function customEntryVisible(allowCustom?: boolean | null): Promise<boolean> {
     const field: FieldSchema = {
       name: 'security', type: 'select', required: true, label: '安全',
@@ -189,7 +212,7 @@ describe('ProtocolFieldEditor', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     await textarea.setValue(JSON.stringify({ path: '/ws' }))
     await wrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
-    expect(wrapper.emitted('update:modelValue')).toEqual([[{ path: '/ws' }]])
+    expect(wrapper.emitted('update:modelValue')).toEqual([[{ path: '/ws' }, { path: 'ws-opts', applied: expect.any(Function) }]])
   })
 
   it('开放 Map 高级 JSON 允许新增普通键，字符串 Map 仍拒绝非法类型', async () => {
@@ -201,7 +224,7 @@ describe('ProtocolFieldEditor', () => {
     await mapWrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     await mapWrapper.find('textarea').setValue(JSON.stringify({ Host: 'new.example.com', 'X-Custom': 7 }))
     await mapWrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
-    expect(mapWrapper.emitted('update:modelValue')).toEqual([[{ Host: 'new.example.com', 'X-Custom': 7 }]])
+    expect(mapWrapper.emitted('update:modelValue')).toEqual([[{ Host: 'new.example.com', 'X-Custom': 7 }, { path: 'headers', applied: expect.any(Function) }]])
     mapWrapper.unmount()
 
     const stringMapWrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { flag: '' } } })
@@ -291,7 +314,10 @@ describe('ProtocolFieldEditor', () => {
     await applyButton!.trigger('click')
 
     const updateEvents = wrapper.emitted('update:modelValue') ?? []
-    expect(updateEvents[updateEvents.length - 1]).toEqual([{ path: '/new' }])
+    expect(updateEvents[updateEvents.length - 1][0]).toEqual({ path: '/new' })
+    expect(wrapper.text()).toContain('JSON 草稿未应用')
+    ;(updateEvents[updateEvents.length - 1][1] as { applied: () => void }).applied()
+    await nextTick()
     expect(wrapper.text()).not.toContain('JSON 草稿未应用')
   })
 
@@ -327,6 +353,10 @@ describe('ProtocolFieldEditor', () => {
     const applyButton = buttons.find((button) => button.text().replace(/\s/g, '').includes('应用'))
     await applyButton!.trigger('click')
 
+    expect((wrapper.emitted('json-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'ws-opts', dirty: true }])
+    const updates = wrapper.emitted('update:modelValue')!
+    ;(updates[updates.length - 1][1] as { applied: () => void }).applied()
+    await nextTick()
     const appliedEvents = wrapper.emitted('json-dirty-change') ?? []
     expect(appliedEvents[appliedEvents.length - 1]).toEqual([{ path: 'ws-opts', dirty: false }])
   })
@@ -675,7 +705,8 @@ describe('ProtocolFieldEditor', () => {
     expect(wrapper.text()).not.toContain('参数名不能为空')
     await wrapper.find('button.ant-btn-sm.ant-btn-primary').trigger('click')
     const updates = wrapper.emitted('update:modelValue') ?? []
-    expect(updates[updates.length - 1]).toEqual([{ flag: '', special: ':;=\\' }])
+    expect(updates[updates.length - 1][0]).toEqual({ flag: '', special: ':;=\\' })
+    ;(updates[updates.length - 1][1] as { applied: () => void }).applied()
     validity = wrapper.emitted('validity-change') ?? []
     expect(validity).toContainEqual([{ path: 'plugin-opts', valid: true }])
   })
@@ -743,11 +774,13 @@ describe('ProtocolFieldEditor', () => {
     await inputs[0].setValue('1')
     await inputs[1].setValue('2')
     expect((wrapper.emitted('update:modelValue') ?? []).length).toBe(0)
+    expect((wrapper.emitted('draft-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'reserved', dirty: true }])
     let validity = wrapper.emitted('validity-change') ?? []
     expect(validity[validity.length - 1]).toEqual([{ path: 'reserved', valid: false }])
     await inputs[2].setValue('3')
     const updates = wrapper.emitted('update:modelValue') ?? []
     expect(updates[updates.length - 1]).toEqual([[1, 2, 3]])
+    expect((wrapper.emitted('draft-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'reserved', dirty: false }])
     validity = wrapper.emitted('validity-change') ?? []
     expect(validity[validity.length - 1]).toEqual([{ path: 'reserved', valid: true }])
     expect(wrapper.text()).not.toContain('请输入 3 个 0-255 整数')
@@ -758,9 +791,11 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: undefined } })
     const base64Input = wrapper.find('.protocol-byte-sequence-editor input[placeholder^="粘贴 Base64"]')
     await base64Input.setValue('AQID')
+    expect((wrapper.emitted('draft-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'reserved', dirty: true }])
     await wrapper.findAll('button').find((button) => button.text() === '应用 Base64')!.trigger('click')
     const updates = wrapper.emitted('update:modelValue') ?? []
     expect(updates[updates.length - 1]).toEqual([[1, 2, 3]])
+    expect((wrapper.emitted('draft-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'reserved', dirty: false }])
 
     await base64Input.setValue('AQ')
     await wrapper.findAll('button').find((button) => button.text() === '应用 Base64')!.trigger('click')
