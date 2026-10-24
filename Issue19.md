@@ -2,7 +2,7 @@
 
 > **文档定位：** 本文档记录 Build32 Step21 浏览器检查中发现的问题及处理状态。Step21 的验收合同见 [Build32.md](Build32.md) §八；浏览器、自动化与后端回归证据分别记录，不替代真实客户端或用户人工验收。
 
-> **最新状态（2026-10-24）：** R33-01～06 已关闭；R33-06 已完成工程修复、自动化和 920px 浅色／375px 深色定向隔离浏览器复验。PT-B32-21-03 仍待完整重测，04 与第二阶段依赖继续停止，Step21 未完成、Step22 未开始。两项真实连接已按用户指示跳过并豁免完成，见 ProdTestList；不表示连接成功。
+> **最新状态（2026-10-24）：** R33-01～06 已关闭；本轮 PT-B32-21-03 computer use 重测发现 R33-07（Peer 子字段必填错误定位到服务器），03 未通过，04 与第二阶段依赖停止。R33-07 待修复，Step21 未完成、Step22 未开始。两项真实连接已按用户指示跳过并豁免完成，见 ProdTestList；不表示连接成功。
 
 ---
 
@@ -113,10 +113,21 @@
 - **定向隔离浏览器复验：** 开工 HEAD `ff95421f07ec10558664f72015a9c064d88550c9`、工作区干净；最新生产 index SHA-256 `0de2ba311b42ed06e60b0492e7fa36ab04e572113a2f75f719605f13aa0dc093`（前端生产代码未改），临时后端副本仅收窄 loopback 监听，APP_MODE=prod、127.0.0.1:18087、全新临时 DATA_DIR，未使用 backend/data。按测试清单通过 Setup／注册 API 创建 Admin，SQLite 核对 admin／active／默认组 1。内置浏览器 920×785 浅色 Modal、375×785 深色 Drawer 均完成删除唯一条目→检查 Clash ok 且预览无 allowed-ips→保存→重开暂无条目；移动端前先经 UI 新增应用并保存条目。检查前后 JSON 哈希和修订分别保持 1／3，保存后修订为 2／4、allowed-ips 键缺失，MTU=1420、workers=2、reserved=[1,2,3] 与加密私钥保持；375px 页面 scrollWidth=375。环境、无明文凭据截图／AX、数据库摘要见 `.ui-check/r33-06-20261024/`，浏览器版本未取得；临时服务已停止。
 - **状态：** ✅ R33-06 工程修复、自动化和定向隔离浏览器验收完成。PT-B32-21-03 仍须从头完整重测，04／第二阶段继续按依赖停止；Step21 进行中、Step22 未开始。本次未执行 Docker、固定 Mihomo、全仓 race、远端 CI、真实连接或提交／推送，不将定向复验表述为 03／Step22 完成。
 
+### R33-07 WireGuard Peer Allowed IPs 必填错误未定位到精确子字段
+
+- **发现方式／环境：** 2026-10-24 按用户要求通过 Chrome computer use 从 PT-B32-21-03 重测。HEAD `a67633b66639ac169f095f1232553d1eda42f908`，开工工作区干净；重新执行前端生产构建通过，index SHA-256 `0de2ba311b42ed06e60b0492e7fa36ab04e572113a2f75f719605f13aa0dc093`，测试产物准备时间 11:45:04 +0800。全新临时 DATA_DIR、APP_MODE=prod、127.0.0.1:18088，后端副本仅收窄监听并注入最新 dist；正常 Setup／注册 API 创建合成 Admin，SQLite 核对 admin／active，未使用 backend/data。浏览器版本未取得；920×785 浅色 Modal、375×785 深色 Drawer 均复现。
+- **最小复现：** 保存合法双 Peer WireGuard 节点，两个 Peer 的服务器、端口、公钥与 Allowed IPs 均有效 → 重开 → 删除第一个 Peer 的唯一 Allowed IPs → 保存。
+- **预期／实际：** 保存正确拒绝并提示 `参数错误: 字段 peers[0].allowed-ips 必填`；预期展开、滚动并聚焦该 Peer 的 Allowed IPs 新增条目按钮，实际聚焦服务器输入框。DOM `document.activeElement` 最近的字段路径为 `peers[7e1c7457-f865-45a9-ba0e-d00e679e5fb2].server`，不是 `.allowed-ips`。375px 下焦点所在服务器位于当前画面，而 Allowed IPs 在其下方；页面 scrollWidth=375，没有横向溢出。本问题属于精确错误定位缺口，未发现必填校验绕过或失败保存写入。
+- **根因核对：** `NodesView.vue` 保存 catch 通过错误消息包含 DOM `data-field-path` 的字面字符串来选目标。后端消息为 `peers[0].allowed-ips`，前端子控件路径为 `peers[稳定 UUID].allowed-ips`，只能匹配 `peers` 父路径；`revealField` 随后选择父区域内第一个可用 input，即第一个 Peer 的 server。当前仅核对该保存入口，不推定所有检查入口均有相同行为。
+- **影响与修复方向（未实施）：** 影响对象列表子字段的保存错误定位；修复前应评估服务端索引路径到当前稳定条目路径的映射、精确子控件选择及父区域回退，并覆盖排序后的 Peer、空列表新增按钮与桌面／移动端。无需据此改变必填合同、数据库 schema 或凭据模型；具体修复需另行授权。
+- **局部通过证据：** 本轮 WireGuard text／secret-multiline／select／number／text-list／byte-sequence 渲染、AQID→[1,2,3]、MTU=0 与1420保存及清空、single Allowed IPs 删除唯一项后的 Clash 检查与持久化、远端 DNS 空列表保存拒绝及新增按钮聚焦、空 Peer server 错误聚焦、Peer 新增／删除／上下移及首末禁用通过。双 Peer 保存重开后顺序和 PSK 已保存／未配置状态正确，稳定 UUID 随排序保留；`peer_mode` 仅在 current_state.selectors。数据库最终 mtu／顶层 allowed-ips 缺失、workers=2、私钥与第一 Peer PSK 为 enc: 密文；两次失败保存后 edit_revision 仍为5，原 Peer 列表保持。
+- **证据／状态：** `.ui-check/pt03-04-20261024/` 内环境摘要、桌面／手机截图与 DOM、焦点 JSON、脱敏数据库摘要；无私钥／PSK 明文。❌ R33-07 待修复，03 整体未通过，其余三态 bool、局部 JSON、长内容、折叠数字错误与 OpenVPN 联合断言未完成；按失败即停规则，04 及后续依赖未执行。只修改测试记录，未修复业务代码，未执行全量自动化／Docker／固定 Mihomo／远端 CI／真实连接／Step22／提交推送；本次 build 与临时后端编译仅准备测试产物。
+
 ## 二、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.12 | 2026-10-24 | computer use 重测03：WireGuard数字／列表清空与Peer部分断言通过；新增双视口R33-07必填子字段定位缺口，03未通过，04及后续依赖停止；未修复代码。 |
 | v1.11 | 2026-10-24 | 按用户授权实施 R33-06 方案 A：合并前保留显式空列表，合并后规范为缺失键；记录失败优先、共用字段／必填／HTTP／请求回归、全量门禁及双视口定向浏览器证据。03 待完整重测，Step21 未完成。 |
 | v1.10 | 2026-10-24 | 正式重测 03，确认 MTU 清空回归局部通过，新增 R33-06 Allowed IPs 最后一项删除后检查／保存恢复旧列表；双视口明暗复现与只读数据库证据，停止后续依赖。 |
 | v1.9 | 2026-10-22 | 按用户授权修复 R33-05：普通标量显式清空与缺失键存储、共享保存／检查请求、失败优先与完整门禁、1280px 定向隔离浏览器／API 和 R33-04 回归。03 整体仍待完整重测，Step21 未完成。 |
