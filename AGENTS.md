@@ -8,6 +8,8 @@
 > **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
 > 已归档的设计、构建与问题记录统一见 [docs/reports/](docs/reports)，仅用于历史核查。
 
+> **最新测试入口（2026-10-24，更新上述历史状态）：** PT-B32-21-03 computer use 重测发现 [Issue19.md](Issue19.md) R33-06（WireGuard Allowed IPs 删除最后一项后检查／保存沿用旧列表），尚未修复；R33-01～05 保持关闭。当前先处理 R33-06，再从 03 完整重测，04 与第二阶段依赖停止，Step21 未完成、Step22 未开始。用户明确要求 PT-B32-17-02 TrustTunnel 与 PT-B32-18-02 OpenVPN 真实连接跳过并直接标记完成，已在 [ProdTestList.md](ProdTestList.md) 记录为用户豁免；无真实连接成功证据，且不豁免其他门禁。
+
 ---
 
 ## 一、项目基本信息

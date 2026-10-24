@@ -2,6 +2,8 @@
 
 > **文档定位：** 本文档记录 Build32 Step21 浏览器检查中发现的问题及处理状态。Step21 的验收合同见 [Build32.md](Build32.md) §八；浏览器、自动化与后端回归证据分别记录，不替代真实客户端或用户人工验收。
 
+> **最新状态（2026-10-24）：** R33-01～05 保持关闭；PT-B32-21-03 重测发现 R33-06（Allowed IPs 清空后检查／保存沿用旧列表），尚未修复，阻塞 03 及后续依赖验收。两项真实连接已按用户指示跳过并豁免完成，见 ProdTestList；不表示连接成功。
+
 ---
 
 ## 一、问题处理记录
@@ -97,10 +99,21 @@
 - **定向隔离浏览器／API：** 基线 HEAD `94fe82c5b506627789bae2d14ccfb7994e9a4364` 加本次未提交修复；最新生产 index SHA-256 `0de2ba311b42ed06e60b0492e7fa36ab04e572113a2f75f719605f13aa0dc093`。临时后端副本仅收窄监听到 `127.0.0.1:18085`，全新 DATA_DIR，APP_MODE=prod，合成 admin／active／默认组，未使用 backend/data。内置浏览器 1280×720 浅色：WireGuard MTU=0 清空／保存／重开为空，显式 0 重开为 0，1420 重开为 1420，再清空重开为空，Worker=2 与双 Peer 保持；Tailscale accept-routes 从 false 改未设置后保存重开正确。只读 SQLite 确认两键缺失且私钥仍为密文；真实 Clash 检查为 ok，预览无 MTU、凭据 REDACTED，检查前后 JSON／修订不变。R33-04 回归：第 4 行选区 47..64、焦点与测量节点清理正确；有效解析后清空原文仍禁应用并阻断保存／检查，定位草稿聚焦原文。环境、截图与摘要见 `.ui-check/r33-05-20261022/`；浏览器工具未提供版本号。
 - **状态：** ✅ R33-05 工程修复、自动化与定向隔离浏览器／API 复验完成；撤回首次“清空 MTU 持久化通过”的历史判断，以上述修复证据为准。R33-04／05 已闭环，PT-B32-21-03 尚须完整重测（含移动端、明暗主题、长凭据等剩余断言），其通过前 04 与后续依赖继续停止；Step21 仍进行中、Step22 未开始。未执行 Docker、全仓 race、固定 Mihomo、远端 CI 或真实连接，未提交／推送。
 
+### R33-06 WireGuard Allowed IPs 删除最后一项后检查与保存恢复旧列表
+
+- **发现方式／环境：** 2026-10-24 通过 Chrome computer use 重测 PT-B32-21-03。HEAD `63f25220d15cba2860740b9b89e57d5c1b69dfdb`，开工工作区干净；当日最新生产 dist，index SHA-256 `0de2ba311b42ed06e60b0492e7fa36ab04e572113a2f75f719605f13aa0dc093`。临时后端副本只改 loopback 监听，APP_MODE=prod、`127.0.0.1:18086`、全新 DATA_DIR、合成 Admin（核对 admin／active），未使用 backend/data。920×785 浅色重复两次、375×785 深色重复一次；浏览器版本未取得。
+- **最小复现：** 新建合法 WireGuard single 节点，填写合成私钥／公钥、本地 IP `10.0.0.2`、服务器 `192.0.2.1:443`；高级参数 Allowed IPs 新增 `0.0.0.0/0` 并应用，保存。编辑并展开高级参数，删除唯一条目，页面显示“暂无条目”；保存提示“节点已更新”，重开后旧条目恢复。删除后先执行“检查当前节点”也得到 clash-yaml ok，脱敏预览仍含 `allowed-ips: [0.0.0.0/0]`。
+- **数据库与对照：** SQLite 只读确认三次清空保存后仍为旧列表；MTU=0／1420 的保存重开及清空重开通过，最终 mtu 键缺失、workers=2、reserved=[1,2,3]，私钥仍加密存储。本项不重开 R33-05，也不能以数字修复通过推断列表清空正常。
+- **源码归因：** `ProtocolFieldEditor.vue` 的 `removeScalarListItem`／`emitScalarList` 发出空数组。`NormalizeProtocolJSON` 调用 `normalizeStringListField`，当归一化结果为空时删除键；`node.Update` 在 `mergeProtocolJSON` 前先做该归一化，省略键因而沿用已有列表。`node.Check` 同样先归一化再合并已有节点，解释检查预览与当前空草稿不一致。此为源码与可见行为交叉证据，未进行浏览器网络抓包。R33-05 已明确将 IP／文本列表归一化清空留待另行处理，本次正式复现并独立编号。
+- **影响范围：** 已确认 WireGuard single 顶层 allowed-ips；共享归一化还处理 SSH host-key／host-key-algorithms、ShadowQUIC quic-versions、WireGuard dns、OpenVPN data-ciphers／dns，其他路径仅为待核查范围，未通过浏览器逐一复现。修复需评估合并前清空信号与合并后缺失键存储、保存／检查一致性及省略保留合同，尚未选定或实施方案。
+- **证据：** `.ui-check/prodtest-20261024/` 的 `allowed-ips-cleared-desktop.png`、`allowed-ips-restored-desktop.png`、`allowed-ips-check-stale.png`、`allowed-ips-cleared-mobile.png`、`allowed-ips-restored-mobile.png`、对应 DOM 和 `database-summary.json`；截图为已保存凭据留空状态，不含私钥明文。环境见同目录 `environment.json`。
+- **状态：** ❌ 已复现，未修复。PT-B32-21-03 失败并停止其余断言、04 与第二阶段依赖项目；修复后从 03 完整重测。Step21 进行中、Step22 未开始。本次仅测试和文档同步，未改业务代码、未提交／推送。
+
 ## 二、变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.10 | 2026-10-24 | 正式重测 03，确认 MTU 清空回归局部通过，新增 R33-06 Allowed IPs 最后一项删除后检查／保存恢复旧列表；双视口明暗复现与只读数据库证据，停止后续依赖。 |
 | v1.9 | 2026-10-22 | 按用户授权修复 R33-05：普通标量显式清空与缺失键存储、共享保存／检查请求、失败优先与完整门禁、1280px 定向隔离浏览器／API 和 R33-04 回归。03 整体仍待完整重测，Step21 未完成。 |
 | v1.8 | 2026-10-22 | 按用户授权完成 R33-04：诊断／来源行定位、软换行内部滚动、原文过期及迟到响应保护、面板锚点；记录失败优先、自动化与双视口明暗定向浏览器证据。R33-05 仍阻塞 PT-B32-21-03，Step21 未完成。 |
 | v1.7 | 2026-10-22 | 正式 computer use 核验：PT-B32-21-01／02 通过；PT-B32-21-03 发现 R33-04 行级诊断不能定位原文，收尾复核追加 R33-05 数字清空不能持久化，停止依赖项目；未修复业务代码。 |
