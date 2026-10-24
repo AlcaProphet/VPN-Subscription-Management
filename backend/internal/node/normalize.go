@@ -29,12 +29,22 @@ func numberParam(value any) (float64, bool) {
 // NormalizeProtocolJSON 将兼容输入别名规约到规范路径，供手动创建与 URI 导入共用。
 // 无法归属的未知顶层字段不会被自动删除，仍交由后续 validateKnownTopLevel 显式处理。
 func NormalizeProtocolJSON(proto Protocol, params map[string]any) (map[string]any, error) {
+	return normalizeProtocolJSON(proto, params, false)
+}
+
+// normalizeProtocolJSONForMerge 保留显式空列表，避免合并旧节点时把清空误当成省略。
+// 合并后仍由规范归一化消费空列表；创建、导入和启动迁移继续使用公开入口。
+func normalizeProtocolJSONForMerge(proto Protocol, params map[string]any) (map[string]any, error) {
+	return normalizeProtocolJSON(proto, params, true)
+}
+
+func normalizeProtocolJSON(proto Protocol, params map[string]any, preserveEmptyLists bool) (map[string]any, error) {
 	if params == nil {
 		params = map[string]any{}
 	}
 	out := normalizeProtocolParameters(proto, params)
 	canonicalizeLegacyAliases(proto, out)
-	normalizeProtocolListFields(proto, out)
+	normalizeProtocolListFields(proto, out, preserveEmptyLists)
 	if err := normalizeByteSequenceFields(proto.FormSchema, out, ""); err != nil {
 		return nil, err
 	}
@@ -46,27 +56,36 @@ func NormalizeProtocolJSON(proto Protocol, params map[string]any) (map[string]an
 
 // normalizeProtocolListFields 对协议声明的文本列表字段去空白去重并保持用户顺序。
 // 类型错误不在此处报告，继续交由 validateFieldValue 给出字段级错误。
-func normalizeProtocolListFields(proto Protocol, params map[string]any) {
+func normalizeProtocolListFields(proto Protocol, params map[string]any, preserveEmptyLists bool) {
+	normalizeProtocolTextLists(proto, params, preserveEmptyLists)
 	switch proto.Protocol {
-	case "ssh":
-		normalizeStringListField(params, "host-key")
-		normalizeStringListField(params, "host-key-algorithms")
 	case "mieru":
 		normalizeTrimmedTextFields(params, "port-range", "traffic-pattern", "transport", "multiplexing", "handshake-mode")
 	case "masque":
 		normalizeLocalAddressPrefixes(params)
 	case "tailscale":
 		normalizeTrimmedTextFields(params, "hostname", "control-url", "exit-node")
-	case "shadowquic":
-		normalizeStringListField(params, "quic-versions")
 	case "wireguard":
 		normalizeLocalAddressPrefixes(params)
-		normalizeStringListField(params, "allowed-ips")
-		normalizeStringListField(params, "dns")
-		normalizeWireGuardPeerFields(params)
+	}
+}
+
+// normalizeProtocolTextLists 仅处理协议文本列表，供检查在合并后消费清空信号。
+// 不扩大别名、地址、字节序列或凭据身份的归一化范围。
+func normalizeProtocolTextLists(proto Protocol, params map[string]any, preserveEmptyLists bool) {
+	switch proto.Protocol {
+	case "ssh":
+		normalizeStringListField(params, "host-key", preserveEmptyLists)
+		normalizeStringListField(params, "host-key-algorithms", preserveEmptyLists)
+	case "shadowquic":
+		normalizeStringListField(params, "quic-versions", preserveEmptyLists)
+	case "wireguard":
+		normalizeStringListField(params, "allowed-ips", preserveEmptyLists)
+		normalizeStringListField(params, "dns", preserveEmptyLists)
+		normalizeWireGuardPeerFields(params, preserveEmptyLists)
 	case "openvpn":
-		normalizeStringListField(params, "data-ciphers")
-		normalizeStringListField(params, "dns")
+		normalizeStringListField(params, "data-ciphers", preserveEmptyLists)
+		normalizeStringListField(params, "dns", preserveEmptyLists)
 	}
 }
 
@@ -105,7 +124,7 @@ func normalizeLocalAddressPrefixes(params map[string]any) {
 }
 
 // normalizeWireGuardPeerFields 对每个 Peer 的 allowed-ips 去空白去重并保持用户顺序。
-func normalizeWireGuardPeerFields(params map[string]any) {
+func normalizeWireGuardPeerFields(params map[string]any, preserveEmptyLists bool) {
 	peers, ok := params["peers"].([]any)
 	if !ok {
 		return
@@ -115,11 +134,11 @@ func normalizeWireGuardPeerFields(params map[string]any) {
 		if !ok {
 			continue
 		}
-		normalizeStringListField(peer, "allowed-ips")
+		normalizeStringListField(peer, "allowed-ips", preserveEmptyLists)
 	}
 }
 
-func normalizeStringListField(params map[string]any, key string) {
+func normalizeStringListField(params map[string]any, key string, preserveEmpty bool) {
 	items, ok := stringListItems(params[key])
 	if !ok {
 		return
@@ -134,7 +153,7 @@ func normalizeStringListField(params map[string]any, key string) {
 		seen[trimmed] = true
 		out = append(out, trimmed)
 	}
-	if len(out) == 0 {
+	if len(out) == 0 && !preserveEmpty {
 		delete(params, key)
 		return
 	}

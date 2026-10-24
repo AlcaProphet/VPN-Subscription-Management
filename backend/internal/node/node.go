@@ -455,7 +455,7 @@ func (s *Service) UpdateManual(ctx context.Context, id int64, in UpdateManualInp
 	if err := validateInputMapValueTypes(proto, in.ProtocolJSON); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	incoming, err := NormalizeProtocolJSON(proto, in.ProtocolJSON)
+	incoming, err := normalizeProtocolJSONForMerge(proto, in.ProtocolJSON)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}

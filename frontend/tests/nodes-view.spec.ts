@@ -2826,3 +2826,39 @@ describe('R33-05 数字清空与解析草稿隔离', () => {
     } finally { wrapper.unmount() }
   })
 })
+
+describe('R33-06 文本列表清空请求', () => {
+  it.each(['删除', '清空文本'])('%s 最后一项后检查与保存均传递空数组', async (action) => {
+    const original = { ...node, protocol: 'wireguard', current_state: { selectors: { peer_mode: 'single' } },
+      protocol_json: { 'allowed-ips': ['10.0.0.0/24'], workers: 2 } }
+    mockListNodes.mockReset(); mockGetProtocols.mockReset(); mockUpdateNode.mockReset()
+    mockListNodes.mockResolvedValue([original]); mockUpdateNode.mockResolvedValue(original)
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'wireguard', label: 'WireGuard', sensitive_fields: [], link_mappings: {}, form_schema: [
+        { name: 'allowed-ips', type: 'text-list', label: 'Allowed IPs', required: false, group: 'connection' },
+        { name: 'workers', type: 'number', label: 'Worker', required: false, group: 'connection' },
+      ],
+    }])
+    const wrapper = mountNodesView()
+    try {
+      await flushPromises()
+      const vm = wrapper.vm as any
+      vm.openEdit(original); await nextTick()
+      const field = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'allowed-ips')!
+      if (action === '删除') await field.find('.protocol-list-editor .ant-btn-dangerous').trigger('click')
+      else await field.findComponent({ name: 'AInput' }).vm.$emit('change', { target: { value: '' } })
+      await nextTick()
+      expect(field.text()).toContain('暂无条目')
+      expect(vm.form.protocol_json['allowed-ips']).toEqual([])
+      expect(vm.checkRequest.protocol_json).toMatchObject({ 'allowed-ips': [], workers: 2 })
+      await vm.save()
+      expect(mockUpdateNode).toHaveBeenCalledOnce()
+      const transform = axios.defaults.transformRequest as Array<(data: unknown, headers: unknown) => string>
+      for (const request of [vm.checkRequest, mockUpdateNode.mock.calls[0][1]]) {
+        const wire = transform[0].call(axios.defaults, request, new axios.AxiosHeaders())
+        expect(JSON.parse(wire).protocol_json).toMatchObject({ 'allowed-ips': [], workers: 2 })
+      }
+      expect(original.protocol_json['allowed-ips']).toEqual(['10.0.0.0/24'])
+    } finally { wrapper.unmount() }
+  })
+})

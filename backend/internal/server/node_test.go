@@ -648,6 +648,90 @@ func TestNodeCheckRouteUsesAdapterAndDoesNotWrite(t *testing.T) {
 	}
 }
 
+// 空列表从 HTTP 草稿进入真实 Clash adapter，检查零写入，保存后数据库键缺失。
+func TestNodeTextListClearHTTPRoundTrip(t *testing.T) {
+	engine, st, cfg := newAssemblyTestEnv(t)
+	ctx := context.Background()
+	lg := log.New("error", "console")
+	nodeSvc := node.NewService(st, cfg, lg)
+	nodeSvc.SetCheckRenderer(assembly.NewService(st, cfg, lg).CheckNodeTarget)
+	noop := func(c *gin.Context) { c.Next() }
+	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, noop, noop)
+	privateKey := "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+	n, err := nodeSvc.CreateManual(ctx, node.CreateManualInput{
+		Name: "list-clear-http", Protocol: "wireguard", Host: "192.0.2.1", Port: 443,
+		ProtocolJSON: map[string]any{"private-key": privateKey,
+			"public-key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=", "ip": "10.0.0.2",
+			"allowed-ips": []any{"10.0.0.0/24"}, "workers": 2, "reserved": []any{1, 2, 3}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() (string, int64) {
+		t.Helper()
+		var raw string
+		var revision int64
+		if err := st.DB().QueryRowContext(ctx, `SELECT protocol_json, edit_revision FROM nodes WHERE id=?`, n.ID).Scan(&raw, &revision); err != nil {
+			t.Fatal(err)
+		}
+		return raw, revision
+	}
+	before, revision := read()
+	request := func(method, path string, input any) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(method, path, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("节点请求失败: %s %s status=%d", method, path, w.Code)
+		}
+		return w
+	}
+	w := request(http.MethodPost, "/api/admin/nodes/check", node.CheckRequest{
+		NodeID: n.ID, BaseRevision: revision, Protocol: n.Protocol, Host: n.Host, Port: n.Port,
+		CurrentState: &n.CurrentState, ProtocolJSON: map[string]any{"allowed-ips": []any{}}, Targets: []string{"clash-yaml"},
+	})
+	var checked struct {
+		Data node.CheckResponse `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &checked); err != nil {
+		t.Fatal(err)
+	}
+	result := checked.Data.Targets["clash-yaml"]
+	if result.Status != "ok" || result.Preview == nil {
+		t.Fatalf("清空后真实 Clash 检查未通过: status=%s", result.Status)
+	}
+	if strings.Contains(*result.Preview, "allowed-ips") || strings.Contains(w.Body.String(), privateKey) {
+		t.Error("检查预览仍含旧列表或泄漏私钥")
+	}
+	if raw, rev := read(); raw != before || rev != revision {
+		t.Fatal("HTTP 检查写入了节点")
+	}
+	request(http.MethodPut, fmt.Sprintf("/api/admin/nodes/%d", n.ID), node.UpdateManualInput{
+		Protocol: n.Protocol, Host: n.Host, Port: n.Port, BaseRevision: revision, CurrentState: &n.CurrentState,
+		ProtocolJSON: map[string]any{"allowed-ips": []any{}},
+	})
+	after, nextRevision := read()
+	var oldParams, params map[string]any
+	if err := json.Unmarshal([]byte(before), &oldParams); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(after), &params); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := params["allowed-ips"]; exists {
+		t.Error("HTTP 保存后旧列表仍在数据库中")
+	}
+	if nextRevision != revision+1 || params["private-key"] != oldParams["private-key"] || params["workers"] != float64(2) {
+		t.Fatal("列表清空改变了凭据、邻接参数或修订递增")
+	}
+}
+
 func TestNodeUpdateForbiddenReturns403(t *testing.T) {
 	engine, st, cfg := newAssemblyTestEnv(t)
 	lg := log.New("error", "console")
