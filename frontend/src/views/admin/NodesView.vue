@@ -1,6 +1,6 @@
 <!-- NodesView.vue：节点管理页（Design2-UI §6）——manual/xray 双态列表 + 动态表单 -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Tooltip } from 'ant-design-vue'
 import { NODE_CHECK_TARGETS, NODE_CHECK_TARGET_LABELS, listNodes, getProtocols, createNode, updateNode, deleteNode, toggleNode, setNodeDisplayName, importNodes, type NodeItem, type ProtocolInfo, type NodeForm, type NodeCheckRequest, type NodeCheckTarget, type ImportLineResult, type FieldSchema, type CurrentState, type EndpointPolicy, type ExtensionOp, type ExtensionSummary, type ExtensionInput } from '@/api/node'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -17,6 +17,8 @@ import { activeFeatures, cleanDisabledFeatures, clearInactiveSelectorFields, con
 import { collectSwitchFields, endpointPolicyFor, fieldGroup, hasConfiguredValue, isTriStateBool, matchesCondition, replaceNestedValue } from '@/utils/nodeFormLayout'
 import type { DraftApplication } from '@/utils/nodeDraft'
 import { buildProtocolPayload } from '@/utils/nodeProtocolPayload'
+import { resolveValidationLocation, snapshotValidationPaths, validationFocusTarget } from '@/utils/nodeValidation'
+import { focusWithoutScroll } from '@/utils/overlayManager'
 
 const loading = ref(false)
 const nodes = ref<NodeItem[]>([])
@@ -83,6 +85,11 @@ const extensionDraft = reactive({
   payload: '',
 })
 const extensionDraftError = ref('')
+let editSession = 0
+let validationDraftVersion = 0
+let validationRequest = 0
+watch(creating, () => { editSession += 1 }, { flush: 'sync' })
+onBeforeUnmount(() => { editSession += 1 })
 const sourceLabel: Record<string, string> = { manual: '手动添加', xray: 'Xray' }
 
 async function load() {
@@ -132,6 +139,11 @@ const currentState = computed<CurrentState>(() => {
   if (Object.keys(selectors).length > 0) state.selectors = selectors
   return state
 })
+// 同值恢复也视为新草稿；这里只使旧错误失去定位资格，不冻结编辑或改写请求。
+watch(() => [form, currentState.value, resetScopes, clearedSensitivePaths, extensionOps.value,
+  unappliedJsonPaths, unappliedControlPaths, pendingTransition.value, extensionDraft], () => {
+  validationDraftVersion += 1
+}, { deep: true, flush: 'sync' })
   const endpointPolicy = computed(() => endpointPolicyFor(currentSchema()?.endpoint_policies, currentState.value, form.protocol_json as Record<string, unknown>))
   const showHostField = computed(() => endpointPolicy.value?.host_mode !== 'hidden')
   const showPortField = computed(() => endpointPolicy.value?.port_mode !== 'hidden')
@@ -592,6 +604,7 @@ function applyResetScope(scope: string, changed: boolean, nextState: CurrentStat
   resetScopes.add(scope)
 }
 function resetAllEditScopes() {
+  editSession += 1
   pendingTransition.value = null
   resetScopes.clear()
   clearSelectorState()
@@ -717,6 +730,12 @@ async function save() {
     return
   }
   saving.value = true
+  const session = editSession
+  const draftVersion = validationDraftVersion
+  const request = ++validationRequest
+  const canLocate = () => creating.value && session === editSession
+    && draftVersion === validationDraftVersion && request === validationRequest
+  let validationPaths: ReturnType<typeof snapshotValidationPaths> = []
   try {
     const credentialOps = Array.from(clearedSensitivePaths).map((path) => ({ path, op: 'clear' as const }))
     const payload: NodeForm = {
@@ -727,6 +746,7 @@ async function save() {
       credential_ops: credentialOps.length > 0 ? credentialOps : undefined,
       base_revision: editing.value?.edit_revision,
     }
+    validationPaths = snapshotValidationPaths(currentSchema()?.form_schema ?? [], payload.protocol_json)
     if (editing.value) {
       if (extensionOps.value.length > 0) payload.extension_ops = [...extensionOps.value]
     } else if (extensionOps.value.length > 0) {
@@ -748,12 +768,24 @@ async function save() {
       Notify.warning(conflictError.value)
     } else {
       Notify.error((err as Error).message)
-      // 服务端校验消息使用规范路径；只匹配当前实际字段，不猜测其它区域。
-      const message = (err as Error).message
-      const paths = Array.from(document.querySelectorAll<HTMLElement>('.node-protocol-form [data-field-path]'))
-        .map((field) => field.dataset.fieldPath!).sort((a, b) => b.length - a.length)
-      const path = paths.find((item) => message.includes(item))
-      if (path) await revealField(path)
+      if (err instanceof ApiError && err.status === 400 && canLocate()) {
+        const location = resolveValidationLocation(err.message, validationPaths)
+        await nextTick()
+        if (location && canLocate()) {
+          const fields = Array.from(document.querySelectorAll<HTMLElement>('.node-protocol-form [data-field-path]'))
+          const target = validationFocusTarget(fields, location)
+          if (target) {
+            for (let parent = target.field.parentElement; parent; parent = parent.parentElement) {
+              if (parent instanceof HTMLDetailsElement) parent.open = true
+            }
+            await nextTick()
+            if (canLocate() && target.control.isConnected) {
+              target.field.scrollIntoView?.({ block: 'center', behavior: 'auto' })
+              focusWithoutScroll(target.control)
+            }
+          }
+        }
+      }
     }
   } finally {
     saving.value = false

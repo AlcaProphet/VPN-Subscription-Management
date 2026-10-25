@@ -656,12 +656,12 @@ function isComplex(value: unknown): boolean {
       </div>
       <div class="protocol-editor-mode flex shrink-0" role="group" :aria-label="`${field.label}编辑模式`">
         <Button :type="!advanced ? 'primary' : 'default'" :aria-pressed="!advanced" :disabled="!!jsonError" @click="setAdvanced(false)">结构化编辑</Button>
-        <Button :type="advanced ? 'primary' : 'default'" :aria-pressed="advanced" @click="setAdvanced(true)">高级 JSON</Button>
+        <Button data-field-json-toggle :type="advanced ? 'primary' : 'default'" :aria-pressed="advanced" @click="setAdvanced(true)">高级 JSON</Button>
       </div>
     </div>
 
     <div v-if="advanced">
-      <Input.TextArea :value="jsonText" :rows="6" class="font-mono" @input="(event: any) => updateJSON(event.target.value)" />
+      <Input.TextArea data-field-json-editor :value="jsonText" :rows="6" class="font-mono" @input="(event: any) => updateJSON(event.target.value)" />
       <div v-if="jsonError" class="text-xs text-red-500 mt-1">{{ jsonError }}</div>
       <div class="mt-2 flex items-center gap-2">
         <Button size="small" type="primary" :disabled="!!jsonError" @click="applyJSON">应用</Button>
@@ -726,7 +726,7 @@ function isComplex(value: unknown): boolean {
         </div>
       </div>
       <div v-else class="text-xs text-text-tertiary mb-2">暂无条目</div>
-      <Button size="small" @click="addListItem">新增条目</Button>
+      <Button data-field-list-add size="small" @click="addListItem">新增条目</Button>
     </template>
 
     <template v-else>

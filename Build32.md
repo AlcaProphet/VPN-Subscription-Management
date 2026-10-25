@@ -1,6 +1,6 @@
 # Build32.md — 19 个 manual 协议编辑体验完整化
 
-> **最新执行结论（2026-10-24）：** 本轮 PT-B32-21-03 computer use 重测发现 Issue19 R33-07（Peer 必填子字段错误聚焦服务器），03 未通过，04 及后续依赖停止。R33-01～06 已关闭，R33-07 待修复，Step21 未完成、Step22 未开始。PT-B32-17-02／PT-B32-18-02 按用户明确指示跳过并豁免完成，无真实连接成功证据。下文“当前状态”长段保留截至 2026-10-22 的构建背景，最新测试详情见 Step21 本轮记录。
+> **最新执行结论（2026-10-24）：** Issue19 R33-07 已按用户选定方案 A 完成工程修复、自动化和双视口定向隔离浏览器复验，R33-01～07 已关闭。PT-B32-21-03 仍待完整重测，通过前 04 及后续依赖保持停止；Step21 未完成、Step22 未开始。PT-B32-17-02／PT-B32-18-02 按用户明确指示跳过并豁免完成，无真实连接成功证据。下文“当前状态”长段保留截至 2026-10-22 的构建背景，最新测试详情见 Step21 本轮记录。
 
 > **文档定位：** 本文档是下一轮活动构建方案，承接 [Design4.md](Design4.md) 第九章“完成当前全部 19 个已兼容 manual 协议的编辑体验改进”目标，以及用户于 2026-09-21 对研究结论的最新确认。
 > **当前状态：** 用户已授权实施并更正 Mihomo 源码以在线仓库 `https://github.com/MetaCubeX/mihomo` 为准；Step 0.5～3 已完成并提交在 `7ecb6d5aa0619d560fcbc786547cf95e0fef7080`（分支 `beta`），Step 3 遗留的前端静态颜色门禁缺口已由 Step 3-fix 修正，Step 3.5 公共字段类型增补、Step 4 HTTP、Step 5 SOCKS5、Step 6 SSH、Step 7 Snell、Step 8 Hysteria、9 Hysteria2、10 TUIC、11 标准 WireGuard、12 Mieru、13 MASQUE、14 Tailscale、15 AnyTLS、16 ShadowQUIC、**17 TrustTunnel**、**18 OpenVPN**、**19 `.ovpn` 只读解析导入**、**20 全 19 协议目标诊断与正式装配收口** 已验收通过（legacy 待迁移协议 19→4→0）；固定 Mihomo v1.19.31 二进制已由用户重新提供官方 `go124` 发布资产并复验通过。用户已一次性授权 Step 17～20 严格串行实施（2026-09-23，并确认 TrustTunnel `connections` 分支要求 `max-connections` 必填／`min-streams` 可选、OpenVPN 枚举按项目侧收紧、不存在外部遗留 `client-config` 数据、OpenVPN 认证组切换采用新增可选字段属性方案）；Step 20 的六项技术取舍已由用户在开工前逐项确认（固定二进制路径、构造后脱敏、删除 legacy 静默回退、轻量 evidence 消费、selfcheck 全量生效、URI 链接值级脱敏），其独立核验发现的已保存凭据密文检查、短凭据全局替换和对象列表路径解析三项缺口已于同日修复并重新通过全部 Step 20 门禁；**Step 21 已开始，Issue19 R33-01 WireGuard Peer 结构化排序已修复并完成自动化、后端凭据回归及 375px／920px 隔离浏览器验收；R33-02 已用当前产物确认无法复现，并按过期产物导致的历史误报关闭。2026-10-22 已完成 P1 工程前置及其复核补修 R33-03，前端门禁与补修定向隔离浏览器复验通过，正式 computer use 核验 PT-B32-21-01／02 已通过，PT-B32-21-03 发现的 Issue19 R33-04 行级诊断定位已完成工程修复、自动化及双视口明暗定向复验；R33-05 数字清空持久化亦已完成工程修复、自动化与定向隔离浏览器／API 复验，03 待完整重测，其通过前后续依赖验收停止，Step 21 保持进行中；Step 22 未开始，不得归档本文档。**
@@ -1166,7 +1166,7 @@ Step 0.5 授权/冻结
 
 ### Step 21：全协议前端回归
 
-> **最新状态（2026-10-24）：** 本轮03重测发现 Issue19 R33-07，Peer Allowed IPs 必填错误未聚焦精确子字段，920px浅色／375px深色均复现。03未通过，04与第二阶段依赖停止；R33-07待修复，Step21未完成、Step22未开始。两项真实连接按用户指示豁免完成，无连接成功证据。
+> **最新状态（2026-10-24）：** R33-07 的方案 A 工程、自动化及 920px 浅色／375px 深色定向隔离复验已完成，R33-01～07 已关闭。03 仍待从头完整重测，04 与第二阶段依赖继续停止；Step21 未完成、Step22 未开始。两项真实连接按用户指示豁免完成，无连接成功证据。
 
 - 覆盖 selector、动态 endpoint、当前组合、独立开关、高级折叠、多行 secret、列表、错误定位和草稿阻断。
 - 375px 与桌面 920px；明暗主题；长证书／私钥；WireGuard Peer 排序；OpenVPN 导入 diagnostics。
@@ -1218,6 +1218,10 @@ Step 0.5 授权/冻结
 
 - **03 本轮正式重测（2026-10-24）：** HEAD `a67633b66639ac169f095f1232553d1eda42f908`，开工工作区干净；前端生产 build（含类型检查）通过，仅有既有 chunk 提示，index SHA-256 `0de2ba311b42ed06e60b0492e7fa36ab04e572113a2f75f719605f13aa0dc093`。临时后端副本仅收窄监听127.0.0.1:18088并注入最新dist，全新DATA_DIR、APP_MODE=prod，正常Setup／注册API创建合成Admin并查库核对admin／active，未操作backend/data。Chrome版本未取得，920×785浅色Modal与375×785深色Drawer；环境、截图／DOM、焦点和脱敏数据库摘要见 `.ui-check/pt03-04-20261024/`。
 - **局部结果与停止原因：** WireGuard文本／多行私钥／selector／数字／文本列表／字节序列渲染，AQID→[1,2,3]，MTU=0及1420保存与清空、single Allowed IPs清空检查／持久化、DNS条件必填拒绝且聚焦新增条目、空Peer服务器错误定位、Peer增删／上下移及边界禁用、双Peer保存重开与稳定身份／PSK状态通过。只读SQLite确认mtu与顶层allowed-ips缺失、workers=2、私钥／PSK加密、peer_mode仅在current_state.selectors。随后删除第一个Peer唯一Allowed IPs，保存拒绝正确，但焦点落在server而非Allowed IPs新增按钮，双视口复现，登记[Issue19.md](Issue19.md) R33-07；失败保存后修订仍为5，原列表保持。03整体未通过；三态bool、局部JSON、长内容、折叠数字错误及OpenVPN联合断言未完成，04和第二阶段依赖未执行。本轮只更新记录，未修复代码或执行全量自动化／Docker／固定内核／远端CI／真实连接／Step22／提交推送。Step21保持进行中。
+
+- **R33-07 修复前准备与产出（2026-10-24）：** 用户选择方案 A 并要求先研究检查再修复。复核注册表、保存／检查入口、稳定凭据、局部 JSON 与会话生命周期后，确认影响范围为前端保存错误定位；一并覆盖同名路径误匹配、请求期间重排／删除／修正、关闭重开与父级回退。新增 `frontend/src/utils/nodeValidation.ts`，从实际提交副本按 schema 递归生成仅含路径／身份的快照，并按错误格式与路径边界解析；`NodesView.vue` 加入当前请求／会话／同步草稿版本保护，递归编辑器补所属 JSON 和列表新增定位标记。通用草稿／OpenVPN 定位、后端校验、存储、API、凭据合同及检查面板交互保持原范围。方案 B／C 的比较与边界见 Issue19 R33-07。
+- **R33-07 验收规范与自动化：** 首个／第二个 Peer 和提交前重排须定位对应 UUID 的空列表新增按钮；JSON 模式定位所属文本框；未知子字段不得匹配同名顶层字段或借用其他条目／后代 JSON；请求期间草稿变化、关闭重开、卸载和较早请求不得抢焦点。最终回归以 HEAD 原生产组件作运行时负对照，22 项中 20 项在预期焦点断言失败、2 项对照通过；修复后前端 6 文件／210 项定向通过，补强后全量 51 文件／455 项及 `npm run build` 通过（既有 chunk 提示）。后端 `go build ./... && go vet ./... && go test ./...` 通过，普通缓存策略；未改后端代码。复核命令：`cd frontend && npm test -- --run tests/node-validation.spec.ts tests/nodes-view.spec.ts tests/protocol-field-editor.spec.ts tests/node-check-panel.spec.ts tests/openvpn-import-panel.spec.ts tests/node-protocol-payload.spec.ts`，再执行前端全量测试／构建与后端上述门禁。
+- **R33-07 定向 Production 证据与边界：** 基线 HEAD `924e4c99449c7784cd3fbcfedc903897eab0df54` 加未提交修复，index SHA-256 `28126247b887ae3f4442394a627fa006092387dbd053736d0369196255e5e38e`；临时后端副本仅收窄 loopback 并嵌入最新 dist，全新 DATA_DIR、APP_MODE=prod、127.0.0.1:18089，合成 Admin 经 SQLite 核对 admin／active／组 1，未使用 backend/data。920×785 浅色验证首个 Peer、重排后第二个 Peer 和 JSON 模式定位；375×785 深色验证第二个 Peer 空列表焦点可见、scrollWidth=375。仅暂缓真实 XHR 400 响应，期间 UI 重排并聚焦另一 Peer，释放后焦点保持；已清空拦截并恢复视口。失败保存后修订保持 1，合法重排保存后为 2，保存重开顺序／稳定 UUID／PSK 状态正确；MTU=1420、workers=2 与加密私钥保持。环境、截图／DOM、焦点和数据库摘要见 `.ui-check/r33-07-20261024/`，浏览器版本未取得，临时服务已停止。R33-07 已关闭；本轮不替代完整 03，04／第二阶段依赖继续停止，Step21 未完成、Step22 未开始。未执行 Docker／race／固定 Mihomo／远端 CI／真实连接／提交推送。
 
 ### Step 22：联合门禁、隔离 smoke 与归档
 
@@ -1296,6 +1300,7 @@ git diff --check
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.36 | 2026-10-24 | 按用户选定方案 A 修复 R33-07 及相关路径误匹配／旧错误定位／父级回退；22 项负对照、全量 455 项／build、后端 build／vet／test、双视口与真实迟到 XHR 定向复验通过。03 仍待完整重测，Step21 未完成、Step22 未开始。 |
 | v1.35 | 2026-10-24 | 按用户授权修复 R33-06：分阶段保留／消费空列表，五字段／DNS／Peer／HTTP 与前端请求回归、后端全量／两包 race／errgate、前端 415 项／build、920px 浅色和 375px 深色定向隔离复验通过。03 待完整重测，Step21 未完成、Step22 未开始。 |
 | v1.33 | 2026-10-22 | 按用户授权修复 R33-05：共享普通标量清空请求、合并后缺失键存储、失败优先与全量 413 项、后端全量及两包 race／errgate、1280px 隔离浏览器／API、R33-04 回归。03 待完整重测，Step21 保持进行中。 |
 | v1.34 | 2026-10-24 | computer use 重测 03：MTU／字节等局部通过，发现 R33-06 文本列表清空恢复及检查旧值，停止后续依赖；两项真实连接按用户指示豁免完成，Step21 仍进行中、Step22 未开始。 |

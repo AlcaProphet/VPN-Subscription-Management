@@ -2862,3 +2862,212 @@ describe('R33-06 文本列表清空请求', () => {
     } finally { wrapper.unmount() }
   })
 })
+
+describe('R33-07 保存校验定位', () => {
+  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+  const peerSchema = {
+    protocol: 'wireguard', label: 'WireGuard', sensitive_fields: ['peers[].pre-shared-key'],
+    link_mappings: { sr: true, generic: true },
+    form_schema: [
+      { name: 'refresh-server-ip-interval', type: 'number', required: false, label: '刷新间隔', group: 'advanced' },
+      {
+        name: 'peers', type: 'object', object_kind: 'list', item_id_field: '_credential_id', required: true,
+        label: 'Peer 列表', group: 'connection', properties: [
+          { name: 'server', type: 'text', required: true, label: '服务器' },
+          { name: 'port', type: 'number', required: true, label: '端口' },
+          { name: 'public-key', type: 'text', required: true, label: '公钥' },
+          { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+          { name: 'allowed-ips', type: 'text-list', required: true, label: 'Allowed IPs' },
+        ],
+      },
+    ],
+  }
+
+  function elementAt(path: string): HTMLElement {
+    return Array.from(document.querySelectorAll<HTMLElement>('.node-protocol-form [data-field-path]'))
+      .find((element) => element.dataset.fieldPath === path)!
+  }
+  function focusedPath() {
+    return (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-field-path]')?.dataset.fieldPath
+  }
+  async function setup(edit = true) {
+    mockListNodes.mockReset().mockResolvedValue([])
+    mockGetProtocols.mockReset().mockResolvedValue([peerSchema])
+    mockCreateNode.mockReset()
+    mockUpdateNode.mockReset()
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const params = { peers: ids.map((id, index) => ({
+      _credential_id: id, server: `peer${index}.example.test`, port: 443,
+      'public-key': 'synthetic-public', 'allowed-ips': ['10.0.0.0/24'],
+    })) }
+    if (edit) vm.openEdit({ ...node, protocol: 'wireguard', protocol_json: params })
+    else {
+      vm.openCreate()
+      vm.form.protocol = 'wireguard'
+      vm.form.protocol_json = params
+    }
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    return { wrapper, vm }
+  }
+  function rejectField(path: string, edit = true) {
+    ;(edit ? mockUpdateNode : mockCreateNode).mockRejectedValue(new ApiError(400, `参数错误: 字段 ${path} 必填`))
+  }
+
+  it.each([0, 1])('Peer %s 删除唯一 Allowed IPs 后定位其新增按钮', async (index) => {
+    const { wrapper, vm } = await setup()
+    try {
+      const path = `peers[${ids[index]}].allowed-ips`
+      const editor = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === path)!
+      await editor.get('.ant-btn-dangerous').trigger('click')
+      rejectField(`peers[${index}].allowed-ips`)
+      await vm.save()
+      expect(focusedPath()).toBe(path)
+      expect(document.activeElement?.tagName).toBe('BUTTON')
+      expect(document.activeElement?.textContent).toContain('新增条目')
+      expect(mockUpdateNode.mock.calls[0][1].protocol_json.peers[index]['allowed-ips']).toEqual([])
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['server', 'port', 'public-key', 'pre-shared-key'])('第二个 Peer 的 %s 错误定位精确子字段', async (name) => {
+    const { wrapper, vm } = await setup()
+    try {
+      rejectField(`peers[1].${name}`)
+      await vm.save()
+      expect(focusedPath()).toBe(`peers[${ids[1]}].${name}`)
+    } finally { wrapper.unmount() }
+  })
+
+  it('新建及提交前重排使用实际提交顺序', async () => {
+    const { wrapper, vm } = await setup(false)
+    try {
+      vm.form.protocol_json.peers.reverse()
+      await nextTick()
+      rejectField('peers[0].allowed-ips', false)
+      await vm.save()
+      expect(focusedPath()).toBe(`peers[${ids[1]}].allowed-ips`)
+      expect(mockCreateNode.mock.calls[0][0].protocol_json.peers[0]._credential_id).toBe(ids[1])
+    } finally { wrapper.unmount() }
+  })
+
+  it('未知子字段不匹配同名顶层字段，而定位所属 JSON 入口', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      rejectField('peers[0].refresh-server-ip-interval')
+      await vm.save()
+      expect(focusedPath()).toBe('peers')
+      expect(document.activeElement?.textContent).toContain('高级 JSON')
+    } finally { wrapper.unmount() }
+  })
+
+  it('高级 JSON 模式定位所属文本框并保留模式及原文', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      const editor = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'peers')!
+      await editor.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+      const textarea = editor.get('textarea').element as HTMLTextAreaElement
+      const text = textarea.value
+      rejectField('peers[1].allowed-ips')
+      await vm.save()
+      expect(document.activeElement).toBe(textarea)
+      expect(textarea.value).toBe(text)
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['重排', '删除', '修正', '改后恢复', '切换协议', '未应用 JSON', '待确认切换', '关闭重开'])('请求期间%s使旧错误失去定位资格', async (action) => {
+    const { wrapper, vm } = await setup()
+    let reject!: (error: Error) => void
+    try {
+      mockUpdateNode.mockImplementation(() => new Promise((_, rejectRequest) => { reject = rejectRequest }))
+      const pending = vm.save()
+      if (action === '重排') vm.form.protocol_json.peers.reverse()
+      if (action === '删除') vm.form.protocol_json.peers.splice(0, 1)
+      if (action === '修正') vm.form.protocol_json.peers[0]['allowed-ips'] = ['192.0.2.0/24']
+      if (action === '改后恢复') {
+        vm.form.protocol_json.peers.reverse()
+        vm.form.protocol_json.peers.reverse()
+      }
+      if (action === '切换协议') {
+        vm.form.protocol = 'ss'
+        vm.form.protocol = 'wireguard'
+      }
+      if (action === '未应用 JSON') vm.handleJsonDirty({ path: 'peers', dirty: true })
+      if (action === '待确认切换') vm.pendingTransition = { fields: ['peers'], credentialCount: 0, endpointText: '', commit: () => {} }
+      if (action === '关闭重开') {
+        vm.creating = false
+        await nextTick()
+        vm.openEdit({ ...node, protocol: 'wireguard', protocol_json: { peers: [{ _credential_id: ids[1], server: 'other-session' }] } })
+      }
+      await nextTick()
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      const remaining = Array.from(document.querySelectorAll<HTMLElement>('.node-protocol-form [data-field-path]'))
+        .filter((element) => element.dataset.fieldPath?.endsWith('.public-key'))
+      const sentinel = remaining[remaining.length - 1].querySelector<HTMLInputElement>('input')!
+      sentinel.focus()
+      reject(new ApiError(400, '参数错误: 字段 peers[0].allowed-ips 必填'))
+      await pending
+      expect(document.activeElement).toBe(sentinel)
+    } finally { wrapper.unmount() }
+  })
+
+  it.each([500, 0])('状态 %s 的非校验错误不根据文案移动焦点', async (status) => {
+    const { wrapper, vm } = await setup()
+    try {
+      const sentinel = elementAt(`peers[${ids[1]}].server`).querySelector<HTMLInputElement>('input')!
+      sentinel.focus()
+      mockUpdateNode.mockRejectedValue(new ApiError(status, '参数错误: 字段 peers[0].allowed-ips 必填'))
+      await vm.save()
+      expect(document.activeElement).toBe(sentinel)
+    } finally { wrapper.unmount() }
+  })
+
+  it('稳定凭据路径直接定位，折叠高级参数仍会展开', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      mockUpdateNode.mockRejectedValueOnce(new ApiError(400, `参数错误: 凭据路径 peers[${ids[1]}].pre-shared-key 重复操作`))
+      await vm.save()
+      expect(focusedPath()).toBe(`peers[${ids[1]}].pre-shared-key`)
+      rejectField('refresh-server-ip-interval')
+      await vm.save()
+      expect(focusedPath()).toBe('refresh-server-ip-interval')
+      expect((elementAt('refresh-server-ip-interval').closest('details') as HTMLDetailsElement).open).toBe(true)
+    } finally { wrapper.unmount() }
+  })
+
+  it('较早请求的错误不得覆盖较新请求的定位', async () => {
+    const { wrapper, vm } = await setup()
+    let rejectOld!: (error: Error) => void
+    try {
+      mockUpdateNode.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+      const old = vm.save()
+      rejectField('peers[1].allowed-ips')
+      await vm.save()
+      const focused = document.activeElement
+      expect(focusedPath()).toBe(`peers[${ids[1]}].allowed-ips`)
+      rejectOld(new ApiError(400, '参数错误: 字段 peers[0].server 必填'))
+      await old
+      expect(document.activeElement).toBe(focused)
+    } finally { wrapper.unmount() }
+  })
+
+  it('卸载后迟到错误不定位另一个仍在页面中的表单', async () => {
+    const { wrapper, vm } = await setup()
+    let reject!: (error: Error) => void
+    mockUpdateNode.mockImplementationOnce(() => new Promise((_, rejectRequest) => { reject = rejectRequest }))
+    const pending = vm.save()
+    wrapper.unmount()
+    const other = document.createElement('form')
+    other.className = 'node-protocol-form'
+    other.innerHTML = '<div data-field-path="peers"><input></div><button type="button">保留焦点</button>'
+    document.body.append(other)
+    try {
+      const sentinel = other.querySelector('button')!
+      sentinel.focus()
+      reject(new ApiError(400, '参数错误: 字段 peers[0].allowed-ips 必填'))
+      await pending
+      expect(document.activeElement).toBe(sentinel)
+    } finally { other.remove() }
+  })
+})
