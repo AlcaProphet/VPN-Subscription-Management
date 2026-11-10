@@ -4,7 +4,7 @@
 
 ## 复工基线
 
-- **当前开发分支** `beta` 与远端 `origin/beta` 均为 `bf2669a`，包含 R33-07。Build32 Step 0.5～20 已验收，Step 21 正式人工验收进行中，Step 22 未开始。[Build32.md](Build32.md) · [Issue19.md](Issue19.md)
+- **本轮验收基线** 本地 `beta` 为 `0b532de`，比本地记录的 `origin/beta`（`bf2669a`）多一个仅修改本清单的提交。Build32 Step 0.5～20 已验收，Step 21 正式人工验收进行中，Step 22 未开始。[Build32.md](Build32.md) · [Issue19.md](Issue19.md)
 - **已发布镜像** `v4.1.3` 对应 `45cb62a`，包含 R34-01 的依赖修复 `1903c58`。该标签已通过远端 `npm audit` high 门禁及镜像构建和推送。复查时 GHCR 的 `v4.1.3` 与 `latest` 均解析到该次构建的镜像摘要 `sha256:3862b98b1b0db8f10dcc5c8c63d61270528aa04191be30b8c52689b13bc11a61`。标签之后的 `beta` 修复仍待随候选产物验收。[GitHub Actions #39727958557](https://github.com/AlcaProphet/VPN-Subscription-Management/actions/runs/39727958557)
 
 ## 当前待办（按优先级及各事项依赖顺序）
@@ -16,10 +16,10 @@
 
 ### P1：从 PT-B32-21-03 续跑 Build32 正式浏览器与 API 人工验收
 
-- [ ] PT-B32-21-01／02 已通过，R33-01～07 已关闭。用当前 HEAD 重新构建 `frontend/dist`，准备全新隔离 `DATA_DIR` 与合成管理员，记录提交、产物、浏览器版本、视口与主题。从头执行 PT-B32-21-03 的全部断言，包括 Peer 精确错误定位与迟到响应、三态 bool、数字／列表清空、局部 JSON、长内容及 OpenVPN 行级诊断。[ProdTestList.md](ProdTestList.md) · [Issue19.md](Issue19.md)
+- [ ] 03 正式重测发现 R33-08，先处理 920px 节点列表横向溢出。修复后用当前 HEAD 重建 `frontend/dist`、全新隔离 `DATA_DIR` 与合成账号，从头重测 PT-B32-21-03。记录提交、产物、浏览器版本、视口与主题。01／02 已通过，R33-01～07 已关闭。[ProdTestList.md](ProdTestList.md) · [Issue19.md](Issue19.md)
 - [ ] 03 通过后执行 PT-B32-21-04，完成 19 个协议的检查、保存、重开与分支清空。04 通过后依次执行 PT-B32-17-01、PT-B32-18-01、PT-B32-19-01、PT-B32-19-02，核验 TrustTunnel、OpenVPN 和测试 `.ovpn` 的字段生命周期、解析应用、API 安全边界与凭据脱敏。[ProdTestList.md](ProdTestList.md)
 
-任一人工项目失败时，停止其后续依赖项，登记脱敏复现，修复后从失败项完整重测。R33-07 定向复验只覆盖部分 03 断言。PT-B32-17-02 与 PT-B32-18-02 的真实连接维持用户豁免状态。[ProdTestList.md](ProdTestList.md)
+任一人工项目失败时，停止其后续依赖项，登记脱敏复现，修复后从失败项完整重测。PT-B32-17-02 与 PT-B32-18-02 的真实连接维持用户豁免状态。[ProdTestList.md](ProdTestList.md)
 
 ### P2：Build32 Step 22
 
@@ -45,6 +45,7 @@
 
 | 日期 | 说明 |
 |---|---|
+| 2026-11-10 | PT-B32-21-03 正式重测发现 R33-08，登记修复与完整重测入口，停止后续依赖。 |
 | 2026-11-10 | 复核 beta、远端标签与项目台账，记录 `v4.1.3` 审计及镜像推送证据，明确 R34-01 剩余视觉复核；保留 R31-01 独立优先级及 Build32 从 03 到 Step 22 的验收顺序。 |
 | 2026-10-24 | R33-07 方案 A 及相关误匹配／旧错误定位／安全回退修复完成，全量与双视口定向隔离复验通过；P1 返回完整 PT-B32-21-03，后续依赖和 Step22 保持未验收。 |
 | 2026-10-24 | 03 重测发现 R33-06 文本列表清空恢复及检查旧值，更新 P1 修复入口并停止后续依赖；按用户指示移除两项真实连接待办，完成状态为豁免。 |
