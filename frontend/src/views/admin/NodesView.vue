@@ -828,6 +828,10 @@ async function confirmDisable() {
     disabling.value = false
   }
 }
+function canTogglePublic(n: NodeItem): boolean {
+  return n.source === 'xray' && n.allocatable && !n.missing
+}
+
 async function onTogglePublic(n: NodeItem, isPublic: boolean) {
   publicTarget.value = { ...n, is_public: isPublic }
 }
@@ -1048,7 +1052,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
 </script>
 
 <template>
-  <div>
+  <div class="node-management">
     <PageHeader title="节点管理">
       <template #actions>
         <Button @click="openImport">批量导入</Button>
@@ -1057,33 +1061,34 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
     </PageHeader>
 
     <TriStateList :loading="loading" :empty="nodes.length === 0" empty-text="暂无节点">
-      <Table :data-source="nodes" row-key="id" :pagination="false" class="hidden md:block">
+      <Table :data-source="nodes" row-key="id" :pagination="false" size="small"
+             table-layout="fixed" class="node-list-table hidden md:block">
         <Table.Column key="render_name" title="节点">
           <template #default="{ record }">
             <div class="font-medium">{{ record.render_name }}</div>
             <div v-if="record.source === 'xray' && record.display_name" class="text-xs text-text-secondary">{{ record.name }}</div>
           </template>
         </Table.Column>
-        <Table.Column key="source" title="来源" width="100">
+        <Table.Column key="source" title="来源" :width="78">
           <template #default="{ record }">
-            <Tag :color="record.source === 'manual' ? 'default' : 'purple'">{{ sourceLabel[record.source] ?? record.source }}</Tag>
+            <Tag class="node-list-source" :color="record.source === 'manual' ? 'default' : 'purple'">{{ sourceLabel[record.source] ?? record.source }}</Tag>
           </template>
         </Table.Column>
-        <Table.Column key="protocol" title="协议" data-index="protocol" width="110" />
+        <Table.Column key="protocol" title="协议" data-index="protocol" :width="86" />
         <Table.Column key="addr" title="地址">
           <template #default="{ record }"><span v-if="record.port > 0">{{ record.host }}:{{ record.port }}</span><span v-else>协议自身管理</span></template>
         </Table.Column>
-        <Table.Column key="enabled" title="启用" width="90">
+        <Table.Column key="enabled" title="启用" :width="60">
           <template #default="{ record }">
-            <Switch :checked="record.enabled" @change="(v: any) => onToggleEnabled(record, v)" />
+            <Switch aria-label="启用" :checked="record.enabled" @change="(v: any) => onToggleEnabled(record, v)" />
           </template>
         </Table.Column>
-        <Table.Column key="public" title="公共" width="90">
+        <Table.Column key="public" title="公共" :width="60">
           <template #default="{ record }">
-            <Switch v-if="record.source === 'xray' && record.allocatable && !record.missing" :checked="record.is_public" @change="(v: any) => onTogglePublic(record, v)" />
+            <Switch v-if="canTogglePublic(record)" aria-label="公共" :checked="record.is_public" @change="(v: any) => onTogglePublic(record, v)" />
           </template>
         </Table.Column>
-        <Table.Column key="actions" title="操作" width="200">
+        <Table.Column key="actions" title="操作" :width="112">
           <template #default="{ record }">
             <Space>
               <Button v-if="record.source === 'manual'" size="small" @click="openEdit(record)">编辑</Button>
@@ -1096,17 +1101,21 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         </Table.Column>
       </Table>
 
-      <div class="grid grid-cols-1 gap-3 md:hidden">
-        <div v-for="n in nodes" :key="n.id" class="border rounded-lg p-3">
-          <div class="flex items-center justify-between">
-            <span class="font-medium">{{ n.render_name }}</span>
-            <Tag :color="n.source === 'manual' ? 'default' : 'purple'">{{ sourceLabel[n.source] ?? n.source }}</Tag>
+      <div class="node-list-cards grid grid-cols-1 gap-3 md:hidden">
+        <div v-for="n in nodes" :key="n.id" class="min-w-0 border rounded-lg p-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="min-w-0 font-medium">{{ n.render_name }}</span>
+            <Tag class="node-list-source shrink-0" :color="n.source === 'manual' ? 'default' : 'purple'">{{ sourceLabel[n.source] ?? n.source }}</Tag>
           </div>
           <div v-if="n.source === 'xray' && n.display_name" class="text-xs text-text-secondary">{{ n.name }}</div>
           <div class="text-xs text-text-secondary mt-1">{{ n.protocol }} · {{ n.port > 0 ? `${n.host}:${n.port}` : '协议自身管理' }}</div>
           <div class="mobile-actions mt-2 flex items-center gap-2 flex-wrap">
             <label class="switch-hit">
-              <Switch :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
+              <Switch aria-label="启用" :checked="n.enabled" size="small" @change="(v: any) => onToggleEnabled(n, v)" />
+            </label>
+            <label v-if="canTogglePublic(n)" class="switch-hit inline-flex items-center gap-1 text-xs">
+              <span>公共</span>
+              <Switch aria-label="公共" :checked="n.is_public" size="small" @change="(v: any) => onTogglePublic(n, v)" />
             </label>
             <Button v-if="n.source === 'manual'" size="small" @click="openEdit(n)">编辑</Button>
             <Button v-if="n.source === 'xray'" size="small" @click="openNaming(n)">命名</Button>
@@ -1388,6 +1397,16 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
 </template>
 
 <style scoped>
+.node-management { container: node-management / inline-size; }
+.node-list-table :deep(.ant-table-cell),
+.node-list-cards { overflow-wrap: anywhere; }
+.node-list-source { margin-inline-end: 0; }
+
+@container node-management (width < 600px) {
+  .node-list-table { display: none; }
+  .node-list-cards { display: grid; }
+}
+
 .node-protocol-form :deep(.protocol-scalar-field > .ant-input),
 .node-protocol-form :deep(.ant-input-affix-wrapper),
 .node-protocol-form :deep(.ant-input-number),

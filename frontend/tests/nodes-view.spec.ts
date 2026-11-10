@@ -38,8 +38,9 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import NodesView from '@/views/admin/NodesView.vue'
-import { listNodes, getProtocols, createNode, updateNode, importNodes, parseOpenVPN, type FieldSchema } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, toggleNode, importNodes, parseOpenVPN, type FieldSchema } from '@/api/node'
 import { ApiError } from '@/api/request'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 import { Notify } from '@/components/Notify'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
@@ -131,6 +132,48 @@ describe('NodesView 节点管理页', () => {
     ;(Notify.warning as unknown as ReturnType<typeof vi.fn>).mockClear()
     mockListNodes.mockResolvedValue([node])
     mockGetProtocols.mockResolvedValue(protocols)
+  })
+
+  it('节点卡片与表格只对可分配且未缺失的 Xray 节点提供公共开关，并共用确认流程', async () => {
+    const xray = { ...node, id: 2, source: 'xray', name: 'xray-ok', render_name: 'xray-ok' }
+    mockListNodes.mockResolvedValue([
+      node,
+      xray,
+      { ...xray, id: 3, name: 'xray-missing', render_name: 'xray-missing', missing: true },
+      { ...xray, id: 4, name: 'xray-ineligible', render_name: 'xray-ineligible', allocatable: false },
+    ])
+    const mockToggleNode = vi.mocked(toggleNode)
+    mockToggleNode.mockResolvedValueOnce({ ...xray, source: 'xray', is_public: true })
+    const wrapper = mount(NodesView)
+    try {
+      await flushPromises()
+      const publicSwitch = 'button[role="switch"][aria-label="公共"]'
+      const cardSwitches = wrapper.findAll(`.node-list-cards ${publicSwitch}`)
+      const tableSwitches = wrapper.findAll(`.node-list-table ${publicSwitch}`)
+      expect(cardSwitches).toHaveLength(1)
+      expect(tableSwitches).toHaveLength(1)
+      expect(cardSwitches[0].attributes('aria-checked')).toBe('false')
+
+      const confirm = wrapper.findAllComponents(ConfirmModal).find(modal => modal.props('title') === '切换公共标记')!
+      await cardSwitches[0].trigger('click')
+      expect(confirm.props('open')).toBe(true)
+      expect(mockToggleNode).not.toHaveBeenCalled()
+      confirm.vm.$emit('update:open', false)
+      await nextTick()
+      expect(confirm.props('open')).toBe(false)
+      expect(cardSwitches[0].attributes('aria-checked')).toBe('false')
+
+      await cardSwitches[0].trigger('click')
+      confirm.vm.$emit('confirm')
+      await flushPromises()
+      expect(mockToggleNode).toHaveBeenCalledExactlyOnceWith(2, { is_public: true })
+      expect(confirm.props('open')).toBe(false)
+      expect(cardSwitches[0].attributes('aria-checked')).toBe('true')
+      expect(tableSwitches[0].attributes('aria-checked')).toBe('true')
+    } finally {
+      wrapper.unmount()
+      mockToggleNode.mockReset()
+    }
   })
 
   it('新建节点内持久展示分支清空规则，不使用顶部动态消息', async () => {
@@ -719,8 +762,9 @@ describe('NodesView 节点管理页', () => {
     mockListNodes.mockResolvedValue([{ ...node, protocol: 'tailscale', host: '', port: 0 }])
     const wrapper = mountNodesView()
     await flushPromises()
-    expect(wrapper.find('.md\\:hidden').text()).toContain('tailscale · 协议自身管理')
-    expect(wrapper.find('.md\\:hidden').text()).not.toContain(':0')
+    const cards = wrapper.get('.node-list-cards')
+    expect(cards.text()).toContain('tailscale · 协议自身管理')
+    expect(cards.text()).not.toContain(':0')
     wrapper.unmount()
   })
 
