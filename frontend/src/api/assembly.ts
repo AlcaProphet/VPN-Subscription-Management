@@ -92,7 +92,6 @@ export interface BlueprintResponse {
       overlay?: OverlayInput
     }
     custom_rules: RuleLine[]
-    render_plan: Record<string, unknown>
   }
   invalid_refs: Array<{ kind: string; name: string }>
   name_changed?: Record<string, string>

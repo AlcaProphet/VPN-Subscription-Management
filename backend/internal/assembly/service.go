@@ -110,10 +110,21 @@ func (s *Service) SaveBlueprintTx(ctx context.Context, tx *sql.Tx, versionID int
 	if renderPlan == nil {
 		renderPlan = json.RawMessage(`{}`)
 	}
+	storedPlan := string(renderPlan)
+	if in.TargetSyntax == ClashYAML {
+		key, err := s.cfg.GetSigningKeyTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		storedPlan, err = encryptRenderPlan(storedPlan, key)
+		if err != nil {
+			return err
+		}
+	}
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO assembly_blueprints (version_id, target_syntax, fixed_params_json, selection_json, custom_rules_json, render_plan_json, platform_id, rule_id)
 		 VALUES (?,?,?,?,?,?,?,?)`,
-		versionID, string(in.TargetSyntax), string(fixed), string(sel), string(custom), string(renderPlan), platformID, ruleID)
+		versionID, string(in.TargetSyntax), string(fixed), string(sel), string(custom), storedPlan, platformID, ruleID)
 	return err
 }
 

@@ -232,3 +232,46 @@ func TestImportProtectionCoversExtensions(t *testing.T) {
 		t.Fatalf("同签名密钥导入不应被扩展保护拦截: %v", err)
 	}
 }
+
+func TestImportProtectionCoversClashRenderPlan(t *testing.T) {
+	ctx := context.Background()
+	source, sourceSvc := newTestExport(t, "prod")
+	seedExportConfig(t, source, nil)
+	const password = "export-pass-123"
+	data, err := sourceSvc.Export(ctx, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := sourceSvc.decrypt(data, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, targetSvc := newTestExport(t, "prod")
+	seedExportConfig(t, target, nil)
+	if _, err := target.DB().ExecContext(ctx, `CREATE TABLE assembly_blueprints (render_plan_json TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.DB().ExecContext(ctx, `INSERT INTO assembly_blueprints VALUES (?)`, `"`+ClashPlanCipherPrefix+`fixture"`); err != nil {
+		t.Fatal(err)
+	}
+	const differentKey = "different-signing-key-0123456789"
+	if err := targetSvc.cfg.Set(ctx, KeySigningKey, differentKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := targetSvc.Import(ctx, data, password, ConfirmWordImport, false); err == nil {
+		t.Fatal("v1 路径应拒绝变更蓝图加密使用的签名密钥")
+	}
+	if _, err := targetSvc.importV2(ctx, payload, ConfirmWordImport, false); err == nil {
+		t.Fatal("v2 路径应拒绝变更蓝图加密使用的签名密钥")
+	}
+	key, err := targetSvc.cfg.GetSigningKey(ctx)
+	if err != nil || string(key) != differentKey {
+		t.Fatalf("拒绝导入后签名密钥应保持: %v", err)
+	}
+	if err := targetSvc.cfg.Set(ctx, KeySigningKey, payload.Config[KeySigningKey]); err != nil {
+		t.Fatal(err)
+	}
+	if err := targetSvc.Import(ctx, data, password, ConfirmWordImport, false); err != nil {
+		t.Fatalf("同密钥导入失败: %v", err)
+	}
+}

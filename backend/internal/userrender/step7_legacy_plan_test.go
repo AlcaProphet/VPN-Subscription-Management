@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"vpn-sub/internal/assembly"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/tasks"
 	"vpn-sub/internal/xray"
@@ -50,6 +51,9 @@ func TestLegacyStringArrayClashPlanDownloadFallback(t *testing.T) {
 	}
 
 	lg := log.New("error", "console")
+	if err := assembly.MigrateRenderPlans(ctx, st, cfg); err != nil {
+		t.Fatalf("迁移早期字符串数组蓝图失败: %v", err)
+	}
 	instSvc := xray.NewInstanceService(st, lg, tasks.NewRegistry())
 	creds := xray.NewCredentialService(st, cfg)
 	syncSvc := xray.NewSyncService(st, cfg, creds, instSvc, tasks.NewRegistry(), lg)

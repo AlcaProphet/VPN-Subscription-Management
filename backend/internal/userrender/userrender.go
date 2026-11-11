@@ -74,6 +74,10 @@ func (s *Service) Render(ctx context.Context, subID, userID int64, content []byt
 
 	// Clash 全量重渲染：使用自包含 render_plan_json。
 	if targetSyntax == "clash-yaml" {
+		planRaw, err := assembly.DecodeRenderPlan(ctx, s.cfg, planRaw)
+		if err != nil {
+			return nil, err
+		}
 		if isLegacyClashPlan(planRaw) {
 			// 旧版蓝图（Build6 修复前）回退到占位行替换，避免空渲染。
 			if comment != "" {

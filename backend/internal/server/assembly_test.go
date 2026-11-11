@@ -124,7 +124,7 @@ func doJSON(t *testing.T, engine *gin.Engine, method, path string, body any) *ht
 }
 
 func TestAssemblyGenerateAndBlueprint(t *testing.T) {
-	engine, st, _ := newAssemblyTestEnv(t)
+	engine, st, cfg := newAssemblyTestEnv(t)
 	pid := insertAssemblyBase(t, st)
 	ctx := context.Background()
 	// preview 不落库
@@ -173,6 +173,18 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 	if blueprintCount != 1 {
 		t.Fatalf("蓝图应 1:1，实际 %d", blueprintCount)
 	}
+	const fixtureUUID = "11111111-2222-3333-4444-555555555555"
+	var storedPlan string
+	if err := st.DB().QueryRowContext(ctx, `SELECT render_plan_json FROM assembly_blueprints WHERE version_id = ?`, genResp.Data.VersionID).Scan(&storedPlan); err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid([]byte(storedPlan)) || strings.Contains(storedPlan, fixtureUUID) {
+		t.Fatal("新蓝图必须是合法 JSON，且不含节点凭据明文")
+	}
+	decodedPlan, err := assembly.DecodeRenderPlan(ctx, cfg, storedPlan)
+	if err != nil || !strings.Contains(decodedPlan, fixtureUUID) {
+		t.Fatalf("内部解密应还原节点凭据: %v", err)
+	}
 	// 第二次 generate 不自动激活
 	w = doJSON(t, engine, http.MethodPost, "/api/admin/assembly/generate", body)
 	if w.Code != http.StatusOK {
@@ -200,6 +212,9 @@ func TestAssemblyGenerateAndBlueprint(t *testing.T) {
 	}
 	if bpResp.Data.Blueprint["target_syntax"] != "clash-yaml" {
 		t.Fatalf("blueprint 内容异常: %+v", bpResp.Data.Blueprint)
+	}
+	if _, exists := bpResp.Data.Blueprint["render_plan"]; exists || bytes.Contains(w.Body.Bytes(), []byte(fixtureUUID)) {
+		t.Fatal("管理员蓝图响应泄漏内部渲染计划或节点凭据")
 	}
 }
 
