@@ -1,11 +1,11 @@
-# TODOLIST.md — 短期待办跟踪（2026-11-11）
+# TODOLIST.md — 短期待办跟踪（2026-11-12）
 
 > 本文件只保留当前仍需处理的短期事项。已完成的构建、修复、自动化验证和人工验收不在此重复记录。
 
 ## 复工基线
 
-- **本轮验收基线** 开工时 `beta` 与本地记录的 `origin/beta` 均为 `e35ee2e`，包含 R33-08 修复。Build32 Step 0.5～21 已验收，Step 22 未开始。本轮含未提交的 R33-09 修复。[Build32.md](Build32.md) · [Issue19.md](Issue19.md)
-- **已发布镜像** `v4.1.3` 对应 `45cb62a`，包含 R34-01 的依赖修复 `1903c58`。该标签已通过远端 `npm audit` high 门禁及镜像构建和推送。复查时 GHCR 的 `v4.1.3` 与 `latest` 均解析到该次构建的镜像摘要 `sha256:3862b98b1b0db8f10dcc5c8c63d61270528aa04191be30b8c52689b13bc11a61`。标签之后的 `beta` 修复仍待随候选产物验收。[GitHub Actions #39727958557](https://github.com/AlcaProphet/VPN-Subscription-Management/actions/runs/39727958557)
+- **本地验收基线** `beta` 候选 `3caa298a06f5` 包含 R33-09。Build32 Step 0.5～22 已验收并归档。[Build32.md](docs/reports/Build/Build32.md) · [Issue19.md](Issue19.md)
+- **已发布镜像** `v4.1.3` 对应 `45cb62a`，包含 R34-01 的依赖修复 `1903c58`。该标签已通过当时的远端 `npm audit` high 门禁及镜像构建和推送。此前复查时 GHCR 的 `v4.1.3` 与 `latest` 均解析到该次构建的镜像摘要 `sha256:3862b98b1b0db8f10dcc5c8c63d61270528aa04191be30b8c52689b13bc11a61`。[GitHub Actions #39727958557](https://github.com/AlcaProphet/VPN-Subscription-Management/actions/runs/39727958557)
 
 ## 当前待办（按优先级及各事项依赖顺序）
 
@@ -14,19 +14,16 @@
 - [ ] 以 [ExportRelated1.md](ExportRelated1.md) 为问题入口，先确定 `signing_key` 的编码与现有数据库读取兼容方案，以及已经损坏的导出文件如何识别和处理；设计取舍交由用户确认，不将 [Design5.md](Design5.md) §一～§六整站迁移候选直接纳入修复。
 - [ ] 方案确认后建立独立修复与验收记录，覆盖真实随机密钥的 `Export → Import → 解密` 隔离端到端往返、不同密文类型及失败路径。修复验收前，不把现有配置导出／导入测试视为该问题已闭环。
 
-### P2：Build32 Step 22
+### 发布复核
 
-- [ ] P1 已全部通过，下一项是 Step 22。完成前后端联合门禁、固定 Mihomo v1.19.31 校验、Docker Compose 构建与全新隔离 `DATA_DIR` 的 API／浏览器 smoke。固定候选产物并分层记录证据，验收通过后同步文档、检查链接并归档。[Build32.md](Build32.md)
-
-### 发布复核（随候选产物验收与下次发布）
-
-- [ ] 补齐 R34-01 的 Tailwind 4 完整页面视觉回归，记录构建版本与页面覆盖。Build32 Step 22 跟踪当前候选的容器门禁。下次发布时以实际标签提交重新核对远端审计、构建与推送，并记录 GHCR 镜像摘要。[Issue20.md](Issue20.md)
+- [ ] 处理当前锁文件的发布审计阻塞。2026-11-12 复跑 `npm audit --audit-level=high` 退出 1，报告 1 项 high 和 4 项 moderate。高危项为 `follow-redirects@1.16.1`，公告列出的修复版本为 `1.16.2`。[GHSA-mrwp-f3q8-3g9p](https://github.com/advisories/GHSA-mrwp-f3q8-3g9p)
+- [ ] 补齐 R34-01 的 Tailwind 4 完整页面视觉回归，记录构建版本与页面覆盖。下次发布时以实际标签提交重新核对远端审计、构建与推送，并记录 GHCR 镜像摘要。[Issue20.md](Issue20.md)
 
 ## 独立跟踪与待决范围
 
 - Xray R26-07 工程与自动化已完成，仍待隔离 API/UI 人工核验。[XrayRelated1.md](XrayRelated1.md)
 - 第三期安全审查已完成 Step 1～3，续接 Step 4（API、前端路由与保护链清点），最终报告待交付。[SecurityScanPlan1.md](SecurityScanPlan1.md) · [SecurityReport3.md](SecurityReport3.md)
-- 局部 JSON 删除列表键及 WireGuard／MASQUE IP 文本清空仍待独立确认。数据库外历史兼容清理、整站迁移及 AmneziaWG 保持候选状态。[Issue19.md](Issue19.md) · [Design5.md](Design5.md) · [Build32.md](Build32.md)
+- 局部 JSON 删除列表键及 WireGuard／MASQUE IP 文本清空仍待独立确认。数据库外历史兼容清理、整站迁移及 AmneziaWG 保持候选状态。[Issue19.md](Issue19.md) · [Design5.md](Design5.md) · [Build32.md](docs/reports/Build/Build32.md)
 
 ## 跟踪规则
 
@@ -38,6 +35,7 @@
 
 | 日期 | 说明 |
 |---|---|
+| 2026-11-12 | Step 22 联合门禁和隔离候选验收通过，移除已完成的 P2 并链接归档记录。发布待办补充已复现的 high 审计阻塞。 |
 | 2026-11-11 | 完成 P1 和 Step 21，R33-09 已修复且 19-01／19-02 通过。移除已完成的 P1，保留 Step 22。 |
 | 2026-11-10 | PT-B32-21-03 正式重测发现 R33-08，登记修复与完整重测入口，停止后续依赖。 |
 | 2026-11-10 | 复核 beta、远端标签与项目台账，记录 `v4.1.3` 审计及镜像推送证据，明确 R34-01 剩余视觉复核；保留 R31-01 独立优先级及 Build32 从 03 到 Step 22 的验收顺序。 |
