@@ -1,53 +1,33 @@
 # TODOLIST.md — 短期待办跟踪（2026-11-12）
 
-> 本文件只保留当前仍需处理的短期事项。已完成的构建、修复、自动化验证和人工验收不在此重复记录。
+> 本文件跟踪当前待办与待确认范围。已完成工作的详细证据见对应 Design／Build／Issue。
 
-## 复工基线
+## 当前基线
 
-- **本地验收基线** `beta` 候选 `3caa298a06f5` 包含 R33-09。Build32 Step 0.5～22 已验收并归档。[Build32.md](docs/reports/Build/Build32.md) · [Issue19.md](Issue19.md)
-- **已发布镜像** `v4.1.3` 对应 `45cb62a`，包含 R34-01 的依赖修复 `1903c58`。该标签已通过当时的远端 `npm audit` high 门禁及镜像构建和推送。此前复查时 GHCR 的 `v4.1.3` 与 `latest` 均解析到该次构建的镜像摘要 `sha256:3862b98b1b0db8f10dcc5c8c63d61270528aa04191be30b8c52689b13bc11a61`。[GitHub Actions #39727958557](https://github.com/AlcaProphet/VPN-Subscription-Management/actions/runs/39727958557)
+- **开发与本地验收** `beta` 与远端同为 `1ceea52`。基础模式的既定开发范围已验收，Build32 Step 0.5～22 已归档，Issue19 R33-01～09 已关闭，Issue20 R34-01～04 的本地候选验收已完成。[Design4.md](Design4.md) · [Build32.md](docs/reports/Build/Build32.md) · [Issue19.md](Issue19.md) · [Issue20.md](Issue20.md)
+- **已发布镜像** GHCR 的 `v4.1.3` 和 `latest` 均指向 `45cb62a` 对应的镜像，索引摘要为 `sha256:3862b98b1b0db8f10dcc5c8c63d61270528aa04191be30b8c52689b13bc11a61`。该标签通过了当时的发布工作流，当前 `beta` 的修复仍待发布。[GitHub Actions #39727958557](https://github.com/AlcaProphet/VPN-Subscription-Management/actions/runs/39727958557)
 
-## 当前待办（按优先级及各事项依赖顺序）
+## 当前待办
 
-### P0：处理配置导出完整性问题 R31-01（独立专项）
+### P0 配置导出完整性（独立专项）
 
-- [ ] 以 [ExportRelated1.md](ExportRelated1.md) 为问题入口，先确定 `signing_key` 的编码与现有数据库读取兼容方案，以及已经损坏的导出文件如何识别和处理；设计取舍交由用户确认，不将 [Design5.md](Design5.md) §一～§六整站迁移候选直接纳入修复。
-- [ ] 方案确认后建立独立修复与验收记录，覆盖真实随机密钥的 `Export → Import → 解密` 隔离端到端往返、不同密文类型及失败路径。修复验收前，不把现有配置导出／导入测试视为该问题已闭环。
+- [ ] 以 R31-01 为入口，确认 `signing_key` 编码、旧库读取兼容和已损坏导出文件的处理方案。方案确认后，以真实随机密钥在隔离环境核验 `Export → Import → 解密`、不同密文类型及失败路径。[ExportRelated1.md](ExportRelated1.md)
 
 ### 发布复核
 
-- [ ] 跟踪 `@vue/test-utils → js-beautify` 开发依赖链的 4 项 moderate，待上游发布兼容版本后重查。[Issue20.md R34-02](Issue20.md)
-- [ ] 下次发布以实际标签提交核对远端 high 审计、构建与推送，并记录 GHCR 镜像摘要。[Issue20.md](Issue20.md)
+- [ ] 下次发布核对实际标签提交是否包含 R33-09 和 R34-02～04，并核验远端全依赖 high 审计、镜像构建和推送结果，记录 GHCR 摘要。当前审计复查为 `beta` 0 high／4 moderate，`v4.1.3` 锁文件仍报 `follow-redirects` 1 high／4 moderate。[Issue20.md](Issue20.md)
+- [ ] 跟踪 `@vue/test-utils → js-beautify` 开发依赖链的 4 项 moderate，待上游兼容版本发布后重查。[Issue20.md R34-02](Issue20.md#r34-02-follow-redirects-新公告阻断候选发布)
 
-## 独立跟踪与待决范围
+### 待确认与文档维护
 
-- Xray R26-07 工程与自动化已完成，仍待隔离 API/UI 人工核验。[XrayRelated1.md](XrayRelated1.md)
-- 第三期安全审查已完成 Step 1～3，续接 Step 4（API、前端路由与保护链清点），最终报告待交付。[SecurityScanPlan1.md](SecurityScanPlan1.md) · [SecurityReport3.md](SecurityReport3.md)
-- 局部 JSON 删除列表键及 WireGuard／MASQUE IP 文本清空仍待独立确认。数据库外历史兼容清理、整站迁移及 AmneziaWG 保持候选状态。[Issue19.md](Issue19.md) · [Design5.md](Design5.md) · [Build32.md](docs/reports/Build/Build32.md)
+- [ ] 确认局部 JSON 删除列表键、WireGuard／MASQUE IP 文本清空的预期，再决定是否实施。显式清空协议文本列表的既定修复已由 R33-06 验收。[Issue19.md](Issue19.md)
+- [ ] 同步 Design5 §7.6 的邮件人工验收状态，修正 Design5 与归档 Issue18 的失效相对链接。PT-B28-01～06 已于 2026-09-17 获用户确认通过。[Design5.md](Design5.md#76-实施状态2026-09-15) · [Issue18.md](docs/reports/Issue/Issue18.md)
 
-## 跟踪规则
+## 独立跟踪与后续范围
 
-1. 未执行项目不得标为通过；人工发现的问题登记到对应的当前问题记录。
-2. 工程实现、自动化门禁和正式构建结果写入对应的 Issue/Build/Design 文档，本文件只保留待处理入口。
-3. 完成事项从本文件移除，不保留逐项历史快照。
+- Xray R26-07 隔离 API／UI 人工核验及第三期安全审查 Step 4 起的工作，分别由对应专项跟踪。[XrayRelated1.md](XrayRelated1.md) · [SecurityScanPlan1.md](SecurityScanPlan1.md)
+- SS 2022 完整密钥／URI／客户端兼容和独立 Xray outbound 属于 Design4 后续专项。AmneziaWG、整站迁移、数据库外历史兼容清理属于候选范围，待另行确认启动。[Design4.md](Design4.md) · [Build32.md](docs/reports/Build/Build32.md) · [Design5.md](Design5.md) · [Build31.md](docs/reports/Build/Build31.md)
 
 ## 变更记录
 
-| 日期 | 说明 |
-|---|---|
-| 2026-11-12 | R34-02 本地 high 阻塞已解除，R34-01 双产物视觉复核已执行，R34-03／04 在最终本地候选通过。保留中危上游兼容跟踪和下次远端发布复核。 |
-| 2026-11-12 | Step 22 联合门禁和隔离候选验收通过，移除已完成的 P2 并链接归档记录。发布待办补充已复现的 high 审计阻塞。 |
-| 2026-11-11 | 完成 P1 和 Step 21，R33-09 已修复且 19-01／19-02 通过。移除已完成的 P1，保留 Step 22。 |
-| 2026-11-10 | PT-B32-21-03 正式重测发现 R33-08，登记修复与完整重测入口，停止后续依赖。 |
-| 2026-11-10 | 复核 beta、远端标签与项目台账，记录 `v4.1.3` 审计及镜像推送证据，明确 R34-01 剩余视觉复核；保留 R31-01 独立优先级及 Build32 从 03 到 Step 22 的验收顺序。 |
-| 2026-10-24 | R33-07 方案 A 及相关误匹配／旧错误定位／安全回退修复完成，全量与双视口定向隔离复验通过；P1 返回完整 PT-B32-21-03，后续依赖和 Step22 保持未验收。 |
-| 2026-10-24 | 03 重测发现 R33-06 文本列表清空恢复及检查旧值，更新 P1 修复入口并停止后续依赖；按用户指示移除两项真实连接待办，完成状态为豁免。 |
-| 2026-10-24 | R33-06 工程、自动化及双视口定向隔离复验完成，P1 改为从 03 完整重测；定向结果不替代完整人工项目，04／第二阶段依赖保持停止。 |
-| 2026-10-22 | R33-05 工程、全量测试与 1280px 定向隔离浏览器／API 复验完成，移出修复待办；P1 当前从 PT-B32-21-03 完整重测，保留 R33-04／05 联合回归和后续依赖门槛。 |
-| 2026-10-22 | R33-04 工程、自动化与定向隔离浏览器已完成，移出修复待办；P1 当前先处理 R33-05，再从 PT-B32-21-03 完整重测并覆盖 R33-04 回归，后续依赖仍停止。 |
-| 2026-10-22 | 正式 computer use 完成 PT-B32-21-01／02；03 因 R33-04／R33-05 的定位／清空持久化缺口失败，将 P1 入口更新为修复后从失败项继续，后续依赖项目保持待执行。 |
-| 2026-10-22 | P1 复核缺口按已定案方案补修完成，工程与定向隔离浏览器证据见 Issue19 R33-03／Build32 Step21；修正 Step22 的自我依赖，正式人工及真实连接项目继续待执行。 |
-| 2026-10-22 | Build32 Step 21 P1 工程前置已按用户授权修复并通过失败优先、定向 5 文件、前端全量测试和生产构建；工程与证据写入 Build32、设计口径同步 Design4。依清单规则移除已完成事项，后续正式人工与 Step 22 顺次上移；人工项目尚未执行。 |
-| 2026-10-22 | 复核当前 Git、Build32、Issue19、ProdTestList、ExportRelated1、XrayRelated1 与安全审查入口后重排短期计划：R31-01 导出完整性列为独立优先问题；Build32 保持 Step 21 工程前置 → 正式人工 → Step 22／最终产物真实连接的依赖顺序；Xray 与安全审查继续独立跟踪。仅规划，未将待办标记完成。 |
-| 2026-09-27 | 根据 Build32 Step 21 当前核验结果恢复短期待办：P0 先收口切换预检与 endpoint policy 提示，P1 按四项顺序完成全协议人工前端回归，P2 完成 TrustTunnel／OpenVPN／`.ovpn` 深度核验，P3 在 Step 22 最终候选产物上执行真实连接；详细断言统一由 ProdTestList 跟踪。 |
-| 2026-09-20 | 用户确认本表事项均已完成；当前无短期待办，已移除已完成清单并压缩历史变更记录。 |
+- 2026-11-12 核对 `beta`、已发布镜像和本地验收状态，压缩已完成工作的历史记录，补记待确认范围及文档同步项。
