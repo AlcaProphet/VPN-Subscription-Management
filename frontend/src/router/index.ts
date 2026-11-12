@@ -108,8 +108,8 @@ router.beforeEach(async (to) => {
   } catch {
     // 状态获取失败不阻断：仅依赖本地凭据判断，避免死循环
   }
-  // 1) emergency：为 true 强制跳 /emergency（本 Build 恒 false，结构预留；白名单：/emergency 自身）
-  if (status?.emergency && to.path !== '/emergency') return '/emergency'
+  // 1) 应急状态优先于首次配置，直接放行应急页。
+  if (status?.emergency) return to.path === '/emergency' ? true : '/emergency'
   // 2) configured：未配置时任意路径跳 /setup；已配置时访问 /setup 跳 /login
   if (status && !status.configured && to.path !== '/setup') return '/setup'
   if (status?.configured && to.path === '/setup') return '/login'
