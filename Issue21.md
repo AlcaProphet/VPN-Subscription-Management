@@ -1,8 +1,8 @@
 # Issue21.md — 本地调试问题记录
 
-> **文档定位：** 记录本轮本地调试中发现的问题，以及 R35-01、R35-02、R35-03 的根因研究与验证结果；当前均未实施修复。已归档的问题记录见 [docs/reports/Issue/](docs/reports/Issue/)，项目指令见 [AGENTS.md](AGENTS.md)。
+> **文档定位：** 记录本轮本地调试中发现的问题，以及 R35-01～R35-04 的根因研究与验证结果；当前均未实施修复。已归档的问题记录见 [docs/reports/Issue/](docs/reports/Issue/)，项目指令见 [AGENTS.md](AGENTS.md)。
 >
-> **当前状态（2026-11-16）：** R35-01 根因已确认，修复方案待决策；R35-02 根因已确认，阻断口径已由用户确认，尚未修复；R35-03 已完成分路径复现与根因研究，确认当前 HEAD 的干净流程不复现、`pool_id=0` 前置状态和旧内嵌构建两条路径可复现，用户原始环境待确认，尚未修复。本轮仅完成测试、研究与文档记录，未修改项目代码、配置、依赖或锁文件，也未将问题标记为已修复。
+> **当前状态（2026-11-16）：** R35-01 根因已确认，修复方案待决策；R35-02 根因已确认，阻断口径已由用户确认，尚未修复；R35-03 已完成分路径复现与根因研究，确认当前 HEAD 的干净流程不复现、`pool_id=0` 前置状态和旧内嵌构建两条路径可复现，用户原始环境待确认，尚未修复；R35-04 已完成从节点新建／编辑到 Clash/Mihomo 版本生成的全链路复现，根因已确认，尚未修复。本轮仅完成测试、研究与文档记录，未修改项目代码、配置、依赖或锁文件，也未将问题标记为已修复。
 
 ## 一、问题记录
 
@@ -758,12 +758,257 @@ GET  /api/admin/pools             → {list: [{id:2,...}]}       （PoolTab 保�
 
 ### R35-04 VLESS 节点开启 UDP 后生成的 Clash 配置缺少 UDP 字段
 
-- **现象：** 用户截图中，Clash YAML 生成版本的 VLESS 节点没有 `udp` 和 `network` 字段；用户确认生成该版本时节点编辑器的「UDP」开关已开启。
-- **预期：** 节点启用 UDP 时，生成的 Clash/Mihomo 配置应体现该设置，使该节点允许转发 UDP 流量。
-- **文档核对：** 截图是 Clash/Mihomo YAML，而非 Xray JSON。[Mihomo VLESS 文档](https://wiki.metacubex.one/config/proxies/vless/)说明不配置 `network` 时使用 TCP，因此未显式输出 `network: tcp` 本身不代表传输方式遗漏；[Mihomo 出站通用字段文档](https://wiki.metacubex.one/config/proxies/)说明 `udp` 默认关闭，所以截图中省略 `udp` 与用户确认的开启状态不一致。项目固定目标 [Mihomo v1.19.31 的 VLESS 实现](https://github.com/MetaCubeX/mihomo/blob/v1.19.31/adapter/outbound/vless.go)也将 `udp` 用作独立布尔选项并以 TCP 为默认传输。Xray 的 [VLESS 出站](https://xtls.github.io/en/config/outbounds/vless.html)和[传输配置](https://xtls.github.io/en/config/transport.html)使用自身配置结构，不能将其字段名直接套用到 Mihomo YAML。
-- **代码核对：** VLESS 注册表将 UDP 表单默认值设为 `true`、传输默认值设为 `tcp`；Clash VLESS 适配器会从输入参数复制 `udp` 和 `network`，且只复制已存在的非零值。尚未核实截图对应节点从编辑、保存到生成的各阶段数据，因此不能据此确定字段在哪一环丢失。
-- **复现入口：** 本地 Production 模式，生成并查看启用 UDP 的 VLESS 节点对应 Clash 订阅版本内容。
-- **状态与边界：** 待后续处理；本次核对文档与相关代码，未独立复现完整生成链路或实际连接，也未修复。
+- **现象（原始记录，保留）：** 用户截图中，Clash YAML 生成版本的 VLESS 节点没有 `udp` 和 `network` 字段；用户确认生成该版本时节点编辑器的「UDP」开关已开启。
+- **预期（原始记录，保留）：** 节点启用 UDP 时，生成的 Clash/Mihomo 配置应体现该设置，使该节点允许转发 UDP 流量。
+- **文档核对（原始记录，保留）：** 截图是 Clash/Mihomo YAML，而非 Xray JSON。[Mihomo VLESS 文档](https://wiki.metacubex.one/config/proxies/vless/)说明不配置 `network` 时使用 TCP，因此未显式输出 `network: tcp` 本身不代表传输方式遗漏；[Mihomo 出站通用字段文档](https://wiki.metacubex.one/config/proxies/)说明 `udp` 默认关闭，所以截图中省略 `udp` 与用户确认的开启状态不一致。项目固定目标 [Mihomo v1.19.31 的 VLESS 实现](https://github.com/MetaCubeX/mihomo/blob/v1.19.31/adapter/outbound/vless.go)也将 `udp` 用作独立布尔选项并以 TCP 为默认传输。Xray 的 [VLESS 出站](https://xtls.github.io/en/config/outbounds/vless.html)和[传输配置](https://xtls.github.io/en/config/transport.html)使用自身配置结构，不能将其字段名直接套用到 Mihomo YAML。
+- **代码核对（原始记录，保留）：** VLESS 注册表将 UDP 表单默认值设为 `true`、传输默认值设为 `tcp`；Clash VLESS 适配器会从输入参数复制 `udp` 和 `network`，且只复制已存在的非零值。尚未核实截图对应节点从编辑、保存到生成的各阶段数据，因此不能据此确定字段在哪一环丢失。
+- **复现入口（原始记录，保留）：** 本地 Production 模式，生成并查看启用 UDP 的 VLESS 节点对应 Clash 订阅版本内容。
+- **原始状态（2026-11-16 记录时，原文）：** 待后续处理；本次核对文档与相关代码，未独立复现完整生成链路或实际连接，也未修复。
+- **当前状态（2026-11-16 研究后）：** 已完成从节点新建／编辑、保存、持久化、重新打开到 Clash/Mihomo 订阅版本生成的全链路复现，并用固定版本 Mihomo v1.19.31 验证了缺失字段的实际语义。根因已确认，**尚未修复**。结论为：VLESS 表单把 `udp` 的 schema 默认值 `true` 仅用于开关显示，未写入 `protocol_json`；后端保存不物化表单默认值；输出投影与 Clash VLESS adapter 只复制已存在的 `udp: true`，不会按 schema 默认补齐；Mihomo v1.19.31 对缺失的 `udp` 按 `false` 处理。因此「界面开关显示开启」与「最终配置允许 UDP」不一致。`network` 缺失是另一条独立语义：Mihomo 默认 TCP，省略 `network` 与显式 `tcp` 等价；截图中两者同时缺失与「新建后未再编辑保存」的默认负载一致，但不能据此认定传输方式也丢失。详见下文。
+
+#### 1. 结论摘要
+
+- **已实际复现，且不是保存失败。** 在当前 HEAD 的隔离 Production 构建中新建 VLESS 节点，只填写必填字段，不改动「UDP」和「传输」的显示默认值，保存请求的 `protocol_json` 只有 `uuid`；数据库、重新读取、装配输入、adapter 输出和最终版本 YAML 都没有 `udp` 和 `network`。表单中「UDP」开关的 `aria-checked` 为 `true`，但其值从未进入保存请求。
+- **显式开启 UDP 可以正常输出。** 在同一新建表单中，将「UDP」从显示开启点成关闭、再点成开启后保存，请求、数据库、adapter 输出和最终 YAML 都包含 `udp: true`；固定 Mihomo 解析为 `udp: true`。这说明 adapter 的字段复制逻辑本身没有坏，问题只在「未显式写入」这条路径。
+- **显式关闭与未写入在最终 YAML 中都无法区分，但语义相同。** 点一次关闭后保存，数据库保存 `udp: false`，adapter 按既有「只输出非零值」规则省略该字段；最终 YAML 同样没有 `udp`，Mihomo 也解析为 `false`。与之不同，schema 默认 `true` 的「未写入」同样被 Mihomo 解析为 `false`，这正是缺陷所在。
+- **根因是“展示默认值”与“wire 默认值”不一致，而不是字段改名、传输方式或数据库问题。** schema 声明 `udp` 默认 `true`，UI 据此把开关显示为开启；保存链路按现有设计不批量物化展示默认值；输出层又没有像 VMess 的 `alterId`／`cipher` 那样为 schema 默认值与 Mihomo 零值不一致的字段补齐默认，最终落到 Mihomo 的 `udp` 默认 `false`。
+- **`network` 和 `udp` 必须分开判断。** `network` 是传输方式（TCP／WS／gRPC／HTTP/2／HTTP／XHTTP），VLESS 省略时 Mihomo 按 TCP 处理；`udp` 是“是否允许 UDP 通过该出站代理”的独立开关，Mihomo 默认 `false`。本次实测 WS 节点同样在未显式开启时不输出 `udp`，显式开启后输出 `udp: true`，说明两者互不替代。
+- **编辑路径会物化 `network`，但仍不会物化 `udp`。** 打开已有节点再保存时，前端 `openEdit()` 会从 `current_state` 回填 `network: tcp`（以及表单层 `security`），因此之后的 YAML 会出现 `network: tcp`，但 `udp` 仍保持缺失；再次打开时开关仍因 schema 默认显示为开启。这个不对称可以解释为什么有些截图缺少 `network`，有些编辑后的版本只缺少 `udp`。
+- **同一模式已在 VMess 复现。** VMess 新建时只填 `uuid`，保存请求与最终投影都没有 `udp`；显式开启后预览出现 `udp: true`。源码层面还有 10 个 manual 协议也把 `udp` schema 默认声明为 `true`，但本次没有逐协议生成验证，不能把 VLESS／VMess 的实测结论直接等同于全部协议已确认受影响。
+- **固定 Mihomo v1.19.31 已验证解析语义，但未做真实 UDP 连接。** 用固定二进制对隔离生成的默认、显式开启、显式关闭版本执行 `-t` 均成功；启动隔离 Mihomo 并通过本地 `/proxies` API 读取，得到缺失/显式关闭为 `udp: false`、显式开启为 `udp: true`。这证明配置解析后的开关值，不等同于真实 UDP 流量可转发；本次没有真实 VLESS 服务端、没有外网连接，也没做端到端 UDP 测试。
+- 本轮只做测试、研究与文档记录，**未修改任何项目代码、配置、依赖或锁文件，未实施修复，也未将问题标记为已修复**。
+
+#### 2. 代码版本、运行环境与测试数据前提
+
+| 项目 | 实际值 |
+|------|--------|
+| 代码基线 | 分支 `beta`，HEAD `7cca913`（`git describe` 为 `v4.1.4-4-g7cca913`）；最后一个代码提交为 `1ceea52`；`1ceea52..HEAD` 与 `7660292..HEAD` 在 `backend/`、`frontend/` 下均无代码差异 |
+| 工作区状态 | 研究开始时工作区干净；本轮结束前唯一持久化改动为本文档 |
+| 前端依赖 | Vue 3.5.44、Vite 7.3.7、Tailwind CSS 4.3.3、`@tailwindcss/vite` 4.3.3、`ant-design-vue` 4.2.6 |
+| 后端/运行时 | Go 1.26.4（darwin/arm64）；Node.js 26.7.0；macOS 27.2 |
+| 浏览器/驱动 | Google Chrome 157.0.8103.52；Playwright-core 1.57.0（安装在临时目录，未加入项目依赖） |
+| 隔离实例 | 当前 HEAD 源码在 `/tmp/r35-04-vless-udp` 构建；`APP_MODE=prod`、临时 `DATA_DIR`、`PORT=18120`，仅监听 `127.0.0.1` |
+| 固定 Mihomo | `/Users/kyle/Desktop/Repo/Temp/mihomo-darwin-arm64-go124-v1.19.31`；`Mihomo Meta v1.19.31 darwin arm64 with go1.24.13`；SHA-256 `3ed36cabe89783acc24dbb3b411a9a0a6fb6353e97ea9d129a707c9bb9b147c5` |
+
+**构建产物。** 为避免改动工作区，前端与后端都在 `/tmp` 临时副本中构建；前端通过软链接使用工作区现有 `node_modules`，未修改其内容：
+
+| 产物 | 说明 | 关键哈希 |
+|------|------|----------|
+| 前端 `index.html` | 当前 HEAD 在 `/tmp/r35-04-vless-udp/frontend` 执行 `npm run build` | `330ac0fb45326003e263c6397faebd1e96f012f8a572b90c3f1a6272eba85edd` |
+| 主 CSS `index-CFZtmKWH.css` | 同一构建产物 | `3b4626a471f35d7de8e6764bb1566c3ab34697a0ac8c60ea2e7a9c83213c516b` |
+| Go 服务 `/tmp/r35-04-vless-udp/server` | 当前 HEAD 后端源码 + 上述前端产物嵌入，`CGO_ENABLED=0 go build` | `34c4327ea3a7251e241c6a418917c487f6427ca4d252580343f600bdfae53e19`；约 54 MB |
+
+**测试数据前提。** 测试库由仓库内本地测试库 `backend/data/app-prod.db` 通过 `sqlite3 -readonly ... ".backup"` 复制到临时目录；源库未写入或清空。复制时库内已有：
+
+- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 规定的统一测试密码；
+- 3 个平台、1 个 Clash 订阅（平台 1、订阅 1、当前版本 1）、1 个手动 VLESS 节点 `HK`、9 个启用预设代理组、0 个规则素材池。
+
+本次新建的节点均为合成数据：`R35-04-A-default`、`R35-04-B-explicit-on`、`R35-04-C-explicit-off`、`R35-04-D-ws-default`、`R35-04-E-vmess-default`、`R35-04-F-default-2`、`R35-04-G-import`；主机名使用 `*.example.com`，UUID 使用公开的合成值。所有节点、订阅版本、生成配置都只写入 `/tmp` 临时库和临时内容目录；没有操作生产、预发布、外部服务、真实账号或真实数据。
+
+**版本保留边界。** 该订阅已有版本 1；本轮陆续生成版本 2～7。版本服务按资源保留最多 5 版，生成 v7 时淘汰了最旧的 v2／v3，因此下文对默认路径引用仍可复核的 v7，对显式开启引用 v6，对显式关闭引用 v4；v2／v3 的预览响应与生成结果记录仍保留在证据 JSON 中，不影响根因结论。
+
+#### 3. 复现步骤
+
+1. 将当前 HEAD 的 `frontend/`、`backend/` 复制到 `/tmp/r35-04-vless-udp`，前端执行 `npm run build`，把 `dist` 放入临时后端 `web/dist`，再执行 `CGO_ENABLED=0 go build -o /tmp/r35-04-vless-udp/server ./cmd/server`。
+2. 复制本地测试数据库到临时 `DATA_DIR`，启动隔离服务：`PORT=18120 APP_MODE=prod DATA_DIR=/tmp/r35-04-vless-udp/data ./server`；只通过 `127.0.0.1:18120` 访问。
+3. 浏览器登录 `admin@test.com`，进入 `/admin/nodes`。新建 VLESS 节点，只填写名称、服务器、端口和 UUID，**不点击**「UDP」或「传输」；确认「UDP」开关显示为开启后保存。
+4. 再新建两个 VLESS 节点：一个把「UDP」从显示开启点成关闭、再点成开启（显式开启）后保存；另一个只点一次关闭（显式关闭）后保存。记录每步的 POST 请求、响应和数据库 `protocol_json`。
+5. 重新打开默认节点，先只修改服务器地址并保存，观察请求是否带 `udp`／`network`；再重新打开，显式关闭再开启 UDP 后保存，观察请求和后续 YAML 的变化。
+6. 新建一个 VLESS 节点，把「传输」从默认 TCP 改为 WebSocket，保持 UDP 显示开启但不点击，保存并预览；随后编辑该节点，显式开启 UDP 后再次预览，作为传输方式对照。
+7. 新建一个 VMess 节点，只填 `uuid` 等必填项，保持 UDP 默认显示开启，保存并预览；再显式开启 UDP 后预览，作为协议对照。
+8. 用 `/api/admin/nodes/import` 导入一条含 `udp=1` 查询参数的合成 VLESS URI，检查导入后的节点 JSON 与预览，作为 URI 导入路径对照。
+9. 通过 `POST /api/admin/assembly/preview` 和 `/generate` 对上述代表节点生成 Clash YAML；`preview` 请求体使用 `target_syntax=clash-yaml`、`platform_id=1`、单节点 `node_names`、同名 `overseas_members`／`fallback_group_members`，并附带一条 `DOMAIN-SUFFIX,example.net,🚀直接连接` 手动规则以满足生成门槛。
+10. 保存 `generate` 返回的 `preview_hash` 与版本号；从 `DATA_DIR/contents/subscription/1/vN` 读取最终 YAML，与预览正文比对。
+11. 用固定 Mihomo v1.19.31 对最终 YAML 执行 `-t`；再在隔离目录启动 Mihomo，配置仅绑定回环地址和本地 `external-controller`，通过 `/proxies` API 读取解析后的 `udp`／`xudp` 值。未发起真实代理连接。
+
+#### 4. 各阶段实际 UDP 值
+
+##### 4.1 新建表单的三种状态
+
+| 阶段 | F 默认未改写 | B 显式开启 | C 显式关闭 |
+|------|--------------|------------|------------|
+| 表单「UDP」开关 `aria-checked` | `true`（仅 schema 默认，未写入） | `true`（点两次后） | `false`（点一次后） |
+| POST `/api/admin/nodes` 的 `protocol_json` | `{"uuid":"<synthetic>"}` | `{"uuid":"<synthetic>","udp":true}` | `{"uuid":"<synthetic>","udp":false}` |
+| `current_state` | `{"network":"tcp","security":"none","plugin":null,"features":[]}` | 同左 | 同左 |
+| 数据库 `nodes.protocol_json` | `{"reality-opts":{},"uuid":"enc:v1:..."}`，无 `udp` | `{"reality-opts":{},"udp":true,"uuid":"enc:v1:..."}` | `{"reality-opts":{},"udp":false,"uuid":"enc:v1:..."}` |
+| `ProjectActive`／adapter 输出 | 无 `udp` | `udp: true` | 无 `udp`（显式 `false` 被活动值过滤） |
+| 最终 YAML | 无 `udp`（v7） | B 的 v3 预览为 `udp: true`，v3 生成后的版本正文在淘汰前读取到 `udp: true`；另用 A 的 v6 作为可复核的显式开启 YAML 样本（含编辑回填的 `network`） | 无 `udp`（v4） |
+| 固定 Mihomo `/proxies` | `udp: false` | `udp: true` | `udp: false` |
+
+**F 的最终 YAML（v7，默认未改写）：**
+
+```yaml
+proxies:
+- name: R35-04-F-default-2
+  type: vless
+  server: f.example.com
+  port: 443
+  uuid: 99999999-8888-7777-6666-555555555555
+```
+
+**A 显式开启后的最终 YAML（v6，含一次编辑回填的 `network`）：**
+
+```yaml
+proxies:
+- name: R35-04-A-default
+  type: vless
+  server: a-edited.example.com
+  port: 443
+  network: tcp
+  udp: true
+  uuid: 11111111-2222-3333-4444-555555555555
+```
+
+**C 显式关闭的最终 YAML（v4）：**
+
+```yaml
+proxies:
+- name: R35-04-C-explicit-off
+  type: vless
+  server: c.example.com
+  port: 443
+  uuid: 11111111-2222-3333-4444-555555555555
+```
+
+以上三份文件都包含完整的 `proxy-groups` 与 `rules`；这里只摘录节点部分。v4／v6／v7 均通过固定 Mihomo `-t`。
+
+##### 4.2 编辑、传输、协议与导入路径
+
+| 路径 | 保存请求关键字段 | 数据库／重新打开 | 输出与验证 |
+|------|------------------|------------------|------------|
+| F 新建后直接生成 | `protocol_json` 只有 `uuid` | 无 `udp`；按 schema 默认仍会显示 `true` | v7 无 `udp`；Mihomo `udp:false` |
+| A 只改 host 后保存 | `protocol_json` 含 `network:"tcp"`、`security:"none"`，**无 `udp`** | 无 `udp`；开关仍显示 `true` | v5 有 `network: tcp`、无 `udp`；Mihomo `udp:false` |
+| A 显式开启 UDP 后保存 | `protocol_json` 含 `network:"tcp"`、`udp:true` | `udp:true`；重新打开显示开启 | v6 有 `network: tcp` 与 `udp:true`；Mihomo `udp:true` |
+| D 新建 VLESS+WebSocket，不碰 UDP | `protocol_json` 含 `network:"ws"`，无 `udp` | 无 `udp`；开关显示 `true` | 预览有 `network: ws`、无 `udp` |
+| D 显式开启 UDP 后保存 | `protocol_json` 含 `network:"ws"`、`udp:true` | `udp:true`；重新打开显示开启 | 预览有 `network: ws` 与 `udp:true` |
+| E 新建 VMess，不碰 UDP | `protocol_json` 只有 `uuid` | 无 `udp`；开关显示 `true` | 预览有 `alterId: 0`、`cipher: auto`，无 `udp` |
+| E 显式开启 UDP 后保存 | `protocol_json` 含 `network:"tcp"`、`udp:true` | `udp:true` | 预览有 `udp:true` |
+| G 导入 VLESS URI（含 `udp=1`） | — | 导入结果 `protocol_json` 含 `network:"tcp"`、`tls:false`、`encryption:"none"`，无 `udp` | 预览无 `udp` |
+
+**D 的 WebSocket 对照。** 新建时只改变传输方式、保持 UDP 显示开启但不点击，预览中出现 `network: ws`，没有 `udp`；编辑后显式开启 UDP，预览同时出现 `network: ws` 与 `udp: true`。这直接证明 `udp` 与 `network` 是独立字段，不能用 `network` 的有无推断 UDP 转发能力。
+
+**E 的 VMess 对照。** 新建时请求只有 `uuid`，预览由 VMess adapter 补齐了固定 tag 必须存在的 `alterId: 0` 和 `cipher: auto`，但没有补 `udp`；显式开启后预览出现 `udp: true`。这与 VLESS 的失败模式一致，说明它不是 VLESS adapter 独有的字段复制错误，而是“schema 默认 true 未在输出层补齐”的通用问题。
+
+**G 的导入路径。** 导入 URI 为 `vless://<synthetic-uuid>@g.example.com:443?type=tcp&security=none&udp=1#R35-04-G-import`，接口返回 200；导入后的节点 JSON 没有 `udp`，预览也没有。源码中 `parseVLESS` 只处理 `type`／`security`／`sni`／`flow`／`fp`／`alpn`／`path`／`host`／`serviceName`／`mode` 等查询参数，没有读取 `udp`。该 URI 的 `udp` 查询参数是否属于项目应支持的 VLESS URI 扩展，尚无产品约定，因此这里只记录为“同一条字段缺失路径的实测边界”，不把它单独认定为已确认缺陷。
+
+#### 5. 根因分析
+
+1. **表单把 `udp: true` 当作显示默认值，而不是待保存值。** `frontend/src/components/ProtocolFieldEditor.vue:780` 的普通 bool Switch 使用 `Boolean(modelValue ?? field.default ?? false)`，所以 VLESS 的 `udp` 在没有存储值时显示为开启；但 `frontend/src/views/admin/NodesView.vue:918-920` 的 `fieldModelValue()` 只返回实际 `protocol_json` 值，`frontend/src/utils/nodeProtocolPayload.ts:26-47` 的 `buildProtocolPayload()` 也只克隆已存在的参数，不会把带默认值的普通 bool 批量写入请求。`frontend/src/utils/nodeFormLayout.ts:57-60` 的 `isTriStateBool` 只判定“无 default 的 bool”，`udp` 有 default，因此既不会显示“未设置”，也不会被编码为 `null` 或默认值。`frontend/src/views/admin/NodesView.vue:650-660` 的新建表单初始 `protocol_json` 为 `{}`。
+2. **保存链路按现有设计不物化 schema 默认值。** 后端 `backend/internal/node/node.go:342-380` 的 `CreateManual` 走 `NormalizeProtocolJSON`；`backend/internal/node/normalize.go:31-55` 只做别名、列表、字节序列和凭据身份等归一化，不应用 schema 默认；`backend/internal/node/project.go:1390-1411` 的 `normalizeProtocolParameters` 也不补默认。`backend/internal/node/project.go:1561-1582` 的 `protocolParamsForStorage` 只处理显式 `security`／`tls` 兼容。因此请求里没有 `udp` 时，数据库也不会出现 `udp`。这本身与 [Design4.md](Design4.md) 第 156 行“合法缺省仍可显示，但不把展示默认值批量写入数据”的设计一致；缺陷在输出层没有把“合法缺省”映射为 Mihomo 的实际语义，而不是保存层擅自丢字段。
+3. **输出投影会跳过缺失键。** `backend/internal/assembly/links.go:9-20` 的 `activeProtocolJSON` 调用 `node.ProjectActive`；`backend/internal/node/project.go:25-51` 只遍历 schema 中实际存在且状态匹配的键，`projectFieldValue` 在键缺失时不会被调用。因此 `udp` 缺失时不会在投影阶段变成 `true`，`network` 缺失时也不会变成 `tcp`。
+4. **Clash VLESS adapter 只复制“活动且为 true”的字段。** `backend/internal/assembly/clash_protocols.go:185-201` 的 `vlessClashAdapter` 通过 `copyClashActiveFields` 复制 `udp`；`backend/internal/assembly/clash_protocols.go:797-806` 的实现要求键存在且 `clashValueActive` 为真，`backend/internal/assembly/clash_protocols.go:808-836` 对 bool 只在 `true` 时返回真。因此数据库没有 `udp` 时不会输出 `udp`，显式 `false` 也会被省略。该“省略 false”本身符合 Mihomo 的零值语义，但前提是该字段的 schema 默认值与 wire 零值相同；`udp` 恰好不满足。
+5. **Mihomo 的 wire 零值是 `false`，与 schema 默认 `true` 冲突。** 固定 v1.19.31 的 `VlessOption.UDP` 是 `bool` 且带 `proxy:"udp,omitempty"`；缺失时取零值 `false`。`NewVless` 把这个值传入 `Base`，`Base.SupportUDP()` 返回 `b.udp`；`tunnel/tunnel.go` 在 UDP 连接匹配到代理后执行 `if metadata.NetWork == C.UDP && !adapter.SupportUDP() { continue }`，因此缺失 `udp` 会导致该 VLESS 节点不转发 UDP。`network` 则不同：`VlessOption.Network` 缺失时走 `switch` 的 `default` 分支，按 TCP 处理；所以省略 `network` 是安全的，省略 `udp` 不是。
+6. **缺少与 VMess 默认补齐同类的输出层处理。** 项目已经在 `backend/internal/assembly/clash_protocols.go:264-283`（`clashAlterID`／`clashVMessCipher`）和 `backend/internal/assembly/render_clash.go:254-262` 中为 VMess 的 `alterId`／`cipher` 做了“schema 默认与 wire 零值不一致时在输出副本补齐”的处理，但 `udp` 没有对应的补齐。`backend/internal/node/registry.go:922-924` 明确声明 VLESS `udp` 默认 `true`、`network` 默认 `tcp`；这说明默认值是有意声明的，不是测试数据偶然产生。[Build32.md](docs/reports/Build/Build32.md) Step 20 已记录“显式 `udp:false` 省略，与固定 tag 的 `omitempty` 等价”的合同，但该合同没有覆盖“schema 默认 `true` 且键缺失”的情况；本次缺口正在这里。
+7. **编辑路径的 `network` 回填加深了表象差异。** `frontend/src/views/admin/NodesView.vue:685-714` 的 `openEdit()` 会从 `current_state` 回填 `security` 和 `network`，所以编辑并保存过的节点通常会在 YAML 中出现 `network: tcp`；但同函数没有回填 `udp`，开关继续依赖 schema 默认显示。结果就是：新建后直接生成可能同时缺少 `udp` 和 `network`；编辑一次后 `network` 出现，`udp` 仍缺失。用户截图中的“两者都缺失”与前者吻合，本地编辑复现则表现为“只缺 `udp`”；两者是同一根因的不同表象。
+8. **不是以下原因：** 不是节点保存失败（POST 200，数据库可读）；不是凭据解密或读取失败（`uuid` 正常进入预览）；不是版本生成没有使用最新节点（每次生成前都重新保存并核对版本正文）；不是 `network: tcp` 被误删（显式保存 `network` 后会输出）；不是 Clash YAML 序列化问题（同一 adapter 在显式 `udp:true` 时能输出该字段）；也不是 Xray JSON 字段名被套用（截图和复现产物都是 Mihomo YAML）。
+
+**交互后果：** 因为新建表单的「UDP」初始显示为开启，用户只点击一次实际会写入 `udp:false`；要在界面得到显式 `true`，需要先关闭再开启（本次 B 即两次点击），或通过高级 JSON 写入。也就是说，“看到开关开着”本身不能证明请求里写入了 `udp:true`。这不是根因，但会放大“界面已开启、产物却没有”的感知差异。
+
+#### 6. `udp` 与 `network` 的语义和默认行为
+
+| 字段 | 所属层 | 默认／缺失语义 | 与另一个字段的关系 |
+|------|--------|----------------|--------------------|
+| `udp` | Mihomo 出站代理的通用字段 | 默认 `false`；缺失与显式 `false` 在 Mihomo 中都表示不允许 UDP 通过该代理 | 与传输方式无关；TCP／WS／gRPC 等出站都可以在 `udp: true` 时承载 UDP |
+| `network` | VLESS 协议的传输层字段 | 默认 TCP；缺失或非 `ws`／`http`／`h2`／`grpc`／`xhttp` 的值都按 TCP 处理 | 不能替代 `udp`；`network: ws` 只改变传输层，不会自动允许 UDP |
+| `xudp`／`packet-addr`／`packet-encoding` | VLESS 的 UDP 包编码相关字段 | 由固定 tag 按输入推导；`xudp` 可在 `udp` 为 `false` 时仍为 `true` | 不是 UDP 转发开关；本次 Mihomo API 读取的 VLESS 节点都显示 `xudp: true`，同时 `udp` 分别为 `false`／`true` |
+| 项目 schema 的 `udp` | 表单／内部活动模型 | `def("udp", "bool", "UDP", true)`，默认开启 | 与 `network` 的 `tcp` 默认独立声明 |
+| 项目 schema 的 `network` | 表单／内部活动模型 | `sel("network", "传输", "tcp", ...)`，默认 `tcp` | 只决定传输方式；未显式保存时前端 `currentState` 仍补 `network: tcp` |
+
+**结论。** 用户截图同时缺少 `udp` 和 `network`，其中 `network` 缺失本身是安全的（Mihomo 按 TCP），`udp` 缺失才是实质问题。不能因为 `network` 没有输出就推断传输方式被改坏，也不能把 `udp` 当成“UDP 传输方式”而与 TCP／WS 的选择混为一谈。
+
+#### 7. 固定版本 Mihomo v1.19.31 验证
+
+- **配置文件测试。** 对 v4（显式关闭）、v6（显式开启，含 `network: tcp`）、v7（默认未改写）执行固定二进制 `-t -f <version> -d <temp>`，三者均返回 `configuration file ... test is successful`，退出码 0。解析成功只证明结构可被固定 tag 接受，不代表真实 UDP 流量可转发。
+- **解析后的实际开关值。** 将最终 YAML 前置回环 `mixed-port` 与本地 `external-controller`，启动固定 Mihomo 后读取 `/proxies`：
+  - v7（默认未改写）：`{"type":"Vless","udp":false,"xudp":true}`；
+  - v6（显式开启）：`{"type":"Vless","udp":true,"xudp":true}`；
+  - v4（显式关闭）：`{"type":"Vless","udp":false,"xudp":true}`；
+  - v5（只改 host、未写 UDP）：`{"type":"Vless","udp":false,"xudp":true}`。
+- **源码依据。** 固定 tag 的 `VlessOption.UDP` 为 `bool`＋`omitempty`；`Base.SupportUDP()` 返回 `b.udp`；`tunnel` 对不支持的 UDP 代理会跳过。Mihomo 文档也写明通用字段 `udp` 默认 `false`，VLESS 文档写明 `network` 不配置或其他值时按 TCP。
+- **验证边界。** 没有启动真实 VLESS 服务端、没有向外部网络发送 UDP、没有验证真实客户端的 UDP 转发链路；因此不能把“配置解析为 `udp:true`”写成“真实 UDP 已可转发”。本次也没有运行已发布镜像或 Docker Compose。
+
+#### 8. 影响范围
+
+**已实际复现：**
+
+- manual VLESS 新建后不改「UDP」默认值，保存并生成 Clash YAML；
+- manual VLESS 新建后显式开启／显式关闭 UDP；
+- manual VLESS 编辑（只改 host、显式开启 UDP）后重新保存并生成；
+- manual VLESS + WebSocket 传输的默认／显式开启对照；
+- manual VMess 新建默认／显式开启对照；
+- VLESS URI 导入（含 `udp=1` 查询参数）；
+- 固定 Mihomo v1.19.31 的配置解析与 `/proxies` 语义读取。
+
+**源码层面的潜在影响（未逐项实测）：**
+
+- `backend/internal/node/registry.go` 中还有 10 个 manual 协议声明 `udp` 默认 `true`：`ss`、`trojan`、`socks5`、`wireguard`、`mieru`、`masque`、`tailscale`、`anytls`、`trusttunnel`、`openvpn`。它们各自使用显式 adapter，但本次没有逐个生成 YAML 验证其 `udp` 是否同样依赖 schema 默认；不能据此宣称全部已复现。
+- Snell 的 `udp` schema 默认是 `false`，且 v1／v2 明确禁止；它与本次“默认 true 但 wire 默认 false”的问题不同，不应混入同一结论。
+- Xray 来源节点的 `buildProtocolJSON`（`backend/internal/xray/detect.go:268-298`）没有生成 `udp`；下载重渲染的 `normalizeClashFields`（`backend/internal/assembly/render_clash.go:220-268`）只补 VMess 的 `alterId`／`cipher`，不补 `udp`。因此 Xray 来源的 VLESS／VMess 节点在动态重渲染路径上也可能出现同样缺失；本轮没有 Xray 实例或真实入站，未实测。
+- VLESS URI 导入路径（`backend/internal/uriparse/uriparse.go:447-547`）没有处理 `udp` 查询参数；本次导入 `udp=1` 后节点 JSON 无 `udp`。该 URI 扩展的项目约定未确认，只能记录为潜在路径。
+- SR 订阅、通用订阅、SR 分流规则、分享下载、已发布镜像和 Docker Compose 未覆盖；不能把 Clash YAML 的结论直接外推到这些目标。
+
+**时序边界：** 版本内容是生成时的快照。若在生成版本后才编辑节点或开启 UDP，旧版本不会自动变化；本次每次生成前都先保存并核对最终文件，因此可以排除“先生成、后编辑”的时序因素。编辑节点不会回溯修改历史版本。
+
+#### 9. 未确认内容与限制
+
+- **用户原始环境和操作序列未提供。** 无法确定用户看到的是新建后未重新保存的默认状态、编辑后保存的状态、导入路径，还是某个旧构建产物。已知可解释路径包括：默认未写入；或生成发生在保存／开启之前（版本是生成时的快照，后者未作为独立实验重走）。用户截图中 `network` 也缺失，与“新建后未重新保存”的默认负载最一致；但这只是与已复现状态的吻合，不是对用户点击序列的证明。
+- **用户是否实际点击过 UDP 开关未确认。** 本次证明：只要请求里写入 `udp: true`，后续 YAML 和 Mihomo 都会保留。若用户当时的保存请求确实写入了 `udp: true` 而最终仍缺失，则说明还存在本次未覆盖的额外路径；需要用户补充当时的请求、数据库或操作序列才能判断。
+- **未获取用户截图对应的构建版本。** 不能确认是本地 Vite、工作区 `frontend/dist`、8080 旧内嵌构建还是已发布镜像；结论基于当前 HEAD 的本地隔离 Production 构建。
+- **未做真实 UDP 连接测试。** 固定 Mihomo 只验证配置解析和 `/proxies` 开关值；没有真实 VLESS 服务端、没有 UDP echo／DNS 查询、没有验证真实客户端流量。配置能通过解析不等于真实 UDP 可转发。
+- **未逐协议、逐来源验证。** 除 VLESS 和 VMess 外的 10 个 `udp` 默认 `true` 协议、Xray 来源、SR／generic、分享下载、已发布镜像均未实测；只记录了源码层面的相同条件。
+- **URI 导入是否应支持 `udp` 未定。** 本次只观察到导入 `udp=1` 被忽略，未确认这是产品约定的不支持，还是解析器缺口；需要单独决策。
+- **未验证编辑保存时 `udp` 与 `network` 的其他组合。** 例如在 TLS／REALITY、gRPC、HTTP/2、XHTTP 等分支下同时切换安全方式或传输；本次只覆盖了 VLESS TCP／WS 和 VMess TCP。
+- **未做并发、缓存或版本保留专项测试。** 版本保留上限会淘汰旧版本，但不是本问题根因；未验证并发编辑、旧版本下载或外部缓存。
+- **未实施或验证修复。** 下文候选方向只是后续工作输入，不代表已确认方案。
+
+#### 10. 候选修复方向（待决策，未实施）
+
+以下仅记录方向，均未编写或应用修复代码，也不代表已确认方案。
+
+| 方向 | 思路 | 主要风险／待验证点 |
+|------|------|--------------------|
+| A. 在 Clash 输出层补齐 schema 默认值 | 对 `udp` schema 默认 `true` 的协议，在 adapter 构造 wire 副本时：缺失 → 输出 `udp: true`；显式 `true` → 输出；显式 `false` → 省略（等价于 Mihomo 默认 false）。可先只在 VLESS 实现，或提取共享 helper | 必须逐协议确认 `udp` 在目标 tag 中的实际语义、selector 分支（如 MASQUE h3-l4proxy 禁 UDP、Snell v1/v2 禁 UDP）和固定 tag 的 `omitempty` 行为；不能误把 Snell 等默认 false 的协议改成默认 true；会影响所有使用这些 adapter 的预览、生成、下载重渲染和节点检查，需要全量回归 |
+| B. 保存时物化 `udp` 默认值 | 新建／编辑保存时把 schema 默认 `true` 写入 `protocol_json`，让输出层继续按现有“只复制 true”逻辑工作 | 与 Design4 的“不把展示默认值批量写入数据”冲突；会改变存储语义、合并与清空行为，并影响旧节点；只能修复未来保存，不能修复已有节点；需要确认是否接受 `udp:true` 被显式持久化 |
+| C. 调整表单默认或显示 | 把 `udp` 默认改为 `false`，或让开关显示“未设置／关闭”，要求用户显式开启 | 会改变用户当前看到的产品语义和默认体验；已有节点仍可能缺少字段；需要用户决定是否接受“默认不转发 UDP”；不适合作为无产品决策的默认修复 |
+| D. 仅增加提示／检查门槛 | 在节点检查或装配前提示“UDP 显示开启但未持久化，生成后实际为 false” | 不修复配置结果，只提前暴露；会增加检查项与文案维护；不能替代 A 或 B |
+
+**兼容性初步评估（未决策）：** 从现有设计看，A 最符合“展示默认值不批量落库”的约束，也有 VMess `alterId`／`cipher` 在输出层补齐先例；影响面主要在 adapter 与产物，但必须逐协议确认固定 tag 零值和 selector 分支。B 会改变数据库存储与更新合并语义，且只覆盖未来保存；C 会改变用户当前看到的默认行为；D 只能提示、不能修正产物。以上均未实施、未验证，不能视为已确认方案。
+
+**后续验证建议（若用户决定修复）：**
+
+- 为 VLESS 增加“默认未写／显式 true／显式 false”三组 adapter wire shape 测试，断言最终 YAML 分别为 `udp:true`／`udp:true`／无 `udp`，并断言 `network` 仍按原样输出。
+- 在固定 Mihomo v1.19.31 上重新执行 `-t` 与 `/proxies` 读取；如条件允许，再用本地 VLESS 服务端做一次真实 UDP 转发验证，明确区分“解析成功”与“流量可转发”。
+- 覆盖 VMess、SS、Trojan、SOCKS5、WireGuard、Mieru、MASQUE、Tailscale、AnyTLS、TrustTunnel、OpenVPN 的 `udp` 默认语义，先核对每个固定 tag option 的零值，再决定是否使用共享 helper。
+- 覆盖 Xray 动态重渲染、VLESS URI 导入、SR／generic、分享下载和已发布镜像；对“缺失字段”和“显式 false”分别断言。
+- 若采用 A，回归历史版本下载与 `RenderClashPlan` 重渲染，确认旧版本不会因重渲染突然增加 `udp`；若采用 B，补迁移或兼容策略，避免旧节点在新旧保存路径下行为不一致。
+
+#### 11. 本轮未做
+
+- 未修改任何项目代码、配置、依赖或锁文件；
+- 未实施任何候选修复，也未将问题标记为已修复；
+- 未操作生产、预发布、外部服务、真实账号或真实数据；
+- 未运行 Docker 镜像、Docker Compose 或远端 CI；
+- 未进行真实 VLESS 连接、真实 UDP 流量、真实客户端或人工真机验收；
+- 唯一持久化变更为本 `Issue21.md` 文档更新。
+
+#### 12. 支持证据摘要
+
+| 场景 | 实际请求／响应或页面观察 |
+|------|--------------------------|
+| F 新建默认未改写 | 表单「UDP」`aria-checked=true`；POST `protocol_json={"uuid":"..."}`；DB 无 `udp`；v7 无 `udp`；Mihomo `udp:false` |
+| B 显式开启 | 两次点击后 `aria-checked=true`；POST 含 `udp:true`；DB 含 `udp:true`；预览含 `udp:true`；v3 生成后的版本正文在淘汰前读取到 `udp:true` |
+| C 显式关闭 | 一次点击后 `aria-checked=false`；POST 含 `udp:false`；DB 含 `udp:false`；v4 无 `udp`；Mihomo `udp:false` |
+| A 只改 host 后保存 | PUT `protocol_json` 含 `network:"tcp"`、`security:"none"`，无 `udp`；v5 有 `network: tcp`、无 `udp`；Mihomo `udp:false` |
+| A 显式开启后保存 | PUT 含 `network:"tcp"`、`udp:true`；v6 两者都有；Mihomo `udp:true`；重新打开开关为 true |
+| D WebSocket 对照 | 新建预览 `network: ws`、无 `udp`；显式开启后预览 `network: ws`＋`udp:true` |
+| E VMess 对照 | 新建 POST 仅 `uuid`；预览 `alterId:0`／`cipher:auto`、无 `udp`；显式开启后预览 `udp:true` |
+| G URI 导入对照 | `POST /api/admin/nodes/import` 200；导入节点 `network:"tcp"`、`tls:false`、`encryption:"none"`、无 `udp`；预览无 `udp` |
+| 版本正文 | v7（F）无 `udp`；v6（A）`network: tcp`＋`udp: true`；v4（C）无 `udp`；v5（A host-only）`network: tcp`、无 `udp` |
+| 固定 Mihomo 配置测试 | v4／v6／v7 `-t` 均 successful，退出码 0 |
+| 固定 Mihomo `/proxies` | v7 `udp:false`；v6 `udp:true`；v4 `udp:false`；v5 `udp:false`；四者均 `xudp:true` |
+| 源码证据 | `registry.go:922-924` 默认 `udp:true`／`network:tcp`；`ProtocolFieldEditor.vue:780` 显示默认；`nodeProtocolPayload.ts:26-47` 不物化默认；`project.go:25-51` 跳过缺失键；`clash_protocols.go:797-836` 只复制 true |
+
+浏览器与 API 观察均来自 2026-11-16 的临时隔离实例；关键截图与请求 JSON 保存在 `/tmp/r35-04-vless-udp/evidence/`（如 `F-form-before-save.png`、`B-form-before-save.png`、`C-form-before-save.png`、`A-edit-explicit-on.png`、`D-ws-form-before-save.png`、`E-vmess-form-before-save.png`、`nodes-create-evidence.json`、`edit-node-evidence.json`、`preview-generate-evidence.json`、`F-create-evidence.json`、`vmess-node-evidence.json`、`ws-node-evidence.json`、`import-evidence.json`），未加入仓库。配置中的 UUID、主机名和账号均为合成测试数据；未写入真实凭据。
 
 ### R35-05 节点管理的高级 JSON 切换样式与订阅装配不一致
 
@@ -794,3 +1039,5 @@ GET  /api/admin/pools             → {list: [{id:2,...}]}       （PoolTab 保�
 | 2026-11-16 | 更新文档定位与 R35-03 状态：研究完成、尚未修复；记录当前 HEAD 干净流程、`pool_id=0` 前置路径与旧构建路径的根因边界，明确用户原始环境待确认；本轮仅测试、研究与文档记录，唯一持久化变更为本 `Issue21.md`。 |
 | 2026-11-16 | 记录 R35-04：用户确认 VLESS 节点已开启 UDP，生成的 Clash YAML 未显示该字段；核对 Xray 与 Mihomo 文档及相关代码，未确认丢失环节或实施修复。 |
 | 2026-11-16 | 记录 R35-05：节点管理高级 JSON 双按钮与订阅装配开关样式不一致。 |
+| 2026-11-16 | 按授权完成 R35-04 全链路研究：在当前 HEAD 的隔离 Production 构建中复现“新建 VLESS 默认未改写 → 保存请求仅含 UUID → 数据库/读取/投影/adapter/最终 YAML 均无 `udp`”，确认根因是 schema `udp:true` 的展示默认值与 Mihomo `udp` wire 默认 `false` 不一致，且保存与输出层都没有物化该默认；对照显式开启（`udp:true` 正常输出）、显式关闭（`udp:false` 被省略、语义仍为 false）、编辑回填 `network:tcp` 但 `udp` 仍缺失、WebSocket 传输、VMess 同模式、VLESS URI 导入 `udp=1` 被忽略等路径；用固定 Mihomo v1.19.31 `-t` 与 `/proxies` 读取验证 `udp:false/true` 语义及 `xudp:true` 的独立性，并明确未做真实 UDP 连接；记录影响范围、未确认边界与 A～D 候选方向。本轮仅测试、研究与文档记录，未修改代码、配置、依赖或锁文件，未实施修复。 |
+| 2026-11-16 | 更新文档定位与 R35-04 当前状态：根因已确认，尚未修复；`udp` 与 `network` 的语义、固定版本验证结果及候选修复方向已记录，原始反馈与历史记录保留。 |
