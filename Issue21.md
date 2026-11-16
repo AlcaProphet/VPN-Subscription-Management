@@ -1,8 +1,8 @@
 # Issue21.md — 本地调试问题记录
 
-> **文档定位：** 记录本轮本地调试中发现的问题，以及 R35-01、R35-02 的根因研究与验证结果；当前均未实施修复。已归档的问题记录见 [docs/reports/Issue/](docs/reports/Issue/)，项目指令见 [AGENTS.md](AGENTS.md)。
+> **文档定位：** 记录本轮本地调试中发现的问题，以及 R35-01、R35-02、R35-03 的根因研究与验证结果；当前均未实施修复。已归档的问题记录见 [docs/reports/Issue/](docs/reports/Issue/)，项目指令见 [AGENTS.md](AGENTS.md)。
 >
-> **当前状态（2026-11-16）：** R35-01 根因已确认，修复方案待决策；R35-02 根因已确认，阻断口径已由用户确认，尚未修复。本轮仅完成测试、研究与文档记录，未修改项目代码、配置、依赖或锁文件，也未将问题标记为已修复。
+> **当前状态（2026-11-16）：** R35-01 根因已确认，修复方案待决策；R35-02 根因已确认，阻断口径已由用户确认，尚未修复；R35-03 已完成分路径复现与根因研究，确认当前 HEAD 的干净流程不复现、`pool_id=0` 前置状态和旧内嵌构建两条路径可复现，用户原始环境待确认，尚未修复。本轮仅完成测试、研究与文档记录，未修改项目代码、配置、依赖或锁文件，也未将问题标记为已修复。
 
 ## 一、问题记录
 
@@ -524,7 +524,253 @@ Tailwind 4 迁移提交为 `1903c58`（“升级前端依赖修复 GitHub Action
 - **现象：** 用户反馈，在 Clash 构建页面切换到「规则素材池」创建素材后，再返回构建页面，无法立即获取新建素材；需要整页刷新后才能获得。
 - **复现步骤：** 进入 `/admin/assembly?tab=clash-yaml` 的规则素材步骤；切换到「规则素材池」并创建素材；返回 Clash 构建页面，查看素材池选择项，再整页刷新查看。
 - **预期：** 创建素材后返回构建页面，无需整页刷新即可获取新建素材。
-- **状态：** 待后续处理；本次仅记录用户反馈，未独立复现、研究原因或修复。
+- **原始状态（2026-11-16 记录时，原文）：** 待后续处理；本次仅记录用户反馈，未独立复现、研究原因或修复。
+- **当前状态（2026-11-16 研究后）：** 已完成分路径复现与根因研究，尚未修复。结论不是单一代码根因，需按环境与操作前提区分：
+  - 当前 HEAD 的隔离构建产物在干净流程下**未复现**“必须整页刷新”：从池页签返回构建页时会触发 `refreshPools()`，新素材池已进入候选；
+  - 若先按 R35-02 的方式在无池时点击「添加素材池」，形成 `pool_id=0` 行，再创建素材池，返回后候选虽然已更新，但选择值仍显示 `0`；整页刷新重置表单后才显示新池。该路径与 R35-02 的 `addPool()` 回退值直接相关；
+  - 工作区 `backend/web/dist`（2026-08-25，8080 当前内嵌）早于 R24-21 修复，缺少 `pools-changed`／`refreshPools`，可精确复现“候选列表不更新、整页刷新后才出现”；用户实际测试实例未确认；
+  - 另发现创建无 URL 的素材池时 `urls:null` 导致池列表渲染空白，与本问题的刷新根因不同，详见第 4 节 H 与第 5 节。
+  - 本轮只做测试、研究、文档记录，**未修改任何项目代码、配置、依赖或锁文件，未实施修复，也未将问题标记为已修复**。
+
+#### 1. 结论摘要
+
+- **当前 HEAD 的干净流程不复现原始描述。** 在页面加载后先切换到「规则素材池」创建带 URL 来源的素材池，再切回「构建订阅/规则」，`watch(mainTab)` 会调用 `refreshPools()`；`GET /api/admin/pools` 返回新池，`onPoolsChanged()` 替换 `context.pools`，规则步骤的池下拉立即出现新池并可正常选中。该结论来自当前 HEAD 的隔离 Production 构建（路径 A）。
+- **当前 HEAD 存在一条“看起来仍需整页刷新”的残留路径。** 若在无素材池时先点击「添加素材池」，`addPool()` 会把 `pool_id` 写成 `0`；之后创建素材池并返回，候选列表其实已经刷新，但已存在的 `0` 行不会被重新绑定。页面表现为下拉仍显示 `0`，整页刷新清空表单后再添加才会显示新池（路径 B）。这与 R35-02 的无效 `0` 缺陷共用状态，但不是候选列表没有刷新。
+- **工作区的旧内嵌构建可精确复现原始描述。** `backend/web/dist` 的时间戳为 2026-08-25，早于 R24-21 修复提交 `097cb58`（2026-08-30）；该构建没有 `pools-changed`／`pool-content-changed` 事件，也没有返回构建页时的 `refreshPools()`。从池页签返回后，池下拉仍为 `0` 且展开为「暂无数据」；整页刷新重新请求 `assembly/context` 后才出现新池（路径 Old）。本地 8080 当前服务的正是这一旧构建。
+- **应用内切换页面再返回可以刷新。** 离开 `/admin/assembly` 到 `/admin/nodes` 再返回会重新挂载 `AssemblyView` 并重新请求 `assembly/context`，外部创建的素材池会出现（路径 G）。这说明刷新机制依赖组件挂载或页签切换，而不是全局缓存失效。
+- **已有素材池中新增素材与“新建素材池”表现不同。** 在已选素材池中新增手动条目后返回，预览会按既有 R24-22 逻辑转为过期并提示“配置已变化，请重新预览”；点击「刷新预览」后后端实时读取到新条目，不需要整页刷新（路径 F）。这不是 R35-03 的候选列表问题。
+- **附带发现一个独立的空池渲染缺陷。** 创建不带任何 URL 来源的素材池时，列表 API 返回 `urls:null`；`PoolTab.vue:241` 直接读取 `record.urls.length` 会抛 `TypeError`，池列表区域渲染为空白。整页刷新仍空白，但构建页的池下拉仍能拿到该池（路径 H）。它与“返回构建页需要刷新”不是同一根因，建议另立问题跟踪。
+- **用户原始环境未确认。** 原始反馈没有记录访问的是 8080 旧构建、Vite 开发服务器、工作区 `frontend/dist` 还是其他 Production 构建，也没有说明创建前是否已有 `pool_id=0` 行。因此不能把上述某一条路径直接认定为用户遇到的唯一根因；本轮分别记录并保留三条已验证路径。
+- 本轮**未修改任何项目代码、配置、依赖或锁文件**，未实施修复。
+
+#### 2. 代码版本、运行环境与测试数据前提
+
+| 项目 | 实际值 |
+|------|--------|
+| 代码基线 | 分支 `beta`，HEAD `1239e3c`（`git describe` 为 `v4.1.4-3-g1239e3c`）；最后一个代码提交为 `1ceea52`；与 R35-02 构建使用的 `7660292` 相比，`frontend/`、`backend/` 的 diff 为空 |
+| 工作区状态 | 研究开始时工作区干净；本轮结束时仅 `Issue21.md` 有持久化修改 |
+| 前端依赖 | Vue 3.5.44、Vite 7.3.7、Tailwind CSS 4.3.3、`@tailwindcss/vite` 4.3.3、`ant-design-vue` 4.2.6 |
+| 后端/运行时 | Go 1.26.4（darwin/arm64）；Node.js 26.7.0；macOS 27.2 |
+| 浏览器/驱动 | Google Chrome 157.0.8103.52；Playwright-core 1.57.0（安装在临时目录，未加入项目依赖） |
+| 当前 HEAD 隔离实例 | `/tmp/r35-03-pool-refresh`；`APP_MODE=prod`、临时 `DATA_DIR`、`PORT=18110`，仅监听 `127.0.0.1` |
+| 旧构建隔离实例 | `/tmp/r35-03-olddist`；当前后端源码 + 工作区 `backend/web/dist`（2026-08-25）重新嵌入构建，`PORT=18111`，仅监听 `127.0.0.1` |
+
+**构建产物。** 本轮未重新构建前端，沿用 R35-02 研究时从同一代码基线构建的隔离产物；`7660292..HEAD` 的前后端 diff 为空，因此代码一致。为避免改动工作区，旧构建实例是在 `/tmp` 复制当前后端源码、替换为工作区旧 `backend/web/dist` 后重新执行 `CGO_ENABLED=0 go build` 得到。
+
+| 产物 | 说明 | 关键哈希 |
+|------|------|----------|
+| 当前 HEAD 服务 `/tmp/r35-03-pool-refresh/server` | 当前 HEAD 后端 + R35-02 同源前端构建 | `06163d61f040b8316eefffe5ea0688d1a3617b076d5fb385cd959f177c38f0c4` |
+| 当前 HEAD 前端 `index.html` | R35-02 临时构建 | `330ac0fb45326003e263c6397faebd1e96f012f8a572b90c3f1a6272eba85edd` |
+| 当前 HEAD 主 CSS `index-CFZtmKWH.css` | 同一构建 | `3b4626a471f35d7de8e6764bb1566c3ab34697a0ac8c60ea2e7a9c83213c516b` |
+| 当前 HEAD 装配页分块 `AssemblyView-kkF8QGCH.js` | 同一构建；包含 `pools-changed`／`pool-content-changed` | `4b63a7fd37b68604d7adb62ac25191c506e8dfe0b31a062894e3281b43a47bac` |
+| 旧构建 `index.html` | 工作区 `backend/web/dist` 原样嵌入 | `d3612456c680a5dba5b4e9e854fca033cec01fac7425053ae91b1b79db146aa3` |
+| 旧构建 `AssemblyView-9uejEL3P.js` | 2026-08-25 产物；不含池刷新事件 | `febd1518f4f5f37f884e0589e03d4e1665d8cab969e7b2fb2a72fbbcc214ec51` |
+| 旧构建服务 `/tmp/r35-03-olddist/server` | 当前后端 + 旧前端产物 | 54 MB；`CGO_ENABLED=0 go build` |
+
+**本地 8080 的证据。** `GET http://127.0.0.1:8080/` 与 `/admin/assembly` 均引用 `assets/index-48_-me5R.js`，且 `assets/AssemblyView-9uejEL3P.js` 返回 200；这与 `backend/web/dist/index.html` 的旧构建一致。8080 的数据未被本轮操作，旧构建复现使用独立端口与临时数据库。
+
+**测试数据前提。** 测试库由仓库内本地测试库 `backend/data/app-prod.db` 通过 `sqlite3 -readonly ... ".backup"` 复制到临时目录；源库未写入或清空。复制时库内已有：
+
+- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 规定的统一测试密码；
+- 3 个平台、1 个 Clash 订阅（平台 1，订阅 id 1）、1 个手动 VLESS 节点 `HK`、9 个启用预设代理组；
+- **0 个规则素材池**，用于观察“创建后返回”和“首次进入前”两种前提。
+
+每条路径开始前都从同一基线备份恢复到临时库；所有素材池、URL 来源和条目只写入 `/tmp` 临时库。代表性测试数据包括：`R35-03 D 池`（URL 来源 + 手动条目 `r35-03-e2.example`／`r35-03-f3.example`）、`R35-03 F 池`（URL 来源）、`R35-03 G 池（外部创建）`、`R35-03 H 池（其他标签页）`、`R35-03 H 空池`（无 URL 来源）和 `R35-03 OldDist 池`（旧构建，URL 来源）。没有操作生产、预发布、外部服务、真实账号或真实数据。
+
+#### 3. 复现步骤
+
+1. 将当前 HEAD 的隔离服务启动在 `127.0.0.1:18110`；登录 `admin@test.com`。
+2. 打开 `/admin/assembly?tab=clash-yaml`，在第 1 步保持默认头部，点击「下一步」。
+3. 在「节点与代理组」勾选唯一手动节点 `HK`（界面显示 `HKvless`），打开「🌎国外流量」的「选择与排序」，勾选 `HK` 并保存；点击「下一步」进入「规则素材」。
+4. **当前 HEAD 干净流程（A）**：在「规则素材」不点击「添加素材池」，直接切换到「规则素材池」，点击「新建素材池」，填写名称 `R35-03 D 池` 和 URL `https://example.com/rules.txt`，保存；切回「构建订阅/规则」，点击「添加素材池」，观察选择值与下拉选项。
+5. **当前 HEAD 的 `0` 前置路径（B）**：在步骤 3 的规则步骤先点击「添加素材池」（此时无池，行显示 `0`），再按步骤 4 创建 `R35-03 F 池`（池名，不代表路径编号）；返回构建页后观察该行，再整页刷新并重走步骤 2～3，重新添加素材池对照。
+6. **旧内嵌构建（Old）**：在 `127.0.0.1:18111` 打开同样的 Clash 构建流程；旧构建第 1 步需先选择平台，节点步骤的国外流量成员直接以复选框列出 `HK`。在规则步骤切换到「规则素材池」，创建 `R35-03 OldDist 池`（URL `https://example.com/rules.txt`），返回后点击「添加素材池」，展开下拉并观察；随后整页刷新重走流程对照。
+7. **已有池新增素材（F）**：先选择 `R35-03 D 池` 并进入预览，再切到「规则素材池」打开该池详情，新增条目 `r35-03-f3.example`，返回构建页观察预览是否过期；点击「刷新预览」后检查预览正文是否包含新条目。
+8. **应用内页面切换（D）**：在构建页加载后，通过已登录会话的 API 创建 `R35-03 G 池（外部创建）`；先确认当前页候选未更新，再导航到 `/admin/nodes` 后返回 `/admin/assembly?tab=clash-yaml`，检查候选。
+9. **其他浏览器标签页（E）**：在第二个浏览器页签创建 `R35-03 H 池（其他标签页）`，回到第一个页签检查候选；随后整页刷新对照。
+10. **无 URL 空池（H）**：创建一个只填名称、不填 URL 的 `R35-03 H 空池`，观察池列表、浏览器 console、整页刷新后的列表，以及构建页下拉是否仍可获得该池。
+11. 用 Playwright 记录页面文本、截图和 `/api/admin/assembly/context`、`/api/admin/pools`、`/api/admin/assembly/preview` 的请求／响应；截图仅保存在 `/tmp/r35-03-pool-refresh/evidence/`，未加入仓库。
+
+#### 4. 不同创建、切换和返回路径的实际结果
+
+| # | 路径 | 环境与前置 | 返回构建页后的候选 | 返回后当前选择值 | 整页刷新后 | 复现原始描述？ |
+|---|------|------------|--------------------|------------------|------------|----------------|
+| A | 干净流程：创建带 URL 的池后切回构建页 | 当前 HEAD；页面加载时 0 池；未预点「添加素材池」 | 下拉含新池 | 新池（`addPool` 默认选中） | 与新池一致 | 否 |
+| B | 先点「添加素材池」再创建池 | 当前 HEAD；无池时已写入 `pool_id=0` | 下拉含新池 | 仍为 `0` | 新池；表单已清空 | **部分**（可见值仍为 `0`；候选实际已刷新） |
+| C | 首次进入构建页之前创建池 | 当前 HEAD；先停在 `?tab=pool` 创建，再进入构建页 | 下拉含该池 | 该池 | 一致 | 否 |
+| D | 应用内离开再返回 | 当前 HEAD；构建页加载后外部创建 G 池，导航到 `/admin/nodes` 再返回 | 下拉含 G 池 | G 池 | 一致 | 否（组件重挂载，重新请求 context） |
+| E | 另一个浏览器标签页创建 | 当前 HEAD；第一个页签保持构建页不重挂载 | 不含 H 池 | 仍为旧池 G | 含 G、H 池 | 仅在该边界下需要刷新；不属于应用内页签返回 |
+| F | 已有池新增手动条目 | 当前 HEAD；已选 D 池且已有预览 | 候选池不变；预览转为过期 | 已选 D 池不变 | 未测试整页刷新；点击「刷新预览」即可获得新条目 | 否；按 R24-22 设计需要刷新预览，不需整页刷新 |
+| G | 旧内嵌构建创建池后返回 | 2026-08-25 `backend/web/dist`；8080 同源旧构建 | 下拉仍为「暂无数据」 | `0` | 出现 OldDist 池并被默认选中 | **是**（精确复现候选列表未刷新） |
+| H | 创建无 URL 的空池 | 当前 HEAD；只填名称 | 构建页下拉含该池 | 该池 | 仍含该池 | 否（池列表空白是另一缺陷，刷新不修复） |
+
+**A. 当前 HEAD 干净流程。** 创建 `R35-03 D 池` 后返回，`GET /api/admin/pools` 返回 `list:[{id:2,name:"R35-03 D 池",urls:["https://example.com/rules.txt"]}]`；`context.pools` 被替换，规则步骤的池下拉显示该池，展开选项也为该池。另一次从规则步骤直接切换池页签、未预点「添加素材池」的干净流程（A2）结果相同：添加素材池后当前值为新池，选项也只有新池。没有出现“需要整页刷新”的现象。
+
+**B. 当前 HEAD 的 `0` 前置路径。** 在无池时点击「添加素材池」，行内池选择显示 `0`；随后创建 `R35-03 F 池`，返回构建页后下拉展开已有 `R35-03 F 池`，但当前输入框仍显示 `0`（截图 `F3-return-zero.png`）。整页刷新后重走步骤并重新添加素材池，输入框显示 `R35-03 F 池`（截图 `F4-after-reload.png`）。这条路径可以解释用户看到的“必须刷新才能拿到新素材”，但根因是**旧的无效选择值没有被清掉／替换**，不是新池没有进入候选。
+
+**C. 首次进入构建页之前创建。** 先停在 `?tab=pool` 创建空池 `R35-03 H 空池`，再进入构建页并走到规则步骤；池下拉包含该池并可选中。说明 mount 时的 `assembly/context` 能带回已存在的池。
+
+**D. 应用内页面切换。** 构建页保持打开时通过 API 创建 `R35-03 G 池（外部创建）`；当前页候选没有立即变化（符合无轮询设计）。导航到 `/admin/nodes` 再返回装配页后，`AssemblyView` 重新挂载并重新请求 `assembly/context`，下拉出现 G 池；这是“应用内切页返回”路径，不需要整页刷新。
+
+**E. 另一个浏览器标签页。** 在第二个页签创建 `R35-03 H 池（其他标签页）` 后回到第一个页签，第一个页签的候选仍只有 G 池；整页刷新后才出现 G、H 池。该行为说明当前没有跨标签页通知或窗口聚焦刷新；它不属于“应用内规则素材池页签 → 构建页签”路径，列为边界。
+
+**F. 已有池新增素材。** 已选 D 池并生成预览后，在池详情新增 `r35-03-f3.example` 并返回，页面显示“配置已变化，请重新预览”，预览正文仍是旧内容；点击「刷新预览」后正文出现新条目，未整页刷新。候选池列表不需要变化。
+
+**G. 旧内嵌构建。** 创建 `R35-03 OldDist 池` 后返回构建页，池行仍显示 `0`，展开下拉为「暂无数据」（截图 `OLD4-dropdown-before-reload.png`）；整页刷新并重走流程后，池行显示 `R35-03 OldDist 池` 且选项包含该池（截图 `OLD3-after-reload.png`）。这条路径与原始反馈的现象完全一致。
+
+**H. 无 URL 空池。** 创建 `R35-03 H 空池` 后，池页签列表空白，console 报 `TypeError: Cannot read properties of null (reading 'length')`；整页刷新后仍空白；但构建页的池下拉可以选择该池。该缺陷与刷新时机无关。
+
+#### 5. 请求、响应与前端生命周期证据
+
+**当前 HEAD（干净流程 A／`0` 残留路径 B）的实际请求顺序：**
+
+```text
+GET  /api/admin/assembly/context   → pools: []
+GET  /api/admin/pools             → {list: [], total: 0}        （PoolTab 加载）
+POST /api/admin/pools             → 200, id=2, urls=[...]      （新建素材池）
+GET  /api/admin/pools             → {list: [{id:2,...}]}       （PoolTab 保存后 load）
+GET  /api/admin/pools             → {list: [{id:2,...}]}       （切回构建页触发 refreshPools）
+```
+
+- 切回构建页时没有重新请求 `assembly/context`；只请求了 `/api/admin/pools`，由 `onPoolsChanged()` 定向替换 `context.pools`。
+- 在 `0` 前置路径中，第二次 `GET /api/admin/pools` 同样返回新池，但 `form.pools` 中已存在的 `{pool_id:0}` 没有被改动；因此“候选已更新”和“当前选择仍为 0”同时成立。
+- 整页刷新后重新请求 `assembly/context`，`context.pools` 直接包含新池；`form` 重新初始化为空，再点击「添加素材池」时 `addPool()` 取到新池的 id。
+
+**旧内嵌构建（Old）的实际请求顺序：**
+
+```text
+GET  /api/admin/assembly/context   → pools: []                  （页面加载）
+GET  /api/admin/pools             → {list: [], total: 0}        （PoolTab 加载）
+POST /api/admin/pools             → 200, id=2, urls=[...]      （新建素材池）
+GET  /api/admin/pools             → {list: [{id:2,...}]}       （PoolTab 保存后本地 load）
+切回构建页：无 /api/admin/pools、无 /api/admin/assembly/context 请求
+整页刷新：GET /api/admin/assembly/context → pools: [{id:2,...}]
+```
+
+旧构建的 `AssemblyView-9uejEL3P.js` 中检索不到 `pools-changed` 或 `pool-content-changed` 字符串；当前构建分块中分别有 2 个 `pools-changed` 和 3 个 `pool-content-changed`。旧构建没有返回构建页时的 `refreshPools()`，也没有父页面回写事件，因此 `context.pools` 一直是加载时的空数组。
+
+**关键文件与源码位置：**
+
+| 文件位置 | 作用与已验证事实 |
+|----------|------------------|
+| `frontend/src/views/admin/AssemblyView.vue:71-73` | `watch(mainTab)`：从其他一级页签进入 `build` 时调用 `refreshPools()` |
+| `frontend/src/views/admin/AssemblyView.vue:336-347` | `onPoolsChanged()` 替换 `context.pools`；仅当旧上下文中曾存在、且新列表已不存在的已选池才提示；`pool_id=0` 不在旧 ID 集合中，不会触发修复 |
+| `frontend/src/views/admin/AssemblyView.vue:356-362` | `refreshPools()` 只请求 `listPools()`，失败仅提示，不回退到重新加载整个 `context` |
+| `frontend/src/views/admin/AssemblyView.vue:364-368` | `onMounted` 才调用 `loadContext()`；页签切换不重挂载，因此不会重新请求 `assembly/context` |
+| `frontend/src/views/admin/AssemblyView.vue:584-586` | `addPool()` 使用 `context.pools[0]?.id ?? 0`；无池时写入 `pool_id=0` |
+| `frontend/src/views/admin/AssemblyView.vue:349-354` | 已选池内容变化时递增 `selectedPoolContentRevision`，使旧预览过期；不负责修复池候选或选择值 |
+| `frontend/src/views/admin/AssemblyView.vue:403-428` | `restoreAssemblyDraft()` 只恢复由预检跳转保存的草稿；普通整页刷新不会恢复当前步骤与表单 |
+| `frontend/src/views/admin/assembly/RulesStep.vue:42-60` | 池下拉选项来自 `context.pools`；「添加素材池」不检查候选是否为空 |
+| `frontend/src/views/admin/assembly/PoolTab.vue:25-40` | `load()` 请求池列表、更新局部 `pools`，并向父组件发出 `pools-changed` |
+| `frontend/src/views/admin/assembly/PoolTab.vue:72-98` | 新建／编辑成功后关闭弹窗并 `await load()`，因此当前 HEAD 会立即回写父上下文 |
+| `frontend/src/views/admin/assembly/PoolTab.vue:183-186` | 池详情变更后发出 `pool-content-changed`，并刷新池摘要 |
+| `frontend/src/views/admin/assembly/PoolTab.vue:241` | 表格读取 `record.urls.length`；API 返回 `urls:null` 时抛错，导致空池列表空白 |
+| `frontend/src/views/admin/assembly/PoolDetail.vue:133-156` | 手动条目新增成功后 `loadManualEntries()` 并发出 `changed`（父层再发 `pool-content-changed`） |
+| `frontend/src/api/pool.ts:157-158` | `listPools()` 解包 `/api/admin/pools` 的 `data.list` |
+| `backend/internal/server/assembly.go:64-88` | `GET /api/admin/assembly/context` 通过 `poolSvc.List` 返回池摘要；无缓存 |
+| `backend/internal/server/pool.go:21-30` | `/api/admin/pools` 列表与 CRUD 路由；列表每次查库 |
+| `backend/internal/pool/pool.go:283-320` | `List()` 按 `rule_pools` 查询并加载来源；没有内存缓存 |
+
+**测试执行。** 本轮运行了 `assembly-view.spec.ts`、`pool-tab.spec.ts`、`pool-detail.spec.ts`、`rules-step.spec.ts` 共 4 个测试文件、50 项测试，全部通过。现有 `assembly-view.spec.ts` 覆盖了 `PoolTab` 发出 `pools-changed` 后候选更新，以及 `pool-content-changed` 后预览过期；未覆盖“从池页签返回时 `mainTab` 触发 `refreshPools`”和“`pool_id=0` 行在候选更新后仍保留”的断言。
+
+#### 6. 根因分析
+
+1. **当前 HEAD 干净流程的预期行为由 R24-21 修复提供。** `PoolTab` 在每次成功取得列表后发出 `pools-changed`，`AssemblyView` 定向替换 `context.pools`；从池页签返回构建页时，`watch(mainTab)` 再调用一次 `refreshPools()` 兜底。因此新建素材池会进入候选，不需要重挂载整个页面或重新请求 `assembly/context`。
+2. **当前 HEAD 的残留路径是“无效选择值未修复”，不是“候选未刷新”。** `addPool()` 在无池时写入 `0`；候选更新后 `onPoolsChanged()` 只做“旧上下文中存在、且新列表已不存在”的失效判断，`0` 从未存在于旧池 ID 集合中，所以既不会告警也不会替换。页面保留 `{pool_id:0}`，视觉上继续显示 `0`；只有整页刷新清空表单后，重新添加才会选中新池。
+3. **旧内嵌构建的精确复现是构建版本落后。** `backend/web/dist` 早于 R24-21 修复提交 `097cb58`，既没有 `pools-changed`／`pool-content-changed` 事件，也没有 `refreshPools()`。`AssemblyView` 只在 `onMounted` 请求一次 `assembly/context`，`PoolTab` 的局部 `load()` 不会回写父页面，所以创建池后返回构建页仍使用旧候选；整页刷新重新挂载并请求 context 后才出现。
+4. **空池列表空白是独立的空值渲染缺陷。** 后端无 URL 来源的池返回 `urls:null`，`PoolTab.vue:241` 对 `null` 取 `.length` 抛错，Vue 将该列表子树渲染为空。整页刷新仍会拿到 `urls:null`，所以刷新不能修复；构建页下拉直接使用池列表，不受该表格渲染错误影响。该缺陷不应与 R35-03 的刷新路径合并。
+5. **不是以下原因：** 不是后端没有返回新池（`GET /api/admin/pools` 与 `assembly/context` 均实测返回新池）；不是数据库写入失败（POST 200，列表可查）；不是权限或会话问题；不是 HTTP 缓存导致（返回后请求确实发生，旧构建则没有请求）；不是 `PoolTab` 没有保存（新建池在池页签列表中可见）。
+6. **证据边界。** 当前 HEAD 的可复现路径依赖 R35-02 的 `0` 前置状态；旧构建路径能独立复现，但用户实际访问的是哪个构建未确认。原始反馈没有提供网络请求或截图中的下拉展开状态，因此不能排除用户只观察到 `0` 而未展开下拉的情况。
+
+#### 7. 与 R35-02 的关系及证据边界
+
+- **存在直接状态关联。** R35-02 已确认：无素材池时点击「添加素材池」，`addPool()` 写入 `pool_id=0`，下拉显示 `0`，预览返回 400「素材池不存在: 0」。R35-03 的当前 HEAD 路径 B 复用了同一个 `0` 行：创建池后候选已刷新，但该行仍是 `0`，整页刷新清空表单后才恢复。该关联有实际页面、请求和状态证据。
+- **修复 R35-02 的 `0` 回退会移除路径 B 的前置条件。** 如果后续按 R35-02 已确认口径修复“无池时禁止添加或给出引导”，当前 HEAD 的路径 B 就不会形成；但这是对候选修复方向的推断，本轮未实施、未验证。R35-02 的其他口径（规则步骤阻断、`final_output=0` 禁用生成）不直接解决 R35-03 的候选刷新或旧构建问题。
+- **不能把两个问题整体认定为同一根因。** 旧构建路径在没有 `0` 前置的情况下也能复现，原因是缺少 R24-21 的刷新逻辑；当前 HEAD 干净流程则不复现。本轮围绕 R35-03 的复现至少涉及“旧构建未刷新”“当前 HEAD 无效 0 残留”和“空池渲染错误”三个不同层面的问题，不能用一个根因覆盖。
+- **同源修复历史。** R24-21（Issue9，2026-08-30，提交 `097cb58`）已经修过“新建并同步规则素材池后构建页候选必须刷新页面才更新”；旧构建时间戳 2026-08-25 早于该修复。因此旧构建现象属于该修复未部署到 8080 的环境问题，而不是当前源码中再次出现的回归。
+
+#### 8. 对现有草稿、步骤状态和已选素材的影响
+
+- **应用内页签返回：** `refreshPools()` 只替换 `context.pools`，不会重置 `currentStep`、`layoutMode`、`form.pools`、手动规则、节点选择或头部内容；这是当前 HEAD 的预期行为。已选且仍存在的池会保留，池内容变化由 `pool-content-changed` 标记预览过期。
+- **整页刷新：** `AssemblyView` 重新挂载，`currentStep` 回到第 1 步，`form` 回到默认值；普通刷新不会恢复未保存的节点、代理组、已选池或手动规则。只有通过预检跳转保存到 localStorage 的 `assembly_ctx_v1` 草稿会在返回装配页时恢复（`restoreAssemblyDraft()`），而“规则素材池”页签本身不会保存该草稿。路径 B 的整页刷新对照中，确实需要重新勾选节点并重新添加素材池。
+- **已选素材池：** 候选刷新时，如果已选池仍在列表中，选择值和目标组保持不变；如果已选池被删除，`onPoolsChanged()` 会使预览过期并提示“已选素材池已不存在，请移除后重新预览”。`pool_id=0` 不满足“旧上下文中存在”的条件，因此不会被这条保护逻辑修复。
+- **预览：** 仅切换页签或刷新池候选不会自动重新预览；新增／同步已选池内容后，预览保持旧正文并显示过期提示，需要点击「刷新预览」。后端预览和生成会实时读取池条目，不使用进入页面时的快照；这与 R24-22 的服务端摘要校验一致。
+- **影响范围：** `refreshPools()` 只刷新池，不刷新节点、代理组、平台或订阅；如果用户在其他页面修改了这些数据，返回装配页时应依赖重新挂载或各自页面的刷新机制，本轮未验证这些跨页面组合。
+
+#### 9. 尚未确认的内容、未覆盖范围与限制
+
+- **用户原始环境未确认。** 无法确定用户访问的是 8080 的 2026-08-25 旧构建、Vite 5173、工作区 `frontend/dist` 还是其他 Production 构建；也无法确定创建前是否已有 `pool_id=0` 行。两条主要路径都能产生“显示 0、刷新后出现新池”的可见结果，需要用户补充环境或操作序列才能唯一归因。
+- **工作区 `frontend/dist` 未实际加载。** 该 2026-11-11 产物的 `AssemblyView-DBETbe5u.js` 静态检索包含 `pools-changed`／`pool-content-changed`；若用户使用该产物，候选列表整体不刷新的旧构建解释不成立，更可能是 `pool_id=0` 残留。但本轮没有用该目录启动服务，不能据此排除其他差异。
+- **未运行已发布的 `v4.1.3`／`v4.1.4` Docker 镜像**，也未运行 Docker Compose；结论基于当前 HEAD 的本地隔离 Production 构建和旧 `backend/web/dist` 构建。
+- **未覆盖 URL 来源实际同步。** 本轮只配置 URL、未触发同步；手动条目新增已覆盖。URL 同步后的 `entry_count`、pending/active 快照和同步回执未在浏览器逐一验证。
+- **未覆盖其他装配目标。** 只验证了 Clash YAML；SR 订阅、通用订阅和 SR 分流规则的预检、池候选和预览流程不同，不能直接外推。
+- **未覆盖所有视口、主题和浏览器。** 本轮使用 Chrome 157、1440×1000 的 headless 会话；该问题是功能与状态问题，未做移动端和明暗主题矩阵。本轮使用默认“分步”布局，未单独测试“单页”布局下切换池页签后的候选刷新；两者共用 `form` 与 `mainTab`，但未在单页模式实测。
+- **未做并发/延迟注入。** 没有模拟 `PoolTab` 初始 `load()` 与新池 `load()` 响应乱序；理论上同一页面存在旧响应覆盖新列表的窗口，但本轮没有证据，不能列为已确认根因。
+- **未运行全量测试套件。** 已运行 4 个前端定向测试文件、50 项测试并全部通过；未运行前端全量 Vitest、后端 `go test ./...` 或发布门禁。现有测试没有覆盖 `mainTab` 返回刷新和 `0` 残留选择。
+- **空池 `urls:null` 缺陷未单独编号。** 本轮只在本节记录，未创建新问题、未修改后端返回契约或前端渲染；是否另立问题由后续决策。
+- **未验证修复后的行为。** 本文的候选方向均为后续输入，不代表已实施或已验证的修复。
+
+#### 10. 候选修复方向（待决策，未实施）
+
+以下仅记录方向，均未编写或应用修复代码，也不代表已确认方案。
+
+| 方向 | 思路 | 主要风险／待验证点 |
+|------|------|------------------|
+| A. 修复无池时 `addPool()` 写入 `0` | 无可用池时禁用「添加素材池」并给出「请先在规则素材池创建素材」引导，或让 `addPool()` 在候选为空时直接提示并返回；与 R35-02 已确认口径一致 | 需与 R35-02 的“保留手动规则路径”一起设计；不能用页面级无池硬阻断误伤“无池 + 手动规则” |
+| B. 在 `onPoolsChanged()` 中修复无效已选值 | 新池列表返回后，若 `form.pools` 中存在不在 `validIDs` 内的 `pool_id`（包括 `0`），清空该行或提示用户重新选择；不要静默替换有效选择 | 需要决定“自动选中新池”还是“要求用户手动选择”；必须保留目标组、顺序和预览失效语义；会影响已删除池的现有提示逻辑 |
+| C. 为返回刷新和 `0` 残留补测试 | 在 `assembly-view.spec.ts` 中覆盖 `mainTab` 从 `pool` 到 `build` 触发 `listPools`、候选更新、`0` 行保留与整页重挂载对照；在 `pool-tab.spec.ts` 覆盖 `urls:null` | 组件测试需要 mock `listPools` 与 `PoolTab` 事件；浏览器回归应断言下拉选项和当前值，而不只断言文本 |
+| D. 重新构建并替换 8080 的前端产物 | 用当前前端重新构建并更新 `backend/web/dist`／部署镜像，使 8080 不再服务 2026-08-25 的旧构建；验证 `AssemblyView` 分块包含 `pools-changed` | 属于环境/部署修复，不是代码修复；需确认 8080 的用途、构建来源和是否允许替换；本轮未执行 |
+| E. 修复空池 `urls:null` 渲染 | 后端列表对无来源池返回空数组，或前端表格使用 `(record.urls ?? []).length`、`record.urls?.length ?? 0` | 与本问题不同根因；需要决定后端契约还是前端容错；应单独验证空池、URL 池和同步池三种列表状态 |
+| F. 跨浏览器标签页同步 | 在 `visibilitychange`／focus 时刷新池列表，或引入跨标签页通知 | 超出 R35-03 的“应用内页签”范围；可能增加请求和状态冲突，暂不建议作为默认方向 |
+
+**后续验证建议：**
+
+- 先确认用户实际访问的构建（8080 旧构建／当前 HEAD 构建）以及创建前是否点击过「添加素材池」；这决定优先修 A/B 还是 D。
+- 若采用 A/B，增加“无池 + 添加素材池”“创建后返回”“整页刷新后重走”的浏览器回归，断言当前选择值和下拉选项，而不只是页面是否出现池名。
+- 修复后重跑前端 `npm test` 和 `npm run build`；后端无改动时至少保持 `go build ./...`、`go vet ./...` 通过。若修改后端 `urls` 契约，补 `go test ./...` 与列表响应测试。
+- 若采用 D，记录替换前后的 `index.html`／`AssemblyView` 哈希，并在 8080 上复验“创建 → 返回 → 下拉出现新池”，避免只更新静态文件但未重启或未替换嵌入产物。
+
+#### 11. 支持证据摘要
+
+| 场景 | 实际请求／响应或页面观察 |
+|------|--------------------------|
+| 当前 HEAD 干净流程 | 创建池后返回，`GET /api/admin/pools` 返回新池；下拉选项含新池，当前值即为新池 |
+| 当前 HEAD `0` 前置路径 | 返回后 `GET /api/admin/pools` 返回新池；下拉选项含新池，但当前值仍为 `0`；整页刷新后当前值为新池 |
+| 当前 HEAD 应用内切页 | 导航到 `/admin/nodes` 再返回，重新 `GET /api/admin/assembly/context`，外部 G 池出现在下拉 |
+| 当前 HEAD 其他浏览器页签 | 第一页签不重挂载，候选不含 H 池；整页刷新后含 G、H 池 |
+| 当前 HEAD 已选池新增条目 | 返回后提示“配置已变化，请重新预览”；点击「刷新预览」后正文包含新条目 |
+| 旧构建创建池后返回 | 池行显示 `0`，展开为「暂无数据」；返回构建页时没有 `/api/admin/pools` 或 `assembly/context` 请求 |
+| 旧构建整页刷新 | 重新请求 `assembly/context`，返回 OldDist 池；池行显示该池并被默认选中 |
+| 旧构建代码证据 | `AssemblyView-9uejEL3P.js` 无 `pools-changed`／`pool-content-changed`；当前构建分块有 2／3 个对应字符串 |
+| 无 URL 空池 | 列表 `urls:null`；console `TypeError: Cannot read properties of null (reading 'length')`；池列表空白，整页刷新仍空白；构建页下拉仍可选择该池 |
+| 当前 HEAD 定向测试 | 4 个测试文件、50 项通过（assembly-view 20、pool-tab 7、pool-detail 22、rules-step 1） |
+
+以上浏览器、API 与网络观察均来自 2026-11-16 的临时隔离实例；请求体中的节点、平台、规则和账号均为本地测试数据。关键截图保存在 `/tmp/r35-03-pool-refresh/evidence/`（如 `D2-return-dropdown.png`、`F3-return-zero.png`、`F4-after-reload.png`、`OLD3-after-reload.png`、`OLD4-dropdown-before-reload.png`、`H1-empty-pool-blank.png`），未加入仓库。
+
+#### 12. 本轮未做
+
+- 未修改任何项目代码、配置、依赖或锁文件；
+- 未实施任何候选修复，也未将问题标记为已修复；
+- 未操作生产、预发布、外部服务、真实账号或真实数据；
+- 未运行 Docker 镜像、远端 CI 或真实客户端连接；
+- 未重新构建当前 HEAD 前端（沿用 R35-02 同源构建；`7660292..HEAD` 前后端 diff 为空）；
+- 唯一持久化变更为本 `Issue21.md` 文档更新。
+
+### R35-04 VLESS 节点开启 UDP 后生成的 Clash 配置缺少 UDP 字段
+
+- **现象：** 用户截图中，Clash YAML 生成版本的 VLESS 节点没有 `udp` 和 `network` 字段；用户确认生成该版本时节点编辑器的「UDP」开关已开启。
+- **预期：** 节点启用 UDP 时，生成的 Clash/Mihomo 配置应体现该设置，使该节点允许转发 UDP 流量。
+- **文档核对：** 截图是 Clash/Mihomo YAML，而非 Xray JSON。[Mihomo VLESS 文档](https://wiki.metacubex.one/config/proxies/vless/)说明不配置 `network` 时使用 TCP，因此未显式输出 `network: tcp` 本身不代表传输方式遗漏；[Mihomo 出站通用字段文档](https://wiki.metacubex.one/config/proxies/)说明 `udp` 默认关闭，所以截图中省略 `udp` 与用户确认的开启状态不一致。项目固定目标 [Mihomo v1.19.31 的 VLESS 实现](https://github.com/MetaCubeX/mihomo/blob/v1.19.31/adapter/outbound/vless.go)也将 `udp` 用作独立布尔选项并以 TCP 为默认传输。Xray 的 [VLESS 出站](https://xtls.github.io/en/config/outbounds/vless.html)和[传输配置](https://xtls.github.io/en/config/transport.html)使用自身配置结构，不能将其字段名直接套用到 Mihomo YAML。
+- **代码核对：** VLESS 注册表将 UDP 表单默认值设为 `true`、传输默认值设为 `tcp`；Clash VLESS 适配器会从输入参数复制 `udp` 和 `network`，且只复制已存在的非零值。尚未核实截图对应节点从编辑、保存到生成的各阶段数据，因此不能据此确定字段在哪一环丢失。
+- **复现入口：** 本地 Production 模式，生成并查看启用 UDP 的 VLESS 节点对应 Clash 订阅版本内容。
+- **状态与边界：** 待后续处理；本次核对文档与相关代码，未独立复现完整生成链路或实际连接，也未修复。
+
+### R35-05 节点管理的高级 JSON 切换样式与订阅装配不一致
+
+- **现象：** 节点管理的对象字段编辑器使用「结构化编辑／高级 JSON」双按钮切换；订阅装配的 Clash 头部参数分区使用「高级 JSON」开关。用户提供的截图以节点的「多路复用」区域和装配的「端口配置」区域为例。
+- **预期：** 节点管理中的高级 JSON 切换样式与订阅装配一致，使用开关类按钮。
+- **检查范围：** 对照用户截图与前端组件：节点管理的对象字段由 `ProtocolFieldEditor.vue` 渲染双按钮，订阅装配的 `HeaderStep.vue` 对相关分区使用开关；对象字段编辑器也支持嵌套，后续处理时需检查节点管理内适用的对象字段及切换状态。
+- **状态：** 待后续处理；本次仅检查并记录样式差异与用户预期，未修改代码或验证切换行为。
 
 ## 二、记录格式
 
@@ -544,3 +790,7 @@ Tailwind 4 迁移提交为 `1903c58`（“升级前端依赖修复 GitHub Action
 | 2026-11-16 | 按授权完成 R35-02 根因研究：确认页面级预检 `buildPreflightMissing` 只检查节点／平台／订阅，未覆盖素材池或规则源；复现无池时 `addPool` 写入 `pool_id=0`、空池／仅 `USER-AGENT` 池预览最终输出 0、可用池与「无池 + 手动规则」可生成、节点禁用对照可阻断等状态；记录前后端调用链、Design2 与 Design3 的口径冲突、未覆盖边界及候选方向。 |
 | 2026-11-16 | 记录用户确认的 R35-02「按有效规则源阻断」口径：保留手动规则，规则步骤阻止无池且无手动规则进入预览，预览 `final_output=0` 禁用生成，并修复无池时添加素材池产生 `0`；该口径尚未实施，本轮仍仅研究、测试与文档记录。 |
 | 2026-11-16 | 记录创建素材池后返回 Clash 构建页面需整页刷新的用户反馈，编号 R35-03。 |
+| 2026-11-16 | 按授权完成 R35-03 分路径研究：确认当前 HEAD 干净流程不复现（`watch(mainTab)` → `refreshPools()` 更新候选）；复现无池时先点「添加素材池」形成 `pool_id=0`、创建池后返回仍显示 `0`、整页刷新后才显示新池的残留路径；确认工作区 2026-08-25 旧内嵌构建早于 R24-21 修复，缺少 `pools-changed`／`refreshPools`，可精确复现候选列表不刷新；补充应用内切页、其他浏览器页签、已有池新增条目等对照，以及无 URL 空池 `urls:null` 导致列表空白的附带发现。 |
+| 2026-11-16 | 更新文档定位与 R35-03 状态：研究完成、尚未修复；记录当前 HEAD 干净流程、`pool_id=0` 前置路径与旧构建路径的根因边界，明确用户原始环境待确认；本轮仅测试、研究与文档记录，唯一持久化变更为本 `Issue21.md`。 |
+| 2026-11-16 | 记录 R35-04：用户确认 VLESS 节点已开启 UDP，生成的 Clash YAML 未显示该字段；核对 Xray 与 Mihomo 文档及相关代码，未确认丢失环节或实施修复。 |
+| 2026-11-16 | 记录 R35-05：节点管理高级 JSON 双按钮与订阅装配开关样式不一致。 |
