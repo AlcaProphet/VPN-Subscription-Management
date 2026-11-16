@@ -86,7 +86,11 @@ const FORCE_DIRECT = '🚀直接连接'
 const FORCE_OVERSEAS = '🌎国外流量'
 const FORCE_FALLBACK = '🛟无法归属的流量'
 
-const context = ref<AssemblyContext | null>(null)
+const baseContext = ref<Omit<AssemblyContext, 'pools'> | null>(null)
+const poolList = ref<PoolItem[]>([])
+const context = computed<AssemblyContext | null>(() => baseContext.value && { ...baseContext.value, pools: poolList.value })
+let poolRequest = 0
+let appliedPoolRequest = 0
 const subscriptions = ref<SubscriptionItem[]>([])
 const loadingContext = ref(false)
 const previewing = ref(false)
@@ -330,8 +334,10 @@ async function loadContext() {
   loadingContext.value = true
   try {
     await loadRuleMeta()
-    const ctxData = await getAssemblyContext()
-    context.value = ctxData
+    const request = ++poolRequest
+    const { pools, ...ctxData } = await getAssemblyContext()
+    applyPoolList(request, pools)
+    baseContext.value = ctxData
     subscriptions.value = ctxData.subscriptions ?? []
     // 支持从订阅/规则页带目标参数进入装配，直接预填顶部目标选择区
     const platformId = Number(route.query.platform_id ?? 0)
@@ -349,31 +355,47 @@ async function loadContext() {
   }
 }
 
-function onPoolsChanged(pools: PoolItem[]) {
-  if (!context.value) return
-  const previousIDs = new Set(context.value.pools.map((pool) => pool.id))
-  const validIDs = new Set(pools.map((pool) => pool.id))
-  const selectedMissing = form.pools.some((pool) => previousIDs.has(pool.pool_id) && !validIDs.has(pool.pool_id))
-  context.value = { ...context.value, pools: [...pools] }
+function applyPoolList(request: number, pools: PoolItem[]) {
+  // 首次上下文和列表请求共用顺序，只应用比最近一次成功更新更晚发出的响应。
+  if (request < appliedPoolRequest) return
+  appliedPoolRequest = request
+  const previous = new Map(poolList.value.map((pool) => [pool.id, pool]))
+  const next = new Map(pools.map((pool) => [pool.id, pool]))
+  const selectedMissing = form.pools.some(({ pool_id }) => previous.has(pool_id) && !next.has(pool_id))
+  const activeSourcesChanged = form.pools.some(({ pool_id }) => {
+    const before = previous.get(pool_id)
+    const after = next.get(pool_id)
+    return before && after && activeSnapshots(before) !== activeSnapshots(after)
+  })
+  poolList.value = pools
+  if (selectedMissing || activeSourcesChanged) invalidatePoolPreview()
   if (selectedMissing) {
-    selectedPoolContentRevision.value += 1
-    showDiff.value = false
     Notify.warning('已选素材池已不存在，请移除后重新预览')
   }
 }
 
+function activeSnapshots(pool: PoolItem): string {
+  // API 按来源顺序返回。仅比较已生效快照，池名、定时和待激活快照不参与渲染。
+  return (pool.sources ?? []).flatMap((source) => source.active_snapshot_id ? [source.active_snapshot_id] : []).join(',')
+}
+
 function onPoolContentChanged(poolID: number) {
   if (!form.pools.some((pool) => pool.pool_id === poolID)) return
+  invalidatePoolPreview()
+}
+
+function invalidatePoolPreview() {
   // 本地修订号进入预览指纹，可覆盖同步与预览请求并发完成的时序。
   selectedPoolContentRevision.value += 1
   showDiff.value = false
 }
 
 async function refreshPools() {
+  const request = ++poolRequest
   try {
-    onPoolsChanged(await listPools())
+    applyPoolList(request, await listPools())
   } catch (err) {
-    Notify.error((err as Error).message)
+    if (request >= appliedPoolRequest) Notify.error((err as Error).message)
   }
 }
 
@@ -816,7 +838,7 @@ const outputGroups = computed(() => {
            message="以下节点显示名已变化，生成时将按当前显示名渲染" :description="Object.entries(nameChanged).map(([k,v]) => `${k} → ${v}`).join('；')" />
     <Tabs :active-key="mainTab" @change="onMainTabChange">
       <Tabs.TabPane key="pool" tab="规则素材池">
-        <PoolTab @pools-changed="onPoolsChanged" @pool-content-changed="onPoolContentChanged" />
+        <PoolTab :pools="poolList" :refresh-pools="refreshPools" @pool-content-changed="onPoolContentChanged" />
       </Tabs.TabPane>
       <Tabs.TabPane key="proxy-groups" tab="代理组">
         <ProxyGroupsView />

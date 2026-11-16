@@ -22,6 +22,7 @@ func RegisterPoolRoutes(engine *gin.Engine, h *PoolHandler, sessionMW, adminMW g
 	admin.GET("", h.list)
 	admin.POST("", h.create)
 	admin.PUT("/:id", h.update)
+	admin.PATCH("/:id/auto-sync", h.setAutoSync)
 	admin.DELETE("/:id", h.delete)
 
 	admin.GET("/:id/entries", h.listEntries)
@@ -121,6 +122,29 @@ func (h *PoolHandler) update(c *gin.Context) {
 	}
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, nil)
+}
+
+func (h *PoolHandler) setAutoSync(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	var req struct {
+		AutoSync *bool `json:"auto_sync" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	if err := h.poolSvc.SetAutoSync(c.Request.Context(), id, *req.AutoSync); err != nil {
+		if errors.Is(err, pool.ErrNotFound) {
+			Fail(c, http.StatusNotFound, "素材池不存在")
+		} else {
+			Fail(c, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	OK(c, nil)

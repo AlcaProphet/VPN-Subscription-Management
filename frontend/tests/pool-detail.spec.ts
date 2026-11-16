@@ -105,10 +105,15 @@ function makeStatus(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function mountPoolDetail(options: { pool?: typeof pool; statuses?: Array<Record<string, unknown>>; attach?: boolean } = {}) {
+function mountPoolDetail(options: {
+  pool?: typeof pool
+  statuses?: Array<Record<string, unknown>>
+  attach?: boolean
+  contentChanged?: (poolID: number) => void
+} = {}) {
   if (options.statuses) mockListSourceStatuses.mockResolvedValue(options.statuses)
   return mount(PoolDetail, {
-    props: { pool: options.pool ?? pool },
+    props: { pool: options.pool ?? pool, contentChanged: options.contentChanged ?? vi.fn() },
     ...(options.attach ? { attachTo: document.body } : {}),
   })
 }
@@ -152,7 +157,7 @@ describe('PoolDetail', () => {
         }],
         total: 2,
       })
-    const wrapper = mount(PoolDetail, { props: { pool } })
+    const wrapper = mountPoolDetail()
     await flushPromises()
     expect(wrapper.text()).toContain('成功')
     const vm = wrapper.vm as unknown as { taskPage: number }
@@ -168,7 +173,7 @@ describe('PoolDetail', () => {
       .mockResolvedValueOnce({ list: [entry], total: 1 })
       .mockResolvedValueOnce({ list: [urlEntry], total: 1 })
     mockListTasks.mockResolvedValue({ list: [], total: 0 })
-    const wrapper = mount(PoolDetail, { props: { pool } })
+    const wrapper = mountPoolDetail()
     await flushPromises()
     expect(mockListEntries).toHaveBeenCalledTimes(1)
     expect(mockListEntries).toHaveBeenLastCalledWith(1, 1, 20, 'manual')
@@ -187,7 +192,7 @@ describe('PoolDetail', () => {
     const cancel = vi.fn()
     const run = vi.fn(() => d.promise)
     mockPollTask.mockReturnValue({ run, cancel })
-    const wrapper = mount(PoolDetail, { props: { pool } })
+    const wrapper = mountPoolDetail()
     await flushPromises()
     const vm = wrapper.vm as unknown as { doSync: () => Promise<void> }
     const first = vm.doSync()
@@ -198,19 +203,29 @@ describe('PoolDetail', () => {
     await first
   })
 
-  it('手动条目新增后向上通知素材池内容变化', async () => {
+  it.each([false, true])('手工条目保存后立即通知（响应前已关闭：%s）', async (closedBeforeResponse) => {
     mockListEntries.mockResolvedValue({ list: [entry], total: 1 })
     mockListTasks.mockResolvedValue({ list: [], total: 0 })
-    mockCreateEntry.mockResolvedValue(entry)
-    const wrapper = mount(PoolDetail, { props: { pool } })
+    const mutation = deferred<typeof entry>()
+    const reload = deferred<{ list: typeof entry[]; total: number }>()
+    const contentChanged = vi.fn()
+    mockCreateEntry.mockReturnValue(mutation.promise)
+    const wrapper = mountPoolDetail({ contentChanged })
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       entryForm: { rule_type: string; match_value: string }
       saveEntry: () => Promise<void>
     }
     vm.entryForm.match_value = 'new.example.com'
-    await vm.saveEntry()
-    expect(wrapper.emitted('changed')).toEqual([[pool.id]])
+    mockListEntries.mockReturnValueOnce(reload.promise)
+    const saved = vm.saveEntry()
+    expect(contentChanged).not.toHaveBeenCalled()
+    if (closedBeforeResponse) wrapper.unmount()
+    mutation.resolve(entry)
+    await flushPromises()
+    expect(contentChanged).toHaveBeenCalledExactlyOnceWith(pool.id)
+    reload.resolve({ list: [entry], total: 1 })
+    await saved
   })
 
   it('素材池规则类型下拉从后端 snake_case 元数据生成', async () => {
@@ -225,7 +240,7 @@ describe('PoolDetail', () => {
       ],
       capabilities: [],
     })
-    const wrapper = mount(PoolDetail, { props: { pool } })
+    const wrapper = mountPoolDetail()
     await flushPromises()
     const vm = wrapper.vm as unknown as { manualRuleTypes: string[] }
     expect(vm.manualRuleTypes).toContain('DOMAIN')
@@ -240,7 +255,7 @@ describe('PoolDetail', () => {
       .mockResolvedValueOnce({ list: [{ task_id: 1, pool_id: 1, status: 'succeeded', per_url: [], error: '', started_at: '', finished_at: '' }], total: 1 })
       .mockResolvedValueOnce({ list: [], total: 0 })
     mockClearSyncTasks.mockResolvedValue({ cleared: 1 })
-    const wrapper = mount(PoolDetail, { props: { pool } })
+    const wrapper = mountPoolDetail()
     await flushPromises()
     const vm = wrapper.vm as unknown as { clearOpen: boolean; confirmClearTasks: () => Promise<void> }
     vm.clearOpen = true
@@ -259,7 +274,7 @@ describe('PoolDetail', () => {
       }],
       total: 1,
     })
-    const wrapper = mount(PoolDetail, { props: { pool } })
+    const wrapper = mountPoolDetail()
     await flushPromises()
     expect(wrapper.text()).toContain('接受 112')
     expect(wrapper.text()).toContain('拒绝 2')

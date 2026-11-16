@@ -283,6 +283,8 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 ### 5.1 页面骨架：单菜单入口页内 Tabs
 
 - `PageHeader`（标题「订阅装配」）+ `a-tabs` **三个一级页签**：**规则素材池 / 代理组 / 构建订阅·规则**（页签 key：`pool` / `proxy-groups` / `build`）；其中「构建订阅·规则」内部再以二级 Tab 提供四个子平台：**Clash YAML / SR 节点订阅 / 通用节点订阅 / SR 分流规则**（key：`clash-yaml` / `sr-subs` / `generic-subs` / `sr-conf`）；页签切换不重新拉取无关数据（各页签独立挂载，`keep-alive` 或惰性渲染二选一由实现决定，对外行为一致）。**素材池页签的新建/编辑/删除/同步与手动条目变更须即时上推最新池摘要到装配上下文；进入构建页签时仅定向刷新素材池列表作为兜底，不重新拉取节点、代理组、平台等无关上下文。**
+- 素材池管理和装配选择共用池列表。首次装配上下文与后续池列表响应按请求顺序合入，已返回的新候选在上下文就绪后可直接使用。更早发出的响应不能覆盖较新的成功结果。
+- 已选池的手工条目写入成功即标记旧预览过期，详情关闭和列表刷新时机不影响通知。刷新列表发现已选池消失，或活动来源快照及其顺序变化，也会使预览过期。池名与定时设置可单独修改，原预览依旧有效。
 - URL query 驱动页签：`?tab=` 无效值回退首页签；`?tab=clash-yaml` 等会定位到「构建订阅·规则」对应子平台；四个子平台接受 `platform_id` / `rule_id` / `edit_version_id` 带参进入（见 2.3/4.2）
 - `<768`：页签转横向滚动（AntD 默认行为），页内分区纵向堆叠
 
@@ -526,6 +528,7 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 |------|-----------|------|------|------|
 | listPools | GET /api/admin/pools | — | `{ list: Pool[] }`（含 name/urls/entry_count/last_synced_at/sync_status/sync_error/auto_sync/sync_time） | 池列表（5.2.1） |
 | createPool / updatePool / deletePool | POST/PUT/DELETE /api/admin/pools(/:id) | 名称 + urls + auto_sync + sync_time | 统一成功结构 | 池 CRUD |
+| setPoolAutoSync | PATCH /api/admin/pools/:id/auto-sync | `{ auto_sync: boolean }` | 统一成功结构 | 行内开关，仅更新定时启用状态 |
 | listEntries | GET /api/admin/pools/:id/entries?page=&page_size=&source= | 分页参数；`source` 可选为 `manual` 或 `url` | `{ list: Entry[], total }`（rule_type/match_value/source/sort_order；`total` 为筛选后的来源总数） | 条目分页；池详情初开读取 manual，URL 区首次展开后读取 url（5.2.2） |
 | createEntry / updateEntry / deleteEntry | POST/PUT/DELETE | 类型 + 匹配值 | 统一结构；重名 409 | 手动条目 |
 | submitSync | POST /api/admin/pools/:id/sync | — | `{ task_id }` | 提交同步任务 |
@@ -728,3 +731,4 @@ Design1-UI §六全局交互约定（脱敏回显 / 防枚举措辞 / 时间展�
 | v2.7 | 2026-08-30 | 同步 Issue9 R24-21/R24-22：素材池列表变更即时同步装配上下文，进入构建页签定向刷新素材池；已选池内容变化使本地预览过期，预览/生成新增正文 SHA-256 摘要校验，外部依赖变化时 409 拒绝落库。 |
 | v2.8 | 2026-08-30 | 同步 Issue9 R24-09/R24-10/R24-11/R24-13/R24-14/R24-16/R24-17：规则列表移除客户端类型列与首页默认单选列并收口操作区；订阅版本页隐藏类型 Tag；代理组高级开关统一单行；装配目标 Tab 使用面向用户文案；头部高级 JSON 改 Switch 且默认值改警示按钮；节点/代理组选区改为分区卡片与中文术语。 |
 | v2.9 | 2026-08-30 | 同步 Issue9 R24-19/R24-20：manual 节点弹窗改为 920px 六分区布局与独立开关区；`FieldSchema` 增加分区及递归对象 schema；固定对象/映射/对象数组默认结构化编辑，保留对象级高级 JSON、未知键与嵌套敏感字段兼容，并增加服务端递归路径校验。 |
+| v2.10 | 2026-11-16 | 同步 R35-03 的池列表共享、乱序响应处理、预览失效及行内定时开关接口。 |

@@ -7,6 +7,7 @@ vi.mock('@/api/pool', () => ({
   listPools: vi.fn(),
   createPool: vi.fn(),
   updatePool: vi.fn(),
+  setPoolAutoSync: vi.fn(),
   deletePool: vi.fn(),
   submitSync: vi.fn(),
   cancelSync: vi.fn(),
@@ -29,7 +30,7 @@ vi.mock('@/components/Notify', () => ({
   Notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), detail: vi.fn() },
 }))
 
-import { cancelSync, getSyncStatus, listPools, submitSync } from '@/api/pool'
+import { cancelSync, getSyncStatus, listPools, setPoolAutoSync, submitSync, updatePool } from '@/api/pool'
 import { pollTask } from '@/api/request'
 import { Notify } from '@/components/Notify'
 
@@ -59,6 +60,19 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+function mountPoolTab() {
+  const wrapper = mount(PoolTab, {
+    props: {
+      pools: [],
+      async refreshPools() {
+        const pools = await listPools()
+        await wrapper.setProps({ pools })
+      },
+    },
+  })
+  return wrapper
+}
+
 describe('PoolTab', () => {
   beforeEach(() => {
     mockList.mockReset()
@@ -66,6 +80,7 @@ describe('PoolTab', () => {
     mockSubmitSync.mockReset()
     mockCancelSync.mockReset()
     mockGetSyncStatus.mockReset()
+    vi.mocked(setPoolAutoSync).mockReset()
     vi.mocked(Notify.warning).mockClear()
     vi.mocked(Notify.success).mockClear()
     vi.mocked(Notify.error).mockClear()
@@ -73,18 +88,30 @@ describe('PoolTab', () => {
 
   it('空列表显示空态文案', async () => {
     mockList.mockResolvedValue([])
-    const wrapper = mount(PoolTab)
+    const wrapper = mountPoolTab()
     await flushPromises()
     expect(wrapper.text()).toContain('还没有规则素材池')
   })
 
   it('列表加载后显示池名与定时时刻', async () => {
     mockList.mockResolvedValue([pool])
-    const wrapper = mount(PoolTab)
+    const wrapper = mountPoolTab()
     await flushPromises()
     expect(wrapper.text()).toContain('苹果域名')
     expect(wrapper.text()).toContain('每日 04:00 UTC')
-    expect(wrapper.emitted('pools-changed')?.[0]).toEqual([[pool]])
+  })
+
+  it('行内开关只提交定时状态，并刷新服务器列表', async () => {
+    const disabled = { ...pool, auto_sync: false }
+    mockList.mockResolvedValueOnce([pool]).mockResolvedValueOnce([disabled])
+    vi.mocked(setPoolAutoSync).mockResolvedValue(undefined)
+    const wrapper = mountPoolTab()
+    await flushPromises()
+    await wrapper.find('button[role="switch"]').trigger('click')
+    await flushPromises()
+    expect(setPoolAutoSync).toHaveBeenCalledWith(pool.id, false)
+    expect(updatePool).not.toHaveBeenCalled()
+    expect(wrapper.find('button[role="switch"]').attributes('aria-checked')).toBe('false')
   })
 
   it('同步进行中再次点击提示 warning', async () => {
@@ -93,7 +120,7 @@ describe('PoolTab', () => {
     const cancel = vi.fn()
     const run = vi.fn(() => d.promise)
     mockPollTask.mockReturnValue({ run, cancel })
-    const wrapper = mount(PoolTab)
+    const wrapper = mountPoolTab()
     await flushPromises()
     const vm = wrapper.vm as unknown as { doSync: (p: typeof pool) => Promise<void> }
     const first = vm.doSync(pool)
@@ -121,7 +148,7 @@ describe('PoolTab', () => {
         return tasks.get(poolID)!.promise
       },
     }))
-    const wrapper = mount(PoolTab)
+    const wrapper = mountPoolTab()
     await flushPromises()
     const vm = wrapper.vm as unknown as { doSync: (p: typeof pool) => Promise<void> }
 
@@ -160,7 +187,7 @@ describe('PoolTab', () => {
       },
     }))
 
-    const wrapper = mount(PoolTab)
+    const wrapper = mountPoolTab()
     await flushPromises()
     const syncActions = wrapper.findAll('button.pool-sync-action')
     expect(syncActions.every((button) => button.text().replace(/\s/g, '') === '取消')).toBe(true)
@@ -185,7 +212,7 @@ describe('PoolTab', () => {
         return d.promise
       },
     }))
-    const wrapper = mount(PoolTab)
+    const wrapper = mountPoolTab()
     await flushPromises()
     const syncActions = () => wrapper.findAll('button.pool-sync-action')
     const editActions = () => wrapper.findAll('button.pool-edit-action')
@@ -223,7 +250,7 @@ describe('PoolTab', () => {
     const cancel = vi.fn()
     const run = vi.fn(() => d.promise)
     mockPollTask.mockReturnValue({ run, cancel })
-    const wrapper = mount(PoolTab)
+    const wrapper = mountPoolTab()
     await flushPromises()
     const vm = wrapper.vm as unknown as { doSync: (p: typeof pool) => Promise<void> }
     const first = vm.doSync(pool)

@@ -3,7 +3,12 @@ package pool
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/rulespec"
@@ -107,7 +112,7 @@ func TestCRUDAndSort(t *testing.T) {
 		t.Fatalf("删除后列表异常: %+v", list)
 	}
 
-	// Update 全量替换 URL 来源
+	// Update 移除旧 URL 并追加新的 URL。
 	if err := svc.Update(ctx, p.ID, "测试池", []SourceInput{{URL: "https://b.example/rules.txt", SourceMode: SourceModeClash}}, false, "05:00"); err != nil {
 		t.Fatalf("更新失败: %v", err)
 	}
@@ -131,6 +136,75 @@ func TestCRUDAndSort(t *testing.T) {
 		if n != 0 {
 			t.Fatalf("旧表 %s 应不存在", table)
 		}
+	}
+}
+
+func TestUpdatePreservesUnchangedPoolSources(t *testing.T) {
+	st, svc := newTestService(t)
+	ctx := context.Background()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "rules.txt", time.Time{}, strings.NewReader(r.URL.Path[1:]+".example\n"))
+	}))
+	defer source.Close()
+	a := SourceInput{URL: source.URL + "/a", SourceMode: SourceModeAuto}
+	b := SourceInput{URL: source.URL + "/b", SourceMode: SourceModeAuto}
+	p, err := svc.Create(ctx, "已同步池", []SourceInput{a, b}, false, "05:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SubmitSync(ctx, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitSync(t, svc, p.ID, "succeeded")
+	get := func() Pool {
+		t.Helper()
+		list, err := svc.List(ctx)
+		if err != nil || len(list) != 1 {
+			t.Fatalf("查询池失败: %v", err)
+		}
+		return list[0]
+	}
+	before := get()
+	if before.EntryCount != 2 || before.Sources[0].ActiveSnapshotID == nil || before.Sources[1].ActiveSnapshotID == nil {
+		t.Fatalf("预期两个活动来源: %+v", before)
+	}
+	if err := svc.SetAutoSync(ctx, p.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	toggled := get()
+	if !toggled.AutoSync || toggled.Name != before.Name || toggled.SyncTime != before.SyncTime ||
+		!reflect.DeepEqual(toggled.Sources, before.Sources) || toggled.EntryCount != 2 {
+		t.Fatalf("切换开关改变了其他设置或活动规则: %+v", toggled)
+	}
+	if err := svc.Update(ctx, p.ID, "改名池", []SourceInput{b, a}, true, "06:00"); err != nil {
+		t.Fatal(err)
+	}
+	edited := get()
+	if edited.EntryCount != 2 || edited.Sources[0].ID != before.Sources[1].ID || edited.Sources[1].ID != before.Sources[0].ID ||
+		!reflect.DeepEqual(edited.Sources[0].ActiveSnapshotID, before.Sources[1].ActiveSnapshotID) ||
+		!reflect.DeepEqual(edited.Sources[1].ActiveSnapshotID, before.Sources[0].ActiveSnapshotID) {
+		t.Fatalf("改名和排序应保留活动快照: %+v", edited.Sources)
+	}
+	entries, _, err := svc.ListEntries(ctx, p.ID, 1, 20, "url")
+	if err != nil || len(entries) != 2 || entries[0].MatchValue != "b.example" || entries[1].MatchValue != "a.example" {
+		t.Fatalf("重排后应按新顺序读取活动规则: %+v, %v", entries, err)
+	}
+	a.SourceMode = SourceModeClash
+	if err := svc.Update(ctx, p.ID, "改名池", []SourceInput{a}, true, "06:00"); err != nil {
+		t.Fatal(err)
+	}
+	replaced := get()
+	if len(replaced.Sources) != 1 || replaced.Sources[0].ID == before.Sources[0].ID ||
+		replaced.Sources[0].ActiveSnapshotID != nil || replaced.EntryCount != 0 {
+		t.Fatalf("移除来源及更改模式应清理旧规则: %+v", replaced)
+	}
+	var snapshots, rules int
+	if err := st.DB().QueryRowContext(ctx, `SELECT (SELECT count(*) FROM pool_source_snapshots),
+		(SELECT count(*) FROM pool_canonical_rules WHERE pool_id = ?)`, p.ID).Scan(&snapshots, &rules); err != nil {
+		t.Fatal(err)
+	}
+	if snapshots != 0 || rules != 0 {
+		t.Fatalf("旧快照或规则未清理: %d, %d", snapshots, rules)
 	}
 }
 

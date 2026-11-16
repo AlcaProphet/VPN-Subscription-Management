@@ -16,8 +16,8 @@ import { Notify } from '@/components/Notify'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FormOverlay from '@/components/FormOverlay.vue'
 
-const props = defineProps<{ pool: PoolItem }>()
-const emit = defineEmits<{ back: []; changed: [poolID: number]; edit: [] }>()
+const props = defineProps<{ pool: PoolItem; contentChanged: (poolID: number) => void }>()
+const emit = defineEmits<{ edit: [] }>()
 
 const manualRuleTypes = ref<string[]>([])
 
@@ -90,7 +90,7 @@ async function loadSourceStatuses() {
 }
 
 async function refreshAfterPendingAction() {
-  emit('changed', props.pool.id)
+  props.contentChanged(props.pool.id)
   await Promise.all([loadSourceStatuses(), refreshEntries()])
 }
 
@@ -132,22 +132,24 @@ function openEditEntry(e: PoolEntryItem) {
 }
 async function saveEntry() {
   if (!entryForm.match_value.trim()) { Notify.error('匹配值不能为空'); return }
+  const { pool: { id: poolID }, contentChanged } = props
   entrySaving.value = true
   try {
     if (editingEntry.value) {
-      await updateEntry(props.pool.id, editingEntry.value.id, {
+      await updateEntry(poolID, editingEntry.value.id, {
         rule_type: entryForm.rule_type, match_value: entryForm.match_value.trim(),
       })
       Notify.success('条目已更新')
     } else {
-      await createEntry(props.pool.id, {
+      await createEntry(poolID, {
         rule_type: entryForm.rule_type, match_value: entryForm.match_value.trim(),
       })
       Notify.success('条目已添加')
     }
+    // 写入成功即失效；详情关闭时仍可通知管理页，列表刷新无需等待。
+    contentChanged(poolID)
     entryOpen.value = false
     await loadManualEntries()
-    emit('changed', props.pool.id)
   } catch (err) {
     Notify.error((err as Error).message) // 409 去重冲突文案
   } finally {
@@ -155,11 +157,12 @@ async function saveEntry() {
   }
 }
 async function removeEntry(e: PoolEntryItem) {
+  const { pool: { id: poolID }, contentChanged } = props
   try {
-    await deleteEntry(props.pool.id, e.id)
+    await deleteEntry(poolID, e.id)
+    contentChanged(poolID)
     Notify.success('条目已删除')
     await loadManualEntries()
-    emit('changed', props.pool.id)
   } catch (err) {
     Notify.error((err as Error).message)
   }
@@ -182,7 +185,7 @@ async function doSync() {
     syncResult.value = await pollHandle.run()
     if (syncResult.value.status === 'succeeded') Notify.success('同步完成')
     else Notify.warning('同步完成（存在失败项，详情见回执）')
-    emit('changed', props.pool.id)
+    props.contentChanged(props.pool.id)
     await Promise.all([refreshEntries(), loadSourceStatuses()])
   } catch (err) {
     if (err instanceof Error && err.message === '轮询已取消') return

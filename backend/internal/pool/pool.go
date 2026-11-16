@@ -229,7 +229,7 @@ func insertSourceTx(ctx context.Context, tx *sql.Tx, poolID int64, kind, u strin
 	return res.LastInsertId()
 }
 
-// Update 更新素材池：全量替换 URL 来源；手工来源/规则保留。
+// Update 更新素材池，保留 URL 和解析模式均未变更的来源及其快照。
 func (s *Service) Update(ctx context.Context, id int64, name string, sources []SourceInput, autoSync bool, syncTime string) error {
 	name = strings.TrimSpace(name)
 	if name == "" || len([]rune(name)) > MaxPoolNameLen {
@@ -262,21 +262,81 @@ func (s *Service) Update(ctx context.Context, id int64, name string, sources []S
 			name, boolInt(autoSync), syncTime, id); err != nil {
 			return fmt.Errorf("更新素材池失败: %w", err)
 		}
-		// 全量替换 URL 来源，并清理无手工 origin 的孤立 canonical。
-		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM rule_pool_sources WHERE pool_id = ? AND kind = 'url'`, id); err != nil {
+		return s.updateURLSourcesTx(ctx, tx, id, sources)
+	})
+}
+
+func (s *Service) updateURLSourcesTx(ctx context.Context, tx *sql.Tx, poolID int64, sources []SourceInput) error {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, url, source_mode, sort_order FROM rule_pool_sources WHERE pool_id = ? AND kind = 'url'`, poolID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var existing []PoolSource
+	for rows.Next() {
+		var src PoolSource
+		if err := rows.Scan(&src.ID, &src.URL, &src.SourceMode, &src.SortOrder); err != nil {
 			return err
 		}
-		if err := s.cleanupOrphanCanonicalTx(ctx, tx, id); err != nil {
-			return err
+		existing = append(existing, src)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	order := make(map[SourceInput]int64, len(sources))
+	for i, src := range sources {
+		order[src] = int64(i)
+	}
+	retained := make(map[SourceInput]bool, len(existing))
+	removed := false
+	for _, src := range existing {
+		key := SourceInput{URL: src.URL, SourceMode: src.SourceMode}
+		position, keep := order[key]
+		if !keep {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM rule_pool_sources WHERE id = ?`, src.ID); err != nil {
+				return err
+			}
+			removed = true
+			continue
 		}
-		for i, src := range sources {
-			if _, err := insertSourceTx(ctx, tx, id, "url", src.URL, src.SourceMode, int64(i)); err != nil {
+		retained[key] = true
+		if position != src.SortOrder {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE rule_pool_sources SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, position, src.ID); err != nil {
 				return err
 			}
 		}
-		return nil
-	})
+	}
+	for i, src := range sources {
+		if !retained[src] {
+			if _, err := insertSourceTx(ctx, tx, poolID, "url", src.URL, src.SourceMode, int64(i)); err != nil {
+				return err
+			}
+		}
+	}
+	if removed {
+		return s.cleanupOrphanCanonicalTx(ctx, tx, poolID)
+	}
+	return nil
+}
+
+// SetAutoSync 只切换定时同步开关，避免回写列表中读取的旧池设置。
+func (s *Service) SetAutoSync(ctx context.Context, id int64, enabled bool) error {
+	result, err := s.store.DB().ExecContext(ctx,
+		`UPDATE rule_pools SET auto_sync = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, boolInt(enabled), id)
+	if err != nil {
+		return fmt.Errorf("切换定时同步失败: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // List 池列表（含来源与活跃规则数）。

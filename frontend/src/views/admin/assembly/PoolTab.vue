@@ -1,11 +1,11 @@
 <!-- PoolTab.vue：规则素材池列表（Design2-UI §5.2.1）+ 新建/编辑弹窗 -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { Badge, Button, Input, Switch, Table, Tooltip } from 'ant-design-vue'
 import AppModal from '@/components/AppModal.vue'
 import AppTimePicker from '@/components/AppTimePicker.vue'
 import dayjs from 'dayjs'
-import { listPools, createPool, updatePool, deletePool, submitSync, cancelSync, getSyncStatus, type PoolItem, type SyncTaskItem, type SourceMode } from '@/api/pool'
+import { createPool, updatePool, setPoolAutoSync, deletePool, submitSync, cancelSync, getSyncStatus, type PoolItem, type SyncTaskItem, type SourceMode } from '@/api/pool'
 import { pollTask, ApiError } from '@/api/request'
 import { Notify } from '@/components/Notify'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -13,26 +13,22 @@ import FormOverlay from '@/components/FormOverlay.vue'
 import TriStateList from '@/components/TriStateList.vue'
 import PoolDetail from './PoolDetail.vue'
 
+const props = defineProps<{
+  pools: PoolItem[]
+  refreshPools: () => Promise<void>
+}>()
 const emit = defineEmits<{
-  'pools-changed': [pools: PoolItem[]]
   'pool-content-changed': [poolID: number]
 }>()
 
 const loading = ref(false)
-const pools = ref<PoolItem[]>([])
 const detailID = ref(0)
+const detailPool = computed(() => props.pools.find((pool) => pool.id === detailID.value))
 
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    const next = await listPools()
-    pools.value = next
-    emit('pools-changed', next)
-    for (const pool of next) {
-      if (pool.sync_status === 'running' && !syncTaskIDs.has(pool.id)) void resumeSync(pool)
-    }
-  } catch (err) {
-    Notify.error((err as Error).message)
+    await props.refreshPools()
   } finally {
     if (!silent) loading.value = false
   }
@@ -42,10 +38,6 @@ onUnmounted(() => {
   pollHandles.forEach((h) => h.cancel())
   pollHandles.clear()
 })
-
-function currentDetail() {
-  return pools.value.find((p) => p.id === detailID.value) ?? null
-}
 
 // 新建/编辑
 const formOpen = ref(false)
@@ -102,10 +94,9 @@ const toggling = ref(0)
 async function toggleAuto(p: PoolItem, value: boolean) {
   toggling.value = p.id
   try {
-    const sources = (p.sources || []).filter((s) => s.kind === 'url').map((s) => ({ url: s.url || '', source_mode: s.source_mode }))
-    await updatePool(p.id, { name: p.name, sources, auto_sync: value, sync_time: p.sync_time })
-    p.auto_sync = value
+    await setPoolAutoSync(p.id, value)
     Notify.success(value ? '已开启定时同步' : '已关闭定时同步')
+    await load(true)
   } catch (err) {
     Notify.error((err as Error).message)
     await load() // 失败回滚
@@ -169,6 +160,12 @@ async function resumeSync(p: PoolItem) {
   syncTaskIDs.set(p.id, 0)
   await runSync(p, true)
 }
+watch(() => props.pools, (next) => {
+  for (const pool of next) {
+    if (pool.sync_status === 'running') void resumeSync(pool)
+  }
+}, { immediate: true })
+
 async function doCancelSync(p: PoolItem) {
   const taskID = syncTaskIDs.get(p.id) ?? 0
   if (!taskID) { Notify.warning('任务尚未开始，无法取消'); return }
@@ -180,18 +177,20 @@ async function doCancelSync(p: PoolItem) {
   }
 }
 
-async function onDetailChanged(poolID: number) {
+function onDetailChanged(poolID: number) {
   emit('pool-content-changed', poolID)
-  await load()
+  void load()
 }
 
 const toDelete = ref<PoolItem | null>(null)
 const deleting = ref(false)
 async function confirmDelete() {
   if (!toDelete.value) return
+  const poolID = toDelete.value.id
   deleting.value = true
   try {
-    await deletePool(toDelete.value.id)
+    await deletePool(poolID)
+    emit('pool-content-changed', poolID)
     Notify.success('素材池已删除')
     toDelete.value = null
     await load()
@@ -219,10 +218,10 @@ const fmtTime = (t?: string | null) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') 
 <template>
   <div>
     <!-- 素材池详情弹窗 -->
-    <AppModal :open="detailID !== 0" :footer="null" :width="760" :centered="true"
-              :title="currentDetail() ? `素材池详情 · ${currentDetail()!.name}` : ''"
+    <AppModal :open="!!detailPool" :footer="null" :width="760" :centered="true"
+              :title="detailPool ? `素材池详情 · ${detailPool.name}` : ''"
               @update:open="detailID = $event ? detailID : 0">
-      <PoolDetail v-if="detailID" :pool="currentDetail()!" @changed="onDetailChanged" @edit="openEdit(currentDetail()!)" />
+      <PoolDetail v-if="detailPool" :pool="detailPool" :content-changed="onDetailChanged" @edit="openEdit(detailPool)" />
     </AppModal>
 
     <div class="flex items-center justify-between mb-3">

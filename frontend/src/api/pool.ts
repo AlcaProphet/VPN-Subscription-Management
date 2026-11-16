@@ -160,6 +160,8 @@ export const createPool = (data: { name: string; sources: SourceInput[]; auto_sy
   http.post<any, PoolItem>('/admin/pools', data)
 export const updatePool = (id: number, data: { name: string; sources: SourceInput[]; auto_sync: boolean; sync_time: string }) =>
   http.put(`/admin/pools/${id}`, data)
+export const setPoolAutoSync = (id: number, enabled: boolean) =>
+  http.patch<unknown, void>(`/admin/pools/${id}/auto-sync`, { auto_sync: enabled })
 export const deletePool = (id: number) => http.delete(`/admin/pools/${id}`)
 
 export const listEntries = (poolId: number, page = 1, pageSize = 20, source?: 'manual' | 'url') =>

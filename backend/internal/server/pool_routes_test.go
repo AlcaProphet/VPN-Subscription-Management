@@ -36,6 +36,37 @@ func newPoolRoutesEnv(t *testing.T) (*gin.Engine, *store.Store, *pool.Service) {
 	return engine, st, poolSvc
 }
 
+func TestPoolAutoSyncPatchOnlyUpdatesSwitch(t *testing.T) {
+	engine, _, svc := newPoolRoutesEnv(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "定时池", []pool.SourceInput{{URL: "https://example.com/rules.txt"}}, true, "08:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id   int64
+		body string
+		code int
+	}{
+		{p.ID, `{}`, http.StatusBadRequest},
+		{p.ID, `{"auto_sync":false}`, http.StatusOK},
+		{p.ID + 1, `{"auto_sync":true}`, http.StatusNotFound},
+	} {
+		req := httptest.NewRequest(http.MethodPatch, "/api/admin/pools/"+jsonInt(tc.id)+"/auto-sync", strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		if w.Code != tc.code {
+			t.Fatalf("开关请求返回 %d，期望 %d: %s", w.Code, tc.code, w.Body.String())
+		}
+	}
+	list, err := svc.List(ctx)
+	if err != nil || len(list) != 1 || list[0].AutoSync || list[0].Name != p.Name || list[0].SyncTime != p.SyncTime ||
+		len(list[0].Sources) != 1 || list[0].Sources[0].ID != p.Sources[0].ID {
+		t.Fatalf("开关不应修改其他池设置: %+v, %v", list, err)
+	}
+}
+
 func TestPoolUpdateEntryConflictReturnsHTTP409(t *testing.T) {
 	engine, _, poolSvc := newPoolRoutesEnv(t)
 	ctx := context.Background()

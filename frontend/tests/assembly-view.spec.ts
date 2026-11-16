@@ -15,6 +15,7 @@ vi.mock('@/api/pool', () => ({
   listPools: vi.fn().mockResolvedValue([]),
   createPool: vi.fn(),
   updatePool: vi.fn(),
+  setPoolAutoSync: vi.fn(),
   deletePool: vi.fn(),
   submitSync: vi.fn(),
   getSyncStatus: vi.fn(),
@@ -49,6 +50,7 @@ import PoolTab from '@/views/admin/assembly/PoolTab.vue'
 import PreviewStep from '@/views/admin/assembly/PreviewStep.vue'
 import { getAssemblyContext, previewAssembly, generateAssembly } from '@/api/assembly'
 import { listPools } from '@/api/pool'
+import type { PoolItem } from '@/api/pool'
 import { Notify } from '@/components/Notify'
 import { ASSEMBLY_CONTEXT_KEY } from '@/utils/assemblyDraft'
 import { ApiError } from '@/api/request'
@@ -70,6 +72,12 @@ const context = {
   platforms: [{ id: 1, name: '平台A', product_type: 'yaml', is_default: true }],
   rules: [{ id: 2, name: '规则A', current_version: 0 }],
   subscriptions: [{ id: 11, platform_id: 1, name: '订阅A' }],
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
 }
 
 function makeRouter(query = 'tab=bad'): Router {
@@ -289,12 +297,18 @@ describe('AssemblyView 装配页核心交互', () => {
     }))
   })
 
-  it('素材池页刷新列表后构建候选立即更新，无需重新加载页面', async () => {
-    const wrapper = await mountWith('tab=pool')
+  it('已返回的池列表保留到首次装配上下文就绪', async () => {
+    const initial = deferred<typeof context>()
     const newPool = { ...context.pools[0], id: 2, name: '新同步素材池', entry_count: 12 }
-    wrapper.findComponent(PoolTab).vm.$emit('pools-changed', [newPool])
-    await wrapper.vm.$nextTick()
-
+    mockContext.mockReturnValueOnce(initial.promise)
+    mockListPools.mockResolvedValueOnce([]).mockResolvedValue([newPool])
+    const wrapper = await mountWith('tab=pool')
+    const manager = wrapper.findComponent(PoolTab)
+    await manager.props('refreshPools')()
+    await wrapper.vm.$router.replace('/admin/assembly?tab=clash-yaml')
+    await flushPromises()
+    initial.resolve({ ...context, pools: [] })
+    await flushPromises()
     const vm = wrapper.vm as unknown as {
       context: typeof context
       form: { pools: Array<{ pool_id: number; target: string }> }
@@ -303,6 +317,34 @@ describe('AssemblyView 装配页核心交互', () => {
     expect(vm.context.pools).toEqual([newPool])
     vm.addPool()
     expect(vm.form.pools[0].pool_id).toBe(2)
+  })
+
+  it('忽略晚到的旧池列表，保留候选、选择与有效预览', async () => {
+    const oldList = deferred<typeof context.pools>()
+    const newPool = { ...context.pools[0], id: 2, name: '新素材池', entry_count: 1 }
+    mockListPools.mockReturnValueOnce(oldList.promise).mockResolvedValue([newPool])
+    mockPreview.mockResolvedValue({ content: 'rules:', preview_hash: 'preview-hash', skipped: [], warnings: [], receipt: oneRule })
+    const wrapper = await mountWith('tab=pool')
+    await wrapper.vm.$router.replace('/admin/assembly?tab=clash-yaml')
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      context: typeof context
+      form: { pools: Array<{ pool_id: number; target: string }> }
+      addPool: () => void
+      doPreview: () => Promise<void>
+      previewStale: boolean
+    }
+    vm.addPool()
+    expect(vm.form.pools[0].pool_id).toBe(newPool.id)
+    await vm.doPreview()
+    expect(vm.previewStale).toBe(false)
+    oldList.resolve([])
+    await flushPromises()
+    expect(wrapper.findComponent(PoolTab).props('pools')).toEqual([newPool])
+    expect(vm.context.pools).toEqual([newPool])
+    expect(vm.form.pools[0].pool_id).toBe(newPool.id)
+    expect(vm.previewStale).toBe(false)
+    expect(mockNotifyWarning).not.toHaveBeenCalled()
   })
 
   it('已选素材池内容变化后旧预览立即过期', async () => {
@@ -323,6 +365,39 @@ describe('AssemblyView 装配页核心交互', () => {
     wrapper.findComponent(PoolTab).vm.$emit('pool-content-changed', 1)
     await wrapper.vm.$nextTick()
     expect(vm.previewStale).toBe(true)
+    expect(vm.canGenerate).toBe(false)
+  })
+
+  it('只在已选池的活动来源快照发生变化时使预览过期', async () => {
+    const pool: PoolItem = {
+      ...context.pools[0],
+      entry_count: 2,
+      sources: [
+        { id: 1, pool_id: 1, kind: 'url', sort_order: 0, source_mode: 'auto', active_snapshot_id: 10 },
+        { id: 2, pool_id: 1, kind: 'url', sort_order: 1, source_mode: 'auto', active_snapshot_id: 20 },
+      ],
+    }
+    mockContext.mockResolvedValue({ ...context, pools: [pool] })
+    mockListPools.mockResolvedValue([pool])
+    mockPreview.mockResolvedValue({ content: 'rules:', preview_hash: 'preview-hash', skipped: [], warnings: [], receipt: oneRule })
+    const wrapper = await mountWith('tab=pool')
+    const vm = wrapper.vm as unknown as {
+      form: { pools: Array<{ pool_id: number; target: string }> }
+      doPreview: () => Promise<void>
+      canGenerate: boolean
+    }
+    vm.form.pools = [{ pool_id: 1, target: '🚀直接连接' }]
+    await vm.doPreview()
+    expect(vm.canGenerate).toBe(true)
+
+    const refresh = wrapper.findComponent(PoolTab).props('refreshPools')
+    const renamed = { ...pool, name: '改名', auto_sync: true }
+    mockListPools.mockResolvedValueOnce([renamed])
+    await refresh()
+    expect(vm.canGenerate).toBe(true)
+
+    mockListPools.mockResolvedValueOnce([{ ...renamed, sources: [...pool.sources!].reverse() }])
+    await refresh()
     expect(vm.canGenerate).toBe(false)
   })
 
