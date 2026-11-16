@@ -98,7 +98,7 @@ async function onSubmit() {
           <Form.Item label="确认密码" name="confirm">
             <Input.Password v-model:value="form.confirm" autocomplete="new-password" />
           </Form.Item>
-          <Alert v-if="errorMsg" type="error" :message="errorMsg" class="mb-4" />
+          <Alert v-if="errorMsg" type="error" :message="errorMsg" class="mb-4!" />
           <Button type="primary" html-type="submit" block :loading="submitting">确认重置</Button>
         </Form>
       </template>

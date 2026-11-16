@@ -1129,8 +1129,8 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
 
     <FormOverlay :open="creating" :title="editing ? '编辑节点' : '新建节点'" :width="920" :loading="saving" destroy-on-close
                  @submit="save" @update:open="creating = false">
-      <Form layout="vertical" class="node-protocol-form space-y-5">
-        <Alert v-if="conflictError" type="warning" show-icon class="mb-2" :message="conflictError">
+      <Form layout="vertical" class="node-protocol-form flex flex-col gap-5">
+        <Alert v-if="conflictError" type="warning" show-icon :message="conflictError">
           <template #action>
             <Button size="small" @click="reloadAfterConflict">重新加载</Button>
           </template>
@@ -1138,7 +1138,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
         <Alert
           type="warning"
           show-icon
-          class="node-reset-warning mb-2"
+          class="node-reset-warning"
           :message="`切换协议、传输、安全方式、插件，或关闭带子配置的功能，若会清空已填内容将先显示预检；切回或重新开启不会恢复。名称保留，地址按目标模式处理：${endpointPolicy ? endpointText(endpointPolicy) : '规则待确认'}。插件切换仍保留 Shadowsocks 主密码。`"
         />
         <FormSection title="基本信息" help="选择协议并填写节点的稳定名称与连接地址。">
@@ -1331,7 +1331,7 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
     <FormOverlay :open="naming !== null" title="节点显示名" :loading="saving"
                  @submit="saveDisplayName" @update:open="naming = null">
       <p class="text-sm text-text-secondary">仅 Xray 节点可设置显示名；留空保存将清空并恢复系统名。</p>
-      <Alert v-if="namingError" type="error" show-icon class="mb-2" :message="namingError" />
+      <Alert v-if="namingError" type="error" show-icon class="mb-2!" :message="namingError" />
       <Input v-model:value="displayNameInput" placeholder="系统名" />
     </FormOverlay>
 

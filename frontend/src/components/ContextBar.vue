@@ -24,7 +24,7 @@ watch(() => route.fullPath, refresh, { immediate: true })
 </script>
 
 <template>
-  <Alert v-if="draft && route.path !== draft.returnPath" type="info" show-icon class="mb-4"
+  <Alert v-if="draft && route.path !== draft.returnPath" type="info" show-icon class="mb-4!"
          :message="`正在补充构建前置条件：${draft.sourceLabel}`"
          description="已保存当前订阅装配草稿，完成后可返回继续。">
     <template #action>

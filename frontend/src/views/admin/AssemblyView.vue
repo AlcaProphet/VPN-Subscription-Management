@@ -785,17 +785,17 @@ const outputGroups = computed(() => {
 <template>
   <div>
     <PageHeader title="订阅装配" subtitle="四类装配器：副 Tab 选类型 → 填头部 → 勾选节点/组 → 规则 → 预览 → 生成" />
-    <Alert v-if="editVersionId" type="info" show-icon class="mb-4"
+    <Alert v-if="editVersionId" type="info" show-icon class="mb-4!"
            :message="editVersionNo ? `正在重新编辑版本 v${editVersionNo}，请检查失效引用后生成新版本` : `正在重新编辑版本 #${editVersionId}，请检查失效引用后生成新版本`" />
-    <Alert v-if="invalidRefs.length" type="error" show-icon class="mb-2"
+    <Alert v-if="invalidRefs.length" type="error" show-icon class="mb-2!"
            :message="`${invalidRefs.length} 项引用已失效，请剔除或替换后生成`">
       <template #action>
         <Button size="small" danger @click="removeAllInvalidRefs">一键剔除全部失效项</Button>
       </template>
     </Alert>
-    <Alert v-for="ref in invalidRefs" :key="`${ref.kind}-${ref.name}`" type="error" show-icon class="mb-2"
+    <Alert v-for="ref in invalidRefs" :key="`${ref.kind}-${ref.name}`" type="error" show-icon class="mb-2!"
            :message="`失效${invalidLabel(ref.kind)}：${ref.name}`" />
-    <Alert v-if="Object.keys(nameChanged).length" type="warning" show-icon class="mb-2"
+    <Alert v-if="Object.keys(nameChanged).length" type="warning" show-icon class="mb-2!"
            message="以下节点显示名已变化，生成时将按当前显示名渲染" :description="Object.entries(nameChanged).map(([k,v]) => `${k} → ${v}`).join('；')" />
     <Tabs :active-key="mainTab" @change="onMainTabChange">
       <Tabs.TabPane key="pool" tab="规则素材池">
@@ -805,27 +805,27 @@ const outputGroups = computed(() => {
         <ProxyGroupsView />
       </Tabs.TabPane>
       <Tabs.TabPane key="build" tab="构建订阅/规则">
-        <Tabs :active-key="subTab" @change="onSubTabChange" class="mb-4">
+        <Tabs :active-key="subTab" @change="onSubTabChange" class="mb-4!">
           <Tabs.TabPane v-for="tab in SUB_TABS" :key="tab" :tab="SUB_TAB_LABELS[tab]">
             <div v-if="loadingContext" class="py-12 text-center text-text-tertiary">加载装配上下文中…</div>
             <div v-else>
-              <Alert v-if="buildPreflightMissing.length" type="warning" show-icon class="mb-4" message="构建前缺少以下前置条件：">
+              <Alert v-if="buildPreflightMissing.length" type="warning" show-icon class="mb-4!" message="构建前缺少以下前置条件：">
                 <template #description>
                   <ol class="list-decimal ml-4 space-y-1">
                     <li v-for="item in buildPreflightMissing" :key="item.id" class="flex items-center gap-2 flex-wrap">
                       <span>{{ item.text }}</span>
-                      <Button type="link" size="small" class="px-0" @click="saveDraftForPreflight(item)">{{ item.actionText }}</Button>
+                      <Button type="link" size="small" class="px-0!" @click="saveDraftForPreflight(item)">{{ item.actionText }}</Button>
                     </li>
                   </ol>
                 </template>
               </Alert>
-              <Alert v-if="editBlocked" type="error" show-icon class="mb-4"
+              <Alert v-if="editBlocked" type="error" show-icon class="mb-4!"
                      message="该蓝图包含 Xray 节点，高级模式关闭时无法重新编辑">
                 <template #action>
                   <Button size="small" @click="router.push('/admin/settings')">前往面板配置开启高级模式</Button>
                 </template>
               </Alert>
-              <Card v-if="!editBlocked && (isSrConf || hasCustomPlatform)" size="small" class="mb-4" title="目标选择">
+              <Card v-if="!editBlocked && (isSrConf || hasCustomPlatform)" size="small" class="mb-4!" title="目标选择">
                 <TypeTargetStep :form="form" :context="context" :is-sr-conf="isSrConf" :filtered-platforms="filteredPlatforms" />
               </Card>
               <template v-if="!editBlocked && buildPreflightMissing.length === 0">

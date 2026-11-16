@@ -523,10 +523,10 @@ async function doExtCredentials(acc: ExtAccount) {
           <div class="xray-summary"><span>Xray 节点</span><strong>{{ xrayNodes.length }}</strong></div>
           <div class="xray-summary"><span>采集异常</span><strong :class="collectErrorCount ? 'text-red-500' : ''">{{ collectErrorCount }}</strong></div>
         </div>
-        <Alert v-if="instances.length" class="mb-3" type="info" show-icon
+        <Alert v-if="instances.length" class="mb-3!" type="info" show-icon
                message="实例列表" description="先新增或编辑实例，再按行执行节点检测与账号对账；初始化只作用于面板用户。" />
         <div v-if="instances.length === 0 && !loading" class="py-16">
-          <Alert type="info" show-icon class="mb-3" message="需先在 Xray 服务器开启 gRPC API 与流量统计（policy.stats）" />
+          <Alert type="info" show-icon class="mb-3!" message="需先在 Xray 服务器开启 gRPC API 与流量统计（policy.stats）" />
           <Empty description="还没有 Xray 实例">
             <Button type="primary" @click="createOpen = true">新增实例</Button>
           </Empty>
@@ -547,7 +547,7 @@ async function doExtCredentials(acc: ExtAccount) {
                 <div class="flex items-center gap-2">
                   <Switch :checked="record.enabled" @change="doToggleInstance(record)" />
                   <Tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</Tag>
-                  <Tag v-if="record.collect_status === 'error'" color="red" class="ml-1" :title="record.collect_error || '采集异常'">采集异常</Tag>
+                  <Tag v-if="record.collect_status === 'error'" color="red" class="ml-1!" :title="record.collect_error || '采集异常'">采集异常</Tag>
                 </div>
               </template>
             </Table.Column>
@@ -587,7 +587,7 @@ async function doExtCredentials(acc: ExtAccount) {
       </TabPane>
       <TabPane key="ext" tab="独立账号">
         <div v-if="extAccounts.length === 0 && !loading" class="py-16">
-          <Alert type="info" show-icon class="mb-3" message="用于向面板账号体系之外的人员/场景分发凭据（可手写入自定义订阅内容）" />
+          <Alert type="info" show-icon class="mb-3!" message="用于向面板账号体系之外的人员/场景分发凭据（可手写入自定义订阅内容）" />
           <Empty description="还没有独立账号">
             <Button type="primary" @click="extCreateOpen = true">创建独立账号</Button>
           </Empty>
@@ -675,7 +675,7 @@ async function doExtCredentials(acc: ExtAccount) {
     </FormOverlay>
 
     <FormOverlay :open="detectTarget !== null" title="刷新节点结果" width="560" @update:open="detectTarget = null">
-      <Alert v-if="detectError" type="error" show-icon class="mb-3" :message="detectError" description="请检查 api_addr / 实例状态后重试" />
+      <Alert v-if="detectError" type="error" show-icon class="mb-3!" :message="detectError" description="请检查 api_addr / 实例状态后重试" />
       <div v-if="detectResult" class="space-y-3">
         <p>新增 {{ detectResult.added }} / 更新 {{ detectResult.updated }} / 缺失 {{ detectResult.missing }}</p>
         <p v-if="detectResult.skipped.length">跳过：{{ detectResult.skipped.map((s) => `${s.tag}: ${s.reason}`).join('；') }}</p>
@@ -749,7 +749,7 @@ async function doExtCredentials(acc: ExtAccount) {
     </FormOverlay>
 
     <FormOverlay v-model:open="extCreateOpen" title="创建独立账号" width="720" :loading="extCreating" destroy-on-close>
-      <div class="space-y-3">
+      <div class="flex flex-col gap-3">
         <Input v-model:value="extForm.name" placeholder="名称" class="w-full" />
         <AppSelect v-model:value="extForm.credential_mode" class="w-full" :options="[{ value: 'generate', label: '自动生成' }, { value: 'manual', label: '手填接管' }]" />
         <template v-if="extForm.credential_mode === 'manual'">
@@ -776,7 +776,7 @@ async function doExtCredentials(acc: ExtAccount) {
 
     <FormOverlay :open="extEditOpen" title="编辑独立账号" width="720" :loading="extSaving" destroy-on-close
                  @submit="doExtUpdate" @update:open="extEditOpen = false">
-      <div class="space-y-3">
+      <div class="flex flex-col gap-3">
         <Input v-model:value="extEditForm.name" placeholder="名称" class="w-full" />
         <InputNumber v-model:value="extEditForm.quota" :min="0" class="w-48" placeholder="配额（GB，0/空=不限）" />
         <div>
@@ -812,7 +812,7 @@ async function doExtCredentials(acc: ExtAccount) {
                   @confirm="confirmClean" @update:open="cleanOpen = false" />
 
     <FormOverlay :open="credentialsModal" :title="credentialsData?.title ?? '独立账号凭据'" width="520" @update:open="credentialsModal = false">
-      <Alert type="warning" show-icon class="mb-3" message="凭据即该账号的唯一凭证，请妥善保管；关闭后将不再展示。" />
+      <Alert type="warning" show-icon class="mb-3!" message="凭据即该账号的唯一凭证，请妥善保管；关闭后将不再展示。" />
       <div class="space-y-2">
         <div class="flex items-center gap-2">
           <span class="w-20 text-text-secondary">UUID</span>

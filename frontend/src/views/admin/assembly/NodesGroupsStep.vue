@@ -138,7 +138,7 @@ function onDrop(idx: number) {
              class="flex items-center gap-2 rounded border px-2 py-1.5"
              :class="form.node_names.includes(n.name) ? 'border-primary bg-primary-soft' : 'border-border-subtle'">
           <Checkbox :checked="form.node_names.includes(n.name)" @change="emit('toggle-node', n.name)">
-            <span>{{ n.render_name }}</span><Tag class="ml-1">{{ n.protocol }}</Tag>
+            <span>{{ n.render_name }}</span><Tag class="ml-1!">{{ n.protocol }}</Tag>
             <Tag v-if="invalidRefs.some((r) => r.kind === 'node' && r.name === n.name)" color="red">已失效</Tag>
           </Checkbox>
         </div>
@@ -159,7 +159,7 @@ function onDrop(idx: number) {
                     :disabled="!n.allocatable || n.enabled === false" @change="emit('toggle-node', n.name)">
             <span>{{ n.render_name }}</span>
             <span v-if="n.display_name" class="block text-xs text-text-tertiary font-mono">{{ n.name }}</span>
-            <Tag v-if="!n.allocatable || n.enabled === false" class="ml-1">不可用</Tag>
+            <Tag v-if="!n.allocatable || n.enabled === false" class="ml-1!">不可用</Tag>
           </Checkbox>
         </div>
         <div v-if="xrayNodes.length === 0" class="text-xs text-text-tertiary">未检测到 Xray 节点（高级模式录入实例后刷新节点发现）</div>
@@ -174,7 +174,7 @@ function onDrop(idx: number) {
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
         <div class="rounded border border-border-subtle p-2">
           <Checkbox :checked="true" disabled>{{ FORCE_DIRECT }}</Checkbox>
-          <Tag class="ml-1">强制</Tag>
+          <Tag class="ml-1!">强制</Tag>
           <div class="mt-1 text-xs text-text-tertiary">系统固定的直连出口，不提供成员选择</div>
         </div>
         <div data-testid="force-overseas-group" class="rounded border border-border-subtle p-2">
@@ -210,7 +210,7 @@ function onDrop(idx: number) {
           <div class="flex items-center gap-2">
             <Checkbox :checked="form.group_names.includes(g.name)" @change="emit('toggle-group', g.name)">
               <span>{{ g.name }}</span>
-              <Tag v-if="!form.group_names.includes(g.name)" class="ml-1">自建</Tag>
+              <Tag v-if="!form.group_names.includes(g.name)" class="ml-1!">自建</Tag>
               <Button v-else size="small" class="ml-1" :data-testid="`select-group-${g.name}`" @click.stop="openSelector(g.name)">选择与排序</Button>
             </Checkbox>
           </div>
@@ -243,7 +243,7 @@ function onDrop(idx: number) {
           <div class="grid md:grid-cols-2 gap-2">
             <Checkbox v-for="n in availableNodes" :key="n.name" :checked="draftSelected.includes(n.name)" @change="toggleDraftNode(n.name)">
               <span>{{ n.render_name }}</span>
-              <Tag class="ml-1">{{ n.protocol }}</Tag>
+              <Tag class="ml-1!">{{ n.protocol }}</Tag>
             </Checkbox>
             <div v-if="availableNodes.length === 0" class="text-xs text-text-tertiary">暂无已勾选且可用的节点</div>
           </div>

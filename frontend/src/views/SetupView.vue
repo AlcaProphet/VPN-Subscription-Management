@@ -177,12 +177,14 @@ async function completeOidc() {
         <h1 class="text-xl font-semibold">首次配置</h1>
         <Tag :color="isProd ? 'green' : 'blue'">{{ isProd ? 'Production' : 'Dev' }}</Tag>
       </div>
-      <Steps :current="current" :items="[{ title: '认证方式' }, { title: '确认' }, { title: '完成' }]"
-             class="mb-6" :direction="isMobile ? 'vertical' : 'horizontal'" />
+      <div class="mb-6">
+        <Steps :current="current" :items="[{ title: '认证方式' }, { title: '确认' }, { title: '完成' }]"
+               :direction="isMobile ? 'vertical' : 'horizontal'" />
+      </div>
 
-      <template v-if="!done && current === 0">
+      <div v-if="!done && current === 0" class="flex flex-col gap-4 pb-4">
         <!-- 快速开始卡片：点击「下一步」进入确认步（不直接提交） -->
-        <Card class="mb-4" hoverable>
+        <Card hoverable>
           <div class="flex items-center justify-between">
             <div>
               <div class="font-medium">快速开始 <Tag color="processing">推荐</Tag></div>
@@ -192,7 +194,7 @@ async function completeOidc() {
           </div>
         </Card>
         <!-- 高级配置卡片：选中后展开 OIDC 配置（Step 6 填充） -->
-        <Card class="mb-4" hoverable @click="advancedOpen = !advancedOpen">
+        <Card hoverable @click="advancedOpen = !advancedOpen">
           <div class="flex items-center justify-between">
             <div>
               <div class="font-medium">高级配置</div>
@@ -202,7 +204,7 @@ async function completeOidc() {
           </div>
         </Card>
         <!-- 导入已有配置卡片：仅 Production 模式渲染（Dev 显示说明文案，UI §2.1） -->
-        <Card v-if="isProd" class="mb-4" hoverable>
+        <Card v-if="isProd" hoverable>
           <div class="mb-3">
             <div class="font-medium">导入已有配置</div>
             <div class="text-text-secondary text-sm mt-1">从其他实例导出的加密配置文件恢复全部配置（整体覆盖）</div>
@@ -216,19 +218,19 @@ async function completeOidc() {
           </Space>
           <div class="text-xs text-text-tertiary mt-2">导入将整体覆盖全部配置并替换签名密钥；地址与 OIDC 配置即时生效，请重新登录；启动参数重启后生效</div>
         </Card>
-        <Card v-else class="mb-4" hoverable>
+        <Card v-else hoverable>
           <div class="font-medium">导入已有配置</div>
-          <Alert type="info" class="mt-2" show-icon message="Dev 模式不提供配置导入"
+          <Alert type="info" class="mt-2!" show-icon message="Dev 模式不提供配置导入"
                  description="避免模拟 OIDC 等调试配置外流（Design1 §3.4.8）" />
         </Card>
         <!-- OIDC 参数配置区（选中高级配置后展开） -->
-        <Card v-if="advancedOpen" class="mb-4">
+        <Card v-if="advancedOpen">
           <div class="mb-4">
             <div class="font-medium mb-2">提供商</div>
             <Radio.Group v-model:value="providerType" :options="providerOptions" option-type="button" @change="onProviderChange" />
           </div>
           <template v-if="!isMock">
-            <Form layout="vertical" class="mt-4">
+            <Form layout="vertical" class="mt-4!">
               <Form.Item :label="urlLabel">
                 <Input v-model:value="oidcForm.base_url" :placeholder="urlPlaceholder" />
               </Form.Item>
@@ -242,7 +244,7 @@ async function completeOidc() {
                 <Input.Password v-model:value="oidcForm.client_secret" />
               </Form.Item>
             </Form>
-            <Collapse class="mb-4">
+            <Collapse class="mb-4!">
               <Collapse.Panel key="1" header="高级（前端地址 / 回调地址）">
                 <p class="text-sm text-text-secondary">前端地址：{{ origin }}</p>
                 <p class="text-sm text-text-secondary">回调地址：{{ origin }}/api/auth/oidc/callback</p>
@@ -252,26 +254,26 @@ async function completeOidc() {
               <Button :loading="testing" @click="runTest">测试连接</Button>
               <Button type="primary" :loading="saving" @click="completeOidc">完成配置</Button>
             </Space>
-            <Alert v-if="testResult" class="mt-4"
+            <Alert v-if="testResult" class="mt-4!"
                    :type="testResult.ok ? 'success' : 'error'"
                    :message="testResult.message"
                    :description="testResult.warnings?.join('；')" show-icon />
           </template>
           <template v-else>
-            <Alert type="info" class="mt-4 mb-4" message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
+            <Alert type="info" class="my-4!" message="模拟 OIDC：无需参数，登录页将显示 Dev 模拟登录表单" />
             <Button type="primary" :loading="saving" @click="completeOidc">完成配置</Button>
           </template>
         </Card>
-      </template>
+      </div>
       <!-- 快速开始确认步：仅快速开始路径进入（current===1），「返回」回到选择界面，确认后才提交 -->
       <template v-else-if="!done && current === 1">
-        <Card class="mb-4">
+        <Card class="mb-4!">
           <div class="font-medium mb-2">确认快速开始</div>
           <p class="text-text-secondary text-sm mb-4">
             将采用本地账号模式完成配置：注册本地账号即可登录，无需接入外部身份提供商（OIDC）。
             点击「确认完成」后系统立即进入已配置状态，此操作不可撤销。
           </p>
-          <Alert type="warning" show-icon class="mb-4" message="配置完成后请部署者本人立即注册成为管理员" />
+          <Alert type="warning" show-icon class="mb-4!" message="配置完成后请部署者本人立即注册成为管理员" />
           <Space>
             <Button @click="current = 0">返回</Button>
             <Button type="primary" :loading="submitting" @click="quickStart">确认完成</Button>
@@ -282,7 +284,7 @@ async function completeOidc() {
       <!-- 完成页：显著步骤式提示 + 抢注风险（Design1 §3.1） -->
       <Result v-else status="success" title="配置完成" sub-title="请部署者本人立即注册成为管理员">
         <template #extra>
-          <Alert type="warning" show-icon class="text-left mb-4"
+          <Alert type="warning" show-icon class="text-left mb-4!"
                  message="抢注风险提示"
                  description="首个完成注册的用户将自动成为管理员。公网部署下，请尽快完成注册以关闭抢注窗口。" />
           <Button type="primary" @click="router.push('/login')">前往登录</Button>

@@ -918,10 +918,10 @@ onMounted(async () => {
         </div>
       </aside>
 
-      <div class="flex-1 space-y-4 min-w-0">
+      <div class="flex-1 flex flex-col gap-4 min-w-0">
         <!-- OIDC 配置 -->
         <Card v-show="isGroupVisible('identity')" id="oidc" title="OIDC 配置" size="small">
-          <div class="space-y-3 max-w-xl">
+          <div class="flex flex-col gap-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">提供商类型</span>
               <AppSelect class="flex-1" :value="oidcSelection" :options="providerOptions" :disabled="oidcTargetLoading" @change="onProviderChange" />
@@ -973,7 +973,7 @@ onMounted(async () => {
               <Alert type="info" show-icon message="前端地址与回调地址保存后即时生效" />
               <Alert v-if="callbackHostWarning" type="warning" show-icon :message="callbackHostWarning" />
               <Alert v-if="oidcTest" :type="oidcTest.ok ? 'success' : 'error'" show-icon :message="oidcTest.message" :description="oidcTest.warnings?.length ? oidcTest.warnings.join('；') : undefined" />
-              <Space>
+              <Space class="self-start">
                 <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading || oidcKeyFault || mockBlocked" @click="doSaveOidc">保存</Button>
                 <Button :disabled="oidcTargetLoading || oidcKeyFault || mockBlocked" @click="doTestOidc">测试连接</Button>
                 <Button danger :disabled="oidcTargetLoading" @click="clearOidcOpen = true">清空 OIDC 配置</Button>
@@ -990,7 +990,7 @@ onMounted(async () => {
                 <Button type="primary" :loading="oidcSaving" :disabled="oidcTargetLoading" @click="doSaveOidc">保存停用</Button>
                 <Button :disabled="oidcTargetLoading" @click="oidcSelection = oidc.provider_type || 'off'">取消草稿</Button>
               </div>
-              <Space v-else>
+              <Space class="self-start" v-else>
                 <Button v-if="oidc.provider_type" danger :disabled="oidcTargetLoading" @click="clearOidcOpen = true">清空 OIDC 配置</Button>
               </Space>
             </template>
@@ -999,7 +999,7 @@ onMounted(async () => {
 
         <!-- OIDC 启用规则 -->
         <Card v-show="isGroupVisible('identity')" id="oidc-rules" title="OIDC 启用规则" size="small">
-          <div class="space-y-3 max-w-xl">
+          <div class="flex flex-col gap-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">审批开关</span>
               <Switch v-model:checked="oidcRules.approval_on" />
@@ -1027,13 +1027,13 @@ onMounted(async () => {
               <span class="w-24 text-sm">Group 白名单</span>
               <AppSelect v-model:value="oidcRules.whitelist.group_values" mode="tags" class="flex-1" placeholder="输入值后回车（如 vpn-users）" />
             </div>
-            <Button type="primary" :loading="rulesSaving" @click="doSaveOidcRules">保存</Button>
+            <Button class="self-start" type="primary" :loading="rulesSaving" @click="doSaveOidcRules">保存</Button>
           </div>
         </Card>
 
         <!-- 本地认证 -->
         <Card v-show="isGroupVisible('identity')" id="local-auth" title="本地认证" size="small">
-          <div class="space-y-3 max-w-xl">
+          <div class="flex flex-col gap-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-40 text-sm">允许本地登录</span>
               <Switch v-model:checked="localAuth.allow_local_login" />
@@ -1049,13 +1049,13 @@ onMounted(async () => {
             </div>
             <Alert v-if="!localAuth.allow_local_login" type="warning" show-icon
                    message="本地登录关闭且 OIDC 不可用时将被禁止保存（防认证死锁）" />
-            <Button type="primary" :loading="localSaving" @click="doSaveLocalAuth">保存</Button>
+            <Button class="self-start" type="primary" :loading="localSaving" @click="doSaveLocalAuth">保存</Button>
           </div>
         </Card>
 
         <!-- 验证码 -->
         <Card v-show="isGroupVisible('identity')" id="captcha" title="验证码" size="small">
-          <div class="space-y-3 max-w-xl">
+          <div class="flex flex-col gap-3 max-w-xl">
             <div class="flex items-center gap-3">
               <span class="w-24 text-sm">提供商</span>
               <Radio.Group v-model:value="captcha.provider">
@@ -1077,21 +1077,21 @@ onMounted(async () => {
               <Checkbox.Group v-model:value="captcha.pages" :options="captchaPages" />
             </div>
             <Alert type="info" show-icon message="验证码依赖外部网络，局域网直连部署不建议启用" />
-            <Button type="primary" :loading="captchaSaving" @click="doSaveCaptcha">保存</Button>
+            <Button class="self-start" type="primary" :loading="captchaSaving" @click="doSaveCaptcha">保存</Button>
           </div>
         </Card>
 
         <!-- SMTP -->
         <Card v-show="isGroupVisible('notifications')" id="smtp" title="邮件发送 · 通用 SMTP" size="small">
-          <div class="max-w-2xl space-y-5">
+          <div class="max-w-2xl flex flex-col gap-5">
             <p class="text-sm text-text-secondary">填写邮件服务商提供的 SMTP 参数。测试邮件使用已保存的配置；修改后请先保存。</p>
             <Alert v-if="smtp.host && !smtp.configured" type="warning" show-icon message="当前 SMTP 设置尚未符合新连接方式要求，请重新选择、保存并发送测试邮件。" />
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label class="space-y-1 text-sm"><span>SMTP 服务器</span><Input v-model:value="smtp.host" placeholder="smtp.example.com；本地中继填 127.0.0.1" /></label>
-              <label class="space-y-1 text-sm"><span>端口</span><Input v-model:value="smtp.port" placeholder="STARTTLS 常见 587；连接即 TLS 常见 465" /></label>
-              <label class="space-y-1 text-sm"><span>发件邮箱</span><Input v-model:value="smtp.from" placeholder="sender@example.com" /></label>
+              <label class="flex flex-col gap-1 text-sm"><span>SMTP 服务器</span><Input v-model:value="smtp.host" placeholder="smtp.example.com；本地中继填 127.0.0.1" /></label>
+              <label class="flex flex-col gap-1 text-sm"><span>端口</span><Input v-model:value="smtp.port" placeholder="STARTTLS 常见 587；连接即 TLS 常见 465" /></label>
+              <label class="flex flex-col gap-1 text-sm"><span>发件邮箱</span><Input v-model:value="smtp.from" placeholder="sender@example.com" /></label>
             </div>
-            <div class="space-y-1 text-sm">
+            <div class="flex flex-col gap-1 text-sm">
               <span>连接方式</span>
               <AppSelect v-model:value="smtp.security" :options="smtpSecurityOptions" class="w-full" />
               <p class="text-xs text-text-secondary">按服务商要求选择，端口不会自动决定连接方式。STARTTLS 必须升级成功才发送；“连接即 TLS”从建立连接时加密。无加密只允许本机回环地址上的无认证中继。</p>
@@ -1102,19 +1102,19 @@ onMounted(async () => {
               <p v-else-if="!smtp.auth_required" class="text-xs text-text-secondary">此连接将不发送 SMTP 账号或密码。</p>
             </div>
             <template v-if="smtp.auth_required">
-              <label class="block space-y-1 text-sm"><span>登录账号</span><Input v-model:value="smtp.user" placeholder="服务商提供的 SMTP 账号" /></label>
-              <div class="space-y-1 text-sm">
+              <label class="flex flex-col gap-1 text-sm"><span>登录账号</span><Input v-model:value="smtp.user" placeholder="服务商提供的 SMTP 账号" /></label>
+              <div class="flex flex-col gap-1 text-sm">
                 <span>SMTP 专用密码 <Tag v-if="smtp.password_configured" color="success">已配置</Tag><Tag v-else>未配置</Tag></span>
                 <Input.Password v-model:value="smtp.password" autocomplete="new-password" placeholder="留空保持原密码；输入新密码后保存" />
                 <p class="text-xs text-text-secondary">已保存密码不会回显。若曾被占位符覆盖，请重新填写服务商提供的专用密码。</p>
               </div>
             </template>
-            <div class="space-y-1 text-sm">
+            <div class="flex flex-col gap-1 text-sm">
               <span>启用业务邮件</span>
               <Checkbox.Group v-model:value="smtp.scopes" :options="scopeOptions" class="flex flex-wrap gap-2" />
               <p class="text-xs text-text-secondary">测试邮件不受此范围限制；密码重置、审批通知与欢迎邮件分别按勾选项发送。</p>
             </div>
-            <Button type="primary" :loading="smtpSaving" @click="doSaveSMTP">保存 SMTP 设置</Button>
+            <Button class="self-start" type="primary" :loading="smtpSaving" @click="doSaveSMTP">保存 SMTP 设置</Button>
             <div class="border-t border-border pt-4 space-y-2">
               <div class="text-sm font-medium">发送测试邮件</div>
               <p class="text-xs text-text-secondary">留空发送至当前管理员邮箱{{ auth.user?.email ? `（${auth.user.email}）` : '' }}；填写后只发送至指定地址。发送成功仅表示服务商接受该邮件，请另行检查收件箱。</p>
@@ -1193,34 +1193,34 @@ onMounted(async () => {
 
         <!-- 速率限制 -->
         <Card v-show="isGroupVisible('runtime')" id="ratelimit" title="速率限制与连接防护" size="small">
-          <div class="space-y-3 max-w-xl">
+          <div class="flex flex-col gap-3 max-w-xl">
             <div class="grid grid-cols-2 gap-3">
-              <div><span class="text-sm">登录（次/分钟）</span><InputNumber v-model:value="rate.login" class="w-full mt-1" :min="1" /></div>
-              <div><span class="text-sm">注册（次/分钟）</span><InputNumber v-model:value="rate.register" class="w-full mt-1" :min="1" /></div>
-              <div><span class="text-sm">找回密码（次/分钟）</span><InputNumber v-model:value="rate.forgot" class="w-full mt-1" :min="1" /></div>
-              <div><span class="text-sm">下载（次/分钟）</span><InputNumber v-model:value="rate.download" class="w-full mt-1" :min="1" /></div>
-              <div><span class="text-sm">重置校验（次/分钟）</span><InputNumber v-model:value="rate.reset_validate" class="w-full mt-1" :min="1" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">登录（次/分钟）</span><InputNumber v-model:value="rate.login" class="w-full!" :min="1" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">注册（次/分钟）</span><InputNumber v-model:value="rate.register" class="w-full!" :min="1" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">找回密码（次/分钟）</span><InputNumber v-model:value="rate.forgot" class="w-full!" :min="1" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">下载（次/分钟）</span><InputNumber v-model:value="rate.download" class="w-full!" :min="1" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">重置校验（次/分钟）</span><InputNumber v-model:value="rate.reset_validate" class="w-full!" :min="1" /></div>
             </div>
             <div class="grid grid-cols-2 gap-3 border-t pt-3">
-              <div><span class="text-sm">读头超时（秒）</span><InputNumber v-model:value="rate.http_read_header_timeout_sec" class="w-full mt-1" :min="1" :max="60" /></div>
-              <div><span class="text-sm">读取超时（秒）</span><InputNumber v-model:value="rate.http_read_timeout_sec" class="w-full mt-1" :min="1" :max="3600" /></div>
-              <div><span class="text-sm">写出超时（秒）</span><InputNumber v-model:value="rate.http_write_timeout_sec" class="w-full mt-1" :min="1" :max="3600" /></div>
-              <div><span class="text-sm">空闲超时（秒）</span><InputNumber v-model:value="rate.http_idle_timeout_sec" class="w-full mt-1" :min="1" :max="3600" /></div>
-              <div><span class="text-sm">API 请求体上限（MB）</span><InputNumber v-model:value="rate.http_max_body_mb" class="w-full mt-1" :min="1" :max="320" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">读头超时（秒）</span><InputNumber v-model:value="rate.http_read_header_timeout_sec" class="w-full!" :min="1" :max="60" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">读取超时（秒）</span><InputNumber v-model:value="rate.http_read_timeout_sec" class="w-full!" :min="1" :max="3600" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">写出超时（秒）</span><InputNumber v-model:value="rate.http_write_timeout_sec" class="w-full!" :min="1" :max="3600" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">空闲超时（秒）</span><InputNumber v-model:value="rate.http_idle_timeout_sec" class="w-full!" :min="1" :max="3600" /></div>
+              <div class="flex flex-col gap-1"><span class="text-sm">API 请求体上限（MB）</span><InputNumber v-model:value="rate.http_max_body_mb" class="w-full!" :min="1" :max="320" /></div>
             </div>
             <div class="text-sm">当前 IP 解析策略（TRUST_PROXY）：<Tag>{{ trustProxy }}</Tag></div>
             <div v-if="trustProxyCidrs" class="text-sm">TRUST_PROXY_CIDRS：<Tag>{{ trustProxyCidrs }}</Tag></div>
             <Alert v-if="trustProxy === 'auto'" type="warning" show-icon
                    message="auto 模式伪造风险：局域网直连的客户端可构造转发头伪造 IP 绕过限流，建议直连部署设 TRUST_PROXY=off" />
             <Alert type="info" show-icon message="超时字段在服务启动时读取，保存后需重启容器生效；API 请求体上限即时生效。" />
-            <Button type="primary" :loading="rateSaving" @click="doSaveRateLimit">保存</Button>
+            <Button class="self-start" type="primary" :loading="rateSaving" @click="doSaveRateLimit">保存</Button>
           </div>
         </Card>
 
         <!-- 日志级别 -->
         <Card v-show="isGroupVisible('runtime')" id="log-level" title="日志级别" size="small">
-          <div class="space-y-3 max-w-xl">
-            <Radio.Group v-model:value="logLevel" button-style="solid">
+          <div class="flex flex-col gap-3 max-w-xl">
+            <Radio.Group class="self-start" v-model:value="logLevel" button-style="solid">
               <Radio.Button value="debug">debug</Radio.Button>
               <Radio.Button value="info">info</Radio.Button>
               <Radio.Button value="warn">warn</Radio.Button>
@@ -1234,7 +1234,7 @@ onMounted(async () => {
 
         <!-- 公告与页脚（R10-07：三份独立配置，支持 Markdown） -->
         <Card v-show="isGroupVisible('content')" id="announcement" title="公告与页脚" size="small">
-          <div class="space-y-3 max-w-xl">
+          <div class="flex flex-col gap-3 max-w-xl">
             <Alert type="warning" show-icon message="公告与页脚内容接口公开可见（未登录可获取），请勿写入内部信息" />
             <div>
               <div class="mb-1 text-sm">首页公告</div>
@@ -1251,7 +1251,7 @@ onMounted(async () => {
               <Input.TextArea v-model:value="announcement.login_footer" :rows="3" :maxlength="2000" show-count
                               placeholder="登录卡片下方展示（支持 Markdown，≤2000 字符）" />
             </div>
-            <Button type="primary" :loading="announcementSaving" @click="doSaveAnnouncement">保存</Button>
+            <Button class="self-start" type="primary" :loading="announcementSaving" @click="doSaveAnnouncement">保存</Button>
           </div>
         </Card>
 
@@ -1288,7 +1288,7 @@ onMounted(async () => {
                 <Input.Password v-model:value="importForm.password" placeholder="导出密码（≥8 字符）" style="max-width: 220px" />
                 <Button danger @click="importOpen = true">导入</Button>
               </Space>
-              <Alert v-if="importProtectError" type="error" show-icon class="mt-2" :message="importProtectError" />
+              <Alert v-if="importProtectError" type="error" show-icon class="mt-2!" :message="importProtectError" />
               <div class="text-xs text-text-tertiary mt-1">导入将整体覆盖全部配置（导出文件中不存在的键一并清除）；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；地址与 OIDC 配置即时生效，签名密钥替换后请重新登录，日志级别/HTTP 超时等启动参数重启后生效</div>
             </div>
           </div>
@@ -1310,10 +1310,10 @@ onMounted(async () => {
           </div>
         </div>
         <Card v-show="isGroupVisible('danger') && dangerExpanded" id="danger" title="危险操作区" size="small" class="border-red-300">
-          <div class="space-y-2 max-w-xl">
+          <div class="flex flex-col gap-2 max-w-xl">
             <Alert type="error" show-icon message="一键清空所有数据"
                    description="清空全部业务数据与系统配置（含签名密钥），删除全部内容文件，系统回到未配置状态（无需重启）；需输入确认词 RESET + 二次确认" />
-            <Button danger :loading="clearing" @click="openClear">一键清空所有数据</Button>
+            <Button class="self-start" danger :loading="clearing" @click="openClear">一键清空所有数据</Button>
           </div>
         </Card>
       </div>

@@ -68,6 +68,6 @@ watch(() => props.open, async (open) => {
          @ok="emit('confirm')" @cancel="emit('update:open', false); emit('cancel')">
     <p v-if="content">{{ content }}</p>
     <slot />
-    <Input v-if="confirmWord" v-model:value="word" :placeholder="`请输入 ${confirmWord} 以确认`" class="mt-3" />
+    <Input v-if="confirmWord" v-model:value="word" :placeholder="`请输入 ${confirmWord} 以确认`" class="mt-3!" />
   </Modal>
 </template>

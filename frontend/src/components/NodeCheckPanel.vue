@@ -85,8 +85,8 @@ const targetKeys = computed(() => result.value ? Object.keys(result.value.target
       </div>
     </div>
 
-    <Alert v-if="blockedReason" type="warning" show-icon class="mb-2" :message="blockedReason" />
-    <Alert v-else-if="error" type="error" show-icon class="mb-2" :message="error" />
+    <Alert v-if="blockedReason" type="warning" show-icon class="mb-2!" :message="blockedReason" />
+    <Alert v-else-if="error" type="error" show-icon class="mb-2!" :message="error" />
 
     <div v-if="checking && !result" class="text-xs text-text-tertiary">正在检查…</div>
 

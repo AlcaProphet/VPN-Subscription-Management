@@ -221,8 +221,8 @@ function apply() {
       <Button size="small" :disabled="!hasDraft && !parsing" @click="reset">取消</Button>
     </div>
 
-    <Alert v-if="error" type="error" show-icon class="mt-2" :message="error" />
-    <Alert v-if="stale" type="warning" show-icon class="mt-2" message="原文已更改，请重新解析或取消；旧解析结果不可应用或定位。" />
+    <Alert v-if="error" type="error" show-icon class="mt-2!" :message="error" />
+    <Alert v-if="stale" type="warning" show-icon class="mt-2!" message="原文已更改，请重新解析或取消；旧解析结果不可应用或定位。" />
     <div v-if="diagnostics.length" class="mt-2 space-y-1">
       <div v-for="(diagnostic, index) in diagnostics" :key="index" class="text-xs">
         <span class="font-mono text-text-tertiary">{{ diagnostic.code }}</span>

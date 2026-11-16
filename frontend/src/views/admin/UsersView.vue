@@ -551,7 +551,7 @@ const roleConfirmContent = computed(() => {
             <template #default="{ record }">
               <span v-if="record.effective_quota == null">不限</span>
               <span v-else>{{ record.effective_quota }} GB</span>
-              <Tag v-if="record.quota_override != null" color="blue" class="ml-1">覆盖</Tag>
+              <Tag v-if="record.quota_override != null" color="blue" class="ml-1!">覆盖</Tag>
             </template>
           </Table.Column>
           <Table.Column v-if="advancedMode" key="sync" title="同步状态" width="120">
@@ -674,8 +674,8 @@ const roleConfirmContent = computed(() => {
 
     <!-- 设置/重置密码弹窗（二选一） -->
     <FormOverlay v-model:open="resetOpen" :title="`设置/重置密码：${resetTarget?.username ?? ''}`" :width="480" :loading="resetting" destroy-on-close @submit="doReset">
-      <div class="space-y-3">
-        <Radio.Group v-model:value="resetMode">
+      <div class="flex flex-col gap-3">
+        <Radio.Group class="self-start" v-model:value="resetMode">
           <Radio value="direct">直接重置（系统生成 8 位密码）</Radio>
           <Radio value="send_email" :disabled="!passwordResetAvailable">触发重置邮件（用户自设密码）</Radio>
         </Radio.Group>

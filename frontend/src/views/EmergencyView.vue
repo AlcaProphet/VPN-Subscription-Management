@@ -116,7 +116,7 @@ async function doReinitialize() {
 
 <template>
   <div class="min-h-screen flex items-center justify-center bg-surface-subtle p-4">
-    <div class="w-full max-w-lg bg-surface rounded-xl shadow p-6 space-y-4">
+    <div class="w-full max-w-lg bg-surface rounded-xl shadow p-6 flex flex-col gap-4">
       <Result v-if="statusLoading" status="info" title="正在检查系统状态" sub-title="请稍候…" />
       <Result v-else-if="statusError" status="warning" title="暂时无法确认应急状态" :sub-title="statusError">
         <template #extra>
@@ -182,13 +182,13 @@ async function doReinitialize() {
         </div>
 
         <!-- 重新初始化（应急全清；自动触发仅保留此按钮） -->
-        <div class="space-y-2">
+        <div class="flex flex-col gap-2">
           <div class="font-medium">重新初始化（应急全清）</div>
           <Alert type="warning" show-icon message="将清空全部数据回到首次配置状态；数据库损坏时自动降级为删除数据库文件重建" />
-          <Button v-if="!reinitConfirm" danger @click="reinitConfirm = true">重新初始化</Button>
+          <Button class="self-start" v-if="!reinitConfirm" danger @click="reinitConfirm = true">重新初始化</Button>
           <template v-else>
             <Alert type="error" show-icon message="此操作不可恢复！再次点击确认执行全清（操作码兼承担确认词职能）" />
-            <Space>
+            <Space class="self-start">
               <Button danger :loading="reinitializing" @click="doReinitialize">确认重新初始化</Button>
               <Button @click="reinitConfirm = false">取消</Button>
             </Space>

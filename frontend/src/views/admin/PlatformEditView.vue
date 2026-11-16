@@ -144,7 +144,7 @@ async function save() {
 
     <Card>
       <Form layout="vertical" @submit.prevent="save">
-        <Alert v-if="formError" type="error" show-icon class="mb-3" :message="formError" />
+        <Alert v-if="formError" type="error" show-icon class="mb-3!" :message="formError" />
         <Form.Item label="名称" required>
           <Input v-model:value="form.name" :maxlength="100" placeholder="平台名称（不强制唯一）" />
         </Form.Item>
@@ -167,13 +167,15 @@ async function save() {
 
         <!-- scheme 动态列表（支持拖拽排序；首项即首页「一键导入」默认唤起方式） -->
         <Form.Item label="scheme 列表" required>
-          <Alert type="info" show-icon class="mb-2"
+          <Alert type="info" show-icon class="mb-2!"
                  message="支持 {url} 占位符，下载地址将替换其中；拖拽排序，列表首项为「一键导入」默认唤起方式" />
-          <div v-for="(_, i) in form.schemes" :key="i" class="flex gap-2 mb-2 items-center"
-               draggable="true" @dragstart="onDragStart(i)" @drop="onDrop(i)" @dragover.prevent>
-            <span class="cursor-move text-text-tertiary" title="拖拽排序">⠿</span>
-            <Input v-model:value="form.schemes[i]" placeholder="如 clash://install-config?url={url}" />
-            <Button size="small" danger :disabled="form.schemes.length <= 1" @click="form.schemes.splice(i, 1)">删除</Button>
+          <div class="mb-3 flex flex-col gap-2">
+            <div v-for="(_, i) in form.schemes" :key="i" class="flex items-center gap-2"
+                 draggable="true" @dragstart="onDragStart(i)" @drop="onDrop(i)" @dragover.prevent>
+              <span class="cursor-move text-text-tertiary" title="拖拽排序">⠿</span>
+              <Input v-model:value="form.schemes[i]" placeholder="如 clash://install-config?url={url}" />
+              <Button size="small" danger :disabled="form.schemes.length <= 1" @click="form.schemes.splice(i, 1)">删除</Button>
+            </div>
           </div>
           <Button size="small" @click="form.schemes.push('')">添加 scheme</Button>
         </Form.Item>

@@ -280,7 +280,7 @@ function memberSummary(g: ProxyGroupItem): string {
     <FormOverlay :open="creating" :title="editing ? '编辑代理组' : '新建代理组'" :width="720" :loading="saving"
                  @submit="save" @update:open="creating = false">
       <Form layout="vertical">
-        <Alert v-if="staleRefCount > 0" type="error" show-icon class="mb-3"
+        <Alert v-if="staleRefCount > 0" type="error" show-icon class="mb-3!"
                :message="`${staleRefCount} 项引用已失效，请剔除或替换后保存`">
           <template #action>
             <Button size="small" danger @click="removeAllStaleRefs">一键剔除全部失效项</Button>

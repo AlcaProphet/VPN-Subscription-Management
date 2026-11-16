@@ -33,7 +33,7 @@ const stepTitles: Record<string, string> = {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="flex flex-col gap-4">
     <div class="flex items-center justify-between flex-wrap gap-2">
       <Segmented
         :value="layoutMode"
@@ -43,40 +43,40 @@ const stepTitles: Record<string, string> = {
       <span class="text-xs text-text-tertiary">四类装配器共用同一表单状态，切换不丢失</span>
     </div>
 
-    <Steps v-if="layoutMode === 'step'" :current="currentStep" size="small" class="mb-4">
+    <Steps v-if="layoutMode === 'step'" :current="currentStep" size="small">
       <Steps.Step v-for="s in stepDefs" :key="s.key" :title="s.title" />
     </Steps>
 
     <div v-if="hasHeaderStep" v-show="layoutMode === 'page' || currentStepKey === 'header'">
-      <Card v-if="layoutMode === 'page'" :title="stepTitles.header" size="small" class="mb-3">
+      <Card v-if="layoutMode === 'page'" :title="stepTitles.header" size="small">
         <slot name="header" />
       </Card>
       <div v-else><slot name="header" /></div>
     </div>
 
     <div v-if="hasNodesStep" v-show="layoutMode === 'page' || currentStepKey === 'nodes'">
-      <Card v-if="layoutMode === 'page'" :title="stepTitles.nodes" size="small" class="mb-3">
+      <Card v-if="layoutMode === 'page'" :title="stepTitles.nodes" size="small">
         <slot name="nodes" />
       </Card>
       <div v-else><slot name="nodes" /></div>
     </div>
 
     <div v-if="hasRulesStep" v-show="layoutMode === 'page' || currentStepKey === 'rules'">
-      <Card v-if="layoutMode === 'page'" :title="stepTitles.rules" size="small" class="mb-3">
+      <Card v-if="layoutMode === 'page'" :title="stepTitles.rules" size="small">
         <slot name="rules" />
       </Card>
       <div v-else><slot name="rules" /></div>
     </div>
 
     <div v-if="hasOverlayStep" v-show="layoutMode === 'page' || currentStepKey === 'overlay'">
-      <Card v-if="layoutMode === 'page'" :title="stepTitles.overlay" size="small" class="mb-3">
+      <Card v-if="layoutMode === 'page'" :title="stepTitles.overlay" size="small">
         <slot name="overlay" />
       </Card>
       <div v-else><slot name="overlay" /></div>
     </div>
 
     <div v-show="layoutMode === 'page' || currentStepKey === 'preview'">
-      <Card v-if="layoutMode === 'page'" :title="stepTitles.preview" size="small" class="mb-3">
+      <Card v-if="layoutMode === 'page'" :title="stepTitles.preview" size="small">
         <slot name="preview" />
       </Card>
       <div v-else><slot name="preview" /></div>

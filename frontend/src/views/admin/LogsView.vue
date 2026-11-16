@@ -496,7 +496,7 @@ onUnmounted(() => {
           </Space>
           <Button v-if="mailTotal > 0" danger @click="mailClearOpen = true">清空历史结果</Button>
         </div>
-        <Alert type="info" show-icon class="mb-3"
+        <Alert type="info" show-icon class="mb-3!"
                message="SMTP 已接受仅表示发件服务器接受邮件，不代表进入收件箱；历史发送结果保留 90 天。" />
         <TriStateList :loading="mailLoading" :empty="mailList.length === 0 && mailTotal === 0"
                       :error="mailError || undefined" empty-text="暂无邮件发送记录" @retry="loadMail()">

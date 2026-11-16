@@ -51,7 +51,7 @@ async function onLogout() {
       <Button v-if="manageBtn && isAdmin" type="primary"
               class="inline-flex min-h-11 items-center justify-center md:min-h-0"
               @click="router.push('/admin')">管理面板</Button>
-      <Tag v-if="groupName" color="cyan" class="m-0 max-w-[120px] truncate hidden md:inline-flex">{{ groupName }}</Tag>
+      <Tag v-if="groupName" color="cyan" class="m-0! max-w-[120px] truncate hidden md:inline-flex">{{ groupName }}</Tag>
       <AppDropdown :trigger="['click']">
         <Button class="touch-target max-w-28 md:max-w-none" aria-label="账户菜单">{{ auth.user?.username }}</Button>
         <template #overlay>
@@ -59,7 +59,7 @@ async function onLogout() {
           <div class="bg-surface p-3 shadow-lg rounded border border-subtle border w-auto min-w-32">
             <!-- 角色标签仅管理员展示（R11：普通用户不再显示「用户」标签） -->
             <div v-if="isAdmin" class="flex justify-center">
-              <Tag color="blue" class="m-0">管理员</Tag>
+              <Tag color="blue" class="m-0!">管理员</Tag>
             </div>
             <div class="mt-2 flex flex-col gap-1">
               <Button type="text" class="touch-target" @click="router.push('/profile')">个人中心</Button>

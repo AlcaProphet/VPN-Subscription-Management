@@ -39,7 +39,7 @@ onMounted(async () => {
             <Button @click="router.replace('/login')">使用本地账号</Button>
             <Button @click="contactVisible = !contactVisible">联系管理员</Button>
           </Space>
-          <Alert v-if="contactVisible" type="info" class="mt-4 text-left" show-icon
+          <Alert v-if="contactVisible" type="info" class="mt-4! text-left" show-icon
                  message="请联系系统管理员，并说明 OIDC 登录未能完成。" />
         </template>
       </Result>

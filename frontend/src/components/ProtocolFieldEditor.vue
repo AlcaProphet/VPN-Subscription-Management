@@ -812,7 +812,7 @@ function isComplex(value: unknown): boolean {
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
       <Select.Option v-for="option in field.options" :key="option" :value="option">{{ option }}</Select.Option>
     </AppSelect>
-    <div v-else-if="field.type === 'text-list' || field.type === 'int-list'" class="protocol-list-editor space-y-2">
+    <div v-else-if="field.type === 'text-list' || field.type === 'int-list'" class="protocol-list-editor flex flex-col gap-2">
       <div v-for="(item, index) in scalarListItems" :key="index" class="flex items-center gap-2">
         <InputNumber v-if="field.type === 'int-list'" :value="Number(item)" :precision="0" placeholder="整数" class="w-full" @change="(value: any) => setScalarNumberItem(index, value)" />
         <Input v-else :value="item" placeholder="条目" @change="(event: any) => setScalarListItem(index, event.target.value)" />
@@ -823,7 +823,7 @@ function isComplex(value: unknown): boolean {
         <Select.Option v-for="option in field.option_items" :key="option.value" :value="option.value">{{ option.label || option.value }}</Select.Option>
         <Select.Option v-if="field.allow_custom === true" :value="LIST_CUSTOM_VALUE">其他（自定义）</Select.Option>
       </AppSelect>
-      <Button v-else-if="!scalarListDraftOpen" size="small" @click="startScalarListDraft">新增条目</Button>
+      <Button class="self-start" v-else-if="!scalarListDraftOpen" size="small" @click="startScalarListDraft">新增条目</Button>
       <div v-if="scalarListDraftOpen" class="scalar-list-draft rounded-md border p-3">
         <InputNumber v-if="field.type === 'int-list'" :value="typeof scalarListDraft === 'number' ? scalarListDraft : undefined" :precision="0" placeholder="请输入整数" class="w-full" :status="scalarListDraftError ? 'error' : undefined" @change="(value: any) => updateScalarListDraft(value ?? undefined)" @press-enter="applyScalarListDraft" />
         <Input v-else :value="String(scalarListDraft ?? '')" placeholder="请输入自定义条目" :status="scalarListDraftError ? 'error' : undefined" @input="(event: any) => updateScalarListDraft(event.target.value)" @press-enter="applyScalarListDraft" />

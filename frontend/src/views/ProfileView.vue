@@ -144,7 +144,7 @@ async function startBind() {
                 <template v-else>
                   <Input v-model:value="emailVal" class="w-56" @press-enter="saveEmail" />
                   <Button size="small" type="primary" class="ml-2" :loading="saving" @click="saveEmail">保存</Button>
-                  <Alert type="warning" class="mt-2" message="修改邮箱后所有设备会话将立即失效，需重新登录" />
+                  <Alert type="warning" class="mt-2!" message="修改邮箱后所有设备会话将立即失效，需重新登录" />
                 </template>
               </Descriptions.Item>
               <Descriptions.Item label="角色">
@@ -161,7 +161,7 @@ async function startBind() {
 
           <!-- 密码管理 -->
           <Tabs.TabPane key="password" tab="密码管理">
-            <Alert type="info" show-icon class="mb-3"
+            <Alert type="info" show-icon class="mb-3!"
                    message="修改密码需验证当前密码；OIDC 用户首次设置可留空当前密码" />
             <Form layout="vertical" @submit.prevent="savePassword">
               <Form.Item label="当前密码">
@@ -187,7 +187,7 @@ async function startBind() {
               </Descriptions>
             </template>
             <template v-else>
-              <Alert type="info" show-icon class="mb-3"
+              <Alert type="info" show-icon class="mb-3!"
                      message="绑定后可使用 OIDC 提供商账号登录本系统" />
               <Button type="primary" @click="startBind">绑定 OIDC</Button>
             </template>

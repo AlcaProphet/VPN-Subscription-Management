@@ -197,7 +197,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
                 <template v-if="trafficQuotaGB"> / 配额 {{ trafficQuotaGB }} GB</template>
               </div>
               <Progress v-if="traffic.quota_bytes" :percent="trafficPercent" :stroke-color="trafficColor" />
-              <Alert v-if="traffic.exceeded" type="error" show-icon class="mt-2"
+              <Alert v-if="traffic.exceeded" type="error" show-icon class="mt-2!"
                      message="本月流量已超限，代理账号已暂停，请联系管理员重置" />
             </template>
           </Card>
@@ -238,10 +238,10 @@ const custom = (card: PlatformCard) => card.status === 'custom'
                 <div class="text-sm space-y-2">
                   <div>
                     <span class="text-text-secondary">订阅：</span>{{ card.subscription.name }}
-                    <Tag class="ml-1" :color="productTypeMeta[card.subscription.product_type]?.color">
+                    <Tag class="ml-1!" :color="productTypeMeta[card.subscription.product_type]?.color">
                       {{ productTypeLabel(card.subscription.product_type) }}
                     </Tag>
-                    <Tag class="ml-1" :color="card.subscription.content_kind === 'blueprint' ? 'purple' : ''">
+                    <Tag class="ml-1!" :color="card.subscription.content_kind === 'blueprint' ? 'purple' : ''">
                       {{ card.subscription.content_kind === 'blueprint' ? '装配模板' : '直接上传' }}
                     </Tag>
                   </div>
@@ -268,7 +268,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
 
             <!-- 普通用户：custom / unassigned / ready -->
             <template v-else>
-              <Alert v-if="custom(card)" type="info" show-icon class="mb-2"
+              <Alert v-if="custom(card)" type="info" show-icon class="mb-2!"
                      message="已被分配自定义订阅" description="由管理员单独配置，覆盖组内分发" />
               <div v-else-if="unassigned(card)"
                    class="text-text-tertiary text-center py-6 border rounded bg-surface-subtle bg-surface-subtle">
@@ -276,7 +276,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
               </div>
               <div v-else class="mb-3 text-sm">
                 <span class="text-text-secondary">当前订阅：</span>{{ card.subscription_name || '—' }}
-                <Tag v-if="card.subscription_product_type" class="ml-1"
+                <Tag v-if="card.subscription_product_type" class="ml-1!"
                      :color="productTypeMeta[card.subscription_product_type]?.color">
                   {{ productTypeLabel(card.subscription_product_type) }}
                 </Tag>
@@ -327,7 +327,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
               :destroy-on-close="true" @update:open="previewOpen = $event">
       <div v-if="previewLoading" class="text-center py-8 text-text-tertiary">加载中…</div>
       <template v-else>
-        <Alert v-if="previewContent.startsWith('# error:')" type="warning" show-icon class="mb-2"
+        <Alert v-if="previewContent.startsWith('# error:')" type="warning" show-icon class="mb-2!"
                message="当前暂无可用版本" />
         <pre class="bg-page p-3 rounded text-xs overflow-auto max-h-[60vh] whitespace-pre-wrap">{{ previewContent }}</pre>
       </template>

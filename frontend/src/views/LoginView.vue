@@ -134,7 +134,7 @@ onMounted(async () => {
       <!-- 本地登录区块：仅当 allow_local_login 开启时显示（Design1 §3.2） -->
       <template v-if="showLocalLogin">
         <!-- 表空提示：系统尚未配置管理员，首个注册用户将成为管理员 -->
-        <Alert v-if="tableEmpty" type="info" show-icon class="mb-4"
+        <Alert v-if="tableEmpty" type="info" show-icon class="mb-4!"
                message="系统尚未配置管理员，首个注册用户将成为管理员" />
         <Form layout="vertical" :model="form" @finish="onSubmit">
           <Form.Item label="邮箱" name="email" :rules="[{ required: true, type: 'email', trigger: 'blur' }]">
@@ -147,7 +147,7 @@ onMounted(async () => {
             <Checkbox v-model:checked="form.remember">记住我</Checkbox>
             <RouterLink to="/forgot" class="text-sm">忘记密码？</RouterLink>
           </div>
-          <Alert v-if="errorMsg" type="error" :message="errorMsg" class="mb-4" />
+          <Alert v-if="errorMsg" type="error" :message="errorMsg" class="mb-4!" />
           <CaptchaWidget page="login" @update:token="(t: string) => (form.captcha_token = t)" />
           <Button type="primary" html-type="submit" block :loading="submitting">登录</Button>
         </Form>
@@ -162,13 +162,13 @@ onMounted(async () => {
             <Input v-model:value="mockForm.email" />
           </Form.Item>
           <Form.Item label="用户名（可留空，默认取邮箱前缀）"><Input v-model:value="mockForm.username" /></Form.Item>
-          <Checkbox v-model:checked="mockForm.email_verified" class="mb-3">email_verified（默认勾选）</Checkbox>
+          <Checkbox v-model:checked="mockForm.email_verified" class="mb-3!">email_verified（默认勾选）</Checkbox>
           <!-- 附加属性（UI §2.2，R07-07）：勾选后显示输入，供测试 Role/Group 白名单与审批逻辑 -->
-          <Checkbox v-model:checked="mockForm.with_role" class="mb-1">附加 role</Checkbox>
+          <Checkbox v-model:checked="mockForm.with_role" class="mb-1!">附加 role</Checkbox>
           <Form.Item v-if="mockForm.with_role" label="role 值">
             <Input v-model:value="mockForm.role" placeholder="如 user / admin" />
           </Form.Item>
-          <Checkbox v-model:checked="mockForm.with_group" class="mb-1">附加 group</Checkbox>
+          <Checkbox v-model:checked="mockForm.with_group" class="mb-1!">附加 group</Checkbox>
           <Form.Item v-if="mockForm.with_group" label="group 值">
             <Input v-model:value="mockForm.group" placeholder="如 default" />
           </Form.Item>
@@ -180,7 +180,7 @@ onMounted(async () => {
         </Button>
       </template>
       <!-- 回调错误（oidc_error/冲突文案）展示 -->
-      <Alert v-if="oidcError" type="error" :message="oidcError" class="mt-4" />
+      <Alert v-if="oidcError" type="error" :message="oidcError" class="mt-4!" />
       <Divider v-if="showRegister" plain />
       <div v-if="showRegister" class="text-center">
         还没有账号？<RouterLink to="/register">立即注册</RouterLink>

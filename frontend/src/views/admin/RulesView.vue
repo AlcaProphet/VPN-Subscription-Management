@@ -273,16 +273,18 @@ async function doCancelDefault() {
 
     <!-- 创建弹窗（首版本可选） -->
     <FormOverlay v-model:open="createOpen" title="创建规则" :width="560" :loading="creating" destroy-on-close>
-      <div class="space-y-3">
+      <div class="flex flex-col gap-3">
         <Input v-model:value="form.name" :maxlength="100" placeholder="名称（不强制唯一）" />
         <AppSelect v-model:value="form.client_type" class="w-full" disabled>
           <Select.Option value="shadowrocket">Shadowrocket（当前唯一支持）</Select.Option>
         </AppSelect>
         <div>
           <div class="text-xs text-text-tertiary mb-1">scheme（含 {url} 占位符，创建后不可修改）</div>
-          <div v-for="(_, i) in form.schemes" :key="i" class="flex gap-2 mb-1">
-            <Input v-model:value="form.schemes[i]" placeholder="如 shadowrocket://add/{url}" />
-            <Button size="small" danger :disabled="form.schemes.length <= 1" @click="form.schemes.splice(i, 1)">删除</Button>
+          <div class="mb-3 flex flex-col gap-1">
+            <div v-for="(_, i) in form.schemes" :key="i" class="flex gap-2">
+              <Input v-model:value="form.schemes[i]" placeholder="如 shadowrocket://add/{url}" />
+              <Button size="small" danger :disabled="form.schemes.length <= 1" @click="form.schemes.splice(i, 1)">删除</Button>
+            </div>
           </div>
           <Button size="small" @click="form.schemes.push('')">添加 scheme</Button>
         </div>

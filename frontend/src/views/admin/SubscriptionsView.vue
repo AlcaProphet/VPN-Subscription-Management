@@ -177,7 +177,7 @@ async function confirmDelete() {
               <Button size="small" @click="goVersions(record)">版本管理</Button>
               <AppPopover v-if="pooled(record.id)" :trigger="['hover', 'focus', 'click']" placement="top">
                 <Button class="subscription-pooled-trigger" size="small" type="text" aria-label="查看入池状态并前往激活">
-                  <Tag color="gold" class="m-0">待激活</Tag>
+                  <Tag color="gold" class="m-0!">待激活</Tag>
                 </Button>
                 <template #content>
                   <div class="flex min-w-44 flex-col gap-1">
@@ -206,7 +206,7 @@ async function confirmDelete() {
               <Button size="small" @click="goVersions(sub)">版本管理</Button>
               <AppPopover v-if="pooled(sub.id)" :trigger="['hover', 'focus', 'click']" placement="top">
                 <Button class="subscription-pooled-trigger" size="small" type="text" aria-label="查看入池状态并前往激活">
-                  <Tag color="gold" class="m-0">待激活</Tag>
+                  <Tag color="gold" class="m-0!">待激活</Tag>
                 </Button>
                 <template #content>
                   <div class="flex min-w-44 flex-col gap-1">

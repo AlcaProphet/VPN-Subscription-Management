@@ -71,8 +71,8 @@ function splitLine(line: string): Array<{ text: string; hit: boolean }> {
 </script>
 
 <template>
-  <div class="space-y-3">
-    <Space wrap>
+  <div class="flex flex-col gap-3">
+    <Space class="self-start" wrap>
       <Button type="primary" :loading="previewing" @click="emit('preview')">刷新预览</Button>
       <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
         <Switch :checked="wrap" size="small" @change="(v: any) => wrap = Boolean(v)" />
@@ -97,11 +97,11 @@ function splitLine(line: string): Array<{ text: string; hit: boolean }> {
     <Alert v-if="previewText.includes('# {{xray_nodes}}')" type="info" show-icon
            message="# {{xray_nodes}} 占位将在下载时按用户分配节点动态注入" />
 
-    <div v-if="previewText" class="space-y-3">
-      <Segmented :value="activeView" :options="[{ label: '预览', value: 'preview' }, { label: '差异对比', value: 'diff' }]" @change="(v: any) => activeView = v" />
+    <div v-if="previewText" class="flex flex-col gap-3">
+      <Segmented class="self-start" :value="activeView" :options="[{ label: '预览', value: 'preview' }, { label: '差异对比', value: 'diff' }]" @change="(v: any) => activeView = v" />
       <template v-if="activeView === 'preview'">
         <Input.Search v-model:value="searchQuery" allow-clear placeholder="搜索预览内容"
-                      class="mb-2 max-w-sm" enter-button="搜索" />
+                      class="max-w-sm" enter-button="搜索" />
         <div v-if="searchQuery.trim()" class="text-xs mb-1 text-text-secondary">
           匹配 {{ matchingLines }} 行
         </div>

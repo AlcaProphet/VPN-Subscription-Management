@@ -254,7 +254,7 @@ async function doDelete() {
         <div class="text-sm mb-1">分享已创建，标识：<TypographyText code>{{ createdShare.slug }}</TypographyText></div>
       </div>
       <template v-else>
-        <Input v-model:value="createName" :maxlength="100" placeholder="名称（创建后仅可改名）" class="mb-3" />
+        <Input v-model:value="createName" :maxlength="100" placeholder="名称（创建后仅可改名）" class="mb-3!" />
         <Tabs v-model:activeKey="createMode">
           <Tabs.TabPane key="upload" tab="文件上传">
             <Upload :show-upload-list="false" :before-upload="beforeUpload">

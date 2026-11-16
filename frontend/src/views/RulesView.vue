@@ -62,7 +62,7 @@ async function openPreview(r: RuleItem) {
         <h2 class="text-lg font-semibold m-0">分流规则</h2>
       </div>
 
-      <Alert type="warning" show-icon class="mb-4"
+      <Alert type="warning" show-icon class="mb-4!"
              message="规则内容公开，链接请谨慎分发，请勿外发" />
 
       <div v-if="loading" class="text-center py-16 text-text-tertiary">加载中…</div>

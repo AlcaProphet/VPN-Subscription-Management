@@ -23,7 +23,7 @@ defineProps<{
     <div>
       <div class="text-sm mb-1">{{ isSrConf ? 'SR 分流规则' : '目标平台' }}</div>
       <template v-if="isSrConf">
-        <Radio.Group v-model:value="form.sr_rule_mode" button-style="solid" class="mb-2">
+        <Radio.Group v-model:value="form.sr_rule_mode" button-style="solid" class="mb-2!">
           <Radio.Button value="new">新建规则</Radio.Button>
           <Radio.Button value="existing">选择已有规则</Radio.Button>
         </Radio.Group>

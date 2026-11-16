@@ -360,7 +360,7 @@ async function confirmDiscard() {
     </div>
 
     <!-- 同步回执 -->
-    <Alert v-if="syncResult" :type="syncResult.status === 'succeeded' ? 'success' : 'warning'" show-icon class="mb-3">
+    <Alert v-if="syncResult" :type="syncResult.status === 'succeeded' ? 'success' : 'warning'" show-icon class="mb-3!">
       <template #message>同步{{ syncResult.status === 'succeeded' ? '成功' : '存在失败项' }}</template>
       <div v-for="(u, i) in syncResult.per_url" :key="i" class="text-xs">
         <span :class="u.ok ? 'text-green-600' : 'text-red-500'">{{ u.url }}</span>
@@ -394,7 +394,7 @@ async function confirmDiscard() {
             <Tag v-if="s.latest_attempt?.profile">{{ s.latest_attempt.profile }}</Tag>
           </div>
 
-          <Alert v-if="s.latest_attempt?.status === 'failed' && s.active" class="mt-2" type="warning" show-icon
+          <Alert v-if="s.latest_attempt?.status === 'failed' && s.active" class="mt-2!" type="warning" show-icon
                  message="同步失败，继续使用旧活动快照" />
 
           <div v-if="s.latest_attempt" class="mt-2 text-xs text-text-secondary break-words">
@@ -505,7 +505,7 @@ async function confirmDiscard() {
       </div>
       <div v-else class="py-8 text-center text-text-tertiary">暂无手动条目</div>
     </template>
-    <Pagination v-if="manualTotal > pageSize" class="mt-3" v-model:current="manualPage" :page-size="pageSize"
+    <Pagination v-if="manualTotal > pageSize" class="mt-3!" v-model:current="manualPage" :page-size="pageSize"
                 :total="manualTotal" show-size-changer :page-size-options="['20', '50', '100']" />
 
     <section class="mt-4 border rounded-lg p-3">
@@ -552,7 +552,7 @@ async function confirmDiscard() {
           </div>
         </template>
         <div v-else class="py-8 text-center text-text-tertiary">暂无 URL 同步条目</div>
-        <Pagination v-if="urlTotal > pageSize" class="mt-3" v-model:current="urlPage" :page-size="pageSize"
+        <Pagination v-if="urlTotal > pageSize" class="mt-3!" v-model:current="urlPage" :page-size="pageSize"
                     :total="urlTotal" show-size-changer :page-size-options="['20', '50', '100']" />
       </div>
     </section>
@@ -575,7 +575,7 @@ async function confirmDiscard() {
           <span v-else class="text-red-500 ml-2">{{ u.error || '失败' }}</span>
         </div>
       </div>
-      <Pagination v-if="taskTotal > 20" class="mt-2" v-model:current="taskPage" :page-size="20" :total="taskTotal" />
+      <Pagination v-if="taskTotal > 20" class="mt-2!" v-model:current="taskPage" :page-size="20" :total="taskTotal" />
     </div>
 
     <ConfirmModal :open="clearOpen" title="清理已完成历史" danger :loading="clearing"
@@ -615,7 +615,7 @@ async function confirmDiscard() {
 
     <FormOverlay v-model:open="entryOpen" :title="editingEntry ? '编辑条目' : '新增条目'" :width="480"
                  :loading="entrySaving" destroy-on-close @submit="saveEntry">
-      <div class="space-y-3">
+      <div class="flex flex-col gap-3">
         <AppSelect v-model:value="entryForm.rule_type" :options="manualRuleTypes.map((t) => ({ label: t, value: t }))" class="w-full" />
         <Input v-model:value="entryForm.match_value" placeholder="匹配值（按规则类型白名单校验）" @press-enter="saveEntry" />
       </div>

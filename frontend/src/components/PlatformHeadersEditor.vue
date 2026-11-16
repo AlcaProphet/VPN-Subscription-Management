@@ -316,7 +316,7 @@ const customRows = computed(() => customHeaders.value)
 </script>
 
 <template>
-  <div class="border rounded p-3 space-y-3">
+  <div class="border rounded p-3 flex flex-col gap-3">
     <div class="flex items-center justify-between gap-3">
       <div class="text-sm font-medium">附加响应头</div>
       <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
@@ -325,8 +325,8 @@ const customRows = computed(() => customHeaders.value)
       </label>
     </div>
 
-    <Alert v-if="formError" type="error" show-icon class="mb-2" :message="formError" />
-    <Alert v-if="jsonError" type="error" show-icon class="mb-2" :message="jsonError" />
+    <Alert v-if="formError" type="error" show-icon :message="formError" />
+    <Alert v-if="jsonError" type="error" show-icon :message="jsonError" />
 
     <!-- JSON 模式 -->
     <template v-if="mode === 'json'">

@@ -160,7 +160,7 @@ const expandedClaims = ref<Record<number, boolean>>({})
           <Table.Column key="claims" title="OIDC Claims" width="140">
             <template #default="{ record }">
               <template v-if="record.oidc_claims">
-                <TypographyParagraph v-if="expandedClaims[record.id]" class="mb-0" :code="true" style="white-space: pre-wrap">
+                <TypographyParagraph v-if="expandedClaims[record.id]" class="mb-0!" :code="true" style="white-space: pre-wrap">
                   {{ record.oidc_claims }}
                 </TypographyParagraph>
                 <Button v-else size="small" type="link" @click="expandedClaims[record.id] = true">展开</Button>

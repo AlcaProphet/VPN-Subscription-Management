@@ -277,11 +277,11 @@ defineExpose({
 <template>
   <Card id="mail-templates" title="邮件内容" size="small">
     <div v-if="loading && !ready" class="py-6 text-center text-sm text-text-secondary">正在加载邮件模板…</div>
-    <div v-else-if="loadError" class="space-y-2">
+    <div v-else-if="loadError" class="flex flex-col gap-2">
       <Alert type="error" show-icon :message="loadError" />
-      <Button size="small" @click="loadTemplates">重试</Button>
+      <Button class="self-start" size="small" @click="loadTemplates">重试</Button>
     </div>
-    <div v-else class="space-y-4">
+    <div v-else class="flex flex-col gap-4">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="flex flex-wrap items-center gap-2">
           <span class="text-sm">模板分支</span>
@@ -300,7 +300,7 @@ defineExpose({
 
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div class="space-y-3">
-          <div class="space-y-1 text-sm">
+          <div class="flex flex-col gap-1 text-sm">
             <div class="flex items-center justify-between">
               <span>主题</span>
               <span class="text-xs text-text-tertiary">{{ subjectLength }}/{{ limits.subject }}</span>
@@ -314,7 +314,7 @@ defineExpose({
             </div>
           </div>
 
-          <div class="space-y-1 text-sm">
+          <div class="flex flex-col gap-1 text-sm">
             <div class="flex items-center justify-between">
               <span>正文</span>
               <span class="text-xs text-text-tertiary">{{ bodyLength }}/{{ limits.body }}</span>
@@ -329,7 +329,7 @@ defineExpose({
           </div>
         </div>
 
-        <div class="space-y-2 rounded-lg border border-border p-3">
+        <div class="flex flex-col gap-2 rounded-lg border border-border p-3">
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium">即时预览</span>
             <Radio.Group v-model:value="previewMode" size="small" button-style="solid">
