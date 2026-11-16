@@ -165,6 +165,7 @@ func vmessClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagn
 		"uuid", "udp", "network", "tls", "skip-cert-verify", "name-cert-verify",
 		"fingerprint", "certificate", "private-key", "servername", "packet-addr", "xudp",
 		"packet-encoding", "global-padding", "authenticated-length", "client-fingerprint")
+	setClashUDPDefault(fields, draft.Params)
 	copyClashALPN(fields, draft.Params, "alpn")
 	copyClashEnabledObject(fields, draft.Params, "ech-opts")
 	copyClashActiveObject(fields, draft.Params, "reality-opts")
@@ -188,6 +189,7 @@ func vlessClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagn
 		"uuid", "flow", "tls", "udp", "packet-addr", "xudp", "packet-encoding", "encryption",
 		"network", "skip-cert-verify", "name-cert-verify", "fingerprint", "certificate", "private-key",
 		"servername", "client-fingerprint")
+	setClashUDPDefault(fields, draft.Params)
 	copyClashALPN(fields, draft.Params, "alpn")
 	copyClashEnabledObject(fields, draft.Params, "ech-opts")
 	copyClashActiveObject(fields, draft.Params, "reality-opts")
@@ -199,6 +201,13 @@ func vlessClashAdapter(draft ClashNodeDraft) (map[string]any, []node.TargetDiagn
 	copyClashFeatureObject(fields, draft.Params, "smux")
 	copyClashActiveFields(fields, draft.Params, basicOptionClashFields...)
 	return fields, nil, nil
+}
+
+// setClashUDPDefault 为手动 VLESS／VMess 补齐表单的缺省开启语义。
+func setClashUDPDefault(fields map[string]any, params map[string]any) {
+	if _, exists := params["udp"]; !exists {
+		fields["udp"] = true
+	}
 }
 
 // trojanClashAdapter 把 Trojan 内部活动模型映射为 Mihomo v1.19.31 TrojanOption。

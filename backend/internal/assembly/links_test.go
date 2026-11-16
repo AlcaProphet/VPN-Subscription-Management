@@ -82,7 +82,7 @@ func TestClashProxyKeyOrder(t *testing.T) {
 		t.Fatalf("构造 Clash 条目失败: %v", err)
 	}
 	got := p.Keys()
-	want := []string{"name", "type", "server", "port", "alpn", "alterId", "cipher", "network", "tls", "uuid"}
+	want := []string{"name", "type", "server", "port", "alpn", "alterId", "cipher", "network", "tls", "udp", "uuid"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("proxies 条目键序不稳定：got %v, want %v", got, want)
 	}
