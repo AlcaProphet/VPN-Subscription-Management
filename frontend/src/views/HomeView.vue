@@ -186,7 +186,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
         <!-- 顶部摘要区：桌面两列，移动端纵向堆叠。 -->
         <div class="home-summary-grid grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <!-- 1) 流量卡片（基础模式仅「不限流量」） -->
-          <Card v-if="system.status?.traffic_card_enabled !== false" class="h-full shadow-sm">
+          <Card v-if="system.status?.traffic_card_enabled !== false" class="h-full shadow-xs">
             <div class="text-sm font-medium mb-2">流量</div>
             <template v-if="traffic.unlimited">
               <div class="text-text-secondary">不限流量</div>
@@ -203,7 +203,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
           </Card>
 
           <!-- 2) 分流规则卡片（全体用户可见） -->
-          <Card class="h-full shadow-sm" hoverable @click="router.push('/rules')">
+          <Card class="h-full shadow-xs" hoverable @click="router.push('/rules')">
             <template v-if="homeRule">
               <div class="flex items-center justify-between gap-2 flex-wrap">
                 <div>
@@ -224,7 +224,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
 
         <!-- 3) 平台卡片网格 -->
         <div v-if="cards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
-          <Card v-for="card in cards" :key="card.platform_id" class="shadow-sm">
+          <Card v-for="card in cards" :key="card.platform_id" class="shadow-xs">
             <template #title>
               <div>
                 <span class="font-medium">{{ card.name }}</span>
@@ -313,7 +313,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
         <Empty v-else description="暂无订阅" />
 
         <!-- 4) 公告栏卡片 -->
-        <Card v-if="announcement" class="shadow-sm">
+        <Card v-if="announcement" class="shadow-xs">
           <MarkdownView :source="announcement" />
         </Card>
       </template>

@@ -157,8 +157,9 @@ func TestFixedObjectUnknownKeysRejectedAndZeroWrite(t *testing.T) {
 			"password": "any-secret", "ech-opts": map[string]any{"enable": true, "future": true},
 		}, "ech-opts.future"},
 		{"wireguard peers", "wireguard", map[string]any{
-			"private-key": "wg-secret", "public-key": "wg-public",
-			"peers": []any{map[string]any{"server": "peer.example.com", "future": true}},
+			"private-key": wgPrivateKey, "public-key": wgPublicKey, "ip": "192.0.2.2",
+			"peers": []any{map[string]any{"server": "peer.example.com", "port": 51820,
+				"public-key": wgPublicKey, "allowed-ips": []any{"10.0.0.0/24"}, "future": true}},
 		}, "peers[0].future"},
 	}
 	for _, tc := range cases {

@@ -1,15 +1,15 @@
 # ProdTestList.md — 当前人工核验清单
 
-> 本文件只记录仍需用户亲自执行或修复后重新执行的 Production、浏览器和真实客户端人工核验。已完成且未发现问题的项目从清单移除；工程问题和自动化证据写入对应的 Issue/Build 文档。
+> 本文件跟踪基础模式待执行或待复验的 Production、浏览器和真实客户端人工项目。详细过程与证据见对应 Build／Issue。
 
 ## 当前人工核验项目
 
-当前无待人工核验项目。
+**截至 2026-11-12，清单无待执行项。** Build32 Step 21 正式浏览器与 API 验收、Step 22 隔离候选 smoke 已通过。R34 双产物视觉复核已完成。相关证据见 [Build32.md](docs/reports/Build/Build32.md)、[Issue19.md](docs/reports/Issue/Issue19.md) 和 [Issue20.md](docs/reports/Issue/Issue20.md)。
 
-Xray 相关人工核验继续由 [XrayRelated1.md](XrayRelated1.md) 独立跟踪；当前聚焦基础模式，高级模式暂不跟进。
+2026-10-24 用户豁免了 **PT-B32-17-02（TrustTunnel HTTP/2、QUIC 与复用模式）** 和 **PT-B32-18-02（OpenVPN 用户名密码、证书与组合认证）**。两项真实连接均未执行。[Build32 Step 22](docs/reports/Build/Build32.md#step-22联合门禁隔离-smoke-与归档)
+
+Xray 人工核验见 [XrayRelated1.md](XrayRelated1.md)。当前发布记录见 [TODOLIST.md](TODOLIST.md#当前基线)。
 
 ## 变更记录
 
-| 日期 | 说明 |
-|---|---|
-| 2026-09-20 | 用户确认 R32-02/R32-03 业务邮件异步派发、历史结果与当前发送队列已完成人工真机核验，暂未发现问题；依清单规则移除全部当前人工核验项目。此前历史记录已压缩。 |
+- 2026-11-12 清理已完成项目及重复执行记录，保留验收和用户豁免的证据入口。

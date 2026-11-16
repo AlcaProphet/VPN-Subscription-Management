@@ -1,0 +1,13 @@
+{
+  "protocol": "hysteria",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "up": "100 Mbps",
+    "down": "100 Mbps",
+    "auth-str": "hysteria-auth-str",
+    "sni": "example.com"
+  },
+  "current_state": { "selectors": { "auth_mode": "string" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

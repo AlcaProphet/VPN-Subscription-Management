@@ -772,3 +772,14 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// clashProxyFixture 是固定内核测试共用的 Clash 条目入口：统一走 buildClashProxy，
+// 保证测试与正式装配、节点检查使用同一显式 adapter，不再存在第二套拼装路径。
+func clashProxyFixture(t testing.TB, nd *nodeData) *OrderedMap {
+	t.Helper()
+	proxy, _, err := new(Service).buildClashProxy(nd, true)
+	if err != nil {
+		t.Fatalf("构造 Clash 条目失败: %v", err)
+	}
+	return proxy
+}

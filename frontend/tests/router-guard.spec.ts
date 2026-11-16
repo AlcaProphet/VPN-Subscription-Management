@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useSystemStore } from '@/stores/system'
 import { useAuthStore } from '@/stores/auth'
+import router from '@/router'
 
 // mock 系统状态接口
 vi.mock('@/api/system', () => ({
@@ -19,6 +20,30 @@ describe('路由守卫（configured 逻辑）', () => {
     localStorage.clear()
     mockGetStatus.mockReset()
   })
+
+  it.each(['/emergency', '/setup', '/login', '/admin/settings'])(
+    '数据库损坏时从 %s 进入应急页并停止跳转',
+    async (path) => {
+      mockGetStatus.mockResolvedValue({ configured: true, app_mode: 'prod', emergency: false })
+      await router.replace('/pending')
+      const corruptStatus: SystemStatus = {
+        configured: false,
+        app_mode: 'prod',
+        advanced_mode: false,
+        emergency: true,
+        emergency_reason: 'db_corrupt',
+      }
+      // 限定故障响应次数，使旧守卫的循环可被测试检测且不会卡住测试进程。
+      const fetchStatus = vi.spyOn(useSystemStore(), 'fetchStatus')
+        .mockResolvedValueOnce(corruptStatus)
+        .mockResolvedValueOnce(corruptStatus)
+
+      await router.replace(path)
+
+      expect(fetchStatus).toHaveBeenCalledTimes(path === '/emergency' ? 1 : 2)
+      expect(router.currentRoute.value.path).toBe('/emergency')
+    },
+  )
 
   it('configured=false 时任意路径跳 /setup', async () => {
     mockGetStatus.mockResolvedValue({ configured: false, app_mode: 'dev', emergency: false })

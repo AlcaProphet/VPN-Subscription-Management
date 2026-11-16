@@ -26,7 +26,7 @@ func TestFirstBatchEditorLayout(t *testing.T) {
 			}
 			var names []string
 			for _, field := range editorFormSchema(proto) {
-				if field.Group == "connection" && field.Matches(tc.state, "") {
+				if field.Group == "connection" && field.Matches(tc.state, nil, "") {
 					names = append(names, field.Name)
 				}
 			}
@@ -81,7 +81,7 @@ func TestSSClientFingerprintFollowsPlugin(t *testing.T) {
 	for _, plugin := range []string{"", "obfs", "v2ray-plugin", "shadow-tls", "restls"} {
 		state := CurrentState{Security: "none", Plugin: &plugin}
 		want := plugin == "shadow-tls" || plugin == "restls"
-		if field.Matches(state, "") != want {
+		if field.Matches(state, nil, "") != want {
 			t.Fatalf("%s 指纹显示条件错误", plugin)
 		}
 		projected := ProjectActive(proto, state, map[string]any{"cipher": "aes-128-gcm", "password": "synthetic", "plugin": plugin, "client-fingerprint": "chrome"})

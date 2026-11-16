@@ -36,8 +36,8 @@ async function onLogout() {
 
 <template>
   <!-- 自定义 header 元素（非 AntD Layout.Header——避免其默认深色背景覆盖 Tailwind 底色，R08-UI07） -->
-  <header class="sticky top-0 z-10 bg-surface shadow-sm h-16 flex items-center px-3 md:px-4 gap-2 md:gap-3">
-    <Button v-if="burger" type="text" class="touch-target flex items-center justify-center flex-shrink-0"
+  <header class="sticky top-0 z-10 bg-surface shadow-xs h-16 flex items-center px-3 md:px-4 gap-2 md:gap-3">
+    <Button v-if="burger" type="text" class="touch-target flex items-center justify-center shrink-0"
             aria-label="打开管理导航" @click="$emit('open-drawer')">
       <template #icon><MenuOutlined class="text-xl" /></template>
     </Button>
@@ -47,7 +47,7 @@ async function onLogout() {
       <span class="font-semibold text-lg truncate">{{ system.siteName }}</span>
       <span v-if="updatedAt" class="ml-3 text-xs text-text-secondary hidden md:inline">{{ updatedAt }}</span>
     </div>
-    <div class="flex items-center gap-2 flex-shrink-0">
+    <div class="flex items-center gap-2 shrink-0">
       <Button v-if="manageBtn && isAdmin" type="primary"
               class="inline-flex min-h-11 items-center justify-center md:min-h-0"
               @click="router.push('/admin')">管理面板</Button>

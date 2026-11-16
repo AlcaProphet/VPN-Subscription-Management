@@ -1,0 +1,21 @@
+{
+  "protocol": "openvpn",
+  "host": "vpn.example.com",
+  "port": 1194,
+  "protocol_json": {
+    "ca": "-----BEGIN CERTIFICATE-----\nTUlJQmZUA==\n-----END CERTIFICATE-----",
+    "username": "ovpn-user",
+    "password": "openvpn-password",
+    "proto": "udp",
+    "dev": "tun",
+    "cipher": "AES-256-GCM",
+    "auth": "SHA256",
+    "tls-auth": "openvpn-tls-auth",
+    "key-direction": "1",
+    "ping": 10,
+    "ping-restart": 60,
+    "ip-stack": { "mode": "auto" }
+  },
+  "current_state": { "selectors": { "auth_mode": "userpass", "tls_key_mode": "tls_auth" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

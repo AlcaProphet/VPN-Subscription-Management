@@ -1,7 +1,7 @@
 <!-- ConfirmModal.vue：删除/危险操作统一确认对话框（禁止浏览器原生 confirm） -->
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { Modal, Input } from 'ant-design-vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { Modal, Input, theme } from 'ant-design-vue'
 import { nextOverlayId, registerOverlay, focusFirstInContainer, focusWithoutScroll } from '@/utils/overlayManager'
 
 const props = defineProps<{
@@ -19,10 +19,25 @@ const word = ref('')
 const okDisabled = computed(() => !!props.confirmWord && word.value !== props.confirmWord)
 
 const overlayId = nextOverlayId('confirm-modal')
+const { token } = theme.useToken()
+// 确认框可能先于后来创建的 Drawer 挂载；明确高于表单基础层级，避免同层 DOM 顺序遮挡。
+const confirmZIndex = computed(() => token.value.zIndexPopupBase + 10)
 let overlayUnregister: (() => void) | null = null
 const lastFocused = ref<HTMLElement | null>(null)
+let focusTimer: ReturnType<typeof setTimeout> | undefined
+let focusVersion = 0
+function cancelFocus() {
+  focusVersion += 1
+  clearTimeout(focusTimer)
+}
+onBeforeUnmount(() => {
+  cancelFocus()
+  overlayUnregister?.()
+})
 
 watch(() => props.open, async (open) => {
+  cancelFocus()
+  const version = focusVersion
   if (open) {
     lastFocused.value = document.activeElement as HTMLElement | null
     overlayUnregister?.()
@@ -33,8 +48,10 @@ watch(() => props.open, async (open) => {
       focusTrigger: () => focusWithoutScroll(lastFocused.value),
     })
     await nextTick()
-    setTimeout(() => {
-      const container = document.querySelector<HTMLElement>('.ant-modal-content')
+    if (version !== focusVersion) return
+    focusTimer = setTimeout(() => {
+      if (!props.open || version !== focusVersion) return
+      const container = document.querySelector<HTMLElement>(`.${overlayId} .ant-modal-content`)
       if (container) focusFirstInContainer(container)
     }, 0)
   } else {
@@ -47,7 +64,7 @@ watch(() => props.open, async (open) => {
 </script>
 
 <template>
-  <Modal :open="open" :title="title" :ok-button-props="{ danger, disabled: okDisabled, loading }"
+  <Modal :open="open" :title="title" :wrap-class-name="overlayId" :z-index="confirmZIndex" :ok-button-props="{ danger, disabled: okDisabled, loading }"
          @ok="emit('confirm')" @cancel="emit('update:open', false); emit('cancel')">
     <p v-if="content">{{ content }}</p>
     <slot />

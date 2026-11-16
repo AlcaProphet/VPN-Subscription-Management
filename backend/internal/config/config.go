@@ -334,6 +334,9 @@ func (s *Service) GetJSONStringSliceStrict(ctx context.Context, key string) ([]s
 
 // --- 敏感配置加解密：AES-256-GCM，密钥由签名密钥经 HKDF-SHA256 派生（用户已确认选型）---
 
+// ClashPlanCipherPrefix 标识使用当前签名密钥保护的 Clash 渲染计划。
+const ClashPlanCipherPrefix = "enc:clash-plan:v1:"
+
 // deriveKey 由签名密钥派生 32 字节 AES-256 密钥（info 固定，全程统一）
 func deriveKey(signingKey []byte) ([]byte, error) {
 	r := hkdf.New(sha256.New, signingKey, nil, []byte("vpn-sub/config-encryption"))

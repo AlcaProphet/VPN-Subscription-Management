@@ -1,0 +1,13 @@
+{
+  "protocol": "mieru",
+  "host": "192.0.2.1",
+  "port": 0,
+  "protocol_json": {
+    "username": "mieru-user",
+    "password": "mieru-password",
+    "transport": "UDP",
+    "port-range": "1000-2000"
+  },
+  "current_state": { "selectors": { "endpoint_mode": "range" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

@@ -1,14 +1,15 @@
 // editable-combobox.spec.ts：标准单选下拉与显式自定义草稿交互测试。
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { Select } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { OptionItem } from '@/api/node'
 
 const items: OptionItem[] = [
-  { value: 'tcp', label: 'TCP', group: 'common', verified: 'mihomo-1.19.29' },
-  { value: 'ws', label: 'WebSocket', group: 'common', verified: 'mihomo-1.19.29' },
-  { value: 'grpc', label: 'gRPC', group: 'common', verified: 'mihomo-1.19.29' },
+  { value: 'tcp', label: 'TCP', group: 'common', verified: 'mihomo-1.19.31' },
+  { value: 'ws', label: 'WebSocket', group: 'common', verified: 'mihomo-1.19.31' },
+  { value: 'grpc', label: 'gRPC', group: 'common', verified: 'mihomo-1.19.31' },
 ]
 
 async function selectValue(wrapper: ReturnType<typeof mount>, value: string) {
@@ -44,7 +45,11 @@ describe('EditableCombobox', () => {
     await customInput.trigger('keydown', { key: 'Enter', isComposing: true })
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     await wrapper.findAll('.custom-value-editor button').find((button) => button.text() === '应用自定义值')!.trigger('click')
-    expect(wrapper.emitted('update:modelValue')).toEqual([['custom-v2']])
+    expect(wrapper.emitted('update:modelValue')).toEqual([['custom-v2', expect.any(Function)]])
+    expect(wrapper.emitted('draft-dirty-change')).toEqual([[true]])
+    expect(wrapper.text()).toContain('自定义值草稿未应用')
+    ;(wrapper.emitted('update:modelValue')![0][1] as () => void)()
+    await nextTick()
     expect(wrapper.emitted('draft-dirty-change')).toEqual([[true], [false]])
   })
 
@@ -83,8 +88,8 @@ describe('EditableCombobox', () => {
   it('选项元数据保持可读名称和明确分隔', async () => {
     const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: true }, attachTo: document.body })
     await wrapper.find('.ant-select-selector').trigger('mousedown')
-    expect(document.body.textContent).toContain('Mihomo 1.19.29 · 常用')
-    expect(document.body.textContent).not.toContain('mihomo-1.19.29常用')
+    expect(document.body.textContent).toContain('Mihomo 1.19.31 · 常用')
+    expect(document.body.textContent).not.toContain('mihomo-1.19.31常用')
     wrapper.unmount()
   })
 })

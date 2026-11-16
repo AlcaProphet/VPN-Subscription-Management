@@ -42,8 +42,12 @@ func TestCheckNewDraftUsesActiveProjectionAndDoesNotWrite(t *testing.T) {
 			t.Fatalf("目标 %s 无诊断时应返回非 nil 空数组", target)
 		}
 	}
-	if seen["uuid"] != "REDACTED" {
-		t.Fatalf("检查适配器应只收到脱敏 UUID: %#v", seen["uuid"])
+	// Build32 Step 20：检查适配器接收真实活动参数，脱敏只发生在构造完成后的预览副本上。
+	if seen["uuid"] != "check-secret" {
+		t.Fatalf("检查适配器应收到真实活动参数: %#v", seen["uuid"])
+	}
+	if _, ok := seen[sensitiveItemIDField]; ok {
+		t.Fatalf("内部编辑元数据不得进入检查适配器: %#v", seen)
 	}
 	if _, ok := seen["security"]; ok {
 		t.Fatalf("表单层 security 不应进入实际检查参数: %#v", seen)
@@ -70,7 +74,9 @@ func TestCheckNewDraftUsesActiveProjectionAndDoesNotWrite(t *testing.T) {
 	}
 }
 
-func TestCheckWireGuardArrayCredentialIsRedactedAndInternalIDIsStripped(t *testing.T) {
+// TestCheckWireGuardKeepsRealCredentialAndStripsInternalID 锁定检查适配器接收真实凭据，
+// 但绝不接收 _credential_id 等内部编辑元数据；预览脱敏由装配层在构造完成后负责。
+func TestCheckWireGuardKeepsRealCredentialAndStripsInternalID(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	var seen map[string]any
 	svc.SetCheckRenderer(func(_ context.Context, _, _ string, _ string, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
@@ -80,8 +86,13 @@ func TestCheckWireGuardArrayCredentialIsRedactedAndInternalIDIsStripped(t *testi
 	resp, err := svc.Check(context.Background(), CheckRequest{
 		Protocol: "wireguard", Host: "example.com", Port: 51820,
 		ProtocolJSON: map[string]any{
-			"private-key": "private-secret", "public-key": "server-public",
-			"peers": []any{map[string]any{"server": "peer", "pre-shared-key": "peer-secret"}},
+			"private-key": wgPrivateKey, "ip": "192.0.2.2",
+			"peers": []any{
+				map[string]any{"server": "peer", "port": 51820, "public-key": wgPublicKey,
+					"allowed-ips": []any{"10.0.0.0/24"}, "pre-shared-key": wgPSK},
+				map[string]any{"server": "peer2", "port": 51821, "public-key": wgPublicKey2,
+					"allowed-ips": []any{"10.0.1.0/24"}, "pre-shared-key": ""},
+			},
 		},
 		Targets: []string{"clash-yaml"},
 	})
@@ -93,8 +104,9 @@ func TestCheckWireGuardArrayCredentialIsRedactedAndInternalIDIsStripped(t *testi
 	}
 	peers := seen["peers"].([]any)
 	peer := peers[0].(map[string]any)
-	if peer["pre-shared-key"] != "REDACTED" {
-		t.Fatalf("Peer 凭据未脱敏: %+v", peer)
+	// 检查适配器接收真实凭据；响应与预览的脱敏由装配层在构造完成后完成。
+	if peer["pre-shared-key"] != wgPSK {
+		t.Fatalf("检查适配器应收到真实 Peer 凭据: %+v", peer)
 	}
 	if _, ok := peer[sensitiveItemIDField]; ok {
 		t.Fatalf("内部 Peer ID 进入检查适配器: %+v", peer)
@@ -146,8 +158,11 @@ func TestCheckEditAppliesResetInMemoryAndPreservesDatabase(t *testing.T) {
 	if _, ok := seen["ws-opts"]; ok {
 		t.Fatalf("网络重置后检查参数不应恢复旧 ws-opts: %#v", seen)
 	}
-	if _, ok := seen["grpc-opts"]; !ok || seen["uuid"] != "REDACTED" {
-		t.Fatalf("编辑检查参数未使用新分支/脱敏凭据: %#v", seen)
+	if _, ok := seen["grpc-opts"]; !ok {
+		t.Fatalf("编辑检查参数未使用新分支: %#v", seen)
+	}
+	if uuid, _ := seen["uuid"].(string); uuid != "stored-secret" {
+		t.Fatalf("编辑检查参数应携带解密后的保留凭据: %#v", seen)
 	}
 	after, err := svc.getRaw(context.Background(), created.ID)
 	if err != nil {
@@ -157,6 +172,36 @@ func TestCheckEditAppliesResetInMemoryAndPreservesDatabase(t *testing.T) {
 	afterJSON, _ := json.Marshal(after.ProtocolJSON)
 	if string(beforeJSON) != string(afterJSON) || before.EditRevision != after.EditRevision || before.Host != after.Host || before.Port != after.Port {
 		t.Fatalf("编辑草稿检查不应改变已保存节点: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestCheckSavedWireGuardMaterializesCredentialBeforeValidationAndRender(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	state := &CurrentState{Selectors: map[string]string{"peer_mode": "single"}}
+	created, err := createWireGuard(t, svc, "检查已保存WireGuard", wireGuardSingleParams(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := svc.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen map[string]any
+	svc.SetCheckRenderer(func(_ context.Context, _, _, _, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
+		seen = cloneJSONMap(params)
+		return CheckRenderResult{Preview: "safe-preview"}, nil
+	})
+	resp, err := svc.Check(context.Background(), CheckRequest{
+		NodeID: created.ID, BaseRevision: created.EditRevision,
+		Protocol: "wireguard", Host: created.Host, Port: created.Port,
+		ProtocolJSON: detail.ProtocolJSON, CurrentState: &detail.CurrentState,
+		Targets: []string{"clash-yaml"},
+	})
+	if err != nil {
+		t.Fatalf("检查已保存 WireGuard 失败: %v", err)
+	}
+	if resp.Targets["clash-yaml"].Status != "ok" || seen["private-key"] != wgPrivateKey {
+		t.Fatalf("已保存凭据必须先解密再校验和构造: response=%+v params=%+v", resp, seen)
 	}
 }
 
@@ -176,6 +221,23 @@ func TestCheckValidationResponseIncludesFieldPath(t *testing.T) {
 	result := resp.Targets["generic-subs"]
 	if result.Status != "error" || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "invalid_node_draft" || result.Diagnostics[0].FieldPath != "xhttp-opts.mode" {
 		t.Fatalf("非法草稿诊断异常: %+v", result)
+	}
+}
+
+func TestSchemaPathExistsSupportsObjectListIndices(t *testing.T) {
+	wireguard, err := GetProtocol("wireguard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"peers[0].allowed-ips", "peers[12].reserved", "peers.allowed-ips"} {
+		if !SchemaPathExists(wireguard, path) {
+			t.Fatalf("对象列表路径应能回指 schema: %s", path)
+		}
+	}
+	for _, path := range []string{"peers[x].allowed-ips", "peers[-1].server", "private-key[0]", "peers[0].missing"} {
+		if SchemaPathExists(wireguard, path) {
+			t.Fatalf("非法对象列表路径不应命中 schema: %s", path)
+		}
 	}
 }
 

@@ -172,11 +172,11 @@ func TestFeatureMetadataSurvivesProtocolSerialization(t *testing.T) {
 		if brutal.Feature == nil || brutal.Feature.Name != "smux.brutal" || !brutal.ShouldReset("feature.smux.brutal") {
 			t.Fatalf("%s 缺少 Brutal 声明", protocol)
 		}
-		if !findNestedFieldMust(t, smux, "enabled").Matches(CurrentState{}, "") || findNestedFieldMust(t, smux, "max-connections").Matches(CurrentState{}, "") {
+		if !findNestedFieldMust(t, smux, "enabled").Matches(CurrentState{}, nil, "") || findNestedFieldMust(t, smux, "max-connections").Matches(CurrentState{}, nil, "") {
 			t.Fatal("关闭时只应显示启用入口")
 		}
 		state := CurrentState{Features: []string{"smux"}}
-		if !brutal.Matches(state, "") || findNestedFieldMust(t, brutal, "up").Matches(state, "") {
+		if !brutal.Matches(state, nil, "") || findNestedFieldMust(t, brutal, "up").Matches(state, nil, "") {
 			t.Fatal("Brutal 子参数需单独启用")
 		}
 	}

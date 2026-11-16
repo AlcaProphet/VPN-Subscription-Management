@@ -1,0 +1,17 @@
+{
+  "protocol": "hysteria2",
+  "host": "192.0.2.1",
+  "port": 8443,
+  "protocol_json": {
+    "password": "hysteria2-password",
+    "realm-opts": {
+      "enable": true,
+      "server-url": "https://realm.example.com",
+      "realm-id": "realm-1",
+      "token": "hysteria2-realm-token",
+      "stun-servers": ["stun.example.com:3478"]
+    }
+  },
+  "current_state": { "features": ["realm"], "selectors": { "endpoint_mode": "single", "obfs_mode": "none" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

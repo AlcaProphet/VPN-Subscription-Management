@@ -69,9 +69,183 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 					t.Errorf("%s 安全字段应在真实接口中明确禁止自定义: %+v", proto.Protocol, security)
 				}
 			}
-		case "http", "socks5":
+		case "http":
 			if fields["tls"].Type != "bool" {
 				t.Errorf("%s 有效 TLS 开关被删除", proto.Protocol)
+			}
+			mode := fields["auth-mode"]
+			if !mode.StateOnly || mode.SelectorName != "auth_mode" || mode.Type != "select" {
+				t.Errorf("HTTP 认证模式必须为 state_only select selector: %+v", mode)
+			}
+			for _, name := range []string{"username", "password"} {
+				if fields[name].When == nil || fields[name].RequiredWhen == nil || !slices.Contains(fields[name].ResetOn, "selector.auth_mode") {
+					t.Errorf("HTTP %s 缺少 basic 条件必填或 selector 清空归属: %+v", name, fields[name])
+				}
+			}
+			for _, name := range []string{"sni", "skip-cert-verify", "name-cert-verify", "fingerprint", "certificate", "private-key"} {
+				field, exists := fields[name]
+				if !exists {
+					t.Errorf("HTTP 缺少 TLS 子字段 %s", name)
+					continue
+				}
+				if field.When == nil || !slices.Contains(field.When.Features, "tls") || !slices.Contains(field.ResetOn, "feature.tls") {
+					t.Errorf("HTTP TLS 子字段 %s 缺少 feature 条件或清空归属: %+v", name, field)
+				}
+			}
+			if fields["headers"].MapValueType != "string" || fields["headers"].ObjectKind != "map" {
+				t.Errorf("HTTP headers 必须为字符串开放 Map: %+v", fields["headers"])
+			}
+		case "socks5":
+			if fields["tls"].Type != "bool" {
+				t.Errorf("%s 有效 TLS 开关被删除", proto.Protocol)
+			}
+		case "ssh":
+			mode := fields["auth-mode"]
+			if !mode.StateOnly || mode.SelectorName != "auth_mode" || mode.Type != "select" {
+				t.Errorf("SSH 认证模式必须为 state_only select selector: %+v", mode)
+			}
+			if fields["username"].Required != true {
+				t.Errorf("SSH 用户名为无条件必填: %+v", fields["username"])
+			}
+			if fields["password"].When == nil || !slices.Contains(fields["password"].When.Selectors["auth_mode"], "password") {
+				t.Errorf("SSH password 必须只在 password 分支活动: %+v", fields["password"])
+			}
+			if fields["private-key"].When == nil || !slices.Contains(fields["private-key"].When.Selectors["auth_mode"], "private_key") {
+				t.Errorf("SSH private-key 必须只在 private_key 分支活动: %+v", fields["private-key"])
+			}
+			for _, name := range []string{"password", "private-key", "private-key-passphrase"} {
+				if !slices.Contains(fields[name].ResetOn, "selector.auth_mode") {
+					t.Errorf("SSH %s 缺少 selector.auth_mode 清空归属: %+v", name, fields[name])
+				}
+			}
+			for _, name := range []string{"host-key", "host-key-algorithms"} {
+				if fields[name].Type != "text-list" {
+					t.Errorf("SSH %s 必须为结构化列表: %+v", name, fields[name])
+				}
+			}
+		case "snell":
+			versionField, ok := fields["version"]
+			if !ok || versionField.SelectorName != "version" || len(versionField.Options) != 5 {
+				t.Errorf("Snell version 必须为 1～5 的普通 selector 来源字段: %+v", versionField)
+			}
+			mode := fields["obfs-mode"]
+			if !mode.StateOnly || mode.SelectorName != "obfs_mode" || mode.Type != "select" {
+				t.Errorf("Snell 混淆模式必须为 state_only select selector: %+v", mode)
+			}
+			if fields["udp"].When == nil || !slices.Contains(fields["udp"].When.Selectors["version"], "3") {
+				t.Errorf("Snell udp 必须只在 v3 起活动: %+v", fields["udp"])
+			}
+			if fields["reuse"].When == nil || !slices.Contains(fields["reuse"].When.Selectors["version"], "4") {
+				t.Errorf("Snell reuse 必须只在 v4/v5 活动: %+v", fields["reuse"])
+			}
+			obfs := fields["obfs-opts"]
+			if obfs.Type != "object" || obfs.ObjectKind != "fields" || obfs.AllowUnknown {
+				t.Errorf("Snell obfs-opts 必须为拒绝未知键的固定对象: %+v", obfs)
+			}
+			for _, name := range []string{"host", "password", "version-hint", "username"} {
+				var found *node.FieldSchema
+				for i := range obfs.Properties {
+					if obfs.Properties[i].Name == name {
+						found = &obfs.Properties[i]
+					}
+				}
+				if found == nil || found.When == nil || !slices.Contains(found.ResetOn, "selector.obfs_mode") {
+					t.Errorf("Snell obfs-opts.%s 缺少模式条件或清空归属: %+v", name, found)
+				}
+			}
+			if fields["client-fingerprint"].When == nil || !slices.Contains(fields["client-fingerprint"].When.Selectors["obfs_mode"], "shadow_tls") {
+				t.Errorf("Snell client-fingerprint 必须只在伪装分支活动: %+v", fields["client-fingerprint"])
+			}
+		case "hysteria2":
+			for fieldName, want := range map[string]struct{ selector, value string }{
+				"endpoint-mode": {"endpoint_mode", "single"},
+				"obfs-mode":     {"obfs_mode", "none"},
+			} {
+				selector, ok := fields[fieldName]
+				if !ok || !selector.StateOnly || selector.SelectorName != want.selector || selector.Default != want.value {
+					t.Errorf("Hysteria2 %s 必须为 state_only selector: %+v", fieldName, selector)
+				}
+			}
+			if len(proto.EndpointPolicies) != 2 {
+				t.Fatalf("Hysteria2 必须声明 single／ports 两条 endpoint policy: %+v", proto.EndpointPolicies)
+			}
+			if field, exists := fields["ports"]; !exists || field.RequiredWhen == nil {
+				t.Errorf("Hysteria2 ports 必须在 ports 模式条件必填: %+v", field)
+			}
+			if field, exists := fields["hop-interval"]; !exists || field.When == nil {
+				t.Errorf("Hysteria2 hop-interval 必须只在 ports 模式活动: %+v", field)
+			}
+			if field, exists := fields["obfs-password"]; !exists || field.RequiredWhen == nil {
+				t.Errorf("Hysteria2 obfs-password 必须在混淆分支条件必填: %+v", field)
+			}
+			for _, name := range []string{"obfs-min-packet-size", "obfs-max-packet-size"} {
+				if field, exists := fields[name]; !exists || field.When == nil || !slices.Contains(field.When.Selectors["obfs_mode"], "gecko") {
+					t.Errorf("Hysteria2 %s 必须只在 gecko 分支活动: %+v", name, field)
+				}
+			}
+			realm := fields["realm-opts"]
+			if realm.Type != "object" || realm.Feature == nil || realm.Feature.Toggle != "enable" {
+				t.Errorf("Hysteria2 realm-opts 必须为以 enable 控制的 Realm 对象: %+v", realm)
+			}
+			for _, legacy := range []string{"ca", "ca-str", "protocol", "obfs-protocol", "obfs"} {
+				if _, exists := fields[legacy]; exists {
+					t.Errorf("Hysteria2 不应把历史字段 %s 保留为可保存入口", legacy)
+				}
+			}
+		case "hysteria":
+			mode := fields["auth-mode"]
+			if !mode.StateOnly || mode.SelectorName != "auth_mode" || mode.Type != "select" {
+				t.Errorf("Hysteria 认证方式必须为 state_only select selector: %+v", mode)
+			}
+			for _, name := range []string{"auth", "auth-str"} {
+				field, exists := fields[name]
+				if !exists || field.When == nil || field.RequiredWhen == nil || !slices.Contains(field.ResetOn, "selector.auth_mode") {
+					t.Errorf("Hysteria %s 缺少分支条件、条件必填或清空归属: %+v", name, field)
+				}
+			}
+			for _, name := range []string{"up", "down"} {
+				if field, exists := fields[name]; !exists || !field.Required {
+					t.Errorf("Hysteria %s 必须为无条件必填带宽入口: %+v", name, field)
+				}
+			}
+			if field, exists := fields["protocol"]; !exists || len(field.Options) != 3 {
+				t.Errorf("Hysteria protocol 必须为固定 tag 支持的枚举: %+v", field)
+			}
+			for _, legacy := range []string{"obfs-protocol", "up-speed", "down-speed", "ca", "ca-str"} {
+				if _, exists := fields[legacy]; exists {
+					t.Errorf("Hysteria 不应把历史字段 %s 保留为可保存入口", legacy)
+				}
+			}
+			if ech := fields["ech-opts"]; ech.Type != "object" || ech.Feature == nil || ech.Feature.Toggle != "enable" {
+				t.Errorf("Hysteria ech-opts 必须为以 enable 控制的 ECH 对象: %+v", ech)
+			}
+		case "tuic":
+			mode := fields["auth-mode"]
+			if !mode.StateOnly || mode.SelectorName != "auth_mode" || mode.Type != "select" {
+				t.Errorf("TUIC 认证方式必须为 state_only select selector: %+v", mode)
+			}
+			for _, name := range []string{"token", "uuid", "password"} {
+				field, exists := fields[name]
+				if !exists || field.When == nil || field.RequiredWhen == nil || !slices.Contains(field.ResetOn, "selector.auth_mode") {
+					t.Errorf("TUIC %s 缺少分支条件、条件必填或清空归属: %+v", name, field)
+				}
+			}
+			if relay := fields["udp-relay-mode"]; len(relay.Options) != 2 {
+				t.Errorf("TUIC udp-relay-mode 必须为固定 tag 支持的枚举: %+v", relay)
+			}
+			version := fields["udp-over-stream-version"]
+			if version.Type != "select" || len(version.Options) != 2 || version.When == nil || !slices.Contains(version.When.Features, "udp-over-stream") {
+				t.Errorf("TUIC UOT 版本必须为只在 UOT 开启时活动的两值枚举: %+v", version)
+			}
+			for _, legacy := range []string{"ca", "ca-str"} {
+				if _, exists := fields[legacy]; exists {
+					t.Errorf("TUIC 不应把历史字段 %s 保留为可保存入口", legacy)
+				}
+			}
+			for _, name := range []string{"name-cert-verify", "certificate", "private-key", "ech-opts", "bbr-profile"} {
+				if _, exists := fields[name]; !exists {
+					t.Errorf("TUIC 缺少固定 tag 字段 %s", name)
+				}
 			}
 		case "ss":
 			for _, name := range []string{"cipher", "plugin"} {
@@ -99,8 +273,11 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			for _, field := range fields["restls-opts"].Properties {
 				restlsFields[field.Name] = field
 			}
-			if v2rayFields["private-key"].Type != "password" || shadowFields["private-key"].Type != "password" || shadowFields["host"].Required || restlsFields["host"].Required {
-				t.Errorf("SS 固定插件字段或目标限定必填被错误投影: v2ray=%+v shadow=%+v restls=%+v", v2rayFields, shadowFields, restlsFields)
+			if v2rayFields["private-key"].Type != "secret-multiline" || shadowFields["private-key"].Type != "secret-multiline" ||
+				v2rayFields["certificate"].Type != "multiline" || shadowFields["certificate"].Type != "multiline" ||
+				restlsFields["restls-script"].Type != "multiline" ||
+				shadowFields["host"].Required || restlsFields["host"].Required {
+				t.Errorf("SS 固定插件字段类型或目标限定必填被错误投影: v2ray=%+v shadow=%+v restls=%+v", v2rayFields, shadowFields, restlsFields)
 			}
 			if _, exists := v2rayFields["version"]; exists {
 				t.Error("v2ray-plugin version 不应继续标记为固定版本字段")
@@ -117,9 +294,219 @@ func TestNodeProtocolsExposeOnlyCurrentEditorFields(t *testing.T) {
 			if custom.ObjectKind != "map" || custom.MapValueType != "string" || custom.When == nil || len(custom.When.PluginNot) != 5 || !slices.Contains(custom.ResetOn, "plugin") {
 				t.Errorf("SS 未知插件参数元数据缺失: %+v", custom)
 			}
+		case "shadowquic":
+			// Build32 Step 16：凭据成对必填、TLS 只暴露 sni／alpn、QUIC 版本与流控字段。
+			for _, name := range []string{"username", "password", "sni", "alpn", "quic-versions",
+				"udp-over-stream", "zero-rtt", "keep-alive-interval", "congestion-controller",
+				"up", "down", "cwnd", "recv-window-conn", "recv-window", "disable-mtu-discovery",
+				"max-datagram-frame-size", "max-open-streams"} {
+				if _, exists := fields[name]; !exists {
+					t.Errorf("ShadowQUIC 缺少字段 %s", name)
+				}
+			}
+			for _, forbidden := range []string{"skip-cert-verify", "certificate", "private-key", "ech-opts", "udp-over-stream-version"} {
+				if _, exists := fields[forbidden]; exists {
+					t.Errorf("ShadowQUIC 不得声明 %s", forbidden)
+				}
+			}
+			if !fields["username"].Required || !fields["password"].Required {
+				t.Error("ShadowQUIC username／password 必须必填")
+			}
+			if !slices.Contains(proto.SensitiveFields, "password") {
+				t.Errorf("ShadowQUIC password 必须是敏感字段: %v", proto.SensitiveFields)
+			}
+			if proto.LinkMappings.SR || proto.LinkMappings.Generic {
+				t.Errorf("ShadowQUIC 无 URI 映射: %+v", proto.LinkMappings)
+			}
+		case "trusttunnel":
+			// Build32 Step 17：reuse_mode selector、复用分支互斥、quic 关闭清空 QUIC 调优字段。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "reuse_mode" || proto.Selectors[0].Default != "none" {
+				t.Errorf("TrustTunnel 缺少 reuse_mode selector: %+v", proto.Selectors)
+			}
+			if got := strings.Join(proto.Selectors[0].Values, ","); got != "none,connections,streams" {
+				t.Errorf("TrustTunnel reuse_mode 允许值异常: %s", got)
+			}
+			for _, name := range []string{"alpn", "sni", "ech-opts", "client-fingerprint", "skip-cert-verify",
+				"name-cert-verify", "fingerprint", "certificate", "private-key", "udp", "health-check", "quic",
+				"congestion-controller", "cwnd", "bbr-profile", "max-connections", "min-streams", "max-streams"} {
+				if _, exists := fields[name]; !exists {
+					t.Errorf("TrustTunnel 缺少字段 %s", name)
+				}
+			}
+			if fields["reuse-mode"].StateOnly != true || fields["reuse-mode"].SelectorName != "reuse_mode" {
+				t.Errorf("TrustTunnel reuse-mode 必须是 state_only selector: %+v", fields["reuse-mode"])
+			}
+			for _, name := range []string{"max-connections", "min-streams", "max-streams"} {
+				if !slices.Contains(fields[name].ResetOn, "selector.reuse_mode") {
+					t.Errorf("TrustTunnel %s 必须随 selector 切换清空: %+v", name, fields[name])
+				}
+			}
+			if fields["max-connections"].RequiredWhen == nil || fields["min-streams"].RequiredWhen != nil || fields["max-streams"].RequiredWhen == nil {
+				t.Error("TrustTunnel connections 分支要求 max-connections 必填、min-streams 可选，streams 分支要求 max-streams 必填")
+			}
+			if fields["quic"].Feature == nil || fields["quic"].Feature.Name != "quic" {
+				t.Errorf("TrustTunnel quic 必须作为功能开关: %+v", fields["quic"])
+			}
+			for _, name := range []string{"congestion-controller", "cwnd", "bbr-profile"} {
+				if !slices.Contains(fields[name].ResetOn, "feature.quic") {
+					t.Errorf("TrustTunnel %s 必须随 quic 关闭清空: %+v", name, fields[name])
+				}
+			}
+			for _, path := range []string{"password", "private-key"} {
+				if !slices.Contains(proto.SensitiveFields, path) {
+					t.Errorf("TrustTunnel 缺少敏感路径 %s: %v", path, proto.SensitiveFields)
+				}
+			}
+			if proto.LinkMappings.SR || proto.LinkMappings.Generic {
+				t.Errorf("TrustTunnel 无 URI 映射: %+v", proto.LinkMappings)
+			}
+		case "openvpn":
+			// Build32 Step 18：结构化 schema、auth_mode／tls_key_mode selector、client-config 入口移除。
+			if _, exists := fields["client-config"]; exists {
+				t.Error("OpenVPN 不得保留 client-config 编辑入口")
+			}
+			for _, name := range []string{"ca", "cert", "key", "username", "password",
+				"tls-auth", "tls-crypt", "tls-crypt-v2", "key-direction", "proto", "dev",
+				"cipher", "data-ciphers", "data-ciphers-fallback", "auth", "comp-lzo",
+				"remote-dns-resolve", "dns", "ping", "ping-restart", "tran-window",
+				"handshake-timeout", "mtu", "peer-info", "udp", "ip-stack"} {
+				if _, exists := fields[name]; !exists {
+					t.Errorf("OpenVPN 缺少字段 %s", name)
+				}
+			}
+			if len(proto.Selectors) != 2 {
+				t.Fatalf("OpenVPN 必须声明 auth_mode 与 tls_key_mode: %+v", proto.Selectors)
+			}
+			selectorByName := map[string]node.SelectorSchema{}
+			for _, selector := range proto.Selectors {
+				selectorByName[selector.Name] = selector
+			}
+			if got := strings.Join(selectorByName["auth_mode"].Values, ","); got != "userpass,cert,cert_userpass" {
+				t.Errorf("OpenVPN auth_mode 允许值异常: %s", got)
+			}
+			if got := strings.Join(selectorByName["tls_key_mode"].Values, ","); got != "none,tls_auth,tls_crypt,tls_crypt_v2" {
+				t.Errorf("OpenVPN tls_key_mode 允许值异常: %s", got)
+			}
+			// 多分支共享凭据只能声明 clear_when_inactive，不得声明无方向 reset_on。
+			for _, name := range []string{"username", "password", "cert", "key"} {
+				if !fields[name].ClearWhenInactive {
+					t.Errorf("OpenVPN %s 必须声明 clear_when_inactive: %+v", name, fields[name])
+				}
+				if slices.Contains(fields[name].ResetOn, "selector.auth_mode") {
+					t.Errorf("OpenVPN %s 不得声明无方向 reset_on: %+v", name, fields[name])
+				}
+			}
+			if fields["key-direction"].When == nil || fields["key-direction"].When.Selectors["tls_key_mode"][0] != "tls_auth" {
+				t.Errorf("OpenVPN key-direction 必须只在 tls_auth 分支活动: %+v", fields["key-direction"])
+			}
+			if !fields["ca"].Required || fields["ca"].Type != "multiline" {
+				t.Errorf("OpenVPN ca 必须是必填 multiline: %+v", fields["ca"])
+			}
+			for _, path := range []string{"password", "key", "tls-auth", "tls-crypt", "tls-crypt-v2"} {
+				if !slices.Contains(proto.SensitiveFields, path) {
+					t.Errorf("OpenVPN 缺少敏感路径 %s: %v", path, proto.SensitiveFields)
+				}
+			}
+			for _, path := range []string{"ca", "cert"} {
+				if slices.Contains(proto.SensitiveFields, path) {
+					t.Errorf("OpenVPN %s 必须是非敏感 multiline: %v", path, proto.SensitiveFields)
+				}
+			}
+			if proto.LinkMappings.SR || proto.LinkMappings.Generic {
+				t.Errorf("OpenVPN 无 URI 映射: %+v", proto.LinkMappings)
+			}
+		case "anytls":
+			// Build32 Step 15：security_mode selector、三种伪装互斥与主密码不进入 selector 清空域。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "security_mode" || proto.Selectors[0].Default != "plain" {
+				t.Errorf("AnyTLS 缺少 security_mode selector: %+v", proto.Selectors)
+			}
+			if got := strings.Join(proto.Selectors[0].Values, ","); got != "plain,shadow_tls,restls,jls" {
+				t.Errorf("AnyTLS security_mode 允许值异常: %s", got)
+			}
+			for _, name := range []string{"shadow-tls-opts", "restls-opts", "jls-opts"} {
+				if fields[name].When == nil || !slices.Contains(fields[name].ResetOn, "selector.security_mode") {
+					t.Errorf("AnyTLS %s 必须按 security_mode 分支清空: %+v", name, fields[name])
+				}
+			}
+			if slices.Contains(fields["password"].ResetOn, "selector.security_mode") {
+				t.Error("AnyTLS 主 password 不得随 security_mode 切换清空")
+			}
+			if _, exists := fields["reality-opts"]; exists {
+				t.Error("AnyTLS 不得开放 Reality")
+			}
+		case "tailscale":
+			// Build32 Step 14：无 endpoint、三态 bool、state-dir 不进入 schema。
+			if len(proto.EndpointPolicies) != 1 || proto.EndpointPolicies[0].HostMode != "hidden" || proto.EndpointPolicies[0].PortMode != "hidden" {
+				t.Errorf("Tailscale 必须固定隐藏 endpoint: %+v", proto.EndpointPolicies)
+			}
+			for _, name := range []string{"accept-routes", "exit-node-allow-lan-access"} {
+				if fields[name].Type != "bool" || fields[name].Default != nil {
+					t.Errorf("Tailscale %s 必须保留 unset/false/true 三态: %+v", name, fields[name])
+				}
+			}
+			if fields["exit-node-allow-lan-access"].When == nil || len(fields["exit-node-allow-lan-access"].When.NonEmpty) != 1 {
+				t.Errorf("Tailscale LAN access 必须声明 non_empty 依赖: %+v", fields["exit-node-allow-lan-access"].When)
+			}
+			if _, exists := fields["state-dir"]; exists {
+				t.Error("state-dir 必须由 adapter 派生，不得进入 schema")
+			}
+			if !slices.Contains(proto.SensitiveFields, "auth-key") {
+				t.Errorf("Tailscale auth-key 必须是敏感字段: %v", proto.SensitiveFields)
+			}
+		case "masque":
+			// Build32 Step 13：network_mode selector、三种网络模式与 h3-l4proxy 强制关闭 UDP。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "network_mode" || proto.Selectors[0].Default != "quic" {
+				t.Errorf("MASQUE 缺少 network_mode selector: %+v", proto.Selectors)
+			}
+			if got := strings.Join(proto.Selectors[0].Values, ","); got != "quic,h2,h3_l4proxy" {
+				t.Errorf("MASQUE network_mode 允许值异常: %s", got)
+			}
+			for _, name := range []string{"udp", "congestion-controller", "cwnd", "bbr-profile"} {
+				if fields[name].When == nil || !slices.Contains(fields[name].ResetOn, "selector.network_mode") {
+					t.Errorf("MASQUE %s 必须按 network_mode 分支清空: %+v", name, fields[name])
+				}
+			}
+			if _, exists := fields["name-cert-verify"]; exists {
+				t.Error("MASQUE name-cert-verify 只是固定 tag placeholder，不得进入 schema")
+			}
+			if fields["ip-stack"].ObjectKind != "fields" {
+				t.Errorf("MASQUE ip-stack 必须复用共享枚举合同: %+v", fields["ip-stack"])
+			}
+		case "mieru":
+			// Build32 Step 12：endpoint_mode selector、single／range endpoint policy 与完整枚举。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "endpoint_mode" || proto.Selectors[0].Default != "single" {
+				t.Errorf("Mieru 缺少 endpoint_mode selector: %+v", proto.Selectors)
+			}
+			if len(proto.EndpointPolicies) != 2 {
+				t.Errorf("Mieru 必须声明 single／range 两条 endpoint policy: %+v", proto.EndpointPolicies)
+			}
+			if got := strings.Join(fields["multiplexing"].Options, ","); got != ",MULTIPLEXING_OFF,MULTIPLEXING_LOW,MULTIPLEXING_MIDDLE,MULTIPLEXING_HIGH" {
+				t.Errorf("Mieru multiplexing 必须是完整上游常量: %s", got)
+			}
+			if got := strings.Join(fields["handshake-mode"].Options, ","); got != ",HANDSHAKE_STANDARD,HANDSHAKE_NO_WAIT" {
+				t.Errorf("Mieru handshake-mode 必须是完整上游常量: %s", got)
+			}
+			if fields["port-range"].When == nil || fields["port-range"].RequiredWhen == nil {
+				t.Errorf("Mieru port-range 必须只在 range 模式活动且条件必填: %+v", fields["port-range"])
+			}
 		case "wireguard":
 			if fields["peers"].ItemIDField != "_credential_id" || !slices.Contains(proto.SensitiveFields, "peers[].pre-shared-key") {
 				t.Errorf("WireGuard Peer 稳定身份/敏感路径契约缺失: %+v", fields["peers"])
+			}
+			// Build32 Step 11：peer_mode selector、single／peers endpoint policy、reserved 三字节与 AmneziaWG 排除。
+			if len(proto.Selectors) != 1 || proto.Selectors[0].Name != "peer_mode" || proto.Selectors[0].Default != "single" {
+				t.Errorf("WireGuard 缺少 peer_mode selector: %+v", proto.Selectors)
+			}
+			if len(proto.EndpointPolicies) != 2 {
+				t.Errorf("WireGuard 必须声明 single／peers 两条 endpoint policy: %+v", proto.EndpointPolicies)
+			}
+			if fields["reserved"].Type != "byte-sequence" || fields["ip-stack"].ObjectKind != "fields" {
+				t.Errorf("WireGuard reserved／ip-stack 元数据缺失: %+v", fields)
+			}
+			for name := range fields {
+				if strings.Contains(strings.ToLower(name), "amnezia") {
+					t.Errorf("WireGuard 不得声明 AmneziaWG 活动字段: %s", name)
+				}
 			}
 		}
 	}
@@ -258,6 +645,90 @@ func TestNodeCheckRouteUsesAdapterAndDoesNotWrite(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("节点检查不应写入数据库: count=%d", count)
+	}
+}
+
+// 空列表从 HTTP 草稿进入真实 Clash adapter，检查零写入，保存后数据库键缺失。
+func TestNodeTextListClearHTTPRoundTrip(t *testing.T) {
+	engine, st, cfg := newAssemblyTestEnv(t)
+	ctx := context.Background()
+	lg := log.New("error", "console")
+	nodeSvc := node.NewService(st, cfg, lg)
+	nodeSvc.SetCheckRenderer(assembly.NewService(st, cfg, lg).CheckNodeTarget)
+	noop := func(c *gin.Context) { c.Next() }
+	RegisterNodeRoutes(engine, &NodeHandler{nodeSvc: nodeSvc}, noop, noop)
+	privateKey := "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+	n, err := nodeSvc.CreateManual(ctx, node.CreateManualInput{
+		Name: "list-clear-http", Protocol: "wireguard", Host: "192.0.2.1", Port: 443,
+		ProtocolJSON: map[string]any{"private-key": privateKey,
+			"public-key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=", "ip": "10.0.0.2",
+			"allowed-ips": []any{"10.0.0.0/24"}, "workers": 2, "reserved": []any{1, 2, 3}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() (string, int64) {
+		t.Helper()
+		var raw string
+		var revision int64
+		if err := st.DB().QueryRowContext(ctx, `SELECT protocol_json, edit_revision FROM nodes WHERE id=?`, n.ID).Scan(&raw, &revision); err != nil {
+			t.Fatal(err)
+		}
+		return raw, revision
+	}
+	before, revision := read()
+	request := func(method, path string, input any) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(method, path, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("节点请求失败: %s %s status=%d", method, path, w.Code)
+		}
+		return w
+	}
+	w := request(http.MethodPost, "/api/admin/nodes/check", node.CheckRequest{
+		NodeID: n.ID, BaseRevision: revision, Protocol: n.Protocol, Host: n.Host, Port: n.Port,
+		CurrentState: &n.CurrentState, ProtocolJSON: map[string]any{"allowed-ips": []any{}}, Targets: []string{"clash-yaml"},
+	})
+	var checked struct {
+		Data node.CheckResponse `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &checked); err != nil {
+		t.Fatal(err)
+	}
+	result := checked.Data.Targets["clash-yaml"]
+	if result.Status != "ok" || result.Preview == nil {
+		t.Fatalf("清空后真实 Clash 检查未通过: status=%s", result.Status)
+	}
+	if strings.Contains(*result.Preview, "allowed-ips") || strings.Contains(w.Body.String(), privateKey) {
+		t.Error("检查预览仍含旧列表或泄漏私钥")
+	}
+	if raw, rev := read(); raw != before || rev != revision {
+		t.Fatal("HTTP 检查写入了节点")
+	}
+	request(http.MethodPut, fmt.Sprintf("/api/admin/nodes/%d", n.ID), node.UpdateManualInput{
+		Protocol: n.Protocol, Host: n.Host, Port: n.Port, BaseRevision: revision, CurrentState: &n.CurrentState,
+		ProtocolJSON: map[string]any{"allowed-ips": []any{}},
+	})
+	after, nextRevision := read()
+	var oldParams, params map[string]any
+	if err := json.Unmarshal([]byte(before), &oldParams); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(after), &params); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := params["allowed-ips"]; exists {
+		t.Error("HTTP 保存后旧列表仍在数据库中")
+	}
+	if nextRevision != revision+1 || params["private-key"] != oldParams["private-key"] || params["workers"] != float64(2) {
+		t.Fatal("列表清空改变了凭据、邻接参数或修订递增")
 	}
 }
 

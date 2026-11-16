@@ -20,7 +20,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: string]
+  'update:modelValue': [value: string, applied?: () => void]
   'draft-dirty-change': [dirty: boolean]
 }>()
 
@@ -82,18 +82,21 @@ watch([() => props.value, () => props.items, () => props.allowCustom], () => syn
 
 function selectValue(value: unknown) {
   const selected = String(value)
-  customError.value = ''
   if (selected === CUSTOM_VALUE) {
     if (!props.allowCustom) return
+    customError.value = ''
     customMode.value = true
     customDraft.value = isCustomValue(props.value) ? props.value : ''
     setDirty(!isCustomValue(props.value))
     return
   }
-  customMode.value = false
-  customDraft.value = ''
-  setDirty(false)
-  emit('update:modelValue', selected === EMPTY_VALUE ? '' : selected)
+  const next = selected === EMPTY_VALUE ? '' : selected
+  if (next === props.value) {
+    syncFromValue(props.value)
+    return
+  }
+  // 父页面可能先要求清理确认；只有接受更新并回传新值后才丢弃自定义草稿。
+  emit('update:modelValue', next)
 }
 
 function updateCustomDraft(value: string) {
@@ -109,9 +112,7 @@ function applyCustom() {
     setDirty(true)
     return
   }
-  customDraft.value = value
-  setDirty(false)
-  emit('update:modelValue', value)
+  emit('update:modelValue', value, () => syncFromValue(value))
 }
 
 function cancelCustom() {

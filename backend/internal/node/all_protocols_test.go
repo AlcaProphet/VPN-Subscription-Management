@@ -7,8 +7,17 @@ import (
 
 func minimalProtocolParams(proto Protocol) map[string]any {
 	out := map[string]any{}
+	// 先按注册表默认值构造默认 selector 组合，使默认分支的条件必填字段也纳入最小合法输入。
+	state := CurrentState{Selectors: map[string]string{}}
+	for _, selector := range proto.Selectors {
+		state.Selectors[selector.Name] = selector.Default
+	}
 	for _, field := range proto.FormSchema {
-		if !field.Required {
+		if field.StateOnly {
+			continue
+		}
+		conditionalRequired := field.RequiredWhen != nil && field.RequiredWhen.Matches(state, nil, "")
+		if !field.Required && !conditionalRequired {
 			continue
 		}
 		switch field.Type {
@@ -26,11 +35,30 @@ func minimalProtocolParams(proto Protocol) map[string]any {
 			out[field.Name] = map[string]any{}
 		default:
 			value := "test-value"
-			if field.Name == "cipher" && proto.Protocol == "ss" {
+			switch {
+			case field.Name == "cipher" && proto.Protocol == "ss":
 				value = "aes-256-gcm"
+			case field.Name == "up" || field.Name == "down":
+				// Hysteria 系列要求内核可解析的非零速率字符串。
+				value = "100 Mbps"
+			case field.Name == "uuid":
+				// TUIC v5 与 VMess/VLESS 的 uuid 必须为合法 UUID。
+				value = "11111111-2222-3333-4444-555555555555"
+			case proto.Protocol == "wireguard" && field.Name == "private-key":
+				value = wgPrivateKey
+			case proto.Protocol == "wireguard" && field.Name == "public-key":
+				value = wgPublicKey
+			case proto.Protocol == "masque" && field.Name == "private-key":
+				value = masqueFixturePrivateKey
+			case proto.Protocol == "masque" && field.Name == "public-key":
+				value = masqueFixturePublicKey
 			}
 			out[field.Name] = value
 		}
+	}
+	// WireGuard／MASQUE 的本地地址是项目级组合必填（ip／ipv6 任一即可），不在 schema 中声明为必填。
+	if proto.Protocol == "wireguard" || proto.Protocol == "masque" {
+		out["ip"] = "192.0.2.2"
 	}
 	return out
 }
@@ -67,7 +95,7 @@ func TestAllManualProtocolsUnifiedSaveContract(t *testing.T) {
 			if err != nil {
 				t.Fatalf("读取 %s 失败: %v", proto.Protocol, err)
 			}
-			if got.EditRevision != 2 || got.StateFormatVersion != 1 {
+			if got.EditRevision != 2 || got.StateFormatVersion != currentStateFormatVersion {
 				t.Fatalf("读取后修订/格式异常: %+v", got)
 			}
 		})

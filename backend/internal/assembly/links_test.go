@@ -68,6 +68,8 @@ func TestGenericVmessTLSFalse(t *testing.T) {
 	}
 }
 
+// TestClashProxyKeyOrder 锁定正式装配条目的稳定键序：
+// 公共 name/type/endpoint 在前，协议字段按字母序随后，且不再存在第二套拼装入口。
 func TestClashProxyKeyOrder(t *testing.T) {
 	nd := &nodeData{
 		RenderName: "节点A", Protocol: "vmess", Host: "example.com", Port: 443,
@@ -75,9 +77,12 @@ func TestClashProxyKeyOrder(t *testing.T) {
 			"uuid": "u", "tls": true, "network": "ws", "alpn": "h2,http/1.1",
 		},
 	}
-	p := new(Service).clashProxy(nd)
+	p, _, err := new(Service).buildClashProxy(nd, true)
+	if err != nil {
+		t.Fatalf("构造 Clash 条目失败: %v", err)
+	}
 	got := p.Keys()
-	want := []string{"name", "type", "server", "port", "alpn", "network", "tls", "uuid"}
+	want := []string{"name", "type", "server", "port", "alpn", "alterId", "cipher", "network", "tls", "uuid"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("proxies 条目键序不稳定：got %v, want %v", got, want)
 	}
@@ -90,8 +95,10 @@ func TestNormalizeClashListFields(t *testing.T) {
 	if !reflect.DeepEqual(got["allowed-ips"], []string{"0.0.0.0/0", "::/0"}) {
 		t.Fatalf("text-list 未归一化: %#v", got["allowed-ips"])
 	}
-	if !reflect.DeepEqual(got["reserved"], []int{1, 2, 3}) {
-		t.Fatalf("int-list 未归一化: %#v", got["reserved"])
+	// reserved 自 Step 11 起是 byte-sequence，归一化入口在 node.NormalizeProtocolJSON，
+	// normalizeClashFields 不再把它当 int-list 处理（见 node 包 TestWireGuardReservedByteSequence）。
+	if _, coerced := got["reserved"].([]int); coerced {
+		t.Fatalf("byte-sequence reserved 不应再由 normalizeClashFields 归一化: %#v", got["reserved"])
 	}
 }
 
@@ -173,7 +180,10 @@ func TestClashSSPluginProjectionIsStructuredAndImmutable(t *testing.T) {
 				t.Fatalf("Clash 投影修改了输入:\n got=%#v\nwant=%#v", tc.params, before)
 			}
 
-			proxy := new(Service).clashProxy(&nodeData{RenderName: "节点", Protocol: "ss", Host: "example.com", Port: 443, ProtocolJSON: tc.params})
+			proxy, _, err := new(Service).buildClashProxy(&nodeData{RenderName: "节点", Protocol: "ss", Host: "example.com", Port: 443, ProtocolJSON: tc.params}, true)
+			if err != nil {
+				t.Fatalf("构造 SS Clash 条目失败: %v", err)
+			}
 			raw, err := gyaml.Marshal(orderedMapToMapSlice(proxy))
 			if err != nil {
 				t.Fatal(err)

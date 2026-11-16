@@ -1,0 +1,24 @@
+{
+  "protocol": "openvpn",
+  "host": "vpn.example.com",
+  "port": 443,
+  "protocol_json": {
+    "ca": "-----BEGIN CERTIFICATE-----\nTUlJQmZUA==\n-----END CERTIFICATE-----",
+    "cert": "-----BEGIN CERTIFICATE-----\nQ0VSVA==\n-----END CERTIFICATE-----",
+    "key": "openvpn-private-key",
+    "username": "ovpn-user",
+    "password": "openvpn-password",
+    "tls-crypt": "openvpn-tls-crypt",
+    "proto": "tcp",
+    "comp-lzo": "adaptive",
+    "tran-window": 0,
+    "remote-dns-resolve": true,
+    "dns": ["1.1.1.1", "8.8.8.8"],
+    "peer-info": { "IV_VER": "2.6" }
+  },
+  "current_state": {
+    "selectors": { "auth_mode": "cert_userpass", "tls_key_mode": "tls_crypt" },
+    "features": ["remote-dns-resolve"]
+  },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

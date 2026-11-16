@@ -1,0 +1,16 @@
+{
+  "protocol": "hysteria",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "up": "100 Mbps",
+    "down": "100 Mbps",
+    "auth": "dGVzdC1hdXRo",
+    "ports": "1000-2000",
+    "protocol": "udp",
+    "sni": "example.com",
+    "alpn": ["hysteria"]
+  },
+  "current_state": { "selectors": { "auth_mode": "base64" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

@@ -1,12 +1,14 @@
 package userrender
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"vpn-sub/internal/assembly"
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/node"
 	"vpn-sub/internal/tasks"
@@ -108,6 +110,39 @@ func TestR28_06DownloadRerenderDoesNotExposeExtensionSentinel(t *testing.T) {
 	}
 	assertNoR2806DownloadSentinel(t, "download output", text, plain, ciphertext)
 	assertNoR2806DownloadSentinel(t, "download output label", text, label, "")
+	if err := assembly.MigrateRenderPlans(ctx, st, cfg); err != nil {
+		t.Fatalf("历史蓝图迁移失败: %v", err)
+	}
+	var migrated string
+	if err := st.DB().QueryRowContext(ctx, `SELECT render_plan_json FROM assembly_blueprints WHERE version_id = ?`, versionID).Scan(&migrated); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(migrated, `"`+config.ClashPlanCipherPrefix) || strings.Contains(migrated, "11111111-2222-3333-4444-555555555555") {
+		t.Fatal("历史计划仍包含节点凭据明文")
+	}
+	if err := assembly.MigrateRenderPlans(ctx, st, cfg); err != nil {
+		t.Fatalf("重复执行迁移失败: %v", err)
+	}
+	var afterRestart string
+	if err := st.DB().QueryRowContext(ctx, `SELECT render_plan_json FROM assembly_blueprints WHERE version_id = ?`, versionID).Scan(&afterRestart); err != nil {
+		t.Fatal(err)
+	}
+	if afterRestart != migrated {
+		t.Fatal("重复执行迁移不得重写已有密文")
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE nodes SET protocol_json = '{"uuid":"aaaaaaaa-2222-4333-8444-555555555555"}' WHERE id = ?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	afterMigration, err := svc.Render(ctx, subscriptionID, 0, rendered.Content, "r28-06-download.yaml")
+	if err != nil || !bytes.Equal(afterMigration, output) {
+		t.Fatalf("迁移后订阅重渲染应保持历史版本正文: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE assembly_blueprints SET render_plan_json = ? WHERE version_id = ?`, `"`+config.ClashPlanCipherPrefix+`damaged"`, versionID); err != nil {
+		t.Fatal(err)
+	}
+	if content, err := svc.Render(ctx, subscriptionID, 0, rendered.Content, "r28-06-download.yaml"); err == nil || len(content) != 0 {
+		t.Fatal("密文损坏时应返回错误，禁止回退到历史占位替换")
+	}
 }
 
 func assertNoR2806DownloadSentinel(t *testing.T, label, value, plain, ciphertext string) {

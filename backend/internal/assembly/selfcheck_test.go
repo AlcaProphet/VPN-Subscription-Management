@@ -166,3 +166,232 @@ rules:
 		})
 	}
 }
+
+// TestSelfCheckProtocolWireShapeGates 锁定 Step 4～18 后续协议在最终 YAML 中的
+// 关键 shape、互斥分支、endpoint 形状与项目禁止组合门禁。
+// 每项都必须给出准确指向 $.proxies[n]... 的 error 级问题。
+func TestSelfCheckProtocolWireShapeGates(t *testing.T) {
+	cases := []struct {
+		name     string
+		proxy    string
+		wantPath string
+	}{
+		{
+			name: "tailscale 无 endpoint",
+			proxy: `
+  - name: ts
+    type: tailscale
+    server: example.com
+    port: 443`,
+			wantPath: "$.proxies[0].server",
+		},
+		{
+			name: "hysteria2 port 与 ports 互斥",
+			proxy: `
+  - name: hy2
+    type: hysteria2
+    server: example.com
+    port: 443
+    password: secret
+    ports: 443-8443`,
+			wantPath: "$.proxies[0].ports",
+		},
+		{
+			name: "hysteria2 缺少 endpoint",
+			proxy: `
+  - name: hy2
+    type: hysteria2
+    server: example.com
+    password: secret`,
+			wantPath: "$.proxies[0].port",
+		},
+		{
+			name: "hysteria2 未启用混淆却输出 obfs 凭据",
+			proxy: `
+  - name: hy2
+    type: hysteria2
+    server: example.com
+    port: 443
+    password: secret
+    obfs-password: obfs-secret`,
+			wantPath: "$.proxies[0].obfs-password",
+		},
+		{
+			name: "mieru port 与 port-range 互斥",
+			proxy: `
+  - name: mieru
+    type: mieru
+    server: example.com
+    port: 443
+    port-range: 2000-3000
+    username: user
+    password: secret`,
+			wantPath: "$.proxies[0].port-range",
+		},
+		{
+			name: "mieru 缺少 endpoint",
+			proxy: `
+  - name: mieru
+    type: mieru
+    server: example.com
+    username: user
+    password: secret`,
+			wantPath: "$.proxies[0].port",
+		},
+		{
+			name: "wireguard peers 不得带顶层 endpoint",
+			proxy: `
+  - name: wg
+    type: wireguard
+    server: example.com
+    port: 51820
+    private-key: priv
+    ip: 192.0.2.2/32
+    peers:
+      - server: peer-a
+        port: 51820
+        public-key: pub-a
+        allowed-ips: [10.0.0.0/24]`,
+			wantPath: "$.proxies[0].peers",
+		},
+		{
+			name: "wireguard peer 缺少 allowed-ips",
+			proxy: `
+  - name: wg
+    type: wireguard
+    private-key: priv
+    ip: 192.0.2.2/32
+    peers:
+      - server: peer-a
+        port: 51820
+        public-key: pub-a`,
+			wantPath: "$.proxies[0].peers[0].allowed-ips",
+		},
+		{
+			name: "tuic v4 与 v5 凭据互斥",
+			proxy: `
+  - name: tuic
+    type: tuic
+    server: example.com
+    port: 443
+    token: v4-token
+    uuid: 11111111-2222-3333-4444-555555555555
+    password: v5-password`,
+			wantPath: "$.proxies[0].token",
+		},
+		{
+			name: "tuic UOT 关闭却输出版本",
+			proxy: `
+  - name: tuic
+    type: tuic
+    server: example.com
+    port: 443
+    uuid: 11111111-2222-3333-4444-555555555555
+    password: v5-password
+    udp-over-stream-version: 2`,
+			wantPath: "$.proxies[0].udp-over-stream-version",
+		},
+		{
+			name: "trusttunnel 复用两组互斥",
+			proxy: `
+  - name: tt
+    type: trusttunnel
+    server: example.com
+    port: 443
+    max-connections: 8
+    min-streams: 5
+    max-streams: 0`,
+			wantPath: "$.proxies[0].max-streams",
+		},
+		{
+			name: "openvpn 认证组缺半",
+			proxy: `
+  - name: ovpn
+    type: openvpn
+    server: example.com
+    port: 1194
+    ca: CA-PEM
+    username: only-user`,
+			wantPath: "$.proxies[0].username",
+		},
+		{
+			name: "openvpn 两种 TLS key 并存",
+			proxy: `
+  - name: ovpn
+    type: openvpn
+    server: example.com
+    port: 1194
+    ca: CA-PEM
+    username: user
+    password: pass
+    tls-auth: TA
+    tls-crypt: TC`,
+			wantPath: "$.proxies[0].tls-crypt",
+		},
+		{
+			name: "openvpn key-direction 依赖 tls-auth",
+			proxy: `
+  - name: ovpn
+    type: openvpn
+    server: example.com
+    port: 1194
+    ca: CA-PEM
+    username: user
+    password: pass
+    key-direction: 1`,
+			wantPath: "$.proxies[0].key-direction",
+		},
+		{
+			name: "anytls 附加安全对象互斥",
+			proxy: `
+  - name: anytls
+    type: anytls
+    server: example.com
+    port: 443
+    password: secret
+    shadow-tls-opts:
+      password: st
+      version: 3
+    restls-opts:
+      password: restls
+      version-hint: tls13`,
+			wantPath: "$.proxies[0].restls-opts",
+		},
+		{
+			name: "shadowquic 不得输出固定 tag 没有的 TLS 字段",
+			proxy: `
+  - name: sq
+    type: shadowquic
+    server: example.com
+    port: 443
+    username: user
+    password: secret
+    skip-cert-verify: true`,
+			wantPath: "$.proxies[0].skip-cert-verify",
+		},
+		{
+			name: "snell v1 不得输出 udp",
+			proxy: `
+  - name: snell
+    type: snell
+    server: example.com
+    port: 443
+    psk: secret
+    version: 1
+    udp: true`,
+			wantPath: "$.proxies[0].udp",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := fmt.Appendf(nil, "proxies:\n%s\nrules:\n  - GEOIP,CN,DIRECT\n  - MATCH,DIRECT\n", tc.proxy)
+			issues := CheckClashContent(content)
+			for _, issue := range issues {
+				if issue.Severity == "error" && issue.Path == tc.wantPath {
+					return
+				}
+			}
+			t.Fatalf("缺少路径 %s 的协议 shape 错误: %+v", tc.wantPath, issues)
+		})
+	}
+}

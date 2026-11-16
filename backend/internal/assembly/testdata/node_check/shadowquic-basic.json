@@ -1,0 +1,26 @@
+{
+  "protocol": "shadowquic",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "username": "squic-user",
+    "password": "shadowquic-password",
+    "sni": "example.com",
+    "alpn": ["h3"],
+    "quic-versions": ["v2", "v1"],
+    "udp-over-stream": true,
+    "zero-rtt": true,
+    "keep-alive-interval": 30,
+    "congestion-controller": "bbr_meta_v2",
+    "up": "100 Mbps",
+    "down": "100 Mbps",
+    "cwnd": 64,
+    "recv-window-conn": 1024,
+    "recv-window": 2048,
+    "disable-mtu-discovery": true,
+    "max-datagram-frame-size": 1400,
+    "max-open-streams": 1024
+  },
+  "current_state": { "features": ["udp-over-stream"] },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

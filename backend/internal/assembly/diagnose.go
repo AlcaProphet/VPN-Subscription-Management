@@ -19,7 +19,13 @@ type NodeDiagnostic struct {
 
 // diagnoseNodeForTarget 使用实际目标检查器获取节点诊断，不保存任何状态。
 func (s *Service) diagnoseNodeForTarget(target string, nd *nodeData) []NodeDiagnostic {
-	res, err := s.CheckNodeTarget(context.Background(), target, nd.Protocol, nd.RenderName, nd.Host, nd.Port, activeProtocolJSON(nd))
+	// 装配阶段节点一律来自数据库：必须携带真实 NodeID 与 Persisted 生命周期，
+	// 否则 Tailscale 等依赖稳定身份的协议会被当作未保存草稿处理。
+	res, err := s.CheckNodeTargetDraft(context.Background(), node.CheckTargetDraft{
+		Target: target, Protocol: nd.Protocol, RenderName: nd.RenderName,
+		Host: nd.Host, Port: nd.Port, Params: activeProtocolJSON(nd),
+		NodeID: nd.NodeID, Persisted: true, State: nd.CurrentState,
+	})
 	if err != nil {
 		return []NodeDiagnostic{{
 			Severity: "error",

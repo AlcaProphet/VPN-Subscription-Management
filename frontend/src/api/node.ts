@@ -40,6 +40,8 @@ export interface ConditionRule {
   plugin?: string[]
   plugin_not?: string[]
   features?: string[]
+  selectors?: Record<string, string[]>
+  non_empty?: string[]
   targets?: string[]
 }
 
@@ -83,6 +85,10 @@ export interface FieldSchema {
   canonical_path?: string
   aliases?: string[]
   target_evidence?: TargetEvidence[]
+  selector_name?: string
+  state_only?: boolean
+  // 仅当字段在新 selector 状态下不再活动时才清空；用于多分支共享字段（OpenVPN 的 cert／key）。
+  clear_when_inactive?: boolean
 }
 
 export interface CurrentState {
@@ -90,6 +96,7 @@ export interface CurrentState {
   security?: string
   plugin?: string | null
   features?: string[]
+  selectors?: Record<string, string>
 }
 
 export interface CredentialOp {
@@ -128,10 +135,27 @@ export interface LinkMapping {
   params?: string[]
 }
 
+export interface SelectorInfo {
+  name: string
+  values: string[]
+  default: string
+  source_field?: string
+}
+
+export interface EndpointPolicy {
+  when?: ConditionRule
+  host_mode: 'required' | 'optional' | 'hidden'
+  port_mode: 'required' | 'optional' | 'hidden'
+  emit_host: boolean
+  emit_port: boolean
+}
+
 export interface ProtocolInfo {
   protocol: string
   label: string
   form_schema: FieldSchema[]
+  selectors?: SelectorInfo[]
+  endpoint_policies?: EndpointPolicy[]
   sensitive_fields: string[]
   link_mappings: LinkMapping
 }
@@ -194,6 +218,30 @@ export interface ImportLineResult {
   reason?: string
 }
 
+// `.ovpn` 只读解析（Build32 Step 19）：结果只是草稿、来源行号与诊断，不含原文。
+export interface OpenVPNParseDiagnostic {
+  severity: 'error' | 'warn' | 'info' | string
+  code: string
+  line?: number
+  field_path?: string
+  message: string
+}
+
+export interface OpenVPNParseResult {
+  host: string
+  port: number
+  protocol_json: Record<string, unknown>
+  selectors?: Record<string, string>
+  field_sources?: Record<string, number>
+  diagnostics: OpenVPNParseDiagnostic[]
+}
+
+// 阻断响应的 error_code 与字段级诊断；供面板展示，不进入保存请求。
+export interface OpenVPNParseBlocked {
+  error_code: string
+  diagnostics: OpenVPNParseDiagnostic[]
+}
+
 export const listNodes = (source?: 'manual' | 'xray') =>
   http.get<any, { list: NodeItem[]; total: number }>('/admin/nodes', { params: source ? { source } : {} }).then((d) => d.list)
 export const getProtocols = () =>
@@ -212,3 +260,6 @@ export const toggleNode = (id: number, data: { enabled?: boolean; is_public?: bo
   http.put<any, NodeItem>(`/admin/nodes/${id}/toggle`, data)
 export const setNodeDisplayName = (id: number, display_name: string) =>
   http.put<any, NodeItem>(`/admin/nodes/${id}/display-name`, { display_name })
+// 解析 `.ovpn` 文本：只读、不落库；失败时 ApiError 的 details 携带 error_code 与 diagnostics。
+export const parseOpenVPN = (text: string) =>
+  http.post<any, OpenVPNParseResult>('/admin/nodes/openvpn/parse', { text })

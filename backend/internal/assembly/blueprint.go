@@ -26,7 +26,6 @@ type BlueprintData struct {
 	Selection    json.RawMessage       `json:"selection"`
 	Overlay      OverlayInput          `json:"overlay,omitempty"`
 	CustomRules  json.RawMessage       `json:"custom_rules"`
-	RenderPlan   json.RawMessage       `json:"render_plan"`
 	PlatformID   *int64                `json:"platform_id,omitempty"`
 	RuleID       *int64                `json:"rule_id,omitempty"`
 	InvalidRefs  []BlueprintInvalidRef `json:"invalid_refs"`
@@ -55,16 +54,15 @@ func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*Blueprint
 		FixedParamsJSON string
 		SelectionJSON   string
 		CustomRulesJSON string
-		RenderPlanJSON  string
 		PlatformID      *int64
 		RuleID          *int64
 	}
 	err := s.store.DB().QueryRowContext(ctx,
-		`SELECT b.target_syntax, v.version_no, b.fixed_params_json, b.selection_json, b.custom_rules_json, b.render_plan_json, b.platform_id, b.rule_id
+		`SELECT b.target_syntax, v.version_no, b.fixed_params_json, b.selection_json, b.custom_rules_json, b.platform_id, b.rule_id
 		 FROM assembly_blueprints b
 		 JOIN versions v ON v.id = b.version_id
 		 WHERE b.version_id = ?`, versionID).Scan(
-		&row.TargetSyntax, &row.VersionNo, &row.FixedParamsJSON, &row.SelectionJSON, &row.CustomRulesJSON, &row.RenderPlanJSON,
+		&row.TargetSyntax, &row.VersionNo, &row.FixedParamsJSON, &row.SelectionJSON, &row.CustomRulesJSON,
 		&row.PlatformID, &row.RuleID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("蓝图不存在")
@@ -92,7 +90,6 @@ func (s *Service) GetBlueprint(ctx context.Context, versionID int64) (*Blueprint
 		Selection:    json.RawMessage(row.SelectionJSON),
 		Overlay:      sel.Overlay,
 		CustomRules:  json.RawMessage(row.CustomRulesJSON),
-		RenderPlan:   json.RawMessage(row.RenderPlanJSON),
 		PlatformID:   row.PlatformID,
 		RuleID:       row.RuleID,
 		InvalidRefs:  []BlueprintInvalidRef{},

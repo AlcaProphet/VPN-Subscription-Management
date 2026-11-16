@@ -106,8 +106,9 @@ func TestLegacyWSReadCheckAndSaveUseCanonicalFields(t *testing.T) {
 			}
 			svc.SetCheckRenderer(func(_ context.Context, _, _, _, _ string, _ int, params map[string]any) (CheckRenderResult, error) {
 				assertCanonical(params)
-				if params["tls"] != true || params["uuid"] != "REDACTED" {
-					t.Error("检查破坏了 TLS 或凭据脱敏")
+				// 检查适配器接收解密后的真实凭据；脱敏只发生在构造完成后的预览副本上。
+				if params["tls"] != true || params["uuid"] != "ws-secret" {
+					t.Error("检查破坏了 TLS 或凭据传递")
 				}
 				return CheckRenderResult{}, nil
 			})
@@ -385,7 +386,9 @@ func TestNestedSensitiveEncryptRedactAndPreserve(t *testing.T) {
 
 func TestValidateProtocolFieldTypes(t *testing.T) {
 	wg, _ := GetProtocol("wireguard")
-	valid := map[string]any{"private-key": "secret", "public-key": "pub", "allowed-ips": "0.0.0.0/0,::/0", "reserved": "1,2,3", "peers": []any{map[string]any{"server": "peer"}}}
+	valid := map[string]any{"private-key": wgPrivateKey, "public-key": wgPublicKey, "ip": "192.0.2.2",
+		"allowed-ips": "0.0.0.0/0,::/0", "reserved": "1,2,3",
+		"peers": []any{map[string]any{"server": "peer", "port": 51820, "public-key": wgPublicKey, "allowed-ips": "10.0.0.0/24"}}}
 	if err := validateProtocolFields(wg, valid, false); err != nil {
 		t.Fatalf("合法列表/对象字段被拒绝: %v", err)
 	}
@@ -394,7 +397,7 @@ func TestValidateProtocolFieldTypes(t *testing.T) {
 		t.Fatal("错误 int-list 类型应被拒绝")
 	}
 	valid["reserved"] = "1,2,3"
-	valid["peers"] = []any{map[string]any{"server": "peer", "port": true}}
+	valid["peers"] = []any{map[string]any{"server": "peer", "port": true, "public-key": wgPublicKey, "allowed-ips": "10.0.0.0/24"}}
 	if err := validateProtocolFields(wg, valid, false); err == nil || !strings.Contains(err.Error(), "peers[0].port") {
 		t.Fatalf("嵌套字段类型错误应定位完整路径，实际 %v", err)
 	}
@@ -1010,7 +1013,7 @@ func TestCreateWithCurrentStateAndExtensions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建状态扩展节点失败: %v", err)
 	}
-	if created.EditRevision != 1 || created.StateFormatVersion != 1 {
+	if created.EditRevision != 1 || created.StateFormatVersion != currentStateFormatVersion {
 		t.Fatalf("创建修订/格式版本异常: %+v", created)
 	}
 	if created.CurrentState.Network != "ws" || created.CurrentState.Security != "tls" || len(created.Extensions) != 1 {
@@ -1327,13 +1330,17 @@ func TestSSPluginClashRequirementsDoNotBlockDraftSave(t *testing.T) {
 func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()
+	// Step 11 后多 Peer 模式要求每项 server/port/public-key/allowed-ips，并使用 32 字节 Base64 密钥；
+	// 本用例只更新输入形状，R27-07 的稳定身份与凭据生命周期断言保持不变。
 	created, err := svc.CreateManual(ctx, CreateManualInput{
 		Name: "WireGuard多Peer", Protocol: "wireguard", Host: "example.com", Port: 51820,
 		ProtocolJSON: map[string]any{
-			"private-key": "private-secret", "public-key": "server-public",
+			"private-key": wgPrivateKey, "ip": "192.0.2.2",
 			"peers": []any{
-				map[string]any{"server": "peer-a", "pre-shared-key": "peer-a-secret"},
-				map[string]any{"server": "peer-b", "pre-shared-key": "peer-b-secret"},
+				map[string]any{"server": "peer-a", "port": 51820, "public-key": wgPublicKey,
+					"allowed-ips": []any{"10.0.0.0/24"}, "pre-shared-key": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg="},
+				map[string]any{"server": "peer-b", "port": 51821, "public-key": wgPublicKey2,
+					"allowed-ips": []any{"10.0.1.0/24"}, "pre-shared-key": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk="},
 			},
 		},
 	})
@@ -1377,10 +1384,12 @@ func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 	updated, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
 		Protocol: "wireguard", Host: "example.com", Port: 51820, BaseRevision: created.EditRevision,
 		ProtocolJSON: map[string]any{
-			"private-key": "", "public-key": "server-public",
+			"private-key": "", "ip": "192.0.2.2",
 			"peers": []any{
-				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "pre-shared-key": ""},
-				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "pre-shared-key": ""},
+				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "port": 51821,
+					"public-key": wgPublicKey2, "allowed-ips": []any{"10.0.1.0/24"}, "pre-shared-key": ""},
+				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "port": 51820,
+					"public-key": wgPublicKey, "allowed-ips": []any{"10.0.0.0/24"}, "pre-shared-key": ""},
 			},
 		},
 	})
@@ -1400,10 +1409,12 @@ func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 	finalResponse, err := svc.UpdateManual(ctx, created.ID, UpdateManualInput{
 		Protocol: "wireguard", Host: "example.com", Port: 51820, BaseRevision: updated.EditRevision,
 		ProtocolJSON: map[string]any{
-			"private-key": "", "public-key": "server-public",
+			"private-key": "", "ip": "192.0.2.2",
 			"peers": []any{
-				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "pre-shared-key": ""},
-				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "pre-shared-key": "replacement"},
+				map[string]any{sensitiveItemIDField: ids[1], "server": "peer-b", "port": 51821,
+					"public-key": wgPublicKey2, "allowed-ips": []any{"10.0.1.0/24"}, "pre-shared-key": ""},
+				map[string]any{sensitiveItemIDField: ids[0], "server": "peer-a", "port": 51820,
+					"public-key": wgPublicKey, "allowed-ips": []any{"10.0.0.0/24"}, "pre-shared-key": "CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo="},
 			},
 		},
 		CredentialOps: []CredentialOp{{Path: "peers[" + ids[1] + "].pre-shared-key", Op: "clear"}},
@@ -1438,8 +1449,8 @@ func TestWireGuardArrayCredentialsUseStablePeerIdentity(t *testing.T) {
 func TestSavedSensitivePathsAlwaysSerializeAsArray(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	created, err := svc.CreateManual(context.Background(), CreateManualInput{
-		Name: "无凭据协议", Protocol: "openvpn", Host: "example.com", Port: 1194,
-		ProtocolJSON: map[string]any{"client-config": "client\nremote example.com"},
+		Name: "无凭据协议", Protocol: "tailscale", Host: "", Port: 0,
+		ProtocolJSON: map[string]any{},
 	})
 	if err != nil {
 		t.Fatal(err)

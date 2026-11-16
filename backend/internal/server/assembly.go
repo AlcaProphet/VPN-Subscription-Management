@@ -290,7 +290,6 @@ func (h *AssemblyHandler) blueprint(c *gin.Context) {
 		"selection":     data.Selection,
 		"overlay":       data.Overlay,
 		"custom_rules":  data.CustomRules,
-		"render_plan":   data.RenderPlan,
 		"platform_id":   data.PlatformID,
 		"rule_id":       data.RuleID,
 	}

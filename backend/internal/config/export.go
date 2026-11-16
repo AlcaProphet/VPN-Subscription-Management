@@ -258,16 +258,15 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 	if payload.FormatVersion != FormatVersion {
 		s.log.Warn("导入配置 format_version 不匹配", "got", payload.FormatVersion, "want", FormatVersion)
 	}
-	// 导入保护：v1 兼容路径同样必须检查签名密钥变化，防止空 key/不同 key 破坏既有业务密文。
-	if err := s.checkImportProtection(ctx, payload); err != nil {
-		return err
-	}
 	// 认证可用性校验：防止导入文件导致本地/OIDC 同时不可用。
 	if err := ValidateImportedAuthUsable(payload.Config); err != nil {
 		return err
 	}
 	// 事务内整体覆盖：先清空全部现有配置键再写入导出内容（导出文件中不存在的键一并清除——严格整体覆盖）
 	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if err := s.checkImportProtection(ctx, tx, payload); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM system_config`); err != nil {
 			return err
 		}
@@ -367,16 +366,15 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 	if err := s.validateConfigOverrides(payload.Config); err != nil {
 		return nil, err
 	}
-	// 导入保护：signing_key 变化且存在业务密文时拒绝。
-	if err := s.checkImportProtection(ctx, payload); err != nil {
-		return nil, err
-	}
 	// 认证可用性校验：与 UI 保存路径同口径，防止导入造成认证死锁。
 	if err := ValidateImportedAuthUsable(payload.Config); err != nil {
 		return nil, err
 	}
 	var oldTargets []ImportCleanupTarget
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		if err := s.checkImportProtection(ctx, tx, payload); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM system_config`); err != nil {
 			return err
 		}
@@ -602,9 +600,9 @@ func (s *ExportService) rebindImportedExtNodes(ctx context.Context, payload *Exp
 	return nil
 }
 
-func (s *ExportService) checkImportProtection(ctx context.Context, payload *ExportPayload) error {
+func (s *ExportService) checkImportProtection(ctx context.Context, tx *sql.Tx, payload *ExportPayload) error {
 	newKey := payload.Config[KeySigningKey]
-	currentKey, err := s.cfg.GetRaw(ctx, KeySigningKey)
+	currentKey, err := s.cfg.GetTx(ctx, tx, KeySigningKey)
 	if err != nil {
 		return err
 	}
@@ -613,8 +611,8 @@ func (s *ExportService) checkImportProtection(ctx context.Context, payload *Expo
 		return nil
 	}
 	var count int
-	if s.hasTable(ctx, "users") {
-		if err := s.store.DB().QueryRowContext(ctx,
+	if s.hasTableTx(ctx, tx, "users") {
+		if err := tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM users WHERE (uuid_encrypted IS NOT NULL AND uuid_encrypted != '') OR (proxy_secret_encrypted IS NOT NULL AND proxy_secret_encrypted != '')`).Scan(&count); err != nil {
 			return err
 		}
@@ -622,22 +620,30 @@ func (s *ExportService) checkImportProtection(ctx context.Context, payload *Expo
 			return errors.New("配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复")
 		}
 	}
-	if s.hasTable(ctx, "nodes") {
+	if s.hasTableTx(ctx, tx, "nodes") {
 		var nodeCount int
-		if err := s.store.DB().QueryRowContext(ctx,
+		if err := tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM nodes
 				 WHERE protocol_json LIKE '%enc:v1:%' OR extensions_json LIKE '%enc:ext:v1:%'`).Scan(&nodeCount); err != nil {
 			return err
 		}
 		count += nodeCount
 	}
-	if s.hasTable(ctx, "xray_ext_accounts") {
+	if s.hasTableTx(ctx, tx, "xray_ext_accounts") {
 		var extCount int
-		if err := s.store.DB().QueryRowContext(ctx,
+		if err := tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM xray_ext_accounts WHERE (uuid_encrypted IS NOT NULL AND uuid_encrypted != '') OR (proxy_secret_encrypted IS NOT NULL AND proxy_secret_encrypted != '')`).Scan(&extCount); err != nil {
 			return err
 		}
 		count += extCount
+	}
+	if s.hasTableTx(ctx, tx, "assembly_blueprints") {
+		var blueprintCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM assembly_blueprints
+			WHERE render_plan_json GLOB ?`, `"`+ClashPlanCipherPrefix+"*").Scan(&blueprintCount); err != nil {
+			return err
+		}
+		count += blueprintCount
 	}
 	if count > 0 {
 		return errors.New("配置导入仅适用全新部署/同密钥往返，在用实例请使用备份恢复")

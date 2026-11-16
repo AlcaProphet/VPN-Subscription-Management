@@ -361,3 +361,56 @@ func stripInternalFields(object map[string]any, fields []FieldSchema) {
 		}
 	}
 }
+
+// RedactSensitiveParams 返回按具体敏感路径替换为占位值的副本。
+// 只用于预览与展示副本；构造、校验与正式输出必须使用真实活动参数。
+func RedactSensitiveParams(proto Protocol, params map[string]any) map[string]any {
+	return redactCheckParams(proto, params)
+}
+
+// SensitiveValues 返回参数中按 SensitiveFields 命中的有效字符串值（已去重排序）。
+// 与 ConcreteSensitivePaths 不同，列表条目不要求 _credential_id：构造完成后的脱敏
+// 只按值匹配，不需要稳定条目身份，因此在内部元数据已被剥离的副本上同样有效。
+// 该结果只服务预览脱敏，不参与任何校验或持久化。
+func SensitiveValues(proto Protocol, params map[string]any) []string {
+	var out []string
+	for _, pattern := range proto.SensitiveFields {
+		segments, ok := parsePath(pattern)
+		if !ok {
+			continue
+		}
+		collectSensitiveValues(params, segments, &out)
+	}
+	return uniqueSortedStrings(out)
+}
+
+// collectSensitiveValues 沿敏感路径模式递归收集字符串叶子；列表段遍历全部条目。
+func collectSensitiveValues(current any, segments []pathSegment, out *[]string) {
+	if len(segments) == 0 {
+		if text, isText := current.(string); isText && strings.TrimSpace(text) != "" {
+			*out = append(*out, text)
+		}
+		return
+	}
+	object, ok := current.(map[string]any)
+	if !ok {
+		return
+	}
+	value, exists := object[segments[0].name]
+	if !exists {
+		return
+	}
+	if !segments[0].list {
+		collectSensitiveValues(value, segments[1:], out)
+		return
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return
+	}
+	for _, item := range items {
+		if entry, isMap := item.(map[string]any); isMap {
+			collectSensitiveValues(entry, segments[1:], out)
+		}
+	}
+}

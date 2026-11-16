@@ -1,0 +1,12 @@
+{
+  "protocol": "tuic",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "token": "tuic-v4-token",
+    "sni": "example.com",
+    "alpn": ["h3"]
+  },
+  "current_state": { "selectors": { "auth_mode": "v4" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

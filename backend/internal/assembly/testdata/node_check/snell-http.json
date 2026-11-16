@@ -1,0 +1,13 @@
+{
+  "protocol": "snell",
+  "host": "192.0.2.1",
+  "port": 443,
+  "protocol_json": {
+    "psk": "snell-password",
+    "version": "4",
+    "udp": true,
+    "obfs-opts": { "host": "bing.com" }
+  },
+  "current_state": { "selectors": { "version": "4", "obfs_mode": "http" } },
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

@@ -16,6 +16,7 @@ import (
 
 // nodeData 渲染用节点数据（凭据已解密）。
 type nodeData struct {
+	NodeID          int64
 	Name            string
 	Source          string
 	Protocol        string
@@ -24,6 +25,7 @@ type nodeData struct {
 	DisplayName     *string
 	ProtocolJSON    map[string]any
 	CurrentState    node.CurrentState
+	StateFormat     int
 	Enabled         bool
 	Allocatable     bool
 	Missing         bool
@@ -121,12 +123,12 @@ func (s *Service) loadNodes(ctx context.Context, ld *loadedData, names []string)
 		var enabled, allocatable, missing int
 		var protocolRaw, currentStateRaw string
 		err := s.store.DB().QueryRowContext(ctx,
-			`SELECT n.source, n.name, n.display_name, n.protocol, n.host, n.port, n.protocol_json,
-			        n.current_state_json, n.enabled, n.allocatable, n.missing, COALESCE(i.enabled, 1)
+			`SELECT n.id, n.source, n.name, n.display_name, n.protocol, n.host, n.port, n.protocol_json,
+			        n.current_state_json, n.state_format_version, n.enabled, n.allocatable, n.missing, COALESCE(i.enabled, 1)
 			 FROM nodes n LEFT JOIN xray_instances i ON i.id = n.instance_id
 			 WHERE n.name = ?`, name).
-			Scan(&nd.Source, &nd.Name, &display, &nd.Protocol, &nd.Host, &nd.Port, &protocolRaw,
-				&currentStateRaw, &enabled, &allocatable, &missing, &instanceEnabled)
+			Scan(&nd.NodeID, &nd.Source, &nd.Name, &display, &nd.Protocol, &nd.Host, &nd.Port, &protocolRaw,
+				&currentStateRaw, &nd.StateFormat, &enabled, &allocatable, &missing, &instanceEnabled)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: 节点不存在: %s", ErrBadRequest, name)
 		}

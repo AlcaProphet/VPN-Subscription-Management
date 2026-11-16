@@ -18,10 +18,10 @@ func TestSchemaConditionAndOptionMetadata(t *testing.T) {
 		t.Fatalf("VLESS security 元数据异常: %+v", security)
 	}
 	ws, ok := findSchemaField(vless.FormSchema, "ws-opts")
-	if !ok || !ws.Matches(CurrentState{Network: "ws", Security: "none"}, "") || ws.Matches(CurrentState{Network: "grpc", Security: "none"}, "") || !ws.ShouldReset("network") {
+	if !ok || !ws.Matches(CurrentState{Network: "ws", Security: "none"}, nil, "") || ws.Matches(CurrentState{Network: "grpc", Security: "none"}, nil, "") || !ws.ShouldReset("network") {
 		t.Fatalf("WS 条件元数据异常: %+v", ws)
 	}
-	if ws.Matches(CurrentState{Network: "ws"}, "sr-subs") && len(ws.When.Targets) != 0 {
+	if ws.Matches(CurrentState{Network: "ws"}, nil, "sr-subs") && len(ws.When.Targets) != 0 {
 		t.Fatal("无目标限定的 WS 字段不应因输出目标改变")
 	}
 
@@ -48,12 +48,12 @@ func TestSSUnknownPluginSchemaUsesComplementCondition(t *testing.T) {
 	}
 	for _, plugin := range wantExcluded {
 		plugin := plugin
-		if field.Matches(CurrentState{Plugin: &plugin}, "") {
+		if field.Matches(CurrentState{Plugin: &plugin}, nil, "") {
 			t.Errorf("排除插件 %q 不应激活未知参数字段", plugin)
 		}
 	}
 	custom := "custom-plugin"
-	if !field.Matches(CurrentState{Plugin: &custom}, "") {
+	if !field.Matches(CurrentState{Plugin: &custom}, nil, "") {
 		t.Fatal("未知插件应激活 plugin-opts")
 	}
 	raw, err := json.Marshal(field)
@@ -239,7 +239,7 @@ func TestFirstBatchGroupingAndSecurityOrdering(t *testing.T) {
 	}
 }
 
-func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
+func TestSSPluginFieldsMatchMihomo11931Contract(t *testing.T) {
 	ss, err := GetProtocol("ss")
 	if err != nil {
 		t.Fatal(err)
@@ -260,12 +260,12 @@ func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
 			name:      "v2ray-plugin-opts",
 			fields:    []string{"certificate", "ech-opts", "fingerprint", "headers", "host", "mode", "mux", "name-cert-verify", "path", "private-key", "skip-cert-verify", "tls", "v2ray-http-upgrade", "v2ray-http-upgrade-fast-open"},
 			forbidden: "version", required: []string{"mode"}, defaults: map[string]any{"mode": "websocket"},
-			fieldTypes: map[string]string{"ech-opts": "object", "headers": "object", "private-key": "password", "skip-cert-verify": "bool", "tls": "bool"},
+			fieldTypes: map[string]string{"certificate": "multiline", "ech-opts": "object", "headers": "object", "private-key": "secret-multiline", "skip-cert-verify": "bool", "tls": "bool"},
 		},
 		{
 			name:     "shadow-tls-opts",
 			fields:   []string{"alpn", "certificate", "fingerprint", "host", "name-cert-verify", "password", "private-key", "skip-cert-verify", "version"},
-			required: []string{"host"}, fieldTypes: map[string]string{"alpn": "text-list", "private-key": "password", "version": "number"},
+			required: []string{"host"}, fieldTypes: map[string]string{"alpn": "text-list", "certificate": "multiline", "private-key": "secret-multiline", "version": "number"},
 		},
 		{
 			name:      "restls-opts",
@@ -301,16 +301,16 @@ func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
 					}
 					continue
 				}
-				if field.Required || field.RequiredWhen == nil || !field.RequiredWhen.Matches(CurrentState{}, "clash-yaml") || field.RequiredWhen.Matches(CurrentState{}, "generic-subs") {
+				if field.Required || field.RequiredWhen == nil || !field.RequiredWhen.Matches(CurrentState{}, nil, "clash-yaml") || field.RequiredWhen.Matches(CurrentState{}, nil, "generic-subs") {
 					t.Fatalf("%s.%s 应仅在 Clash 目标必填: %+v", tc.name, name, field)
 				}
 			}
 			if !hasTargetEvidence(object.TargetEvidence, "clash-yaml", "complete") {
-				t.Fatalf("%s 缺少 Mihomo 1.19.29 完整证据: %+v", tc.name, object.TargetEvidence)
+				t.Fatalf("%s 缺少 Mihomo 1.19.31 完整证据: %+v", tc.name, object.TargetEvidence)
 			}
 			requiresObject := len(tc.required) > len(tc.defaults)
 			plugin := object.When.Plugin[0]
-			if requiresObject != (object.RequiredWhen != nil && object.RequiredWhen.Matches(CurrentState{Plugin: &plugin}, "clash-yaml")) {
+			if requiresObject != (object.RequiredWhen != nil && object.RequiredWhen.Matches(CurrentState{Plugin: &plugin}, nil, "clash-yaml")) {
 				t.Fatalf("%s 对象级 Clash 必填条件异常: %+v", tc.name, object.RequiredWhen)
 			}
 		})
@@ -348,7 +348,7 @@ func TestSSPluginFieldsMatchMihomo11929Contract(t *testing.T) {
 
 func hasTargetEvidence(evidence []TargetEvidence, target, status string) bool {
 	for _, item := range evidence {
-		if item.Target == target && item.Status == status && item.Client == "Mihomo" && item.Version == "1.19.29" {
+		if item.Target == target && item.Status == status && item.Client == "Mihomo" && item.Version == "1.19.31" {
 			return true
 		}
 	}

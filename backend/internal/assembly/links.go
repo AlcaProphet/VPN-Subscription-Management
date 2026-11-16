@@ -12,8 +12,10 @@ func activeProtocolJSON(nd *nodeData) map[string]any {
 		return nd.ProtocolJSON
 	}
 	state := nd.CurrentState
-	if state.Network == "" && state.Security == "" && state.Plugin == nil && len(state.Features) == 0 {
+	if state.Network == "" && state.Security == "" && state.Plugin == nil && len(state.Features) == 0 && len(state.Selectors) == 0 {
 		state = node.DeriveCurrentState(proto, nd.ProtocolJSON)
+	} else {
+		state = node.HydrateCurrentStateForRead(proto, state, nd.ProtocolJSON, nd.StateFormat)
 	}
 	return node.ProjectActive(proto, state, nd.ProtocolJSON)
 }

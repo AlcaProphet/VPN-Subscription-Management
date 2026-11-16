@@ -26,6 +26,29 @@ const stringMapField: FieldSchema = {
 }
 
 describe('ProtocolFieldEditor', () => {
+  it('对象列表透传自定义值来源与成功回执，保留稳定条目身份', async () => {
+    const wrapper = mount(ProtocolFieldEditor, { props: {
+      field: { name: 'peers', label: 'Peer 列表', type: 'object', required: false, object_kind: 'list',
+        item_id_field: '_credential_id', properties: [
+          { name: 'mode', label: '模式', type: 'select', required: false, allow_custom: true,
+            option_items: [{ value: 'default', label: '默认' }] },
+        ] },
+      modelValue: [{ _credential_id: 'peer-a', mode: 'default' }],
+    } })
+    try {
+      await wrapper.findComponent(Select).vm.$emit('change', '__vpn_sub_custom_value__')
+      await nextTick()
+      await wrapper.find('.custom-value-editor input').setValue('custom')
+      await wrapper.findAll('button').find(b => b.text() === '应用自定义值')!.trigger('click')
+      const [value, application] = wrapper.emitted('update:modelValue')!.slice(-1)[0] as [unknown, { path: string; applied: () => void }]
+      expect(value).toEqual([{ _credential_id: 'peer-a', mode: 'custom' }])
+      expect(application.path).toBe('peers[peer-a].mode')
+      expect(wrapper.emitted('draft-dirty-change')!.slice(-1)[0]).toEqual([{ path: 'peers[peer-a].mode', dirty: true }])
+      application.applied()
+      await nextTick()
+      expect(wrapper.emitted('draft-dirty-change')!.slice(-1)[0]).toEqual([{ path: 'peers[peer-a].mode', dirty: false }])
+    } finally { wrapper.unmount() }
+  })
   async function customEntryVisible(allowCustom?: boolean | null): Promise<boolean> {
     const field: FieldSchema = {
       name: 'security', type: 'select', required: true, label: '安全',
@@ -120,7 +143,7 @@ describe('ProtocolFieldEditor', () => {
     const field: FieldSchema = { ...objectField, properties: [...objectField.properties!,
       { name: 'early', type: 'object', object_kind: 'fields', label: 'Early Data', required: false, advanced: true,
         properties: [{ name: 'limit', type: 'number', label: '上限', required: false }] },
-      { name: 'upgrade', type: 'bool', label: 'Upgrade', required: false, advanced: true },
+      { name: 'upgrade', type: 'bool', default: false, label: 'Upgrade', required: false, advanced: true },
     ] }
     const wrapper = mount(ProtocolFieldEditor, { props: { field, centralizedSwitches: true, modelValue: { path: '/keep', early: { limit: 7 } } } })
     expect(wrapper.find('.ant-switch').exists()).toBe(false)
@@ -189,7 +212,7 @@ describe('ProtocolFieldEditor', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     await textarea.setValue(JSON.stringify({ path: '/ws' }))
     await wrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
-    expect(wrapper.emitted('update:modelValue')).toEqual([[{ path: '/ws' }]])
+    expect(wrapper.emitted('update:modelValue')).toEqual([[{ path: '/ws' }, { path: 'ws-opts', applied: expect.any(Function) }]])
   })
 
   it('开放 Map 高级 JSON 允许新增普通键，字符串 Map 仍拒绝非法类型', async () => {
@@ -201,7 +224,7 @@ describe('ProtocolFieldEditor', () => {
     await mapWrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     await mapWrapper.find('textarea').setValue(JSON.stringify({ Host: 'new.example.com', 'X-Custom': 7 }))
     await mapWrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
-    expect(mapWrapper.emitted('update:modelValue')).toEqual([[{ Host: 'new.example.com', 'X-Custom': 7 }]])
+    expect(mapWrapper.emitted('update:modelValue')).toEqual([[{ Host: 'new.example.com', 'X-Custom': 7 }, { path: 'headers', applied: expect.any(Function) }]])
     mapWrapper.unmount()
 
     const stringMapWrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { flag: '' } } })
@@ -291,7 +314,10 @@ describe('ProtocolFieldEditor', () => {
     await applyButton!.trigger('click')
 
     const updateEvents = wrapper.emitted('update:modelValue') ?? []
-    expect(updateEvents[updateEvents.length - 1]).toEqual([{ path: '/new' }])
+    expect(updateEvents[updateEvents.length - 1][0]).toEqual({ path: '/new' })
+    expect(wrapper.text()).toContain('JSON 草稿未应用')
+    ;(updateEvents[updateEvents.length - 1][1] as { applied: () => void }).applied()
+    await nextTick()
     expect(wrapper.text()).not.toContain('JSON 草稿未应用')
   })
 
@@ -327,6 +353,10 @@ describe('ProtocolFieldEditor', () => {
     const applyButton = buttons.find((button) => button.text().replace(/\s/g, '').includes('应用'))
     await applyButton!.trigger('click')
 
+    expect((wrapper.emitted('json-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'ws-opts', dirty: true }])
+    const updates = wrapper.emitted('update:modelValue')!
+    ;(updates[updates.length - 1][1] as { applied: () => void }).applied()
+    await nextTick()
     const appliedEvents = wrapper.emitted('json-dirty-change') ?? []
     expect(appliedEvents[appliedEvents.length - 1]).toEqual([{ path: 'ws-opts', dirty: false }])
   })
@@ -399,6 +429,75 @@ describe('ProtocolFieldEditor', () => {
     expect(editors[1].find('input').attributes('placeholder')).toBe('已保存（留空保留）')
   })
 
+  it('对象数组可通过按钮重排且稳定身份、凭据状态与草稿事件不串项', async () => {
+    const firstID = '11111111-1111-4111-8111-111111111111'
+    const secondID = '22222222-2222-4222-8222-222222222222'
+    const thirdID = '33333333-3333-4333-8333-333333333333'
+    const peers: FieldSchema = {
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', item_id_field: '_credential_id',
+      properties: [
+        { name: 'server', type: 'text', required: true, label: '服务器' },
+        { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+      ],
+    }
+    const original = [
+      { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
+      { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
+      { _credential_id: thirdID, server: 'peer-c', 'pre-shared-key': '' },
+    ]
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: {
+        field: peers,
+        modelValue: original,
+        sensitivePaths: ['peers[].pre-shared-key'],
+        savedSensitivePaths: [`peers[${firstID}].pre-shared-key`],
+      },
+    })
+
+    expect((wrapper.get('button[aria-label="上移第 1 个 Peer"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((wrapper.get('button[aria-label="下移第 3 个 Peer"]').element as HTMLButtonElement).disabled).toBe(true)
+    const jsonDirtyEventCount = (wrapper.emitted('json-dirty-change') ?? []).length
+    const draftDirtyEventCount = (wrapper.emitted('draft-dirty-change') ?? []).length
+    await wrapper.get('button[aria-label="上移第 2 个 Peer"]').trigger('click')
+
+    let updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1][0]).toEqual([original[1], original[0], original[2]])
+    expect(wrapper.emitted('credential-change')).toBeUndefined()
+    expect(wrapper.emitted('validity-change')).toBeUndefined()
+    expect(wrapper.emitted('json-dirty-change') ?? []).toHaveLength(jsonDirtyEventCount)
+    expect(wrapper.emitted('draft-dirty-change') ?? []).toHaveLength(draftDirtyEventCount)
+
+    await wrapper.setProps({ modelValue: updates[updates.length - 1][0] })
+    const editors = wrapper.findAllComponents(ProtocolFieldEditor).filter((item) => item.props('field').name === 'pre-shared-key')
+    expect(editors.map((item) => item.props('path'))).toEqual([
+      `peers[${secondID}].pre-shared-key`,
+      `peers[${firstID}].pre-shared-key`,
+      `peers[${thirdID}].pre-shared-key`,
+    ])
+    expect(editors[0].find('input').attributes('placeholder')).toBe('未配置')
+    expect(editors[1].find('input').attributes('placeholder')).toBe('已保存（留空保留）')
+
+    await wrapper.get('button[aria-label="下移第 2 个 Peer"]').trigger('click')
+    updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1][0]).toEqual([original[1], original[2], original[0]])
+  })
+
+  it('单条对象数组的上移和下移按钮均禁用，删除行为保持不变', async () => {
+    const id = '11111111-1111-4111-8111-111111111111'
+    const peers: FieldSchema = {
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', item_id_field: '_credential_id',
+      properties: [{ name: 'server', type: 'text', required: true, label: '服务器' }],
+    }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field: peers, modelValue: [{ _credential_id: id, server: 'peer-a' }] },
+    })
+
+    expect((wrapper.get('button[aria-label="上移第 1 个 Peer"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((wrapper.get('button[aria-label="下移第 1 个 Peer"]').element as HTMLButtonElement).disabled).toBe(true)
+    await wrapper.get('button[aria-label="删除第 1 个 Peer"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[[]]])
+  })
+
   it('对象数组高级 JSON 放行内部 item_id_field，重排后保留稳定身份', async () => {
     const firstID = '11111111-1111-4111-8111-111111111111'
     const secondID = '22222222-2222-4222-8222-222222222222'
@@ -452,7 +551,7 @@ describe('ProtocolFieldEditor', () => {
 
   it('对象数组可新增条目并按子 schema 编辑', async () => {
     const peers: FieldSchema = {
-      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', allow_unknown: false,
+      name: 'peers', type: 'object', required: false, label: 'Peer 列表', object_kind: 'list', item_id_field: '_credential_id', allow_unknown: false,
       properties: [{ name: 'server', type: 'text', required: false, label: '服务器' }],
     }
     const wrapper = mount(ProtocolFieldEditor, { props: { field: peers, modelValue: [] } })
@@ -460,7 +559,9 @@ describe('ProtocolFieldEditor', () => {
     const buttons = wrapper.findAll('button')
     await buttons[buttons.length - 1].trigger('click')
     const updateEvents = wrapper.emitted('update:modelValue') ?? []
-    expect(updateEvents[updateEvents.length - 1]).toEqual([[{}]])
+    expect(updateEvents[updateEvents.length - 1][0]).toEqual([
+      { _credential_id: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+    ])
   })
 
   it('对象子字段按当前插件状态递归执行 when', async () => {
@@ -474,7 +575,7 @@ describe('ProtocolFieldEditor', () => {
       properties: [
         { name: 'mode', type: 'select', required: false, label: '模式', when: { plugin: ['obfs'] } },
         { name: 'host', type: 'text', required: false, label: 'Host', when: { plugin: ['obfs', 'v2ray-plugin'] } },
-        { name: 'tls', type: 'bool', required: false, label: 'TLS', when: { plugin: ['v2ray-plugin'] } },
+        { name: 'tls', type: 'bool', default: false, required: false, label: 'TLS', when: { plugin: ['v2ray-plugin'] } },
       ],
     }
     const wrapper = mount(ProtocolFieldEditor, {
@@ -604,7 +705,8 @@ describe('ProtocolFieldEditor', () => {
     expect(wrapper.text()).not.toContain('参数名不能为空')
     await wrapper.find('button.ant-btn-sm.ant-btn-primary').trigger('click')
     const updates = wrapper.emitted('update:modelValue') ?? []
-    expect(updates[updates.length - 1]).toEqual([{ flag: '', special: ':;=\\' }])
+    expect(updates[updates.length - 1][0]).toEqual({ flag: '', special: ':;=\\' })
+    ;(updates[updates.length - 1][1] as { applied: () => void }).applied()
     validity = wrapper.emitted('validity-change') ?? []
     expect(validity).toContainEqual([{ path: 'plugin-opts', valid: true }])
   })
@@ -633,5 +735,72 @@ describe('ProtocolFieldEditor', () => {
     await nextTick()
     expect(events).toHaveLength(before)
     host.unmount()
+  })
+
+  it('multiline 字段按显式类型渲染多行文本并回写字符串', async () => {
+    const field: FieldSchema = { name: 'ca', type: 'multiline', required: false, label: 'CA 内容' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: '' } })
+    const textarea = wrapper.find('textarea')
+    expect(textarea.exists()).toBe(true)
+    await textarea.setValue('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----')
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1]).toEqual(['-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----'])
+  })
+
+  it('secret-multiline 字段渲染多行凭据入口并保留凭据状态语义', async () => {
+    const field: FieldSchema = { name: 'private-key', type: 'secret-multiline', required: false, label: '私钥' }
+    const wrapper = mount(ProtocolFieldEditor, {
+      props: { field, modelValue: '', savedSensitivePaths: ['private-key'] },
+    })
+    expect(wrapper.find('textarea').exists()).toBe(true)
+    expect(wrapper.text()).toContain('已保存（留空保留）')
+    await wrapper.find('textarea').setValue('-----BEGIN PRIVATE KEY-----\nMIIB\n')
+    const credentialEvents = wrapper.emitted('credential-change') ?? []
+    expect(credentialEvents[credentialEvents.length - 1]).toEqual([{ path: 'private-key', value: '-----BEGIN PRIVATE KEY-----\nMIIB\n' }])
+  })
+
+  it('text 类型不再按字段名猜测大文本', () => {
+    const field: FieldSchema = { name: 'certificate', type: 'text', required: false, label: '客户端证书' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: '' } })
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(wrapper.findAll('input')).toHaveLength(1)
+  })
+
+  it('byte-sequence 三整数输入完整后才回写规范数组', async () => {
+    const field: FieldSchema = { name: 'reserved', type: 'byte-sequence', required: false, label: '保留字节' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: undefined } })
+    const inputs = wrapper.findAll('.ant-input-number input')
+    expect(inputs).toHaveLength(3)
+    await inputs[0].setValue('1')
+    await inputs[1].setValue('2')
+    expect((wrapper.emitted('update:modelValue') ?? []).length).toBe(0)
+    expect((wrapper.emitted('draft-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'reserved', dirty: true }])
+    let validity = wrapper.emitted('validity-change') ?? []
+    expect(validity[validity.length - 1]).toEqual([{ path: 'reserved', valid: false }])
+    await inputs[2].setValue('3')
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1]).toEqual([[1, 2, 3]])
+    expect((wrapper.emitted('draft-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'reserved', dirty: false }])
+    validity = wrapper.emitted('validity-change') ?? []
+    expect(validity[validity.length - 1]).toEqual([{ path: 'reserved', valid: true }])
+    expect(wrapper.text()).not.toContain('请输入 3 个 0-255 整数')
+  })
+
+  it('byte-sequence 支持 Base64 应用并拒绝非法长度', async () => {
+    const field: FieldSchema = { name: 'reserved', type: 'byte-sequence', required: false, label: '保留字节' }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: undefined } })
+    const base64Input = wrapper.find('.protocol-byte-sequence-editor input[placeholder^="粘贴 Base64"]')
+    await base64Input.setValue('AQID')
+    expect((wrapper.emitted('draft-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'reserved', dirty: true }])
+    await wrapper.findAll('button').find((button) => button.text() === '应用 Base64')!.trigger('click')
+    const updates = wrapper.emitted('update:modelValue') ?? []
+    expect(updates[updates.length - 1]).toEqual([[1, 2, 3]])
+    expect((wrapper.emitted('draft-dirty-change') ?? []).slice(-1)[0]).toEqual([{ path: 'reserved', dirty: false }])
+
+    await base64Input.setValue('AQ')
+    await wrapper.findAll('button').find((button) => button.text() === '应用 Base64')!.trigger('click')
+    expect(wrapper.text()).toContain('Base64 解码后必须为 3 字节')
+    const afterInvalid = wrapper.emitted('update:modelValue') ?? []
+    expect(afterInvalid[afterInvalid.length - 1]).toEqual([[1, 2, 3]])
   })
 })

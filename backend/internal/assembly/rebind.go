@@ -82,7 +82,12 @@ func (s *Service) CheckXrayReferences(ctx context.Context) ([]string, error) {
 			} `json:"proxy_groups"`
 			NodeNames []string `json:"node_names"`
 		}
-		if err := json.Unmarshal([]byte(b.plan), &plan); err != nil {
+		decoded, err := DecodeRenderPlan(ctx, s.cfg, b.plan)
+		if err != nil {
+			hints = append(hints, fmt.Sprintf("蓝图 %d（版本 %d）render_plan_json 解密失败，跳过 render_plan 引用核对", b.id, b.versionID))
+			continue
+		}
+		if err := json.Unmarshal([]byte(decoded), &plan); err != nil {
 			hints = append(hints, fmt.Sprintf("蓝图 %d（版本 %d）render_plan_json 解析失败，跳过 render_plan 引用核对", b.id, b.versionID))
 			continue
 		}

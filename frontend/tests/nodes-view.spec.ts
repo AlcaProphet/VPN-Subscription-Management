@@ -1,7 +1,8 @@
 // nodes-view.spec.ts：节点管理页前端单测（Build5 Step5 item7 / N3）
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, watch } from 'vue'
+import axios from 'axios'
 
 vi.mock('@/api/node', () => ({
   NODE_CHECK_TARGETS: ['clash-yaml', 'sr-subs', 'generic-subs'],
@@ -18,6 +19,7 @@ vi.mock('@/api/node', () => ({
   toggleNode: vi.fn(),
   setNodeDisplayName: vi.fn(),
   importNodes: vi.fn(),
+  parseOpenVPN: vi.fn(),
 }))
 
 vi.mock('@/api/request', () => {
@@ -36,11 +38,14 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import NodesView from '@/views/admin/NodesView.vue'
-import { listNodes, getProtocols, createNode, updateNode, importNodes, type FieldSchema } from '@/api/node'
+import { listNodes, getProtocols, createNode, updateNode, toggleNode, importNodes, parseOpenVPN, type FieldSchema } from '@/api/node'
 import { ApiError } from '@/api/request'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 import { Notify } from '@/components/Notify'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
+import EditableCombobox from '@/components/EditableCombobox.vue'
 import NodeCheckPanel from '@/components/NodeCheckPanel.vue'
+import OpenVPNImportPanel from '@/components/OpenVPNImportPanel.vue'
 import { smuxSchema, smuxValue } from './fixtures/smux'
 
 const mockListNodes = listNodes as unknown as ReturnType<typeof vi.fn>
@@ -48,6 +53,7 @@ const mockGetProtocols = getProtocols as unknown as ReturnType<typeof vi.fn>
 const mockCreateNode = createNode as unknown as ReturnType<typeof vi.fn>
 const mockUpdateNode = updateNode as unknown as ReturnType<typeof vi.fn>
 const mockImportNodes = importNodes as unknown as ReturnType<typeof vi.fn>
+const mockParseOpenVPN = parseOpenVPN as unknown as ReturnType<typeof vi.fn>
 
 const node = {
   id: 1,
@@ -105,6 +111,17 @@ const protocols = [
   },
 ]
 
+// 旧分支生命周期用例聚焦确认后的清理语义；新增预检用例使用普通 mount 检查取消分支。
+function mountNodesView() {
+  const wrapper = mount(NodesView, { attachTo: document.body })
+  const stop = watch(() => (wrapper.vm as any).pendingTransition, (pending) => {
+    if (pending) (wrapper.vm as any).confirmTransition()
+  }, { flush: 'sync' })
+  const originalUnmount = wrapper.unmount.bind(wrapper)
+  wrapper.unmount = () => { stop(); originalUnmount() }
+  return wrapper
+}
+
 describe('NodesView 节点管理页', () => {
   beforeEach(() => {
     mockListNodes.mockReset()
@@ -117,8 +134,50 @@ describe('NodesView 节点管理页', () => {
     mockGetProtocols.mockResolvedValue(protocols)
   })
 
+  it('节点卡片与表格只对可分配且未缺失的 Xray 节点提供公共开关，并共用确认流程', async () => {
+    const xray = { ...node, id: 2, source: 'xray', name: 'xray-ok', render_name: 'xray-ok' }
+    mockListNodes.mockResolvedValue([
+      node,
+      xray,
+      { ...xray, id: 3, name: 'xray-missing', render_name: 'xray-missing', missing: true },
+      { ...xray, id: 4, name: 'xray-ineligible', render_name: 'xray-ineligible', allocatable: false },
+    ])
+    const mockToggleNode = vi.mocked(toggleNode)
+    mockToggleNode.mockResolvedValueOnce({ ...xray, source: 'xray', is_public: true })
+    const wrapper = mount(NodesView)
+    try {
+      await flushPromises()
+      const publicSwitch = 'button[role="switch"][aria-label="公共"]'
+      const cardSwitches = wrapper.findAll(`.node-list-cards ${publicSwitch}`)
+      const tableSwitches = wrapper.findAll(`.node-list-table ${publicSwitch}`)
+      expect(cardSwitches).toHaveLength(1)
+      expect(tableSwitches).toHaveLength(1)
+      expect(cardSwitches[0].attributes('aria-checked')).toBe('false')
+
+      const confirm = wrapper.findAllComponents(ConfirmModal).find(modal => modal.props('title') === '切换公共标记')!
+      await cardSwitches[0].trigger('click')
+      expect(confirm.props('open')).toBe(true)
+      expect(mockToggleNode).not.toHaveBeenCalled()
+      confirm.vm.$emit('update:open', false)
+      await nextTick()
+      expect(confirm.props('open')).toBe(false)
+      expect(cardSwitches[0].attributes('aria-checked')).toBe('false')
+
+      await cardSwitches[0].trigger('click')
+      confirm.vm.$emit('confirm')
+      await flushPromises()
+      expect(mockToggleNode).toHaveBeenCalledExactlyOnceWith(2, { is_public: true })
+      expect(confirm.props('open')).toBe(false)
+      expect(cardSwitches[0].attributes('aria-checked')).toBe('true')
+      expect(tableSwitches[0].attributes('aria-checked')).toBe('true')
+    } finally {
+      wrapper.unmount()
+      mockToggleNode.mockReset()
+    }
+  })
+
   it('新建节点内持久展示分支清空规则，不使用顶部动态消息', async () => {
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as { openCreate: () => void }
     vm.openCreate()
@@ -127,7 +186,7 @@ describe('NodesView 节点管理页', () => {
     const warning = document.body.querySelector<HTMLElement>('.node-reset-warning')
     expect(warning).not.toBeNull()
     expect(warning?.textContent).toContain('切回或重新开启不会恢复')
-    expect(warning?.textContent).toContain('仍保留名称、服务器和端口')
+    expect(warning?.textContent).toContain('地址按目标模式处理')
     expect(Notify.warning).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -142,7 +201,7 @@ describe('NodesView 节点管理页', () => {
       ],
       total: 2,
     })
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openImport()
@@ -172,7 +231,7 @@ describe('NodesView 节点管理页', () => {
 
   it('SMux 开关只出现一次并集中于更多开关，参数仍位于高级结构化区', async () => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -195,7 +254,7 @@ describe('NodesView 节点管理页', () => {
 
   it('保存时展开包含未应用 JSON 的折叠区域并定位编辑器', async () => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -223,7 +282,7 @@ describe('NodesView 节点管理页', () => {
       sensitive_fields: ['uuid'],
       link_mappings: { sr: true, generic: true },
     }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -256,7 +315,7 @@ describe('NodesView 节点管理页', () => {
       sensitive_fields: ['uuid'],
       link_mappings: { sr: true, generic: true },
     }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -284,7 +343,7 @@ describe('NodesView 节点管理页', () => {
 
   it('集中开关修改使重叠 JSON 草稿失效，不能重新应用旧值', async () => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -304,7 +363,7 @@ describe('NodesView 节点管理页', () => {
 
   it.each(['ss', 'vless', 'vmess'])('%s 嵌套开关关闭并重开不恢复旧参数，检查和保存提交相同草稿', async (protocol) => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol, form_schema: [smuxSchema] }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -327,7 +386,7 @@ describe('NodesView 节点管理页', () => {
 
   it('关闭 Brutal 清除所属扩展和未应用 JSON，重开不恢复；SMux 参数和公共扩展保留', async () => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     const original = { ...node, protocol: 'vless', protocol_json: { uuid: 'keep', smux: smuxValue() }, extensions: [
@@ -376,7 +435,7 @@ describe('NodesView 节点管理页', () => {
       sensitive_fields: ['uuid'],
       link_mappings: { sr: true, generic: true },
     }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -415,7 +474,7 @@ describe('NodesView 节点管理页', () => {
 
   it.each([true, false])('高级 JSON 清除残留参数并丢弃旧文本（原启用状态 %s）', async (enabled) => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -434,7 +493,7 @@ describe('NodesView 节点管理页', () => {
   })
 
   it('动态表单按协议渲染，敏感字段显示“留空 = 保留原凭据”', async () => {
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -480,7 +539,7 @@ describe('NodesView 节点管理页', () => {
       current_state: { security: 'none', plugin: 'shadow-tls' },
       saved_sensitive_paths: ['password', shadowPath],
     }
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openEdit(editNode)
@@ -515,7 +574,7 @@ describe('NodesView 节点管理页', () => {
         dispatchEvent: vi.fn(),
       })),
     })
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as { openCreate: () => void }
     vm.openCreate()
@@ -528,7 +587,7 @@ describe('NodesView 节点管理页', () => {
   })
 
   it('结构化对象存在格式错误时阻止保存', async () => {
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -559,7 +618,7 @@ describe('NodesView 节点管理页', () => {
       sensitive_fields: ['uuid'],
       link_mappings: { sr: true, generic: true },
     }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -590,7 +649,7 @@ describe('NodesView 节点管理页', () => {
       sensitive_fields: ['password'],
       link_mappings: { sr: true, generic: true },
     }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -610,9 +669,298 @@ describe('NodesView 节点管理页', () => {
     wrapper.unmount()
   })
 
+  it('跨协议有损切换先预检，取消保留字段与凭据，确认后按目标 policy 清空 endpoint', async () => {
+    mockGetProtocols.mockResolvedValue([
+      { ...protocols[0], endpoint_policies: [{ host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true }] },
+      { protocol: 'tailscale', label: 'Tailscale', form_schema: [], sensitive_fields: [], link_mappings: { sr: false, generic: false }, endpoint_policies: [{ host_mode: 'hidden', port_mode: 'hidden', emit_host: false, emit_port: false }] },
+    ])
+    mockListNodes.mockResolvedValue([{ ...node, protocol_json: { cipher: 'aes-128-gcm', password: '' }, saved_sensitive_paths: ['password'] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit({ ...node, protocol_json: { cipher: 'aes-128-gcm', password: '' }, saved_sensitive_paths: ['password'] })
+    vm.form.protocol_json.password = 'replacement-secret'
+    vm.updateProtocol('tailscale')
+    expect(vm.pendingTransition).not.toBeNull()
+    expect(vm.form.protocol).toBe('ss')
+    expect(vm.form.host).toBe('1.2.3.4')
+    expect(vm.form.port).toBe(8388)
+    expect(vm.pendingTransition.credentialCount).toBe(1)
+    expect(JSON.stringify(vm.pendingTransition.fields)).not.toContain('replacement-secret')
+    vm.cancelTransition()
+    expect(vm.pendingTransition).toBeNull()
+    expect(vm.form.protocol_json.cipher).toBe('aes-128-gcm')
+    expect(vm.form.protocol_json.password).toBe('replacement-secret')
+    expect(vm.resetScopesArray()).toEqual([])
+    vm.updateProtocol('tailscale')
+    vm.confirmTransition()
+    await nextTick()
+    expect(vm.form.protocol).toBe('tailscale')
+    expect(vm.form.host).toBe('')
+    expect(vm.form.port).toBe(0)
+    expect(vm.resetScopesArray()).toContain('protocol')
+    expect(vm.invalidatedSensitivePaths.has('password')).toBe(true)
+    expect(vm.checkRequest.credential_ops).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each([
+    { protocol: 'hysteria2', mode: 'ports', hostMode: 'required', portMode: 'hidden' },
+    { protocol: 'mieru', mode: 'range', hostMode: 'required', portMode: 'hidden' },
+    { protocol: 'wireguard', mode: 'peers', hostMode: 'hidden', portMode: 'hidden' },
+  ])('$protocol 目标模式预检只清 policy 隐藏的 endpoint', async ({ protocol, mode, hostMode, portMode }) => {
+    const selectorField = { name: 'endpoint-mode', type: 'select', label: '端点模式', required: false, state_only: true, selector_name: 'endpoint_mode', options: ['single', mode] } as FieldSchema
+    mockGetProtocols.mockResolvedValue([{
+      protocol, label: protocol, form_schema: [selectorField],
+      selectors: [{ name: 'endpoint_mode', values: ['single', mode], default: 'single' }],
+      endpoint_policies: [
+        { when: { selectors: { endpoint_mode: ['single'] } }, host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true },
+        { when: { selectors: { endpoint_mode: [mode] } }, host_mode: hostMode, port_mode: portMode, emit_host: hostMode !== 'hidden', emit_port: false },
+      ],
+      sensitive_fields: [], link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = protocol
+    vm.form.host = 'node.example'
+    vm.form.port = 443
+    vm.setFieldModelValue(selectorField, mode)
+    expect(vm.pendingTransition).not.toBeNull()
+    expect(vm.form.host).toBe('node.example')
+    expect(vm.form.port).toBe(443)
+    vm.confirmTransition()
+    await nextTick()
+    expect(vm.form.host).toBe(hostMode === 'hidden' ? '' : 'node.example')
+    expect(vm.form.port).toBe(0)
+    expect(vm.currentState.selectors.endpoint_mode).toBe(mode)
+    vm.setFieldModelValue(selectorField, 'single')
+    expect(vm.pendingTransition).toBeNull()
+    expect(vm.form.port).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('无已填字段和未应用草稿的切换直接生效，不弹空摘要', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'tailscale', label: 'Tailscale', form_schema: [], sensitive_fields: [], link_mappings: { sr: false, generic: false },
+      endpoint_policies: [{ host_mode: 'hidden', port_mode: 'hidden', emit_host: false, emit_port: false }],
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.host = ''
+    vm.form.port = 0
+    vm.updateProtocol('tailscale')
+    expect(vm.pendingTransition).toBeNull()
+    expect(vm.form.protocol).toBe('tailscale')
+    wrapper.unmount()
+  })
+
+  it('无普通 endpoint 的节点在移动卡片显示协议自身管理', async () => {
+    mockListNodes.mockResolvedValue([{ ...node, protocol: 'tailscale', host: '', port: 0 }])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const cards = wrapper.get('.node-list-cards')
+    expect(cards.text()).toContain('tailscale · 协议自身管理')
+    expect(cards.text()).not.toContain(':0')
+    wrapper.unmount()
+  })
+
+  it('只有未应用 JSON 草稿时仍预检，取消保留原文，确认只清命中分支', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless', label: 'VLESS',
+      form_schema: [
+        { name: 'network', type: 'select', label: '传输', required: false, group: 'connection', options: ['ws', 'tcp'] },
+        { name: 'ws-opts', type: 'object', object_kind: 'map', label: 'WebSocket 参数', required: false, group: 'connection', reset_on: ['network'], when: { network: ['ws'] } },
+        { name: 'stable', type: 'text', label: '保留字段', required: false, group: 'connection' },
+      ],
+      sensitive_fields: [], link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { network: 'ws', 'ws-opts': {}, stable: 'keep' }
+    await nextTick()
+    const editor = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'ws-opts')!
+    await editor.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await editor.find('textarea').setValue('{"draft":"unapplied"}')
+    vm.setField('network', 'tcp')
+    expect(vm.pendingTransition?.fields).toContain('WebSocket 参数')
+    expect(vm.form.protocol_json.network).toBe('ws')
+    vm.cancelTransition()
+    await nextTick()
+    expect((editor.find('textarea').element as HTMLTextAreaElement).value).toBe('{"draft":"unapplied"}')
+    vm.setField('network', 'tcp')
+    vm.confirmTransition()
+    await nextTick()
+    expect(vm.form.protocol_json).toEqual({ network: 'tcp', stable: 'keep' })
+    expect(vm.unappliedJsonPaths.size).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('自定义值和列表项只有未应用草稿时也进入预检，取消保持输入', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'vless', label: 'VLESS',
+      form_schema: [
+        { name: 'network', type: 'select', label: '传输', required: false, group: 'connection', options: ['ws', 'tcp'] },
+        { name: 'custom', type: 'select', label: '自定义选项', required: false, group: 'connection', option_items: [{ value: 'a', label: 'A' }], allow_custom: true, reset_on: ['network'], when: { network: ['ws'] } },
+        { name: 'items', type: 'text-list', label: '自定义列表', required: false, group: 'connection', reset_on: ['network'], when: { network: ['ws'] } },
+      ], sensitive_fields: [], link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol_json = { network: 'ws' }
+    await nextTick()
+    const combo = wrapper.findComponent(EditableCombobox)
+    ;(combo.vm as any).selectValue('__vpn_sub_custom_value__')
+    await nextTick()
+    await combo.find('.custom-value-editor input').setValue('draft-only')
+    const list = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'items')!
+    await list.findAll('button').find((button) => button.text() === '新增条目')!.trigger('click')
+    await list.find('.scalar-list-draft input').setValue('list-draft')
+    vm.setField('network', 'tcp')
+    expect(vm.pendingTransition?.fields).toEqual(expect.arrayContaining(['自定义选项', '自定义列表']))
+    vm.cancelTransition()
+    await nextTick()
+    expect((combo.find('.custom-value-editor input').element as HTMLInputElement).value).toBe('draft-only')
+    expect((list.find('.scalar-list-draft input').element as HTMLInputElement).value).toBe('list-draft')
+    expect(vm.form.protocol_json).toEqual({ network: 'ws' })
+    vm.setField('network', 'tcp')
+    vm.confirmTransition()
+    await nextTick()
+    expect(vm.form.protocol_json).toEqual({ network: 'tcp' })
+    expect(vm.unappliedControlPaths.size).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('从未应用自定义插件草稿选择另一插件，取消时仍保留原输入', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'ss', label: 'Shadowsocks',
+      form_schema: [
+        { name: 'plugin', type: 'select', label: '插件', required: false, group: 'connection', allow_custom: true, option_items: [{ value: 'a' }, { value: 'b' }], reset_on: ['plugin'] },
+        { name: 'plugin-opts', type: 'object', object_kind: 'map', label: '插件参数', required: false, group: 'connection', reset_on: ['plugin'] },
+      ], sensitive_fields: [], link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'ss'
+    vm.form.protocol_json = { plugin: 'a', 'plugin-opts': {} }
+    await nextTick()
+    const combo = wrapper.findComponent(EditableCombobox)
+    ;(combo.vm as any).selectValue('__vpn_sub_custom_value__')
+    await nextTick()
+    await combo.find('.custom-value-editor input').setValue('unapplied-plugin')
+    ;(combo.vm as any).selectValue('b')
+    expect(vm.pendingTransition?.fields).toContain('插件')
+    expect(vm.form.protocol_json.plugin).toBe('a')
+    vm.cancelTransition()
+    await nextTick()
+    expect((combo.find('.custom-value-editor input').element as HTMLInputElement).value).toBe('unapplied-plugin')
+    vm.setField('plugin', 'b')
+    vm.confirmTransition()
+    await nextTick()
+    expect(vm.form.protocol_json.plugin).toBe('b')
+    expect(combo.find('.custom-value-editor').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('只有选择值改变、没有附属数据或草稿时不弹清理确认', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'ss', label: 'Shadowsocks',
+      form_schema: [{ name: 'plugin', type: 'select', label: '插件', required: false, group: 'connection', options: ['a', 'b'], reset_on: ['plugin'] }],
+      sensitive_fields: [], link_mappings: { sr: true, generic: true },
+    }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'ss'
+    vm.form.protocol_json = { plugin: 'a' }
+    vm.setField('plugin', 'b')
+    expect(vm.pendingTransition).toBeNull()
+    expect(vm.form.protocol_json.plugin).toBe('b')
+    wrapper.unmount()
+  })
+
+  it('关闭空子配置开关只改变开关值，不弹清理确认', async () => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'vless'
+    vm.form.protocol_json = { smux: { enabled: true } }
+    vm.setSwitchField('smux.enabled', false)
+    expect(vm.pendingTransition).toBeNull()
+    expect(vm.form.protocol_json.smux).toEqual({ enabled: false })
+    wrapper.unmount()
+  })
+
+  it('递归编辑器关闭有内容的子配置时预检实际删除的子字段', async () => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'vless'
+    vm.form.protocol_json = { smux: smuxValue() }
+    vm.setField('smux', { ...smuxValue(), enabled: false })
+    expect(vm.pendingTransition?.fields.length).toBeGreaterThan(0)
+    expect(vm.form.protocol_json.smux).toEqual(smuxValue())
+    vm.cancelTransition()
+    expect(vm.form.protocol_json.smux).toEqual(smuxValue())
+    vm.setField('smux', { ...smuxValue(), enabled: false })
+    vm.confirmTransition()
+    expect(vm.form.protocol_json.smux).toEqual({ enabled: false })
+    wrapper.unmount()
+  })
+
+  it('.ovpn 应用被预检取消时保留原文和解析结果，确认后才清空', async () => {
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'openvpn', label: 'OpenVPN',
+      form_schema: [{ name: 'ca', type: 'multiline', label: 'CA 证书', required: false, group: 'connection' }],
+      sensitive_fields: [], link_mappings: { sr: false, generic: false },
+    }])
+    mockParseOpenVPN.mockResolvedValue({ host: 'new.example', port: 1194, protocol_json: { ca: 'new-ca' }, selectors: {}, diagnostics: [] })
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'openvpn'
+    vm.form.host = 'old.example'
+    vm.form.protocol_json = { ca: 'old-ca' }
+    vm.openvpnImportOpen = true
+    await nextTick()
+    const panel = wrapper.findComponent(OpenVPNImportPanel)
+    await panel.find('textarea').setValue('client\nremote new.example 1194\n')
+    await panel.findAll('button').find((button) => button.text().replace(/\s+/g, '') === '解析')!.trigger('click')
+    await flushPromises()
+    await panel.findAll('button').find((button) => button.text().replace(/\s+/g, '') === '应用解析结果')!.trigger('click')
+    expect(vm.pendingTransition?.fields).toEqual(expect.arrayContaining(['CA 证书', '服务器']))
+    expect(vm.form.host).toBe('old.example')
+    vm.cancelTransition()
+    await nextTick()
+    expect((panel.find('textarea').element as HTMLTextAreaElement).value).toContain('remote new.example')
+    expect(panel.text()).toContain('已解析结构')
+    vm.applyParsedOpenVPN({ host: 'new.example', port: 1194, protocol_json: { ca: 'new-ca' }, selectors: {} })
+    vm.confirmTransition()
+    await nextTick()
+    expect(vm.form.host).toBe('new.example')
+    expect(vm.form.protocol_json.ca).toBe('new-ca')
+    expect((panel.find('textarea').element as HTMLTextAreaElement).value).toBe('')
+    wrapper.unmount()
+  })
+
   it('保存 payload 包含 current_state、reset_scopes 与 base_revision', async () => {
     mockCreateNode.mockResolvedValue(node)
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -634,7 +982,7 @@ describe('NodesView 节点管理页', () => {
 
   it('409 时保留当前草稿并提示重新加载', async () => {
     mockUpdateNode.mockRejectedValue(new ApiError(409, '节点已被其他编辑更新，请重新加载后重试'))
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openEdit: (target: any) => void
@@ -676,7 +1024,7 @@ describe('NodesView 节点管理页', () => {
       sensitive_fields: ['uuid'],
       link_mappings: { sr: true, generic: true },
     }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openEdit(editNode)
@@ -697,7 +1045,7 @@ describe('NodesView 节点管理页', () => {
 
   it.each(['http', 'socks5', 'ss'])('编辑 %s 保留其自身有效 TLS 参数', async (protocol) => {
     mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     const params = protocol === 'ss' ? { plugin: 'v2ray-plugin', 'v2ray-plugin-opts': { tls: true } } : { tls: true }
@@ -707,7 +1055,7 @@ describe('NodesView 节点管理页', () => {
   })
 
   it('存在未应用 JSON 草稿时阻止保存', async () => {
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -729,7 +1077,7 @@ describe('NodesView 节点管理页', () => {
   })
 
   it('存在未应用自定义值或列表项草稿时阻止保存和目标检查', async () => {
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -747,7 +1095,7 @@ describe('NodesView 节点管理页', () => {
 
   it('新增未知扩展随保存提交 extensions', async () => {
     mockCreateNode.mockResolvedValue(node)
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -776,7 +1124,7 @@ describe('NodesView 节点管理页', () => {
 
   it('未知扩展 targets 接受空数组并明确不进入输出产物', async () => {
     mockCreateNode.mockResolvedValue(node)
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -815,7 +1163,7 @@ describe('NodesView 节点管理页', () => {
   })
 
   it('未知扩展非法 targets 被前端阻断且不进入保存草稿', async () => {
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -840,7 +1188,7 @@ describe('NodesView 节点管理页', () => {
       extensions: [{ id: 'ext-1', scope: 'node', targets: ['clash-yaml'], label: '旧扩展', configured: true }],
     }
     mockUpdateNode.mockResolvedValue(editNode)
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openEdit: (target: any) => void
@@ -879,13 +1227,13 @@ describe('NodesView 节点管理页', () => {
         {
           name: 'v2ray-plugin-opts', type: 'object', required: false, label: 'v2ray-plugin 参数', group: 'connection',
           object_kind: 'fields', allow_unknown: false, when: { plugin: ['v2ray-plugin'] },
-          properties: [{ name: 'tls', type: 'bool', required: false, label: 'TLS' }],
+          properties: [{ name: 'tls', type: 'bool', required: false, default: false, label: 'TLS' }],
         },
       ],
       sensitive_fields: ['password'],
       link_mappings: { sr: true, generic: true },
     }])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as unknown as {
       openCreate: () => void
@@ -904,7 +1252,7 @@ describe('NodesView 节点管理页', () => {
   })
 
   it('未知插件入口完全由真实 schema 补集驱动，所有插件切换均清空且不恢复参数', async () => {
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -952,7 +1300,7 @@ describe('NodesView 节点管理页', () => {
       saved_sensitive_paths: ['password'],
     }
     mockCreateNode.mockResolvedValue(saved)
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -997,7 +1345,7 @@ describe('NodesView 节点管理页', () => {
   })
 
   it('未知插件参数名错误阻止保存并定位字段，删除错误行后恢复', async () => {
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openCreate()
@@ -1017,7 +1365,7 @@ describe('NodesView 节点管理页', () => {
     expect(mockCreateNode).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
-  it('WireGuard peers 高级 JSON 应用后保留内部身份且保存不再被阻断', async () => {
+  it('WireGuard peers 结构化重排保持 selector、稳定身份与保存检查顺序', async () => {
     const firstID = '11111111-1111-4111-8111-111111111111'
     const secondID = '22222222-2222-4222-8222-222222222222'
     mockGetProtocols.mockResolvedValue([{
@@ -1035,6 +1383,7 @@ describe('NodesView 节点管理页', () => {
           ],
         },
       ],
+      selectors: [{ name: 'peer_mode', values: ['single', 'peers'], default: 'single' }],
       sensitive_fields: ['private-key', 'peers[].pre-shared-key'],
       link_mappings: { sr: true, generic: true },
     }])
@@ -1049,32 +1398,1720 @@ describe('NodesView 节点管理页', () => {
           { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
         ],
       },
-      current_state: { security: 'none' },
+      current_state: { security: 'none', selectors: { peer_mode: 'peers' } },
       saved_sensitive_paths: [`peers[${firstID}].pre-shared-key`, `peers[${secondID}].pre-shared-key`],
     }
     mockListNodes.mockResolvedValue([wireguardNode])
-    const wrapper = mount(NodesView, { attachTo: document.body })
+    const wrapper = mountNodesView()
     await flushPromises()
     const vm = wrapper.vm as any
     vm.openEdit(wireguardNode)
     await nextTick()
     const peers = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'peers')!
-    await peers.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
     const reordered = [
       { _credential_id: secondID, server: 'peer-b', 'pre-shared-key': '' },
       { _credential_id: firstID, server: 'peer-a', 'pre-shared-key': '' },
     ]
-    await peers.find('textarea').setValue(JSON.stringify(reordered))
-    await peers.findAll('button').find((button) => button.text().replace(/\s/g, '') === '应用')!.trigger('click')
+    await peers.get('button[aria-label="上移第 2 个 Peer"]').trigger('click')
     expect(vm.invalidProtocolPaths.size).toBe(0)
     expect(vm.unappliedJsonPaths.size).toBe(0)
     expect(vm.form.protocol_json.peers).toEqual(reordered)
+    expect(vm.currentState.selectors).toEqual({ peer_mode: 'peers' })
+    expect(vm.resetScopesArray()).toEqual([])
+    expect(vm.checkRequest.protocol_json.peers).toEqual(reordered)
+    expect(vm.checkRequest.credential_ops).toBeUndefined()
 
     mockUpdateNode.mockResolvedValue({ ...wireguardNode, edit_revision: 4 })
     await vm.save()
     expect(mockUpdateNode).toHaveBeenCalledTimes(1)
     expect(mockUpdateNode.mock.calls[0][1].protocol_json.peers).toEqual(reordered)
+    expect(mockUpdateNode.mock.calls[0][1].current_state.selectors).toEqual({ peer_mode: 'peers' })
+    expect(mockUpdateNode.mock.calls[0][1].reset_scopes).toEqual([])
+    expect(mockUpdateNode.mock.calls[0][1].credential_ops).toBeUndefined()
     wrapper.unmount()
   })
 
+  const httpProtocol = {
+    protocol: 'http',
+    label: 'HTTP',
+    form_schema: [
+      { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['none', 'basic'], default: 'none' },
+      { name: 'username', type: 'text', required: false, label: '用户名', group: 'auth', when: { selectors: { auth_mode: ['basic'] } }, required_when: { selectors: { auth_mode: ['basic'] } }, reset_on: ['selector.auth_mode'] },
+      { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['basic'] } }, required_when: { selectors: { auth_mode: ['basic'] } }, reset_on: ['selector.auth_mode'] },
+      { name: 'tls', type: 'bool', default: false, label: 'TLS', section: 'switches', feature: { name: 'tls' }, reset_on: ['feature.tls'] },
+      { name: 'sni', type: 'text', required: false, label: 'SNI', group: 'connection', when: { features: ['tls'] }, reset_on: ['feature.tls'] },
+      { name: 'headers', type: 'object', required: false, label: '请求头', group: 'advanced', object_kind: 'map', map_value_type: 'string', allow_unknown: true },
+    ],
+    selectors: [{ name: 'auth_mode', values: ['none', 'basic'], default: 'none' }],
+    sensitive_fields: ['password'],
+    link_mappings: { sr: true, generic: true },
+  }
+
+  it('HTTP state_only selector 写入 current_state.selectors 并随切换清空凭据', async () => {
+    mockGetProtocols.mockResolvedValue([httpProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'http'
+    await nextTick()
+
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'none' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'username')).toBe(false)
+    expect(vm.form.protocol_json['auth-mode']).toBeUndefined()
+
+    const modeField = httpProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'basic')
+    await nextTick()
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'basic' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'username')).toBe(true)
+    expect(vm.form.protocol_json['auth-mode']).toBeUndefined()
+
+    vm.setField('username', 'u')
+    vm.setField('password', 'p')
+    await nextTick()
+    vm.setFieldModelValue(modeField, 'none')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBeUndefined()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'none' })
+
+    vm.form.name = 'http-node'
+    mockCreateNode.mockResolvedValue({})
+    await vm.save()
+    expect(mockCreateNode.mock.calls[0][0].current_state.selectors).toEqual({ auth_mode: 'none' })
+    wrapper.unmount()
+  })
+
+  it('编辑 HTTP 节点时从 current_state.selectors 回填 state_only 选择', async () => {
+    mockGetProtocols.mockResolvedValue([httpProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit({
+      ...node,
+      protocol: 'http',
+      port: 8080,
+      protocol_json: { username: 'u', password: '', tls: true, sni: 's.example.com' },
+      current_state: { security: 'tls', features: ['tls'], selectors: { auth_mode: 'basic' } },
+    })
+    await nextTick()
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'basic' })
+    const mode = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'auth-mode')
+    expect(mode?.props('modelValue')).toBe('basic')
+    wrapper.unmount()
+  })
+
+  it('SOCKS5 复用认证/TLS 条件字段且 UDP 独立于认证切换', async () => {
+    const socks5Protocol = {
+      ...httpProtocol,
+      protocol: 'socks5',
+      label: 'SOCKS5',
+      form_schema: [
+        ...httpProtocol.form_schema.filter((field) => field.name !== 'sni' && field.name !== 'headers'),
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+      ],
+    }
+    mockGetProtocols.mockResolvedValue([socks5Protocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'socks5'
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'sni')).toBe(false)
+
+    const modeField = socks5Protocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'basic')
+    await nextTick()
+    vm.setField('username', 'u')
+    vm.setField('password', 'p')
+    vm.setField('udp', false)
+    await nextTick()
+    vm.setFieldModelValue(modeField, 'none')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBeUndefined()
+    expect(vm.form.protocol_json.udp).toBe(false)
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    wrapper.unmount()
+  })
+
+  it('SSH 认证分支切换清空另一组凭据并保留结构化 Host Key 列表', async () => {
+    const sshProtocol = {
+      protocol: 'ssh',
+      label: 'SSH',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['password', 'private_key'], default: 'password' },
+        { name: 'username', type: 'text', required: true, label: '用户名', group: 'auth' },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['password'] } }, required_when: { selectors: { auth_mode: ['password'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'private-key', type: 'secret-multiline', required: false, label: '私钥', group: 'auth', when: { selectors: { auth_mode: ['private_key'] } }, required_when: { selectors: { auth_mode: ['private_key'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'private-key-passphrase', type: 'password', required: false, label: '私钥口令', group: 'auth', when: { selectors: { auth_mode: ['private_key'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'host-key', type: 'text-list', required: false, label: 'Host Key', group: 'connection' },
+        { name: 'host-key-algorithms', type: 'text-list', required: false, label: 'Host Key 算法', group: 'connection' },
+      ],
+      selectors: [{ name: 'auth_mode', values: ['password', 'private_key'], default: 'password' }],
+      sensitive_fields: ['password', 'private-key', 'private-key-passphrase'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([sshProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'ssh'
+    await nextTick()
+
+    // 默认 password 分支只显示密码，不显示私钥。
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'password' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'password')).toBe(true)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'private-key')).toBe(false)
+
+    vm.setField('username', 'u')
+    vm.setField('password', 'pw')
+    await nextTick()
+
+    // A→B：切到 private_key 清空密码并显示私钥字段。
+    const modeField = sshProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'private_key')
+    await nextTick()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'private-key')).toBe(true)
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    expect(vm.form.protocol_json['auth-mode']).toBeUndefined()
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'private_key' })
+
+    // Host Key 以结构化列表提交，不进入 state_only。
+    vm.setField('host-key', ['ssh-ed25519 AAAA test'])
+    vm.setField('host-key-algorithms', ['ssh-ed25519'])
+    await nextTick()
+    expect(vm.form.protocol_json['host-key']).toEqual(['ssh-ed25519 AAAA test'])
+
+    // 编辑已保存节点时从 current_state.selectors 回填私钥分支。
+    vm.openEdit({
+      ...node,
+      protocol: 'ssh',
+      port: 22,
+      protocol_json: { username: 'u', 'private-key': '', 'host-key': ['ssh-ed25519 AAAA test'] },
+      current_state: { selectors: { auth_mode: 'private_key' } },
+    })
+    await nextTick()
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'private_key' })
+    const mode = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'auth-mode')
+    expect(mode?.props('modelValue')).toBe('private_key')
+    wrapper.unmount()
+  })
+
+  it('TrustTunnel 复用分支互斥且 quic 关闭清空 QUIC 调优字段', async () => {
+    const trusttunnelProtocol = {
+      protocol: 'trusttunnel',
+      label: 'TrustTunnel',
+      form_schema: [
+        { name: 'reuse-mode', type: 'select', required: false, label: '连接复用', group: 'connection', state_only: true, selector_name: 'reuse_mode', options: ['none', 'connections', 'streams'], default: 'none' },
+        { name: 'username', type: 'text', required: false, label: '用户名', group: 'auth' },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth' },
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+        { name: 'health-check', type: 'bool', default: false, label: '健康检查', section: 'switches' },
+        { name: 'quic', type: 'bool', default: false, label: 'QUIC (HTTP/3)', group: 'connection', feature: { name: 'quic' } },
+        { name: 'congestion-controller', type: 'select', required: false, label: '拥塞控制器', group: 'advanced', options: ['', 'cubic', 'new_reno', 'bbr_meta_v1', 'bbr_meta_v2', 'bbr'], when: { features: ['quic'] }, reset_on: ['feature.quic'] },
+        { name: 'cwnd', type: 'number', required: false, label: '拥塞窗口', group: 'advanced', when: { features: ['quic'] }, reset_on: ['feature.quic'] },
+        { name: 'bbr-profile', type: 'text', required: false, label: 'BBR Profile', group: 'advanced', when: { features: ['quic'] }, reset_on: ['feature.quic'] },
+        { name: 'max-connections', type: 'number', required: false, label: '最大连接数', group: 'connection', when: { selectors: { reuse_mode: ['connections'] } }, required_when: { selectors: { reuse_mode: ['connections'] } }, reset_on: ['selector.reuse_mode'] },
+        { name: 'min-streams', type: 'number', required: false, label: '最小流数', group: 'connection', when: { selectors: { reuse_mode: ['connections'] } }, reset_on: ['selector.reuse_mode'] },
+        { name: 'max-streams', type: 'number', required: false, label: '最大流数', group: 'connection', when: { selectors: { reuse_mode: ['streams'] } }, required_when: { selectors: { reuse_mode: ['streams'] } }, reset_on: ['selector.reuse_mode'] },
+      ],
+      selectors: [{ name: 'reuse_mode', values: ['none', 'connections', 'streams'], default: 'none' }],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([trusttunnelProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'trusttunnel'
+    await nextTick()
+
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    // none 分支不显示任何复用数字，selector 本身不进入 protocol_json。
+    expect(vm.currentState.selectors).toEqual({ reuse_mode: 'none' })
+    expect(fieldNames()).not.toContain('max-connections')
+    expect(fieldNames()).not.toContain('max-streams')
+
+    // A：connections 分支只显示 max-connections／min-streams。
+    const modeField = trusttunnelProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'connections')
+    vm.setField('max-connections', 8)
+    vm.setField('min-streams', 5)
+    await nextTick()
+    expect(fieldNames()).toContain('max-connections')
+    expect(fieldNames()).toContain('min-streams')
+    expect(fieldNames()).not.toContain('max-streams')
+
+    // A→B：切到 streams 清空旧复用数字，切回也不恢复。
+    vm.setFieldModelValue(modeField, 'streams')
+    await nextTick()
+    expect(vm.form.protocol_json['max-connections']).toBeUndefined()
+    expect(vm.form.protocol_json['min-streams']).toBeUndefined()
+    expect(fieldNames()).toContain('max-streams')
+    expect(vm.resetScopesArray()).toContain('selector.reuse_mode')
+    expect(vm.form.protocol_json['reuse-mode']).toBeUndefined()
+    expect(vm.currentState.selectors).toEqual({ reuse_mode: 'streams' })
+
+    // quic 开启后可编辑调优字段，关闭必须清空。
+    vm.setField('quic', true)
+    vm.setField('cwnd', 64)
+    vm.setField('congestion-controller', 'bbr')
+    await nextTick()
+    expect(fieldNames()).toContain('cwnd')
+    vm.setField('quic', false)
+    await nextTick()
+    expect(vm.form.protocol_json.cwnd).toBeUndefined()
+    expect(vm.form.protocol_json['congestion-controller']).toBeUndefined()
+    expect(fieldNames()).not.toContain('cwnd')
+    wrapper.unmount()
+  })
+
+  it('OpenVPN 认证分支只清空不再活动的凭据并保留仍活动的共享凭据', async () => {
+    const openvpnProtocol = {
+      protocol: 'openvpn',
+      label: 'OpenVPN',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['userpass', 'cert', 'cert_userpass'], default: 'userpass' },
+        { name: 'tls-key-mode', type: 'select', required: false, label: 'TLS Key 模式', group: 'auth', state_only: true, selector_name: 'tls_key_mode', options: ['none', 'tls_auth', 'tls_crypt', 'tls_crypt_v2'], default: 'none' },
+        { name: 'ca', type: 'multiline', required: true, label: 'CA 证书', section: 'security' },
+        { name: 'username', type: 'text', required: false, label: '用户名', group: 'auth', when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, required_when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, required_when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'cert', type: 'multiline', required: false, label: '客户端证书', group: 'auth', when: { selectors: { auth_mode: ['cert', 'cert_userpass'] } }, required_when: { selectors: { auth_mode: ['cert', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'key', type: 'secret-multiline', required: false, label: '客户端私钥', group: 'auth', when: { selectors: { auth_mode: ['cert', 'cert_userpass'] } }, required_when: { selectors: { auth_mode: ['cert', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'tls-auth', type: 'secret-multiline', required: false, label: 'TLS Auth Key', group: 'auth', when: { selectors: { tls_key_mode: ['tls_auth'] } }, required_when: { selectors: { tls_key_mode: ['tls_auth'] } }, reset_on: ['selector.tls_key_mode'] },
+        { name: 'key-direction', type: 'select', required: false, label: 'Key Direction', group: 'auth', options: ['', '0', '1'], when: { selectors: { tls_key_mode: ['tls_auth'] } }, clear_when_inactive: true },
+      ],
+      selectors: [
+        { name: 'auth_mode', values: ['userpass', 'cert', 'cert_userpass'], default: 'userpass' },
+        { name: 'tls_key_mode', values: ['none', 'tls_auth', 'tls_crypt', 'tls_crypt_v2'], default: 'none' },
+      ],
+      sensitive_fields: ['password', 'key', 'tls-auth'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([openvpnProtocol])
+    mockUpdateNode.mockResolvedValue({})
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit({
+      ...node,
+      protocol: 'openvpn',
+      host: 'vpn.example.com',
+      port: 1194,
+      protocol_json: { ca: 'ca-pem', cert: 'cert-pem', key: '', username: 'u', password: '' },
+      current_state: { selectors: { auth_mode: 'cert_userpass', tls_key_mode: 'none' } },
+      saved_sensitive_paths: ['key', 'password'],
+    })
+    await nextTick()
+    const authField = openvpnProtocol.form_schema[0] as FieldSchema
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'cert_userpass', tls_key_mode: 'none' })
+
+    // cert_userpass → cert：只清空 username／password，证书与私钥必须保留。
+    vm.setFieldModelValue(authField, 'cert')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBeUndefined()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+    expect(vm.form.protocol_json.cert).toBe('cert-pem')
+    expect(vm.form.protocol_json.key).toBe('')
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    await vm.save()
+    const payload = mockUpdateNode.mock.calls[0][1] as { credential_ops?: { path: string; op: string }[] }
+    const clearedPaths = (payload.credential_ops ?? []).map((op) => op.path)
+    expect(clearedPaths).toContain('password')
+    expect(clearedPaths).not.toContain('key')
+
+    // A→B→A：切回 cert_userpass 不得恢复已清空的 username／password。
+    vm.setFieldModelValue(authField, 'cert_userpass')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBeUndefined()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+
+    // userpass→cert_userpass 不得清空仍活动的 username／password。
+    vm.setFieldModelValue(authField, 'userpass')
+    await nextTick()
+    vm.setField('username', 'kept-user')
+    vm.setField('password', 'kept-pass')
+    await nextTick()
+    vm.setFieldModelValue(authField, 'cert_userpass')
+    await nextTick()
+    expect(vm.form.protocol_json.username).toBe('kept-user')
+    expect(vm.form.protocol_json.password).toBe('kept-pass')
+    wrapper.unmount()
+  })
+
+  it('OpenVPN 粘贴解析应用只覆盖产出字段并纳入页面级阻断', async () => {
+    const openvpnProtocol = {
+      protocol: 'openvpn',
+      label: 'OpenVPN',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['userpass', 'cert', 'cert_userpass'], default: 'userpass' },
+        { name: 'ca', type: 'multiline', required: true, label: 'CA 证书', section: 'security' },
+        { name: 'proto', type: 'select', required: false, label: '传输协议', group: 'connection', options: ['udp', 'tcp'], default: 'udp' },
+        { name: 'username', type: 'text', required: false, label: '用户名', group: 'auth', when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, clear_when_inactive: true },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['userpass', 'cert_userpass'] } }, clear_when_inactive: true },
+      ],
+      selectors: [{ name: 'auth_mode', values: ['userpass', 'cert', 'cert_userpass'], default: 'userpass' }],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([openvpnProtocol])
+    mockParseOpenVPN.mockResolvedValue({
+      host: 'vpn.example.com',
+      port: 1194,
+      protocol_json: { ca: 'parsed-ca', proto: 'tcp' },
+      selectors: { auth_mode: 'userpass' },
+      field_sources: { remote: 3, ca: 8, proto: 4 },
+      diagnostics: [],
+    })
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'openvpn'
+    await nextTick()
+    // 预先存在的草稿字段必须在应用解析结果后保留。
+    vm.setField('username', 'kept-user')
+    await nextTick()
+    vm.openvpnImportOpen = true
+    await nextTick()
+
+    const panel = wrapper.findComponent(OpenVPNImportPanel)
+    expect(panel.exists()).toBe(true)
+    const panelButton = (label: string) => panel.findAll('button').find((button) => button.text().replace(/\s+/g, '') === label)
+
+    // 未应用的原文必须纳入页面级阻断，保存不得发出请求。
+    await panel.find('textarea').setValue('client\nremote vpn.example.com 1194\n')
+    await nextTick()
+    expect(vm.checkBlockedReason).toContain('未应用')
+    await vm.save()
+    expect(mockCreateNode).not.toHaveBeenCalled()
+
+    // 解析后显式应用。
+    await panelButton('解析')!.trigger('click')
+    await flushPromises()
+    await panelButton('应用解析结果')!.trigger('click')
+    await flushPromises()
+
+    expect(vm.form.host).toBe('vpn.example.com')
+    expect(vm.form.port).toBe(1194)
+    expect(vm.form.protocol_json.ca).toBe('parsed-ca')
+    expect(vm.form.protocol_json.proto).toBe('tcp')
+    // 解析未产出的既有草稿字段不得被空响应静默删除。
+    expect(vm.form.protocol_json.username).toBe('kept-user')
+    expect(vm.checkBlockedReason).toBe('')
+    expect((panel.find('textarea').element as HTMLTextAreaElement).value).toBe('')
+
+    // 切换协议必须丢弃未应用原文并关闭面板。
+    await panel.find('textarea').setValue('client\nremote vpn.example.com 1194\n')
+    await nextTick()
+    expect(vm.checkBlockedReason).toContain('未应用')
+    vm.updateProtocol('ss')
+    await nextTick()
+    expect(vm.openvpnImportOpen).toBe(false)
+    expect(wrapper.findComponent(OpenVPNImportPanel).exists()).toBe(false)
+    expect(vm.checkBlockedReason).toBe('')
+    wrapper.unmount()
+  })
+
+  it('Snell 版本与混淆模式切换按 reset 清空旧分支字段', async () => {
+    const snellProtocol = {
+      protocol: 'snell',
+      label: 'Snell',
+      form_schema: [
+        { name: 'psk', type: 'password', required: true, label: 'PSK', group: 'auth' },
+        { name: 'version', type: 'select', required: false, label: '版本', group: 'connection', selector_name: 'version', options: ['1', '2', '3', '4', '5'], default: '1' },
+        { name: 'udp', type: 'bool', default: false, label: 'UDP', section: 'switches', when: { selectors: { version: ['3', '4', '5'] } }, reset_on: ['selector.version'] },
+        { name: 'reuse', type: 'bool', default: false, label: '连接复用', group: 'connection', when: { selectors: { version: ['4', '5'] } }, reset_on: ['selector.version'] },
+        { name: 'obfs-mode', type: 'select', required: false, label: '混淆模式', group: 'connection', state_only: true, selector_name: 'obfs_mode', options: ['none', 'http', 'tls', 'shadow_tls', 'restls', 'jls'], default: 'none' },
+        {
+          name: 'obfs-opts', type: 'object', required: false, label: '混淆参数', group: 'connection', object_kind: 'fields', allow_unknown: false,
+          when: { selectors: { obfs_mode: ['http', 'tls', 'shadow_tls', 'restls', 'jls'] } }, reset_on: ['selector.obfs_mode'],
+          properties: [
+            { name: 'host', type: 'text', required: false, label: 'Host', group: 'connection', when: { selectors: { obfs_mode: ['http', 'tls', 'shadow_tls', 'restls', 'jls'] } }, reset_on: ['selector.obfs_mode'] },
+            { name: 'password', type: 'password', required: false, label: '密码', group: 'connection', when: { selectors: { obfs_mode: ['shadow_tls', 'restls', 'jls'] } }, required_when: { selectors: { obfs_mode: ['shadow_tls', 'restls', 'jls'] } }, reset_on: ['selector.obfs_mode'] },
+            { name: 'version-hint', type: 'text', required: false, label: '版本提示', group: 'connection', when: { selectors: { obfs_mode: ['restls'] } }, reset_on: ['selector.obfs_mode'] },
+            { name: 'username', type: 'text', required: false, label: '用户名', group: 'connection', when: { selectors: { obfs_mode: ['jls'] } }, reset_on: ['selector.obfs_mode'] },
+          ],
+        },
+        { name: 'client-fingerprint', type: 'text', required: false, label: '客户端指纹', group: 'connection', when: { selectors: { obfs_mode: ['shadow_tls', 'restls', 'jls'] } }, reset_on: ['selector.obfs_mode'] },
+      ],
+      selectors: [
+        { name: 'version', values: ['1', '2', '3', '4', '5'], default: '1', source_field: 'version' },
+        { name: 'obfs_mode', values: ['none', 'http', 'tls', 'shadow_tls', 'restls', 'jls'], default: 'none' },
+      ],
+      sensitive_fields: ['psk', 'obfs-opts.password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([snellProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'snell'
+    await nextTick()
+
+    // 默认 v1：UDP／reuse 不活动。
+    expect(vm.currentState.selectors).toEqual({ version: '1', obfs_mode: 'none' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'udp')).toBe(false)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'reuse')).toBe(false)
+
+    // 切到 v4：UDP／reuse 出现并可编辑。
+    vm.setField('version', '4')
+    await nextTick()
+    expect(vm.currentState.selectors).toEqual({ version: '4', obfs_mode: 'none' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'reuse')).toBe(true)
+
+    // 切到 shadow_tls：obfs-opts 出现，切回 none 后整体清空。
+    const modeField = snellProtocol.form_schema[4] as FieldSchema
+    vm.setFieldModelValue(modeField, 'shadow_tls')
+    await nextTick()
+    vm.setField('obfs-opts', { host: 'bing.com', password: 'p' })
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'obfs-opts')).toBe(true)
+    vm.setFieldModelValue(modeField, 'none')
+    await nextTick()
+    expect(vm.form.protocol_json['obfs-opts']).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('selector.obfs_mode')
+    expect(vm.form.protocol_json['obfs-mode']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('Hysteria 认证分支互斥并在切换时清空另一组凭据', async () => {
+    const hysteriaProtocol = {
+      protocol: 'hysteria',
+      label: 'Hysteria',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['none', 'base64', 'string'], default: 'none' },
+        { name: 'auth', type: 'password', required: false, label: 'Base64 认证', group: 'auth', when: { selectors: { auth_mode: ['base64'] } }, required_when: { selectors: { auth_mode: ['base64'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'auth-str', type: 'password', required: false, label: '认证字符串', group: 'auth', when: { selectors: { auth_mode: ['string'] } }, required_when: { selectors: { auth_mode: ['string'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'up', type: 'text', required: true, label: '上行带宽', group: 'connection' },
+        { name: 'down', type: 'text', required: true, label: '下行带宽', group: 'connection' },
+        { name: 'protocol', type: 'select', required: false, label: '传输协议', group: 'connection', options: ['udp', 'wechat-video', 'faketcp'], default: 'udp' },
+      ],
+      selectors: [{ name: 'auth_mode', values: ['none', 'base64', 'string'], default: 'none' }],
+      sensitive_fields: ['auth', 'auth-str'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([hysteriaProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'hysteria'
+    await nextTick()
+
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'none' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'auth')).toBe(false)
+
+    const modeField = hysteriaProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'base64')
+    await nextTick()
+    vm.setField('auth', 'dGVzdC1hdXRo')
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'auth')).toBe(true)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'auth-str')).toBe(false)
+
+    vm.setFieldModelValue(modeField, 'string')
+    await nextTick()
+    expect(vm.form.protocol_json.auth).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+    expect(vm.form.protocol_json['auth-mode']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('Hysteria2 端口模式隐藏顶层端口并按分支清空端口组与混淆字段', async () => {
+    const hysteria2Protocol = {
+      protocol: 'hysteria2',
+      label: 'Hysteria2',
+      form_schema: [
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        { name: 'endpoint-mode', type: 'select', required: false, label: '端口模式', group: 'connection', state_only: true, selector_name: 'endpoint_mode', options: ['single', 'ports'], default: 'single' },
+        { name: 'obfs-mode', type: 'select', required: false, label: '混淆模式', group: 'connection', state_only: true, selector_name: 'obfs_mode', options: ['none', 'salamander', 'gecko'], default: 'none' },
+        { name: 'ports', type: 'text', required: false, label: '端口组', group: 'connection', when: { selectors: { endpoint_mode: ['ports'] } }, required_when: { selectors: { endpoint_mode: ['ports'] } }, reset_on: ['selector.endpoint_mode'] },
+        { name: 'hop-interval', type: 'text', required: false, label: 'Hop 间隔', group: 'connection', when: { selectors: { endpoint_mode: ['ports'] } }, reset_on: ['selector.endpoint_mode'] },
+        { name: 'obfs-password', type: 'password', required: false, label: '混淆密码', group: 'connection', when: { selectors: { obfs_mode: ['salamander', 'gecko'] } }, required_when: { selectors: { obfs_mode: ['salamander', 'gecko'] } }, reset_on: ['selector.obfs_mode'] },
+      ],
+      selectors: [
+        { name: 'endpoint_mode', values: ['single', 'ports'], default: 'single' },
+        { name: 'obfs_mode', values: ['none', 'salamander', 'gecko'], default: 'none' },
+      ],
+      endpoint_policies: [
+        { when: { selectors: { endpoint_mode: ['single'] } }, host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true },
+        { when: { selectors: { endpoint_mode: ['ports'] } }, host_mode: 'required', port_mode: 'hidden', emit_host: true, emit_port: false },
+      ],
+      sensitive_fields: ['password', 'obfs-password'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([hysteria2Protocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'hysteria2'
+    await nextTick()
+
+    // single 模式：显示端口，不显示端口组。
+    expect(vm.currentState.selectors).toEqual({ endpoint_mode: 'single', obfs_mode: 'none' })
+    expect(vm.showPortField).toBe(true)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'ports')).toBe(false)
+
+    // 切到 ports：隐藏顶层端口，端口组出现。
+    const endpointField = hysteria2Protocol.form_schema[1] as FieldSchema
+    vm.setFieldModelValue(endpointField, 'ports')
+    await nextTick()
+    expect(vm.showPortField).toBe(false)
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'ports')).toBe(true)
+    vm.setField('ports', '1000-2000')
+    await nextTick()
+
+    // 切回 single：端口组被清空，顶层端口恢复。
+    vm.setFieldModelValue(endpointField, 'single')
+    await nextTick()
+    expect(vm.form.protocol_json.ports).toBeUndefined()
+    expect(vm.showPortField).toBe(true)
+    expect(vm.resetScopesArray()).toContain('selector.endpoint_mode')
+
+    // 混淆分支：salamander 出现密码字段，切回 none 清空。
+    const obfsField = hysteria2Protocol.form_schema[2] as FieldSchema
+    vm.setFieldModelValue(obfsField, 'salamander')
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'obfs-password')).toBe(true)
+    vm.setField('obfs-password', 'p')
+    await nextTick()
+    vm.setFieldModelValue(obfsField, 'none')
+    await nextTick()
+    expect(vm.form.protocol_json['obfs-password']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('TUIC v4/v5 凭据互斥且 UOT 版本随开关清空', async () => {
+    const tuicProtocol = {
+      protocol: 'tuic',
+      label: 'TUIC',
+      form_schema: [
+        { name: 'auth-mode', type: 'select', required: false, label: '认证方式', group: 'auth', state_only: true, selector_name: 'auth_mode', options: ['v4', 'v5'], default: 'v5' },
+        { name: 'token', type: 'password', required: false, label: 'Token', group: 'auth', when: { selectors: { auth_mode: ['v4'] } }, required_when: { selectors: { auth_mode: ['v4'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'uuid', type: 'password', required: false, label: 'UUID', group: 'auth', when: { selectors: { auth_mode: ['v5'] } }, required_when: { selectors: { auth_mode: ['v5'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'password', type: 'password', required: false, label: '密码', group: 'auth', when: { selectors: { auth_mode: ['v5'] } }, required_when: { selectors: { auth_mode: ['v5'] } }, reset_on: ['selector.auth_mode'] },
+        { name: 'udp-over-stream', type: 'bool', default: false, label: 'UDP over Stream', section: 'switches', feature: { name: 'udp-over-stream' }, reset_on: ['feature.udp-over-stream'] },
+        { name: 'udp-over-stream-version', type: 'select', required: false, label: 'UDP over Stream 版本', group: 'connection', options: ['1', '2'], default: '1', when: { features: ['udp-over-stream'] }, reset_on: ['feature.udp-over-stream'] },
+      ],
+      selectors: [{ name: 'auth_mode', values: ['v4', 'v5'], default: 'v5' }],
+      sensitive_fields: ['token', 'uuid', 'password'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([tuicProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'tuic'
+    await nextTick()
+
+    expect(vm.currentState.selectors).toEqual({ auth_mode: 'v5' })
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'token')).toBe(false)
+    vm.setField('uuid', '11111111-2222-3333-4444-555555555555')
+    vm.setField('password', 'pw')
+    await nextTick()
+
+    // 切到 v4：uuid/password 被清空，token 出现。
+    const modeField = tuicProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'v4')
+    await nextTick()
+    expect(vm.form.protocol_json.uuid).toBeUndefined()
+    expect(vm.form.protocol_json.password).toBeUndefined()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'token')).toBe(true)
+    expect(vm.resetScopesArray()).toContain('selector.auth_mode')
+
+    // UOT：开启后版本出现，关闭后版本清空。
+    vm.setField('udp-over-stream', true)
+    await nextTick()
+    expect(wrapper.findAllComponents(ProtocolFieldEditor).some((item) => item.props('field').name === 'udp-over-stream-version')).toBe(true)
+    vm.setField('udp-over-stream-version', '2')
+    await nextTick()
+    vm.setField('udp-over-stream', false)
+    await nextTick()
+    expect(vm.form.protocol_json['udp-over-stream-version']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 11：WireGuard 单 Peer／多 Peer 切换、endpoint policy、reserved 与 Peer 稳定身份。
+  it('WireGuard 单/多 Peer 切换隐藏 endpoint、清空对侧字段并保留 reserved 三字节编辑', async () => {
+    const wgProtocol = {
+      protocol: 'wireguard',
+      label: 'WireGuard',
+      form_schema: [
+        { name: 'peer-mode', type: 'select', required: false, label: 'Peer 模式', group: 'connection', state_only: true, selector_name: 'peer_mode', options: ['single', 'peers'], default: 'single' },
+        { name: 'private-key', type: 'secret-multiline', required: true, label: '私钥', group: 'auth' },
+        { name: 'public-key', type: 'text', required: false, label: '公钥', group: 'auth', when: { selectors: { peer_mode: ['single'] } }, required_when: { selectors: { peer_mode: ['single'] } }, reset_on: ['selector.peer_mode'] },
+        { name: 'reserved', type: 'byte-sequence', required: false, label: '保留字节', group: 'advanced', when: { selectors: { peer_mode: ['single'] } }, reset_on: ['selector.peer_mode'] },
+        { name: 'allowed-ips', type: 'text-list', required: false, label: 'Allowed IPs', group: 'advanced', when: { selectors: { peer_mode: ['single'] } }, reset_on: ['selector.peer_mode'] },
+        {
+          name: 'peers', type: 'object', required: false, label: 'Peer 列表', group: 'connection',
+          object_kind: 'list', item_id_field: '_credential_id', allow_unknown: false,
+          when: { selectors: { peer_mode: ['peers'] } }, required_when: { selectors: { peer_mode: ['peers'] } }, reset_on: ['selector.peer_mode'],
+          properties: [
+            { name: 'server', type: 'text', required: true, label: '服务器' },
+            { name: 'port', type: 'number', required: true, label: '端口' },
+            { name: 'public-key', type: 'text', required: true, label: '公钥' },
+            { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+            { name: 'reserved', type: 'byte-sequence', required: false, label: '保留字节' },
+            { name: 'allowed-ips', type: 'text-list', required: true, label: 'Allowed IPs' },
+          ],
+        },
+        { name: 'ip', type: 'text', required: false, label: 'IP', group: 'advanced' },
+      ],
+      selectors: [{ name: 'peer_mode', values: ['single', 'peers'], default: 'single' }],
+      endpoint_policies: [
+        { when: { selectors: { peer_mode: ['single'] } }, host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true },
+        { when: { selectors: { peer_mode: ['peers'] } }, host_mode: 'hidden', port_mode: 'hidden', emit_host: false, emit_port: false },
+      ],
+      sensitive_fields: ['private-key', 'pre-shared-key', 'peers[].pre-shared-key'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([wgProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'wireguard'
+    vm.form.host = 'example.com'
+    vm.form.port = 51820
+    await nextTick()
+
+    // single：显示 endpoint 与顶层 Peer 字段，不显示 peers 列表。
+    expect(vm.currentState.selectors).toEqual({ peer_mode: 'single' })
+    expect(vm.showHostField).toBe(true)
+    expect(vm.showPortField).toBe(true)
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    expect(fieldNames()).toContain('public-key')
+    expect(fieldNames()).not.toContain('peers')
+
+    // 顶层 reserved：三整数控件可编辑并写入规范数组。
+    vm.setField('reserved', [1, 2, 3])
+    await nextTick()
+    expect(vm.form.protocol_json.reserved).toEqual([1, 2, 3])
+
+    // 切到 peers：隐藏 endpoint 并清空顶层 Peer 字段。
+    vm.setFieldModelValue(wgProtocol.form_schema[0] as FieldSchema, 'peers')
+    await nextTick()
+    expect(vm.showHostField).toBe(false)
+    expect(vm.showPortField).toBe(false)
+    expect(vm.form.host).toBe('')
+    expect(vm.form.port).toBe(0)
+    expect(vm.form.protocol_json['public-key']).toBeUndefined()
+    expect(vm.form.protocol_json.reserved).toBeUndefined()
+    expect(fieldNames()).toContain('peers')
+    expect(vm.resetScopesArray()).toContain('selector.peer_mode')
+
+    // 切回 single：peers 列表清空，顶层字段恢复且不复活旧值。
+    vm.setFieldModelValue(wgProtocol.form_schema[0] as FieldSchema, 'single')
+    await nextTick()
+    expect(vm.form.protocol_json.peers).toBeUndefined()
+    expect(vm.showPortField).toBe(true)
+    expect(vm.form.protocol_json.reserved).toBeUndefined()
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 12：Mieru 单端口／端口段切换、隐藏端口与完整枚举。
+  it('Mieru 端口段模式隐藏顶层端口并按 selector 清空 port-range', async () => {
+    const mieruProtocol = {
+      protocol: 'mieru',
+      label: 'Mieru',
+      form_schema: [
+        { name: 'endpoint-mode', type: 'select', required: false, label: '端口模式', group: 'connection', state_only: true, selector_name: 'endpoint_mode', options: ['single', 'range'], default: 'single' },
+        { name: 'port-range', type: 'text', required: false, label: '端口范围', group: 'connection', when: { selectors: { endpoint_mode: ['range'] } }, required_when: { selectors: { endpoint_mode: ['range'] } }, reset_on: ['selector.endpoint_mode'] },
+        { name: 'username', type: 'text', required: true, label: '用户名', group: 'auth' },
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        { name: 'transport', type: 'select', required: false, label: '传输', group: 'connection', options: ['TCP', 'UDP'], default: 'TCP' },
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+        { name: 'multiplexing', type: 'select', required: false, label: '多路复用', group: 'connection', options: ['', 'MULTIPLEXING_OFF', 'MULTIPLEXING_LOW', 'MULTIPLEXING_MIDDLE', 'MULTIPLEXING_HIGH'], default: '' },
+        { name: 'handshake-mode', type: 'select', required: false, label: '握手模式', group: 'connection', options: ['', 'HANDSHAKE_STANDARD', 'HANDSHAKE_NO_WAIT'], default: '' },
+        { name: 'traffic-pattern', type: 'text', required: false, label: '流量特征', group: 'advanced' },
+      ],
+      selectors: [{ name: 'endpoint_mode', values: ['single', 'range'], default: 'single' }],
+      endpoint_policies: [
+        { when: { selectors: { endpoint_mode: ['single'] } }, host_mode: 'required', port_mode: 'required', emit_host: true, emit_port: true },
+        { when: { selectors: { endpoint_mode: ['range'] } }, host_mode: 'required', port_mode: 'hidden', emit_host: true, emit_port: false },
+      ],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([mieruProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'mieru'
+    vm.form.port = 8964
+    await nextTick()
+
+    // 完整枚举来自后端 schema，旧值 LOW/MIDDLE/HIGH 不再出现。
+    expect(vm.currentSchema().form_schema.find((field: FieldSchema) => field.name === 'multiplexing').options)
+      .toEqual(['', 'MULTIPLEXING_OFF', 'MULTIPLEXING_LOW', 'MULTIPLEXING_MIDDLE', 'MULTIPLEXING_HIGH'])
+    expect(vm.currentState.selectors).toEqual({ endpoint_mode: 'single' })
+    expect(vm.showPortField).toBe(true)
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    expect(fieldNames()).not.toContain('port-range')
+
+    // 切到 range：隐藏顶层端口，port-range 出现并规范化 port=0。
+    vm.setFieldModelValue(mieruProtocol.form_schema[0] as FieldSchema, 'range')
+    await nextTick()
+    expect(vm.showPortField).toBe(false)
+    expect(vm.form.port).toBe(0)
+    expect(fieldNames()).toContain('port-range')
+    vm.setField('port-range', '1000-2000')
+    await nextTick()
+    expect(vm.form.protocol_json['port-range']).toBe('1000-2000')
+
+    // 切回 single：port-range 清空且不恢复，端口恢复显示。
+    vm.setFieldModelValue(mieruProtocol.form_schema[0] as FieldSchema, 'single')
+    await nextTick()
+    expect(vm.form.protocol_json['port-range']).toBeUndefined()
+    expect(vm.showPortField).toBe(true)
+    expect(vm.resetScopesArray()).toContain('selector.endpoint_mode')
+
+    // traffic-pattern 是普通文本字段（非 secret），错误定位由后端返回。
+    vm.setField('traffic-pattern', '!!!bad!!!')
+    await nextTick()
+    expect(vm.form.protocol_json['traffic-pattern']).toBe('!!!bad!!!')
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 13：MASQUE 三种网络模式、h3-l4proxy 强制关闭 UDP 与 QUIC 调优清空。
+  it('MASQUE 三种网络模式切换、h3-l4proxy 关闭 UDP 并清空 QUIC 调优', async () => {
+    const masqueProtocol = {
+      protocol: 'masque',
+      label: 'MASQUE',
+      form_schema: [
+        { name: 'network-mode', type: 'select', required: false, label: '网络模式', group: 'connection', state_only: true, selector_name: 'network_mode', options: ['quic', 'h2', 'h3_l4proxy'], default: 'quic' },
+        { name: 'private-key', type: 'secret-multiline', required: true, label: '私钥', group: 'auth' },
+        { name: 'public-key', type: 'text', required: true, label: '公钥', group: 'auth' },
+        { name: 'ip', type: 'text', required: false, label: 'IP', group: 'advanced' },
+        { name: 'uri', type: 'text', required: false, label: '连接 URI', group: 'advanced' },
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches', when: { selectors: { network_mode: ['quic', 'h2'] } }, reset_on: ['selector.network_mode'] },
+        { name: 'congestion-controller', type: 'select', required: false, label: '拥塞控制器', group: 'advanced', options: ['', 'cubic', 'new_reno', 'bbr_meta_v1', 'bbr_meta_v2', 'bbr'], default: '', when: { selectors: { network_mode: ['quic'] } }, reset_on: ['selector.network_mode'] },
+        { name: 'cwnd', type: 'number', required: false, label: '拥塞窗口', group: 'advanced', when: { selectors: { network_mode: ['quic'] } }, reset_on: ['selector.network_mode'] },
+        { name: 'skip-cert-verify', type: 'bool', default: false, label: '跳过证书校验', section: 'switches' },
+      ],
+      selectors: [{ name: 'network_mode', values: ['quic', 'h2', 'h3_l4proxy'], default: 'quic' }],
+      sensitive_fields: ['private-key'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([masqueProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'masque'
+    vm.form.host = 'example.com'
+    vm.form.port = 443
+    await nextTick()
+
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    expect(vm.currentState.selectors).toEqual({ network_mode: 'quic' })
+    expect(fieldNames()).toContain('udp')
+    expect(fieldNames()).toContain('congestion-controller')
+    vm.setField('udp', true)
+    vm.setField('congestion-controller', 'bbr_meta_v2')
+    vm.setField('cwnd', 64)
+    await nextTick()
+
+    // h2：保留 UDP，清空 QUIC 调优。
+    vm.setFieldModelValue(masqueProtocol.form_schema[0] as FieldSchema, 'h2')
+    await nextTick()
+    expect(fieldNames()).not.toContain('congestion-controller')
+    expect(vm.form.protocol_json['congestion-controller']).toBeUndefined()
+    expect(vm.form.protocol_json.cwnd).toBeUndefined()
+
+    // h3_l4proxy：UDP 字段隐藏并清空，不得保留 true。
+    vm.setFieldModelValue(masqueProtocol.form_schema[0] as FieldSchema, 'h3_l4proxy')
+    await nextTick()
+    expect(fieldNames()).not.toContain('udp')
+    expect(vm.form.protocol_json.udp).toBeUndefined()
+    expect(vm.resetScopesArray()).toContain('selector.network_mode')
+
+    // 切回 quic：旧 udp／调优值都不恢复。
+    vm.setFieldModelValue(masqueProtocol.form_schema[0] as FieldSchema, 'quic')
+    await nextTick()
+    expect(vm.form.protocol_json.udp).toBeUndefined()
+    expect(vm.form.protocol_json['congestion-controller']).toBeUndefined()
+    expect(fieldNames()).toContain('udp')
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 14：Tailscale 无 endpoint、non_empty 依赖与三态 bool。
+  it('Tailscale 隐藏 endpoint、按 exit-node 条件显示 LAN access 并保留三态 bool', async () => {
+    const tailscaleProtocol = {
+      protocol: 'tailscale',
+      label: 'Tailscale',
+      form_schema: [
+        { name: 'hostname', type: 'text', required: false, label: '设备名', group: 'basic' },
+        { name: 'auth-key', type: 'password', required: false, label: '认证密钥', group: 'auth' },
+        { name: 'control-url', type: 'text', required: false, label: '控制面地址', group: 'connection' },
+        { name: 'ephemeral', type: 'bool', default: false, label: '临时节点', section: 'switches' },
+        { name: 'udp', type: 'bool', default: true, label: 'UDP', section: 'switches' },
+        { name: 'accept-routes', type: 'bool', required: false, label: '接受路由', group: 'switches' },
+        { name: 'exit-node', type: 'text', required: false, label: '出口节点', group: 'connection' },
+        { name: 'exit-node-allow-lan-access', type: 'bool', required: false, label: '出口节点允许 LAN 访问', group: 'switches', when: { non_empty: ['exit-node'] } },
+      ],
+      endpoint_policies: [
+        { host_mode: 'hidden', port_mode: 'hidden', emit_host: false, emit_port: false },
+      ],
+      sensitive_fields: ['auth-key'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([tailscaleProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'tailscale'
+    await nextTick()
+
+    // 无 endpoint：host／port 不显示，且 request 载荷规范化。
+    expect(vm.showHostField).toBe(false)
+    expect(vm.showPortField).toBe(false)
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    // 三态 bool 不进入集中开关区，而在所属分组内以三态控件渲染。
+    expect(vm.switchFields.map((item: { path: string }) => item.path)).toEqual(['ephemeral', 'udp'])
+    expect(fieldNames()).toContain('accept-routes')
+
+    // exit-node 为空时 LAN access 不显示。
+    expect(fieldNames()).not.toContain('exit-node-allow-lan-access')
+    vm.setField('exit-node', '100.64.0.1')
+    await nextTick()
+    expect(fieldNames()).toContain('exit-node-allow-lan-access')
+
+    // 三态：未设置 → 关闭 → 开启，且不写成 false 吞掉未设置。
+    const lanField = tailscaleProtocol.form_schema[7] as FieldSchema
+    expect(vm.fieldModelValue(lanField)).toBe(undefined)
+    vm.setFieldModelValue(lanField, false)
+    await nextTick()
+    expect(vm.form.protocol_json['exit-node-allow-lan-access']).toBe(false)
+    vm.setFieldModelValue(lanField, true)
+    await nextTick()
+    expect(vm.form.protocol_json['exit-node-allow-lan-access']).toBe(true)
+    vm.setFieldModelValue(lanField, undefined)
+    await nextTick()
+    expect(vm.form.protocol_json['exit-node-allow-lan-access']).toBe(undefined)
+
+    // 清空 exit-node 后 LAN access 立即隐藏。
+    vm.setField('exit-node', '')
+    await nextTick()
+    expect(fieldNames()).not.toContain('exit-node-allow-lan-access')
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 15：AnyTLS 四种安全模式互斥、主密码保留、ECH 与 mTLS。
+  it('AnyTLS 三种附加伪装互斥、主密码保留且 ECH 关闭清空子字段', async () => {
+    const anytlsProtocol = {
+      protocol: 'anytls',
+      label: 'AnyTLS',
+      form_schema: [
+        { name: 'security-mode', type: 'select', required: false, label: '附加安全', group: 'connection', state_only: true, selector_name: 'security_mode', options: ['plain', 'shadow_tls', 'restls', 'jls'], default: 'plain' },
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        { name: 'sni', type: 'text', required: false, label: 'SNI', group: 'security' },
+        { name: 'ech-opts', type: 'object', required: false, label: 'ECH 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, feature: { name: 'ech', toggle: 'enable' }, reset_on: ['feature.ech'], properties: [
+          { name: 'enable', type: 'bool', default: false, label: '启用' },
+          { name: 'config', type: 'text', required: false, label: '配置', when: { features: ['ech'] }, reset_on: ['feature.ech'] },
+          { name: 'query-server-name', type: 'text', required: false, label: '查询服务器名', when: { features: ['ech'] }, reset_on: ['feature.ech'] },
+        ] },
+        { name: 'certificate', type: 'multiline', required: false, label: '证书', group: 'security' },
+        { name: 'private-key', type: 'secret-multiline', required: false, label: '私钥', group: 'security' },
+        { name: 'shadow-tls-opts', type: 'object', required: false, label: 'ShadowTLS 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, when: { selectors: { security_mode: ['shadow_tls'] } }, required_when: { selectors: { security_mode: ['shadow_tls'] } }, reset_on: ['selector.security_mode'], properties: [
+          { name: 'password', type: 'password', required: false, label: '密码', when: { selectors: { security_mode: ['shadow_tls'] } }, required_when: { selectors: { security_mode: ['shadow_tls'] } }, reset_on: ['selector.security_mode'] },
+          { name: 'version', type: 'select', required: false, label: '版本', options: ['', '1', '2', '3'], default: '', when: { selectors: { security_mode: ['shadow_tls'] } }, reset_on: ['selector.security_mode'] },
+        ] },
+        { name: 'restls-opts', type: 'object', required: false, label: 'Restls 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, when: { selectors: { security_mode: ['restls'] } }, required_when: { selectors: { security_mode: ['restls'] } }, reset_on: ['selector.security_mode'], properties: [
+          { name: 'password', type: 'password', required: false, label: '密码', when: { selectors: { security_mode: ['restls'] } }, required_when: { selectors: { security_mode: ['restls'] } }, reset_on: ['selector.security_mode'] },
+          { name: 'version-hint', type: 'select', required: false, label: '版本提示', options: ['', 'tls12', 'tls13'], default: '', when: { selectors: { security_mode: ['restls'] } }, required_when: { selectors: { security_mode: ['restls'] } }, reset_on: ['selector.security_mode'] },
+        ] },
+        { name: 'jls-opts', type: 'object', required: false, label: 'JLS 参数', group: 'connection', object_kind: 'fields', allow_unknown: false, when: { selectors: { security_mode: ['jls'] } }, required_when: { selectors: { security_mode: ['jls'] } }, reset_on: ['selector.security_mode'], properties: [
+          { name: 'username', type: 'text', required: false, label: '用户名', when: { selectors: { security_mode: ['jls'] } }, required_when: { selectors: { security_mode: ['jls'] } }, reset_on: ['selector.security_mode'] },
+          { name: 'password', type: 'password', required: false, label: '密码', when: { selectors: { security_mode: ['jls'] } }, required_when: { selectors: { security_mode: ['jls'] } }, reset_on: ['selector.security_mode'] },
+        ] },
+      ],
+      selectors: [{ name: 'security_mode', values: ['plain', 'shadow_tls', 'restls', 'jls'], default: 'plain' }],
+      sensitive_fields: ['password', 'private-key', 'shadow-tls-opts.password', 'restls-opts.password', 'jls-opts.password'],
+      link_mappings: { sr: true, generic: true },
+    }
+    mockGetProtocols.mockResolvedValue([anytlsProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'anytls'
+    await nextTick()
+
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    expect(vm.currentState.selectors).toEqual({ security_mode: 'plain' })
+    for (const name of ['shadow-tls-opts', 'restls-opts', 'jls-opts']) {
+      expect(fieldNames()).not.toContain(name)
+    }
+
+    // 主密码在切换分支时保留（不留空即为待替换；此处仅验证字段始终可编辑且不被清空）。
+    vm.setField('password', 'main-secret')
+    await nextTick()
+    const modeField = anytlsProtocol.form_schema[0] as FieldSchema
+    vm.setFieldModelValue(modeField, 'shadow_tls')
+    await nextTick()
+    expect(vm.form.protocol_json.password).toBe('main-secret')
+    expect(fieldNames()).toContain('shadow-tls-opts')
+    expect(fieldNames()).not.toContain('restls-opts')
+    vm.setField('shadow-tls-opts', { password: 'shadow-secret', version: '3' })
+    await nextTick()
+
+    // 切换到 restls：旧伪装对象必须清空且主密码保留。
+    vm.setFieldModelValue(modeField, 'restls')
+    await nextTick()
+    expect(vm.form.protocol_json['shadow-tls-opts']).toBeUndefined()
+    expect(fieldNames()).toContain('restls-opts')
+    expect(vm.form.protocol_json.password).toBe('main-secret')
+
+    // 切到 jls：restls 清空。
+    vm.setFieldModelValue(modeField, 'jls')
+    await nextTick()
+    expect(vm.form.protocol_json['restls-opts']).toBeUndefined()
+    expect(fieldNames()).toContain('jls-opts')
+    expect(vm.resetScopesArray()).toContain('selector.security_mode')
+
+    // 回到 plain：三类对象全部消失。
+    vm.setFieldModelValue(modeField, 'plain')
+    await nextTick()
+    for (const name of ['shadow-tls-opts', 'restls-opts', 'jls-opts']) {
+      expect(vm.form.protocol_json[name]).toBeUndefined()
+      expect(fieldNames()).not.toContain(name)
+    }
+
+    // ECH 关闭清空 config／query-server-name。
+    vm.setField('ech-opts', { enable: true, config: 'cfg', 'query-server-name': 'q.example.com' })
+    await nextTick()
+    expect(vm.form.protocol_json['ech-opts'].config).toBe('cfg')
+    vm.setField('ech-opts', { enable: false })
+    await nextTick()
+    expect(vm.form.protocol_json['ech-opts'].config).toBeUndefined()
+    expect(vm.form.protocol_json['ech-opts']['query-server-name']).toBeUndefined()
+    wrapper.unmount()
+  })
+
+
+  // Build32 Step 16：ShadowQUIC QUIC 版本列表、UOT／0-RTT 独立开关与流控字段。
+  it('ShadowQUIC 版本列表保序去重、UOT 与 0-RTT 独立且不改写保存结果', async () => {
+    const shadowquicProtocol = {
+      protocol: 'shadowquic',
+      label: 'ShadowQUIC',
+      form_schema: [
+        { name: 'username', type: 'text', required: true, label: '用户名', group: 'auth' },
+        { name: 'password', type: 'password', required: true, label: '密码', group: 'auth' },
+        { name: 'sni', type: 'text', required: false, label: 'SNI', group: 'security' },
+        { name: 'alpn', type: 'text-list', required: false, label: 'ALPN', group: 'security' },
+        { name: 'quic-versions', type: 'text-list', required: false, label: 'QUIC 版本', group: 'connection' },
+        { name: 'udp-over-stream', type: 'bool', default: false, label: 'UDP over Stream', section: 'switches' },
+        { name: 'zero-rtt', type: 'bool', default: false, label: '0-RTT', section: 'switches' },
+        { name: 'keep-alive-interval', type: 'number', required: false, label: '保活间隔', group: 'advanced' },
+        { name: 'recv-window-conn', type: 'number', required: false, label: '连接接收窗口', group: 'advanced' },
+        { name: 'recv-window', type: 'number', required: false, label: '接收窗口', group: 'advanced' },
+        { name: 'up', type: 'text', required: false, label: '上行带宽', group: 'advanced' },
+      ],
+      sensitive_fields: ['password'],
+      link_mappings: { sr: false, generic: false },
+    }
+    mockGetProtocols.mockResolvedValue([shadowquicProtocol])
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openCreate()
+    vm.form.protocol = 'shadowquic'
+    await nextTick()
+
+    const fieldNames = () => wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('field').name)
+    // 不得从通用 TLS helper 误加固定 tag 没有的字段。
+    for (const forbidden of ['skip-cert-verify', 'certificate', 'private-key', 'ech-opts', 'udp-over-stream-version']) {
+      expect(fieldNames()).not.toContain(forbidden)
+    }
+    expect(fieldNames()).toContain('quic-versions')
+
+    // 版本列表保序去重。
+    vm.setField('quic-versions', ['v2', 'v1', 'v2'])
+    await nextTick()
+    expect(vm.form.protocol_json['quic-versions']).toEqual(['v2', 'v1', 'v2'])
+
+    // UOT 与 0-RTT 是独立开关，且不产生附加版本字段。
+    vm.setField('udp-over-stream', true)
+    vm.setField('zero-rtt', true)
+    await nextTick()
+    expect(vm.form.protocol_json['udp-over-stream']).toBe(true)
+    expect(vm.form.protocol_json['zero-rtt']).toBe(true)
+    expect(vm.form.protocol_json['udp-over-stream-version']).toBeUndefined()
+
+    // 关闭 UOT 不影响 0-RTT 与版本列表。
+    vm.setField('udp-over-stream', false)
+    await nextTick()
+    expect(vm.form.protocol_json['udp-over-stream']).toBe(false)
+    expect(vm.form.protocol_json['zero-rtt']).toBe(true)
+    expect(vm.form.protocol_json['quic-versions']).toEqual(['v2', 'v1', 'v2'])
+
+    // 流控字段保持“未设置”与 0 的区别。
+    expect(vm.form.protocol_json['recv-window']).toBeUndefined()
+    vm.setField('recv-window', 0)
+    await nextTick()
+    expect(vm.form.protocol_json['recv-window']).toBe(0)
+    wrapper.unmount()
+  })
+
+})
+
+describe('复核 P1 切换状态', () => {
+  it('确认应用只回执一次；同值应用也解除来源草稿且不清其它草稿', async () => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    try {
+      await flushPromises()
+      const vm = wrapper.vm as any
+      vm.openCreate()
+      vm.form.protocol_json = { smux: smuxValue() }
+      await nextTick()
+      const editor = wrapper.findAllComponents(ProtocolFieldEditor).find(c => c.props('field').name === 'smux')!
+      await editor.findAll('button').find(b => b.text() === '高级 JSON')!.trigger('click')
+      await editor.find('textarea').setValue('{"enabled":false}')
+      await editor.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用')!.trigger('click')
+      const application = editor.emitted('update:modelValue')!.slice(-1)[0][1] as { applied: () => void }
+      const applied = vi.spyOn(application, 'applied')
+      expect(vm.unappliedJsonPaths.has('smux')).toBe(true)
+      vm.confirmTransition()
+      vm.confirmTransition()
+      await nextTick()
+      expect(applied).toHaveBeenCalledTimes(1)
+      expect(vm.form.protocol_json.smux).toEqual({ enabled: false })
+      expect(vm.unappliedJsonPaths.has('smux')).toBe(false)
+      vm.handleControlDraftDirty({ path: 'unrelated', dirty: true })
+      await editor.find('textarea').setValue('{ "enabled": false }')
+      await editor.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用')!.trigger('click')
+      expect(vm.pendingTransition).toBeNull()
+      expect(vm.unappliedJsonPaths.has('smux')).toBe(false)
+      expect(vm.unappliedControlPaths.has('unrelated')).toBe(true)
+    } finally { wrapper.unmount() }
+  })
+
+  it('递归 JSON 关闭 Brutal：取消不改状态，确认仅清所属内容并阻断其余草稿', async () => {
+    mockGetProtocols.mockResolvedValue([{ ...protocols[0], protocol: 'vless', form_schema: [smuxSchema] }])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    try {
+      await flushPromises()
+      const vm = wrapper.vm as any
+      vm.openCreate()
+      vm.form.protocol_json = { smux: smuxValue() }
+      await nextTick()
+      const editor = wrapper.findAllComponents(ProtocolFieldEditor).find(c => c.props('path') === 'smux.brutal-opts')!
+      await editor.findAll('button').find(b => b.text() === '高级 JSON')!.trigger('click')
+      await editor.find('textarea').setValue('{"enabled":false}')
+      const apply = () => editor.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用')!.trigger('click')
+      await apply()
+      expect(vm.pendingTransition).not.toBeNull()
+      vm.cancelTransition()
+      await nextTick()
+      expect(vm.form.protocol_json.smux).toEqual(smuxValue())
+      expect([...vm.resetScopes]).toEqual([])
+      expect(vm.extensionOps).toEqual([])
+      expect([...vm.invalidatedSensitivePaths]).toEqual([])
+      expect(vm.unappliedJsonPaths.has('smux.brutal-opts')).toBe(true)
+      expect(vm.checkBlockedReason).not.toBe('')
+      await vm.save()
+      expect(mockCreateNode).not.toHaveBeenCalled()
+      await apply()
+      vm.confirmTransition()
+      await nextTick()
+      expect(vm.form.protocol_json.smux).toEqual({ ...smuxValue(), 'brutal-opts': { enabled: false } })
+      expect([...vm.resetScopes]).toEqual(['feature.smux.brutal'])
+      expect(vm.unappliedJsonPaths.has('smux.brutal-opts')).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('旧凭据作废后重新输入的同路径凭据仍计数，已清扩展之外的新 add/replace 仍受保护', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    try {
+      await flushPromises()
+      const vm = wrapper.vm as any
+      vm.openEdit({ ...node, protocol_json: { password: '' }, saved_sensitive_paths: ['password'],
+        extensions: [{ id: 'ext-1', scope: 'plugin.obfs', configured: true }] })
+      vm.invalidatedSensitivePaths.add('password')
+      vm.clearedSensitivePaths.add('password')
+      vm.form.protocol_json.password = 'synthetic-replacement'
+      vm.requestTransition({ paths: ['password'], commit: vi.fn() })
+      expect(vm.pendingTransition.credentialCount).toBe(1)
+      vm.cancelTransition()
+      vm.extensionOps = [{ op: 'clear', id: 'ext-1' }]
+      vm.requestTransition({ paths: [], scopes: ['plugin'], commit: vi.fn() })
+      expect(vm.pendingTransition).toBeNull()
+      for (const op of ['add', 'replace']) {
+        vm.extensionOps = [{ op, id: 'ext-1', scope: 'plugin.restls', payload: 'synthetic' }]
+        vm.requestTransition({ paths: [], scopes: ['plugin'], commit: vi.fn() })
+        expect(vm.pendingTransition.fields).toContain('扩展')
+        vm.cancelTransition()
+      }
+    } finally { wrapper.unmount() }
+  })
+  beforeEach(() => {
+    mockListNodes.mockReset(); mockGetProtocols.mockReset(); mockCreateNode.mockReset(); mockUpdateNode.mockReset();
+    mockListNodes.mockResolvedValue([node]); mockGetProtocols.mockResolvedValue(protocols)
+  })
+  it('应用自定义插件后取消预检，草稿仍须阻止保存', async () => {
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    try {
+      await flushPromises(); const vm = wrapper.vm as any
+      vm.openEdit({...node, protocol_json:{plugin:'obfs','obfs-opts':{mode:'http'}}})
+      await nextTick()
+      const combo=wrapper.findAllComponents(EditableCombobox).find(c=>c.props('items')?.some((i:any)=>i.value==='obfs'))!
+      ;(combo.vm as any).selectValue('__vpn_sub_custom_value__'); await nextTick()
+      await combo.find('.custom-value-editor input').setValue('review-custom-plugin')
+      await combo.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用自定义值')!.trigger('click')
+      expect(vm.pendingTransition).not.toBeNull(); expect(vm.form.protocol_json.plugin).toBe('obfs')
+      vm.cancelTransition(); await nextTick()
+      expect((combo.find('.custom-value-editor input').element as HTMLInputElement).value).toBe('review-custom-plugin')
+      await vm.save()
+      expect(mockUpdateNode).not.toHaveBeenCalled()
+    } finally {wrapper.unmount()}
+  })
+  it('协议清空后再次切换不应计入已作废凭据', async () => {
+    mockGetProtocols.mockResolvedValue([
+      ...protocols,
+      {protocol:'tailscale',label:'Tailscale',form_schema:[],sensitive_fields:[],link_mappings:{},endpoint_policies:[{host_mode:'hidden',port_mode:'hidden',emit_host:false,emit_port:false}]},
+      {protocol:'vless',label:'VLESS',form_schema:[],sensitive_fields:[],link_mappings:{}}
+    ])
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openEdit({...node,protocol_json:{password:''},saved_sensitive_paths:['password']}); await nextTick()
+      vm.updateProtocol('tailscale'); expect(vm.pendingTransition.credentialCount).toBe(1)
+      vm.confirmTransition(); await nextTick(); expect(vm.form.protocol_json).toEqual({})
+      vm.updateProtocol('vless'); expect(vm.pendingTransition).toBeNull()
+    } finally {wrapper.unmount()}
+  })
+  it('清空扩展后再次无损切换不应重复提示扩展损失', async () => {
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openEdit({...node,protocol_json:{plugin:'obfs'},extensions:[{id:'ext-1',scope:'plugin.obfs',targets:['clash-yaml'],label:'合成扩展',configured:true}]}); await nextTick()
+      vm.setField('plugin','v2ray-plugin'); expect(vm.pendingTransition.fields).toContain('扩展')
+      vm.confirmTransition(); await nextTick()
+      vm.setField('plugin','restls'); expect(vm.pendingTransition).toBeNull()
+    } finally {wrapper.unmount()}
+  })
+  it('高级 JSON 关闭含子配置的功能也应触发清理预检', async () => {
+    mockGetProtocols.mockResolvedValue([{...protocols[0],protocol:'vless',form_schema:[smuxSchema]}])
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openCreate(); vm.form.protocol_json={smux:smuxValue()}; await nextTick()
+      const editor=wrapper.findAllComponents(ProtocolFieldEditor).find(c=>c.props('field').name==='smux')!
+      ;(editor.vm as any).setAdvanced(true); await nextTick()
+      ;(editor.vm as any).updateJSON('{"enabled":false}'); await nextTick()
+      await editor.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用')!.trigger('click')
+      expect(vm.pendingTransition).not.toBeNull()
+      expect(vm.form.protocol_json.smux).toEqual(smuxValue())
+    } finally {wrapper.unmount()}
+  })
+
+  it('高级 JSON 应用被取消后仍须登记未应用草稿', async () => {
+    mockGetProtocols.mockResolvedValue([{...protocols[0],protocol:'vless',form_schema:[smuxSchema]}])
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openCreate(); vm.form.protocol_json={smux:smuxValue()}; await nextTick()
+      const editor=wrapper.findAllComponents(ProtocolFieldEditor).find(c=>c.props('field').name==='smux')!
+      ;(editor.vm as any).setAdvanced(true); await nextTick()
+      ;(editor.vm as any).updateJSON(JSON.stringify({...smuxValue(),enabled:false})); await nextTick()
+      await editor.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用')!.trigger('click')
+      expect(vm.pendingTransition).not.toBeNull()
+      vm.cancelTransition(); await nextTick()
+      expect(vm.form.protocol_json.smux).toEqual(smuxValue())
+      expect(vm.unappliedJsonPaths.has('smux')).toBe(true)
+    } finally {wrapper.unmount()}
+  })
+  it('清理确认打开时焦点应停留在顶层确认框', async () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = vi.fn().mockImplementation((media: string) => ({
+      matches: false, media, addListener: vi.fn(), removeListener: vi.fn(),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }))
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openEdit({...node,protocol_json:{plugin:'obfs','obfs-opts':{mode:'http'}}}); await nextTick()
+      await new Promise(resolve=>setTimeout(resolve,400))
+      vm.setField('plugin','restls'); await nextTick()
+      await new Promise(resolve=>setTimeout(resolve,400))
+      const modals=Array.from(document.querySelectorAll('.ant-modal-content'))
+      expect(modals.length).toBeGreaterThanOrEqual(2)
+      expect(modals[modals.length-1].contains(document.activeElement)).toBe(true)
+    } finally {wrapper.unmount(); window.matchMedia = originalMatchMedia}
+  })
+
+  it('ovpn 原文清空但解析结果仍待应用时，协议切换必须预检', async () => {
+    mockGetProtocols.mockResolvedValue([...protocols,{protocol:'openvpn',label:'OpenVPN',form_schema:[],sensitive_fields:[],link_mappings:{}}])
+    mockParseOpenVPN.mockResolvedValue({host:'parsed.example',port:1194,protocol_json:{ca:'synthetic-ca'},selectors:{},diagnostics:[]})
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openCreate(); vm.form.protocol='openvpn'; vm.openvpnImportOpen=true; await nextTick()
+      const panel=wrapper.findComponent(OpenVPNImportPanel)
+      await panel.find('textarea').setValue('client\nremote parsed.example 1194\n')
+      ;(panel.vm as any).run(); await flushPromises()
+      expect((panel.vm as any).canApply).toBe(true)
+      await panel.find('textarea').setValue(''); await nextTick()
+      expect((panel.vm as any).canApply).toBe(false)
+      expect(vm.checkBlockedReason).toContain('未应用')
+      await vm.locateBlockedDraft()
+      expect(document.activeElement).toBe(panel.find('textarea').element)
+      vm.updateProtocol('ss')
+      expect(vm.pendingTransition).not.toBeNull()
+      expect(vm.form.protocol).toBe('openvpn')
+    } finally {wrapper.unmount()}
+  })
+
+  it('方案边界：取消 ovpn 解析后，迟到响应不得恢复已取消结果', async () => {
+    let finish!: (value: any) => void
+    mockParseOpenVPN.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const panel=mount(OpenVPNImportPanel,{props:{open:true,sensitivePaths:[]}})
+    try {
+      await panel.find('textarea').setValue('client\nremote example.test 1194\n')
+      const request=(panel.vm as any).run(); await nextTick()
+      ;(panel.vm as any).reset(); await nextTick()
+      finish({host:'example.test',port:1194,protocol_json:{},selectors:{},diagnostics:[]})
+      await request; await nextTick()
+      expect((panel.vm as any).canApply).toBe(false)
+    } finally {panel.unmount()}
+  })
+
+  it('方案对照：自定义插件没有附属损失时应用不应弹确认', async () => {
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openEdit({...node,protocol_json:{plugin:'obfs'}}); await nextTick()
+      const combo=wrapper.findAllComponents(EditableCombobox).find(c=>c.props('items')?.some((i:any)=>i.value==='obfs'))!
+      ;(combo.vm as any).selectValue('__vpn_sub_custom_value__'); await nextTick()
+      await combo.find('.custom-value-editor input').setValue('review-custom-plugin')
+      await combo.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用自定义值')!.trigger('click')
+      expect(vm.pendingTransition).toBeNull()
+      expect(vm.form.protocol_json.plugin).toBe('review-custom-plugin')
+      expect(vm.unappliedControlPaths.has('plugin')).toBe(false)
+    } finally {wrapper.unmount()}
+  })
+  it('方案对照：没有关闭分支的普通 JSON 修改不应弹清理确认', async () => {
+    mockGetProtocols.mockResolvedValue([{...protocols[0],protocol:'vless',form_schema:[smuxSchema]}])
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openCreate(); vm.form.protocol_json={smux:smuxValue()}; await nextTick()
+      const editor=wrapper.findAllComponents(ProtocolFieldEditor).find(c=>c.props('field').name==='smux')!
+      ;(editor.vm as any).setAdvanced(true); await nextTick()
+      ;(editor.vm as any).updateJSON(JSON.stringify({...smuxValue(),'max-connections':10})); await nextTick()
+      await editor.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用')!.trigger('click')
+      expect(vm.pendingTransition).toBeNull()
+      expect(vm.form.protocol_json.smux['max-connections']).toBe(10)
+      expect(vm.unappliedJsonPaths.has('smux')).toBe(false)
+    } finally {wrapper.unmount()}
+  })
+  it('方案对照：关闭只有启用位的功能不应弹空清理摘要', async () => {
+    mockGetProtocols.mockResolvedValue([{...protocols[0],protocol:'vless',form_schema:[smuxSchema]}])
+    const wrapper=mount(NodesView,{attachTo:document.body})
+    try {
+      await flushPromises(); const vm=wrapper.vm as any
+      vm.openCreate(); vm.form.protocol_json={smux:{enabled:true}}; await nextTick()
+      vm.setSwitchField('smux.enabled',false); await nextTick()
+      expect(vm.pendingTransition).toBeNull()
+      expect(vm.form.protocol_json.smux).toEqual({enabled:false})
+    } finally {wrapper.unmount()}
+  })
+})
+
+describe('R33-05 数字清空与解析草稿隔离', () => {
+  const schema = {
+    protocol: 'openvpn', label: 'OpenVPN',
+    form_schema: [
+      { name: 'tran-window', type: 'number', required: false, label: '过渡窗口', section: 'advanced' },
+      { name: 'mtu', type: 'number', required: false, label: 'MTU', section: 'advanced' },
+      { name: 'ca', type: 'multiline', required: false, label: 'CA', section: 'security' },
+      { name: 'tri', type: 'bool', required: false, label: '三态布尔' },
+      { name: 'opts', type: 'object', object_kind: 'fields', required: false, label: '对象', properties: [
+        { name: 'window', type: 'number', required: false, label: '窗口' },
+        { name: 'sibling', type: 'text', required: false, label: '邻接字段' },
+      ] },
+    ], sensitive_fields: [], link_mappings: {},
+  }
+  async function setup() {
+    mockListNodes.mockReset(); mockGetProtocols.mockReset(); mockUpdateNode.mockReset(); mockParseOpenVPN.mockReset()
+    const original = { ...node, protocol: 'openvpn', protocol_json: { 'tran-window': 0, mtu: 1420, ca: 'synthetic-ca', tri: false, opts: { window: 3, sibling: 'keep' } } }
+    mockListNodes.mockResolvedValue([original]); mockGetProtocols.mockResolvedValue([schema, ...protocols]); mockUpdateNode.mockResolvedValue(original)
+    mockParseOpenVPN.mockResolvedValue({ host: '', port: 0, protocol_json: { ca: 'parsed-ca' }, selectors: {}, field_sources: { ca: 2 }, diagnostics: [] })
+    const wrapper = mountNodesView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.openEdit(original)
+    vm.openvpnImportOpen = true
+    await nextTick()
+    return { wrapper, vm, panel: wrapper.findComponent(OpenVPNImportPanel) }
+  }
+
+  it.each([0, 1420])('已保存数字 %s 清空后保存和检查 JSON 均显式发送 null，表单仍是未设置', async (old) => {
+    const { wrapper, vm } = await setup()
+    try {
+      vm.commitField('mtu', old)
+      await nextTick()
+      const field = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'mtu')!
+      await field.findComponent({ name: 'AInputNumber' }).vm.$emit('change', null)
+      await nextTick()
+      expect(vm.form.protocol_json.mtu).toBeUndefined()
+      expect(JSON.parse(JSON.stringify(vm.checkRequest)).protocol_json.mtu).toBeNull()
+      await vm.save()
+      expect(mockUpdateNode).toHaveBeenCalledOnce()
+      const transform = axios.defaults.transformRequest as Array<(data: unknown, headers: unknown) => string>
+      const wire = transform[0].call(axios.defaults, mockUpdateNode.mock.calls[0][1], new axios.AxiosHeaders())
+      expect(JSON.parse(wire).protocol_json.mtu).toBeNull()
+    } finally { wrapper.unmount() }
+  })
+
+  it('三态 bool 和局部 JSON 删除数字均表达清空，显式 0 与 false 保留', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      vm.commitField('tri', undefined)
+      vm.commitField('opts', { sibling: 'keep' })
+      await nextTick()
+      expect(vm.checkRequest.protocol_json).toMatchObject({ tri: null, 'tran-window': 0, opts: { window: null, sibling: 'keep' } })
+      expect(vm.form.protocol_json.opts).toEqual({ sibling: 'keep' })
+      vm.commitField('tri', false)
+      expect(vm.checkRequest.protocol_json.tri).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('清空数字不得解除过期 ovpn 阻断，原文清空后仍能定位且不得应用', async () => {
+    const { wrapper, vm, panel } = await setup()
+    try {
+      await panel.find('textarea').setValue('client\nproto udp')
+      await (panel.vm as any).run(); await flushPromises()
+      await panel.find('textarea').setValue('')
+      vm.commitField('tran-window', undefined)
+      await nextTick()
+      expect((panel.vm as any).canApply).toBe(false)
+      expect(vm.checkBlockedReason).toContain('未应用')
+      await vm.save()
+      expect(mockUpdateNode).not.toHaveBeenCalled()
+      await vm.locateBlockedDraft()
+      expect(document.activeElement).toBe(panel.find('textarea').element)
+      ;(panel.vm as any).apply()
+      expect(vm.form.protocol_json.ca).toBe('synthetic-ca')
+      expect(vm.checkRequest.protocol_json['tran-window']).toBeNull()
+    } finally { wrapper.unmount() }
+  })
+
+  it('行定位不改数字清空；部分解析应用保留未产出数字和此前清空', async () => {
+    const { wrapper, vm, panel } = await setup()
+    try {
+      vm.commitField('tran-window', undefined)
+      await panel.find('textarea').setValue('client\nproto udp')
+      await (panel.vm as any).run(); await flushPromises()
+      const before = JSON.stringify(vm.checkRequest)
+      const applyVersion = vm.openvpnApplyVersion
+      await panel.find('button[aria-label="定位原文第 2 行"]').trigger('click')
+      expect(JSON.stringify(vm.checkRequest)).toBe(before)
+      expect(vm.openvpnApplyVersion).toBe(applyVersion)
+      expect((panel.vm as any).canApply).toBe(true)
+      ;(panel.vm as any).apply(); await flushPromises()
+      expect(vm.form.protocol_json.ca).toBe('parsed-ca')
+      expect(vm.form.protocol_json.mtu).toBe(1420)
+      expect(vm.form.protocol_json['tran-window']).toBeUndefined()
+      expect(vm.checkRequest.protocol_json['tran-window']).toBeNull()
+      expect(vm.checkBlockedReason).toBe('')
+    } finally { wrapper.unmount() }
+  })
+
+  it('迟到解析不能恢复数字；重新解析并明确应用 0 后以新值为准', async () => {
+    const { wrapper, vm, panel } = await setup()
+    try {
+      let finish!: (value: unknown) => void
+      mockParseOpenVPN.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+      await panel.find('textarea').setValue('old')
+      const request = (panel.vm as any).run()
+      await panel.find('textarea').setValue('new')
+      vm.commitField('tran-window', undefined)
+      finish({ host: '', port: 0, protocol_json: { 'tran-window': 5 }, selectors: {}, field_sources: {}, diagnostics: [] })
+      await request; await nextTick()
+      ;(panel.vm as any).apply()
+      expect(vm.form.protocol_json['tran-window']).toBeUndefined()
+      expect(vm.checkRequest.protocol_json['tran-window']).toBeNull()
+      mockParseOpenVPN.mockResolvedValue({ host: '', port: 0, protocol_json: { 'tran-window': 0 }, selectors: {}, field_sources: {}, diagnostics: [] })
+      await (panel.vm as any).run(); await flushPromises()
+      ;(panel.vm as any).apply(); await flushPromises()
+      expect(vm.checkRequest.protocol_json['tran-window']).toBe(0)
+      expect(vm.checkBlockedReason).toBe('')
+    } finally { wrapper.unmount() }
+  })
+
+  it('跨协议及切回后不使用旧协议基准生成数字清空标记', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      vm.updateProtocol('ss'); await nextTick()
+      expect(vm.checkRequest.protocol_json).not.toHaveProperty('mtu')
+      vm.updateProtocol('openvpn'); await nextTick()
+      expect(vm.checkRequest.protocol_json).not.toHaveProperty('mtu')
+      expect(vm.checkRequest.protocol_json).not.toHaveProperty('tran-window')
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('R33-06 文本列表清空请求', () => {
+  it.each(['删除', '清空文本'])('%s 最后一项后检查与保存均传递空数组', async (action) => {
+    const original = { ...node, protocol: 'wireguard', current_state: { selectors: { peer_mode: 'single' } },
+      protocol_json: { 'allowed-ips': ['10.0.0.0/24'], workers: 2 } }
+    mockListNodes.mockReset(); mockGetProtocols.mockReset(); mockUpdateNode.mockReset()
+    mockListNodes.mockResolvedValue([original]); mockUpdateNode.mockResolvedValue(original)
+    mockGetProtocols.mockResolvedValue([{
+      protocol: 'wireguard', label: 'WireGuard', sensitive_fields: [], link_mappings: {}, form_schema: [
+        { name: 'allowed-ips', type: 'text-list', label: 'Allowed IPs', required: false, group: 'connection' },
+        { name: 'workers', type: 'number', label: 'Worker', required: false, group: 'connection' },
+      ],
+    }])
+    const wrapper = mountNodesView()
+    try {
+      await flushPromises()
+      const vm = wrapper.vm as any
+      vm.openEdit(original); await nextTick()
+      const field = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'allowed-ips')!
+      if (action === '删除') await field.find('.protocol-list-editor .ant-btn-dangerous').trigger('click')
+      else await field.findComponent({ name: 'AInput' }).vm.$emit('change', { target: { value: '' } })
+      await nextTick()
+      expect(field.text()).toContain('暂无条目')
+      expect(vm.form.protocol_json['allowed-ips']).toEqual([])
+      expect(vm.checkRequest.protocol_json).toMatchObject({ 'allowed-ips': [], workers: 2 })
+      await vm.save()
+      expect(mockUpdateNode).toHaveBeenCalledOnce()
+      const transform = axios.defaults.transformRequest as Array<(data: unknown, headers: unknown) => string>
+      for (const request of [vm.checkRequest, mockUpdateNode.mock.calls[0][1]]) {
+        const wire = transform[0].call(axios.defaults, request, new axios.AxiosHeaders())
+        expect(JSON.parse(wire).protocol_json).toMatchObject({ 'allowed-ips': [], workers: 2 })
+      }
+      expect(original.protocol_json['allowed-ips']).toEqual(['10.0.0.0/24'])
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('R33-07 保存校验定位', () => {
+  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+  const peerSchema = {
+    protocol: 'wireguard', label: 'WireGuard', sensitive_fields: ['peers[].pre-shared-key'],
+    link_mappings: { sr: true, generic: true },
+    form_schema: [
+      { name: 'refresh-server-ip-interval', type: 'number', required: false, label: '刷新间隔', group: 'advanced' },
+      {
+        name: 'peers', type: 'object', object_kind: 'list', item_id_field: '_credential_id', required: true,
+        label: 'Peer 列表', group: 'connection', properties: [
+          { name: 'server', type: 'text', required: true, label: '服务器' },
+          { name: 'port', type: 'number', required: true, label: '端口' },
+          { name: 'public-key', type: 'text', required: true, label: '公钥' },
+          { name: 'pre-shared-key', type: 'password', required: false, label: '预共享密钥' },
+          { name: 'allowed-ips', type: 'text-list', required: true, label: 'Allowed IPs' },
+        ],
+      },
+    ],
+  }
+
+  function elementAt(path: string): HTMLElement {
+    return Array.from(document.querySelectorAll<HTMLElement>('.node-protocol-form [data-field-path]'))
+      .find((element) => element.dataset.fieldPath === path)!
+  }
+  function focusedPath() {
+    return (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-field-path]')?.dataset.fieldPath
+  }
+  async function setup(edit = true) {
+    mockListNodes.mockReset().mockResolvedValue([])
+    mockGetProtocols.mockReset().mockResolvedValue([peerSchema])
+    mockCreateNode.mockReset()
+    mockUpdateNode.mockReset()
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const params = { peers: ids.map((id, index) => ({
+      _credential_id: id, server: `peer${index}.example.test`, port: 443,
+      'public-key': 'synthetic-public', 'allowed-ips': ['10.0.0.0/24'],
+    })) }
+    if (edit) vm.openEdit({ ...node, protocol: 'wireguard', protocol_json: params })
+    else {
+      vm.openCreate()
+      vm.form.protocol = 'wireguard'
+      vm.form.protocol_json = params
+    }
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    return { wrapper, vm }
+  }
+  function rejectField(path: string, edit = true) {
+    ;(edit ? mockUpdateNode : mockCreateNode).mockRejectedValue(new ApiError(400, `参数错误: 字段 ${path} 必填`))
+  }
+
+  it.each([0, 1])('Peer %s 删除唯一 Allowed IPs 后定位其新增按钮', async (index) => {
+    const { wrapper, vm } = await setup()
+    try {
+      const path = `peers[${ids[index]}].allowed-ips`
+      const editor = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === path)!
+      await editor.get('.ant-btn-dangerous').trigger('click')
+      rejectField(`peers[${index}].allowed-ips`)
+      await vm.save()
+      expect(focusedPath()).toBe(path)
+      expect(document.activeElement?.tagName).toBe('BUTTON')
+      expect(document.activeElement?.textContent).toContain('新增条目')
+      expect(mockUpdateNode.mock.calls[0][1].protocol_json.peers[index]['allowed-ips']).toEqual([])
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['server', 'port', 'public-key', 'pre-shared-key'])('第二个 Peer 的 %s 错误定位精确子字段', async (name) => {
+    const { wrapper, vm } = await setup()
+    try {
+      rejectField(`peers[1].${name}`)
+      await vm.save()
+      expect(focusedPath()).toBe(`peers[${ids[1]}].${name}`)
+    } finally { wrapper.unmount() }
+  })
+
+  it('新建及提交前重排使用实际提交顺序', async () => {
+    const { wrapper, vm } = await setup(false)
+    try {
+      vm.form.protocol_json.peers.reverse()
+      await nextTick()
+      rejectField('peers[0].allowed-ips', false)
+      await vm.save()
+      expect(focusedPath()).toBe(`peers[${ids[1]}].allowed-ips`)
+      expect(mockCreateNode.mock.calls[0][0].protocol_json.peers[0]._credential_id).toBe(ids[1])
+    } finally { wrapper.unmount() }
+  })
+
+  it('未知子字段不匹配同名顶层字段，而定位所属 JSON 入口', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      rejectField('peers[0].refresh-server-ip-interval')
+      await vm.save()
+      expect(focusedPath()).toBe('peers')
+      expect(document.activeElement?.textContent).toContain('高级 JSON')
+    } finally { wrapper.unmount() }
+  })
+
+  it('高级 JSON 模式定位所属文本框并保留模式及原文', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      const editor = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'peers')!
+      await editor.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+      const textarea = editor.get('textarea').element as HTMLTextAreaElement
+      const text = textarea.value
+      rejectField('peers[1].allowed-ips')
+      await vm.save()
+      expect(document.activeElement).toBe(textarea)
+      expect(textarea.value).toBe(text)
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['重排', '删除', '修正', '改后恢复', '切换协议', '未应用 JSON', '待确认切换', '关闭重开'])('请求期间%s使旧错误失去定位资格', async (action) => {
+    const { wrapper, vm } = await setup()
+    let reject!: (error: Error) => void
+    try {
+      mockUpdateNode.mockImplementation(() => new Promise((_, rejectRequest) => { reject = rejectRequest }))
+      const pending = vm.save()
+      if (action === '重排') vm.form.protocol_json.peers.reverse()
+      if (action === '删除') vm.form.protocol_json.peers.splice(0, 1)
+      if (action === '修正') vm.form.protocol_json.peers[0]['allowed-ips'] = ['192.0.2.0/24']
+      if (action === '改后恢复') {
+        vm.form.protocol_json.peers.reverse()
+        vm.form.protocol_json.peers.reverse()
+      }
+      if (action === '切换协议') {
+        vm.form.protocol = 'ss'
+        vm.form.protocol = 'wireguard'
+      }
+      if (action === '未应用 JSON') vm.handleJsonDirty({ path: 'peers', dirty: true })
+      if (action === '待确认切换') vm.pendingTransition = { fields: ['peers'], credentialCount: 0, endpointText: '', commit: () => {} }
+      if (action === '关闭重开') {
+        vm.creating = false
+        await nextTick()
+        vm.openEdit({ ...node, protocol: 'wireguard', protocol_json: { peers: [{ _credential_id: ids[1], server: 'other-session' }] } })
+      }
+      await nextTick()
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      const remaining = Array.from(document.querySelectorAll<HTMLElement>('.node-protocol-form [data-field-path]'))
+        .filter((element) => element.dataset.fieldPath?.endsWith('.public-key'))
+      const sentinel = remaining[remaining.length - 1].querySelector<HTMLInputElement>('input')!
+      sentinel.focus()
+      reject(new ApiError(400, '参数错误: 字段 peers[0].allowed-ips 必填'))
+      await pending
+      expect(document.activeElement).toBe(sentinel)
+    } finally { wrapper.unmount() }
+  })
+
+  it.each([500, 0])('状态 %s 的非校验错误不根据文案移动焦点', async (status) => {
+    const { wrapper, vm } = await setup()
+    try {
+      const sentinel = elementAt(`peers[${ids[1]}].server`).querySelector<HTMLInputElement>('input')!
+      sentinel.focus()
+      mockUpdateNode.mockRejectedValue(new ApiError(status, '参数错误: 字段 peers[0].allowed-ips 必填'))
+      await vm.save()
+      expect(document.activeElement).toBe(sentinel)
+    } finally { wrapper.unmount() }
+  })
+
+  it('稳定凭据路径直接定位，折叠高级参数仍会展开', async () => {
+    const { wrapper, vm } = await setup()
+    try {
+      mockUpdateNode.mockRejectedValueOnce(new ApiError(400, `参数错误: 凭据路径 peers[${ids[1]}].pre-shared-key 重复操作`))
+      await vm.save()
+      expect(focusedPath()).toBe(`peers[${ids[1]}].pre-shared-key`)
+      rejectField('refresh-server-ip-interval')
+      await vm.save()
+      expect(focusedPath()).toBe('refresh-server-ip-interval')
+      expect((elementAt('refresh-server-ip-interval').closest('details') as HTMLDetailsElement).open).toBe(true)
+    } finally { wrapper.unmount() }
+  })
+
+  it('较早请求的错误不得覆盖较新请求的定位', async () => {
+    const { wrapper, vm } = await setup()
+    let rejectOld!: (error: Error) => void
+    try {
+      mockUpdateNode.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+      const old = vm.save()
+      rejectField('peers[1].allowed-ips')
+      await vm.save()
+      const focused = document.activeElement
+      expect(focusedPath()).toBe(`peers[${ids[1]}].allowed-ips`)
+      rejectOld(new ApiError(400, '参数错误: 字段 peers[0].server 必填'))
+      await old
+      expect(document.activeElement).toBe(focused)
+    } finally { wrapper.unmount() }
+  })
+
+  it('卸载后迟到错误不定位另一个仍在页面中的表单', async () => {
+    const { wrapper, vm } = await setup()
+    let reject!: (error: Error) => void
+    mockUpdateNode.mockImplementationOnce(() => new Promise((_, rejectRequest) => { reject = rejectRequest }))
+    const pending = vm.save()
+    wrapper.unmount()
+    const other = document.createElement('form')
+    other.className = 'node-protocol-form'
+    other.innerHTML = '<div data-field-path="peers"><input></div><button type="button">保留焦点</button>'
+    document.body.append(other)
+    try {
+      const sentinel = other.querySelector('button')!
+      sentinel.focus()
+      reject(new ApiError(400, '参数错误: 字段 peers[0].allowed-ips 必填'))
+      await pending
+      expect(document.activeElement).toBe(sentinel)
+    } finally { other.remove() }
+  })
 })

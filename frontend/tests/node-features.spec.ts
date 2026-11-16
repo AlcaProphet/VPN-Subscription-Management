@@ -6,7 +6,7 @@ import type { FieldSchema } from '@/api/node'
 describe('功能元数据驱动的草稿清理', () => {
   it.each(['udp-over-tcp', 'udp-over-stream'])('保留 %s 顶层关闭行为，不影响普通 UDP 开关', (name) => {
     const schema: FieldSchema[] = [
-      { name, type: 'bool', label: name, required: false, feature: { name }, reset_on: [`feature.${name}`] },
+      { name, type: 'bool', default: false, label: name, required: false, feature: { name }, reset_on: [`feature.${name}`] },
       { name: `${name}-version`, type: 'number', label: '版本', required: false, reset_on: [`feature.${name}`] },
     ]
     expect(cleanDisabledFeatures(schema, { [name]: false, [`${name}-version`]: 2, udp: false })).toEqual({ [name]: false, udp: false })

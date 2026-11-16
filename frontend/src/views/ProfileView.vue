@@ -121,7 +121,7 @@ async function startBind() {
         </Button>
         <h2 class="text-lg font-semibold m-0">个人中心</h2>
       </div>
-      <Card :loading="loading" class="shadow-sm">
+      <Card :loading="loading" class="shadow-xs">
         <Tabs>
           <!-- 基本信息 -->
           <Tabs.TabPane key="basic" tab="基本信息">

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"vpn-sub/internal/assembly"
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/cron"
 	"vpn-sub/internal/dataclear"
@@ -101,6 +102,10 @@ func main() {
 	if reason != emergency.TriggerNone {
 		runEmergencyMode(reason, dbReadable, st, cfg, dataDir, dbFile, mode, trustPolicy, logger)
 		return
+	}
+	if err := assembly.MigrateRenderPlans(ctx, st, cfg); err != nil {
+		logger.Error("升级 Clash 渲染计划失败", "err", err)
+		os.Exit(1)
 	}
 
 	users := user.NewService(st, cfg, logger)

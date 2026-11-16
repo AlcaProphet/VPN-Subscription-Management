@@ -5,7 +5,8 @@ import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
 import EditableCombobox from '@/components/EditableCombobox.vue'
 import type { CurrentState, FieldSchema } from '@/api/node'
 import { matchesSensitivePath, pathContains } from '@/utils/nodeFeatures'
-import { hasConfiguredValue, matchesCondition } from '@/utils/nodeFormLayout'
+import { hasConfiguredValue, isTriStateBool, matchesCondition } from '@/utils/nodeFormLayout'
+import type { DraftApplication } from '@/utils/nodeDraft'
 
 const props = withDefaults(defineProps<{
   field: FieldSchema
@@ -19,6 +20,7 @@ const props = withDefaults(defineProps<{
   jsonResetVersions?: Record<string, number>
   jsonDirtyPaths?: string[]
   centralizedSwitches?: boolean
+  rootParams?: Record<string, unknown>
 }>(), {
   modelValue: undefined,
   sensitivePaths: () => [],
@@ -30,10 +32,11 @@ const props = withDefaults(defineProps<{
   jsonResetVersions: () => ({}),
   jsonDirtyPaths: () => [],
   centralizedSwitches: false,
+  rootParams: undefined,
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
+  'update:modelValue': [value: unknown, application?: DraftApplication]
   'validity-change': [payload: { path: string; valid: boolean }]
   'json-dirty-change': [payload: { path: string; dirty: boolean }]
   'draft-dirty-change': [payload: { path: string; dirty: boolean }]
@@ -79,10 +82,16 @@ const mapEntries = computed(() => Object.entries(objectValue.value).map(([key, v
   key,
   value,
 })))
-const sensitive = computed(() => props.field.type === 'password' || props.sensitivePaths.some((path) => matchesSensitivePath(path, fieldPath.value)))
+// 三态 bool：未声明 default 的 bool 保留 unset／false／true，不能用普通 Switch 吞掉“未设置”。
+const triStateValue = computed(() => (props.modelValue === true ? 'true' : props.modelValue === false ? 'false' : ''))
+function updateTriState(value: unknown) {
+  update(value === '' || value === undefined ? undefined : value === 'true')
+}
+
+const sensitive = computed(() => props.field.type === 'password' || props.field.type === 'secret-multiline' || props.sensitivePaths.some((path) => matchesSensitivePath(path, fieldPath.value)))
 
 function visibleProperties(properties?: FieldSchema[]): FieldSchema[] {
-  return (properties ?? []).filter((property) => matchesCondition(property.when, props.currentState))
+  return (properties ?? []).filter((property) => matchesCondition(property.when, props.currentState, undefined, props.rootParams))
 }
 const structuredProperties = computed(() => visibleProperties(props.field.properties)
   .filter((field) => !props.centralizedSwitches || field.type !== 'bool'))
@@ -140,8 +149,13 @@ function syncMapRowIDs(value: unknown) {
   }
 }
 
-function update(value: unknown) {
-  emit('update:modelValue', value)
+function update(value: unknown, application?: DraftApplication) {
+  if (application) emit('update:modelValue', value, application)
+  else emit('update:modelValue', value)
+}
+
+function applyCustomValue(value: string, applied?: () => void) {
+  update(value, applied ? { path: fieldPath.value, applied } : undefined)
 }
 
 function forwardValidity(payload: { path: string; valid: boolean }) {
@@ -171,6 +185,88 @@ function forwardCredentialChange(payload: { path: string; value: string }) {
 function updateCredential(value: string) {
   update(value)
   emit('credential-change', { path: fieldPath.value, value })
+}
+
+// byte-sequence：内部规范值为 3 个 0-255 整数；输入支持三个整数或 Base64。
+const BYTE_SEQUENCE_LENGTH = 3
+const byteSequenceItems = ref<Array<number | undefined>>([undefined, undefined, undefined])
+const byteSequenceDraft = ref('')
+const byteSequenceError = ref('')
+function byteSequenceHasDraft(): boolean {
+  return byteSequenceDraft.value.trim() !== '' || (byteSequenceItems.value.some((item) => item !== undefined) && !byteSequenceComplete())
+}
+function reportByteSequenceDraft() {
+  if (props.field.type === 'byte-sequence') emitDraftDirty(byteSequenceHasDraft())
+}
+
+watch(() => props.modelValue, (value) => {
+  if (Array.isArray(value) && value.length === BYTE_SEQUENCE_LENGTH) {
+    byteSequenceItems.value = value.map((item) => Number(item))
+    byteSequenceError.value = ''
+    reportByteSequenceDraft()
+    return
+  }
+  if (value === undefined || value === null || value === '') {
+    byteSequenceItems.value = [undefined, undefined, undefined]
+    reportByteSequenceDraft()
+  }
+}, { immediate: true, deep: true })
+
+function byteSequenceComplete(): boolean {
+  return byteSequenceItems.value.every((item) => typeof item === 'number' && Number.isInteger(item) && item >= 0 && item <= 255)
+}
+
+function setByteSequenceItem(index: number, value: number | undefined) {
+  const next = [...byteSequenceItems.value]
+  next[index] = value === undefined || value === null || Number.isNaN(value) ? undefined : Math.trunc(value)
+  byteSequenceItems.value = next
+  if (byteSequenceComplete()) {
+    reportByteSequenceDraft()
+    byteSequenceError.value = ''
+    update([...next] as number[])
+    emit('validity-change', { path: fieldPath.value, valid: true })
+    return
+  }
+  byteSequenceError.value = `请输入 ${BYTE_SEQUENCE_LENGTH} 个 0-255 整数`
+  reportByteSequenceDraft()
+  emit('validity-change', { path: fieldPath.value, valid: false })
+}
+
+function applyByteSequenceBase64() {
+  const text = byteSequenceDraft.value.trim()
+  if (text === '') {
+    byteSequenceError.value = '请输入 Base64 内容'
+    return
+  }
+  let decoded = ''
+  try {
+    decoded = window.atob(text)
+  } catch {
+    byteSequenceError.value = 'Base64 内容非法'
+    return
+  }
+  if (decoded.length !== BYTE_SEQUENCE_LENGTH) {
+    byteSequenceError.value = `Base64 解码后必须为 ${BYTE_SEQUENCE_LENGTH} 字节`
+    return
+  }
+  const values = Array.from(decoded).map((char) => char.charCodeAt(0))
+  byteSequenceItems.value = values
+  byteSequenceDraft.value = ''
+  byteSequenceError.value = ''
+  reportByteSequenceDraft()
+  update(values)
+  emit('validity-change', { path: fieldPath.value, valid: true })
+}
+
+function cancelByteSequenceDraft() {
+  byteSequenceDraft.value = ''
+  byteSequenceError.value = ''
+  reportByteSequenceDraft()
+}
+function updateByteSequenceDraft(value: string) {
+  byteSequenceDraft.value = value
+  byteSequenceError.value = ''
+  reportByteSequenceDraft()
 }
 
 function emitJsonDirty(dirty: boolean) {
@@ -309,10 +405,11 @@ function applyJSON() {
     setJSONValidity(result.path)
     return
   }
-  jsonDirty.value = false
-  emitJsonDirty(false)
-  setJSONValidity('')
-  update(result.parsed)
+  update(result.parsed, { path: fieldPath.value, applied: () => {
+    jsonDirty.value = false
+    emitJsonDirty(false)
+    setJSONValidity('')
+  } })
 }
 
 function discardJSON() {
@@ -327,8 +424,8 @@ function childValue(name: string): unknown {
   return objectValue.value[name]
 }
 
-function setChild(name: string, value: unknown) {
-  update({ ...objectValue.value, [name]: value })
+function setChild(name: string, value: unknown, application?: DraftApplication) {
+  update({ ...objectValue.value, [name]: value }, application)
 }
 
 function addMapEntry() {
@@ -406,20 +503,34 @@ function listItemID(item: unknown, index: number): string {
   return String(index)
 }
 
-function setListChild(index: number, name: string, value: unknown) {
+function setListChild(index: number, name: string, value: unknown, application?: DraftApplication) {
   const next = [...listValue.value]
   const current = next[index]
   const object = current && typeof current === 'object' && !Array.isArray(current)
     ? current as Record<string, unknown>
     : {}
   next[index] = { ...object, [name]: value }
-  update(next)
+  update(next, application)
 }
 
 function removeListItem(index: number) {
   const next = [...listValue.value]
   next.splice(index, 1)
   update(next)
+}
+
+function moveListItem(index: number, offset: -1 | 1) {
+  const target = index + offset
+  if (target < 0 || target >= listValue.value.length) return
+  const next = [...listValue.value]
+  const [item] = next.splice(index, 1)
+  next.splice(target, 0, item)
+  update(next)
+}
+
+function listItemAriaLabel(action: string, index: number): string {
+  const itemLabel = props.field.label.replace(/\s*列表$/, '') || '条目'
+  return `${action}第 ${index + 1} 个 ${itemLabel}`
 }
 
 const scalarListItems = computed<string[]>(() => {
@@ -528,11 +639,8 @@ function cancelScalarListDraft() {
 
 onBeforeUnmount(() => {
   if (scalarListDraftOpen.value) emitDraftDirty(false)
+  if (props.field.type === 'byte-sequence' && byteSequenceHasDraft()) emitDraftDirty(false)
 })
-
-function isLongText(field: FieldSchema): boolean {
-  return field.type === 'text' && ['client-config', 'certificate', 'ca', 'ca-str', 'host-key', 'restls-script'].includes(field.name)
-}
 
 function isComplex(value: unknown): boolean {
   return value !== null && typeof value === 'object'
@@ -548,12 +656,12 @@ function isComplex(value: unknown): boolean {
       </div>
       <div class="protocol-editor-mode flex shrink-0" role="group" :aria-label="`${field.label}编辑模式`">
         <Button :type="!advanced ? 'primary' : 'default'" :aria-pressed="!advanced" :disabled="!!jsonError" @click="setAdvanced(false)">结构化编辑</Button>
-        <Button :type="advanced ? 'primary' : 'default'" :aria-pressed="advanced" @click="setAdvanced(true)">高级 JSON</Button>
+        <Button data-field-json-toggle :type="advanced ? 'primary' : 'default'" :aria-pressed="advanced" @click="setAdvanced(true)">高级 JSON</Button>
       </div>
     </div>
 
     <div v-if="advanced">
-      <Input.TextArea :value="jsonText" :rows="6" class="font-mono" @input="(event: any) => updateJSON(event.target.value)" />
+      <Input.TextArea data-field-json-editor :value="jsonText" :rows="6" class="font-mono" @input="(event: any) => updateJSON(event.target.value)" />
       <div v-if="jsonError" class="text-xs text-red-500 mt-1">{{ jsonError }}</div>
       <div class="mt-2 flex items-center gap-2">
         <Button size="small" type="primary" :disabled="!!jsonError" @click="applyJSON">应用</Button>
@@ -586,9 +694,13 @@ function isComplex(value: unknown): boolean {
     <template v-else-if="field.object_kind === 'list'">
       <div v-if="listValue.length" class="space-y-3">
         <div v-for="(item, index) in listValue" :key="listItemID(item, index)" class="rounded-lg border p-3">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-sm font-medium">第 {{ index + 1 }} 项</span>
-            <Button size="small" danger @click="removeListItem(index)">删除</Button>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <span class="text-sm font-medium shrink-0">第 {{ index + 1 }} 项</span>
+            <div class="flex flex-wrap justify-end gap-2">
+              <Button size="small" :aria-label="listItemAriaLabel('上移', index)" :disabled="index === 0" @click="moveListItem(index, -1)">上移</Button>
+              <Button size="small" :aria-label="listItemAriaLabel('下移', index)" :disabled="index === listValue.length - 1" @click="moveListItem(index, 1)">下移</Button>
+              <Button size="small" danger :aria-label="listItemAriaLabel('删除', index)" @click="removeListItem(index)">删除</Button>
+            </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ProtocolFieldEditor
@@ -603,7 +715,7 @@ function isComplex(value: unknown): boolean {
               :current-state="currentState"
               :json-reset-versions="jsonResetVersions"
               :json-dirty-paths="jsonDirtyPaths"
-              @update:model-value="(value: unknown) => setListChild(index, property.name, value)"
+              @update:model-value="(value: unknown, application?: DraftApplication) => setListChild(index, property.name, value, application)"
               @validity-change="forwardValidity"
               @json-dirty-change="forwardJsonDirty"
               @draft-dirty-change="forwardDraftDirty"
@@ -614,7 +726,7 @@ function isComplex(value: unknown): boolean {
         </div>
       </div>
       <div v-else class="text-xs text-text-tertiary mb-2">暂无条目</div>
-      <Button size="small" @click="addListItem">新增条目</Button>
+      <Button data-field-list-add size="small" @click="addListItem">新增条目</Button>
     </template>
 
     <template v-else>
@@ -637,7 +749,7 @@ function isComplex(value: unknown): boolean {
           :json-dirty-paths="jsonDirtyPaths"
           :centralized-switches="centralizedSwitches"
           :class="property.type === 'object' ? 'md:col-span-2' : ''"
-          @update:model-value="(value: unknown) => setChild(property.name, value)"
+          @update:model-value="(value: unknown, application?: DraftApplication) => setChild(property.name, value, application)"
           @validity-change="forwardValidity"
           @json-dirty-change="forwardJsonDirty"
           @draft-dirty-change="forwardDraftDirty"
@@ -654,6 +766,15 @@ function isComplex(value: unknown): boolean {
     </template>
   </div>
 
+  <label v-else-if="isTriStateBool(field)" :data-field-path="fieldPath" class="protocol-switch-field flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm text-text-secondary">
+    <span>{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span><span v-if="field.help" class="block text-xs text-text-tertiary">{{ field.help }}</span></span>
+    <AppSelect :value="triStateValue" class="w-32" :aria-label="field.label" @change="(value: any) => updateTriState(value)">
+      <Select.Option value="">未设置</Select.Option>
+      <Select.Option value="false">关闭</Select.Option>
+      <Select.Option value="true">开启</Select.Option>
+    </AppSelect>
+  </label>
+
   <label v-else-if="field.type === 'bool'" :data-field-path="fieldPath" class="protocol-switch-field flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm text-text-secondary">
     <span>{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span><span v-if="field.help" class="block text-xs text-text-tertiary">{{ field.help }}</span></span>
     <Switch :aria-label="field.label" :checked="Boolean(modelValue ?? field.default ?? false)" @change="(value: any) => update(Boolean(value))" />
@@ -661,14 +782,33 @@ function isComplex(value: unknown): boolean {
 
   <div v-else :data-field-path="fieldPath" class="protocol-scalar-field">
     <label class="text-sm text-text-secondary">{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></label>
-    <template v-if="sensitive">
+    <template v-if="field.type === 'secret-multiline'">
+      <Input.TextArea :value="String(modelValue ?? '')" :rows="4" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
+      <div class="text-xs text-text-tertiary mt-1">
+        {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
+      </div>
+    </template>
+    <template v-else-if="sensitive">
       <Input.Password :value="String(modelValue ?? '')" :placeholder="shownCredentialState === 'saved' ? '已保存（留空保留）' : '未配置'" @change="(event: any) => updateCredential(event.target.value)" />
       <div class="text-xs text-text-tertiary mt-1">
         {{ shownCredentialState === 'saved' ? '已保存（留空保留）' : shownCredentialState === 'replacing' ? '待替换' : '未配置' }}
       </div>
     </template>
     <InputNumber v-else-if="field.type === 'number'" :value="numberValue" :placeholder="field.required ? `请输入${field.label}` : '未设置'" class="w-full" @change="(value: any) => update(value ?? undefined)" />
-    <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" :placeholder="`请选择${field.label}`" class="w-full" @update:model-value="(value: string) => update(value)" @draft-dirty-change="(dirty: boolean) => emitDraftDirty(dirty)" />
+    <div v-else-if="field.type === 'byte-sequence'" class="protocol-byte-sequence-editor space-y-2">
+      <div class="grid grid-cols-3 gap-2">
+        <InputNumber v-for="(item, index) in byteSequenceItems" :key="index" :value="item" :min="0" :max="255" :precision="0"
+          :placeholder="`第 ${index + 1} 项`" class="w-full" @change="(value: any) => setByteSequenceItem(index, value ?? undefined)" />
+      </div>
+      <div class="flex items-center gap-2">
+        <Input :value="byteSequenceDraft" placeholder="粘贴 Base64（解码为 3 字节）" @change="(event: any) => updateByteSequenceDraft(event.target.value)" />
+        <Button size="small" @click="applyByteSequenceBase64">应用 Base64</Button>
+        <Button v-if="byteSequenceDraft" size="small" @click="cancelByteSequenceDraft">取消</Button>
+      </div>
+      <div v-if="byteSequenceError" class="text-xs text-red-500">{{ byteSequenceError }}</div>
+      <div v-else class="text-xs text-text-tertiary">保存前统一为 3 字节整数序列。</div>
+    </div>
+    <EditableCombobox v-else-if="(field.type === 'select' || field.type === 'text') && field.option_items" :value="String(modelValue ?? field.default ?? '')" :items="field.option_items" :allow-custom="field.allow_custom === true" :placeholder="`请选择${field.label}`" class="w-full" @update:model-value="applyCustomValue" @draft-dirty-change="(dirty: boolean) => emitDraftDirty(dirty)" />
     <AppSelect v-else-if="field.type === 'select'" :value="String(modelValue ?? field.default ?? '')" class="w-full" @change="(value: any) => update(value)">
       <Select.Option v-for="option in field.options" :key="option" :value="option">{{ option }}</Select.Option>
     </AppSelect>
@@ -695,7 +835,7 @@ function isComplex(value: unknown): boolean {
         </div>
       </div>
     </div>
-    <Input.TextArea v-else-if="isLongText(field)" :value="String(modelValue ?? '')" :rows="4" @change="(event: any) => update(event.target.value)" />
+    <Input.TextArea v-else-if="field.type === 'multiline'" :value="String(modelValue ?? '')" :rows="4" @change="(event: any) => update(event.target.value)" />
     <Input v-else :value="String(modelValue ?? '')" @change="(event: any) => update(event.target.value)" />
     <div v-if="field.help" class="text-xs text-text-tertiary mt-1">{{ field.help }}</div>
   </div>

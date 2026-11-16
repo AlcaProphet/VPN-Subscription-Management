@@ -1,0 +1,12 @@
+{
+  "protocol": "tailscale",
+  "host": "",
+  "port": 0,
+  "protocol_json": {
+    "hostname": "node-b",
+    "control-url": "http://headscale.local:8080",
+    "exit-node": "auto:any"
+  },
+  "current_state": {},
+  "targets": ["clash-yaml", "sr-subs", "generic-subs"]
+}

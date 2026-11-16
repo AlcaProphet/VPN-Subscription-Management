@@ -8,7 +8,7 @@ import (
 
 // TestCheckXrayReferences 装配快照中同名 Xray 节点视为已重绑，失配节点返回悬空提示。
 func TestCheckXrayReferences(t *testing.T) {
-	svc, st, _ := newTestService(t)
+	svc, st, cfg := newTestService(t)
 	ctx := context.Background()
 	pid := insertPlatform(t, st, "yaml")
 	var subID int64
@@ -35,12 +35,18 @@ func TestCheckXrayReferences(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateRenderPlans(ctx, st, cfg); err != nil {
+		t.Fatalf("迁移蓝图失败: %v", err)
+	}
 	hints, err := svc.CheckXrayReferences(ctx)
 	if err != nil {
 		t.Fatalf("CheckXrayReferences 失败: %v", err)
 	}
 	foundMissing := false
 	for _, h := range hints {
+		if strings.Contains(h, "跳过 render_plan") {
+			t.Fatal("加密蓝图应继续参与引用核对")
+		}
 		if strings.Contains(h, "instance-x-missing") && strings.Contains(h, "未匹配") {
 			foundMissing = true
 		}
