@@ -44,7 +44,7 @@ func (s *Service) Preview(ctx context.Context, in GenerateInput) (*PreviewResult
 	if err != nil {
 		return nil, err
 	}
-	return &PreviewResult{Content: res.Content, Skipped: res.Skipped, Warnings: s.Warnings(in, res), Receipt: res.Receipt}, nil
+	return &PreviewResult{Content: res.Content, Skipped: res.Skipped, Warnings: s.Warnings(res), Receipt: res.Receipt, Issues: res.Issues}, nil
 }
 
 // Render 渲染并返回结构化计划（供 generate 使用）。
@@ -145,13 +145,10 @@ func (s *Service) xrayCandidateNamesTx(ctx context.Context, tx *sql.Tx, names []
 }
 
 // Warnings 从渲染跳过项等生成用户提示。
-func (s *Service) Warnings(in GenerateInput, res *RenderResult) []string {
+func (s *Service) Warnings(res *RenderResult) []string {
 	var warnings []string
-	// 规则类警告仅对会产出规则正文的 Clash YAML 与 Shadowrocket 分流规则输出；
-	// sr-subs / generic-subs 是纯节点订阅，不渲染规则内容，避免无关警告。
-	if (in.TargetSyntax == ClashYAML || in.TargetSyntax == SrConf) &&
-		len(in.Pools) == 0 && len(in.CustomRules) == 0 {
-		warnings = append(warnings, "未选择任何规则素材池或手动规则，将生成空规则")
+	if res.Receipt != nil && res.Receipt.FinalOutput == 0 {
+		warnings = append(warnings, "当前目标没有可输出的非系统规则")
 	}
 	for _, sk := range res.Skipped {
 		switch sk.Kind {

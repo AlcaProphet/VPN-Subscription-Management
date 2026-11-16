@@ -205,7 +205,7 @@ func (s *Service) Create(ctx context.Context, name string, sources []SourceInput
 		if err != nil {
 			return err
 		}
-		created = &Pool{ID: id, Name: name, AutoSync: autoSync, SyncTime: syncTime}
+		created = &Pool{ID: id, Name: name, URLs: make([]string, 0, len(sources)), AutoSync: autoSync, SyncTime: syncTime}
 		for i, src := range sources {
 			sid, err := insertSourceTx(ctx, tx, id, "url", src.URL, src.SourceMode, int64(i))
 			if err != nil {
@@ -342,7 +342,7 @@ func (s *Service) loadSources(ctx context.Context, p *Pool) error {
 	}
 	defer rows.Close()
 	p.Sources = nil
-	p.URLs = nil
+	p.URLs = []string{}
 	for rows.Next() {
 		var src PoolSource
 		var mode string

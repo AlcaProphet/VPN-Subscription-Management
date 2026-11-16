@@ -68,39 +68,15 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 	}
 	root = append(root, gyaml.MapItem{Key: "proxy-groups", Value: groups})
 	// rules
-	rules := make([]any, 0)
-	skipped := []SkipItem{}
-	appendRule := func(ruleType, value, target string, noResolve bool) {
-		typ, normalized, err := rulespec.ValidateValue(ruleType, value)
-		if err != nil {
-			return
-		}
-		mapped := rulespec.SupportsAndMapLegacy(typ, rulespec.TargetClash)
-		if !mapped.Supported {
-			skipped = append(skipped, SkipItem{Kind: "rule", Name: ruleType + "," + value, Reason: "Clash 不支持该规则类型"})
-			return
-		}
-		line := mapped.RenderType + ","
-		if mapped.RenderType != "MATCH" {
-			line += normalized + ","
-		}
-		line += target
-		if noResolve && mapped.SupportsNoResolve {
-			line += ",no-resolve"
-		}
+	planRules, skipped, receipt := assembleRules(in, ld, rulespec.TargetClash, "Clash")
+	fallback := []string{systemGeoRule, "MATCH," + node.ForceFallback}
+	rules := make([]any, 0, len(planRules)+len(fallback))
+	for _, r := range planRules {
+		rules = append(rules, formatClashPlanRule(r))
+	}
+	for _, line := range fallback {
 		rules = append(rules, line)
 	}
-	for _, psel := range in.Pools {
-		entries := ld.pools[psel.PoolID]
-		for _, e := range entries {
-			appendRule(e.RuleType, e.MatchValue, psel.Target, e.NoResolve)
-		}
-	}
-	for _, r := range in.CustomRules {
-		appendRule(r.RuleType, r.MatchValue, r.Target, false)
-	}
-	appendRule("GEOIP", "CN", "DIRECT", false)
-	appendRule("MATCH", "", node.ForceFallback, false)
 	root = append(root, gyaml.MapItem{Key: "rules", Value: rules})
 	if hasXrayNode(ld) {
 		xrayNames := make([]any, 0)
@@ -149,38 +125,17 @@ func (s *Service) renderClash(in GenerateInput, ld *loadedData) (*RenderResult, 
 			}
 			return out
 		}(),
-		Rules: func() []ClashPlanRule {
-			out := make([]ClashPlanRule, 0)
-			for _, psel := range in.Pools {
-				for _, e := range ld.pools[psel.PoolID] {
-					if e.RuleType == "USER-AGENT" {
-						continue
-					}
-					typ, value, err := rulespec.ValidateValue(e.RuleType, e.MatchValue)
-					if err == nil {
-						out = append(out, ClashPlanRule{Type: typ, Value: value, Target: psel.Target, NoResolve: boolPtr(e.NoResolve)})
-					}
-				}
-			}
-			for _, r := range in.CustomRules {
-				if r.RuleType == "USER-AGENT" {
-					continue
-				}
-				typ, value, err := rulespec.ValidateValue(r.RuleType, r.MatchValue)
-				if err == nil {
-					out = append(out, ClashPlanRule{Type: typ, Value: value, Target: r.Target, NoResolve: boolPtr(false)})
-				}
-			}
-			return out
-		}(),
-		Fallback: []string{"GEOIP,CN,DIRECT", "MATCH," + node.ForceFallback},
+		Rules:    planRules,
+		Fallback: fallback,
 		Overlay:  in.Overlay,
 	}
 	planRaw, err := json.Marshal(plan)
 	if err != nil {
 		return nil, fmt.Errorf("序列化 Clash 渲染计划失败: %w", err)
 	}
-	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw, Issues: CheckClashContent(content), Diagnostics: diagnostics}, nil
+	issues, finalOutput := inspectClashContent(content)
+	receipt.FinalOutput = finalOutput
+	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: planRaw, Issues: issues, Diagnostics: diagnostics, Receipt: receipt}, nil
 }
 
 func clashPlanGroupFromData(g *groupData, proxies []string) ClashPlanGroup {

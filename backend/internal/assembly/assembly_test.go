@@ -675,7 +675,7 @@ func TestWarningsSkipRulesForNodeSubscriptions(t *testing.T) {
 			t.Fatalf("节点订阅预览失败: %v", err)
 		}
 		for _, w := range res.Warnings {
-			if strings.Contains(w, "未选择任何规则素材池或手动规则") {
+			if strings.Contains(w, "没有可输出的非系统规则") {
 				t.Errorf("%s 不应输出规则空警告: %v", tc.target, res.Warnings)
 			}
 		}
@@ -696,7 +696,7 @@ func TestWarningsKeepRulesForClashAndSrConf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Clash 预览失败: %v", err)
 	}
-	if !containsWarning(clash.Warnings, "未选择任何规则素材池或手动规则") {
+	if !containsWarning(clash.Warnings, "没有可输出的非系统规则") {
 		t.Errorf("Clash 无规则素材时应输出空规则警告: %v", clash.Warnings)
 	}
 	sr, err := svc.Preview(context.Background(), GenerateInput{
@@ -706,7 +706,7 @@ func TestWarningsKeepRulesForClashAndSrConf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SR 分流预览失败: %v", err)
 	}
-	if !containsWarning(sr.Warnings, "未选择任何规则素材池或手动规则") {
+	if !containsWarning(sr.Warnings, "没有可输出的非系统规则") {
 		t.Errorf("SR 分流无规则素材时应输出空规则警告: %v", sr.Warnings)
 	}
 }

@@ -62,7 +62,8 @@ export interface PreviewResponse {
   skipped: SkipItem[]
   warnings: string[]
   name_changed?: Record<string, string>
-  receipt?: ConversionReceipt
+  receipt?: ConversionReceipt | null
+  issues?: Array<{ severity: string; path: string; message: string }> | null
 }
 export interface AssemblyContext {
   nodes: NodeItem[]

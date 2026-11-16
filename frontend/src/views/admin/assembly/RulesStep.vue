@@ -13,10 +13,12 @@ defineProps<{
   targetSyntax: TargetSyntax
   outputGroups: string[]
   ruleTypeOptions: string[]
+  sourceMessage?: string
 }>()
 
 const emit = defineEmits<{
   'add-pool': []
+  'open-pools': []
   'move-pool': [from: number, to: number]
   'remove-pool': [index: number]
   'add-rule': []
@@ -38,6 +40,10 @@ function onDrop(idx: number) {
 
 <template>
   <div class="space-y-3">
+    <p v-if="sourceMessage" class="text-sm text-text-secondary">{{ sourceMessage }}</p>
+    <p v-else-if="targetSyntax === 'clash-yaml' && !form.pools.length && !form.custom_rules.length" class="text-sm text-text-secondary">
+      可选择素材池、添加手动规则，或在覆盖层提供规则。
+    </p>
     <div>
       <div class="text-sm font-medium mb-1">已勾选素材池（有序）</div>
       <div v-if="form.pools.length === 0" class="text-xs text-text-tertiary">尚未添加素材池</div>
@@ -57,7 +63,8 @@ function onDrop(idx: number) {
         <Button size="small" :disabled="idx === form.pools.length - 1" @click="emit('move-pool', idx, idx + 1)">下移</Button>
         <Button size="small" danger @click="emit('remove-pool', idx)">移除</Button>
       </div>
-      <Button size="small" @click="emit('add-pool')">添加素材池</Button>
+      <Button size="small" :disabled="!context?.pools.length" @click="emit('add-pool')">添加素材池</Button>
+      <Button v-if="context && !context.pools.length" type="link" size="small" @click="emit('open-pools')">前往规则素材池</Button>
     </div>
     <div>
       <div class="text-sm font-medium mb-1">手动规则行</div>

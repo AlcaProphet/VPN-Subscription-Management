@@ -89,31 +89,16 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 		b.WriteString("\n")
 	}
 	b.WriteString("\n[Rule]\n")
-	skipped := []SkipItem{}
-	appendRule := func(ruleType, value, target string, noResolve bool) {
-		typ, normalized, err := rulespec.ValidateValue(ruleType, value)
-		if err != nil {
-			skipped = append(skipped, SkipItem{Kind: "rule", Name: ruleType + "," + value, Reason: err.Error()})
-			return
-		}
-		mapped := rulespec.SupportsAndMapLegacy(typ, rulespec.TargetSR)
-		if !mapped.Supported {
-			skipped = append(skipped, SkipItem{Kind: "rule", Name: typ + "," + normalized, Reason: "Shadowrocket 不支持该规则类型"})
-			return
-		}
-		// 仅实例显式设置且目标能力支持时才输出 no-resolve。
-		b.WriteString(formatRuleLine(mapped.RenderType, normalized, target, noResolve && mapped.SupportsNoResolve))
+	rules, skipped, receipt := assembleRules(in, ld, rulespec.TargetSR, "Shadowrocket")
+	for _, r := range rules {
+		noResolve := *r.NoResolve && rulespec.SupportsAndMapLegacy(r.Type, rulespec.TargetSR).SupportsNoResolve
+		b.WriteString(formatRuleLine(r.Type, r.Value, r.Target, noResolve))
 		b.WriteString("\n")
-	}
-	for _, psel := range in.Pools {
-		for _, e := range ld.pools[psel.PoolID] {
-			appendRule(e.RuleType, e.MatchValue, psel.Target, e.NoResolve)
+		if !isGeoFallback(r.Type, r.Value, r.Target, noResolve) {
+			receipt.FinalOutput++
 		}
 	}
-	for _, r := range in.CustomRules {
-		appendRule(r.RuleType, r.MatchValue, r.Target, false)
-	}
-	b.WriteString("GEOIP,CN,DIRECT\n")
+	b.WriteString(systemGeoRule + "\n")
 	final := in.FinalDirection
 	if final == "" {
 		final = "PROXY"
@@ -129,14 +114,5 @@ func (s *Service) renderSrConf(in GenerateInput, ld *loadedData) (*RenderResult,
 	if err != nil {
 		return nil, fmt.Errorf("序列化 SR 分流渲染计划失败: %w", err)
 	}
-	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: plan}, nil
-}
-
-// formatRuleLine 生成规则行；仅当实例显式设置 no-resolve 且类型支持时追加。
-func formatRuleLine(ruleType, value, target string, noResolve bool) string {
-	line := ruleType + "," + value + "," + target
-	if noResolve {
-		line += ",no-resolve"
-	}
-	return line
+	return &RenderResult{Content: content, Skipped: skipped, RenderPlan: plan, Receipt: receipt}, nil
 }

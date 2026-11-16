@@ -429,15 +429,18 @@ fetching → parsing → staging
 - 最终 policy 仍由装配页面指定，源 policy 不覆盖。
 - `no_resolve` 仅在规则实际设置且目标支持时输出。
 - 默认不做语义降级；等价转换必须有测试和回执。
-- 池可供两个目标选择，只要该目标的素材池规则与自定义规则合计至少输出一条（不含内置 `GEOIP`/`MATCH`/`FINAL` 等系统兜底）。
+- Clash 与 SR 分流装配都允许只用手动规则。Clash 也允许只用覆盖层提供规则。SR 分流的规则目标为 `PROXY` 或 `DIRECT`，规则步骤没有合格输入时提示补充。
 
-预览/生成返回输入数、直接输出数、等价转换数、目标不支持跳过数、目标校验失败数和最终输出数。最终输出只统计**素材池规则 + 自定义规则**，不包含内置 `GEOIP`/`MATCH`/`FINAL` 等系统兜底；最终输出为 0时禁止生成；大于 0但存在跳过时允许生成并明确警告，不增加第二个确认框。素材快照或其他输出字段变化继续触发 `previewStale`，必须重新预览；`render_plan_json` 固化实际规则，历史版本不漂移。
+- 转换回执的输入、直接输出、等价转换、目标不支持和校验失败统计来自本次素材池与手动规则的实际转换。Clash 的 `final_output` 从 Rules Seq 和 Merge 等操作完成后的顶层 `rules` 中统计通过静态校验的非兜底行。SR 从实际写入 `[Rule]` 的非兜底行统计。内置 `GEOIP,CN,DIRECT` 及 `MATCH`／`FINAL` 兜底排除。覆盖层增删可以使最终输出与转换阶段的直接输出及等价转换之和不同。
+- 顶层 `RULE-SET` 按一条规则计，引用必须在最终配置的 `rule-providers` 中有对应映射。外部规则集内容由客户端加载。位于可能终结匹配的 `MATCH` 之后的规则仍按静态结果计数，预览提示顺序风险。
+- 有效预览的最终输出为零或产物存在阻断级自检问题时禁用生成。存在跳过项但最终有输出且静态校验通过时，显示提示并允许生成。`sr-subs` 与 `generic-subs` 继续按有效节点链接数量控制生成。
+- 预览正文、摘要、回执和自检结果使用同一个表单指纹。变更素材或其他输出字段时，过期结果收起且不能生成。生成接口重渲染并校验预览摘要及本次产物，只有通过才建版本。门槛适用于管理员装配的新版本，历史 Clash 下载继续按已保存的渲染计划处理。
 
 `no_resolve` 必须按结构化尾部 token 解析，仅独立且目标能力允许的 `no-resolve` token 才设置 Canonical option；不得通过对整行或匹配值做子串搜索推断，否则 `no-resolve.example.com` 等合法值会被误判。source policy 静默忽略；未知尾部 option 生成 `kind:"warn"` 诊断，但不得静默变成 `no_resolve`。
 
 Clash `render_plan_json` 必须冻结每条新规则的显式 `no_resolve=true/false`，下载重渲染与生成时保持一致。兼容编码固定采用逐规则 nullable boolean（Go 字段为 `NoResolve *bool`，JSON tag 为 `json:"no_resolve,omitempty"`），不为这一单字段引入整份 Clash plan 的顶层 schema version：字段缺失或 JSON `null` 表示既有历史计划，沿用创建该计划时的按类型推断行为；字段存在时严格按实例 true/false 与目标能力的交集渲染。新计划的每条规则都必须写出 boolean，包括 false，不得借 `omitempty` 省略；生产端应使用单一构造入口避免漏设后误入历史分支。覆盖层或目标组删除导致规则重写时，只保留已渲染行/显式计划中的 `no-resolve`，不得再次根据类型补加。未来只有在整份 plan 出现新的结构演进需求时，才另行设计顶层版本号。
 
-Build22 实现收口（2026-09-10）：`preview` 响应与 `generate` 成功响应均返回本次 `receipt`，wire 字段为 `input`、`direct_output`、`equivalent_conversions`、`skipped_unsupported`、`target_validation_failed`、`final_output`。前端仅在当前预览指纹有效时显示 preview 回执；目标、输入、选中素材池、自定义规则等导致 `previewStale` 的变化会清除旧回执。`generate` 成功页只使用本次 generate 响应中的回执，不复用 preview 回执；缺省 receipt 时界面不显示虚假零值。
+预览与生成成功响应的 `receipt` 保持六个字段 `input`、`direct_output`、`equivalent_conversions`、`skipped_unsupported`、`target_validation_failed`、`final_output`。预览附带结构化自检 `issues`。前端仅为当前有效预览展示其回执，生成成功页使用本次生成的回执。节点订阅没有规则回执。
 
 ---
 
@@ -536,6 +539,7 @@ Build16 完成后，本文覆盖 Design2 中的 `urls_json string[]`、裸域名
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v1.13 | 2026-11-16 | R35-02 更新 §7.2，Clash 覆盖层可独立提供规则，生成使用最终静态自检结果与非兜底规则数，SR 以实际规则输出计数。工程与本地验收见 [Build33.md](../Build/Build33.md)。 |
 | v1.12 | 2026-09-11 | Build22 Step 7 证据补齐并重新通过 Step 11 全量门禁：激活/activated_at、存量清洗、现有 sync API 读时脱敏、19+1/200 rune、v1 stats/version 0、latest_failed 恢复/排序、failed 写失败保护、旧 Clash plan 回退及额外边界均有自动化证据；D3-1～D3-10 闭环，本设计随 Build22 归档。 |
 | v1.11 | 2026-09-10 | 文档交叉审核修正：Build22 Step 7 专属自动化测试矩阵大面积未落地，Step 11 不能声明 D3-1～D3-10 全部验收通过；Design3 因此保持根目录活跃、不归档，待 Build22 补齐 Step 7 证据并重新执行 Step 11 门禁后再归档。 |
 | v1.10 | 2026-09-10 | Build22 Step 8～11 按实际实现收口：补充来源状态卡片的 display_url 边界、latest_attempt 主状态、failed+旧 active 提示、ConfirmModal 新旧差异、服务端 activated_at、v1 stats/version 0 展示，以及 preview/generate 回执的生成与清除规则；§9.3 更新为 Build22 已完成代码与运行门禁，人工浏览器/真机项目迁移 ProdTestList。未写入未实现能力；Step 7 自动化证据缺口由 v1.11 修正。 |

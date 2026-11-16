@@ -35,6 +35,19 @@ func TestLegacyTypeForCanonicalSelectsCIDRAddressFamily(t *testing.T) {
 	}
 }
 
+func TestPoolWithoutURLReturnsEmptyArray(t *testing.T) {
+	_, svc := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "手工素材池", nil, false, "04:00")
+	if err != nil || p.URLs == nil || len(p.URLs) != 0 {
+		t.Fatalf("创建纯手工池时应返回空 URL 数组: %+v %v", p, err)
+	}
+	pools, err := svc.List(ctx)
+	if err != nil || len(pools) != 1 || pools[0].URLs == nil || len(pools[0].URLs) != 0 {
+		t.Fatalf("读取纯手工池时应返回空 URL 数组: %+v %v", pools, err)
+	}
+}
+
 func TestCRUDAndSort(t *testing.T) {
 	st, svc := newTestService(t)
 	ctx := context.Background()

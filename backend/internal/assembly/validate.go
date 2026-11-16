@@ -132,16 +132,19 @@ func (s *Service) validate(in GenerateInput, ld *loadedData) error {
 			return err
 		}
 	}
-	// 规则目标组必须属于本次输出集合（强制组或已勾选组；sr-conf 允许 PROXY/DIRECT）
+	// Clash 规则引用本次输出组，SR 分流只使用自己的两种策略。
 	outputGroups := map[string]bool{node.ForceDirect: true, node.ForceOverseas: true, node.ForceFallback: true}
 	for _, name := range in.GroupNames {
 		outputGroups[name] = true
 	}
 	checkTarget := func(target string) error {
-		if outputGroups[target] {
-			return nil
+		if in.TargetSyntax == SrConf {
+			if target == "PROXY" || target == "DIRECT" {
+				return nil
+			}
+			return fmt.Errorf("%w: SR 分流规则目标必须是 PROXY 或 DIRECT: %s", ErrBadRequest, target)
 		}
-		if in.TargetSyntax == SrConf && (target == "PROXY" || target == "DIRECT") {
+		if outputGroups[target] {
 			return nil
 		}
 		return fmt.Errorf("%w: 规则目标组不在本次输出集合: %s", ErrBadRequest, target)

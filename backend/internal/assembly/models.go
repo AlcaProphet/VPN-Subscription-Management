@@ -191,7 +191,7 @@ type ConversionReceipt struct {
 	EquivalentConversions  int `json:"equivalent_conversions"`
 	SkippedUnsupported     int `json:"skipped_unsupported"`
 	TargetValidationFailed int `json:"target_validation_failed"`
-	FinalOutput            int `json:"final_output"`
+	FinalOutput            int `json:"final_output"` // 最终产物中通过静态检查的非兜底规则数
 }
 
 // RenderResult 渲染结果。
@@ -211,4 +211,5 @@ type PreviewResult struct {
 	Warnings    []string           `json:"warnings"`
 	NameChanged map[string]string  `json:"name_changed,omitempty"`
 	Receipt     *ConversionReceipt `json:"receipt,omitempty"`
+	Issues      []OutputIssue      `json:"issues,omitempty"`
 }

@@ -13,6 +13,8 @@ defineProps<{
   hasOverlayStep: boolean
   generating: boolean
   canGenerate: boolean
+  generateDisabledReason: string
+  canAdvance: boolean
 }>()
 
 const emit = defineEmits<{
@@ -84,15 +86,15 @@ const stepTitles: Record<string, string> = {
 
     <div v-if="layoutMode === 'step'" class="flex items-center justify-between">
       <Button :disabled="currentStep === 0" @click="emit('prev')">上一步</Button>
-      <Button v-if="currentStep < stepDefs.length - 1" type="primary" @click="emit('next')">下一步</Button>
-      <Tooltip v-else :title="canGenerate ? undefined : '请先刷新预览'">
+      <Button v-if="currentStep < stepDefs.length - 1" type="primary" :disabled="!canAdvance" @click="emit('next')">下一步</Button>
+      <Tooltip v-else :title="canGenerate ? undefined : generateDisabledReason">
         <span>
           <Button type="primary" :loading="generating" :disabled="!canGenerate" @click="emit('generate')">确认生成</Button>
         </span>
       </Tooltip>
     </div>
     <div v-if="layoutMode === 'page'" class="flex justify-end">
-      <Tooltip :title="canGenerate ? undefined : '请先刷新预览'">
+      <Tooltip :title="canGenerate ? undefined : generateDisabledReason">
         <span>
           <Button type="primary" :loading="generating" :disabled="!canGenerate" @click="emit('generate')">确认生成</Button>
         </span>

@@ -36,13 +36,19 @@ type OutputIssue struct {
 
 // CheckClashContent 检查 CVR 导入要求及常见的节点、组和规则引用错误。
 func CheckClashContent(content []byte) []OutputIssue {
+	issues, _ := inspectClashContent(content)
+	return issues
+}
+
+// inspectClashContent 自检最终 Clash 文档，并统计通过规则校验的非兜底输出。
+func inspectClashContent(content []byte) ([]OutputIssue, int) {
 	var decoded any
 	if err := gyaml.UnmarshalWithOptions(content, &decoded, gyaml.UseOrderedMap()); err != nil {
-		return []OutputIssue{{Severity: "error", Path: "$", Message: "YAML 解析失败: " + err.Error()}}
+		return []OutputIssue{{Severity: "error", Path: "$", Message: "YAML 解析失败: " + err.Error()}}, 0
 	}
 	root, ok := yamlMap(decoded)
 	if !ok {
-		return []OutputIssue{{Severity: "error", Path: "$", Message: "YAML 顶层必须是映射"}}
+		return []OutputIssue{{Severity: "error", Path: "$", Message: "YAML 顶层必须是映射"}}, 0
 	}
 
 	var issues []OutputIssue
@@ -206,6 +212,11 @@ func CheckClashContent(content []byte) []OutputIssue {
 		}
 	}
 
+	ruleProvidersRaw, hasRuleProviders := mapGet(root, "rule-providers")
+	ruleProviders, ruleProvidersOK := yamlMap(ruleProvidersRaw)
+	if hasRuleProviders && !ruleProvidersOK {
+		issues = append(issues, outputError("$.rule-providers", "rule-providers 必须是映射"))
+	}
 	rulesRaw, _ := mapGet(root, "rules")
 	rules, rulesOK := seqOf(rulesRaw)
 	if rulesRaw != nil && !rulesOK {
@@ -213,6 +224,9 @@ func CheckClashContent(content []byte) []OutputIssue {
 	}
 	hasGeoFallback := false
 	hasMatchFallback := false
+	afterMatch := false
+	hasOrderWarning := false
+	finalOutput := 0
 	for i, raw := range rules {
 		path := fmt.Sprintf("$.rules[%d]", i)
 		line, ok := scalarString(raw)
@@ -226,7 +240,7 @@ func CheckClashContent(content []byte) []OutputIssue {
 			continue
 		}
 		mapped := rulespec.SupportsAndMapLegacy(typ, rulespec.TargetClash)
-		if !mapped.Supported || typ == "USER-AGENT" {
+		if !mapped.Supported {
 			issues = append(issues, outputError(path, "不支持的 Clash 规则类型: "+typ))
 			continue
 		}
@@ -236,14 +250,32 @@ func CheckClashContent(content []byte) []OutputIssue {
 		}
 		if noResolve && !mapped.SupportsNoResolve {
 			issues = append(issues, outputError(path, typ+" 不允许 no-resolve"))
-		}
-		if typ == "MATCH" {
-			hasMatchFallback = true
-		} else if typ == "GEOIP" && value == "CN" && target == node.ReservedDirect {
-			hasGeoFallback = true
+			continue
 		}
 		if !allowed[target] {
 			issues = append(issues, outputError(path, "规则目标不存在: "+target))
+			continue
+		}
+		if typ == "RULE-SET" {
+			provider, _ := mapGet(ruleProviders, value)
+			if _, ok := yamlMap(provider); !ok {
+				issues = append(issues, outputError(path, "RULE-SET 规则集未声明或定义无效: "+value))
+				continue
+			}
+		}
+		if typ == "MATCH" {
+			hasMatchFallback = true
+			afterMatch = afterMatch || target != node.ReservedPass
+			continue
+		}
+		if isGeoFallback(typ, value, target, noResolve) {
+			hasGeoFallback = true
+			continue
+		}
+		finalOutput++
+		if afterMatch && !hasOrderWarning {
+			issues = append(issues, OutputIssue{Severity: "warning", Path: path, Message: "该规则及后续规则可能被前面的 MATCH 覆盖，请检查顺序；补充规则可使用 prepend"})
+			hasOrderWarning = true
 		}
 	}
 	if !hasGeoFallback {
@@ -252,7 +284,7 @@ func CheckClashContent(content []byte) []OutputIssue {
 	if !hasMatchFallback {
 		issues = append(issues, OutputIssue{Severity: "warning", Path: "$.rules", Message: "缺少 MATCH 兜底规则"})
 	}
-	return issues
+	return issues, finalOutput
 }
 
 func checkSSPluginStructure(proxy gyaml.MapSlice, path string) []OutputIssue {

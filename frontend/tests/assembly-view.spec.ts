@@ -58,6 +58,10 @@ const mockPreview = previewAssembly as unknown as ReturnType<typeof vi.fn>
 const mockGenerate = generateAssembly as unknown as ReturnType<typeof vi.fn>
 const mockListPools = listPools as unknown as ReturnType<typeof vi.fn>
 const mockNotifyWarning = Notify.warning as unknown as ReturnType<typeof vi.fn>
+const oneRule = {
+  input: 1, direct_output: 1, equivalent_conversions: 0,
+  skipped_unsupported: 0, target_validation_failed: 0, final_output: 1,
+}
 
 const context = {
   nodes: [],
@@ -171,8 +175,8 @@ describe('AssemblyView 装配页核心交互', () => {
     }
     mockPreview.mockResolvedValue({ content: 'proxies:', preview_hash: 'preview-hash', skipped: [], warnings: [], receipt })
     const wrapper = await mountWith('tab=sr-conf')
-    const vm = wrapper.vm as unknown as { form: { platform_id?: number }; doPreview: () => Promise<void>; previewReceipt: unknown }
-    vm.form.platform_id = 1
+    const vm = wrapper.vm as unknown as { addPool: () => void; doPreview: () => Promise<void>; previewReceipt: unknown }
+    vm.addPool()
     await vm.doPreview()
     await wrapper.vm.$nextTick()
     expect(vm.previewReceipt).toEqual(receipt)
@@ -234,11 +238,13 @@ describe('AssemblyView 装配页核心交互', () => {
       form: { platform_id?: number; sr_rule_mode: 'existing' | 'new'; rule_name: string }
       doPreview: () => Promise<void>
       doGenerate: () => Promise<void>
+      addPool: () => void
       generateResult: { receipt?: unknown } | null
     }
     vm.form.platform_id = 1
     vm.form.sr_rule_mode = 'new'
     vm.form.rule_name = 'receipt-test'
+    vm.addPool()
     await vm.doPreview()
     await vm.doGenerate()
     await wrapper.vm.$nextTick()
@@ -300,6 +306,7 @@ describe('AssemblyView 装配页核心交互', () => {
   })
 
   it('已选素材池内容变化后旧预览立即过期', async () => {
+    mockPreview.mockResolvedValue({ content: 'rules:', preview_hash: 'preview-hash', skipped: [], warnings: [], receipt: oneRule })
     const wrapper = await mountWith('tab=pool')
     const vm = wrapper.vm as unknown as {
       form: { platform_id?: number; pools: Array<{ pool_id: number; target: string }> }
@@ -362,14 +369,117 @@ describe('AssemblyView 装配页核心交互', () => {
   })
 
   it('节点订阅本地过滤错误返回的空规则警告', async () => {
+    mockPreview.mockResolvedValue({
+      content: 'vless://example', preview_hash: 'node-hash', skipped: [],
+      warnings: ['未选择任何规则素材池或手动规则，将生成空规则', '节点名称已变化'],
+    })
     const wrapper = await mountWith('tab=sr-subs')
     const vm = wrapper.vm as unknown as {
-      previewWarnings: string[]
+      doPreview: () => Promise<void>
       visiblePreviewWarnings: string[]
     }
-    vm.previewWarnings = ['未选择任何规则素材池或手动规则，将生成空规则', '节点名称已变化']
-    await wrapper.vm.$nextTick()
+    await vm.doPreview()
     expect(vm.visiblePreviewWarnings).toEqual(['节点名称已变化'])
+  })
+
+  it('Clash 无池可到覆盖层，有效结果决定生成，旧表单恢复后保留原回执', async () => {
+    mockContext.mockResolvedValue({ ...context, pools: [], nodes: [{ name: '节点A', render_name: '节点A', source: 'manual', enabled: true }] })
+    mockPreview.mockResolvedValue({
+      content: 'rules: [MATCH,DIRECT]', preview_hash: 'zero', skipped: [],
+      warnings: [], receipt: { ...oneRule, final_output: 0 },
+    })
+    const wrapper = await mountWith('tab=clash-yaml')
+    const vm = wrapper.vm as unknown as {
+      currentStep: number; currentStepKey: string; canGenerate: boolean
+      form: { pools: unknown[]; overseas_members: string[]; overlay: { rules_yaml: string } }
+      doPreview: () => Promise<void>; doGenerate: () => Promise<void>; addPool: () => void
+    }
+    vm.currentStep = 2
+    vm.form.overseas_members = ['节点A']
+    await wrapper.vm.$nextTick()
+    const button = (label: string) => wrapper.findAll('button').find((item) => item.text() === label && item.isVisible())!
+    expect(button('添加素材池').attributes('disabled')).toBeDefined()
+    expect(button('前往规则素材池').exists()).toBe(true)
+    vm.addPool()
+    expect(vm.form.pools).toEqual([])
+    await button('下一步').trigger('click')
+    expect(vm.currentStepKey).toBe('overlay')
+    await button('下一步').trigger('click')
+    await flushPromises()
+    expect(button('确认生成').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('当前目标没有可输出的非系统规则')
+    vm.form.overlay.rules_yaml = 'prepend: ["DOMAIN,overlay.test,DIRECT"]'
+    await vm.doGenerate()
+    vm.form.overlay.rules_yaml = ''
+    await vm.doGenerate()
+    expect(vm.canGenerate).toBe(false)
+    expect(mockGenerate).not.toHaveBeenCalled()
+
+    vm.form.overlay.rules_yaml = 'append: ["DOMAIN,overlay.test,DIRECT"]'
+    mockPreview.mockResolvedValue({
+      content: 'rules: ["MATCH,DIRECT", "DOMAIN,overlay.test,DIRECT"]',
+      preview_hash: 'overlay', skipped: [], warnings: ['可能被前面的 MATCH 覆盖'], receipt: { ...oneRule, input: 0, direct_output: 0 },
+    })
+    await vm.doPreview()
+    expect(vm.canGenerate).toBe(true)
+    await vm.doGenerate()
+    expect(mockGenerate).toHaveBeenCalledWith(expect.objectContaining({ pools: [], custom_rules: [], preview_hash: 'overlay' }))
+  })
+
+  it('SR 分流规则单页和分步拦截空输入，添加素材池使用 PROXY', async () => {
+    const wrapper = await mountWith('tab=sr-conf')
+    const vm = wrapper.vm as unknown as {
+      currentStep: number; layoutMode: string; canGenerate: boolean
+      form: { pools: Array<{ pool_id: number; target: string }> }; doPreview: () => Promise<void>; addPool: () => void
+    }
+    vm.currentStep = 1
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('button').find((item) => item.text() === '下一步')?.attributes('disabled')).toBeDefined()
+    vm.layoutMode = 'page'
+    await flushPromises()
+    expect(mockPreview).not.toHaveBeenCalled()
+    expect(wrapper.findAll('button').find((item) => item.text() === '刷新预览')?.attributes('disabled')).toBeDefined()
+    vm.addPool()
+    expect(vm.form.pools).toEqual([{ pool_id: 1, target: 'PROXY' }])
+    mockPreview.mockResolvedValue({ content: '[Rule]', preview_hash: 'sr', skipped: [], warnings: [], receipt: { ...oneRule, final_output: 0 } })
+    await vm.doPreview()
+    expect(vm.canGenerate).toBe(false)
+  })
+
+  it('并发预览只采用当前结果，静态错误阻止提交', async () => {
+    const wrapper = await mountWith('tab=clash-yaml')
+    const vm = wrapper.vm as unknown as {
+      form: { fixed_params_text: string }
+      canGenerate: boolean; doPreview: () => Promise<void>; doGenerate: () => Promise<void>
+    }
+    let resolveOld!: (value: unknown) => void
+    const base = { content: 'rules:', preview_hash: 'hash', skipped: [], warnings: [], receipt: oneRule }
+    mockPreview.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+    const old = vm.doPreview()
+    vm.form.fixed_params_text = '{"port":7100}'
+    mockPreview.mockResolvedValueOnce({ ...base, issues: [{ severity: 'error', path: '$.rules[0]', message: '规则目标不存在' }] })
+    await vm.doPreview()
+    resolveOld(base)
+    await old
+    expect(vm.canGenerate).toBe(false)
+    await vm.doGenerate()
+    expect(mockGenerate).not.toHaveBeenCalled()
+    expect(mockNotifyWarning).toHaveBeenCalledWith(expect.stringContaining('规则目标不存在'))
+  })
+
+  it.each(['sr-subs', 'generic-subs'])('节点订阅 %s 忽略隐藏规则和代理组草稿', async (tab) => {
+    const wrapper = await mountWith(`tab=${tab}`)
+    const vm = wrapper.vm as unknown as {
+      form: { pools: unknown[]; custom_rules: unknown[]; group_names: string[] }
+      doPreview: () => Promise<void>; canGenerate: boolean
+    }
+    vm.form.pools = [{ pool_id: 99, target: '旧 Clash 组' }]
+    vm.form.custom_rules = [{ rule_type: 'DOMAIN', match_value: '', target: '' }]
+    vm.form.group_names = ['旧 Clash 组']
+    await vm.doPreview()
+    expect(mockPreview).toHaveBeenCalledWith(expect.objectContaining({ pools: [], custom_rules: [], group_names: [] }))
+    expect(vm.form.pools).toHaveLength(1)
+    expect(vm.canGenerate).toBe(true)
   })
 
   it('从前置条件页返回时恢复草稿并清理上下文', async () => {

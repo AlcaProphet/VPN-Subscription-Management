@@ -114,6 +114,7 @@ func (h *AssemblyHandler) preview(c *gin.Context) {
 		"warnings":     res.Warnings,
 		"name_changed": res.NameChanged,
 		"receipt":      res.Receipt,
+		"issues":       res.Issues,
 	})
 }
 
@@ -134,11 +135,6 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		}
 		return
 	}
-	// 零输出门槛：Clash YAML/SR conf 无条件要求最终非系统规则 >=1，预览不受此限制。
-	if res.Receipt != nil && res.Receipt.FinalOutput == 0 {
-		Fail(c, http.StatusBadRequest, "当前目标没有可输出的非系统规则")
-		return
-	}
 	// 预览摘要由前端随生成请求回传；渲染结果发生变化时拒绝落库，避免素材池同步等外部变更造成预览与生成不一致。
 	if in.PreviewHash != "" && in.PreviewHash != assemblyPreviewHash(res.Content) {
 		Fail(c, http.StatusConflict, "装配依赖已变化，请重新预览")
@@ -146,6 +142,11 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 	}
 	if assembly.HasError(res.Issues) {
 		Fail(c, http.StatusBadRequest, "产物自检未通过："+firstOutputError(res.Issues))
+		return
+	}
+	// 规则类产物按本次最终正文检查门槛，节点订阅没有规则回执。
+	if res.Receipt != nil && res.Receipt.FinalOutput == 0 {
+		Fail(c, http.StatusBadRequest, "当前目标没有可输出的非系统规则")
 		return
 	}
 	var autoCreatedRuleID int64
@@ -208,7 +209,7 @@ func (h *AssemblyHandler) generate(c *gin.Context) {
 		"auto_activated": activated,
 		"rule_id":        in.RuleID,
 		"skipped":        res.Skipped,
-		"warnings":       h.assemblySvc.Warnings(in, res),
+		"warnings":       h.assemblySvc.Warnings(res),
 		"receipt":        res.Receipt,
 	})
 }

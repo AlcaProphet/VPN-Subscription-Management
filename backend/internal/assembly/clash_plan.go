@@ -125,19 +125,7 @@ func RenderClashPlan(planRaw []byte, dynamic []DynamicNode, manualNames map[stri
 
 	ruleValues := make([]any, 0, len(plan.Rules)+len(plan.Fallback))
 	for _, r := range plan.Rules {
-		line := r.Type + ","
-		if r.Type != "MATCH" {
-			line += r.Value + ","
-		}
-		line += r.Target
-		effective := rulespec.SupportsAndMapLegacy(r.Type, rulespec.TargetClash).SupportsNoResolve
-		if r.NoResolve != nil {
-			effective = *r.NoResolve && rulespec.SupportsAndMapLegacy(r.Type, rulespec.TargetClash).SupportsNoResolve
-		}
-		if effective {
-			line += ",no-resolve"
-		}
-		ruleValues = append(ruleValues, line)
+		ruleValues = append(ruleValues, formatClashPlanRule(r))
 	}
 	for _, fb := range plan.Fallback {
 		ruleValues = append(ruleValues, fb)
@@ -368,6 +356,12 @@ func rootRuleStrings(root *gyaml.MapSlice) []string {
 		}
 	}
 	return out
+}
+
+// formatClashPlanRule 保留历史计划缺省 no_resolve 时按类型推断的行为。
+func formatClashPlanRule(r ClashPlanRule) string {
+	supports := rulespec.SupportsAndMapLegacy(r.Type, rulespec.TargetClash).SupportsNoResolve
+	return formatRuleLine(r.Type, r.Value, r.Target, supports && (r.NoResolve == nil || *r.NoResolve))
 }
 
 // downgradeRuleLines 把目标组已被删除的规则降级为 DIRECT。

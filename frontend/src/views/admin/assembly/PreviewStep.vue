@@ -19,6 +19,8 @@ const props = defineProps<{
   diffMissing: boolean
   diffLoading: boolean
   receipt?: ConversionReceipt | null
+  blockingReason?: string
+  previewDisabled?: boolean
 }>()
 
 const emit = defineEmits<{ preview: []; 'toggle-diff': [] }>()
@@ -73,14 +75,15 @@ function splitLine(line: string): Array<{ text: string; hit: boolean }> {
 <template>
   <div class="flex flex-col gap-3">
     <Space class="self-start" wrap>
-      <Button type="primary" :loading="previewing" @click="emit('preview')">刷新预览</Button>
+      <Button type="primary" :loading="previewing" :disabled="previewDisabled" @click="emit('preview')">刷新预览</Button>
       <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
         <Switch :checked="wrap" size="small" @change="(v: any) => wrap = Boolean(v)" />
         <span>自动换行</span>
       </label>
     </Space>
     <Alert v-if="previewText && previewStale" type="warning" show-icon message="配置已变化，请重新预览" />
-    <Alert v-else-if="previewText && previewMeta" type="success" show-icon :message="previewMeta" />
+    <Alert v-else-if="previewText && previewMeta && !blockingReason" type="success" show-icon :message="previewMeta" />
+    <Alert v-if="blockingReason" type="warning" show-icon :message="blockingReason" />
     <Alert v-for="(w, i) in previewWarnings" :key="i" type="warning" show-icon :message="w" />
     <Alert v-for="(s, i) in previewSkipped" :key="'s'+i" type="warning" show-icon :message="`跳过 ${s.name}：${s.reason}`" />
     <div v-if="receipt" data-testid="conversion-receipt" class="rounded border p-3 text-xs bg-surface-subtle">

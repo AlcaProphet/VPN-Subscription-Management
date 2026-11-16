@@ -17,7 +17,7 @@ import PreviewStep from './assembly/PreviewStep.vue'
 import { defaultClashHeaderText } from './assembly/clashHeaderDefaults'
 import {
   getAssemblyContext, previewAssembly, generateAssembly, getBlueprint,
-  type AssemblyContext, type ConversionReceipt, type GenerateInput, type TargetSyntax, type PoolSelection, type RuleLine,
+  type AssemblyContext, type ConversionReceipt, type GenerateInput, type PreviewResponse, type TargetSyntax, type PoolSelection, type RuleLine,
 } from '@/api/assembly'
 import { Notify } from '@/components/Notify'
 import { listCapabilityMeta, type LegacyCapabilityMetadata } from '@/api/rulespec'
@@ -91,15 +91,12 @@ const subscriptions = ref<SubscriptionItem[]>([])
 const loadingContext = ref(false)
 const previewing = ref(false)
 const generating = ref(false)
-const previewText = ref('')
-const previewSkipped = ref<any[]>([])
-const previewWarnings = ref<string[]>([])
-const previewReceipt = ref<ConversionReceipt | null>(null)
-const lastPreviewFingerprint = ref('')
-const lastPreviewHash = ref('')
+const preview = ref<{ response: PreviewResponse; fingerprint: string; target: TargetSyntax; at: number } | null>(null)
+const previewInvalidated = ref(false)
+let previewRequest = 0
+const previewText = computed(() => preview.value?.response.content ?? '')
+const lastPreviewHash = computed(() => preview.value?.response.preview_hash ?? '')
 const selectedPoolContentRevision = ref(0)
-const previewedAt = ref<number | null>(null)
-const previewedTargetSyntax = ref<TargetSyntax | null>(null)
 const showDiff = ref(false)
 const diffOld = ref('')
 const diffMissing = ref(false)
@@ -273,17 +270,36 @@ const previewFingerprint = computed(() => stableStringify({
   finalDirection: form.final_direction,
   overlay: form.overlay,
 }))
-const previewStale = computed(() => !lastPreviewFingerprint.value || lastPreviewFingerprint.value !== previewFingerprint.value)
-// 目标、输入、选中素材、自定义规则等任一会导致预览失效的变化都清除旧回执，避免冒充当前结果。
-watch(previewStale, (stale) => {
-  if (stale) previewReceipt.value = null
-}, { immediate: true })
-const canGenerate = computed(() => !!previewText.value && !!lastPreviewHash.value && !previewStale.value && !generating.value)
-const visiblePreviewWarnings = computed(() =>
-  targetSyntax.value === 'sr-subs' || targetSyntax.value === 'generic-subs'
-    ? previewWarnings.value.filter((warning) => warning !== '未选择任何规则素材池或手动规则，将生成空规则')
-    : previewWarnings.value,
-)
+const previewStale = computed(() => previewInvalidated.value || preview.value?.fingerprint !== previewFingerprint.value)
+const currentPreview = computed(() => previewStale.value ? null : preview.value?.response)
+const previewReceipt = computed(() => currentPreview.value?.receipt ?? null)
+const rulesTarget = computed(() => targetSyntax.value === 'clash-yaml' || isSrConf.value)
+const srRuleSourceMessage = computed(() => {
+  if (!isSrConf.value || form.pools.some((p) => p.pool_id > 0) ||
+      form.custom_rules.some((r) => r.match_value.trim() && (r.target === 'DIRECT' || r.target === 'PROXY'))) return ''
+  return '请选择素材池，或填写手动规则的匹配值和目标'
+})
+const previewBlockingReason = computed(() => {
+  const result = currentPreview.value
+  if (!result) return ''
+  const issue = result.issues?.find((item) => item.severity === 'error')
+  if (issue) return `产物自检[error] ${issue.path}: ${issue.message}`
+  if (rulesTarget.value && !result.receipt) return '规则预览缺少转换回执，请重新预览'
+  if (rulesTarget.value && result.receipt?.final_output === 0) return '当前目标没有可输出的非系统规则'
+  return ''
+})
+const generateDisabledReason = computed(() => {
+  if (srRuleSourceMessage.value) return srRuleSourceMessage.value
+  if (previewing.value) return '正在刷新预览'
+  if (previewText.value && previewStale.value) return '配置已变化，请重新预览'
+  if (!previewText.value || !lastPreviewHash.value || previewStale.value) return '请先刷新预览'
+  return previewBlockingReason.value
+})
+const canGenerate = computed(() => !generateDisabledReason.value && !generating.value)
+const visiblePreviewWarnings = computed(() => (currentPreview.value?.warnings ?? []).filter((warning) =>
+  warning !== previewBlockingReason.value &&
+  (rulesTarget.value || warning !== '未选择任何规则素材池或手动规则，将生成空规则'),
+))
 
 watch([currentStepKey, layoutMode], ([key, mode]) => {
   if (generateResult.value) return
@@ -417,7 +433,7 @@ async function restoreAssemblyDraft() {
   form.group_member_orders = Object.fromEntries(Object.entries(draft.form.group_member_orders ?? {}).map(([key, values]) => [key, [...values]]))
   form.overseas_members = [...draft.form.overseas_members]
   form.fallback_group_members = [...draft.form.fallback_group_members]
-  form.pools = draft.form.pools.map((pool) => ({ ...pool }))
+  form.pools = draft.form.pools.filter((pool) => pool.pool_id > 0).map((pool) => ({ ...pool }))
   form.custom_rules = draft.form.custom_rules.map((rule) => ({ ...rule }))
   form.final_direction = draft.form.final_direction
   form.overlay = { ...draft.form.overlay }
@@ -497,6 +513,7 @@ function parseCustomRules(): RuleLine[] {
   }))
 }
 function buildInput(previewHash?: string): GenerateInput {
+  const clash = targetSyntax.value === 'clash-yaml'
   return {
     target_syntax: targetSyntax.value,
     preview_hash: previewHash,
@@ -504,43 +521,41 @@ function buildInput(previewHash?: string): GenerateInput {
     rule_id: isSrConf.value && form.sr_rule_mode === 'existing' ? form.rule_id : undefined,
     rule_name: isSrConf.value && form.sr_rule_mode === 'new' ? form.rule_name : undefined,
     fixed_params: parseFixedParams(),
-    node_names: form.node_names,
-    group_names: form.group_names,
-    group_node_orders: form.group_node_orders,
-    group_member_orders: form.group_member_orders,
-    overseas_members: form.overseas_members,
-    fallback_group_members: form.fallback_group_members,
-    pools: form.pools,
-    custom_rules: parseCustomRules(),
+    node_names: isSrConf.value ? [] : form.node_names,
+    group_names: clash ? form.group_names : [],
+    group_node_orders: clash ? form.group_node_orders : {},
+    group_member_orders: clash ? form.group_member_orders : {},
+    overseas_members: clash ? form.overseas_members : [],
+    fallback_group_members: clash ? form.fallback_group_members : [],
+    pools: rulesTarget.value ? form.pools : [],
+    custom_rules: rulesTarget.value ? parseCustomRules() : [],
     final_direction: form.final_direction,
-    overlay: {
+    overlay: clash ? {
       merge_yaml: form.overlay.merge_yaml,
       rules_yaml: form.overlay.rules_yaml,
       proxies_yaml: form.overlay.proxies_yaml,
       groups_yaml: form.overlay.groups_yaml,
-    },
+    } : undefined,
   }
 }
 
 async function doPreview() {
+  if (srRuleSourceMessage.value) return
+  const request = ++previewRequest
   const fingerprint = previewFingerprint.value
   const previewTarget = targetSyntax.value
+  previewInvalidated.value = true
   previewing.value = true
   try {
     const res = await previewAssembly(buildInput())
-    previewText.value = res.content
-    lastPreviewHash.value = res.preview_hash
-    previewSkipped.value = res.skipped
-    previewWarnings.value = res.warnings
-    lastPreviewFingerprint.value = fingerprint
-    previewReceipt.value = res.receipt ?? null
-    previewedAt.value = Date.now()
-    previewedTargetSyntax.value = previewTarget
+    if (request !== previewRequest || fingerprint !== previewFingerprint.value) return
+    preview.value = { response: res, fingerprint, target: previewTarget, at: Date.now() }
+    previewInvalidated.value = false
     showDiff.value = false
   } catch (err) {
-    Notify.error((err as Error).message)
+    if (request === previewRequest && fingerprint === previewFingerprint.value) Notify.error((err as Error).message)
   } finally {
-    previewing.value = false
+    if (request === previewRequest) previewing.value = false
   }
 }
 function toggleNode(name: string) {
@@ -582,7 +597,9 @@ function updateForceMembers(group: string, members: string[]) {
   if (group === FORCE_FALLBACK) form.fallback_group_members = [...members]
 }
 function addPool() {
-  form.pools.push({ pool_id: context.value?.pools?.[0]?.id ?? 0, target: outputGroups.value[0] ?? '' })
+  const pool = context.value?.pools[0]
+  if (!pool) return
+  form.pools.push({ pool_id: pool.id, target: isSrConf.value ? 'PROXY' : FORCE_DIRECT })
 }
 function movePool(from: number, to: number) {
   if (from < 0 || from >= form.pools.length || to < 0 || to >= form.pools.length || from === to) return
@@ -592,7 +609,7 @@ function movePool(from: number, to: number) {
   form.pools = next
 }
 function addRule() {
-  form.custom_rules.push({ rule_type: targetSyntax.value === 'clash-yaml' ? 'DOMAIN-SUFFIX' : 'DOMAIN-SUFFIX', match_value: '', target: '' })
+  form.custom_rules.push({ rule_type: 'DOMAIN-SUFFIX', match_value: '', target: '' })
 }
 function removeRule(idx: number) {
   form.custom_rules.splice(idx, 1)
@@ -612,6 +629,7 @@ function prevStep() {
   if (currentStep.value > 0) currentStep.value -= 1
 }
 function nextStep() {
+  if (currentStepKey.value === 'rules' && srRuleSourceMessage.value) return
   if (currentStepKey.value === 'nodes' && targetSyntax.value === 'clash-yaml' && form.overseas_members.length === 0) {
     Notify.warning(`「${FORCE_OVERSEAS}」组未包含任何成员`)
     return
@@ -697,8 +715,8 @@ function removeAllInvalidRefs() {
 }
 
 async function doGenerate() {
-  if (!previewText.value || previewStale.value) {
-    Notify.warning('配置已变化，请重新预览')
+  if (!canGenerate.value) {
+    if (generateDisabledReason.value) Notify.warning(generateDisabledReason.value)
     return
   }
   if (invalidRefs.value.length > 0) {
@@ -736,8 +754,7 @@ async function doGenerate() {
     editVersionNo.value = null
   } catch (err) {
     if (err instanceof ApiError && err.status === 409) {
-      lastPreviewFingerprint.value = ''
-      lastPreviewHash.value = ''
+      previewInvalidated.value = true
       showDiff.value = false
     }
     Notify.error((err as Error).message)
@@ -840,6 +857,8 @@ const outputGroups = computed(() => {
                 :has-overlay-step="hasOverlayStep"
                 :generating="generating"
                 :can-generate="canGenerate"
+                :generate-disabled-reason="generateDisabledReason"
+                :can-advance="currentStepKey !== 'rules' || !srRuleSourceMessage"
                 @update:layout-mode="(v: string) => layoutMode = (v === 'page' ? 'page' : 'step')"
                 @update:current-step="(v: number) => currentStep = v"
                 @next="nextStep"
@@ -858,6 +877,7 @@ const outputGroups = computed(() => {
                 </template>
                 <template #rules>
                   <RulesStep :form="form" :context="context" :target-syntax="targetSyntax" :output-groups="outputGroups" :rule-type-options="ruleTypeOptions"
+                             :source-message="srRuleSourceMessage" @open-pools="onMainTabChange('pool')"
                              @add-pool="addPool" @move-pool="movePool" @remove-pool="(i: number) => form.pools.splice(i, 1)"
                              @add-rule="addRule" @remove-rule="removeRule" />
                 </template>
@@ -865,8 +885,9 @@ const outputGroups = computed(() => {
                   <OverlayStep :form="form" />
                 </template>
                 <template #preview>
-                  <PreviewStep :previewing="previewing" :preview-warnings="visiblePreviewWarnings" :preview-skipped="previewSkipped"
-                               :preview-text="previewText" :preview-stale="previewStale" :previewed-at="previewedAt" :previewed-target-syntax="previewedTargetSyntax"
+                  <PreviewStep :previewing="previewing" :preview-warnings="visiblePreviewWarnings" :preview-skipped="currentPreview?.skipped ?? []"
+                               :preview-text="previewText" :preview-stale="previewStale" :previewed-at="preview?.at ?? null" :previewed-target-syntax="preview?.target ?? null"
+                               :blocking-reason="previewBlockingReason || srRuleSourceMessage" :preview-disabled="!!srRuleSourceMessage"
                                :show-diff="showDiff" :diff-old="diffOld" :diff-missing="diffMissing" :diff-loading="diffLoading"
                                :receipt="previewReceipt"
                                @preview="doPreview" @toggle-diff="toggleDiff" />
