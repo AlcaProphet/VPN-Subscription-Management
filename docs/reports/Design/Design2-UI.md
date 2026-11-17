@@ -404,6 +404,8 @@ Build11 Step 5 起改为**六大分组**：身份与访问（OIDC、OIDC 规则�
 
 ### 6.2 manual 节点新增/编辑弹窗（桌面 920px / 移动端全屏 Drawer）
 
+> 此处记录 Design2 阶段的表单分区。现行分区和 R35-07 调整后的目标检查位置、结果汇总见 [Design4 §3.1](../../../Design4.md#31-阅读顺序和默认展开状态) 与 [§7.2](../../../Design4.md#72-目标检查体验)。
+
 - **信息架构**：表单固定按「基本信息 / 认证与密钥 / 协议与传输 / 安全与证书 / 开关参数 / 高级参数」顺序分区；桌面字段双列、对象字段跨两列，移动端全部单列；高级参数默认折叠。开关参数使用独立卡片，所有协议顶层 `bool` 字段统一为左文案、右 `a-switch` 的单行布局。
 - **协议选择**：`a-select` 协议注册表清单（由 `GET /api/admin/nodes/protocols` 下发：ClashOfficial 全量代理协议，**ssr 除外**，Design2.md §4.5）；选择后表单字段按协议注册表 schema **动态渲染**。`FieldSchema.section` 明确字段归属（`auth / transport / security / switches / advanced`），不在前端重复维护协议字段名单；选择不同协议时清空当前 `protocol_json`，等价整体重新填表、不保留不兼容旧字段。
 - **复杂对象 schema**：`FieldSchema` 以 `object_kind=fields/map/list` 区分固定属性对象、任意键值映射和对象数组，以递归 `properties` 描述子字段，并用 `allow_unknown` 标记兼容扩展键。REALITY、HTTP/H2/gRPC/WebSocket/XHTTP、插件、内层 SS、ECH、Sing-Mux 与 WireGuard Peer 均按对应结构渲染；`smux` 采用嵌套对象口径，不是单一 boolean。

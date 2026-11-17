@@ -1246,9 +1246,11 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
           </div>
         </details>
 
+        <NodeCheckPanel :request="checkRequest" :blocked-reason="checkBlockedReason" @locate="locateBlockedDraft" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
+
         <details class="node-advanced-data rounded-lg border p-3">
-          <summary class="cursor-pointer font-medium">高级数据与目标检查</summary>
-          <p class="text-xs text-text-secondary mt-2">未知扩展摘要、局部 JSON 草稿与脱敏目标检查；默认折叠。</p>
+          <summary class="cursor-pointer font-medium">高级数据</summary>
+          <p class="text-xs text-text-secondary mt-2">未知扩展摘要；默认折叠。</p>
 
           <div class="mt-4 border-t pt-3">
             <div class="flex items-center justify-between gap-3">
@@ -1309,10 +1311,6 @@ function handleFieldValidity(payload: { path: string; valid: boolean }) {
                 <Button size="small" @click="resetExtensionDraft">取消</Button>
               </div>
             </div>
-          </div>
-
-          <div class="mt-4 border-t pt-3">
-            <NodeCheckPanel :request="checkRequest" :blocked-reason="checkBlockedReason" @locate="locateBlockedDraft" @conflict="conflictError = '节点已被其他编辑更新，请重新加载后重试'" />
           </div>
         </details>
       </Form>

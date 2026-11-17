@@ -1060,6 +1060,28 @@ describe('NodesView 节点管理页', () => {
     wrapper.unmount()
   })
 
+  it.each(['新建', '编辑'])('%s manual 节点时，目标检查独立位于高级参数和默认折叠的高级数据之间', async (mode) => {
+    mockGetProtocols.mockResolvedValue([
+      ...protocols,
+      { protocol: 'vless', label: 'VLESS', form_schema: [{ name: 'routing-mark', type: 'number', label: '路由标记', section: 'advanced' }] },
+    ])
+    const wrapper = mount(NodesView, { attachTo: document.body })
+    try {
+      await flushPromises()
+      const label = mode === '新建' ? '新建节点' : '编辑'
+      await wrapper.findAll('button').find((button) => button.text().replace(/\s/g, '') === label)!.trigger('click')
+      const panel: HTMLElement = wrapper.getComponent(NodeCheckPanel).element
+      const advancedData = panel.parentElement?.querySelector<HTMLDetailsElement>('.node-advanced-data')
+      expect(panel.previousElementSibling?.classList.contains('node-advanced-fields')).toBe(true)
+      expect(panel.nextElementSibling).toBe(advancedData)
+      expect(advancedData?.open).toBe(false)
+      expect(advancedData?.querySelector('summary')?.textContent).toBe('高级数据')
+      expect(advancedData?.textContent).toContain('未知扩展摘要；默认折叠。')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('存在未应用 JSON 草稿时阻止保存', async () => {
     const wrapper = mountNodesView()
     await flushPromises()
