@@ -1,6 +1,6 @@
 // nodes-view.spec.ts：节点管理页前端单测（Build5 Step5 item7 / N3）
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick, watch } from 'vue'
 import axios from 'axios'
 
@@ -120,6 +120,11 @@ function mountNodesView() {
   const originalUnmount = wrapper.unmount.bind(wrapper)
   wrapper.unmount = () => { stop(); originalUnmount() }
   return wrapper
+}
+
+// 对象编辑模式开关统一定位，覆盖嵌套对象各自的 data-field-json-toggle。
+async function openAdvancedJSON(editor: VueWrapper) {
+  await editor.get('[data-field-json-toggle]').trigger('click')
 }
 
 describe('NodesView 节点管理页', () => {
@@ -243,7 +248,7 @@ describe('NodesView 节点管理页', () => {
     const maximum = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === 'smux.max-connections')!
     const advancedRegion = maximum.element.closest('.node-advanced-fields')!
     expect(advancedRegion).not.toBeNull()
-    expect(advancedRegion.querySelector('.ant-switch')).toBeNull()
+    expect(advancedRegion.querySelector('.protocol-switch-field .ant-switch')).toBeNull()
     expect((enabled[0].element.closest('.node-more-switches') as HTMLDetailsElement).open).toBe(false)
     await enabled[0].find('.ant-switch').trigger('click')
     expect(vm.form.protocol_json).toEqual({ uuid: 'keep', smux: { enabled: false } })
@@ -261,7 +266,7 @@ describe('NodesView 节点管理页', () => {
     vm.form.protocol_json = { smux: smuxValue() }
     await nextTick()
     const smux = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'smux')!
-    await smux.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(smux)
     await smux.find('textarea').setValue('{')
     await vm.save()
     expect((smux.element.closest('.node-advanced-fields') as HTMLDetailsElement).open).toBe(true)
@@ -323,9 +328,9 @@ describe('NodesView 节点管理页', () => {
     await nextTick()
     const ws = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'ws-opts')!
     const stable = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'stable-opts')!
-    await ws.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(ws)
     await ws.find('textarea').setValue('{')
-    await stable.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(stable)
     await stable.find('textarea').setValue('{"value":"draft"}')
     await nextTick()
     expect(vm.invalidProtocolPaths.size).toBeGreaterThan(0)
@@ -350,7 +355,7 @@ describe('NodesView 节点管理页', () => {
     vm.form.protocol_json = { smux: smuxValue() }
     await nextTick()
     const smux = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'smux')!
-    await smux.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(smux)
     await smux.find('textarea').setValue('{"enabled":true,"padding":true,"max-connections":99}')
     const padding = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === 'smux.padding')!
     await padding.find('.ant-switch').trigger('click')
@@ -397,7 +402,7 @@ describe('NodesView 节点管理页', () => {
     vm.openEdit(original)
     await nextTick()
     const brutal = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('path') === 'smux.brutal-opts')!
-    await brutal.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(brutal)
     await brutal.find('textarea').setValue('{"enabled":true,"up":"stale-draft"}')
     vm.openExtensionReplace(original.extensions[1])
     vm.extensionDraft.payload = 'stale-extension'
@@ -446,14 +451,14 @@ describe('NodesView 节点管理页', () => {
 
     const child = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('path') === 'ws-opts.headers')!
     const parent = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'ws-opts')!
-    await child.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(child)
     await child.find('textarea').setValue('{"X-Test":"draft"}')
     await nextTick()
     expect(Array.from(vm.unappliedJsonPaths)).toContain('ws-opts.headers')
     expect(parent.props('jsonDirtyPaths')).toContain('ws-opts.headers')
     expect((parent.vm as any).descendantJsonDirtyPaths).toEqual(['ws-opts.headers'])
 
-    await parent.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(parent)
     await nextTick()
     await flushPromises()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -466,7 +471,7 @@ describe('NodesView 节点管理页', () => {
     // 子草稿应用后，父对象才可进入高级 JSON。
     await child.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
     await nextTick()
-    await parent.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(parent)
     await nextTick()
     expect((parent.vm as any).advanced).toBe(true)
     wrapper.unmount()
@@ -481,7 +486,7 @@ describe('NodesView 节点管理页', () => {
     vm.form.protocol_json = { smux: enabled ? smuxValue() : { enabled: false } }
     await nextTick()
     const smux = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'smux')!
-    await smux.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(smux)
     await smux.find('textarea').setValue(JSON.stringify({ ...smuxValue(), enabled: false }))
     const apply = () => smux.findAll('button').find((button) => button.text().replace(/\s/g, '') === '应用')!
     await apply().trigger('click')
@@ -510,7 +515,8 @@ describe('NodesView 节点管理页', () => {
     expect(document.body.textContent).toContain('连接方式与当前参数')
     expect(document.body.textContent).toContain('独立开关')
     expect(document.body.querySelector('.node-switch-fields')?.textContent).toContain('UDP')
-    expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('结构化编辑')
+    expect(document.body.querySelector('.protocol-object-field [data-field-json-toggle]')?.getAttribute('aria-checked')).toBe('false')
+    expect(document.body.querySelector('.protocol-object-field')?.textContent).toContain('高级 JSON')
     expect(document.body.querySelector('.node-advanced-fields')?.textContent).toContain('路由标记')
     expect(document.body.textContent).toContain('当前组合')
     wrapper.unmount()
@@ -785,7 +791,7 @@ describe('NodesView 节点管理页', () => {
     vm.form.protocol_json = { network: 'ws', 'ws-opts': {}, stable: 'keep' }
     await nextTick()
     const editor = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('field').name === 'ws-opts')!
-    await editor.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await openAdvancedJSON(editor)
     await editor.find('textarea').setValue('{"draft":"unapplied"}')
     vm.setField('network', 'tcp')
     expect(vm.pendingTransition?.fields).toContain('WebSocket 参数')
@@ -2484,7 +2490,7 @@ describe('复核 P1 切换状态', () => {
       vm.form.protocol_json = { smux: smuxValue() }
       await nextTick()
       const editor = wrapper.findAllComponents(ProtocolFieldEditor).find(c => c.props('field').name === 'smux')!
-      await editor.findAll('button').find(b => b.text() === '高级 JSON')!.trigger('click')
+      await openAdvancedJSON(editor)
       await editor.find('textarea').setValue('{"enabled":false}')
       await editor.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用')!.trigger('click')
       const application = editor.emitted('update:modelValue')!.slice(-1)[0][1] as { applied: () => void }
@@ -2515,7 +2521,7 @@ describe('复核 P1 切换状态', () => {
       vm.form.protocol_json = { smux: smuxValue() }
       await nextTick()
       const editor = wrapper.findAllComponents(ProtocolFieldEditor).find(c => c.props('path') === 'smux.brutal-opts')!
-      await editor.findAll('button').find(b => b.text() === '高级 JSON')!.trigger('click')
+      await openAdvancedJSON(editor)
       await editor.find('textarea').setValue('{"enabled":false}')
       const apply = () => editor.findAll('button').find(b => b.text().replace(/\s/g, '') === '应用')!.trigger('click')
       await apply()
@@ -3002,7 +3008,10 @@ describe('R33-07 保存校验定位', () => {
       rejectField('peers[0].refresh-server-ip-interval')
       await vm.save()
       expect(focusedPath()).toBe('peers')
-      expect(document.activeElement?.textContent).toContain('高级 JSON')
+      const active = document.activeElement as HTMLElement | null
+      expect(active?.getAttribute('role')).toBe('switch')
+      expect(active?.hasAttribute('data-field-json-toggle')).toBe(true)
+      expect(active?.getAttribute('aria-label')).toContain('高级 JSON')
     } finally { wrapper.unmount() }
   })
 
@@ -3010,7 +3019,7 @@ describe('R33-07 保存校验定位', () => {
     const { wrapper, vm } = await setup()
     try {
       const editor = wrapper.findAllComponents(ProtocolFieldEditor).find((field) => field.props('field').name === 'peers')!
-      await editor.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+      await openAdvancedJSON(editor)
       const textarea = editor.get('textarea').element as HTMLTextAreaElement
       const text = textarea.value
       rejectField('peers[1].allowed-ips')

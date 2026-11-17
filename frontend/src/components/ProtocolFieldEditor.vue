@@ -1,4 +1,4 @@
-<!-- ProtocolFieldEditor.vue：协议字段递归编辑器；对象默认结构化，保留对象级高级 JSON。 -->
+<!-- ProtocolFieldEditor.vue：协议字段递归编辑器；对象默认结构化，保留对象级高级 JSON 开关。 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Button, Input, InputNumber, Select, Switch } from 'ant-design-vue'
@@ -654,10 +654,17 @@ function isComplex(value: unknown): boolean {
         <div class="text-sm font-medium text-text">{{ field.label }}</div>
         <div v-if="field.help" class="text-xs text-text-tertiary mt-1">{{ field.help }}</div>
       </div>
-      <div class="protocol-editor-mode flex shrink-0" role="group" :aria-label="`${field.label}编辑模式`">
-        <Button :type="!advanced ? 'primary' : 'default'" :aria-pressed="!advanced" :disabled="!!jsonError" @click="setAdvanced(false)">结构化编辑</Button>
-        <Button data-field-json-toggle :type="advanced ? 'primary' : 'default'" :aria-pressed="advanced" @click="setAdvanced(true)">高级 JSON</Button>
-      </div>
+      <label class="protocol-editor-mode flex shrink-0 items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
+        <Switch
+          data-field-json-toggle
+          size="small"
+          :checked="advanced"
+          :disabled="!!jsonError"
+          :aria-label="`${field.label} 高级 JSON`"
+          @change="(value: any) => setAdvanced(Boolean(value))"
+        />
+        <span>高级 JSON</span>
+      </label>
     </div>
 
     <div v-if="advanced">
@@ -847,11 +854,12 @@ function isComplex(value: unknown): boolean {
 .protocol-switch-field :deep(.ant-switch) { flex-shrink: 0; min-height: 22px; height: 22px; }
 .protocol-scalar-field { min-width: 0; }
 .protocol-scalar-field > label { display: block; margin-bottom: 6px; }
-.protocol-editor-mode .ant-btn { border-radius: 0; }
-.protocol-editor-mode .ant-btn:first-child { border-radius: 6px 0 0 6px; }
-.protocol-editor-mode .ant-btn:last-child { border-radius: 0 6px 6px 0; }
+/* Ant Design 的 .ant-form label 固定 14px，这里保持与装配分区一致的小号文案。 */
+.protocol-editor-mode { cursor: pointer; font-size: 12px; line-height: 16px; }
+.protocol-editor-mode :deep(.ant-switch) { flex-shrink: 0; }
 @media (max-width: 767px) {
   .protocol-object-toolbar { align-items: flex-start; flex-direction: column; }
+  .protocol-editor-mode { width: 100%; min-height: 44px; }
   .protocol-object-field :deep(.ant-btn), .protocol-list-editor :deep(.ant-btn) { min-height: 44px; }
 }
 </style>

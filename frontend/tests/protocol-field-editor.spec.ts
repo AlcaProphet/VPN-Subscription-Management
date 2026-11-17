@@ -1,6 +1,6 @@
 // protocol-field-editor.spec.ts：协议对象结构化编辑与高级 JSON 兼容入口。
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
 import { Select } from 'ant-design-vue'
 import ProtocolFieldEditor from '@/components/ProtocolFieldEditor.vue'
@@ -23,6 +23,11 @@ const objectField: FieldSchema = {
 const stringMapField: FieldSchema = {
   name: 'plugin-opts', type: 'object', required: false, label: '自定义插件参数',
   object_kind: 'map', map_value_type: 'string', allow_unknown: true,
+}
+
+// 对象编辑模式是受控开关；统一从 data-field-json-toggle 触发，避免依赖可见文案所在的兄弟节点。
+function jsonToggle(wrapper: VueWrapper) {
+  return wrapper.get('[data-field-json-toggle]')
 }
 
 describe('ProtocolFieldEditor', () => {
@@ -146,13 +151,14 @@ describe('ProtocolFieldEditor', () => {
       { name: 'upgrade', type: 'bool', default: false, label: 'Upgrade', required: false, advanced: true },
     ] }
     const wrapper = mount(ProtocolFieldEditor, { props: { field, centralizedSwitches: true, modelValue: { path: '/keep', early: { limit: 7 } } } })
-    expect(wrapper.find('.ant-switch').exists()).toBe(false)
+    expect(wrapper.findAll('.protocol-switch-field')).toHaveLength(0)
+    expect(wrapper.get('.protocol-editor-mode').text()).toContain('高级 JSON')
     const details = wrapper.find('.protocol-object-advanced')
     expect((details.element as HTMLDetailsElement).open).toBe(false)
     expect(details.text()).toContain('已配置 1 项')
     ;(details.element as HTMLDetailsElement).open = true
     const nested = wrapper.findAllComponents(ProtocolFieldEditor).find((item) => item.props('path') === 'ws-opts.early')!
-    await nested.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(nested).trigger('click')
     await nested.find('textarea').setValue('{"limit":9}')
     ;(details.element as HTMLDetailsElement).open = false
     await wrapper.vm.$nextTick()
@@ -162,14 +168,21 @@ describe('ProtocolFieldEditor', () => {
     wrapper.unmount()
   })
 
-  it('编辑模式使用按钮且切回结构化不清空已应用数据', async () => {
+  it('编辑模式使用受控开关且切回结构化不清空已应用数据', async () => {
     const value = { path: '/keep', future: 7 }
     const wrapper = mount(ProtocolFieldEditor, { props: { field: objectField, modelValue: value } })
-    expect(wrapper.find('.protocol-editor-mode').attributes('role')).toBe('group')
-    expect(wrapper.find('.protocol-editor-mode .ant-switch').exists()).toBe(false)
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    const toggle = jsonToggle(wrapper)
+    expect(toggle.attributes('role')).toBe('switch')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(toggle.attributes('aria-label')).toBe('WebSocket 参数 高级 JSON')
+    expect(wrapper.get('.protocol-editor-mode').text()).toContain('高级 JSON')
+    expect(wrapper.find('.protocol-editor-mode').attributes('role')).toBeUndefined()
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-checked')).toBe('true')
     await wrapper.find('textarea').setValue('{"path":"/draft"}')
-    await wrapper.findAll('button').find((button) => button.text() === '结构化编辑')!.trigger('click')
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('textarea').exists()).toBe(false)
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     expect(value).toEqual({ path: '/keep', future: 7 })
     wrapper.unmount()
@@ -177,7 +190,7 @@ describe('ProtocolFieldEditor', () => {
 
   it('无关功能重置不丢弃本对象 JSON 草稿，重叠范围重置才丢弃', async () => {
     const wrapper = mount(ProtocolFieldEditor, { props: { field: objectField, modelValue: { path: '/keep' } } })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     await wrapper.find('textarea').setValue('{"path":"/draft"}')
     await wrapper.setProps({ jsonResetVersions: { smux: 1 } })
     expect(wrapper.text()).toContain('JSON 草稿未应用')
@@ -195,7 +208,8 @@ describe('ProtocolFieldEditor', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('结构化编辑')
+    expect(jsonToggle(wrapper).attributes('aria-checked')).toBe('false')
+    expect(wrapper.get('.protocol-editor-mode').text()).toContain('高级 JSON')
     expect(wrapper.text()).toContain('路径')
     expect(wrapper.text()).toContain('检测到 1 个未声明参数')
     expect(wrapper.text()).toContain('请在高级 JSON 中显式删除')
@@ -204,7 +218,7 @@ describe('ProtocolFieldEditor', () => {
 
   it('固定对象高级 JSON 拒绝未知键并定位字段路径，删除后可应用', async () => {
     const wrapper = mount(ProtocolFieldEditor, { props: { field: objectField, modelValue: { path: '/old' } } })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue(JSON.stringify({ path: '/ws', future: true }))
     expect(wrapper.text()).toContain('ws-opts.future')
@@ -221,14 +235,14 @@ describe('ProtocolFieldEditor', () => {
       object_kind: 'map', allow_unknown: true,
     }
     const mapWrapper = mount(ProtocolFieldEditor, { props: { field: headers, modelValue: { Host: 'old.example.com' } } })
-    await mapWrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(mapWrapper).trigger('click')
     await mapWrapper.find('textarea').setValue(JSON.stringify({ Host: 'new.example.com', 'X-Custom': 7 }))
     await mapWrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
     expect(mapWrapper.emitted('update:modelValue')).toEqual([[{ Host: 'new.example.com', 'X-Custom': 7 }, { path: 'headers', applied: expect.any(Function) }]])
     mapWrapper.unmount()
 
     const stringMapWrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { flag: '' } } })
-    await stringMapWrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(stringMapWrapper).trigger('click')
     await stringMapWrapper.find('textarea').setValue(JSON.stringify({ flag: '', bad: 1 }))
     expect(stringMapWrapper.text()).toContain('plugin-opts.bad 的值必须为字符串')
     await stringMapWrapper.findAll('button').find((button) => button.text().replace(/\s/g, '').includes('应用'))!.trigger('click')
@@ -247,7 +261,7 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field, modelValue: { path: '/ws', early: { limit: 1 } }, jsonDirtyPaths: ['ws-opts.headers', 'ws-opts.early'] },
     })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     expect(wrapper.find('textarea').exists()).toBe(false)
     expect(wrapper.emitted('advanced-json-blocked')).toEqual([[{ path: 'ws-opts', blockedBy: 'ws-opts.early' }]])
     const childPaths = wrapper.findAllComponents(ProtocolFieldEditor).map((item) => item.props('path'))
@@ -267,7 +281,7 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field, modelValue: { path: '/ws', early: { deep: {} } }, jsonDirtyPaths: ['ws-opts.early.deep'] },
     })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     expect(wrapper.find('textarea').exists()).toBe(false)
     expect(wrapper.emitted('advanced-json-blocked')).toEqual([[{ path: 'ws-opts', blockedBy: 'ws-opts.early.deep' }]])
   })
@@ -276,32 +290,70 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field: objectField, modelValue: { path: '/ws' }, jsonDirtyPaths: ['ws-opts-extra'] },
     })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     expect(wrapper.find('textarea').exists()).toBe(true)
     expect(wrapper.emitted('advanced-json-blocked')).toBeUndefined()
   })
 
-  it('高级 JSON 解析失败时发出带路径的无效状态', async () => {
+  it('对象、嵌套对象、map 与 list 均使用固定文案和可区分的高级 JSON 开关', () => {
+    const field: FieldSchema = {
+      name: 'outer', label: '外层参数', type: 'object', required: false, object_kind: 'fields', allow_unknown: false,
+      properties: [
+        { name: 'inner', label: '内层参数', type: 'object', required: false, object_kind: 'fields', allow_unknown: false, properties: [] },
+        { name: 'headers', label: '请求头', type: 'object', required: false, object_kind: 'map', allow_unknown: true },
+        { name: 'peers', label: 'Peer 列表', type: 'object', required: false, object_kind: 'list', item_id_field: '_credential_id', properties: [] },
+      ],
+    }
+    const wrapper = mount(ProtocolFieldEditor, { props: { field, modelValue: { inner: {}, headers: {}, peers: [] } } })
+    const switches = wrapper.findAll('[data-field-json-toggle]')
+    expect(switches).toHaveLength(4)
+    expect(switches.map((item) => item.attributes('aria-label'))).toEqual([
+      '外层参数 高级 JSON',
+      '内层参数 高级 JSON',
+      '请求头 高级 JSON',
+      'Peer 列表 高级 JSON',
+    ])
+    expect(new Set(switches.map((item) => item.attributes('aria-label'))).size).toBe(4)
+    for (const item of switches) {
+      expect(item.attributes('role')).toBe('switch')
+      expect(item.attributes('aria-checked')).toBe('false')
+    }
+    expect(wrapper.findAll('.protocol-editor-mode').map((item) => item.text())).toEqual([
+      '高级 JSON', '高级 JSON', '高级 JSON', '高级 JSON',
+    ])
+    wrapper.unmount()
+  })
+
+  it('高级 JSON 解析失败时发出带路径的无效状态且开关不可退出', async () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field: objectField, modelValue: { path: '/ws' } },
     })
 
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    const toggle = jsonToggle(wrapper)
+    await toggle.trigger('click')
     const textarea = wrapper.find('textarea')
     expect(textarea.exists()).toBe(true)
     await textarea.setValue('{')
 
     expect(wrapper.text()).toContain('请输入 JSON 对象')
     expect(wrapper.text()).toContain('高级 JSON')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    expect((toggle.element as HTMLButtonElement).disabled).toBe(true)
     const validityEvents = wrapper.emitted('validity-change') ?? []
     expect(validityEvents[validityEvents.length - 1]).toEqual([{ path: 'ws-opts', valid: false }])
+
+    await textarea.setValue('{"path":"/ws"}')
+    expect((toggle.element as HTMLButtonElement).disabled).toBe(false)
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('textarea').exists()).toBe(false)
   })
 
   it('高级 JSON 草稿未应用前不修改模型值，点击应用后才回写', async () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field: objectField, modelValue: { path: '/old' } },
     })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue('{"path":"/new"}')
 
@@ -325,7 +377,7 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field: objectField, modelValue: { path: '/keep' } },
     })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue('{"path":"/draft"}')
 
@@ -342,7 +394,7 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, {
       props: { field: objectField, modelValue: { path: '/old' } },
     })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue('{"path":"/new"}')
 
@@ -518,7 +570,7 @@ describe('ProtocolFieldEditor', () => {
         ],
       },
     })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     const textarea = wrapper.find('textarea')
     expect((textarea.element as HTMLTextAreaElement).value).toContain(firstID)
     await textarea.setValue(JSON.stringify([
@@ -542,7 +594,7 @@ describe('ProtocolFieldEditor', () => {
       properties: [{ name: 'server', type: 'text', required: false, label: '服务器' }],
     }
     const wrapper = mount(ProtocolFieldEditor, { props: { field: peers, modelValue: [{ _credential_id: id, server: 'peer' }] } })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     await wrapper.find('textarea').setValue(JSON.stringify([{ _credential_id: id, server: 'peer', future: true }]))
     expect(wrapper.text()).toContain('peers[0].future')
     const apply = wrapper.find('button.ant-btn-sm.ant-btn-primary')
@@ -666,7 +718,7 @@ describe('ProtocolFieldEditor', () => {
     const wrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { mode: 'custom' } } })
     await wrapper.find('input[aria-label="参数名"]').setValue('')
     expect(wrapper.text()).toContain('参数名不能为空')
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     expect(wrapper.text()).not.toContain('参数名不能为空')
     expect(wrapper.find('textarea').element.value).toContain('"mode"')
     expect(wrapper.emitted('validity-change')).toContainEqual([{ path: 'plugin-opts.mode', valid: true }])
@@ -680,8 +732,7 @@ describe('ProtocolFieldEditor', () => {
     ['布尔值', '{"mode":true}', 'plugin-opts.mode 的值必须为字符串', 'plugin-opts.mode'],
   ])('字符串映射高级 JSON 拒绝%s并精确上报路径', async (_label, draft, message, path) => {
     const wrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: { mode: 'custom' } } })
-    const modeButtons = wrapper.findAll('button')
-    await modeButtons[1].trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue(draft)
     expect(wrapper.text()).toContain(message)
@@ -693,7 +744,7 @@ describe('ProtocolFieldEditor', () => {
 
   it('字符串映射高级 JSON 拒绝空参数名，保留空字符串值与特殊字符', async () => {
     const wrapper = mount(ProtocolFieldEditor, { props: { field: stringMapField, modelValue: {} } })
-    await wrapper.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(wrapper).trigger('click')
     const textarea = wrapper.find('textarea')
     await textarea.setValue('{"":"value"}')
     expect(wrapper.text()).toContain('plugin-opts 参数名不能为空')
@@ -727,7 +778,7 @@ describe('ProtocolFieldEditor', () => {
     })
     const host = mount(Host)
     const editor = host.findComponent(ProtocolFieldEditor)
-    await editor.findAll('button').find((button) => button.text() === '高级 JSON')!.trigger('click')
+    await jsonToggle(editor).trigger('click')
     await editor.find('textarea').setValue('{"path":"/draft"}')
     expect(events[events.length - 1]).toEqual({ path: 'ws-opts', dirty: true })
     const before = events.length

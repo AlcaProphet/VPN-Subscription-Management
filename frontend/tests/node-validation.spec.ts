@@ -61,16 +61,18 @@ describe('nodeValidation 定位目标', () => {
     return { root, fields: Array.from(root.querySelectorAll<HTMLElement>('[data-field-path]')) }
   }
 
-  it('未知条目子字段只回退到所属 JSON 入口，不选择其它条目输入框', () => {
-    const { root, fields } = fixture('<div data-field-path="peers"><button data-field-json-toggle>JSON</button><div data-field-path="peers[A].server"><input></div></div>')
+  it('未知条目子字段只回退到所属 JSON 开关，不选择其它条目输入框', () => {
+    const { root, fields } = fixture('<div data-field-path="peers"><button type="button" role="switch" aria-label="Peer 列表 高级 JSON" aria-checked="false" data-field-json-toggle></button><div data-field-path="peers[A].server"><input></div></div>')
     try {
       const target = validationFocusTarget(fields, { path: 'peers[B]', kind: 'item', exact: false })
       expect(target?.control).toBe(root.querySelector('[data-field-json-toggle]'))
+      expect(target?.control.getAttribute('role')).toBe('switch')
+      expect(target?.control.getAttribute('aria-label')).toBe('Peer 列表 高级 JSON')
     } finally { root.remove() }
   })
 
   it('父对象不能借用后代 JSON 文本框，已打开的自身 JSON 文本框优先', () => {
-    const { root, fields } = fixture('<div data-field-path="parent"><button data-field-json-toggle>parent</button><div data-field-path="parent.child"><textarea data-field-json-editor></textarea></div></div>')
+    const { root, fields } = fixture('<div data-field-path="parent"><button type="button" role="switch" aria-label="parent 高级 JSON" data-field-json-toggle></button><div data-field-path="parent.child"><textarea data-field-json-editor></textarea></div></div>')
     try {
       expect(validationFocusTarget(fields, { path: 'parent', kind: 'object', exact: false })?.control).toBe(root.querySelector('button'))
       const textarea = document.createElement('textarea')
@@ -80,8 +82,8 @@ describe('nodeValidation 定位目标', () => {
     } finally { root.remove() }
   })
 
-  it('列表整体错误选择自身新增按钮，未知子字段选择 JSON 入口', () => {
-    const { root, fields } = fixture('<div data-field-path="peers"><button data-field-json-toggle>JSON</button><button data-field-list-add>新增</button><input></div>')
+  it('列表整体错误选择自身新增按钮，未知子字段选择 JSON 开关', () => {
+    const { root, fields } = fixture('<div data-field-path="peers"><button type="button" role="switch" aria-label="Peer 列表 高级 JSON" data-field-json-toggle></button><button data-field-list-add>新增</button><input></div>')
     try {
       expect(validationFocusTarget(fields, { path: 'peers', kind: 'object', exact: true })?.control).toBe(root.querySelector('[data-field-list-add]'))
       expect(validationFocusTarget(fields, { path: 'peers', kind: 'object', exact: false })?.control).toBe(root.querySelector('[data-field-json-toggle]'))
