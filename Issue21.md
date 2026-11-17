@@ -2,7 +2,7 @@
 
 > **文档定位：** 记录本地调试中发现的问题及其研究、修复和验证结果。已归档的问题记录见 [docs/reports/Issue/](docs/reports/Issue/)，项目指令见 [AGENTS.md](AGENTS.md)。
 >
-> **当前状态（2026-11-17）：** R35-01～R35-04 已通过本地验证。R35-02 补充 Clash 装配前的空素材提示，见第 13 节。R35-03 原始反馈来自本机 8080 的旧前端，新构建已替换并复验，素材池快照、列表乱序和预览失效的相邻问题已修复。R35-04 已修复手动 VLESS／VMess 的 Clash UDP 缺省输出，验收见第 13 节。R35-05～R35-07 待处理。
+> **当前状态（2026-11-17）：** R35-01～R35-04 已通过本地验证。R35-02 补充 Clash 装配前的空素材提示，见第 13 节。R35-03 原始反馈来自本机 8080 的旧前端，新构建已替换并复验，素材池快照、列表乱序和预览失效的相邻问题已修复。R35-04 已修复手动 VLESS／VMess 的 Clash UDP 缺省输出，验收见第 13 节。R35-05 已完成研究并确认后续改为开关类控件的方向（仅研究与记录，尚未实施，见 R35-05）。R35-06 已完成研究并确认移除节点表单推荐选项 Mihomo 版本副标题的方向（仅研究与记录，尚未实施，见 R35-06）。R35-07 待处理。
 
 ## 一、问题记录
 
@@ -1072,14 +1072,457 @@ proxies:
 - **现象：** 节点管理的对象字段编辑器使用「结构化编辑／高级 JSON」双按钮切换；订阅装配的 Clash 头部参数分区使用「高级 JSON」开关。用户提供的截图以节点的「多路复用」区域和装配的「端口配置」区域为例。
 - **预期：** 节点管理中的高级 JSON 切换样式与订阅装配一致，使用开关类按钮。
 - **检查范围：** 对照用户截图与前端组件：节点管理的对象字段由 `ProtocolFieldEditor.vue` 渲染双按钮，订阅装配的 `HeaderStep.vue` 对相关分区使用开关；对象字段编辑器也支持嵌套，后续处理时需检查节点管理内适用的对象字段及切换状态。
-- **状态：** 待后续处理；本次仅检查并记录样式差异与用户预期，未修改代码或验证切换行为。
+- **原始状态（2026-11-16 记录时，原文）：** 待后续处理；本次仅检查并记录样式差异与用户预期，未修改代码或验证切换行为。
+- **当前状态（2026-11-17）：** 已完成代码、隔离运行与浏览器研究。两处控件的外观、状态表达和部分操作语义均不同；样式差异来自 2026-09-03 R27-05 的明确改动，不是遗漏或主题问题。用户已确认后续方向为“只替换外观、保留应用／放弃与草稿、覆盖所有对象字段、固定「高级 JSON」文案”，但**尚未实施**。本轮只做测试、研究与文档记录，**未修改 UI、项目代码、配置、依赖或锁文件，也未将问题标记为已修复**。
+
+#### 1. 结论摘要
+
+- **两处不是同一组件的两套皮肤，而是两个独立实现。** 节点管理由 `ProtocolFieldEditor.vue` 渲染对象级编辑模式，订阅装配的 Clash 头部由 `HeaderStep.vue` 渲染分区级编辑模式；两者的 DOM 结构、ARIA 角色、尺寸、状态变量和提交时机都不同。
+- **节点侧的双按钮是有意设计，不是漏改。** 2026-09-03 的 R27-05（提交 `3416fda`）明确把对象编辑模式从 `Switch` 改为按钮／分段控件，理由是避免与运行参数开关混淆，并写入 `Design4` §3.3。2026-09-02 的提交 `781b1f7` 则为装配 Clash 分区引入 `Switch`；两条实现从那时起分叉。更早的 `Design2-UI` §6.2 和 `Build15` 仍写“每个对象保留独立高级 JSON Switch”，与当前 `Design4` 和代码存在新旧文档冲突。
+- **外观实测差异明确。** 节点为两个并排 Ant Design 按钮（桌面各约 32px 高，手机 44px），以 `role="group"`、`aria-pressed` 和主色／描边表达当前模式；装配为一个 28×16 的小号 `Switch` 加固定文案「高级 JSON」，以 `role="switch"`、`aria-checked` 和轨道颜色表达状态，桌面与手机的标签命中区均约 16px 高。
+- **操作语义也不同。** 节点是“草稿 → 校验 → 应用／放弃”，未应用草稿会阻止保存和检查，退出高级 JSON 会静默丢弃草稿；装配是“输入即写入”，没有草稿、应用或放弃，但无效 JSON 时开关无法关闭，也没有显式放弃入口。两者在“无效 JSON 时不能退回结构化／关闭开关”这一点上一致。
+- **已发现三类既有行为差异，其中两类是潜在 UX 风险。** 节点退出高级 JSON 不确认就丢弃草稿；装配在无效 JSON 时没有放弃路径；装配中修改其他分区会触发 `watch` 刷新当前分区的 JSON 文本，从而静默覆盖未应用的无效草稿并清除错误。本轮只记录，不判断是否为缺陷，也不修复。
+- **适用范围已从 schema 侧确认。** 19 个 manual 协议的 `form_schema` 递归统计共有 49 个对象字段（39 个 `fields`、9 个 `map`、1 个 `list`；39 个顶层、10 个嵌套）。浏览器实际打开验证了 6 个字段（含嵌套 `smux.brutal-opts`、`headers` map、WireGuard `peers` list），其余字段仅通过 schema／源码核对，未逐个打开。
+- **用户已确认后续调整方向（2026-11-17）：** 只替换外观；保留「应用／放弃」、草稿和父子阻断；覆盖所有对象字段（含嵌套、map、list）；开关旁固定显示「高级 JSON」。该方向尚未实施，见第 8 节。
+- 本轮**未修改任何项目代码、配置、依赖或锁文件，未实施 UI 调整**；唯一持久化变更为本 `Issue21.md`。
+
+#### 2. 代码版本、运行环境与测试前提
+
+| 项目 | 实际值 |
+|------|--------|
+| 代码基线 | 分支 `beta`，HEAD `869c0c1`（`git describe` 为 `v4.1.4-11-g869c0c1`）；工作区研究开始时干净 |
+| 代码与前端产物关系 | `frontend/dist` 时间戳为 2026-11-17 11:13，与提交 `4637cff` 的时间一致；`4637cff..HEAD` 在 `frontend/`、`backend/` 下无差异，因此按同源产物使用；本轮未重新构建前端 |
+| 前端依赖 | Vue 3.5.44、Vite 7.3.7、Tailwind CSS 4.3.3、`@tailwindcss/vite` 4.3.3、`ant-design-vue` 4.2.6 |
+| 后端／运行时 | Go 1.26.4（darwin/arm64）；Node.js 26.7.0；macOS 27.2 |
+| 浏览器／驱动 | Google Chrome 157.0.8103.79；Playwright-core 1.57.0（临时目录，未加入项目依赖） |
+| 隔离实例 | `/tmp/r35-05/server`；`APP_MODE=prod`、临时 `DATA_DIR=/tmp/r35-05/data`、`PORT=18095`，仅监听 `127.0.0.1` |
+| 视口／主题 | 1440×1000、375×785；浅色与深色 |
+| 证据目录 | `/tmp/r35-05/evidence/`（截图与 JSON 文件，未加入仓库） |
+
+**构建产物。** 为避免改动工作区，后端源码和当前 `frontend/dist` 都复制到 `/tmp/r35-05` 后再构建：
+
+| 产物 | 说明 | 关键哈希 |
+|------|------|----------|
+| 前端 `index.html` | 工作区 `frontend/dist` 原样使用，未重新构建 | `3085dda5789ce99491824ed8dcba71a818b812c9cc5664a8459e065b48315a3e` |
+| 主 JS `index-BAQWrEVN.js` | 同一产物 | `f84620a7da4c039bbbd0930d8bffee8df56d3a2bb893cfffe406b894a33ec962` |
+| 主 CSS `index-DLg-fzOL.css` | 同一产物 | `8dad59dcc6b012723843bd18210ecce25d471d50323776a909a19ca6b77b73e2` |
+| Go 服务 `/tmp/r35-05/server` | 当前 HEAD 后端源码 + 上述前端产物嵌入，`CGO_ENABLED=0 go build ./cmd/server` | `73cca1eeb4b568865d3e25ac2987938d61e9b2aef7a12b3c01ef06450fd75ec9`；约 56 MB |
+
+**测试数据前提。** 测试库来自既有隔离合成库 `/tmp/r3502-fix.GxIgJu/data` 的副本，不是当前仓库 `backend/data`，也没有连接或写入本机 8080 服务：
+
+- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 规定的统一测试密码；
+- 1 个手动 VLESS 节点 `HK`（`1.1.1.1:443`，TCP + REALITY，`smux` 初始关闭）；
+- 本轮通过管理员 API 新建的合成节点 `R35-05-HTTP`（HTTP，`headers` map）和 `R35-05-WG`（WireGuard，两个 Peer 的 `peers` list），主机名均为 `*.example.com`，密钥为合成 Base64 值；
+- 所有节点、草稿和保存结果只写入 `/tmp/r35-05/data`；没有操作生产、预发布、外部服务、真实账号或真实数据。
+
+**构建产物与源码一致性。** 本轮没有在项目工作区执行 `npm run build`、`go build`、测试或格式化命令；隔离服务是在 `/tmp` 副本中构建的。前端产物与当前 HEAD 的一致性依据是时间戳和空 diff，而不是重新构建，已在第 9 节列为证据边界。
+
+#### 3. 复现步骤
+
+1. 阅读 `ProtocolFieldEditor.vue`、`HeaderStep.vue`、`PlatformHeadersEditor.vue`、`NodesView.vue` 及相关测试和设计文档，确认两处控件分别由哪个组件、哪个状态变量控制。
+2. 在 `/tmp/r35-05/backend` 复制当前后端源码和当前 `frontend/dist`，构建隔离服务；使用临时 `DATA_DIR` 和 `127.0.0.1:18095` 启动，确保不接触 8080、Docker、外部服务或真实数据。
+3. 使用合成管理员登录，进入 `/admin/nodes`，打开 `HK` 节点的编辑弹窗，展开「更多功能 / 高级参数」等折叠区，定位「多路复用」对象；记录按钮、ARIA、尺寸、主题与手机布局。
+4. 依次执行：进入高级 JSON → 修改为有效 JSON → 保存被拦截 → 切回结构化 → 输入无效 JSON → 保存被拦截 → 放弃 → 应用有效 JSON → 子对象 `smux.brutal-opts` 输入草稿 → 父对象尝试进入高级 JSON → 取消并关闭弹窗 → 重新打开 → 应用并保存 → 重新打开确认持久化；同时检查目标检查的阻断与定位。
+5. 新建或读取 `R35-05-HTTP`、`R35-05-WG`，重复查看 `headers` map、`peers` list 和 `ip-stack` 对象的同一个双按钮控件。
+6. 进入 `/admin/assembly?tab=clash-yaml`，在空素材提示中点击「继续装配」，展开 Clash 头部「端口配置」「Geo 数据」「DNS 配置」「更多参数」四个分区；记录分区级「高级 JSON」开关、尺寸、ARIA、主题与手机布局。
+7. 对端口分区执行：开启开关 → 修改有效 JSON → 关闭开关并查看结构化值 → 重新开启并输入无效 JSON → 尝试关闭开关和点击标签 → 修正后关闭 → 键盘 `Enter`／`Space`；另测未知键、跨分区修改后的草稿刷新。
+8. 在 375×785 视口和深色主题下重复关键步骤；用 Playwright 读取 `getComputedStyle` 和 `getBoundingClientRect`，用 `getByRole('switch', { name: '高级 JSON' })` 检查可访问名称。所有临时脚本、截图和日志只写入 `/tmp`。
+
+**实际检查边界。** 桌面节点侧实际打开的是 VLESS `reality-opts`、`smux`、`smux.brutal-opts`，HTTP `headers`，WireGuard `peers` 和 `ip-stack`；装配侧实际打开的是 Clash 目标的分区开关。其余 43 个对象字段、其他 16 个协议、装配的 SR／generic 目标和真实读屏软件没有逐一实际验证，见第 6、9 节。
+
+#### 4. 两处控件的实际外观与状态表达
+
+##### 4.1 节点对象字段编辑器
+
+「多路复用」位于节点编辑弹窗的「更多功能 / 高级参数」折叠区内，默认折叠；展开后该对象区域顶部左侧是标题「多路复用」，右侧是编辑模式控件。简化后的实际 DOM 结构（省略构建哈希与 `data-v-*` 属性）：
+
+```html
+<div class="protocol-editor-mode" role="group" aria-label="多路复用编辑模式">
+  <button class="ant-btn ant-btn-primary" aria-pressed="true">结构化编辑</button>
+  <button class="ant-btn ant-btn-default" aria-pressed="false" data-field-json-toggle>高级 JSON</button>
+</div>
+```
+
+- **桌面（1440×1000，浅色）。** 两个按钮高 32px，宽分别约 102px 和 100.84px；字体 14px／22px。当前模式使用 Ant Design 主色按钮（背景 `rgb(37, 99, 235)`、白字），另一侧为白底、`rgb(203, 213, 225)` 描边；两按钮通过 `border-radius` 拼成左右分段，左侧 `6px 0 0 6px`、右侧 `0 6px 6px 0`。两个按钮都在 Tab 顺序中，各带 `aria-pressed`；外层 group 的 `aria-label` 包含对象名。
+- **高级态。** 点击「高级 JSON」后，结构化控件被替换为 6 行等宽字体 `TextArea`，下方固定出现「应用」「放弃」两个小按钮；输入后另有「JSON 草稿未应用」提示。当前模式由右侧按钮的主色和 `aria-pressed="true"` 表达，文案仍同时显示「结构化编辑」「高级 JSON」两个选项。
+- **手机（375×785，浅色）。** 对象工具栏由横排变为纵向（`flex-direction: column`），工具栏高约 76px；两个按钮仍并排，宽度约 102px＋100.84px，高度由桌面 32px 提升到 44px，满足项目对移动端命中区的要求。
+- **深色。** 当前模式按钮背景为 `rgb(85, 143, 216)`、白字；非当前模式为 `rgb(17, 24, 39)` 背景、`rgb(248, 250, 252)` 文字、`rgb(51, 65, 85)` 描边；区域和标题随主题变化。
+- **嵌套。** `smux.brutal-opts`（「Brutal 参数」）拥有同一套独立双按钮；`headers` map 和 `peers` list 的对象级工具栏也使用同一套按钮。按钮的 `aria-label` 会随对象标题变化，例如「Brutal 参数编辑模式」。
+- **适用条件。** 对象字段只有在当前协议、传输、安全、插件等条件命中时才渲染；`smux` 的 `enabled` 为 false 时，其子字段可能被条件隐藏，但对象级工具栏和双按钮仍存在，并提示「运行开关位于“独立开关”区域」。
+
+##### 4.2 订阅装配 Clash 头部参数
+
+Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 更多参数」四个可折叠分区渲染。每个分区的工具栏结构相同（简化，省略构建哈希与 `data-v-*` 属性）：
+
+```html
+<div class="section-editor-toolbar">
+  <span>HTTP、SOCKS 与透明代理监听端口</span>
+  <label class="flex items-center gap-2 text-xs text-text-secondary whitespace-nowrap">
+    <button role="switch" aria-checked="false" class="ant-switch ant-switch-small">…</button>
+    <span>高级 JSON</span>
+  </label>
+</div>
+```
+
+- **桌面（1440×1000，浅色）。** `Switch` 本体为 28×16px，外层 `<label>` 约 95.66×16px，文案 12px／16px、颜色 `rgb(71, 85, 105)`。关闭时轨道为 `rgba(0, 0, 0, 0.25)`，开启时轨道为 `rgb(29, 78, 216)`；开关角色为 `role="switch"`，状态为 `aria-checked`，没有 `aria-pressed`。点击文案、`Enter` 和 `Space` 都能切换；聚焦时出现约 2px 的浅蓝描边。
+- **状态表达。** 文案固定为「高级 JSON」，不随状态变化；开启表示当前分区显示 JSON 文本域，关闭表示显示结构化字段。四个分区各自维护独立开关，互不影响（这一点来自源码 `advancedSections` 的四个键，未逐一做四分区交叉切换测试）。
+- **可访问名称。** 在 Clash 头部，`getByRole('switch', { name: '高级 JSON' })` 命中 4 个元素；四个开关的可访问名称完全相同，分区上下文只由相邻的说明文字提供。这一点是节点侧改用开关时需要特别避免的。
+- **手机（375×785，浅色）。** 分区工具栏同样变为纵向；开关本体仍为 28×16px，外层标签命中区约 95.66×16px，明显小于节点按钮 44px 的高度。
+- **深色。** 关闭时轨道为 `rgba(255, 255, 255, 0.25)`，开启时为 `rgb(147, 197, 253)`；文案颜色 `rgb(203, 213, 225)`。开关本体和轨道尺寸不变。
+- **另一种装配开关。** 非 Clash 目标（如 SR 订阅组）的「头部参数」右上角还有一个整体级「高级 JSON」开关；它通过 `v-model:checked` 直接绑定 `form.fixed_params_text`，没有分区校验、错误提示或草稿。本轮只确认该开关存在并计数为 1，未把它与 Clash 分区开关混为一谈。
+
+##### 4.3 外观对照
+
+| 维度 | 节点对象字段 | 装配 Clash 分区 |
+|------|--------------|-----------------|
+| 控件 | 两个并排 Ant Design `Button` | 一个 Ant Design `Switch` 加固定标签 |
+| 角色／状态 | `role="group"`、两个 `aria-pressed` | `role="switch"`、一个 `aria-checked` |
+| 可见文案 | 「结构化编辑」「高级 JSON」同时显示 | 固定「高级 JSON」 |
+| 桌面尺寸 | 约 102×32px＋100.84×32px | 28×16px，标签约 95.66×16px |
+| 手机命中区 | 两个按钮各 44px 高 | 标签整体约 16px 高 |
+| 键盘停靠点 | 两个 Tab 停靠点 | 一个 Tab 停靠点；`Enter`／`Space` 切换 |
+| 主题表达 | 主色实心按钮／描边按钮 | 轨道填充色 |
+| 上下文命名 | group 的 `aria-label` 含对象名 | 四个开关同名「高级 JSON」 |
+| 位置 | 对象区域标题右侧 | 分区工具栏右侧 |
+
+#### 5. 切换行为对照
+
+##### 5.1 节点对象字段编辑器实测
+
+| 操作 | 实际结果 |
+|------|----------|
+| 进入高级 JSON | 显示 `TextArea`（初始为当前对象值的 2 空格缩进 JSON）；显示「应用」「放弃」；结构化控件隐藏；未修改父模型 |
+| 输入有效 JSON | 显示「JSON 草稿未应用」；父模型不变；`aria-pressed` 仍表示高级态 |
+| 有草稿时保存 | Toast「存在未应用的 JSON 草稿，请先应用或放弃后再保存」；没有发出 `POST`／`PUT` 请求 |
+| 切回结构化（有草稿） | 不弹确认，直接丢弃草稿并恢复当前有效值；`TextArea` 消失；父模型不变 |
+| 输入无效 JSON | 显示「请输入 JSON 对象」（根节点语法／形状错误）或带路径的固定对象错误；「结构化编辑」和「应用」变为 disabled；「放弃」仍可用 |
+| 无效 JSON 时保存 | Toast「请先修正协议对象参数中的格式错误」；没有发出请求 |
+| 点击「放弃」 | 文本框恢复当前有效 JSON，草稿提示消失，仍停留在高级态 |
+| 点击「应用」 | 父模型更新（本例 `max-connections` 由空变为 4，`protocol` 为 `yamux`），草稿提示消失；未自动保存到后端 |
+| 嵌套子对象草稿 | 在 `smux.brutal-opts` 输入草稿后，点击父对象「高级 JSON」：Toast「存在未应用的后代 JSON 草稿，请先应用或放弃后再切换高级 JSON」；父对象保持结构化，焦点移动到子对象文本框（`data-field-path="smux.brutal-opts"`） |
+| 取消编辑 | 弹窗关闭；重新打开后回到数据库中的值，未应用草稿不持久化 |
+| 应用后保存 | `PUT /api/admin/nodes/1` 的 `protocol_json` 含 `smux: {enabled: true, protocol: "yamux", max-connections: 4}`；Toast「节点已更新」；重新打开可见持久化值 |
+| 目标检查 | 有未应用草稿时，检查面板显示「存在未应用的 JSON 草稿，请先应用或放弃后再检查」，「检查当前节点」disabled，「定位草稿」可聚焦到对应文本框 |
+| 未知键 | `{"enabled":true,"foo":1}` 报「字段 smux.foo 未在协议注册表中声明」；「应用」和「结构化编辑」均 disabled |
+| 嵌套形状错误 | `{"enabled":true,"brutal-opts":"x"}` 报「请输入 JSON 对象：smux.brutal-opts」 |
+| 结构化字段回写 | 先在结构化态将 `max-connections` 改为 6，再进入高级 JSON，文本显示 6；说明两种模式共用同一有效值 |
+| map／list 对象 | HTTP `headers` 的高级 JSON 为 `{"User-Agent":"r35-05","X-Test":"1"}`；WireGuard `peers` 的高级 JSON 为包含 `_credential_id` 的两个 Peer 数组；工具栏与普通对象相同 |
+
+##### 5.2 订阅装配 Clash 分区实测
+
+| 操作 | 实际结果 |
+|------|----------|
+| 开启「高级 JSON」 | 显示分区 JSON 文本域（端口分区为 4 个端口键的 2 空格缩进 JSON）；结构化字段隐藏；无「应用」「放弃」按钮 |
+| 输入有效 JSON | 输入即写入 `form.fixed_params_text`；没有草稿提示；关闭开关后结构化字段立即显示新值（`port` 由 7890 变为 7891） |
+| 关闭开关 | 结构化和 JSON 共享同一份值；关闭不做额外确认；没有未应用草稿 |
+| 输入无效 JSON | 显示原始 JS 解析错误，例如「Expected property name or '}' in JSON at position 1 (line 1 column 2)」；开关仍为 `aria-checked="true"` |
+| 无效时尝试关闭 | 点击开关无效，仍保持开启；错误文本保留；没有「放弃」入口 |
+| 无效时点击标签 | 同样无法关闭；行为与点击开关一致 |
+| 未知键 | 输入 `{"port":7890,"foo":1}` 报「参数“foo”不属于此分区」；开关仍保持开启 |
+| 跨分区修改 | 端口分区保持无效 JSON `{` 时，修改 DNS 分区的「监听地址」输入；`watch(form.fixed_params_text)` 会把端口 JSON 刷新为当前有效默认值并清除错误，开关仍为开启；未应用的无效文本被静默覆盖 |
+| 键盘 | 开关聚焦后 `Enter` 和 `Space` 均可切换；Tab 只经过一个开关停靠点 |
+| 整体级开关（SR） | 非 Clash 目标的「高级 JSON」直接绑定原始文本，不做 JSON 解析、错误提示或分区块校验；本轮仅确认存在，未展开行为测试 |
+
+##### 5.3 差异归纳与潜在行为问题
+
+- **共同点。** 两处都按对象／分区独立维护模式；都禁止在无效 JSON 状态下退回结构化／关闭开关；都只影响前端编辑态，不改变后端协议字段、保存负载结构或输出语义。
+- **核心差异是提交时机。** 节点采用显式草稿和「应用／放弃」，装配采用输入即写入。节点因此可以保留未应用草稿、阻止保存／检查、并做父子草稿阻断；装配没有这些状态。
+- **退出语义不同。** 节点切回结构化会静默丢弃未应用草稿（源码 `setAdvanced(false)` 直接重置 `jsonDirty` 和文本）；装配关闭开关不会“丢弃”内容，因为有效输入已经写入，但在无效状态下根本没有放弃入口。
+- **错误呈现不同。** 节点把解析和递归形状错误统一成中文提示（根节点为「请输入 JSON 对象」，字段路径为「字段 …」）；装配直接显示浏览器 `JSON.parse` 的原始英文错误，只有分区键校验是中文。
+- **外部刷新行为不同。** 装配的 `watch` 会在其他分区或父级修改时刷新当前分区的 JSON 文本；节点的草稿在无关父级变化时尽量保留，并有 `jsonResetVersions` 处理重叠范围。装配的跨分区覆盖在本轮实测中可复现，是否为预期行为尚未确认。
+- **是否是缺陷需分开判断。** “节点退出静默丢草稿”“装配无效 JSON 无放弃入口”“装配跨分区覆盖无效草稿”都是观察到的既有行为，本轮不把它们认定为已确认缺陷，也不在 R35-05 范围内修复；如果后续把节点改为开关，这三项会直接影响交互设计和回归范围。
+
+#### 6. 适用对象字段与嵌套场景
+
+从 `GET /api/admin/nodes/protocols` 的 19 个协议 `form_schema` 递归统计：
+
+| 统计项 | 数量 | 说明 |
+|--------|------|------|
+| 对象字段总数 | 49 | 含同一字段在多个协议中的重复声明 |
+| `object_kind=fields` | 39 | 固定结构对象，最常见 |
+| `object_kind=map` | 9 | 开放键值映射，如请求头、插件参数、Peer Info |
+| `object_kind=list` | 1 | WireGuard `peers` |
+| 顶层对象 | 39 | 对象字段位于协议 schema 第一层 |
+| 嵌套对象 | 10 | 第二层对象，集中在插件的 `headers`／`ech-opts` 和 `smux.brutal-opts` |
+
+代表性嵌套路径：`smux.brutal-opts`（VLESS／VMess／Shadowsocks）、`ws-opts.headers`（VMess／VLESS／Trojan）、`http-opts.headers`（VMess／VLESS）、`v2ray-plugin-opts.headers`、`v2ray-plugin-opts.ech-opts`（Shadowsocks）。本轮在 schema 中观察到的最深对象层级为 2 层；没有发现第 3 层对象。
+
+**实际打开验证的字段（浏览器）：**
+
+| 字段 | 协议／前提 | 形态 | 验证内容 |
+|------|-----------|------|----------|
+| `reality-opts` | VLESS，TCP + REALITY | fields，顶层 | 工具栏、双按钮、`aria-pressed`、桌面尺寸、浅／深色 |
+| `smux` | VLESS，用户截图对应区域 | fields，顶层 | 默认折叠、双按钮、进入高级 JSON、草稿、保存／检查拦截、应用、持久化 |
+| `smux.brutal-opts` | VLESS，`smux` 已启用 | fields，第二层 | 嵌套独立工具栏、子草稿阻止父对象进入 JSON、焦点定位 |
+| `headers` | HTTP，无认证 | map，顶层 | 结构化键值行、高级 JSON 对象、开放键保留 |
+| `peers` | WireGuard，`peer_mode=peers` | list，顶层 | 两个 Peer 条目、上移／下移／删除、对象数组高级 JSON、`_credential_id` 保留 |
+| `ip-stack` | WireGuard | fields，顶层 | 对象级双按钮与结构化字段 |
+
+**仅通过 schema／源码核对、未逐个打开的字段：** 其余 43 个对象声明，包括 `plugin-opts`、`obfs-opts`、`v2ray-plugin-opts`、`shadow-tls-opts`、`restls-opts`、`ss-opts`、`ws-opts`、`grpc-opts`、`h2-opts`、`http-opts`、`xhttp-opts`、`ech-opts`、`realm-opts`、`jls-opts`、`peer-info`、各协议的 `ip-stack` 等。这些字段与已打开字段使用同一个 `ProtocolFieldEditor` 递归组件和同一套双按钮，但本轮没有逐一验证其条件可见性、字段路径或极端嵌套。不能把上述 6 个字段的结论直接等同于全部 49 个字段均已人工验证。
+
+#### 7. 样式差异形成的实现原因
+
+| 时间 | 证据 | 结论 |
+|------|------|------|
+| 2026-08-30 | `Build15` Step 2、`Design2-UI` §6.2（第 410 行） | 节点对象编辑器最初设计为“每个对象保留独立「高级 JSON」Switch” |
+| 2026-09-02 | 提交 `781b1f7`（`HeaderStep.vue`） | 装配 Clash 头部引入分区级 `advancedSections` Switch；节点当时仍使用 Switch |
+| 2026-09-03 | 提交 `3416fda`（R27-05）、`Issue13.md` 的 R27-05 修复方向与实施记录 | 节点对象编辑器以“编辑模式按钮替代 Switch”；理由是“用按钮或分段控件表达结构化编辑／高级 JSON，避免与运行开关混用” |
+| 当前 | `Design4` §3.3（第 142 行） | 明确要求“结构化／JSON 属于编辑模式操作，使用明确的按钮或分段控件；不能混成节点运行参数” |
+| 当前 | `ProtocolFieldEditor.vue:657-660`、`tests/protocol-field-editor.spec.ts:165-169` | 代码和测试都把双按钮作为当前契约；测试显式断言 `role="group"` 且不存在 `.ant-switch` |
+
+因此，**样式差异不是 Tailwind／主题／浏览器问题，也不是遗漏同步**：它是 2026-09-03 在节点侧做出的、用户当时确认过的控件类型决策；装配侧保留了 2026-09-02 引入的 Switch。更早的 `Design2-UI` 仍写 Switch，与当前 `Design4`、代码和测试冲突，属于新旧文档冲突，而不是同一份设计内的实现漂移。R35-05 是用户对 R27-05 该决策的再次调整，用户已在 2026-11-17 确认以 R35-05 为准，后续实施时需要同步修订 `Design4` §3.3 和相关测试口径。
+
+组件职责也解释了为什么不能简单“共用同一个开关组件”：
+
+- `ProtocolFieldEditor.vue`：本地维护 `advanced`、`jsonText`、`jsonError`、`jsonDirty`；只在「应用」时 `emit('update:modelValue')`；通过 `json-dirty-change` 把草稿状态交给 `NodesView` 的 `unappliedJsonPaths`，由页面统一阻断保存／检查、处理父子草稿和定位。`NodesView.vue:715-731` 是保存拦截，`NodesView.vue:298-315` 是草稿与父子阻断处理。
+- `HeaderStep.vue`：本地维护 `advancedSections`、`sectionJSON`、`sectionErrors`；`updateSectionJSON()` 每次输入都直接改写 `form.fixed_params_text`；没有草稿集合、没有页面级阻断、没有父子关系。`HeaderStep.vue:281-308` 是即时写入与校验。
+- `PlatformHeadersEditor.vue`：第三种实现，使用 Switch 加动态文案（「结构化编辑」／「高级 JSON」），JSON 文本在切换回结构化或取值时才校验／应用；它与节点的双按钮、装配的分区开关都不同。该组件不在 R35-05 范围内，本轮未改动，也不建议把它作为本次一致性的唯一参照。
+
+#### 8. 改为开关的实现影响
+
+以下内容是基于现有源码和本轮实测的影响分析；除明确标注的“用户已确认”外，均为尚未实施的候选建议，不代表已实现或已验证。
+
+##### 8.1 用户已确认的调整方向（2026-11-17，未实施）
+
+- **语义：** 只替换外观；保留「应用」「放弃」、草稿提示、父子草稿阻断、保存／检查拦截和无效 JSON 禁用逻辑。不采用装配的即时写入语义。
+- **范围：** 所有对象字段，包括嵌套对象、map 和 list；不只在「多路复用」区域替换。
+- **文案：** 开关旁固定显示「高级 JSON」，不随状态切换为「结构化编辑」。
+- **设计冲突处理：** 以 R35-05 的最新期望为准，允许重新使用 Switch；实施时同步修订 `Design4` §3.3，并更新把按钮当作契约的测试。
+
+该方向目前只是已确认的候选实施口径，**没有写代码、没有修改设计文档、没有更新测试**。
+
+##### 8.2 代码与状态影响
+
+- **改动点集中在一个组件。** `ProtocolFieldEditor.vue:657-660` 的两个 `Button` 可替换为一个 `Switch` 加 `<span>高级 JSON</span>`；`setAdvanced()`、`updateJSON()`、`applyJSON()`、`discardJSON()` 和 `jsonDirty`／`jsonError` 逻辑可以保留，不需要改父组件或后端。
+- **状态命名。** 现有 `advanced` 是布尔值，可直接作为 `:checked`；不需要改名为 `jsonMode`。`jsonText`、`jsonError`、`jsonDirty`、`jsonInvalidPath` 仍分别承担文本、错误、草稿和无效路径。`data-field-json-toggle` 建议保留在开关上，因为 `nodeValidation.ts` 和保存定位依赖该标记。
+- **切换处理。** `setAdvanced(true)` 仍应阻止有后代草稿时进入；`setAdvanced(false)` 仍应在 `jsonError` 时拒绝退出。受控 Switch 在拒绝时会自动回到原状态，但不会自动解释原因；现有错误文本可保留，是否额外提示见 8.3。
+- **样式。** 需要移除或调整 `.protocol-editor-mode .ant-btn` 的三条圆角规则（`:850-852`），并新增开关与文案的对齐、命中区和深色适配。现有工具栏 `flex items-center justify-between` 布局可继续使用。
+- **不影响后端。** 保存负载、`protocol_json`、`current_state`、`reset_scopes`、`credential_ops`、目标检查和输出投影都不需要改；不涉及数据库、API、依赖或锁文件。
+
+##### 8.3 无障碍、键盘与状态表达
+
+- `role="group"` ＋ 两个 `aria-pressed` 会变成一个 `role="switch"` ＋ `aria-checked`。视觉上“当前模式”从主色按钮变为开关轨道，状态表达更接近装配。
+- 节点对象可能同时出现多个开关（例如 `smux`、`smux.brutal-opts`、`ws-opts.headers` 等）。如果可见文案都只是「高级 JSON」，屏幕阅读器会得到多个同名开关；装配当前就有 4 个同名「高级 JSON」。建议在开关上加包含对象名的 `aria-label`，例如「多路复用 高级 JSON」；可见文案仍固定为「高级 JSON」。
+- 键盘从两个 Tab 停靠点变为一个；`Space` 和 `Enter` 在 Ant Design Switch 上均可切换（装配实测通过）。聚焦描边、按 `Esc` 关闭弹窗、保存按钮的回焦等既有行为不应改变。
+- 无效 JSON 时，按钮方案会把「结构化编辑」明确禁用；开关方案只能让开关“弹回”开启态。建议在错误文本之外保留简短的不可退出原因，或至少保证错误文本在视口内可见；这是候选交互细节，尚未确认。
+- 节点现有移动端规则只给 `.ant-btn` 加 44px 最小高度（`:853-855`）；改成 28×16 的 `Switch` 后，若不做外层包裹，命中区会降到约 16px，低于 `Design4` 要求的 44px。建议用 44px 高的 `<label>` 包裹开关和文案，或复用对象工具栏的整行高度。
+- 主题方面，节点按钮当前使用主色／描边，装配开关使用轨道填充；改用开关后应沿用 Ant Design 主题 Token，避免在深色主题出现低对比轨道。浅色实测开关开启为 `rgb(29, 78, 216)`、关闭为 `rgba(0, 0, 0, 0.25)`；深色开启为 `rgb(147, 197, 253)`、关闭为 `rgba(255, 255, 255, 0.25)`，可作为视觉回归基线。
+
+##### 8.4 草稿、校验与嵌套行为
+
+- **草稿保护不变。** 用户选择保留「应用／放弃」，因此 `jsonDirty`、`unappliedJsonPaths`、保存／检查阻断、父子草稿阻断都应保持现状。
+- **退出时的静默丢弃仍是现状。** 当前 `setAdvanced(false)` 在无错误时会直接丢弃草稿且不确认。只换控件不会改变这一点，但开关比按钮更容易误触；如果后续认为风险不可接受，可新增“有草稿时关闭先确认”的独立决策。本轮用户选择的是“只换外观”，所以该风险按现状记录，不列为本次实施内容。
+- **无效 JSON 仍不能退出。** 开关应受 `jsonError` 控制（`setAdvanced(false)` 的既有 guard）；不能用 `v-model` 直接绑定绕过。否则会出现“开关已关闭但错误草稿仍存在”或“错误草稿被静默丢弃”的不一致。
+- **嵌套对象逐个独立。** 每个对象有自己的 `advanced`，父对象进入 JSON 会卸载子编辑器；因此父子草稿阻断和“首个后代草稿”定位必须保留。改成单一全局开关会破坏该语义，不应采用。
+- **保存／检查负载不变。** `applyJSON()` 仍只在用户点击「应用」后 emit；`save()` 仍先检查 `invalidProtocolPaths`、`unappliedJsonPaths`、`unappliedControlPaths`。改为开关不应改变这些顺序和文案。
+
+##### 8.5 测试与文档影响
+
+- **测试改造成本较高。** `tests/protocol-field-editor.spec.ts`、`tests/nodes-view.spec.ts`、`tests/header-step.spec.ts` 中检索到 31 处通过 `button.text() === '高级 JSON'` 触发控件；`protocol-field-editor.spec.ts:165-169` 还显式断言“使用按钮且不存在 Switch”。改为 Switch 后这些用例需要改成按 `role="switch"` 或 `data-field-json-toggle` 触发，且该断言必须重写。
+- `nodes-view.spec.ts:3005` 通过 `document.activeElement?.textContent` 包含「高级 JSON」来判断定位；Switch 的按钮本体文本为空，标签文本是兄弟节点，改为开关后该断言可能失效，需要改成检查 `aria-label` 或外层标签。
+- `node-validation.ts` 的定位 fixture 使用 `[data-field-json-toggle]`；建议保留该属性，避免无谓地扩大 `node-validation.spec.ts` 的改动。
+- `Design4` §3.3 需要从“按钮或分段控件”改为允许 Switch，并说明“编辑模式开关”与“运行参数开关”的区分方式；`Design2-UI` §6.2 是归档文档，仍写 Switch，不需要回写成按钮，但应在实施记录中说明其已被 R27-05 后续设计取代、现又被 R35-05 调整。`Issue13` R27-05 和 `Build21` 是历史记录，不应改写，只在新记录中引用。
+- **不需要改后端测试。** 本轮没有发现协议 schema、保存、检查或输出层参与控件类型；改为开关属于纯前端编辑模式调整。
+
+##### 8.6 不受影响或影响很小的部分
+
+- 订阅装配、`HeaderStep.vue`、`PlatformHeadersEditor.vue` 不需要改；R35-05 只改节点管理。
+- 后端、数据库、API、依赖、锁文件、部署配置不需要改。
+- 节点的运行参数开关（「独立开关」区域）仍由 `NodesView` 的 `switchFields` 和集中开关逻辑管理；对象编辑模式开关不进入 `protocol_json`，不会与运行参数混写。
+- 保存后的协议 JSON、目标检查、Clash／SR／generic 输出和版本生成不受控件类型影响；已有节点不需要迁移。
+
+#### 9. 尚未确认内容与测试限制
+
+- **没有实施验证。** 本轮没有改代码，所以“换成 Switch 后的实际外观、命中区、焦点顺序、读屏体验和测试通过情况”都未验证；第 8 节是基于现有代码和实测的推断与建议。
+- **没有真实读屏软件。** 只通过 DOM、`role`、`aria-checked`／`aria-pressed` 和 Playwright 的 `getByRole` 检查；没有使用 VoiceOver、NVDA 等实际朗读验证。
+- **没有真实手机。** 手机结论来自 375×785 的 headless Chrome 和触摸模拟，不是真机；虚拟键盘、地址栏收放和实际手指命中未测。
+- **没有覆盖全部字段。** 只实际打开 6 个对象字段、3 个协议；其余 43 个对象声明和其他 16 个协议是 schema／源码核对，未验证条件可见性、字段路径和极端数据。
+- **没有覆盖装配的全部目标。** 只实测 Clash 分区的四个开关中的一个（端口）和 SR 整体开关的存在；Geo／DNS／more 分区只确认了相同结构和独立状态，未逐一执行完整 JSON 编辑。
+- **装配跨分区刷新是否是缺陷未确认。** 已复现“修改 DNS 后端口无效 JSON 被刷新覆盖”，但没有找到对应设计条款或用户反馈；本轮只作为行为差异记录。
+- **节点静默丢弃草稿是否是缺陷未确认。** 当前代码和 Build19 的“取消则放弃该草稿”合同可以解释该行为；但“切换模式”是否应等同于“取消”没有单独产品结论。
+- **前端产物未重建。** 使用工作区 `frontend/dist`（时间戳与 `4637cff` 一致，且 `4637cff..HEAD` 无前后端差异）；没有在隔离副本中重新执行 `npm run build`。如果产物与源码存在未发现的偏差，外观测量可能受影响，但控件源码与 DOM 结构已相互印证。
+- **未在项目工作区运行测试或构建，也未运行 Docker、外部服务或真实客户端。** 隔离服务只在 `/tmp` 副本中构建；没有操作 8080 的数据，没有访问生产／预发布／外部站点，没有使用真实账号或真实数据。
+- **未确认 R35-05 的实施排期。** 用户已确认方向，但本轮不实施；后续是否单独开构建步骤、是否同时处理平台响应头编辑器的文案不一致，均待定。
+
+#### 10. 后续验证建议与候选回归范围
+
+如果后续按已确认方向实施，建议至少覆盖：
+
+- **组件级：** 双按钮消失、Switch 出现；`aria-checked`、`role="switch"`、带对象名的无障碍标签；`data-field-json-toggle` 仍可用于保存定位；「应用」「放弃」「JSON 草稿未应用」和错误文本仍存在。
+- **行为级：** 进入／退出高级 JSON；有效 JSON 应用；无效 JSON 阻止退出和应用；保存／检查阻断；父子草稿阻断与定位；取消／重开不持久化；应用后保存并重开。
+- **对象形态：** 固定对象（`smux`、`reality-opts`）、嵌套对象（`smux.brutal-opts`）、map（HTTP `headers`）、list（WireGuard `peers`）；至少覆盖一个禁用子字段条件和一个开放未知键对象。
+- **响应式与主题：** 1440×1000、375×785、浅色与深色；按钮改为开关后移动端命中区不小于 44px，且无横向溢出。
+- **键盘与读屏：** Tab 只经过一个开关停靠点；`Space`／`Enter` 切换；无效 JSON 时开关弹回且原因可见；实际读屏至少抽查一个嵌套对象，确认不会只朗读四个同名「高级 JSON」。
+- **自动化：** 更新 `protocol-field-editor.spec.ts` 中“按钮且无 Switch”的断言及检索到的 31 处按钮点击；检查 `nodes-view.spec.ts:3005` 的定位断言；保留 `node-validation.spec.ts` 的 `data-field-json-toggle` fixture 兼容。
+- **文档：** 实施时同步修订 `Design4` §3.3，新增构建／变更记录，并在 `Issue21` 将 R35-05 从未实施更新为实施后状态；不要把本轮研究记录改写成已修复。
+
+候选替代方向（本轮未采纳，仅保留）：
+
+- **保持双按钮。** 维持 R27-05 的原始决策，把 R35-05 记录为“不采纳”；与用户本次明确期望不一致，不作为推荐。
+- **改用分段控件但视觉接近开关。** 可保留两态文案和较大命中区，但不是用户要求的“与订阅装配一致”的 Switch；需要重新定义视觉规格。
+- **完全对齐装配的即时写入。** 会移除草稿和「应用／放弃」，违反 `Design4` §6.4 的草稿合同，并影响父子阻断、保存／检查拦截和定位；不建议在 R35-05 中采用。
+
+#### 11. 记录边界
+
+本轮只做测试、研究与文档记录。唯一持久化修改是 `Issue21.md`；没有修改任何项目代码、配置、依赖或锁文件，没有实施 UI 调整，没有操作生产、预发布、外部服务、真实账号或真实数据。R35-05 仍为**未实施**，不能表述为已修复。
 
 ### R35-06 节点创建和编辑界面显示 Mihomo 版本号
 
 - **入口：** 节点管理 `/admin/nodes`，新建或编辑节点。
-- **现象：** 用户反馈节点创建和编辑界面显示了 Mihomo 版本号。截图中新建 VLESS 节点时，「传输」和「安全」选择框显示了 `Mihomo 1.19.31 · 常用` 等内容。
-- **期望：** 节点创建和编辑界面无需显示 Mihomo 版本号。
-- **状态：** 待处理；本轮仅记录，未研究原因和修复方案，也未实施修复。
+- **现象（原始反馈，2026-11-17 记录时保留）：** 用户反馈节点创建和编辑界面显示了 Mihomo 版本号。截图中新建 VLESS 节点时，「传输」和「安全」选择框显示了 `Mihomo 1.19.31 · 常用` 等内容。
+- **期望（原始反馈，保留）：** 节点创建和编辑界面无需显示 Mihomo 版本号。
+- **原始状态（2026-11-17 记录时）：** 待处理；本轮仅记录，未研究原因和修复方案，也未实施修复。
+- **当前状态（2026-11-17）：** 已完成代码、隔离运行与浏览器研究，确认版本号的显示来源、实际范围和与兼容性判断的关系。用户已确认后续方向：覆盖 Shadowsocks／VMess／VLESS／Trojan 的全部受影响推荐字段，移除全部 `verified` 副标题（含 `Mihomo 1.19.31` 与 `project-unknown`），保留「常用／扩展／旧版兼容／待验证」分组；视觉和无障碍文本都去掉版本，后端／API 的 `verified` 元数据保留。该方向**尚未实施**，问题**不标记为已修复**。本轮只做测试、研究与文档记录，未修改 UI、项目代码、配置、依赖或锁文件。
+
+#### 1. 结论摘要
+
+- **显示来源已定位。** 版本号不是前端硬编码，也不是从数据库节点记录读取。后端协议注册表的 `option()` 把 `mihomo-1.19.31` 写入推荐项的 `verified` 字段；`GET /api/admin/nodes/protocols` 随 `form_schema[].option_items[]` 下发；`EditableCombobox.vue` 的 `verifiedLabel()` 把 `mihomo-` 替换成 `Mihomo ` 并渲染为选项副标题。
+- **不是只在下拉展开时出现。** 有当前值的字段会把同一副标题渲染在已选值上，因此新建 VLESS 默认的「传输」「安全」在未展开时也直接显示 `TCP Mihomo 1.19.31 · 常用`、`无 Mihomo 1.19.31 · 常用`；编辑 VLESS 时「Flow」「客户端指纹」等已有值也会显示。用户截图与这一实际表现一致。
+- **实际范围是 4 个协议、21 个字段、83 个推荐项。** 只有 Shadowsocks、VMess、VLESS、Trojan 的 `option_items` 带 `verified`；其中 80 个为 `mihomo-1.19.31`，3 个 SS 2022 cipher 为 `project-unknown`。其余 15 个协议的当前表单无此文案。
+- **组件层面实际显示版本的是 18 个下拉字段。** 21 个字段中，3 个 `ALPN` 是 `text-list`，其「添加推荐条目」只显示纯标签，不显示版本；其余 18 个字段使用 `EditableCombobox`，下拉副标题显示版本，共 77 个推荐项（74 个 Mihomo、3 个 `project-unknown`）。SS 2022 cipher 的 `project-unknown` 也出现在同一副标题位置。
+- **版本元数据不参与兼容性判断或选项校验。** 后端 `validateOption()` 只按 `OptionItem.Value`／`Options` 和 `allow_custom` 判断；`OptionItem.Verified` 只在 `option()` 赋值和前端的 `verifiedLabel()` 读取。`TargetEvidence.Version`、诊断 `evidence` 是另一组证据元数据，`NodeCheckPanel.vue` 不渲染 `evidence`，当前目标检查面板也未出现版本号。
+- **与历史结论存在明确冲突，已由用户确认新方向。** Issue15 的 R29-05 曾把 `Mihomo 1.19.29 · 常用` 作为“可读名称和明确分隔”的预期；本次期望相反。历史 Issue15 不重写，只在本文记录新决策及其覆盖关系；`Design4` §12.2 仍把 `verified` 定义为“验证来源/级别”，Build32 Step 1 仍把它作为前端 verified label 更新对象，后续实施时需要同步测试和文档口径。
+- **调整可以是纯前端展示调整。** 用户确认保留后端/API metadata 和固定 Mihomo 版本合同；因此候选方向不需要删除 `OptionItem.Verified`、`TargetEvidence`、诊断 evidence 或 `.mihomo-test.sh`／固定版本测试。只调整 `EditableCombobox` 的视觉副标题和选项 `label`，并更新锁定旧文案的测试即可。
+- 本轮**未实施任何界面调整**，也未把问题标记为已修复。
+
+#### 2. 代码版本、运行环境与测试前提
+
+| 项目 | 实际值 |
+|------|--------|
+| 代码基线 | 分支 `beta`，HEAD `869c0c1c48e3098a04a8817cabaa3ab84845189f`（`git describe` 为 `v4.1.4-11-g869c0c1`）；工作区起始已有未提交的 `Issue21.md`（R35-05 研究内容），已完整保留，未覆盖或清理 |
+| 前端产物 | 使用工作区当前 `frontend/dist`，时间戳为 2026-11-17 11:13；`index.html` SHA-256 `3085dda5789ce99491824ed8dcba71a818b812c9cc5664a8459e065b48315a3e`，主 JS `index-BAQWrEVN.js` SHA-256 `f84620a7da4c039bbbd0930d8bffee8df56d3a2bb893cfffe406b894a33ec962`；本轮未在仓库内重新构建前端 |
+| 后端构建 | 当前 HEAD 的 `backend/` 与上述 `frontend/dist` 复制到 `/tmp/r35-06` 后执行 `CGO_ENABLED=0 go build ./cmd/server`；服务二进制 SHA-256 `a3ef6882de6155bd60dfa99f109a21aafade23b26eae30f9a1af51845d9419b2`；仓库内未执行构建 |
+| 运行环境 | Go 1.26.4（darwin/arm64）；Node.js 26.7.0；npm 11.19.0；macOS 27.2；Google Chrome 157.0.8103.79；Playwright-core 1.57.0（`/tmp/r35-02-tools`，未加入项目依赖） |
+| 隔离实例 | `/tmp/r35-06`；`APP_MODE=prod`、`DATA_DIR=/tmp/r35-06/data`、`PORT=18096`，仅监听 `127.0.0.1`；未连接 8080、Docker、外部服务或真实账号 |
+| 测试数据 | 从既有合成隔离库 `/tmp/r35-05/data` 复制；管理员 `admin@test.com`（[TestPasswordList.md](docs/Reference/TestPasswordList.md) 的统一测试密码）；既有节点 `HK`（VLESS/TCP/REALITY）、`R35-05-HTTP`、`R35-05-WG`；为覆盖编辑路径临时创建 `R35-06-VMESS`、`R35-06-SS`、`R35-06-TROJAN`，检查后通过隔离 API 删除，未留在库中 |
+| 视口 | 桌面 1440×1000；手机 375×785 |
+| 证据目录 | `/tmp/r35-06/`（截图、DOM 文本、API JSON、日志，未加入仓库） |
+
+**边界。** 本轮没有在项目工作区执行 `npm run build` 或 `go build`；隔离服务是在 `/tmp` 副本中构建的。前端产物与当前 HEAD 的一致性依据是工作区 `frontend/` 无代码差异、产物时间戳为 2026-11-17 11:13，且本轮未修改前端源码，而不是本轮重新构建。实际执行的是定向前端和后端测试（见第 10 节），没有执行全量测试、前端 build 或后端全量 build。测试库为既有合成库副本，临时节点检查后已删除；没有操作生产、预发布、外部服务、真实账号或真实数据。
+
+#### 3. 复现步骤
+
+1. 阅读 `registry.go`、`schema.go`、`node.go`、`server/node.go`、`api/node.ts`、`NodesView.vue`、`ProtocolFieldEditor.vue`、`EditableCombobox.vue`、`NodeCheckPanel.vue` 和相关测试，确认协议元数据、API 与前端渲染关系。
+2. 把当前 HEAD 的 `backend/` 和当前 `frontend/dist` 复制到 `/tmp/r35-06`，构建并启动隔离服务；用合成管理员登录，进入 `/admin/nodes`。
+3. 点击「新建节点」（默认 VLESS），不展开高级折叠区，记录「传输」「安全」的已选值；分别展开两个下拉，记录全部选项。
+4. 选择安全 `TLS`，检查 `Flow`、`客户端指纹`、`ALPN`；把传输切到 `XHTTP`，检查 `xhttp-opts.mode`。用干净的「新建节点」分别选择 VMess、Trojan、Shadowsocks，打开全部折叠区和对应条件分支，逐个打开推荐下拉。
+5. 用列表页「编辑」打开 `HK`，记录已选值及下拉；再临时创建 VMess／SS／Trojan 节点并按同样方式编辑检查，完成后删除。
+6. 对 `HK` 执行「目标检查」，记录检查面板和响应；确认版本是否出现在面板、诊断或产物中。
+7. 用 375×785 视口新建 VLESS，检查「传输」「安全」的文本和宽度；另用脚本对 19 个协议逐个新建并统计表单内可见的 `Mihomo` 文本。
+8. 运行定向测试：前端 `npm test -- --run editable-combobox`（8 项）与后端 `go test ./internal/node -count=1`。
+
+#### 4. 显示来源与数据流
+
+- **注册表构造。** `backend/internal/node/registry.go` 的 `option(value, label, group, verified)`（约 1422 行）构造 `OptionItem`；`setOptionItems()` 同时写入 `OptionItems` 与旧的 `Options`。`enrichVLESS`／`enrichVMess`／`enrichTrojan`／`enrichSS`（约 1502～1831 行）为推荐项写入 `common`／`extended`／`legacy`／`pending` 分组和 `mihomo-1.19.31`；SS 2022 的三个 cipher 写入 `project-unknown`。
+- **API 下发。** `backend/internal/node/node.go` 的 `GetProtocols()`（约 332 行）返回可编辑表单协议目录（`editorFormSchema` 移除新连接模型已取代的 VLESS/VMess 顶层兼容字段）；`GET /api/admin/nodes/protocols`（`backend/internal/server/node.go` 约 80、98 行）以 `{data:{list:[...]}}` 返回 `form_schema[].option_items[]`。
+- **前端接收。** `frontend/src/api/node.ts` 的 `OptionItem`（约 48～53 行）保留 `value/label/group/verified`；`NodesView.vue` 的 `load()` 通过 `getProtocols()` 取目录（约 99 行）；`ProtocolFieldEditor.vue` 在字段类型为 `select` 或 `text` 且存在 `option_items` 时渲染 `EditableCombobox`（约 811 行）。
+- **格式化与渲染。** `EditableCombobox.vue` 的 `verifiedLabel()`（约 54～57 行）执行 `mihomo-` → `Mihomo `；每组 `Select.Option` 的 `label` 由 `[label, value, verifiedLabel, groupLabel]` 拼接（约 146 行），可见插槽再分别输出值、`·` 和副标题（约 149～151 行）。已选值复用同一插槽，因此选中状态也带版本。
+- **实际 DOM 证据。** 新建 VLESS 的 `[data-field-path="network"] .ant-select-selection-item` 为 `TCP` + `Mihomo 1.19.31` + ` · ` + `常用`；`security` 为 `无` + `Mihomo 1.19.31 · 常用`。同一浏览器会话中 `/api/admin/nodes/protocols` 响应的 `network`/`security` `option_items` 也带 `verified: "mihomo-1.19.31"`；API 响应与 DOM 文本已对照保存（`display-chain.json`）。
+- **范围收口。** `getProtocols()` 只被 `NodesView.vue` 调用；`EditableCombobox` 只被 `ProtocolFieldEditor.vue` 使用。因此该显示路径只影响节点管理的新建/编辑表单，不扩散到其他页面。`NodesView.optionLabel()`（约 198 行）只用 `label` 生成「当前组合」，所以「当前组合」没有版本。
+- **另一组版本数据。** `TargetEvidence.Version`、`backend/internal/assembly/node_check.go`／`node/check.go` 的 `evidence: mihomo-1.19.31-yaml`、`ssplugin` 合同和固定 Mihomo 测试脚本也包含版本；它们不经过 `EditableCombobox`，也不由 `NodeCheckPanel` 的 `evidence` 渲染。当前 `HK` 检查的面板和响应未见 `Mihomo`／`1.19.31`（响应中只有 `project-uri-capability` 等 evidence）。
+
+#### 5. 新建与编辑、协议和字段的实际结果
+
+| 协议 | 带 `verified` 的字段 | 推荐项数 | 实际 UI 结果 |
+|------|------------------------|----------|----------------|
+| Shadowsocks | `cipher`、`plugin`、`obfs-opts.mode`、`v2ray-plugin-opts.mode`、`client-fingerprint` | 23 | 5 个字段均使用 `EditableCombobox`，下拉均显示版本；新建默认 `plugin` 已选，显示 `不使用插件 Mihomo 1.19.31 · 常用`，`cipher` 为空，只在展开下拉时显示；`obfs`、`v2ray-plugin`、`shadow-tls` 三个条件分支均已实际打开检查；`cipher` 下拉中 3 个 SS 2022 项显示 `project-unknown · 待验证` |
+| VMess | `network`、`security`、`cipher`、`client-fingerprint`、`alpn` | 21 | `network`、`security`、`cipher`、`client-fingerprint` 使用 `EditableCombobox`，下拉和已选值显示版本；`alpn` 是 `text-list`，「添加推荐条目」只显示 `h2`、`http/1.1`、`其他（自定义）`，不显示版本 |
+| VLESS | `network`、`security`、`flow`、`xhttp-opts.mode`、`client-fingerprint`、`alpn`、`encryption` | 24 | 6 个 `EditableCombobox` 字段显示版本，`alpn` 不显示；新建默认「传输」「安全」直接显示版本，`encryption` 在默认折叠的「更多功能 / 高级参数」中，展开后显示；选择 TLS 后 `flow`／`client-fingerprint` 出现，切到 XHTTP 后 `xhttp-opts.mode` 出现，均已在真实表单中打开 |
+| Trojan | `network`、`client-fingerprint`、`alpn`、`ss-opts.method` | 15 | `network`、`client-fingerprint`、`ss-opts.method` 使用 `EditableCombobox` 并显示版本；`alpn` 不显示；新建和编辑的 `network` 均显示；`client-fingerprint` 与高级区 `ss-opts.method` 在对应状态下已实际检查 |
+| **合计** | **21 个字段** | **83** | **18 个字段、77 个下拉副标题显示版本（74 个 Mihomo、3 个 `project-unknown`）；3 个 `alpn` 列表字段不显示版本** |
+
+**19 个协议的实际检查。** 在干净的「新建节点」中逐个切换协议并打开全部折叠区，统计表单内可见 `Mihomo` 文本：只有 Shadowsocks、VMess、VLESS、Trojan 的结果非零（分别为 1、3、3、1 处）；不展开高级区时，VLESS 默认只看到「传输」「安全」2 处，`encryption` 位于折叠的「更多功能 / 高级参数」内。Hysteria、Hysteria2、TUIC、WireGuard、HTTP、SOCKS5、Snell、AnyTLS、Mieru、MASQUE、OpenVPN、SSH、ShadowQUIC、TrustTunnel、Tailscale 均为 0。该结果与 API 侧只有这 4 个协议存在带 `verified` 的 `option_items` 一致。
+
+**新建与编辑的实际差异。** 新建时只有已有默认值/已选值的字段在未展开时显示版本；空字段要展开下拉才看到。编辑已有值时，选中值直接显示版本：
+
+| 场景 | 选中值直接显示版本的位置 | 备注 |
+|------|---------------------------|------|
+| 新建 VLESS（默认） | `network`、`security` | `encryption` 在默认折叠的「更多功能 / 高级参数」内 |
+| 编辑 `HK`（VLESS/TCP/REALITY） | `network`、`security`、`flow`、`client-fingerprint` | 4 处；`encryption` 展开高级区后再显示 |
+| 新建 VMess（默认/TLS）；编辑临时 VMess（WS+TLS） | `network`、`security`、`cipher` | 3 处 |
+| 新建/编辑 Shadowsocks（临时节点） | `plugin`；编辑时还有 `cipher` | 新建默认 1 处，编辑 2 处 |
+| 新建/编辑 Trojan（临时节点） | `network` | 1 处 |
+
+**手机与目标检查。** 375×785 下新建 VLESS 的「传输」「安全」仍显示完整版本副标题；两个 `ant-select` 宽度约 343px、高度 44px，未观察到版本文字被截断。对 `HK` 执行「目标检查」后，面板显示 `clash-yaml`／`generic-subs`／`sr-subs` 的状态、诊断和脱敏产物，但未显示 `Mihomo` 或 `1.19.31`；当前检查响应也没有这两个字符串。
+
+#### 6. 版本信息与兼容性判断、目标检查的关系
+
+- **选项校验与版本无关。** `backend/internal/node/project.go` 的 `validateOption()`（约 329～357 行）在存在 `OptionItems` 时只比较 `item.Value`；`allow_custom` 决定清单外值是否允许。`Verified` 不参与允许值、必填、条件显示、清空或保存合并。
+- **兼容性判断走独立链路。** 目标检查由 `backend/internal/node/check.go` 与 `backend/internal/assembly/node_check.go` 按协议适配器、字段合同和固定内核证据诊断；`TargetEvidence.Version` 和诊断 `Evidence` 只是证据标签，未被任何条件分支读取（`TargetEvidence` 在活动代码中仅被赋值，未被读取）。`OptionItem.Verified` 同样只被赋值和前端展示读取。
+- **目标检查面板不显示版本。** `NodeCheckPanel.vue` 只渲染 target 状态、`code`、`message`、`field_path` 和 `preview`，不渲染 `diagnostic.evidence`；因此即使某些诊断响应携带 `mihomo-1.19.31-yaml`，节点表单也不显示该字符串。
+- **固定版本合同仍在。** `.mihomo-test.sh` 校验二进制为 `Mihomo Meta v1.19.31`；后端多个 `mihomo_*_test.go` 和适配器注释、诊断 evidence 也使用 `v1.19.31`。这些是测试/证据合同，与 `OptionItem.Verified` 的界面展示无行为耦合；隐藏界面副标题不会改变生成结果或兼容性判断。
+- **数据不持久化版本。** 测试库节点行的 `protocol_json` 中没有 `Mihomo` 或 `1.19.31`（查询计数为 0）；版本只存在于协议目录响应和构建/测试元数据中，保存节点不会写入它。
+- **文档版本存在漂移。** 活动代码和 Build32 Step 1 使用 `1.19.31`，而 `Design4` 的 D16 与 §12.2 示例仍使用 `1.19.29`；这不影响当前显示链，但说明界面上的版本号是随证据元数据更新的展示值，不是前端稳定合同。
+
+#### 7. 影响范围与候选调整方向
+
+**已确认的影响范围（静态与实测一致）：**
+
+- 只涉及节点管理的新建/编辑表单；`NodesView` 是唯一 `getProtocols()` 调用方，`EditableCombobox` 是唯一显示组件。
+- 4 个协议、21 个字段、83 个推荐项；18 个字段、77 个下拉副标题显示版本，其中含 3 个 `project-unknown`；3 个 `alpn` 列表字段不显示版本。
+- 版本同时出现在已选值和展开下拉中；只改下拉控件或只改 VLESS 的「传输」「安全」会留下其他字段/协议的不一致。
+- `OptionItem.Value`、`Options`、`allow_custom`、条件显示、保存校验、目标检查、Clash／SR／generic 输出均不依赖 `Verified`；用户确认保留后端 metadata 时，显示调整不需要改 API 或数据。
+- `project-unknown` 与 Mihomo 版本共用同一副标题；用户已确认“移除全部 `verified` 文案、保留分组”，因此 SS 2022 项应变为只显示值名称和「待验证」，不再出现 `project-unknown`。
+- 视觉与无障碍文本都要去掉版本；如果只删可见 `<span>` 而保留 `Select.Option` 的 `label`，屏幕阅读器仍会读出 `Mihomo 1.19.31`，不满足用户确认的方向。
+- 需要更新锁定旧文案的测试：`frontend/tests/editable-combobox.spec.ts` 当前明确断言 `Mihomo 1.19.31 · 常用`（约 91～92 行），本轮定向运行 8 项通过；仅改组件而不改测试会导致该测试失败。
+
+**候选方向（仅记录，未实施）：**
+
+- **A. 纯前端隐藏 `verified` 副标题，保留分组与后端 metadata（推荐，且与用户已确认方向一致）。** 修改 `EditableCombobox` 的可见副标题和 `Select.Option` 的 `label`，去掉 `verifiedLabel(item.verified)` 的渲染；保留 `groupLabel(item.group)`，并确保分组在无版本时仍有清晰分隔；更新测试断言；不改后端/API/数据。影响面最小，行为风险最低。
+- **B. 只隐藏 `Mihomo ...`，保留 `project-unknown`。** 与用户“移除全部 verified 文案”的选择不一致；SS 2022 项仍会出现 `project-unknown`，不采纳。
+- **C. 去掉 `verified` 和分组，只留值名称。** 更简洁，但会丢失“常用／扩展／旧版兼容／待验证”的辨识信息，与用户选择不一致，不采纳。
+- **D. 从 API/后端删除 `OptionItem.Verified`。** 会破坏 Build32 的字段证据合同、未来版本核对和现有测试的可追溯性，且与用户“保留后端 metadata”的选择冲突，不推荐。
+- **E. 把版本移到 tooltip／帮助文本。** 用户明确要求节点表单无需显示版本号；tooltip 仍可能在交互中显示，且会扩大改动面，不推荐。
+- **F. 只处理 VLESS「传输」「安全」。** 与用户确认的“所有受影响协议与字段”不一致；其他字段/协议仍显示版本，不采纳。
+
+**后续回归验证范围（实施时）：**
+
+- 新建和编辑 SS／VMess／VLESS／Trojan，检查已选值与展开下拉：版本和 `project-unknown` 均消失，分组仍显示；`alpn` 列表保持现状。
+- 空值、已有值、自定义值、分支切换后的选项重建、移动端 375px、浅色/深色主题和键盘/读屏文本。
+- 节点保存、读取、检查、装配预览和生成仍正常；确认 `OptionItems`、`TargetEvidence`、诊断 evidence 未被改动；固定 Mihomo 门禁继续通过。
+- 更新并运行 `editable-combobox.spec.ts`，补充 `nodes-view.spec.ts`／`protocol-field-editor.spec.ts` 的相关断言；执行前端全量测试和 build、后端 build/vet/test。上述回归尚未执行，因为本轮未实施。
+
+#### 8. 用户确认的后续方向与待决策边界
+
+用户于 2026-11-17 明确选择：
+
+1. **范围：** 覆盖所有受影响协议与字段（Shadowsocks、VMess、VLESS、Trojan 的 21 个 `option_items` 字段），不只处理截图中的 VLESS「传输」「安全」。
+2. **保留文字：** 移除全部 `verified` 文案（`Mihomo 1.19.31` 和 `project-unknown`），保留「常用／扩展／旧版兼容／待验证」分组。
+3. **无障碍与内部数据：** 视觉和无障碍文本都去掉版本；后端/API 的 `verified` metadata、目标证据和固定 Mihomo 版本合同保留。
+
+该方向**尚未实施**。以下事项仍需在实施或后续文档同步时决定，不能把候选方案当作已确认方案：
+
+- 分组在无版本时的精确视觉：例如 `TCP · 常用` 还是 `TCP 常用`；分隔符和副标题字号需按现有控件规格确定。
+- 无障碍 `label` 的精确内容：去掉版本后是否保留分组与规范值；用户已确认去掉版本，但未逐字确认 `label` 的最终格式。
+- `Design4` §12.2、Build32 Step 1 与 Issue15 R29-05 的历史文案/预期如何同步。当前任务只授权修改 `Issue21.md`，本轮没有改写这些文档；Issue15 的历史结论保持原样。
+- 是否在实施时补充“版本只作为内部证据、不在节点表单展示”的设计说明；属于后续 Design/Build 同步范围，不在本轮决定。
+
+#### 9. 尚未确认内容与未覆盖范围
+
+- 没有实施或验证“隐藏版本后”的实际界面；没有修改 `EditableCombobox`、测试或任何前端产物，不能宣称问题已修复。
+- 没有用真实读屏软件验证；只读取了 DOM 和无障碍快照，确认当前 `Mihomo 1.19.31` 会进入选中值文本与 combobox 可访问文本。手机只验证了 375×785 的布局与文本，没有手机读屏、深色主题或横屏复测。
+- 没有运行 Docker 镜像、远端 CI、真实客户端或真实代理连接；没有验证实施后的装配、订阅分发和客户端使用。
+- 没有逐项测试所有 83 个推荐项在界面中的可见像素；对 21 个字段的下拉文本、默认/编辑选中值做了实测，对 15 个无 `option_items` 的协议做了整表检查。`ALPN` 的 `text-list` 只验证了“添加推荐条目”下拉，没有验证已添加标签的展示，因为当前编辑节点没有 ALPN 值。
+- 没有搜索第三方前端消费者或未来插件对 `OptionItem.Verified` 的依赖；当前仓库内只有 `EditableCombobox` 读取该字段。API 仍保留字段，未来消费者可能使用，因此不能据“当前无行为依赖”断言外部无影响。
+- 没有修改 `Design4`、Build32、Issue15 或任何历史记录；本轮唯一纳入版本管理的持久化变更是 `Issue21.md`。
+
+#### 10. 支持证据摘要
+
+| 证据 | 内容 |
+|------|------|
+| `protocols.json`／`display-chain.json` | 19 个协议、21 个带 `option_items` 的字段、83 个推荐项（80 个 `mihomo-1.19.31`、3 个 `project-unknown`）；VLESS `network`/`security` 的 API 元数据与 DOM 选中值逐项对照 |
+| `02-new-vless.png`、`03-network-dropdown.png` | 新建 VLESS 的已选值与「传输」下拉显示 `Mihomo 1.19.31 · 常用`／`扩展` |
+| `edit-hk-form.png`、`edit-vmess.png`、`edit-R35-06-SS.png`、`edit-R35-06-TROJAN.png` | 四种协议编辑态选中值；VLESS `HK` 同时显示 `network`／`security`／`flow`／`client-fingerprint` |
+| `check-all-19.log`、`all-protocols.json` | 逐协议新建检查；只有 4 个协议非零，15 个协议为 0 |
+| `field-results.json`／`inspect-all-v2.log` | 21 个字段的下拉文本；`alpn` 列表只显示纯标签；SS 2022 项显示 `project-unknown · 待验证` |
+| `edit-check-response.json`／`inspect-edit-and-check.log` | `HK` 的目标检查响应与面板文本；面板/响应无 `Mihomo`／`1.19.31` |
+| `mobile-new-vless.png`／`inspect-mobile.log` | 375×785 下版本文字仍显示，字段宽度约 343px、高 44px |
+| `npm test -- --run editable-combobox` | 8 项通过；当前测试锁定 `Mihomo 1.19.31 · 常用` |
+| `go test ./internal/node -count=1` | 通过；用于确认当前后端节点/协议测试状态 |
+
+#### 11. 本轮未做
+
+本轮只做测试、研究与文档记录。唯一纳入版本管理的持久化变更是 `Issue21.md`；没有修改任何项目代码、配置、依赖或锁文件，没有修改 `frontend/dist` 或实施 UI 调整，没有将问题标记为已修复，没有操作生产、预发布、外部服务、真实账号或真实数据。隔离库中的临时 VMess／SS／Trojan 节点已在检查后删除。
 
 ### R35-07 目标检查位于高级数据区域内
 
@@ -1119,3 +1562,5 @@ proxies:
 | 2026-11-17 | R35-02 补充 Clash 装配前的空素材提示，提供添加素材和继续装配两条路径。 |
 | 2026-11-17 | 记录 R35-06：节点创建和编辑界面无需显示 Mihomo 版本号。 |
 | 2026-11-17 | 记录 R35-07：目标检查应移至高级数据区域外部。 |
+| 2026-11-17 | 按授权完成 R35-05 研究：确认节点对象字段使用双按钮、装配 Clash 分区使用 Switch，两者由独立组件和不同提交时机实现；确认双按钮来自 2026-09-03 R27-05 的明确改动，并记录 `Design2-UI`／`Design4`／`Issue13`／`Build21` 的新旧口径差异。实测节点有效／无效 JSON、草稿、应用／放弃、保存／检查拦截、父子草稿阻断、取消／重开、持久化，以及装配开关的即时写入、无效 JSON 无法关闭、跨分区刷新覆盖和键盘／主题／手机表现；从 schema 统计 19 协议 49 个对象字段并打开 6 个代表性字段。记录用户确认的后续方向（只换外观、保留应用／放弃与草稿、覆盖所有对象字段、固定「高级 JSON」文案）及实现影响、未确认边界和回归建议；本轮仅测试、研究与文档记录，未修改 UI、项目代码、配置、依赖或锁文件，未将问题标记为已修复。 |
+| 2026-11-17 | 按授权完成 R35-06 研究：确认 Mihomo 版本号来自协议注册表 `OptionItem.Verified`，经 `/api/admin/nodes/protocols` 下发并由 `EditableCombobox` 的 `verifiedLabel()` 渲染；实测新建/编辑下 Shadowsocks、VMess、VLESS、Trojan 四个协议、21 个字段、83 个推荐项，逐协议检查 19 个协议，区分选中值、下拉、`alpn` 列表和 `project-unknown` 的实际表现；确认 `verified` 不参与兼容性判断或选项校验，目标检查面板不显示版本；记录用户确认的后续方向（全部受影响字段、移除全部 `verified` 文案并保留分组、视觉与无障碍文本均去掉版本、保留后端 metadata）及候选影响、回归范围和未确认边界；本轮仅测试、研究与文档记录，未实施界面调整，未修改代码、配置、依赖或锁文件。 |
