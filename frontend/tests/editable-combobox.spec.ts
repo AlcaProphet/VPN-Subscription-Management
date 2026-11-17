@@ -85,11 +85,29 @@ describe('EditableCombobox', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([['']])
   })
 
-  it('选项元数据保持可读名称和明确分隔', async () => {
-    const wrapper = mount(EditableCombobox, { props: { value: 'tcp', items, allowCustom: true }, attachTo: document.body })
+  it('已选值和展开选项保留分组，视觉与无障碍文本均省略验证来源', async () => {
+    const groupedItems: OptionItem[] = [
+      { value: 'tcp', label: 'TCP', group: 'common', verified: 'mihomo-1.19.31' },
+      { value: 'ws', label: 'WebSocket', group: 'extended', verified: 'mihomo-1.19.31' },
+      { value: 'legacy', label: '旧算法', group: 'legacy', verified: 'mihomo-1.19.31' },
+      { value: '2022', label: 'SS 2022', group: 'pending', verified: 'project-unknown' },
+      { value: 'ungrouped', label: '无分组选项', verified: 'mihomo-1.19.31' },
+    ]
+    const wrapper = mount(EditableCombobox, {
+      props: { value: '2022', items: groupedItems },
+      attachTo: document.body,
+    })
+    expect(wrapper.get('.ant-select-selection-item').text()).toBe('SS 2022 · 待验证')
     await wrapper.find('.ant-select-selector').trigger('mousedown')
-    expect(document.body.textContent).toContain('Mihomo 1.19.31 · 常用')
-    expect(document.body.textContent).not.toContain('mihomo-1.19.31常用')
+    const dropdown = document.body.querySelector('.ant-select-dropdown')!
+    const options = [...dropdown.querySelectorAll('.ant-select-item-option-content')]
+    expect(options.map((option) => option.textContent)).toEqual([
+      'TCP · 常用', 'WebSocket · 扩展', '旧算法 · 旧版兼容', 'SS 2022 · 待验证', '无分组选项', '其他（自定义）',
+    ])
+    const accessibleLabels = [...dropdown.querySelectorAll('[role="option"]')]
+      .map((option) => option.getAttribute('aria-label'))
+    expect(accessibleLabels).toContain('SS 2022 2022 待验证')
+    expect(dropdown.outerHTML).not.toMatch(/mihomo|1\.19\.31|project-unknown/i)
     wrapper.unmount()
   })
 })

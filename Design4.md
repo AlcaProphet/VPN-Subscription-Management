@@ -2,7 +2,7 @@
 
 > **文档定位：** VPN 订阅管理系统的节点编辑器增量设计记录，承接 [Node-Editor-Research.md](docs/Reference/Node-Editor-Research.md) 和 2026-09-02 补充研究。本文记录已确认的产品方向、设计纲要、研究证据及后续范围，不是分步 Build 文档。
 > **编码约束：** 遵循 [AGENTS.md](AGENTS.md)（唯一强要求）。[Design3.md](docs/reports/Design/Design3.md) 的规则素材与装配设计继续有效（该设计已由 Build16 构建，并随 Build22 收口归档）；节点已实现基线见 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md) §6.2 和 [Build15.md](docs/reports/Build/Build15.md)。
-> **设计状态：** v1.33，2026-11-17。R35-05 将节点对象字段编辑模式改为「高级 JSON」开关（见 §3.3、[Build36.md](docs/reports/Build/Build36.md)）；R35-04 的 Clash UDP 缺省语义见 §7.3。19 个 manual 协议的编辑体验专项已通过 Build32 Step 0.5～22 验收并归档。固定 Mihomo v1.19.31 与隔离候选证据见 [Build32.md](docs/reports/Build/Build32.md)。TrustTunnel 和 OpenVPN 两项真实连接仍按用户豁免记录。Build26 已将 R28-07 核心工程约束现行合同补充至 §12.7，Build27 已完成 R28-09 项目级工程与文档收尾并归档；R28-06/Build25 Step 0 已同步“未知扩展仅加密存档/诊断不输出、局部 JSON 显式白名单、父子草稿阻止覆盖”设计；Build25 Step 0～4 主体、前端 `item_id_field` 白名单缺口修复、保存定位稳定排序与条件隐藏清理专项回归均已完成，并重新通过自动化、Docker build 与 Production smoke 门禁，Build25 已归档；已完成的人工项目见 Issue14／Issue15，当前待核验项见 ProdTestList。用户已确认并授权写入：切换分支清空所属参数与凭据、切回不恢复、取消独立 `node_edit_states` 表，在 `nodes` 内保存最小当前状态；同时确认协议过渡、目标生成门槛、未知扩展保护、并发修订方案、当前状态落盘形式与 Reference 同步口径。当前有效决策见第二章，设计准备度见第十一章，首批契约细化见第十二章。**关键行为与首批普通组合/风险组合矩阵已补齐；Build17 已完成后端保存契约、当前状态落盘、修订冲突、凭据/扩展保护及 URI 初始化，Build18 已完成条件元数据、活动投影、节点检查和离线夹具，Build19 与 Build20 已完成，前端未知扩展摘要/JSON 草稿拦截/分支切换提示已收口；R27-03 补齐功能关闭清空的元数据契约，R27-04/05 补齐单一连接入口及表单排序/层次/集中开关，R27-06 补齐 `allow_custom` 三态与默认禁止契约，R27-07 补齐实际密文摘要、递归凭据状态及以稳定条目身份处理 WireGuard 数组凭据的完整链路；R27-09 Step 7～14 与 N-node-3/4 Step 15 已完成并验收，Build22 D3 主体与运行门禁完成、Step 7 自动化证据已补齐并重新通过 Step 11 门禁，D3 全验收通过，Build23 已归档为 R27-09 交接说明，Build24 已完成 R29-06 控件语义收口，Build25 已完成 R28-06 主体、缺口修复与全部门禁并归档；Build21、Build22、Build23、Build24、Build25、Build26、Build27 已归档，Design3 已归档，已完成的人工结论见 Issue14／Issue15，待核验项见 ProdTestList；v1.15 将推荐字段收口为标准下拉，并补齐显式自定义草稿、列表推荐入口和未设置数字语义，v1.16 按有限候选决策统一为不带搜索输入的按钮式 Select。工程闭环与已完成人工结果见 [Issue14.md](docs/reports/Issue/Issue14.md)、[Issue15.md](docs/reports/Issue/Issue15.md)；当前待人工核验见 [ProdTestList.md](ProdTestList.md)。**
+> **设计状态：** v1.34，2026-11-17。R35-06 在节点推荐选项中保留分组并省略验证来源（见 §3.2、§12.2、[Build37.md](docs/reports/Build/Build37.md)）。R35-05 将节点对象字段编辑模式改为「高级 JSON」开关（见 §3.3、[Build36.md](docs/reports/Build/Build36.md)）；R35-04 的 Clash UDP 缺省语义见 §7.3。19 个 manual 协议的编辑体验专项已通过 Build32 Step 0.5～22 验收并归档。固定 Mihomo v1.19.31 与隔离候选证据见 [Build32.md](docs/reports/Build/Build32.md)。TrustTunnel 和 OpenVPN 两项真实连接仍按用户豁免记录。Build26 已将 R28-07 核心工程约束现行合同补充至 §12.7，Build27 已完成 R28-09 项目级工程与文档收尾并归档；R28-06/Build25 Step 0 已同步“未知扩展仅加密存档/诊断不输出、局部 JSON 显式白名单、父子草稿阻止覆盖”设计；Build25 Step 0～4 主体、前端 `item_id_field` 白名单缺口修复、保存定位稳定排序与条件隐藏清理专项回归均已完成，并重新通过自动化、Docker build 与 Production smoke 门禁，Build25 已归档；已完成的人工项目见 Issue14／Issue15，当前待核验项见 ProdTestList。用户已确认并授权写入：切换分支清空所属参数与凭据、切回不恢复、取消独立 `node_edit_states` 表，在 `nodes` 内保存最小当前状态；同时确认协议过渡、目标生成门槛、未知扩展保护、并发修订方案、当前状态落盘形式与 Reference 同步口径。当前有效决策见第二章，设计准备度见第十一章，首批契约细化见第十二章。**关键行为与首批普通组合/风险组合矩阵已补齐；Build17 已完成后端保存契约、当前状态落盘、修订冲突、凭据/扩展保护及 URI 初始化，Build18 已完成条件元数据、活动投影、节点检查和离线夹具，Build19 与 Build20 已完成，前端未知扩展摘要/JSON 草稿拦截/分支切换提示已收口；R27-03 补齐功能关闭清空的元数据契约，R27-04/05 补齐单一连接入口及表单排序/层次/集中开关，R27-06 补齐 `allow_custom` 三态与默认禁止契约，R27-07 补齐实际密文摘要、递归凭据状态及以稳定条目身份处理 WireGuard 数组凭据的完整链路；R27-09 Step 7～14 与 N-node-3/4 Step 15 已完成并验收，Build22 D3 主体与运行门禁完成、Step 7 自动化证据已补齐并重新通过 Step 11 门禁，D3 全验收通过，Build23 已归档为 R27-09 交接说明，Build24 已完成 R29-06 控件语义收口，Build25 已完成 R28-06 主体、缺口修复与全部门禁并归档；Build21、Build22、Build23、Build24、Build25、Build26、Build27 已归档，Design3 已归档，已完成的人工结论见 Issue14／Issue15，待核验项见 ProdTestList；v1.15 将推荐字段收口为标准下拉，并补齐显式自定义草稿、列表推荐入口和未设置数字语义，v1.16 按有限候选决策统一为不带搜索输入的按钮式 Select。工程闭环与已完成人工结果见 [Issue14.md](docs/reports/Issue/Issue14.md)、[Issue15.md](docs/reports/Issue/Issue15.md)；当前待人工核验见 [ProdTestList.md](ProdTestList.md)。**
 > **数据前提：** 按用户确认，当前项目无业务数据，因此旧节点/旧调用方的数据兼容、迁移、历史数据读改写原本不作为本次设计约束；R27-07 扩大范围后，仍为可能存在的本地或备份 WireGuard Peer 数据加入幂等启动升级，避免明文数组凭据遗留。schema 版本化、新节点初始化、“无数据环境下直接建库”和历史版本快照语义继续适用。
 > **证据基线：** 项目提交 `d76ee99`；补充研究使用 Clash Verge Rev **2.5.2** 的官方 URI 解析源码及本机携带的 Mihomo **1.19.29**，执行了 **41 个离线配置检查和 9 个 URI 样例检查**。结果含接受、拒绝、字段改写与静默回退，不是“50 项全部通过”；Shadowrocket 只有官方发布资料证据，没有本轮真机导入或连接结果。
 > **状态用语** “设计结论”表示采用的方案，“研究结果”表示指定版本和路径的观察，“待细化”表示仍需补齐的契约或证据。已实施范围以明确标注的工程结果和归档构建记录为准。
@@ -69,7 +69,7 @@
 | D13 | 当前状态存储 | 取消新增 `node_edit_states` 表；必要元数据与活动配置保存在同一节点行，不保存恢复副本 | v1.2 用户确认，覆盖 v1.1 独立表决策 |
 | D14 | 跨协议切换凭据与 endpoint | 清空全部协议参数与凭据；名称保留，服务器地址与端口按目标协议 endpoint policy 保留或清空；不做会话内分协议草稿恢复 | v1.2 清空边界；v1.24 按 Build32 已确认的 endpoint policy 收口 |
 | D15 | 非激活分支 | 不持久化、不缓存待恢复参数；清空先作用于草稿，保存成功才落库，取消整个编辑不改数据库 | v1.2 用户确认，覆盖原保留分支决策 |
-| D16 | 目标验证基线 | 首批以 Mihomo 1.19.29 与 Clash Verge Rev 2.5.2 为可判定基线；Shadowrocket 仅记录版本，标示待真机验证 | v1.1 用户确认，v1.2 沿用 |
+| D16 | 目标验证基线 | 首批研究使用 Mihomo 1.19.29 与 Clash Verge Rev 2.5.2；Shadowrocket 当时待真机验证。Build32 固定 Mihomo 验收版本为 v1.19.31 | 首批研究见 §12.4，当前固定内核验收见 [Build32](docs/reports/Build/Build32.md) |
 | D17 | 节点检查接口 | 新增按需调用的节点检查接口，服务端复用实际适配器并返回脱敏产物与诊断 | v1.1 用户确认，v1.2 明确新建／编辑草稿边界 |
 | D18 | SS 2022 范围 | 首批支持普通 AEAD、插件条件表单与插件诊断；SS 2022 完整 URI/密钥/客户端兼容列为后续阶段 | v1.1 用户确认，v1.2 沿用 |
 | D19 | 旧数据兼容 | 当前项目无业务数据，旧节点/旧调用方数据兼容不作为本次设计约束；新库按新 schema 初始化 | 用户明确，本轮确认 |
@@ -130,6 +130,8 @@
 | 当前目标无法表达 | 保留编辑值，显示具体目标差异 | URI 无法完整承载的 Header 或插件选项 |
 
 当前组合真正需要用户补充的字段不能藏在默认折叠区而没有提示。保存遇到错误时展开所属区域，定位首个错误；高级区已有配置时显示摘要，但不通过“自动打开所有已配置区”重新制造长表单。
+
+R35-06 统一新建和编辑的推荐单选框。已选值与展开选项显示选项名称和分组，例如「TCP · 常用」，分组可为「常用／扩展／旧版兼容／待验证」。选项的无障碍名称包含显示名、规范值和分组。表单的可见文字与无障碍名称均省略 `verified`，包括 Mihomo 版本和 `project-unknown`。ALPN 等列表的推荐条目继续使用原有显示名。此处的现行展示规则覆盖 [Issue15 R29-05](docs/reports/Issue/Issue15.md#r29-05-节点条件表单重复渲染输入框且下拉元数据文案粘连) 与 [Build32 Step 1](docs/reports/Build/Build32.md#step-1固定-mihomo-v11931-证据门禁) 所记录的验证来源文案。
 
 ### 3.3 独立开关区
 
@@ -717,14 +719,14 @@ v1.5 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、�
   "required_when": { "network": ["ws"] },
   "reset_on": ["network"],
   "option_items": [
-    { "value": "/", "label": "/（默认）", "group": "common", "verified": "mihomo-1.19.29" }
+    { "value": "/", "label": "/（默认）", "group": "common", "verified": "mihomo-1.19.31" }
   ],
   "allow_custom": true,
   "allow_unknown": false,
   "canonical_path": "ws-opts.path",
   "aliases": ["ws-path"],
   "target_evidence": [
-    { "target": "clash-yaml", "client": "mihomo", "version": "1.19.29", "status": "complete", "entry": "yaml" }
+    { "target": "clash-yaml", "client": "mihomo", "version": "1.19.31", "status": "complete", "entry": "yaml" }
   ]
 }
 ```
@@ -736,7 +738,7 @@ v1.5 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、�
 | `required_when` | 保存校验条件；与 `when` 分离，避免“显示”代替“校验”；可含 `targets` 限定目标 |
 | `reset_on` | 当列出的作用域变化时清空本字段；作用域：`protocol` / `network` / `security` / `plugin` / `feature.<name>` |
 | `feature` | 功能控制元数据：`name` 为功能域；对象以 `toggle` 指定本对象内的启用字段，标量以自身值控制；枚举功能以 `disabled_value` 声明关闭值。未声明的普通 bool 不触发关联清空 |
-| `option_items` | 推荐选项：规范值、显示名、分组、验证来源/级别 |
+| `option_items` | 推荐选项包含规范值、显示名、分组和验证证据 `verified`。协议目录继续下发 `verified` 供追溯，节点表单按 §3.2 展示 |
 | `allow_custom` | 是否允许输入清单外自定义值；自定义仍需走同一校验链 |
 | `allow_unknown` | 局部 JSON 显式白名单：仅开放 Map/对象可为 `true`；固定结构对象固定下发 `false`，不得依赖 `omitempty` 默认值造成歧义 |
 | `canonical_path` / `aliases` | 规范存储路径与兼容输入别名 |
@@ -1085,3 +1087,4 @@ Build 编写时上述契约如与 AGENTS.md、现有 Design2/Design3 或用户�
 | v1.31 | 2026-11-12 | 同步 19 个 manual 协议的 Build32 本地候选验收、固定内核和协议清单证据，更新归档入口。两项真实连接沿用用户豁免。 |
 | v1.32 | 2026-11-16 | §7.3 补齐手动 VLESS／VMess 的 Clash UDP 缺省语义和历史版本边界，见 Build35。 |
 | v1.33 | 2026-11-17 | 按 R35-05 实施节点对象字段编辑模式开关：覆盖对象、嵌套对象、map 与 list，固定「高级 JSON」文案并补充可区分无障碍名称、无效 JSON 退出限制与手机命中区；保留应用／放弃、草稿、父子阻断、保存／检查拦截。同步 §3.3 与 Build36，订阅装配即时写入语义不变。 |
+| v1.34 | 2026-11-17 | 按 R35-06 统一节点推荐选项的可见文字与无障碍名称。继续显示选项分组，`verified` 用于协议目录中的证据记录。同步 §3.2、§12.2、D16 的固定内核说明与 Build37。 |

@@ -51,11 +51,6 @@ function groupLabel(group?: string): string {
   return (group && groupLabelMap[group]) || group || ''
 }
 
-function verifiedLabel(verified?: string): string {
-  if (!verified) return ''
-  return verified.replace(/^mihomo-/i, 'Mihomo ')
-}
-
 function internalValue(value: string): string | undefined {
   if (isCustomValue(value)) return CUSTOM_VALUE
   if (value === '') return isKnownValue('') ? EMPTY_VALUE : undefined
@@ -143,12 +138,10 @@ onBeforeUnmount(() => {
         v-for="item in items"
         :key="item.value === '' ? EMPTY_VALUE : item.value"
         :value="item.value === '' ? EMPTY_VALUE : item.value"
-        :label="[item.label || item.value, item.value, verifiedLabel(item.verified), groupLabel(item.group)].filter(Boolean).join(' ')"
+        :aria-label="[item.label || item.value, item.value, groupLabel(item.group)].filter(Boolean).join(' ')"
       >
         <span class="text-text">{{ item.label || item.value }}</span>
-        <span v-if="item.verified || item.group" class="ml-2 text-xs text-text-tertiary">
-          <span v-if="item.verified">{{ verifiedLabel(item.verified) }}</span><span v-if="item.verified && item.group"> · </span><span v-if="item.group">{{ groupLabel(item.group) }}</span>
-        </span>
+        <span v-if="item.group" class="ml-2 text-xs text-text-tertiary">{{ ` · ${groupLabel(item.group)}` }}</span>
       </Select.Option>
       <Select.Option v-if="allowCustom" :value="CUSTOM_VALUE" label="其他 自定义">其他（自定义）</Select.Option>
     </AppSelect>
