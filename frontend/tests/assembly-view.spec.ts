@@ -46,6 +46,7 @@ vi.mock('@/components/Notify', () => ({
 }))
 
 import AssemblyView from '@/views/admin/AssemblyView.vue'
+import AssemblerShell from '@/views/admin/assembly/AssemblerShell.vue'
 import PoolTab from '@/views/admin/assembly/PoolTab.vue'
 import PreviewStep from '@/views/admin/assembly/PreviewStep.vue'
 import { getAssemblyContext, previewAssembly, generateAssembly } from '@/api/assembly'
@@ -457,7 +458,7 @@ describe('AssemblyView 装配页核心交互', () => {
     expect(vm.visiblePreviewWarnings).toEqual(['节点名称已变化'])
   })
 
-  it('Clash 无池可到覆盖层，有效结果决定生成，旧表单恢复后保留原回执', async () => {
+  it('Clash 无池先提示，继续装配后可用覆盖层，仍按最终规则决定能否生成', async () => {
     mockContext.mockResolvedValue({ ...context, pools: [], nodes: [{ name: '节点A', render_name: '节点A', source: 'manual', enabled: true }] })
     mockPreview.mockResolvedValue({
       content: 'rules: [MATCH,DIRECT]', preview_hash: 'zero', skipped: [],
@@ -469,10 +470,16 @@ describe('AssemblyView 装配页核心交互', () => {
       form: { pools: unknown[]; overseas_members: string[]; overlay: { rules_yaml: string } }
       doPreview: () => Promise<void>; doGenerate: () => Promise<void>; addPool: () => void
     }
+    const button = (label: string) => wrapper.findAll('button').find((item) => item.text() === label && item.isVisible())!
+    expect(wrapper.text()).toContain('暂无规则素材')
+    expect(wrapper.findComponent(AssemblerShell).exists()).toBe(false)
+    expect(mockPreview).not.toHaveBeenCalled()
+    await button('继续装配').trigger('click')
+    expect(wrapper.text()).not.toContain('暂无规则素材')
+    expect(wrapper.findComponent(AssemblerShell).isVisible()).toBe(true)
     vm.currentStep = 2
     vm.form.overseas_members = ['节点A']
     await wrapper.vm.$nextTick()
-    const button = (label: string) => wrapper.findAll('button').find((item) => item.text() === label && item.isVisible())!
     expect(button('添加素材池').attributes('disabled')).toBeDefined()
     expect(button('前往规则素材池').exists()).toBe(true)
     vm.addPool()
@@ -499,6 +506,33 @@ describe('AssemblyView 装配页核心交互', () => {
     expect(vm.canGenerate).toBe(true)
     await vm.doGenerate()
     expect(mockGenerate).toHaveBeenCalledWith(expect.objectContaining({ pools: [], custom_rules: [], preview_hash: 'overlay' }))
+  })
+
+  it('Clash 单页只有空池时可去添加素材，返回后按最新条目数解除提示', async () => {
+    localStorage.setItem('assembly_layout_mode', 'page')
+    mockContext.mockResolvedValue({ ...context, nodes: [{ name: '节点A', render_name: '节点A', source: 'manual', enabled: true }] })
+    const wrapper = await mountWith('tab=clash-yaml&platform_id=1')
+    const openPools = () => wrapper.findAll('button').find((item) => item.isVisible() && item.text() === '前往添加素材')!
+    expect(wrapper.findComponent(AssemblerShell).exists()).toBe(false)
+    await openPools().trigger('click')
+    await flushPromises()
+    expect(wrapper.vm.$route.query).toMatchObject({ tab: 'pool', platform_id: '1' })
+    expect(wrapper.findComponent(PoolTab).isVisible()).toBe(true)
+
+    await wrapper.vm.$router.replace({ query: { tab: 'clash-yaml', platform_id: '1' } })
+    await flushPromises()
+    expect(openPools().isVisible()).toBe(true)
+    expect(mockPreview).not.toHaveBeenCalled()
+    await openPools().trigger('click')
+    await flushPromises()
+
+    mockListPools.mockResolvedValue([{ ...context.pools[0], entry_count: 1 }])
+    await wrapper.vm.$router.replace({ query: { tab: 'clash-yaml', platform_id: '1' } })
+    await flushPromises()
+    const shell = wrapper.findComponent(AssemblerShell)
+    expect(shell.isVisible()).toBe(true)
+    expect(shell.props('layoutMode')).toBe('page')
+    expect(openPools()).toBeUndefined()
   })
 
   it('SR 分流规则单页和分步拦截空输入，添加素材池使用 PROXY', async () => {

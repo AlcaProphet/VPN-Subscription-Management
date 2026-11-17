@@ -110,6 +110,7 @@ const invalidRefs = ref<Array<{ kind: string; name: string }>>([])
 const nameChanged = ref<Record<string, string>>({})
 const layoutMode = ref<'step' | 'page'>(localStorage.getItem('assembly_layout_mode') === 'page' ? 'page' : 'step')
 const currentStep = ref(0)
+const continueWithoutMaterials = ref(false)
 const headerConfirmOpen = ref(false)
 const diffLoading = ref(false)
 const generateResult = ref<{
@@ -182,6 +183,11 @@ const buildPreflightMissing = computed<PreflightIssue[]>(() => {
   }
   return missing
 })
+const needsClashMaterialsChoice = computed(() =>
+  targetSyntax.value === 'clash-yaml' && !!baseContext.value && !continueWithoutMaterials.value &&
+  !buildPreflightMissing.value.length && !editBlocked.value && !generateResult.value &&
+  !poolList.value.some((pool) => pool.entry_count > 0),
+)
 
 function selectPlatformForSyntax() {
   if (isSrConf.value || !context.value) return
@@ -562,7 +568,7 @@ function buildInput(previewHash?: string): GenerateInput {
 }
 
 async function doPreview() {
-  if (srRuleSourceMessage.value) return
+  if (needsClashMaterialsChoice.value || srRuleSourceMessage.value) return
   const request = ++previewRequest
   const fingerprint = previewFingerprint.value
   const previewTarget = targetSyntax.value
@@ -864,11 +870,22 @@ const outputGroups = computed(() => {
                   <Button size="small" @click="router.push('/admin/settings')">前往面板配置开启高级模式</Button>
                 </template>
               </Alert>
-              <Card v-if="!editBlocked && (isSrConf || hasCustomPlatform)" size="small" class="mb-4!" title="目标选择">
+              <Alert v-if="needsClashMaterialsChoice" type="warning" show-icon message="暂无规则素材">
+                <template #description>
+                  <div class="flex flex-col gap-3">
+                    <p>你可以先到规则素材池添加条目，也可以继续装配，稍后填写手动规则或通过覆盖层补充规则。</p>
+                    <div class="flex flex-wrap gap-2">
+                      <Button type="primary" class="touch-target" @click="onMainTabChange('pool')">前往添加素材</Button>
+                      <Button class="touch-target" @click="continueWithoutMaterials = true">继续装配</Button>
+                    </div>
+                  </div>
+                </template>
+              </Alert>
+              <Card v-if="!editBlocked && !needsClashMaterialsChoice && (isSrConf || hasCustomPlatform)" size="small" class="mb-4!" title="目标选择">
                 <TypeTargetStep :form="form" :context="context" :is-sr-conf="isSrConf" :filtered-platforms="filteredPlatforms" />
               </Card>
               <template v-if="!editBlocked && buildPreflightMissing.length === 0">
-              <AssemblerShell v-if="!generateResult"
+              <AssemblerShell v-if="!generateResult && !needsClashMaterialsChoice"
                 :layout-mode="layoutMode"
                 :step-defs="stepDefs"
                 :current-step="currentStep"
