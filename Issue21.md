@@ -2,7 +2,7 @@
 
 > **文档定位：** 记录本地调试中发现的问题及其研究、修复和验证结果。已归档的问题记录见 [docs/reports/Issue/](docs/reports/Issue/)，项目指令见 [AGENTS.md](AGENTS.md)。
 >
-> **当前状态（2026-11-17）：** R35-01～R35-04 已通过本地验证。R35-02 补充 Clash 装配前的空素材提示，见第 13 节。R35-03 原始反馈来自本机 8080 的旧前端，新构建已替换并复验，素材池快照、列表乱序和预览失效的相邻问题已修复。R35-04 已修复手动 VLESS／VMess 的 Clash UDP 缺省输出，验收见第 13 节。R35-05 已完成研究并确认后续改为开关类控件的方向（仅研究与记录，尚未实施，见 R35-05）。R35-06 已完成研究并确认移除节点表单推荐选项 Mihomo 版本副标题的方向（仅研究与记录，尚未实施，见 R35-06）。R35-07 待处理。
+> **当前状态（2026-11-17）：** R35-01～R35-04 已通过本地验证。R35-02 补充 Clash 装配前的空素材提示，见第 13 节。R35-03 原始反馈来自本机 8080 的旧前端，新构建已替换并复验，素材池快照、列表乱序和预览失效的相邻问题已修复。R35-04 已修复手动 VLESS／VMess 的 Clash UDP 缺省输出，验收见第 13 节。R35-05 已完成研究并确认后续改为开关类控件的方向（仅研究与记录，尚未实施，见 R35-05）。R35-06 已完成研究并确认移除节点表单推荐选项 Mihomo 版本副标题的方向（仅研究与记录，尚未实施，见 R35-06）；2026-11-17 已在当前 HEAD 上完成独立复核，结论一致（见 R35-06 第 12 节）。R35-07 待处理。
 
 ## 一、问题记录
 
@@ -1372,7 +1372,7 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 - **现象（原始反馈，2026-11-17 记录时保留）：** 用户反馈节点创建和编辑界面显示了 Mihomo 版本号。截图中新建 VLESS 节点时，「传输」和「安全」选择框显示了 `Mihomo 1.19.31 · 常用` 等内容。
 - **期望（原始反馈，保留）：** 节点创建和编辑界面无需显示 Mihomo 版本号。
 - **原始状态（2026-11-17 记录时）：** 待处理；本轮仅记录，未研究原因和修复方案，也未实施修复。
-- **当前状态（2026-11-17）：** 已完成代码、隔离运行与浏览器研究，确认版本号的显示来源、实际范围和与兼容性判断的关系。用户已确认后续方向：覆盖 Shadowsocks／VMess／VLESS／Trojan 的全部受影响推荐字段，移除全部 `verified` 副标题（含 `Mihomo 1.19.31` 与 `project-unknown`），保留「常用／扩展／旧版兼容／待验证」分组；视觉和无障碍文本都去掉版本，后端／API 的 `verified` 元数据保留。该方向**尚未实施**，问题**不标记为已修复**。本轮只做测试、研究与文档记录，未修改 UI、项目代码、配置、依赖或锁文件。
+- **当前状态（2026-11-17）：** 已完成代码、隔离运行与浏览器研究，确认版本号的显示来源、实际范围和与兼容性判断的关系。用户已确认后续方向：覆盖 Shadowsocks／VMess／VLESS／Trojan 的全部受影响推荐字段，移除全部 `verified` 副标题（含 `Mihomo 1.19.31` 与 `project-unknown`），保留「常用／扩展／旧版兼容／待验证」分组；视觉和无障碍文本都去掉版本，后端／API 的 `verified` 元数据保留。该方向**尚未实施**，问题**不标记为已修复**。本轮只做测试、研究与文档记录，未修改 UI、项目代码、配置、依赖或锁文件；2026-11-17 又在当前 HEAD `70f388b` 上完成独立复核，结论与第 1～11 节一致，见第 12 节。
 
 #### 1. 结论摘要
 
@@ -1524,6 +1524,62 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 
 本轮只做测试、研究与文档记录。唯一纳入版本管理的持久化变更是 `Issue21.md`；没有修改任何项目代码、配置、依赖或锁文件，没有修改 `frontend/dist` 或实施 UI 调整，没有将问题标记为已修复，没有操作生产、预发布、外部服务、真实账号或真实数据。隔离库中的临时 VMess／SS／Trojan 节点已在检查后删除。
 
+#### 12. 2026-11-17 当前 HEAD 复核记录
+
+**复核目的与边界。** 当前仓库 HEAD `70f388b` 已提交第 1～11 节记录（研究时的代码基线为 `869c0c1`）。为避免只复述既有结论，本轮从当前 HEAD 重新构建隔离实例，用实际页面、DOM、API 响应和定向测试独立复核。本节不改变第 1～11 节的原始记录，也不重新决策第 8 节记录的用户方向；**未实施任何界面调整，R35-06 仍未修复**。
+
+**12.1 代码版本、运行环境与测试前提**
+
+| 项目 | 实际值 |
+|------|--------|
+| 代码基线 | 分支 `beta`，HEAD `70f388b400b745cd67fe02c524fb8291d6d16095`（`git describe --tags --always` 为 `v4.1.4-12-g70f388b`）；复核开始时工作区干净，无未提交/未跟踪改动 |
+| 前端产物 | `frontend/dist/index.html` SHA-256 `3085dda5789ce99491824ed8dcba71a818b812c9cc5664a8459e065b48315a3e`，主 JS `assets/index-BAQWrEVN.js` SHA-256 `f84620a7da4c039bbbd0930d8bffee8df56d3a2bb893cfffe406b894a33ec962`；产物时间 2026-11-17 11:13；`4637cff..HEAD` 无前后端代码差异，产物与当前 HEAD 源码一致；未在仓库内重新构建前端 |
+| 后端构建 | 将当前 `backend/` 与 `frontend/dist` 复制到 `/tmp/r35-06-recheck`，用当前产物覆盖复制件的 `backend/web/dist` 后执行 `CGO_ENABLED=0 go build -o ... ./cmd/server`；服务二进制 SHA-256 `0bedaf4a6776d8985bb690dd1104c80d13165dceb141e5925f86d20499ee6744`；仓库内未执行构建 |
+| 运行环境 | Go 1.26.4（darwin/arm64）；Node.js 26.7.0；npm 11.19.0；macOS 27.2；Google Chrome 157.0.8103.79；Playwright-core 1.57.0（`/tmp/r35-02-tools`，未加入项目依赖） |
+| 隔离实例 | `/tmp/r35-06-recheck`；`APP_MODE=prod`、`DATA_DIR=/tmp/r35-06-recheck/data`、`PORT=18097`，仅监听 `127.0.0.1`；未连接 8080、Docker、外部服务或真实账号 |
+| 测试数据 | 复制既有合成隔离库 `/tmp/r35-06/data`；管理员 `admin@test.com`（[TestPasswordList.md](docs/Reference/TestPasswordList.md) 统一密码 `12345678`）；既有节点 `HK`（VLESS/TCP/REALITY）、`R35-05-HTTP`、`R35-05-WG`；临时节点 `RECHECK-VMESS`、`RECHECK-SS`、`RECHECK-TROJAN`（ID 7～9）检查后已通过隔离 API 删除 |
+| 视口与证据 | 1440×1000；375×785；证据目录 `/tmp/r35-06-recheck`（截图、DOM 文本、API JSON、日志，未加入仓库）；关键文件 `protocols-api.json`、`all-protocols.json`、`field-results.json`、`edit-check-response.json`、`check-a11y.log`、`inspect-mobile.log` 与 `shots/*.png` |
+
+**本地构建前提。** 工作区 `backend/web/dist` 是 2026-08-25 的旧嵌入产物（`assets/index-48_-me5R.js`），而 `frontend/dist` 是 2026-11-17 11:13 的当前产物（`assets/index-BAQWrEVN.js`）。首次直接构建时服务返回旧 UI，新建 VLESS 的「传输」「安全」没有版本文案；把 `frontend/dist` 覆盖到复制件的 `backend/web/dist` 后重新构建，才复现 R35-06。项目的 `Dockerfile` 第 16 行本来就把 frontend 构建产物 `COPY` 到 `backend/web/dist`；按 Dockerfile 静态核对，这是本地手工构建的前提，不是生产构建缺陷。覆盖只发生在 `/tmp` 副本，未修改工作区 `backend/web/dist` 或 `frontend/dist`。
+
+**12.2 复核步骤**
+
+1. 核对 `git status`、`git describe` 与源码；确认工作区干净、HEAD 与第 1～11 节记录的关系。
+2. 按上述前提构建隔离服务，登录后确认 `/api/site/info` 可用；在 Chrome 中打开 `/admin/nodes`。
+3. 请求 `GET /api/admin/nodes/protocols`，统计 19 个协议、带 `option_items` 的字段和推荐项数量，并保存响应。
+4. 在新建节点中逐个切换 19 个协议，展开全部 `<details>`，统计表单内可见的 `Mihomo` 文本；再对 VLESS 不展开高级区复核默认的「传输」「安全」。
+5. 覆盖 VLESS／VMess／Trojan／Shadowsocks 的 12 个表单场景，逐个打开 18 个使用 `EditableCombobox` 的协议字段和 3 个 `alpn` 列表，记录已选值、下拉文本和分组。
+6. 编辑 `HK` 及临时 VMess／SS／Trojan 节点，记录已选值；执行「目标检查」，对照面板文本和响应；用 375×785 视口检查移动端；读取选项的 `label` 属性确认无障碍文本。
+7. 运行定向测试：前端 `npm test -- --run editable-combobox`（8 项）与后端 `go test ./internal/node -count=1`。
+
+**12.3 复核结果**
+
+- **显示链路与第 1～11 节一致。** `backend/internal/node/registry.go:1422` 的 `option()` 把 `mihomo-1.19.31` 写入 `OptionItem.Verified`；`schema.go:38-44` 定义该字段；`node.go:333` 的 `GetProtocols()` 与 `server/node.go:80,98` 的 `GET /api/admin/nodes/protocols` 下发；`frontend/src/api/node.ts:48-53` 接收；`NodesView.vue:99` 调用；`ProtocolFieldEditor.vue:811` 渲染 `EditableCombobox`；`EditableCombobox.vue:54-57` 的 `verifiedLabel()` 把 `mihomo-` 替换为 `Mihomo `，`:146` 把它拼入 `Select.Option` 的 `label`，`:149-151` 把它渲染为可见副标题。已选值与展开下拉复用同一段文本。
+- **数量与第 1～11 节一致。** API 返回 19 个协议、21 个带 `option_items` 的协议字段、83 个推荐项：80 个 `mihomo-1.19.31`、3 个 SS 2022 cipher 的 `project-unknown`。按字段类型分为 18 个 `EditableCombobox` 字段（77 个推荐项，74 个 Mihomo、3 个 `project-unknown`）与 3 个 `alpn` 的 `text-list` 字段（各 2 个推荐项，只显示纯标签）。
+- **逐协议实测。** 展开全部折叠区后，表单内可见 `Mihomo` 文本数：Shadowsocks 1、VMess 3、VLESS 3、Trojan 1；其余 Hysteria、Hysteria2、TUIC、WireGuard、HTTP、SOCKS5、Snell、AnyTLS、Mieru、MASQUE、OpenVPN、SSH、ShadowQUIC、TrustTunnel、Tailscale 均为 0。VLESS 不展开「更多功能 / 高级参数」时只有「传输」「安全」2 处，`encryption` 在折叠区内。
+- **新建与编辑。** 新建 VLESS 的已选值显示 `TCP` + `Mihomo 1.19.31 · 常用`、`无` + `Mihomo 1.19.31 · 常用`；「当前组合」只使用 `label`（`NodesView.vue:195-201`），显示 `VLESS · TCP · 无`，不含版本。编辑 `HK` 的 `network`、`security`、`flow`、`client-fingerprint` 4 处直接显示版本。临时编辑 VMess（WS+TLS）显示 `network`、`security`、`cipher` 3 处；SS 显示 `cipher`、`plugin` 2 处；Trojan 显示 `network` 1 处。选择 SS 2022 cipher 后已选值显示 `SS 2022 AES-128` + `project-unknown · 待验证`；`alpn` 的「添加推荐条目」只有 `h2`、`http/1.1`、`其他（自定义）`。
+- **无障碍文本。** 展开 VLESS「传输」下拉时，选项 DOM 的 `label` 属性为 `TCP tcp Mihomo 1.19.31 常用`；可见文本为 `TCP` + `Mihomo 1.19.31 · 常用`。因此只删除可见 `<span>`、不改 `Select.Option` 的 `label`，屏幕阅读器仍可能读出 `Mihomo 1.19.31`。
+- **行为关联。** `backend/internal/node/project.go:329-357` 的 `validateOption()` 只比较 `OptionItem.Value`（或 `Options`）和 `allow_custom`，不读取 `Verified`；活动代码中 `Verified` 只在 `registry.go:1423` 赋值、由前端展示；`TargetEvidence` 仅在注册表赋值，未发现读取其 `Version` 的业务分支；`NodeCheckPanel.vue` 只渲染 status、code、message、field_path 与 preview，不渲染 diagnostic `evidence` 或 `target_evidence`。对 `HK` 执行目标检查后面板与响应未出现 `Mihomo`／`1.19.31`；对 VMess REALITY 草稿只核对了 API 响应，亦未出现这两个字符串。`GET /api/admin/nodes` 响应与测试库中 `HK`、`R35-05-HTTP`、`R35-05-WG` 的 `protocol_json` 均未出现该字符串。
+- **目标检查与兼容性判断保持独立。** 检查使用协议适配器、字段合同和固定内核证据诊断；固定 `Mihomo v1.19.31` 的测试合同、`.mihomo-test.sh`、`evidence: mihomo-1.19.31-yaml` 和 `TargetEvidence.Version` 都不是由 `OptionItem.Verified` 驱动，也不因隐藏副标题而改变。由于当前未实施，上述是“只改显示”的静态与实测影响判断，不是修改后的回归结果。
+- **现有测试依赖旧文案。** `frontend/tests/editable-combobox.spec.ts:91-92` 明确断言 `Mihomo 1.19.31 · 常用`；本轮定向运行 8 项通过。若按第 8 节方向实施，必须同步修改该断言；`nodes-view.spec.ts` 与 `protocol-field-editor.spec.ts` 的 fixture 未设置 `verified`，当前检索未发现其他前端测试依赖该文案。
+- **只改显示的影响范围。** 若仅删除 `verified` 副标题并保留后端 metadata：不影响 `OptionItem` 数据、`validateOption`、保存/读取、目标检查、Clash／SR／generic 输出或固定 Mihomo 测试；需同步修改 `editable-combobox.spec.ts` 的文案断言，并同时去掉可见 `<span>` 与 `Select.Option` 的 `label` 才满足无障碍要求；「常用／扩展／旧版兼容／待验证」分组必须保留。除节点管理表单外，未发现其他页面渲染该版本。
+- **文档口径冲突仍待后续同步。** `Design4.md` §12.2 示例仍用 `mihomo-1.19.29` 且把 `verified` 定义为“验证来源/级别”；`Build32.md` Step 1 仍把“前端 verified label”作为版本升级对象；`Issue15.md` R29-05 的预期是 `Mihomo 1.19.29 · 常用`。本轮只按用户已确认的新方向记录，未改写这些历史文档，后续实施需决定同步方式。
+- **移动端。** 375×785 下新建 VLESS 的「传输」「安全」仍显示完整副标题；`ant-select` 宽度 343px、高 44px，未发现截断。
+- **候选方向不变。** 第 7、8 节记录的 A（纯前端隐藏 `verified` 副标题、保留分组与后端 metadata）及用户已确认的范围继续有效；本次复核没有产生新的方案决策，也没有实施。
+
+**12.4 尚未确认与未覆盖**
+
+- 没有实施，也没有验证“隐藏版本后”的实际界面；不能宣称问题已修复。
+- 没有使用 VoiceOver／NVDA 等真实读屏软件，只检查了 DOM 与 `label` 属性；没有 iPhone/Android 真机、深色主题或屏幕阅读器实测。
+- 没有逐个像素查看全部 83 个推荐项，只核对了 18 个下拉字段的完整选项文本、3 个 `alpn` 列表和 4 个协议的编辑态；未覆盖所有自定义值、分支切换后的极端状态和保存后重开。
+- 未运行前端全量测试、`npm run build`、后端全量 `go build/vet/test`、Docker 镜像、远端 CI、真实客户端或真实代理连接；只运行了上述定向测试。
+- 未检查仓库外的第三方 API 消费者是否使用 `OptionItem.Verified`；API 字段保留，外部影响不能据当前仓库断言。
+- 未修改 `Design4`、`Build32`、`Issue15` 或任何历史记录；本轮唯一纳入版本管理的持久化变更为 `Issue21.md`。
+
+**12.5 本轮未做**
+
+本轮只做测试、研究与文档记录。没有修改任何项目代码、配置、依赖或锁文件，没有修改工作区 `frontend/dist` 或 `backend/web/dist`，没有实施 UI 调整，没有将 R35-06 标记为已修复，没有操作生产、预发布、外部服务、真实账号或真实数据。隔离库中的临时节点已删除。
+
 ### R35-07 目标检查位于高级数据区域内
 
 - **入口：** 节点管理 `/admin/nodes` 的节点表单。
@@ -1564,3 +1620,4 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 | 2026-11-17 | 记录 R35-07：目标检查应移至高级数据区域外部。 |
 | 2026-11-17 | 按授权完成 R35-05 研究：确认节点对象字段使用双按钮、装配 Clash 分区使用 Switch，两者由独立组件和不同提交时机实现；确认双按钮来自 2026-09-03 R27-05 的明确改动，并记录 `Design2-UI`／`Design4`／`Issue13`／`Build21` 的新旧口径差异。实测节点有效／无效 JSON、草稿、应用／放弃、保存／检查拦截、父子草稿阻断、取消／重开、持久化，以及装配开关的即时写入、无效 JSON 无法关闭、跨分区刷新覆盖和键盘／主题／手机表现；从 schema 统计 19 协议 49 个对象字段并打开 6 个代表性字段。记录用户确认的后续方向（只换外观、保留应用／放弃与草稿、覆盖所有对象字段、固定「高级 JSON」文案）及实现影响、未确认边界和回归建议；本轮仅测试、研究与文档记录，未修改 UI、项目代码、配置、依赖或锁文件，未将问题标记为已修复。 |
 | 2026-11-17 | 按授权完成 R35-06 研究：确认 Mihomo 版本号来自协议注册表 `OptionItem.Verified`，经 `/api/admin/nodes/protocols` 下发并由 `EditableCombobox` 的 `verifiedLabel()` 渲染；实测新建/编辑下 Shadowsocks、VMess、VLESS、Trojan 四个协议、21 个字段、83 个推荐项，逐协议检查 19 个协议，区分选中值、下拉、`alpn` 列表和 `project-unknown` 的实际表现；确认 `verified` 不参与兼容性判断或选项校验，目标检查面板不显示版本；记录用户确认的后续方向（全部受影响字段、移除全部 `verified` 文案并保留分组、视觉与无障碍文本均去掉版本、保留后端 metadata）及候选影响、回归范围和未确认边界；本轮仅测试、研究与文档记录，未实施界面调整，未修改代码、配置、依赖或锁文件。 |
+| 2026-11-17 | 在当前 HEAD `70f388b` 上独立复核 R35-06：重新构建隔离实例，实测 19 个协议、21 个协议字段、83 个推荐项，新建/编辑、SS 2022 `project-unknown`、移动端、无障碍 `label` 与目标检查；确认版本号来源及“不参与选项校验、兼容性判断或目标检查”的结论与第 1～11 节一致；补充本地手工构建需先用 `frontend/dist` 覆盖 `backend/web/dist` 的测试前提。本轮仍未实施界面调整，仅更新本文档。 |
