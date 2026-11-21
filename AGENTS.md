@@ -6,6 +6,7 @@
 > **人工核验：** Xray 相关人工核验统一由 [XrayRelated1.md](XrayRelated1.md) 跟踪；R32-02/R32-03 已由用户确认完成人工真机核验，暂未发现问题；工程自动化与人工验收分别记录。
 > **本地问题跟踪：** [Issue21.md](Issue21.md) 记录 R35 系列。Clash／SR 装配门槛见 [Build33.md](docs/reports/Build/Build33.md)，素材池来源、装配候选与旧预览修复见 [Build34.md](docs/reports/Build/Build34.md)，VLESS／VMess 手动节点 Clash UDP 缺省修复见 [Build35.md](docs/reports/Build/Build35.md)，节点对象字段高级 JSON 开关见 [Build36.md](docs/reports/Build/Build36.md)，推荐项验证来源展示修复见 [Build37.md](docs/reports/Build/Build37.md)，目标检查独立区域与结果汇总见 [Build38.md](docs/reports/Build/Build38.md)。
 > **当前范围：** 当前项目聚焦基础模式完善；高级模式暂不跟进。Xray 相关范围和待办见 [XrayRelated1.md](XrayRelated1.md)。
+> **Docker 启动权限：** 用户于 2026-11-21 确认入口准备阶段可短暂以 root 执行，业务服务以非 root 身份运行。设计见 [Design6.md](Design6.md)，构建验收见 [Build39.md](docs/reports/Build/Build39.md)，问题见 [Issue21.md](Issue21.md) R35-08。
 > **独立审查：** 第三期安全审查的计划与阶段性结果见 [SecurityScanPlan1.md](SecurityScanPlan1.md)、[SecurityReport3.md](SecurityReport3.md)，尚未最终交付。
 > 已归档的设计、构建与问题记录统一见 [docs/reports/](docs/reports)，仅用于历史核查。
 
@@ -217,7 +218,7 @@
 
 - 多阶段构建：前端打包 → 后端静态编译（CGO_ENABLED=0）→ 最小运行时，单镜像分发
 - 单容器同时服务 API、静态资源与 SPA 回退，对外只暴露一个端口
-- 非 root 用户运行；日志输出到 stdout
+- 业务服务以非 root 用户运行；Docker 入口可短暂以 root 准备数据目录后降权（2026-11-21 用户确认）；日志输出到 stdout
 - 单一数据卷承载全部持久化数据（数据库 + 内容文件 + 静态资源）
 - 数据库 schema 采用版本化迁移框架，启动时按版本号迁移
 - compose 模板 restart 策略用 `unless-stopped`；healthcheck 仅作状态展示，不触发重启动作

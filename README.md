@@ -221,17 +221,21 @@ server {
 
 ### 应急恢复（管理员密码救援）
 
-忘记管理员密码时，在 `docker-compose.yml` 中设置 `RESET_ADMIN_PASSWORD: "1"` 并重启容器，操作码见容器日志：
+忘记管理员密码时，在 `docker-compose.yml` 中设置 `RESET_ADMIN_PASSWORD: "1"`，执行 `docker compose up -d --force-recreate` 应用配置，操作码见容器日志：
 
 ```bash
 docker compose logs vpn-sub | grep 操作码
 ```
 
-重置完成后**移除该变量并重启**恢复正常服务。
+重置完成后移除该变量，再执行 `docker compose up -d --force-recreate` 恢复正常服务。
 
 ### 数据存储
 
 全部持久化数据存放在 Docker 数据卷 `vpn-data` 中，删除容器不会丢失；备份请使用面板「备份下载」。
+
+需要直接存放在宿主机目录时，可将服务的挂载改为 `./vpn-data:/data`。镜像入口会在挂载完成后准备目录，随后以非 root 身份启动业务服务。普通用户拥有的目录采用其 UID/GID，root 拥有的目录将目录自身交给镜像的 `app` 用户。用户可继续通过 Compose `user` 指定非 root 身份。更换镜像后使用 `docker compose up -d` 应用启动入口。
+
+入口会检查目录的实际写入能力和当前运行模式的 SQLite 文件权限。已有文件的属主与权限冲突需要部署者处理，日志会指出原因。只读挂载需要提供可写存储。目录可写且数据库缺失时，服务自动建库并进入 Setup。已有命名卷切换为宿主机目录时，需先迁移原数据。实现设计与本地验收见 [Design6](Design6.md) 和 [Build39](docs/reports/Build/Build39.md)。
 
 ---
 

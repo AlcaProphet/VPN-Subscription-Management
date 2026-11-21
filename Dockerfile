@@ -20,10 +20,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server 
 FROM alpine:3.24
 
 # 显式安装 CA 证书；安装脚本/trigger 会更新证书存储
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates su-exec \
  && test -s /etc/ssl/certs/ca-certificates.crt
 
-# alpine 自带 wget/shell，healthcheck 可用；创建非 root 用户运行（Design1 §7.1）
+# 入口准备数据目录后降权，业务进程始终以非 root 用户运行。
 RUN addgroup -S app && adduser -S app -G app
 COPY --from=backend /out/server /server
 # 预建 /public 目录结构（安装包/站点资源，Build2 填充内容）；数据卷承载全部持久化
@@ -31,5 +31,6 @@ ENV DATA_DIR=/data
 RUN mkdir -p /data && chown -R app:app /data
 VOLUME ["/data"]
 EXPOSE 8080
-USER app
-ENTRYPOINT ["/server"]
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/server"]

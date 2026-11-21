@@ -50,6 +50,10 @@ func main() {
 	dataDir := envOr("DATA_DIR", "./data")
 	st, err := store.Open(dataDir, dbFile, store.WithLogger(logger))
 	if err != nil {
+		if store.IsAccessError(err) {
+			logger.Error("数据库存储不可访问，请检查数据目录权限、挂载和空间", "data_dir", dataDir, "uid", os.Getuid(), "gid", os.Getgid(), "err", err)
+			os.Exit(1)
+		}
 		// 数据库无法打开（如文件完全损坏）→ 自动进入应急模式（Design1 §3.8），不再直接退出；
 		// 传空配置 Service（store nil 时 Get 按未设置处理），保证 status/站点信息端点可用
 		logger.Error("打开数据库失败，自动进入应急模式", "err", err)
@@ -57,6 +61,10 @@ func main() {
 		return
 	}
 	if err := st.Migrate(context.Background(), migrations.FS); err != nil {
+		if store.IsAccessError(err) {
+			logger.Error("数据库迁移无法写入存储，请检查数据目录权限、挂载和空间", "data_dir", dataDir, "uid", os.Getuid(), "gid", os.Getgid(), "err", err)
+			os.Exit(1)
+		}
 		// 迁移失败（如中间页损坏）→ 自动进入应急模式，提供重新初始化救援（Design1 §3.8）
 		logger.Error("数据库迁移失败，自动进入应急模式", "err", err)
 		cfg := config.NewService(st, logger)
