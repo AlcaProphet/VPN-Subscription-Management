@@ -24,7 +24,8 @@ RUN apk add --no-cache ca-certificates su-exec \
  && test -s /etc/ssl/certs/ca-certificates.crt
 
 # 入口准备数据目录后降权，业务进程始终以非 root 用户运行。
-RUN addgroup -S app && adduser -S app -G app
+# 固定高位 UID/GID，避免 Alpine 自动分配的低位系统账号编号。
+RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 COPY --from=backend /out/server /server
 # 预建 /public 目录结构（安装包/站点资源，Build2 填充内容）；数据卷承载全部持久化
 ENV DATA_DIR=/data

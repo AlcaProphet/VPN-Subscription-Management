@@ -116,10 +116,11 @@ try:
     fixture("""
         mkdir /fixture/root /fixture/owner /fixture/explicit /fixture/mismatch
         mkdir /fixture/readonly /fixture/oldfile /fixture/corrupt /fixture/manual
-        mkdir /fixture/raw /fixture/custom /fixture/dev /fixture/sidecar
+        mkdir /fixture/raw /fixture/custom /fixture/dev /fixture/sidecar /fixture/empty-system
         chown 17001:17002 /fixture/owner /fixture/explicit /fixture/readonly
         chown 17001:17002 /fixture/oldfile /fixture/custom /fixture/dev
         chown 17001:17002 /fixture/sidecar
+        chown 100:101 /fixture/empty-system
         chmod 0700 /fixture/owner /fixture/explicit /fixture/readonly
         touch /fixture/oldfile/app-prod.db
         chmod 0600 /fixture/oldfile/app-prod.db
@@ -130,22 +131,28 @@ try:
     """)
     name = start("root")
     status(name)
-    identity(name, 100, 101)
-    assert fixture("stat -c '%u:%g' /fixture/root") == "100:101"
+    identity(name, 10001, 10001)
+    assert fixture("stat -c '%u:%g' /fixture/root") == "10001:10001"
     assert request(name, "/api/setup/quickstart", "POST")["data"]["configured"]
     docker("restart", name)
     status(name, configured=True)
-    identity(name, 100, 101)
+    identity(name, 10001, 10001)
     docker("stop", name)
     assert docker("inspect", "-f", "{{.State.ExitCode}}", name) == "0"
     fixture("mkdir /fixture/oldroot; cp -p /fixture/root/app-prod.db* /fixture/oldroot/")
     old_name = start("oldroot")
     status(old_name, configured=True)
-    identity(old_name, 100, 101)
+    identity(old_name, 10001, 10001)
     fixture("rm /fixture/root/app-prod.db")
     docker("start", name)
     status(name)
     print("PASS root 0755 bind、非 root PID 1、Setup、重启、信号退出、旧库目录、只删主库后初始化")
+
+    name = start("empty-system")
+    status(name)
+    identity(name, 10001, 10001)
+    assert fixture("stat -c '%u:%g' /fixture/empty-system") == "10001:10001"
+    print("PASS 100:101 空目录纠正为固定 10001:10001")
 
     name = start("owner")
     status(name)
@@ -166,10 +173,10 @@ try:
 
     name = start("corrupt")
     status(name, reason="db_corrupt")
-    identity(name, 100, 101)
+    identity(name, 10001, 10001)
     name = start("manual", env=("RESET_ADMIN_PASSWORD=1",))
     status(name, reason="manual")
-    identity(name, 100, 101)
+    identity(name, 10001, 10001)
     failed(start("raw", user="17001:17002", raw=True), "数据库存储不可访问")
     print("PASS 实际损坏与手动应急、绕过入口时的后端访问错误分类")
 
@@ -187,7 +194,7 @@ try:
            f"type=volume,source={volume},target=/data", args.image)
     containers.append(name)
     status(name)
-    identity(name, 100, 101)
+    identity(name, 10001, 10001)
     print("PASS 默认命名卷初始化")
 finally:
     for name in containers:

@@ -25,10 +25,21 @@ data_dir=$(cd "$data_dir" && pwd -P) || fail '无法访问目录'
 export DATA_DIR="$data_dir"
 
 if [ "$(id -u)" = 0 ]; then
-    # 按实际挂载目录属主选择业务身份，root 目录仅调整目录自身的属主。
+    # 按实际挂载目录属主选择业务身份，自动修正仅调整目录自身的属主。
     owner_uid=$(stat -c %u "$data_dir")
     owner_gid=$(stat -c %g "$data_dir")
+    use_app_identity=false
     if [ "$owner_uid" = 0 ]; then
+        use_app_identity=true
+    fi
+    # v4.1.5 自动分配过 100:101，仅纠正该身份持有的空目录。
+    if [ "$owner_uid:$owner_gid" = 100:101 ]; then
+        entries=$(find "$data_dir" -mindepth 1 -maxdepth 1 -exec printf x \; -quit) || fail '无法检查目录内容'
+        if [ -z "$entries" ]; then
+            use_app_identity=true
+        fi
+    fi
+    if [ "$use_app_identity" = true ]; then
         owner_uid=$(id -u app)
         owner_gid=$(id -g app)
         chown "$owner_uid:$owner_gid" "$data_dir" || fail '无法设置目录属主，请检查挂载是否只读或限制 chown'

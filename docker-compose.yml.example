@@ -17,7 +17,8 @@ services:
     volumes:
       - vpn-data:/data          # 单一数据卷：数据库 + 内容文件 + /public 资源（唯一持久化载体）
       # 宿主机目录可改用 ./vpn-data:/data；镜像入口准备目录后以非 root 身份启动。
-      # 普通用户目录采用目录 UID/GID；root 目录将目录自身交给 app；已有文件权限冲突见日志。
+      # 普通用户目录采用目录 UID/GID；root 目录将目录自身交给 app（10001:10001）。
+      # 空的旧 100:101 目录自动纠正；已有文件权限冲突见日志。
     environment:
       APP_MODE: prod            # 生产模式；dev 仅本地调试（数据库文件独立：app-dev.db / app-prod.db）
       LOG_LEVEL: info           # 初始日志级别（面板可运行时切换并持久化）
