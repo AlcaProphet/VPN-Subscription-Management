@@ -1,13 +1,13 @@
 # Build41 — 基础模式服务器剩余流量
 
-> v1.1，2026-11-23。基线为 `beta` / `af20f8a545d9b7471ade4783c5f16265dda5c71b`，设计依据为已确认的 [Design7 v1.1](Design7.md)，工程约束见 [AGENTS.md](AGENTS.md)，构建格式参照 [Build 模板](docs/DocTemplates/Build.template.md)。第三节冻结实施合同，第四节规定串行步骤。Step 1～7 尚未实施。
+> v1.3，2026-11-23。基线为 `beta` / `af20f8a545d9b7471ade4783c5f16265dda5c71b`，设计依据为已确认的 [Design7 v1.1](Design7.md)，工程约束见 [AGENTS.md](AGENTS.md)，构建格式参照 [Build 模板](docs/DocTemplates/Build.template.md)。第三节冻结实施合同，第四节规定串行步骤。Step 1 已完成并通过独立复验，Step 2～7 尚未实施。
 
 ## 一、进度与依赖
 
 | Step | 产出 | 依据 | 状态 |
 | --- | --- | --- | --- |
 | 0 | 基线验证、环境准备和影响复核 | AGENTS §3.3、§3.5 | 已完成 |
-| 1 | 功能表、加密绑定、迁移与清理 | Design7 §5.1、§六 | 未开始 |
+| 1 | 功能表、加密绑定、迁移与清理 | Design7 §5.1、§六 | 已完成，导入事务修复后复验通过（2026-11-23） |
 | 2 | 两个固定上游客户端 | Design7 §二、§5.3 | 未开始 |
 | 3 | 自动采集、内存结果与 V.PS 轮换 | Design7 §一、§5.3 | 未开始 |
 | 4 | 首页及管理员 API、正常服务装配 | Design7 §5.2 | 未开始 |
@@ -72,7 +72,7 @@ git diff --check
 - `0002_provider_traffic.sql` 只新增 `provider_traffic_settings`。单行主键 `id=1`，总开关列 `enabled`。两家分别使用 `kiwivm_`、`vps_` 前缀，各存 `enabled`、`instance_id`、`credential_ciphertext`、`revision`。开关为 `0/1`。未绑定时三项绑定数据为空，单家开关为关。仅保存总开关可创建默认行。
 - 实例 ID 以字符串入参传递，接受正数的规范十进制表示（首位 `1–9`，其余为 `0–9`）。首次绑定要求 `revision:null` 和凭据，修改或解除绑定要求匹配当前非空修订。更换实例必须提交新凭据。同一实例省略凭据字段表示保留，界面空输入按省略提交。接口显式传入空串、纯空白或 `null` 视为无效输入。开关值必须显式传布尔值，`false` 是有效输入。
 - 保存新凭据生成从未使用的修订号，首次绑定亦如此。只切换开关或自动续期沿用现有修订。利用 `TxImmediate` 完成状态与修订校验、加密和写入。自动续期只允许按修订更新已有绑定，影响零行直接丢弃。解除绑定清除该家资料、开关和内存结果。V.PS 解除绑定同时清除其 Access Token。总开关关闭保留两家绑定与开关。
-- 加密复用 `config.EncryptWithTx`。凭据不能进入配置文件导出、读取响应、错误正文、日志或浏览器持久存储。v1/v2 配置导入在覆盖事务内清除功能表数据，成功后总开关为关且未绑定，失败回滚时保留。全量清空用共用清表事务，旧库仅有 `0001` 时允许本表不存在。整库备份包含功能表、密文及原签名密钥。恢复到另一站点前，须在恢复容器首次启动前停用源站对应采集。
+- 加密复用 `config.EncryptWithTx`。凭据不能进入配置文件导出、读取响应、错误正文、日志或浏览器持久存储。v1/v2 配置导入在覆盖事务内清除功能表数据，成功后总开关为关且未绑定。全量清空用共用清表事务。仅含 `0001` 的旧库在查询确认功能表不存在时允许跳过删除。查询或删除失败时，回滚对应事务并保留原数据。整库备份包含功能表、密文及原签名密钥。恢复到另一站点前，须在恢复容器首次启动前停用源站对应采集。
 - `0001_initial_schema.sql` 不修改。原基线合同对仅含 `0001` 的集合执行，另外测试真实 `0001 → 0002`。后续卸载移除本功能的组件、路由、服务与清理入口，追加正向迁移删除本表，保留迁移记录。
 
 ### 3.3 上游协议与错误
@@ -156,6 +156,23 @@ go build ./... && go vet ./...
 ```
 
 - **验收标准。** 以仅含 `0001` 的迁移集合运行原首版表、种子和 manifest 断言。另测真实新库与已配置 `0001` 库迁移到 `0002`、重开幂等和总开关默认关闭。检查原业务数据保留、凭据加密、旧修订拒绝写回、导出包排除绑定、v1/v2 覆盖及回滚、RESET、应急旧库和整库快照是否包含加密绑定。
+- **实施结果（2026-11-23）。** 已新增 `0002_provider_traffic.sql` 与 `internal/providertraffic` 存储服务（单行表、默认关闭、两家独立绑定、修订校验、`EncryptWithTx` 加密与现有 AES-GCM 解密）；[baseline_schema_test.go](backend/internal/store/baseline_schema_test.go) 改为仅含 `0001` 的首版合同，并补真实 `0001 → 0002`、重开幂等与业务数据保留；[export.go](backend/internal/config/export.go) 的 v1/v2 覆盖事务和 [dataclear.go](backend/internal/dataclear/dataclear.go) 的共用清表入口已接入功能表条件删除；导出保持排除，备份保持 SQLite 快照。
+- **实际命令与退出状态。**
+
+```bash
+cd backend
+go test ./internal/store ./internal/providertraffic ./internal/config ./internal/dataclear ./internal/emergency ./internal/backup -count=1  # exit 0，6 包通过
+go build ./...  # exit 0
+go vet ./...    # exit 0
+go test ./... -count=1  # exit 0，后端全量包通过
+go test -race ./internal/store ./internal/providertraffic ./internal/config ./internal/dataclear ./internal/emergency ./internal/backup -count=1  # exit 0（补充）
+go run ./cmd/errgate ./...  # errgate: OK，0 项违规（补充）
+```
+
+- **覆盖范围。** 默认关闭与只保存总开关建默认行、两家独立更新、同一实例省略凭据 vs 显式空串/纯空白/null、实例 ID 与修订校验、旧修订零行丢弃、密文存储与解密、导出排除、v1/v2 成功清理与失败回滚、RESET、应急旧库（表缺失/表存在）、整库快照保留密文与原签名密钥、仅含 `0001` 合同与真实升级/重开幂等/业务数据保留。
+- **独立复验与修复（2026-11-23）。** 独立核验发现导入把功能表查询错误当成缺表，导致配置覆盖成功并留下旧绑定。v1/v2 导入与 RESET／应急清库现共用 [事务查表函数](backend/internal/store/store.go)，导入查表失败时回滚配置覆盖。旧库查表成功且确认缺表时继续导入。用 SQLite 连接级 SQL 长度限制在临时库中触发查表错误，修复前 v1 同步导入及 v2 异步任务均误报成功，站点名称被覆盖。修复后 v1 返回错误，v2 任务进入失败终态，原站点名称、绑定修订、密文及开关均保留。问题闭环见 [Issue21 R35-10](Issue21.md#r35-10-配置导入查表失败后仍提交覆盖)。
+- **修复后门禁。** `go test ./internal/config -run '^TestImportProviderTrafficSchemaReadFailure$' -count=5` 通过。上列六包定向与 race、后端全量测试、build、vet、errgate 均重新通过。前端 `npm run build` 通过，Vite 提示有产物超过 600 kB。
+- **未验证项。** Step 2～5 的上游客户端、采集调度、API 与前端；Step 6 的 Docker/浏览器；Step 7 的真实服务商。R31-01 仍开放；本轮未触碰 `backend/data`、Docker 卷或外部数据。
 
 ### Step 2 — KiwiVM 与 V.PS 上游客户端
 
@@ -274,7 +291,7 @@ docker volume rm "${build41_id}-data"
 | 测试范围 | 当前状态 | 完成位置 |
 | --- | --- | --- |
 | 现有源码、本机工具链、Docker 引擎和配置解析 | 基线已通过 | Step 0 |
-| 新表与升级、凭据与清理、上游 mock、采集并发和 API 权限 | 待实现后执行 | Step 1～4 |
+| 新表与升级、凭据与清理、上游 mock、采集并发和 API 权限 | Step 1 修复后复验通过，其余待 Step 2～4 | Step 1～4 |
 | 页面定向回归、全量门禁、隔离容器与桌面/窄屏 | 待候选后执行 | Step 5～6 |
 | 两家真实出网、面板对账、V.PS 轮换后的重启 | 待真实验收 | Step 7 |
 
@@ -282,3 +299,5 @@ docker volume rm "${build41_id}-data"
 | --- | --- | --- |
 | v1.0 | 2026-11-23 | 基于已确认的 Design7 v1.1 编制串行计划，记录开工基线、回归范围与分平台验收。 |
 | v1.1 | 2026-11-23 | 冻结开关矩阵、表与修订语义、上游和站内接口、轮换时序、错误展示及验收断言。 |
+| v1.2 | 2026-11-23 | Step 1 完成：新增 `0002` 与 `internal/providertraffic` 存储，保留 `0001` 合同并验证真实升级；接入 v1/v2 导入清理/回滚、RESET/应急旧库与整库快照；记录命令、退出状态、覆盖范围和未验证项。 |
+| v1.3 | 2026-11-23 | Step 1 独立复验发现并修复 R35-10。导入在功能表查表报错时整体回滚，v1/v2 故障注入和本地门禁通过。 |

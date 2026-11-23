@@ -86,7 +86,7 @@ const schemaV1ManifestSHA256 = "9c35b92c8243f9ada77a8396a16d6430cf8e794ff5108315
 // TestBaselineSchemaContract 固定首版最终结构、索引、外键、种子和空表合同。
 func TestBaselineSchemaContract(t *testing.T) {
 	ctx := context.Background()
-	st := openMigratedStore(t, "baseline.db", migrations.FS)
+	st := openMigratedStore(t, "baseline.db", baselineOnlyFS(t))
 	manifest := collectSchemaManifest(t, ctx, st.DB())
 	if got := len(manifest.Tables); got != 34 {
 		t.Fatalf("表数量 = %d，期望 34", got)
@@ -125,14 +125,15 @@ func TestBaselineSchemaContract(t *testing.T) {
 func TestBaselineMigrationLifecycle(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
+	fsys := baselineOnlyFS(t)
 	st, err := Open(dir, "lifecycle.db")
 	if err != nil {
 		t.Fatalf("打开数据库失败: %v", err)
 	}
-	if err := st.Migrate(ctx, migrations.FS); err != nil {
+	if err := st.Migrate(ctx, fsys); err != nil {
 		t.Fatalf("首次迁移失败: %v", err)
 	}
-	if err := st.Migrate(ctx, migrations.FS); err != nil {
+	if err := st.Migrate(ctx, fsys); err != nil {
 		t.Fatalf("同实例重复迁移失败: %v", err)
 	}
 	if err := st.Close(); err != nil {
@@ -144,7 +145,7 @@ func TestBaselineMigrationLifecycle(t *testing.T) {
 		t.Fatalf("重新打开数据库失败: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if err := st.Migrate(ctx, migrations.FS); err != nil {
+	if err := st.Migrate(ctx, fsys); err != nil {
 		t.Fatalf("重开后重复迁移失败: %v", err)
 	}
 	var versions, seeds int
@@ -215,7 +216,7 @@ func TestBaselineSupportsFutureMigration(t *testing.T) {
 
 // TestBaselineSequenceStarts 验证首版不携带开发期素材池 ID 保留历史。
 func TestBaselineSequenceStarts(t *testing.T) {
-	st := openMigratedStore(t, "sequence.db", migrations.FS)
+	st := openMigratedStore(t, "sequence.db", baselineOnlyFS(t))
 	result, err := st.DB().Exec(`INSERT INTO proxy_groups(name, type) VALUES ('custom-sequence', 'custom')`)
 	if err != nil {
 		t.Fatalf("新增代理组失败: %v", err)
@@ -570,4 +571,208 @@ func formatManifest(value schemaManifest) string {
 		return fmt.Sprintf("<manifest marshal failed: %v>", err)
 	}
 	return string(data)
+}
+
+// TestProviderTrafficMigrationContract 验证 0002 只新增单行功能表、默认关闭且约束生效。
+func TestProviderTrafficMigrationContract(t *testing.T) {
+	ctx := context.Background()
+	st := openMigratedStore(t, "provider-traffic.db", migrations.FS)
+
+	var tables, versions, maxVersion int
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&tables); err != nil {
+		t.Fatalf("查询表数量失败: %v", err)
+	}
+	if tables != 35 {
+		t.Fatalf("完整迁移后表数量 = %d，期望 35（0001 的 34 张 + provider_traffic_settings）", tables)
+	}
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&versions, &maxVersion); err != nil {
+		t.Fatalf("查询迁移版本失败: %v", err)
+	}
+	if versions != 2 || maxVersion != 2 {
+		t.Fatalf("迁移版本记录 = count %d, max %d；期望 count 2, max 2", versions, maxVersion)
+	}
+
+	var rows int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_traffic_settings`).Scan(&rows); err != nil {
+		t.Fatalf("查询功能表失败: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("新库功能表默认应为空，实际 %d 行", rows)
+	}
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO provider_traffic_settings (id) VALUES (1)`); err != nil {
+		t.Fatalf("仅保存总开关应可创建默认行: %v", err)
+	}
+
+	var enabled, kiwivmEnabled, vpsEnabled int
+	var kiwivmInstance, kiwivmCredential, kiwivmRevision sql.NullString
+	var vpsInstance, vpsCredential, vpsRevision sql.NullString
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT enabled, kiwivm_enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision,
+		        vps_enabled, vps_instance_id, vps_credential_ciphertext, vps_revision
+		 FROM provider_traffic_settings WHERE id = 1`).Scan(
+		&enabled, &kiwivmEnabled, &kiwivmInstance, &kiwivmCredential, &kiwivmRevision,
+		&vpsEnabled, &vpsInstance, &vpsCredential, &vpsRevision,
+	); err != nil {
+		t.Fatalf("读取默认行失败: %v", err)
+	}
+	if enabled != 0 || kiwivmEnabled != 0 || vpsEnabled != 0 {
+		t.Fatalf("默认开关应为 0/0/0，实际 %d/%d/%d", enabled, kiwivmEnabled, vpsEnabled)
+	}
+	for name, value := range map[string]sql.NullString{
+		"kiwivm_instance_id": kiwivmInstance, "kiwivm_credential_ciphertext": kiwivmCredential, "kiwivm_revision": kiwivmRevision,
+		"vps_instance_id": vpsInstance, "vps_credential_ciphertext": vpsCredential, "vps_revision": vpsRevision,
+	} {
+		if value.Valid {
+			t.Fatalf("未绑定时 %s 应为 NULL，实际 %q", name, value.String)
+		}
+	}
+
+	probes := []string{
+		`INSERT INTO provider_traffic_settings (id) VALUES (2)`,
+		`UPDATE provider_traffic_settings SET enabled = 2 WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET kiwivm_enabled = 2 WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET kiwivm_enabled = 1 WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET kiwivm_instance_id = '123' WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET kiwivm_instance_id = '123', kiwivm_credential_ciphertext = 'cipher' WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET kiwivm_instance_id = '', kiwivm_credential_ciphertext = 'cipher', kiwivm_revision = 'rev' WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET kiwivm_instance_id = '123', kiwivm_credential_ciphertext = '', kiwivm_revision = 'rev' WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET kiwivm_instance_id = '123', kiwivm_credential_ciphertext = 'cipher', kiwivm_revision = '' WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET vps_enabled = 1 WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET vps_instance_id = '123' WHERE id = 1`,
+		`UPDATE provider_traffic_settings SET vps_instance_id = '123', vps_credential_ciphertext = 'cipher' WHERE id = 1`,
+	}
+	for _, statement := range probes {
+		tx, err := st.DB().BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("开启约束探针事务失败: %v", err)
+		}
+		_, execErr := tx.ExecContext(ctx, statement)
+		_ = tx.Rollback()
+		if execErr == nil {
+			t.Fatalf("无效数据未被约束拒绝: %s", statement)
+		}
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE provider_traffic_settings
+		 SET kiwivm_enabled = 1, kiwivm_instance_id = '123',
+		     kiwivm_credential_ciphertext = 'cipher', kiwivm_revision = 'rev'
+		 WHERE id = 1`); err != nil {
+		t.Fatalf("完整绑定字段应满足约束: %v", err)
+	}
+	assertDatabaseIntegrity(t, st.DB())
+}
+
+// TestProviderTrafficMigrationUpgradeFromBaseline 验证已配置的 0001 库升级到 0002、业务数据保留、重开幂等。
+func TestProviderTrafficMigrationUpgradeFromBaseline(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	const dbFile = "upgrade.db"
+
+	st, err := Open(dir, dbFile)
+	if err != nil {
+		t.Fatalf("打开基线库失败: %v", err)
+	}
+	if err := st.Migrate(ctx, baselineOnlyFS(t)); err != nil {
+		t.Fatalf("应用 0001 基线失败: %v", err)
+	}
+	for _, statement := range []string{
+		`INSERT INTO system_config (key, value) VALUES ('configured', 'true')`,
+		`INSERT INTO users (username, role, user_source, status) VALUES ('kept-user', 'user', 'local', 'active')`,
+		`INSERT INTO platforms (slug, name) VALUES ('kept-platform', 'Kept')`,
+		`INSERT INTO rules (slug, name) VALUES ('kept-rule', 'Kept')`,
+		`INSERT INTO rule_pools (name) VALUES ('kept-pool')`,
+	} {
+		if _, err := st.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatalf("写入 0001 业务数据失败: %v\nSQL: %s", err, statement)
+		}
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("关闭基线库失败: %v", err)
+	}
+
+	st, err = Open(dir, dbFile)
+	if err != nil {
+		t.Fatalf("重新打开基线库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("0001 -> 0002 升级失败: %v", err)
+	}
+	if err := st.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("同实例重复迁移失败: %v", err)
+	}
+	var versions, maxVersion int
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*), MAX(version) FROM schema_migrations`).Scan(&versions, &maxVersion); err != nil {
+		t.Fatalf("查询升级版本失败: %v", err)
+	}
+	if versions != 2 || maxVersion != 2 {
+		t.Fatalf("升级后版本记录 = count %d, max %d；期望 2/2", versions, maxVersion)
+	}
+	for table, want := range map[string]int{
+		"users": 1, "platforms": 1, "rules": 1, "rule_pools": 1,
+	} {
+		var got int
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&got); err != nil {
+			t.Fatalf("查询表 %s 失败: %v", table, err)
+		}
+		if got != want {
+			t.Fatalf("升级后表 %s 行数 = %d，期望 %d", table, got, want)
+		}
+	}
+	var configured string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT value FROM system_config WHERE key = 'configured'`).Scan(&configured); err != nil {
+		t.Fatalf("读取 configured 失败: %v", err)
+	}
+	if configured != "true" {
+		t.Fatalf("升级后 configured = %q，期望 true", configured)
+	}
+	var providerRows int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_traffic_settings`).Scan(&providerRows); err != nil {
+		t.Fatalf("查询升级后功能表失败: %v", err)
+	}
+	if providerRows != 0 {
+		t.Fatalf("升级后功能表默认应为空，实际 %d 行", providerRows)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO provider_traffic_settings
+		 (id, enabled, kiwivm_enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision)
+		 VALUES (1, 1, 1, '123456', 'cipher', 'revision-1')`); err != nil {
+		t.Fatalf("写入升级后绑定失败: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("关闭升级后数据库失败: %v", err)
+	}
+
+	st, err = Open(dir, dbFile)
+	if err != nil {
+		t.Fatalf("重开升级后数据库失败: %v", err)
+	}
+	if err := st.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("重开后重复迁移失败: %v", err)
+	}
+	var enabled int
+	var ciphertext, revision string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT enabled, kiwivm_credential_ciphertext, kiwivm_revision
+		 FROM provider_traffic_settings WHERE id = 1`).Scan(&enabled, &ciphertext, &revision); err != nil {
+		t.Fatalf("重开后读取绑定失败: %v", err)
+	}
+	if enabled != 1 || ciphertext != "cipher" || revision != "revision-1" {
+		t.Fatalf("重开后绑定被改变: enabled=%d ciphertext=%q revision=%q", enabled, ciphertext, revision)
+	}
+	assertDatabaseIntegrity(t, st.DB())
+}
+
+// baselineOnlyFS 只暴露 0001，用于运行首版 schema 合同。
+func baselineOnlyFS(t *testing.T) fs.FS {
+	t.Helper()
+	data, err := fs.ReadFile(migrations.FS, "0001_initial_schema.sql")
+	if err != nil {
+		t.Fatalf("读取 0001 基线失败: %v", err)
+	}
+	return fstest.MapFS{"0001_initial_schema.sql": &fstest.MapFile{Data: data}}
 }

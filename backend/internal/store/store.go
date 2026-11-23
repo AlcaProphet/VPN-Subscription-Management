@@ -181,6 +181,16 @@ func (s *Store) TxImmediate(ctx context.Context, fn func(tx *sql.Tx) error) erro
 	return nil
 }
 
+// TableExistsTx 在当前事务内查询表是否存在，查询失败时返回错误。
+func TableExistsTx(ctx context.Context, tx *sql.Tx, name string) (bool, error) {
+	var count int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // sortedEntries 读取迁移目录并按文件名排序
 func sortedEntries(fsys fs.FS) ([]string, error) {
 	entries, err := fs.ReadDir(fsys, ".")

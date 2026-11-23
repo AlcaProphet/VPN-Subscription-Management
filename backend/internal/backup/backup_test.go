@@ -12,8 +12,11 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
+	"vpn-sub/internal/providertraffic"
 	"vpn-sub/internal/store"
+	"vpn-sub/migrations"
 )
 
 // newTestBackup 创建临时库 + 备份服务（含 contents/public 数据）
@@ -229,5 +232,119 @@ func TestBackupEmptyDirs(t *testing.T) {
 	}
 	if buf.Len() == 0 {
 		t.Error("备份内容为空")
+	}
+}
+
+// snapshotFromBackup 从 tar.gz 中取出 app.db 快照内容。
+func snapshotFromBackup(t *testing.T, data []byte) []byte {
+	t.Helper()
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("解压备份失败: %v", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("读取备份 tar 失败: %v", err)
+		}
+		if header.Name == "app.db" {
+			snapshot, err := io.ReadAll(tr)
+			if err != nil {
+				t.Fatalf("读取 app.db 失败: %v", err)
+			}
+			return snapshot
+		}
+	}
+	t.Fatal("备份中未找到 app.db")
+	return nil
+}
+
+// TestCreateBackupPreservesProviderTrafficBinding 整库快照应保留功能表密文和原签名密钥。
+func TestCreateBackupPreservesProviderTrafficBinding(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir, "test.db")
+	if err != nil {
+		t.Fatalf("打开测试库失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("迁移测试库失败: %v", err)
+	}
+	lg := log.New("error", "console")
+	cfg := config.NewService(st, lg)
+	const signingKey = "backup-signing-key-0123456789abcdef"
+	if err := cfg.Set(ctx, config.KeySigningKey, signingKey); err != nil {
+		t.Fatalf("写入签名密钥失败: %v", err)
+	}
+	trafficSvc := providertraffic.NewService(st, cfg, lg)
+	const credential = "synthetic-backup-credential"
+	if _, err := trafficSvc.SetEnabled(ctx, true); err != nil {
+		t.Fatalf("开启功能总开关失败: %v", err)
+	}
+	if _, err := trafficSvc.SaveBinding(ctx, providertraffic.SaveBindingInput{
+		Provider:   providertraffic.ProviderKiwiVM,
+		Enabled:    true,
+		InstanceID: "123456",
+		Credential: providertraffic.CredentialInput{Value: credential},
+	}); err != nil {
+		t.Fatalf("保存功能绑定失败: %v", err)
+	}
+	var ciphertext, revision string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT kiwivm_credential_ciphertext, kiwivm_revision
+		 FROM provider_traffic_settings WHERE id = 1`).Scan(&ciphertext, &revision); err != nil {
+		t.Fatalf("读取功能绑定失败: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := NewService(st, dataDir, lg).CreateBackup(ctx, &buf); err != nil {
+		t.Fatalf("创建备份失败: %v", err)
+	}
+	snapshot := snapshotFromBackup(t, buf.Bytes())
+	if bytes.Contains(snapshot, []byte(credential)) {
+		t.Fatal("整库快照不得包含功能凭据明文")
+	}
+	snapDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(snapDir, "app.db"), snapshot, 0o600); err != nil {
+		t.Fatalf("写入快照文件失败: %v", err)
+	}
+	snapSt, err := store.Open(snapDir, "app.db")
+	if err != nil {
+		t.Fatalf("打开快照库失败: %v", err)
+	}
+	defer snapSt.Close()
+
+	var enabled int
+	var instanceID, snapshotCiphertext, snapshotRevision string
+	if err := snapSt.DB().QueryRow(
+		`SELECT enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision
+		 FROM provider_traffic_settings WHERE id = 1`).Scan(
+		&enabled, &instanceID, &snapshotCiphertext, &snapshotRevision); err != nil {
+		t.Fatalf("快照读取功能绑定失败: %v", err)
+	}
+	if enabled != 1 || instanceID != "123456" || snapshotCiphertext != ciphertext || snapshotRevision != revision {
+		t.Fatalf("快照功能绑定不一致: enabled=%d instance=%q ciphertext=%q revision=%q",
+			enabled, instanceID, snapshotCiphertext, snapshotRevision)
+	}
+	var snapshotSigningKey string
+	if err := snapSt.DB().QueryRow(
+		`SELECT value FROM system_config WHERE key = ?`, config.KeySigningKey).Scan(&snapshotSigningKey); err != nil {
+		t.Fatalf("快照读取签名密钥失败: %v", err)
+	}
+	if snapshotSigningKey != signingKey {
+		t.Fatalf("快照签名密钥被改变: got %q want %q", snapshotSigningKey, signingKey)
+	}
+	plain, err := config.Decrypt(snapshotCiphertext, []byte(snapshotSigningKey))
+	if err != nil {
+		t.Fatalf("快照密文无法用原签名密钥解密: %v", err)
+	}
+	if string(plain) != credential {
+		t.Fatalf("快照密文解密结果不一致: %q", string(plain))
 	}
 }

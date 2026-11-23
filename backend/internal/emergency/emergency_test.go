@@ -3,6 +3,7 @@ package emergency
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"vpn-sub/internal/dataclear"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
+	"vpn-sub/migrations"
 )
 
 // emergencyTestFS 应急测试所需全部表（ClearTablesTx 依赖）
@@ -315,5 +317,34 @@ func TestReinitializeFilePath(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "public")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("public 目录应删除: %v", err)
+	}
+}
+
+// TestReinitializeSQLPathClearsProviderTraffic 应急重新初始化复用共用清表事务删除功能表数据。
+func TestReinitializeSQLPathClearsProviderTraffic(t *testing.T) {
+	st, svc, _ := newTestEmergency(t, TriggerManual, true)
+	ctx := context.Background()
+	data, err := fs.ReadFile(migrations.FS, "0002_provider_traffic.sql")
+	if err != nil {
+		t.Fatalf("读取 0002 迁移失败: %v", err)
+	}
+	if _, err := st.DB().Exec(string(data)); err != nil {
+		t.Fatalf("创建功能表失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO provider_traffic_settings
+		 (id, enabled, vps_enabled, vps_instance_id, vps_credential_ciphertext, vps_revision)
+		 VALUES (1, 1, 1, '2002', 'cipher', 'revision-1')`); err != nil {
+		t.Fatalf("写入功能绑定失败: %v", err)
+	}
+	if err := svc.Reinitialize(ctx); err != nil {
+		t.Fatalf("重新初始化失败: %v", err)
+	}
+	var rows int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_traffic_settings`).Scan(&rows); err != nil {
+		t.Fatalf("查询功能表失败: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("应急重新初始化后功能表应为空，实际 %d 行", rows)
 	}
 }

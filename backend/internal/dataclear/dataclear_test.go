@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/log"
 	"vpn-sub/internal/store"
+	"vpn-sub/migrations"
 )
 
 // newTestClear 创建临时库（含全部业务表）+ 清理服务
@@ -252,5 +254,51 @@ func TestClearTablesTxClearsBuild4Tables(t *testing.T) {
 		if n != 0 {
 			t.Errorf("表 %s 清空后应无数据，实际 %d 行", name, n)
 		}
+	}
+}
+
+// addProviderTrafficTable 在测试库中执行真实 0002 功能表迁移（不写 version 记录）。
+func addProviderTrafficTable(t *testing.T, st *store.Store) {
+	t.Helper()
+	data, err := fs.ReadFile(migrations.FS, "0002_provider_traffic.sql")
+	if err != nil {
+		t.Fatalf("读取 0002 迁移失败: %v", err)
+	}
+	if _, err := st.DB().Exec(string(data)); err != nil {
+		t.Fatalf("创建功能表失败: %v", err)
+	}
+}
+
+// TestClearAllClearsProviderTraffic RESET 共用清表事务应删除功能表数据并保留空表。
+func TestClearAllClearsProviderTraffic(t *testing.T) {
+	st, svc, _ := newTestClear(t)
+	ctx := context.Background()
+	addProviderTrafficTable(t, st)
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO provider_traffic_settings
+		 (id, enabled, kiwivm_enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision)
+		 VALUES (1, 1, 1, '123456', 'cipher', 'revision-1')`); err != nil {
+		t.Fatalf("写入功能绑定失败: %v", err)
+	}
+	if err := svc.ClearAll(ctx, ConfirmWordReset); err != nil {
+		t.Fatalf("清空失败: %v", err)
+	}
+	var rows int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_traffic_settings`).Scan(&rows); err != nil {
+		t.Fatalf("查询功能表失败: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("RESET 后功能表应为空，实际 %d 行", rows)
+	}
+}
+
+// TestClearTablesTxSkipsMissingProviderTrafficTable 仅含 0001 的旧库允许功能表不存在。
+func TestClearTablesTxSkipsMissingProviderTrafficTable(t *testing.T) {
+	st, svc, _ := newTestClear(t)
+	ctx := context.Background()
+	if err := st.TxImmediate(ctx, func(tx *sql.Tx) error {
+		return svc.ClearTablesTx(ctx, tx)
+	}); err != nil {
+		t.Fatalf("缺少功能表时清表应成功: %v", err)
 	}
 }

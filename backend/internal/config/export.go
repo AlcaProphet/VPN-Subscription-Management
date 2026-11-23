@@ -276,6 +276,10 @@ func (s *ExportService) Import(ctx context.Context, data []byte, password, confi
 				return fmt.Errorf("写入配置键 %s 失败: %w", k, err)
 			}
 		}
+		// 服务器剩余流量功能绑定不进入配置文件：v1 覆盖成功后回到关闭且未绑定，失败由事务回滚保留。
+		if err := clearProviderTrafficTx(ctx, tx); err != nil {
+			return err
+		}
 		// 未配置状态导入（Setup 分支）：同事务创建预置默认组与默认平台（预置数据为导入流程固定动作）
 		if setupMode {
 			if s.seedPresets == nil {
@@ -383,6 +387,10 @@ func (s *ExportService) importV2(ctx context.Context, payload *ExportPayload, co
 				`INSERT INTO system_config (key, value) VALUES (?, ?)`, k, v); err != nil {
 				return fmt.Errorf("写入配置键 %s 失败: %w", k, err)
 			}
+		}
+		// 服务器剩余流量功能绑定不进入配置文件：v2 覆盖成功后回到关闭且未绑定，失败由事务回滚保留。
+		if err := clearProviderTrafficTx(ctx, tx); err != nil {
+			return err
 		}
 		// 收集旧 Xray 推送快照（在删除实例/账号前）
 		if s.hasTableTx(ctx, tx, "xray_instances") {
@@ -783,6 +791,22 @@ func (s *ExportService) hasTableTx(ctx context.Context, tx *sql.Tx, name string)
 	err := tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&n)
 	return err == nil && n > 0
+}
+
+// clearProviderTrafficTx 在配置覆盖事务内清除服务器剩余流量功能表。
+// 仅含 0001 的旧库允许该表尚未建立；查询或删除失败由外层事务整体回滚。
+func clearProviderTrafficTx(ctx context.Context, tx *sql.Tx) error {
+	exists, err := store.TableExistsTx(ctx, tx, "provider_traffic_settings")
+	if err != nil {
+		return fmt.Errorf("检查服务器剩余流量功能表失败: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM provider_traffic_settings`); err != nil {
+		return fmt.Errorf("清除服务器剩余流量设置失败: %w", err)
+	}
+	return nil
 }
 
 func (s *ExportService) exportInstances(ctx context.Context) ([]ExportedInstance, error) {

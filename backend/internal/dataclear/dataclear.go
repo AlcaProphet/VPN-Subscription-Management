@@ -62,6 +62,16 @@ func (s *Service) ClearTablesTx(ctx context.Context, tx *sql.Tx) error {
 		"custom_subscriptions", "share_subscriptions", "rules", "subscriptions",
 		"users", "groups", "platforms", "system_config",
 	}
+	// 服务器剩余流量功能表为 Build41 新增；仅含 0001 的旧库或迁移失败后的应急路径允许其尚未建立。
+	providerTrafficExists, err := store.TableExistsTx(ctx, tx, "provider_traffic_settings")
+	if err != nil {
+		return fmt.Errorf("检查服务器剩余流量功能表失败: %w", err)
+	}
+	if providerTrafficExists {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM provider_traffic_settings"); err != nil {
+			return fmt.Errorf("清空表 provider_traffic_settings 失败: %w", err)
+		}
+	}
 	for _, t := range tables {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("清空表 %s 失败: %w", t, err)
