@@ -1,6 +1,7 @@
-// Package providertraffic 提供基础模式服务器剩余流量的本地存储、绑定管理与固定上游客户端。
-// 本阶段包含 SQLite 功能表读写、绑定修订校验、凭据加解密，以及 KiwiVM／V.P.S 两个固定客户端；
-// 采集调度、Token 缓存与 HTTP 接口由后续 Step 接入。
+// Package providertraffic 提供基础模式服务器剩余流量的本地存储、绑定管理、固定上游客户端与采集编排。
+// 本阶段包含 SQLite 功能表读写、绑定修订校验、凭据加解密、KiwiVM／V.P.S 两个固定客户端、
+// 固定周期采集、同家单飞与配置触发合并、内存结果槽及 V.P.S Access Token 缓存；
+// HTTP 接口与正式服务装配由后续 Step 接入。
 package providertraffic
 
 import (
@@ -11,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"vpn-sub/internal/config"
@@ -74,6 +76,11 @@ type Settings struct {
 	Providers []ProviderBinding
 }
 
+type settingsChange struct {
+	before Settings
+	after  Settings
+}
+
 // Service 是服务器剩余流量的本地存储服务。
 type Service struct {
 	store *store.Store
@@ -93,10 +100,14 @@ func (s *Service) GetSettings(ctx context.Context) (Settings, error) {
 	return readSettings(ctx, s.store.DB())
 }
 
-// SetEnabled 只保存总开关；无记录时创建默认行，不影响两家绑定与单家开关。
+// SetEnabled 只保存总开关；正常服务的设置入口使用 Collector.SetEnabled 交接调度。
 func (s *Service) SetEnabled(ctx context.Context, enabled bool) (Settings, error) {
-	var out Settings
-	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	change, err := s.setEnabled(ctx, enabled)
+	return change.after, err
+}
+
+func (s *Service) setEnabled(ctx context.Context, enabled bool) (settingsChange, error) {
+	return s.changeSettings(ctx, func(tx *sql.Tx) error {
 		if err := ensureSettingsRow(ctx, tx); err != nil {
 			return err
 		}
@@ -104,31 +115,30 @@ func (s *Service) SetEnabled(ctx context.Context, enabled bool) (Settings, error
 			`UPDATE provider_traffic_settings SET enabled = ? WHERE id = 1`, boolToInt(enabled)); err != nil {
 			return fmt.Errorf("保存服务器剩余流量总开关失败: %w", err)
 		}
-		settings, err := readSettings(ctx, tx)
-		if err != nil {
-			return err
-		}
-		out = settings
 		return nil
 	})
-	return out, err
 }
 
 // SaveBinding 在单个 TxImmediate 事务内完成当前绑定读取、修订校验、凭据加密和写入。
 // 首次绑定要求 revision=null 且提交凭据；同一实例省略凭据表示保留当前密文与修订。
+// 正常服务的设置入口使用 Collector.SaveBinding 交接调度。
 func (s *Service) SaveBinding(ctx context.Context, in SaveBindingInput) (Settings, error) {
+	change, err := s.saveBinding(ctx, in)
+	return change.after, err
+}
+
+func (s *Service) saveBinding(ctx context.Context, in SaveBindingInput) (settingsChange, error) {
 	cols, err := columnsFor(in.Provider)
 	if err != nil {
-		return Settings{}, err
+		return settingsChange{}, err
 	}
 	if !validInstanceID(in.InstanceID) {
-		return Settings{}, ErrInvalidInstanceID
+		return settingsChange{}, ErrInvalidInstanceID
 	}
 	if err := validateCredentialInput(in.Credential); err != nil {
-		return Settings{}, err
+		return settingsChange{}, err
 	}
-	var out Settings
-	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	return s.changeSettings(ctx, func(tx *sql.Tx) error {
 		if err := ensureSettingsRow(ctx, tx); err != nil {
 			return err
 		}
@@ -174,27 +184,26 @@ func (s *Service) SaveBinding(ctx context.Context, in SaveBindingInput) (Setting
 			boolToInt(in.Enabled), in.InstanceID, credentialCiphertext, revision); err != nil {
 			return fmt.Errorf("保存服务商绑定失败: %w", err)
 		}
-		settings, err := readSettings(ctx, tx)
-		if err != nil {
-			return err
-		}
-		out = settings
 		return nil
 	})
-	return out, err
 }
 
 // ClearBinding 按当前非空修订解除单家绑定：清除实例、密文、修订与单家开关，保留总开关和另一家。
+// 正常服务的设置入口使用 Collector.ClearBinding 清理内存状态。
 func (s *Service) ClearBinding(ctx context.Context, provider Provider, revision string) (Settings, error) {
+	change, err := s.clearBinding(ctx, provider, revision)
+	return change.after, err
+}
+
+func (s *Service) clearBinding(ctx context.Context, provider Provider, revision string) (settingsChange, error) {
 	cols, err := columnsFor(provider)
 	if err != nil {
-		return Settings{}, err
+		return settingsChange{}, err
 	}
 	if revision == "" {
-		return Settings{}, ErrRevisionConflict
+		return settingsChange{}, ErrRevisionConflict
 	}
-	var out Settings
-	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+	return s.changeSettings(ctx, func(tx *sql.Tx) error {
 		current, err := readBinding(ctx, tx, cols)
 		if err != nil {
 			return err
@@ -208,14 +217,70 @@ func (s *Service) ClearBinding(ctx context.Context, provider Provider, revision 
 		if _, err := tx.ExecContext(ctx, query); err != nil {
 			return fmt.Errorf("解除服务商绑定失败: %w", err)
 		}
+		return nil
+	})
+}
+
+// changeSettings 在同一写事务内记录变更前后状态，只交付成功提交的变化。
+func (s *Service) changeSettings(ctx context.Context, write func(*sql.Tx) error) (settingsChange, error) {
+	var change settingsChange
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		before, err := readSettings(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if err := write(tx); err != nil {
+			return err
+		}
+		after, err := readSettings(ctx, tx)
+		if err != nil {
+			return err
+		}
+		change = settingsChange{before: before, after: after}
+		return nil
+	})
+	if err != nil {
+		return settingsChange{}, err
+	}
+	return change, nil
+}
+
+// withPublicationSettings 让最终复核及结果发布与设置、模式、导入和清空写入串行。
+// 回调仅处理内存，不发网络请求，也不经连接池读取数据库。
+func (s *Service) withPublicationSettings(ctx context.Context, publish func(Settings) error) error {
+	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		configured, err := s.readBoolTx(ctx, tx, config.KeyConfigured)
+		if err != nil {
+			return err
+		}
+		if !configured {
+			return ErrDiscarded
+		}
+		advanced, err := s.readBoolTx(ctx, tx, config.KeyAdvancedMode)
+		if err != nil {
+			return err
+		}
+		if advanced {
+			return ErrDiscarded
+		}
 		settings, err := readSettings(ctx, tx)
 		if err != nil {
 			return err
 		}
-		out = settings
-		return nil
+		return publish(settings)
 	})
-	return out, err
+}
+
+func (s *Service) readBoolTx(ctx context.Context, tx *sql.Tx, key string) (bool, error) {
+	value, err := s.cfg.GetTx(ctx, tx, key)
+	if err != nil || value == "" {
+		return false, err
+	}
+	v, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("解析配置 %s 失败: %w", key, err)
+	}
+	return v, nil
 }
 
 // UpdateCredentialByRevision 仅按当前非空修订条件更新已有绑定的凭据密文。
