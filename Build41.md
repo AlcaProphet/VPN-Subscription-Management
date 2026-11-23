@@ -1,6 +1,6 @@
 # Build41 — 基础模式服务器剩余流量
 
-> v1.3，2026-11-23。基线为 `beta` / `af20f8a545d9b7471ade4783c5f16265dda5c71b`，设计依据为已确认的 [Design7 v1.1](Design7.md)，工程约束见 [AGENTS.md](AGENTS.md)，构建格式参照 [Build 模板](docs/DocTemplates/Build.template.md)。第三节冻结实施合同，第四节规定串行步骤。Step 1 已完成并通过独立复验，Step 2～7 尚未实施。
+> v1.5，2026-11-24。基线为 `beta` / `af20f8a545d9b7471ade4783c5f16265dda5c71b`，设计依据见 [Design7 v1.2](Design7.md)，工程约束见 [AGENTS.md](AGENTS.md)，构建格式参照 [Build 模板](docs/DocTemplates/Build.template.md)。第三节冻结实施合同，第四节规定串行步骤。Step 1、Step 2 已完成并通过本地复验。Step 3～7 待实施。
 
 ## 一、进度与依赖
 
@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | 0 | 基线验证、环境准备和影响复核 | AGENTS §3.3、§3.5 | 已完成 |
 | 1 | 功能表、加密绑定、迁移与清理 | Design7 §5.1、§六 | 已完成，导入事务修复后复验通过（2026-11-23） |
-| 2 | 两个固定上游客户端 | Design7 §二、§5.3 | 未开始 |
+| 2 | 两个固定上游客户端 | Design7 §二、§5.3 | 已完成，R35-11 修复后复验通过（2026-11-24） |
 | 3 | 自动采集、内存结果与 V.PS 轮换 | Design7 §一、§5.3 | 未开始 |
 | 4 | 首页及管理员 API、正常服务装配 | Design7 §5.2 | 未开始 |
 | 5 | 设置和首页组件 | Design7 §三、§四 | 未开始 |
@@ -83,11 +83,11 @@ git diff --check
 | V.PS 续期 | `POST https://vps.hosting/api/token`，JSON 请求体仅含 `refresh_token`，无需 Bearer | HTTP `200`，响应须有非空 `token` 与 `refresh` |
 | V.PS 读取 | `GET https://vps.hosting/api/service/{id}/resources`，`Authorization: Bearer <access_token>` | HTTP `200`，取有限且非负的 `limit.data_combined` 原值，单位 `GB` |
 
-数值字段区分缺失与零。允许 JSON 数值或只包含十进制数的字符串，拒绝单位、分隔符和非有限值。API 返回数值，界面统一保留两位；合法零显示 `0.00`。倍率缺失、异常或非 1 单独报告，既不假定为 1，也不采用推测公式。出站拒绝重定向，禁止改用查询参数承载凭据。每轮最多进行一次续期和一次资源请求，应用层不追加重试。上游原始正文留在客户端解析范围内，日志和 API 仅使用受控错误。
+数值字段区分缺失与零。允许 JSON 数值或只包含十进制数的字符串，拒绝单位、分隔符和非有限值。业务错误码与倍率按十进制精确比较。流量字段先规范化十进制再转换，非零值下溢成零或溢出按非法流量数据处理，`-0` 归一为 `0`。API 返回数值，界面统一保留两位，合法零显示 `0.00`。倍率缺失、异常或非 1 单独报告。出站拒绝重定向，禁止改用查询参数承载凭据。每轮最多进行一次续期和一次资源请求，应用层不追加重试。上游原始正文留在客户端解析范围内，日志和 API 仅使用受控错误。
 
 | 事件 | 首页及管理端通用短文案 | 管理端处理 |
 | --- | --- | --- |
-| Cloudflare `403`、连接失败或超时 | 无法连接服务商 | 核对部署出网 |
+| Cloudflare `403`、被拒绝的重定向、连接失败或超时（含正文读取） | 无法连接服务商 | 核对部署出网 |
 | 上游 `429` | 服务商限流 | 等待下次周期或稍后手动采集 |
 | KiwiVM 倍率缺失、异常或非 1 | 计费倍率待核对 | 核对面板与官方口径 |
 | 缺字段、非法值或无法解析 | 服务商返回的流量数据无法读取 | 核对服务商响应 |
@@ -188,6 +188,44 @@ go build ./... && go vet ./...
 ```
 
 - **验收标准。** 捕获方法、路径及凭据位置的 mock 请求断言通过。覆盖成功真实零、数值缺失或非法、KiwiVM 业务失败与非 1 倍率、V.PS 续期字段、网关 403、上游 429、超时和错误响应。使用合成凭据断言响应和日志无明文。
+- **实施结果（2026-11-24）。** 已在 [upstream.go](backend/internal/providertraffic/upstream.go) 建立共享上游层：固定 8 秒总超时、`CheckRedirect` 拒绝重定向、`io.LimitReader` 256 KiB 上限、十进制数值解析和受控 `UpstreamError` 分类；错误对象只有固定类别，不包装原始网络或解析错误。[kiwivm.go](backend/internal/providertraffic/kiwivm.go) 实现固定 KiwiVM 客户端，表单仅提交 `veid`、`api_key`，仅在 HTTP 200 且 `error=0` 时继续，倍率为 1 时按 `max(0, plan_monthly_data - data_counter) / 2^30` 返回 `GiB`。[vps.go](backend/internal/providertraffic/vps.go) 实现固定续期与资源客户端：续期 JSON 仅含 `refresh_token`，资源请求使用 Bearer 并直接读取 `limit.data_combined` 返回 `GB`；未接入 Token 缓存、轮换落库或采集调度。[service.go](backend/internal/providertraffic/service.go) 仅更新包注释，Step 1 的存储逻辑未改动。
+- **错误分类。** 网络、TLS、超时、拒绝的重定向及未明确属于凭据失效的 403 归「无法连接服务商」；429 归「服务商限流」；KiwiVM `error=700005`、HTTP 401、V.P.S 续期 HTTP 401 或明确的 `refresh_token_invalid`／`invalid_token`／`unauthorized` 归「服务商凭据被拒绝」；V.P.S 资源 HTTP 401 或 4xx（429 除外）正文中的明确 `invalid_token`／`unauthorized` 归「服务商鉴权失败」；倍率缺失、异常或非 1 归「计费倍率待核对」；流量字段缺失、非法或无法解析归「服务商返回的流量数据无法读取」；其余非成功 HTTP 或业务结果归「服务商返回错误」。
+- **首次构建命令与退出状态。**
+
+```bash
+cd backend
+go test ./internal/providertraffic -count=1  # exit 0，ok 0.488s
+go build ./...  # exit 0
+go vet ./...    # exit 0
+go test ./... -count=1  # exit 0，全量包通过（providertraffic 1.901s）
+go test -race ./internal/providertraffic -count=1  # exit 0（补充）
+go run ./cmd/errgate ./...  # errgate: OK，0 项违规（补充）
+gofmt -l internal/providertraffic  # 无输出，exit 0（补充）
+go test -cover ./internal/providertraffic -count=1  # coverage 89.5%（补充）
+cd ..
+git diff --check  # exit 0（补充）
+```
+
+- **覆盖范围。** 请求形状：方法、HTTPS、主机、路径、空查询参数、精确表单/JSON 字段、`Content-Type`、`Authorization` 及凭据位置。KiwiVM：正常余量、剩余合法零、已用量合法零、已用量超过套餐时钳制为零、字符串数值、业务 `700005` 与其他业务错误、`error` 缺失/非法、套餐或已用量缺失/非法、倍率缺失/2/0/负/null/非数、401/403/429/500/302、超时、256 KiB 边界和非法实例 ID。V.P.S 续期：正常 token 对、缺 token、缺 refresh、空串/纯空白/null/非字符串、200 业务错误（数组与字符串两种形态）、未知或形状非法 error、401/403 网关与明确凭据拒绝/429/500/302、超时和 256 KiB 边界。V.P.S 资源：正常、合法零、字符串数值、缺失/null/负数/单位/千分位/布尔/溢出、200 业务错误、401/403 网关与明确拒绝、404 明确拒绝与路由错误、429/500/302、超时、256 KiB 边界和非法实例 ID。安全：合成凭据断言错误、日志和 URL 无明文；错误链不可遍历到原始错误；失败路径只发一次上游请求，重定向不跟随。
+- **协议观察与实现取舍。** KiwiVM 用无效合成值实测为 HTTP 200 + `error=700005`，且响应 `Content-Type` 为 `text/plain`，客户端从业务错误码识别凭据拒绝。V.P.S 续期用无效合成 Refresh Token 实测为 HTTP 200 + `{"error":["refresh_token_invalid"]}`，客户端也将 HTTP 401 归为凭据拒绝。官方 Swagger 元数据把 `refresh_token` 标为 query，官方示例和冻结合同使用 JSON 请求体，客户端在 JSON 请求体中提交该凭据。V.P.S 资源用无效合成 Bearer 实测通常为 HTTP 401 + `invalid_token`／`unauthorized`，部分数字 ID 返回 HTTP 404 + `invalid_token`／`invalid method`。客户端对 `401`、`429` 直接按状态分类，限读其余 `4xx` 正文以识别明确的凭据失效。未明确属于凭据失效的 `403` 归连接失败，样本中仅含路由错误的 `404` 归服务商错误。官方文档标注 service id 为 int，Step 1 的正十进制实例 ID 校验继续复用。`data_counter=0`、`data_combined=0` 为成功值，`plan_monthly_data` 必须为正。V.P.S `token`／`refresh` 去空白后必须非空。响应体恰好 256 KiB 接受，256 KiB+1 拒绝。日志字段为 `provider`、`stage`、`category`、`status`（HTTP 状态码）。
+- **独立复验与修复（2026-11-24）。** [R35-11](Issue21.md#r35-11-上游数值校验与错误分类偏离约定) 的回归先在原实现中失败。修复后，KiwiVM 对业务码与倍率作精确比较，两家处理非零下溢、真正的零和长尾数与指数抵消的情况。V.PS 错误正文读取超时或中断归连接失败，超限沿用 HTTP 状态分类。使用修复后的源码连接本地 TLS 服务，停滞的 `404` 正文在续期和资源请求上均于约 8 秒归为「无法连接服务商」，`401` 和 `429` 的归类无需等待正文。对 `301`、`302`、`303`、`307`、`308`，三种上游请求各发一次，跳转目标收到零次请求，均归「无法连接服务商」。`304` 保持通用错误分类。合成错误正文、凭据及底层错误链没有出现在错误或日志中。
+- **修复后命令与退出状态。** 以下命令均退出 `0`。定向 race 语句覆盖率为 90.4%，`errgate` 为 0 项违规。本地 TLS 复验通过临时 Go 测试 overlay 运行。
+
+```bash
+cd backend
+go test ./internal/providertraffic -count=1
+go test -race -cover ./internal/providertraffic -count=1
+go test ./... -count=1
+go build ./... && go vet ./...
+go run ./cmd/errgate ./...
+gofmt -l internal/providertraffic
+cd ../frontend
+npm run build
+cd ..
+node scripts/check-md-links.mjs Design7.md Build41.md Issue21.md
+git diff --check
+```
+- **未验证项。** Step 3 的采集调度、同家并发、Token 缓存与 JWT 到期、轮换落库和修订写回；Step 4 的站内 API；Step 5 的前端；Step 6 的 Docker/隔离卷/浏览器；Step 7 的两家真实出网、面板对账、V.P.S 轮换后的重启及目标容器 403 复核。本步未使用真实凭据或进行真实服务商验收，预检仅用无效合成值确认状态码与错误体形态；前端未改动，R31-01 不受影响。
 
 ### Step 3 — 自动采集与轮换一致性
 
@@ -291,7 +329,7 @@ docker volume rm "${build41_id}-data"
 | 测试范围 | 当前状态 | 完成位置 |
 | --- | --- | --- |
 | 现有源码、本机工具链、Docker 引擎和配置解析 | 基线已通过 | Step 0 |
-| 新表与升级、凭据与清理、上游 mock、采集并发和 API 权限 | Step 1 修复后复验通过，其余待 Step 2～4 | Step 1～4 |
+| 新表与升级、凭据与清理、上游 mock、采集并发和 API 权限 | Step 1、Step 2 修复后复验通过，Step 2 含本地 TLS 与 race（包覆盖 90.4%）。采集并发与 API 权限待 Step 3～4 | Step 1～4 |
 | 页面定向回归、全量门禁、隔离容器与桌面/窄屏 | 待候选后执行 | Step 5～6 |
 | 两家真实出网、面板对账、V.PS 轮换后的重启 | 待真实验收 | Step 7 |
 
@@ -301,3 +339,5 @@ docker volume rm "${build41_id}-data"
 | v1.1 | 2026-11-23 | 冻结开关矩阵、表与修订语义、上游和站内接口、轮换时序、错误展示及验收断言。 |
 | v1.2 | 2026-11-23 | Step 1 完成：新增 `0002` 与 `internal/providertraffic` 存储，保留 `0001` 合同并验证真实升级；接入 v1/v2 导入清理/回滚、RESET/应急旧库与整库快照；记录命令、退出状态、覆盖范围和未验证项。 |
 | v1.3 | 2026-11-23 | Step 1 独立复验发现并修复 R35-10。导入在功能表查表报错时整体回滚，v1/v2 故障注入和本地门禁通过。 |
+| v1.4 | 2026-11-24 | Step 2 完成：新增 KiwiVM 与 V.P.S 固定上游客户端、合成样本与 mock transport 测试；固定 8 秒超时、256 KiB 上限、拒绝重定向、受控错误分类与凭据脱敏；记录协议观察及未验证项。 |
+| v1.5 | 2026-11-24 | Step 2 独立复验发现并修复 R35-11。十进制校验、错误正文读取和拒绝重定向分类的回归及本地门禁通过。 |

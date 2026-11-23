@@ -1,6 +1,6 @@
-// Package providertraffic 提供基础模式服务器剩余流量的本地存储与绑定管理。
-// 本 Step 只包含 SQLite 功能表读写、绑定修订校验和凭据加解密；
-// 上游客户端、采集调度与 HTTP 接口由后续 Step 接入。
+// Package providertraffic 提供基础模式服务器剩余流量的本地存储、绑定管理与固定上游客户端。
+// 本阶段包含 SQLite 功能表读写、绑定修订校验、凭据加解密，以及 KiwiVM／V.P.S 两个固定客户端；
+// 采集调度、Token 缓存与 HTTP 接口由后续 Step 接入。
 package providertraffic
 
 import (
