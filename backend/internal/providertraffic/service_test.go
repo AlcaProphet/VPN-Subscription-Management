@@ -26,6 +26,9 @@ func newTestTraffic(t *testing.T) (*store.Store, *config.Service, *Service) {
 	}
 	lg := log.New("error", "console")
 	cfg := config.NewService(st, lg)
+	if err := cfg.Set(context.Background(), config.KeyConfigured, "true"); err != nil {
+		t.Fatalf("置位 Setup 状态失败: %v", err)
+	}
 	return st, cfg, NewService(st, cfg, lg)
 }
 

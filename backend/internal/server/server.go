@@ -30,6 +30,7 @@ import (
 	"vpn-sub/internal/oidc"
 	"vpn-sub/internal/platform"
 	"vpn-sub/internal/pool"
+	"vpn-sub/internal/providertraffic"
 	"vpn-sub/internal/proxygroup"
 	"vpn-sub/internal/proxytrust"
 	"vpn-sub/internal/ratelimit"
@@ -79,10 +80,11 @@ type Server struct {
 	log             *slog.Logger
 	stopXrayCollect func()
 	xrayInstances   *xray.InstanceService
-	oidcSvc         *oidc.Service     // R31-07：测试可直接用服务签发/校验流程记录
-	mailDispatcher  *mail.Dispatcher  // R32-02：Server 唯一持有的邮件异步派发器
-	activityLog     *mail.ActivityLog // R32-02：短期邮件发送日志，供日志 API 使用
-	mailResultLog   *mail.ResultLog   // R32-03：终态结果旁路 writer 与持久化查询
+	oidcSvc         *oidc.Service              // R31-07：测试可直接用服务签发/校验流程记录
+	mailDispatcher  *mail.Dispatcher           // R32-02：Server 唯一持有的邮件异步派发器
+	activityLog     *mail.ActivityLog          // R32-02：短期邮件发送日志，供日志 API 使用
+	mailResultLog   *mail.ResultLog            // R32-03：终态结果旁路 writer 与持久化查询
+	providerTraffic *providertraffic.Collector // Build41 Step 4：正常服务的采集生命周期
 	// 后续 Step 的 Handler 经构造函数追加注入（setup/oidc...）
 }
 
@@ -246,6 +248,15 @@ func New(st *store.Store, cfg *config.Service, users *user.Service, rt log.Runti
 	homeHandler := &HomeHandler{homeSvc: homeSvc, trafficSvc: syncSvc}
 	RegisterDownloadRoutes(engine, &DownloadHandler{dlSvc: dlSvc, limiter: limiter, sessionMW: authSvc.SessionMiddleware()})
 	RegisterHomeRoutes(engine, homeHandler, authSvc.SessionMiddleware())
+	// 服务器剩余流量（Build41 Step 4）：首页只读本地结果；管理端写入统一经采集器提交与调度。
+	providerTrafficSvc := providertraffic.NewService(st, cfg, lg)
+	providerTrafficCollector := providertraffic.NewCollector(providerTrafficSvc, cfg, lg)
+	s.providerTraffic = providerTrafficCollector
+	RegisterProviderTrafficRoutes(engine, &ProviderTrafficHandler{
+		settingsSvc: providerTrafficSvc,
+		collector:   providerTrafficCollector,
+		cfg:         cfg,
+	}, authSvc.SessionMiddleware(), auth.AdminMiddleware())
 	// 自定义订阅 + 分享订阅（Build2 Step 5；会话 + 管理员双中间件）
 	customSvc := custom.NewService(st, versionSvc, tokenSvc, lg)
 	shareSvc := share.NewService(st, versionSvc, tokenSvc, lg)
@@ -605,6 +616,16 @@ func (s *Server) Run(ctx context.Context) error {
 			}
 		}
 	}()
+	// 采集器必须在开始接受管理请求前启动；监听失败或退出时由 defer/显式 Stop 收尾。
+	if s.providerTraffic != nil {
+		if err := s.providerTraffic.Start(ctx); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+			return fmt.Errorf("启动服务器剩余流量采集失败: %w", err)
+		}
+		defer s.providerTraffic.Stop()
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		if err := s.httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -617,6 +638,10 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-ctx.Done(): // 非阻塞优雅退出：等待在途请求收尾
 		if s.stopXrayCollect != nil {
 			s.stopXrayCollect()
+		}
+		// 先停止采集并在途上游链，避免 HTTP Shutdown 等待采集请求超时。
+		if s.providerTraffic != nil {
+			s.providerTraffic.Stop()
 		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

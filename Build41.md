@@ -1,6 +1,6 @@
 # Build41 — 基础模式服务器剩余流量
 
-> v1.7，2026-11-24。基线为 `beta` / `af20f8a545d9b7471ade4783c5f16265dda5c71b`，设计依据见 [Design7 v1.3](Design7.md)，工程约束见 [AGENTS.md](AGENTS.md)，构建格式参照 [Build 模板](docs/DocTemplates/Build.template.md)。第三节冻结实施合同，第四节规定串行步骤。Step 1～3 已通过本地验证，Step 3 最新回归见 R35-13～R35-15。Step 4～7 待实施。
+> v1.9，2026-11-24。基线为 `beta` / `af20f8a545d9b7471ade4783c5f16265dda5c71b`，设计依据见 [Design7 v1.5](Design7.md)，工程约束见 [AGENTS.md](AGENTS.md)，构建格式参照 [Build 模板](docs/DocTemplates/Build.template.md)。第三节冻结实施合同，第四节规定串行步骤。Step 1～4 已通过本地验证，Step 4 的 R35-16～R35-19 修复已复验。Step 5～7 待实施。
 
 ## 一、进度与依赖
 
@@ -10,7 +10,7 @@
 | 1 | 功能表、加密绑定、迁移与清理 | Design7 §5.1、§六 | 已完成，导入事务修复后复验通过（2026-11-23） |
 | 2 | 两个固定上游客户端 | Design7 §二、§5.3 | 已完成，R35-11 修复后复验通过（2026-11-24） |
 | 3 | 自动采集、内存结果与 V.PS 轮换 | Design7 §一、§5.3 | R35-12～R35-15 修复后本地验证通过（2026-11-24） |
-| 4 | 首页及管理员 API、正常服务装配 | Design7 §5.2 | 未开始 |
+| 4 | 首页及管理员 API、正常服务装配 | Design7 §5.2 | R35-16～R35-19 修复后本地复验通过（2026-11-24） |
 | 5 | 设置和首页组件 | Design7 §三、§四 | 未开始 |
 | 6 | 本地联合回归、隔离容器、浏览器与移除验证 | Design7 §六、§七 | 未开始 |
 | 7 | 从目标容器按平台真实验收 | Design7 §七 | 待本地验收 |
@@ -51,7 +51,7 @@ git diff --check
 
 ## 三、冻结的实施合同
 
-以下条款落实 Design7 v1.3，作为 Step 1～7 的验收依据。若发现真实上游与合同不一致，记录实际响应形态及受影响平台，按现有合同返回错误。变更功能范围、启用条件、凭据流转、数据迁移或接口合同须由用户确认后再实施，现有项目约束仍以 AGENTS.md 为准。
+以下条款落实 Design7，作为 Step 1～7 的验收依据。若发现真实上游与合同不一致，记录实际响应形态及受影响平台，按现有合同返回错误。变更功能范围、启用条件、凭据流转、数据迁移或接口合同须由用户确认后再实施，现有项目约束仍以 AGENTS.md 为准。
 
 ### 3.1 范围、常量与启用条件
 
@@ -120,8 +120,9 @@ git diff --check
 | `/admin/settings/provider-traffic/:provider/refresh` | `POST`，无请求体，仅读当前已保存绑定 | 本轮 `Result`，包括上游返回错误时的 `error` 结果 |
 
 - `Result` 的公共字段为 `provider`、`status`。`waiting` 无附加字段；`ok` 带 `remaining`（数字）、`unit`（`GiB` 或 `GB`）、`sampled_at`（UTC RFC3339）；`error` 带 `message`，省略 `remaining`、`unit` 和 `sampled_at`。
-- `Settings` 含 `available`、`enabled`、`providers`。基础模式中 `providers` 固定按两家顺序返回，每项含 `provider`、`enabled`、`instance_id`、`revision`、`credential_configured`、`result`。未绑定的 `instance_id` 和 `revision` 为 `null`，`credential_configured=false`。无与当前绑定匹配的结果时 `result=null`。模式不可用时返回 `{ "available": false, "enabled": false, "providers": [] }`。管理端读取设置和立即采集返回的错误结果可附安全操作提示 `hint`。
-- 站内 `401` 表示会话无效，`403` 表示无管理员权限或当前模式不允许设置写操作，`400` 用于输入错误或未知平台枚举，`409` 用于绑定修订冲突、采集忙碌或当前绑定未启用，`413` 沿用现有请求体限制，`500` 对本地读写故障返回通用正文。手动采集途中绑定被替换或因关停而丢弃结果时返回 `409`。上游故障走 HTTP `200` 加 `status:"error"`，不得透传上游 `401` 触发站内退出。
+- `Settings` 含 `available`、`enabled`、`providers`。基础模式中 `providers` 固定按两家顺序返回，每项含 `provider`、`enabled`、`instance_id`、`revision`、`credential_configured`、`result`。未绑定的 `instance_id` 和 `revision` 为 `null`，`credential_configured=false`。结果须匹配同一响应内的绑定修订，无匹配时 `result=null`。模式不可用时返回 `{ "available": false, "enabled": false, "providers": [] }`。管理端读取设置和立即采集返回的错误结果可附安全操作提示 `hint`。
+- 站内 `401` 表示会话无效，`403` 表示无管理员权限或当前模式不允许设置写操作，`400` 用于输入错误或未知平台枚举，`409` 用于绑定修订冲突、采集忙碌或当前绑定未启用，`413` 沿用现有请求体限制，`500` 对本地读写故障返回通用正文。已受理的手动采集因改绑、设置关闭或服务退出而丢弃结果时返回 `409`。上游故障走 HTTP `200` 加 `status:"error"`，不得透传上游 `401` 触发站内退出。
+- 设置写入与解绑须先验证整个请求体只含一个 JSON 对象和可选的尾随 JSON 空白。未知长度的请求体同样适用现有大小限制。设置写事务复核 Setup 和基础模式，拒绝时无落库或调度。
 - 两组路由响应带 `Cache-Control: no-store`，权限中间件前设置。全局大小限制先行短路的 `413` 也要覆盖，仅在本功能路径补齐响应头。应急服务不注册本模块路由。首页接口不含实例 ID、绑定修订、凭据或管理操作提示。
 
 ### 3.6 界面与验收约束
@@ -296,6 +297,50 @@ go build ./... && go vet ./...
 
 - **验收标准。** 管理员和普通用户看到各自权限范围内的数据，游客及停用账号无访问权限。高级模式、Setup、应急和二级开关组合按 §3.1 执行。首页读取过程中上游调用次数为零。按 §3.5 验证 JSON 字段、站内状态码与 `no-store`，包括全局体积限制直接返回的 `413`。验证安全的错误响应及调试日志，监听失败和收到退出信号时采集退出。
 
+- **首轮实施（2026-11-24）。** 已新增 [provider_traffic.go](backend/internal/server/provider_traffic.go) 与 [provider_traffic_test.go](backend/internal/server/provider_traffic_test.go)；在 [server.go](backend/internal/server/server.go) 完成 Service／Collector 构造注入、路由注册及 `Run` 的 `Start`／`Stop`；在 [hardening.go](backend/internal/server/hardening.go) 为本功能全局 413 短路补 `no-store`；在 [server_test.go](backend/internal/server/server_test.go) 补应急模式无本模块路由的断言。
+  - 新增六项接口：`GET /api/home/provider-traffic`、`GET|PUT /api/admin/settings/provider-traffic`、`PUT|DELETE /api/admin/settings/provider-traffic/:provider`、`POST /api/admin/settings/provider-traffic/:provider/refresh`。`:provider` 仅接受 `kiwivm`、`vps`。
+  - 首页调用 `Collector.Results`，不触发上游；输出 `list`／`total`，仅含公共字段。设置读取使用现有 `Service.GetSettings`，写入与手动采集严格经 `Collector.SetEnabled`、`SaveBinding`、`ClearBinding`、`ManualRefresh`，保留提交与调度交接。
+  - 严格解析 `enabled` 必填布尔、`instance_id` 字符串、`revision` 显式 `string|null`、`credential` 省略／`null`／字符串三态；实例、凭据、修订与绑定冲突交由现有业务服务校验。
+  - 状态码按 §3.5：401 会话、403 权限／高级／Setup 写操作、400 输入与未知平台、409 修订冲突／忙碌／未启用／`ErrDiscarded`、413 请求体、500 本地故障通用正文。上游失败保持 HTTP 200 与 `status:"error"`，管理端错误结果附安全 `hint`，首页不输出 `hint`、实例、修订或凭据。
+  - 两组路由在最前设置 `Cache-Control: no-store`；`bodyLimitMiddleware` 仅对四条本功能路由模式在全局 413 短路前补同一响应头。正常服务在 `ListenAndServe` 前启动采集器，退出信号先停止采集与在途链，监听失败由 defer 停止；应急装配不注册本模块路由。
+
+- **实际命令与退出状态。** 均在 `backend` 或 `frontend` 目录执行，结果如下。
+
+```bash
+cd backend
+go test ./internal/server ./internal/auth ./internal/setup -count=1  # exit 0，3 包通过
+go test -race ./internal/server ./internal/providertraffic -count=1  # exit 0，2 包通过
+go build ./...  # exit 0
+go vet ./...    # exit 0
+go test ./... -count=1  # exit 0，后端全量包通过
+go run ./cmd/errgate ./...  # exit 0，errgate: OK，0 项违规
+cd ../frontend
+npm run build  # exit 0，保留既有 Vite 大分块提示
+cd ..
+git diff --check  # exit 0
+node scripts/check-md-links.mjs Design7.md Build41.md Issue21.md  # exit 0，83 链接，0 缺失
+```
+
+- **覆盖范围。** 管理员、普通用户、游客、停用账号及实时角色变化；基础／高级／Setup／应急；总开关与单家开关组合；首页空列表、等待、成功、失败、合法零余量与 UTC 时间；首页读取零上游由既有 [collector_test.go](backend/internal/providertraffic/collector_test.go) 的只读回归与本步路由 stub 调用计数共同覆盖；设置两家顺序、未绑定 `null`、凭据保存标记与结果匹配；必填布尔、实例 ID、修订缺失／`null`／冲突／轮换、凭据省略／`null`／空串／纯空白；忙碌、未启用与 `ErrDiscarded` 的 409；高级／Setup 的 403；未知平台的 400；上游拒绝凭据的 200 错误结果；成功、鉴权失败、业务失败、全局 413 与处理器内 413 的 `no-store`；500 固定正文；调试日志与响应无合成凭据或密文，首页无实例／修订；正常退出与监听失败时采集器停止，且服务开始接受管理请求前采集器已在运行。应急模式两组路径均为 503。
+
+- **独立复验修复（2026-11-24）。** 按 [Issue21 R35-16～R35-19](Issue21.md#r35-16-模式切换先提交后设置写入仍成功) 收口。设置写事务复核当前模式，响应按同一份设置快照的修订取结果，JSON 写入口限量读取请求体尾部，正常关停丢弃的在途手动采集统一归入 `ErrDiscarded`。已解析的 V.PS 续期仍按修订独立提交。
+
+| 回归 | 验收结果 |
+| --- | --- |
+| `TestProviderTrafficWriteRechecksMode` | 总开关、修改绑定、解绑各覆盖高级模式先开启和 Setup 变为未完成。均返回 `403`、带 `no-store`，数据库设置未变化。 |
+| `TestProviderTrafficResultViews`、`TestCollectorResultForRevisionAfterRebind` | 设置读写响应均用其绑定修订查询结果。替换实例先完成采集时，旧快照的 `result` 为 `null`，新修订可读取自己的余量。 |
+| `TestProviderTrafficJSONRequestEnd` | 未知长度的合法请求恰好达到上限时成功。第二个对象和尾随非法字符返回 `400`，超限返回 `413`，拒绝时写入次数为零且带 `no-store`。 |
+| `TestCollectorStopDuringManual`、回环 HTTP 复验 | 直接 Stop 和取消服务上下文均丢弃在途采集且无结果发布。用临时 Go overlay 注入模拟上游，经过正常服务监听的 HTTP 请求连续三次收到 `409` 与 `no-store`，服务正常退出。 |
+
+修复后重跑本步后端定向、全量、race、build、vet、errgate 及前端构建门禁。新增定向回归和 V.PS 取消后续期提交回归连续运行三次。
+
+```bash
+cd backend
+go test ./internal/server ./internal/providertraffic -run 'Test(ProviderTraffic(WriteRechecksMode|JSONRequestEnd|ResultViews)|Collector(StopDuringManual|ResultForRevisionAfterRebind|VPSCommitSurvivesCancellation))$' -count=3
+```
+
+- **未验证项。** Step 5 前端组件与页面交互；Step 6 Docker／隔离卷／浏览器联合验收；Step 7 两家真实出网、面板对账、V.P.S 轮换后的重启及目标容器 403 复核。未使用真实凭据或真实服务商，未触碰 `backend/data`、Docker 卷或外部数据；R31-01 仍开放。
+
 ### Step 5 — 管理设置与首页展示
 
 - **目标与前置。** Step 4 通过。新增两个独立前端组件，设置页可操作，普通用户首页只读。
@@ -358,7 +403,7 @@ docker volume rm "${build41_id}-data"
 | 现有源码、本机工具链、Docker 引擎和配置解析 | 基线已通过 | Step 0 |
 | 新表与升级、凭据与清理、上游 mock | Step 1、Step 2 修复后复验通过，Step 2 含本地 TLS 与 race（包覆盖 90.4%） | Step 1～2 |
 | 采集调度、同家单飞、配置触发合并、Token 缓存／轮换、结果槽与停止／重启 | R35-12～R35-15 修复后通过，含定向与整包 `-race` 重复运行，包覆盖 89.0% | Step 3 |
-| 站内 API 权限与 HTTP 状态映射 | 待 Step 4 | Step 4 |
+| 站内 API 权限与 HTTP 状态映射 | R35-16～R35-19 修复后复验通过，含并发模式与绑定、完整请求体及在途关停 | Step 4 |
 | 页面定向回归、全量门禁、隔离容器与桌面／窄屏 | 待候选后执行 | Step 5～6 |
 | 两家真实出网、面板对账、V.PS 轮换后的重启 | 待真实验收 | Step 7 |
 
@@ -372,3 +417,5 @@ docker volume rm "${build41_id}-data"
 | v1.5 | 2026-11-24 | Step 2 独立复验发现并修复 R35-11。十进制校验、错误正文读取和拒绝重定向分类的回归及本地门禁通过。 |
 | v1.6 | 2026-11-24 | Step 3 完成：新增独立采集服务、固定周期、每平台单飞与配置触发合并、内存结果槽、V.P.S Access Token 缓存与轮换提交；修复手动取消后的资源请求时序问题（R35-12）；记录命令、退出状态、覆盖范围与未验证项。 |
 | v1.7 | 2026-11-24 | 修复 R35-13～R35-15，记录发布事务、设置提交后的调度交接和 V.PS 缓存到期顺序。同步 Step 4 设置入口和本地回归结果。 |
+| v1.8 | 2026-11-24 | Step 4 完成：新增首页与管理员六项站内接口、严格字段／状态码映射、`no-store`／413 覆盖、正常服务采集器生命周期与应急隔离；记录实际命令、退出状态、覆盖范围和未验证项。 |
+| v1.9 | 2026-11-24 | Step 4 独立复验发现并修复 R35-16～R35-19。补充设置事务、修订匹配、请求体及在途关停回归。 |

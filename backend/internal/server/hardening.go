@@ -49,6 +49,10 @@ func bodyLimitMiddleware(cfg *config.Service) gin.HandlerFunc {
 			limit = int64(cfg.GetInt(ctx, "http_max_body_mb", 4)) << 20
 		}
 		if c.Request.ContentLength > limit {
+			// 服务器剩余流量路由的 no-store 需覆盖全局 413 短路（此时路由组中间件尚未执行）。
+			if isProviderTrafficAPIPath(path) {
+				c.Header("Cache-Control", "no-store")
+			}
 			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"code": 413, "message": "请求体过大"})
 			return
 		}

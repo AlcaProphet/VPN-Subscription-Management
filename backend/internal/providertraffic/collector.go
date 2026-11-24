@@ -54,7 +54,7 @@ var (
 	ErrCollectorStopped = errors.New("采集服务已停止")
 	// ErrNotReady 表示当前绑定未启用或 Setup／总开关不满足条件。
 	ErrNotReady = errors.New("当前绑定未启用")
-	// ErrModeUnavailable 表示高级模式不允许采集。
+	// ErrModeUnavailable 表示当前模式不允许管理设置或开始采集。
 	ErrModeUnavailable = errors.New("当前模式不可用")
 	// ErrDiscarded 表示本轮结果因绑定修订变化或关停而被丢弃。
 	ErrDiscarded = errors.New("本轮采集结果已丢弃")
@@ -139,7 +139,6 @@ type Collector struct {
 	root     context.Context
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
-	done     chan struct{}
 	stopOnce sync.Once
 	state    [2]providerState
 
@@ -157,7 +156,6 @@ func NewCollector(svc *Service, cfg *config.Service, lg *slog.Logger) *Collector
 		kiwi: NewKiwiVMClient(lg),
 		vps:  NewVPSClient(lg),
 		now:  time.Now,
-		done: make(chan struct{}),
 	}
 }
 
@@ -196,7 +194,6 @@ func (c *Collector) Stop() {
 		cancel := c.cancel
 		c.mu.Unlock()
 
-		close(c.done)
 		if cancel != nil {
 			cancel()
 		}
@@ -280,11 +277,14 @@ func (c *Collector) ManualRefresh(ctx context.Context, provider Provider) (Resul
 
 	select {
 	case out := <-manual.outcome:
+		// 工作链已发布的结果优先交付。仅已受理链的服务关停归为丢弃。
+		if out.err != nil && ctx.Err() == nil &&
+			(errors.Is(out.err, ErrCollectorUnavailable) || errors.Is(out.err, root.Err())) {
+			return Result{}, ErrDiscarded
+		}
 		return out.result, out.err
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
-	case <-c.done:
-		return Result{}, ErrCollectorUnavailable
 	}
 }
 
@@ -319,36 +319,31 @@ func (c *Collector) Results(ctx context.Context) ([]Result, error) {
 		if !bound || !binding.enabled {
 			continue
 		}
-		results = append(results, c.resultFor(provider, binding.revision))
+		result := c.ResultForRevision(provider, binding.revision)
+		if result == nil {
+			results = append(results, Result{Provider: provider, Status: ResultWaiting})
+			continue
+		}
+		results = append(results, *result)
 	}
 	return results, nil
 }
 
-// CurrentResult 返回与当前绑定修订匹配的最近结果；无绑定或无匹配结果时返回 nil。
-// 不要求总开关或单家开关开启，供管理端展示最近一次结果；本方法不触发上游请求。
-func (c *Collector) CurrentResult(ctx context.Context, provider Provider) (*Result, error) {
-	if providerIndex(provider) < 0 {
-		return nil, ErrUnknownProvider
-	}
-	settings, err := c.svc.GetSettings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	binding, bound := bindingFromSettings(settings, provider)
-	if !bound {
-		return nil, nil
-	}
-
+// ResultForRevision 返回与调用方已读取的绑定修订匹配的内存结果。
+// 未采集或修订不匹配时返回 nil，且不读取数据库或发起上游请求。
+func (c *Collector) ResultForRevision(provider Provider, revision string) *Result {
 	idx := providerIndex(provider)
+	if idx < 0 || revision == "" {
+		return nil
+	}
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	stored := c.state[idx].result
-	if stored == nil || stored.revision != binding.revision {
-		c.mu.Unlock()
-		return nil, nil
+	if stored == nil || stored.revision != revision {
+		return nil
 	}
 	result := *stored
-	c.mu.Unlock()
-	return &result, nil
+	return &result
 }
 
 func (c *Collector) loop(ctx context.Context) {
@@ -400,7 +395,7 @@ func (c *Collector) startChain(chainCtx context.Context, provider Provider, sour
 		c.mu.Unlock()
 		return ErrCollectorStopped
 	}
-	if !c.running || c.root == nil {
+	if !c.running || c.root == nil || c.root.Err() != nil {
 		c.mu.Unlock()
 		return ErrCollectorUnavailable
 	}
@@ -794,17 +789,6 @@ func (c *Collector) clearProviderStateLocked(idx int, current bindingSnapshot) {
 	if state.token.revision != "" && state.token.revision != current.revision {
 		state.token = cachedAccessToken{}
 	}
-}
-
-func (c *Collector) resultFor(provider Provider, revision string) Result {
-	idx := providerIndex(provider)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	stored := c.state[idx].result
-	if stored == nil || stored.revision != revision {
-		return Result{Provider: provider, Status: ResultWaiting}
-	}
-	return *stored
 }
 
 func bindingFromSettings(settings Settings, provider Provider) (bindingSnapshot, bool) {

@@ -282,6 +282,9 @@ func TestCreateBackupPreservesProviderTrafficBinding(t *testing.T) {
 	if err := cfg.Set(ctx, config.KeySigningKey, signingKey); err != nil {
 		t.Fatalf("写入签名密钥失败: %v", err)
 	}
+	if err := cfg.Set(ctx, config.KeyConfigured, "true"); err != nil {
+		t.Fatalf("置位 Setup 状态失败: %v", err)
+	}
 	trafficSvc := providertraffic.NewService(st, cfg, lg)
 	const credential = "synthetic-backup-credential"
 	if _, err := trafficSvc.SetEnabled(ctx, true); err != nil {

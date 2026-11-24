@@ -221,10 +221,17 @@ func (s *Service) clearBinding(ctx context.Context, provider Provider, revision 
 	})
 }
 
-// changeSettings 在同一写事务内记录变更前后状态，只交付成功提交的变化。
+// changeSettings 在同一写事务内验证模式并记录变更前后状态，只交付成功提交的变化。
 func (s *Service) changeSettings(ctx context.Context, write func(*sql.Tx) error) (settingsChange, error) {
 	var change settingsChange
 	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		available, err := s.basicModeAvailableTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if !available {
+			return ErrModeUnavailable
+		}
 		before, err := readSettings(ctx, tx)
 		if err != nil {
 			return err
@@ -248,19 +255,12 @@ func (s *Service) changeSettings(ctx context.Context, write func(*sql.Tx) error)
 // withPublicationSettings 让最终复核及结果发布与设置、模式、导入和清空写入串行。
 // 回调仅处理内存，不发网络请求，也不经连接池读取数据库。
 func (s *Service) withPublicationSettings(ctx context.Context, publish func(Settings) error) error {
-	return s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		configured, err := s.readBoolTx(ctx, tx, config.KeyConfigured)
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
+		available, err := s.basicModeAvailableTx(ctx, tx)
 		if err != nil {
 			return err
 		}
-		if !configured {
-			return ErrDiscarded
-		}
-		advanced, err := s.readBoolTx(ctx, tx, config.KeyAdvancedMode)
-		if err != nil {
-			return err
-		}
-		if advanced {
+		if !available {
 			return ErrDiscarded
 		}
 		settings, err := readSettings(ctx, tx)
@@ -269,6 +269,20 @@ func (s *Service) withPublicationSettings(ctx context.Context, publish func(Sett
 		}
 		return publish(settings)
 	})
+	// 上下文取消时 database/sql 可能已先回滚，使提交返回 ErrTxDone。
+	if ctx.Err() != nil && errors.Is(err, sql.ErrTxDone) {
+		return ctx.Err()
+	}
+	return err
+}
+
+func (s *Service) basicModeAvailableTx(ctx context.Context, tx *sql.Tx) (bool, error) {
+	configured, err := s.readBoolTx(ctx, tx, config.KeyConfigured)
+	if err != nil || !configured {
+		return false, err
+	}
+	advanced, err := s.readBoolTx(ctx, tx, config.KeyAdvancedMode)
+	return !advanced, err
 }
 
 func (s *Service) readBoolTx(ctx context.Context, tx *sql.Tx, key string) (bool, error) {

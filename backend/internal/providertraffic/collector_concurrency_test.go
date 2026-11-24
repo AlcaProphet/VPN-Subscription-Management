@@ -442,8 +442,8 @@ func TestCollectorRestartLosesMemory(t *testing.T) {
 		},
 	}
 
-	if result, err := c2.CurrentResult(context.Background(), ProviderKiwiVM); err != nil || result != nil {
-		t.Fatalf("新进程不应持有旧结果: result=%+v err=%v", result, err)
+	if result := c2.ResultForRevision(ProviderKiwiVM, first.revision); result != nil {
+		t.Fatalf("新进程不应持有旧结果: %+v", result)
 	}
 	waiting, err := c2.Results(context.Background())
 	if err != nil {
@@ -481,9 +481,9 @@ func TestCollectorRestartLosesMemory(t *testing.T) {
 	if !current.SampledAt.Equal(first.SampledAt) {
 		t.Fatalf("停止后内存结果应保留原采集时间: got=%v want=%v", current.SampledAt, first.SampledAt)
 	}
-	c2Result, err := c2.CurrentResult(context.Background(), ProviderKiwiVM)
-	if err != nil || c2Result == nil {
-		t.Fatalf("重启首轮应生成新结果: result=%+v err=%v", c2Result, err)
+	c2Result := c2.ResultForRevision(ProviderKiwiVM, first.revision)
+	if c2Result == nil {
+		t.Fatal("重启首轮应生成新结果")
 	}
 	assertOK(t, *c2Result, 3, UnitGiB)
 	if c2Result.SampledAt.Equal(first.SampledAt) {
@@ -494,7 +494,8 @@ func TestCollectorRestartLosesMemory(t *testing.T) {
 func TestCollectorConcurrentReads(t *testing.T) {
 	h := newCollectorHarness(t)
 	h.setConfigured(t, true)
-	h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-kiwivm-key")
+	settings := h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-kiwivm-key")
+	kiwi, _ := bindingFromSettings(settings, ProviderKiwiVM)
 	h.saveBinding(t, ProviderVPS, true, "2002", "synthetic-vps-refresh")
 	h.setTotal(t, true)
 
@@ -548,8 +549,8 @@ func TestCollectorConcurrentReads(t *testing.T) {
 						t.Errorf("未知结果状态: %q", result.Status)
 					}
 				}
-				if _, err := h.c.CurrentResult(context.Background(), ProviderKiwiVM); err != nil {
-					t.Errorf("并发读取单家结果失败: %v", err)
+				if result := h.c.ResultForRevision(ProviderKiwiVM, kiwi.revision); result == nil || result.Status != ResultOK {
+					t.Errorf("并发读取单家结果失败: %+v", result)
 					return
 				}
 			}
@@ -558,6 +559,35 @@ func TestCollectorConcurrentReads(t *testing.T) {
 	h.manualOK(t, ProviderKiwiVM)
 	wg.Wait()
 	h.waitIdle(t)
+}
+
+func TestCollectorResultForRevisionAfterRebind(t *testing.T) {
+	h := newCollectorHarness(t)
+	previous := h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-initial")
+	oldBinding, _ := bindingFromSettings(previous, ProviderKiwiVM)
+	h.setTotal(t, true)
+	h.c.kiwi = &fakeKiwiVM{fetch: func(_ context.Context, id, _ string) (TrafficSample, error) {
+		if id == "1002" {
+			return TrafficSample{Remaining: 23, Unit: UnitGiB}, nil
+		}
+		return TrafficSample{Remaining: 12, Unit: UnitGiB}, nil
+	}}
+	h.start(t)
+	h.waitCycle(t)
+	h.waitIdle(t)
+	assertOK(t, h.mustCurrent(t, ProviderKiwiVM), 12, UnitGiB)
+
+	replaced := h.saveBindingAndSchedule(t, ProviderKiwiVM, true, "1002", "synthetic-replacement")
+	current, _ := bindingFromSettings(replaced, ProviderKiwiVM)
+	h.waitIdle(t)
+	if result := h.c.ResultForRevision(ProviderKiwiVM, oldBinding.revision); result != nil {
+		t.Fatalf("旧绑定不得读取新绑定的结果: %+v", result)
+	}
+	result := h.c.ResultForRevision(ProviderKiwiVM, current.revision)
+	if result == nil {
+		t.Fatal("新绑定应能读取自己的结果")
+	}
+	assertOK(t, *result, 23, UnitGiB)
 }
 
 func TestCollectorNoWriteTransactionDuringOutbound(t *testing.T) {
@@ -913,37 +943,49 @@ func TestCollectorNewEnabledBindingOnlyThatProvider(t *testing.T) {
 }
 
 func TestCollectorStopDuringManual(t *testing.T) {
-	h := newCollectorHarness(t)
-	h.setConfigured(t, true)
-	h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-kiwivm-key")
-	h.setTotal(t, false)
-	h.start(t)
-	h.waitCycle(t)
-	h.waitIdle(t)
-	h.setTotal(t, true)
+	for _, cancelRoot := range []bool{false, true} {
+		name := "stop collector"
+		if cancelRoot {
+			name = "cancel server context"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newCollectorHarness(t)
+			h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-kiwivm-key")
+			started := make(chan struct{}, 1)
+			h.c.kiwi = &fakeKiwiVM{fetch: func(ctx context.Context, _ string, _ string) (TrafficSample, error) {
+				started <- struct{}{}
+				<-ctx.Done()
+				return TrafficSample{}, ctx.Err()
+			}}
+			root, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if err := h.c.Start(root); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(h.c.Stop)
+			h.waitCycle(t)
+			h.waitIdle(t)
+			h.setTotal(t, true)
 
-	started := make(chan struct{}, 1)
-	h.c.kiwi = &fakeKiwiVM{fetch: func(ctx context.Context, _ string, _ string) (TrafficSample, error) {
-		started <- struct{}{}
-		<-ctx.Done()
-		return TrafficSample{}, ctx.Err()
-	}}
-
-	out := h.startManual(context.Background(), ProviderKiwiVM)
-	select {
-	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("等待手动采集开始超时")
-	}
-	h.c.Stop()
-	outcome := waitManual(t, out)
-	if !errors.Is(outcome.err, ErrCollectorUnavailable) {
-		t.Fatalf("停止时的手动采集 = %v，期望 ErrCollectorUnavailable", outcome.err)
-	}
-	if outcome.result.Status != "" {
-		t.Fatalf("停止时不得返回结果: %+v", outcome.result)
-	}
-	if result := h.current(t, ProviderKiwiVM); result != nil {
-		t.Fatalf("停止后不得发布结果: %+v", result)
+			out := h.startManual(context.Background(), ProviderKiwiVM)
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("等待手动采集开始超时")
+			}
+			if cancelRoot {
+				cancel()
+			} else {
+				h.c.Stop()
+			}
+			outcome := waitManual(t, out)
+			mustErrIs(t, outcome.err, ErrDiscarded)
+			if outcome.result.Status != "" {
+				t.Fatalf("停止时不得返回结果: %+v", outcome.result)
+			}
+			if result := h.current(t, ProviderKiwiVM); result != nil {
+				t.Fatalf("停止后不得发布结果: %+v", result)
+			}
+		})
 	}
 }

@@ -233,11 +233,12 @@ func (h *collectorHarness) results(t *testing.T) []Result {
 
 func (h *collectorHarness) current(t *testing.T, provider Provider) *Result {
 	t.Helper()
-	result, err := h.c.CurrentResult(context.Background(), provider)
+	settings, err := h.svc.GetSettings(context.Background())
 	if err != nil {
-		t.Fatalf("读取 %s 结果失败: %v", provider, err)
+		t.Fatalf("读取 %s 绑定失败: %v", provider, err)
 	}
-	return result
+	binding, _ := bindingFromSettings(settings, provider)
+	return h.c.ResultForRevision(provider, binding.revision)
 }
 
 func (h *collectorHarness) mustCurrent(t *testing.T, provider Provider) Result {
@@ -493,9 +494,9 @@ func TestCollectorGates(t *testing.T) {
 
 	t.Run("Setup 未完成", func(t *testing.T) {
 		h := newCollectorHarness(t)
-		h.setConfigured(t, false)
 		h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-kiwivm-key")
 		h.setTotal(t, true)
+		h.setConfigured(t, false)
 		var calls atomic.Int32
 		configureCountingKiwi(t, h, &calls)
 
@@ -524,10 +525,9 @@ func TestCollectorGates(t *testing.T) {
 
 	t.Run("高级模式", func(t *testing.T) {
 		h := newCollectorHarness(t)
-		h.setConfigured(t, true)
-		h.setAdvanced(t, true)
 		h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-kiwivm-key")
 		h.setTotal(t, true)
+		h.setAdvanced(t, true)
 		var calls atomic.Int32
 		configureCountingKiwi(t, h, &calls)
 
@@ -640,12 +640,8 @@ func TestCollectorResultsOrderAndReadOnly(t *testing.T) {
 		if _, err := h.c.Results(context.Background()); err != nil {
 			t.Fatalf("读取结果失败: %v", err)
 		}
-		if _, err := h.c.CurrentResult(context.Background(), ProviderKiwiVM); err != nil {
-			t.Fatalf("读取单家结果失败: %v", err)
-		}
-		if _, err := h.c.CurrentResult(context.Background(), ProviderVPS); err != nil {
-			t.Fatalf("读取单家结果失败: %v", err)
-		}
+		h.mustCurrent(t, ProviderKiwiVM)
+		h.mustCurrent(t, ProviderVPS)
 	}
 	if kiwiCalls.Load() != kiwiBefore || vpsRefreshCalls.Load() != refreshBefore || vpsResourceCalls.Load() != resourceBefore {
 		t.Fatalf("结果读取触发了出站: kiwi=%d->%d refresh=%d->%d resource=%d->%d",
@@ -655,9 +651,9 @@ func TestCollectorResultsOrderAndReadOnly(t *testing.T) {
 
 func TestCollectorSetupIncompleteManualNotReady(t *testing.T) {
 	h := newCollectorHarness(t)
-	h.setConfigured(t, false)
 	h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-kiwivm-key")
 	h.setTotal(t, true)
+	h.setConfigured(t, false)
 	h.start(t)
 	h.waitCycle(t)
 	h.waitIdle(t)
@@ -671,10 +667,9 @@ func TestCollectorSetupIncompleteManualNotReady(t *testing.T) {
 
 func TestCollectorAdvancedModeManualUnavailable(t *testing.T) {
 	h := newCollectorHarness(t)
-	h.setConfigured(t, true)
-	h.setAdvanced(t, true)
 	h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-kiwivm-key")
 	h.setTotal(t, true)
+	h.setAdvanced(t, true)
 	h.start(t)
 	h.waitCycle(t)
 	h.waitIdle(t)

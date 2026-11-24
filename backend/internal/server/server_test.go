@@ -249,6 +249,12 @@ func TestNewEmergencyNilStore(t *testing.T) {
 	if code := doReq(t, srv, http.MethodGet, "/api/admin/users").Code; code != http.StatusServiceUnavailable {
 		t.Errorf("业务端点应 503: %d", code)
 	}
+	// 应急服务不注册服务器剩余流量路由，全部由 emergencyGate 返回 503。
+	for _, path := range []string{"/api/home/provider-traffic", "/api/admin/settings/provider-traffic"} {
+		if code := doReq(t, srv, http.MethodGet, path).Code; code != http.StatusServiceUnavailable {
+			t.Errorf("应急模式 %s 应 503: %d", path, code)
+		}
+	}
 }
 
 // TestResponseStructure 统一响应结构（错误响应）
