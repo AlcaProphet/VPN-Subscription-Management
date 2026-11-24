@@ -252,7 +252,17 @@ func (h *collectorHarness) mustCurrent(t *testing.T, provider Provider) Result {
 
 func (h *collectorHarness) manual(t *testing.T, provider Provider) (Result, error) {
 	t.Helper()
-	return h.c.ManualRefresh(context.Background(), provider)
+	return h.c.ManualRefresh(context.Background(), provider, h.bindingRevision(t, provider))
+}
+
+func (h *collectorHarness) bindingRevision(t *testing.T, provider Provider) string {
+	t.Helper()
+	settings, err := h.svc.GetSettings(context.Background())
+	if err != nil {
+		t.Fatalf("读取绑定修订失败: %v", err)
+	}
+	binding, _ := bindingFromSettings(settings, provider)
+	return binding.revision
 }
 
 func (h *collectorHarness) manualOK(t *testing.T, provider Provider) Result {
@@ -269,10 +279,12 @@ type manualOutcome struct {
 	err    error
 }
 
-func (h *collectorHarness) startManual(ctx context.Context, provider Provider) <-chan manualOutcome {
+func (h *collectorHarness) startManual(t *testing.T, ctx context.Context, provider Provider) <-chan manualOutcome {
+	t.Helper()
+	revision := h.bindingRevision(t, provider)
 	out := make(chan manualOutcome, 1)
 	go func() {
-		result, err := h.c.ManualRefresh(ctx, provider)
+		result, err := h.c.ManualRefresh(ctx, provider, revision)
 		out <- manualOutcome{result: result, err: err}
 	}()
 	return out

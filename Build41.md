@@ -1,6 +1,6 @@
 # Build41 — 基础模式服务器剩余流量
 
-> v1.9，2026-11-24。基线为 `beta` / `af20f8a545d9b7471ade4783c5f16265dda5c71b`，设计依据见 [Design7 v1.5](Design7.md)，工程约束见 [AGENTS.md](AGENTS.md)，构建格式参照 [Build 模板](docs/DocTemplates/Build.template.md)。第三节冻结实施合同，第四节规定串行步骤。Step 1～4 已通过本地验证，Step 4 的 R35-16～R35-19 修复已复验。Step 5～7 待实施。
+> v1.11，2026-11-24。基线为 `beta` / `af20f8a545d9b7471ade4783c5f16265dda5c71b`，设计依据见 [Design7 v1.7](Design7.md)，工程约束见 [AGENTS.md](AGENTS.md)，构建格式参照 [Build 模板](docs/DocTemplates/Build.template.md)。第三节冻结实施合同，第四节规定串行步骤。Step 1～5 已通过本地验证，Step 5 的 R35-20～R35-22 已修复并复验。Step 6～7 待实施。
 
 ## 一、进度与依赖
 
@@ -11,7 +11,7 @@
 | 2 | 两个固定上游客户端 | Design7 §二、§5.3 | 已完成，R35-11 修复后复验通过（2026-11-24） |
 | 3 | 自动采集、内存结果与 V.PS 轮换 | Design7 §一、§5.3 | R35-12～R35-15 修复后本地验证通过（2026-11-24） |
 | 4 | 首页及管理员 API、正常服务装配 | Design7 §5.2 | R35-16～R35-19 修复后本地复验通过（2026-11-24） |
-| 5 | 设置和首页组件 | Design7 §三、§四 | 未开始 |
+| 5 | 设置和首页组件 | Design7 §三、§四、§5.2 | R35-20～R35-22 修复后本地复验通过（2026-11-24） |
 | 6 | 本地联合回归、隔离容器、浏览器与移除验证 | Design7 §六、§七 | 未开始 |
 | 7 | 从目标容器按平台真实验收 | Design7 §七 | 待本地验收 |
 
@@ -103,12 +103,12 @@ git diff --check
 1. 正常服务启动时采集当前符合条件的平台。总开关由关变开、已启用的绑定新建/更换实例/换证、单家由关变开，在写入提交后安排符合条件的平台采集。设置入口依同一写事务内的前后状态判断变化，按顺序完成提交和调度交接。实例与开关均未变化且未提交新凭据时不重复触发。总开关只触发两家中已就绪者，修改一家只触发这一家。高级模式切回基础模式后最迟下一个固定周期恢复。页面读接口从不触发采集。
 2. 自动和手动进入同一采集入口，每家同时最多一个上游请求链。固定周期触发遇同家忙碌时跳过本次，手动返回 `409`「正在采集，请稍后再试」。配置变更触发遇同家忙碌时，合并为一次待执行信号，当前请求结束后读取最新绑定及开关再决定是否采集。一家失败不阻止另一家。数据库事务仅覆盖本地读写，网络请求不持有写事务。
 3. V.PS Access Token 只在同一绑定修订、未过期时缓存复用。出站资格复核完成后，在缓存锁内按当前时间与 JWT 到期时间判断可复用性。无法取得有效到期时间时只用本轮。取得新的一对 Token 后，以该绑定修订写入新 Refresh Token 并提交，随后才可使用或缓存新 Access Token。已收到并解析有效的新 Token 对后，为这次本地入库保留独立的最长 `5 秒` 提交机会，浏览器取消请求不抹掉已收到的续期结果。
-4. 每次出站前复核当前启用条件与绑定修订，手动采集固定入口确认的修订。已开始的请求允许结束。发布用短 SQLite 事务串行化资格复核与设置写入，并在结果锁内检查请求取消和服务状态。事务失败保留已发布结果。若收到续期响应时仅开关或模式已变化，仍可为相同绑定提交新 Refresh Token，当前不符合条件时停止后续请求并禁止发布采集结果。改绑、解绑、导入或清空后，旧修订不得写回凭据或发布结果。提交失败直接提示，不开始资源请求。Access Token 被拒绝后只清缓存，本轮直接失败。
+4. 手动采集先比对管理员提交的修订与当前可采集绑定，匹配后才启动请求链。每次出站前复核当前启用条件与绑定修订，手动采集固定该修订。已开始的请求允许结束。发布用短 SQLite 事务串行化资格复核与设置写入，并在结果锁内检查请求取消和服务状态。事务失败保留已发布结果。若收到续期响应时仅开关或模式已变化，仍可为相同绑定提交新 Refresh Token，当前不符合条件时停止后续请求并禁止发布采集结果。改绑、解绑、导入或清空后，旧修订不得写回凭据或发布结果。提交失败直接提示，不开始资源请求。Access Token 被拒绝后只清缓存，本轮直接失败。
 5. 每家只有一个内存结果槽，绑定修订改变或进程重启后视为从未采集。相同绑定只切换开关时，最近一次结果可在重新启用后显示，成功结果始终带原采集时间。新失败覆盖旧数值，严禁从上一次成功回填。出现失败无需增加退避队列、历史或额外任务状态。
 
 ### 3.5 站内接口合同
 
-所有成功响应使用现有 `{ "code": 0, "data": … }` 包裹。下表路径以 `/api` 为前缀，`:provider` 只允许 `kiwivm` 与 `vps`。配置写入与解除绑定采用 JSON 请求体。除手动采集外，设置返回只反映已提交本地状态，不等待上游。
+所有成功响应使用现有 `{ "code": 0, "data": … }` 包裹。下表路径以 `/api` 为前缀，`:provider` 只允许 `kiwivm` 与 `vps`。设置写入、解除绑定与立即采集采用 JSON 请求体。除手动采集外，设置返回只反映已提交本地状态，不等待上游。
 
 | 路径 | 方法与请求体 | `data` |
 | --- | --- | --- |
@@ -117,12 +117,12 @@ git diff --check
 | 同上 | `PUT`，`{ enabled: boolean }` | 保存后的 `Settings` |
 | `/admin/settings/provider-traffic/:provider` | `PUT`，`{ enabled: boolean, instance_id: string, revision: string or null, credential?: string }` | 保存后的 `Settings` |
 | 同上 | `DELETE`，`{ revision: string }` | 解除绑定后的 `Settings` |
-| `/admin/settings/provider-traffic/:provider/refresh` | `POST`，无请求体，仅读当前已保存绑定 | 本轮 `Result`，包括上游返回错误时的 `error` 结果 |
+| `/admin/settings/provider-traffic/:provider/refresh` | `POST`，`{ revision: string }`，要求非空修订且匹配已保存绑定 | 本轮 `Result`，包括上游返回错误时的 `error` 结果 |
 
 - `Result` 的公共字段为 `provider`、`status`。`waiting` 无附加字段；`ok` 带 `remaining`（数字）、`unit`（`GiB` 或 `GB`）、`sampled_at`（UTC RFC3339）；`error` 带 `message`，省略 `remaining`、`unit` 和 `sampled_at`。
 - `Settings` 含 `available`、`enabled`、`providers`。基础模式中 `providers` 固定按两家顺序返回，每项含 `provider`、`enabled`、`instance_id`、`revision`、`credential_configured`、`result`。未绑定的 `instance_id` 和 `revision` 为 `null`，`credential_configured=false`。结果须匹配同一响应内的绑定修订，无匹配时 `result=null`。模式不可用时返回 `{ "available": false, "enabled": false, "providers": [] }`。管理端读取设置和立即采集返回的错误结果可附安全操作提示 `hint`。
 - 站内 `401` 表示会话无效，`403` 表示无管理员权限或当前模式不允许设置写操作，`400` 用于输入错误或未知平台枚举，`409` 用于绑定修订冲突、采集忙碌或当前绑定未启用，`413` 沿用现有请求体限制，`500` 对本地读写故障返回通用正文。已受理的手动采集因改绑、设置关闭或服务退出而丢弃结果时返回 `409`。上游故障走 HTTP `200` 加 `status:"error"`，不得透传上游 `401` 触发站内退出。
-- 设置写入与解绑须先验证整个请求体只含一个 JSON 对象和可选的尾随 JSON 空白。未知长度的请求体同样适用现有大小限制。设置写事务复核 Setup 和基础模式，拒绝时无落库或调度。
+- 设置写入、解绑与立即采集须先验证整个请求体只含一个 JSON 对象和可选的尾随 JSON 空白。未知长度的请求体同样适用现有大小限制。设置写事务复核 Setup 和基础模式，拒绝时无落库或调度。立即采集只接受 `revision` 字段，缺少请求体的旧页面返回 `400`，重载页面后可提交新请求。符合启用条件但修订不匹配时返回 `409`，该手动请求不启动采集链。
 - 两组路由响应带 `Cache-Control: no-store`，权限中间件前设置。全局大小限制先行短路的 `413` 也要覆盖，仅在本功能路径补齐响应头。应急服务不注册本模块路由。首页接口不含实例 ID、绑定修订、凭据或管理操作提示。
 
 ### 3.6 界面与验收约束
@@ -345,7 +345,7 @@ go test ./internal/server ./internal/providertraffic -run 'Test(ProviderTraffic(
 
 - **目标与前置。** Step 4 通过。新增两个独立前端组件，设置页可操作，普通用户首页只读。
 - **产出。** `frontend/src/api/providerTraffic.ts`，设置与首页的独立组件，挂接 [SettingsView.vue](frontend/src/views/admin/SettingsView.vue) 的「运行与安全」和 [HomeView.vue](frontend/src/views/HomeView.vue) 顶部摘要下方。复用现有设置草稿提示及解除绑定确认，补充配置导入确认中的重新绑定文案。
-- **参考实现。** 总开关单独保存，关停时仍可持久化各家凭据。密码框只提交用户输入的新值，提交成功清空。立即采集使用已保存绑定，按钮有忙碌反馈；仅该调用将 Axios 上限设为 25 秒，覆盖最慢两次上游请求和本地处理。首页进入时独立加载本地结果，之后每分钟读一次，离页停止。失败直接替换该行的数值为错误，订阅、规则和公告仍走各自加载逻辑。
+- **参考实现。** 总开关单独保存，关停时仍可持久化各家凭据。密码框只提交用户输入的新值，提交成功清空。草稿和解绑确认固定各自的绑定修订。立即采集提交当前已保存绑定的修订，按钮有忙碌反馈；仅该调用将 Axios 上限设为 25 秒，覆盖最慢两次上游请求和本地处理。首页进入时独立加载本地结果，之后每分钟读一次，离页停止。失败直接替换该行的数值为错误，订阅、规则和公告仍走各自加载逻辑。
 - **验收命令。**
 
 ```bash
@@ -355,6 +355,40 @@ npm run build
 ```
 
 - **验收标准。** 模拟默认关闭、单家、双家、高级模式、首轮等待、真实零、单家失败、恢复、接口读取失败和手动慢响应。验证凭据输入与留空语义、手动采集只用已保存的绑定、旧修订提示、解除绑定后隐藏、计时器在离页后停止。测试定向组件及现有首页、设置页回归。
+
+- **实施结果（2026-11-24）。** 已新增 [providerTraffic.ts](frontend/src/api/providerTraffic.ts)、[ProviderTrafficSettings.vue](frontend/src/components/settings/ProviderTrafficSettings.vue) 与 [ProviderTrafficCard.vue](frontend/src/components/ProviderTrafficCard.vue)；分别挂接 [SettingsView.vue](frontend/src/views/admin/SettingsView.vue) 的「运行与安全」和 [HomeView.vue](frontend/src/views/HomeView.vue) 摘要区与平台列表之间。新增 [provider-traffic.spec.ts](frontend/tests/provider-traffic.spec.ts) 与 [provider-traffic-api.spec.ts](frontend/tests/provider-traffic-api.spec.ts)，并补充首页、设置页集成回归。
+  - API 封装六项接口与类型；两家固定顺序、首页 60 秒轮询和手动采集 25 秒超时写在独立模块，全局 Axios 默认超时保持 15 秒。解绑使用 DELETE 的 JSON `{ revision }` 请求体。
+  - 设置组件自行加载，维护总开关与两家 `saved`／`draft` 基线；仅本次提交分区强制更新，其他未保存草稿保持原值。首次绑定提交 `revision:null` 与凭据；同一实例留空省略 `credential`；更换实例或首次绑定未填凭据时前端拦截；保存成功后清空该家输入并更新 `credential_configured` 标记。解除绑定复用 [ConfirmModal.vue](frontend/src/components/ConfirmModal.vue)。高级模式或 API 不可用时只显示「仅在基础模式下可用」。
+  - 「立即采集」只用已保存绑定，不携带或自动保存草稿；总开关关闭、平台未启用、未绑定、本家草稿未保存、本地请求在途或其他设置写入在途时禁用。HTTP 200 的平台 `error` 结果更新本行并显示 `hint`；站内 409 按忙碌、修订冲突或状态变化提示且不自动重放；平台错误不会触发站内退出。
+  - 首页卡片在 HomeView 摘要区之外独立挂载和请求，`list=[]` 隐藏整卡；等待、成功（两位小数、后端单位、本地时间）、失败和读取失败分别处理，一家失败不遮另一家。每 60 秒轮询，离页清定时器，序号与活动标记丢弃迟到响应；读取失败只在卡片内显示「服务器余量读取失败」。`traffic_card_enabled` 仅控制原用户配额卡。
+  - 配置导入确认文案补充：导入成功后服务器剩余流量功能关闭、两家绑定与凭据清除、需重新绑定。
+
+- **初次实施的命令与退出状态。** 前端命令在 `frontend` 目录执行；`git diff --check` 与文档链接检查在仓库根目录执行。
+
+```bash
+cd frontend
+npm test -- home-view settings-view provider-traffic  # exit 0，4 文件 69 项通过
+npm test  # exit 0，补充全量 53 文件 518 项通过
+npm run build  # exit 0，保留既有 Vite >600 kB 提示
+cd ..
+git diff --check  # exit 0
+node scripts/check-md-links.mjs Design7.md Build41.md Issue21.md  # exit 0
+```
+
+- **覆盖范围。** API 层验证六项路径/方法、首页默认超时、刷新 25 秒超时、总开关与单家请求体、首次绑定 `revision:null`、同实例省略凭据、DELETE body、200 平台错误保留会话。首页组件验证空列表隐藏、单家/双家、等待、合法零 `0.00`、单位与本地时间、一家失败、成功转失败清除旧值、失败恢复、读取失败区域化、60 秒轮询、离页停止、迟到旧响应与卸载后响应隔离；HomeView 集成验证卡片位置、读取失败不影响订阅/规则/公告，以及 `traffic_card_enabled=false` 不影响本卡片。设置组件验证默认关闭、两家顺序、高级模式不可用、总开关与单家独立保存、总开关关闭仍可保存/解绑、首次绑定、同实例留空保留、更换实例强制换证、实例 ID 校验、保存后清空、修订冲突、DELETE 修订、解绑后隐藏结果、立即采集各项禁用条件、慢响应重复点击、200 错误结果与 hint、站内 409 保留旧结果、响应合并不覆盖其他草稿、`dirty-change`；SettingsView 集成验证卡片位置、高级模式提示、导入重新绑定文案和离页保护。
+- **独立核验修复（2026-11-24）。** 初次自动化通过后，三个补充模拟用例分别复现旧草稿提交新修订、旧确认解绑新实例和新实例余量挂在旧实例下。按 [Issue21 R35-20～R35-22](Issue21.md#r35-20-未保存草稿使用了新绑定修订) 修复。草稿基准独立于最新已保存绑定，修订冲突保留草稿并等待显式重置。解绑确认显示实例并固定修订，切回基础模式完成重读后才开放操作。立即采集同步更新前后端请求体，由采集器入队前比对修订，页面按请求修订接收结果。首页公开结果字段沿用原合同。
+
+| 修复后复验 | 结果 |
+| --- | --- |
+| `(cd frontend && npm test -- home-view settings-view provider-traffic)` | 4 文件 75 项通过。覆盖改绑、同实例换证、并发首次绑定、模式重读期间的旧解绑确认、旧修订采集冲突和迟到结果。 |
+| `(cd frontend && npm test && npm run build)` | 53 文件 524 项通过，生产构建通过，保留既有 Vite 大包提示。 |
+| `(cd backend && go test ./internal/providertraffic ./internal/server -run 'Test(CollectorManual\|CollectorVPSCommitBeforeResource\|ProviderTraffic)' -count=1)` | 定向回归通过。两家旧修订均零出站且无结果发布，保留已受理后的修订校验和 V.PS 同修订续期。接口覆盖请求体校验、`400`／`409`／`413` 和 `no-store`。 |
+| `(cd backend && go build ./... && go vet ./... && go test ./... -count=1)` | 编译、静态检查和后端全量测试通过。 |
+| `(cd backend && go test -race ./internal/providertraffic ./internal/server -count=1)` | 采集及服务端包的 race 复验通过。 |
+| `(cd backend && go run ./cmd/errgate ./...)` | 通过，0 个未处理错误。 |
+| `git diff --check`、`node scripts/check-md-links.mjs Design7.md Build41.md Issue21.md` | 通过。 |
+
+- **未验证项。** Step 6 的 Docker、隔离卷、桌面/窄屏浏览器与移除核查，Step 7 的两家真实出网、面板对账、V.PS 轮换后重启和 Cloudflare 403 复核均待执行。复验使用合成凭据及模拟上游。R31-01 仍开放。
 
 ### Step 6 — 联合回归、隔离容器与卸载核查
 
@@ -404,7 +438,7 @@ docker volume rm "${build41_id}-data"
 | 新表与升级、凭据与清理、上游 mock | Step 1、Step 2 修复后复验通过，Step 2 含本地 TLS 与 race（包覆盖 90.4%） | Step 1～2 |
 | 采集调度、同家单飞、配置触发合并、Token 缓存／轮换、结果槽与停止／重启 | R35-12～R35-15 修复后通过，含定向与整包 `-race` 重复运行，包覆盖 89.0% | Step 3 |
 | 站内 API 权限与 HTTP 状态映射 | R35-16～R35-19 修复后复验通过，含并发模式与绑定、完整请求体及在途关停 | Step 4 |
-| 页面定向回归、全量门禁、隔离容器与桌面／窄屏 | 待候选后执行 | Step 5～6 |
+| 页面定向回归、全量门禁、隔离容器与桌面／窄屏 | R35-20～R35-22 修复后前端定向 4 文件 75 项、全量 53 文件 524 项及生产构建通过，后端全量测试通过；Step 6 隔离容器和桌面／窄屏待执行 | Step 5～6 |
 | 两家真实出网、面板对账、V.PS 轮换后的重启 | 待真实验收 | Step 7 |
 
 | 版本 | 日期 | 记录 |
@@ -419,3 +453,5 @@ docker volume rm "${build41_id}-data"
 | v1.7 | 2026-11-24 | 修复 R35-13～R35-15，记录发布事务、设置提交后的调度交接和 V.PS 缓存到期顺序。同步 Step 4 设置入口和本地回归结果。 |
 | v1.8 | 2026-11-24 | Step 4 完成：新增首页与管理员六项站内接口、严格字段／状态码映射、`no-store`／413 覆盖、正常服务采集器生命周期与应急隔离；记录实际命令、退出状态、覆盖范围和未验证项。 |
 | v1.9 | 2026-11-24 | Step 4 独立复验发现并修复 R35-16～R35-19。补充设置事务、修订匹配、请求体及在途关停回归。 |
+| v1.10 | 2026-11-24 | Step 5 完成：新增服务器剩余流量 API、管理设置与首页卡片，接入草稿／离页提示、手动采集门禁和导入重新绑定文案；记录定向与全量前端测试、构建结果及未验证项。 |
+| v1.11 | 2026-11-24 | Step 5 独立核验修复 R35-20～R35-22。同步草稿基准、解绑确认和立即采集的修订合同，补充前后端复验记录。 |

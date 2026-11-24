@@ -133,7 +133,7 @@ type providerTrafficStub struct {
 	setEnabled   func(context.Context, bool) (providertraffic.Settings, error)
 	saveBinding  func(context.Context, providertraffic.SaveBindingInput) (providertraffic.Settings, error)
 	clearBinding func(context.Context, providertraffic.Provider, string) (providertraffic.Settings, error)
-	manual       func(context.Context, providertraffic.Provider) (providertraffic.Result, error)
+	manual       func(context.Context, providertraffic.Provider, string) (providertraffic.Result, error)
 	manualCalls  int
 }
 
@@ -186,10 +186,10 @@ func (s *providerTrafficStub) ClearBinding(ctx context.Context, provider provide
 	return defaultProviderTrafficTestSettings(), nil
 }
 
-func (s *providerTrafficStub) ManualRefresh(ctx context.Context, provider providertraffic.Provider) (providertraffic.Result, error) {
+func (s *providerTrafficStub) ManualRefresh(ctx context.Context, provider providertraffic.Provider, revision string) (providertraffic.Result, error) {
 	s.manualCalls++
 	if s.manual != nil {
-		return s.manual(ctx, provider)
+		return s.manual(ctx, provider, revision)
 	}
 	return providertraffic.Result{}, errors.New("未设置手动采集响应")
 }
@@ -247,10 +247,10 @@ func providerTrafficDeleteBinding(t *testing.T, srv *Server, token, provider str
 		map[string]any{"revision": revision})
 }
 
-func providerTrafficRefresh(t *testing.T, srv *Server, token, provider string) *httptest.ResponseRecorder {
+func providerTrafficRefresh(t *testing.T, srv *Server, token, provider, revision string) *httptest.ResponseRecorder {
 	t.Helper()
 	return profileReq(t, srv, http.MethodPost,
-		"/api/admin/settings/provider-traffic/"+provider+"/refresh", token, nil)
+		"/api/admin/settings/provider-traffic/"+provider+"/refresh", token, map[string]string{"revision": revision})
 }
 
 func providerTrafficHome(t *testing.T, srv *Server, token string) *httptest.ResponseRecorder {
@@ -648,7 +648,7 @@ func TestProviderTrafficBindingValidation(t *testing.T) {
 				"enabled": true, "instance_id": "1001", "revision": nil, "credential": "synthetic",
 			}),
 			providerTrafficDeleteBinding(t, srv, adminToken, "unknown", "rev"),
-			providerTrafficRefresh(t, srv, adminToken, "unknown"),
+			providerTrafficRefresh(t, srv, adminToken, "unknown", "rev"),
 		} {
 			providerTrafficRequireStatus(t, w, http.StatusBadRequest)
 		}
@@ -696,7 +696,7 @@ func TestProviderTrafficModeGates(t *testing.T) {
 		"enabled": false, "instance_id": "1001", "revision": rev,
 	}), http.StatusForbidden)
 	providerTrafficRequireStatus(t, providerTrafficDeleteBinding(t, srv, adminToken, "kiwivm", rev), http.StatusForbidden)
-	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm"), http.StatusForbidden)
+	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm", rev), http.StatusForbidden)
 	if home := decodeProviderTrafficHome(t, providerTrafficHome(t, srv, adminToken)); len(home.Data.List) != 0 {
 		t.Fatalf("高级模式首页应为空: %+v", home.Data)
 	}
@@ -719,7 +719,7 @@ func TestProviderTrafficModeGates(t *testing.T) {
 		t.Fatalf("Setup 未完成应返回不可用结构: %+v", resp.Data)
 	}
 	providerTrafficRequireStatus(t, providerTrafficPutEnabled(t, srv, adminToken, true), http.StatusForbidden)
-	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm"), http.StatusForbidden)
+	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm", rev), http.StatusForbidden)
 	if home := decodeProviderTrafficHome(t, providerTrafficHome(t, srv, adminToken)); len(home.Data.List) != 0 {
 		t.Fatalf("Setup 未完成首页应为空: %+v", home.Data)
 	}
@@ -811,23 +811,25 @@ func TestProviderTrafficManualRefreshGates(t *testing.T) {
 	adminToken := regUser(t, srv, "pt-refresh-admin", "pt-refresh-admin@example.com", "password123")
 	ctx := context.Background()
 
-	providerTrafficRequireStatus(t, providerTrafficPutBinding(t, srv, adminToken, "kiwivm", map[string]any{
+	bound := providerTrafficPutBinding(t, srv, adminToken, "kiwivm", map[string]any{
 		"enabled": false, "instance_id": "1001", "revision": nil, "credential": "synthetic-kiwivm-key",
-	}), http.StatusOK)
+	})
+	providerTrafficRequireStatus(t, bound, http.StatusOK)
+	rev := providerTrafficRevisionFor(t, decodeProviderTrafficSettings(t, bound), "kiwivm")
 	if err := srv.providerTraffic.Start(context.Background()); err != nil {
 		t.Fatalf("启动采集器失败: %v", err)
 	}
 	t.Cleanup(srv.providerTraffic.Stop)
 
-	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm"), http.StatusConflict)
+	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm", rev), http.StatusConflict)
 
 	providerTrafficRequireStatus(t, providerTrafficPutEnabled(t, srv, adminToken, true), http.StatusOK)
-	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm"), http.StatusConflict)
+	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm", rev), http.StatusConflict)
 
 	if err := srv.cfg.Set(ctx, config.KeyAdvancedMode, "true"); err != nil {
 		t.Fatalf("开启高级模式失败: %v", err)
 	}
-	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm"), http.StatusForbidden)
+	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm", rev), http.StatusForbidden)
 	if err := srv.cfg.Set(ctx, config.KeyAdvancedMode, "false"); err != nil {
 		t.Fatalf("关闭高级模式失败: %v", err)
 	}
@@ -835,12 +837,12 @@ func TestProviderTrafficManualRefreshGates(t *testing.T) {
 	if err := srv.cfg.Set(ctx, config.KeyConfigured, "false"); err != nil {
 		t.Fatalf("模拟 Setup 未完成失败: %v", err)
 	}
-	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm"), http.StatusForbidden)
+	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "kiwivm", rev), http.StatusForbidden)
 	if err := srv.cfg.Set(ctx, config.KeyConfigured, "true"); err != nil {
 		t.Fatalf("恢复 Setup 状态失败: %v", err)
 	}
 
-	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "unknown"), http.StatusBadRequest)
+	providerTrafficRequireStatus(t, providerTrafficRefresh(t, srv, adminToken, "unknown", rev), http.StatusBadRequest)
 }
 
 // TestProviderTrafficResultViews 覆盖 waiting/ok/error、合法零、UTC 时间、hint 隔离与首页只读。
@@ -1064,6 +1066,12 @@ func TestProviderTrafficManualRefreshMappings(t *testing.T) {
 			wantBody:   "正在采集，请稍后再试",
 		},
 		{
+			name:       "stale revision",
+			err:        providertraffic.ErrRevisionConflict,
+			wantStatus: http.StatusConflict,
+			wantBody:   "绑定修订冲突",
+		},
+		{
 			name:       "not ready",
 			err:        providertraffic.ErrNotReady,
 			wantStatus: http.StatusConflict,
@@ -1091,13 +1099,16 @@ func TestProviderTrafficManualRefreshMappings(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := &providerTrafficStub{
-				manual: func(context.Context, providertraffic.Provider) (providertraffic.Result, error) {
+				manual: func(_ context.Context, provider providertraffic.Provider, revision string) (providertraffic.Result, error) {
+					if provider != providertraffic.ProviderKiwiVM || revision != "revision-1" {
+						t.Fatalf("手动采集参数异常: %s, %q", provider, revision)
+					}
 					return tc.result, tc.err
 				},
 			}
 			engine := newProviderTrafficStubEngine(t, stub, cfg)
 			w := providerTrafficStubReq(t, engine, http.MethodPost,
-				"/api/admin/settings/provider-traffic/kiwivm/refresh", nil)
+				"/api/admin/settings/provider-traffic/kiwivm/refresh", map[string]string{"revision": "revision-1"})
 			providerTrafficRequireStatus(t, w, tc.wantStatus)
 			assertProviderTrafficNoStore(t, w)
 			if tc.wantBody != "" && !strings.Contains(w.Body.String(), tc.wantBody) {
@@ -1144,6 +1155,55 @@ func TestProviderTrafficManualRefreshMappings(t *testing.T) {
 			t.Fatalf("未知平台不得进入采集器: %d", stub.manualCalls)
 		}
 	})
+}
+
+func TestProviderTrafficManualRefreshRevisionBody(t *testing.T) {
+	cfg := newProviderTrafficTestConfig(t)
+	if err := cfg.Set(context.Background(), "http_max_body_mb", "1"); err != nil {
+		t.Fatal(err)
+	}
+	const path = "/api/admin/settings/provider-traffic/vps/refresh"
+	const body = `{"revision":"revision-1"}`
+	for _, tc := range []struct {
+		name, body string
+		want       int
+	}{
+		{"missing body", "", http.StatusBadRequest},
+		{"missing revision", "{}", http.StatusBadRequest},
+		{"null revision", `{"revision":null}`, http.StatusBadRequest},
+		{"numeric revision", `{"revision":123}`, http.StatusBadRequest},
+		{"empty revision", `{"revision":""}`, http.StatusBadRequest},
+		{"blank revision", `{"revision":" "}`, http.StatusBadRequest},
+		{"extra field", `{"revision":"revision-1","enabled":true}`, http.StatusBadRequest},
+		{"trailing object", body + " {}", http.StatusBadRequest},
+		{"oversize unknown length", body + strings.Repeat(" ", 1<<20), http.StatusRequestEntityTooLarge},
+		{"valid trailing whitespace", body + " \r\n\t", http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &providerTrafficStub{
+				manual: func(_ context.Context, provider providertraffic.Provider, revision string) (providertraffic.Result, error) {
+					if provider != providertraffic.ProviderVPS || revision != "revision-1" {
+						t.Fatalf("手动采集参数异常: %s, %q", provider, revision)
+					}
+					return providertraffic.Result{Provider: provider, Status: providertraffic.ResultError}, nil
+				},
+			}
+			engine := newProviderTrafficStubEngine(t, stub, cfg)
+			req := httptest.NewRequest(http.MethodPost, path, struct{ io.Reader }{strings.NewReader(tc.body)})
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, req)
+			providerTrafficRequireStatus(t, w, tc.want)
+			assertProviderTrafficNoStore(t, w)
+			wantCalls := 0
+			if tc.want == http.StatusOK {
+				wantCalls = 1
+			}
+			if stub.manualCalls != wantCalls {
+				t.Fatalf("手动采集次数 = %d，期望 %d", stub.manualCalls, wantCalls)
+			}
+		})
+	}
 }
 
 // TestProviderTrafficNoStoreAndBodyLimit 覆盖鉴权失败、业务失败、成功及全局/处理器 413 的 no-store。
@@ -1354,7 +1414,7 @@ func TestProviderTrafficRunLifecycle(t *testing.T) {
 
 		waitForProviderTrafficHealth(t, "http://"+addr+"/health")
 		// 采集器已启动（总开关关闭 -> 409 未启用，而不是未启动的 500）。
-		w := providerTrafficRefresh(t, srv, adminToken, "kiwivm")
+		w := providerTrafficRefresh(t, srv, adminToken, "kiwivm", "unused-revision")
 		providerTrafficRequireStatus(t, w, http.StatusConflict)
 
 		cancel()

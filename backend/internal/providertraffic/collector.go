@@ -242,15 +242,18 @@ func (c *Collector) applySettingsChange(save func() (settingsChange, error)) (Se
 	return change.after, nil
 }
 
-// ManualRefresh 使用已保存绑定同步执行一轮采集，并返回本轮结果。
+// ManualRefresh 在调用方提交的修订仍匹配已保存绑定时，同步执行一轮采集。
 // 绑定未启用、模式不允许或同家忙碌时返回受控错误；上游失败仍以 Result 返回。
-func (c *Collector) ManualRefresh(ctx context.Context, provider Provider) (Result, error) {
+func (c *Collector) ManualRefresh(ctx context.Context, provider Provider, revision string) (Result, error) {
 	if providerIndex(provider) < 0 {
 		return Result{}, ErrUnknownProvider
 	}
 	binding, err := c.resolveBinding(ctx, provider)
 	if err != nil {
 		return Result{}, err
+	}
+	if binding.revision != revision {
+		return Result{}, ErrRevisionConflict
 	}
 
 	c.mu.Lock()
@@ -270,7 +273,7 @@ func (c *Collector) ManualRefresh(ctx context.Context, provider Provider) (Resul
 	stopAfter := context.AfterFunc(ctx, cancel)
 	defer stopAfter()
 
-	manual := &manualCollection{requestCtx: ctx, revision: binding.revision, outcome: make(chan chainOutcome, 1)}
+	manual := &manualCollection{requestCtx: ctx, revision: revision, outcome: make(chan chainOutcome, 1)}
 	if err := c.startChain(chainCtx, provider, triggerManual, manual); err != nil {
 		return Result{}, err
 	}

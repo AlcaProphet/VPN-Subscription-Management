@@ -819,6 +819,52 @@ func TestCollectorManualChainKeepsAdmittedRevision(t *testing.T) {
 	}
 }
 
+// 两家都已换证或改绑时，旧页面的请求不得触发新凭据的查询或续期。
+func TestCollectorManualRejectsStaleRequestedRevision(t *testing.T) {
+	h := newCollectorHarness(t)
+	h.setConfigured(t, true)
+	h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-old-key")
+	h.saveBinding(t, ProviderVPS, true, "2002", "synthetic-old-refresh")
+	kiwiRevision := h.bindingRevision(t, ProviderKiwiVM)
+	vpsRevision := h.bindingRevision(t, ProviderVPS)
+	h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-new-key")
+	h.saveBinding(t, ProviderVPS, true, "2003", "synthetic-new-refresh")
+
+	var kiwiCalls, refreshCalls, resourceCalls atomic.Int32
+	h.c.kiwi = &fakeKiwiVM{fetch: func(context.Context, string, string) (TrafficSample, error) {
+		kiwiCalls.Add(1)
+		return TrafficSample{Remaining: 1, Unit: UnitGiB}, nil
+	}}
+	h.c.vps = &fakeVPS{
+		refresh: func(context.Context, string) (TokenPair, error) {
+			refreshCalls.Add(1)
+			return TokenPair{Token: "synthetic-access", Refresh: "synthetic-rotated"}, nil
+		},
+		fetch: func(context.Context, string, string) (TrafficSample, error) {
+			resourceCalls.Add(1)
+			return TrafficSample{Remaining: 1, Unit: UnitGB}, nil
+		},
+	}
+	h.start(t)
+	h.waitCycle(t)
+	h.waitIdle(t)
+	// 直接写总开关，让计数只包含待测的手动请求。
+	h.setTotal(t, true)
+	ctx := context.Background()
+	_, err := h.c.ManualRefresh(ctx, ProviderKiwiVM, kiwiRevision)
+	mustErrIs(t, err, ErrRevisionConflict)
+	_, err = h.c.ManualRefresh(ctx, ProviderVPS, vpsRevision)
+	mustErrIs(t, err, ErrRevisionConflict)
+	h.waitIdle(t)
+	if kiwiCalls.Load() != 0 || refreshCalls.Load() != 0 || resourceCalls.Load() != 0 {
+		t.Fatalf("旧修订触发了上游请求: kiwi=%d, refresh=%d, resource=%d",
+			kiwiCalls.Load(), refreshCalls.Load(), resourceCalls.Load())
+	}
+	if h.current(t, ProviderKiwiVM) != nil || h.current(t, ProviderVPS) != nil {
+		t.Fatal("旧修订手动请求发布了采集结果")
+	}
+}
+
 func TestCollectorTotalOnOnlyReadyProviders(t *testing.T) {
 	h := newCollectorHarness(t)
 	h.setConfigured(t, true)
@@ -967,7 +1013,7 @@ func TestCollectorStopDuringManual(t *testing.T) {
 			h.waitIdle(t)
 			h.setTotal(t, true)
 
-			out := h.startManual(context.Background(), ProviderKiwiVM)
+			out := h.startManual(t, context.Background(), ProviderKiwiVM)
 			select {
 			case <-started:
 			case <-time.After(5 * time.Second):

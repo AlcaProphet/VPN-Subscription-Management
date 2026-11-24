@@ -23,6 +23,7 @@ import { useSystemStore } from '@/stores/system'
 import { useTheme } from '@/theme'
 import AppHeader from '@/components/AppHeader.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
+import ProviderTrafficCard from '@/components/ProviderTrafficCard.vue'
 import { me } from '@/api/auth'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import { Notify } from '@/components/Notify'
@@ -221,7 +222,12 @@ const custom = (card: PlatformCard) => card.status === 'custom'
             </div>
           </Card>
         </div>
+      </template>
 
+      <!-- 服务器剩余流量：顶部摘要区下方、订阅平台列表上方；组件独立请求与轮询。 -->
+      <ProviderTrafficCard />
+
+      <template v-if="!loading">
         <!-- 3) 平台卡片网格 -->
         <div v-if="cards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
           <Card v-for="card in cards" :key="card.platform_id" class="shadow-xs">

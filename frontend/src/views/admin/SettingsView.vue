@@ -24,6 +24,7 @@ import { importFileError } from '@/utils/fileLimits'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import MailTemplateCard from '@/components/settings/MailTemplateCard.vue'
+import ProviderTrafficSettings from '@/components/settings/ProviderTrafficSettings.vue'
 import { Notify } from '@/components/Notify'
 
 const system = useSystemStore()
@@ -36,7 +37,7 @@ const settingGroups = [
   { key: 'identity', title: '身份与访问', description: 'OIDC、本地认证与验证码' },
   { key: 'notifications', title: '通知', description: '邮件发送设置、测试与邮件内容' },
   { key: 'content', title: '外观与内容', description: '站点信息、公告与页脚' },
-  { key: 'runtime', title: '运行与安全', description: '运行模式、高级模式、限流与日志' },
+  { key: 'runtime', title: '运行与安全', description: '运行模式、高级模式、服务器流量、限流与日志' },
   { key: 'data', title: '数据管理', description: '导入导出与备份' },
   { key: 'danger', title: '危险操作', description: '不可恢复的清空操作' },
 ] as const
@@ -64,6 +65,13 @@ function onMailTemplateDirtyChange(dirty: boolean) {
   const next = new Set(dirtyParts.value)
   if (dirty) next.add('mail-template')
   else next.delete('mail-template')
+  dirtyParts.value = next
+}
+// 服务器剩余流量组件自行加载并维护总开关与两家草稿；脏状态直接参与父页离开保护。
+function onProviderTrafficDirtyChange(dirty: boolean) {
+  const next = new Set(dirtyParts.value)
+  if (dirty) next.add('provider-traffic')
+  else next.delete('provider-traffic')
   dirtyParts.value = next
 }
 async function reloadClean(key: string, loader: () => Promise<void>) {
@@ -1190,6 +1198,9 @@ onMounted(async () => {
                         content="将移除全部 Xray 实例、Xray 节点、组分配、独立账号、流量记录与用户凭据；保留 proxy_groups、用户组与装配蓝图。此操作不可恢复。请输入 DISABLE 确认。"
                         @confirm="confirmDisableAdvanced" @update:open="advancedConfirmOpen = false" />
 
+        <!-- 服务器剩余流量（基础模式；组件自行加载并参与父页未保存提示） -->
+        <ProviderTrafficSettings v-show="isGroupVisible('runtime')" @dirty-change="onProviderTrafficDirtyChange" />
+
 
         <!-- 速率限制 -->
         <Card v-show="isGroupVisible('runtime')" id="ratelimit" title="速率限制与连接防护" size="small">
@@ -1329,7 +1340,7 @@ onMounted(async () => {
                   @confirm="confirmIconDelete" @update:open="iconDeleteOpen = false" />
     <!-- 导入确认（IMPORT 确认词） -->
     <ConfirmModal :open="importOpen" title="导入配置（整体覆盖）" danger confirm-word="IMPORT" :loading="importing"
-                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员），请重新登录；地址与 OIDC 配置即时生效，日志级别/HTTP 超时等启动参数重启后生效。"
+                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员），请重新登录；地址与 OIDC 配置即时生效，日志级别/HTTP 超时等启动参数重启后生效。导入成功后服务器剩余流量功能将关闭，两家平台绑定与凭据会被清除，需在「运行与安全 → 服务器剩余流量」重新绑定。"
                   @confirm="doImport" @update:open="importOpen = false" />
       <!-- v2 导入第二确认（DISABLE；仅当导入会清空高级模式数据时后端强制校验） -->
       <ConfirmModal :open="disableImportOpen" title="确认清空高级模式数据" danger confirm-word="DISABLE" :loading="importing"

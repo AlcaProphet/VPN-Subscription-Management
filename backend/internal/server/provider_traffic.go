@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -29,7 +30,7 @@ type providerTrafficCollector interface {
 	SetEnabled(ctx context.Context, enabled bool) (providertraffic.Settings, error)
 	SaveBinding(ctx context.Context, in providertraffic.SaveBindingInput) (providertraffic.Settings, error)
 	ClearBinding(ctx context.Context, provider providertraffic.Provider, revision string) (providertraffic.Settings, error)
-	ManualRefresh(ctx context.Context, provider providertraffic.Provider) (providertraffic.Result, error)
+	ManualRefresh(ctx context.Context, provider providertraffic.Provider, revision string) (providertraffic.Result, error)
 }
 
 // ProviderTrafficHandler 服务器剩余流量处理器（结构体 Handler + 依赖注入）。
@@ -188,7 +189,7 @@ func (h *ProviderTrafficHandler) deleteBinding(c *gin.Context) {
 	OK(c, h.settingsView(settings))
 }
 
-// refresh 仅使用当前已保存绑定同步采集一次；上游失败仍作为平台结果返回。
+// refresh 仅对管理员提交的已保存绑定修订同步采集；上游失败仍作为平台结果返回。
 func (h *ProviderTrafficHandler) refresh(c *gin.Context) {
 	provider, ok := h.provider(c)
 	if !ok {
@@ -197,7 +198,16 @@ func (h *ProviderTrafficHandler) refresh(c *gin.Context) {
 	if !h.requireWritable(c) {
 		return
 	}
-	result, err := h.collector.ManualRefresh(c.Request.Context(), provider)
+	fields, ok := parseProviderTrafficFields(c)
+	if !ok {
+		return
+	}
+	revision, ok := providerTrafficStringField(fields, "revision")
+	if !ok || len(fields) != 1 || strings.TrimSpace(revision) == "" {
+		Fail(c, http.StatusBadRequest, "参数校验失败")
+		return
+	}
+	result, err := h.collector.ManualRefresh(c.Request.Context(), provider, revision)
 	if err != nil {
 		failProviderTraffic(c, err)
 		return

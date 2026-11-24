@@ -440,7 +440,7 @@ func TestCollectorVPSCommitSurvivesCancellation(t *testing.T) {
 	}
 
 	callerCtx, cancel := context.WithCancel(context.Background())
-	out := h.startManual(callerCtx, ProviderVPS)
+	out := h.startManual(t, callerCtx, ProviderVPS)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
@@ -581,7 +581,7 @@ func TestCollectorManualDiscardedOnRebind(t *testing.T) {
 		},
 	}
 
-	out := h.startManual(context.Background(), ProviderVPS)
+	out := h.startManual(t, context.Background(), ProviderVPS)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):

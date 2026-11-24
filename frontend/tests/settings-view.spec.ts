@@ -64,13 +64,54 @@ vi.mock('@/api/system', () => ({
   getSystemStatus: vi.fn().mockResolvedValue({ configured: true, app_mode: 'dev', advanced_mode: false }),
 }))
 
+vi.mock('@/api/providerTraffic', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/providerTraffic')>()
+  return {
+    ...actual,
+    getProviderTrafficSettings: vi.fn(),
+    saveProviderTrafficEnabled: vi.fn(),
+    saveProviderTrafficBinding: vi.fn(),
+    deleteProviderTrafficBinding: vi.fn(),
+    refreshProviderTraffic: vi.fn(),
+  }
+})
+
 import SettingsView from '@/views/admin/SettingsView.vue'
 import {
   getOidc, saveOidc, disableOidc, testOidc, getMailTemplates, getRateLimit,
   type OidcSettings, type OidcParamsState,
 } from '@/api/settings'
+import { getProviderTrafficSettings } from '@/api/providerTraffic'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useSystemStore } from '@/stores/system'
 import { createMemoryHistory, createRouter } from 'vue-router'
+
+const defaultProviderTrafficSettings = {
+  available: true,
+  enabled: false,
+  providers: [
+    {
+      provider: 'kiwivm' as const,
+      enabled: false,
+      instance_id: null,
+      revision: null,
+      credential_configured: false,
+      result: null,
+    },
+    {
+      provider: 'vps' as const,
+      enabled: false,
+      instance_id: null,
+      revision: null,
+      credential_configured: false,
+      result: null,
+    },
+  ],
+}
+
+beforeEach(() => {
+  vi.mocked(getProviderTrafficSettings).mockResolvedValue(defaultProviderTrafficSettings)
+})
 
 describe('SettingsView 基础渲染', () => {
   beforeEach(() => {
@@ -150,6 +191,65 @@ describe('SettingsView 基础渲染', () => {
     await flushPromises()
     expect(saveOidc).toHaveBeenCalledTimes(1)
     expect(saveOidc).toHaveBeenCalledWith(expect.objectContaining({ client_secret: '' }))
+  })
+
+  it('运行与安全包含服务器剩余流量设置卡片', async () => {
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    const card = wrapper.find('#provider-traffic')
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain('服务器剩余流量')
+    expect(card.text()).toContain('搬瓦工')
+    expect(card.text()).toContain('V.PS')
+  })
+
+  it('高级模式不可用时只显示基础模式提示', async () => {
+    vi.mocked(getProviderTrafficSettings).mockResolvedValueOnce({
+      available: false,
+      enabled: false,
+      providers: [],
+    })
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    const card = wrapper.find('#provider-traffic')
+    expect(card.text()).toContain('仅在基础模式下可用')
+    expect(card.find('input').exists()).toBe(false)
+  })
+
+  it('Production 导入确认包含服务器流量重新绑定提示', async () => {
+    const system = useSystemStore()
+    system.status = {
+      configured: true,
+      app_mode: 'prod',
+      advanced_mode: false,
+      emergency: false,
+    }
+    const wrapper = mount(SettingsView, {
+      global: {
+        mocks: { $router: { push: vi.fn() } },
+      },
+    })
+    await flushPromises()
+    const importButton = wrapper.findAll('button')
+      .find((button) => button.text().replace(/\s/g, '') === '导入')
+    expect(importButton).toBeTruthy()
+    await importButton!.trigger('click')
+    await flushPromises()
+    const modal = wrapper.findAllComponents(ConfirmModal)
+      .find((item) => item.props('open') === true)
+    expect(modal).toBeTruthy()
+    const content = String(modal!.props('content'))
+    expect(content).toContain('服务器剩余流量')
+    expect(content).toContain('重新绑定')
+    expect(content).toContain('平台绑定与凭据会被清除')
   })
 
 })
@@ -751,6 +851,28 @@ describe('SettingsView 邮件内容卡片集成', () => {
     await flushPromises()
 
     await wrapper.find('input[aria-label="邮件主题"]').setValue('未保存的模板主题')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 个分区有未保存更改')
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await router.push('/other')
+    await flushPromises()
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(String(confirmSpy.mock.calls[confirmSpy.mock.calls.length - 1]?.[0] || '')).toContain('1 个分区')
+    expect(router.currentRoute.value.path).toBe('/settings')
+    confirmSpy.mockRestore()
+  })
+
+  it('服务器剩余流量草稿参与父页未保存提示与离开保护', async () => {
+    const router = makeRouter()
+    await router.push('/settings')
+    await router.isReady()
+    const wrapper = mount(RootView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    const instanceInput = wrapper.find('input[aria-label="搬瓦工 实例 ID"]')
+    expect(instanceInput.exists()).toBe(true)
+    await instanceInput.setValue('1001')
     await flushPromises()
     expect(wrapper.text()).toContain('1 个分区有未保存更改')
 
