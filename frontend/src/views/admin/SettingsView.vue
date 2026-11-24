@@ -1340,7 +1340,7 @@ onMounted(async () => {
                   @confirm="confirmIconDelete" @update:open="iconDeleteOpen = false" />
     <!-- 导入确认（IMPORT 确认词） -->
     <ConfirmModal :open="importOpen" title="导入配置（整体覆盖）" danger confirm-word="IMPORT" :loading="importing"
-                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员），请重新登录；地址与 OIDC 配置即时生效，日志级别/HTTP 超时等启动参数重启后生效。导入成功后服务器剩余流量功能将关闭，两家平台绑定与凭据会被清除，需在「运行与安全 → 服务器剩余流量」重新绑定。"
+                  content="导入将整体覆盖全部配置：导出文件中不存在的配置键一并清除；v2 导入会整体覆盖 Xray 实例、组节点分配将被级联清空；带实例/账号导入且高级模式关闭时将自动开启高级模式；签名密钥替换后全部会话立即失效（含当前管理员），请重新登录；地址与 OIDC 配置即时生效，日志级别/HTTP 超时等启动参数重启后生效。导入成功后服务器剩余流量功能将关闭，所有主机绑定和凭据会被清除，需在「运行与安全 → 服务器剩余流量」重新绑定。"
                   @confirm="doImport" @update:open="importOpen = false" />
       <!-- v2 导入第二确认（DISABLE；仅当导入会清空高级模式数据时后端强制校验） -->
       <ConfirmModal :open="disableImportOpen" title="确认清空高级模式数据" danger confirm-word="DISABLE" :loading="importing"

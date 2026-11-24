@@ -30,9 +30,11 @@ type providerTrafficTestSettings struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    struct {
-		Available bool                         `json:"available"`
-		Enabled   bool                         `json:"enabled"`
-		Providers []providerTrafficTestBinding `json:"providers"`
+		Available  bool                         `json:"available"`
+		Enabled    bool                         `json:"enabled"`
+		Providers  []providerTrafficTestBinding `json:"providers"`
+		Hosts      []providerTrafficHostView    `json:"hosts"`
+		VPSAccount providerTrafficAccountView   `json:"vps_account"`
 	} `json:"data"`
 }
 
@@ -127,6 +129,7 @@ func newProviderTrafficTestConfig(t *testing.T) *config.Service {
 
 // providerTrafficStub 同时实现设置读取与采集器接口，用于可控结果与错误映射测试。
 type providerTrafficStub struct {
+	providerTrafficCollector
 	getSettings  func(context.Context) (providertraffic.Settings, error)
 	results      func(context.Context) ([]providertraffic.Result, error)
 	resultFor    func(providertraffic.Provider, string) *providertraffic.Result
@@ -158,9 +161,9 @@ func (s *providerTrafficStub) Results(ctx context.Context) ([]providertraffic.Re
 	return []providertraffic.Result{}, nil
 }
 
-func (s *providerTrafficStub) ResultForRevision(provider providertraffic.Provider, revision string) *providertraffic.Result {
+func (s *providerTrafficStub) ResultForBinding(binding providertraffic.ProviderBinding) *providertraffic.Result {
 	if s.resultFor != nil {
-		return s.resultFor(provider, revision)
+		return s.resultFor(binding.Provider, binding.Revision)
 	}
 	return nil
 }
@@ -304,6 +307,106 @@ func providerTrafficRevisionFor(t *testing.T, resp providerTrafficTestSettings, 
 	return ""
 }
 
+func TestProviderTrafficHostRoutes(t *testing.T) {
+	srv, _ := newProviderTrafficTestServer(t, "error")
+	admin := regUser(t, srv, "host-admin", "host-admin@example.com", "password123")
+	const base = "/api/admin/settings/provider-traffic"
+	const token = "synthetic-account-secret"
+	const key = "synthetic-kiwi-secret"
+	const vpsHosts = base + "/hosts/vps"
+	const kiwiHosts = base + "/hosts/kiwivm"
+	const accountPath = base + "/accounts/vps"
+	create := func(path, name, instance string, half bool, credential string) *httptest.ResponseRecorder {
+		fields := map[string]any{"name": name, "instance_id": instance, "enabled": true, "half_remaining": half, "revision": nil}
+		if credential != "" {
+			fields["credential"] = credential
+		}
+		return profileReq(t, srv, http.MethodPost, path, admin, fields)
+	}
+	guest := profileReq(t, srv, http.MethodPost, kiwiHosts, "", nil)
+	providerTrafficRequireStatus(t, guest, http.StatusUnauthorized)
+	assertProviderTrafficNoStore(t, guest)
+	providerTrafficRequireStatus(t, create(vpsHosts, "VPS01", "2001", true, ""), http.StatusConflict)
+	account := profileReq(t, srv, http.MethodPut, accountPath, admin, map[string]string{"revision": "", "credential": token})
+	providerTrafficRequireStatus(t, account, http.StatusOK)
+	accountView := decodeProviderTrafficSettings(t, account).Data.VPSAccount
+	if !accountView.Configured || accountView.Revision == "" || strings.Contains(account.Body.String(), token) {
+		t.Fatal("应返回账号保存标记及修订，并隐藏 Token")
+	}
+	providerTrafficRequireStatus(t, create(kiwiHosts, "JP01", "1001", false, key), http.StatusOK)
+	providerTrafficRequireStatus(t, create(kiwiHosts, "JP02", "1002", true, key), http.StatusOK)
+	providerTrafficRequireStatus(t, create(vpsHosts, "VPS01", "2001", true, ""), http.StatusOK)
+	response := create(vpsHosts, "VPS02", "2002", false, "")
+	providerTrafficRequireStatus(t, response, http.StatusOK)
+	assertProviderTrafficNoStore(t, response)
+	settings := decodeProviderTrafficSettings(t, response).Data
+	if len(settings.Hosts) != 4 || settings.Hosts[0].Name != "JP01" || !settings.Hosts[1].HalfRemaining ||
+		settings.Hosts[0].ID == settings.Hosts[1].ID || strings.Contains(response.Body.String(), key) {
+		t.Fatal("应分别保存四台主机及其展示设置")
+	}
+	providerTrafficRequireStatus(t, create(vpsHosts, "重复", "2001", false, ""), http.StatusConflict)
+	providerTrafficRequireStatus(t, providerTrafficPutEnabled(t, srv, admin, true), http.StatusOK)
+	home := providerTrafficHome(t, srv, admin)
+	providerTrafficRequireStatus(t, home, http.StatusOK)
+	decoded := decodeProviderTrafficHome(t, home)
+	if decoded.Data.Total != 4 || strings.Contains(home.Body.String(), `"instance_id"`) ||
+		strings.Contains(home.Body.String(), `"revision"`) || strings.Contains(home.Body.String(), token) {
+		t.Fatal("首页应列出四台主机且只返回公开字段")
+	}
+	first := settings.Hosts[0]
+	wrongProvider := profileReq(t, srv, http.MethodDelete, vpsHosts+"/"+first.ID, admin, map[string]string{"revision": first.Revision})
+	providerTrafficRequireStatus(t, wrongProvider, http.StatusConflict)
+	removed := profileReq(t, srv, http.MethodDelete, kiwiHosts+"/"+first.ID, admin, map[string]string{"revision": first.Revision})
+	providerTrafficRequireStatus(t, removed, http.StatusOK)
+	if got := decodeProviderTrafficSettings(t, removed).Data.Hosts; len(got) != 3 || got[0].Name != "JP02" {
+		t.Fatal("解除一个绑定只能删除对应主机")
+	}
+}
+
+func TestProviderTrafficLegacyRoutesUseHostEditRevision(t *testing.T) {
+	srv, _ := newProviderTrafficTestServer(t, "error")
+	admin := regUser(t, srv, "pt-legacy-admin", "pt-legacy-admin@example.com", "password123")
+	const provider = "kiwivm"
+	created := providerTrafficPutBinding(t, srv, admin, provider, map[string]any{
+		"enabled": true, "instance_id": "1001", "revision": nil, "credential": "synthetic-key",
+	})
+	providerTrafficRequireStatus(t, created, http.StatusOK)
+	initial := decodeProviderTrafficSettings(t, created)
+	originalRevision := providerTrafficRevisionFor(t, initial, provider)
+	host := initial.Data.Hosts[0]
+	updated := profileReq(t, srv, http.MethodPut, "/api/admin/settings/provider-traffic/hosts/kiwivm/"+host.ID, admin, map[string]any{
+		"name": "JP01", "instance_id": host.InstanceID, "enabled": false, "half_remaining": true, "revision": host.Revision,
+	})
+	providerTrafficRequireStatus(t, updated, http.StatusOK)
+
+	payload := map[string]any{"enabled": true, "instance_id": host.InstanceID, "revision": originalRevision}
+	providerTrafficRequireStatus(t, providerTrafficPutBinding(t, srv, admin, provider, payload), http.StatusConflict)
+	providerTrafficRequireStatus(t, providerTrafficDeleteBinding(t, srv, admin, provider, originalRevision), http.StatusConflict)
+
+	snapshot := decodeProviderTrafficSettings(t, providerTrafficGetSettings(t, srv, admin))
+	latest := providerTrafficRevisionFor(t, snapshot, provider)
+	if latest == originalRevision || len(snapshot.Data.Hosts) != 1 {
+		t.Fatalf("应返回更新后的编辑修订和已保留的主机: %+v", snapshot.Data)
+	}
+	current := snapshot.Data.Hosts[0]
+	if current.Revision != latest || current.Enabled || current.Name != "JP01" || !current.HalfRemaining {
+		t.Fatalf("兼容接口的过期请求不得改变新版设置: %+v", current)
+	}
+	payload["revision"] = latest
+	saved := providerTrafficPutBinding(t, srv, admin, provider, payload)
+	providerTrafficRequireStatus(t, saved, http.StatusOK)
+	savedSettings := decodeProviderTrafficSettings(t, saved)
+	if savedHost := savedSettings.Data.Hosts[0]; !savedHost.Enabled || savedHost.Name != current.Name || !savedHost.HalfRemaining {
+		t.Fatalf("使用当前修订时，旧接口应保存启用状态并保留展示设置: %+v", savedHost)
+	}
+	deleteRevision := providerTrafficRevisionFor(t, savedSettings, provider)
+	removed := providerTrafficDeleteBinding(t, srv, admin, provider, deleteRevision)
+	providerTrafficRequireStatus(t, removed, http.StatusOK)
+	if hosts := decodeProviderTrafficSettings(t, removed).Data.Hosts; len(hosts) != 0 {
+		t.Fatalf("使用当前修订应成功解绑: %+v", hosts)
+	}
+}
+
 // TestProviderTrafficPermissions 覆盖管理员、普通用户、游客、停用账号及实时角色变化。
 func TestProviderTrafficPermissions(t *testing.T) {
 	srv, _ := newProviderTrafficTestServer(t, "error")
@@ -395,15 +498,17 @@ func TestProviderTrafficHomeVisibility(t *testing.T) {
 		t.Fatalf("首页不得包含实例或修订: %s", home.Body.String())
 	}
 
-	providerTrafficRequireStatus(t, providerTrafficPutBinding(t, srv, adminToken, "kiwivm", map[string]any{
+	disabled := providerTrafficPutBinding(t, srv, adminToken, "kiwivm", map[string]any{
 		"enabled": false, "instance_id": "1001", "revision": kiwiRevision,
-	}), http.StatusOK)
+	})
+	providerTrafficRequireStatus(t, disabled, http.StatusOK)
+	disabledRevision := providerTrafficRevisionFor(t, decodeProviderTrafficSettings(t, disabled), "kiwivm")
 	if resp := decodeProviderTrafficHome(t, providerTrafficHome(t, srv, adminToken)); len(resp.Data.List) != 0 {
 		t.Fatalf("单家关闭后应移除该行: %+v", resp)
 	}
 
 	providerTrafficRequireStatus(t, providerTrafficPutBinding(t, srv, adminToken, "kiwivm", map[string]any{
-		"enabled": true, "instance_id": "1001", "revision": kiwiRevision,
+		"enabled": true, "instance_id": "1001", "revision": disabledRevision,
 	}), http.StatusOK)
 	if resp := decodeProviderTrafficHome(t, providerTrafficHome(t, srv, adminToken)); len(resp.Data.List) != 1 {
 		t.Fatalf("重新启用后应恢复等待行: %+v", resp)
@@ -580,13 +685,14 @@ func TestProviderTrafficBindingValidation(t *testing.T) {
 	kept := decodeProviderTrafficSettings(t, providerTrafficPutBinding(t, srv, adminToken, "kiwivm", map[string]any{
 		"enabled": false, "instance_id": "1001", "revision": revision1,
 	}))
-	if revisionKept := providerTrafficRevisionFor(t, kept, "kiwivm"); revisionKept != revision1 {
-		t.Fatalf("同实例省略凭据应沿用修订: %s != %s", revisionKept, revision1)
+	editedRevision := providerTrafficRevisionFor(t, kept, "kiwivm")
+	if editedRevision == revision1 {
+		t.Fatalf("只切换开关也应更新编辑修订: %s", editedRevision)
 	}
 
 	t.Run("change instance requires credential", func(t *testing.T) {
 		w := providerTrafficPutBinding(t, srv, adminToken, "kiwivm", map[string]any{
-			"enabled": true, "instance_id": "1002", "revision": revision1,
+			"enabled": true, "instance_id": "1002", "revision": editedRevision,
 		})
 		providerTrafficRequireStatus(t, w, http.StatusBadRequest)
 	})
@@ -606,10 +712,10 @@ func TestProviderTrafficBindingValidation(t *testing.T) {
 	})
 
 	rotated := decodeProviderTrafficSettings(t, providerTrafficPutBinding(t, srv, adminToken, "kiwivm", map[string]any{
-		"enabled": true, "instance_id": "1001", "revision": revision1, "credential": "synthetic-kiwivm-key-2",
+		"enabled": true, "instance_id": "1001", "revision": editedRevision, "credential": "synthetic-kiwivm-key-2",
 	}))
 	revision2 := providerTrafficRevisionFor(t, rotated, "kiwivm")
-	if revision2 == revision1 {
+	if revision2 == editedRevision {
 		t.Fatalf("换证应生成新修订: %s", revision2)
 	}
 
@@ -863,7 +969,7 @@ func TestProviderTrafficResultViews(t *testing.T) {
 	}
 
 	stub.results = func(context.Context) ([]providertraffic.Result, error) {
-		return []providertraffic.Result{{Provider: providertraffic.ProviderKiwiVM, Status: providertraffic.ResultWaiting}}, nil
+		return []providertraffic.Result{{Provider: providertraffic.ProviderKiwiVM, HostID: "host-1", Name: "JP01", Status: providertraffic.ResultWaiting}}, nil
 	}
 	w = providerTrafficStubReq(t, engine, http.MethodGet, "/api/home/provider-traffic", nil)
 	providerTrafficRequireStatus(t, w, http.StatusOK)
@@ -872,13 +978,14 @@ func TestProviderTrafficResultViews(t *testing.T) {
 		t.Fatalf("解析等待响应失败: %v", err)
 	}
 	item := waiting["data"].(map[string]any)["list"].([]any)[0].(map[string]any)
-	if len(item) != 2 || item["provider"] != "kiwivm" || item["status"] != "waiting" {
+	if len(item) != 4 || item["provider"] != "kiwivm" || item["host_id"] != "host-1" || item["name"] != "JP01" || item["status"] != "waiting" {
 		t.Fatalf("等待行字段异常: %+v", item)
 	}
 
 	sampledAt := time.Date(2026, 11, 24, 10, 15, 0, 0, time.FixedZone("UTC+8", 8*3600))
 	stub.results = func(context.Context) ([]providertraffic.Result, error) {
 		return []providertraffic.Result{{
+			HostID: "host-1", Name: "JP01",
 			Provider:  providertraffic.ProviderKiwiVM,
 			Status:    providertraffic.ResultOK,
 			Remaining: 0,
@@ -893,13 +1000,14 @@ func TestProviderTrafficResultViews(t *testing.T) {
 		t.Fatalf("解析成功响应失败: %v", err)
 	}
 	okItem := okBody["data"].(map[string]any)["list"].([]any)[0].(map[string]any)
-	if len(okItem) != 5 || okItem["status"] != "ok" || okItem["remaining"] != float64(0) ||
+	if len(okItem) != 7 || okItem["status"] != "ok" || okItem["remaining"] != float64(0) ||
 		okItem["unit"] != "GiB" || okItem["sampled_at"] != "2026-11-24T02:15:00Z" {
 		t.Fatalf("成功行字段异常: %+v", okItem)
 	}
 
 	stub.results = func(context.Context) ([]providertraffic.Result, error) {
 		return []providertraffic.Result{{
+			HostID: "host-1", Name: "JP01",
 			Provider: providertraffic.ProviderKiwiVM,
 			Status:   providertraffic.ResultError,
 			Message:  "无法连接服务商",
@@ -913,7 +1021,7 @@ func TestProviderTrafficResultViews(t *testing.T) {
 		t.Fatalf("解析失败响应失败: %v", err)
 	}
 	errorItem := errorBody["data"].(map[string]any)["list"].([]any)[0].(map[string]any)
-	if len(errorItem) != 3 || errorItem["status"] != "error" || errorItem["message"] != "无法连接服务商" {
+	if len(errorItem) != 5 || errorItem["status"] != "error" || errorItem["message"] != "无法连接服务商" {
 		t.Fatalf("失败行字段异常: %+v", errorItem)
 	}
 	for _, key := range []string{"remaining", "unit", "sampled_at", "hint"} {
@@ -927,10 +1035,12 @@ func TestProviderTrafficResultViews(t *testing.T) {
 			Enabled: true,
 			Providers: []providertraffic.ProviderBinding{
 				{
+					ID: "host-1", Name: "JP01",
 					Provider:             providertraffic.ProviderKiwiVM,
 					Enabled:              true,
 					InstanceID:           "1001",
 					Revision:             "revision-1",
+					EditRevision:         "edit-1",
 					CredentialConfigured: true,
 				},
 				{Provider: providertraffic.ProviderVPS},
@@ -943,6 +1053,7 @@ func TestProviderTrafficResultViews(t *testing.T) {
 			return nil
 		}
 		return &providertraffic.Result{
+			HostID: "host-1", Name: "JP01",
 			Provider: providertraffic.ProviderKiwiVM,
 			Status:   providertraffic.ResultError,
 			Message:  "服务商凭据被拒绝",
@@ -957,7 +1068,7 @@ func TestProviderTrafficResultViews(t *testing.T) {
 		t.Fatalf("解析设置响应失败: %v", err)
 	}
 	settingsData := settingsBody["data"].(map[string]any)
-	if len(settingsData) != 3 {
+	if len(settingsData) != 5 {
 		t.Fatalf("Settings 顶层字段异常: %+v", settingsData)
 	}
 	providers := settingsData["providers"].([]any)
@@ -966,7 +1077,7 @@ func TestProviderTrafficResultViews(t *testing.T) {
 	}
 	kiwi := providers[0].(map[string]any)
 	if len(kiwi) != 6 || kiwi["provider"] != "kiwivm" || kiwi["instance_id"] != "1001" ||
-		kiwi["revision"] != "revision-1" || kiwi["credential_configured"] != true {
+		kiwi["revision"] != "edit-1" || kiwi["credential_configured"] != true {
 		t.Fatalf("Settings 绑定字段异常: %+v", kiwi)
 	}
 	if _, exists := kiwi["credential"]; exists {
@@ -989,7 +1100,7 @@ func TestProviderTrafficResultViews(t *testing.T) {
 		w := providerTrafficStubReq(t, engine, method, "/api/admin/settings/provider-traffic", map[string]any{"enabled": true})
 		providerTrafficRequireStatus(t, w, http.StatusOK)
 		row := decodeProviderTrafficSettings(t, w).Data.Providers[0]
-		if row.Revision == nil || *row.Revision != "revision-1" || row.Result != nil {
+		if row.Revision == nil || *row.Revision != "edit-1" || row.Result != nil {
 			t.Fatalf("%s 的旧绑定不得返回新修订的结果: %+v", method, row)
 		}
 	}
@@ -1374,7 +1485,7 @@ func TestProviderTrafficLogsDoNotLeakCredential(t *testing.T) {
 
 	var ciphertext string
 	if err := srv.store.DB().QueryRow(
-		`SELECT kiwivm_credential_ciphertext FROM provider_traffic_settings WHERE id = 1`).Scan(&ciphertext); err != nil {
+		`SELECT credential_ciphertext FROM provider_traffic_hosts WHERE id = 'kiwivm'`).Scan(&ciphertext); err != nil {
 		t.Fatalf("读取功能表密文失败: %v", err)
 	}
 	if ciphertext == "" || ciphertext == credential {

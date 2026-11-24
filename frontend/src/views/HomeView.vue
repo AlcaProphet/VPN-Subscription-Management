@@ -180,12 +180,12 @@ const custom = (card: PlatformCard) => card.status === 'custom'
   <div class="min-h-screen bg-page">
     <AppHeader :updated-at="updatedText" manage-btn />
 
-    <main class="max-w-6xl mx-auto p-4">
+    <main class="max-w-6xl mx-auto flex flex-col gap-4 p-4">
       <div v-if="loading" class="text-center py-16 text-text-tertiary">加载中…</div>
 
       <template v-else>
         <!-- 顶部摘要区：桌面两列，移动端纵向堆叠。 -->
-        <div class="home-summary-grid grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div class="home-summary-grid grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- 1) 流量卡片（基础模式仅「不限流量」） -->
           <Card v-if="system.status?.traffic_card_enabled !== false" class="h-full shadow-xs">
             <div class="text-sm font-medium mb-2">流量</div>
@@ -229,7 +229,7 @@ const custom = (card: PlatformCard) => card.status === 'custom'
 
       <template v-if="!loading">
         <!-- 3) 平台卡片网格 -->
-        <div v-if="cards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
+        <div v-if="cards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <Card v-for="card in cards" :key="card.platform_id" class="shadow-xs">
             <template #title>
               <div>

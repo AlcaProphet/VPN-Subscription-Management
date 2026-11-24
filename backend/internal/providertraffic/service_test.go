@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -189,7 +188,7 @@ func TestSameInstanceOmittedCredentialKeepsRevisionAndCiphertext(t *testing.T) {
 	revision := settings.Providers[0].Revision
 	_, _, ciphertext, _ := rawBinding(t, st, ProviderKiwiVM)
 
-	// 同一实例省略凭据：保留密文和修订，只切换单家开关。
+	// 同一实例省略凭据时，切换开关只更新编辑修订。
 	settings, err = svc.SaveBinding(ctx, SaveBindingInput{
 		Provider:   ProviderKiwiVM,
 		Enabled:    false,
@@ -201,8 +200,8 @@ func TestSameInstanceOmittedCredentialKeepsRevisionAndCiphertext(t *testing.T) {
 		t.Fatalf("同一实例省略凭据应允许保留: %v", err)
 	}
 	after := settings.Providers[0]
-	if after.Enabled || after.Revision != revision {
-		t.Fatalf("省略凭据应保留修订并只切换开关: %+v", after)
+	if after.Enabled || after.Revision != revision || after.EditRevision == revision {
+		t.Fatalf("切换开关应保留绑定修订并更新编辑修订: %+v", after)
 	}
 	_, _, ciphertextAfter, _ := rawBinding(t, st, ProviderKiwiVM)
 	if ciphertextAfter != ciphertext {
@@ -214,7 +213,7 @@ func TestSameInstanceOmittedCredentialKeepsRevisionAndCiphertext(t *testing.T) {
 		Provider:   ProviderKiwiVM,
 		Enabled:    true,
 		InstanceID: "1001",
-		Revision:   strPtr(revision),
+		Revision:   strPtr(after.EditRevision),
 		Credential: CredentialInput{Value: "secret-2"},
 	})
 	if err != nil {
@@ -555,15 +554,14 @@ func assertProviderOrder(t *testing.T, settings Settings) {
 
 func rawBinding(t *testing.T, st *store.Store, provider Provider) (enabled int, instanceID, ciphertext, revision string) {
 	t.Helper()
-	cols, err := columnsFor(provider)
-	if err != nil {
-		t.Fatalf("解析服务商列失败: %v", err)
-	}
-	query := fmt.Sprintf(
-		`SELECT %s, %s, %s, %s FROM provider_traffic_settings WHERE id = 1`,
-		cols.enabled, cols.instanceID, cols.credential, cols.revision)
 	var instance, credential, currentRevision sql.NullString
-	if err := st.DB().QueryRow(query).Scan(&enabled, &instance, &credential, &currentRevision); err != nil {
+	err := st.DB().QueryRow(`SELECT h.enabled, h.instance_id, COALESCE(h.credential_ciphertext, s.vps_credential_ciphertext), h.revision
+	FROM provider_traffic_hosts h JOIN provider_traffic_settings s ON s.id = h.settings_id WHERE h.id = ?`, provider).
+		Scan(&enabled, &instance, &credential, &currentRevision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", "", ""
+	}
+	if err != nil {
 		t.Fatalf("读取 %s 原始绑定失败: %v", provider, err)
 	}
 	return enabled, instance.String, credential.String, currentRevision.String

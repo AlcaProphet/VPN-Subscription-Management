@@ -300,8 +300,7 @@ func TestCreateBackupPreservesProviderTrafficBinding(t *testing.T) {
 	}
 	var ciphertext, revision string
 	if err := st.DB().QueryRowContext(ctx,
-		`SELECT kiwivm_credential_ciphertext, kiwivm_revision
-		 FROM provider_traffic_settings WHERE id = 1`).Scan(&ciphertext, &revision); err != nil {
+		`SELECT credential_ciphertext, revision FROM provider_traffic_hosts WHERE id = 'kiwivm'`).Scan(&ciphertext, &revision); err != nil {
 		t.Fatalf("读取功能绑定失败: %v", err)
 	}
 
@@ -326,8 +325,8 @@ func TestCreateBackupPreservesProviderTrafficBinding(t *testing.T) {
 	var enabled int
 	var instanceID, snapshotCiphertext, snapshotRevision string
 	if err := snapSt.DB().QueryRow(
-		`SELECT enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision
-		 FROM provider_traffic_settings WHERE id = 1`).Scan(
+		`SELECT s.enabled, h.instance_id, h.credential_ciphertext, h.revision
+		 FROM provider_traffic_settings s JOIN provider_traffic_hosts h ON h.settings_id = s.id WHERE h.id = 'kiwivm' `).Scan(
 		&enabled, &instanceID, &snapshotCiphertext, &snapshotRevision); err != nil {
 		t.Fatalf("快照读取功能绑定失败: %v", err)
 	}

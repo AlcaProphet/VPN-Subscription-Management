@@ -69,18 +69,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Card v-if="visible" id="provider-traffic-home" class="mb-4 shadow-xs">
+  <Card v-if="visible" id="provider-traffic-home" class="shadow-xs">
     <div class="mb-2 text-sm font-medium">服务器剩余流量</div>
     <Alert v-if="loadError" type="warning" show-icon :message="loadError" />
     <div v-else class="flex flex-col gap-2">
-      <div v-for="item in rows" :key="item.provider"
+      <div v-for="item in rows" :key="item.host_id ?? item.provider"
            class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
-        <span class="w-16 shrink-0 text-text-secondary">{{ label(item.provider) }}</span>
+        <span class="min-w-16 max-w-full break-all text-text-secondary">
+          {{ label(item.provider) }}<template v-if="item.name && item.name !== label(item.provider)"> · {{ item.name }}</template>
+        </span>
         <template v-if="item.status === 'waiting'">
           <span class="text-text-tertiary">等待采集</span>
         </template>
         <template v-else-if="item.status === 'ok'">
           <span>剩余 <span class="font-medium">{{ formatRemaining(item.remaining) }}</span> {{ item.unit }}</span>
+          <span v-if="item.half_remaining" class="text-text-tertiary">按 50% 显示</span>
           <span class="text-text-tertiary">· 采集于 {{ formatSampledAt(item.sampled_at) }}</span>
         </template>
         <template v-else>

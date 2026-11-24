@@ -249,7 +249,7 @@ describe('SettingsView 基础渲染', () => {
     const content = String(modal!.props('content'))
     expect(content).toContain('服务器剩余流量')
     expect(content).toContain('重新绑定')
-    expect(content).toContain('平台绑定与凭据会被清除')
+    expect(content).toContain('所有主机绑定和凭据会被清除')
   })
 
 })

@@ -16,6 +16,8 @@ vi.mock('@/api/providerTraffic', async (importOriginal) => {
     saveProviderTrafficBinding: vi.fn(),
     deleteProviderTrafficBinding: vi.fn(),
     refreshProviderTraffic: vi.fn(),
+    saveProviderTrafficHost: vi.fn(),
+    saveProviderTrafficVPSAccount: vi.fn(),
   }
 })
 
@@ -30,6 +32,8 @@ import {
   saveProviderTrafficBinding,
   deleteProviderTrafficBinding,
   refreshProviderTraffic,
+  saveProviderTrafficHost,
+  saveProviderTrafficVPSAccount,
   type Provider,
   type ProviderTrafficBinding,
   type ProviderTrafficHome,
@@ -124,6 +128,20 @@ beforeEach(() => {
 })
 
 describe('ProviderTrafficCard 首页展示', () => {
+  it('独立显示同平台的各台主机以及折半结果', async () => {
+    mockHome.mockResolvedValueOnce({ list: [
+      { ...okResult('kiwivm', 50.75, 'GiB'), host_id: 'host-1', name: 'JP01', half_remaining: true },
+      { provider: 'kiwivm', host_id: 'host-2', name: 'JP02', status: 'error', message: '无法连接服务商' },
+    ], total: 2 })
+    const wrapper = mount(ProviderTrafficCard)
+    await flushPromises()
+    expect(wrapper.text()).toContain('JP01')
+    expect(wrapper.text()).toContain('50.75')
+    expect(wrapper.text()).toContain('按 50% 显示')
+    expect(wrapper.text()).toContain('JP02')
+    expect(wrapper.text()).toContain('无法连接服务商')
+  })
+
   it('默认关闭或空列表时隐藏整个卡片', async () => {
     const wrapper = mount(ProviderTrafficCard)
     await flushPromises()
@@ -264,6 +282,54 @@ describe('ProviderTrafficCard 首页展示', () => {
 })
 
 describe('ProviderTrafficSettings 管理设置', () => {
+  it('按主机添加搬瓦工，并为 V.PS 账号下的主机单独保存折半开关', async () => {
+    const base = settingsData({ hosts: [], vps_account: { configured: false, revision: '' } })
+    const kiwiHost = {
+      ...binding('kiwivm'), id: 'host-1', name: 'JP01', instance_id: '1001', revision: 'r1',
+      enabled: true, half_remaining: false, credential_configured: true,
+    }
+    const kiwiSaved = { ...base, hosts: [kiwiHost] }
+    vi.mocked(saveProviderTrafficHost).mockResolvedValueOnce(kiwiSaved)
+    const wrapper = await mountSettings(base)
+    const addButtons = () => wrapper.findAll('button').filter((button) => button.text() === '添加主机')
+    expect(addButtons()[1].attributes('disabled')).toBeDefined()
+    await addButtons()[0].trigger('click')
+    const kiwi = providerRow(wrapper, 'kiwivm')
+    await kiwi.get('input[aria-label="主机名称"]').setValue('JP01')
+    await kiwi.get('input[aria-label="搬瓦工 实例 ID"]').setValue('1001')
+    await kiwi.get('input[aria-label="搬瓦工 凭据"]').setValue('synthetic-kiwi-key')
+    await saveButton(kiwi)!.trigger('click')
+    await flushPromises()
+    expect(saveProviderTrafficHost).toHaveBeenCalledWith('kiwivm', '', {
+      name: 'JP01', instance_id: '1001', revision: null, enabled: true,
+      half_remaining: false, credential: 'synthetic-kiwi-key',
+    })
+    expect(wrapper.get('[data-host="host-1"]').text()).toContain('JP01')
+
+    const accountSaved = { ...kiwiSaved, vps_account: { configured: true, revision: 'account-r1' } }
+    vi.mocked(saveProviderTrafficVPSAccount).mockResolvedValueOnce(accountSaved)
+    await wrapper.get('input[aria-label="V.PS 账号 Refresh Token"]').setValue('synthetic-refresh')
+    await findButton(wrapper, '保存账号')!.trigger('click')
+    await flushPromises()
+    expect(saveProviderTrafficVPSAccount).toHaveBeenCalledWith('', 'synthetic-refresh')
+    expect((wrapper.get('input[aria-label="V.PS 账号 Refresh Token"]').element as HTMLInputElement).value).toBe('')
+
+    const vpsHost = { ...kiwiHost, provider: 'vps' as const, id: 'host-2', name: 'VPS01', instance_id: '2001', half_remaining: true }
+    vi.mocked(saveProviderTrafficHost).mockResolvedValueOnce({ ...accountSaved, hosts: [kiwiHost, vpsHost] })
+    await addButtons()[1].trigger('click')
+    const vps = providerRow(wrapper, 'vps')
+    expect(vps.find('input[type="password"]').exists()).toBe(false)
+    await vps.get('input[aria-label="主机名称"]').setValue('VPS01')
+    await vps.get('input[aria-label="V.PS 实例 ID"]').setValue('2001')
+    await vps.get('[aria-label="剩余流量折半显示"]').trigger('click')
+    await saveButton(vps)!.trigger('click')
+    await flushPromises()
+    expect(saveProviderTrafficHost).toHaveBeenLastCalledWith('vps', '', {
+      name: 'VPS01', instance_id: '2001', revision: null, enabled: true, half_remaining: true,
+    })
+    expect(wrapper.get('[data-host="host-2"]').get('[aria-label="剩余流量折半显示"]').attributes('aria-checked')).toBe('true')
+  })
+
   const originalBinding = binding('kiwivm', {
     enabled: true, instance_id: '1001', revision: 'rev-1', credential_configured: true,
   })

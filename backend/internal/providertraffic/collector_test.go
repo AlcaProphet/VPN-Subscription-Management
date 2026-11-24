@@ -22,6 +22,19 @@ type testClock struct {
 	now time.Time
 }
 
+// hostState 和 bindingFromSettings 供首版兼容行为的测试读取单台主机。
+func hostState(c *Collector, provider Provider) providerState {
+	if state := c.state[legacyKey(provider)]; state != nil {
+		return *state
+	}
+	return providerState{}
+}
+
+func bindingFromSettings(settings Settings, provider Provider) (struct{ revision string }, bool) {
+	binding, found := findHost(settings, legacyKey(provider))
+	return struct{ revision string }{binding.Revision}, found
+}
+
 func (c *testClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -107,20 +120,20 @@ func (h *collectorHarness) waitIdle(t *testing.T) {
 	waitForCondition(t, 5*time.Second, func() bool {
 		h.c.mu.Lock()
 		defer h.c.mu.Unlock()
-		return !h.c.state[0].busy && !h.c.state[1].busy
+		return !hostState(h.c, ProviderKiwiVM).busy && !hostState(h.c, ProviderVPS).busy
 	}, "采集器空闲")
 }
 
 func (h *collectorHarness) busy(provider Provider) bool {
 	h.c.mu.Lock()
 	defer h.c.mu.Unlock()
-	return h.c.state[providerIndex(provider)].busy
+	return hostState(h.c, provider).busy
 }
 
 func (h *collectorHarness) pending(provider Provider) bool {
 	h.c.mu.Lock()
 	defer h.c.mu.Unlock()
-	return h.c.state[providerIndex(provider)].pending
+	return hostState(h.c, provider).pending
 }
 
 func (h *collectorHarness) setBoolConfig(t *testing.T, key string, value bool) {
@@ -183,8 +196,8 @@ func (h *collectorHarness) bindingInput(t *testing.T, provider Provider, enabled
 	}
 	var revision *string
 	for _, binding := range settings.Providers {
-		if binding.Provider == provider && binding.Revision != "" {
-			value := binding.Revision
+		if binding.Provider == provider && binding.EditRevision != "" {
+			value := binding.EditRevision
 			revision = &value
 		}
 	}
@@ -211,7 +224,7 @@ func (h *collectorHarness) clearBinding(t *testing.T, provider Provider) {
 	var revision string
 	for _, binding := range settings.Providers {
 		if binding.Provider == provider {
-			revision = binding.Revision
+			revision = binding.EditRevision
 		}
 	}
 	if revision == "" {
@@ -252,17 +265,17 @@ func (h *collectorHarness) mustCurrent(t *testing.T, provider Provider) Result {
 
 func (h *collectorHarness) manual(t *testing.T, provider Provider) (Result, error) {
 	t.Helper()
-	return h.c.ManualRefresh(context.Background(), provider, h.bindingRevision(t, provider))
+	return h.c.ManualRefresh(context.Background(), provider, h.editRevision(t, provider))
 }
 
-func (h *collectorHarness) bindingRevision(t *testing.T, provider Provider) string {
+func (h *collectorHarness) editRevision(t *testing.T, provider Provider) string {
 	t.Helper()
 	settings, err := h.svc.GetSettings(context.Background())
 	if err != nil {
-		t.Fatalf("读取绑定修订失败: %v", err)
+		t.Fatalf("读取编辑修订失败: %v", err)
 	}
-	binding, _ := bindingFromSettings(settings, provider)
-	return binding.revision
+	binding, _ := findHost(settings, legacyKey(provider))
+	return binding.EditRevision
 }
 
 func (h *collectorHarness) manualOK(t *testing.T, provider Provider) Result {
@@ -281,7 +294,7 @@ type manualOutcome struct {
 
 func (h *collectorHarness) startManual(t *testing.T, ctx context.Context, provider Provider) <-chan manualOutcome {
 	t.Helper()
-	revision := h.bindingRevision(t, provider)
+	revision := h.editRevision(t, provider)
 	out := make(chan manualOutcome, 1)
 	go func() {
 		result, err := h.c.ManualRefresh(ctx, provider, revision)

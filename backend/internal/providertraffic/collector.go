@@ -34,14 +34,17 @@ const (
 // Result 是某平台最近一次采集结果；不包含实例 ID、绑定修订或凭据。
 // Hint 仅供管理端展示，首页映射不得输出；revision 只用于与当前绑定比较，不序列化。
 type Result struct {
-	Provider  Provider
-	Status    ResultStatus
-	Remaining float64
-	Unit      string
-	SampledAt time.Time
-	Message   string
-	Hint      string
-	revision  string
+	HostID        string
+	Name          string
+	HalfRemaining bool
+	Provider      Provider
+	Status        ResultStatus
+	Remaining     float64
+	Unit          string
+	SampledAt     time.Time
+	Message       string
+	Hint          string
+	revision      string
 }
 
 // 采集与手动请求的受控错误；Step 4 据此映射站内状态码。
@@ -70,9 +73,6 @@ const (
 	triggerManual  triggerSource = "manual"
 )
 
-// allProviders 是固定展示与采集顺序。
-var allProviders = [...]Provider{ProviderKiwiVM, ProviderVPS}
-
 func providerIndex(provider Provider) int {
 	switch provider {
 	case ProviderKiwiVM:
@@ -95,17 +95,11 @@ type vpsFetcher interface {
 	FetchRemaining(ctx context.Context, instanceID, accessToken string) (TrafficSample, error)
 }
 
-type bindingSnapshot struct {
-	enabled    bool
-	instanceID string
-	revision   string
-}
-
 type providerState struct {
 	busy    bool
 	pending bool
 	result  *Result
-	token   cachedAccessToken
+	removed bool
 }
 
 type chainOutcome struct {
@@ -115,13 +109,23 @@ type chainOutcome struct {
 
 type manualCollection struct {
 	requestCtx context.Context
-	revision   string
+	revision   collectionRevision
 	outcome    chan chainOutcome
+}
+
+// collectionRevision 固定绑定身份；手动请求还固定发起时看到的编辑修订。
+type collectionRevision struct {
+	binding string
+	edit    string
+}
+
+func (r collectionRevision) matches(binding ProviderBinding) bool {
+	return binding.Revision == r.binding && (r.edit == "" || binding.EditRevision == r.edit)
 }
 
 // Collector 是基础模式服务器剩余流量的独立采集服务。
 // 启动首轮、固定周期、配置提交后触发和手动触发都复用同一条采集入口；
-// 每家最多一条在途请求链，两个平台独立执行。
+// 每台主机最多一条在途请求链，两个平台各限两条并行请求链。
 type Collector struct {
 	svc  *Service
 	cfg  *config.Service
@@ -133,14 +137,17 @@ type Collector struct {
 	// settingsMu 串行化本模块设置提交和调度交接。
 	settingsMu sync.Mutex
 
-	mu       sync.Mutex
-	running  bool
-	stopped  bool
-	root     context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	stopOnce sync.Once
-	state    [2]providerState
+	mu        sync.Mutex
+	running   bool
+	stopped   bool
+	root      context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	stopOnce  sync.Once
+	state     map[hostKey]*providerState
+	token     cachedAccessToken
+	tokenGate chan struct{}
+	slots     [2]chan struct{}
 
 	// testCycle/testOnCycle 仅供包内测试注入可控周期与观察点；生产为零值。
 	testCycle   chan time.Time
@@ -150,12 +157,15 @@ type Collector struct {
 // NewCollector 构造采集服务；不自动启动，由正常服务装配在 Run 生命周期内调用 Start。
 func NewCollector(svc *Service, cfg *config.Service, lg *slog.Logger) *Collector {
 	return &Collector{
-		svc:  svc,
-		cfg:  cfg,
-		log:  lg,
-		kiwi: NewKiwiVMClient(lg),
-		vps:  NewVPSClient(lg),
-		now:  time.Now,
+		svc:       svc,
+		cfg:       cfg,
+		log:       lg,
+		kiwi:      NewKiwiVMClient(lg),
+		vps:       NewVPSClient(lg),
+		now:       time.Now,
+		state:     make(map[hostKey]*providerState),
+		tokenGate: make(chan struct{}, 1),
+		slots:     [2]chan struct{}{make(chan struct{}, 2), make(chan struct{}, 2)},
 	}
 }
 
@@ -214,7 +224,28 @@ func (c *Collector) SaveBinding(ctx context.Context, in SaveBindingInput) (Setti
 
 // ClearBinding 解除单家绑定，提交后清理该修订的内存状态。
 func (c *Collector) ClearBinding(ctx context.Context, provider Provider, revision string) (Settings, error) {
-	return c.applySettingsChange(func() (settingsChange, error) { return c.svc.clearBinding(ctx, provider, revision) })
+	return c.applySettingsChange(func() (settingsChange, error) {
+		return c.svc.clearHost(ctx, legacyKey(provider), revision, true)
+	})
+}
+
+// SaveHost 提交独立主机设置，并安排必要的采集。
+func (c *Collector) SaveHost(ctx context.Context, in SaveHostInput) (Settings, error) {
+	return c.applySettingsChange(func() (settingsChange, error) { return c.svc.saveHost(ctx, in, false) })
+}
+
+// ClearHost 解除指定主机；V.PS 的账号凭据由账号设置管理。
+func (c *Collector) ClearHost(ctx context.Context, provider Provider, id, revision string) (Settings, error) {
+	return c.applySettingsChange(func() (settingsChange, error) {
+		return c.svc.clearHost(ctx, hostKey{provider: provider, id: id}, revision, false)
+	})
+}
+
+// SaveVPSAccount 保存共享凭据。空凭据表示解除已无主机的账号。
+func (c *Collector) SaveVPSAccount(ctx context.Context, revision, credential string) (Settings, error) {
+	return c.applySettingsChange(func() (settingsChange, error) {
+		return c.svc.saveVPSAccount(ctx, revision, credential)
+	})
 }
 
 func (c *Collector) applySettingsChange(save func() (settingsChange, error)) (Settings, error) {
@@ -224,35 +255,68 @@ func (c *Collector) applySettingsChange(save func() (settingsChange, error)) (Se
 	if err != nil {
 		return Settings{}, err
 	}
-	for _, provider := range allProviders {
-		before, _ := bindingFromSettings(change.before, provider)
-		current, bound := bindingFromSettings(change.after, provider)
-		if before.revision != current.revision {
-			c.mu.Lock()
-			c.clearProviderStateLocked(providerIndex(provider), current)
-			c.mu.Unlock()
-		}
-		if !change.after.Enabled || !bound || !current.enabled || (change.before.Enabled && before == current) {
-			continue
-		}
-		if err := c.startChain(nil, provider, triggerConfig, nil); err != nil {
-			c.log.Debug("服务器剩余流量配置触发跳过", "provider", string(provider), "reason", err.Error())
+	c.syncStates(change.after)
+	if !change.after.Enabled {
+		return change.after, nil
+	}
+	before := hostBindings(change.before)
+	for _, current := range change.after.Hosts {
+		previous := before[current.key()]
+		if current.Enabled && (!change.before.Enabled || !previous.Enabled || previous.Revision != current.Revision) {
+			c.trigger(current.key(), triggerConfig)
 		}
 	}
 	return change.after, nil
 }
 
-// ManualRefresh 在调用方提交的修订仍匹配已保存绑定时，同步执行一轮采集。
-// 绑定未启用、模式不允许或同家忙碌时返回受控错误；上游失败仍以 Result 返回。
-func (c *Collector) ManualRefresh(ctx context.Context, provider Provider, revision string) (Result, error) {
-	if providerIndex(provider) < 0 {
-		return Result{}, ErrUnknownProvider
+func hostBindings(settings Settings) map[hostKey]ProviderBinding {
+	bindings := make(map[hostKey]ProviderBinding, len(settings.Hosts))
+	for _, binding := range settings.Hosts {
+		bindings[binding.key()] = binding
 	}
-	binding, err := c.resolveBinding(ctx, provider)
+	return bindings
+}
+
+func (c *Collector) syncStates(settings Settings) {
+	bindings := hostBindings(settings)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, state := range c.state {
+		binding, exists := bindings[key]
+		if !exists {
+			state.pending = false
+			state.removed = true
+			if !state.busy {
+				delete(c.state, key)
+			}
+		} else {
+			state.removed = false
+		}
+		if state.result != nil && state.result.revision != binding.Revision {
+			state.result = nil
+		}
+	}
+	if c.token.revision != settings.VPSRevision {
+		c.token = cachedAccessToken{}
+	}
+}
+
+// ManualRefresh 对旧版平台绑定按编辑修订同步采集，上游失败仍通过 Result 返回。
+func (c *Collector) ManualRefresh(ctx context.Context, provider Provider, revision string) (Result, error) {
+	return c.manualRefresh(ctx, legacyKey(provider), revision)
+}
+
+// RefreshHost 采集指定主机，并校验页面提交的主机编辑修订。
+func (c *Collector) RefreshHost(ctx context.Context, provider Provider, id, revision string) (Result, error) {
+	return c.manualRefresh(ctx, hostKey{provider: provider, id: id}, revision)
+}
+
+func (c *Collector) manualRefresh(ctx context.Context, key hostKey, revision string) (Result, error) {
+	binding, _, err := c.resolveBinding(ctx, key)
 	if err != nil {
 		return Result{}, err
 	}
-	if binding.revision != revision {
+	if revision == "" || binding.EditRevision != revision {
 		return Result{}, ErrRevisionConflict
 	}
 
@@ -273,8 +337,12 @@ func (c *Collector) ManualRefresh(ctx context.Context, provider Provider, revisi
 	stopAfter := context.AfterFunc(ctx, cancel)
 	defer stopAfter()
 
-	manual := &manualCollection{requestCtx: ctx, revision: revision, outcome: make(chan chainOutcome, 1)}
-	if err := c.startChain(chainCtx, provider, triggerManual, manual); err != nil {
+	manual := &manualCollection{
+		requestCtx: ctx,
+		revision:   collectionRevision{binding: binding.Revision, edit: revision},
+		outcome:    make(chan chainOutcome, 1),
+	}
+	if err := c.startHostChain(chainCtx, key, triggerManual, manual); err != nil {
 		return Result{}, err
 	}
 
@@ -316,15 +384,14 @@ func (c *Collector) Results(ctx context.Context) ([]Result, error) {
 		return []Result{}, nil
 	}
 
-	results := make([]Result, 0, 2)
-	for _, provider := range allProviders {
-		binding, bound := bindingFromSettings(settings, provider)
-		if !bound || !binding.enabled {
+	results := make([]Result, 0, len(settings.Hosts))
+	for _, binding := range settings.Hosts {
+		if !binding.Enabled {
 			continue
 		}
-		result := c.ResultForRevision(provider, binding.revision)
+		result := c.ResultForBinding(binding)
 		if result == nil {
-			results = append(results, Result{Provider: provider, Status: ResultWaiting})
+			results = append(results, projectResult(binding, Result{Status: ResultWaiting}))
 			continue
 		}
 		results = append(results, *result)
@@ -332,26 +399,46 @@ func (c *Collector) Results(ctx context.Context) ([]Result, error) {
 	return results, nil
 }
 
-// ResultForRevision 返回与调用方已读取的绑定修订匹配的内存结果。
-// 未采集或修订不匹配时返回 nil，且不读取数据库或发起上游请求。
+// ResultForRevision 返回旧版绑定的最近结果，供兼容调用方读取。
 func (c *Collector) ResultForRevision(provider Provider, revision string) *Result {
-	idx := providerIndex(provider)
-	if idx < 0 || revision == "" {
+	return c.resultForKey(legacyKey(provider), revision)
+}
+
+// ResultForBinding 以当前主机设置显示原始样本的余量。
+func (c *Collector) ResultForBinding(binding ProviderBinding) *Result {
+	result := c.resultForKey(binding.key(), binding.Revision)
+	if result == nil {
 		return nil
 	}
+	display := projectResult(binding, *result)
+	return &display
+}
+
+func (c *Collector) resultForKey(key hostKey, revision string) *Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	stored := c.state[idx].result
-	if stored == nil || stored.revision != revision {
+	state := c.state[key]
+	if state == nil || state.result == nil || state.result.revision != revision {
 		return nil
 	}
-	result := *stored
+	result := *state.result
 	return &result
+}
+
+func projectResult(binding ProviderBinding, result Result) Result {
+	result.Provider = binding.Provider
+	result.HostID = binding.ID
+	result.Name = binding.Name
+	result.HalfRemaining = binding.HalfRemaining
+	if result.Status == ResultOK && binding.HalfRemaining {
+		result.Remaining /= 2
+	}
+	return result
 }
 
 func (c *Collector) loop(ctx context.Context) {
 	defer c.wg.Done()
-	c.runCycle(triggerStartup)
+	c.runCycle(ctx, triggerStartup)
 
 	var ticker *time.Ticker
 	var ticks <-chan time.Time
@@ -369,29 +456,39 @@ func (c *Collector) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticks:
-			c.runCycle(triggerCycle)
+			c.runCycle(ctx, triggerCycle)
 		}
 	}
 }
 
-func (c *Collector) runCycle(source triggerSource) {
-	for _, provider := range allProviders {
-		if err := c.startChain(nil, provider, source, nil); err != nil {
-			c.log.Debug("服务器剩余流量触发跳过", "provider", string(provider), "trigger", string(source), "reason", err.Error())
+func (c *Collector) runCycle(ctx context.Context, source triggerSource) {
+	c.settingsMu.Lock()
+	settings, err := c.svc.GetSettings(ctx)
+	if err != nil {
+		c.log.Warn("读取流量采集设置失败", "err", err)
+	} else {
+		c.syncStates(settings)
+		if settings.Enabled {
+			for _, binding := range settings.Hosts {
+				if binding.Enabled {
+					c.trigger(binding.key(), source)
+				}
+			}
 		}
 	}
+	c.settingsMu.Unlock()
 	if c.testOnCycle != nil {
 		c.testOnCycle()
 	}
 }
 
-// startChain 尝试为单家启动一条在途链。
-// 配置触发遇忙只设置一次待执行信号；手动与定时触发遇忙分别返回错误或跳过。
-func (c *Collector) startChain(chainCtx context.Context, provider Provider, source triggerSource, manual *manualCollection) error {
-	idx := providerIndex(provider)
-	if idx < 0 {
-		return ErrUnknownProvider
+func (c *Collector) trigger(key hostKey, source triggerSource) {
+	if err := c.startHostChain(nil, key, source, nil); err != nil {
+		c.log.Debug("服务器剩余流量触发跳过", "provider", key.provider, "trigger", string(source), "reason", err.Error())
 	}
+}
+
+func (c *Collector) startHostChain(chainCtx context.Context, key hostKey, source triggerSource, manual *manualCollection) error {
 
 	c.mu.Lock()
 	if c.stopped {
@@ -402,7 +499,15 @@ func (c *Collector) startChain(chainCtx context.Context, provider Provider, sour
 		c.mu.Unlock()
 		return ErrCollectorUnavailable
 	}
-	state := &c.state[idx]
+	state := c.state[key]
+	if state == nil {
+		state = &providerState{}
+		c.state[key] = state
+	}
+	if state.removed {
+		c.mu.Unlock()
+		return ErrNotReady
+	}
 	if state.busy {
 		if source == triggerConfig {
 			state.pending = true
@@ -419,67 +524,64 @@ func (c *Collector) startChain(chainCtx context.Context, provider Provider, sour
 	c.wg.Add(1)
 	c.mu.Unlock()
 
-	go c.runChain(chainCtx, provider, source, manual)
+	go c.runChain(chainCtx, key, source, manual)
 	return nil
 }
 
-func (c *Collector) runChain(ctx context.Context, provider Provider, source triggerSource, manual *manualCollection) {
+func (c *Collector) runChain(ctx context.Context, key hostKey, source triggerSource, manual *manualCollection) {
 	defer c.wg.Done()
-	finished := false
-	defer func() {
-		if !finished {
-			c.finishChain(provider)
-		}
-	}()
-
-	result, err := c.collect(ctx, provider, source, manual)
+	result, err := c.collect(ctx, key, manual)
 	if err != nil && source != triggerManual && !expectedChainError(err) {
-		c.log.Warn("服务器流量采集失败", "provider", string(provider), "trigger", string(source), "err", err)
+		c.log.Warn("服务器流量采集失败", "provider", key.provider, "trigger", string(source), "err", err)
 	}
-	c.finishChain(provider)
-	finished = true
+	c.finishChain(key)
 	if manual != nil {
 		manual.outcome <- chainOutcome{result: result, err: err}
 	}
 }
 
-func (c *Collector) finishChain(provider Provider) {
-	idx := providerIndex(provider)
-	if idx < 0 {
-		return
-	}
-
+func (c *Collector) finishChain(key hostKey) {
 	c.mu.Lock()
-	state := &c.state[idx]
+	state := c.state[key]
 	state.busy = false
-	launch := false
+	if state.removed {
+		delete(c.state, key)
+	}
 	var root context.Context
-	if state.pending && c.running && !c.stopped {
+	if state.pending && !state.removed && c.running && !c.stopped {
 		state.pending = false
 		state.busy = true
 		c.wg.Add(1)
-		launch = true
 		root = c.root
 	}
 	c.mu.Unlock()
 
-	if launch {
-		go c.runChain(root, provider, triggerConfig, nil)
+	if root != nil {
+		go c.runChain(root, key, triggerConfig, nil)
 	}
 }
 
-func (c *Collector) collect(ctx context.Context, provider Provider, source triggerSource, manual *manualCollection) (Result, error) {
-	binding, err := c.resolveBinding(ctx, provider)
+func (c *Collector) collect(ctx context.Context, key hostKey, manual *manualCollection) (Result, error) {
+	slots := c.slots[providerIndex(key.provider)]
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	case <-ctx.Done():
+		return Result{}, ctx.Err()
+	}
+	binding, accountRevision, err := c.resolveBinding(ctx, key)
 	if err != nil {
 		if manual != nil {
 			return Result{}, discardOnIneligible(err)
 		}
 		return Result{}, err
 	}
+	revision := collectionRevision{binding: binding.Revision}
 	var requestCtx context.Context
 	if manual != nil {
 		requestCtx = manual.requestCtx
-		if binding.revision != manual.revision {
+		revision = manual.revision
+		if !revision.matches(binding) {
 			return Result{}, ErrDiscarded
 		}
 	}
@@ -487,164 +589,101 @@ func (c *Collector) collect(ctx context.Context, provider Provider, source trigg
 		return Result{}, err
 	}
 
-	c.log.Debug("服务器流量采集开始", "provider", string(provider), "trigger", string(source))
-
-	instanceID, revision, credential, err := c.svc.LoadCredential(ctx, provider)
-	if err != nil {
-		if ctxErr := chainContextError(ctx, requestCtx); ctxErr != nil {
-			return Result{}, ctxErr
+	var sample TrafficSample
+	if key.provider == ProviderKiwiVM {
+		var apiKey string
+		apiKey, err = c.svc.loadCredential(ctx, key, binding.Revision)
+		if err != nil {
+			return Result{}, discardOnIneligible(err)
 		}
-		if errors.Is(err, ErrNotBound) {
-			return Result{}, ErrDiscarded
+		if err := c.checkEligible(ctx, key, revision); err != nil {
+			return Result{}, err
 		}
-		return Result{}, err
+		if err := chainContextError(ctx, requestCtx); err != nil {
+			return Result{}, err
+		}
+		sample, err = c.kiwi.FetchRemaining(ctx, binding.InstanceID, apiKey)
+	} else {
+		var accessToken string
+		accessToken, err = c.vpsAccess(ctx, requestCtx, key, revision, accountRevision)
+		if err == nil {
+			if err := c.checkEligible(ctx, key, revision); err != nil {
+				return Result{}, err
+			}
+			if err := chainContextError(ctx, requestCtx); err != nil {
+				return Result{}, err
+			}
+			sample, err = c.vps.FetchRemaining(ctx, binding.InstanceID, accessToken)
+			var upstream *UpstreamError
+			if errors.As(err, &upstream) && upstream.Category == UpstreamAccessTokenRejected {
+				c.clearToken(accountRevision, accessToken)
+			}
+		}
 	}
-	if revision != binding.revision || instanceID != binding.instanceID {
-		return Result{}, ErrDiscarded
+	if ctxErr := chainContextError(ctx, requestCtx); ctxErr != nil {
+		return Result{}, ctxErr
 	}
 
-	switch provider {
-	case ProviderKiwiVM:
-		return c.collectKiwiVM(ctx, requestCtx, binding, credential)
-	case ProviderVPS:
-		return c.collectVPS(ctx, requestCtx, binding, credential)
+	var result Result
+	switch {
+	case err == nil:
+		result = Result{Status: ResultOK, Remaining: sample.Remaining, Unit: sample.Unit, SampledAt: c.now().UTC()}
+	case errors.Is(err, errRotationUnsaved):
+		result = Result{Status: ResultError, Message: messageCollectionFailed, Hint: hintRotationUnsaved}
 	default:
-		return Result{}, ErrUnknownProvider
+		var ok bool
+		result, ok = upstreamErrorResult(key.provider, binding.Revision, err)
+		if !ok {
+			return Result{}, discardOnIneligible(err)
+		}
 	}
+	return c.publishHost(ctx, requestCtx, key, revision, result)
 }
 
-func (c *Collector) collectKiwiVM(ctx, requestCtx context.Context, binding bindingSnapshot, apiKey string) (Result, error) {
-	if err := c.checkEligible(ctx, ProviderKiwiVM, binding.revision); err != nil {
-		return Result{}, err
+var errRotationUnsaved = errors.New("V.PS 续期结果未保存")
+
+// vpsAccess 串行化账号的令牌读取、续期和落库；实例资源查询在账号锁外进行。
+func (c *Collector) vpsAccess(ctx, requestCtx context.Context, key hostKey, revision collectionRevision, accountRevision string) (string, error) {
+	select {
+	case c.tokenGate <- struct{}{}:
+		defer func() { <-c.tokenGate }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	if err := c.checkEligible(ctx, key, revision); err != nil {
+		return "", err
 	}
 	if err := chainContextError(ctx, requestCtx); err != nil {
-		return Result{}, err
+		return "", err
 	}
-	sample, err := c.kiwi.FetchRemaining(ctx, binding.instanceID, apiKey)
+	if access, ok := c.cachedToken(accountRevision); ok {
+		return access, nil
+	}
+	refreshToken, err := c.svc.loadCredential(ctx, key, accountRevision)
 	if err != nil {
-		if ctxErr := chainContextError(ctx, requestCtx); ctxErr != nil {
-			return Result{}, ctxErr
-		}
-		result, ok := upstreamErrorResult(ProviderKiwiVM, binding.revision, err)
-		if !ok {
-			return Result{}, err
-		}
-		if err := c.publish(ctx, requestCtx, ProviderKiwiVM, binding.revision, result); err != nil {
-			return Result{}, err
-		}
-		return result, nil
+		return "", err
 	}
-	if ctxErr := chainContextError(ctx, requestCtx); ctxErr != nil {
-		return Result{}, ctxErr
+	if err := c.checkEligible(ctx, key, revision); err != nil {
+		return "", err
 	}
-	result := Result{
-		Provider:  ProviderKiwiVM,
-		Status:    ResultOK,
-		Remaining: sample.Remaining,
-		Unit:      sample.Unit,
-		SampledAt: c.now().UTC(),
-		revision:  binding.revision,
-	}
-	if err := c.publish(ctx, requestCtx, ProviderKiwiVM, binding.revision, result); err != nil {
-		return Result{}, err
-	}
-	return result, nil
-}
-
-func (c *Collector) collectVPS(ctx, requestCtx context.Context, binding bindingSnapshot, refreshToken string) (Result, error) {
-	if err := c.checkEligible(ctx, ProviderVPS, binding.revision); err != nil {
-		return Result{}, err
-	}
-	// 先完成可能阻塞的资格复核，再以当前时间判断缓存是否可复用。
-	accessToken, cached := c.cachedToken(binding.revision)
-	if !cached {
-		if err := chainContextError(ctx, requestCtx); err != nil {
-			return Result{}, err
-		}
-		pair, err := c.vps.RefreshToken(ctx, refreshToken)
-		if err != nil {
-			if ctxErr := chainContextError(ctx, requestCtx); ctxErr != nil {
-				return Result{}, ctxErr
-			}
-			result, ok := upstreamErrorResult(ProviderVPS, binding.revision, err)
-			if !ok {
-				return Result{}, err
-			}
-			if err := c.publish(ctx, requestCtx, ProviderVPS, binding.revision, result); err != nil {
-				return Result{}, err
-			}
-			return result, nil
-		}
-
-		updated, err := c.updateRotatedToken(ctx, binding.revision, pair.Refresh)
-		if err != nil {
-			c.log.Warn("服务器流量续期结果未能入库", "provider", string(ProviderVPS), "err", err)
-			if ctxErr := chainContextError(ctx, requestCtx); ctxErr != nil {
-				return Result{}, ctxErr
-			}
-			result := Result{
-				Provider: ProviderVPS,
-				Status:   ResultError,
-				Message:  messageCollectionFailed,
-				Hint:     hintRotationUnsaved,
-				revision: binding.revision,
-			}
-			if err := c.publish(ctx, requestCtx, ProviderVPS, binding.revision, result); err != nil {
-				return Result{}, err
-			}
-			return result, nil
-		}
-		if !updated {
-			return Result{}, ErrDiscarded
-		}
-
-		// 已提交新 Refresh Token；此时若请求已取消、功能关闭、切换模式或改绑，结束本轮，不再查询资源。
-		if err := chainContextError(ctx, requestCtx); err != nil {
-			return Result{}, err
-		}
-		if err := c.checkEligible(ctx, ProviderVPS, binding.revision); err != nil {
-			return Result{}, err
-		}
-		c.cacheToken(binding.revision, pair.Token)
-		accessToken = pair.Token
-	}
-
 	if err := chainContextError(ctx, requestCtx); err != nil {
-		return Result{}, err
+		return "", err
 	}
-	sample, err := c.vps.FetchRemaining(ctx, binding.instanceID, accessToken)
+	pair, err := c.vps.RefreshToken(ctx, refreshToken)
 	if err != nil {
-		var upstream *UpstreamError
-		if errors.As(err, &upstream) && upstream.Category == UpstreamAccessTokenRejected {
-			c.clearToken(binding.revision)
-		}
-		if ctxErr := chainContextError(ctx, requestCtx); ctxErr != nil {
-			return Result{}, ctxErr
-		}
-		result, ok := upstreamErrorResult(ProviderVPS, binding.revision, err)
-		if !ok {
-			return Result{}, err
-		}
-		if err := c.publish(ctx, requestCtx, ProviderVPS, binding.revision, result); err != nil {
-			return Result{}, err
-		}
-		return result, nil
+		return "", err
 	}
-	if ctxErr := chainContextError(ctx, requestCtx); ctxErr != nil {
-		return Result{}, ctxErr
+	updated, err := c.updateRotatedToken(ctx, accountRevision, pair.Refresh)
+	if err != nil {
+		c.log.Warn("服务器流量续期结果未能入库", "provider", ProviderVPS, "err", err)
+		return "", errRotationUnsaved
 	}
-	result := Result{
-		Provider:  ProviderVPS,
-		Status:    ResultOK,
-		Remaining: sample.Remaining,
-		Unit:      sample.Unit,
-		SampledAt: c.now().UTC(),
-		revision:  binding.revision,
+	if !updated {
+		return "", ErrDiscarded
 	}
-	if err := c.publish(ctx, requestCtx, ProviderVPS, binding.revision, result); err != nil {
-		return Result{}, err
-	}
-	return result, nil
+	// 续期结果归账号所有；调用方仍需复核主机资格和取消状态后才能查询资源。
+	c.cacheToken(accountRevision, pair.Token)
+	return pair.Token, nil
 }
 
 func (c *Collector) updateRotatedToken(ctx context.Context, revision, refresh string) (bool, error) {
@@ -654,15 +693,14 @@ func (c *Collector) updateRotatedToken(ctx context.Context, revision, refresh st
 }
 
 func (c *Collector) cachedToken(revision string) (string, bool) {
-	idx := providerIndex(ProviderVPS)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	cached := c.state[idx].token
+	cached := c.token
 	if cached.revision == "" {
 		return "", false
 	}
 	if cached.revision != revision || !c.now().Before(cached.expiresAt) {
-		c.state[idx].token = cachedAccessToken{}
+		c.token = cachedAccessToken{}
 		return "", false
 	}
 	return cached.token, true
@@ -673,102 +711,119 @@ func (c *Collector) cacheToken(revision, token string) {
 	if !ok {
 		return
 	}
-	idx := providerIndex(ProviderVPS)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if existing := c.state[idx].token; existing.revision != "" && existing.revision != revision {
+	if existing := c.token; existing.revision != "" && existing.revision != revision {
 		return
 	}
-	c.state[idx].token = cachedAccessToken{revision: revision, token: token, expiresAt: expiresAt}
+	c.token = cachedAccessToken{revision: revision, token: token, expiresAt: expiresAt}
 }
 
-func (c *Collector) clearToken(revision string) {
-	idx := providerIndex(ProviderVPS)
+func (c *Collector) clearToken(revision, token string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.state[idx].token.revision == revision {
-		c.state[idx].token = cachedAccessToken{}
+	if c.token.revision == revision && c.token.token == token {
+		c.token = cachedAccessToken{}
 	}
 }
 
-// publish 先取 SQLite 写事务，再取结果锁。事务结束前读取者看不到暂存值。
-func (c *Collector) publish(ctx, requestCtx context.Context, provider Provider, revision string, result Result) error {
-	idx := providerIndex(provider)
+// publishHost 在提交期间持有结果锁，事务失败时恢复先前样本。
+func (c *Collector) publishHost(ctx, requestCtx context.Context, key hostKey, revision collectionRevision, result Result) (Result, error) {
 	var previous *Result
-	var locked bool
+	var state *providerState
+	var display Result
 	defer func() {
-		if locked {
+		if state != nil {
 			c.mu.Unlock()
 		}
 	}()
 	err := c.svc.withPublicationSettings(ctx, func(settings Settings) error {
-		binding, bound := bindingFromSettings(settings, provider)
-		if !settings.Enabled || !bound || !binding.enabled || binding.revision != revision {
+		binding, found := findHost(settings, key)
+		if !settings.Enabled || !found || !binding.Enabled || !revision.matches(binding) {
 			return ErrDiscarded
 		}
-		c.mu.Lock()
-		locked = true
-		previous = c.state[idx].result
 		if err := chainContextError(ctx, requestCtx); err != nil {
 			return err
 		}
+		c.mu.Lock()
 		if c.stopped || !c.running {
+			c.mu.Unlock()
 			return ErrCollectorUnavailable
 		}
-		result.revision = revision
-		c.state[idx].result = &result
+		if err := chainContextError(ctx, requestCtx); err != nil {
+			c.mu.Unlock()
+			return err
+		}
+		state = c.state[key]
+		if state == nil {
+			state = &providerState{}
+			c.state[key] = state
+		}
+		previous = state.result
+		result.revision = revision.binding
+		state.result = &result
+		display = projectResult(binding, result)
 		return nil
 	})
-	if err != nil && locked {
-		c.state[idx].result = previous
+	if err != nil {
+		if state != nil {
+			state.result = previous
+		}
+		return Result{}, err
 	}
-	return err
+	return display, nil
 }
 
-func (c *Collector) checkEligible(ctx context.Context, provider Provider, revision string) error {
-	binding, err := c.resolveBinding(ctx, provider)
+func (c *Collector) checkEligible(ctx context.Context, key hostKey, revision collectionRevision) error {
+	binding, _, err := c.resolveBinding(ctx, key)
 	if err != nil {
 		return discardOnIneligible(err)
 	}
-	if binding.revision != revision {
+	if !revision.matches(binding) {
 		return ErrDiscarded
 	}
 	return nil
 }
 
-func (c *Collector) resolveBinding(ctx context.Context, provider Provider) (bindingSnapshot, error) {
-	if providerIndex(provider) < 0 {
-		return bindingSnapshot{}, ErrUnknownProvider
+func (c *Collector) resolveBinding(ctx context.Context, key hostKey) (ProviderBinding, string, error) {
+	if providerIndex(key.provider) < 0 {
+		return ProviderBinding{}, "", ErrUnknownProvider
 	}
 	if !c.isRunning() {
-		return bindingSnapshot{}, ErrCollectorUnavailable
+		return ProviderBinding{}, "", ErrCollectorUnavailable
 	}
 	configured, err := c.cfg.GetBoolStrict(ctx, config.KeyConfigured, false)
 	if err != nil {
-		return bindingSnapshot{}, err
+		return ProviderBinding{}, "", err
 	}
 	if !configured {
-		return bindingSnapshot{}, ErrNotReady
+		return ProviderBinding{}, "", ErrNotReady
 	}
 	advanced, err := c.cfg.GetBoolStrict(ctx, config.KeyAdvancedMode, false)
 	if err != nil {
-		return bindingSnapshot{}, err
+		return ProviderBinding{}, "", err
 	}
 	if advanced {
-		return bindingSnapshot{}, ErrModeUnavailable
+		return ProviderBinding{}, "", ErrModeUnavailable
 	}
 	settings, err := c.svc.GetSettings(ctx)
 	if err != nil {
-		return bindingSnapshot{}, err
+		return ProviderBinding{}, "", err
 	}
-	if !settings.Enabled {
-		return bindingSnapshot{}, ErrNotReady
+	binding, found := findHost(settings, key)
+	if !settings.Enabled || !found || !binding.Enabled || !binding.CredentialConfigured {
+		return ProviderBinding{}, "", ErrNotReady
 	}
-	binding, bound := bindingFromSettings(settings, provider)
-	if !bound || !binding.enabled {
-		return bindingSnapshot{}, ErrNotReady
+	return binding, settings.VPSRevision, nil
+}
+
+func findHost(settings Settings, key hostKey) (ProviderBinding, bool) {
+	for _, binding := range settings.Hosts {
+		if binding.key() == key {
+			return binding, true
+		}
 	}
-	return binding, nil
+	return ProviderBinding{}, false
 }
 
 func (c *Collector) isRunning() bool {
@@ -778,34 +833,10 @@ func (c *Collector) isRunning() bool {
 }
 
 func discardOnIneligible(err error) error {
-	if errors.Is(err, ErrNotReady) || errors.Is(err, ErrModeUnavailable) {
+	if errors.Is(err, ErrNotReady) || errors.Is(err, ErrModeUnavailable) || errors.Is(err, ErrNotBound) {
 		return ErrDiscarded
 	}
 	return err
-}
-
-func (c *Collector) clearProviderStateLocked(idx int, current bindingSnapshot) {
-	state := &c.state[idx]
-	if state.result != nil && state.result.revision != current.revision {
-		state.result = nil
-	}
-	if state.token.revision != "" && state.token.revision != current.revision {
-		state.token = cachedAccessToken{}
-	}
-}
-
-func bindingFromSettings(settings Settings, provider Provider) (bindingSnapshot, bool) {
-	idx := providerIndex(provider)
-	if idx < 0 || idx >= len(settings.Providers) {
-		return bindingSnapshot{}, false
-	}
-	binding := settings.Providers[idx]
-	return bindingSnapshot{
-			enabled:    binding.Enabled,
-			instanceID: binding.InstanceID,
-			revision:   binding.Revision,
-		},
-		binding.InstanceID != "" && binding.Revision != ""
 }
 
 func upstreamErrorResult(provider Provider, revision string, err error) (Result, bool) {

@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+func publishLegacy(c *Collector, ctx, requestCtx context.Context, provider Provider, revision string, result Result) error {
+	_, err := c.publishHost(ctx, requestCtx, legacyKey(provider), collectionRevision{binding: revision}, result)
+	return err
+}
+
 func TestCollectorCancelWhilePublicationWaitsForResultLock(t *testing.T) {
 	h := newCollectorHarness(t)
 	h.setConfigured(t, true)
@@ -30,7 +35,7 @@ func TestCollectorCancelWhilePublicationWaitsForResultLock(t *testing.T) {
 		defer h.c.mu.Unlock()
 		go func() {
 			// 先取消手动请求，模拟链上下文的异步取消传播尚未到达。
-			done <- h.c.publish(context.Background(), ctx, ProviderKiwiVM, previous.revision, Result{
+			done <- publishLegacy(h.c, context.Background(), ctx, ProviderKiwiVM, previous.revision, Result{
 				Provider: ProviderKiwiVM, Status: ResultError, Message: "服务商返回错误",
 			})
 		}()
@@ -65,7 +70,7 @@ func TestCollectorPublicationOrdersWithSettingsWrite(t *testing.T) {
 	func() {
 		h.c.mu.Lock()
 		defer h.c.mu.Unlock()
-		go func() { published <- h.c.publish(ctx, nil, ProviderKiwiVM, revision, result) }()
+		go func() { published <- publishLegacy(h.c, ctx, nil, ProviderKiwiVM, revision, result) }()
 		waitForCondition(t, 5*time.Second, func() bool { return db.Stats().InUse == 1 }, "发布事务取得连接")
 		waitCount := db.Stats().WaitCount
 		go func() {
@@ -90,7 +95,7 @@ func TestCollectorPublicationOrdersWithSettingsWrite(t *testing.T) {
 	}
 	// 关闭已提交后，下一份在途结果必须丢弃。
 	result.Remaining = 10
-	mustErrIs(t, h.c.publish(ctx, nil, ProviderKiwiVM, revision, result), ErrDiscarded)
+	mustErrIs(t, publishLegacy(h.c, ctx, nil, ProviderKiwiVM, revision, result), ErrDiscarded)
 	assertOK(t, h.mustCurrent(t, ProviderKiwiVM), 9, UnitGiB)
 }
 

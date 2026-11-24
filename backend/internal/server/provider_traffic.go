@@ -26,7 +26,11 @@ type providerTrafficSettingsReader interface {
 // providerTrafficCollector 是接入层所需的采集器能力；写入由 Collector 统一完成提交与调度交接。
 type providerTrafficCollector interface {
 	Results(ctx context.Context) ([]providertraffic.Result, error)
-	ResultForRevision(provider providertraffic.Provider, revision string) *providertraffic.Result
+	ResultForBinding(binding providertraffic.ProviderBinding) *providertraffic.Result
+	SaveHost(ctx context.Context, in providertraffic.SaveHostInput) (providertraffic.Settings, error)
+	ClearHost(ctx context.Context, provider providertraffic.Provider, id, revision string) (providertraffic.Settings, error)
+	RefreshHost(ctx context.Context, provider providertraffic.Provider, id, revision string) (providertraffic.Result, error)
+	SaveVPSAccount(ctx context.Context, revision, credential string) (providertraffic.Settings, error)
 	SetEnabled(ctx context.Context, enabled bool) (providertraffic.Settings, error)
 	SaveBinding(ctx context.Context, in providertraffic.SaveBindingInput) (providertraffic.Settings, error)
 	ClearBinding(ctx context.Context, provider providertraffic.Provider, revision string) (providertraffic.Settings, error)
@@ -58,6 +62,12 @@ func RegisterProviderTrafficRoutes(engine *gin.Engine, h *ProviderTrafficHandler
 	admin.PUT("/:provider", h.saveBinding)
 	admin.DELETE("/:provider", h.deleteBinding)
 	admin.POST("/:provider/refresh", h.refresh)
+	admin.POST("/hosts/:provider", h.saveHost)
+	admin.PUT("/hosts/:provider/:host", h.saveHost)
+	admin.DELETE("/hosts/:provider/:host", h.deleteHost)
+	admin.POST("/hosts/:provider/:host/refresh", h.refreshHost)
+	admin.PUT("/accounts/vps", h.saveVPSAccount)
+	admin.DELETE("/accounts/vps", h.saveVPSAccount)
 }
 
 // home 返回当前启用且已绑定的平台本地结果；从不触发上游请求。
@@ -189,7 +199,7 @@ func (h *ProviderTrafficHandler) deleteBinding(c *gin.Context) {
 	OK(c, h.settingsView(settings))
 }
 
-// refresh 仅对管理员提交的已保存绑定修订同步采集；上游失败仍作为平台结果返回。
+// refresh 仅对管理员提交的当前编辑修订同步采集；上游失败仍作为平台结果返回。
 func (h *ProviderTrafficHandler) refresh(c *gin.Context) {
 	provider, ok := h.provider(c)
 	if !ok {
@@ -269,22 +279,37 @@ func (h *ProviderTrafficHandler) settingsView(settings providertraffic.Settings)
 			instanceID := binding.InstanceID
 			item.InstanceID = &instanceID
 		}
-		if binding.Revision != "" {
-			revision := binding.Revision
+		if binding.EditRevision != "" {
+			revision := binding.EditRevision
 			item.Revision = &revision
 		}
 		if binding.InstanceID != "" && binding.Revision != "" {
-			if result := h.collector.ResultForRevision(provider, binding.Revision); result != nil {
+			if result := h.collector.ResultForBinding(binding); result != nil {
 				view := newProviderTrafficAdminResult(*result)
 				item.Result = &view
 			}
 		}
 		providers = append(providers, item)
 	}
+	hosts := make([]providerTrafficHostView, 0, len(settings.Hosts))
+	for _, binding := range settings.Hosts {
+		host := providerTrafficHostView{
+			ID: binding.ID, Provider: string(binding.Provider), Name: binding.Name, Enabled: binding.Enabled,
+			InstanceID: binding.InstanceID, Revision: binding.EditRevision, HalfRemaining: binding.HalfRemaining,
+			CredentialConfigured: binding.CredentialConfigured,
+		}
+		if result := h.collector.ResultForBinding(binding); result != nil {
+			view := newProviderTrafficAdminResult(*result)
+			host.Result = &view
+		}
+		hosts = append(hosts, host)
+	}
 	return providerTrafficSettingsView{
-		Available: true,
-		Enabled:   settings.Enabled,
-		Providers: providers,
+		Available:  true,
+		Enabled:    settings.Enabled,
+		Providers:  providers,
+		Hosts:      hosts,
+		VPSAccount: providerTrafficAccountView{Configured: settings.VPSRevision != "", Revision: settings.VPSRevision},
 	}
 }
 
@@ -300,14 +325,16 @@ func bindingFromProviderTrafficSettings(settings providertraffic.Settings, provi
 
 // emptyProviderTrafficSettings 是模式不可用时的固定响应。
 func emptyProviderTrafficSettings() providerTrafficSettingsView {
-	return providerTrafficSettingsView{Providers: []providerTrafficBindingView{}}
+	return providerTrafficSettingsView{Providers: []providerTrafficBindingView{}, Hosts: []providerTrafficHostView{}}
 }
 
 // providerTrafficSettingsView 是对外 Settings 结构。
 type providerTrafficSettingsView struct {
-	Available bool                         `json:"available"`
-	Enabled   bool                         `json:"enabled"`
-	Providers []providerTrafficBindingView `json:"providers"`
+	Available  bool                         `json:"available"`
+	Enabled    bool                         `json:"enabled"`
+	Providers  []providerTrafficBindingView `json:"providers"`
+	Hosts      []providerTrafficHostView    `json:"hosts"`
+	VPSAccount providerTrafficAccountView   `json:"vps_account"`
 }
 
 // providerTrafficBindingView 是单家对外设置；凭据只以保存标记表示。
@@ -322,28 +349,35 @@ type providerTrafficBindingView struct {
 
 // providerTrafficPublicResult 是首页可见的结果字段，不包含 hint、实例、修订或凭据。
 type providerTrafficPublicResult struct {
-	Provider  string   `json:"provider"`
-	Status    string   `json:"status"`
-	Remaining *float64 `json:"remaining,omitempty"`
-	Unit      string   `json:"unit,omitempty"`
-	SampledAt string   `json:"sampled_at,omitempty"`
-	Message   string   `json:"message,omitempty"`
+	HostID        string   `json:"host_id,omitempty"`
+	Name          string   `json:"name,omitempty"`
+	HalfRemaining bool     `json:"half_remaining,omitempty"`
+	Provider      string   `json:"provider"`
+	Status        string   `json:"status"`
+	Remaining     *float64 `json:"remaining,omitempty"`
+	Unit          string   `json:"unit,omitempty"`
+	SampledAt     string   `json:"sampled_at,omitempty"`
+	Message       string   `json:"message,omitempty"`
 }
 
 // providerTrafficAdminResultView 是管理端结果，可在错误时附安全操作提示。
 type providerTrafficAdminResultView struct {
-	Provider  string   `json:"provider"`
-	Status    string   `json:"status"`
-	Remaining *float64 `json:"remaining,omitempty"`
-	Unit      string   `json:"unit,omitempty"`
-	SampledAt string   `json:"sampled_at,omitempty"`
-	Message   string   `json:"message,omitempty"`
-	Hint      string   `json:"hint,omitempty"`
+	HostID        string   `json:"host_id,omitempty"`
+	Name          string   `json:"name,omitempty"`
+	HalfRemaining bool     `json:"half_remaining,omitempty"`
+	Provider      string   `json:"provider"`
+	Status        string   `json:"status"`
+	Remaining     *float64 `json:"remaining,omitempty"`
+	Unit          string   `json:"unit,omitempty"`
+	SampledAt     string   `json:"sampled_at,omitempty"`
+	Message       string   `json:"message,omitempty"`
+	Hint          string   `json:"hint,omitempty"`
 }
 
 // newProviderTrafficPublicResult 按状态只输出合同允许的公共字段。
 func newProviderTrafficPublicResult(result providertraffic.Result) providerTrafficPublicResult {
-	view := providerTrafficPublicResult{Provider: string(result.Provider), Status: string(result.Status)}
+	view := providerTrafficPublicResult{Provider: string(result.Provider), Status: string(result.Status),
+		HostID: result.HostID, Name: result.Name, HalfRemaining: result.HalfRemaining}
 	switch result.Status {
 	case providertraffic.ResultOK:
 		remaining := result.Remaining
@@ -360,6 +394,7 @@ func newProviderTrafficPublicResult(result providertraffic.Result) providerTraff
 func newProviderTrafficAdminResult(result providertraffic.Result) providerTrafficAdminResultView {
 	public := newProviderTrafficPublicResult(result)
 	view := providerTrafficAdminResultView{
+		HostID: public.HostID, Name: public.Name, HalfRemaining: public.HalfRemaining,
 		Provider:  public.Provider,
 		Status:    public.Status,
 		Remaining: public.Remaining,
@@ -511,8 +546,12 @@ func failProviderTraffic(c *gin.Context, err error) {
 		Fail(c, http.StatusBadRequest, "未知的服务商")
 	case errors.Is(err, providertraffic.ErrInvalidInstanceID),
 		errors.Is(err, providertraffic.ErrInvalidCredential),
-		errors.Is(err, providertraffic.ErrCredentialRequired):
+		errors.Is(err, providertraffic.ErrCredentialRequired),
+		errors.Is(err, providertraffic.ErrInvalidHostName):
 		Fail(c, http.StatusBadRequest, err.Error())
+	case errors.Is(err, providertraffic.ErrDuplicateInstance), errors.Is(err, providertraffic.ErrVPSHostsExist),
+		errors.Is(err, providertraffic.ErrVPSAccountRequired), errors.Is(err, providertraffic.ErrVPSSharedCredential):
+		Fail(c, http.StatusConflict, err.Error())
 	case errors.Is(err, providertraffic.ErrRevisionConflict):
 		Fail(c, http.StatusConflict, "绑定修订冲突")
 	case errors.Is(err, providertraffic.ErrCollectorBusy):
@@ -539,7 +578,11 @@ func isProviderTrafficAPIPath(fullPath string) bool {
 	case "/api/home/provider-traffic",
 		"/api/admin/settings/provider-traffic",
 		"/api/admin/settings/provider-traffic/:provider",
-		"/api/admin/settings/provider-traffic/:provider/refresh":
+		"/api/admin/settings/provider-traffic/:provider/refresh",
+		"/api/admin/settings/provider-traffic/hosts/:provider",
+		"/api/admin/settings/provider-traffic/hosts/:provider/:host",
+		"/api/admin/settings/provider-traffic/hosts/:provider/:host/refresh",
+		"/api/admin/settings/provider-traffic/accounts/vps":
 		return true
 	default:
 		return false

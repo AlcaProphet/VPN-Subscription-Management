@@ -13,7 +13,7 @@ import (
 const rotationCommitTimeout = 5 * time.Second
 
 // cachedAccessToken 是 V.P.S Access Token 的唯一内存缓存。
-// 缓存以绑定修订为键；修订不匹配或已过期时不得复用。
+// 缓存以账号修订为键；修订不匹配或已过期时不得复用。
 type cachedAccessToken struct {
 	revision  string
 	token     string

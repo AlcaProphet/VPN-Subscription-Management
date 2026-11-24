@@ -1,7 +1,4 @@
-// Package providertraffic 提供基础模式服务器剩余流量的本地存储、绑定管理、固定上游客户端与采集编排。
-// 本阶段包含 SQLite 功能表读写、绑定修订校验、凭据加解密、KiwiVM／V.P.S 两个固定客户端、
-// 固定周期采集、同家单飞与配置触发合并、内存结果槽及 V.P.S Access Token 缓存；
-// HTTP 接口与正式服务装配由后续 Step 接入。
+// Package providertraffic 提供基础模式服务器剩余流量的绑定管理与采集。
 package providertraffic
 
 import (
@@ -14,6 +11,10 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"unicode/utf8"
+
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 
 	"vpn-sub/internal/config"
 	"vpn-sub/internal/store"
@@ -39,7 +40,12 @@ var (
 	// ErrCredentialRequired 表示首次绑定或更换实例时未提交凭据。
 	ErrCredentialRequired = errors.New("首次绑定或更换实例必须填写凭据")
 	// ErrRevisionConflict 表示绑定修订缺失、为空或与当前绑定不匹配。
-	ErrRevisionConflict = errors.New("绑定修订冲突")
+	ErrRevisionConflict    = errors.New("绑定修订冲突")
+	ErrInvalidHostName     = errors.New("主机名称必须为 1 到 64 个字符")
+	ErrDuplicateInstance   = errors.New("该实例已添加")
+	ErrVPSAccountRequired  = errors.New("请先保存 V.PS 账号凭据")
+	ErrVPSHostsExist       = errors.New("请先解除所有 V.PS 主机绑定")
+	ErrVPSSharedCredential = errors.New("请在 V.PS 账号设置中管理共享凭据")
 )
 
 // CredentialInput 表示一次绑定保存请求中的凭据字段。
@@ -63,6 +69,10 @@ type SaveBindingInput struct {
 
 // ProviderBinding 是单家已提交的本地状态；不包含凭据密文。
 type ProviderBinding struct {
+	ID                   string
+	Name                 string
+	HalfRemaining        bool
+	EditRevision         string
 	Provider             Provider
 	Enabled              bool
 	InstanceID           string
@@ -72,8 +82,35 @@ type ProviderBinding struct {
 
 // Settings 是两家固定顺序的本地设置；无功能表记录时返回默认关闭且未绑定。
 type Settings struct {
-	Enabled   bool
-	Providers []ProviderBinding
+	Enabled     bool
+	Providers   []ProviderBinding
+	Hosts       []ProviderBinding
+	VPSRevision string
+}
+
+type hostKey struct {
+	provider Provider
+	id       string
+}
+
+func legacyKey(provider Provider) hostKey {
+	return hostKey{provider: provider, id: string(provider)}
+}
+
+func (b ProviderBinding) key() hostKey {
+	return hostKey{provider: b.Provider, id: b.ID}
+}
+
+// SaveHostInput 保存一个主机。ID 为空时新建，修改时校验编辑修订。
+type SaveHostInput struct {
+	Provider      Provider
+	ID            string
+	Name          string
+	Enabled       bool
+	HalfRemaining bool
+	InstanceID    string
+	Revision      *string
+	Credential    CredentialInput
 }
 
 type settingsChange struct {
@@ -120,7 +157,7 @@ func (s *Service) setEnabled(ctx context.Context, enabled bool) (settingsChange,
 }
 
 // SaveBinding 在单个 TxImmediate 事务内完成当前绑定读取、修订校验、凭据加密和写入。
-// 首次绑定要求 revision=null 且提交凭据；同一实例省略凭据表示保留当前密文与修订。
+// 首次绑定要求 revision=null 且提交凭据；已有绑定按编辑修订校验。
 // 正常服务的设置入口使用 Collector.SaveBinding 交接调度。
 func (s *Service) SaveBinding(ctx context.Context, in SaveBindingInput) (Settings, error) {
 	change, err := s.saveBinding(ctx, in)
@@ -128,97 +165,222 @@ func (s *Service) SaveBinding(ctx context.Context, in SaveBindingInput) (Setting
 }
 
 func (s *Service) saveBinding(ctx context.Context, in SaveBindingInput) (settingsChange, error) {
-	cols, err := columnsFor(in.Provider)
-	if err != nil {
-		return settingsChange{}, err
+	return s.saveHost(ctx, SaveHostInput{
+		Provider: in.Provider, ID: string(in.Provider), Enabled: in.Enabled,
+		InstanceID: in.InstanceID, Revision: in.Revision, Credential: in.Credential,
+	}, true)
+}
+
+func (s *Service) saveHost(ctx context.Context, in SaveHostInput, legacy bool) (settingsChange, error) {
+	if providerIndex(in.Provider) < 0 {
+		return settingsChange{}, ErrUnknownProvider
 	}
 	if !validInstanceID(in.InstanceID) {
 		return settingsChange{}, ErrInvalidInstanceID
 	}
+	in.Name = strings.TrimSpace(in.Name)
+	if !legacy && (in.Name == "" || utf8.RuneCountInString(in.Name) > 64 || strings.ContainsRune(in.Name, 0)) {
+		return settingsChange{}, ErrInvalidHostName
+	}
 	if err := validateCredentialInput(in.Credential); err != nil {
 		return settingsChange{}, err
+	}
+	if !legacy && in.Provider == ProviderVPS && !in.Credential.Omitted {
+		return settingsChange{}, ErrInvalidCredential
 	}
 	return s.changeSettings(ctx, func(tx *sql.Tx) error {
 		if err := ensureSettingsRow(ctx, tx); err != nil {
 			return err
 		}
-		current, err := readBinding(ctx, tx, cols)
+		key := hostKey{provider: in.Provider, id: in.ID}
+		current, err := readHost(ctx, tx, key)
 		if err != nil {
 			return err
 		}
-		if !current.Bound {
-			// 首次绑定：修订必须为 null，且必须提交凭据。
-			if in.Revision != nil {
-				return ErrRevisionConflict
-			}
-			if in.Credential.Omitted {
-				return ErrCredentialRequired
-			}
-		} else {
-			// 修改绑定：必须匹配当前非空修订；更换实例必须提交新凭据。
-			if in.Revision == nil || *in.Revision == "" || *in.Revision != current.Revision {
-				return ErrRevisionConflict
-			}
-			if in.InstanceID != current.InstanceID && in.Credential.Omitted {
-				return ErrCredentialRequired
+		creating := current.ID == ""
+		if legacy {
+			in.Name = current.Name
+			in.HalfRemaining = current.HalfRemaining
+			if creating {
+				in.Name = providerLabel(in.Provider)
 			}
 		}
-		credentialCiphertext := current.CredentialCiphertext
-		revision := current.Revision
-		if !in.Credential.Omitted {
-			ciphertext, err := s.cfg.EncryptWithTx(ctx, tx, in.Credential.Value)
-			if err != nil {
-				return fmt.Errorf("加密服务商凭据失败: %w", err)
+		if creating {
+			if in.Revision != nil || (!legacy && in.ID != "") {
+				return ErrRevisionConflict
 			}
-			newRevision, err := s.newRevision()
+			if !legacy {
+				key.id, err = generateRevision()
+				if err != nil {
+					return fmt.Errorf("生成主机标识失败: %w", err)
+				}
+			}
+		} else if in.Revision == nil || *in.Revision != current.EditRevision {
+			return ErrRevisionConflict
+		}
+		targetChanged := creating || current.InstanceID != in.InstanceID
+		if (in.Provider == ProviderKiwiVM || legacy) && targetChanged && in.Credential.Omitted {
+			return ErrCredentialRequired
+		}
+
+		if in.Provider == ProviderVPS {
+			var account sql.NullString
+			if err := tx.QueryRowContext(ctx, `SELECT vps_revision FROM provider_traffic_settings WHERE id = 1`).Scan(&account); err != nil {
+				return fmt.Errorf("读取 V.PS 账号修订失败: %w", err)
+			}
+			if legacy && !in.Credential.Omitted {
+				var otherHosts bool
+				if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM provider_traffic_hosts
+					WHERE provider = 'vps' AND id <> ?)`, key.id).Scan(&otherHosts); err != nil {
+					return fmt.Errorf("检查 V.PS 主机失败: %w", err)
+				}
+				if otherHosts {
+					return ErrVPSSharedCredential
+				}
+			} else if !account.Valid {
+				return ErrVPSAccountRequired
+			}
+		}
+
+		revision := current.Revision
+		if targetChanged || !in.Credential.Omitted {
+			revision, err = s.newRevision()
 			if err != nil {
 				return fmt.Errorf("生成绑定修订失败: %w", err)
 			}
-			credentialCiphertext = ciphertext
-			revision = newRevision
 		}
-		query := fmt.Sprintf(
-			`UPDATE provider_traffic_settings SET %s = ?, %s = ?, %s = ?, %s = ? WHERE id = 1`,
-			cols.enabled, cols.instanceID, cols.credential, cols.revision)
-		if _, err := tx.ExecContext(ctx, query,
-			boolToInt(in.Enabled), in.InstanceID, credentialCiphertext, revision); err != nil {
-			return fmt.Errorf("保存服务商绑定失败: %w", err)
+		editRevision := current.EditRevision
+		if revision != current.Revision {
+			editRevision = revision
+		} else if in.Name != current.Name || in.Enabled != current.Enabled || in.HalfRemaining != current.HalfRemaining {
+			editRevision, err = s.newRevision()
+			if err != nil {
+				return fmt.Errorf("生成设置修订失败: %w", err)
+			}
+		}
+		ciphertext := current.Ciphertext
+		if !in.Credential.Omitted {
+			encrypted, err := s.cfg.EncryptWithTx(ctx, tx, in.Credential.Value)
+			if err != nil {
+				return fmt.Errorf("加密服务商凭据失败: %w", err)
+			}
+			if in.Provider == ProviderVPS {
+				if err := writeVPSAccount(ctx, tx, encrypted, revision); err != nil {
+					return err
+				}
+			} else {
+				ciphertext = sql.NullString{String: encrypted, Valid: true}
+			}
+		}
+		query := `INSERT INTO provider_traffic_hosts
+			(provider, instance_id, name, enabled, half_remaining, credential_ciphertext, revision, edit_revision, id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		if !creating {
+			query = `UPDATE provider_traffic_hosts SET provider = ?, instance_id = ?, name = ?, enabled = ?,
+				half_remaining = ?, credential_ciphertext = ?, revision = ?, edit_revision = ? WHERE id = ?`
+		}
+		_, err = tx.ExecContext(ctx, query, key.provider, in.InstanceID, in.Name, boolToInt(in.Enabled),
+			boolToInt(in.HalfRemaining), ciphertext, revision, editRevision, key.id)
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE {
+			return ErrDuplicateInstance
+		}
+		if err != nil {
+			return fmt.Errorf("保存服务商主机失败: %w", err)
 		}
 		return nil
 	})
 }
 
-// ClearBinding 按当前非空修订解除单家绑定：清除实例、密文、修订与单家开关，保留总开关和另一家。
-// 正常服务的设置入口使用 Collector.ClearBinding 清理内存状态。
+func providerLabel(provider Provider) string {
+	if provider == ProviderKiwiVM {
+		return "搬瓦工"
+	}
+	return "V.PS"
+}
+
+// ClearBinding 解除旧版接口对应的单台主机。
 func (s *Service) ClearBinding(ctx context.Context, provider Provider, revision string) (Settings, error) {
-	change, err := s.clearBinding(ctx, provider, revision)
+	change, err := s.clearHost(ctx, legacyKey(provider), revision, true)
 	return change.after, err
 }
 
-func (s *Service) clearBinding(ctx context.Context, provider Provider, revision string) (settingsChange, error) {
-	cols, err := columnsFor(provider)
-	if err != nil {
-		return settingsChange{}, err
+func (s *Service) clearHost(ctx context.Context, key hostKey, revision string, legacy bool) (settingsChange, error) {
+	if providerIndex(key.provider) < 0 {
+		return settingsChange{}, ErrUnknownProvider
 	}
 	if revision == "" {
 		return settingsChange{}, ErrRevisionConflict
 	}
 	return s.changeSettings(ctx, func(tx *sql.Tx) error {
-		current, err := readBinding(ctx, tx, cols)
+		current, err := readHost(ctx, tx, key)
 		if err != nil {
 			return err
 		}
-		if !current.Bound || current.Revision != revision {
+		if current.EditRevision != revision {
 			return ErrRevisionConflict
 		}
-		query := fmt.Sprintf(
-			`UPDATE provider_traffic_settings SET %s = 0, %s = NULL, %s = NULL, %s = NULL WHERE id = 1`,
-			cols.enabled, cols.instanceID, cols.credential, cols.revision)
-		if _, err := tx.ExecContext(ctx, query); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM provider_traffic_hosts WHERE id = ?`, key.id); err != nil {
 			return fmt.Errorf("解除服务商绑定失败: %w", err)
+		}
+		if legacy && key.provider == ProviderVPS {
+			if _, err := tx.ExecContext(ctx, `UPDATE provider_traffic_settings
+				SET vps_credential_ciphertext = NULL, vps_revision = NULL WHERE id = 1
+				AND NOT EXISTS (SELECT 1 FROM provider_traffic_hosts WHERE provider = 'vps')`); err != nil {
+				return fmt.Errorf("清除 V.PS 账号失败: %w", err)
+			}
 		}
 		return nil
 	})
+}
+
+func (s *Service) saveVPSAccount(ctx context.Context, revision, credential string) (settingsChange, error) {
+	return s.changeSettings(ctx, func(tx *sql.Tx) error {
+		if err := ensureSettingsRow(ctx, tx); err != nil {
+			return err
+		}
+		var current sql.NullString
+		if err := tx.QueryRowContext(ctx, `SELECT vps_revision FROM provider_traffic_settings WHERE id = 1`).Scan(&current); err != nil {
+			return fmt.Errorf("读取 V.PS 账号修订失败: %w", err)
+		}
+		if current.String != revision {
+			return ErrRevisionConflict
+		}
+		if credential == "" {
+			var hasHosts bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM provider_traffic_hosts WHERE provider = 'vps')`).Scan(&hasHosts); err != nil {
+				return fmt.Errorf("检查 V.PS 主机失败: %w", err)
+			}
+			if hasHosts {
+				return ErrVPSHostsExist
+			}
+			return writeVPSAccount(ctx, tx, nil, nil)
+		}
+		ciphertext, err := s.cfg.EncryptWithTx(ctx, tx, credential)
+		if err != nil {
+			return fmt.Errorf("加密 V.PS 账号凭据失败: %w", err)
+		}
+		next, err := s.newRevision()
+		if err != nil {
+			return fmt.Errorf("生成 V.PS 账号修订失败: %w", err)
+		}
+		if err := writeVPSAccount(ctx, tx, ciphertext, next); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE provider_traffic_hosts SET revision = lower(hex(randomblob(16))),
+			edit_revision = lower(hex(randomblob(16))) WHERE provider = 'vps'`); err != nil {
+			return fmt.Errorf("更新 V.PS 主机修订失败: %w", err)
+		}
+		return nil
+	})
+}
+
+func writeVPSAccount(ctx context.Context, tx *sql.Tx, ciphertext, revision any) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE provider_traffic_settings
+		SET vps_credential_ciphertext = ?, vps_revision = ? WHERE id = 1`, ciphertext, revision); err != nil {
+		return fmt.Errorf("保存 V.PS 账号凭据失败: %w", err)
+	}
+	return nil
 }
 
 // changeSettings 在同一写事务内验证模式并记录变更前后状态，只交付成功提交的变化。
@@ -297,12 +459,18 @@ func (s *Service) readBoolTx(ctx context.Context, tx *sql.Tx, key string) (bool,
 	return v, nil
 }
 
-// UpdateCredentialByRevision 仅按当前非空修订条件更新已有绑定的凭据密文。
-// 修订不匹配时影响零行并返回 false；不改变修订号、开关和实例 ID。
+// UpdateCredentialByRevision 提交当前账号的续期结果，不改变账号修订。
 func (s *Service) UpdateCredentialByRevision(ctx context.Context, provider Provider, revision, credential string) (bool, error) {
-	cols, err := columnsFor(provider)
-	if err != nil {
-		return false, err
+	var check, update string
+	switch provider {
+	case ProviderVPS:
+		check = `SELECT 1 FROM provider_traffic_settings WHERE id = 1 AND vps_revision = ?`
+		update = `UPDATE provider_traffic_settings SET vps_credential_ciphertext = ? WHERE id = 1 AND vps_revision = ?`
+	case ProviderKiwiVM:
+		check = `SELECT 1 FROM provider_traffic_hosts WHERE id = 'kiwivm' AND revision = ?`
+		update = `UPDATE provider_traffic_hosts SET credential_ciphertext = ? WHERE id = 'kiwivm' AND revision = ?`
+	default:
+		return false, ErrUnknownProvider
 	}
 	if revision == "" {
 		return false, nil
@@ -311,176 +479,150 @@ func (s *Service) UpdateCredentialByRevision(ctx context.Context, provider Provi
 		return false, ErrInvalidCredential
 	}
 	var updated bool
-	err = s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
-		// 先在同事务内确认修订仍匹配，避免零行时仍生成签名密钥或密文。
+	err := s.store.TxImmediate(ctx, func(tx *sql.Tx) error {
 		var one int
-		check := fmt.Sprintf(
-			`SELECT 1 FROM provider_traffic_settings WHERE id = 1 AND %s = ? AND %s IS NOT NULL`,
-			cols.revision, cols.instanceID)
 		err := tx.QueryRowContext(ctx, check, revision).Scan(&one)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("校验服务商绑定修订失败: %w", err)
+			return fmt.Errorf("校验服务商凭据修订失败: %w", err)
 		}
 		ciphertext, err := s.cfg.EncryptWithTx(ctx, tx, credential)
 		if err != nil {
 			return fmt.Errorf("加密服务商凭据失败: %w", err)
 		}
-		query := fmt.Sprintf(
-			`UPDATE provider_traffic_settings SET %s = ? WHERE id = 1 AND %s = ? AND %s IS NOT NULL`,
-			cols.credential, cols.revision, cols.instanceID)
-		result, err := tx.ExecContext(ctx, query, ciphertext, revision)
-		if err != nil {
+		if _, err := tx.ExecContext(ctx, update, ciphertext, revision); err != nil {
 			return fmt.Errorf("更新服务商凭据失败: %w", err)
 		}
-		affected, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("读取服务商凭据更新结果失败: %w", err)
-		}
-		updated = affected > 0
+		updated = true
 		return nil
 	})
 	return updated, err
 }
 
-// LoadCredential 读取并解密当前绑定的凭据，仅供后续采集模块在进程内使用。
-// 返回的明文不得进入响应、日志或导出。
+// LoadCredential 读取旧版绑定，仅供采集模块和绑定校验使用。
 func (s *Service) LoadCredential(ctx context.Context, provider Provider) (instanceID, revision, credential string, err error) {
-	cols, err := columnsFor(provider)
+	if providerIndex(provider) < 0 {
+		return "", "", "", ErrUnknownProvider
+	}
+	binding, err := readHost(ctx, s.store.DB(), legacyKey(provider))
 	if err != nil {
 		return "", "", "", err
 	}
-	query := fmt.Sprintf(
-		`SELECT %s, %s, %s FROM provider_traffic_settings WHERE id = 1`,
-		cols.instanceID, cols.credential, cols.revision)
-	var instance, ciphertext, currentRevision sql.NullString
-	err = s.store.DB().QueryRowContext(ctx, query).Scan(&instance, &ciphertext, &currentRevision)
-	if errors.Is(err, sql.ErrNoRows) {
+	if binding.ID == "" {
 		return "", "", "", ErrNotBound
+	}
+	credentialRevision := binding.Revision
+	if provider == ProviderVPS {
+		credentialRevision = binding.VPSRevision
+	}
+	credential, err = s.loadCredential(ctx, binding.key(), credentialRevision)
+	if err != nil {
+		return "", "", "", err
+	}
+	return binding.InstanceID, binding.Revision, credential, nil
+}
+
+func (s *Service) loadCredential(ctx context.Context, key hostKey, revision string) (string, error) {
+	var ciphertext string
+	var err error
+	if key.provider == ProviderVPS {
+		err = s.store.DB().QueryRowContext(ctx, `SELECT vps_credential_ciphertext
+			FROM provider_traffic_settings WHERE id = 1 AND vps_revision = ?`, revision).Scan(&ciphertext)
+	} else {
+		err = s.store.DB().QueryRowContext(ctx, `SELECT credential_ciphertext
+			FROM provider_traffic_hosts WHERE id = ? AND provider = ? AND revision = ?`,
+			key.id, key.provider, revision).Scan(&ciphertext)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotBound
 	}
 	if err != nil {
-		return "", "", "", fmt.Errorf("读取服务商绑定失败: %w", err)
-	}
-	if !instance.Valid || !ciphertext.Valid || !currentRevision.Valid ||
-		instance.String == "" || ciphertext.String == "" || currentRevision.String == "" {
-		return "", "", "", ErrNotBound
+		return "", fmt.Errorf("读取服务商凭据失败: %w", err)
 	}
 	signingKey, err := s.cfg.GetSigningKey(ctx)
 	if err != nil {
-		return "", "", "", fmt.Errorf("读取签名密钥失败: %w", err)
+		return "", fmt.Errorf("读取签名密钥失败: %w", err)
 	}
-	plain, err := config.Decrypt(ciphertext.String, signingKey)
+	plain, err := config.Decrypt(ciphertext, signingKey)
 	if err != nil {
-		return "", "", "", fmt.Errorf("解密服务商凭据失败: %w", err)
+		return "", fmt.Errorf("解密服务商凭据失败: %w", err)
 	}
-	return instance.String, currentRevision.String, string(plain), nil
-}
-
-type providerColumns struct {
-	enabled    string
-	instanceID string
-	credential string
-	revision   string
-}
-
-func columnsFor(provider Provider) (providerColumns, error) {
-	switch provider {
-	case ProviderKiwiVM:
-		return providerColumns{
-			enabled:    "kiwivm_enabled",
-			instanceID: "kiwivm_instance_id",
-			credential: "kiwivm_credential_ciphertext",
-			revision:   "kiwivm_revision",
-		}, nil
-	case ProviderVPS:
-		return providerColumns{
-			enabled:    "vps_enabled",
-			instanceID: "vps_instance_id",
-			credential: "vps_credential_ciphertext",
-			revision:   "vps_revision",
-		}, nil
-	default:
-		return providerColumns{}, ErrUnknownProvider
-	}
+	return string(plain), nil
 }
 
 type rowQuerier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 func readSettings(ctx context.Context, q rowQuerier) (Settings, error) {
-	var enabled, kiwivmEnabled, vpsEnabled int
-	var kiwivmInstance, kiwivmCredential, kiwivmRevision sql.NullString
-	var vpsInstance, vpsCredential, vpsRevision sql.NullString
-	err := q.QueryRowContext(ctx,
-		`SELECT enabled, kiwivm_enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision,
-		        vps_enabled, vps_instance_id, vps_credential_ciphertext, vps_revision
-		 FROM provider_traffic_settings WHERE id = 1`).Scan(
-		&enabled, &kiwivmEnabled, &kiwivmInstance, &kiwivmCredential, &kiwivmRevision,
-		&vpsEnabled, &vpsInstance, &vpsCredential, &vpsRevision,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return defaultSettings(), nil
+	settings := Settings{
+		Providers: []ProviderBinding{{Provider: ProviderKiwiVM}, {Provider: ProviderVPS}},
+		Hosts:     []ProviderBinding{},
 	}
+	rows, err := q.QueryContext(ctx, `SELECT s.enabled, s.vps_revision, h.id, h.provider,
+		h.instance_id, h.name, h.enabled, h.half_remaining, h.revision, h.edit_revision
+		FROM provider_traffic_settings s LEFT JOIN provider_traffic_hosts h ON h.settings_id = s.id
+		WHERE s.id = 1 ORDER BY h.provider, h.rowid`)
 	if err != nil {
 		return Settings{}, fmt.Errorf("读取服务器剩余流量设置失败: %w", err)
 	}
-	return Settings{
-		Enabled: enabled == 1,
-		Providers: []ProviderBinding{
-			bindingFromRow(ProviderKiwiVM, kiwivmEnabled, kiwivmInstance, kiwivmCredential, kiwivmRevision),
-			bindingFromRow(ProviderVPS, vpsEnabled, vpsInstance, vpsCredential, vpsRevision),
-		},
-	}, nil
-}
-
-func bindingFromRow(provider Provider, enabled int, instance, credential, revision sql.NullString) ProviderBinding {
-	bound := instance.Valid && instance.String != "" &&
-		credential.Valid && credential.String != "" &&
-		revision.Valid && revision.String != ""
-	if !bound {
-		return ProviderBinding{Provider: provider}
+	defer rows.Close()
+	for rows.Next() {
+		var enabled bool
+		var account, id, provider, instance, name, revision, editRevision sql.NullString
+		var hostEnabled, half sql.NullBool
+		if err := rows.Scan(&enabled, &account, &id, &provider, &instance, &name,
+			&hostEnabled, &half, &revision, &editRevision); err != nil {
+			return Settings{}, fmt.Errorf("读取服务器剩余流量主机失败: %w", err)
+		}
+		settings.Enabled = enabled
+		settings.VPSRevision = account.String
+		if !id.Valid {
+			continue
+		}
+		binding := ProviderBinding{
+			ID: id.String, Provider: Provider(provider.String), InstanceID: instance.String,
+			Name: name.String, Enabled: hostEnabled.Bool, HalfRemaining: half.Bool,
+			Revision: revision.String, EditRevision: editRevision.String,
+			CredentialConfigured: Provider(provider.String) == ProviderKiwiVM || account.Valid,
+		}
+		settings.Hosts = append(settings.Hosts, binding)
+		if binding.ID == string(binding.Provider) {
+			settings.Providers[providerIndex(binding.Provider)] = binding
+		}
 	}
-	return ProviderBinding{
-		Provider:             provider,
-		Enabled:              enabled == 1,
-		InstanceID:           instance.String,
-		Revision:             revision.String,
-		CredentialConfigured: true,
+	if err := rows.Err(); err != nil {
+		return Settings{}, fmt.Errorf("读取服务器剩余流量设置失败: %w", err)
 	}
+	return settings, nil
 }
 
-type bindingRow struct {
-	Bound                bool
-	InstanceID           string
-	CredentialCiphertext string
-	Revision             string
+type hostRow struct {
+	ProviderBinding
+	Ciphertext  sql.NullString
+	VPSRevision string
 }
 
-func readBinding(ctx context.Context, tx *sql.Tx, cols providerColumns) (bindingRow, error) {
-	query := fmt.Sprintf(
-		`SELECT %s, %s, %s FROM provider_traffic_settings WHERE id = 1`,
-		cols.instanceID, cols.credential, cols.revision)
-	var instance, credential, revision sql.NullString
-	err := tx.QueryRowContext(ctx, query).Scan(&instance, &credential, &revision)
+func readHost(ctx context.Context, q rowQuerier, key hostKey) (hostRow, error) {
+	host := hostRow{ProviderBinding: ProviderBinding{Provider: key.provider}}
+	var account sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT h.id, h.instance_id, h.name, h.enabled, h.half_remaining,
+		h.credential_ciphertext, h.revision, h.edit_revision, s.vps_revision
+		FROM provider_traffic_hosts h JOIN provider_traffic_settings s ON s.id = h.settings_id
+		WHERE h.id = ? AND h.provider = ?`, key.id, key.provider).Scan(
+		&host.ID, &host.InstanceID, &host.Name, &host.Enabled, &host.HalfRemaining,
+		&host.Ciphertext, &host.Revision, &host.EditRevision, &account)
 	if errors.Is(err, sql.ErrNoRows) {
-		return bindingRow{}, nil
+		return hostRow{}, nil
 	}
 	if err != nil {
-		return bindingRow{}, fmt.Errorf("读取服务商绑定失败: %w", err)
+		return hostRow{}, fmt.Errorf("读取服务商主机失败: %w", err)
 	}
-	if !instance.Valid || !credential.Valid || !revision.Valid ||
-		instance.String == "" || credential.String == "" || revision.String == "" {
-		return bindingRow{}, nil
-	}
-	return bindingRow{
-		Bound:                true,
-		InstanceID:           instance.String,
-		CredentialCiphertext: credential.String,
-		Revision:             revision.String,
-	}, nil
+	host.VPSRevision = account.String
+	return host, nil
 }
 
 func ensureSettingsRow(ctx context.Context, tx *sql.Tx) error {
@@ -489,13 +631,6 @@ func ensureSettingsRow(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("初始化服务器剩余流量设置失败: %w", err)
 	}
 	return nil
-}
-
-func defaultSettings() Settings {
-	return Settings{Providers: []ProviderBinding{
-		{Provider: ProviderKiwiVM},
-		{Provider: ProviderVPS},
-	}}
 }
 
 func validateCredentialInput(input CredentialInput) error {

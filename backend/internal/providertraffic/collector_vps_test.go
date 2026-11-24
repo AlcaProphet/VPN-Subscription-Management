@@ -19,11 +19,11 @@ func TestCollectorVPSTokenExpiresDuringEligibilityRead(t *testing.T) {
 	h.waitCycle(t)
 	h.waitIdle(t)
 	h.setTotal(t, true)
-	binding, _ := bindingFromSettings(settings, ProviderVPS)
+	binding := settings.Providers[1]
 	expiry := h.clock.Now().Add(time.Minute)
 	oldAccess := syntheticJWTValue(t, map[string]any{"exp": expiry.Unix()})
 	newAccess := syntheticJWTValue(t, map[string]any{"exp": expiry.Add(time.Hour).Unix()})
-	h.c.cacheToken(binding.revision, oldAccess)
+	h.c.cacheToken(settings.VPSRevision, oldAccess)
 
 	var refreshes, queries atomic.Int32
 	h.c.vps = &fakeVPS{
@@ -63,7 +63,10 @@ func TestCollectorVPSTokenExpiresDuringEligibilityRead(t *testing.T) {
 		}()
 		waitCount := db.Stats().WaitCount
 		go func() {
-			result, err := h.c.collectVPS(ctx, ctx, binding, "synthetic-original-refresh")
+			result, err := h.c.collect(ctx, legacyKey(ProviderVPS), &manualCollection{
+				requestCtx: ctx,
+				revision:   collectionRevision{binding: binding.Revision, edit: binding.EditRevision},
+			})
 			out <- manualOutcome{result: result, err: err}
 		}()
 		waitForCondition(t, 5*time.Second, func() bool { return db.Stats().WaitCount > waitCount }, "出站资格复核等待数据库连接")

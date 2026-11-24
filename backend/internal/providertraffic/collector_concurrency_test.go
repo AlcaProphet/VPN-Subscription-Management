@@ -465,7 +465,7 @@ func TestCollectorRestartLosesMemory(t *testing.T) {
 	waitForCondition(t, 5*time.Second, func() bool {
 		c2.mu.Lock()
 		defer c2.mu.Unlock()
-		return !c2.state[0].busy && !c2.state[1].busy
+		return !hostState(c2, ProviderKiwiVM).busy && !hostState(c2, ProviderVPS).busy
 	}, "重启采集器空闲")
 
 	if got := kiwiCalls.Load(); got != 1 {
@@ -802,10 +802,15 @@ func TestCollectorManualChainKeepsAdmittedRevision(t *testing.T) {
 	h.waitIdle(t)
 	h.setTotal(t, true)
 	ctx := context.Background()
-	manual := &manualCollection{requestCtx: ctx, revision: initial.Providers[0].Revision, outcome: make(chan chainOutcome, 1)}
+	host := initial.Providers[0]
+	manual := &manualCollection{
+		requestCtx: ctx,
+		revision:   collectionRevision{binding: host.Revision, edit: host.EditRevision},
+		outcome:    make(chan chainOutcome, 1),
+	}
 	// 手动入口确认原修订后、采集链读取绑定前，有另一笔改绑提交。
 	h.saveBinding(t, ProviderKiwiVM, true, "1002", "synthetic-other-kiwivm-key")
-	if err := h.c.startChain(ctx, ProviderKiwiVM, triggerManual, manual); err != nil {
+	if err := h.c.startHostChain(ctx, legacyKey(ProviderKiwiVM), triggerManual, manual); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -825,8 +830,8 @@ func TestCollectorManualRejectsStaleRequestedRevision(t *testing.T) {
 	h.setConfigured(t, true)
 	h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-old-key")
 	h.saveBinding(t, ProviderVPS, true, "2002", "synthetic-old-refresh")
-	kiwiRevision := h.bindingRevision(t, ProviderKiwiVM)
-	vpsRevision := h.bindingRevision(t, ProviderVPS)
+	kiwiRevision := h.editRevision(t, ProviderKiwiVM)
+	vpsRevision := h.editRevision(t, ProviderVPS)
 	h.saveBinding(t, ProviderKiwiVM, true, "1001", "synthetic-new-key")
 	h.saveBinding(t, ProviderVPS, true, "2003", "synthetic-new-refresh")
 

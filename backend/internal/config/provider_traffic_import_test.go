@@ -21,9 +21,13 @@ import (
 func insertProviderTrafficBinding(t *testing.T, st *store.Store, instanceID, ciphertext string) {
 	t.Helper()
 	if _, err := st.DB().ExecContext(context.Background(),
-		`INSERT INTO provider_traffic_settings
-		 (id, enabled, kiwivm_enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision)
-		 VALUES (1, 1, 1, ?, ?, 'synthetic-revision')`, instanceID, ciphertext); err != nil {
+		`INSERT INTO provider_traffic_settings (id, enabled) VALUES (1, 1)`); err != nil {
+		t.Fatalf("写入功能设置失败: %v", err)
+	}
+	if _, err := st.DB().ExecContext(context.Background(),
+		`INSERT INTO provider_traffic_hosts
+		 (id, provider, name, instance_id, enabled, credential_ciphertext, revision, edit_revision)
+		 VALUES ('kiwivm', 'kiwivm', 'JP01', ?, 1, ?, 'synthetic-revision', 'synthetic-edit')`, instanceID, ciphertext); err != nil {
 		t.Fatalf("写入功能绑定失败: %v", err)
 	}
 }
@@ -31,7 +35,7 @@ func insertProviderTrafficBinding(t *testing.T, st *store.Store, instanceID, cip
 func providerTrafficRows(t *testing.T, st *store.Store) int {
 	t.Helper()
 	var rows int
-	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM provider_traffic_settings`).Scan(&rows); err != nil {
+	if err := st.DB().QueryRow(`SELECT (SELECT COUNT(*) FROM provider_traffic_settings) + (SELECT COUNT(*) FROM provider_traffic_hosts)`).Scan(&rows); err != nil {
 		t.Fatalf("查询功能绑定失败: %v", err)
 	}
 	return rows
@@ -141,8 +145,7 @@ func TestImportV1RollbackPreservesProviderTrafficBinding(t *testing.T) {
 	}
 	var instanceID, ciphertext, revision string
 	if err := target.DB().QueryRow(
-		`SELECT kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision
-		 FROM provider_traffic_settings WHERE id = 1`).Scan(&instanceID, &ciphertext, &revision); err != nil {
+		`SELECT instance_id, credential_ciphertext, revision FROM provider_traffic_hosts WHERE id = 'kiwivm'`).Scan(&instanceID, &ciphertext, &revision); err != nil {
 		t.Fatalf("回滚后读取功能绑定失败: %v", err)
 	}
 	if instanceID != "900000004" || ciphertext != "synthetic-ciphertext-900000004" || revision != "synthetic-revision" {
@@ -176,8 +179,7 @@ func TestImportV2RollbackPreservesProviderTrafficBinding(t *testing.T) {
 	}
 	var instanceID, ciphertext, revision string
 	if err := target.DB().QueryRow(
-		`SELECT kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision
-		 FROM provider_traffic_settings WHERE id = 1`).Scan(&instanceID, &ciphertext, &revision); err != nil {
+		`SELECT instance_id, credential_ciphertext, revision FROM provider_traffic_hosts WHERE id = 'kiwivm'`).Scan(&instanceID, &ciphertext, &revision); err != nil {
 		t.Fatalf("回滚后读取功能绑定失败: %v", err)
 	}
 	if instanceID != "900000005" || ciphertext != "synthetic-ciphertext-900000005" || revision != "synthetic-revision" {
@@ -242,8 +244,9 @@ func TestImportProviderTrafficSchemaReadFailure(t *testing.T) {
 			var enabled, providerEnabled int
 			var instanceID, ciphertext, revision string
 			if err := target.DB().QueryRowContext(ctx,
-				`SELECT enabled, kiwivm_enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision
-				 FROM provider_traffic_settings WHERE id = 1`).Scan(&enabled, &providerEnabled, &instanceID, &ciphertext, &revision); err != nil {
+				`SELECT s.enabled, h.enabled, h.instance_id, h.credential_ciphertext, h.revision
+				 FROM provider_traffic_settings s JOIN provider_traffic_hosts h ON h.settings_id = s.id
+				 WHERE h.id = 'kiwivm' `).Scan(&enabled, &providerEnabled, &instanceID, &ciphertext, &revision); err != nil {
 				t.Fatalf("回滚后读取原绑定失败: %v", err)
 			}
 			if enabled != 1 || providerEnabled != 1 || instanceID != originalInstance ||

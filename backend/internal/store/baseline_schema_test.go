@@ -576,7 +576,7 @@ func formatManifest(value schemaManifest) string {
 // TestProviderTrafficMigrationContract 验证 0002 只新增单行功能表、默认关闭且约束生效。
 func TestProviderTrafficMigrationContract(t *testing.T) {
 	ctx := context.Background()
-	st := openMigratedStore(t, "provider-traffic.db", migrations.FS)
+	st := openMigratedStore(t, "provider-traffic.db", providerTrafficV2FS(t))
 
 	var tables, versions, maxVersion int
 	if err := st.DB().QueryRowContext(ctx,
@@ -697,10 +697,10 @@ func TestProviderTrafficMigrationUpgradeFromBaseline(t *testing.T) {
 		t.Fatalf("重新打开基线库失败: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if err := st.Migrate(ctx, migrations.FS); err != nil {
+	if err := st.Migrate(ctx, providerTrafficV2FS(t)); err != nil {
 		t.Fatalf("0001 -> 0002 升级失败: %v", err)
 	}
-	if err := st.Migrate(ctx, migrations.FS); err != nil {
+	if err := st.Migrate(ctx, providerTrafficV2FS(t)); err != nil {
 		t.Fatalf("同实例重复迁移失败: %v", err)
 	}
 	var versions, maxVersion int
@@ -751,7 +751,7 @@ func TestProviderTrafficMigrationUpgradeFromBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("重开升级后数据库失败: %v", err)
 	}
-	if err := st.Migrate(ctx, migrations.FS); err != nil {
+	if err := st.Migrate(ctx, providerTrafficV2FS(t)); err != nil {
 		t.Fatalf("重开后重复迁移失败: %v", err)
 	}
 	var enabled int
@@ -775,4 +775,69 @@ func baselineOnlyFS(t *testing.T) fs.FS {
 		t.Fatalf("读取 0001 基线失败: %v", err)
 	}
 	return fstest.MapFS{"0001_initial_schema.sql": &fstest.MapFile{Data: data}}
+}
+
+// providerTrafficV2FS 保留 0002 独立合同测试。
+func providerTrafficV2FS(t *testing.T) fs.FS {
+	t.Helper()
+	files := baselineOnlyFS(t).(fstest.MapFS)
+	const path = "0002_provider_traffic.sql"
+	data, err := fs.ReadFile(migrations.FS, path)
+	if err != nil {
+		t.Fatalf("读取 0002 迁移失败: %v", err)
+	}
+	files[path] = &fstest.MapFile{Data: data}
+	return files
+}
+
+func TestProviderTrafficHostsMigration(t *testing.T) {
+	ctx := context.Background()
+	st := openMigratedStore(t, "provider-traffic-v2.db", providerTrafficV2FS(t))
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO provider_traffic_settings
+		(id, enabled, kiwivm_enabled, kiwivm_instance_id, kiwivm_credential_ciphertext, kiwivm_revision,
+		 vps_enabled, vps_instance_id, vps_credential_ciphertext, vps_revision)
+		VALUES (1, 1, 0, '1001', 'kiwi-cipher', 'kiwi-revision', 1, '2001', 'vps-cipher', 'vps-revision')`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := st.Migrate(ctx, migrations.FS); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var total bool
+	var ciphertext, revision string
+	if err := st.DB().QueryRow(`SELECT enabled, vps_credential_ciphertext, vps_revision
+		FROM provider_traffic_settings WHERE id = 1`).Scan(&total, &ciphertext, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if !total || ciphertext != "vps-cipher" || revision != "vps-revision" {
+		t.Fatal("迁移应保留总开关及 V.PS 账号凭据和修订")
+	}
+	for _, want := range []struct {
+		id, name, instance, ciphertext, revision string
+		enabled                                  bool
+	}{
+		{"kiwivm", "搬瓦工", "1001", "kiwi-cipher", "kiwi-revision", false},
+		{"vps", "V.PS", "2001", "", "vps-revision", true},
+	} {
+		var name, instance, ciphertext, revision, edit string
+		var enabled, half bool
+		if err := st.DB().QueryRow(`SELECT name, instance_id, COALESCE(credential_ciphertext, ''), revision,
+			edit_revision, enabled, half_remaining FROM provider_traffic_hosts WHERE id = ?`, want.id).
+			Scan(&name, &instance, &ciphertext, &revision, &edit, &enabled, &half); err != nil {
+			t.Fatal(err)
+		}
+		if name != want.name || instance != want.instance || ciphertext != want.ciphertext || revision != want.revision ||
+			edit != revision || enabled != want.enabled || half {
+			t.Fatalf("%s 主机迁移数据不一致", want.id)
+		}
+	}
+	assertDatabaseIntegrity(t, st.DB())
+	if _, err := st.DB().Exec(`DELETE FROM provider_traffic_settings`); err != nil {
+		t.Fatal(err)
+	}
+	var hosts int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM provider_traffic_hosts`).Scan(&hosts); err != nil || hosts != 0 {
+		t.Fatalf("清除功能设置应级联清除主机: %d, %v", hosts, err)
+	}
 }
