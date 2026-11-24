@@ -36,6 +36,8 @@
 
 下表保留首批与过渡期的原设计分工。19 个 manual 协议均已完成 Build32 验收，现行状态见 [Build32.md](docs/reports/Build/Build32.md)。
 
+本文继续作为节点编辑器的现行设计基线。SS 2022 完整密钥／URI／客户端兼容与独立 Xray outbound 仍为后续专项。R26-07 的人工 API／UI 核验由 [XrayRelated1.md](XrayRelated1.md) 跟踪。
+
 | 范围 | 设计结论 |
 |---|---|
 | 首批完整改进 | **VLESS、VMess、Trojan、Shadowsocks（SS）** 的条件表单、保存状态、目标检查及相关输出一致性 |
@@ -641,7 +643,7 @@ v1.5 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、�
 | 历史版本 | [clash_plan.go](backend/internal/assembly/clash_plan.go) 的 `ManualProxies` 冻结 manual 配置 | 编辑与清空不改写已生成快照，重新装配才形成新产物 |
 | 迁移与备份 | 现有版本化迁移与 SQLite 一致性备份可承载 `nodes` 新字段 | Build17 已验证初始化并扩展 [export.go](backend/internal/config/export.go) 的密钥变更保护；删除、恢复和完整备份语义仍需回归，配置导出仍不等于节点备份 |
 
-第八章记录的 41 个 Mihomo 配置检查与 9 个 CVR URI 样例是 2026-09-02 的研究摘要；Build18 随后新增 15 个四协议离线 JSON 夹具、目标诊断测试和固定 URI 形态测试，这些自动化结果不替代客户端导入。用户于 2026-09-09 确认 PT-28-01～PT-28-05（含 Mihomo／Clash Verge、Shadowrocket 相关项目）已测试且未发现问题，结论见 [Issue14 步骤二](docs/reports/Issue/Issue14.md) 与 [Build21 Step 14](docs/reports/Build/Build21.md)；记录未提供逐组合连接明细，不能据此宣称全部组合完整兼容。R26-07 Xray 节点错误码仍见 [ProdTestList.md](ProdTestList.md)。[3x-ui／Xray 对照研究](docs/Reference/Node-Editor-3xui-Xray-Research.md) 仅提供参考。
+第八章记录的 41 个 Mihomo 配置检查与 9 个 CVR URI 样例是 2026-09-02 的研究摘要；Build18 随后新增 15 个四协议离线 JSON 夹具、目标诊断测试和固定 URI 形态测试，这些自动化结果不替代客户端导入。用户于 2026-09-09 确认 PT-28-01～PT-28-05（含 Mihomo／Clash Verge、Shadowrocket 相关项目）已测试且未发现问题，结论见 [Issue14 步骤二](docs/reports/Issue/Issue14.md) 与 [Build21 Step 14](docs/reports/Build/Build21.md)；记录未提供逐组合连接明细，不能据此宣称全部组合完整兼容。R26-07 Xray 节点错误码见 [XrayRelated1.md](XrayRelated1.md)。[3x-ui／Xray 对照研究](docs/Reference/Node-Editor-3xui-Xray-Research.md) 仅提供参考。
 
 ### 11.3 设计前置、Build 任务与后续范围
 

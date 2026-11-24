@@ -2,7 +2,7 @@
 
 > **文档定位：** 本文分开记录两个后续专题：§一～§六是“加密导出并通过 Setup 一步整站迁移”的候选构想；§七是用户已确认的“可编辑邮件内容与完整 URL 超链接”增量设计。两项不共用构建范围。
 > **编码约束：** 遵循 [AGENTS.md](AGENTS.md)（唯一强要求）。现行配置导入/导出与完整备份基线见 [Design1.md](docs/reports/Design/Design1.md) §3.4.8/§7.2；当前配置导出缺陷 R31-01 见 [ExportRelated1.md](ExportRelated1.md)；Xray 实例与独立账号的 v2 增量见 [Design2.md](docs/reports/Design/Design2.md) §5.4；当前节点编辑器设计继续以 [Design4.md](Design4.md) 为准。
-> **设计状态：** v0.8，2026-09-16 更新。整站迁移仅面向 Production，仍处于研究候选阶段，未创建对应 Build、未授权实施；其文件格式、恢复入口、安全模型与兼容策略尚未定稿。邮件内容专题的首版范围、审批通过登录链接及完整 URL 显示方式已由用户确认，并已由 [docs/reports/Build/Build28.md](docs/reports/Build/Build28.md) 完成 Step 0.5～8 工程实现、联合门禁、隔离 smoke 及归档后严格 JSON/implicit TLS/前端边界/smoke 五键/64 KiB 与 API 负向回归；2026-09-16 又完成 [Issue18.md](Issue18.md) 的有效站点名称一致性修复。正式 SMTP、真实收件箱、邮件客户端链接表现与真实浏览器人工项见 [ProdTestList.md](ProdTestList.md)，不计入整站迁移候选范围。
+> **设计状态**　v0.9，2026-11-24。整站迁移仅面向 Production，仍处于研究候选阶段。文件格式、恢复入口、安全模型和兼容策略待定。§七邮件内容定制已完成工程与人工验收，见 [Build28.md](docs/reports/Build/Build28.md) 和 §7.6。有效站点名称及后续邮件运行语义见 [Issue18.md](docs/reports/Issue/Issue18.md)。
 
 ---
 
@@ -161,9 +161,8 @@
 - Build28 Step 0.5～8 已按用户一次性授权严格串行完成，工程实现、逐步验收、联合门禁与隔离 SQLite + 本地 SMTP mock smoke 均通过；完整记录见 [docs/reports/Build/Build28.md](docs/reports/Build/Build28.md)。
 - 已落地：五分支固定模板与持久化、严格校验、统一安全渲染与合成预览、双版本 MIME、五分支真实发送与 scope、四类管理 API、前端邮件内容卡片、v1/v2 导入校验、导出/备份往返测试。
 - 归档后补强：严格 JSON 大小写/重复字段、implicit TLS、前端组件边界、smoke 五键与 64 KiB/API 负向回归均已通过。
-- 尚未完成：正式 SMTP 投递、真实收件箱、不同邮件客户端链接表现、真实浏览器交互与跨反代显示；这些项目记录在 [ProdTestList.md](ProdTestList.md)，不能以本地 mock、单元测试或构建结果替代。
-- 本状态只同步已由 Build28 验证的 §七实施事实，不改变 §一～§六候选迁移范围，也不表示 R31-01 已闭环。
-- 2026-09-16 后续修复统一了有效站点名称：公共/管理站点信息、邮件预览与实际发送均优先使用已保存非空名称，否则回退“VPN 订阅管理”；示例链接/真实令牌隔离边界不变。闭环记录见 [Issue18.md](Issue18.md)。
+- 2026-09-17 用户确认邮件内容定制人工项目 PT-B28-01～PT-B28-06 通过，原确认见 [TODOLIST.md 变更记录](TODOLIST.md#变更记录)。
+- 2026-09-16 后续修复统一了有效站点名称：公共/管理站点信息、邮件预览与实际发送均优先使用已保存非空名称，否则回退“VPN 订阅管理”；示例链接/真实令牌隔离边界不变。后续 R32-02／R32-03 的人工真机核验于 2026-09-20 获用户确认。闭环记录见 [Issue18.md](docs/reports/Issue/Issue18.md)。
 
 
 ---
@@ -180,3 +179,4 @@
 | v0.6 | 2026-09-15 | 按用户确认整站导出/导入仅限 Production，恢复前拒绝非 Production 来源及任何 mock 配置；关联 Issue17 R31-06 的现行配置导入修复，保留格式与恢复机制待定。 |
 | v0.7 | 2026-09-15 | 同步 Build28 §七实施与归档状态；补充归档后严格 JSON、implicit TLS、前端边界、smoke 五键与 64 KiB/API 负向回归结果；整站迁移仍为候选，R31-01 仍独立跟踪。 |
 | v0.8 | 2026-09-16 | 按用户确认将 `{{site_name}}` 与站点信息统一为“已保存非空名称优先，否则回退 VPN 订阅管理”；保留预览合成 URL 和真实令牌隔离，闭环见 Issue18。 |
+| v0.9 | 2026-11-24 | 同步 §七邮件内容定制的人工验收与 Issue18 归档链接。§一～§六仍为整站迁移候选。 |

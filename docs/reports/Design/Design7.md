@@ -1,6 +1,6 @@
 # Design7 — 基础模式服务器剩余流量
 
-> v1.9，2026-11-24。基础模式服务器剩余流量的设计记录。现行多主机绑定和折半展示见第九节与 [Build42](Build42.md)。第一至第七节记录 [Build41](Build41.md) 的首版基线。凭据在站内配置并加密存入 SQLite，配置文件导入后重新绑定。工程约束见 [AGENTS.md](AGENTS.md)，上游研究见 [研究平台流量 API 展示方案](thread://01a20893-014a-7541-81f9-fb1fef1875a6?hostId=local)。
+> v1.10，2026-11-24。基础模式服务器剩余流量的设计记录，已完成验收并归档。现行多主机绑定和折半展示见第九节与 [Build42](../Build/Build42.md)。第一至第七节记录 [Build41](../Build/Build41.md) 的首版基线。凭据在站内配置并加密存入 SQLite，配置文件导入后重新绑定。工程约束见 [AGENTS.md](../../../AGENTS.md)，上游研究见 [研究平台流量 API 展示方案](thread://01a20893-014a-7541-81f9-fb1fef1875a6?hostId=local)。
 
 ## 一、范围和启用规则
 
@@ -130,7 +130,7 @@ flowchart LR
 | 一键清空或应急重新初始化 | 复用共用清表事务清除该表。应急路径读到迁移前的数据库时允许本表尚不存在。已在途的任务不能重建绑定。 |
 | 后期完整移除 | 先通过总开关停止采集。后续构建移除独立前端组件/API、后端模块及服务装配，撤掉配置导入和清空事务里的功能表清理入口，追加前向迁移删除功能表，保留迁移历史。已有备份继续按备份原有生命周期保存。 |
 
-代码接入集中在 [HomeView.vue](frontend/src/views/HomeView.vue)、[SettingsView.vue](frontend/src/views/admin/SettingsView.vue)、[server.go](backend/internal/server/server.go)，以及 [export.go](backend/internal/config/export.go) 的两条配置导入事务和 [dataclear.go](backend/internal/dataclear/dataclear.go) 的共用清库入口。现有签名密钥导出问题继续由 [ExportRelated1.md](ExportRelated1.md) 跟踪。
+代码接入集中在 [HomeView.vue](../../../frontend/src/views/HomeView.vue)、[SettingsView.vue](../../../frontend/src/views/admin/SettingsView.vue)、[server.go](../../../backend/internal/server/server.go)，以及 [export.go](../../../backend/internal/config/export.go) 的两条配置导入事务和 [dataclear.go](../../../backend/internal/dataclear/dataclear.go) 的共用清库入口。现有签名密钥导出问题继续由 [ExportRelated1.md](../../../ExportRelated1.md) 跟踪。
 
 ## 七、构建验收
 
@@ -142,7 +142,9 @@ flowchart LR
 | 浏览器 | 验证单家、双家、首轮等待、直接错误和窄屏。确认首页其他功能可独立工作。 |
 | 实际出网 | 从目标容器完成搬瓦工查询和面板对账，并用 V.PS 做一次「续期 → 入库 → 查询资源」。此前真实 V.PS 续期在浏览器成功，本机命令行无凭据探测遇到 Cloudflare `403`。若目标容器仍被拦截，V.PS 保持停用，搬瓦工可以先启用。 |
 
-后续构建按 [AGENTS.md](AGENTS.md) 执行 Go build、vet、test、相关并发测试和前端构建，再使用独立数据目录检查容器和出网。
+后续构建按 [AGENTS.md](../../../AGENTS.md) 执行 Go build、vet、test、相关并发测试和前端构建，再使用独立数据目录检查容器和出网。
+
+首版和多主机扩展均已完成本地验收。2026-11-24 用户确认两家真实平台验收通过，运行无异常。验收结果见 [Build41 Step 7](../Build/Build41.md#step-7--真实平台与出网验收) 和 [Build42 Step 2](../Build/Build42.md#step-2--两家真实平台与目标容器)。
 
 ## 八、变更记录
 
@@ -158,12 +160,13 @@ flowchart LR
 | v1.7 | 2026-11-24 | Step 5 独立复验修正草稿基准、解绑确认与手动采集的绑定修订边界。管理端立即采集要求提交所见修订，见 Build41 Step 5 和 Issue21 R35-20～R35-22。 |
 | v1.8 | 2026-11-24 | 用户确认搬瓦工和 V.PS 均支持添加式多主机，并按主机配置余量折半。 |
 | v1.9 | 2026-11-24 | 统一管理接口的编辑修订，明确手动采集排队与发布时的复核和 V.PS 轮换后缓存的账号归属，见 Build42 Step 1。 |
+| v1.10 | 2026-11-24 | 用户确认首版和多主机扩展的真实平台验收通过，运行无异常。设计与两份构建记录归档。 |
 
 ## 九、多主机绑定与余量折半
 
 管理员可按平台添加主机，设置名称、实例 ID、采集开关和折半显示开关。每台主机可单独立即采集或解除绑定，同平台的实例 ID 唯一。首页按主机展示名称、状态、余量及最近采集时间，名称对启用的登录用户可见。迁移绑定初始名称为平台名称，管理员可随时重命名。
 
-搬瓦工按主机加密保存 API Key，使用该主机的 VEID 查询。V.PS 在账号区保存一份加密 Refresh Token，再添加该账号下的 Service ID。各主机共享账号的 Access Token，账号续期串行执行，新 Refresh Token 在资源查询前落库。资源查询、结果与错误按主机隔离。替换账号凭据后重新采集该账号下已启用的主机。解除账号绑定前需先解除该账号下的主机绑定。同一账号的 Token 对两台真实实例的授权仍需从目标容器验证。 [搬瓦工 KiwiVM API](https://bandwagonhost.com/dubai-vps.php) · [V.PS Resources](https://vps.hosting/userapi/#tag/services/GET/service/%7Bid%7D/resources)
+搬瓦工按主机加密保存 API Key，使用该主机的 VEID 查询。V.PS 在账号区保存一份加密 Refresh Token，再添加该账号下的 Service ID。各主机共享账号的 Access Token，账号续期串行执行，新 Refresh Token 在资源查询前落库。资源查询、结果与错误按主机隔离。替换账号凭据后重新采集该账号下已启用的主机。解除账号绑定前需先解除该账号下的主机绑定。同一账号授权两台真实实例纳入 [Build42 Step 2](../Build/Build42.md#step-2--两家真实平台与目标容器)。 [搬瓦工 KiwiVM API](https://bandwagonhost.com/dubai-vps.php) · [V.PS Resources](https://vps.hosting/userapi/#tag/services/GET/service/%7Bid%7D/resources)
 
 已收到的 V.PS 续期结果按账号修订加密提交。提交成功后，在释放账号续期锁前按同一修订缓存有有效到期时间的 Access Token。即使发起续期的主机此时已停用或请求已取消，同账号下满足采集条件的其他主机仍可复用。每次资源查询前复核对应主机资格及请求取消状态。账号换证或清除后，后续采集只使用匹配当前账号修订的令牌。
 

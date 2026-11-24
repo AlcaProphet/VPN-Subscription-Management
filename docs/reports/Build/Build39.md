@@ -1,6 +1,6 @@
 # Build39 — Docker 数据目录权限与启动身份
 
-> 基线 `beta` / `ce6d7eb`。设计见 [Design6](../../../Design6.md)，问题见 [Issue21 R35-08](../../../Issue21.md#r35-08-docker-挂载目录不可写导致误入应急模式)，约束见 [AGENTS](../../../AGENTS.md)。
+> 基线 `beta` / `ce6d7eb`。设计见 [Design6](../Design/Design6.md)，问题见 [Issue21 R35-08](../Issue/Issue21.md#r35-08-docker-挂载目录不可写导致误入应急模式)，约束见 [AGENTS](../../../AGENTS.md)。
 
 ## 一、构建进度
 

@@ -12,7 +12,6 @@
 ### 待确认与文档维护
 
 - [ ] 确认局部 JSON 删除列表键、WireGuard／MASQUE IP 文本清空的预期，再决定是否实施。显式清空协议文本列表的既定修复已由 R33-06 验收。[Issue19.md](docs/reports/Issue/Issue19.md)
-- [ ] 同步 Design5 §7.6 的邮件人工验收状态，修正 Design5 与归档 Issue18 的失效相对链接。PT-B28-01～06 已于 2026-09-17 获用户确认通过。[Design5.md](Design5.md#76-实施状态2026-09-15) · [Issue18.md](docs/reports/Issue/Issue18.md)
 
 ## 独立跟踪与后续范围
 
@@ -28,4 +27,5 @@
 
 ## 变更记录
 
+- 2026-11-24 将 2026-09-17 用户确认通过的 PT-B28-01～PT-B28-06 同步至 [Design5 §7.6](Design5.md#76-实施状态2026-09-15)，并修复与 [Issue18.md](docs/reports/Issue/Issue18.md) 的归档链接。
 - 2026-11-13 完成 v4.1.4 发布复核并归档 Issue19／Issue20，移除已完成的发布待办，将配置导出 P0 和中危开发依赖移入独立跟踪。

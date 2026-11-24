@@ -1,16 +1,18 @@
 # Issue21.md — 本地调试问题记录
 
-> **文档定位：** 记录本地调试中发现的问题及其研究、修复和验证结果。已归档的问题记录见 [docs/reports/Issue/](docs/reports/Issue/)，项目指令见 [AGENTS.md](AGENTS.md)。
+> **文档定位：** 记录本地调试中发现的问题及其研究、修复和验证结果。已归档的问题记录见 [docs/reports/Issue/](./)，项目指令见 [AGENTS.md](../../../AGENTS.md)。
 >
-> **当前状态（2026-11-17）：** R35-01～R35-04 已通过本地验证。R35-02 补充 Clash 装配前的空素材提示，见第 13 节。R35-03 原始反馈来自本机 8080 的旧前端，新构建已替换并复验，素材池快照、列表乱序和预览失效的相邻问题已修复。R35-04 已修复手动 VLESS／VMess 的 Clash UDP 缺省输出，验收见第 13 节。R35-05 已按确认方向实施并完成本地自动化与隔离浏览器验收（见 R35-05 第 12 节及 [Build36.md](docs/reports/Build/Build36.md)）。R35-06 已修复节点推荐选项显示 Mihomo 版本及其他验证来源的问题，通过本地自动化与隔离浏览器验收（见 R35-06 第 13 节及 [Build37.md](docs/reports/Build/Build37.md)）。R35-07 已完成本地修复与验收。目标检查位于独立内联区域，结果默认折叠为汇总，重新检查会清空上一轮结果（见 R35-07 第 12 节及 [Build38.md](docs/reports/Build/Build38.md)）。
+> **归档状态（2026-11-24）**　R35-01～R35-26 共 26 项均已修复并通过各自的本地验证，含 R35-01 的首页余量卡片间距补充修复。服务器剩余流量的真实平台验收已由用户确认通过，见 [Build41 Step 7](../Build/Build41.md#step-7--真实平台与出网验收) 与 [Build42 Step 2](../Build/Build42.md#step-2--两家真实平台与目标容器)。R35-08／R35-09 的 Docker 验收范围及环境边界见 [Build39](../Build/Build39.md) 与 [Build40](../Build/Build40.md)。
+>
+> **当前状态（2026-11-17）：** R35-01～R35-04 已通过本地验证。R35-02 补充 Clash 装配前的空素材提示，见第 13 节。R35-03 原始反馈来自本机 8080 的旧前端，新构建已替换并复验，素材池快照、列表乱序和预览失效的相邻问题已修复。R35-04 已修复手动 VLESS／VMess 的 Clash UDP 缺省输出，验收见第 13 节。R35-05 已按确认方向实施并完成本地自动化与隔离浏览器验收（见 R35-05 第 12 节及 [Build36.md](../Build/Build36.md)）。R35-06 已修复节点推荐选项显示 Mihomo 版本及其他验证来源的问题，通过本地自动化与隔离浏览器验收（见 R35-06 第 13 节及 [Build37.md](../Build/Build37.md)）。R35-07 已完成本地修复与验收。目标检查位于独立内联区域，结果默认折叠为汇总，重新检查会清空上一轮结果（见 R35-07 第 12 节及 [Build38.md](../Build/Build38.md)）。
 
-> **Build41 Step 3（2026-11-24）** 采集结果发布、设置重新开启触发及 V.PS 缓存到期三项并发问题已修复，见 R35-13～R35-15 和 [Build41 Step 3](Build41.md#step-3--自动采集与轮换一致性)。
+> **Build41 Step 3（2026-11-24）** 采集结果发布、设置重新开启触发及 V.PS 缓存到期三项并发问题已修复，见 R35-13～R35-15 和 [Build41 Step 3](../Build/Build41.md#step-3--自动采集与轮换一致性)。
 >
-> **Build41 Step 4（2026-11-24）** 独立核验发现的设置写入、结果匹配、请求体和在途关停问题已修复，见 R35-16～R35-19 和 [Build41 Step 4](Build41.md#step-4--站内接口与生命周期)。
+> **Build41 Step 4（2026-11-24）** 独立核验发现的设置写入、结果匹配、请求体和在途关停问题已修复，见 R35-16～R35-19 和 [Build41 Step 4](../Build/Build41.md#step-4--站内接口与生命周期)。
 >
-> **Build41 Step 5（2026-11-24）** 独立核验发现并修复脏草稿冒用新修订、旧确认解绑新实例以及旧页面采集新绑定三项问题，见 R35-20～R35-22 和 [Build41 Step 5](Build41.md#step-5--管理设置与首页展示)。
+> **Build41 Step 5（2026-11-24）** 独立核验发现并修复脏草稿冒用新修订、旧确认解绑新实例以及旧页面采集新绑定三项问题，见 R35-20～R35-22 和 [Build41 Step 5](../Build/Build41.md#step-5--管理设置与首页展示)。
 >
-> **Build42 Step 1（2026-11-24）** 独立核验复现旧接口修订、手动采集时序、共享账号令牌及导入确认回归，已按确认方案修复，见 R35-23～R35-26 和 [Build42 Step 1](Build42.md#step-1--多主机绑定与折半展示)。
+> **Build42 Step 1（2026-11-24）** 独立核验复现旧接口修订、手动采集时序、共享账号令牌及导入确认回归，已按确认方案修复，见 R35-23～R35-26 和 [Build42 Step 1](../Build/Build42.md#step-1--多主机绑定与折半展示)。
 
 ## 一、问题记录
 
@@ -59,7 +61,7 @@
 | 工作区已有 `frontend/dist` | 时间戳 2026-11-11 14:44；来源未在仓库中记录 | `index.html` `ef856972…`；主 CSS `index-CjftUC95.css` `4a2baa1f…`；主 JS `index-DXsnELts.js` `513eed54…` |
 | 当前 HEAD 临时重建 | 2026-11-16 在 `/tmp` 复制当前前端源码并执行 `npm run build`，构建成功 | `index.html` `b48d9977…`；主 CSS `index-1A87CTUv.css` `3e3479eb…`；主 JS `index-DWiJKb6p.js` `d1334480…` |
 
-工作区已有产物的哈希与 [Issue20.md](docs/reports/Issue/Issue20.md) R34-01 表格记录的“最终候选”哈希不同，因此不能把该目录直接视为 Issue20 记录的同一份产物；它和临时重建产物都复现了问题。两者均使用 Tailwind 4.3.3 和同一套 `node_modules`。
+工作区已有产物的哈希与 [Issue20.md](Issue20.md) R34-01 表格记录的“最终候选”哈希不同，因此不能把该目录直接视为 Issue20 记录的同一份产物；它和临时重建产物都复现了问题。两者均使用 Tailwind 4.3.3 和同一套 `node_modules`。
 
 **本地运行服务说明。** 研究时工作区已有以下进程：`127.0.0.1:5173` 的 Vite 开发服务器，以及 `127.0.0.1:8080` 的 Go 服务。8080 当前嵌入的是 `backend/web/dist` 中 2026-08-25 的旧产物（`index-48_-me5R.js`、`index-Cp6f_GO5.css`，Tailwind 3 时代），实测其面板配置卡片间隙为 16px，**不能复现**本问题。本轮因此没有使用这两个进程作为结论依据，而是启动隔离端口：
 
@@ -350,7 +352,7 @@ Tailwind 4 迁移提交为 `1903c58`（“升级前端依赖修复 GitHub Action
 #### 12. 首页服务器剩余流量卡片粘连（2026-11-24）
 
 - 原容器在 1112 px 视口下，顶部摘要区到服务器剩余流量卡的间距为 16 px，余量卡到底下的平台列表为 0 px。Ant Design Vue 的 `margin: 0` 覆盖了卡片根节点上的 Tailwind `mb-4`，与 R35-01 同源。
-- 首页改由纵向容器的 `gap-4` 统一设置相邻区块的间距。修复后用合成站内响应在 1112 px 和 375 px 检查生产构建，余量卡上下均为 16 px，隐藏时摘要区与平台列表之间仍为 16 px。读取失败和平台列表为空时的间距也通过复测。前端构建和全量测试结果见 [Build41.md](Build41.md#step-5--管理设置与首页展示)。
+- 首页改由纵向容器的 `gap-4` 统一设置相邻区块的间距。修复后用合成站内响应在 1112 px 和 375 px 检查生产构建，余量卡上下均为 16 px，隐藏时摘要区与平台列表之间仍为 16 px。读取失败和平台列表为空时的间距也通过复测。前端构建和全量测试结果见 [Build41.md](../Build/Build41.md#step-5--管理设置与首页展示)。
 
 ### R35-02 无素材池时 Clash 构建预检未阻断
 
@@ -394,7 +396,7 @@ Tailwind 4 迁移提交为 `1903c58`（“升级前端依赖修复 GitHub Action
 
 **测试数据前提。** 测试库由仓库内本地测试库 `backend/data/app-prod.db` 通过 `sqlite3 -readonly ... ".backup"` 复制到临时目录；源库未写入或清空。复制时库内已有：
 
-- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 规定的统一测试密码；
+- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](../../Reference/TestPasswordList.md) 规定的统一测试密码；
 - 3 个平台、1 个 Clash 订阅（平台 1，订阅 id 1）、1 个手动 VLESS 节点 `HK`、9 个启用预设代理组；
 - **0 个规则素材池**，正好对应用户反馈的「不存在规则素材池」状态。
 
@@ -489,8 +491,8 @@ Tailwind 4 迁移提交为 `1903c58`（“升级前端依赖修复 GitHub Action
 
 **现行设计存在跨文档冲突：**
 
-- [Design2.md](docs/reports/Design/Design2.md) 第 160 行仍写「规则为空允许生成（见 3.6 兜底规则仍有效）并在预览中提示」；[Design2-UI.md](docs/reports/Design/Design2-UI.md) 第 338、357 行同样记录空规则允许生成。
-- 较新的 [Design3.md](docs/reports/Design/Design3.md) §7.2（第 434 行）明确规定「最终输出只统计素材池规则 + 自定义规则，不包含内置兜底；最终输出为 0 时禁止生成」；[Build22.md](docs/reports/Build/Build22.md) 的 Step 6 已按该口径实现并补了 HTTP 回归测试。
+- [Design2.md](../Design/Design2.md) 第 160 行仍写「规则为空允许生成（见 3.6 兜底规则仍有效）并在预览中提示」；[Design2-UI.md](../Design/Design2-UI.md) 第 338、357 行同样记录空规则允许生成。
+- 较新的 [Design3.md](../Design/Design3.md) §7.2（第 434 行）明确规定「最终输出只统计素材池规则 + 自定义规则，不包含内置兜底；最终输出为 0 时禁止生成」；[Build22.md](../Build/Build22.md) 的 Step 6 已按该口径实现并补了 HTTP 回归测试。
 - 当前代码实现的是 Design3 的后端生成门槛，但前端预检、预览警告和 `canGenerate` 没有同步 Design3 的「有效输出」概念，仍停留在「进入装配器后由用户自行发现」的状态。Design2／Design2-UI 的空规则文案与当前实现冲突，属于历史文档滞后，本轮未改写。
 
 **初次研究时确认的产品口径（2026-11-16，「按有效规则源阻断」）：** Clash 对覆盖层独立供规则的补充决策见第 12 节。
@@ -564,12 +566,12 @@ Tailwind 4 迁移提交为 `1903c58`（“升级前端依赖修复 GitHub Action
 - **最终口径。** Clash 无池时仍可走手动规则或覆盖层。SR 分流没有规则输入时在规则步骤提示。素材池和手动规则的转换统计取自实际渲染，Clash 在覆盖层后统计通过静态检查的顶层规则，SR 统计实际写出的分流规则。系统兜底排除。位于 `MATCH` 之后的合格规则计入并提示匹配顺序风险。缺失 `RULE-SET` 声明、无效目标等自检错误阻止生成。
 - **关联修复。** 无池时禁用添加并提供素材池入口，恢复旧草稿时清除非正数池 ID。手工池的 `urls` 返回数组，列表和详情可显示零 URL。SR 添加池默认使用现有界面规格的 `PROXY`，后端限制两种 SR 策略。各目标只发送本次装配使用的选择，保留切换前的本地草稿。
 - **状态一致性。** 正文、摘要、回执和自检随同一次预览更新。生成前重新核对本次产物与摘要，最后一条活动素材在预览后被删除时，旧摘要请求返回 409。
-- **验证与构建记录。** 见 [Build33.md](docs/reports/Build/Build33.md)。最终设计见 [Design3 §7.2](docs/reports/Design/Design3.md#72-渲染和回执)。
+- **验证与构建记录。** 见 [Build33.md](../Build/Build33.md)。最终设计见 [Design3 §7.2](../Design/Design3.md#72-渲染和回执)。
 
 #### 13. Clash 装配前的空素材提示（2026-11-17）
 
 - 节点、平台和订阅前置条件就绪后，无池或各池均无已生效条目时显示「暂无规则素材」，等待用户选择「前往添加素材」或「继续装配」。前者打开规则素材池，返回时刷新条目状态。后者直接进入当前布局，可在手动规则或覆盖层补充规则。
-- 提示使用素材池 API 的已生效条目计数。条目能否用于本次 Clash 装配由实际预览和生成校验决定。界面规格见 [Design2-UI §5.3.1](docs/reports/Design/Design2-UI.md#531-clash-yaml-装配器)，构建和验收见 [Build33 Step 4](docs/reports/Build/Build33.md#step-4--clash-装配前的空素材提示2026-11-17)。
+- 提示使用素材池 API 的已生效条目计数。条目能否用于本次 Clash 装配由实际预览和生成校验决定。界面规格见 [Design2-UI §5.3.1](../Design/Design2-UI.md#531-clash-yaml-装配器)，构建和验收见 [Build33 Step 4](../Build/Build33.md#step-4--clash-装配前的空素材提示2026-11-17)。
 
 ### R35-03 创建素材池后返回 Clash 构建页面需要整页刷新
 
@@ -625,7 +627,7 @@ Tailwind 4 迁移提交为 `1903c58`（“升级前端依赖修复 GitHub Action
 
 **测试数据前提。** 测试库由仓库内本地测试库 `backend/data/app-prod.db` 通过 `sqlite3 -readonly ... ".backup"` 复制到临时目录；源库未写入或清空。复制时库内已有：
 
-- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 规定的统一测试密码；
+- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](../../Reference/TestPasswordList.md) 规定的统一测试密码；
 - 3 个平台、1 个 Clash 订阅（平台 1，订阅 id 1）、1 个手动 VLESS 节点 `HK`、9 个启用预设代理组；
 - **0 个规则素材池**，用于观察“创建后返回”和“首次进入前”两种前提。
 
@@ -816,7 +818,7 @@ GET  /api/admin/pools             → {list: [{id:2,...}]}       （PoolTab 保�
 - **池元数据修改。** 切换定时同步或仅改池名曾因全量替换来源而删除活动快照。改为行内开关仅更新 `auto_sync`，池编辑在事务内保留 URL 和模式均未变化的来源。改序使用新顺序读取活动规则。用户确认保留手动或定时同步。
 - **列表返回顺序。** 复现晚到的旧空列表覆盖新候选，以及首次装配上下文就绪前丢弃新列表。现由装配页维护共享池列表，按请求顺序吸收新结果，保留草稿、步骤、已有选择和有效预览。
 - **预览失效。** 手工条目提交后若在列表刷新期间关闭详情，旧预览仍可生成，后端返回 409。写入成功即通知父页，使旧预览立即失效。活动快照与顺序变化、已选池删除也触发失效，后端继续校验生成摘要。
-- **验收。** 后端编译、vet、全量测试、定向 race、errgate，前端 51 个文件 469 项与生产构建均通过。隔离浏览器通过复现路径回归；8080 实际加载 `AssemblyView-DtNxS4Yj.js`，新建无 URL 池并返回选择成功，测试池已移除。分步构建与运行证据见 [Build34.md](docs/reports/Build/Build34.md)。
+- **验收。** 后端编译、vet、全量测试、定向 race、errgate，前端 51 个文件 469 项与生产构建均通过。隔离浏览器通过复现路径回归；8080 实际加载 `AssemblyView-DtNxS4Yj.js`，新建无 URL 池并返回选择成功，测试池已移除。分步构建与运行证据见 [Build34.md](../Build/Build34.md)。
 
 ### R35-04 VLESS 节点开启 UDP 后生成的 Clash 配置缺少 UDP 字段
 
@@ -863,7 +865,7 @@ GET  /api/admin/pools             → {list: [{id:2,...}]}       （PoolTab 保�
 
 **测试数据前提。** 测试库由仓库内本地测试库 `backend/data/app-prod.db` 通过 `sqlite3 -readonly ... ".backup"` 复制到临时目录；源库未写入或清空。复制时库内已有：
 
-- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 规定的统一测试密码；
+- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](../../Reference/TestPasswordList.md) 规定的统一测试密码；
 - 3 个平台、1 个 Clash 订阅（平台 1、订阅 1、当前版本 1）、1 个手动 VLESS 节点 `HK`、9 个启用预设代理组、0 个规则素材池。
 
 本次新建的节点均为合成数据：`R35-04-A-default`、`R35-04-B-explicit-on`、`R35-04-C-explicit-off`、`R35-04-D-ws-default`、`R35-04-E-vmess-default`、`R35-04-F-default-2`、`R35-04-G-import`；主机名使用 `*.example.com`，UUID 使用公开的合成值。所有节点、订阅版本、生成配置都只写入 `/tmp` 临时库和临时内容目录；没有操作生产、预发布、外部服务、真实账号或真实数据。
@@ -957,11 +959,11 @@ proxies:
 #### 5. 根因分析
 
 1. **表单把 `udp: true` 当作显示默认值，而不是待保存值。** `frontend/src/components/ProtocolFieldEditor.vue:780` 的普通 bool Switch 使用 `Boolean(modelValue ?? field.default ?? false)`，所以 VLESS 的 `udp` 在没有存储值时显示为开启；但 `frontend/src/views/admin/NodesView.vue:918-920` 的 `fieldModelValue()` 只返回实际 `protocol_json` 值，`frontend/src/utils/nodeProtocolPayload.ts:26-47` 的 `buildProtocolPayload()` 也只克隆已存在的参数，不会把带默认值的普通 bool 批量写入请求。`frontend/src/utils/nodeFormLayout.ts:57-60` 的 `isTriStateBool` 只判定“无 default 的 bool”，`udp` 有 default，因此既不会显示“未设置”，也不会被编码为 `null` 或默认值。`frontend/src/views/admin/NodesView.vue:650-660` 的新建表单初始 `protocol_json` 为 `{}`。
-2. **保存链路按现有设计不物化 schema 默认值。** 后端 `backend/internal/node/node.go:342-380` 的 `CreateManual` 走 `NormalizeProtocolJSON`；`backend/internal/node/normalize.go:31-55` 只做别名、列表、字节序列和凭据身份等归一化，不应用 schema 默认；`backend/internal/node/project.go:1390-1411` 的 `normalizeProtocolParameters` 也不补默认。`backend/internal/node/project.go:1561-1582` 的 `protocolParamsForStorage` 只处理显式 `security`／`tls` 兼容。因此请求里没有 `udp` 时，数据库也不会出现 `udp`。这本身与 [Design4.md](Design4.md) 第 156 行“合法缺省仍可显示，但不把展示默认值批量写入数据”的设计一致；缺陷在输出层没有把“合法缺省”映射为 Mihomo 的实际语义，而不是保存层擅自丢字段。
+2. **保存链路按现有设计不物化 schema 默认值。** 后端 `backend/internal/node/node.go:342-380` 的 `CreateManual` 走 `NormalizeProtocolJSON`；`backend/internal/node/normalize.go:31-55` 只做别名、列表、字节序列和凭据身份等归一化，不应用 schema 默认；`backend/internal/node/project.go:1390-1411` 的 `normalizeProtocolParameters` 也不补默认。`backend/internal/node/project.go:1561-1582` 的 `protocolParamsForStorage` 只处理显式 `security`／`tls` 兼容。因此请求里没有 `udp` 时，数据库也不会出现 `udp`。这本身与 [Design4.md](../../../Design4.md) 第 156 行“合法缺省仍可显示，但不把展示默认值批量写入数据”的设计一致；缺陷在输出层没有把“合法缺省”映射为 Mihomo 的实际语义，而不是保存层擅自丢字段。
 3. **输出投影会跳过缺失键。** `backend/internal/assembly/links.go:9-20` 的 `activeProtocolJSON` 调用 `node.ProjectActive`；`backend/internal/node/project.go:25-51` 只遍历 schema 中实际存在且状态匹配的键，`projectFieldValue` 在键缺失时不会被调用。因此 `udp` 缺失时不会在投影阶段变成 `true`，`network` 缺失时也不会变成 `tcp`。
 4. **Clash VLESS adapter 只复制“活动且为 true”的字段。** `backend/internal/assembly/clash_protocols.go:185-201` 的 `vlessClashAdapter` 通过 `copyClashActiveFields` 复制 `udp`；`backend/internal/assembly/clash_protocols.go:797-806` 的实现要求键存在且 `clashValueActive` 为真，`backend/internal/assembly/clash_protocols.go:808-836` 对 bool 只在 `true` 时返回真。因此数据库没有 `udp` 时不会输出 `udp`，显式 `false` 也会被省略。该“省略 false”本身符合 Mihomo 的零值语义，但前提是该字段的 schema 默认值与 wire 零值相同；`udp` 恰好不满足。
 5. **Mihomo 的 wire 零值是 `false`，与 schema 默认 `true` 冲突。** 固定 v1.19.31 的 `VlessOption.UDP` 是 `bool` 且带 `proxy:"udp,omitempty"`；缺失时取零值 `false`。`NewVless` 把这个值传入 `Base`，`Base.SupportUDP()` 返回 `b.udp`；`tunnel/tunnel.go` 在 UDP 连接匹配到代理后执行 `if metadata.NetWork == C.UDP && !adapter.SupportUDP() { continue }`，因此缺失 `udp` 会导致该 VLESS 节点不转发 UDP。`network` 则不同：`VlessOption.Network` 缺失时走 `switch` 的 `default` 分支，按 TCP 处理；所以省略 `network` 是安全的，省略 `udp` 不是。
-6. **缺少与 VMess 默认补齐同类的输出层处理。** 项目已经在 `backend/internal/assembly/clash_protocols.go:264-283`（`clashAlterID`／`clashVMessCipher`）和 `backend/internal/assembly/render_clash.go:254-262` 中为 VMess 的 `alterId`／`cipher` 做了“schema 默认与 wire 零值不一致时在输出副本补齐”的处理，但 `udp` 没有对应的补齐。`backend/internal/node/registry.go:922-924` 明确声明 VLESS `udp` 默认 `true`、`network` 默认 `tcp`；这说明默认值是有意声明的，不是测试数据偶然产生。[Build32.md](docs/reports/Build/Build32.md) Step 20 已记录“显式 `udp:false` 省略，与固定 tag 的 `omitempty` 等价”的合同，但该合同没有覆盖“schema 默认 `true` 且键缺失”的情况；本次缺口正在这里。
+6. **缺少与 VMess 默认补齐同类的输出层处理。** 项目已经在 `backend/internal/assembly/clash_protocols.go:264-283`（`clashAlterID`／`clashVMessCipher`）和 `backend/internal/assembly/render_clash.go:254-262` 中为 VMess 的 `alterId`／`cipher` 做了“schema 默认与 wire 零值不一致时在输出副本补齐”的处理，但 `udp` 没有对应的补齐。`backend/internal/node/registry.go:922-924` 明确声明 VLESS `udp` 默认 `true`、`network` 默认 `tcp`；这说明默认值是有意声明的，不是测试数据偶然产生。[Build32.md](../Build/Build32.md) Step 20 已记录“显式 `udp:false` 省略，与固定 tag 的 `omitempty` 等价”的合同，但该合同没有覆盖“schema 默认 `true` 且键缺失”的情况；本次缺口正在这里。
 7. **编辑路径的 `network` 回填加深了表象差异。** `frontend/src/views/admin/NodesView.vue:685-714` 的 `openEdit()` 会从 `current_state` 回填 `security` 和 `network`，所以编辑并保存过的节点通常会在 YAML 中出现 `network: tcp`；但同函数没有回填 `udp`，开关继续依赖 schema 默认显示。结果就是：新建后直接生成可能同时缺少 `udp` 和 `network`；编辑一次后 `network` 出现，`udp` 仍缺失。用户截图中的“两者都缺失”与前者吻合，本地编辑复现则表现为“只缺 `udp`”；两者是同一根因的不同表象。
 8. **不是以下原因：** 不是节点保存失败（POST 200，数据库可读）；不是凭据解密或读取失败（`uuid` 正常进入预览）；不是版本生成没有使用最新节点（每次生成前都重新保存并核对版本正文）；不是 `network: tcp` 被误删（显式保存 `network` 后会输出）；不是 Clash YAML 序列化问题（同一 adapter 在显式 `udp:true` 时能输出该字段）；也不是 Xray JSON 字段名被套用（截图和复现产物都是 Mihomo YAML）。
 
@@ -1078,7 +1080,7 @@ proxies:
 - 用户确认在手动 VLESS 和 VMess 的 Clash 适配器处理 UDP。缺省与显式 `true` 输出 `udp: true`。显式 `false` 在活动投影后仍保留，由适配器省略，Mihomo 按关闭处理。本节更正研究记录第 4.1 节“显式 false 被活动值过滤”的位置描述。节点保存与表单沿用既有行为。
 - 新生成版本应用该规则，已有手动节点无需重新保存或迁移。历史版本正文和手动节点渲染计划沿用生成快照。URI 导入的两个协议同属手动节点，装配遵循同一缺省规则。VLESS URI 查询参数仍由现有解析器处理。动态 Xray 注入、其他协议及其他目标沿用各自的路径。
 - 隔离 Production 浏览器验证 VLESS 和 VMess 的缺省、显式开启、显式关闭六组用例。六份预览和生成正文逐字一致，库中分别仍是缺省、`true`、`false`。另验证无 UDP 参数的 VLESS URI 导入后预览输出 `udp: true`。六份原始 YAML 均通过固定 Mihomo v1.19.31 的 `-t`。本地回环流量试验验证两种协议的默认组和开启组均收到 UDP 回显，关闭组被内核跳过。
-- 自动化覆盖新计划下载重渲染、历史计划快照及动态 Xray 注入；固定版内核门禁和全量测试通过。详细步骤见 [Build35.md](docs/reports/Build/Build35.md)，设计口径见 [Design4 §7.3](Design4.md#73-历史版本与-xray-来源)。
+- 自动化覆盖新计划下载重渲染、历史计划快照及动态 Xray 注入；固定版内核门禁和全量测试通过。详细步骤见 [Build35.md](../Build/Build35.md)，设计口径见 [Design4 §7.3](../../../Design4.md#73-历史版本与-xray-来源)。
 
 ### R35-05 节点管理的高级 JSON 切换样式与订阅装配不一致
 
@@ -1123,7 +1125,7 @@ proxies:
 
 **测试数据前提。** 测试库来自既有隔离合成库 `/tmp/r3502-fix.GxIgJu/data` 的副本，不是当前仓库 `backend/data`，也没有连接或写入本机 8080 服务：
 
-- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](docs/Reference/TestPasswordList.md) 规定的统一测试密码；
+- 合成管理员 `admin@test.com`，密码为 [TestPasswordList.md](../../Reference/TestPasswordList.md) 规定的统一测试密码；
 - 1 个手动 VLESS 节点 `HK`（`1.1.1.1:443`，TCP + REALITY，`smux` 初始关闭）；
 - 本轮通过管理员 API 新建的合成节点 `R35-05-HTTP`（HTTP，`headers` map）和 `R35-05-WG`（WireGuard，两个 Peer 的 `peers` list），主机名均为 `*.example.com`，密钥为合成 Base64 值；
 - 所有节点、草稿和保存结果只写入 `/tmp/r35-05/data`；没有操作生产、预发布、外部服务、真实账号或真实数据。
@@ -1387,7 +1389,7 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 - **自动化验证：** 定向 4 个文件 182 项通过；前端全量 51 个文件 471 项通过；`npm run build` 通过；后端 `go build ./...`、`go vet ./...`、`go test ./... -count=1` 通过；`git diff --check` 通过。
 - **隔离浏览器验证：** Chrome 157.0.8103.79 + Playwright-core 1.57.0，隔离生产构建绑定 `127.0.0.1:18098`，合成库副本。1440×1000 与 375×785、浅色／深色下验证新建 `R35-05-IMPL`、编辑 `HK`、HTTP `headers` map、WireGuard `peers` list，实际交互 REALITY／SMUX／Brutal 嵌套开关，并确认 WireGuard `ip-stack` 开关存在；固定文案、`role="switch"`、`aria-checked`、可区分名称、Enter／Space、有效／无效 JSON、应用／放弃、保存／检查阻断、定位、父子阻断与持久化均通过，页面与抽屉无横向溢出。编辑 `HK` 的 `smux.max-connections=9` 保存后重开仍为 9。
 - **布局与主题实测：** 桌面开关 28×16px、标签 95.66×16px；手机标签 44×291px、开关 44×44px；浅色关闭／开启轨道为 `rgba(0,0,0,0.25)`／`rgb(37,99,235)`，深色为 `rgba(255,255,255,0.25)`／`rgb(147,197,253)`；两种主题下文案均为 12px。截图与日志位于 `/tmp/r35-05-impl.PfGj5a/`，未加入仓库。
-- **文档：** `Design4` §3.3 已改为开关口径并记录 v1.33；新增 [Build36.md](docs/reports/Build/Build36.md)；`AGENTS` 索引同步。`Design2-UI`、`Issue13` R27-05、`Build21` 等历史记录保持原样。
+- **文档：** `Design4` §3.3 已改为开关口径并记录 v1.33；新增 [Build36.md](../Build/Build36.md)；`AGENTS` 索引同步。`Design2-UI`、`Issue13` R27-05、`Build21` 等历史记录保持原样。
 - **未覆盖与边界：** 未使用真实读屏软件或真机；49 个对象字段中实际交互 5 类代表字段，其余依据同一递归组件与 schema 核对；未覆盖订阅装配 SR／generic 目标、其他编辑器、Docker 镜像、远端 CI、外部客户端或生产环境。第 1～11 节记录的“节点退出静默丢草稿”“装配无效 JSON 无放弃入口”“装配跨分区覆盖”仍是既有行为，未在本轮修改。
 
 ### R35-06 节点创建和编辑界面显示 Mihomo 版本号
@@ -1418,7 +1420,7 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 | 后端构建 | 当前 HEAD 的 `backend/` 与上述 `frontend/dist` 复制到 `/tmp/r35-06` 后执行 `CGO_ENABLED=0 go build ./cmd/server`；服务二进制 SHA-256 `a3ef6882de6155bd60dfa99f109a21aafade23b26eae30f9a1af51845d9419b2`；仓库内未执行构建 |
 | 运行环境 | Go 1.26.4（darwin/arm64）；Node.js 26.7.0；npm 11.19.0；macOS 27.2；Google Chrome 157.0.8103.79；Playwright-core 1.57.0（`/tmp/r35-02-tools`，未加入项目依赖） |
 | 隔离实例 | `/tmp/r35-06`；`APP_MODE=prod`、`DATA_DIR=/tmp/r35-06/data`、`PORT=18096`，仅监听 `127.0.0.1`；未连接 8080、Docker、外部服务或真实账号 |
-| 测试数据 | 从既有合成隔离库 `/tmp/r35-05/data` 复制；管理员 `admin@test.com`（[TestPasswordList.md](docs/Reference/TestPasswordList.md) 的统一测试密码）；既有节点 `HK`（VLESS/TCP/REALITY）、`R35-05-HTTP`、`R35-05-WG`；为覆盖编辑路径临时创建 `R35-06-VMESS`、`R35-06-SS`、`R35-06-TROJAN`，检查后通过隔离 API 删除，未留在库中 |
+| 测试数据 | 从既有合成隔离库 `/tmp/r35-05/data` 复制；管理员 `admin@test.com`（[TestPasswordList.md](../../Reference/TestPasswordList.md) 的统一测试密码）；既有节点 `HK`（VLESS/TCP/REALITY）、`R35-05-HTTP`、`R35-05-WG`；为覆盖编辑路径临时创建 `R35-06-VMESS`、`R35-06-SS`、`R35-06-TROJAN`，检查后通过隔离 API 删除，未留在库中 |
 | 视口 | 桌面 1440×1000；手机 375×785 |
 | 证据目录 | `/tmp/r35-06/`（截图、DOM 文本、API JSON、日志，未加入仓库） |
 
@@ -1561,7 +1563,7 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 | 后端构建 | 将当前 `backend/` 与 `frontend/dist` 复制到 `/tmp/r35-06-recheck`，用当前产物覆盖复制件的 `backend/web/dist` 后执行 `CGO_ENABLED=0 go build -o ... ./cmd/server`；服务二进制 SHA-256 `0bedaf4a6776d8985bb690dd1104c80d13165dceb141e5925f86d20499ee6744`；仓库内未执行构建 |
 | 运行环境 | Go 1.26.4（darwin/arm64）；Node.js 26.7.0；npm 11.19.0；macOS 27.2；Google Chrome 157.0.8103.79；Playwright-core 1.57.0（`/tmp/r35-02-tools`，未加入项目依赖） |
 | 隔离实例 | `/tmp/r35-06-recheck`；`APP_MODE=prod`、`DATA_DIR=/tmp/r35-06-recheck/data`、`PORT=18097`，仅监听 `127.0.0.1`；未连接 8080、Docker、外部服务或真实账号 |
-| 测试数据 | 复制既有合成隔离库 `/tmp/r35-06/data`；管理员 `admin@test.com`（[TestPasswordList.md](docs/Reference/TestPasswordList.md) 统一密码 `12345678`）；既有节点 `HK`（VLESS/TCP/REALITY）、`R35-05-HTTP`、`R35-05-WG`；临时节点 `RECHECK-VMESS`、`RECHECK-SS`、`RECHECK-TROJAN`（ID 7～9）检查后已通过隔离 API 删除 |
+| 测试数据 | 复制既有合成隔离库 `/tmp/r35-06/data`；管理员 `admin@test.com`（[TestPasswordList.md](../../Reference/TestPasswordList.md) 统一密码 `12345678`）；既有节点 `HK`（VLESS/TCP/REALITY）、`R35-05-HTTP`、`R35-05-WG`；临时节点 `RECHECK-VMESS`、`RECHECK-SS`、`RECHECK-TROJAN`（ID 7～9）检查后已通过隔离 API 删除 |
 | 视口与证据 | 1440×1000；375×785；证据目录 `/tmp/r35-06-recheck`（截图、DOM 文本、API JSON、日志，未加入仓库）；关键文件 `protocols-api.json`、`all-protocols.json`、`field-results.json`、`edit-check-response.json`、`check-a11y.log`、`inspect-mobile.log` 与 `shots/*.png` |
 
 **本地构建前提。** 工作区 `backend/web/dist` 是 2026-08-25 的旧嵌入产物（`assets/index-48_-me5R.js`），而 `frontend/dist` 是 2026-11-17 11:13 的当前产物（`assets/index-BAQWrEVN.js`）。首次直接构建时服务返回旧 UI，新建 VLESS 的「传输」「安全」没有版本文案；把 `frontend/dist` 覆盖到复制件的 `backend/web/dist` 后重新构建，才复现 R35-06。项目的 `Dockerfile` 第 16 行本来就把 frontend 构建产物 `COPY` 到 `backend/web/dist`；按 Dockerfile 静态核对，这是本地手工构建的前提，不是生产构建缺陷。覆盖只发生在 `/tmp` 副本，未修改工作区 `backend/web/dist` 或 `frontend/dist`。
@@ -1608,8 +1610,8 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 
 - `EditableCombobox.vue` 的已选值与展开选项使用「名称 · 分组」，如「TCP · 常用」。无分组选项只显示名称。选项 `aria-label` 包含显示名、规范值和分组。两处文案省略 Mihomo 版本与 `project-unknown`，SS 2022 项继续显示「待验证」，ALPN 推荐条目使用原有名称。
 - 隔离 Chrome 对照修复前的新建表单，覆盖 Shadowsocks／VMess／VLESS／Trojan 的 18 个下拉和 3 个 ALPN 字段，检查选项文字、顺序、DOM 与无障碍快照。四协议编辑态、键盘选中 WebSocket 后保存并重开、375×785 明暗主题均通过。协议目录 JSON 与修复前一致，VLESS `HK` 除每次生成的检查 ID 外，目标检查结果也与基线一致。
-- 前端全量 51 文件 471 项与生产构建、后端全量编译／静态检查／测试、固定 Mihomo v1.19.31 门禁通过。实际读屏软件、手机真机、Docker 镜像与远端 CI 未执行。实施与验证命令见 [Build37.md](docs/reports/Build/Build37.md)。
-- [Design4](Design4.md) v1.34 记录现行展示规则和协议证据用途，AGENTS 已更新构建入口。Build32 Step 1 和 Issue15 R29-05 记录当时的展示行为，当前规则以 Design4 §3.2 为准。
+- 前端全量 51 文件 471 项与生产构建、后端全量编译／静态检查／测试、固定 Mihomo v1.19.31 门禁通过。实际读屏软件、手机真机、Docker 镜像与远端 CI 未执行。实施与验证命令见 [Build37.md](../Build/Build37.md)。
+- [Design4](../../../Design4.md) v1.34 记录现行展示规则和协议证据用途，AGENTS 已更新构建入口。Build32 Step 1 和 Issue15 R29-05 记录当时的展示行为，当前规则以 Design4 §3.2 为准。
 
 ### R35-07 目标检查位于高级数据区域内
 
@@ -1640,7 +1642,7 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 | 后端构建 | 将当前 HEAD 的 `backend/` 与上述 `frontend/dist` 复制到 `/tmp/r35-07` 后执行 `CGO_ENABLED=0 go build ./cmd/server`；服务二进制 SHA-256 `d81ea73a9b30c652d3ad7b02d47a55351c77abff6585f50d7f0de2c949201434`；仓库内未执行构建 |
 | 运行环境 | Go 1.26.4（darwin/arm64）；Node.js 26.7.0；npm 11.19.0；macOS 27.2（26B123）；Google Chrome 157.0.8103.79；Playwright-core 1.57.0（`/tmp/r35-02-tools`，未加入项目依赖） |
 | 隔离实例 | `/tmp/r35-07`；`APP_MODE=prod`、`DATA_DIR=/tmp/r35-07/data`、`PORT=18097`；通过 `127.0.0.1:18097` 访问；未使用本机 8080 的既有进程、Docker、外部服务或真实账号 |
-| 测试数据 | 从既有合成隔离库 `/tmp/r35-06/data` 通过 `sqlite3 .backup` 复制；管理员 `admin@test.com`（[TestPasswordList.md](docs/Reference/TestPasswordList.md) 的统一测试密码）；既有节点 `HK`（VLESS/TCP/REALITY）、`R35-05-HTTP`、`R35-05-WG`。为验证检查后保存临时创建 `R35-07-SAVE`，检查后通过隔离 API 删除；为验证 409 将隔离库中 `HK` 的编辑修订号推进到 3。以上均只发生在 `/tmp` 隔离库，未触碰仓库 `backend/data` |
+| 测试数据 | 从既有合成隔离库 `/tmp/r35-06/data` 通过 `sqlite3 .backup` 复制；管理员 `admin@test.com`（[TestPasswordList.md](../../Reference/TestPasswordList.md) 的统一测试密码）；既有节点 `HK`（VLESS/TCP/REALITY）、`R35-05-HTTP`、`R35-05-WG`。为验证检查后保存临时创建 `R35-07-SAVE`，检查后通过隔离 API 删除；为验证 409 将隔离库中 `HK` 的编辑修订号推进到 3。以上均只发生在 `/tmp` 隔离库，未触碰仓库 `backend/data` |
 | 视口与主题 | 桌面 1440×1000、1440×1400；手机 375×785，移动端 Drawer；仅浅色主题。未覆盖深色、横屏、200% 缩放、Safari／Firefox |
 | 证据目录 | `/tmp/r35-07/`（截图、DOM 文本、API JSON、日志、测量结果）；均未加入仓库 |
 
@@ -1847,14 +1849,14 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 - **区域与可操作性。** 在新建和编辑表单中将 `NodeCheckPanel` 移到「更多功能 / 高级参数」（如有）之后、「高级数据」之前。面板本身提供可导航的标题。「高级数据」默认折叠，说明为「未知扩展摘要；默认折叠。」；未知扩展操作留在该区域。
 - **结果与请求状态。** 成功响应默认只显示结果汇总。键盘或触控均可展开全部目标状态、诊断和脱敏产物入口；产物仍可单独展开。重新检查时结果区显示「正在检查…」。检查请求所用草稿变化后立即清空结果并结束旧加载，迟到响应不会覆盖新结果，也不会结束最新请求的加载。阻断、定位、请求失败和 409 提示均在结果折叠区外，409 继续复用表单顶部的「重新加载」。
 - **本地自动化。** 定向测试 125 项通过，前端全量 51 个文件／476 项通过，前端生产构建及后端 `go build`、`go vet`、`go test` 通过。
-- **隔离浏览器。** Chrome 1440×1000 验证新建和编辑、Tab 焦点与 Enter／Space 展开和收起、全通过和全错误摘要、编辑 `HK` 的混合状态、脱敏预览、重查与迟到响应、JSON 阻断与定位、修订冲突及重新加载。检查后保存可正常创建节点；检查本身未创建记录，且未推进 `HK` 的修订号。375×785 模拟手机的明暗主题下，检查按钮与汇总达到 44px 命中高度，摘要换行、展开内容与保存区均可操作。复现步骤与验证边界见 [Build38.md](docs/reports/Build/Build38.md)。
+- **隔离浏览器。** Chrome 1440×1000 验证新建和编辑、Tab 焦点与 Enter／Space 展开和收起、全通过和全错误摘要、编辑 `HK` 的混合状态、脱敏预览、重查与迟到响应、JSON 阻断与定位、修订冲突及重新加载。检查后保存可正常创建节点；检查本身未创建记录，且未推进 `HK` 的修订号。375×785 模拟手机的明暗主题下，检查按钮与汇总达到 44px 命中高度，摘要换行、展开内容与保存区均可操作。复现步骤与验证边界见 [Build38.md](../Build/Build38.md)。
 - **文档。** Design4 v1.35 同步 D9、§3.1 和 §7.2。Build19 与 Design2-UI 在原章节保留历史记载并链接现行设计，AGENTS 同步构建索引。
 
 ### R35-08 Docker 挂载目录不可写导致误入应急模式
 
 - 现象为删除数据库后重启容器进入应急模式。2026-11-18 在 Termius 的 KCS Aliyun 会话只读检查到 `/data` 为 root 持有的 `0755` bind mount，容器 `app` 的 UID/GID 为 `100:101`，数据库和 sidecar 均缺失，目录写权限检查失败。日志记录 `unable to open database file (14)` 和 `reason=db_corrupt`。
 - 根因为镜像构建时对 `/data` 的属主设置被宿主机挂载覆盖，固定 `USER app` 无法创建数据库。后端把 SQLite 打开失败统一归入损坏救援。
-- 2026-11-21 用户确认采用镜像内部入口准备目录、随后业务进程以非 root 身份运行。设计见 [Design6](Design6.md)，构建记录见 [Build39](docs/reports/Build/Build39.md)。
+- 2026-11-21 用户确认采用镜像内部入口准备目录、随后业务进程以非 root 身份运行。设计见 [Design6](../Design/Design6.md)，构建记录见 [Build39](../Build/Build39.md)。
 - 影响包括 Docker 入口、实际进程身份、挂载目录自身属主和 Open／迁移的存储失败分支。普通用户目录采用其 UID/GID，root 目录调整目录自身属主。现有 SQLite 文件逐项检查，实际损坏仍进入应急恢复。
 - 当前状态为已修复并通过本地验收。独立 Docker 回归覆盖 root／普通用户目录、旧库、重启、仅删除主库后初始化、显式用户、只读挂载、主库／WAL 权限冲突、实际损坏、手动应急、含空格 DATA_DIR、dev 模式和命名卷。后端全量测试／build／vet、前端 build 通过。PID 1 已核对为非 root，CapEff 为零。完整记录见 Build39。2026-11-21 用户授权以 `v4.1.5` 提交并推送构建，远端结果以对应 GitHub Actions 记录为准，KCS Aliyun 尚待使用新镜像验证。
 
@@ -1863,78 +1865,78 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 - 现象为 v4.1.5 自动准备 root 拥有的目录后，宿主机显示属主为 `usbmux:lxd`。
 - 根因为 Alpine 自动创建的镜像用户 `app` 数值身份为 `100:101`，宿主机按自己的账号表把同一组编号显示为系统账号。绑定挂载共享目录属主。
 - 用户授权修复，并明确暂无数据，省去旧数据迁移验证。默认 app 固定为 `10001:10001`，空的旧 `100:101` 目录会在入口阶段纠正目录自身属主。普通用户目录与显式非 root 身份继续按实际指定身份运行。
-- 当前状态为已修复并通过本地验收。镜像内 app、root 空目录及空的旧 `100:101` 目录均采用 `10001:10001`，普通用户目录和显式身份测试通过。Docker 场景回归、后端全量测试／build／vet、前端 build 通过。按用户确认省去旧数据迁移验证。2026-11-21 用户授权以 `v4.1.6` 提交并推送构建，远端结果以对应 GitHub Actions 记录为准，远端部署尚待执行。设计见 [Design6](Design6.md)，构建和验证见 [Build40](docs/reports/Build/Build40.md)。
+- 当前状态为已修复并通过本地验收。镜像内 app、root 空目录及空的旧 `100:101` 目录均采用 `10001:10001`，普通用户目录和显式身份测试通过。Docker 场景回归、后端全量测试／build／vet、前端 build 通过。按用户确认省去旧数据迁移验证。2026-11-21 用户授权以 `v4.1.6` 提交并推送构建，远端结果以对应 GitHub Actions 记录为准，远端部署尚待执行。设计见 [Design6](../Design/Design6.md)，构建和验证见 [Build40](../Build/Build40.md)。
 
 ### R35-10 配置导入查表失败后仍提交覆盖
 
 - **现象与复现。** Build41 Step 1 独立核验在临时 SQLite 库中模拟功能表查询失败。v1 同步导入返回成功，v2 异步任务进入成功终态。两条路径均覆盖了站点名称并留下原服务商绑定，违反配置覆盖事务的清理合同。
 - **根因与影响。** v1/v2 事务清理 `provider_traffic_settings` 时借用了只返回布尔值的表检查。读取 `sqlite_master` 报错与查询确认缺表走同一分支，均跳过删除。RESET 和应急清库原已逐项处理查表错误。
-- **修复与验证。** 导入与清库复用明确返回查询错误的事务查表函数。真实缺表的旧库继续兼容。新增回归通过 SQLite 连接级 SQL 长度限制使目录查询失败，修复前复现两种导入均误报成功。修复后 v1 返回错误，v2 任务标记失败，两者都保留原站点名称、服务商绑定密文、修订和开关。本地复验通过，命令与范围见 [Build41 Step 1](Build41.md#step-1--存储配置覆盖和旧库兼容)。
+- **修复与验证。** 导入与清库复用明确返回查询错误的事务查表函数。真实缺表的旧库继续兼容。新增回归通过 SQLite 连接级 SQL 长度限制使目录查询失败，修复前复现两种导入均误报成功。修复后 v1 返回错误，v2 任务标记失败，两者都保留原站点名称、服务商绑定密文、修订和开关。本地复验通过，命令与范围见 [Build41 Step 1](../Build/Build41.md#step-1--存储配置覆盖和旧库兼容)。
 
 ### R35-11 上游数值校验与错误分类偏离约定
 
 - **现象与复现。** Build41 Step 2 独立核验中，KiwiVM 的近似倍率和下溢到零的非零错误码通过了成功判断，两家都接受了下溢到零的负流量。V.PS 读取停滞的 `404` 正文约 8 秒后给出通用服务商错误。两家拦截重定向时也给出通用服务商错误。
 - **根因与影响。** 浮点转换发生在精确比较前，舍入改变了业务判断。V.PS 的错误正文读取层吞掉了读取错误。`CheckRedirect` 返回 `ErrUseLastResponse` 时，客户端收到首跳响应，旧分类器将该重定向归为普通非成功响应。影响 KiwiVM 查询、V.PS 续期与资源查询。
-- **修复与验证。** 使用规范化十进制值校验业务码和倍率，拒绝会下溢成零或溢出的流量字段。V.PS 直接处理 `401` 与 `429`，并在其余 `4xx` 的限读过程中保留失败原因。两家识别首跳重定向并归为连接服务商失败。新增回归修复前复现、修复后通过，本地 TLS 复验确认正文超时和禁止跳转的行为。状态为已修复并通过本地复验，验证命令和真实平台验收边界见 [Build41 Step 2](Build41.md#step-2--kiwivm-与-vps-上游客户端)。
+- **修复与验证。** 使用规范化十进制值校验业务码和倍率，拒绝会下溢成零或溢出的流量字段。V.PS 直接处理 `401` 与 `429`，并在其余 `4xx` 的限读过程中保留失败原因。两家识别首跳重定向并归为连接服务商失败。新增回归修复前复现、修复后通过，本地 TLS 复验确认正文超时和禁止跳转的行为。状态为已修复并通过本地复验，验证命令和真实平台验收边界见 [Build41 Step 2](../Build/Build41.md#step-2--kiwivm-与-vps-上游客户端)。
 
 ### R35-12 手动取消后仍可能发起续期后的资源查询
 
 - **现象与复现。** Build41 Step 3 实施中的并发测试在临时 SQLite、合成凭据与阻塞模拟响应下复现：手动刷新已收到并解析新 Token 对后，调用方取消上下文；若取消仅通过 `context.AfterFunc` 异步传播到采集链，续期提交完成后的条件复核仍可能通过，随后发起一次资源查询。修复前先在取消后释放阻塞续期响应，资源请求计数为 1；修复后同类场景为 0，且新 Refresh Token 仍完成入库。
 - **根因与影响。** 采集链只检查派生的链上下文，派生上下文对父请求取消的传播不是同步的；续期提交后的复核使用该派生上下文，没有直接读取原始手动请求上下文。影响手动刷新取消后的资源出站与结果发布，不影响已收到的新 Refresh Token 入库。
-- **修复与验证。** 采集链增加手动请求上下文参数，在每次出站前、续期提交后、资源查询与结果发布前同步检查调用方请求上下文；续期提交继续使用独立的 5 秒 detached 上下文，取消不会丢失已解析的新 Token 对。回归 `TestCollectorVPSCommitSurvivesCancellation` 覆盖取消后资源请求为 0、新 Refresh Token 仍落库、结果不发布；`go test -race ./internal/providertraffic -count=3` 与重复运行通过。状态为已修复并通过本地复验；站内 HTTP 映射已由 Step 4 路由测试覆盖，真实服务商、Docker 与浏览器验收分别留给 Step 5～7，见 [Build41 Step 3](Build41.md#step-3--自动采集与轮换一致性)。
+- **修复与验证。** 采集链增加手动请求上下文参数，在每次出站前、续期提交后、资源查询与结果发布前同步检查调用方请求上下文；续期提交继续使用独立的 5 秒 detached 上下文，取消不会丢失已解析的新 Token 对。回归 `TestCollectorVPSCommitSurvivesCancellation` 覆盖取消后资源请求为 0、新 Refresh Token 仍落库、结果不发布；`go test -race ./internal/providertraffic -count=3` 与重复运行通过。状态为已修复并通过本地复验；站内 HTTP 映射已由 Step 4 路由测试覆盖，真实服务商、Docker 与浏览器验收分别留给 Step 5～7，见 [Build41 Step 3](../Build/Build41.md#step-3--自动采集与轮换一致性)。
 
 ### R35-13 手动取消或设置变更后仍发布在途结果
 
 - **现象与复现。** 独立核验使用临时 SQLite 和模拟上游，在结果通过资格复核后阻塞结果锁。此时取消手动请求仍写入 `ok`。关闭总开关同样写入 `ok` 并返回成功。改绑时新绑定读取不到旧结果，但本轮手动采集仍收到旧绑定的成功结果。
 - **根因与影响。** SQLite 资格查询和内存写入之间允许其他配置事务提交，结果锁内也没有再次检查原始手动请求取消。手动入口确认的绑定修订没有传入采集链。
-- **修复与验证。** 固定手动入口的绑定修订。短事务复核实时资格，持结果锁完成发布并检查取消，事务失败保留原结果。配置变更已提交时返回 `ErrDiscarded`。定向回归覆盖晚到取消、关停写入与发布顺序、改绑后零出站，并保留 R35-12 的续期入库验证。状态为已修复并通过本地验证，站内 `409` 映射已由 Step 4 路由测试核验。 [Build41 Step 3](Build41.md#step-3--自动采集与轮换一致性) · [Build41 Step 4](Build41.md#step-4--站内接口与生命周期)
+- **修复与验证。** 固定手动入口的绑定修订。短事务复核实时资格，持结果锁完成发布并检查取消，事务失败保留原结果。配置变更已提交时返回 `ErrDiscarded`。定向回归覆盖晚到取消、关停写入与发布顺序、改绑后零出站，并保留 R35-12 的续期入库验证。状态为已修复并通过本地验证，站内 `409` 映射已由 Step 4 路由测试核验。 [Build41 Step 3](../Build/Build41.md#step-3--自动采集与轮换一致性) · [Build41 Step 4](../Build/Build41.md#step-4--站内接口与生命周期)
 
 ### R35-14 总开关关闭后重新开启可能漏掉首轮
 
 - **现象与复现。** 两笔开关写入均已提交，再执行各自的提交后通知。两次通知均观察到最终的开启状态，立即采集次数为零，直到下一固定周期才采集。
 - **根因与影响。** 调度依据通知时的最新快照与上次快照，关闭发生在两次观察之间时看不到真实的开启变化。
-- **修复与验证。** 设置业务入口串行完成本地提交和调度交接。使用同一写事务内的前后状态安排采集，失败或同值保存无触发，提交后请求取消仍完成交接。定向回归验证重开在周期前触发一次，已有回归覆盖同值和冲突、单家触发、两家独立及忙碌时合并。状态为已修复并通过本地验证。 [Build41 Step 3](Build41.md#step-3--自动采集与轮换一致性)
+- **修复与验证。** 设置业务入口串行完成本地提交和调度交接。使用同一写事务内的前后状态安排采集，失败或同值保存无触发，提交后请求取消仍完成交接。定向回归验证重开在周期前触发一次，已有回归覆盖同值和冲突、单家触发、两家独立及忙碌时合并。状态为已修复并通过本地验证。 [Build41 Step 3](../Build/Build41.md#step-3--自动采集与轮换一致性)
 
 ### R35-15 V.PS 出站前复核期间 Access Token 到期
 
 - **现象与复现。** V.PS 选择了当时尚有效的缓存 Token，后续资格复核等待 SQLite 连接时 Token 到期。连接释放后仍以旧 Token 查询资源，本轮报告上游鉴权失败。
 - **根因与影响。** 缓存有效性在数据库复核之前判定，数据库等待期间经过的时间没有计入。
-- **修复与验证。** 先复核出站资格，再在缓存锁内判断到期。到期则本轮续期并提交新 Refresh Token 后查询资源。定向回归将时钟推进到到期时刻，断言各发出一次续期与资源查询，资源端收到新 Access Token 前新 Refresh Token 已入库。状态为已修复并通过本地验证。 [Build41 Step 3](Build41.md#step-3--自动采集与轮换一致性)
+- **修复与验证。** 先复核出站资格，再在缓存锁内判断到期。到期则本轮续期并提交新 Refresh Token 后查询资源。定向回归将时钟推进到到期时刻，断言各发出一次续期与资源查询，资源端收到新 Access Token 前新 Refresh Token 已入库。状态为已修复并通过本地验证。 [Build41 Step 3](../Build/Build41.md#step-3--自动采集与轮换一致性)
 
 ### R35-16 模式切换先提交后设置写入仍成功
 
 - **现象与根因。** 独立核验在 HTTP 入口检查通过后、请求体读完前切入高级模式。原请求返回 `200` 并落库。设置事务缺少 Setup 和基础模式复核。补充实验确认修改绑定和解绑也受影响，Setup 状态变化可复现同样的问题。
-- **修复与验证。** 共用设置写事务复核 Setup 和模式，拒绝时返回 `403` 且不交接调度。三种写入分别与两类模式变化交错，均保持数据库设置原值。已修复并通过本地复验。 [Build41 Step 4](Build41.md#step-4--站内接口与生命周期)
+- **修复与验证。** 共用设置写事务复核 Setup 和模式，拒绝时返回 `403` 且不交接调度。三种写入分别与两类模式变化交错，均保持数据库设置原值。已修复并通过本地复验。 [Build41 Step 4](../Build/Build41.md#step-4--站内接口与生命周期)
 
 ### R35-17 设置响应将新实例的采集结果挂在旧修订
 
 - **现象与根因。** 并发换绑时，设置响应先拿到旧实例与修订，单独查询结果时重新读取了新绑定。模拟上游先完成新实例采集后，响应错误地在旧绑定中显示新实例余量。
-- **修复与验证。** 按同一响应内的绑定修订读取内存结果，无匹配时返回 `null`。真实采集器在模拟上游环境验证新实例成功后旧修订无结果，路由回归覆盖设置读取与写入响应。已修复并通过本地复验。 [Build41 Step 4](Build41.md#step-4--站内接口与生命周期)
+- **修复与验证。** 按同一响应内的绑定修订读取内存结果，无匹配时返回 `null`。真实采集器在模拟上游环境验证新实例成功后旧修订无结果，路由回归覆盖设置读取与写入响应。已修复并通过本地复验。 [Build41 Step 4](../Build/Build41.md#step-4--站内接口与生命周期)
 
 ### R35-18 设置接口接受了含多余内容或超限的请求体
 
 - **现象与根因。** JSON 解码读到首个对象便开始写入。含第二个对象的请求、合法对象后带超限尾部的未知长度请求，均返回 `200` 并执行写入。
-- **修复与验证。** 以固定缓冲区校验完整对象后只剩 JSON 空白，并沿用全局体积限制。回归确认恰好到上限的合法请求通过，多余内容返回 `400`，超限返回 `413`，失败响应带 `no-store` 且写入次数为零。已修复并通过本地复验。 [Build41 Step 4](Build41.md#step-4--站内接口与生命周期)
+- **修复与验证。** 以固定缓冲区校验完整对象后只剩 JSON 空白，并沿用全局体积限制。回归确认恰好到上限的合法请求通过，多余内容返回 `400`，超限返回 `413`，失败响应带 `no-store` 且写入次数为零。已修复并通过本地复验。 [Build41 Step 4](../Build/Build41.md#step-4--站内接口与生命周期)
 
 ### R35-19 服务正常关停时在途手动采集返回 500
 
 - **现象与根因。** 模拟上游正在处理时停止正常服务，HTTP 请求收到 `500`。停机信号和采集链结果有两个出口，分别可能交付「采集服务不可用」或上下文取消。
-- **修复与验证。** 已受理的手动采集使用工作链最终结果。服务退出导致丢弃时映射为 `409`，保持客户端取消与本地故障的独立处理。直接停止采集器与取消服务上下文均通过。回环 HTTP 复验连续三次返回 `409`，无结果发布且服务正常退出。已修复并通过本地复验。 [Build41 Step 4](Build41.md#step-4--站内接口与生命周期)
+- **修复与验证。** 已受理的手动采集使用工作链最终结果。服务退出导致丢弃时映射为 `409`，保持客户端取消与本地故障的独立处理。直接停止采集器与取消服务上下文均通过。回环 HTTP 复验连续三次返回 `409`，无结果发布且服务正常退出。已修复并通过本地复验。 [Build41 Step 4](../Build/Build41.md#step-4--站内接口与生命周期)
 
 ### R35-20 未保存草稿使用了新绑定修订
 
 - **现象与根因。** 页面 A 为旧绑定输入草稿，页面 B 改绑后，页面 A 保存总开关拿到新修订，同时仍保留旧草稿。修复前的模拟用例捕获到旧草稿携带新修订提交。草稿合并仅保留输入，提交却读取最新已保存修订，写入事务无法识别该草稿来自旧绑定。
-- **修复与验证。** 草稿记录自身基准，修订不一致时阻止本家保存及立即采集，直至管理员显式采用最新绑定并清除本家草稿。前端回归覆盖不同实例改绑、同实例换证及其他页面先完成首次绑定，确认旧草稿保留、无写请求、显式重置后才提交新修订。 [Build41 Step 5](Build41.md#step-5--管理设置与首页展示)
+- **修复与验证。** 草稿记录自身基准，修订不一致时阻止本家保存及立即采集，直至管理员显式采用最新绑定并清除本家草稿。前端回归覆盖不同实例改绑、同实例换证及其他页面先完成首次绑定，确认旧草稿保留、无写请求、显式重置后才提交新修订。 [Build41 Step 5](../Build/Build41.md#step-5--管理设置与首页展示)
 
 ### R35-21 旧解绑确认可能删除新绑定
 
 - **现象与根因。** 切回基础模式时重读尚未完成，旧表单可以打开解绑确认。重读返回新绑定后，确认回调临时读取最新修订，修复前的模拟用例捕获到 DELETE 携带新修订。
-- **修复与验证。** 确认框显示实例并固定打开时的修订。模式变化或读到新修订时使旧确认失效，切回基础模式先完成重读。确认后仍由后端按提交修订校验。前端回归验证重读期间无解绑入口、旧确认无请求、重新确认为新实例时才提交新修订。 [Build41 Step 5](Build41.md#step-5--管理设置与首页展示)
+- **修复与验证。** 确认框显示实例并固定打开时的修订。模式变化或读到新修订时使旧确认失效，切回基础模式先完成重读。确认后仍由后端按提交修订校验。前端回归验证重读期间无解绑入口、旧确认无请求、重新确认为新实例时才提交新修订。 [Build41 Step 5](../Build/Build41.md#step-5--管理设置与首页展示)
 
 ### R35-22 旧页面手动采集了当前新绑定
 
 - **现象与根因。** 原 POST 只提交平台，服务端采用请求进入时的当前绑定。另一页先改绑时，旧页面可收到新实例结果。修复前的模拟用例证实旧实例行会显示新实例的数值。对 V.PS，该请求还可能为新实例续期。
-- **修复与验证。** 用户授权立即采集改为提交所见的 `revision`。采集器在启动请求链前比对；旧修订返回 `409`。回归确认两家均零出站、无结果发布，合法修订仍支持原有发布和 V.PS 同修订轮换，前端也拦截与当前绑定不符的迟到结果。HTTP 回归覆盖完整请求体、大小限制、`no-store` 及旧修订映射。 [Build41 Step 5](Build41.md#step-5--管理设置与首页展示)
+- **修复与验证。** 用户授权立即采集改为提交所见的 `revision`。采集器在启动请求链前比对；旧修订返回 `409`。回归确认两家均零出站、无结果发布，合法修订仍支持原有发布和 V.PS 同修订轮换，前端也拦截与当前绑定不符的迟到结果。HTTP 回归覆盖完整请求体、大小限制、`no-store` 及旧修订映射。 [Build41 Step 5](../Build/Build41.md#step-5--管理设置与首页展示)
 
 ### R35-23 旧版接口接受主机的过期修订
 
@@ -1964,6 +1966,7 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 
 | 日期 | 说明 |
 |------|------|
+| 2026-11-24 | 核对 R35-01～R35-26 的修复和验证记录，全部问题闭环，本文归档。 |
 | 2026-11-24 | 完成 R35-23～R35-26，修复管理接口修订、采集复核、V.PS 共享轮换与导入确认测试，见 Design7 v1.9 和 Build42 Step 1。 |
 | 2026-11-24 | 完成 R35-20～R35-22，修正草稿、确认和手动采集的绑定修订，见 Design7 v1.7 与 Build41 Step 5。 |
 | 2026-11-24 | 完成 R35-16～R35-19 设置写事务、结果修订、完整请求体和手动采集关停的修复与本地复验，见 Build41 Step 4。 |

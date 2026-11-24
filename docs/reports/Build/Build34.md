@@ -1,6 +1,6 @@
 # Build34 — 素材池来源、装配候选与预览一致性
 
-基线为 `beta` 的 `157cd31`。用户确认按四步实施，本地 8080 已更新。问题证据见 [Issue21 R35-03](../../../Issue21.md#r35-03-创建素材池后返回-clash-构建页面需要整页刷新)，现行口径见 [Design3 §2.4](../Design/Design3.md#24-来源配置变化) 与 [Design2-UI §5.1](../Design/Design2-UI.md#51-页面骨架单菜单入口页内-tabs)。
+基线为 `beta` 的 `157cd31`。用户确认按四步实施，本地 8080 已更新。问题证据见 [Issue21 R35-03](../Issue/Issue21.md#r35-03-创建素材池后返回-clash-构建页面需要整页刷新)，现行口径见 [Design3 §2.4](../Design/Design3.md#24-来源配置变化) 与 [Design2-UI §5.1](../Design/Design2-UI.md#51-页面骨架单菜单入口页内-tabs)。
 
 | Step | 目标 | 状态 |
 |---|---|---|

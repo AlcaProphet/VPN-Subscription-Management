@@ -1,6 +1,8 @@
 # Design6 — Docker 数据目录权限与启动身份
 
-> 2026-11-21，v1.1。用户确认镜像入口短暂以 root 准备目录，随后业务服务以非 root 身份运行。问题见 [Issue21 R35-08](Issue21.md#r35-08-docker-挂载目录不可写导致误入应急模式) 与 R35-09，实施验收见 [Build39](docs/reports/Build/Build39.md) 和 [Build40](docs/reports/Build/Build40.md)。
+> 2026-11-21，v1.1。用户确认镜像入口短暂以 root 准备目录，随后业务服务以非 root 身份运行。问题见 [Issue21 R35-08](../Issue/Issue21.md#r35-08-docker-挂载目录不可写导致误入应急模式) 与 R35-09，实施验收见 [Build39](../Build/Build39.md) 和 [Build40](../Build/Build40.md)。
+>
+> **归档状态（2026-11-24）**　Build39 和 Build40 的约定范围已完成本地 Docker 验收。用户确认省去旧数据迁移验证。KCS Aliyun 部署、Rootless 和 userns-remap 的验证边界见 Build39 的验收结果。
 
 ## 一、目标与启动流程
 

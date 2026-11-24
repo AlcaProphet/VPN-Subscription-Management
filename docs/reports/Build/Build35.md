@@ -1,6 +1,6 @@
 # Build35 — 手动 VLESS／VMess 的 Clash UDP 缺省输出
 
-基线为 `beta` 的 `857f446`。设计见 [Design4 §7.3](../../../Design4.md#73-历史版本与-xray-来源)，问题及复现见 [Issue21 R35-04](../../../Issue21.md#r35-04-vless-节点开启-udp-后生成的-clash-配置缺少-udp-字段)。
+基线为 `beta` 的 `857f446`。设计见 [Design4 §7.3](../../../Design4.md#73-历史版本与-xray-来源)，问题及复现见 [Issue21 R35-04](../Issue/Issue21.md#r35-04-vless-节点开启-udp-后生成的-clash-配置缺少-udp-字段)。
 
 | Step | 目标 | 状态 |
 |---|---|---|

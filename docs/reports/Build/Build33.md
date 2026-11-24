@@ -1,6 +1,6 @@
 # Build33 — Clash／SR 装配规则门槛修复
 
-> 设计见 [Design3 §7.2](../Design/Design3.md#72-渲染和回执)，问题和历史复现见 [Issue21 R35-02](../../../Issue21.md#r35-02-无素材池时-clash-构建预检未阻断)。工作基线为 `beta` 的 `5d53d2c`。编码约束见 [AGENTS.md](../../../AGENTS.md)。
+> 设计见 [Design3 §7.2](../Design/Design3.md#72-渲染和回执)，问题和历史复现见 [Issue21 R35-02](../Issue/Issue21.md#r35-02-无素材池时-clash-构建预检未阻断)。工作基线为 `beta` 的 `5d53d2c`。编码约束见 [AGENTS.md](../../../AGENTS.md)。
 
 | Step | 目标 | 状态 |
 |---|---|---|

@@ -1,6 +1,6 @@
 # Build40 — Docker 默认 UID/GID 固定
 
-> 基线 `beta` / `8a6d03a`。设计见 [Design6](../../../Design6.md)，问题见 [Issue21](../../../Issue21.md) R35-09，约束见 [AGENTS](../../../AGENTS.md)。用户确认暂无数据，本轮按无数据场景验收。
+> 基线 `beta` / `8a6d03a`。设计见 [Design6](../Design/Design6.md)，问题见 [Issue21](../Issue/Issue21.md) R35-09，约束见 [AGENTS](../../../AGENTS.md)。用户确认暂无数据，本轮按无数据场景验收。
 
 ## 一、构建进度
 

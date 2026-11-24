@@ -1,7 +1,7 @@
 # Issue18.md — 邮件运行语义与站点信息问题
 
-> **文档定位：** 本文档记录 2026-09-16 起发现的邮件与站点信息问题。R32-01 记录站点名称一致性修复；R32-02 记录业务邮件异步派发与进程内日志；R32-03 记录终态结果持久化、当前发送队列快照与取消页面轮询的后续优化。R32-02/R32-03 构建记录分别见 [Build29.md](docs/reports/Build/Build29.md)、[Build30.md](docs/reports/Build/Build30.md)。已实施的邮件内容设计仍见 [Design5.md](Design5.md) §7，历史构建记录仍以 [Build28.md](docs/reports/Build/Build28.md) 为准。
-> **当前状态：** ✅ R32-01～R32-03 均已完成工程、自动化和人工真机核验；2026-09-20 用户确认业务邮件异步派发、历史结果与当前发送队列人工核验完成，暂未发现问题。本记录闭环后保留在根目录。
+> **文档定位：** 本文档记录 2026-09-16 起发现的邮件与站点信息问题。R32-01 记录站点名称一致性修复；R32-02 记录业务邮件异步派发与进程内日志；R32-03 记录终态结果持久化、当前发送队列快照与取消页面轮询的后续优化。R32-02/R32-03 构建记录分别见 [Build29.md](../Build/Build29.md)、[Build30.md](../Build/Build30.md)。已实施的邮件内容设计仍见 [Design5.md](../../../Design5.md) §7，历史构建记录仍以 [Build28.md](../Build/Build28.md) 为准。
+> **当前状态：** ✅ R32-01～R32-03 均已完成工程、自动化和人工真机核验；2026-09-20 用户确认业务邮件异步派发、历史结果与当前发送队列人工核验完成，暂未发现问题。本记录已归档。
 
 ---
 
@@ -156,7 +156,7 @@
 - **接口/UI：** 覆盖 401、403、400、分页上限、过滤、空数组、no-store、清空幂等、桌面/移动布局、活动页签 5 秒单飞轮询、切页/卸载停止、失败保留旧列表或明确错误状态，以及 `queued/queue_failed`/“SMTP 已接受”文案。
 - **回归命令：** 后端执行 `go test -race ./internal/mail ./internal/auth ./internal/user ./internal/approval ./internal/dataclear ./internal/server`、`go test ./... -count=1`、`go build ./...`、`go vet ./...`、`go run ./cmd/errgate ./...`；前端执行 `npm test -- --reporter=dot`、`npm run build`；根目录执行 `git diff --check`。若修改文件触及现有架构/颜色门禁，再执行对应静态脚本。
 - **隔离 smoke：** 使用临时 `DATA_DIR`、合成账号与本地可控 SMTP，不读取或发送到真实地址。至少验证注册快速返回、队列状态流转、管理员鉴权/no-store、清日志不取消发送、全量清空取消旧任务且新 Setup 后可重新派发。
-- **验收记录规则：** 正式 SMTP、真实收件箱、外部邮件客户端显示和最终投递的人工结果由 [ProdTestList.md](ProdTestList.md) 记录；自动化或本地 mock 不得替代真实人工结果。若实现中发现必须改变已确认的 2 worker/100 队列/500 日志容量、best-effort 无重试、SMTP 测试同步或公共防枚举语义，停止当前 Step 并交由用户重新决策。
+- **验收记录规则：** 正式 SMTP、真实收件箱、外部邮件客户端显示和最终投递的人工结果由 [ProdTestList.md](../../../ProdTestList.md) 记录；自动化或本地 mock 不得替代真实人工结果。若实现中发现必须改变已确认的 2 worker/100 队列/500 日志容量、best-effort 无重试、SMTP 测试同步或公共防枚举语义，停止当前 Step 并交由用户重新决策。
 
 ### 2.12 已确认的最后两项决策
 
@@ -174,7 +174,7 @@
   - 后端：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、`go test -race ./internal/mail ./internal/auth ./internal/user ./internal/approval ./internal/dataclear ./internal/server -count=1`、`go run ./cmd/errgate ./...` 均通过。
   - 前端：`npm test -- --reporter=dot`（47 个测试文件、314 项测试）与 `npm run build` 通过。
   - 定向 smoke：阻塞 SMTP 下注册快速返回；2 worker/100 队列/第 103 个 rejected；SMTP 测试无 queued 且写日志；邮件日志 API 401/403/400/no-store/清空幂等；清空邮件日志不影响发送；全量清空成功清日志并恢复派发器、前置暂停失败 503 且不清库。
-- **验收边界：** 上述为编译、静态检查、单元/竞态、接口级与本地 mock smoke 证据；正式 SMTP、真实收件箱、外部邮件客户端显示与最终投递的人工结果另由 [ProdTestList.md](ProdTestList.md) 记录，不以自动化结果替代。相关人工项目已于 2026-09-20 完成并暂未发现问题。
+- **验收边界：** 上述为编译、静态检查、单元/竞态、接口级与本地 mock smoke 证据；正式 SMTP、真实收件箱、外部邮件客户端显示与最终投递的人工结果另由 [ProdTestList.md](../../../ProdTestList.md) 记录，不以自动化结果替代。相关人工项目已于 2026-09-20 完成并暂未发现问题。
 
 - **人工核验：** 用户于 2026-09-20 确认 R32-02 业务邮件异步派发与邮件发送结果相关人工项目已完成真机核验，暂未发现问题。
 - **状态：** ✅ R32-02 工程修复、自动化门禁、本地隔离 smoke 与人工真机核验均已完成（2026-09-20）。
