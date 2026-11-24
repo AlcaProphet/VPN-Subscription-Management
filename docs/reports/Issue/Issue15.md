@@ -1,6 +1,6 @@
 # Issue15.md — VPN 订阅管理系统问题记录（人工测试与交叉审核补充，已归档）
 
-> **归档说明：** R29-01～R29-12 均已完成修复、确认或文档收口；完整数据备份能力已按用户决定转入 [Design5.md](../../../Design5.md)，后续邮件测试问题另由归档的 [Issue16.md](Issue16.md) R30-01 跟踪。本文件仅保留历史发现、处理过程、验收证据和迁移指针，不再作为当前问题入口。
+> **归档说明：** R29-01～R29-12 均已完成修复、确认或文档收口；完整数据备份能力已按用户决定转入 [Design5.md](../Design/Design5.md)，后续邮件测试问题另由归档的 [Issue16.md](Issue16.md) R30-01 跟踪。本文件仅保留历史发现、处理过程、验收证据和迁移指针，不再作为当前问题入口。
 
 > **文档定位：** 本文记录 [ProdTestList.md](../../../ProdTestList.md) 执行过程中由用户发现的 Production、浏览器和真实客户端错误；2026-09-10 起并登记文档交叉审核发现、尚未在 Issue14 独立立项的工程/验证/文档追溯问题。默认只登记发现事实，经用户明确授权分析或修复后，可在对应问题中同步根因、修复内容、自动化证据和用户人工核验结论。工程问题、既有 R28 问题和通用自动化证据仍分别由 [Issue14.md](Issue14.md) 及相关文档跟踪；交叉审核项必须在条目内注明工程主跟踪文档。
 > 关联测试清单：[ProdTestList.md](../../../ProdTestList.md)；编码约束：[AGENTS.md](../../../AGENTS.md)；当前工程问题：[Issue14.md](Issue14.md)。
@@ -38,7 +38,7 @@
 - **回归测试：** 新增入口语义测试，覆盖 Setup 相同 v2 文件只凭 `IMPORT` 可提交、管理面板缺 `DISABLE` 仍拒绝、补 `DISABLE` 后可提交并完成。旧实现上的 Setup 分支先稳定失败，修复后三分支通过。
 - **自动化证据：** 2026-09-11 定向 `go test ./internal/config -run 'TestImportV2DisableConfirmationByEntry|TestImportV2' -count=1` 通过；后端 `go test ./...`、`go build ./...`、`go vet ./...` 全部通过；前端 `npm run build` 通过；根目录 `git diff --check` 通过。
 - **真实文件隔离验证：** 使用用户提供的文件和密码，在临时数据目录、独立 18080 端口启动当前代码的 Production 服务；真实 `POST /api/setup/import` 仅发送 `IMPORT` 返回 HTTP 200 与 `task_id`，异步导入完成后公开状态为 `configured=true`、`advanced_mode=false`、本地登录可用，未自动开启高级模式。临时服务随后停止并清理，当前 8080 Docker 数据卷未改动。
-- **人工核验：** 用户于 2026-09-14 确认 Production 专项人工核查在真机、本地环境通过，导入导出可用；同时指出数据仍无法正确备份。该备份能力缺陷已转入 [Design5.md](../../../Design5.md) 待后续改进，按用户决定当前不作为问题追踪。
+- **人工核验：** 用户于 2026-09-14 确认 Production 专项人工核查在真机、本地环境通过，导入导出可用；同时指出数据仍无法正确备份。该备份能力缺陷已转入 [Design5.md](../Design/Design5.md) 待后续改进，按用户决定当前不作为问题追踪。
 - **状态：** ✅ 已闭环（代码修复、自动化/隔离 Production 验证及真机本地人工测试通过；备份能力改进转入 Design5，不作为当前问题）
 - **历史只读复核（2026-09-10，修复前）：** 当时 `backend/internal/config/export.go:285-306` 对“v2 无实例/账号且 `advanced_mode != true`”分支强制要求 `disable_confirm_word=DISABLE`；`frontend/src/views/SetupView.vue:64-71` 的 Setup 新库导入只发送 `confirm_word=IMPORT`，没有第二步 `DISABLE` 通道，因此该场景被第二确认词阻断。`SettingsView.vue` 的面板导入已有两步流程，但 Setup 入口不同；当时 `ImportV2` 尚无入口级测试。2026-09-11 已由用户截图确认原报告中的 `RESET` 应为 `DISABLE`，并按上述范围完成修复。
 

@@ -1,6 +1,6 @@
 # Node-Editor-3xui-Xray-Research.md — 3x-ui / Xray 客户端样例对照与 Build17-21 后深度研究
 
-> **文档定位：** 本文是节点编辑器改进研究的 3x-ui/Xray 专项资料，合并两阶段研究：第一轮（2026-09-02）分析 3x-ui Inbound/Outbound 表单结构、Xray-examples 客户端字段与项目节点处理差异；第二轮（2026-09-05）在 Build17～Build21 落地后，继续从 3x-ui v3.7.0 提炼可借鉴机制。本文承接 [Node-Editor-Research.md](Node-Editor-Research.md)、[Design4.md](../../Design4.md)、[Xray-Client-Config-Research.md](Xray-Client-Config-Research.md)、[Node-Link-Standards.md](Node-Link-Standards.md) 等既有证据。本文只做研究记录，不定义实现，不改动项目业务代码，也不代表对 3x-ui 或 Xray-examples 的修改或产品背书。
+> **文档定位：** 本文是节点编辑器改进研究的 3x-ui/Xray 专项资料，合并两阶段研究：第一轮（2026-09-02）分析 3x-ui Inbound/Outbound 表单结构、Xray-examples 客户端字段与项目节点处理差异；第二轮（2026-09-05）在 Build17～Build21 落地后，继续从 3x-ui v3.7.0 提炼可借鉴机制。本文承接 [Node-Editor-Research.md](Node-Editor-Research.md)、[Design4.md](../reports/Design/Design4.md)、[Xray-Client-Config-Research.md](Xray-Client-Config-Research.md)、[Node-Link-Standards.md](Node-Link-Standards.md) 等既有证据。本文只做研究记录，不定义实现，不改动项目业务代码，也不代表对 3x-ui 或 Xray-examples 的修改或产品背书。
 > **研究状态：** 2026-09-02 创建第一轮，2026-09-05 新增第二轮，2026-09-08 文档交叉审核后同步至 Design4 v1.14 / Build21 收口口径。基于本机仓库 `~/Desktop/Repo/3x-ui`（第二轮 HEAD `f727d04f`，v3.7.0）、`~/Desktop/Repo/Xray-examples`、`~/Desktop/Repo/clash-verge-rev` 和本项目当前代码静态分析；未构建、未联机调试、未改动外部项目与当前项目代码。
 > **标注约定：** 【3x-ui 事实】= 本地 3x-ui 源码观察；【样例事实】= Xray-examples 文件内容；【项目事实】= 当前项目代码或既有文档；【外部事实】= 公开文档或 Issue；【结论】= 由证据推导、供后续研究采纳；【候选】= 需要后续决策，不视为已定稿。
 > **文档历史：** 原 `Node-Editor-3xui-Xray-Research-2.md` 已并入本文作为“八、第二阶段”；本文中早期“保留非激活分支 / 独立编辑状态 / Design4 路线 B”表述均已按 Design4 v1.2+ 口径改写。
@@ -425,7 +425,7 @@ outbounds[]
 
 | 能力 | 落地证据 | 说明 |
 |---|---|---|
-| `nodes` 当前状态/扩展/修订 | [1017_node_editor_state.sql](../../backend/migrations/1017_node_editor_state.sql)、[node.go](../../backend/internal/node/node.go) | `current_state_json`、`extensions_json`、`edit_revision`、`state_format_version` |
+| `nodes` 当前状态/扩展/修订 | [Build17 的 1017 迁移记录](../reports/Build/Build17.md)、[node.go](../../backend/internal/node/node.go) | `current_state_json`、`extensions_json`、`edit_revision`、`state_format_version` |
 | 条件/选项/重置元数据 | [schema.go](../../backend/internal/node/schema.go)、[registry.go](../../backend/internal/node/registry.go) | `When`、`RequiredWhen`、`ResetOn`、`OptionItems`、`AllowCustom`、`TargetEvidence` |
 | 活动投影/保存校验 | [project.go](../../backend/internal/node/project.go) | 按当前 `network/security/plugin/features` 递归投影活动字段 |
 | 节点检查 | [check.go](../../backend/internal/node/check.go)、[node_check.go](../../backend/internal/assembly/node_check.go) | 不落库，复用实际适配器 |

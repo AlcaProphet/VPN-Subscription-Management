@@ -1,6 +1,6 @@
 # SSPanel-Node-Editor-Research.md — SSPanel-UIM 节点编辑可借鉴与对照研究
 
-> **文档定位：** 本文是对 SSPanel-UIM 后台节点管理、`custom_config` 多格式字段字典与操作便利层的深度研究，承接 Design1～Design4 的设计链路（当前最新为 [Design4.md](../../Design4.md)）、[Build17.md](../reports/Build/Build17.md)～[Build20.md](../reports/Build/Build20.md)、[Build21.md](../reports/Build/Build21.md)、[Issue13.md](../reports/Issue/Issue13.md)，以及与 3x-ui 研究平行的 [Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md)。本文只做研究记录，不定义实现，不改动任何业务代码或既有文档，不代表对 SSPanel-UIM 的修改或产品背书。
+> **文档定位：** 本文是对 SSPanel-UIM 后台节点管理、`custom_config` 多格式字段字典与操作便利层的深度研究，承接 Design1～Design4 的设计链路（当前最新为 [Design4.md](../reports/Design/Design4.md)）、[Build17.md](../reports/Build/Build17.md)～[Build20.md](../reports/Build/Build20.md)、[Build21.md](../reports/Build/Build21.md)、[Issue13.md](../reports/Issue/Issue13.md)，以及与 3x-ui 研究平行的 [Node-Editor-3xui-Xray-Research.md](Node-Editor-3xui-Xray-Research.md)。本文只做研究记录，不定义实现，不改动任何业务代码或既有文档，不代表对 SSPanel-UIM 的修改或产品背书。
 > **研究状态：** 2026-09-05 创建，2026-09-08 文档交叉审核后同步至 Build21/Design4 v1.14 口径。基于本机仓库 `~/Desktop/Repo/SSPanel-UIM`（HEAD `d55a6071`，VERSION='25.1.0' "The Restoration"，app/predefine.php:9-10）与当前项目源码、Build17～Build21 落地情况、Issue13 未闭环项进行静态分析；并用公开 SSPanel Docs 链接辅助核对。未构建、未改动外部项目与当前项目代码。
 > **标注约定：** 【SSPanel 事实】= 本地 SSPanel 源码观察；【项目事实】= 当前项目源码或既有文档观察；【经推理】= 由证据推导、需后续设计验证的方向；【可能】= 对收益/风险的推测，不视为已定稿。
 > **文档历史：** 原文件名为 `SSpanel-Node-Editor-Research-2.md`，在 Reference 规范化时改为 `SSPanel-Node-Editor-Research.md`；早期 `SSpanel.md`/`SSpanel-Subscribe.md` 已合并为 [SSPanel-Research.md](SSPanel-Research.md)。
@@ -38,7 +38,7 @@
 
 | 能力 | 落地证据 | 说明 |
 |---|---|---|
-| `nodes` 当前状态/扩展/修订 | [1017_node_editor_state.sql](../../backend/migrations/1017_node_editor_state.sql)、[node.go](../../backend/internal/node/node.go) | `current_state_json`、`extensions_json`、`edit_revision`、`state_format_version` |
+| `nodes` 当前状态/扩展/修订 | [Build17 的 1017 迁移记录](../reports/Build/Build17.md)、[node.go](../../backend/internal/node/node.go) | `current_state_json`、`extensions_json`、`edit_revision`、`state_format_version` |
 | 条件/选项/重置元数据 | [schema.go](../../backend/internal/node/schema.go)、[registry.go](../../backend/internal/node/registry.go) | `When`、`RequiredWhen`、`ResetOn`、`OptionItems`、`AllowCustom`、`TargetEvidence` |
 | 活动投影/保存校验 | [project.go](../../backend/internal/node/project.go) | 按当前 `network/security/plugin/features` 递归投影活动字段 |
 | 节点检查 | [check.go](../../backend/internal/node/check.go)、[node_check.go](../../backend/internal/assembly/node_check.go) | 不落库，复用实际适配器 |

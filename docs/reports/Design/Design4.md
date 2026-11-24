@@ -1,8 +1,10 @@
 # Design4.md — 节点编辑器条件表单与客户端兼容设计
 
-> **文档定位：** VPN 订阅管理系统的节点编辑器增量设计记录，承接 [Node-Editor-Research.md](docs/Reference/Node-Editor-Research.md) 和 2026-09-02 补充研究。本文记录已确认的产品方向、设计纲要、研究证据及后续范围，不是分步 Build 文档。
-> **编码约束：** 遵循 [AGENTS.md](AGENTS.md)（唯一强要求）。[Design3.md](docs/reports/Design/Design3.md) 的规则素材与装配设计继续有效（该设计已由 Build16 构建，并随 Build22 收口归档）；节点已实现基线见 [Design2.md](docs/reports/Design/Design2.md)、[Design2-UI.md](docs/reports/Design/Design2-UI.md) §6.2 和 [Build15.md](docs/reports/Build/Build15.md)。
-> **设计状态：** v1.35，2026-11-17。R35-07 将目标检查移为独立内联区域，结果默认折叠为汇总（见 §3.1、§7.2、[Build38.md](docs/reports/Build/Build38.md)）。R35-06 在节点推荐选项中保留分组并省略验证来源（见 §3.2、§12.2、[Build37.md](docs/reports/Build/Build37.md)）。R35-05 将节点对象字段编辑模式改为「高级 JSON」开关（见 §3.3、[Build36.md](docs/reports/Build/Build36.md)）；R35-04 的 Clash UDP 缺省语义见 §7.3。19 个 manual 协议的编辑体验专项已通过 Build32 Step 0.5～22 验收并归档。固定 Mihomo v1.19.31 与隔离候选证据见 [Build32.md](docs/reports/Build/Build32.md)。TrustTunnel 和 OpenVPN 两项真实连接仍按用户豁免记录。Build26 已将 R28-07 核心工程约束现行合同补充至 §12.7，Build27 已完成 R28-09 项目级工程与文档收尾并归档；R28-06/Build25 Step 0 已同步“未知扩展仅加密存档/诊断不输出、局部 JSON 显式白名单、父子草稿阻止覆盖”设计；Build25 Step 0～4 主体、前端 `item_id_field` 白名单缺口修复、保存定位稳定排序与条件隐藏清理专项回归均已完成，并重新通过自动化、Docker build 与 Production smoke 门禁，Build25 已归档；已完成的人工项目见 Issue14／Issue15，当前待核验项见 ProdTestList。用户已确认并授权写入：切换分支清空所属参数与凭据、切回不恢复、取消独立 `node_edit_states` 表，在 `nodes` 内保存最小当前状态；同时确认协议过渡、目标生成门槛、未知扩展保护、并发修订方案、当前状态落盘形式与 Reference 同步口径。当前有效决策见第二章，设计准备度见第十一章，首批契约细化见第十二章。**关键行为与首批普通组合/风险组合矩阵已补齐；Build17 已完成后端保存契约、当前状态落盘、修订冲突、凭据/扩展保护及 URI 初始化，Build18 已完成条件元数据、活动投影、节点检查和离线夹具，Build19 与 Build20 已完成，前端未知扩展摘要/JSON 草稿拦截/分支切换提示已收口；R27-03 补齐功能关闭清空的元数据契约，R27-04/05 补齐单一连接入口及表单排序/层次/集中开关，R27-06 补齐 `allow_custom` 三态与默认禁止契约，R27-07 补齐实际密文摘要、递归凭据状态及以稳定条目身份处理 WireGuard 数组凭据的完整链路；R27-09 Step 7～14 与 N-node-3/4 Step 15 已完成并验收，Build22 D3 主体与运行门禁完成、Step 7 自动化证据已补齐并重新通过 Step 11 门禁，D3 全验收通过，Build23 已归档为 R27-09 交接说明，Build24 已完成 R29-06 控件语义收口，Build25 已完成 R28-06 主体、缺口修复与全部门禁并归档；Build21、Build22、Build23、Build24、Build25、Build26、Build27 已归档，Design3 已归档，已完成的人工结论见 Issue14／Issue15，待核验项见 ProdTestList；v1.15 将推荐字段收口为标准下拉，并补齐显式自定义草稿、列表推荐入口和未设置数字语义，v1.16 按有限候选决策统一为不带搜索输入的按钮式 Select。工程闭环与已完成人工结果见 [Issue14.md](docs/reports/Issue/Issue14.md)、[Issue15.md](docs/reports/Issue/Issue15.md)；当前待人工核验见 [ProdTestList.md](ProdTestList.md)。**
+> **归档说明（2026-11-24）**　节点编辑器的已验收设计和研究证据保存在本文件。后续通用候选见 [TODOLIST.md](../../../TODOLIST.md)，Xray 专项见 [XrayRelated1.md](../../../XrayRelated1.md)。
+>
+> **文档定位：** VPN 订阅管理系统的节点编辑器增量设计记录，承接 [Node-Editor-Research.md](../../Reference/Node-Editor-Research.md) 和 2026-09-02 补充研究。本文记录已确认的产品方向、设计纲要、研究证据及后续范围，不是分步 Build 文档。
+> **编码约束：** 遵循 [AGENTS.md](../../../AGENTS.md)（唯一强要求）。[Design3.md](Design3.md) 的规则素材与装配设计继续有效（该设计已由 Build16 构建，并随 Build22 收口归档）；节点已实现基线见 [Design2.md](Design2.md)、[Design2-UI.md](Design2-UI.md) §6.2 和 [Build15.md](../Build/Build15.md)。
+> **设计状态：** v1.35，2026-11-17。R35-07 将目标检查移为独立内联区域，结果默认折叠为汇总（见 §3.1、§7.2、[Build38.md](../Build/Build38.md)）。R35-06 在节点推荐选项中保留分组并省略验证来源（见 §3.2、§12.2、[Build37.md](../Build/Build37.md)）。R35-05 将节点对象字段编辑模式改为「高级 JSON」开关（见 §3.3、[Build36.md](../Build/Build36.md)）；R35-04 的 Clash UDP 缺省语义见 §7.3。19 个 manual 协议的编辑体验专项已通过 Build32 Step 0.5～22 验收并归档。固定 Mihomo v1.19.31 与隔离候选证据见 [Build32.md](../Build/Build32.md)。TrustTunnel 和 OpenVPN 两项真实连接仍按用户豁免记录。Build26 已将 R28-07 核心工程约束现行合同补充至 §12.7，Build27 已完成 R28-09 项目级工程与文档收尾并归档；R28-06/Build25 Step 0 已同步“未知扩展仅加密存档/诊断不输出、局部 JSON 显式白名单、父子草稿阻止覆盖”设计；Build25 Step 0～4 主体、前端 `item_id_field` 白名单缺口修复、保存定位稳定排序与条件隐藏清理专项回归均已完成，并重新通过自动化、Docker build 与 Production smoke 门禁，Build25 已归档；已完成的人工项目见 Issue14／Issue15，当前待核验项见 ProdTestList。用户已确认并授权写入：切换分支清空所属参数与凭据、切回不恢复、取消独立 `node_edit_states` 表，在 `nodes` 内保存最小当前状态；同时确认协议过渡、目标生成门槛、未知扩展保护、并发修订方案、当前状态落盘形式与 Reference 同步口径。当前有效决策见第二章，设计准备度见第十一章，首批契约细化见第十二章。**关键行为与首批普通组合/风险组合矩阵已补齐；Build17 已完成后端保存契约、当前状态落盘、修订冲突、凭据/扩展保护及 URI 初始化，Build18 已完成条件元数据、活动投影、节点检查和离线夹具，Build19 与 Build20 已完成，前端未知扩展摘要/JSON 草稿拦截/分支切换提示已收口；R27-03 补齐功能关闭清空的元数据契约，R27-04/05 补齐单一连接入口及表单排序/层次/集中开关，R27-06 补齐 `allow_custom` 三态与默认禁止契约，R27-07 补齐实际密文摘要、递归凭据状态及以稳定条目身份处理 WireGuard 数组凭据的完整链路；R27-09 Step 7～14 与 N-node-3/4 Step 15 已完成并验收，Build22 D3 主体与运行门禁完成、Step 7 自动化证据已补齐并重新通过 Step 11 门禁，D3 全验收通过，Build23 已归档为 R27-09 交接说明，Build24 已完成 R29-06 控件语义收口，Build25 已完成 R28-06 主体、缺口修复与全部门禁并归档；Build21、Build22、Build23、Build24、Build25、Build26、Build27 已归档，Design3 已归档，已完成的人工结论见 Issue14／Issue15，待核验项见 ProdTestList；v1.15 将推荐字段收口为标准下拉，并补齐显式自定义草稿、列表推荐入口和未设置数字语义，v1.16 按有限候选决策统一为不带搜索输入的按钮式 Select。工程闭环与已完成人工结果见 [Issue14.md](../Issue/Issue14.md)、[Issue15.md](../Issue/Issue15.md)；当前待人工核验见 [ProdTestList.md](../../../ProdTestList.md)。**
 > **数据前提：** 按用户确认，当前项目无业务数据，因此旧节点/旧调用方的数据兼容、迁移、历史数据读改写原本不作为本次设计约束；R27-07 扩大范围后，仍为可能存在的本地或备份 WireGuard Peer 数据加入幂等启动升级，避免明文数组凭据遗留。schema 版本化、新节点初始化、“无数据环境下直接建库”和历史版本快照语义继续适用。
 > **证据基线：** 项目提交 `d76ee99`；补充研究使用 Clash Verge Rev **2.5.2** 的官方 URI 解析源码及本机携带的 Mihomo **1.19.29**，执行了 **41 个离线配置检查和 9 个 URI 样例检查**。结果含接受、拒绝、字段改写与静默回退，不是“50 项全部通过”；Shadowrocket 只有官方发布资料证据，没有本轮真机导入或连接结果。
 > **状态用语** “设计结论”表示采用的方案，“研究结果”表示指定版本和路径的观察，“待细化”表示仍需补齐的契约或证据。已实施范围以明确标注的工程结果和归档构建记录为准。
@@ -24,7 +26,7 @@
 | 各类默认值、空输入与凭据保留语义不完全一致 | 明确未设置、显式值、保留、替换及清除 |
 | 手工节点进入生成版本，Xray 节点另有动态注入路径 | 编辑改进需要保持历史版本和来源所有权边界 |
 
-代码定位：[NodesView.vue](frontend/src/views/admin/NodesView.vue)、[ProtocolFieldEditor.vue](frontend/src/components/ProtocolFieldEditor.vue)、[registry.go](backend/internal/node/registry.go)、[node.go](backend/internal/node/node.go)、[render_clash.go](backend/internal/assembly/render_clash.go)、[links.go](backend/internal/assembly/links/links.go)。更完整的现状审计保留在两份 Reference 研究中。
+代码定位：[NodesView.vue](../../../frontend/src/views/admin/NodesView.vue)、[ProtocolFieldEditor.vue](../../../frontend/src/components/ProtocolFieldEditor.vue)、[registry.go](../../../backend/internal/node/registry.go)、[node.go](../../../backend/internal/node/node.go)、[render_clash.go](../../../backend/internal/assembly/render_clash.go)、[links.go](../../../backend/internal/assembly/links/links.go)。更完整的现状审计保留在两份 Reference 研究中。
 
 ### 1.2 用户目标
 
@@ -34,9 +36,9 @@
 
 ### 1.3 交付范围
 
-下表保留首批与过渡期的原设计分工。19 个 manual 协议均已完成 Build32 验收，现行状态见 [Build32.md](docs/reports/Build/Build32.md)。
+下表保留首批与过渡期的原设计分工。19 个 manual 协议均已完成 Build32 验收，现行状态见 [Build32.md](../Build/Build32.md)。
 
-本文继续作为节点编辑器的现行设计基线。SS 2022 完整密钥／URI／客户端兼容与独立 Xray outbound 仍为后续专项。R26-07 的人工 API／UI 核验由 [XrayRelated1.md](XrayRelated1.md) 跟踪。
+本文保留节点编辑器的设计和验收基线。SS 2022 完整密钥／URI／客户端兼容见 [TODOLIST.md](../../../TODOLIST.md)。独立 Xray outbound 和 R26-07 人工 API／UI 核验见 [XrayRelated1.md](../../../XrayRelated1.md)。
 
 | 范围 | 设计结论 |
 |---|---|
@@ -71,7 +73,7 @@
 | D13 | 当前状态存储 | 取消新增 `node_edit_states` 表；必要元数据与活动配置保存在同一节点行，不保存恢复副本 | v1.2 用户确认，覆盖 v1.1 独立表决策 |
 | D14 | 跨协议切换凭据与 endpoint | 清空全部协议参数与凭据；名称保留，服务器地址与端口按目标协议 endpoint policy 保留或清空；不做会话内分协议草稿恢复 | v1.2 清空边界；v1.24 按 Build32 已确认的 endpoint policy 收口 |
 | D15 | 非激活分支 | 不持久化、不缓存待恢复参数；清空先作用于草稿，保存成功才落库，取消整个编辑不改数据库 | v1.2 用户确认，覆盖原保留分支决策 |
-| D16 | 目标验证基线 | 首批研究使用 Mihomo 1.19.29 与 Clash Verge Rev 2.5.2；Shadowrocket 当时待真机验证。Build32 固定 Mihomo 验收版本为 v1.19.31 | 首批研究见 §12.4，当前固定内核验收见 [Build32](docs/reports/Build/Build32.md) |
+| D16 | 目标验证基线 | 首批研究使用 Mihomo 1.19.29 与 Clash Verge Rev 2.5.2；Shadowrocket 当时待真机验证。Build32 固定 Mihomo 验收版本为 v1.19.31 | 首批研究见 §12.4，当前固定内核验收见 [Build32](../Build/Build32.md) |
 | D17 | 节点检查接口 | 新增按需调用的节点检查接口，服务端复用实际适配器并返回脱敏产物与诊断 | v1.1 用户确认，v1.2 明确新建／编辑草稿边界 |
 | D18 | SS 2022 范围 | 首批支持普通 AEAD、插件条件表单与插件诊断；SS 2022 完整 URI/密钥/客户端兼容列为后续阶段 | v1.1 用户确认，v1.2 沿用 |
 | D19 | 旧数据兼容 | 当前项目无业务数据，旧节点/旧调用方数据兼容不作为本次设计约束；新库按新 schema 初始化 | 用户明确，本轮确认 |
@@ -136,11 +138,11 @@
 
 当前组合真正需要用户补充的字段不能藏在默认折叠区而没有提示。保存遇到错误时展开所属区域，定位首个错误；高级区已有配置时显示摘要，但不通过“自动打开所有已配置区”重新制造长表单。
 
-R35-06 统一新建和编辑的推荐单选框。已选值与展开选项显示选项名称和分组，例如「TCP · 常用」，分组可为「常用／扩展／旧版兼容／待验证」。选项的无障碍名称包含显示名、规范值和分组。表单的可见文字与无障碍名称均省略 `verified`，包括 Mihomo 版本和 `project-unknown`。ALPN 等列表的推荐条目继续使用原有显示名。此处的现行展示规则覆盖 [Issue15 R29-05](docs/reports/Issue/Issue15.md#r29-05-节点条件表单重复渲染输入框且下拉元数据文案粘连) 与 [Build32 Step 1](docs/reports/Build/Build32.md#step-1固定-mihomo-v11931-证据门禁) 所记录的验证来源文案。
+R35-06 统一新建和编辑的推荐单选框。已选值与展开选项显示选项名称和分组，例如「TCP · 常用」，分组可为「常用／扩展／旧版兼容／待验证」。选项的无障碍名称包含显示名、规范值和分组。表单的可见文字与无障碍名称均省略 `verified`，包括 Mihomo 版本和 `project-unknown`。ALPN 等列表的推荐条目继续使用原有显示名。此处的现行展示规则覆盖 [Issue15 R29-05](../Issue/Issue15.md#r29-05-节点条件表单重复渲染输入框且下拉元数据文案粘连) 与 [Build32 Step 1](../Build/Build32.md#step-1固定-mihomo-v11931-证据门禁) 所记录的验证来源文案。
 
 ### 3.3 独立开关区
 
-参照 [HeaderStep.vue](frontend/src/views/admin/assembly/HeaderStep.vue) 的独立边框区域、紧凑文案与 Switch 排列、主题色和换行间距。业务 bool 在节点编辑器中集中管理；只有当前协议和当前组合适用的开关进入该区，不把所有协议的 bool 同时铺开。
+参照 [HeaderStep.vue](../../../frontend/src/views/admin/assembly/HeaderStep.vue) 的独立边框区域、紧凑文案与 Switch 排列、主题色和换行间距。业务 bool 在节点编辑器中集中管理；只有当前协议和当前组合适用的开关进入该区，不把所有协议的 bool 同时铺开。
 
 - 常用开关直接呈现；不常用开关在同一区域内的“更多开关”折叠部分呈现。
 - TLS 证书校验类选项仅在相应 TLS 能力成立时出现，不自动套用于 REALITY。
@@ -152,7 +154,7 @@ R27-05 已确认并实现的布局口径：首批四协议运行开关集中到�
 
 字段目录继续由服务端 schema 下发，数组顺序决定阅读顺序，`advanced` 同时用于对象内常用／高级折叠。WS Early Data 和复杂插件扩展默认折叠，已配置摘要不自动展开区域；保存遇到可定位的错误或未处理 JSON 草稿时展开对应祖先区域并定位控件。桌面标量控件采用一致尺寸，手机输入与操作命中区至少 44px；运行开关 Switch 本体保持标准 22px 高度，由最小 44px 的外层卡片承载触控；编辑模式开关采用与装配一致的紧凑尺寸（桌面 16px 高），手机端由外层标签或现有表单触控规则保证至少 44px。
 
-保存校验定位按提交时的 schema 和条目顺序，将服务端索引路径映射为 UI 稳定身份路径；字段匹配遵循路径边界，不从错误说明中猜测同名字段。只有当前请求、编辑会话及未发生变化的草稿可以自动移动焦点；重排、删除、修正、改后恢复、未应用草稿、待确认切换、关闭重开或卸载后，旧错误继续提示但失去自动定位资格。结构化子字段精确定位，空列表聚焦新增按钮；子控件不存在时，仅回退所属 JSON 文本框或编辑入口，不自动切换模式，不聚焦其他条目或后代对象的控件。400 以外的错误不根据字段文案移动焦点；409 仍按既有冲突流程处理。目标检查面板继续展示诊断路径，新增逐条诊断定位交互保留为独立选项。工程与定向复验证据见 [Issue19.md](docs/reports/Issue/Issue19.md) R33-07。
+保存校验定位按提交时的 schema 和条目顺序，将服务端索引路径映射为 UI 稳定身份路径；字段匹配遵循路径边界，不从错误说明中猜测同名字段。只有当前请求、编辑会话及未发生变化的草稿可以自动移动焦点；重排、删除、修正、改后恢复、未应用草稿、待确认切换、关闭重开或卸载后，旧错误继续提示但失去自动定位资格。结构化子字段精确定位，空列表聚焦新增按钮；子控件不存在时，仅回退所属 JSON 文本框或编辑入口，不自动切换模式，不聚焦其他条目或后代对象的控件。400 以外的错误不根据字段文案移动焦点；409 仍按既有冲突流程处理。目标检查面板继续展示诊断路径，新增逐条诊断定位交互保留为独立选项。工程与定向复验证据见 [Issue19.md](../Issue/Issue19.md) R33-07。
 
 集中开关与局部 JSON 仍共用唯一有效状态；直接修改开关后，重叠范围的未应用 JSON 草稿失效并回显当前值，避免旧 JSON 再次覆盖新开关状态。仅折叠区域不销毁局部编辑器或清空参数。
 
@@ -417,13 +419,13 @@ API 需覆盖编辑详情读取、创建、更新及新建／编辑草稿检查�
 
 新建或重新装配的版本使用新的活动投影与目标检查。已生成 manual 快照不因节点编辑或能力表更新被静默重写；需要重新装配才能形成新产物。渲染计划解释须有新旧边界。
 
-Clash 装配在版本事务内加密内部渲染计划。启动时将历史明文计划原样加密，下载重渲染仍按生成时的计划处理。管理员蓝图 API 提供重新编辑所需的快照字段，完整渲染计划由服务内部使用。配置导入在同一写事务内核对密钥变更，有加密计划时沿用同密钥导入限制。实现及验收见 [Issue19.md](docs/reports/Issue/Issue19.md) R33-09。
+Clash 装配在版本事务内加密内部渲染计划。启动时将历史明文计划原样加密，下载重渲染仍按生成时的计划处理。管理员蓝图 API 提供重新编辑所需的快照字段，完整渲染计划由服务内部使用。配置导入在同一写事务内核对密钥变更，有加密计划时沿用同密钥导入限制。实现及验收见 [Issue19.md](../Issue/Issue19.md) R33-09。
 
 动态 Xray 节点涉及共享输出路径时一并评估，但配置所有权仍属于实例检测。本文不开放手工修改 Xray 来源节点，也不改变名称、组引用、权限或分配语义。
 
 **手动 VLESS／VMess 的 Clash UDP 缺省语义（R35-04）**。表单默认开启 UDP，新建、编辑和导入后均可在 `protocol_json` 中保留缺省。节点检查、装配预览及新生成版本使用同一适配器。活动参数缺少 `udp` 或明确为 `true` 时输出 `udp: true`，明确为 `false` 时省略，由 Mihomo v1.19.31 按关闭处理。规则适用于 `source=manual` 的两种协议，包括历史节点重新装配和 URI 导入后装配。Clash 覆盖层仍按既有顺序应用。
 
-这项缺省在构造 Clash 节点时生效。历史版本正文和手动节点计划沿用生成时的快照。动态 Xray 节点、其余协议和其他目标继续按各自的配置规则处理。实施和验收见 [Build35.md](docs/reports/Build/Build35.md)。
+这项缺省在构造 Clash 节点时生效。历史版本正文和手动节点计划沿用生成时的快照。动态 Xray 节点、其余协议和其他目标继续按各自的配置规则处理。实施和验收见 [Build35.md](../Build/Build35.md)。
 
 ### 7.4 已确认的目标生成门槛
 
@@ -468,7 +470,7 @@ URI 样例在内存中加载官方仓库 `v2.5.2` 标签的解析文件，去除
 
 SS／VMess 不能共用算法清单或别名规则。[Mihomo 算法实现](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/transport/shadowsocks/core/cipher.go)和各协议文档提供解释依据；上述接受结果也不意味着应把旧版算法放进常用推荐组。
 
-Trojan 的源码只对 WS／gRPC 作专门处理，其他值走 TCP。XHTTP 的 `none` 明确报模式未实现；研究时项目 schema 曾将它用作默认值，Build18 已修正候选目录并增加语义校验。这两类证据不能用“配置检测通过”掩盖静默回退。[Trojan v1.19.29](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/adapter/outbound/trojan.go)、[项目 XHTTP schema](backend/internal/node/registry.go)
+Trojan 的源码只对 WS／gRPC 作专门处理，其他值走 TCP。XHTTP 的 `none` 明确报模式未实现；研究时项目 schema 曾将它用作默认值，Build18 已修正候选目录并增加语义校验。这两类证据不能用“配置检测通过”掩盖静默回退。[Trojan v1.19.29](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/adapter/outbound/trojan.go)、[项目 XHTTP schema](../../../backend/internal/node/registry.go)
 
 ### 8.3 9 个 URI 样例检查
 
@@ -497,7 +499,7 @@ Trojan 的源码只对 WS／gRPC 作专门处理，其他值走 TCP。XHTTP 的 
 - 目标选项需要覆盖密码中 `+`、`/`、`=`、身份密钥链等编码样例；不得通过改算法或改密钥回避差异。
 - SS 2022 具体采用哪种客户端兼容输出、版本条件与提示方式，列为后续专项的设计前置；不作为首批 Build 的阻塞项，也不在本次静默改变历史链接。
 
-项目 [pluginString](backend/internal/assembly/links/links.go) 将存储中的插件名与属性直接串联，不能代替 SIP003／目标客户端的字段映射。`obfs` 的名称及 `mode/host` 转换已有反例；布尔标志、复杂对象及分隔符转义也需要独立规则和样本。插件推荐选项必须与该映射能力一致。
+项目 [pluginString](../../../backend/internal/assembly/links/links.go) 将存储中的插件名与属性直接串联，不能代替 SIP003／目标客户端的字段映射。`obfs` 的名称及 `mode/host` 转换已有反例；布尔标志、复杂对象及分隔符转义也需要独立规则和样本。插件推荐选项必须与该映射能力一致。
 
 按本轮用户确认，**SS 2022 的完整密钥/URI/客户端兼容不列入首批实现范围**；首批 SS 只保证普通 AEAD 与插件条件表单、插件诊断，SS 2022 在界面和输出中明确标为后续/待验证，不宣称完整支持。
 
@@ -515,7 +517,7 @@ Trojan 的源码只对 WS／gRPC 作专门处理，其他值走 TCP。XHTTP 的 
 
 ### 9.1 完成现有 19 协议的目标清单
 
-下表记录原设计分期及各协议的条件模型。现行字段合同和验收结果见 [Build32.md](docs/reports/Build/Build32.md)。
+下表记录原设计分期及各协议的条件模型。现行字段合同和验收结果见 [Build32.md](../Build/Build32.md)。
 
 | 协议 | 本次阶段 | 后续完成时的主要条件模型 |
 |---|---|---|
@@ -539,7 +541,7 @@ Trojan 的源码只对 WS／gRPC 作专门处理，其他值走 TCP。XHTTP 的 
 | TrustTunnel | 后续必须覆盖 | 现有能力核对与协议专用字段 |
 | Tailscale | 后续必须覆盖 | 认证与自身会话语义 |
 
-以上来自当前 [ManualProtocols](backend/internal/node/registry.go)。后续新增协议另行评估；SSR 不在当前范围。模型复用按字段语义进行，不要求 QUIC、隧道或配置全文型协议都出现“传输＋TLS／REALITY”菜单。
+以上来自当前 [ManualProtocols](../../../backend/internal/node/registry.go)。后续新增协议另行评估；SSR 不在当前范围。模型复用按字段语义进行，不要求 QUIC、隧道或配置全文型协议都出现“传输＋TLS／REALITY”菜单。
 
 每个协议完成需要覆盖条件字段、选择与自定义、凭据、保存重开、目标映射及对应验收。未支持 URI 的协议可以继续有正确的编辑和 Clash 能力；完成编辑改进不等于承诺新增其 URI 输出。
 
@@ -623,27 +625,27 @@ v1.5 已把 §10.2 的首批契约、当前状态结构、API 请求/响应、�
 
 当前有效决策统一记录在第二章。取消分支保留可减少非激活数据存储、分支恢复和凭据跨分支合并；代价是切回需要重新填写。用户已确认该取舍，并确认取消独立状态表。必要的当前状态、条件校验、服务端投影、凭据保护与并发冲突检测仍保留，不能以简化为由省略。
 
-同协议切换采用分支清空规则。首批范围、目标生成门槛、未知扩展保护、并发处理、当前状态落盘、API 契约和四协议组合矩阵见第十二章，首批工程由 Build17～Build20 完成。用户已确认 PT-28-01～PT-28-05 和 R29-06 的人工结果。其余 15 协议的条件表单由 Build32 实施，Step 21 正式浏览器与 API 验收和 Step 22 候选验收均已通过。TrustTunnel 和 OpenVPN 的两项真实连接按用户豁免记录。SS 2022 完整兼容与独立 Xray outbound 仍是后续专项，R26-07 Xray 节点错误码仍待人工核验。[Build32.md](docs/reports/Build/Build32.md) · [ProdTestList.md](ProdTestList.md)
+同协议切换采用分支清空规则。首批范围、目标生成门槛、未知扩展保护、并发处理、当前状态落盘、API 契约和四协议组合矩阵见第十二章，首批工程由 Build17～Build20 完成。用户已确认 PT-28-01～PT-28-05 和 R29-06 的人工结果。其余 15 协议的条件表单由 Build32 实施，Step 21 正式浏览器与 API 验收和 Step 22 候选验收均已通过。TrustTunnel 和 OpenVPN 的两项真实连接按用户豁免记录。SS 2022 完整兼容与独立 Xray outbound 仍是后续专项，R26-07 Xray 节点错误码仍待人工核验。[Build32.md](../Build/Build32.md) · [ProdTestList.md](../../../ProdTestList.md)
 
 ### 11.2 代码与证据检查结论
 
-以下为本次设计审查阶段核对的现有代码事实及对应构建影响；当时未修改业务代码，Build17 的实施结果另记于 [Build17.md](docs/reports/Build/Build17.md)：
+以下为本次设计审查阶段核对的现有代码事实及对应构建影响；当时未修改业务代码，Build17 的实施结果另记于 [Build17.md](../Build/Build17.md)：
 
 | 检查项 | 现状与证据 | 对构建的影响 |
 |---|---|---|
-| 协议注册表 | [registry.go](backend/internal/node/registry.go) 覆盖 19 个 manual 协议，`FieldSchema` 可下发 | 扩展当前条件与重置归属；其余 15 个协议维持入口 |
-| 递归编辑器 | [ProtocolFieldEditor.vue](frontend/src/components/ProtocolFieldEditor.vue) 支持 `fields/map/list`、未知键与对象 JSON | 复用组件，补齐清空、局部草稿及凭据摘要，不重写编辑平台 |
-| 当前状态与输出过滤 | [render_clash.go](backend/internal/assembly/render_clash.go) 的 `clashProxy()` 输出归一化后的协议字段，未按新条件模型投影 | 显式当前状态与服务端投影不能由 UI 隐藏代替 |
-| SR／generic 输出 | [links.go](backend/internal/assembly/links/links.go) 以 `reality-opts` 判断 VLESS REALITY，Trojan URI 未写入 WS／gRPC 传输参数 | 按组合与字段验证，执行 §7.4，不能只依赖协议级映射标记 |
-| 空值保留凭据 | [node.go](backend/internal/node/node.go) 的 `mergeSensitive()` 对缺失／空值回填旧密文 | Build17 已区分正常保留与分支重置，Build18 已覆盖检查草稿路径，Build19 已完成前端草稿验收 |
+| 协议注册表 | [registry.go](../../../backend/internal/node/registry.go) 覆盖 19 个 manual 协议，`FieldSchema` 可下发 | 扩展当前条件与重置归属；其余 15 个协议维持入口 |
+| 递归编辑器 | [ProtocolFieldEditor.vue](../../../frontend/src/components/ProtocolFieldEditor.vue) 支持 `fields/map/list`、未知键与对象 JSON | 复用组件，补齐清空、局部草稿及凭据摘要，不重写编辑平台 |
+| 当前状态与输出过滤 | [render_clash.go](../../../backend/internal/assembly/render_clash.go) 的 `clashProxy()` 输出归一化后的协议字段，未按新条件模型投影 | 显式当前状态与服务端投影不能由 UI 隐藏代替 |
+| SR／generic 输出 | [links.go](../../../backend/internal/assembly/links/links.go) 以 `reality-opts` 判断 VLESS REALITY，Trojan URI 未写入 WS／gRPC 传输参数 | 按组合与字段验证，执行 §7.4，不能只依赖协议级映射标记 |
+| 空值保留凭据 | [node.go](../../../backend/internal/node/node.go) 的 `mergeSensitive()` 对缺失／空值回填旧密文 | Build17 已区分正常保留与分支重置，Build18 已覆盖检查草稿路径，Build19 已完成前端草稿验收 |
 | 并发更新 | 设计审查时 `UpdateManual()` 事务外读取／合并后更新，尚无本设计的编辑修订号 | Build17 已加入修订比较和原子更新，旧请求返回 409 |
 | 未知参数与数组 | 当前更新重建 schema 顶层字段，敏感路径处理以对象映射为主 | 首批引入扩展块保护；后续 WireGuard 等继续设计稳定条目凭据，不能宣称已修复 |
-| URI 导入 | [uri_import.go](backend/internal/node/uri_import.go) 独立准备参数并批量创建节点 | Build17 已在批量创建时写入统一当前状态与初始修订，保持逐行回执 |
-| Xray 来源字段 | [detect.go](backend/internal/xray/detect.go) 仍产生 `ws-path`、`ws-host` 等字段 | 共享输出前保留来源适配；不能将现有生产路径误判为旧数据兼容 |
-| 历史版本 | [clash_plan.go](backend/internal/assembly/clash_plan.go) 的 `ManualProxies` 冻结 manual 配置 | 编辑与清空不改写已生成快照，重新装配才形成新产物 |
-| 迁移与备份 | 现有版本化迁移与 SQLite 一致性备份可承载 `nodes` 新字段 | Build17 已验证初始化并扩展 [export.go](backend/internal/config/export.go) 的密钥变更保护；删除、恢复和完整备份语义仍需回归，配置导出仍不等于节点备份 |
+| URI 导入 | [uri_import.go](../../../backend/internal/node/uri_import.go) 独立准备参数并批量创建节点 | Build17 已在批量创建时写入统一当前状态与初始修订，保持逐行回执 |
+| Xray 来源字段 | [detect.go](../../../backend/internal/xray/detect.go) 仍产生 `ws-path`、`ws-host` 等字段 | 共享输出前保留来源适配；不能将现有生产路径误判为旧数据兼容 |
+| 历史版本 | [clash_plan.go](../../../backend/internal/assembly/clash_plan.go) 的 `ManualProxies` 冻结 manual 配置 | 编辑与清空不改写已生成快照，重新装配才形成新产物 |
+| 迁移与备份 | 现有版本化迁移与 SQLite 一致性备份可承载 `nodes` 新字段 | Build17 已验证初始化并扩展 [export.go](../../../backend/internal/config/export.go) 的密钥变更保护；删除、恢复和完整备份语义仍需回归，配置导出仍不等于节点备份 |
 
-第八章记录的 41 个 Mihomo 配置检查与 9 个 CVR URI 样例是 2026-09-02 的研究摘要；Build18 随后新增 15 个四协议离线 JSON 夹具、目标诊断测试和固定 URI 形态测试，这些自动化结果不替代客户端导入。用户于 2026-09-09 确认 PT-28-01～PT-28-05（含 Mihomo／Clash Verge、Shadowrocket 相关项目）已测试且未发现问题，结论见 [Issue14 步骤二](docs/reports/Issue/Issue14.md) 与 [Build21 Step 14](docs/reports/Build/Build21.md)；记录未提供逐组合连接明细，不能据此宣称全部组合完整兼容。R26-07 Xray 节点错误码见 [XrayRelated1.md](XrayRelated1.md)。[3x-ui／Xray 对照研究](docs/Reference/Node-Editor-3xui-Xray-Research.md) 仅提供参考。
+第八章记录的 41 个 Mihomo 配置检查与 9 个 CVR URI 样例是 2026-09-02 的研究摘要；Build18 随后新增 15 个四协议离线 JSON 夹具、目标诊断测试和固定 URI 形态测试，这些自动化结果不替代客户端导入。用户于 2026-09-09 确认 PT-28-01～PT-28-05（含 Mihomo／Clash Verge、Shadowrocket 相关项目）已测试且未发现问题，结论见 [Issue14 步骤二](../Issue/Issue14.md) 与 [Build21 Step 14](../Build/Build21.md)；记录未提供逐组合连接明细，不能据此宣称全部组合完整兼容。R26-07 Xray 节点错误码见 [XrayRelated1.md](../../../XrayRelated1.md)。[3x-ui／Xray 对照研究](../../Reference/Node-Editor-3xui-Xray-Research.md) 仅提供参考。
 
 ### 11.3 设计前置、Build 任务与后续范围
 

@@ -110,7 +110,7 @@
 
 - **Design1 现行基线：** [Design1.md](../Design/Design1.md) 作为第一期入口，后续 Design2/Design3/Design4 明确覆盖的内容以后续设计有效合同为准。
 - **Design2/Design3：** 使用归档设计 [Design2.md](../Design/Design2.md)、[Design3.md](../Design/Design3.md)；Design3 的不兼容来源模型覆盖 Design2 的 `urls_json` 旧模型。
-- **Design4：** 使用根目录 [Design4.md](../../../Design4.md)；Build26 的 §12.7 作为 R28-07A/B/D/E/G/I 的现行工程合同补充。
+- **Design4：** 使用根目录 [Design4.md](../Design/Design4.md)；Build26 的 §12.7 作为 R28-07A/B/D/E/G/I 的现行工程合同补充。
 - **AGENTS.md：** [AGENTS.md](../../../AGENTS.md) 是唯一强要求，本次逐项核验与实现直接相关的工程/安全/架构/部署要求。
 - **排除：** SecurityScanPlan1/SecurityReport3 第三期扫描、用户指定的 Issue16 当前跟踪项及其后续平台方案、核验期间新增且已由 Issue17 跟踪的 R30-05、ProdTestList/TODOLIST 人工核验动作、Design5 候选构想、Design4 明确列为后续专项的剩余 15 协议完整表单/SS 2022 完整兼容/独立 Xray outbound。
 - **核验期间的文档变化：** `AGENTS.md` 的外部状态修订、`Issue16.md` 的 v1.3 外部修订和 `Issue17.md` 的 R30-05 新增，均按外部并行变更处理；其中 Issue17 按“活跃跟踪来源”排除，不重复登记为新发现；本报告不占用、不修改这些文件。

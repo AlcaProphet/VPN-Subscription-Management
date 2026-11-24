@@ -1,7 +1,7 @@
 # Issue14.md — VPN 订阅管理系统问题追踪（当前）
 
 > **文档定位：** 本文承接已归档的 [Issue13.md](Issue13.md) 的 R27-09 / Build21 收口核验，并汇总 [BuildReport4.md](../BuildReport/BuildReport4.md) 全量核验中仍未闭环的工程问题；只记录除用户真机人工验收之外，当前仍未完成、待处理或新发现的工程问题与验收证据缺口。用户需要亲自执行的 Production、浏览器和客户端人工测试在执行期间由 [ProdTestList.md](../../../ProdTestList.md) 记录，人工测试中发现的问题及文档交叉审核补充登记的问题由 [Issue15.md](Issue15.md) 记录；已完成项目从当前清单移除，结论保留在本文件、已归档 [Build26.md](../Build/Build26.md) 和已归档的 Build21～Build25 中，当前仍待人工复验的项目继续由 ProdTestList 跟踪。
-> 关联构建：[Build21.md](../Build/Build21.md) §7.11 Step 14、[Build22.md](../Build/Build22.md)（D3 实施记录）、[Build26.md](../Build/Build26.md)（步骤五 R28-07 构建记录，Step 1～20 已按一次性串行授权完成并验收通过，已归档）、[Build27.md](../Build/Build27.md)（步骤七 R28-09 构建记录，Step 1～6 已按一次性串行授权完成并验收通过，已归档）；交接收口：[Build23.md](../Build/Build23.md)、[Build24.md](../Build/Build24.md)、[Build25.md](../Build/Build25.md)；设计基线：[Design3.md](../Design/Design3.md)（已随 Build22 收口归档）、[Design4.md](../../../Design4.md)（已增加 §12.7 核心工程约束现行合同补充）；编码约束：[AGENTS.md](../../../AGENTS.md)。
+> 关联构建：[Build21.md](../Build/Build21.md) §7.11 Step 14、[Build22.md](../Build/Build22.md)（D3 实施记录）、[Build26.md](../Build/Build26.md)（步骤五 R28-07 构建记录，Step 1～20 已按一次性串行授权完成并验收通过，已归档）、[Build27.md](../Build/Build27.md)（步骤七 R28-09 构建记录，Step 1～6 已按一次性串行授权完成并验收通过，已归档）；交接收口：[Build23.md](../Build/Build23.md)、[Build24.md](../Build/Build24.md)、[Build25.md](../Build/Build25.md)；设计基线：[Design3.md](../Design/Design3.md)（已随 Build22 收口归档）、[Design4.md](../Design/Design4.md)（已增加 §12.7 核心工程约束现行合同补充）；编码约束：[AGENTS.md](../../../AGENTS.md)。
 
 ---
 

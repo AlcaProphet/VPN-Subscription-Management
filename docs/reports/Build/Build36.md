@@ -1,6 +1,6 @@
 # Build36 — 节点对象字段高级 JSON 开关
 
-基线为 `beta` 的 `7abfd48`。设计见 [Design4 §3.3](../../../Design4.md#33-独立开关区)，问题、研究与已确认方向见 [Issue21 R35-05](../Issue/Issue21.md#r35-05-节点管理的高级-json-切换样式与订阅装配不一致)。
+基线为 `beta` 的 `7abfd48`。设计见 [Design4 §3.3](../Design/Design4.md#33-独立开关区)，问题、研究与已确认方向见 [Issue21 R35-05](../Issue/Issue21.md#r35-05-节点管理的高级-json-切换样式与订阅装配不一致)。
 
 | Step | 目标 | 状态 |
 |---|---|---|
@@ -24,7 +24,7 @@
 - **对象形态与阻断** HTTP `headers` map、WireGuard `peers` list、REALITY／SMux／Brutal 嵌套对象均显示各自的开关；`HK` 实际出现「REALITY 高级 JSON」「多路复用 高级 JSON」「Brutal 参数 高级 JSON」三个可区分名称。子对象存在未应用草稿时点击父对象开关会提示「存在未应用的后代 JSON 草稿，请先应用或放弃后再切换高级 JSON」，父对象保持结构化并聚焦子对象文本域；应用子草稿后父对象可进入。
 - **有效／无效 JSON 与键盘** 有效 JSON 可应用、放弃、切回结构化；输入 `{` 后开关 `aria-checked="true"` 且 disabled，错误显示「请输入 JSON 对象」，点击可见文案不会退出；修正为合法对象后开关恢复可用并可切回结构化。键盘 `Enter` 和 `Space` 均可切换，Tab 只经过一个开关停靠点。
 - **双视口与主题** 375×785 手机视口下外层标签高度 44px、开关本体 44×44px，页面与抽屉均无横向溢出；桌面开关 28×16px、标签 95.66×16px。浅色关闭轨道 `rgba(0,0,0,0.25)`、开启 `rgb(37,99,235)`；深色关闭 `rgba(255,255,255,0.25)`、开启 `rgb(147,197,253)`；两主题下文案均为 12px 且可读。截图与日志位于 `/tmp/r35-05-impl.PfGj5a/`，未加入仓库。
-- **文档** 已同步 [Design4 §3.3](../../../Design4.md#33-独立开关区)、[Issue21 R35-05](../Issue/Issue21.md#r35-05-节点管理的高级-json-切换样式与订阅装配不一致) 与 AGENTS 索引；已归档的 `Design2-UI`／`Issue13`／`Build21` 保持原样。
+- **文档** 已同步 [Design4 §3.3](../Design/Design4.md#33-独立开关区)、[Issue21 R35-05](../Issue/Issue21.md#r35-05-节点管理的高级-json-切换样式与订阅装配不一致) 与 AGENTS 索引；已归档的 `Design2-UI`／`Issue13`／`Build21` 保持原样。
 - **验证边界** 未使用真实读屏软件或真机；49 个对象字段中实际交互验证了 REALITY、SMUX、Brutal、HTTP headers 与 WireGuard peers，另确认 WireGuard `ip-stack` 开关存在，其余字段依据同一递归组件和 schema 核对；未覆盖订阅装配 SR／generic 目标、Docker 镜像、远端 CI 或外部客户端。订阅装配的即时写入语义未改动。
 
 ## 变更记录

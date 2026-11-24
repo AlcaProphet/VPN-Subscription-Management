@@ -1,7 +1,7 @@
 # Build21.md — BuildReport3 节点编辑器对齐修复构建计划与实施记录
 
 > **文档定位：** 本文档是依据 [BuildReport3.md](../BuildReport/BuildReport3.md) 开展的第二十一轮构建记录，将“Build17~Build20 表单结构与 Design4 对齐”发现的问题按用户确认的推荐方案落地。**本文件已归档至 `docs/reports/Build/Build21.md`，仅用于核查，不再作为当前执行入口。**
-> - 设计依据：[Design4.md](../../../Design4.md)（当前最新节点编辑器设计）、[BuildReport3.md](../BuildReport/BuildReport3.md)
+> - 设计依据：[Design4.md](../Design/Design4.md)（当前最新节点编辑器设计）、[BuildReport3.md](../BuildReport/BuildReport3.md)
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 前序构建：[Build17.md](Build17.md)～[Build20.md](Build20.md)、历史构建存档于 [docs/reports/Build/](.)
 >

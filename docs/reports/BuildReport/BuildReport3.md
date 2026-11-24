@@ -1,7 +1,7 @@
 # BuildReport3.md — Build17~Build20 节点编辑器表单结构与 Design4 对齐审查报告
 
 > 核验日期：2026-09-03（以当前工作区代码为准）。
-> 核验对象：当前工作区中 Build17~Build20 的落地产物、[Design4.md](../../../Design4.md)、`docs/Reference/Clash-Verge-Rev-Node-Parameters.md`、`Clash-Verge-Rev-Subscription-Assembly.md`、`Node-Editor-3xui-Xray-Research.md`、`Node-Editor-Research.md`，以及 `~/Desktop/Repo` 下 clash-verge-rev / 3x-ui / Xray-examples 等对应源码。
+> 核验对象：当前工作区中 Build17~Build20 的落地产物、[Design4.md](../Design/Design4.md)、`docs/Reference/Clash-Verge-Rev-Node-Parameters.md`、`Clash-Verge-Rev-Subscription-Assembly.md`、`Node-Editor-3xui-Xray-Research.md`、`Node-Editor-Research.md`，以及 `~/Desktop/Repo` 下 clash-verge-rev / 3x-ui / Xray-examples 等对应源码。
 > 结论前置：**Build17~Build20 的“可编译、可运行、自动化通过”是成立的；但“达到 Design4 预期效果”不成立。** 主要缺口集中在 Build19 的 UI 信息架构与状态回显：安全/TLS/REALITY 字段被归入“认证与密钥”，且安全选择在编辑已保存 TLS/REALITY 节点时回显为默认 `none`；开关区、高级区/目标检查区、列表类控件也没有按 Design4 和 Reference 的交互预期落地。
 > v2.0 补充：已针对用户提出的“连接参数不符 / 文案混乱 / UI 排版结构混乱 / 未知拓展意义不明 / 选项框错误内容”五类问题逐项深挖，结论见第六章。
 

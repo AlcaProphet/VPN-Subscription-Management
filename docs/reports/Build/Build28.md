@@ -1,6 +1,6 @@
 # VPN 订阅管理系统功能构建计划（Build28：业务邮件内容定制）
 
-> **文档定位：** 本文仅承接 [Design5.md](../../../Design5.md) §七已确认的业务邮件内容定制。§一～§六整站迁移仍是候选，不属于 Build28。编码约束见 [AGENTS.md](../../../AGENTS.md)，历史 SMTP 预留见 [Issue16.md](../Issue/Issue16.md)。
+> **文档定位：** 本文仅承接 [Design5.md](../Design/Design5.md) §七已确认的业务邮件内容定制。§一～§六整站迁移仍是候选，不属于 Build28。编码约束见 [AGENTS.md](../../../AGENTS.md)，历史 SMTP 预留见 [Issue16.md](../Issue/Issue16.md)。
 > **执行状态（2026-09-15）：** 用户一次性授权后，Step 0.5 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 已严格串行完成工程实现与逐步验收；后端 build/vet/full test、前端 build/full test、静态扫描、diff-check 与隔离 smoke 均通过。正式 SMTP、真实收件箱、邮件客户端链接表现与真实浏览器人工项仍见 [ProdTestList.md](../../../ProdTestList.md)，不得当作已完成人工验收。本文档按构建归档规则移入 `docs/reports/Build/Build28.md`。
 
 ---

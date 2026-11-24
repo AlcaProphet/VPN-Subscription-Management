@@ -1,8 +1,8 @@
 # XrayRelated1.md — Xray 相关问题跟踪
 
-> **文档定位：** 集中跟踪 Xray 节点、Xray 实例维护及其管理端 API/UI 行为相关的问题、人工核验和后续处理。当前项目聚焦基础模式完善；高级模式暂不跟进，除非后续获得单独确认并更新本文件范围。
-> **当前状态：** R26-07 的工程修复与自动化回归已完成，Xray 节点禁止编辑的人工 API/UI 核验尚未完成。
-> **关联文档：** [AGENTS.md](AGENTS.md)（唯一强要求）、[TODOLIST.md](TODOLIST.md)、[ProdTestList.md](ProdTestList.md)、归档的 [Issue12.md](docs/reports/Issue/Issue12.md)。
+> **文档定位**　跟踪 Xray 节点、实例维护及管理端 API／UI 的问题和人工核验，并登记独立 Xray outbound 的后续设计工作。当前范围以基础模式为主。
+> **当前状态**　R26-07 工程修复与自动化回归已完成，人工 API／UI 核验待执行。独立 Xray outbound 待确认启动。
+> **关联文档**　[AGENTS.md](AGENTS.md)、[Design4.md](docs/reports/Design/Design4.md)、[TODOLIST.md](TODOLIST.md)、[ProdTestList.md](ProdTestList.md)、归档的 [Issue12.md](docs/reports/Issue/Issue12.md)。
 
 ## 一、范围与跟踪规则
 
@@ -51,14 +51,28 @@
 |---|---|---|---|---|
 | Xray PUT `403` / manual `400` / `409` 与前端提示 | 待填写 | 待填写 | 待人工测试 | 待填写 |
 
-## 四、后续处理边界
+## 四、Design4 后续专项
+
+### 独立 Xray outbound
+
+- **状态**　已有方向，待确认启动及细化设计。19 个 manual 协议的编辑体验已通过 Build32 验收。独立 outbound 在该构建范围之外。[Design4 §9.2](docs/reports/Design/Design4.md#92-独立-xray-outbound) · [Build32 §3.2](docs/reports/Build/Build32.md#32-本-build-不包含)
+- **目标**　将有效客户端节点转换为固定验证 profile 的单个 Xray outbound，返回转换差异。Xray 来源节点的配置所有权继续由实例检测维护。[Design4 §7.3](docs/reports/Design/Design4.md#73-历史版本与-xray-来源) · [Design4 §9.2](docs/reports/Design/Design4.md#92-独立-xray-outbound)
+- **待确认**　固定 Xray-core 版本、首批协议与组合、转换与诊断规则，以及导出入口和验收。Mihomo SMux、Xray Mux 与传输别名需要逐项核对语义。范围限于单个客户端 outbound，完整 DNS／路由、多 outbound、inbound、服务端部署与任意 Xray JSON 反向导入在该专项范围之外。[Design4 §9.2](docs/reports/Design/Design4.md#92-独立-xray-outbound)
+
+### 关联的客户端兼容候选
+
+- **SS 2022**　仍需验证身份密钥链、明确标准 URI 与客户端兼容编码，并记录目标版本、导入及连接证据。通用客户端兼容候选见 TODOLIST。未来若纳入 Xray outbound，补查所选 Xray profile 的密钥及字段映射。[TODOLIST.md](TODOLIST.md#其他独立跟踪与后续范围) · [Design4 §4.4](docs/reports/Design/Design4.md#44-ss-2022-的条件表单) · [Design4 §8.4](docs/reports/Design/Design4.md#84-ss-2022-与插件编码的设计含义)
+- **VMess REALITY**　通用协议组合候选见 TODOLIST。未来若选入 Xray profile，核对相应组合与目标映射。[TODOLIST.md](TODOLIST.md#其他独立跟踪与后续范围) · [Design4 §12.4 VMess](docs/reports/Design/Design4.md#vmess)
+
+## 五、后续处理边界
 
 - 当前只处理基础模式的 Xray 相关契约和人工核验。
 - 高级模式暂不创建实施任务，不纳入当前 TODO、ProdTestList 或本文件的“已完成”统计。
 - 如人工核验发现新的代码问题，新增独立编号并记录根因、影响、修复授权和验收证据；不得直接将人工发现改写为通过。
 
-## 五、变更记录
+## 六、变更记录
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-14 | 新建 Xray 相关问题跟踪文档；将 R26-07 的完整问题描述、工程状态和人工 API/UI 核验任务从 TODOLIST/ProdTestList 迁入；明确基础模式优先、高级模式暂不跟进。 |
+| v1.1 | 2026-11-24 | 登记 Design4 的独立 Xray outbound 待确认项，关联 SS 2022 与 VMess REALITY 兼容候选。 |

@@ -1,6 +1,6 @@
 # Build37 — 节点推荐选项省略验证来源
 
-以 `beta` 提交 `2959a68` 为基线。用户确认的范围见 [Issue21 R35-06](../Issue/Issue21.md#r35-06-节点创建和编辑界面显示-mihomo-版本号)。现行展示与协议目录的分工见 [Design4 §3.2](../../../Design4.md#32-动态显示与字段优先级) 和 §12.2。
+以 `beta` 提交 `2959a68` 为基线。用户确认的范围见 [Issue21 R35-06](../Issue/Issue21.md#r35-06-节点创建和编辑界面显示-mihomo-版本号)。现行展示与协议目录的分工见 [Design4 §3.2](../Design/Design4.md#32-动态显示与字段优先级) 和 §12.2。
 
 ## 构建进度
 
@@ -22,7 +22,7 @@
 - **新建与编辑验收** 新建覆盖 4 个协议的 21 个受影响字段，其中 18 个推荐下拉及 3 个 ALPN 推荐列表。选项顺序和分组与基线一致，Mihomo 版本与 `project-unknown` 从选中值、选项 DOM 与无障碍快照消失。编辑覆盖四协议，VLESS 的 TCP 默认值可用键盘改为 WebSocket，保存回写 `network=ws`，重新编辑显示「WebSocket · 常用」。375×785 手机视口的明暗主题均通过，抽屉及所测已选项无横向溢出。
 - **API 与内核验收** 19 个协议的目录响应 JSON 与基线一致。VLESS `HK` 的目标检查结果与基线一致，每次请求生成的 `check_id` 单独处理。后端全量包含装配预览、生成与零产出门槛回归。固定 Mihomo v1.19.31 的 17 组顶层测试通过。
 - **验收命令** `cd frontend && npm test && npm run build` 通过，51 个测试文件、471 项。`cd backend && go build ./... && go vet ./... && go test ./... -count=1` 通过。在仓库根目录设置 `MIHOMO_11931_BIN` 为固定版本二进制路径后执行 `./.mihomo-test.sh` 通过。`git diff --check` 通过。
-- **文档与验证边界** 已同步 [Design4](../../../Design4.md)、[Issue21](../Issue/Issue21.md) 和 [AGENTS](../../../AGENTS.md)。Build32 和 Issue15 保存当时的验收口径。浏览器证据在 `/tmp/r35-06-impl.xBaPZK/`。本次验收为本地自动化和隔离 Chrome，实际读屏软件、手机真机、Docker 镜像与远端 CI 未执行。
+- **文档与验证边界** 已同步 [Design4](../Design/Design4.md)、[Issue21](../Issue/Issue21.md) 和 [AGENTS](../../../AGENTS.md)。Build32 和 Issue15 保存当时的验收口径。浏览器证据在 `/tmp/r35-06-impl.xBaPZK/`。本次验收为本地自动化和隔离 Chrome，实际读屏软件、手机真机、Docker 镜像与远端 CI 未执行。
 
 ## 变更记录
 

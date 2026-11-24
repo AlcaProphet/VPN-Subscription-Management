@@ -1,7 +1,7 @@
 # VPN 订阅管理系统 增量交接说明（Build23：BuildReport4 未闭环项 3，已归档）
 
 > **文档定位：** 本文档最初是 R27-09 剩余步骤的独立构建方案。经文档归属整理，R27-09 主体步骤已并入 [Build21.md](Build21.md) §7，作为唯一详细执行记录；Build23 不再重复这些 Step，仅保留交接关系、研究背景、用户确认边界与后续候选。**本文件已归档至 `docs/reports/Build/Build23.md`，仅保留交接与边界记录，不再作为当前执行入口。**
-> - 设计记录：[Design4.md](../../../Design4.md)（当前设计记录；与 AGENTS.md 或用户决策冲突时以用户确认为准）
+> - 设计记录：[Design4.md](../Design/Design4.md)（当前设计记录；与 AGENTS.md 或用户决策冲突时以用户确认为准）
 > - 问题来源：[BuildReport4.md](../BuildReport/BuildReport4.md)（全量核验报告，未闭环项 3）
 > - 编码指令：[AGENTS.md](../../../AGENTS.md)（**唯一强要求**）
 > - 问题追踪：[Issue14.md](../Issue/Issue14.md)（Build21 Step 14 工程问题、D3/N-core/N-node-6/安全等遗留工程问题）；R27 历史记录见 [Issue13.md](../Issue/Issue13.md)

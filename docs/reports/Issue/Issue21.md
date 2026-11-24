@@ -959,7 +959,7 @@ proxies:
 #### 5. 根因分析
 
 1. **表单把 `udp: true` 当作显示默认值，而不是待保存值。** `frontend/src/components/ProtocolFieldEditor.vue:780` 的普通 bool Switch 使用 `Boolean(modelValue ?? field.default ?? false)`，所以 VLESS 的 `udp` 在没有存储值时显示为开启；但 `frontend/src/views/admin/NodesView.vue:918-920` 的 `fieldModelValue()` 只返回实际 `protocol_json` 值，`frontend/src/utils/nodeProtocolPayload.ts:26-47` 的 `buildProtocolPayload()` 也只克隆已存在的参数，不会把带默认值的普通 bool 批量写入请求。`frontend/src/utils/nodeFormLayout.ts:57-60` 的 `isTriStateBool` 只判定“无 default 的 bool”，`udp` 有 default，因此既不会显示“未设置”，也不会被编码为 `null` 或默认值。`frontend/src/views/admin/NodesView.vue:650-660` 的新建表单初始 `protocol_json` 为 `{}`。
-2. **保存链路按现有设计不物化 schema 默认值。** 后端 `backend/internal/node/node.go:342-380` 的 `CreateManual` 走 `NormalizeProtocolJSON`；`backend/internal/node/normalize.go:31-55` 只做别名、列表、字节序列和凭据身份等归一化，不应用 schema 默认；`backend/internal/node/project.go:1390-1411` 的 `normalizeProtocolParameters` 也不补默认。`backend/internal/node/project.go:1561-1582` 的 `protocolParamsForStorage` 只处理显式 `security`／`tls` 兼容。因此请求里没有 `udp` 时，数据库也不会出现 `udp`。这本身与 [Design4.md](../../../Design4.md) 第 156 行“合法缺省仍可显示，但不把展示默认值批量写入数据”的设计一致；缺陷在输出层没有把“合法缺省”映射为 Mihomo 的实际语义，而不是保存层擅自丢字段。
+2. **保存链路按现有设计不物化 schema 默认值。** 后端 `backend/internal/node/node.go:342-380` 的 `CreateManual` 走 `NormalizeProtocolJSON`；`backend/internal/node/normalize.go:31-55` 只做别名、列表、字节序列和凭据身份等归一化，不应用 schema 默认；`backend/internal/node/project.go:1390-1411` 的 `normalizeProtocolParameters` 也不补默认。`backend/internal/node/project.go:1561-1582` 的 `protocolParamsForStorage` 只处理显式 `security`／`tls` 兼容。因此请求里没有 `udp` 时，数据库也不会出现 `udp`。这本身与 [Design4.md](../Design/Design4.md) 第 156 行“合法缺省仍可显示，但不把展示默认值批量写入数据”的设计一致；缺陷在输出层没有把“合法缺省”映射为 Mihomo 的实际语义，而不是保存层擅自丢字段。
 3. **输出投影会跳过缺失键。** `backend/internal/assembly/links.go:9-20` 的 `activeProtocolJSON` 调用 `node.ProjectActive`；`backend/internal/node/project.go:25-51` 只遍历 schema 中实际存在且状态匹配的键，`projectFieldValue` 在键缺失时不会被调用。因此 `udp` 缺失时不会在投影阶段变成 `true`，`network` 缺失时也不会变成 `tcp`。
 4. **Clash VLESS adapter 只复制“活动且为 true”的字段。** `backend/internal/assembly/clash_protocols.go:185-201` 的 `vlessClashAdapter` 通过 `copyClashActiveFields` 复制 `udp`；`backend/internal/assembly/clash_protocols.go:797-806` 的实现要求键存在且 `clashValueActive` 为真，`backend/internal/assembly/clash_protocols.go:808-836` 对 bool 只在 `true` 时返回真。因此数据库没有 `udp` 时不会输出 `udp`，显式 `false` 也会被省略。该“省略 false”本身符合 Mihomo 的零值语义，但前提是该字段的 schema 默认值与 wire 零值相同；`udp` 恰好不满足。
 5. **Mihomo 的 wire 零值是 `false`，与 schema 默认 `true` 冲突。** 固定 v1.19.31 的 `VlessOption.UDP` 是 `bool` 且带 `proxy:"udp,omitempty"`；缺失时取零值 `false`。`NewVless` 把这个值传入 `Base`，`Base.SupportUDP()` 返回 `b.udp`；`tunnel/tunnel.go` 在 UDP 连接匹配到代理后执行 `if metadata.NetWork == C.UDP && !adapter.SupportUDP() { continue }`，因此缺失 `udp` 会导致该 VLESS 节点不转发 UDP。`network` 则不同：`VlessOption.Network` 缺失时走 `switch` 的 `default` 分支，按 TCP 处理；所以省略 `network` 是安全的，省略 `udp` 不是。
@@ -1080,7 +1080,7 @@ proxies:
 - 用户确认在手动 VLESS 和 VMess 的 Clash 适配器处理 UDP。缺省与显式 `true` 输出 `udp: true`。显式 `false` 在活动投影后仍保留，由适配器省略，Mihomo 按关闭处理。本节更正研究记录第 4.1 节“显式 false 被活动值过滤”的位置描述。节点保存与表单沿用既有行为。
 - 新生成版本应用该规则，已有手动节点无需重新保存或迁移。历史版本正文和手动节点渲染计划沿用生成快照。URI 导入的两个协议同属手动节点，装配遵循同一缺省规则。VLESS URI 查询参数仍由现有解析器处理。动态 Xray 注入、其他协议及其他目标沿用各自的路径。
 - 隔离 Production 浏览器验证 VLESS 和 VMess 的缺省、显式开启、显式关闭六组用例。六份预览和生成正文逐字一致，库中分别仍是缺省、`true`、`false`。另验证无 UDP 参数的 VLESS URI 导入后预览输出 `udp: true`。六份原始 YAML 均通过固定 Mihomo v1.19.31 的 `-t`。本地回环流量试验验证两种协议的默认组和开启组均收到 UDP 回显，关闭组被内核跳过。
-- 自动化覆盖新计划下载重渲染、历史计划快照及动态 Xray 注入；固定版内核门禁和全量测试通过。详细步骤见 [Build35.md](../Build/Build35.md)，设计口径见 [Design4 §7.3](../../../Design4.md#73-历史版本与-xray-来源)。
+- 自动化覆盖新计划下载重渲染、历史计划快照及动态 Xray 注入；固定版内核门禁和全量测试通过。详细步骤见 [Build35.md](../Build/Build35.md)，设计口径见 [Design4 §7.3](../Design/Design4.md#73-历史版本与-xray-来源)。
 
 ### R35-05 节点管理的高级 JSON 切换样式与订阅装配不一致
 
@@ -1611,7 +1611,7 @@ Clash 头部由 `HeaderStep.vue` 按「端口配置 / Geo 数据 / DNS 配置 / 
 - `EditableCombobox.vue` 的已选值与展开选项使用「名称 · 分组」，如「TCP · 常用」。无分组选项只显示名称。选项 `aria-label` 包含显示名、规范值和分组。两处文案省略 Mihomo 版本与 `project-unknown`，SS 2022 项继续显示「待验证」，ALPN 推荐条目使用原有名称。
 - 隔离 Chrome 对照修复前的新建表单，覆盖 Shadowsocks／VMess／VLESS／Trojan 的 18 个下拉和 3 个 ALPN 字段，检查选项文字、顺序、DOM 与无障碍快照。四协议编辑态、键盘选中 WebSocket 后保存并重开、375×785 明暗主题均通过。协议目录 JSON 与修复前一致，VLESS `HK` 除每次生成的检查 ID 外，目标检查结果也与基线一致。
 - 前端全量 51 文件 471 项与生产构建、后端全量编译／静态检查／测试、固定 Mihomo v1.19.31 门禁通过。实际读屏软件、手机真机、Docker 镜像与远端 CI 未执行。实施与验证命令见 [Build37.md](../Build/Build37.md)。
-- [Design4](../../../Design4.md) v1.34 记录现行展示规则和协议证据用途，AGENTS 已更新构建入口。Build32 Step 1 和 Issue15 R29-05 记录当时的展示行为，当前规则以 Design4 §3.2 为准。
+- [Design4](../Design/Design4.md) v1.34 记录现行展示规则和协议证据用途，AGENTS 已更新构建入口。Build32 Step 1 和 Issue15 R29-05 记录当时的展示行为，当前规则以 Design4 §3.2 为准。
 
 ### R35-07 目标检查位于高级数据区域内
 
