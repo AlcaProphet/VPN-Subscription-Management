@@ -137,7 +137,7 @@ describe('ProviderTrafficCard 首页展示', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('JP01')
     expect(wrapper.text()).toContain('50.75')
-    expect(wrapper.text()).toContain('按 50% 显示')
+    expect(wrapper.text()).toContain('双向流量计算，显示 50% 余量')
     expect(wrapper.text()).toContain('JP02')
     expect(wrapper.text()).toContain('无法连接服务商')
   })

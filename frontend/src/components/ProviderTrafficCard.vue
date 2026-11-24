@@ -83,7 +83,7 @@ onBeforeUnmount(() => {
         </template>
         <template v-else-if="item.status === 'ok'">
           <span>剩余 <span class="font-medium">{{ formatRemaining(item.remaining) }}</span> {{ item.unit }}</span>
-          <span v-if="item.half_remaining" class="text-text-tertiary">按 50% 显示</span>
+          <span v-if="item.half_remaining" class="text-text-tertiary">双向流量计算，显示 50% 余量</span>
           <span class="text-text-tertiary">· 采集于 {{ formatSampledAt(item.sampled_at) }}</span>
         </template>
         <template v-else>
